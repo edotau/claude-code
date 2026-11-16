@@ -175,6 +175,7 @@ const proxyTokenMaxAge = time.Hour
 // mintScoped is the mint seam of ResolveProxyToken.
 var mintScoped = MintScopedToken
 
+// proxyTokenStart errors on native Windows, so proxy session tokens are unsupported there by decision.
 var proxyTokenStart = proc.StartTime
 
 type proxyTokenRecord struct {

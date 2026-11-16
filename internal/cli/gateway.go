@@ -77,7 +77,8 @@ func proxyFlags() (*flag.FlagSet, *proxyOpts) {
 		Usage: "claude-code gateway proxy [--start|--stop|--restart|--status|--serve]", // FLAGS lists the rest
 		About: "The loopback proxy that translates Anthropic requests for OpenAI-style\n" +
 			"providers and falls back across the registry's fallback chain. No flag = --status.\n" +
-			"--restart with --if-changed, --force or --dry-run only reports/restarts a running proxy and its tunnels.",
+			"--restart with --if-changed, --force or --dry-run only reports/restarts a running proxy and its tunnels.\n" +
+			"Plain --restart starts the proxy even if none ran and leaves the tunnels running.",
 	})
 	o := &proxyOpts{}
 	fs.BoolVar(&o.start, "start", false, "start the background proxy if needed; print its base URL")
@@ -249,7 +250,8 @@ var gatewayPage = helptext.Page{
 		"profile and quota, then ordered by ladder rung, then account state, then weighted score; " +
 		"then the loopback proxy's status.",
 	Commands: [][2]string{{"proxy", "start, stop, restart or serve the loopback proxy"},
-		{"resolve", "print the overlay and wire id a model string runs as"}},
+		{"resolve", "print the overlay and wire id a model string runs as"},
+		{"token", "print a profile-scoped proxy token for a helper"}},
 }
 
 // gatewayRoute runs the router pick, then the proxy status (text footer or the JSON "proxy" key).
@@ -515,23 +517,30 @@ func printEnds(w io.Writer, res router.PickResult) {
 func gatewaySpec() *helptext.Node {
 	fs, _, _, _ := gatewayFlags()
 	proxy, _ := proxyFlags()
+	token, _, _ := tokenFlags()
 	return &helptext.Node{Flags: helptext.FlagsOf(fs, map[string]func() []string{
 		"model":    func() []string { return router.Aliases },
 		"agent":    func() []string { return router.TableAgents },
 		"fallback": func() []string { return router.FallbackModes },
 	}), Sub: map[string]*helptext.Node{"proxy": {Flags: helptext.FlagsOf(proxy, nil)},
 		"resolve": {Args: []func() []string{agent.RosterNames}, Flags: []helptext.Flag{helptext.Plain("model"), helptext.Plain("profile"),
-			helptext.Plain("overlay"), helptext.BoolFlag("all-profiles"), helptext.BoolFlag("live"), helptext.CompletionFormatFlag()}}}}
+			helptext.Plain("overlay"), helptext.BoolFlag("all-profiles"), helptext.BoolFlag("live"), helptext.CompletionFormatFlag()}},
+		"token": {Flags: helptext.FlagsOf(token, nil)}}}
 }
 
-func cmdGatewayToken(args []string) int {
-	fs := helptext.NewFlagSet("gateway token", helptext.Page{
+func tokenFlags() (fs *flag.FlagSet, profile, cfg *string) {
+	fs = helptext.NewFlagSet("gateway token", helptext.Page{
 		Usage: "claude-code gateway token --profile p",
 		About: "Print a proxy session token for a credential helper (stdout only).\n" +
 			"The token is bound to the proxy daemon and scoped to one profile.",
 	})
-	profile := fs.String("profile", "", "profile the token is scoped to (required)")
-	cfg := fs.String("config-dir", "", "CLAUDE_CONFIG_DIR to use (native Windows helper)")
+	profile = fs.String("profile", "", "profile the token is scoped to (required)")
+	cfg = fs.String("config-dir", "", "CLAUDE_CONFIG_DIR to use (native Windows helper)")
+	return fs, profile, cfg
+}
+
+func cmdGatewayToken(args []string) int {
+	fs, profile, cfg := tokenFlags()
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
