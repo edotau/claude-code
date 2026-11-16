@@ -37,20 +37,20 @@ The `ask --format json` bullet continues here from `--read-only` (its envelope, 
 behavior stay in the rule):
 
   `--read-only` (implies `--tools`): reads, URL fetches and a vetted list of read-only shell commands run (plain
-  `git log|show|diff|status|blame|ls-files|rev-parse|grep|branch --list`, `rg`, `grep`, `ls`, `cat`, `go doc|list|env`,
-  read-only `claude-code` verbs; no `-c`, redirect, substitution or `agents diff --check`); every other Bash call and
-  all Write/Edit stay denied, and a `Read(...)` deny also blocks a listed command that may reach that path. copilot
-  enforces it in its SDK handler; gemini (agy hook), opencode (plugin) and claude (gated launch on every route, tools
-  `Read,Glob,Grep,Bash`) use the `permission-gate`; opencode and claude refuse `--safe-mode`, gemini refuses a missing
-  hook; codex drops its tools and keeps its read-only sandbox shell. codex and gemini refuse `--tools` with
-  `--mode plan`. An `--allow` adds but can never reopen a matching deny. copilot file rules are judged as both Edit
-  and Write, in absolute and workdir-relative form. copilot `--tools` approves every request like the other agents'
-  `--tools`, still subject to the dispatch's permission rules (a Deny returns feedback and the run continues) and
-  the native hooks. claude `--tools` off
+  `git log|show|diff|status|blame|ls-files|rev-parse|grep|branch --list`, `rg`, `grep`, `ls`, `wc`, `head`, `tail`,
+  `cat`, `sed -n <range>p <file>`, `go doc|list|env|version`, read-only `claude-code` verbs; no `-c`, redirect,
+  substitution or `agents diff --check`); every other Bash call and all Write/Edit stay denied, and a `Read(...)` deny
+  also blocks a listed command that may reach that path. copilot enforces it in its SDK handler; gemini (agy hook),
+  opencode (plugin) and claude (gated launch on every route, tools `Read,Glob,Grep,Bash`) use the `permission-gate`;
+  opencode and claude refuse `--safe-mode`, gemini refuses a missing hook; codex drops its tools and keeps its read-only
+  sandbox shell. codex and gemini refuse `--tools` with `--mode plan`. An `--allow` adds but can never reopen a matching
+  deny. copilot file rules are judged as both Edit and Write, in absolute and workdir-relative form. copilot `--tools`
+  approves every request like the other agents' `--tools`, still subject to the dispatch's permission rules (a Deny
+  returns feedback and the run continues) and the native hooks. claude `--tools` off
   Anthropic is an allow list (go/git/read commands, `sed -n <range>p FILE`, `cd` into `--workdir` or below, env-prefixed
   and `time` forms of listed commands, the `rtk` spellings the rewrite hook emits, the read-only
-  `claude-code agents find|diff|result|status|tree`, `memory recall|search|show`, `review simplify` and
-  `network websearch` verbs, Edit/Write under `--workdir`; `--allow` adds,
+  `claude-code agents find|diff|result|dispatch|wait|status|tree`, `memory recall|search|show|report`,
+  `review simplify|scope` and `network websearch` verbs, Edit/Write under `--workdir`; `--allow` adds,
   `--deny`/`--ask` refuse; bare `--autonomous` takes this same gated policy; `--mode plan` and `--safe-mode` keep the
   old launch, and `--safe-mode` with bare `--autonomous` is refused), not approve-all: no judge, so anything unlisted is
   denied. It runs gated like a memory job (`bypassPermissions`, because `dontAsk` hard-denies `.claude/` writes; tools

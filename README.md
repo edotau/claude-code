@@ -22,8 +22,8 @@ below). Agent-facing commands and gotchas live per area under `rules/harness/` a
 ```bash
 git clone https://github.com/edotau/claude-code ~/.claude
 cd ~/.claude
-make install                  # build, link agent CLIs into bin/, seed settings.json if missing (never overwritten), add linters (DEV_TOOLS=0 skips)
-claude-code doctor            # check binaries, providers, credentials, proxy
+make install                  # build, link agent CLIs into bin/, seed settings.json if missing (never overwritten), add
+linters (DEV_TOOLS=0 skips) claude-code doctor            # check binaries, providers, credentials, proxy
 ```
 
 - `make bootstrap` — fresh box: Go toolchain (no sudo), install, bash completion, then `claude-code configure`
@@ -51,12 +51,12 @@ claude-code --remote <h> databricks # runs here; only Databricks workspace reque
 ## Setup
 
 ```bash
-claude-code configure                 # interactive menu: agents, tools (databricks, tailscale, web search), settings (secrets, routing, environment, seed agents); Submit seals keys
-claude-code configure models          # one page (provider|models|agents|github|remote|codex|routing|databricks)
-claude-code configure codex           # codex effort and verbosity (vault)
-claude-code configure --check         # report only; exit 1 if anything is unset
-claude-code configure --restore [--agents|--agent a]   # reset settings.json to the template (backup first) + agent configs
-claude-code configure --revert [--agent a,b]        # restore agent CLI configs from backup
+claude-code configure                 # interactive menu: agents, tools (databricks, tailscale, web search), settings
+(secrets, routing, environment, seed agents); Submit seals keys claude-code configure models          # one page
+(provider|models|agents|github|remote|codex|routing|databricks) claude-code configure codex           # codex effort and
+verbosity (vault) claude-code configure --check         # report only; exit 1 if anything is unset
+claude-code configure --restore [--agents|--agent a]   # reset settings.json to the template (backup first) + agent
+configs claude-code configure --revert [--agent a,b]        # restore agent CLI configs from backup
 ```
 
 - `configure` reuses what already exists (env, vault, agent CLI logins) and prompts only for what is missing.
@@ -254,7 +254,7 @@ disables Remote Control, so a subscription session stays direct under a `fallbac
 adds upstream headers; invalid lines are dropped, and auth, attribution and framing headers cannot be overridden.
 
 ```bash
-claude-code gateway proxy [--start|--stop|--status]   # bare = --status
+claude-code gateway proxy [--start|--stop|--restart|--status]   # bare = --status
 claude-code gateway proxy --serve --port 18765        # foreground
 claude-code gateway [--model M] [--task "<text>"]   # agent + model pick
 ```
@@ -271,8 +271,8 @@ claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- fo
 claude-code opencode catalog [list|add|remove|import|reset|check|sync]   # shared Databricks model menu
 claude-code codex review --adversarial --base main     # per-agent verbs; claude-code codex -h lists them
 claude-code agents ask --agent gemini --tools --dirs internal "<task>"  # one 1M-context sweep via agy
-claude-code agents ask --agent codex --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools "<task>"  # per-call config
-claude-code usage --days 7                             # subagent token usage
+claude-code agents ask --agent codex --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools
+"<task>"  # per-call config claude-code usage --days 7                             # subagent token usage
 claude-code usage --context                          # where one session's context went, by source
 ```
 
@@ -348,9 +348,9 @@ use `check --all` for verification. Gateway listings are not used as evidence of
 
 ### Clipboard over SSH
 
-Image paste in an SSH session reads the client's clipboard, never the WSL host's: the `wl-paste` proxy and
-`claude-code clip` go through a forwarded socket (`/tmp/claude-clip-<user>.sock`) to a Mac-side bridge. Two one-time
-owner steps:
+Image paste in an SSH session reads the client's clipboard, never the WSL host's: the `wl-paste` shim
+(`claude-code clip paste`) and `claude-code clip` go through a forwarded socket (`/tmp/claude-clip-<user>.sock`) to a
+Mac-side bridge. Two one-time owner steps:
 
 ```text
 # Mac ~/.ssh/config
@@ -374,7 +374,8 @@ clipboard — copy one there first (or its bridge is down)`.
 Declared as **groups** in `internal/settings/hookspec.go`, implemented in `internal/hooks/`; add one by
 registering it in a group and running `make install`. Settings carry one dispatcher entry per event
 (`claude-code hook <Event>`). The `safety` group (`safety-scan`: blocks destructive Bash, asks on
-intent-dependent commands) keeps its own process. No group can be switched off.
+intent-dependent commands) keeps its own process. `HARNESS_HOOK_SKIP=<module>[,…]|all` skips modules for dev
+(`rules/harness/hooks.md`).
 
 | Group | Does |
 | --- | --- |
@@ -443,7 +444,7 @@ tree but not loaded; add its path to `CLAUDE_CODE_PLUGIN_DIRS` to try it.
 ```bash
 go test ./internal/<pkg>   # while developing — only what you touched
 make fmt                   # format + auto-fix go, md, js; copilot fixes the rest (AGENT=off skips it)
-make lint                  # check only: gofmt, vet, golangci, shell, yaml, make help rows, markdown, workflows
+make lint                  # check go, shell, yaml, make help, md, workflows; auto-wraps own memory banks
 make audit                 # full gate, once before pushing
 ```
 

@@ -26,7 +26,7 @@ assignees: ''
 - OS: <!-- macOS 15 / Ubuntu 24.04 / WSL2 Ubuntu -->
 - `claude-code --version`:
 - `claude --version`:
-- Provider (`claude-code configure provider --list`): <!-- e.g. subscription, anthropic, databricks -->
+- Provider (`claude-code configure provider --list`): <!-- e.g. ultra, anthropic, databricks -->
 - `claude-code doctor` lines that are not ✓:
 
 ## Anything else

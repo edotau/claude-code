@@ -43,7 +43,7 @@ Print path, branch, base SHA; launch with `cd $WT && claude`.
    refuses before integrating. Makefile test target plus `go.mod` runs the scoped gate: `go build ./... &&
    go vet ./...`, then `go test` on the packages `<target>...HEAD` changed (a non-Go file maps to its package,
    embedders and tests naming it), their importers (tests included, transitively) and the registry packages
-   (`internal/{hooks,settings,cli,schemas}`, where present); a `go.mod`/`go.sum` change or an unowned
+   (`internal/{hooks,settings,agent,cli,schemas}`, where present); a `go.mod`/`go.sum` change or an unowned
    non-markdown file tests `./...`. `--full-verify` runs the suite-wide gate; the full `make audit` stays the
    pre-push gate. Preflight re-runs; a failing gate stops with the worktree untouched; success promotes,
    ticks the active plan (`claude-code plan tick --range <old>..<new>`) and, unless `--no-clean`, cleans as

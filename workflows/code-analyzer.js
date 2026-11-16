@@ -33,7 +33,7 @@ const FIX = a.fix !== false
 // partition:true with fix:false returns the wave plan (Scan + Plan) without editing anything.
 const PART = a.partition === true
 // Hotspot files are edited by one final single-owner task, not in the waves; '**/D/**' matches a directory.
-const HOTSPOTS = ['internal/schemas/ledger_test.go', 'skills/subagent-workflows/references/saved-workflows.md', 'settings.json', 'go.mod', 'go.sum', 'Makefile', '**/testdata/**']
+const HOTSPOTS = ['internal/schemas/schemas_test.go', 'skills/subagent-workflows/references/saved-workflows.md', 'settings.json', 'go.mod', 'go.sum', 'Makefile', '**/testdata/**']
 const HOT = [...HOTSPOTS, ...(Array.isArray(a.hotspots) ? a.hotspots.filter(Boolean) : [])]
 // Wave width: args.cap, bounded by the dispatch hook's 24 per account.
 const CAP = Math.min(Number.isInteger(a.cap) && a.cap > 0 ? a.cap : 8, 24)
@@ -54,7 +54,7 @@ let PRIOR = (Array.isArray(a.prior) ? a.prior : []).map(p => typeof p === 'strin
 // Clean break: the per-stage args moved into steps.
 const REPLACED = { auditModel: 'audit', refuteModel: 'refute', refuters: 'refute', profiles: 'refute' }
 for (const k of Object.keys(REPLACED)) {
-  if (a[k] !== undefined) return ERR(`${k} was replaced by steps.${REPLACED[k]} (plans/2026-11-03-workflow-steps.md)`)
+  if (a[k] !== undefined) return ERR(`${k} was replaced by steps.${REPLACED[k]}`)
 }
 const ARGS = ['cwd', 'paths', 'packages', 'findings', 'range', 'fix', 'partition', 'hotspots', 'cap', 'tests', 'maxIterations', 'rounds', 'prior', 'minFix', 'steps', 'profile', 'provider',
   'dimensions', 'focus', 'chunkChars', 'refuteBatch', 'gate', 'kind', 'lineBudget', 'maxAgents']
@@ -70,7 +70,7 @@ const ORDER = { critical: 0, high: 1, medium: 2, low: 3 }
 const MIN_FIX = ORDER[a.minFix] !== undefined ? ORDER[a.minFix] : ORDER.low
 let TARGET = RANGE ? 'the diff of ' + RANGE : 'the code under ' + PATHS.join(', ')
 const SHARED_TREE =
-  'Shared live tree: never git stash|checkout|reset|restore|clean|commit, never make build|install|test|audit, never edit settings.json. ' +
+  'Shared live tree: never git stash|checkout|reset|restore|clean|commit, never make build|install|audit, never edit settings.json. ' +
   (CWD ? 'cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). Prefix every shell command with `cd ' + CWD + ' &&` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots). ' : '') + 'Comments 1 line ≤120 chars.'
 
 // ── stepOf: copied verbatim into code-analyzer, code-looper, code-evaluator, code-workers, code-engineer ──

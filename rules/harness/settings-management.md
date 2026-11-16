@@ -6,8 +6,7 @@ paths:
 ---
 # Settings Management
 
-`~/.claude/settings.json` is the owner's one settings file: hand-edited, untracked. Nothing else writes it once it
-exists.
+`~/.claude/settings.json` ownership and reset: `CLAUDE.md` hard rule 1.
 
 | To… | Run |
 | --- | --- |
@@ -17,7 +16,7 @@ exists.
 | Reset settings.json to the clean template | `claude-code configure --restore` (owner-run; `settings.json.bak.<timestamp>` first) |
 | Re-render agent configs only | `claude-code configure --restore --agents` (or `--agent X`); never touches settings.json |
 | Add or retime a hook | handler in `internal/hooks/`, register in a `settings/hookspec.go` group (`hooks.md`) |
-| Lint and auto-fix | `make fmt [WHAT=go\|md\|js\|all] [AGENT=on\|<agent>\|off] [MAX=3]` fixes, `make lint` only checks; `on` means copilot (`--direct`); env `HARNESS_LINT_AGENT` sets the default |
+| Lint and auto-fix | `make fmt [WHAT=go\|md\|js\|all] [AGENT=on\|<agent>\|off] [MAX=3]` fixes, `make lint [SKIP=<kind>,…]` checks and auto-wraps own memory banks (`memory fmt --own`); `on` means copilot (`--direct`); env `HARNESS_LINT_AGENT` sets the default |
 
 ## Where settings come from
 
