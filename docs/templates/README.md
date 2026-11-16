@@ -2,8 +2,8 @@
 
 > Every file the binary ships via `//go:embed` (`grep -rn "//go:embed" internal cmd`), where it
 > renders from, and what runs it. The link column points at the real source file — never a copy.
-> `examples/` holds generated outputs for the ones worth seeing filled in, each guarded by a golden
-> test in the owning package (`-update` rewrites it; see each test's doc comment for the command).
+> `examples/` holds sample outputs kept by hand (no golden test guards them): re-check one against its renderer
+> when the renderer changes.
 
 | Template | Source | Rendered by | Example |
 | --- | --- | --- | --- |
@@ -17,7 +17,14 @@
 | VS Code keybindings template | [`internal/ui/vscode/keybindings.template.json`](../../internal/ui/vscode/keybindings.template.json) | `claude-code theme vscode` (keybindings step) | — |
 | claude-science config | [`internal/claude/science.toml`](../../internal/claude/science.toml) | `claude-code anthropic science` (`--print-env`) | — |
 | `clip paste` WSL clipboard shim | [`internal/clipboard/wl-paste-claude.sh`](../../internal/clipboard/wl-paste-claude.sh) | `claude-code install` (`InstallProxy`, WSL only) | — |
-| Plan template | [`docs/templates/plan.md`](plan.md) (read at runtime, not embedded) | `Plan` agent; `docs-placement` hook pastes it | — |
+| Leaf brief template | [`internal/agent/brief.tmpl`](../../internal/agent/brief.tmpl) | `claude-code agents brief`, `agents dispatch --waves` (`RenderBrief`) | — |
+| Memory procedures | [`internal/memory/prompts/*.md`](../../internal/memory/prompts/) | `claude-code memory <verb>` (`Reference`) | — |
+| Model ranks | [`internal/catalog/ranks.json`](../../internal/catalog/ranks.json) | `--model auto` ranking | — |
+| Model catalog and route table | [`internal/models/catalog.json`](../../internal/models/catalog.json), [`internal/router/table.json`](../../internal/router/table.json) | model resolution, the fallback ladder | — |
+| opencode overlay templates | [`internal/agentconfig/template/`](../../internal/agentconfig/template/) | every opencode launch (`OpencodeOverlayRendered`) | — |
+| Databricks config templates | [`internal/databricks/templates/`](../../internal/databricks/templates/) | `configgen.go` (claude.json, codex.toml) | — |
+| Settings schema | [`internal/settings/claude-code-settings.schema.json`](../../internal/settings/claude-code-settings.schema.json) | settings validation | — |
+| Plan template | [`docs/templates/plan.md`](plan.md) (read at runtime, not embedded) | `Plan` agent; the `docs-placement` hook blocks a first plan draft missing the template's headings and names this file (adds a missing `# Plan:` prefix or `## Tasks` itself) | — |
 
 ## Settings — the Windows subset
 
@@ -32,4 +39,4 @@ Two more memory outputs are generated (not seeded from `templates/*.md`) and are
 | Output | Built by | Example |
 | --- | --- | --- |
 | Store catalog (`memory/index.md`) | `BuildCatalog` (`internal/memory/bank_region.go`), run by `claude-code memory index` | [memory/index.md](examples/memory/index.md) |
-| A repo's `MEMORY.md` bank region | `buildBankRegion` (`internal/memory/bank_region.go`), run by `claude-code memory index` | [memory/MEMORY.md](examples/memory/MEMORY.md) |
+| The shared `MEMORY.md` bank region | `buildRegionFrom` / `writeBankRegion` (`internal/memory/bank_region.go`), run by `claude-code memory index` | [memory/MEMORY.md](examples/memory/MEMORY.md) |

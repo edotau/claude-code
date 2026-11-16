@@ -10,7 +10,7 @@ allowed-tools: Bash(claude-code agents label *), Agent
 ```text
 /coworker --agent <codex|copilot|gemini|opencode|claude> [--overlay <json|file>] [--model <m>] <task>
 
-  --overlay <json|file>  what `agents ask --overlay` takes (inline JSON, a file path, or `-`); omitted:
+  --overlay <json|file>  what `agents ask --overlay` takes (inline JSON or a file path, not `-`); omitted:
                          {"provider":"databricks","profile":"auto","remote":"auto"}
   --model <m>            the model; omitted: the pick
 ```

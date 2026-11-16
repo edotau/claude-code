@@ -53,8 +53,8 @@ The one copy; each step costs more context. Only `home` writes; the others print
 the agent edits by hand.
 
 1. `promote --to home` — moves the block (no link back) from `<key>--decisionLog.md`, `<key>--sessionHistory.md` or
-   `<key>--conventions.md` (or their archives) to the unprefixed `decisionLog.md` (cross-project). It is the only route
-   to home: `dream` and `import` never move entries there.
+   `<key>--conventions.md` (or their archives) to the unprefixed file of the same name (cross-project). It is the only
+   route to home: `dream` and `import` never move entries there.
 2. `promote --to rules` — for `rules/standards/<topic>.md` or `rules/software/<lang>/<topic>.md` (enforced), never
    `rules/workflows/` or `CLAUDE.md`; `--to skill` — for `skills/<name>/SKILL.md` or `references/` (how-to).
 3. `promote --to claude-md` — `CLAUDE.md` → Hard rules (always-on). Gated: 3+ bank entries and a hard prohibition;
@@ -105,10 +105,12 @@ dream` archives the overflow.
 ## Who writes what
 
 - `memory-start` (SessionStart) — injects the catalog pointer plus Current Focus/Blockers/Next Steps and In Progress
-  from this repo's `<key>--activeContext.md` / `<key>--progress.md` (home cwds: the unprefixed files); scaffolds a
-  missing bank; spawns the daily `memory dream` when due and one detached `memory update --catchup` that saves up to
-  3 (`catchupMax`) missed interactive sessions from the last 14 days (`catchupWindow`), skipping live ones, with one
-  quiet line next start. Replays run `memory update --historical` (history and decisions only).
+  from this repo's `<key>--activeContext.md` / `<key>--progress.md` (home cwds: the unprefixed files) and the home
+  bank's focus, plus this repo's `MEMORY.md` when the native link is missing; scaffolds a missing bank at a safe root
+  (the config dir, a dir with `.claude/`, or a git toplevel); spawns the daily `memory dream` when due and one
+  detached `memory update --catchup` that saves up to 3 (`catchupMax`) missed interactive sessions from the last 14
+  days (`catchupWindow`), skipping live ones, with one quiet line next start. Replays run `memory update --historical`
+  (history and decisions only).
 - `memory-recall` (UserPromptSubmit) — injects a few matching blocks; another store only if the prompt names it.
 - `memory update` — the session-close writer: summary → sessionHistory, rewrite activeContext + progress, decisions →
   decisionLog, patterns → conventions. `memory-update` / `memory-end` (Stop / SessionEnd) run it headless after enough

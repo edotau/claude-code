@@ -32,6 +32,9 @@ func RenderBrief(input BriefInput) (string, error) {
 		return "", fmt.Errorf("resolve brief working directory: %w", err)
 	}
 	b := memory.BankFor(cwd)
+	if input.Owned == nil {
+		input.Owned = []string{}
+	}
 	owned, err := json.Marshal(input.Owned)
 	if err != nil {
 		return "", fmt.Errorf("encode brief ownership: %w", err)
@@ -59,6 +62,9 @@ func ParseOwned(brief string) []string {
 			continue
 		}
 		value = strings.TrimSpace(value)
+		if value == "null" {
+			return nil
+		}
 		if strings.HasPrefix(value, "[") {
 			var owned []string
 			if json.Unmarshal([]byte(value), &owned) != nil {
