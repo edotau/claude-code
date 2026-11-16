@@ -1,8 +1,11 @@
 package hooks
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -131,5 +134,31 @@ func TestDispatchLabelPreservesModelUnderGemini(t *testing.T) {
 	}
 	if got := os.Getenv(settings.AgentEnv); got != core.AgentGemini {
 		t.Errorf("ambient agent after labeling = %q, want %q", got, core.AgentGemini)
+	}
+}
+
+// A Run: line's --model auto labels the concrete model it ranks, never "auto"; auto mode leaves the prompt as sent.
+func TestLabelModelAutoRunLine(t *testing.T) {
+	useAgentsDir(t, "claude")
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
+	t.Setenv(agentconfig.OverlayVar, "")
+	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+		{ID: "databricks-claude-opus-5-5", Task: "llm/v1/chat", Ready: "READY"},
+		{ID: "databricks-claude-haiku-5-5", Task: "llm/v1/chat", Ready: "READY"}}}); err != nil {
+		t.Fatal(err)
+	}
+	brief := "Run: claude-code agents ask --agent claude --profile dev --model auto --tools 'audit the safety rules'\n\nAudit."
+	q, _ := labelQuery(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", brief)
+	if q.Model != "auto" || !q.Tools || q.Task != "audit the safety rules" {
+		t.Errorf("query = %+v, want auto, tools and the ask's prompt as the task", q)
+	}
+	raw, _ := json.Marshal(map[string]any{"tool_name": "Agent", "permission_mode": "auto",
+		"tool_input": map[string]any{"subagent_type": "general-purpose", "prompt": brief, "description": "audit"}})
+	r := agentEffortResult(context.Background(), core.ParseInput(bytes.NewReader(raw)))
+	d, _ := r.UpdatedInput["description"].(string)
+	if r.Decision == core.Block || strings.HasPrefix(d, "auto:") || !strings.HasPrefix(d, "databricks-claude-") ||
+		r.UpdatedInput["prompt"] != brief {
+		t.Errorf("auto-mode dispatch = %+v (%s), want a concrete model label and the prompt byte-identical", r.UpdatedInput, r.Reason)
 	}
 }

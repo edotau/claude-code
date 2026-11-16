@@ -2,15 +2,18 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -47,14 +50,14 @@ func TestResolveFirstHop(t *testing.T) {
 	old := resolveRunQuery
 	t.Cleanup(func() { resolveRunQuery = old })
 	resolveRunQuery = stub
-	r, err := resolveFirstHop(context.Background(), reg, agent.ModelQuery{Agent: "codex"}, "fix the typo")
+	r, _, err := resolveFirstHop(context.Background(), reg, agent.ModelQuery{Agent: "codex"}, "fix the typo")
 	if err != nil || got.Agent != "codex" || hint != "haiku" || r.Agent != "claude" || r.Model != "claude-sonnet-5-5" || !strings.Contains(r.Note, "gated out") {
 		t.Errorf("resolveFirstHop = %+v, %v (query %+v); want the stubbed claude sonnet hop with its note", r, err, got)
 	}
 	resolveRunQuery = func(context.Context, *providers.Registry, agent.ModelQuery, string) (agent.ModelQuery, string, error) {
 		return agent.ModelQuery{}, "", errors.New("no route runs codex")
 	}
-	if _, err := resolveFirstHop(context.Background(), reg, agent.ModelQuery{Agent: "codex"}, ""); err == nil {
+	if _, _, err := resolveFirstHop(context.Background(), reg, agent.ModelQuery{Agent: "codex"}, ""); err == nil {
 		t.Error("resolveFirstHop swallowed the ladder error")
 	}
 }
@@ -80,5 +83,36 @@ func TestGatewayResolveTaskTier(t *testing.T) {
 	}
 	if out["fast"] == out["deep"] {
 		t.Errorf("a typo fix and an audit resolve the same: %q", out["fast"])
+	}
+}
+
+// --model auto prints the concrete pick and one reason line; json carries at most five ranked candidates.
+func TestGatewayResolveAuto(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
+	s := router.Served{Profile: "dev", FetchedAt: time.Now()}
+	for _, id := range []string{"opus-5-5", "sonnet-5-5", "haiku-5-5", "opus-5", "sonnet-5", "sonnet-4-6", "opus-4-8"} {
+		s.Models = append(s.Models, router.ServedModel{ID: "databricks-claude-" + id, Task: "llm/v1/chat", Ready: "READY"})
+	}
+	if err := router.SaveServed(s); err != nil {
+		t.Fatal(err)
+	}
+	f := filepath.Join(t.TempDir(), "brief")
+	if err := os.WriteFile(f, []byte("Add a --json flag to agents status in a.go and b.go."), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	args := []string{"claude", "--profile", "dev", "--model", "auto", "--task", f}
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdGatewayResolve(args) })
+	lines := strings.Split(strings.TrimSpace(out), "\n")
+	if code != 0 || len(lines) != 2 || strings.Contains(lines[0], " auto ") || !strings.HasPrefix(lines[1], "auto: standard (") {
+		t.Fatalf("exit %d: %q (%s), want the route line then one auto: reason line", code, out, stderr)
+	}
+	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdGatewayResolve(append(args, "--format", "json")) })
+	var doc struct {
+		Auto struct{ Ranked []json.RawMessage } `json:"auto"`
+	}
+	if err := json.Unmarshal([]byte(out), &doc); code != 0 || err != nil || len(doc.Auto.Ranked) == 0 || len(doc.Auto.Ranked) > 5 {
+		t.Errorf("json exit %d (%v): %d ranked, want 1..5: %s", code, err, len(doc.Auto.Ranked), out)
 	}
 }

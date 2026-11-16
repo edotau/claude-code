@@ -107,7 +107,8 @@ func TestAgentEffortModelPin(t *testing.T) {
 	cases := []struct{ name, stdin, wantModel string }{
 		{"low -> haiku", `{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in the help text"}}`, "haiku"},
 		{"medium -> sonnet", `{"tool_name":"Agent","tool_input":{"prompt":"add a --verbose flag to the token command"}}`, "sonnet"},
-		{"ordinary multi-step -> sonnet", `{"tool_name":"Agent","tool_input":{"prompt":"refactor the auth ladder and migrate the hooks"}}`, "sonnet"},
+		{"ordinary multi-step -> sonnet", `{"tool_name":"Agent","tool_input":{"prompt":"refactor the retry ladder and split the hook helpers"}}`, "sonnet"},
+		{"auth or migration -> opus", `{"tool_name":"Agent","tool_input":{"prompt":"refactor the auth ladder and migrate the hooks"}}`, "opus"},
 		{"audit -> opus", `{"tool_name":"Agent","tool_input":{"prompt":"audit the safety-scan rules for false blocks"}}`, "opus"},
 		{"explicit model wins", `{"tool_name":"Agent","tool_input":{"prompt":"fix a typo","model":"opus"}}`, ""},
 		{"inherit is unset", `{"tool_name":"Agent","tool_input":{"prompt":"fix the typo in the help text","model":"inherit"}}`, "haiku"},

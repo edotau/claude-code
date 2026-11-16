@@ -1,12 +1,16 @@
 package agent
 
 import (
+	"cmp"
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -101,6 +105,11 @@ func TestTaskTier(t *testing.T) {
 		{"Run: claude-code agents ask --agent opencode --profile dev\nRename one variable in x.go.", "haiku"},
 		{"Rename one variable.\nVerify: `claude-code review simplify --fail` and an audit of nothing", "haiku"},
 		{"Rename the helper across the codebase.", "sonnet"},
+		{"Rename the database column and migrate existing customer data in migration.sql.", "opus"},
+		{"Debug the production deadlock in worker.go; move the lock acquisition after the channel send.", "sonnet"},
+		{"Implement transaction rollback in store.go and reword the error message.", "sonnet"},
+		{"Investigate why the cache returns stale entries after we rename keys in cache.go.", "sonnet"},
+		{"Rewrite the session cookie check in session.go so a replayed token fails; move it first.", "sonnet"},
 		{"", ""},
 	} {
 		if got, sig := TaskTier(tc.brief); got != tc.want {
@@ -147,5 +156,216 @@ func TestClaudeTierOnUntypedDispatch(t *testing.T) {
 	vaulttest.SetRecord(t, "claude", "model", "opus")
 	if got := dispatchRequest(RunOptions{Prompt: brief}, d, true).Model; got != "" {
 		t.Errorf("pinned claude model = %q, want the pin left to the launch", got)
+	}
+}
+
+// autoOverlay is five Databricks rows (each a listing fixture) and a github row whose models are its own router.
+const autoOverlay = `{"providers":{"databricks":{
+ "dev":{"auth":{"type":"oauth"},"host":"https://dev.cloud.databricks.com","preset":"databricks"},
+ "qa":{"auth":{"type":"oauth"},"host":"https://qa.cloud.databricks.com","preset":"databricks"},
+ "prod":{"auth":{"type":"oauth"},"host":"https://prod.cloud.databricks.com","preset":"databricks"},
+ "xf":{"auth":{"type":"oauth"},"host":"https://xf.cloud.databricks.com","preset":"databricks"},
+ "ax":{"auth":{"type":"oauth"},"host":"https://ax.cloud.databricks.com","preset":"databricks"}},
+ "github":{"router":{"auth":{"login":"copilot","type":"cli"},"base_url":"https://api.githubcopilot.com","login":"router",
+  "models":{"haiku":"auto","opus":"auto","sonnet":"auto"},"protocol":"openai"}}}}`
+
+// devListing is dev's served chat models; databricks-auto is an endpoint auto must never pick.
+var devListing = []string{"databricks-claude-opus-5-5", "databricks-claude-sonnet-5-5", "databricks-claude-haiku-5-5",
+	"databricks-kimi-k3", "databricks-gpt-6-1-sol", "databricks-gemini-3-8-flash", "databricks-gpt-5-4-nano", "databricks-auto"}
+
+const (
+	fastBrief     = "Fix the typo in internal/agent/label.go."
+	standardBrief = "Add a --json flag to agents status in internal/cli/agents.go and internal/agent/status.go."
+	deepBrief     = "Audit the safety-scan rules for false blocks."
+)
+
+func saveListing(t *testing.T, profile string, ids []string) {
+	t.Helper()
+	s := router.Served{Profile: profile, FetchedAt: time.Now()}
+	for _, id := range ids {
+		s.Models = append(s.Models, router.ServedModel{ID: id, Task: "llm/v1/chat", Ready: "READY"})
+	}
+	if err := router.SaveServed(s); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// oracle is the ranking's own first pick of ids for tier, each probe marked by tools.
+func oracle(ids []string, tier string, needTools bool, tools map[string]string) string {
+	var cands []catalog.Candidate
+	for _, id := range ids {
+		if catalog.ID(id) != AutoModel {
+			cands = append(cands, catalog.Candidate{Model: id, Tools: tools[id]})
+		}
+	}
+	if r := catalog.Choose(cands, tier, needTools).Ranked; len(r) > 0 {
+		return r[0].Model
+	}
+	return ""
+}
+
+// crossFamily finds a non-Claude model ranked like sonnet but cheaper, so cost alone must decide.
+func crossFamily(t *testing.T) (claude, other string) {
+	t.Helper()
+	claude = "databricks-claude-sonnet-5-5"
+	s := catalog.RankOf(claude)
+	for _, id := range []string{"kimi-k3", "glm-5-3", "gpt-6-1-terra", "grok-4-7", "gemini-3-8-flash", "deepseek-v4-pro-0813"} {
+		if r := catalog.RankOf(id); r.Known && r.Capability == s.Capability && r.Speed == s.Speed && r.Cost < s.Cost {
+			return claude, "databricks-" + id
+		}
+	}
+	t.Fatal("ranks.json has no non-Claude model ranked like sonnet at a lower cost")
+	return "", ""
+}
+
+// autoFixture loads autoOverlay and listings: dev full, qa below deep, xf a cross-family pair, ax unknowns, prod none.
+func autoFixture(t *testing.T) (*providers.Registry, []string, []string) {
+	t.Helper()
+	setConfigDir(t)
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", autoOverlay)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	weak := []string{"databricks-gemini-3-8-flash", "databricks-gpt-5-4-nano"}
+	need := catalog.Choose(nil, "deep", false).Need
+	for _, id := range weak {
+		if catalog.RankOf(id).Capability >= need {
+			t.Fatalf("fixture: %s is deep-capable; qa must list only weaker models", id)
+		}
+	}
+	claude, other := crossFamily(t)
+	saveListing(t, "dev", devListing)
+	saveListing(t, "qa", weak)
+	saveListing(t, "xf", []string{claude, other})
+	saveListing(t, "ax", []string{"databricks-auto", "databricks-zz-unranked"})
+	return reg, weak, []string{claude, other}
+}
+
+// One table through the resolver: precedence, tier sizing, stepping, fallbacks, families and tools.
+func TestResolveRunAuto(t *testing.T) {
+	reg, weak, pair := autoFixture(t)
+	fast, std, deep := oracle(devListing, "fast", false, nil), oracle(devListing, "standard", false, nil), oracle(devListing, "deep", false, nil)
+	pin, alias := "databricks-claude-haiku-5-5", "databricks-claude-sonnet-5-5"
+	if deep == pin || std == alias || fast == deep || std == deep {
+		t.Fatalf("fixture has no teeth: fast %s, standard %s, deep %s", fast, std, deep)
+	}
+	strongest := slices.MaxFunc(weak, func(a, b string) int { return catalog.RankOf(a).Capability - catalog.RankOf(b).Capability })
+	notools := map[string]string{std: "no"}
+	if err := catalog.SaveCheckCache(catalog.CheckCache{Provider: "dev", Results: []serving.CheckResult{{ID: catalog.ID(std), Status: "ok", Tools: "no"}}}); err != nil {
+		t.Fatal(err)
+	}
+	prodOpus, _ := ResolveModel(reg, ModelQuery{Agent: "opencode", Model: "prod:opus"}, time.Now())
+	for _, tc := range []struct {
+		name, agent, model, pin, task, want, note string
+		tools                                     bool
+	}{
+		{"typed concrete", "opencode", "dev:" + pin, "", deepBrief, pin, "", false},
+		{"typed auto over a pin", "opencode", "dev:auto", pin, deepBrief, deep, "auto: deep", false},
+		{"pin with nothing typed", "opencode", "", pin, deepBrief, pin, "", false},
+		{"no pin, nothing typed", "opencode", "", "", standardBrief, std, "", false},
+		{"pinned auto", "opencode", "", "auto", deepBrief, deep, "auto: deep", false},
+		{"Tier: line wins", "opencode", "dev:auto", "", "Tier: fast\n" + deepBrief, fast, "auto: fast", false},
+		{"small but safety-critical", "opencode", "dev:auto", "", "Fix the typo in the permission rule in label.go.", deep, "auto: deep (accuracy", false},
+		{"large mechanical", "opencode", "dev:auto", "", "Rename Foo to Bar across every caller in the codebase. " +
+			strings.Repeat("Keep each call site's behaviour. ", 40), std, "auto: standard", false},
+		{"stepped down", "opencode", "qa:auto", "", deepBrief, strongest, "stepped down", false},
+		{"empty listing", "opencode", "prod:auto", "", deepBrief, prodOpus.Model, "no fresh model listing", false},
+		{"registry model auto", "copilot", "router:auto", "", standardBrief, "", "own router", false},
+		{"cross-family on cost", "opencode", "xf:auto", "", standardBrief, pair[1], "", false},
+		{"tools exclude", "opencode", "dev:auto", "", standardBrief, oracle(devListing, "standard", true, notools), "", true},
+		{"listed endpoint auto", "opencode", "ax:auto", "", fastBrief, "databricks-zz-unranked", "", false},
+	} {
+		q := ModelQuery{Agent: tc.agent, Model: tc.model, Profile: "dev", PinModel: tc.pin, Task: tc.task, Tools: tc.tools}
+		r, err := ResolveRun(reg, q, time.Now())
+		switch {
+		case err != nil:
+			t.Errorf("%s: %v", tc.name, err)
+		case tc.want != "" && r.Model != tc.want, r.Model == AutoModel, r.Model == "databricks-auto":
+			t.Errorf("%s: ran %s, want %s (note %q)", tc.name, r.Model, cmp.Or(tc.want, "a concrete model"), r.Note)
+		case !strings.Contains(r.Note, tc.note):
+			t.Errorf("%s: note %q, want it to say %q", tc.name, r.Note, tc.note)
+		}
+	}
+	q := ModelQuery{Agent: "opencode", Model: "dev:auto", Task: standardBrief, Tools: true}
+	if r, err := ResolveRun(reg, q, time.Now()); err != nil || r.Model == std {
+		t.Errorf("a tools run ran %s (%v), the model whose probe refused tools", r.Model, err)
+	}
+}
+
+// A typed auto reaches the run untyped with AutoModel set; a <row>:auto prefix leads on that row.
+func TestFoldAuto(t *testing.T) {
+	for _, tc := range []struct{ model, provider, wantProvider string }{
+		{"auto", "", ""}, {"AUTO", "qa", "qa"}, {"dev:auto", "qa", "dev"},
+	} {
+		o := foldAuto(RunOptions{Model: tc.model, Provider: tc.provider})
+		if o.Model != "" || !o.AutoModel || o.Provider != tc.wantProvider {
+			t.Errorf("foldAuto(%q) = model %q auto %v provider %q, want untyped auto on %q", tc.model, o.Model, o.AutoModel, o.Provider, tc.wantProvider)
+		}
+	}
+	if o := foldAuto(RunOptions{Model: "dev:claude-opus-5-5"}); o.AutoModel || o.Model != "dev:claude-opus-5-5" {
+		t.Errorf("a concrete model folded to %+v", o)
+	}
+}
+
+// Under auto a hop keeps its cell's row but not its model; an alias cell stays the classifier's alias.
+func TestDispatchRequestAutoCell(t *testing.T) {
+	setConfigDir(t)
+	vaulttest.Use(t)
+	d := Dispatch{Agent: labelEngine{stubEngine{name: "opencode"}}, Model: "qa:databricks-claude-sonnet-5-5"}
+	brief := deepBrief
+	if got := dispatchRequest(RunOptions{Prompt: brief, AutoModel: true}, d, true); got.Model != "qa:auto" || got.Effort != "high" {
+		t.Errorf("auto hop = model %q effort %q, want qa:auto at the deep tier's effort", got.Model, got.Effort)
+	}
+	if got := dispatchRequest(RunOptions{Prompt: brief, AutoModel: true, Effort: "low"}, d, true); got.Effort != "low" {
+		t.Errorf("typed effort became %q under auto", got.Effort)
+	}
+	if got := dispatchRequest(RunOptions{Prompt: brief}, d, true); got.Model != d.Model || got.Effort != "" {
+		t.Errorf("untyped hop = %q effort %q, want the cell as is", got.Model, got.Effort)
+	}
+	d.Model = "sonnet"
+	if got := dispatchRequest(RunOptions{Prompt: brief, AutoModel: true}, d, true); got.Model != "sonnet" || !got.CellModel {
+		t.Errorf("auto alias cell = %+v, want the bare alias cell", got)
+	}
+}
+
+// The run's routedModel ranks under a typed auto even with a pin, and a pinned auto ranks too; a concrete pin runs.
+func TestRoutedModelAuto(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	deep := oracle(devListing, "deep", false, nil)
+	run := func(req RunOptions) string {
+		t.Helper()
+		got, _, err := SchemaFor("opencode").routedModel(context.Background(), req, providers.Target{Provider: reg.Providers["dev"]}, false)
+		if err != nil {
+			t.Fatalf("routedModel(%+v): %v", req, err)
+		}
+		return got.Model
+	}
+	pin := "databricks-claude-haiku-5-5"
+	vaulttest.SetRecord(t, "opencode", "model", pin)
+	if got := run(RunOptions{Prompt: deepBrief, AutoModel: true}); got != deep {
+		t.Errorf("typed auto over the pin ran %s, want %s", got, deep)
+	}
+	if got := run(RunOptions{Prompt: deepBrief}); got != pin {
+		t.Errorf("the pin with nothing typed ran %s, want %s", got, pin)
+	}
+	vaulttest.SetRecord(t, "opencode", "model", "auto")
+	if got := run(RunOptions{Prompt: deepBrief}); got != deep {
+		t.Errorf("a pinned auto ran %s, want %s", got, deep)
+	}
+	if f := FreshModelFinding("opencode", reg.Providers["dev"], "dev:auto", time.Now()); f != nil {
+		t.Errorf("preflight refused auto: %v", f)
+	}
+}
+
+// A local claude dispatch under a pinned auto runs the tier, not the pin.
+func TestClaudeTierPinnedAuto(t *testing.T) {
+	setConfigDir(t)
+	vaulttest.Use(t)
+	vaulttest.SetRecord(t, "claude", "model", "auto")
+	d := Dispatch{Agent: labelEngine{stubEngine{name: "claude"}}, keepCaller: true, unroutedDispatch: true}
+	if got := dispatchRequest(RunOptions{Prompt: fastBrief}, d, true); got.Model != "haiku" || got.Effort != "low" {
+		t.Errorf("pinned-auto claude = model %q effort %q, want haiku at low", got.Model, got.Effort)
 	}
 }

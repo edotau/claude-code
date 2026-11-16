@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // askedSkips keeps the skip reasons of the wanted agent; those of agents nobody asked for are noise.
@@ -647,6 +648,12 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 	}
 	if !disp.keepCaller {
 		out.Model, out.CellModel = disp.Model, !strings.Contains(disp.Model, ":")
+		if out.AutoModel && !out.CellModel {
+			out.Model = AutoCell(disp.Model) // typed auto beats the cell's model, on the cell's row
+		}
+	}
+	if disp.Agent != nil {
+		out = autoRunEffort(out, disp.Agent.Name())
 	}
 	if out.Effort == "" {
 		out.Effort = disp.Effort
@@ -654,14 +661,31 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 	return armClaudeProfile(leadProfile(out, disp), disp)
 }
 
-// claudeTier gives an untyped, unpinned local claude dispatch its task tier; claude's own launch would run opus.
+// claudeTier gives an untyped local claude dispatch its task tier unless a concrete claude pin decides.
 func claudeTier(out RunOptions, disp Dispatch) RunOptions {
 	if out.Model != "" || out.Host != "" || disp.Agent == nil || disp.Agent.Name() != agentid.Claude {
 		return out
 	}
-	if agentModelPinContext(valuesContext(context.Background(), out.Values), agentid.Claude) == "" {
+	pin := agentModelPinContext(valuesContext(context.Background(), out.Values), agentid.Claude)
+	_, pinAuto := SplitAuto(pin)
+	if auto := out.AutoModel || pinAuto; auto || pin == "" {
 		out.Model, _ = TaskTier(out.Prompt)
+		if auto {
+			out.Model = cmp.Or(out.Model, models.Opus)
+		}
 	}
+	return autoRunEffort(out, agentid.Claude)
+}
+
+// autoRunEffort gives a typed or pinned auto run its tier's effort when neither --effort nor the record names one.
+func autoRunEffort(out RunOptions, agentName string) RunOptions {
+	pin := agentModelPinContext(valuesContext(context.Background(), out.Values), agentName)
+	_, pinAuto := SplitAuto(pin)
+	if out.Effort != "" || !out.AutoModel && !pinAuto || vault.GetAgentRecord(agentName).Effort != "" {
+		return out
+	}
+	alias, _ := TaskTier(out.Prompt)
+	out.Effort = TierEffort(cmp.Or(alias, models.Opus))
 	return out
 }
 

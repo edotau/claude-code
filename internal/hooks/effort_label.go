@@ -119,7 +119,7 @@ func pinModel(run *dispatchRun, in *core.Input, updated map[string]any, task str
 		return "", ""
 	}
 	updated["model"] = model
-	tier := tierEffort[model]
+	tier := agentpkg.TierEffort(model)
 	effort := ""
 	if set := pinEffort(run, in, updated, tier); set != "" {
 		effort = " effort=" + set
@@ -128,9 +128,6 @@ func pinModel(run *dispatchRun, in *core.Input, updated map[string]any, task str
 			" (set model explicitly to override).", tier, model, effort),
 		fmt.Sprintf("dispatch-effort: %s → %s%s (%s)", tier, model, effort, signal)
 }
-
-// tierEffort is the reasoning effort each task-tier alias runs at.
-var tierEffort = map[string]string{models.Haiku: models.EffortLow, models.Sonnet: models.EffortMedium, models.Opus: models.EffortHigh}
 
 // pinEffort sets updated["effort"] to tier unless the call or agent file sets one; returns what it set, else "".
 func pinEffort(run *dispatchRun, in *core.Input, updated map[string]any, tier string) string {
@@ -216,10 +213,24 @@ func labelQuery(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	if q.Model == "" && agent == "" && q.Profile == "" && q.Provider == "" {
 		return q, false // an in-context leaf: its own model
 	}
+	q.Task, q.Tools = cmp.Or(line.prompt, task), lineTools(task) // auto and the task tier size the ask's prompt
 	if q.Model == "" {
-		q.Default, _ = agentpkg.TaskTier(cmp.Or(line.prompt, task)) // the ask runs its pin, else the task tier
+		q.Default, _ = agentpkg.TaskTier(q.Task) // the ask runs its pin, else the task tier
 	}
 	return q, true
+}
+
+// lineTools reports the opening ask runs tools: --tools, or --read-only, which ask folds into tools.
+func lineTools(task string) bool {
+	words := openingAskWords(task)
+	if len(words) == 0 {
+		return false
+	}
+	verb := 1
+	if words[1] == "--remote" {
+		verb = 3
+	}
+	return hasFlag(words[verb+2:], []string{"tools", "read-only"})
 }
 
 // labelRoute resolves labelQuery the way the run does; ok is false when the label is the leaf's own model.

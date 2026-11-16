@@ -234,6 +234,9 @@ func FreshModelFinding(agentName string, p *providers.Provider, model string, no
 	if _, _, fresh := router.ServedListed(p, "", now); !fresh {
 		return nil
 	}
+	if _, auto := SplitAuto(model); auto { // auto picks a served model at run time
+		return nil
+	}
 	_, failed, _ := checkModel(agentName, p, model, now)
 	return failed
 }
