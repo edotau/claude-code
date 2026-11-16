@@ -15,9 +15,10 @@ import (
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// agentPinRows is agent's one Profile row.
+// agentPinRows is agent's Profile row, a record Model row when no catalog row exists, and the Fallback row.
 func agentPinRows(d *dialog, agent string) []billingRow {
 	cur := vault.GetAgentRecord(agent).Profile
 	provider := "pinned profile"
@@ -30,7 +31,7 @@ func agentPinRows(d *dialog, agent string) []billingRow {
 	if why := agentpkg.AgentUnbillable(agent); cur != "" && why != "" {
 		state = "[off, " + why + "]"
 	}
-	return []billingRow{{label: "Profile", desc: provider + " " + state,
+	rows := []billingRow{{label: "Profile", desc: provider + " " + state,
 		run: func() bool {
 			changed, err := pickAgentProfile(d, agent, cur)
 			if err != nil {
@@ -38,6 +39,45 @@ func agentPinRows(d *dialog, agent string) []billingRow {
 			}
 			return changed
 		}}}
+	if agent != "claude" && agent != "copilot" && modelRow(d, agent) == nil {
+		rows = append(rows, recordModelRow(d, agent))
+	}
+	return append(rows, fallbackRow(d, agent))
+}
+
+// recordModelRow is the Model row for an agent with no catalog picker: it types the record's model, empty clears it.
+func recordModelRow(d *dialog, agent string) billingRow {
+	return billingRow{label: "Model", desc: textutil.Truncate(cmp.Or(vault.GetAgentRecord(agent).Model, "default"), 40),
+		run: func() bool {
+			val := strings.TrimSpace(d.shell().Line("Model for " + agent + " (empty clears): "))
+			changed, err := writeAgentField(d, agent, "MODEL", val)
+			if err != nil {
+				d.printf("%s: %v\n", agent, err)
+			}
+			return changed
+		}}
+}
+
+// fallbackRow is the Fallback row: the profile agent falls back to when its own is unavailable, none when empty.
+func fallbackRow(d *dialog, agent string) billingRow {
+	cur := vault.GetAgentRecord(agent).Fallback
+	return billingRow{label: "Fallback", desc: "profile fails: " + checked(cur != "", cmp.Or(cur, "none")),
+		run: func() bool {
+			names := agentProfileChoices(d, agent)
+			rows := make([][2]string, len(names))
+			for i, n := range names {
+				rows[i] = [2]string{cmp.Or(n, "none"), mark(n == cur)}
+			}
+			idx, err := d.shell().Pick(displayLabel(agent)+" — fallback profile", rows, max(slices.Index(names, cur), 0))
+			if err != nil || idx < 0 || idx >= len(names) {
+				return false
+			}
+			changed, err := writeAgentField(d, agent, "FALLBACK", names[idx])
+			if err != nil {
+				d.printf("%s: %v\n", agent, err)
+			}
+			return changed
+		}}
 }
 
 // agentProfileChoices is the picker's profile values: off ("") first, then the own login, then the rest.

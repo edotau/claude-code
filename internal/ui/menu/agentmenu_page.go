@@ -98,7 +98,7 @@ func agentSections(rows [][2]string) ([]tui.Section, []int) {
 		switch {
 		case signInRows[r[0]]:
 			k = 0
-		case r[0] == "Profile", r[0] == "Model": // the model belongs to the profile it runs on
+		case r[0] == "Profile", r[0] == "Model", r[0] == "Fallback": // the model belongs to the profile it runs on
 			k = 2
 		}
 		secs[k].Rows, idx[k] = append(secs[k].Rows, r), append(idx[k], i)

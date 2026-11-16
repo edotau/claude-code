@@ -7,6 +7,7 @@ import (
 	"os"
 	"reflect"
 	"slices"
+	"strings"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/codex"
@@ -17,14 +18,14 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// SetAgentPin sets one record field (a vault.AgentRecord.WithPin name) on agent; false when it was already that value.
+// SetAgentPin sets one record field (a vault.AgentRecord.WithPin name, or FALLBACK) on agent; false when unchanged.
 func SetAgentPin(agent, field, val string) (bool, error) {
 	recs, err := vault.ReadAgentRecords([]string{agent}) // a read error must not look like an empty record
 	if err != nil {
 		return false, err
 	}
 	rec := recs[agent]
-	next := rec.WithPin(field, val)
+	next := withField(rec, field, val)
 	if reflect.DeepEqual(rec, next) {
 		return false, nil
 	}
@@ -32,14 +33,45 @@ func SetAgentPin(agent, field, val string) (bool, error) {
 		_, err := ApplyProfile([]string{agent}, val)
 		return err == nil, err
 	}
-	// Only the touched field is checked: a stored record already invalid elsewhere is reported as before, not blocking.
-	if err := agentpkg.ValidateRecord(agent, vault.AgentRecord{}.WithPin(field, val)); err != nil {
+	if err := ValidateAgentField(agent, field, val); err != nil {
 		return false, err
 	}
 	if err := vault.SetAgentRecord(agent, next); err != nil {
 		return false, err
 	}
 	return true, nil
+}
+
+// withField is rec with field set to val; FALLBACK is the record's fallback profile, the rest go through WithPin.
+func withField(rec vault.AgentRecord, field, val string) vault.AgentRecord {
+	if field == "FALLBACK" {
+		rec.Fallback = strings.TrimSpace(val)
+		return rec
+	}
+	return rec.WithPin(field, val)
+}
+
+// AgentField is rec's PROFILE, MODEL or FALLBACK value.
+func AgentField(rec vault.AgentRecord, field string) string {
+	switch field {
+	case "PROFILE":
+		return rec.Profile
+	case "MODEL":
+		return rec.Model
+	}
+	return rec.Fallback
+}
+
+// ValidateAgentField checks val for one record field before any write: a profile the agent can serve, or a valid record.
+// Only the touched field is checked: a stored record already invalid elsewhere is reported as before, not blocking.
+func ValidateAgentField(agent, field, val string) error {
+	if field == "PROFILE" || field == "FALLBACK" {
+		if err := agentpkg.ValidateRecord(agent, vault.AgentRecord{}); err != nil {
+			return err // an unknown agent, before the registry load
+		}
+		return ValidProfile([]string{agent}, strings.TrimSpace(val))
+	}
+	return agentpkg.ValidateRecord(agent, vault.AgentRecord{}.WithPin(field, val))
 }
 
 // SeedProfiles lists the profiles agent can serve, its own login first; empty when reg is nil.

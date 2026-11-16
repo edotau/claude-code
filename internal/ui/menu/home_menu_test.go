@@ -1,6 +1,7 @@
 package menu
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"os"
@@ -599,4 +600,20 @@ func agentPageRows(d *dialog, name string, m agentMenu) [][2]string {
 	pickAgent = func(_ *dialog, _ string, r [][2]string, _ int) (int, error) { rows = r; return -1, nil }
 	runAgentMenu(d, name, m)
 	return append(rows, panelBack)
+}
+
+// The environment page's fallback row and its mode picker fit 80 columns, and the stored 1 reads as all.
+func TestEnvFallbackRowsFitEightyColumns(t *testing.T) {
+	menuTestEnv(t)
+	if got := fallbackMode("1"); got != "all" {
+		t.Errorf("fallbackMode(1) = %q, want all", got)
+	}
+	var out bytes.Buffer
+	d := &dialog{out: &out, br: bufio.NewReader(strings.NewReader("1\n\n\n"))}
+	pickFallbackMode(d, "agents")
+	rows := numberedRows(out.String())
+	if len(rows) != 4 || rows[3][0] != "all" {
+		t.Fatalf("mode rows = %q, want none, pin, agents, all", rows)
+	}
+	assertFitsEighty(t, "fallback modes", append(rows, fallbackEnvRow("agents")))
 }

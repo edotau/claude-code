@@ -39,7 +39,7 @@ paths:
   on every agent. With `--batch`, `--agents` covers the whole file and a line's `agent` takes the same selector; the
   retired per-line key is an error. `--host` with `--agents` exits 2. Go API: `agent.Client`, `Client.Stream`.
 - `agents ask --overlay <value>` / `gateway --overlay <value>` / `COWORKER_OVERLAY`: ONE keyed JSON document (`schema`
-  1; keys `provider`, `profile`, `model`, `effort`, `fallback`, `host`, `remote`, env layer `set`/`unset`/`keep`)
+  1; keys in the table below)
   given as a file path (regular, yours, not group/world-writable, <= 64 KiB), inline `'{...}'` or `-`; an unknown key
   or bad value exits 2. A dispatch never writes it to its own env: it rides the run's context. Precedence: typed flag >
   `--overlay`, else `COWORKER_OVERLAY` > `--retry`/`--job` record > process env > vault env > agent definition > agent
@@ -47,6 +47,19 @@ paths:
   confinement (`provider`/`profile`); `--host` refuses a non-empty env layer; endpoint, proxy, TLS, agent-config and
   credential env names are refused (use `--profile`). Provider/agent compatibility, relaunch, `--retry`, interactive
   and `--env` rules: `skills/subagent-workflows/references/dispatch-policy-details.md` → Overlay.
+
+  | Key | Values | Overrides |
+  | --- | --- | --- |
+  | `schema` | `1` | document version |
+  | `provider` / `profile` | provider key / profile name (`profile` needs `provider`) | `--profile`, provider prefix |
+  | `model` / `effort` | model id or alias / effort name | `--model`, `--effort` |
+  | `fallback` | `none\|pin\|agents\|all` | `--fallback` |
+  | `host` / `remote` | ssh host (not both) | `--host`, remote run |
+  | `account` | copilot GitHub account (`business`, `personal`) | the credit gate's account pick |
+  | `identity` | `auto\|user\|sp` (Databricks) | `--as`, the profile's identity |
+  | `set` / `unset` / `keep` | env name -> value / names / names | env layer |
+
+  Flags and prefixes are normalised into this one document; an unknown key exits 2 naming it and the valid keys.
 - `<agent> models` is not a harness subcommand: it passes through to the vendor CLI. The catalog is `<agent> catalog`.
 - **opencode** on a Databricks row runs three providers: `<row>` (chat), `<row>-gpt` (Responses), `<row>-claude`
   (Anthropic); a `--model` the workspace lists no endpoint for is refused at preflight. A model with no openai route is

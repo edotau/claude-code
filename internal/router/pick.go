@@ -471,7 +471,7 @@ func (t *RouteTable) gatherCandidates(ctx context.Context, want string, o PickOp
 			first = append(first, cs)
 		}
 	}
-	if o.Fallback == FallbackNone || (want == "claude" && ArmProfileContext(ctx) == "") { // the route falls a wanted claude through
+	if o.oneHop() || (want == "claude" && ArmProfileContext(ctx) == "") { // the route falls a wanted claude through
 		return first, nil, nil
 	}
 	rest = gateOthers(want, gate)
@@ -597,25 +597,42 @@ func ExhaustedReason(account string, e Entry, now time.Time) string {
 	return s
 }
 
-// Fallback modes for an unavailable dispatch: the full chain ending in claude, other agents only, or none.
+// Fallback modes for an unavailable dispatch: the full chain ending in claude, other agents only, the pin hop only, or none.
 const (
 	FallbackAll    = "all"
 	FallbackAgents = "agents"
+	FallbackPin    = "pin"
 	FallbackNone   = "none"
 )
 
 // FallbackModes lists the accepted --fallback values.
-var FallbackModes = []string{FallbackAll, FallbackAgents, FallbackNone}
+var FallbackModes = []string{FallbackNone, FallbackPin, FallbackAgents, FallbackAll}
 
-// EnvFallback set (process or vault env) means a failed dispatch falls back; unset means it exits on the error.
+// EnvFallback (process, else vault env) names the mode: a FallbackModes value, or 1/true/yes for all; unset means none.
 const EnvFallback = "AGENT_ERROR_FALLBACK"
 
-// DefaultFallback is FallbackAll when EnvFallback is set non-empty (process env, else vault env), else FallbackNone.
+// oneHop reports a mode that gathers no other agent: none, or pin (the requested route plus the agent's pin).
+func (o PickOpts) oneHop() bool { return o.Fallback == FallbackNone || o.Fallback == FallbackPin }
+
+// DefaultFallback is EnvFallback's mode; an unknown value comes back as is, so the --fallback check rejects it.
 func DefaultFallback() string {
-	if strings.TrimSpace(os.Getenv(EnvFallback)) != "" || strings.TrimSpace(providers.CustomEnv()[EnvFallback]) != "" {
-		return FallbackAll
+	v := os.Getenv(EnvFallback)
+	if strings.TrimSpace(v) == "" {
+		v = providers.CustomEnv()[EnvFallback]
 	}
-	return FallbackNone
+	return ParseFallback(v)
+}
+
+// ParseFallback reads a stored mode: empty is none, 1/true/yes is all; any other value is returned for validation.
+func ParseFallback(raw string) string {
+	switch v := strings.ToLower(strings.TrimSpace(raw)); v {
+	case "":
+		return FallbackNone
+	case "1", "true", "yes":
+		return FallbackAll
+	default:
+		return v
+	}
 }
 
 // gitTimeout bounds each git call so a hung one fails closed instead of blocking a pick.

@@ -109,7 +109,7 @@ func (s Selection) NeedsRouter(reg *Registry) bool {
 func FailoverTarget(from *Provider, model string, next *Provider) (Target, bool) {
 	alias := from.AliasOf(model)
 	if alias == "" {
-		if canonical, _, ok := models.Resolve(model); ok && models.FamilyOf(canonical) != "" && next.SpellingRule() != "" {
+		if canonical, _, ok := models.Resolve(model); ok && models.FamilyOf(canonical) != "" && next.SpellingRule() != "" && next.Provider != "openai" && next.Provider != "google" {
 			return Target{Provider: next, Model: next.WireModel(canonical)}, true
 		}
 		alias = models.FamilyOf(model)
