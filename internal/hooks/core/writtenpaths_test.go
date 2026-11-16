@@ -30,6 +30,8 @@ func TestWrittenPaths(t *testing.T) {
 		{"redirect glued to a word", `echo hi>x.md && echo y >|z.md`, []string{"/w/x.md", "/w/z.md"}},
 		{"subshell cd does not leak", `(cd /tmp); echo x > a.md`, []string{"/w/a.md"}},
 		{"read-only and interpreter bodies", `cat x.go; python3 -c "open('y','w').write('z')"`, nil},
+		{"arithmetic > is no redirect", `echo $((3>2))`, nil},
+		{"a printed script that runs writes", `printf 'echo x > P.md\n' > /t/s && sh /t/s`, []string{"/t/s", "/w/P.md"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if got := WrittenPaths(c.cmd, "/w"); !slices.Equal(got, c.want) {
@@ -63,6 +65,10 @@ func TestWrittenPathsPrecise(t *testing.T) {
 		{"# after a blank and a line continuation is one", "echo a \\\n#b > C.md", nil},
 		{"dynamic cd in a subshell does not leak", `(cd "$X"); echo x > S.md`, []string{"/w/S.md"}},
 		{"# after an escaped space is no comment", `echo a\ #b; echo x > E.md`, []string{"/w/E.md"}},
+		{"# inside ${…} is no comment", `echo ${x:- #} > D.md`, []string{"/w/D.md"}},
+		{"strip-comment idiom", `l='a # b'; echo ${l%% #*} > D.md`, []string{"/w/D.md"}},
+		{"# after a subshell close is one", `(echo hi)#c > D.md`, nil},
+		{"cd - returns to the starting dir", `cd /tmp; cd - && echo x > D.md`, []string{"/w/D.md"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if got := WrittenPathsPrecise(c.cmd, "/w"); !slices.Equal(got, c.want) {

@@ -91,13 +91,16 @@ func openQuote(s string, i int) (next int, quote byte, ok bool) {
 
 // CommentAt: the unquoted `#` at cmd[i] starts a word once `\<newline>` is removed; `$(x)#y` stays one word.
 func CommentAt(cmd string, i int) bool {
+	if exprMask(cmd)[i] {
+		return false // `${x%% #*}`, `$(( 1 #x ))`: a `#` inside an expansion is part of the word
+	}
 	for i > 0 {
 		c := cmd[i-1]
-		if strings.IndexByte(" \t\n;&|(", c) < 0 {
+		if strings.IndexByte(" \t\n;&|()", c) < 0 {
 			return false
 		}
 		if !escaped(cmd, i-1) {
-			return true
+			return c != ')' || groupClose(cmd, i-1)
 		}
 		if c != '\n' {
 			return false // an escaped blank or separator is a literal byte of the word
@@ -105,6 +108,79 @@ func CommentAt(cmd string, i int) bool {
 		i -= 2 // a line continuation is deleted, joining the `#` to what came before it
 	}
 	return true
+}
+
+// exprMask marks each byte of an unquoted, closed `${…}` or `$((…))`: a `#`, `<` or `>` there is word text.
+func exprMask(cmd string) []bool {
+	at, mask := QuoteAt(cmd), make([]bool, len(cmd))
+	for i := 0; i+1 < len(cmd); i++ {
+		if at[i] != 0 || cmd[i] != '$' {
+			continue
+		}
+		end := braceExpansionEnd(cmd, i)
+		if end < 0 && strings.HasPrefix(cmd[i+1:], "((") {
+			end = arithEnd(cmd, at, i)
+		}
+		for k := i; k <= end; k++ {
+			mask[k] = true
+		}
+		i = max(i, end)
+	}
+	return mask
+}
+
+// arithEnd is the last `)` of the `$((…))` at cmd[i], or -1 when its parens close apart: `$((a) b)` is a substitution.
+func arithEnd(cmd string, at []byte, i int) int {
+	depth := 0
+	for j := i + 1; j < len(cmd); j++ {
+		if at[j] != 0 {
+			continue
+		}
+		switch cmd[j] {
+		case '(':
+			depth++
+		case ')':
+			if depth--; depth == 1 {
+				if j+1 < len(cmd) && cmd[j+1] == ')' {
+					return j + 1
+				}
+				return -1
+			}
+		}
+	}
+	return -1
+}
+
+// groupClose reports the `)` at cmd[j] closing a bare `(` subshell, not a `$(`, `<(` or `f(`; a `case` disables it.
+func groupClose(cmd string, j int) bool {
+	if strings.Contains(cmd, "case") { // a pattern's `)` would mis-pair the parens: stay on the word side
+		return false
+	}
+	at, mask := QuoteAt(cmd), exprMask(cmd)
+	var open []bool // true: a bare subshell `(`
+	for k := 0; k <= j; k++ {
+		if at[k] != 0 || mask[k] {
+			continue
+		}
+		switch cmd[k] {
+		case '(':
+			open = append(open, bareOpen(cmd, at, k))
+		case ')':
+			if len(open) == 0 {
+				return false
+			}
+			bare := open[len(open)-1]
+			if open = open[:len(open)-1]; k == j {
+				return bare
+			}
+		}
+	}
+	return false
+}
+
+// bareOpen reports a `(` that starts a subshell: first, or after an unquoted blank, separator or `(`.
+func bareOpen(cmd string, at []byte, k int) bool {
+	return k == 0 || at[k-1] == 0 && strings.IndexByte(" \t\n;&|(", cmd[k-1]) >= 0
 }
 
 // escaped reports an odd run of backslashes right before cmd[i].

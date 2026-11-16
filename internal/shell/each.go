@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 )
 
@@ -37,14 +38,35 @@ func eachGit(cmd, cwd string, fn gitFn, depth int, runs bool) bool {
 			return true
 		}
 	}
+	scripts := RunScripts(masked, cwd)
+	walk, seen := fn, map[[2]string]bool{}
+	if len(scripts) > 0 {
+		walk = func(target, verb string, args []string) bool {
+			seen[[2]string{target, verb}] = true
+			return fn(target, verb, args)
+		}
+	}
 	segs, seps := SegmentsSep(masked)
-	w := &segWalk{cwd: cwd, segs: segs, seps: seps, fn: fn, depth: depth, runs: runs}
+	w := &segWalk{cwd: cwd, segs: segs, seps: seps, fn: walk, depth: depth, runs: runs}
 	for i, seg := range segs {
 		w.enter(seg)
 		if w.run(i) {
 			return true
 		}
 		w.leave(seg)
+	}
+	return nestScripts(scripts, seen, fn, depth, runs)
+}
+
+// nestScripts walks each written-then-run script's text, `printf 'git x\n' > f && sh f`, skipping calls already seen.
+func nestScripts(scripts []Script, seen map[[2]string]bool, fn gitFn, depth int, runs bool) bool {
+	fresh := func(target, verb string, args []string) bool {
+		return !seen[[2]string{target, verb}] && fn(target, verb, args)
+	}
+	for _, s := range scripts {
+		if eachGit(s.Text, s.Dir, fresh, depth+1, runs) {
+			return true
+		}
 	}
 	return false
 }
@@ -165,6 +187,7 @@ func UnknownDir(dir string) bool { return dir == unknownDir }
 type cwdTracker struct {
 	cwdState
 	before   string // the dir the previous segment's cd left, for a following `||`
+	start    string // the dir the command started in, set by the first step
 	moved    bool
 	subshell []cwdState // the state to restore at each open `(`'s close
 	dirs     []string   // pushd stack
@@ -172,9 +195,10 @@ type cwdTracker struct {
 
 // cwdState is what a subshell's close restores.
 type cwdState struct {
-	cwd   string
-	exact string // after a dynamic or missing cd target, the dir for the rest of its `&&` chain
-	lost  bool   // a dynamic cd took effect: cwd is only the starting dir's guess
+	cwd    string
+	exact  string // after a dynamic or missing cd target, the dir for the rest of its `&&` chain
+	lost   bool   // a dynamic cd took effect: cwd is only the starting dir's guess
+	oldpwd string // where `cd -` goes; "" until a cd runs
 }
 
 // here is the dir the next segment runs in.
@@ -200,6 +224,11 @@ func (c *cwdTracker) leave(seg string) {
 // EachSegmentDir calls fn per non-cd segment with its dir, tracked as EachGit does; lost: a dynamic cd moved it.
 func EachSegmentDir(cmd, cwd string, fn func(seg string, toks []string, dir string, lost bool)) {
 	segs, seps := SegmentsSep(cmd)
+	eachSegment(segs, seps, cwd, func(i int, toks []string, dir string, lost bool) { fn(segs[i], toks, dir, lost) })
+}
+
+// eachSegment is EachSegmentDir over split segments, passing each segment's index.
+func eachSegment(segs, seps []string, cwd string, fn func(i int, toks []string, dir string, lost bool)) {
 	c := &cwdTracker{cwd: cwd}
 	for i, seg := range segs {
 		c.enter(seg)
@@ -216,7 +245,7 @@ func EachSegmentDir(cmd, cwd string, fn func(seg string, toks []string, dir stri
 			if at == unknownDir {
 				at = c.cwd
 			}
-			fn(seg, toks, at, lost)
+			fn(i, toks, at, lost)
 		}
 		c.leave(seg)
 	}
@@ -232,16 +261,35 @@ func (c *cwdTracker) step(toks []string, prev, sep string) (at string, isCd bool
 		at = c.before
 	}
 	c.moved = false
-	cmd := builtinPrefixDropped(toks)
+	if c.start == "" {
+		c.start = c.cwd
+	}
+	cmd := c.dashResolved(builtinPrefixDropped(toks))
 	next, exact, ok := c.cdTarget(cmd, !subshellSide(prev, sep))
 	if ok && !subshellSide(prev, sep) {
 		abs, dynamic, _ := cdResolve(cmd, "")
 		c.lost = exact == unknownDir || c.lost && (dynamic || !filepath.IsAbs(abs))
+		c.oldpwd = at
 	}
 	if ok {
 		c.apply(next, exact, prev, sep)
 	}
 	return at, ok
+}
+
+// dashResolved turns `cd -` into a cd to the previous dir; an unknown one is the starting dir, the conservative side.
+func (c *cwdTracker) dashResolved(cmd []string) []string {
+	if len(cmd) == 0 || cmd[0] != "cd" {
+		return cmd
+	}
+	if args := skipCdOptions(cmd[1:]); len(args) == 0 || args[0] != "-" {
+		return cmd
+	}
+	prev := c.oldpwd
+	if prev == "" || prev == unknownDir {
+		prev = c.start
+	}
+	return []string{"cd", prev}
 }
 
 // cdTarget is the cwd a cd/pushd/popd leaves (a missing dir: cwd stays) and exact, where it lands when it succeeds.
@@ -493,4 +541,185 @@ func formatUnapplied(verb string, words []string) bool {
 		return true
 	}
 	return verb == "printf" && len(words) > 0 && strings.Contains(words[0], "%")
+}
+
+// Script is text a command line writes to a file with echo/printf (a redirect or tee) and then runs from that file.
+type Script struct {
+	Text, Dir string
+	Lost      bool // a dynamic cd moved the run: Dir is only the starting dir's guess
+}
+
+// RunScripts lists each file cmd writes from printed text that a later segment runs (`sh f`, `. f`, `./f`).
+func RunScripts(cmd, cwd string) []Script {
+	if !strings.Contains(cmd, ">") && !strings.Contains(cmd, "tee") {
+		return nil
+	}
+	segs, seps := SegmentsSep(cmd)
+	written := map[string][]string{}
+	var piped, out []string
+	var scripts []Script
+	eachSegment(segs, seps, cwd, func(i int, _ []string, dir string, lost bool) {
+		words, targets := Redirects(segs[i])
+		for len(words) > 0 && slices.Contains(shellKeywords, words[0]) {
+			words = words[1:]
+		}
+		rest, _ := Unwrap(words, dir)
+		if len(rest) == 0 {
+			return
+		}
+		out, piped = printed(rest, piped), nil
+		if filepath.Base(rest[0]) == "tee" {
+			targets = append(targets, operandWords(rest[1:])...)
+		}
+		for _, t := range targets {
+			k := scriptKey(t, dir)
+			written[k] = append(written[k], out...)
+		}
+		if f, ok := scriptRun(rest); ok {
+			for _, text := range written[scriptKey(f, dir)] {
+				scripts = append(scripts, Script{Text: text, Dir: dir, Lost: lost})
+			}
+		}
+		if seps[i] == "|" || seps[i] == "|&" {
+			piped = out
+		}
+	})
+	return scripts
+}
+
+// printed is what a segment prints: echo's text raw and with escapes decoded, printf's formatted, tee's stdin.
+func printed(toks []string, stdin []string) []string {
+	words := toks[1:]
+	switch filepath.Base(toks[0]) {
+	case "tee":
+		return stdin
+	case "echo":
+		for len(words) > 0 && len(words[0]) > 1 && words[0][0] == '-' && strings.Trim(words[0][1:], "neE") == "" {
+			words = words[1:]
+		}
+		raw := strings.Join(words, " ")
+		return slices.Compact([]string{raw, decodeEscapes(raw)})
+	case "printf":
+		if len(words) > 0 && words[0] == "--" {
+			words = words[1:]
+		}
+		if len(words) == 0 || strings.HasPrefix(words[0], "-") { // -v assigns a variable, printing nothing
+			return nil
+		}
+		return []string{printfOutput(words[0], words[1:])}
+	}
+	return nil
+}
+
+// operandWords are the words of args that are not options.
+func operandWords(args []string) []string {
+	var out []string
+	for _, a := range args {
+		if a != "" && a[0] != '-' {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// scriptKey names the file t at dir: its path, or the word itself when the name or the dir is dynamic.
+func scriptKey(t, dir string) string {
+	if p, ok := resolvePath(t, dir); ok && p != unknownDir {
+		return p
+	}
+	return t
+}
+
+// scriptRun is the file a segment runs as a script: a shell's first operand, `.`/`source`'s, or a command by path.
+func scriptRun(toks []string) (string, bool) {
+	name := filepath.Base(toks[0])
+	switch {
+	case shellWrapperNames[name]:
+		if _, ok := nestedOf(toks); ok {
+			return "", false
+		}
+		if ops := operandWords(toks[1:]); len(ops) > 0 {
+			return ops[0], true
+		}
+		return "", false
+	case (name == "." || name == "source") && len(toks) > 1:
+		return toks[1], true
+	}
+	return toks[0], strings.Contains(toks[0], "/")
+}
+
+// printfOutput applies a printf format to args, reusing the format while args remain, as the shell does.
+func printfOutput(format string, args []string) string {
+	var out strings.Builder
+	for {
+		used := printfPass(&out, format, args)
+		if args = args[used:]; used == 0 || len(args) == 0 {
+			return out.String()
+		}
+	}
+}
+
+// printfPass writes one pass of format: its escapes decoded, each % verb an argument (`%b` decoded); returns args used.
+func printfPass(out *strings.Builder, format string, args []string) int {
+	used := 0
+	for i := 0; i < len(format); i++ {
+		switch {
+		case format[i] == '\\' && i+1 < len(format):
+			i += writeEscape(out, format[i+1:], false)
+		case format[i] == '%' && i+1 < len(format):
+			j := i + 1
+			for j < len(format) && strings.IndexByte("-+ #0123456789.", format[j]) >= 0 {
+				j++
+			}
+			i = min(j, len(format)-1)
+			if j >= len(format) || format[j] == '%' {
+				out.WriteByte('%')
+				continue
+			}
+			arg := ""
+			if used < len(args) {
+				arg, used = args[used], used+1
+			}
+			if format[j] == 'b' {
+				arg = decodeEscapes(arg)
+			}
+			out.WriteString(arg)
+		default:
+			out.WriteByte(format[i])
+		}
+	}
+	return used
+}
+
+// decodeEscapes applies echo -e / printf %b escapes: `\0NNN` octal, and `\c` ends the output.
+func decodeEscapes(s string) string {
+	var out strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' || i+1 >= len(s) {
+			out.WriteByte(s[i])
+			continue
+		}
+		if s[i+1] == 'c' {
+			break
+		}
+		i += writeEscape(&out, s[i+1:], true)
+	}
+	return out.String()
+}
+
+// writeEscape writes the escape after a backslash (s) and returns its length; zeroOctal reads `\0NNN` as one byte.
+func writeEscape(out *strings.Builder, s string, zeroOctal bool) int {
+	if zeroOctal && s[0] == '0' {
+		end := digitRun(s, 1, 3, 8)
+		v, _ := strconv.ParseUint("0"+s[1:max(end, 1)], 8, 8)
+		out.WriteByte(byte(v))
+		return max(end, 1)
+	}
+	if r, n, ok := ansiEscape(s); ok {
+		out.WriteString(r)
+		return n
+	}
+	out.WriteByte('\\')
+	out.WriteByte(s[0])
+	return 1
 }
