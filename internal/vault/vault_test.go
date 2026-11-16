@@ -291,47 +291,6 @@ func TestNamesOrderAndNoValues(t *testing.T) {
 	}
 }
 
-// memory_origins rows go through the unsealed Put/Get/All path with no master key; an empty Put deletes the row.
-func TestMemoryOriginsPlaintextRows(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HARNESS_VAULT_KEY", "")
-	want := map[string]string{"alpha": `{"key":"alpha"}`, "beta": `{"key":"beta"}`}
-	if err := Update(func(tx *Tx) error {
-		for k, v := range want {
-			if err := tx.Put(MemoryOrigins, k, v); err != nil {
-				return err
-			}
-		}
-		return nil
-	}); err != nil {
-		t.Fatalf("Update(memory_origins) without a master key: %v", err)
-	}
-	var got map[string]string
-	if err := View(func(tx *Tx) error { got = tx.All(MemoryOrigins); return nil }); err != nil {
-		t.Fatalf("View(memory_origins) without a master key: %v", err)
-	}
-	if len(got) != len(want) || got["alpha"] != want["alpha"] || got["beta"] != want["beta"] {
-		t.Errorf("All(memory_origins) = %v, want %v", got, want)
-	}
-	if err := Update(func(tx *Tx) error { return tx.Put(MemoryOrigins, "beta", "") }); err != nil {
-		t.Fatal(err)
-	}
-	if err := View(func(tx *Tx) error {
-		if _, ok := tx.Get(MemoryOrigins, "beta"); ok {
-			t.Error("row survived an empty-value Put")
-		}
-		if v, ok := tx.Get(MemoryOrigins, "alpha"); !ok || v != want["alpha"] {
-			t.Errorf("Get(memory_origins, alpha) = %q, %v, want the stored row", v, ok)
-		}
-		if names := tx.Names(MemoryOrigins); len(names) != 1 || names[0] != "alpha" {
-			t.Errorf("Names(memory_origins) = %v, want [alpha]", names)
-		}
-		return nil
-	}); err != nil {
-		t.Fatal(err)
-	}
-}
-
 func phase1bRing(t *testing.T) *specKeyring {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestBankPaths(t *testing.T) {
@@ -173,5 +174,12 @@ func TestPrefix(t *testing.T) {
 	}
 	if got := HomeBank().Prefix(); got != "" {
 		t.Errorf("home Prefix = %q, want empty", got)
+	}
+}
+
+func migrateWrite(t *testing.T, rel, text string) {
+	t.Helper()
+	if err := paths.AtomicWrite(filepath.Join(StoreDir(), filepath.FromSlash(rel)), []byte(text), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }

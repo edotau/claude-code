@@ -52,7 +52,7 @@ func TestImportRefusesSourceWithDifferentLayout(t *testing.T) {
 	from := t.TempDir()
 	_, err := ImportBank(ImportOptions{From: from, All: true, DryRun: true})
 	var in *ImportInputError
-	if !errors.As(err, &in) || !strings.Contains(err.Error(), "memory migrate") {
+	if !errors.As(err, &in) || !strings.Contains(err.Error(), "retired per-repo layout") {
 		t.Errorf("import of a per-repo source into a flat store err = %v, want the migrate hint", err)
 	}
 	if err := os.Remove(filepath.Join(StoreDir(), layoutFile)); err != nil {

@@ -170,11 +170,16 @@ func storeFlat() bool {
 	return flat
 }
 
-// forgetLayout drops the memoized stamp for the current store (after migrate or revert writes it).
+// forgetLayout drops the memoized stamp for the current store.
 func forgetLayout() { layoutCache.Delete(StoreDir()) }
 
+const homeDir = "home"
+
+// flatSubs are the shared store subdirs whose first path element carries the bank prefix when flat.
+var flatSubs = []string{"archive", "handoffs", "reports", "knowledge", "worktrees", "waves"}
+
 // errStoreNotFlat is what a writer returns on a store without the flat-layout stamp.
-var errStoreNotFlat = errors.New("memory store uses the per-repo layout; run `claude-code memory migrate`")
+var errStoreNotFlat = errors.New("memory store uses the retired per-repo layout; migrate it with a pre-removal claude-code binary")
 
 // requireFlat is nil on a stamped store and stamps one with no per-repo dirs; any other gets errStoreNotFlat.
 func requireFlat() error {

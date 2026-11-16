@@ -13,8 +13,8 @@ Code's native auto-memory topics plus six typed bank files; one shared `MEMORY.m
 STATE; durable facts belong in `rules/` or `CLAUDE.md` — point at them, never copy.
 
 `claude-code memory path [handoffs|reports|knowledge|worktrees] [NAME]` prints the exact path (bare = store root);
-`--repo` takes a bank key or a checkout path (`update` and `dream --cwd` need a path). A per-repo store converts with
-`claude-code memory migrate [--dry-run] [--revert] [--format json]`, which refuses while a memory worker is live.
+`--repo` takes a bank key or a checkout path (`update` and `dream --cwd` need a path). The per-repo layout is retired; the
+binary writes only the flat store.
 
 Scratch and fixture folders (`$TMPDIR`, `/tmp`, `~/.claude/state`, `~/worktrees/wf-fixtures`) get no bank: they use
 the launching workspace's (`HARNESS_MEMORY_ORIGIN`, else the home tier; `throwawayRoots` in `internal/memory`).
@@ -39,7 +39,7 @@ update`; the rest print none.
 - Settle: `index` (rotate and archive over caps, refresh the embedding cache), `dream [--force|--dry-run]`
   (consolidation; `--dry-run` is a deterministic audit, no model).
 - Move: `promote <id> --to <target>` (ladder below), `import --from <dir> | --host <h>` (refuses a source whose layout
-  differs from the local one), `migrate [--dry-run] [--revert]` (per-repo store to flat), `sandbox [--repo R] [--all]
+  differs from the local one), `sandbox [--repo R] [--all]
   [--empty]` (disposable config with copied banks, origin-only vault).
 - Hook-spawned: `watch`; SessionStart spawns `update --catchup`.
 - `import` is additive and idempotent (`--dry-run` previews; `git -C ~/.claude/memory log` is the undo): logs merge
