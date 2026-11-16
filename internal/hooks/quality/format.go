@@ -232,7 +232,7 @@ func formatPython(path string) bool {
 	return run(root, "ruff", "format", "--quiet", path)
 }
 
-// classicPythonChain runs ruff --fix, autoflake, isort, black where declared and installed; ok: every step that ran exited 0.
+// classicPythonChain runs ruff --fix, autoflake, isort, black where installed; ok means every step exited 0.
 func classicPythonChain(root, path string, tools map[string]bool) (ran, ok bool) {
 	ok = true
 	step := func(name string, args ...string) {

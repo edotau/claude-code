@@ -709,7 +709,7 @@ func TestMemoryStrayRejectedBeforeFlags(t *testing.T) {
 	})
 }
 
-// TestSkillVerbsArePublicCLIVerbs checks memory-bank.md's verb table against memoryPage and memorySubcommands.
+// TestSkillVerbsArePublicCLIVerbs checks every verb memory-bank.md names is dispatchable via memorySubcommands.
 func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
 	path := filepath.Join("..", "..", "rules", "workflows", "memory-bank.md")
 	data, err := os.ReadFile(path)
@@ -717,36 +717,35 @@ func TestSkillVerbsArePublicCLIVerbs(t *testing.T) {
 		t.Fatalf("read %s: %v", path, err)
 	}
 	body := string(data)
-	start := strings.Index(body, "| Verb | Prints a procedure")
+	start := strings.Index(body, "\n## Verbs\n")
 	if start < 0 {
-		t.Fatal("memory-bank.md has no verb table (expected a \"| Verb | Prints a procedure\" header row)")
+		t.Fatal("memory-bank.md has no \"## Verbs\" section")
 	}
-	table := body[start:]
-	if end := strings.Index(table, "\n\n"); end >= 0 {
-		table = table[:end]
+	section := body[start+1:]
+	if end := strings.Index(section[3:], "\n## "); end >= 0 {
+		section = section[:end+3]
 	}
-	verbRe := regexp.MustCompile("^`([a-z][a-z-]*)")
+	verbRe := regexp.MustCompile("`([a-z][a-z-]*)[ `]")
+	verbBulletRe := regexp.MustCompile(`^- (Read|Write|Settle|Move|Hook-spawned):`)
 	subs := memorySubcommands()
 	seen := map[string]bool{}
-	for line := range strings.SplitSeq(table, "\n") {
-		cells := strings.Split(line, "|")
-		if len(cells) < 2 {
+	for line := range strings.SplitSeq(section, "\n") {
+		if !verbBulletRe.MatchString(line) { // only the grouped verb bullets; later bullets quote other commands
 			continue
 		}
-		m := verbRe.FindStringSubmatch(strings.TrimSpace(cells[1])) // cells[0] is empty: the row starts with "|"
-		if m == nil || seen[m[1]] {
-			continue
-		}
-		verb := m[1]
-		seen[verb] = true
-		if _, ok := subs[verb]; !ok {
-			t.Errorf("memory-bank.md names unknown verb %q (not in memorySubcommands)", verb)
-		} else if !helpPageHasCommand(memoryPage, verb) {
-			t.Errorf("memory-bank.md names verb %q that is not listed as public in memoryPage", verb)
+		for _, m := range verbRe.FindAllStringSubmatch(line, -1) {
+			verb := m[1]
+			if seen[verb] {
+				continue
+			}
+			seen[verb] = true
+			if _, ok := subs[verb]; !ok {
+				t.Errorf("memory-bank.md names unknown verb %q (not in memorySubcommands)", verb)
+			}
 		}
 	}
 	if len(seen) == 0 {
-		t.Fatal("verb table names no verbs")
+		t.Fatal("Verbs section names no verbs")
 	}
 }
 

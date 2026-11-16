@@ -19,8 +19,7 @@ var heredocStart = sync.OnceValue(func() *regexp.Regexp {
 // reuseMessageFlags make git take the message from elsewhere (-C/-c are short, so matched separately).
 var reuseMessageFlags = []string{"--no-edit", "--amend", "--reuse-message", "--fixup", "--squash"}
 
-// CommitMessageProblem is why a `git commit` message breaks the Conventional Commits rule (CLAUDE.md worktree-git
-// rule 1), or "" when it conforms, carries no message here (editor, -C, --amend) or cannot be read statically.
+// CommitMessageProblem says why a `git commit` message breaks Conventional Commits, or "" when fine or unreadable.
 func CommitMessageProblem(cmd, cwd string) string {
 	_, subs := ExtractSubstitutions(cmd)
 	problem := ""
@@ -151,7 +150,7 @@ func heredocBody(text string) (string, bool) {
 	rest := text[m[1]:]
 	_, rest, _ = strings.Cut(rest, "\n")
 	var body []string
-	for _, line := range strings.Split(rest, "\n") {
+	for line := range strings.SplitSeq(rest, "\n") {
 		if strings.TrimSpace(line) == delim {
 			return strings.Join(body, "\n"), true
 		}
@@ -163,7 +162,7 @@ func heredocBody(text string) (string, bool) {
 // messageProblem applies rule 1 to a whole message: Conventional subject, at most 2 lines plus BREAKING CHANGE lines.
 func messageProblem(msg string) string {
 	var lines []string
-	for _, l := range strings.Split(msg, "\n") {
+	for l := range strings.SplitSeq(msg, "\n") {
 		if strings.TrimSpace(l) != "" {
 			lines = append(lines, strings.TrimSpace(l))
 		}

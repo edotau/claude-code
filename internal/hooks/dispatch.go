@@ -272,7 +272,7 @@ var gateDeadline = func(s settings.EventSpec) time.Duration {
 	return host / 2
 }
 
-// runDirect is `hook <Event> --<module>`: a blocking module exits 2 with its reason on stderr; only Blocks has a deadline.
+// runDirect is `hook <Event> --<module>`: a blocking module exits 2 with its reason on stderr.
 func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	run, ok := native[name]
 	if !ok {

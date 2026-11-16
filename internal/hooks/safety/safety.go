@@ -32,7 +32,7 @@ var hardBlocks = core.LazyCompile(
 	`python3?\s+.*-c\s+.*exec\(.*base64`,
 )
 
-// pipeBlocks match the WHOLE command text (minus inert data): pipes, fork bombs and encoded Python heredocs span segments.
+// pipeBlocks match the whole command text (minus inert data): pipes, fork bombs and heredocs span segments.
 var pipeBlocks = core.LazyCompile(
 	`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(sudo\s+)?(\S*/)?(ba|z)?sh([^[:alnum:]_]|$)`,
 	`(^|[\s;&|({/\x60])eval\s+["']?(\$\(|\x60)\s*(\S*/)?(curl|wget)\s`,
@@ -163,8 +163,7 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 	return ask, askMsg, askDetail
 }
 
-// gitPolicyVerdict blocks what worktree-git.md rules 1, 3 and 5 forbid: a nonconforming commit message,
-// a broad `git add` and `; git push` after a gate command.
+// gitPolicyVerdict blocks a nonconforming commit message, a broad `git add` and `; git push` after a gate.
 func gitPolicyVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
 	cmd = core.DropDataHeredocs(cmd)
 	var reason string

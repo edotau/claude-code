@@ -167,8 +167,7 @@ func readOverlay(t *testing.T) map[string]json.RawMessage {
 	return doc
 }
 
-// WriteGithubCopilotModels merges opus/sonnet/haiku into providers.github.copilot.models in the user's
-// overlay, preserving every other provider entry and root key byte-for-byte.
+// WriteGithubCopilotModels merges opus/sonnet/haiku into the overlay, preserving every other entry and root key.
 func TestWriteGithubCopilotModelsMergesIntoOverlay(t *testing.T) {
 	hosttest.GithubScratch(t)
 	existing := `{"default":"gw","providers":{"anthropic":{"gw":{"protocol":"anthropic","base_url":"https://gw.example.com","auth":{"type":"none"}}},"github":{"copilot":{"protocol":"openai","base_url":"https://api.githubcopilot.com","auth":{"type":"cli","login":"copilot"}}}}}`

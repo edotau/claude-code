@@ -22,7 +22,7 @@ import (
 // docsPlacementDisableEnv disables placement checks.
 const docsPlacementDisableEnv = "HARNESS_DOCS_PLACEMENT"
 
-// rootAnchors are the root-level markdown files tooling requires there: GitHub/OSS conventions and agent instruction files.
+// rootAnchors are the root-level markdown files that tooling requires at the repo root.
 var rootAnchors = map[string]bool{
 	"readme.md": true, "claude.md": true, "agents.md": true, "gemini.md": true,
 	"license.md": true, "licence.md": true, "notice.md": true, "changelog.md": true,

@@ -184,7 +184,7 @@ func modelTitle(what, provider, profile string) string {
 // copilotSourceFn is the test seam over copilot.CopilotModelSource.
 var copilotSourceFn = copilot.CopilotModelSource
 
-// pickCopilotModel writes only the MODEL pin on the copilot record, never github-copilot's models table (opencode reads it).
+// pickCopilotModel writes only the MODEL pin on the copilot record, never github-copilot's models table.
 func pickCopilotModel(d *dialog) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	cat, serr := copilotSourceFn(ctx, d.reg, vault.GetAgentRecord("copilot").Profile) // once: Effort/Context re-show the picker without refetching

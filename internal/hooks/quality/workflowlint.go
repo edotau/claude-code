@@ -24,7 +24,7 @@ import (
 
 const workflowLintName = "inline workflow"
 
-// WorkflowResult pins unpinned inline agent() leaves, blocks on unsafe options or bad pins, and redirects by-name calls to disk.
+// WorkflowResult pins unpinned agent() leaves, blocks unsafe options or bad pins, and redirects by-name calls.
 func WorkflowResult(in *core.Input) core.Result {
 	args := in.ToolInput()["args"]
 	if script := in.Nested("tool_input", "script"); script != "" {
