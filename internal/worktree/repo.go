@@ -116,7 +116,7 @@ func resolveWorktree(ctx context.Context, repo *Repo, name string) (string, erro
 // checkWorktreeName validates name and returns its destination under repo.Root, rejecting a live checkout root.
 func checkWorktreeName(repo *Repo, name string) (string, error) {
 	if name == "" || name == "." || name == ".." || strings.ContainsAny(name, "/\\") {
-		return "", fmt.Errorf("worktree name %q is not usable", name)
+		return "", fmt.Errorf("worktree name %q is not usable: %s", name, nameRule(name))
 	}
 	dest := filepath.Join(repo.Root, name)
 	if filepath.Dir(dest) != filepath.Clean(repo.Root) {
@@ -126,6 +126,16 @@ func checkWorktreeName(repo *Repo, name string) (string, error) {
 		return "", err
 	}
 	return dest, nil
+}
+
+// nameRule states the naming rule for a refused name and, when it has a usable form, suggests it.
+func nameRule(name string) string {
+	rule := `a name must be one path segment: no "/" or "\", and not empty, "." or ".."`
+	fixed := strings.Trim(strings.NewReplacer("/", "-", `\`, "-").Replace(name), "-")
+	if fixed == "" || fixed == "." || fixed == ".." {
+		return rule
+	}
+	return fmt.Sprintf("%s; try %q", rule, fixed)
 }
 
 // rejectLiveCheckoutRoot refuses a repo.Root that is, or sits inside, repo.Main, resolving its longest EXISTING prefix.

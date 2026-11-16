@@ -91,10 +91,28 @@ func TestResolveWorktreeRejectsTraversalAndBadNames(t *testing.T) {
 	}
 }
 
+// A refused name's message states the rule and, when one exists, a usable name to retry with.
+func TestCheckWorktreeNameMessageNamesRuleAndFix(t *testing.T) {
+	t.Parallel()
+	repo := testRepo(t)
+	for name, try := range map[string]string{
+		"feat/x": `try "feat-x"`, `a\b`: `try "a-b"`, "/lead/": `try "lead"`, "": "", ".": "", "..": "", "/": "",
+	} {
+		_, err := checkWorktreeName(repo, name)
+		if err == nil || !strings.Contains(err.Error(), "one path segment") {
+			t.Errorf("name %q: err %v, want the naming rule", name, err)
+			continue
+		}
+		if got := strings.Contains(err.Error(), "try "); got != (try != "") || !strings.Contains(err.Error(), try) {
+			t.Errorf("name %q: err %v, want suggestion %q", name, err, try)
+		}
+	}
+}
+
 func TestResolveWorktreeAcceptsUnusualButSafeNames(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
-	for _, name := range []string{"has space", "dots.and.more", "unicode-éé", "UPPER-case_123"} {
+	for _, name := range []string{"has space", "dots.and.more", "unicode-éé", "UPPER-case_123", "feat-x", "..-escape"} {
 		dest, err := resolveWorktreeBounded(repo, name)
 		if err != nil {
 			t.Errorf("name %q: unexpected error %v", name, err)
