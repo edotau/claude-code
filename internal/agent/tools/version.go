@@ -25,9 +25,14 @@ const versionProbeTimeout = 5 * time.Second
 
 // FirstVersionLine is the first line of `path --version`, bounded by ctx and timeout; any error is "" (best-effort).
 func FirstVersionLine(ctx context.Context, path string, timeout time.Duration) string {
+	return firstOutputLine(ctx, path, timeout, "--version")
+}
+
+// firstOutputLine is FirstVersionLine for a tool whose version flag is not --version (go version, tmux -V).
+func firstOutputLine(ctx context.Context, path string, timeout time.Duration, arg string) string {
 	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, path, "--version")
+	cmd := exec.CommandContext(ctx, path, arg)
 	// a version probe gets no login or route credential
 	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(agent.ProbeContext(ctx, ""))
 	cmd.WaitDelay = 200 * time.Millisecond // lets stdout drain under load

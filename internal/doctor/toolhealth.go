@@ -152,3 +152,11 @@ func toolPATHVersion(ctx context.Context, path string) string {
 		return tools.FirstVersionLine(ctx, p, pathCopyVersionTimeout)
 	})
 }
+
+// depDoctorDetail renders one host tool: `<path> <version>`, or missing with its class, use and install command.
+func depDoctorDetail(s tools.DepStatus) string {
+	if s.Path != "" {
+		return strings.TrimSpace(s.Path + " " + s.Version)
+	}
+	return "missing (" + s.Class + ": " + s.Use + "); install: " + s.Fix
+}
