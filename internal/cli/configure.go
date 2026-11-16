@@ -164,7 +164,7 @@ func (o *configureOpts) wantsList() bool {
 
 func configureRun(o *configureOpts, section string, pos []string) int {
 	if section == "agents" && len(pos) >= 2 && strings.Contains(pos[1], "=") {
-		return configureRecord(pos[0], pos[1:], o.dryRun)
+		return configureRecord(pos[0], pos[1:], o.dryRun || o.check) // --check never writes
 	}
 	profile, err := configureAllProfile(o, section, pos)
 	if err != nil {
