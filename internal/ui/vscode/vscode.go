@@ -48,6 +48,7 @@ func syncSettings(template, dest, claudeHome, claudeBin string, check bool) (mer
 	if err := json.Unmarshal(textutil.StripJSONC([]byte(rendered)), &overlay); err != nil {
 		return mergeResult{}, fmt.Errorf("template: %w", err)
 	}
+	overlay = dropMissingGoPin(overlay)
 
 	if check {
 		// Read-only: --check/--dry-run must not drop a lock file beside the user's settings.
@@ -101,6 +102,28 @@ func merge(dest string, overlay map[string]any, claudeWrapper string, check bool
 	}
 	body = append(body, '\n')
 	return writeGuarded(dest, "settings", rawBase, body)
+}
+
+// goPinKey pins the Go extension's go binary; the template's ~/.local/go exists only where make installed it.
+const goPinKey = "go.alternateTools"
+
+// dropMissingGoPin returns overlay without the go.alternateTools "go" pin when that binary is not on disk.
+func dropMissingGoPin(overlay map[string]any) map[string]any {
+	tools, _ := overlay[goPinKey].(map[string]any)
+	pin, _ := tools["go"].(string)
+	if pin == "" {
+		return overlay
+	}
+	if _, err := os.Stat(paths.ExpandHome(pin)); err == nil {
+		return overlay
+	}
+	out, rest := maps.Clone(overlay), maps.Clone(tools)
+	delete(rest, "go")
+	delete(out, goPinKey)
+	if len(rest) > 0 {
+		out[goPinKey] = rest
+	}
+	return out
 }
 
 // jsonEscape returns s escaped for use inside a JSON string literal (a path may hold quotes or backslashes).

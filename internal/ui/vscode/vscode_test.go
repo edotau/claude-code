@@ -639,4 +639,32 @@ func TestSyncEscapesTemplatePaths(t *testing.T) {
 	}
 }
 
+func TestSyncPinsGoOnlyWhenPresent(t *testing.T) {
+	for _, present := range []bool{true, false} {
+		hermeticVSCode(t)
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv("USERPROFILE", home)
+		if present {
+			bin := filepath.Join(home, ".local", "go", "bin")
+			if err := os.MkdirAll(bin, 0o755); err != nil {
+				t.Fatal(err)
+			}
+			writeFile(t, filepath.Join(bin, "go"), "")
+		}
+		dest := filepath.Join(t.TempDir(), "settings.json")
+		if _, err := syncSettings("", dest, home, "/opt/bin", false); err != nil {
+			t.Fatal(err)
+		}
+		var got map[string]any
+		body, _ := os.ReadFile(dest)
+		if err := json.Unmarshal(body, &got); err != nil {
+			t.Fatal(err)
+		}
+		if _, pinned := got[goPinKey]; pinned != present || got["go.toolsEnvVars"] == nil {
+			t.Errorf("go present=%v: %s=%v, go.toolsEnvVars=%v", present, goPinKey, got[goPinKey], got["go.toolsEnvVars"])
+		}
+	}
+}
+
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
