@@ -265,6 +265,42 @@ try {
 	return runPluginNode(t, dir, body, driver, os.Environ())
 }
 
+// TestPluginPayloadCwdIsBashWorkdir: gates judge bash in its project-relative workdir, other tools in the project.
+func TestPluginPayloadCwdIsBashWorkdir(t *testing.T) {
+	dir := t.TempDir()
+	bin, seen := filepath.Join(dir, "fakecc"), filepath.Join(dir, "seen.json")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncat > "+seen+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	body, err := renderPlugin(bin, []pluginModule{{Name: "permission-gate", Matcher: "Bash|Write", BudgetMs: 5000}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, other := filepath.Join(dir, "proj"), filepath.Join(dir, "other")
+	for _, c := range []struct {
+		name, tool, args, want string
+	}{
+		{"absent", "bash", `{command: "ls"}`, project},
+		{"empty", "bash", `{command: "ls", workdir: ""}`, project},
+		{"absolute", "bash", fmt.Sprintf(`{command: "ls", workdir: %q}`, other), other},
+		{"relative", "bash", `{command: "ls", workdir: "../other"}`, other},
+		{"nested", "bash", `{command: "ls", workdir: "sub/x"}`, filepath.Join(project, "sub", "x")},
+		{"write ignores workdir", "write", fmt.Sprintf(`{filePath: "a.go", workdir: %q}`, other), project},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			driver := fmt.Sprintf(`import { ClaudeCodeHarness } from "./plugin.mjs"
+const h = await ClaudeCodeHarness({ directory: %q })
+await h["tool.execute.before"]({ tool: %q, sessionID: "s1" }, { args: %s })
+`, project, c.tool, c.args)
+			runPluginNode(t, dir, body, driver, os.Environ())
+			var doc struct{ Cwd string }
+			if data, err := os.ReadFile(seen); err != nil || json.Unmarshal(data, &doc) != nil || doc.Cwd != c.want {
+				t.Errorf("payload cwd = %q (%v), want %q", doc.Cwd, err, c.want)
+			}
+		})
+	}
+}
+
 func TestPluginMultieditRunsEditGuards(t *testing.T) {
 	deny := `{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"edit denied"}}`
 	out := regressionPluginTool(t, "multiedit", deny, pluginModules())
