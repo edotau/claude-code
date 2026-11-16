@@ -315,7 +315,7 @@ func TestWorktreeFailureKeepsExitCode(t *testing.T) {
 	t.Cleanup(func() { native["worktree-create"] = orig })
 
 	var out, errb strings.Builder
-	code := runEvent("WorktreeCreate", false, strings.NewReader(`{"hook_event_name":"WorktreeCreate","name":"x"}`), &out, &errb)
+	code := runEvent("WorktreeCreate", "", strings.NewReader(`{"hook_event_name":"WorktreeCreate","name":"x"}`), &out, &errb)
 	if code != 1 || !strings.Contains(errb.String(), "boom") || out.Len() != 0 {
 		t.Fatalf("code=%d stdout=%q stderr=%q; want exit 1, empty stdout, stderr kept", code, out.String(), errb.String())
 	}
@@ -329,8 +329,8 @@ func TestAgentPostToolUseKeepsBackgroundClaim(t *testing.T) {
 	}
 	pre := `{"hook_event_name":"PreToolUse","tool_name":"Agent","tool_use_id":"toolu_bg","tool_input":{"prompt":"x","model":"sonnet"}}`
 	post := `{"hook_event_name":"PostToolUse","tool_name":"Agent","tool_use_id":"toolu_bg","tool_response":{"status":"async_launched"}}`
-	runEvent("PreToolUse", false, strings.NewReader(pre), &bytes.Buffer{}, &bytes.Buffer{})
-	runEvent("PostToolUse", false, strings.NewReader(post), &bytes.Buffer{}, &bytes.Buffer{})
+	runEvent("PreToolUse", "", strings.NewReader(pre), &bytes.Buffer{}, &bytes.Buffer{})
+	runEvent("PostToolUse", "", strings.NewReader(post), &bytes.Buffer{}, &bytes.Buffer{})
 	if m, _ := filepath.Glob(filepath.Join(inflight.Dir(), inflight.Prefix+"*toolu_bg")); len(m) != 1 {
 		t.Fatalf("claim markers after the Agent PostToolUse = %v, want the one claimed at PreToolUse", m)
 	}
@@ -403,7 +403,7 @@ func newStopFormatFixture(t *testing.T) stopFormatFixture {
 	stop := func(id string, active bool) (int, string) {
 		p := fmt.Sprintf(`{"session_id":%q,"cwd":%q,"transcript_path":%q,"stop_hook_active":%t}`, id, repo, tr, active)
 		var out, errb bytes.Buffer
-		code := runEvent("Stop", false, strings.NewReader(p), &out, &errb)
+		code := runEvent("Stop", "", strings.NewReader(p), &out, &errb)
 		return code, errb.String() + out.String()
 	}
 	return stopFormatFixture{mine: mine, ugly: ugly, stop: stop}

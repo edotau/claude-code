@@ -1,4 +1,4 @@
-// Package hooks implements `claude-code hook <Event> [--<module>|--all]`: JSON on stdin, exit 0 = proceed, 2 = block.
+// Package hooks implements `claude-code hook <Event> [--<module>|--all|--async]`: stdin JSON; exit 2 blocks.
 package hooks
 
 import (
@@ -263,18 +263,38 @@ func unreadable(name, problem string) string {
 	return fmt.Sprintf("%s: unreadable hook payload (%s); blocked", name, problem)
 }
 
-// runEvent is `hook <Event> [--all]`: run every group once, own-process modules only when all is set.
-func runEvent(event string, all bool, stdin io.Reader, stdout, stderr io.Writer) int {
+// runEvent is `hook <Event> [--all|--async]`: every group once, own-process modules only with --all.
+func runEvent(event, flag string, stdin io.Reader, stdout, stderr io.Writer) int {
 	in := core.ParseInput(stdin)
-	applies := settings.SpecsFor(in.Agent(), "native")
+	res, _ := Dispatch(chain(Bind(), in.Agent(), flag), event, in, stderr)
+	return core.Emit(in.Agent(), event, res, stdout, stderr)
+}
+
+// chain is the bound modules one `hook <Event> [flag]` call runs for agent.
+func chain(all []Bound, agent, flag string) []Bound {
+	applies := settings.SpecsFor(agent, "native")
 	var bound []Bound
-	for _, b := range Bind() {
-		if (all || !b.Gate) && slices.ContainsFunc(applies, func(s settings.EventSpec) bool { return s.Name == b.Spec.Name }) {
+	for _, b := range all {
+		if (flag == settings.AllFlag || !b.Gate) && slices.ContainsFunc(applies, func(s settings.EventSpec) bool { return s.Name == b.Spec.Name }) {
 			bound = append(bound, b)
 		}
 	}
-	res, _ := Dispatch(bound, event, in, stderr)
-	return core.Emit(in.Agent(), event, res, stdout, stderr)
+	if flag == settings.AsyncFlag {
+		return asyncOnly(bound)
+	}
+	return bound
+}
+
+// asyncOnly is the background entry's chain: each module that has Async alternatives, matching on those alone.
+func asyncOnly(bound []Bound) []Bound {
+	var out []Bound
+	for _, b := range bound {
+		if b.Spec.Async != "" {
+			b.Spec.Matcher = b.Spec.Async
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
 // drain waits up to one longest-budget period for overrun handlers; any still running is logged and abandoned.
@@ -459,20 +479,20 @@ func specOf(name string) settings.EventSpec {
 // eventOf names the hookspec event a handler is declared on.
 func eventOf(name string) string { return specOf(name).Event }
 
-// RunArgs is `hook <Event> [--<module>|--all]`; an unknown event or module fails closed only when it reads as a guard.
+// RunArgs is `hook <Event> [--<module>|--all|--async]`; an unknown event or module fails closed if it reads as a guard.
 func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if !slices.Contains(settings.HookEvents(), event) {
 		return unknownHook(event, "unknown hook event", stderr)
 	}
 	switch {
 	case len(flags) == 0:
-		return runEvent(event, false, stdin, stdout, stderr)
-	case len(flags) == 1 && flags[0] == settings.AllFlag:
-		return runEvent(event, true, stdin, stdout, stderr)
+		return runEvent(event, "", stdin, stdout, stderr)
+	case len(flags) == 1 && (flags[0] == settings.AllFlag || flags[0] == settings.AsyncFlag):
+		return runEvent(event, flags[0], stdin, stdout, stderr)
 	case len(flags) == 1 && strings.HasPrefix(flags[0], "--"):
 		return runModule(event, strings.TrimPrefix(flags[0], "--"), stdin, stdout, stderr)
 	}
-	fmt.Fprintf(stderr, "claude-code hook %s: want no flag, --all or one --<module>, got %q\n", event, flags)
+	fmt.Fprintf(stderr, "claude-code hook %s: want no flag, --all, --async or one --<module>, got %q\n", event, flags)
 	return 1
 }
 
