@@ -34,23 +34,36 @@ const denyFeedback = "Tool use is disabled for this headless run. Answer from th
 
 // sdkOptions configures one headless run. Env carries the COPILOT_PROVIDER_* BYOK block from Schema.Configure.
 type sdkOptions struct {
-	CLIPath          string   // resolved copilot binary; empty is an error (never the SDK's bundled runtime)
-	Env              []string // KEY=VALUE BYOK block
-	KeepEnv          []string // names the credential scrub must not drop, from --keep-env
-	Model            string   // Copilot-catalog id; leave empty on BYOK (COPILOT_MODEL carries it)
-	ReasoningEffort  string
-	Context          string // ContextTier: "default" or "long_context"; empty leaves the model's own default
+	// resolved copilot binary; empty is an error (never the SDK's bundled runtime)
+	CLIPath string
+	// KEY=VALUE BYOK block
+	Env []string
+	// names the credential scrub must not drop, from --keep-env
+	KeepEnv []string
+	// Copilot-catalog id; leave empty on BYOK (COPILOT_MODEL carries it)
+	Model           string
+	ReasoningEffort string
+	// ContextTier: "default" or "long_context"; empty leaves the model's own default
+	Context          string
 	WorkingDirectory string
 	AllowAllTools    bool
-	ReadOnlyTools    bool              // with AllowAllTools: approve only file reads and URL fetches
-	Permissions      agent.Permissions // with AllowAllTools: Deny rejects; anything else falls to the tier
-	UseLoggedInUser  bool              // always explicit: unset, the SDK silently falls back to the GitHub subscription
-	GitHubToken      string
-	Autonomous       bool   // MessageOptions.AgentMode = AgentModeAutopilot
-	Fleet            bool   // experimental session.RPC.Fleet.Start instead of SendAndWait
-	EnableMemory     bool   // SessionConfig.Memory.Enabled
-	SessionID        string // non-empty resumes this session instead of creating a new one
-	System           string // system text, sent as SystemMessage in append mode (replace would drop the SDK guardrails)
+	// with AllowAllTools: approve only file reads and URL fetches
+	ReadOnlyTools bool
+	// with AllowAllTools: Deny rejects; anything else falls to the tier
+	Permissions agent.Permissions
+	// always explicit: unset, the SDK silently falls back to the GitHub subscription
+	UseLoggedInUser bool
+	GitHubToken     string
+	// MessageOptions.AgentMode = AgentModeAutopilot
+	Autonomous bool
+	// experimental session.RPC.Fleet.Start instead of SendAndWait
+	Fleet bool
+	// SessionConfig.Memory.Enabled
+	EnableMemory bool
+	// non-empty resumes this session instead of creating a new one
+	SessionID string
+	// system text, sent as SystemMessage in append mode (replace would drop the SDK guardrails)
+	System string
 	// InstructionDirs, SkillDirs and AgentDirs are the discovery roots the harness renders; missing ones are skipped.
 	InstructionDirs, SkillDirs, AgentDirs []string
 	// InlineInstructions, when set, replaces discovery of every instruction file (see sameInstructions).
@@ -69,8 +82,9 @@ type sdkResult struct {
 	Text      string
 	SessionID string
 	Model     string
-	ToolRan   bool // a tool request was approved, so the run may have side effects
-	Usage     wire.Usage
+	// a tool request was approved, so the run may have side effects
+	ToolRan bool
+	Usage   wire.Usage
 	// FinishReason is the last model call's; ContentFiltered is set if any call was blocked or truncated by a filter.
 	FinishReason    string
 	ContentFiltered bool
@@ -81,7 +95,8 @@ func buildClientOptions(ctx context.Context, o sdkOptions) (*copilot.ClientOptio
 	if strings.TrimSpace(o.CLIPath) == "" {
 		return nil, errors.New("copilot CLI path is empty (the SDK would run its bundled runtime instead)")
 	}
-	base := agent.EnvSpec{Mode: agent.EnvAgent, Keep: o.KeepEnv}.Environ(ctx) // isolation and unset ride ctx
+	// isolation and unset ride ctx
+	base := agent.EnvSpec{Mode: agent.EnvAgent, Keep: o.KeepEnv}.Environ(ctx)
 	if o.multiProvider() {
 		if err := validateRegistryOptions(o); err != nil {
 			return nil, err
@@ -90,11 +105,13 @@ func buildClientOptions(ctx context.Context, o sdkOptions) (*copilot.ClientOptio
 		o.Env = nil
 	}
 	env := append(registryEnv(base, nil, o.ChildUnset, ""), o.Env...)
-	if o.ReadOnlyTools { // applied last so neither the parent's env nor --env can re-arm a git helper
+	// applied last so neither the parent's env nor --env can re-arm a git helper
+	if o.ReadOnlyTools {
 		env = registryEnv(env, readOnlyGitEnv, nil, "GIT_")
 	}
 	recorded := env
-	if o.GitHubToken != "" { // the SDK sets it on the child itself (copilot-sdk client.go:2282)
+	// the SDK sets it on the child itself (copilot-sdk client.go:2282)
+	if o.GitHubToken != "" {
 		recorded = append(slices.Clone(env), "COPILOT_SDK_AUTH_TOKEN="+o.GitHubToken)
 	}
 	agentconfig.RecordOverlayDebug("copilot", recorded)
@@ -122,14 +139,17 @@ func buildSessionConfig(o sdkOptions) *copilot.SessionConfig {
 	}
 	cfg.SystemMessage = systemMessage(o)
 	cfg.InstructionDirectories, cfg.SkillDirectories, cfg.AgentDirectories = o.InstructionDirs, o.SkillDirs, o.AgentDirs
-	if o.InlineInstructions != "" { // sent once through the system prompt instead of being discovered twice
+	// sent once through the system prompt instead of being discovered twice
+	if o.InlineInstructions != "" {
 		cfg.SkipCustomInstructions, cfg.OrganizationCustomInstructions = new(true), &o.InlineInstructions
 		cfg.InstructionDirectories = nil
 	}
 	switch {
-	case !o.AllowAllTools: // every call is denied: send no tool schemas, skill or agent listings the model cannot use
+	// every call is denied: send no tool schemas, skill or agent listings the model cannot use
+	case !o.AllowAllTools:
 		cfg.AvailableTools, cfg.SkillDirectories, cfg.AgentDirectories = []string{}, nil, nil
-	case !o.Fleet: // a headless leaf cannot fan out: no sub-agent or workflow tools, no agent listing only `task` reads
+	// a headless leaf cannot fan out: no sub-agent or workflow tools, no agent listing only `task` reads
+	case !o.Fleet:
 		cfg.ExcludedTools, cfg.AgentDirectories = leafExcludedTools, nil
 	}
 	if o.multiProvider() {
@@ -246,11 +266,16 @@ type SDKModel struct {
 	Name            string
 	Vision          bool
 	ReasoningEffort bool
-	Multiplier      *float64 // nil when the model carries no premium billing multiplier
-	Efforts         []string // SupportedReasoningEfforts; empty when the model has none
-	DefaultEffort   string   // "" when the catalog names none
-	ContextTokens   int      // MaxContextWindowTokens; 0 when the catalog reports none
-	Enabled         bool     // Policy == nil or Policy.State == "enabled"
+	// nil when the model carries no premium billing multiplier
+	Multiplier *float64
+	// SupportedReasoningEfforts; empty when the model has none
+	Efforts []string
+	// "" when the catalog names none
+	DefaultEffort string
+	// MaxContextWindowTokens; 0 when the catalog reports none
+	ContextTokens int
+	// Policy == nil or Policy.State == "enabled"
+	Enabled bool
 }
 
 // CatalogOptions is a listing's auth: a resolved account token (catalogAuth), else "" for the CLI's own login.
@@ -317,7 +342,8 @@ func newOrResumedSession(ctx context.Context, client *copilot.Client, o sdkOptio
 			return nil, fmt.Errorf("resume session %s: %w", o.SessionID, err)
 		}
 	}
-	if o.multiProvider() { // a resumed session may carry another wire's saved model: re-pin before any turn
+	// a resumed session may carry another wire's saved model: re-pin before any turn
+	if o.multiProvider() {
 		if err := selectRegistered(ctx, session, o); err != nil {
 			return nil, errors.Join(err, session.Disconnect())
 		}
@@ -338,7 +364,8 @@ func startClient(ctx context.Context, o sdkOptions, errp *error) (*copilot.Clien
 	// SDK starts the CLI outside childCmd: ForceStop on ctx cancel kills it (direct child only, no process group)
 	stop := context.AfterFunc(ctx, client.ForceStop)
 	return client, func() {
-		if stopErr := client.Stop(); stopErr != nil { // before stop(): a cancel during Stop still force-stops
+		// before stop(): a cancel during Stop still force-stops
+		if stopErr := client.Stop(); stopErr != nil {
 			*errp = errors.Join(*errp, fmt.Errorf("stop copilot runtime: %w", stopErr))
 		}
 		stop()
@@ -375,7 +402,8 @@ func sdkAsk(ctx context.Context, o sdkOptions, prompt string, images []string) (
 	text, model, usage := col.snapshot()
 	res := sdkResult{Text: text, SessionID: session.SessionID, Model: model, ToolRan: approved.Load(), Usage: usage}
 	res.FinishReason, res.ContentFiltered = col.finish()
-	if sendErr != nil { // the partial text and session id still ride back, so a caller can hand the task off
+	// the partial text and session id still ride back, so a caller can hand the task off
+	if sendErr != nil {
 		return res, fmt.Errorf("send prompt: %w", sendErr)
 	}
 	return res, truncationError(res)
@@ -383,9 +411,10 @@ func sdkAsk(ctx context.Context, o sdkOptions, prompt string, images []string) (
 
 // assistantCollector accumulates assistant text, model and usage; events arrive on the SDK goroutine, hence the mutex.
 type assistantCollector struct {
-	mu      sync.Mutex
-	text    strings.Builder
-	summary string // the task_complete summary: some models answer only there, with empty message content
+	mu   sync.Mutex
+	text strings.Builder
+	// the task_complete summary: some models answer only there, with empty message content
+	summary string
 	model   string
 	usage   wire.Usage
 	finishR string
@@ -397,7 +426,8 @@ func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
 	defer c.mu.Unlock()
 	switch d := ev.Data.(type) {
 	case *copilot.AssistantMessageData:
-		if strings.TrimSpace(d.Content) != "" { // each event is a whole message, not a delta: keep turns apart
+		// each event is a whole message, not a delta: keep turns apart
+		if strings.TrimSpace(d.Content) != "" {
 			if c.text.Len() > 0 {
 				c.text.WriteString("\n\n")
 			}
@@ -459,7 +489,8 @@ func (c *assistantCollector) snapshot() (text, model string, usage wire.Usage) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	text, summary := strings.TrimSpace(c.text.String()), strings.TrimSpace(c.summary)
-	if summary != "" && !strings.Contains(text, summary) { // the answer may sit only in task_complete, after a preamble
+	// the answer may sit only in task_complete, after a preamble
+	if summary != "" && !strings.Contains(text, summary) {
 		text = strings.TrimSpace(text + "\n\n" + summary)
 	}
 	return text, c.model, c.usage
@@ -593,7 +624,8 @@ func selectRegistered(ctx context.Context, session *copilot.Session, o sdkOption
 	switch {
 	case err == nil:
 		return nil
-	case errors.As(err, &rpcErr): // the runtime answered and refused the id; transport and ctx failures keep their own error
+	// the runtime answered and refused the id; transport and ctx failures keep their own error
+	case errors.As(err, &rpcErr):
 		return fmt.Errorf("%w: select %s: %w", errUnregisteredPick, o.Model, err)
 	default:
 		return fmt.Errorf("select %s: %w", o.Model, err)

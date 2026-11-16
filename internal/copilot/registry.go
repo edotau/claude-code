@@ -50,9 +50,10 @@ func StubRegistry(tok string, ids ...string) (restore func()) {
 type copilotRegistryRoute struct {
 	providers []copilotRegistryProvider
 	models    []copilotRegistryModel
-	ref       string // the selected provider/id
-	token     string
-	home      copilotPrivateHome
+	// the selected provider/id
+	ref   string
+	token string
+	home  copilotPrivateHome
 }
 
 // prepareCopilotRegistry discovers what t's profile serves, selects t.Model and mints a token for this process.
@@ -91,7 +92,8 @@ func prepareCopilotRegistry(ctx context.Context, t providers.Target) (*copilotRe
 func selectTargetModel(ctx context.Context, reg *providers.Registry, t providers.Target, eps []CopilotEndpoint,
 	base string,
 ) (copilotRegistry, string, error) {
-	var requested []string // empty stays nil so the pin or default applies
+	// empty stays nil so the pin or default applies
+	var requested []string
 	if m := models.Strip1M(t.Model); m != "" {
 		requested = []string{m}
 	}
@@ -126,16 +128,20 @@ type copilotRegistryProvider struct {
 	Type    string
 	WireAPI string
 	BaseURL string
-	Bearer  bool // credential goes in bearerToken, else apiKey
+	// credential goes in bearerToken, else apiKey
+	Bearer  bool
 	Headers map[string]string
 }
 
 // copilotRegistryModel is one selectable entry; the CLI selects it as Provider + "/" + ID.
 type copilotRegistryModel struct {
-	ID                     string // canonical
-	Provider               string
-	WireModel              string // the Databricks endpoint id
-	ModelID                string // copilot's catalog form, so its per-model settings apply
+	// canonical
+	ID       string
+	Provider string
+	// the Databricks endpoint id
+	WireModel string
+	// copilot's catalog form, so its per-model settings apply
+	ModelID                string
 	Name                   string
 	MaxPromptTokens        int
 	MaxContextWindowTokens int
@@ -147,7 +153,8 @@ type copilotRegistry struct {
 	Profile   string
 	Providers []copilotRegistryProvider
 	Models    []copilotRegistryModel
-	Note      string // one line naming the endpoints dropped because the profile has no route for them; "" when none
+	// one line naming the endpoints dropped because the profile has no route for them; "" when none
+	Note string
 }
 
 // Ref is the CLI's selection string for m.
@@ -183,7 +190,8 @@ func copilotBuildRegistry(profile string, p *providers.Provider, eps []CopilotEn
 		}
 		window, output := copilotCaps(providers.Window(p, ep.ID), ep.ID)
 		r.Models = append(r.Models, copilotRegistryModel{
-			ID: canonical, Provider: name, WireModel: ep.ID, ModelID: wellKnownModel(canonical), Name: ep.ID, // the full endpoint name, so the picker shows it is Databricks
+			// the full endpoint name, so the picker shows it is Databricks
+			ID: canonical, Provider: name, WireModel: ep.ID, ModelID: wellKnownModel(canonical), Name: ep.ID,
 			MaxPromptTokens: models.PromptTokens(window, output), MaxContextWindowTokens: window, MaxOutputTokens: output,
 		})
 	}
@@ -343,7 +351,8 @@ func copilotCaps(window int, id string) (ctx, output int) {
 	if !ok {
 		return ctx, output
 	}
-	if l.Context > 0 { // catalog limits only lower the gated window and the output cap, never raise them
+	// catalog limits only lower the gated window and the output cap, never raise them
+	if l.Context > 0 {
 		ctx = min(ctx, l.Context)
 	}
 	if l.Output > 0 {
@@ -432,7 +441,8 @@ func configureCopilotRegistry(
 		return agent.RegistryLaunch{}, err
 	}
 	file, files, token, err := registryFile(ctx, r, p.Name, os.Getpid(), dry)
-	revoke := func() { // a launch that never minted a token is a no-op
+	// a launch that never minted a token is a no-op
+	revoke := func() {
 		if token != "" {
 			_ = revokeSession(context.Background(), token)
 		}
@@ -458,7 +468,7 @@ func configureCopilotRegistry(
 	}, nil
 }
 
-// routedModels is each requested --model as the resolver spells it on p; one typed for another row is dropped (gate moved).
+// routedModels maps each requested --model to p's spelling; a model typed for another row is dropped.
 func routedModels(ctx context.Context, reg *providers.Registry, p *providers.Provider, requested []string) ([]string, error) {
 	var out []string
 	for _, m := range requested {
@@ -567,7 +577,8 @@ func copilotSelect(ctx context.Context, reg *providers.Registry, p *providers.Pr
 	base string, c modelChoice,
 ) (copilotRegistry, string, error) {
 	routed := *p
-	routed.Headers = map[string]string{gateway.AgentHeader: "copilot"} // the router adds the provider's own headers upstream
+	// the router adds the provider's own headers upstream
+	routed.Headers = map[string]string{gateway.AgentHeader: "copilot"}
 	if id := providers.IdentityFrom(ctx); id != "" {
 		routed.Headers[gateway.IdentityHeader] = id
 	}

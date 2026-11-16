@@ -14,7 +14,8 @@ func TestMarkCooling(t *testing.T) {
 	for _, step := range []struct {
 		name       string
 		until, now time.Time
-		want       time.Time // CoolingUntil after the step; zero = no hold stored
+		// CoolingUntil after the step; zero = no hold stored
+		want time.Time
 	}{
 		{"first hold", now.Add(30 * time.Second), now, now.Add(30 * time.Second)},
 		{"shorter ignored", now.Add(10 * time.Second), now, now.Add(30 * time.Second)},

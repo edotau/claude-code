@@ -16,8 +16,9 @@ import (
 
 // opencodeTools maps a rule's tool to opencode's permission key; pathed tools take path patterns.
 var opencodeTools = map[string]struct {
-	key   string
-	args  bool // the tool's patterns carry an argument (a command, path or subagent name)
+	key string
+	// the tool's patterns carry an argument (a command, path or subagent name)
+	args  bool
 	pathy bool
 }{
 	"Bash": {"bash", true, false}, "Edit": {"edit", true, true}, "Write": {"edit", true, true},
@@ -110,7 +111,8 @@ func writeEntries(b *bytes.Buffer, list []opencodeEntry) {
 }
 
 func quote(s string) string {
-	out, _ := json.Marshal(s) // a string always marshals
+	// a string always marshals
+	out, _ := json.Marshal(s)
 	return string(out)
 }
 
@@ -141,8 +143,7 @@ func opencodeRule(r agent.Rule, action string) (key string, patterns []string, e
 	return t.key, opencodePaths(arg, action), nil
 }
 
-// opencodePaths spells a path pattern the ways opencode may see it: it matches the project-relative path, which is
-// the absolute path minus its slash outside a git project, so a deny on a relative path also covers "*/arg".
+// opencodePaths spells a pattern project-relative (absolute minus its slash outside git), so "*/arg" too.
 func opencodePaths(arg, action string) []string {
 	switch {
 	case strings.HasPrefix(arg, "/"):
@@ -153,7 +154,7 @@ func opencodePaths(arg, action string) []string {
 	return []string{arg}
 }
 
-// opencodeRuleOrList is opencodeRule, but the read-only shell rules become the list's heads (the plugin judges exactly).
+// opencodeRuleOrList is opencodeRule, but read-only shell rules become the list's heads (the plugin judges exactly).
 func opencodeRuleOrList(r agent.Rule, action string) (string, []string, error) {
 	switch {
 	case r == agent.ReadOnlyAllow:

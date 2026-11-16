@@ -26,7 +26,8 @@ var servedListing = func(profile string, now time.Time) (Served, bool) {
 		return Served{}, false
 	}
 	s, ok := LoadServed(profile)
-	return s, ok && s.Fresh(now) && len(s.Models) > 0 // an empty listing proves nothing: read it as cold
+	// an empty listing proves nothing: read it as cold
+	return s, ok && s.Fresh(now) && len(s.Models) > 0
 }
 
 // servedKey is the spelling a model is marked and looked up under: the one the agents request from p.
@@ -74,11 +75,13 @@ func ServedListed(p *providers.Provider, model string, now time.Time) (listed, r
 
 // SpellServed is SpellPin, but a bare unlisted id is databricks-<id> where p's fresh listing has that READY.
 func SpellServed(p *providers.Provider, id string, now time.Time) string {
-	id = models.Strip1M(id) // the [1m] marker never decides the spelling
+	// the [1m] marker never decides the spelling
+	id = models.Strip1M(id)
 	wire := providers.SpellPin(p, id)
 	if p == nil || p.SpellingRule() != "databricks-serving" || wire != id || strings.ContainsAny(id, "/:") ||
 		strings.HasPrefix(id, models.DatabricksPrefix) {
-		return wire // a catalog id SpellPin already prefixed, or one already qualified
+		// a catalog id SpellPin already prefixed, or one already qualified
+		return wire
 	}
 	if exactReady(p, models.DatabricksPrefix+id, now) {
 		return models.DatabricksPrefix + id
@@ -237,7 +240,8 @@ func SaveServed(s Served, keep ...func(cur Served) bool) error {
 		return os.ErrInvalid
 	}
 	s.Schema = servedSchema
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil { // before the lock, which creates it world-readable
+	// before the lock, which creates it world-readable
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
 	return paths.WithFileLock(path, func() error {
@@ -253,9 +257,11 @@ func SaveServed(s Served, keep ...func(cur Served) bool) error {
 // Has reports whether the listing serves pin as a READY endpoint; ready is false for a listed but unready one.
 func (s Served) Has(p *providers.Provider, pin string) (listed, ready bool) {
 	pin = strings.TrimSpace(pin)
-	want := p.WireModel(models.Strip1M(pin)) // the spelling the agents request (providers.SpellPin)
+	// the spelling the agents request (providers.SpellPin)
+	want := p.WireModel(models.Strip1M(pin))
 	for _, m := range s.Models {
-		if m.ID == want || m.ID == models.DatabricksPrefix+want { // runtime prefixes a bare id the listing names databricks-<id>
+		// runtime prefixes a bare id the listing names databricks-<id>
+		if m.ID == want || m.ID == models.DatabricksPrefix+want {
 			return true, m.Ready == "" || m.Ready == "READY"
 		}
 	}

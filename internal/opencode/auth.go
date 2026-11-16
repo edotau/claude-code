@@ -24,12 +24,18 @@ import (
 
 // OpencodeConn is one stored or environment-backed opencode connection; it never carries a credential value.
 type OpencodeConn struct {
-	Kind      string // "credential" | "env"
-	ID        string // 2.x credential ID; 1.x = integration ID
-	Label     string // 2.x label; 1.x "OAuth" | "API key"; env = variable name
-	Method    string // "oauth" | "key" | "external" | ""
-	Active    bool   // set only when 2.x JSON carries it; never guessed
-	NeedsAuth string // connection status message when status == "needs_auth"
+	// "credential" | "env"
+	Kind string
+	// 2.x credential ID; 1.x = integration ID
+	ID string
+	// 2.x label; 1.x "OAuth" | "API key"; env = variable name
+	Label string
+	// "oauth" | "key" | "external" | ""
+	Method string
+	// set only when 2.x JSON carries it; never guessed
+	Active bool
+	// connection status message when status == "needs_auth"
+	NeedsAuth string
 }
 
 // OpencodeIntegration is one opencode integration (provider) and its connections.
@@ -44,7 +50,8 @@ var opencodeOutput = func(ctx context.Context, args ...string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	login := "opencode" // `auth list` reports OPENCODE_API_KEY from env; `--version` needs no login
+	// `auth list` reports OPENCODE_API_KEY from env; `--version` needs no login
+	login := "opencode"
 	if len(args) > 0 && args[0] == "--version" {
 		login = ""
 	}
@@ -52,16 +59,18 @@ var opencodeOutput = func(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 var (
-	opencodeMu        sync.Mutex
-	opencodeMajorKey  string
-	opencodeMajorVal  int
-	opencodeMajorSet  bool
-	opencodeAuthKey   string
-	opencodeAuthVal   []OpencodeIntegration
-	opencodeAuthErr   error
-	opencodeAuthAt    time.Time // when a failed probe was stored; it is retried after opencodeAuthRetry
+	opencodeMu       sync.Mutex
+	opencodeMajorKey string
+	opencodeMajorVal int
+	opencodeMajorSet bool
+	opencodeAuthKey  string
+	opencodeAuthVal  []OpencodeIntegration
+	opencodeAuthErr  error
+	// when a failed probe was stored; it is retried after opencodeAuthRetry
+	opencodeAuthAt    time.Time
 	opencodeAuthIsSet bool
-	opencodeAuthGen   int // bumped by InvalidateOpencodeAuth so an in-flight probe cannot store a stale answer
+	// bumped by InvalidateOpencodeAuth so an in-flight probe cannot store a stale answer
+	opencodeAuthGen int
 )
 
 // opencodeAuthRetry is how long a failed `auth list` is reused, so callers in one menu pass spawn it once.
@@ -94,7 +103,8 @@ func opencodeMajor() (int, error) {
 		return opencodeMajorVal, nil
 	}
 	opencodeMu.Unlock()
-	path, _ := paths.AgentBin("opencode") // "" when absent: the probe reports why
+	// "" when absent: the probe reports why
+	path, _ := paths.AgentBin("opencode")
 	var perr error
 	line := tools.ProbedVersionLine(path, func(string) string {
 		ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
@@ -142,7 +152,8 @@ func OpencodeAuth() ([]OpencodeIntegration, error) {
 		ints, err = opencodeAuthWithFallback(bin, file)
 	} else {
 		ints, err = opencodeAuthV1(file)
-		if merr != nil && bin != "" { // version unknown, so these 1.x files may not be the login store
+		// version unknown, so these 1.x files may not be the login store
+		if merr != nil && bin != "" {
 			return ints, errors.Join(merr, err)
 		}
 	}
@@ -424,7 +435,8 @@ func opencodeAuthV2Cached(bin string) ([]OpencodeIntegration, error) {
 	}
 	ints, err := opencodeAuthV2()
 	if err == nil && cacheable {
-		_ = updateOpencodeDiskCache(func(c *opencodeDiskCache) { c.Auth = &opencodeDiskAuth{Bin: bin, DB: db, Integrations: ints} }) // best effort
+		// best effort
+		_ = updateOpencodeDiskCache(func(c *opencodeDiskCache) { c.Auth = &opencodeDiskAuth{Bin: bin, DB: db, Integrations: ints} })
 	}
 	return ints, err
 }

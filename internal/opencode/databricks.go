@@ -10,8 +10,8 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// opencodeDatabricks splits the menu across chat, Responses (GPT-6 rejects chat tools) and native Anthropic providers.
-func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred string, routed bool, env []string) ([]string, error) { // env already holds the key
+// opencodeDatabricks splits the menu over chat, Responses (GPT-6 rejects chat tools) and Anthropic providers.
+func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred string, routed bool, env []string) ([]string, error) {
 	chatBase, respBase, claudeBase, err := databricksRoutes(p, dialect, base, routed)
 	if err != nil {
 		return nil, err
@@ -47,7 +47,8 @@ func opencodeDatabricks(p *providers.Provider, id, dialect, base, model, cred st
 
 // databricksRoutes is p's chat, Responses and Claude base URLs (the last "" when p has no Anthropic route).
 func databricksRoutes(p *providers.Provider, dialect, base string, routed bool) (chatBase, respBase, claudeBase string, err error) {
-	chatBase, _ = p.Route(providers.ProtocolOpenAI) // Route resolves relative routes and the preset's Protocol/BaseURL
+	// Route resolves relative routes and the preset's Protocol/BaseURL
+	chatBase, _ = p.Route(providers.ProtocolOpenAI)
 	respBase, _ = p.Route(providers.ProtocolResponses)
 	if r, ok := p.Route(providers.ProtocolAnthropic); ok {
 		claudeBase = r + "/v1"
@@ -55,7 +56,8 @@ func databricksRoutes(p *providers.Provider, dialect, base string, routed bool) 
 	if respBase == "" {
 		return "", "", "", fmt.Errorf("opencode: provider %s lacks a responses route", p.Name)
 	}
-	if routed { // base is the session base plus the dialect suffix routerRoute added
+	// base is the session base plus the dialect suffix routerRoute added
+	if routed {
 		sfx := row.CLI.RouterSuffix
 		sess := strings.TrimSuffix(base, sfx[dialect])
 		chatBase, respBase, claudeBase = sess+sfx[providers.ProtocolOpenAI], sess+sfx[providers.ProtocolResponses], sess+sfx[providers.ProtocolAnthropic]+"/v1"
@@ -96,7 +98,8 @@ func defaultProviderID(p *providers.Provider, id, model string, claudeRoute bool
 	if !allowed[model] {
 		return "", fmt.Errorf("opencode: model %q is not on the %s menu; see `claude-code opencode catalog list --live` or `claude-code opencode catalog add`", model, p.Name)
 	}
-	if claudeRoute && models.FamilyKind(model) == models.FamilyClaude { // an alias off the curated menu
+	// an alias off the curated menu
+	if claudeRoute && models.FamilyKind(model) == models.FamilyClaude {
 		claude[model] = claudeEntry(map[string]any{"name": model})
 		return id + "-claude", nil
 	}
@@ -107,7 +110,7 @@ func defaultProviderID(p *providers.Provider, id, model string, claudeRoute bool
 	return id, nil
 }
 
-// splitMenu sorts the menu over the chat, Responses and Claude providers by wire; dropped are labels p has no route for.
+// splitMenu sorts the menu over the chat, Responses and Claude providers by wire, dropping labels p has no route for.
 func splitMenu(p *providers.Provider, claudeRoute bool) (chat, resp, claude map[string]any, allowed map[string]bool, dropped []string) {
 	chat, resp, claude, allowed = map[string]any{}, map[string]any{}, map[string]any{}, map[string]bool{}
 	menu, err := providers.OpencodeMenuFor(p)
@@ -115,7 +118,8 @@ func splitMenu(p *providers.Provider, claudeRoute bool) (chat, resp, claude map[
 		fmt.Fprintln(agentconfig.CatalogWarn, "opencode:", err)
 	}
 	for _, m := range menu {
-		wire := agentconfig.MenuWire(p, m.ID) // the catalog spells the id the way this row serves it
+		// the catalog spells the id the way this row serves it
+		wire := agentconfig.MenuWire(p, m.ID)
 		allowed[wire] = true
 		entry := map[string]any{"name": m.Label + " · " + p.Name}
 		switch {
@@ -124,7 +128,8 @@ func splitMenu(p *providers.Provider, claudeRoute bool) (chat, resp, claude map[
 		case claudeRoute && models.FamilyKind(m.ID) == models.FamilyClaude:
 			claude[wire] = claudeEntry(entry)
 		default:
-			if _, ok, _ := providers.WireFor(p, wire); !ok { // no openai route: the chat endpoint would 404
+			// no openai route: the chat endpoint would 404
+			if _, ok, _ := providers.WireFor(p, wire); !ok {
 				dropped = append(dropped, m.Label)
 				continue
 			}

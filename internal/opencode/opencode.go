@@ -85,7 +85,8 @@ func opencodeProviderOptions(p *providers.Provider, dialect, base, cred string) 
 }
 
 func opencodeDisableToolStreaming(menu map[string]any) {
-	for id, m := range menu { // the router cannot relay fine-grained tool streaming
+	// the router cannot relay fine-grained tool streaming
+	for id, m := range menu {
 		if entry, ok := m.(map[string]any); ok {
 			menu[id] = claudeEntry(entry)
 		}
@@ -108,7 +109,8 @@ func opencodeDatabricksLaunch(p *providers.Provider, id, dialect, base, model, c
 		return denv, nil, nil
 	}
 	if !h.Tools {
-		denv = append(denv, opencodePermissionEnv+`="deny"`) // an inherited value would override the tools-off deny
+		// an inherited value would override the tools-off deny
+		denv = append(denv, opencodePermissionEnv+`="deny"`)
 	}
 	return denv, opencodeArgv(opencodeDatabricksModel(denv), *h), nil
 }
@@ -125,7 +127,8 @@ func interactivePlugin(h *agent.Headless) (string, error) {
 func opencodeHarnessWith(h *agent.Headless, url string) func(map[string]any) {
 	return func(cfg map[string]any) {
 		if m, _ := cfg["model"].(string); m != "" {
-			cfg["small_model"] = m // else the overlay file's table cell (title calls) leaves this profile
+			// else the overlay file's table cell (title calls) leaves this profile
+			cfg["small_model"] = m
 		}
 		opencodeRulesOn(cfg)
 		opencodeCommandsOn(cfg)
@@ -161,7 +164,8 @@ func opencodeModels(p *providers.Provider, model string, h *agent.Headless) map[
 			}
 		}
 		if p.Provider == "github" {
-			return menu // Saved history must not re-enable a disabled Copilot model.
+			// Saved history must not re-enable a disabled Copilot model.
+			return menu
 		}
 		saved, err := providers.PickerModels(p)
 		if err != nil {
@@ -178,9 +182,11 @@ func opencodeModels(p *providers.Provider, model string, h *agent.Headless) map[
 
 // opencodeToolsOff is the tools-off config: every tool denied and every MCP server the overlay configures disabled.
 func opencodeToolsOff(cfg map[string]any) {
-	cfg["permission"] = "deny" // every tool, incl. task subagents and websearch — parity with claude --tools ""
+	// every tool, incl. task subagents and websearch — parity with claude --tools ""
+	cfg["permission"] = "deny"
 	if mcp := opencodeMCPOff(); len(mcp) > 0 {
-		cfg["mcp"] = mcp // opencode starts every MCP server even when no tool can run (~9 s for chrome-devtools)
+		// opencode starts every MCP server even when no tool can run (~9 s for chrome-devtools)
+		cfg["mcp"] = mcp
 	}
 }
 
@@ -207,7 +213,8 @@ func opencodeMCPOff() map[string]any {
 func opencodeRun(model string, h agent.Headless) (env, argv []string) {
 	if !h.Tools {
 		env, _ = mutateOpencodeConfigEnv(nil, true, opencodeToolsOff)
-		env = append(env, opencodePermissionEnv+`="deny"`) // pin it: an inherited value would override the tools-off deny
+		// pin it: an inherited value would override the tools-off deny
+		env = append(env, opencodePermissionEnv+`="deny"`)
 	}
 	return env, opencodeArgv(model, h)
 }
@@ -224,7 +231,8 @@ func opencodeArgv(model string, h agent.Headless) []string {
 	if h.SessionID != "" {
 		argv = append(argv, "--session", h.SessionID)
 	} else {
-		argv = append(argv, "--title", opencodeTitle(h.Prompt)) // an explicit title skips opencode's extra title-model call
+		// an explicit title skips opencode's extra title-model call
+		argv = append(argv, "--title", opencodeTitle(h.Prompt))
 	}
 	if h.Effort != "" {
 		argv = append(argv, "--variant", h.Effort)
@@ -309,7 +317,8 @@ func aliasModelID(reg *providers.Registry, p *providers.Provider, alias string) 
 	if spec == "" {
 		return ""
 	}
-	return opencodeModel(p, p.WireModel(providers.ParseTarget(reg, spec, p).Model)) // a cross-provider pin is respelled for p
+	// a cross-provider pin is respelled for p
+	return opencodeModel(p, p.WireModel(providers.ParseTarget(reg, spec, p).Model))
 }
 
 // opencodeModel swaps Copilot's "auto" router id (absent from opencode's catalog) for p.OpencodeFallback.
@@ -370,7 +379,8 @@ func mutateConfigJSON(body string, lenient bool, fn func(map[string]any)) (strin
 	if err := json.Unmarshal([]byte(body), &cfg); err != nil && !lenient {
 		return "", err
 	}
-	if cfg == nil { // unreadable (lenient) or JSON null
+	// unreadable (lenient) or JSON null
+	if cfg == nil {
 		cfg = map[string]any{}
 	}
 	fn(cfg)
@@ -457,7 +467,8 @@ func opencodeChild(ctx context.Context, name, bin string, env, argv []string, pr
 	host := newHookHost(req)
 	env = withHostedMarker(env, host)
 	if plugged {
-		host.dropPlugin() // the plugin blocks for real; the host's copies would double-run them
+		// the plugin blocks for real; the host's copies would double-run them
+		host.dropPlugin()
 	}
 	argv, err = host.before(argv, prompt)
 	if err != nil {
@@ -480,7 +491,8 @@ func (opencodeEngine) Login(_ context.Context, p *providers.Provider, model stri
 	if !OpencodeCopilotLoginPresent() {
 		return nil, nil, errors.New("opencode: no GitHub Copilot login in opencode's stored logins; run `opencode auth login` and choose GitHub Copilot")
 	}
-	if h == nil { // interactive runs plain on its own login; headless pins -m
+	// interactive runs plain on its own login; headless pins -m
+	if h == nil {
 		return nil, nil, agent.ErrOwnLogin
 	}
 	env, argv = opencodeRun("github-copilot/"+opencodeModel(p, model), *h)
@@ -533,7 +545,8 @@ func (opencodeEngine) PreRoute(_ context.Context, reg *providers.Registry, expli
 	if explicit {
 		return providers.Target{}, "", false, nil
 	}
-	if OpencodeOwnLoginPresent() { // opencode's own Go/Zen credential: launch plain on its own config
+	// opencode's own Go/Zen credential: launch plain on its own config
+	if OpencodeOwnLoginPresent() {
 		return providers.Target{}, "", true, agent.ErrOwnLogin
 	}
 	if gt, gnote, ok := opencodeCopilotTarget(reg); ok {
@@ -550,7 +563,8 @@ func (e opencodeEngine) NoRoute(ctx context.Context, reg *providers.Registry, _ 
 func (opencodeEngine) LaunchEnv() []string {
 	env, err := opencodeCredential("opencode")
 	var missing missingCredError
-	if err != nil && !errors.As(err, &missing) { // no login and no key is the Databricks-pinned norm, not news
+	// no login and no key is the Databricks-pinned norm, not news
+	if err != nil && !errors.As(err, &missing) {
 		fmt.Fprintln(agent.NoticeOut, "opencode:", err)
 	}
 	cfg, tui, err := agentconfig.WriteOpencodeOverlay()
@@ -576,9 +590,11 @@ func (opencodeEngine) OwnLogin(_ context.Context, h agent.Headless) (env, argv [
 	}
 	env, argv = opencodeRun("", h)
 	if cred, err := opencodeCredential("opencode"); err == nil {
-		env = append(env, cred...) // the vault key when opencode stores no login of its own
+		// the vault key when opencode stores no login of its own
+		env = append(env, cred...)
 	}
-	return env, argv, nil // prepare's RenderSettings adds the launch env
+	// prepare's RenderSettings adds the launch env
+	return env, argv, nil
 }
 
 func (opencodeEngine) Render(_ context.Context, _ *providers.Registry, _ providers.Selection, _ string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
@@ -645,10 +661,12 @@ func opencodeCredential(prefix string) (env []string, err error) {
 	if key != "" {
 		return []string{opencodeAPIKeyEnv + "=" + key}, nil
 	}
-	if verr != nil { // a locked or corrupt vault is not "no key"
+	// a locked or corrupt vault is not "no key"
+	if verr != nil {
 		return nil, fmt.Errorf("opencode: %s could not be read from the vault: %w", opencodeAPIKeyEnv, verr)
 	}
-	if lerr != nil { // a failed probe is not "no login": say so rather than sending the user to re-login
+	// a failed probe is not "no login": say so rather than sending the user to re-login
+	if lerr != nil {
 		return nil, fmt.Errorf("opencode logins could not be read: %w", lerr)
 	}
 	if id == "opencode" {
@@ -685,7 +703,8 @@ func ownLoginKeep(_ bool, err error) time.Duration {
 // ownLoginKey is the auth state and key env an OpencodeOwnLoginPresent answer was computed under.
 type ownLoginKey struct{ key, env string }
 
-var ownLogin paths.Memo[ownLoginKey, bool] // InvalidateOpencodeAuth drops it; a probe in flight then is not kept
+// InvalidateOpencodeAuth drops it; a probe in flight then is not kept
+var ownLogin paths.Memo[ownLoginKey, bool]
 
 // OpencodeOwnLoginPresent checks stored Go/Zen login or vault key, reusing the answer for ownLoginTTL.
 func OpencodeOwnLoginPresent() bool {
@@ -694,7 +713,8 @@ func OpencodeOwnLoginPresent() bool {
 		func() (bool, error) {
 			_, err := opencodeCredential("opencode-go")
 			if err != nil && !errors.As(err, new(missingCredError)) {
-				return false, err // an unreadable login or vault is not an answer: do not keep it
+				// an unreadable login or vault is not an answer: do not keep it
+				return false, err
 			}
 			return err == nil, nil
 		})

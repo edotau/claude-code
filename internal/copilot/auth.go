@@ -31,9 +31,11 @@ var copilotTokenEnvs = []string{providers.CopilotTokenEnv, "GH_TOKEN", "GITHUB_T
 
 // copilotAuth is the GitHub identity copilot authenticates as and where its credential comes from.
 type copilotAuth struct {
-	Account string // GitHub login; "" when it needs a network lookup the caller skipped, or that failed
-	Source  string // srcPinned, srcActive, an env var name, or srcCopilot
-	token   string
+	// GitHub login; "" when it needs a network lookup the caller skipped, or that failed
+	Account string
+	// srcPinned, srcActive, an env var name, or srcCopilot
+	Source string
+	token  string
 }
 
 // Credential sources, highest first; the gh ones resolve a token at launch with `gh auth token [-u]`.
@@ -55,7 +57,8 @@ func copilotPinLoginErr() (string, error) {
 // copilotAuthSource (offline): pinned gh login, stored token, gh active, env token, copilot login; none if no registry.
 func copilotAuthSource() (copilotAuth, bool) {
 	a, ok, err := copilotAuthSourceErr()
-	return a, ok && err == nil // an unreadable registry may hide a pin, so no other account is used
+	// an unreadable registry may hide a pin, so no other account is used
+	return a, ok && err == nil
 }
 
 // copilotAuthSourceErr is copilotAuthSource plus the registry load error; for display, a load error falls through.
@@ -66,11 +69,13 @@ func copilotAuthSourceErr() (copilotAuth, bool, error) {
 }
 
 func authSourceFor(pin string) (copilotAuth, bool) {
-	if pin != "" { // a pinned profile with no login falls through to gh's active account
+	// a pinned profile with no login falls through to gh's active account
+	if pin != "" {
 		if slices.Contains(GHAccounts(), pin) {
 			return copilotAuth{Account: pin, Source: srcPinned}, true
 		}
-		return copilotAuth{}, false // a pinned account that can't be used never falls back to another one
+		// a pinned account that can't be used never falls back to another one
+		return copilotAuth{}, false
 	}
 	if tok, src, ok := vault.Get(providers.CopilotTokenEnv); ok && src != "env" {
 		return copilotAuth{Source: SrcStoredToken, token: strings.TrimSpace(tok)}, true
@@ -107,7 +112,8 @@ func copilotLaunchTokenFor(login string) (string, error) {
 
 // launchAuth is the account a launch runs on: login's gh account, else the pin's; ok false = copilot's own credential.
 func launchAuth(login string) (copilotAuth, bool, error) {
-	if login != "" { // an explicit --profile <github row> runs on that row's gh login, never the record's or a stored token
+	// an explicit --profile <github row> runs on that row's gh login, never the record's or a stored token
+	if login != "" {
 		a, ok := authSourceFor(login)
 		if !ok {
 			return a, false, fmt.Errorf("copilot: GitHub user %s is not logged in to gh; run `gh auth login`", login)
@@ -120,7 +126,8 @@ func launchAuth(login string) (copilotAuth, bool, error) {
 			"account (launch refused): %w", err)
 	}
 	a, ok := authSourceFor(pin)
-	if !ok && pin != "" { // the harness fails rather than run on another account
+	// the harness fails rather than run on another account
+	if !ok && pin != "" {
 		return a, false, fmt.Errorf("copilot: pinned GitHub user %s is not logged in to gh; run `claude-code configure "+
 			"github` (no other account is used)", pin)
 	}
@@ -149,7 +156,8 @@ func copilotUsedPct(ctx context.Context, login string) (float64, bool) {
 		e = router.LoadState()[key]
 	}
 	if now.Sub(e.Seen) > router.StaleAfter {
-		return 0, false // a recent check found no reading: unverified, as when that refresh failed
+		// a recent check found no reading: unverified, as when that refresh failed
+		return 0, false
 	}
 	return e.UsedPct, true
 }
@@ -319,7 +327,8 @@ func ghLookup(path string) (ghActive, error) {
 	}
 	out, err := ghAuthToken()
 	if err != nil {
-		return ghActive{}, err // hosts.yml names a user but gh has no usable token for it
+		// hosts.yml names a user but gh has no usable token for it
+		return ghActive{}, err
 	}
 	// Overrides can make the default token differ from the named account's token; retain the original lookup.
 	a := ghActive{account: string(m[1])}
@@ -354,8 +363,10 @@ func keepAuth(v string, _ error) time.Duration {
 }
 
 var (
-	gitHubLoginMemo paths.Memo[string, string] // keyed by the token's sha256, never the token
-	ghTokenMemo     paths.Memo[string, string] // keyed by account plus gh's environment and hosts.yml stamp
+	// keyed by the token's sha256, never the token
+	gitHubLoginMemo paths.Memo[string, string]
+	// keyed by account plus gh's environment and hosts.yml stamp
+	ghTokenMemo paths.Memo[string, string]
 )
 
 // GitHubLogin asks api.github.com/user who token belongs to (memoized per token); "" on any failure.
@@ -438,7 +449,8 @@ func GHToken(account string) string {
 func copilotToken(a copilotAuth) (tok, how string) {
 	how, tok = a.Source, a.token
 	if a.Source == srcPinned || a.Source == srcActive {
-		how = "gh auth token" // gh's active token came from the plain command
+		// gh's active token came from the plain command
+		how = "gh auth token"
 		if a.Source != srcActive || tok == "" {
 			how, tok = "gh auth token -u "+a.Account, GHToken(a.Account)
 		}

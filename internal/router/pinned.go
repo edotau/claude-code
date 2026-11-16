@@ -93,8 +93,7 @@ func unserved(p *providers.Provider, m string, now time.Time) bool {
 	return fresh && !ready
 }
 
-// pinnedModel resolves pins, swaps a freshly unready alias pick for a READY model (never an explicit pin), and
-// reports Discovery fallback reasons.
+// pinnedModel resolves pins, swaps an unready alias pick for a READY model (never an explicit pin).
 func pinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin string, now time.Time) (string, string) {
 	if modelPin == DiscoveryModel {
 		return discoveryPinnedModel(agent, alias, cell, p, now)

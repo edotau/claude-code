@@ -55,9 +55,7 @@ func TestOpencodeRulesOnUsesPortableCoreWithoutClaudeMD(t *testing.T) {
 	}
 }
 
-// TestPrepareDefersOpencodeOverlayWrite: PrepareConfigs validates and reports drift without writing the
-// overlay files; only Apply (the staged write queue) puts them on disk. opencode.jsonc retirement is
-// gone — opencode owns ~/.config/opencode/opencode.jsonc now, the harness never reads or moves it.
+// PrepareConfigs reports drift without writing overlay files; only Apply writes them.
 func TestPrepareDefersOpencodeOverlayWrite(t *testing.T) {
 	home := agenttest.Scratch(t)
 	overlayPath := filepath.Join(paths.StateDir(), "opencode", "opencode.json")
@@ -80,9 +78,7 @@ func TestPrepareDefersOpencodeOverlayWrite(t *testing.T) {
 	}
 }
 
-// TestOpenCodeTUISeedsSystemThemeAndKeepsUserTheme: the overlay's tui.json lands at state/harness/opencode
-// (never opencode's own ~/.config/opencode) with the template's default theme (gemini-plum); a theme
-// `theme apply` already wrote into the on-disk file survives a later render untouched and drift-free.
+// The overlay tui.json lands under state/harness/opencode and keeps a theme written by `theme apply`.
 func TestOpenCodeTUISeedsSystemThemeAndKeepsUserTheme(t *testing.T) {
 	home := agenttest.Scratch(t)
 	path := filepath.Join(paths.StateDir(), "opencode", "tui.json")
@@ -96,9 +92,7 @@ func TestOpenCodeTUISeedsSystemThemeAndKeepsUserTheme(t *testing.T) {
 	}
 	agenttest.AssertNotExist(t, "opencode's own ~/.config/opencode/tui.json must not be written", filepath.Join(home, ".config", "opencode", "tui.json"))
 
-	// Swap only the theme value in the rendered file (as `theme apply` would), keeping the template's own
-	// formatting: preserveAppliedTheme re-renders onto the template, so only a theme-field edit round-trips
-	// byte-identical; a reformat or keybind edit would (correctly) show as drift.
+	// Swap only the theme value: only a theme-field edit round-trips byte-identical without drift.
 	edited := strings.Replace(string(raw), `"gemini-plum"`, `"tokyonight"`, 1)
 	if edited == string(raw) {
 		t.Fatal("tamper anchor not found")

@@ -46,7 +46,8 @@ var (
 func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
 	ctx = agent.DirectCtx(ctx, req)
 	cs := copilotSchema()
-	t, _, err := cs.TargetCtx(ctx, req) // copilot never resolves its own login: every target has a provider
+	// copilot never resolves its own login: every target has a provider
+	t, _, err := cs.TargetCtx(ctx, req)
 	if err != nil {
 		return wire.Result{}, err
 	}
@@ -55,7 +56,8 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 		return res, err
 	}
 	opts, env, done, err := e.options(ctx, cs, req, t)
-	defer done() // done is never nil, so an error path still releases a registry route
+	// done is never nil, so an error path still releases a registry route
+	defer done()
 	if err != nil {
 		return res, err
 	}
@@ -69,13 +71,15 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 	if err != nil {
 		lg.Emit("error", err.Error())
 		if quotaHandoffEligible(t, err) {
-			res.Usage = out.Usage // tokens the exhausted run spent still count
+			// tokens the exhausted run spent still count
+			res.Usage = out.Usage
 			res.Model = cmp.Or(out.Model, res.Model)
 			return copilotQuotaHandoff(req, res, out.SessionID, out.Text, err, runCredentials(opts, env, req))
 		}
 		return copilotPartial(res, out, err, sink)
 	}
-	lg.Emit("assistant", out.Text) // the SDK returns the whole text, so one line per run
+	// the SDK returns the whole text, so one line per run
+	lg.Emit("assistant", out.Text)
 	res.Model = cmp.Or(out.Model, res.Model)
 	res.SessionID, res.Answer, res.Usage = out.SessionID, out.Text, out.Usage
 	if strings.TrimSpace(out.Text) == "" {
@@ -114,7 +118,8 @@ func quotaHandoffEligible(t providers.Target, err error) bool {
 func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.RunOptions, t providers.Target,
 ) (opts sdkOptions, env []string, done func(), err error) {
 	done = func() {}
-	st, err := agent.ResolveSettings("copilot", req, t, true) // headless: a bad stored record fails before any route
+	// headless: a bad stored record fails before any route
+	st, err := agent.ResolveSettings("copilot", req, t, true)
 	if err != nil {
 		return opts, nil, done, copilotFatal(err)
 	}
@@ -150,7 +155,8 @@ func routeOptions(opts *sdkOptions, route *copilotRegistryRoute, env []string, r
 	if err := agent.CheckRouteNames(slices.Concat(opts.Env, opts.ChildEnv), req.OverlaySet, req.OverlayUnset); err != nil {
 		return copilotFatal(err)
 	}
-	opts.Env = append(opts.Env, req.Env...) // --env goes last so it wins
+	// --env goes last so it wins
+	opts.Env = append(opts.Env, req.Env...)
 	applyCopilotToken(opts, env)
 	return nil
 }
@@ -185,24 +191,28 @@ func (e copilotEngine) routeEnv(ctx context.Context, cs agent.Schema, req agent.
 func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Settings) (sdkOptions, error) {
 	var model string
 	if t := s.Target; t.Provider != nil && t.Provider.Auth.Login != "" {
-		model = models.WireOrOriginal("dotted", models.Strip1M(t.Model)) // no BYOK block: the catalog id itself, [1m] dropped
+		// no BYOK block: the catalog id itself, [1m] dropped
+		model = models.WireOrOriginal("dotted", models.Strip1M(t.Model))
 	}
 	workDir := req.WorkDir
 	if workDir == "" {
-		var err error // relToWorkDir needs a non-empty root
+		// relToWorkDir needs a non-empty root
+		var err error
 		if workDir, err = os.Getwd(); err != nil {
 			return sdkOptions{}, fmt.Errorf("resolve working directory: %w", err)
 		}
 	}
 	o := sdkOptions{
 		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model,
-		ReasoningEffort: s.Effort, // --effort over the record; there is no per-call --context, so the record decides it
+		// --effort over the record; there is no per-call --context, so the record decides it
+		ReasoningEffort: s.Effort,
 		Context:         s.Record.Context, WorkingDirectory: workDir,
 		AllowAllTools: req.Tools, ReadOnlyTools: req.ReadOnly, Permissions: req.Permissions, UseLoggedInUser: true, Autonomous: req.Autonomous, Fleet: req.Fleet, EnableMemory: req.EnableMemory,
 		SessionID: req.SessionID,
 		System:    strings.TrimSpace(req.SystemPrompt + "\n\n" + req.AppendSystemPrompt),
 	}
-	if home, err := paths.CopilotHome(); err == nil { // the dirs the harness renders under the copilot home
+	// the dirs the harness renders under the copilot home
+	if home, err := paths.CopilotHome(); err == nil {
 		o.InstructionDirs = existingDirs(home)
 		o.SkillDirs = existingDirs(filepath.Join(home, "skills"))
 		o.AgentDirs = existingDirs(filepath.Join(home, "agents"))
@@ -283,7 +293,8 @@ var copilotAsk = sdkAsk
 
 // applyCopilotToken puts the harness account's env token on the SDK's token field.
 func applyCopilotToken(opts *sdkOptions, env []string) {
-	for _, kv := range env { // the harness's chosen account rides the SDK's own token field, not the stored login
+	// the harness's chosen account rides the SDK's own token field, not the stored login
+	for _, kv := range env {
 		if tok, ok := strings.CutPrefix(kv, providers.CopilotTokenEnv+"="); ok && tok != "" {
 			opts.GitHubToken, opts.UseLoggedInUser = tok, false
 		}
@@ -375,7 +386,8 @@ func (e copilotEngine) GateExplicit(ctx context.Context, req agent.RunOptions, r
 		return t, note, &retry.Error{Kind: retry.KindQuota, Agent: e.Name(), Err: errors.New(note)}
 	}
 	if tier := resumeAlias(reg, req.Model); err == nil && t.Provider != from && t.Provider.Preset == providers.PresetDatabricks && tierModel(t.Provider, tier) != "" {
-		t.Model = tierModel(t.Provider, tier) // the fallback serves the requested tier, not its default opus
+		// the fallback serves the requested tier, not its default opus
+		t.Model = tierModel(t.Provider, tier)
 	}
 	return t, note, err
 }
@@ -465,7 +477,8 @@ var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 	ResumeFormat: "copilot --resume %s", ModelsProvider: "github", ReadNeedsTools: true,
 	LoginArgv:     []string{"copilot", "login"},
 	ConfigureHint: "run `claude-code configure github` (Copilot) or set an Anthropic key",
-	Extras:        map[string][]string{extraDefaultPermissionMode: nil}, // the CLI's own mode names, not validated here
+	// the CLI's own mode names, not validated here
+	Extras: map[string][]string{extraDefaultPermissionMode: nil},
 }}
 
 // Seams for the mid-dispatch quota hand-off; tests replace them.

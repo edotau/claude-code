@@ -85,7 +85,7 @@ export const ClaudeCodeHarness = async ({ directory }) => ({
       if (reason) throw new Error(reason)
     }
   },
-  // session.idle -> hook Stop --memory-update (async, one in flight per session); session.deleted / instance disposed -> hook SessionEnd --memory-end.
+  // session.idle runs Stop --memory-update (async, one per session); session.deleted runs SessionEnd --memory-end.
   event: async ({ event }) => {
     if (HOSTED) return // the headless host fires Stop/SessionEnd itself
     const sid = event.properties?.sessionID ?? event.properties?.info?.id
@@ -170,7 +170,8 @@ func writePlugin() (string, error) {
 		return "", fmt.Errorf("opencode plugin: %w", err)
 	}
 	now := time.Now()
-	_ = os.Chtimes(dest, now, now) // stamp it: WriteIfChanged keeps an identical file's mtime
+	// stamp it: WriteIfChanged keeps an identical file's mtime
+	_ = os.Chtimes(dest, now, now)
 	prunePlugins(dest, now.Add(-pluginGrace))
 	return "file://" + filepath.ToSlash(dest), nil
 }
@@ -183,14 +184,16 @@ func prunePlugins(keep string, cutoff time.Time) {
 	old, _ := filepath.Glob(filepath.Join(filepath.Dir(keep), "harness-hooks-*.js"))
 	for _, f := range old {
 		if info, err := os.Stat(f); f != keep && err == nil && info.ModTime().Before(cutoff) {
-			_ = os.Remove(f) // a racing prune or a file opencode still holds is fine to leave
+			// a racing prune or a file opencode still holds is fine to leave
+			_ = os.Remove(f)
 		}
 	}
 }
 
 // opencodeApplyPlugin adds the harness plugin to a tools-on, non --pure run's config; plugged reports the injection.
 func opencodeApplyPlugin(env []string, req agent.RunOptions) (out []string, plugged bool, err error) {
-	if !req.Tools || req.SafeMode { // --pure loads no external plugin
+	// --pure loads no external plugin
+	if !req.Tools || req.SafeMode {
 		return env, false, nil
 	}
 	url, err := writePlugin()

@@ -17,7 +17,8 @@ func databricksResponses(ctx context.Context, reg *providers.Registry, now time.
 	if !ok {
 		return "", "", false
 	}
-	if first, fresh := ServedFirst(p, true, now); fresh { // a fresh listing proves what the workspace serves
+	// a fresh listing proves what the workspace serves
+	if first, fresh := ServedFirst(p, true, now); fresh {
 		if first == "" {
 			return "", "", false
 		}
@@ -131,12 +132,14 @@ func (t *RouteTable) gateRow(
 	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
 	scratch := &PickResult{Alias: res.Alias, Want: res.Want}
-	if quiet && model == DiscoveryModel { // a sibling row is not dispatched to: resolve its pool model without stamping
+	// a sibling row is not dispatched to: resolve its pool model without stamping
+	if quiet && model == DiscoveryModel {
 		model = peekDiscovery(agent, pg.reg.Providers[prof], now)
 	}
 	g := t.gateProfile(ctx, pg.reg, alias, agent, prof, model, "", st, o, now, configured, scratch)
 	for _, sk := range scratch.Skipped {
-		if !quiet || sk.Gate == GateExhausted || sk.Gate == GateAuth { // a quiet row reports only real account state
+		// a quiet row reports only real account state
+		if !quiet || sk.Gate == GateExhausted || sk.Gate == GateAuth {
 			sk.Reason = strings.Replace(sk.Reason, "pinned profile ", "profile ", 1)
 			res.Skipped = append(res.Skipped, sk)
 		}
@@ -198,7 +201,8 @@ func (t *RouteTable) gateArm(
 	own := ownRows(pg.reg, agent)
 	armPinSkip(agent, spec.Profile, arm, own, res)
 	if agent == "claude" {
-		o.CanServe = nil // Serves covers external agents only; claude runs on the workspace and its own login
+		// Serves covers external agents only; claude runs on the workspace and its own login
+		o.CanServe = nil
 	}
 	var group []Candidate
 	if agent != "gemini" || geminiRow(pg.reg, arm) {
@@ -226,7 +230,8 @@ func armPinSkip(agent, pin, arm string, own []string, res *PickResult) {
 	if pin == "" || pin == arm || slices.Contains(own, pin) || (agent == "opencode" && pin == ArmOpencodeSub) {
 		return
 	}
-	label := agent + "·" + pin // an opencode sub id is no registry row
+	// an opencode sub id is no registry row
+	label := agent + "·" + pin
 	if agent != "opencode" || !slices.Contains(providers.RouteOpencodeSubIDs, pin) {
 		label = skipLabel(Candidate{Agent: agent, Account: ProviderAccount(pin)})
 	}
@@ -388,7 +393,8 @@ func (t *RouteTable) gateBase(
 		group = append(group, t.gateVendor(ctx, pg, alias, agent, group, st, o, now, configured, res)...)
 	} else {
 		group = t.gateAgent(ctx, alias, agent, st, o, now, configured, res)
-		if agent == "gemini" && spec.Model != "" { // native agy login: the GEMINI_MODEL pin beats the table cell
+		// native agy login: the GEMINI_MODEL pin beats the table cell
+		if agent == "gemini" && spec.Model != "" {
 			for i := range group {
 				group[i].Model = spec.Model
 			}

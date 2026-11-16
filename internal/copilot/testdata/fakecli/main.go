@@ -38,7 +38,8 @@ func serve(in io.Reader, out io.Writer) {
 			Params json.RawMessage `json:"params"`
 		}
 		if json.Unmarshal(body, &req) != nil || req.Method == "" || len(req.ID) == 0 {
-			continue // a response or notification: nothing to answer
+			// a response or notification: nothing to answer
+			continue
 		}
 		fmt.Fprintf(rec, "%s %s\n", req.Method, req.Params)
 		res, errMsg := reply(req.Method, req.Params, known)
@@ -46,7 +47,8 @@ func serve(in io.Reader, out io.Writer) {
 			send(map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32000, "message": errMsg}})
 			continue
 		}
-		if req.Method == "session.sendAndWait" { // the turn's events precede the result naming its idle event
+		// the turn's events precede the result naming its idle event
+		if req.Method == "session.sendAndWait" {
 			res["completionEventId"] = sendTurn(send, req.Params)
 		}
 		send(map[string]any{"jsonrpc": "2.0", "id": req.ID, "result": res})

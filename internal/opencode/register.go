@@ -24,7 +24,8 @@ var row = agent.Schema{Name: "opencode", CLI: agent.CLI{
 	Binary: "opencode", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolGemini, providers.ProtocolOpenAI},
 	RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolGemini: "/" + providers.ProtocolGemini,
 		providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI, providers.ProtocolResponses: "/" + providers.ProtocolResponses},
-	MaxVersion: "1.x", MaxReason: "2.x broke the harness opencode route", // keep in step with opencodeMaxMajor in internal/agent/tools/install.go
+	// keep in step with opencodeMaxMajor in internal/agent/tools/install.go
+	MaxVersion: "1.x", MaxReason: "2.x broke the harness opencode route",
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, ReadOnly: agent.Emulated, Autonomous: agent.Native, SafeMode: agent.Native, Direct: agent.Native, Env: agent.Native,
 		SystemPrompt: agent.Native, Permissions: agent.Native, AppendSystemPrompt: agent.Emulated, OutputSchema: agent.Emulated, Persona: agent.Emulated},
@@ -60,13 +61,15 @@ func opencodeRouteDetail(ctx context.Context, reg *providers.Registry, sel provi
 	own := OpencodeOwnLoginPresent()
 	opencodeLogin := own || OpencodeCopilotLoginPresent()
 	copilotCLILogin := agent.SchemaFor("copilot").LoginPresent()
-	pin, err := agent.PinnedProfile(ctx, "opencode") // a pinned profile is what a launch uses, as cli.go does
+	// a pinned profile is what a launch uses, as cli.go does
+	pin, err := agent.PinnedProfile(ctx, "opencode")
 	switch {
 	case err != nil:
 		selErr = err
 	case pin != "":
 		sel, selErr = providers.Select(reg, pin)
-	case own: // opencode's own Go/Zen credential serves the routed opencode dispatches, whatever the session provider
+	// opencode's own Go/Zen credential serves the routed opencode dispatches, whatever the session provider
+	case own:
 		return fmt.Sprintf("provider=opencode-go dispatch=%s opencode_login=true copilot_cli_login=%v", agent.RouteOwnLogin, copilotCLILogin)
 	}
 	if selErr != nil {
@@ -76,7 +79,8 @@ func opencodeRouteDetail(ctx context.Context, reg *providers.Registry, sel provi
 	if err != nil || target.Provider == nil {
 		return fmt.Sprintf("opencode_login=%v copilot_cli_login=%v (%v)", opencodeLogin, copilotCLILogin, errText(err))
 	}
-	file := filepath.Join(paths.StateDir(), "opencode", "opencode.json") // the overlay, not opencode's own config
+	// the overlay, not opencode's own config
+	file := filepath.Join(paths.StateDir(), "opencode", "opencode.json")
 	if target.Provider.Provider != "github" {
 		return fmt.Sprintf("provider=%s file=%s opencode_login=%v copilot_cli_login=%v", target.Provider.Name, file, opencodeLogin, copilotCLILogin)
 	}

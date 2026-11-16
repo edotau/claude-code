@@ -110,7 +110,8 @@ func TestSkipDiscoveryReportsNothingWhenSkipNotPersisted(t *testing.T) {
 
 func TestSkipDiscoveryReportsPersistenceFailure(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if err := os.MkdirAll(StatePath(), 0o700); err != nil { // a directory where quota.json belongs: reads fail
+	// a directory where quota.json belongs: reads fail
+	if err := os.MkdirAll(StatePath(), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	var got string

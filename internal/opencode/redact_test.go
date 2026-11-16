@@ -41,8 +41,7 @@ func TestRedactConfig(t *testing.T) {
 	}
 }
 
-// TestRedactConfigProviderOptionsHeaders: provider.<name>.options.headers values must be blanked even
-// with no "mcp" section in the config at all (opencode's headless/BYOK configs carry no mcp key).
+// provider.<name>.options.headers values are blanked even with no "mcp" section, as headless/BYOK configs have none.
 func TestRedactConfigProviderOptionsHeaders(t *testing.T) {
 	in := map[string]any{"provider": map[string]any{
 		"x": map[string]any{"options": map[string]any{"headers": map[string]any{"h": "sk-abc123"}}},
@@ -96,13 +95,13 @@ func TestRedactConfigNonSecretFields(t *testing.T) {
 	}
 }
 
-// redactConfig must blank a secret-naming .command flag's value (bare or "=" form) and a .url's whole query
-// string, while leaving non-secret flags, the bare command name, and the flag names themselves intact.
+// redactConfig blanks a secret-naming .command flag value and a .url query, keeping other flags intact.
 func TestRedactConfigCommandAndURL(t *testing.T) {
 	in := map[string]any{"mcp": map[string]any{
 		"x": map[string]any{"command": []any{"srv", "--api-key", "SECRET1", "--token=SECRET2", "--verbose", "--private-key=-----BEGIN\nSECRET4\n-----END"}},
 		"y": map[string]any{"url": "https://h/p?token=SECRET3"},
-		"z": map[string]any{"url": "https://u:SECRET5@${HOST}/mcp?token=SECRET6"}, // net/url rejects the template
+		// net/url rejects the template
+		"z": map[string]any{"url": "https://u:SECRET5@${HOST}/mcp?token=SECRET6"},
 	}}
 	b, err := json.Marshal(in)
 	if err != nil {

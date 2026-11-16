@@ -19,9 +19,9 @@ import (
 
 func testTable(t *testing.T) *RouteTable {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // scratch vault: never the real pins or logins
-	// a bare table.json load carries no registry, so set the defaults.json-shaped opencode free-tier
-	// policy explicitly: zen-free may serve sonnet/haiku, same as production's merged registry.
+	// scratch vault: never the real pins or logins
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	// A bare table.json load has no registry, so set the opencode free-tier policy: zen-free may serve sonnet/haiku.
 	reg := &providers.Registry{Routing: providers.Routing{Opencode: providers.OpencodeRouting{FreeTiers: &[]string{"sonnet", "haiku"}}}}
 	tb, err := LoadFrom(reg, "work-user")
 	if err != nil {
@@ -152,7 +152,8 @@ func pick(tb *RouteTable, alias, want string, st State, mode string) PickResult 
 // pickRepo is pick with the work-repo answer pinned, so the opencode sub-pick's free gate is deterministic.
 func pickRepo(tb *RouteTable, alias string, st State, work bool) PickResult {
 	if len(tb.OpencodeLadder) == 0 {
-		tb.OpencodeLadder = []string{"opencode-go", "github-copilot", "openai"} // defaults.json order; LoadFrom(nil) has none
+		// defaults.json order; LoadFrom(nil) has none
+		tb.OpencodeLadder = []string{"opencode-go", "github-copilot", "openai"}
 	}
 	return tb.Pick(context.Background(), alias, "", st, PickOpts{Fallback: FallbackAgents, Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return work }})
@@ -232,7 +233,8 @@ func TestPickTwoDimOrderingAndLowLast(t *testing.T) {
 		"google·antigravity": {UsedPct: 60, Seen: now0},
 		"opencode·go":        {UsedPct: 20, Seen: now0},
 	}
-	r := pickRepo(tb, "sonnet", st, true) // work repo: no free dispatch, so opencode lands on its Go account
+	// work repo: no free dispatch, so opencode lands on its Go account
+	r := pickRepo(tb, "sonnet", st, true)
 	if got := runners(r); got != "codex,opencode,copilot,gemini" {
 		t.Errorf("order = %s (scores %+v)", got, r.Candidates)
 	}
@@ -252,14 +254,13 @@ func TestPickTwoDimOrderingAndLowLast(t *testing.T) {
 	}
 }
 
-// TestPriceDimCheaperCreditsOutranksAtEqualHeadroom checks that between two credits-billed candidates
-// with equal headroom (both unseen accounts), the cheaper blended price scores higher and so outranks
-// the pricier one in the composite total.
+// Between two credits-billed candidates at equal headroom, the cheaper blended price outranks the pricier.
 func TestPriceDimCheaperCreditsOutranksAtEqualHeadroom(t *testing.T) {
 	tb := testTable(t)
 	cheap := Candidate{Agent: "codex", Billing: BillCredits, Account: "openai·chatgpt", Price: Price{In: 1, Out: 1}}
 	pricey := Candidate{Agent: "gemini", Billing: BillCredits, Account: "google·antigravity", Price: Price{In: 4, Out: 4}}
-	st := State{} // both accounts unseen: headroom ties at 0.5 for each
+	// both accounts unseen: headroom ties at 0.5 for each
+	st := State{}
 	scored := tb.score([]Candidate{cheap, pricey}, st, time.Time{})
 	a, b := scored[0], scored[1]
 	if a.Scores["headroom"] != b.Scores["headroom"] {
@@ -273,10 +274,7 @@ func TestPriceDimCheaperCreditsOutranksAtEqualHeadroom(t *testing.T) {
 	}
 }
 
-// TestPickOpencodeGithubCopilotOverrideHeadroomUnknown checks an opencode override to github-copilot bills
-// opencode·github-copilot (not the pinned gh user's github·<user> key) and, with no remembered state for
-// that never-seen account, reads as StateUnknown with headroom 0.5 — never conflated with the copilot row's
-// own account state.
+// An opencode override to github-copilot bills opencode·github-copilot, not the gh user's key, at headroom 0.5.
 func TestPickOpencodeGithubCopilotOverrideHeadroomUnknown(t *testing.T) {
 	reg := &providers.Registry{
 		Routing: providers.Routing{Cells: map[string]map[string]providers.RouteCell{"opencode": {"sonnet": {Model: "github-copilot/kimi-k3"}}}},
@@ -334,8 +332,7 @@ func TestStateRoundTripScopedToConfigDir(t *testing.T) {
 // TestMain runs in the hermetic host (hosttest): a test must never read the developer's vault pins.
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
-// A refresh that records nothing stamps the account checked: the next pick inside StaleAfter skips the fetch and the
-// account still reads unknown; past the TTL the pick fetches again, each account once.
+// A refresh recording nothing stamps the account checked: picks inside StaleAfter skip the fetch.
 func TestPickBacksOffAfterNoDataRefresh(t *testing.T) {
 	tb := testTable(t)
 	at := now0
@@ -376,7 +373,7 @@ func TestPickBacksOffAfterNoDataRefresh(t *testing.T) {
 	}
 }
 
-// A refresh that writes nothing (lock busy, caller's deadline) still runs once per account per pick, never again serially.
+// A refresh that writes nothing (lock busy, deadline) still runs once per account per pick, never serially.
 func TestPickRefreshesEachAccountOnce(t *testing.T) {
 	tb := testTable(t)
 	var mu sync.Mutex
@@ -418,8 +415,7 @@ func TestPickSkipTextForDeactivatedAgent(t *testing.T) {
 	}
 }
 
-// TestArmPickWantedClaudeFallsThrough: inside the route a wanted claude leads tier 1, the other agents follow on
-// databricks·dev, then the first-party logins in ladder order (its own subscription last, under all and agents).
+// Inside the route a wanted claude leads tier 1, then other agents on databricks·dev, then first-party logins.
 func TestArmPickWantedClaudeFallsThrough(t *testing.T) {
 	wantTier2 := []string{"copilot/github·copilot", "codex/openai·chatgpt", "gemini/google·antigravity",
 		"opencode/opencode·go", "claude/anthropic·ultra"}
@@ -445,13 +441,13 @@ func TestArmPickWantedClaudeFallsThrough(t *testing.T) {
 	}
 }
 
-// TestIsWorkRepoMarkers exercises the gitRemoteURLs seam directly: multiple remotes, no remotes, and a
-// seam error (fail-closed).
+// Exercises the gitRemoteURLs seam directly: multiple remotes, no remotes, and a seam error that fails closed.
 func TestIsWorkRepoMarkers(t *testing.T) {
 	orig := gitRemoteURLs
 	t.Cleanup(func() { gitRemoteURLs = orig })
 	origMarkers := workRepoMarkers
-	workRepoMarkers = func() ([]string, error) { return []string{"git.corp.example", "corp-widgets"}, nil } // test-only stand-in markers
+	// test-only stand-in markers
+	workRepoMarkers = func() ([]string, error) { return []string{"git.corp.example", "corp-widgets"}, nil }
 	t.Cleanup(func() { workRepoMarkers = origMarkers })
 	cases := []struct {
 		name string
@@ -471,7 +467,8 @@ func TestIsWorkRepoMarkers(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			gitRemoteURLs = func(string) ([]string, error) { return c.urls, c.err }
-			dir := t.TempDir() // a real repo, so rev-parse --git-dir succeeds and the seam stub above is reached
+			// a real repo, so rev-parse --git-dir succeeds and the seam stub above is reached
+			dir := t.TempDir()
 			routeRunGit(t, dir, "init", "-q")
 			if got := IsWorkRepo(dir); got != c.want {
 				t.Errorf("IsWorkRepo() = %v, want %v (urls=%v, err=%v)", got, c.want, c.urls, c.err)
@@ -480,8 +477,7 @@ func TestIsWorkRepoMarkers(t *testing.T) {
 	}
 }
 
-// TestIsWorkRepoMarkersLoadErrorFailsClosed checks a workRepoMarkers load error (the registry itself,
-// not the git seam) makes IsWorkRepo report true — never fail open on the free gate.
+// A workRepoMarkers load error makes IsWorkRepo report true, never failing open on the free gate.
 func TestIsWorkRepoMarkersLoadErrorFailsClosed(t *testing.T) {
 	origMarkers := workRepoMarkers
 	workRepoMarkers = func() ([]string, error) { return nil, errors.New("vault: locked") }
@@ -493,8 +489,7 @@ func TestIsWorkRepoMarkersLoadErrorFailsClosed(t *testing.T) {
 	}
 }
 
-// TestIsWorkRepoEmptyMarkersIsPersonal checks no markers configured (and no load error) reports personal
-// with no git call at all — zen-free stays allowed when the owner has never set a work-repo marker.
+// With no markers configured IsWorkRepo reports personal without a git call, so zen-free stays allowed.
 func TestIsWorkRepoEmptyMarkersIsPersonal(t *testing.T) {
 	origMarkers := workRepoMarkers
 	workRepoMarkers = func() ([]string, error) { return nil, nil }
@@ -518,11 +513,11 @@ func routeRunGit(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// TestIsWorkRepoRealGitRemotes exercises IsWorkRepo end to end against real scratch git repos (no seam
-// stub), so the actual `git remote -v` parsing in gitRemoteURLs is proven, not just the stub above.
+// Runs IsWorkRepo against real scratch git repos so gitRemoteURLs' `git remote -v` parsing is proven.
 func TestIsWorkRepoRealGitRemotes(t *testing.T) {
 	origMarkers := workRepoMarkers
-	workRepoMarkers = func() ([]string, error) { return []string{"git.corp.example", "corp-widgets"}, nil } // test-only stand-in markers
+	// test-only stand-in markers
+	workRepoMarkers = func() ([]string, error) { return []string{"git.corp.example", "corp-widgets"}, nil }
 	t.Cleanup(func() { workRepoMarkers = origMarkers })
 	t.Run("personal origin plus corp upstream is work", func(t *testing.T) {
 		dir := t.TempDir()
@@ -623,8 +618,7 @@ func opencodeCands(r PickResult) []Candidate {
 	return out
 }
 
-// TestOpencodeSubPickAdjacentBackupOnPersonalRepo: the free winner carries its paid backup right after
-// it, both at the front of the pick — score/sort must never separate the pair.
+// The free winner carries its paid backup right after it; score and sort must never separate the pair.
 func TestOpencodeSubPickAdjacentBackupOnPersonalRepo(t *testing.T) {
 	r := pickRepo(testTable(t), "sonnet", State{}, false)
 	oc := opencodeCands(r)
@@ -642,8 +636,7 @@ func TestOpencodeSubPickAdjacentBackupOnPersonalRepo(t *testing.T) {
 	}
 }
 
-// TestOpencodeSubPickZenFreeExhaustedFallsToGoAlone: an exhausted zen-free account drops out of the sub-pick
-// entirely — opencode·go wins alone, with no backup pair (there is nothing left to pair it with).
+// An exhausted zen-free account drops out of the sub-pick, so opencode·go wins alone with no backup pair.
 func TestOpencodeSubPickZenFreeExhaustedFallsToGoAlone(t *testing.T) {
 	st := State{"opencode·zen-free": {UsedPct: 100, Seen: now0, ExhaustedUntil: now0.Add(time.Hour)}}
 	r := pickRepo(testTable(t), "sonnet", st, false)
@@ -670,8 +663,7 @@ func denyOpencode(agent string, _ Cell) error {
 	return nil
 }
 
-// TestOpencodeSubPickNoLoginSkipsAndChainContinues: with no opencode login at all, every sub-candidate is
-// skipped not-configured and the outer chain still produces other runners' candidates.
+// With no opencode login every sub-candidate is skipped and the outer chain still yields other candidates.
 func TestOpencodeSubPickNoLoginSkipsAndChainContinues(t *testing.T) {
 	tb := testTable(t)
 	tb.OpencodeLadder = []string{"opencode-go", "github-copilot", "openai"}
@@ -694,9 +686,7 @@ func TestOpencodeSubPickNoLoginSkipsAndChainContinues(t *testing.T) {
 	}
 }
 
-// TestFreeTierOKGateBlocksSonnetAllowsHaiku checks the FreeTierOK gate directly: a registry that only
-// enables zen-free at haiku must block the free dispatch at sonnet (falling to the paid opencode·go dispatch) while
-// still serving the free dispatch at haiku.
+// A registry enabling zen-free only at haiku blocks the free dispatch at sonnet and serves it at haiku.
 func TestFreeTierOKGateBlocksSonnetAllowsHaiku(t *testing.T) {
 	reg := &providers.Registry{Routing: providers.Routing{Opencode: providers.OpencodeRouting{FreeTiers: &[]string{"haiku"}}}}
 	tb, err := LoadFrom(reg, "work-user")
@@ -713,11 +703,11 @@ func TestFreeTierOKGateBlocksSonnetAllowsHaiku(t *testing.T) {
 	}
 }
 
-// TestOpencodeSubPickOverlayReorderRespected: an overlay that reorders opencodeLadder changes which paid
-// backend rides as the free winner's backup — the free dispatch itself still always leads.
+// An overlay reordering opencodeLadder changes which paid backend backs the free winner, which still always leads.
 func TestOpencodeSubPickOverlayReorderRespected(t *testing.T) {
 	tb := testTable(t)
-	tb.OpencodeLadder = []string{"github-copilot", "opencode-go", "openai"} // overlay: copilot ahead of Go
+	// overlay: copilot ahead of Go
+	tb.OpencodeLadder = []string{"github-copilot", "opencode-go", "openai"}
 	r := tb.Pick(context.Background(), "sonnet", "", State{}, PickOpts{Fallback: FallbackAgents, Configured: allConfigured,
 		Now: func() time.Time { return now0 }, WorkRepo: func() bool { return false }})
 	oc := opencodeCands(r)

@@ -23,8 +23,10 @@ const (
 	GateAvailable = "available"
 	gateAccount   = "account"
 	GateExhausted = "exhausted"
-	gateFree      = "free" // a free opencode sub-candidate blocked at opus or on a work repo
-	GateOff       = "off"  // the agent is deactivated (no profile set)
+	// a free opencode sub-candidate blocked at opus or on a work repo
+	gateFree = "free"
+	// the agent is deactivated (no profile set)
+	GateOff = "off"
 )
 
 // Candidate is one runnable dispatch: the agent, its cell at the alias, its account's state and its composite score.
@@ -74,7 +76,8 @@ type PickOpts struct {
 	CodexModel func(providers.Target) providers.Target
 	// Lead is the profile the wanted agent leads with (coworkers: the session's or an override); "" = its pin leads.
 	Lead string
-	dry  bool // refreshStale's collecting pass: must write nothing (no Discovery rotation)
+	// refreshStale's collecting pass: must write nothing (no Discovery rotation)
+	dry bool
 }
 
 func (o PickOpts) canServe(agent string, p *providers.Provider) bool {
@@ -295,9 +298,11 @@ func AskedWorkspace(ctx context.Context, cand Candidate, want string) bool {
 		return false
 	}
 	if arm := ArmProfileContext(ctx); arm != "" && cand.Profile == arm {
-		return true // databricks:<p> asked for this workspace: running there is not a fallback
+		// databricks:<p> asked for this workspace: running there is not a fallback
+		return true
 	}
-	cp, _ := ConfinedContext(ctx) // the confinement admitted it: the pin was set aside, nothing fell back
+	// the confinement admitted it: the pin was set aside, nothing fell back
+	cp, _ := ConfinedContext(ctx)
 	return cp != ""
 }
 
@@ -437,7 +442,8 @@ func (t *RouteTable) gateOpencodeSub(
 	}
 	c, has := t.OpencodeSub[id][alias]
 	if !has {
-		return opencodeSub{}, false // e.g. zen-free carries no "opus" row — that is how it stays out of opus, not an alias check
+		// e.g. zen-free carries no "opus" row — that is how it stays out of opus, not an alias check
+		return opencodeSub{}, false
 	}
 	billing := t.Billing[c.Account]
 	if billing == BillFree && workRepo() {
@@ -466,7 +472,8 @@ func (t *RouteTable) gatherCandidates(ctx context.Context, want string, o PickOp
 			first = append(first, cs)
 		}
 	}
-	if o.oneHop() || (want == "claude" && ArmProfileContext(ctx) == "") { // the route falls a wanted claude through
+	// the route falls a wanted claude through
+	if o.oneHop() || (want == "claude" && ArmProfileContext(ctx) == "") {
 		return first, nil, nil
 	}
 	rest = gateOthers(want, gate)
@@ -544,7 +551,8 @@ func (priceDim) Score(c Candidate, s pickScope) float64 {
 		}
 	}
 	if p <= 0 || low <= 0 {
-		return 1 // unpriced cells tie
+		// unpriced cells tie
+		return 1
 	}
 	return low / p
 }
@@ -591,7 +599,7 @@ func ExhaustedReason(account string, e Entry, now time.Time) string {
 	return s
 }
 
-// Fallback modes for an unavailable dispatch: the full chain ending in claude, other agents only, the pin hop only, or none.
+// Fallback modes for an unavailable dispatch: the full chain ending in claude, other agents, the pin hop, or none.
 const (
 	FallbackAll    = "all"
 	FallbackAgents = "agents"
@@ -682,7 +690,8 @@ var gitInRepo = perDir(func(dir string) (bool, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", "-C", dir, "rev-parse", "--git-dir")
-	cmd.Env = append(os.Environ(), "LC_ALL=C") // pin git's message language for the stderr match
+	// pin git's message language for the stderr match
+	cmd.Env = append(os.Environ(), "LC_ALL=C")
 	var stderr bytes.Buffer
 	cmd.Stderr = &stderr
 	err := cmd.Run()
@@ -700,7 +709,8 @@ var gitInRepo = perDir(func(dir string) (bool, error) {
 func IsWorkRepo(dir string) bool {
 	markers, err := workRepoMarkers()
 	if err != nil {
-		return true // registry unreadable: fail closed, never fail open on free
+		// registry unreadable: fail closed, never fail open on free
+		return true
 	}
 	if len(markers) == 0 {
 		return false
@@ -710,14 +720,16 @@ func IsWorkRepo(dir string) bool {
 	}
 	inRepo, err := gitInRepo(dir)
 	if err != nil {
-		return true // git missing or errored (e.g. corrupt config): fail closed
+		// git missing or errored (e.g. corrupt config): fail closed
+		return true
 	}
 	if !inRepo {
 		return false
 	}
 	urls, err := gitRemoteURLs(dir)
 	if err != nil {
-		return true // git errored inside a repo: fail closed
+		// git errored inside a repo: fail closed
+		return true
 	}
 	return matchesWorkMarkers(urls, markers)
 }
