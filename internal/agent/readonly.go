@@ -227,9 +227,11 @@ var writeFlags = []string{"--out", "--output", "-o", "--write", "--fix", "--appl
 	"--kill", "--reap", "--clean", "--prune", "--force", "--sync", "--set", "--install", "--restore"}
 
 var readOnlyClaudeVerbs = map[string][]string{
-	"agents":  {"find", "diff", "result", "wait", "status", "tree", "list", "label"},
+	"agents":  {"find", "diff", "result", "wait", "status", "tree", "list", "label", "resolve"},
 	"memory":  {"recall", "search", "show", "path", "timeline"},
-	"review":  {"simplify", "scope", "assumptions", "goals"},
+	"review":  {"simplify", "scope", "quality"},
+	"plan":    {"status", "assumptions", "goals"},
+	"models":  {"preflight"},
 	"network": {"websearch"},
 }
 
@@ -243,6 +245,8 @@ func readOnlyClaudeCode(args []string) bool {
 		return simplifyArgsOK(args[2:])
 	case "review scope":
 		return scopeArgsOK(args[2:])
+	case "models preflight":
+		return noFlag(args[2:], "--refresh", "--discover", "--live", "--profile")
 	case "agents diff":
 		return noFlag(args[2:], append(slices.Clone(writeFlags), "--check")...)
 	}
@@ -254,9 +258,9 @@ func unsafeSimplifyRune(r rune) bool {
 	return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && !strings.ContainsRune(" _./:=@%+,-", r)
 }
 
-// simplifyArgsOK allows only the detector's --json, --threshold <level> and --base <ref> flags plus local paths.
+// simplifyArgsOK allows only --json, --fail, --threshold <level> and --base <ref> plus local paths.
 func simplifyArgsOK(args []string) bool {
-	return detectorArgsOK(args, []string{"--json"}, map[string]func(string) bool{
+	return detectorArgsOK(args, []string{"--json", "--fail"}, map[string]func(string) bool{
 		"--threshold": func(v string) bool { return slices.Contains([]string{"strict", "medium", "relaxed"}, v) },
 		"--base":      func(v string) bool { return !strings.HasPrefix(v, "-") },
 	})
