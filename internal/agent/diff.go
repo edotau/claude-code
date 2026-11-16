@@ -574,7 +574,7 @@ func pkgGate(name string, args ...string) gateFn {
 	}
 }
 
-// testGate runs go test on the touched packages, plus internal/schemas (it pins file writers) once production Go changed.
+// testGate tests the touched packages, plus internal/schemas (it pins file writers) when production Go changed.
 func testGate(ctx context.Context, in gateInput) (string, string, error) {
 	const schemas = "./internal/schemas"
 	prod := slices.ContainsFunc(in.goFiles, func(p string) bool { return !pack.IsTestPath(p) })
@@ -939,7 +939,7 @@ func matchProxy(logPath string, rec Record, start, end time.Time) ProxyMatch {
 	return pm
 }
 
-// proxyKind is "tagged" for a dispatch=<rec.ID> line, "window" for an untagged in-range line in rec's workspace, else "".
+// proxyKind: "tagged" for dispatch=<rec.ID>, "window" for an untagged in-range line in rec's workspace, else "".
 func proxyKind(pl proxyLine, rec Record, start, end time.Time) string {
 	switch {
 	case pl.dispatch == rec.ID:
