@@ -93,7 +93,7 @@ func gitFixCases() []gitFixCase {
 		{"make lint; git push <<EOF\nx\nEOF", ""},
 		{`git commit -m "feat: x" -m "` + foot + `"`, `git commit -m "feat: x"`},
 		{"git commit -m \"feat: x\n\n" + foot + "\"", "git commit -m \"feat: x\n\n\""},
-		{"git commit -m \"$(cat <<'EOF'\nfeat: x\n\n" + foot + "\nEOF\n)\"", "git commit -m \"$(cat <<'EOF'\nfeat: x\n\nEOF\n)\""},
+		{"git commit -m \"$(cat <<'EOF'\nfeat: x\n\n" + foot + "\nEOF\n)\"", ""}, // heredoc bodies are never rewritten
 		{`git commit -F msg.txt`, ""},
 		{`git commit -m "feat: x\n\n` + foot + `"`, ""}, // footer shares a line with the command
 	}
@@ -110,17 +110,12 @@ func TestSafetyScanGitRewrite(t *testing.T) {
 	}
 }
 
-func TestSafetyScanGitRewriteDeniesWithCommand(t *testing.T) {
+func TestSafetyScanGitRewriteAutoAndCopilot(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	auto := `{"tool_name":"Bash","permission_mode":"auto","tool_input":{"command":"make lint; git push"}}`
+	auto := `{"tool_name":"Bash","permission_mode":"auto","tool_input":{"command":"cd /tmp/x && make lint; git push 2>&1"}}`
 	res := Scan(core.ParseInput(strings.NewReader(auto)))
-	if res.Decision != core.Block || res.UpdatedInput != nil || !strings.HasSuffix(res.Reason, "resend exactly: make lint && git push") {
-		t.Errorf("auto mode: %+v", res)
-	}
-	cd := `{"tool_name":"Bash","permission_mode":"auto","tool_input":{"command":"cd /tmp/x && make lint; git push 2>&1"}}`
-	res = Scan(core.ParseInput(strings.NewReader(cd)))
-	if res.Decision != core.Block || !strings.HasSuffix(res.Reason, "resend exactly: cd /tmp/x && make lint && git push 2>&1") {
-		t.Errorf("auto mode with cd: %+v", res)
+	if got, _ := res.UpdatedInput["command"].(string); res.Decision != core.Allow || got != "cd /tmp/x && make lint && git push 2>&1" {
+		t.Errorf("auto mode rewrites like default: %+v", res)
 	}
 	cop := `{"sessionId":"x","toolName":"Bash","toolArgs":{"command":"make lint; git push"}}`
 	res = Scan(core.ParseInput(strings.NewReader(cop)))

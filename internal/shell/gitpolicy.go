@@ -4,6 +4,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 )
@@ -13,21 +15,37 @@ var conventionalSubject = sync.OnceValue(func() *regexp.Regexp {
 })
 
 var heredocStart = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`<<-?\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)(['"]?)`)
+	return regexp.MustCompile(`<<(-?)\s*(['"]?)([A-Za-z_][A-Za-z0-9_]*)(['"]?)`)
 })
+
+// subMark is a numbered substitution mask: \x00 N \x01.
+var subMark = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile("\x00(\\d+)\x01") })
+
+// dynamicValue is a message word carrying a shell expansion whose value is unknown here.
+var dynamicValue = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\$[A-Za-z_{]`) })
 
 // reuseMessageFlags make git take the message from elsewhere (-C/-c are short, so matched separately).
 var reuseMessageFlags = []string{"--no-edit", "--amend", "--reuse-message", "--fixup", "--squash"}
 
 // CommitMessageProblem says why a `git commit` message breaks Conventional Commits, or "" when fine or unreadable.
 func CommitMessageProblem(cmd, cwd string) string {
-	_, subs := ExtractSubstitutions(cmd)
-	problem := ""
-	EachGit(cmd, cwd, func(target, verb string, args []string) bool {
+	masked, subs := extractSubstitutions(cmd, subMask)
+	parts := strings.Split(masked, subMask)
+	masked = parts[0]
+	for i, p := range parts[1:] {
+		masked += "\x00" + strconv.Itoa(i) + "\x01" + p
+	}
+	for _, s := range subs {
+		if p := CommitMessageProblem(s, cwd); p != "" {
+			return p
+		}
+	}
+	problem, stdin := "", 0
+	EachGit(masked, cwd, func(target, verb string, args []string) bool {
 		if verb != "commit" {
 			return false
 		}
-		if msg, ok := commitMessage(cmd, subs, target, args); ok {
+		if msg, ok := commitMessage(masked, subs, target, args, &stdin); ok {
 			problem = messageProblem(msg)
 		}
 		return problem != ""
@@ -36,7 +54,7 @@ func CommitMessageProblem(cmd, cwd string) string {
 }
 
 // commitMessage joins the -m/-F paragraphs of one commit; ok is false when there is none or it is not static.
-func commitMessage(cmd string, subs []string, target string, args []string) (string, bool) {
+func commitMessage(cmd string, subs []string, target string, args []string, stdin *int) (string, bool) {
 	var parts []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -50,26 +68,36 @@ func commitMessage(cmd string, subs []string, target string, args []string) (str
 		i = next
 		switch kind {
 		case 'm':
+			if dynamicValue().MatchString(val) {
+				return "", false
+			}
 			parts = append(parts, val)
 		case 'F':
-			body, ok := fileMessage(cmd, target, val)
+			body, ok := fileMessage(cmd, target, val, stdin)
 			if !ok {
 				return "", false
 			}
 			parts = append(parts, body)
 		}
 	}
-	for i, p := range parts {
-		if !strings.Contains(p, subMask) {
-			continue
-		}
-		body, ok := substitutedHeredoc(subs)
-		if !ok {
-			return "", false // a message built by a command we cannot read
-		}
-		parts[i] = strings.ReplaceAll(p, subMask, body)
+	if !expandMasks(parts, subs) {
+		return "", false // a message built by a command we cannot read
 	}
 	return strings.Join(parts, "\n\n"), len(parts) > 0
+}
+
+// expandMasks replaces each numbered mask in parts with its substitution's heredoc body; false if one has none.
+func expandMasks(parts, subs []string) bool {
+	ok := true
+	for i, p := range parts {
+		parts[i] = subMark().ReplaceAllStringFunc(p, func(m string) string {
+			n, _ := strconv.Atoi(subMark().FindStringSubmatch(m)[1])
+			body, found := heredocBody(subs[n])
+			ok = ok && found
+			return body
+		})
+	}
+	return ok
 }
 
 func isReuseFlag(a string) bool {
@@ -118,10 +146,20 @@ func messageFlag(args []string, i int) (val string, kind byte, last int) {
 	return "", 0, i
 }
 
-// fileMessage reads -F: `-` is the heredoc on stdin, anything else a file under the commit's tree.
-func fileMessage(cmd, target, name string) (string, bool) {
+// fileMessage reads -F: `-` is the next commit heredoc on stdin, anything else a file under the commit's tree.
+func fileMessage(cmd, target, name string, stdin *int) (string, bool) {
 	if name == "-" {
-		return heredocBody(cmd)
+		var commits []heredoc
+		for _, h := range heredocs(cmd) {
+			if strings.Contains(h.line, "commit") {
+				commits = append(commits, h)
+			}
+		}
+		*stdin++
+		if *stdin > len(commits) {
+			return "", false
+		}
+		return commits[*stdin-1].body, true
 	}
 	if !filepath.IsAbs(name) {
 		name = filepath.Join(target, name)
@@ -130,33 +168,44 @@ func fileMessage(cmd, target, name string) (string, bool) {
 	return string(b), err == nil
 }
 
-// substitutedHeredoc is the body of the first `$(cat <<EOF ...)` substitution, the usual way a commit message is built.
-func substitutedHeredoc(subs []string) (string, bool) {
-	for _, s := range subs {
-		if body, ok := heredocBody(s); ok {
-			return body, true
+// heredoc is one `<<DELIM` body and the line holding its operator.
+type heredoc struct{ line, body string }
+
+// heredocs lists text's heredocs in order; a body ends at its exact delimiter line (leading tabs for `<<-`).
+func heredocs(text string) []heredoc {
+	lines := strings.Split(text, "\n")
+	var out []heredoc
+	for i := 0; i < len(lines); i++ {
+		last := i
+		for _, m := range heredocStart().FindAllStringSubmatchIndex(lines[i], -1) {
+			if m[0] > 0 && lines[i][m[0]-1] == '<' { // a <<< here-string has no body
+				continue
+			}
+			dash, delim := m[3] > m[2], lines[i][m[6]:m[7]]
+			end := -1
+			for j := last + 1; j < len(lines) && end < 0; j++ {
+				if l := lines[j]; l == delim || dash && strings.TrimLeft(l, "\t") == delim {
+					end = j
+				}
+			}
+			if end < 0 {
+				return out
+			}
+			out = append(out, heredoc{lines[i], strings.Join(lines[last+1:end], "\n")})
+			last = end
 		}
+		i = last
 	}
-	return "", false
+	return out
 }
 
-// heredocBody is the text between the first heredoc operator's line and its closing delimiter line.
+// heredocBody is the body of text's first heredoc.
 func heredocBody(text string) (string, bool) {
-	m := heredocStart().FindStringSubmatchIndex(text)
-	if m == nil {
+	hs := heredocs(text)
+	if len(hs) == 0 {
 		return "", false
 	}
-	delim := text[m[4]:m[5]]
-	rest := text[m[1]:]
-	_, rest, _ = strings.Cut(rest, "\n")
-	var body []string
-	for line := range strings.SplitSeq(rest, "\n") {
-		if strings.TrimSpace(line) == delim {
-			return strings.Join(body, "\n"), true
-		}
-		body = append(body, line)
-	}
-	return "", false
+	return hs[0].body, true
 }
 
 // messageProblem applies rule 1 to a whole message: Conventional subject, at most 2 lines plus BREAKING CHANGE lines.
@@ -198,51 +247,88 @@ func BroadStage(cmd, cwd string) string {
 }
 
 func broadAddOperand(target string, args []string) string {
-	paths := false
+	paths, update, operands := false, "", 0
 	for _, a := range args {
 		switch {
 		case paths:
 		case a == "--":
 			paths = true
 			continue
-		case a == "--all":
+		case a == "--all" || strings.HasPrefix(a, "--pathspec-from-file"):
 			return a
+		case a == "--update":
+			update = a
+			continue
 		case strings.HasPrefix(a, "--"):
 			continue
 		case strings.HasPrefix(a, "-") && len(a) > 1:
 			if strings.Contains(a, "A") {
 				return a
 			}
+			if strings.Contains(a, "u") {
+				update = a
+			}
 			continue
 		}
-		if a == ":/" || a == "." {
+		operands++
+		if broadOperand(target, a) {
 			return a
 		}
-		p := a
-		if !filepath.IsAbs(p) {
-			p = filepath.Join(target, p)
-		}
-		if st, err := os.Stat(p); err == nil && st.IsDir() {
-			return a
-		}
+	}
+	if operands == 0 {
+		return update // -u with no named path stages every tracked change
 	}
 	return ""
 }
 
-// PushAfterGate reports a `; git push` (or newline) straight after a lint/test/build/audit command: use `&&`.
+// broadOperand is a pathspec that can match many files: ".", magic (":/", ":(top)"), a glob or a directory.
+func broadOperand(target, a string) bool {
+	if a == "." || strings.HasPrefix(a, ":") || strings.ContainsAny(a, "*?[") {
+		return true
+	}
+	p := a
+	if !filepath.IsAbs(p) {
+		p = filepath.Join(target, p)
+	}
+	st, err := os.Stat(p)
+	return err == nil && st.IsDir()
+}
+
+// PushAfterGate reports a `; git push` (or newline) after a lint/test/build/audit command or pipeline: use `&&`.
 func PushAfterGate(cmd string) bool {
 	segs, seps := SegmentsSep(cmd)
 	for i := 0; i+1 < len(segs); i++ {
-		if (seps[i] == ";" || seps[i] == "\n") && gateCommand(commandWords(segs[i])) && gitPush(commandWords(segs[i+1])) {
-			return true
+		if seps[i] == ";" || seps[i] == "\n" {
+			if found, _ := gateRun(segs, seps, i, i+1); found {
+				return true
+			}
 		}
 	}
 	return false
 }
 
+// gateRun finds a gate in the pipeline ending at segs[i] when segs[push] is a git push; direct means segs[i] is it.
+func gateRun(segs, seps []string, i, push int) (found, direct bool) {
+	if !gitPush(commandWords(segs[push])) {
+		return false, false
+	}
+	for j := i; j >= 0; j-- {
+		if t := Tokens(segs[j]); len(t) > 0 && slices.Contains([]string{"if", "elif", "while", "until"}, t[0]) {
+			return false, false // the condition guards its own body
+		}
+		if gateCommand(commandWords(segs[j])) {
+			return true, j == i
+		}
+		if j == 0 || seps[j-1] != "|" {
+			break
+		}
+	}
+	return false, false
+}
+
 func gitPush(toks []string) bool {
-	toks = builtinPrefixDropped(toks)
-	if len(toks) == 0 || toks[0] != "git" {
+	toks, _ = Unwrap(builtinPrefixDropped(toks), "")
+	if len(toks) == 0 || filepath.Base(toks[0]) != "git" {
 		return false
 	}
 	_, verb, _ := GitInvocation(toks[1:], "")
@@ -253,7 +339,7 @@ var gateWords = map[string]bool{"lint": true, "test": true, "build": true, "audi
 
 // gateCommand is a build-tool run named for lint, test, build or audit.
 func gateCommand(toks []string) bool {
-	toks = builtinPrefixDropped(toks)
+	toks, _ = Unwrap(builtinPrefixDropped(toks), "")
 	if len(toks) == 0 {
 		return false
 	}
@@ -272,71 +358,4 @@ func gateCommand(toks []string) bool {
 		return true
 	}
 	return false
-}
-
-// ChainPushAfterGate turns `;`/newline between a gate and `git push` into `&&`; ok is false near heredocs or grouping.
-func ChainPushAfterGate(cmd string) (fixed, gate string, ok bool) {
-	if strings.Contains(cmd, "<<") {
-		return "", "", false
-	}
-	segs, seps := SegmentsSep(cmd)
-	var b strings.Builder
-	b.WriteString(segs[0])
-	for i := 0; i+1 < len(segs); i++ {
-		if (seps[i] == ";" || seps[i] == "\n") && gateCommand(commandWords(segs[i])) && gitPush(commandWords(segs[i+1])) {
-			if strings.ContainsAny(segs[i]+segs[i+1], "(){}`\n") {
-				return "", "", false
-			}
-			if gate == "" {
-				gate = strings.TrimSpace(segs[i])
-			}
-			chained := strings.TrimRight(b.String(), " \t") + " && " + strings.TrimLeft(segs[i+1], " \t")
-			b.Reset()
-			b.WriteString(chained)
-			continue
-		}
-		b.WriteString(seps[i] + segs[i+1])
-	}
-	return b.String(), gate, gate != ""
-}
-
-var footerLine = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)^\W*(co-authored-by:|generated (with|by))`)
-})
-
-var footerArg = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\s+(?:-m|--message)\s+("[^"]*"|'[^']*')`)
-})
-
-// StripFooters drops footer-only lines and lone -m "<footer>" args; ok is false if text is mixed or quotes unbalance.
-func StripFooters(cmd string) (string, bool) {
-	fixed := footerArg().ReplaceAllStringFunc(cmd, func(arg string) string {
-		for l := range strings.SplitSeq(footerArg().FindStringSubmatch(arg)[1], "\n") {
-			if l = strings.Trim(strings.TrimSpace(l), `"'`); l != "" && !footerLine().MatchString(l) {
-				return arg
-			}
-		}
-		if hasFooter(arg) {
-			return ""
-		}
-		return arg
-	})
-	lines := strings.Split(fixed, "\n")
-	kept := lines[:0]
-	for _, l := range lines {
-		if !hasFooter(l) {
-			kept = append(kept, l)
-			continue
-		}
-		t := strings.TrimSpace(l)
-		if !footerLine().MatchString(t) {
-			return cmd, false // the footer shares its line with other command text
-		}
-		if q := t[len(t)-1]; (q == '"' || q == '\'') && strings.Count(t, string(q)) == 1 {
-			kept = append(kept, string(q)) // the footer ended the message: keep its closing quote
-		}
-	}
-	fixed = strings.Join(kept, "\n")
-	balanced := strings.Count(fixed, `"`)%2 == strings.Count(cmd, `"`)%2 && strings.Count(fixed, "'")%2 == strings.Count(cmd, "'")%2
-	return fixed, fixed != cmd && balanced && !hasFooter(fixed)
 }
