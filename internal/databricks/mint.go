@@ -51,10 +51,27 @@ func Mint(ctx context.Context, name string) (MintResult, string, error) {
 	res := MintResult{Provider: p.Name, AuthType: mintedAuthType(p, tok), Len: len(tok)}
 	if e, ok := providers.JWTExp(tok); ok { // the minted token's own exp, not the stored record
 		res.Expiry = time.Unix(e, 0)
-	} else if exp, ok := providers.TokenExpiry(p.Name); ok { // opaque token: the stored record's expiry
+	} else if exp, ok := storedExpiry(ctx, p); ok { // opaque token: the stored record's expiry
 		res.Expiry = exp
 	}
 	return res, tok, nil
+}
+
+// storedExpiry is the expiry record of the credential ctx's identity mints: an oauth row's SP keeps its own record,
+// and auto (headless SP-first, or the SP when no login is stored) reads whichever of the two was written last.
+func storedExpiry(ctx context.Context, p *providers.Provider) (time.Time, bool) {
+	if p.Auth.Type == providers.AuthOAuth {
+		as := providers.IdentityFrom(ctx)
+		if as == providers.IdentityHeadless {
+			as = ""
+		}
+		mode, err := providers.ResolveIdentity(p.Identity, as)
+		if err == nil && mode != providers.IdentityUser {
+			exp, _, ok := providers.TokenExpiryMethodFor(p.Name, mode)
+			return exp, ok
+		}
+	}
+	return providers.TokenExpiry(p.Name)
 }
 
 // mintedAuthType reads the kind from the token itself: a service principal's JWT has sub == client_id.

@@ -64,7 +64,7 @@ type Router struct {
 	authGen int
 	// provider names this process marked auth-dead: cleared on their next success
 	marked map[string]bool
-	used   map[string]time.Time // provider name → last request through the router, for the keepalive loop
+	used   map[string]profileUse // provider name → last request time and egress host, for the keepalive loop
 	ka     keepalive
 	// scope|sha256 → uploaded file id (fileCacheTTL), guarded by mu
 	files map[string]fileEntry
@@ -76,8 +76,6 @@ type Router struct {
 	oauthAt  time.Time         // oauthTok is valid until oauthAt+credTTL, a miss until oauthAt+oauthMissTTL
 	oauth    func() string     // reads the sealed subscription token; a seam for tests
 	headers  map[string]string // validated HARNESS_HEADERS, canonical names
-	// validated HARNESS_REQUEST_TAGS JSON, "" when unset or invalid
-	tags string
 }
 
 // quotaDeadFor is how long a hard-quota model is skipped before the router tries it again.
@@ -87,10 +85,9 @@ func newRouter(secret string) *Router {
 	r := &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now,
 		cool: map[string]time.Time{}, dead: map[string]time.Time{}, deadAt: map[string]time.Time{},
 		cred: map[string]time.Time{}, credGen: map[string]int{},
-		marked: map[string]bool{}, used: map[string]time.Time{}, ka: newKeepalive(), oauth: providers.HeadlessOAuthToken}
+		marked: map[string]bool{}, used: map[string]profileUse{}, ka: newKeepalive(), oauth: providers.HeadlessOAuthToken}
 	r.sessions = newSessionStore(func() time.Time { return r.now() })
 	r.clients = &clientTokens{load: loadClientHashes}
-	r.tags = parseRequestTags(os.Getenv(requestTagsEnv), r.log)
 	r.headers = parseHeaders(os.Getenv(headersEnv), r.log)
 	return r
 }
@@ -508,7 +505,7 @@ func (r *Router) send(in *http.Request, p *providers.Provider, url string, body 
 func (r *Router) sendMethod(in *http.Request, method string, p *providers.Provider, url string, body []byte,
 	hdr func(http.Header)) (*http.Response, error) {
 	ctx := in.Context()
-	r.touch(p.Name)
+	r.touch(ctx, p.Name)
 	do := func(credential string) (*http.Response, error) {
 		return r.sendRequest(in, method, p, url, body, hdr, credential)
 	}

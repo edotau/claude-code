@@ -114,6 +114,9 @@ func authorizeCatalog(ctx context.Context, p *Provider, h http.Header) error {
 	if p.Auth.Type != AuthCLI {
 		return Authorize(ctx, p, h)
 	}
+	if !anthropicCLIHost(p) {
+		return ErrPassthrough // the setup-token belongs to api.anthropic.com only
+	}
 	tok := HeadlessOAuthToken()
 	if tok == "" {
 		return ErrPassthrough
@@ -121,6 +124,15 @@ func authorizeCatalog(ctx context.Context, p *Provider, h http.Header) error {
 	h.Set("Authorization", "Bearer "+tok)
 	h.Set("anthropic-beta", anthropicOAuthBeta)
 	return nil
+}
+
+// anthropicCLIHost reports the first-party Anthropic CLI profile whose catalog URL is on api.anthropic.com.
+func anthropicCLIHost(p *Provider) bool {
+	if p.Provider != "anthropic" || p.Auth.Login != "" {
+		return false
+	}
+	url, _, err := catalogURL(p)
+	return err == nil && strings.HasPrefix(url, "https://api.anthropic.com/")
 }
 
 // decodeModelsList decodes an Anthropic/OpenAI {"data":[{id,display_name}]} listing.
@@ -225,7 +237,6 @@ type ModelInfo struct {
 	Capabilities string // e.g. "vision · reasoning · x2"; blank when none
 	Task         string // Databricks serving endpoints only, e.g. "llm/v1/chat"
 	Ready        string // Databricks serving endpoints only, e.g. "READY"
-	Gateway      bool   // listed by the AI Gateway (gatewayModels), not the serving-endpoints catalog
 }
 
 // ReadyChat reports a READY llm/v1/chat serving endpoint.
@@ -261,16 +272,6 @@ func displayName(id string) string {
 		}
 	}
 	return strings.Join(parts, " ")
-}
-
-// gatewayModels lists the Anthropic models a Databricks workspace's AI Gateway serves (display names included),
-// through DiscoverModels' pager. Non-Databricks providers return nil, nil.
-func gatewayModels(ctx context.Context, p *Provider) ([]ModelInfo, error) {
-	host := PresetHost(p.Host)
-	if p.Preset != PresetDatabricks || host == "" {
-		return nil, nil
-	}
-	return discoverPages(ctx, p, "databricks-ai-gateway", host+"/ai-gateway/anthropic/v1/models?limit=1000")
 }
 
 // httpClient is http.DefaultClient (so its Transport stays swappable) with a timeout bounding a hung endpoint.

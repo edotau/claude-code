@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/transcript"
 )
 
 func TestNewestModTimePropagatesInfoError(t *testing.T) {
@@ -66,5 +68,18 @@ func TestUsageTextReportsWriteFailure(t *testing.T) {
 	code := Run([]string{"--session", "session", "--providers=false"}, dir, w, &errw)
 	if code != 1 || !strings.Contains(errw.String(), "usage: write output: report destination closed") {
 		t.Fatalf("partial report exited successfully or hid write error: exit=%d stderr=%s", code, &errw)
+	}
+}
+
+// TestPrintUsageTableFoldsWireSpellings: one model's plain and databricks- spellings share one row.
+func TestPrintUsageTableFoldsWireSpellings(t *testing.T) {
+	agg := &transcript.UsageAggregate{Models: map[string]*transcript.ModelUsage{
+		"claude-sonnet-5-5":            {InputTokens: 4},
+		"databricks-claude-sonnet-5-5": {InputTokens: 6},
+	}}
+	var out bytes.Buffer
+	printUsageTable(&out, agg, 1)
+	if n := strings.Count(out.String(), "sonnet-5-5"); n != 1 || !strings.Contains(out.String(), "          10") {
+		t.Fatalf("want one row totalling 10 input:\n%s", &out)
 	}
 }

@@ -11,6 +11,7 @@ func TestModelKeySharesOneMarker(t *testing.T) {
 	for _, tc := range []struct{ a, b string }{
 		{"claude-opus-4-7[1m]", "claude-opus-4-7"},
 		{"unknown-model[1m]", "unknown-model"},
+		{"databricks-gpt-6-1-terra", "gpt-6-1-terra"},
 	} {
 		if ModelKey(tc.a) != ModelKey(tc.b) {
 			t.Errorf("ModelKey(%q) = %q, ModelKey(%q) = %q; want one key", tc.a, ModelKey(tc.a), tc.b, ModelKey(tc.b))

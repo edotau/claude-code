@@ -705,7 +705,7 @@ func TestMain(m *testing.M) {
 
 // memoryRunners are the memory-area native entries and the memhook runner each must be.
 var memoryRunners = map[string]core.Runner{
-	"memory-start": memhook.Start, "memory-recall": memhook.Recall, "memory-update": memhook.Stop,
+	"memory-start": agents.WithDispatchLabels(memhook.Start), "memory-recall": agents.WithDispatchLabels(memhook.Recall), "memory-update": memhook.Stop,
 	"memory-end": memhook.End, "memory-compact": memhook.Compact,
 }
 

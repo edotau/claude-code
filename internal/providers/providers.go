@@ -73,7 +73,7 @@ type Provider struct {
 	Env map[string]string `json:"env,omitempty"`
 	// ModelPrefix is the wire-id prefix a databricks preset derives; WireModel does not read it; SpellingRule still does.
 	ModelPrefix string `json:"modelPrefix,omitempty"`
-	// Options are a preset row's non-secret knobs (databricks: options.wire serving|ai-gateway).
+	// Options are a preset row's non-secret knobs (databricks: options.wire serving).
 	Options Options `json:"options,omitzero"`
 	// Concurrency is how many agents this profile runs at once machine-wide; 0 = inflight.Base.
 	Concurrency int `json:"concurrency,omitempty"`
@@ -170,19 +170,8 @@ func (p Provider) AliasOf(model string) string {
 	return ""
 }
 
-// sameModel reports whether two model ids name the same model: equal as typed, or the same catalog model
-// once [1m] and any wire spelling are resolved.
-func sameModel(a, b string) bool {
-	if a == b {
-		return true
-	}
-	ca, _, okA := models.Resolve(a)
-	cb, _, okB := models.Resolve(b)
-	if okA && okB {
-		return ca == cb
-	}
-	return !okA && !okB && models.Strip1M(a) == models.Strip1M(b)
-}
+// sameModel reports whether two model ids name the same model, whatever their [1m] marker or wire prefix.
+func sameModel(a, b string) bool { return a == b || models.SameModel(a, b) }
 
 // Registry is the merged provider table plus the default selection and failover ladder.
 type Registry struct {

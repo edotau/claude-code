@@ -459,6 +459,28 @@ func TestPickCopilotModelDatabricksStoresCanonicalID(t *testing.T) {
 	}
 }
 
+// A Databricks pick of a non-Claude model drops the long-context pin it cannot honor, without fetching the SDK catalog.
+func TestSaveCopilotPickDatabricksClearsContextPin(t *testing.T) {
+	menuTestEnv(t)
+	calls := stubCatalog(t, nil, errors.New("SDK catalog must not be fetched for a Databricks pick"))
+	vaulttest.SetRecord(t, "copilot", "context", "long_context")
+	vaulttest.SetRecord(t, "copilot", "effort", "high")
+
+	d := &dialog{out: discardWriter{}}
+	saveCopilotPick(d, copilot.CopilotCatalog{Databricks: true}, "databricks-kimi-k3")
+
+	rec := vault.GetAgentRecord("copilot")
+	if rec.Context != "" {
+		t.Errorf("context pin = %q, want cleared for a non-Claude model", rec.Context)
+	}
+	if rec.Effort != "high" {
+		t.Errorf("effort pin = %q, want kept (Databricks efforts are not in the SDK catalog)", rec.Effort)
+	}
+	if *calls != 0 {
+		t.Errorf("SDK catalog fetched %d times for a Databricks pick", *calls)
+	}
+}
+
 // opencode pinned to a registry profile picks that profile's models, not the hub ladder's opencode-go plan.
 func TestModelTargetHonorsAgentPin(t *testing.T) {
 	reg := menuTestEnv(t)

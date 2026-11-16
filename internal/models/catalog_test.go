@@ -13,10 +13,9 @@ var spellings = []struct {
 }{
 	{"claude-opus-5-5", map[string]string{
 		"anthropic": "claude-opus-5-5", "databricks-serving": "databricks-claude-opus-5-5",
-		"databricks-ai-gateway": "system.ai.claude-opus-5-5", "dotted": "claude-opus-5.5"}},
+		"dotted": "claude-opus-5.5"}},
 	{"gpt-6-1-sol", map[string]string{
-		"databricks-serving": "databricks-gpt-6-1-sol", "databricks-ai-gateway": "system.ai.gpt-6-1-sol",
-		"dotted": "gpt-6.1-sol"}},
+		"databricks-serving": "databricks-gpt-6-1-sol", "dotted": "gpt-6.1-sol"}},
 	{"gemini-3-8-flash", map[string]string{
 		"databricks-serving": "databricks-gemini-3-8-flash", "dotted": "gemini-3.8-flash"}},
 	{"kimi-k3-1-pro", map[string]string{"dotted": "kimi-k3.1-pro"}},
@@ -33,7 +32,7 @@ func TestWireAndResolveRoundTrip(t *testing.T) {
 			}
 			for _, in := range []string{w, w + "[1m]"} {
 				got, oneM, ok := Resolve(in)
-				if !ok || got != m.canonical || oneM != (in != w) {
+				if !ok || got != m.canonical || oneM {
 					t.Errorf("Resolve(%q) = %q,%v,%v; want %q", in, got, oneM, ok, m.canonical)
 				}
 			}
@@ -103,7 +102,7 @@ func TestCatalogIntegrity(t *testing.T) {
 }
 
 func TestLimitsResolvesSpellings(t *testing.T) {
-	for _, id := range []string{"claude-sonnet-5-5", "databricks-claude-sonnet-5-5", "system.ai.claude-sonnet-5-5", "claude-sonnet-5-5[1m]"} {
+	for _, id := range []string{"claude-sonnet-5-5", "databricks-claude-sonnet-5-5", "claude-sonnet-5-5[1m]"} {
 		if l, ok := Limits(id); !ok || l.Context != 1_000_000 || l.Output != 128_000 {
 			t.Errorf("Limits(%q) = %+v, %v", id, l, ok)
 		}
@@ -111,6 +110,25 @@ func TestLimitsResolvesSpellings(t *testing.T) {
 	for _, id := range []string{"gpt-5", "not-a-model", ""} {
 		if l, ok := Limits(id); ok {
 			t.Errorf("Limits(%q) = %+v, want unknown", id, l)
+		}
+	}
+}
+
+// One model compares equal across every spelling; distinct versions and endpoints never do.
+func TestSameModel(t *testing.T) {
+	for _, c := range []struct {
+		a, b string
+		want bool
+	}{
+		{"claude-opus-5", "databricks-claude-opus-5", true},
+		{"opus", "databricks-claude-opus-5-5[1m]", true},
+		{"gpt-6-1-terra", "databricks-gpt-6-1-terra", true},
+		{"GPT-5.5", "databricks-gpt-5-5", true},
+		{"claude-opus-5", "claude-opus-5-5", false},
+		{"databricks-gpt-6-1-terra", "databricks-gpt-6-1-sol", false},
+	} {
+		if got := SameModel(c.a, c.b); got != c.want {
+			t.Errorf("SameModel(%q, %q) = %v, want %v", c.a, c.b, got, c.want)
 		}
 	}
 }

@@ -90,6 +90,14 @@ func TestInteractiveConfigCarriesPlugin(t *testing.T) {
 	if len(list) != 2 || list[0] != "mine" || !strings.Contains(list[1].(string), "harness-hooks-") {
 		t.Fatalf("interactive plugin list = %v, want the user's plugin kept and ours appended", list)
 	}
+	if cfg["small_model"] != nil {
+		t.Errorf("small_model = %v with no model pinned, want unset", cfg["small_model"])
+	}
+	pinned := map[string]any{"model": "harness-dev-claude/databricks-claude-opus-5-5"}
+	opencodeHarnessWith(nil, "")(pinned)
+	if pinned["small_model"] != pinned["model"] {
+		t.Errorf("small_model = %v, want the profile's model %v (the overlay file's would leave the profile)", pinned["small_model"], pinned["model"])
+	}
 	headless := map[string]any{}
 	opencodeHarnessWith(&agent.Headless{Tools: true}, "")(headless)
 	if _, ok := headless["plugin"]; ok {

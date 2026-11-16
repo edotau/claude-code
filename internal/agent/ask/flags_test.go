@@ -204,6 +204,25 @@ func writeOversizePrompt(w *os.File, done chan<- struct{}) {
 	// Keep the write end open until cleanup: even a finite oversized stream must not require EOF.
 }
 
+func TestAskJobRestoresRecordedLead(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "say ok", Lead: "qa"}, time.Now())
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	fs, f := askFlagSet()
+	if err := fs.Parse([]string{"--job", rec.ID}); err != nil {
+		t.Fatal(err)
+	}
+	r := &askRun{ctx: t.Context(), fs: fs, f: f}
+	if _, code, done := loadAskJob(f.job, f.format, r.askState(), &r.prompt); done || code != 0 {
+		t.Fatalf("loadAskJob = %d, %v", code, done)
+	}
+	if got := r.request(r.prompt); got.Lead != "qa" {
+		t.Fatalf("job lead = %q, want qa", got.Lead)
+	}
+}
+
 func TestAskRetryPreservesRecordedLead(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "say ok", Lead: "recorded-profile"}, time.Now())

@@ -753,18 +753,6 @@ func TestClaudeArmHeadlessAlwaysProxied(t *testing.T) {
 	}
 }
 
-// A profile on the AI Gateway wire never launches, headless or interactive; Databricks runs on /serving-endpoints only.
-func TestClaudeRefusesAIGatewayWire(t *testing.T) {
-	hermetic(t, `{"fallback":[],"providers":{"databricks":{"gw":{"preset":"databricks","host":"https://gw.cloud.databricks.com",
-		"auth":{"type":"pat"},"options":{"wire":"ai-gateway"}}}}}`)
-	for _, args := range [][]string{{"-p", "hi"}, nil} {
-		_, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "gw"}, args)
-		if want := "profile gw uses the AI Gateway wire; agents run on /serving-endpoints only"; err == nil || err.Error() != want {
-			t.Errorf("args %q: err = %v, want %q", args, err, want)
-		}
-	}
-}
-
 // An armed login session routed through the proxy sends the session token, not the router secret, in its own header.
 func TestClaudeArmPassthroughHeaderIsSessionToken(t *testing.T) {
 	hermetic(t, armDBX)

@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -44,7 +45,7 @@ type Prepared struct {
 	Record Record
 	Chain  Chain
 	remote Engine
-	pack   *packFile // the pack an agent reads from the workdir; written by Exec, removed after the run
+	pack   *packFile // the staged context pack; written by Exec, removed after the run
 }
 
 // Prepare routes the raw task before applying its rubric and claiming a dispatch record.
@@ -589,10 +590,14 @@ const packReserveTokens = 32_000
 // packBytesNum/packBytesDen is dense code's worst case (~2.4 bytes/token): a byte budget never overruns the window.
 const packBytesNum, packBytesDen = 12, 5
 
-// packFile is a pack the agent reads from the workdir instead of the prompt (CLI.PackVia == PackFile).
+// packFile is a staged pack the agent reads instead of the prompt (CLI.PackVia == PackFile).
 type packFile struct{ path, body string }
 
 func (f *packFile) write() error {
+	dir := filepath.Dir(f.path)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return fmt.Errorf("pack file: %w", err)
+	}
 	out, err := os.OpenFile(f.path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return fmt.Errorf("pack file: %w", err)
@@ -644,7 +649,7 @@ func (c *Client) packPrompt(ctx context.Context, p *Prepared) error {
 	}
 	notes := append(packed.Notes, note)
 	if viaFile {
-		p.pack = &packFile{path: filepath.Join(cwd, pack.FilePrefix+p.Record.ID+".md"), body: packed.Prompt}
+		p.pack = &packFile{path: filepath.Join(paths.PackDir(), pack.FilePrefix+p.Record.ID+".md"), body: packed.Prompt}
 		p.Opts.Prompt = o.Prompt + "\n\nThe workspace context for this task is in " + p.pack.path +
 			". Read that file in full with your file tools before answering."
 		p.Opts.Tools, p.Record.Request.Tools = true, true

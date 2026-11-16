@@ -177,18 +177,16 @@ type LiveModel struct {
 	Capabilities string `json:"capabilities,omitempty"`
 	Task         string `json:"task,omitempty"`
 	Ready        string `json:"ready,omitempty"`
-	Gateway      bool   `json:"gateway,omitempty"`
 }
 
-// Catalog is a provider's live model listing: its own models, the AI gateway's, and what to tell the user.
+// Catalog is a provider's live model listing and what to tell the user.
 type Catalog struct {
-	Infos, Gateway []ModelInfo
-	Note           string // set when Infos came from the offline fallback list
-	GatewayErr     error
+	Infos []ModelInfo
+	Note  string // set when Infos came from the offline fallback list
 }
 
 // LoadCatalog fetches p's catalog (listOwn for a provider with its own SDK, else a plain /models GET), falling
-// back to a known offline list where one exists, then the gateway's models.
+// back to a known offline list where one exists, then the endpoint's models.
 func LoadCatalog(p *Provider, listOwn func(context.Context) ([]ModelInfo, error)) (Catalog, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 	defer cancel()
@@ -204,31 +202,24 @@ func LoadCatalog(p *Provider, listOwn func(context.Context) ([]ModelInfo, error)
 			return Catalog{}, err
 		}
 	}
-	if p.IsAIGateway() { // a serving row's traffic stays on /serving-endpoints: never read the AI Gateway
-		c.Gateway, c.GatewayErr = gatewayModels(ctx, p)
-	}
 	return c, nil
 }
 
-// Rows is every catalog entry, gateway included, as JSON rows.
+// Rows is every catalog entry as JSON rows.
 func (c Catalog) Rows() []LiveModel {
-	rows := make([]LiveModel, 0, len(c.Infos)+len(c.Gateway))
-	for _, m := range append(slices.Clone(c.Infos), c.Gateway...) {
+	rows := make([]LiveModel, 0, len(c.Infos))
+	for _, m := range c.Infos {
 		rows = append(rows, LiveModel(m))
 	}
 	return rows
 }
 
-// TableLines is the text view: a Databricks serving-endpoints table plus the gateway's, or one merged model table.
+// TableLines is the text view: a Databricks serving-endpoints table, or one model table.
 func (c Catalog) TableLines() []string {
 	if len(c.Infos) > 0 && c.Infos[0].Task != "" {
-		lines := endpointTableLines(c.Infos)
-		if len(c.Gateway) > 0 {
-			lines = append(append(lines, "", "AI GATEWAY (anthropic)"), modelTableLines(c.Gateway)...)
-		}
-		return lines
+		return endpointTableLines(c.Infos)
 	}
-	return modelTableLines(append(slices.Clone(c.Infos), c.Gateway...))
+	return modelTableLines(c.Infos)
 }
 
 // endpointTableLines renders a Databricks serving-endpoints listing as aligned name/task/ready columns.

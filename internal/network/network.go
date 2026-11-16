@@ -62,7 +62,7 @@ var restartPage = helptext.Page{
 		"--if-changed leaves a proxy already running the installed binary alone.\n" +
 		"A proxy with requests in flight is skipped, exit 0, unless --force;\n" +
 		"open sessions alone do not block a restart.\n" +
-		"Each --remote ssh tunnel is stopped too, unless the proxy was left busy;\n" +
+		"Each --remote ssh tunnel is stopped too, unless the proxy was left busy or unchanged;\n" +
 		"the next --remote command starts it again.",
 }
 
@@ -88,7 +88,7 @@ func cmdRestart(args []string) int {
 	defer cancel()
 	row := gateway.RestartReport(ctx, *dry, *force, *ifChanged)
 	rows := []gateway.RestartRow{row}
-	if busy := row.Status == "skipped" && row.OldPID != 0; !busy {
+	if kept := row.Status == "unchanged" || row.Status == "skipped" && row.OldPID != 0; !kept {
 		rows = append(rows, stopTunnels(*dry)...)
 	}
 	if *format == helptext.JSON {

@@ -234,7 +234,7 @@ func TestArmFlagRefusals(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
 		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}},`+
-		`"gw":{"preset":"databricks","host":"https://gw.cloud.databricks.com","auth":{"type":"pat"},"options":{"wire":"ai-gateway"}}}}}`)
+		`"gw":{"preset":"databricks","host":"https://gw.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
 	t.Setenv("DEV_WS_TOKEN", "SENTINEL-dev") // dev passes the workspace preflight, so each row reaches its flag fence
 	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
 		{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil { // claude's model fence reads the listing
@@ -245,7 +245,6 @@ func TestArmFlagRefusals(t *testing.T) {
 		args            []string
 	}{
 		{"", "overlay profile: no such profile", []string{"--overlay", `{"provider":"databricks","profile":"nope"}`}},
-		{"", "overlay profile: AI Gateway row", []string{"--overlay", `{"provider":"databricks","profile":"gw"}`}},
 		{"", "overlay profile: not a Databricks profile", []string{"--overlay", `{"provider":"databricks","profile":"chatgpt"}`}},
 		{"", "overlay provider databricks needs a profile", []string{"--overlay", `{"provider":"databricks"}`}},
 		{"", "--profile chatgpt: outside", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--profile", "chatgpt"}},
@@ -544,5 +543,19 @@ func TestCheckNativeRefusedUnderConfinement(t *testing.T) {
 	}
 	if bins, _ := armDumps(t, dump); len(bins) != 0 || len(agent.RecentRecords(1)) != 0 {
 		t.Fatalf("refused --native launched %v or saved a record", bins)
+	}
+}
+
+// A --profile naming the armed workspace passes in every spelling the launcher and the registry print.
+func TestArmFlagsAcceptsQualifiedArm(t *testing.T) {
+	for _, profile := range []string{"dev", "databricks:dev", "databricks·dev"} {
+		if err := armFlags("dev", profile, "", false); err != nil {
+			t.Errorf("armFlags(dev, %q) = %v, want nil", profile, err)
+		}
+	}
+	for _, profile := range []string{"qa", "databricks·qa", "github·dev"} {
+		if err := armFlags("dev", profile, "", false); err == nil {
+			t.Errorf("armFlags(dev, %q) = nil, want refusal", profile)
+		}
 	}
 }

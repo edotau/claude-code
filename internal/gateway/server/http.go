@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/gateway/translate"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -272,8 +273,20 @@ func (b *idleBody) Close() error {
 	return b.rc.Close()
 }
 
+// reportedModel is the id a translated reply names: the client's own spelling of the model served, else the served id.
+func reportedModel(clientModel string, t providers.Target) string {
+	if t.Provider != nil {
+		clientModel = strings.TrimPrefix(clientModel, t.Provider.Name+":")
+	}
+	if models.SameModel(clientModel, t.Model) {
+		return clientModel
+	}
+	return t.Model
+}
+
 func (r *Router) relayChat(w *statusWriter, in *http.Request, resp *http.Response, t providers.Target,
 	clientModel string, stream bool) (bool, error) {
+	clientModel = reportedModel(clientModel, t)
 	if !stream {
 		return relayChatBuffered(w, in, resp.Body, t, clientModel)
 	}
@@ -341,7 +354,7 @@ func (r *Router) sendRequest(in *http.Request, method string, p *providers.Provi
 		return nil, err
 	}
 	hdr(req.Header)
-	r.attribute(req.Header, in, p)
+	r.attribute(req.Header, in)
 	if credential == "" {
 		if err := providers.Authorize(ctx, p, req.Header); err != nil {
 			return nil, err

@@ -75,16 +75,16 @@ func TestGuardProviderResolvesModelPrefixForVendorAgent(t *testing.T) {
 	}
 }
 
-// armRegistry overlays workspaces dev and qa (DEV_TOKEN, QA_TOKEN; devExtra extends dev) and arms databricks:dev.
-func armRegistry(t *testing.T, devExtra string) {
+// armRegistry overlays workspaces dev and qa (DEV_TOKEN, QA_TOKEN) and arms databricks:dev.
+func armRegistry(t *testing.T) {
 	t.Helper()
 	vaulttest.UseKeyring(t)
-	row := func(name, env, extra string) string {
+	row := func(name, env string) string {
 		return `"` + name + `":{"preset":"databricks","host":"https://adb-1.azuredatabricks.net",` +
-			`"auth":{"type":"key","env":"` + env + `"},"models":{"opus":"databricks-claude-opus-5-5"}` + extra + `}`
+			`"auth":{"type":"key","env":"` + env + `"},"models":{"opus":"databricks-claude-opus-5-5"}}`
 	}
 	vaulttest.Put(t, vault.Overlay, "providers",
-		`{"providers":{"databricks":{`+row("dev", "DEV_TOKEN", devExtra)+`,`+row("qa", "QA_TOKEN", "")+`}}}`)
+		`{"providers":{"databricks":{`+row("dev", "DEV_TOKEN")+`,`+row("qa", "QA_TOKEN")+`}}}`)
 	t.Setenv("DEV_TOKEN", "dapi-dev")
 	t.Setenv("QA_TOKEN", "dapi-qa")
 	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
@@ -93,20 +93,19 @@ func armRegistry(t *testing.T, devExtra string) {
 // Inside databricks:dev a hop runs only on dev or the agent's own login, isolated; anything else is fatal up front.
 func TestArmGuard(t *testing.T) {
 	cases := []struct {
-		name, devExtra, prof, fatal string
-		unarmed                     bool
-		creds                       []string // the credential names the child keeps on a pass
+		name, prof, fatal string
+		unarmed           bool
+		creds             []string // the credential names the child keeps on a pass
 	}{
 		{name: "another workspace", prof: "qa", fatal: "profile qa is outside databricks:dev"},
 		{name: "another agent's login", prof: "chatgpt", fatal: "profile chatgpt is outside databricks:dev"},
-		{name: "AI Gateway dev", devExtra: `,"options":{"wire":"ai-gateway"}`, prof: "dev", fatal: "AI Gateway wire"},
 		{name: "dev", prof: "dev"}, // proxied on the session token: no workspace token
 		{name: "own login", prof: "ultra"},
 		{name: "unarmed qa", prof: "qa", unarmed: true, creds: []string{"DEV_TOKEN", "QA_TOKEN"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			armRegistry(t, c.devExtra)
+			armRegistry(t)
 			if c.unarmed {
 				t.Setenv(agentconfig.OverlayVar, "")
 			}
@@ -137,7 +136,7 @@ func armGuardCase(t *testing.T, prof, fatal string, creds []string) {
 
 // Inside databricks:dev a claude hop runs on its candidate's "<profile>:" row, which the guard then checks.
 func TestArmClaudeHopRunsOnItsProfile(t *testing.T) {
-	armRegistry(t, "")
+	armRegistry(t)
 	claude := &fakeRunner{name: "claude"}
 	for prof, fatal := range map[string]bool{"ultra": false, "qa": true} {
 		req := dispatchRequest(RunOptions{Provider: "dev"}, Dispatch{Agent: claude, Model: prof + ":sonnet"}, false)
@@ -165,7 +164,7 @@ func TestArmPickAdmitsOnlyGuardAllowedHops(t *testing.T) {
 	for _, c := range cases {
 		for _, want := range agentid.All() {
 			t.Run(c.name+"/"+want, func(t *testing.T) {
-				armRegistry(t, "")
+				armRegistry(t)
 				for a, p := range c.pins {
 					vaulttest.SetRecord(t, a, "profile", p)
 				}

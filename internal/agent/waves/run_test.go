@@ -152,6 +152,23 @@ func TestRunResume(t *testing.T) {
 	}
 }
 
+// A resume launches only the failed leaf; it keeps the profile its original position rotated to.
+func TestRunResumeKeepsProfileRotation(t *testing.T) {
+	f := newRunFixture(t)
+	f.o.Profiles = []string{"dev", "qa"}
+	f.fail = true
+	if code := runWith(t.Context(), f.o, f.h); code != 1 {
+		t.Fatal(code, &f.out)
+	}
+	f.fail, f.calls = false, nil
+	if code := runWith(t.Context(), f.o, f.h); code != 0 {
+		t.Fatal(code, &f.out)
+	}
+	if got := f.calls[0][0]; got.ID != "1.2" || got.Profile != "qa" {
+		t.Fatalf("resumed leaf = %s on %q, want 1.2 on qa", got.ID, got.Profile)
+	}
+}
+
 func TestRunRefusalAndCancel(t *testing.T) {
 	for _, mode := range []string{"owns", "gate", "cancel", "dry-run"} {
 		t.Run(mode, func(t *testing.T) {
@@ -184,7 +201,7 @@ func TestRunRefusalAndCancel(t *testing.T) {
 
 func TestRunRealPlanDryRun(t *testing.T) {
 	f := newRunFixture(t)
-	f.o.Plan = "../../../plans/2026-11-13-permissions-settings-toolbox.md"
+	f.o.Plan = filepath.Join("testdata", "plan.md")
 	f.o.DryRun, f.o.JSON = true, true
 	if code := runWith(t.Context(), f.o, f.h); code != 0 {
 		t.Fatal(code, &f.out)
@@ -197,7 +214,7 @@ func TestRunRealPlanDryRun(t *testing.T) {
 	for _, w := range s.Waves {
 		count += len(w.Packages)
 	}
-	if len(s.Waves) != 4 || count != 42 || len(f.calls) != 0 {
+	if len(s.Waves) != 4 || count != 6 || len(f.calls) != 0 {
 		t.Fatal(fmt.Sprint(len(s.Waves), count, f.calls))
 	}
 }

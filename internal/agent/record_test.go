@@ -761,7 +761,7 @@ func assertAnswerWriteFailure(t *testing.T, id string, events []wire.Event) {
 	}
 }
 
-// SessionModel reads the newest record of the session: the invoked model without its profile, else the reported one.
+// SessionModel keeps the newest dispatch's profile and served model.
 func TestSessionModel(t *testing.T) {
 	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
@@ -771,6 +771,8 @@ func TestSessionModel(t *testing.T) {
 		{SessionID: "b", Model: "<synthetic>", Invoked: "sonnet"},
 		{SessionID: "c", Model: "<synthetic>"},
 		{SessionID: "d", Model: "reported"},
+		{SessionID: "e", Model: "served-sonnet", Invoked: "qa:sonnet"},
+		{SessionID: "f", Agent: "codex", Fallback: "claude", Model: "gpt-6.1-sol", Invoked: "dev:sonnet"},
 	} {
 		r := NewRecord("codex", RunOptions{Prompt: "p"}, base.Add(time.Duration(i)*time.Minute))
 		r.Finish(res, nil, time.Second)
@@ -778,9 +780,12 @@ func TestSessionModel(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for session, want := range map[string]string{"a": "wire-new", "b": "sonnet", "c": "", "d": "reported", "z": "", "": ""} {
+	for session, want := range map[string]string{"a": "qa:wire-new", "e": "qa:served-sonnet", "b": "sonnet", "c": "", "d": "reported", "z": "", "": ""} {
 		if got := SessionModel(session); got != want {
 			t.Errorf("SessionModel(%q) = %q, want %q", session, got, want)
 		}
+	}
+	if got := SessionModel("f"); got != "gpt-6.1-sol" {
+		t.Errorf("fallback SessionModel = %q, want gpt-6.1-sol", got)
 	}
 }

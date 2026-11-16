@@ -356,15 +356,10 @@ func sameModel(dispatched, want string) bool {
 	if _, after, ok := strings.Cut(dispatched, ":"); ok {
 		dispatched = after
 	}
-	norm := func(s string) string {
-		return strings.TrimPrefix(strings.ToLower(models.Strip1M(strings.TrimSpace(s))), models.DatabricksPrefix)
-	}
 	if _, after, ok := strings.Cut(want, ":"); ok {
 		want = after
 	}
-	a, _, okA := models.Resolve(dispatched)
-	b, _, okB := models.Resolve(want)
-	return norm(dispatched) == norm(want) || (okA && okB && a == b)
+	return models.SameModel(dispatched, want)
 }
 
 // ProfileServes is model as p spells it when a fresh listing does not mark it NOT_READY and agentName Serves it there.
@@ -412,7 +407,8 @@ func previewOutcome(chain Chain, pick router.PickResult) router.PickResult {
 			continue
 		}
 		c := pick.Candidates[d.rung-1]
-		if c.Agent != "claude" { // the terminal claude hop keeps its cell id; dispatch passes the same row's alias
+		model := strings.TrimPrefix(d.Model, c.Profile+":")
+		if c.Agent != "claude" || c.Profile != "" && !slices.Contains(models.AliasNames, model) {
 			c.Model, c.Effort = d.Model, d.Effort
 		}
 		res.Candidates = append(res.Candidates, c)

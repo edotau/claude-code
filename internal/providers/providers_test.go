@@ -512,3 +512,10 @@ func TestDefaultsAgentNamesAreKnown(t *testing.T) {
 	}
 	walk(doc)
 }
+
+// TestSameModelCrossesWirePrefixOnNonCatalogIds: a bare non-catalog id equals its databricks- spelling.
+func TestSameModelCrossesWirePrefixOnNonCatalogIds(t *testing.T) {
+	if !sameModel("gpt-6-1-terra", "databricks-gpt-6-1-terra") || sameModel("glm-5-2", "gpt-6-1-terra") {
+		t.Error("sameModel must match across the databricks- prefix and still tell models apart")
+	}
+}

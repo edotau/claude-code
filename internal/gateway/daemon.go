@@ -156,6 +156,10 @@ func probeHealth(ctx context.Context, port int) (healthReply, error) {
 
 // Ensure starts the router daemon if it is not already healthy and returns its base URL (http://127.0.0.1:<port>).
 func Ensure(ctx context.Context) (string, error) {
+	return ensure(ctx, 0)
+}
+
+func ensure(ctx context.Context, port int) (string, error) {
 	release() // any start, by hand or by a launch, ends a deliberate --stop
 	if st, ok := Running(ctx); ok {
 		return Base(st.Port), nil
@@ -169,7 +173,7 @@ func Ensure(ctx context.Context) (string, error) {
 			base = Base(st.Port)
 			return nil
 		}
-		if err := spawn(); err != nil {
+		if err := spawnDaemon(port); err != nil {
 			return err
 		}
 		for deadline := time.Now().Add(3 * time.Second); time.Now().Before(deadline); {
@@ -192,13 +196,18 @@ func Ensure(ctx context.Context) (string, error) {
 var ErrTestBinary = errors.New("proxy: refusing to spawn the daemon from a test binary (stub the router seam)")
 
 // daemonCommand builds the detached daemon's command line.
-func daemonCommand(exe string) *exec.Cmd {
-	cmd := exec.Command(exe, "gateway", "proxy", "--serve")          //nolint:noctx // the daemon outlives its caller
+func daemonCommand(exe string, port int) *exec.Cmd {
+	cmd := exec.Command(exe, "gateway", "proxy", "--serve") //nolint:noctx // the daemon outlives its caller
+	if port != 0 {
+		cmd.Args = append(cmd.Args, "--port", strconv.Itoa(port))
+	}
 	cmd.Env = proc.Drop(os.Environ(), nil, []string{egress.EnvHost}) // egress is per request (/via/<host>)
 	return cmd
 }
 
-func spawn() error {
+var spawnDaemon = spawn
+
+func spawn(port int) error {
 	exe, err := paths.SelfBinary() // resolved: argv[0] `claude` would run the launcher, not `gateway proxy --serve`
 	if err != nil {
 		return err
@@ -215,7 +224,7 @@ func spawn() error {
 		return err
 	}
 	defer lf.Close()
-	cmd := daemonCommand(exe)
+	cmd := daemonCommand(exe, port)
 	cmd.Dir = paths.StateDir()
 	cmd.Stdout, cmd.Stderr = lf, lf
 	proc.Detach(cmd)
@@ -286,7 +295,7 @@ func restart(ctx context.Context, old State) (State, error) {
 		return State{}, err
 	}
 	// The old daemon keeps draining in the background: its listener is closed, so the replacement binds at once.
-	if _, err := Ensure(ctx); err != nil {
+	if _, err := ensure(ctx, old.Port); err != nil {
 		return State{}, err
 	}
 	cur, ok := Running(ctx)

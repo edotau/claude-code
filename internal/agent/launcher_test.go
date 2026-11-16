@@ -165,6 +165,24 @@ func TestAgentModelTargetPin(t *testing.T) {
 	}
 }
 
+func TestPlainPlanRefusesWorkspaceModel(t *testing.T) {
+	vaulttest.Use(t)
+	pathstest.FakeVendor(t, "codex", "exit 0")
+	spec := SchemaFor("codex")
+	for _, args := range [][]string{
+		{"--model", "databricks-gpt-6-1-sol"},
+		{"--model=databricks-gpt-6-1-sol"},
+	} {
+		_, err := plainPlan(spec, args)
+		if usage, ok := err.(*UsageError); !ok || !strings.Contains(usage.Msg, "refused on own login") {
+			t.Fatalf("plainPlan(%q) = %v, want the own-login model refusal", args, err)
+		}
+	}
+	if _, err := plainPlan(spec, []string{"--model", "gpt-6.1-sol"}); err != nil {
+		t.Fatalf("bare model refused: %v", err)
+	}
+}
+
 func TestPlainPlansResolveVendorBinNotPATH(t *testing.T) {
 	for _, name := range Names() {
 		t.Run(name, func(t *testing.T) {
@@ -318,5 +336,32 @@ func TestVendorSignInSkipsRouting(t *testing.T) {
 	}
 	if offers != 0 {
 		t.Errorf("configure offered %d times for sign-in commands, want 0", offers)
+	}
+}
+
+func TestSplitProfile(t *testing.T) {
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{
+		"ultra": {Provider: "anthropic"}, "prod": {Provider: "databricks"}, "qa": {Provider: "databricks"},
+		"chatgpt": {Provider: "openai"},
+	}}
+	for _, c := range []struct{ spec, prof, model, err string }{
+		{"ultra:claude-opus-5-5", "ultra", "claude-opus-5-5", ""},
+		{"qa:databricks-claude-opus-5-5", "qa", "databricks-claude-opus-5-5", ""},
+		{"openai:gpt-5", "chatgpt", "gpt-5", ""},
+		{"nosuch:claude-opus-5-5", "", "", `unknown profile "nosuch"`},
+		{"databricks:claude-opus-5-5", "", "", "prod, qa"},
+		{"qwen3:30b", "", "qwen3:30b", ""},
+		{"claude-opus-5-5", "", "claude-opus-5-5", ""},
+	} {
+		prof, model, err := splitProfile(reg, c.spec)
+		if c.err != "" {
+			if err == nil || !strings.Contains(err.Error(), c.err) {
+				t.Errorf("%s: err = %v, want %q", c.spec, err, c.err)
+			}
+			continue
+		}
+		if err != nil || prof != c.prof || model != c.model {
+			t.Errorf("%s = %q %q %v, want %q %q", c.spec, prof, model, err, c.prof, c.model)
+		}
 	}
 }

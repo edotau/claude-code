@@ -534,13 +534,20 @@ func labelShaped(head, label string) bool {
 }
 
 // ownModel is the dispatch's model, else the agent file's, else (also for `inherit`) the session's; "" labels nothing.
-func ownModel(run *dispatchRun, updated map[string]any, st string) string {
+func ownModel(ctx context.Context, run *dispatchRun, updated map[string]any, st string) string {
 	m, _ := updated["model"].(string)
 	if m == "" || m == "inherit" {
 		m = run.rosterModel(st)
 	}
 	if m == "" || m == "inherit" {
 		return run.session()
+	}
+	if !slices.Contains(models.AliasNames, m) {
+		if reg, err := run.registry(); err == nil {
+			if p := reg.Row(providers.SessionLeadContext(ctx, reg, true)); p != nil {
+				return p.WireModel(m)
+			}
+		}
 	}
 	return m
 }
@@ -643,7 +650,11 @@ func labelModel(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	line := run.opening(ctx, task)
 	agent := line.workAgent(st, task)
 	confine := labelConfinement(line.cfg)
+	ctx = withAskFlags(ctx, line.profile, cmp.Or(line.fallback, line.cfg.Fallback))
 	if m := cmp.Or(line.model, line.cfg.Model); m != "" {
+		if confine == "" {
+			return line.rowLabel(ctx, run, cmp.Or(agent, agentid.Claude), m)
+		}
 		return explicitLabel(ctx, run, confine, cmp.Or(agent, agentid.Claude), m)
 	}
 	switch tier := pickTier(run, updated, st, agent, cmp.Or(line.prompt, task)); {
@@ -652,15 +663,36 @@ func labelModel(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	case agent != "":
 		return labelCell(ctx, run, agent, tier)
 	}
-	return ownModel(run, updated, st)
+	return ownModel(ctx, run, updated, st)
 }
 
-// explicitLabel is the ask's model as the run spells it inside confine (a Databricks endpoint name), else as typed.
+// explicitLabel is the ask's model as the run spells it inside confine (a Databricks endpoint name).
 func explicitLabel(ctx context.Context, run *dispatchRun, confine, agent, model string) string {
-	if confine == "" {
+	return cmp.Or(coworkerPick(ctx, run, confine, agent, model), model)
+}
+
+// rowLabel is the line's model as its --profile (or typed `<row>:`) row serves it, else as typed.
+func (l askLine) rowLabel(ctx context.Context, run *dispatchRun, agent, model string) string {
+	reg, err := run.registry()
+	if err != nil {
 		return model
 	}
-	return cmp.Or(coworkerPick(ctx, run, confine, agent, model), model)
+	if p, bare, _ := l.target(reg, func() bool { return false }); p != nil {
+		if agent != agentid.Claude && slices.Contains(models.AliasNames, models.Strip1M(bare)) {
+			return labelCell(withAskFlags(ctx, p.Name, cmp.Or(l.fallback, l.cfg.Fallback)), run, agent, bare)
+		}
+		return router.SpellServed(p, p.WireModel(bare), time.Now())
+	}
+	return model
+}
+
+// askFlagsKey carries the ask line's --profile and --fallback to the no-run preview.
+type askFlagsKey struct{}
+
+type askFlags struct{ profile, fallback string }
+
+func withAskFlags(ctx context.Context, profile, fallback string) context.Context {
+	return context.WithValue(ctx, askFlagsKey{}, askFlags{profile, fallback})
 }
 
 // pickTier is the alias the run picks from: an external agent's ask classifies its prompt, as ask does with no --model.
@@ -729,14 +761,18 @@ func cellModelFor(ctx context.Context, run *dispatchRun, agent, alias string) st
 	if m := labelPick(ctx, agent, alias); m != "" {
 		return m
 	}
+	if flags, _ := ctx.Value(askFlagsKey{}).(askFlags); flags.profile != "" || flags.fallback != "" {
+		return ""
+	}
 	return tableCellModel(run, agent, alias, pins[agent])
 }
 
 // previewModel is the preview's first candidate model without its `<profile>:` prefix; "" when nothing runs.
 func previewModel(ctx context.Context, agent, alias string) string {
-	profile, provider := router.ConfineLeadContext(ctx, agent, "", "", alias) // the lead gateway and ask fill under a confinement
+	flags, _ := ctx.Value(askFlagsKey{}).(askFlags)
+	profile, provider := router.ConfineLeadContext(ctx, agent, flags.profile, "", alias)
 	q := agentpkg.RouteReq{Agent: agent, Model: alias, Profile: profile, Provider: provider,
-		Fallback: router.FallbackAll, Preview: true}
+		Fallback: cmp.Or(flags.fallback, router.FallbackAll), Preview: true}
 	_, res, err := agentpkg.Resolve(ctx, q)
 	if err != nil || len(res.Candidates) == 0 {
 		return ""

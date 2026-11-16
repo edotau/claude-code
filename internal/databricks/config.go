@@ -22,9 +22,9 @@ import (
 
 // cfgFlags are the flags `config` and `rescue` share.
 type cfgFlags struct {
-	profile, host, wire, auth, out, model string
-	force                                 bool
-	set, unset                            []string
+	profile, host, auth, out, model string
+	force                           bool
+	set, unset                      []string
 }
 
 var configPage = helptext.Page{
@@ -43,7 +43,6 @@ var rescuePage = helptext.Page{
 func bind(fs *flag.FlagSet, f *cfgFlags, authDef string, withOut bool) {
 	profileFlagVar(fs, &f.profile, profileUsage)
 	fs.StringVar(&f.host, "host", "", "https://host override, skips the vault")
-	fs.StringVar(&f.wire, "wire", "", "ai-gateway or serving (default: the row's, else serving)")
 	fs.StringVar(&f.model, "model", "", "model override, canonical or wire id")
 	fs.StringVar(&f.auth, "auth", authDef, "harness (token helper) or cli (databricks CLI)")
 	helptext.ListVar(fs, &f.set, "set", "value", "K=V env key to add or change (repeatable)", false)
@@ -61,11 +60,11 @@ func resolve(ctx context.Context, f cfgFlags) (*providers.Provider, string, erro
 	if name == "" {
 		name = providers.GroupDatabricks
 	}
-	if err := checkWire(f.wire); err != nil {
-		return nil, "", err
-	}
 	host, err := flagHost(f.host)
 	if err != nil {
+		return nil, "", err
+	}
+	if err := checkTokenHelperHost(reg, name, host, f.auth); err != nil {
 		return nil, "", err
 	}
 	var row *providers.Provider
@@ -74,16 +73,22 @@ func resolve(ctx context.Context, f cfgFlags) (*providers.Provider, string, erro
 			return nil, "", err
 		}
 	}
-	if row != nil && rowServesWire(row, f.wire) {
+	if row != nil {
 		return row, host, nil
 	}
-	return synth(name, host, f.wire)
+	return synth(name, host)
 }
 
-// checkWire accepts an empty --wire or one of the two wires.
-func checkWire(wire string) error {
-	if wire != "" && wire != providers.WireServing && wire != providers.WireAIGateway {
-		return fmt.Errorf("--wire must be ai-gateway or serving (got %q)", wire)
+// checkTokenHelperHost refuses a --host the harness token helper cannot serve: it resolves the named registry row.
+func checkTokenHelperHost(reg *providers.Registry, name, host, auth string) error {
+	if host == "" || auth != authHarness {
+		return nil
+	}
+	if reg == nil || reg.Providers[name] == nil {
+		return fmt.Errorf("--auth harness needs a registered profile, and %q is not one; use --auth cli", name)
+	}
+	if _, rowHost, err := registryHost(reg, nil, name); err == nil && rowHost != host {
+		return fmt.Errorf("--host %s differs from profile %q host %s, whose token the helper mints; use --auth cli", host, name, rowHost)
 	}
 	return nil
 }
@@ -116,15 +121,10 @@ func registryHost(reg *providers.Registry, lerr error, name string) (*providers.
 	return nil, "", fmt.Errorf("provider %q has no host; pass --host URL", name)
 }
 
-// rowServesWire reports whether the registry row already uses the requested wire (empty means any).
-func rowServesWire(row *providers.Provider, wire string) bool {
-	return wire == "" || wire == row.Options.Wire || (wire == providers.WireServing && row.Options.Wire == "")
-}
-
-// synth expands a bare databricks preset row for host and wire through the registry's own loader.
-func synth(name, host, wire string) (*providers.Provider, string, error) {
+// synth expands a bare databricks preset row for host through the registry's own loader.
+func synth(name, host string) (*providers.Provider, string, error) {
 	doc, err := json.Marshal(map[string]any{"providers": map[string]any{providers.GroupDatabricks: map[string]any{name: map[string]any{
-		"preset": providers.PresetDatabricks, "host": host, "options": map[string]string{"wire": wire}}}}})
+		"preset": providers.PresetDatabricks, "host": host}}}})
 	if err != nil {
 		return nil, "", err
 	}
@@ -175,9 +175,6 @@ func config(args []string) int {
 }
 
 func emit(f cfgFlags, target string, res renderResult) int {
-	if res.Note != "" {
-		fmt.Fprintln(os.Stderr, "note: "+res.Note)
-	}
 	if f.out == "" {
 		_, _ = io.WriteString(os.Stdout, res.Text)
 		return 0
@@ -230,9 +227,6 @@ func rescue(args []string) int {
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "claude-code databricks rescue: %v\n", err)
 		return 2
-	}
-	if res.Note != "" {
-		fmt.Fprintln(os.Stderr, "note: "+res.Note)
 	}
 	argv := append([]string{"--settings", file}, fs.Args()...)
 	bin, ferr := findClaude()

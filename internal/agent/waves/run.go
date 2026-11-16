@@ -291,7 +291,7 @@ func (r *runner) planWave(w plans.Wave) ([]Spec, WaveState, []Spec, bool, error)
 			continue
 		}
 		if specs[i].Profile == "" && len(r.o.Profiles) > 0 {
-			specs[i].Profile = r.o.Profiles[len(launch)%len(r.o.Profiles)]
+			specs[i].Profile = r.o.Profiles[i%len(r.o.Profiles)] // by plan position: a resume keeps each leaf's profile
 		}
 		launch = append(launch, specs[i])
 		ws = ws.WithLeaf(LeafState{ID: specs[i].ID, Agent: specs[i].Agent, Profile: specs[i].Profile,

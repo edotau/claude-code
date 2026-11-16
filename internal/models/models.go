@@ -73,6 +73,15 @@ func Has1M(id string) bool {
 	return len(id) >= len(marker1M) && strings.EqualFold(id[len(id)-len(marker1M):], marker1M)
 }
 
+// Keeps1M reports a [1m] marker that matters: only opus/sonnet 4.x opt in; Claude 5+ is 1M by default, others never.
+func Keeps1M(id string) bool {
+	if !Has1M(id) {
+		return false
+	}
+	family, major, _, ok := ParseClaudeID(id)
+	return ok && major == 4 && (family == Opus || family == Sonnet)
+}
+
 func isFamily(s string) bool { return s == Opus || s == Sonnet || s == Haiku || s == Fable }
 
 // hasFamilyDash reports a bare "<family>-..." id (no claude- prefix).
@@ -84,7 +93,8 @@ func hasFamilyDash(s string) bool {
 // Canonical reduces a typed model id to the plain Claude id and reports a trailing [1m]; non-Claude ids pass through.
 func Canonical(id string) (base string, oneM bool) {
 	id = strings.TrimSpace(id)
-	oneM = Has1M(id)
+	marked := Has1M(id)
+	oneM = Keeps1M(id)
 	id = Strip1M(id)
 	if strings.Contains(id, "/") {
 		return id, oneM
@@ -96,31 +106,27 @@ func Canonical(id string) (base string, oneM bool) {
 	}
 	if stripped || cand != rest {
 		if _, _, _, ok := ParseClaudeID(cand); ok {
-			return cand, oneM
+			return cand, marked && Keeps1M(cand+marker1M)
 		}
 	}
 	return id, oneM
 }
 
-// ContextWindow is 1M for a catalog Claude model, a Claude 5+ id the catalog does not list yet, or a [1m]-marked id.
-func ContextWindow(id string) int {
-	if Has1M(id) {
-		return ContextWindow1M
-	}
-	if canonical, _, ok := Resolve(id); ok && FamilyOf(canonical) != "" {
-		if _, major, _, _ := ParseClaudeID(canonical); inCatalog(canonical) || major >= 5 {
-			return ContextWindow1M
-		}
-	}
-	return ContextWindowStd
-}
-
-// Window uses the catalog context limit, else ContextWindow; Gemini limits can be 1,048,576 tokens.
+// Window is the model's own context window: the catalog limit (Gemini is 1,048,576), else 1M for a Claude 5+ id or a
+// 4.x opus/sonnet id typed with [1m], else 200K; endpoint and env caps live in providers.Window.
 func Window(id string) int {
 	if l, ok := Limits(id); ok && l.Context > 0 {
 		return l.Context
 	}
-	return ContextWindow(id)
+	if Keeps1M(id) {
+		return ContextWindow1M
+	}
+	if canonical, _, ok := Resolve(id); ok && FamilyOf(canonical) != "" {
+		if _, major, _, _ := ParseClaudeID(canonical); major >= 5 {
+			return ContextWindow1M
+		}
+	}
+	return ContextWindowStd
 }
 
 // PromptTokens is the prompt budget in a window: window - output - 10%, or 0 when output fills it.
@@ -145,7 +151,7 @@ func ThinkingKnobs(id string) (maxTokens, disableAdaptive string) {
 
 // opus4Knobs: Opus 4.7 at 1M takes the high budget; Opus 4.6 takes the standard one with adaptive thinking off.
 func opus4Knobs(id string, min int) (maxTokens, disableAdaptive string) {
-	if min == 7 && ContextWindow(id) == ContextWindow1M {
+	if min == 7 && Window(id) == ContextWindow1M {
 		return thinkingHigh, ""
 	}
 	if min == 6 {

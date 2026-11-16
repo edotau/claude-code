@@ -137,21 +137,15 @@ func (r *Router) passthroughAuth(h http.Header, in *http.Request, route string) 
 	}
 }
 
-const (
-	maxRequestTags = 4 << 10
-	maxAgentToken  = 64
-)
+const maxAgentToken = 64
 
-// attribute stamps the claude-code User-Agent (and tags on an AI Gateway row) and drops launcher headers.
-func (r *Router) attribute(h http.Header, in *http.Request, p *providers.Provider) {
+// attribute stamps the claude-code User-Agent and drops launcher headers.
+func (r *Router) attribute(h http.Header, in *http.Request) {
 	stripLauncherHeaders(h)
 	for k, v := range r.headers {
 		h.Set(k, v)
 	}
 	h.Set("User-Agent", userAgent(in.Header.Get(gateway.AgentHeader)))
-	if r.tags != "" && p.IsAIGateway() {
-		h.Set(requestTagsHeader, r.tags)
-	}
 }
 
 // userAgent is "claude-code/<version>" plus the sanitized agent name when the client sent one.
@@ -186,38 +180,10 @@ func isTokenRune(c rune) bool {
 	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || c == '.' || c == '_' || c == '-'
 }
 
-// parseRequestTags returns raw when it is a single-line JSON object of strings within the cap; else logs once and "".
-func parseRequestTags(raw string, log io.Writer) string {
-	if raw == "" {
-		return ""
-	}
-	reason := ""
-	var obj map[string]string
-	switch {
-	case len(raw) > maxRequestTags:
-		reason = "over 4 KiB"
-	case strings.ContainsFunc(raw, func(c rune) bool { return c < 0x20 || c == 0x7f }):
-		reason = "contains a newline or control character"
-	case json.Unmarshal([]byte(raw), &obj) != nil || obj == nil:
-		reason = "not a JSON object of string values"
-	}
-	if reason != "" {
-		fmt.Fprintf(log, "proxy: %s ignored: %s\n", requestTagsEnv, reason)
-		return ""
-	}
-	return raw
-}
-
-// requestTagsEnv holds a single-line JSON object of request tags sent to Databricks AI Gateway rows.
-const requestTagsEnv = "HARNESS_REQUEST_TAGS"
-
 // headersEnv holds extra upstream request headers, one "Name: value" per line.
 const headersEnv = "HARNESS_HEADERS"
 
-const (
-	maxHeadersBytes   = 4 << 10
-	requestTagsHeader = "Databricks-Ai-Gateway-Request-Tags" // docs.databricks.com/aws/en/ai-gateway/usage-tracking
-)
+const maxHeadersBytes = 4 << 10
 
 // launcherHeaders are the proxy's own request headers; they never go upstream.
 var launcherHeaders = []string{
@@ -228,7 +194,7 @@ var launcherHeaders = []string{
 var protectedHeaders = map[string]bool{
 	"Authorization": true, "Proxy-Authorization": true, "X-Api-Key": true, "X-Goog-Api-Key": true, "Host": true,
 	"User-Agent": true, "Content-Length": true, "Content-Type": true, "Transfer-Encoding": true, "Connection": true,
-	"Cookie": true, textproto.CanonicalMIMEHeaderKey(requestTagsHeader): true,
+	"Cookie": true,
 }
 
 // parseHeaders parses "Name: value" lines; invalid or protected lines are dropped with one warning, never fatal.

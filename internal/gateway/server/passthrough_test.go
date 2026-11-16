@@ -790,3 +790,29 @@ func TestPassthroughStreamCutMidBodyIsMetered(t *testing.T) {
 		t.Errorf("ledger = %+v, want one entry with 11 in, 4 out", got)
 	}
 }
+
+func TestPassthroughRespellsModelForTheRow(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("PT_KEY", "prov-cred")
+	up := newRawUp(t, okRaw)
+	srv := setup(t, `{"default":"db","providers":{"openai":{"db":{"protocol":"openai","base_url":"`+up.URL+`/v1",`+
+		`"routes":{"responses":"`+up.URL+`/v1"},"modelPrefix":"databricks-",`+
+		`"auth":{"type":"key","env":"PT_KEY"},"models":{"opus":"databricks-claude-opus-5-5"}}}}}`)
+	for _, path := range []string{"openai/chat/completions", "responses/responses"} {
+		for _, in := range []string{"claude-opus-5", "claude-opus-5[1m]"} {
+			resp := ptDo(t, http.MethodPost, srv.URL+"/p/db/"+path, `{"model":"`+in+`","messages":[]}`, nil)
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("%s: status=%d", path, resp.StatusCode)
+			}
+		}
+	}
+	g := up.got()
+	if len(g) != 4 {
+		t.Fatalf("upstream hits %d, want 4", len(g))
+	}
+	for _, r := range g {
+		if m := passthroughModel([]byte(r.body)); m != "databricks-claude-opus-5" {
+			t.Errorf("upstream model %q, want databricks-claude-opus-5 (body %s)", m, r.body)
+		}
+	}
+}

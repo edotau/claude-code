@@ -115,10 +115,16 @@ func TestAgyArgvSettings(t *testing.T) {
 			[]string{"effort high: model " + agyDefaultModel + " carries its own"}},
 		{"settings before -p=", high, agent.RunOptions{Model: "gemini-3.8-flash", Tools: true, WorkDir: "/w", Permissions: deny},
 			slices.Concat([]string{"--model", "gemini-3.8-flash"}, stream,
-				[]string{"--dangerously-skip-permissions", "--effort", "high", "--settings", settings, "-p="}), nil},
+				[]string{"--dangerously-skip-permissions", "--add-dir", "PACKDIR", "--effort", "high", "--settings", settings, "-p="}), nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			agyFixture(t, c.rec)
+			c.want = slices.Clone(c.want)
+			for i, a := range c.want {
+				if a == "PACKDIR" {
+					c.want[i] = paths.PackDir()
+				}
+			}
 			c.req.Prompt = "hi"
 			p, err := agent.PrepareCLI(context.Background(), "gemini", c.req)
 			if err != nil {
@@ -303,7 +309,7 @@ func TestGeminiGatewayInteractiveModelMatchesAdvertised(t *testing.T) {
 	}
 }
 
-// On a Databricks gateway row agy lists only the base id, so the effort suffix must ride --effort, not --model.
+// On a Databricks row agy lists only the base id, so the effort suffix must ride --effort, not --model.
 func TestAgyGatewayModelIsBaseWithEffort(t *testing.T) {
 	gw := providers.Target{Provider: &providers.Provider{Name: "dev", Preset: providers.PresetDatabricks, Auth: providers.Auth{Type: "pat"}},
 		Model: "gemini-3.8-flash-high"}
@@ -317,7 +323,7 @@ func TestAgyGatewayModelIsBaseWithEffort(t *testing.T) {
 	}
 }
 
-// pinFixture is a hermetic registry with two Databricks gateway rows (dev, gw), a fake agy Google login and the session on session.
+// pinFixture is a hermetic registry with two Databricks rows (dev, gw), a fake agy Google login and the session on session.
 func pinFixture(t *testing.T, session string) {
 	t.Helper()
 	vaulttest.Use(t)
@@ -353,7 +359,7 @@ func TestGeminiRecordBeatsSessionProfile(t *testing.T) {
 		wantProv, wantModel, wantErr  string
 	}{
 		{"A model pin on the Google login", "dev", "", "gemini-pinned", agent.RunOptions{}, "antigravity", "gemini-pinned", ""},
-		{"B pinned gateway row beats the session row", "dev", "gw", "gemini-y", agent.RunOptions{}, "gw", "gemini-y", ""},
+		{"B pinned Databricks row beats the session row", "dev", "gw", "gemini-y", agent.RunOptions{}, "gw", "gemini-y", ""},
 		{"C pin names another row than the gateway session", "gw", "dev", "", agent.RunOptions{}, "dev", "", ""},
 		{"C gateway session without a pin stays on the Google login", "gw", "", "", agent.RunOptions{}, "antigravity", "", ""},
 		{"D --model beats the record model", "dev", "gw", "gemini-y", agent.RunOptions{Model: "gemini-flag"}, "gw", "gemini-flag", ""},

@@ -161,7 +161,7 @@ func peekDiscovery(agent string, p *providers.Provider, now time.Time) string {
 	return leastRecent(st[ProviderAccount(p.Name)], agent, p, servedPool(p, DiscoveryPool(), now), now)
 }
 
-// gateLead prepends lead, sibling workspaces and logins as fallback permits; gemini requires Google/gateway rows.
+// gateLead prepends lead, sibling workspaces and logins as fallback permits; gemini requires Google or Databricks rows.
 func (t *RouteTable) gateLead(
 	ctx context.Context, pg *pickGate, alias, agent string, spec PinSpec, base []Candidate, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
@@ -177,7 +177,7 @@ func (t *RouteTable) gateLead(
 			continue
 		}
 		if agent == "gemini" && !geminiRow(pg.reg, prof) {
-			res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google or a Databricks gateway row, not " + prof})
+			res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google or a Databricks row, not " + prof})
 			continue
 		}
 		lead = append(lead, t.gateRow(ctx, pg, alias, agent, prof, spec.Model, i > 0, st, o, now, configured, res)...)
@@ -203,7 +203,7 @@ func (t *RouteTable) gateArm(
 	if agent != "gemini" || geminiRow(pg.reg, arm) {
 		group = t.gateProfile(ctx, pg.reg, alias, agent, arm, spec.Model, "", st, o, now, configured, res)
 	} else {
-		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google or a Databricks gateway row, not " + arm})
+		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google or a Databricks row, not " + arm})
 	}
 	if o.Fallback == FallbackNone {
 		return group
@@ -278,7 +278,7 @@ func loginProfiles(reg *providers.Registry, agent string) []string {
 	return rows
 }
 
-// geminiRow reports a row gemini can run on: Google's own, or a Databricks gateway row named on command.
+// geminiRow reports a row gemini can run on: Google's own, or a Databricks row named on command.
 func geminiRow(reg *providers.Registry, name string) bool {
 	p := reg.Providers[name]
 	if p == nil {

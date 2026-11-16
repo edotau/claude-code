@@ -49,6 +49,18 @@ func TestLastUsageAndEdits(t *testing.T) {
 	}
 }
 
+func TestLastUsageSkipsSyntheticModel(t *testing.T) {
+	tr := filepath.Join(t.TempDir(), "t.jsonl")
+	lines := []string{
+		`{"type":"assistant","message":{"model":"claude-opus-5","usage":{"input_tokens":1,"output_tokens":2}}}`,
+		`{"type":"assistant","message":{"model":"<synthetic>","usage":{"input_tokens":0,"output_tokens":0}}}`,
+	}
+	_ = os.WriteFile(tr, []byte(strings.Join(lines, "\n")+"\n"), 0o600)
+	if u, ok := LastUsage(tr); !ok || u.Model != "claude-opus-5" || u.Tokens != 3 {
+		t.Errorf("LastUsage = %+v %v, want the real model's record", u, ok)
+	}
+}
+
 func appendTranscript(t *testing.T, path, chunk string) {
 	t.Helper()
 	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)

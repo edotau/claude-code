@@ -48,11 +48,14 @@ func byAgent(ps []Pin) map[string]Pin {
 	return out
 }
 
-// A pin must match the listing the way the runtime spells it: no blind databricks- stripping.
-func TestHasDoesNotStripPrefix(t *testing.T) {
-	s := router.Served{Models: []router.ServedModel{{ID: "databricks-my-endpoint", Ready: "READY"}}}
-	if listed, _ := s.Has(preflightRegistry(true).Providers["dev"], "my-endpoint"); listed {
-		t.Fatal("pin my-endpoint must not match databricks-my-endpoint")
+// Bare pins match prefixed Databricks listings; prefixed pins never match bare listings.
+func TestHasMatchesRuntimeSpelling(t *testing.T) {
+	dev := preflightRegistry(true).Providers["dev"]
+	if listed, _ := (router.Served{Models: []router.ServedModel{{ID: "databricks-my-endpoint", Ready: "READY"}}}).Has(dev, "my-endpoint"); !listed {
+		t.Error("bare pin my-endpoint must match listed databricks-my-endpoint")
+	}
+	if listed, _ := (router.Served{Models: []router.ServedModel{{ID: "my-endpoint", Ready: "READY"}}}).Has(dev, "databricks-my-endpoint"); listed {
+		t.Error("pin databricks-my-endpoint must not match a bare my-endpoint listing")
 	}
 }
 

@@ -229,9 +229,9 @@ var modelDateSuffix = regexp.MustCompile(`-\d{8}$`)
 // modelContextSuffix strips a trailing context-window tag such as "[1m]".
 var modelContextSuffix = regexp.MustCompile(`\[\d+m\]$`)
 
-// shortModelName strips the "claude-" prefix, a trailing context tag and a trailing date suffix.
+// shortModelName strips the "databricks-" and "claude-" prefixes, a trailing context tag and a trailing date suffix.
 func shortModelName(raw string) string {
-	s := strings.TrimPrefix(raw, "claude-")
+	s := strings.TrimPrefix(strings.TrimPrefix(raw, "databricks-"), "claude-")
 	s = modelContextSuffix.ReplaceAllString(s, "")
 	s = modelDateSuffix.ReplaceAllString(s, "")
 	return s

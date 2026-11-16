@@ -56,6 +56,8 @@ func TestLabelSource(t *testing.T) {
 		{"opus", "databricks-gpt-6-1-sol", "sess-x", "derived"},
 		{"opus", "sess-x", "sess-x", "session"},
 		{"opus", "", "sess-x", "derived"},
+		{"claude-opus-5", "databricks-claude-opus-5", "", "dispatch"},
+		{"", "databricks-claude-opus-5", "claude-opus-5", "session"},
 	} {
 		if got := labelSource(c.dispatch, c.label, c.session); got != c.want {
 			t.Errorf("labelSource(%q,%q,%q) = %q, want %q", c.dispatch, c.label, c.session, got, c.want)

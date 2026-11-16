@@ -268,7 +268,6 @@ func codexMenuEntry(p *providers.Provider, m providers.OpencodeModel, base map[s
 }
 
 func codexModelKey(slug string) string {
-	slug = strings.TrimPrefix(slug, "system.ai.")
 	slug = strings.TrimPrefix(slug, "databricks-")
 	return strings.ReplaceAll(slug, ".", "-")
 }

@@ -66,7 +66,7 @@ func DiscoverModels(ctx context.Context, q ModelQuery) (ModelResult, error) {
 
 // profileErr keeps opencode sync's one-line resolve failure; every other read returns the cause.
 func profileErr(q ModelQuery, err error) error {
-	if q.Agent == agentid.OpenCode && q.Mode != RecallModels && !errors.Is(err, catalog.ErrGateway) {
+	if q.Agent == agentid.OpenCode && q.Mode != RecallModels {
 		return errors.New("cannot resolve profile; check the provider configuration")
 	}
 	return err

@@ -220,7 +220,7 @@ func checkScopeEditsMiss(t *testing.T, p *providers.Provider, f *discoveryFake, 
 	}
 }
 
-// checkScopeRejectedEarly checks another host, a gateway wire and a non-Databricks preset are refused before any HTTP.
+// checkScopeRejectedEarly checks another host and a non-Databricks preset are refused before any HTTP.
 func checkScopeRejectedEarly(t *testing.T, p *providers.Provider, f *discoveryFake, s Snapshot) {
 	t.Helper()
 	// Scope construction must distinguish hosts without making a request to another workspace.
@@ -229,12 +229,7 @@ func checkScopeRejectedEarly(t *testing.T, p *providers.Provider, f *discoveryFa
 	if err := Save(&other, s); err == nil {
 		t.Fatal("accepted snapshot belonging to another host")
 	}
-	other = *p
-	other.Options.Wire = providers.WireAIGateway
 	before := f.me.Load()
-	if _, err := Discover(context.Background(), &other, false); err == nil || f.me.Load() != before {
-		t.Fatal("gateway must be rejected before HTTP/cache access")
-	}
 	other = *p
 	other.Preset = ""
 	if _, err := Discover(context.Background(), &other, false); err == nil || f.me.Load() != before {
@@ -407,20 +402,46 @@ func corruptSealed(t *testing.T, key string) {
 // Save remembers the validated subject locally; a changed auth identity misses, so no profile reuses another's.
 func TestRecallSubjectFollowsSaveAndAuthIdentity(t *testing.T) {
 	p, f := discoveryEnv(t)
-	if _, found, err := RecallSubject(p); err != nil || found {
+	if _, found, err := RecallSubjectCtx(context.Background(), p); err != nil || found {
 		t.Fatalf("before save: found=%v err=%v", found, err)
 	}
 	if err := Save(p, discoverForTest(t, p, false)); err != nil {
 		t.Fatal(err)
 	}
 	me := f.me.Load()
-	if subject, found, err := RecallSubject(p); err != nil || !found || subject != "subject-one" || f.me.Load() != me {
+	if subject, found, err := RecallSubjectCtx(context.Background(), p); err != nil || !found || subject != "subject-one" || f.me.Load() != me {
 		t.Fatalf("after save: %q found=%v err=%v Me %d→%d", subject, found, err, me, f.me.Load())
 	}
 	other := *p
 	other.Auth.ClientID = "another-client"
-	if _, found, err := RecallSubject(&other); err != nil || found {
+	if _, found, err := RecallSubjectCtx(context.Background(), &other); err != nil || found {
 		t.Fatalf("changed client id: found=%v err=%v, want a miss", found, err)
+	}
+}
+
+// One profile used as the user and headlessly as its SP keeps a remembered subject per identity.
+func TestRecallSubjectIsScopedByIdentity(t *testing.T) {
+	p, f := discoveryEnv(t)
+	p.Identity = providers.IdentityAuto
+	userCtx := providers.WithIdentity(context.Background(), providers.IdentityUser)
+	headless := providers.WithIdentity(context.Background(), providers.IdentityHeadless)
+	for ctx, subject := range map[context.Context]string{userCtx: "subject-user", headless: "subject-sp"} {
+		f.identity.Store(`{"id":"` + subject + `","active":true}`)
+		s, err := Discover(ctx, p, true)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := Save(p, s); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for ctx, want := range map[context.Context]string{userCtx: "subject-user", headless: "subject-sp"} {
+		if got, found, err := RecallSubjectCtx(ctx, p); err != nil || !found || got != want {
+			t.Errorf("%s: subject %q found=%v err=%v, want %q", providers.IdentityFrom(ctx), got, found, err, want)
+		}
+		if snap, ok := RecallCtx(ctx, p); !ok || snap.Scope.SubjectID != want {
+			t.Errorf("%s: recalled snapshot for %q ok=%v, want %q", providers.IdentityFrom(ctx), snap.Scope.SubjectID, ok, want)
+		}
 	}
 }
 
@@ -462,7 +483,7 @@ func TestServingDiscoverySidecarExpires(t *testing.T) {
 	if err := Save(p, discoverForTest(t, p, false)); err != nil {
 		t.Fatal(err)
 	}
-	name, err := validatedKey(p)
+	name, err := validatedKey(p, identityTag(context.Background(), p))
 	if err != nil {
 		t.Fatal(err)
 	}

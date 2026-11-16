@@ -415,12 +415,25 @@ func ClaudeCellModel(cell string) string {
 func (t *RouteTable) LowestAliasServing(agent, id string) string {
 	for _, alias := range slices.Backward(Aliases) {
 		if c, ok := t.Rows[agent][alias]; ok {
-			if cid, _, ok := models.Resolve(c.Model); ok && cid == id {
+			if models.SameModel(effortFree(c.Model), id) {
 				return alias
 			}
 		}
 	}
 	return ""
+}
+
+// effortFree is a gemini cell id without its effort suffix ("gemini-3.8-flash-low" → "gemini-3.8-flash"), else id.
+func effortFree(id string) string {
+	if models.FamilyKind(id) != models.FamilyGemini {
+		return id
+	}
+	for _, sfx := range []string{"-minimal", "-low", "-medium", "-high"} {
+		if base, ok := strings.CutSuffix(id, sfx); ok {
+			return base
+		}
+	}
+	return id
 }
 
 // ClaudeTierCell points cell at claude's lowest alias serving the non-Claude dispatch model.
@@ -448,9 +461,7 @@ func NonClaudeDispatchID(exact string, explicitModel bool, pinModel string) stri
 // AsksModel reports the caller's --model naming the model a pin cell already runs: the pin is the requested target.
 func AsksModel(callerModel string, cand Candidate, cell string) bool {
 	asked := strings.TrimPrefix(callerModel, cand.Profile+":")
-	a, _, okA := models.Resolve(asked)
-	b, _, okB := models.Resolve(cell)
-	return asked == cell || (okA && okB && a == b)
+	return models.SameModel(asked, cell)
 }
 
 // CellServing is agent's cell (any row, then the opencode sub-candidates when hub) whose model is exact.

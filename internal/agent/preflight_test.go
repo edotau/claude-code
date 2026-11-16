@@ -66,6 +66,17 @@ func TestPreviewOutcomeMatchesByRungNotPosition(t *testing.T) {
 	}
 }
 
+func TestPreviewOutcomeKeepsConcreteClaudeDispatch(t *testing.T) {
+	pick := router.PickResult{Candidates: []router.Candidate{{
+		Agent: "claude", Profile: "dev", Model: "databricks-claude-opus-5-5",
+	}}}
+	chain := Chain{Dispatches: []Dispatch{{Model: "dev:databricks-claude-opus-5", rung: 1}}}
+	got := previewOutcome(chain, pick).Candidates
+	if len(got) != 1 || got[0].Model != "dev:databricks-claude-opus-5" {
+		t.Fatalf("preview = %+v, want explicit dev:databricks-claude-opus-5", got)
+	}
+}
+
 // plantDeadLogin writes the dead-login mark providers.LoginStatus reads for the profile.
 func plantDeadLogin(t *testing.T, name string) {
 	t.Helper()

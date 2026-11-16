@@ -49,8 +49,8 @@ paths:
   and `--env` rules: `skills/subagent-workflows/references/dispatch-policy-details.md` → Overlay.
 - `<agent> models` is not a harness subcommand: it passes through to the vendor CLI. The catalog is `<agent> catalog`.
 - **opencode** on a Databricks row runs three providers: `<row>` (chat), `<row>-gpt` (Responses), `<row>-claude`
-  (Anthropic); a `--model` the workspace lists no endpoint for is refused at preflight. An `ai-gateway` row has no
-  openai route, so its chat models are left out with a note.
+  (Anthropic); a `--model` the workspace lists no endpoint for is refused at preflight. A model with no openai route is
+  left out of the chat list with a note.
 - **Claude Code** on a Responses-only model (`gpt-5.5`) is refused at launch and by the router — use codex or copilot.
 - **copilot** follows the session profile through the proxy (`/p/<profile>`, BYOK, `COPILOT_OFFLINE=true`, no
   credits); `--model <profile>:<alias>` crosses profiles. The GitHub login is used only while the copilot record's

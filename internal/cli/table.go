@@ -295,6 +295,9 @@ func runRouted(argv []string, name string) (code int, ok bool) {
 	}
 	if name == egressFlag || strings.HasPrefix(name, egressFlag+"=") {
 		if rest, local := remote.LocalArgs(egressFlag, argv[1:]); local { // this machine is the exit: no tunnel
+			if err := proc.Unsetenv(egress.EnvHost); err != nil {
+				return helptext.Fail("%s: %v", egressFlag, err), true
+			}
 			return Run(append(argv[:1:1], rest...)), true
 		}
 		return runVia(argv), true

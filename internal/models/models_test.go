@@ -33,7 +33,7 @@ func TestParseAndKnobs(t *testing.T) {
 	if _, maj, min, _ := ParseClaudeID("claude-haiku-4-5-20251001"); maj != 4 || min != 5 {
 		t.Errorf("dated id parsed as %d.%d", maj, min)
 	}
-	if ContextWindow("x[1m]") != ContextWindow1M || Strip1M("x[1m]") != "x" {
+	if Window("claude-opus-4-8[1m]") != ContextWindow1M || Strip1M("x[1m]") != "x" {
 		t.Error("[1m] handling")
 	}
 }
@@ -112,17 +112,15 @@ func TestCanonical(t *testing.T) {
 		want string
 		oneM bool
 	}{
-		{"opus-5-5[1m]", "claude-opus-5-5", true},
+		{"opus-5-5[1m]", "claude-opus-5-5", false},
+		{"opus-4-8[1m]", "claude-opus-4-8", true},
 		{"databricks-claude-opus-5-5", "claude-opus-5-5", false},
-		{"system.ai.claude-opus-5", "claude-opus-5", false},
-		{"system.ai-claude-sonnet-5", "claude-sonnet-5", false},
 		{"my-endpoint", "my-endpoint", false},
 		{"gpt-5", "gpt-5", false},
 		{"databricks-my-endpoint", "databricks-my-endpoint", false},
 		{"a/b", "a/b", false},
-		{"  claude-opus-5[1m]  ", "claude-opus-5", true},
+		{"  claude-opus-5[1m]  ", "claude-opus-5", false},
 		{"  opus  ", "opus", false},
-		{"system.ai.opus", "system.ai.opus", false},
 		{"databricks-opus", "databricks-opus", false},
 		{"claude-opus-5-5", "claude-opus-5-5", false},
 	}
@@ -145,7 +143,6 @@ func TestFamilyKindAndWireFlags(t *testing.T) {
 	}{
 		{"claude-opus-5-5", FamilyClaude, false, false, false},
 		{"databricks-claude-opus-5-5", FamilyClaude, false, false, false},
-		{"system.ai.claude-opus-5-5", FamilyClaude, false, false, false},
 		{"claude-opus-5.5", FamilyClaude, false, false, false},
 		{"claude-opus-5-5[1m]", FamilyClaude, false, false, false},
 		{"claude-3-7-sonnet", FamilyClaude, false, false, false},
@@ -207,3 +204,27 @@ func TestPromptTokens(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func TestKeeps1M(t *testing.T) {
+	for _, c := range []struct {
+		id   string
+		keep bool
+		win  int
+	}{
+		{"claude-opus-5-5", false, ContextWindow1M},
+		{"claude-opus-5-5[1m]", false, ContextWindow1M},
+		{"databricks-claude-sonnet-5-5[1m]", false, ContextWindow1M},
+		{"claude-opus-4-8[1m]", true, ContextWindow1M},
+		{"claude-opus-4-8", false, ContextWindowStd},
+		{"claude-sonnet-4-6[1m]", true, ContextWindow1M},
+		{"claude-haiku-4-5[1m]", false, ContextWindowStd},
+		{"gpt-6-1-sol[1m]", false, ContextWindowStd},
+	} {
+		if got := Keeps1M(c.id); got != c.keep {
+			t.Errorf("Keeps1M(%q) = %v, want %v", c.id, got, c.keep)
+		}
+		if got := Window(c.id); got != c.win {
+			t.Errorf("Window(%q) = %d, want %d", c.id, got, c.win)
+		}
+	}
+}

@@ -208,14 +208,12 @@ func withCoworkerLogins(ctx context.Context, arm, agentName string, gp *provider
 	return context.WithValue(ctx, loginScrubKey{}, loginScrub{own: own, keepGHToken: agentName != "copilot"})
 }
 
-// guardArm refuses a hop outside databricks:<arm>: only that workspace (not AI Gateway) or the agent's own login runs.
+// guardArm refuses a hop outside databricks:<arm>: only that workspace or the agent's own login runs.
 func guardArm(arm string, r Engine, gp *providers.Provider) error {
 	if arm == "" || gp == nil { // gp nil: the agent's own sign-in, scrubbed of every registry credential
 		return nil
 	}
 	switch {
-	case gp.IsAIGateway():
-		return fmt.Errorf("%s: profile %s is on the AI Gateway wire, outside databricks:%s", r.Name(), gp.Name, arm)
 	case gp.Name == arm && gp.Preset == providers.PresetDatabricks, armOwnLogin(r.Name(), gp):
 		return nil
 	}

@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"context"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -61,16 +62,16 @@ func GithubProfile(reg *providers.Registry) string {
 }
 
 // RecallOrSpawn is p's sealed models, no network, if usable accepts them; an expired one is served and spawn refreshes it.
-func RecallOrSpawn(p *providers.Provider, usable func([]providers.ModelInfo) bool,
+func RecallOrSpawn(ctx context.Context, p *providers.Provider, usable func([]providers.ModelInfo) bool,
 	spawn func(profile string) bool) ([]providers.ModelInfo, bool) {
-	snap, ok := recallSnapshot(p, usable, spawn)
+	snap, ok := recallSnapshot(ctx, p, usable, spawn)
 	return snap.Models, ok
 }
 
 // recallSnapshot is RecallOrSpawn's snapshot, so a caller can read its DiscoveredAt too.
-func recallSnapshot(p *providers.Provider, usable func([]providers.ModelInfo) bool,
+func recallSnapshot(ctx context.Context, p *providers.Provider, usable func([]providers.ModelInfo) bool,
 	spawn func(profile string) bool) (serving.Snapshot, bool) {
-	snap, ok := serving.Recall(p)
+	snap, ok := serving.RecallCtx(ctx, p)
 	if !ok || !usable(snap.Models) {
 		return serving.Snapshot{}, false
 	}

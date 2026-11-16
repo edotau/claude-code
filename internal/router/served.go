@@ -74,15 +74,30 @@ func ServedListed(p *providers.Provider, model string, now time.Time) (listed, r
 
 // SpellServed is SpellPin, but a bare unlisted id is databricks-<id> where p's fresh listing has that READY.
 func SpellServed(p *providers.Provider, id string, now time.Time) string {
+	id = models.Strip1M(id) // the [1m] marker never decides the spelling
 	wire := providers.SpellPin(p, id)
 	if p == nil || p.SpellingRule() != "databricks-serving" || wire != id || strings.ContainsAny(id, "/:") ||
 		strings.HasPrefix(id, models.DatabricksPrefix) {
 		return wire // a catalog id SpellPin already prefixed, or one already qualified
 	}
-	if _, ready, fresh := ServedListed(p, models.DatabricksPrefix+id, now); fresh && ready {
+	if exactReady(p, models.DatabricksPrefix+id, now) {
 		return models.DatabricksPrefix + id
 	}
 	return wire
+}
+
+// exactReady reports p's fresh listing names wire exactly and has it READY.
+func exactReady(p *providers.Provider, wire string, now time.Time) bool {
+	s, ok := LoadServed(p.Name)
+	if !ok || !s.Fresh(now) {
+		return false
+	}
+	for _, m := range s.Models {
+		if m.ID == wire {
+			return m.Ready == "" || m.Ready == "READY"
+		}
+	}
+	return false
 }
 
 // ServedFirst is the first READY menu entry respelled for p, Responses-only for codex; "" with fresh=true is none.
@@ -240,7 +255,7 @@ func (s Served) Has(p *providers.Provider, pin string) (listed, ready bool) {
 	pin = strings.TrimSpace(pin)
 	want := p.WireModel(models.Strip1M(pin)) // the spelling the agents request (providers.SpellPin)
 	for _, m := range s.Models {
-		if m.ID == want {
+		if m.ID == want || m.ID == models.DatabricksPrefix+want { // runtime prefixes a bare id the listing names databricks-<id>
 			return true, m.Ready == "" || m.Ready == "READY"
 		}
 	}

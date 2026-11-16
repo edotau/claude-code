@@ -125,6 +125,9 @@ func BackupDir(label string, now time.Time) string {
 // StateDir holds runtime state (router pid/port/secret) that must never be committed.
 func StateDir() string { return filepath.Join(ConfigDir(), "state", "harness") }
 
+// PackDir holds the context packs a run stages for agents that read them from a file, never inside a repo.
+func PackDir() string { return filepath.Join(StateDir(), "packs") }
+
 // DispatchEventsSuffix is the file suffix of a dispatch's NDJSON event log under StateDir()/dispatch.
 const DispatchEventsSuffix = ".events.jsonl"
 

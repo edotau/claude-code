@@ -3,7 +3,9 @@ package providers
 import (
 	"fmt"
 	"maps"
+	"net"
 	"net/url"
+	"os"
 	"regexp"
 	"slices"
 	"strings"
@@ -74,11 +76,7 @@ func expandDatabricks(p *Provider) {
 	if p.Protocol == "" {
 		p.Protocol = ProtocolAnthropic
 	}
-	if p.isGateway() {
-		expandGateway(p, host)
-	} else {
-		expandServing(p, host)
-	}
+	expandServing(p, host)
 	if p.Auth.Type == "" {
 		p.Auth.Type = AuthKey
 	}
@@ -143,22 +141,6 @@ func expandServing(p *Provider, host string) {
 	}
 }
 
-// expandGateway derives the AI Gateway wire: Claude on /ai-gateway/anthropic, responses on /ai-gateway/codex/v1.
-func expandGateway(p *Provider, host string) {
-	if p.BaseURL == "" {
-		p.BaseURL = host + "/ai-gateway/anthropic"
-	}
-	if p.Routes[ProtocolResponses] == "" {
-		p.Routes = withKey(p.Routes, ProtocolResponses, host+"/ai-gateway/codex/v1")
-	}
-	if p.ModelPrefix == "" {
-		p.ModelPrefix = gatewayModelPrefix
-	}
-	if p.Headers[gatewayModeHeader] == "" {
-		p.Headers = withKey(p.Headers, gatewayModeHeader, "true")
-	}
-}
-
 // withKey returns a copy of m with k=v.
 func withKey(m map[string]string, k, v string) map[string]string {
 	out := make(map[string]string, len(m)+1)
@@ -191,10 +173,39 @@ func validateDatabricksFields(n string, p *Provider) []string {
 	if p.CLIProfile != "" && !cliProfileRE.MatchString(p.CLIProfile) {
 		errs = append(errs, fmt.Sprintf("%s: cliProfile %q must match [A-Za-z0-9_-]+", n, p.CLIProfile))
 	}
-	if w := p.Options.Wire; w != "" && w != WireServing && w != WireAIGateway {
-		errs = append(errs, fmt.Sprintf("%s: options.wire %q must be %s or %s", n, w, WireServing, WireAIGateway))
+	if w := p.Options.Wire; w != "" && w != WireServing {
+		errs = append(errs, fmt.Sprintf("%s: options.wire %q is not supported; only %s (/serving-endpoints) is routed", n, w, WireServing))
+	}
+	return append(errs, validateServingRoutes(n, p)...)
+}
+
+// validateServingRoutes fails a base_url or route that leaves the preset host's /serving-endpoints.
+func validateServingRoutes(n string, p *Provider) []string {
+	root := PresetHost(p.Host) + "/serving-endpoints"
+	if PresetHost(p.Host) == "" {
+		return nil
+	}
+	routes := map[string]string{"base_url": p.BaseURL}
+	for d, u := range p.Routes {
+		routes["routes."+d] = u
+	}
+	var errs []string
+	for _, k := range slices.Sorted(maps.Keys(routes)) {
+		if u := routes[k]; u != "" && u != root && !strings.HasPrefix(u, root+"/") && !loopbackServing(u) {
+			errs = append(errs, fmt.Sprintf("%s: %s %q must stay on %s", n, k, u, root))
+		}
 	}
 	return errs
+}
+
+// loopbackServing is a /serving-endpoints URL on this machine (an ssh tunnel or test server): the token never leaves it.
+func loopbackServing(raw string) bool {
+	u, err := url.Parse(raw)
+	if err != nil || (u.Path != "/serving-endpoints" && !strings.HasPrefix(u.Path, "/serving-endpoints/")) {
+		return false
+	}
+	h := u.Hostname()
+	return h == "localhost" || net.ParseIP(h).IsLoopback()
 }
 
 // WipeKeys are inherited Anthropic knobs that override a Claude launch's own resolution; profile env may not set them.
@@ -279,34 +290,17 @@ func CheckRouteHost(p *Provider, v string) error {
 	return nil
 }
 
-// Databricks preset wires: serving (default) is /serving-endpoints, ai-gateway is the AI Gateway.
-const (
-	WireServing   = "serving"
-	WireAIGateway = "ai-gateway"
-)
+// WireServing is the only Databricks preset wire: /serving-endpoints.
+const WireServing = "serving"
 
 // Options are a preset row's non-secret tuning knobs.
 type Options struct {
-	Wire string `json:"wire,omitempty"` // "" or serving | ai-gateway
+	Wire string `json:"wire,omitempty"` // "" or serving
 }
-
-// gatewayModelPrefix and gatewayModeHeader are the AI Gateway wire-id prefix and the coding-agent header.
-const (
-	gatewayModelPrefix = "system.ai."
-	gatewayModeHeader  = "x-databricks-use-coding-agent-mode"
-)
-
-// isGateway reports whether p's preset row selects the AI Gateway wire.
-func (p *Provider) isGateway() bool { return p.Options.Wire == WireAIGateway }
-
-// IsAIGateway reports whether p is a Databricks preset row on the AI Gateway wire.
-func (p *Provider) IsAIGateway() bool { return p.Preset == PresetDatabricks && p.isGateway() }
 
 // SpellingRule is the models.Wire rule p's model ids use; "" means ids pass through as written.
 func (p Provider) SpellingRule() string {
 	switch {
-	case p.Preset == PresetDatabricks && p.isGateway(), p.ModelPrefix == gatewayModelPrefix: // prefix: rows built without options.wire
-		return "databricks-ai-gateway"
 	case p.Preset == PresetDatabricks || p.ModelPrefix == models.DatabricksPrefix:
 		return "databricks-serving"
 	case p.Provider == "github":
@@ -329,7 +323,7 @@ func (p Provider) WireModel(id string) string {
 	if !ok {
 		return id
 	}
-	if oneM {
+	if oneM && models.Keeps1M(canonical+oneMMarker) {
 		return models.Wire(rule, canonical) + oneMMarker
 	}
 	return models.Wire(rule, canonical)
@@ -347,12 +341,14 @@ func (p *Provider) Serves1M() bool {
 	return false
 }
 
-// ContextWindow is the window Claude Code runs id at on p: 1M when typed [1m] or a catalog Claude model on a 1M endpoint.
-func ContextWindow(p *Provider, id string) int {
-	if strings.HasSuffix(id, oneMMarker) || p.Serves1M() {
-		return models.ContextWindow(id)
+// Window is the context window id runs at on p: the model's own (models.Window), capped at 200K when p cannot serve
+// 1M (a typed [1m] stays) or CLAUDE_CODE_DISABLE_1M_CONTEXT is set.
+func Window(p *Provider, id string) int {
+	w := models.Window(id)
+	if os.Getenv("CLAUDE_CODE_DISABLE_1M_CONTEXT") != "" || !p.Serves1M() && !models.Keeps1M(id) {
+		return min(w, models.ContextWindowStd)
 	}
-	return models.ContextWindowStd
+	return w
 }
 
 // ServingRow checks name is a Databricks serving row (databricks:<p> runs on no other); errors never quote name.
@@ -375,8 +371,6 @@ func servingRow(p *Provider, label string) error {
 		return fmt.Errorf("%s: no such profile", label)
 	case p.Preset != PresetDatabricks:
 		return fmt.Errorf("%s: not a Databricks profile", label)
-	case p.IsAIGateway():
-		return fmt.Errorf("%s: AI Gateway row; use a serving row", label)
 	}
 	return nil
 }

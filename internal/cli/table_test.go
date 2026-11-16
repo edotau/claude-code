@@ -1052,3 +1052,28 @@ func TestRemoteLoginPinsHostRefusedPairPinsNothing(t *testing.T) {
 		}
 	}
 }
+
+func TestRemoteLocalhostClearsInheritedEgress(t *testing.T) {
+	vaulttest.Use(t)
+	const inherited = "inherited-remote"
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"--remote", "localhost"}, ""},
+		{[]string{"--remote=localhost"}, ""},
+		{[]string{"--host", "localhost"}, inherited},
+	} {
+		t.Run(strings.Join(tc.args, " "), func(t *testing.T) {
+			t.Setenv("HARNESS_EGRESS_HOST", inherited)
+			argv := append(append([]string{"claude-code"}, tc.args...), "version")
+			code, _, stderr := hosttest.CaptureOutput(t, func() int { return Run(argv) })
+			if code != 0 {
+				t.Fatalf("exit=%d stderr=%q, want local command success", code, stderr)
+			}
+			if got := os.Getenv("HARNESS_EGRESS_HOST"); got != tc.want {
+				t.Errorf("egress host=%q, want %q", got, tc.want)
+			}
+		})
+	}
+}

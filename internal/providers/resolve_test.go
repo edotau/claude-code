@@ -18,12 +18,13 @@ func TestParseTargetCanonicalAndOneM(t *testing.T) {
 		model string
 		oneM  bool
 	}{
-		{"claude-opus-5-5[1m]", def, "claude-opus-5-5", true},
+		{"claude-opus-5-5[1m]", def, "claude-opus-5-5", false}, // 5+ marker is a no-op
+		{"claude-opus-4-8[1m]", def, "claude-opus-4-8", true},
 		{"claude-opus-5-5", def, "claude-opus-5-5", false},
 		{"databricks-claude-opus-5-5", def, "claude-opus-5-5", false}, // no ModelPrefix: canonical
-		{"opus-5-5[1m]", def, "claude-opus-5-5", true},
+		{"opus-4-8[1m]", def, "claude-opus-4-8", true},
 		{"openai:gpt-5-nano", other, "gpt-5-nano", false},
-		{"openai:databricks-claude-opus-5[1m]", other, "claude-opus-5", true},
+		{"openai:databricks-claude-opus-5[1m]", other, "claude-opus-5", false},
 		{"qwen3:30b", def, "qwen3:30b", false},
 	}
 	for _, c := range cases {
@@ -39,15 +40,15 @@ func TestClientModelKeepsTypedOneM(t *testing.T) {
 	plain := &Provider{Name: "plain"}
 	other := &Provider{Name: "other"}
 	sel := Selection{Provider: plain, Aliases: map[string]Target{
-		"opus":   {Provider: plain, Model: "claude-opus-5-5", OneM: true},
+		"opus":   {Provider: plain, Model: "claude-opus-4-8", OneM: true},
 		"sonnet": {Provider: plain, Model: "claude-sonnet-5"},
-		"haiku":  {Provider: other, Model: "claude-haiku-4-5", OneM: true},
+		"haiku":  {Provider: other, Model: "claude-haiku-4-5", OneM: true}, // haiku never had 1M: marker dropped
 		"fable":  {Provider: other, Model: "gpt-5"},
 	}}
 	want := map[string]string{
-		"opus":   "claude-opus-5-5[1m]",
+		"opus":   "claude-opus-4-8[1m]",
 		"sonnet": "claude-sonnet-5",
-		"haiku":  "other:claude-haiku-4-5[1m]",
+		"haiku":  "other:claude-haiku-4-5",
 		"fable":  "other:gpt-5",
 	}
 	for alias, w := range want {
@@ -71,9 +72,10 @@ func TestParseTargetWirePrefix(t *testing.T) {
 		{"opus-5-5", qa, "databricks-claude-opus-5-5", false},
 		{"claude-opus-5-5", qa, "databricks-claude-opus-5-5", false},
 		{"databricks-claude-opus-5-5", qa, "databricks-claude-opus-5-5", false},
-		{"opus-5-5[1m]", qa, "databricks-claude-opus-5-5", true},
+		{"opus-4-8[1m]", qa, "databricks-claude-opus-4-8", true},
+		{"opus-5-5[1m]", qa, "databricks-claude-opus-5-5", false},
 		{"opus-5-5", sub, "claude-opus-5-5", false},
-		{"opus-5-5[1m]", sub, "claude-opus-5-5", true},
+		{"opus-4-8[1m]", sub, "claude-opus-4-8", true},
 	}
 	for _, c := range cases {
 		got := ParseTarget(reg, c.spec, c.prov)
@@ -102,7 +104,6 @@ func wireRows(t *testing.T) map[string]*Provider {
 	t.Helper()
 	return map[string]*Provider{
 		"serving": wireProvider(t, ``),
-		"gateway": wireProvider(t, `, "options": {"wire": "ai-gateway"}`),
 		"anthropic": {Name: "ant", Protocol: ProtocolAnthropic, BaseURL: "https://a.example.com",
 			Auth: Auth{Type: AuthKey}},
 		"openai": {Name: "oai", Protocol: ProtocolOpenAI, BaseURL: "https://o.example.com/v1",
@@ -122,8 +123,6 @@ func TestWireForTable(t *testing.T) {
 	}{
 		{"serving", "claude-opus-5-5", a}, {"serving", "gpt-5-5", r}, {"serving", "gpt-6-1-sol", r},
 		{"serving", "gpt-oss-120b", o}, {"serving", "gemini-3-7-flash", o}, {"serving", "kimi-k3", o},
-		{"gateway", "claude-opus-5-5", a}, {"gateway", "gpt-5-5", r}, {"gateway", "gpt-6-1-sol", r},
-		{"gateway", "gpt-oss-120b", none}, {"gateway", "gemini-3-7-flash", none}, {"gateway", "kimi-k3", none},
 		{"anthropic", "claude-opus-5-5", a}, {"anthropic", "gpt-5-5", none}, {"anthropic", "gpt-oss-120b", none},
 		{"anthropic", "gemini-3-7-flash", none}, {"anthropic", "kimi-k3", none},
 		{"openai", "claude-opus-5-5", o}, {"openai", "gpt-5-5", none}, {"openai", "gpt-6-1-sol", none},
@@ -149,10 +148,6 @@ func TestWireForReasonNamesModelAndRow(t *testing.T) {
 	if !strings.Contains(why, "gpt-5-5") || !strings.Contains(why, "Responses-only") || !strings.Contains(why, "oai") {
 		t.Errorf("responses-only reason = %q", why)
 	}
-	_, _, why = WireFor(rows["gateway"], rows["gateway"].WireModel("kimi-k3"))
-	if !strings.Contains(why, "no openai route") || !strings.Contains(why, "anthropic,responses") {
-		t.Errorf("gateway chat reason = %q", why)
-	}
 }
 
 func TestAnthropicRoute(t *testing.T) {
@@ -164,8 +159,6 @@ func TestAnthropicRoute(t *testing.T) {
 		{"serving", "claude-opus-5-5", true},
 		{"serving", "kimi-k3", false}, // Databricks anthropic is Claude-only
 		{"serving", "gpt-5-5", false},
-		{"gateway", "claude-opus-5-5", true},
-		{"gateway", "kimi-k3", false}, // unservable, but Databricks: still no anthropic fallback
 		{"anthropic", "claude-opus-5-5", true},
 		{"anthropic", "kimi-k3", true}, // unservable on a third-party host: it serves its own models
 		{"anthropic", "gpt-5-5", true},
@@ -236,5 +229,22 @@ func TestNeedsRouterTwinShapedUnchanged(t *testing.T) {
 		if got := c.sel.NeedsRouter(reg); got != c.want {
 			t.Errorf("%s: NeedsRouter = %v, want %v", c.name, got, c.want)
 		}
+	}
+}
+
+func TestFailoverTargetKeepsExactClaudeVersion(t *testing.T) {
+	from := &Provider{Name: "dev", Preset: PresetDatabricks, Models: map[string]string{"opus": "databricks-claude-opus-4-8"}}
+	next := &Provider{Name: "dev2", Preset: PresetDatabricks, Models: map[string]string{"opus": "databricks-claude-opus-4-8[1m]"}}
+	for model, want := range map[string]string{
+		"claude-opus-5":            "databricks-claude-opus-5",
+		"databricks-claude-opus-5": "databricks-claude-opus-5",
+	} {
+		if got, ok := FailoverTarget(from, model, next); !ok || got.Model != want || got.OneM {
+			t.Errorf("FailoverTarget(%s) = %+v %v, want exact %s", model, got, ok, want)
+		}
+	}
+	got, ok := FailoverTarget(from, "databricks-claude-opus-4-8", next)
+	if !ok || got.Model != "databricks-claude-opus-4-8" || !got.OneM {
+		t.Errorf("slot failover = %+v %v, want the slot id with [1m] moved to OneM", got, ok)
 	}
 }

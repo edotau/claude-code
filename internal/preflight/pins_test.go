@@ -181,3 +181,54 @@ func TestCheckIgnoresDatabricksArm(t *testing.T) {
 		t.Fatalf("codex with the arm set = %+v, want the plain pin", c)
 	}
 }
+
+// Gemini on a Databricks row is checked against the listing by its serving name, without the effort suffix.
+func TestCheckGeminiOnDatabricksChecksServedName(t *testing.T) {
+	hermeticVault(t)
+	reg, now := preflightRegistry(true), time.Now()
+	if err := router.WarmServed("dev", []providers.ModelInfo{{ID: "databricks-gemini-3-8-flash", Task: "llm/v1/chat", Ready: "READY"}}, now); err != nil {
+		t.Fatal(err)
+	}
+	for model, want := range map[string]string{"gemini-3.8-flash-high": StatusOK, "gemini-3.8-pro-high": statusUnserved} {
+		if p := checkAgent(reg, "gemini", router.PinSpec{Profile: "dev", Model: model}, "dev", now); p.Status != want {
+			t.Errorf("gemini %s = %+v, want %s", model, p, want)
+		}
+	}
+}
+
+// A claude alias pin the session workspace does not serve downgrades claude's row.
+func TestCheckClaudeAliasPinIsChecked(t *testing.T) {
+	hermeticVault(t)
+	stubListing(t)
+	reg, now := preflightRegistry(true), time.Now()
+	if err := router.WarmServed("dev", []providers.ModelInfo{{ID: "good-model", Task: "llm/v1/chat", Ready: "READY"}}, now); err != nil {
+		t.Fatal(err)
+	}
+	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "CLAUDE_ALIASES.OPUS": "good-model"})
+	if c := byAgent(Check(context.Background(), reg, now))["claude"]; c.Status != StatusOK {
+		t.Fatalf("claude on a served alias pin = %+v, want ok", c)
+	}
+	setPins(t, map[string]string{"CLAUDE_ALIASES.SONNET": "gone-model"})
+	if c := byAgent(Check(context.Background(), reg, now))["claude"]; c.Status != statusUnserved || c.Detail != "sonnet pin: not in the workspace listing" {
+		t.Fatalf("claude on an unserved alias pin = %+v, want unserved naming sonnet", c)
+	}
+}
+
+// A Responses-only alias pin downgrades claude's row but keeps the session profile; the pin's profile is warmed.
+func TestCheckClaudeAliasPinResponsesOnly(t *testing.T) {
+	hermeticVault(t)
+	stubListing(t)
+	reg, now := preflightRegistry(true), time.Now()
+	reg.Providers["dev"].Routes = map[string]string{providers.ProtocolResponses: "https://dev.example/responses"}
+	if err := router.WarmServed("dev", []providers.ModelInfo{{ID: "databricks-gpt-6-1-sol", Task: "llm/v1/chat", Ready: "READY"}}, now); err != nil {
+		t.Fatal(err)
+	}
+	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "CLAUDE_ALIASES.OPUS": "dev:gpt-6-1-sol"})
+	c := byAgent(Check(context.Background(), reg, now))["claude"]
+	if c.Status != statusUnserved || c.Profile != "dev" || !strings.Contains(c.Detail, "opus pin: model databricks-gpt-6-1-sol is Responses-only") {
+		t.Fatalf("claude on a Responses-only alias pin = %+v, want unserved on profile dev naming opus", c)
+	}
+	if len(c.Also) != 1 || c.Also[0] != "dev" {
+		t.Fatalf("Also = %v, want the alias pin's profile", c.Also)
+	}
+}

@@ -27,10 +27,8 @@ const (
 	authCLI         = "cli"
 	targetClaude    = "claude"
 	targetCodex     = "codex"
-	// gatewayNote is shown for gateway-wire output.
-	gatewayNote = "gateway inference may be budget-denied (403) on an account; serving is the verified path"
-	authHeader  = "[model_providers.databricks.auth]"
-	helperTTL   = "300000"
+	authHeader      = "[model_providers.databricks.auth]"
+	helperTTL       = "300000"
 )
 
 // renderOptions is one render request; P is the expanded registry row and Self the token helper's binary.
@@ -41,10 +39,9 @@ type renderOptions struct {
 	Set, Unset               []string
 }
 
-// renderResult is the rendered file plus an optional note the caller shows out-of-band (stderr).
+// renderResult is the rendered file.
 type renderResult struct {
 	Text string
-	Note string
 }
 
 // renderConfig produces the config text for o.
@@ -52,17 +49,10 @@ func renderConfig(o renderOptions) (renderResult, error) {
 	if err := o.validate(); err != nil {
 		return renderResult{}, err
 	}
-	var res renderResult
-	var err error
 	if o.Target == targetClaude {
-		res, err = renderClaude(o)
-	} else {
-		res, err = renderCodex(o)
+		return renderClaude(o)
 	}
-	if err == nil && o.P.Options.Wire == providers.WireAIGateway {
-		res.Note = gatewayNote
-	}
-	return res, err
+	return renderCodex(o)
 }
 
 var (
@@ -134,13 +124,21 @@ func (o renderOptions) checkModel() error {
 	if o.Target == targetCodex && isClaude {
 		return fmt.Errorf("model %q: the Responses route serves GPT models only", o.Model)
 	}
-	if o.Target != targetClaude {
-		return nil
+	if o.Target == targetCodex {
+		return o.checkCodexWire()
 	}
 	if err := providers.ClaudeCodeError(o.P, o.Model); err != nil {
 		return err
 	}
 	return o.checkClaudeWire(isClaude)
+}
+
+// checkCodexWire refuses a catalog model the Responses route does not serve (gpt-oss); an unlisted id is the user's.
+func (o renderOptions) checkCodexWire() error {
+	if _, _, known := models.Resolve(o.Model); known && !providers.ResponsesServable(o.P, o.P.WireModel(o.Model)) {
+		return fmt.Errorf("model %q: the Responses route does not serve it; use a GPT model", o.Model)
+	}
+	return nil
 }
 
 // checkClaudeWire refuses a model Claude Code could reach only through the router.
@@ -253,18 +251,15 @@ func claudeProviderEnv(env map[string]any, o renderOptions) error {
 	if h := headerLines(p.Headers); h != "" {
 		env["ANTHROPIC_CUSTOM_HEADERS"] = h
 	}
-	if p.Options.Wire == providers.WireAIGateway {
-		env["CLAUDE_CODE_USE_GATEWAY"] = "1"
-	}
 	if !p.Serves1M() {
 		env["CLAUDE_CODE_DISABLE_1M_CONTEXT"] = "1"
 	}
-	for _, alias := range []string{models.Opus, models.Sonnet, models.Haiku} {
-		env["ANTHROPIC_DEFAULT_"+strings.ToUpper(alias)+"_MODEL"] = p.WireModel(aliasID(alias))
+	for _, alias := range models.AliasNames {
+		env["ANTHROPIC_DEFAULT_"+strings.ToUpper(alias)+"_MODEL"] = p.WireModel(cmp.Or(p.Models[alias], aliasID(alias)))
 	}
-	env["CLAUDE_CODE_AUTO_MODE_MODEL"] = p.WireModel(aliasID(models.Opus)) // classifier default is unserved here
+	env["CLAUDE_CODE_AUTO_MODE_MODEL"] = p.WireModel(cmp.Or(p.Models[models.Opus], aliasID(models.Opus))) // classifier default is unserved here
 	if o.Model != "" {
-		env["ANTHROPIC_MODEL"] = p.WireModel(bareModel(o.Model))
+		env["ANTHROPIC_MODEL"] = p.WireModel(o.Model)
 	}
 	if err := checkProviderEnv(p.Env); err != nil {
 		return err
@@ -308,16 +303,6 @@ func aliasID(alias string) string {
 	return alias
 }
 
-// bareModel strips either wire's id prefix, so a serving id given for a gateway row (or back) is re-prefixed.
-func bareModel(id string) string {
-	for _, prefix := range []string{"databricks-", "system.ai."} {
-		if rest, ok := strings.CutPrefix(id, prefix); ok {
-			return rest
-		}
-	}
-	return id
-}
-
 func renderCodex(o renderOptions) (renderResult, error) {
 	raw, err := tmpl("codex.toml")
 	if err != nil {
@@ -330,19 +315,13 @@ func renderCodex(o renderOptions) (renderResult, error) {
 	}
 	head, _, _ := strings.Cut(raw, authHeader)
 	head = replaceLine(head, "base_url", base)
-	head = replaceLine(head, "model", p.WireModel(bareModel(cmp.Or(o.Model, "gpt-6.1-sol"))))
-	if p.Options.Wire == providers.WireAIGateway {
-		head = replaceLine(head, "name", "Databricks AI Gateway")
-	}
+	head = replaceLine(head, "model", p.WireModel(cmp.Or(o.Model, "gpt-6.1-sol")))
 	auth := fmt.Sprintf("command = \"sh\"\nargs = [\"-c\", %s]\n", agentconfig.TOMLQuoteRaw(cliTokenCmd(o.Host)))
 	if o.Auth == authHarness {
 		auth = fmt.Sprintf("command = %s\nargs = [\"resolve\", \"--profile\", %s]\n", agentconfig.TOMLQuoteRaw(o.Self), agentconfig.TOMLQuoteRaw(p.Name))
 	}
 	auth += "timeout_ms = 5000\nrefresh_interval_ms = 1800000\n"
 	text := editTopLevel(head, o) + authHeader + "\n" + auth
-	if p.Options.Wire == providers.WireAIGateway {
-		text = "# " + gatewayNote + "\n" + text
-	}
 	return renderResult{Text: text}, nil
 }
 

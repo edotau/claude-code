@@ -126,10 +126,19 @@ func credentialFreeStatus(p *Provider) (ProviderStatus, bool) {
 // profileSecretSource is the source of the profile's own sealed or key secret ("" when none).
 func profileSecretSource(p *Provider, st *ProviderStatus) string {
 	name := cmp.Or(AuthSecretName(p), keySecretName(p))
+	mode, _ := ResolveIdentity(p.Identity, "")
+	oauth := p.Auth.Type == AuthOAuth && p.Auth.SPClientID != ""
+	spName := SecretName(p.Provider, p.Name, AuthM2M)
+	if oauth && mode == IdentitySP { // identity sp ignores the user login's slot
+		name = spName
+	}
 	if name == "" {
 		return ""
 	}
 	source, err := vault.HasSecretErr(name)
+	if source == "" && err == nil && oauth && mode == IdentityAuto { // auto falls back to the paired SP
+		source, err = vault.HasSecretErr(spName)
+	}
 	if err != nil && st.Note == "" {
 		st.Note = "vault unreadable: " + err.Error()
 	}

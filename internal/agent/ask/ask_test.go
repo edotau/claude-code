@@ -170,7 +170,7 @@ func TestCmdAskRetryFlags(t *testing.T) {
 // A resumed session keeps the model it ran on; a typed --model wins, an unknown session routes as before.
 func TestCmdAskSessionKeepsRecordedModel(t *testing.T) {
 	for _, tt := range []struct{ name, session, model, want string }{
-		{"resume keeps the recorded model", "sess-1", "", "databricks-gpt-6-1-sol"},
+		{"resume keeps the recorded profile and model", "sess-1", "", "qa:databricks-gpt-6-1-sol"},
 		{"typed model wins", "sess-1", "opus", "opus"},
 		{"unknown session routes as before", "sess-2", "", ""},
 	} {
@@ -807,6 +807,8 @@ func TestResolveLeadNamedProfileLeads(t *testing.T) {
 		{[]string{"--profile", "qa"}, "qa", ""},
 		{[]string{"--profile", "qa", "--fallback", "agents"}, "qa", ""},
 		{[]string{"--profile", "qa", "--fallback", "none"}, "", "qa"},
+		{[]string{"--profile", "databricks:qa", "--fallback", "none"}, "", "databricks·qa"},
+		{[]string{"--profile", "databricks·qa", "--fallback", "none"}, "", "databricks·qa"},
 	}
 	for _, c := range cases {
 		fs, f := askFlagSet()

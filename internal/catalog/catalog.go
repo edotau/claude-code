@@ -4,7 +4,6 @@ package catalog
 import (
 	"cmp"
 	"context"
-	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -20,9 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// ErrGateway marks a profile on the AI Gateway wire, which the catalog never lists or probes.
-var ErrGateway = errors.New("catalog runs on /serving-endpoints only")
-
 // Profile is agent's catalog profile: flag, else the agent's pin, else the session; nil when none is named.
 func Profile(ctx context.Context, agent, flag string) (*providers.Provider, error) {
 	name := cmp.Or(flag, vault.GetAgentRecord(agent).Profile, providers.SessionProfileContext(ctx))
@@ -37,16 +33,13 @@ func Profile(ctx context.Context, agent, flag string) (*providers.Provider, erro
 	if err != nil {
 		return nil, err
 	}
-	if p.IsAIGateway() {
-		return nil, fmt.Errorf("profile %s uses the AI Gateway wire; %w", name, ErrGateway)
-	}
 	return p, nil
 }
 
 // Served lists p's endpoints: the sealed snapshot when remembered (hit, with its time), else a live listing under ctx.
 func Served(ctx context.Context, p *providers.Provider) (
 	infos []providers.ModelInfo, discoveredAt time.Time, hit bool, err error) {
-	snap, ok := recallSnapshot(p, func(m []providers.ModelInfo) bool { return len(m) > 0 },
+	snap, ok := recallSnapshot(ctx, p, func(m []providers.ModelInfo) bool { return len(m) > 0 },
 		func(profile string) bool { return SpawnDiscover(profile, false) })
 	if ok {
 		return snap.Models, snap.DiscoveredAt, true, nil
@@ -83,7 +76,7 @@ func UsableIn(p *providers.Provider, infos []providers.ModelInfo, dialects []str
 	var out []providers.ModelInfo
 	for _, name := range slices.Sorted(maps.Keys(served)) {
 		info := served[name]
-		if info.Gateway || !info.ReadyChat() {
+		if !info.ReadyChat() {
 			continue
 		}
 		if wire, ok, _ := providers.WireFor(p, name); ok && slices.Contains(dialects, wire) {
@@ -104,11 +97,9 @@ func ID(id string) string {
 
 // stripSpellingPrefix removes the id prefix a catalog spelling rule adds (derived from models.Wire, not listed here).
 func stripSpellingPrefix(id string) string {
-	for _, rule := range []string{"databricks-serving", "databricks-ai-gateway"} {
-		if prefix := strings.TrimSuffix(models.Wire(rule, "x"), "x"); prefix != "" {
-			if rest, ok := strings.CutPrefix(id, prefix); ok {
-				return rest
-			}
+	if prefix := strings.TrimSuffix(models.Wire("databricks-serving", "x"), "x"); prefix != "" {
+		if rest, ok := strings.CutPrefix(id, prefix); ok {
+			return rest
 		}
 	}
 	return id

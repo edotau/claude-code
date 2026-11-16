@@ -127,6 +127,9 @@ func confineLine(ctx context.Context, agentName string, req agent.RunOptions) (a
 
 // routedLead is q's lead and provider (agent.LeadFor); readsProvider pins the lead on the provider instead.
 func routedLead(q agent.RouteReq, readsProvider bool) (lead, provider string, err error) {
+	if profile, qualified := strings.CutPrefix(q.Profile, router.RouteDatabricks+":"); qualified {
+		q.Profile = router.RouteDatabricks + "·" + profile
+	}
 	lead, pin, err := agent.LeadFor(q)
 	switch {
 	case err != nil && !pin: // a bad pin fails at Prepare like any other backend error
@@ -381,12 +384,21 @@ func checkNative(ctx context.Context, native bool) error {
 	return nil
 }
 
+// isArm reports whether profile names the armed workspace, bare or as databricks:<arm> / databricks·<arm>.
+func isArm(profile, arm string) bool {
+	rest, found := strings.CutPrefix(profile, router.RouteDatabricks+":")
+	if !found {
+		rest, found = strings.CutPrefix(profile, router.RouteDatabricks+"·")
+	}
+	return profile == arm || found && rest == arm
+}
+
 // armFlags refuses --direct, a --profile other than the workspace and a --provider other than databricks.
 func armFlags(arm, profile, provider string, direct bool) error {
 	switch {
 	case direct:
 		return fmt.Errorf("--direct: refused inside overlay databricks:%s", arm)
-	case profile != "" && profile != arm && profile != agent.LeadSession:
+	case profile != "" && !isArm(profile, arm) && profile != agent.LeadSession:
 		return fmt.Errorf("--profile %s: outside overlay databricks:%s", profile, arm)
 	case provider != "" && provider != router.RouteDatabricks:
 		return fmt.Errorf("--provider %s: outside overlay databricks:%s", provider, arm)

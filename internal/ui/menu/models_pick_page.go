@@ -60,7 +60,7 @@ func currentModel(d *dialog, p *providers.Provider, claude bool, alias string) s
 }
 
 // modelRow is the agent page's Model row; nil for codex and gemini, or an agent with no account the hub can route to.
-// copilot's launch argv reads only the opus alias (agent.describeCopilotRoute), so its page picks
+// copilot's launch argv reads only the opus alias (copilot.describeCopilotRoute), so its page picks
 // one model directly instead of the alias list every other agent's page shows.
 func modelRow(d *dialog, name string) *billingRow {
 	if d.reg == nil {
@@ -87,7 +87,8 @@ func modelDesc(provider, model string, listed bool) string {
 	if model == "" {
 		return provider
 	}
-	return provider + " " + checked(listed, textutil.Truncate(cmp.Or(models.AliasOf(model), model), 20)) // the picker aligns the badge column
+	canonical, _, _ := models.Resolve(model)
+	return provider + " " + checked(listed, textutil.Truncate(cmp.Or(models.AliasOf(canonical), model), 20)) // AliasOf takes canonical ids; the picker aligns the badge column
 }
 
 // modelListed: model is in the agent's static catalog (claude: the model catalog; others: the opencode menu or the
@@ -124,7 +125,7 @@ func copilotRouteDesc(d *dialog) string {
 
 // snapshotHas reads p's sealed discovery snapshot (vault only, no network, no refresh) for model.
 func snapshotHas(p *providers.Provider, model string) bool {
-	subject, found, err := serving.RecallSubject(p)
+	subject, found, err := serving.RecallSubjectCtx(context.Background(), p)
 	if err != nil || !found {
 		return false
 	}
@@ -163,7 +164,7 @@ func copilotCatalogModel(d *dialog, id string) (copilot.SDKModel, bool) {
 		return copilot.SDKModel{}, false
 	}
 	for _, m := range list {
-		if m.ID == id {
+		if models.SameModel(m.ID, id) {
 			return m, true
 		}
 	}
@@ -176,7 +177,7 @@ func copilotModelDesc(m copilot.SDKModel, cur string) string {
 	if m.Multiplier != nil {
 		desc += fmt.Sprintf(" · %gx", *m.Multiplier)
 	}
-	if m.ID == cur {
+	if models.SameModel(m.ID, cur) {
 		desc += " · current"
 	}
 	return desc
@@ -193,8 +194,8 @@ var copilotSourceFn = copilot.CopilotModelSource
 // pickCopilotModel is the copilot page's Model row: Effort and Context first (both acting on the
 // current model, defaulting to "default"/"auto" = pin unset), then the model list — a Databricks
 // session profile's serving endpoints, else the SDK catalog (the account copilot runs as), falling
-// back to opencode's github-copilot catalog when the SDK call fails. It writes only the COPILOT_MODEL
-// pin — never github-copilot's models table, which opencode's fallback ladder also reads. Picking
+// back to opencode's github-copilot catalog when the SDK call fails. It writes only the MODEL pin on the copilot
+// record — never github-copilot's models table, which opencode's fallback ladder also reads. Picking
 // Effort/Context re-shows this same picker with the cursor back on that row; picking a model saves it.
 func pickCopilotModel(d *dialog) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -230,10 +231,13 @@ func pickCopilotModel(d *dialog) {
 	}
 }
 
-// saveCopilotPick pins id as copilot's model; a GitHub pick also drops the effort/context pins it cannot honor.
+// saveCopilotPick pins id as copilot's model, then drops the effort/context pins the new model cannot honor.
 func saveCopilotPick(d *dialog, cat copilot.CopilotCatalog, id string) {
 	if cat.Databricks {
-		saveAgentModel(d, "copilot", copilotCanonicalID(id))
+		id = copilotCanonicalID(id)
+		if saveAgentModel(d, "copilot", id) {
+			withoutSDKCatalog(d, func() { clearIneligibleCopilotPins(d, id) })
+		}
 		return
 	}
 	if saveAgentModel(d, "copilot", id) {
@@ -275,10 +279,16 @@ func copilotPickRows(d *dialog, cat copilot.CopilotCatalog, cur string) (copilot
 
 // copilotExtraRowsNoSDK is copilotExtraRows for Databricks endpoints: no SDK catalog fetch, cache left untouched.
 func copilotExtraRowsNoSDK(d *dialog, cur string) (rows [][2]string, runs []func() bool) {
+	withoutSDKCatalog(d, func() { rows, runs = copilotExtraRows(d, cur) })
+	return rows, runs
+}
+
+// withoutSDKCatalog runs fn with the dialog's SDK catalog cache emptied (no fetch) and restores it after.
+func withoutSDKCatalog(d *dialog, fn func()) {
 	loaded, list, err := d.copilotCatalogLoaded, d.copilotCatalog, d.copilotCatalogErr
 	d.copilotCatalogLoaded, d.copilotCatalog, d.copilotCatalogErr = true, nil, nil
 	defer func() { d.copilotCatalogLoaded, d.copilotCatalog, d.copilotCatalogErr = loaded, list, err }()
-	return copilotExtraRows(d, cur)
+	fn()
 }
 
 // copilotExtraRows are the Effort and Context rows shown above the model list, with their run funcs.

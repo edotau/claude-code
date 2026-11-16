@@ -40,7 +40,6 @@ func TestUpstreamUserAgentOnEveryRoute(t *testing.T) {
 	up := newRawUp(t, okMsg)
 	t.Setenv("PT_KEY", "prov-cred")
 	t.Setenv("AN_KEY", "an-cred")
-	t.Setenv("HARNESS_REQUEST_TAGS", "")
 	srv := setup(t, `{"default":"pt","providers":{`+
 		`"openai":{"pt":{"protocol":"openai","base_url":"`+up.URL+`/v1","auth":{"type":"key","env":"PT_KEY"},`+
 		`"routes":{"responses":"`+up.URL+`/resp"},"models":{"opus":"m"}}},`+
@@ -75,61 +74,10 @@ func TestUpstreamUserAgentOnEveryRoute(t *testing.T) {
 	}
 }
 
-// Request tags reach only an ai-gateway row, and invalid HARNESS_REQUEST_TAGS turns the feature off.
-func TestRequestTagsOnlyOnAIGatewayRow(t *testing.T) {
-	gw := func(up string) string {
-		return `{"preset":"databricks","host":"https://example.cloud.databricks.com","base_url":"` + up +
-			`","auth":{"type":"key","env":"DBX_KEY"},"options":{"wire":"ai-gateway"}}`
-	}
-	const tagMark = "tagmark-7f3a"
-	valid := `{"team":"` + tagMark + `"}`
-	cases := []struct {
-		name, tags string
-		gateway    bool
-		want       bool
-	}{
-		{"valid-gateway", valid, true, true},
-		{"valid-anthropic-row", valid, false, false},
-		{"multiline", "{\n\"team\":\"" + tagMark + "\"}", true, false},
-		{"control-char", "{\"team\":\"" + tagMark + "\x01\"}", true, false},
-		{"not-object", `["` + tagMark + `"]`, true, false},
-		{"too-big", `{"team":"` + tagMark + strings.Repeat("a", 4097) + `"}`, true, false},
-		{"unset", "", true, false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			up := newRawUp(t, okMsg)
-			t.Setenv("DBX_KEY", "dbx-token")
-			t.Setenv("AN_KEY", "an-cred")
-			t.Setenv("HARNESS_REQUEST_TAGS", tc.tags)
-			row, path, def := anthropicProvider(up.URL, "AN_KEY", `{"opus":"m"}`), "/p/an/v1/messages", "an"
-			prov := `"anthropic":{"an":` + row + `}`
-			if tc.gateway {
-				prov, path = `"databricks":{"dbx":`+gw(up.URL)+`}`, "/p/dbx/v1/messages"
-				def = "dbx"
-			}
-			srv := setup(t, `{"default":"`+def+`","providers":{`+prov+`}}`)
-			resp := ptDo(t, http.MethodPost, srv.URL+path, `{"model":"system.ai.claude-opus-5-5","max_tokens":5}`, nil)
-			if resp.StatusCode != 200 {
-				b, _ := io.ReadAll(resp.Body)
-				t.Fatalf("status %d: %s", resp.StatusCode, b)
-			}
-			reqs := up.got()
-			if len(reqs) != 1 {
-				t.Fatalf("upstream hits = %d", len(reqs))
-			}
-			if got := headerHolds(reqs[0].hdr, tagMark); got != tc.want {
-				t.Errorf("tags upstream = %v, want %v; headers %v", got, tc.want, reqs[0].hdr)
-			}
-		})
-	}
-}
-
 // HARNESS_HEADERS reaches upstream; auth and attribution headers win; bad lines drop with one warning.
 func TestHarnessHeadersForwarded(t *testing.T) {
 	up := newRawUp(t, okMsg)
 	t.Setenv("AN_KEY", "an-cred")
-	t.Setenv("HARNESS_REQUEST_TAGS", "")
 	t.Setenv("HARNESS_HEADERS", "X-Team: alpha\nx-team: beta\nAuthorization: Bearer evil\nUser-Agent: evil/1\n"+
 		"Bad Name: x\nX-Inj: a\rX-Evil: b\n:novalue\nX-Ok:  spaced ")
 	srv := setup(t,

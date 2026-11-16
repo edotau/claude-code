@@ -61,7 +61,7 @@ func dbxState(reg *providers.Registry, env string) (authType, text string, ok bo
 	}
 	st := allSigninFor(p).Status()
 	exp := st.Expires
-	if e, method, ok := providers.TokenExpiryMethod(p.Name); ok { // the latest mint, the user's or the service principal's
+	if e, method, ok := providers.TokenExpiryMethodFor(p.Name, p.Identity); ok { // the profile's own identity record; auto: the latest mint
 		exp = e
 		if method == providers.AuthM2M && authType == providers.AuthOAuth {
 			authType = providers.AuthM2M

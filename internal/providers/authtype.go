@@ -905,7 +905,7 @@ func Verdict(err error) AuthVerdict {
 // Condemns reports whether the verdict should mark the account unusable until a login or credential change.
 func (v AuthVerdict) Condemns() bool { return v == VerdictNeedsLogin || v == VerdictRejected }
 
-// IsInvalidTokenResponse reports the AI Gateway's 400 "Invalid Token" on a Databricks row (a ≤256-byte body peek).
+// IsInvalidTokenResponse reports a 400 "Invalid Token" on a Databricks row (a ≤256-byte body peek).
 func IsInvalidTokenResponse(p *Provider, status int, body []byte) bool {
 	if p == nil || (p.Preset != PresetDatabricks && !sealedAuth(p.Auth.Type)) {
 		return false

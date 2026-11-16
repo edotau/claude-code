@@ -39,12 +39,13 @@ type Snapshot struct {
 	CheckedAt    time.Time             `json:"checked_at,omitzero"`
 	Checks       []CheckResult         `json:"checks,omitempty"`
 	CacheHit     bool                  `json:"-"`
+	Identity     string                `json:"-"` // credential identity Discover ran as; Save keys the remembered subject by it
 }
 
 func NewScope(p *providers.Provider, subject string) (Scope, error) {
 	if p == nil || p.Preset != providers.PresetDatabricks || p.SpellingRule() != "databricks-serving" ||
 		(p.Options.Wire != "" && p.Options.Wire != providers.WireServing) {
-		return Scope{}, errors.New("requires a Databricks serving profile; AI Gateway is not supported")
+		return Scope{}, errors.New("requires a Databricks serving profile")
 	}
 	host := providers.PresetHost(p.Host)
 	if host == "" {
@@ -144,21 +145,38 @@ func servingDiscoveryKey(scope Scope) string {
 // SubjectKeyPrefix starts every sealed remembered-subject secret name.
 const SubjectKeyPrefix = "model-discovery-subject/v1/"
 
+// identityTag is the credential identity a ctx selects for p (user, sp, auto, or auto's headless SP-first order).
+func identityTag(ctx context.Context, p *providers.Provider) string {
+	as := providers.IdentityFrom(ctx)
+	flag := as
+	if as == providers.IdentityHeadless {
+		flag = ""
+	}
+	mode, err := providers.ResolveIdentity(p.Identity, flag)
+	switch {
+	case err != nil:
+		return as
+	case as == providers.IdentityHeadless && mode == providers.IdentityAuto:
+		return providers.IdentityHeadless
+	}
+	return mode
+}
+
 // subjectKey names p's remembered subject: a hash of its scope minus the subject plus its non-secret auth identity.
-func subjectKey(p *providers.Provider) (string, error) {
+func subjectKey(p *providers.Provider, identity string) (string, error) {
 	scope, err := NewScope(p, "")
 	if err != nil {
 		return "", err
 	}
 	a := p.Auth
 	// only strings: a changed host, auth type or client id changes the key
-	data, _ := json.Marshal([]any{scope, a.Type, a.Header, a.Env, a.File, a.Command, a.Login, a.ClientID, a.SPClientID})
+	data, _ := json.Marshal([]any{scope, a.Type, a.Header, a.Env, a.File, a.Command, a.Login, a.ClientID, a.SPClientID, identity})
 	return SubjectKeyPrefix + textutil.SHA256Hex(data), nil
 }
 
-// RecallSubject is the subject last validated for p, read from the vault with no network; a cache-key input only.
-func RecallSubject(p *providers.Provider) (subject string, found bool, err error) {
-	name, err := subjectKey(p)
+// RecallSubjectCtx is the subject last validated for p as ctx's identity, read from the vault with no network.
+func RecallSubjectCtx(ctx context.Context, p *providers.Provider) (subject string, found bool, err error) {
+	name, err := subjectKey(p, identityTag(ctx, p))
 	if err != nil {
 		return "", false, err
 	}
@@ -210,8 +228,9 @@ func Discover(ctx context.Context, p *providers.Provider, refresh bool) (Snapsho
 	if err != nil {
 		return Snapshot{}, err
 	}
+	identity := identityTag(ctx, p)
 	if found && !refresh {
-		old.CacheHit = true
+		old.CacheHit, old.Identity = true, identity
 		return old, nil
 	}
 	infos, err := providers.ListModels(ctx, p)
@@ -219,7 +238,7 @@ func Discover(ctx context.Context, p *providers.Provider, refresh bool) (Snapsho
 		return Snapshot{}, errors.New("serving endpoints discovery failed; no stale cache fallback")
 	}
 	return Snapshot{Schema: 1, Scope: scope, DiscoveredAt: time.Now().UTC(), Models: infos,
-		CheckedAt: old.CheckedAt, Checks: old.Checks}, nil
+		CheckedAt: old.CheckedAt, Checks: old.Checks, Identity: identity}, nil
 }
 
 // identityTTL bounds how long a validated subject stands in for a SCIM /Me call.
@@ -235,7 +254,7 @@ type validated struct {
 // currentSubject is the remembered subject when the live credential's JWT sub matches a fresh sidecar, else /Me's.
 func currentSubject(ctx context.Context, p *providers.Provider, refresh bool) (string, error) {
 	sub := credentialSub(ctx, p)
-	name, kerr := validatedKey(p)
+	name, kerr := validatedKey(p, identityTag(ctx, p))
 	if !refresh && sub != "" && kerr == nil {
 		if v, ok := readValidated(name); ok && v.TokenSub == sub {
 			return v.Subject, nil
@@ -270,8 +289,8 @@ func credentialSub(ctx context.Context, p *providers.Provider) string {
 }
 
 // validatedKey names p's sidecar beside its remembered subject, under the same scope and auth identity.
-func validatedKey(p *providers.Provider) (string, error) {
-	name, err := subjectKey(p)
+func validatedKey(p *providers.Provider, identity string) (string, error) {
+	name, err := subjectKey(p, identity)
 	if err != nil {
 		return "", err
 	}
@@ -327,7 +346,11 @@ func Save(p *providers.Provider, snapshot Snapshot) error {
 		return errors.New("cannot encode discovery snapshot")
 	}
 	name := servingDiscoveryKey(scope)
-	subjectName, err := subjectKey(p)
+	identity := snapshot.Identity
+	if identity == "" {
+		identity = identityTag(context.Background(), p)
+	}
+	subjectName, err := subjectKey(p, identity)
 	if err != nil {
 		return err
 	}
@@ -366,9 +389,9 @@ func CacheTTL() time.Duration {
 	return d
 }
 
-// Recall reads p's snapshot under its remembered subject, locally and unfiltered; ok is false on any miss or error.
-func Recall(p *providers.Provider) (Snapshot, bool) {
-	subject, found, err := RecallSubject(p)
+// RecallCtx reads p's snapshot under the subject remembered for ctx's identity; ok is false on any miss or error.
+func RecallCtx(ctx context.Context, p *providers.Provider) (Snapshot, bool) {
+	subject, found, err := RecallSubjectCtx(ctx, p)
 	if err != nil || !found {
 		return Snapshot{}, false
 	}

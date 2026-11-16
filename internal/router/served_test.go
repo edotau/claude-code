@@ -264,11 +264,12 @@ func TestWarmServedNewerWins(t *testing.T) {
 
 // TestSpellServedPrefixesOnlyAReadyListedBareName: a bare unlisted id takes databricks- only where listed READY.
 func TestSpellServedPrefixesOnlyAReadyListedBareName(t *testing.T) {
-	const bare, wired = "gpt-6-1-terra", "databricks-gpt-6-1-terra"
+	const bare, wired = "gpt-9-zeta", "databricks-gpt-9-zeta" // not in the catalog
 	for _, c := range []struct {
 		name, ready, in, want string // ready "" writes no listing
 	}{
 		{"ready", "READY", bare, wired},
+		{"marked", "READY", bare + "[1m]", wired},
 		{"no listing", "", bare, bare},
 		{"not ready", "NOT_READY", bare, bare},
 		{"already prefixed", "READY", wired, wired},
@@ -285,5 +286,15 @@ func TestSpellServedPrefixesOnlyAReadyListedBareName(t *testing.T) {
 				t.Errorf("SpellServed(%q) = %q, want %q", c.in, got, c.want)
 			}
 		})
+	}
+}
+
+// TestServedHasMatchesBareNonCatalogPin: a bare non-catalog pin finds its listed databricks-<id>, marked or not.
+func TestServedHasMatchesBareNonCatalogPin(t *testing.T) {
+	s := listing("dev", map[string]string{"databricks-glm-5-2": "READY"})
+	for _, pin := range []string{"glm-5-2", "glm-5-2[1m]", "databricks-glm-5-2"} {
+		if listed, ready := s.Has(dbxProv("dev"), pin); !listed || !ready {
+			t.Errorf("Has(%q) = %v,%v, want listed and ready", pin, listed, ready)
+		}
 	}
 }

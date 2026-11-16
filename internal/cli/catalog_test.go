@@ -34,14 +34,13 @@ const catalogListing = `{"endpoints":[
 {"name":"databricks-cold-1","task":"llm/v1/chat","state":{"ready":"NOT_READY"}},
 {"name":"databricks-embed-1","task":"llm/v1/embeddings","state":{"ready":"READY"}}]}`
 
-// catalogEnv serves identity, listing and probes for profiles dev (serving) and gw (AI Gateway); returns paths hit.
+// catalogEnv serves identity, listing and probes for profile dev; returns paths hit.
 func catalogEnv(t *testing.T) func() []string {
 	t.Helper()
 	vaulttest.Use(t)
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv(providers.EnvSessionProfile, "")
 	t.Setenv("DATABRICKS_DEV_PAT", "synthetic-catalog-pat")
-	t.Setenv("DATABRICKS_GW_PAT", "synthetic-catalog-pat")
 	var mu sync.Mutex
 	var seen []string
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -59,14 +58,9 @@ func catalogEnv(t *testing.T) func() []string {
 		}
 	}))
 	useTLSTransport(t, srv)
-	for name, wire := range map[string]string{"dev": "", "gw": "ai-gateway"} {
-		f := map[string]any{"preset": "databricks", "host": srv.URL, "auth": map[string]any{"type": "pat"}}
-		if wire != "" {
-			f["options"] = map[string]any{"wire": wire}
-		}
-		if err := providers.SetProviderFields(name, f); err != nil {
-			t.Fatal(err)
-		}
+	f := map[string]any{"preset": "databricks", "host": srv.URL, "auth": map[string]any{"type": "pat"}}
+	if err := providers.SetProviderFields("dev", f); err != nil {
+		t.Fatal(err)
 	}
 	return func() []string { mu.Lock(); defer mu.Unlock(); return append([]string(nil), seen...) }
 }
@@ -133,21 +127,6 @@ func TestCatalogRefusesStrayArgumentsForEveryAgent(t *testing.T) {
 	}
 	if n := len(seen()); n != 0 {
 		t.Errorf("refused arguments reached the workspace %d times", n)
-	}
-}
-
-// A profile on the AI Gateway wire is refused, bare or with a verb, and nothing is requested.
-func TestCatalogRefusesAIGatewayProfile(t *testing.T) {
-	seen := catalogEnv(t)
-	for _, line := range []string{"codex catalog --profile gw", "copilot catalog check --profile gw",
-		"opencode catalog check --all --profile gw", "codex catalog sync --profile gw --apply"} {
-		code, _, errOut := runCatalog(t, line)
-		if code != 1 || !strings.Contains(errOut, "profile gw uses the AI Gateway wire; catalog runs on /serving-endpoints only") {
-			t.Errorf("%s: code=%d stderr=%q; want the AI Gateway refusal", line, code, errOut)
-		}
-	}
-	if n := len(seen()); n != 0 {
-		t.Errorf("a gateway profile reached the workspace %d times", n)
 	}
 }
 
@@ -911,10 +890,6 @@ func TestOpencodeMenuSyncControlsBeforeHTTP(t *testing.T) {
 	} {
 		assertRejectedBeforeHTTP(t, f, "invalid controls reached HTTP or wrote state", args...)
 	}
-	if err := providers.SetProviderFields("synctest", map[string]any{"options": map[string]any{"wire": "ai-gateway"}}); err != nil {
-		t.Fatal(err)
-	}
-	assertRejectedBeforeHTTP(t, f, "gateway profile was not rejected before HTTP/writes", "sync", "--profile", "synctest", "--apply")
 }
 
 func assertNoSyncLeak(t *testing.T, stdout, stderr, what string) {

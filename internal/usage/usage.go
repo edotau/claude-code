@@ -17,6 +17,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/tokenledger"
@@ -426,14 +427,22 @@ func dedupeFiles(files []string) []string {
 
 // printUsageTable renders per-model totals sorted by name, plus the peak input tokens/min and the file count scanned.
 func printUsageTable(out io.Writer, agg *transcript.UsageAggregate, fileCount int) {
-	models := slices.Sorted(maps.Keys(agg.Models))
+	byKey := map[string]*transcript.ModelUsage{} // one row per model across wire spellings (databricks-, [1m], aliases)
+	for raw, u := range agg.Models {
+		k := models.ModelKey(raw)
+		if byKey[k] == nil {
+			byKey[k] = &transcript.ModelUsage{}
+		}
+		byKey[k].Add(*u)
+	}
+	names := slices.Sorted(maps.Keys(byKey))
 
 	n := func(v int64) string { return fmt.Sprintf("%12d", v) }
 	head := []string{"MODEL", fmt.Sprintf("%12s", "INPUT"), fmt.Sprintf("%12s", "OUTPUT"),
 		fmt.Sprintf("%12s", "CACHE-READ"), fmt.Sprintf("%12s", "CACHE-CREATE"), fmt.Sprintf("%12s", "TOTAL")}
-	rows := make([][]string, 0, len(models))
-	for _, m := range models {
-		u := agg.Models[m]
+	rows := make([][]string, 0, len(names))
+	for _, m := range names {
+		u := byKey[m]
 		rows = append(rows, []string{m, n(u.InputTokens), n(u.OutputTokens), n(u.CacheReadTokens), n(u.CacheCreationTokens), n(u.Total())})
 	}
 	fmt.Fprint(out, table.Render(head, nil, rows, 0))

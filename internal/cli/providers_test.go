@@ -206,8 +206,8 @@ func TestListLiveDatabricksText(t *testing.T) {
 		t.Fatalf("exit %d, stderr=%s", code, stderr)
 	}
 	lines := strings.Split(strings.TrimRight(stdout, "\n"), "\n")
-	if len(lines) != 4 || strings.Contains(stdout, "AI GATEWAY") {
-		t.Fatalf("want header + 3 rows and no AI Gateway section for a serving row:\n%s", stdout)
+	if len(lines) != 4 {
+		t.Fatalf("want header + 3 rows for a serving row:\n%s", stdout)
 	}
 	wantFields := []string{"NAME TASK READY", "chat-a llm/v1/chat READY", "embed-b llm/v1/embeddings READY", "chat-c llm/v1/chat NOT_READY"}
 	for i, w := range wantFields {
@@ -726,5 +726,33 @@ func TestResolveProxyNeverPrintsSecret(t *testing.T) {
 	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--proxy"}) })
 	if got := strings.TrimSpace(out); code != 0 || got != tok {
 		t.Errorf("armed: exit %d, printed the token = %v", code, got == tok)
+	}
+}
+
+func TestCmdModelsUnknownProfileDoesNotWritePins(t *testing.T) {
+	for _, args := range [][]string{
+		{"--pin", "opus=claude-opus-5-5"},
+		{"--unpin"},
+		{"--pin", "opus=claude-opus-5-5", "--dry-run"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			vaulttest.Use(t)
+			const records = `{"claude":{"profile":"anthropic","aliases":{"opus":"claude-opus-5"}}}`
+			vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, records)
+			code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
+				return cmdModels(append([]string{"--profile", "deev"}, args...))
+			})
+			if code != 1 || stdout != "" || !strings.Contains(stderr, `unknown profile "deev"`) {
+				t.Errorf("exit=%d stdout=%q stderr=%q, want unknown profile error", code, stdout, stderr)
+			}
+			if err := vault.View(func(tx *vault.Tx) error {
+				if got, _ := tx.Get(vault.Overlay, vault.AgentRecordsKey); got != records {
+					t.Errorf("records changed on unknown profile: got %s, want %s", got, records)
+				}
+				return nil
+			}); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

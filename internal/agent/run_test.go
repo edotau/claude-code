@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -750,11 +751,20 @@ func TestClientRouteCarriesLeadToThePick(t *testing.T) {
 	}
 }
 
+// blocker is a regular file, so no directory can be created beneath it.
+func blocker(t *testing.T) string {
+	f := filepath.Join(t.TempDir(), "file")
+	if err := os.WriteFile(f, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return f
+}
+
 // Given a pack file that cannot be written, Then Exec fails and the claimed record leaves running.
 func TestExecPackWriteFailureFinishesRecord(t *testing.T) {
 	setConfigDir(t)
 	rec := ClaimRecord("claude", RunOptions{}, time.Now())
-	p := &Prepared{Record: rec, pack: &packFile{path: filepath.Join(t.TempDir(), "missing", "pack.md"), body: "x"}}
+	p := &Prepared{Record: rec, pack: &packFile{path: filepath.Join(blocker(t), "pack.md"), body: "x"}}
 	res, err := (&Client{}).Exec(context.Background(), p, wire.Discard, RunRecordedOpts{})
 	if err == nil || res.Status != wire.StatusError {
 		t.Fatalf("Exec = %v/%v, want the write error", res.Status, err)
@@ -893,8 +903,9 @@ func TestPackPromptKeepsReadOnlyOnFileRoute(t *testing.T) {
 	}
 }
 
-// Given a relative --workdir, the file-route pack path in the prompt is absolute (the child starts inside the workdir).
-func TestPackPromptFilePathAbsoluteForRelativeWorkdir(t *testing.T) {
+// Given a relative --workdir, the file-route pack is staged under the state pack dir, never inside the workdir.
+func TestPackPromptStagesPackOutsideWorkdir(t *testing.T) {
+	setConfigDir(t)
 	dir := gitRepoWith(t, map[string]string{"a.go": "package a"})
 	t.Chdir(dir)
 	if err := os.Mkdir("sub", 0o755); err != nil {
@@ -906,9 +917,11 @@ func TestPackPromptFilePathAbsoluteForRelativeWorkdir(t *testing.T) {
 	if err := NewClient(nil, nil, nil).packPrompt(context.Background(), p); err != nil {
 		t.Fatal(err)
 	}
-	abs, _ := filepath.Abs("sub")
-	if want := filepath.Join(abs, pack.FilePrefix+"id1.md"); p.pack.path != want || !strings.Contains(p.Opts.Prompt, want) {
-		t.Fatalf("pack path = %q, prompt = %q, want absolute %q", p.pack.path, p.Opts.Prompt, want)
+	if want := filepath.Join(paths.PackDir(), pack.FilePrefix+"id1.md"); p.pack.path != want || !strings.Contains(p.Opts.Prompt, want) {
+		t.Fatalf("pack path = %q, prompt = %q, want %q", p.pack.path, p.Opts.Prompt, want)
+	}
+	if strings.HasPrefix(p.pack.path, dir) {
+		t.Fatalf("pack path %q is inside the repo %q", p.pack.path, dir)
 	}
 }
 

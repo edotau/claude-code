@@ -78,7 +78,7 @@ func readBody(w http.ResponseWriter, in *http.Request) ([]byte, bool) {
 	return body, true
 }
 
-// invalidToken is the AI Gateway's 400 "Invalid Token" on p; it peeks 256 bytes and leaves the body readable.
+// invalidToken is a 400 "Invalid Token" on p; it peeks 256 bytes and leaves the body readable.
 func invalidToken(resp *http.Response, p *providers.Provider) bool {
 	if resp.StatusCode != http.StatusBadRequest {
 		return false
@@ -278,7 +278,7 @@ func (r *Router) admit(req *http.Request) *http.Request {
 		if scope == nil { // a client token reaches only its path's profile
 			scope = []string{profileOfPath(req.URL.Path)}
 		}
-		r.touch(scope...)
+		r.touch(req.Context(), scope...)
 		req = req.WithContext(context.WithValue(req.Context(), scopeKey{}, scope))
 	}
 	stripClientAuth(req)

@@ -2,14 +2,12 @@ package configure
 
 import (
 	"context"
-	"errors"
 	"net/http"
 	"net/http/httptest"
 	"slices"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/catalog"
 	_ "github.com/edotau/claude-code/internal/nonet"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -23,14 +21,13 @@ const listing = `{"endpoints":[
 {"name":"databricks-cold-1","task":"llm/v1/chat","state":{"ready":"NOT_READY"}},
 {"name":"databricks-embed-1","task":"llm/v1/embeddings","state":{"ready":"READY"}}]}`
 
-// workspace serves identity and listing for profiles dev (serving) and gw (AI Gateway).
+// workspace serves identity and listing for profile dev.
 func workspace(t *testing.T) {
 	t.Helper()
 	vaulttest.Use(t)
 	t.Setenv("PATH", t.TempDir())
 	t.Setenv(providers.EnvSessionProfile, "")
 	t.Setenv("DATABRICKS_DEV_PAT", "synthetic-discovery-pat")
-	t.Setenv("DATABRICKS_GW_PAT", "synthetic-discovery-pat")
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/api/2.0/preview/scim/v2/Me" {
 			_, _ = w.Write([]byte(`{"id":"discovery-subject","active":true}`))
@@ -41,14 +38,9 @@ func workspace(t *testing.T) {
 	old := http.DefaultClient.Transport
 	http.DefaultClient.Transport = srv.Client().Transport
 	t.Cleanup(func() { http.DefaultClient.Transport = old; srv.Close() })
-	for name, wire := range map[string]string{"dev": "", "gw": "ai-gateway"} {
-		f := map[string]any{"preset": "databricks", "host": srv.URL, "auth": map[string]any{"type": "pat"}}
-		if wire != "" {
-			f["options"] = map[string]any{"wire": wire}
-		}
-		if err := providers.SetProviderFields(name, f); err != nil {
-			t.Fatal(err)
-		}
+	f := map[string]any{"preset": "databricks", "host": srv.URL, "auth": map[string]any{"type": "pat"}}
+	if err := providers.SetProviderFields("dev", f); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -61,7 +53,7 @@ func TestModelsUnknownAgent(t *testing.T) {
 	}
 }
 
-// opencode with no profile names the flag on Recall and collapses to one line otherwise; AI Gateway is always named.
+// opencode with no profile names the flag on Recall and collapses to one line otherwise.
 func TestModelsOpencodeProfileErrors(t *testing.T) {
 	workspace(t)
 	for mode, want := range map[ModelMode]string{
@@ -71,10 +63,6 @@ func TestModelsOpencodeProfileErrors(t *testing.T) {
 		_, err := DiscoverModels(context.Background(), ModelQuery{Agent: agentid.OpenCode, Mode: mode})
 		if err == nil || err.Error() != want {
 			t.Errorf("mode %d, no profile: error = %v, want %q", mode, err, want)
-		}
-		_, err = DiscoverModels(context.Background(), ModelQuery{Agent: agentid.OpenCode, Profile: "gw", Mode: mode})
-		if !errors.Is(err, catalog.ErrGateway) {
-			t.Errorf("mode %d, gw profile: error = %v, want catalog.ErrGateway", mode, err)
 		}
 	}
 }
