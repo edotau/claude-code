@@ -1149,3 +1149,28 @@ func TestReadOAuthRetriesOneVaultLockTimeout(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A caller whose context ends right after the token endpoint answered still gets the rotated refresh token sealed.
+func TestRotatedSealSurvivesCallerCancel(t *testing.T) {
+	needReadOnlyVault(t)
+	defer func(d time.Duration) { sealRetryDelay = d }(sealRetryDelay)
+	sealRetryDelay = 40 * time.Millisecond
+	r := newRotRig(t, "seal-cancel")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	orig := refreshU2M
+	t.Cleanup(func() { refreshU2M = orig })
+	refreshU2M = func(c context.Context, host, rt string) (oauth.Token, error) {
+		tok, err := orig(c, host, rt)
+		repair := breakWrites(t)
+		time.AfterFunc(10*time.Millisecond, repair)
+		cancel()
+		return tok, err
+	}
+	if _, _, err := lockedUserMint(ctx, r.p, true, expiryMargin); err != nil {
+		t.Fatalf("lockedUserMint = %v", err)
+	}
+	if ov, _ := readOAuth(r.p); ov.Refresh != "refresh-2" {
+		t.Fatalf("sealed refresh = %q; want refresh-2 sealed despite the cancelled caller", ov.Refresh)
+	}
+}
