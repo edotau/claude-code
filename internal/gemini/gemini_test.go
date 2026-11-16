@@ -399,8 +399,8 @@ func TestGeminiGatewaySessionWithoutPinOrLoginIsRefused(t *testing.T) {
 	if err := os.RemoveAll(filepath.Join(os.Getenv("HOME"), ".gemini")); err != nil {
 		t.Fatal(err)
 	}
-	if _, _, err := resolveGemini(t, agent.RunOptions{}); err == nil || !strings.Contains(err.Error(), "Google login") {
-		t.Fatalf("err = %v, want the Google-login refusal", err)
+	if _, _, err := resolveGemini(t, agent.RunOptions{}); err == nil || !strings.Contains(err.Error(), "run `agy` and sign in") || strings.Contains(err.Error(), "auth login") {
+		t.Fatalf("err = %v, want the agy sign-in refusal", err)
 	}
 }
 
@@ -692,5 +692,44 @@ func TestParseAgyRefusalNamesAllow(t *testing.T) {
 	out, _ := io.ReadAll(r)
 	if !strings.Contains(string(out), "--allow 'Bash(make lint)'") {
 		t.Errorf("stderr = %q, want the exact allow for make lint", out)
+	}
+}
+
+// An empty answer after denied tools errors naming each denied tool with the --tools/--allow hint.
+func TestParseAgyEmptyAnswerNamesDeniedTools(t *testing.T) {
+	for name, stream := range map[string]string{
+		"refused step": `{"event":"step_update","step_update":{"step_type":"tool","state":"ERROR","tool_name":"run_command","tool_info":{"parameters":{"CommandLine":"ls"},"error":{"message":"user denied permission to run command"}}}}
+{"event":"result","result":{"status":"SUCCESS","response":""}}`,
+		"denied action": `{"event":"result","result":{"status":"SUCCESS","response":"","denied_actions":[{"action":"run_command","display_name":"Bash"}]}}`,
+	} {
+		_, err := parseAgyEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, false, nil, nil)
+		if err == nil || !strings.Contains(err.Error(), "tool(s) were denied: Bash") || !strings.Contains(err.Error(), "--tools or --allow") {
+			t.Errorf("%s: err = %v; want the denied tool and the --tools/--allow hint", name, err)
+		}
+	}
+}
+
+// agy's per-model 429 (bytes captured from agy 1.5.9 on Argon) is a rate limit naming the held model.
+func TestClassifyAgyError(t *testing.T) {
+	const limit = "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 151h0m24s.\n" +
+		`AGY_ERROR: {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 151h0m24s.","status":"RESOURCE_EXHAUSTED","error_code":429,"retryable":true}`
+	for _, c := range []struct {
+		name, text string
+		kind       retry.Kind
+		want       string
+	}{
+		{"per-model 429", limit, retry.KindRateLimit, "gemini-4-argon-medium is rate limited"},
+		{"usage limit", "Usage limit reached for Claude and GPT models", retry.KindRateLimit, "try gemini-4-hydrogen-medium"},
+		{"unauthenticated", `AGY_ERROR: {"short_error":"UNAUTHENTICATED (code 401): token expired","status":"UNAUTHENTICATED"}`, retry.KindAuth, "run `agy` and sign in"},
+		{"expired token", "oauth2: token has expired and refresh failed", retry.KindAuth, "run `agy` and sign in"},
+	} {
+		err := classifyAgyError("gemini-4-argon-medium", errors.New(c.text))
+		re, ok := errors.AsType[*retry.Error](err)
+		if !ok || re.Kind != c.kind || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v (kind %v); want kind %v containing %q", c.name, err, re, c.kind, c.want)
+		}
+	}
+	if err := classifyAgyError("m", errors.New("boom")); strings.Contains(err.Error(), "agy:") {
+		t.Errorf("an unclassified error must pass through unchanged: %v", err)
 	}
 }

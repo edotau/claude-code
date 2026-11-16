@@ -117,14 +117,19 @@ func (s Schema) routedQuery(req RunOptions, t providers.Target) ModelQuery {
 }
 
 // leadProfile is an untyped request's lead: the overlay account's row, else the pin when no session row serves (D3).
-func (s Schema) leadProfile(ctx context.Context, reg *providers.Registry, account string) (string, error) {
+func (s Schema) leadProfile(ctx context.Context, reg *providers.Registry, account, model string) (string, error) {
 	if reg != nil && account != "" {
 		if p := accountRow(reg, account); p != nil {
 			return p.Name, nil
 		}
 	}
 	if reg != nil {
-		q := QueryFor(ctx, ModelQuery{Agent: s.Name})
+		q := QueryFor(ctx, ModelQuery{Agent: s.Name, Model: model})
+		if p, _, err := geminiModelRow(reg, q); err != nil {
+			return "", err
+		} else if p != nil {
+			return p.Name, nil
+		}
 		if p := ownPinRow(reg, q); p != nil {
 			return p.Name, nil
 		}
@@ -142,7 +147,7 @@ func (s Schema) targetBase(req RunOptions) (t providers.Target, own bool, note s
 	ctx := valuesContext(context.Background(), req.Values)
 	reg, loadErr := providers.Load()
 	if req.Provider == "" && !namesProvider(reg, req.Model) {
-		if req.Provider, err = s.leadProfile(ctx, reg, req.Account); err != nil {
+		if req.Provider, err = s.leadProfile(ctx, reg, req.Account, req.Model); err != nil {
 			return t, false, "", true, err
 		}
 	}

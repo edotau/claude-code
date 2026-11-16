@@ -122,10 +122,10 @@ func kindForStatus(status int) Kind {
 // Bare codes are \b-anchored so "line 4013" never reads as a 401.
 var (
 	rateRE = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`\b429\b|rate.?limit|too many requests|quota exceeded|resource_exhausted`)
+		return regexp.MustCompile(`\b429\b|rate.?limit|too many requests|quota exceeded|resource_exhausted|usage limit reached|individual quota reached`)
 	})
 	authRE = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`\b40[13]\b|unauthorized|forbidden|invalid.?api.?key|authentication|not logged in|invalid x-api-key`)
+		return regexp.MustCompile(`\b40[13]\b|unauthorized|forbidden|invalid.?api.?key|authentication|not logged in|invalid x-api-key|unauthenticated|token (has )?expired|expired token|invalid_grant`)
 	})
 	transientRE = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`\b50[0234]\b|\b529\b|overloaded|timed? ?out|deadline exceeded|connection (reset|refused)|no such host|\beof\b|econnreset|etimedout|tls handshake|broken pipe`)
