@@ -204,6 +204,8 @@ var writers = map[string]string{
 	"internal/memory/recall.go:resetSeen":                       unversioned("log: seen-ids list rewrite"),
 	"internal/hooks/effort_dispatchlabel.go:dispatchLabelsLine": unversioned("cache: last session model the label line was shown for"),
 	"internal/hooks/leaves_receipt.go:runBriefLine":             unversioned("marker: hook-run Run: line start, command and output path, plus its raw output"),
+	"internal/hooks/leaves_receipt.go:claimRelayRun":            unversioned("marker: exclusive claim of the hook-run Run: line launch"),
+	"internal/hooks/leaves_receipt.go:markHeld":                 unversioned("marker: a held leaf, so its later stop attaches finished jobs"),
 	"internal/hooks/leaves_receipt.go:preserveReport":           unversioned("text: a held leaf hand-back report, saved verbatim to the reports home"),
 	"internal/memory/bank_settle.go:rotateSessionHistory":       unversioned("memory-bank: sessionHistory rotation"),
 	"internal/memory/sandbox.go:sandboxFlat":                    unversioned("marker: flat layout stamp in a disposable sandbox"),

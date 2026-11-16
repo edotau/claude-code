@@ -170,6 +170,7 @@ func leafWants(in *core.Input) leafWant {
 type leafRead struct {
 	ids, files []string
 	recs       []agent.Record // ids' readable records, loaded once by leafGate and shared by its gates
+	held       []receipt      // the finished jobs' receipts at a hold on a still-running one
 	scan       leafScan
 	openErr    error     // the transcript could not be opened
 	scanErr    error     // reading stopped early: scan is partial and files are dropped
@@ -222,6 +223,9 @@ func leafGate(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
 	lr.recs = loadRecords(lr.ids)
 	expired, block := liveDispatchVerdict(in, &lr, agentID)
 	if block {
+		if len(lr.held) > 0 {
+			markHeld(agentID)
+		}
 		return preserveReport(in, agentID, lr, expired), true
 	}
 	res, block := ranOnVerdict(in, agentID, lr)
@@ -273,7 +277,8 @@ func liveDispatchVerdict(in *core.Input, lr *leafRead, agentID string) (expired 
 			continue
 		}
 		res, block := leafStopVerdict(agentID, rec)
-		if block {
+		if block { // keep the finished answers: the hold saves them and the later pass attaches them
+			lr.recs, lr.held = recs, endedReceipts(recs, waited)
 			return res, true
 		}
 		if expired.SystemMessage == "" {
@@ -281,8 +286,8 @@ func liveDispatchVerdict(in *core.Input, lr *leafRead, agentID string) (expired 
 		}
 	}
 	lr.recs = recs
-	if len(waited) > 0 { // a finished job's answer outranks a limit note
-		expired = attachAll(in, endedReceipts(recs, waited))
+	if ended := endedReceipts(recs, waited); len(ended) > 0 && (len(waited) > 0 || wasHeld(agentID)) {
+		expired = attachAll(in, ended) // a finished job's answer outranks a limit note
 	}
 	return expired, false
 }
@@ -347,11 +352,67 @@ var ranOnPattern = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`ask: ran on [\w.-]+ · |"ran_on":\s*"ran on [\w.-]+ · `)
 })
 
-// ownIDRe matches the dispatch ids an ask prints of its own job: exit line, job start, json envelope.
+// ownIDRe matches a whole line naming an ask's own job: the `--background` launch line, the exit line, a bare id.
 var ownIDRe = sync.OnceValue(func() *regexp.Regexp {
 	const id = `(\d{8}T\d{6}\.\d{3}-[A-Za-z0-9._-]+)`
-	return regexp.MustCompile(`ask: dispatch ` + id + `|job ` + id + ` started|"(?:id|dispatch_id)":\s*"` + id + `"`)
+	return regexp.MustCompile(`^(?:job ` + id + ` started|ask: dispatch ` + id + `|` + id + `$)`)
 })
+
+// ansiRe matches a terminal colour or cursor sequence.
+var ansiRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`) })
+
+// ownIDs is the ids an ask's output prints of its own job: on its head line and its exit line, never in the answer.
+func ownIDs(text string) []string {
+	var lines []string
+	for l := range strings.SplitSeq(ansiRe().ReplaceAllString(text, ""), "\n") {
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	var ids []string
+	if i := slices.IndexFunc(lines, func(l string) bool { return !strings.HasPrefix(l, "ask: ") }); i >= 0 {
+		ids = append(ids, headID(lines[i]))
+	}
+	return append(ids, exitID(lines))
+}
+
+// headID is the id on an ask's first output line: the `job <id> started` launch line or the json envelope's own id.
+func headID(line string) string {
+	if m := ownIDRe().FindStringSubmatch(line); m != nil {
+		return m[1]
+	}
+	var env struct {
+		ID         string `json:"id"`
+		DispatchID string `json:"dispatch_id"`
+	}
+	if !strings.HasPrefix(line, "{") || json.Unmarshal([]byte(line), &env) != nil {
+		return ""
+	}
+	if env.DispatchID != "" {
+		env.ID = env.DispatchID
+	}
+	if m := ownIDRe().FindStringSubmatch(env.ID); m != nil {
+		return m[3]
+	}
+	return ""
+}
+
+// exitID is the last `ask: dispatch <id>` line among the trailing footer and error lines; a wrapped id is rejoined.
+func exitID(lines []string) string {
+	for i := len(lines) - 1; i >= 0; i-- {
+		l := lines[i]
+		if i > 0 && lines[i-1] == "ask: dispatch" {
+			l, i = lines[i-1]+" "+l, i-1
+		}
+		if m := ownIDRe().FindStringSubmatch(l); m != nil && m[2] != "" {
+			return m[2]
+		}
+		if !slices.ContainsFunc([]string{"ask: ", "session: ", "resume: ", "claude-code: "}, func(p string) bool { return strings.HasPrefix(l, p) }) {
+			return ""
+		}
+	}
+	return ""
+}
 
 // toolUseKey and toolResultKey prefilter the lines an ids-only read parses; an escaped quote in prose never matches.
 var toolUseKey, toolResultKey = []byte(`"tool_use"`), []byte(`"tool_result"`)
@@ -443,10 +504,10 @@ func (s *leafScan) addBgAsk(text string) {
 	}
 }
 
-// addIDs adds the not yet seen dispatch ids text prints in ownIDRe's shapes.
+// addIDs adds the not yet seen dispatch ids an ask's output prints of its own job.
 func (s *leafScan) addIDs(text string) {
-	for _, m := range ownIDRe().FindAllStringSubmatch(text, -1) {
-		if id := m[1] + m[2] + m[3]; !slices.Contains(s.ids, id) {
+	for _, id := range ownIDs(text) {
+		if id != "" && !slices.Contains(s.ids, id) {
 			s.ids = append(s.ids, id)
 		}
 	}
@@ -504,10 +565,11 @@ func (s *leafScan) addResults(content json.RawMessage) {
 
 // scanResult reads one tool result: an ask call's ran-on or did-not-run line, a delivered or denied hand-back.
 func (s *leafScan) scanResult(it leafToolResult) {
-	text := resultText(transcript.ContentText(it.Content))
+	raw := transcript.ContentText(it.Content)
+	text := resultText(raw)
 	if s.askCalls[it.ToolUseID] {
 		s.addBgAsk(text)
-		s.addIDs(text)
+		s.addIDs(strings.TrimPrefix(text, raw+"\n")) // a persisted result's ids sit in its saved output, not the preview
 		ran := ranOnPattern().MatchString(text)
 		s.ranOn = s.ranOn || ran
 		s.askFailed = s.askFailed || !ran && didNotRunRe().MatchString(text)

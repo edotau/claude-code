@@ -107,6 +107,39 @@ func relayRunPath(agentID string) string {
 	return filepath.Join(paths.StateDir(), "dispatch-relay", paths.Slug(agentID, "", 80, "leaf")+".json")
 }
 
+// heldPath marks a leaf held on a running job while others had finished: its later pass attaches them all.
+func heldPath(agentID string) string {
+	return strings.TrimSuffix(relayRunPath(agentID), ".json") + ".held"
+}
+
+func markHeld(agentID string) {
+	if os.MkdirAll(filepath.Dir(heldPath(agentID)), 0o700) == nil {
+		_ = os.WriteFile(heldPath(agentID), nil, 0o600)
+	}
+}
+
+func wasHeld(agentID string) bool { _, err := os.Stat(heldPath(agentID)); return err == nil }
+
+// claimRelayRun writes agentID's launch marker with an exclusive create; false means another hand-back holds it.
+func claimRelayRun(agentID string, m relayRun) (bool, error) {
+	f, err := os.OpenFile(relayRunPath(agentID), os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if os.IsExist(err) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	b, _ := json.Marshal(m)
+	_, err = f.Write(b)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	if err != nil {
+		_ = os.Remove(relayRunPath(agentID))
+	}
+	return err == nil, err
+}
+
 func loadRelayRun(agentID string) (relayRun, bool) {
 	var m relayRun
 	b, err := os.ReadFile(relayRunPath(agentID))
@@ -260,17 +293,23 @@ func runBriefLine(in *core.Input, agentID string, words []string, line string) (
 	if err := os.MkdirAll(filepath.Dir(m.Output), 0o700); err != nil {
 		return fail(err)
 	}
+	if claimed, err := claimRelayRun(agentID, m); err != nil {
+		return fail(err)
+	} else if !claimed { // an overlapping hand-back launched it: hold on that launch, never start a second
+		if cur, ok := loadRelayRun(agentID); ok {
+			m = cur
+		} else if fi, err := os.Stat(relayRunPath(agentID)); err == nil {
+			m.Started = fi.ModTime() // a marker still being written, or unreadable: its age bounds the hold
+		}
+		return relayRunPending(in, m)
+	}
 	f, err := os.OpenFile(m.Output, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
-	if err != nil {
-		return fail(err)
+	if err == nil {
+		err = spawnBriefLine(words, in.CWD, f)
+		_ = f.Close()
 	}
-	err = spawnBriefLine(words, in.CWD, f)
-	_ = f.Close()
 	if err != nil {
-		return fail(err)
-	}
-	b, _ := json.Marshal(m)
-	if err := paths.AtomicWrite(relayRunPath(agentID), b, 0o600); err != nil {
+		_ = os.Remove(relayRunPath(agentID)) // nothing started: a later hand-back may try again
 		return fail(err)
 	}
 	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("Your brief's `Run:` line was never run, so the hook started it "+
@@ -408,6 +447,12 @@ func attach(in *core.Input, note string, bodies ...jobOut) core.Result {
 // preserveReport saves the report a held hand-back or stop carried to the reports home and names it in the reason.
 func preserveReport(in *core.Input, agentID string, lr leafRead, res core.Result) core.Result {
 	text := cmp.Or(in.Nested("tool_input", "message"), in.Nested("last_assistant_message"), lr.scan.lastText)
+	var sb strings.Builder
+	sb.WriteString(text)
+	for _, r := range lr.held { // the finished jobs' answers, so a leaf that stops on this hold loses none
+		sb.WriteString("\n\n" + r.note + r.body.render(text))
+	}
+	text = sb.String()
 	if strings.TrimSpace(text) == "" {
 		return res
 	}
