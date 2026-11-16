@@ -76,8 +76,9 @@ Per `agent-verbs.md` → Procedure skeleton. Delta:
 
 - **Pick the verb** per `## Owns`: `review` (diff verdict), `ask` + `task-review.md` / `codex-skill-plugin-review.md`,
   `ask --tools` (+ `verify.md` for gates, or to take over), `ask --session <id>`, `transfer`.
-- **Run it** as the brief's `Run:` line gives it, flags and model unchanged; without one, default model and effort
-  and `--fallback none` for a named-agent task (`skills/subagent-workflows/references/cost-routing.md`).
+- **Run it** as the brief's `Run:` line gives it, flags and model unchanged; without one, no `--model` or `--effort`
+  (the run takes the codex pin, else its task tier: `rules/harness/agent.md` → Model precedence) and `--fallback none`
+  for a named-agent task (`skills/subagent-workflows/references/cost-routing.md`).
 - **Do not verify**: no reads or tests before or after.
 
 ### Review
@@ -108,7 +109,8 @@ did not run.
 - `--tools` runs in the `workspace-write` sandbox, which blocks binding sockets and running `ps`; no `--allow` changes
   that. Tests that need them: set `HARNESS_CODEX_SANDBOX=danger-full-access` for that one dispatch. It widens what the
   agent can touch to the whole machine, so use it only for a named package that fails under the default, and the
-  launch note records it. Any other value exits 2. `HARNESS_CODEX_NETWORK=1` opens only network.
+  launch note records it. Any other value is refused before launch (exit 1, nothing runs). `HARNESS_CODEX_NETWORK=1`
+  opens only network.
 - Under the default sandbox the launch points `GOCACHE`, `GOMODCACHE` and `GOLANGCI_LINT_CACHE` at the dispatch's temp
   dir unless you set them.
 - Same lint error recurs after 2 fix attempts → skip it, note in the report.

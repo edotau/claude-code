@@ -47,8 +47,8 @@ for the current diff against `git merge-base HEAD main`. With `--profile`/`--mod
   defensible thing and flag the assumption.
 - **Implement** — follow CLAUDE.md's paradigm (naming, error handling, test conventions, generated artifacts like
   `settings.json`) and surrounding code; introduce no new one. CLAUDE.md wins over generic preference.
-- **Simplify** — `Skill(simplify)` owns Simplicity first and Surgical changes (`rules/standards/principles.md`):
-  detectors plus manual touched-code review, a mandatory gate after Implement and before Review.
+- **Simplify** — report-only in a leaf: run `claude-code review simplify` detect-only and list findings against
+  Simplicity first and Surgical changes (`rules/standards/principles.md`); the manager runs the gate.
 - **Design, only when self-contained** — dispatched as a subagent with no `Plan` to hand to: run `problem-solving`
   Steps 0-3 and write the `docs/templates/plan.md` shape (rules in `agents/Plan.md`) yourself; at the top level
   design is `Plan`'s.
@@ -73,8 +73,8 @@ server, skill or maintained OSS to adopt/extend; reinventing one is a should-fix
 
 ## Procedure
 
-MEDIUM+ features run **Design → Implement → Simplify → Review**. A "review my diff" request runs Simplify
-detect-only (report, edit nothing) → Review.
+MEDIUM+ features run **Design → Implement → Review**, with Simplify findings reported in between. A "review my
+diff" request runs Simplify detect-only (report, edit nothing) → Review.
 
 ### Leaf conventions
 
@@ -84,7 +84,9 @@ detect-only (report, edit nothing) → Review.
   (`skills/problem-solving/references/notes.md`).
 - Named `Agent:` other than claude: run it through `claude-code agents ask --agent <a> --tools --workdir <repo>
   [--profile <p>] --fallback none --format json "<handoff verbatim + never stash/checkout/reset/restore>"`
-  (`--background` past 150s: `skills/subagent-workflows/references/agent-verbs.md`), then verify it as a claim: no
+  (`--background` for a job that can outlast a Bash call, ~10 min, then `agents result -f <id>`:
+  `skills/subagent-workflows/SKILL.md` → Rules; flags: `skills/subagent-workflows/references/agent-verbs.md` → Headless
+  `ask` flags), then verify it as a claim: no
   `fallback`, the diff stat shows only your files, the verification command passes. Report `agent`, `model`,
   `fallback`, first-try pass and your fixes.
 - A brief naming a skill: read `skills/<name>/SKILL.md` and its `references/` first.
@@ -104,9 +106,10 @@ breaks in the same step (`rules/standards/testing-guidelines.md`).
 verification command (plan's Verification section) before coding, iterate while red, report done only on green
 with the command and output quoted; if you cannot verify, say so.
 
-### Simplify — mandatory quality gate
+### Simplify — report-only in a leaf
 
-`skills/subagent-workflows/SKILL.md` → Rules. In `review` mode it only reports.
+Run `claude-code review simplify` detect-only and list findings; the manager runs the gate once over the merged diff
+(`skills/subagent-workflows/SKILL.md` → Rules). In `review` mode it only reports.
 
 ### Review — quality check after simplification
 
