@@ -44,6 +44,7 @@ var platformScan struct {
 // StubProcessScanForTest makes the process scan (lsof, ps) report nothing for a test binary; call from TestMain.
 func StubProcessScanForTest() {
 	platformScan.up, platformScan.procs = parentOf, scanProcs
+	scanAgentProcs = nil
 	processesIn = func(string) ([]Proc, error) { return nil, nil }
 	parentOf = func(int) (int, error) { return 0, nil }
 	scanProcs = func() ([]procCwd, error) { return nil, nil }
@@ -180,6 +181,9 @@ type procCwd struct {
 // scanProcs lists every inspectable process with its cwd in one pass; each platform's init() assigns it.
 var scanProcs func() ([]procCwd, error)
 
+// scanAgentProcs is scanProcs limited to agent-named processes; nil means PeerAgents uses scanProcs.
+var scanAgentProcs func() ([]procCwd, error)
+
 // filterProcs keeps the scanned processes whose cwd is dir or under it, reading a missing comm only for those.
 func filterProcs(all []procCwd, dir string) []Proc {
 	var procs []Proc
@@ -206,10 +210,14 @@ func scanIn(dir string) ([]Proc, error) {
 
 // PeerAgents lists agent processes in checkout (not .git, linked worktrees, the caller's ancestry or its descendants).
 func PeerAgents(checkout string, linked []string) ([]Proc, error) {
-	if scanProcs == nil {
+	scan := scanProcs
+	if scanAgentProcs != nil {
+		scan = scanAgentProcs
+	}
+	if scan == nil {
 		return nil, nil
 	}
-	all, err := scanProcs()
+	all, err := scan()
 	if err != nil {
 		return nil, err
 	}

@@ -23,6 +23,27 @@ func Parent(pid int) int {
 	return int(kp.Eproc.Ppid)
 }
 
+// PIDsNamed returns the pids whose kernel process name (p_comm, what lsof prints as c) is in names.
+func PIDsNamed(names map[string]bool) []int {
+	all, err := unix.SysctlKinfoProcSlice("kern.proc.all")
+	if err != nil {
+		return nil
+	}
+	var pids []int
+	for i := range all {
+		if names[cString(all[i].Proc.P_comm[:])] {
+			pids = append(pids, int(all[i].Proc.P_pid))
+		}
+	}
+	return pids
+}
+
+// cString is b up to its first NUL.
+func cString(b []byte) string {
+	n, _, _ := strings.Cut(string(b), "\x00")
+	return n
+}
+
 // Descendants returns pid's children, grandchildren, ... via ps -A -o pid=,ppid=.
 func Descendants(pid int) []int {
 	if pid <= 0 {
