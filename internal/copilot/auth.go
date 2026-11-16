@@ -65,7 +65,6 @@ func copilotAuthSourceErr() (copilotAuth, bool, error) {
 	return a, ok, loadErr
 }
 
-// authSourceFor resolves the source for the pinned GitHub login pin ("" = unpinned).
 func authSourceFor(pin string) (copilotAuth, bool) {
 	if pin != "" { // a pinned profile with no login falls through to gh's active account
 		if slices.Contains(GHAccounts(), pin) {
@@ -176,7 +175,6 @@ func copilotHeadroom(ctx context.Context, user string) (detail string, ok bool) 
 	return fmt.Sprintf("%s %.1f%% of credits used", user, pct), pct < copilotWorkablePct
 }
 
-// copilotStateKey is login's route-state key, github·<profile>.
 func copilotStateKey(login string) string {
 	reg, _ := providers.Load()
 	return "github·" + providers.GithubAccountName(reg, login)
@@ -245,7 +243,6 @@ func ghConfigDir() string {
 	return filepath.Join(home, ".config", "gh")
 }
 
-// ghHostsFile is gh's hosts.yml path.
 func ghHostsFile() string { return filepath.Join(ghConfigDir(), "hosts.yml") }
 
 // GHActiveAccount is gh's active github.com account from hosts.yml (no network), or "" when gh is not logged in.
@@ -311,7 +308,6 @@ func keepGHActive(v ghActive, err error) time.Duration {
 	return -1
 }
 
-// ghLookup reads hosts.yml's active user and runs gh for its token.
 func ghLookup(path string) (ghActive, error) {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -350,7 +346,6 @@ func ghAuthToken(extra ...string) ([]byte, error) {
 	return out, err
 }
 
-// keepAuth keeps a found value until Drop and an empty (failed) one for authMemoNegativeTTL.
 func keepAuth(v string, _ error) time.Duration {
 	if v != "" {
 		return 0
@@ -399,13 +394,12 @@ func fetchGitHubLogin(token string) string {
 	return u.Login
 }
 
-// ghUsersRE captures the account names under a host's `users:` map in gh's hosts.yml.
 var ghUsersRE = regexp.MustCompile(`(?m)^[ \t]{8}([A-Za-z0-9_-]+):`)
 
 // ghHostBlockRE captures the github.com host block (its indented and blank lines), so other hosts' users stay out.
 var ghHostBlockRE = regexp.MustCompile(`(?m)^github\.com:[ \t]*\r?\n((?:[ \t]+.*(?:\n|$)|\r?\n)*)`)
 
-// GHAccounts lists every github.com account gh is signed in to (hosts.yml, no network).
+// GHAccounts lists the github.com accounts gh is signed in to, offline.
 func GHAccounts() []string {
 	raw, err := os.ReadFile(ghHostsFile())
 	if err != nil {
@@ -514,7 +508,6 @@ var copilotTierCmd = func(ctx context.Context, token string) ([]byte, error) {
 	return agent.ProbeCLI(agent.ProbeContext(ctx, "copilot"), "gh", spec, false, "api", "/copilot_internal/user")
 }
 
-// copilotPlanMemo holds one lookup per account, so a sign-in or account switch mid-menu re-asks.
 var copilotPlanMemo paths.Memo[string, string]
 
 // copilotRawPlan asks GitHub which Copilot plan account holds ("individual_pro"; 3 s cap); "" when offline.
