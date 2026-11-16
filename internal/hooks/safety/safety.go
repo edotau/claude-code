@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -43,10 +44,11 @@ var pipeBlocks = core.LazyCompile(
 	`(?s)(^|[\s;&|({/\x60])python3?(\.[0-9]+)?\b[^\n]*<<[-<]?.*((exec|eval)\(.*(base64|b64decode)|(base64|b64decode).*(exec|eval)\()`,
 )
 
-// askRule is an intent-dependent shape matched within one shell segment, with its message and alternative.
+// askRule is an intent-dependent shape matched within one shell segment, its message, alternative and exemption.
 type askRule struct {
 	what, hint string
 	pats       func() []*regexp.Regexp
+	exempt     func(seg, cmd, cwd string) bool
 }
 
 const gitPushPrefix = `git\s+(((-[Cc]\s+|--(git-dir|work-tree)(=|\s+))("[^"]*"|'[^']*'|[^\s"']+)|--?[a-zA-Z][a-zA-Z-]*(=\S+)?)\s+)*push\s+`
@@ -64,17 +66,18 @@ const (
 
 var askRules = []askRule{
 	{"sudo command", "Approve only if you asked for it; otherwise install to a user prefix (~/.local, pipx, a venv) instead.",
-		core.LazyCompile(`(^|[^[:alnum:]_])sudo(\s|$)`)},
+		core.LazyCompile(`(^|[^[:alnum:]_])sudo(\s|$)`), nil},
 	{forcePushWhat, forcePushHint, core.LazyCompile(
 		gitPushPrefix+`(.*\s)?`+forceFlag+protectedBranch,
 		gitPushPrefix+protectedBranch+`(.*\s)?`+forceFlag,
 		gitPushPrefix+`.*--force-with-lease(=[^[:space:]]*)?(\s|$)`+protectedBranch,
 		gitPushPrefix+protectedBranch+`.*--force-with-lease(=[^[:space:]]*)?(\s|$)`,
 		gitPushPrefix+`.*\+([^[:space:]]+:)?(refs/heads/)?(main|master)["']?(\s|$)`,
-	)},
+	), nil},
 	{"recursive removal of a .git directory",
 		"That deletes the repository history; to start clean use a fresh worktree: claude-code worktree create <name>.",
-		core.LazyCompile(`(^|[^[:alnum:]_])rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(([^[:space:]"']+|"[^"]*"|'[^']*')\s+)*["']?([^[:space:]"']*/)?\.git/?["']?(\s|$)`)},
+		core.LazyCompile(`(^|[^[:alnum:]_])rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(([^[:space:]"']+|"[^"]*"|'[^']*')\s+)*["']?([^[:space:]"']*/)?\.git/?["']?(\s|$)`),
+		tempGitRemoval},
 }
 
 const terminalHint = "If intentional, run it yourself in a terminal."
@@ -84,13 +87,56 @@ var sqlDestructive = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(^|[^[:alnum:]_])(drop\s+(database|table|schema)|truncate\s+table|truncate\s+[a-z_"][a-z0-9_."]*\s*(;|$|cascade|["']))([^[:alnum:]_]|$)`)
 })
 
+// credRead is a reader of a credential file, the left side of exfilPatterns[1].
+const credRead = `(cat|tail|head|base64)\s+.*(\.claude/settings\.json|\.credentials\.json|secrets\.env|\.ssh/|\.aws/credentials|\.netrc)`
+
 // exfilPatterns match credential-exfiltration shapes.
 var exfilPatterns = core.LazyCompile(
 	`(^|[\s;&|({/\x60'"\\])(env|printenv)['"]?\s*>\s*/tmp/`,
-	`(cat|tail|head|base64)\s+.*(\.claude/settings\.json|\.credentials\.json|secrets\.env|\.ssh/|\.aws/credentials|\.netrc).*\|.*(^|[^[:alnum:]_])(curl|nc|ncat|wget)([^[:alnum:]_]|$)`,
+	credRead+`.*\|.*(^|[^[:alnum:]_])(curl|nc|ncat|wget)([^[:alnum:]_]|$)`,
 	`base64\s+.*(\.ssh/id_|\.aws/credentials|\.credentials\.json|secrets\.env)`,
 	`(scp|rsync)\s+.*\.ssh/id_`,
 )
+
+// toolEnv is a tool's own `env` subcommand (`go env`): it prints the tool's settings, not the environment.
+var toolEnv = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(^|[\s;&|({\x60])(\S*/)?(go|conda|mamba|poetry)[ \t]+env([ \t]*>)`)
+})
+
+var credReader = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(credRead) })
+
+// exfilMatch is exfilPatterns[i] on scan, minus a tool's `env` subcommand and credentials cmd only prints.
+func exfilMatch(i int, re *regexp.Regexp, scan, cmd string) bool {
+	switch i {
+	case 0:
+		scan = toolEnv().ReplaceAllString(scan, "${1}${3}${4}")
+	case 1:
+		if credsShownOnly(cmd) {
+			return false
+		}
+	}
+	return re.MatchString(scan)
+}
+
+// credsShownOnly reports every credential read is a cat/head/tail piped only to filters, with nothing to carry it on.
+func credsShownOnly(cmd string) bool {
+	if strings.ContainsAny(cmd, "(){}<>`$") {
+		return false
+	}
+	segs, seps := shell.SegmentsSep(cmd)
+	for k, seg := range segs {
+		if !credReader().MatchString(seg) {
+			continue
+		}
+		toks := shell.Tokens(seg)
+		piped := seps[k] == "|" || seps[k] == "|&"
+		if k > 0 && (seps[k-1] == "|" || seps[k-1] == "|&") || len(toks) == 0 ||
+			!slices.Contains([]string{"cat", "head", "tail"}, toks[0]) || piped && !filtersOnly(segs, seps, k+1) {
+			return false
+		}
+	}
+	return true
+}
 
 // softWarn patterns print a warning but never block.
 var softWarn = core.LazyCompile(
@@ -105,7 +151,7 @@ func Scan(in *core.Input) core.Result {
 	decision, msg, detail := safetyVerdict(in)
 	var warn strings.Builder
 	if decision != core.Block && (in.ToolName == "" || strings.EqualFold(in.CanonicalTool(), "Bash")) {
-		cmd := dropPatchBodies(in.ToolCommand())
+		cmd := blankInert(dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))) // a message only names the shape
 		for _, re := range softWarn() {
 			if re.MatchString(cmd) {
 				fmt.Fprintf(&warn, "safety: WARNING — %s (not blocked; review carefully)\n", re)
@@ -133,7 +179,7 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 	if in.ToolName != "" && !strings.EqualFold(in.CanonicalTool(), "Bash") {
 		return core.Allow, "", ""
 	}
-	cmd := dropPatchBodies(in.ToolCommand())
+	cmd := dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))
 	if cmd == "" {
 		return core.Allow, "", ""
 	}
@@ -147,8 +193,8 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 	if d == core.Block {
 		return d, msg, detail
 	}
-	for _, re := range exfilPatterns() {
-		if re.MatchString(scan) {
+	for i, re := range exfilPatterns() {
+		if exfilMatch(i, re, scan, cmd) {
 			return core.Block, core.SafetyMessage(in, core.Block, "looks like credential exfiltration", re.String(), terminalHint), re.String()
 		}
 	}
@@ -170,7 +216,7 @@ func safetyAskVerdict(in *core.Input, cmd, scan string) (core.Decision, string, 
 	for _, seg := range shell.Segments(blankInert(cmd)) {
 		for _, rule := range askRules {
 			for _, re := range rule.pats() {
-				if re.MatchString(seg) {
+				if re.MatchString(seg) && (rule.exempt == nil || !rule.exempt(seg, cmd, in.CWD)) {
 					return core.Ask, warn + core.SafetyMessage(in, core.Ask, rule.what, re.String(), rule.hint), re.String()
 				}
 			}
@@ -206,7 +252,7 @@ func askPatternVerdict(in *core.Input, cmd, scan string) (core.Decision, string,
 		hint := "Scope a build or diff your own files instead; commit early. Use a linked worktree instead: claude-code worktree create <name>."
 		return core.Ask, core.SafetyMessage(in, core.Ask, what, "", hint), "shared config git mutation"
 	}
-	if shell.AttributionFooterCommit(cmd) {
+	if shell.AttributionFooterCommit(dropPatchBodies(in.ToolCommand())) { // a footer lives in the message body
 		what := "AI-attribution footer in a commit message (CLAUDE.md hard rule 3)"
 		hint := "Rerun this commit without the Co-Authored-By / Generated-with lines; that needs no approval."
 		return core.Ask, core.SafetyMessage(in, core.Ask, what, "", hint), "attribution footer"
@@ -224,8 +270,23 @@ var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": t
 // harnessGitVerb is the first banned verb (or shell.Uninspectable, nesting too deep to check) whose target tree
 // (--work-tree / --git-dir / -C chain, else the segment's cwd after any `cd`) is under the config dir.
 func harnessGitVerb(cmd, cwd string) string {
+	cmd = dropRemoteHeredocs(core.DropDataHeredocs(cmd))
+	hit := bannedVerb(cmd, cwd)
+	if hit != shell.Uninspectable {
+		return hit
+	}
+	// A printf/echo fed to a shell that decodes to text running no git is not too deep to check.
+	outer, texts := shellFeeds(cmd)
+	if len(texts) == 0 || bannedVerb(outer, cwd) != "" || slices.ContainsFunc(texts, runsGit) {
+		return hit
+	}
+	return ""
+}
+
+// bannedVerb is harnessGitVerb's first hit in cmd, with no feed decoding.
+func bannedVerb(cmd, cwd string) string {
 	var hit string
-	shell.EachGit(dropRemoteHeredocs(core.DropDataHeredocs(cmd)), cwd, func(target, verb string, args []string) bool {
+	shell.EachGit(cmd, cwd, func(target, verb string, args []string) bool {
 		if !gitBannedUnder(target, verb, args) {
 			return false
 		}
@@ -235,10 +296,43 @@ func harnessGitVerb(cmd, cwd string) string {
 	return hit
 }
 
-// bannedGit is a hard rule 4 verb that writes the tree; read-only `stash list|show` is fine.
+// runsGit reports text holding any git invocation or nesting EachGit cannot see into, wherever it would run.
+func runsGit(text string) bool {
+	return shell.EachGit(text, "/", func(string, string, []string) bool { return true })
+}
+
+// bannedGit is a hard rule 4 verb that writes the tree; read-only `stash list|show` and `clean -n` are fine.
 func bannedGit(verb string, args []string) bool {
-	readOnly := verb == "stash" && len(args) > 0 && (args[0] == "list" || args[0] == "show")
+	readOnly := verb == "stash" && len(args) > 0 && (args[0] == "list" || args[0] == "show") ||
+		verb == "clean" && cleanDryRun(args)
 	return (bannedGitVerbs[verb] || verb == shell.Uninspectable) && !readOnly
+}
+
+// cleanDryRun reports a git clean given -n/--dry-run, which removes nothing, and not -i, which prompts to delete.
+func cleanDryRun(args []string) bool {
+	dry := false
+	for i := 0; i < len(args); i++ {
+		switch a := args[i]; {
+		case a == "--":
+			return dry
+		case a == "--dry-run":
+			dry = true
+		case a == "--interactive":
+			return false
+		case a == "--exclude":
+			i++ // the exclude pattern
+		case strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--"):
+			flags, pattern, hasE := strings.Cut(a[1:], "e") // -e takes the rest of the cluster, else the next word
+			if hasE && pattern == "" {
+				i++
+			}
+			if strings.Contains(flags, "i") {
+				return false
+			}
+			dry = dry || strings.Contains(flags, "n")
+		}
+	}
+	return dry
 }
 
 // gitBannedUnder reports whether one git invocation is a banned verb targeting the harness tree.
@@ -263,6 +357,9 @@ func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, 
 	if pattern, ok := firstHardBlock(scan); ok {
 		return core.Block, core.SafetyMessage(in, core.Block, "destructive command", pattern, terminalHint), pattern
 	}
+	if pattern, ok := feedHardBlock(cmd); ok { // `printf 'rm -rf /\n' | sh` runs what printf prints
+		return core.Block, core.SafetyMessage(in, core.Block, "destructive command", pattern, terminalHint), pattern
+	}
 	if scan == cmd {
 		return core.Allow, "", "" // nothing was stripped, so the raw pass would find nothing new
 	}
@@ -284,6 +381,180 @@ func firstHardBlock(text string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// feedHardBlock is the first hard-block pattern the text a printf/echo pipes into a shell matches, decoded.
+func feedHardBlock(cmd string) (string, bool) {
+	_, texts := shellFeeds(cmd)
+	for _, text := range texts {
+		if pattern, ok := firstHardBlock(text); ok {
+			return pattern, true
+		}
+	}
+	return "", false
+}
+
+// shellFeeds is cmd with each decodable printf/echo-into-a-shell pipeline replaced by `:`, and the texts it runs.
+func shellFeeds(cmd string) (string, []string) {
+	if !strings.Contains(cmd, "|") {
+		return cmd, nil
+	}
+	segs, seps := shell.SegmentsSep(cmd)
+	var b strings.Builder
+	var texts []string
+	for i := 0; i < len(segs); i++ {
+		if end, text, ok := shellFeed(segs, seps, i); ok {
+			texts = append(texts, text...)
+			b.WriteString(" :")
+			b.WriteString(seps[end])
+			i = end
+			continue
+		}
+		b.WriteString(segs[i])
+		b.WriteString(seps[i])
+	}
+	return b.String(), texts
+}
+
+// shellFeed decodes a printf/echo at segs[i] piped, through filters only, into a stdin shell ending at segs[end].
+func shellFeed(segs, seps []string, i int) (end int, texts []string, ok bool) {
+	if strings.ContainsAny(segs[i], "$`<>") { // an expansion or redirect cannot be decoded from the text
+		return 0, nil, false
+	}
+	texts, ok = printedText(shell.Tokens(segs[i]))
+	for k := i; ok && (seps[k] == "|" || seps[k] == "|&") && k+1 < len(segs); k++ {
+		rest, _ := shell.Unwrap(shell.Tokens(segs[k+1]), "")
+		switch {
+		case stdinShell(rest):
+			return k + 1, texts, true
+		case len(rest) == 0 || !pipeFilters[rest[0]] && rest[0] != "cat" || !inertEcho(rest):
+			return 0, nil, false
+		}
+	}
+	return 0, nil, false
+}
+
+// stdinShell reports sh/bash/zsh/dash/ksh given only flags and no -c string: it runs the commands on its stdin.
+func stdinShell(toks []string) bool {
+	if len(toks) == 0 || !slices.Contains([]string{"sh", "bash", "zsh", "dash", "ksh"}, filepath.Base(toks[0])) {
+		return false
+	}
+	return !slices.ContainsFunc(toks[1:], func(t string) bool {
+		return !strings.HasPrefix(t, "-") || !strings.HasPrefix(t, "--") && strings.Contains(t, "c")
+	})
+}
+
+// printedText is what a printf or echo prints; echo's text is checked as bash and as zsh/dash print it (escapes).
+func printedText(toks []string) ([]string, bool) {
+	if len(toks) < 2 {
+		return nil, false
+	}
+	words := toks[1:]
+	switch toks[0] {
+	case "printf":
+		if strings.HasPrefix(words[0], "-") { // -v assigns instead of printing; -- is rare
+			return nil, false
+		}
+		return []string{printfOutput(words[0], words[1:])}, true
+	case "echo":
+		for len(words) > 0 && echoFlag(words[0]) {
+			words = words[1:]
+		}
+		raw := strings.Join(words, " ")
+		return []string{raw, decodeEscapes(raw)}, true
+	}
+	return nil, false
+}
+
+// echoFlag reports an echo option word such as -n, -e or -neE.
+func echoFlag(w string) bool {
+	return len(w) > 1 && w[0] == '-' && strings.Trim(w[1:], "neE") == ""
+}
+
+// printfOutput applies a printf format to args as the shell does, reusing the format while args remain.
+func printfOutput(format string, args []string) string {
+	var out strings.Builder
+	for {
+		used := printfPass(&out, format, args)
+		if args = args[used:]; used == 0 || len(args) == 0 {
+			return decodeEscapes(out.String())
+		}
+	}
+}
+
+// printfPass writes one pass of format, `%b` arguments decoded, and returns how many args it consumed.
+func printfPass(out *strings.Builder, format string, args []string) int {
+	used := 0
+	for i := 0; i < len(format); i++ {
+		if format[i] != '%' || i+1 >= len(format) {
+			out.WriteByte(format[i])
+			continue
+		}
+		j := i + 1
+		for j < len(format) && strings.IndexByte("-+ #0123456789.", format[j]) >= 0 {
+			j++
+		}
+		if j >= len(format) || format[j] == '%' {
+			out.WriteByte('%')
+			i = j
+			continue
+		}
+		arg := ""
+		if used < len(args) {
+			arg, used = args[used], used+1
+		}
+		if format[j] == 'b' {
+			arg = decodeEscapes(arg)
+		}
+		out.WriteString(strings.ReplaceAll(arg, `\`, `\\`)) // literal: survives the final escape pass
+		i = j
+	}
+	return used
+}
+
+// decodeEscapes applies printf/echo -e backslash escapes: \n \t \\, octal \0NNN or \NNN, hex \xHH; \c ends output.
+func decodeEscapes(s string) string {
+	var out strings.Builder
+	for i := 0; i < len(s); i++ {
+		if s[i] != '\\' || i+1 >= len(s) {
+			out.WriteByte(s[i])
+			continue
+		}
+		i++
+		switch c := s[i]; {
+		case c == 'c':
+			return out.String()
+		case strings.IndexByte("ntrvfab", c) >= 0:
+			out.WriteByte("\n\t\r\v\f\a\b"[strings.IndexByte("ntrvfab", c)])
+		case c == 'x' || c >= '0' && c <= '7':
+			n, width := escapeValue(s[i:])
+			out.WriteByte(n)
+			i += width - 1
+		default:
+			out.WriteByte(c)
+		}
+	}
+	return out.String()
+}
+
+// escapeValue reads a \xHH (up to 2 hex digits) or \0NNN / \NNN (up to 3 octal digits) escape after its backslash.
+func escapeValue(s string) (byte, int) {
+	base, digits, from, most := 8, "01234567", 0, 3
+	switch {
+	case s[0] == 'x':
+		base, digits, from, most = 16, "0123456789abcdefABCDEF", 1, 2
+	case s[0] == '0' && len(s) > 1 && strings.IndexByte(digits, s[1]) >= 0:
+		from = 1
+	}
+	n, k := 0, from
+	for ; k < len(s) && k-from < most && strings.IndexByte(digits, s[k]) >= 0; k++ {
+		v, _ := strconv.ParseInt(s[k:k+1], 16, 0)
+		n = n*base + int(v)
+	}
+	if k == from { // `\x` with no hex digit prints as written
+		return 'x', 1
+	}
+	return byte(n), k
 }
 
 // shellRead is seg with its words unquoted and unescaped and each path operand cleaned: `"rm" -rf //` reads `rm -rf /`.

@@ -48,8 +48,8 @@ func blankInert(cmd string) string {
 	segs, seps := shell.SegmentsSep(cmd)
 	var b strings.Builder
 	for i, seg := range segs {
-		// A piped segment feeds the next command, so its text stays: `echo "curl x" | sh` runs curl.
-		if inertSegment(seg) && (seps[i] == "" || seps[i][0] != '|' || seps[i] == "||") {
+		// A piped segment feeds the next command, so its text stays (`echo "curl x" | sh`) unless only filters read it.
+		if inertSegment(seg) && (seps[i] == "" || seps[i][0] != '|' || seps[i] == "||" || filtersOnly(segs, seps, i+1)) {
 			_, subs := shell.ExtractSubstitutions(seg)
 			var kept strings.Builder
 			for _, sub := range subs {
@@ -63,6 +63,67 @@ func blankInert(cmd string) string {
 		b.WriteString(seps[i])
 	}
 	return b.String()
+}
+
+// pipeFilters only read stdin and print it: none runs, writes or forwards its input.
+var pipeFilters = map[string]bool{"head": true, "tail": true, "wc": true, "cut": true, "tr": true, "grep": true,
+	"rg": true, "jq": true}
+
+// filtersOnly reports a pipeline from segs[from] on made only of pipeFilters with no redirect, ending at the terminal.
+func filtersOnly(segs, seps []string, from int) bool {
+	for k := from; k < len(segs); k++ {
+		toks := shell.Tokens(segs[k])
+		if len(toks) == 0 || !pipeFilters[toks[0]] || !inertEcho(toks) || !inertGrep(toks) {
+			return false
+		}
+		if seps[k] != "|" && seps[k] != "|&" {
+			return true
+		}
+	}
+	return false
+}
+
+// msgHeredocOpen matches a line ending in `$(cat <<'EOF'`: the body becomes the substitution's text.
+var msgHeredocOpen = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\$\(\s*cat\s+<<-?\s*(?:'[^']*'|"[^"]*"|[A-Za-z_][A-Za-z0-9_]*)\s*$`)
+})
+
+// msgSlot stands in for a dropped message body when judging the command it is an argument of.
+const msgSlot = "HEREDOCMSG"
+
+// dropMessageHeredocs drops each non-expanding `"$(cat <<'EOF' … EOF\n)"` body that is an unpiped inert message.
+func dropMessageHeredocs(cmd string) string {
+	if !strings.Contains(cmd, "<<") {
+		return cmd
+	}
+	return core.DropHeredocBodies(cmd, false, func(lines []string, i int) int {
+		loc := msgHeredocOpen().FindStringIndex(lines[i])
+		ms := core.HeredocOp().FindAllStringSubmatch(lines[i], -1)
+		if loc == nil || len(ms) != 1 {
+			return -1
+		}
+		m := ms[0]
+		end := core.HeredocEnd(lines, i+1, m[2]+m[3]+m[4], m[1] == "-")
+		if end < 0 || end+1 >= len(lines) || m[4] != "" && slices.ContainsFunc(lines[i+1:end], substitutes) {
+			return -1
+		}
+		closer, ok := strings.CutPrefix(strings.TrimLeft(lines[end+1], " \t"), ")")
+		if !ok || !messageArg(lines[i][:loc[0]]+msgSlot+closer) {
+			return -1
+		}
+		return end
+	})
+}
+
+// messageArg reports that msgSlot sits in an inert segment whose output is not piped on.
+func messageArg(flat string) bool {
+	segs, seps := shell.SegmentsSep(flat)
+	for k, seg := range segs {
+		if strings.Contains(seg, msgSlot) {
+			return inertSegment(seg) && seps[k] != "|" && seps[k] != "|&"
+		}
+	}
+	return false
 }
 
 // inertSegment reports a segment whose words are data: echo/printf, grep/rg patterns, commit/tag/gh text.
