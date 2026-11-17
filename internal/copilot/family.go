@@ -2,6 +2,7 @@ package copilot
 
 import (
 	"context"
+	"fmt"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/catalog"
@@ -24,6 +25,14 @@ func (copilotEngine) ResolveModelWord(_ context.Context, model string) (string, 
 		return model, nil
 	}
 	return reviewModel(model, "", ids)
+}
+
+// ColdModelWord is the error for a family word the empty snapshot left unresolved.
+func (copilotEngine) ColdModelWord(model string) error {
+	if !familyWord(model) {
+		return nil
+	}
+	return fmt.Errorf("copilot model %q needs the catalog snapshot: run `claude-code copilot catalog`, then retry", model)
 }
 
 func modelFamily(id string) string {

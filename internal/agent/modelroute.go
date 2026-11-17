@@ -105,6 +105,25 @@ type ModelWordResolver interface {
 	ResolveModelWord(ctx context.Context, model string) (string, error)
 }
 
+// ColdWordHinter is an optional driver method: the error for a word the resolver left unchanged (no snapshot).
+type ColdWordHinter interface {
+	ColdModelWord(model string) error
+}
+
+// resolveRunModel is resolveModelWord for a local run; a word left unchanged that the driver knows says how to fix it.
+func resolveRunModel(ctx context.Context, o RunOptions) (string, error) {
+	q := ModelQuery{Agent: o.Agent, Model: o.Model, ctx: ctx}
+	model, err := resolveModelWord(q)
+	if err != nil || model != o.Model {
+		return model, err
+	}
+	d, _ := driverFor(o.Agent)
+	if h, ok := d.(ColdWordHinter); ok && model != "" {
+		return model, h.ColdModelWord(model)
+	}
+	return model, nil
+}
+
 func resolveModelWord(q ModelQuery) (string, error) {
 	d, ok := driverFor(q.Agent)
 	if w, has := d.(ModelWordResolver); ok && has && q.Model != "" {
