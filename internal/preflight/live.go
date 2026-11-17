@@ -280,13 +280,11 @@ func RefreshPinned(ctx context.Context) []error {
 }
 
 func printFixRows(w io.Writer, ps []Pin) {
-	for _, p := range notOK(ps) {
-		fmt.Fprintf(w, "pins     %s %s: %s\n", p.Agent, p.Status, cmp.Or(p.Fix, p.Detail))
+	for _, p := range ps {
+		if p.Status != StatusOK {
+			fmt.Fprintf(w, "pins     %s %s: %s\n", p.Agent, p.Status, cmp.Or(p.Fix, p.Detail))
+		}
 	}
-}
-
-func notOK(ps []Pin) []Pin {
-	return slices.DeleteFunc(slices.Clone(ps), func(p Pin) bool { return p.Status == StatusOK })
 }
 
 func anyCredential(reg *providers.Registry, ps []Pin) bool {
@@ -322,8 +320,10 @@ func hasDatabricksSession(reg *providers.Registry, ps []Pin, dbx []*providers.Pr
 
 func staticProblems(ps []Pin, dbx bool) string {
 	var parts []string
-	for _, p := range notOK(ps) {
-		parts = append(parts, fmt.Sprintf("%s %s (%s)", p.Agent, p.Status, cmp.Or(p.Detail, p.Profile)))
+	for _, p := range ps {
+		if p.Status != StatusOK {
+			parts = append(parts, fmt.Sprintf("%s %s (%s)", p.Agent, p.Status, cmp.Or(p.Detail, p.Profile)))
+		}
 	}
 	if dbx && !proxyUp() {
 		parts = append([]string{"proxy down"}, parts...)

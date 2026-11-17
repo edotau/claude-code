@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -368,23 +369,40 @@ func usageSessionDirsWithinDays(claudeDir string, days int, errw io.Writer) ([]s
 	cutoff := windowCutoff(days)
 
 	var dirs []string
-	for _, dir := range candidates {
-		info, statErr := os.Stat(dir)
-		if statErr != nil || !info.IsDir() {
+	for i, result := range sessionModTimes(candidates) {
+		if result.err != nil {
+			fmt.Fprintf(errw, "usage: warning: skipping %v\n", result.err)
 			continue
 		}
-		mtime, mErr := newestModTime(dir)
-		if mErr != nil { // one unreadable session dir must not fail the whole report
-			fmt.Fprintf(errw, "usage: warning: skipping %v\n", mErr)
-			continue
+		if !result.mtime.IsZero() && !result.mtime.Before(cutoff) {
+			dirs = append(dirs, candidates[i])
 		}
-		if mtime.Before(cutoff) {
-			continue
-		}
-		dirs = append(dirs, dir)
 	}
 	slices.Sort(dirs)
 	return dirs, nil
+}
+
+type sessionModTime struct {
+	mtime time.Time
+	err   error
+}
+
+func sessionModTimes(dirs []string) []sessionModTime {
+	out := make([]sessionModTime, len(dirs))
+	const scanWorkers = 8
+	var wg sync.WaitGroup
+	for worker := range min(scanWorkers, len(dirs)) {
+		wg.Go(func() {
+			for i := worker; i < len(dirs); i += scanWorkers {
+				info, err := os.Stat(dirs[i])
+				if err == nil && info.IsDir() {
+					out[i].mtime, out[i].err = newestModTime(dirs[i])
+				}
+			}
+		})
+	}
+	wg.Wait()
+	return out
 }
 
 // dedupeFiles sorts and uniques the scanned-file list so one file is never summarized twice.

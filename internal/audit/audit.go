@@ -95,11 +95,9 @@ func LogSession(a Action, session, resource, detail string) {
 		event.Detail = textutil.CutBytes(event.Detail, len(event.Detail)/2)
 	}
 	file := logFile()
-	dir := filepath.Dir(file)
-	if os.MkdirAll(dir, 0o700) != nil {
+	if !prepareLogDir(filepath.Dir(file)) {
 		return
 	}
-	_ = os.Chmod(dir, 0o700) // MkdirAll's mode applies only on create
 	// A failed rotation leaves the live file growing; appending still beats dropping the event.
 	_ = rotate(file)
 	f, err := os.OpenFile(file, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
@@ -109,6 +107,18 @@ func LogSession(a Action, session, resource, detail string) {
 	defer func() { _ = f.Close() }()
 	_ = f.Chmod(0o600) // OpenFile's mode applies only on create
 	_, _ = f.Write(append(line, '\n'))
+}
+
+func prepareLogDir(dir string) bool {
+	info, err := os.Stat(dir)
+	if err == nil && info.IsDir() && info.Mode() == 0o700|os.ModeDir {
+		return true
+	}
+	if os.MkdirAll(dir, 0o700) != nil {
+		return false
+	}
+	_ = os.Chmod(dir, 0o700) // Existing directories must also have private permissions.
+	return true
 }
 
 // rotate moves a full log to .1 under a lock, only after the archive shift succeeded, so a failed shift keeps history.
