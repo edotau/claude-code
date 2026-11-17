@@ -532,7 +532,7 @@ func TestAgentsResultWarnsOnUnreadableEvents(t *testing.T) {
 // labelConfig is a config dir whose agents/ defines Plan, so the dispatch type gate allows it.
 func labelConfig(t *testing.T) {
 	t.Helper()
-	hosttest.WriteRel(t, cfgDir(t), "agents/Plan.md", "---\nname: Plan\n---\n")
+	hosttest.WriteRel(t, cfgDir(t), "agents/Plan.md", "---\nname: Plan\nmodel: inherit\n---\n")
 }
 
 func TestAgentsLabelPrintsPrefix(t *testing.T) {
@@ -549,7 +549,7 @@ func TestAgentsLabelEmptyMeansNoPrefix(t *testing.T) {
 	labelConfig(t)
 	t.Setenv("CLAUDE_CODE_SESSION_ID", "")
 	t.Chdir(t.TempDir())
-	for _, typ := range []string{"Explore", "Plan"} {
+	for typ, want := range map[string]string{"Explore": "haiku:|sonnet:|opus:", "Plan": ""} { // Explore: the hook pins a tier per brief
 		for _, format := range []string{"text", "json"} {
 			t.Run(typ+"/"+format, func(t *testing.T) {
 				code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsLabel([]string{typ, "--format", format}) })
@@ -557,8 +557,8 @@ func TestAgentsLabelEmptyMeansNoPrefix(t *testing.T) {
 					t.Fatalf("exit = %d, stderr = %q, want success without diagnostics", code, stderr)
 				}
 				if format == "text" {
-					if out != "" {
-						t.Fatalf("stdout = %q, want no prefix", out)
+					if out != strings.TrimSpace(want+"\n")+map[bool]string{true: "\n"}[want != ""] {
+						t.Fatalf("stdout = %q, want %q", out, want)
 					}
 					return
 				}
@@ -566,8 +566,8 @@ func TestAgentsLabelEmptyMeansNoPrefix(t *testing.T) {
 				if err := json.Unmarshal([]byte(out), &row); err != nil {
 					t.Fatal(err)
 				}
-				if got := string(row["label"]); got != `""` {
-					t.Fatalf("JSON label = %s, want an empty string", got)
+				if got := string(row["label"]); got != strconv.Quote(want) {
+					t.Fatalf("JSON label = %s, want %q", got, want)
 				}
 			})
 		}

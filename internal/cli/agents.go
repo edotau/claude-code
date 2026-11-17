@@ -362,7 +362,10 @@ func printLabel(label string) int {
 	if label == "" {
 		return 0
 	}
-	if _, err := fmt.Println(label + ": "); err != nil {
+	if !strings.HasSuffix(label, ":") { // a tier list already ends in its colons
+		label += ": "
+	}
+	if _, err := fmt.Println(label); err != nil {
 		return helptext.Fail("agents label: %v", err)
 	}
 	return 0

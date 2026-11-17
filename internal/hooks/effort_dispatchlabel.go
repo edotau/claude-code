@@ -90,6 +90,11 @@ type LabelRow struct {
 // Label labels in; an empty SessionModel is read from session sid's transcript in cwd's project.
 func Label(in LabelInput, cwd, sid string) LabelRow {
 	in.SessionModel = cmp.Or(in.SessionModel, sessionModelOf(cwd, sid))
+	if in.Brief == "" && in.Model == "" && !agentPinsModel(newDispatchRun(func() string { return in.SessionModel }), in.Type) {
+		if tiers := dispatchTierLabels(in.Type, in.SessionModel); tiers != "" { // the hook picks the tier from the brief
+			return LabelRow{Type: in.Type, Label: tiers, Source: "derived"}
+		}
+	}
 	label, pinned, blocked, note := dispatchLabelNote(context.Background(), in)
 	return LabelRow{Type: in.Type, Model: pinned, Label: label, Source: labelSource(in.Model, label, in.SessionModel), Blocked: blocked, Note: note}
 }
@@ -158,6 +163,15 @@ func dispatchLabelEntry(run *dispatchRun, t, model string) string {
 		}
 		return t + "=" + label + ":"
 	}
+	tiers := dispatchTierLabels(t, model)
+	if tiers == "" {
+		return ""
+	}
+	return t + "=" + tiers
+}
+
+// dispatchTierLabels is the accepted prefix per tier (`haiku:|sonnet:|opus:`); "" when the type is blocked.
+func dispatchTierLabels(t, model string) string {
 	var labels []string
 	for _, tier := range []string{models.Haiku, models.Sonnet, models.Opus} {
 		label, _, blocked := dispatchLabel(context.Background(), LabelInput{Type: t, Model: tier, SessionModel: model})
@@ -168,7 +182,7 @@ func dispatchLabelEntry(run *dispatchRun, t, model string) string {
 			labels = append(labels, label+":")
 		}
 	}
-	return t + "=" + strings.Join(labels, "|")
+	return strings.Join(labels, "|")
 }
 
 // sessionModel is the last turn's model, else the SessionStart payload's own (the transcript is empty then).
