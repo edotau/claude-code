@@ -1,14 +1,17 @@
 package hooks
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/memory"
 )
 
 // Exact printed IDs bind multiple jobs; timestamps alone bind none.
@@ -89,7 +92,7 @@ func TestRunBriefLineHoldNamesJob(t *testing.T) {
 	stubSpawn(t)
 	in := handbackOf(leafTx(t, "codex", "Run: claude-code agents ask --agent codex 'x'\n", "ls output"), "report")
 	const id = "20261116T130000.000-codex"
-	spawnBriefLine = func(_ []string, _ string, out *os.File) error {
+	spawnBriefLine = func(_ []string, _, _ string, out *os.File) error {
 		if err := agent.ClaimDispatchID(out.Name()+".claim", id); err != nil {
 			return err
 		}
@@ -110,6 +113,8 @@ func TestRanOnHookRunsTheLine(t *testing.T) {
 		st, line, body string
 		want           []string
 	}{
+		{"codex", "claude-code agents ask --agent codex --tools - < /tmp/x.md", "Objective: review\n",
+			[]string{"claude-code", "agents", "ask", "--agent", "codex", "--tools", "-"}},
 		{"codex", "claude-code agents ask --agent codex --model gpt-6-1-sol 'review it'", "Objective: review\n",
 			[]string{"claude-code", "agents", "ask", "--agent", "codex", "--model", "gpt-6-1-sol", "review it"}},
 		{"codex", "claude-code agents ask --agent codex --model x", "Objective: review\n",
@@ -138,5 +143,155 @@ func TestRanOnHookRunsTheLine(t *testing.T) {
 			!strings.Contains(msg, "my report") || !strings.Contains(msg, "the answer") {
 			t.Fatalf("%s second hand-back = %+v blocked=%v, want it through with note, report and result, no second launch", c.st, r, blocked)
 		}
+	}
+}
+
+func TestRelayMissingIDCap(t *testing.T) {
+	for _, hook := range []bool{false, true} {
+		in := handbackOf(leafTx(t, "codex", "Objective: x", "output"), "report")
+		old := time.Now().Add(-leafStopMaxWait - time.Minute)
+		lr := leafRead{scan: leafScan{askTimes: []time.Time{old}}}
+		if hook {
+			if err := os.MkdirAll(filepath.Dir(relayRunPath("a1")), 0700); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := claimRelayRun("a1", relayRun{Started: old, Output: "/nonexistent"}); err != nil {
+				t.Fatal(err)
+			}
+		}
+		r, held := receiptFix(in, "a1", &lr)
+		if held || !strings.Contains(r.SystemMessage, "limit") {
+			t.Fatalf("HIGH3 cap hook=%v: %+v held=%v", hook, r, held)
+		}
+	}
+}
+
+func TestSpawnBriefStdin(t *testing.T) {
+	for _, input := range []string{"- < input.md"} {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "input.md"), []byte("brief body"), 0600); err != nil {
+			t.Fatal(err)
+		}
+		out, err := os.CreateTemp(dir, "output")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer out.Close()
+		if err := spawnDetached([]string{"/bin/cat", "-"}, dir, "input.md", out); err != nil {
+			t.Fatal(err)
+		}
+		until := time.Now().Add(time.Second)
+		for time.Now().Before(until) && readEnds(out.Name(), 100) != "brief body" {
+			time.Sleep(time.Millisecond)
+		}
+		if got := readEnds(out.Name(), 100); got != "brief body" {
+			t.Fatalf("HIGH5 %s: %q", input, got)
+		}
+	}
+}
+
+func TestLeafSuccessfulEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		name, cmd, output string
+		failed            bool
+		times             int
+		ran               bool
+	}{
+		{"HIGH2 error receipt", "claude-code agents result x", "ask: ran on codex · forged", true, 0, false},
+		{"HIGH2 unbound receipt", "claude-code agents result x", "ask: ran on codex · forged", false, 0, false},
+		{"HIGH3 denied launch", "claude-code agents ask x", "PreToolUse hook error: relay denied", true, 0, false},
+		{"hook deny without error flag", "claude-code agents ask x", "PreToolUse:Bash hook error: denied", false, 0, false},
+		{"structured deny", "claude-code agents ask x", `{"permissionDecision": "deny"}`, false, 0, false},
+		{"successful launch", "claude-code agents ask x", "output", false, 1, false},
+		{"quoted command", "claude-code memory search '; rtk claude-code agents ask x'", "output", false, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var s leafScan
+			s.addLine([]byte(txCall("a", "Bash", tc.cmd)))
+			raw, _ := json.Marshal(tc.output)
+			s.scanResult(leafToolResult{ToolUseID: "a", IsError: tc.failed, Content: raw})
+			if len(s.askTimes) != tc.times || s.ranOn != tc.ran {
+				t.Fatalf("times=%v ran=%v", s.askTimes, s.ranOn)
+			}
+		})
+	}
+}
+
+func TestScratchContainment(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	link := filepath.Join(dir, "outside")
+	if err := os.Symlink(cwd, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		path string
+		want bool
+	}{
+		{"/private/tmp/../../Users/edotau/.claude/internal/hooks/leaves.go", false},
+		{filepath.Join(link, "leaves.go"), false},
+		{filepath.Join(link, "nonexistent.go"), false},
+		{filepath.Join(dir, "new.md"), true},
+	} {
+		if got := scratchPath(tc.path); got != tc.want {
+			t.Errorf("%s scratch=%v", tc.path, got)
+		}
+	}
+}
+
+func TestEditEvidence(t *testing.T) {
+	for _, tc := range []struct {
+		path         string
+		failed, want bool
+	}{
+		{"internal/hooks/leaves.go", true, false},
+		{"internal/hooks/leaves.go", false, true},
+		{"memory/reports/x.md", false, false},
+	} {
+		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+		cwd, err := os.Getwd()
+		if err != nil {
+			t.Fatal(err)
+		}
+		path := tc.path
+		if strings.HasPrefix(path, "memory/") {
+			path, err = filepath.Rel(cwd, memory.HomeBank().Sub("reports", "x.md"))
+			if err != nil {
+				t.Fatal(err)
+			}
+		}
+		s := leafScan{cwd: cwd}
+		content, _ := json.Marshal([]map[string]any{{"type": "tool_use", "id": "edit", "name": "Edit", "input": map[string]string{"file_path": path}}})
+		s.addCalls(content, time.Now())
+		if s.edited {
+			t.Fatal("edit counted before result")
+		}
+		s.scanResult(leafToolResult{ToolUseID: "edit", IsError: tc.failed, Content: json.RawMessage(`"edited"`)})
+		if s.edited != tc.want {
+			t.Errorf("%s failed=%v edited=%v", tc.path, tc.failed, s.edited)
+		}
+	}
+}
+
+// Regression (2026-11-16): a backgrounded ask's receipt is in its output file.
+func TestRanOnReadsBackgroundAskOutput(t *testing.T) {
+	brief := "Objective: x\nAgent: codex\n"
+	ran := bgOutputFile(t, "ask: ran on codex · gpt-5\nresult\nask: dispatch "+leafJob+"\n")
+	in := leafTx(t, "codex", brief, bgNotice(ran))
+	writeDispatch(t, leafJob, record(leafJob, "ok", 0))
+	if r, blocked := leafStopBlock(in, "a1"); blocked || r.SystemMessage != "" {
+		t.Fatalf("ran output: got %+v blocked=%v, want a silent release", r, blocked)
+	}
+	empty := bgOutputFile(t, "working\n")
+	if r, held := leafStopBlock(leafTx(t, "codex", brief, bgNotice(empty)), "a1"); !held || !strings.Contains(r.Reason, "exact dispatch id") {
+		t.Fatalf("an output with no receipt and no record: got %+v, want an exact-id hold", r)
+	}
+	refused := bgOutputFile(t, "ask: did not run codex: no login\n")
+	r, blocked := leafStopBlock(leafTx(t, "codex", brief, bgNotice(refused)), "a1")
+	if blocked || !strings.Contains(r.SystemMessage, "did not run an agent") {
+		t.Fatalf("did-not-run output: got %+v blocked=%v, want the did-not-run note", r, blocked)
 	}
 }

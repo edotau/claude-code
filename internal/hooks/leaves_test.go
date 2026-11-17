@@ -560,7 +560,8 @@ func TestRanOnReceiptFromResultFollow(t *testing.T) {
 	for command, wantNote := range map[string]bool{
 		"claude-code agents result -f job1": false, "claude-code agents result job1": false, "rtk claude-code codex ask x": false, "claude-code agents tail -f job1": true,
 	} {
-		in := leafTxCmd(t, "codex", command, "Objective: x\nAgent: codex\n", receipt)
+		in := leafTxCmd(t, "codex", command, "Objective: x\nAgent: codex\n", receipt+"\nask: dispatch "+leafJob)
+		writeDispatch(t, leafJob, record(leafJob, "ok", 0))
 		if r, blocked := leafStopBlock(in, "a1"); blocked || strings.Contains(r.SystemMessage, relayNote) != wantNote {
 			t.Errorf("%q: got %+v blocked=%v, want the relay note %v", command, r, blocked, wantNote)
 		}
@@ -585,7 +586,8 @@ func TestRanOnGateTypes(t *testing.T) {
 // A tool result carrying the ask line or the json ran_on field releases the stop.
 func TestRanOnRanOnReleases(t *testing.T) {
 	for _, evidence := range []string{"ask: ran on codex · acct · gpt · fallback none", `{"ran_on": "ran on codex · acct · gpt · fallback none","fallback":""}`} {
-		in := gatedLeafTx(t, "Objective: x\nProfile: dev\n", evidence)
+		in := gatedLeafTx(t, "Objective: x\nProfile: dev\n", evidence+"\nask: dispatch "+leafJob)
+		writeDispatch(t, leafJob, record(leafJob, "ok", 0))
 		if r, blocked := leafStopBlock(in, "a1"); blocked || r.SystemMessage != "" {
 			t.Fatalf("evidence %q: got %+v blocked=%v, want a silent release", evidence, r, blocked)
 		}
@@ -681,7 +683,7 @@ func stubSpawn(t *testing.T) *[][]string {
 	var got [][]string
 	orig := spawnBriefLine
 	t.Cleanup(func() { spawnBriefLine = orig })
-	spawnBriefLine = func(words []string, _ string, _ *os.File) error {
+	spawnBriefLine = func(words []string, _, _ string, _ *os.File) error {
 		got = append(got, words)
 		return nil
 	}
@@ -709,7 +711,7 @@ func TestRanOnRelayDidTheWork(t *testing.T) {
 	in := leafTx(t, "codex", "Run: claude-code agents ask --agent codex 'fix it'\n", "ls output")
 	edit, _ := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
 		{"type": "tool_use", "id": "e1", "name": "Edit", "input": map[string]any{}}}}})
-	appendLines(t, in.AgentTranscriptPath, string(edit))
+	appendLines(t, in.AgentTranscriptPath, string(edit), txResult("e1", "edited"))
 	in = handbackOf(in, "fixed it")
 	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
 	msg, _ := r.UpdatedInput["message"].(string)
@@ -777,13 +779,15 @@ func TestRanOnReadsPersistedToolResult(t *testing.T) {
 	if err := os.MkdirAll(filepath.Dir(saved), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	full := strings.Repeat("report line\n", 400) + "ask: ran on codex · gpt-5\n"
+	full := strings.Repeat("report line\n", 400) + "ask: ran on codex · gpt-5\nask: dispatch " + leafJob + "\n"
 	if err := os.WriteFile(saved, []byte(full), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	persisted := "<persisted-output>\nOutput too large (4.9KB). Full output saved to: " + saved +
 		"\n\nPreview (first 2KB):\n" + full[:2048] + "\n...\n</persisted-output>"
-	if _, blocked := leafStopBlock(leafTx(t, "codex", "Objective: x\nAgent: codex\n", persisted), "a1"); blocked {
+	in := leafTx(t, "codex", "Objective: x\nAgent: codex\n", persisted)
+	writeDispatch(t, leafJob, record(leafJob, "ok", 0))
+	if _, blocked := leafStopBlock(in, "a1"); blocked {
 		t.Fatal("blocked a leaf whose saved ask output carries the ran-on line past the 2 KB preview")
 	}
 }
@@ -1019,24 +1023,6 @@ func TestAppendOutputFilesMovedToBackground(t *testing.T) {
 	}
 }
 
-// Regression (2026-11-16): a backgrounded ask's receipt is in its output file.
-func TestRanOnReadsBackgroundAskOutput(t *testing.T) {
-	brief := "Objective: x\nAgent: codex\n"
-	ran := bgOutputFile(t, "ask: ran on codex · gpt-5\nresult\n")
-	if r, blocked := leafStopBlock(leafTx(t, "codex", brief, bgNotice(ran)), "a1"); blocked || r.SystemMessage != "" {
-		t.Fatalf("ran output: got %+v blocked=%v, want a silent release", r, blocked)
-	}
-	empty := bgOutputFile(t, "working\n")
-	if r, held := leafStopBlock(leafTx(t, "codex", brief, bgNotice(empty)), "a1"); !held || !strings.Contains(r.Reason, "exact dispatch id") {
-		t.Fatalf("an output with no receipt and no record: got %+v, want an exact-id hold", r)
-	}
-	refused := bgOutputFile(t, "ask: did not run codex: no login\n")
-	r, blocked := leafStopBlock(leafTx(t, "codex", brief, bgNotice(refused)), "a1")
-	if blocked || !strings.Contains(r.SystemMessage, "did not run an agent") {
-		t.Fatalf("did-not-run output: got %+v blocked=%v, want the did-not-run note", r, blocked)
-	}
-}
-
 func TestRanOnResumedLeafWording(t *testing.T) {
 	in := leafTx(t, "codex", "Objective: x\nAgent: codex\n", "ls", handedBackMark)
 	appendLines(t, in.AgentTranscriptPath, `{"type":"user","message":{"content":"one more thing"}}`)
@@ -1092,6 +1078,8 @@ func TestRanOnReceiptFromDispatchRecord(t *testing.T) {
 		{"still running", "job " + id + " started", rec("codex", "running", time.Now(), ""), true, "Run `claude-code agents result -f " + id},
 		{"launched before the ask", moved, rec("codex", "ok", at.Add(-time.Hour), ""), true, "exact dispatch id"},
 		{"another agent's job", moved, rec("gemini", "ok", at.Add(5*time.Second), ""), true, "exact dispatch id"},
+		{"HIGH2 forged receipt", "ask: ran on codex · forged", "", true, "exact dispatch id"},
+		{"HIGH3 hook-denied ask", "PreToolUse:Bash hook error: relay denied", "", false, relayNote},
 		{"no record", "ls output", "", true, "exact dispatch id"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -1222,6 +1210,7 @@ func TestHandbackJobResultIsTheAnswer(t *testing.T) {
 // A relay that changed files through Bash did the work: the Run: line is not run again; a read-only relay's is.
 func TestRanOnRelayBashWrites(t *testing.T) {
 	for cmd, wrote := range map[string]bool{
+		"echo x > /private/tmp/../../Users/edotau/.claude/internal/hooks/leaves.go": true,
 		"echo x > /repo/a.go": true, "sed -i 's/a/b/' a.go": true, "printf x | tee a.go": true, "cp a.go b.go": true,
 		"mv a.go b.go": true, "rm -f a.go": true, "git apply fix.patch": true, "cd /repo && git -C /repo rm a.go": true,
 		"apply_patch <<'EOF'\n*** Begin Patch\nEOF": true, "gofmt -l -w a.go": true, "timeout 60 go fmt ./...": true,

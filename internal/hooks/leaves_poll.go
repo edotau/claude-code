@@ -3,6 +3,7 @@ package hooks
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"path/filepath"
 	"regexp"
@@ -31,15 +32,12 @@ func pollJob(cmd string) (job string, follow, ok bool) {
 	if !strings.Contains(cmd, "result") {
 		return "", false, false
 	}
-	for _, seg := range shell.Segments(cmd) {
-		toks, _ := shell.Unwrap(shell.Tokens(seg), "/")
-		if len(toks) > 0 && toks[0] == "rtk" { // the rtk rewrite hook's prefix; Unwrap is the safety scanner's too
-			toks, _ = shell.Unwrap(toks[1:], "/")
-		}
-		if len(toks) < 4 || filepath.Base(toks[0]) != "claude-code" || toks[1] != "agents" || toks[2] != "result" {
+	for _, toks := range relayCommands(cmd) {
+		toks = agentCommand(toks)
+		if len(toks) < 3 || toks[0] != "agents" || toks[1] != "result" {
 			continue
 		}
-		for _, a := range toks[3:] {
+		for _, a := range toks[2:] {
 			switch {
 			case a == "-f" || a == "--follow":
 				follow = true
@@ -102,14 +100,12 @@ func relayBash(in *core.Input) (core.Result, bool) {
 		return core.Result{}, false
 	}
 	for _, seg := range shell.Segments(cmd) {
-		toks, _ := shell.Unwrap(shell.Tokens(seg), "/")
-		if len(toks) > 0 && toks[0] == "rtk" {
-			toks, _ = shell.Unwrap(toks[1:], "/")
-		}
-		if len(toks) == 0 || filepath.Base(toks[0]) != "claude-code" {
+		toks := relayWords(seg)
+		_, _, err := relayInput(seg)
+		if err != nil || len(toks) == 0 || filepath.Base(toks[0]) != "claude-code" {
 			return core.Result{Decision: core.Block, Reason: "relay: run only `claude-code` commands (your brief's " +
 				"`Run:` line, then `claude-code agents result -f <id>`); the job reads, edits and tests. " +
-				"Pass --workdir instead of cd."}, true
+				"Pass --workdir instead of cd; only a literal stdin file redirect (`< file`) is allowed."}, true
 		}
 	}
 	return core.Result{}, false
@@ -178,4 +174,133 @@ func AfterTool(in *core.Input) core.Result {
 		return core.WithStderr(pollNudge(in), markCollected(in))
 	}
 	return Release(in)
+}
+
+// relayWords shares wrapper handling without changing the safety scanner's Unwrap behavior.
+func relayWords(seg string) []string {
+	words := shell.Tokens(seg)
+	for {
+		words, _ = shell.Unwrap(words, "/")
+		if len(words) == 0 || filepath.Base(words[0]) != "rtk" {
+			return words
+		}
+		words = words[1:]
+	}
+}
+
+func relayCommands(cmd string) [][]string {
+	var out [][]string
+	for _, seg := range shell.Segments(cmd) {
+		out = append(out, relayWords(seg))
+	}
+	return out
+}
+
+func agentCommand(words []string) []string {
+	if len(words) < 3 || filepath.Base(words[0]) != "claude-code" {
+		return nil
+	}
+	words = words[1:]
+	if len(words) > 2 && words[0] == "--remote" {
+		words = words[2:]
+	}
+	return words
+}
+
+func askVerb(words []string) string {
+	words = agentCommand(words)
+	if len(words) < 2 {
+		return ""
+	}
+	if words[0] == "agents" && slices.Contains([]string{"ask", "dispatch", "result"}, words[1]) {
+		return words[1]
+	}
+	if externalTypes[words[0]] && words[1] == "ask" {
+		return "ask"
+	}
+	return ""
+}
+
+// relayInput permits only literal argv and one stdin file redirect; no expansions or shell execution.
+func relayInput(seg string) (words []string, input string, err error) {
+	if !relayQuotesClosed(seg) {
+		return nil, "", errors.New("unclosed shell quote or escape")
+	}
+	at := shell.QuoteAt(seg)
+	redirect := -1
+	for i, c := range []byte(seg) {
+		if at[i] == '\'' {
+			continue
+		}
+		if c == '`' || c == '$' || at[i] == 0 && strings.ContainsRune(";|&(){}>*?[]~#", rune(c)) {
+			return nil, "", errors.New("unsupported shell syntax")
+		}
+		if c == '<' && at[i] == 0 {
+			if redirect >= 0 || i > 0 && !strings.ContainsRune(" \t", rune(seg[i-1])) {
+				return nil, "", errors.New("unsupported redirect")
+			}
+			redirect = i
+		}
+	}
+	if redirect < 0 {
+		return shell.Tokens(seg), "", nil
+	}
+	files := shell.Tokens(seg[redirect+1:])
+	if len(files) != 1 || files[0] == "" {
+		return nil, "", errors.New("stdin redirect needs one literal file")
+	}
+	return shell.Tokens(seg[:redirect]), files[0], nil
+}
+
+// askCmdRe retains the opening-line match API while checking command position with the shared parser.
+func askCmdRe() askMatcher { return askMatcher{} }
+
+type askMatcher struct{}
+
+func (askMatcher) MatchString(cmd string) bool {
+	for _, words := range relayCommands(cmd) {
+		if askVerb(words) != "" {
+			return true
+		}
+	}
+	return false
+}
+
+func (askMatcher) FindStringSubmatchIndex(cmd string) []int {
+	offset := 0
+	for _, seg := range shell.Segments(cmd) {
+		words := relayWords(seg)
+		if askVerb(words) != "" {
+			all := shell.Tokens(seg)
+			skip := len(all) - len(words)
+			spans := shellWordRe().FindAllStringIndex(seg, -1)
+			if skip >= 0 && skip < len(spans) {
+				return []int{offset, offset + len(seg), offset + spans[skip][0], offset + len(seg)}
+			}
+		}
+		offset += len(seg) + 1
+	}
+	return nil
+}
+
+func relayQuotesClosed(seg string) bool {
+	var quote byte
+	for i := 0; i < len(seg); i++ {
+		c := seg[i]
+		if c == '\\' && quote != '\'' {
+			i++
+			if i == len(seg) {
+				return false
+			}
+			continue
+		}
+		if c == quote {
+			quote = 0
+			continue
+		}
+		if quote == 0 && (c == '\'' || c == '"') {
+			quote = c
+		}
+	}
+	return quote == 0
 }

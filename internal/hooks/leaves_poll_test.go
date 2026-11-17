@@ -106,19 +106,41 @@ func TestPollGateOnePoller(t *testing.T) {
 		lines   []string
 		holders []int
 		block   bool
+		command string
 	}{
-		{"in flight", []string{txCall("t1", "Bash", poll)}, nil, true},
-		{"in flight, rtk-prefixed", []string{txCall("t1", "Bash", "rtk "+poll)}, nil, true},
-		{"backgrounded, writer alive", []string{txCall("t1", "Bash", poll), txResult("t1", bgNotice(out))}, []int{4242}, true},
-		{"backgrounded, writer gone", []string{txCall("t1", "Bash", poll), txResult("t1", bgNotice(out))}, nil, false},
-		{"returned", []string{txCall("t1", "Bash", poll), txResult("t1", "▸ heartbeat: x")}, nil, false},
+		{"HIGH1 output redirect", nil, nil, true, "claude-code agents ask x > /some/file.go"},
+		{"in flight", []string{txCall("t1", "Bash", poll)}, nil, true, ""},
+		{"HIGH4 nested wrappers", []string{txCall("t1", "Bash", "rtk env -i timeout -k 2 30 rtk "+poll)}, nil, true, ""},
+		{"in flight, rtk-prefixed", []string{txCall("t1", "Bash", "rtk "+poll)}, nil, true, ""},
+		{"backgrounded, writer alive", []string{txCall("t1", "Bash", poll), txResult("t1", bgNotice(out))}, []int{4242}, true, ""},
+		{"backgrounded, writer gone", []string{txCall("t1", "Bash", poll), txResult("t1", bgNotice(out))}, nil, false, ""},
+		{"returned", []string{txCall("t1", "Bash", poll), txResult("t1", "▸ heartbeat: x")}, nil, false, ""},
 	} {
 		sess := relayTx(t, c.lines...)
 		writeDispatch(t, pollJobID, record(pollJobID, "running", os.Getpid()))
 		holders = c.holders
-		r := Handback(bashHook("PreToolUse", sess, "a1", "t2", poll, ""))
-		if got := r.Decision == core.Block && strings.HasPrefix(r.Reason, "one poller only"); got != c.block {
+		command := poll
+		if c.command != "" {
+			command = c.command
+		}
+		r := Handback(bashHook("PreToolUse", sess, "a1", "t2", command, ""))
+		if got := r.Decision == core.Block && (strings.HasPrefix(r.Reason, "one poller only") || c.command != ""); got != c.block {
 			t.Errorf("%s: %+v, want block=%v", c.name, r, c.block)
+		}
+	}
+}
+
+func TestRelaySyntax(t *testing.T) {
+	for _, cmd := range []string{
+		"claude-code agents ask x > /some/file.go",
+		"claude-code agents ask $(printf x)",
+		"claude-code agents ask `printf x`",
+		"claude-code agents ask <(printf x)",
+		"claude-code agents ask x 2>&1",
+	} {
+		sess := relayTx(t)
+		if r := Handback(bashHook("PreToolUse", sess, "a1", "t2", cmd, "")); r.Decision != core.Block {
+			t.Errorf("HIGH1 %q allowed: %+v", cmd, r)
 		}
 	}
 }

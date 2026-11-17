@@ -58,13 +58,15 @@ func checkReceiptCommand(t *testing.T, command, verb string, local bool) {
 // checkReceiptEarned expects a run of command to leave a receipt and the label rule to hold for brief.
 func checkReceiptEarned(t *testing.T, command, brief string) {
 	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	writeDispatch(t, leafJob, record(leafJob, "ok", 0))
 	var scan leafScan
 	content, err := json.Marshal([]map[string]any{{"type": "tool_use", "id": "call", "name": "Bash", "input": map[string]string{"command": command}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	scan.addCalls(content, time.Time{})
-	scan.scanResult(leafToolResult{ToolUseID: "call", Content: json.RawMessage(`"ask: ran on codex · pinned"`)})
+	scan.scanResult(leafToolResult{ToolUseID: "call", Content: json.RawMessage(`"ask: ran on codex · pinned\nask: dispatch ` + leafJob + `"`)})
 	if !scan.ranOn {
 		t.Fatalf("no receipt for %q", command)
 	}
