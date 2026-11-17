@@ -86,7 +86,11 @@ func NativeEffort(agent string, e Effort) (native string, clamped bool) {
 	if !Known(agent) {
 		return "", false
 	}
-	natives := NativeEfforts(agent)
+	return ClampEffort(NativeEfforts(agent), e)
+}
+
+// ClampEffort spells e against supported values, weakest first; nil passes known levels through.
+func ClampEffort(natives []string, e Effort) (native string, clamped bool) {
 	if slices.Contains(natives, string(e)) {
 		return string(e), false
 	}

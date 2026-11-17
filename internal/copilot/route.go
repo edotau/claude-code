@@ -3,6 +3,7 @@ package copilot
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -249,8 +251,12 @@ func (e copilotEngine) RenderSettings(ctx context.Context, s agent.Settings, env
 	if err != nil || s.Headless {
 		return env, argv, emulated, cleanup, err
 	}
-	if s.Effort != "" {
-		argv = append(argv, "--reasoning-effort", s.Effort)
+	effort, note := modelEffort(s)
+	if note != "" {
+		emulated = append(emulated, note)
+	}
+	if effort != "" {
+		argv = append(argv, "--reasoning-effort", effort)
 	}
 	if c := s.Record.Context; c != "" {
 		argv = append(argv, "--context", c)
@@ -488,4 +494,48 @@ func copilotModelIDs(ctx context.Context) ([]string, error) {
 		}
 	}
 	return ids, nil
+}
+
+func modelEffort(s agent.Settings) (string, string) {
+	if s.Effort == "" {
+		return "", ""
+	}
+	for _, m := range effortModels() {
+		if m.ID != models.Strip1M(s.Target.Model) || m.Efforts == nil {
+			continue
+		}
+		supported := make([]string, 0, len(m.Efforts))
+		for _, level := range agentid.EffortNames() {
+			if slices.Contains(m.Efforts, level) {
+				supported = append(supported, level)
+			}
+		}
+		native, clamped := agentid.ClampEffort(supported, agentid.Effort(s.Effort))
+		if len(m.Efforts) == 0 {
+			return native, "copilot: " + m.ID + " takes no reasoning effort; not sent"
+		}
+		if clamped {
+			return native, "effort " + s.Effort + "→" + native
+		}
+		if native == "" {
+			return "", "copilot: " + m.ID + " does not support effort " + s.Effort + "; not sent"
+		}
+		return native, ""
+	}
+	return s.Effort, ""
+}
+
+var effortModels = cachedEffortModels
+
+// Model capabilities are account-independent; this read must not discover or resolve launch credentials.
+func cachedEffortModels() []SDKModel {
+	raw, found, err := vault.ReadSecret(catalogRecord)
+	if err != nil || !found {
+		return nil
+	}
+	var snap catalogSnapshot
+	if json.Unmarshal([]byte(raw), &snap) != nil || snap.Schema != 1 {
+		return nil
+	}
+	return snap.Models
 }

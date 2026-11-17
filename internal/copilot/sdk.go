@@ -44,6 +44,7 @@ type sdkOptions struct {
 	// Copilot-catalog id; leave empty on BYOK (COPILOT_MODEL carries it)
 	Model           string
 	ReasoningEffort string
+	EffortNotes     []string
 	// ContextTier: "default" or "long_context"; empty leaves the model's own default
 	Context          string
 	WorkingDirectory string
