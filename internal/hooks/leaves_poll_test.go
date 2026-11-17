@@ -143,4 +143,8 @@ func TestRelaySyntax(t *testing.T) {
 			t.Errorf("HIGH1 %q allowed: %+v", cmd, r)
 		}
 	}
+	r := Handback(bashHook("PreToolUse", relayTx(t), "a1", "t2", "claude-code agents ask $(printf x)", ""))
+	if want := "refused `claude-code agents ask $(printf x)`: contains `$` or a backtick"; !strings.Contains(r.Reason, want) {
+		t.Errorf("reason %q, want it to contain %q", r.Reason, want)
+	}
 }
