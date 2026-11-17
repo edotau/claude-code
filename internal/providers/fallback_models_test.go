@@ -61,6 +61,26 @@ func TestDemote(t *testing.T) {
 	}
 }
 
+func TestDemoteMarkedSlot(t *testing.T) {
+	for _, c := range []struct {
+		name, model, sonnet, want string
+	}{
+		{"marked destination", "databricks-claude-opus-5-5", "databricks-claude-sonnet-5-5[1m]", "databricks-claude-sonnet-5-5"},
+		{"equivalent destination", "claude-opus-5-5[1m]", "databricks-claude-opus-5-5", "databricks-claude-haiku-5-5"},
+		{"marked equivalent destination", "claude-opus-5-5", "databricks-claude-opus-5-5[1m]", "databricks-claude-haiku-5-5"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			p := &Provider{Models: map[string]string{
+				"opus": "databricks-claude-opus-5-5", "sonnet": c.sonnet, "haiku": "databricks-claude-haiku-5-5",
+			}}
+			got, ok := Demote(p, c.model)
+			if !ok || got.Provider != p || got.Model != c.want || got.OneM {
+				t.Fatalf("Demote(%q) = %+v, %v; want model=%q, OneM=false", c.model, got, ok, c.want)
+			}
+		})
+	}
+}
+
 // IsQuota is any account-exhaustion or model-denial marker; ModelDenied is a model marker no hard marker vetoes.
 func TestQuotaClassification(t *testing.T) {
 	for _, c := range []struct {
