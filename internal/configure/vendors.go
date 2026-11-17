@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/models"
@@ -191,8 +192,8 @@ const setupVerifyTimeout = 2 * time.Minute
 
 // QuotaFailure reports a verify error that means exhausted credits or a rate limit, not bad credentials.
 func QuotaFailure(err error) bool {
-	s := err.Error()
-	return strings.Contains(s, "quota") || strings.Contains(s, "rate_limit")
+	k := retry.Classify("", err, false).Kind
+	return k == retry.KindQuota || k == retry.KindRateLimit
 }
 
 // VerifyAgent asks the agent for "pong" through `claude-code agents ask`, the same request preflight sends.

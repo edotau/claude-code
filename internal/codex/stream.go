@@ -86,7 +86,7 @@ func (s *codexStreamState) apply(ev codexEvent) error {
 		s.log.Emit("result", fmt.Sprintf("turn finished, tokens in=%d out=%d", u.InputTokens, u.OutputTokens))
 	case "error", "turn.failed":
 		message := cmp.Or(ev.Message, ev.Error.Message, "codex turn failed")
-		if fatalStreamError(ev) {
+		if ev.Type != "error" || !ev.WillRetry {
 			s.failure = message
 			return wire.EmitError(s.log, s.sink, message)
 		}
@@ -95,10 +95,6 @@ func (s *codexStreamState) apply(ev codexEvent) error {
 		return s.sink.Emit(wire.Event{Type: wire.EventProgress, Text: message, Status: "warning"})
 	}
 	return nil
-}
-
-func fatalStreamError(ev codexEvent) bool {
-	return ev.Type != "error" || !ev.WillRetry
 }
 
 func (s *codexStreamState) completedItem(ev codexEvent) error {

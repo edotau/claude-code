@@ -372,7 +372,7 @@ func TestAgentSetUpOrderAndStops(t *testing.T) {
 
 func TestAgentSetUpCopilotCreditsReadAsNotLoginFailure(t *testing.T) {
 	d, out := setupDialog(t)
-	installSetupFake(t, &setupFake{verifyErr: errors.New("status quota")})
+	installSetupFake(t, &setupFake{verifyErr: errors.New("402 payment required")})
 	agentSetUp(d, "copilot")
 	for _, w := range []string{"copilot: set up stopped at verify: signed in, but copilot has no credits left", "not a login failure"} {
 		if !strings.Contains(out.String(), w) {
@@ -380,7 +380,7 @@ func TestAgentSetUpCopilotCreditsReadAsNotLoginFailure(t *testing.T) {
 		}
 	}
 	d2, out2 := setupDialog(t)
-	installSetupFake(t, &setupFake{verifyErr: errors.New("status quota")})
+	installSetupFake(t, &setupFake{verifyErr: errors.New("402 payment required")})
 	agentSetUp(d2, "codex")
 	if strings.Contains(out2.String(), "credits") {
 		t.Errorf("only copilot gets the credits message: %q", out2.String())
