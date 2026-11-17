@@ -10,7 +10,6 @@ import (
 	"os"
 	"strconv"
 	"strings"
-	"sync"
 
 	"github.com/edotau/claude-code/internal/par"
 	"github.com/edotau/claude-code/internal/proc"
@@ -35,14 +34,13 @@ func panicLine(err error) string {
 	return err.Error()
 }
 
-// fanOut runs fn(i) for every i concurrently and waits; a panicking fn is handed to fail(i, err) so its row still renders.
+// fanOut keeps a panicking builder from hiding its row or its siblings.
 func fanOut(n int, fn func(i int), fail func(i int, err error)) {
-	var wg sync.WaitGroup
-	wg.Add(n)
-	for i := range n {
-		par.Go(func() { fn(i); wg.Done() }, func(err error) { fail(i, err); wg.Done() })
+	for i, err := range par.All(n, func(i int) error { fn(i); return nil }) {
+		if err != nil {
+			fail(i, err)
+		}
 	}
-	wg.Wait()
 }
 
 // block is a titled group of rows.

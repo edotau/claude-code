@@ -1,7 +1,9 @@
 package waves
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/par"
 )
 
 func scopeWave(agents ...string) []Spec {
@@ -170,5 +174,40 @@ func TestLaunchNamesAnUnscopedLeafThatWroteAnotherPackagesFile(t *testing.T) {
 	want := CheckViolation{Package: "1.1", File: foreign, Owners: []string{"1.2"}}
 	if len(envelopes[0].Foreign) != 1 || !reflect.DeepEqual(envelopes[0].Foreign[0], want) || len(envelopes[1].Foreign) != 0 {
 		t.Fatalf("foreign writes: %+v / %+v, want %+v from 1.1 only", envelopes[0].Foreign, envelopes[1].Foreign, want)
+	}
+}
+
+func TestLaunchAllContainsPanic(t *testing.T) {
+	original, gap := scopeBatchRun, aloneGap
+	t.Cleanup(func() { scopeBatchRun, aloneGap = original, gap })
+	aloneGap = 0
+	for _, agents := range [][]string{{"opencode", "claude", "opencode"}, {"codex", "codex", "codex"}} {
+		wave := scopeWave(agents...)
+		scopeBatchRun = func(_ context.Context, _ string, part []Spec, _ []string, _ LaunchOptions) ([]Envelope, error) {
+			if part[0].ID == wave[1].ID {
+				panic("batch exploded")
+			}
+			return []Envelope{{TaskID: part[0].ID, Status: "ok", DispatchID: "job"}}, nil
+		}
+		results := launchAll(t.Context(), "must-not-run", wave, LaunchOptions{Wave: wave})
+		if len(results) != len(wave) {
+			t.Fatalf("results: %+v", results)
+		}
+		var pe *par.PanicError
+		if !errors.As(results[1].err, &pe) || pe.Value != "batch exploded" || len(pe.Stack) == 0 {
+			t.Fatalf("panic slot: %+v", results[1])
+		}
+		results[1].err = nil
+		for i, res := range results {
+			var want []Envelope
+			if i != 1 {
+				want = []Envelope{{TaskID: wave[i].ID, Status: "ok", DispatchID: "job"}}
+			}
+			expected := batchResult{batch: res.batch, envelopes: want}
+			expected.batch.idx = []int{i}
+			if !reflect.DeepEqual(res, expected) {
+				t.Fatalf("slot %d: %+v, want envelopes %+v", i, res, want)
+			}
+		}
 	}
 }
