@@ -3,8 +3,11 @@ package agent
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // waitRecord saves a dispatch record with the given id and status, owned by this live process.
@@ -75,5 +78,17 @@ func TestWaitExitSeparatesTimeoutFromFailure(t *testing.T) {
 		if got := WaitExit(c.rows); got != c.want {
 			t.Errorf("WaitExit(%v) = %d, want %d", c.rows, got, c.want)
 		}
+	}
+}
+
+// A nested row ends with its parent and stays within 80 columns; a top-level row is unchanged.
+func TestWaitLineShowsParent(t *testing.T) {
+	id := "20261116T110000.000-opencode"
+	nested := WaitResult{ID: id, State: WaitError, Elapsed: "1h2m3.456s", Parent: "20261116T105900.000-claude-extra"}
+	if got := nested.Line(); textutil.DisplayWidth(got) > 80 || !strings.HasPrefix(got, id+" error 1h2m3.456s <- 2026") {
+		t.Errorf("nested row = %q (%d cols)", got, textutil.DisplayWidth(got))
+	}
+	if got := (WaitResult{ID: "a", State: WaitDone, Elapsed: "1s"}).Line(); got != "a done 1s" {
+		t.Errorf("top-level row = %q", got)
 	}
 }

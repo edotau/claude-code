@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Wait states: done and error from the record, lost a dead running record, timeout unsettled.
@@ -19,12 +21,23 @@ type WaitResult struct {
 	ID      string `json:"id"`
 	State   string `json:"state"`
 	Elapsed string `json:"elapsed"`
+	Parent  string `json:"-"` // text rows only; the JSON shape is unchanged
 
 	Observed *Observed `json:"observed,omitempty"`
 }
 
-// Line is the `agents wait` row: id, state, elapsed.
-func (w WaitResult) Line() string { return fmt.Sprintf("%s %s %s", w.ID, w.State, w.Elapsed) }
+// waitRowWidth is the column budget of one `agents wait` row.
+const waitRowWidth = 80
+
+// Line is the `agents wait` row: id, state, elapsed, then `<- parent` for a nested dispatch.
+func (w WaitResult) Line() string {
+	row := fmt.Sprintf("%s %s %s", w.ID, w.State, w.Elapsed)
+	if w.Parent == "" {
+		return row
+	}
+	const arrow = " <- "
+	return row + arrow + textutil.TruncateCells(w.Parent, max(waitRowWidth-textutil.DisplayWidth(row+arrow), 1), "…")
+}
 
 // Wait blocks until every dispatch in ids settles or timeout passes; a bad id fails first, ctx cancel errors.
 func Wait(ctx context.Context, ids []string, timeout, poll time.Duration) ([]WaitResult, error) {
@@ -48,7 +61,7 @@ func Wait(ctx context.Context, ids []string, timeout, poll time.Duration) ([]Wai
 		case <-deadline:
 			for i := range recs {
 				if out[i].State == "" {
-					out[i] = WaitResult{ID: recs[i].ID, State: WaitTimeout, Elapsed: waitElapsed(recs[i], WaitTimeout), Observed: ObservedOf(recs[i])}
+					out[i] = WaitResult{ID: recs[i].ID, Parent: recs[i].Parent, State: WaitTimeout, Elapsed: waitElapsed(recs[i], WaitTimeout), Observed: ObservedOf(recs[i])}
 				}
 			}
 			return out, nil
@@ -68,7 +81,7 @@ func waitPass(recs []Record, out []WaitResult) bool {
 			recs[i] = rec // an unreadable re-read keeps the last good record
 		}
 		if state := waitState(recs[i]); state != "" {
-			out[i] = WaitResult{ID: recs[i].ID, State: state, Elapsed: waitElapsed(recs[i], state), Observed: ObservedOf(recs[i])}
+			out[i] = WaitResult{ID: recs[i].ID, Parent: recs[i].Parent, State: state, Elapsed: waitElapsed(recs[i], state), Observed: ObservedOf(recs[i])}
 		} else {
 			pending = true
 		}

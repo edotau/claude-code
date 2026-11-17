@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
@@ -202,5 +203,20 @@ func TestWatchLinesFit80Columns(t *testing.T) {
 	}
 	if joined := strings.Join(lines, "\n"); !strings.Contains(joined, "--session ses_0123456789abcdef") {
 		t.Fatalf("next command missing:\n%s", joined)
+	}
+}
+
+// A nested job's JSON carries parent and depth; a top-level job's JSON has neither key.
+func TestStaleJobJSONCarriesLineage(t *testing.T) {
+	nested := watchRec(t, "running", "x", time.Hour, time.Hour)
+	nested.Parent, nested.Depth = "20261116T110000.000-claude", 2
+	top := watchRec(t, "running", "x", time.Hour, time.Hour)
+	nb, _ := json.Marshal(staleFrom(nested, watchT0, WatchDead))
+	tb, _ := json.Marshal(staleFrom(top, watchT0, WatchDead))
+	if !strings.Contains(string(nb), `"parent":"20261116T110000.000-claude","depth":2`) {
+		t.Errorf("nested json lacks lineage: %s", nb)
+	}
+	if strings.Contains(string(tb), `"parent"`) || strings.Contains(string(tb), `"depth"`) {
+		t.Errorf("top-level json gained keys: %s", tb)
 	}
 }
