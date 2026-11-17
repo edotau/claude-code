@@ -121,6 +121,7 @@ var writers = map[string]string{
 	"internal/agent/run.go:write":                               unversioned("foreign: the packed context file an agy run reads, removed after the run"),
 	"internal/agent/record.go:claimRecord":                      unversioned("claim: the running record, linked in whole"),
 	"internal/agent/record.go:ClaimDispatchID":                  unversioned("marker: exclusive hook-launch claim containing the dispatch ID"),
+	"internal/agent/brief.go:reserveBrief":                      unversioned("marker: empty relay brief file reserved by exclusive create; the relay fills it"),
 	"internal/agent/wire/log.go:openLocked":                     unversioned("log: per-job dispatch log, humans only"),
 	"internal/agent/wire/event.go:NewEventLog":                  "dispatch-events",
 	"internal/agent/live.go:acquireLiveSlot":                    unversioned("lock: live-session slot file, flock only, no content"),
