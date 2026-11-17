@@ -203,15 +203,13 @@ func WithDirect(ctx context.Context) context.Context {
 
 func IsDirect(ctx context.Context) bool { v, _ := ctx.Value(directKey{}).(bool); return v }
 
+type launchDryKey struct{}
+
 // routerRoute ensures the router daemon and returns a copy of p routed through it with a session token as key.
 func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect string) (*providers.Provider, string, string, error) {
-	rb, err := EnsureRouter(ctx)
+	rb, key, err := launchRouter(ctx, p.Name)
 	if err != nil {
 		return nil, "", "", fmt.Errorf("%s: router: %w", s.Name, err)
-	}
-	key, err := routerKey(ctx, rb, p.Name)
-	if err != nil {
-		return nil, "", "", fmt.Errorf("%s: %w", s.Name, err)
 	}
 	base := gateway.SessionBase(rb, p.Name) + s.CLI.RouterSuffix[dialect]
 	rp := *p
@@ -220,6 +218,23 @@ func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect s
 		rp.Headers[gateway.IdentityHeader] = id
 	}
 	return &rp, base, key, nil
+}
+
+// launchRouter previews routing without starting a daemon or minting a credential.
+func launchRouter(ctx context.Context, profile string) (string, string, error) {
+	if dry, _ := ctx.Value(launchDryKey{}).(bool); dry {
+		base := gateway.Base(gateway.DefaultPort)
+		if st, ok := gateway.Running(ctx); ok {
+			base = gateway.Base(st.Port)
+		}
+		return gateway.ViaBaseContext(ctx, base), "<redacted>", nil
+	}
+	base, err := EnsureRouter(ctx)
+	if err != nil {
+		return "", "", err
+	}
+	key, err := routerKey(ctx, base, profile)
+	return base, key, err
 }
 
 // routerKey is the session token a routed child holds, scoped by TokenScope; never the router secret.

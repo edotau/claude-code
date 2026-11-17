@@ -130,6 +130,10 @@ func TestLaunchProfilePrecedence(t *testing.T) {
 	if got := testLaunchProfile(t, "copilot", LaunchOptions{Provider: "personal", Model: "m"}); got.Provider != "personal" || got.Model != "m" {
 		t.Errorf("flags = %+v, want flags to beat the pins", got)
 	}
+	vaulttest.SetRecord(t, "copilot", "profile", "copilot")
+	if got := testLaunchProfile(t, "copilot", LaunchOptions{}); got.Provider != "copilot" {
+		t.Errorf("own login = %q, want copilot", got.Provider)
+	}
 	vaulttest.SetRecord(t, "copilot", "profile", "")
 	if got := testLaunchProfile(t, "copilot", LaunchOptions{}); got.Provider != "" || got.Model != "" {
 		t.Errorf("deactivated (no profile set) = %+v, want the pins ignored", got)

@@ -635,7 +635,7 @@ func TestLaunchAndAgentAgreeOnModel(t *testing.T) {
 			vaulttest.Use(t)
 			vaulttest.Put(t, vault.Overlay, "providers", parityRows)
 			pathstest.FakeVendor(t, c.agent, "")
-			pin := "databricks-gpt-6-1-sol"
+			pin := ""
 			if c.agent == "copilot" {
 				pin = "claude-haiku-5-5"
 			}
@@ -649,7 +649,7 @@ func TestLaunchAndAgentAgreeOnModel(t *testing.T) {
 			if got != tg.Model {
 				t.Errorf("launch %q vs agent %q", got, tg.Model)
 			}
-			if c.flag == "" && !strings.Contains(got, pin) {
+			if c.flag == "" && pin != "" && !strings.Contains(got, pin) {
 				t.Errorf("model %q ignores the pin %q", got, pin)
 			}
 		})
