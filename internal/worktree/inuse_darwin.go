@@ -21,6 +21,7 @@ func init() {
 }
 
 // scanProcsDarwin runs lsof once (no /proc on macOS); -w mutes warnings: only exit 1 + empty stderr = no match.
+// -b skips lsof's device-cache build (about half its runtime); cwd paths come from the kernel, so rows are unchanged.
 func scanProcsDarwin() ([]procCwd, error) { return lsofCwd() }
 
 // maxAgentPIDs caps the -p list; a longer one is not an agent list, so the caller falls back to the full scan.
@@ -45,7 +46,7 @@ func scanAgentsDarwin() ([]procCwd, error) {
 func lsofCwd(extra ...string) ([]procCwd, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "lsof", append([]string{"-w", "-a", "-d", "cwd", "-Fpcn"}, extra...)...).Output()
+	out, err := exec.CommandContext(ctx, "lsof", append([]string{"-w", "-b", "-a", "-d", "cwd", "-Fpcn"}, extra...)...).Output()
 	if err != nil {
 		exitErr, ok := err.(*exec.ExitError)
 		if !ok {
