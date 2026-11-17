@@ -66,7 +66,9 @@ func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 	env := Envelope{Schema: EnvelopeSchema, Status: res.Status, Agent: res.Agent, Provider: res.Provider, Model: res.Model,
 		Invoked: res.Invoked, DispatchID: dispatchID, SessionID: res.SessionID, FallbackReason: res.FallbackReason, Requested: res.Requested, RequestedWhy: res.RequestedWhy,
 		DurationMs: res.DurationMs, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, RanOn: RanOn(res), Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked}
-	env.Denials = res.Denials
+	if res.Denials != nil {
+		env.Denials = &Denials{Count: res.Denials.Count, Commands: append([]string{}, res.Denials.Commands...)}
+	}
 	if env.Dropped == nil {
 		env.Dropped = []string{}
 	}

@@ -170,11 +170,14 @@ func cmdAgents(args []string) int {
 	return unknownSub("agents", args[0], agentsPage)
 }
 
+// reapLost is the silent reap before an ask (tests swap it).
+var reapLost = func() { tree.Reap(false, io.Discard, io.Discard) }
+
 // cmdAgentsAsk joins cleanup so short dispatches cannot interrupt a reap.
 func cmdAgentsAsk(args []string) int {
 	done := make(chan struct{})
 	par.Go(func() {
-		tree.Reap(false, io.Discard, io.Discard)
+		reapLost()
 		close(done)
 	}, func(err error) { fmt.Fprintln(os.Stderr, "agents reap:", err); close(done) })
 	defer func() { <-done }()
@@ -301,7 +304,7 @@ func cmdAgentsTree(args []string) int {
 		fmt.Fprintln(os.Stderr, "agents tree:", err)
 		return 2
 	}
-	all := *detail || *format == helptext.JSON || *session != "" // a named session shows whole
+	all := *detail || *session != "" // a named session shows whole; json always does
 	opts := tree.Options{Days: *days, Session: *session}
 	return tree.Show(paths.ConfigDir(), opts, tree.View{JSON: *format == helptext.JSON, All: all,
 		Watch: *watch, Interval: *interval})
@@ -735,9 +738,7 @@ func cmdAgentVerb(name string, args []string) int {
 		return helptext.FailUsage("%v", err)
 	}
 	switch {
-	case len(args) == 0:
-		return agentLaunch(name, args)
-	case args[0] == "--":
+	case len(args) == 0 || args[0] == "--":
 		return agentLaunch(name, args)
 	case slices.Contains(retiredAgentVerbs, args[0]):
 		return unknownSub(name, args[0], agentPage(name))

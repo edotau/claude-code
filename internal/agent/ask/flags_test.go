@@ -291,7 +291,7 @@ func TestAskRetryFallbackFromEnv(t *testing.T) {
 	}
 }
 
-// Given a limit-only, budget-only or env overlay, overlayLocal refuses --live/--host only for the last two, naming them.
+// Given a limit-only, budget, env or codexNetwork overlay, overlayLocal refuses --live/--host for all but limits.
 func TestOverlayLocalRefusalNamesKeys(t *testing.T) {
 	cases := []struct {
 		name, doc, want string
@@ -299,6 +299,7 @@ func TestOverlayLocalRefusalNamesKeys(t *testing.T) {
 		{"limits pass", `{"maxChildren":2,"maxTreeTokens":9}`, ""},
 		{"budget", `{"budgetUSD":1.5}`, "budgetUSD/budgetCredits"},
 		{"env", `{"set":{"A":"b"}}`, "set/unset/keep cannot"},
+		{"codexNetwork", `{"codexNetwork":true}`, "overlay codexNetwork cannot"},
 	}
 	for _, c := range cases {
 		ov, err := agentconfig.LoadOverlayContext(context.Background(), c.doc, nil)

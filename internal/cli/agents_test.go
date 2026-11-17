@@ -1227,3 +1227,25 @@ func TestAgentReviewFormat(t *testing.T) {
 		}
 	}
 }
+
+// Given a reap that panics or lags, agents ask joins it, keeps ask's exit code and reports the panic on stderr.
+func TestCmdAgentsAskJoinsContainedReap(t *testing.T) {
+	cfgDir(t)
+	original := reapLost
+	t.Cleanup(func() { reapLost = original })
+	usage := []string{"--format", "bogus"}
+	want, _, _ := runAgents(t, append([]string{"ask"}, usage...)...)
+	if want == 0 {
+		t.Fatal("bogus --format must fail")
+	}
+	finished := false
+	reapLost = func() { time.Sleep(20 * time.Millisecond); finished = true }
+	if rc, _, _ := runAgents(t, append([]string{"ask"}, usage...)...); rc != want || !finished {
+		t.Errorf("slow reap: rc=%d (want %d) finished=%v", rc, want, finished)
+	}
+	reapLost = func() { panic("reap boom") }
+	rc, _, stderr := runAgents(t, append([]string{"ask"}, usage...)...)
+	if rc != want || !strings.Contains(stderr, "agents reap: panic: reap boom") {
+		t.Errorf("panicking reap: rc=%d (want %d) stderr=%s", rc, want, stderr)
+	}
+}

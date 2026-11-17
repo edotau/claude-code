@@ -147,7 +147,10 @@ func printDenials(out io.Writer, res wire.Result) error {
 	if d.Count == 1 {
 		noun = "command"
 	}
-	head, tail := fmt.Sprintf("sandbox refused %d %s: ", d.Count, noun), "; re-run outside the sandbox"
+	head, tail := fmt.Sprintf("sandbox refused %d %s", d.Count, noun), "; re-run outside the sandbox"
+	if len(d.Commands) > 0 {
+		head += ": "
+	}
 	list := textutil.TruncateCells(strings.Join(d.Commands, ", "), max(0, denialSummaryCells-textutil.DisplayWidth(head+tail)), "…")
 	_, err := fmt.Fprintln(out, head+list+tail)
 	return err
