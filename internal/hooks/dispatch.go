@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -244,6 +245,12 @@ func (m *dispatchMerge) apply(s step, event string) (gateFailed bool) {
 
 // Dispatch runs every matching handler concurrently and merges results in declaration order; a failed gate blocks.
 func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.Result, error) {
+	res, rows, err := dispatch(bound, event, in, log)
+	core.RecordTelemetry(rows)
+	return res, err
+}
+
+func dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.Result, []core.TelemetryRow, error) {
 	m := &dispatchMerge{log: log}
 	var wg sync.WaitGroup
 	steps, longest := plan(bound, event, in, &wg)
@@ -257,8 +264,7 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 	m.merged.Context = core.CapContext(core.JoinContext(m.ctx...))
 	m.merged.SystemMessage = core.JoinNonEmpty("; ", m.sys...)
 	m.merged.Stderr = core.JoinNonEmpty("\n", m.errs...)
-	core.RecordTelemetry(m.rows)
-	return m.merged, m.firstErr
+	return m.merged, m.rows, m.firstErr
 }
 
 // hookSkipEnv lists hook modules to skip (or "all"), read only from the hook process's own environment.
@@ -292,8 +298,10 @@ func unreadable(name, problem string) string {
 // runEvent is `hook <Event> [--all|--async]`: every group once, own-process modules only with --all.
 func runEvent(event, flag string, stdin io.Reader, stdout, stderr io.Writer) int {
 	in := core.ParseInput(stdin)
-	res, _ := Dispatch(chain(Bind(), in.Agent(), flag), event, in, stderr)
-	return core.Emit(in.Agent(), event, res, stdout, stderr)
+	res, rows, _ := dispatch(chain(Bind(), in.Agent(), flag), event, in, stderr)
+	code := core.Emit(in.Agent(), event, res, stdout, stderr)
+	core.RecordTelemetry(rows)
+	return code
 }
 
 // chain is the bound modules one `hook <Event> [flag]` call runs for agent.
@@ -410,68 +418,88 @@ func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if note := skipNote(name); note != "" {
 		return core.Emit(os.Getenv(settings.AgentEnv), eventOf(name), core.Result{SystemMessage: note}, stdout, stderr)
 	}
-	spec := specOf(name)
-	if !spec.Blocks {
-		return runModuleDirect(name, run, stdin, stdout, stderr)
+	return runModuleDirect(name, run, stdin, stdout, stderr)
+}
+
+type directOutcome struct {
+	in  *core.Input
+	res core.Result
+	err error
+}
+
+func invokeDirect(name string, run core.Runner, stdin io.Reader, spec settings.EventSpec) directOutcome {
+	invoke := func() directOutcome {
+		in := core.ParseInput(stdin)
+		res, err := runGated(name, run, in)
+		return directOutcome{in, res, err}
 	}
-	g := &gateWriters{}
-	done := make(chan int, 1)
-	go func() { done <- runModuleDirect(name, run, stdin, g.wrap(stdout), g.wrap(stderr)) }()
+	if !spec.Blocks {
+		return invoke()
+	}
+	done := make(chan directOutcome, 1)
+	go func() { done <- invoke() }()
 	select {
-	case code := <-done:
-		return code
+	case o := <-done:
+		return o
 	case <-time.After(gateDeadline(spec)):
-		g.close() // the late module can no longer write; one that finished at the wire keeps its own verdict
 		select {
-		case code := <-done:
-			return code
+		case o := <-done:
+			return o
 		default:
 		}
-		res := core.Result{Decision: core.Block, Reason: name + " timed out; blocked, retry the command"}
-		return renderBlock(name, os.Getenv(settings.AgentEnv), res, stdout, stderr)
+		return directOutcome{res: core.Result{Decision: core.Block, Reason: name + " timed out; blocked, retry the command"},
+			err: &runError{"timed out", core.OutcomeOverrun}}
 	}
 }
 
-// gateWriters hands a module's writers to a goroutine that may be abandoned: after close their writes are dropped.
-type gateWriters struct {
-	mu     sync.Mutex
-	closed bool
+const directWriteBudget = 50 * time.Millisecond
+
+// boundedHookWriter drops diagnostics when the host stops draining stderr.
+type boundedHookWriter struct {
+	w    io.Writer
+	busy atomic.Bool
 }
 
-func (g *gateWriters) wrap(w io.Writer) io.Writer { return gateWriter{g, w} }
-
-func (g *gateWriters) close() {
-	g.mu.Lock()
-	g.closed = true
-	g.mu.Unlock()
-}
-
-type gateWriter struct {
-	g *gateWriters
-	w io.Writer
-}
-
-func (gw gateWriter) Write(p []byte) (int, error) {
-	gw.g.mu.Lock()
-	defer gw.g.mu.Unlock()
-	if gw.g.closed {
+func (w *boundedHookWriter) Write(p []byte) (int, error) {
+	if !w.busy.CompareAndSwap(false, true) {
 		return len(p), nil
 	}
-	return gw.w.Write(p)
+	type result struct {
+		n   int
+		err error
+	}
+	done := make(chan result, 1)
+	data := bytes.Clone(p)
+	go func() { n, err := w.w.Write(data); w.busy.Store(false); done <- result{n, err} }()
+	select {
+	case r := <-done:
+		return r.n, r.err
+	case <-time.After(directWriteBudget):
+		return len(p), nil
+	}
 }
 
-// runModuleDirect parses stdin, runs one module and renders its result for the agent that sent it.
-func runModuleDirect(name string, run core.Runner, stdin io.Reader, stdout, stderr io.Writer) int {
-	in := core.ParseInput(stdin)
-	start := time.Now()
-	res := runGated(name, run, in, stderr)
-	spec := specOf(name)
-	core.RecordTelemetry([]core.TelemetryRow{{Event: spec.Event, Module: name, Outcome: outcomeOf(Bound{Spec: spec}, res, nil), Dur: time.Since(start)}})
-	if res.Decision == core.Block && specOf(name).Blocks {
-		return renderBlock(name, in.Agent(), res, stdout, stderr)
+func emitDirect(name string, o directOutcome, stdout, stderr io.Writer) int {
+	agent := os.Getenv(settings.AgentEnv)
+	if o.in != nil {
+		agent = o.in.Agent()
 	}
-	res.Context = core.CapContext(res.Context)
-	return core.Emit(in.Agent(), eventOf(name), res, stdout, stderr)
+	if o.res.Decision == core.Block && specOf(name).Blocks {
+		return renderBlock(name, agent, o.res, stdout, stderr)
+	}
+	o.res.Context = core.CapContext(o.res.Context)
+	return core.Emit(agent, eventOf(name), o.res, stdout, stderr)
+}
+
+func runModuleDirect(name string, run core.Runner, stdin io.Reader, stdout, stderr io.Writer) int {
+	spec := specOf(name)
+	start := time.Now()
+	o := invokeDirect(name, run, stdin, spec)
+	dur := time.Since(start)
+	code := emitDirect(name, o, stdout, &boundedHookWriter{w: stderr})
+	core.RecordTelemetry([]core.TelemetryRow{{Event: spec.Event, Module: name,
+		Outcome: outcomeOf(Bound{Spec: spec}, o.res, o.err), Dur: dur}})
+	return code
 }
 
 // renderBlock writes a gate's block for agent: exit 2 with the reason on stderr, or a JSON deny where agy needs one.
@@ -503,21 +531,21 @@ func payloadProblem(in *core.Input) string {
 }
 
 // runGated runs one module; an empty or unparseable payload blocks a Blocks gate unrun, a panic only a Blocks module.
-func runGated(name string, run core.Runner, in *core.Input, stderr io.Writer) (res core.Result) {
+func runGated(name string, run core.Runner, in *core.Input) (res core.Result, err error) {
 	blocks := specOf(name).Blocks
 	if problem := payloadProblem(in); problem != "" && blocks {
-		return core.Result{Decision: core.Block, Reason: unreadable(name, problem)}
+		return core.Result{Decision: core.Block, Reason: unreadable(name, problem)}, nil
 	}
 	defer func() {
 		if p := recover(); p != nil {
-			fmt.Fprintf(stderr, "hook %s: panic: %v (%s)\n", name, p, skipOrBlock[blocks])
-			res = core.Result{}
+			err = &runError{fmt.Sprintf("panic: %v", p), core.OutcomePanic}
+			res = core.Result{Stderr: fmt.Sprintf("hook %s: %v (%s)", name, err, skipOrBlock[blocks])}
 			if blocks {
 				res = core.Result{Decision: core.Block, Reason: fmt.Sprintf("%s did not complete (panic: %v); blocked", name, p)}
 			}
 		}
 	}()
-	return run(in)
+	return run(in), nil
 }
 
 // specOf is the hookspec entry for a module; the zero spec when unknown.

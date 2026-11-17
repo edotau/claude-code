@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -38,6 +39,8 @@ func TestDispatchBlockingGateFailsClosedOnPanic(t *testing.T) {
 
 // A panic in a module's own process: an advisory module proceeds, a Blocks gate blocks.
 func TestRunDirectPanicAdvisoryProceedsGateBlocks(t *testing.T) {
+	dir := t.TempDir()
+	defer core.TelemetryDirForTest(dir)()
 	for _, name := range []string{"memory-start", "safety-scan"} {
 		orig := native[name]
 		native[name] = func(*core.Input) core.Result { panic("module blew up") }
@@ -52,6 +55,22 @@ func TestRunDirectPanicAdvisoryProceedsGateBlocks(t *testing.T) {
 	if code := runDirect("safety-scan", hosttest.BashPayload("ls"), &out, &errb); code != core.ExitBlock ||
 		!strings.Contains(errb.String(), "panic: module blew up") {
 		t.Errorf("gate panic: exit %d stderr %q; want ExitBlock naming the panic", code, errb.String())
+	}
+	assertDirectTelemetry(t, dir, core.OutcomePanic, 2)
+}
+
+func assertDirectTelemetry(t *testing.T, dir, outcome string, count int) {
+	t.Helper()
+	files, err := filepath.Glob(filepath.Join(dir, "telemetry-*.jsonl"))
+	if err != nil || len(files) != 1 {
+		t.Fatalf("telemetry files %v: %v", files, err)
+	}
+	raw, err := os.ReadFile(files[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(string(raw), `"outcome":"`+outcome+`"`); got != count {
+		t.Errorf("%s outcomes = %d, want %d: %s", outcome, got, count, raw)
 	}
 }
 
@@ -702,6 +721,8 @@ func TestCodexFileWriteRunsDocGates(t *testing.T) {
 
 // A Blocks module that outlasts its in-process deadline blocks with a retry reason; others never time out.
 func TestRunDirectGateOverrunBlocksNonGateWaits(t *testing.T) {
+	dir := t.TempDir()
+	defer core.TelemetryDirForTest(dir)()
 	flagHarness(t)
 	orig := gateDeadline
 	gateDeadline = func(settings.EventSpec) time.Duration { return 50 * time.Millisecond }
@@ -725,5 +746,83 @@ func TestRunDirectGateOverrunBlocksNonGateWaits(t *testing.T) {
 	errb.Reset()
 	if code := runDirect("memory-start", strings.NewReader(`{"session_id":"s"}`), io.Discard, &errb); code != core.ExitProceed {
 		t.Errorf("non-gate slower than the gate deadline: exit %d stderr %q; want proceed", code, errb.String())
+	}
+	assertDirectTelemetry(t, dir, core.OutcomeOverrun, 2)
+}
+
+func TestDirectTelemetryCannotFlipAllow(t *testing.T) {
+	dir := t.TempDir()
+	file := filepath.Join(dir, "telemetry-"+time.Now().Format("20060102")+".jsonl")
+	if err := exec.Command("/usr/bin/mkfifo", file).Run(); err != nil {
+		t.Skip(err)
+	}
+	defer core.TelemetryDirForTest(dir)()
+	orig, deadline := native["safety-scan"], gateDeadline
+	native["safety-scan"] = func(*core.Input) core.Result { return core.Result{} }
+	gateDeadline = func(settings.EventSpec) time.Duration { return 30 * time.Millisecond }
+	defer func() { native["safety-scan"], gateDeadline = orig, deadline }()
+	done := make(chan int, 1)
+	go func() { done <- runDirect("safety-scan", hosttest.BashPayload("ls"), io.Discard, io.Discard) }()
+	select {
+	case code := <-done:
+		if code != core.ExitProceed {
+			t.Errorf("slow telemetry flipped allow: exit %d", code)
+		}
+	case <-time.After(200 * time.Millisecond):
+		t.Error("telemetry stalled verdict")
+	}
+	reader, err := os.Open(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	if _, err := io.Copy(io.Discard, reader); err != nil {
+		t.Fatal(err)
+	}
+	deadlineAt := time.Now().Add(time.Second)
+	for time.Now().Before(deadlineAt) {
+		f, err := os.OpenFile(file+".lock", os.O_WRONLY, 0)
+		if os.IsNotExist(err) {
+			return
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		locked := paths.TryLock(f)
+		if err := f.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if locked {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatal("telemetry worker did not finish")
+}
+
+type stalledHookWriter struct{ release <-chan struct{} }
+
+func (w stalledHookWriter) Write(p []byte) (int, error) { <-w.release; return len(p), nil }
+
+func TestDirectPanicStderrBackpressureReturns(t *testing.T) {
+	orig, deadline := native["safety-scan"], gateDeadline
+	native["safety-scan"] = func(*core.Input) core.Result { panic("broken gate") }
+	gateDeadline = func(settings.EventSpec) time.Duration { return 30 * time.Millisecond }
+	defer func() { native["safety-scan"], gateDeadline = orig, deadline }()
+	release := make(chan struct{})
+	done := make(chan int, 1)
+	go func() {
+		done <- runDirect("safety-scan", hosttest.BashPayload("ls"), io.Discard, stalledHookWriter{release})
+	}()
+	select {
+	case code := <-done:
+		if code != core.ExitBlock {
+			t.Errorf("panic exit %d", code)
+		}
+		close(release)
+	case <-time.After(200 * time.Millisecond):
+		t.Error("stderr backpressure defeated gate deadline")
+		close(release)
+		<-done
 	}
 }
