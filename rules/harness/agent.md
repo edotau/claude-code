@@ -72,9 +72,9 @@ paths:
   decides (D3 exception: the row's `Auth.Login` equals the agent, as gemini on Google) (`/p/<profile>`, BYOK,
   `COPILOT_OFFLINE=true`, no credits); `--model <profile>:<alias>` crosses profiles. The GitHub login is used only
   while the copilot record's GitHub profile (named by its account login, e.g. `aueric_boehcp`; the built-in no-login
-  row is `copilot`) has verified credits < 95%, else it first runs a zero-multiplier model of the sealed catalog on
-  the same login, then falls back to the Databricks profile, never the other GitHub account. Usage rows read
-  `databricks/<model>` vs `github·copilot/<model>`; prompt cap = window − 32k − 10% (`models.PromptTokens`).
+  row is `copilot`) has verified credits < 95%, else it falls back to the Databricks profile, never the other GitHub
+  account. Usage rows read `databricks/<model>` vs `github·copilot/<model>`; prompt cap = window − 32k − 10%
+  (`models.PromptTokens`).
 - Interactive copilot on Databricks gets native `/model` via a per-launch registry (0600, per pid) and a login-free
   `COPILOT_HOME` (`state/copilot/registry-home`); an unregistered model fails closed, `--direct` keeps the single-model
   route, macOS skips the registry. `ask --agent copilot` uses the same registry via the SDK.
