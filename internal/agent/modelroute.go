@@ -338,7 +338,9 @@ func spellModel(r *ModelRoute, p *providers.Provider, agent, typed string, now t
 		r.Alias = name
 		canonical, _ := models.Alias(name)
 		if m := cmp.Or(router.DatabricksModel(agent, name, p), p.Models[name], canonical); m != "" {
-			return models.Strip1M(p.WireModel(m)), nil
+			wire := models.Strip1M(p.WireModel(m))
+			r.OneM = models.Has1M(typed) && models.Keeps1M(wire+"[1m]") && p.Serves1M()
+			return wire, nil
 		}
 		return "", fmt.Errorf("%w: profile %s has no %s model", ErrModelRoute, p.Name, name)
 	}

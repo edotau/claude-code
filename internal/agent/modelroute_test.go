@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -61,6 +62,44 @@ func TestResolveModel(t *testing.T) {
 		if err != nil || r.Profile != c.profile || r.Model != c.wire {
 			t.Errorf("%s %s = %+v, %v; want %s %s", c.agent, c.model, r, err, c.profile, c.wire)
 		}
+	}
+}
+
+func TestResolveModelMarkedAlias(t *testing.T) {
+	const wire = "claude-opus-4-8"
+	p := &providers.Provider{Name: "dev", Provider: "anthropic", Protocol: providers.ProtocolAnthropic, BaseURL: "https://example.invalid",
+		Models: map[string]string{models.Opus: wire + "[1m]"}}
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{"dev": p}}
+	t.Setenv("CLAUDE_CODE_DISABLE_1M_CONTEXT", "")
+	for _, c := range []struct {
+		input string
+		oneM  bool
+	}{
+		{"opus[1m]", true},
+		{"dev:opus[1m]", true},
+		{"opus", false},
+		{wire + "[1m]", true},
+	} {
+		t.Run(c.input, func(t *testing.T) {
+			r, err := ResolveModel(reg, ModelQuery{Agent: "claude", Model: c.input, Profile: "dev"}, time.Now())
+			if err != nil {
+				t.Fatal(err)
+			}
+			sel := providers.Selection{Provider: p, Aliases: map[string]providers.Target{
+				models.Opus: {Provider: p, Model: wire},
+			}}
+			applyRoute(&sel, r, LaunchOptions{Model: c.input}, true)
+			target := sel.Aliases[models.Opus]
+			window := providers.Window(p, target.ClientModel())
+			wantWindow := models.ContextWindowStd
+			if c.oneM {
+				wantWindow = models.ContextWindow1M
+			}
+			t.Logf("route=%s OneM=%v; target=%s OneM=%v window=%d", r.Model, r.OneM, target.Model, target.OneM, window)
+			if r.Model != wire || r.OneM != c.oneM || target.Model != wire || target.OneM != c.oneM || window != wantWindow {
+				t.Errorf("want wire=%s OneM=%v window=%d", wire, c.oneM, wantWindow)
+			}
+		})
 	}
 }
 
