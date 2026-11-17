@@ -2,6 +2,7 @@ package copilot
 
 import (
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -92,6 +93,18 @@ func shellReq(wd, c string) copilot.PermissionRequest {
 }
 
 func writeReq(f string) copilot.PermissionRequest { return rpc.PermissionRequestWrite{FileName: f} }
+
+// The session loads the harness hooks dir explicitly, on the single-route and registry-route homes alike.
+func TestBuildSessionConfigLoadsHookDirectory(t *testing.T) {
+	t.Setenv("COPILOT_HOME", "/h/single")
+	if got := buildSessionConfig(sdkOptions{}).HookDirectories; !slices.Equal(got, []string{"/h/single/hooks"}) {
+		t.Fatalf("single route HookDirectories = %v", got)
+	}
+	got := buildSessionConfig(sdkOptions{ChildEnv: []string{"COPILOT_HOME=/h/private"}}).HookDirectories
+	if !slices.Equal(got, []string{"/h/private/hooks"}) {
+		t.Fatalf("registry route HookDirectories = %v", got)
+	}
+}
 
 // A read-only run approves reads and URL fetches through buildSessionConfig's handler and rejects writes and shell.
 func TestReadOnlyToolsApproveOnlyReads(t *testing.T) {
