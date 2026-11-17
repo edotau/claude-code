@@ -52,6 +52,10 @@ type EventSpec struct {
 	Plugin        []string      // agents whose in-process plugin runs the module
 	StatusMessage string        // spinner text Claude Code shows while the hook runs
 	Async         string        // Matcher alternatives Claude runs in the background entry, after the tool returns
+	AlwaysOn      bool          // HARNESS_HOOK_SKIP=all spares it; only its own name skips it
+	FailExit      bool          // a failed or overrun run exits 1, never 0
+	Raw           bool          // may return a raw stdout and exit code, which the dispatcher otherwise rejects
+	BlockJSON     []string      // agents that also get the JSON deny on stdout when it blocks
 }
 
 // Seconds is Budget as the whole-second timeout settings.json carries.
@@ -101,11 +105,11 @@ const sec = time.Second
 // Registry is the whole chain: groups in execution order, each naming its events.
 var Registry = []Group{
 	{Name: "safety", Gate: true, Events: []EventSpec{
-		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec, StatusMessage: "Checking command safety", Blocks: true, Agents: []string{"codex", "copilot", "gemini"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
+		{Name: "safety-scan", Event: EventPreToolUse, Matcher: "Bash", Budget: 5 * sec, StatusMessage: "Checking command safety", Blocks: true, AlwaysOn: true, BlockJSON: []string{"copilot"}, Agents: []string{"codex", "copilot", "gemini"}, Hosted: []string{"opencode"}, Plugin: []string{"opencode"}},
 	}},
 	// AgentOnly: Claude enforces a dispatch's Permissions natively, so settings.json never renders the gate.
 	{Name: "permission", Gate: true, AgentOnly: true, Events: []EventSpec{
-		{Name: "permission-gate", Event: EventPreToolUse, Matcher: "Bash|Write|Edit|Read|WebFetch|Glob|Grep", Budget: 5 * sec, Blocks: true, Agents: []string{"codex", "gemini"}, Plugin: []string{"opencode"}},
+		{Name: "permission-gate", Event: EventPreToolUse, Matcher: "Bash|Write|Edit|Read|WebFetch|Glob|Grep", Budget: 5 * sec, Blocks: true, AlwaysOn: true, Agents: []string{"codex", "gemini"}, Plugin: []string{"opencode"}},
 	}},
 	{Name: "rtk", Events: []EventSpec{
 		// An eligible noisy Bash command is rewritten to run through the rtk output compressor (Claude only).
@@ -158,14 +162,14 @@ var Registry = []Group{
 	}},
 	{Name: "worktree", Events: []EventSpec{
 		// Native worktrees live at ~/worktrees/<repo>/<name>; these replace Claude's git logic.
-		{Name: "worktree-create", Event: EventWorktreeCreate, Budget: 60 * sec},
-		{Name: "worktree-remove", Event: EventWorktreeRemove, Budget: 30 * sec},
+		{Name: "worktree-create", Raw: true, FailExit: true, Event: EventWorktreeCreate, Budget: 60 * sec},
+		{Name: "worktree-remove", Raw: true, FailExit: true, Event: EventWorktreeRemove, Budget: 30 * sec},
 		// Ask-about-a-worktree notes (silent when HARNESS_WORKTREE=off); the busy check runs every prompt.
-		{Name: "worktree-busy", Event: EventUserPromptSubmit, Budget: 5 * sec},
+		{Name: "worktree-busy", Raw: true, Event: EventUserPromptSubmit, Budget: 5 * sec},
 		// Each Write/Edit path (and each `git add`-staged path) appends to this session's claims ledger; never blocks.
-		{Name: "worktree-claim", Event: EventPostToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Async: "Bash", Budget: 5 * sec, Agents: []string{"gemini"}},
+		{Name: "worktree-claim", Raw: true, Event: EventPostToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Async: "Bash", Budget: 5 * sec, Agents: []string{"gemini"}},
 		// Before an edit, notes a dirty file another live session/leaf claims; before git add/commit, asks on one.
-		{Name: "worktree-claim-check", Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Agents: []string{"gemini"}, Plugin: []string{"opencode"}},
+		{Name: "worktree-claim-check", Raw: true, Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Agents: []string{"gemini"}, Plugin: []string{"opencode"}},
 	}},
 	{Name: "codex", AgentOnly: true, Events: []EventSpec{
 		{Name: "codex-agent-route", Event: EventPreToolUse, Matcher: ".*spawn_agent$", Budget: 5 * sec, Agents: []string{"codex"}},

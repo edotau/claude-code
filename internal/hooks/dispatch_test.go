@@ -32,7 +32,7 @@ import (
 )
 
 func bound(group, matcher string, budget time.Duration, run core.Runner) Bound {
-	return Bound{Group: group, Spec: settings.EventSpec{Name: group, Event: "PreToolUse", Matcher: matcher, Budget: budget}, Run: run}
+	return Bound{Group: group, Spec: settings.EventSpec{Name: group, Event: "PreToolUse", Matcher: matcher, Budget: budget, Raw: group == "worktree"}, Run: run}
 }
 
 func bashInput() *core.Input {
