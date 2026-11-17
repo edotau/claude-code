@@ -65,8 +65,20 @@ func SwapLoadState(wrap func(prev func() router.State) func() router.State) func
 
 // RouteChainFor routes a caller's --model: an alias or Claude id picks that row's cell; a non-Claude id is exact.
 func RouteChainFor(ctx context.Context, want, model, aliasHint, mode string, native bool, o router.PickOpts) (Chain, router.PickResult, error) {
+	if ownConnectorModel(want, model) {
+		r, bare, err := hubDispatchFor(loadRegistryWarn(), model)
+		if err != nil {
+			return Chain{}, router.PickResult{}, err
+		}
+		return Chain{Want: want, Dispatches: []Dispatch{{Agent: r, Model: bare, keepCaller: true}}}, router.PickResult{}, nil
+	}
 	alias, row, exact := router.ModelRow(model)
 	return routeChain(ctx, want, cmp.Or(alias, aliasHint), row, exact, strings.TrimSpace(model), mode, strings.TrimSpace(model) != "", native, o)
+}
+
+func ownConnectorModel(agent, model string) bool {
+	id, _, ok := strings.Cut(model, "/")
+	return agentid.Routing(agent).SubLadder && ok && hub != nil && hub.OwnPlan(id)
 }
 
 func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode string, explicitModel, native bool, o router.PickOpts) (Chain, router.PickResult, error) {
@@ -518,13 +530,17 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 func (rc routeCtx) pinnedCaller(cand router.Candidate) bool {
 	pinned := cand.Profile != "" && rc.pins[cand.Agent].Profile == cand.Profile
 	return pinned && cand.Agent == rc.want && rc.explicitModel && rc.callerModel != router.DiscoveryModel &&
-		rc.row == "" && cmp.Or(rc.exact, rc.callerModel) != ""
+		(rc.row == "" || slices.Contains(models.AliasNames, rc.callerModel)) && cmp.Or(rc.exact, rc.callerModel) != ""
 }
 
 func (rc routeCtx) pinnedCell(cand router.Candidate, cell *router.Cell) {
 	cell.Model = cmp.Or(rc.exact, strings.TrimPrefix(rc.callerModel, cand.Profile+":")) // buildDispatch re-adds the profile
 	if rc.reg != nil && rc.reg.Providers[cand.Profile] != nil {
-		cell.Model = launchWire(cand.Agent, rc.reg.Providers[cand.Profile], cell.Model)
+		p := rc.reg.Providers[cand.Profile]
+		if slices.Contains(models.AliasNames, rc.callerModel) {
+			cell.Model = cmp.Or(router.DatabricksModel(cand.Agent, rc.callerModel, p), p.Models[rc.callerModel])
+		}
+		cell.Model = launchWire(cand.Agent, p, cell.Model)
 	}
 }
 

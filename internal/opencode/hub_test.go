@@ -443,3 +443,12 @@ func runPreparedWorkdir(t *testing.T, workdir string) wire.Result {
 	}
 	return res
 }
+
+func TestHubResolveOwnConnectorBareID(t *testing.T) {
+	for _, id := range []string{"opencode-go", "opencode"} {
+		h := hubDispatch{agent: "opencode", provider: &providers.Provider{Name: id, OpencodeID: id}, reg: &providers.Registry{}}
+		if got := h.resolveModel("kimi-k3"); got != "kimi-k3" {
+			t.Fatalf("%s: model=%q want kimi-k3", id, got)
+		}
+	}
+}
