@@ -12,7 +12,11 @@ import (
 
 // databricksResponses: the session/pinned profile is a signed-in Databricks row with a Responses route + catalog model.
 func databricksResponses(ctx context.Context, reg *providers.Registry, now time.Time, canServe func(string, *providers.Provider) bool) (profile, model string, ok bool) {
-	profile, p, ok := sessionDatabricks(ctx, reg, "codex", canServe)
+	return (&pickGate{reg: reg}).databricksResponses(ctx, now, canServe)
+}
+
+func (pg *pickGate) databricksResponses(ctx context.Context, now time.Time, canServe func(string, *providers.Provider) bool) (profile, model string, ok bool) {
+	profile, p, ok := pg.sessionDatabricks(ctx, "codex", canServe)
 	if !ok {
 		return "", "", false
 	}
@@ -29,15 +33,20 @@ func databricksResponses(ctx context.Context, reg *providers.Registry, now time.
 	return "", "", false
 }
 
-// pickGate is the per-Pick state shared by the gates: the registry, loaded once, and copilot accounts already held.
+// pickGate keeps registry, session and account lookups local to one pick.
 type pickGate struct {
-	reg  *providers.Registry
-	held map[string]bool
+	reg         *providers.Registry
+	held        map[string]bool
+	accounts    map[string]string
+	session     string
+	sessionRead bool
+	credentials map[string]bool
 }
 
 // codexHop is codex's Databricks model and effort at alias: pin, else tier, else cell; non-Responses → first Responses.
-func (t *RouteTable) codexHop(ctx context.Context, reg *providers.Registry, alias string, o PickOpts, now time.Time) (profile, model, effort string, ok bool) {
-	profile, first, ok := databricksResponses(ctx, reg, now, o.canServe)
+func (t *RouteTable) codexHop(ctx context.Context, pg *pickGate, alias string, o PickOpts, now time.Time) (profile, model, effort string, ok bool) {
+	reg := pg.reg
+	profile, first, ok := pg.databricksResponses(ctx, now, o.canServe)
 	if !ok {
 		return "", "", "", false
 	}
@@ -59,11 +68,11 @@ func (t *RouteTable) gateDatabricksCodex(
 	ctx context.Context, pg *pickGate, alias string, st State, o PickOpts, now time.Time, configured func(agent string, c Cell) error, res *PickResult,
 ) (Candidate, bool) {
 	reg := pg.reg
-	profile, model, effort, ok := t.codexHop(ctx, reg, alias, o, now)
+	profile, model, effort, ok := t.codexHop(ctx, pg, alias, o, now)
 	if !ok {
 		return Candidate{}, false
 	}
-	c := Cell{Model: model, Effort: effort, Account: ProviderAccount(profile)}
+	c := Cell{Model: model, Effort: effort, Account: pg.providerAccount(profile)}
 	name := "codex·" + c.Account
 	if err := configured("codex", c); err != nil {
 		skipNotConfigured(res, name, err)
@@ -117,7 +126,7 @@ func (t *RouteTable) gateVendor(
 	}
 	var rows []Candidate
 	for _, login := range loginProfiles(pg.reg, agent) {
-		if slices.ContainsFunc(own, func(c Candidate) bool { return c.Account == ProviderAccount(login) }) {
+		if slices.ContainsFunc(own, func(c Candidate) bool { return c.Account == pg.providerAccount(login) }) {
 			continue
 		}
 		rows = append(rows, t.gateRow(ctx, pg, alias, agent, login, "", true, st, o, now, configured, res)...)
@@ -133,7 +142,7 @@ func (t *RouteTable) gateRow(
 	scratch := &PickResult{Alias: res.Alias, Want: res.Want}
 	// a sibling row is not dispatched to: resolve its pool model without stamping
 	if quiet && model == DiscoveryModel {
-		model = peekDiscovery(agent, pg.reg.Providers[prof], now)
+		model = pg.peekDiscovery(agent, pg.reg.Providers[prof], now)
 	}
 	g := t.gateProfile(ctx, pg.reg, alias, agent, prof, model, "", st, o, now, configured, scratch)
 	for _, sk := range scratch.Skipped {
@@ -153,7 +162,7 @@ func (t *RouteTable) gateRow(
 }
 
 // peekDiscovery is pickPool's choice for p without recording it; "" when pickPool would fall back to the alias.
-func peekDiscovery(agent string, p *providers.Provider, now time.Time) string {
+func (pg *pickGate) peekDiscovery(agent string, p *providers.Provider, now time.Time) string {
 	if (agent != "copilot" && agent != "opencode") || p == nil || p.Preset != providers.PresetDatabricks {
 		return ""
 	}
@@ -161,7 +170,7 @@ func peekDiscovery(agent string, p *providers.Provider, now time.Time) string {
 	if err != nil {
 		return ""
 	}
-	return leastRecent(st[ProviderAccount(p.Name)], agent, p, servedPool(p, DiscoveryPool(), now), now)
+	return leastRecent(st[pg.providerAccount(p.Name)], agent, p, servedPool(p, DiscoveryPool(), now), now)
 }
 
 // gateLead prepends lead, sibling workspaces and logins as fallback permits; gemini requires Google or Databricks rows.
@@ -198,7 +207,7 @@ func (t *RouteTable) gateArm(
 		return nil
 	}
 	own := ownRows(pg.reg, agent)
-	armPinSkip(agent, spec.Profile, arm, own, res)
+	pg.armPinSkip(agent, spec.Profile, arm, own, res)
 	if agent == "claude" {
 		// Serves covers external agents only; claude runs on the workspace and its own login
 		o.CanServe = nil
@@ -225,14 +234,14 @@ func (t *RouteTable) gateArm(
 const ArmOpencodeSub = "opencode-go"
 
 // armPinSkip records a pin the arm sets aside: a profile or opencode sub id that is neither arm nor agent's own login.
-func armPinSkip(agent, pin, arm string, own []string, res *PickResult) {
+func (pg *pickGate) armPinSkip(agent, pin, arm string, own []string, res *PickResult) {
 	if pin == "" || pin == arm || slices.Contains(own, pin) || (agent == "opencode" && pin == ArmOpencodeSub) {
 		return
 	}
 	// an opencode sub id is no registry row
 	label := agent + "·" + pin
 	if agent != "opencode" || !slices.Contains(providers.RouteOpencodeSubIDs, pin) {
-		label = skipLabel(Candidate{Agent: agent, Account: ProviderAccount(pin)})
+		label = skipLabel(Candidate{Agent: agent, Account: pg.providerAccount(pin)})
 	}
 	res.Skipped = append(res.Skipped, Skip{label, gateLadder, armOutside(arm)})
 }
@@ -305,7 +314,7 @@ func (t *RouteTable) gateCodexExtras(
 	if res.Want != "codex" {
 		return extra
 	}
-	if _, model, effort, ok := t.codexHop(ctx, pg.reg, alias, o, now); ok {
+	if _, model, effort, ok := t.codexHop(ctx, pg, alias, o, now); ok {
 		hop := t.gateSessionCopilot(ctx, pg, alias, model, effort, copilotSpec, nil, st, o, now, configured, res)
 		for _, c := range hop {
 			pg.held[c.Account] = true
@@ -324,11 +333,11 @@ func (t *RouteTable) gateSessionCopilot(
 	if spec.Off || reg == nil || !copilotPinOK(reg, spec) {
 		return nil
 	}
-	profile, _, ok := sessionDatabricks(ctx, reg, "copilot", o.canServe)
+	profile, _, ok := pg.sessionDatabricks(ctx, "copilot", o.canServe)
 	if !ok {
 		return nil
 	}
-	account := ProviderAccount(profile)
+	account := pg.providerAccount(profile)
 	if slices.ContainsFunc(own, func(c Candidate) bool { return c.Account == account }) || (own == nil && t.sessionCopilotTaken(pg, alias, account, model, spec, o)) {
 		return nil
 	}
@@ -337,7 +346,7 @@ func (t *RouteTable) gateSessionCopilot(
 
 // sessionCopilotTaken reports that account is already held by an earlier gate or is the copilot cell's own account.
 func (t *RouteTable) sessionCopilotTaken(pg *pickGate, alias, account, model string, spec PinSpec, o PickOpts) bool {
-	return (model == "" && pg.held[account]) || t.copilotCellOn(alias, account, spec, o)
+	return (model == "" && pg.held[account]) || t.copilotCellOn(pg, alias, account, spec, o)
 }
 
 // copilotPinOK is true when spec pins no profile, or pins a github one.
@@ -350,13 +359,13 @@ func copilotPinOK(reg *providers.Registry, spec PinSpec) bool {
 }
 
 // copilotCellOn reports whether the table's own copilot cell for alias already resolves to account.
-func (t *RouteTable) copilotCellOn(alias, account string, spec PinSpec, o PickOpts) bool {
+func (t *RouteTable) copilotCellOn(pg *pickGate, alias, account string, spec PinSpec, o PickOpts) bool {
 	cell, ok := t.Cell("copilot", alias)
 	if !ok {
 		return false
 	}
 	if spec.Profile != "" {
-		cell.Account = ProviderAccount(spec.Profile)
+		cell.Account = pg.providerAccount(spec.Profile)
 	} else if o.Account != nil {
 		if a, _ := o.Account("copilot", cell); a != "" {
 			cell.Account = a
@@ -366,13 +375,17 @@ func (t *RouteTable) copilotCellOn(alias, account string, spec PinSpec, o PickOp
 }
 
 // sessionDatabricks is the session or pinned profile when it is a signed-in Databricks row agent can use.
-func sessionDatabricks(ctx context.Context, reg *providers.Registry, agent string, canServe func(string, *providers.Provider) bool) (profile string, p *providers.Provider, ok bool) {
-	if reg == nil {
+func (pg *pickGate) sessionDatabricks(ctx context.Context, agent string, canServe func(string, *providers.Provider) bool) (profile string, p *providers.Provider, ok bool) {
+	if pg.reg == nil {
 		return "", nil, false
 	}
-	profile = providers.SessionLeadContext(ctx, nil, true)
-	p = reg.Providers[profile]
-	if p == nil || p.Preset != providers.PresetDatabricks || !canServe(agent, p) || !providers.CredentialPresent(p) {
+	if !pg.sessionRead {
+		pg.session = providers.SessionLeadContext(ctx, nil, true)
+		pg.sessionRead = true
+	}
+	profile = pg.session
+	p = pg.reg.Providers[profile]
+	if p == nil || p.Preset != providers.PresetDatabricks || !canServe(agent, p) || !pg.credentialPresent(p) {
 		return "", nil, false
 	}
 	return profile, p, true
@@ -435,4 +448,28 @@ func mergeLead(lead, base []Candidate) []Candidate {
 		}
 	}
 	return lead
+}
+
+func (pg *pickGate) providerAccount(profile string) string {
+	if account, ok := pg.accounts[profile]; ok {
+		return account
+	}
+	if pg.accounts == nil {
+		pg.accounts = make(map[string]string)
+	}
+	account := ProviderAccount(profile)
+	pg.accounts[profile] = account
+	return account
+}
+
+func (pg *pickGate) credentialPresent(p *providers.Provider) bool {
+	if present, ok := pg.credentials[p.Name]; ok {
+		return present
+	}
+	if pg.credentials == nil {
+		pg.credentials = make(map[string]bool)
+	}
+	present := providers.CredentialPresent(p)
+	pg.credentials[p.Name] = present
+	return present
 }
