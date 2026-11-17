@@ -369,7 +369,7 @@ func TestOpencodeHomeRowOpensPage(t *testing.T) {
 	if len(f.specs) != 1 {
 		t.Fatalf("Accounts opened %d account pages, want one", len(f.specs))
 	}
-	if got := strings.Join(rowLabels(f.specs[0].Rows), ","); !strings.HasPrefix(got, "not connected,Set up,+ Add account,Model") || strings.Contains(got, "API key") {
+	if got := strings.Join(rowLabels(f.specs[0].Rows), ","); !strings.HasPrefix(got, "not connected,Pin / default,Model,Fallback,Set up,+ Add account") || strings.Contains(got, "API key") {
 		t.Errorf("page rows = %s", got)
 	}
 }

@@ -8,6 +8,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
@@ -20,7 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// agentPinRows is agent's Profile row, a record Model row when no catalog row exists, and the Fallback row.
+// agentPinRows is the profile section: Pin / default, Databricks, Model (a record one without a catalog), Fallback.
 func agentPinRows(d *dialog, agent string) []billingRow {
 	cur := vault.GetAgentRecord(agent).Profile
 	provider := "pinned profile"
@@ -41,7 +42,12 @@ func agentPinRows(d *dialog, agent string) []billingRow {
 			}
 			return changed
 		}}}
-	if agent != "claude" && agent != "copilot" && modelRow(d, agent) == nil {
+	if r := dbxWorkspaceRow(d, agent); r != nil {
+		rows = append(rows, *r)
+	}
+	if r := modelRow(d, agent); r != nil {
+		rows = append(rows, *r)
+	} else if agent != "claude" && agent != "copilot" {
 		rows = append(rows, recordModelRow(d, agent))
 	}
 	return append(rows, fallbackRow(d, agent))
@@ -274,25 +280,63 @@ func seedRow() homeRow {
 	return homeRow{Name: "seed agents", State: fmt.Sprintf("%d set", n), Check: "profile each agent runs on", Run: func(d *dialog) { runSeed(d) }}
 }
 
-// databricksSignInRows pins an existing signed-in workspace through the shared profile writer.
-func databricksSignInRows(d *dialog, agent string) []billingRow {
+// dbxCheckTimeout bounds the sign-in check that follows a workspace pick.
+const dbxCheckTimeout = 10 * time.Second
+
+// dbxWorkspaceRow pins agent to one signed-in Databricks workspace; nil when no workspace has a credential.
+func dbxWorkspaceRow(d *dialog, agent string) *billingRow {
 	if d.reg == nil {
 		return nil
 	}
-	var rows []billingRow
-	for _, name := range providers.DatabricksProfiles(d.reg) {
-		p := d.reg.Providers[name]
-		if !providers.CredentialPresent(p) {
-			continue
-		}
-		rows = append(rows, billingRow{label: "Databricks " + name, desc: "use workspace " + mark(vault.GetAgentRecord(agent).Profile == name),
-			run: func() bool {
-				changed, err := writeAgentField(d, agent, "PROFILE", name)
-				if err != nil {
-					d.printf("%s: %v\n", agent, err)
-				}
-				return changed
-			}})
+	all := providers.DatabricksProfiles(d.reg)
+	signedIn := slices.DeleteFunc(slices.Clone(all), func(n string) bool { return !providers.CredentialPresent(d.reg.Providers[n]) })
+	if len(signedIn) == 0 {
+		return nil
 	}
-	return rows
+	cur := vault.GetAgentRecord(agent).Profile
+	desc := "workspace: pick one"
+	if slices.Contains(all, cur) {
+		desc = "workspace: " + textutil.TruncateCells(cur, 40, "…")
+	}
+	return &billingRow{label: "Databricks", desc: desc, run: func() bool {
+		name, ok := pickProfileName(d, agent, signedIn, cur)
+		if !ok {
+			return false
+		}
+		changed, err := writeAgentField(d, agent, "PROFILE", name)
+		if err != nil {
+			d.printf("%s: %v\n", agent, err)
+			return false
+		}
+		dbxTokenCheck(d, name)
+		return changed
+	}}
+}
+
+// dbxTokenCheck mints ws's token the way a headless ask does and prints one line; the token is never shown.
+func dbxTokenCheck(d *dialog, ws string) {
+	ctx, cancel := context.WithTimeout(providers.WithIdentity(context.Background(), providers.IdentityHeadless), dbxCheckTimeout)
+	defer cancel()
+	ctx = providers.WithNotes(ctx, func(string) {})
+	type outcome struct {
+		auth string
+		err  error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		res, _, err := dbxMint(ctx, ws)
+		done <- outcome{res.AuthType, err}
+	}()
+	var out outcome
+	select {
+	case out = <-done:
+	case <-ctx.Done():
+		out.err = fmt.Errorf("timed out after %s", dbxCheckTimeout)
+	}
+	if out.err == nil {
+		d.printf("databricks %s: token ok (%s)\n", ws, out.auth)
+		return
+	}
+	why := strings.Join(strings.Fields(textutil.RedactSecrets(out.err.Error())), " ")
+	d.printf("databricks %s: %s · fix: %s\n", ws, textutil.TruncateCells(why, 70, "…"), providers.LoginCommand(ws))
 }

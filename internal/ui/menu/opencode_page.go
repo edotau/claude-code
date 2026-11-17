@@ -89,14 +89,14 @@ func ocDetail(c opencode.OpencodeConn) string {
 func buildOpencodePage(d *dialog, ints []opencode.OpencodeIntegration, major int) opencodePage {
 	var p opencodePage
 	p.rows, p.conns = opencodeAccountRows(ints)
+	if d.reg != nil {
+		p.rows = append(p.rows, opencodeProfileRows(d)...)
+	}
 	setup := setupRow(d, "opencode")
 	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: setup.label, Detail: setup.desc, Section: "actions"},
 		run: func(*dialog) { setup.run() }})
 	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "+ Add account", Detail: "add a login with opencode auth login",
 		Section: "actions"}, run: ocAddAccount})
-	if d.reg != nil {
-		p.rows = append(p.rows, opencodeModelAndProfileRows(d)...)
-	}
 	p.rows = append(p.rows, ocRow{row: tui.ListRow{Label: "Back", Detail: "return to the previous menu"}, back: true})
 	p.title = opencodeTitle(d, p.conns, major)
 	return p
@@ -137,12 +137,9 @@ func connStatus(c opencode.OpencodeConn, routed bool) []string {
 	return status
 }
 
-// opencodeModelAndProfileRows are the Model action row and the profile-section rows.
-func opencodeModelAndProfileRows(d *dialog) []ocRow {
+// opencodeProfileRows are the profile-section rows: Pin / default, Databricks, Model, Fallback.
+func opencodeProfileRows(d *dialog) []ocRow {
 	var rows []ocRow
-	if r := modelRow(d, "opencode"); r != nil {
-		rows = append(rows, ocActionRow(r.label, r.desc, r.run))
-	}
 	for _, r := range agentPinRows(d, "opencode") {
 		row := ocActionRow(r.label, r.desc, r.run)
 		row.row.Section = "profile"

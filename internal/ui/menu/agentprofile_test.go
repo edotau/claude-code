@@ -3,6 +3,8 @@ package menu
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"errors"
 	"reflect"
 	"strconv"
 	"strings"
@@ -10,6 +12,7 @@ import (
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -216,18 +219,39 @@ func TestSaveSeedInvalidProfileWritesNothing(t *testing.T) {
 	}
 }
 
+// pickWorkspace drives agent's Databricks row with answer; the sign-in check mints through mint, never the network.
+func pickWorkspace(t *testing.T, d *dialog, agent, answer string, mint func(context.Context, string) (databricks.MintResult, string, error)) (*billingRow, string) {
+	t.Helper()
+	orig := dbxMint
+	dbxMint = mint
+	t.Cleanup(func() { dbxMint = orig })
+	in := strings.NewReader(answer)
+	var out bytes.Buffer
+	d.o.In, d.br, d.out = in, bufio.NewReader(in), &out
+	row := dbxWorkspaceRow(d, agent)
+	if row == nil {
+		t.Fatalf("%s has no Databricks row", agent)
+	}
+	row.run()
+	return row, out.String()
+}
+
+func mintM2M(context.Context, string) (databricks.MintResult, string, error) {
+	return databricks.MintResult{AuthType: providers.AuthM2M}, "fixture-token", nil
+}
+
 func TestDatabricksSignInPinsOnlyChosenAgent(t *testing.T) {
 	menuTestEnv(t)
 	d := worstCaseHomeDialog(t)
 	for _, a := range setupAgentNames {
 		vaulttest.SetRecord(t, a, "model", "keep-model")
-		rows := databricksSignInRows(d, a)
-		if len(rows) != 2 || rows[0].label != "Databricks qa" || rows[1].label != "Databricks prod" {
-			t.Fatalf("%s rows = %v; unsigned dev must be absent", a, rows)
-		}
 		before := vault.AgentRecords(setupAgentNames)
-		if !rows[1].run() {
-			t.Fatalf("%s workspace selection failed", a)
+		row, out := pickWorkspace(t, d, a, "2\n", mintM2M)
+		if row.label != "Databricks" || row.desc != "workspace: pick one" || !strings.Contains(out, "1) qa") || strings.Contains(out, "dev") {
+			t.Fatalf("%s row = %+v, picker %q; want one Databricks row over qa and prod, unsigned dev absent", a, row, out)
+		}
+		if !strings.Contains(out, "databricks prod: token ok (m2m)") || strings.Contains(out, "fixture-token") {
+			t.Errorf("%s output = %q, want the token check line without the token", a, out)
 		}
 		for _, name := range setupAgentNames {
 			got, want := vault.GetAgentRecord(name), before[name]
@@ -237,6 +261,35 @@ func TestDatabricksSignInPinsOnlyChosenAgent(t *testing.T) {
 			if !reflect.DeepEqual(got, want) {
 				t.Errorf("selecting %s changed %s: got %+v, want %+v", a, name, got, want)
 			}
+		}
+		if desc := dbxWorkspaceRow(d, a).desc; desc != "workspace: prod" {
+			t.Errorf("%s pinned row desc = %q", a, desc)
+		}
+	}
+}
+
+// A failed token check reports the fix and leaves the pin in place.
+func TestDatabricksPinSurvivesFailedTokenCheck(t *testing.T) {
+	menuTestEnv(t)
+	d := worstCaseHomeDialog(t)
+	fail := func(context.Context, string) (databricks.MintResult, string, error) {
+		return databricks.MintResult{}, "", errors.New("invalid_client\nbad secret")
+	}
+	_, out := pickWorkspace(t, d, "codex", "1\n", fail)
+	if got := vault.GetAgentRecord("codex").Profile; got != "qa" {
+		t.Errorf("profile = %q after a failed check, want qa kept", got)
+	}
+	if !strings.Contains(out, "databricks qa: invalid_client bad secret · fix: "+providers.LoginCommand("qa")) {
+		t.Errorf("output = %q, want the short error and the fix hint", out)
+	}
+}
+
+// No credentialed workspace, no row.
+func TestDatabricksRowAbsentWithoutCredentialedWorkspace(t *testing.T) {
+	reg := menuTestEnv(t)
+	for _, a := range setupAgentNames {
+		if r := dbxWorkspaceRow(&dialog{reg: reg, out: discardWriter{}}, a); r != nil {
+			t.Errorf("%s Databricks row = %+v with no signed-in workspace", a, r)
 		}
 	}
 }
@@ -284,11 +337,11 @@ func TestDatabricksSignedInDevAppearsAlongsideQaAndProd(t *testing.T) {
 	d := worstCaseHomeDialog(t)
 	vaulttest.Secret(t, providers.AuthSecretName(d.reg.Providers["dev"]), `{"refresh":"fixture-refresh"}`)
 	for _, a := range setupAgentNames {
-		rows := databricksSignInRows(d, a)
-		if len(rows) != 3 || rows[0].label != "Databricks dev" || rows[1].label != "Databricks qa" || rows[2].label != "Databricks prod" {
-			t.Fatalf("%s signed-in workspaces = %v", a, rows)
+		_, out := pickWorkspace(t, d, a, "1\n", mintM2M)
+		if !strings.Contains(out, "1) dev") || !strings.Contains(out, "2) qa") || !strings.Contains(out, "3) prod") {
+			t.Fatalf("%s picker = %q, want dev, qa and prod", a, out)
 		}
-		if !rows[0].run() || vault.GetAgentRecord(a).Profile != "dev" {
+		if vault.GetAgentRecord(a).Profile != "dev" {
 			t.Fatalf("%s did not pin dev", a)
 		}
 	}

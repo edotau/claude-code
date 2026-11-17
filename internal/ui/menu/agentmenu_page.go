@@ -92,20 +92,23 @@ var pickAgent = func(d *dialog, title string, rows [][2]string, start int) (int,
 	return order[idx], nil
 }
 
-// signInRows are the agent page rows that hold a credential; the rest are actions.
-var signInRows = map[string]bool{"Subscription": true, "API key": true, "Login": true, "OAuth token": true, "GitHub user": true}
+// signInRows are the agent page rows that start or hold a credential.
+var signInRows = map[string]bool{"Set up": true, "Subscription": true, "API key": true, "Login": true, "OAuth token": true, "GitHub user": true}
 
-// agentSections groups an agent page's rows under sign-in, actions and profile; order maps a shown index to rows'.
+// profileRows are the rows that choose what the agent runs on; every other row is an action.
+var profileRows = map[string]bool{"Pin / default": true, "Databricks": true, "Model": true, "Fallback": true}
+
+// agentSections groups an agent page's rows under sign-in, profile and actions; order maps a shown index to rows'.
 func agentSections(rows [][2]string) ([]tui.Section, []int) {
-	secs := []tui.Section{{Title: heading("sign-in")}, {Title: heading("actions")}, {Title: heading("profile")}}
+	secs := []tui.Section{{Title: heading("sign-in")}, {Title: heading("profile")}, {Title: heading("actions")}}
 	idx := make([][]int, len(secs))
 	for i, r := range rows {
-		k := 1
+		k := 2
 		switch {
-		case signInRows[r[0]] || strings.HasPrefix(r[0], "Databricks"):
+		case signInRows[r[0]]:
 			k = 0
-		case r[0] == "Pin / default", r[0] == "Fallback":
-			k = 2
+		case profileRows[r[0]]:
+			k = 1
 		}
 		secs[k].Rows, idx[k] = append(secs[k].Rows, r), append(idx[k], i)
 	}
@@ -130,11 +133,7 @@ func displayLabel(name string) string {
 // runAgentMenu shows one agent's submenu with its current mode (and verified) in the title, cursor on that mode's row.
 func runAgentMenu(d *dialog, name string, m agentMenu) bool {
 	internal := internalAgentName(name)
-	if r := modelRow(d, internal); r != nil {
-		m.rows = append(m.rows, *r)
-	}
 	activateOnSignIn(d, internal, m.rows)
-	m.rows = append(m.rows, databricksSignInRows(d, internal)...)
 	m.rows = append(m.rows, agentPinRows(d, internal)...)
 	if _, ok := setupLogins[internal]; ok {
 		m.rows = append([]billingRow{setupRow(d, internal)}, m.rows...)
@@ -272,7 +271,7 @@ func codexMenu(d *dialog) agentMenu {
 	key, ensure := codexKeyRow(d, loggedIn)
 	pinned := vault.GetAgentRecord("codex").Profile
 	return agentMenu{st, []billingRow{
-		{"Subscription", "ChatGPT login · plan limits " + bracket(loggedIn, withTier("logged in", st.tier.Name), "not logged in"), modeSubscription, func() bool {
+		{"Subscription", "ChatGPT plan login (profile chatgpt) " + bracket(loggedIn, withTier("logged in", st.tier.Name), "not logged in"), modeSubscription, func() bool {
 			if loggedIn {
 				d.printf("%-10s on its ChatGPT login (kept)\n", "codex")
 				return true
@@ -282,13 +281,13 @@ func codexMenu(d *dialog) agentMenu {
 		key,
 		{"Login", "browser, headless or API key sign-in", "", func() bool { return codexLogin(d, ensure) }},
 		{"Settings", "reasoning effort, verbosity", "", func() bool { return runCodexSettings(d) }},
-		{"Models", "discover what " + cmp.Or(pinned, "the pinned profile") + " serves", "", func() bool { return codexModels(d, pinned) }},
+		{"Discover models", "discover what " + cmp.Or(pinned, "the pinned profile") + " serves", "", func() bool { return codexModels(d, pinned) }},
 	}}
 }
 
 // codexKeyRow is the OPENAI_API_KEY row, switching a ChatGPT login to the key once confirmed; ensure is the bare setup.
 func codexKeyRow(d *dialog, loggedIn bool) (key billingRow, ensure func() bool) {
-	key = keyRow(d, "codex", "openai", "pay per token (OPENAI_API_KEY)")
+	key = keyRow(d, "codex", "openai", "OpenAI key, pay per token (profile openai)")
 	ensure = key.run
 	key.run = func() bool {
 		if !ensure() {
@@ -305,7 +304,7 @@ func codexKeyRow(d *dialog, loggedIn bool) (key billingRow, ensure func() bool) 
 // codexModels previews the shared menu merged with what profile serves, writes it after a confirm, lists Responses ids.
 func codexModels(d *dialog, profile string) bool {
 	if profile == "" {
-		d.printf("codex: no profile pinned; set one on the Profile row\n")
+		d.printf("codex: no profile pinned; set one on the Pin / default row\n")
 		return false
 	}
 	pl, err := codexMenuPlan(profile)
