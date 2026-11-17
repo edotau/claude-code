@@ -191,3 +191,11 @@ func TestEmitGeminiStopBlockIsJSON(t *testing.T) {
 		t.Errorf("code=%d stdout=%q stderr=%q", code, out.String(), errw.String())
 	}
 }
+
+func BenchmarkEmit(b *testing.B) {
+	r := Result{Context: "memory bank loaded", SystemMessage: "note"}
+	b.ReportAllocs()
+	for b.Loop() {
+		Emit("memory-start", "SessionStart", r, io.Discard, io.Discard)
+	}
+}

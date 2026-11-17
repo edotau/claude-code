@@ -115,3 +115,11 @@ func TestScanEditedResumeAndReplace(t *testing.T) {
 		t.Fatalf("other path = %v; want none", edited)
 	}
 }
+
+func BenchmarkAllowSet(b *testing.B) {
+	edited := []string{"a.go", "b/c.go", "/tmp/d.go", "e.md"}
+	b.ReportAllocs()
+	for b.Loop() {
+		allowSet("/tmp/repo", edited)
+	}
+}

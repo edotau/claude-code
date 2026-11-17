@@ -102,7 +102,7 @@ func TestRefRuleRefusesRouteCredentialAndInternalRefs(t *testing.T) {
 	}
 }
 
-// An unset, keep or set entry naming a route endpoint or proxy is refused with the route-endpoint message, value unechoed.
+// An unset, keep or set entry naming a route endpoint or proxy is refused with the route-endpoint message, unechoed.
 func TestOverlayUnsetKeepRefuseRouteEndpoints(t *testing.T) {
 	for _, doc := range []string{`{"unset":["ANTHROPIC_BASE_URL"]}`, `{"unset":["HTTPS_PROXY"]}`,
 		`{"keep":["OPENAI_BASE_URL"]}`, `{"set":{"AGY_LLM_GATEWAY_URL":"https://evil.example"}}`} {
@@ -185,7 +185,7 @@ func TestDispatchOverlayPrecedence(t *testing.T) {
 	}
 }
 
-// A run snapshot holding the overlay key empty means no overlay; an absent key or no snapshot still uses the stored one.
+// A run snapshot holding the overlay key empty means no overlay; an absent key or no snapshot uses the stored one.
 func TestDispatchOverlayContextSnapshotEmptyKeySuppressesStored(t *testing.T) {
 	vaulttest.Use(t)
 	stored := `{"provider":"databricks","profile":"auto"}`
