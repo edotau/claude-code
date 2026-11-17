@@ -265,17 +265,11 @@ func phaseDone(agents []Subagent) (done, total int) {
 
 // addWorkflowRun adds a run header then its phases -> agents, each phase showing done/total.
 func addWorkflowRun(l *layout, run WorkflowRun, now time.Time, home, cwd string) {
-	var sum int64
-	forEachRunAgent(run, func(sub Subagent) { sum += subTokens(sub) })
-	l.add(levelRun, "workflow "+run.Name, run.Status, age(run.Updated, now), "Σ"+textutil.CompactCount(sum)+"  "+run.ID)
+	l.add(levelRun, "workflow "+run.Name, run.Status, age(run.Updated, now), "Σ"+textutil.CompactCount(run.total.sum)+"  "+run.ID)
 	l.mark(run.Status == statusRunning, 1<<1)
 	for _, phase := range run.Phases {
 		done, total := phaseDone(phase.Agents)
-		var sum int64
-		for _, sub := range phase.Agents {
-			sum += subTokens(sub)
-		}
-		l.free(6, fmt.Sprintf("phase %s (%d/%d done) Σ%s", phase.Name, done, total, textutil.CompactCount(sum)))
+		l.free(6, fmt.Sprintf("phase %s (%d/%d done) Σ%s", phase.Name, done, total, textutil.CompactCount(phase.total.sum)))
 		for _, sub := range phase.Agents {
 			addSubagent(l, sub, now, home, cwd)
 		}
@@ -397,6 +391,7 @@ func (f *frame) draw(w io.Writer, tree *Tree, now time.Time) error {
 // nested is a dispatch placed under its parent: level is its depth in the list, sum its subtree's tokens.
 type nested struct {
 	Dispatch
+	index    int
 	level    int
 	guide    string
 	children bool
@@ -437,7 +432,7 @@ func nestDispatches(ds []Dispatch) []nested {
 		return nil
 	}
 	if len(ds) == 1 {
-		return []nested{{Dispatch: ds[0], sum: ds[0].tokens()}}
+		return []nested{{Dispatch: ds[0], sum: ds[0].subtreeSum(ds[0].tokens()), children: ds[0].total.children}}
 	}
 	kids, roots := dispatchLinks(ds)
 	out, seen := make([]nested, 0, len(ds)), make([]bool, len(ds))
@@ -445,7 +440,7 @@ func nestDispatches(ds []Dispatch) []nested {
 	walk = func(i, level int, prefix, guide string) int64 {
 		seen[i] = true
 		at := len(out)
-		out = append(out, nested{Dispatch: ds[i], level: level, guide: guide})
+		out = append(out, nested{Dispatch: ds[i], index: i, level: level, guide: guide, children: ds[i].total.children})
 		sum := ds[i].tokens()
 		for j, k := range kids[i] {
 			if !seen[k] {
@@ -454,11 +449,14 @@ func nestDispatches(ds []Dispatch) []nested {
 				if j == len(kids[i])-1 {
 					branch, next = "└─ ", "   "
 				}
-				sum += walk(k, level+1, prefix+next, prefix+branch)
+				childSum := walk(k, level+1, prefix+next, prefix+branch)
+				if !ds[i].total.ready {
+					sum += childSum
+				}
 			}
 		}
-		out[at].sum = sum
-		return sum
+		out[at].sum = ds[i].subtreeSum(sum)
+		return out[at].sum
 	}
 	for _, i := range roots {
 		walk(i, 0, "", "")
@@ -471,6 +469,7 @@ func nestDispatches(ds []Dispatch) []nested {
 	return out
 }
 
+// subModel recognizes the model prefix only when it cannot be ordinary task prose.
 func subModel(sub Subagent) string {
 	if model, _, ok := strings.Cut(sub.Description, ": "); ok && !strings.ContainsAny(model, " /\t\n") {
 		return strings.TrimPrefix(model, "databricks-")
@@ -478,6 +477,7 @@ func subModel(sub Subagent) string {
 	return "-"
 }
 
+// subTask preserves task prefixes containing spaces or paths.
 func subTask(sub Subagent) string {
 	if model, task, ok := strings.Cut(sub.Description, ": "); ok && model != "" && !strings.ContainsAny(model, " /\t\n") {
 		return task
@@ -485,41 +485,21 @@ func subTask(sub Subagent) string {
 	return sub.Description
 }
 
-func subTokens(sub Subagent) int64 {
-	sum := sub.Tokens.In + sub.Tokens.Out + sub.Tokens.CacheRead
-	for _, d := range sub.Dispatches {
-		sum += d.tokens()
-	}
-	return sum
-}
-
 func subTotal(sub Subagent) string {
-	if len(sub.Dispatches) == 0 {
+	if !sub.total.children {
 		return ""
 	}
-	return "Σ" + textutil.CompactCount(subTokens(sub))
+	return "Σ" + textutil.CompactCount(sub.total.sum)
 }
 
 func sessionTotal(s Session) string {
-	if len(s.Subagents) == 0 && len(s.Workflows) == 0 {
+	if !s.total.children {
 		return ""
 	}
-	sum := s.Tokens.In + s.Tokens.Out + s.Tokens.CacheRead
-	for _, sub := range s.Subagents {
-		for _, d := range sub.Dispatches {
-			sum += d.tokens()
-		}
-	}
-	for _, run := range s.Workflows {
-		forEachRunAgent(run, func(sub Subagent) {
-			for _, d := range sub.Dispatches {
-				sum += d.tokens()
-			}
-		})
-	}
-	return "Σ" + textutil.CompactCount(sum)
+	return "Σ" + textutil.CompactCount(s.total.sum)
 }
 
+// dispatchLinks treats missing parents and self-links as roots so partial records remain visible.
 func dispatchLinks(ds []Dispatch) (map[int][]int, []int) {
 	byID := make(map[string]int, len(ds))
 	for i, d := range ds {
@@ -534,4 +514,11 @@ func dispatchLinks(ds []Dispatch) (map[int][]int, []int) {
 		}
 	}
 	return kids, roots
+}
+
+func (d Dispatch) subtreeSum(uncached int64) int64 {
+	if d.total.ready {
+		return d.total.sum
+	}
+	return uncached
 }

@@ -32,6 +32,7 @@ func fixtureTree(t *testing.T) (*Tree, time.Time) {
 				Tokens: Tokens{In: 22700, Out: 2900}, Dispatches: []Dispatch{{Agent: "codex", Model: "gpt-6", Status: "ok", Duration: "15m30.472s"}}},
 			{Type: "opencode", Status: "stale", Depth: 2, Description: "é", Updated: now.Add(-5 * time.Hour), Tokens: Tokens{In: 5, Out: 1_200_000}},
 		}})
+	tree.Sessions[len(tree.Sessions)-1] = cacheSessionTotals(tree.Sessions[len(tree.Sessions)-1])
 	return tree, now
 }
 
@@ -417,7 +418,7 @@ func synthTree(n int, now time.Time) *Tree {
 			s.Subagents = append(s.Subagents, Subagent{Type: "codex", Status: status, Depth: 1, Updated: now, LastTool: "Bash",
 				Tokens: Tokens{In: 22700, Out: 2900}, Description: "a subagent description", Dispatches: []Dispatch{{ID: "d", Agent: "codex", Model: "gpt-6", Status: "ok", Duration: "9s"}}})
 		}
-		tree.Sessions = append(tree.Sessions, s)
+		tree.Sessions = append(tree.Sessions, cacheSessionTotals(s))
 	}
 	return tree
 }
@@ -441,7 +442,8 @@ func TestParentTotalsCountUsageOnce(t *testing.T) {
 		{ID: "root", Usage: &wire.Usage{InputTokens: 30}},
 		{ID: "child", Parent: "root", Usage: &wire.Usage{OutputTokens: 10}},
 	}}
-	s := Session{Tokens: sub.Tokens, Subagents: []Subagent{sub}}
+	s := cacheSessionTotals(Session{Tokens: sub.Tokens, Subagents: []Subagent{sub}})
+	sub = s.Subagents[0]
 	if got := sessionTotal(s); got != "Σ160" {
 		t.Errorf("session total = %q", got)
 	}
@@ -449,7 +451,8 @@ func TestParentTotalsCountUsageOnce(t *testing.T) {
 		t.Errorf("subagent total = %q", got)
 	}
 	var l layout
-	addWorkflowRun(&l, WorkflowRun{Name: "run", Phases: []WorkflowPhase{{Name: "phase", Agents: []Subagent{sub}}}}, time.Time{}, "", "")
+	run := cacheWorkflowTotal(WorkflowRun{Name: "run", Phases: []WorkflowPhase{{Name: "phase", Agents: []Subagent{sub}}}})
+	addWorkflowRun(&l, run, time.Time{}, "", "")
 	if got := strings.Join(l.lines(0, ""), "\n"); strings.Count(got, "Σ160") != 3 {
 		t.Errorf("workflow, phase and subagent totals missing: %s", got)
 	}
@@ -457,5 +460,43 @@ func TestParentTotalsCountUsageOnce(t *testing.T) {
 	sub.Description = "review the code: preserve this task prefix"
 	if got := subTask(sub); got != sub.Description {
 		t.Errorf("task prefix lost: %q", got)
+	}
+}
+
+func TestRenderSessionTotalSurvivesActiveFilter(t *testing.T) {
+	sub := Subagent{Status: statusRunning, Dispatches: []Dispatch{
+		{ID: "running", Agent: "live", Status: statusRunning, Usage: &wire.Usage{InputTokens: 100}},
+		{ID: "done1", Agent: "done1", Parent: "running", Status: "ok", Usage: &wire.Usage{InputTokens: 200}},
+		{ID: "done2", Agent: "done2", Parent: "done1", Status: "ok", Usage: &wire.Usage{InputTokens: 300}},
+	}}
+	for _, workflow := range []bool{false, true} {
+		s := Session{ID: "session", Status: statusActive, Subagents: []Subagent{sub}}
+		wantTotals := 3
+		if workflow {
+			s.Subagents = nil
+			s.Workflows = []WorkflowRun{{Status: statusRunning,
+				Phases: []WorkflowPhase{{Name: "phase", Agents: []Subagent{sub}}}}}
+			wantTotals = 5
+		}
+		s = cacheSessionTotals(s)
+		for i, view := range []Session{activeSession(s), s} {
+			var out strings.Builder
+			renderTree(&out, &Tree{Sessions: []Session{view}}, time.Time{}, 80, "")
+			rows := strings.Split(out.String(), "\n")
+			if !strings.Contains(rows[1], "Σ600") {
+				t.Errorf("workflow=%t detail=%t: session row = %q", workflow, i == 1, rows[1])
+			}
+			if got := strings.Count(out.String(), "Σ600"); got != wantTotals {
+				t.Errorf("workflow=%t detail=%t: got %d totals: %s", workflow, i == 1, got, out.String())
+			}
+			if strings.Contains(out.String(), "done2") != (i == 1) {
+				t.Errorf("detail=%t: wrong finished rows: %s", i == 1, out.String())
+			}
+			for _, row := range rows {
+				if textutil.DisplayWidth(row) > 80 {
+					t.Errorf("row exceeds 80 columns: %q", row)
+				}
+			}
+		}
 	}
 }
