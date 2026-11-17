@@ -1,6 +1,7 @@
 package setup
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io"
@@ -215,8 +216,8 @@ func workspaceHasIgnore(path string) (bool, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return false, err
 	}
-	for line := range strings.SplitSeq(string(b), "\n") {
-		if strings.TrimSpace(line) == workspaceIgnoreLine {
+	for line := range bytes.SplitSeq(b, []byte("\n")) {
+		if string(bytes.TrimSpace(line)) == workspaceIgnoreLine {
 			return true, nil
 		}
 	}
@@ -344,7 +345,7 @@ func workspaceStatusRow(kind, dir, p string, d fs.DirEntry, out io.Writer) error
 		return nil
 	}
 	rel, _ := filepath.Rel(dir, p)
-	state, target, err := workspaceEntryState(kind, rel, p)
+	state, target, err := workspaceEntryState(kind, rel, p, d)
 	if err != nil {
 		return err
 	}
@@ -355,8 +356,8 @@ func workspaceStatusRow(kind, dir, p string, d fs.DirEntry, out io.Writer) error
 	return nil
 }
 
-func workspaceEntryState(kind, rel, p string) (state, target string, err error) {
-	if fi, lerr := os.Lstat(p); lerr == nil && fi.Mode()&os.ModeSymlink != 0 {
+func workspaceEntryState(kind, rel, p string, d fs.DirEntry) (state, target string, err error) {
+	if d.Type()&os.ModeSymlink != 0 {
 		t, rerr := os.Readlink(p)
 		if rerr != nil {
 			return "", "", rerr
