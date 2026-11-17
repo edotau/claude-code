@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/inspect"
 )
 
 // verifyRepo makes a git repo holding files (path to content), committed once, and returns its root.
@@ -48,8 +49,8 @@ func verifyWrite(t *testing.T, dir, rel, body string) {
 }
 
 // verifyDiff is a Diff stand-in that prints rep as JSON and returns exit.
-func verifyDiff(rep agent.DiffReport, exit int, got *agent.DiffOptions) func(agent.DiffOptions) int {
-	return func(o agent.DiffOptions) int {
+func verifyDiff(rep inspect.DiffReport, exit int, got *inspect.DiffOptions) func(inspect.DiffOptions) int {
+	return func(o inspect.DiffOptions) int {
 		if got != nil {
 			*got = o
 		}
@@ -91,10 +92,10 @@ func TestVerifyUnionOutsideOnlyWhenFingerprintChanged(t *testing.T) {
 }
 
 func TestVerifyUnionGateFailureAndScope(t *testing.T) {
-	var got agent.DiffOptions
-	rep := agent.DiffReport{Gates: []agent.GateResult{{Name: "go test", Status: "FAIL"}}, Outside: []string{"x.go"}}
+	var got inspect.DiffOptions
+	rep := inspect.DiffReport{Gates: []inspect.GateResult{{Name: "go test", Status: "FAIL"}}, Outside: []string{"x.go"}}
 	diff := verifyDiff(rep, 1, nil)
-	env := CheckEnv{Diff: func(o agent.DiffOptions) int {
+	env := CheckEnv{Diff: func(o inspect.DiffOptions) int {
 		if o.Check {
 			got = o
 		}
@@ -115,7 +116,7 @@ func TestVerifyUnionGateFailureAndScope(t *testing.T) {
 	if _, err := CheckUnion(CheckEnv{}, CheckUnionInput{Dir: "/r"}); err == nil {
 		t.Fatal("empty union must be an error")
 	}
-	usage := CheckEnv{Diff: func(o agent.DiffOptions) int { io.WriteString(o.Err, "bad path\n"); return agent.DiffExitUsage }}
+	usage := CheckEnv{Diff: func(o inspect.DiffOptions) int { io.WriteString(o.Err, "bad path\n"); return inspect.DiffExitUsage }}
 	if _, err := CheckUnion(usage, CheckUnionInput{Dir: "/r", Packages: []CheckPackage{{ID: "1.1", Owns: []string{"a"}}}}); err == nil ||
 		!strings.Contains(err.Error(), "bad path") {
 		t.Fatalf("usage exit error = %v", err)
@@ -123,8 +124,8 @@ func TestVerifyUnionGateFailureAndScope(t *testing.T) {
 }
 
 // verifyPackages is a Diff stand-in: the union call (Check) reports union, other calls the report of their Verify id.
-func verifyPackages(union agent.DiffReport, byID map[string]agent.DiffReport) func(agent.DiffOptions) int {
-	return func(o agent.DiffOptions) int {
+func verifyPackages(union inspect.DiffReport, byID map[string]inspect.DiffReport) func(inspect.DiffOptions) int {
+	return func(o inspect.DiffOptions) int {
 		rep := union
 		if !o.Check {
 			rep = byID[o.Verify]
@@ -135,9 +136,9 @@ func verifyPackages(union agent.DiffReport, byID map[string]agent.DiffReport) fu
 }
 
 // verifyWindow is the report of a dispatch that ran from sec start to sec end and saw outside as outside its scope.
-func verifyWindow(start, end int, outside ...string) agent.DiffReport {
+func verifyWindow(start, end int, outside ...string) inspect.DiffReport {
 	at := func(sec int) string { return time.Unix(1_700_000_000+int64(sec), 0).UTC().Format(time.RFC3339) }
-	return agent.DiffReport{Outside: outside, Verify: &agent.VerifyReport{Start: at(start), End: at(end)}}
+	return inspect.DiffReport{Outside: outside, Verify: &inspect.VerifyReport{Start: at(start), End: at(end)}}
 }
 
 func verifyModTimes(sec int) func(string, string) (time.Time, error) {
@@ -151,9 +152,9 @@ func verifyModTimes(sec int) func(string, string) (time.Time, error) {
 
 func TestVerifyEachPackageIsCheckedAgainstItsOwnFiles(t *testing.T) {
 	pkgs := []CheckPackage{{ID: "1.1", Dispatch: "a", Owns: []string{"a.go"}}, {ID: "1.2", Dispatch: "b", Owns: []string{"b.go"}}}
-	run := func(a, b agent.DiffReport, mtime int, pkgs []CheckPackage) CheckUnionResult {
+	run := func(a, b inspect.DiffReport, mtime int, pkgs []CheckPackage) CheckUnionResult {
 		t.Helper()
-		env := CheckEnv{Diff: verifyPackages(agent.DiffReport{}, map[string]agent.DiffReport{"a": a, "b": b}),
+		env := CheckEnv{Diff: verifyPackages(inspect.DiffReport{}, map[string]inspect.DiffReport{"a": a, "b": b}),
 			ModTime: verifyModTimes(mtime)}
 		res, err := CheckUnion(env, CheckUnionInput{Dir: "/r", Packages: pkgs})
 		if err != nil {
@@ -182,7 +183,7 @@ func TestVerifyEachPackageIsCheckedAgainstItsOwnFiles(t *testing.T) {
 	// No window for the owner, or no write time, or no package running then: unattributed, never passed.
 	noOwnerRun := []CheckPackage{pkgs[0], {ID: "1.2", Owns: []string{"b.go"}}}
 	for label, got := range map[string]CheckUnionResult{
-		"owner without dispatch": run(verifyWindow(40, 60, "b.go"), agent.DiffReport{}, 50, noOwnerRun),
+		"owner without dispatch": run(verifyWindow(40, 60, "b.go"), inspect.DiffReport{}, 50, noOwnerRun),
 		"nobody ran then":        run(verifyWindow(40, 60, "b.go"), verifyWindow(0, 30), 90, pkgs),
 		"file gone":              run(verifyWindow(40, 60, "b.go"), verifyWindow(0, 30), -1, pkgs),
 	} {
@@ -200,8 +201,8 @@ func TestVerifyPackageWithoutOwnsIsAnError(t *testing.T) {
 }
 
 func TestVerifyRoutingProof(t *testing.T) {
-	var got agent.DiffOptions
-	rep := agent.DiffReport{Verify: &agent.VerifyReport{ID: "job-1", Agent: "opencode", Model: "m", Route: "prod",
+	var got inspect.DiffOptions
+	rep := inspect.DiffReport{Verify: &inspect.VerifyReport{ID: "job-1", Agent: "opencode", Model: "m", Route: "prod",
 		Mismatch: true, Mismatches: []string{"model: asked for \"x\", ran \"m\""}}}
 	res, err := RoutingProof(CheckEnv{Diff: verifyDiff(rep, 1, &got)}, "/r", "job-1")
 	if err != nil || !res.Mismatch || res.Agent != "opencode" || len(res.Mismatches) != 1 {
@@ -214,7 +215,7 @@ func TestVerifyRoutingProof(t *testing.T) {
 	if res, err = RoutingProof(CheckEnv{Diff: verifyDiff(rep, 0, nil)}, "/r", "job-1"); err != nil || res.Mismatch {
 		t.Fatalf("clean routing: %+v %v", res, err)
 	}
-	if _, err = RoutingProof(CheckEnv{Diff: verifyDiff(agent.DiffReport{}, 0, nil)}, "/r", "job-2"); err == nil {
+	if _, err = RoutingProof(CheckEnv{Diff: verifyDiff(inspect.DiffReport{}, 0, nil)}, "/r", "job-2"); err == nil {
 		t.Fatal("a report without a verify section must be an error")
 	}
 }
@@ -271,10 +272,10 @@ func TestVerifyGateRunTailAndExit(t *testing.T) {
 }
 
 func TestVerifyNoOwnerFileNamesTheOnlyPackageRunning(t *testing.T) {
-	run := func(a, b agent.DiffReport) CheckUnionResult {
+	run := func(a, b inspect.DiffReport) CheckUnionResult {
 		t.Helper()
-		union := agent.DiffReport{Outside: []string{"c.go"}}
-		env := CheckEnv{Diff: verifyPackages(union, map[string]agent.DiffReport{"a": a, "b": b}), ModTime: verifyModTimes(50)}
+		union := inspect.DiffReport{Outside: []string{"c.go"}}
+		env := CheckEnv{Diff: verifyPackages(union, map[string]inspect.DiffReport{"a": a, "b": b}), ModTime: verifyModTimes(50)}
 		res, err := CheckUnion(env, CheckUnionInput{Dir: "/r", Packages: []CheckPackage{
 			{ID: "1.1", Dispatch: "a", Owns: []string{"a.go"}}, {ID: "1.2", Dispatch: "b", Owns: []string{"b.go"}}}})
 		if err != nil {
@@ -293,7 +294,7 @@ func TestVerifyNoOwnerFileNamesTheOnlyPackageRunning(t *testing.T) {
 }
 
 // verifyWrote is rep with the files its dispatch recorded as written, under the repo /r.
-func verifyWrote(rep agent.DiffReport, files ...string) agent.DiffReport {
+func verifyWrote(rep inspect.DiffReport, files ...string) inspect.DiffReport {
 	abs := make([]string, len(files))
 	for i, f := range files {
 		abs[i] = "/r/" + f
@@ -331,7 +332,7 @@ func TestVerifyOverlappingLeavesUseRecordedWrites(t *testing.T) {
 	// b.go changed at sec 50 inside both windows; 1.1 is scoped (its Edit/Write are denied), 1.2 owns b.go.
 	cases := []struct {
 		name string
-		a, b agent.DiffReport
+		a, b inspect.DiffReport
 		pkgs []CheckPackage
 		want verifyWant
 	}{
@@ -349,7 +350,7 @@ func TestVerifyOverlappingLeavesUseRecordedWrites(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			env := CheckEnv{Diff: verifyPackages(agent.DiffReport{}, map[string]agent.DiffReport{"a": c.a, "b": c.b}),
+			env := CheckEnv{Diff: verifyPackages(inspect.DiffReport{}, map[string]inspect.DiffReport{"a": c.a, "b": c.b}),
 				ModTime: verifyModTimes(50)}
 			res, err := CheckUnion(env, CheckUnionInput{Dir: "/r", Packages: c.pkgs})
 			if err != nil {
@@ -392,30 +393,30 @@ func TestVerifyThreeParallelLeavesEachOwnTheirFiles(t *testing.T) {
 		{ID: "1.3", Dispatch: "c", Owns: []string{"c.go"}, Scoped: true}}
 	all := []string{"a.go", "b.go", "c.go"}
 	// leaf is the report of the leaf owning own, which saw every other changed file as outside its scope.
-	leaf := func(own string, wrote ...string) agent.DiffReport {
+	leaf := func(own string, wrote ...string) inspect.DiffReport {
 		outside := slices.DeleteFunc(slices.Clone(all), func(f string) bool { return f == own })
 		return verifyWrote(verifyWindow(0, 60, outside...), wrote...)
 	}
 	withD := append(slices.Clone(all), "d.go")
 	cases := []struct {
 		name    string
-		union   agent.DiffReport
-		a, b, c agent.DiffReport
+		union   inspect.DiffReport
+		a, b, c inspect.DiffReport
 		want    verifyWant
 	}{
-		{"every list holds all three files", agent.DiffReport{},
+		{"every list holds all three files", inspect.DiffReport{},
 			leaf("a.go", all...), leaf("b.go", all...), leaf("c.go", all...), verifyWant{}},
-		{"every list holds one peer's file", agent.DiffReport{},
+		{"every list holds one peer's file", inspect.DiffReport{},
 			leaf("a.go", "a.go", "b.go"), leaf("b.go", "b.go", "c.go"), leaf("c.go", "c.go", "a.go"), verifyWant{}},
-		{"1.2 wrote a.go by shell and its owner never listed it", agent.DiffReport{},
+		{"1.2 wrote a.go by shell and its owner never listed it", inspect.DiffReport{},
 			leaf("a.go", "b.go"), leaf("b.go", all...), leaf("c.go", "c.go"),
 			verifyWant{exit: CheckExitOutside, violator: "1.2"}},
-		{"d.go belongs to nobody: reported whoever listed it", agent.DiffReport{Outside: []string{"d.go"}},
+		{"d.go belongs to nobody: reported whoever listed it", inspect.DiffReport{Outside: []string{"d.go"}},
 			leaf("a.go", withD...), leaf("b.go", withD...), leaf("c.go", withD...), verifyWant{exit: CheckExitOutside}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			env := CheckEnv{Diff: verifyPackages(c.union, map[string]agent.DiffReport{"a": c.a, "b": c.b, "c": c.c}),
+			env := CheckEnv{Diff: verifyPackages(c.union, map[string]inspect.DiffReport{"a": c.a, "b": c.b, "c": c.c}),
 				ModTime: verifyModTimes(50)}
 			res, err := CheckUnion(env, CheckUnionInput{Dir: "/r", Packages: pkgs})
 			if err != nil {

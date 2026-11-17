@@ -1,6 +1,6 @@
 // `agents diff`: one deterministic answer to what changed, whether it stayed in the --path set, and the Go gates.
 
-package agent
+package inspect
 
 import (
 	"context"

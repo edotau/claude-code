@@ -1,4 +1,4 @@
-package agent
+package inspect
 
 import (
 	"encoding/json"
@@ -11,13 +11,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 // saveVerifyFixture stores a dispatch that ran 14:49:09..14:50:09 (-05:00) and a proxy log around that window.
-func saveVerifyFixture(t *testing.T, rec Record) string {
+func saveVerifyFixture(t *testing.T, rec agent.Record) string {
 	t.Helper()
-	setConfigDir(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	rec.Time, rec.DurationMs, rec.Status = time.Date(2026, 11, 13, 19, 49, 9, 0, time.UTC), 60_000, "ok"
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
@@ -50,7 +51,7 @@ func wantInOutput(t *testing.T, text string, wants ...string) {
 
 // The window keeps 4 of the 9 lines: the Z-form line counts, the same instant read as 14:49:50Z does not.
 func TestVerifyCountsProxyLinesInTheWindow(t *testing.T) {
-	logPath := saveVerifyFixture(t, Record{ID: "d1", Agent: "codex", Provider: "prod", Model: "m1", Route: "databricks:prod"})
+	logPath := saveVerifyFixture(t, agent.Record{ID: "d1", Agent: "codex", Provider: "prod", Model: "m1", Route: "databricks:prod"})
 	v, err := verifyDispatch("d1", logPath)
 	if err != nil {
 		t.Fatal(err)
@@ -74,7 +75,7 @@ func TestVerifyCountsProxyLinesInTheWindow(t *testing.T) {
 // The routing proof carries the dispatch's recorded writes, and a record with none carries no list.
 func TestVerifyCarriesRecordedWrites(t *testing.T) {
 	wrote := []string{"/r/a.go"}
-	logPath := saveVerifyFixture(t, Record{ID: "w1", Agent: "codex", Provider: "prod", Model: "m1", Wrote: &wrote})
+	logPath := saveVerifyFixture(t, agent.Record{ID: "w1", Agent: "codex", Provider: "prod", Model: "m1", Wrote: &wrote})
 	v, err := verifyDispatch("w1", logPath)
 	if err != nil || v.Wrote == nil || !slices.Equal(*v.Wrote, wrote) {
 		t.Fatalf("Wrote = %v, err %v", v.Wrote, err)
@@ -82,11 +83,11 @@ func TestVerifyCarriesRecordedWrites(t *testing.T) {
 	var out strings.Builder
 	renderVerify(&out, v)
 	wantInOutput(t, out.String(), "wrote: 1 files")
-	cut := []string{"/r/a.go", WroteTruncated}
+	cut := []string{"/r/a.go", agent.WroteTruncated}
 	out.Reset()
 	renderVerify(&out, &VerifyReport{Wrote: &cut})
 	wantInOutput(t, out.String(), "wrote: 1+ files")
-	saveVerifyFixture(t, Record{ID: "w2", Agent: "codex", Provider: "prod", Model: "m1"})
+	saveVerifyFixture(t, agent.Record{ID: "w2", Agent: "codex", Provider: "prod", Model: "m1"})
 	if v, err = verifyDispatch("w2", logPath); err != nil || v.Wrote != nil {
 		t.Fatalf("an old record must carry no list: %v, err %v", v.Wrote, err)
 	}
@@ -94,7 +95,7 @@ func TestVerifyCarriesRecordedWrites(t *testing.T) {
 
 // A dispatch= tag selects its own lines exactly, even from a concurrent dispatch on the same workspace and model.
 func TestVerifyMatchesByDispatchTag(t *testing.T) {
-	logPath := saveVerifyFixture(t, Record{ID: "d3", Agent: "codex", Provider: "prod", Model: "m1"})
+	logPath := saveVerifyFixture(t, agent.Record{ID: "d3", Agent: "codex", Provider: "prod", Model: "m1"})
 	lines := []string{
 		"2026-11-13T14:49:10-05:00 prod m1 200 1 1s via=h1 dispatch=d3",
 		"2026-11-13T14:49:20-05:00 prod m1 200 1 1s dispatch=d3 stream=broken:reset",
@@ -118,7 +119,7 @@ func TestVerifyMatchesByDispatchTag(t *testing.T) {
 
 // With no tag for this dispatch the window fallback counts untagged lines only, never another dispatch's.
 func TestVerifyFallbackSkipsOtherDispatchLines(t *testing.T) {
-	logPath := saveVerifyFixture(t, Record{ID: "d4", Agent: "codex", Provider: "prod", Model: "m1"})
+	logPath := saveVerifyFixture(t, agent.Record{ID: "d4", Agent: "codex", Provider: "prod", Model: "m1"})
 	lines := []string{
 		"2026-11-13T14:49:25-05:00 prod m1 429 1 1s dispatch=other",
 		"2026-11-13T14:49:30-05:00 prod m1 200 1 1s",
@@ -163,7 +164,7 @@ func TestParseProxyLineStopsAtMsg(t *testing.T) {
 
 // Finding 8: a slow old-stamped line appended last must not hide an earlier in-window line; a hit byte bound is noted.
 func TestVerifyScanSurvivesOldStampedLateLine(t *testing.T) {
-	logPath := saveVerifyFixture(t, Record{ID: "d8", Agent: "codex", Provider: "prod", Model: "m1"})
+	logPath := saveVerifyFixture(t, agent.Record{ID: "d8", Agent: "codex", Provider: "prod", Model: "m1"})
 	lines := []string{
 		"2026-11-13T14:49:10-05:00 prod m1 200 1 1s dispatch=d8",
 		"2026-11-13T14:20:00-05:00 prod m1 200 1 29m50s",
@@ -187,8 +188,8 @@ func TestVerifyScanSurvivesOldStampedLateLine(t *testing.T) {
 }
 
 func TestVerifyMismatchExitsOneAndUnknownIDExitsTwo(t *testing.T) {
-	saveVerifyFixture(t, Record{ID: "d2", Agent: "codex", Provider: "prod", Model: "m1", Fallback: "claude",
-		FallbackReason: "429", Request: RunOptions{Model: "other", Provider: "qa"}})
+	saveVerifyFixture(t, agent.Record{ID: "d2", Agent: "codex", Provider: "prod", Model: "m1", Fallback: "claude",
+		FallbackReason: "429", Request: agent.RunOptions{Model: "other", Provider: "qa"}})
 	dir := newDiffRepo(t)
 	code, out, _ := runDiff(t, DiffOptions{Dir: dir, Verify: "d2"})
 	if code != DiffExitGate {
@@ -209,13 +210,13 @@ func TestVerifyMismatchExitsOneAndUnknownIDExitsTwo(t *testing.T) {
 
 // With no --path, --verify scopes the diff to the brief's Owned: line (plus each source's _test.go) in a short report.
 func TestVerifyDefaultsPathToBriefOwned(t *testing.T) {
-	brief, err := RenderBrief(BriefInput{Task: "do it", Owned: []string{"pkg/p.go"}})
+	brief, err := agent.RenderBrief(agent.BriefInput{Task: "do it", Owned: []string{"pkg/p.go"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	saveVerifyFixture(t, Record{ID: "b1", Agent: "codex", Provider: "prod", Model: "m1", Request: RunOptions{Prompt: brief}})
-	plain := Record{ID: "b2", Time: time.Now(), Agent: "codex", Provider: "prod", Model: "m1", Status: "ok",
-		Request: RunOptions{Prompt: "no ownership line"}}
+	saveVerifyFixture(t, agent.Record{ID: "b1", Agent: "codex", Provider: "prod", Model: "m1", Request: agent.RunOptions{Prompt: brief}})
+	plain := agent.Record{ID: "b2", Time: time.Now(), Agent: "codex", Provider: "prod", Model: "m1", Status: "ok",
+		Request: agent.RunOptions{Prompt: "no ownership line"}}
 	if err := plain.Save(); err != nil {
 		t.Fatal(err)
 	}
@@ -243,8 +244,8 @@ func TestVerifyDefaultsPathToBriefOwned(t *testing.T) {
 
 // A --verify with no --path and a brief without an Owned line prints a short verdict, not every changed file.
 func TestVerifyWithoutOwnedPrintsShortVerdict(t *testing.T) {
-	saveVerifyFixture(t, Record{ID: "n1", Agent: "codex", Provider: "prod", Model: "m1",
-		Request: RunOptions{Prompt: "no ownership line"}})
+	saveVerifyFixture(t, agent.Record{ID: "n1", Agent: "codex", Provider: "prod", Model: "m1",
+		Request: agent.RunOptions{Prompt: "no ownership line"}})
 	dir := newDiffRepo(t)
 	for i := range 30 {
 		writeRepoFile(t, dir, fmt.Sprintf("many/f%02d.md", i), "x\n")

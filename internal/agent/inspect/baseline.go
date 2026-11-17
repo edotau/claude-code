@@ -1,6 +1,6 @@
 // The complexity gate's baseline: the detector's findings for a file at --base, so only what a change introduced fails.
 
-package agent
+package inspect
 
 import (
 	"bufio"

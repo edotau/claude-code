@@ -246,7 +246,7 @@ var writers = map[string]string{
 	"internal/gateway/server/sessions.go:saveLocked":            "router-sessions",
 	"internal/review/diff/pranalyzer.go:writeOutput":            unversioned("foreign: -o output"),
 	"internal/review/diff/gate.go:runStagedComplexity":          unversioned("foreign: staged-blob scratch copy, removed after the gate"),
-	"internal/agent/diff_baseline.go:writeBaseline":             unversioned("foreign: base-blob scratch copy, removed after the gate"),
+	"internal/agent/inspect/baseline.go:writeBaseline":          unversioned("foreign: base-blob scratch copy, removed after the gate"),
 	"internal/agent/ask/resultsave.go:SaveResult":               unversioned("export: a dispatch's answer text at the caller's --save path"),
 	"internal/review/source/quality_cli.go:emitQualityJSON":     unversioned("foreign: -o output"),
 	"internal/router/state.go:writeState":                       "quota",

@@ -1,4 +1,4 @@
-package agent
+package inspect
 
 import (
 	"bytes"
@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -72,7 +73,7 @@ type VerifyReport struct {
 
 // verifyDispatch builds the routing proof for dispatch id from its record and the proxy log at logPath.
 func verifyDispatch(id, logPath string) (*VerifyReport, error) {
-	rec, err := LoadRecord(id)
+	rec, err := agent.LoadRecord(id)
 	if err != nil {
 		return nil, fmt.Errorf("--verify %q: %w", id, err)
 	}
@@ -84,13 +85,13 @@ func verifyDispatch(id, logPath string) (*VerifyReport, error) {
 	rep := &VerifyReport{ID: rec.ID, Agent: rec.Agent, Workspace: rec.Provider, Route: rec.Route, Model: rec.Model,
 		Status: rec.Status, Fallback: fallbackText(rec), DurationMs: rec.DurationMs, Tokens: logTokens(rec.LogPath()),
 		Start: start.Local().Format(time.RFC3339), End: end.Local().Format(time.RFC3339),
-		Mismatches: routingMismatches(rec), Wrote: rec.Wrote, owned: ParseOwned(rec.Request.Prompt)}
+		Mismatches: routingMismatches(rec), Wrote: rec.Wrote, owned: agent.ParseOwned(rec.Request.Prompt)}
 	rep.Mismatch = len(rep.Mismatches) > 0
 	rep.Proxy = matchProxy(logPath, rec, start, end.Add(windowSlack))
 	return rep, nil
 }
 
-func fallbackText(rec Record) string {
+func fallbackText(rec agent.Record) string {
 	if rec.Fallback == "" && rec.RanAs == "" {
 		return "none"
 	}
@@ -102,7 +103,7 @@ func fallbackText(rec Record) string {
 }
 
 // routingMismatches lists where the run differs from the request: a fallback, another workspace, another model.
-func routingMismatches(rec Record) []string {
+func routingMismatches(rec agent.Record) []string {
 	var out []string
 	if rec.Fallback != "" || rec.RanAs != "" {
 		out = append(out, "fallback: "+fallbackText(rec))
@@ -114,7 +115,7 @@ func routingMismatches(rec Record) []string {
 }
 
 // modelMismatch compares the requested model with the one that ran; an alias that is part of the real name passes.
-func modelMismatch(rec Record) []string {
+func modelMismatch(rec agent.Record) []string {
 	m := rec.Request.Model
 	if m == "" || rec.Model == "" || strings.Contains(rec.Model+" "+rec.Invoked, m) {
 		return nil
@@ -211,7 +212,7 @@ func scanBackward(r io.ReaderAt, size int64, visit func(line string) bool) error
 }
 
 // matchProxy counts the proxy lines of rec's profile and model inside [start, end]; request ids make it exact.
-func matchProxy(logPath string, rec Record, start, end time.Time) ProxyMatch {
+func matchProxy(logPath string, rec agent.Record, start, end time.Time) ProxyMatch {
 	pm := ProxyMatch{Match: "none", Hosts: []string{}, NonOK: map[string]int{}}
 	if rec.Provider == "" || rec.Model == "" {
 		pm.Note = "the record names no provider or model, so it has no proxy profile to match"
@@ -244,7 +245,7 @@ func matchProxy(logPath string, rec Record, start, end time.Time) ProxyMatch {
 }
 
 // proxyKind: "tagged" for dispatch=<rec.ID>, "window" for an untagged in-range line in rec's workspace, else "".
-func proxyKind(pl proxyLine, rec Record, start, end time.Time) string {
+func proxyKind(pl proxyLine, rec agent.Record, start, end time.Time) string {
 	switch {
 	case pl.dispatch == rec.ID:
 		return "tagged"
@@ -255,7 +256,7 @@ func proxyKind(pl proxyLine, rec Record, start, end time.Time) string {
 }
 
 // windowLines reads the proxy log from its end up to verifyScanCap bytes (capped says it was hit), never by timestamp.
-func windowLines(logPath string, rec Record, start, end time.Time) (tagged, window []proxyLine, capped bool, err error) {
+func windowLines(logPath string, rec agent.Record, start, end time.Time) (tagged, window []proxyLine, capped bool, err error) {
 	f, err := os.Open(logPath)
 	if err != nil {
 		return nil, nil, false, err
@@ -285,7 +286,7 @@ func windowLines(logPath string, rec Record, start, end time.Time) (tagged, wind
 }
 
 // exactLines keeps the lines whose req= id appears in the dispatch's job log or event file.
-func exactLines(rec Record, hits []proxyLine) []proxyLine {
+func exactLines(rec agent.Record, hits []proxyLine) []proxyLine {
 	if !slices.ContainsFunc(hits, func(l proxyLine) bool { return l.req != "" }) {
 		return nil
 	}
