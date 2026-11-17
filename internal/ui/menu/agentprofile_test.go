@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -240,31 +241,78 @@ func mintM2M(context.Context, string) (databricks.MintResult, string, error) {
 	return databricks.MintResult{AuthType: providers.AuthM2M}, "fixture-token", nil
 }
 
-func TestDatabricksSignInPinsOnlyChosenAgent(t *testing.T) {
+// workspaceFixture pins opencode on qa, codex/gemini/claude on their own logins, copilot unpinned.
+func workspaceFixture(t *testing.T, d *dialog) {
+	t.Helper()
+	vaulttest.SetRecord(t, "opencode", "profile", "qa")
+	for _, a := range []string{"codex", "gemini", "claude"} {
+		vaulttest.SetRecord(t, a, "profile", signInProfile(d, a))
+	}
+	vaulttest.SetRecord(t, "copilot", "profile", "")
+}
+
+func profiles(agents ...string) map[string]string {
+	m := map[string]string{}
+	for _, a := range agents {
+		m[a] = vault.GetAgentRecord(a).Profile
+	}
+	return m
+}
+
+// Picking a workspace moves the page's agent and every agent on another workspace, no one else.
+func TestDatabricksPickSyncsAgentsOnWorkspaces(t *testing.T) {
 	menuTestEnv(t)
 	d := worstCaseHomeDialog(t)
-	for _, a := range setupAgentNames {
-		vaulttest.SetRecord(t, a, "model", "keep-model")
-		before := vault.AgentRecords(setupAgentNames)
-		row, out := pickWorkspace(t, d, a, "2\n", mintM2M)
-		if row.label != "Databricks" || row.desc != "workspace: pick one" || !strings.Contains(out, "1) qa") || strings.Contains(out, "dev") {
-			t.Fatalf("%s row = %+v, picker %q; want one Databricks row over qa and prod, unsigned dev absent", a, row, out)
+	workspaceFixture(t, d)
+	before := profiles("claude", "gemini", "copilot")
+	_, out := pickWorkspace(t, d, "codex", "2\n", mintM2M)
+	if got := vault.GetAgentRecord("codex").Profile; got != "prod" {
+		t.Errorf("page agent codex on own login: profile = %q, want prod", got)
+	}
+	if got := vault.GetAgentRecord("opencode").Profile; got != "prod" {
+		t.Errorf("opencode on qa: profile = %q, want prod", got)
+	}
+	if got := profiles("claude", "gemini", "copilot"); !reflect.DeepEqual(got, before) {
+		t.Errorf("own-login and unpinned agents moved: got %v, want %v", got, before)
+	}
+	if !strings.Contains(out, "databricks prod: also moved opencode\n") || strings.Count(out, "token ok") != 1 {
+		t.Errorf("output = %q, want one moved line naming opencode and one token check", out)
+	}
+}
+
+// The Pin / default picker syncs a workspace pick like the Databricks row and keeps other profiles per-agent.
+func TestPinPickerSyncsOnlyWorkspacePicks(t *testing.T) {
+	menuTestEnv(t)
+	d := worstCaseHomeDialog(t)
+	for _, tc := range []struct{ pick, opencode string }{{"prod", "prod"}, {"chatgpt", "qa"}} {
+		workspaceFixture(t, d)
+		idx := slices.Index(agentProfileChoices(d, "codex"), tc.pick)
+		if idx < 0 {
+			t.Fatalf("codex picker lacks %s", tc.pick)
 		}
-		if !strings.Contains(out, "databricks prod: token ok (m2m)") || strings.Contains(out, "fixture-token") {
-			t.Errorf("%s output = %q, want the token check line without the token", a, out)
+		in := strings.NewReader(strconv.Itoa(idx+1) + "\n")
+		var out bytes.Buffer
+		d.o.In, d.br, d.out = in, bufio.NewReader(in), &out
+		if _, err := pickAgentProfile(d, "codex", ""); err != nil {
+			t.Fatal(err)
 		}
-		for _, name := range setupAgentNames {
-			got, want := vault.GetAgentRecord(name), before[name]
-			if name == a {
-				want.Profile = "prod"
-			}
-			if !reflect.DeepEqual(got, want) {
-				t.Errorf("selecting %s changed %s: got %+v, want %+v", a, name, got, want)
-			}
+		if got := vault.GetAgentRecord("codex").Profile; got != tc.pick {
+			t.Errorf("pick %s: codex = %q", tc.pick, got)
 		}
-		if desc := dbxWorkspaceRow(d, a).desc; desc != "workspace: prod" {
-			t.Errorf("%s pinned row desc = %q", a, desc)
+		if got := vault.GetAgentRecord("opencode").Profile; got != tc.opencode {
+			t.Errorf("pick %s: opencode = %q, want %s", tc.pick, got, tc.opencode)
 		}
+	}
+}
+
+// A panic in the token mint prints one generic line, never the panic value.
+func TestDatabricksTokenCheckPanicPrintsGenericLine(t *testing.T) {
+	menuTestEnv(t)
+	d := worstCaseHomeDialog(t)
+	boom := func(context.Context, string) (databricks.MintResult, string, error) { panic("secret-panic-value") }
+	_, out := pickWorkspace(t, d, "codex", "1\n", boom)
+	if strings.Contains(out, "secret-panic-value") || !strings.Contains(out, "databricks qa: token check failed unexpectedly") {
+		t.Errorf("output = %q, want the generic failure line only", out)
 	}
 }
 
