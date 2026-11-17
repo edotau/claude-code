@@ -9,11 +9,13 @@ import (
 	"io"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -124,7 +126,11 @@ func (e *endWriter) Write(p []byte) (int, error) {
 // emitResult prints rec's envelope (json) or log, ask line and resume hint (text), and maps the job to an exit code.
 func emitResult(prefix string, rec agent.Record, log, format string) int {
 	if format == helptext.JSON {
-		if err := helptext.WriteJSON(os.Stdout, rec.ResultEnvelope(os.Stderr)); err != nil {
+		env := struct {
+			wire.Envelope
+			Observed *agent.Observed `json:"observed,omitempty"`
+		}{rec.ResultEnvelope(os.Stderr), agent.ObservedOf(rec)}
+		if err := helptext.WriteJSON(os.Stdout, env); err != nil {
 			return helptext.Fail("%s: %v", prefix, err)
 		}
 		return resultExit(rec)
@@ -165,7 +171,7 @@ func resultExit(rec agent.Record) int {
 	return 1
 }
 
-// Send is `agents send`: one user turn to live session id, streamed in format; exit 1 unless the turn ends ok.
+// Send is `agents send`: one turn to live session id, or a resume of finished dispatch id; exit 1 unless ok.
 func Send(id, task, format string) int {
 	prompt, err := resolveAskPrompt(task)
 	if err != nil {
@@ -175,6 +181,9 @@ func Send(id, task, format string) int {
 	defer stop()
 	if rec, ferr := agent.LoadRecord(id); ferr == nil {
 		id = rec.ID
+		if !rec.Live {
+			return resumeSend(ctx, rec, prompt, format)
+		}
 	}
 	env, err := agent.SendLive(ctx, id, prompt, stdoutSink(format, id))
 	if err != nil {
@@ -187,6 +196,29 @@ func Send(id, task, format string) int {
 		return 1
 	}
 	return 0
+}
+
+// resumeSend answers a finished dispatch's session through the --retry path; the new dispatch is rec's child.
+func resumeSend(ctx context.Context, rec agent.Record, prompt, format string) int {
+	if err := checkResumable(rec); err != nil {
+		return helptext.Fail("agents send: %v", err)
+	}
+	_, values := agent.RunValues(ctx, nil)
+	values[proc.DispatchIDEnv], values[proc.DispatchDepthEnv] = rec.ID, strconv.Itoa(rec.Depth)
+	return runCtx(proc.WithValues(ctx, values), []string{"--retry", rec.ID, "--format", format, "--", prompt}, "", os.Stdout)
+}
+
+// checkResumable names why rec cannot be resumed: still running, no session id recorded, or a fallback agent's session.
+func checkResumable(rec agent.Record) error {
+	switch {
+	case rec.Alive():
+		return fmt.Errorf("dispatch %s is still running and is not a live session (claude-code agents wait %s, then send)", rec.ID, rec.ID)
+	case rec.SessionID == "":
+		return fmt.Errorf("dispatch %s recorded no session id, so there is nothing to resume", rec.ID)
+	case rec.RanAs != "" && rec.RanAs != rec.Agent:
+		return fmt.Errorf("dispatch %s ran on %s as a fallback for %s; that session cannot be resumed as %s", rec.ID, rec.RanAs, rec.Agent, rec.Agent)
+	}
+	return nil
 }
 
 // printLiveEnvelope writes the turn's envelope (one JSON line) or closing newline (text), returning any write failure.

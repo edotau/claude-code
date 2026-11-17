@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -368,5 +369,50 @@ func TestDispatchLogTextAndJSON(t *testing.T) {
 	var recs []agent.Record
 	if err := json.Unmarshal([]byte(out), &recs); err != nil || len(recs) != 2 {
 		t.Errorf("json stdout = %q (%v), want two records", out, err)
+	}
+}
+
+// send resumes a finished dispatch as a child with its posture; a running or session-less one launches nothing.
+func TestSendResumesFinishedDispatch(t *testing.T) {
+	jobsEnv(t)
+	t.Setenv("PATH", t.TempDir()) // no agent binary: the resume is recorded, then fails to start
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(proc.DispatchIDEnv, "outer")
+	perms, err := agent.ParsePermissions("", []string{"Read"}, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, _ := os.Getwd()
+	req := agent.RunOptions{Prompt: "first", Tools: true, ReadOnly: true, Effort: "low", WorkDir: cwd, Permissions: perms}
+	fin := agent.NewRecord("claude", req, time.Now().Add(-3*time.Hour))
+	fin.Finish(wire.Result{SessionID: "sess-1"}, nil, time.Second)
+	bare := agent.NewRecord("claude", req, time.Now().Add(-2*time.Hour))
+	bare.Finish(wire.Result{}, nil, time.Second)
+	busy := agent.NewRecord("claude", req, time.Now())
+	busy.PID = os.Getpid()
+	for _, r := range []agent.Record{fin, bare, busy} {
+		if err := r.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct{ id, want string }{{busy.ID, "still running"}, {bare.ID, "no session id"}} {
+		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Send(tc.id, "again", "text") })
+		if code != 1 || !strings.Contains(stderr, tc.want) || len(agent.RecentRecords(10)) != 3 {
+			t.Fatalf("send %s: exit %d, stderr %q, %d records; want exit 1 naming %q and nothing launched", tc.id, code, stderr, len(agent.RecentRecords(10)), tc.want)
+		}
+	}
+	hosttest.CaptureOutput(t, func() int { return Send(fin.ID, "follow up", "json") })
+	recs := agent.RecentRecords(10)
+	if len(recs) != 4 {
+		t.Fatalf("%d records, want 4 (the resume is the only new one)", len(recs))
+	}
+	got := recs[0]
+	if got.ID == fin.ID || got.Parent != fin.ID || got.Agent != "claude" || got.Depth != fin.Depth+1 {
+		t.Errorf("resume record = id %s agent %s parent %q depth %d; want a new claude child of %s", got.ID, got.Agent, got.Parent, got.Depth, fin.ID)
+	}
+	r := got.Request
+	if r.Prompt != "follow up" || r.SessionID != "sess-1" || !r.ReadOnly || !r.Tools || r.Effort != "low" || r.WorkDir != cwd ||
+		!reflect.DeepEqual(agent.RuleStrings(r.Permissions.Allow), []string{"Read"}) {
+		t.Errorf("resume request = %+v; want the record's session, tools, read-only, effort, workdir and permissions with the new prompt", r)
 	}
 }

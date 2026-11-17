@@ -2,6 +2,7 @@ package ask
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -452,7 +453,7 @@ func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, f
 	if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
 		return failAskCode(format, *s.Name, err, 2), true
 	}
-	*prompt, *s.rubric = rec.Request.Prompt, ""
+	*prompt, *s.rubric = cmp.Or(*prompt, rec.Request.Prompt), "" // a typed task replaces the logged one
 	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
 	return 0, false
 }

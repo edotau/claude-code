@@ -84,6 +84,11 @@ func Run(args []string, verb string) int { return runTo(args, verb, os.Stdout) }
 
 // runTo is Run writing the answer and envelope to out.
 func runTo(args []string, verb string, out io.Writer) int {
+	return runCtx(context.Background(), args, verb, out)
+}
+
+// runCtx is runTo under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
+func runCtx(ctx context.Context, args []string, verb string, out io.Writer) int {
 	fs, f := askFlagSet()
 	if verb != "" {
 		retargetPage(fs, verb)
@@ -101,7 +106,7 @@ func runTo(args []string, verb string, out io.Writer) int {
 	if remote.IsSelf(f.host) { // --host naming this machine runs here
 		f.host = ""
 	}
-	r := &askRun{ctx: context.Background(), f: f, fs: fs, args: args, out: out}
+	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, out: out}
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
 		if code, done := phase(); done {
 			return code

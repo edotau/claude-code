@@ -20,7 +20,8 @@ A flag an agent can't honor is named in the envelope's `dropped`, never silent. 
 events (`result` holds the envelope; each dispatch also writes `state/harness/dispatch/<id>.events.jsonl`); `--env
 NAME=VALUE` reaches every agent (credential-looking names refused); `--host <h>` runs the ask on that host over ssh
 (`rules/harness/network.md`); `--agent claude|gemini --live` holds one session open and `agents send <id> "<task>"`
-feeds it (one turn in flight, ≤4 sessions).
+feeds it (one turn in flight, ≤4 sessions). On a finished dispatch of any agent, `agents send <id> "<task>"` resumes
+its session and records the reply as a child dispatch.
 
 ## Fallback
 
