@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -71,6 +72,10 @@ type Dispatch struct {
 	Repo           string `json:"repo,omitempty"`    // main checkout root; set on the machine-wide running list
 	Route          string `json:"route,omitempty"`   // the overlay confinement it was launched on; "" is no overlay confinement
 	Task           string `json:"task,omitempty"`    // first line of the prompt
+
+	Parent string      `json:"parent,omitempty"` // id of the dispatch that launched this one
+	Depth  int         `json:"depth,omitempty"`  // 0 for a dispatch launched outside any other
+	Usage  *wire.Usage `json:"usage,omitempty"`  // the record's own token counts, never a subtree sum
 
 	LastSignal   time.Time `json:"lastSignal,omitzero"`    // running only: newest of the event file, log or start time
 	SignalSource string    `json:"signalSource,omitempty"` // which of events|log|record LastSignal came from

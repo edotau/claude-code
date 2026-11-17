@@ -4,10 +4,13 @@ import (
 	"errors"
 	"io"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
+
+	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
 // fixtureTree is the testdata tree plus a long-named session and nested subagents, so column widths differ.
@@ -159,5 +162,42 @@ func TestDispatchCellsFlagsFallback(t *testing.T) {
 	row := strings.Join(dispatchCells(Dispatch{Agent: "codex", Fallback: "claude"}, time.Now()), " ")
 	if !strings.Contains(row, "claude→codex") || !strings.Contains(row, "⚠ fallback") {
 		t.Errorf("dispatchCells(fallback) = %q, want the chain and the flag", row)
+	}
+}
+
+// Root, child and grandchild nest by Parent with subtree sums in 80 columns; a legacy dispatch renders as before.
+func TestRenderNestsDispatchesWithSubtreeTokens(t *testing.T) {
+	use := func(in, out int) *wire.Usage { return &wire.Usage{InputTokens: in, OutputTokens: out} }
+	legacy := Dispatch{ID: "legacy-codex", Agent: "codex", Model: "gpt-6", Status: "ok", Duration: "9s", Task: "old task"}
+	chain := []Dispatch{
+		{ID: "root-claude", Agent: "claude", Model: "sonnet", Status: "ok", Duration: "1m", Usage: use(1000, 500)},
+		{ID: "child-codex", Agent: "codex", Model: "gpt-6", Status: "ok", Duration: "40s", Parent: "root-claude", Depth: 1, Usage: use(20000, 8000)},
+		{ID: "grand-opencode", Agent: "opencode", Status: "ok", Duration: "9s", Parent: "child-codex", Depth: 2, Usage: use(40000, 6000)},
+	}
+	now := time.Now()
+	render := func(width int, ds ...Dispatch) []string {
+		var b strings.Builder
+		renderTree(&b, &Tree{Dispatches: ds}, now, width)
+		return strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
+	}
+	// legacy first, then the chain given grandchild-first: the children must still follow their parents
+	lines := render(0, legacy, chain[2], chain[1], chain[0])
+	for i, want := range []string{"legacy-codex", "root-claude", "↳ child-codex", "↳ grand-opencode"} {
+		if i+1 >= len(lines) || !strings.Contains(lines[i+1], want) {
+			t.Fatalf("row %d want %q in %q", i, want, strings.Join(lines, "\n"))
+		}
+	}
+	for i, want := range []string{"1.5k Σ75.5k", "28k Σ74k", "46k"} {
+		if got := lines[i+2]; !strings.Contains(got, want) || (i == 2 && strings.Contains(got, "Σ")) {
+			t.Errorf("row %q: want tokens %q", got, want)
+		}
+	}
+	if got, alone := strings.Fields(lines[1]), strings.Fields(render(0, legacy)[1]); !slices.Equal(got, alone) {
+		t.Errorf("legacy row = %q, want %q as when alone", got, alone)
+	}
+	for _, line := range render(80, legacy, chain[0], chain[1], chain[2]) {
+		if n := utf8.RuneCountInString(line); n > 80 {
+			t.Errorf("row is %d columns, want <= 80: %q", n, line)
+		}
 	}
 }

@@ -316,6 +316,7 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 		ID: rec.ID, Agent: rec.Agent, Provider: rec.Provider, Model: cmp.Or(rec.Model, rec.Request.Model),
 		Status: rec.Status, Duration: duration, Fallback: rec.Fallback,
 		FallbackReason: rec.FallbackReason, Matched: matched, Route: rec.Route, Task: task,
+		Parent: rec.Parent, Depth: rec.Depth, Usage: rec.Usage,
 	}, rec, now)
 }
 
