@@ -557,7 +557,7 @@ func agentRouteRows(d *dialog) ([]string, [][2]string) {
 	for _, n := range configure.SeedProfiles(d.reg, d.o.Agent) {
 		p := d.reg.Providers[n]
 		own := p.Auth.Login == d.o.Agent
-		if !own && n != session && !(p.Preset == providers.PresetDatabricks && providers.CredentialPresent(p)) {
+		if !own && n != session && (p.Preset != providers.PresetDatabricks || !providers.CredentialPresent(p)) {
 			continue
 		}
 		detail := p.Provider

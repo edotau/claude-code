@@ -70,8 +70,12 @@ type agentMenu struct {
 }
 
 // agentMenus builds each agent's submenu; the top menu reads only its state.
-var agentMenus = map[string]func(d *dialog) agentMenu{
-	"claude": claudeMenu, "codex": codexMenu, "gemini": geminiMenu, "opencode": opencodeMenu, "copilot": copilotMenu,
+var agentMenus map[string]func(d *dialog) agentMenu
+
+func init() {
+	agentMenus = map[string]func(d *dialog) agentMenu{
+		"claude": claudeMenu, "codex": codexMenu, "gemini": geminiMenu, "opencode": opencodeMenu, "copilot": copilotMenu,
+	}
 }
 
 // pickAgent is the submenu picker seam; tests replace it.
@@ -98,9 +102,9 @@ func agentSections(rows [][2]string) ([]tui.Section, []int) {
 	for i, r := range rows {
 		k := 1
 		switch {
-		case signInRows[r[0]]:
+		case signInRows[r[0]] || strings.HasPrefix(r[0], "Databricks"):
 			k = 0
-		case r[0] == "Profile", r[0] == "Model", r[0] == "Fallback":
+		case r[0] == "Pin / default", r[0] == "Fallback":
 			k = 2
 		}
 		secs[k].Rows, idx[k] = append(secs[k].Rows, r), append(idx[k], i)
@@ -130,6 +134,7 @@ func runAgentMenu(d *dialog, name string, m agentMenu) bool {
 		m.rows = append(m.rows, *r)
 	}
 	activateOnSignIn(d, internal, m.rows)
+	m.rows = append(m.rows, databricksSignInRows(d, internal)...)
 	m.rows = append(m.rows, agentPinRows(d, internal)...)
 	if _, ok := setupLogins[internal]; ok {
 		m.rows = append([]billingRow{setupRow(d, internal)}, m.rows...)
@@ -160,14 +165,22 @@ func internalAgentName(name string) string {
 	return internal
 }
 
-// activateOnSignIn wraps each key or Login row so a successful sign-in switches the agent back on.
+// activateOnSignIn pins an own login after sign-in; API keys retain their existing activation behavior.
 func activateOnSignIn(d *dialog, internal string, rows []billingRow) {
 	for i, r := range rows {
 		if run := r.run; r.key != "" || r.label == "Login" {
 			rows[i].run = func() bool {
 				ok := run()
 				if ok {
-					agentActiveOn(d, internal)
+					if r.key == modeAPIKey {
+						agentActiveOn(d, internal)
+						return true
+					}
+					profile := signInProfile(d, internal)
+					if _, err := writeAgentField(d, internal, "PROFILE", profile); err != nil {
+						d.printf("%s: %v\n", internal, err)
+						return false
+					}
 				}
 				return ok
 			}
@@ -410,7 +423,7 @@ func copilotMenu(d *dialog) agentMenu {
 	if auth.Source == copilot.SrcStoredToken {
 		st = agentState{mode: modeAPIKey, verified: auth.Account != ""}
 	}
-	chain := namedRouteChain(ctx, d, auth.Account)
+	chain := copilot.RouteChain(ctx, d.reg)
 	if len(chain) > 0 && chain[0].When == "pinned" && chain[0].OK {
 		st = agentState{mode: backendLabel(d.reg, vault.GetAgentRecord("copilot").Profile), verified: true}
 	}
@@ -434,42 +447,22 @@ func copilotMenu(d *dialog) agentMenu {
 			return pickGitHubUser(d, auth)
 		}},
 	}
-	if fb := copilotFallback(chain); fb != "" {
-		rows = append(rows, billingRow{"Fallback", fb, "", func() bool {
-			for i, s := range chain {
-				d.printf("%d. %-24s %-22s %s\n", i+1, s.Label, s.When, bracket(s.OK, "usable", "not set up"))
-			}
-			return false
-		}})
-	}
 	return agentMenu{st, rows}
 }
 
-// namedRouteChain is copilot's route chain with the GitHub step labelled by account.
-func namedRouteChain(ctx context.Context, d *dialog, account string) []copilot.RouteStep {
-	chain := copilot.RouteChain(ctx, d.reg)
-	for i := range chain {
-		if chain[i].Label == "GitHub" && account != "" {
-			chain[i].Label += " " + account
-		}
-	}
-	return chain
-}
-
-// copilotFallback is the route chain after the first usable step.
+// copilotFallback names the first usable fallback and its condition after the intended pin or GitHub login.
 func copilotFallback(chain []copilot.RouteStep) string {
-	first := slices.IndexFunc(chain, func(s copilot.RouteStep) bool { return s.OK })
-	var rest []string
-	for _, s := range chain[first+1:] {
-		if s.OK {
-			label := s.Label
-			if s.When != "fallback" {
-				label += " (" + s.When + ")"
-			}
-			rest = append(rest, label)
+	for _, s := range chain[min(1, len(chain)):] {
+		if !s.OK {
+			continue
 		}
+		when := s.When
+		if when == "fallback" {
+			when = "route fails / no credits"
+		}
+		return s.Label + " (" + when + ")"
 	}
-	return strings.Join(rest, " → ")
+	return ""
 }
 
 // copilotEffortChoices: menu label → --reasoning-effort value; the fallback when the SDK catalog is unavailable.
@@ -667,15 +660,25 @@ func pinCopilotProfile(d *dialog, user string) bool {
 	return true
 }
 
-// opencodeMenu is the home row's state only; its page is runOpencodePage (opencode_page.go).
+// opencodeMenu keeps account management behind the shared agent layout.
 func opencodeMenu(d *dialog) agentMenu {
+	st := agentState{mode: modeNone}
 	if opencode.OpencodeOwnLoginPresent() {
-		return agentMenu{state: agentState{modeSubscription, providers.Subscription{Raw: "opencode-go"}, true}}
+		st = agentState{modeSubscription, providers.Subscription{Raw: "opencode-go"}, true}
+	} else if opencode.OpencodeCopilotLoginPresent() {
+		st = agentState{modeSubscription, providers.Subscription{}, true}
 	}
-	if opencode.OpencodeCopilotLoginPresent() {
-		return agentMenu{state: agentState{modeSubscription, providers.Subscription{}, true}}
-	}
-	return agentMenu{state: agentState{mode: modeNone}}
+	return agentMenu{st, []billingRow{
+		{"Login", "opencode auth login", "", func() bool {
+			if err := opencodeSignIn(); err != nil {
+				d.printf("opencode: %v\n", err)
+				return false
+			}
+			configure.DiscoverAfterSignin()
+			return true
+		}},
+		{"Accounts", "manage connected accounts", "", func() bool { runOpencodePage(d); return d.changed }},
+	}}
 }
 
 // runAgy is AgySignIn with its message printed on d.

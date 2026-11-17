@@ -336,7 +336,7 @@ func TestOpencodePageAdapterErrorStillRenders(t *testing.T) {
 	}
 }
 
-// TestOpencodeHomeRowOpensPage: the home row keeps opencodeMenu's state columns; its action opens the new page.
+// The home row opens the shared agent layout; Accounts retains the searchable account page.
 func TestOpencodeHomeRowOpensPage(t *testing.T) {
 	reg := menuTestEnv(t)
 	d := &dialog{reg: reg, out: discardWriter{}, o: Options{Agent: "opencode"}}
@@ -350,10 +350,24 @@ func TestOpencodeHomeRowOpensPage(t *testing.T) {
 	}
 	f := &ocFake{}
 	installOCFake(t, f)
-	title, _, _ := fakePickAgent(t, -1)
+	title, _, shown := fakePickAgent(t, -1)
 	actions[0](d)
-	if len(f.specs) != 1 || !strings.HasPrefix(f.specs[0].Title, "opencode (current: not set up · not connected") || *title != "" {
-		t.Fatalf("opencode row must open the list page, not runAgentMenu: specs=%d title=%q", len(f.specs), *title)
+	if len(f.specs) != 0 || !strings.HasPrefix(*title, "opencode (current:") {
+		t.Fatalf("opencode must open the shared layout: specs=%d title=%q", len(f.specs), *title)
+	}
+	accountRow := -1
+	for i, row := range *shown {
+		if row[0] == "Accounts" {
+			accountRow = i
+		}
+	}
+	if accountRow < 0 {
+		t.Fatal("shared opencode page has no Accounts action")
+	}
+	fakePickAgent(t, accountRow)
+	actions[0](d)
+	if len(f.specs) != 1 {
+		t.Fatalf("Accounts opened %d account pages, want one", len(f.specs))
 	}
 	if got := strings.Join(rowLabels(f.specs[0].Rows), ","); !strings.HasPrefix(got, "not connected,Set up,+ Add account,Model") || strings.Contains(got, "API key") {
 		t.Errorf("page rows = %s", got)

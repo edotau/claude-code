@@ -540,9 +540,21 @@ func TestMenuRowWidthsFitEightyColumns(t *testing.T) {
 	menuTestEnv(t)
 	extraSections = realExtra
 	d := worstCaseHomeDialog(t)
+	vaulttest.Secret(t, providers.SecretName("databricks", "qa", providers.AuthKey), "fixture-key")
 	assertFitsEighty(t, "home page", homePageRows(d))
 	for name, build := range agentMenus {
-		assertFitsEighty(t, name+" page", agentPageRows(d, name, build(d)))
+		rows := agentPageRows(d, name, build(d))
+		assertFitsEighty(t, name+" page", rows)
+		secs, _ := agentSections(rows[:len(rows)-1])
+		for _, sec := range secs {
+			t.Logf("%s — %s", displayLabel(name), sec.Title)
+			for _, row := range sec.Rows {
+				t.Logf("  %-16s %s", row[0], row[1])
+			}
+			if strings.Contains(sec.Title, "profile") && (len(sec.Rows) != 2 || sec.Rows[0][0] != "Pin / default" || sec.Rows[1][0] != "Fallback") {
+				t.Errorf("%s profile section = %v", name, sec.Rows)
+			}
+		}
 	}
 }
 
@@ -596,4 +608,21 @@ func TestEnvFallbackRowsFitEightyColumns(t *testing.T) {
 		t.Fatalf("mode rows = %q, want none, pin, agents, all", rows)
 	}
 	assertFitsEighty(t, "fallback modes", append(rows, fallbackEnvRow("agents")))
+}
+
+func TestAgentAccountPrefersWorkspaceAndPinnedGitHubIdentity(t *testing.T) {
+	menuTestEnv(t)
+	d := worstCaseHomeDialog(t)
+	st := agentState{modeSubscription, providers.Subscription{Name: "Business", Account: "other-account"}, true}
+	vaulttest.SetRecord(t, "copilot", "profile", "copilot")
+	vaulttest.SetRecord(t, "copilot", "account", "aueric_boehcp")
+	if got := modeLabel(d, "copilot", st); got != "aueric_boehcp" {
+		t.Errorf("copilot label = %q", got)
+	}
+	for _, a := range setupAgentNames {
+		vaulttest.SetRecord(t, a, "profile", "qa")
+		if got := modeLabel(d, a, st); got != "databricks · qa" {
+			t.Errorf("%s label = %q", a, got)
+		}
+	}
 }

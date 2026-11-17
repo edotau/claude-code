@@ -214,8 +214,8 @@ func TestSubmenuRowLabels(t *testing.T) {
 	for name, build := range agentMenus {
 		rows := build(d).rows
 		if name == "opencode" {
-			if len(rows) != 0 {
-				t.Errorf("opencode rows = %d, want none: its page is runOpencodePage", len(rows))
+			if len(rows) != 2 || rows[0].label != "Login" || rows[1].label != "Accounts" {
+				t.Errorf("opencode rows = %v, want Login and Accounts", rows)
 			}
 			continue
 		}
@@ -410,7 +410,7 @@ func TestSetUpIsEveryAgentPagesFirstRow(t *testing.T) {
 		if strings.Join(f.calls, ",") != "login,verify,route" {
 			t.Errorf("%s calls = %v", agent, f.calls)
 		}
-		if !slices.ContainsFunc(agentPinRows(d, agent), func(r billingRow) bool { return r.label == "Profile" }) {
+		if !slices.ContainsFunc(agentPinRows(d, agent), func(r billingRow) bool { return r.label == "Pin / default" }) {
 			t.Errorf("%s has no Profile row for the configure step", agent)
 		}
 	}

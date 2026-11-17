@@ -3,12 +3,14 @@ package menu
 
 import (
 	"cmp"
+	"context"
 	"fmt"
 	"maps"
 	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/copilot"
 
 	"github.com/edotau/claude-code/internal/vault"
 
@@ -31,7 +33,7 @@ func agentPinRows(d *dialog, agent string) []billingRow {
 	if why := agentpkg.AgentUnbillable(agent); cur != "" && why != "" {
 		state = "[off, " + why + "]"
 	}
-	rows := []billingRow{{label: "Profile", desc: provider + " " + state,
+	rows := []billingRow{{label: "Pin / default", desc: "bare launch: " + provider + " " + state,
 		run: func() bool {
 			changed, err := pickAgentProfile(d, agent, cur)
 			if err != nil {
@@ -61,7 +63,13 @@ func recordModelRow(d *dialog, agent string) billingRow {
 // fallbackRow is the Fallback row: the profile agent falls back to when its own is unavailable, none when empty.
 func fallbackRow(d *dialog, agent string) billingRow {
 	cur := vault.GetAgentRecord(agent).Fallback
-	return billingRow{label: "Fallback", desc: "profile fails: " + checked(cur != "", cmp.Or(cur, "none")),
+	desc := "profile fails: " + checked(cur != "", cmp.Or(cur, "none"))
+	if agent == "copilot" && cur == "" {
+		if fb := copilotFallback(copilot.RouteChain(context.Background(), d.reg)); fb != "" {
+			desc = fb
+		}
+	}
+	return billingRow{label: "Fallback", desc: desc,
 		run: func() bool {
 			names := agentProfileChoices(d, agent)
 			rows := make([][2]string, len(names))
@@ -133,6 +141,9 @@ func agentActiveOn(d *dialog, agent string) {
 
 // signInProfile is the profile a sign-in to agent means: its own login's profile, "" when none is registered.
 func signInProfile(d *dialog, agent string) string {
+	if agent == "claude" && d.reg != nil {
+		return providers.ProfileName(d.reg.ProfileBy(anthropicProvider, providers.AuthCLI))
+	}
 	if agent == "opencode" {
 		return opencode.OwnLogin
 	}
@@ -260,4 +271,27 @@ func seedRow() homeRow {
 		}
 	}
 	return homeRow{Name: "seed agents", State: fmt.Sprintf("%d set", n), Check: "profile each agent runs on", Run: func(d *dialog) { runSeed(d) }}
+}
+
+// databricksSignInRows pins an existing signed-in workspace through the shared profile writer.
+func databricksSignInRows(d *dialog, agent string) []billingRow {
+	if d.reg == nil {
+		return nil
+	}
+	var rows []billingRow
+	for _, name := range providers.DatabricksProfiles(d.reg) {
+		p := d.reg.Providers[name]
+		if !providers.CredentialPresent(p) {
+			continue
+		}
+		rows = append(rows, billingRow{label: "Databricks " + name, desc: "use workspace " + mark(vault.GetAgentRecord(agent).Profile == name),
+			run: func() bool {
+				changed, err := writeAgentField(d, agent, "PROFILE", name)
+				if err != nil {
+					d.printf("%s: %v\n", agent, err)
+				}
+				return changed
+			}})
+	}
+	return rows
 }
