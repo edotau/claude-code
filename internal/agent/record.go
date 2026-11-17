@@ -581,7 +581,10 @@ func buildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Re
 	if jobRec != nil {
 		return rec, nil // same id: a job run continues the record it was spawned from
 	}
-	rec = claimRecord(rec)
+	rec, err = claimLimitedRecord(ctx, name, rec)
+	if err != nil {
+		return Record{}, err
+	}
 	cwd := workdir
 	if cwd == "" {
 		cwd, _ = os.Getwd()
