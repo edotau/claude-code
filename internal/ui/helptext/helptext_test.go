@@ -673,6 +673,9 @@ func usageText(e ast.Expr, decls map[string]string) bool {
 
 // TestHelpGuard enforces shared help renderers and rejects legacy headers and raw usage writes.
 func TestHelpGuard(t *testing.T) {
+	if testing.Short() {
+		t.Skip("pre-ship tier: whole-repo AST walk")
+	}
 	for _, f := range scanHelpGuard(t, "../../..") {
 		t.Errorf("%s: %s", f.pos, f.msg)
 	}
