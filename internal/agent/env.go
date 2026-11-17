@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -64,6 +65,9 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 	if id, ok := ctx.Value(dispatchIDKey{}).(string); ok { // marks the child so `agents cancel --lost` can find it once orphaned
 		env = append(slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, proc.DispatchIDEnv+"=") }),
 			proc.DispatchIDEnv+"="+id)
+		depth, _ := ctx.Value(dispatchDepthKey{}).(int)
+		env = append(slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, proc.DispatchDepthEnv+"=") }),
+			proc.DispatchDepthEnv+"="+strconv.Itoa(depth))
 	}
 	if s.PWD != "" {
 		env = append(env, "PWD="+s.PWD)
@@ -138,9 +142,11 @@ func WithPermissionsEnv(ctx context.Context, p Permissions) context.Context {
 type unsetKey struct{}
 
 type dispatchIDKey struct{}
+type dispatchDepthKey struct{}
 
 // withDispatchID carries the dispatch record id every child env built under ctx is marked with.
-func withDispatchID(ctx context.Context, id string) context.Context {
+func withDispatchID(ctx context.Context, id string, depth int) context.Context {
+	ctx = context.WithValue(ctx, dispatchDepthKey{}, depth)
 	return context.WithValue(ctx, dispatchIDKey{}, id)
 }
 

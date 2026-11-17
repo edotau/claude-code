@@ -790,3 +790,42 @@ func TestSessionModel(t *testing.T) {
 		t.Errorf("fallback SessionModel = %q, want gpt-6.1-sol", got)
 	}
 }
+
+func TestRecordLineageAndUsage(t *testing.T) {
+	setConfigDir(t)
+	ctx := proc.WithValues(context.Background(), proc.Values{})
+	usage := wire.Usage{InputTokens: 11, OutputTokens: 7, CacheReadTokens: 3, CacheCreationTokens: 2}
+	parent := ""
+	for depth := range 3 {
+		_, values := RunValues(ctx, nil)
+		rec := ClaimRecord("codex", RunOptions{Values: values}, time.Now())
+		_, err := runRecorded(ctx, &rec, "codex", wire.Discard, RunRecordedOpts{},
+			func(child context.Context, _ wire.Sink) (wire.Result, error) {
+				ctx = proc.WithValues(context.Background(), proc.ValuesFromEnv((EnvSpec{}).Environ(child)))
+				return wire.Result{Provider: "test-provider", Model: "test-model", Usage: usage}, nil
+			})
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := LoadRecord(rec.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		body, err := json.Marshal(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields struct {
+			Parent string     `json:"parent"`
+			Depth  int        `json:"depth"`
+			Usage  wire.Usage `json:"usage"`
+		}
+		if err := json.Unmarshal(body, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if fields.Parent != parent || fields.Depth != depth || fields.Usage != usage {
+			t.Errorf("depth %d: record = %s", depth, body)
+		}
+		parent = rec.ID
+	}
+}
