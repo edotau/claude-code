@@ -24,11 +24,23 @@ func TOMLQuoteRaw(s string) string {
 }
 
 func TOMLInline(pairs [][2]string) string {
-	parts := make([]string, len(pairs))
-	for i, kv := range pairs {
-		parts[i] = kv[0] + " = " + kv[1]
+	size := 4 + 3*len(pairs) + 2*max(0, len(pairs)-1)
+	for _, kv := range pairs {
+		size += len(kv[0]) + len(kv[1])
 	}
-	return "{ " + strings.Join(parts, ", ") + " }"
+	var out strings.Builder
+	out.Grow(size)
+	out.WriteString("{ ")
+	for i, kv := range pairs {
+		if i > 0 {
+			out.WriteString(", ")
+		}
+		out.WriteString(kv[0])
+		out.WriteString(" = ")
+		out.WriteString(kv[1])
+	}
+	out.WriteString(" }")
+	return out.String()
 }
 
 func AppendTOML(raw, section string) string {
