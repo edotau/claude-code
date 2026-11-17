@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -199,7 +200,7 @@ func TestWriteBackupNumbersCollisions(t *testing.T) {
 		if string(b) != string([]byte{byte('a' + i)}) {
 			t.Fatalf("%s content %q", got, b)
 		}
-		if fi, _ := os.Stat(got); fi.Mode().Perm() != 0o600 {
+		if fi, _ := os.Stat(got); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 			t.Fatalf("%s mode %v", got, fi.Mode().Perm())
 		}
 	}
@@ -435,6 +436,7 @@ func TestWithFileLockWithinUsesItsOwnWait(t *testing.T) {
 }
 
 func TestCanonDeepMissingLeafThroughSymlink(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	real := t.TempDir()
 	link := filepath.Join(t.TempDir(), "link")
 	if err := os.Symlink(real, link); err != nil {
@@ -450,6 +452,7 @@ func TestCanonDeepMissingLeafThroughSymlink(t *testing.T) {
 }
 
 func TestCanonDeepDanglingSymlinkEscapes(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	store, outside := Canon(t.TempDir()), Canon(t.TempDir())
 	target := filepath.Join(outside, "newfile")
 	link := filepath.Join(store, "link")
@@ -505,6 +508,7 @@ func readStr(t *testing.T, f string) string {
 }
 
 func TestSwapSymlinkConcurrent(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	dir := t.TempDir()
 	link := filepath.Join(dir, "link")
 	if err := os.Symlink("initial", link); err != nil {

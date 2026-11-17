@@ -71,6 +71,7 @@ func TestSafetyAllowsRemovingProtectedNamesUnderTempRoots(t *testing.T) {
 }
 
 func TestSafetyBlocksRemovalsOutsideTempRoots(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	tmp := t.TempDir()
 	liveCfg := paths.ConfigDir()
 	live := vaultIn(t, liveCfg)
@@ -99,6 +100,7 @@ func TestSafetyBlocksRemovalsOutsideTempRoots(t *testing.T) {
 
 // A fixture vault or credentials file under a temp root may be seeded; the live ones stay blocked in every spelling.
 func TestSafetyTempFixtureWrites(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	tmp := t.TempDir()
 	temp := vaultIn(t, filepath.Join(tmp, "copy"))
 	creds := filepath.Join(tmp, "h1", ".claude", ".credentials.json")
@@ -129,6 +131,7 @@ func TestSafetyTempFixtureWrites(t *testing.T) {
 
 // A throwaway temp repo's .git may be removed; the live tree's, or one reached by a link, cd or nested shell, asks.
 func TestSafetyTempGitRemoval(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	tmp := t.TempDir()
 	liveCfg := paths.ConfigDir()
 	link := filepath.Join(tmp, "linkcfg")

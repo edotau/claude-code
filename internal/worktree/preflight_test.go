@@ -3,10 +3,12 @@ package worktree
 import (
 	"context"
 	"fmt"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -383,7 +385,7 @@ func TestPreflightUnrelatedHistories(t *testing.T) {
 // Regression: a non-NotExist stat failure (permission denied) must propagate, never read as no operation in progress.
 func TestInProgressOpPropagatesNonNotExistStatError(t *testing.T) {
 	t.Parallel()
-	if os.Geteuid() == 0 {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("permission checks don't apply when running as root")
 	}
 	_, _, wt := preflightFixtureSetup(t)
@@ -411,6 +413,7 @@ func TestPreflightMissingWorktree(t *testing.T) {
 
 // A fake runGit reporting merge-tree's absence (git < 2.38, exit outside {0,1}) must block Preflight.
 func TestSimulateMergeUnsupportedGit(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	repo, _, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature only\n", "feature advances")
 

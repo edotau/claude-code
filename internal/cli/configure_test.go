@@ -366,7 +366,7 @@ func goldenLegacy(t *testing.T) map[string]bool {
 	if err != nil {
 		return m
 	}
-	for l := range strings.SplitSeq(string(b), "\n") {
+	for l := range strings.SplitSeq(strings.ReplaceAll(string(b), "\r\n", "\n"), "\n") {
 		if n, ok := strings.CutPrefix(l, legacyTag); ok {
 			m[strings.TrimSpace(n)] = true
 		}
@@ -423,7 +423,7 @@ func TestContractRegistryGolden(t *testing.T) {
 	if err != nil {
 		t.Fatalf("golden missing; run with -update: %v", err)
 	}
-	if got := render(t, legacy); got != string(want) {
+	if got := render(t, legacy); got != strings.ReplaceAll(string(want), "\r\n", "\n") {
 		t.Fatalf("registry differs from %s (run -update after reviewing):\n--- got\n%s--- want\n%s", goldenPath, got, want)
 	}
 }

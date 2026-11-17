@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"os/exec"
 	"slices"
@@ -167,6 +168,7 @@ func TestPinLoginOnlyForLogin(t *testing.T) {
 
 // The real runner, on sh in place of ssh: the marker line arrives while the process lives, stop ends it, a failure's stderr is kept.
 func TestStartSSHRunsAndStops(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	live, err := startSSH(context.Background(), []string{"sh", "-c", "echo " + forwardReady + "; exec cat >/dev/null"})
 	if err != nil {
 		t.Fatal(err)

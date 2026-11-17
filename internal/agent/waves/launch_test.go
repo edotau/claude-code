@@ -17,9 +17,12 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func launchExecutable(t *testing.T) string {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	executable, err := os.Executable()
 	if err != nil {

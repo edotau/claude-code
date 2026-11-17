@@ -184,6 +184,7 @@ func TestDocsPlacementNamesCanonicalPaths(t *testing.T) {
 
 // TestDocsPlacementThroughSymlink: a symlinked root doc blocks like the physical one; a subdir under that name passes.
 func TestDocsPlacementThroughSymlink(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo := placementRepo(t)
 	link := filepath.Join(t.TempDir(), "linked-repo")
@@ -371,6 +372,7 @@ func TestDocsPlacementGitFileRoot(t *testing.T) {
 
 // TestDocsPlacementPlanHomeUnderMemoryRepo: a root .md in memory/<repo> names the untagged harness plans dir.
 func TestDocsPlacementPlanHomeUnderMemoryRepo(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	cfg, _ := filepath.EvalSymlinks(t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	repo := filepath.Join(cfg, "memory", "claude-code")
@@ -502,6 +504,7 @@ func TestDocsPlacementNamesExactDest(t *testing.T) {
 }
 
 func TestDocsPlacementFeedbackRedirect(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	cfg, _ := filepath.EvalSymlinks(t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	store := filepath.Join(cfg, "memory")

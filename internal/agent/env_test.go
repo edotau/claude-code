@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -169,6 +170,7 @@ func TestChildDeadlineKillsProcessGroup(t *testing.T) {
 
 // ChildCmd sets $PWD with cmd.Dir for a child reading $PWD; an empty dir leaves PWD unset so the child inherits cwd.
 func TestChildCmdSetsPWD(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	dir := t.TempDir()
 	cmd, _ := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, dir, "", nil, false)
 	if !slices.Contains(cmd.Env, "PWD="+dir) {
@@ -186,6 +188,7 @@ func TestChildCmdSetsPWD(t *testing.T) {
 
 // A vendor CLI child never sees HARNESS_VAULT_KEY; the claude agent's own child keeps it since hooks read the vault.
 func TestChildCmdScrubsVaultKeyForVendorOnly(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	t.Setenv("HARNESS_VAULT_KEY", "secret-value")
 	hasKey := func(env []string) bool {
 		return slices.ContainsFunc(env, func(s string) bool { return strings.HasPrefix(s, "HARNESS_VAULT_KEY=") })
@@ -366,6 +369,7 @@ func TestRunValuesAmbientEmptyOverlayKeepsStored(t *testing.T) {
 
 // Concurrent child launches keep independent snapshots and request-pinned egress without changing the parent.
 func TestRunValuesConcurrentChildren(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	t.Setenv("PST_RUN", "parent")
 	t.Setenv(egress.EnvHost, "parent-host")
 	values := proc.ValuesFromEnv(os.Environ())

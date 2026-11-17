@@ -83,6 +83,7 @@ func TestScopeExplicitExcludedRoot(t *testing.T) {
 }
 
 func TestScopeSourceSymlinks(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	dir := t.TempDir()
 	body := strings.Repeat("x", 1000)
 	hosttest.WriteRel(t, dir, "real.go", body)
@@ -169,6 +170,7 @@ func TestRunScopeEdges(t *testing.T) {
 
 // goImporters maps each package to its importers whether the root path has a space or is reached through a symlink.
 func TestGoImportersRootPaths(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	t.Setenv("GOWORK", "off")
 	module := func(root, pkgDir string) {
 		hosttest.WriteRel(t, root, "go.mod", "module example.com/m\n")

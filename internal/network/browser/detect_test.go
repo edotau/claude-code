@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // fakeRun dispatches canned stdout/err per "name arg1 arg2…" key, and records every call made.
@@ -75,6 +77,7 @@ func writeHostManifest(t *testing.T, supportDir, hostBinary, origin string) {
 
 // touchFile creates an empty file at path (and parents), standing in for the native-host binary.
 func touchFile(t *testing.T, path string) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)

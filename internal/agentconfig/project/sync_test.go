@@ -8,6 +8,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // Two skill dirs sharing one `name:` would link the same ~/.agents/skills entry; the run must fail before writing.
@@ -341,6 +343,7 @@ func TestSyncKeepsHandAuthoredVendorFile(t *testing.T) {
 
 // skills/<x> symlinks point into ~/.agents/skills already, so they are the user's and never re-linked.
 func TestSkillLinksRespectOwnership(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	home, claude := isolate(t)
 	writeSource(t, claude, "agents", "keeper", "keeper")
 	writeSource(t, claude, "skills", "mine-dir", "mine")

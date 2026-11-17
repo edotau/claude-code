@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -91,6 +92,7 @@ func TestHTTPGetRefusesOversizedBody(t *testing.T) {
 
 // The installer script and `<bin> update` get no registry credential and no login, but keep proxy and CA settings.
 func TestInstallChildrenScrubCredentials(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	skipWithoutPOSIXShell(t)
 	setupToolsTestEnv(t)
 	vaulttest.UseKeyring(t)

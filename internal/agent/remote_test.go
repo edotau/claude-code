@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/network/remote"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -20,6 +21,7 @@ import (
 
 // The remote command line is run by a real sh against a stub binary that prints its argv, one NUL-terminated word each.
 func TestRemoteArgvSurvivesHostileValues(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "pwned")
 	stub := filepath.Join(dir, "cc stub")
@@ -71,6 +73,7 @@ func TestRemoteArgvRefusals(t *testing.T) {
 
 // fakeSSH puts an `ssh` script with the given body on PATH, in hermetic config dirs.
 func fakeSSH(t *testing.T, body string) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	setConfigDir(t)
 	dir := t.TempDir()
@@ -149,6 +152,7 @@ func TestRemoteArgvPersonaIsOneAgentValue(t *testing.T) {
 
 // ssh's non-login shell has no harness PATH: a bare claude-code must still resolve from ~/.local/bin.
 func TestRemoteScriptResolvesHarnessPath(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	home := t.TempDir()
 	dir := filepath.Join(home, ".local", "bin")
 	if err := os.MkdirAll(dir, 0o755); err != nil {

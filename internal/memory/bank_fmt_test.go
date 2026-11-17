@@ -2,6 +2,7 @@ package memory
 
 import (
 	"errors"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -537,6 +538,7 @@ func TestFormatBankCheckReturnsDiscoveryErrors(t *testing.T) {
 }
 
 func fmtDiscoveryFailure(t *testing.T, sub string) error {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	if sub == "stat" {
 		file := filepath.Join(StoreDir(), "decisionLog.md")

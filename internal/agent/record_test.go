@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -41,7 +43,7 @@ func TestDispatchRecordLifecycleAndPrune(t *testing.T) {
 	if got, _ := LoadRecord(r.ID); got.Status != "ok" || got.Provider != "chatgpt" {
 		t.Fatalf("finished record = %+v", got)
 	}
-	if fi, _ := os.Stat(filepath.Join(paths.DispatchDir(), r.ID+".json")); fi.Mode().Perm() != 0o600 {
+	if fi, _ := os.Stat(filepath.Join(paths.DispatchDir(), r.ID+".json")); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v, want 0600", fi.Mode().Perm())
 	}
 	assertDispatchRecordPruning(t, base)
@@ -127,6 +129,7 @@ func TestPruneDispatchesRemovesLog(t *testing.T) {
 
 // An active background job survives the prune past dispatchKeep; a dead-PID job and a foreground running one go.
 func TestPruneDispatchesSkipsActiveBackgroundRecord(t *testing.T) {
+	hosttest.SkipOnWindows(t, "unix tools")
 	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	old := dispatchKeep
@@ -189,6 +192,7 @@ func assertBackgroundPruneRecords(t *testing.T, finished, active, trigger1, trig
 
 // A background running record whose PID is no longer alive is not "active" and gets pruned.
 func TestPruneDispatchesPrunesDeadPIDBackgroundRecord(t *testing.T) {
+	hosttest.SkipOnWindows(t, "unix tools")
 	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	old := dispatchKeep
@@ -236,6 +240,7 @@ func TestPruneDispatchesPrunesForegroundRunningRecord(t *testing.T) {
 
 // Record.Alive: status gates everything; PID>0 defers to proc.Alive; PID==0 falls back to a one-minute grace on Time.
 func TestRecordAlive(t *testing.T) {
+	hosttest.SkipOnWindows(t, "unix tools")
 	cmd := exec.Command("true")
 	if err := cmd.Run(); err != nil {
 		t.Fatalf("spawn+wait a short-lived process: %v", err)

@@ -13,10 +13,12 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 func serveCodexRegressionRelease(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	codex := buildTarGz(t, "codex", "#!/bin/sh\nprintf 'codex 1.2.3\\n'\n")
 	host := buildTarGz(t, "codex-code-mode-host", "release B host")
@@ -43,6 +45,7 @@ func serveCodexRegressionRelease(t *testing.T) {
 }
 
 func TestCodexRedirectCleansOriginalNpmInstall(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	root := t.TempDir()
 	localBin, marker := isolateToolsEnv(t, root)
 	prefix := npmToolsFixture(t, filepath.Join(root, "usr", "local"), "codex", "@openai/codex")

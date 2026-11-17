@@ -322,6 +322,7 @@ func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 
 // hostFixture installs a fake ssh on PATH and a fake remote bin ($HARNESS_REMOTE_BIN) printing banner, then NDJSON.
 func hostFixture(t *testing.T, banner string, lines []string, exit int) string {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	skipWithoutSh(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -511,6 +512,7 @@ func TestAskHostRefusesLocalOnlyModes(t *testing.T) {
 
 // recordingRemote wraps the fixture's remote bin so each invocation appends its argv line to the returned file.
 func recordingRemote(t *testing.T, bin string) string {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	calls := filepath.Join(t.TempDir(), "calls")
 	inner := bin + ".inner"

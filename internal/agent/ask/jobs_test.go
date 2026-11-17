@@ -138,6 +138,7 @@ func TestLiveRequestStartsOnConfinedProfile(t *testing.T) {
 
 // --live --as sp logs the identity on the request the holder will serve (the spawn itself is refused under go test).
 func TestStartLiveRecordsIdentity(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HOME", dir)
@@ -280,6 +281,7 @@ func TestResultFollowStreamsLogThenTrailer(t *testing.T) {
 
 // A followed job that errors exits 1 with its error, and a followed job whose process vanished is reported lost.
 func TestResultFollowErroredAndLost(t *testing.T) {
+	hosttest.SkipOnWindows(t, "unix tools")
 	jobsEnv(t)
 	rec := seedJob(t, time.Minute, "running", "work\n", os.Getpid())
 	done := finishAfter(rec, 50*time.Millisecond, "", errors.New("boom"))

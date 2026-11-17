@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"io"
 	"maps"
 	"os"
@@ -322,6 +323,7 @@ func TestDbxCopyOutcomes(t *testing.T) {
 
 // TestDbxCopyRealWriteSecretSeam: the real clipboard.WriteSecret path via a stub xclip; ErrNoClipboard without it.
 func TestDbxCopyRealWriteSecretSeam(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	defer clipboard.SetWSLForTest(false)()
 	bin := t.TempDir()
 	t.Setenv("PATH", bin)

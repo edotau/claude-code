@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -75,6 +76,7 @@ func TestUpdateSettlementHoldsWriterLock(t *testing.T) {
 }
 
 func installSettlementBarrier(t *testing.T) (ready, release string) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	realGit, err := exec.LookPath("git")
 	if err != nil {

@@ -10,12 +10,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
 // sleeperScript writes a shell script under t.TempDir() that ignores its args and sleeps 30s.
 func sleeperScript(t *testing.T) string {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "sleeper.sh")
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nsleep 30 &\nwait\n"), 0o700); err != nil {
@@ -159,13 +161,14 @@ func assertSpawnLog(t *testing.T, path string) {
 	if err != nil {
 		t.Fatalf("log file must exist: %v", err)
 	}
-	if fi.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("log mode = %v, want 0600", fi.Mode().Perm())
 	}
 }
 
 // A fast child that saves its own finished record must not be overwritten: Spawn never saves after cmd.Start().
 func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	setConfigDir(t)
 	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	if err := rec.Save(); err != nil {
@@ -206,6 +209,7 @@ func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
 
 // Cancel verifies the PID still belongs to the job; a reused PID (an unrelated live process) is not signalled.
 func TestCancelDetectsPIDReuse(t *testing.T) {
+	hosttest.SkipOnWindows(t, "unix tools")
 	setConfigDir(t)
 	unrelated := exec.Command("sleep", "30")
 	if err := unrelated.Start(); err != nil {
@@ -234,6 +238,7 @@ func TestCancelDetectsPIDReuse(t *testing.T) {
 
 // A child trapping and ignoring SIGINT is still ended by Cancel's SIGKILL escalation (grace shortened).
 func TestCancelEscalatesToSIGKILL(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Parallel()
 	oldGrace, oldKillWait := cancelGrace, killWait
 	cancelGrace, killWait = 100*time.Millisecond, 100*time.Millisecond
@@ -294,6 +299,7 @@ func waitForTrapReady(t *testing.T, log string) {
 }
 
 func TestCancelDeadPIDReturnsNilAndMarksRecord(t *testing.T) {
+	hosttest.SkipOnWindows(t, "unix tools")
 	setConfigDir(t)
 	cmd := exec.Command("true")
 	if err := cmd.Run(); err != nil {
@@ -337,6 +343,7 @@ func TestCancelForegroundRunErrorsWithoutWriting(t *testing.T) {
 
 // A dead pid whose record already finished is left untouched; a still-running one is marked once.
 func TestCancelDeadPIDLeavesFinishedRecord(t *testing.T) {
+	hosttest.SkipOnWindows(t, "unix tools")
 	setConfigDir(t)
 	cmd := exec.Command("true")
 	if err := cmd.Run(); err != nil {
@@ -359,6 +366,7 @@ func TestCancelDeadPIDLeavesFinishedRecord(t *testing.T) {
 }
 
 func TestCancelDeadPIDMarksRunningRecordOnce(t *testing.T) {
+	hosttest.SkipOnWindows(t, "unix tools")
 	setConfigDir(t)
 	cmd := exec.Command("true")
 	if err := cmd.Run(); err != nil {
@@ -436,6 +444,7 @@ func fixtureRecord(t *testing.T, rec Record) Record {
 
 // adapterDeadPID starts and waits out a child process, so its pid is guaranteed not to be alive.
 func adapterDeadPID(t *testing.T) int {
+	hosttest.SkipOnWindows(t, "unix tools")
 	t.Helper()
 	cmd := exec.Command("true")
 	if err := cmd.Run(); err != nil {
@@ -650,6 +659,7 @@ func skipOffUnix(t *testing.T) {
 
 // interrupt(leaderPid) reaches the whole group: a foreground INT-trapping second process gets the marker.
 func TestInterruptReachesWholeProcessGroup(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	skipOffUnix(t)
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "child-got-sigint")
@@ -700,6 +710,7 @@ func TestInterruptReachesWholeProcessGroup(t *testing.T) {
 
 // A pid that has already exited (ESRCH) is success, not an error — the caller never needs to special-case it.
 func TestInterruptOnExitedPIDReturnsNil(t *testing.T) {
+	hosttest.SkipOnWindows(t, "unix tools")
 	skipOffUnix(t)
 	cmd := exec.Command("true")
 	if err := cmd.Run(); err != nil {
@@ -711,6 +722,7 @@ func TestInterruptOnExitedPIDReturnsNil(t *testing.T) {
 }
 
 func TestSpawnArgvScrubsInheritedSecrets(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("HARNESS_KEEP_ENV", "")

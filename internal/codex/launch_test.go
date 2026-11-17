@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,7 @@ import (
 )
 
 func TestCodexStatusScrubsVaultKey(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Setenv("HARNESS_VAULT_KEY", "probe-secret")
 	bin := filepath.Join(t.TempDir(), "codex")
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"key=$HARNESS_VAULT_KEY\"\n"), 0o755); err != nil {

@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // setupDir points the marker dir at a scratch CLAUDE_CONFIG_DIR so no test touches real state.
@@ -210,6 +212,7 @@ func assertNoMarker(t *testing.T, sub, format string) {
 
 // A dead owner's dispatch marker is never counted; a live owner's counts even past TTL.
 func TestDispatchOwnerLiveness(t *testing.T) {
+	hosttest.SkipOnWindows(t, "unix tools")
 	if !probeTrusted() {
 		t.Skip("proc probing untrusted on this platform; TTL is the sole backstop here")
 	}
@@ -338,6 +341,7 @@ func writeSpawnMeta(t *testing.T, subDir, agent, id string, finished bool) {
 
 // A sibling session's long-running agent keeps counting past TTL, and its finished agent is pruned by the same rule.
 func TestForeignSpawnFollowsItsOwnSession(t *testing.T) {
+	hosttest.SkipOnWindows(t, "unix tools")
 	setupDir(t)
 	if !probeTrusted() {
 		t.Skip("owner liveness is untrusted here")

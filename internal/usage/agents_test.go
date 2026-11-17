@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
@@ -629,6 +630,7 @@ func TestCodexFilesystemFailuresWarn(t *testing.T) {
 }
 
 func makeUnreadableCodexFixture(t *testing.T, dir, kind string) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	t.Helper()
 	bad := filepath.Join(dir, "bad.jsonl")
 	if kind == "dangling rollout" {

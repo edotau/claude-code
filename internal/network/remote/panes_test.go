@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -372,6 +373,7 @@ func TestCapturePanes_InjectionShapedTextIsDataNotControl(t *testing.T) {
 
 // writeStubTmuxListPanesFails puts a `tmux` on dir whose `list-panes` fails and everything else succeeds.
 func writeStubTmuxListPanesFails(t *testing.T, dir string) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	script := "#!/bin/sh\nif [ \"$1\" = list-panes ]; then echo 'simulated tmux failure' >&2; exit 1; fi\nexit 0\n"
 	if err := os.WriteFile(dir+"/tmux", []byte(script), 0o755); err != nil {
@@ -383,7 +385,7 @@ func writeStubTmuxListPanesFails(t *testing.T, dir string) {
 func TestCapturePanes_RealScriptPropagatesListPanesFailure(t *testing.T) {
 	stubDir := t.TempDir()
 	writeStubTmuxListPanesFails(t, stubDir)
-	t.Setenv("PATH", stubDir+":"+os.Getenv("PATH"))
+	t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	caps, err := capturePanes(context.Background(), "localhost", true, execRunner)
 	if err == nil {
@@ -397,6 +399,7 @@ func TestCapturePanes_RealScriptPropagatesListPanesFailure(t *testing.T) {
 // writeStubTmuxCapturePaneFails lists one pane, fails its capture-pane and touches markerPath when reached.
 // Gotcha: the pane id rides as a printf %s argument; inlined, printf fails on "%1" first and the test passes vacuously.
 func writeStubTmuxCapturePaneFails(t *testing.T, dir, markerPath string) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	script := "#!/bin/sh\n" +
 		"case \"$1\" in\n" +
@@ -414,7 +417,7 @@ func TestCapturePanes_RealScriptPropagatesCapturePaneFailure(t *testing.T) {
 	stubDir := t.TempDir()
 	marker := stubDir + "/capture-pane-invoked"
 	writeStubTmuxCapturePaneFails(t, stubDir, marker)
-	t.Setenv("PATH", stubDir+":"+os.Getenv("PATH"))
+	t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	caps, err := capturePanes(context.Background(), "localhost", true, execRunner)
 	if err == nil {
@@ -458,6 +461,7 @@ func TestObserve_SSHFailureDoesNotReviveGonePane(t *testing.T) {
 
 // A command that prints past the cap is cut off with an error, not buffered whole.
 func TestExecRunnerCapsOutput(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	bin := filepath.Join(t.TempDir(), "big")
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\n/usr/bin/head -c 3145728 /dev/zero\n"), 0o755); err != nil {
 		t.Fatal(err)

@@ -4,10 +4,12 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"image/png"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -17,6 +19,7 @@ const chainParent = ": xclip -selection clipboard wl-paste --type image/bmp"
 
 // fakeReal writes a real-wl-paste stand-in that logs its args and offers a BMP, plus a PNG when withPNG.
 func fakeReal(t *testing.T, withPNG bool) (real string, log func() []string) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	dir := t.TempDir()
 	logPath := filepath.Join(dir, "log")
@@ -168,6 +171,7 @@ func TestProxyEnvEmptyWaylandDisplayReplaced(t *testing.T) {
 }
 
 func TestFindRealWlPasteSkipsProxies(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	stale := []byte("#!/bin/sh\n# " + proxyMarker + " (v0)\n")
 	foreign := []byte("#!/bin/sh\necho real\n")
 	var dirs []string
@@ -181,17 +185,18 @@ func TestFindRealWlPasteSkipsProxies(t *testing.T) {
 		}
 		dirs = append(dirs, d)
 	}
-	t.Setenv("PATH", strings.Join(dirs, ":"))
+	t.Setenv("PATH", strings.Join(dirs, string(os.PathListSeparator)))
 	if got, want := findRealWlPaste(), filepath.Join(dirs[3], "wl-paste"); got != want {
 		t.Errorf("findRealWlPaste = %q, want %q", got, want)
 	}
-	t.Setenv("PATH", strings.Join(dirs[:3], ":"))
+	t.Setenv("PATH", strings.Join(dirs[:3], string(os.PathListSeparator)))
 	if got := findRealWlPaste(); got != "" {
 		t.Errorf("only proxies and a non-executable on PATH: got %q, want none", got)
 	}
 }
 
 func TestProxyShimForwardsArgs(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	home := t.TempDir()
 	bin := filepath.Join(home, ".claude", "bin")
 	if err := os.MkdirAll(bin, 0o755); err != nil {
@@ -217,6 +222,7 @@ func TestProxyShimForwardsArgs(t *testing.T) {
 
 // RunProxy hands an unrouted call to the real wl-paste verbatim, 126 when exec fails, 127 when none is installed.
 func TestRunProxyDelegation(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Setenv("SSH_CONNECTION", "")
 	t.Setenv("CLAUDE_WL_PASTE_PROXY", "0") // never intercept, whatever the parent process is
 	args := []string{"--type", "image/bmp", "--help"}
@@ -296,7 +302,7 @@ func TestInstallProxyAtAbsent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o755 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o755 {
 		t.Errorf("mode = %v, want 0755", info.Mode().Perm())
 	}
 	if !strings.Contains(out.String(), "wrote") {
@@ -323,6 +329,7 @@ func TestInstallProxyAtCurrent(t *testing.T) {
 }
 
 func TestInstallProxyAtStaleIsUpdated(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	dest := filepath.Join(t.TempDir(), "wl-paste")
 	stale := []byte("#!/usr/bin/env bash\n# " + proxyMarker + " (v0, old copy)\necho old\n")
 	if err := os.WriteFile(dest, stale, 0o755); err != nil {
@@ -345,6 +352,7 @@ func TestInstallProxyAtStaleIsUpdated(t *testing.T) {
 }
 
 func TestInstallProxyAtForeignUntouched(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	dest := filepath.Join(t.TempDir(), "wl-paste")
 	foreign := []byte("#!/bin/sh\nexec /usr/bin/wl-paste.real \"$@\"\n")
 	if err := os.WriteFile(dest, foreign, 0o755); err != nil {

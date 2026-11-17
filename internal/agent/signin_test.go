@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -279,6 +280,7 @@ func TestValidateSecretGitHubVaultNames(t *testing.T) {
 
 // TestProbeCLIClassify runs a real child: stdout vs combined output, and a chosen exit classifies as NeedsLogin.
 func TestProbeCLIClassify(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	ctx := context.Background()
 	spec := EnvSpec{Mode: EnvAgent}
 	script := "echo out; echo 'bad login' >&2; exit 3"
@@ -299,6 +301,7 @@ func TestProbeCLIClassify(t *testing.T) {
 
 // TestClassifyProbeTransient: a deadline and a missing binary are transient, never NeedsLogin.
 func TestClassifyProbeTransient(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	ctx := context.Background()
 	spec := EnvSpec{Mode: EnvAgent}
 	short, cancel := context.WithTimeout(ctx, 50*time.Millisecond)

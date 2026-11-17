@@ -128,6 +128,7 @@ func TestReviewWithParentJobClosesRecordOnEarlyExit(t *testing.T) {
 }
 
 func TestAgentReviewBoundsDiffPreparation(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	bin := t.TempDir()
 	git := filepath.Join(bin, "git")
 	// exec keeps the hung git at one PID, so cancellation cannot leave a child holding its output pipes open.

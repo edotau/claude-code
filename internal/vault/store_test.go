@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
@@ -267,7 +269,7 @@ func checkVaultMode(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stat %s: %v", Path(), err)
 	}
-	if perm := fi.Mode().Perm(); perm != 0o600 {
+	if perm := fi.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o600 {
 		t.Fatalf("vault mode = %04o, want 0600", perm)
 	}
 }
@@ -889,6 +891,7 @@ func rawKeyAndKid(b byte) (b64, kid string) {
 
 // writeKeyCommandScript writes an executable shell script and returns meta/key_command's JSON argv for it.
 func writeKeyCommandScript(t *testing.T, body string) string {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "key_command.sh")
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {

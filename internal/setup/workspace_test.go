@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -208,7 +209,7 @@ func TestWorkspaceStatusLinkedFileKeepsSiblings(t *testing.T) {
 
 // TestWorkspaceInitDryRunFailsOnErrorAction: an unreadable .gitignore fails the preview like the real run.
 func TestWorkspaceInitDryRunFailsOnErrorAction(t *testing.T) {
-	if os.Geteuid() == 0 {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("root reads unreadable files")
 	}
 	wsGlobal(t)

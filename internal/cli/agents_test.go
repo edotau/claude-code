@@ -66,6 +66,7 @@ func checkLostDispatches(t *testing.T, paths []string) {
 
 // deadPID returns the pid of a child that has already exited and been reaped.
 func deadPID(t *testing.T) int {
+	hosttest.SkipOnWindows(t, "unix tools")
 	t.Helper()
 	cmd := exec.Command("true")
 	if err := cmd.Run(); err != nil {

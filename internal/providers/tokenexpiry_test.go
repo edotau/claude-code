@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -76,7 +77,7 @@ func TestTokenExpiryWritesOnlyExp(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if mode := info.Mode().Perm(); mode != 0o600 {
+	if mode := info.Mode().Perm(); runtime.GOOS != "windows" && mode != 0o600 {
 		t.Errorf("mode = %o, want 600", mode)
 	}
 	if got, ok := TokenExpiry("jwt-exp"); !ok || got.Unix() != exp {

@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -296,10 +297,10 @@ func TestOpencodeDiskCacheV2SkipsExec(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if fi.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("cache mode = %v, want 0600", fi.Mode().Perm())
 	}
-	if di, _ := os.Stat(filepath.Dir(opencodeCacheFile())); di.Mode().Perm() != 0o700 {
+	if di, _ := os.Stat(filepath.Dir(opencodeCacheFile())); runtime.GOOS != "windows" && di.Mode().Perm() != 0o700 {
 		t.Errorf("cache dir mode = %v, want 0700", di.Mode().Perm())
 	}
 }

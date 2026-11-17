@@ -2,9 +2,11 @@ package statusline
 
 import (
 	"encoding/json"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"hash/fnv"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -24,13 +26,14 @@ func TestStampLivesUnderStateDirAndRoundTrips(t *testing.T) {
 	if got := freshStamp(p, 1<<40, 2); len(got) != 2 || got[1] != "b" {
 		t.Fatalf("freshStamp = %v", got)
 	}
-	if fi, err := os.Stat(p); err != nil || fi.Mode().Perm() != 0o600 {
+	if fi, err := os.Stat(p); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("stamp mode = %v, %v", fi, err)
 	}
 }
 
 // A planted symlink at the old tmp stamp path must not be followed: stamps live in the state dir now.
 func TestWriteStampIgnoresLegacyTmpSymlink(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	tmp := t.TempDir()
 	t.Setenv("TMPDIR", tmp)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -51,7 +54,7 @@ func TestWriteStampIgnoresLegacyTmpSymlink(t *testing.T) {
 	}
 	di, derr := os.Stat(filepath.Dir(p))
 	fi, ferr := os.Stat(p)
-	if derr != nil || ferr != nil || di.Mode().Perm() != 0o700 || fi.Mode().Perm() != 0o600 {
+	if derr != nil || ferr != nil || runtime.GOOS != "windows" && (di.Mode().Perm() != 0o700 || fi.Mode().Perm() != 0o600) {
 		t.Errorf("stamp dir/file = %v %v (%v, %v), want 0700/0600", di, fi, derr, ferr)
 	}
 }
