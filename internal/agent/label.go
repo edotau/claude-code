@@ -96,7 +96,7 @@ func ResolveRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRout
 // ExplainRun is ResolveRun plus its auto choice; an unlisted Databricks model is marked; none refuses it unless auto.
 func ExplainRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRoute, *AutoChoice, error) {
 	if ownConnectorQuery(q) {
-		return ModelRoute{Agent: q.Agent, Model: q.Model}, nil, nil
+		return ownConnectorRoute(q), nil, nil
 	}
 	q, need := autoQuery(q)
 	r, err := autoBase(reg, q, need, now)

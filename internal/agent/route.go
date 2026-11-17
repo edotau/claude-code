@@ -82,6 +82,12 @@ func ownConnectorQuery(q ModelQuery) bool {
 	return q.Profile == "" && q.Provider == "" && ownConnectorModel(q.Agent, q.Model)
 }
 
+// ownConnectorRoute is the route a run on opencode's own plan reports: no registry row, the plan id as its account.
+func ownConnectorRoute(q ModelQuery) ModelRoute {
+	id, _, _ := strings.Cut(q.Model, "/")
+	return ModelRoute{Agent: q.Agent, Account: id, Model: q.Model, Dialect: "own-login", Source: "own-login"}
+}
+
 func ownConnectorModel(agent, model string) bool {
 	id, _, ok := strings.Cut(model, "/")
 	return agentid.Routing(agent).SubLadder && ok && hub != nil && hub.OwnPlan(id)
