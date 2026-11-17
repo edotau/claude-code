@@ -52,6 +52,7 @@ type Prepared struct {
 // Prepare routes the raw task before applying its rubric and claiming a dispatch record.
 func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Prepared, error) {
 	ctx, o.Values = RunValues(ctx, o.Values)
+	ctx = context.WithValue(ctx, runTimeoutKey{}, o.Timeout)
 	o, err := c.withDefaults(o)
 	if err != nil {
 		return nil, err
