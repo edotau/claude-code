@@ -154,7 +154,7 @@ func dream(o dreamOptions) error {
 	}
 	var runErr, archiveErr error
 	notDue := false
-	lockErr := paths.WithFileLock(lockPathOf(HomeBank()), func() error {
+	lockErr := paths.WithFileLock(lockPathOf(), func() error {
 		if notDue = o.IfDue && !dreamDue(time.Now()); notDue {
 			fmt.Fprintln(o.Out, "memory dream: not due")
 			return nil

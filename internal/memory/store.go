@@ -198,8 +198,8 @@ var ErrBankBusy = errors.New("memory store busy: another harness worker holds th
 // BankLockPath is the PHYSICAL lock file; nothing appends ".lock" to it (no .lock.lock variants).
 func BankLockPath() string { return filepath.Join(StateDir(), bankLockFile) }
 
-// storeLockDir is state's lock dir for b (named by stateKey), created 0700.
-func storeLockDir(b Bank) string {
+// storeLockDir is the lock dir (named by stateKey), created 0700.
+func storeLockDir() string {
 	d := filepath.Join(StateDir(), "locks", stateKey())
 	_ = os.MkdirAll(d, 0o700)
 	return d

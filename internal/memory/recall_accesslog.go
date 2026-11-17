@@ -255,7 +255,7 @@ func logHits(hits []SearchHit, reason string, now time.Time) {
 		}
 	}
 	if len(ids) > 0 {
-		logAccessBatch(accessDir(HomeBank()), now, ids, reason)
+		logAccessBatch(accessDir(), now, ids, reason)
 	}
 }
 
@@ -264,11 +264,11 @@ func logShown(id, reason string, now time.Time) {
 	if id == "" {
 		return
 	}
-	logAccess(accessDir(HomeBank()), now, id, reason)
+	logAccess(accessDir(), now, id, reason)
 }
 
-// accessDir is b's access-log key dir, named by stateKey so a repo keyed "home" never shares home.log.
-func accessDir(b Bank) string {
+// accessDir is the access-log key dir, named by stateKey so a repo keyed "home" never shares home.log.
+func accessDir() string {
 	return filepath.Join(StoreDir(), stateKey())
 }
 

@@ -49,7 +49,7 @@ func TestAccessRotationReturnCountsAndRepoNominations(t *testing.T) {
 // Nominations glob every repo's state log, prefixed with the repo's store key — not only home's.
 func assertHotNomination(t *testing.T, now time.Time) {
 	t.Helper()
-	dir := accessDir(HomeBank())
+	dir := accessDir()
 	for d := range hotMinDays {
 		logAccess(dir, now.AddDate(0, 0, -d), "dd000004", accessRecall)
 	}
@@ -88,7 +88,7 @@ func TestLogHitsCreditsTheOneBank(t *testing.T) {
 	write(t, HomeBank().Path("decisionLog.md"), "# D\n\n## 2026-01-01 — zebra live quota <!-- id:bbbb0003 -->\n\nzebra quota\n")
 	now := time.Now()
 	logHits(searchAll("zebra quota", 0), AccessSearch, now)
-	got := returnCounts([]string{accessDir(HomeBank())}, now)
+	got := returnCounts([]string{accessDir()}, now)
 	for _, id := range []string{"bbbb0001", "bbbb0003"} {
 		if got[id] == 0 {
 			t.Errorf("%s not credited to the one bank: %v", id, got)

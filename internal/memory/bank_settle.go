@@ -94,7 +94,7 @@ func appendUnarchived(archive string, blocks []string) error {
 }
 
 // lockPath serializes bank writers; the physical lock lives under state per store key, never beside the bank.
-func lockPathOf(b Bank) string { return filepath.Join(storeLockDir(b), ".postupdate") }
+func lockPathOf() string { return filepath.Join(storeLockDir(), ".postupdate") }
 
 // settleBank rotates sessionHistory, archives overflow, regenerates region and catalog, and commits, under the lock.
 func settleBank(now time.Time) (rotated int, err error) {

@@ -583,7 +583,7 @@ func findBlockByID(id string, files []corpusFile, segs []segView) (SearchHit, bo
 		for d := range seg.Docs() {
 			if block, _ := seg.Doc(d); strings.Contains(block, marker) && ownerID(block) == id {
 				f := files[i]
-				return SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: id, Dir: accessDir(HomeBank())}, true
+				return SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: id, Dir: accessDir()}, true
 			}
 		}
 	}

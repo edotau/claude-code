@@ -449,7 +449,7 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 	}
 	n := float64(ndocs)
 	var hits []SearchHit
-	dir := accessDir(HomeBank())
+	dir := accessDir()
 	for _, i := range usable {
 		hits = append(hits, scoreSegmentDocs(qTerms, uniq, df, n, avgdl, segs[i], weighted[i], files[i], dir)...)
 	}
@@ -606,7 +606,7 @@ func corpusBlocks() ([]SearchHit, error) {
 			return nil, err
 		}
 		base := filepath.Base(f.Path)
-		dir := accessDir(HomeBank())
+		dir := accessDir()
 		for _, block := range parseBlocks(f.Mode, base, data) {
 			out = append(out, SearchHit{Bank: f.Bank, File: base, Block: block, Dir: dir})
 		}

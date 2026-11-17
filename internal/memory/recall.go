@@ -50,7 +50,7 @@ func recallPicks(ctx context.Context, session, query string, semantic, explain b
 	if len(ranked) == 0 {
 		return nil, trace
 	}
-	counts := returnCounts([]string{accessDir(b)}, time.Now())
+	counts := returnCounts([]string{accessDir()}, time.Now())
 	picks := selectRecall(seen, terms, ranked, sem, semSeen, counts, tr)
 	trace.Silent = len(picks) == 0
 	return picks, trace
