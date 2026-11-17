@@ -372,20 +372,19 @@ func fixtureDenials(t *testing.T, name string) (wire.Result, error) {
 }
 
 func TestDenialStreamCollectsRealRefusal(t *testing.T) {
-	res, err := fixtureDenials(t, "stream-sandbox-refused.jsonl")
-	if err != nil || res.Denials == nil {
-		t.Fatalf("result = %+v, err = %v", res, err)
-	}
-	if res.Denials.Count != 1 || !slices.Equal(res.Denials.Commands, []string{"go env"}) || res.Answer == "" {
-		t.Fatalf("denials = %+v, answer = %q", res.Denials, res.Answer)
-	}
-}
-
-// code-mode exec calls reach codex --json as agent_message only, so a refusal there leaves no structured signal.
-func TestDenialStreamCodeModeRefusalHasNoSignal(t *testing.T) {
-	res, err := fixtureDenials(t, "stream-code-mode-refused.jsonl")
-	if err != nil || res.Denials != nil || res.Answer == "" {
-		t.Fatalf("denials = %+v, answer = %q, err = %v", res.Denials, res.Answer, err)
+	for _, c := range []struct{ fixture, label string }{
+		{"stream-sandbox-refused.jsonl", "go env"},
+		{"stream-code-mode-refused.jsonl", "code mode"},
+	} {
+		t.Run(c.fixture, func(t *testing.T) {
+			res, err := fixtureDenials(t, c.fixture)
+			if err != nil || res.Denials == nil {
+				t.Fatalf("result = %+v, err = %v", res, err)
+			}
+			if res.Denials.Count != 1 || !slices.Equal(res.Denials.Commands, []string{c.label}) || res.Answer == "" {
+				t.Fatalf("denials = %+v, answer = %q", res.Denials, res.Answer)
+			}
+		})
 	}
 }
 
@@ -457,7 +456,7 @@ func TestCodexShellCommandUnwrapsAnyDashC(t *testing.T) {
 
 func TestDenialSinkIgnoresNonCommandRefusals(t *testing.T) {
 	clean := &denialSink{next: wire.Discard, sandbox: "read-only", commands: map[string]string{}}
-	for _, ev := range []wire.Event{{Type: wire.EventText, Text: "Operation not permitted"},
+	for _, ev := range []wire.Event{{Type: wire.EventText, Text: "No such file"},
 		{Type: wire.EventToolResult, Tool: &wire.ToolRef{ID: "other"}, Status: "failed", Text: "No such file"}} {
 		if err := clean.Emit(ev); err != nil {
 			t.Fatal(err)

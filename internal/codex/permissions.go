@@ -413,7 +413,7 @@ func (s *denialSink) runStream(ctx context.Context, name string, cmd *exec.Cmd, 
 }
 
 func (s *denialSink) collect(d agent.Denial, ev wire.Event) {
-	if ev.Type != wire.EventToolResult || d.Layer != "os-sandbox" {
+	if d.Layer != "os-sandbox" {
 		return
 	}
 	if s.denials == nil {
@@ -423,7 +423,11 @@ func (s *denialSink) collect(d agent.Denial, ev wire.Event) {
 	if len(s.denials.Commands) >= denialCommandLimit {
 		return
 	}
-	if label := denialLabel(s.commands[ev.Tool.ID]); label != "" {
+	label := "code mode"
+	if ev.Type == wire.EventToolResult {
+		label = denialLabel(s.commands[ev.Tool.ID])
+	}
+	if label != "" {
 		s.denials.Commands = append(s.denials.Commands, label)
 	}
 }
