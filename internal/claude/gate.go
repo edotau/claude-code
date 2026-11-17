@@ -189,7 +189,7 @@ func refusePermissionCapabilities(req agent.RunOptions) error {
 	if !req.Gate {
 		return nil
 	}
-	if asksToRunWorkflow(req.Prompt) {
+	if !req.DataPrompt && asksToRunWorkflow(req.Prompt) {
 		return refuse(noWorkflow)
 	}
 	if message := gateRuleRefusal(req); message != "" {

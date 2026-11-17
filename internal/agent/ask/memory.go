@@ -35,7 +35,7 @@ func memoryRunOptions(ctx context.Context, prompt, workdir string) agent.RunOpti
 	// read-only inspection; echo is the job's separator, and the redirect deny still refuses `echo x > f`
 	p.Allow = append(p.Allow, agent.ReadOnlyAllow, agent.Rule{Tool: "Bash", Arg: "echo *"})
 	return agent.RunOptions{Agent: "claude", Prompt: prompt, Effort: "medium", Tools: s.Tools, WorkDir: workdir,
-		Fallback: router.FallbackNone, Gate: true, Permissions: p}
+		Fallback: router.FallbackNone, Gate: true, DataPrompt: true, Permissions: p}
 }
 
 // MemoryRunner runs background memory jobs on Claude as the logged-in user, on their pin (medium effort).

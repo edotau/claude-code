@@ -500,6 +500,7 @@ type RunOptions struct {
 	Rubric                                              string             `json:"-"`
 	Background                                          bool               `json:"-"`
 	AutoArm                                             bool               `json:"auto_arm,omitempty"` // the workspace was an auto pick: a --job child may move on a 429
+	DataPrompt                                          bool               `json:"-"`                  // the prompt embeds transcript data: the gate skips its Workflow-brief scan
 	Gate                                                bool               `json:"-"`                  // claude: bypass its prompts, Permissions enforced by the injected permission-gate
 
 	// YieldFallback lets workspace retry handle a failed dispatch before the requested chain continues.
