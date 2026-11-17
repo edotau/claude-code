@@ -27,9 +27,7 @@ func RunGit(ctx context.Context, dir string, args ...string) (string, error) {
 	return run(ctx, GitEnv(), dir, args...)
 }
 
-// RunGitInherit runs git with the caller's environment, for commands inside a git hook that need its GIT_* state.
-//
-// Gotcha: internal/configure and internal/memory must keep RunGit so an inherited GIT_DIR cannot retarget them.
+// RunGitInherit runs git with the caller's GIT_* env for git-hook commands; configure and memory must keep RunGit.
 func RunGitInherit(ctx context.Context, dir string, args ...string) (string, error) {
 	return run(ctx, os.Environ(), dir, args...)
 }

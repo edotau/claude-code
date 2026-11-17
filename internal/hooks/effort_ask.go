@@ -113,7 +113,7 @@ func askPrompt(words []string) string {
 			return ""
 		}
 	}
-	if len(words) > 0 && !(len(words) == 1 && words[0] == "-") {
+	if len(words) > 0 && (len(words) != 1 || words[0] != "-") {
 		return strings.Join(words, " ")
 	}
 	return ""
