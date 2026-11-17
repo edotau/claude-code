@@ -29,6 +29,9 @@ func DropComments(cmd string) string {
 	if from, slow := s.run(); slow {
 		return dropCommentsFrom(string(s.buf)+cmd[from:], len(s.buf))
 	}
+	if len(s.buf) == len(cmd) {
+		return cmd
+	}
 	return string(s.buf)
 }
 
@@ -56,7 +59,7 @@ func dropCommentsFrom(cmd string, from int) string {
 func wordStart[T string | []byte](text T, bare []bool, hasCase bool, i int) bool {
 	for i > 0 {
 		c := text[i-1]
-		if strings.IndexByte(" \t\n;&|()", c) < 0 {
+		if !isWordSep(c) {
 			return false
 		}
 		if !escaped(text, i-1) {
@@ -68,6 +71,14 @@ func wordStart[T string | []byte](text T, bare []bool, hasCase bool, i int) bool
 		i -= 2 // a line continuation is deleted, joining the `#` to what came before it
 	}
 	return true
+}
+
+func isWordSep(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == ';' || c == '&' || c == '|' || c == '(' || c == ')'
+}
+
+func isBareOpenPrev(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == ';' || c == '&' || c == '|' || c == '('
 }
 
 // commentScan walks src once, keeping (in buf) the text left after the comments it cuts in cut mode.
@@ -87,8 +98,16 @@ type commentScan struct {
 }
 
 func newCommentScan(src string, cut bool) *commentScan {
-	return &commentScan{src: src, cut: cut, rangeEnd: -1, lastCase: strings.LastIndex(src, "case"),
-		mask: make([]bool, 0, len(src)), bare: make([]bool, 0, len(src))}
+	s := &commentScan{src: src, cut: cut, rangeEnd: -1, lastCase: strings.LastIndex(src, "case")}
+	if cut {
+		s.mask = make([]bool, 0, len(src))
+		s.bare = make([]bool, 0, len(src))
+		s.buf = make([]byte, 0, len(src))
+	} else {
+		s.mask = make([]bool, len(src))
+		s.bare = make([]bool, len(src))
+	}
+	return s
 }
 
 // run scans src; slow reports a cut at from after a fragile opener, where only re-indexing stays exact.
@@ -144,7 +163,11 @@ func quoteMark(q byte) byte {
 
 // emit keeps src[y] with QuoteAt mark: its expansion mask, its paren pairing and the "case" flag.
 func (s *commentScan) emit(y int, mark byte) {
-	k, c := len(s.mask), s.src[y]
+	k := y
+	if s.cut {
+		k = len(s.mask)
+	}
+	c := s.src[y]
 	if mark == 0 && c == '$' && k > s.rangeEnd {
 		s.opener(y, k)
 	}
@@ -152,16 +175,19 @@ func (s *commentScan) emit(y int, mark byte) {
 	if mark == 0 && !inRange {
 		switch c {
 		case '(':
-			s.open = append(s.open, k == 0 || s.prevAt == 0 && strings.IndexByte(" \t\n;&|(", s.src[y-1]) >= 0)
+			s.open = append(s.open, k == 0 || s.prevAt == 0 && isBareOpenPrev(s.src[y-1]))
 		case ')':
 			bare = s.closeParen()
 		}
 	}
-	s.mask, s.bare, s.prevAt = append(s.mask, inRange), append(s.bare, bare), mark
 	if s.cut {
+		s.mask, s.bare = append(s.mask, inRange), append(s.bare, bare)
 		s.buf = append(s.buf, c)
 		s.caseIn = s.caseIn || c == 'e' && bytes.HasSuffix(s.buf, []byte("case"))
+	} else {
+		s.mask[y], s.bare[y] = inRange, bare
 	}
+	s.prevAt = mark
 }
 
 // opener opens the `${…}` or `$((…))` range at src[y] (buf[k]); an unclosed one marks the scan fragile.

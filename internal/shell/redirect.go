@@ -1,13 +1,33 @@
 package shell
 
-import (
-	"regexp"
-	"strings"
-	"sync"
-)
+import "strings"
 
-// fdDup is a `>&N`, `>&N-` or `>&-` operand ending at whitespace, `)` or the segment's end.
-var fdDup = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^>&(-|[0-9]+-?)([\s)]|$)`) })
+// isFdDup reports a `>&N`, `>&N-` or `>&-` operand at s[0:] ending at whitespace, `)` or end.
+func isFdDup(s string) bool {
+	if len(s) < 3 || s[0] != '>' || s[1] != '&' {
+		return false
+	}
+	i := 2
+	if s[i] == '-' {
+		i++
+	} else {
+		start := i
+		for i < len(s) && s[i] >= '0' && s[i] <= '9' {
+			i++
+		}
+		if i == start {
+			return false
+		}
+		if i < len(s) && s[i] == '-' {
+			i++
+		}
+	}
+	return i == len(s) || s[i] == ')' || isSpaceByte(s[i])
+}
+
+func isSpaceByte(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
+}
 
 // FileRedirect reports an unquoted output redirection that may write a file; `2>&1`, `>&2`, `2>&-` are not one.
 func FileRedirect(seg string) bool {
@@ -19,7 +39,7 @@ func FileRedirect(seg string) bool {
 		if at[i] != 0 || seg[i] != '>' {
 			continue
 		}
-		if i > 0 && (seg[i-1] == '&' || seg[i-1] == '<' || seg[i-1] == '>') || !fdDup().MatchString(seg[i:]) {
+		if i > 0 && (seg[i-1] == '&' || seg[i-1] == '<' || seg[i-1] == '>') || !isFdDup(seg[i:]) {
 			return true
 		}
 	}
@@ -33,18 +53,40 @@ var redirectOps = []struct {
 }{{"&>>", true}, {"<<<", false}, {"<<-", false}, {"&>", true}, {">>", true}, {">|", true}, {">&", true},
 	{"<>", true}, {"<<", false}, {"<&", false}, {">", true}, {"<", false}}
 
-// fdNumber is a `>&`/`<&` operand that names a descriptor, not a file.
-var fdNumber = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(-|[0-9]+-?)$`) })
+// isFdNumber reports a `>&`/`<&` operand that names a descriptor (`-`, `N`, `N-`), not a file.
+func isFdNumber(s string) bool {
+	if s == "-" {
+		return true
+	}
+	if len(s) == 0 {
+		return false
+	}
+	if s[len(s)-1] == '-' {
+		s = s[:len(s)-1]
+	}
+	if len(s) == 0 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if s[i] < '0' || s[i] > '9' {
+			return false
+		}
+	}
+	return true
+}
 
 // Redirects splits seg into its words minus unquoted redirections, and the files output ones write (`a>f`, `2>f`).
 func Redirects(seg string) (words, targets []string) {
+	if !strings.ContainsAny(seg, "<>&") {
+		return Tokens(seg), nil
+	}
 	at := redirectQuotes(seg)
-	var b strings.Builder
+	buf := make([]byte, 0, len(seg))
 	consumed := 0 // end of the last redirection's operand: digits before it are that operand, not an fd
 	for i := 0; i < len(seg); i++ {
 		start, op, out, ok := redirectAt(seg, at, i)
 		if !ok {
-			b.WriteByte(seg[i])
+			buf = append(buf, seg[i])
 			continue
 		}
 		start = max(start, consumed)
@@ -54,23 +96,23 @@ func Redirects(seg string) (words, targets []string) {
 		}
 		end := operandEnd(seg, at, from)
 		word := Tokens(seg[from:end])
-		if out && len(word) == 1 && (op != ">&" || !fdNumber().MatchString(word[0])) {
+		if out && len(word) == 1 && (op != ">&" || !isFdNumber(word[0])) {
 			targets = append(targets, word[0])
 		}
-		trimmed := b.String()[:b.Len()-(i-start)] // drop the fd digits or `&` already written
-		b.Reset()
-		b.WriteString(trimmed + " ")
+		buf = append(buf[:len(buf)-(i-start)], ' ')
 		consumed, i = end, end-1
 	}
-	return Tokens(b.String()), targets
+	return Tokens(string(buf)), targets
 }
 
 // redirectQuotes is QuoteAt with each `${…}`/`$((…))` byte marked quoted: `$((3>2))` redirects nothing.
 func redirectQuotes(seg string) []byte {
 	at := QuoteAt(seg)
-	for i, in := range exprMask(seg) {
-		if in {
-			at[i] = '\''
+	if strings.Contains(seg, "${") || strings.Contains(seg, "$((") {
+		for i, in := range exprMask(seg) {
+			if in {
+				at[i] = '\''
+			}
 		}
 	}
 	return at

@@ -34,7 +34,6 @@ func resolvedGit(toks []string, cwd string) (target, verb string, args []string)
 func parseGit(toks []string, cwd string) (target, verb string, args []string, aliases map[string]string) {
 	var cPaths []string
 	var gitDir, workTree string
-	aliases = map[string]string{}
 	i := 0
 	for i < len(toks) && strings.HasPrefix(toks[i], "-") {
 		var name, val string
@@ -50,10 +49,10 @@ func parseGit(toks []string, cwd string) (target, verb string, args []string, al
 		case "--work-tree":
 			workTree = val
 		case "-c":
-			recordAlias(aliases, val)
+			recordAlias(&aliases, val)
 		case "--config-env": // an alias read from an env var is unknowable here: treat it as a `!` alias
 			if n, _, found := strings.Cut(val, "="); found {
-				recordAlias(aliases, n+"=!")
+				recordAlias(&aliases, n+"=!")
 			}
 		}
 	}
@@ -64,9 +63,12 @@ func parseGit(toks []string, cwd string) (target, verb string, args []string, al
 }
 
 // recordAlias stores `alias.NAME=VALUE` (the value of a `-c`) into aliases.
-func recordAlias(aliases map[string]string, kv string) {
+func recordAlias(aliases *map[string]string, kv string) {
 	if n, v, found := strings.Cut(kv, "="); found && strings.HasPrefix(strings.ToLower(n), "alias.") {
-		aliases[strings.ToLower(n)[len("alias."):]] = v
+		if *aliases == nil {
+			*aliases = map[string]string{}
+		}
+		(*aliases)[strings.ToLower(n)[len("alias."):]] = v
 	}
 }
 
@@ -80,8 +82,11 @@ func expandVerb(verb string, args []string, aliases map[string]string) (string, 
 		if strings.ContainsAny(verb, "$`{"+subMask) {
 			return Uninspectable, nil
 		}
+		if len(aliases) == 0 || gitBuiltins[verb] {
+			return verb, args
+		}
 		val, ok := aliases[strings.ToLower(verb)] // git matches alias names case-insensitively
-		if !ok || gitBuiltins[verb] {
+		if !ok {
 			return verb, args
 		}
 		words := strings.Fields(val)
@@ -205,7 +210,11 @@ func AttributionFooterCommit(cmd, cwd string) bool {
 	_, subs := ExtractSubstitutions(cmd)
 	dynamic := slices.ContainsFunc(subs, func(s string) bool { return !strings.Contains(s, "<<") })
 	var subjects []string
+	sawCommit := false
 	if EachGit(cmd, cwd, func(target, verb string, args []string) bool {
+		if verb == "commit" || verb == Uninspectable {
+			sawCommit = true
+		}
 		if verb != "commit" {
 			return false
 		}
@@ -220,14 +229,18 @@ func AttributionFooterCommit(cmd, cwd string) bool {
 				subjects = append(subjects, a)
 			}
 		}
-		return dynamic && strings.Contains(strings.Join(args, " "), subMask) && footerMention().MatchString(cmd)
+		return dynamic && slices.ContainsFunc(args, func(a string) bool { return strings.Contains(a, subMask) }) &&
+			footerMention().MatchString(cmd)
 	}) {
 		return true
+	}
+	if !sawCommit {
+		return false
 	}
 	raw := cmd
 	for _, s := range subs {
 		if strings.Contains(s, "<<") && !strings.ContainsAny(s, "$`") { // a literal heredoc: only a line-start footer counts
-			if footerLine(s) && gitCommitInvocation(cmd) {
+			if footerLine(s) {
 				return true
 			}
 			raw = strings.ReplaceAll(raw, s, "")
@@ -236,7 +249,7 @@ func AttributionFooterCommit(cmd, cwd string) bool {
 	for _, s := range subjects {
 		raw = strings.ReplaceAll(raw, s, "")
 	}
-	return hasFooter(raw) && gitCommitInvocation(cmd)
+	return hasFooter(raw)
 }
 
 // readOnlyGit are the git subcommands a read-only run may shell out to.
