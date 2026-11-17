@@ -40,6 +40,19 @@ func Go(fn func(), report func(error)) {
 	}()
 }
 
+// All joins every slot without letting a failure cancel its siblings.
+func All(n int, fn func(int) error) []error {
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Go(func() {
+			_, errs[i] = call(func() (struct{}, error) { return struct{}{}, fn(i) })
+		})
+	}
+	wg.Wait()
+	return errs
+}
+
 // Map preserves order, joins started work, and cancels on first error; limit <= 0 means one worker.
 func Map[A, B any](ctx context.Context, items []A, limit int, fn func(context.Context, A) (B, error)) ([]B, error) {
 	ctx, cancel := context.WithCancelCause(ctx)

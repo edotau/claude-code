@@ -115,3 +115,47 @@ func TestWithin(t *testing.T) {
 		}
 	})
 }
+
+func TestAll(t *testing.T) {
+	first, second := errors.New("first"), errors.New("second")
+	for _, tc := range []struct {
+		name      string
+		errs      []error
+		panicSlot int
+	}{
+		{"success", make([]error, 4), -1},
+		{"panic", make([]error, 4), 1},
+		{"error", []error{nil, nil, first, nil}, -1},
+		{"order", []error{first, second, nil, first}, -1},
+		{"empty", nil, -1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			n := len(tc.errs)
+			var finished atomic.Int32
+			entered := make(chan struct{}, n)
+			errs := All(n, func(i int) error {
+				defer finished.Add(1)
+				entered <- struct{}{}
+				if i == 0 {
+					for range n {
+						<-entered
+					}
+				}
+				if i == tc.panicSlot {
+					panic("slot exploded")
+				}
+				return tc.errs[i]
+			})
+			if len(errs) != n || finished.Load() != int32(n) {
+				t.Fatalf("errors=%v finished=%d", errs, finished.Load())
+			}
+			for i, err := range errs {
+				if i == tc.panicSlot {
+					checkPanic(t, err)
+				} else if err != tc.errs[i] {
+					t.Fatalf("slot %d: got %v want %v", i, err, tc.errs[i])
+				}
+			}
+		})
+	}
+}

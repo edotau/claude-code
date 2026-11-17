@@ -7,8 +7,9 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"sync"
 	"time"
+
+	"github.com/edotau/claude-code/internal/par"
 )
 
 // scopeEnforcers hold a path-scoped Edit/Write deny; codex's OS sandbox reads no harness rule.
@@ -152,29 +153,30 @@ func foreignWrites(spec Spec, before, after map[foreignKey]string) []CheckViolat
 // aloneGap is the pause before each batch run alone, so its window never shares a second with another.
 var aloneGap = checkSlack
 
+var scopeBatchRun = launchBatchRun
+
 // launchAll runs the scoped batches together, then the others one at a time.
 func launchAll(ctx context.Context, executable string, specs []Spec, o LaunchOptions) []batchResult {
 	together, alone := launchBatches(specs, o)
 	results := make([]batchResult, len(together)+len(alone))
-	run := func(slot int, b launchBatch) {
+	run := func(slot int, b launchBatch) error {
+		res := batchResult{batch: b}
+		defer func() { results[slot] = res }()
 		part := make([]Spec, len(b.idx))
 		for j, i := range b.idx {
 			part[j] = specs[i]
 		}
-		res := batchResult{batch: b}
-		do := func() { res.envelopes, res.err = launchBatchRun(ctx, executable, part, b.flags, o) }
+		do := func() { res.envelopes, res.err = scopeBatchRun(ctx, executable, part, b.flags, o) }
 		if b.enforced {
 			do()
 		} else {
 			res.foreign, res.snapErr = watchAlone(o, part[0], do)
 		}
-		results[slot] = res
+		return res.err
 	}
-	var wg sync.WaitGroup
-	for slot, b := range together {
-		wg.Go(func() { run(slot, b) })
+	for slot, err := range par.All(len(together), func(i int) error { return run(i, together[i]) }) {
+		results[slot].err = err
 	}
-	wg.Wait()
 	for j, b := range alone {
 		if len(together)+j > 0 {
 			select {
@@ -182,7 +184,8 @@ func launchAll(ctx context.Context, executable string, specs []Spec, o LaunchOpt
 			case <-time.After(aloneGap):
 			}
 		}
-		run(len(together)+j, b)
+		slot := len(together) + j
+		results[slot].err = par.All(1, func(int) error { return run(slot, b) })[0]
 	}
 	return results
 }
