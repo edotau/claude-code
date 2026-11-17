@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // actEngine runs act inside the run, as an agent that writes files would.
@@ -141,5 +142,50 @@ func TestWatchWritesGitFailureLeavesNil(t *testing.T) {
 	}
 	if got := watchWrites(context.Background(), filepath.Join(dir, "missing"))(); got != nil {
 		t.Fatalf("a missing workdir must record nothing, got %v", *got)
+	}
+}
+
+// Given a peer dispatch that ran in the same tree during the run, the run claims no file as its own.
+func TestExecAttributesWritesOnlyWhenAloneInTheTree(t *testing.T) {
+	for _, tc := range []struct {
+		name, peerTree string // peerTree "" = no peer record; "same" = this repo's tree; else another tree
+	}{{"solo run", ""}, {"peer in another tree", "/elsewhere"}, {"peer in the same tree", "same"}} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := gitRepoWith(t, map[string]string{"a.txt": "a\n"})
+			tree := paths.GitTop(context.Background(), dir)
+			p := streamPrepared(t, &actEngine{act: func() {
+				if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("peer wrote\n"), 0o600); err != nil {
+					t.Error(err)
+				}
+			}})
+			p.Opts.WorkDir, p.Record.Tree = dir, tree
+			if tc.peerTree != "" {
+				peer := NewRecord("codex", RunOptions{}, p.Record.Time.Add(-time.Minute))
+				peer.Status, peer.PID, peer.Tree = "running", os.Getpid(), tc.peerTree
+				if tc.peerTree == "same" {
+					peer.Tree = tree
+				}
+				if err := peer.Save(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if _, err := (&Client{}).Exec(context.Background(), p, wire.Discard, RunRecordedOpts{}); err != nil {
+				t.Fatal(err)
+			}
+			rec, err := LoadRecord(p.Record.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := []string{filepath.Join(tree, "a.txt")}
+			if tc.peerTree == "same" {
+				if rec.Wrote != nil || rec.TreeChanged == nil || !slices.Equal(*rec.TreeChanged, want) {
+					t.Fatalf("Wrote = %v, TreeChanged = %v, want nil and %v", rec.Wrote, rec.TreeChanged, want)
+				}
+				return
+			}
+			if rec.TreeChanged != nil || rec.Wrote == nil || !slices.Equal(*rec.Wrote, want) {
+				t.Fatalf("Wrote = %v, TreeChanged = %v, want %v and nil", rec.Wrote, rec.TreeChanged, want)
+			}
+		})
 	}
 }
