@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -132,6 +133,42 @@ func robotsAllowed(ctx context.Context, u *url.URL, dead map[string]bool) bool {
 		dead[origin] = true
 	}
 	return ok && !robotsDisallows(rules, u.RequestURI())
+}
+
+// robotsFanout bounds the concurrent robots.txt fetches warmRobots starts.
+const robotsFanout = 8
+
+// warmRobots fetches each distinct origin's robots.txt at once into robotsCache; it returns the unreadable origins.
+func warmRobots(ctx context.Context, urls []string) map[string]bool {
+	dead := map[string]bool{}
+	var origins []string
+	for _, raw := range urls {
+		if u, err := checkExtractURL(raw); err == nil {
+			if o := u.Scheme + "://" + u.Host; !slices.Contains(origins, o) {
+				origins = append(origins, o)
+			}
+		}
+	}
+	if len(origins) < 2 {
+		return dead
+	}
+	var mu sync.Mutex
+	var wg sync.WaitGroup
+	sem := make(chan struct{}, robotsFanout)
+	for _, o := range origins {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func() {
+			defer func() { <-sem; wg.Done() }()
+			if _, ok := cachedRobotsRules(ctx, o); !ok {
+				mu.Lock()
+				dead[o] = true
+				mu.Unlock()
+			}
+		}()
+	}
+	wg.Wait()
+	return dead
 }
 
 // cachedRobotsRules is origin's parsed robots.txt rules from robotsCache within robotsTTL, else fetched and cached.
