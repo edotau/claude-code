@@ -500,3 +500,80 @@ func TestRenderSessionTotalSurvivesActiveFilter(t *testing.T) {
 		}
 	}
 }
+
+func TestModelColumnKeepsProviderAndDropsLabelFromTask(t *testing.T) {
+	rec := func(agent, model string) []Dispatch {
+		return []Dispatch{{ID: "d", Agent: agent, Model: model, Status: "ok"}}
+	}
+	cases := []struct {
+		name, want, task string
+		sub              Subagent
+	}{
+		{"databricks relay", "databricks-claude-sonnet-5-5", "port it",
+			Subagent{Type: "opencode", Description: "databricks-claude-sonnet-5-5: port it", Dispatches: rec("opencode", "databricks-claude-sonnet-5-5")}},
+		{"databricks label alone", "databricks-gpt-6-1-sol", "port it", Subagent{Type: "codex", Description: "databricks-gpt-6-1-sol: port it"}},
+		{"first-party alias", "sonnet", "port it", Subagent{Type: "claude", Description: "sonnet: port it", Model: "claude-sonnet-5-5"}},
+		{"alias on a databricks session", "databricks-claude-sonnet-5-5", "port it",
+			Subagent{Type: "claude", Description: "sonnet: port it", Model: "databricks-claude-sonnet-5-5"}},
+		{"copilot id", "claude-sonnet-5.5", "port it", Subagent{Type: "copilot", Description: "claude-sonnet-5.5: port it"}},
+		{"provider-qualified id", "opencode-go/kimi-k3", "port it",
+			Subagent{Type: "opencode", Description: "opencode-go/kimi-k3: port it", Dispatches: rec("opencode", "kimi-k3")}},
+		{"path prose is no label", "-", "fix internal/par: port it", Subagent{Type: "claude", Description: "fix internal/par: port it"}},
+	}
+	for _, c := range cases {
+		if got := subModel(c.sub); got != c.want {
+			t.Errorf("%s: model = %q, want %q", c.name, got, c.want)
+		}
+		if got := subTask(c.sub); got != c.task {
+			t.Errorf("%s: task = %q, want %q", c.name, got, c.task)
+		}
+	}
+}
+
+func TestModelColumnClipsOnlyWhenTextWouldGetSqueezed(t *testing.T) {
+	const model = "databricks-claude-sonnet-5-5"
+	s := Session{ID: "s", Status: statusActive, Subagents: []Subagent{{Type: "opencode", Status: statusRunning, Depth: 1,
+		Description: model + ": adopt the helper everywhere in the memory package", Tokens: Tokens{In: 21400, Out: 3300},
+		Dispatches: []Dispatch{{ID: "d", Agent: "opencode", Model: model, Status: statusRunning}}}}}
+	tree := &Tree{Sessions: []Session{cacheSessionTotals(s)}}
+	for _, width := range []int{0, 80, 120} {
+		var out strings.Builder
+		renderTree(&out, tree, time.Time{}, width, "")
+		row := strings.Split(out.String(), "\n")[2]
+		if !strings.Contains(row, model) {
+			t.Errorf("width %d: model whole = %t: %q", width, strings.Contains(row, model), row)
+		}
+		if strings.Contains(row, model+":") || width > 0 && textutil.DisplayWidth(row) > width {
+			t.Errorf("width %d: label repeated or row too wide: %q", width, row)
+		}
+		if width == 80 && (!strings.Contains(row, "adopt") || !strings.Contains(row, "…")) {
+			t.Errorf("width 80: task missing or not clipped: %q", row)
+		}
+	}
+}
+
+func TestRenderFullModelAt80Columns(t *testing.T) {
+	const model = "databricks-claude-sonnet-5-5"
+	s := Session{ID: "s", Status: statusActive, Subagents: []Subagent{
+		{Type: "opencode", Description: model + ": adopt the helper everywhere in the memory package", Tokens: Tokens{In: 21400, Out: 3300}},
+		{Type: "claude", Description: "sonnet: adopt the helper everywhere in the memory package", Tokens: Tokens{In: 2000}},
+		{Type: "opencode", Description: "sonnet: parent task with a subtree", Tokens: Tokens{In: 1000},
+			Dispatches: []Dispatch{{ID: "child", Usage: &wire.Usage{InputTokens: 2000}}}},
+	}}
+	var out strings.Builder
+	renderTree(&out, &Tree{Sessions: []Session{cacheSessionTotals(s)}}, time.Time{}, 80, "")
+	for _, line := range strings.Split(out.String(), "\n") {
+		if textutil.DisplayWidth(line) > 80 {
+			t.Errorf("line too wide: %q", line)
+		}
+	}
+	if !strings.Contains(out.String(), model) {
+		t.Errorf("full model missing:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "Σ3k") {
+		t.Errorf("parent total missing:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "adopt") || !strings.Contains(out.String(), "…") {
+		t.Errorf("clipped task missing:\n%s", out.String())
+	}
+}

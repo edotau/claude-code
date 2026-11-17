@@ -19,16 +19,9 @@ import (
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
-// maxRowWidth is the widest a terminal row may be, indent included; wider rows clip with an ellipsis.
-const maxRowWidth = 80
-
-// rowWidth is the clip width for w: its terminal columns capped at maxRowWidth, 0 when piped (rows stay whole).
+// rowWidth is the terminal's column count, or 0 when piped so rows stay whole.
 func rowWidth(w io.Writer) int {
-	n := helptext.TermWidth(w)
-	if n <= 0 {
-		return 0
-	}
-	return min(n, maxRowWidth)
+	return helptext.TermWidth(w)
 }
 
 // activePaint is the SGR prefix for active rows: the "minimal" theme's first ramp stop, "" when w takes no colour.
@@ -109,7 +102,7 @@ func addJobs(l *layout, dispatches []Dispatch, now time.Time) {
 		if n.level > 0 {
 			id = n.guide + id
 		}
-		l.add(levelJob, id, where, strings.TrimPrefix(cmp.Or(d.Model, "default"), "databricks-"), durationText(d.Duration),
+		l.add(levelJob, id, where, cmp.Or(d.Model, "default"), durationText(d.Duration),
 			signalText(d, now), joinText(n.tokenText(), "  ", oneLine(cmp.Or(d.Task, d.Repo))))
 		l.mark(d.Status == statusRunning, 1<<0)
 	}
@@ -249,7 +242,7 @@ func dispatchCells(d Dispatch, now time.Time) []string {
 	if d.Fallback != "" {
 		signal = strings.TrimSpace(signal + " ⚠ fallback")
 	}
-	return []string{name, d.Status, durationText(d.Duration), signal, strings.TrimPrefix(d.Model, "databricks-")}
+	return []string{name, d.Status, durationText(d.Duration), signal, d.Model}
 }
 
 // phaseDone counts a phase's agents that have a journal/meta result in, against its total.
@@ -469,20 +462,59 @@ func nestDispatches(ds []Dispatch) []nested {
 	return out
 }
 
-// subModel recognizes the model prefix only when it cannot be ordinary task prose.
-func subModel(sub Subagent) string {
-	if model, _, ok := strings.Cut(sub.Description, ": "); ok && !strings.ContainsAny(model, " /\t\n") {
-		return strings.TrimPrefix(model, "databricks-")
+// databricksPrefix starts every model id that is routed through Databricks; first-party ids and aliases lack it.
+const databricksPrefix = "databricks-"
+
+// claudeAliases are the first-party aliases a label may carry for an in-context Claude run.
+var claudeAliases = []string{"sonnet", "opus", "haiku"}
+
+// ownRecord is the dispatch record of the vendor run a relay row stands for; in-context Claude rows have none.
+func ownRecord(sub Subagent) (Dispatch, bool) {
+	if sub.Type == "claude" {
+		return Dispatch{}, false
 	}
-	return "-"
+	i := slices.IndexFunc(sub.Dispatches, func(d Dispatch) bool {
+		return d.Model != "" && (d.Agent == sub.Type || d.Fallback == sub.Type)
+	})
+	if i < 0 {
+		return Dispatch{}, false
+	}
+	return sub.Dispatches[i], true
 }
 
-// subTask preserves task prefixes containing spaces or paths.
-func subTask(sub Subagent) string {
-	if model, task, ok := strings.Cut(sub.Description, ": "); ok && model != "" && !strings.ContainsAny(model, " /\t\n") {
-		return task
+// subLabel splits "<model>: <task>"; a "/" in the model counts only when the row's own record ends it, else it is prose.
+func subLabel(sub Subagent) (model, task string, ok bool) {
+	model, task, ok = strings.Cut(sub.Description, ": ")
+	if !ok || model == "" || strings.ContainsAny(model, " \t\n") {
+		return "", sub.Description, false
 	}
-	return sub.Description
+	if strings.Contains(model, "/") {
+		if d, has := ownRecord(sub); !has || !strings.HasSuffix(model, "/"+d.Model) && model != d.Model {
+			return "", sub.Description, false
+		}
+	}
+	return model, task, true
+}
+
+// subModel is the full model id the run used: its dispatch record, else the label, else the transcript's Databricks id.
+func subModel(sub Subagent) string {
+	label, _, _ := subLabel(sub)
+	if d, ok := ownRecord(sub); ok {
+		if strings.HasSuffix(label, "/"+d.Model) {
+			return label
+		}
+		return d.Model
+	}
+	if strings.HasPrefix(sub.Model, databricksPrefix) && slices.Contains(claudeAliases, label) {
+		return sub.Model
+	}
+	return cmp.Or(label, "-")
+}
+
+// subTask is the description without its model label, which the model column already shows.
+func subTask(sub Subagent) string {
+	_, task, _ := subLabel(sub)
+	return task
 }
 
 func subTotal(sub Subagent) string {

@@ -17,9 +17,12 @@ import (
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
-const scanCacheSchema = 1
+const scanCacheSchema = 2
 
 var usageKey = []byte(`"usage"`)
+
+// syntheticModel is Claude Code's placeholder model on locally made messages, never a run's real model.
+const syntheticModel = "<synthetic>"
 
 // respTokens is one deduplicated API response's counts (In = input + cache creation), keyed by message.id.
 type respTokens struct {
@@ -37,6 +40,7 @@ type scanEntry struct {
 	Fixed   Tokens       `json:"fixed"` // responses without a message.id, which never deduplicate
 	Resp    []respTokens `json:"resp,omitempty"`
 	IDs     []string     `json:"dispatch_ids,omitempty"`
+	Model   string       `json:"model,omitempty"` // message.model of the newest usage-bearing response
 
 	MetaOK    bool         `json:"meta_ok,omitempty"` // Meta and Phase describe the .meta.json stamped below
 	MetaSize  int64        `json:"meta_size,omitempty"`
@@ -117,6 +121,7 @@ type usageRecord struct {
 	Type    string `json:"type"`
 	Message struct {
 		ID    string `json:"id"`
+		Model string `json:"model"`
 		Usage *struct {
 			Input         int64 `json:"input_tokens"`
 			CacheCreation int64 `json:"cache_creation_input_tokens"`
@@ -152,6 +157,9 @@ func (f *folder) add(line []byte) {
 	var rec usageRecord
 	if json.Unmarshal(line, &rec) != nil || rec.Type != "assistant" || rec.Message.Usage == nil {
 		return
+	}
+	if m := rec.Message.Model; m != "" && m != syntheticModel {
+		f.e.Model = m
 	}
 	u := rec.Message.Usage
 	in, out, cr := u.Input+u.CacheCreation, u.Output, u.CacheRead
@@ -205,7 +213,7 @@ func (e *scanEntry) resumeFrom(size int64) *scanEntry {
 	if e == nil || size <= e.Size || e.Offset > size {
 		return &scanEntry{}
 	}
-	return &scanEntry{Offset: e.Offset, Fixed: e.Fixed, Resp: slices.Clone(e.Resp), IDs: slices.Clone(e.IDs)}
+	return &scanEntry{Offset: e.Offset, Fixed: e.Fixed, Resp: slices.Clone(e.Resp), IDs: slices.Clone(e.IDs), Model: e.Model}
 }
 
 // foldFrom folds the complete lines after e.Offset into e and advances the offset.

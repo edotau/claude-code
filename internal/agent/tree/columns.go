@@ -25,15 +25,16 @@ type col struct {
 	right    bool // right-aligned: numbers and durations
 	max      int  // widest the column may grow on a terminal; 0 = unlimited
 	optional bool // dropped for the whole level when keeping it would leave the text under minText
+	fit      bool // a model id: whole unless the text would fall under minFitText, then clipped with an ellipsis
 }
 
 // levelCols holds the fixed columns per level; the cells of a row are these columns, then the text.
 var levelCols = [levelCount][]col{
 	levelSession:  {{max: 20}, {}, {right: true}, {max: 12}, {right: true}},
 	levelRun:      {{}, {}, {right: true}},
-	levelSubagent: {{}, {max: 10}, {max: 12}, {right: true}, {right: true}, {right: true}, {right: true, optional: true}, {right: true, optional: true}},
+	levelSubagent: {{}, {max: 10}, {fit: true}, {right: true}, {right: true}, {right: true}, {right: true, optional: true}, {right: true, optional: true}},
 	levelDispatch: {{}, {max: 14}, {}, {right: true}, {}},
-	levelJob:      {{}, {max: 15}, {max: 22}, {right: true}, {}},
+	levelJob:      {{}, {max: 15}, {fit: true}, {right: true}, {}},
 }
 
 // levelIndent is the left indent of each level's rows.
@@ -41,6 +42,12 @@ var levelIndent = [levelCount]int{levelSession: 2, levelRun: 4, levelSubagent: 4
 
 // minText is the room the text must keep on a terminal before an optional column is dropped.
 const minText = 24
+
+// minFitText is the text a fit column leaves, and minFitWidth the narrowest it is clipped to.
+const (
+	minFitText  = 8
+	minFitWidth = 8
+)
 
 // gap separates the columns of a row, and the last column from the text.
 const gap = "  "
@@ -84,9 +91,18 @@ func (l *layout) lines(width int, paint string) []string {
 	rows := l.capped(width)
 	widths := levelWidths(rows)
 	dropOptional(widths, width)
+	fitModels(rows, widths, width)
 	out := make([]string, len(rows))
 	for i, r := range rows {
-		out[i] = r.line(widths[r.level], width, paint)
+		ws := widths[r.level]
+		var leafWidths [8]int
+		if r.level == levelSubagent && r.cells[5] == "" && width > 0 &&
+			width-prefixWidth(ws, r.indent) < minText {
+			copy(leafWidths[:], ws)
+			leafWidths[5] = 0
+			ws = leafWidths[:len(ws)]
+		}
+		out[i] = r.line(ws, width, paint)
 	}
 	return out
 }
@@ -127,6 +143,27 @@ func dropOptional(ws [levelCount][]int, width int) {
 		for c, k := range cols {
 			if k.optional && ws[level][c] > 0 && width-prefixWidth(ws[level], levelIndent[level]) < minText {
 				ws[level][c] = 0
+			}
+		}
+	}
+}
+
+// fitModels clips a level's fit column, cells and width, so its text keeps minFitText columns when it can.
+func fitModels(rows []row, ws [levelCount][]int, width int) {
+	if width <= 0 {
+		return
+	}
+	for level, cols := range levelCols {
+		for c, k := range cols {
+			over := minFitText - (width - prefixWidth(ws[level], levelIndent[level]))
+			if !k.fit || ws[level][c] == 0 || over <= 0 {
+				continue
+			}
+			ws[level][c] = max(ws[level][c]-over, min(minFitWidth, ws[level][c]))
+			for i, r := range rows {
+				if r.level == level {
+					rows[i].cells[c] = textutil.TruncateCells(r.cells[c], ws[level][c], "…")
+				}
 			}
 		}
 	}
