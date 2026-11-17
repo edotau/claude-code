@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 	copilot "github.com/github/copilot-sdk/go"
@@ -138,6 +139,7 @@ func buildSessionConfig(o sdkOptions) *copilot.SessionConfig {
 		cfg.Memory = &copilot.MemoryConfiguration{Enabled: true}
 	}
 	cfg.SystemMessage = systemMessage(o)
+	cfg.HookDirectories = hookDirectories(o)
 	cfg.InstructionDirectories, cfg.SkillDirectories, cfg.AgentDirectories = o.InstructionDirs, o.SkillDirs, o.AgentDirs
 	// sent once through the system prompt instead of being discovered twice
 	if o.InlineInstructions != "" {
@@ -157,6 +159,20 @@ func buildSessionConfig(o sdkOptions) *copilot.SessionConfig {
 		cfg.Providers, cfg.Models = namedProviders(o)
 	}
 	return cfg
+}
+
+// hookDirectories loads only the harness hooks dir; EnableConfigDiscovery would also pull ambient MCP and instructions.
+func hookDirectories(o sdkOptions) []string {
+	for _, env := range [][]string{o.ChildEnv, o.Env} {
+		if h := proc.ValuesFromEnv(env)["COPILOT_HOME"]; h != "" {
+			return []string{filepath.Join(h, "hooks")}
+		}
+	}
+	h, err := paths.CopilotHome()
+	if err != nil {
+		return nil
+	}
+	return []string{filepath.Join(h, "hooks")}
 }
 
 // leafExcludedTools are the sub-agent and workflow tools a headless leaf must not use (~20 KB of schemas per request).
