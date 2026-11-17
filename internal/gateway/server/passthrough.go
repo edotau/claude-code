@@ -132,31 +132,40 @@ func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *provi
 		if body, ok = readBody(sw, in); !ok {
 			return model, ""
 		}
-		model = cmp.Or(passthroughModel(body), model)
-		if wire := models.Strip1M(p.WireModel(model)); model != "" && wire != model &&
-			(dialect == providers.ProtocolOpenAI || dialect == providers.ProtocolResponses) {
-			var err error
-			if body, err = withModel(body, wire); err != nil {
-				writeError(sw, http.StatusBadRequest, "proxy: "+err.Error())
-				return model, ""
-			}
-			model = wire
-		}
-		if dbxGemini {
-			body = dropOffThoughts(body)
-		}
-		if isChatCompletion(dialect, path.Path) {
-			if translate.IsGeminiModel(model) {
-				body = fixGeminiChat(body)
-				geminiChat = true
-			}
-			body = dropNonFunctionTools(body)
-		}
-		if dialect != providers.ProtocolGemini {
-			body = clampOutputTokens(body, model)
+		var err error
+		if body, model, geminiChat, err = fixPassthroughBody(body, p, path.Path, model, dialect, dbxGemini); err != nil {
+			writeError(sw, http.StatusBadRequest, "proxy: "+err.Error())
+			return model, ""
 		}
 	}
 	return r.passthroughResponse(sw, in, p, route, path, model, dialect, body, geminiChat)
+}
+
+// fixPassthroughBody applies the per-dialect request fixes; model is the body's (or the wire) model even on error.
+func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect string,
+	dbxGemini bool) (out []byte, newModel string, geminiChat bool, err error) {
+	model = cmp.Or(passthroughModel(body), model)
+	if wire := models.Strip1M(p.WireModel(model)); model != "" && wire != model &&
+		(dialect == providers.ProtocolOpenAI || dialect == providers.ProtocolResponses) {
+		if body, err = withModel(body, wire); err != nil {
+			return nil, model, false, err
+		}
+		model = wire
+	}
+	if dbxGemini {
+		body = dropOffThoughts(body)
+	}
+	if isChatCompletion(dialect, path) {
+		if translate.IsGeminiModel(model) {
+			body = fixGeminiChat(body)
+			geminiChat = true
+		}
+		body = dropNonFunctionTools(body)
+	}
+	if dialect != providers.ProtocolGemini {
+		body = clampOutputTokens(body, model)
+	}
+	return body, model, geminiChat, nil
 }
 
 func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *providers.Provider,

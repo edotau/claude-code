@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -21,6 +22,10 @@ import (
 // idleTimeout cuts a wedged upstream stream; a var so tests need not wait 10 minutes.
 var idleTimeout = 10 * time.Minute
 
+const relayChunk = 32 << 10
+
+var relayBufs = sync.Pool{New: func() any { return new([relayChunk]byte) }}
+
 func relay(w http.ResponseWriter, resp *http.Response) {
 	defer resp.Body.Close()
 	for k, vs := range resp.Header {
@@ -30,11 +35,12 @@ func relay(w http.ResponseWriter, resp *http.Response) {
 	}
 	w.WriteHeader(resp.StatusCode)
 	flush := flusher(w)
-	buf := make([]byte, 32<<10)
+	buf := relayBufs.Get().(*[relayChunk]byte)
+	defer relayBufs.Put(buf)
 	var watch terminalWatch
 	sse := strings.Contains(resp.Header.Get("Content-Type"), "event-stream")
 	for {
-		n, err := resp.Body.Read(buf)
+		n, err := resp.Body.Read(buf[:])
 		if n > 0 && !forward(w, flush, buf[:n], sse, &watch) {
 			return
 		}

@@ -196,12 +196,8 @@ func ResolveProxyToken(ctx context.Context, scope []string, pid int) (string, er
 	dir := proxyTokenDir()
 	pruneProxyTokens(dir)
 	file := filepath.Join(dir, strconv.Itoa(pid)+".json")
-	if b, err := os.ReadFile(file); err == nil {
-		var rec proxyTokenRecord
-		if json.Unmarshal(b, &rec) == nil && rec.Token != "" && rec.Start == start && slices.Equal(rec.Scope, scope) &&
-			time.Since(rec.MintedAt) < proxyTokenMaxAge {
-			return rec.Token, nil
-		}
+	if tok, ok := cachedProxyToken(file, start, scope); ok {
+		return tok, nil
 	}
 	tok, err := mintScoped(ctx, scope, pid)
 	if err != nil {
@@ -218,6 +214,20 @@ func ResolveProxyToken(ctx context.Context, scope []string, pid int) (string, er
 		return "", fmt.Errorf("cache scoped token: %w", err)
 	}
 	return tok, nil
+}
+
+// cachedProxyToken reads file's token when its process identity and scope match and it is still fresh.
+func cachedProxyToken(file, start string, scope []string) (string, bool) {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return "", false
+	}
+	var rec proxyTokenRecord
+	if json.Unmarshal(b, &rec) != nil || rec.Token == "" || rec.Start != start || !slices.Equal(rec.Scope, scope) ||
+		time.Since(rec.MintedAt) >= proxyTokenMaxAge {
+		return "", false
+	}
+	return rec.Token, true
 }
 
 // pruneProxyTokens removes cache files whose pid is gone; best effort, a stray file is harmless.
