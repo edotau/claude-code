@@ -14,6 +14,30 @@ import (
 // xword is a fixed-width filler token so first-line/continuation capacity is hand-computable.
 const xword = "xxxxxxxxxx" // 10 runes
 
+func BenchmarkBankFmtTokenize(b *testing.B) {
+	for _, tc := range []struct{ name, text string }{
+		{"prose", strings.Repeat("memory formatting preserves words  ", 16)},
+		{"protected", strings.Repeat("read `inline code` [the note](https://example.com) <!-- id:deadbeef --> ", 8)},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			b.SetBytes(int64(len(tc.text)))
+			for b.Loop() {
+				_ = bankFmtTokenize(tc.text)
+			}
+		})
+	}
+}
+
+func BenchmarkFormatBankMarkdown(b *testing.B) {
+	text := strings.Repeat("- "+strings.Repeat("memory formatting preserves words ", 8)+"\n", 16)
+	b.ReportAllocs()
+	b.SetBytes(int64(len(text)))
+	for b.Loop() {
+		_ = formatBankMarkdown(text)
+	}
+}
+
 // repeatWords returns n copies of xword, space-joined.
 func repeatWords(n int) []string {
 	w := make([]string, n)
