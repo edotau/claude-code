@@ -90,7 +90,10 @@ func (c *Client) finishPrepare(ctx context.Context, p *Prepared, o RunOptions, c
 		return clientUsageError{errors.New("--dirs/--files/--diff: not with --host")}
 	}
 	p.Opts = o
-	p.Record = c.record(ctx, o, claim)
+	var err error
+	if p.Record, err = c.record(ctx, o, claim); err != nil {
+		return err
+	}
 	p.Record.Preflight = p.Chain.Preflight
 	if o.Pack == nil {
 		return nil
@@ -145,7 +148,7 @@ func (c *Client) Record(ctx context.Context, o RunOptions, claim *Record) (Recor
 	if err != nil {
 		return Record{}, err
 	}
-	return c.record(ctx, o, claim), nil
+	return c.record(ctx, o, claim)
 }
 
 // resolve maps o.Agent (roster name, agents key, vendor:name or definition file) to its agent and applies it.
@@ -197,12 +200,15 @@ func (c *Client) alias(prompt string) string {
 	return ""
 }
 
-func (c *Client) record(ctx context.Context, o RunOptions, claim *Record) Record {
+func (c *Client) record(ctx context.Context, o RunOptions, claim *Record) (Record, error) {
 	dir := o.WorkDir
 	if o.Host != "" {
 		dir = ""
 	}
-	rec := buildAskRecord(ctx, o.Agent, o, claim, dir, o.Background)
+	rec, err := buildAskRecord(ctx, o.Agent, o, claim, dir, o.Background)
+	if err != nil {
+		return Record{}, err
+	}
 	rec.Request.Launcher = c.Launcher
 	if claim == nil {
 		rec.FallbackPolicy = o.Fallback
@@ -210,7 +216,7 @@ func (c *Client) record(ctx context.Context, o RunOptions, claim *Record) Record
 			rec.Host = o.Host
 		}
 	}
-	return rec
+	return rec, nil
 }
 
 // Exec runs a prepared dispatch, leaving initial record saving and background spawning to the caller.

@@ -99,6 +99,10 @@ func DispatchKeep() int { return dispatchKeep }
 
 const dispatchPruneMargin = 20
 
+const DefaultMaxDispatchDepth = 3
+
+const maxDispatchDepthEnv = "HARNESS_DISPATCH_MAX_DEPTH"
+
 // NewRecord stamps an id that sorts by time and names the agent: 20261016T210512.123-codex.
 func NewRecord(name string, req RunOptions, now time.Time) Record {
 	req.EnvNames = envNames(req.Env)
@@ -555,11 +559,26 @@ func (rec Record) ResultEnvelope(errw io.Writer) wire.Envelope {
 }
 
 // buildAskRecord constructs the dispatch record for req, reusing jobRec's identity when resuming a job.
-func buildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Record, workdir string, background bool) Record {
+func buildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Record, workdir string, background bool) (Record, error) {
+	ctx = valuesContext(ctx, req.Values)
+	var rec Record
 	if jobRec != nil {
-		return *jobRec // same id: a job run continues the record it was spawned from
+		rec = *jobRec
+	} else {
+		rec = NewRecord(name, req, time.Now())
 	}
-	rec := ClaimRecord(name, req, time.Now())
+	maxDepth, err := strconv.Atoi(proc.Value(ctx, maxDispatchDepthEnv))
+	if err != nil || maxDepth < 0 {
+		maxDepth = DefaultMaxDispatchDepth
+	}
+	if maxDepth > 0 && rec.Depth > maxDepth {
+		return Record{}, &UsageError{Msg: fmt.Sprintf("dispatch depth %d exceeds cap %d (parent %s); "+
+			"set %s (0 = no cap)", rec.Depth, maxDepth, rec.Parent, maxDispatchDepthEnv)}
+	}
+	if jobRec != nil {
+		return rec, nil // same id: a job run continues the record it was spawned from
+	}
+	rec = claimRecord(rec)
 	cwd := workdir
 	if cwd == "" {
 		cwd, _ = os.Getwd()
@@ -570,5 +589,5 @@ func buildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Re
 	if !background {
 		rec.PID = os.Getpid() // foreground run: alive while this process runs, lost only if it dies
 	}
-	return rec
+	return rec, nil
 }
