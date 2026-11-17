@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // pollCall is one Bash `agents result` call in a relay transcript and what its tool result showed.
@@ -100,15 +101,25 @@ func relayBash(in *core.Input) (core.Result, bool) {
 		return core.Result{}, false
 	}
 	for _, seg := range shell.Segments(cmd) {
-		toks := relayWords(seg)
-		_, _, err := relayInput(seg)
-		if err != nil || len(toks) == 0 || filepath.Base(toks[0]) != "claude-code" {
-			return core.Result{Decision: core.Block, Reason: "relay: run only `claude-code` commands (your brief's " +
-				"`Run:` line, then `claude-code agents result -f <id>`); the job reads, edits and tests. " +
-				"Pass --workdir instead of cd; only a literal stdin file redirect (`< file`) is allowed."}, true
+		if rule := relayRefusal(seg); rule != "" {
+			shown := textutil.Truncate(strings.Join(strings.Fields(textutil.RedactSecrets(seg)), " "), 60)
+			return core.Result{Decision: core.Block, Reason: fmt.Sprintf("relay: refused `%s`: %s; run only "+
+				"`claude-code <agent> ask ... - < /absolute/brief/file` (no cd: use --workdir).", shown, rule)}, true
 		}
 	}
 	return core.Result{}, false
+}
+
+// relayRefusal names the rule a relay's Bash segment breaks; "" when it is allowed.
+func relayRefusal(seg string) string {
+	if toks := relayWords(seg); len(toks) == 0 || filepath.Base(toks[0]) != "claude-code" {
+		return "not a `claude-code` command"
+	}
+	_, _, err := relayInput(seg)
+	if err != nil {
+		return err.Error()
+	}
+	return ""
 }
 
 // pollGate (PreToolUse Bash) refuses a poll of a finished job already handed back, and a second live poller.
@@ -224,7 +235,7 @@ func askVerb(words []string) string {
 // relayInput permits only literal argv and one stdin file redirect; no expansions or shell execution.
 func relayInput(seg string) (words []string, input string, err error) {
 	if !relayQuotesClosed(seg) {
-		return nil, "", errors.New("unclosed shell quote or escape")
+		return nil, "", errors.New("has an unclosed quote or escape")
 	}
 	at := shell.QuoteAt(seg)
 	redirect := -1
@@ -232,12 +243,15 @@ func relayInput(seg string) (words []string, input string, err error) {
 		if at[i] == '\'' {
 			continue
 		}
-		if c == '`' || c == '$' || at[i] == 0 && strings.ContainsRune(";|&(){}>*?[]~#", rune(c)) {
-			return nil, "", errors.New("unsupported shell syntax")
+		if c == '`' || c == '$' {
+			return nil, "", errors.New("contains `$` or a backtick")
+		}
+		if at[i] == 0 && strings.ContainsRune(";|&(){}>*?[]~#", rune(c)) {
+			return nil, "", fmt.Errorf("contains an unquoted shell operator `%c`", c)
 		}
 		if c == '<' && at[i] == 0 {
 			if redirect >= 0 || i > 0 && !strings.ContainsRune(" \t", rune(seg[i-1])) {
-				return nil, "", errors.New("unsupported redirect")
+				return nil, "", errors.New("redirect is not a literal `< file`")
 			}
 			redirect = i
 		}
@@ -247,7 +261,7 @@ func relayInput(seg string) (words []string, input string, err error) {
 	}
 	files := shell.Tokens(seg[redirect+1:])
 	if len(files) != 1 || files[0] == "" {
-		return nil, "", errors.New("stdin redirect needs one literal file")
+		return nil, "", errors.New("redirect is not a literal `< file`")
 	}
 	return shell.Tokens(seg[:redirect]), files[0], nil
 }
