@@ -56,9 +56,8 @@ For `codex`, `copilot`, `gemini` and `opencode` wrappers:
 - A thin pipe: run the brief's leading `Run:` line exactly as written, once, task appended unchanged; never add, drop
   or swap a flag (an "edit nothing" brief keeps `--tools`) or start another ask. Without a `Run:`, pick one supported
   verb (a bare task means `ask`), default a named-agent task to `--fallback none`, keep explicit policy and pins.
-  Write the brief with the Write tool to `/tmp/<agent>-brief-<8 random hex>.md`, choosing the hex yourself per dispatch,
-  and pass it on stdin with that literal path (`claude-code agents ask ... - < /tmp/codex-brief-3f9a1c2e.md`: no `$`,
-  `~` or glob) so the launch command starts with `claude-code` and matches the allow rule; never reuse a path.
+  Run `claude-code agents brief --path <agent>`; Write the brief there, then redirect its literal path with `- < PATH`.
+  Never choose or reuse a path; no `$`, `~` or glob.
 - Background only via the `Run:` line's `--background` (never the shell or `run_in_background`). No duplicate ask,
   readiness smoke or repeat discovery.
 - **Waiting and handing back** (hooks back these up: `rules/harness/hooks.md` → `dispatch-handback`):

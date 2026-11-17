@@ -26,6 +26,7 @@ leading `Run:` once, exactly as written.
 Otherwise `test` selects TEST and `commit` selects LAST-MILE (brief modes, not CLI verbs); send the mode's
 instructions in one `claude-code copilot ask --tools` task. Owner shortcuts: `rules/workflows/agents.md` → Slash
 commands.
+Run `claude-code agents brief --path <agent>`; Write the brief there, then redirect its literal path with `- < PATH`.
 
 ## Owns
 

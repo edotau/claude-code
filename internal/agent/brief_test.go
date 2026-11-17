@@ -1,10 +1,14 @@
 package agent
 
 import (
+	"bytes"
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestBriefParseOwned(t *testing.T) {
@@ -80,5 +84,94 @@ func assertBriefContract(t *testing.T, first string, input BriefInput) {
 		if !strings.Contains(first, want) {
 			t.Errorf("brief missing contract %q", want)
 		}
+	}
+}
+
+func TestBriefPathAllocation(t *testing.T) {
+	dir := t.TempDir()
+	oldDir, oldRandom := briefDir, briefRandom
+	briefDir = func() string { return dir }
+	t.Cleanup(func() { briefDir, briefRandom = oldDir, oldRandom })
+	stale, other := ageBriefFixtures(t, dir)
+	var wg sync.WaitGroup
+	const allocations = 200
+	paths := make(chan string, allocations)
+	for range allocations {
+		wg.Go(func() {
+			path, err := NewBriefPath("codex")
+			if err != nil {
+				t.Error(err)
+				return
+			}
+			paths <- path
+		})
+	}
+	wg.Wait()
+	close(paths)
+	assertBriefPaths(t, paths, allocations)
+	if _, err := os.Stat(stale); !os.IsNotExist(err) {
+		t.Fatalf("stale brief retained: %v", err)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Fatal(err)
+	}
+	assertBriefExclusive(t)
+}
+
+func assertBriefExclusive(t *testing.T) {
+	t.Helper()
+	briefRandom = bytes.NewReader(make([]byte, 16))
+	first, err := NewBriefPath("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(first, []byte("keep"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	briefRandom = bytes.NewReader(append(make([]byte, 16), bytes.Repeat([]byte{1}, 16)...))
+	second, err := NewBriefPath("codex")
+	if err != nil {
+		t.Fatal(err)
+	}
+	content, err := os.ReadFile(first)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first == second || string(content) != "keep" {
+		t.Fatal("returned or modified an existing brief")
+	}
+}
+
+func ageBriefFixtures(t *testing.T, dir string) (string, string) {
+	t.Helper()
+	stale := filepath.Join(dir, "claude-code-brief-20000101-codex-"+strings.Repeat("a", 32)+".md")
+	other := filepath.Join(dir, "unrelated.md")
+	for _, path := range []string{stale, other} {
+		if err := os.WriteFile(path, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		old := time.Now().Add(-8 * 24 * time.Hour)
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return stale, other
+}
+
+func assertBriefPaths(t *testing.T, paths <-chan string, allocations int) {
+	t.Helper()
+	seen := make(map[string]bool)
+	for path := range paths {
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if seen[path] || !filepath.IsAbs(path) || info.Size() != 0 {
+			t.Fatalf("invalid allocation %q", path)
+		}
+		seen[path] = true
+	}
+	if len(seen) != allocations {
+		t.Fatalf("got %d paths", len(seen))
 	}
 }

@@ -50,7 +50,7 @@ func agentsSpec() *helptext.Node {
 			flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
 		"cancel": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("lost"), boolFlag("dry-run"), formatFlag()}},
 		"wait":   {Flags: []helptext.Flag{flag("timeout"), formatFlag()}},
-		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), boolFlag("read-only"), flag("report")}},
+		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), boolFlag("read-only"), flag("report"), boolFlag("path")}},
 	}}
 }
 
@@ -92,7 +92,7 @@ var agentsPage = helptext.Page{
 		{"cancel", "interrupt a running dispatch, or --lost: mark dead ones as error"},
 		{"wait", "block until dispatches finish: wait <id>... [--timeout 10m]"},
 		{"watch", "report this session's stale dispatches: watch [--once]"},
-		{"brief", "render a leaf brief: the task plus the contract footer"},
+		{"brief", "render a leaf brief or reserve its file with --path"},
 		{"send", "send one turn to a live claude or gemini session: send <id> <task>"},
 	},
 	Hint: "claude-code agents <command> -h lists that command's flags.",
@@ -145,9 +145,10 @@ var agentsSubPages = map[string][3]string{
 			"--dry-run without --lost; none of <id>, --agent and --lost)."},
 	"wait": {"wait <id>... [flags]", "Block until every dispatch has finished and print one row per id: <id> done|error|lost|timeout <elapsed>.",
 		"Exit 0 all done, 1 any error or lost, 2 usage, 4 timed out, still running."},
-	"brief": {"brief --task <file|-> [--own <path>]... [flags]", "Print a leaf brief: an Owned: line, the mode, the task, the leaf rules and the " +
-		"reporting contract. Pipe it to agents ask -; agents diff --verify <id> reads the Owned: line back.",
-		"Exit 0, 2 usage (no --task, or an implementation brief with no --own)."},
+	"brief": {"brief [--path [<agent>] | --task <file|-> [flags]]",
+		"Render a leaf brief, or --path: reserve an empty file and print its path.\n" +
+			"Path mode takes only an optional agent; files expire after seven days.",
+		"Exit 0, 1 I/O error, 2 usage."},
 }
 
 // agentsFlags makes the `agents <verb>` FlagSet whose -h renders its page.
@@ -492,6 +493,7 @@ func cmdAgentsWait(args []string) int {
 // cmdAgentsBrief is `agents brief`: the rendered brief on stdout; an implementation brief needs --own.
 func cmdAgentsBrief(args []string) int {
 	fs := agentsFlags("brief")
+	pathMode := fs.Bool("path", false, "reserve a unique empty brief file; optional agent argument")
 	taskFile := fs.String("task", "", "the authored task text file; - reads stdin")
 	var owned []string
 	fs.Func("own", "a file or directory the leaf may edit; repeat per path", func(v string) error {
@@ -504,23 +506,45 @@ func cmdAgentsBrief(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
+	if *pathMode {
+		if fs.NFlag() != 1 || len(pos) > 1 {
+			fs.Usage()
+			return 2
+		}
+		return printBriefPath(strings.Join(pos, ""))
+	}
 	if *taskFile == "" || len(pos) > 0 || (!*readOnly && len(owned) == 0) {
 		fs.Usage()
 		return 2
 	}
-	task, err := agent.ReadBrief(*taskFile)
+	return renderAgentsBrief(*taskFile, owned, *readOnly, *report)
+}
+
+func renderAgentsBrief(taskFile string, owned []string, readOnly bool, report string) int {
+	task, err := agent.ReadBrief(taskFile)
 	if err != nil {
 		return helptext.Fail("agents brief: %v", err)
 	}
 	if strings.TrimSpace(task) == "" {
-		return helptext.Fail("agents brief: --task %q is empty", *taskFile)
+		return helptext.Fail("agents brief: --task %q is empty", taskFile)
 	}
-	out, err := agent.RenderBrief(agent.BriefInput{Task: task, Owned: owned, ReadOnly: *readOnly, Report: *report})
+	out, err := agent.RenderBrief(agent.BriefInput{Task: task, Owned: owned, ReadOnly: readOnly, Report: report})
 	if err != nil {
 		return helptext.Fail("agents brief: %v", err)
 	}
 	if _, err := fmt.Print(out); err != nil {
 		return helptext.Fail("agents brief: write output: %v", err)
+	}
+	return 0
+}
+
+func printBriefPath(name string) int {
+	path, err := agent.NewBriefPath(name)
+	if err != nil {
+		return helptext.Fail("agents brief: %v", err)
+	}
+	if _, err := fmt.Println(path); err != nil {
+		return helptext.Fail("agents brief: write path: %v", err)
 	}
 	return 0
 }
