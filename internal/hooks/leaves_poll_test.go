@@ -108,6 +108,7 @@ func TestPollGateOnePoller(t *testing.T) {
 		block   bool
 	}{
 		{"in flight", []string{txCall("t1", "Bash", poll)}, nil, true},
+		{"in flight, rtk-prefixed", []string{txCall("t1", "Bash", "rtk "+poll)}, nil, true},
 		{"backgrounded, writer alive", []string{txCall("t1", "Bash", poll), txResult("t1", bgNotice(out))}, []int{4242}, true},
 		{"backgrounded, writer gone", []string{txCall("t1", "Bash", poll), txResult("t1", bgNotice(out))}, nil, false},
 		{"returned", []string{txCall("t1", "Bash", poll), txResult("t1", "▸ heartbeat: x")}, nil, false},

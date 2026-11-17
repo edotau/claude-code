@@ -22,7 +22,7 @@ func resultText(rec agent.Record, log string) string {
 	}
 	env := rec.ResultEnvelope(os.Stderr)
 	if log != "" && env.Answer != "" && !strings.Contains(log, env.Answer) { // the log's event lines cap each answer at 300 runes
-		b.WriteString(env.Answer + "\n")
+		fmt.Fprintln(&b, env.Answer)
 	}
 	if line := env.RanOn; line != "" {
 		fmt.Fprintln(&b, "ask:", line)

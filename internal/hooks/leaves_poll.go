@@ -33,6 +33,9 @@ func pollJob(cmd string) (job string, follow, ok bool) {
 	}
 	for _, seg := range shell.Segments(cmd) {
 		toks, _ := shell.Unwrap(shell.Tokens(seg), "/")
+		if len(toks) > 0 && toks[0] == "rtk" { // the rtk rewrite hook's prefix; Unwrap is the safety scanner's too
+			toks, _ = shell.Unwrap(toks[1:], "/")
+		}
 		if len(toks) < 4 || filepath.Base(toks[0]) != "claude-code" || toks[1] != "agents" || toks[2] != "result" {
 			continue
 		}

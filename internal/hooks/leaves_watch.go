@@ -141,7 +141,7 @@ func pruneWatch(now time.Time) error {
 // freshLines is one context line per stale job and reason not yet reported this session; it records them as seen.
 func freshLines(key string, stale []agent.StaleJob, mode string) ([]string, error) {
 	seenPath := filepath.Join(agent.WatchDir(), key+".seen")
-	seen := readSeen(seenPath)
+	seen, seenErr := readSeen(seenPath)
 	var lines, add []string
 	more := 0
 	for _, s := range stale {
@@ -158,23 +158,24 @@ func freshLines(key string, stale []agent.StaleJob, mode string) ([]string, erro
 		lines = append(lines, fmt.Sprintf("watch: %d more stale job(s): claude-code agents watch --once", more))
 	}
 	if len(add) == 0 {
-		return lines, nil
+		return lines, seenErr
 	}
-	return lines, writeWatch(seenPath, []byte(strings.Join(add, "\n")+"\n"), os.O_APPEND)
+	return lines, errors.Join(seenErr, writeWatch(seenPath, []byte(strings.Join(add, "\n")+"\n"), os.O_APPEND))
 }
 
-func readSeen(path string) map[string]bool {
+// readSeen is the keys already reported; a missing file is none, a read error comes back with what was read.
+func readSeen(path string) (map[string]bool, error) {
 	seen := map[string]bool{}
 	f, err := os.Open(path)
 	if err != nil {
-		return seen
+		return seen, nil
 	}
 	defer f.Close()
 	sc := bufio.NewScanner(f)
 	for sc.Scan() {
 		seen[sc.Text()] = true
 	}
-	return seen
+	return seen, sc.Err()
 }
 
 // watchLine is the context line for one stale job; a resumable dead job is resumed once first.

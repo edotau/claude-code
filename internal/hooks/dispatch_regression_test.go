@@ -651,7 +651,7 @@ func writePayloads(agent, cwd string, files []string) []string {
 	if agent == core.AgentCodex {
 		var patch strings.Builder
 		for _, f := range files {
-			patch.WriteString("*** Add File: " + f + "\n+hi\n")
+			fmt.Fprintf(&patch, "*** Add File: %s\n+hi\n", f)
 		}
 		b, _ := json.Marshal(map[string]any{"hook_event_name": settings.EventPreToolUse, "session_id": "s", "cwd": cwd,
 			"tool_name": "apply_patch", "tool_input": map[string]string{"command": "*** Begin Patch\n" + patch.String() + "*** End Patch\n"}})
