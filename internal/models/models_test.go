@@ -236,3 +236,11 @@ func BenchmarkResolve(b *testing.B) {
 		Resolve(ids[i%len(ids)])
 	}
 }
+
+func TestStrip1MRepeated(t *testing.T) {
+	for _, id := range []string{"m", "m[1m]", "m[1m][1m]", "m[1M][1m]"} {
+		if got := Strip1M(id); got != "m" {
+			t.Errorf("Strip1M(%q) = %q, want m", id, got)
+		}
+	}
+}

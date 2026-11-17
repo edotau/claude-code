@@ -316,3 +316,42 @@ func TestClaudeNoToolsAnthropicReportsCacheTokens(t *testing.T) {
 		t.Fatalf("usage = %+v (err %v); want %+v (start's creation, delta's cumulative read)", res.Usage, err, want)
 	}
 }
+
+func TestOneShotWireModelsAlreadyBare(t *testing.T) {
+	for _, c := range []struct{ provider, model, want string }{
+		{"tanth", "claude-haiku-4-5[1m][1m]", "claude-haiku-4-5"},
+		{"toai", "gpt-x[1m][1m]", "gpt-x"},
+	} {
+		t.Run(c.provider, func(t *testing.T) {
+			calls := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				raw, err := io.ReadAll(r.Body)
+				if err != nil {
+					t.Error(err)
+				}
+				if !strings.Contains(string(raw), `"model":"`+c.want+`"`) || strings.Contains(string(raw), "[1m]") {
+					t.Errorf("wire body = %s", raw)
+				}
+				w.Header().Set("Content-Type", "text/event-stream")
+				_, _ = io.WriteString(w, map[string]string{"tanth": anthropicSSE, "toai": "data: [DONE]\n\n"}[c.provider])
+			}))
+			defer srv.Close()
+			registry(t, srv)
+			_, target, err := agent.ResolveRequestTarget(agent.RunOptions{Provider: c.provider, Model: c.model})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if c.provider == "tanth" {
+				_, _, err = streamMessages(context.Background(), apiRequest{
+					BaseURL: srv.URL, Model: target.Model, Prompt: "x", MaxTokens: 1,
+				}, io.Discard)
+			} else {
+				_, _, err = chatStream(context.Background(), srv.URL, target.Provider, target.Model, "x", "", io.Discard)
+			}
+			if err != nil || calls != 1 {
+				t.Fatalf("err=%v calls=%d; want nil/1", err, calls)
+			}
+		})
+	}
+}
