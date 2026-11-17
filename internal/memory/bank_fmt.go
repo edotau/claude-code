@@ -277,9 +277,14 @@ func bankFmtTokenize(s string) []string {
 func bankFmtPack(tokens []string, firstPrefix, contIndent string) []string {
 	var lines []string
 	prefix, row := firstPrefix, []string(nil)
+	width := utf8.RuneCountInString(prefix)
 	for _, t := range tokens {
-		cur := prefix + strings.Join(row, " ")
-		if len(row) == 0 || utf8.RuneCountInString(cur+" "+t) <= BankFmtMaxLine {
+		nextWidth := width + 1 + utf8.RuneCountInString(t)
+		if len(row) == 0 {
+			nextWidth = utf8.RuneCountInString(prefix + t)
+		}
+		if len(row) == 0 || nextWidth <= BankFmtMaxLine {
+			width = nextWidth
 			row = append(row, t)
 			continue
 		}
@@ -291,11 +296,13 @@ func bankFmtPack(tokens []string, firstPrefix, contIndent string) []string {
 			}
 		}
 		if keep == 0 { // nothing precedes the run: keep it on this line, over width
+			width = nextWidth
 			row = append(row, t)
 			continue
 		}
 		lines = append(lines, prefix+strings.Join(row[:keep], " "))
 		prefix, row = contIndent, append(slices.Clone(row[keep:]), t)
+		width = utf8.RuneCountInString(prefix + strings.Join(row, " "))
 	}
 	return append(lines, prefix+strings.Join(row, " "))
 }
