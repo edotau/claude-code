@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/par"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -134,18 +135,16 @@ func loginSkipped(p *providers.Provider, v providers.AuthVerdict) error {
 
 // checkSignin runs the check, giving up after credCheckTimeout (ok=false); an abandoned one is cancelled on return.
 func checkSignin(ctx context.Context, s agent.Signin) (v providers.AuthVerdict, detail string, ok bool) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
 	type res struct {
 		v      providers.AuthVerdict
 		detail string
 	}
-	done := make(chan res, 1)
-	go func() { v, d := s.Check(ctx); done <- res{v, d} }()
-	select {
-	case r := <-done:
-		return r.v, r.detail, true
-	case <-time.After(credCheckTimeout):
-		return "", "", false
+	r, err := par.Within(ctx, credCheckTimeout, func(ctx context.Context) (res, error) {
+		v, d := s.Check(ctx)
+		return res{v, d}, nil
+	})
+	if pe, isPanic := errors.AsType[*par.PanicError](err); isPanic {
+		fmt.Fprintln(loginOut, "sign-in check:", pe) // a panicking check warns and launches, like a timeout
 	}
+	return r.v, r.detail, err == nil
 }

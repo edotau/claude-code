@@ -8,10 +8,10 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/par"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -91,12 +91,12 @@ func LocalArgs(flag string, args []string) ([]string, bool) {
 
 // answering probes every peer at once and keeps, in order, the ones that answer.
 func answering(peers []string) []string {
-	ok := make([]bool, len(peers))
-	var wg sync.WaitGroup
-	for i, h := range peers {
-		wg.Go(func() { ok[i] = autoAnswers(h) })
+	ok, err := par.Map(context.Background(), peers, len(peers), func(_ context.Context, h string) (bool, error) {
+		return autoAnswers(h), nil
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "remote: peer probe:", err) // a panicking probe counts as not answering
 	}
-	wg.Wait()
 	var up []string
 	for i, h := range peers {
 		if ok[i] {

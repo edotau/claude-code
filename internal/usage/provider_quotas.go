@@ -22,7 +22,6 @@ import (
 	"strings"
 	"sync"
 	"time"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/network/httpx"
@@ -630,12 +629,12 @@ func checkNote(qs []quota) string {
 // rightAlign pads the head and row cells of columns from..to to a common width so numbers stay right-aligned.
 func rightAlign(head []string, rows [][]string, from, to int) [][]string {
 	for c := from; c <= to; c++ {
-		w := utf8.RuneCountInString(head[c])
+		w := textutil.DisplayWidth(head[c])
 		for _, r := range rows {
-			w = max(w, utf8.RuneCountInString(r[c]))
+			w = max(w, textutil.DisplayWidth(r[c]))
 		}
 		for _, r := range append([][]string{head}, rows...) {
-			r[c] = strings.Repeat(" ", w-utf8.RuneCountInString(r[c])) + r[c]
+			r[c] = textutil.PadCells(r[c], w, true)
 		}
 	}
 	return rows
