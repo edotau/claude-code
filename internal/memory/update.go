@@ -323,6 +323,7 @@ type updateOptions struct {
 	Transcript string
 	CWD        string
 	Session    string
+	Handoff    handoffClaim
 	Historical bool          // an older session: the prompt forbids current-state files and a changed one is reported
 	Timeout    time.Duration // 0 = updateTimeout
 	Out        io.Writer
@@ -330,6 +331,8 @@ type updateOptions struct {
 
 // update runs the headless narrative pass under the bank lock, settles the bank, and records the outcome.
 func update(o updateOptions) error {
+	o.Handoff = takeHandoffBlock(o.Session)
+	defer cleanHandoff(o.Session, o.Handoff)
 	o = updateDefaults(o)
 	prior, _ := readUpdateResult(o.Session)
 	record := func(status string, updated bool) error {
@@ -421,6 +424,9 @@ func (r *updateRun) runAgent(ctx context.Context, o updateOptions, b Bank) {
 		r.blocks = 0
 		r.runErr = runAgentUpdate(context.WithValue(ctx, gateBlocksKey{}, &r.blocks), o)
 		if r.runErr != nil || r.blocks == 0 || r.touched(b) {
+			if r.runErr == nil && o.Handoff.block != "" && (r.blocks == 0 || r.touched(b)) {
+				r.runErr = completeHandoff(o.Session, o.Handoff)
+			}
 			return
 		}
 	}
@@ -446,8 +452,7 @@ func runAgentUpdate(ctx context.Context, o updateOptions) error {
 	if err != nil {
 		return err
 	}
-	prompt += takeHandoffBlock(o.Session)
-	defer func() { _ = os.Remove(handoffRunMarker(o.Session)) }() // the steward is done once the agent returns
+	prompt += o.Handoff.block
 	// Stops without an update worker launch a separate mint-only refresh.
 	RefreshStaleEmbeddings(o.CWD)
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1"), prompt, o.CWD) // a fallback dispatch must not re-trigger hooks
@@ -583,24 +588,4 @@ func handoffRunMarker(sessionID string) string {
 // stewardHandoffPath is the one path the steward's handoff for this session is written to.
 func stewardHandoffPath(sessionID string, now time.Time) string {
 	return HomeBank().Sub("handoffs", now.Format("2006-01-02")+"-session-"+compactID(sessionID)+".md")
-}
-
-func markHandoff(sessionID string, now time.Time) {
-	if os.MkdirAll(StateDir(), 0o700) == nil {
-		_ = os.WriteFile(handoffMarker(sessionID), []byte(stewardHandoffPath(sessionID, now)), 0o600)
-	}
-}
-
-// takeHandoffBlock turns the session's pending marker into the run marker and returns the extra prompt step, or "".
-func takeHandoffBlock(sessionID string) string {
-	if sessionID == "" {
-		return ""
-	}
-	b, err := os.ReadFile(handoffMarker(sessionID))
-	if err != nil || os.Rename(handoffMarker(sessionID), handoffRunMarker(sessionID)) != nil {
-		return ""
-	}
-	path := cmp.Or(strings.TrimSpace(string(b)), stewardHandoffPath(sessionID, time.Now()))
-	return "\n\nAlso write a handoff to exactly " + path + " (this name, not another): " +
-		"## State, ## In flight, ## Next, from this transcript, so a compacted session resumes from it."
 }

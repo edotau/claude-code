@@ -121,7 +121,12 @@ dream` archives the overflow.
   SessionEnd); `memory-compact` does the same before compaction.
   At the context-steward threshold the Stop update is the one spawned worker and also writes a handoff (a
   `handoff-<session>` marker in `state/harness/memory/` holds the path
-  `handoffs/<date>-session-<id8>.md` and adds the step; the "bg" stamp stops a second Stop update).
+  `handoffs/<date>-session-<id8>.md`, the full session id and request time, and adds the step;
+  the "bg" stamp stops a second Stop update).
+  The worker claims and timestamps the run marker once across permission retries, removes it on every exit, and
+  publishes a completion marker only after the agent succeeds and the handoff starts with its full session id.
+  Reload checks both identities and budgets the body within 9,500 context characters, reserving the path
+  and truncation notice.
   A detached worker (`CLAUDE_MEMORY_DETACHED`) waits up
   to `detachedLockWait` (16 min) for the store lock behind a dream; a foreground update waits `updateLockWait` (5 s).
   If the permission gate refused writes and no bank file changed it reruns once; a second miss records status

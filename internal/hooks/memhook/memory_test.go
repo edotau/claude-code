@@ -121,12 +121,18 @@ func resumeSession(t *testing.T) (cwd, fresh string) {
 	stale := filepath.Join(dir, "old.md")
 	fresh = filepath.Join(dir, "2026-11-07-session-s1.md")
 	for _, p := range []string{stale, fresh} {
-		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
+		if err := os.WriteFile(p, []byte("<!-- session: s1 -->\nx"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
 	old := time.Now().Add(-72 * time.Hour)
 	if err := os.Chtimes(stale, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(memory.StateDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(memory.StateDir(), "handoff-s1.done"), []byte("s1\n"+fresh+"\nrequest"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return cwd, fresh
@@ -138,6 +144,9 @@ func startInput(cwd, source string) *core.Input {
 
 func TestPreCompactRecordRoundTripsIntoSessionStart(t *testing.T) {
 	cwd, fresh := resumeSession(t)
+	if err := os.WriteFile(fresh, []byte("<!-- session: s1 -->\n"+strings.Repeat("x", 20000)), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	line := `{"type":"assistant","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":182000,"output_tokens":0}}}` + "\n"
 	if err := os.WriteFile(tr, []byte(line), 0o600); err != nil {
@@ -156,8 +165,11 @@ func TestPreCompactRecordRoundTripsIntoSessionStart(t *testing.T) {
 	if !strings.Contains(r.Context, r.SystemMessage) {
 		t.Errorf("the line must land in Context too: %q", r.Context)
 	}
-	if !strings.Contains(r.Context, "Session handoff ("+fresh+"):\nx") || strings.Index(r.Context, "Session handoff") > strings.Index(r.Context, "compacted") {
+	if !strings.Contains(r.Context, "Session handoff ("+fresh+"):\n<!-- session: s1 -->\nx") || strings.Index(r.Context, "Session handoff") > strings.Index(r.Context, "compacted") {
 		t.Errorf("Context must open with this session's handoff body: %q", r.Context)
+	}
+	if !strings.Contains(r.Context, "[handoff truncated; read "+fresh+"]") || len(r.Context) > core.ContextCapChars {
+		t.Error("handoff budget lost its notice or exceeded context cap")
 	}
 	if strings.Contains(r.SystemMessage, "old.md") {
 		t.Error("a handoff older than 24h must be ignored")

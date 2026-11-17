@@ -121,3 +121,48 @@ func TestAppendReportLandsUnderTheBanksReports(t *testing.T) {
 		}
 	})
 }
+
+func TestCheckpointCoversPendingSteward(t *testing.T) {
+	tempConfig(t)
+	now := time.Now()
+	if err := markHandoff("session-full", now); err != nil {
+		t.Fatal(err)
+	}
+	calls := StubSpawn(t, true)
+	if !DispatchCheckpoint(UpdateRequest{SessionID: "session-full"}, true, now) || calls.Update.Load() != 0 {
+		t.Fatalf("pending steward must cover checkpoint without spawning, got %d", calls.Update.Load())
+	}
+}
+
+func TestStewardWaitRejectsPartialWrite(t *testing.T) {
+	tempConfig(t)
+	now := time.Now()
+	session := "session-full"
+	if err := markHandoff(session, now); err != nil {
+		t.Fatal(err)
+	}
+	claim := takeHandoffBlock(session)
+	write(t, stewardHandoffPath(session, now), "<!-- session: session-full -->\n## State\npartial")
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	if got := WaitStewardHandoff(ctx, session); got != "" {
+		t.Fatalf("partial write released waiter: %s", got)
+	}
+	if err := completeHandoff(session, claim); err != nil {
+		t.Fatal(err)
+	}
+	cleanHandoff(session, claim)
+	if got := WaitStewardHandoff(context.Background(), session); got != stewardHandoffPath(session, now) {
+		t.Fatalf("completed handoff not released: %s", got)
+	}
+}
+
+func TestStewardRejectsCollidingSession(t *testing.T) {
+	tempConfig(t)
+	now := time.Now()
+	write(t, handoffDoneMarker("12345678-mine"), "12345678-mine\n"+stewardHandoffPath("12345678-mine", now)+"\nrequest")
+	write(t, stewardHandoffPath("12345678-mine", now), "<!-- session: 12345678-peer -->\npeer body")
+	if got := StewardHandoffBody("12345678-mine", now); got != "" {
+		t.Fatalf("injected colliding session: %s", got)
+	}
+}

@@ -119,7 +119,10 @@ func TestStopRearmsBelowThreshold(t *testing.T) {
 	payload, fill, spawns := steward(t)
 	fill(180_000)
 	Stop(payload(""))
-	fill(20_000) // after a compaction
+	if err := os.Remove(filepath.Join(memory.StateDir(), "handoff-s1")); err != nil {
+		t.Fatal(err)
+	}
+	fill(20_000) // after the prior worker completed and compaction
 	Stop(payload(""))
 	fill(180_000)
 	if Stop(payload("")); spawns.Update.Load() != 2 {

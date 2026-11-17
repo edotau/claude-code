@@ -9,11 +9,11 @@ import (
 	"io"
 	"os"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -59,28 +59,66 @@ func Show(id string) (path, block string, err error) {
 	return path, block, nil
 }
 
-// DispatchCheckpoint dispatches a Stop update under the stamp lock, with a handoff when asked; false when none started.
+// DispatchCheckpoint serializes a checkpoint with other dispatches; an existing steward covers the request.
 func DispatchCheckpoint(r UpdateRequest, handoff bool, now time.Time) bool {
-	started := false
-	withStampLock(r.SessionID, func() {
-		if handoff {
-			markHandoff(r.SessionID, now)
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return DispatchCheckpointContext(ctx, r, handoff, now)
+}
+
+// DispatchCheckpointContext bounds stamp-lock contention by the caller's hook budget.
+func DispatchCheckpointContext(ctx context.Context, r UpdateRequest, handoff bool, now time.Time) bool {
+	covered := false
+	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
+		return false
+	}
+	for ctx.Err() == nil {
+		ran, err := paths.TryFileLock(stampPath(r.SessionID)+".lock", 0, func() error {
+			covered = dispatchCheckpointLocked(r, handoff, now)
+			return nil
+		})
+		if ran || err != nil {
+			return covered && err == nil
 		}
-		started = dispatchUpdate(r, TriggerStop, countSessionEdits(r.SessionID, r.Transcript), now)
-		if handoff && !started {
-			_ = os.Remove(handoffMarker(r.SessionID))
+		select {
+		case <-ctx.Done():
+		case <-time.After(20 * time.Millisecond):
 		}
-	})
+	}
+	return false
+}
+
+func dispatchCheckpointLocked(r UpdateRequest, handoff bool, now time.Time) bool {
+	if StewardRunning(r.SessionID, time.Now()) {
+		return true
+	}
+	if handoff {
+		if err := markHandoff(r.SessionID, now); err != nil {
+			fmt.Fprintln(os.Stderr, "context-checkpoint: handoff request:", err)
+			return false
+		}
+	}
+	started := dispatchUpdate(r, TriggerStop, countSessionEdits(r.SessionID, r.Transcript), now)
+	if handoff && !started {
+		_ = os.Remove(handoffMarker(r.SessionID))
+	}
 	return started
 }
 
-// handoffRunFresh bounds how long a marker with no finished worker still counts as a running steward.
-const handoffRunFresh = 20 * time.Minute
+// Pending workers must start promptly; claimed workers may queue behind a dream before their agent runs.
+const handoffPendingFresh = 2 * time.Minute
 
-// stewardSince is when the session's steward job was dispatched; zero when none is running.
 func stewardSince(sessionID string, now time.Time) time.Time {
-	for _, p := range []string{handoffMarker(sessionID), handoffRunMarker(sessionID)} {
-		if fi, err := os.Stat(p); err == nil && now.Sub(fi.ModTime()) < handoffRunFresh {
+	for i, p := range []string{handoffMarker(sessionID), handoffRunMarker(sessionID)} {
+		bound := handoffPendingFresh
+		if i == 1 {
+			bound = detachedLockWait + updateTimeout + time.Minute
+		}
+		b, err := os.ReadFile(p)
+		if err != nil || !strings.HasPrefix(string(b), sessionID+"\n") {
+			continue
+		}
+		if fi, err := os.Stat(p); err == nil && now.Sub(fi.ModTime()) < bound {
 			return fi.ModTime()
 		}
 	}
@@ -92,15 +130,87 @@ func StewardRunning(sessionID string, now time.Time) bool {
 	return !stewardSince(sessionID, now).IsZero()
 }
 
-// StewardHandoff is this session's newest steward handoff file within 24h, or "".
+// StewardHandoff returns only a completed handoff bearing this session's full identity.
 func StewardHandoff(sessionID string, now time.Time) string {
-	if sessionID == "" {
+	if sessionID == "" || StewardRunning(sessionID, now) {
 		return ""
 	}
-	suffix := "-session-" + compactID(sessionID) + ".md"
-	files := slices.DeleteFunc(ownedFiles(HomeBank(), "handoffs"), func(p string) bool { return !strings.HasSuffix(p, suffix) })
-	p, _ := newestFile(files, now, 24*time.Hour)
+	b, err := os.ReadFile(handoffDoneMarker(sessionID))
+	fields := strings.SplitN(string(b), "\n", 3)
+	if err != nil || len(fields) != 3 || fields[0] != sessionID {
+		return ""
+	}
+	p := fields[1]
+	if fi, err := os.Stat(p); err != nil || now.Sub(fi.ModTime()) > 24*time.Hour || !handoffOwned(p, sessionID) {
+		return ""
+	}
 	return p
+}
+
+func handoffOwned(path, sessionID string) bool {
+	b, err := os.ReadFile(path)
+	return err == nil && strings.HasPrefix(string(b), handoffIdentity(sessionID)+"\n")
+}
+
+func handoffDoneMarker(sessionID string) string { return handoffMarker(sessionID) + ".done" }
+
+func handoffIdentity(sessionID string) string { return "<!-- session: " + sessionID + " -->" }
+
+func markHandoff(sessionID string, now time.Time) error {
+	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
+		return err
+	}
+	if err := os.Remove(handoffDoneMarker(sessionID)); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	data := sessionID + "\n" + stewardHandoffPath(sessionID, now) + "\n" + now.Format(time.RFC3339Nano)
+	return paths.AtomicWrite(handoffMarker(sessionID), []byte(data), 0o600)
+}
+
+type handoffClaim struct{ block, request string }
+
+// takeHandoffBlock claims one request for the worker's entire retry loop, including lock failures.
+func takeHandoffBlock(sessionID string) handoffClaim {
+	if sessionID == "" {
+		return handoffClaim{}
+	}
+	b, err := os.ReadFile(handoffMarker(sessionID))
+	fields := strings.SplitN(string(b), "\n", 3)
+	if err != nil || len(fields) != 3 || fields[0] != sessionID {
+		return handoffClaim{}
+	}
+	if err := os.Rename(handoffMarker(sessionID), handoffRunMarker(sessionID)); err != nil {
+		return handoffClaim{}
+	}
+	now := time.Now()
+	if err := os.Chtimes(handoffRunMarker(sessionID), now, now); err != nil {
+		_ = os.Remove(handoffRunMarker(sessionID))
+		return handoffClaim{}
+	}
+	return handoffClaim{request: string(b), block: "\n\nAlso write a handoff to exactly " + fields[1] + " (this name, not another): " +
+		"first line exactly " + handoffIdentity(sessionID) + "; then " +
+		"## State, ## In flight, ## Next, from this transcript, so a compacted session resumes from it."}
+}
+
+func cleanHandoff(sessionID string, claim handoffClaim) {
+	b, err := os.ReadFile(handoffRunMarker(sessionID))
+	if err == nil && claim.request != "" && string(b) == claim.request {
+		if err := os.Remove(handoffRunMarker(sessionID)); err != nil && !os.IsNotExist(err) {
+			fmt.Fprintln(os.Stderr, "memory update: handoff cleanup:", err)
+		}
+	}
+}
+
+func completeHandoff(sessionID string, claim handoffClaim) error {
+	b, err := os.ReadFile(handoffRunMarker(sessionID))
+	fields := strings.SplitN(string(b), "\n", 3)
+	if err != nil {
+		return err
+	}
+	if string(b) != claim.request || len(fields) != 3 || fields[0] != sessionID || !handoffOwned(fields[1], sessionID) {
+		return errors.New("steward handoff missing or owned by another session")
+	}
+	return paths.AtomicWrite(handoffDoneMarker(sessionID), b, 0o600)
 }
 
 // StewardStale reports that the session's newest steward handoff predates its last compaction.
@@ -117,9 +227,6 @@ func WaitStewardHandoff(ctx context.Context, sessionID string) string {
 		since := stewardSince(sessionID, now)
 		p := StewardHandoff(sessionID, now)
 		if since.IsZero() {
-			return p
-		}
-		if fi, err := os.Stat(p); p != "" && err == nil && fi.ModTime().After(since) {
 			return p
 		}
 		select {
