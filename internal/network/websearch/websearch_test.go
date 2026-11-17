@@ -670,7 +670,7 @@ func TestServeBoundsRequests(t *testing.T) {
 			return "ok", nil
 		}}
 		var lines []string
-		for i := 0; i < 24; i++ {
+		for i := range 24 {
 			lines = append(lines, fmt.Sprintf(`{"id":%d,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"q"}}}`, i))
 		}
 		replies := drive(t, s, lines...)
