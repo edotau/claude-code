@@ -597,7 +597,9 @@ func attach(in *core.Input, note string, bodies ...jobOut) core.Result {
 	if updated := in.CloneToolInput(); updated != nil {
 		msg, _ := updated["message"].(string)
 		var text strings.Builder
-		text.WriteString(note + "\n\n" + msg)
+		text.WriteString(note)
+		text.WriteString("\n\n")
+		text.WriteString(msg)
 		for _, b := range bodies {
 			text.WriteString(b.render(msg))
 		}

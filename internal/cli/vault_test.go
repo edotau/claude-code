@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -478,7 +479,7 @@ func TestVaultImportDashFromPipe(t *testing.T) {
 			vaulttest.UseFreshKey(t)
 			var input strings.Builder
 			for _, p := range tc.pairs {
-				input.WriteString(p[0] + "=" + p[1] + "\n")
+				fmt.Fprintf(&input, "%s=%s\n", p[0], p[1])
 			}
 			withStdin(t, input.String()+tc.extra)
 			code, stdout, stderr := vaultRun(t, tc.args...)
@@ -538,7 +539,7 @@ func maskGetOutput(stdout string, names, values []string, export bool) (got, wan
 			value, prefix = textutil.ShellQuote(value), "export "
 		}
 		stdout = strings.ReplaceAll(stdout, value, vault.Redact(values[i]))
-		wantSb.WriteString(prefix + name + "=" + vault.Redact(values[i]) + "\n")
+		fmt.Fprintf(&wantSb, "%s%s=%s\n", prefix, name, vault.Redact(values[i]))
 	}
 	return stdout, wantSb.String()
 }

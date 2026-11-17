@@ -86,9 +86,8 @@ func TestCmdModelsRejectsPositionalArguments(t *testing.T) {
 // listLive's copilot dispatch reports the CLI as not found (never a panic) when it is absent from bin/.
 func TestListLiveCopilotReportsMissingCLI(t *testing.T) {
 	cliScratch(t)
-	reg := &providers.Registry{}
 	p := &providers.Provider{Name: "personal", Provider: "github"}
-	code, _, stderr := hosttest.CaptureOutput(t, func() int { return listLive(reg, p, helptext.Text) })
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return listLive(p, helptext.Text) })
 	if code == 0 {
 		t.Fatal("listLive: want a non-zero exit when the copilot CLI is missing")
 	}
@@ -102,8 +101,7 @@ func TestListLiveJSONFormatsFakeCatalog(t *testing.T) {
 	cliScratch(t)
 	srv := fakeModelsServer(t, []string{"model-a", "model-b"})
 	p := fakeProvider(srv.URL)
-	reg := &providers.Registry{}
-	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return listLive(reg, p, helptext.JSON) })
+	code, stdout, _ := hosttest.CaptureOutput(t, func() int { return listLive(p, helptext.JSON) })
 	if code != 0 {
 		t.Fatalf("listLive exit = %d", code)
 	}
@@ -141,8 +139,7 @@ func TestListLiveSubscriptionFallbackNeverPrintsToken(t *testing.T) {
 		Auth:     providers.Auth{Type: providers.AuthCLI},
 		Models:   map[string]string{"opus": "claude-opus-5-5"},
 	}
-	reg := &providers.Registry{}
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return listLive(reg, p, helptext.Text) })
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return listLive(p, helptext.Text) })
 	if code != 0 {
 		t.Fatalf("listLive exit = %d, stderr=%s", code, stderr)
 	}
@@ -197,7 +194,7 @@ func TestListLiveDatabricksText(t *testing.T) {
 	t.Setenv("DBX_CLI_TOKEN", dbxCLIToken)
 	srv, got := dbxCLIServer(t)
 	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-		return listLive(&providers.Registry{}, dbxCLIProvider(srv.URL), helptext.Text)
+		return listLive(dbxCLIProvider(srv.URL), helptext.Text)
 	})
 	if code != 0 {
 		t.Fatalf("exit %d, stderr=%s", code, stderr)
@@ -235,7 +232,7 @@ func TestListLiveDatabricksJSON(t *testing.T) {
 	t.Setenv("DBX_CLI_TOKEN", dbxCLIToken)
 	srv, _ := dbxCLIServer(t)
 	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-		return listLive(&providers.Registry{}, dbxCLIProvider(srv.URL), helptext.JSON)
+		return listLive(dbxCLIProvider(srv.URL), helptext.JSON)
 	})
 	if code != 0 {
 		t.Fatalf("exit %d, stderr=%s", code, stderr)
@@ -252,11 +249,11 @@ func TestListLiveDatabricksJSON(t *testing.T) {
 func TestListLiveNonDatabricksHasNoTaskReady(t *testing.T) {
 	cliScratch(t)
 	srv := fakeModelsServer(t, []string{"model-a"})
-	_, text, _ := hosttest.CaptureOutput(t, func() int { return listLive(&providers.Registry{}, fakeProvider(srv.URL), helptext.Text) })
+	_, text, _ := hosttest.CaptureOutput(t, func() int { return listLive(fakeProvider(srv.URL), helptext.Text) })
 	if !strings.HasPrefix(text, "ID") || strings.Contains(text, "TASK") {
 		t.Errorf("text = %q, want the ID/Model table", text)
 	}
-	_, js, _ := hosttest.CaptureOutput(t, func() int { return listLive(&providers.Registry{}, fakeProvider(srv.URL), helptext.JSON) })
+	_, js, _ := hosttest.CaptureOutput(t, func() int { return listLive(fakeProvider(srv.URL), helptext.JSON) })
 	if strings.Contains(js, `"task"`) || strings.Contains(js, `"ready"`) {
 		t.Errorf("json = %s, want no task/ready keys", js)
 	}
