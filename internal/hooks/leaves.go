@@ -556,6 +556,9 @@ func (s *leafScan) addCalls(content json.RawMessage, at time.Time) {
 		calls = slices.DeleteFunc(calls, func(words []string) bool { return askVerb(words) == "" })
 		if len(calls) == 0 {
 			s.trackEdit(it.ID, bashWrites(it.Input.Command, s.cwd))
+			if job, _, ok := verbJob(it.Input.Command, "wait"); ok && it.ID != "" {
+				s.addPoll(it.ID, job, false)
+			}
 			continue
 		}
 		if it.ID == "" {
@@ -607,6 +610,9 @@ func (s *leafScan) scanResult(it leafToolResult) {
 			p.bgFile = m[1]
 		} else {
 			p.done = true
+			if !it.IsError {
+				s.addPollID(p.job)
+			}
 		}
 		s.polls[it.ToolUseID] = p
 	}
@@ -891,16 +897,33 @@ func (s *leafScan) recordAsk(it leafToolUse, calls [][]string, at time.Time) {
 	}
 	s.askCalls[it.ID] = true
 	if job, follow, ok := pollJob(it.Input.Command); ok {
-		if s.polls == nil {
-			s.polls = map[string]pollCall{}
-		}
-		s.polls[it.ID] = pollCall{job: job, follow: follow}
+		s.addPoll(it.ID, job, follow)
 	}
 	if slices.ContainsFunc(calls, func(words []string) bool { return askVerb(words) != "result" }) {
 		if s.pendingAsks == nil {
 			s.pendingAsks = map[string]time.Time{}
 		}
 		s.pendingAsks[it.ID] = at
+	}
+}
+
+func (s *leafScan) addPoll(id, job string, follow bool) {
+	if s.polls == nil {
+		s.polls = map[string]pollCall{}
+	}
+	s.polls[id] = pollCall{job: job, follow: follow}
+}
+
+// addPollID binds a job this leaf's successful poll named, only when its record is this session's and one of its asks'.
+func (s *leafScan) addPollID(job string) {
+	rec, err := loadDispatch(job)
+	if err != nil || slices.Contains(s.ids, job) || rec.Owner == 0 || rec.Owner != inflight.SessionOwner() {
+		return
+	}
+	if slices.ContainsFunc(s.askTimes, func(at time.Time) bool {
+		return !at.IsZero() && !rec.Time.Before(at) && rec.Time.Sub(at) < askLaunchWindow
+	}) {
+		s.ids = append(s.ids, job)
 	}
 }
 

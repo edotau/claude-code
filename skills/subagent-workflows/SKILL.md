@@ -62,7 +62,8 @@ For `codex`, `copilot`, `gemini` and `opencode` wrappers:
   readiness smoke or repeat discovery.
 - **Waiting and handing back** (hooks back these up: `rules/harness/hooks.md` → `dispatch-handback`):
   1. A job over ~9 min outlives the Bash tool (hard max 600000 ms), and a foreground ask the Bash tool backgrounds
-     prints no id, so the hand-back hook refuses with "No exact dispatch id" for up to 2 h. A long task's `Run:` line
+     prints no id, so the hand-back hook refuses with "No exact dispatch id" for up to 2 h, unless your own successful
+     `agents result|wait <id>` names a record of your session started by your ask. A long task's `Run:` line
      therefore carries `--background`; read the id from its `job <id> started` line. Run an ask with
      `"timeout": 600000`, once, never re-run it.
   2. Wait with ONE call per turn: `claude-code agents result -f <id>` (`-f` follows to the end; or `agents wait <id>
@@ -233,7 +234,8 @@ a sibling's half-finished edit); check writes with `git diff --stat`; stage name
   with a harness type (`claude`, `codex`, `copilot`, `gemini`, `opencode`); the main session does not run
   `claude-code agents ask --background` from Bash. Routing rides the brief's leading `Run:` line. A job that can
   outlast a Bash call (~10 minutes) puts `--background` on that line: the stop gate holds the leaf until the job ends
-  (≤ 2 h; only dispatch ids its own `ask`, `dispatch` or `result` call printed count), whereas a shell-backgrounded
+  (≤ 2 h; only dispatch ids its own `ask`, `dispatch` or `result` call printed count, plus an id its own successful
+  `result`/`wait` call named whose record is this session's, started by that leaf's ask), whereas a shell-backgrounded
   ask dies when the leaf stops. A hand-back waits up to 13 s for a running job, then is held; a hold keeps every
   finished job's answer and the later pass attaches them in dispatch order. A never-run `Run:` line is run by the hook,
   which tells the leaf to wait. Cap: `rules/harness/hooks.md` → (dispatch cap); queue the rest.
