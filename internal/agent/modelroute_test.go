@@ -2,12 +2,18 @@ package agent
 
 import (
 	"errors"
+	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 const routeOverlay = `{"providers":{"databricks":{
@@ -183,5 +189,30 @@ func TestResolveModelGeminiNoProfile(t *testing.T) {
 	q = ModelQuery{Agent: "gemini", Model: "databricks-claude-sonnet-5-5", PinProfile: "antigravity"}
 	if _, err := ResolveModel(reg, q, time.Now()); !errors.Is(err, ErrModelRoute) {
 		t.Errorf("no Databricks row anywhere must refuse, got %v", err)
+	}
+}
+
+func TestCommandTokenPoolHonorsDispatchOverride(t *testing.T) {
+	vaulttest.Use(t)
+	reg := routeRegistry(t)
+	p := reg.Providers["dev"]
+	p.Auth.Type = providers.AuthNone
+	dir := filepath.Join(paths.StateDir(), "cache", "token-expiry")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	raw := fmt.Sprintf(`{"schema":2,"exp":%d}`, now.Add(20*time.Minute).Unix())
+	if err := os.WriteFile(filepath.Join(dir, p.Name+".json"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	q := ModelQuery{Agent: "codex", Model: "databricks:gpt-6-1-sol"}
+	if r, err := ResolveModel(reg, q, now); err != nil || r.Profile != "dev" {
+		t.Fatalf("refreshable pool = %v, %v", r, err)
+	}
+	ctx := proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: `{"tokenCommand":[]}`})
+	q = QueryFor(ctx, q)
+	if _, err := ResolveModel(reg, q, now); err == nil {
+		t.Fatal("disabled command accepted short token")
 	}
 }

@@ -44,6 +44,7 @@ const (
 
 // ModelQuery is what a launch or dispatch typed, then the fallbacks QueryFor fills, highest precedence first.
 type ModelQuery struct {
+	ctx                            context.Context
 	Agent, Model, Profile, Default string // Default: the alias used when nothing names a model
 	Provider, Account, Effort      string // overlay keys: a provider type, a GitHub account, an effort
 	Identity, Fallback             string // overlay keys echoed into the route
@@ -68,6 +69,7 @@ func SetCodexSwap(f func(*providers.Provider, string) string) { codexSwap = f }
 
 // QueryFor fills q's fallbacks from the agent record and the session profile (no last-used profile).
 func QueryFor(ctx context.Context, q ModelQuery) ModelQuery {
+	q.ctx = ctx
 	rec := vault.GetAgentRecord(q.Agent)
 	q.PinProfile, q.PinAccount = strings.TrimSpace(rec.Profile), strings.TrimSpace(rec.Account)
 	q.PinModel = agentModelPinContext(ctx, q.Agent)
@@ -451,12 +453,15 @@ func (r ModelRoute) Label() string { return r.Model }
 func resolvePool(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec, now time.Time) (ModelRoute, error) {
 	st, skipped := router.LoadState(), []string(nil)
 	for _, name := range reg.ProfilesOf(providers.GroupDatabricks) {
-		p := reg.Providers[name]
+		p, err := agentconfig.CommandProvider(q.ctx, reg.Providers[name])
+		if err != nil {
+			return ModelRoute{}, err
+		}
 		if ok, why := rowServes(q.Agent, p); !ok {
 			skipped = append(skipped, name+": "+why)
 			continue
 		}
-		if fs := CheckWorkspace(p, st, now); len(fs) > 0 {
+		if fs := launchWorkspaceFindings(q.Agent, p, st, now, nil); len(fs) > 0 {
 			skipped = append(skipped, name+": "+fs[0].Detail)
 			continue
 		}

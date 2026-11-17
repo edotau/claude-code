@@ -40,20 +40,21 @@ const overlayMaxBytes = 64 << 10
 
 // Overlay is one dispatch's config document: where it runs plus its env layer; Files is reserved and refused.
 type Overlay struct {
-	Schema   int               `json:"schema,omitempty"`
-	Provider string            `json:"provider,omitempty"`
-	Profile  string            `json:"profile,omitempty"`
-	Model    string            `json:"model,omitempty"`
-	Effort   string            `json:"effort,omitempty"`
-	Fallback string            `json:"fallback,omitempty"`
-	Host     string            `json:"host,omitempty"`
-	Remote   string            `json:"remote,omitempty"`
-	Account  string            `json:"account,omitempty"`
-	Identity string            `json:"identity,omitempty"`
-	Set      map[string]string `json:"set,omitempty"`
-	Unset    []string          `json:"unset,omitempty"`
-	Keep     []string          `json:"keep,omitempty"`
-	Files    json.RawMessage   `json:"files,omitempty"`
+	Schema       int               `json:"schema,omitempty"`
+	Provider     string            `json:"provider,omitempty"`
+	Profile      string            `json:"profile,omitempty"`
+	Model        string            `json:"model,omitempty"`
+	Effort       string            `json:"effort,omitempty"`
+	Fallback     string            `json:"fallback,omitempty"`
+	Host         string            `json:"host,omitempty"`
+	Remote       string            `json:"remote,omitempty"`
+	Account      string            `json:"account,omitempty"`
+	Identity     string            `json:"identity,omitempty"`
+	Set          map[string]string `json:"set,omitempty"`
+	Unset        []string          `json:"unset,omitempty"`
+	Keep         []string          `json:"keep,omitempty"`
+	TokenCommand *[]string         `json:"tokenCommand,omitempty"`
+	Files        json.RawMessage   `json:"files,omitempty"`
 }
 
 // routeKey is one routing key: its JSON name, the typed flag it folds under ("" = none), its field and its rule.
@@ -263,7 +264,7 @@ func overlayJSONErr(err error) error {
 		if uerr != nil {
 			key = q
 		}
-		keys := slices.Concat([]string{"schema"}, RoutingKeys(), []string{"set", "unset", "keep"})
+		keys := slices.Concat([]string{"schema"}, RoutingKeys(), []string{"tokenCommand", "set", "unset", "keep"})
 		return fmt.Errorf("unknown key %s (%s)", key, strings.Join(keys, "|"))
 	}
 	return err
@@ -302,6 +303,9 @@ func (o Overlay) Empty() bool { return len(o.Set)+len(o.Unset)+len(o.Keep) == 0 
 
 // Routed reports an overlay naming where or how the dispatch runs: any of its routing keys.
 func (o Overlay) Routed() bool {
+	if o.TokenCommand != nil {
+		return true
+	}
 	return slices.ContainsFunc(routeKeys, func(k routeKey) bool { return k.get(o) != "" })
 }
 
@@ -351,6 +355,9 @@ func ResolveOverlay(o Overlay) (Resolved, error) {
 }
 
 func (o Overlay) validate(src overlaySrc) error {
+	if o.TokenCommand != nil && len(*o.TokenCommand) > 0 && strings.TrimSpace((*o.TokenCommand)[0]) == "" {
+		return errors.New("tokenCommand: needs an executable")
+	}
 	if len(o.Files) > 0 { // present at all: [] and null too
 		return errors.New("files: not supported yet")
 	}
@@ -483,4 +490,22 @@ func LoadOverlayContext(ctx context.Context, value string, stdin io.Reader) (Ove
 		return Overlay{}, fmt.Errorf("%s: %w", where, err)
 	}
 	return o, nil
+}
+
+// CommandProvider copies p with the dispatch's provider command override where present.
+func CommandProvider(ctx context.Context, p *providers.Provider) (*providers.Provider, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	o, err := LoadOverlayContext(ctx, "", nil)
+	if err != nil {
+		return nil, err
+	}
+	if o.TokenCommand == nil || o.Provider != "" && o.Provider != p.Provider ||
+		o.Profile != "" && o.Profile != "auto" && o.Profile != p.Name {
+		return p, nil
+	}
+	out := *p
+	out.TokenCommand = slices.Clone(*o.TokenCommand)
+	return &out, nil
 }

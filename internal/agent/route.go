@@ -325,7 +325,7 @@ func Resolve(ctx context.Context, q RouteReq) (Chain, router.PickResult, error) 
 		return Chain{}, router.PickResult{}, &LeadError{err}
 	}
 	if explicit {
-		c, err := resolveExplicit(q)
+		c, err := resolveExplicit(ctx, q)
 		return c, router.PickResult{}, err
 	}
 	if q.Preview {
@@ -415,12 +415,12 @@ func sessionLead(ctx context.Context, agent string) string {
 }
 
 // resolveExplicit builds a named backend's chain (unknown errs); a hub agent on a hub profile runs a hub dispatch.
-func resolveExplicit(q RouteReq) (Chain, error) {
+func resolveExplicit(ctx context.Context, q RouteReq) (Chain, error) {
 	if err := explicitRouteErr(q); err != nil {
 		return Chain{}, err
 	}
 	pf := &Preflight{}
-	r, err := explicitEngine(q, pf)
+	r, err := explicitEngine(ctx, q, pf)
 	if err != nil {
 		return Chain{}, err
 	}
@@ -448,9 +448,9 @@ func explicitRouteErr(q RouteReq) error {
 }
 
 // explicitEngine is q's engine after its explicit backend passes preflight; a hub agent on a hub profile is its ladder.
-func explicitEngine(q RouteReq, pf *Preflight) (Engine, error) {
+func explicitEngine(ctx context.Context, q RouteReq, pf *Preflight) (Engine, error) {
 	if q.Profile == "" {
-		if f := modelFinding(q, pf); f != nil {
+		if f := modelFinding(ctx, q, pf); f != nil {
 			return nil, &PreflightError{Finding: *f}
 		}
 		return q.Engine, nil
@@ -463,7 +463,7 @@ func explicitEngine(q RouteReq, pf *Preflight) (Engine, error) {
 	if err != nil {
 		return nil, err
 	}
-	if f := explicitFinding(q, p, pf); f != nil {
+	if f := explicitFinding(ctx, q, p, pf); f != nil {
 		return nil, &PreflightError{Finding: *f}
 	}
 	if q.Native || !isHubAgent(q.Agent) || p.OpencodeID == "" {

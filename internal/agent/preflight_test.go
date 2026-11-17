@@ -224,3 +224,28 @@ func TestPreflightTokenBudgetRejectsShortFixture(t *testing.T) {
 		t.Fatal("default run accepted a short token")
 	}
 }
+
+func TestCommandTokenLifetimeWarnsWithoutMaskingAuthFailures(t *testing.T) {
+	vaulttest.Use(t)
+	p := &providers.Provider{Name: "command-life", Auth: providers.Auth{Type: providers.AuthNone}, TokenCommand: []string{"mint"}}
+	dir := filepath.Join(paths.StateDir(), "cache", "token-expiry")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	raw := fmt.Sprintf(`{"schema":2,"exp":%d}`, now.Add(20*time.Minute).Unix())
+	if err := os.WriteFile(filepath.Join(dir, p.Name+".json"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	pf := &Preflight{}
+	if fs := launchWorkspaceFindings("codex", p, router.State{}, now, pf); len(fs) != 0 || len(pf.Notes) != 1 {
+		t.Fatalf("command lifetime: findings %v, notes %v", fs, pf.Notes)
+	}
+	if fs := launchWorkspaceFindings("claude", p, router.State{}, now, nil); len(fs) != 1 || fs[0].Check != "token" {
+		t.Fatalf("static path accepted short lifetime: %v", fs)
+	}
+	st := router.State{router.AccountOf(p): {AuthReason: "rejected", AuthAt: now}}
+	if fs := launchWorkspaceFindings("codex", p, st, now, pf); len(fs) != 1 || fs[0].Check != "auth" {
+		t.Fatalf("command masked auth failure: %v", fs)
+	}
+}

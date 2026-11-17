@@ -121,6 +121,11 @@ func (s Schema) configureRoute(ctx context.Context, t providers.Target, h *Headl
 	if p == nil || t.Model == "" {
 		return nil, nil, fmt.Errorf("%s: no provider/model resolved", name)
 	}
+	p, err := agentconfig.CommandProvider(ctx, p)
+	if err != nil {
+		return nil, nil, err
+	}
+	t.Provider = p
 	if p.Auth.Login != "" {
 		return login(ctx, e, p, models.Strip1M(t.Model), h)
 	}

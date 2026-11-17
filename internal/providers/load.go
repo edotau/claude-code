@@ -112,6 +112,7 @@ func (p *Provider) clone() *Provider {
 		return nil
 	}
 	out := *p
+	out.TokenCommand = slices.Clone(p.TokenCommand)
 	out.Routes = maps.Clone(p.Routes)
 	out.Models = maps.Clone(p.Models)
 	out.Headers = maps.Clone(p.Headers)
