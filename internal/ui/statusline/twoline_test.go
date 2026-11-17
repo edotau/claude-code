@@ -25,13 +25,11 @@ func twolineRender(t *testing.T, session, extra string) []string {
 	useSessions(t,
 		&providers.Provider{Name: "dbx-u2m", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthOAuth}},
 		&providers.Provider{Name: "dbx-key", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthKey, Command: "x"}})
-	writeTokenExpiry(t, "dbx-u2m", time.Now().Add(42*time.Minute+30*time.Second))
-	writeTokenExpiry(t, "ultra", time.Now().Add(42*time.Minute))
 	payload := fmt.Sprintf(`{"workspace":{"current_dir":%q},%s%s}`, filepath.Join(t.TempDir(), "proj"), twolineBody, extra)
 	return strings.Split(plain(renderStatusline([]byte(payload), "twoline")), "\n")
 }
 
-// Row 1 has the dir basename, provider, auth countdown and effort; row 2 the context bar, tokens and 7d.
+// Row 1 has the dir basename, provider and effort; row 2 the context bar, tokens and 7d.
 func TestTwolineRendersBothRows(t *testing.T) {
 	future := time.Now().Add(time.Hour).Unix()
 	rows := twolineRender(t, "dbx-u2m", fmt.Sprintf(`,"effort":{"level":"high"},`+
@@ -39,7 +37,7 @@ func TestTwolineRendersBothRows(t *testing.T) {
 	if len(rows) != 2 {
 		t.Fatalf("want 2 rows, got %q", rows)
 	}
-	if want := promptUser() + ":proj | databricks·dbx-u2m · u2m:42m · Fable 5.1:high"; rows[0] != want {
+	if want := promptUser() + ":proj | databricks·dbx-u2m · Fable 5.1:high"; rows[0] != want {
 		t.Errorf("row 1 = %q, want %q", rows[0], want)
 	}
 	want := "ctx ━━━━━━━━━─────────── 47% · 94.4k/200k · 7d ━━──────── 18%"
@@ -48,14 +46,14 @@ func TestTwolineRendersBothRows(t *testing.T) {
 	}
 }
 
-// No effort drops ":effort", no seven_day drops the 7d cell, a subscription session has no auth cell or separator.
+// No effort drops ":effort", no seven_day drops the 7d cell, a subscription session has no leading separator.
 func TestTwolineCornerCases(t *testing.T) {
 	rows := twolineRender(t, "ultra", "")
 	if strings.HasSuffix(rows[0], ":") {
 		t.Errorf("no effort, yet row 1 = %q", rows[0])
 	}
-	if strings.Contains(rows[1], "7d") || strings.Contains(rows[0], "u2m:") || strings.HasPrefix(rows[1], " ·") {
-		t.Errorf("rows = %q, want no 7d, no auth, no leading separator", rows)
+	if strings.Contains(rows[1], "7d") || strings.HasPrefix(rows[1], " ·") {
+		t.Errorf("rows = %q, want no 7d, no leading separator", rows)
 	}
 	if !strings.HasPrefix(rows[1], "ctx ━") {
 		t.Errorf("row 2 should open with the context bar: %q", rows[1])
@@ -81,12 +79,12 @@ func TestTwolineVelocity(t *testing.T) {
 
 // Both rows are left-packed (no padding to a width), and row 1 carries no branch even when one was collected.
 func TestTwolineNoBranchLeftPacked(t *testing.T) {
-	v := values{userHost: "u", path: "proj", branch: "main", provider: "databricks·dbx-u2m", two: twoData{model: "M", auth: "u2m:9min", hasCtx: true, week: -1}}
+	v := values{userHost: "u", path: "proj", branch: "main", provider: "databricks·dbx-u2m", two: twoData{model: "M", hasCtx: true, week: -1}}
 	cfg := embeddedConfig()
 	cfg.Width = 120
 	lines := strings.Split(plain(renderTwoline(v, cfg, theme.Palettes{}, nil, "none")), "\n")
-	if !strings.HasSuffix(lines[0], ":proj | databricks·dbx-u2m · u2m:9min · M") {
-		t.Errorf("row 1 = %q, want head | provider · auth · model, no branch, no gap", lines[0])
+	if !strings.HasSuffix(lines[0], ":proj | databricks·dbx-u2m · M") {
+		t.Errorf("row 1 = %q, want head | provider · model, no branch, no gap", lines[0])
 	}
 	if lines[1] != "ctx "+twoBar(0, 20)+" 0% · 0/0" {
 		t.Errorf("row 2 = %q, want it left-packed", lines[1])

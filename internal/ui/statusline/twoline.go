@@ -15,11 +15,11 @@ import (
 
 // twoData is the payload facts the twoline style needs beyond values; zero fields drop their cell.
 type twoData struct {
-	model, effort, auth string
-	ctxPct              float64
-	size, tokens        int
-	hasCtx              bool
-	week                int // 7d used percent; -1 when absent
+	model, effort string
+	ctxPct        float64
+	size, tokens  int
+	hasCtx        bool
+	week          int // 7d used percent; -1 when absent
 }
 
 // twoSeg is one painted cell: key picks its colors from the cfg.Gradient powerline theme ("" = no background).
@@ -29,9 +29,9 @@ type twoSeg struct {
 	bare          bool // padding or the head gap: never takes a derived background
 }
 
-// collectTwoline resolves model, effort, context and 7d from the payload; auth is the collected countdown.
-func collectTwoline(in input, auth string) twoData {
-	d := twoData{model: in.Model.DisplayName, week: limitsFromPayload(in), auth: auth}
+// collectTwoline resolves model, effort, context and 7d from the payload.
+func collectTwoline(in input) twoData {
+	d := twoData{model: in.Model.DisplayName, week: limitsFromPayload(in)}
 	if in.Effort != nil {
 		d.effort = in.Effort.Level
 	}
@@ -59,14 +59,11 @@ func twoBar(pct float64, w int) string {
 
 const twoSep = " · "
 
-// twolineRows builds row 1 after the head (provider, auth, model, effort, velocity) and row 2 (context, tokens, 7d).
+// twolineRows builds row 1 after the head (provider, model, effort, velocity) and row 2 (context, tokens, 7d).
 func twolineRows(v values) (row1, row2 []twoSeg) {
 	d := v.two
 	if v.provider != "" {
 		row1 = append(row1, twoSeg{key: "cwd", text: v.provider})
-	}
-	if d.auth != "" {
-		row1 = appendSep(row1, twoSeg{key: "auth", text: d.auth})
 	}
 	row1 = appendSep(row1, twoSeg{key: "model", text: dropDatabricksClaude(cmp.Or(d.model, v.model)), bold: true})
 	if d.effort != "" {

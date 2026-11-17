@@ -175,10 +175,6 @@ func (b *cellBuf) pushContextBlock(v values, sepMajor string, lead bool) bool {
 		b.pushBreakable(" ", "g")
 		b.push(v.limits, "g")
 	}
-	if v.auth != "" {
-		b.pushBreakable(twoSep, "g")
-		b.push(v.auth, "g")
-	}
 	return true
 }
 
@@ -221,10 +217,10 @@ func (b *cellBuf) pushMetrics(v values, cfg config) {
 	}
 }
 
-// gradientTexts is a segment's text; the model carries the profile, and the countdown when no context block shows.
+// gradientTexts is a segment's text; the model carries the profile.
 func gradientTexts(v values, key string) []string {
 	if key == "model" && !v.two.hasCtx {
-		return []string{v.model, v.profile, v.auth}
+		return []string{v.model, v.profile}
 	}
 	if key == "model" {
 		return []string{v.model, v.profile}
