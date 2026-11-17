@@ -372,3 +372,16 @@ func TestLineTTYKeepsLookAhead(t *testing.T) {
 		t.Fatalf("got %q then %q", a, b)
 	}
 }
+
+// The terminal panel gets a breadcrumb title (tui clips it to one line); the numbered prompt keeps the bare title.
+func TestCrumbTitleOnPanelNumberedPromptKeepsTitle(t *testing.T) {
+	if got, want := crumb("copilot — model"), "configure › copilot › model"; got != want {
+		t.Errorf("crumb = %q, want %q", got, want)
+	}
+	var out bytes.Buffer
+	sh := &shell{Out: &out, In: bufio.NewReader(strings.NewReader("\n"))}
+	sh.Pick("copilot — model", [][2]string{{"a", "b"}})
+	if !strings.HasPrefix(out.String(), "copilot — model\n") {
+		t.Errorf("numbered prompt title changed: %q", out.String())
+	}
+}

@@ -128,10 +128,15 @@ func mark(current bool) string {
 	return ""
 }
 
+// crumb is a page title as the panel's breadcrumb: "configure", then each " — " part as a level.
+func crumb(title string) string {
+	return "configure › " + strings.ReplaceAll(title, " — ", " › ")
+}
+
 // Pick returns the chosen row index, or -1 on Esc, Back or a blank answer; start is the TTY cursor row only.
 func (s *shell) Pick(title string, rows [][2]string, start ...int) (int, error) {
 	if s.TTY {
-		return tui.PickBack(title, rows, cmp.Or(start...))
+		return tui.PickBack(crumb(title), rows, cmp.Or(start...))
 	}
 	return s.numbered(title, rows), nil
 }
@@ -139,7 +144,7 @@ func (s *shell) Pick(title string, rows [][2]string, start ...int) (int, error) 
 // pickPlain is Pick without the trailing Back row on a terminal, for a list that owns its own exit.
 func (s *shell) pickPlain(title string, rows [][2]string) (int, error) {
 	if s.TTY {
-		return tui.Pick(title, rows, 0)
+		return tui.Pick(crumb(title), rows, 0)
 	}
 	return s.numbered(title, rows), nil
 }

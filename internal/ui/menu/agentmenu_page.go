@@ -85,7 +85,7 @@ var pickAgent = func(d *dialog, title string, rows [][2]string, start int) (int,
 	}
 	secs, order := agentSections(rows)
 	at := max(slices.Index(order, start), 0)
-	idx, err := tui.PickSectionsBack(title, secs, at)
+	idx, err := tui.PickSectionsBack(crumb(title), secs, at)
 	if err != nil || idx < 0 {
 		return -1, err
 	}

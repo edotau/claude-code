@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // A fake key stream drives handlePickKey directly, so the panel's transitions test without a TTY.
@@ -172,6 +173,126 @@ func TestFitWindowsRowsToTerminalHeight(t *testing.T) {
 	}
 }
 
+// modelRows is a long model picker: a wide row, a CJK row and a trailing Back, laid out at cols-2 like pickHeads does.
+func modelRows(cols int) []string {
+	return layoutRows([][2]string{
+		{"claude-sonnet-5.5", "Claude Sonnet 5.5  Balanced  vision · reasoning  " + strings.Repeat("x", 60)},
+		{"claude-opus-5.5", "Claude Opus 5.5  Agentic coding  vision · reasoning"},
+		{"gpt-6.1-sol", "GPT-6.1 Sol  日本語のタイトル日本語のタイトル  vision · reasoning"},
+		{"Back", "return to the previous menu"},
+	}, max(cols-2, 0))
+}
+
+func typed(t testing.TB, s pickState, text string) pickState {
+	t.Helper()
+	s, _ = handlePickKey(s, Key{Kind: KeyRune, Rune: '/'})
+	for _, r := range text {
+		s, _ = handlePickKey(s, Key{Kind: KeyRune, Rune: r})
+	}
+	return s
+}
+
+// frameText draws what pickHeads would for s and returns its lines with every escape sequence removed.
+func frameText(title string, s pickState, cols, h int, color bool) []string {
+	s.rows, s.hay, s.cols = modelRows(cols), lowerAll(modelRows(0)), cols
+	out, _ := frame(title, s, cols, h, color)
+	return strings.Split(csiRE.ReplaceAllString(out, ""), "\r\n")
+}
+
+// The breadcrumb, filter line, rows and footer each take one line of at most 80 cells, with colour on and off.
+func TestFrameLinesFitEightyColumns(t *testing.T) {
+	title := "configure › copilot › a very long model alias title that cannot fit on one eighty column line at all"
+	for _, color := range []bool{false, true} {
+		for _, text := range []string{"", "5.5", "zzz", strings.Repeat("日本", 40)} {
+			s := pickState{}
+			if text != "" {
+				s = typed(t, pickState{rows: modelRows(80), hay: lowerAll(modelRows(0))}, text)
+			}
+			s.rows = modelRows(80)
+			for _, line := range frameText(title, s, 80, 40, color) {
+				if w := textutil.DisplayWidth(line); w > 80 {
+					t.Errorf("color=%v filter=%q: %d cells > 80: %q", color, text, w, line)
+				}
+			}
+		}
+	}
+	if got := frameText(title, pickState{}, 80, 40, false)[0]; !strings.HasSuffix(got, "…") {
+		t.Errorf("a wider breadcrumb must clip with …, got %q", got)
+	}
+}
+
+// "/" opens the filter, typing narrows the rows, Backspace widens them, Esc clears it; Enter picks the shown row.
+func TestFilterNarrowsAndEscClears(t *testing.T) {
+	s := typed(t, pickState{rows: modelRows(80), hay: lowerAll(modelRows(0))}, "opus")
+	if v := s.view(); len(v.rows) != 1 || s.sel != 1 {
+		t.Fatalf("filter opus: view %d rows, sel %d, want 1 row on row 1", len(v.rows), s.sel)
+	}
+	s, act := handlePickKey(s, Key{Kind: KeyEnter})
+	if act != pickChoose || s.sel != 1 {
+		t.Errorf("Enter on the filtered row = sel %d act %d, want the full-list index 1", s.sel, act)
+	}
+	if b := typed(t, pickState{rows: modelRows(80), hay: lowerAll(modelRows(0))}, "back"); b.sel != 3 {
+		t.Errorf("filter back: sel %d, want the Back row's full-list index 3", b.sel)
+	}
+	s, _ = handlePickKey(s, Key{Kind: KeyEsc})
+	if s.typing || s.query != "" || len(s.view().rows) != 4 {
+		t.Errorf("Esc left typing=%v query=%q rows=%d, want a cleared filter over all 4 rows", s.typing, s.query, len(s.view().rows))
+	}
+	if _, act := handlePickKey(s, Key{Kind: KeyEsc}); act != pickQuit {
+		t.Errorf("Esc with no filter = %d, want pickQuit as before", act)
+	}
+}
+
+func TestFilterNoMatchesShowsEmptyRowAndBlocksEnter(t *testing.T) {
+	s := typed(t, pickState{rows: modelRows(80), hay: lowerAll(modelRows(0))}, "zzz")
+	lines := frameText("T", s, 80, 40, false)
+	if !strings.Contains(strings.Join(lines, "\n"), "  no matches") {
+		t.Errorf("empty result has no 'no matches' row:\n%s", strings.Join(lines, "\n"))
+	}
+	if _, act := handlePickKey(s, Key{Kind: KeyEnter}); act != pickNone {
+		t.Errorf("Enter with nothing shown = %d, want pickNone", act)
+	}
+	if got, _ := frame("T", s, 80, 40, false); strings.Count(got, "\r\n")+1 != panelLines("T", s.view(), 80) {
+		t.Errorf("panelLines disagrees with the rendered line count for an empty result")
+	}
+}
+
+// A sectioned panel (no title) keeps a section title only above a surviving row, and counts its filter line.
+func TestFilterSectionsKeepTitlesAboveMatchesAndCountLines(t *testing.T) {
+	rows := []string{"== agents ==", "claude  ok", "codex  ok", "== tools ==", "tailscale  off", "Enter"}
+	s := pickState{rows: rows, hay: rows, heads: map[int]bool{0: true, 3: true}, cols: 80}
+	s = typed(t, s.step(1), "tail")
+	out, lines := frame("", s, 80, 40, false)
+	plain := csiRE.ReplaceAllString(out, "")
+	if strings.Contains(plain, "agents") || !strings.Contains(plain, "== tools ==") || s.sel != 4 {
+		t.Errorf("sel=%d; want only the tools title and its match:\n%s", s.sel, plain)
+	}
+	if got := strings.Count(out, "\r\n") + 1; got != lines {
+		t.Errorf("rendered %d lines, panelLines says %d", got, lines)
+	}
+	if _, act := handlePickKey(s, Key{Kind: KeyEnter}); act != pickChoose || s.sel != 4 {
+		t.Errorf("Enter on the filtered section row = sel %d act %d, want index 4", s.sel, act)
+	}
+}
+
+// Without the filter, the frame keeps its rewind height and the old keys: q quits, j moves, "/" is the only new key.
+func TestUnfilteredKeysAndLineCountUnchanged(t *testing.T) {
+	s := pickState{rows: modelRows(80)}
+	if _, act := handlePickKey(s, Key{Kind: KeyRune, Rune: 'q'}); act != pickQuit {
+		t.Errorf("q = %d, want pickQuit", act)
+	}
+	if got, lines := frame("T", s, 80, 40, false); strings.Count(got, "\r\n")+1 != lines || lines != len(s.rows)+5 {
+		t.Errorf("unfiltered frame = %d lines, panelLines %d, want len(rows)+5", strings.Count(got, "\r\n")+1, lines)
+	}
+	if h, _ := s.hint(); strings.Contains(h, "filter") {
+		t.Errorf("a short menu's footer %q advertises the filter", h)
+	}
+	typing := typed(t, s, "")
+	if _, act := handlePickKey(typing, Key{Kind: KeyRune, Rune: 'q'}); act != pickNone {
+		t.Errorf("q while typing = %d, want it typed into the filter", act)
+	}
+}
+
 // sttyOn runs stty on the terminal f, skipping where no stty exists.
 func sttyOn(t *testing.T, f *os.File, args ...string) {
 	t.Helper()
@@ -253,5 +374,28 @@ func BenchmarkRender(b *testing.B) {
 	}, 78), sel: 1}
 	for b.Loop() {
 		_ = render("Providers", s, true)
+	}
+}
+
+func BenchmarkRenderCrumb(b *testing.B) {
+	s := pickState{rows: layoutRows([][2]string{
+		{"claude-sonnet-5.5", "Claude Sonnet 5.5  Balanced  vision · reasoning"},
+		{"claude-opus-5.5", "Claude Opus 5.5  Agentic coding  vision · reasoning"},
+		{"Back", "return to the previous menu"},
+	}, 78), sel: 1}
+	for b.Loop() {
+		_ = render("configure › copilot › model", s, true)
+	}
+}
+
+func BenchmarkFrameFiltered100(b *testing.B) {
+	pairs := make([][2]string, 100)
+	for i := range pairs {
+		pairs[i] = [2]string{fmt.Sprintf("model-%d", i), "Claude Model  Balanced  vision · reasoning"}
+	}
+	rows := layoutRows(pairs, 78)
+	s := typed(b, pickState{rows: rows, hay: lowerAll(layoutRows(pairs, 0)), cols: 80}, "model-4")
+	for b.Loop() {
+		_, _ = frame("configure › model", s, 80, 40, true)
 	}
 }
