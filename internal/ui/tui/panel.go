@@ -4,9 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"regexp"
 	"strings"
-	"sync"
 
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/table"
@@ -53,23 +51,59 @@ func handlePickKey(s pickState, k Key) (pickState, int) {
 	return s, pickNone
 }
 
-var (
-	detailSplit = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\s{2,}`) })
-	trailBadge  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(` (\[[^\]]*\])$`) })
-)
-
 // rowCells is a row's cells: the name, then the detail split on 2+ space runs, a trailing " [..]" badge last.
 func rowCells(r [2]string) []string {
-	detail := oneLine(r[1])
-	badge := ""
-	if m := trailBadge().FindStringSubmatchIndex(detail); m != nil {
-		badge, detail = detail[m[2]:m[3]], detail[:m[0]]
-	}
-	cells := append([]string{oneLine(r[0])}, detailSplit().Split(detail, -1)...)
+	detail, badge := splitTrailBadge(oneLine(r[1]))
+	cells := make([]string, 1, 4)
+	cells[0] = oneLine(r[0])
+	cells = appendMultiSpaceSplit(cells, detail)
 	if badge != "" {
 		cells = append(cells, badge)
 	}
 	return cells
+}
+
+func splitTrailBadge(detail string) (string, string) {
+	if !strings.HasSuffix(detail, "]") {
+		return detail, ""
+	}
+	best := -1 // leftmost " [" with no "]" between it and the end, like ` (\[[^\]]*\])$`
+	for i := len(detail) - 2; i > 0; i-- {
+		if detail[i] == ']' {
+			break
+		}
+		if detail[i] == '[' && detail[i-1] == ' ' {
+			best = i
+		}
+	}
+	if best < 0 {
+		return detail, ""
+	}
+	return detail[:best-1], detail[best:]
+}
+
+func isSpaceByte(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
+}
+
+func appendMultiSpaceSplit(dst []string, s string) []string {
+	start := 0
+	for i := 0; i < len(s); {
+		if !isSpaceByte(s[i]) {
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(s) && isSpaceByte(s[j]) {
+			j++
+		}
+		if j-i >= 2 {
+			dst = append(dst, s[start:i])
+			start = j
+		}
+		i = j
+	}
+	return append(dst, s[start:])
 }
 
 // layoutRows lays rows out as columns shared by every row, each line at most width runes (0 = unbounded).
@@ -94,21 +128,25 @@ func wrappedLines(n, cols int) int {
 
 // panelLines counts render's terminal lines by wrapped height, so a long row cannot make rewind undercount.
 func panelLines(title string, s pickState, cols int) int {
+	return panelLinesRange(title, s, 0, len(s.rows), cols)
+}
+
+func panelLinesRange(title string, s pickState, lo, hi, cols int) int {
 	lines := 0
 	if title != "" { // a title-less (sectioned) panel opens straight on its first section title
 		lines += wrappedLines(len([]rune(title)), cols) + 1
 	}
-	for i, row := range s.rows {
-		n := len([]rune(row))
+	for i := lo; i < hi; i++ {
+		n := len([]rune(s.rows[i]))
 		if !s.heads[i] {
 			n += 2
 		}
 		lines += wrappedLines(n, cols)
-		if s.heads[i] && (i > 0 || title == "") {
+		if s.heads[i] && (i-lo > 0 || title == "") {
 			lines++
 		}
 	}
-	if len(s.rows) > 1 {
+	if hi-lo > 1 {
 		lines++
 	}
 	lines++
@@ -202,17 +240,14 @@ func fit(title string, s pickState, cols, h int) pickState {
 	if len(s.rows) == 0 || panelLines(title, s, cols) < h {
 		return s
 	}
-	win := func(lo, hi int) pickState {
-		w := pickState{rows: s.rows[lo:hi], sel: s.sel - lo, heads: map[int]bool{}}
-		for i := lo; i < hi; i++ {
-			if s.heads[i] {
-				w.heads[i-lo] = true
-			}
+	lo, hi := grow(len(s.rows), s.sel, func(lo, hi int) bool { return panelLinesRange(title, s, lo, hi, cols) < h })
+	w := pickState{rows: s.rows[lo:hi], sel: s.sel - lo, heads: map[int]bool{}}
+	for i := lo; i < hi; i++ {
+		if s.heads[i] {
+			w.heads[i-lo] = true
 		}
-		return w
 	}
-	lo, hi := grow(len(s.rows), s.sel, func(lo, hi int) bool { return panelLines(title, win(lo, hi), cols) < h })
-	return win(lo, hi)
+	return w
 }
 
 // PickBack is Pick with a trailing "Back" row; picking it, Esc, q or Ctrl-C all return -1.

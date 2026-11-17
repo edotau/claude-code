@@ -33,14 +33,10 @@ func easeAt(t, exp float64) float64 {
 func renderGradient(v values, cfg config, pal theme.Palettes, stops []ansi.RGB, mode string, width int) string {
 	dim := ansi.Hex(pal.Sem("dim"))
 	b := gradientCells(v, cfg)
-	total := max(len(b.cells)-1, 1)
 	var out strings.Builder
+	out.Grow(len(b.cells)*24 + 64)
 	col := writeUserHost(&out, v, cfg, pal, mode)
-	pieces := make([]string, len(b.cells))
-	for i, c := range b.cells {
-		pieces[i] = paintCell(c, mode, dim, ansi.GradAt(stops, easeAt(float64(i)/float64(total), cfg.GradientEase)))
-	}
-	col = wrapSegments(&out, pieces, b.cells, b.brks, col, width)
+	col = wrapSegments(&out, b.cells, b.brks, stops, cfg.GradientEase, mode, dim, col, width)
 	if cfg.seg("velocity") && (v.adds != 0 || v.dels != 0) {
 		writeVelocity(&out, velocityText(v, mode, pal), ansi.Paint(mode, dim, sepPath, false), col, width)
 	}
@@ -73,24 +69,31 @@ func writeVelocity(out *strings.Builder, vel, sep string, col, width int) {
 	out.WriteString(vel)
 }
 
-func paintCell(c cell, mode string, dim, rgb ansi.RGB) string {
+func writePaintedCell(out *strings.Builder, c cell, mode string, dim, rgb ansi.RGB) {
+	var buf [48]byte
+	b := buf[:0]
 	switch c.kind {
 	case "sep", "empty": // empty ─ cells take the separator dim: the trough tone all but vanished on them
-		return ansi.Paint(mode, dim, string(c.ch), false)
+		b = ansi.AppendFgSeq(b, mode, dim, false)
 	case "dot":
-		return ansi.Paint(mode, ansi.TowardWhite(rgb, 0.45), string(c.ch), true)
+		b = ansi.AppendFgSeq(b, mode, ansi.TowardWhite(rgb, 0.45), true)
+	default:
+		b = ansi.AppendFgSeq(b, mode, rgb, true)
 	}
-	return ansi.Paint(mode, rgb, string(c.ch), true)
+	b = utf8.AppendRune(b, c.ch)
+	b = append(b, ansi.Reset...)
+	out.Write(b)
 }
 
-// wrapSegments writes pieces from col, breaking before a segment that crosses width (0: never); widths are cells.
-func wrapSegments(out *strings.Builder, pieces []string, cells []cell, brks []brk, col, width int) int {
+// wrapSegments writes cells from col, breaking before a segment that crosses width (0: never); widths are cells.
+func wrapSegments(out *strings.Builder, cells []cell, brks []brk, stops []ansi.RGB, ease float64, mode string, dim ansi.RGB, col, width int) int {
 	next := 0
-	for i := 0; i < len(pieces); {
+	total := float64(max(len(cells)-1, 1))
+	for i := 0; i < len(cells); {
 		if next < len(brks) && brks[next].at == i {
 			sep := brks[next]
 			next++
-			end := len(pieces)
+			end := len(cells)
 			if next < len(brks) {
 				end = brks[next].at
 			}
@@ -100,7 +103,8 @@ func wrapSegments(out *strings.Builder, pieces []string, cells []cell, brks []br
 				continue
 			}
 		}
-		out.WriteString(pieces[i])
+		rgb := ansi.GradAt(stops, easeAt(float64(i)/total, ease))
+		writePaintedCell(out, cells[i], mode, dim, rgb)
 		col += cellWidth(cells[i].ch)
 		i++
 	}

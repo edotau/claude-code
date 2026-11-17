@@ -62,6 +62,9 @@ func Status(on bool, line string) string {
 	if !on {
 		return Strip(line)
 	}
+	if !strings.ContainsAny(line, "\ue000\ue001\ue003") {
+		return paintTokens(line)
+	}
 	var out strings.Builder
 	last := 0
 	for _, loc := range spanRE().FindAllStringIndex(line, -1) {
@@ -103,7 +106,12 @@ var spanRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile("[
 var spanStrip = strings.NewReplacer(SpanOK, "", SpanOff, "", SpanWarn, "", SpanEnd, "")
 
 // Strip removes the span markers from s.
-func Strip(s string) string { return spanStrip.Replace(s) }
+func Strip(s string) string {
+	if !strings.ContainsAny(s, "\ue000\ue001\ue002\ue003") {
+		return s
+	}
+	return spanStrip.Replace(s)
+}
 
 var statusCode = func() map[string]string {
 	m := make(map[string]string, len(statusTokens))

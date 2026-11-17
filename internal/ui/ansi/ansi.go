@@ -2,10 +2,10 @@
 package ansi
 
 import (
-	"fmt"
 	"math"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 )
 
 // RGB is a 24-bit color.
@@ -26,27 +26,45 @@ const (
 // ParseHex reads #RGB, #RGBA, #RRGGBB or #RRGGBBAA (# optional); alpha is 255 when absent, ok=false otherwise.
 func ParseHex(h string) (rgb RGB, alpha int, ok bool) {
 	h = strings.TrimPrefix(h, "#")
-	if len(h) == 3 || len(h) == 4 {
-		var wide strings.Builder
+	switch len(h) {
+	case 3, 4:
+		var c [4]int
+		c[3] = 255
 		for i := 0; i < len(h); i++ {
-			wide.WriteByte(h[i])
-			wide.WriteByte(h[i])
+			v, valid := hexNibble(h[i])
+			if !valid {
+				return RGB{}, 0, false
+			}
+			c[i] = v*16 + v
 		}
-		h = wide.String()
-	}
-	if len(h) != 6 && len(h) != 8 {
+		return RGB{c[0], c[1], c[2]}, c[3], true
+	case 6, 8:
+		var c [4]int
+		c[3] = 255
+		for i := 0; i < len(h)/2; i++ {
+			hi, ok1 := hexNibble(h[2*i])
+			lo, ok2 := hexNibble(h[2*i+1])
+			if !ok1 || !ok2 {
+				return RGB{}, 0, false
+			}
+			c[i] = hi*16 + lo
+		}
+		return RGB{c[0], c[1], c[2]}, c[3], true
+	default:
 		return RGB{}, 0, false
 	}
-	var c [4]int
-	c[3] = 255
-	for i := 0; i < len(h)/2; i++ {
-		n, err := strconv.ParseUint(h[2*i:2*i+2], 16, 8)
-		if err != nil {
-			return RGB{}, 0, false
-		}
-		c[i] = int(n)
+}
+
+func hexNibble(c byte) (int, bool) {
+	switch {
+	case '0' <= c && c <= '9':
+		return int(c - '0'), true
+	case 'a' <= c && c <= 'f':
+		return int(c-'a') + 10, true
+	case 'A' <= c && c <= 'F':
+		return int(c-'A') + 10, true
 	}
-	return RGB{c[0], c[1], c[2]}, c[3], true
+	return 0, false
 }
 
 // Hex parses "#rgb" or "#rrggbb"; anything else reads as black (validate overrides with ParseHex at load).
@@ -106,62 +124,103 @@ func toANSI16(rgb RGB) int {
 	return bi
 }
 
-// FgSeq returns the foreground SGR escape for rgb in the given color mode.
-func FgSeq(mode string, rgb RGB, bold bool) string {
-	b := ""
+// AppendFgSeq appends the foreground SGR escape for rgb in mode to dst.
+func AppendFgSeq(dst []byte, mode string, rgb RGB, bold bool) []byte {
+	dst = append(dst, "\x1b["...)
 	if bold {
-		b = "1;"
+		dst = append(dst, "1;"...)
 	}
 	switch mode {
 	case TrueColor:
-		return fmt.Sprintf("\x1b[%s38;2;%d;%d;%dm", b, rgb[0], rgb[1], rgb[2])
+		dst = append(dst, "38;2;"...)
+		dst = strconv.AppendInt(dst, int64(rgb[0]), 10)
+		dst = append(dst, ';')
+		dst = strconv.AppendInt(dst, int64(rgb[1]), 10)
+		dst = append(dst, ';')
+		dst = strconv.AppendInt(dst, int64(rgb[2]), 10)
+		return append(dst, 'm')
 	case ANSI256:
-		return fmt.Sprintf("\x1b[%s38;5;%dm", b, toANSI256(rgb))
+		dst = append(dst, "38;5;"...)
+		dst = strconv.AppendInt(dst, int64(toANSI256(rgb)), 10)
+		return append(dst, 'm')
 	default:
 		c := toANSI16(rgb)
 		base := 30 + c
 		if c >= 8 {
 			base = 30 + c - 8
+			if !bold {
+				dst = append(dst, "1;"...)
+			}
 		}
-		bright := ""
-		if c >= 8 && !bold {
-			bright = "1;"
-		}
-		return fmt.Sprintf("\x1b[%s%s%dm", b, bright, base)
+		dst = strconv.AppendInt(dst, int64(base), 10)
+		return append(dst, 'm')
 	}
 }
 
-// BgSeq returns the background SGR escape for rgb in the given color mode.
-func BgSeq(mode string, rgb RGB) string {
+// FgSeq returns the foreground SGR escape for rgb in the given color mode.
+func FgSeq(mode string, rgb RGB, bold bool) string {
+	var buf [32]byte
+	return string(AppendFgSeq(buf[:0], mode, rgb, bold))
+}
+
+// AppendBgSeq appends the background SGR escape for rgb in mode to dst.
+func AppendBgSeq(dst []byte, mode string, rgb RGB) []byte {
+	dst = append(dst, "\x1b["...)
 	switch mode {
 	case TrueColor:
-		return fmt.Sprintf("\x1b[48;2;%d;%d;%dm", rgb[0], rgb[1], rgb[2])
+		dst = append(dst, "48;2;"...)
+		dst = strconv.AppendInt(dst, int64(rgb[0]), 10)
+		dst = append(dst, ';')
+		dst = strconv.AppendInt(dst, int64(rgb[1]), 10)
+		dst = append(dst, ';')
+		dst = strconv.AppendInt(dst, int64(rgb[2]), 10)
+		return append(dst, 'm')
 	case ANSI256:
-		return fmt.Sprintf("\x1b[48;5;%dm", toANSI256(rgb))
+		dst = append(dst, "48;5;"...)
+		dst = strconv.AppendInt(dst, int64(toANSI256(rgb)), 10)
+		return append(dst, 'm')
 	default:
 		c := toANSI16(rgb)
 		base := 40 + c
 		if c >= 8 {
 			base = 40 + c - 8
 		}
-		return fmt.Sprintf("\x1b[%dm", base)
+		dst = strconv.AppendInt(dst, int64(base), 10)
+		return append(dst, 'm')
 	}
+}
+
+// BgSeq returns the background SGR escape for rgb in the given color mode.
+func BgSeq(mode string, rgb RGB) string {
+	var buf [32]byte
+	return string(AppendBgSeq(buf[:0], mode, rgb))
 }
 
 // Paint wraps s in the foreground color for rgb (optionally bold) and a reset.
 func Paint(mode string, rgb RGB, s string, bold bool) string {
-	return FgSeq(mode, rgb, bold) + s + Reset
+	var buf [64]byte
+	b := AppendFgSeq(buf[:0], mode, rgb, bold)
+	b = append(b, s...)
+	b = append(b, Reset...)
+	return string(b)
 }
 
 // Sweep paints s rune by rune across the gradient, bold, like the status line's path segment.
 func Sweep(mode string, stops []RGB, s string) string {
-	runes := []rune(s)
-	var b strings.Builder
-	for i, r := range runes {
-		b.WriteString(FgSeq(mode, GradAt(stops, float64(i)/float64(max(len(runes)-1, 1))), true))
-		b.WriteRune(r)
+	if s == "" {
+		return Reset
 	}
-	return b.String() + Reset
+	n := utf8.RuneCountInString(s)
+	denom := float64(max(n-1, 1))
+	buf := make([]byte, 0, n*22+len(Reset))
+	i := 0
+	for _, r := range s {
+		buf = AppendFgSeq(buf, mode, GradAt(stops, float64(i)/denom), true)
+		buf = utf8.AppendRune(buf, r)
+		i++
+	}
+	buf = append(buf, Reset...)
+	return string(buf)
 }
 
 func abs(x int) int {

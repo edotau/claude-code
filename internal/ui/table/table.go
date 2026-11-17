@@ -102,11 +102,23 @@ func columnGap(ws []int, n, width int) int {
 	return min(maxGap, 2+slack/(n-1))
 }
 
+const spaces64 = "                                                                "
+
+func writeSpaces(b *strings.Builder, n int) {
+	for n >= len(spaces64) {
+		b.WriteString(spaces64)
+		n -= len(spaces64)
+	}
+	if n > 0 {
+		b.WriteString(spaces64[:n])
+	}
+}
+
 // justifyRow pads r's cells to ws with gap between them, clipping each, then caps the line at width.
 func justifyRow(r []string, n int, ws []int, gap, width int, clip func(string, int) string) string {
 	var b strings.Builder
+	start := 0
 	for i, c := range r {
-		start := sumInts(ws[:i]) + gap*i
 		spans := spansRest(r, n, i)
 		switch {
 		case spans && width > 0 && width-start <= 0:
@@ -118,25 +130,41 @@ func justifyRow(r []string, n int, ws []int, gap, width int, clip func(string, i
 		}
 		b.WriteString(c)
 		if i < len(r)-1 {
-			b.WriteString(strings.Repeat(" ", ws[i]-utf8.RuneCountInString(c)+gap))
+			writeSpaces(&b, ws[i]-utf8.RuneCountInString(c)+gap)
 		}
+		start += ws[i] + gap
 	}
 	return Truncate(strings.TrimRight(b.String(), " "), width)
 }
 
 // Render lays out a header plus rows as two-space-indented aligned lines; colMax caps each column (0 = none).
 func Render(head []string, colMax []int, rows [][]string, width int) string {
-	all := make([][]string, 0, len(rows)+1)
-	for _, r := range append([][]string{head}, rows...) {
-		r = slices.Clone(r)
-		for c := range r {
-			if c < len(colMax) && colMax[c] > 0 {
-				r[c] = Truncate(r[c], colMax[c])
-			}
-		}
-		all = append(all, r)
+	all := make([][]string, len(rows)+1)
+	all[0] = capRow(head, colMax)
+	for i, r := range rows {
+		all[i+1] = capRow(r, colMax)
 	}
 	return Indented(all, width, nil)
+}
+
+func capRow(r []string, colMax []int) []string {
+	var cloned []string
+	for c, cell := range r {
+		if c >= len(colMax) || colMax[c] <= 0 {
+			continue
+		}
+		capped := Truncate(cell, colMax[c])
+		if capped != cell {
+			if cloned == nil {
+				cloned = slices.Clone(r)
+			}
+			cloned[c] = capped
+		}
+	}
+	if cloned != nil {
+		return cloned
+	}
+	return r
 }
 
 // Indented is Justify as text: every line two-space-indented, the indent counted in width.
@@ -144,10 +172,15 @@ func Indented(rows [][]string, width int, clip func(string, int) string) string 
 	if width > 0 {
 		width = max(width-2, 1)
 	}
+	lines := Justify(rows, width, clip)
 	var b strings.Builder
-	for _, l := range Justify(rows, width, clip) {
-		b.WriteString(strings.TrimRight("  "+l, " "))
-		b.WriteString("\n")
+	b.Grow(len(lines) * 48)
+	for _, l := range lines {
+		if trimmed := strings.TrimRight(l, " "); trimmed != "" {
+			b.WriteString("  ")
+			b.WriteString(trimmed)
+		}
+		b.WriteByte('\n')
 	}
 	return b.String()
 }
