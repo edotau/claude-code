@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -51,6 +52,30 @@ func TestGuardAttemptOwnLoginIsolatedFailsWhenRegistryUnreadable(t *testing.T) {
 	}
 	if _, gerr := guardAttempt(context.Background(), r, RunOptions{}); gerr != nil {
 		t.Fatalf("non-isolated guardAttempt = %v, want nil", gerr)
+	}
+}
+
+// A headless child (guardAttempt, ChildCmd) keeps its agent's own login names unless ScrubDeny blocks them.
+func TestGuardAttemptChildKeepsOwnLogin(t *testing.T) {
+	for _, name := range []string{"codex", "gemini", "opencode"} {
+		t.Run(name, func(t *testing.T) {
+			for _, n := range append(proc.ForeignLogins("", false), "MISTRAL_API_KEY") {
+				t.Setenv(n, "dummy")
+			}
+			ctx, gerr := guardAttempt(context.Background(), &fakeRunner{name: name}, RunOptions{})
+			if gerr != nil {
+				t.Fatal(gerr)
+			}
+			cmd, _ := ChildCmd(ctx, "/bin/true", nil, nil, "", "", nil, true)
+			for _, n := range proc.ForeignLogins("", false) {
+				if got, want := slices.Contains(cmd.Env, n+"=dummy"), slices.Contains(proc.OwnLoginEnv[name], n) && !proc.EnvBlocked(n); got != want {
+					t.Errorf("%s: %s kept = %v, want %v", name, n, got, want)
+				}
+			}
+			if slices.Contains(cmd.Env, "MISTRAL_API_KEY=dummy") {
+				t.Errorf("%s kept MISTRAL_API_KEY", name)
+			}
+		})
 	}
 }
 

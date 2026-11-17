@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/proc"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
 )
@@ -595,6 +596,24 @@ func calls(t *testing.T, log string) []string {
 	t.Helper()
 	b, _ := os.ReadFile(log)
 	return strings.Split(strings.TrimSpace(string(b)), "\n")
+}
+
+// The SDK child keeps copilot's own login names from the inherited env and drops the other agents' and foreign ones.
+func TestBuildClientOptionsKeepsOwnLogin(t *testing.T) {
+	names := append(proc.ForeignLogins("", false), "MISTRAL_API_KEY")
+	for _, n := range names {
+		t.Setenv(n, "dummy")
+	}
+	co, err := buildClientOptions(context.Background(), sdkOptions{CLIPath: "/bin/true"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env := co.Connection.(copilot.StdioConnection).Env
+	for _, n := range names {
+		if got, want := slices.Contains(env, n+"=dummy"), slices.Contains(proc.OwnLoginEnv["copilot"], n) && !proc.EnvBlocked(n); got != want {
+			t.Errorf("%s kept = %v, want %v", n, got, want)
+		}
+	}
 }
 
 // A pick outside the registry is refused with errUnregisteredPick, before any process or when the CLI rejects it.

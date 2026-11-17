@@ -477,7 +477,7 @@ func (p Plan) envMode() EnvMode {
 // plainEnv is the plan as an EnvSpec: base scrubbed, minus Unset and Set names, then Set in name order.
 func (p Plan) plainEnv(base []string) []string {
 	set := proc.Values(p.Set).Env()
-	spec := EnvSpec{Mode: p.envMode(), Base: append([]string{}, base...), Keep: p.Keep, Unset: p.Unset, Set: set}
+	spec := EnvSpec{Mode: p.envMode(), Base: append([]string{}, base...), Keep: p.Keep, Unset: p.Unset, Set: set, Agent: p.Agent}
 	ctx := context.Background()
 	if p.Values != nil {
 		ctx = proc.WithValues(ctx, p.Values)
@@ -523,7 +523,7 @@ func (p Plan) Print(w io.Writer) {
 
 // unsetNames is every inherited var this plan drops: the Anthropic wipe list plus the credential scrub, minus its sets.
 func (p Plan) unsetNames() []string {
-	ctx := valuesContext(context.Background(), p.Values)
+	ctx := withLaunchAgent(valuesContext(context.Background(), p.Values), p.Agent)
 	names := map[string]bool{}
 	for _, k := range p.Unset {
 		if _, set := p.Set[k]; !set && proc.Value(ctx, k) != "" {

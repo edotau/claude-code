@@ -43,10 +43,12 @@ type EnvSpec struct {
 	Set   []string // the launch's own KEY=VALUE, after the scrubs so they are never dropped
 	Extra []string // --env, after Set so it wins
 	PWD   string   // non-empty appends PWD=<dir> last, for a child that reads $PWD
+	Agent string   // the launched agent: its own login names survive the EnvAgent credential scrub ("" = none)
 }
 
 // Environ builds the child env; ctx carries batch isolation and the hop's own provider (hostguard.go).
 func (s EnvSpec) Environ(ctx context.Context) []string {
+	ctx = withLaunchAgent(ctx, s.Agent)
 	base := s.Base
 	if base == nil && s.Mode != EnvPrescrubbed {
 		base = runEnviron(ctx)
@@ -96,9 +98,33 @@ func (m EnvMode) scrub(ctx context.Context, env, keep []string) (kept, dropped [
 	case EnvClaude:
 		return proc.Scrub(env, keepSet(ctx, keep))
 	case EnvAgent:
-		return proc.ScrubAgent(env, keepSet(ctx, keep))
+		k := keepSet(ctx, keep)
+		own := keptLogin(ctx)
+		if ls, ok := ctx.Value(loginScrubKey{}).(loginScrub); ok && ls.keepGHToken {
+			k["GH_TOKEN"] = true // git and gh in a non-copilot hop need it
+		}
+		return proc.ScrubAgentCredentials(env, k, own)
 	}
 	return env, nil
+}
+
+type launchAgentKey struct{}
+
+// withLaunchAgent marks name as the agent whose own login env an EnvAgent child keeps ("" = none).
+func withLaunchAgent(ctx context.Context, name string) context.Context {
+	if name == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, launchAgentKey{}, name)
+}
+
+// keptLogin is the agent whose login env an EnvAgent child keeps: a hop's loginScrub, else the spec's Agent.
+func keptLogin(ctx context.Context) string {
+	if ls, ok := ctx.Value(loginScrubKey{}).(loginScrub); ok {
+		return ls.own
+	}
+	agentName, _ := ctx.Value(launchAgentKey{}).(string)
+	return agentName
 }
 
 // DispatchPermissionsEnv carries a dispatch's Permissions as JSON to every agent child, for the permission-gate.

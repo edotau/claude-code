@@ -19,6 +19,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -99,7 +100,7 @@ func buildClientOptions(ctx context.Context, o sdkOptions) (*copilot.ClientOptio
 		return nil, errors.New("copilot CLI path is empty (the SDK would run its bundled runtime instead)")
 	}
 	// isolation and unset ride ctx
-	base := agent.EnvSpec{Mode: agent.EnvAgent, Keep: o.KeepEnv}.Environ(ctx)
+	base := agent.EnvSpec{Mode: agent.EnvAgent, Keep: o.KeepEnv, Agent: agentid.Copilot}.Environ(ctx)
 	if o.multiProvider() {
 		if err := validateRegistryOptions(o); err != nil {
 			return nil, err
