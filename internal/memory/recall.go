@@ -110,23 +110,32 @@ func recallSemantic(result semanticReady, files []corpusFile, segs []segView, se
 	return withSemanticCandidates(ranked, extra), sem, semSeen, "ran"
 }
 
-// recallContext renders the prompt recall and returns the delivered hits for bookkeeping.
+// recallContext renders the prompt recall and returns only the hits whose line survived the char cap.
 func recallContext(picks []recallPick) (string, []SearchHit) {
 	if len(picks) == 0 {
 		return "", nil
 	}
+	const header = "<!-- memory-recall; expand: claude-code memory search <id> -->"
 	var b strings.Builder
-	b.WriteString("<!-- memory-recall; expand: claude-code memory search <id> -->")
-	var hits []SearchHit
+	b.WriteString(header)
+	lines := make([]string, len(picks))
 	for i, p := range picks {
 		if i < recallBodies {
-			fmt.Fprintf(&b, "\n- [%s] %s", p.Entry.File, textutil.CapRunes(recallFlat(p.Entry), recallBodyCapRunes, "…"))
+			lines[i] = fmt.Sprintf("\n- [%s] %s", p.Entry.File, textutil.CapRunes(recallFlat(p.Entry), recallBodyCapRunes, "…"))
 		} else {
-			fmt.Fprintf(&b, "\n- %s", p.Entry.pointer())
+			lines[i] = "\n- " + p.Entry.pointer()
+		}
+		b.WriteString(lines[i])
+	}
+	out := capChars(b.String(), recallTotalCapChars)
+	var hits []SearchHit
+	for i, p := range picks {
+		if !strings.Contains(out, lines[i]) {
+			break
 		}
 		hits = append(hits, p.Hit)
 	}
-	return capChars(b.String(), recallTotalCapChars), hits
+	return out, hits
 }
 
 // PromptRecall is the UserPromptSubmit recall block for prompt, "" when nothing clears the floor.
