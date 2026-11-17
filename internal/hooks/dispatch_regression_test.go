@@ -757,6 +757,7 @@ func TestDirectTelemetryCannotFlipAllow(t *testing.T) {
 		t.Skip(err)
 	}
 	defer core.TelemetryDirForTest(dir)()
+	defer core.TelemetryWaitForTest(10 * time.Millisecond)()
 	orig, deadline := native["safety-scan"], gateDeadline
 	native["safety-scan"] = func(*core.Input) core.Result { return core.Result{} }
 	gateDeadline = func(settings.EventSpec) time.Duration { return 30 * time.Millisecond }
