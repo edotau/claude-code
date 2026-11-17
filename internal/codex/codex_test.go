@@ -520,3 +520,35 @@ func TestCodexCommandOverlayAndOwnLogin(t *testing.T) {
 		t.Fatalf("own login: env count %d, argv %v, err %v", len(env), argv, err)
 	}
 }
+
+func TestRenderSettingsSandboxNotices(t *testing.T) {
+	var notices strings.Builder
+	original := agent.NoticeOut
+	agent.NoticeOut = &notices
+	t.Cleanup(func() { agent.NoticeOut = original })
+	for _, tc := range []struct{ overlay, sandbox, note string }{
+		{"{}", "", ""},
+		{`{"schema":1,"codexNetwork":true}`, "", "codex: sandbox network open, all egress (overlay codexNetwork)"},
+		{"{}", "danger-full-access", "codex: sandbox danger-full-access (HARNESS_CODEX_SANDBOX)"},
+	} {
+		notices.Reset()
+		ctx := proc.WithValues(t.Context(), proc.Values{
+			agentconfig.OverlayVar: tc.overlay, codexSandboxEnv: tc.sandbox,
+		})
+		_, _, emulated, cleanup, err := (codexEngine{}).RenderSettings(ctx, agent.Settings{Headless: true, Tools: true}, nil, nil)
+		cleanup()
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := ""
+		if tc.note != "" {
+			want = "ask: " + tc.note + "\n"
+			if !slices.Contains(emulated, tc.note) {
+				t.Errorf("JSON metadata lost sandbox note")
+			}
+		}
+		if notices.String() != want {
+			t.Errorf("notice = %q, want %q", notices.String(), want)
+		}
+	}
+}

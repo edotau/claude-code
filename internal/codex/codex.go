@@ -103,6 +103,11 @@ func (e codexEngine) RenderSettings(ctx context.Context, s agent.Settings, env, 
 		return env, argv, emulated, func() { remove(); cleanup() }, err
 	}
 	env, notes, rmCache, err := codexToolsEnv(ctx, env, s.Tools, sandbox)
+	if err == nil {
+		for _, note := range notes {
+			fmt.Fprintln(agent.NoticeOut, "ask:", note)
+		}
+	}
 	return env, codexCacheArgv(argv, env), append(emulated, notes...), func() { rmCache(); remove(); cleanup() }, err
 }
 
