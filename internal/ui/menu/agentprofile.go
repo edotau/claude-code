@@ -125,7 +125,7 @@ func pickProfileName(d *dialog, agent string, names []string, cur string) (name 
 
 // agentActiveOn turns an off agent on after a successful sign-in, by seeding its own login's profile.
 func agentActiveOn(d *dialog, agent string) {
-	if agent == "claude" || vault.GetAgentRecord(agent).Profile != "" {
+	if agentpkg.VaultAgentIsClaude(agent) || vault.GetAgentRecord(agent).Profile != "" {
 		return
 	}
 	profile := signInProfile(d, agent)
@@ -182,7 +182,7 @@ func seedLabel(agent, profile string) string {
 	switch {
 	case profile != "":
 		return profile
-	case agent == "claude":
+	case agentpkg.VaultAgentIsClaude(agent):
 		return seedAuto
 	}
 	return seedOff
@@ -195,7 +195,7 @@ func seedDefaults(d *dialog) map[string]string {
 	out := map[string]string{}
 	for _, a := range seedAgents() {
 		out[a] = recs[a].Profile
-		if firstRun && out[a] == "" && a != "claude" && d.reg != nil {
+		if firstRun && out[a] == "" && !agentpkg.VaultAgentIsClaude(a) && d.reg != nil {
 			out[a] = signInProfile(d, a)
 		}
 	}
