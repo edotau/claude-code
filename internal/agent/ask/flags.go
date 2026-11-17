@@ -507,12 +507,20 @@ func resolveOverlay(ov agentconfig.Overlay, env, keep []string, background bool)
 	return agentconfig.ResolveOverlay(ov)
 }
 
-// overlayLocal refuses an overlay's env layer on --live or --host: neither carries it; routing keys alone pass.
+// overlayLocal refuses an overlay's env layer or budget on --live or --host; routing keys and limits pass.
 func overlayLocal(ov agentconfig.Overlay, live bool, host string) error {
-	if !ov.Empty() && (live || host != "") {
-		return errors.New("overlay set/unset/keep cannot reach --live or --host: run the agent locally")
+	if !live && host == "" {
+		return nil
 	}
-	return nil
+	ov.MaxChildren, ov.MaxTreeTokens = nil, nil // limits only bind nested dispatches, which a remote run still gets
+	if ov.Empty() {
+		return nil
+	}
+	keys := "set/unset/keep"
+	if ov.BudgetUSD != nil || ov.BudgetCredits != nil {
+		keys = "set/unset/keep/budgetUSD/budgetCredits"
+	}
+	return errors.New("overlay " + keys + " cannot reach --live or --host: run the agent locally")
 }
 
 // parseAgentDefs parses --agents; --host cannot carry an inline definition.

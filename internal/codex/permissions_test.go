@@ -427,6 +427,9 @@ func TestDenialLabelHidesValues(t *testing.T) {
 		{"env FOO=1 /bin/zsh -c 'FOO=secret go vet'", "go vet"},
 		{"/Users/someone/bin/tool run", "tool run"},
 		{"bash -lc 'bash -c \"ls -la\"'", "ls -la"},
+		{"rtk proxy go vet ./...", "go vet"},
+		{"rtk git status", "git status"},
+		{"/bin/bash -lc 'rtk proxy go vet ./...'", "go vet"},
 		{"", ""},
 		{strings.Repeat("a", 90), strings.Repeat("a", 80)},
 	} {

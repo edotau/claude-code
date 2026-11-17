@@ -24,6 +24,7 @@ type EnvelopeError struct {
 	Message string `json:"message"`
 }
 
+// Denials counts structured shell-tool refusals only (count, first labels); other refusals are not reported.
 type Denials struct {
 	Count    int      `json:"count"`
 	Commands []string `json:"commands"`
