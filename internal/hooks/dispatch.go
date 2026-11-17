@@ -72,10 +72,25 @@ type runError struct{ msg, outcome string }
 
 func (e *runError) Error() string { return e.msg }
 
-// startBudgeted runs one Runner with panic recovery; wait yields its result and time, or a panic or overrun error.
-func startBudgeted(b Bound, in *core.Input, wg *sync.WaitGroup) (wait func() (core.Result, time.Duration, error)) {
+// budgetOf is the deadline a handler gets: the spec Budget (default 5s), less half HookMargin for a gate.
+func budgetOf(s settings.EventSpec) time.Duration {
+	budget := s.Budget
+	if budget <= 0 {
+		budget = 5 * time.Second
+	}
+	if s.Blocks {
+		budget -= min(core.HookMargin/2, budget/2)
+	}
+	return budget
+}
+
+// gateDeadline is the single-module path's deadline; a test seam, same numbers as budgetOf.
+var gateDeadline = budgetOf
+
+// runBudgeted runs f with panic recovery; wait yields its value or a panic/overrun error. budget <= 0 never expires.
+func runBudgeted[T any](f func() T, budget time.Duration, wg *sync.WaitGroup) (wait func() (T, time.Duration, error)) {
 	type outcome struct {
-		r   core.Result
+		v   T
 		dur time.Duration
 		err error
 	}
@@ -87,27 +102,28 @@ func startBudgeted(b Bound, in *core.Input, wg *sync.WaitGroup) (wait func() (co
 				done <- outcome{dur: time.Since(start), err: &runError{fmt.Sprintf("panic: %v", p), core.OutcomePanic}}
 			}
 		}()
-		r := b.Run(in)
-		done <- outcome{r: r, dur: time.Since(start)}
+		done <- outcome{v: f(), dur: time.Since(start)}
 	})
-	budget := b.Spec.Budget
-	if budget <= 0 {
-		budget = 5 * time.Second
-	}
-	if b.Spec.Blocks {
-		budget -= min(core.HookMargin/2, budget/2)
+	var expire <-chan time.Time
+	if budget > 0 {
+		expire = time.After(budget)
 	}
 	go func() {
 		select {
 		case o := <-done:
 			res <- o
-		case <-time.After(budget):
-			res <- outcome{dur: time.Since(start), err: &runError{fmt.Sprintf("overran its %s budget", budget), core.OutcomeOverrun}}
+		case <-expire:
+			select {
+			case o := <-done: // a result landing at the deadline still counts
+				res <- o
+			default:
+				res <- outcome{dur: time.Since(start), err: &runError{fmt.Sprintf("overran its %s budget", budget), core.OutcomeOverrun}}
+			}
 		}
 	}()
-	return func() (core.Result, time.Duration, error) {
+	return func() (T, time.Duration, error) {
 		o := <-res
-		return o.r, o.dur, o.err
+		return o.v, o.dur, o.err
 	}
 }
 
@@ -127,9 +143,6 @@ func outcomeOf(b Bound, r core.Result, err error) string {
 
 // skipOrBlock names what a failed handler's log line reports, keyed by Spec.Blocks.
 var skipOrBlock = map[bool]string{false: "skipped", true: "blocked"}
-
-// failClosedModules exit non-zero when they fail: a worktree not made or not removed must never exit 0.
-var failClosedModules = map[string]bool{"worktree-create": true, "worktree-remove": true}
 
 // dispatchMerge accumulates the handlers' results for one Dispatch call.
 type dispatchMerge struct {
@@ -171,13 +184,13 @@ func (m *dispatchMerge) add(b Bound, event string, r core.Result) {
 
 // addWorktree folds the worktree group's exit code and raw stdout, the only group allowed either.
 func (m *dispatchMerge) addWorktree(b Bound, r core.Result) {
-	if r.ExitCode != 0 && b.Group == "worktree" && m.merged.ExitCode == 0 {
+	if r.ExitCode != 0 && b.Spec.Raw && m.merged.ExitCode == 0 {
 		m.merged.ExitCode = r.ExitCode
 	}
 	if r.Stdout == "" {
 		return
 	}
-	if b.Group != "worktree" {
+	if !b.Spec.Raw {
 		m.fail(fmt.Errorf("%s/%s: raw stdout is reserved for the worktree group", b.Group, b.Spec.Name))
 		return
 	}
@@ -191,7 +204,7 @@ func (m *dispatchMerge) failed(b Bound, err error) (gateFailed bool) {
 		m.merged.Decision, m.merged.Reason = core.Block, fmt.Sprintf("%s did not complete (%v); blocked", b.Spec.Name, err)
 		gateFailed = true
 	}
-	if failClosedModules[b.Spec.Name] { // exit 1, not 2: a worktree not made or not removed reports failure
+	if b.Spec.FailExit { // exit 1, not 2: a worktree not made or not removed reports failure
 		m.merged.ExitCode = 1
 	}
 	return gateFailed
@@ -219,7 +232,7 @@ func plan(bound []Bound, event string, in *core.Input, wg *sync.WaitGroup) (step
 			steps = append(steps, step{b: b, block: unreadable(b.Spec.Name, problem)})
 		case hit:
 			longest = max(longest, b.Spec.Budget)
-			steps = append(steps, step{b: b, wait: startBudgeted(b, in, wg)})
+			steps = append(steps, step{b: b, wait: runBudgeted(func() core.Result { return b.Run(in) }, budgetOf(b.Spec), wg)})
 		}
 	}
 	return steps, longest
@@ -270,17 +283,15 @@ func dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 // hookSkipEnv lists hook modules to skip (or "all"), read only from the hook process's own environment.
 const hookSkipEnv = "HARNESS_HOOK_SKIP"
 
-// alwaysOn modules are skipped only when HARNESS_HOOK_SKIP names them explicitly, never by "all".
-var alwaysOn = map[string]bool{"safety-scan": true, "permission-gate": true}
-
 // skipNote is the note for a module HARNESS_HOOK_SKIP skips, or "" when it runs.
 func skipNote(name string) string {
 	var all bool
+	alwaysOn := specOf(name).AlwaysOn
 	for f := range strings.SplitSeq(os.Getenv(hookSkipEnv), ",") {
 		switch f = strings.TrimSpace(f); {
-		case f == name && alwaysOn[name]:
+		case f == name && alwaysOn:
 			return "hook " + name + " skipped (" + hookSkipEnv + ") — guards off"
-		case f == name, f == "all" && !alwaysOn[name]:
+		case f == name, f == "all" && !alwaysOn:
 			all = true
 		}
 	}
@@ -400,15 +411,6 @@ var native = map[string]core.Runner{
 	"permission-gate":      safety.PermissionGate,
 }
 
-// gateDeadline is the host timeout less half HookMargin, so HookContext's fail-open wins before the host's timer.
-var gateDeadline = func(s settings.EventSpec) time.Duration {
-	host := time.Duration(s.Seconds()) * time.Second
-	if d := host - core.HookMargin/2; d > 0 {
-		return d
-	}
-	return host / 2
-}
-
 // runDirect is `hook <Event> --<module>`: a blocking module exits 2 with its reason on stderr.
 func runDirect(name string, stdin io.Reader, stdout, stderr io.Writer) int {
 	run, ok := native[name]
@@ -428,28 +430,30 @@ type directOutcome struct {
 }
 
 func invokeDirect(name string, run core.Runner, stdin io.Reader, spec settings.EventSpec) directOutcome {
-	invoke := func() directOutcome {
+	var parsed atomic.Pointer[core.Input]
+	var budget time.Duration
+	if spec.Blocks {
+		budget = gateDeadline(spec)
+	}
+	var wg sync.WaitGroup
+	o, _, err := runBudgeted(func() directOutcome {
 		in := core.ParseInput(stdin)
-		res, err := runGated(name, run, in)
-		return directOutcome{in, res, err}
-	}
-	if !spec.Blocks {
-		return invoke()
-	}
-	done := make(chan directOutcome, 1)
-	go func() { done <- invoke() }()
-	select {
-	case o := <-done:
-		return o
-	case <-time.After(gateDeadline(spec)):
-		select {
-		case o := <-done:
-			return o
-		default:
+		parsed.Store(in)
+		if problem := payloadProblem(in); problem != "" && spec.Blocks {
+			return directOutcome{in, core.Result{Decision: core.Block, Reason: unreadable(name, problem)}, nil}
 		}
-		return directOutcome{res: core.Result{Decision: core.Block, Reason: name + " timed out; blocked, retry the command"},
-			err: &runError{"timed out", core.OutcomeOverrun}}
+		return directOutcome{in, run(in), nil}
+	}, budget, &wg)()
+	var re *runError
+	switch {
+	case !errors.As(err, &re):
+		return o
+	case re.outcome == core.OutcomeOverrun:
+		return directOutcome{res: core.Result{Decision: core.Block, Reason: name + " timed out; blocked, retry the command"}, err: err}
+	case spec.Blocks:
+		return directOutcome{parsed.Load(), core.Result{Decision: core.Block, Reason: fmt.Sprintf("%s did not complete (%v); blocked", name, err)}, err}
 	}
+	return directOutcome{parsed.Load(), core.Result{Stderr: fmt.Sprintf("hook %s: %v (skipped)", name, err)}, err}
 }
 
 const directWriteBudget = 50 * time.Millisecond
@@ -485,7 +489,7 @@ func emitDirect(name string, o directOutcome, stdout, stderr io.Writer) int {
 		agent = o.in.Agent()
 	}
 	if o.res.Decision == core.Block && specOf(name).Blocks {
-		return renderBlock(name, agent, o.res, stdout, stderr)
+		return renderBlock(specOf(name), agent, o.res, stdout, stderr)
 	}
 	o.res.Context = core.CapContext(o.res.Context)
 	return core.Emit(agent, eventOf(name), o.res, stdout, stderr)
@@ -503,9 +507,9 @@ func runModuleDirect(name string, run core.Runner, stdin io.Reader, stdout, stde
 }
 
 // renderBlock writes a gate's block for agent: exit 2 with the reason on stderr, or a JSON deny where agy needs one.
-func renderBlock(name, agent string, res core.Result, stdout, stderr io.Writer) int {
+func renderBlock(spec settings.EventSpec, agent string, res core.Result, stdout, stderr io.Writer) int {
 	d := core.DialectOf(agent)
-	if name == "safety-scan" && agent == core.AgentCopilot {
+	if slices.Contains(spec.BlockJSON, agent) {
 		fmt.Fprintln(stdout, d.Build(settings.EventPreToolUse, res))
 	}
 	if d.JSONDeny { // agy blocks on a JSON deny, not exit 2
@@ -528,24 +532,6 @@ func payloadProblem(in *core.Input) string {
 		return "empty payload"
 	}
 	return ""
-}
-
-// runGated runs one module; an empty or unparseable payload blocks a Blocks gate unrun, a panic only a Blocks module.
-func runGated(name string, run core.Runner, in *core.Input) (res core.Result, err error) {
-	blocks := specOf(name).Blocks
-	if problem := payloadProblem(in); problem != "" && blocks {
-		return core.Result{Decision: core.Block, Reason: unreadable(name, problem)}, nil
-	}
-	defer func() {
-		if p := recover(); p != nil {
-			err = &runError{fmt.Sprintf("panic: %v", p), core.OutcomePanic}
-			res = core.Result{Stderr: fmt.Sprintf("hook %s: %v (%s)", name, err, skipOrBlock[blocks])}
-			if blocks {
-				res = core.Result{Decision: core.Block, Reason: fmt.Sprintf("%s did not complete (panic: %v); blocked", name, p)}
-			}
-		}
-	}()
-	return run(in), nil
 }
 
 // specOf is the hookspec entry for a module; the zero spec when unknown.
