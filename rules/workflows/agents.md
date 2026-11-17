@@ -17,8 +17,9 @@ agent: `skills/subagent-workflows/SKILL.md`.
 - Not in those: `claude-code agents sync [--agent a] [--dry-run|--check]` projects agents and CLAUDE.md into every
   agent CLI (`install` runs it); `agents tree [--watch|--detail]`; `agents watch [--once]` lists this
   session's stale jobs with the next command (exit 3; the hooks run it automatically, `hooks.md`);
-  `agents label <type> [--profile p] [--model m] --task F` prints the description prefix; `review scope --range <r>
-  --caps`.
+  `agents label <type> [--profile p] [--model m] --task F` prints the description prefix (an equivalent
+  alias or full id is accepted; on a Databricks session the generated label is the full `databricks-` id);
+  `review scope --range <r> --caps`.
 - Read an exit code, not output: `agents wait`, `agents diff --check --path <p>...`.
 - Review a diff: `/code-review`, `claude-code codex review [--adversarial] [--base <b>]`, or `@agent-codex`.
 - `claude-code agents list` lists the CLI agents, not this roster; `--format json` gives the capability schema.

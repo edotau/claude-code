@@ -33,6 +33,10 @@ func applyLabel(ctx context.Context, run *dispatchRun, updated map[string]any, t
 	rest := stripLabels(orig, st, label)
 	out := lowerFirst(rest)
 	if label != "" {
+		head, _, _ := strings.Cut(orig, ":")
+		if sameLabel(head, label) {
+			label = head // an equivalent label is kept as typed, so no rewrite is asked of auto mode
+		}
 		out = label + ": " + out
 	}
 	if out == orig {
@@ -40,6 +44,13 @@ func applyLabel(ctx context.Context, run *dispatchRun, updated map[string]any, t
 	}
 	updated["description"] = out
 	return true, strings.TrimSpace(note + "\n" + fmt.Sprintf("dispatch-effort: description %q rewritten to %q.", orig, out))
+}
+
+// sameLabel: head names label's model (models.SameModel), and claims `databricks-` only when label does too.
+func sameLabel(head, label string) bool {
+	head = strings.TrimSpace(head)
+	claimsDBX := strings.HasPrefix(strings.ToLower(head), models.DatabricksPrefix)
+	return head != "" && models.SameModel(head, label) && (!claimsDBX || strings.HasPrefix(label, models.DatabricksPrefix))
 }
 
 // stripLabels cuts every leading label-shaped `<head>:` so a doubled or wrong prefix is replaced, never stacked.
@@ -72,7 +83,7 @@ func ownModel(ctx context.Context, run *dispatchRun, updated map[string]any, st 
 		m = run.rosterModel(st)
 	}
 	if m == "" || m == "inherit" {
-		return run.session()
+		return run.databricksID(run.session())
 	}
 	if !slices.Contains(models.AliasNames, m) {
 		if reg, err := run.registry(); err == nil {
@@ -80,6 +91,23 @@ func ownModel(ctx context.Context, run *dispatchRun, updated map[string]any, st 
 				return p.WireModel(m)
 			}
 		}
+		return m
+	}
+	return run.databricksID(m)
+}
+
+// databricksID is a Claude alias or id spelled as its `databricks-` id on a Databricks-routed session; else m as is.
+func (r *dispatchRun) databricksID(m string) string {
+	name, routed := providers.SessionName() // routed is read from ANTHROPIC_BASE_URL alone; no file is touched
+	if !routed || m == "" {
+		return m
+	}
+	reg, err := r.registry()
+	if err != nil {
+		return m
+	}
+	if p := reg.Row(name); p != nil && p.SpellingRule() == "databricks-serving" {
+		return p.WireModel(m)
 	}
 	return m
 }
@@ -201,8 +229,8 @@ func labelModel(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	return r.Label(), strings.TrimSpace(note + "\n" + googleQuotaNote(ctx, r))
 }
 
-// googleQuotaCheck is the agy /usage seam (60 s cache); tests assert a non-Google route never reads it.
-var googleQuotaCheck = gemini.Check
+// googleQuotaCheck is the agy /usage seam, cache-only so a label never waits on an agy spawn; tests stub it.
+var googleQuotaCheck = gemini.CheckCached
 
 // googleQuotaNote is the low-pool warning and a held model's reset for a gemini dispatch on Google; "" otherwise.
 func googleQuotaNote(ctx context.Context, r agentpkg.ModelRoute) string {

@@ -223,3 +223,46 @@ func TestLabelModelGoogleQuotaNote(t *testing.T) {
 		}
 	}
 }
+
+// An equivalent label (alias, dotted or full id) is kept; a different model, or a `databricks-` claim the label lacks, is not.
+func TestSameLabel(t *testing.T) {
+	for _, c := range []struct {
+		head, label string
+		want        bool
+	}{
+		{"sonnet", "claude-sonnet-5-5", true}, {"claude-sonnet-5.5", "claude-sonnet-5-5", true},
+		{"sonnet", "databricks-claude-sonnet-5-5", true}, {"databricks-claude-sonnet-5-5", "databricks-claude-sonnet-5-5", true},
+		{"databricks-claude-sonnet-5-5", "sonnet", false}, {"opus", "claude-sonnet-5-5", false}, {"", "sonnet", false},
+	} {
+		if got := sameLabel(c.head, c.label); got != c.want {
+			t.Errorf("sameLabel(%q,%q) = %v, want %v", c.head, c.label, got, c.want)
+		}
+	}
+}
+
+// A Databricks-routed session spells a Claude alias as its `databricks-` id; a first-party one keeps the alias.
+func TestDatabricksIDOnRoutedSession(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	run := newDispatchRun(func() string { return "" })
+	run.registry = func() (*providers.Registry, error) {
+		return &providers.Registry{Providers: map[string]*providers.Provider{
+			"dbx": {Preset: providers.PresetDatabricks}, "anthropic": {Provider: "anthropic"}}}, nil
+	}
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:1/p/dbx")
+	if got := run.databricksID("sonnet"); got != "databricks-claude-sonnet-5-5" {
+		t.Errorf("databricks session: %q", got)
+	}
+	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:1/p/anthropic")
+	if got := run.databricksID("sonnet"); got != "sonnet" {
+		t.Errorf("first-party session: %q", got)
+	}
+}
+
+// The hook accepts an equivalent hand-typed label without an updatedInput.
+func TestEquivalentLabelNotRewritten(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stubLabelModels(t, "claude-sonnet-5-5")
+	if r := effortResult(autoDispatch("claude", "claude-sonnet-5.5: fix bug")); r.UpdatedInput != nil {
+		t.Fatalf("equivalent label rewritten: %+v", r)
+	}
+}

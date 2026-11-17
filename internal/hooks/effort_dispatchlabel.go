@@ -151,8 +151,11 @@ func dispatchLabelsLine(in *core.Input) string {
 	if os.MkdirAll(filepath.Dir(file), 0o700) == nil {
 		_ = os.WriteFile(file, []byte(model), 0o600) // best effort: a failed write only re-shows the line next prompt
 	}
-	return "Dispatch labels (description prefix): " + strings.Join(parts, " · ")
+	return "Dispatch labels (description prefix): " + strings.Join(parts, " · ") + "\n" + labelRuleLine
 }
+
+// labelRuleLine is the one extra session-start line: how a Run line's flags change the label.
+const labelRuleLine = "A Run line's --model/--profile makes the label that ask's model (databricks- id if routed); equivalents pass."
 
 // dispatchLabelEntry lists one label per tier when the hook pins the model by task class.
 func dispatchLabelEntry(run *dispatchRun, t, model string) string {

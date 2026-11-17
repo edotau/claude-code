@@ -232,3 +232,29 @@ func TestDiskCachedSharesOneReadAcrossProcesses(t *testing.T) {
 		t.Errorf("agy runs = %d after the minute, want 2", calls)
 	}
 }
+
+// CheckCached serves a stale-but-bounded disk cache without running agy, and errors past the bound or with no file.
+func TestCheckCachedNeverSpawnsAndBoundsAge(t *testing.T) {
+	stubUsage(t, func(context.Context) ([]byte, error) { t.Fatal("agy spawned"); return nil, nil })
+	if _, err := CheckCached(context.Background(), "gemini-4-argon", quotaNow0); err == nil {
+		t.Fatal("no cache file: want an error")
+	}
+	file := filepath.Join(paths.StateDir(), "agy-usage.json")
+	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil || os.WriteFile(file, []byte(usageSample), 0o600) != nil {
+		t.Fatal("seed cache")
+	}
+	stale := quotaNow0.Add(-quotaTTL - 5*time.Minute)
+	if err := os.Chtimes(file, stale, stale); err != nil {
+		t.Fatal(err)
+	}
+	if q, err := CheckCached(context.Background(), "gemini-4-argon", quotaNow0); err != nil || q.Pool == "" {
+		t.Fatalf("6 min old cache = %+v, %v, want a served read", q, err)
+	}
+	old := quotaNow0.Add(-quotaStaleMax - time.Second)
+	if err := os.Chtimes(file, old, old); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := CheckCached(context.Background(), "gemini-4-argon", quotaNow0); err == nil {
+		t.Fatal("cache past the bound: want an error")
+	}
+}
