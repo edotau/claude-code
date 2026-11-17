@@ -133,6 +133,7 @@ type Options struct {
 	Session string
 	Running bool
 	Now     func() time.Time
+	scans   *scanCache // kept across watch ticks; nil loads and saves one per build
 }
 
 // now is o.Now() when set, else time.Now().
@@ -170,7 +171,12 @@ func build(claudeDir string, opts Options) (*Tree, error) {
 	if opts.Session == "" { // live sessions stay listed past --days, under --finished too
 		sessionFiles = appendLiveTranscripts(claudeDir, reg, sessionFiles)
 	}
-	scans := loadScanCache()
+	scans := opts.scans
+	if scans == nil {
+		scans = loadScanCache()
+	} else {
+		scans.next()
+	}
 	defer saveScanCache(scans)
 	tree := &Tree{}
 	for _, f := range sessionFiles {

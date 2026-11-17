@@ -3,6 +3,7 @@
 package tree
 
 import (
+	"bytes"
 	"cmp"
 	"fmt"
 	"io"
@@ -260,21 +261,28 @@ type View struct {
 	Interval         time.Duration
 }
 
-// Show renders the tree once, or with v.Watch clears and redraws every v.Interval until a render fails.
+// Show renders the tree once, or with v.Watch redraws it in place every v.Interval until a render fails.
 func Show(claudeDir string, opts Options, v View) int {
-	for {
-		if v.Watch {
-			fmt.Print("\x1b[H\x1b[2J") // re-home the cursor and wipe the terminal between redraws
+	var f *frame
+	if v.Watch {
+		opts.scans = loadScanCache()
+		if rowWidth(os.Stdout) > 0 {
+			f = &frame{}
 		}
-		if code := show(claudeDir, opts, v); code != 0 || !v.Watch {
+	}
+	for {
+		if v.Watch && f == nil {
+			fmt.Print("\x1b[H\x1b[2J") // piped: no in-place redraw, keep wiping between frames
+		}
+		if code := show(claudeDir, opts, v, f); code != 0 || !v.Watch {
 			return code
 		}
 		time.Sleep(v.Interval)
 	}
 }
 
-// show lists the tree once and writes it as JSON or text.
-func show(claudeDir string, opts Options, v View) int {
+// show lists the tree once and writes it as JSON or text, or as a watch frame when f is set.
+func show(claudeDir string, opts Options, v View, f *frame) int {
 	listing, err := listing(claudeDir, opts, v.All)
 	if err == nil && v.JSON {
 		err = helptext.WriteJSON(os.Stdout, listing)
@@ -283,12 +291,49 @@ func show(claudeDir string, opts Options, v View) int {
 		fmt.Fprintln(os.Stderr, "agents tree:", err)
 		return 1
 	}
-	if !v.JSON {
-		if err := renderText(os.Stdout, listing, time.Now()); err != nil {
-			return helptext.Fail("agents tree: %v", err)
-		}
+	if v.JSON {
+		return 0
+	}
+	if f != nil {
+		f.width = rowWidth(os.Stdout)
+		err = f.draw(os.Stdout, listing, time.Now())
+	} else {
+		err = renderText(os.Stdout, listing, time.Now())
+	}
+	if err != nil {
+		return helptext.Fail("agents tree: %v", err)
 	}
 	return 0
+}
+
+// frame is a watch redraw built in memory, its buffers reused across ticks.
+type frame struct {
+	text, out bytes.Buffer
+	width     int
+}
+
+// draw writes one frame in a single write: cursor home, each row cleared to its end, then the rest of the screen.
+func (f *frame) draw(w io.Writer, tree *Tree, now time.Time) error {
+	f.text.Reset()
+	f.out.Reset()
+	renderTree(&f.text, tree, now, f.width)
+	f.out.WriteString("\x1b[H")
+	for rest := f.text.Bytes(); len(rest) > 0; {
+		i := bytes.IndexByte(rest, '\n')
+		if i < 0 {
+			i = len(rest)
+		}
+		f.out.Write(rest[:i])
+		f.out.WriteString("\x1b[K")
+		if i < len(rest) {
+			f.out.WriteByte('\n')
+			i++
+		}
+		rest = rest[i:]
+	}
+	f.out.WriteString("\x1b[J")
+	_, err := w.Write(f.out.Bytes())
+	return err
 }
 
 // nested is a dispatch placed under its parent: level is its depth in the list, sum its subtree's tokens.
