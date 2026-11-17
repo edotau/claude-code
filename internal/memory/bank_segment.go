@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -100,6 +101,13 @@ func parseBlocks(mode segMode, base string, data []byte) []string {
 // segView stores little-endian tables followed by a shared term/text blob.
 type segView []byte
 
+// A document row is dl, text offset, text length, then the block's blockSum and ref, both fixed at encode time.
+const (
+	segHeader = 12
+	refWidth  = 9 // an 8-hex id, or "z" and 8 hex; the 8-hex form is NUL-padded
+	docStride = 20 + refWidth
+)
+
 type segDoc struct {
 	text string
 	dl   uint32
@@ -144,7 +152,7 @@ func encodeSegment(blocks []string) segView {
 		terms = append(terms, term)
 	}
 	sort.Strings(terms)
-	termStart := 12 + len(docs)*12
+	termStart := segHeader + len(docs)*docStride
 	postStart := termStart + 4 + len(terms)*16
 	blobStart := postStart + 4 + nposts*8
 	s := make(segView, blobStart)
@@ -167,10 +175,12 @@ func encodeSegment(blocks []string) segView {
 		}
 	}
 	for i, d := range docs {
-		off := 12 + i*12
+		off := segHeader + i*docStride
 		binary.LittleEndian.PutUint32(s[off:], d.dl)
 		binary.LittleEndian.PutUint32(s[off+4:], uint32(len(s)-blobStart))
 		binary.LittleEndian.PutUint32(s[off+8:], uint32(len(d.text)))
+		binary.LittleEndian.PutUint64(s[off+12:], blockSum(d.text))
+		copy(s[off+20:off+20+refWidth], blockRef(d.text, ""))
 		s = append(s, d.text...)
 	}
 	return s
@@ -185,18 +195,28 @@ func (s segView) sumDL() uint64 {
 }
 
 func (s segView) Doc(i int) (text string, dl uint32) {
-	termStart := 12 + s.Docs()*12
+	termStart := segHeader + s.Docs()*docStride
 	postStart := termStart + 4 + int(binary.LittleEndian.Uint32(s[termStart:]))*16
 	blobStart := postStart + 4 + int(binary.LittleEndian.Uint32(s[postStart:]))*8
-	off := 12 + i*12
+	off := segHeader + i*docStride
 	start := blobStart + int(binary.LittleEndian.Uint32(s[off+4:]))
 	end := start + int(binary.LittleEndian.Uint32(s[off+8:]))
 	return string(s[start:end]), binary.LittleEndian.Uint32(s[off:])
 }
 
+// DocRef is document i's blockSum and blockRef(text, ""), read from the row instead of rehashing the text.
+func (s segView) DocRef(i int) (sum uint64, ref string) {
+	off := segHeader + i*docStride
+	r := s[off+20 : off+20+refWidth]
+	if r[refWidth-1] == 0 {
+		r = r[:refWidth-1]
+	}
+	return binary.LittleEndian.Uint64(s[off+12:]), string(r)
+}
+
 // Posting offsets are byte offsets relative to the posting table; text and term offsets are blob-relative.
 func (s segView) lookup(term string) (posts []byte, n int) {
-	termStart := 12 + s.Docs()*12
+	termStart := segHeader + s.Docs()*docStride
 	nterms := int(binary.LittleEndian.Uint32(s[termStart:]))
 	postStart := termStart + 4 + nterms*16
 	blobStart := postStart + 4 + int(binary.LittleEndian.Uint32(s[postStart:]))*8
@@ -241,7 +261,7 @@ func (s segView) layout() (l segLayout, ok bool) {
 		return l, false
 	}
 	l.ndocs = s.u32(0)
-	l.termStart = 12 + l.ndocs*12
+	l.termStart = segHeader + l.ndocs*docStride
 	if l.termStart+4 > size {
 		return l, false
 	}
@@ -263,7 +283,7 @@ func (s segView) layout() (l segLayout, ok bool) {
 func (s segView) docsValid(l segLayout) bool {
 	var sumdl uint64
 	for i := range l.ndocs {
-		off := 12 + i*12
+		off := segHeader + i*docStride
 		dl := s.u32(off)
 		if dl == 0 || s.u32(off+4)+s.u32(off+8) > l.blobLen {
 			return false
@@ -333,7 +353,7 @@ func (s segView) lookupWeighted(term string) map[int]float64 {
 
 // containing returns the indexed terms longer than term that contain it, in stored (sorted) order.
 func (s segView) containing(term string) []string {
-	termStart := 12 + s.Docs()*12
+	termStart := segHeader + s.Docs()*docStride
 	nterms := int(binary.LittleEndian.Uint32(s[termStart:]))
 	postStart := termStart + 4 + nterms*16
 	blobStart := postStart + 4 + int(binary.LittleEndian.Uint32(s[postStart:]))*8
@@ -403,6 +423,7 @@ func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl f
 			continue
 		}
 		block, length := seg.Doc(doc)
+		sum, id := seg.DocRef(doc)
 		dl := float64(length)
 		var score float64
 		for _, t := range qTerms {
@@ -423,10 +444,9 @@ func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl f
 				matched++
 			}
 		}
-		id := blockRef(block, "")
 		hits = append(hits, SearchHit{
 			Score: score, Matched: matched, Bank: file.Bank,
-			File: filepath.Base(file.Path), Block: block, ID: id, Dir: dir,
+			File: filepath.Base(file.Path), Block: block, ID: id, Dir: dir, sum: sum,
 		})
 	}
 	return hits
@@ -556,6 +576,15 @@ type SearchHit struct {
 	Block                 string  `json:"block"`
 	ID                    string  `json:"id,omitempty"` // persisted block ID (`memory show <id>`)
 	Dir                   string  `json:"-"`
+	sum                   uint64  // blockSum(Block) when the segment supplied it, else 0; reset when Block changes
+}
+
+// key is blockKey(h.Block), taken from the segment's stored sum when there is one.
+func (h SearchHit) key() string {
+	if h.sum != 0 {
+		return strconv.FormatUint(h.sum, 16)
+	}
+	return blockKey(h.Block)
 }
 
 // Title is the hit's first line, marker-stripped and truncated.

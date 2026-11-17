@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -802,4 +803,44 @@ func BenchmarkEmbedBatches(b *testing.B) {
 			}
 		}
 	}
+}
+
+// Given an embedding profile, When semanticCache loads the cache, Then the router link is already being read.
+func TestSemanticCacheStartsRouterLinkBeforeCacheRead(t *testing.T) {
+	isolatedConfig1(t)
+	t.Setenv("CLAUDE_PROFILE", "pa")
+	started := make(chan struct{})
+	if err := paths.AtomicWrite(embedDBPath(), nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	prevLink, prevRead := routerLink, readEmbedCache
+	t.Cleanup(func() { routerLink, readEmbedCache = prevLink, prevRead })
+	routerLink = func(context.Context) (string, string, bool) { close(started); return "", "", false }
+	readEmbedCache = func() (vectorRecord, error) {
+		select {
+		case <-started:
+		case <-time.After(2 * time.Second):
+			return vectorRecord{}, errors.New("router link not started before the cache read")
+		}
+		return vectorRecord{Model: "gte", Rows: map[string]vectorRow{"aaaa0001": {Hash: "h"}}}, nil
+	}
+	ctx := context.WithValue(context.Background(), linkKey{}, &linkFuture{done: make(chan struct{})})
+	if _, _, err := semanticCache(ctx); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// Given no embeddings.db, When semanticCache runs, Then the router link is never probed.
+func TestSemanticCacheSkipsRouterLinkWithoutCacheFile(t *testing.T) {
+	isolatedConfig1(t)
+	t.Setenv("CLAUDE_PROFILE", "pa")
+	prevLink := routerLink
+	t.Cleanup(func() { routerLink = prevLink })
+	routerLink = func(context.Context) (string, string, bool) { t.Error("router link probed"); return "", "", false }
+	f := &linkFuture{done: make(chan struct{})}
+	ctx := context.WithValue(context.Background(), linkKey{}, f)
+	if _, _, err := semanticCache(ctx); err == nil {
+		t.Fatal("want no embedding cache")
+	}
+	time.Sleep(20 * time.Millisecond)
 }

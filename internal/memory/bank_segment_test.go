@@ -158,3 +158,22 @@ func TestCorpusBlocksReturnsReadErrors(t *testing.T) {
 		t.Fatalf("corpusBlocks = %v, %v; want file permission error", hits, err)
 	}
 }
+
+// The sum and ref a segment stores per document must equal what hashing the text gives, marked or not.
+func TestSegmentStoresBlockSumAndRef(t *testing.T) {
+	blocks := []string{"## marked entry\nrouter retry <!-- id:0a1b2c3d -->", "- unmarked   rule\twith\n  spacing router"}
+	seg := encodeSegment(blocks)
+	if !seg.Valid() || seg.Docs() != len(blocks) {
+		t.Fatalf("segment invalid or wrong doc count %d", seg.Docs())
+	}
+	for i, block := range blocks {
+		text, _ := seg.Doc(i)
+		sum, ref := seg.DocRef(i)
+		if sum != blockSum(text) || ref != blockRef(text, "") {
+			t.Errorf("doc %d: stored (%x, %q), hashed (%x, %q)", i, sum, ref, blockSum(text), blockRef(text, ""))
+		}
+		if hit := (SearchHit{Block: block, sum: sum}); hit.key() != blockKey(block) {
+			t.Errorf("doc %d: key from stored sum %q != blockKey %q", i, hit.key(), blockKey(block))
+		}
+	}
+}

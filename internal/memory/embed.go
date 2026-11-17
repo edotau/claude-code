@@ -356,6 +356,7 @@ func embedQuery(parent context.Context, query string) (*Semantic, error) {
 	}
 	ctx, cancel := context.WithTimeout(parent, embedRecallWait)
 	defer cancel()
+	ctx = context.WithValue(ctx, linkKey{}, &linkFuture{done: make(chan struct{})})
 	profile, cache, err := semanticCache(ctx)
 	if err != nil {
 		return nil, err
@@ -713,6 +714,11 @@ func semanticCache(ctx context.Context) (string, vectorRecord, error) {
 	if err != nil {
 		return "", vectorRecord{}, err
 	}
+	if _, err := os.Stat(embedDBPath()); err == nil { // no cache file means no semantic query, so no probe
+		if f, _ := ctx.Value(linkKey{}).(*linkFuture); f != nil {
+			f.start(ctx) // the secret read (a keyring exec) runs while the cache loads
+		}
+	}
 	c, err := readCacheWithin(ctx)
 	switch {
 	case ctx.Err() != nil:
@@ -764,6 +770,40 @@ var routerLink = func(ctx context.Context) (base, secret string, ok bool) {
 	return gateway.ViaBaseContext(ctx, gateway.Base(st.Port)), secret, err == nil
 }
 
+type linkKey struct{}
+
+// linkFuture is the router address and secret, resolved once in the background and read by embedDatabricks.
+type linkFuture struct {
+	once         sync.Once
+	done         chan struct{}
+	base, secret string
+	ok           bool
+}
+
+func (f *linkFuture) start(ctx context.Context) {
+	f.once.Do(func() {
+		go func() {
+			f.base, f.secret, f.ok = routerLink(ctx)
+			close(f.done)
+		}()
+	})
+}
+
+// routerLinkFor is routerLink, or the started future's result when ctx carries one.
+func routerLinkFor(ctx context.Context) (base, secret string, ok bool) {
+	f, _ := ctx.Value(linkKey{}).(*linkFuture)
+	if f == nil {
+		return routerLink(ctx)
+	}
+	f.start(ctx)
+	select {
+	case <-f.done:
+		return f.base, f.secret, f.ok
+	case <-ctx.Done():
+		return "", "", false
+	}
+}
+
 // embeddingModelFor picks p's embeddings endpoint from the models it serves.
 func embeddingModelFor(ctx context.Context, p *providers.Provider) (string, error) {
 	infos, err := providers.ListModels(ctx, p)
@@ -803,7 +843,7 @@ func openDatabricksEmbed(ctx context.Context, profile, model string) (*EmbedClie
 
 func embedDatabricks(ctx context.Context, p *providers.Provider, model string, texts []string) ([][]float32, error) {
 	url := strings.TrimRight(p.Host, "/") + "/serving-endpoints/" + model + "/invocations"
-	if base, secret, ok := routerLink(ctx); ok { // the daemon holds the warm credential and upstream connections
+	if base, secret, ok := routerLinkFor(ctx); ok { // the daemon holds the warm credential and upstream connections
 		via := base + "/p/" + p.Name + "/" + providers.ProtocolOpenAI + "/" + model + "/invocations"
 		vecs, err := postEmbeddings(ctx, via, texts, func(h http.Header) error { h.Set(gateway.ClientHeader, secret); return nil })
 		if err == nil || ctx.Err() != nil {

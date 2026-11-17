@@ -11,7 +11,7 @@ import (
 
 type recallIndexFixture struct {
 	root, source, archive string
-	stamp                 exeStamp
+	key                   uint64
 }
 
 func newRecallIndexFixture(t testing.TB) recallIndexFixture {
@@ -24,15 +24,11 @@ func newRecallIndexFixture(t testing.TB) recallIndexFixture {
 	if err := StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	stamp, ok := currentExeStamp()
-	if !ok {
-		t.Fatal("cannot stat the test executable")
-	}
 	f := recallIndexFixture{
 		root:    root,
 		source:  Path("decisionLog.md"),
 		archive: Sub("archive", "sessionHistory-old.md"),
-		stamp:   stamp,
+		key:     encoderKey(),
 	}
 	files := map[string]string{
 		f.source: "# Decisions\n\n## router retry\nrouter retry latency\n" +
@@ -68,9 +64,9 @@ func (f recallIndexFixture) search(t testing.TB, query string) []SearchHit {
 
 func (f recallIndexFixture) index(t testing.TB) map[fileKey]indexed {
 	t.Helper()
-	index := readRecallIndex(filepath.Join(StateDir(), recallIndexFile), f.stamp, nil)
+	index := readRecallIndex(filepath.Join(StateDir(), recallIndexFile), f.key, nil)
 	if len(index) == 0 {
-		t.Fatal("no persisted index entries for the current executable stamp")
+		t.Fatal("no persisted index entries for the current encoder key")
 	}
 	return index
 }
@@ -175,7 +171,7 @@ func TestRecallIndexRacyNotPersisted(t *testing.T) {
 	}
 }
 
-func TestRecallIndexStampMismatchIgnored(t *testing.T) {
+func TestRecallIndexKeyMismatchIgnored(t *testing.T) {
 	f := newRecallIndexFixture(t)
 	f.search(t, "router retry")
 	index := f.persisted(t)
@@ -183,21 +179,21 @@ func TestRecallIndexStampMismatchIgnored(t *testing.T) {
 		entry.seg = encodeSegment([]string{"## poisoned router\nrouter router retry"})
 		index[key] = entry
 	}
-	wrong := exeStamp{f.stamp.size + 1, f.stamp.mtimeNs + 1}
+	wrong := f.key + 1
 	path := filepath.Join(StateDir(), recallIndexFile)
 	if err := writeRecallIndex(path, wrong, index); err != nil {
 		t.Fatal(err)
 	}
 	if len(readRecallIndex(path, wrong, nil)) != len(index) {
-		t.Fatal("fixture did not persist the mismatched executable stamp")
+		t.Fatal("fixture did not persist the mismatched encoder key")
 	}
-	if len(readRecallIndex(path, f.stamp, nil)) != 0 {
-		t.Fatal("index with mismatched executable stamp was accepted")
+	if len(readRecallIndex(path, f.key, nil)) != 0 {
+		t.Fatal("index with mismatched encoder key was accepted")
 	}
 	f.search(t, "router retry")
 	f.persisted(t)
 	if len(readRecallIndex(path, wrong, nil)) != 0 {
-		t.Fatal("rewritten index still carries the wrong executable stamp")
+		t.Fatal("rewritten index still carries the wrong encoder key")
 	}
 }
 
@@ -220,7 +216,7 @@ func TestRecallIndexCorruptFailsOpen(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			write(t, path, string(tt.data))
-			if len(readRecallIndex(path, f.stamp, nil)) != 0 {
+			if len(readRecallIndex(path, f.key, nil)) != 0 {
 				t.Fatal("corrupt index was accepted")
 			}
 			f.search(t, "router retry")
@@ -233,19 +229,36 @@ func TestRecallIndexCorruptFailsOpen(t *testing.T) {
 		index := f.persisted(t)
 		bad, good := fileKey{f.source, segEntries}, fileKey{f.archive, segEntries}
 		index[bad] = indexed{index[bad].size, index[bad].mtimeNs, segView("corrupt segment")}
-		if err := writeRecallIndex(path, f.stamp, index); err != nil {
+		if err := writeRecallIndex(path, f.key, index); err != nil {
 			t.Fatal(err)
 		}
-		if _, ok := readRecallIndex(path, f.stamp, map[fileKey]bool{bad: true, good: true})[bad]; ok {
+		if _, ok := readRecallIndex(path, f.key, map[fileKey]bool{bad: true, good: true})[bad]; ok {
 			t.Fatal("corrupt wanted entry was accepted")
 		}
-		got := readRecallIndex(path, f.stamp, map[fileKey]bool{good: true})
+		got := readRecallIndex(path, f.key, map[fileKey]bool{good: true})
 		if len(got) != 1 || !got[good].seg.Valid() {
 			t.Fatalf("unrelated corrupt entry changed the wanted read: %d entries", len(got))
 		}
 		f.search(t, "router retry")
 		f.persisted(t)
 	})
+}
+
+// A torn write (right length, one byte wrong inside a segment) must miss, not feed wrong text to recall.
+func TestRecallIndexTornWriteIsAMiss(t *testing.T) {
+	f := newRecallIndexFixture(t)
+	f.search(t, "router retry")
+	f.persisted(t)
+	path := filepath.Join(StateDir(), recallIndexFile)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	data[len(data)/2] ^= 0xff
+	write(t, path, string(data))
+	if len(readRecallIndex(path, f.key, nil)) != 0 {
+		t.Fatal("index with a flipped byte and a stale CRC was accepted")
+	}
 }
 
 func TestRecallIndexPrunesMissing(t *testing.T) {

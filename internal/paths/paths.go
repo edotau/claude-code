@@ -154,6 +154,15 @@ func WriteIfChanged(dest string, data []byte, mode os.FileMode) (bool, error) {
 
 // AtomicWrite writes via temp file + rename so readers never observe a partial file.
 func AtomicWrite(dest string, data []byte, mode os.FileMode) error {
+	return atomicWrite(dest, data, mode, true)
+}
+
+// AtomicWriteNoSync is AtomicWrite without the fsync, for derived caches that rebuild when a crash tears them.
+func AtomicWriteNoSync(dest string, data []byte, mode os.FileMode) error {
+	return atomicWrite(dest, data, mode, false)
+}
+
+func atomicWrite(dest string, data []byte, mode os.FileMode, syncData bool) error {
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		return err
 	}
@@ -169,8 +178,10 @@ func AtomicWrite(dest string, data []byte, mode os.FileMode) error {
 	if _, err := f.Write(data); err != nil {
 		return fail(err)
 	}
-	if err := f.Sync(); err != nil {
-		return fail(err)
+	if syncData {
+		if err := f.Sync(); err != nil {
+			return fail(err)
+		}
 	}
 	if err := f.Close(); err != nil {
 		return errors.Join(err, os.Remove(tmp))
