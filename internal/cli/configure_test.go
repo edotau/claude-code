@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -399,10 +400,10 @@ func render(t *testing.T, legacy map[string]bool) string {
 	}
 	sort.Strings(keep)
 	for _, n := range keep {
-		sb.WriteString(legacyTag + n + "\n")
+		fmt.Fprintf(&sb, "%s%s\n", legacyTag, n)
 	}
 	for _, n := range names {
-		sb.WriteString(rows[n] + "\n")
+		fmt.Fprintf(&sb, "%s\n", rows[n])
 	}
 	return sb.String()
 }

@@ -135,7 +135,7 @@ func checkModelsArgs(rest []string, dryRun, unpin bool, pins []string, format st
 
 func renderModelSelection(reg *providers.Registry, sel providers.Selection, format string, live bool) int {
 	if live {
-		return listLive(reg, sel.Provider, format)
+		return listLive(sel.Provider, format)
 	}
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, map[string]any{"profile": sel.Provider.Name, "proxy": sel.NeedsRouter(reg), "models": sel.SpecsByAlias()}); err != nil {
@@ -150,7 +150,7 @@ func renderModelSelection(reg *providers.Registry, sel providers.Selection, form
 }
 
 // listLive prints the provider's live model catalog (github-copilot's own SDK, every other provider's /models GET).
-func listLive(reg *providers.Registry, p *providers.Provider, format string) int {
+func listLive(p *providers.Provider, format string) int {
 	var own func(context.Context) ([]providers.ModelInfo, error)
 	if p.Provider == "github" {
 		own = copilot.ListModels
