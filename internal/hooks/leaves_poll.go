@@ -95,8 +95,31 @@ func relayPoll(in *core.Input) (lr leafRead, job, own string, follow, ok bool) {
 	return lr, job, ownJob(lr.ids, job), follow, true
 }
 
+// relayBash refuses a relay's Bash call that is not a claude-code command: the job does the work, not the relay.
+func relayBash(in *core.Input) (core.Result, bool) {
+	cmd := in.Nested("tool_input", "command")
+	if _, relay := relayLeaf(in); !relay || cmd == "" {
+		return core.Result{}, false
+	}
+	for _, seg := range shell.Segments(cmd) {
+		toks, _ := shell.Unwrap(shell.Tokens(seg), "/")
+		if len(toks) > 0 && toks[0] == "rtk" {
+			toks, _ = shell.Unwrap(toks[1:], "/")
+		}
+		if len(toks) == 0 || filepath.Base(toks[0]) != "claude-code" {
+			return core.Result{Decision: core.Block, Reason: "relay: run only `claude-code` commands (your brief's " +
+				"`Run:` line, then `claude-code agents result -f <id>`); the job reads, edits and tests. " +
+				"Pass --workdir instead of cd."}, true
+		}
+	}
+	return core.Result{}, false
+}
+
 // pollGate (PreToolUse Bash) refuses a poll of a finished job already handed back, and a second live poller.
 func pollGate(in *core.Input) core.Result {
+	if res, ok := relayBash(in); ok {
+		return res
+	}
 	lr, job, own, follow, ok := relayPoll(in)
 	if !ok {
 		return core.Result{}
