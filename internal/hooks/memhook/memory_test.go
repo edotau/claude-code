@@ -112,13 +112,14 @@ func resumeSession(t *testing.T) (cwd, fresh string) {
 	t.Helper()
 	vaulttest.Use(t)
 	memory.StubSpawn(t, true)
+	swap(t, &stewardWait, 50*time.Millisecond)
 	cwd = t.TempDir()
 	dir := memory.HomeBank().SubDir("handoffs")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	stale := filepath.Join(dir, "old.md")
-	fresh = filepath.Join(dir, "2026-11-07-new.md")
+	fresh = filepath.Join(dir, "2026-11-07-session-s1.md")
 	for _, p := range []string{stale, fresh} {
 		if err := os.WriteFile(p, []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
@@ -154,6 +155,9 @@ func TestPreCompactRecordRoundTripsIntoSessionStart(t *testing.T) {
 	}
 	if !strings.Contains(r.Context, r.SystemMessage) {
 		t.Errorf("the line must land in Context too: %q", r.Context)
+	}
+	if !strings.Contains(r.Context, "Session handoff ("+fresh+"):\nx") || strings.Index(r.Context, "Session handoff") > strings.Index(r.Context, "compacted") {
+		t.Errorf("Context must open with this session's handoff body: %q", r.Context)
 	}
 	if strings.Contains(r.SystemMessage, "old.md") {
 		t.Error("a handoff older than 24h must be ignored")

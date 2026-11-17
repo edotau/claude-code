@@ -19,9 +19,11 @@ func Compact(in *core.Input) core.Result {
 	ctx, cancel := compactContext()
 	defer cancel()
 	now, update, handoff := time.Now(), compactUpdate, compactHandoff // read once: the goroutines share no mutable state
+	guarded("steward handoff", func() { startSteward(in, now) })
 	var wg sync.WaitGroup
 	wg.Go(func() { guarded("memory update", func() { update(in, now) }) })
 	wg.Go(func() { guarded("generated handoff", func() { handoff(ctx, in, now) }) })
+	wg.Go(func() { guarded("steward wait", func() { waitSteward(ctx, in) }) })
 	done := make(chan struct{})
 	go func() { wg.Wait(); close(done) }()
 	select {
@@ -40,6 +42,35 @@ func guarded(what string, fn func()) {
 		}
 	}()
 	fn()
+}
+
+// stewardWait bounds the wait for the steward handoff, below the PreCompact hook budget.
+var stewardWait = 10 * time.Second
+
+// startSteward starts the headless handoff job when this session has no running or fresh one.
+func startSteward(in *core.Input, now time.Time) {
+	_, handoff := stewardPct()
+	if !handoff || !memory.Updatable(in.SessionID, in.TranscriptPath) || memory.StewardRunning(in.SessionID, now) {
+		return
+	}
+	if memory.StewardHandoff(in.SessionID, now) != "" && !memory.StewardStale(in.SessionID, now) {
+		return
+	}
+	if !memory.DispatchCheckpoint(updateRequest(in), true, now) {
+		fmt.Fprintln(os.Stderr, "memory-compact: steward handoff not started; keeping the generated handoff")
+	}
+}
+
+// waitSteward waits for a running steward job's file, bounded by stewardWait; a timeout is a stderr note.
+func waitSteward(ctx context.Context, in *core.Input) {
+	if !memory.StewardRunning(in.SessionID, time.Now()) {
+		return
+	}
+	wctx, cancel := context.WithTimeout(ctx, stewardWait)
+	defer cancel()
+	if memory.WaitStewardHandoff(wctx, in.SessionID) == "" {
+		fmt.Fprintln(os.Stderr, "memory-compact: no steward handoff written (failed or past the wait bound); compacting without it")
+	}
 }
 
 // Seams for tests: the hook budget, both halves of Compact and the dispatch records.

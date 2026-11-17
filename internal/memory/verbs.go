@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -63,7 +64,7 @@ func DispatchCheckpoint(r UpdateRequest, handoff bool, now time.Time) bool {
 	started := false
 	withStampLock(r.SessionID, func() {
 		if handoff {
-			markHandoff(r.SessionID)
+			markHandoff(r.SessionID, now)
 		}
 		started = dispatchUpdate(r, TriggerStop, countSessionEdits(r.SessionID, r.Transcript), now)
 		if handoff && !started {
@@ -71,6 +72,62 @@ func DispatchCheckpoint(r UpdateRequest, handoff bool, now time.Time) bool {
 		}
 	})
 	return started
+}
+
+// handoffRunFresh bounds how long a marker with no finished worker still counts as a running steward.
+const handoffRunFresh = 20 * time.Minute
+
+// stewardSince is when the session's steward job was dispatched; zero when none is running.
+func stewardSince(sessionID string, now time.Time) time.Time {
+	for _, p := range []string{handoffMarker(sessionID), handoffRunMarker(sessionID)} {
+		if fi, err := os.Stat(p); err == nil && now.Sub(fi.ModTime()) < handoffRunFresh {
+			return fi.ModTime()
+		}
+	}
+	return time.Time{}
+}
+
+// StewardRunning reports whether this session's steward handoff job is dispatched and not finished.
+func StewardRunning(sessionID string, now time.Time) bool {
+	return !stewardSince(sessionID, now).IsZero()
+}
+
+// StewardHandoff is this session's newest steward handoff file within 24h, or "".
+func StewardHandoff(sessionID string, now time.Time) string {
+	if sessionID == "" {
+		return ""
+	}
+	suffix := "-session-" + compactID(sessionID) + ".md"
+	files := slices.DeleteFunc(ownedFiles(HomeBank(), "handoffs"), func(p string) bool { return !strings.HasSuffix(p, suffix) })
+	p, _ := newestFile(files, now, 24*time.Hour)
+	return p
+}
+
+// StewardStale reports that the session's newest steward handoff predates its last compaction.
+func StewardStale(sessionID string, now time.Time) bool {
+	p := StewardHandoff(sessionID, now)
+	fi, err := os.Stat(p)
+	return err != nil || fi.ModTime().Before(lastCompactAt(HomeBank(), sessionID))
+}
+
+// WaitStewardHandoff waits until the running steward job has written its file, or ctx ends; "" on a timeout.
+func WaitStewardHandoff(ctx context.Context, sessionID string) string {
+	for {
+		now := time.Now()
+		since := stewardSince(sessionID, now)
+		p := StewardHandoff(sessionID, now)
+		if since.IsZero() {
+			return p
+		}
+		if fi, err := os.Stat(p); p != "" && err == nil && fi.ModTime().After(since) {
+			return p
+		}
+		select {
+		case <-ctx.Done():
+			return ""
+		case <-time.After(200 * time.Millisecond):
+		}
+	}
 }
 
 // ResolveBank returns the session root and the one bank.

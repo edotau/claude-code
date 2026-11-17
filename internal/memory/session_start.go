@@ -206,6 +206,9 @@ func ResumeNote(source, sessionID, cwd string, now time.Time) string {
 	}
 	b := HomeBank()
 	model := newestHandoff(b, now, 24*time.Hour)
+	if source == "compact" { // only this session's own steward handoff, never a peer's
+		model = StewardHandoff(sessionID, now)
+	}
 	if model != "" {
 		parts = append(parts, "handoff: "+model)
 	}
@@ -215,6 +218,23 @@ func ResumeNote(source, sessionID, cwd string, now time.Time) string {
 		parts = append(parts, "handoff: "+gen)
 	}
 	return strings.Join(parts, "; ")
+}
+
+// handoffBodyMax caps the injected steward handoff in bytes.
+const handoffBodyMax = 12 << 10
+
+// StewardHandoffBody is this session's steward handoff text, capped, for the post-compact start; "" when none.
+func StewardHandoffBody(sessionID string, now time.Time) string {
+	p := StewardHandoff(sessionID, now)
+	b, err := os.ReadFile(p)
+	if p == "" || err != nil {
+		return ""
+	}
+	body := strings.TrimSpace(string(b))
+	if len(body) > handoffBodyMax {
+		body = strings.ToValidUTF8(body[:handoffBodyMax], "") + "\n[handoff truncated; read " + p + "]"
+	}
+	return "Session handoff (" + p + "):\n" + body
 }
 
 // compactedText renders "compacted (auto, 91%) at 14:02", dropping what the record lacks.

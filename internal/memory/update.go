@@ -447,6 +447,7 @@ func runAgentUpdate(ctx context.Context, o updateOptions) error {
 		return err
 	}
 	prompt += takeHandoffBlock(o.Session)
+	defer func() { _ = os.Remove(handoffRunMarker(o.Session)) }() // the steward is done once the agent returns
 	// Stop leaves the embedding refresh to this worker; SessionEnd covers Stops that spawn none.
 	RefreshStaleEmbeddings(o.CWD)
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1"), prompt, o.CWD) // a fallback dispatch must not re-trigger hooks
@@ -569,23 +570,37 @@ func parseTagLine(ln string) (tag, bool) {
 	return tag{}, false
 }
 
-// handoffMarker is the per-session file the context steward leaves for its update worker.
+// handoffMarker is the per-session file the context steward leaves for its update worker; it holds the handoff path.
 func handoffMarker(sessionID string) string {
 	return filepath.Join(StateDir(), "handoff-"+filepath.Base(sessionID))
 }
 
-func markHandoff(sessionID string) {
+// handoffRunMarker stands in for the pending marker while the worker writes the handoff.
+func handoffRunMarker(sessionID string) string {
+	return filepath.Join(StateDir(), "handoff-run-"+filepath.Base(sessionID))
+}
+
+// stewardHandoffPath is the one path the steward's handoff for this session is written to.
+func stewardHandoffPath(sessionID string, now time.Time) string {
+	return HomeBank().Sub("handoffs", now.Format("2006-01-02")+"-session-"+compactID(sessionID)+".md")
+}
+
+func markHandoff(sessionID string, now time.Time) {
 	if os.MkdirAll(StateDir(), 0o700) == nil {
-		_ = os.WriteFile(handoffMarker(sessionID), nil, 0o600)
+		_ = os.WriteFile(handoffMarker(sessionID), []byte(stewardHandoffPath(sessionID, now)), 0o600)
 	}
 }
 
-// takeHandoffBlock consumes the session's handoff marker and returns the extra prompt step, or "" without one.
+// takeHandoffBlock turns the session's pending marker into the run marker and returns the extra prompt step, or "".
 func takeHandoffBlock(sessionID string) string {
-	if sessionID == "" || os.Remove(handoffMarker(sessionID)) != nil {
+	if sessionID == "" {
 		return ""
 	}
-	path := HomeBank().Sub("handoffs", time.Now().Format("2006-01-02")+"-<slug>.md")
-	return "\n\nAlso write a handoff to " + path + " (pick a short topic slug; never name it compact): " +
+	b, err := os.ReadFile(handoffMarker(sessionID))
+	if err != nil || os.Rename(handoffMarker(sessionID), handoffRunMarker(sessionID)) != nil {
+		return ""
+	}
+	path := cmp.Or(strings.TrimSpace(string(b)), stewardHandoffPath(sessionID, time.Now()))
+	return "\n\nAlso write a handoff to exactly " + path + " (this name, not another): " +
 		"## State, ## In flight, ## Next, from this transcript, so a compacted session resumes from it."
 }

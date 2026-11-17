@@ -31,7 +31,11 @@ func Start(in *core.Input) core.Result {
 	if in.Source == "compact" || in.Source == "clear" {
 		if note := memory.ResumeNote(in.Source, in.SessionID, cwd, time.Now()); note != "" {
 			res.SystemMessage = core.JoinNonEmpty("; ", res.SystemMessage, note)
-			res.Context = core.JoinContext(res.Context, note)
+			body := ""
+			if in.Source == "compact" {
+				body = memory.StewardHandoffBody(in.SessionID, time.Now())
+			}
+			res.Context = core.JoinContext(res.Context, body, note)
 		}
 	}
 	return res
