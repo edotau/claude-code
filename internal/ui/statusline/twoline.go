@@ -59,6 +59,17 @@ func twoBar(pct float64, w int) string {
 
 const twoSep = " · "
 
+// tokenCount is n in whole thousands, a half rounding up (246.5k → 247k); a million and up keeps CompactCount.
+func tokenCount(n int) string {
+	if n < 1000 {
+		return strconv.Itoa(n)
+	}
+	if k := (n + 500) / 1000; k < 1000 {
+		return strconv.Itoa(k) + "k"
+	}
+	return textutil.CompactCount(int64(max(n, 1_000_000))) // 999.5k rounds up to 1M
+}
+
 // twolineRows builds row 1 after the head (provider, model, effort, velocity) and row 2 (context, tokens, 7d).
 func twolineRows(v values) (row1, row2 []twoSeg) {
 	d := v.two
@@ -72,7 +83,7 @@ func twolineRows(v values) (row1, row2 []twoSeg) {
 	row1 = appendVelocity(row1, v.adds, v.dels)
 	if d.hasCtx {
 		ctx := "ctx " + twoBar(d.ctxPct, 20) + fmt.Sprintf(" %d%%", clampPct(int(math.Round(d.ctxPct))))
-		toks := textutil.CompactCount(int64(d.tokens)) + "/" + textutil.CompactCount(int64(d.size))
+		toks := tokenCount(d.tokens) + "/" + tokenCount(d.size)
 		row2 = appendSep(row2, twoSeg{key: "context", text: ctx})
 		row2 = appendSep(row2, twoSeg{key: "tokens", text: toks})
 	}
