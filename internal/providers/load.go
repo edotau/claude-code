@@ -63,8 +63,13 @@ var loadCache paths.StampCache[*Registry]
 
 // Load merges the embedded defaults with the user overlay and validates the result.
 func Load() (*Registry, error) {
-	reg, err := loadCache.Get(vault.Path(), loadRegistry)
+	reg, err := LoadShared()
 	return reg.clone(), err
+}
+
+// LoadShared is Load without the deep copy: the cached registry is shared, so callers must only read it.
+func LoadShared() (*Registry, error) {
+	return loadCache.Get(vault.Path(), loadRegistry)
 }
 
 // loadRegistry is Load's uncached merge of the vault overlay over the embedded defaults.
@@ -378,7 +383,7 @@ func applyOpencodeOverlay(base, o *OpencodeRouting) {
 
 // ProfileNames lists the provider names straight off disk (no network), for tab completion.
 func ProfileNames() []string {
-	reg, err := Load()
+	reg, err := LoadShared()
 	if err != nil {
 		return nil
 	}

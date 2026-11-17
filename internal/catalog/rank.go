@@ -21,6 +21,7 @@ type Rank struct {
 	Cost       int    `json:"cost"`
 	Known      bool   `json:"known"`
 	order      int
+	prefix     string // Match's literal stem when it is "stem*", else ""; set at load
 }
 
 type rankTable struct {
@@ -35,7 +36,11 @@ var loadRanks = sync.OnceValue(func() rankTable {
 		panic("catalog: ranks.json: " + err.Error())
 	}
 	for i := range t.Families {
-		t.Families[i].Known, t.Families[i].order = true, i
+		f := &t.Families[i]
+		f.Known, f.order = true, i
+		if stem, ok := strings.CutSuffix(f.Match, "*"); ok && !strings.ContainsAny(stem, `*?[\`) {
+			f.prefix = stem
+		}
 	}
 	return t
 })
@@ -45,7 +50,12 @@ func RankOf(id string) Rank {
 	t := loadRanks()
 	canonical := ID(id)
 	for _, r := range t.Families {
-		if ok, _ := path.Match(r.Match, canonical); ok {
+		if r.prefix != "" {
+			// path.Match's trailing star spans any run without a slash
+			if rest, ok := strings.CutPrefix(canonical, r.prefix); ok && !strings.Contains(rest, "/") {
+				return r
+			}
+		} else if ok, _ := path.Match(r.Match, canonical); ok {
 			return r
 		}
 	}

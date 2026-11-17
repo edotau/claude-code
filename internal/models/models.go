@@ -46,9 +46,17 @@ var claudeRE = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?:^|[/.:-])claude-(opus|sonnet|haiku|fable|mythos)-(\d+)(?:[-.](\d+))?(?:-(\d{8}))?`)
 })
 
+// matchClaude is claudeRE's submatches of s; the literal precheck skips the regexp for every non-Claude id.
+func matchClaude(s string) []string {
+	if !strings.Contains(s, "claude-") {
+		return nil
+	}
+	return claudeRE().FindStringSubmatch(s)
+}
+
 // ParseClaudeID extracts (family, major, minor) from dashed or dotted ids; a >2-digit trailing group is a date stamp.
 func ParseClaudeID(id string) (family string, major, minor int, ok bool) {
-	m := claudeRE().FindStringSubmatch(Strip1M(id))
+	m := matchClaude(Strip1M(id))
 	if m == nil {
 		return "", 0, 0, false
 	}

@@ -228,3 +228,11 @@ func TestKeeps1M(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkResolve(b *testing.B) {
+	ids := []string{"claude-opus-5-5", "anthropic/claude-sonnet-4.6", "gpt-5-5", "databricks-gpt-5-5", "gemini-3-8-flash", "opus", "vendor-unlisted-7b", "claude-sonnet-4.6-20990101"}
+	b.ReportAllocs()
+	for i := 0; b.Loop(); i++ {
+		Resolve(ids[i%len(ids)])
+	}
+}

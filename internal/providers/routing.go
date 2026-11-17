@@ -107,7 +107,7 @@ func (r Routing) ServedAwareOn() bool {
 
 // ServedRoutingOn reads the merged servedAware switch (defaults.json never sets it); a load failure reads as off.
 func ServedRoutingOn() bool {
-	reg, err := Load()
+	reg, err := LoadShared()
 	return err == nil && reg.Routing.ServedAwareOn()
 }
 

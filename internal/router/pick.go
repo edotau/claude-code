@@ -642,11 +642,11 @@ const gitTimeout = 10 * time.Second
 
 // workRepoMarkers loads case-insensitive remote substrings; empty means personal, errors fail closed in IsWorkRepo.
 var workRepoMarkers = func() ([]string, error) {
-	reg, err := providers.Load()
+	reg, err := providers.LoadShared()
 	if err != nil {
 		return nil, err
 	}
-	return reg.Routing.Opencode.Markers(), nil
+	return slices.Clone(reg.Routing.Opencode.Markers()), nil // the registry is shared: callers get their own copy
 }
 
 // gitRemoteURLs lists fetch/push URLs via git remote -v; tests replace this seam.
