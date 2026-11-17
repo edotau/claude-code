@@ -129,6 +129,7 @@ func TestReviseDeclarationGrammar(t *testing.T) {
 		{"quoted pointer", "\"Replaced by deadbeef.\"", "", ""},
 		{"body pointer", "Example follows.\nReplaced by deadbeef.", "", ""},
 		{"wrapped pointer", "  Replaced by\n  deadbeef (2026-11-13).\nBody.", "", "deadbeef"},
+		{"slug id", "Supersedes `b5ad9e07-semorder`.", "b5ad9e07-semorder", ""},
 		{"sentence", "Changed direction. Supersedes aaaaaaaa.", "aaaaaaaa", ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -258,5 +259,24 @@ func TestReviseResolvesRefsOfLoadedArchives(t *testing.T) {
 	write(t, HomeBank().Sub("archive", "decisionLog-2026-10.md"), "## 2026-10-01 — Old <!-- id:c3000003 -->\nOld.\n")
 	if p := reviseBankProblems(); strings.Contains(strings.Join(p, "\n"), "unknown id") {
 		t.Fatalf("review problems = %q; want no unknown id", p)
+	}
+}
+
+func TestLocateBlocksSlugAlias(t *testing.T) {
+	d := &bankDoc{
+		blocks: []string{"## Old <!-- id:b5ad9e07-semorder --> <!-- id:23994edb -->\nbody"},
+		ids:    []string{"23994edb"},
+	}
+	loc := locateBlocks([]*bankDoc{d})
+	for _, c := range []struct {
+		id   string
+		want bool
+	}{{"b5ad9e07-semorder", true}, {"23994edb", true}, {"b5ad9e07-nope", false}, {"b5ad9e07", false}} {
+		if _, ok := loc[c.id]; ok != c.want {
+			t.Errorf("resolve %q = %v, want %v", c.id, ok, c.want)
+		}
+	}
+	if got := missingRefs([]*bankDoc{{blocks: d.blocks, ids: d.ids, refs: [][]string{{"b5ad9e07-semorder", "b5ad9e07-nope"}}}}); len(got) != 1 || !strings.Contains(got[0], "nope") {
+		t.Errorf("missingRefs = %v", got)
 	}
 }

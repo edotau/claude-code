@@ -23,11 +23,11 @@ var (
 	})
 	// reviseRef finds declarations at a line or sentence boundary.
 	reviseRef = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile("(?im)(?:^|[.!?][ \t]+)[ \t]*(?:[-*+] +|[0-9]+[.)] +)?(supersedes\\s+(?:\"[^\"]*\"\\s+\\()?`?(z?[0-9a-f]{8})\\b`?\\)?)")
+		return regexp.MustCompile("(?im)(?:^|[.!?][ \t]+)[ \t]*(?:[-*+] +|[0-9]+[.)] +)?(supersedes\\s+(?:\"[^\"]*\"\\s+\\()?`?(z?[0-9a-f]{8}(?:-[0-9a-z]+)?)\\b`?\\)?)")
 	})
 	// replacedPointer is the line settle writes under an old entry's title.
 	replacedPointer = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`^Replaced by (z?[0-9a-f]{8})(?: \(\d{4}-\d{2}-\d{2}\))?\.$`)
+		return regexp.MustCompile(`^Replaced by (z?[0-9a-f]{8}(?:-[0-9a-z]+)?)(?: \(\d{4}-\d{2}-\d{2}\))?\.$`)
 	})
 	// titlePrefix is what stays outside the strike: the heading or bullet mark and the date prefix.
 	titlePrefix = sync.OnceValue(func() *regexp.Regexp {
@@ -38,11 +38,11 @@ var (
 		return regexp.MustCompile(`~~.*?~~`)
 	})
 	seeNote = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`\(see z?[0-9a-f]{8}\)`)
+		return regexp.MustCompile(`\(see z?[0-9a-f]{8}(?:-[0-9a-z]+)?\)`)
 	})
 	// pointerLine is a whole line holding only the pointer settle writes.
 	pointerLine = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`^\s*Replaced by z?[0-9a-f]{8}(?: \(\d{4}-\d{2}-\d{2}\))?\.$`)
+		return regexp.MustCompile(`^\s*Replaced by z?[0-9a-f]{8}(?:-[0-9a-z]+)?(?: \(\d{4}-\d{2}-\d{2}\))?\.$`)
 	})
 )
 
@@ -366,13 +366,23 @@ func statOK(path string) bool {
 	return err == nil
 }
 
-// locateBlocks maps each persisted block id to its first location.
+// slugMarker is a title-line alias id such as "<!-- id:b5ad9e07-semorder -->" that entries may be superseded by.
+var slugMarker = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`<!-- id:([0-9a-f]{8}-[0-9a-z]+) -->`)
+})
+
+// locateBlocks maps each persisted block id, and each title-line slug alias, to its first location.
 func locateBlocks(docs []*bankDoc) map[string]blockLoc {
 	loc := map[string]blockLoc{}
 	for di, d := range docs {
 		for bi, id := range d.ids {
 			if _, dup := loc[id]; id != "" && !dup {
 				loc[id] = blockLoc{di, bi}
+			}
+			for _, m := range slugMarker().FindAllStringSubmatch(textutil.FirstLine(d.blocks[bi]), -1) {
+				if _, dup := loc[m[1]]; !dup {
+					loc[m[1]] = blockLoc{di, bi}
+				}
 			}
 		}
 	}
