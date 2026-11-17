@@ -25,10 +25,11 @@ const (
 	OutcomePanic   = "panic"
 )
 
-// TelemetryRow is one module run: names, wall time and outcome only, never command text or payload.
+// TelemetryRow is one module run: names, wall time and outcome, plus the payload's session id and tool name.
 type TelemetryRow struct {
 	Event, Module, Outcome string
 	Dur                    time.Duration
+	Sid, Tool              string
 }
 
 type telemetryLine struct {
@@ -37,7 +38,11 @@ type telemetryLine struct {
 	Module  string  `json:"module"`
 	Ms      float64 `json:"ms"`
 	Outcome string  `json:"outcome"`
+	Sid     string  `json:"sid,omitempty"`
+	Tool    string  `json:"tool,omitempty"`
 }
+
+const telemetrySidLen = 8
 
 // telemetryDir is state/harness/hooks; a test binary writes nothing unless TelemetryDirForTest names a directory.
 var telemetryDir = func() string {
@@ -107,7 +112,8 @@ func recordTelemetry(dir string, rows []TelemetryRow, now, deadline time.Time) {
 		if time.Now().After(deadline) {
 			return
 		}
-		line, err := json.Marshal(telemetryLine{now.Format(time.RFC3339), r.Event, r.Module, float64(r.Dur) / float64(time.Millisecond), r.Outcome})
+		line, err := json.Marshal(telemetryLine{now.Format(time.RFC3339), r.Event, r.Module, float64(r.Dur) / float64(time.Millisecond), r.Outcome,
+			r.Sid[:min(len(r.Sid), telemetrySidLen)], r.Tool})
 		if err != nil {
 			return
 		}

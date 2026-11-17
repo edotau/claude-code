@@ -843,6 +843,39 @@ func TestPostToolUseAsyncSplitRunsEachModuleOnce(t *testing.T) {
 	}
 }
 
+// Dispatch stamps each telemetry row with the payload's short session id and tool name, when it has them.
+func TestDispatchTelemetryCarriesSessionAndTool(t *testing.T) {
+	for _, c := range []struct{ name, event, payload, sid, tool string }{
+		{"tool call", "PreToolUse", `{"session_id":"d4c0f392-ce3a-4952-85bc-a133c53144d1","tool_name":"Bash","hook_event_name":"PreToolUse"}`, "d4c0f392", "Bash"},
+		{"stop", "Stop", `{"session_id":"d4c0f392-ce3a-4952-85bc-a133c53144d1","hook_event_name":"Stop"}`, "d4c0f392", ""},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			defer core.TelemetryDirForTest(dir)()
+			b := bound("m", "", time.Second, func(*core.Input) core.Result { return core.Result{} })
+			b.Spec.Event = c.event
+			if _, err := Dispatch([]Bound{b}, c.event, core.ParseInput(strings.NewReader(c.payload)), io.Discard); err != nil {
+				t.Fatal(err)
+			}
+			files, _ := filepath.Glob(filepath.Join(dir, "telemetry-*.jsonl"))
+			if len(files) != 1 {
+				t.Fatalf("telemetry files = %v, want one", files)
+			}
+			raw, _ := os.ReadFile(files[0])
+			var row map[string]any
+			if err := json.Unmarshal(raw, &row); err != nil {
+				t.Fatalf("bad row %q: %v", raw, err)
+			}
+			if got, _ := row["sid"].(string); got != c.sid {
+				t.Errorf("sid = %q, want %q: %s", got, c.sid, raw)
+			}
+			if got, ok := row["tool"].(string); got != c.tool || ok != (c.tool != "") {
+				t.Errorf("tool = %q (present %v), want %q: %s", got, ok, c.tool, raw)
+			}
+		})
+	}
+}
+
 // Dispatch writes one telemetry line per run module with its outcome and never the command text.
 func TestDispatchRecordsTelemetry(t *testing.T) {
 	dir := t.TempDir()
