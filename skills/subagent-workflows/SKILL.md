@@ -147,6 +147,11 @@ Independent leaves go in one message as Agent calls with `run_in_background` (th
 Cap: `rules/harness/hooks.md` → (dispatch cap); test agents count. Batch deep-context leaves (Databricks `429`) and
 fleet scans.
 
+Run at capacity: keep every unblocked task dispatched, and refill as soon as a leaf hands back or a file frees up;
+an idle slot with unblocked work is a fault. Spread leaves over the three Databricks profiles (`--profile
+dev|qa|prod` on the relay's Run line) and the four vendor CLIs so no single account carries the wave. The only
+limits are overlapping files, dependency order and an account's own rate limit.
+
 #### Test agent
 
 A feature or bug fix gets a test agent (`copilot`, or `claude` for a scoped suite) in the SAME message as the
