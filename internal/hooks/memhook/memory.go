@@ -154,7 +154,6 @@ const updateNotSaved = "memory update NOT saved; run `claude-code memory update`
 
 // sessionUpdate spawns a detached update; a failed spawn proceeds with a note and SessionEnd/PreCompact retry.
 func sessionUpdate(in *core.Input) (notSaved bool) {
-	memory.RefreshStaleEmbeddings(in.CWD)
 	if !memory.Updatable(in.SessionID, in.TranscriptPath) {
 		return false
 	}
