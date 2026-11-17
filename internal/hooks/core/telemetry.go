@@ -3,8 +3,10 @@ package core
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -52,25 +54,94 @@ func TelemetryDirForTest(dir string) (restore func()) {
 	return func() { telemetryDir = prev }
 }
 
-// RecordTelemetry appends one JSON line per row to telemetry-YYYYMMDD.jsonl in one unlocked, unsynced write; fail-open.
+const telemetryDailyBytes = 4 << 20
+const telemetryDateLayout = "20060102"
+const telemetryRetentionDays = 14
+const telemetryWait = 10 * time.Millisecond
+
+var telemetryBusy atomic.Bool
+
+// RecordTelemetry bounds best-effort disk work; a stalled filesystem never holds up a verdict.
 func RecordTelemetry(rows []TelemetryRow) {
 	dir := telemetryDir()
-	if len(rows) == 0 || dir == "" || os.Getenv(telemetryEnv) == "off" {
+	if len(rows) == 0 || dir == "" || os.Getenv(telemetryEnv) == "off" || !telemetryBusy.CompareAndSwap(false, true) {
 		return
 	}
+	rows = append([]TelemetryRow(nil), rows...)
+	done := make(chan struct{})
+	deadline := time.Now().Add(telemetryWait)
+	go func() {
+		defer close(done)
+		defer telemetryBusy.Store(false)
+		recordTelemetry(dir, rows, deadline)
+	}()
+	select {
+	case <-done:
+	case <-time.After(telemetryWait):
+	}
+}
+
+func recordTelemetry(dir string, rows []TelemetryRow, deadline time.Time) {
 	now := time.Now()
-	var buf []byte
+	file := filepath.Join(dir, "telemetry-"+now.Format(telemetryDateLayout)+".jsonl")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return
+	}
+	lock, err := os.OpenFile(file+".lock", os.O_CREATE|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer func() { _ = lock.Close() }()
+	if !paths.TryLock(lock) {
+		return
+	}
 	for _, r := range rows {
-		line, err := json.Marshal(telemetryLine{now.Format(time.RFC3339), r.Event, r.Module, float64(r.Dur.Microseconds()) / 1000, r.Outcome})
+		if time.Now().After(deadline) {
+			return
+		}
+		line, err := json.Marshal(telemetryLine{now.Format(time.RFC3339), r.Event, r.Module, float64(r.Dur) / float64(time.Millisecond), r.Outcome})
 		if err != nil {
 			return
 		}
-		buf = append(append(buf, line...), '\n')
+		if err := appendTelemetry(file, append(line, '\n')); err != nil {
+			return
+		}
 	}
-	_ = appendTelemetry(filepath.Join(dir, "telemetry-"+now.Format("20060102")+".jsonl"), buf)
+	pruneTelemetry(dir, now)
 }
 
-// appendTelemetry writes buf with O_APPEND (one write, atomic between processes), creating the directory on demand.
+// pruneTelemetry uses a daily marker shared by hook processes; only dated telemetry files expire.
+func pruneTelemetry(dir string, now time.Time) {
+	marker := filepath.Join(dir, "telemetry-"+now.Format(telemetryDateLayout)+".pruned")
+	f, err := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	if err := f.Close(); err != nil {
+		return
+	}
+	entries, err := filepath.Glob(filepath.Join(dir, "telemetry-*"))
+	if err != nil {
+		return
+	}
+	cutoff := now.AddDate(0, 0, -telemetryRetentionDays).Format(telemetryDateLayout)
+	for _, e := range entries {
+		name := filepath.Base(e)
+		if len(name) < len("telemetry-"+telemetryDateLayout+".jsonl") {
+			continue
+		}
+		date, err := time.Parse(telemetryDateLayout, name[10:18])
+		if err != nil || date.Format(telemetryDateLayout) >= cutoff {
+			continue
+		}
+		switch name[18:] {
+		case ".jsonl", ".jsonl.lock", ".pruned":
+			_ = os.Remove(filepath.Join(dir, name))
+		}
+	}
+}
+
+// appendTelemetry holds the daily lock across its size check, append and short-write rollback.
 func appendTelemetry(file string, buf []byte) error {
 	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if errors.Is(err, os.ErrNotExist) {
@@ -81,6 +152,16 @@ func appendTelemetry(file string, buf []byte) error {
 	if err != nil {
 		return err
 	}
-	_, werr := f.Write(buf)
+	st, err := f.Stat()
+	if err != nil {
+		return errors.Join(err, f.Close())
+	}
+	if !st.Mode().IsRegular() || st.Size()+int64(len(buf)) > telemetryDailyBytes {
+		return f.Close()
+	}
+	n, werr := f.Write(buf)
+	if n != len(buf) {
+		werr = errors.Join(werr, io.ErrShortWrite, f.Truncate(st.Size()))
+	}
 	return errors.Join(werr, f.Close())
 }
