@@ -473,7 +473,8 @@ type leafToolUse struct {
 	ID    string `json:"id"`
 	Name  string `json:"name"`
 	Input struct {
-		Command string `json:"command"`
+		Command  string `json:"command"`
+		FilePath string `json:"file_path"`
 	} `json:"input"`
 }
 
@@ -545,7 +546,7 @@ func (s *leafScan) addCalls(content json.RawMessage, at time.Time) {
 			continue
 		}
 		if editTools[it.Name] {
-			s.edited = true
+			s.edited = s.edited || !scratchPath(it.Input.FilePath)
 			continue
 		}
 		if it.Name != "Bash" {

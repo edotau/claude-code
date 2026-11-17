@@ -688,6 +688,21 @@ func stubSpawn(t *testing.T) *[][]string {
 	return &got
 }
 
+// A relay whose only edit is a memory report did not do the work: its never-run Run: line is run or held.
+func TestRanOnMemoryReportEditIsNotTheWork(t *testing.T) {
+	spawned := stubSpawn(t)
+	in := leafTx(t, "gemini", "Run: claude-code agents ask --agent gemini 'research'\n", "ls output")
+	report := memory.HomeBank().Sub("reports", "2026-11-16-x.md")
+	edit, _ := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
+		{"type": "tool_use", "id": "e1", "name": "Write", "input": map[string]any{"file_path": report}}}}})
+	appendLines(t, in.AgentTranscriptPath, string(edit))
+	in = handbackOf(in, "report written")
+	_, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	if !blocked && len(*spawned) == 0 {
+		t.Fatalf("blocked=%v spawns %v, want the Run: line run or held despite the memory report edit", blocked, *spawned)
+	}
+}
+
 // A relay that edited files passes with the note on top and the Run: line is never run by the hook.
 func TestRanOnRelayDidTheWork(t *testing.T) {
 	spawned := stubSpawn(t)

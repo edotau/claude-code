@@ -86,9 +86,11 @@ var printOnly = map[string][]string{
 	"rustfmt": {"--check", "-V", "--print-config"},
 }
 
-// scratchPath is a path under /tmp or the OS temp dir: a relay's scratch output, not the work.
+// scratchPath is a path under /tmp, the OS temp dir or the memory reports, handoffs and notes homes: not the work.
 func scratchPath(p string) bool {
-	return slices.ContainsFunc([]string{"/tmp", "/private/tmp", os.TempDir()}, func(dir string) bool {
+	bank := memory.HomeBank()
+	dirs := []string{"/tmp", "/private/tmp", os.TempDir(), bank.SubDir("reports"), bank.SubDir("handoffs"), bank.SubDir("notes")}
+	return slices.ContainsFunc(dirs, func(dir string) bool {
 		return dir != "" && strings.HasPrefix(p, strings.TrimSuffix(dir, "/")+"/")
 	})
 }
