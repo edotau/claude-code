@@ -181,7 +181,7 @@ func (rc routeCtx) steps(cands []router.Candidate, alias string, nativeLead bool
 	if req >= 0 {
 		out = append(out, step{i: req, rc: rc})
 	}
-	if pin >= 0 && rc.want != "claude" && rc.mode != router.FallbackNone && (pin != req || rc.explicitModel) {
+	if pin >= 0 && !VaultAgentIsClaude(rc.want) && rc.mode != router.FallbackNone && (pin != req || rc.explicitModel) {
 		out = append(out, step{i: pin, rc: rc.asPin(), pin: true})
 	}
 	if fb := rc.recordFallbackIndex(cands); fb >= 0 && fb != req && fb != pin {
@@ -196,7 +196,7 @@ func (rc routeCtx) steps(cands []router.Candidate, alias string, nativeLead bool
 // recordFallbackIndex is the wanted agent's candidate on its record's fallback profile (after the pin); -1 = none.
 func (rc routeCtx) recordFallbackIndex(cands []router.Candidate) int {
 	fb := vault.GetAgentRecord(rc.want).Fallback
-	if fb == "" || rc.mode == router.FallbackNone || rc.want == "claude" {
+	if fb == "" || rc.mode == router.FallbackNone || VaultAgentIsClaude(rc.want) {
 		return -1
 	}
 	return slices.IndexFunc(cands, func(c router.Candidate) bool { return c.Agent == rc.want && c.Profile == fb })
@@ -296,7 +296,7 @@ func (rc routeCtx) otherRoute(cand router.Candidate) bool {
 	if rc.lead != "" && cand.Agent == rc.want {
 		return cand.Profile != rc.lead && cand.Account != router.ProviderAccount(rc.lead) // an own-login row has no Profile
 	}
-	return cand.Agent != rc.want || (rc.want != "claude" && !rc.onPin(cand))
+	return cand.Agent != rc.want || (!VaultAgentIsClaude(rc.want) && !rc.onPin(cand))
 }
 
 func (d Dispatch) same(o Dispatch) bool {
@@ -496,7 +496,7 @@ type routeCtx struct {
 func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip string) {
 	cell = cand.Cell
 	switch {
-	case cand.Agent == "claude" && rc.dispatchID != "": // lowest Claude alias serving the non-Claude dispatch
+	case VaultAgentIsClaude(cand.Agent) && rc.dispatchID != "": // lowest Claude alias serving the non-Claude dispatch
 		rc.tb.ClaudeTierCell(rc.want, rc.dispatchID, &cell)
 	case rc.callerOnProfile(cand): // the wanted agent's profile row runs the caller's --model, never its pin or tier
 		return rc.callerProfileCell(cand, cell)
@@ -535,7 +535,7 @@ func (rc routeCtx) callerOnProfile(cand router.Candidate) bool {
 	if !concrete || p == nil || cand.Agent != rc.want {
 		return false
 	}
-	return wireAgent(cand.Agent) || p.Preset == providers.PresetDatabricks && (rc.onWire(cand.Agent) || cand.Agent == "claude")
+	return wireAgent(cand.Agent) || p.Preset == providers.PresetDatabricks && (rc.onWire(cand.Agent) || VaultAgentIsClaude(cand.Agent))
 }
 
 // onWire reports agent running the caller's id on a Databricks row: any exact id; a Claude id on codex or the hub.
@@ -648,7 +648,7 @@ func (rc routeCtx) dispatchAgent(cand router.Candidate, cell router.Cell, disp D
 
 // engineModel names the model gemini really runs on a Databricks row: its engine swaps a non-Gemini cell id at launch.
 func (rc routeCtx) engineModel(cand router.Candidate, cell router.Cell, disp Dispatch) Dispatch {
-	if p := rc.reg.Row(cand.Profile); cand.Agent == agentid.Gemini && GeminiGatewayRow(p) {
+	if p := rc.reg.Row(cand.Profile); agentid.Routing(cand.Agent).GoogleOrDatabricks && GeminiGatewayRow(p) {
 		d := mustDriver(cand.Agent).(HeadlessDriver)
 		disp.Model = cand.Profile + ":" + d.Before(RunOptions{Model: disp.Model}, providers.Target{Provider: p, Model: cell.Model}).Model
 	}
@@ -662,7 +662,7 @@ func (rc routeCtx) lookupDispatch(cand router.Candidate, cell router.Cell, disp 
 		return disp, err
 	}
 	disp.Agent = r
-	if cand.Agent == "claude" && !rc.callerOnProfile(cand) {
+	if VaultAgentIsClaude(cand.Agent) && !rc.callerOnProfile(cand) {
 		disp.Model = router.ClaudeCellModel(cell.Model)
 		if cand.Profile != "" { // keep the <profile>: spelling so the dispatch resolves on that profile
 			disp.Model = cand.Profile + ":" + disp.Model

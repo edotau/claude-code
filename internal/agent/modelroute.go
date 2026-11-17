@@ -141,7 +141,7 @@ func routeRow(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec) (
 // geminiModelRow is the row a typed model picks for gemini with no --profile: databricks- the gateway, Gemini Google.
 func geminiModelRow(reg *providers.Registry, q ModelQuery) (*providers.Provider, string, error) {
 	name := strings.ToLower(q.Model)
-	if q.Agent != agentid.Gemini || q.Profile != "" || name == "" {
+	if !agentid.Routing(q.Agent).GoogleOrDatabricks || q.Profile != "" || name == "" {
 		return nil, "", nil
 	}
 	if strings.HasPrefix(name, models.DatabricksPrefix) {
@@ -250,11 +250,11 @@ func sessionRow(reg *providers.Registry, q ModelQuery) *providers.Provider {
 // rowServes is Serves without a model, plus agy's gateway rows for gemini and claude's own anthropic sign-in.
 func rowServes(agent string, p *providers.Provider) (bool, string) {
 	switch {
-	case agent == agentid.Gemini && GeminiGatewayRow(p):
+	case agentid.Routing(agent).GoogleOrDatabricks && GeminiGatewayRow(p):
 		return true, ""
-	case agent == agentid.Claude && p.Auth.Login != "" && p.Auth.Login != agentid.Claude:
+	case agentid.Routing(agent).AnthropicRoute && p.Auth.Login != "" && p.Auth.Login != agentid.Claude:
 		return false, fmt.Sprintf("profile %s is the %s sign-in and cannot back Claude Code", p.Name, p.Auth.Login)
-	case agent == agentid.Claude:
+	case agentid.Routing(agent).AnthropicRoute:
 		return true, ""
 	}
 	return Serves(agent, p, "")
@@ -289,7 +289,7 @@ func routeModel(r *ModelRoute, p *providers.Provider, q ModelQuery, spec provide
 	if err != nil {
 		return err
 	}
-	if pinned && q.Agent == agentid.Codex && r.Note == "" {
+	if pinned && agentid.Routing(q.Agent).ResponsesRoute && r.Note == "" {
 		if swapped := codexSwap(p, wire); swapped != wire {
 			r.Note, wire = "codex: record model "+wire+" is not served over Responses; running "+swapped, swapped
 		}
@@ -320,7 +320,7 @@ func spellTyped(r *ModelRoute, p *providers.Provider, q ModelQuery, typed string
 // codexTierPin is codex's record model for an opus/sonnet alias when p serves it over Responses, else the tier bucket.
 func codexTierPin(r *ModelRoute, p *providers.Provider, q ModelQuery, typed string, now time.Time) (string, bool) {
 	name := strings.ToLower(models.Strip1M(typed))
-	if q.Agent != agentid.Codex || q.PinModel == "" || name != models.Opus && name != models.Sonnet {
+	if !agentid.Routing(q.Agent).ResponsesRoute || q.PinModel == "" || name != models.Opus && name != models.Sonnet {
 		return "", false
 	}
 	w, err := spellModel(&ModelRoute{}, p, q.Agent, q.PinModel, now)
@@ -371,23 +371,23 @@ func routeServes(r *ModelRoute, p *providers.Provider) error {
 		}
 		return agentFamily(r, p)
 	}
-	if r.Agent == agentid.Claude {
+	if agentid.Routing(r.Agent).AnthropicRoute {
 		if err := providers.ClaudeCodeError(p, r.Model); err != nil {
 			return fmt.Errorf("%w: %w", ErrModelRoute, err)
 		}
 	}
 	wire, ok, why := providers.WireFor(p, r.Model)
-	if _, has := p.Route(providers.ProtocolAnthropic); !ok && has && r.Agent == agentid.Claude && !slices.Contains([]models.Family{models.FamilyClaude, models.FamilyGPT, models.FamilyGemini}, models.FamilyKind(r.Model)) {
+	if _, has := p.Route(providers.ProtocolAnthropic); !ok && has && agentid.Routing(r.Agent).AnthropicRoute && !slices.Contains([]models.Family{models.FamilyClaude, models.FamilyGPT, models.FamilyGemini}, models.FamilyKind(r.Model)) {
 		wire, ok = providers.ProtocolAnthropic, true // an unlisted id goes out as typed on the anthropic wire
 	}
 	if !ok {
 		return fmt.Errorf("%w: %s", ErrModelRoute, why)
 	}
 	r.Dialect = wire
-	if r.Agent == agentid.Gemini && GeminiGatewayRow(p) {
+	if agentid.Routing(r.Agent).GoogleOrDatabricks && GeminiGatewayRow(p) {
 		return geminiGatewayServes(r, p, wire)
 	}
-	if r.Agent == agentid.Claude {
+	if agentid.Routing(r.Agent).AnthropicRoute {
 		return agentFamily(r, p)
 	}
 	if ok, why := Serves(r.Agent, p, r.Model); !ok {
@@ -421,13 +421,13 @@ func agyEffort(r *ModelRoute) error {
 func agentFamily(r *ModelRoute, p *providers.Provider) error {
 	fam := models.FamilyKind(r.Model)
 	bad := false
-	switch r.Agent {
-	case agentid.Gemini:
+	switch facts := agentid.Routing(r.Agent); {
+	case facts.ModelFamily == string(models.FamilyGemini):
 		// a tier alias keeps agy's Gemini default; agy's own Claude and GPT-OSS run on its own sign-in only
 		bad = fam != models.FamilyGemini && (r.Alias != "" || !GeminiGatewayRow(p) && len(models.AcceptedEfforts(r.Agent, r.Model)) == 0)
-	case agentid.Claude:
+	case facts.ModelFamily == string(models.FamilyClaude):
 		bad = (fam == models.FamilyGPT || fam == models.FamilyGemini) && p.Provider == "anthropic"
-	case agentid.Codex:
+	case facts.ResponsesRoute:
 		bad = p.Auth.Login == agentid.Codex && (fam == models.FamilyClaude || fam == models.FamilyGemini)
 	}
 	if bad {

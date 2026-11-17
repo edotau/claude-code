@@ -55,6 +55,10 @@ func EffortNames() []string {
 
 // RouteFacts is what routing needs to know about an agent, so callers test a fact, not a name.
 type RouteFacts struct {
+	// AnthropicRoute accepts unlisted ids and enforces Claude Code profile constraints.
+	AnthropicRoute bool
+	// FreezeTarget resolves billing once before dispatch guards and retries.
+	FreezeTarget                                                                  bool
 	ModelFamily, binary                                                           string
 	ResponsesRoute, SubLadder, Discovery, GoogleOrDatabricks, NoWorkspaceFallback bool
 	nativeEfforts                                                                 []string
@@ -62,9 +66,9 @@ type RouteFacts struct {
 
 // routeFacts is the one per-agent table; an unknown agent reads as the zero value.
 var routeFacts = map[string]RouteFacts{
-	Claude:   {ModelFamily: "claude", nativeEfforts: EffortNames()},
+	Claude:   {AnthropicRoute: true, ModelFamily: "claude", nativeEfforts: EffortNames()},
 	Codex:    {ResponsesRoute: true, nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh"}},
-	Copilot:  {Discovery: true},
+	Copilot:  {FreezeTarget: true, Discovery: true},
 	Gemini:   {ModelFamily: "gemini", binary: "agy", GoogleOrDatabricks: true, NoWorkspaceFallback: true, nativeEfforts: EffortNames()},
 	OpenCode: {SubLadder: true, Discovery: true},
 }
