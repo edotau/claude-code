@@ -2,11 +2,12 @@ package providers
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestConfigFixRejectsRoutingEnvOverrides(t *testing.T) {

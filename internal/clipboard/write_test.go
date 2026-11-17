@@ -3,13 +3,14 @@ package clipboard
 import (
 	"context"
 	"errors"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 const secret = "dapi-SeCrEt-value-123"

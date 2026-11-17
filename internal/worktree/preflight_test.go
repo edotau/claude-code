@@ -3,7 +3,6 @@ package worktree
 import (
 	"context"
 	"fmt"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"io"
 	"os"
 	"os/exec"
@@ -13,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/paths"
 )

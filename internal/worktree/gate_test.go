@@ -2,7 +2,6 @@ package worktree
 
 import (
 	"context"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"io"
 	"os"
 	"os/exec"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // gateRepo is a git repo holding module example.com/m, with run and write helpers.

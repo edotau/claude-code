@@ -305,9 +305,7 @@ func TestCompletionScriptBash(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("completion bash exit %d", code)
 	}
-	if err := os.WriteFile(script, []byte(out), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	hosttest.WriteRel(t, dir, "completion.bash", out)
 	if out, err := exec.Command(bash, "-n", script).CombinedOutput(); err != nil {
 		t.Fatalf("bash -n: %v\n%s", err, out)
 	}

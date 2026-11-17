@@ -3,7 +3,6 @@ package setup
 import (
 	"bytes"
 	"errors"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -13,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"

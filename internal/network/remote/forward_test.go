@@ -4,13 +4,14 @@ import (
 	"bufio"
 	"context"
 	"errors"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"os/exec"
 	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // fakeConn is an ssh that printed out and, once stopped, reports stderr.

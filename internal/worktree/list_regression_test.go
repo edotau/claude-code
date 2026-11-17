@@ -2,13 +2,14 @@ package worktree
 
 import (
 	"errors"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestListKeepsDotDotPrefixedChildRegistered(t *testing.T) {

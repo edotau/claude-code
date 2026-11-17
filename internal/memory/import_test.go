@@ -4,12 +4,13 @@ import (
 	"archive/tar"
 	"bytes"
 	"errors"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // importTar builds a tar of name->body entries; a body starting "->" is a symlink to the rest.

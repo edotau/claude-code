@@ -2,11 +2,12 @@ package vscode
 
 import (
 	"errors"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // extensionHome is a claude home with the extension source; it skips where symlinks need privileges (Windows).
