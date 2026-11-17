@@ -552,6 +552,9 @@ func (rec Record) ResultEnvelope(errw io.Writer) wire.Envelope {
 	}
 	res := wire.Result{Agent: rec.Agent, Provider: rec.Provider, Model: rec.Model, Invoked: rec.Invoked,
 		SessionID: rec.SessionID, DurationMs: rec.DurationMs, Fallback: rec.Fallback, FallbackReason: rec.FallbackReason}
+	if rec.Usage != nil {
+		res.Usage = *rec.Usage
+	}
 	if log, err := os.ReadFile(rec.LogPath()); err == nil {
 		res.Answer = string(log)
 	}

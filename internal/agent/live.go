@@ -53,6 +53,7 @@ type liveSession struct {
 	account string     // the profile's billing account, "" on the agent's own login: the ran-on line's hop
 	mu      sync.Mutex // guards session
 	session string
+	usage   wire.Usage // sum of the turns' usage, guarded by mu
 }
 
 // ServeLive holds rec.Agent's stream-json child open behind rec's socket until idle, cancel or exit; Timeout is idle.
@@ -190,7 +191,8 @@ func (s *liveSession) hops(model string) []wire.Hop {
 // finish records the outcome: an idle end is a normal ok, anything else an error.
 func (s *liveSession) finish(cause error) error {
 	s.mu.Lock()
-	res := wire.Result{Agent: s.name, Provider: s.profile, SessionID: s.session, Status: wire.StatusOK, Hops: s.hops("")}
+	res := wire.Result{Agent: s.name, Provider: s.profile, SessionID: s.session, Status: wire.StatusOK, Hops: s.hops(""),
+		Usage: s.usage}
 	s.mu.Unlock()
 	var err, exitErr error
 	if !errors.Is(cause, errLiveIdle) {
@@ -568,6 +570,11 @@ func (s *liveSession) runTurn(ctx context.Context, prompt string, sink wire.Sink
 	res.Status = StatusOf(retry.Classify(s.name, err, false))
 	s.mu.Lock()
 	s.session = cmp.Or(res.SessionID, s.session)
+	s.usage.InputTokens += res.Usage.InputTokens
+	s.usage.OutputTokens += res.Usage.OutputTokens
+	s.usage.CacheReadTokens += res.Usage.CacheReadTokens
+	s.usage.CacheCreationTokens += res.Usage.CacheCreationTokens
+	s.usage.CostUSD += res.Usage.CostUSD
 	s.mu.Unlock()
 	// A lost turn result ends the session before it is freed, so a next send can't read that turn's late answer.
 	if err != nil && !IsResultError(err) {

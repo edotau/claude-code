@@ -872,3 +872,23 @@ func TestRecordLineageAndUsage(t *testing.T) {
 		parent = rec.ID
 	}
 }
+
+func TestRecordResultEnvelopeKeepsUsage(t *testing.T) {
+	setConfigDir(t)
+	want := wire.Usage{InputTokens: 11, OutputTokens: 7}
+	for _, cause := range []error{nil, context.Canceled, context.DeadlineExceeded} {
+		rec := Record{ID: "missing-events", Agent: "codex"}
+		rec.Finish(wire.Result{Usage: want}, cause, time.Millisecond)
+		if err := rec.Save(); err != nil {
+			t.Fatal(err)
+		}
+		saved, err := LoadRecord(rec.ID)
+		if err != nil || saved.Usage == nil || *saved.Usage != want {
+			t.Fatalf("saved usage = %+v, err = %v", saved.Usage, err)
+		}
+		env := rec.ResultEnvelope(io.Discard)
+		if env.Usage == nil || *env.Usage != want {
+			t.Fatalf("error %v: envelope usage = %+v; want %+v", cause, env.Usage, want)
+		}
+	}
+}
