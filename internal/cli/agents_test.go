@@ -557,7 +557,11 @@ func TestAgentsLabelEmptyMeansNoPrefix(t *testing.T) {
 					t.Fatalf("exit = %d, stderr = %q, want success without diagnostics", code, stderr)
 				}
 				if format == "text" {
-					if out != strings.TrimSpace(want+"\n")+map[bool]string{true: "\n"}[want != ""] {
+					wantOut := want
+					if want != "" {
+						wantOut += "\n"
+					}
+					if out != wantOut {
 						t.Fatalf("stdout = %q, want %q", out, want)
 					}
 					return
