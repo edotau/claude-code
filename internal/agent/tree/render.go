@@ -8,12 +8,15 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/theme"
 )
 
 // maxRowWidth is the widest a terminal row may be, indent included; wider rows clip with an ellipsis.
@@ -28,32 +31,69 @@ func rowWidth(w io.Writer) int {
 	return min(n, maxRowWidth)
 }
 
-// renderText groups sessions by repo (newest first) and prints per-level aligned columns, clipped on a terminal.
+// activePaint is the SGR prefix for active rows: the "minimal" theme's first ramp stop, "" when w takes no colour.
+func activePaint(w io.Writer) string {
+	stops, _ := theme.EmbeddedTheme("minimal")
+	if len(stops) == 0 || !ansi.Enabled(w) {
+		return ""
+	}
+	return ansi.FgSeq(theme.Look{}.Mode(), stops[0], false)
+}
+
+// renderText prints the listing to w, rows clipped on a terminal, active rows painted when w is a colour terminal.
 func renderText(w io.Writer, tree *Tree, now time.Time) error {
 	ew := &textutil.ErrWriter{W: w}
-	renderTree(ew, tree, now, rowWidth(w))
+	renderTree(ew, tree, now, rowWidth(w), activePaint(w))
 	return ew.Err
 }
 
-// renderTree writes the grouped listing to w, rows clipped to width (0 = whole); write errors are the ErrWriter's.
-func renderTree(w io.Writer, tree *Tree, now time.Time, width int) {
+// renderTree writes the active sessions and jobs, a blank line, then the inactive sessions, each grouped by repo.
+// Rows clip to width (0 = whole) before paint (an SGR prefix, "" = none) wraps the active rows' state cells.
+func renderTree(w io.Writer, tree *Tree, now time.Time, width int, paint string) {
 	if len(tree.Sessions) == 0 && len(tree.Dispatches) == 0 {
 		fmt.Fprintln(w, "agents tree: no sessions in scope")
 		return
 	}
 	home, _ := os.UserHomeDir()
 	var l layout
-	for _, repo := range groupByRepo(tree.Sessions) {
-		l.free(0, repo.cwd)
-		for _, s := range repo.sessions {
-			addSession(&l, s, now, home)
-		}
-		l.free(0, "")
-	}
+	l.active = true
+	addRepos(&l, tree.Sessions, true, now, home)
 	addJobs(&l, tree.Dispatches, now)
-	for _, line := range l.lines(width) {
+	l.active = false
+	addRepos(&l, tree.Sessions, false, now, home)
+	for _, line := range l.lines(width, paint) {
 		fmt.Fprintln(w, line)
 	}
+}
+
+// addRepos adds a block per repo of the active or the inactive sessions, each after a blank line unless first.
+func addRepos(l *layout, sessions []Session, active bool, now time.Time, home string) {
+	for _, repo := range groupByRepo(sessions, active) {
+		l.sep()
+		l.free(0, repo.cwd)
+		for _, s := range repo.sessions {
+			addSession(l, s, now, home)
+		}
+	}
+}
+
+// isActive: the session is busy (or written recently), or anything in its subtree is running; stale never counts.
+func (s Session) isActive() bool {
+	if s.Status == statusActive || slices.ContainsFunc(s.Subagents, Subagent.running) {
+		return true
+	}
+	hot := false
+	for _, run := range s.Workflows {
+		hot = hot || run.Status == statusRunning
+		forEachRunAgent(run, func(sub Subagent) { hot = hot || sub.running() })
+	}
+	return hot
+}
+
+// running: the subagent, or a dispatch it launched, is still running.
+func (sub Subagent) running() bool {
+	live := func(d Dispatch) bool { return d.Status == statusRunning }
+	return sub.Status == statusRunning || slices.ContainsFunc(sub.Dispatches, live)
 }
 
 // addJobs adds the machine-wide running dispatch jobs under a "dispatches" header.
@@ -61,6 +101,7 @@ func addJobs(l *layout, dispatches []Dispatch, now time.Time) {
 	if len(dispatches) == 0 {
 		return
 	}
+	l.sep()
 	l.free(0, "dispatches")
 	for _, n := range nestDispatches(dispatches) { // the id already ends in the agent name; where it runs and on what model come next
 		d := n.Dispatch
@@ -71,6 +112,7 @@ func addJobs(l *layout, dispatches []Dispatch, now time.Time) {
 		}
 		l.add(levelJob, id, where, strings.TrimPrefix(cmp.Or(d.Model, "default"), "databricks-"), durationText(d.Duration),
 			signalText(d, now), joinText(n.tokenText(), "  ", oneLine(cmp.Or(d.Task, d.Repo))))
+		l.mark(d.Status == statusRunning, 1<<0)
 	}
 }
 
@@ -80,11 +122,14 @@ type repoGroup struct {
 	sessions []Session
 }
 
-// groupByRepo buckets sessions by cwd ("(unknown)" if unrecorded), newest first within a bucket and by newest session.
-func groupByRepo(sessions []Session) []repoGroup {
+// groupByRepo buckets the active or the inactive sessions by cwd ("(unknown)" if unrecorded), in the order given.
+func groupByRepo(sessions []Session, active bool) []repoGroup {
 	order := []string{}
 	byCwd := map[string][]Session{}
 	for _, s := range sessions {
+		if s.isActive() != active {
+			continue
+		}
 		cwd := s.Cwd
 		if cwd == "" {
 			cwd = "(unknown)"
@@ -108,6 +153,7 @@ func addSession(l *layout, s Session, now time.Time, home string) {
 		title = "(no prompt yet)"
 	}
 	l.add(levelSession, cmp.Or(s.Name, treeShortID(s.ID)), sessionStatusText(s), age(s.Updated, now), s.Branch, title)
+	l.mark(s.Status == statusActive, 1<<1)
 	for _, sub := range s.Subagents {
 		addSubagent(l, sub, now, home, s.Cwd)
 	}
@@ -185,10 +231,12 @@ func addSubagent(l *layout, sub Subagent, now time.Time, home, cwd string) {
 		"↑"+textutil.CompactCount(sub.Tokens.In), "↓"+textutil.CompactCount(sub.Tokens.Out),
 		age(sub.Updated, now), idleSince(sub, now), "tool="+cmp.Or(sub.LastTool, "-"),
 		oneLine(stripPaths(sub.Description, home, cwd)))
+	l.mark(sub.Status == statusRunning, 1<<0|1<<2)
 	for _, n := range nestDispatches(sub.Dispatches) {
 		cells := dispatchCells(n.Dispatch, now)
 		cells[len(cells)-1] = joinText(cells[len(cells)-1], " · ", n.tokenText())
 		l.add(levelDispatch, append([]string{nest + strings.Repeat("  ", n.level) + "↳"}, cells...)...)
+		l.mark(n.Status == statusRunning, 1<<2)
 	}
 }
 
@@ -219,6 +267,7 @@ func phaseDone(agents []Subagent) (done, total int) {
 // addWorkflowRun adds a run header then its phases -> agents, each phase showing done/total.
 func addWorkflowRun(l *layout, run WorkflowRun, now time.Time, home, cwd string) {
 	l.add(levelRun, "workflow "+run.Name, run.Status, age(run.Updated, now), run.ID)
+	l.mark(run.Status == statusRunning, 1<<1)
 	for _, phase := range run.Phases {
 		done, total := phaseDone(phase.Agents)
 		l.free(6, fmt.Sprintf("phase %s (%d/%d done)", phase.Name, done, total))
@@ -267,7 +316,7 @@ func Show(claudeDir string, opts Options, v View) int {
 	if v.Watch {
 		opts.scans = loadScanCache()
 		if rowWidth(os.Stdout) > 0 {
-			f = &frame{}
+			f = &frame{paint: activePaint(os.Stdout)}
 		}
 	}
 	for {
@@ -310,13 +359,14 @@ func show(claudeDir string, opts Options, v View, f *frame) int {
 type frame struct {
 	text, out bytes.Buffer
 	width     int
+	paint     string
 }
 
 // draw writes one frame in a single write: cursor home, each row cleared to its end, then the rest of the screen.
 func (f *frame) draw(w io.Writer, tree *Tree, now time.Time) error {
 	f.text.Reset()
 	f.out.Reset()
-	renderTree(&f.text, tree, now, f.width)
+	renderTree(&f.text, tree, now, f.width, f.paint)
 	f.out.WriteString("\x1b[H")
 	for rest := f.text.Bytes(); len(rest) > 0; {
 		i := bytes.IndexByte(rest, '\n')

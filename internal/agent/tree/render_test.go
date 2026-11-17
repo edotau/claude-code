@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"testing"
@@ -60,7 +61,7 @@ func TestRenderTextColumnsAlignAndFit(t *testing.T) {
 	tree, now := fixtureTree(t)
 	for _, width := range []int{80, 60, 0} {
 		var buf strings.Builder
-		renderTree(&buf, tree, now, width)
+		renderTree(&buf, tree, now, width, "")
 		var sessions, subagents, dispatches []string
 		for i, line := range strings.Split(strings.TrimRight(buf.String(), "\n"), "\n") {
 			if n := utf8.RuneCountInString(line); width > 0 && n > width {
@@ -180,7 +181,7 @@ func TestRenderNestsDispatchesWithSubtreeTokens(t *testing.T) {
 	now := time.Now()
 	render := func(width int, ds ...Dispatch) []string {
 		var b strings.Builder
-		renderTree(&b, &Tree{Dispatches: ds}, now, width)
+		renderTree(&b, &Tree{Dispatches: ds}, now, width, "")
 		return strings.Split(strings.TrimRight(b.String(), "\n"), "\n")
 	}
 	// legacy first, then the chain given grandchild-first: the children must still follow their parents
@@ -233,7 +234,7 @@ func TestWatchFramesRedrawInPlace(t *testing.T) {
 		}
 	}
 	var plain strings.Builder
-	renderTree(&plain, shrunk, now, 80)
+	renderTree(&plain, shrunk, now, 80, "")
 	body := strings.ReplaceAll(strings.TrimSuffix(strings.TrimPrefix(frames[1], "\x1b[H"), "\x1b[J"), "\x1b[K", "")
 	if body != plain.String() {
 		t.Errorf("shrunk frame body differs from the plain render:\n%q\n%q", body, plain.String())
@@ -302,7 +303,7 @@ func BenchmarkWatchTick(b *testing.B) {
 				}
 				if mode == "wipe" {
 					fmt.Fprint(w, "\x1b[H\x1b[2J")
-					renderTree(&textutil.ErrWriter{W: w}, tr, now, 80)
+					renderTree(&textutil.ErrWriter{W: w}, tr, now, 80, "")
 				} else {
 					err = f.draw(w, tr, now)
 				}
@@ -312,6 +313,124 @@ func BenchmarkWatchTick(b *testing.B) {
 			}
 			b.ReportMetric(float64(bytesOut)/float64(b.N), "bytes/frame")
 			b.ReportMetric(float64(writes)/float64(b.N), "writes/frame")
+		})
+	}
+}
+
+// splitFixture lists an idle, a busy, a second idle and an idle session with a running dispatch, in that order.
+func splitFixture(now time.Time) *Tree {
+	sess := func(id, status string, subs ...Subagent) Session {
+		return Session{ID: id, Cwd: "/repo", Branch: "main", Title: "task " + id, Updated: now, Status: status, Subagents: subs}
+	}
+	running := Subagent{Type: "codex", Status: "finished", Depth: 1, Updated: now, Dispatches: []Dispatch{{ID: "d1", Agent: "codex", Status: "running"}}}
+	stale := Subagent{Type: "codex", Status: "stale", Depth: 1, Updated: now.Add(-time.Hour)}
+	return &Tree{Sessions: []Session{
+		sess("idle0001", "idle", stale), sess("busy0001", "active"), sess("idle0002", "idle"), sess("disp0001", "idle", running),
+	}}
+}
+
+var escapes = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// render returns tree's text rows at width, split on newlines.
+func render(tree *Tree, now time.Time, width int, paint string) []string {
+	var b strings.Builder
+	renderTree(&b, tree, now, width, paint)
+	return strings.Split(strings.TrimSuffix(b.String(), "\n"), "\n")
+}
+
+// Active sessions (busy, or a running dispatch below) print first, one blank line, then the idle and stale ones.
+func TestRenderSplitsActiveFromInactive(t *testing.T) {
+	now := time.Date(2026, 10, 18, 3, 10, 0, 0, time.UTC)
+	lines := render(splitFixture(now), now, 0, "")
+	var order []string
+	blanks := 0
+	for _, line := range lines {
+		switch {
+		case line == "":
+			blanks++
+			order = append(order, "-")
+		case strings.Contains(line, "busy0001"), strings.Contains(line, "disp0001"), strings.Contains(line, "idle0001"), strings.Contains(line, "idle0002"):
+			order = append(order, strings.Fields(line)[0])
+		}
+	}
+	if want := "busy0001 disp0001 - idle0001 idle0002"; strings.Join(order, " ") != want || blanks != 1 {
+		t.Errorf("order = %q with %d blank lines, want %q with 1:\n%s", strings.Join(order, " "), blanks, want, strings.Join(lines, "\n"))
+	}
+}
+
+// With nothing in one section there is no blank line, and no trailing one.
+func TestRenderSingleSectionHasNoBlankLine(t *testing.T) {
+	now := time.Date(2026, 10, 18, 3, 10, 0, 0, time.UTC)
+	all := splitFixture(now)
+	for name, sessions := range map[string][]Session{"active": all.Sessions[1:2], "inactive": all.Sessions[:1]} {
+		if lines := render(&Tree{Sessions: sessions}, now, 0, ""); slices.Contains(lines, "") {
+			t.Errorf("%s only: blank line in\n%s", name, strings.Join(lines, "\n"))
+		}
+	}
+}
+
+// Paint touches only the active section: the inactive rows are byte-identical and, unescaped, so are the active ones.
+func TestRenderPaintsOnlyActiveRows(t *testing.T) {
+	now := time.Date(2026, 10, 18, 3, 10, 0, 0, time.UTC)
+	for _, width := range []int{0, 80, 30} {
+		plain, painted := render(splitFixture(now), now, width, ""), render(splitFixture(now), now, width, "\x1b[35m")
+		gap := slices.Index(plain, "")
+		if gap < 0 || len(plain) != len(painted) {
+			t.Fatalf("width %d: plain has %d rows, painted %d, blank at %d", width, len(plain), len(painted), gap)
+		}
+		if !slices.Equal(plain[gap:], painted[gap:]) {
+			t.Errorf("width %d: inactive section changed:\n%q\n%q", width, plain[gap:], painted[gap:])
+		}
+		for i, line := range painted[:gap] {
+			if got := escapes.ReplaceAllString(line, ""); got != plain[i] {
+				t.Errorf("width %d: active row %d unescaped = %q, want %q", width, i, got, plain[i])
+			}
+		}
+		if !strings.Contains(strings.Join(painted[:gap], ""), "\x1b[") {
+			t.Errorf("width %d: no active row is painted", width)
+		}
+		for i, line := range painted {
+			if n := utf8.RuneCountInString(escapes.ReplaceAllString(line, "")); width > 0 && n > width {
+				t.Errorf("width %d: row %d is %d columns: %q", width, i, n, line)
+			}
+		}
+	}
+	if got := activePaint(&strings.Builder{}); got != "" {
+		t.Errorf("activePaint on a non-terminal = %q, want none", got)
+	}
+}
+
+// synthTree is n sessions of four subagents with one dispatch each, half of them busy: about 9n rows.
+func synthTree(n int, now time.Time) *Tree {
+	tree := &Tree{}
+	for i := range n {
+		s := Session{ID: fmt.Sprintf("sess%04d", i), Cwd: fmt.Sprintf("/repo/%d", i%7), Branch: "main", Title: "a task title", Updated: now, Status: "idle"}
+		if i%2 == 0 {
+			s.Status = "active"
+		}
+		for range 4 {
+			status := "stale"
+			if s.Status == "active" {
+				status = "running"
+			}
+			s.Subagents = append(s.Subagents, Subagent{Type: "codex", Status: status, Depth: 1, Updated: now, LastTool: "Bash",
+				Tokens: Tokens{In: 22700, Out: 2900}, Description: "a subagent description", Dispatches: []Dispatch{{ID: "d", Agent: "codex", Model: "gpt-6", Status: "ok", Duration: "9s"}}})
+		}
+		tree.Sessions = append(tree.Sessions, s)
+	}
+	return tree
+}
+
+// BenchmarkRender is the text render alone over about 900 rows: "plain" paints nothing, "paint" colours the active half.
+func BenchmarkRender(b *testing.B) {
+	now := time.Date(2026, 10, 18, 3, 10, 0, 0, time.UTC)
+	tree := synthTree(100, now)
+	for name, paint := range map[string]string{"plain": "", "paint": "\x1b[38;2;156;192;159m"} {
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				renderTree(io.Discard, tree, now, 80, paint)
+			}
 		})
 	}
 }

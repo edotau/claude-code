@@ -4,8 +4,10 @@ package tree
 
 import (
 	"strings"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/textutil"
+	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
 // Row levels: each level pads its columns to the widest cell among the rows of that level in one render.
@@ -47,13 +49,31 @@ const gap = "  "
 type row struct {
 	level, indent int
 	cells         []string
+	hot           uint8 // bit c set: fixed cell c is painted when the layout is rendered with a paint
 }
 
 // layout collects rows in print order so column widths can be measured across a whole level before any line is built.
-type layout struct{ rows []row }
+type layout struct {
+	rows   []row
+	active bool // rows added now belong to the active section, the only one mark paints
+}
 
 func (l *layout) add(level int, cells ...string) {
 	l.rows = append(l.rows, row{level: level, indent: levelIndent[level], cells: cells})
+}
+
+// mark makes the cells in bits of the last row hot when it sits in the active section and on is true.
+func (l *layout) mark(on bool, bits uint8) {
+	if on && l.active {
+		l.rows[len(l.rows)-1].hot = bits
+	}
+}
+
+// sep adds a blank row unless the layout is empty or already ends in one.
+func (l *layout) sep() {
+	if n := len(l.rows); n > 0 && (l.rows[n-1].level != levelFree || l.rows[n-1].cells[0] != "") {
+		l.free(0, "")
+	}
 }
 
 func (l *layout) free(indent int, text string) {
@@ -61,13 +81,17 @@ func (l *layout) free(indent int, text string) {
 }
 
 // lines builds one line per row; width 0 (piped) leaves every cell whole, otherwise rows and wide columns are clipped.
-func (l *layout) lines(width int) []string {
+// A non-empty paint then wraps each hot cell, so escapes never count toward the width.
+func (l *layout) lines(width int, paint string) []string {
 	rows := l.capped(width)
 	widths := levelWidths(rows)
 	dropOptional(widths, width)
 	out := make([]string, len(rows))
 	for i, r := range rows {
 		out[i] = r.line(widths[r.level], width)
+		if paint != "" && r.hot != 0 {
+			out[i] = r.paintHot(out[i], widths[r.level], paint)
+		}
 	}
 	return out
 }
@@ -150,4 +174,38 @@ func (r row) line(ws []int, width int) string {
 		line = textutil.Truncate(line, width)
 	}
 	return line
+}
+
+// paintHot wraps r's hot cells found intact in the clipped line with paint and a reset.
+func (r row) paintHot(line string, ws []int, paint string) string {
+	var b strings.Builder
+	b.Grow(len(line) + 2*(len(paint)+len(ansi.Reset)))
+	col, runes, at, written := r.indent, 0, 0, 0 // col: next cell's column; runes/at: how far line has been walked
+	for c, k := range levelCols[r.level] {
+		if ws[c] == 0 {
+			continue
+		}
+		cell, start := r.cells[c], col
+		if k.right {
+			start += ws[c] - textutil.RuneLen(cell)
+		}
+		col += ws[c] + len(gap)
+		if r.hot>>c&1 == 0 || cell == "" {
+			continue
+		}
+		for ; runes < start && at < len(line); runes++ {
+			_, n := utf8.DecodeRuneInString(line[at:])
+			at += n
+		}
+		if runes != start || !strings.HasPrefix(line[at:], cell) {
+			continue
+		}
+		b.WriteString(line[written:at])
+		b.WriteString(paint)
+		b.WriteString(cell)
+		b.WriteString(ansi.Reset)
+		written = at + len(cell)
+	}
+	b.WriteString(line[written:])
+	return b.String()
 }
