@@ -1,7 +1,5 @@
 package memory
 
-// Wraps long lines in the bank markdown the harness writes (never index.md or MEMORY.md), across the flat store.
-
 import (
 	"errors"
 	"io/fs"
@@ -82,7 +80,8 @@ func formatBankLocked(check bool) (changed []string, err error) {
 	}
 	changed, err = formatFiles(files, check)
 	if !check && len(changed) > 0 { // commit what was written even when a later file failed, so a retry is not blind to it
-		scope := StoreRepo().dropCredentialShaped(storeRels(changed), nil) // a credential-shaped file is skipped, never wedges the commit
+		// Credential-shaped files must not block the commit.
+		scope := StoreRepo().dropCredentialShaped(storeRels(changed), nil)
 		if cerr := commitStore("fmt: wrap bank lines", scope...); cerr != nil {
 			return changed, errors.Join(err, cerr)
 		}
@@ -259,19 +258,17 @@ func bankFmtTokenize(s string) []string {
 		}
 	}
 	var tokens []string
-	var cur strings.Builder
+	start := 0
 	for i := 0; i < len(s); i++ {
 		if s[i] == ' ' && !protected[i] {
-			if cur.Len() > 0 {
-				tokens = append(tokens, cur.String())
-				cur.Reset()
+			if start < i {
+				tokens = append(tokens, s[start:i])
 			}
-			continue
+			start = i + 1
 		}
-		cur.WriteByte(s[i])
 	}
-	if cur.Len() > 0 {
-		tokens = append(tokens, cur.String())
+	if start < len(s) {
+		tokens = append(tokens, s[start:])
 	}
 	return tokens
 }
