@@ -129,8 +129,16 @@ func usageText(out []byte) []byte {
 func ParseQuotas(out []byte) []QuotaRow {
 	var rows []QuotaRow
 	for line := range strings.SplitSeq(string(out), "\n") {
-		f := strings.Split(strings.TrimRight(line, "\r"), "\t")
-		if len(f) < 3 {
+		var f [4]string
+		n := 0
+		for field := range strings.SplitSeq(strings.TrimRight(line, "\r"), "\t") {
+			f[n] = field
+			n++
+			if n == len(f) {
+				break
+			}
+		}
+		if n < 3 {
 			continue
 		}
 		pct, ok := strings.CutSuffix(strings.TrimSpace(f[2]), "%")
@@ -139,7 +147,7 @@ func ParseQuotas(out []byte) []QuotaRow {
 			continue
 		}
 		r := QuotaRow{Pool: strings.TrimSpace(f[0]), Limit: strings.TrimSpace(f[1]), Remaining: v}
-		if len(f) > 3 {
+		if n > 3 {
 			r.Reset, _ = time.Parse(time.RFC3339, strings.TrimSpace(f[3]))
 		}
 		rows = append(rows, r)

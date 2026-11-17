@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -14,6 +15,25 @@ import (
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 )
+
+func BenchmarkIndexCodexModels(b *testing.B) {
+	var raw strings.Builder
+	raw.WriteString(`{"models":[`)
+	for i := range 64 {
+		if i > 0 {
+			raw.WriteByte(',')
+		}
+		raw.WriteString(`{"slug":"gpt-model-` + strconv.Itoa(i) + `"}`)
+	}
+	raw.WriteString(`]}`)
+	data := []byte(raw.String())
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, _, err := indexCodexModels(data); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
 
 func TestRunCodexCatalogWrapsExitErrorWithTrimmedStderr(t *testing.T) {
 	home := t.TempDir()

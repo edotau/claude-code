@@ -243,7 +243,8 @@ func indexCodexModels(raw []byte) (bySlug, byKey map[string]map[string]any, err 
 	if len(cat.Models) == 0 {
 		return nil, nil, errors.New("no models")
 	}
-	bySlug, byKey = make(map[string]map[string]any), make(map[string]map[string]any)
+	bySlug = make(map[string]map[string]any, len(cat.Models))
+	byKey = make(map[string]map[string]any, len(cat.Models))
 	for _, m := range cat.Models {
 		slug, ok := m["slug"].(string)
 		if !ok || slug == "" {
