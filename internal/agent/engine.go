@@ -490,6 +490,11 @@ func watchFreeDispatch(r Engine, billing string) Engine {
 	if billing != router.BillFree {
 		return r
 	}
+	return watchFirstOutput(r)
+}
+
+// watchFirstOutput arms the stall deadline on a hub engine; any other engine passes through.
+func watchFirstOutput(r Engine) Engine {
 	if hl, ok := r.(HubEngine); ok {
 		return hl.WithFirstOutput(firstOutputDeadline())
 	}

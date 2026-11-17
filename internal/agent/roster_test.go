@@ -94,15 +94,19 @@ func fixtureOwnPlan(id string) bool { return id == "opencode-go" || id == "openc
 
 // fixtureHubEngine is a hub step with no opencode CLI behind it.
 type fixtureHubEngine struct {
-	agent    string
-	provider *providers.Provider
+	agent       string
+	provider    *providers.Provider
+	firstOutput time.Duration // what WithFirstOutput armed
 }
 
-func (h fixtureHubEngine) Name() string                         { return h.agent }
-func (h fixtureHubEngine) HubProvider() *providers.Provider     { return h.provider }
-func (h fixtureHubEngine) WithFirstOutput(time.Duration) Engine { return h }
-func (fixtureHubEngine) Caps() Caps                             { return SchemaFor("opencode").CLI.Caps }
-func (fixtureHubEngine) Available() error                       { return errors.New("fixture hub: no CLI") }
+func (h fixtureHubEngine) Name() string                     { return h.agent }
+func (h fixtureHubEngine) HubProvider() *providers.Provider { return h.provider }
+func (h fixtureHubEngine) WithFirstOutput(d time.Duration) Engine {
+	h.firstOutput = d
+	return h
+}
+func (fixtureHubEngine) Caps() Caps       { return SchemaFor("opencode").CLI.Caps }
+func (fixtureHubEngine) Available() error { return errors.New("fixture hub: no CLI") }
 func (fixtureHubEngine) Run(context.Context, RunOptions, wire.Sink) (wire.Result, error) {
 	return wire.Result{}, errors.New("fixture hub: no CLI")
 }

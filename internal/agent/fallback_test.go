@@ -1059,3 +1059,63 @@ func TestAliasMoveSkipsWaitAndCooldown(t *testing.T) {
 		})
 	}
 }
+
+// The agy overflow hop runs after a quota failure of the claude ladder, even past a claude hop that would stop.
+func TestQuotaOverflowHop(t *testing.T) {
+	quota := &retry.Error{Kind: retry.KindQuota, Agent: "claude", Err: errors.New("weekly limit reached")}
+	fatal := &retry.Error{Kind: retry.KindFatal, Agent: "claude", Err: errors.New("bad request")}
+	cases := []struct {
+		name      string
+		errs      []error
+		second    bool // a second claude hop between the first and the overflow hop
+		provider  string
+		wantAgy   int
+		wantErr   bool
+		wantHopOK string
+	}{
+		{name: "quota runs agy", errs: []error{quota}, wantAgy: 1, wantHopOK: "gemini"},
+		{name: "quota past a stopping claude hop", errs: []error{quota, nil}, second: true, wantAgy: 1, wantHopOK: "gemini"},
+		{name: "a non-quota failure never reaches it", errs: []error{fatal}, wantErr: true},
+		{name: "an answer never reaches it", errs: []error{nil}, wantHopOK: "claude"},
+		{name: "an explicit backend never reaches it", errs: []error{quota}, provider: "dev", wantErr: true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			fallbackConfigDir(t)
+			claude := &fakeRunner{name: "claude", errs: c.errs, emptyAnswer: c.errs[0] != nil}
+			agy := &fakeRunner{name: "gemini", errs: []error{nil}}
+			ch := Chain{Want: "claude", Dispatches: []Dispatch{{Agent: claude, keepCaller: true}}}
+			if c.second {
+				ch.Dispatches = append(ch.Dispatches, Dispatch{Agent: &fakeRunner{name: "claude", errs: []error{nil}}})
+			}
+			ch.Dispatches = append(ch.Dispatches, Dispatch{Agent: agy, Model: "claude-sonnet-5-5", quotaOverflow: true})
+			res, err := runWithFallback(context.Background(), ch, RunOptions{Prompt: "p", Provider: c.provider}, wire.Discard, nil)
+			if (err != nil) != c.wantErr || len(agy.seen) != c.wantAgy || (c.wantHopOK != "" && res.Agent != c.wantHopOK) {
+				t.Fatalf("res.Agent=%q err=%v agy.seen=%d, want agent %q agy %d err %v", res.Agent, err, len(agy.seen), c.wantHopOK, c.wantAgy, c.wantErr)
+			}
+			if c.wantAgy == 1 && (res.Fallback != "claude" || len(res.Hops) != 2 || res.Hops[1].Agent != "gemini") {
+				t.Errorf("fallback=%q hops=%+v, want a claude fallback with the claude and gemini hops", res.Fallback, res.Hops)
+			}
+		})
+	}
+}
+
+// A claude quota failure with the overflow hop behind it does not trip the fail-fast batch; without the hop it does.
+func TestQuotaOverflowKeepsBatchAlive(t *testing.T) {
+	fallbackConfigDir(t)
+	quota := &retry.Error{Kind: retry.KindQuota, Agent: "claude", Err: errors.New("weekly limit reached")}
+	for _, hop := range []bool{true, false} {
+		t.Run(strconv.FormatBool(hop), func(t *testing.T) {
+			ch := Chain{Want: "claude", Dispatches: []Dispatch{{Agent: &fakeRunner{name: "claude", errs: []error{quota}, emptyAnswer: true}, keepCaller: true}}}
+			if hop {
+				ch.Dispatches = append(ch.Dispatches, Dispatch{Agent: &fakeRunner{name: "gemini", errs: []error{quota}, emptyAnswer: true}, quotaOverflow: true})
+			}
+			tripped := 0
+			ctx := retry.WithFailFast(t.Context(), func() { tripped++ })
+			tripFailFast(ctx, ch, 0, RunOptions{Prompt: "p"}, wire.Result{}, quota)
+			if want := map[bool]int{true: 0, false: 1}[hop]; tripped != want {
+				t.Errorf("hop=%v: trips = %d, want %d", hop, tripped, want)
+			}
+		})
+	}
+}

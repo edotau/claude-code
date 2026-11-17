@@ -28,6 +28,9 @@ func RunQuery(ctx context.Context, reg *providers.Registry, q ModelQuery, aliasH
 	}
 	prefix, auto := SplitAuto(q.Model)
 	typed := q.Model != "" && (!auto || prefix != "") // a bare auto routes like an untyped run
+	if hop, ok := agyAliasQuery(q); ok {
+		return hop, "", nil
+	}
 	if VaultAgentIsClaude(q.Agent) || typed || q.Profile != "" || q.Provider != "" || q.Account != "" {
 		return q, "", nil
 	}
@@ -529,4 +532,15 @@ func foldAuto(o RunOptions) RunOptions {
 		o.Provider = prefix
 	}
 	return o
+}
+
+// agyAliasQuery is a typed alias on gemini as agy runs it: the Claude id it serves, else the row's tier.
+func agyAliasQuery(q ModelQuery) (ModelQuery, bool) {
+	id, ok := models.Alias(strings.ToLower(q.Model))
+	if q.Agent != agentid.Gemini || !ok || q.Profile != "" || q.Provider != "" || q.Account != "" ||
+		len(models.AcceptedEfforts(agentid.Gemini, id)) == 0 {
+		return q, false
+	}
+	q.Model = id
+	return q, true
 }
