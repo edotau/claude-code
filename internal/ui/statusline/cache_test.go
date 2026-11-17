@@ -2,7 +2,6 @@ package statusline
 
 import (
 	"encoding/json"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"hash/fnv"
 	"os"
 	"path/filepath"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"

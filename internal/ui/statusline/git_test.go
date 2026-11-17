@@ -1,12 +1,13 @@
 package statusline
 
 import (
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestGitBranchFast(t *testing.T) {

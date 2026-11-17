@@ -3,12 +3,13 @@ package worktree
 import (
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestResolveRepoBoundsDiscoverySubprocess(t *testing.T) {

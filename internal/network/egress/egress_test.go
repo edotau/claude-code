@@ -3,7 +3,6 @@ package egress
 import (
 	"context"
 	"errors"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"io"
 	"net"
 	"net/http"
@@ -17,6 +16,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/proc"
 )

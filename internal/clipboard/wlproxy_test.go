@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/binary"
 	"errors"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"image/png"
 	"os"
 	"os/exec"
@@ -13,6 +12,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 const chainParent = ": xclip -selection clipboard wl-paste --type image/bmp"

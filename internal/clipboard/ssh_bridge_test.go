@@ -3,7 +3,6 @@ package clipboard
 import (
 	"bytes"
 	"errors"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"image/png"
 	"io"
 	"net"
@@ -12,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // serveOnce answers one connection on sock with payload, then closes (the bridge protocol).

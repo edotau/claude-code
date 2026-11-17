@@ -2,11 +2,9 @@ package claude
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"io"
 	"os"
 	"path/filepath"
@@ -15,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/agent/agenttest"
 
@@ -919,7 +919,7 @@ func TestLiveCancelEndsHolderAndReapsChild(t *testing.T) {
 
 type syncBuffer struct {
 	mu sync.Mutex
-	b  bytes.Buffer
+	b  strings.Builder
 }
 
 func (s *syncBuffer) Write(p []byte) (int, error) {

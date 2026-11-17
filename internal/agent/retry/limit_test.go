@@ -18,8 +18,7 @@ import (
 func TestBatchAndSpawnsShareTheAccountCap(t *testing.T) {
 	hosttest.SkipOnWindows(t, "unix tools")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	const account = "shared·acct"
-	const capA = 12
+	const account, capA = "shared·acct", 12
 	lim := inflight.Limits{Total: 1000, Override: map[string]int{account: capA}}
 
 	helper := exec.Command("sleep", "30")

@@ -2,7 +2,6 @@ package memory
 
 import (
 	"errors"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -10,6 +9,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // A native topic file in StoreDir() belongs to a repo's native corpus.

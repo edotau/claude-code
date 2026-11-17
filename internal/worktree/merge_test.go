@@ -2,13 +2,14 @@ package worktree
 
 import (
 	"context"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // A failing pre-merge-commit hook aborts the worktree merge mid-way and promote never touches main.

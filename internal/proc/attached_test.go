@@ -2,9 +2,10 @@ package proc
 
 import (
 	"errors"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"os/exec"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestRunAttachedExitError(t *testing.T) {
