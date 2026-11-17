@@ -49,11 +49,20 @@ func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 	if len(c.Dispatches) > 1 && editing(req) { // the successor's `git log <start>..HEAD` needs the pre-dispatch HEAD
 		s.startHead = gitHead(ctx, req.WorkDir)
 	}
+	done := false
 	for i, disp := range c.Dispatches {
-		if done, err := s.step(ctx, c, i, disp, sink, notify); err != nil {
-			return s.attach(s.res), err
-		} else if done {
+		if disp.quotaOverflow { // reached past a stop, but only when the ladder ended on a quota failure
+			if err := s.overflow(ctx, c, i, disp, sink, notify); err != nil {
+				return s.attach(s.res), err
+			}
 			break
+		}
+		var err error
+		if done {
+			continue
+		}
+		if done, err = s.step(ctx, c, i, disp, sink, notify); err != nil {
+			return s.attach(s.res), err
 		}
 	}
 	res, err := chainOutcome(ctx, c, s.res, s.err, s.reasons, s.prevDispatch, s.ran, s.stopped)
@@ -445,6 +454,28 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 	return s.stopped, nil
 }
 
+// quotaFailure reports err as a quota-class failure (retry.KindQuota).
+func quotaFailure(err error) bool {
+	e, ok := errors.AsType[*retry.Error](err)
+	return ok && e.Kind == retry.KindQuota
+}
+
+// overflow runs the quota-overflow hop when the last dispatch failed on quota, whatever stopped the chain before it.
+func (s *fallbackState) overflow(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) error {
+	if !quotaFailure(s.err) || c.yieldsFallback(s.req, s.res, s.err) || explicitBackend(s.req) {
+		return nil
+	}
+	if cerr := ctx.Err(); cerr != nil {
+		return s.cancelled(i, disp, cerr)
+	}
+	e, _ := errors.AsType[*retry.Error](s.err)
+	if herr := s.handOff(i, disp, e.Progressed, sink, notify); herr != nil {
+		return herr
+	}
+	s.stopped = s.dispatch(ctx, c, i, disp, sink, notify)
+	return nil
+}
+
 // handOff records why hop i-1 failed and announces disp taking over; the lead (i == 0) hands off nothing.
 func (s *fallbackState) handOff(i int, disp Dispatch, midRun bool, sink wire.Sink, notify func(string)) error {
 	if i == 0 {
@@ -497,6 +528,9 @@ func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res wire.
 	}
 	if c.yieldsFallback(req, res, err) {
 		return
+	}
+	if last := len(c.Dispatches) - 1; i < last && c.Dispatches[last].quotaOverflow && quotaFailure(err) {
+		return // the overflow hop follows a quota failure
 	}
 	if i+1 >= len(c.Dispatches) || (i == 0 && explicitBackend(req)) {
 		trip()

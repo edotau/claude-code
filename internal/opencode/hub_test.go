@@ -257,6 +257,24 @@ func TestHubRunCarriesDenyAndPlugin(t *testing.T) {
 	}
 }
 
+// A hub dispatch armed through WithFirstOutput that streams nothing ends as ErrStalled; unarmed it would block.
+func TestHubRunSilentChildStalls(t *testing.T) {
+	data, _ := fakeOpencode(t, "1.19.3", "", nil)
+	writeAuthJSON(t, data, `{"opencode":{"type":"api","key":"k"}}`)
+	pathstest.FakeVendor(t, "opencode", "exec /bin/sleep 30")
+	p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
+	l := hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}.WithFirstOutput(300 * time.Millisecond)
+
+	start := time.Now()
+	_, err := l.Run(context.Background(), agent.RunOptions{Prompt: "hi"}, wire.Discard)
+	if !errors.Is(err, agent.ErrStalled) {
+		t.Fatalf("err = %v, want agent.ErrStalled", err)
+	}
+	if took := time.Since(start); took > 10*time.Second {
+		t.Errorf("stall took %v, want the 300ms window to end the run", took)
+	}
+}
+
 const evSecret = "AKIAIOSFODNN7EXAMPLE"
 
 // emitScript is a fake vendor body that drains stdin then prints each NDJSON line on stdout.

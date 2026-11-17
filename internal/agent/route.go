@@ -33,6 +33,7 @@ type Dispatch struct {
 	swap                         bool                       // the wanted agent's pin standing in for the requested target
 	routerChose                  bool                       // no lead and no pin: the router's own row for the wanted agent, not a deviation
 	rung                         int                        // 1-based index of the pick candidate that built this dispatch; 0 = none
+	quotaOverflow                bool                       // the last hop: runs only after a quota-class failure
 }
 
 // Chain is a routed dispatch: Want is the agent asked for, Dispatches run in order, Skipped are gate drops.
@@ -70,7 +71,7 @@ func RouteChainFor(ctx context.Context, want, model, aliasHint, mode string, nat
 		if err != nil {
 			return Chain{}, router.PickResult{}, err
 		}
-		return Chain{Want: want, Dispatches: []Dispatch{{Agent: r, Model: bare, keepCaller: true}}}, router.PickResult{}, nil
+		return Chain{Want: want, Dispatches: []Dispatch{{Agent: watchFirstOutput(r), Model: bare, keepCaller: true}}}, router.PickResult{}, nil
 	}
 	alias, row, exact := router.ModelRow(model)
 	return routeChain(ctx, want, cmp.Or(alias, aliasHint), row, exact, strings.TrimSpace(model), mode, strings.TrimSpace(model) != "", native, o)
@@ -114,7 +115,37 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	if err != nil {
 		return Chain{}, pick, err
 	}
-	return rc.finishChain(c, pick), pick, nil
+	return rc.finishChain(rc.withAgyOverflow(c, alias, o), pick), pick, nil
+}
+
+// withAgyOverflow ends the claude ladder with the Claude model agy serves on the Google login (G3).
+func (rc routeCtx) withAgyOverflow(c Chain, alias string, o router.PickOpts) Chain {
+	claudeHop := func(d Dispatch) bool { return VaultAgentIsClaude(d.Agent.Name()) }
+	if !VaultAgentIsClaude(rc.want) || rc.mode == router.FallbackNone || rc.mode == router.FallbackPin || rc.exact != "" ||
+		(rc.row != "" && rc.row != rc.current) || !slices.ContainsFunc(c.Dispatches, claudeHop) {
+		return c
+	}
+	id, _ := models.Alias(alias)
+	if len(models.AcceptedEfforts(agentid.Gemini, id)) == 0 { // agy serves no Claude for this alias
+		return c
+	}
+	o.Lead, o.Pins, o.Fallback = "", nil, router.FallbackNone
+	cands := rc.tb.Pick(rc.ctx, alias, agentid.Gemini, loadState(), o).Candidates
+	i := slices.IndexFunc(cands, func(k router.Candidate) bool { return k.Agent == agentid.Gemini && k.Profile == "" })
+	if i < 0 {
+		return c
+	}
+	cell := cands[i].Cell
+	cell.Model, cell.Effort = id, ""
+	g := rc
+	g.want, g.row, g.exact, g.callerModel, g.explicitModel, g.lead = agentid.Gemini, "", "", "", false, ""
+	disp, skip, err := g.buildDispatch(cands[i], cell)
+	if err != nil || skip != "" {
+		return c
+	}
+	disp.otherRoute, disp.quotaOverflow = true, true
+	c.Dispatches = append(c.Dispatches, disp)
+	return c
 }
 
 // finishChain drops the confinement's skips from a chain that runs and attaches what the preflight found.
@@ -535,13 +566,21 @@ func (rc routeCtx) pinnedCaller(cand router.Candidate) bool {
 
 func (rc routeCtx) pinnedCell(cand router.Candidate, cell *router.Cell) {
 	cell.Model = cmp.Or(rc.exact, strings.TrimPrefix(rc.callerModel, cand.Profile+":")) // buildDispatch re-adds the profile
-	if rc.reg != nil && rc.reg.Providers[cand.Profile] != nil {
-		p := rc.reg.Providers[cand.Profile]
-		if slices.Contains(models.AliasNames, rc.callerModel) {
-			cell.Model = cmp.Or(router.DatabricksModel(cand.Agent, rc.callerModel, p), p.Models[rc.callerModel])
-		}
-		cell.Model = launchWire(cand.Agent, p, cell.Model)
+	if rc.reg == nil || rc.reg.Providers[cand.Profile] == nil {
+		return
 	}
+	p := rc.reg.Providers[cand.Profile]
+	if slices.Contains(models.AliasNames, rc.callerModel) {
+		cell.Model = router.DatabricksModel(cand.Agent, rc.callerModel, p)
+		if cell.Model == "" && p.Preset == providers.PresetDatabricks {
+			cell.Model = p.Models[rc.callerModel]
+		}
+		if cell.Model == "" || preflightResponsesMismatch(cand.Agent, p, launchWire(cand.Agent, p, cell.Model)) {
+			*cell = cand.Cell // an own-login row or a pin that cannot serve the alias keeps its own cell
+			return
+		}
+	}
+	cell.Model = launchWire(cand.Agent, p, cell.Model)
 }
 
 // callerOnProfile reports the wanted agent on a registry row asked for a concrete id, or any exact id on Databricks.

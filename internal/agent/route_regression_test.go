@@ -48,13 +48,18 @@ func TestRouteChainStampsRungOnEveryDispatch(t *testing.T) {
 	if len(chain.Dispatches) == 0 {
 		t.Fatal("no dispatches routed")
 	}
+	picked := 0
 	for _, d := range chain.Dispatches {
+		if d.quotaOverflow { // the overflow hop is no pick candidate: rung 0
+			continue
+		}
+		picked++
 		if d.rung < 1 || d.rung > len(pick.Candidates) {
 			t.Fatalf("dispatch %s rung = %d, want 1..%d", d.Agent.Name(), d.rung, len(pick.Candidates))
 		}
 	}
-	if got := previewOutcome(chain, pick).Candidates; len(got) != len(chain.Dispatches) {
-		t.Fatalf("preview candidates = %d, want %d", len(got), len(chain.Dispatches))
+	if got := previewOutcome(chain, pick).Candidates; len(got) != picked {
+		t.Fatalf("preview candidates = %d, want %d", len(got), picked)
 	}
 }
 

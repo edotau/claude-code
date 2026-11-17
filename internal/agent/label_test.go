@@ -64,6 +64,18 @@ func TestRunQueryTypedSkipsLadder(t *testing.T) {
 }
 
 // TaskTier reads a Tier: line first, then deep, fast and standard signals from the work text alone.
+func TestRunQueryAgyAlias(t *testing.T) {
+	for _, c := range []struct{ agent, model, want string }{
+		{"gemini", "opus", "claude-opus-5-5"}, {"gemini", "sonnet", "claude-sonnet-5-5"},
+		{"gemini", "haiku", "haiku"}, {"codex", "opus", "opus"}, {"copilot", "opus", "opus"},
+	} {
+		got, _, err := RunQuery(context.Background(), &providers.Registry{}, ModelQuery{Agent: c.agent, Model: c.model}, "")
+		if err != nil || got.Model != c.want {
+			t.Errorf("%s --model %s = %q, %v; want %q", c.agent, c.model, got.Model, err, c.want)
+		}
+	}
+}
+
 func TestTaskTier(t *testing.T) {
 	for _, tc := range []struct{ brief, want string }{
 		{"Fix the typo in internal/agent/label.go.", "haiku"},

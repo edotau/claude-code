@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -671,26 +672,71 @@ func TestRouteChainOwnConnector(t *testing.T) {
 			t.Fatalf("%s: chain=%+v err=%v", model, c, err)
 		}
 		d := c.Dispatches[0]
+		if got := d.Agent.(fixtureHubEngine).firstOutput; got <= 0 || got != firstOutputDeadline() {
+			t.Fatalf("%s: stall deadline = %v, want %v", model, got, firstOutputDeadline())
+		}
 		if d.Model != "kimi-k3" || !d.keepCaller || c.Preflight != nil || d.Agent.(HubEngine).HubProvider().OpencodeID != strings.Split(model, "/")[0] {
 			t.Fatalf("%s: dispatch=%+v preflight=%+v", model, d, c.Preflight)
 		}
 	}
 }
 
+// A typed alias on a pinned row runs where that agent's pin can serve it, else keeps the pin's own cell.
 func TestPinnedCallerAlias(t *testing.T) {
 	setConfigDir(t)
 	reg := routeRegistry(t)
-	cand := router.Candidate{Agent: "opencode", Profile: "dev"}
-	for _, alias := range []string{"opus", "sonnet"} {
-		_, row, _ := router.ModelRow(alias)
-		rc := routeCtx{want: "opencode", reg: reg, pins: map[string]router.PinSpec{"opencode": {Profile: "dev", Model: "databricks-claude-sonnet-5-5"}}, explicitModel: true, callerModel: alias, row: row}
+	pinCell := router.Cell{Model: "pin-cell"}
+	dev := reg.Providers["dev"]
+	cases := []struct{ agent, profile, alias, want string }{
+		{"opencode", "dev", "opus", router.DatabricksModel("opencode", "opus", dev)},
+		{"opencode", "dev", "sonnet", router.DatabricksModel("opencode", "sonnet", dev)},
+		{"codex", "dev", "opus", router.DatabricksModel("codex", "opus", dev)},
+		{"codex", "dev", "sonnet", "pin-cell"},           // dev serves sonnet only as a Claude id, not over Responses
+		{"copilot", "aueric_boehcp", "opus", "pin-cell"}, // an own-login row's cell already carries the alias
+		{"gemini", "antigravity", "opus", "pin-cell"},
+		{"gemini", "antigravity", "haiku", "pin-cell"},
+	}
+	for _, c := range cases {
+		_, row, _ := router.ModelRow(c.alias)
+		pins := map[string]router.PinSpec{c.agent: {Profile: c.profile, Model: "pin-cell"}}
+		rc := routeCtx{want: c.agent, reg: reg, pins: pins, explicitModel: true, callerModel: c.alias, row: row}
+		cand := router.Candidate{Agent: c.agent, Profile: c.profile, Cell: pinCell}
 		if !rc.pinnedCaller(cand) {
-			t.Fatalf("%s: alias refused on pin", alias)
+			t.Fatalf("%s %s: alias refused on pin", c.agent, c.alias)
 		}
-		cell := router.Cell{Model: "databricks-claude-sonnet-5-5"}
+		cell := pinCell
 		rc.pinnedCell(cand, &cell)
-		if want := router.DatabricksModel("opencode", alias, reg.Providers["dev"]); cell.Model != want {
-			t.Fatalf("%s: model=%s want=%s", alias, cell.Model, want)
+		if cell.Model != c.want {
+			t.Errorf("%s %s: model=%q want=%q", c.agent, c.alias, cell.Model, c.want)
+		}
+	}
+}
+
+// The claude ladder ends with agy's own Claude on the Google login, only in the modes that allow another agent.
+func TestRouteChainAgyOverflow(t *testing.T) {
+	vaulttest.Use(t)
+	cases := []struct {
+		want, alias, mode string
+		hop               bool
+	}{
+		{"claude", "sonnet", router.FallbackAll, true},
+		{"claude", "opus", router.FallbackAgents, true},
+		{"claude", "sonnet", router.FallbackNone, false},
+		{"claude", "sonnet", router.FallbackPin, false},
+		{"claude", "haiku", router.FallbackAll, false}, // agy serves no Claude Haiku
+		{"codex", "sonnet", router.FallbackAll, false},
+	}
+	for _, c := range cases {
+		chain, _, err := RouteChainFor(context.Background(), c.want, "", c.alias, c.mode, false, router.PickOpts{Configured: allConfigured})
+		if err != nil {
+			t.Fatalf("%+v: %v", c, err)
+		}
+		last := chain.Dispatches[len(chain.Dispatches)-1]
+		if last.quotaOverflow != c.hop {
+			t.Fatalf("%s %s %s: quotaOverflow = %v, want %v (%d dispatches)", c.want, c.alias, c.mode, last.quotaOverflow, c.hop, len(chain.Dispatches))
+		}
+		if id, _ := models.Alias(c.alias); c.hop && (last.Agent.Name() != "gemini" || last.Model != id || last.Account != "google·antigravity") {
+			t.Errorf("%s: hop = %s %s on %s, want gemini %s on google·antigravity", c.alias, last.Agent.Name(), last.Model, last.Account, id)
 		}
 	}
 }
