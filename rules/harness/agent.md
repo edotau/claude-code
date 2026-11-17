@@ -110,6 +110,9 @@ Use `claude-code copilot -- databricks` to pass the literal word; harness flags 
 - **Fake vendor binaries.** `HARNESS_AGENT_BIN_DIR` makes `paths.AgentBin` read that directory instead of `BinDir()`;
   real vault pins still route.
 - **Dispatch depth.** `HARNESS_DISPATCH_MAX_DEPTH` caps nesting (default 3; 0 = no cap; invalid uses default).
+  `HARNESS_DISPATCH_MAX_CHILDREN` caps live children per parent (default 8; 0 = no cap; invalid uses default).
+  `HARNESS_DISPATCH_MAX_TREE_TOKENS` caps tokens under the root (default 0 = off; unknown usage counts 0; invalid
+  uses default). Both apply to nested dispatches only, and a refusal is terminal.
 - **Deny and Ask.** Deny is the hard boundary; Ask goes to the agent's own judge where it has one (opencode `--auto`,
   claude on Anthropic). Elsewhere gemini renders Ask as Allow, copilot's SDK approves it, claude off Anthropic denies
   it. A Deny an agent cannot enforce refuses the dispatch (`retry.KindFatal`) naming the rule. `--tools` approves and
