@@ -28,10 +28,35 @@ func (f fakeLauncher) Claude(context.Context, agent.ClaudeOptions, []string) (ag
 	return agent.ClaudeLaunch{Binary: f.bin}, nil
 }
 
-// runFakeClaude runs claudeExec against a shell script standing in for claude, with the idle limit shortened.
+// runFakeClaude runs claudeExec against a shell script standing in for claude, with an idle limit far above start-up.
 func runFakeClaude(t *testing.T, script string) (wire.Result, error) {
 	t.Helper()
-	return runFakeClaudeIdle(t, 300*time.Millisecond, script)
+	return runFakeClaudeIdle(t, 5*time.Second, script)
+}
+
+type fakeRun struct {
+	res         wire.Result
+	err         error
+	limit, took time.Duration // of the final attempt
+}
+
+func fixed(script string) func(time.Duration) string {
+	return func(time.Duration) string { return script }
+}
+
+// runFakeClaudeStall retries with a doubled limit (to 4.8 s) while the child was too slow to emit its first event.
+func runFakeClaudeStall(t *testing.T, script func(limit time.Duration) string) fakeRun {
+	t.Helper()
+	limit := 300 * time.Millisecond
+	for {
+		start := time.Now()
+		res, err := runFakeClaudeIdle(t, limit, script(limit))
+		slow := errors.Is(err, agent.ErrStalled) && strings.Contains(err.Error(), "last event: none")
+		if !slow || limit > 3*time.Second {
+			return fakeRun{res, err, limit, time.Since(start)}
+		}
+		limit *= 2
+	}
 }
 
 func runFakeClaudeIdle(t *testing.T, limit time.Duration, script string) (wire.Result, error) {
@@ -58,15 +83,15 @@ const (
 // A claude that goes silent after system/init is a stalled failure naming the idle time and last event, and is killed.
 func TestClaudeExecStallsWhenSilent(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "pid")
-	start := time.Now()
-	_, err := runFakeClaude(t, "echo $$ > "+pidFile+"\necho '"+initLine+"'\nexec sleep 30\n")
+	r := runFakeClaudeStall(t, fixed("echo $$ > "+pidFile+"\necho '"+initLine+"'\nexec sleep 30\n"))
+	err := r.err
 	if !errors.Is(err, agent.ErrStalled) {
 		t.Fatalf("err = %v, want ErrStalled", err)
 	}
-	if took := time.Since(start); took > 10*time.Second {
-		t.Errorf("stall took %s, want about the idle limit", took)
+	if r.took > 30*r.limit {
+		t.Errorf("stall took %s, want about the idle limit %s", r.took, r.limit)
 	}
-	if !strings.Contains(err.Error(), "300ms") || !strings.Contains(err.Error(), "last event: system") {
+	if !strings.Contains(err.Error(), r.limit.String()) || !strings.Contains(err.Error(), "last event: system") {
 		t.Errorf("err = %v, want the idle duration and last event type", err)
 	}
 	e := retry.Classify("claude", err, false)
@@ -83,13 +108,12 @@ func TestClaudeExecStallsWhenSilent(t *testing.T) {
 // A claude that delivers a successful result and then lingers is killed, but the run succeeds with the answer.
 func TestClaudeExecStallsAfterSuccessfulResult(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "pid")
-	start := time.Now()
-	res, err := runFakeClaude(t, "echo $$ > "+pidFile+"\necho '"+resultLine+"'\nexec sleep 30\n")
-	if err != nil || res.Answer != "done" {
-		t.Fatalf("res = %+v, err = %v; want the complete answer and a nil error", res, err)
+	r := runFakeClaudeStall(t, fixed("echo $$ > "+pidFile+"\necho '"+resultLine+"'\nexec sleep 30\n"))
+	if r.err != nil || r.res.Answer != "done" {
+		t.Fatalf("res = %+v, err = %v; want the complete answer and a nil error", r.res, r.err)
 	}
-	if took := time.Since(start); took > 10*time.Second {
-		t.Errorf("run took %s, want about the idle limit", took)
+	if r.took > 30*r.limit {
+		t.Errorf("run took %s, want about the idle limit %s", r.took, r.limit)
 	}
 	raw, _ := os.ReadFile(pidFile)
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
@@ -101,7 +125,7 @@ func TestClaudeExecStallsAfterSuccessfulResult(t *testing.T) {
 // Given claude speaks, then goes silent before any result, Then the run is still an ErrSilent failure.
 func TestClaudeExecSilenceBeforeResultStillFails(t *testing.T) {
 	text := `{"type":"assistant","session_id":"s","message":{"model":"m","content":[{"type":"text","text":"hi"}]}}`
-	_, err := runFakeClaude(t, "echo '"+text+"'\nexec sleep 30\n")
+	err := runFakeClaudeStall(t, fixed("echo '"+text+"'\nexec sleep 30\n")).err
 	if !errors.Is(err, agent.ErrSilent) || !strings.Contains(err.Error(), "last event: assistant") {
 		t.Fatalf("err = %v, want ErrSilent after the last assistant event", err)
 	}
@@ -149,9 +173,12 @@ func TestClaudeLiveStallsWhenSilent(t *testing.T) {
 
 // Given a tool runs longer than the idle limit, Then the run completes: silence while a tool executes is not a stall.
 func TestClaudeExecToolRunDoesNotStall(t *testing.T) {
-	res, err := runFakeClaude(t, "echo '"+initLine+"'\necho '"+toolUse+"'\nsleep 1\necho '"+toolResult+"'\necho '"+resultLine+"'\n")
-	if err != nil || res.Answer != "done" {
-		t.Fatalf("res = %+v, err = %v", res, err)
+	r := runFakeClaudeStall(t, func(limit time.Duration) string {
+		pause := strconv.FormatFloat((limit * 3 / 2).Seconds(), 'f', 3, 64) // silence past the window, tool still running
+		return "echo '" + initLine + "'\necho '" + toolUse + "'\nsleep " + pause + "\necho '" + toolResult + "'\necho '" + resultLine + "'\n"
+	})
+	if r.err != nil || r.res.Answer != "done" {
+		t.Fatalf("res = %+v, err = %v", r.res, r.err)
 	}
 }
 
@@ -169,7 +196,7 @@ func TestClaudeExecGoldenStreamCompletes(t *testing.T) {
 
 // Given claude never emits anything, Then the window armed at process start trips it.
 func TestClaudeExecStallsBeforeFirstEvent(t *testing.T) {
-	_, err := runFakeClaude(t, "exec sleep 30\n")
+	_, err := runFakeClaudeIdle(t, 300*time.Millisecond, "exec sleep 30\n")
 	if !errors.Is(err, agent.ErrStalled) || !strings.Contains(err.Error(), "last event: none") {
 		t.Fatalf("err = %v, want ErrStalled with no event seen", err)
 	}
