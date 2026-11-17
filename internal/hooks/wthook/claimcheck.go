@@ -216,6 +216,7 @@ type claimView struct {
 	in     *core.Input
 	claims map[string][]claimHit
 	clean  func() map[string]int64
+	scopes map[string][]string
 	status map[string]dirtyState // dirtySet per toplevel: the tree is unchanged until the checked command runs
 }
 
@@ -235,6 +236,39 @@ func (v claimView) dirtyAt(dir string) (string, map[string]bool, error) {
 		v.status[top] = st
 	}
 	return st.top, st.dirty, st.err
+}
+
+// dirtyPath is dirtySet limited to p: all an edit check asks, at about half the cost of the whole-tree status.
+func (v claimView) dirtyPath(p string) (string, map[string]bool, error) {
+	top, _ := paths.CheckoutOf(filepath.Dir(p))
+	if st, ok := v.status[top]; ok {
+		return st.top, st.dirty, st.err
+	}
+	if top == "" {
+		return "", nil, nil
+	}
+	rel, ok := core.RelWithin(paths.Real(top), p)
+	if !ok {
+		return v.dirtyAt(filepath.Dir(p))
+	}
+	scope := v.scopes[top]
+	if len(scope) == 0 {
+		scope = []string{":(literal)" + rel}
+	}
+	var st dirtyState
+	st.top, st.dirty, st.err = readDirty(v.ctx, paths.Real(top), append([]string{"--"}, scope...)...)
+	v.status[top] = st
+	return st.top, st.dirty, st.err
+}
+
+func (v *claimView) scopePaths(edits []string) {
+	v.scopes = map[string][]string{}
+	for _, p := range edits {
+		top, _ := paths.CheckoutOf(filepath.Dir(p))
+		if rel, ok := core.RelWithin(paths.Real(top), p); top != "" && ok {
+			v.scopes[top] = append(v.scopes[top], ":(literal)"+rel)
+		}
+	}
 }
 
 // ClaimCheck notes a dirty claimed file before an edit and asks (a leaf blocks) when git stages one.
@@ -271,6 +305,7 @@ func claimResult(ctx context.Context, in *core.Input, edits []string) core.Resul
 	if len(claims) > 0 {
 		v := claimView{ctx: ctx, in: in, claims: claims, status: map[string]dirtyState{},
 			clean: sync.OnceValue(func() map[string]int64 { return cleanMarks(in.SessionID) })}
+		v.scopePaths(edits)
 		if in.ToolName == "Bash" && gitStageCmd.MatchString(in.ToolCommand()) {
 			res = v.stageCheck()
 		}
@@ -311,7 +346,7 @@ func (v claimView) editCheck(p string) core.Result {
 	if len(v.claims[p]) == 0 {
 		return core.Result{}
 	}
-	top, dirty, err := v.dirtyAt(filepath.Dir(p))
+	top, dirty, err := v.dirtyPath(p)
 	if err != nil {
 		return claimWarn(err)
 	}
@@ -371,7 +406,12 @@ func dirtySet(ctx context.Context, dir string) (string, map[string]bool, error) 
 		return "", nil, nil
 	}
 	top = paths.Real(top)
-	raw, err := proc.RunGit(ctx, top, "status", "--porcelain", "-z", "--untracked-files=all")
+	return readDirty(ctx, top)
+}
+
+func readDirty(ctx context.Context, top string, scope ...string) (string, map[string]bool, error) {
+	args := append([]string{"status", "--porcelain", "-z", "--untracked-files=all"}, scope...)
+	raw, err := proc.RunGit(ctx, top, args...)
 	if err != nil {
 		return "", nil, fmt.Errorf("git status in %s: %w", top, err)
 	}

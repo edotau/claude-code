@@ -142,10 +142,11 @@ var softWarn = []*core.Gated{
 
 // Scan checks command safety: a block or non-Claude ask rejects, a Claude ask prompts, soft warnings ride stderr.
 func Scan(in *core.Input) core.Result {
-	decision, msg, detail := safetyVerdict(in)
+	cmd := dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))
+	decision, msg, detail := commandVerdict(in, cmd)
 	var warn strings.Builder
 	if decision != core.Block && (in.ToolName == "" || strings.EqualFold(in.CanonicalTool(), "Bash")) {
-		cmd := blankInert(dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))) // a message only names the shape
+		cmd := blankInert(cmd) // a message only names the shape
 		for _, re := range softWarn {
 			if re.MatchString(cmd) {
 				fmt.Fprintf(&warn, "safety: WARNING — %s (not blocked; review carefully)\n", re)
@@ -170,10 +171,13 @@ func Verdict(in *core.Input) core.Decision { d, _, _ := safetyVerdict(in); retur
 
 // safetyVerdict checks all block patterns before considering any ask pattern.
 func safetyVerdict(in *core.Input) (core.Decision, string, string) {
+	return commandVerdict(in, dropMessageHeredocs(dropPatchBodies(in.ToolCommand())))
+}
+
+func commandVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
 	if in.ToolName != "" && !strings.EqualFold(in.CanonicalTool(), "Bash") {
 		return core.Allow, "", ""
 	}
-	cmd := dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))
 	if cmd == "" {
 		return core.Allow, "", ""
 	}

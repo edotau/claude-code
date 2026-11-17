@@ -70,7 +70,7 @@ func Claim(in *core.Input) core.Result {
 	if staged {
 		lines = append(lines, stagedClaims(in, now)...) // external-agent edits are claimed when staged
 	}
-	lines = stillDirty(lines)
+	lines = filterDirty(lines, !staged)
 	if len(lines) == 0 {
 		return core.Result{}
 	}
@@ -82,16 +82,30 @@ func Claim(in *core.Input) core.Result {
 	return core.Result{}
 }
 
-// stillDirty drops claims on paths the command left clean (it committed them); outside a repo or on error all stay.
-func stillDirty(lines []worktree.Claim) []worktree.Claim {
+// filterDirty drops claims on paths the command left clean (it committed them); outside a repo or on error all stay.
+func filterDirty(lines []worktree.Claim, scoped bool) []worktree.Claim {
 	if len(lines) == 0 {
 		return nil
 	}
 	ctx, cancel := core.HookContext("worktree-claim")
 	defer cancel()
 	v := claimView{ctx: ctx, status: map[string]dirtyState{}} // one git status per toplevel, not per dir
+	if scoped {
+		edits := make([]string, len(lines))
+		for i, c := range lines {
+			edits[i] = c.Path
+		}
+		v.scopePaths(edits)
+	}
 	return slices.DeleteFunc(lines, func(c worktree.Claim) bool {
-		top, dirty, err := v.dirtyAt(filepath.Dir(c.Path))
+		var top string
+		var dirty map[string]bool
+		var err error
+		if scoped {
+			top, dirty, err = v.dirtyPath(c.Path)
+		} else {
+			top, dirty, err = v.dirtyAt(filepath.Dir(c.Path))
+		}
 		return top != "" && err == nil && !dirty[c.Path] // unknown (outside a repo, or an error) keeps the claim
 	})
 }
