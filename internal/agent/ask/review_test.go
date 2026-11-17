@@ -137,7 +137,7 @@ func TestAgentReviewBoundsDiffPreparation(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Chdir(t.TempDir())
 	orig := reviewDiffTimeout
-	reviewDiffTimeout = time.Second
+	reviewDiffTimeout = 300 * time.Millisecond
 	t.Cleanup(func() { reviewDiffTimeout = orig })
 	start := time.Now()
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {

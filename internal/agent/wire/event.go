@@ -218,7 +218,7 @@ func ResultEvent(env Envelope) Event {
 }
 
 // eventsTextCap bounds the text bytes one dispatch's event file keeps; an over-cap chunk is dropped whole.
-const eventsTextCap = 4 << 20
+var eventsTextCap = 4 << 20
 
 // EventLog writes <id>.events.jsonl (0600), redacted per line and text-capped; fail-open, Emit always returns nil.
 type EventLog struct {
