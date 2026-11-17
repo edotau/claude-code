@@ -78,15 +78,12 @@ func steward(t *testing.T) (payload func(extra string) *core.Input, fill func(to
 	return payload, fill, memory.StubSpawn(t, true)
 }
 
-func TestStopPromptsHandoffOnceWhenIdle(t *testing.T) {
+func TestStopSpawnsHandoffOnceWhenIdle(t *testing.T) {
 	payload, fill, spawns := steward(t)
 	fill(160_000) // 80% of 200K
 	r := Stop(payload(""))
-	if spawns.Update.Load() != 1 || !strings.Contains(r.Context, "write a handoff to") || !strings.Contains(r.Context, "80%") {
-		t.Fatalf("idle 80%% must spawn and prompt, got spawns=%d ctx=%q", spawns.Update.Load(), r.Context)
-	}
-	if len(r.SystemMessage) > 80 || !strings.Contains(r.SystemMessage, "run /compact after") {
-		t.Errorf("SystemMessage = %q", r.SystemMessage)
+	if spawns.Update.Load() != 1 || r.Context != "" || r.SystemMessage != "" {
+		t.Fatalf("idle 80%% must spawn once and emit nothing, got spawns=%d r=%+v", spawns.Update.Load(), r)
 	}
 	if r2 := Stop(payload("")); r2.Context != "" || spawns.Update.Load() != 1 {
 		t.Errorf("second Stop in the same crossing must be silent, got %q spawns=%d", r2.Context, spawns.Update.Load())
@@ -111,8 +108,8 @@ func TestStopDefersWhileWorkInFlight(t *testing.T) {
 			}
 			countOwned = func(int, time.Time) int { return 0 }
 			liveDispatches = func(int) int { return 0 }
-			if r := Stop(payload("")); !strings.Contains(r.Context, "handoff") {
-				t.Errorf("the next safe Stop must prompt, got %q", r.Context)
+			if Stop(payload("")); spawns.Update.Load() != 1 {
+				t.Errorf("the next safe Stop must spawn once, got %d", spawns.Update.Load())
 			}
 		})
 	}
@@ -125,30 +122,28 @@ func TestStopRearmsBelowThreshold(t *testing.T) {
 	fill(20_000) // after a compaction
 	Stop(payload(""))
 	fill(180_000)
-	if r := Stop(payload("")); spawns.Update.Load() != 2 || !strings.Contains(r.Context, "handoff") {
-		t.Fatalf("a new crossing must prompt again, got spawns=%d ctx=%q", spawns.Update.Load(), r.Context)
+	if Stop(payload("")); spawns.Update.Load() != 2 {
+		t.Fatalf("a new crossing must spawn again, got spawns=%d", spawns.Update.Load())
 	}
 }
 
 func TestStewardThresholdEnv(t *testing.T) {
 	for _, c := range []struct {
-		env         string
-		tokens      int
-		spawns      int64
-		wantContext bool
+		env    string
+		tokens int
+		spawns int64
 	}{
-		{"", 140_000, 0, false},     // 70% < default 75
-		{"60", 140_000, 1, true},    // lowered threshold
-		{"junk", 140_000, 0, false}, // invalid -> 75
-		{"0", 160_000, 1, false},    // update kept, prompt off
+		{"", 140_000, 0},     // 70% < default 75
+		{"60", 140_000, 1},   // lowered threshold
+		{"junk", 140_000, 0}, // invalid -> 75
+		{"0", 160_000, 1},    // update kept, handoff off
 	} {
 		t.Run(c.env, func(t *testing.T) {
 			payload, fill, spawns := steward(t)
 			t.Setenv(stewardPctEnv, c.env)
 			fill(c.tokens)
-			r := Stop(payload(""))
-			if spawns.Update.Load() != c.spawns || (r.Context != "") != c.wantContext {
-				t.Fatalf("spawns=%d ctx=%q", spawns.Update.Load(), r.Context)
+			if Stop(payload("")); spawns.Update.Load() != c.spawns {
+				t.Fatalf("spawns=%d, want %d", spawns.Update.Load(), c.spawns)
 			}
 		})
 	}

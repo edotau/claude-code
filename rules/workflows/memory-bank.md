@@ -118,7 +118,10 @@ dream` archives the overflow.
 - `memory update` — the session-close writer: summary → sessionHistory, rewrite activeContext + progress, decisions →
   decisionLog, patterns → conventions. `memory-update` / `memory-end` (Stop / SessionEnd) run it headless after enough
   edits; the first dispatch claims a detached `memory watch` that updates after 10 quiet minutes (a crash fires no
-  SessionEnd); `memory-compact` does the same before compaction. A detached worker (`CLAUDE_MEMORY_DETACHED`) waits up
+  SessionEnd); `memory-compact` does the same before compaction.
+  At the context-steward threshold the Stop update is the one spawned worker and also writes a handoff (a
+  `handoff-<session>` marker in `state/harness/memory/` adds the step; the "bg" stamp stops a second Stop update).
+  A detached worker (`CLAUDE_MEMORY_DETACHED`) waits up
   to `detachedLockWait` (16 min) for the store lock behind a dream; a foreground update waits `updateLockWait` (5 s).
   If the permission gate refused writes and no bank file changed it reruns once; a second miss records status
   `blocked` (no retry, no Stop block) with one quiet line.
