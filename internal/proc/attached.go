@@ -12,9 +12,7 @@ import (
 // preserveIn and preserveOut are the descriptors Preserve snapshots and checks; tests point them at a pty.
 var preserveIn, preserveOut = 0, 1
 
-// RunAttached runs argv on this process's stdio with SIGINT/SIGQUIT swallowed here; true means a signal killed it.
-//
-// Gotcha: Notify, not Ignore: SIG_IGN is inherited across exec and would make the child deaf to Ctrl-C too.
+// RunAttached runs argv on our stdio; Notify (not SIG_IGN, which deafens the child) eats SIGINT; true = killed.
 func RunAttached(argv []string) (bool, error) {
 	if len(argv) == 0 {
 		return false, errors.New("proc: RunAttached: empty command")

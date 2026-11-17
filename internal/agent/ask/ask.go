@@ -509,7 +509,7 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 		return failAskCode(format, name, err, prepareExitCode(err))
 	}
 	claim := os.Getenv(agent.DispatchClaimEnv)
-	if err := os.Unsetenv(agent.DispatchClaimEnv); err != nil {
+	if err := proc.Unsetenv(agent.DispatchClaimEnv); err != nil {
 		return failAsk(format, name, err)
 	}
 	if jobRec == nil {
