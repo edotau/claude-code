@@ -22,6 +22,11 @@ const subagentActiveWindow = 10 * time.Minute
 // sessionActiveWindow is the tighter window for a main session to count as active; past it the session is idle.
 const sessionActiveWindow = 2 * time.Minute
 
+type subtreeTotal struct {
+	sum             int64
+	ready, children bool
+}
+
 // Tokens summarizes a session or subagent: In is input + cache-creation, CacheRead is split out.
 type Tokens struct {
 	In        int64 `json:"in"`
@@ -37,6 +42,7 @@ func (t *Tokens) add(o Tokens) {
 
 // Subagent is one subagents/agent-<id>.jsonl + its sibling .meta.json.
 type Subagent struct {
+	total       subtreeTotal
 	ID          string     `json:"id"`
 	Type        string     `json:"type"`
 	Description string     `json:"description"`
@@ -60,6 +66,7 @@ type Activity struct {
 
 // Dispatch is one `claude-code agents ask` a relay subagent launched, read from state/harness/dispatch/<id>.json.
 type Dispatch struct {
+	total          subtreeTotal
 	ID             string `json:"id"`
 	Agent          string `json:"agent"`
 	Provider       string `json:"provider,omitempty"`
@@ -89,12 +96,14 @@ type Dispatch struct {
 
 // WorkflowPhase folds a run's agents under the workflowPhase their meta.json names ("(none)" when absent).
 type WorkflowPhase struct {
+	total  subtreeTotal
 	Name   string     `json:"name"`
 	Agents []Subagent `json:"agents"`
 }
 
 // WorkflowRun is one workflows/wf_<id>.json manifest plus its subagents/workflows/<runId>/agent-*.jsonl phases.
 type WorkflowRun struct {
+	total   subtreeTotal
 	ID      string          `json:"id"`
 	Name    string          `json:"name"`
 	Status  string          `json:"status"` // the manifest's result.status when its result carries one (e.g. "green"), else journal-derived running|finished
@@ -104,6 +113,7 @@ type WorkflowRun struct {
 
 // Session is one projects/<slug>/<session>.jsonl plus everything nested under projects/<slug>/<session>/.
 type Session struct {
+	total     subtreeTotal
 	ID        string        `json:"id"`
 	Project   string        `json:"project"` // the on-disk project slug (sanitized cwd)
 	Cwd       string        `json:"cwd"`
@@ -158,6 +168,7 @@ func listing(claudeDir string, opts Options, showAll bool) (*Tree, error) {
 	}
 	if opts.Session == "" { // every view lists them, so --detail stays a superset of the default
 		tree.Dispatches = runningDispatches(opts.now())
+		cacheDispatchTotals(tree.Dispatches)
 		tree.Sessions = dropDispatchSessions(tree.Sessions, tree.Dispatches)
 	}
 	return tree, nil
@@ -330,7 +341,7 @@ func buildSession(transcriptPath string, now time.Time, scans *scanCache) Sessio
 	for _, run := range s.Workflows {
 		forEachRunAgent(run, func(sub Subagent) { s.Tokens.add(sub.Tokens) })
 	}
-	return s
+	return cacheSessionTotals(s)
 }
 
 // sessionStatus: active when the transcript was written within sessionActiveWindow of now, else idle.
@@ -477,6 +488,7 @@ func liveTranscripts(claudeDir string, reg map[string]regEntry, have map[string]
 	return files
 }
 
+// activeSession hides completed rows without changing full-subtree totals.
 func activeSession(s Session) Session {
 	s.Subagents = activeSubagents(s.Subagents)
 	s.Workflows = slices.Clone(s.Workflows)
@@ -495,6 +507,7 @@ func activeSession(s Session) Session {
 	return s
 }
 
+// activeSubagents retains running descendants and the ancestors needed to place them.
 func activeSubagents(subs []Subagent) []Subagent {
 	out := make([]Subagent, 0, len(subs))
 	for _, sub := range subs {
@@ -515,4 +528,58 @@ func activeSubagents(subs []Subagent) []Subagent {
 		out = append(out, sub)
 	}
 	return out
+}
+
+// cacheSessionTotals freezes full-subtree usage before either visibility filter runs.
+func cacheSessionTotals(s Session) Session {
+	s.total = subtreeTotal{sum: s.Tokens.In + s.Tokens.Out + s.Tokens.CacheRead,
+		ready: true, children: len(s.Subagents)+len(s.Workflows) > 0}
+	for i := range s.Subagents {
+		sub := cacheSubagentTotal(s.Subagents[i])
+		s.Subagents[i] = sub
+		s.total.sum += sub.total.sum - sub.Tokens.In - sub.Tokens.Out - sub.Tokens.CacheRead
+	}
+	for i, run := range s.Workflows {
+		run = cacheWorkflowTotal(run)
+		s.Workflows[i] = run
+		forEachRunAgent(run, func(sub Subagent) {
+			s.total.sum += sub.total.sum - sub.Tokens.In - sub.Tokens.Out - sub.Tokens.CacheRead
+		})
+	}
+	return s
+}
+
+func cacheSubagentTotal(sub Subagent) Subagent {
+	cacheDispatchTotals(sub.Dispatches)
+	sub.total = subtreeTotal{sum: sub.Tokens.In + sub.Tokens.Out + sub.Tokens.CacheRead,
+		ready: true, children: len(sub.Dispatches) > 0}
+	for _, d := range sub.Dispatches {
+		sub.total.sum += d.tokens()
+	}
+	return sub
+}
+
+func cacheWorkflowTotal(run WorkflowRun) WorkflowRun {
+	run.total = subtreeTotal{ready: true}
+	for i, phase := range run.Phases {
+		phase.total = subtreeTotal{ready: true}
+		for j, sub := range phase.Agents {
+			sub = cacheSubagentTotal(sub)
+			phase.Agents[j] = sub
+			phase.total.sum += sub.total.sum
+		}
+		run.Phases[i] = phase
+		run.total.sum += phase.total.sum
+	}
+	return run
+}
+
+func cacheDispatchTotals(ds []Dispatch) {
+	if len(ds) == 1 {
+		ds[0].total = subtreeTotal{sum: ds[0].tokens(), ready: true}
+		return
+	}
+	for _, n := range nestDispatches(ds) {
+		ds[n.index].total = subtreeTotal{sum: n.sum, ready: true, children: n.children}
+	}
 }
