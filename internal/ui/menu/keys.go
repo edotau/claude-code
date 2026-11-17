@@ -24,6 +24,9 @@ var pickKey = tui.PickBack
 
 // keysMenu lists every credential with its status.
 func keysMenu(d *dialog) (allOK, changed bool) {
+	if d.o.Agent == "codex" || d.o.Agent == "copilot" {
+		return agentRoutesMenu(d)
+	}
 	start, stale := 0, true
 	var targets []configure.KeyTarget
 	var rows [][2]string
@@ -515,4 +518,59 @@ func restoreStaged(d *dialog, name string, before map[string]stagedKey) {
 	}
 	d.pending[name].restore(d, name)
 	delete(d.pending, name)
+}
+
+// agentRoutesMenu keeps profile selection and the vendor sign-in on the existing scoped keys page.
+func agentRoutesMenu(d *dialog) (allOK, changed bool) {
+	for {
+		names, rows := agentRouteRows(d)
+		idx, err := pickKey(d.o.Agent+" — profile or own login", rows, 0)
+		if err != nil || idx < 0 {
+			return true, changed
+		}
+		if idx == len(names) {
+			targets, err := configure.KeyTargets(d.reg, d.o.Agent)
+			if err != nil {
+				d.println(err)
+				return false, changed
+			}
+			for _, kt := range targets {
+				changed = changeKey(d, kt) || changed
+			}
+			continue
+		}
+		wrote, err := writeAgentField(d, d.o.Agent, "PROFILE", names[idx])
+		if err != nil {
+			d.println(err)
+			return false, changed
+		}
+		changed = changed || wrote
+	}
+}
+
+// agentRouteRows lists own logins, signed-in Databricks profiles and the session profile once each.
+func agentRouteRows(d *dialog) ([]string, [][2]string) {
+	var names []string
+	var rows [][2]string
+	cur := vault.GetAgentRecord(d.o.Agent).Profile
+	session := configure.CurrentProvider(d.reg)
+	for _, n := range configure.SeedProfiles(d.reg, d.o.Agent) {
+		p := d.reg.Providers[n]
+		own := p.Auth.Login == d.o.Agent
+		if !own && n != session && !(p.Preset == providers.PresetDatabricks && providers.CredentialPresent(p)) {
+			continue
+		}
+		detail := p.Provider
+		if own && d.o.Agent == "codex" {
+			detail = "ChatGPT login"
+		} else if own {
+			detail = "GitHub login"
+		}
+		if n == session {
+			detail += " (session)"
+		}
+		names = append(names, n)
+		rows = append(rows, [2]string{n, detail + " " + mark(n == cur)})
+	}
+	return names, append(rows, [2]string{"Sign in", "refresh own login"})
 }

@@ -671,3 +671,20 @@ func TestConfirmPageKeysSavesOrDiscardsOnlyThePagesKeys(t *testing.T) {
 		os.Unsetenv("PAGE_KEY")
 	}
 }
+
+func TestAgentRouteRowsWidthFitsEightyColumns(t *testing.T) {
+	menuTestEnv(t)
+	d := worstCaseHomeDialog(t)
+	vaulttest.SetRecord(t, "claude", "profile", "dev")
+	orig := pickKey
+	t.Cleanup(func() { pickKey = orig })
+	for _, name := range []string{"codex", "copilot"} {
+		d.o.Agent = name
+		pickKey = func(_ string, rows [][2]string, _ int) (int, error) {
+			t.Logf("%s routes: %v", name, rows)
+			assertFitsEighty(t, name+" routes", append(rows, panelBack))
+			return -1, nil
+		}
+		keysMenu(d)
+	}
+}

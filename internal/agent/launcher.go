@@ -221,6 +221,7 @@ func launchOverlay(opts LaunchOptions) (agentconfig.Resolved, error) {
 // LaunchPlan resolves `claude-code <agent>`: the opus target via Configure, else the agent's own login.
 func LaunchPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
 	ctx, o.Values = RunValues(ctx, o.Values)
+	ctx = context.WithValue(ctx, launchDryKey{}, o.PrintEnv)
 	plan, err := cliPlan(ctx, name, o, args)
 	plan.Values = o.Values.Merge(nil)
 	plan.Keep, plan.CLI = o.KeepEnv, true
@@ -362,6 +363,9 @@ func configureFailed(ctx context.Context, spec Schema, name string, o LaunchOpti
 		return Plan{}, usage // a typed refusal exits 2, never a "sign in" passthrough
 	}
 	if err != nil {
+		if o.Provider != "" {
+			return Plan{}, reason
+		}
 		return passthrough(spec, name, reason, plainArgs)
 	}
 	return finishPlan(spec, o, args, env, prefix)
@@ -386,7 +390,8 @@ func cliTarget(ctx context.Context, spec Schema, name string, reg *providers.Reg
 		target.Model = flagModel
 		return target, note, nil
 	}
-	return PinnedTarget(ctx, name, target), note, nil
+	target, modelNote, err := spec.routedModel(ctx, RunOptions{}, target, false)
+	return target, joinNotes(note, modelNote), err
 }
 
 // launchProfile resolves the profile: --profile (passed through untouched), else the agent pin.
@@ -402,13 +407,10 @@ func launchProfile(name string, o LaunchOptions) (LaunchOptions, error) {
 	return o, err
 }
 
-// pinRoute is a profile pin as the launch routes it: "" for the agent own login or a non-registry pin id (opencode-go).
-func pinRoute(name, pin string) (string, error) {
+// pinRoute preserves registry profiles, including own logins; non-registry pins launch on the native CLI.
+func pinRoute(_ string, pin string) (string, error) {
 	if pin == "" {
 		return "", nil
-	}
-	if own, err := isOwnLogin(name, pin); own || err != nil {
-		return "", err
 	}
 	reg, err := providers.Load()
 	if err != nil || reg.Providers[pin] == nil {
