@@ -739,7 +739,7 @@ func TestSpawnArgvScrubsInheritedSecrets(t *testing.T) {
 		}
 		if strings.HasSuffix(string(got), "done\n") {
 			if string(got) != "explicit-extra\n\nfake-vault-key\ndone\n" {
-				t.Fatalf("job child environment = %q; want Extra, secret unset, and Claude vault key retained", got)
+				t.Fatalf("job child environment has %d bytes; want Extra, secret unset, and Claude vault key retained", len(got))
 			}
 			return
 		}

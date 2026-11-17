@@ -226,7 +226,7 @@ func TestBaseRenderSettingsDefault(t *testing.T) {
 	}
 	for _, c := range cases {
 		if env, argv := renderDefault(t, c.name, c.headless); !slices.Equal(env, c.env) || !slices.Equal(argv, c.argv) {
-			t.Errorf("%s headless=%v: env %v argv %v; want env %v argv %v", c.name, c.headless, env, argv, c.env, c.argv)
+			t.Errorf("%s headless=%v: env %d argv %v; want env %d argv %v", c.name, c.headless, len(env), argv, len(c.env), c.argv)
 		}
 	}
 }
@@ -308,7 +308,7 @@ func TestInvalidRecordRefused(t *testing.T) {
 	}
 	env, argv := SchemaFor("copilot").LaunchSpec()
 	if slices.Contains(env, "FOO=1") || !slices.Equal(argv, []string{"--allow-all"}) {
-		t.Errorf("interactive launch: env %v argv %v; want nothing of the record and the built-in [--allow-all]", env, argv)
+		t.Errorf("interactive launch: env %d argv %v; want nothing of the record and the built-in [--allow-all]", len(env), argv)
 	}
 }
 
@@ -359,7 +359,7 @@ func TestResolveSettingsInvalidLegacyLaunchKeepsFallback(t *testing.T) {
 			env, _, _, cleanup, err := NewBaseEngine(name).RenderSettings(t.Context(), st, []string{route}, nil)
 			defer cleanup()
 			if err != nil || !slices.Contains(env, "KEEP_ME=1") || !slices.Contains(env, route) || len(env) != 2 {
-				t.Fatalf("fallback env=%v err=%v; want KEEP_ME and only the routed endpoint", env, err)
+				t.Fatalf("fallback env=%d err=%v; want KEEP_ME and only the routed endpoint", len(env), err)
 			}
 		})
 	}

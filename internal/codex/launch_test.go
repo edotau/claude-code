@@ -112,10 +112,10 @@ func TestCodexToolsEnvKeepsCallerCaches(t *testing.T) {
 	env, _, remove, _ := codexToolsEnv(context.Background(), nil, true, "workspace-write")
 	defer remove()
 	if strings.Contains(strings.Join(env, "\n"), "GOCACHE=") {
-		t.Errorf("a process-set GOCACHE was overridden: %q", env)
+		t.Errorf("a process-set GOCACHE was overridden: %d", len(env))
 	}
 	if env, _, _, _ := codexToolsEnv(context.Background(), nil, true, "danger-full-access"); len(env) != 0 {
-		t.Errorf("full access gets no cache env: %q", env)
+		t.Errorf("full access gets no cache env: %d", len(env))
 	}
 }
 
@@ -136,11 +136,11 @@ func TestCodexHeadlessReadsRunValues(t *testing.T) {
 	env, _, remove, _ := codexToolsEnv(ctx, nil, true, "workspace-write")
 	defer remove()
 	if strings.Contains(strings.Join(env, "\n"), "GOCACHE=") {
-		t.Errorf("a run-snapshot GOCACHE was overridden: %q", env)
+		t.Errorf("a run-snapshot GOCACHE was overridden: %d", len(env))
 	}
 	ctx = proc.WithValues(context.Background(), proc.Values{})
 	if env, _, remove, _ := codexToolsEnv(ctx, nil, true, "workspace-write"); !strings.Contains(strings.Join(env, "\n"), "GOCACHE=") {
-		t.Errorf("an ambient GOCACHE leaked into a run whose snapshot has none: %q", env)
+		t.Errorf("an ambient GOCACHE leaked into a run whose snapshot has none: %d", len(env))
 	} else {
 		remove()
 	}

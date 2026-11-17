@@ -381,10 +381,10 @@ func TestCheckRunReadOnlyDisablesGitOptionalLocks(t *testing.T) {
 		t.Fatal(err)
 	}
 	if n := len(got.Env); n != 2 || got.Env[n-1] != "GIT_OPTIONAL_LOCKS=0" {
-		t.Errorf("read-only env = %q; want the caller's entry then GIT_OPTIONAL_LOCKS=0 last", got.Env)
+		t.Errorf("read-only env = %d; want the caller's entry then GIT_OPTIONAL_LOCKS=0 last", len(got.Env))
 	}
 	if got, err = checkRun(g, RunOptions{Tools: true}); err != nil || slices.Contains(got.Env, "GIT_OPTIONAL_LOCKS=0") {
-		t.Errorf("tools run env = %q (err %v); want no GIT_OPTIONAL_LOCKS", got.Env, err)
+		t.Errorf("tools run env = %d (err %v); want no GIT_OPTIONAL_LOCKS", len(got.Env), err)
 	}
 }
 

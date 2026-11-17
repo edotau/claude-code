@@ -55,7 +55,7 @@ func TestOpencodeCredentialFallsThroughWhenOnlyAnotherLoginExists(t *testing.T) 
 	}
 	env, err := opencodeCredential("opencode-go")
 	if err == nil {
-		t.Fatalf("env = %v, want an error: the openai login must not cover an opencode-go cell", env)
+		t.Fatalf("env = %d, want an error: the openai login must not cover an opencode-go cell", len(env))
 	}
 	if !strings.Contains(err.Error(), opencodeAPIKeyEnv) {
 		t.Errorf("err = %v, want it to name %s", err, opencodeAPIKeyEnv)
@@ -72,7 +72,7 @@ func TestOpencodeCredentialVaultKeyOutranksMissingOwnLogin(t *testing.T) {
 		t.Fatalf("err = %v, want the vault/env key to resolve it", err)
 	}
 	if len(env) != 1 || env[0] != opencodeAPIKeyEnv+"=sk-test-key" {
-		t.Errorf("env = %v, want [%s=sk-test-key]", env, opencodeAPIKeyEnv)
+		t.Errorf("env = %d, want [%s=sk-test-key]", len(env), opencodeAPIKeyEnv)
 	}
 }
 
@@ -194,7 +194,7 @@ func TestOpencodeLaunchEnvIncludesVaultCredential(t *testing.T) {
 	t.Setenv(opencodeAPIKeyEnv, "")
 	env := (opencodeEngine{}).LaunchEnv()
 	if !slices.Contains(env, opencodeAPIKeyEnv+"=sk-vault-only") {
-		t.Fatalf("LaunchEnv lacks the vault credential: %v", env)
+		t.Fatalf("LaunchEnv lacks the vault credential: %d", len(env))
 	}
 }
 
@@ -281,7 +281,7 @@ func TestOpencodeRenderSettingsAppliesEffortAndPolicy(t *testing.T) {
 	if !slices.ContainsFunc(env, func(kv string) bool {
 		return strings.HasPrefix(kv, opencodePermissionEnv+"=") && strings.Contains(kv, `"rm *":"deny"`)
 	}) {
-		t.Errorf("env = %q, want %s carrying the rm deny", env, opencodePermissionEnv)
+		t.Errorf("env = %d, want %s carrying the rm deny", len(env), opencodePermissionEnv)
 	}
 	if _, got := render(agent.Settings{Agent: "opencode", Effort: "high"}, nil); len(got) != 0 {
 		t.Errorf("interactive argv = %q, want no --variant (the TUI has no such flag)", got)
@@ -298,7 +298,7 @@ func TestOpencodeToolsOffPinsPermission(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !slices.Contains(env, opencodePermissionEnv+`="deny"`) {
-		t.Fatalf("tools-off env lacks the deny pin: %v", env)
+		t.Fatalf("tools-off env lacks the deny pin: %d", len(env))
 	}
 }
 
@@ -399,10 +399,10 @@ func TestInteractiveLaunchRejectsPluginWriteFailure(t *testing.T) {
 		t.Run(p.Name, func(t *testing.T) {
 			env, argv, err := opencode(p, providers.ProtocolOpenAI, "https://workspace.example.test", agentconfig.MenuWire(p, "glm-5-2"), "", false, nil)
 			if err == nil || !strings.Contains(err.Error(), "opencode plugin:") {
-				t.Fatalf("interactive launch must report plugin write failure: env=%v argv=%v err=%v", env, argv, err)
+				t.Fatalf("interactive launch must report plugin write failure: env=%d argv=%v err=%v", len(env), argv, err)
 			}
 			if env != nil || argv != nil {
-				t.Fatalf("failed launch returned usable config: env=%v argv=%v", env, argv)
+				t.Fatalf("failed launch returned usable config: env=%d argv=%v", len(env), argv)
 			}
 		})
 	}

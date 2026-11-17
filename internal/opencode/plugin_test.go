@@ -20,7 +20,7 @@ func TestOpencodeApplyPluginRendersGuards(t *testing.T) {
 	env, plugged, err := opencodeApplyPlugin([]string{opencodeConfigEnv + `={"plugin":["mine"]}`}, agent.RunOptions{Tools: true})
 	var cfg struct{ Plugin []string }
 	if err != nil || !plugged || json.Unmarshal([]byte(strings.TrimPrefix(env[0], opencodeConfigEnv+"=")), &cfg) != nil || len(cfg.Plugin) != 2 {
-		t.Fatalf("env %v plugged %v err %v: want the user's plugin kept and ours appended", env, plugged, err)
+		t.Fatalf("env %d plugged %v err %v: want the user's plugin kept and ours appended", len(env), plugged, err)
 	}
 	file := strings.TrimPrefix(cfg.Plugin[1], "file://")
 	info, err := os.Stat(file)
@@ -246,7 +246,7 @@ func TestHostedDispatchSilencesPluginMemoryHooks(t *testing.T) {
 		t.Errorf("hosted memory-update execs = %d, want 0 (the Go host fires Stop itself)", got)
 	}
 	if env := withHostedMarker([]string{"A=1"}, nil); len(env) != 1 {
-		t.Errorf("no host must leave the env alone (the TUI plugin owns the memory hooks), got %v", env)
+		t.Errorf("no host must leave the env alone (the TUI plugin owns the memory hooks), got %d", len(env))
 	}
 }
 

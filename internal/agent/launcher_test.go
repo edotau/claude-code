@@ -286,7 +286,7 @@ func TestVendorSignInSkipsRouting(t *testing.T) {
 			t.Fatalf("%s %v: err = %v, want a plain sign-in launch", c.vendor, c.args, err)
 		}
 		if plan.Binary != fake || len(plan.Set) != 0 || !slices.Equal(plan.Argv[len(plan.Argv)-len(c.args):], c.args) {
-			t.Errorf("%s %v: plan = %+v, want the plain CLI with the args and no harness env", c.vendor, c.args, plan)
+			t.Errorf("%s %v: argv = %q, want the plain CLI with the args and no harness env", c.vendor, c.args, plan.Argv)
 		}
 	}
 	if offers != 0 {

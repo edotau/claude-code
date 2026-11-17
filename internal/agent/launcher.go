@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 // IsTerminal is the TTY check, a seam tests swap.
@@ -349,7 +350,10 @@ func ownLoginPlan(spec Schema, args []string, note string, show bool) (Plan, err
 
 // configureFailed offers configure once to a human at a terminal, then retries or falls back to a passthrough launch.
 func configureFailed(ctx context.Context, spec Schema, name string, o LaunchOptions, args []string, flagModel string, err error) (Plan, error) {
-	reason := fmt.Errorf("%w; %s", err, spec.CLI.ConfigureHint)
+	reason := err
+	if hint := spec.CLI.ConfigureHint; hint != "" && !strings.Contains(err.Error(), hint) {
+		reason = fmt.Errorf("%w; %s", err, hint)
+	}
 	var env, prefix []string
 	// A human at a terminal is offered configure once; a yes re-resolves on the new state.
 	if OfferConfigure != nil && !o.PrintEnv && OfferConfigure(name, reason) {
@@ -390,6 +394,9 @@ func cliTarget(ctx context.Context, spec Schema, name string, reg *providers.Reg
 		target.Model = flagModel
 		return target, note, nil
 	}
+	if name == "gemini" {
+		return PinnedTarget(ctx, name, target), note, nil
+	}
 	target, modelNote, err := spec.routedModel(ctx, RunOptions{}, target, false)
 	return target, joinNotes(note, modelNote), err
 }
@@ -399,22 +406,28 @@ func launchProfile(name string, o LaunchOptions) (LaunchOptions, error) {
 	if o.Provider != "" {
 		return o, nil
 	}
-	cfg, err := agentconfig.ForContext(valuesContext(context.Background(), o.Values), name, agentconfig.Launch{})
+	recs, err := vault.ReadAgentRecords([]string{name})
 	if err != nil {
 		return LaunchOptions{}, err
 	}
-	o.Provider, err = pinRoute(name, cfg.Profile)
+	o.Provider, err = pinRoute(name, recs[name].Profile)
 	return o, err
 }
 
 // pinRoute preserves registry profiles, including own logins; non-registry pins launch on the native CLI.
-func pinRoute(_ string, pin string) (string, error) {
+func pinRoute(name string, pin string) (string, error) {
 	if pin == "" {
 		return "", nil
 	}
 	reg, err := providers.Load()
-	if err != nil || reg.Providers[pin] == nil {
+	if err != nil {
 		return "", err
+	}
+	if err := ValidAgentPin(reg, name, pin); err != nil {
+		return "", err
+	}
+	if reg.Providers[pin] == nil {
+		return "", nil
 	}
 	return pin, nil
 }

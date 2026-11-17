@@ -132,7 +132,7 @@ func TestHubDispatchResolveModel(t *testing.T) {
 	l := hubDispatch{agent: "codex", provider: chatgpt, reg: reg}
 
 	if got := l.resolveModel(""); got != "openai-opus" {
-		t.Errorf(`resolveModel("") = %q, want provider's opus alias`, got)
+		t.Errorf("resolveModel(\"\") = %q, want provider's opus alias", got)
 	}
 	if got := l.resolveModel(models.Sonnet); got != "openai-sonnet" {
 		t.Errorf("resolveModel(alias name) = %q, want provider's sonnet alias", got)
@@ -359,7 +359,7 @@ func TestHubPrepareLaunchStoredRecord(t *testing.T) {
 			launchEnv, launchedArgv, _, _, _ := agent.SchemaFor("opencode").Eng().RenderSettings(context.Background(), st, nil, wantArgv)
 			wantEnv, wantArgv = agent.RouteEnvLast(launchEnv, wantEnv), launchedArgv
 			if !slices.Equal(argv, wantArgv) || !slices.Equal(env[:len(wantEnv)], wantEnv) {
-				t.Errorf("argv/env drifted:\n got %q %q\nwant %q %q", argv, env[:len(wantEnv)], wantArgv, wantEnv)
+				t.Errorf("argv/env drifted:\n got %q %d\nwant %q %q", argv, len(env[:len(wantEnv)]), wantArgv, wantEnv)
 			}
 		})
 	}

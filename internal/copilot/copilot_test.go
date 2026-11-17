@@ -301,7 +301,7 @@ func TestRoutedStrips1MSuffix(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !slices.Contains(env, "COPILOT_MODEL=claude-opus-5") {
-		t.Errorf("COPILOT_MODEL not claude-opus-5 in %q", env)
+		t.Errorf("COPILOT_MODEL not claude-opus-5 in %d", len(env))
 	}
 }
 
@@ -324,10 +324,10 @@ func TestLaunchEnvCannotOverrideRouterBase(t *testing.T) {
 		}
 	}
 	if n != 1 {
-		t.Errorf("base var appears %d times: %q", n, env)
+		t.Errorf("base var appears %d times: %d", n, len(env))
 	}
 	if !slices.Contains(env, "KEEP_ME=1") {
-		t.Errorf("unrelated launch.env entry dropped: %q", env)
+		t.Errorf("unrelated launch.env entry dropped: %d", len(env))
 	}
 }
 
@@ -685,7 +685,7 @@ func TestDirectDispatchesHaveNoAgentTag(t *testing.T) {
 			t.Fatal(err)
 		}
 		if j := strings.Join(env, "\x00"); strings.Contains(j, agentHdr) || !strings.Contains(j, "X-Tenant") {
-			t.Errorf("direct %s headers wrong: %q", v, env)
+			t.Errorf("direct %s headers wrong: %d", v, len(env))
 		}
 	}
 }

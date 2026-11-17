@@ -284,7 +284,7 @@ func TestGeminiGatewayInteractiveModelMatchesAdvertised(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !slices.Contains(env, "AGY_LLM_GATEWAY_MODELS=databricks-gemini-3-8-flash") {
-		t.Fatalf("gateway must advertise the base model: %v", env)
+		t.Fatalf("gateway must advertise the base model: %d", len(env))
 	}
 	want := []string{"--model", "databricks-gemini-3-8-flash", "--effort", "high"}
 	if !slices.Equal(argv, want) {
@@ -305,12 +305,12 @@ func TestGeminiGatewayForeignModelUsesOpenAIWire(t *testing.T) {
 	}
 	for _, kv := range []string{"AGY_LLM_GATEWAY_WIRE_PROTOCOL=openai", "AGY_LLM_GATEWAY_MODELS=databricks-claude-sonnet-5-5"} {
 		if !slices.Contains(env, kv) {
-			t.Errorf("env lacks %s: %v", kv, env)
+			t.Errorf("env lacks %s: %d", kv, len(env))
 		}
 	}
 	if !slices.ContainsFunc(env, func(kv string) bool { return strings.HasSuffix(kv, "/openai") }) ||
 		!slices.Equal(argv, []string{"--model", "databricks-claude-sonnet-5-5"}) {
-		t.Fatalf("want the /openai route and --model databricks-claude-sonnet-5-5: env %v argv %v", env, argv)
+		t.Fatalf("want the /openai route and --model databricks-claude-sonnet-5-5: env %d argv %v", len(env), argv)
 	}
 }
 
@@ -423,7 +423,7 @@ func TestVendorPassesThroughWhenUnroutable(t *testing.T) {
 	// gemini's own built-in vendor spec (agentconfig defaults) still prepends --dangerously-skip-permissions.
 	wantArgv := []string{"--dangerously-skip-permissions", "-p", "hi"}
 	if plan.Binary != fake || !slices.Equal(plan.Argv, wantArgv) || len(plan.Set) != 0 {
-		t.Errorf("plan = %+v, want the plain CLI with %v prepended and no harness env", plan, wantArgv)
+		t.Errorf("argv = %q, want the plain CLI with %v prepended and no harness env", plan.Argv, wantArgv)
 	}
 	if offers != 1 {
 		t.Errorf("configure offered %d times, want 1", offers)
@@ -456,7 +456,7 @@ func TestOwnLoginProfileForwardsResolvedModelWithoutOffer(t *testing.T) {
 	}
 	want := []string{"--dangerously-skip-permissions", "--model", model, "-p", "hi"}
 	if plan.Binary != fake || len(plan.Set) != 0 || !slices.Equal(plan.Argv, want) {
-		t.Fatalf("plan=%+v; want plain CLI with argv %v", plan, want)
+		t.Fatalf("argv=%q; want plain CLI with argv %v", plan.Argv, want)
 	}
 }
 
@@ -469,7 +469,8 @@ func TestConfigureRetryPreservesAgentModelPin(t *testing.T) {
 	original := agent.OfferConfigure
 	agent.OfferConfigure = func(name string, reason error) bool {
 		offers++
-		if name != "gemini" || !strings.Contains(reason.Error(), "not signed in") {
+		if name != "gemini" || !strings.Contains(reason.Error(), "not signed in") ||
+			strings.Count(reason.Error(), "sign in with `agy` (Google login)") != 1 {
 			t.Errorf("configure offer = %q, %v; want missing Gemini login", name, reason)
 		}
 		marker := filepath.Join(os.Getenv("HOME"), ".gemini", "antigravity-cli", "antigravity-oauth-token")
@@ -488,7 +489,7 @@ func TestConfigureRetryPreservesAgentModelPin(t *testing.T) {
 	}
 	want := []string{"--model", model, "--dangerously-skip-permissions", "-p", "hi"}
 	if offers != 1 || plan.Binary != fake || !slices.Equal(plan.Argv, want) {
-		t.Fatalf("offers=%d plan=%+v; want configured CLI with pinned model in argv %v", offers, plan, want)
+		t.Fatalf("offers=%d argv=%q; want configured CLI with pinned model in argv %v", offers, plan.Argv, want)
 	}
 }
 
