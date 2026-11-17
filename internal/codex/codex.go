@@ -394,7 +394,7 @@ func codexHeadless(ctx context.Context, argv []string, h *agent.Headless) []stri
 	}
 	sandbox, _ := codexSandbox(ctx, h.Tools) // RenderSettings refuses a bad value; the error path here is read-only
 	argv = append(append([]string{"exec"}, argv...), "--skip-git-repo-check", "--sandbox", sandbox)
-	if sandbox == "workspace-write" && proc.Value(ctx, codexNetworkEnv) == "1" { // opt-in: codex has no loopback-only switch, so this opens all egress
+	if network, _ := codexNetwork(ctx, h.Tools, sandbox); network { // RenderSettings refuses a nested grant; codex has no loopback-only switch
 		argv = append(argv, "-c", "sandbox_workspace_write.network_access=true")
 	}
 	argv = append(argv, codexLeafArgs.Args("-c")...)
@@ -422,9 +422,6 @@ var codexLeafArgs = proc.Values{
 
 // codexToolsOffArgs drop what a tools-off exec cannot use: the skill list, desktop plugins and ChatGPT app connectors.
 var codexToolsOffArgs = proc.Values{"skills.include_instructions": "false", "features.plugins": "false", "features.apps": "false"}
-
-// codexNetworkEnv=1 opts codex tool runs into sandbox network (loopback test listeners); default sealed.
-const codexNetworkEnv = "HARNESS_CODEX_NETWORK"
 
 func codexSchema() agent.Schema {
 	s, _ := agent.LookupSchema("codex")

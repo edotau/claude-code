@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -25,19 +26,28 @@ func TestCodexStatusScrubsVaultKey(t *testing.T) {
 	}
 }
 
-// Tool runs stay sealed by default: network only with HARNESS_CODEX_NETWORK=1, and never for read-only runs.
+// Tool runs stay sealed by default: network only with overlay codexNetwork, never read-only, never inside a dispatch.
 func TestCodexHeadlessNetworkOptIn(t *testing.T) {
 	const net = "sandbox_workspace_write.network_access=true"
-	t.Setenv(codexNetworkEnv, "")
+	open := proc.WithValues(context.Background(), proc.Values{agentconfig.OverlayVar: `{"codexNetwork":true}`})
 	if got := codexHeadless(context.Background(), nil, &agent.Headless{Tools: true}); slices.Contains(got, net) {
 		t.Fatalf("default tools run must stay sealed: %q", got)
 	}
-	t.Setenv(codexNetworkEnv, "1")
-	if got := codexHeadless(context.Background(), nil, &agent.Headless{Tools: true}); !slices.Contains(got, net) {
+	if got := codexHeadless(open, nil, &agent.Headless{Tools: true}); !slices.Contains(got, net) {
 		t.Fatalf("opted-in tools run lacks %s: %q", net, got)
 	}
-	if got := codexHeadless(context.Background(), nil, &agent.Headless{}); slices.Contains(got, net) {
+	if got := codexHeadless(open, nil, &agent.Headless{}); slices.Contains(got, net) {
 		t.Fatalf("read-only run must stay sealed even when opted in: %q", got)
+	}
+	_, notes, remove, err := codexToolsEnv(open, nil, true, "workspace-write")
+	remove()
+	if err != nil || !slices.ContainsFunc(notes, func(n string) bool { return strings.Contains(n, "codexNetwork") }) {
+		t.Errorf("launch notes must show the opened network: %v, %v", notes, err)
+	}
+	nested := proc.WithValues(context.Background(), proc.Values{agentconfig.OverlayVar: `{"codexNetwork":true}`, proc.DispatchIDEnv: "d1"})
+	if _, _, remove, err := codexToolsEnv(nested, nil, true, "workspace-write"); err == nil {
+		remove()
+		t.Error("a nested dispatch must not open network for itself")
 	}
 }
 
@@ -122,16 +132,15 @@ func TestCodexToolsEnvKeepsCallerCaches(t *testing.T) {
 // A run's snapshot decides the sandbox opt-ins and caller caches, whatever the process environment says.
 func TestCodexHeadlessReadsRunValues(t *testing.T) {
 	t.Setenv(codexSandboxEnv, "")
-	t.Setenv(codexNetworkEnv, "")
 	t.Setenv("GOCACHE", "/ambient")
-	ctx := proc.WithValues(context.Background(), proc.Values{codexSandboxEnv: "danger-full-access", codexNetworkEnv: "1"})
+	ctx := proc.WithValues(context.Background(), proc.Values{codexSandboxEnv: "danger-full-access"})
 	if got := codexHeadless(ctx, nil, &agent.Headless{Tools: true}); !slices.Contains(got, "danger-full-access") {
 		t.Fatalf("run snapshot sandbox ignored: %q", got)
 	}
-	ctx = proc.WithValues(context.Background(), proc.Values{codexNetworkEnv: "1", "GOCACHE": "/run"})
+	ctx = proc.WithValues(context.Background(), proc.Values{agentconfig.OverlayVar: `{"codexNetwork":true}`, "GOCACHE": "/run"})
 	got := codexHeadless(ctx, nil, &agent.Headless{Tools: true})
 	if !slices.Contains(got, "sandbox_workspace_write.network_access=true") {
-		t.Fatalf("run snapshot network opt-in ignored: %q", got)
+		t.Fatalf("run snapshot overlay network opt-in ignored: %q", got)
 	}
 	env, _, remove, _ := codexToolsEnv(ctx, nil, true, "workspace-write")
 	defer remove()
