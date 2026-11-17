@@ -382,7 +382,11 @@ func ownIDs(text string) []string {
 	}
 	var ids []string
 	if i := slices.IndexFunc(lines, func(l string) bool { return !strings.HasPrefix(l, "ask: ") }); i >= 0 {
-		ids = append(ids, headID(lines[i]))
+		id := headID(lines[i])
+		if j := slices.IndexFunc(lines, func(l string) bool { return strings.HasPrefix(l, `{"schema":`) }); id == "" && j >= 0 {
+			id = headID(lines[j]) // the envelope follows harness stderr lines such as `copilot: GitHub account …`
+		}
+		ids = append(ids, id)
 	}
 	return append(ids, exitID(lines))
 }
@@ -410,6 +414,12 @@ func headID(line string) string {
 
 // exitID is the last `ask: dispatch <id>` line past trailing footer lines (incl. a background `[exited…]`).
 func exitID(lines []string) string {
+	failure := -1 // the last `claude-code: ` line: what follows it is that error's detail
+	for i, l := range lines {
+		if strings.HasPrefix(l, "claude-code: ") {
+			failure = i
+		}
+	}
 	for i := len(lines) - 1; i >= 0; i-- {
 		l := lines[i]
 		if i > 0 && lines[i-1] == "ask: dispatch" {
@@ -418,7 +428,8 @@ func exitID(lines []string) string {
 		if m := ownIDRe().FindStringSubmatch(l); m != nil && m[2] != "" {
 			return m[2]
 		}
-		if !slices.ContainsFunc([]string{"ask: ", "session: ", "resume: ", "claude-code: ", "[exited with code "}, func(p string) bool { return strings.HasPrefix(l, p) }) {
+		if !slices.ContainsFunc([]string{"ask: ", "session: ", "resume: ", "claude-code: ", "[exited with code "}, func(p string) bool { return strings.HasPrefix(l, p) }) &&
+			(failure < 0 || i < failure) {
 			return ""
 		}
 	}
@@ -451,6 +462,7 @@ type leafScan struct {
 	askCmds           map[string]string
 	askTimes          []time.Time     // when each launching (ask|dispatch) call was made, to find its dispatch record
 	askCalls          map[string]bool // tool_use ids of Bash calls that ran an ask, dispatch or result
+	reviewCalls       map[string]bool // tool_use ids of `<agent> review` calls: a receipt only, never a job to wait on
 	ids               []string        // dispatch ids those calls' own results printed, in order: the leaf's jobs
 	ranOn, handedBack bool
 	askFailed         bool // an ask call's result says no agent ran
@@ -556,6 +568,12 @@ func (s *leafScan) addCalls(content json.RawMessage, at time.Time) {
 			continue
 		}
 		calls := relayCommands(it.Input.Command)
+		if it.ID != "" && slices.ContainsFunc(calls, reviewVerb) {
+			if s.reviewCalls == nil {
+				s.reviewCalls = map[string]bool{}
+			}
+			s.reviewCalls[it.ID] = true
+		}
 		calls = slices.DeleteFunc(calls, func(words []string) bool { return askVerb(words) == "" })
 		if len(calls) == 0 {
 			s.trackEdit(it.ID, bashWrites(it.Input.Command, s.cwd))
@@ -591,7 +609,8 @@ func (s *leafScan) addResults(content json.RawMessage) {
 func (s *leafScan) scanResult(it leafToolResult) {
 	raw := transcript.ContentText(it.Content)
 	text := resultText(raw)
-	success := !it.IsError && !hookDenyRe().MatchString(text)
+	denied := hookDenyRe().MatchString(text)
+	success := !it.IsError && !denied
 	if success && s.pendingEdits[it.ToolUseID] {
 		s.edited = true
 	}
@@ -608,6 +627,9 @@ func (s *leafScan) scanResult(it leafToolResult) {
 		ran := ranOnPattern().MatchString(text) && boundReceipt(text)
 		s.ranOn = s.ranOn || ran
 		s.askFailed = s.askFailed || !ran && didNotRunRe().MatchString(text)
+	}
+	if !denied && (s.reviewCalls[it.ToolUseID] || s.askCalls[it.ToolUseID] && it.IsError) { // the vendor ran even if the exit was not 0
+		s.ranOn = s.ranOn || ranOnPattern().MatchString(text) && boundReceipt(text)
 	}
 	if p, ok := s.polls[it.ToolUseID]; ok {
 		if m := bgOutputPattern().FindStringSubmatch(text); m != nil {

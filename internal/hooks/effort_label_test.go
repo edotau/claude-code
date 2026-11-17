@@ -294,3 +294,27 @@ func TestLabelQueryTypedAliasIsTheAsksModel(t *testing.T) {
 		}
 	}
 }
+
+// Regression (2026-11-17): a `Run: claude-code <agent> review` line's --model and --profile make the label, as an ask's do.
+func TestLabelQueryReadsReviewLine(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const pin = "claude-sonnet-5.5"
+	for _, tc := range []struct{ name, line, model, profile string }{
+		{"review --model", "claude-code copilot review --commit 994c08b1 --model gpt --format json", "gpt", ""},
+		{"review --profile", "claude-code gemini review --commit 994c08b1 --profile dev", "", "dev"},
+		{"ask --model", "claude-code agents ask --agent copilot --model gpt --fallback none --tools", "gpt", ""},
+		{"guard: review with no flag keeps the pin", "claude-code copilot review --commit 994c08b1", pin, ""},
+	} {
+		typ := strings.Fields(tc.line)[1]
+		if typ == "agents" {
+			typ = "copilot"
+		}
+		q, _ := labelQuery(context.Background(), newDispatchRun(nil), map[string]any{"model": pin}, typ, "Run: "+tc.line+"\n\nreview")
+		if q.Model != tc.model || q.Profile != tc.profile || q.Agent != typ {
+			t.Errorf("%s: query %s/%q/%q, want %s/%q/%q", tc.name, q.Agent, q.Model, q.Profile, typ, tc.model, tc.profile)
+		}
+	}
+	if _, ok := labelQuery(context.Background(), newDispatchRun(nil), map[string]any{}, "Explore", "Run: claude-code copilot review --model gpt\n\nx"); ok {
+		t.Error("an in-context leaf's label followed a review line it never runs")
+	}
+}

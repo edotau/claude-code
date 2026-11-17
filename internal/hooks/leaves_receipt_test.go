@@ -295,3 +295,50 @@ func TestRanOnReadsBackgroundAskOutput(t *testing.T) {
 		t.Fatalf("did-not-run output: got %+v blocked=%v, want the did-not-run note", r, blocked)
 	}
 }
+
+// Regression (2026-11-17): a `<agent> review` call, or an ask that exited non-zero, still shows the vendor ran.
+func TestRanOnReceiptFromReviewAndFailedAsk(t *testing.T) {
+	const cp, gm = "20261117T193443.389-copilot", "20261117T193444.216-gemini"
+	envelope := func(id string) string {
+		return `copilot: GitHub account x (gh auth token -u x)` + "\n" +
+			`{"schema":1,"status":"ok","dispatch_id":"` + id + `","ran_on":"ran on copilot · github·x · gpt · fallback none"}`
+	}
+	failedAsk := "Exit code 1\n**Verdict:** ship\n\nask: ran on gemini · google·x · gemini · fallback none\nask: dispatch " + gm +
+		"\nclaude-code: ask: gemini: failed: signal: killed\nAPI error (attempt 1): request failed"
+	for _, tc := range []struct {
+		name, agent, command, result, record string
+		isErr, wantNote                      bool
+	}{
+		{"review printed its envelope", "copilot", "claude-code copilot review --commit 994c08b1 --model gpt --format json", envelope(cp), cp, false, false},
+		{"ask exited 1 after running", "gemini", "claude-code gemini ask --tools --read-only - < /tmp/b.md", failedAsk, gm, true, false},
+		{"guard: review envelope names no record", "copilot", "claude-code copilot review --commit 994c08b1 --format json", envelope(cp), "", false, true},
+		{"guard: review prints no receipt", "copilot", "claude-code copilot review --commit 994c08b1", "findings only", cp, false, true},
+		{"guard: failed ask prints no receipt", "gemini", "claude-code gemini ask - < /tmp/b.md", "Exit code 1\nboom", gm, true, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			dir := t.TempDir()
+			opening := "review the commit"
+			if strings.Contains(tc.command, " review ") { // a Run: line only on the copilot rows: the gemini brief had none
+				opening = "Run: " + tc.command + "\n\n" + opening
+			}
+			brief, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"role": "user", "content": opening}})
+			res, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
+				{"type": "tool_result", "tool_use_id": "t1", "is_error": tc.isErr, "content": tc.result}}}})
+			body := string(brief) + "\n" + txCall("t1", "Bash", tc.command) + "\n" + string(res) + "\n"
+			if err := os.WriteFile(filepath.Join(dir, "agent-a1.jsonl"), []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "agent-a1.meta.json"), []byte(`{"agentType":"`+tc.agent+`"}`), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if tc.record != "" {
+				writeDispatch(t, tc.record, record(tc.record, "ok", 0))
+			}
+			r, blocked := leafStopBlock(leafInput(filepath.Join(dir, "agent-a1.jsonl")), "a1")
+			if got := strings.Contains(r.SystemMessage, relayNote); got != tc.wantNote || blocked {
+				t.Errorf("got %+v blocked=%v, want the relay note %v and no block", r, blocked, tc.wantNote)
+			}
+		})
+	}
+}
