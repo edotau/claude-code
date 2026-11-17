@@ -26,7 +26,10 @@ func gatewayAllow() []agent.Rule {
 	harness := []string{"claude-code agents find *", "claude-code agents diff *", "claude-code agents result *",
 		"claude-code agents dispatch *", "claude-code agents wait *", "claude-code agents status *", "claude-code agents tree *", "claude-code memory recall *",
 		"claude-code memory search *", "claude-code memory show *", "claude-code review simplify *",
-		"claude-code review scope *", "claude-code memory report *", "claude-code network websearch *"}
+		"claude-code review scope *", "claude-code memory report *", "claude-code network websearch *",
+		"claude-code agents label *", "claude-code agents list *", "claude-code agents brief *", "claude-code agents watch *",
+		"claude-code memory path *", "claude-code memory review *", "claude-code worktree gate *", "claude-code review gate *",
+		"claude-code doctor", "claude-code doctor --prompts", "claude-code doctor --mcp", "claude-code doctor --git"}
 	for _, c := range slices.Concat(rewritten, []string{"gofmt *", "go run *", "python *", "python3 *", "cat *", "head *", "tail *"}, harness) {
 		rules = append(rules, agent.Rule{Tool: "Bash", Arg: c})
 	}
