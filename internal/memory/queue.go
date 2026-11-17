@@ -1,6 +1,8 @@
 package memory
 
 import (
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 const (
@@ -36,7 +39,7 @@ type Job struct {
 
 func queueDir() string { return filepath.Join(StateDir(), "queue") }
 
-// jobName maps a job to its file name; key characters outside [A-Za-z0-9._-] become '_'.
+// jobName keeps a bounded readable prefix and hashes the original key to distinguish sanitized and case variants.
 func jobName(kind, key string) string {
 	clean := strings.Map(func(r rune) rune {
 		if r == '.' || r == '-' || r == '_' || r >= '0' && r <= '9' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' {
@@ -44,7 +47,7 @@ func jobName(kind, key string) string {
 		}
 		return '_'
 	}, key)
-	return kind + "-" + clean + ".json"
+	return fmt.Sprintf("%s-%.32s-%x.json", kind, clean, sha256.Sum256([]byte(key)))
 }
 
 // Enqueue files j unless a job with the same kind and key waits; queued=false means coalesced.
@@ -66,11 +69,19 @@ func queueAdd(dir string, j Job) (bool, error) {
 		return false, err
 	}
 	final := filepath.Join(dir, jobName(j.Kind, j.Key))
-	tmp := filepath.Join(dir, "."+filepath.Base(final)+"."+strconv.Itoa(os.Getpid()))
-	if err := paths.AtomicWrite(tmp, b, 0o600); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return false, err
 	}
+	f, err := os.CreateTemp(dir, ".enqueue-*")
+	if err != nil {
+		return false, err
+	}
+	tmp := f.Name()
 	defer func() { _ = os.Remove(tmp) }()
+	_, writeErr := f.Write(b)
+	if err := errors.Join(writeErr, f.Close()); err != nil {
+		return false, err
+	}
 	if err := os.Link(tmp, final); err != nil {
 		if errors.Is(err, os.ErrExist) {
 			return false, nil
@@ -114,13 +125,35 @@ func claimNext(now time.Time) (Job, string, bool) {
 	if os.MkdirAll(runDir, 0o700) != nil {
 		return Job{}, "", false
 	}
+	start, err := proc.StartTime(os.Getpid())
+	if err != nil {
+		return Job{}, "", false
+	}
 	for _, c := range due {
-		dst := filepath.Join(runDir, filepath.Base(c.path)+"."+strconv.Itoa(os.Getpid()))
+		dst := filepath.Join(runDir, filepath.Base(c.path)+fmt.Sprintf(".%d.%x.%s", os.Getpid(),
+			sha256.Sum256([]byte(start)), rand.Text()))
 		if os.Rename(c.path, dst) == nil {
-			return c.j, dst, true
+			if j, ok := claimedJob(dst, now); ok {
+				return j, dst, true
+			}
 		}
 	}
 	return Job{}, "", false
+}
+
+func claimedJob(dst string, now time.Time) (Job, bool) {
+	j, ok := readJob(dst)
+	if !ok {
+		failJob(dst)
+		return Job{}, false
+	}
+	if j.NotBefore.After(now) {
+		if _, err := queueAdd(queueDir(), j); err == nil {
+			_ = finish(dst)
+		}
+		return Job{}, false
+	}
+	return j, true
 }
 
 // finish drops a completed running job.
@@ -133,27 +166,52 @@ func finish(path string) error {
 
 // requeueDead returns running jobs whose worker died to the queue with attempts+1; the third attempt goes to failed/.
 func requeueDead() {
-	runs, _ := filepath.Glob(filepath.Join(queueDir(), "running", "*.json.*"))
-	for _, p := range runs {
-		pid, err := strconv.Atoi(filepath.Ext(p)[1:])
-		if err != nil || !ownerDead(pid) {
-			continue
+	_, _ = paths.TryFileLock(filepath.Join(queueDir(), "recovery.lock"), 0, func() error {
+		runs, _ := filepath.Glob(filepath.Join(queueDir(), "running", "*.json.*"))
+		for _, p := range runs {
+			if !queueOwnerDead(p) {
+				continue
+			}
+			j, ok := readJob(p)
+			j.Attempts++
+			if !ok || j.Attempts >= queueMaxAttempts {
+				failJob(p)
+				continue
+			}
+			if _, err := queueAdd(queueDir(), j); err == nil {
+				if err := finish(p); err != nil {
+					return err
+				}
+			}
 		}
-		j, ok := readJob(p)
-		j.Attempts++
-		if !ok || j.Attempts >= queueMaxAttempts {
-			failJob(p)
-			continue
-		}
-		if _, err := queueAdd(queueDir(), j); err == nil {
-			_ = os.Remove(p)
-		}
+		return nil
+	})
+}
+
+func queueOwnerDead(path string) bool {
+	parts := strings.Split(filepath.Base(path), ".")
+	if len(parts) < 5 {
+		return false
 	}
+	pid, err := strconv.Atoi(parts[len(parts)-3])
+	if err != nil || pid <= 0 {
+		return false
+	}
+	start, err := proc.StartTime(pid)
+	if err != nil {
+		return errors.Is(err, proc.ErrNoProcess)
+	}
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(start))) != parts[len(parts)-2]
 }
 
 func failJob(path string) {
 	dir := filepath.Join(queueDir(), "failed")
 	if os.MkdirAll(dir, 0o700) == nil {
-		_ = os.Rename(path, filepath.Join(dir, strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))))
+		_ = os.Rename(path, filepath.Join(dir, jobNameFromClaim(path)))
 	}
+}
+
+func jobNameFromClaim(path string) string {
+	name, _, _ := strings.CutLast(filepath.Base(path), ".json.")
+	return name + ".json"
 }

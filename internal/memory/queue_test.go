@@ -4,22 +4,25 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"testing"
 	"time"
 )
 
 func TestQueueDuplicateEnqueueCoalesces(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for i, want := range []bool{true, false} {
-		got, err := Enqueue(Job{Kind: "update", Key: "s/1"})
-		if err != nil || got != want {
-			t.Fatalf("enqueue %d = %v, %v; want %v, nil", i, got, err, want)
+	for _, keys := range [][]string{{"s/1"}, {"s/1", "s_1", "S/1"}} {
+		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+		for _, key := range keys {
+			for i, want := range []bool{true, false} {
+				got, err := Enqueue(Job{Kind: "update", Key: key})
+				if err != nil || got != want {
+					t.Fatalf("enqueue %q %d = %v, %v; want %v, nil", key, i, got, err, want)
+				}
+			}
 		}
-	}
-	if n := pending(); n != 1 {
-		t.Fatalf("pending = %d, want 1", n)
+		if n := pending(); n != len(keys) {
+			t.Fatalf("pending = %d, want %d", n, len(keys))
+		}
 	}
 	if _, err := Enqueue(Job{Kind: "bogus", Key: "k"}); err == nil {
 		t.Fatal("unknown kind accepted")
@@ -65,11 +68,14 @@ func deadPID(t *testing.T) int {
 }
 
 func TestQueueDeadWorkerRequeuesThenFails(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("process liveness is not probed off unix")
+	for _, pid := range []int{deadPID(t), os.Getpid()} {
+		t.Run(strconv.Itoa(pid), func(t *testing.T) { checkQueueDeadWorker(t, pid) })
 	}
+}
+
+func checkQueueDeadWorker(t *testing.T, pid int) {
+	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	pid := deadPID(t)
 	runDir := filepath.Join(queueDir(), "running")
 	for want := 1; want <= queueMaxAttempts; want++ {
 		if _, err := Enqueue(Job{Kind: "update", Key: "s", Attempts: want - 1}); err != nil {
@@ -79,19 +85,19 @@ func TestQueueDeadWorkerRequeuesThenFails(t *testing.T) {
 		if !ok {
 			t.Fatal("nothing claimed")
 		}
-		if err := os.Rename(path, filepath.Join(runDir, "update-s.json."+strconv.Itoa(pid))); err != nil {
+		if err := os.Rename(path, filepath.Join(runDir, jobName("update", "s")+"."+strconv.Itoa(pid)+".dead.unique")); err != nil {
 			t.Fatal(err)
 		}
 		requeueDead()
 		if want < queueMaxAttempts {
-			j, ok := readJob(filepath.Join(queueDir(), "update-s.json"))
+			j, ok := readJob(filepath.Join(queueDir(), jobName("update", "s")))
 			if !ok || j.Attempts != want {
 				t.Fatalf("after death %d: job = %+v, ok = %v; want attempts %d", want, j, ok, want)
 			}
-			_ = os.Remove(filepath.Join(queueDir(), "update-s.json"))
+			_ = os.Remove(filepath.Join(queueDir(), jobName("update", "s")))
 		}
 	}
-	if _, err := os.Stat(filepath.Join(queueDir(), "failed", "update-s.json")); err != nil || pending() != 0 {
+	if _, err := os.Stat(filepath.Join(queueDir(), "failed", jobName("update", "s"))); err != nil || pending() != 0 {
 		t.Fatalf("third death should land in failed/: stat err %v, pending %d", err, pending())
 	}
 }
