@@ -53,7 +53,9 @@ YAML_FILES      := $(shell git ls-files '*.yml' '*.yaml' 2>/dev/null)
 ##@ Go
 .PHONY: compile
 compile:  ## Compile bin/claude-code, no install
-	@$(GO) build -trimpath -ldflags='-s -w' -o $(BIN) ./cmd/claude-code
+	@mkdir -p $(dir $(BIN))
+	@$(GO) build -trimpath -ldflags='-s -w' -o $(BIN).new ./cmd/claude-code
+	@mv -f $(BIN).new $(BIN)
 
 .PHONY: build
 build: install  # (dev recipe, hidden from help) compile + install + fmt + audit (SKIP_AUDIT=1)
@@ -61,8 +63,15 @@ build: install  # (dev recipe, hidden from help) compile + install + fmt + audit
 	@$(if $(SKIP_AUDIT),echo -e "$(C_NOTE)audit skipped (SKIP_AUDIT)",$(MAKE) audit)
 
 # `claude-code install` links the bare shims, seeds a missing settings.json and writes bash completion (helptext.Install).
+.PHONY: check-clean
+check-clean:
+	@status="$$(git status --porcelain --untracked-files=no)"; \
+	if [ "$(FORCE)" != 1 ] && [ -n "$$status" ]; then \
+		echo "Refusing to build the installed binary from a dirty tree; commit changes or use FORCE=1." >&2; exit 1; fi
+
 .PHONY: install
-install: compile mdsmith rtk  ## Build, install, add missing CLIs (TOOLS=1 updates all)
+install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
+	@$(MAKE) compile mdsmith rtk
 	@$(BIN) install$(if $(filter 1,$(V)), --verbose,)
 	@$(if $(TOOLS),$(BIN) install --tools$(if $(filter-out 1,$(TOOLS)),=$(TOOLS)) && $(BIN) doctor,\
 		$(BIN) install --tools --missing || echo -e "$(C_NOTE)a missing CLI failed to install (install itself succeeded)")
@@ -168,7 +177,8 @@ setup-env:  ## Print the PATH line (APPLY=1 writes shell rc)
 # Umbrella gate: lint, doctor --git over unpushed commits, one go test run, no-keyring tests, go build, govulncheck
 # (skipped offline), doctor --prompts, agents sync --dry-run, cli-menu.svg freshness.
 .PHONY: audit
-audit: compile  ## Local gate: lint, git secrets, test, build, vuln, docs
+audit: check-clean  ## Local gate: lint, git secrets, test, build, vuln, docs
+	@$(MAKE) compile
 	@$(MAKE) --no-print-directory lint
 	@$(MAKE) --no-print-directory audit-git
 	@if [ "$(SKIP_TESTS)" = 1 ]; then echo -e "$(C_NOTE)tests skipped (SKIP_TESTS=1)"; else \
@@ -236,6 +246,7 @@ lint:  ## Check go, shell, yaml, md, js; auto-wraps own memory banks
 	@$(MAKE) --no-print-directory $(addprefix lint-,$(LINT_KINDS)) CHECK=1
 	@echo -e "$(C_OK)lint passed"
 
+lint-%: BIN := bin/.lint/$(BINARY)
 lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 only reports
 	@case "$*" in \
 	go) if [ "$(CHECK)" = 1 ]; then \
@@ -266,6 +277,7 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 only re
 	esac
 
 .PHONY: lint-agent
+lint-agent: BIN := bin/.lint/$(BINARY)
 lint-agent: compile mdsmith  # (folded into `fmt`) AGENT fixes what auto-fix left, at most MAX passes
 	@go=0; md=0; js=0; gl=0; case "$(WHAT)" in go) go=1;; md) md=1;; js) js=1;; *) go=1; md=1; js=1;; esac; \
 	if [ $$go = 1 ]; then if command -v golangci-lint >/dev/null; then gl=1; \
