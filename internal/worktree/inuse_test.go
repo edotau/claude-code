@@ -508,6 +508,9 @@ func TestIsHelperArgv(t *testing.T) {
 		{[]string{"claude", "-p", "x"}, false},
 		{[]string{"claude", "mcp", "serve"}, false},
 		{[]string{"codex", "exec", "fix it"}, false},
+		{[]string{"codex", "update"}, false},
+		{[]string{"/u/bin/copilot", "doctor"}, false},
+		{[]string{"/u/.local/share/claude/versions/2.1.325", "auth", "login"}, true},
 	}
 	for _, c := range cases {
 		if got := isHelperArgv(c.argv); got != c.want {

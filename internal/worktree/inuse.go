@@ -293,9 +293,15 @@ func isDaemon(pid int) bool {
 	return err == nil && isHelperArgv(argv)
 }
 
+// isClaudeBinary matches claude by name or by its version-named binary (2.1.325); other agents' words are prompts.
+func isClaudeBinary(argv0 string) bool {
+	base := strings.TrimSuffix(filepath.Base(argv0), ".exe")
+	return base == "claude" || base != "" && base[0] >= '0' && base[0] <= '9'
+}
+
 // isHelperArgv classifies argv; print mode (-p) and `mcp serve` still edit, so they stay peers.
 func isHelperArgv(argv []string) bool {
-	if len(argv) > 1 && helperSubcmds[argv[1]] {
+	if len(argv) > 1 && helperSubcmds[argv[1]] && isClaudeBinary(argv[0]) {
 		return true
 	}
 	return slices.ContainsFunc(argv, func(a string) bool {
