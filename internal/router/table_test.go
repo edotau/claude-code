@@ -357,3 +357,22 @@ func TestAsksModelWireSpellingAndGeminiEffortCell(t *testing.T) {
 }
 
 // A gemini dispatch at opus on Databricks picks a gemini bucket member, never the Claude opus alias model.
+
+func BenchmarkLoadFrom(b *testing.B) {
+	testTable(b)
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := LoadFrom(nil, "work-user"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkAliasOf(b *testing.B) {
+	tb := testTable(b)
+	models := []string{"claude-opus-5-5[1m]", "claude-sonnet-5-5", "gpt-5-5", "databricks-claude-haiku-5-5", "unknown-model"}
+	b.ReportAllocs()
+	for i := 0; b.Loop(); i++ {
+		tb.AliasOf(models[i%len(models)])
+	}
+}

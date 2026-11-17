@@ -1,6 +1,8 @@
 package server
 
 import (
+	"bytes"
+
 	"context"
 	"errors"
 	"fmt"
@@ -386,5 +388,17 @@ func TestReportedModelStripsProfilePrefix(t *testing.T) {
 	target := providers.Target{Provider: &providers.Provider{Name: "anth"}, Model: "claude-opus-5-5"}
 	if got := reportedModel("anth:claude-opus-5-5", target); got != target.Model {
 		t.Fatalf("reportedModel = %q, want %q", got, target.Model)
+	}
+}
+
+func BenchmarkRelaySSE(b *testing.B) {
+	frames := []byte(strings.Repeat("event: content_block_delta\ndata: {\"type\":\"content_block_delta\"}\n\n", 64) +
+		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
+	b.SetBytes(int64(len(frames)))
+	b.ReportAllocs()
+	for b.Loop() {
+		resp := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}},
+			Body: io.NopCloser(bytes.NewReader(frames))}
+		relay(httptest.NewRecorder(), resp)
 	}
 }

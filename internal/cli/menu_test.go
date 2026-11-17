@@ -105,3 +105,25 @@ func TestMenuGroupsAlphabetical(t *testing.T) {
 		t.Errorf("AGENTS must open with anthropic, got %v", got)
 	}
 }
+
+func BenchmarkUsage(b *testing.B) {
+	null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer null.Close()
+	b.ReportAllocs()
+	for b.Loop() {
+		if err := usage(null); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkMenuRows(b *testing.B) {
+	commands()
+	b.ReportAllocs()
+	for b.Loop() {
+		menuRows()
+	}
+}

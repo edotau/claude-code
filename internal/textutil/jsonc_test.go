@@ -1,6 +1,8 @@
 package textutil
 
 import (
+	"strings"
+
 	"encoding/json"
 	"testing"
 )
@@ -35,5 +37,12 @@ func TestStripJSONCHandlesCommentsStringsAndTrailingCommas(t *testing.T) {
 	nested, ok := out["c"].(map[string]any)
 	if !ok || nested["nested"] != true {
 		t.Errorf("object trailing comma not stripped cleanly: %v", out["c"])
+	}
+}
+
+func BenchmarkStripJSONC(b *testing.B) {
+	in := []byte(strings.Repeat(`{"a": 1, /* c */ "b": "x // y"} // tail`+"\n", 200))
+	for b.Loop() {
+		StripJSONC(in)
 	}
 }

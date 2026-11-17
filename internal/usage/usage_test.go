@@ -603,3 +603,58 @@ func TestUsageContextFlag(t *testing.T) {
 		t.Errorf("json: exit %d, out %s", code, out.String())
 	}
 }
+
+func BenchmarkUsageOffline(b *testing.B) {
+	dir := b.TempDir()
+	b.Setenv("HOME", dir)
+	b.Setenv("CLAUDE_CONFIG_DIR", dir)
+	b.Setenv("CODEX_HOME", filepath.Join(dir, ".codex"))
+	b.Setenv("XDG_CONFIG_HOME", filepath.Join(dir, ".config"))
+	projects := filepath.Join(dir, "projects", "fixture")
+	if err := os.MkdirAll(projects, 0o700); err != nil {
+		b.Fatal(err)
+	}
+	data := []byte(`{"type":"assistant","timestamp":"` + time.Now().UTC().Format(time.RFC3339) + `","message":{"model":"claude-opus-5","usage":{"input_tokens":100,"output_tokens":20}}}` + "\n")
+	if err := os.WriteFile(filepath.Join(projects, "session.jsonl"), data, 0o600); err != nil {
+		b.Fatal(err)
+	}
+	for b.Loop() {
+		if code := Run([]string{"--providers=false"}, dir, io.Discard, io.Discard); code != 0 {
+			b.Fatal(code)
+		}
+	}
+}
+
+func BenchmarkNewestModTime(b *testing.B) {
+	dir := b.TempDir()
+	for i := range 200 {
+		if err := os.WriteFile(filepath.Join(dir, strconv.Itoa(i)+".jsonl"), nil, 0600); err != nil {
+			b.Fatal(err)
+		}
+	}
+	for b.Loop() {
+		if _, err := newestModTime(dir); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkSessionDirs(b *testing.B) {
+	dir := b.TempDir()
+	for i := range 32 {
+		session := filepath.Join(dir, "projects", "project", strconv.Itoa(i))
+		if err := os.MkdirAll(session, 0700); err != nil {
+			b.Fatal(err)
+		}
+		for j := range 32 {
+			if err := os.WriteFile(filepath.Join(session, strconv.Itoa(j)), nil, 0600); err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+	for b.Loop() {
+		if _, err := usageSessionDirsWithinDays(dir, 1, io.Discard); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

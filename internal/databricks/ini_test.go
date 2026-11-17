@@ -258,3 +258,19 @@ func TestCandidatesNotes(t *testing.T) {
 		})
 	}
 }
+
+const benchProfiles = 50
+
+func BenchmarkParse(b *testing.B) {
+	var sb strings.Builder
+	for i := range benchProfiles {
+		fmt.Fprintf(&sb, "[p%d]\nhost = https://w%d.example.com\nauth_type = databricks-cli\n\n", i, i)
+	}
+	text := sb.String()
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, _, _, err := parse(text); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

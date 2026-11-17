@@ -297,3 +297,14 @@ func TestListPropagatesFilesystemReadError(t *testing.T) {
 		t.Fatal("List succeeded despite a non-directory worktree root")
 	}
 }
+
+func BenchmarkParsePorcelain(b *testing.B) {
+	rec := "worktree /w/x\x00HEAD abc123\x00branch refs/heads/x\x00\x00"
+	out := strings.Repeat(rec, 50)
+	b.ReportAllocs()
+	for b.Loop() {
+		for _, r := range splitRecords(out) {
+			parseRecord(r)
+		}
+	}
+}

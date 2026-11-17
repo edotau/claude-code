@@ -750,3 +750,12 @@ func TestToChatRequestDropsBillingHeader(t *testing.T) {
 		t.Errorf("system messages differ or lead with the billing line:\n%q\n%q", a, b)
 	}
 }
+
+func BenchmarkCountTokens(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := CountTokens(benchMessagesBody); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

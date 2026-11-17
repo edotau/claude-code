@@ -27,3 +27,11 @@ func TestNestedTemplatePreservesWorkflowPins(t *testing.T) {
 		t.Errorf("saved template: %v", hits)
 	}
 }
+
+func BenchmarkStripStrings(b *testing.B) {
+	src := strings.Repeat("const x = agent(`prompt ${a + `n ${b}`} text`, { model: 'opus' }) // don't\nlet r = /ab+c/.test(s) / 2\n", 200)
+	b.ReportAllocs()
+	for b.Loop() {
+		stripStrings(src)
+	}
+}

@@ -172,3 +172,10 @@ func TestCredentialRE(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkRedactSecrets(b *testing.B) {
+	s := strings.Repeat("token=ghp_abcdefghijklmnopqrstuvwxyz0123456789 plain words here ", 50)
+	for b.Loop() {
+		RedactSecrets(s)
+	}
+}

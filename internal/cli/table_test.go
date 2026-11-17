@@ -1062,3 +1062,29 @@ func TestRemoteLocalhostClearsInheritedEgress(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkLookup(b *testing.B) {
+	commands()
+	b.ReportAllocs()
+	for b.Loop() {
+		lookup("models")
+		lookup("nope")
+	}
+}
+
+func BenchmarkCompleteVerbs(b *testing.B) {
+	e := completionEngine()
+	e.Candidates([]string{""})
+	b.ReportAllocs()
+	for b.Loop() {
+		e.Candidates([]string{"w"})
+	}
+}
+
+func BenchmarkBuildSpecTree(b *testing.B) {
+	commands()
+	b.ReportAllocs()
+	for b.Loop() {
+		buildSpecTree()
+	}
+}

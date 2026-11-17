@@ -208,3 +208,16 @@ func TestAppendAfterTornLine(t *testing.T) {
 		t.Fatalf("Read = %+v, want only the new entry", got)
 	}
 }
+
+func BenchmarkRead(b *testing.B) {
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	ts := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	for range 2000 {
+		Append(Entry{Ts: ts, Provider: "openai", Model: "gpt-5", Session: "s", Input: 100, Output: 20})
+	}
+	for b.Loop() {
+		if _, err := Read(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

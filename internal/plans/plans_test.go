@@ -633,3 +633,20 @@ func TestCommitFilesPreservesLeadingNewline(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func benchPlan() []byte {
+	var b strings.Builder
+	b.WriteString("# Plan: bench\n\n## Tasks\n\n")
+	for range 200 {
+		b.WriteString("- [ ] 1.1 Wire the thing (owns: internal/plans/plans.go, internal/cli/*.go)\n  continuation line one\n  continuation line two\n")
+	}
+	return []byte(b.String())
+}
+
+func BenchmarkParseBytes(b *testing.B) {
+	raw := benchPlan()
+	b.ReportAllocs()
+	for b.Loop() {
+		parseBytes("p.md", raw)
+	}
+}
