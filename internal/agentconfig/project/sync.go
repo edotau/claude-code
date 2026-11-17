@@ -20,7 +20,11 @@ type Options struct {
 	Root     string    // source config dir; "" = paths.ConfigDir()
 	Home     string    // agent homes' parent; "" = the user's home
 	StateDir string    // holds projections/; "" = <Root>/state
+	write    fileWriter
 }
+
+// fileWriter writes content at path and reports whether it changed; nil means paths.WriteIfChanged.
+type fileWriter func(path string, data []byte, mode os.FileMode) (bool, error)
 
 type writeResult int
 
@@ -62,6 +66,7 @@ func (r *syncResult) add(o syncResult) {
 
 type syncInputs struct {
 	home, root, state, skillsDir string
+	write                        fileWriter
 	names                        []string
 	agents, skills               []Source
 }
@@ -133,7 +138,11 @@ func loadSyncInputs(opts Options) (in syncInputs, code int, ok bool) {
 	if err := validateUniqueNames(skills); err != nil {
 		return in, syncFail(err), false
 	}
-	return syncInputs{home: home, root: root, state: state, skillsDir: skillsDir, names: names, agents: agents, skills: skills}, 0, true
+	write := opts.write
+	if write == nil {
+		write = paths.WriteIfChanged
+	}
+	return syncInputs{home: home, root: root, state: state, skillsDir: skillsDir, write: write, names: names, agents: agents, skills: skills}, 0, true
 }
 
 // syncDirs resolves the home, config root and state directories, defaulting each one the options leave empty.
@@ -230,23 +239,23 @@ func finishSync(out io.Writer, opts Options, dryRun bool, res syncResult) int {
 func syncProjectionAssets(out io.Writer, name string, in syncInputs, docs string, hasDocs, dryRun, prune bool) syncResult {
 	header(out, name)
 	tg := targets[name]
-	res := syncProjection(out, name, tg, in.agents, stateRoot(in.state, name, "agents"), tg.home(in.home), dryRun, prune)
+	res := syncProjection(out, name, tg, in, stateRoot(in.state, name, "agents"), tg.home(in.home), dryRun, prune)
 	if tg.skills != nil {
 		// agy reads its own skills dir rather than ~/.agents/skills.
 		res.add(syncSkillLinks(out, in.skills, in.skillsDir, tg.skills(in.home), prune, dryRun))
 	}
 	if rel := tg.docs; rel != "" && hasDocs && mkdirUnlessDry(&res, dryRun, filepath.Dir(filepath.Join(in.home, rel)), stateRoot(in.state, name)) {
-		res.record(writeProjection(out, filepath.Join(stateRoot(in.state, name), filepath.Base(rel)), docs, dryRun))
-		res.record(writeOwnedFile(out, filepath.Join(in.home, rel), docs, dryRun))
+		res.record(writeProjection(out, filepath.Join(stateRoot(in.state, name), filepath.Base(rel)), docs, dryRun, in.write))
+		res.record(writeOwnedFile(out, filepath.Join(in.home, rel), docs, dryRun, in.write))
 	}
 	return res
 }
 
 // syncProjection renders each agent into distDir and homeDir, then prunes generated files the roster dropped.
-func syncProjection(out io.Writer, target string, t projectionTarget, agents []Source, distDir, homeDir string, dryRun, prune bool) syncResult {
+func syncProjection(out io.Writer, target string, t projectionTarget, in syncInputs, distDir, homeDir string, dryRun, prune bool) syncResult {
 	var res syncResult
-	rendered := make(map[string]bool, len(agents))
-	for _, agent := range agents {
+	rendered := make(map[string]bool, len(in.agents))
+	for _, agent := range in.agents {
 		name := agent.Name()
 		if name == target {
 			continue // never project a target's own agent into its own CLI home (nesting hazard)
@@ -262,8 +271,8 @@ func syncProjection(out io.Writer, target string, t projectionTarget, agents []S
 		if !mkdirUnlessDry(&res, dryRun, distDir, homeDir) {
 			return res
 		}
-		res.record(writeProjection(out, filepath.Join(distDir, file), content, dryRun))
-		res.record(writeOwnedFile(out, filepath.Join(homeDir, file), content, dryRun))
+		res.record(writeProjection(out, filepath.Join(distDir, file), content, dryRun, in.write))
+		res.record(writeOwnedFile(out, filepath.Join(homeDir, file), content, dryRun, in.write))
 	}
 	if !prune {
 		return res
@@ -274,7 +283,7 @@ func syncProjection(out io.Writer, target string, t projectionTarget, agents []S
 }
 
 // writeOwnedFile writes an agent-home copy, keeping any symlink or bannerless (hand-authored) file at that path.
-func writeOwnedFile(out io.Writer, path, content string, dryRun bool) writeResult {
+func writeOwnedFile(out io.Writer, path, content string, dryRun bool, write fileWriter) writeResult {
 	info, err := os.Lstat(path)
 	switch {
 	case err == nil && info.Mode()&os.ModeSymlink != 0:
@@ -284,11 +293,11 @@ func writeOwnedFile(out io.Writer, path, content string, dryRun bool) writeResul
 		status(out, "KEEP", paths.ShortHome(path), "hand-authored; remove it to let the harness own it")
 		return kept
 	}
-	return writeProjection(out, path, content, dryRun)
+	return writeProjection(out, path, content, dryRun, write)
 }
 
 // writeProjection compares against disk (so --check fires only on real change), writes on change, reports.
-func writeProjection(out io.Writer, outputFile, content string, dryRun bool) writeResult {
+func writeProjection(out io.Writer, outputFile, content string, dryRun bool, write fileWriter) writeResult {
 	rel := paths.ShortHome(outputFile)
 	if dryRun {
 		if existing, err := os.ReadFile(outputFile); err == nil && string(existing) == content {
@@ -298,7 +307,7 @@ func writeProjection(out io.Writer, outputFile, content string, dryRun bool) wri
 		status(out, "DRY", rel, "")
 		return written
 	}
-	wrote, err := paths.WriteIfChanged(outputFile, []byte(content), 0o644)
+	wrote, err := write(outputFile, []byte(content), 0o644)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "  ERROR %s: %v\n", rel, err)
 		return failed
