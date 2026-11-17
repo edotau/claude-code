@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -788,6 +789,48 @@ func TestSessionModel(t *testing.T) {
 	}
 	if got := SessionModel("f"); got != "gpt-6.1-sol" {
 		t.Errorf("fallback SessionModel = %q, want gpt-6.1-sol", got)
+	}
+}
+
+func TestBuildAskRecordDepthCap(t *testing.T) {
+	for _, tc := range []struct {
+		name, max string
+		depth     int
+		refused   bool
+	}{
+		{"top level", "", 0, false},
+		{"depth one", "", 1, false},
+		{"depth two", "", 2, false},
+		{"at cap", "", 3, false},
+		{"above cap", "", 4, true},
+		{"override five", "5", 5, false},
+		{"unlimited", "0", 1 << 20, false},
+		{"garbage at cap", "garbage", 3, false},
+		{"garbage above cap", "garbage", 4, true},
+		{"negative above cap", "-1", 4, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setConfigDir(t)
+			values := proc.Values{"HARNESS_DISPATCH_MAX_DEPTH": tc.max}
+			if tc.depth > 0 {
+				values = values.Merge(proc.Values{proc.DispatchIDEnv: "fixture", proc.DispatchDepthEnv: strconv.Itoa(tc.depth - 1)})
+			}
+			rec, err := (&Client{}).Record(t.Context(), RunOptions{Agent: "codex", Values: values}, nil)
+			if !tc.refused {
+				if err != nil || rec.Depth != tc.depth {
+					t.Fatalf("depth = %d, err = %v; want depth %d", rec.Depth, err, tc.depth)
+				}
+				return
+			}
+			var usage *UsageError
+			want := "dispatch depth 4 exceeds cap 3 (parent fixture); set HARNESS_DISPATCH_MAX_DEPTH (0 = no cap)"
+			if !errors.As(err, &usage) || err.Error() != want {
+				t.Fatalf("error = %v; want UsageError %q", err, want)
+			}
+			if names, err := recordNames(paths.DispatchDir()); err != nil || len(names) != 0 {
+				t.Fatalf("refused dispatch records = %v, err = %v", names, err)
+			}
+		})
 	}
 }
 
