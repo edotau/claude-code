@@ -54,6 +54,7 @@ type Subagent struct {
 	Activity    *Activity  `json:"activity,omitempty"`   // newest tool/text signal; nil when none seen yet
 	Dispatches  []Dispatch `json:"dispatches,omitempty"` // agent dispatches this relay agent launched via `ask`
 	Phase       string     `json:"-"`                    // workflowPhase from the sidecar meta, for run grouping
+	Model       string     `json:"-"`                    // transcript's newest message.model; the provider shows in its prefix
 }
 
 // Activity is the newest tool_use and assistant text in a subagent transcript tail; At stamps whichever set last.
@@ -380,6 +381,7 @@ func buildSubagent(transcriptPath string, now time.Time, cwd string, scans *scan
 		Depth:       meta.SpawnDepth,
 		Tokens:      e.totals(),
 		Phase:       phase,
+		Model:       e.Model,
 		LastTool:    act.Tool,
 		Updated:     updated,
 		Dispatches:  buildDispatches(transcriptPath, cwd, now, act, scans.recs.Load(e.IDs)),
