@@ -94,7 +94,7 @@ var agentsPage = helptext.Page{
 		{"wait", "block until dispatches finish: wait <id>... [--timeout 10m]"},
 		{"watch", "report this session's stale dispatches: watch [--once]"},
 		{"brief", "render a leaf brief or reserve its file with --path"},
-		{"send", "send one turn to a live claude or gemini session: send <id> <task>"},
+		{"send", "resume a finished dispatch, or message a live one: send <id> <task>"},
 	},
 	Hint: "claude-code agents <command> -h lists that command's flags.",
 }
@@ -121,7 +121,7 @@ var agentsSubPages = map[string][3]string{
 		"findings the change introduced). --verify <id> adds a dispatch's routing proof. Exit 1 gate failed or " +
 		"MISMATCH, 3 outside --path, 2 usage."},
 	"send": {"send <id> <task | -> [flags]", "Send one user turn to a live claude or gemini session (ask --agent <a> " +
-		"--live) and stream that turn's events; exits on its result. One turn at a time per session."},
+		"--live), or resume a finished dispatch's session on any agent as a new child dispatch; exits on its result. One turn at a time per live session."},
 	"dispatch": {"dispatch --waves <plan> [flags]", "Run a plan’s waves with observed verification and no commits; " +
 		"the shared route and permission flags reach every leaf.",
 		"Exit 0 passed, 1 failed wave, 2 usage or invalid plan,\n" +
