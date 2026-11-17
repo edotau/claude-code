@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -174,6 +175,8 @@ func loadSegments(files []corpusFile, persist bool) []segView {
 	// Reuse query stats when pruning so each corpus file is statted only once.
 	stats := make(map[string]bool, len(files))
 	added := map[fileKey]indexed{}
+	var missing []int
+	var infos []os.FileInfo
 	for i, f := range files {
 		info, err := os.Stat(f.Path)
 		stats[f.Path] = err == nil
@@ -185,13 +188,37 @@ func loadSegments(files []corpusFile, persist bool) []segView {
 			segs[i] = seg
 			continue
 		}
-		segs[i] = encodeFile(f)
+		missing = append(missing, i)
+		infos = append(infos, info)
+	}
+	encodeMissing(files, missing, segs)
+	for j, i := range missing {
+		info := infos[j]
 		if segs[i] != nil && persist && ok && time.Since(info.ModTime()) >= racyWindow {
-			added[key] = indexed{info.Size(), info.ModTime().UnixNano(), segs[i]}
+			added[fileKey{files[i].Path, files[i].Mode}] = indexed{info.Size(), info.ModTime().UnixNano(), segs[i]}
 		}
 	}
 	persistIndex(path, stamp, added, stats)
 	return segs
+}
+
+const corpusReadWorkers = 4
+
+func encodeMissing(files []corpusFile, missing []int, segs []segView) {
+	if len(missing) == 0 {
+		return
+	}
+	var wg sync.WaitGroup
+	workers := min(corpusReadWorkers, len(missing))
+	for worker := range workers {
+		wg.Go(func() {
+			for j := worker; j < len(missing); j += workers {
+				i := missing[j]
+				segs[i] = encodeFile(files[i])
+			}
+		})
+	}
+	wg.Wait()
 }
 
 // readFilesIndex is the persisted index restricted to files' (path, mode) keys.

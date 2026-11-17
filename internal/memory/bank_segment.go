@@ -449,8 +449,8 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 	}
 	n := float64(ndocs)
 	var hits []SearchHit
+	dir := accessDir(HomeBank())
 	for _, i := range usable {
-		dir := accessDir(HomeBank())
 		hits = append(hits, scoreSegmentDocs(qTerms, uniq, df, n, avgdl, segs[i], weighted[i], files[i], dir)...)
 	}
 	sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
