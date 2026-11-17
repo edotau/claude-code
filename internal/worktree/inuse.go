@@ -284,10 +284,23 @@ func pidsWithin(all []procCwd, dirs []string) map[int]bool {
 	return pids
 }
 
-// isDaemon reports a background agent server rather than a working session (agy's `--hub` from the IDE extension).
+// helperSubcmds are claude subcommands that manage config or installs and never edit a checkout.
+var helperSubcmds = map[string]bool{"update": true, "upgrade": true, "doctor": true, "auth": true, "setup-token": true}
+
+// isDaemon reports a non-session helper: agy's IDE `--hub`, Chrome's `--chrome-native-host`, or a claude admin subcommand.
 func isDaemon(pid int) bool {
 	argv, err := argvOf(pid)
-	return err == nil && slices.ContainsFunc(argv, func(a string) bool { return strings.HasPrefix(a, "--hub") })
+	return err == nil && isHelperArgv(argv)
+}
+
+// isHelperArgv classifies argv; print mode (-p) and `mcp serve` still edit, so they stay peers.
+func isHelperArgv(argv []string) bool {
+	if len(argv) > 1 && helperSubcmds[argv[1]] {
+		return true
+	}
+	return slices.ContainsFunc(argv, func(a string) bool {
+		return strings.HasPrefix(a, "--hub") || a == "--chrome-native-host"
+	})
 }
 
 // agentLabel is comm, or the agent a version-named binary belongs to (Claude Code's kernel name is "2.1.325").

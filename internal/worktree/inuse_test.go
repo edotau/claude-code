@@ -494,3 +494,24 @@ func TestPeerAgentsNamesVersionedClaude(t *testing.T) {
 		}
 	}
 }
+
+// Non-session helpers are not peers; sessions, print mode, `mcp serve` and other agents' runs still are.
+func TestIsHelperArgv(t *testing.T) {
+	cases := []struct {
+		argv []string
+		want bool
+	}{
+		{[]string{"/u/.local/bin/claude", "--chrome-native-host"}, true},
+		{[]string{"claude", "update"}, true},
+		{[]string{"/u/.gemini/bin/agy", "--hub", "--hub-port=1"}, true},
+		{[]string{"claude"}, false},
+		{[]string{"claude", "-p", "x"}, false},
+		{[]string{"claude", "mcp", "serve"}, false},
+		{[]string{"codex", "exec", "fix it"}, false},
+	}
+	for _, c := range cases {
+		if got := isHelperArgv(c.argv); got != c.want {
+			t.Errorf("isHelperArgv(%v) = %v, want %v", c.argv, got, c.want)
+		}
+	}
+}
