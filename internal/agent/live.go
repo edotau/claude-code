@@ -556,6 +556,16 @@ func (s *liveSession) connPanic(c net.Conn, r any, inTurn bool) {
 }
 
 // runTurn writes one user message to the agent and relays its events up to the turn's result.
+// addTurnUsage sums per-turn tokens; cost is the vendor's session-cumulative total, so it only rises.
+func addTurnUsage(sum, turn wire.Usage) wire.Usage {
+	sum.InputTokens += turn.InputTokens
+	sum.OutputTokens += turn.OutputTokens
+	sum.CacheReadTokens += turn.CacheReadTokens
+	sum.CacheCreationTokens += turn.CacheCreationTokens
+	sum.CostUSD = max(sum.CostUSD, turn.CostUSD)
+	return sum
+}
+
 func (s *liveSession) runTurn(ctx context.Context, prompt string, sink wire.Sink) {
 	begin := time.Now()
 	sink = &wire.RunSink{Sink: sink, Agent: s.name}
@@ -570,11 +580,7 @@ func (s *liveSession) runTurn(ctx context.Context, prompt string, sink wire.Sink
 	res.Status = StatusOf(retry.Classify(s.name, err, false))
 	s.mu.Lock()
 	s.session = cmp.Or(res.SessionID, s.session)
-	s.usage.InputTokens += res.Usage.InputTokens
-	s.usage.OutputTokens += res.Usage.OutputTokens
-	s.usage.CacheReadTokens += res.Usage.CacheReadTokens
-	s.usage.CacheCreationTokens += res.Usage.CacheCreationTokens
-	s.usage.CostUSD += res.Usage.CostUSD
+	s.usage = addTurnUsage(s.usage, res.Usage)
 	s.mu.Unlock()
 	// A lost turn result ends the session before it is freed, so a next send can't read that turn's late answer.
 	if err != nil && !IsResultError(err) {

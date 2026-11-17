@@ -372,6 +372,15 @@ func TestLiveFinishKeepsTurnUsage(t *testing.T) {
 	}
 }
 
+func TestAddTurnUsageCostIsCumulative(t *testing.T) {
+	sum := addTurnUsage(wire.Usage{}, wire.Usage{InputTokens: 2, OutputTokens: 3, CacheCreationTokens: 48678, CostUSD: 0.0097373})
+	sum = addTurnUsage(sum, wire.Usage{InputTokens: 2, OutputTokens: 3, CacheReadTokens: 33433, CacheCreationTokens: 16945, CostUSD: 0.01346233})
+	want := wire.Usage{InputTokens: 4, OutputTokens: 6, CacheReadTokens: 33433, CacheCreationTokens: 65623, CostUSD: 0.01346233}
+	if sum != want {
+		t.Fatalf("usage = %+v, want %+v", sum, want)
+	}
+}
+
 func TestLiveStartFailureDoesNotPublishSocket(t *testing.T) {
 	liveEnv(t)
 	rec := ClaimRecord("claude", RunOptions{}, time.Now())
