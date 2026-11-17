@@ -63,7 +63,7 @@ func TestRunQueryTypedSkipsLadder(t *testing.T) {
 	}
 }
 
-// TaskTier reads a Tier: line first, then deep, fast and standard signals from the work text alone.
+// A typed alias on gemini is the Claude id agy serves, else the row's tier; other agents keep the alias.
 func TestRunQueryAgyAlias(t *testing.T) {
 	for _, c := range []struct{ agent, model, want string }{
 		{"gemini", "opus", "claude-opus-5-5"}, {"gemini", "sonnet", "claude-sonnet-5-5"},
@@ -76,6 +76,7 @@ func TestRunQueryAgyAlias(t *testing.T) {
 	}
 }
 
+// TaskTier reads a Tier: line first, then deep, fast and standard signals from the work text alone.
 func TestTaskTier(t *testing.T) {
 	for _, tc := range []struct{ brief, want string }{
 		{"Fix the typo in internal/agent/label.go.", "haiku"},
@@ -437,5 +438,15 @@ func TestResolveRunOwnConnector(t *testing.T) {
 		if err != nil || r.Label() != model {
 			t.Fatalf("label=%s err=%v want=%s", r.Label(), err, model)
 		}
+	}
+}
+
+// An own-plan model with an explicit --profile is refused at the run, so the label never reports it as served.
+func TestExplainRunOwnConnectorExplicitProfile(t *testing.T) {
+	setConfigDir(t)
+	reg := routeRegistry(t)
+	q := ModelQuery{Agent: "opencode", Model: "opencode-go/kimi-k3", Profile: "ultra"}
+	if r, _, err := ExplainRun(reg, q, time.Now()); err == nil {
+		t.Errorf("ExplainRun(--profile ultra, %s) = %s, want the run's refusal", q.Model, r.Label())
 	}
 }

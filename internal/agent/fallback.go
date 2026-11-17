@@ -49,24 +49,29 @@ func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 	if len(c.Dispatches) > 1 && editing(req) { // the successor's `git log <start>..HEAD` needs the pre-dispatch HEAD
 		s.startHead = gitHead(ctx, req.WorkDir)
 	}
-	done := false
-	for i, disp := range c.Dispatches {
-		if disp.quotaOverflow { // reached past a stop, but only when the ladder ended on a quota failure
-			if err := s.overflow(ctx, c, i, disp, sink, notify); err != nil {
-				return s.attach(s.res), err
-			}
-			break
-		}
-		var err error
-		if done {
-			continue
-		}
-		if done, err = s.step(ctx, c, i, disp, sink, notify); err != nil {
-			return s.attach(s.res), err
-		}
+	if err := s.walk(ctx, c, sink, notify); err != nil {
+		return s.attach(s.res), err
 	}
 	res, err := chainOutcome(ctx, c, s.res, s.err, s.reasons, s.prevDispatch, s.ran, s.stopped)
 	return s.attach(res), err
+}
+
+// walk runs c's dispatches until one stops the chain; the overflow hop alone is reached past a stop.
+func (s *fallbackState) walk(ctx context.Context, c Chain, sink wire.Sink, notify func(string)) error {
+	ended := false
+	for i, disp := range c.Dispatches {
+		switch {
+		case disp.quotaOverflow:
+			return s.overflow(ctx, c, i, disp, sink, notify)
+		case ended:
+		default:
+			var err error
+			if ended, err = s.step(ctx, c, i, disp, sink, notify); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 // SkippedLead opens the chain's notice of the wanted agent's skips, printed once a fallback is needed.
@@ -520,6 +525,12 @@ func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispa
 	return panicked
 }
 
+// overflowFollows reports err at hop i as the quota failure the chain's overflow hop picks up.
+func overflowFollows(c Chain, i int, req RunOptions, err error) bool {
+	last := len(c.Dispatches) - 1
+	return i < last && c.Dispatches[last].quotaOverflow && quotaFailure(err) && !explicitBackend(req)
+}
+
 // tripFailFast cancels the batch when err ends the task (no fallback follows), before the permit is released.
 func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res wire.Result, err error) {
 	trip := retry.FailFastStop(ctx)
@@ -529,8 +540,8 @@ func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res wire.
 	if c.yieldsFallback(req, res, err) {
 		return
 	}
-	if last := len(c.Dispatches) - 1; i < last && c.Dispatches[last].quotaOverflow && quotaFailure(err) {
-		return // the overflow hop follows a quota failure
+	if overflowFollows(c, i, req, err) {
+		return
 	}
 	if i+1 >= len(c.Dispatches) || (i == 0 && explicitBackend(req)) {
 		trip()
