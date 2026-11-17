@@ -22,11 +22,17 @@ import (
 
 // RepoRoot is the main checkout root for cwd, falling back to cwd when git fails.
 func RepoRoot(ctx context.Context, cwd string) string {
+	_, repo := treeAndRepo(ctx, cwd)
+	return repo
+}
+
+// treeAndRepo is cwd's git top (the working tree) and its main checkout root; "" and cwd when git fails.
+func treeAndRepo(ctx context.Context, cwd string) (tree, repo string) {
 	top := paths.GitTop(ctx, cwd)
 	if top == "" {
-		return cwd
+		return "", cwd
 	}
-	return paths.MainCheckout(top)
+	return top, paths.MainCheckout(top)
 }
 
 // executable is swapped by tests.
@@ -316,6 +322,8 @@ func ObservedLine(rec Record) string {
 			plus = "+"
 		}
 		parts = append(parts, fmt.Sprintf("%d%s files", n, plus))
+	} else if rec.TreeChanged != nil {
+		parts = append(parts, fmt.Sprintf("%d files changed in a shared tree", len(*rec.TreeChanged)))
 	}
 	if u := rec.Usage; u != nil {
 		if t := int64(u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens + u.OutputTokens); t > 0 {
