@@ -3,6 +3,7 @@ package codex
 import (
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -36,6 +37,7 @@ func BenchmarkIndexCodexModels(b *testing.B) {
 }
 
 func TestRunCodexCatalogWrapsExitErrorWithTrimmedStderr(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	home := t.TempDir()
 	bin := filepath.Join(home, "codex")
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\nprintf '  bad catalog  \\n' >&2\nexit 1\n"), 0o755); err != nil {

@@ -2,6 +2,7 @@ package vscode
 
 import (
 	"errors"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 // extensionHome is a claude home with the extension source; it skips where symlinks need privileges (Windows).
 func extensionHome(t *testing.T) string {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	home := t.TempDir()
 	if err := os.Symlink(home, filepath.Join(home, "probe")); err != nil {
@@ -85,6 +87,7 @@ func TestLinkExtensionCheckReportsDriftWithoutWriting(t *testing.T) {
 }
 
 func TestLinkExtensionReplacesAStaleTarget(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	claudeHome := extensionHome(t)
 	extensionsDir := filepath.Join(t.TempDir(), "extensions")
 	if err := os.MkdirAll(extensionsDir, 0o755); err != nil {
@@ -164,6 +167,7 @@ func TestLinkExtensionCheckRejectsDeletedSource(t *testing.T) {
 
 // A Chtimes failure in bumpManifestScan reaches the caller unchanged, naming the extension source.
 func TestLinkExtensionPropagatesChtimesError(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	claudeHome := extensionHome(t)
 	extensionsDir := t.TempDir()
 	source := filepath.Join(claudeHome, "vscode", "claude-code-agents")

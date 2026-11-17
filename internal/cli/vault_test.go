@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -444,7 +445,7 @@ func checkExportedFile(t *testing.T, path, value string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o600 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
 		t.Errorf("export permissions = %o, want 600", info.Mode().Perm())
 	}
 	data, err := os.ReadFile(path)

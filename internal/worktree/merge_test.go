@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"io"
 	"os"
 	"path/filepath"
@@ -12,6 +13,7 @@ import (
 
 // A failing pre-merge-commit hook aborts the worktree merge mid-way and promote never touches main.
 func TestIntegrateTargetHookFailureStopsBeforePromote(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	mergeFixtureLockEnv(t)
 	repo, main, wt := preflightFixtureSetup(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")

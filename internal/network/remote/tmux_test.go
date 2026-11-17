@@ -8,11 +8,13 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // shRoundTrip runs quoted through `sh -c 'printf %s <quoted>'`, proving it reproduces the bytes unexpanded.
 func shRoundTrip(t *testing.T, quoted string) string {
+	hosttest.SkipOnWindows(t, "sh")
 	t.Helper()
 	cmd := exec.Command("sh", "-c", "printf %s "+quoted)
 	out, err := cmd.Output()
@@ -118,6 +120,7 @@ func TestBuildCommand_RejectsUnknownAgent(t *testing.T) {
 }
 
 func TestBuildCommand_SyntaxAndShape(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	for _, agent := range Agents {
 		t.Run(agent, func(t *testing.T) {
 			cmd, name, err := buildCommand(Opts{
@@ -179,6 +182,7 @@ func TestDirFlag(t *testing.T) {
 }
 
 func TestBuildCommand_TildeDirUsesHOME(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	cmd, _, err := buildCommand(Opts{Agent: "codex", Dir: "~/my repo", Task: "hi"})
 	if err != nil {
 		t.Fatal(err)
@@ -203,6 +207,7 @@ func TestBuildCommand_KeepsSessionAliveAfterAgentExits(t *testing.T) {
 }
 
 func TestBuildCommand_NeverExecutesTask(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	// A task payload that would create a marker file if it were ever interpreted instead of quoted.
 	dir := t.TempDir()
 	marker := dir + "/pwned"
@@ -229,6 +234,7 @@ func TestBuildCommand_NeverExecutesTask(t *testing.T) {
 
 // writeStubTmux puts a no-op `tmux` on dir that exits 0, so buildCommand's output runs serverless.
 func writeStubTmux(t *testing.T, dir string) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	path := dir + "/tmux"
 	if err := os.WriteFile(path, []byte("#!/bin/sh\nexit 0\n"), 0o755); err != nil {
@@ -238,6 +244,7 @@ func writeStubTmux(t *testing.T, dir string) {
 
 // writeFailingNewSessionTmux fails `new-session` only and logs every subcommand to logPath.
 func writeFailingNewSessionTmux(t *testing.T, dir, logPath string) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	script := "#!/bin/sh\necho \"$1\" >> " + logPath + "\nif [ \"$1\" = new-session ]; then exit 1; fi\nexit 0\n"
 	if err := os.WriteFile(dir+"/tmux", []byte(script), 0o755); err != nil {
@@ -247,6 +254,7 @@ func writeFailingNewSessionTmux(t *testing.T, dir, logPath string) {
 
 // TestBuildCommand_TaggingSkippedWhenNewSessionFails: a duplicate name must not tag the other session.
 func TestBuildCommand_TaggingSkippedWhenNewSessionFails(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	cmd, name, err := buildCommand(Opts{Agent: "claude", Name: "cc-claude-dup", Task: "hi"})
 	if err != nil {
 		t.Fatalf("BuildCommand: %v", err)
@@ -278,6 +286,7 @@ func TestBuildCommand_TaggingSkippedWhenNewSessionFails(t *testing.T) {
 }
 
 func TestExecArgs_RemoteIsArgvNotShellString(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	// execArgs wraps the remote command as base64 under `sh -c` so it runs under POSIX sh whatever the login shell.
 	t.Setenv(reuseEnv, "0")
 	args, err := execArgs("myhost", "echo hi", false)
@@ -324,6 +333,7 @@ func TestAttachArgs(t *testing.T) {
 }
 
 func TestListCommand_KnownFormat(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	want := `out=$(tmux list-sessions -F ` +
 		`'#{session_name}|#{session_created}|#{session_attached}|#{pane_current_command}|#{@cc_agent}' 2>&1) || ` +
 		`{ case $out in *"no server running"*|*"No such file or directory"*) out= ;; ` +

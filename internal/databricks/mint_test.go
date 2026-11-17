@@ -37,6 +37,7 @@ func mintRow(t *testing.T, status int) *httptest.Server {
 
 // stubClipboard puts a pbcopy stub first on PATH that records stdin to the returned file.
 func stubClipboard(t *testing.T) string {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	dir := t.TempDir()
 	rec := filepath.Join(dir, "clip.out")
@@ -50,6 +51,7 @@ func stubClipboard(t *testing.T) string {
 }
 
 func noClipboard(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.Symlink("/bin/sh", filepath.Join(dir, "sh")); err != nil {

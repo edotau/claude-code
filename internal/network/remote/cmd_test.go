@@ -27,6 +27,7 @@ func hermeticDispatch(t *testing.T) {
 
 // emptyPATH points PATH at an empty directory: no ssh, no tailscale, no tmux resolvable.
 func emptyPATH(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	t.Setenv("PATH", t.TempDir())
 }
@@ -288,6 +289,7 @@ func TestDispatchListStatusSSHFailure(t *testing.T) {
 
 // TestDispatchLocalhostDryRunNeverLaunches: localhost runs under sh -c, and --dry-run must never invoke the stubs.
 func TestDispatchLocalhostDryRunNeverLaunches(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	hermeticDispatch(t)
 	dir := t.TempDir()
 	marker := filepath.Join(dir, "marker")

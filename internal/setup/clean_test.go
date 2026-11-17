@@ -3,6 +3,7 @@ package setup
 import (
 	"bytes"
 	"fmt"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"io"
 	"os"
 	"path/filepath"
@@ -829,6 +830,7 @@ type sandboxFixture struct {
 }
 
 func newSandboxFixture(t *testing.T) sandboxFixture {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	stubPidAlive(t, func(int) bool { return false })
 	fx := sandboxFixture{cfg: vaulttest.Use(t)}

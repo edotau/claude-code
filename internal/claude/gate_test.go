@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -274,6 +275,7 @@ func TestReadOnlyGatePolicy(t *testing.T) {
 
 // The allow list matches every spelling the rtk rewrite hook can give its command word, and no other rtk.
 func TestGatePolicyAllowsRtkSpellings(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	home := t.TempDir()
 	bin := filepath.Join(home, "bin", "rtk")
 	if err := os.MkdirAll(filepath.Dir(bin), 0o755); err != nil {

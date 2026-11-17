@@ -3,6 +3,7 @@ package agentconfig
 import (
 	"encoding/json"
 	"os"
+	"runtime"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/vault"
@@ -37,7 +38,7 @@ func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
 		if err != nil {
 			t.Fatalf("%s: %v", p, err)
 		}
-		if fi.Mode().Perm() != 0o600 {
+		if runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 			t.Errorf("%s mode = %v, want 0600", p, fi.Mode().Perm())
 		}
 	}

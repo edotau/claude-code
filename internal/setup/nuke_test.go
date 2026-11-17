@@ -6,9 +6,11 @@ import (
 	"compress/gzip"
 	"encoding/json"
 	"errors"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -200,7 +202,7 @@ func TestCreateBackupFileMode0600(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := fi.Mode().Perm(); got != 0o600 {
+	if got := fi.Mode().Perm(); runtime.GOOS != "windows" && got != 0o600 {
 		t.Errorf("backup file mode = %o, want 0600", got)
 	}
 }
@@ -427,6 +429,7 @@ func TestNukePreviewShowsKeepMemorySet(t *testing.T) {
 
 // A symlinked projects/*/memory dir anywhere above a real one is still skipped
 func TestNukeKeepMemorySkipsSymlinkedCandidateRoot(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	dir := fixtureNukeDir(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -463,6 +466,7 @@ func tarNames(entries map[string][]byte) []string {
 
 // --keep-memory archives the memory store whole (with .git) but skips symlinked dirs and files.
 func TestNukeKeepMemoryArchivesStoreSkipsSymlinks(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	dir := fixtureNukeDir(t)
 	home := t.TempDir()
 	t.Setenv("HOME", home)
@@ -514,7 +518,7 @@ func assertKeepMemoryPaths(t *testing.T, got []string) {
 
 // TestKeepMemoryPathsPropagatesWalkError is the GREEN for the audited bug
 func TestKeepMemoryPathsPropagatesWalkError(t *testing.T) {
-	if os.Geteuid() == 0 {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("root ignores directory permissions")
 	}
 	dir := t.TempDir()
@@ -566,6 +570,7 @@ func TestNukeRefusesRootHomeAndAncestors(t *testing.T) {
 }
 
 func TestTarWriteFileSkipsDirAndDanglingSymlinks(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	dir := t.TempDir()
 	target := t.TempDir()
 	if err := os.Symlink(target, filepath.Join(dir, "dirlink")); err != nil {

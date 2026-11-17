@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 type wfM = map[string]any
@@ -668,6 +669,7 @@ func TestUnreadableScriptReportedOnce(t *testing.T) {
 
 // Only parseCheckJS's own "<file>: <message>" lines are parse failures; node warnings beside them are not relabelled.
 func TestParseDefectsIgnoreNodeNoise(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	dir := t.TempDir()
 	script := writeScript(t, dir, "a.js", "x\n")
 	fakeNode(t, dir, "#!/bin/sh\necho '(node:1) Warning: noisy'\necho '"+script+": boom'\nexit 1\n")

@@ -10,10 +10,12 @@ import (
 	"testing"
 	"time" // tests refuse real DNS: mock API calls
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 func TestCollectRejectsSecretThroughSymlinkedParent(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "state", "credentials.txt"), "private fixture")
 	write(t, filepath.Join(dir, "public", "readme.txt"), "public fixture")
@@ -71,6 +73,7 @@ func (c cancelAfterDiscoveryContext) Err() error {
 }
 
 func TestCollectCancellationAfterGitDiscovery(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	for _, mode := range []string{"walk", "glob"} {
 		t.Run(mode, func(t *testing.T) {
 			dir, bin := t.TempDir(), t.TempDir()
@@ -162,6 +165,7 @@ func TestCollectMixedGitAndNonGitRoots(t *testing.T) {
 
 // A FIFO in a scanned dir is skipped by its dir-entry type, never opened (no writer would block the scan forever).
 func TestWalkDirsSkipsFIFO(t *testing.T) {
+	hosttest.SkipOnWindows(t, "mkfifo")
 	skipUnlessUnix(t)
 	dir := t.TempDir()
 	write(t, filepath.Join(dir, "real.txt"), "hello")

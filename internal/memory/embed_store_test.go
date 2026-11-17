@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -500,6 +501,7 @@ func TestReleaseReturnsUpdateFailure(t *testing.T) {
 }
 
 func TestEmbedCorpusReadFailureReleasesClaim(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	root := leaseFixture(t)
 	bankFile := filepath.Join(StoreDir(), "decisionLog.md")
 	backup := bankFile + ".saved"

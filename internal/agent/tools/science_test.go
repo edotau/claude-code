@@ -14,6 +14,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestClaudeScienceAssetName(t *testing.T) {
@@ -46,6 +48,7 @@ func TestInstallClaudeScienceDryRunTouchesNoNetwork(t *testing.T) {
 
 // stubScienceTools fakes hdiutil/codesign/ditto: attach builds an app at the mountpoint, signed by team.
 func stubScienceTools(t *testing.T, team string) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	old := scienceRun
 	t.Cleanup(func() { scienceRun = old })
@@ -155,6 +158,7 @@ func assertSciencePreviousAppPreserved(t *testing.T, base string, installErr err
 
 // Given the Linux binary, Then it installs only when its sha256 matches manifest.json's entry for the asset.
 func TestInstallClaudeScienceLinuxVerifiesManifestDigest(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	bin := []byte("#!/bin/sh\necho claude-science 9.9\n")
 	good := fmt.Sprintf("%x", sha256.Sum256(bin))
 	for _, tc := range []struct{ name, manifest, wantErr string }{

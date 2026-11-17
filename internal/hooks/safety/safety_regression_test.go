@@ -137,6 +137,7 @@ type treeGitDirs struct{ harness, worktree, elsewhere, link string }
 
 // treeGitSetup builds the fake HOME/config checkout and points the environment at it.
 func treeGitSetup(t *testing.T) treeGitDirs {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	home := t.TempDir()
 	harness := filepath.Join(home, ".claude")

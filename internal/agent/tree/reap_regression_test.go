@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
 )
 
@@ -19,6 +20,7 @@ func (f reapWriteFunc) Write(p []byte) (int, error) { return f(p) }
 
 // reapSocketConfig uses a short /tmp root: a macOS unix socket path caps at 104 bytes.
 func reapSocketConfig(t *testing.T) {
+	hosttest.SkipOnWindows(t, "/tmp socket dir")
 	t.Helper()
 	dir, err := os.MkdirTemp("/tmp", "rp")
 	if err != nil {
@@ -121,6 +123,7 @@ func TestDropDispatchSessionsKeepsConflictingSessionID(t *testing.T) {
 }
 
 func TestReapReportsMarkerDirectoryStatFailure(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	dir := inflight.Dir()
 	if err := os.MkdirAll(filepath.Dir(dir), 0o700); err != nil {

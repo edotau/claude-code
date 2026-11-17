@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -137,7 +138,7 @@ func TestStateSaveLoadRoundTrip(t *testing.T) {
 	if err := stateRoundTripState(t).Save(path); err != nil {
 		t.Fatal(err)
 	}
-	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != 0o600 {
+	if fi, err := os.Stat(path); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600) {
 		t.Fatalf("state.json mode = %v, err %v; want 0600", fi.Mode().Perm(), err)
 	}
 	got, err := StateLoad(path)
@@ -188,7 +189,7 @@ func TestStateTornWriteLeavesOldStateReadable(t *testing.T) {
 		t.Fatalf("after torn temp: %+v, %v", s, err)
 	}
 	// A save that fails (dir not writable) must leave the old state in place.
-	if os.Geteuid() == 0 {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
 		t.Skip("root ignores directory permissions")
 	}
 	if err := os.Chmod(dir, 0o500); err != nil {

@@ -106,6 +106,7 @@ func TestUnreadableRegistryIsNotReadAsUnpinned(t *testing.T) {
 }
 
 func TestCopilotTierCmdScrubsInheritedSecrets(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	t.Setenv("PATH", dir)
@@ -129,6 +130,7 @@ func TestCopilotTierCmdScrubsInheritedSecrets(t *testing.T) {
 
 // The plan lookup keeps copilot's own GitHub login but no registry credential and no other agent's login.
 func TestCopilotTierCmdKeepsOnlyCopilotLogin(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks",`+
 		`"host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)

@@ -3,9 +3,11 @@ package worktree
 import (
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"syscall"
 	"testing"
@@ -14,6 +16,7 @@ import (
 )
 
 func TestScanClaimsReportsLiveLedgerErrors(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	if err := os.MkdirAll(ClaimsDir(), 0o700); err != nil {
 		t.Fatal(err)
@@ -74,7 +77,7 @@ func TestNoticesIsolateSessions(t *testing.T) {
 	if err := Append("a", Notice{Text: "x"}); err != nil {
 		t.Fatal(err)
 	}
-	if st, err := os.Stat(inbox("a")); err != nil || st.Mode().Perm() != 0o600 {
+	if st, err := os.Stat(inbox("a")); err != nil || runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Fatalf("inbox stat = %v, %v; want mode 0600", st, err)
 	}
 	if got, err := DrainErr("b"); got != nil || err != nil || Append("", Notice{Text: "x"}) == nil {

@@ -184,6 +184,7 @@ func TestCmdWorktreeCleanEligible(t *testing.T) {
 
 // Regression (codex-review #7): a worktree named with $(...) must never execute from the printed reopen command.
 func TestCmdWorktreeListReopenCommandIsShellSafe(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	t.Setenv("HOME", t.TempDir())
 	repo := gitRepoCLI(t)
 	t.Chdir(repo)

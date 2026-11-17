@@ -771,6 +771,7 @@ func TestClaudeArmPassthroughHeaderIsSessionToken(t *testing.T) {
 }
 
 func TestClaudeBinaryPrefersBinDirOverVersions(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
@@ -809,6 +810,7 @@ func TestClaudeBinaryDoesNotSearchPATH(t *testing.T) {
 }
 
 func TestClaudeBinaryBinDirOverrideSkipsInstalledVersions(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", t.TempDir())

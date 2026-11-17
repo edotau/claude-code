@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"slices"
@@ -265,6 +266,7 @@ func TestPickCopilotModelRowsFitEightyColumns(t *testing.T) {
 
 // fakeCopilotBin makes paths.AgentBin("copilot") resolve.
 func fakeCopilotBin(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	bin := paths.BinDir()
 	if err := os.MkdirAll(bin, 0o755); err != nil {

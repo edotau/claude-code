@@ -504,6 +504,7 @@ func TestSectionBodyBareHeadingDoesNotPanic(t *testing.T) {
 }
 
 func TestSessionSurfaceRelativeNativeLink(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	isolatedConfig(t)
 	initStore(t)
 	root := paths.CanonDeep(gitRepo(t, t.TempDir(), "relative-link")) // production keys the link by the resolved path

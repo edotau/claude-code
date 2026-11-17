@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"io"
 	"os"
 	"os/exec"
@@ -102,6 +103,7 @@ func TestScopedGoGateReverseDeps(t *testing.T) {
 
 // Regression: goldens, embeds and unowned non-markdown files select their consumers; unowned markdown selects nothing.
 func TestScopedGoGateNonGoFiles(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	dir, run, write := gateRepo(t)
 	write("mem/mem.go", "package mem\n")
 	write("mem/mem_test.go", "package mem\n\nconst golden = \"../docs/examples/mem\"\n")

@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestCheckNoGitHubLoginAllowsSpacedEmptyCollections(t *testing.T) {
@@ -19,6 +21,7 @@ func TestCheckNoGitHubLoginAllowsSpacedEmptyCollections(t *testing.T) {
 }
 
 func TestRefreshLinkPreservesDestinationOnStatFailure(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	for _, name := range []string{"hooks", "permissions-config.json"} {
 		t.Run(name, func(t *testing.T) {
 			src := filepath.Join(t.TempDir(), "loop")

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -154,6 +155,7 @@ func assertOpenAINoToolsResponse(t *testing.T, res wire.Result, output string) {
 
 // fakeFailingClaude points CLAUDE_CONFIG_DIR at a bin/ holding a claude that exits 1, so no real claude is spawned.
 func fakeFailingClaude(t *testing.T) string {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)

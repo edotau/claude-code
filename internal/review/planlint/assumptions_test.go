@@ -25,7 +25,7 @@ func readAssumptionsGolden(t *testing.T, name string) string {
 	if err != nil {
 		t.Fatalf("read golden %s: %v", name, err)
 	}
-	return string(b)
+	return strings.ReplaceAll(string(b), "\r\n", "\n")
 }
 
 func TestRunAssumptionsMatchesGolden(t *testing.T) {

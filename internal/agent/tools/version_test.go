@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -71,6 +72,7 @@ func TestVersionProblemUsesRegisteredRowBounds(t *testing.T) {
 
 // probeFixture is a fake CLI that appends to a counter file per invocation and prints body.
 func probeFixture(t *testing.T, body string) (bin, counter string) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	dir := t.TempDir()

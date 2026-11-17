@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 const mountinfoSample = `22 1 8:1 / / rw,relatime - ext4 /dev/sdc rw
@@ -228,6 +230,7 @@ func TestDriveDotDotClampsAtRoot(t *testing.T) {
 }
 
 func TestDotDotFollowsSymlinks(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -263,6 +266,7 @@ func TestOpaqueMountFencesDrive(t *testing.T) {
 }
 
 func TestDotDotFollowsSymlinksInEveryForm(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -283,12 +287,13 @@ func TestDotDotFollowsSymlinksInEveryForm(t *testing.T) {
 }
 
 func TestLearnDistroSurvivesStdoutHoldingChild(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	dir := t.TempDir()
 	script := "#!/bin/sh\nsleep 5 &\nprintf '\\\\\\\\wsl.localhost\\\\Ubuntu\\\\'\n"
 	if err := os.WriteFile(filepath.Join(dir, "wslpath"), []byte(script), 0o700); err != nil {
 		t.Skip(err)
 	}
-	t.Setenv("PATH", dir+":"+os.Getenv("PATH"))
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	start := time.Now()
 	_, _ = wslpathOut()
 	if d := time.Since(start); d > 1500*time.Millisecond {
@@ -318,6 +323,7 @@ func TestResolveFallsBackToUnobscuredMount(t *testing.T) {
 }
 
 func TestRemoteDotDotFollowsLocalSymlinks(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -382,6 +388,7 @@ func TestRemoteDotDotCannotLeaveMountRoot(t *testing.T) {
 }
 
 func TestRemoteDotDotSymlinkCannotEscapeMount(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)

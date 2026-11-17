@@ -59,6 +59,7 @@ func TestQualityCheckerPropagatesBlobReadFailure(t *testing.T) {
 }
 
 func failQualityBlobRead(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	git, err := exec.LookPath("git")
 	if err != nil {

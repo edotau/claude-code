@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"testing"
 
@@ -44,7 +45,7 @@ func TestSpawnSelfLaunchesWithLogUnderStateDir(t *testing.T) {
 	if len(*got) != 1 || !sameLaunch((*got)[0], want) {
 		t.Fatalf("launch count = %d; want one launch matching args %q", len(*got), want.args)
 	}
-	if st, err := os.Stat(want.log); err != nil || st.Mode().Perm() != 0o600 {
+	if st, err := os.Stat(want.log); err != nil || runtime.GOOS != "windows" && st.Mode().Perm() != 0o600 {
 		t.Fatalf("log file stat = %v, %v; want an 0600 file", st, err)
 	}
 }

@@ -603,6 +603,7 @@ func TestAccountKeyMapsLoginToProfile(t *testing.T) {
 
 // RefreshAccount maps github·<profile> back to the login before gh sees it: the round trip login -> profile -> login.
 func TestRefreshAccountPassesLoginToGh(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	personalVault(t)
 	bin, log := t.TempDir(), filepath.Join(t.TempDir(), "args")
 	script := "#!/bin/sh\necho \"$@\" >> " + log + "\nexit 1\n"
@@ -634,6 +635,7 @@ func TestRecordQuotasSkipsCachedRows(t *testing.T) {
 
 // A seat answering with a note (unlimited) records no window
 func TestRefreshAccountStampsNotedSeat(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	personalVault(t)
 	bin := t.TempDir()
 	script := "#!/bin/sh\n[ \"$1\" = auth ] && { echo tok; exit 0; }\n" +

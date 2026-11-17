@@ -7,10 +7,12 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/clipboard"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // stubXclip fakes xclip over a file clipboard: -o prints it, -i replaces it with stdin.
 func stubXclip(t *testing.T, content string) string {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	dir := t.TempDir()
 	clip := filepath.Join(dir, "clip")

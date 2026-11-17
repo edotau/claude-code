@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/agenttest"
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -495,6 +496,7 @@ func TestConfigureRetryPreservesAgentModelPin(t *testing.T) {
 
 // liveEnv gives the test a short /tmp config dir (a unix socket path caps at 104 bytes on macOS, 108 on Linux).
 func liveEnv(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	// the agy target needs a Google sign-in marker; never read the developer's
 	marker := AgyLoginMarker(pathstest.ShortConfigDir(t))
@@ -543,6 +545,7 @@ func TestLiveAgySession(t *testing.T) {
 }
 
 func assertAgyRecallAndUsage(t *testing.T, id string) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	env, err := agent.SendLive(context.Background(), id, "remember 42", wire.Discard)
 	if err != nil || env.Status != wire.StatusOK || env.Answer != "ok" || env.Agent != "gemini" {
@@ -620,6 +623,7 @@ func TestLiveAgySystemPromptOnFirstTurn(t *testing.T) {
 
 // A resumed agy conversation reports no usage for its first turn (the history is unknown), then per-turn deltas.
 func TestLiveAgyResumedUsageBaseline(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	id, cancel, wait := startAgy(t, fakeCumAgy, agent.RunOptions{Timeout: time.Minute, SessionID: "old"})
 	defer func() { cancel(); _ = wait() }()
 	e1, err := agent.SendLive(context.Background(), id, "a", wire.Discard)

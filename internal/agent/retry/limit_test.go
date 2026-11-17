@@ -16,6 +16,7 @@ import (
 
 // 13 batch dispatches plus 5 Agent spawns on one account never exceed the shared cap of 12; the marker dir ends empty.
 func TestBatchAndSpawnsShareTheAccountCap(t *testing.T) {
+	hosttest.SkipOnWindows(t, "unix tools")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	const account = "shared·acct"
 	const capA = 12

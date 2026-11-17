@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // golden commands (captured against this exact testdata dir, python3 on PATH):
@@ -135,6 +137,7 @@ func TestRunComplexityHelpAfterDoubleDashIsPositional(t *testing.T) {
 }
 
 func TestRunComplexityFailsOnUnreadableFile(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	dir := t.TempDir()
 	broken := filepath.Join(dir, "broken.go")
 	if err := os.Symlink(filepath.Join(dir, "missing.go"), broken); err != nil {

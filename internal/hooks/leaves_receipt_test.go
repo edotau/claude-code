@@ -3,6 +3,7 @@ package hooks
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -218,6 +219,7 @@ func TestLeafSuccessfulEvidence(t *testing.T) {
 }
 
 func TestScratchContainment(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)

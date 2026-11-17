@@ -4,6 +4,7 @@ import (
 	"archive/tar"
 	"bytes"
 	"errors"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -76,6 +77,7 @@ func TestImportRefusesSourceWithDifferentLayout(t *testing.T) {
 }
 
 func flatImportFixture(t *testing.T) string {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	isolatedConfig(t)
 	initStore(t)

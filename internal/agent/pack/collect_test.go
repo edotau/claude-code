@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // TestMain moves TMPDIR out of /tmp: a stray /tmp/.git makes collect's fail-closed check reject every fixture.
@@ -485,6 +487,7 @@ func waitForMarker(t *testing.T, marker string, done <-chan cancelResult) {
 
 func runCancellationCase(t *testing.T, sleep string, tc cancelCase) {
 	t.Helper()
+	hosttest.SkipOnWindows(t, "sh script")
 	dir, bin := t.TempDir(), t.TempDir()
 	marker := filepath.Join(dir, "git-started")
 	write(t, filepath.Join(dir, ".gitignore"), "ignored.txt\n")
@@ -549,6 +552,7 @@ func skipUnlessUnix(t *testing.T) {
 
 // fakeGit puts a `git` on PATH that prints stderr and exits with code.
 func fakeGit(t *testing.T, code, stderr string) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	bin := t.TempDir()
 	write(t, filepath.Join(bin, "git"), "#!/bin/sh\necho '"+stderr+"' >&2\nexit "+code+"\n")

@@ -1,6 +1,7 @@
 package statusline
 
 import (
+	"github.com/edotau/claude-code/internal/hosttest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -102,6 +103,7 @@ func TestCheckoutOf(t *testing.T) {
 }
 
 func TestTreeDiffDeadlineFallsBack(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	orig := gitDiffTimeout
 	gitDiffTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { gitDiffTimeout = orig })

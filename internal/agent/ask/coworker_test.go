@@ -331,6 +331,7 @@ func armChildEnvFixture(t *testing.T) string {
 
 // armCopilotLogin pins copilot to a gh login "octo" with verified credits, gh itself a fake that prints a token.
 func armCopilotLogin(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	skipWithoutSh(t)
 	if err := vault.SetAgentRecord("copilot", vault.AgentRecord{Profile: "personal"}); err != nil {

@@ -3,6 +3,7 @@ package setup
 import (
 	"bytes"
 	"errors"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"io/fs"
 	"os"
 	"os/exec"
@@ -247,6 +248,7 @@ func TestClashes(t *testing.T) {
 }
 
 func TestClashesDanglingSymlinkIsAClash(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	repo := t.TempDir()
 	gitInit(t, repo, map[string]string{"CLAUDE.md": "repo claude\n"})
 	dir := t.TempDir()
@@ -290,6 +292,7 @@ func TestMoveGitAndCheckoutRollsBackGit(t *testing.T) {
 
 // A dangling symlink at the target is backed up as a link instead of aborting Backup on os.Stat.
 func TestBackupDanglingSymlink(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	dir := vaulttest.Use(t)
 	if err := os.Symlink(filepath.Join(dir, "nowhere"), filepath.Join(dir, "CLAUDE.md")); err != nil {
 		t.Fatal(err)

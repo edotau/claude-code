@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -23,7 +24,7 @@ func TestLogReadRoundTripAndDropsInvalid(t *testing.T) {
 	if s := Summary(ev); s[ProviderSwitch] != 1 || s[HookBlocked] != 1 {
 		t.Errorf("Summary = %v", s)
 	}
-	if fi, _ := os.Stat(logFile()); fi.Mode().Perm() != 0o600 {
+	if fi, _ := os.Stat(logFile()); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode = %v, want 0600", fi.Mode().Perm())
 	}
 }
@@ -251,10 +252,10 @@ func TestLogTightensExistingModes(t *testing.T) {
 		t.Fatal(err)
 	}
 	Log(ProviderSwitch, "gemini", "")
-	if fi, _ := os.Stat(dir); fi.Mode().Perm() != 0o700 {
+	if fi, _ := os.Stat(dir); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o700 {
 		t.Errorf("dir mode = %v, want 0700", fi.Mode().Perm())
 	}
-	if fi, _ := os.Stat(file); fi.Mode().Perm() != 0o600 {
+	if fi, _ := os.Stat(file); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("file mode = %v, want 0600", fi.Mode().Perm())
 	}
 }

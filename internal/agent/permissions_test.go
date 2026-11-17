@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func mustPerms(t *testing.T, mode string, allow, ask, deny []string) Permissions {
@@ -336,6 +338,7 @@ func TestResolvePermissionsWidening(t *testing.T) {
 
 // Given a Deny Write rule spelled through a symlinked root, Then the other spelling is denied too, both ways.
 func TestPermissionPathRuleMatchesEitherSymlinkSpelling(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	real := t.TempDir()
 	link := filepath.Join(t.TempDir(), "link")
 	if err := os.Symlink(real, link); err != nil {
@@ -480,6 +483,7 @@ func TestPermissionShellComments(t *testing.T) {
 
 // Given a cd rule for a workdir, Then a cd naming it through a symlink (/tmp for /private/tmp) passes either way.
 func TestPermissionCdCanonicalSpelling(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	real, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -553,6 +557,7 @@ func TestPermissionCdRelativeToCwd(t *testing.T) {
 
 // Given symlinked dirs, Then a relative cd through a link lands where the absolute spelling lands, deny included.
 func TestPermissionCdRelativeSymlink(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	real, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
