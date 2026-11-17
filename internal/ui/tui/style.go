@@ -73,8 +73,7 @@ func muted(on bool, s string) string {
 	return ansi.Style(on, "\x1b[37m", s)
 }
 
-// muteDetail paints a laid-out row's middle cells in Muted and its trailing [badge] in the accent; colour runs
-// after layout, so escapes never count toward the clip.
+// muteDetail paints a laid-out row's middle cells Muted and its trailing [badge] accent, after layout and clipping.
 func muteDetail(on bool, row string) string {
 	i := strings.Index(row, "  ")
 	if !on || i < 0 {
