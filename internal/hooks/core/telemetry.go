@@ -49,15 +49,24 @@ var telemetryDir = func() string {
 
 // TelemetryDirForTest redirects the telemetry directory until the returned restore runs.
 func TelemetryDirForTest(dir string) (restore func()) {
-	prev := telemetryDir
-	telemetryDir = func() string { return dir }
-	return func() { telemetryDir = prev }
+	prev, prevWait := telemetryDir, telemetryWait
+	telemetryDir, telemetryWait = func() string { return dir }, 2*time.Second // tests count rows: never drop them
+	return func() { telemetryDir, telemetryWait = prev, prevWait }
+}
+
+// TelemetryWaitForTest sets the hook's telemetry wait, for tests that stall the writer on purpose.
+func TelemetryWaitForTest(d time.Duration) (restore func()) {
+	prev := telemetryWait
+	telemetryWait = d
+	return func() { telemetryWait = prev }
 }
 
 const telemetryDailyBytes = 4 << 20
 const telemetryDateLayout = "20060102"
 const telemetryRetentionDays = 14
-const telemetryWait = 10 * time.Millisecond
+
+// telemetryWait bounds the disk write a hook waits for; tests widen it.
+var telemetryWait = 10 * time.Millisecond
 
 var telemetryBusy atomic.Bool
 
