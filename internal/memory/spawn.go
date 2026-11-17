@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // logStampLayout timestamps detached worker log names; milliseconds keep two workers in one second apart.
@@ -42,9 +43,10 @@ type spawner struct {
 	watcher func(args []string, cwd string) bool
 	dream   func(cwd string) bool
 	catchup func(cwd, sessionID string) bool
+	refresh func(root, profile string) bool
 }
 
-var spawn = spawner{update: spawnUpdate, watcher: spawnWatcher, dream: spawnDream, catchup: spawnCatchup}
+var spawn = spawner{update: spawnUpdate, watcher: spawnWatcher, dream: spawnDream, catchup: spawnCatchup, refresh: spawnEmbedRefresh}
 
 // spawnUpdate records the session's result as pending, then launches `memory update`; a failed launch undoes it.
 func spawnUpdate(transcriptPath, cwd, sessionID string) bool {
@@ -77,8 +79,17 @@ func spawnCatchup(cwd, sessionID string) bool {
 	return spawnSelf(args, cwd, "catchup-"+time.Now().Format(logStampLayout)+".log", DetachedEnv+"=1")
 }
 
+// spawnEmbedRefresh uses the mint-only index path so automatic refresh never settles the bank.
+func spawnEmbedRefresh(root, profile string) bool {
+	values := proc.Values{UpdateChildEnv: "1"}
+	if profile != "" {
+		values[providers.EnvSessionProfile] = profile
+	}
+	return spawnSelf([]string{"memory", "index", "--mint-only"}, root, "", values.Env()...)
+}
+
 // Spawns counts the stubbed spawns tests read; atomic because the idle watcher calls its stub on its own goroutine.
-type Spawns struct{ Update, Dream, Catchup atomic.Int64 }
+type Spawns struct{ Update, Dream, Catchup, Refresh atomic.Int64 }
 
 // stubSpawns replaces every detached worker spawn (update ok-flagged, the rest succeed); restore undoes it.
 func stubSpawns(ok bool) (s *Spawns, restore func()) {
@@ -89,6 +100,7 @@ func stubSpawns(ok bool) (s *Spawns, restore func()) {
 		watcher: func([]string, string) bool { return true },
 		dream:   func(string) bool { s.Dream.Add(1); return true },
 		catchup: func(string, string) bool { s.Catchup.Add(1); return true },
+		refresh: func(string, string) bool { s.Refresh.Add(1); return true },
 	}
 	return s, func() { spawn = prev }
 }

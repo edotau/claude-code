@@ -416,3 +416,16 @@ func TestUpdateAppendsWorktreeLedger(t *testing.T) {
 		t.Fatalf("no update line in ledger: %v\n%s", err, data)
 	}
 }
+
+func TestStopBelowUpdateThresholdRefreshesOnce(t *testing.T) {
+	tr, payload := hookSession(t)
+	hosttest.WriteEdits(t, tr, 1)
+	writeBank(t, "conventions.md", "# Conventions\n\n- Keep recall fresh.\n")
+	spawns := memory.StubSpawn(t, true)
+	for range 2 {
+		Stop(payload())
+	}
+	if updates, refreshes := spawns.Update.Load(), spawns.Refresh.Load(); updates != 0 || refreshes != 1 {
+		t.Fatalf("updates=%d refreshes=%d; want 0 and 1", updates, refreshes)
+	}
+}

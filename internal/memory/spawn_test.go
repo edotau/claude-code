@@ -88,7 +88,7 @@ func TestStubSpawnsCountsAndRestoresNested(t *testing.T) {
 	base := StubSpawn(t, true)
 	outer, restoreOuter := stubSpawns(true)
 	inner, restoreInner := stubSpawns(false)
-	if spawn.update("", "", "") || !spawn.dream("") || !spawn.catchup("", "") || !spawn.watcher(nil, "") {
+	if spawn.update("", "", "") || !spawn.dream("") || !spawn.catchup("", "") || !spawn.watcher(nil, "") || !spawn.refresh("", "") {
 		t.Fatal("inner stub: want update=false (ok flag), the rest true")
 	}
 	restoreInner()
@@ -97,12 +97,12 @@ func TestStubSpawnsCountsAndRestoresNested(t *testing.T) {
 	}
 	restoreOuter()
 	spawn.update("", "", "")
-	counts := [3][3]int64{
-		{inner.Update.Load(), inner.Dream.Load(), inner.Catchup.Load()},
-		{outer.Update.Load(), outer.Dream.Load(), outer.Catchup.Load()},
-		{base.Update.Load(), base.Dream.Load(), base.Catchup.Load()},
+	counts := [3][4]int64{
+		{inner.Update.Load(), inner.Dream.Load(), inner.Catchup.Load(), inner.Refresh.Load()},
+		{outer.Update.Load(), outer.Dream.Load(), outer.Catchup.Load(), outer.Refresh.Load()},
+		{base.Update.Load(), base.Dream.Load(), base.Catchup.Load(), base.Refresh.Load()},
 	}
-	if counts != [3][3]int64{{1, 1, 1}, {1, 0, 0}, {1, 0, 0}} {
+	if counts != [3][4]int64{{1, 1, 1, 1}, {1, 0, 0, 0}, {1, 0, 0, 0}} {
 		t.Fatalf("inner/outer/base counts = %v; want each restore to reinstate the previous stub", counts)
 	}
 }
