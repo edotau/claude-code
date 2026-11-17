@@ -17,7 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -94,11 +93,8 @@ func scratchPath(p string) bool {
 	})
 }
 
-// Seams for tests: the dispatch-record list and the detached launch of a brief's Run: line.
-var (
-	recentDispatches = agent.RecentRecords
-	spawnBriefLine   = spawnDetached
-)
+// Seam for testing the detached launch of a brief's Run: line.
+var spawnBriefLine = spawnDetached
 
 // spawnDetached starts words (a PATH name or path, then its args) in dir, detached, output on out.
 func spawnDetached(words []string, dir string, out *os.File) error {
@@ -106,7 +102,7 @@ func spawnDetached(words []string, dir string, out *os.File) error {
 	if err != nil {
 		return err
 	}
-	if !proc.SpawnDetached(bin, words[1:], dir, out) {
+	if !proc.SpawnDetached(bin, words[1:], dir, out, agent.DispatchClaimEnv+"="+out.Name()+".claim") {
 		return fmt.Errorf("%s did not start", bin)
 	}
 	return nil
@@ -178,33 +174,20 @@ func receiptFix(in *core.Input, agentID string, lr *leafRead) (core.Result, bool
 	st := relayAgent(in, lr)
 	m, hookRan := loadRelayRun(agentID)
 	if hookRan {
-		lr.scan.askTimes = append(lr.scan.askTimes, m.Started)
+		if rec, ok := hookJob(*lr, m.Output); ok {
+			return hookJobReceipt(in, rec, m.Output, lr.until)
+		}
 	}
 	if recs, how, ok := leafDispatch(*lr, st); ok {
-		var got []receipt
-		var held *core.Result
-		for _, rec := range recs {
-			how, output := how, m.Output
-			if hookRan && launchedBy(rec.Time, []time.Time{m.Started}) {
-				how = "the hook ran the brief's `Run:` line itself"
-			} else if len(recs) > 1 {
-				output = "" // the hook's output belongs to its own launch only
-			}
-			r, hold := dispatchReceipt(rec, how, output, lr.until)
-			if hold != nil {
-				held = cmp.Or(held, hold) // the wait is spent, so later jobs are read at once
-				continue
-			}
-			got = append(got, r)
-		}
-		if held != nil { // keep the finished answers: the hold saves them and the later pass attaches them
-			lr.held = got
-			return *held, true
-		}
-		return attachAll(in, got), false
+		return dispatchReceipts(in, lr, recs, how)
 	}
 	if hookRan {
 		return relayRunPending(in, *lr, m)
+	}
+	if len(lr.scan.askTimes) > 0 || len(lr.ids) > 0 {
+		return core.Result{Decision: core.Block, Reason: "No exact dispatch id is available for your ask call. " +
+			"Recover the id from that call's saved output, then run `claude-code agents result -f <id>` " +
+			"once and hand back again; sibling dispatch records cannot supply your receipt."}, true
 	}
 	words := briefWords(lr.scan)
 	if lr.scan.edited || len(words) == 0 {
@@ -213,6 +196,24 @@ func receiptFix(in *core.Input, agentID string, lr *leafRead) (core.Result, bool
 			"line if %s must do it.", cmp.Or(model.Model, "the leaf's own model"), st, st), jobOut{}), false
 	}
 	return runBriefLine(in, *lr, agentID, words)
+}
+
+func dispatchReceipts(in *core.Input, lr *leafRead, recs []agent.Record, how string) (core.Result, bool) {
+	var got []receipt
+	var held *core.Result
+	for _, rec := range recs {
+		r, hold := dispatchReceipt(rec, how, "", lr.until)
+		if hold != nil {
+			held = cmp.Or(held, hold)
+			continue
+		}
+		got = append(got, r)
+	}
+	if held != nil {
+		lr.held = got
+		return *held, true
+	}
+	return attachAll(in, got), false
 }
 
 // briefWords is the Run: line's words, with the brief body as the task when the line carries no prompt.
@@ -224,36 +225,9 @@ func briefWords(s leafScan) []string {
 	return words
 }
 
-// leafDispatch is the jobs this leaf started: its printed ids' records, else the ones its ask calls launched.
-func leafDispatch(lr leafRead, st string) (recs []agent.Record, how string, ok bool) {
-	if len(lr.recs) > 0 {
-		return lr.recs, "printed in its tool results", true
-	}
-	if len(lr.scan.askTimes) == 0 {
-		return nil, "", false
-	}
-	owner, all := inflight.SessionOwner(), recentDispatches(50)
-	for _, at := range lr.scan.askTimes { // each call's job is the first to start after it
-		calls := []time.Time{at}
-		for _, rec := range slices.Backward(all) { // all is newest first: a sibling's later job must not win
-			mine := owner == 0 || rec.Owner == 0 || rec.Owner == owner
-			if mine && (rec.Agent == st || rec.Fallback == st) && launchedBy(rec.Time, calls) {
-				if !slices.ContainsFunc(recs, func(r agent.Record) bool { return r.ID == rec.ID }) {
-					recs = append(recs, rec)
-				}
-				break
-			}
-		}
-	}
-	slices.SortStableFunc(recs, func(a, b agent.Record) int { return a.Time.Compare(b.Time) }) // dispatch order
-	return recs, "launched by its ask call", len(recs) > 0
-}
-
-// launchedBy is a record start within askLaunchWindow after one of the ask calls (2 s early for clock rounding).
-func launchedBy(start time.Time, calls []time.Time) bool {
-	return slices.ContainsFunc(calls, func(at time.Time) bool {
-		return !start.Before(at.Add(-2*time.Second)) && start.Before(at.Add(askLaunchWindow))
-	})
+// leafDispatch uses only records named by this leaf's tool results.
+func leafDispatch(lr leafRead, _ string) ([]agent.Record, string, bool) {
+	return lr.recs, "printed in its tool results", len(lr.recs) > 0
 }
 
 // receipt is one dispatch's note line and the result attached under it.
@@ -310,26 +284,36 @@ func relayRunPending(in *core.Input, lr leafRead, m relayRun) (core.Result, bool
 	case didNotRunRe().MatchString(out):
 		return attach(in, "NOTE: the hook ran the brief's `Run:` line itself; it ran no agent.", body), false
 	case time.Since(m.Started) < askLaunchWindow:
-		if rec, ok := hookJob(lr, relayAgent(in, &lr), m.Started); ok {
+		if rec, ok := hookJob(lr, m.Output); ok {
 			return hookJobReceipt(in, rec, m.Output, lr.until)
 		}
 		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("The hook is running your brief's `Run:` line (`%s`, output %s), "+
 			"so your hand-back is held, not refused. %s", m.Line, m.Output, handBackForID)}, true
 	}
-	return attach(in, fmt.Sprintf("NOTE: the hook ran the brief's `Run:` line itself, but no dispatch record or receipt "+
-		"appeared within %s (output %s).", askLaunchWindow, m.Output), body), false
+	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("No exact dispatch id appeared within %s. "+
+		"Recover the id from the hook launch output %s, run `claude-code agents result -f <id>` once, "+
+		"and hand back again; sibling records cannot supply the receipt.", askLaunchWindow, m.Output)}, true
 }
 
 // handBackForID is the hold's instruction while the hook's launch has no dispatch record to name yet.
 const handBackForID = "Hand back again now, without sleeping: the hook then names its job; run `claude-code agents result " +
 	"-f <id>` once, in the foreground, and hand back when it returns."
 
-// hookJob waits until lr.until for the dispatch record of the hook's launch at started; zero until checks once.
-func hookJob(lr leafRead, st string, started time.Time) (agent.Record, bool) {
-	lr.recs, lr.scan.askTimes = nil, []time.Time{started}
+func hookDispatchID(output string) string {
+	b, err := os.ReadFile(output + ".claim")
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
+
+// hookJob waits for the exact ID published by this hook launch; it never searches sibling records.
+func hookJob(lr leafRead, output string) (agent.Record, bool) {
 	for {
-		if recs, _, ok := leafDispatch(lr, st); ok {
-			return recs[0], true
+		if id := hookDispatchID(output); id != "" {
+			if rec, err := loadDispatch(id); err == nil {
+				return rec, true
+			}
 		}
 		if !time.Now().Add(handbackPoll).Before(lr.until) {
 			return agent.Record{}, false
@@ -357,7 +341,7 @@ func ranOnLine(out string) string {
 	return ""
 }
 
-// runBriefLine starts the brief's own Run: command (task appended when it had none) detached, then holds the hand-back for its result.
+// runBriefLine starts the Run: command detached with any missing task, then holds for its result.
 func runBriefLine(in *core.Input, lr leafRead, agentID string, words []string) (core.Result, bool) {
 	fail := func(err error) (core.Result, bool) {
 		return attach(in, fmt.Sprintf("NOTE: the brief's `Run:` line was never run and the hook could not start it (%v); "+
@@ -387,7 +371,7 @@ func runBriefLine(in *core.Input, lr leafRead, agentID string, words []string) (
 		_ = os.Remove(relayRunPath(agentID)) // nothing started: a later hand-back may try again
 		return fail(err)
 	}
-	if rec, ok := hookJob(lr, relayAgent(in, &lr), m.Started); ok {
+	if rec, ok := hookJob(lr, m.Output); ok {
 		return hookJobReceipt(in, rec, m.Output, lr.until)
 	}
 	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("Your brief's `Run:` line was never run, so the hook started it "+

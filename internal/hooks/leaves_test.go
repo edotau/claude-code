@@ -517,7 +517,11 @@ func gatedLeafTx(t *testing.T, brief string, toolResults ...string) *core.Input 
 // leafTx is gatedLeafTx for any subagent type.
 func leafTx(t *testing.T, agentType, brief string, toolResults ...string) *core.Input {
 	t.Helper()
-	return leafTxCmd(t, agentType, `claude-code agents ask --agent codex "x"`, brief, toolResults...)
+	command := `claude-code agents ask --agent codex "x"`
+	if len(toolResults) == 1 && toolResults[0] == "ls output" {
+		command = "ls"
+	}
+	return leafTxCmd(t, agentType, command, brief, toolResults...)
 }
 
 // leafTxCmd is leafTx where every result answers the given Bash command.
@@ -682,39 +686,6 @@ func stubSpawn(t *testing.T) *[][]string {
 		return nil
 	}
 	return &got
-}
-
-// A never-run Run: line is run by the hook with the brief as its task; the hand-back is held, then passes with result.
-func TestRanOnHookRunsTheLine(t *testing.T) {
-	for _, c := range []struct {
-		st, line, body string
-		want           []string
-	}{
-		{"codex", "claude-code agents ask --agent codex --model gpt-6-1-sol 'review it'", "Objective: review\n",
-			[]string{"claude-code", "agents", "ask", "--agent", "codex", "--model", "gpt-6-1-sol", "review it"}},
-		{"codex", "claude-code agents ask --agent codex --tools", "Objective: review\n",
-			[]string{"claude-code", "agents", "ask", "--agent", "codex", "--tools", "Objective: review"}},
-		{"claude", "claude-code agents ask --agent claude --profile dev --model m --tools", "Objective: review\n",
-			[]string{"claude-code", "agents", "ask", "--agent", "claude", "--profile", "dev", "--model", "m", "--tools", "Objective: review"}},
-	} {
-		spawned := stubSpawn(t)
-		in := leafTx(t, c.st, "Run: "+c.line+"\n\n"+c.body, "ls output")
-		in = handbackOf(in, "my report")
-		r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
-		if !blocked || !strings.Contains(r.Reason, "held, not refused") || len(*spawned) != 1 || fmt.Sprint((*spawned)[0]) != fmt.Sprint(c.want) {
-			t.Fatalf("%s first hand-back = %+v blocked=%v spawns %v, want one held launch of %v", c.st, r, blocked, *spawned, c.want)
-		}
-		m, _ := loadRelayRun("a1")
-		if err := os.WriteFile(m.Output, []byte("the answer\nask: ran on codex · databricks·prod · databricks-gpt-6-1-sol · fallback none\n"), 0o600); err != nil {
-			t.Fatal(err)
-		}
-		r, blocked = leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
-		msg, _ := r.UpdatedInput["message"].(string)
-		if blocked || len(*spawned) != 1 || !strings.HasPrefix(msg, "NOTE: the hook ran the brief's `Run:` line itself: ask: ran on codex") ||
-			!strings.Contains(msg, "my report") || !strings.Contains(msg, "the answer") {
-			t.Fatalf("%s second hand-back = %+v blocked=%v, want it through with note, report and result, no second launch", c.st, r, blocked)
-		}
-	}
 }
 
 // A relay that edited files passes with the note on top and the Run: line is never run by the hook.
@@ -971,7 +942,7 @@ func TestPlanClaimClearedOnSpawnFailure(t *testing.T) {
 func TestRanOnIgnoresDocAndSourceMentions(t *testing.T) {
 	doc := "Envelope (quote the `ask: ran on …` line, outcome first)\nThen `Ran on:` (the `ask: ran on …` line)"
 	src := "const relayNote = \"" + relayNote + "\"\nvar ranOnPattern = regexp.MustCompile(`ask: ran on |\\\\\"ran_on\\\\\":`)"
-	in := leafTx(t, "gemini", "Objective: review internal/hooks/agents\n", doc, src)
+	in := leafTxCmd(t, "gemini", "cat docs.md source.go", "Objective: review internal/hooks/agents\n", doc, src)
 	if r, _ := leafStopBlock(in, "a1"); !strings.Contains(r.SystemMessage, relayNote) {
 		t.Fatalf("got %+v, want the relay note: prose mentions are not a ran-on line", r)
 	}
@@ -1041,8 +1012,8 @@ func TestRanOnReadsBackgroundAskOutput(t *testing.T) {
 		t.Fatalf("ran output: got %+v blocked=%v, want a silent release", r, blocked)
 	}
 	empty := bgOutputFile(t, "working\n")
-	if r, _ := leafStopBlock(leafTx(t, "codex", brief, bgNotice(empty)), "a1"); !strings.Contains(r.SystemMessage, relayNote) {
-		t.Fatalf("an output with no receipt and no record: got %+v, want the relay note", r)
+	if r, held := leafStopBlock(leafTx(t, "codex", brief, bgNotice(empty)), "a1"); !held || !strings.Contains(r.Reason, "exact dispatch id") {
+		t.Fatalf("an output with no receipt and no record: got %+v, want an exact-id hold", r)
 	}
 	refused := bgOutputFile(t, "ask: did not run codex: no login\n")
 	r, blocked := leafStopBlock(leafTx(t, "codex", brief, bgNotice(refused)), "a1")
@@ -1099,13 +1070,14 @@ func TestRanOnReceiptFromDispatchRecord(t *testing.T) {
 	}{
 		{"printed id, finished", `{"id":"` + id + `","status":"ok"}`, rec("codex", "ok", at.Add(-time.Hour), ""), false,
 			"supplied the receipt: ask: ran on codex · own login · databricks-gpt-6-1-sol · fallback none"},
-		{"moved to background, finished", moved, rec("codex", "ok", at.Add(5*time.Second), ""), false,
-			"(launched by its ask call) supplied the receipt: ask: ran on codex"},
-		{"fallback shown", moved, rec("claude", "ok", at.Add(5*time.Second), `,"fallback":"codex"`), false, "fallback from codex"},
-		{"still running", moved, rec("codex", "running", time.Now(), ""), true, "held, not refused. Run `claude-code agents result -f " + id},
-		{"launched before the ask", moved, rec("codex", "ok", at.Add(-time.Hour), ""), false, relayNote},
-		{"another agent's job", moved, rec("gemini", "ok", at.Add(5*time.Second), ""), false, relayNote},
-		{"no record", "ls output", "", false, relayNote},
+		{"sibling in launch window", moved, rec("codex", "ok", at.Add(time.Second), ""), true, "exact dispatch id"},
+		{"moved to background, finished", moved, rec("codex", "ok", at.Add(5*time.Second), ""), true,
+			"exact dispatch id"},
+		{"fallback shown", "job " + id + " started", rec("claude", "ok", at.Add(5*time.Second), `,"fallback":"codex"`), false, "fallback from codex"},
+		{"still running", "job " + id + " started", rec("codex", "running", time.Now(), ""), true, "Run `claude-code agents result -f " + id},
+		{"launched before the ask", moved, rec("codex", "ok", at.Add(-time.Hour), ""), true, "exact dispatch id"},
+		{"another agent's job", moved, rec("gemini", "ok", at.Add(5*time.Second), ""), true, "exact dispatch id"},
+		{"no record", "ls output", "", true, "exact dispatch id"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.name == "still running" {
@@ -1138,7 +1110,7 @@ func handbackOf(in *core.Input, message string) *core.Input {
 func TestHandbackHeldUntilJobDone(t *testing.T) {
 	at := time.Now().Add(-time.Minute).Truncate(time.Second)
 	const id = "20261116T120000.000-codex"
-	in := handbackOf(timedLeafTx(t, at, bgNotice("/nonexistent/tasks/bX1.output")), "early report")
+	in := handbackOf(timedLeafTx(t, at, "job "+id+" started"), "early report")
 	in.CWD = t.TempDir()
 	body := func(status string) string {
 		return fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":%q,"pid":%d,"model":"databricks-gpt-6-1-sol","log":%q}`,
@@ -1146,7 +1118,7 @@ func TestHandbackHeldUntilJobDone(t *testing.T) {
 	}
 	writeDispatch(t, id, body("running"))
 	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
-	if !blocked || !strings.Contains(r.Reason, "held, not refused") || !strings.Contains(r.Reason, "is saved at ") {
+	if !blocked || !strings.Contains(r.Reason, "Run `claude-code agents result -f "+id) || !strings.Contains(r.Reason, "is saved at ") {
 		t.Fatalf("running = %+v blocked=%v, want a hold naming the saved report", r, blocked)
 	}
 	rec := body("ok")
@@ -1208,7 +1180,7 @@ func TestHandbackJobResultIsTheAnswer(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			at := time.Now().Add(-time.Minute).Truncate(time.Second)
-			in := handbackOf(timedLeafTx(t, at, bgNotice("/nonexistent/tasks/bX1.output")), tc.report)
+			in := handbackOf(timedLeafTx(t, at, "job "+id+" started"), tc.report)
 			writeDispatch(t, id, "{}")
 			logPath := writeJobFiles(t, id, tc.log, tc.events)
 			writeDispatch(t, id, fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":"ok","pid":%d,"duration_ms":90000,"log":%q}`,
@@ -1314,7 +1286,7 @@ func TestHandbackWaitsOnReceiptJob(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			at := time.Now().Add(-time.Minute).Truncate(time.Second)
-			in := handbackOf(timedLeafTx(t, at, bgNotice("/nonexistent/tasks/bX1.output")), "early report")
+			in := handbackOf(timedLeafTx(t, at, "job "+id+" started"), "early report")
 			body := func(status string) string {
 				return fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":%q,"pid":%d,"model":"databricks-gpt-6-1-sol"}`,
 					id, at.Add(3*time.Second).Format(time.RFC3339), status, os.Getpid())
@@ -1416,7 +1388,7 @@ func TestHandbackIgnoresForeignDispatches(t *testing.T) {
 			r := Handback(handbackOf(leafInput(tx), "relay report"))
 			msg2, _ := r.UpdatedInput["message"].(string)
 			all := r.Reason + r.SystemMessage + msg2
-			if r.Decision != core.Block || !strings.Contains(r.Reason, own) || strings.Contains(all, b) || strings.Contains(all, c) {
+			if r.Decision != core.Block || !strings.Contains(r.Reason, "exact dispatch id") || strings.Contains(all, own) || strings.Contains(all, b) || strings.Contains(all, c) {
 				t.Fatalf("got %+v message %q, want a hold on %s naming neither %s nor %s", r, msg2, own, b, c)
 			}
 		})
@@ -1474,7 +1446,7 @@ func TestRanOnRunLineClaimIsExclusive(t *testing.T) {
 
 // Regression (2026-11-16): an exit line the terminal wrapped, or coloured, still names the ask's job.
 func TestLeafJobIDsWrappedExitLine(t *testing.T) {
-	for _, out := range []string{"a\nask: dispatch\n" + leafJob + " (replay)", "a\n\x1b[2mask: dispatch " + leafJob + "\x1b[0m"} {
+	for _, out := range []string{"job " + leafJob + " started", leafJob, "ask: dispatch " + leafJob, "a\nask: dispatch\n" + leafJob + " (replay)", "a\n\x1b[2mask: dispatch " + leafJob + "\x1b[0m"} {
 		if got := readLeaf(leafEnv(t, out), leafWant{ids: true}).ids; fmt.Sprint(got) != fmt.Sprint([]string{leafJob}) {
 			t.Errorf("%q: ids = %v, want [%s]", out, got, leafJob)
 		}
@@ -1497,7 +1469,7 @@ func TestRanOnHookLaunchPendingHolds(t *testing.T) {
 func TestHandbackReleasesPastWaitLimit(t *testing.T) {
 	const id = "20261116T120000.000-codex"
 	at := time.Now().Add(-leafStopMaxWait - time.Hour).Truncate(time.Second)
-	in := handbackOf(timedLeafTx(t, at, bgNotice("/nonexistent/tasks/bX1.output")), "early report")
+	in := handbackOf(timedLeafTx(t, at, "job "+id+" started"), "early report")
 	writeDispatch(t, id, fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":"running","pid":%d}`,
 		id, at.Add(3*time.Second).Format(time.RFC3339), os.Getpid()))
 	r := Handback(in)

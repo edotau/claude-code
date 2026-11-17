@@ -386,7 +386,7 @@ func ownIDs(text string) []string {
 // headID is the id on an ask's first output line: the `job <id> started` launch line or the json envelope's own id.
 func headID(line string) string {
 	if m := ownIDRe().FindStringSubmatch(line); m != nil {
-		return m[1]
+		return cmp.Or(m[1], m[2], m[3])
 	}
 	var env struct {
 		ID         string `json:"id"`
@@ -569,7 +569,7 @@ func (s *leafScan) addCalls(content json.RawMessage, at time.Time) {
 			}
 			s.polls[it.ID] = pollCall{job: job, follow: follow}
 		}
-		if !at.IsZero() && slices.ContainsFunc(calls, func(m []string) bool { return !strings.HasSuffix(m[1], "result") }) {
+		if slices.ContainsFunc(calls, func(m []string) bool { return !strings.HasSuffix(m[1], "result") }) {
 			s.askTimes = append(s.askTimes, at)
 		}
 	}
@@ -688,7 +688,7 @@ func isRelay(in *core.Input, lr *leafRead) bool {
 	return externalTypes[leafAgentType(in)] || len(openingAskWords("Run: "+lr.scan.runLine)) > 0
 }
 
-// relayAgent is the agent a relay leaf's hook-run job dispatches: its type, else its Run: line's --agent (default claude).
+// relayAgent uses the external leaf type, else the Run: line's --agent (default claude).
 func relayAgent(in *core.Input, lr *leafRead) string {
 	if st := leafAgentType(in); externalTypes[st] {
 		return st
