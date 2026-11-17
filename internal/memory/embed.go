@@ -32,6 +32,7 @@ const embedCacheSchema = 3
 
 const (
 	embedBatch     = 16
+	embedWorkers   = 3
 	embedTextRunes = 2000
 	embedMaxRows   = 4000
 	embedBodyLimit = 32 << 20
@@ -532,23 +533,74 @@ func decodeEmbeddings(raw []byte) ([][]float32, error) {
 }
 
 func (r *embedRun) embed(ctx context.Context, ids, texts, hashes, blocks []string) (embedded int, embedErr error) {
-	for i := 0; i < len(texts); i += embedBatch { // network calls stay outside any transaction
-		j := min(i+embedBatch, len(texts))
-		vecs, err := r.c.EmbedFunc(ctx, texts[i:j])
-		if err == nil && len(vecs) != j-i {
-			err = fmt.Errorf("embedding endpoint returned %d vectors for %d texts", len(vecs), j-i)
-		}
-		if err != nil {
-			embedErr = err
+	vecs, embedErr := r.embedBatches(ctx, texts)
+	for batch, vectors := range vecs {
+		if vectors == nil {
 			break
 		}
-		for k, v := range vecs {
+		i := batch * embedBatch
+		for k, v := range vectors {
 			r.freshDim = len(v)
 			r.fresh[ids[i+k]] = vectorRow{Root: r.root, Hash: hashes[i+k], BlockHash: blocks[i+k], Vec: encodeVec(normalize(v))}
 		}
-		embedded += j - i
+		embedded += len(vectors)
 	}
 	return embedded, embedErr
+}
+
+func (r *embedRun) embedBatches(parent context.Context, texts []string) ([][][]float32, error) {
+	ctx, cancel := context.WithCancelCause(parent)
+	defer cancel(nil)
+	vecs := make([][][]float32, (len(texts)+embedBatch-1)/embedBatch)
+	sem := make(chan struct{}, embedWorkers)
+	var wg sync.WaitGroup
+	var mu sync.Mutex
+	var dim int
+	for batch := range vecs {
+		select {
+		case sem <- struct{}{}:
+		case <-ctx.Done():
+			wg.Wait()
+			return vecs, context.Cause(ctx)
+		}
+		if ctx.Err() != nil {
+			<-sem
+			break
+		}
+		wg.Go(func() {
+			defer func() { <-sem }()
+			i := batch * embedBatch
+			j := min(i+embedBatch, len(texts))
+			vectors, err := r.c.EmbedFunc(ctx, texts[i:j])
+			mu.Lock()
+			defer mu.Unlock()
+			if err == nil {
+				err = checkEmbedBatch(vectors, j-i, &dim)
+			}
+			if err != nil {
+				cancel(err)
+				return
+			}
+			vecs[batch] = vectors
+		})
+	}
+	wg.Wait()
+	return vecs, context.Cause(ctx)
+}
+
+func checkEmbedBatch(vecs [][]float32, want int, dim *int) error {
+	if len(vecs) != want {
+		return fmt.Errorf("embedding endpoint returned %d vectors for %d texts", len(vecs), want)
+	}
+	for _, v := range vecs {
+		if *dim == 0 {
+			*dim = len(v)
+		}
+		if len(v) == 0 || len(v) != *dim {
+			return fmt.Errorf("embedding endpoint returned dimension %d, want %d", len(v), *dim)
+		}
+	}
+	return nil
 }
 
 // embedProfiles yields the session profile, the claude record's, then every Databricks workspace, each only if reached.

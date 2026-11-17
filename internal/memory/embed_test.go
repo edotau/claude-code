@@ -755,3 +755,51 @@ func TestEmbedProfilesFollowTheRunSnapshot(t *testing.T) {
 		t.Error("empty snapshot: the ambient profile leaked into the walk")
 	}
 }
+
+func benchmarkEmbedEndpoint(b *testing.B) *EmbedClient {
+	srv := httptest.NewTestServer(b, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in struct{ Input []string }
+		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+		data := make([]map[string]any, len(in.Input))
+		for i, s := range in.Input {
+			data[i] = map[string]any{"index": i, "embedding": []float32{float32(len(s)), 1}}
+		}
+		if err := json.NewEncoder(w).Encode(map[string]any{"data": data}); err != nil {
+			b.Error(err)
+		}
+	}))
+	previous := http.DefaultClient
+	http.DefaultClient = srv.Client()
+	b.Cleanup(func() { http.DefaultClient = previous })
+	return &EmbedClient{Model: "stub", EmbedFunc: func(ctx context.Context, texts []string) ([][]float32, error) {
+		return postEmbeddings(ctx, srv.URL, texts, func(http.Header) error { return nil })
+	}}
+}
+
+func BenchmarkEmbedBatches(b *testing.B) {
+	c := benchmarkEmbedEndpoint(b)
+	const rows = 6*embedBatch + 1
+	ids, texts, hashes, blocks := make([]string, rows), make([]string, rows), make([]string, rows), make([]string, rows)
+	for i := range ids {
+		ids[i], texts[i] = fmt.Sprintf("entry-%03d", i), strings.Repeat("x", i+1)
+		hashes[i], blocks[i] = ids[i]+"-hash", ids[i]+"-block"
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		r := &embedRun{c: c, root: "stub-root", fresh: make(map[string]vectorRow, rows)}
+		if n, err := r.embed(b.Context(), ids, texts, hashes, blocks); err != nil || n != rows {
+			b.Fatalf("embedded=%d err=%v", n, err)
+		}
+		for i, id := range ids {
+			want := vectorRow{Root: r.root, Hash: hashes[i], BlockHash: blocks[i],
+				Vec: encodeVec(normalize([]float32{float32(len(texts[i])), 1}))}
+			if r.fresh[id] != want || r.freshDim != 2 {
+				b.Fatalf("embedding differs for %s", id)
+			}
+		}
+	}
+}
