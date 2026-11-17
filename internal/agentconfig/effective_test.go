@@ -169,7 +169,7 @@ func TestForRoutedProviderEvaluatesRegistryProfiles(t *testing.T) {
 // databricksOnly stands in for agent.CanServe: only databricks rows serve the test agents.
 func databricksOnly(_ string, p *providers.Provider) bool { return p.Provider == "databricks" }
 
-// A non-routed --provider with no CanServe never picks a signed-in non-databricks profile (openai's chatgpt login is always present).
+// A non-routed --provider with no CanServe never picks a signed-in non-databricks profile.
 func TestForNonRoutedProviderWithoutCanServeRejectsNonDatabricks(t *testing.T) {
 	setup(t)
 	got, err := ForContext(t.Context(), "codex", Launch{Provider: "openai"})

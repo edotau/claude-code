@@ -127,3 +127,11 @@ func TestParseInputGeminiNativeFields(t *testing.T) {
 		t.Errorf("write_file: tool %q input %v cwd %q", call.ToolName, call.ToolInput(), call.CWD)
 	}
 }
+
+func BenchmarkParseInputFor(b *testing.B) {
+	payload := `{"session_id":"s1","cwd":"/tmp/x","tool_name":"Bash","tool_input":{"command":"git status --short"},"hook_event_name":"PreToolUse"}`
+	b.ReportAllocs()
+	for b.Loop() {
+		ParseInputFor(strings.NewReader(payload), AgentClaude)
+	}
+}

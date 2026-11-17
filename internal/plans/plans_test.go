@@ -76,8 +76,7 @@ func wantTicks(t *testing.T, label string, ticked, partial []string, nTicked int
 	}
 }
 
-// TestTickSpanning drives a plan through partial ticks, a repeat sha, a full tick and a
-// claimed-task tick, asserting the exact file bytes after every step.
+// TestTickSpanning ticks a plan through partial, repeat, full and claimed steps, asserting exact bytes.
 func TestTickSpanning(t *testing.T) {
 	hermetic(t)
 	path := filepath.Join(t.TempDir(), "plan.md")
@@ -102,8 +101,7 @@ func TestTickSpanning(t *testing.T) {
 
 	assertRepeatShaIsNoop(t, path, after2)
 
-	// A commit covering all owns (dir + glob + noted file) ticks the task; the already
-	// ticked task 1.3 is skipped even though the commit touches its file.
+	// A commit covering all owns (dir + glob + noted file) ticks the task; ticked 1.3 is skipped.
 	ticked, partial = tickOK(t, path, "fffffff",
 		"internal/plans/tick.go",
 		"internal/hooks/safety_b_test.go",
@@ -263,8 +261,7 @@ func assertStatusMain(t *testing.T, main Summary) {
 	}
 }
 
-// TestActive picks the newest dated file with an open owned task, skipping undated and
-// fully ticked files even when their mtimes are newer.
+// TestActive picks the newest dated file with an open task, skipping undated and fully ticked ones.
 func TestActive(t *testing.T) {
 	hermetic(t)
 	dir := t.TempDir()
@@ -299,7 +296,7 @@ func TestActive(t *testing.T) {
 	}
 }
 
-// TestRepoPlanTemplate guards the real docs/templates/plan.md: it must keep the "# Plan:" heading and "## Tasks" checklist section.
+// TestRepoPlanTemplate guards docs/templates/plan.md: keeps the "# Plan:" heading and "## Tasks" section.
 func TestRepoPlanTemplate(t *testing.T) {
 	body, err := os.ReadFile(TemplatePath(filepath.Join("..", "..")))
 	if err != nil {
@@ -550,7 +547,7 @@ func TestSelectNewerPartialBeatsOlderExact(t *testing.T) {
 	}
 }
 
-// TestSelectIgnoresStalePlan: an older exact match is left alone while a newer open plan exists, unless it holds a claim.
+// TestSelectIgnoresStalePlan: an older exact match is skipped while a newer open plan exists, unless claimed.
 func TestSelectIgnoresStalePlan(t *testing.T) {
 	hermetic(t)
 	home := t.TempDir()

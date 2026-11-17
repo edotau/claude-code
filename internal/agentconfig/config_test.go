@@ -76,7 +76,7 @@ func TestOverlayCommentAcceptedUnknownKeyRefused(t *testing.T) {
 	}
 }
 
-// TestOverlayGuardRulesReplaceWholesale: GuardRules in the overlay replace the defaults wholesale, like Providers.Fallback.
+// TestOverlayGuardRulesReplaceWholesale: overlay GuardRules replace the defaults wholesale, like Providers.Fallback.
 func TestOverlayGuardRulesReplaceWholesale(t *testing.T) {
 	writeOverlay(t, `{"guardRules":{"deny":["also-only-this"]}}`)
 	cfg, err := LoadConfig()
