@@ -22,6 +22,7 @@ Follow `skills/subagent-workflows/SKILL.md` → External relay contract, its wai
 the brief's `Run:` line once, flags unchanged. Otherwise use `claude-code gemini ask --tools --read-only` for a
 question or `claude-code gemini review` for a diff. `sweep-review` is a brief mode: the same ask with packed files.
 Owner shortcuts: `rules/workflows/agents.md` → Slash commands.
+Run `claude-code agents brief --path <agent>`; Write the brief there, then redirect its literal path with `- < PATH`.
 
 ## Owns
 

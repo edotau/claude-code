@@ -1161,3 +1161,30 @@ func TestAgentProviderArgs(t *testing.T) {
 		})
 	}
 }
+
+func TestAgentsBriefPath(t *testing.T) {
+	for _, args := range [][]string{{"brief", "--path"}, {"brief", "--path", "codex"}} {
+		out := okAgents(t, args...)
+		path := strings.TrimSuffix(out, "\n")
+		t.Cleanup(func() {
+			if err := os.Remove(path); err != nil {
+				t.Error(err)
+			}
+		})
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !filepath.IsAbs(path) || info.Size() != 0 || strings.Contains(path, "\n") {
+			t.Fatalf("bad path %q", out)
+		}
+	}
+	for _, args := range [][]string{
+		{"brief", "--path", "--task", "-"}, {"brief", "--path", "--read-only"},
+		{"brief", "--path", "codex", "copilot"}, {"brief", "--path", "--own", "x"},
+	} {
+		if code, _, _ := runAgents(t, args...); code != 2 {
+			t.Errorf("%v: exit %d", args, code)
+		}
+	}
+}
