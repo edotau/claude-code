@@ -4,6 +4,7 @@ package hooks
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -163,7 +164,7 @@ type leafWant struct{ ids, brief, files bool }
 
 // leafWants is what the stop gates and the reaper read from the stopping leaf's transcript.
 func leafWants(in *core.Input) leafWant {
-	return leafWant{ids: in.Agent() == core.AgentClaude, brief: externalTypes[leafAgentType(in)], files: true}
+	return leafWant{ids: in.Agent() == core.AgentClaude, brief: true, files: true}
 }
 
 // leafRead is one pass over a leaf transcript: its dispatch ids, brief scan and background output files.
@@ -444,6 +445,7 @@ var didNotRunRe = sync.OnceValue(func() *regexp.Regexp {
 type leafScan struct {
 	seenBrief         bool
 	runLine           string          // the brief's opening `Run:` command, the one the hook runs
+	task              string          // the brief after its Run: line: the prompt a promptless Run: line is missing
 	askTimes          []time.Time     // when each launching (ask|dispatch) call was made, to find its dispatch record
 	askCalls          map[string]bool // tool_use ids of Bash calls that ran an ask, dispatch or result
 	ids               []string        // dispatch ids those calls' own results printed, in order: the leaf's jobs
@@ -496,8 +498,8 @@ func (s *leafScan) addLine(b []byte) {
 	case m.Type != "user":
 	case !s.seenBrief && !bytes.Contains(b, toolResultKey): // the first user message is the brief
 		s.seenBrief = true
-		if first, _, _ := strings.Cut(strings.TrimSpace(transcript.ContentText(m.Message.Content)), "\n"); strings.HasPrefix(first, "Run:") {
-			s.runLine = strings.TrimSpace(strings.TrimPrefix(first, "Run:"))
+		if first, rest, _ := strings.Cut(strings.TrimSpace(transcript.ContentText(m.Message.Content)), "\n"); strings.HasPrefix(first, "Run:") {
+			s.runLine, s.task = strings.TrimSpace(strings.TrimPrefix(first, "Run:")), strings.TrimSpace(rest)
 		}
 	default:
 		s.addResults(m.Message.Content)
@@ -681,13 +683,26 @@ var externalTypes = func() map[string]bool {
 	return m
 }()
 
+// isRelay is a leaf of an external type, or any leaf whose brief opens with a `Run: claude-code agents ask` line.
+func isRelay(in *core.Input, lr *leafRead) bool {
+	return externalTypes[leafAgentType(in)] || len(openingAskWords("Run: "+lr.scan.runLine)) > 0
+}
+
+// relayAgent is the agent a relay leaf's hook-run job dispatches: its type, else its Run: line's --agent (default claude).
+func relayAgent(in *core.Input, lr *leafRead) string {
+	if st := leafAgentType(in); externalTypes[st] {
+		return st
+	}
+	return cmp.Or(parseAskLine(context.Background(), "Run: "+lr.scan.runLine).agent, agentid.Claude)
+}
+
 // labelAgent is true for an agent a dispatch label may name (claude or an external type), and a type that carries one.
 func labelAgent(name string) bool { return name == agentid.Claude || externalTypes[name] }
 
 // ranOnVerdict fixes a gated leaf's missing ran-on line: it holds, runs, attaches or notes, and never drops the report.
 func ranOnVerdict(in *core.Input, agentID string, lr *leafRead) (core.Result, bool) {
-	// only leaves that call an external agent (codex|copilot|gemini|opencode) and show no ran-on receipt
-	if !externalTypes[leafAgentType(in)] || lr.scanErr != nil || lr.scan.ranOn {
+	// only relay leaves (an external type, or a brief opening with a Run: ask line) that show no ran-on receipt
+	if !isRelay(in, lr) || lr.scanErr != nil || lr.scan.ranOn {
 		return core.Result{}, false
 	}
 	ran, failed := askOutputRan(lr.scan.bgAsks)

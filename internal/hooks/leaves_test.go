@@ -684,26 +684,36 @@ func stubSpawn(t *testing.T) *[][]string {
 	return &got
 }
 
-// A never-run Run: line is run by the hook, unchanged; the hand-back is held, then passes with result and receipt.
+// A never-run Run: line is run by the hook with the brief as its task; the hand-back is held, then passes with result.
 func TestRanOnHookRunsTheLine(t *testing.T) {
-	spawned := stubSpawn(t)
-	const line = "claude-code agents ask --agent codex --model gpt-6-1-sol 'review it'"
-	in := leafTx(t, "codex", "Run: "+line+"\n\nObjective: review\n", "ls output")
-	in = handbackOf(in, "my report")
-	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
-	want := []string{"claude-code", "agents", "ask", "--agent", "codex", "--model", "gpt-6-1-sol", "review it"}
-	if !blocked || !strings.Contains(r.Reason, "held, not refused") || len(*spawned) != 1 || fmt.Sprint((*spawned)[0]) != fmt.Sprint(want) {
-		t.Fatalf("first hand-back = %+v blocked=%v spawns %v, want one held launch of %v", r, blocked, *spawned, want)
-	}
-	m, _ := loadRelayRun("a1")
-	if err := os.WriteFile(m.Output, []byte("the answer\nask: ran on codex · databricks·prod · databricks-gpt-6-1-sol · fallback none\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	r, blocked = leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
-	msg, _ := r.UpdatedInput["message"].(string)
-	if blocked || len(*spawned) != 1 || !strings.HasPrefix(msg, "NOTE: the hook ran the brief's `Run:` line itself: ask: ran on codex") ||
-		!strings.Contains(msg, "my report") || !strings.Contains(msg, "the answer") {
-		t.Fatalf("second hand-back = %+v blocked=%v, want it through with note, report and result, no second launch", r, blocked)
+	for _, c := range []struct {
+		st, line, body string
+		want           []string
+	}{
+		{"codex", "claude-code agents ask --agent codex --model gpt-6-1-sol 'review it'", "Objective: review\n",
+			[]string{"claude-code", "agents", "ask", "--agent", "codex", "--model", "gpt-6-1-sol", "review it"}},
+		{"codex", "claude-code agents ask --agent codex --tools", "Objective: review\n",
+			[]string{"claude-code", "agents", "ask", "--agent", "codex", "--tools", "Objective: review"}},
+		{"claude", "claude-code agents ask --agent claude --profile dev --model m --tools", "Objective: review\n",
+			[]string{"claude-code", "agents", "ask", "--agent", "claude", "--profile", "dev", "--model", "m", "--tools", "Objective: review"}},
+	} {
+		spawned := stubSpawn(t)
+		in := leafTx(t, c.st, "Run: "+c.line+"\n\n"+c.body, "ls output")
+		in = handbackOf(in, "my report")
+		r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+		if !blocked || !strings.Contains(r.Reason, "held, not refused") || len(*spawned) != 1 || fmt.Sprint((*spawned)[0]) != fmt.Sprint(c.want) {
+			t.Fatalf("%s first hand-back = %+v blocked=%v spawns %v, want one held launch of %v", c.st, r, blocked, *spawned, c.want)
+		}
+		m, _ := loadRelayRun("a1")
+		if err := os.WriteFile(m.Output, []byte("the answer\nask: ran on codex · databricks·prod · databricks-gpt-6-1-sol · fallback none\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		r, blocked = leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
+		msg, _ := r.UpdatedInput["message"].(string)
+		if blocked || len(*spawned) != 1 || !strings.HasPrefix(msg, "NOTE: the hook ran the brief's `Run:` line itself: ask: ran on codex") ||
+			!strings.Contains(msg, "my report") || !strings.Contains(msg, "the answer") {
+			t.Fatalf("%s second hand-back = %+v blocked=%v, want it through with note, report and result, no second launch", c.st, r, blocked)
+		}
 	}
 }
 
