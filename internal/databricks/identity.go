@@ -75,16 +75,21 @@ func identity(args []string) int {
 	if err != nil {
 		return fail("identity: %v", err)
 	}
+	fmt.Fprintln(os.Stdout, identityLine(reg, ch, *dryRun))
+	return 0
+}
+
+// identityLine words the outcome of an identity change for stdout.
+func identityLine(reg *providers.Registry, ch IdentityChange, dryRun bool) string {
 	line := fmt.Sprintf("%s: identity %s → %s", ch.Profile, ch.Old, ch.New)
 	if ch.New == providers.IdentitySP {
 		line += " · SP " + ch.SP
 	}
 	switch {
-	case *dryRun:
+	case dryRun:
 		line = "would set " + line + "; nothing written"
-	case ch.Old == ch.New && reg.Providers[profile].Identity == ch.New:
+	case ch.Old == ch.New && reg.Providers[ch.Profile].Identity == ch.New:
 		line = fmt.Sprintf("%s: identity already %s; nothing written", ch.Profile, ch.New)
 	}
-	fmt.Fprintln(os.Stdout, line)
-	return 0
+	return line
 }

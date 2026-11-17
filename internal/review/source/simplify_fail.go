@@ -110,9 +110,8 @@ func commentViolations(text, base string, spans lineSpans) []string {
 		if !spans.touches(b.start, b.start+len(b.lines)-1) {
 			continue
 		}
-		stacked := wasStacked(b, baseBlocks)
 		for _, s := range blockSmells(b, "go") {
-			if s.Type == "long_comment" && stacked {
+			if s.Type == "long_comment" && wasStacked(b, baseBlocks) {
 				continue
 			}
 			line := b.start

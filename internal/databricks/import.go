@@ -536,23 +536,7 @@ func rowJSON(r importRow, prev json.RawMessage) (json.RawMessage, error) {
 		}
 	}
 	dropStaleBaseURL(out, r.Host)
-	fields := map[string]any{"type": r.Auth}
-	if r.Auth == providers.AuthM2M {
-		fields["clientId"] = r.ClientID
-	}
-	if r.AccountID != "" {
-		fields["accountId"] = r.AccountID
-	}
-	if r.WorkspaceID != "" {
-		fields["workspaceId"] = r.WorkspaceID
-	}
-	if r.PairingSet && r.Auth == providers.AuthOAuth {
-		fields["spClientId"] = r.SPClientID
-	}
-	top := map[string]any{"preset": "databricks", "host": r.Host}
-	if r.identity != "" {
-		top["identity"] = r.identity
-	}
+	fields, top := rowFields(r)
 	if err := setFields(auth, fields); err != nil {
 		return nil, err
 	}
@@ -565,6 +549,28 @@ func rowJSON(r importRow, prev json.RawMessage) (json.RawMessage, error) {
 	}
 	out["auth"] = ab
 	return json.Marshal(out)
+}
+
+// rowFields returns the auth and top-level vault fields a planned candidate writes.
+func rowFields(r importRow) (fields, top map[string]any) {
+	fields = map[string]any{"type": r.Auth}
+	if r.Auth == providers.AuthM2M {
+		fields["clientId"] = r.ClientID
+	}
+	if r.AccountID != "" {
+		fields["accountId"] = r.AccountID
+	}
+	if r.WorkspaceID != "" {
+		fields["workspaceId"] = r.WorkspaceID
+	}
+	if r.PairingSet && r.Auth == providers.AuthOAuth {
+		fields["spClientId"] = r.SPClientID
+	}
+	top = map[string]any{"preset": "databricks", "host": r.Host}
+	if r.identity != "" {
+		top["identity"] = r.identity
+	}
+	return fields, top
 }
 
 // dropStaleBaseURL removes a base_url that no longer lies under the imported host, so the import's host wins.

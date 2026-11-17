@@ -97,8 +97,10 @@ func scanCommentBlocks(content, lang string) []commentBlock {
 	if lang == "python" {
 		sc.marker = "#"
 	}
-	for i, line := range strings.Split(content, "\n") {
+	i := 0
+	for line := range strings.SplitSeq(content, "\n") {
 		sc.scanLine(i, line)
+		i++
 	}
 	sc.flush()
 	return sc.blocks
