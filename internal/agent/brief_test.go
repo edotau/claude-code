@@ -67,15 +67,15 @@ func TestBriefReadOnlyOwnsNothing(t *testing.T) {
 func assertBriefReportPath(t *testing.T, brief, config string) {
 	t.Helper()
 	want := filepath.Join(config, "memory", "reports", "YYYY-MM-DD-<name>.md")
-	if got := strings.Count(brief, want); got != 2 {
-		t.Errorf("brief has %d report paths matching %q; want 2", got, want)
+	if got := strings.Count(brief, want); got != 0 { // a read-only brief's report is its answer, filed by --save
+		t.Errorf("brief has %d report paths matching %q; want 0", got, want)
 	}
 }
 
 func assertBriefContract(t *testing.T, first string, input BriefInput) {
 	t.Helper()
 	for _, want := range []string{"## Leaf rules", "Never revert a change you did not make", input.Task, input.Report, input.Verify,
-		"read-only; do not edit files", "Wrap lines at 118 columns", "Final answer: at most 8 lines",
+		"read-only; do not edit files", "Wrap lines at 118 columns", "Final answer: the full report", "--save files it",
 		"returns with the job ended, hand back\n  the job's result as your next action; do nothing in between"} {
 		if !strings.Contains(first, want) {
 			t.Errorf("brief missing contract %q", want)
