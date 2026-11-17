@@ -1,6 +1,7 @@
 package claude
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -62,15 +63,21 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 		return agent.Plan{}, err
 	}
 	offerLogin(ctx, o, args, sessionProviders(sel), &plan)
-	proxied := sel.NeedsRouter(reg) || armedHop(ctx, p, args)
-	helper, settings, err := configureRouting(ctx, sel, p, passthrough, proxied, self, &plan)
+	rows, extra := modelPickerRows(reg, p, args)
+	proxied := len(rows) > 0 || sel.NeedsRouter(reg) || armedHop(ctx, p, args)
+	helper, settings, err := configureRouting(ctx, sel, p, passthrough, proxied, self, &plan, extra...)
 	if err != nil {
 		return agent.Plan{}, err
 	}
 	if proxied && !agent.IsHeadless(args) {
 		plan.Warnings = append(plan.Warnings, "Remote Control is unavailable through the proxy; launch a direct login session to keep it")
 	}
-	if err := applyOverlay(ctx, &plan, passthrough, args, helper, settings, p.Env); err != nil {
+	addr := proxyAddr(&plan, proxied)
+	setAliasDescriptions(ctx, &plan, sel, addr)
+	for i := range rows {
+		rows[i].Description = clip80(rows[i].route + routeSuffix(addr))
+	}
+	if err := applyOverlay(ctx, &plan, passthrough, args, helper, settings, p.Env, rows); err != nil {
 		return agent.Plan{}, err
 	}
 	if !agent.IsHeadless(args) { // a headless launch renders in claudeCmd, where the request is known
@@ -279,10 +286,6 @@ func setModelAliasEnv(plan *agent.Plan, sel providers.Selection) {
 			plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(alias)+"_MODEL"] = m
 		}
 	}
-	if m := sel.ClientModel(models.Opus); m != "" && sel.Aliases[models.Fable].Provider == nil &&
-		sel.Provider.SpellingRule() == "databricks-serving" {
-		plan.Set["ANTHROPIC_DEFAULT_FABLE_MODEL"] = m // Databricks serves no Fable: use the opus slot
-	}
 	if m := sel.ClientModel(models.Opus); m != "" { // classifier default claude-sonnet-5[1m] is unserved off Anthropic
 		plan.Set["CLAUDE_CODE_AUTO_MODE_MODEL"] = m
 	}
@@ -333,14 +336,14 @@ func armedHop(ctx context.Context, p *providers.Provider, args []string) bool {
 }
 
 // configureRouting wires the router URL/headers when proxied, else the provider's route, and returns the apiKeyHelper.
-func configureRouting(ctx context.Context, sel providers.Selection, p *providers.Provider, passthrough, proxied bool, self string, plan *agent.Plan) (helper, settings string, err error) {
+func configureRouting(ctx context.Context, sel providers.Selection, p *providers.Provider, passthrough, proxied bool, self string, plan *agent.Plan, extra ...string) (helper, settings string, err error) {
 	for _, t := range sel.Aliases {
 		if err := providers.ClaudeCodeError(t.Provider, t.Model); err != nil {
 			return "", "", err
 		}
 	}
 	if proxied {
-		return configureClaudeProxy(ctx, sel, p, passthrough, self, plan)
+		return configureClaudeProxy(ctx, sel, p, passthrough, self, plan, extra...)
 	}
 	helper = textutil.QuoteSH(helperBin(self)) + " resolve --profile " + textutil.QuoteSH(p.Name)
 	name := "overlay-" + p.Name
@@ -367,7 +370,7 @@ var overlayIdentities = []string{
 	providers.IdentityAuto, providers.IdentityUser, providers.IdentitySP, providers.IdentityHeadless,
 }
 
-func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *agent.Plan) (string, string, error) {
+func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *agent.Plan, extra ...string) (string, string, error) {
 	if err := refuseCLIAliases(sel, passthrough); err != nil {
 		return "", "", err
 	}
@@ -380,7 +383,7 @@ func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *provi
 	if id := providers.IdentityFrom(ctx); id != "" {
 		hdrs = append(hdrs, gateway.IdentityHeader+": "+id)
 	}
-	tok, err := proxyToken(ctx, base, sel)
+	tok, err := proxyToken(ctx, base, sel, extra...)
 	if err != nil {
 		return "", "", err
 	}
@@ -405,9 +408,9 @@ func refuseCLIAliases(sel providers.Selection, passthrough bool) error {
 // ProxyKeyEnv carries a proxied launch's session token to `resolve --proxy`
 const ProxyKeyEnv = "HARNESS_PROXY_API_KEY"
 
-// proxyToken is this process's session token on routerBase for the session profile and its alias profiles.
-func proxyToken(ctx context.Context, routerBase string, sel providers.Selection) (string, error) {
-	var aliases []string
+// proxyToken is this process's session token on routerBase for the session, alias and extra profiles.
+func proxyToken(ctx context.Context, routerBase string, sel providers.Selection, extra ...string) (string, error) {
+	aliases := slices.Clone(extra)
 	for _, t := range sel.Aliases {
 		aliases = append(aliases, t.Provider.Name)
 	}
@@ -432,7 +435,7 @@ func claudeLaunchBinaries() (string, string, error) {
 }
 
 // applyOverlay sets the passthrough OAuth/unset handling, or the apiKeyHelper overlay + --settings argv.
-func applyOverlay(ctx context.Context, plan *agent.Plan, passthrough bool, args []string, helper, settings string, env map[string]string) error {
+func applyOverlay(ctx context.Context, plan *agent.Plan, passthrough bool, args []string, helper, settings string, env map[string]string, rows []pickerRow) error {
 	// Provider env (non-secret by Validate) rides the child's process env: Claude Code reads it before settings load.
 	for k, v := range providerEnv(ctx, env) {
 		if _, set := plan.Set[k]; !set { // the harness-resolved key wins
@@ -452,13 +455,141 @@ func applyOverlay(ctx context.Context, plan *agent.Plan, passthrough bool, args 
 		return nil
 	}
 	plan.Set["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = "300000"
-	overlay, err := json.MarshalIndent(map[string]string{"apiKeyHelper": helper}, "", "  ")
+	doc := map[string]any{"apiKeyHelper": helper}
+	if len(rows) > 0 { // own file: a headless launch rewriting the shared overlay would drop a live session's rows
+		doc["modelPicker"] = modelPicker{Options: rows}
+		settings = strings.TrimSuffix(settings, ".json") + "-picker.json"
+	}
+	overlay, err := json.MarshalIndent(doc, "", "  ")
 	if err != nil {
 		return fmt.Errorf("marshal settings overlay: %w", err)
 	}
 	plan.Files = []agent.LaunchFile{{Path: settings, Data: overlay}}
 	plan.Argv = []string{"--settings", settings}
 	return nil
+}
+
+// modelPicker is Claude Code's modelPicker setting; rows append to the built-in /model lineup.
+type modelPicker struct {
+	Options []pickerRow `json:"options"`
+}
+
+// pickerRow sends Model verbatim; BehavesAs is the known id Claude Code treats a prefixed id as.
+type pickerRow struct {
+	Model       string `json:"model"`
+	Label       string `json:"label"`
+	Description string `json:"description"`
+	BehavesAs   string `json:"behavesAs"`
+	route       string // "<Provider> · <profile>", completed with the proxy address once routing is known
+}
+
+// proxyAddr is the router host:port a proxied session talks to, or "" when direct.
+func proxyAddr(plan *agent.Plan, proxied bool) string {
+	if !proxied {
+		return ""
+	}
+	u, err := url.Parse(plan.Set[proc.EnvAnthropicBaseURL])
+	if err != nil {
+		return ""
+	}
+	return u.Host
+}
+
+func routeSuffix(addr string) string {
+	if addr == "" {
+		return " · direct"
+	}
+	return " · proxy " + addr
+}
+
+func routeOf(p *providers.Provider) string {
+	name := cmp.Or(p.Provider, p.Preset, "anthropic")
+	return strings.ToUpper(name[:1]) + name[1:] + " · " + p.Name
+}
+
+func clip80(s string) string {
+	if r := []rune(s); len(r) > 80 {
+		return string(r[:80])
+	}
+	return s
+}
+
+// setAliasDescriptions names provider, profile and route on each alias row; owner env and vault values win.
+func setAliasDescriptions(ctx context.Context, plan *agent.Plan, sel providers.Selection, addr string) {
+	custom := providers.CustomEnv()
+	for _, alias := range models.AliasNames {
+		prefix := "ANTHROPIC_DEFAULT_" + strings.ToUpper(alias)
+		if plan.Set[prefix+"_MODEL"] == "" {
+			continue
+		}
+		_, owned := custom[prefix+"_MODEL_DESCRIPTION"]
+		if owned || proc.Value(ctx, prefix+"_MODEL_DESCRIPTION") != "" {
+			continue
+		}
+		p := sel.Provider
+		if t, ok := sel.Aliases[alias]; ok && t.Provider != nil {
+			p = t.Provider
+		}
+		plan.Set[prefix+"_MODEL_DESCRIPTION"] = clip80(routeOf(p) + routeSuffix(addr))
+	}
+}
+
+// pickerPeers are a Databricks session's extra /model profiles; a login session gets none, to keep Remote Control.
+func pickerPeers(reg *providers.Registry, p *providers.Provider) []*providers.Provider {
+	if p.Preset != providers.PresetDatabricks {
+		return nil
+	}
+	var out []*providers.Provider
+	if a := reg.ProfileBy("anthropic", providers.AuthCLI); a != nil {
+		out = append(out, a)
+	}
+	for _, n := range reg.ProfilesOf("databricks") {
+		if d := reg.Providers[n]; d.Name != p.Name && d.Preset == providers.PresetDatabricks && providers.CredentialPresent(d) {
+			out = append(out, d)
+		}
+	}
+	return out
+}
+
+// modelPickerRows are the /model rows for the peer profiles and their names for the token scope; none headless.
+func modelPickerRows(reg *providers.Registry, p *providers.Provider, args []string) ([]pickerRow, []string) {
+	if agent.IsHeadless(args) {
+		return nil, nil
+	}
+	var rows []pickerRow
+	var names []string
+	for _, peer := range pickerPeers(reg, p) {
+		if r := peerRows(reg, peer); len(r) > 0 {
+			rows, names = append(rows, r...), append(names, peer.Name)
+		}
+	}
+	return rows, names
+}
+
+func peerRows(reg *providers.Registry, peer *providers.Provider) []pickerRow {
+	where, databricks := "Anthropic", peer.Preset == providers.PresetDatabricks
+	if databricks {
+		where = "Databricks " + peer.Name
+	}
+	var rows []pickerRow
+	for _, alias := range models.AliasNames {
+		if peer.Models[alias] == "" || databricks && alias == models.Fable { // Databricks serves no Fable
+			continue
+		}
+		t := providers.ParseTarget(reg, peer.Models[alias], peer)
+		base, _ := models.Canonical(t.Model)
+		fam, major, minor, ok := models.ParseClaudeID(base)
+		if !ok {
+			continue
+		}
+		label := fmt.Sprintf("%s %d", strings.ToUpper(fam[:1])+fam[1:], major)
+		if minor > 0 {
+			label += "." + strconv.Itoa(minor)
+		}
+		rows = append(rows, pickerRow{Model: peer.Name + ":" + t.ClientModel(), Label: label + " (" + where + ")",
+			route: routeOf(peer), BehavesAs: base})
+	}
+	return rows
 }
 
 // providerEnv is the provider's non-secret Env minus keys the process env or the vault custom env already set.
