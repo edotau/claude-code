@@ -245,11 +245,11 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 		return false
 	}
 	// A git error (e.g. a `.git` git itself rejects) fails open: only clean git answers block a new file.
-	if tracked, err := isTracked(ctx, root, rel); tracked || err != nil || ctx.Err() != nil {
-		return false
-	}
-	_, err := isIgnored(ctx, root, rel)
-	return err == nil && ctx.Err() == nil
+	ignored := make(chan error, 1)
+	go func() { _, err := isIgnored(ctx, root, rel); ignored <- err }()
+	tracked, err := isTracked(ctx, root, rel)
+	ignoreErr := <-ignored
+	return !tracked && err == nil && ignoreErr == nil && ctx.Err() == nil
 }
 
 // blockPlacement prints where a stranded markdown write belongs: the one exact path when its name picks a kind.
