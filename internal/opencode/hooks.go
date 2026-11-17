@@ -2,8 +2,10 @@ package opencode
 
 import (
 	"bufio"
+	"bytes"
 	"cmp"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -121,17 +123,68 @@ func (h *hookHost) dropPlugin() {
 	h.bound = slices.DeleteFunc(h.bound, func(b hooks.Bound) bool { return plugin[b.Spec.Name] })
 }
 
-// openHookLog appends to state/harness/opencode/hooks.log (0600); io.Discard when it cannot be opened.
+// hookLogCap bounds hooks.log: an append that finds it larger rewrites it down to its newest half.
+const hookLogCap = 2 << 20
+
+// hookLogLockWait keeps a hung lock holder from stalling every tool call on a log line.
+const hookLogLockWait = 250 * time.Millisecond
+
+// openHookLog appends to state/harness/opencode/hooks.log (0600); io.Discard when its directory cannot be made.
 func openHookLog() io.Writer {
 	dir := filepath.Join(paths.StateDir(), "opencode")
 	if os.MkdirAll(dir, 0o700) != nil {
 		return io.Discard
 	}
-	f, err := os.OpenFile(filepath.Join(dir, "hooks.log"), os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return io.Discard
+	return hookLog(filepath.Join(dir, "hooks.log"))
+}
+
+// hookLog appends each write verbatim under the file lock, so a trim (temp file + rename) never races an append.
+type hookLog string
+
+func (l hookLog) Write(p []byte) (int, error) {
+	path := string(l)
+	appendTo := func() error {
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
+		if err != nil {
+			return err
+		}
+		_, err = f.Write(p)
+		return errors.Join(err, f.Close())
 	}
-	return f
+	err := paths.WithFileLockWithin(path, hookLogLockWait, func() error {
+		_ = trimLog(path, hookLogCap) // a failed trim leaves the file growing; appending still beats dropping the line
+		return appendTo()
+	})
+	if errors.Is(err, paths.ErrLockTimeout) {
+		err = appendTo()
+	}
+	if err != nil {
+		return 0, err
+	}
+	return len(p), nil
+}
+
+// trimLog rewrites path to its newest whole lines within capBytes/2 when it exceeds capBytes.
+func trimLog(path string, capBytes int64) error {
+	fi, err := os.Stat(path)
+	if err != nil || fi.Size() <= capBytes {
+		return err
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	keep := make([]byte, capBytes/2)
+	_, err = f.ReadAt(keep, fi.Size()-int64(len(keep)))
+	if err = errors.Join(err, f.Close()); err != nil {
+		return err
+	}
+	if i := bytes.IndexByte(keep, '\n'); i >= 0 {
+		keep = keep[i+1:]
+	} else {
+		keep = nil // one line longer than the window: a mid-line start is worse than restarting
+	}
+	return paths.AtomicWrite(path, keep, 0o600)
 }
 
 // close releases the log file.
