@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"time"
@@ -50,6 +51,7 @@ func claimLimitedRecord(ctx context.Context, name string, rec Record) (Record, e
 		return claimRecord(rec), nil
 	}
 	ran := false
+	_ = os.MkdirAll(paths.DispatchDir(), 0o700) // the lock would create it 0755; a failure surfaces as the fail-open below
 	err := paths.WithFileLockWithin(filepath.Join(paths.DispatchDir(), ".children"),
 		dispatchChildrenLockWait, func() error {
 			ran = true

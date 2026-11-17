@@ -77,6 +77,11 @@ func RouteChainFor(ctx context.Context, want, model, aliasHint, mode string, nat
 	return routeChain(ctx, want, cmp.Or(alias, aliasHint), row, exact, strings.TrimSpace(model), mode, strings.TrimSpace(model) != "", native, o)
 }
 
+// ownConnectorQuery is an own-plan model with no explicit backend: an explicit one routes (and is refused) as before.
+func ownConnectorQuery(q ModelQuery) bool {
+	return q.Profile == "" && q.Provider == "" && ownConnectorModel(q.Agent, q.Model)
+}
+
 func ownConnectorModel(agent, model string) bool {
 	id, _, ok := strings.Cut(model, "/")
 	return agentid.Routing(agent).SubLadder && ok && hub != nil && hub.OwnPlan(id)

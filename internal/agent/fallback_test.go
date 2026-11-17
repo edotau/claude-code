@@ -1104,17 +1104,24 @@ func TestQuotaOverflowHop(t *testing.T) {
 func TestQuotaOverflowKeepsBatchAlive(t *testing.T) {
 	fallbackConfigDir(t)
 	quota := &retry.Error{Kind: retry.KindQuota, Agent: "claude", Err: errors.New("weekly limit reached")}
-	for _, hop := range []bool{true, false} {
-		t.Run(strconv.FormatBool(hop), func(t *testing.T) {
+	for _, tc := range []struct {
+		name, provider string
+		hop            bool
+		trips          int
+	}{
+		{name: "hop", hop: true}, {name: "no hop", trips: 1},
+		{name: "explicit backend never reaches the hop", provider: "dev", hop: true, trips: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
 			ch := Chain{Want: "claude", Dispatches: []Dispatch{{Agent: &fakeRunner{name: "claude", errs: []error{quota}, emptyAnswer: true}, keepCaller: true}}}
-			if hop {
+			if tc.hop {
 				ch.Dispatches = append(ch.Dispatches, Dispatch{Agent: &fakeRunner{name: "gemini", errs: []error{quota}, emptyAnswer: true}, quotaOverflow: true})
 			}
 			tripped := 0
 			ctx := retry.WithFailFast(t.Context(), func() { tripped++ })
-			tripFailFast(ctx, ch, 0, RunOptions{Prompt: "p"}, wire.Result{}, quota)
-			if want := map[bool]int{true: 0, false: 1}[hop]; tripped != want {
-				t.Errorf("hop=%v: trips = %d, want %d", hop, tripped, want)
+			tripFailFast(ctx, ch, 0, RunOptions{Prompt: "p", Provider: tc.provider}, wire.Result{}, quota)
+			if tripped != tc.trips {
+				t.Errorf("trips = %d, want %d", tripped, tc.trips)
 			}
 		})
 	}

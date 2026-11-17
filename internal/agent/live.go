@@ -555,7 +555,6 @@ func (s *liveSession) connPanic(c net.Conn, r any, inTurn bool) {
 	}
 }
 
-// runTurn writes one user message to the agent and relays its events up to the turn's result.
 // addTurnUsage sums per-turn tokens; cost is the vendor's session-cumulative total, so it only rises.
 func addTurnUsage(sum, turn wire.Usage) wire.Usage {
 	sum.InputTokens += turn.InputTokens
@@ -566,6 +565,7 @@ func addTurnUsage(sum, turn wire.Usage) wire.Usage {
 	return sum
 }
 
+// runTurn writes one user message to the agent and relays its events up to the turn's result.
 func (s *liveSession) runTurn(ctx context.Context, prompt string, sink wire.Sink) {
 	begin := time.Now()
 	sink = &wire.RunSink{Sink: sink, Agent: s.name}

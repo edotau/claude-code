@@ -229,3 +229,14 @@ func TestDispatchLimitOverlayPrecedence(t *testing.T) {
 		}
 	}
 }
+
+func TestClaimLimitedRecordCreatesPrivateDispatchDir(t *testing.T) {
+	setConfigDir(t)
+	ctx := proc.WithValues(t.Context(), proc.Values{maxDispatchChildrenEnv: "3", maxTreeTokensEnv: "0"})
+	if _, err := claimLimitedRecord(ctx, "codex", Record{ID: "private-1", Parent: limitParent, Status: "running", Time: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(paths.DispatchDir()); err != nil || fi.Mode().Perm() != 0o700 {
+		t.Errorf("dispatch dir = %v, %v; want 0700", fi, err)
+	}
+}
