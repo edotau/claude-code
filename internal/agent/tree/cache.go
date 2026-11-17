@@ -93,7 +93,14 @@ func saveScanCache(c *scanCache) {
 	}
 	if c.dirty {
 		_ = paths.WriteJSON(scanCachePath(), c)
+		c.dirty = false
 	}
+}
+
+// next readies a cache kept across watch ticks: the dispatch-dir listing and the used set are per build.
+func (c *scanCache) next() {
+	clear(c.used)
+	c.recs = agent.RecordIndex{}
 }
 
 // totals sums the entry's responses into Tokens.

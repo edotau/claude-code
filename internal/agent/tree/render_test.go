@@ -2,7 +2,9 @@ package tree
 
 import (
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // fixtureTree is the testdata tree plus a long-named session and nested subagents, so column widths differ.
@@ -199,5 +202,116 @@ func TestRenderNestsDispatchesWithSubtreeTokens(t *testing.T) {
 		if n := utf8.RuneCountInString(line); n > 80 {
 			t.Errorf("row is %d columns, want <= 80: %q", n, line)
 		}
+	}
+}
+
+// A watch frame homes the cursor, clears each row's tail and the screen below, and never wipes the whole screen.
+func TestWatchFramesRedrawInPlace(t *testing.T) {
+	tree, now := fixtureTree(t)
+	shrunk := &Tree{Sessions: tree.Sessions[:1]}
+	var out strings.Builder
+	writes := 0
+	w := renderTestWriter(func(p []byte) (int, error) { writes++; return out.Write(p) })
+	f := &frame{width: 80}
+	var frames []string
+	for _, tr := range []*Tree{tree, shrunk} {
+		out.Reset()
+		if err := f.draw(w, tr, now); err != nil {
+			t.Fatal(err)
+		}
+		frames = append(frames, out.String())
+	}
+	if writes != 2 {
+		t.Errorf("%d writes for 2 frames, want one each", writes)
+	}
+	for i, fr := range frames {
+		if strings.Contains(fr, "\x1b[2J") || !strings.HasPrefix(fr, "\x1b[H") || !strings.HasSuffix(fr, "\x1b[J") {
+			t.Errorf("frame %d must home the cursor, end with clear-to-end-of-screen and not clear it all: %q", i, fr)
+		}
+		if strings.Count(fr, "\n") != strings.Count(fr, "\x1b[K\n") {
+			t.Errorf("frame %d: every row must clear to its end before the newline", i)
+		}
+	}
+	var plain strings.Builder
+	renderTree(&plain, shrunk, now, 80)
+	body := strings.ReplaceAll(strings.TrimSuffix(strings.TrimPrefix(frames[1], "\x1b[H"), "\x1b[J"), "\x1b[K", "")
+	if body != plain.String() {
+		t.Errorf("shrunk frame body differs from the plain render:\n%q\n%q", body, plain.String())
+	}
+	if strings.Count(frames[1], "\n") >= strings.Count(frames[0], "\n") {
+		t.Fatal("fixture did not shrink between frames")
+	}
+}
+
+// watchFixture is a claudeDir with n running sessions of 4 subagents each, so a tick renders about 5n rows.
+func watchFixture(tb testing.TB, n int) (string, time.Time) {
+	tb.Helper()
+	dir, now := tb.TempDir(), time.Date(2026, 10, 18, 3, 10, 0, 0, time.UTC)
+	src := filepath.Join("testdata", "projects", demoProj)
+	head, err := os.ReadFile(filepath.Join(src, runningSID+".jsonl"))
+	if err != nil {
+		tb.Fatal(err)
+	}
+	sub := filepath.Join(src, finishedSID, "subagents", "agent-fakeagentid001")
+	agentRaw, err := os.ReadFile(sub + ".jsonl")
+	if err != nil {
+		tb.Fatal(err)
+	}
+	metaRaw, err := os.ReadFile(sub + ".meta.json")
+	if err != nil {
+		tb.Fatal(err)
+	}
+	for i := range n {
+		session := filepath.Join(dir, "projects", demoProj, fmt.Sprintf("session-%04d", i))
+		if err := os.MkdirAll(filepath.Join(session, "subagents"), 0o700); err != nil {
+			tb.Fatal(err)
+		}
+		files := map[string][]byte{session + ".jsonl": head}
+		for j := range 4 {
+			stem := filepath.Join(session, "subagents", fmt.Sprintf("agent-%04d", j))
+			files[stem+".jsonl"], files[stem+".meta.json"] = agentRaw, metaRaw
+		}
+		for p, raw := range files {
+			if err := os.WriteFile(p, raw, 0o600); err != nil {
+				tb.Fatal(err)
+			}
+			if err := os.Chtimes(p, now, now); err != nil {
+				tb.Fatal(err)
+			}
+		}
+	}
+	return dir, now
+}
+
+// BenchmarkWatchTick is one redraw: "wipe" reloads the scan cache and clears the screen first, "inplace" is the live loop.
+func BenchmarkWatchTick(b *testing.B) {
+	dir, now := watchFixture(b, 10)
+	opts := Options{Days: 99999, Now: func() time.Time { return now }}
+	for _, mode := range []string{"wipe", "inplace"} {
+		b.Run(mode, func(b *testing.B) {
+			o, f, bytesOut, writes := opts, &frame{width: 80}, 0, 0
+			if mode == "inplace" {
+				o.scans = loadScanCache()
+			}
+			w := renderTestWriter(func(p []byte) (int, error) { bytesOut, writes = bytesOut+len(p), writes+1; return len(p), nil })
+			b.ReportAllocs()
+			for b.Loop() {
+				tr, err := listing(dir, o, true)
+				if err != nil {
+					b.Fatal(err)
+				}
+				if mode == "wipe" {
+					fmt.Fprint(w, "\x1b[H\x1b[2J")
+					renderTree(&textutil.ErrWriter{W: w}, tr, now, 80)
+				} else {
+					err = f.draw(w, tr, now)
+				}
+				if err != nil {
+					b.Fatal(err)
+				}
+			}
+			b.ReportMetric(float64(bytesOut)/float64(b.N), "bytes/frame")
+			b.ReportMetric(float64(writes)/float64(b.N), "writes/frame")
+		})
 	}
 }
