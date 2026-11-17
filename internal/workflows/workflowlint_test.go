@@ -569,6 +569,9 @@ func TestOpusOKExemptsEffortOnly(t *testing.T) {
 
 // Anchored on this file's path so a cwd change can never make the guard skip instead of gate.
 func TestShippedWorkflowsAreClean(t *testing.T) {
+	if testing.Short() {
+		t.Skip("pre-ship tier: runs node linter")
+	}
 	useNode(t)
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {

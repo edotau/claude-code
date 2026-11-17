@@ -482,6 +482,9 @@ func assertArmOwnLogin(t *testing.T, label string, dump []string) {
 
 // In databricks:dev each dev hop holds only dev's route and session token; after a dev 402 first-party hops hold none.
 func TestArmChildEnvPerAgent(t *testing.T) {
+	if testing.Short() {
+		t.Skip("pre-ship tier: fake vendor spawns")
+	}
 	for name := range armDevHop {
 		for _, goos := range []string{"linux", "darwin"} { // copilot's hop differs per OS; the rest ignore it
 			if name != "copilot" && goos == "darwin" {

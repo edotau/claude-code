@@ -956,6 +956,9 @@ func awaitTailResult(t *testing.T, results <-chan struct{}, done <-chan tailOutc
 
 // Runs at agent's production tail cadence (250ms poll): the swap seam is unexported in package agent.
 func TestTailEventsFollowsTwoLiveTurns(t *testing.T) {
+	if testing.Short() {
+		t.Skip("pre-ship tier: real child, poll waits")
+	}
 	liveEnv(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	id, wait := startHolder(t, ctx, time.Minute)

@@ -412,6 +412,9 @@ func goldenNames(t *testing.T) map[string]bool {
 }
 
 func TestWriters(t *testing.T) {
+	if testing.Short() {
+		t.Skip("pre-ship tier: whole-repo AST walk")
+	}
 	found := scanWriters(t)
 	names := goldenNames(t)
 	for _, issue := range registeredWriterIssues(found, writers, names) {
