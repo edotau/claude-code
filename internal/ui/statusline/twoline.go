@@ -6,7 +6,6 @@ import (
 	"math"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
@@ -119,7 +118,7 @@ const twoShade = 0.8
 func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB, mode string) string {
 	total := 0
 	for _, s := range row {
-		total += utf8.RuneCountInString(s.text)
+		total += textutil.DisplayWidth(s.text)
 	}
 	var b strings.Builder
 	i := 0
@@ -127,7 +126,7 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 		if bg := th[s.key]["bg"]; bg != "" {
 			b.WriteString(ansi.BgSeq(mode, ansi.Hex(bg)))
 		} else if len(th) == 0 && !s.bare { // ramp-only palette: back each cell with a dark shade of its ramp color
-			mid := float64(i) + float64(utf8.RuneCountInString(s.text)-1)/2
+			mid := float64(i) + float64(textutil.DisplayWidth(s.text)-1)/2
 			b.WriteString(ansi.BgSeq(mode, ansi.Mix(ansi.GradAt(stops, mid/float64(max(total-1, 1))), ansi.RGB{}, twoShade)))
 		}
 		if s.dim || s.key == "sep" {
@@ -144,7 +143,9 @@ func paintTwoRow(row []twoSeg, th map[string]map[string]string, stops []ansi.RGB
 			}
 			b.WriteString(ansi.FgSeq(mode, rgb, s.bold))
 			b.WriteString(string(r))
-			i++
+			if i++; r >= 0x80 { // the ramp spans cells, so a wide rune advances by its width
+				i += textutil.DisplayWidth(string(r)) - 1
+			}
 		}
 		b.WriteString(ansi.Reset)
 	}

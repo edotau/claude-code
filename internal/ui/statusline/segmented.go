@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
@@ -221,8 +221,8 @@ func layoutDashboard(built []builtCol, gutter, W int) (hdr, val []cell) {
 		return row
 	}
 	for idx, bc := range left {
-		hw := utf8.RuneCountInString(bc.hdr)
-		colW := max(hw, len(bc.cells))
+		hw := textutil.DisplayWidth(bc.hdr)
+		colW := max(hw, len(bc.cells)) // gotcha: cells count runes, hw counts cells; they differ only for wide text
 		hdr = pad(append(hdr, runeCells(bc.hdr, "dim")...), colW-hw, "pad")
 		val = pad(append(val, bc.cells...), colW-len(bc.cells), "g")
 		if idx < len(left)-1 || ctxCol != nil {
@@ -230,7 +230,7 @@ func layoutDashboard(built []builtCol, gutter, W int) (hdr, val []cell) {
 		}
 	}
 	if ctxCol != nil {
-		hw := utf8.RuneCountInString(ctxCol.hdr)
+		hw := textutil.DisplayWidth(ctxCol.hdr)
 		colW := max(hw, len(ctxCol.cells))
 		filler := max(W-len(val)-colW, 1)
 		hdr, val = pad(hdr, filler, "pad"), pad(val, filler, "g")
@@ -317,7 +317,7 @@ func renderDashboard(v values, cfg config, pal theme.Palettes, stops []ansi.RGB,
 	head := promptHead(v, cfg, pal, stops, mode)
 	indentW := 0
 	if head != "" {
-		indentW = utf8.RuneCountInString(v.userHost + ":" + v.path + sepPath)
+		indentW = textutil.DisplayWidth(v.userHost + ":" + v.path + sepPath)
 	}
 	built := buildDashboardCols(dashboardColumns(dash), v, cfg, head != "")
 	if len(built) == 0 {

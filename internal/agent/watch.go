@@ -384,10 +384,10 @@ func metaFinished(transcript string) bool {
 func WatchLines(s StaleJob, width int) []string {
 	tail := " · " + s.Agent + " · " + s.Model + " · age " + ShortDur(s.Age) + " · silent " + ShortDur(s.Silence) +
 		" · " + s.Reason
-	head := textutil.Truncate(s.Task, max(width-len([]rune(tail)), 12)) + tail
-	lines := []string{textutil.Truncate(head, width)}
+	head := textutil.TruncateCells(s.Task, max(width-textutil.DisplayWidth(tail), 12), "…") + tail
+	lines := []string{textutil.TruncateCells(head, width, "…")}
 	if s.LastLine != "" {
-		lines = append(lines, textutil.Truncate("  last: "+s.LastLine, width))
+		lines = append(lines, textutil.TruncateCells("  last: "+s.LastLine, width, "…"))
 	}
 	return append(lines, wrapCommand(s.Next, width)...)
 }

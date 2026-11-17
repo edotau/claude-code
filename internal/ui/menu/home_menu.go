@@ -201,7 +201,7 @@ var agentMaker = map[string]string{
 // modeLabel renders the mode column from agentPlanFormat with the matching agentPlans entry.
 func modeLabel(d *dialog, name string, st agentState) string {
 	if account := agentAccount(d, name, st); account != "" {
-		return textutil.Truncate(account, labelMax)
+		return textutil.TruncateCells(account, labelMax, "…")
 	}
 	if d.reg == nil || (len(d.reg.AgentPlans) == 0 && d.reg.AgentPlanFormat == "") {
 		return st.label()
@@ -212,12 +212,12 @@ func modeLabel(d *dialog, name string, st agentState) string {
 	}
 	format := d.reg.AgentPlanFormat
 	if format == "" {
-		return textutil.Truncate(withTier(st.mode, cmp.Or(plan.Tier, st.tier.Name)), labelMax)
+		return textutil.TruncateCells(withTier(st.mode, cmp.Or(plan.Tier, st.tier.Name)), labelMax, "…")
 	}
 	out := strings.NewReplacer("{provider}", cmp.Or(plan.Provider, agentMaker[name]), "{mode}", st.mode,
 		"{tier}", cmp.Or(plan.Tier, st.tier.Name), "{id}", id).Replace(format)
 	out = strings.Join(strings.Fields(out), " ")
-	return textutil.Truncate(out, labelMax)
+	return textutil.TruncateCells(out, labelMax, "…")
 }
 
 // planFor is the raw plan id behind a row and the agentPlans entry matching it (none for a signed-out row).

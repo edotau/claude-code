@@ -87,7 +87,7 @@ func modelDesc(provider, model string, listed bool) string {
 		return provider
 	}
 	canonical, _, _ := models.Resolve(model)
-	return provider + " " + checked(listed, textutil.Truncate(cmp.Or(models.AliasOf(canonical), model), 20))
+	return provider + " " + checked(listed, textutil.TruncateCells(cmp.Or(models.AliasOf(canonical), model), 20, "…"))
 }
 
 // modelListed reports whether model is in the agent's static catalog, with no network.
@@ -535,7 +535,7 @@ func modelRowDetail(m providers.ModelInfo, width int) string {
 			parts = append(parts, p)
 		}
 	}
-	return textutil.Truncate(strings.Join(parts, " · "), width)
+	return textutil.TruncateCells(strings.Join(parts, " · "), width, "…")
 }
 
 // pickModelForAlias lists the profile's served models.

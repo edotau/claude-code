@@ -13,9 +13,9 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
@@ -88,7 +88,7 @@ func (p Page) Fprint(w io.Writer) {
 	})
 	lw := 0
 	for _, r := range append(slices.Clone(cmds), flags...) {
-		lw = max(lw, utf8.RuneCountInString(r[0])+4)
+		lw = max(lw, textutil.DisplayWidth(r[0])+4)
 	}
 	lw = min(lw, 30)
 	if len(cmds) > 0 {
@@ -108,7 +108,7 @@ func rowsText(rows [][2]string, lw, term int) string {
 	var lines []string
 	for _, r := range rows {
 		label := "  " + r[0]
-		w := max(lw, utf8.RuneCountInString(label)+2)
+		w := max(lw, textutil.DisplayWidth(label)+2)
 		lines = append(lines, Row(label, r[1], w, term)...)
 	}
 	return strings.Join(lines, "\n")
@@ -140,14 +140,10 @@ func Row(label, desc string, labelWidth, term int) []string {
 
 // clipLine ends a line wider than n columns in "...".
 func clipLine(l string, n int) string {
-	r := []rune(l)
-	if len(r) <= n {
-		return l
-	}
 	if n <= 3 {
-		return string(r[:n])
+		return textutil.TruncateCells(l, n, "")
 	}
-	return string(r[:n-3]) + "..."
+	return textutil.TruncateCells(l, n, "...")
 }
 
 // clipLines applies clipLine to every line of text; term 0 leaves text alone.
@@ -307,14 +303,13 @@ func isHead(l string) bool {
 
 // wrapRow pads label to labelWidth and wraps desc at word boundaries; a word longer than the space overflows its line.
 func wrapRow(label, desc string, labelWidth, width int) []string {
-	pad := max(labelWidth-utf8.RuneCountInString(label), 0)
-	first := label + strings.Repeat(" ", pad)
-	col := utf8.RuneCountInString(first)
+	first := textutil.PadCells(label, labelWidth, false)
+	col := textutil.DisplayWidth(first)
 	var lines []string
 	cur := first
 	empty := true
 	for w := range strings.FieldsSeq(desc) {
-		if !empty && utf8.RuneCountInString(cur)+1+utf8.RuneCountInString(w) > width {
+		if !empty && textutil.DisplayWidth(cur)+1+textutil.DisplayWidth(w) > width {
 			lines = append(lines, cur)
 			cur, empty = strings.Repeat(" ", col), true
 		}

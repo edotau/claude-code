@@ -49,7 +49,8 @@ func agentPinRows(d *dialog, agent string) []billingRow {
 
 // recordModelRow is the Model row for an agent with no catalog picker: it types the record's model, empty clears it.
 func recordModelRow(d *dialog, agent string) billingRow {
-	return billingRow{label: "Model", desc: textutil.Truncate(cmp.Or(vault.GetAgentRecord(agent).Model, "default"), 40),
+	model := cmp.Or(vault.GetAgentRecord(agent).Model, "default")
+	return billingRow{label: "Model", desc: textutil.TruncateCells(model, 40, "…"),
 		run: func() bool {
 			val := strings.TrimSpace(d.shell().Line("Model for " + agent + " (empty clears): "))
 			changed, err := writeAgentField(d, agent, "MODEL", val)

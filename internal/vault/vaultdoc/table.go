@@ -10,12 +10,12 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/table"
@@ -171,7 +171,7 @@ func vaultSection(heading string, rows [][2]string, width int) string {
 func clipValues(rows [][2]string, width int) [][2]string {
 	keyW := 0
 	for _, r := range rows {
-		keyW = max(keyW, utf8.RuneCountInString(r[0]))
+		keyW = max(keyW, textutil.DisplayWidth(r[0]))
 	}
 	room := width - 2 - keyW - 2 // indent and the minimum column gap
 	if width <= 0 || room < 1 {

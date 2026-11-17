@@ -51,23 +51,23 @@ func checked(valid bool, s string) string {
 	return "[" + open + s + ansi.SpanEnd + "]"
 }
 
-// padTo pads s to n columns of runes; an s already that wide gets a two-space gap instead.
+// padTo pads s to n cells; an s already that wide gets a two-space gap instead.
 func padTo(s string, n int) string {
-	if textutil.RuneLen(s) >= n {
+	if textutil.DisplayWidth(s) >= n {
 		return s + "  "
 	}
-	return s + strings.Repeat(" ", n-textutil.RuneLen(s))
+	return textutil.PadCells(s, n, false)
 }
 
 // withChecks lays out name rows whose detail is two aligned columns: the mode, then the check ("verified" is green).
 func withChecks(names []string, cols [][2]string) [][2]string {
 	width := 0
 	for _, c := range cols {
-		width = max(width, textutil.RuneLen(c[0]))
+		width = max(width, textutil.DisplayWidth(c[0]))
 	}
 	rows := make([][2]string, len(names))
 	for i, c := range cols {
-		pad := strings.Repeat(" ", width-textutil.RuneLen(c[0]))
+		pad := strings.Repeat(" ", width-textutil.DisplayWidth(c[0]))
 		rows[i] = [2]string{names[i], strings.TrimRight(c[0]+pad+"  "+c[1], " ")}
 	}
 	return rows
