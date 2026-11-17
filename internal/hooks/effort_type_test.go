@@ -25,15 +25,14 @@ func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
 		}
 		return r.Reason
 	}
-	for _, st := range []string{"claude", "codex", "Plan", "Explore", "general-purpose", "web-fetch", ""} {
+	for _, st := range []string{"claude", "codex", "Plan", "Explore", "general-purpose", "web-fetch", "claude-code-guide", "statusline-setup", ""} {
 		if r := blocked(st, "do it"); r != "" {
 			t.Errorf("%q blocked: %s", st, r)
 		}
 	}
-	const roster = "(Explore, Plan, claude, codex, general-purpose, web-fetch)"
+	const roster = "(Explore, Plan, claude, claude-code-guide, codex, general-purpose, statusline-setup, web-fetch)"
 	for st, c := range map[string]struct{ brief, use string }{
 		"copilot": {"do it", `use "general-purpose"`}, "not-a-type": {"read a page", `use "general-purpose"`},
-		"claude-code-guide": {"q", `use "general-purpose"`}, "statusline-setup": {"q", `use "general-purpose"`},
 		"claude-context-optimizer:context-analyzer": {"q", `use "general-purpose"`},
 		"coworker:copilot":                          {"do it", `use "copilot"`},
 		"coworker:opencode":                         {"do it", `use "opencode"`},
@@ -61,7 +60,7 @@ func TestDispatchTypeGateFallsBackToRoster(t *testing.T) {
 	orig := listAgents
 	t.Cleanup(func() { listAgents = orig })
 	listAgents = func(string) ([]project.Source, error) { return nil, os.ErrPermission }
-	if got, want := dispatchTypes(), []string{"Explore", "claude", "codex", "copilot", "gemini", "general-purpose", "opencode", "web-fetch"}; fmt.Sprint(got) != fmt.Sprint(want) {
+	if got, want := dispatchTypes(), []string{"Explore", "claude", "claude-code-guide", "codex", "copilot", "gemini", "general-purpose", "opencode", "statusline-setup", "web-fetch"}; fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("fallback types = %v, want %v", got, want)
 	}
 	useAgentsDir(t) // no agents/ at all

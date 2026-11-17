@@ -16,7 +16,7 @@ import (
 )
 
 // builtinTypes are the harness built-in Claude-run leaf types with no agents/<name>.md that a dispatch may use.
-var builtinTypes = []string{"Explore", "general-purpose", "web-fetch"}
+var builtinTypes = []string{"Explore", "claude-code-guide", "general-purpose", "statusline-setup", "web-fetch"}
 
 // listAgents loads the agent definitions; a seam so tests count or fail the read.
 var listAgents = project.DiscoverAgents
