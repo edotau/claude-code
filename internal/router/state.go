@@ -237,7 +237,7 @@ const (
 
 // ProviderAccount is the account key of a registry profile: <provider>·<profile>, databricks when unregistered.
 func ProviderAccount(profile string) string {
-	if reg, err := providers.Load(); err == nil && reg.Providers[profile] != nil {
+	if reg, err := providers.LoadShared(); err == nil && reg.Providers[profile] != nil {
 		return AccountOf(reg.Providers[profile])
 	}
 	return "databricks·" + profile
@@ -608,7 +608,7 @@ func SessionAccountContext(ctx context.Context) string {
 		}
 	}
 	if name == "" {
-		if reg, err := providers.Load(); err == nil {
+		if reg, err := providers.LoadShared(); err == nil {
 			name = reg.Default
 		}
 	}
