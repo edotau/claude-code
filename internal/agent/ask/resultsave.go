@@ -13,14 +13,18 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// resultText is the text `agents result` prints: the log, the ask line, then the session and resume command.
+// resultText is the text `agents result` prints: the log, the whole answer, the ask line, then the resume command.
 func resultText(rec agent.Record, log string) string {
 	var b strings.Builder
 	b.WriteString(log)
 	if log != "" && !strings.HasSuffix(log, "\n") {
 		b.WriteByte('\n')
 	}
-	if line := rec.ResultEnvelope(os.Stderr).RanOn; line != "" {
+	env := rec.ResultEnvelope(os.Stderr)
+	if log != "" && env.Answer != "" && !strings.Contains(log, env.Answer) { // the log's event lines cap each answer at 300 runes
+		b.WriteString(env.Answer + "\n")
+	}
+	if line := env.RanOn; line != "" {
 		fmt.Fprintln(&b, "ask:", line)
 	}
 	if rec.SessionID != "" {
