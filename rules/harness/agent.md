@@ -52,6 +52,7 @@ paths:
   | `host` / `remote` | ssh host (not both, unless `host` names this machine) | `--host`, remote run |
   | `account` | copilot GitHub account (its login) | the credit gate's account pick |
   | `identity` | `auto\|user\|sp` (Databricks) | `--as`, the profile's identity |
+  | `codexNetwork` | `true`: codex `--tools` workspace-write sandbox gets network (top-level ask only) | sealed network |
   | `set` / `unset` / `keep` | env name -> value / names / names | env layer |
 
 - `<agent> models` passes through to the vendor CLI; the catalog is `<agent> catalog`.

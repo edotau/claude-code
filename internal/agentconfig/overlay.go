@@ -54,6 +54,7 @@ type Overlay struct {
 	Unset        []string          `json:"unset,omitempty"`
 	Keep         []string          `json:"keep,omitempty"`
 	TokenCommand *[]string         `json:"tokenCommand,omitempty"`
+	CodexNetwork bool              `json:"codexNetwork,omitempty"`
 	Files        json.RawMessage   `json:"files,omitempty"`
 }
 
@@ -264,7 +265,7 @@ func overlayJSONErr(err error) error {
 		if uerr != nil {
 			key = q
 		}
-		keys := slices.Concat([]string{"schema"}, RoutingKeys(), []string{"tokenCommand", "set", "unset", "keep"})
+		keys := slices.Concat([]string{"schema"}, RoutingKeys(), []string{"tokenCommand", "codexNetwork", "set", "unset", "keep"})
 		return fmt.Errorf("unknown key %s (%s)", key, strings.Join(keys, "|"))
 	}
 	return err
@@ -298,12 +299,12 @@ func FlagOverlay(env, keep []string) (Overlay, error) {
 	return o, o.validate(flagSrc)
 }
 
-// Empty reports an overlay whose env layer (set, unset, keep) changes nothing.
-func (o Overlay) Empty() bool { return len(o.Set)+len(o.Unset)+len(o.Keep) == 0 }
+// Empty reports an overlay whose env layer (set, unset, keep) and codexNetwork change nothing.
+func (o Overlay) Empty() bool { return len(o.Set)+len(o.Unset)+len(o.Keep) == 0 && !o.CodexNetwork }
 
 // Routed reports an overlay naming where or how the dispatch runs: any of its routing keys.
 func (o Overlay) Routed() bool {
-	if o.TokenCommand != nil {
+	if o.TokenCommand != nil || o.CodexNetwork {
 		return true
 	}
 	return slices.ContainsFunc(routeKeys, func(k routeKey) bool { return k.get(o) != "" })

@@ -289,7 +289,7 @@ func TestCodexPermissionDenialNamesRealControl(t *testing.T) {
 		{name: "workspace write outside", out: "open /etc/x: read-only file system", sandbox: "workspace-write", tools: true,
 			layer: "os-sandbox", remedy: codexSandboxEnv + "=danger-full-access"},
 		{name: "sealed network", out: "Network access was denied by the Codex sandbox network proxy.", sandbox: "workspace-write", tools: true,
-			layer: "os-sandbox", remedy: codexNetworkEnv + "=1"},
+			layer: "os-sandbox", remedy: "codexNetwork"},
 		{name: "deny rule", out: "command was blocked by policy", p: deny, tools: true, layer: "codex-rules", remedy: "narrow the deciding deny rule"},
 		{name: "foreign rule file", out: "command was blocked by policy", p: allowed, tools: true, layer: "codex-rules", remedy: "rule file"},
 		{name: "gate plan miss", out: "Command blocked by PreToolUse hook: permission-gate", p: plan, tools: true, layer: "hook",

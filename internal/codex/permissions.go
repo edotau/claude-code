@@ -363,7 +363,7 @@ func codexDenial(p agent.Permissions, command, output string, tools bool, sandbo
 		if !tools {
 			return denial("os-sandbox", "read-only sandbox", "relaunch with --tools; the read-only sandbox has no network")
 		}
-		return denial("os-sandbox", "sandbox network", "set "+codexNetworkEnv+"=1 to open sandbox network (all egress)")
+		return denial("os-sandbox", "sandbox network", `relaunch with overlay {"codexNetwork":true} to open sandbox network (all egress)`)
 	case strings.Contains(text, "blocked by policy"):
 		if d := p.Explain(call.Tool, call.Arg); d.Source == "permissions.deny" {
 			d.Layer = "codex-rules"

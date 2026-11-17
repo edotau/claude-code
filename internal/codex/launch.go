@@ -123,6 +123,20 @@ func codexSandbox(ctx context.Context, tools bool) (string, error) {
 	return cmp.Or(v, "workspace-write"), nil
 }
 
+// codexNetwork reports the overlay's codexNetwork under a workspace-write tools run; a nested dispatch may not set it.
+func codexNetwork(ctx context.Context, tools bool, sandbox string) (bool, error) {
+	if !tools || sandbox != "workspace-write" {
+		return false, nil
+	}
+	if o, err := agentconfig.LoadOverlayContext(ctx, "", nil); err != nil || !o.CodexNetwork {
+		return false, nil // a bad overlay is refused where it is loaded; sealed is the strict reading
+	}
+	if proc.Value(ctx, proc.DispatchIDEnv) != "" { // an outer dispatch's sandbox decides; only a top-level ask may open network
+		return false, &agent.UsageError{Msg: "codex: overlay codexNetwork is refused inside a dispatch; set it on the outermost ask"}
+	}
+	return true, nil
+}
+
 // codexCaches are the Go cache variables a workspace-write run needs writable, with their dirs under the temp dir.
 var codexCaches = [][2]string{{"GOCACHE", "go-build"}, {"GOLANGCI_LINT_CACHE", "lint"}, {"GOMODCACHE", "gomod"}}
 
@@ -137,6 +151,13 @@ func codexToolsEnv(ctx context.Context, env []string, tools bool, sandbox string
 	}
 	if sandbox != "workspace-write" {
 		return env, notes, remove, nil
+	}
+	network, err := codexNetwork(ctx, tools, sandbox)
+	if err != nil {
+		return env, notes, remove, err
+	}
+	if network {
+		notes = append(notes, "codex: sandbox network open, all egress (overlay codexNetwork)")
 	}
 	dir, err := os.MkdirTemp("", "codex-go-")
 	if err != nil {
