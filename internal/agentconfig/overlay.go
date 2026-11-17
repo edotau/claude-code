@@ -40,22 +40,26 @@ const overlayMaxBytes = 64 << 10
 
 // Overlay is one dispatch's config document: where it runs plus its env layer; Files is reserved and refused.
 type Overlay struct {
-	Schema       int               `json:"schema,omitempty"`
-	Provider     string            `json:"provider,omitempty"`
-	Profile      string            `json:"profile,omitempty"`
-	Model        string            `json:"model,omitempty"`
-	Effort       string            `json:"effort,omitempty"`
-	Fallback     string            `json:"fallback,omitempty"`
-	Host         string            `json:"host,omitempty"`
-	Remote       string            `json:"remote,omitempty"`
-	Account      string            `json:"account,omitempty"`
-	Identity     string            `json:"identity,omitempty"`
-	Set          map[string]string `json:"set,omitempty"`
-	Unset        []string          `json:"unset,omitempty"`
-	Keep         []string          `json:"keep,omitempty"`
-	TokenCommand *[]string         `json:"tokenCommand,omitempty"`
-	CodexNetwork bool              `json:"codexNetwork,omitempty"`
-	Files        json.RawMessage   `json:"files,omitempty"`
+	Schema        int               `json:"schema,omitempty"`
+	Provider      string            `json:"provider,omitempty"`
+	Profile       string            `json:"profile,omitempty"`
+	Model         string            `json:"model,omitempty"`
+	Effort        string            `json:"effort,omitempty"`
+	Fallback      string            `json:"fallback,omitempty"`
+	Host          string            `json:"host,omitempty"`
+	Remote        string            `json:"remote,omitempty"`
+	Account       string            `json:"account,omitempty"`
+	Identity      string            `json:"identity,omitempty"`
+	Set           map[string]string `json:"set,omitempty"`
+	Unset         []string          `json:"unset,omitempty"`
+	Keep          []string          `json:"keep,omitempty"`
+	TokenCommand  *[]string         `json:"tokenCommand,omitempty"`
+	MaxChildren   *int              `json:"maxChildren,omitempty"`
+	MaxTreeTokens *int              `json:"maxTreeTokens,omitempty"`
+	BudgetUSD     *float64          `json:"budgetUSD,omitempty"`
+	BudgetCredits *int              `json:"budgetCredits,omitempty"`
+	CodexNetwork  bool              `json:"codexNetwork,omitempty"`
+	Files         json.RawMessage   `json:"files,omitempty"`
 }
 
 // routeKey is one routing key: its JSON name, the typed flag it folds under ("" = none), its field and its rule.
@@ -216,6 +220,7 @@ func checkOverlayInfo(info os.FileInfo, err error) error {
 
 // parseOverlay decodes one document strictly and checks it; errors name keys, never values.
 func parseOverlay(raw []byte) (Overlay, error) {
+	raw = forgivingLimits(raw)
 	var o Overlay
 	if err := checkOverlaySchema(raw); err != nil {
 		return Overlay{}, err
@@ -265,7 +270,7 @@ func overlayJSONErr(err error) error {
 		if uerr != nil {
 			key = q
 		}
-		keys := slices.Concat([]string{"schema"}, RoutingKeys(), []string{"tokenCommand", "codexNetwork", "set", "unset", "keep"})
+		keys := slices.Concat([]string{"schema"}, RoutingKeys(), []string{"tokenCommand", "codexNetwork", "maxChildren", "maxTreeTokens", "budgetUSD", "budgetCredits", "set", "unset", "keep"})
 		return fmt.Errorf("unknown key %s (%s)", key, strings.Join(keys, "|"))
 	}
 	return err
@@ -273,8 +278,12 @@ func overlayJSONErr(err error) error {
 
 func keyType(key string) string {
 	switch key {
-	case "schema":
+	case "budgetCredits":
+		return "an integer >= 30"
+	case "schema", "maxChildren", "maxTreeTokens":
 		return "an integer"
+	case "budgetUSD":
+		return "a number > 0"
 	case "codexNetwork":
 		return "true or false"
 	case "set":
@@ -301,12 +310,15 @@ func FlagOverlay(env, keep []string) (Overlay, error) {
 	return o, o.validate(flagSrc)
 }
 
-// Empty reports an overlay whose env layer (set, unset, keep) and codexNetwork change nothing.
-func (o Overlay) Empty() bool { return len(o.Set)+len(o.Unset)+len(o.Keep) == 0 && !o.CodexNetwork }
+// Empty reports an overlay whose environment and execution controls change nothing.
+func (o Overlay) Empty() bool {
+	return len(o.Set)+len(o.Unset)+len(o.Keep) == 0 && !o.CodexNetwork &&
+		o.MaxChildren == nil && o.MaxTreeTokens == nil && o.BudgetUSD == nil && o.BudgetCredits == nil
+}
 
 // Routed reports an overlay naming where or how the dispatch runs: any of its routing keys.
 func (o Overlay) Routed() bool {
-	if o.TokenCommand != nil || o.CodexNetwork {
+	if o.TokenCommand != nil || o.CodexNetwork || o.BudgetUSD != nil || o.BudgetCredits != nil {
 		return true
 	}
 	return slices.ContainsFunc(routeKeys, func(k routeKey) bool { return k.get(o) != "" })
@@ -315,12 +327,16 @@ func (o Overlay) Routed() bool {
 // Confinement is the internal provider[:profile] value ("databricks:qa", "anthropic"); "" when no provider is named.
 func (o Overlay) Confinement() string { return router.JoinCoworker(o.Provider, o.Profile) }
 
-// InlineOverlay is the compact document naming provider (and profile) for an argv relay; "" when provider is "".
-func InlineOverlay(provider, profile string) string {
-	if provider == "" {
+// InlineOverlay carries confinement and inherited dispatch caps without the parent's env or vendor budget.
+func InlineOverlay(provider, profile string, limits ...Overlay) string {
+	o := Overlay{Provider: provider, Profile: profile}
+	if len(limits) > 0 {
+		o.MaxChildren, o.MaxTreeTokens = limits[0].MaxChildren, limits[0].MaxTreeTokens
+	}
+	if provider == "" && o.MaxChildren == nil && o.MaxTreeTokens == nil {
 		return ""
 	}
-	doc, _ := json.Marshal(Overlay{Provider: provider, Profile: profile}) // strings only: Marshal cannot fail
+	doc, _ := json.Marshal(o) // Scalars only: Marshal cannot fail.
 	return string(doc)
 }
 
@@ -382,6 +398,9 @@ var ErrRemoteWithHost = errors.New("remote with a host: drop one (the far machin
 
 // checkRouting applies routeKeys' rules in order, then the cross-key ones; an error names the key, never its value.
 func (o Overlay) checkRouting() error {
+	if err := o.validateBudgetValues(); err != nil {
+		return err
+	}
 	for _, k := range routeKeys {
 		if err := k.check(k.get(o)); err != nil {
 			return err
@@ -511,4 +530,59 @@ func CommandProvider(ctx context.Context, p *providers.Provider) (*providers.Pro
 	out := *p
 	out.TokenCommand = slices.Clone(*o.TokenCommand)
 	return &out, nil
+}
+
+func forgivingLimits(raw []byte) []byte {
+	var doc map[string]json.RawMessage
+	if json.Unmarshal(raw, &doc) != nil {
+		return raw
+	}
+	for _, key := range []string{"maxChildren", "maxTreeTokens"} {
+		if value, ok := doc[key]; ok {
+			var n int
+			if json.Unmarshal(value, &n) != nil {
+				doc[key] = json.RawMessage("-1")
+			}
+		}
+	}
+	out, err := json.Marshal(doc)
+	if err != nil {
+		return raw
+	}
+	return out
+}
+
+// Limit keeps malformed optional caps from refusing a dispatch.
+func (o Overlay) Limit(key string, fallback int) int {
+	var n *int
+	switch key {
+	case "HARNESS_DISPATCH_MAX_CHILDREN":
+		n = o.MaxChildren
+	case "HARNESS_DISPATCH_MAX_TREE_TOKENS":
+		n = o.MaxTreeTokens
+	}
+	if n == nil || *n < 0 {
+		return fallback
+	}
+	return *n
+}
+
+func (o Overlay) ValidateBudgets(agent string) error {
+	if o.BudgetUSD != nil && agent != "claude" {
+		return errors.New("budgetUSD applies to claude only")
+	}
+	if o.BudgetCredits != nil && agent != "copilot" {
+		return errors.New("budgetCredits applies to copilot only")
+	}
+	return nil
+}
+
+func (o Overlay) validateBudgetValues() error {
+	if o.BudgetUSD != nil && *o.BudgetUSD <= 0 {
+		return errors.New("budgetUSD: want a number > 0")
+	}
+	if o.BudgetCredits != nil && *o.BudgetCredits < 30 {
+		return errors.New("budgetCredits: want an integer >= 30")
+	}
+	return nil
 }

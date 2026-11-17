@@ -1054,3 +1054,39 @@ func TestParseClaudeStreamPartialUsage(t *testing.T) {
 		})
 	}
 }
+
+func TestClaudeBudgetArg(t *testing.T) {
+	args := claudeArgs(nil, agent.RunOptions{BudgetUSD: new(0.0001)})
+	if got := strings.Join(args, " "); got != "--max-budget-usd 0.0001" {
+		t.Fatalf("budget argv: %s", got)
+	}
+	if got := claudeArgs(nil, agent.RunOptions{}); len(got) != 0 {
+		t.Fatalf("unset budget: %v", got)
+	}
+}
+
+func TestBudgetSkipsClaudeOneShot(t *testing.T) {
+	_, done, err := runNoTools(t.Context(), agent.RunOptions{NoTools: true, Provider: "nonexistent-budget-test-provider", BudgetUSD: new(0.0001)}, nil)
+	if done || err != nil {
+		t.Fatalf("budget must use CLI: done=%v, err=%v", done, err)
+	}
+}
+
+func TestMaxBudgetResultIsNamedError(t *testing.T) {
+	raw, err := os.ReadFile("testdata/result-max-budget.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ev claudeEvent
+	if err := json.Unmarshal(raw, &ev); err != nil {
+		t.Fatal(err)
+	}
+	var res wire.Result
+	err = applyClaudeResult(&res, ev)
+	if err == nil || !strings.Contains(err.Error(), "Reached maximum budget") || !agent.IsResultError(err) {
+		t.Fatalf("cap stop must be a result error naming the cap: %v", err)
+	}
+	if res.Usage.CostUSD == 0 {
+		t.Fatal("usage kept")
+	}
+}

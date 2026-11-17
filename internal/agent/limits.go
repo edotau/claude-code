@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -22,6 +23,10 @@ const (
 var dispatchChildrenLockWait = 250 * time.Millisecond
 
 func dispatchLimit(ctx context.Context, key string, fallback int) int {
+	if proc.Value(ctx, key) == "" {
+		o, _ := agentconfig.LoadOverlayContext(ctx, "", nil)
+		return o.Limit(key, fallback)
+	}
 	n, err := strconv.Atoi(proc.Value(ctx, key))
 	if err != nil || n < 0 {
 		return fallback

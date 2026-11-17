@@ -2,6 +2,7 @@ package claude
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -63,7 +64,7 @@ func (claudeEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.Sin
 // runNoTools takes the HTTP one-shot; done is false when the request needs the claude process instead.
 func runNoTools(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire.Result, bool, error) {
 	// the one-shot has no system-prompt or schema channel and a session must resume through the process
-	if req.SessionID != "" || req.SystemPrompt != "" || req.AppendSystemPrompt != "" || req.OutputSchema != "" || req.Persona != nil {
+	if req.BudgetUSD != nil || req.SessionID != "" || req.SystemPrompt != "" || req.AppendSystemPrompt != "" || req.OutputSchema != "" || req.Persona != nil {
 		return wire.Result{}, false, nil
 	}
 	return claudeOneShot(ctx, req, sink)
@@ -88,6 +89,9 @@ func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink w
 
 // claudeArgs appends the request's option flags to base; effort and permissions are RenderSettings', tools toolArgs'.
 func claudeArgs(args []string, req agent.RunOptions) []string {
+	if req.BudgetUSD != nil {
+		args = append(args, "--max-budget-usd", strconv.FormatFloat(*req.BudgetUSD, 'g', -1, 64))
+	}
 	for _, f := range []struct {
 		on   bool
 		flag []string
@@ -363,6 +367,7 @@ type claudeEvent struct {
 	RetryDelayMs    int             `json:"retry_delay_ms"`
 	ErrorStatus     *int            `json:"error_status"`
 	Result          string          `json:"result"`
+	Errors          []string        `json:"errors"`
 	TotalCostUSD    float64         `json:"total_cost_usd"`
 	Structured      json.RawMessage `json:"structured_output"`
 
@@ -644,7 +649,7 @@ func applyClaudeResult(res *wire.Result, ev claudeEvent) error {
 		res.Structured = ev.Structured
 	}
 	if ev.IsError {
-		return wire.NewResultError(fmt.Errorf("claude %s: %s", ev.Subtype, ev.Result))
+		return wire.NewResultError(fmt.Errorf("claude %s: %s", ev.Subtype, cmp.Or(ev.Result, strings.Join(ev.Errors, "; "))))
 	}
 	return nil
 }

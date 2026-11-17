@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
@@ -138,7 +139,14 @@ func (c *Client) withDefaults(o RunOptions) (RunOptions, error) {
 		o.Fallback = router.FallbackNone
 	}
 	o = foldAuto(o)
-	return o, c.resolve(&o)
+	if err := c.resolve(&o); err != nil {
+		return o, err
+	}
+	o, err := runBudgets(valuesContext(context.Background(), o.Values), o)
+	if err != nil {
+		return o, clientUsageError{err}
+	}
+	return o, nil
 }
 
 // Record builds the dispatch record for o without routing, persona refusal or rubric (live sessions, review jobs).
@@ -474,6 +482,8 @@ const DefaultToolsTimeout = 45 * time.Minute
 
 // RunOptions is one task. Model may be a model alias, a model id, or provider:model.
 type RunOptions struct {
+	BudgetUSD                                           *float64    `json:"-"`
+	BudgetCredits                                       *int        `json:"-"`
 	Values                                              proc.Values `json:"-"`
 	Prompt, Model, Provider, Effort, WorkDir, SessionID string
 	Lead                                                string      `json:",omitempty"` // lead profile for the pick; "" = its pin leads
@@ -717,4 +727,16 @@ func ValidateAs(as, ag string) error {
 		return fmt.Errorf("--as applies to claude only; %s follows the profile's identity setting", ag)
 	}
 	return nil
+}
+
+func runBudgets(ctx context.Context, o RunOptions) (RunOptions, error) {
+	overlay, err := agentconfig.LoadOverlayContext(ctx, "", nil)
+	if err != nil {
+		return o, err
+	}
+	if err := overlay.ValidateBudgets(o.Agent); err != nil {
+		return o, err
+	}
+	o.BudgetUSD, o.BudgetCredits = overlay.BudgetUSD, overlay.BudgetCredits
+	return o, nil
 }

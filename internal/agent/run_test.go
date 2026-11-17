@@ -1009,3 +1009,30 @@ func TestRateLimitYieldsBeforeBackoff(t *testing.T) {
 		})
 	}
 }
+
+func TestRunBudgetsFromOverlay(t *testing.T) {
+	for _, tc := range []struct {
+		agent, doc string
+		bad        bool
+	}{
+		{"claude", `{"budgetUSD":0.0001}`, false},
+		{"copilot", `{"budgetCredits":30}`, false},
+		{"codex", `{"budgetUSD":1}`, true},
+		{"claude", `{"budgetCredits":30}`, true},
+	} {
+		o, err := (&Client{}).withDefaults(RunOptions{Agent: tc.agent, Fallback: "none",
+			Values: proc.Values{"COWORKER_OVERLAY": tc.doc}})
+		if tc.bad && err != nil {
+			code, ok := err.(interface{ ExitCode() int })
+			if !ok || code.ExitCode() != 2 {
+				t.Fatalf("budget refusal must exit 2: %v", err)
+			}
+		}
+		if (err != nil) != tc.bad {
+			t.Fatalf("%+v: %v", tc, err)
+		}
+		if !tc.bad && o.BudgetUSD == nil && o.BudgetCredits == nil {
+			t.Fatal("budget lost")
+		}
+	}
+}

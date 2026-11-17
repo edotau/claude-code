@@ -239,3 +239,45 @@ func TestLoadOverlayCodexNetworkType(t *testing.T) {
 		t.Errorf("valid codexNetwork not recognized: %v", err)
 	}
 }
+
+func TestOverlayDispatchControls(t *testing.T) {
+	for _, doc := range []string{`{"maxChildren":0}`, `{"maxTreeTokens":500}`, `{"budgetUSD":0.0001}`, `{"budgetCredits":30}`} {
+		o, err := LoadOverlayContext(t.Context(), doc, nil)
+		if err != nil || o.Empty() {
+			t.Fatalf("%s: empty=%v, err=%v", doc, o.Empty(), err)
+		}
+	}
+	for _, doc := range []string{`{"maxChildren":"bad"}`, `{"maxChildren":-1}`, `{"maxChildren":1.5}`} {
+		o, err := LoadOverlayContext(t.Context(), doc, nil)
+		if err != nil || o.Limit("HARNESS_DISPATCH_MAX_CHILDREN", 8) != 8 {
+			t.Fatalf("%s: %v", doc, err)
+		}
+	}
+}
+
+func TestOverlayVendorBudgetValidation(t *testing.T) {
+	for _, tc := range []struct{ doc, agent, want string }{
+		{`{"budgetUSD":0.0001}`, "claude", ""},
+		{`{"budgetCredits":30}`, "copilot", ""},
+		{`{"budgetUSD":1}`, "codex", "claude only"},
+		{`{"budgetCredits":30}`, "claude", "copilot only"},
+		{`{"budgetUSD":0}`, "claude", "> 0"},
+		{`{"budgetUSD":-1}`, "claude", "> 0"},
+		{`{"budgetCredits":29}`, "copilot", ">= 30"},
+		{`{"budgetCredits":1.5}`, "copilot", "integer"},
+	} {
+		o, err := LoadOverlayContext(t.Context(), tc.doc, nil)
+		if err == nil {
+			err = o.ValidateBudgets(tc.agent)
+		}
+		if tc.want == "" {
+			if err != nil {
+				t.Error(err)
+			}
+			continue
+		}
+		if err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%s / %s: %v; want %s", tc.doc, tc.agent, err, tc.want)
+		}
+	}
+}

@@ -35,6 +35,7 @@ const denyFeedback = "Tool use is disabled for this headless run. Answer from th
 
 // sdkOptions configures one headless run. Env carries the COPILOT_PROVIDER_* BYOK block from Schema.Configure.
 type sdkOptions struct {
+	BudgetCredits *int
 	// resolved copilot binary; empty is an error (never the SDK's bundled runtime)
 	CLIPath string
 	// KEY=VALUE BYOK block
@@ -136,6 +137,9 @@ func buildSessionConfig(o sdkOptions) *copilot.SessionConfig {
 		Provider:            providerFromEnv(o.Env),
 		OnPermissionRequest: baseHandler(o),
 	}
+	if o.BudgetCredits != nil {
+		cfg.SessionLimits = &rpc.SessionLimitsConfig{MaxAiCredits: new(float64(*o.BudgetCredits))}
+	}
 	if o.EnableMemory {
 		cfg.Memory = &copilot.MemoryConfiguration{Enabled: true}
 	}
@@ -218,7 +222,7 @@ func buildResumeSessionConfig(o sdkOptions) *copilot.ResumeSessionConfig {
 	return &copilot.ResumeSessionConfig{
 		ClientName: c.ClientName, Model: c.Model, ReasoningEffort: c.ReasoningEffort, ContextTier: c.ContextTier,
 		WorkingDirectory: c.WorkingDirectory, Provider: c.Provider, OnPermissionRequest: c.OnPermissionRequest,
-		Memory: c.Memory, SystemMessage: c.SystemMessage, InstructionDirectories: c.InstructionDirectories,
+		SessionLimits: c.SessionLimits, Memory: c.Memory, SystemMessage: c.SystemMessage, InstructionDirectories: c.InstructionDirectories,
 		SkillDirectories: c.SkillDirectories, AgentDirectories: c.AgentDirectories, Providers: c.Providers, Models: c.Models,
 		AvailableTools: c.AvailableTools, ExcludedTools: c.ExcludedTools, SkipCustomInstructions: c.SkipCustomInstructions,
 		OrganizationCustomInstructions: c.OrganizationCustomInstructions,
@@ -411,7 +415,11 @@ func sdkAsk(ctx context.Context, o sdkOptions, prompt string, images []string) (
 		}
 	}()
 
-	var col assistantCollector
+	col := assistantCollector{onLimit: func(id string) { // cancel, or the headless turn waits on a user who is not there
+		cancel := rpc.UISessionLimitsExhaustedResponse{Action: rpc.UISessionLimitsExhaustedResponseActionCancel}
+		_, _ = session.RPC.UI.HandlePendingSessionLimitsExhausted(context.WithoutCancel(ctx),
+			&rpc.UIHandlePendingSessionLimitsExhaustedRequest{RequestID: id, Response: cancel})
+	}}
 	unsubscribe := session.On(col.onEvent)
 	defer unsubscribe()
 
@@ -423,7 +431,7 @@ func sdkAsk(ctx context.Context, o sdkOptions, prompt string, images []string) (
 	if sendErr != nil {
 		return res, fmt.Errorf("send prompt: %w", sendErr)
 	}
-	return res, truncationError(res)
+	return res, errors.Join(col.limitError(), truncationError(res))
 }
 
 // assistantCollector accumulates assistant text, model and usage; events arrive on the SDK goroutine, hence the mutex.
@@ -436,6 +444,19 @@ type assistantCollector struct {
 	usage   wire.Usage
 	finishR string
 	filter  bool
+	limit   *copilot.SessionLimitsExhaustedRequestedData
+	onLimit func(requestID string)
+}
+
+// limitError names the budgetCredits cap when the SDK reported it reached; nil otherwise.
+func (c *assistantCollector) limitError() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.limit == nil {
+		return nil
+	}
+	return fmt.Errorf("copilot budgetCredits cap reached (%.4g of %.4g AI credits used)",
+		c.limit.UsedAiCredits, c.limit.MaxAiCredits)
 }
 
 func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
@@ -455,6 +476,11 @@ func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
 		}
 	case *copilot.AssistantUsageData:
 		c.addUsage(d)
+	case *copilot.SessionLimitsExhaustedRequestedData:
+		c.limit = d
+		if c.onLimit != nil {
+			go c.onLimit(d.RequestID)
+		}
 	case *copilot.SessionTaskCompleteData:
 		if d.Summary != nil {
 			c.summary = *d.Summary

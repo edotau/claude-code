@@ -649,7 +649,7 @@ func (req RunOptions) ApplyOverlay(ctx context.Context, r agentconfig.Resolved) 
 	return req
 }
 
-// confinementDoc is the inline overlay naming only req's run provider and profile (one hop); "": none.
+// confinementDoc carries the run's provider, profile and inherited dispatch caps.
 func confinementDoc(req RunOptions) string {
 	return confinementDocContext(valuesContext(context.Background(), req.Values))
 }
@@ -670,8 +670,9 @@ func (p Plan) withOverlay(r agentconfig.Resolved) Plan {
 	return p
 }
 
-// confinementDocContext is the one-hop confinement from this run, excluding its env layer.
+// confinementDocContext excludes the env layer and per-run vendor budgets.
 func confinementDocContext(ctx context.Context) string {
 	provider, profile, _ := router.CoworkerContext(ctx)
-	return agentconfig.InlineOverlay(provider, profile)
+	o, _ := agentconfig.LoadOverlayContext(ctx, "", nil)
+	return agentconfig.InlineOverlay(provider, profile, o)
 }

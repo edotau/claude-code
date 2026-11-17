@@ -687,3 +687,10 @@ func TestDirectDispatchesHaveNoAgentTag(t *testing.T) {
 		}
 	}
 }
+
+func TestSDKOptionsBudgetCredits(t *testing.T) {
+	o, err := newSDKOptions("copilot", nil, agent.RunOptions{WorkDir: t.TempDir(), BudgetCredits: new(30)}, agent.Settings{})
+	if err != nil || o.BudgetCredits == nil || *o.BudgetCredits != 30 {
+		t.Fatalf("SDK budget transfer: %+v, %v", o.BudgetCredits, err)
+	}
+}
