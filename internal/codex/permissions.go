@@ -11,6 +11,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -429,14 +430,25 @@ func (s *denialSink) collect(d agent.Denial, ev wire.Event) {
 
 var labelShells = []string{"bash", "sh", "zsh", "dash", "ksh", "fish"}
 
-// denialLabel is a command's verb plus a bare second word: a value, path or address never reaches the summary.
+var labelSubcommandTools = []string{"git", "go", "make", "npm", "pnpm", "yarn", "cargo", "docker", "kubectl", "pip", "pip3", "gh", "helm", "terraform", "brew"}
+
+// labelSecond reports whether word is a flag of one or two letters or a lower-case subcommand of a known tool.
+func labelSecond(verb, word string) bool {
+	if rest, ok := strings.CutPrefix(word, "-"); ok {
+		return len(rest) > 0 && len(rest) <= 2 && !strings.ContainsFunc(rest, func(r rune) bool { return !unicode.IsLetter(r) })
+	}
+	return slices.Contains(labelSubcommandTools, verb) &&
+		!strings.ContainsFunc(word, func(r rune) bool { return r != '-' && (r < 'a' || r > 'z') })
+}
+
+// denialLabel is a command's verb plus a short flag or a known tool's subcommand: no value, path or address reaches it.
 func denialLabel(command string) string {
 	words := labelWords(command)
 	if len(words) == 0 {
 		return ""
 	}
 	label := filepath.Base(words[0])
-	if label != "export" && label != "env" && len(words) > 1 && !strings.ContainsAny(words[1], "/=:@") {
+	if len(words) > 1 && labelSecond(label, words[1]) {
 		label += " " + words[1]
 	}
 	runes := []rune(label)
