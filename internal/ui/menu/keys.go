@@ -56,12 +56,11 @@ func keyRows(targets []configure.KeyTarget) ([][2]string, bool) {
 	names := make([]string, len(targets))
 	cols := make([][2]string, len(targets))
 	allOK := true
-	var wg sync.WaitGroup
 	for i, kt := range targets {
 		names[i] = kt.Label
-		wg.Go(func() { cols[i] = keyCols(kt) })
 	}
-	wg.Wait()
+	fanOut(len(targets), func(i int) { cols[i] = keyCols(targets[i]) },
+		func(i int, err error) { cols[i] = [2]string{panicLine(err), "not verified"} })
 	for _, c := range cols {
 		allOK = allOK && c[1] == "verified"
 	}

@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/par"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -84,7 +85,11 @@ func homeSections(d *dialog) ([]tui.Section, []func(*dialog)) {
 	var acts []func(*dialog)
 	var wg sync.WaitGroup
 	if d.o.Agent == "" {
-		wg.Go(func() { extra, acts = extraSections(d) })
+		wg.Add(1)
+		par.Go(func() { extra, acts = extraSections(d); wg.Done() }, func(err error) {
+			extra, acts = sections([]block{{Title: "tools", Rows: []row{{Name: "error", State: panicLine(err), Run: func(*dialog) {}}}}})
+			wg.Done()
+		})
 	}
 	rows, actions := menuRows(d)
 	wg.Wait()
@@ -106,11 +111,8 @@ func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 		}
 	}
 	menus := make([]agentMenu, len(names))
-	var wg sync.WaitGroup
-	for i, name := range names {
-		wg.Go(func() { menus[i] = agentMenus[name](d) })
-	}
-	wg.Wait()
+	fanOut(len(names), func(i int) { menus[i] = agentMenus[names[i]](d) },
+		func(i int, err error) { menus[i] = agentMenu{state: agentState{mode: panicLine(err)}} })
 	rows := make([]homeRow, len(names))
 	for i, n := range names {
 		m := menus[i]

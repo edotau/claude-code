@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-
+	"github.com/edotau/claude-code/internal/par"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -73,31 +73,37 @@ func allCheckOne(ctx context.Context, p *providers.Provider) allRowStatus {
 		v      providers.AuthVerdict
 		detail string
 	}
-	ctx, cancel := context.WithTimeout(ctx, allCheckTimeout)
-	defer cancel()
-	done := make(chan res, 1)
-	// resolved before the goroutine: a timed-out check must not read the seam later
+	// resolved before the worker: a timed-out check must not read the seam later
 	si := allSigninFor(p)
-	go func() { v, d := si.Check(ctx); done <- res{v, d} }()
-	select {
-	case r := <-done:
-		st.Detail = r.detail
-		switch {
-		case errors.Is(ctx.Err(), context.DeadlineExceeded):
-			st.Status, st.Detail = allTimedOut, ""
-		case r.v == providers.VerdictOK:
-			st.Status = allOK
-		case r.v == providers.VerdictNeedsLogin:
-			st.Status = allNeedsLogin
-		case r.v == providers.VerdictRejected:
-			st.Status = allRejected
-		default:
-			st.Status = allError
-		}
-	case <-ctx.Done():
+	r, err := par.Within(ctx, allCheckTimeout, func(ctx context.Context) (res, error) {
+		v, d := si.Check(ctx)
+		// a verdict that lands after the deadline is the timeout, not a rejection
+		return res{v, d}, context.Cause(ctx)
+	})
+	var pe *par.PanicError
+	switch {
+	case errors.As(err, &pe):
+		st.Status, st.Detail = allError, panicLine(pe)
+	case err != nil:
 		st.Status = allTimedOut
+	default:
+		st.Detail = r.detail
+		st.Status = allVerdictStatus(r.v)
 	}
 	return st
+}
+
+// allVerdictStatus maps a sign-in verdict to its row status.
+func allVerdictStatus(v providers.AuthVerdict) string {
+	switch v {
+	case providers.VerdictOK:
+		return allOK
+	case providers.VerdictNeedsLogin:
+		return allNeedsLogin
+	case providers.VerdictRejected:
+		return allRejected
+	}
+	return allError
 }
 
 // allCheckAll checks the rows concurrently and returns the verdicts in row order.
