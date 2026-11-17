@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/pack"
@@ -972,6 +973,39 @@ func TestWithDefaultsFallbackFromEnv(t *testing.T) {
 			if err != nil || o.Fallback != tc.want {
 				t.Fatalf("%q = %q, %v; want %q", tc.env, o.Fallback, err, tc.want)
 			}
+		})
+	}
+}
+
+func TestRateLimitYieldsBeforeBackoff(t *testing.T) {
+	setConfigDir(t)
+	for _, alternative := range []string{"workspace", "ladder", "none"} {
+		t.Run(alternative, func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				retry.ResetCooldowns()
+				t.Cleanup(retry.ResetCooldowns)
+				limited := errors.New("HTTP 429 rate limited")
+				f := &fakeRunner{name: "codex", emptyAnswer: true, errs: []error{limited, limited, limited}}
+				req := RunOptions{Prompt: "p"}
+				if alternative == "workspace" {
+					req.YieldFallback = func(res wire.Result, err error) bool { return HopFailed(res, err) }
+				}
+				c := chainOf([]Engine{f})
+				if alternative == "ladder" {
+					c = chainOf([]Engine{f, &fakeRunner{name: "gemini", errs: []error{nil}}})
+				}
+				start := time.Now()
+				_, _ = runWithFallback(t.Context(), c, req, wire.Discard, nil)
+				wait := time.Since(start)
+				t.Logf("attempts=%d wait=%s", len(f.seen), wait)
+				if alternative == "none" {
+					if len(f.seen) != 3 || wait < 60*time.Second || wait > 90*time.Second {
+						t.Errorf("no alternative must retain three attempts and 60–90s backoff")
+					}
+				} else if len(f.seen) != 1 || wait != 0 {
+					t.Errorf("available fallback must run before any backoff")
+				}
+			})
 		})
 	}
 }

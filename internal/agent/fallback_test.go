@@ -53,8 +53,8 @@ func TestDispatchUnavailable(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := dispatchUnavailable(c.r, c.res, c.err); got != c.want {
-				t.Errorf("dispatchUnavailable() = %v, want %v", got, c.want)
+			if got := dispatchUnavailableContext(context.Background(), c.r, c.res, c.err); got != c.want {
+				t.Errorf("dispatchUnavailableContext() = %v, want %v", got, c.want)
 			}
 		})
 	}
@@ -1026,5 +1026,36 @@ func TestPerModelQuotaHoldsOnlyTheModel(t *testing.T) {
 	again := &fakeRunner{errs: []error{nil}}
 	if _, err := runWithFallback(context.Background(), chain(again), req, wire.Discard, nil); err == nil || len(again.seen) != 0 {
 		t.Fatalf("the held model: err=%v attempts=%d, want it refused without a request", err, len(again.seen))
+	}
+}
+
+func TestAliasMoveSkipsWaitAndCooldown(t *testing.T) {
+	for _, attempts := range []int{1, 2} {
+		t.Run(strconv.Itoa(attempts), func(t *testing.T) {
+			synctest.Test(t, func(t *testing.T) {
+				retry.ResetCooldowns()
+				t.Cleanup(retry.ResetCooldowns)
+				p := retry.DefaultPolicy()
+				p.Key, p.MaxAttempts = "alias-move", attempts
+				req := RunOptions{Model: "opus"}
+				start := time.Now()
+				retry.Do(t.Context(), p, func(context.Context, int) *retry.Error {
+					if req.Model == "sonnet" {
+						return nil
+					}
+					e := &retry.Error{Kind: retry.KindRateLimit, Err: errors.New("quota exceeded, limit: 0")}
+					fallToNextAlias(&fakeRunner{caps: Caps{Model: Native}}, &req, e, nil)
+					return e
+				})
+				wait := time.Since(start)
+				start = time.Now()
+				retry.Do(t.Context(), p, func(context.Context, int) *retry.Error { return nil })
+				cooldown := time.Since(start)
+				t.Logf("alias=%s retry wait=%s cooldown=%s", req.Model, wait, cooldown)
+				if req.Model != "sonnet" || wait != 0 || cooldown != 0 {
+					t.Errorf("alias move must neither wait nor cool the account")
+				}
+			})
+		})
 	}
 }
