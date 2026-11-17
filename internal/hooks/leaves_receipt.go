@@ -3,6 +3,7 @@ package hooks
 
 import (
 	"cmp"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -174,7 +175,7 @@ func loadRelayRun(agentID string) (relayRun, bool) {
 
 // receiptFix: a job it started is held or attached; a never-run Run: line runs here; relay work passes with a note.
 func receiptFix(in *core.Input, agentID string, lr *leafRead) (core.Result, bool) {
-	st := leafAgentType(in)
+	st := relayAgent(in, lr)
 	m, hookRan := loadRelayRun(agentID)
 	if hookRan {
 		lr.scan.askTimes = append(lr.scan.askTimes, m.Started)
@@ -205,13 +206,22 @@ func receiptFix(in *core.Input, agentID string, lr *leafRead) (core.Result, bool
 	if hookRan {
 		return relayRunPending(in, *lr, m)
 	}
-	words := openingAskWords("Run: " + lr.scan.runLine)
+	words := briefWords(lr.scan)
 	if lr.scan.edited || len(words) == 0 {
 		model, _ := transcript.LastUsage(in.AgentTranscriptPath)
 		return attach(in, fmt.Sprintf("NOTE: the work was done on the relay model (%s), not on %s; re-run the brief's `Run:` "+
 			"line if %s must do it.", cmp.Or(model.Model, "the leaf's own model"), st, st), jobOut{}), false
 	}
 	return runBriefLine(in, *lr, agentID, words)
+}
+
+// briefWords is the Run: line's words, with the brief body as the task when the line carries no prompt.
+func briefWords(s leafScan) []string {
+	words := openingAskWords("Run: " + s.runLine)
+	if len(words) > 0 && s.task != "" && parseAskLine(context.Background(), "Run: "+s.runLine).prompt == "" {
+		words = append(words, s.task)
+	}
+	return words
 }
 
 // leafDispatch is the jobs this leaf started: its printed ids' records, else the ones its ask calls launched.
@@ -300,7 +310,7 @@ func relayRunPending(in *core.Input, lr leafRead, m relayRun) (core.Result, bool
 	case didNotRunRe().MatchString(out):
 		return attach(in, "NOTE: the hook ran the brief's `Run:` line itself; it ran no agent.", body), false
 	case time.Since(m.Started) < askLaunchWindow:
-		if rec, ok := hookJob(lr, leafAgentType(in), m.Started); ok {
+		if rec, ok := hookJob(lr, relayAgent(in, &lr), m.Started); ok {
 			return hookJobReceipt(in, rec, m.Output, lr.until)
 		}
 		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("The hook is running your brief's `Run:` line (`%s`, output %s), "+
@@ -347,7 +357,7 @@ func ranOnLine(out string) string {
 	return ""
 }
 
-// runBriefLine starts the brief's own Run: command, unchanged and detached, then holds the hand-back for its result.
+// runBriefLine starts the brief's own Run: command (task appended when it had none) detached, then holds the hand-back for its result.
 func runBriefLine(in *core.Input, lr leafRead, agentID string, words []string) (core.Result, bool) {
 	fail := func(err error) (core.Result, bool) {
 		return attach(in, fmt.Sprintf("NOTE: the brief's `Run:` line was never run and the hook could not start it (%v); "+
@@ -377,11 +387,11 @@ func runBriefLine(in *core.Input, lr leafRead, agentID string, words []string) (
 		_ = os.Remove(relayRunPath(agentID)) // nothing started: a later hand-back may try again
 		return fail(err)
 	}
-	if rec, ok := hookJob(lr, leafAgentType(in), m.Started); ok {
+	if rec, ok := hookJob(lr, relayAgent(in, &lr), m.Started); ok {
 		return hookJobReceipt(in, rec, m.Output, lr.until)
 	}
 	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("Your brief's `Run:` line was never run, so the hook started it "+
-		"unchanged: `%s` (output %s). Your hand-back is held, not refused. %s", line, m.Output, handBackForID)}, true
+		"with your brief as its task: `%s` (output %s). Your hand-back is held, not refused. %s", line, m.Output, handBackForID)}, true
 }
 
 // jobOut is the job result a hand-back carries: one summary line and the job's final answer.
