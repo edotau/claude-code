@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -148,3 +150,40 @@ func TestCaptureAnswerSharesNoState(t *testing.T) {
 }
 
 // Given a dispatch dir that rejects writes, a detached split review fails rather than spawn a child with no record.
+
+func TestSplitReviewParentUsageSummed(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	parent := agent.NewRecord("codex", agent.RunOptions{Prompt: "review"}, time.Now())
+	parts := []wire.Usage{
+		{InputTokens: 10, OutputTokens: 3, CacheCreationTokens: 4, CacheReadTokens: 5, CostUSD: .125},
+		{InputTokens: 20, OutputTokens: 7, CacheCreationTokens: 6, CacheReadTokens: 8, CostUSD: .25},
+	}
+	original := reviewAskCmd
+	t.Cleanup(func() { reviewAskCmd = original })
+	i := 0
+	reviewAskCmd = func(args []string, out io.Writer) int {
+		if i >= len(parts) {
+			t.Fatal("extra part")
+		}
+		err := json.NewEncoder(out).Encode(wire.NewEnvelope(wire.Result{Answer: "SHIP", Usage: parts[i]}, nil, "part"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		i++
+		return 0
+	}
+	rc, _, stderr := hosttest.CaptureOutput(t, func() int {
+		return runSplitReview("codex", nil, []part{{Diff: []byte("one")}, {Diff: []byte("two")}}, ReviewOptions{}, &parent)
+	})
+	if rc != 0 || i != 2 {
+		t.Fatalf("exit=%d parts=%d stderr=%s", rc, i, stderr)
+	}
+	got, err := agent.LoadRecord(parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := wire.Usage{InputTokens: 30, OutputTokens: 10, CacheCreationTokens: 10, CacheReadTokens: 13, CostUSD: .375}
+	if got.Usage == nil || *got.Usage != want {
+		t.Fatalf("usage=%+v want=%+v", got.Usage, want)
+	}
+}

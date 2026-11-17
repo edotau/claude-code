@@ -1188,3 +1188,42 @@ func TestAgentsBriefPath(t *testing.T) {
 		}
 	}
 }
+
+func TestAgentLaunchDoubleDash(t *testing.T) {
+	original := agentLaunch
+	t.Cleanup(func() { agentLaunch = original })
+	for _, name := range []string{"codex", "copilot", "gemini", "opencode"} {
+		t.Run(name, func(t *testing.T) {
+			for _, prefix := range [][]string{nil, {"--model", "before", "--print-env"}} {
+				vendor := []string{"--help", "--profile", "vendor", "--model=after", "--print-env", "--", "databricks"}
+				args := append(append(slices.Clone(prefix), "--"), vendor...)
+				called := false
+				agentLaunch = func(gotName string, got []string) int {
+					called = true
+					opts, rest, err := agent.ParseLaunchArgs(got, false)
+					if err != nil || gotName != name || !slices.Equal(rest, vendor) || opts.Provider != "" || opts.PrintEnv != (len(prefix) > 0) {
+						t.Fatalf("name=%s opts=%+v rest=%q err=%v", gotName, opts, rest, err)
+					}
+					if len(prefix) > 0 && opts.Model != "before" {
+						t.Fatalf("model=%q", opts.Model)
+					}
+					return 0
+				}
+				if rc := cmdAgentVerb(name, args); rc != 0 || !called {
+					t.Fatalf("rc=%d called=%v", rc, called)
+				}
+			}
+		})
+	}
+}
+
+func TestAgentReviewFormat(t *testing.T) {
+	for _, format := range []string{"text", "json"} {
+		rc, _, stderr := hosttest.CaptureOutput(t, func() int {
+			return agentReview("codex", []string{"--format", format, "--commit", "HEAD", "--uncommitted"})
+		})
+		if rc != 1 || !strings.Contains(stderr, "at most one of") {
+			t.Fatalf("format=%s rc=%d stderr=%s", format, rc, stderr)
+		}
+	}
+}

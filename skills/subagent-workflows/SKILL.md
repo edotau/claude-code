@@ -61,15 +61,22 @@ For `codex`, `copilot`, `gemini` and `opencode` wrappers:
 - Background only via the `Run:` line's `--background` (never the shell or `run_in_background`). No duplicate ask,
   readiness smoke or repeat discovery.
 - **Waiting and handing back** (hooks back these up: `rules/harness/hooks.md` → `dispatch-handback`):
-  1. Run one `claude-code agents result -f <id>` in the foreground (600000 ms Bash timeout). Never start a second
-     poller, a background poller or a sleep loop.
-  2. The moment it returns with the job ended, hand back the job's result as your next action. Do nothing in between.
-  3. If it times out while the job is still running, run it again. After 12 tries, hand back and say the job is still
-     running.
-  4. A message from the manager that arrived while the job ran goes in the hand-back under "Open items (not delivered
+  1. A job over ~9 min outlives the Bash tool (hard max 600000 ms), and a foreground ask the Bash tool backgrounds
+     prints no id, so the hand-back hook refuses with "No exact dispatch id" for up to 2 h. A long task's `Run:` line
+     therefore carries `--background`; read the id from its `job <id> started` line. Run an ask with
+     `"timeout": 600000`, once, never re-run it.
+  2. Wait with ONE call per turn: `claude-code agents result -f <id>` (`-f` follows to the end; or `agents wait <id>
+     --timeout 590s`, exit 4 = still running), 600000 ms Bash timeout. Never poll with Read, `head`, `ls`, `--verdict`
+     or `agents ls`, never sleep, start a second poller or use Monitor.
+  3. The moment it returns with the job ended, hand back its result as your next action.
+  4. After 4 waits (40 min) with the job still running, call `SubagentHandback` at once with the dispatch id, the
+     command `claude-code agents result -f <id>` and the words "job still running".
+  5. A message from the manager that arrived while the job ran goes in the hand-back under "Open items (not delivered
      to the job)". Do not hold it.
-  5. After handing back, stop. If a later notification mentions the same job, reply "already reported" and do not
+  6. After handing back, stop. If a later notification mentions the same job, reply "already reported" and do not
      poll again.
+- The final answer always goes through `SubagentHandback`, never plain text. A refusal naming a missing dispatch id
+  is not fixed by retrying: after the second one, stop and end with the id and `agents result -f <id>` in your text.
 - Do not read, test or verify around the ask; the manager verifies at fan-in. Report a dispatch error; never repair it
   in-context or silently pick another agent.
 - Return the agent's verdict (Report (out)), not its whole answer, under `## Result`, preceded only by the actual

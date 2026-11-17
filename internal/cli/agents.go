@@ -66,7 +66,7 @@ func agentNode(name string) *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
 		"ask": {Flags: ask.CompletionFlags()},
 		"review": {Flags: []helptext.Flag{boolFlag("uncommitted"), flag("base"), flag("commit"), boolFlag("pr"),
-			boolFlag("adversarial"), boolFlag("background"), flag("rubric"), flag("model")}},
+			boolFlag("adversarial"), boolFlag("background"), flag("rubric"), flag("model"), formatFlag()}},
 		"explore":  {Flags: []helptext.Flag{boolFlag("no-web"), boolFlag("background"), formatFlag()}},
 		"transfer": {Flags: []helptext.Flag{flag("source"), boolFlag("wait")}},
 		"profile":  {Args: []func() []string{providers.ProfileNames}, Flags: []helptext.Flag{boolFlag("clear"), boolFlag("off")}},
@@ -726,6 +726,8 @@ func agentProviderArgs(name string, args []string) ([]string, error) {
 	return append(append(prefix, flag, value), rest...), nil
 }
 
+var agentLaunch = ask.Launch
+
 // cmdAgentVerb is `<agent>`: bare or `--` launches, `ask` = `ask --agent <v>`, a sub-verb runs it, else launch.
 func cmdAgentVerb(name string, args []string) int {
 	args, err := agentProviderArgs(name, args)
@@ -734,9 +736,9 @@ func cmdAgentVerb(name string, args []string) int {
 	}
 	switch {
 	case len(args) == 0:
-		return ask.Launch(name, args)
+		return agentLaunch(name, args)
 	case args[0] == "--":
-		return ask.Launch(name, args[1:])
+		return agentLaunch(name, args)
 	case slices.Contains(retiredAgentVerbs, args[0]):
 		return unknownSub(name, args[0], agentPage(name))
 	case args[0] == "ask":
@@ -750,7 +752,7 @@ func cmdAgentVerb(name string, args []string) int {
 		s, _ := agent.LookupSchema(name)
 		return helptext.WrappedDocs(s.CLI.Binary)
 	}
-	return ask.Launch(name, args)
+	return agentLaunch(name, args)
 }
 
 // agentSub dispatches an agent's subverbs (setup, catalog, explore, transfer, profile, review).
@@ -790,9 +792,14 @@ func agentReview(name string, args []string) int {
 	fs.BoolVar(&o.Background, "background", false, "detach; claude-code agents status|result --agent "+name+" to follow up")
 	fs.StringVar(&o.Rubric, "rubric", "", "grade the review against this rubric file")
 	fs.StringVar(&o.Model, "model", "", "model for the review (default: the agent's pin)")
+	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
+	if err := helptext.CheckFormat(*format); err != nil {
+		return helptext.BadFormat(name+" review", err)
+	}
+	o.Format = *format
 	o.Focus = strings.Join(fs.Args(), " ")
 	return ask.Review(name, args, o)
 }
