@@ -207,3 +207,44 @@ func ExampleTruncateCells() {
 	fmt.Println(TruncateCells("日本語のタイトル", 7, "…"))
 	// Output: 日本語…
 }
+
+func TestSuffixCells(t *testing.T) {
+	const allocationRuns = 100
+	for _, tc := range []struct {
+		name, s string
+		n       int
+		want    string
+	}{
+		{"ASCII", "abcdef", 3, "def"},
+		{"CJK", "日本語", 3, "語"},
+		{"wide boundary", "a界b", 2, "b"},
+		{"ZWJ cluster", "x👨‍👩‍👧‍👦", 2, "👨‍👩‍👧‍👦"},
+		{"cluster straddles", "x👨‍👩‍👧‍👦", 1, ""},
+		{"flag cluster", "x🇺🇸", 2, "🇺🇸"},
+		{"combining cluster", "xé", 1, "é"},
+		{"escape boundary", "ab\x1b[31mcd", 2, "\x1b[31mcd"},
+		{"earlier escape", "\x1b[31mabcd\x1b[0m", 2, "cd\x1b[0m"},
+		{"OSC boundary", "ab\x1b]0;title\acd", 2, "\x1b]0;title\acd"},
+		{"zero", "abc", 0, ""},
+		{"negative", "abc", -1, ""},
+		{"empty", "", 1, ""},
+		{"fits ASCII", "abc", 3, "abc"},
+		{"fits wide", "界👨‍👩‍👧‍👦", 5, "界👨‍👩‍👧‍👦"},
+		{"fits color", "\x1b[31mred\x1b[0m", 3, "\x1b[31mred\x1b[0m"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := SuffixCells(tc.s, tc.n)
+			if got != tc.want {
+				t.Fatalf("suffix(%q,%d) = %q, want %q", tc.s, tc.n, got, tc.want)
+			}
+			if tc.s != "" && tc.want == tc.s && unsafe.StringData(got) != unsafe.StringData(tc.s) {
+				t.Fatal("suffix copied")
+			}
+			if allocs := testing.AllocsPerRun(allocationRuns, func() {
+				cellsBenchText = SuffixCells(tc.s, tc.n)
+			}); allocs != 0 {
+				t.Fatalf("suffix allocated %v", allocs)
+			}
+		})
+	}
+}

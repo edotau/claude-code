@@ -23,22 +23,7 @@ func TruncateMiddle(s string, width int) string {
 		return Truncate(s, width)
 	}
 	tail := (width - 1) / 2
-	return textutil.TruncateCells(s, width-1-tail, "") + "…" + cellSuffix(s, tail)
-}
-
-// cellSuffix is the longest suffix of s that fits in n cells.
-func cellSuffix(s string, n int) string {
-	r := []rune(s)
-	i, w := len(r), 0
-	for i > 0 {
-		cw := textutil.DisplayWidth(string(r[i-1]))
-		if w+cw > n {
-			break
-		}
-		w += cw
-		i--
-	}
-	return string(r[i:])
+	return textutil.TruncateCells(s, width-1-tail, "") + "…" + textutil.SuffixCells(s, tail)
 }
 
 const (

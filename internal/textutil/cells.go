@@ -55,6 +55,27 @@ func TruncateCells(s string, n int, marker string) string {
 	return s[:end] + marker + tail
 }
 
+// SuffixCells keeps whole tokens; escapes before the cut are dropped without restoring colour state.
+func SuffixCells(s string, n int) string {
+	if n <= 0 {
+		return ""
+	}
+	width := DisplayWidth(s)
+	if width <= n {
+		return s
+	}
+	if width == len(s) {
+		return s[len(s)-n:]
+	}
+	i := 0
+	for width > n {
+		end, w := cellToken(s, i)
+		width -= w
+		i = end
+	}
+	return s[i:]
+}
+
 const linkClose = "\x1b]8;;\x1b\\"
 
 // linkOpen reports whether the last OSC 8 sequence in a complete-escape prefix has a non-empty URI.

@@ -65,3 +65,19 @@ func BenchmarkRender(b *testing.B) {
 		_ = Render(head, colMax, rows, 80)
 	}
 }
+
+var middleBenchText string
+
+func BenchmarkTruncateMiddle(b *testing.B) {
+	for _, tc := range []struct{ name, s string }{
+		{"ASCII", strings.Repeat("abcdefgh", 10)},
+		{"CJK", strings.Repeat("日本語", 20)},
+	} {
+		b.Run(tc.name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				middleBenchText = TruncateMiddle(tc.s, 31)
+			}
+		})
+	}
+}
