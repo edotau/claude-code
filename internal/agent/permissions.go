@@ -13,7 +13,6 @@ import (
 	"slices"
 	"strings"
 	"sync"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths"
@@ -829,62 +828,13 @@ func domainMatches(domain, target string) bool {
 	return host == domain || strings.HasSuffix(host, "."+domain)
 }
 
-var pathPatterns sync.Map
-
-// foldPathCase matches path rules case-insensitively per paths.FoldsCase; a var so a test can pin either rule.
-var foldPathCase = paths.FoldsCase
-
 // pathMatches globs a path as written, then as canonical forms when both are absolute (/tmp equals /private/tmp).
 func pathMatches(pattern, p string) bool {
-	pattern, p = cleanGlobPath(pattern), cleanGlobPath(p)
-	if globMatches(pattern, p) {
+	pattern, p = paths.CleanGlob(pattern), paths.CleanGlob(p)
+	if paths.GlobMatch(pattern, p) {
 		return true
 	}
-	return path.IsAbs(pattern) && path.IsAbs(p) && globMatches(paths.CanonDeep(pattern), paths.CanonDeep(p))
-}
-
-// globMatches globs a cleaned path: "*" and "?" stay inside a segment, "**" crosses directories.
-func globMatches(pattern, p string) bool {
-	key, flags := pattern, ""
-	if foldPathCase {
-		key, flags = "\x00"+pattern, "(?i)" // NUL never occurs in a cleaned pattern, so keys cannot collide
-	}
-	cached, ok := pathPatterns.Load(key)
-	if !ok {
-		re, _ := regexp.Compile(flags + "^" + globRegexp(pattern) + "$")
-		cached, _ = pathPatterns.LoadOrStore(key, re)
-	}
-	re := cached.(*regexp.Regexp)
-	return re != nil && re.MatchString(p)
-}
-
-func cleanGlobPath(s string) string {
-	s = strings.ReplaceAll(s, "**", "\x00")
-	s = path.Clean(strings.ReplaceAll(s, "\\", "/"))
-	return strings.ReplaceAll(s, "\x00", "**")
-}
-
-func globRegexp(g string) string {
-	var b strings.Builder
-	for i := 0; i < len(g); i++ {
-		switch c := g[i]; {
-		case c == '*' && strings.HasPrefix(g[i:], "**/"):
-			b.WriteString("(?:.*/)?")
-			i += 2
-		case c == '*' && strings.HasPrefix(g[i:], "**"):
-			b.WriteString(".*")
-			i++
-		case c == '*':
-			b.WriteString("[^/]*")
-		case c == '?':
-			b.WriteString("[^/]")
-		default: // copy one whole rune: string(byte) would turn UTF-8 bytes into Latin-1 characters
-			_, size := utf8.DecodeRuneInString(g[i:])
-			b.WriteString(regexp.QuoteMeta(g[i : i+size]))
-			i += size - 1
-		}
-	}
-	return b.String()
+	return path.IsAbs(pattern) && path.IsAbs(p) && paths.GlobMatch(paths.CanonDeep(pattern), paths.CanonDeep(p))
 }
 
 // ReadOnlyDeny is --read-only as deny rules for an agent whose CLI has no read-only mode (ReadOnly: Emulated).

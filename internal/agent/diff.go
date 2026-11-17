@@ -199,7 +199,7 @@ func cleanPaths(root string, sel []string) ([]string, error) {
 
 func inPaths(sel []string, p string) bool {
 	for _, o := range sel {
-		if o == "." || p == o || strings.HasPrefix(p, o+"/") || (strings.ContainsAny(o, "*?") && globMatches(o, p)) {
+		if o == "." || p == o || strings.HasPrefix(p, o+"/") || (strings.ContainsAny(o, "*?") && paths.GlobMatch(o, p)) {
 			return true
 		}
 	}
