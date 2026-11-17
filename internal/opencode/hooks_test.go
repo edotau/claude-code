@@ -95,13 +95,11 @@ func TestHookLogConcurrentAppendersAndLockTimeout(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "hooks.log")
 	var wg sync.WaitGroup
 	for w := range 2 {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
+		wg.Go(func() {
 			for i := range 50 {
-				_, _ = hookLog(path).Write([]byte(fmt.Sprintf("w%d line %d\n", w, i)))
+				_, _ = fmt.Fprintf(hookLog(path), "w%d line %d\n", w, i)
 			}
-		}()
+		})
 	}
 	wg.Wait()
 	got, _ := os.ReadFile(path)

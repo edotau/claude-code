@@ -475,8 +475,7 @@ func activeSubagents(subs []Subagent) []Subagent {
 		if len(sub.Dispatches) > 0 {
 			nodes := nestDispatches(sub.Dispatches)
 			keep := make(map[string]bool, len(nodes))
-			for i := len(nodes) - 1; i >= 0; i-- {
-				n := nodes[i]
+			for _, n := range slices.Backward(nodes) {
 				if n.Status == statusRunning || keep[n.ID] {
 					keep[n.ID], keep[n.Parent] = true, true
 				}

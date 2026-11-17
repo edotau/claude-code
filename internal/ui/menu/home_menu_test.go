@@ -665,14 +665,15 @@ func TestHomeSectionsContainBuilderPanics(t *testing.T) {
 	agentMenus["codex"] = func(*dialog) agentMenu { panic("menu exploded") }
 	extraSections = func(*dialog) ([]tui.Section, []func(*dialog)) { panic("extra exploded") }
 	secs, acts := homeSections(&dialog{reg: reg, out: discardWriter{}})
-	var text string
+	var sb strings.Builder
 	rows := 0
 	for _, s := range secs {
 		for _, r := range s.Rows {
-			text += r[0] + " " + r[1] + "\n"
+			sb.WriteString(r[0] + " " + r[1] + "\n")
 			rows++
 		}
 	}
+	text := sb.String()
 	if rows != len(acts) || strings.Count(text, panicRow) != 2 || strings.Contains(text, "exploded") || !strings.Contains(text, "claude") {
 		t.Fatalf("rows=%d acts=%d, want both panics shown generically and the healthy rows kept:\n%s", rows, len(acts), text)
 	}

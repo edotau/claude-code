@@ -81,11 +81,11 @@ const linkClose = "\x1b]8;;\x1b\\"
 // linkOpen reports whether the last OSC 8 sequence in a complete-escape prefix has a non-empty URI.
 func linkOpen(s string) bool {
 	const intro = "\x1b]8;"
-	i := strings.LastIndex(s, intro)
-	if i < 0 {
+	_, tail, found := strings.CutLast(s, intro)
+	if !found {
 		return false
 	}
-	_, uri, ok := strings.Cut(s[i+len(intro):], ";")
+	_, uri, ok := strings.Cut(tail, ";")
 	return ok && uri != "" && uri[0] != 7 && uri[0] != 0x1b
 }
 

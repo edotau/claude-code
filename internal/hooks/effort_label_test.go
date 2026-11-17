@@ -224,7 +224,7 @@ func TestLabelModelGoogleQuotaNote(t *testing.T) {
 	}
 }
 
-// An equivalent label (alias, dotted or full id) is kept; a different model, or a `databricks-` claim the label lacks, is not.
+// An equivalent label (alias, dotted or full id) is kept; a different model, or a `databricks-` claim it lacks, is not.
 func TestSameLabel(t *testing.T) {
 	for _, c := range []struct {
 		head, label string
