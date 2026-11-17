@@ -119,6 +119,24 @@ func ClaimRecord(agent string, req RunOptions, now time.Time) Record {
 	return claimRecord(NewRecord(agent, req, now))
 }
 
+// DispatchClaimEnv names the private, exclusive-create ID file used by a hook launch.
+const DispatchClaimEnv = "CLAUDE_CODE_DISPATCH_CLAIM"
+
+func ClaimDispatchID(path, id string) error {
+	if path == "" {
+		return nil
+	}
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return err
+	}
+	_, err = f.WriteString(id)
+	if cerr := f.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
 // claimRecord gives rec an unheld id by linking the running record to <id>.json (EEXIST bumps the stamp); fails open.
 func claimRecord(rec Record) Record {
 	dir := paths.DispatchDir()

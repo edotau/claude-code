@@ -46,7 +46,7 @@ func openingAskWords(task string) []string {
 // opensWithAsk is a brief opening with its own ask command: never rewritten, only labelled.
 func opensWithAsk(task string) bool { return len(openingAskWords(task)) > 0 }
 
-// askLine is a brief's opening ask command: its --agent, --model, last word (the prompt), and --overlay document.
+// askLine holds the opening ask command's routing flags, positional prompt and overlay.
 type askLine struct {
 	agent, model, prompt string
 	profile, fallback    string // --profile and --fallback as typed
@@ -82,9 +82,7 @@ func parseAskLine(ctx context.Context, task string) askLine {
 	l := askLine{agent: agent, model: flagValue(words, "model"),
 		profile: flagValue(words, "profile"), fallback: flagValue(words, "fallback"), local: verb == 1 && !hasFlag(words, offRoute),
 		tools: hasFlag(words, []string{"tools", "read-only"}) || packsToFile(agent, words)}
-	if n := len(words); n > 0 && !isFlag(words[n-1]) {
-		l.prompt = words[n-1]
-	}
+	l.prompt = askPrompt(words)
 	value := flagValue(words, "overlay")
 	if value == "" || value == "-" { // "" would read $COWORKER_OVERLAY, "-" the hook's stdin: no prediction
 		return l
@@ -94,6 +92,36 @@ func parseAskLine(ctx context.Context, task string) askLine {
 	}
 	return l
 }
+
+// askPrompt follows Go flag parsing; a lone dash asks for stdin rather than supplying task text.
+func askPrompt(words []string) string {
+	for i := 0; i < len(words); i++ {
+		w := words[i]
+		if w == "--" {
+			words = words[i+1:]
+			break
+		}
+		if !isFlag(w) {
+			words = words[i:]
+			break
+		}
+		name, _, inline := strings.Cut(strings.TrimLeft(w, "-"), "=")
+		if !inline && slices.Contains(askValueFlags, name) {
+			i++
+		}
+		if i >= len(words)-1 {
+			return ""
+		}
+	}
+	if len(words) > 0 && !(len(words) == 1 && words[0] == "-") {
+		return strings.Join(words, " ")
+	}
+	return ""
+}
+
+var askValueFlags = strings.Fields("agent agents fallback profile provider as model effort workdir session debug-file " +
+	"attach keep-env env allow ask deny mode overlay system-prompt append-system-prompt output-schema timeout host " +
+	"format dirs files max-files max-file-bytes rubric retry job batch jobs")
 
 // packsToFile is a --dirs/--files/--diff pack the agent reads from a staged file, which turns tools on (packPrompt).
 func packsToFile(agent string, words []string) bool {

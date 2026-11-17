@@ -21,6 +21,12 @@ func TestDispatchRunReceiptGrammar(t *testing.T) {
 			}
 		}
 	}
+	for _, flags := range []string{"--model x", "--profile p", "--overlay -", "-", "--tools"} {
+		if got := parseAskLine(t.Context(), "Run: claude-code agents ask "+flags).prompt; got != "" {
+			t.Errorf("%s: prompt = %q, want empty", flags, got)
+		}
+	}
+
 	for _, brief := range []string{"Run: echo 'claude-code codex ask x'", "Run: claude-code agents result id", "Run: claude-code agents result -f id", "Task\nRun: claude-code codex ask x"} {
 		if opensWithAsk(brief) {
 			t.Errorf("not an opening launch: %q", brief)

@@ -508,6 +508,15 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	if err != nil {
 		return failAskCode(format, name, err, prepareExitCode(err))
 	}
+	claim := os.Getenv(agent.DispatchClaimEnv)
+	if err := os.Unsetenv(agent.DispatchClaimEnv); err != nil {
+		return failAsk(format, name, err)
+	}
+	if jobRec == nil {
+		if err := agent.ClaimDispatchID(claim, prepared.Record.ID); err != nil {
+			return failAsk(format, name, err)
+		}
+	}
 	saveErr := startPrepared(cl, prepared, background)
 	if background {
 		if saveErr != nil { // the --job child loads this record: without it the job could never start

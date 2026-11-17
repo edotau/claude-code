@@ -176,6 +176,8 @@ func TestCmdAskSessionKeepsRecordedModel(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
+			claim := filepath.Join(dir, "dispatch.claim")
+			t.Setenv(agent.DispatchClaimEnv, claim)
 			t.Setenv("CLAUDE_CONFIG_DIR", dir)
 			t.Setenv("HOME", dir)
 			t.Setenv("PATH", dir)
@@ -191,6 +193,19 @@ func TestCmdAskSessionKeepsRecordedModel(t *testing.T) {
 			hosttest.CaptureOutput(t, func() int { return Cmd(append(args, "again")) })
 			if got := agent.RecentRecords(1)[0].Request.Model; got != tt.want {
 				t.Errorf("request model = %q, want %q", got, tt.want)
+			}
+			if os.Getenv(agent.DispatchClaimEnv) != "" {
+				t.Fatal("dispatch claim leaked to child agents")
+			}
+			id, err := os.ReadFile(claim)
+			if err != nil || string(id) != agent.RecentRecords(1)[0].ID {
+				t.Fatalf("dispatch claim = %q, err=%v", id, err)
+			}
+			if err := agent.ClaimDispatchID(claim, "sibling"); !os.IsExist(err) {
+				t.Fatalf("second claim = %v, want exclusive-create failure", err)
+			}
+			if got, err := os.ReadFile(claim); err != nil || string(got) != string(id) {
+				t.Fatalf("claim overwritten: %q, err=%v", got, err)
 			}
 		})
 	}
