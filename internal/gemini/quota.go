@@ -23,6 +23,8 @@ import (
 const (
 	quotaTTL     = 60 * time.Second
 	quotaTimeout = 20 * time.Second
+	// quotaStaleMax bounds how old a disk-cached /usage read CheckCached still serves.
+	quotaStaleMax = 10 * time.Minute
 	// LowQuotaPct is the remaining percent under which a pool or model limit draws a warning.
 	LowQuotaPct   = 15.0
 	googleAccount = "google·antigravity"
@@ -65,6 +67,24 @@ func diskCached(ctx context.Context, run func(context.Context) ([]byte, error)) 
 		}
 	}
 	return out, err
+}
+
+// CheckCached is Check from the disk cache at any age up to quotaStaleMax, never spawning agy; an error means no usable read.
+func CheckCached(_ context.Context, model string, now time.Time) (ModelQuota, error) {
+	file := filepath.Join(paths.StateDir(), "agy-usage.json")
+	st, err := os.Stat(file)
+	if err != nil || quotaNow().Sub(st.ModTime()) >= quotaStaleMax {
+		return ModelQuota{}, errors.New("no recent agy usage cache")
+	}
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return ModelQuota{}, err
+	}
+	rows := ParseQuotas(usageText(b))
+	if len(rows) == 0 {
+		return ModelQuota{}, errors.New("agy usage cache has no rows")
+	}
+	return statusFor(rows, model, now), nil
 }
 
 var (

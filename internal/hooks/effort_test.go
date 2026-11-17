@@ -426,7 +426,8 @@ func TestDispatchRunBriefFixedNotDenied(t *testing.T) {
 		mode, st, desc string
 		notes          int // one note line per fix
 	}{
-		{"default", "copilot", "sonnet: fix it", 1},
+		{"default", "copilot", "opus: fix it", 1},
+		{"default", "copilot", "sonnet: fix it", 0}, // an equivalent label is accepted as typed
 		{"auto", "copilot", "fix it", 1},
 		{"auto", "coworker:copilot", "databricks-gpt-6-1-sol: fix it", 2},
 		{"auto", "copilot", "claude-sonnet-5.5: fix it", 0},

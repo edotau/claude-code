@@ -56,3 +56,14 @@ func TestDispatchLabelsLineListsEveryTierForUnpinnedTypes(t *testing.T) {
 		}
 	}
 }
+
+// The session-start output grows by exactly one line, the Run-flag rule, and it fits 120 characters.
+func TestDispatchLabelsLineEndsWithRunFlagRule(t *testing.T) {
+	useAgentsDir(t, "Explore")
+	stubResolve(t, func(q agentpkg.ModelQuery) string { return "wire-" + q.Model })
+	line := dispatchLabelsLine(core.ParseInputFor(strings.NewReader(`{"session_id":"s3","model":"sess-m"}`), core.AgentClaude))
+	lines := strings.Split(line, "\n")
+	if len(lines) != 2 || lines[1] != labelRuleLine || len(labelRuleLine) > 120 {
+		t.Fatalf("line = %q, want the label line plus the <=120-char rule line", line)
+	}
+}
