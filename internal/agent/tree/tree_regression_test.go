@@ -30,7 +30,7 @@ func TestBackgroundKeepsLiveSessionWithOldTranscript(t *testing.T) {
 	regFixture(t, claudeDir, "live-old", os.Getpid(), 40*24*time.Hour, now)
 	regFixture(t, claudeDir, "dead-old", deadPID, 40*24*time.Hour, now)
 	for _, running := range []bool{true, false} {
-		got, err := listing(claudeDir, Options{Days: 1, Running: running, Now: pinNow(now)}, false)
+		got, err := listing(claudeDir, Options{Days: 1, Running: running, Now: pinNow(now)}, true)
 		if err != nil {
 			t.Fatal(err)
 		}

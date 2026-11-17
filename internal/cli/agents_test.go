@@ -165,12 +165,12 @@ func TestCmdAgentsCancelLostNothingToDo(t *testing.T) {
 	okAgents(t, "cancel", "--lost")
 }
 
-// --finished is a superset of the default: a running dispatch from another repo stays listed.
-func TestCmdAgentsTreeFinishedKeepsRunningDispatches(t *testing.T) {
+// --detail is a superset of the default: a running dispatch from another repo stays listed.
+func TestCmdAgentsTreeDetailKeepsRunningDispatches(t *testing.T) {
 	cfgDir(t)
 	writeDispatch(t, "20261024T000002.000-codex", "running", os.Getpid(), 72*time.Hour)
-	if stdout := okAgents(t, "tree", "--finished", "--days", "1"); !strings.Contains(stdout, "000002") {
-		t.Errorf("--finished dropped the running dispatch:\n%s", stdout)
+	if stdout := okAgents(t, "tree", "--detail", "--days", "1"); !strings.Contains(stdout, "000002") {
+		t.Errorf("--detail dropped the running dispatch:\n%s", stdout)
 	}
 }
 

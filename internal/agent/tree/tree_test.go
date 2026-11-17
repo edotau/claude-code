@@ -309,23 +309,18 @@ func TestBuildFixtureSession(t *testing.T) {
 			t.Errorf("plain subagents=%d runs=%d, want 2 and 5", len(s.Subagents), len(s.Workflows))
 		}
 	})
-	t.Run("filterIdleSessions drops only empty idle", func(t *testing.T) {
+	t.Run("filterIdleSessions keeps only active work", func(t *testing.T) {
 		t.Parallel()
 		kept := filterIdleSessions(tree.Sessions)
-		ids := map[string]bool{}
-		for _, k := range kept {
-			ids[k.ID] = true
-		}
-		if ids[staleSID] {
-			t.Error("stale-session-cccc3333 (idle, no subagents/workflows) should be dropped")
-		}
-		for _, want := range []string{runningSID, finishedSID, "malformed-session-dddd4444"} {
-			if !ids[want] {
-				t.Errorf("%s should survive filterIdleSessions (active, or has subagents/workflows)", want)
+		for _, s := range kept {
+			if !s.isActive() {
+				t.Errorf("inactive session retained: %s", s.ID)
 			}
 		}
-		if len(kept) != len(tree.Sessions)-1 {
-			t.Errorf("got %d kept sessions, want %d (one idle-empty dropped)", len(kept), len(tree.Sessions)-1)
+		for _, s := range tree.Sessions {
+			if s.isActive() && !slices.ContainsFunc(kept, func(k Session) bool { return k.ID == s.ID }) {
+				t.Errorf("active session dropped: %s", s.ID)
+			}
 		}
 	})
 }
@@ -770,5 +765,23 @@ func TestReadRegistrySkipsUnusableEntries(t *testing.T) {
 	}
 	if got := readRegistry(claudeDir); len(got) != 1 || got["s8"].PID != 8 {
 		t.Errorf("readRegistry = %+v, want only s8", got)
+	}
+}
+
+func TestActiveSessionKeepsRunningAncestry(t *testing.T) {
+	s := Session{Status: statusActive, Subagents: []Subagent{
+		{ID: "idle", Status: statusStale},
+		{ID: "parent", Status: statusFinished, Dispatches: []Dispatch{
+			{ID: "root", Status: "ok"},
+			{ID: "child", Parent: "root", Status: statusRunning},
+			{ID: "done", Status: "ok"},
+		}},
+	}, Workflows: []WorkflowRun{{Status: statusFinished}}}
+	got := activeSession(s)
+	if len(got.Subagents) != 1 || got.Subagents[0].ID != "parent" || len(got.Subagents[0].Dispatches) != 2 || len(got.Workflows) != 0 {
+		t.Fatalf("active session = %+v", got)
+	}
+	if len(s.Subagents) != 2 || len(s.Subagents[1].Dispatches) != 3 || len(s.Workflows) != 1 {
+		t.Fatal("filter changed the complete source tree")
 	}
 }

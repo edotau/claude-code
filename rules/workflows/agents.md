@@ -15,7 +15,7 @@ agent: `skills/subagent-workflows/SKILL.md`.
   opencode/copilot verbs): `skills/subagent-workflows/references/agent-verbs.md`. Ask flags, `--live`, `--host`,
   stream-json: `skills/subagent-workflows/references/cost-routing.md` → Ask flags and lifecycle.
 - Not in those: `claude-code agents sync [--agent a] [--dry-run|--check]` projects agents and CLAUDE.md into every
-  agent CLI (`install` runs it); `agents tree [--watch|--finished]`; `agents watch [--once]` lists this
+  agent CLI (`install` runs it); `agents tree [--watch|--detail]`; `agents watch [--once]` lists this
   session's stale jobs with the next command (exit 3; the hooks run it automatically, `hooks.md`);
   `agents label <type> [--profile p] [--model m] --task F` prints the description prefix; `review scope --range <r>
   --caps`.
