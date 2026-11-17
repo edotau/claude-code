@@ -519,6 +519,14 @@ func TestModelColumnKeepsProviderAndDropsLabelFromTask(t *testing.T) {
 		{"provider-qualified id", "opencode-go/kimi-k3", "port it",
 			Subagent{Type: "opencode", Description: "opencode-go/kimi-k3: port it", Dispatches: rec("opencode", "kimi-k3")}},
 		{"path prose is no label", "-", "fix internal/par: port it", Subagent{Type: "claude", Description: "fix internal/par: port it"}},
+		{"qualified id without a record", "opencode-go/kimi-k3", "port it",
+			Subagent{Type: "opencode", Description: "opencode-go/kimi-k3: port it"}},
+		{"gemini id", "gemini-4-hydrogen", "port it", Subagent{Type: "gemini", Description: "gemini-4-hydrogen: port it"}},
+		{"conventional commit type", "-", "fix: handle X", Subagent{Type: "claude", Description: "fix: handle X"}},
+		{"chore is no model", "-", "chore: bump", Subagent{Type: "claude", Description: "chore: bump"}},
+		{"docs is no model", "-", "docs: fix links", Subagent{Type: "claude", Description: "docs: fix links"}},
+		{"note is no model", "-", "note: later", Subagent{Type: "claude", Description: "note: later"}},
+		{"path-like prefix is no model", "-", "internal/par: port it", Subagent{Type: "claude", Description: "internal/par: port it"}},
 	}
 	for _, c := range cases {
 		if got := subModel(c.sub); got != c.want {

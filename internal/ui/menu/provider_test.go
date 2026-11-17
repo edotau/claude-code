@@ -125,7 +125,7 @@ func TestAllCheckPanicIsErrorRow(t *testing.T) {
 	d := dbxEnv(t)
 	allSeams(t, map[string]func(context.Context) error{"dev": func(context.Context) error { panic("check exploded") }}, false, time.Second)
 	got := allCheckAll(context.Background(), d.reg, []string{"dev"})
-	if got[0].Status != allError || got[0].Detail != "panic: check exploded" {
+	if got[0].Status != allError || got[0].Detail != panicRow {
 		t.Fatalf("got %+v, want an error row carrying the panic", got[0])
 	}
 }

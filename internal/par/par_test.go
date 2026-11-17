@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -159,3 +160,87 @@ func TestAll(t *testing.T) {
 		})
 	}
 }
+
+func TestAllEdgesAndEveryPanic(t *testing.T) {
+	for _, n := range []int{0, 1, 1000} {
+		errs := All(n, func(int) error { panic("slot exploded") })
+		if len(errs) != n {
+			t.Fatalf("n=%d: %d results", n, len(errs))
+		}
+		for _, err := range errs {
+			checkPanic(t, err)
+		}
+	}
+}
+
+func TestPanicNilValueIsAnError(t *testing.T) {
+	err := All(1, func(int) error { panic(nil) })[0]
+	var p *PanicError
+	if !errors.As(err, &p) || p.Value == nil {
+		t.Fatalf("panic(nil) = %v, want a PanicError with a value", err)
+	}
+}
+
+// A slot that calls runtime.Goexit (t.Fatal does) never returns; it must read as a failure, not success.
+func TestGoexitIsAFailureEverywhere(t *testing.T) {
+	exit := func() { runtime.Goexit() }
+	t.Run("All", func(t *testing.T) {
+		errs := All(2, func(i int) error {
+			if i == 0 {
+				exit()
+			}
+			return nil
+		})
+		if errs[0] == nil || errs[1] != nil {
+			t.Fatalf("All: %v", errs)
+		}
+	})
+	t.Run("Go", func(t *testing.T) {
+		done := make(chan error, 1)
+		Go(exit, func(err error) { done <- err })
+		select {
+		case err := <-done:
+			checkExit(t, err)
+		case <-time.After(time.Second):
+			t.Fatal("Go: Goexit not reported")
+		}
+	})
+	t.Run("Map", func(t *testing.T) {
+		got, err := Map(t.Context(), []int{1, 2, 3}, 1, func(_ context.Context, n int) (int, error) {
+			if n == 2 {
+				exit()
+			}
+			return n, nil
+		})
+		if err == nil {
+			t.Fatalf("Map: %v with a nil error after a Goexit with items left", got)
+		}
+	})
+	t.Run("Within", func(t *testing.T) {
+		synctest.Test(t, func(t *testing.T) {
+			_, err := Within(t.Context(), time.Hour, func(context.Context) (int, error) { exit(); return 0, nil })
+			if err == nil || errors.Is(err, context.DeadlineExceeded) {
+				t.Fatalf("Within: %v, want the Goexit, not the budget", err)
+			}
+		})
+	})
+}
+
+func checkExit(t *testing.T, err error) {
+	t.Helper()
+	var p *PanicError
+	if !errors.As(err, &p) || !strings.Contains(err.Error(), "Goexit") {
+		t.Fatalf("want a Goexit PanicError, got %v", err)
+	}
+}
+
+func TestPanicStackIsThePanickingGoroutines(t *testing.T) {
+	err := All(1, func(int) error { return explode() })[0]
+	var p *PanicError
+	if !errors.As(err, &p) || !strings.Contains(string(p.Stack), "par.explode") {
+		t.Fatalf("stack lacks the panicking frame:\n%v", err)
+	}
+}
+
+//go:noinline
+func explode() error { panic("explode exploded") }

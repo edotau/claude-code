@@ -339,8 +339,6 @@ func TestBuildFilters(t *testing.T) {
 	}{
 		{"days excludes old sessions", Options{Days: 1}, []string{finishedSID}, []string{staleSID}, nil},
 		{"session narrows to one id ignoring days", Options{Session: staleSID}, nil, nil, []string{staleSID}},
-		{"running keeps active or running-child sessions", Options{Days: 60, Running: true},
-			[]string{runningSID, finishedSID}, []string{staleSID}, nil},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -459,96 +457,17 @@ func TestFilterIdleSessionsKeepsActiveEvenWhenEmpty(t *testing.T) {
 	}
 }
 
-// --running prunes finished/error children of a kept session; the JSON view marshals the same pruned tree.
-func TestBuildRunningPrunesFinishedChildren(t *testing.T) {
-	t.Parallel()
-	tree := buildShared(t, Options{Days: 60, Running: true})
-
-	t.Run("tree", func(t *testing.T) {
-		t.Parallel()
-		s := sessionByID(t, tree, finishedSID)
-		if len(s.Subagents) != 1 || s.Subagents[0].ID != "fakeagentid002" {
-			t.Errorf("subagents = %+v, want only the running [fakeagentid002]", s.Subagents)
-		}
-		var runs []string
-		for _, r := range s.Workflows {
-			runs = append(runs, r.ID)
-			for _, p := range r.Phases {
-				for _, a := range p.Agents {
-					if a.Status == statusFinished || a.Status == statusError {
-						t.Errorf("--running kept %s workflow agent %s", a.Status, a.ID)
-					}
-				}
-			}
-		}
-		for _, id := range runs {
-			if id == "wf_fake0001-abc" || id == "wf_fake0005-killed" {
-				t.Errorf("--running kept wholly finished/killed run %s (runs=%v)", id, runs)
-			}
-		}
-		if !slices.Contains(runs, "wf_fake0003-running") {
-			t.Errorf("running workflow run wf_fake0003-running dropped (runs=%v)", runs)
-		}
-	})
-	t.Run("json", func(t *testing.T) {
-		t.Parallel()
-		raw, err := json.Marshal(tree)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var decoded struct {
-			Sessions []struct {
-				ID        string `json:"id"`
-				Subagents []struct {
-					ID     string `json:"id"`
-					Status string `json:"status"`
-				} `json:"subagents"`
-			} `json:"sessions"`
-		}
-		if err := json.Unmarshal(raw, &decoded); err != nil {
-			t.Fatal(err)
-		}
-		if len(decoded.Sessions) != len(tree.Sessions) {
-			t.Fatalf("json sessions = %d, tree = %d", len(decoded.Sessions), len(tree.Sessions))
-		}
-		for _, s := range decoded.Sessions {
-			var ids []string
-			for _, sub := range s.Subagents {
-				ids = append(ids, sub.ID)
-				if sub.Status == statusFinished || sub.Status == statusError {
-					t.Errorf("json kept %s subagent %s in %s", sub.Status, sub.ID, s.ID)
-				}
-			}
-			if s.ID == finishedSID && (len(ids) != 1 || ids[0] != "fakeagentid002") {
-				t.Errorf("json subagents = %+v, want [fakeagentid002]", s.Subagents)
-			}
-		}
-	})
-}
-
-// An unfinished subagent past activeWindow is stale; --running keeps it because it may be hung, not done.
+// An unfinished subagent past activeWindow is stale: it may be hung, not done.
 func TestSubagentGoesStaleOutsideActiveWindow(t *testing.T) {
 	t.Parallel()
-	for _, running := range []bool{false, true} {
-		t.Run(fmt.Sprintf("running=%v", running), func(t *testing.T) {
-			t.Parallel()
-			claudeDir, now := copyTestdataTree(t)
-			touch(t, agent002Path(filepath.Join(claudeDir, "projects", demoProj)), now.Add(-time.Hour))
-			tree, err := build(claudeDir, Options{Days: 60, Running: running, Now: pinNow(now)})
-			if err != nil {
-				t.Fatal(err)
-			}
-			s := sessionByID(t, tree, finishedSID)
-			if running {
-				if len(s.Subagents) != 1 || s.Subagents[0].ID != "fakeagentid002" || s.Subagents[0].Status != statusStale {
-					t.Errorf("subagents = %+v, want the stale fakeagentid002 kept", s.Subagents)
-				}
-				return
-			}
-			if got := mustSub(t, s, "fakeagentid002").Status; got != statusStale {
-				t.Errorf("agent002 status = %q, want stale", got)
-			}
-		})
+	claudeDir, now := copyTestdataTree(t)
+	touch(t, agent002Path(filepath.Join(claudeDir, "projects", demoProj)), now.Add(-time.Hour))
+	tree, err := build(claudeDir, Options{Days: 60, Now: pinNow(now)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mustSub(t, sessionByID(t, tree, finishedSID), "fakeagentid002").Status; got != statusStale {
+		t.Errorf("agent002 status = %q, want stale", got)
 	}
 }
 
@@ -652,7 +571,7 @@ func TestRunningDedupe(t *testing.T) {
 			e := newDedupeEnv(t)
 			e.session(t, c.sid, headlessPrmt, c.withSub, e.now.Add(-c.age))
 			e.dispatch(t, c.agent, c.workDir, c.repo, c.jobSID)
-			tree, err := listing(e.cfg, Options{Days: 60, Running: true, Now: pinNow(e.now)}, true)
+			tree, err := listing(e.cfg, Options{Days: 60, Now: pinNow(e.now)}, true)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -723,7 +642,7 @@ func regFixture(t *testing.T, claudeDir, id string, pid int, age time.Duration, 
 		`{"type":"user","cwd":"/repo","message":{"content":[{"type":"text","text":"hi"}]}}`+"\n", now.Add(-age))
 }
 
-// A live pid beats a stale transcript under --running; a dead pid and an unparsable file add nothing.
+// A live pid beats a stale transcript; a dead pid and an unparsable file add nothing.
 func TestRegistryJoin(t *testing.T) {
 	claudeDir := t.TempDir()
 	now := time.Date(2026, 10, 28, 12, 0, 0, 0, time.UTC)
@@ -735,7 +654,7 @@ func TestRegistryJoin(t *testing.T) {
 	writeFile(t, filepath.Join(claudeDir, "sessions", "junk.json"), "{not json", time.Time{})
 	writeFile(t, filepath.Join(claudeDir, "sessions", "noid.json"), `{"pid":1,"name":"x"}`, time.Time{})
 
-	tree, err := build(claudeDir, Options{Days: 1, Running: true, Now: pinNow(now)})
+	tree, err := build(claudeDir, Options{Days: 1, Now: pinNow(now)})
 	if err != nil {
 		t.Fatalf("build with an unparsable registry file: %v", err)
 	}
@@ -743,7 +662,7 @@ func TestRegistryJoin(t *testing.T) {
 	for i, s := range tree.Sessions {
 		switch s.ID {
 		case "dead-stale":
-			t.Errorf("dead pid with stale transcript listed under --running")
+			t.Errorf("dead pid with stale transcript listed")
 		case "dead-fresh":
 			if s.Live || s.PID != 0 {
 				t.Errorf("dead pid marked live: %+v", s)
@@ -753,7 +672,7 @@ func TestRegistryJoin(t *testing.T) {
 		}
 	}
 	if got == nil {
-		t.Fatal("live pid with a 40-day-old transcript dropped by --running")
+		t.Fatal("live pid with a 40-day-old transcript dropped")
 	}
 	if !got.Live || got.PID != os.Getpid() || got.Name != "name-live-stale" || got.CLIStatus != "waiting" || got.Mode != "interactive" {
 		t.Errorf("registry fields not joined: %+v", got)

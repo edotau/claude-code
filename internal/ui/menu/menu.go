@@ -24,14 +24,17 @@ type row struct {
 	Run                func(*dialog)
 }
 
-// panicLine is a contained panic's one-line row text; the stack goes to stderr, before the menu opens, for the report.
+// panicRow is the row text of a contained panic; the value may hold a secret, so it and the stack go to stderr only.
+const panicRow = "error: internal panic (stack on stderr)"
+
+// panicLine is err's one-line row text; a contained panic prints once to stderr, before the menu opens.
 func panicLine(err error) string {
-	fmt.Fprintln(os.Stderr, err)
 	var pe *par.PanicError
-	if errors.As(err, &pe) {
-		return fmt.Sprintf("panic: %v", pe.Value)
+	if !errors.As(err, &pe) {
+		return err.Error()
 	}
-	return err.Error()
+	fmt.Fprintln(os.Stderr, pe)
+	return panicRow
 }
 
 // fanOut keeps a panicking builder from hiding its row or its siblings.
@@ -151,6 +154,9 @@ func mark(current bool) string {
 
 // crumb is a page title as the panel's breadcrumb: "configure", then each " — " part as a level.
 func crumb(title string) string {
+	if title == "" {
+		return ""
+	}
 	return "configure › " + strings.ReplaceAll(title, " — ", " › ")
 }
 

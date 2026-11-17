@@ -2,6 +2,7 @@ package waves
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"fmt"
 	"go/ast"
@@ -298,5 +299,22 @@ func TestLaunchEnvelopesReportAndResultNames(t *testing.T) {
 	}
 	if want := filepath.Join(options.ReportsDir, "2020-01-02-toy-1.1.result.txt"); out[0].Result != want {
 		t.Errorf("Result = %s, want %s", out[0].Result, want)
+	}
+}
+
+// The run's reason is persisted: a panicking batch must not carry its value or stack there.
+func TestLaunchPanicErrorHasNoValueOrStack(t *testing.T) {
+	original := scopeBatchRun
+	t.Cleanup(func() { scopeBatchRun = original })
+	scopeBatchRun = func(context.Context, string, []Spec, []string, LaunchOptions) ([]Envelope, error) {
+		panic("secret-value")
+	}
+	wave := scopeWave("claude", "claude")
+	envelopes, err := Launch(t.Context(), "must-not-run", wave, LaunchOptions{Slug: "s", ReportsDir: t.TempDir(), Wave: wave})
+	if err == nil || len(envelopes) != 0 {
+		t.Fatalf("envelopes=%v err=%v, want a failure and no envelopes", envelopes, err)
+	}
+	if msg := err.Error(); strings.Contains(msg, "goroutine") || strings.Contains(msg, "secret-value") || !strings.Contains(msg, "1.1") {
+		t.Fatalf("error %q must name the leaves and omit the panic value and stack", msg)
 	}
 }

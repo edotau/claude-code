@@ -378,6 +378,9 @@ func TestCrumbTitleOnPanelNumberedPromptKeepsTitle(t *testing.T) {
 	if got, want := crumb("copilot — model"), "configure › copilot › model"; got != want {
 		t.Errorf("crumb = %q, want %q", got, want)
 	}
+	if got := crumb(""); got != "" {
+		t.Errorf("crumb of an empty title = %q, want empty", got)
+	}
 	var out bytes.Buffer
 	sh := &shell{Out: &out, In: bufio.NewReader(strings.NewReader("\n"))}
 	sh.Pick("copilot — model", [][2]string{{"a", "b"}})

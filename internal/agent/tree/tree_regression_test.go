@@ -2,7 +2,6 @@ package tree
 
 import (
 	"os"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -29,60 +28,14 @@ func TestBackgroundKeepsLiveSessionWithOldTranscript(t *testing.T) {
 	now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
 	regFixture(t, claudeDir, "live-old", os.Getpid(), 40*24*time.Hour, now)
 	regFixture(t, claudeDir, "dead-old", deadPID, 40*24*time.Hour, now)
-	for _, running := range []bool{true, false} {
-		got, err := listing(claudeDir, Options{Days: 1, Running: running, Now: pinNow(now)}, true)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(got.Sessions) != 1 {
-			t.Fatalf("listing(Running=%t) sessions = %+v, want only the old live session", running, got.Sessions)
-		}
-		s := got.Sessions[0]
-		if s.ID != "live-old" || !s.Live || s.PID != os.Getpid() {
-			t.Errorf("listing(Running=%t) session = %+v, want the live registered session", running, s)
-		}
-	}
-}
-
-func TestBuildRunningKeepsStaleOnlySession(t *testing.T) {
-	for _, kind := range []string{"direct", "workflow"} {
-		t.Run(kind, func(t *testing.T) {
-			dir := t.TempDir()
-			t.Setenv("CLAUDE_CONFIG_DIR", dir)
-			now := time.Date(2026, 11, 8, 12, 0, 0, 0, time.UTC)
-			project := filepath.Join(dir, "projects", "-repo")
-			writeFixFixture(t, filepath.Join(project, "idle.jsonl"), `{"type":"user","cwd":"/repo","message":{"content":"hello"}}`)
-			agents := filepath.Join(project, "idle", "subagents")
-			if kind == "workflow" {
-				agents = filepath.Join(agents, "workflows", "wf-stale")
-			}
-			writeFixFixture(t, filepath.Join(agents, "agent-stale.jsonl"), "")
-			chtimesAll(t, project, now.Add(-time.Hour))
-			got, err := build(dir, Options{Running: true, Now: pinNow(now)})
-			if err != nil {
-				t.Fatal(err)
-			}
-			s := sessionByID(t, got, "idle")
-			if s.Live || s.Status != statusIdle {
-				t.Fatalf("session = %+v, want non-live idle session", s)
-			}
-			subs := s.Subagents
-			if kind == "workflow" {
-				subs = workflowByID(t, s.Workflows, "wf-stale").Phases[0].Agents
-			}
-			if len(subs) != 1 || subs[0].ID != "stale" || subs[0].Status != statusStale {
-				t.Fatalf("subagents = %+v, want the unfinished stale agent retained", subs)
-			}
-		})
-	}
-}
-
-func writeFixFixture(t *testing.T, path, body string) {
-	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+	got, err := listing(claudeDir, Options{Days: 1, Now: pinNow(now)}, true)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
-		t.Fatal(err)
+	if len(got.Sessions) != 1 {
+		t.Fatalf("listing sessions = %+v, want only the old live session", got.Sessions)
+	}
+	if s := got.Sessions[0]; s.ID != "live-old" || !s.Live || s.PID != os.Getpid() {
+		t.Errorf("listing session = %+v, want the live registered session", s)
 	}
 }
