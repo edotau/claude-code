@@ -1,6 +1,8 @@
 package shell
 
 import (
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
@@ -51,10 +53,34 @@ func TestAttributionFooterCommit(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			if got := AttributionFooterCommit(c.cmd); got != c.want {
+			if got := AttributionFooterCommit(c.cmd, ""); got != c.want {
 				t.Errorf("AttributionFooterCommit(%q) = %v, want %v", c.cmd, got, c.want)
 			}
 		})
+	}
+}
+
+func TestAttributionFooterMessageFile(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("bad.txt", "feat: x\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n")
+	write("ok.txt", "feat: x\n")
+	for _, c := range []struct {
+		args string
+		want bool
+	}{
+		{"-F bad.txt", true}, {"--file=bad.txt", true}, {"--file bad.txt", true}, {"-Fbad.txt", true},
+		{"-t bad.txt", true}, {"--template=bad.txt", true}, {"-F " + filepath.Join(dir, "bad.txt"), true},
+		{"-F ok.txt", false}, {"--file=ok.txt", false}, {"-F missing.txt", false}, {"-F " + dir, false},
+	} {
+		cmd := "git -C " + dir + " commit " + c.args
+		if got := AttributionFooterCommit(cmd, ""); got != c.want {
+			t.Errorf("AttributionFooterCommit(%q) = %v, want %v", cmd, got, c.want)
+		}
 	}
 }
 
@@ -75,7 +101,7 @@ func TestAttributionFooterHidden(t *testing.T) {
 		`echo $(date); git commit -m "mention co-authored-by docs"`:                                      false,
 		`git commit -m "fix: x"`:                                                                         false,
 	} {
-		if got := AttributionFooterCommit(cmd); got != want {
+		if got := AttributionFooterCommit(cmd, ""); got != want {
 			t.Errorf("AttributionFooterCommit(%q) = %v, want %v", cmd, got, want)
 		}
 	}
@@ -123,5 +149,19 @@ func TestReadOnlyGitRefusesNoIndex(t *testing.T) {
 		if ReadOnlyGit(cmd) {
 			t.Errorf("ReadOnlyGit(%q) = true", cmd)
 		}
+	}
+}
+
+func TestAttributionFooterMessageFileUsesPayloadCwd(t *testing.T) {
+	dir := t.TempDir()
+	body := "feat: x\n\nCo-Authored-By: Claude <noreply@anthropic.com>\n"
+	if err := os.WriteFile(filepath.Join(dir, "bad.txt"), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !AttributionFooterCommit("git commit -F bad.txt", dir) {
+		t.Error("relative -F must resolve against the payload cwd")
+	}
+	if AttributionFooterCommit("git commit -F bad.txt", t.TempDir()) {
+		t.Error("relative -F must not resolve outside the payload cwd")
 	}
 }
