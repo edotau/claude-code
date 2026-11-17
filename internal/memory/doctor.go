@@ -58,7 +58,7 @@ const DefaultStaleDays = 90
 
 // doctorNoticePath is the per-store cached doctor summary read at SessionStart.
 func doctorNoticePath() string {
-	return filepath.Join(StateDir(), "doctor-notice-"+stateKey(HomeBank()))
+	return filepath.Join(StateDir(), "doctor-notice-"+stateKey())
 }
 
 // doctorNotice is the cached review line for SessionStart, "" with none; a full Doctor pass is too slow for launch.
@@ -76,11 +76,11 @@ func doctorNotice() string {
 
 // writeDoctorNotice runs the doctor and caches its notice for root.
 func writeDoctorNotice(root string, staleDays int, now time.Time) error {
-	return cacheDoctorNotice(HomeBank(), doctor(root, staleDays, now))
+	return cacheDoctorNotice(doctor(root, staleDays, now))
 }
 
 // cacheDoctorNotice caches problems' first line and a count (hot hints excluded); empty means checked and healthy.
-func cacheDoctorNotice(b Bank, problems []string) error {
+func cacheDoctorNotice(problems []string) error {
 	problems = slices.DeleteFunc(slices.Clone(problems), func(p string) bool {
 		return strings.Contains(p, ": hot — recalled") // advice, not a problem; `memory review` still lists it
 	})
@@ -91,7 +91,7 @@ func cacheDoctorNotice(b Bank, problems []string) error {
 			line += " (+" + strconv.Itoa(len(problems)-1) + " more)"
 		}
 	}
-	return paths.AtomicWrite(filepath.Join(StateDir(), "doctor-notice-"+stateKey(b)), []byte(line), 0o600)
+	return paths.AtomicWrite(filepath.Join(StateDir(), "doctor-notice-"+stateKey()), []byte(line), 0o600)
 }
 
 // refreshNotice re-caches root's session-start notice once its bank is settled; a failure is a note on w, never fatal.
@@ -102,7 +102,7 @@ func refreshNotice(w io.Writer, verb, root string) {
 }
 
 func refreshBankNotice(w io.Writer, verb, root string, b Bank) {
-	if err := cacheDoctorNotice(b, doctorBank(root, b, DefaultStaleDays, time.Now())); err != nil {
+	if err := cacheDoctorNotice(doctorBank(root, b, DefaultStaleDays, time.Now())); err != nil {
 		fmt.Fprintf(w, "%s: doctor notice: %v\n", verb, err)
 	}
 }

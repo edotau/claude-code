@@ -139,7 +139,7 @@ func (p *importPlan) apply(opt ImportOptions) error {
 	if err := writeCatalog(opt.Now); err != nil {
 		return err
 	}
-	return commitBanks("settle: import "+label, []Bank{HomeBank()})
+	return commitBanks("settle: import " + label)
 }
 
 // Mixed layouts cannot share file attribution safely; read-only, as the apply path's withFlatLock already stamped.

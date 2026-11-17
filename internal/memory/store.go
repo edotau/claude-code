@@ -200,13 +200,13 @@ func BankLockPath() string { return filepath.Join(StateDir(), bankLockFile) }
 
 // storeLockDir is state's lock dir for b (named by stateKey), created 0700.
 func storeLockDir(b Bank) string {
-	d := filepath.Join(StateDir(), "locks", stateKey(b))
+	d := filepath.Join(StateDir(), "locks", stateKey())
 	_ = os.MkdirAll(d, 0o700)
 	return d
 }
 
 // stateKey names b in per-bank state (locks, stamps, notices): always "home".
-func stateKey(Bank) string { return homeDir }
+func stateKey() string { return homeDir }
 
 // WithBankLock runs fn under the bank lock (wait<=0 = BankLockWait); not reentrant, so *Locked helpers never take it.
 func WithBankLock(wait time.Duration, fn func() error) error {
