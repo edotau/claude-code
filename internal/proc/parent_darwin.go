@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -50,18 +51,26 @@ func cString(b []byte) string {
 	return n
 }
 
-// Descendants returns pid's children, grandchildren, ... via ps -A -o pid=,ppid=.
+// Descendants returns pid's children, grandchildren, ... from the kernel process table.
 func Descendants(pid int) []int {
 	if pid <= 0 {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "ps", "-A", "-o", "pid=,ppid=").Output()
+	all, err := unix.SysctlKinfoProcSlice("kern.proc.all")
 	if err != nil {
 		return nil
 	}
-	return walkChildren(parseChildren(string(out)), pid)
+	children := make(map[int][]int)
+	for i := range all {
+		cpid, ppid := int(all[i].Proc.P_pid), int(all[i].Eproc.Ppid)
+		if cpid > 1 && ppid > 0 {
+			children[ppid] = append(children[ppid], cpid)
+		}
+	}
+	for _, kids := range children {
+		slices.Sort(kids)
+	}
+	return walkChildren(children, pid)
 }
 
 // Comm returns pid's executable name ("" when unreadable): argv[0]'s base as ps prints it, else asked of ps.
