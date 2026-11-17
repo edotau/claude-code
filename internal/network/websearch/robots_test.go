@@ -166,6 +166,23 @@ func TestWarmRobotsMarksOnlyUnreadableOriginsDead(t *testing.T) {
 	}
 }
 
+// TestWarmRobotsPanickingFetchLeavesOriginDead: a contained panic never turns an unread origin into allowed.
+func TestWarmRobotsPanickingFetchLeavesOriginDead(t *testing.T) {
+	resetRobotsCache(t)
+	orig := pageClient
+	pageClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Host == "boom.example" {
+			panic("boom")
+		}
+		return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody, Request: r}, nil
+	})}
+	t.Cleanup(func() { pageClient = orig })
+	dead := warmRobots(context.Background(), []string{"https://ok.example/a", "https://boom.example/b"})
+	if !dead["https://boom.example"] {
+		t.Fatalf("dead = %v; the panicking origin must stay dead", dead)
+	}
+}
+
 // TestPageClientTransportBounds: no proxy (the dial guard must see the real target), every phase bounded.
 func TestPageClientTransportBounds(t *testing.T) {
 	tr, ok := pageClient.Transport.(*http.Transport)
