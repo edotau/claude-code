@@ -419,7 +419,7 @@ func SessionName() (name string, routed bool) {
 	if p := SessionLeadContext(context.Background(), nil, true); p != "" {
 		return p, false
 	}
-	if reg, _ := Load(); reg != nil {
+	if reg, _ := LoadShared(); reg != nil {
 		return reg.Default, false
 	}
 	return "", false

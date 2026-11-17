@@ -17,7 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-func testTable(t *testing.T) *RouteTable {
+func testTable(t testing.TB) *RouteTable {
 	t.Helper()
 	// scratch vault: never the real pins or logins
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

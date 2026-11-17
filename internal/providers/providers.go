@@ -340,7 +340,7 @@ func ProfileName(p *Provider) string {
 
 // IdentityNote is " · identity <mode>" for a profile paired with a service principal, else "".
 func IdentityNote(profile string) string {
-	reg, err := Load()
+	reg, err := LoadShared()
 	if err != nil {
 		return ""
 	}

@@ -130,3 +130,42 @@ func TestChoose(t *testing.T) {
 		}
 	}
 }
+
+// The literal-prefix fast path of RankOf agrees with path.Match on every family, slash tails included.
+func TestRankOfMatchesPathMatch(t *testing.T) {
+	tab := loadRanks()
+	for _, f := range tab.Families {
+		stem := strings.ReplaceAll(strings.ReplaceAll(f.Match, "*", "x"), "?", "y")
+		for _, id := range []string{stem, stem + "-1", stem + "/a", "x/" + stem, strings.TrimSuffix(stem, "x")} {
+			var want Rank
+			for _, r := range tab.Families {
+				if ok, _ := path.Match(r.Match, ID(id)); ok {
+					want = r
+					break
+				}
+			}
+			if got := RankOf(id); got.Match != want.Match {
+				t.Errorf("RankOf(%q).Match = %q, want %q", id, got.Match, want.Match)
+			}
+		}
+	}
+}
+
+func BenchmarkRankOf(b *testing.B) {
+	ids := []string{"claude-opus-5-5-20261001", "databricks-gpt-5-5", "gemini-3-8-flash-lite", "no-such-model"}
+	b.ReportAllocs()
+	for i := 0; b.Loop(); i++ {
+		RankOf(ids[i%len(ids)])
+	}
+}
+
+func BenchmarkChoose(b *testing.B) {
+	cands := []Candidate{
+		{"claude-opus-5-5", "yes"}, {"claude-sonnet-5-5", "yes"}, {"claude-haiku-5-5", ""},
+		{"databricks-gpt-5-5", "no"}, {"gemini-3-8-flash", "yes"}, {"no-such-model", "yes"},
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		Choose(cands, "standard", true)
+	}
+}
