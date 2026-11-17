@@ -29,6 +29,7 @@ import (
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -444,8 +445,10 @@ type leafScan struct {
 	pendingAsks       map[string]time.Time
 	pendingEdits      map[string]bool
 	seenBrief         bool
-	runLine           string          // the brief's opening `Run:` command, the one the hook runs
-	task              string          // the brief after its Run: line: the prompt a promptless Run: line is missing
+	runLine           string    // the brief's opening `Run:` command, the one the hook runs
+	task              string    // the brief after its Run: line: the prompt a promptless Run: line is missing
+	asks              []askCall // the successful launching calls: time and command, to tie a polled record to its ask
+	askCmds           map[string]string
 	askTimes          []time.Time     // when each launching (ask|dispatch) call was made, to find its dispatch record
 	askCalls          map[string]bool // tool_use ids of Bash calls that ran an ask, dispatch or result
 	ids               []string        // dispatch ids those calls' own results printed, in order: the leaf's jobs
@@ -595,6 +598,7 @@ func (s *leafScan) scanResult(it leafToolResult) {
 	if at, ok := s.pendingAsks[it.ToolUseID]; ok {
 		if success {
 			s.askTimes = append(s.askTimes, at)
+			s.asks = append(s.asks, askCall{at, s.askCmds[it.ToolUseID]})
 		}
 		delete(s.pendingAsks, it.ToolUseID)
 	}
@@ -610,7 +614,7 @@ func (s *leafScan) scanResult(it leafToolResult) {
 			p.bgFile = m[1]
 		} else {
 			p.done = true
-			if !it.IsError {
+			if success {
 				s.addPollID(p.job)
 			}
 		}
@@ -904,6 +908,10 @@ func (s *leafScan) recordAsk(it leafToolUse, calls [][]string, at time.Time) {
 			s.pendingAsks = map[string]time.Time{}
 		}
 		s.pendingAsks[it.ID] = at
+		if s.askCmds == nil {
+			s.askCmds = map[string]string{}
+		}
+		s.askCmds[it.ID] = it.Input.Command
 	}
 }
 
@@ -914,17 +922,53 @@ func (s *leafScan) addPoll(id, job string, follow bool) {
 	s.polls[id] = pollCall{job: job, follow: follow}
 }
 
-// addPollID binds a job this leaf's successful poll named, only when its record is this session's and one of its asks'.
+// askCall is one launching Bash call of the leaf: when it was made and its command text.
+type askCall struct {
+	at  time.Time
+	cmd string
+}
+
+// addPollID binds a poll-named job that this session's record ties to one of the leaf's own asks.
 func (s *leafScan) addPollID(job string) {
 	rec, err := loadDispatch(job)
-	if err != nil || slices.Contains(s.ids, job) || rec.Owner == 0 || rec.Owner != inflight.SessionOwner() {
+	if err != nil || slices.Contains(s.ids, job) || rec.Owner == 0 || rec.Owner != watchOwner() {
 		return
 	}
-	if slices.ContainsFunc(s.askTimes, func(at time.Time) bool {
-		return !at.IsZero() && !rec.Time.Before(at) && rec.Time.Sub(at) < askLaunchWindow
+	if slices.ContainsFunc(s.asks, func(a askCall) bool {
+		return !a.at.IsZero() && !rec.Time.Before(a.at) && rec.Time.Sub(a.at) < askLaunchWindow && askTied(a.cmd, rec)
 	}) {
 		s.ids = append(s.ids, job)
 	}
+}
+
+// askTied: rec has the ask's agent and a prompt holding its brief file (else its last word); no prompt ties nothing.
+func askTied(cmd string, rec agent.Record) bool {
+	for _, seg := range shell.Segments(cmd) {
+		words := agentCommand(relayWords(seg))
+		_, file, err := relayInput(seg)
+		if err != nil || len(words) < 3 {
+			continue
+		}
+		name, prompt := "", words[len(words)-1]
+		if file != "" {
+			b, _ := os.ReadFile(file)
+			words, prompt = words[:len(words)-2], string(b)
+		}
+		for i, w := range words {
+			if v, ok := strings.CutPrefix(w, "--agent="); ok {
+				name = v
+			} else if w == "--agent" && i+1 < len(words) {
+				name = words[i+1]
+			}
+		}
+		if name == "" && externalTypes[words[0]] {
+			name = words[0]
+		}
+		if prompt = strings.TrimSpace(prompt); name == rec.Agent && prompt != "" && strings.Contains(rec.Request.Prompt, prompt) {
+			return true
+		}
+	}
+	return false
 }
 
 var hookDenyRe = sync.OnceValue(func() *regexp.Regexp {

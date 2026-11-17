@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/inflight"
 )
 
 const pollJobID = "20261116T120000.000-opencode"
@@ -153,50 +153,86 @@ func TestRelaySyntax(t *testing.T) {
 	}
 }
 
-// A relay's own successful `agents result|wait <id>` after a backgrounded ask binds an id whose record is the leaf's.
+// A relay's own successful `agents result|wait <id>` after a backgrounded ask binds an id whose record is its ask's.
 func TestHandbackBindsOwnPoll(t *testing.T) {
 	const id = "20261117T101000.000-opencode"
-	owner, at := inflight.SessionOwner(), time.Now().Add(-15*time.Minute).Truncate(time.Second)
-	out := "▸ result: " + id + "\nANSWER\nask: ran on opencode · m"
-	for _, c := range []struct {
-		name, cmd string
-		isErr     bool
-		own       int           // the record's Owner
-		start     time.Duration // the record's start after the ask call; a negative one writes no record
-		want      bool
-	}{
-		{"result -f", "claude-code agents result -f " + id, false, owner, time.Second, true},
-		{"wait", "claude-code agents wait " + id + " --timeout 590s", false, owner, time.Second, true},
-		{"rtk wait", "rtk claude-code agents wait " + id + " --timeout 590s", false, owner, time.Second, true},
-		{"tool error", "claude-code agents result -f " + id, true, owner, time.Second, false},
-		{"no record", "claude-code agents result -f " + id, false, owner, -1, false},
-		{"another session's record", "claude-code agents result -f " + id, false, owner + 1, time.Second, false},
-		{"launched after the window", "claude-code agents result -f " + id, false, owner, askLaunchWindow + time.Second, false},
+	const owner = 4242
+	oldOwner := watchOwner
+	t.Cleanup(func() { watchOwner = oldOwner })
+	watchOwner = func() int { return owner } // a fixed session pid: the ambient one is 0 outside a Claude session
+	at := time.Now().Add(-15 * time.Minute).Truncate(time.Second)
+	good := "▸ result: " + id + "\nANSWER\nask: ran on opencode · m"
+	res, wait := "claude-code agents result -f "+id, "claude-code agents wait "+id+" --timeout 590s"
+	for _, c := range []pollRow{
+		{name: "result -f", cmd: res, want: true},
+		{name: "wait", cmd: wait, want: true},
+		{name: "brief file ask", cmd: res, file: true, want: true},
+		{name: "brief file of another prompt", cmd: res, file: true, prompt: "audit beta"},
+		{name: "rtk wait", cmd: "rtk " + wait, want: true},
+		{name: "tool error", cmd: res, isErr: true},
+		{name: "hook denial text", cmd: res, out: "PreToolUse:Bash hook error: blocked"},
+		{name: "permissionDecision deny", cmd: res, out: `{"permissionDecision":"deny"}`},
+		{name: "no record", cmd: res, noRec: true},
+		{name: "another session's record", cmd: res, own: owner + 1},
+		{name: "record owner 0", cmd: res, own: -1},
+		{name: "record before the ask", cmd: res, start: -time.Second},
+		{name: "poll with no prior ask", cmd: res, noAsk: true},
+		{name: "launched after the window", cmd: res, start: askLaunchWindow + time.Second},
+		{name: "sibling's prompt", cmd: res, prompt: "audit beta"},
+		{name: "sibling's agent", cmd: res, agent: "codex"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			sess := relayTx(t, "")
-			body := pollTranscript(t, at, c.cmd, out, c.isErr)
-			tx := filepath.Join(strings.TrimSuffix(sess, ".jsonl"), "subagents", "agent-a1.jsonl")
-			if err := os.WriteFile(tx, []byte(body), 0o600); err != nil {
-				t.Fatal(err)
-			}
-			if c.start >= 0 {
-				writeDispatch(t, id, fmt.Sprintf(`{"id":%q,"time":%q,"agent":"opencode","status":"ok","owner":%d,"model":"m","log":%q}`,
-					id, at.Add(c.start).Format(time.RFC3339), c.own, writeJobFiles(t, id, out+"\n", "")))
-			}
-			if got := readLeaf(tx, leafWant{ids: true}).ids; slices.Contains(got, id) != c.want {
-				t.Errorf("ids %v, want %s bound=%v", got, id, c.want)
-			}
-			r := Handback(handbackOf(leafInput(tx), "relay report"))
-			if blocked := r.Decision == core.Block && strings.Contains(r.Reason, "exact dispatch id"); blocked == c.want {
-				t.Errorf("hand-back %+v, want accepted=%v", r, c.want)
-			}
+			c.runPollRow(t, id, good, at, owner)
 		})
 	}
 }
 
+// pollRow is one case of TestHandbackBindsOwnPoll; a zero field is the leaf's own ask's value.
+type pollRow struct {
+	name, cmd, out, agent, prompt string
+	isErr, noRec, want, file      bool
+	noAsk                         bool
+	own                           int
+	start                         time.Duration
+}
+
+func (c pollRow) runPollRow(t *testing.T, id, good string, at time.Time, owner int) {
+	sess := relayTx(t, "")
+	out := cmp.Or(c.out, good)
+	ask := `claude-code agents ask --agent opencode "audit alpha"`
+	if c.noAsk {
+		ask = ""
+	}
+	if c.file {
+		brief := filepath.Join(t.TempDir(), "brief.md")
+		if err := os.WriteFile(brief, []byte("audit alpha\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		ask = "claude-code agents ask --agent opencode --background - < " + brief
+	}
+	tx := filepath.Join(strings.TrimSuffix(sess, ".jsonl"), "subagents", "agent-a1.jsonl")
+	if err := os.WriteFile(tx, []byte(pollTranscript(t, at, ask, c.cmd, out, c.isErr)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if !c.noRec {
+		writeDispatch(t, id, fmt.Sprintf(`{"id":%q,"time":%q,"agent":%q,"status":"ok","owner":%d,"model":"m","log":%q,"request":{"Prompt":%q}}`,
+			id, at.Add(cmp.Or(c.start, time.Second)).Format(time.RFC3339), cmp.Or(c.agent, "opencode"), max(cmp.Or(c.own, owner), 0),
+			writeJobFiles(t, id, good+"\n", ""), cmp.Or(c.prompt, "audit alpha")))
+	}
+	if got := readLeaf(tx, leafWant{ids: true}).ids; slices.Contains(got, id) != c.want {
+		t.Errorf("ids %v, want %s bound=%v", got, id, c.want)
+	}
+	if c.noAsk {
+		return // with no ask at all the hand-back passes as relay work, not by this binding
+	}
+	r := Handback(handbackOf(leafInput(tx), "relay report"))
+	if blocked := r.Decision == core.Block && strings.Contains(r.Reason, "exact dispatch id"); blocked == c.want {
+		t.Errorf("hand-back %+v, want accepted=%v", r, c.want)
+	}
+}
+
 // pollTranscript is a relay's timed transcript: a backgrounded ask at `at`, then the poll `cmd` ten minutes later.
-func pollTranscript(t *testing.T, at time.Time, cmd, out string, isErr bool) string {
+func pollTranscript(t *testing.T, at time.Time, ask, cmd, out string, isErr bool) string {
 	t.Helper()
 	msg := func(typ string, ts time.Time, content any) string {
 		line, _ := json.Marshal(map[string]any{"type": typ, "timestamp": ts, "message": map[string]any{"content": content}})
@@ -208,7 +244,10 @@ func pollTranscript(t *testing.T, at time.Time, cmd, out string, isErr bool) str
 	res := func(id, text string, isErr bool) string {
 		return msg("user", at, []map[string]any{{"type": "tool_result", "tool_use_id": id, "content": text, "is_error": isErr}})
 	}
-	return msg("user", at.Add(-time.Minute), "Objective: x\nAgent: opencode\n") +
-		use("t1", `claude-code agents ask --agent opencode "x"`, at) + res("t1", bgNotice(bgOutputFile(t, "working\n")), false) +
+	launch := use("t1", ask, at) + res("t1", bgNotice(bgOutputFile(t, "working\n")), false)
+	if ask == "" {
+		launch = ""
+	}
+	return msg("user", at.Add(-time.Minute), "Objective: x\nAgent: opencode\n") + launch +
 		use("t2", cmd, at.Add(10*time.Minute)) + res("t2", out, isErr)
 }
