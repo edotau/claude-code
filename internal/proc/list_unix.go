@@ -12,8 +12,7 @@ import (
 	"time"
 )
 
-// List runs `ps axeww` (env follows the command) plus `ps -axo pid=,comm=` for executable paths, and keeps each
-// row's mark value; empty under `go test`.
+// List runs `ps axeww` plus `ps -axo pid=,comm=` for executable paths, keeping each row's mark value; empty in tests.
 func List(mark string) ([]Info, error) {
 	if testing.Testing() {
 		return nil, nil

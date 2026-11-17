@@ -10,9 +10,7 @@ import (
 	"strings"
 )
 
-// GitEnv is the process environment with every GIT_* variable removed. Without this an inherited
-// GIT_DIR, GIT_WORK_TREE or GIT_INDEX_FILE OVERRIDES a -C flag, retargeting the command to
-// whatever repo the caller's environment happened to name.
+// GitEnv is the process environment minus every GIT_* variable, which would otherwise override a -C flag.
 func GitEnv() []string {
 	env := os.Environ()
 	out := make([]string, 0, len(env))
@@ -24,18 +22,14 @@ func GitEnv() []string {
 	return out
 }
 
-// RunGit executes git with the sanitized environment. dir is passed as -C when non-empty; pass ""
-// when args already carries its own -C (or other global flags) ahead of the subcommand.
+// RunGit executes git with GitEnv; dir becomes -C when non-empty (pass "" if args carries its own).
 func RunGit(ctx context.Context, dir string, args ...string) (string, error) {
 	return run(ctx, GitEnv(), dir, args...)
 }
 
-// RunGitInherit executes git with the caller's own environment, unmodified. Use this only for
-// commands that operate on the user's own repo and may run inside a git hook (e.g. `review gate`
-// during `git commit`), where git sets GIT_INDEX_FILE/GIT_DIR to point at its own temp state and
-// stripping GIT_* breaks the command instead of protecting it. internal/configure (history.go) and internal/memory
-// must keep using RunGit: they operate on the harness's own repos and must not be retargeted by an
-// inherited GIT_DIR.
+// RunGitInherit runs git with the caller's environment, for commands inside a git hook that need its GIT_* state.
+//
+// Gotcha: internal/configure and internal/memory must keep RunGit so an inherited GIT_DIR cannot retarget them.
 func RunGitInherit(ctx context.Context, dir string, args ...string) (string, error) {
 	return run(ctx, os.Environ(), dir, args...)
 }
