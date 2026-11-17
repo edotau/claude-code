@@ -48,6 +48,7 @@ func briefHeader(task string) string {
 // LabelInput is one dispatch to label: leaf type, model pin ("" = unset), ask --profile, brief and session model id.
 type LabelInput struct {
 	Type, Model, Profile, Brief, SessionModel string
+	askModel                                  bool // Model is the ask's --model (the verb), not the Agent call's own
 }
 
 // dispatchLabel runs the hook's type gate, pin and label on a synthetic spawn; blocked is the type gate's deny.
@@ -68,6 +69,9 @@ func dispatchLabelNote(ctx context.Context, in LabelInput) (label, model, blocke
 	_, task := spawnTask(ci)
 	run := newDispatchRun(func() string { return in.SessionModel })
 	run.profile = in.Profile
+	if in.askModel {
+		run.model = in.Model
+	}
 	if in.Brief != "" { // the hook classifies the brief; the stand-in description is not one
 		pinModel(run, ci, updated, task)
 	}
@@ -95,6 +99,7 @@ func Label(in LabelInput, cwd, sid string) LabelRow {
 			return LabelRow{Type: in.Type, Label: tiers, Source: "derived"}
 		}
 	}
+	in.askModel = true
 	label, pinned, blocked, note := dispatchLabelNote(context.Background(), in)
 	return LabelRow{Type: in.Type, Model: pinned, Label: label, Source: labelSource(in.Model, label, in.SessionModel), Blocked: blocked, Note: note}
 }

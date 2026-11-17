@@ -277,3 +277,20 @@ func TestEquivalentUncuttableLabelNotStacked(t *testing.T) {
 		t.Fatalf("label stacked: %q", got)
 	}
 }
+
+func TestLabelQueryTypedAliasIsTheAsksModel(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, tc := range []struct{ typ, model, want string }{
+		{"opencode", "opus", "opus"}, // the verb's --model alias beats the pin
+		{"opencode", "", ""},
+		{"opencode", "inherit", ""},
+		{"claude", "opus", ""}, // an in-context leaf keeps its own model
+	} {
+		run := newDispatchRun(nil)
+		run.model = tc.model
+		q, _ := labelQuery(context.Background(), run, map[string]any{"model": tc.model}, tc.typ, "do x")
+		if q.Model != tc.want {
+			t.Errorf("%s --model %q: query model %q, want %q", tc.typ, tc.model, q.Model, tc.want)
+		}
+	}
+}
