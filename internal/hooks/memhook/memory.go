@@ -158,10 +158,22 @@ const updateNotSaved = "memory update NOT saved; run `claude-code memory update`
 
 // sessionUpdate spawns a detached update; a failed spawn proceeds with a note and SessionEnd/PreCompact retry.
 func sessionUpdate(in *core.Input) (notSaved bool) {
+	dispatched := false
+	defer func() {
+		if !dispatched {
+			memory.RefreshEmbeddingsDetached(in.CWD)
+		}
+	}()
 	if !memory.Updatable(in.SessionID, in.TranscriptPath) {
 		return false
 	}
-	g := memory.UpdateIfNew(updateRequest(in), memory.TriggerStop, time.Now())
+	r := updateRequest(in)
+	onDispatch := r.OnDispatch
+	r.OnDispatch = func(trigger string, work int, now time.Time) {
+		dispatched = true
+		onDispatch(trigger, work, now)
+	}
+	g := memory.UpdateIfNew(r, memory.TriggerStop, time.Now())
 	return g.FailedOpen || g.Blocked
 }
 

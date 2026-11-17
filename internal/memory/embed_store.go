@@ -15,8 +15,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
 	"go.etcd.io/bbolt"
@@ -421,7 +419,7 @@ func refreshEmbeddings(root, profile string, now time.Time) bool {
 		if err := paths.AtomicWrite(stamp, nil, 0o600); err != nil {
 			return err
 		}
-		spawned = spawnEmbedRefresh(root, profile)
+		spawned = spawn.refresh(root, profile)
 		if !spawned {
 			_ = os.Remove(stamp)
 		}
@@ -436,10 +434,11 @@ func refreshStampFresh(stamp string, now time.Time) bool {
 	return err == nil && now.Sub(st.ModTime()) < embedClaimTTL
 }
 
-// spawnEmbedRefresh uses the mint-only index path so automatic refresh never settles the bank.
-func spawnEmbedRefresh(root, profile string) bool {
-	args := []string{"memory", "index", "--mint-only"}
-	return spawnSelf(args, root, "", proc.Values{providers.EnvSessionProfile: profile, UpdateChildEnv: "1"}.Env()...)
+// RefreshEmbeddingsDetached leaves profile discovery to the throttled mint-only worker.
+func RefreshEmbeddingsDetached(cwd string) {
+	if !IsUpdateChild() && bankExists() {
+		refreshEmbeddings(cwd, "", time.Now())
+	}
 }
 
 // RefreshStaleEmbeddings schedules only stale vector mints; no endpoint work runs in the hook.

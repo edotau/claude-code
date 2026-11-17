@@ -448,7 +448,7 @@ func runAgentUpdate(ctx context.Context, o updateOptions) error {
 	}
 	prompt += takeHandoffBlock(o.Session)
 	defer func() { _ = os.Remove(handoffRunMarker(o.Session)) }() // the steward is done once the agent returns
-	// Stop leaves the embedding refresh to this worker; SessionEnd covers Stops that spawn none.
+	// Stops without an update worker launch a separate mint-only refresh.
 	RefreshStaleEmbeddings(o.CWD)
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1"), prompt, o.CWD) // a fallback dispatch must not re-trigger hooks
 	fmt.Fprintln(o.Out, "memory update: ran on", who)
