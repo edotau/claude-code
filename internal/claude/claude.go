@@ -365,7 +365,10 @@ type claudeEvent struct {
 	Result          string          `json:"result"`
 	TotalCostUSD    float64         `json:"total_cost_usd"`
 	Structured      json.RawMessage `json:"structured_output"`
-	Usage           struct {
+
+	Event anthropic.MessageStreamEventUnion `json:"event"`
+
+	Usage struct {
 		InputTokens              int `json:"input_tokens"`
 		OutputTokens             int `json:"output_tokens"`
 		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
@@ -411,6 +414,7 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *idleWatch, sink w
 	logs ...wire.StreamLog) (res wire.Result, _ error) {
 	lg := wire.PickLog(logs)
 	sawResult, spoken := false, spoke == nil
+	usage := claudeUsage{messages: map[string]wire.Usage{}}
 	seen := wire.Answer{Join: "\n\n"} // top-level assistant text, the answer when no result event delivers one
 	partial := func(err error) (wire.Result, error) {
 		if res.Answer == "" {
@@ -420,6 +424,9 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *idleWatch, sink w
 	}
 	tr, err := wire.DecodeEvents(br, lg, "decode stream-json", false, nil, func(ev claudeEvent, ts *wire.TransportTracker) (bool, error) {
 		msg := ev.topMessage()
+		if !sawResult {
+			res.Usage = usage.observe(ev, msg)
+		}
 		wd.observe(ev, msg)
 		if !spoken && ev.isModelOutput() {
 			spoken = true
@@ -450,6 +457,47 @@ type claudeStreamState struct {
 	log       wire.StreamLog
 	sink      wire.Sink
 	seen      *wire.Answer
+}
+
+type claudeUsage struct {
+	messages map[string]wire.Usage
+	current  string
+	total    wire.Usage
+}
+
+func (c *claudeUsage) observe(ev claudeEvent, msg anthropic.Message) wire.Usage {
+	if ev.ParentToolUseID != "" {
+		return c.total
+	}
+	id, u := msg.ID, messageUsage(msg)
+	if ev.Type == "stream_event" {
+		switch ev.Event.Type {
+		case "message_start":
+			id, u = ev.Event.Message.ID, messageUsage(ev.Event.Message)
+			c.current = id
+		case "message_delta":
+			id, u = c.current, c.messages[c.current]
+			foldDeltaUsage(&u, ev.Event.Usage)
+		}
+	}
+	if id == "" {
+		return c.total
+	}
+	old := c.messages[id]
+	// Assistant snapshots repeat stream usage and can lag behind the final message_delta.
+	u = wire.Usage{InputTokens: max(u.InputTokens, old.InputTokens), OutputTokens: max(u.OutputTokens, old.OutputTokens),
+		CacheReadTokens: max(u.CacheReadTokens, old.CacheReadTokens), CacheCreationTokens: max(u.CacheCreationTokens, old.CacheCreationTokens)}
+	c.total.InputTokens += u.InputTokens - old.InputTokens
+	c.total.OutputTokens += u.OutputTokens - old.OutputTokens
+	c.total.CacheReadTokens += u.CacheReadTokens - old.CacheReadTokens
+	c.total.CacheCreationTokens += u.CacheCreationTokens - old.CacheCreationTokens
+	c.messages[id] = u
+	return c.total
+}
+
+func messageUsage(m anthropic.Message) wire.Usage {
+	return wire.Usage{InputTokens: int(m.Usage.InputTokens), OutputTokens: int(m.Usage.OutputTokens),
+		CacheReadTokens: int(m.Usage.CacheReadInputTokens), CacheCreationTokens: int(m.Usage.CacheCreationInputTokens)}
 }
 
 func (s claudeStreamState) apply(ev claudeEvent, msg anthropic.Message, untilResult bool) (bool, error) {
@@ -587,8 +635,11 @@ func applyClaudeResult(res *wire.Result, ev claudeEvent) error {
 		res.Answer = ev.Result // a resumed session's closing empty result must not erase the last real one
 	}
 	u := ev.Usage
-	res.Usage = wire.Usage{InputTokens: u.InputTokens, CacheCreationTokens: u.CacheCreationInputTokens,
-		CacheReadTokens: u.CacheReadInputTokens, OutputTokens: u.OutputTokens, CostUSD: ev.TotalCostUSD}
+	if u.InputTokens != 0 || u.OutputTokens != 0 || u.CacheCreationInputTokens != 0 || u.CacheReadInputTokens != 0 {
+		res.Usage = wire.Usage{InputTokens: u.InputTokens, CacheCreationTokens: u.CacheCreationInputTokens,
+			CacheReadTokens: u.CacheReadInputTokens, OutputTokens: u.OutputTokens}
+	}
+	res.Usage.CostUSD = ev.TotalCostUSD
 	if len(ev.Structured) > 0 && string(ev.Structured) != "null" {
 		res.Structured = ev.Structured
 	}

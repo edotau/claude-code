@@ -1017,3 +1017,40 @@ func TestPermissionNoToolsProcessIsolation(t *testing.T) {
 		t.Fatal("no-flag default changed")
 	}
 }
+
+func TestParseClaudeStreamPartialUsage(t *testing.T) {
+	raw, err := os.ReadFile("testdata/stream.golden.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	t.Run("assistant snapshots", func(t *testing.T) {
+		child := strings.Replace(lines[9], `"parent_tool_use_id":null`, `"parent_tool_use_id":"child"`, 1)
+		stream := strings.Join([]string{child, lines[9], lines[9]}, "\n")
+		res, err := parseClaudeStream(newBR(stream), wire.Discard)
+		want := wire.Usage{InputTokens: 2, CacheCreationTokens: 42185, OutputTokens: 16}
+		if err == nil || res.Usage != want {
+			t.Fatalf("usage = %+v, err = %v; want %+v", res.Usage, err, want)
+		}
+	})
+
+	for _, tc := range []struct {
+		name   string
+		end    int
+		suffix string
+		want   wire.Usage
+	}{
+		{"start", 3, "", wire.Usage{InputTokens: 2, CacheCreationTokens: 42185, OutputTokens: 16}},
+		{"delta", 12, "", wire.Usage{InputTokens: 2, CacheCreationTokens: 42185, OutputTokens: 74}},
+		{"two messages", 28, "", wire.Usage{InputTokens: 4, CacheCreationTokens: 42767, CacheReadTokens: 42185, OutputTokens: 470}},
+		{"error", 28, `{"type":"result","is_error":true,"subtype":"error_during_execution","result":"cancelled"}`, wire.Usage{InputTokens: 4, CacheCreationTokens: 42767, CacheReadTokens: 42185, OutputTokens: 470}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			stream := strings.Join(lines[:tc.end], "\n") + "\n" + tc.suffix
+			res, err := parseClaudeStream(newBR(stream), wire.Discard)
+			if err == nil || res.Usage != tc.want {
+				t.Fatalf("usage = %+v, err = %v; want %+v and an error", res.Usage, err, tc.want)
+			}
+		})
+	}
+}

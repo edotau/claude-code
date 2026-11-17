@@ -356,6 +356,22 @@ func TestLiveFinishReturnsSessionFailure(t *testing.T) {
 	}
 }
 
+func TestLiveFinishKeepsTurnUsage(t *testing.T) {
+	setConfigDir(t)
+	rec := ClaimRecord("claude", RunOptions{}, time.Now())
+	s := liveSession{rec: &rec, name: "claude", profile: "test", usage: wire.Usage{InputTokens: 7, OutputTokens: 3}}
+	if err := s.finish(errLiveIdle); err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadRecord(rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Usage == nil || got.Usage.InputTokens != 7 || got.Usage.OutputTokens != 3 {
+		t.Fatalf("saved usage = %+v, want the turns' 7 in / 3 out", got.Usage)
+	}
+}
+
 func TestLiveStartFailureDoesNotPublishSocket(t *testing.T) {
 	liveEnv(t)
 	rec := ClaimRecord("claude", RunOptions{}, time.Now())
