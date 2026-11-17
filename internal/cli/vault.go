@@ -269,16 +269,7 @@ func vaultSetSecret(name string, dryRun bool) int {
 		}
 	}
 	if dryRun {
-		names, err := vault.NamesErr()
-		if err != nil {
-			return helptext.Fail("vault set: %v", err)
-		}
-		verb := "add"
-		if slices.Contains(names, name) {
-			verb = "replace"
-		}
-		fmt.Printf("would %s %s in the vault (%d chars)%s; nothing written\n", verb, name, len(value), verifyNote(login))
-		return 0
+		return vaultSetPreview(name, len(value), login)
 	}
 	if err := configure.StoreSecret(name, value); err != nil {
 		return helptext.Fail("vault set: %v", err)
@@ -287,6 +278,20 @@ func vaultSetSecret(name string, dryRun bool) int {
 	if login != nil {
 		printLoginVerdict(login)
 	}
+	return 0
+}
+
+// vaultSetPreview prints what `vault set` would do for name without writing.
+func vaultSetPreview(name string, chars int, login *providers.Provider) int {
+	names, err := vault.NamesErr()
+	if err != nil {
+		return helptext.Fail("vault set: %v", err)
+	}
+	verb := "add"
+	if slices.Contains(names, name) {
+		verb = "replace"
+	}
+	fmt.Printf("would %s %s in the vault (%d chars)%s; nothing written\n", verb, name, chars, verifyNote(login))
 	return 0
 }
 

@@ -126,14 +126,19 @@ func (o *proxyOpts) modeCount() int {
 	return n
 }
 
+// flagSet reports whether name was given on the command line.
+func flagSet(fs *flag.FlagSet, name string) bool {
+	set := false
+	fs.Visit(func(f *flag.Flag) { set = set || f.Name == name })
+	return set
+}
+
 func (o *proxyOpts) checkCombos(fs *flag.FlagSet) (code int, ok bool) {
 	if o.modeCount() > 1 {
 		return helptext.Fail("gateway proxy: at most one of --start, --stop, --restart, --status, --serve, " +
 			"--client-token, --revoke-client-token"), false
 	}
-	portSet := false
-	fs.Visit(func(f *flag.Flag) { portSet = portSet || f.Name == "port" })
-	if portSet && !o.serve {
+	if flagSet(fs, "port") && !o.serve {
 		return helptext.Fail("gateway proxy: --port needs --serve"), false
 	}
 	if (o.ifChanged || o.force || o.dry) && !o.restart {

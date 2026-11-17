@@ -240,9 +240,10 @@ func helpOrBare(page helptext.Page, args []string) (code int, ok bool) {
 
 // lookup finds a command by its name.
 func lookup(name string) *command {
-	for _, c := range commands() {
-		if c.name == name {
-			return &c
+	cmds := commands()
+	for i := range cmds {
+		if cmds[i].name == name {
+			return &cmds[i]
 		}
 	}
 	return nil

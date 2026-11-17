@@ -261,6 +261,11 @@ func syncAgentConfigs(name, format string, dryRun, check bool) int {
 		}
 		fmt.Printf("\nagent configs\n  %s %s\n", verb, strings.Join(changed, " "))
 	}
+	return agentConfigsExit(changed, err, check)
+}
+
+// agentConfigsExit is 1 for a failed render, or for stale configs under --check.
+func agentConfigsExit(changed []string, err error, check bool) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "sync: agent configs:", err)
 		return 1
@@ -349,10 +354,16 @@ func cmdAgentsLabel(args []string) int {
 	if pos[0] == "gemini" {
 		googleLabelWarning(context.Background(), os.Stderr, pos[0], *model, *profile, task)
 	}
-	if row.Label != "" {
-		if _, err := fmt.Println(row.Label + ": "); err != nil {
-			return helptext.Fail("agents label: %v", err)
-		}
+	return printLabel(row.Label)
+}
+
+// printLabel prints the description prefix; an empty label prints nothing.
+func printLabel(label string) int {
+	if label == "" {
+		return 0
+	}
+	if _, err := fmt.Println(label + ": "); err != nil {
+		return helptext.Fail("agents label: %v", err)
 	}
 	return 0
 }
