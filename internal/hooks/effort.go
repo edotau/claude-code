@@ -31,6 +31,7 @@ type dispatchRun struct {
 	line     *askLine // the brief's opening ask command, parsed (and its overlay loaded) once
 	lineTask string
 	profile  string // `agents label --profile`: the ask --profile when the brief's Run: line names none
+	model    string // `agents label --model`: the ask --model, so an alias is not read as the leaf's own model
 }
 
 // Per-run read seams: tests count them; production reads the roster file and the provider registry.
