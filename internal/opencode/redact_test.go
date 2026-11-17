@@ -6,6 +6,17 @@ import (
 	"testing"
 )
 
+func BenchmarkRedactRawURL(b *testing.B) {
+	for _, raw := range []string{"https://${HOST}/mcp?token=value", "https://u:value@${HOST}/mcp?token=value"} {
+		b.Run(raw, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				redactRawURL(raw)
+			}
+		})
+	}
+}
+
 func TestRedactConfig(t *testing.T) {
 	in := map[string]any{
 		"mcp": map[string]any{

@@ -21,6 +21,14 @@ const usageSample = "Gemini Models\tWeekly Limit Remaining\t96%\t2026-11-21T00:0
 
 var quotaNow0 = time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
 
+func BenchmarkParseQuotas(b *testing.B) {
+	out := []byte(usageSample)
+	b.ReportAllocs()
+	for b.Loop() {
+		ParseQuotas(out)
+	}
+}
+
 // stubUsage swaps the agy runner and clock, clears the cache and gives the test its own quota state.
 func stubUsage(t *testing.T, run func(context.Context) ([]byte, error)) {
 	t.Helper()

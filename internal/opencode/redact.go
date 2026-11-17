@@ -142,7 +142,9 @@ var rawUserinfoRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCom
 
 // redactRawURL is redactURLQuery's string-level form for a URL net/url rejects.
 func redactRawURL(raw string) string {
-	raw = rawUserinfoRE().ReplaceAllString(raw, "$1")
+	if strings.ContainsRune(raw, '@') {
+		raw = rawUserinfoRE().ReplaceAllString(raw, "$1")
+	}
 	marker := ""
 	if i := strings.IndexByte(raw, '#'); i >= 0 {
 		raw, marker = raw[:i], "#<redacted>"

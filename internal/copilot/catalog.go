@@ -250,7 +250,12 @@ func copilotModelInfos(ctx context.Context, reg *providers.Registry, p *provider
 
 // copilotUsable accepts a snapshot holding at least one chat row copilot can serve.
 func copilotUsable(infos []providers.ModelInfo) bool {
-	return len(copilotServingChatRows(infos, nil)) > 0
+	for _, info := range infos {
+		if info.ReadyChat() {
+			return true
+		}
+	}
+	return false
 }
 
 // copilotCheckedModelInfos reads p's models snapshot-first, identity checked; a scope/identity/vault error lists live.
@@ -337,7 +342,7 @@ func copilotSnapshot(ctx context.Context, p *providers.Provider) (serving.Scope,
 	if err != nil {
 		return serving.Scope{}, serving.Snapshot{}, false, err
 	}
-	return scope, old, found && len(copilotServingChatRows(old.Models, nil)) > 0, nil
+	return scope, old, found && copilotUsable(old.Models), nil
 }
 
 // halfRemaining caps one step at half of ctx's remaining time, so it cannot starve the step after it.
