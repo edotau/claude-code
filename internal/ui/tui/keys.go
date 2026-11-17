@@ -266,7 +266,7 @@ func (t *terminal) Size() (w, h int) {
 	return w, h
 }
 
-// startReader runs readKeys; a panic there ends the key stream with the panic as Err, so the caller's Close restores the tty.
+// startReader runs readKeys; a panic there ends the key stream with the panic as Err, so Close still restores the tty.
 func (t *terminal) startReader() {
 	par.Go(t.readKeys, func(err error) { t.readErr = err; close(t.keys) })
 }
