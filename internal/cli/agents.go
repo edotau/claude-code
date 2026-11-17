@@ -580,13 +580,19 @@ func agentPage(name string) helptext.Page {
 	if s.External() {
 		binary = s.CLI.Binary
 	}
+	usage := "claude-code " + name + " [<command>|--] [launch flags] [args…]"
+	hint := ""
+	if name == "codex" || name == "copilot" {
+		usage += "\nclaude-code " + name + " <provider> [-p NAME] [rest…]"
+		hint = "\nclaude-code " + name + " databricks -p dev ask \"Explain this code\""
+	}
 	return helptext.Page{
-		Usage:    "claude-code " + name + " [<command>|--] [launch flags] [args…]",
+		Usage:    usage,
 		About:    agentAbout[name],
 		Commands: rows,
 		Flags:    launchFlags(name),
 		Hint: "claude-code " + name + " <command> -h lists that command's flags.\n" +
-			"claude-code " + name + " " + helptext.DocsFlag + " prints " + binary + "'s own help.",
+			"claude-code " + name + " " + helptext.DocsFlag + " prints " + binary + "'s own help." + hint,
 	}
 }
 
@@ -648,8 +654,53 @@ func newAgentFlags(name, verb string) *flag.FlagSet {
 // retiredAgentVerbs are refused, not forwarded to the agent CLI; their jobs moved to agents verbs and ask --session.
 var retiredAgentVerbs = []string{"resume", "status", "tail", "result", "cancel", "on", "off"}
 
+func agentProviderArgs(name string, args []string) ([]string, error) {
+	if !slices.Contains([]string{"codex", "copilot"}, name) || len(args) == 0 || !slices.Contains(providers.ProviderKeys(), args[0]) {
+		return args, nil
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return nil, err
+	}
+	provider, rest := args[0], args[1:]
+	rows := reg.ProfilesOf(provider)
+	if !slices.ContainsFunc(rows, func(n string) bool { return agent.CanServe(name, reg.Row(n)) }) {
+		return args, nil
+	}
+	option, profile, equals := strings.Cut(firstPositional(rest), "=")
+	flag, value := "--provider", provider
+	if slices.Contains([]string{"-p", "--profile"}, option) {
+		if !equals && len(rest) > 1 {
+			profile, rest = rest[1], rest[1:]
+		}
+		if profile == "" || strings.HasPrefix(profile, "-") {
+			return nil, fmt.Errorf("%s %s: %s requires a profile name", name, provider, option)
+		}
+		p, err := reg.Get(profile)
+		if err != nil {
+			return nil, fmt.Errorf("%s %s: %w", name, provider, err)
+		}
+		if p.Provider != provider {
+			return nil, fmt.Errorf("%s %s: profile %q does not belong to %s", name, provider, profile, provider)
+		}
+		flag, value, rest = "--profile", profile, rest[1:]
+	} else if firstPositional(rest) != "ask" {
+		signedIn := slices.DeleteFunc(slices.Clone(rows), func(n string) bool { return !providers.CredentialPresent(reg.Row(n)) })
+		return nil, fmt.Errorf("%s %s: name a profile: -p %s", name, provider, strings.Join(signedIn, "|"))
+	}
+	var prefix []string
+	if verb := firstPositional(rest); verb == "ask" || agentSubPages[verb] != [2]string{} {
+		prefix, rest = append(prefix, rest[0]), rest[1:]
+	}
+	return append(append(prefix, flag, value), rest...), nil
+}
+
 // cmdAgentVerb is `<agent>`: bare or `--` launches, `ask` = `ask --agent <v>`, a sub-verb runs it, else launch.
 func cmdAgentVerb(name string, args []string) int {
+	args, err := agentProviderArgs(name, args)
+	if err != nil {
+		return helptext.FailUsage("%v", err)
+	}
 	switch {
 	case len(args) == 0:
 		return ask.Launch(name, args)
