@@ -22,7 +22,6 @@ import (
 var ErrNoProcess = errors.New("proc: no such process")
 
 // SpawnDetached starts bin+args in its own session, output on out (nil = discarded), reaped in a goroutine.
-// Background(): the spawned process outlives this call by design, so there is nothing to cancel.
 func SpawnDetached(bin string, args []string, dir string, out *os.File, extraEnv ...string) bool {
 	if IsSelfUnderTest(bin) {
 		return false

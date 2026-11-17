@@ -66,6 +66,11 @@ func prefixSum(f *os.File, offset int64) string {
 	return textutil.SHA256Hex(append(head, tail...))
 }
 
+// prefixIntact reports whether the file still starts with the prefix prev scanned.
+func prefixIntact(f *os.File, size int64, prev EditScan) bool {
+	return prev.Offset > 0 && size >= prev.Offset && prev.Sum != "" && prefixSum(f, prev.Offset) == prev.Sum
+}
+
 // EditedFilesFrom extends prev with new complete lines, restarting at 0 if the scanned prefix changed or is gone.
 func EditedFilesFrom(path string, prev EditScan) (EditScan, error) {
 	f, err := os.Open(path)
@@ -80,7 +85,7 @@ func EditedFilesFrom(path string, prev EditScan) (EditScan, error) {
 	if err != nil {
 		return prev, err
 	}
-	if prev.Offset <= 0 || fi.Size() < prev.Offset || prev.Sum == "" || prefixSum(f, prev.Offset) != prev.Sum {
+	if !prefixIntact(f, fi.Size(), prev) {
 		prev = EditScan{}
 	}
 	if _, err := f.Seek(prev.Offset, io.SeekStart); err != nil {

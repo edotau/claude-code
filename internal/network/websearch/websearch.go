@@ -244,10 +244,7 @@ func (s *server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	}
 	var readErr error
 	for {
-		raw, tooLong, err := textutil.ReadLineCapped(reader, maxLineBytes)
-		if err == io.EOF && (len(raw) > 0 || tooLong) {
-			err = nil // the unterminated last line is served; the next read reports EOF
-		}
+		raw, tooLong, err := readRequestLine(reader)
 		if err != nil {
 			if err != io.EOF {
 				readErr = err
@@ -275,6 +272,15 @@ func (s *server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 		return writeErr
 	}
 	return readErr
+}
+
+// readRequestLine reads one capped line; an unterminated last line is served and the next read reports EOF.
+func readRequestLine(r *bufio.Reader) (raw []byte, tooLong bool, err error) {
+	raw, tooLong, err = textutil.ReadLineCapped(r, maxLineBytes)
+	if err == io.EOF && (len(raw) > 0 || tooLong) {
+		err = nil
+	}
+	return raw, tooLong, err
 }
 
 // parseRequest decodes one line; ok is false for a blank line (skipped) or bad JSON (answered via send).

@@ -21,9 +21,7 @@ type Info struct {
 // lstartFields is how many fields ps lstart prints ("Wed Nov 11 11:17:11 2026").
 const lstartFields = 5
 
-// parseList parses `ps -axeww -o pid=,ppid=,pgid=,lstart=,command=` (BSD and GNU alike; `e` appends the environment
-// to command); rows that do not parse are skipped. comms maps pid to its executable path (a path may hold a space,
-// which command cannot show); a pid missing there falls back to command's first word. The environment is mark-only.
+// parseList parses `ps -axeww -o pid=,ppid=,pgid=,lstart=,command=`, skipping bad rows; comms maps pid to its path.
 func parseList(out string, comms map[int]string, mark string, loc *time.Location) []Info {
 	var list []Info
 	for line := range strings.SplitSeq(out, "\n") {

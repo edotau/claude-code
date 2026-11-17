@@ -90,12 +90,7 @@ func networkBrowserSetup(name string, dryRun bool, format string) int {
 	if err != nil {
 		return helptext.Fail("network browser --setup: %v", err)
 	}
-	rc := 0
-	for _, a := range acts.Items {
-		if a.Error != "" || a.Kind == "missing-host" || a.Kind == "enable-extension" {
-			rc = 1 // the repair needs the user's action (or failed)
-		}
-	}
+	rc := setupExitCode(acts.Items)
 	if format == "json" {
 		if err := helptext.WriteJSON(os.Stdout, acts); err != nil {
 			return helptext.Fail("network browser --setup: %v", err)
@@ -104,16 +99,30 @@ func networkBrowserSetup(name string, dryRun bool, format string) int {
 	}
 	fmt.Printf("%s:\n", acts.Browser)
 	for _, a := range acts.Items {
-		line := "  " + a.Kind + ": " + a.Description
-		if len(a.Command) > 0 {
-			line += "  [" + strings.Join(a.Command, " ") + "]"
-		}
-		if a.Error != "" {
-			line += "  error: " + a.Error
-		}
-		fmt.Println(line)
+		fmt.Println(setupLine(a))
 	}
 	return rc
+}
+
+// setupExitCode is 1 when any action failed or needs the user's hand.
+func setupExitCode(items []action) int {
+	for _, a := range items {
+		if a.Error != "" || a.Kind == "missing-host" || a.Kind == "enable-extension" {
+			return 1
+		}
+	}
+	return 0
+}
+
+func setupLine(a action) string {
+	line := "  " + a.Kind + ": " + a.Description
+	if len(a.Command) > 0 {
+		line += "  [" + strings.Join(a.Command, " ") + "]"
+	}
+	if a.Error != "" {
+		line += "  error: " + a.Error
+	}
+	return line
 }
 
 // renderText prints one line per known browser plus the system default; it returns the first write error.
