@@ -78,6 +78,9 @@ paths:
 - Interactive copilot on Databricks gets native `/model` via a per-launch registry (0600, per pid) and a login-free
   `COPILOT_HOME` (`state/copilot/registry-home`); an unregistered model fails closed, `--direct` keeps the single-model
   route, macOS skips the registry. `ask --agent copilot` uses the same registry via the SDK.
+For codex and copilot, `databricks -p dev` (also `--profile dev` or `--profile=dev`) selects the profile.
+Use `claude-code copilot -- databricks` to pass the literal word; harness flags are still parsed.
+
 - **gemini** runs on `agy`: its Google sign-in by default, or a Databricks profile (`--profile dev|qa|prod`) through
   the agy gateway; `ask --dirs/--files/--diff` inline tracked files only, never `.env*`, `state/` or keys.
 - `claude-code doctor --permissions [--agent a] [--format json]` runs a fixed call table through each agent's real

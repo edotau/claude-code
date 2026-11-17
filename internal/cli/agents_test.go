@@ -862,7 +862,7 @@ func TestVendorHelpHarnessProfileRows(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	cfgDir(t)
 	t.Setenv("HOME", t.TempDir())
-	for _, vendor := range []string{"codex", "gemini"} {
+	for _, vendor := range []string{"codex", "copilot", "gemini"} {
 		text := renderHelpPage(agentPage(vendor))
 		if !strings.Contains(text, "show or set "+vendor+"'s profile; --clear = own login; --off") {
 			t.Errorf("%s help lacks the profile row:\n%s", vendor, text)
@@ -1116,5 +1116,48 @@ func TestSyncAgentConfigsRespacedHooksAreCurrent(t *testing.T) {
 		if got, _ := os.ReadFile(path); string(got) != string(want) {
 			t.Errorf("%s rewritten:\n%s", path, got)
 		}
+	}
+}
+
+func TestAgentProviderArgs(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	for _, name := range []string{"dev", "qa"} {
+		if err := providers.SetProviderFields(name, map[string]any{"preset": "databricks", "host": "https://example.cloud.databricks.com", "auth": map[string]any{"type": "pat"}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, tc := range []struct {
+		name, agent string
+		args, want  []string
+		err         string
+	}{
+		{"owner", "copilot", []string{"databricks", "-p", "dev", "-p", "this is a prompt"}, []string{"--profile", "dev", "-p", "this is a prompt"}, ""},
+		{"equals", "copilot", []string{"databricks", "--profile=dev"}, []string{"--profile", "dev"}, ""},
+		{"long", "codex", []string{"databricks", "--profile", "qa"}, []string{"--profile", "qa"}, ""},
+		{"ask profile", "copilot", []string{"databricks", "-p", "dev", "ask", "x"}, []string{"ask", "--profile", "dev", "x"}, ""},
+		{"ask provider", "copilot", []string{"databricks", "ask", "x"}, []string{"ask", "--provider", "databricks", "x"}, ""},
+		{"bare", "copilot", []string{"databricks"}, nil, "copilot databricks: name a profile: -p"},
+		{"missing", "copilot", []string{"databricks", "-p"}, nil, "requires a profile name"},
+		{"missing long", "copilot", []string{"databricks", "--profile"}, nil, "requires a profile name"},
+		{"empty", "copilot", []string{"databricks", "--profile="}, nil, "requires a profile name"},
+		{"other provider", "copilot", []string{"databricks", "-p", "chatgpt"}, nil, "profile \"chatgpt\" does not belong to databricks"},
+		{"unknown", "copilot", []string{"hello", "-p", "dev"}, []string{"hello", "-p", "dev"}, ""},
+		{"claude", "claude", []string{"databricks", "-p", "dev"}, []string{"databricks", "-p", "dev"}, ""},
+		{"gemini", "gemini", []string{"databricks", "-p", "dev"}, []string{"databricks", "-p", "dev"}, ""},
+		{"opencode", "opencode", []string{"databricks", "-p", "dev"}, []string{"databricks", "-p", "dev"}, ""},
+		{"escape", "copilot", []string{"--", "databricks", "-p", "dev"}, []string{"--", "databricks", "-p", "dev"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := agentProviderArgs(tc.agent, tc.args)
+			if tc.err != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.err) {
+					t.Fatalf("error = %v, want %q", err, tc.err)
+				}
+				return
+			}
+			if err != nil || !slices.Equal(got, tc.want) {
+				t.Fatalf("args = %q, error = %v; want %q", got, err, tc.want)
+			}
+		})
 	}
 }

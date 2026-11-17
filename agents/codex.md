@@ -44,6 +44,8 @@ for an authorized edit. Owner shortcuts: `rules/workflows/agents.md` → Slash c
 Shared flags (interactive launch and the headless `ask` table): `skills/subagent-workflows/references/agent-verbs.md`.
 Codex deltas:
 
+For codex and copilot, `databricks -p dev` (also `--profile dev` or `--profile=dev`) selects the profile.
+
 - Interactive: `--profile <p>` is the harness profile (codex's own is `-p`); `-f <config.toml>` (keys ride as `-c`
   overrides); `claude-code codex -- <native verb>` forces passthrough (`-- review`, `-- resume --last`).
 - `--tools` edits and runs shell; no `--tools` keeps a read-only sandbox shell. `--deny` is enforced by the
