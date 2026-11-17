@@ -36,10 +36,10 @@ func armAutoPick(ctx context.Context, value string) bool {
 
 // armRetry is one foreground ask on an auto-picked workspace; a workspace answering 429 is cooled and the ask moves on.
 type armRetry struct {
-	agentName, model, fallback, format string
-	out                                io.Writer // where the answer and envelope go
-	job                                bool      // a --job child: the answer also lands on stdout, the log
-	tried                              []string  // the workspaces asked so far, in order
+	agentName, model, fallback, format, save string
+	out                                      io.Writer // where the answer and envelope go
+	job                                      bool      // a --job child: the answer also lands on stdout, the log
+	tried                                    []string  // the workspaces asked so far, in order
 }
 
 // jobAutoArm reports a --job record whose workspace was an auto pick: its route names the pick, not the intent.
@@ -51,7 +51,7 @@ func (r *askRun) armRun() *armRetry {
 	if r.auto == "" || f.host != "" || f.background || f.live || f.session != "" {
 		return nil
 	}
-	return &armRetry{agentName: r.ag, model: f.model, fallback: f.fallback, format: f.format, out: r.out, job: r.jobRec != nil,
+	return &armRetry{agentName: r.ag, model: f.model, fallback: f.fallback, format: f.format, save: f.save, out: r.out, job: r.jobRec != nil,
 		tried: []string{r.auto}}
 }
 
@@ -72,7 +72,7 @@ func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared,
 	attempt.Hold = a.job // a job keeps one record: only the last attempt concludes it
 	var held *resultHold
 	p, res, err := a.attempts(ctx, cl, p, req, func(ctx context.Context, p *agent.Prepared) (wire.Result, error) {
-		sink := sinkTo(a.out, a.format, p.Record.ID)
+		sink := sinkTo(sinkOut(a.out, a.format, a.save), a.format, p.Record.ID)
 		if a.format == agent.FormatStreamJSON {
 			held = &resultHold{Sink: sink}
 			sink = held
@@ -89,7 +89,7 @@ func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared,
 	if held != nil {
 		a.emitFinal(held, p, res, err)
 	}
-	return reportAsk(a.out, a.format, p, res, err)
+	return reportAsk(a.out, a.format, a.save, p, res, err)
 }
 
 // resultHold keeps an attempt's result event back so only the last attempt's reaches the stream.

@@ -192,6 +192,9 @@ func (r *askRun) prelude() (int, bool) {
 	if err := askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools); err != nil {
 		return r.fail(err, 2)
 	}
+	if f.save != "" && (f.background || f.live || f.batchSrc != "") {
+		return r.fail(errors.New("--save needs a foreground run: not with --background, --live or --batch"), 2)
+	}
 	if r.schema, err = resolveOutputSchema(f.outputSchema); err != nil {
 		return r.fail(err, 2)
 	}
@@ -469,7 +472,7 @@ func (r *askRun) execute() int {
 	if a := r.armRun(); a != nil {
 		req, run = a.probe(req), a.run
 	}
-	return askPrepareAndRun(ctx, r.fs, req, r.jobRec, r.ov, f.env, f.keepEnv, f.as, f.format, f.name, f.background, f.native, run, r.out)
+	return askPrepareAndRun(ctx, r.fs, req, r.jobRec, r.ov, f.env, f.keepEnv, f.as, f.format, f.save, f.name, f.background, f.native, run, r.out)
 }
 
 // readPrompt reads the task; framed (stdin) is set only for the remote end of `ask --host`.
@@ -493,7 +496,7 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 
 // askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches or runs it and reports.
 func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, doc agentconfig.Overlay,
-	env, keepEnv []string, as, format, name string, background, native bool, run askRunner, out io.Writer) int {
+	env, keepEnv []string, as, format, save, name string, background, native bool, run askRunner, out io.Writer) int {
 	ov, err := resolveOverlay(doc, env, keepEnv, background)
 	if err != nil {
 		return failAskCode(format, name, err, 2)
@@ -527,7 +530,7 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	if run != nil {
 		return run(ctx, cl, prepared, req)
 	}
-	return runAskAndReport(ctx, cl, prepared, jobRec != nil, format, out)
+	return runAskAndReport(ctx, cl, prepared, jobRec != nil, format, save, out)
 }
 
 // startPrepared prints p's preflight lines and saves its record; a failed save is warned about unless background.

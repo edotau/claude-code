@@ -204,7 +204,7 @@ func checkCLIBoundary(t *testing.T, mode string, req agent.RunOptions) {
 		if mode == "job" {
 			job = &agent.Record{Request: req}
 		}
-		return askPrepareAndRun(context.Background(), fs, req, job, agentconfig.Overlay{}, nil, nil, "", "json", "codex", mode == "background", false, nil, io.Discard)
+		return askPrepareAndRun(context.Background(), fs, req, job, agentconfig.Overlay{}, nil, nil, "", "json", "", "codex", mode == "background", false, nil, io.Discard)
 	})
 	if code != 2 || !strings.Contains(stderr, "--no-tools") {
 		t.Fatalf("%s refusal = %d, %s", mode, code, stderr)

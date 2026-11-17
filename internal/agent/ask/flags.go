@@ -31,7 +31,7 @@ type askFlags struct {
 	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast                                       bool
 	timeout                                                                                                                                                                       time.Duration
 	jobs, maxFiles, maxFileBytes                                                                                                                                                  int
-	dirs, files                                                                                                                                                                   string
+	dirs, files, save                                                                                                                                                             string
 	diff, index                                                                                                                                                                   bool
 	pack                                                                                                                                                                          *pack.Spec
 	agents                                                                                                                                                                        agentsFlag
@@ -126,6 +126,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.StringVar(&f.retry, "retry", "", "replay a logged dispatch by id (or unique id prefix); see agents status")
 	fs.BoolVar(&f.live, "live", false, "claude|gemini: hold a session open for agents send; --timeout is its idle limit")
 	fs.BoolVar(&f.background, "background", false, "detach: log a job, print its id, exit")
+	fs.StringVar(&f.save, "save", "", "write the answer to FILE; stdout keeps its first 8 lines")
 	fs.StringVar(&f.job, "job", "", "internal: run saved dispatch <id> in place")
 	fs.StringVar(&f.batchSrc, "batch", "", "run JSONL tasks from <file> or - on a pool; one envelope per line")
 	fs.IntVar(&f.jobs, "jobs", defaultJobs(), "batch: tasks run at once")
