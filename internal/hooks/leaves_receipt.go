@@ -526,13 +526,7 @@ func preserveReport(in *core.Input, agentID string, lr leafRead, res core.Result
 	if strings.TrimSpace(text) == "" {
 		return res
 	}
-	_, b, err := memory.ResolveBank("")
-	if in.CWD != "" {
-		b, err = memory.HomeBank(), nil
-	}
-	if err != nil {
-		return res
-	}
+	b := memory.HomeBank()
 	path := b.Sub("reports", time.Now().Format("2006-01-02")+"-handback-"+paths.Slug(agentID, "", 40, "leaf")+".md")
 	if os.MkdirAll(filepath.Dir(path), 0o700) != nil || paths.AtomicWrite(path, []byte(text), 0o600) != nil {
 		return res

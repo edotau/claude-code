@@ -135,7 +135,8 @@ func TestMemoryInitAndIndexOutput(t *testing.T) {
 		t.Errorf("output missing the embedded init procedure: %q", out)
 	}
 
-	out = memCLIOK(t, "index", "--repo", repo)
+	t.Chdir(repo)
+	out = memCLIOK(t, "index")
 	if strings.Contains(strings.ToLower(out), "global") {
 		t.Errorf("memory index output still names the pre-rename global tier: %q", out)
 	}
@@ -275,7 +276,8 @@ func TestMemoryReview(t *testing.T) {
 			if c.setup != nil {
 				c.setup(t, repo)
 			}
-			args := []string{"review", "--repo", repo}
+			t.Chdir(repo)
+			args := []string{"review"}
 			if c.flag != "" {
 				args = append(args, c.flag)
 			}

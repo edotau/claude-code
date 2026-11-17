@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"regexp"
 	"strings"
 	"sync"
@@ -68,15 +67,8 @@ func DispatchCheckpoint(r UpdateRequest, now time.Time) bool {
 	return started
 }
 
-// ResolveBank maps --repo (a checkout path or "") to its root and the one bank; a relative path must exist.
-func ResolveBank(repo string) (string, Bank, error) {
-	if repo != "" && !filepath.IsAbs(repo) {
-		if _, err := os.Stat(repo); err != nil {
-			return "", Bank{}, fmt.Errorf("--repo %q is not an existing path; pass a checkout path", repo)
-		}
-	}
-	return root(repo), HomeBank(), nil
-}
+// ResolveBank returns the session root and the one bank.
+func ResolveBank() (string, Bank) { return root(""), HomeBank() }
 
 // Report appends a report to the bank's reports/ under the bank lock.
 func Report(label string, in ReportInput) ([]string, error) {
@@ -107,17 +99,13 @@ func InitBank(w io.Writer) error {
 
 // IndexOptions is one `memory index`.
 type IndexOptions struct {
-	Repo     string
 	Reembed  bool
 	MintOnly bool
 }
 
 // Index settles the bank (unless MintOnly) and refreshes the embedding cache; errors carry their verb prefix.
 func Index(out, errw io.Writer, o IndexOptions) error {
-	root, own, err := ResolveBank(o.Repo)
-	if err != nil {
-		return fmt.Errorf("memory index: %w", err)
-	}
+	root, own := ResolveBank()
 	ctx := context.Background()
 	profile, _ := embedEndpoint(ctx) // none usable: the session's profile, else the default
 	profile = cmp.Or(profile, providers.SessionProfileContext(ctx))
@@ -127,12 +115,12 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 		}
 	}
 	if o.MintOnly {
-		embedIndex(ctx, out, errw, o.Repo, profile, o.Reembed)
+		embedIndex(ctx, out, errw, root, profile, o.Reembed)
 		return nil
 	}
 	hasStore := scaffolded(own)
 	var rotated int
-	err = withFlatLock(BankLockWait, func() error {
+	err := withFlatLock(BankLockWait, func() error {
 		var serr error
 		rotated, serr = settleBankLocked(time.Now())
 		return serr
@@ -150,7 +138,7 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 		fmt.Fprintf(out, "no store at %s; run `claude-code memory init` in the repo to create one\n", own.SubDir(""))
 	}
 	refreshBankNotice(errw, "memory index", root, own)
-	embedIndex(ctx, out, errw, o.Repo, profile, o.Reembed)
+	embedIndex(ctx, out, errw, root, profile, o.Reembed)
 	return nil
 }
 
@@ -333,17 +321,13 @@ func FormatCheck(w io.Writer) (dirty bool, err error) {
 
 // ReviewOptions is one `memory review`.
 type ReviewOptions struct {
-	Repo                      string
 	StaleDays                 int
 	Brief, Notice, Candidates bool
 }
 
 // ReviewReport writes doctor + stats (Notice refreshes the cached session-start notice and prints nothing).
 func ReviewReport(w io.Writer, o ReviewOptions) error {
-	root, own, err := ResolveBank(o.Repo)
-	if err != nil {
-		return err
-	}
+	root, own := ResolveBank()
 	if o.Notice {
 		return cacheDoctorNotice(own, doctorBank(root, own, o.StaleDays, time.Now()))
 	}

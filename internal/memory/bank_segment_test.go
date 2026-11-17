@@ -150,11 +150,11 @@ func TestCorpusFilesOwnershipInEachLayout(t *testing.T) {
 }
 
 func TestCorpusBlocksReturnsReadErrors(t *testing.T) {
-	root := isolatedConfig1(t)
+	isolatedConfig1(t)
 	file := filepath.Join(StoreDir(), "decisionLog.md")
 	write(t, file, "## Hidden\nbody\n")
 	denyBankAccess(t, file)
-	hits, err := corpusBlocks(root)
+	hits, err := corpusBlocks()
 	if !errors.Is(err, fs.ErrPermission) {
 		t.Fatalf("corpusBlocks = %v, %v; want file permission error", hits, err)
 	}

@@ -88,9 +88,9 @@ func freshEmbedCache(c *EmbedClient) vectorRecord {
 	return vectorRecord{Model: c.Model, Rows: map[string]vectorRow{}}
 }
 
-// currentEntryHashes is the content hash of each embeddable entry in root's corpus right now.
-func currentEntryHashes(root string) (map[string]string, error) {
-	hits, err := corpusBlocks(root)
+// currentEntryHashes is the content hash of each embeddable entry in the corpus right now.
+func currentEntryHashes() (map[string]string, error) {
+	hits, err := corpusBlocks()
 	if err != nil {
 		return nil, err
 	}
@@ -161,7 +161,7 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	if err != nil {
 		return 0, 0, err
 	}
-	ids, texts, hashes, blocks, total, err := pendingEmbeds(root, rec)
+	ids, texts, hashes, blocks, total, err := pendingEmbeds(rec)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -172,7 +172,7 @@ func embedEntries(ctx context.Context, root string, c *EmbedClient, force bool) 
 	}
 	run := &embedRun{c: c, root: root, force: force, fresh: map[string]vectorRow{}, started: started}
 	embedded, embedErr := run.embed(ctx, ids, texts, hashes, blocks)
-	current, cerr := currentEntryHashes(root)
+	current, cerr := currentEntryHashes()
 	if cerr != nil {
 		rerr := vectorStore.Release(owner) // nothing was stored, so the claim is still ours to drop
 		return embedded, total, errors.Join(embedErr, cerr, rerr)
@@ -229,11 +229,11 @@ func cacheRowCurrent(row vectorRow, hash, blockHash string, cacheDim int) bool {
 	return ok && (cacheDim == 0 || dim == cacheDim)
 }
 
-// pendingEmbeds lists root's live entries whose vector in cache is missing, stale or undecodable, and the live count.
-func pendingEmbeds(root string, cache vectorRecord) (ids, texts, hashes, blocks []string, total int, err error) {
+// pendingEmbeds lists the live entries whose vector in cache is missing, stale or undecodable, and the live count.
+func pendingEmbeds(cache vectorRecord) (ids, texts, hashes, blocks []string, total int, err error) {
 	live := map[string]bool{}
 	cacheDim := cacheDimOf(cache)
-	hits, err := corpusBlocks(root)
+	hits, err := corpusBlocks()
 	if err != nil {
 		return nil, nil, nil, nil, 0, err
 	}
