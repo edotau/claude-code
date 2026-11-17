@@ -104,6 +104,9 @@ func marshalDoc(doc map[string]any) string {
 	return string(b)
 }
 
+// SupportsAsk requires interactive ask support; OpenCode's builder emits ask, but its plugin blocks on it.
+func SupportsAsk(agent string) bool { return agent == AgentClaude }
+
 // Dialect is how one agent reads a hook's output: its document builder and how a direct block reaches it.
 type Dialect struct {
 	Build    func(event string, r Result) string

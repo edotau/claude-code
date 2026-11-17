@@ -160,7 +160,7 @@ func Scan(in *core.Input) core.Result {
 		detail = "ask: " + detail
 	}
 	audit.LogSession(audit.HookBlocked, in.SessionID, "safety", detail)
-	if decision == core.Ask && in.Agent() == core.AgentClaude {
+	if decision == core.Ask && core.SupportsAsk(in.Agent()) {
 		return core.Result{Decision: core.Ask, Reason: strings.TrimSpace(msg), Stderr: strings.TrimSpace(warn.String())}
 	}
 	return core.Result{Decision: core.Block, Reason: strings.TrimSpace(warn.String() + msg)}

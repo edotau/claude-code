@@ -106,7 +106,7 @@ func CapContext(s string) string {
 func SafetyMessage(in *Input, decision Decision, what, pattern, hint string) string {
 	word := "BLOCKED"
 	if decision == Ask {
-		if in.Agent() == AgentClaude {
+		if SupportsAsk(in.Agent()) {
 			word = "ASK"
 		} else {
 			what += " (no ask decision on " + in.Agent() + ")"
