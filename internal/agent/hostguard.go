@@ -10,6 +10,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agentid"
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -51,7 +52,7 @@ type frozenTarget struct {
 
 // freezeCopilot resolves copilot's real target once so permit, cooldown, guard and agent share one account.
 func freezeCopilot(ctx context.Context, disp Dispatch, req RunOptions) (context.Context, Dispatch) {
-	if disp.Agent.Name() != "copilot" {
+	if !agentid.Routing(disp.Agent.Name()).FreezeTarget {
 		return ctx, disp
 	}
 	t, own, note, err := SchemaFor("copilot").targetNote(req)
@@ -82,7 +83,7 @@ func (s Schema) TargetCtx(ctx context.Context, req RunOptions) (providers.Target
 	if req.Values == nil {
 		req.Values = contextValues(ctx)
 	}
-	if f, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && s.Name == "copilot" {
+	if f, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && agentid.Routing(s.Name).FreezeTarget {
 		if f.note != "" {
 			f.once.Do(func() { fmt.Fprintln(NoticeOut, f.note) })
 		}
@@ -143,7 +144,7 @@ func guardProvider(r Engine, req RunOptions) (*providers.Provider, error) {
 // hopProvider is guardProvider, except a frozen copilot target is used as is (nil on its own login).
 func hopProvider(ctx context.Context, r Engine, req RunOptions) (*providers.Provider, error) {
 	f, ok := ctx.Value(frozenKey{}).(frozenTarget)
-	if !ok || r.Name() != "copilot" {
+	if !ok || !agentid.Routing(r.Name()).FreezeTarget {
 		return guardProvider(r, req)
 	}
 	if f.own {
@@ -193,7 +194,7 @@ func guardHopProvider(ctx context.Context, arm string, r Engine, gp *providers.P
 
 // ownCredentials marks gp the hop's own profile; a proxied coworker hop (claude's too) inherits no workspace token.
 func ownCredentials(ctx context.Context, arm string, r Engine, gp *providers.Provider) context.Context {
-	if arm != "" && (r.Name() != "claude" || gp.Name == arm) {
+	if arm != "" && (!VaultAgentIsClaude(r.Name()) || gp.Name == arm) {
 		return ctx
 	}
 	return withOwnProvider(ctx, gp)
@@ -230,10 +231,10 @@ func guardConfinedContext(ctx context.Context, r Engine, gp *providers.Provider)
 
 // armOwnLogin: gp is agentName's own sign-in, claude's Anthropic subscription or opencode's Go plan.
 func armOwnLogin(agentName string, gp *providers.Provider) bool {
-	if agentName == "claude" {
+	if VaultAgentIsClaude(agentName) {
 		return gp.Provider == "anthropic" && gp.Auth.Method() == providers.AuthCLI
 	}
-	if agentName == "opencode" && gp.Name == router.ArmOpencodeSub { // the hub's synthetic Go plan: no registry row
+	if agentid.Routing(agentName).SubLadder && gp.Name == router.ArmOpencodeSub { // Go plan has no registry row
 		return true
 	}
 	// an unreadable registry reads as no own login: the hop is refused, never run unchecked
