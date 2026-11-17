@@ -3,6 +3,7 @@ package agent
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"fmt"
 	"os"
 	"slices"
@@ -16,9 +17,10 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
-// Finding is one failed preflight check on a Databricks target; Check is credential, auth, login, served or wire.
+// Finding names a failed credential, token, auth, login, served or wire check on a Databricks target.
 type Finding struct {
 	Check   string   `json:"check"`
 	Profile string   `json:"profile"`
@@ -88,8 +90,8 @@ var refreshListing = func(profile string) { catalog.SpawnDiscover(profile, false
 // StubRefreshListingForTest turns the detached listing refresh off for a whole test binary (call from TestMain).
 func StubRefreshListingForTest() { refreshListing = func(string) {} }
 
-// CheckWorkspace is the local, no-network check of a Databricks row: a stored credential, live login, no auth mark.
-func CheckWorkspace(p *providers.Provider, st router.State, now time.Time) []Finding {
+// CheckWorkspace checks local credentials, token lifetime and cached or live workspace authentication.
+func CheckWorkspace(p *providers.Provider, st router.State, now time.Time, timeout ...time.Duration) []Finding {
 	var out []Finding
 	if !providers.CredentialPresent(p) {
 		out = append(out, Finding{Check: "credential", Profile: p.Name, Detail: "no stored credential for " + p.Name})
@@ -100,7 +102,92 @@ func CheckWorkspace(p *providers.Provider, st router.State, now time.Time) []Fin
 	if f, dead := deadLoginFinding(p); dead {
 		out = append(out, f)
 	}
+	if len(out) > 0 {
+		return out
+	}
+	budget := DefaultToolsTimeout
+	if len(timeout) > 0 && timeout[0] > 0 {
+		budget = timeout[0]
+	}
+	if f := tokenFinding(p, now, budget); f != nil {
+		return []Finding{*f}
+	}
+	if f := workspaceAuth(p, st, now); f != nil {
+		out = append(out, *f)
+	}
 	return out
+}
+
+// CredentialFingerprint hashes vault set-times; absent metadata or command credentials disable reuse.
+func CredentialFingerprint(p *providers.Provider) string {
+	if p.Auth.Command != "" {
+		return ""
+	}
+	meta, err := vault.LoadMeta()
+	if err != nil {
+		return ""
+	}
+	name := providers.AuthSecretName(p)
+	if name == "" {
+		name = p.Auth.Env
+	}
+	at := meta[name].SetAt
+	spAt := time.Time{}
+	if p.Auth.SPClientID != "" {
+		spAt = meta[providers.SecretName(p.Provider, p.Name, providers.AuthM2M)].SetAt
+	}
+	if at.IsZero() && spAt.IsZero() {
+		return ""
+	}
+	stamp := strings.Join([]string{at.UTC().Format(time.RFC3339Nano), spAt.UTC().Format(time.RFC3339Nano),
+		p.Identity, p.Auth.Type, p.Host, p.BaseURL}, "|")
+	return fmt.Sprintf("%x", sha256.Sum256([]byte(stamp)))
+}
+
+func tokenFinding(p *providers.Provider, now time.Time, budget time.Duration) *Finding {
+	exp, _, ok := providers.TokenExpiryMethodFor(p.Name, p.Identity)
+	if !ok || exp.Sub(now) >= budget+2*time.Minute {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	_, err := providers.Keepalive(ctx, p)
+	exp, _, ok = providers.TokenExpiryMethodFor(p.Name, p.Identity)
+	if ok && time.Until(exp) >= budget+2*time.Minute {
+		return nil
+	}
+	detail := "token cannot cover the run timeout plus 2m"
+	if err != nil {
+		detail += "; refresh failed"
+	}
+	return &Finding{Check: "token", Profile: p.Name, Detail: detail + ": run `" + providers.LoginCommand(p.Name) + "`"}
+}
+
+func workspaceAuth(p *providers.Provider, st router.State, now time.Time) *Finding {
+	fp := CredentialFingerprint(p)
+	account := router.AccountOf(p)
+	key := router.VerdictKey(p.Name, account, "", "")
+	if st.VerifiedOK(account, key, fp, now) {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	status, _ := providers.ProbeCredential(ctx, p)
+	verdict := "unknown"
+	switch status {
+	case providers.ProbeVerified:
+		verdict = "ok"
+	case providers.ProbeRejected:
+		verdict = "auth"
+	}
+	// A refresh during the probe invalidates its result rather than blessing an untested credential.
+	if CredentialFingerprint(p) == fp {
+		router.StoreVerdict(account, key, router.Verdict{CredFP: fp, Status: verdict, Source: "listing", At: time.Now()})
+	}
+	if verdict != "auth" {
+		return nil
+	}
+	return &Finding{Check: "auth", Profile: p.Name, Detail: "credential rejected: run `" + providers.LoginCommand(p.Name) + "`"}
 }
 
 // deadLoginFinding is the failure for a remembered dead user login that no paired service principal covers.

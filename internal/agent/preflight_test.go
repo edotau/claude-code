@@ -3,6 +3,8 @@ package agent
 import (
 	"context"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
@@ -138,5 +140,87 @@ func TestServedAlternativesOtherVendor(t *testing.T) {
 	p := &providers.Provider{Name: "dev", Preset: providers.PresetDatabricks}
 	if got := servedAlternatives(p, "databricks-kimi-k3-1-pro", time.Now()); !slices.Equal(got, []string{"databricks-kimi-k3"}) {
 		t.Errorf("servedAlternatives = %v; want [databricks-kimi-k3]", got)
+	}
+}
+
+type preflightTransport func(*http.Request) (*http.Response, error)
+
+func (f preflightTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+func TestPreflightAuthCacheReprobesFailuresAndRotatedCredentials(t *testing.T) {
+	vaulttest.Use(t)
+	p := &providers.Provider{Name: "cache", Provider: "databricks", Preset: providers.PresetDatabricks,
+		Host: "https://cache.example.com", Auth: providers.Auth{Type: providers.AuthPAT}}
+	name := providers.AuthSecretName(p)
+	if err := vault.Store(name, "fixture"); err != nil {
+		t.Fatal(err)
+	}
+	calls, code := 0, http.StatusOK
+	old := http.DefaultClient.Transport
+	http.DefaultClient.Transport = preflightTransport(func(*http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: code, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"endpoints":[]}`))}, nil
+	})
+	t.Cleanup(func() { http.DefaultClient.Transport = old })
+	check := func(wantFail bool) {
+		t.Helper()
+		f := workspaceAuth(p, router.LoadState(), time.Now())
+		if (f != nil) != wantFail {
+			t.Fatalf("finding = %v, want failure %v", f, wantFail)
+		}
+	}
+	cold := time.Now()
+	check(false)
+	t.Logf("cold auth check: %s", time.Since(cold))
+	warm := time.Now()
+	check(false)
+	t.Logf("warm auth check: %s", time.Since(warm))
+	if calls != 1 {
+		t.Fatalf("warm cache made %d probes", calls)
+	}
+	if err := vault.Store(name, "rotated-fixture"); err != nil {
+		t.Fatal(err)
+	}
+	code = http.StatusUnauthorized
+	check(true)
+	code = http.StatusOK
+	check(false)
+	if calls != 3 {
+		t.Fatalf("rotation and cached failure made %d probes, want 3", calls)
+	}
+	if err := os.WriteFile(router.StatePath(), []byte("broken"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	check(false)
+	if calls != 4 {
+		t.Fatal("corrupt cache did not fall back to live")
+	}
+}
+
+func TestPreflightTokenBudgetRejectsShortFixture(t *testing.T) {
+	vaulttest.Use(t)
+	p := &providers.Provider{Name: "token-fixture", Auth: providers.Auth{Type: providers.AuthPAT}}
+	dir := filepath.Join(paths.StateDir(), "cache", "token-expiry")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	raw := fmt.Sprintf(`{"schema":2,"exp":%d}`, now.Add(-time.Minute).Unix())
+	if err := os.WriteFile(filepath.Join(dir, p.Name+".json"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	f := tokenFinding(p, now, 10*time.Minute)
+	if f == nil || f.Check != "token" || !strings.Contains(f.Detail, providers.LoginCommand(p.Name)) {
+		t.Fatalf("expired fixture finding = %v", f)
+	}
+	raw = fmt.Sprintf(`{"schema":2,"exp":%d}`, now.Add(20*time.Minute).Unix())
+	if err := os.WriteFile(filepath.Join(dir, p.Name+".json"), []byte(raw), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if f := tokenFinding(p, now, 10*time.Minute); f != nil {
+		t.Fatalf("sufficient lifetime: %v", f)
+	}
+	if f := tokenFinding(p, now, DefaultToolsTimeout); f == nil {
+		t.Fatal("default run accepted a short token")
 	}
 }

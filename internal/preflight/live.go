@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/catalog"
@@ -143,6 +144,15 @@ func pongAll(ctx context.Context, bin string, ps []Pin, askProfile string, deadl
 
 func pong(ctx context.Context, bin string, p Pin, askProfile string) Pong {
 	r := Pong{Agent: p.Agent, Profile: p.Profile, Model: p.Model}
+	reg, _ := providers.LoadShared()
+	var prov *providers.Provider
+	if reg != nil {
+		prov = reg.Providers[cmp.Or(askProfile, p.Profile)]
+	}
+	fp := ""
+	if prov != nil {
+		fp = agent.CredentialFingerprint(prov)
+	}
 	env, err := runAsk(ctx, bin, p.Agent, askProfile)
 	r.Profile, r.Model = cmp.Or(env.Provider, r.Profile), cmp.Or(env.Model, r.Model)
 	switch {
@@ -162,7 +172,30 @@ func pong(ctx context.Context, bin string, p Pin, askProfile string) Pong {
 			r.Fallback = *env.Fallback
 		}
 	}
+	cachePong(prov, fp, r)
 	return r
+}
+
+func cachePong(p *providers.Provider, fp string, r Pong) {
+	if p == nil || fp == "" || r.Fallback != "" || r.Profile != p.Name || agent.CredentialFingerprint(p) != fp {
+		return
+	}
+	status := "unknown"
+	if r.OK {
+		status = "ok"
+	} else if r.Err == "auth" {
+		status = "auth"
+	}
+	effort := ""
+	if base := servedName(r.Agent, r.Model); base != r.Model {
+		effort = strings.TrimPrefix(r.Model, base+"-")
+	}
+	account := router.AccountOf(p)
+	now := time.Now()
+	router.StoreVerdict(account, router.VerdictKey(p.Name, account, r.Model, effort), router.Verdict{CredFP: fp, Status: status, Source: "live", At: now})
+	if r.OK {
+		router.StoreVerdict(account, router.VerdictKey(p.Name, account, "", ""), router.Verdict{CredFP: fp, Status: status, Source: "live", At: now})
+	}
 }
 
 func listingFresh(name string, now time.Time) bool {
