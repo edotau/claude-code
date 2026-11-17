@@ -4,11 +4,9 @@ package shell
 import (
 	"os"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
-	"sync"
 )
 
 // Segments splits on unquoted command separators (`&&`, `||`, `;`, `|`, `&`, newline).
@@ -19,31 +17,24 @@ func Segments(cmd string) []string {
 
 // SegmentsSep is Segments plus the separator that ended each segment ("" for the last).
 func SegmentsSep(cmd string) (out, seps []string) {
-	var b strings.Builder
+	start := 0
 	var quote byte
 	for i := 0; i < len(cmd); i++ {
-		c := cmd[i]
 		if quote != 0 {
-			j, q := quotedStep(cmd, i, quote)
-			b.WriteString(cmd[i : j+1])
-			i, quote = j, q
+			i, quote = quotedStep(cmd, i, quote)
 			continue
 		}
 		if next, q, ok := openQuote(cmd, i); ok {
-			b.WriteString(cmd[i : next+1])
 			i, quote = next, q
 			continue
 		}
 		if separatorStarts(cmd, i) {
 			sep, end := separatorAt(cmd, i)
-			out, seps = append(out, b.String()), append(seps, sep)
-			b.Reset()
-			i = end
-			continue
+			out, seps = append(out, cmd[start:i]), append(seps, sep)
+			start, i = end+1, end
 		}
-		b.WriteByte(c)
 	}
-	return append(out, b.String()), append(seps, "")
+	return append(out, cmd[start:]), append(seps, "")
 }
 
 // QuoteAt marks each byte: 0 outside quotes, ' inside '…', $'…' or after a backslash, " inside "…".
@@ -125,40 +116,51 @@ func separatorAt(cmd string, i int) (string, int) {
 // Tokens splits one segment into unquoted words, dropping a leading `(`/`{` so a subshell reads as its segment.
 func Tokens(seg string) []string {
 	var out []string
-	var b strings.Builder
+	var buf []byte
 	var quote byte
-	started := false
-	flush := func() {
-		if started {
-			out = append(out, b.String())
-			b.Reset()
-			started = false
-		}
-	}
+	started, raw, wordStart := false, true, 0
 	for i := 0; i < len(seg); i++ {
-		c := seg[i]
 		if lineContinuation(seg, i, quote) {
-			i++ // backslash-newline is a line continuation: removed, so the words on either side join
-			continue
-		}
-		switch {
-		case quote != 0:
-			i, quote = unquoteStep(&b, seg, i, quote)
-		case strings.IndexByte(" \t\r\n)}", c) >= 0:
-			flush() // whitespace, or an unquoted close of a subshell/group: a word boundary, never part of the word
-			continue
-		default:
-			if end := dollarBraceEnd(seg, i); end > 0 {
-				b.WriteString(seg[i : end+1]) // a `${VAR}` expansion stays one word
-				i = end
-			} else {
-				i, quote = plainStep(&b, seg, i)
+			if !started {
+				wordStart = i + 2
+			} else if raw {
+				buf, raw = append(buf[:0], seg[wordStart:i]...), false
 			}
+			i++
+			continue
 		}
-		started = true
+		if quote != 0 {
+			i, quote = unquoteStep(&buf, seg, i, quote)
+			started = true
+			continue
+		}
+		if isTokenBoundary(seg[i]) {
+			if started {
+				out = appendToken(out, seg, wordStart, i, raw, buf)
+				buf, started, raw = buf[:0], false, true
+			}
+			continue
+		}
+		if !started {
+			started, raw, wordStart = true, true, i
+		}
+		i, quote, raw = plainTokenStep(&buf, seg, i, wordStart, raw)
 	}
-	flush()
+	if started {
+		out = appendToken(out, seg, wordStart, len(seg), raw, buf)
+	}
 	return trimGroupOpen(out)
+}
+
+func isTokenBoundary(c byte) bool {
+	return c == ' ' || c == '\t' || c == '\r' || c == '\n' || c == ')' || c == '}'
+}
+
+func appendToken(out []string, seg string, start, end int, raw bool, buf []byte) []string {
+	if raw {
+		return append(out, seg[start:end])
+	}
+	return append(out, string(buf))
 }
 
 // lineContinuation reports a backslash-newline at seg[i] outside single quotes.
@@ -219,34 +221,53 @@ func quotedEnd(seg string, i int) int {
 	return -1
 }
 
-// plainStep handles an unquoted, non-boundary byte seg[i]: opens a quote, resolves a backslash escape or writes it.
-func plainStep(b *strings.Builder, seg string, i int) (int, byte) {
-	c := seg[i]
-	switch {
-	case c == '$' && i+1 < len(seg) && seg[i+1] == '\'':
-		end := decodeANSIC(b, seg, i+2)
-		return end, 0
-	case c == '\'' || c == '"':
-		return i, c
-	case c == '\\' && i+1 < len(seg):
-		i++
-		b.WriteByte(seg[i])
-	default:
-		b.WriteByte(c)
+// plainTokenStep handles an unquoted, non-boundary byte seg[i], switching to buf only on quotes/escapes.
+func plainTokenStep(buf *[]byte, seg string, i, wordStart int, raw bool) (int, byte, bool) {
+	if end := dollarBraceEnd(seg, i); end > 0 {
+		if !raw {
+			*buf = append(*buf, seg[i:end+1]...)
+		}
+		return end, 0, raw
 	}
-	return i, 0
+	switch c := seg[i]; {
+	case c == '$' && i+1 < len(seg) && seg[i+1] == '\'':
+		if raw {
+			*buf = append((*buf)[:0], seg[wordStart:i]...)
+		}
+		return decodeANSIC(buf, seg, i+2), 0, false
+	case c == '\'' || c == '"':
+		if raw {
+			*buf = append((*buf)[:0], seg[wordStart:i]...)
+		}
+		return i, c, false
+	case c == '\\' && i+1 < len(seg):
+		if raw {
+			*buf = append((*buf)[:0], seg[wordStart:i]...)
+		}
+		return i + 1, 0, appendByte(buf, seg[i+1])
+	default:
+		if !raw {
+			*buf = append(*buf, c)
+		}
+		return i, 0, raw
+	}
 }
 
-// unquoteStep writes quoted byte seg[i] to b, resolving a double-quote escape and dropping the closing quote.
-func unquoteStep(b *strings.Builder, seg string, i int, quote byte) (int, byte) {
+func appendByte(buf *[]byte, b byte) bool {
+	*buf = append(*buf, b)
+	return false
+}
+
+// unquoteStep writes quoted byte seg[i] to buf, resolving a double-quote escape and dropping the closing quote.
+func unquoteStep(buf *[]byte, seg string, i int, quote byte) (int, byte) {
 	if quote == '"' && seg[i] == '\\' && i+1 < len(seg) && dqEscapable(seg[i+1]) {
-		b.WriteByte(seg[i+1])
+		*buf = append(*buf, seg[i+1])
 		return i + 1, quote
 	}
 	if seg[i] == quote {
 		return i, 0
 	}
-	b.WriteByte(seg[i])
+	*buf = append(*buf, seg[i])
 	return i, quote
 }
 
@@ -260,12 +281,20 @@ func trimGroupOpen(out []string) []string {
 				continue
 			}
 		}
-		if !slices.Contains(shellKeywords, out[i]) {
+		if !isShellKeyword(out[i]) {
 			break
 		}
 		i++
 	}
 	return out
+}
+
+func isShellKeyword(s string) bool {
+	switch s {
+	case "if", "then", "else", "elif", "do", "while", "until", "!", "{", "(":
+		return true
+	}
+	return false
 }
 
 // quotedStep advances over s[i] inside quote: a double-quote escape consumes the next byte, the closing quote ends it.
@@ -306,6 +335,7 @@ func extractSubstitutions(s, mask string) (string, []string) {
 	var out strings.Builder
 	var subs []string
 	var quote byte
+	copied := 0
 	for i := 0; i < len(s); i++ {
 		c := s[i]
 		switch {
@@ -314,23 +344,27 @@ func extractSubstitutions(s, mask string) (string, []string) {
 				quote = 0
 			}
 		case escapedAt(s, i, quote):
-			out.WriteByte(c)
 			i++
-			c = s[i]
 		case c == '\'' && quote == 0: // inside "…" a ' is literal
 			quote = '\''
 		case c == '"':
 			quote = toggleDoubleQuote(quote)
 		default:
 			if body, end, ok := substitutionAt(s, i, quote); ok {
-				subs = append(subs, body)
-				i = end
+				if copied == 0 {
+					out.Grow(len(s))
+				}
+				out.WriteString(s[copied:i])
 				out.WriteString(mask)
-				continue
+				subs = append(subs, body)
+				i, copied = end, end+1
 			}
 		}
-		out.WriteByte(c)
 	}
+	if copied == 0 {
+		return s, nil
+	}
+	out.WriteString(s[copied:])
 	return out.String(), subs
 }
 
@@ -413,15 +447,29 @@ func matchBacktick(s string, start int) int {
 // shellWrapperNames launch a nested command STRING (not further argv tokens) that needs its own check.
 var shellWrapperNames = map[string]bool{"bash": true, "sh": true, "zsh": true, "dash": true, "ksh": true}
 
-// envAssignRe matches a leading `NAME=value` token (e.g. `BASH_ENV=x`) prefixed to a command.
-var envAssignRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
-})
+// isEnvAssign reports a leading `NAME=value` token (e.g. `BASH_ENV=x`) prefixed to a command.
+func isEnvAssign(t string) bool {
+	eq := strings.IndexByte(t, '=')
+	if eq <= 0 {
+		return false
+	}
+	c0 := t[0]
+	if (c0 < 'A' || c0 > 'Z') && (c0 < 'a' || c0 > 'z') && c0 != '_' {
+		return false
+	}
+	for i := 1; i < eq; i++ {
+		c := t[i]
+		if (c < 'A' || c > 'Z') && (c < 'a' || c > 'z') && (c < '0' || c > '9') && c != '_' {
+			return false
+		}
+	}
+	return true
+}
 
 // skipEnvAssignments drops leading `NAME=value` tokens so the wrapper/eval check sees the real command.
 func skipEnvAssignments(toks []string) []string {
 	i := 0
-	for i < len(toks) && envAssignRe().MatchString(toks[i]) {
+	for i < len(toks) && isEnvAssign(toks[i]) {
 		i++
 	}
 	return toks[i:]
@@ -491,9 +539,13 @@ func splitWrapperOpt(name, opt string) (flag, val string, hasVal bool) {
 	if strings.HasPrefix(opt, "--") {
 		return strings.Cut(opt, "=")
 	}
+	flags := wrapperValueFlags[name]
+	var key [2]byte
+	key[0] = '-'
 	for i := 1; i < len(opt); i++ {
-		if f := "-" + opt[i:i+1]; wrapperValueFlags[name][f] {
-			return f, opt[i+1:], i+1 < len(opt)
+		key[1] = opt[i]
+		if flags[string(key[:])] {
+			return "-" + opt[i:i+1], opt[i+1:], i+1 < len(opt)
 		}
 	}
 	return opt, "", false
@@ -578,15 +630,12 @@ func resolvePath(p, base string) (string, bool) {
 	if p == "" || p == "-" {
 		return base, false
 	}
-	if home, err := os.UserHomeDir(); err == nil {
-		for _, pre := range []string{"~", "$HOME", "${HOME}"} {
-			if p == pre || strings.HasPrefix(p, pre+"/") {
-				p = home + p[len(pre):]
-				break
-			}
+	if p[0] == '~' || p[0] == '$' {
+		if home, err := os.UserHomeDir(); err == nil {
+			p = expandHomePrefix(p, home)
 		}
 	}
-	if strings.ContainsAny(p, "$`*?"+subMask) || strings.HasPrefix(p, "~") { // ~user, ~+, ~- name other dirs
+	if strings.ContainsAny(p, "$`*?"+subMask) || p[0] == '~' { // ~user, ~+, ~- name other dirs
 		return base, false
 	}
 	if base == unknownDir && !filepath.IsAbs(p) { // a `..` must not climb out of an unknown dir into a real one
@@ -598,20 +647,31 @@ func resolvePath(p, base string) (string, bool) {
 	return p, true
 }
 
-// decodeANSIC writes the body of an ANSI-C `$'…'` string from seg[i] to b; returns the closing quote index.
-func decodeANSIC(b *strings.Builder, seg string, i int) int {
+func expandHomePrefix(p, home string) string {
+	switch {
+	case p == "~", strings.HasPrefix(p, "~/"):
+		return home + p[1:]
+	case p == "$HOME", strings.HasPrefix(p, "$HOME/"):
+		return home + p[len("$HOME"):]
+	case p == "${HOME}", strings.HasPrefix(p, "${HOME}/"):
+		return home + p[len("${HOME}"):]
+	}
+	return p
+}
+
+// decodeANSIC writes the body of an ANSI-C `$'…'` string from seg[i] to buf; returns the closing quote index.
+func decodeANSIC(buf *[]byte, seg string, i int) int {
 	for ; i < len(seg) && seg[i] != '\''; i++ {
 		if seg[i] != '\\' || i+1 >= len(seg) {
-			b.WriteByte(seg[i])
+			*buf = append(*buf, seg[i])
 			continue
 		}
 		i++
 		if r, n, ok := ansiEscape(seg[i:]); ok {
-			b.WriteString(r)
+			*buf = append(*buf, r...)
 			i += n - 1
 		} else {
-			b.WriteByte('\\')
-			b.WriteByte(seg[i])
+			*buf = append(*buf, '\\', seg[i])
 		}
 	}
 	return i

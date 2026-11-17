@@ -13,9 +13,6 @@ import (
 // maxNest bounds substitution/`bash -c`/`eval` recursion so a pathological command cannot loop.
 const maxNest = 4
 
-// shellKeywords lead a segment without being its command (`if cd x`, `! git`, `then git`).
-var shellKeywords = []string{"if", "then", "else", "elif", "do", "while", "until", "!", "{", "("}
-
 // Uninspectable is EachGit's verb (cwd as target) for nesting past maxNest, unseen code a guard must fail closed on.
 const Uninspectable = "<uninspectable>"
 
@@ -38,22 +35,30 @@ func eachGit(cmd, cwd string, fn gitFn, depth int, runs bool) bool {
 		return fn(cwd, Uninspectable, []string{tooDeepArg})
 	}
 	masked, subs := extractSubstitutions(cmd, subMask)
-	executed := executedSubs(masked, len(subs))
-	for k, sub := range subs { // a substitution runs nested: its cd stays inside it
-		if eachGit(sub, cwd, fn, depth+1, runs || executed[k]) {
-			return true
+	if len(subs) > 0 {
+		executed := executedSubs(masked, len(subs))
+		for k, sub := range subs { // a substitution runs nested: its cd stays inside it
+			if eachGit(sub, cwd, fn, depth+1, runs || executed[k]) {
+				return true
+			}
 		}
 	}
-	scripts := RunScripts(masked, cwd)
-	walk, seen, writing := fn, map[[2]string]bool{}, false
+	segs, seps := SegmentsSep(masked)
+	var scripts []Script
+	if strings.Contains(masked, ">") || strings.Contains(masked, "tee") {
+		scripts = runScripts(segs, seps, cwd)
+	}
+	walk, writing := fn, false
+	var seen map[[2]string]bool
 	if len(scripts) > 0 {
+		seen = map[[2]string]bool{}
 		walk = func(target, verb string, args []string) bool {
 			seen[[2]string{target, verb}] = seen[[2]string{target, verb}] || writing
 			return fn(target, verb, args)
 		}
 	}
-	segs, seps := SegmentsSep(masked)
-	w := &segWalk{cwd: cwd, segs: segs, seps: seps, fn: walk, depth: depth, runs: runs}
+	w := &segWalk{cwd: cwd, segs: segs, seps: seps, words: make([][]string, len(segs)),
+		wordsSet: make([]bool, len(segs)), fn: walk, depth: depth, runs: runs}
 	for i, seg := range segs {
 		w.enter(seg)
 		writing = len(scripts) > 0 && w.writesThenRuns(i) // only the writing segment's text repeats in its script
@@ -82,14 +87,24 @@ func nestScripts(scripts []Script, seen map[[2]string]bool, fn gitFn, depth int,
 type segWalk struct {
 	cwdTracker
 	segs, seps []string
+	words      [][]string
+	wordsSet   []bool
 	fn         gitFn
 	depth      int
 	runs       bool
 }
 
+func (w *segWalk) cmdWords(i int) []string {
+	if !w.wordsSet[i] {
+		w.words[i] = commandWords(w.segs[i])
+		w.wordsSet[i] = true
+	}
+	return w.words[i]
+}
+
 // run visits segment i: a cd moves the tracker, git words and nested text are reported to fn.
 func (w *segWalk) run(i int) bool {
-	toks := commandWords(w.segs[i])
+	toks := w.cmdWords(i)
 	if len(toks) == 0 {
 		return false
 	}
@@ -116,17 +131,23 @@ func (w *segWalk) pipesIntoRunner(i int) bool {
 	if w.seps[i] != "|" && w.seps[i] != "|&" || i+1 >= len(w.segs) {
 		return false
 	}
-	next := commandWords(w.segs[i+1])
+	next := w.cmdWords(i + 1)
 	rest, _ := Unwrap(next, "")
 	return len(rest) > 0 && runner(rest[0]) && !bareShell(next) // a bare shell's input is pipedIntoShell's
 }
 
 // writesThenRuns reports segment i writing a file while a later segment runs a script or a command by path.
 func (w *segWalk) writesThenRuns(i int) bool {
-	return FileRedirect(w.segs[i]) && slices.ContainsFunc(w.segs[i+1:], func(seg string) bool {
-		rest, _ := Unwrap(commandWords(seg), "")
-		return len(rest) > 1 && runner(rest[0]) || len(rest) > 0 && strings.Contains(rest[0], "/")
-	})
+	if !FileRedirect(w.segs[i]) {
+		return false
+	}
+	for j := i + 1; j < len(w.segs); j++ {
+		rest, _ := Unwrap(w.cmdWords(j), "")
+		if len(rest) > 1 && runner(rest[0]) || len(rest) > 0 && strings.Contains(rest[0], "/") {
+			return true
+		}
+	}
+	return false
 }
 
 // runArgs run an argument as a command line or script; shellWrapperNames do too.
@@ -145,7 +166,7 @@ func executedSubs(masked string, n int) []bool {
 	for _, seg := range Segments(masked) {
 		toks := Tokens(seg)
 		kw := 0
-		for kw < len(toks) && slices.Contains(shellKeywords, toks[kw]) {
+		for kw < len(toks) && isShellKeyword(toks[kw]) {
 			kw++
 		}
 		rest, _ := Unwrap(toks[kw:], "")
@@ -158,7 +179,7 @@ func executedSubs(masked string, n int) []bool {
 				case k >= n:
 				case code:
 					out[k] = true
-				case j < at && envAssignRe().MatchString(t):
+				case j < at && isEnvAssign(t):
 					assigned = append(assigned, k)
 				}
 				k++
@@ -173,7 +194,7 @@ func executedSubs(masked string, n int) []bool {
 
 // pipesIntoShell reports that segment i feeds a bare shell that reads its commands from stdin.
 func (w *segWalk) pipesIntoShell(i int) bool {
-	return (w.seps[i] == "|" || w.seps[i] == "|&") && i+1 < len(w.segs) && bareShell(commandWords(w.segs[i+1])) &&
+	return (w.seps[i] == "|" || w.seps[i] == "|&") && i+1 < len(w.segs) && bareShell(w.cmdWords(i+1)) &&
 		!w.casePattern(i)
 }
 
@@ -271,7 +292,7 @@ func eachSegment(segs, seps []string, cwd string, fn func(i int, toks []string, 
 			prev = seps[i-1]
 		}
 		words := toks
-		for len(words) > 0 && slices.Contains(shellKeywords, words[0]) {
+		for len(words) > 0 && isShellKeyword(words[0]) {
 			words = words[1:]
 		}
 		if at, isCd := c.step(words, prev, seps[i]); !isCd && len(toks) > 0 {
@@ -384,6 +405,9 @@ func popDir(dirs *[]string, cwd string) string {
 
 // parenCounts counts the unquoted `(` and `)` in a segment (substitutions are already masked out).
 func parenCounts(seg string) (opens, closes int) {
+	if !strings.ContainsAny(seg, "()") {
+		return 0, 0
+	}
 	var quote byte
 	for i := 0; i < len(seg); i++ {
 		if quote != 0 {
@@ -418,7 +442,7 @@ func builtinPrefixDropped(toks []string) []string {
 // commandWords is the segment's words without leading shell keywords; nil for an ssh command (it runs remotely).
 func commandWords(seg string) []string {
 	toks := Tokens(seg)
-	for len(toks) > 0 && slices.Contains(shellKeywords, toks[0]) {
+	for len(toks) > 0 && isShellKeyword(toks[0]) {
 		toks = toks[1:]
 	}
 	if len(toks) > 0 && toks[0] == "ssh" {
@@ -589,12 +613,16 @@ func RunScripts(cmd, cwd string) []Script {
 		return nil
 	}
 	segs, seps := SegmentsSep(cmd)
+	return runScripts(segs, seps, cwd)
+}
+
+func runScripts(segs, seps []string, cwd string) []Script {
 	written := map[string][]string{}
 	var piped, out []string
 	var scripts []Script
 	eachSegment(segs, seps, cwd, func(i int, _ []string, dir string, lost bool) {
 		words, targets := Redirects(segs[i])
-		for len(words) > 0 && slices.Contains(shellKeywords, words[0]) {
+		for len(words) > 0 && isShellKeyword(words[0]) {
 			words = words[1:]
 		}
 		rest, _ := Unwrap(words, dir)
