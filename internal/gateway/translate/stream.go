@@ -50,6 +50,10 @@ type streamer struct {
 	usage     *chatUsage
 	late      strings.Builder // text that arrived while a tool block was open, emitted after the tools stop
 	buf       bytes.Buffer    // reused by event() to avoid a per-event json.Marshal allocation
+	enc       *json.Encoder   // writes into buf
+	deltaEv   blockDeltaEvent // reused delta frame; the payloads below are held by pointer so boxing allocates nothing
+	textDelta textBlock
+	argsDelta inputJSONDelta
 }
 
 // textBlock is a text content block or text_delta; typed payloads skip map[string]any's per-chunk marshal cost.
@@ -126,6 +130,7 @@ type messageStopEvent struct {
 // StreamChat converts chat-completions SSE to Anthropic SSE; a read error before any output writes nothing.
 func StreamChat(w io.Writer, flush func(), r io.Reader, clientModel string) error {
 	s := &streamer{w: w, flush: flush, model: clientModel, open: -1, tools: map[int]*toolState{}}
+	s.enc = json.NewEncoder(&s.buf)
 	br := bufio.NewReader(r)
 	var f sseFrame
 	for {
@@ -146,25 +151,29 @@ var errSSELineTooLong = errors.New("upstream SSE line exceeds limit")
 
 var errSSEFrameTooLong = errors.New("upstream SSE frame exceeds limit")
 
-// readSSELine is br.ReadBytes('\n') that fails with errSSELineTooLong past maxSSELine.
+// readSSELine is br.ReadBytes('\n') that fails with errSSELineTooLong past maxSSELine; valid until the next read.
 func readSSELine(br *bufio.Reader) ([]byte, error) {
-	var line []byte
-	for {
-		chunk, err := br.ReadSlice('\n')
+	line, err := br.ReadSlice('\n')
+	if err != bufio.ErrBufferFull {
+		return line, err
+	}
+	line = slices.Clone(line)
+	for err == bufio.ErrBufferFull {
+		var chunk []byte
+		chunk, err = br.ReadSlice('\n')
 		if line = append(line, chunk...); len(line) > maxSSELine {
 			return nil, errSSELineTooLong
 		}
-		if err != bufio.ErrBufferFull {
-			return line, err
-		}
 	}
+	return line, err
 }
 
-// sseFrame is the SSE frame in progress: its event name and "data:" lines, each a fresh slice from ReadBytes.
+// sseFrame is the SSE frame in progress: its event name and its "data:" lines joined by "\n" in a reused buffer.
 type sseFrame struct {
 	event string
-	data  [][]byte
-	size  int // bytes held in data, capped at maxSSELine like one line
+	data  []byte
+	lines int // "data:" lines in data
+	size  int // bytes held in data without separators, capped at maxSSELine like one line
 }
 
 // feed adds one SSE line to f, dispatching the frame on a blank line.
@@ -177,7 +186,11 @@ func (s *streamer) feed(f *sseFrame, line []byte) (bool, error) {
 		if f.size += len(d); f.size > maxSSELine {
 			return false, s.readEnd(f, errSSEFrameTooLong)
 		}
-		f.data = append(f.data, d)
+		if f.lines > 0 {
+			f.data = append(f.data, '\n')
+		}
+		f.data = append(f.data, d...)
+		f.lines++
 	case bytes.HasPrefix(line, []byte("event:")):
 		f.event = string(bytes.TrimSpace(bytes.TrimPrefix(line, []byte("event:"))))
 	}
@@ -186,15 +199,12 @@ func (s *streamer) feed(f *sseFrame, line []byte) (bool, error) {
 
 // dispatch handles f's payload, if any, and resets f.
 func (s *streamer) dispatch(f *sseFrame) (bool, error) {
-	if len(f.data) == 0 {
+	if f.lines == 0 {
 		f.event = ""
 		return false, nil
 	}
-	payload, event := f.data[0], f.event
-	if len(f.data) > 1 {
-		payload = bytes.Join(f.data, []byte("\n"))
-	}
-	f.data, f.event, f.size = f.data[:0], "", 0
+	payload, event := f.data, f.event // payload is valid until the next feed, and handle does not keep it
+	f.data, f.event, f.lines, f.size = f.data[:0], "", 0, 0
 	return s.handle(event, payload)
 }
 
@@ -292,7 +302,8 @@ func (s *streamer) text(t string) error {
 		s.open, s.openText = s.next, true
 		s.next++
 	}
-	return s.delta(s.open, textBlock{Type: "text_delta", Text: t})
+	s.textDelta = textBlock{Type: "text_delta", Text: t}
+	return s.delta(s.open, &s.textDelta)
 }
 
 func (s *streamer) tool(tc inToolCall) error {
@@ -315,7 +326,8 @@ func (s *streamer) tool(tc inToolCall) error {
 	if args == "" {
 		return nil
 	}
-	return s.delta(t.block, inputJSONDelta{Type: "input_json_delta", PartialJSON: args})
+	s.argsDelta = inputJSONDelta{Type: "input_json_delta", PartialJSON: args}
+	return s.delta(t.block, &s.argsDelta)
 }
 
 // toolFor finds the tool call tc continues, or registers a new one.
@@ -371,7 +383,8 @@ func (s *streamer) startTool(t *toolState, args string) (full string, started bo
 }
 
 func (s *streamer) delta(index int, d any) error {
-	return s.event("content_block_delta", blockDeltaEvent{Type: "content_block_delta", Index: index, Delta: d})
+	s.deltaEv = blockDeltaEvent{Type: "content_block_delta", Index: index, Delta: d}
+	return s.event("content_block_delta", &s.deltaEv)
 }
 
 func (s *streamer) closeText() error {
@@ -427,19 +440,8 @@ func (s *streamer) end(err error) error {
 	if slices.ContainsFunc(s.calls, func(t *toolState) bool { return t.block < 0 }) {
 		return s.fail("upstream tool call never named its function", io.ErrUnexpectedEOF)
 	}
-	if err := s.closeText(); err != nil {
+	if err := s.closeBlocks(); err != nil {
 		return err
-	}
-	if err := s.closeTools(); err != nil {
-		return err
-	}
-	if s.late.Len() > 0 {
-		if err := s.text(s.late.String()); err != nil {
-			return err
-		}
-		if err := s.closeText(); err != nil {
-			return err
-		}
 	}
 	usage := map[string]any{"output_tokens": 0}
 	if s.usage != nil {
@@ -450,6 +452,23 @@ func (s *streamer) end(err error) error {
 		return err
 	}
 	return s.event("message_stop", messageStopEvent{Type: "message_stop"})
+}
+
+// closeBlocks stops the open blocks, then emits the text held back while a tool block was open.
+func (s *streamer) closeBlocks() error {
+	if err := s.closeText(); err != nil {
+		return err
+	}
+	if err := s.closeTools(); err != nil {
+		return err
+	}
+	if s.late.Len() == 0 {
+		return nil
+	}
+	if err := s.text(s.late.String()); err != nil {
+		return err
+	}
+	return s.closeText()
 }
 
 // fail writes an Anthropic api_error event and returns cause wrapped.
@@ -466,7 +485,7 @@ func (s *streamer) event(typ string, payload any) error {
 	s.buf.WriteString("event: ")
 	s.buf.WriteString(typ)
 	s.buf.WriteString("\ndata: ")
-	if err := json.NewEncoder(&s.buf).Encode(payload); err != nil {
+	if err := s.enc.Encode(payload); err != nil {
 		return err
 	}
 	s.buf.WriteByte('\n')
