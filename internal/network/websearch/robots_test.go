@@ -142,6 +142,30 @@ func TestRobotsCacheHitWithinTTL(t *testing.T) {
 	}
 }
 
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// TestWarmRobotsMarksOnlyUnreadableOriginsDead: each origin is fetched once; only a 5xx origin is marked dead.
+func TestWarmRobotsMarksOnlyUnreadableOriginsDead(t *testing.T) {
+	resetRobotsCache(t)
+	var hits atomic.Int32
+	orig := pageClient
+	pageClient = &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		hits.Add(1)
+		status := http.StatusNotFound
+		if r.URL.Host == "bad.example" {
+			status = http.StatusBadGateway
+		}
+		return &http.Response{StatusCode: status, Body: http.NoBody, Request: r}, nil
+	})}
+	t.Cleanup(func() { pageClient = orig })
+	dead := warmRobots(context.Background(), []string{"https://ok.example/a", "https://bad.example/b", "https://ok.example/c"})
+	if len(dead) != 1 || !dead["https://bad.example"] || hits.Load() != 2 {
+		t.Fatalf("dead = %v, hits = %d; want only bad.example dead after 2 fetches", dead, hits.Load())
+	}
+}
+
 // TestPageClientTransportBounds: no proxy (the dial guard must see the real target), every phase bounded.
 func TestPageClientTransportBounds(t *testing.T) {
 	tr, ok := pageClient.Transport.(*http.Transport)

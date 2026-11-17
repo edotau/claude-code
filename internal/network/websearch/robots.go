@@ -3,14 +3,17 @@ package websearch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/network/httpx"
+	"github.com/edotau/claude-code/internal/par"
 )
 
 // robotsAgent is the user-agent group robots.txt rules are read for.
@@ -152,22 +155,18 @@ func warmRobots(ctx context.Context, urls []string) map[string]bool {
 	if len(origins) < 2 {
 		return dead
 	}
-	var mu sync.Mutex
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, robotsFanout)
-	for _, o := range origins {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func() {
-			defer func() { <-sem; wg.Done() }()
-			if _, ok := cachedRobotsRules(ctx, o); !ok {
-				mu.Lock()
-				dead[o] = true
-				mu.Unlock()
-			}
-		}()
+	readable, err := par.Map(ctx, origins, robotsFanout, func(ctx context.Context, o string) (bool, error) {
+		_, ok := cachedRobotsRules(ctx, o)
+		return ok, nil
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "websearch: robots.txt fetch:", err) // a panicking fetch leaves its origin dead (refused)
 	}
-	wg.Wait()
+	for i, o := range origins {
+		if !readable[i] {
+			dead[o] = true
+		}
+	}
 	return dead
 }
 
