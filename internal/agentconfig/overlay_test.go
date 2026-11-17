@@ -228,3 +228,14 @@ func TestTokenCommandOverlayDisableSurvivesRelay(t *testing.T) {
 		t.Fatalf("disable override lost or mutated provider: %v", err)
 	}
 }
+
+func TestLoadOverlayCodexNetworkType(t *testing.T) {
+	_, err := LoadOverlayContext(t.Context(), `{"schema":1,"codexNetwork":"yes"}`, nil)
+	if err == nil || !strings.Contains(err.Error(), "codexNetwork: want true or false") {
+		t.Errorf("bad codexNetwork: %v; want true or false", err)
+	}
+	o, err := LoadOverlayContext(t.Context(), `{"schema":1,"codexNetwork":true}`, nil)
+	if err != nil || !o.CodexNetwork || o.Empty() || !o.Routed() {
+		t.Errorf("valid codexNetwork not recognized: %v", err)
+	}
+}

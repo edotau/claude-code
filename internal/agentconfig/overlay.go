@@ -275,6 +275,8 @@ func keyType(key string) string {
 	switch key {
 	case "schema":
 		return "an integer"
+	case "codexNetwork":
+		return "true or false"
 	case "set":
 		return "an object of string values"
 	case "unset", "keep":
