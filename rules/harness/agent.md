@@ -53,6 +53,10 @@ paths:
   | `account` | copilot GitHub account (its login) | the credit gate's account pick |
   | `identity` | `auto\|user\|sp` (Databricks) | `--as`, the profile's identity |
   | `codexNetwork` | `true`: codex `--tools` workspace-write sandbox gets network (top-level ask only) | sealed network |
+  | `maxChildren` | Concurrent children per parent; env > overlay > default; 0 = no cap, invalid = default | 8 |
+  | `maxTreeTokens` | Known subtree tokens; env > overlay > default; 0 = no cap, invalid = default | 0 |
+  | `budgetUSD` | Claude only: number > 0, passed as `--max-budget-usd` | uncapped |
+  | `budgetCredits` | Copilot only: integer >= 30, SDK session credit limit | uncapped |
   | `set` / `unset` / `keep` | env name -> value / names / names | env layer |
 
 - `<agent> models` passes through to the vendor CLI; the catalog is `<agent> catalog`.
@@ -79,7 +83,8 @@ paths:
   `COPILOT_HOME` (`state/copilot/registry-home`); an unregistered model fails closed, `--direct` keeps the single-model
   route, macOS skips the registry. `ask --agent copilot` uses the same registry via the SDK.
 For codex and copilot, `databricks -p dev` (also `--profile dev` or `--profile=dev`) selects the profile.
-Use `claude-code copilot -- databricks` to pass the literal word; harness flags are still parsed.
+Use `claude-code copilot -- databricks` to pass the literal word; everything after the first `--` goes to the
+vendor CLI untouched.
 
 - **gemini** runs on `agy`: its Google sign-in by default, or a Databricks profile (`--profile dev|qa|prod`) through
   the agy gateway; `ask --dirs/--files/--diff` inline tracked files only, never `.env*`, `state/` or keys.
@@ -112,7 +117,8 @@ Use `claude-code copilot -- databricks` to pass the literal word; harness flags 
 - **Dispatch depth.** `HARNESS_DISPATCH_MAX_DEPTH` caps nesting (default 3; 0 = no cap; invalid uses default).
   `HARNESS_DISPATCH_MAX_CHILDREN` caps live children per parent (default 8; 0 = no cap; invalid uses default).
   `HARNESS_DISPATCH_MAX_TREE_TOKENS` caps tokens under the root (default 0 = off; unknown usage counts 0; invalid
-  uses default). Both apply to nested dispatches only, and a refusal is terminal.
+  uses default). Both resolve env > overlay (`maxChildren` / `maxTreeTokens`) > default, propagate to descendants,
+  apply to nested dispatches only, and refuse terminally.
 - **Deny and Ask.** Deny is the hard boundary; Ask goes to the agent's own judge where it has one (opencode `--auto`,
   claude on Anthropic). Elsewhere gemini renders Ask as Allow, copilot's SDK approves it, claude off Anthropic denies
   it. A Deny an agent cannot enforce refuses the dispatch (`retry.KindFatal`) naming the rule. `--tools` approves and

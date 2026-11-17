@@ -24,8 +24,8 @@ var reviewDiffTimeout = 2 * time.Minute
 
 // ReviewOptions are `<agent> review`'s flags; Focus is the trailing words.
 type ReviewOptions struct {
-	Uncommitted, PR, Adversarial, Background bool
-	Base, Commit, Rubric, Model, Focus       string
+	Uncommitted, PR, Adversarial, Background   bool
+	Base, Commit, Rubric, Model, Focus, Format string
 }
 
 // Review is `<agent> review`: review scope's diff in one run, or in parts; a detached split replays args.
@@ -53,15 +53,26 @@ func Review(name string, args []string, o ReviewOptions) int {
 	if err != nil {
 		return fail(err)
 	}
-	if parts := reviewParts(diff, o.Adversarial, o.Focus, o.Rubric); len(parts) > 1 {
+	parts := reviewParts(diff, o.Adversarial, o.Focus, o.Rubric)
+	if o.Background && o.Format == "json" && parent == nil {
+		return spawnSplitReview(name, args, len(parts), o.Format)
+	}
+	if len(parts) > 1 {
 		return runSplitReview(name, args, parts, o, parent)
 	}
+	return runSingleReview(name, diff, o, parent, started)
+}
+
+func runSingleReview(name string, diff []byte, o ReviewOptions, parent *agent.Record, started time.Time) int {
 	askArgs, cleanup, err := reviewArgs(name, diff, o.Adversarial, o.Background, o.Focus, o.Rubric, o.Model)
 	if err != nil {
-		return fail(err)
+		if parent != nil {
+			return finishSplitReview(parent, err)
+		}
+		return helptext.Fail("%s review: %v", name, err)
 	}
 	defer cleanup()
-	rc := Cmd(askArgs)
+	rc := runReviewAsk(name, askArgs, o)
 	if parent == nil {
 		return rc
 	}
@@ -94,7 +105,7 @@ func reviewDiff(cwd string, scope diffScope) ([]byte, error) {
 // runSplitReview runs a multi-part review: detached as one job when background, else sequentially in place.
 func runSplitReview(name string, args []string, parts []part, o ReviewOptions, parent *agent.Record) int {
 	if o.Background && os.Getenv(reviewJobEnv) == "" {
-		return spawnSplitReview(name, args, len(parts))
+		return spawnSplitReview(name, args, len(parts), o.Format)
 	}
 	answers := make([]string, 0, len(parts))
 	for i, p := range parts {
@@ -102,20 +113,21 @@ func runSplitReview(name string, args []string, parts []part, o ReviewOptions, p
 		askArgs, cleanup, err := reviewArgs(name, p.Diff, o.Adversarial, false,
 			strings.TrimSpace(o.Focus+"\n"+p.Header(i+1, len(parts))), o.Rubric, o.Model)
 		if err != nil {
-			werr := printMerged(o.Adversarial, parts, answers)
+			werr := printReviewMerged(o, parts, answers)
 			return finishSplitReview(parent, errors.Join(fmt.Errorf("part %d/%d: %w", i+1, len(parts), err), werr))
 		}
 		partStart := time.Now()
-		ans, rc := captureAnswer(func(out io.Writer) int { return cmdTo(askArgs, out) })
+		ans, usage, rc := reviewPartAnswer(name, askArgs, o)
+		addReviewUsage(parent, usage)
 		cleanup()
 		if rc != 0 {
-			werr := printMerged(o.Adversarial, parts, answers)
+			werr := printReviewMerged(o, parts, answers)
 			return finishSplitReview(parent, errors.Join(
 				fmt.Errorf("part %d/%d failed: %s", i+1, len(parts), lastDispatchError(name, partStart)), werr))
 		}
 		answers = append(answers, ans)
 	}
-	if err := printMerged(o.Adversarial, parts, answers); err != nil {
+	if err := printReviewMerged(o, parts, answers); err != nil {
 		return finishSplitReview(parent, fmt.Errorf("write merged report: %w", err))
 	}
 	return finishSplitReview(parent, nil)
@@ -128,7 +140,7 @@ func printMerged(adversarial bool, parts []part, answers []string) error {
 }
 
 // spawnSplitReview detaches this same review (minus --background) as one job that runs the parts in order.
-func spawnSplitReview(name string, args []string, n int) int {
+func spawnSplitReview(name string, args []string, n int, format string) int {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return helptext.Fail("%s review: %v", name, err)
@@ -153,7 +165,7 @@ func spawnSplitReview(name string, args []string, n int) int {
 	if err := rec.Save(); err != nil { // records the child's pid so status can tell running from lost
 		fmt.Fprintf(os.Stderr, "%s review: job pid not recorded: %v\n", name, err)
 	}
-	if err := reportBackgroundStart("text", rec); err != nil {
+	if err := reportBackgroundStart(format, rec); err != nil {
 		return helptext.Fail("%s review: job %s started; write job id: %v", name, rec.ID, err)
 	}
 	return 0
@@ -169,7 +181,11 @@ func isBackgroundFlag(a string) bool {
 func finishSplitReview(parent *agent.Record, err error) int {
 	if parent != nil {
 		parent.Progress = ""
-		parent.Finish(wire.Result{}, err, time.Since(parent.Time))
+		result := wire.Result{}
+		if parent.Usage != nil {
+			result.Usage = *parent.Usage
+		}
+		parent.Finish(result, err, time.Since(parent.Time))
 		if serr := parent.Save(); serr != nil {
 			fmt.Fprintf(os.Stderr, "review: job record not saved: %v\n", serr)
 		}
@@ -185,4 +201,21 @@ func captureAnswer(f func(out io.Writer) int) (string, int) {
 	var b bytes.Buffer
 	rc := f(&b)
 	return b.String(), rc
+}
+
+func sumReviewUsage(a, b wire.Usage) wire.Usage {
+	return wire.Usage{InputTokens: a.InputTokens + b.InputTokens, OutputTokens: a.OutputTokens + b.OutputTokens,
+		CacheCreationTokens: a.CacheCreationTokens + b.CacheCreationTokens, CacheReadTokens: a.CacheReadTokens + b.CacheReadTokens,
+		CostUSD: a.CostUSD + b.CostUSD}
+}
+
+func addReviewUsage(parent *agent.Record, usage wire.Usage) {
+	if parent == nil {
+		return
+	}
+	total := usage
+	if parent.Usage != nil {
+		total = sumReviewUsage(*parent.Usage, usage)
+	}
+	parent.Usage = &total
 }
