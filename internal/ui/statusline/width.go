@@ -70,7 +70,7 @@ func forEachCell(s string, fn func(tok string, w int) bool) {
 			continue
 		}
 		r, size := utf8.DecodeRuneInString(s[i:])
-		if !fn(string(r), cellWidth(r)) {
+		if !fn(s[i:i+size], cellWidth(r)) {
 			return
 		}
 		i += size
@@ -137,7 +137,10 @@ var wideCells = [][2]rune{
 
 func inRanges(r rune, table [][2]rune) bool {
 	for _, t := range table {
-		if r >= t[0] && r <= t[1] {
+		if r < t[0] {
+			return false
+		}
+		if r <= t[1] {
 			return true
 		}
 	}
@@ -146,6 +149,9 @@ func inRanges(r rune, table [][2]rune) bool {
 
 // cellWidth is the terminal columns r occupies: 0 for combining/joiner/variation runes, 2 for wide and emoji, else 1.
 func cellWidth(r rune) int {
+	if r < 0x0300 {
+		return 1
+	}
 	switch {
 	case inRanges(r, zeroWidth):
 		return 0

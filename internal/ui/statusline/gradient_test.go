@@ -190,6 +190,32 @@ func TestGradientEaseColorsAlongLine(t *testing.T) {
 	}
 }
 
+func BenchmarkRenderGradient(b *testing.B) {
+	cfg := defaultConfig()
+	pal := cfg.LiftPalette(theme.LoadPalettes())
+	stops := cfg.Stops(pal)
+	v := values{
+		userHost:   "edotau@host",
+		path:       "~/src/claude-code",
+		branch:     "main",
+		model:      "claude-sonnet-4-6",
+		contextPct: 42,
+		adds:       12,
+		dels:       3,
+	}
+	b.ResetTimer()
+	for b.Loop() {
+		_ = renderGradient(v, cfg, pal, stops, ansi.TrueColor, 120)
+	}
+}
+
+func BenchmarkVisibleWidth(b *testing.B) {
+	s := "\x1b[1;38;2;120;180;240medotau@host\x1b[0m: ~/src/claude-code \x1b[38;2;200;200;200m|\x1b[0m main"
+	for b.Loop() {
+		_ = visibleWidth(s)
+	}
+}
+
 // The gradient line carries model → profile → auth countdown, and the countdown leaves the context block.
 func TestGradientModelProfileAuthOrder(t *testing.T) {
 	hermetic(t)

@@ -221,3 +221,26 @@ func TestPickClampsStartPastLastRow(t *testing.T) {
 		t.Fatalf("Pick(start=5) = %d, %v; want last row 2, nil", idx, err)
 	}
 }
+
+func BenchmarkLayoutRows(b *testing.B) {
+	rows := [][2]string{
+		{"anthropic", "api.anthropic.com  oauth  [active]"},
+		{"databricks", "adb-1234.azuredatabricks.net  m2m  [42m]"},
+		{"bedrock", "us-east-1  iam  [expired]"},
+		{"vertex", "us-central1  adc"},
+	}
+	for b.Loop() {
+		_ = layoutRows(rows, 100)
+	}
+}
+
+func BenchmarkPanelLines(b *testing.B) {
+	s := pickState{
+		rows:  []string{"HEAD", "alpha  detail [ok]", "beta  detail", "gamma  detail [warn]", "delta  detail"},
+		heads: map[int]bool{0: true},
+		sel:   1,
+	}
+	for b.Loop() {
+		_ = panelLines("Providers", s, 80)
+	}
+}
