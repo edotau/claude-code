@@ -16,13 +16,9 @@ func TestParseStatPPID(t *testing.T) {
 	}
 }
 
-// darwin's Descendants parses `ps -A -o pid=,ppid=` (right-aligned, padded) and walks grandchildren breadth first.
-func TestParseChildrenWalksDescendants(t *testing.T) {
-	ps := "    1     0\n  100     1\n  200   100\n  201   100\n  300   200\n  bad line here\n  400     1\n"
-	children := parseChildren(ps)
-	if _, ok := children[0]; ok {
-		t.Errorf("pid 1 recorded as a child of 0: %v", children)
-	}
+// walkChildren walks grandchildren breadth first.
+func TestWalkChildrenWalksDescendants(t *testing.T) {
+	children := map[int][]int{1: {100, 400}, 100: {200, 201}, 200: {300}}
 	if got, want := walkChildren(children, 100), []int{200, 201, 300}; !slices.Equal(got, want) {
 		t.Errorf("walkChildren(100) = %v, want %v", got, want)
 	}

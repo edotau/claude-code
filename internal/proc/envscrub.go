@@ -97,9 +97,10 @@ func Drop(environ []string, keep map[string]bool, deny []string) []string {
 }
 
 func scrub(environ []string, keep map[string]bool, deny []string) (kept, dropped []string) {
+	globs := compileDeny(deny)
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
-		if keep[name] || !denied(name, deny) {
+		if keep[name] || !slices.ContainsFunc(globs, func(g glob) bool { return g.match(name) }) {
 			kept = append(kept, kv)
 			continue
 		}
@@ -128,10 +129,43 @@ func EnvKeepSet(names []string) map[string]bool {
 }
 
 func denied(name string, deny []string) bool {
-	for _, pat := range deny {
-		if ok, _ := filepath.Match(pat, name); ok {
-			return true
+	return slices.ContainsFunc(compileDeny(deny), func(g glob) bool { return g.match(name) })
+}
+
+// glob is one deny pattern classified once: a literal, prefix*, *suffix, or anything else (filepath.Match).
+type glob struct {
+	pat, lit string
+	kind     byte // 'l' literal, 'p' prefix, 's' suffix, 'm' filepath.Match
+}
+
+func compileDeny(deny []string) []glob {
+	out := make([]glob, len(deny))
+	for i, pat := range deny {
+		j := strings.IndexAny(pat, `*?[\`)
+		switch {
+		case j < 0:
+			out[i] = glob{pat: pat, lit: pat, kind: 'l'}
+		case j == len(pat)-1 && pat[j] == '*':
+			out[i] = glob{pat: pat, lit: pat[:j], kind: 'p'}
+		case j == 0 && pat[0] == '*' && !strings.ContainsAny(pat[1:], `*?[\`):
+			out[i] = glob{pat: pat, lit: pat[1:], kind: 's'}
+		default:
+			out[i] = glob{pat: pat, kind: 'm'}
 		}
 	}
-	return false
+	return out
+}
+
+// match is filepath.Match(g.pat, name) with the common shapes decided without the matcher.
+func (g glob) match(name string) bool {
+	switch g.kind {
+	case 'l':
+		return name == g.lit
+	case 'p':
+		return strings.HasPrefix(name, g.lit) && !strings.Contains(name[len(g.lit):], "/")
+	case 's':
+		return strings.HasSuffix(name, g.lit) && !strings.Contains(name[:len(name)-len(g.lit)], "/")
+	}
+	ok, _ := filepath.Match(g.pat, name)
+	return ok
 }
