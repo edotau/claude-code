@@ -56,8 +56,8 @@ func cmdGatewayResolve(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	if *fallback != "" && !slices.Contains(router.FallbackModes, *fallback) {
-		return helptext.FailUsage("gateway resolve: --fallback %q unknown (%s)", *fallback, strings.Join(router.FallbackModes, "|"))
+	if err := checkFallback(*fallback); err != nil {
+		return helptext.FailUsage("gateway resolve: %v", err)
 	}
 	ctx := context.Background()
 	task, err := agent.ReadBrief(*taskFile)
@@ -76,13 +76,26 @@ func cmdGatewayResolve(args []string) int {
 	if *all {
 		return printRows(resolveAll(ctx, reg, q, *live), *format)
 	}
+	return resolveOne(ctx, reg, q, task, *format)
+}
+
+// resolveOne prints the first hop's route; an unrunnable model is a usage error.
+func resolveOne(ctx context.Context, reg *providers.Registry, q agent.ModelQuery, task, format string) int {
 	r, choice, err := resolveFirstHop(ctx, reg, q, task)
 	if errors.Is(err, agent.ErrModelRoute) {
 		return helptext.FailUsage("gateway resolve: %v", err)
 	} else if err != nil {
 		return helptext.Fail("gateway resolve: %v", err)
 	}
-	return printRoute(withGoogleQuota(ctx, r, os.Stderr), choice, *format)
+	return printRoute(withGoogleQuota(ctx, r, os.Stderr), choice, format)
+}
+
+// checkFallback rejects a --fallback mode the router does not know; empty means unset.
+func checkFallback(mode string) error {
+	if mode == "" || slices.Contains(router.FallbackModes, mode) {
+		return nil
+	}
+	return fmt.Errorf("--fallback %q unknown (%s)", mode, strings.Join(router.FallbackModes, "|"))
 }
 
 // googleQuotaCheck is the agy /usage seam; tests assert a non-Google route never calls it.
@@ -260,14 +273,8 @@ func liveCheck(ctx context.Context, p *providers.Provider, r agent.ModelRoute) s
 		return ""
 	}
 	now := time.Now()
-	if s, ok := router.LoadServed(p.Name); !ok || !s.Fresh(now) {
-		infos, err := providers.ListModels(ctx, p)
-		if err != nil {
-			return "listing refresh: " + firstLine(err.Error())
-		}
-		if err := router.WarmServed(p.Name, infos, now); err != nil {
-			return "listing save: " + err.Error()
-		}
+	if msg := refreshServed(ctx, p, now); msg != "" {
+		return msg
 	}
 	switch listed, ready, fresh := router.ServedListed(p, r.Model, now); {
 	case !fresh:
@@ -276,6 +283,21 @@ func liveCheck(ctx context.Context, p *providers.Provider, r agent.ModelRoute) s
 		return r.Model + " is not listed"
 	case !ready:
 		return r.Model + " endpoint is not READY"
+	}
+	return ""
+}
+
+// refreshServed is "" when p's served listing is fresh, or was refreshed and saved.
+func refreshServed(ctx context.Context, p *providers.Provider, now time.Time) string {
+	if s, ok := router.LoadServed(p.Name); ok && s.Fresh(now) {
+		return ""
+	}
+	infos, err := providers.ListModels(ctx, p)
+	if err != nil {
+		return "listing refresh: " + firstLine(err.Error())
+	}
+	if err := router.WarmServed(p.Name, infos, now); err != nil {
+		return "listing save: " + err.Error()
 	}
 	return ""
 }

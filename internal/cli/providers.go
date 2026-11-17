@@ -57,11 +57,13 @@ var modelsPage = helptext.Page{
 
 // cmdModels is the models verb: alias resolution, pins, the live catalog, and the discover subcommand.
 func cmdModels(args []string) int {
-	if len(args) > 0 && args[0] == "discover" {
-		return modelsDiscover(args[1:])
-	}
-	if len(args) > 0 && args[0] == "preflight" {
-		return cmdPreflight(args[1:])
+	if len(args) > 0 {
+		switch args[0] {
+		case "discover":
+			return modelsDiscover(args[1:])
+		case "preflight":
+			return cmdPreflight(args[1:])
+		}
 	}
 	fs := helptext.NewFlagSet("models", modelsPage)
 	provider := fs.String("profile", "", "profile to resolve (default: pin, then registry default)")
@@ -81,14 +83,9 @@ func cmdModels(args []string) int {
 	if code := checkModelsArgs(args, *dryRun, *unpin, pins, *format); code != 0 {
 		return code
 	}
-	reg, err := providers.Load()
+	reg, err := loadProfile(*provider)
 	if err != nil {
 		return helptext.Fail("%v", err)
-	}
-	if *provider != "" {
-		if _, err := reg.Get(*provider); err != nil {
-			return helptext.Fail("%v", err)
-		}
 	}
 	if code, handled := configure.ApplyModelPins(reg, *provider, *unpin, pins, modelsPreview(*dryRun)); handled {
 		return code
@@ -98,6 +95,20 @@ func cmdModels(args []string) int {
 		return helptext.Fail("%v", err)
 	}
 	return renderModelSelection(reg, sel, *format, *live)
+}
+
+// loadProfile loads the registry; a non-empty profile must be one of its rows.
+func loadProfile(profile string) (*providers.Registry, error) {
+	reg, err := providers.Load()
+	if err != nil {
+		return nil, err
+	}
+	if profile != "" {
+		if _, err := reg.Get(profile); err != nil {
+			return nil, err
+		}
+	}
+	return reg, nil
 }
 
 // modelsPreview is the agent-record diff printer for --dry-run, nil for a real write.

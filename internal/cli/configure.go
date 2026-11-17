@@ -162,20 +162,29 @@ func (o *configureOpts) wantsList() bool {
 	return o.list || *o.format != helptext.Text && !o.all
 }
 
+// listsInstead: off the provider page --format joins --revert and a paged --restore; page-less --restore fails.
+func (o *configureOpts) listsInstead(section string) bool {
+	render := o.restore || o.revert
+	return o.wantsList() && (!render || section == "provider" || o.restore && section == "")
+}
+
+// isAgentRecord is true for `configure agents <name> key=value ...`.
+func isAgentRecord(section string, pos []string) bool {
+	return section == "agents" && len(pos) >= 2 && strings.Contains(pos[1], "=")
+}
+
 func configureRun(o *configureOpts, section string, pos []string) int {
-	if section == "agents" && len(pos) >= 2 && strings.Contains(pos[1], "=") {
+	if isAgentRecord(section, pos) {
 		return configureRecord(pos[0], pos[1:], o.dryRun || o.check) // --check never writes
 	}
 	profile, err := configureAllProfile(o, section, pos)
 	if err != nil {
 		return helptext.Fail("configure: %v", err)
 	}
-	render := o.restore || o.revert
-	// Off the provider page --format joins --revert and a paged --restore; a page-less --restore fails as at HEAD.
-	if o.wantsList() && (!render || section == "provider" || o.restore && section == "") {
+	if o.listsInstead(section) {
 		return configureList(section, pos, *o.format)
 	}
-	if render {
+	if o.restore || o.revert {
 		return configureRender(o.restore, o.revert, section, o.agent, o.out, o.check, o.dryRun, o.agents)
 	}
 	if o.out != "" || o.agents {
