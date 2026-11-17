@@ -438,6 +438,11 @@ func TestResolveRunOwnConnector(t *testing.T) {
 		if err != nil || r.Label() != model {
 			t.Fatalf("label=%s err=%v want=%s", r.Label(), err, model)
 		}
+		id, _, _ := strings.Cut(model, "/")
+		if r.Account != id || r.Source != "own-login" || r.Dialect != "own-login" {
+			t.Errorf("%s route = account %q source %q dialect %q, want %s on its own login",
+				model, r.Account, r.Source, r.Dialect, id)
+		}
 	}
 }
 
