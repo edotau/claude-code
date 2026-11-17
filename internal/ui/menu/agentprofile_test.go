@@ -3,6 +3,7 @@ package menu
 import (
 	"bufio"
 	"bytes"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -62,7 +63,7 @@ func TestProfileRowIsOneLineClaudeAutomatic(t *testing.T) {
 	vaulttest.SetRecord(t, "claude", "profile", "")
 	d := &dialog{reg: reg, out: &bytes.Buffer{}}
 	for _, a := range seedAgents() {
-		if r := agentPinRows(d, a)[0]; r.label != "Profile" || strings.Contains(r.desc, "\n") {
+		if r := agentPinRows(d, a)[0]; r.label != "Pin / default" || strings.Contains(r.desc, "\n") {
 			t.Errorf("%s profile row = %q %q, want one Profile line", a, r.label, r.desc)
 		}
 	}
@@ -211,6 +212,84 @@ func TestSaveSeedInvalidProfileWritesNothing(t *testing.T) {
 	for a, r := range vault.AgentRecords(agentpkg.RosterNames()) {
 		if r.Profile != "" {
 			t.Errorf("%s persisted profile %q after a failed save", a, r.Profile)
+		}
+	}
+}
+
+func TestDatabricksSignInPinsOnlyChosenAgent(t *testing.T) {
+	menuTestEnv(t)
+	d := worstCaseHomeDialog(t)
+	for _, a := range setupAgentNames {
+		vaulttest.SetRecord(t, a, "model", "keep-model")
+		rows := databricksSignInRows(d, a)
+		if len(rows) != 2 || rows[0].label != "Databricks qa" || rows[1].label != "Databricks prod" {
+			t.Fatalf("%s rows = %v; unsigned dev must be absent", a, rows)
+		}
+		before := vault.AgentRecords(setupAgentNames)
+		if !rows[1].run() {
+			t.Fatalf("%s workspace selection failed", a)
+		}
+		for _, name := range setupAgentNames {
+			got, want := vault.GetAgentRecord(name), before[name]
+			if name == a {
+				want.Profile = "prod"
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("selecting %s changed %s: got %+v, want %+v", a, name, got, want)
+			}
+		}
+	}
+}
+
+func TestOwnSignInReplacesWorkspacePin(t *testing.T) {
+	menuTestEnv(t)
+	d := worstCaseHomeDialog(t)
+	for _, a := range setupAgentNames {
+		vaulttest.SetRecord(t, a, "profile", "qa")
+		rows := []billingRow{{label: "Login", run: func() bool { return false }}}
+		activateOnSignIn(d, a, rows)
+		if rows[0].run() || vault.GetAgentRecord(a).Profile != "qa" {
+			t.Fatalf("%s failed sign-in changed the workspace pin", a)
+		}
+		rows = []billingRow{{label: "Login", run: func() bool { return true }}}
+		activateOnSignIn(d, a, rows)
+		if !rows[0].run() {
+			t.Fatalf("%s own login failed", a)
+		}
+		want := signInProfile(d, a)
+		if got := vault.GetAgentRecord(a).Profile; got != want || got == "qa" || got == "" {
+			t.Errorf("%s profile = %q, want own login %q", a, got, want)
+		}
+	}
+}
+
+func TestFallbackRowShowsAutomaticCopilotAndExplicitProfile(t *testing.T) {
+	menuTestEnv(t)
+	d := worstCaseHomeDialog(t)
+	vaulttest.SetRecord(t, "copilot", "profile", "copilot")
+	vaulttest.Secret(t, providers.SecretName("databricks", "qa", providers.AuthKey), "fixture-key")
+	if got := fallbackRow(d, "copilot").desc; !strings.Contains(got, "databricks-qa") || !strings.Contains(got, "no credits") {
+		t.Errorf("automatic fallback = %q", got)
+	}
+	if _, err := writeAgentField(d, "copilot", "FALLBACK", "prod"); err != nil {
+		t.Fatal(err)
+	}
+	if got := fallbackRow(d, "copilot").desc; !strings.Contains(got, "prod") || !strings.Contains(got, "profile fails") || strings.Contains(got, "databricks-qa") {
+		t.Errorf("explicit fallback = %q", got)
+	}
+}
+
+func TestDatabricksSignedInDevAppearsAlongsideQaAndProd(t *testing.T) {
+	menuTestEnv(t)
+	d := worstCaseHomeDialog(t)
+	vaulttest.Secret(t, providers.AuthSecretName(d.reg.Providers["dev"]), `{"refresh":"fixture-refresh"}`)
+	for _, a := range setupAgentNames {
+		rows := databricksSignInRows(d, a)
+		if len(rows) != 3 || rows[0].label != "Databricks dev" || rows[1].label != "Databricks qa" || rows[2].label != "Databricks prod" {
+			t.Fatalf("%s signed-in workspaces = %v", a, rows)
+		}
+		if !rows[0].run() || vault.GetAgentRecord(a).Profile != "dev" {
+			t.Fatalf("%s did not pin dev", a)
 		}
 	}
 }

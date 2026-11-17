@@ -115,10 +115,6 @@ func menuRows(d *dialog) ([][2]string, []func(*dialog)) {
 	for i, n := range names {
 		m := menus[i]
 		rows[i] = homeRow{Name: displayLabel(n), State: modeLabel(d, n, m.state), Check: m.state.check(), Run: func(d *dialog) {
-			if n == "opencode" {
-				runOpencodePage(d)
-				return
-			}
 			runAgentMenu(d, displayLabel(n), m)
 		}}
 	}
@@ -204,6 +200,9 @@ var agentMaker = map[string]string{
 
 // modeLabel renders the mode column from agentPlanFormat with the matching agentPlans entry.
 func modeLabel(d *dialog, name string, st agentState) string {
+	if account := agentAccount(d, name, st); account != "" {
+		return textutil.Truncate(account, labelMax)
+	}
 	if d.reg == nil || (len(d.reg.AgentPlans) == 0 && d.reg.AgentPlanFormat == "") {
 		return st.label()
 	}
@@ -290,4 +289,27 @@ func rawPlanID(d *dialog, name string, st agentState) string {
 		return ""
 	}
 	return st.tier.Raw
+}
+
+// agentAccount prefers the pinned workspace or login, then the agent's known account.
+func agentAccount(d *dialog, name string, st agentState) string {
+	rec := vault.GetAgentRecord(name)
+	pin := rec.Profile
+	if d.reg != nil {
+		if p := d.reg.Providers[pin]; p != nil {
+			if p.Preset == providers.PresetDatabricks {
+				return "databricks · " + pin
+			}
+			if p.Login != "" {
+				return p.Login
+			}
+		}
+	}
+	if name == "copilot" && rec.Account != "" {
+		return rec.Account
+	}
+	if st.tier.Account != "" {
+		return st.tier.Account
+	}
+	return agent.AuthStatus(name).Account
 }

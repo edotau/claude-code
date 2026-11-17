@@ -459,16 +459,6 @@ func AgentPinsContext(ctx context.Context) (map[string]router.PinSpec, error) {
 	return out, nil
 }
 
-// isOwnLogin reports a profile that is agent's own sign-in, which AgentPins reads as no pin; a broken registry errors.
-func isOwnLogin(agent, profile string) (bool, error) {
-	var regErr error
-	own := ownLogin(func() *providers.Registry { r, err := providers.Load(); regErr = err; return r }, agent, profile)
-	if regErr != nil {
-		return false, fmt.Errorf("own login: %w", regErr)
-	}
-	return own, nil
-}
-
 // ownLogin reports agent's own sign-in profile: its schema's OwnLoginProfile, else a row with Auth.Login == agent.
 func ownLogin(loadReg func() *providers.Registry, agent, profile string) bool {
 	if profile == "" {
