@@ -119,3 +119,13 @@ func TestEnvelopeDenialsOptional(t *testing.T) {
 		}
 	}
 }
+
+func TestEnvelopeDenialsCommandsNeverNull(t *testing.T) {
+	raw, err := json.Marshal(NewEnvelope(Result{Denials: &Denials{Count: 2}}, nil, "d"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"denials":{"count":2,"commands":[]}`) {
+		t.Fatalf("denials = %s", raw)
+	}
+}

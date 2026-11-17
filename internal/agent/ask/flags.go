@@ -516,11 +516,17 @@ func overlayLocal(ov agentconfig.Overlay, live bool, host string) error {
 	if ov.Empty() {
 		return nil
 	}
-	keys := "set/unset/keep"
-	if ov.BudgetUSD != nil || ov.BudgetCredits != nil {
-		keys = "set/unset/keep/budgetUSD/budgetCredits"
+	var keys []string
+	if len(ov.Set)+len(ov.Unset)+len(ov.Keep) > 0 {
+		keys = append(keys, "set/unset/keep")
 	}
-	return errors.New("overlay " + keys + " cannot reach --live or --host: run the agent locally")
+	if ov.CodexNetwork {
+		keys = append(keys, "codexNetwork")
+	}
+	if ov.BudgetUSD != nil || ov.BudgetCredits != nil {
+		keys = append(keys, "budgetUSD/budgetCredits")
+	}
+	return errors.New("overlay " + strings.Join(keys, "/") + " cannot reach --live or --host: run the agent locally")
 }
 
 // parseAgentDefs parses --agents; --host cannot carry an inline definition.

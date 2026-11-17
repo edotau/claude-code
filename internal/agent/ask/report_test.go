@@ -91,3 +91,13 @@ func TestPrintDenialsFitsEightyColumns(t *testing.T) {
 		}
 	}
 }
+
+func TestPrintDenialsWithoutLabels(t *testing.T) {
+	var out bytes.Buffer
+	if err := printDenials(&out, wire.Result{Denials: &wire.Denials{Count: 2}}); err != nil {
+		t.Fatal(err)
+	}
+	if want := "sandbox refused 2 commands; re-run outside the sandbox\n"; out.String() != want {
+		t.Errorf("summary = %q, want %q", out.String(), want)
+	}
+}
