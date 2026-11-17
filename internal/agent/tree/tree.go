@@ -357,7 +357,7 @@ func buildSubagent(transcriptPath string, now time.Time, cwd string, scans *scan
 		Phase:       phase,
 		LastTool:    act.Tool,
 		Updated:     updated,
-		Dispatches:  buildDispatches(transcriptPath, cwd, now, act, e.IDs),
+		Dispatches:  buildDispatches(transcriptPath, cwd, now, act, scans.recs.Load(e.IDs)),
 	}
 	if act.Tool != "" || act.Text != "" {
 		sub.Activity = &act

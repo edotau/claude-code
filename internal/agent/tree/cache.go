@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -54,6 +55,7 @@ type scanCache struct {
 	Files  map[string]*scanEntry `json:"files"`
 	used   map[string]bool
 	dirty  bool
+	recs   agent.RecordIndex // one dispatch-dir listing shared by every subagent of a build
 }
 
 var scanCacheFormat = schemas.Register(schemas.Format{

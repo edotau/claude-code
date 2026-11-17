@@ -295,6 +295,39 @@ func recordNames(dir string) ([]string, error) {
 
 // LoadRecord reads one record by exact id or unique id prefix.
 func LoadRecord(id string) (Record, error) {
+	return loadRecord(id, recordNames)
+}
+
+// RecordIndex loads many records while listing the dispatch dir at most once; the zero value is ready.
+type RecordIndex struct {
+	names  []string
+	listed bool
+}
+
+func (x *RecordIndex) list(dir string) ([]string, error) {
+	if x.listed {
+		return x.names, nil
+	}
+	names, err := recordNames(dir)
+	if err == nil {
+		x.names, x.listed = names, true
+	}
+	return names, err
+}
+
+// Load resolves each id like LoadRecord and skips the ones that do not resolve.
+func (x *RecordIndex) Load(ids []string) []Record {
+	var out []Record
+	for _, id := range ids {
+		if r, err := loadRecord(id, x.list); err == nil {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// loadRecord resolves id with an exact read first, then a prefix match over the names list(dir) returns.
+func loadRecord(id string, list func(dir string) ([]string, error)) (Record, error) {
 	if id == "" { // an empty prefix would match every record
 		return Record{}, errors.New("no matching dispatch found (see claude-code agents status)")
 	}
@@ -305,7 +338,7 @@ func LoadRecord(id string) (Record, error) {
 			return r, err
 		}
 	}
-	names, err := recordNames(dir)
+	names, err := list(dir)
 	if err != nil {
 		return Record{}, fmt.Errorf("dispatch %q: %w", id, err)
 	}
