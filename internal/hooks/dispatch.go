@@ -277,6 +277,9 @@ func dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 	m.merged.Context = core.CapContext(core.JoinContext(m.ctx...))
 	m.merged.SystemMessage = core.JoinNonEmpty("; ", m.sys...)
 	m.merged.Stderr = core.JoinNonEmpty("\n", m.errs...)
+	for i := range m.rows {
+		m.rows[i].Sid, m.rows[i].Tool = in.SessionID, in.ToolName
+	}
 	return m.merged, m.rows, m.firstErr
 }
 
@@ -501,8 +504,11 @@ func runModuleDirect(name string, run core.Runner, stdin io.Reader, stdout, stde
 	o := invokeDirect(name, run, stdin, spec)
 	dur := time.Since(start)
 	code := emitDirect(name, o, stdout, &boundedHookWriter{w: stderr})
-	core.RecordTelemetry([]core.TelemetryRow{{Event: spec.Event, Module: name,
-		Outcome: outcomeOf(Bound{Spec: spec}, o.res, o.err), Dur: dur}})
+	row := core.TelemetryRow{Event: spec.Event, Module: name, Outcome: outcomeOf(Bound{Spec: spec}, o.res, o.err), Dur: dur}
+	if o.in != nil {
+		row.Sid, row.Tool = o.in.SessionID, o.in.ToolName
+	}
+	core.RecordTelemetry([]core.TelemetryRow{row})
 	return code
 }
 
