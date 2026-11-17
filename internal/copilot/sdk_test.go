@@ -616,6 +616,22 @@ func TestBuildClientOptionsKeepsOwnLogin(t *testing.T) {
 	}
 }
 
+// A credential the launch passes in Env beats the inherited value of the same name, even copilot's own login.
+func TestBuildClientOptionsInjectedCredentialBeatsInherited(t *testing.T) {
+	for _, name := range []string{"COPILOT_GITHUB_TOKEN", "GH_TOKEN"} {
+		t.Run(name, func(t *testing.T) {
+			t.Setenv(name, "inherited")
+			co, err := buildClientOptions(context.Background(), sdkOptions{CLIPath: "/bin/true", Env: []string{name + "=injected"}})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := proc.ValuesFromEnv(co.Connection.(copilot.StdioConnection).Env)[name]; got != "injected" {
+				t.Errorf("%s = %q, want injected", name, got)
+			}
+		})
+	}
+}
+
 // A pick outside the registry is refused with errUnregisteredPick, before any process or when the CLI rejects it.
 func TestRegistryUnregisteredPick(t *testing.T) {
 	o := registryOpts(t, "1.0.104", t.TempDir()+"/log")

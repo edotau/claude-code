@@ -103,6 +103,36 @@ func TestEnvironAgentDropsInheritedCredentials(t *testing.T) {
 	}
 }
 
+// injectedRows are credentials a launch injects; each must reach the child as the injected value only.
+var injectedRows = []struct{ agent, name string }{
+	{"codex", "DATABRICKS_TOKEN"}, {"gemini", "DATABRICKS_TOKEN"}, {"copilot", "COPILOT_GITHUB_TOKEN"},
+	{"opencode", "OPENCODE_API_KEY"}, {"opencode", "HARNESS_OPENCODE_API_KEY"},
+	{"codex", "OPENAI_API_KEY"}, {"gemini", "GEMINI_API_KEY"},
+}
+
+// injectedOnce is name's entries in env: how many, and the value the child would see (the last one wins).
+func injectedOnce(env []string, name string) (n int, val string) {
+	for _, kv := range env {
+		if k, v, _ := strings.Cut(kv, "="); k == name {
+			n, val = n+1, v
+		}
+	}
+	return n, val
+}
+
+// A credential the launch injects replaces a different inherited value of the same name, for every agent child.
+func TestEnvironInjectedCredentialBeatsInherited(t *testing.T) {
+	for _, r := range injectedRows {
+		t.Run(r.agent+"/"+r.name, func(t *testing.T) {
+			spec := EnvSpec{Mode: EnvAgent, Agent: r.agent, Base: []string{"PATH=/bin", r.name + "=inherited"},
+				Set: []string{r.name + "=injected"}}
+			if n, val := injectedOnce(spec.Environ(context.Background()), r.name); n != 1 || val != "injected" {
+				t.Errorf("%s: %d entries, value %q; want one entry, injected", r.name, n, val)
+			}
+		})
+	}
+}
+
 // Given an outer dispatch's policy in the env, Then a nested policy keeps its Deny rules and plan mode, never fewer.
 func TestInheritPermissionsKeepsOuterDeny(t *testing.T) {
 	t.Setenv(DispatchPermissionsEnv, `{"mode":"plan","deny":[{"Tool":"Bash","Arg":"rm *"}]}`)

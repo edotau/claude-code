@@ -79,6 +79,23 @@ func TestGuardAttemptChildKeepsOwnLogin(t *testing.T) {
 	}
 }
 
+// A headless child's injected credential beats a different inherited value of the same name.
+func TestGuardAttemptInjectedCredentialBeatsInherited(t *testing.T) {
+	for _, r := range injectedRows {
+		t.Run(r.agent+"/"+r.name, func(t *testing.T) {
+			t.Setenv(r.name, "inherited")
+			ctx, gerr := guardAttempt(context.Background(), &fakeRunner{name: r.agent}, RunOptions{})
+			if gerr != nil {
+				t.Fatal(gerr)
+			}
+			cmd, _ := ChildCmd(ctx, "/bin/true", nil, []string{r.name + "=injected"}, "", "", nil, true)
+			if n, val := injectedOnce(cmd.Env, r.name); n != 1 || val != "injected" {
+				t.Errorf("%s: %d entries, value %q; want one entry, injected", r.name, n, val)
+			}
+		})
+	}
+}
+
 // hmProfile overlays a Databricks profile "hm" on host adb-1 whose credential comes from auth.command cmd.
 func hmProfile(t *testing.T, cmd string) { hmNamed(t, "hm", cmd) }
 
