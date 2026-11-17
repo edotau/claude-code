@@ -146,7 +146,7 @@ var Registry = []Group{
 		{Name: "memory-recall", Event: EventUserPromptSubmit, Budget: 5 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
 		{Name: "memory-end", Event: EventSessionEnd, Budget: 15 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
 		// Before a compaction, update edits no earlier dispatch covered (never blocks; the transcript survives).
-		{Name: "memory-compact", Event: EventPreCompact, Budget: 15 * sec},
+		{Name: "memory-compact", Event: EventPreCompact, Budget: 90 * sec},
 	}},
 	{Name: "format", Events: []EventSpec{
 		// Formats files dirty in git that this session wrote; a repo with its own pre-commit switches the group off.

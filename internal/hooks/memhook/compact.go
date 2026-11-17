@@ -45,7 +45,7 @@ func guarded(what string, fn func()) {
 }
 
 // stewardWait bounds the wait for the steward handoff, below the PreCompact hook budget.
-var stewardWait = 10 * time.Second
+var stewardWait = 75 * time.Second
 
 // startSteward starts the headless handoff job when this session has no running or fresh one.
 func startSteward(in *core.Input, now time.Time) {

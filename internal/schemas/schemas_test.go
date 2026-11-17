@@ -194,6 +194,7 @@ var writers = map[string]string{
 	"internal/memory/embed.go:embedQuery":                       unversioned("marker: semantic-recall backoff stamp"),
 	"internal/memory/spawn.go:spawnSelf":                        unversioned("log: detached worker log, humans only"),
 	"internal/memory/update.go:writeUpdateResult":               unversioned("text: update result text"),
+	"internal/memory/update.go:markHandoff":                     unversioned("marker: steward handoff request holding the session handoff path"),
 	"internal/memory/bank_blocks.go:assignFileIDs":              unversioned("memory-bank: bank id comments"),
 	"internal/memory/bank_supersede.go:writeDirtyDocs":          unversioned("memory-bank: replaced-entry pointers"),
 	"internal/memory/promote.go:archiveFile":                    unversioned("memory-bank: bank overflow archive"),
