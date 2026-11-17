@@ -3,6 +3,7 @@ package project
 import (
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 )
 
@@ -128,11 +129,11 @@ func renderOpenCodeAgent(agent Source) string {
 func renderCodexAgent(agent Source) string {
 	lines := []string{
 		agentBanner(agent, hashComment),
-		"name = " + tomlBasic(agent.Name()),
+		"name = " + agentconfig.TOMLQuoteRaw(agent.Name()),
 		"description = " + tomlMultiline(skillDescription(agent)),
 	}
 	if effort := codexEffort(toString(agent.frontmatter["effort"])); effort != "" {
-		lines = append(lines, "model_reasoning_effort = "+tomlBasic(effort))
+		lines = append(lines, "model_reasoning_effort = "+agentconfig.TOMLQuoteRaw(effort))
 	}
 	lines = append(lines, "developer_instructions = "+tomlMultiline(agentBody(agent)))
 	return strings.Join(lines, "\n") + "\n"
@@ -163,11 +164,6 @@ func toolList(v any) []string {
 		}
 	}
 	return out
-}
-
-func tomlBasic(s string) string {
-	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\t", `\t`, "\r", `\r`)
-	return `"` + r.Replace(s) + `"`
 }
 
 // tomlMultiline renders a TOML multi-line basic string; a `"""` inside the text is escaped as `""\"`.
