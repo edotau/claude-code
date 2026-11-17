@@ -244,3 +244,14 @@ func BenchmarkPanelLines(b *testing.B) {
 		_ = panelLines("Providers", s, 80)
 	}
 }
+
+func BenchmarkRender(b *testing.B) {
+	s := pickState{rows: layoutRows([][2]string{
+		{"anthropic", "api.anthropic.com  oauth  [active]"},
+		{"databricks", "adb-1234.azuredatabricks.net  m2m  [42m]"},
+		{"Back", "return to the previous menu"},
+	}, 78), sel: 1}
+	for b.Loop() {
+		_ = render("Providers", s, true)
+	}
+}

@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 
@@ -71,5 +72,47 @@ func TestStylesNoColorOrDumbTermKeepLegacy(t *testing.T) {
 	t.Setenv("NO_COLOR", "1")
 	if got, want := selected(true, "x"), ansi.Style(true, "\x1b[7m", "x"); got != want {
 		t.Errorf("NO_COLOR Selected = %q, want %q", got, want)
+	}
+}
+
+var csiRE = regexp.MustCompile("\x1b\\[[0-9;]*[A-Za-z]")
+
+func visible(s string) string { return csiRE.ReplaceAllString(s, "") }
+
+// TestMuteDetailBadgeAccentOnlyWithColor: the badge is wrapped when colour is on and the text never changes.
+func TestMuteDetailBadgeAccentOnlyWithColor(t *testing.T) {
+	setPalette(t, theme.Palette{Accent: ansi.RGB{71, 150, 228}}, true)
+	setTerm(t, "truecolor", "xterm")
+	row := "Label  some detail  [active]"
+	if got := muteDetail(false, row); got != row {
+		t.Errorf("colour off = %q, want the row unchanged", got)
+	}
+	got := muteDetail(true, row)
+	if want := accentMark(true, "[active") + accentMark(true, "]"); !strings.HasSuffix(got, want) {
+		t.Errorf("badge not wrapped in the accent: %q", got)
+	}
+	if visible(got) != row {
+		t.Errorf("stripped = %q, want %q", visible(got), row)
+	}
+	if got := muteDetail(true, "Label  no badge"); strings.Contains(got, "38;2;71;150;228") {
+		t.Errorf("a row without a badge must not carry the accent: %q", got)
+	}
+}
+
+// TestRenderRowsFitEightyColumns: every laid-out row stays within 80 columns with colour on and off.
+func TestRenderRowsFitEightyColumns(t *testing.T) {
+	setPalette(t, theme.Palette{Accent: ansi.RGB{71, 150, 228}, Selection: ansi.RGB{45, 74, 122}}, true)
+	setTerm(t, "truecolor", "xterm")
+	rows := layoutRows([][2]string{
+		{"Subscription", "OAuth · plan limits · Remote Control [not logged in]"},
+		{"API key", "paste a key and keep it in the vault for every agent session [verified]"},
+		{"Back", "return to the previous menu"},
+	}, 78)
+	for _, color := range []bool{false, true} {
+		for i, line := range strings.Split(render("T", pickState{rows: rows, sel: 1}, color), "\r\n") {
+			if n := len([]rune(visible(line))); n > 80 {
+				t.Errorf("color=%v line %d is %d columns: %q", color, i, n, visible(line))
+			}
+		}
 	}
 }
