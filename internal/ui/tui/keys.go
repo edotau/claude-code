@@ -4,12 +4,14 @@ package tui
 import (
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"sync"
 	"syscall"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/par"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -184,7 +186,7 @@ type terminal struct {
 	fd      int
 	prev    *termState
 	out     *os.File
-	in      *os.File
+	in      io.Reader
 	keys    chan Key
 	stop    chan struct{} // closed by Close — ends the key pump
 	done    chan struct{} // closed by the key pump when it exits
@@ -208,7 +210,7 @@ func openTerminal() (*terminal, error) {
 		stop: make(chan struct{}), done: make(chan struct{})}
 	fmt.Fprint(t.out, "\x1b[?25l")
 	t.unguard = restoreOnSignal(func() { fmt.Fprint(t.out, "\x1b[?25h"); _ = restore(fd, prev) })
-	go t.readKeys()
+	t.startReader()
 	return t, nil
 }
 
@@ -262,6 +264,11 @@ func (t *terminal) Size() (w, h int) {
 		return 80, 24
 	}
 	return w, h
+}
+
+// startReader runs readKeys; a panic there ends the key stream with the panic as Err, so the caller's Close restores the tty.
+func (t *terminal) startReader() {
+	par.Go(t.readKeys, func(err error) { t.readErr = err; close(t.keys) })
 }
 
 // readKeys pumps stdin through drain; a held Esc waits one pollTick before it counts as the Esc key.

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/par"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -154,7 +155,7 @@ func TestTerminalReportsInputEIO(t *testing.T) {
 	}
 	term := terminal{fd: int(master.Fd()), in: master, keys: make(chan Key, 8),
 		stop: make(chan struct{}), done: make(chan struct{})}
-	go term.readKeys()
+	term.startReader()
 	t.Cleanup(term.stopReader)
 	select {
 	case _, ok := <-term.Keys():
@@ -298,5 +299,32 @@ func TestLinuxARM64TestPackageCompiles(t *testing.T) {
 	cmd.Env = append(os.Environ(), "GOOS=linux", "GOARCH=arm64", "CGO_ENABLED=0")
 	if output, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("linux/arm64 test-package compilation: %v\n%s", err, output)
+	}
+}
+
+type panicReader struct{}
+
+func (panicReader) Read([]byte) (int, error) { panic("reader exploded") }
+
+func TestReaderPanicEndsKeyStream(t *testing.T) {
+	master, slave := hosttest.PTY(t)
+	if _, err := slave.WriteString("x"); err != nil {
+		t.Fatal(err)
+	}
+	term := terminal{fd: int(master.Fd()), in: panicReader{}, keys: make(chan Key, 8),
+		stop: make(chan struct{}), done: make(chan struct{})}
+	term.startReader()
+	t.Cleanup(term.stopReader)
+	select {
+	case _, ok := <-term.Keys():
+		if ok {
+			t.Fatal("panic emitted a key instead of closing the stream")
+		}
+	case <-time.After(time.Second):
+		t.Fatal("reader panic left the key stream open")
+	}
+	var pe *par.PanicError
+	if err := term.Err(); !errors.As(err, &pe) || pe.Value != "reader exploded" {
+		t.Fatalf("Err = %v; want the contained panic", err)
 	}
 }

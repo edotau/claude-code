@@ -4,12 +4,15 @@ package menu
 import (
 	"bufio"
 	"cmp"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 
+	"github.com/edotau/claude-code/internal/par"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -20,6 +23,26 @@ import (
 type row struct {
 	Name, State, Check string
 	Run                func(*dialog)
+}
+
+// panicLine is a contained panic's one-line row text; the stack goes to stderr, before the menu opens, for the report.
+func panicLine(err error) string {
+	fmt.Fprintln(os.Stderr, err)
+	var pe *par.PanicError
+	if errors.As(err, &pe) {
+		return fmt.Sprintf("panic: %v", pe.Value)
+	}
+	return err.Error()
+}
+
+// fanOut runs fn(i) for every i concurrently and waits; a panicking fn is handed to fail(i, err) so its row still renders.
+func fanOut(n int, fn func(i int), fail func(i int, err error)) {
+	var wg sync.WaitGroup
+	wg.Add(n)
+	for i := range n {
+		par.Go(func() { fn(i); wg.Done() }, func(err error) { fail(i, err); wg.Done() })
+	}
+	wg.Wait()
 }
 
 // block is a titled group of rows.

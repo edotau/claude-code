@@ -626,3 +626,37 @@ func TestAgentAccountPrefersWorkspaceAndPinnedGitHubIdentity(t *testing.T) {
 		}
 	}
 }
+
+func TestFanOutContainsPanic(t *testing.T) {
+	got := make([]string, 3)
+	fanOut(3, func(i int) {
+		if i == 1 {
+			panic("row exploded")
+		}
+		got[i] = "ok"
+	}, func(i int, err error) { got[i] = panicLine(err) })
+	if got[0] != "ok" || got[1] != "panic: row exploded" || got[2] != "ok" {
+		t.Fatalf("rows = %q; the panicking row must show its error and leave the rest", got)
+	}
+}
+
+func TestHomeSectionsContainBuilderPanics(t *testing.T) {
+	reg := menuTestEnv(t)
+	origMenu := agentMenus["codex"]
+	t.Cleanup(func() { agentMenus["codex"] = origMenu })
+	agentMenus["codex"] = func(*dialog) agentMenu { panic("menu exploded") }
+	extraSections = func(*dialog) ([]tui.Section, []func(*dialog)) { panic("extra exploded") }
+	secs, acts := homeSections(&dialog{reg: reg, out: discardWriter{}})
+	var text string
+	rows := 0
+	for _, s := range secs {
+		for _, r := range s.Rows {
+			text += r[0] + " " + r[1] + "\n"
+			rows++
+		}
+	}
+	if rows != len(acts) || !strings.Contains(text, "menu exploded") || !strings.Contains(text, "extra exploded") ||
+		!strings.Contains(text, "claude") {
+		t.Fatalf("rows=%d acts=%d, want both panics shown and the healthy rows kept:\n%s", rows, len(acts), text)
+	}
+}
