@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -238,12 +239,17 @@ func TestCommandTokenLifetimeWarnsWithoutMaskingAuthFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	pf := &Preflight{}
-	if fs := launchWorkspaceFindings(context.Background(), "codex", p, router.State{}, now, pf); len(fs) != 0 || len(pf.Notes) != 1 {
+	if fs := launchWorkspaceFindings(context.Background(), "codex", p, router.State{}, now, pf); len(fs) != 0 || len(pf.Notes) != 0 {
 		t.Fatalf("command lifetime: findings %v, notes %v", fs, pf.Notes)
 	}
 	if fs := launchWorkspaceFindings(context.Background(), "claude", p, router.State{}, now, nil); len(fs) != 1 || fs[0].Check != "token" {
 		t.Fatalf("static path accepted short lifetime: %v", fs)
 	}
+	p.TokenCommand = nil
+	if fs := launchWorkspaceFindings(context.Background(), "codex", p, router.State{}, now, &Preflight{}); len(fs) != 1 || fs[0].Check != "token" {
+		t.Fatalf("codex route without a credential command accepted short lifetime: %v", fs)
+	}
+	p.TokenCommand = []string{"mint"}
 	st := router.State{router.AccountOf(p): {AuthReason: "rejected", AuthAt: now}}
 	if fs := launchWorkspaceFindings(context.Background(), "codex", p, st, now, pf); len(fs) != 1 || fs[0].Check != "auth" {
 		t.Fatalf("command masked auth failure: %v", fs)
@@ -291,5 +297,99 @@ func TestLaunchWorkspaceRunTimeout(t *testing.T) {
 	}
 	if calls != 1 {
 		t.Fatalf("auth probes = %d, want one cached success", calls)
+	}
+}
+
+// A short stored token is replaced by a headless paired-SP mint; no pairing keeps the browser hint.
+func TestLaunchWorkspaceMintsPairedServicePrincipal(t *testing.T) {
+	vaulttest.Use(t)
+	old := http.DefaultClient.Transport
+	http.DefaultClient.Transport = preflightTransport(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"endpoints":[]}`))}, nil
+	})
+	t.Cleanup(func() { http.DefaultClient.Transport = old })
+	for _, tc := range []mintRow{
+		{"covers", "", "", true, 0, 50 * time.Minute, time.Hour, 0, "", 0},
+		{"short, minted", "", "", true, 0, 10 * time.Minute, time.Hour, 1, "", 0},
+		{"short, mint fails", "", "", true, 0, 10 * time.Minute, 0, 1, "databricks login --profile mint-row --as sp", 0},
+		{"short, minted still short", "", "", true, 2 * time.Hour, 10 * time.Minute, time.Hour, 1, "", 1},
+		{"no pairing", "", "", false, 0, 10 * time.Minute, time.Hour, 0, providers.LoginCommand("mint-row"), 0},
+		{"identity user", providers.IdentityUser, "", true, 0, 10 * time.Minute, time.Hour, 0, providers.LoginCommand("mint-row"), 0},
+		{"--as user", "", providers.IdentityUser, true, 0, 10 * time.Minute, time.Hour, 0, "token cannot cover", 0},
+	} {
+		t.Run(tc.name, tc.run)
+	}
+}
+
+type mintRow struct {
+	name, identity, as string
+	paired             bool
+	timeout, stored    time.Duration
+	minted             time.Duration // the fresh token's life; 0 makes the mint fail
+	wantMints          int
+	wantFinding        string // substring of the token finding's detail; "" for none
+	wantNotes          int
+}
+
+// seed stores the row's credentials and expiry records, returning the provider and a writer of the SP's expiry record.
+func (tc mintRow) seed(t *testing.T) (*providers.Provider, func(name string, life time.Duration)) {
+	sp := ""
+	if tc.paired {
+		sp = "sp-client"
+	}
+	p := &providers.Provider{Name: "mint-row", Provider: "databricks", Preset: providers.PresetDatabricks,
+		Host: "https://mint.example.com", Identity: tc.identity, Auth: providers.Auth{Type: providers.AuthPAT, SPClientID: sp}}
+	if err := vault.Store(providers.AuthSecretName(p), "fixture"); err != nil {
+		t.Fatal(err)
+	}
+	if tc.paired {
+		if err := vault.Store(providers.SecretName("databricks", p.Name, providers.AuthM2M), "secret"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record := func(name string, life time.Duration) {
+		dir := filepath.Join(paths.StateDir(), "cache", "token-expiry")
+		raw := fmt.Sprintf(`{"schema":2,"exp":%d}`, time.Now().Add(life).Unix())
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dir, name+".json"), []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	record(p.Name+".sp", tc.stored)
+	record(p.Name, tc.stored)
+	return p, record
+}
+
+func (tc mintRow) run(t *testing.T) {
+	p, record := tc.seed(t)
+	mints, oldMint := 0, mintPaired
+	mintPaired = func(ctx context.Context, _ *providers.Provider) error {
+		mints++
+		if got := providers.IdentityFrom(ctx); got != providers.IdentityHeadless {
+			t.Errorf("mint identity = %q, want headless", got)
+		}
+		if tc.minted == 0 {
+			return errors.New("rejected")
+		}
+		record(p.Name+".sp", tc.minted)
+		return nil
+	}
+	t.Cleanup(func() { mintPaired = oldMint })
+	ctx := context.WithValue(context.Background(), runTimeoutKey{}, tc.timeout)
+	if tc.as != "" {
+		ctx = providers.WithIdentity(ctx, tc.as)
+	}
+	pf := &Preflight{}
+	fs := launchWorkspaceFindings(ctx, "opencode", p, router.State{}, time.Now(), pf)
+	if mints != tc.wantMints || len(pf.Notes) != tc.wantNotes {
+		t.Errorf("mints = %d, notes = %v; want %d mints, %d notes", mints, pf.Notes, tc.wantMints, tc.wantNotes)
+	}
+	if tc.wantFinding == "" && len(fs) != 0 {
+		t.Fatalf("findings %v, want none", fs)
+	}
+	if tc.wantFinding != "" && (len(fs) != 1 || fs[0].Check != "token" || !strings.Contains(fs[0].Detail, tc.wantFinding)) {
+		t.Fatalf("findings %v, want one token finding containing %q", fs, tc.wantFinding)
 	}
 }

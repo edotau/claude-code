@@ -97,10 +97,11 @@ func CheckWorkspace(p *providers.Provider, st router.State, now time.Time, timeo
 	if len(timeout) > 0 && timeout[0] > 0 {
 		budget = timeout[0]
 	}
-	return checkWorkspace(p, st, now, budget, nil)
+	return checkWorkspace(context.Background(), p, st, now, budget, nil, false)
 }
 
-func checkWorkspace(p *providers.Provider, st router.State, now time.Time, budget time.Duration, pf *Preflight) []Finding {
+// checkWorkspace skips the lifetime gate on a cmdRoute, where the credential command mints the token during the run.
+func checkWorkspace(ctx context.Context, p *providers.Provider, st router.State, now time.Time, budget time.Duration, pf *Preflight, cmdRoute bool) []Finding {
 	var out []Finding
 	if !providers.CredentialPresent(p) {
 		out = append(out, Finding{Check: "credential", Profile: p.Name, Detail: "no stored credential for " + p.Name})
@@ -114,11 +115,15 @@ func checkWorkspace(p *providers.Provider, st router.State, now time.Time, budge
 	if len(out) > 0 {
 		return out
 	}
-	if f := tokenFinding(p, now, budget); f != nil {
-		if pf == nil || !p.CommandAuth() {
+	if !cmdRoute {
+		minted := mintPairedSP(ctx, p, now, budget)
+		switch f := tokenFinding(p, now, budget); {
+		case f == nil:
+		case !minted:
 			return []Finding{*f}
+		default:
+			pf.note(p.Name + ": the fresh service-principal token cannot cover the run timeout plus 2m; running on it")
 		}
-		pf.note(p.Name + ": " + f.Detail + "; credential command will refresh during the run")
 	}
 	if f := workspaceAuth(p, st, now); f != nil {
 		out = append(out, *f)
@@ -156,18 +161,41 @@ type runTimeoutKey struct{}
 
 func launchWorkspaceFindings(ctx context.Context, agentName string, p *providers.Provider, st router.State, now time.Time, pf *Preflight) []Finding {
 	budget := DefaultToolsTimeout
-	if ctx != nil {
-		if timeout, ok := ctx.Value(runTimeoutKey{}).(time.Duration); ok && timeout > 0 {
-			budget = timeout
-		}
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	if !agentid.Routing(agentName).ResponsesRoute {
-		return CheckWorkspace(p, st, now, budget)
+	if timeout, ok := ctx.Value(runTimeoutKey{}).(time.Duration); ok && timeout > 0 {
+		budget = timeout
 	}
 	if pf == nil {
 		pf = &Preflight{}
 	}
-	return checkWorkspace(p, st, now, budget, pf)
+	return checkWorkspace(ctx, p, st, now, budget, pf, agentid.Routing(agentName).ResponsesRoute && p.CommandAuth())
+}
+
+// mintPaired is the headless mint of a paired service principal's token; a seam for tests.
+var mintPaired = func(ctx context.Context, p *providers.Provider) error {
+	_, err := providers.Refresh(ctx, p)
+	return err
+}
+
+// mintPairedSP mints the paired service principal's token when the stored one cannot cover the run; true when it did.
+func mintPairedSP(ctx context.Context, p *providers.Provider, now time.Time, budget time.Duration) bool {
+	if !pairedSPFor(ctx, p) {
+		return false
+	}
+	if exp, _, ok := providers.TokenExpiryMethodFor(p.Name, p.Identity); ok && exp.Sub(now) >= budget+2*time.Minute {
+		return false
+	}
+	ctx = providers.WithIdentity(ctx, cmp.Or(providers.IdentityFrom(ctx), providers.IdentityHeadless))
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+	return mintPaired(ctx, p) == nil
+}
+
+// pairedSPFor reports a run that may use p's paired service principal: not pinned to the user login by row or --as.
+func pairedSPFor(ctx context.Context, p *providers.Provider) bool {
+	return p.Identity != providers.IdentityUser && providers.IdentityFrom(ctx) != providers.IdentityUser && providers.SPPresent(p)
 }
 
 func tokenFinding(p *providers.Provider, now time.Time, budget time.Duration) *Finding {
@@ -186,7 +214,15 @@ func tokenFinding(p *providers.Provider, now time.Time, budget time.Duration) *F
 	if err != nil {
 		detail += "; refresh failed"
 	}
-	return &Finding{Check: "token", Profile: p.Name, Detail: detail + ": run `" + providers.LoginCommand(p.Name) + "`"}
+	return &Finding{Check: "token", Profile: p.Name, Detail: detail + ": run `" + tokenHint(p) + "`"}
+}
+
+// tokenHint is the command that renews p's token here: the headless service-principal mint when one is paired.
+func tokenHint(p *providers.Provider) string {
+	if p.Identity != providers.IdentityUser && providers.SPPresent(p) {
+		return "claude-code databricks login --profile " + p.Name + " --as sp"
+	}
+	return providers.LoginCommand(p.Name)
 }
 
 func workspaceAuth(p *providers.Provider, st router.State, now time.Time) *Finding {
