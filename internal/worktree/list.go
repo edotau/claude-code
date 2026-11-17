@@ -50,10 +50,13 @@ func List(repo *Repo) ([]Entry, error) {
 	}
 	target, targetErr := currentBranch(repo.Main)
 	now := time.Now()
-	in := firstLook()
+	var in func(string) ([]Proc, error)
 	for i := range entries {
 		entries[i].Orphaned = entries[i].Registered != entries[i].Exists
 		if entries[i].Exists {
+			if in == nil {
+				in = firstLook()
+			}
 			inspect(repo, &entries[i], target, targetErr, now)
 			_, entries[i].Busy = cleanBusyReason(entries[i].Path, in)
 		}
