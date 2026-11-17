@@ -162,15 +162,15 @@ func countBankReads(t *testing.T) map[string]int {
 
 // TestBlockIDsPersistAcrossEditsAndArchive: IDs are stamped once, survive a title edit, and `show` finds archives.
 func TestBlockIDsPersistAcrossEditsAndArchive(t *testing.T) {
-	runBank(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T) {
 		initStore(t)
-		log := b.Path("decisionLog.md")
+		log := Path("decisionLog.md")
 		write(t, log, "# Decision Log\n\n## 2026-10-18 — First\nbody one\n\n## 2026-10-17 — Second\nbody two\n")
 		now := time.Now()
-		if n, err := assignIDsT(b, now); err != nil || n != 2 {
+		if n, err := assignIDsT(now); err != nil || n != 2 {
 			t.Fatalf("first stamp = %d, %v; want 2", n, err)
 		}
-		if n, _ := assignIDsT(b, now.Add(time.Second)); n != 0 {
+		if n, _ := assignIDsT(now.Add(time.Second)); n != 0 {
 			t.Errorf("second stamp re-stamped %d blocks; IDs must be assigned once", n)
 		}
 		data, _ := os.ReadFile(log)
@@ -180,7 +180,7 @@ func TestBlockIDsPersistAcrossEditsAndArchive(t *testing.T) {
 			t.Errorf("show after a title edit = %q, %v", block, err)
 		}
 		moved, _ := os.ReadFile(log)
-		archive := b.Sub("archive", "decisionLog-2026-10.md")
+		archive := Sub("archive", "decisionLog-2026-10.md")
 		write(t, archive, string(moved))
 		write(t, log, "# Decision Log\n")
 		assertShownFromArchive(t, id, archive)
@@ -218,15 +218,15 @@ func assertShownFromArchive(t *testing.T, id, archive string) {
 
 // TestAssignIDsSecondPassLeavesExistingIDsByteIdentical: a stamped block must never be re-stamped, even byte-wise.
 func TestAssignIDsSecondPassLeavesExistingIDsByteIdentical(t *testing.T) {
-	runBank(t, func(t *testing.T, b Bank) {
-		path := b.Path("decisionLog.md")
+	runBank(t, func(t *testing.T) {
+		path := Path("decisionLog.md")
 		write(t, path, "## First\nbody one\n\n## Second\nbody two\n")
 		now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-		if n, err := assignIDsT(b, now); err != nil || n != 2 {
+		if n, err := assignIDsT(now); err != nil || n != 2 {
 			t.Fatalf("first stamp = %d, %v; want 2", n, err)
 		}
 		before, _ := os.ReadFile(path)
-		if n, err := assignIDsT(b, now.Add(time.Hour)); err != nil || n != 0 {
+		if n, err := assignIDsT(now.Add(time.Hour)); err != nil || n != 0 {
 			t.Fatalf("second stamp = %d, %v; want 0 (already stamped)", n, err)
 		}
 		after, _ := os.ReadFile(path)
@@ -238,11 +238,11 @@ func TestAssignIDsSecondPassLeavesExistingIDsByteIdentical(t *testing.T) {
 
 // TestAssignIDsThreeIdenticalBlocksGetThreeDistinctIDs: three byte-identical block headers must get three distinct IDs.
 func TestAssignIDsThreeIdenticalBlocksGetThreeDistinctIDs(t *testing.T) {
-	runBank(t, func(t *testing.T, b Bank) {
-		path := b.Path("decisionLog.md")
+	runBank(t, func(t *testing.T) {
+		path := Path("decisionLog.md")
 		write(t, path, "## Fix the bug\nbody one\n\n## Fix the bug\nbody two\n\n## Fix the bug\nbody three\n")
 		now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-		if n, err := assignIDsT(b, now); err != nil || n != 3 {
+		if n, err := assignIDsT(now); err != nil || n != 3 {
 			t.Fatalf("assignIDs = %d, %v; want 3", n, err)
 		}
 		data, _ := os.ReadFile(path)
@@ -263,16 +263,16 @@ func TestAssignIDsThreeIdenticalBlocksGetThreeDistinctIDs(t *testing.T) {
 
 // TestAssignIDsSameTextDifferentFilesGetDistinctIDs: the same block text stamped in two typed files must not collide.
 func TestAssignIDsSameTextDifferentFilesGetDistinctIDs(t *testing.T) {
-	runBank(t, func(t *testing.T, b Bank) {
-		write(t, b.Path("decisionLog.md"), "## Fix the bug\nbody\n")
-		write(t, b.Path("sessionHistory.md"), "## Fix the bug\nbody\n")
+	runBank(t, func(t *testing.T) {
+		write(t, Path("decisionLog.md"), "## Fix the bug\nbody\n")
+		write(t, Path("sessionHistory.md"), "## Fix the bug\nbody\n")
 		now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
-		if n, err := assignIDsT(b, now); err != nil || n != 2 {
+		if n, err := assignIDsT(now); err != nil || n != 2 {
 			t.Fatalf("assignIDs = %d, %v; want 2", n, err)
 		}
 		var ids []string
 		for _, name := range []string{"decisionLog.md", "sessionHistory.md"} {
-			data, _ := os.ReadFile(b.Path(name))
+			data, _ := os.ReadFile(Path(name))
 			for l := range strings.SplitSeq(string(data), "\n") {
 				if id := blockID(l); id != "" {
 					ids = append(ids, id)
@@ -287,11 +287,11 @@ func TestAssignIDsSameTextDifferentFilesGetDistinctIDs(t *testing.T) {
 
 // A marker the formatter wrapped onto a later line counts: settling twice adds nothing.
 func TestAssignIDsSeesMarkerOnLaterLine(t *testing.T) {
-	runBank(t, func(t *testing.T, b Bank) {
-		path := b.Path("conventions.md")
+	runBank(t, func(t *testing.T) {
+		path := Path("conventions.md")
 		body := "# C\n\n- long convention wrapped\n  onto two lines <!-- id:aaaa0001 -->\n\n- plain rule\n"
 		write(t, path, body)
-		n, err := assignIDsT(b, time.Now())
+		n, err := assignIDsT(time.Now())
 		if err != nil || n != 1 { // only "plain rule" is unmarked
 			t.Fatalf("first settle stamped %d, err %v", n, err)
 		}
@@ -299,7 +299,7 @@ func TestAssignIDsSeesMarkerOnLaterLine(t *testing.T) {
 		if !strings.Contains(string(once), "- long convention wrapped\n  onto two lines <!-- id:aaaa0001 -->\n") {
 			t.Errorf("a wrapped marker must stay where the formatter put it:\n%s", once)
 		}
-		if n, _ = assignIDsT(b, time.Now().Add(time.Second)); n != 0 {
+		if n, _ = assignIDsT(time.Now().Add(time.Second)); n != 0 {
 			t.Errorf("second settle stamped %d", n)
 		}
 		twice, _ := os.ReadFile(path)
@@ -311,10 +311,10 @@ func TestAssignIDsSeesMarkerOnLaterLine(t *testing.T) {
 
 // Stacked markers collapse to the oldest (last) one, idempotently.
 func TestAssignIDsCollapsesStackedMarkersToOldest(t *testing.T) {
-	runBank(t, func(t *testing.T, b Bank) {
-		path := b.Path("conventions.md")
+	runBank(t, func(t *testing.T) {
+		path := Path("conventions.md")
 		write(t, path, "# C\n\n- a rule that wraps\n  <!-- id:00000005 -->\n  <!-- id:00000004 -->\n  <!-- id:00000003 -->\n  <!-- id:00000002 -->\n  <!-- id:00000001 -->\n\n- next\n")
-		if _, err := assignIDsT(b, time.Now()); err != nil {
+		if _, err := assignIDsT(time.Now()); err != nil {
 			t.Fatal(err)
 		}
 		got, _ := os.ReadFile(path)
@@ -322,7 +322,7 @@ func TestAssignIDsCollapsesStackedMarkersToOldest(t *testing.T) {
 		if strings.Count(s, "<!-- id:00000001 -->") != 1 || strings.Count(s, "<!-- id:") != 2 { // the other is "next"'s fresh id
 			t.Fatalf("want only the oldest marker kept on the wrapped block:\n%s", s)
 		}
-		if _, err := assignIDsT(b, time.Now().Add(time.Second)); err != nil {
+		if _, err := assignIDsT(time.Now().Add(time.Second)); err != nil {
 			t.Fatal(err)
 		}
 		again, _ := os.ReadFile(path)
@@ -337,10 +337,10 @@ func TestAssignIDsCollapsesStackedMarkersToOldest(t *testing.T) {
 
 // A fenced example marker is not the block's id: settle keeps the real one and never adopts the example.
 func TestAssignIDsIgnoresFencedMarkers(t *testing.T) {
-	runBank(t, func(t *testing.T, b Bank) {
-		path := b.Path("decisionLog.md")
+	runBank(t, func(t *testing.T) {
+		path := Path("decisionLog.md")
 		write(t, path, "# D\n\n## 2026-10-01 — real heading <!-- id:aaaa0001 -->\n\nexample:\n\n```md\n## x <!-- id:bbbb0002 -->\n```\n")
-		if _, err := assignIDsT(b, time.Now()); err != nil {
+		if _, err := assignIDsT(time.Now()); err != nil {
 			t.Fatal(err)
 		}
 		got, _ := os.ReadFile(path)
@@ -353,7 +353,7 @@ func TestAssignIDsIgnoresFencedMarkers(t *testing.T) {
 		}
 		// an unmarked block whose only marker is a fenced example still gets its own id
 		write(t, path, "# D\n\n## 2026-10-02 — bare\n\n```md\n## x <!-- id:cccc0003 -->\n```\n")
-		if n, _ := assignIDsT(b, time.Now()); n != 1 {
+		if n, _ := assignIDsT(time.Now()); n != 1 {
 			t.Errorf("bare block with a fenced example must be stamped, stamped %d", n)
 		}
 	})
@@ -362,7 +362,7 @@ func TestAssignIDsIgnoresFencedMarkers(t *testing.T) {
 // Content refs of native topics and knowledge notes (indexed whole) expand through ShowBlock.
 func TestShowBlockExpandsNativeAndKnowledgeRefs(t *testing.T) {
 	isolatedConfig1(t)
-	note := Bank{}.Sub("knowledge", "wires.md")
+	note := Sub("knowledge", "wires.md")
 	write(t, note, "---\ndescription: d\n---\n# Wires\nknowledge body zebra\n")
 	hits, err := corpusBlocks()
 	if err != nil {
@@ -458,19 +458,19 @@ func TestRememberSameFactSameClockGetsDistinctIDs(t *testing.T) {
 	if err != nil || second == first {
 		t.Fatalf("second Remember = %q, %v; want an id distinct from the first, %q", second, err, first)
 	}
-	if body := mustRead(t, HomeBank().Path("decisionLog.md")); strings.Count(body, "<!-- id:"+second+" -->") != 1 {
+	if body := mustRead(t, Path("decisionLog.md")); strings.Count(body, "<!-- id:"+second+" -->") != 1 {
 		t.Errorf("id %s is not unique in decisionLog.md:\n%s", second, body)
 	}
 }
 
 // A long conventions bullet keeps its wrapped marker: a second settle rewrites no byte and the catalog sees its id.
 func TestSettleLongConventionIsIdempotentAndKeepsItsID(t *testing.T) {
-	runBank(t, func(t *testing.T, b Bank) {
-		path := b.Path("conventions.md")
+	runBank(t, func(t *testing.T) {
+		path := Path("conventions.md")
 		write(t, path, "# C\n\n- "+strings.TrimSpace(strings.Repeat("word ", 40))+"\n")
 		settle := func(now time.Time) {
 			t.Helper()
-			if _, err := assignIDsT(b, now); err != nil {
+			if _, err := assignIDsT(now); err != nil {
 				t.Fatal(err)
 			}
 			if _, err := formatFiles([]string{path}, false); err != nil {
@@ -496,7 +496,7 @@ func TestSettleLongConventionIsIdempotentAndKeepsItsID(t *testing.T) {
 	})
 }
 
-func assignIDsT(b Bank, now time.Time) (int, error) {
-	n, _, err := assignIDTexts(b, now)
+func assignIDsT(now time.Time) (int, error) {
+	n, _, err := assignIDTexts(now)
 	return n, err
 }

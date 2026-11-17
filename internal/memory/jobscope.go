@@ -55,7 +55,7 @@ func JobScope(kind, workdir string) Scope {
 func updateWriteScope(string) []string {
 	var w []string
 	for _, name := range bankFiles {
-		w = append(w, HomeBank().Path(name))
+		w = append(w, Path(name))
 	}
 	return append(w, filepath.Join(StoreDir(), "archive", "*"))
 }

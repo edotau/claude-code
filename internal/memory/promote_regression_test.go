@@ -12,13 +12,12 @@ import (
 func TestPersistenceArchiveFileHonorsRememberLock(t *testing.T) {
 	tempConfig(t)
 	shortBankWait(t)
-	b := HomeBank()
-	path := b.Path("conventions.md")
+	path := Path("conventions.md")
 	body := "# Conventions\n\n- old one\n- old two\n"
 	write(t, path, body)
 	now := time.Now()
 	err := WithBankLock(BankLockWait, func() error {
-		_, err := archiveFile(b, "conventions.md", 3, now)
+		_, err := archiveFile("conventions.md", 3, now)
 		if !errors.Is(err, ErrBankBusy) {
 			t.Errorf("archiveFile under Remember's bank lock = %v, want ErrBankBusy", err)
 		}
@@ -34,14 +33,14 @@ func TestPersistenceArchiveFileHonorsRememberLock(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	n, err := archiveFile(b, "conventions.md", 3, now)
+	n, err := archiveFile("conventions.md", 3, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if n == 0 {
 		t.Fatal("fixture did not exercise the archive rewrite")
 	}
-	combined := aliasRead(t, path) + aliasRead(t, archivePath(b, "conventions.md", now))
+	combined := aliasRead(t, path) + aliasRead(t, archivePath("conventions.md", now))
 	if !strings.Contains(combined, "id:"+id) {
 		t.Error("Remember's entry was lost during archiving")
 	}
@@ -49,25 +48,23 @@ func TestPersistenceArchiveFileHonorsRememberLock(t *testing.T) {
 
 func TestSplitOverflowSurfacesReadErrorNotAbsence(t *testing.T) {
 	isolatedConfig(t)
-	b := HomeBank()
-	if _, _, _, err := splitOverflow(b.Path("absent.md"), 5); err != nil {
+	if _, _, _, err := splitOverflow(Path("absent.md"), 5); err != nil {
 		t.Errorf("absent file: err = %v, want nil", err)
 	}
-	if err := os.MkdirAll(b.Path("decisionLog.md"), 0o700); err != nil {
+	if err := os.MkdirAll(Path("decisionLog.md"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := archiveFile(b, "decisionLog.md", 5, time.Now()); err == nil {
+	if _, err := archiveFile("decisionLog.md", 5, time.Now()); err == nil {
 		t.Error("archiveFile on an unreadable file returned nil, want the read error")
 	}
 }
 
 func TestExtractBlockSurfacesReadError(t *testing.T) {
 	isolatedConfig(t)
-	b := HomeBank()
-	if err := os.MkdirAll(b.Path("decisionLog.md"), 0o700); err != nil {
+	if err := os.MkdirAll(Path("decisionLog.md"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	_, _, err := extractBlock(b, "abcd1234")
+	_, _, err := extractBlock("abcd1234")
 	if err == nil || errors.Is(err, errNoBlock) {
 		t.Errorf("extractBlock err = %v, want the read error, not errNoBlock", err)
 	}

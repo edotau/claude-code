@@ -30,14 +30,13 @@ func compactSession(t *testing.T) (in *core.Input, handoffs string) {
 	tr, payload := hookSession(t)
 	hosttest.WriteEdits(t, tr, 3)
 	in = payload()
-	b := memory.HomeBank()
-	if err := os.MkdirAll(filepath.Dir(b.Path("activeContext.md")), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(memory.Path("activeContext.md")), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(b.Path("activeContext.md"), []byte("# A\n"), 0o600); err != nil {
+	if err := os.WriteFile(memory.Path("activeContext.md"), []byte("# A\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return in, b.SubDir("handoffs")
+	return in, memory.SubDir("handoffs")
 }
 
 // cancellable is a hook context the test ends itself, so a blocked half never holds the test for the budget.

@@ -259,22 +259,18 @@ func readDoc(path string) (*bankDoc, error) {
 	return newBankDoc(path, string(data)), nil
 }
 
-// reviseFilesOf lists the live typed files of each bank, then (archives true) their archive files.
-func reviseFilesOf(banks []Bank, archives bool) []string {
+// reviseFilesOf lists the live typed files, then (archives true) their archive files.
+func reviseFilesOf(archives bool) []string {
 	var out []string
-	for _, b := range banks {
-		for _, name := range reviseFiles {
-			out = append(out, b.Path(name))
-		}
+	for _, name := range reviseFiles {
+		out = append(out, Path(name))
 	}
 	if !archives {
 		return out
 	}
-	for _, b := range banks {
-		for _, name := range reviseFiles {
-			p := b.Sub("archive", "*"+strings.TrimSuffix(name, ".md")+"-*.md") // * keeps pre-merge <key>-- archives
-			out = append(out, transcript.GlobIn(filepath.Dir(p), filepath.Base(p))...)
-		}
+	for _, name := range reviseFiles {
+		p := Sub("archive", "*"+strings.TrimSuffix(name, ".md")+"-*.md") // * keeps pre-merge <key>-- archives
+		out = append(out, transcript.GlobIn(filepath.Dir(p), filepath.Base(p))...)
 	}
 	return out
 }
@@ -295,11 +291,11 @@ func missingRefs(docs []*bankDoc) []string {
 	return out
 }
 
-// liveDocs is b's live typed files, from texts when the settle already holds them, else read.
-func liveDocs(b Bank, texts map[string]string) ([]*bankDoc, error) {
+// liveDocs is the bank's live typed files, from texts when the settle already holds them, else read.
+func liveDocs(texts map[string]string) ([]*bankDoc, error) {
 	var docs []*bankDoc
 	for _, name := range reviseFiles {
-		p := b.Path(name)
+		p := Path(name)
 		text, ok := texts[name]
 		if !ok {
 			d, err := readDoc(p)
@@ -335,8 +331,8 @@ func holderDocs(paths, markers []string) ([]*bankDoc, error) {
 }
 
 // reviseDocSet is liveDocs plus, only when a reference names an id they lack, the other files carrying it.
-func reviseDocSet(b Bank, texts map[string]string) ([]*bankDoc, error) {
-	docs, err := liveDocs(b, texts)
+func reviseDocSet(texts map[string]string) ([]*bankDoc, error) {
+	docs, err := liveDocs(texts)
 	if err != nil {
 		return nil, err
 	}
@@ -344,8 +340,8 @@ func reviseDocSet(b Bank, texts map[string]string) ([]*bankDoc, error) {
 	if len(missing) == 0 {
 		return docs, nil
 	}
-	own := reviseFilesOf([]Bank{b}, false)
-	rest := slices.DeleteFunc(reviseFilesOf([]Bank{b}, true), func(p string) bool { return slices.Contains(own, p) })
+	own := reviseFilesOf(false)
+	rest := slices.DeleteFunc(reviseFilesOf(true), func(p string) bool { return slices.Contains(own, p) })
 	for len(missing) > 0 {
 		extra, err := holderDocs(rest, missing)
 		if err != nil || len(extra) == 0 {
@@ -523,9 +519,9 @@ func writeDirtyDocs(docs []*bankDoc) error {
 	return nil
 }
 
-// reviseDir applies every `Supersedes <id>` found in b as a strike + pointer; texts are the settle's loaded files.
-func reviseDir(b Bank, texts map[string]string) error {
-	docs, err := reviseDocSet(b, texts)
+// reviseDir applies every `Supersedes <id>` in the bank as a strike + pointer; texts are the settle's loaded files.
+func reviseDir(texts map[string]string) error {
+	docs, err := reviseDocSet(texts)
 	if err != nil {
 		return err
 	}
@@ -535,19 +531,17 @@ func reviseDir(b Bank, texts map[string]string) error {
 	return writeDirtyDocs(docs)
 }
 
-// reviseBankProblems lists dangling and cyclic `Supersedes` references in own's banks, for `memory review`.
+// reviseBankProblems lists dangling and cyclic `Supersedes` references in the bank, for `memory review`.
 func reviseBankProblems() []string {
+	docs, err := reviseDocSet(nil)
+	if err != nil {
+		return nil
+	}
 	var out []string
-	for _, b := range bankSet() {
-		docs, err := reviseDocSet(b, nil)
-		if err != nil {
-			continue
-		}
-		_, problems := planRevisions(docs)
-		for _, p := range problems {
-			if !slices.Contains(out, p) {
-				out = append(out, p)
-			}
+	_, problems := planRevisions(docs)
+	for _, p := range problems {
+		if !slices.Contains(out, p) {
+			out = append(out, p)
 		}
 	}
 	return out

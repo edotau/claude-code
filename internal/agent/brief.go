@@ -27,7 +27,6 @@ var briefTemplate string
 
 // RenderBrief resolves report paths against the memory bank.
 func RenderBrief(input BriefInput) (string, error) {
-	b := memory.HomeBank()
 	if input.Owned == nil {
 		input.Owned = []string{}
 	}
@@ -43,7 +42,7 @@ func RenderBrief(input BriefInput) (string, error) {
 	data := struct {
 		BriefInput
 		OwnedLine, ReportsDir string
-	}{input, string(owned), b.SubDir("reports")}
+	}{input, string(owned), memory.SubDir("reports")}
 	if err := tmpl.Execute(&out, data); err != nil {
 		return "", fmt.Errorf("render brief: %w", err)
 	}

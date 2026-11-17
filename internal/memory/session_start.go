@@ -174,8 +174,8 @@ func takeCompactRecord(sessionID string) (r compactRecord, ok bool) {
 }
 
 // newestHandoff is the store's most recently modified model-written handoff within maxAge, or "".
-func newestHandoff(b Bank, now time.Time, maxAge time.Duration) string {
-	dir := b.SubDir("handoffs")
+func newestHandoff(now time.Time, maxAge time.Duration) string {
+	dir := SubDir("handoffs")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return ""
@@ -204,15 +204,14 @@ func ResumeNote(source, sessionID, cwd string, now time.Time) string {
 			parts = append(parts, compactedText(r))
 		}
 	}
-	b := HomeBank()
-	model := newestHandoff(b, now, 24*time.Hour)
+	model := newestHandoff(now, 24*time.Hour)
 	if source == "compact" { // only this session's own steward handoff, never a peer's
 		model = StewardHandoff(sessionID, now)
 	}
 	if model != "" {
 		parts = append(parts, "handoff: "+model)
 	}
-	if gen, _ := newestFile(sessionCompactHandoffs(b, sessionID), now, 24*time.Hour); gen != "" && model != "" {
+	if gen, _ := newestFile(sessionCompactHandoffs(sessionID), now, 24*time.Hour); gen != "" && model != "" {
 		parts = append(parts, "generated handoff: "+gen)
 	} else if gen != "" {
 		parts = append(parts, "handoff: "+gen)
@@ -434,20 +433,19 @@ const focusCapChars = 1200
 
 // sessionSurface is the capped session preload: the one bank's focus plus a pointer to the catalog, whatever root is.
 func sessionSurface(root string) string {
-	b := HomeBank()
 	var parts []string
 	if _, err := os.Stat(filepath.Join(StoreDir(), catalogFile)); err == nil {
 		parts = append(parts, "<!-- catalog: "+filepath.Join(StoreDir(), catalogFile)+"; search: `claude-code memory search <terms>` -->")
 	}
 	if bankExists() { // the header alone still names the bank when there is no focus text yet
-		head := "<!-- MEMORY (" + b.SubDir("") + ") -->"
-		if focus := repoFocus(b); len(focus) > 0 {
+		head := "<!-- MEMORY (" + SubDir("") + ") -->"
+		if focus := repoFocus(); len(focus) > 0 {
 			head += "\n" + strings.Join(focus, "\n\n")
 		}
 		parts = append(parts, capChars(head, focusCapChars))
 	}
-	if !nativeLinked(root, b.SubDir("")) { // Claude Code is reading another dir: carry the store's index ourselves
-		if data, err := os.ReadFile(b.NativeIndex()); err == nil && len(data) > 0 {
+	if !nativeLinked(root, SubDir("")) { // Claude Code is reading another dir: carry the store's index ourselves
+		if data, err := os.ReadFile(NativeIndex()); err == nil && len(data) > 0 {
 			parts = append(parts, capChars("<!-- MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
 		}
 	}
@@ -455,9 +453,9 @@ func sessionSurface(root string) string {
 }
 
 // repoFocus is a bank's injected sections: activeContext focus/blockers/next steps and progress "In Progress".
-func repoFocus(b Bank) []string {
+func repoFocus() []string {
 	var focus []string
-	if data, err := os.ReadFile(b.Path("activeContext.md")); err == nil {
+	if data, err := os.ReadFile(Path("activeContext.md")); err == nil {
 		heads := []string{"Current Focus", "Blockers", "Next Steps"}
 		for i, sec := range sectionBodies(string(data), heads...) {
 			if sec != "" {
@@ -465,7 +463,7 @@ func repoFocus(b Bank) []string {
 			}
 		}
 	}
-	if data, err := os.ReadFile(b.Path("progress.md")); err == nil {
+	if data, err := os.ReadFile(Path("progress.md")); err == nil {
 		if sec := sectionBody(string(data), "In Progress"); sec != "" {
 			focus = append(focus, "## In Progress\n"+sec)
 		}

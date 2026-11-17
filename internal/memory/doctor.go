@@ -27,10 +27,10 @@ type bankStat struct {
 	data        map[string][]byte
 }
 
-func statBank(b Bank) bankStat {
-	s := bankStat{Dir: b.SubDir(""), data: map[string][]byte{}}
+func statBank() bankStat {
+	s := bankStat{Dir: SubDir(""), data: map[string][]byte{}}
 	for _, name := range bankFiles {
-		path := b.Path(name)
+		path := Path(name)
 		data, err := readFile(path)
 		if err != nil {
 			if !os.IsNotExist(err) {
@@ -101,20 +101,20 @@ func refreshNotice(w io.Writer, verb, root string) {
 	}
 }
 
-func refreshBankNotice(w io.Writer, verb, root string, b Bank) {
-	if err := cacheDoctorNotice(doctorBank(root, b, DefaultStaleDays, time.Now())); err != nil {
+func refreshBankNotice(w io.Writer, verb, root string) {
+	if err := cacheDoctorNotice(doctorBank(root, DefaultStaleDays, time.Now())); err != nil {
 		fmt.Fprintf(w, "%s: doctor notice: %v\n", verb, err)
 	}
 }
 
 // doctor returns advisory problems for the local and home banks (caps, staleness, credentials); never fatal.
 func doctor(root string, staleDays int, now time.Time) []string {
-	return doctorBank(root, HomeBank(), staleDays, now)
+	return doctorBank(root, staleDays, now)
 }
 
-func doctorBank(root string, b Bank, staleDays int, now time.Time) []string {
+func doctorBank(root string, staleDays int, now time.Time) []string {
 	var problems []string
-	problems = append(problems, bankProblems("home", statBank(b), staleDays, now)...)
+	problems = append(problems, bankProblems("home", statBank(), staleDays, now)...)
 	problems = append(problems, updateProblems(now)...)
 	problems = append(problems, journalProblems(now)...)
 	if root != "" {
@@ -274,8 +274,8 @@ type timelineEntry struct {
 	Line string
 }
 
-// timelineBank returns the newest-first receipt trail (up to limit) plus recent sessionHistory headings, b then home.
-func timelineBank(b Bank, limit int) (entries []timelineEntry, sessions []string, err error) {
+// timelineBank returns the newest-first receipt trail (up to limit) plus recent sessionHistory headings.
+func timelineBank(limit int) (entries []timelineEntry, sessions []string, err error) {
 	for _, rc := range readReceipts() {
 		id, r := rc.id, rc.r
 		if r.Time.IsZero() {
@@ -291,26 +291,24 @@ func timelineBank(b Bank, limit int) (entries []timelineEntry, sessions []string
 	if limit > 0 && len(entries) > limit {
 		entries = entries[:limit]
 	}
-	sessions, err = recentSessions(b, limit)
+	sessions, err = recentSessions(limit)
 	return entries, sessions, err
 }
 
-func recentSessions(own Bank, limit int) (sessions []string, err error) {
+func recentSessions(limit int) (sessions []string, err error) {
 	seen := map[string]bool{}
-	for _, b := range []Bank{own} {
-		heads, err := entriesWithPrefix(b.Path("sessionHistory.md"), "## ")
-		if err != nil {
-			return sessions, err
+	heads, err := entriesWithPrefix(Path("sessionHistory.md"), "## ")
+	if err != nil {
+		return sessions, err
+	}
+	for _, h := range heads {
+		if seen[h] {
+			continue
 		}
-		for _, h := range heads {
-			if seen[h] {
-				continue
-			}
-			seen[h] = true
-			sessions = append(sessions, h)
-			if limit > 0 && len(sessions) >= limit {
-				return sessions, nil
-			}
+		seen[h] = true
+		sessions = append(sessions, h)
+		if limit > 0 && len(sessions) >= limit {
+			return sessions, nil
 		}
 	}
 	return sessions, nil

@@ -85,19 +85,19 @@ func TestInitNoOverwrite(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range BankFiles() {
-		if _, err := os.Stat(HomeBank().Path(name)); err != nil {
+		if _, err := os.Stat(Path(name)); err != nil {
 			t.Errorf("missing %s", name)
 		}
 	}
-	write(t, HomeBank().Path("activeContext.md"), "mine\n")
-	_ = os.Remove(HomeBank().Path("progress.md"))
+	write(t, Path("activeContext.md"), "mine\n")
+	_ = os.Remove(Path("progress.md"))
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	if b, _ := os.ReadFile(HomeBank().Path("activeContext.md")); string(b) != "mine\n" {
+	if b, _ := os.ReadFile(Path("activeContext.md")); string(b) != "mine\n" {
 		t.Error("Init overwrote an existing file")
 	}
-	if !bankExists() || !fileExists(HomeBank().Path("progress.md")) {
+	if !bankExists() || !fileExists(Path("progress.md")) {
 		t.Error("Init did not re-seed a missing file")
 	}
 }
@@ -120,10 +120,9 @@ func TestSplitBlocksFenceAware(t *testing.T) {
 
 func TestSearchBanksRanking(t *testing.T) {
 	tempConfig(t)
-	dir := HomeBank()
-	write(t, dir.Path("decisionLog.md"), "# D\n\n## 2026-01-01 — router retries on 429\n\nwhy: rate limits\n\n## 2026-01-02 — unrelated choice\n\nthe router is mentioned once\n")
+	write(t, Path("decisionLog.md"), "# D\n\n## 2026-01-01 — router retries on 429\n\nwhy: rate limits\n\n## 2026-01-02 — unrelated choice\n\nthe router is mentioned once\n")
 	write(t, filepath.Join(StoreDir(), "conventions.md"), "# C\n\n- keep commits small\n")
-	write(t, dir.Sub("archive", "sessionHistory-2025-12.md"), "# old\n\n## 2025-12-01 — 429 storm\n")
+	write(t, Sub("archive", "sessionHistory-2025-12.md"), "# old\n\n## 2025-12-01 — 429 storm\n")
 	hits := searchBanks("the router 429", 0)
 	if len(hits) != 3 || !strings.Contains(hits[0].Block, "retries on 429") || hits[0].Bank != "home" {
 		t.Fatalf("hits %+v", hits)
@@ -144,29 +143,28 @@ func TestRotateAndSettle(t *testing.T) {
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	bank := HomeBank()
 	var sb strings.Builder
 	sb.WriteString("# Session History\n\n> newest first\n")
 	for i := 35; i >= 1; i-- {
 		fmt.Fprintf(&sb, "\n## entry %02d\n\n- did %d\n", i, i)
 	}
-	write(t, bank.Path("sessionHistory.md"), sb.String())
+	write(t, Path("sessionHistory.md"), sb.String())
 	now := time.Date(2026, 9, 16, 0, 0, 0, 0, time.UTC)
 	rotated, err := settleBank(now)
 	if err != nil || rotated != 5 {
 		t.Fatalf("rotated %d err %v", rotated, err)
 	}
-	assertRotated(t, bank)
-	if n, _ := rotateSessionHistory(bank, now); n != 0 {
+	assertRotated(t)
+	if n, _ := rotateSessionHistory(now); n != 0 {
 		t.Error("rotation under cap must be a no-op")
 	}
 }
 
 // assertRotated checks the history kept its newest entries and the oldest went to the archive.
-func assertRotated(t *testing.T, b Bank) {
+func assertRotated(t *testing.T) {
 	t.Helper()
-	_, kept := splitHeadingBlocks(mustRead(t, b.Path("sessionHistory.md")))
-	arch := mustRead(t, b.Sub("archive", "sessionHistory-2026-09.md"))
+	_, kept := splitHeadingBlocks(mustRead(t, Path("sessionHistory.md")))
+	arch := mustRead(t, Sub("archive", "sessionHistory-2026-09.md"))
 	if len(kept) != sessionHistoryMaxEntries || !strings.HasPrefix(kept[0], "## entry 35") || !strings.Contains(arch, "## entry 01") || strings.Contains(arch, "## entry 06") {
 		t.Errorf("kept %d first %q archive %q", len(kept), kept[0], arch)
 	}
@@ -188,7 +186,7 @@ func TestUpdateRecordsOutcome(t *testing.T) {
 			return "fake", errors.New("update child env not passed")
 		}
 		time.Sleep(10 * time.Millisecond)
-		f, err := os.OpenFile(HomeBank().Path("sessionHistory.md"), os.O_APPEND|os.O_WRONLY, 0o644)
+		f, err := os.OpenFile(Path("sessionHistory.md"), os.O_APPEND|os.O_WRONLY, 0o644)
 		if err != nil {
 			return "fake", err
 		}
@@ -232,10 +230,9 @@ func TestNativeTopicsJoinSearch(t *testing.T) {
 	if got := paths.ProjectSlug("/Users/a/.claude"); got != "-Users-a--claude" {
 		t.Errorf("ProjectSlug = %q", got)
 	}
-	native := HomeBank()
-	write(t, native.Path("gw.md"), "---\nname: gateway\ndescription: home gateway over ssh\n---\n\nRun the status script.\n")
-	write(t, native.NativeIndex(), "- [gateway](gw.md) — home gateway over ssh status\n")
-	write(t, native.Path("loose.md"), "gateway ssh status without frontmatter\n")
+	write(t, Path("gw.md"), "---\nname: gateway\ndescription: home gateway over ssh\n---\n\nRun the status script.\n")
+	write(t, NativeIndex(), "- [gateway](gw.md) — home gateway over ssh status\n")
+	write(t, Path("loose.md"), "gateway ssh status without frontmatter\n")
 	hits := searchBanks("gateway ssh status", 0)
 	if len(hits) != 1 || hits[0].Bank != "native" || hits[0].File != "gw.md" || hits[0].Matched != 3 {
 		t.Fatalf("want only the frontmatter topic, matching 3 terms; got %+v", hits)
@@ -283,11 +280,11 @@ func hitContaining(hits []SearchHit, sub string) (found SearchHit, ok bool) {
 func TestCompoundMatchFindsHyphenatedAndSubstringTerms(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
-	dir, err := EnsureBank("")
+	err := EnsureBank("")
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, dir.Path("decisionLog.md"), "# Decisions\n\n"+
+	write(t, Path("decisionLog.md"), "# Decisions\n\n"+
 		"## compound candidate\nSubagent routing stays on the local classifier\n\n"+
 		"## exact candidate\nAgent routing stays on the local classifier\n\n"+
 		"## unrelated entry\nnothing to do with either term\n")
@@ -470,12 +467,11 @@ func TestHistoricalUpdatePromptAndReport(t *testing.T) {
 	clearChildEnv(t)
 	tempConfig(t)
 	root := repoRoot(t, "proj")
-	dir := HomeBank()
-	write(t, dir.Path("activeContext.md"), "live focus\n")
+	write(t, Path("activeContext.md"), "live focus\n")
 	var prompt string
 	run := func(_ context.Context, p, _ string) (string, error) {
 		prompt = p
-		write(t, dir.Path("activeContext.md"), "(NOW, newest) stale\n")
+		write(t, Path("activeContext.md"), "(NOW, newest) stale\n")
 		return "fake", nil
 	}
 	var out bytes.Buffer
@@ -681,14 +677,14 @@ func TestExtractTags_EmptyTranscript(t *testing.T) {
 
 // warnChanged lists every changed file in sorted order, every run, so map iteration order never leaks out.
 func TestWarnChangedSortedOrder(t *testing.T) {
-	runBank(t, func(t *testing.T, b Bank) { testWarnChangedSortedOrder(t, b) })
+	runBank(t, func(t *testing.T) { testWarnChangedSortedOrder(t) })
 }
 
-func testWarnChangedSortedOrder(t *testing.T, b Bank) {
+func testWarnChangedSortedOrder(t *testing.T) {
 	names := []string{"progress.md", "activeContext.md", "projectContext.md", "conventions.md", "b.md", "a.md"}
-	snap := snapshotFiles(b, names)
+	snap := snapshotFiles(names)
 	for _, n := range names {
-		write(t, b.Path(n), "changed\n")
+		write(t, Path(n), "changed\n")
 	}
 	var want strings.Builder
 	for _, n := range []string{"a.md", "activeContext.md", "b.md", "conventions.md", "progress.md", "projectContext.md"} {
@@ -696,7 +692,7 @@ func testWarnChangedSortedOrder(t *testing.T, b Bank) {
 	}
 	for range 20 {
 		var out bytes.Buffer
-		warnChanged(&out, b, snap)
+		warnChanged(&out, snap)
 		if out.String() != want.String() {
 			t.Fatalf("warnChanged order:\n%s\nwant:\n%s", out.String(), want.String())
 		}
@@ -768,7 +764,7 @@ func handoffRetryAgent(t *testing.T, sid string, blocks []int, writeOn int) (Age
 		}
 		NoteGateBlocks(ctx, blocks[*runs-1])
 		if *runs == writeOn {
-			f := HomeBank().Path("sessionHistory.md")
+			f := Path("sessionHistory.md")
 			future := time.Now().Add(time.Hour)
 			if err := errors.Join(os.WriteFile(f, []byte("# h\n"), 0o644), os.Chtimes(f, future, future)); err != nil {
 				return "fake", err
@@ -791,11 +787,9 @@ func TestUpdatePromptNamesEverySixPathsOfBothBanks(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		for _, b := range []Bank{HomeBank(), HomeBank()} {
-			for _, name := range bankFiles {
-				if !strings.Contains(p, b.Path(name)) {
-					t.Errorf("prompt lacks %s", b.Path(name))
-				}
+		for _, name := range bankFiles {
+			if !strings.Contains(p, Path(name)) {
+				t.Errorf("prompt lacks %s", Path(name))
 			}
 		}
 	})

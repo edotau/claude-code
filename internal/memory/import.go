@@ -73,8 +73,8 @@ func ImportBank(opt ImportOptions) (ImportResult, error) {
 		return p.apply(opt)
 	})
 	if err == nil {
-		top, b := ResolveBank()
-		refreshBankNotice(os.Stderr, "memory import", top, b)
+		top := ResolveBank()
+		refreshBankNotice(os.Stderr, "memory import", top)
 	}
 	return res, err
 }
@@ -133,7 +133,7 @@ func (p *importPlan) apply(opt ImportOptions) error {
 	if _, err := commitChangesLocked("memory: import "+label, p.changes); err != nil {
 		return err
 	}
-	if _, err := settleDir(HomeBank(), opt.Now); err != nil {
+	if _, err := settleDir(opt.Now); err != nil {
 		return err
 	}
 	if err := writeCatalog(opt.Now); err != nil {

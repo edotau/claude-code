@@ -12,30 +12,29 @@ import (
 )
 
 // runBank runs fn on a fresh bank in an isolated flat config.
-func runBank(t *testing.T, fn func(t *testing.T, b Bank)) {
+func runBank(t *testing.T, fn func(t *testing.T)) {
 	t.Helper()
 	isolatedConfig(t)
-	b := HomeBank()
-	if err := b.Ensure(""); err != nil {
+	if err := Ensure(""); err != nil {
 		t.Fatal(err)
 	}
-	fn(t, b)
+	fn(t)
 }
 
 func TestRotateSessionHistoryRetryDoesNotDuplicateArchive(t *testing.T) {
-	runBank(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T) {
 		date := time.Date(2026, time.November, 8, 12, 0, 0, 0, time.UTC)
 		entries := make([]string, sessionHistoryMaxEntries+2)
 		for i := range entries {
 			entries[i] = fmt.Sprintf("## Session %02d\n\nDistinct body %02d.", i, i)
 		}
-		path := b.Path("sessionHistory.md")
-		archive := b.Sub("archive", "sessionHistory-2026-11.md")
+		path := Path("sessionHistory.md")
+		archive := Sub("archive", "sessionHistory-2026-11.md")
 		write(t, path, rejoin("# Session history", entries))
 		// Recreate an archive write that persisted before the source rewrite failed, plus one still-unarchived entry.
 		write(t, archive, rejoin("# Archived sessions", entries[sessionHistoryMaxEntries:sessionHistoryMaxEntries+1]))
 
-		n, err := rotateSessionHistory(b, date)
+		n, err := rotateSessionHistory(date)
 		if err != nil || n != 2 {
 			t.Fatalf("retry rotation = %d, %v; want 2, nil", n, err)
 		}
@@ -50,11 +49,11 @@ func TestRotateSessionHistoryRetryDoesNotDuplicateArchive(t *testing.T) {
 }
 
 func TestRotateSessionHistoryReportsReadError(t *testing.T) {
-	runBank(t, func(t *testing.T, b Bank) {
-		if n, err := rotateSessionHistory(b, time.Now()); n != 0 || err != nil {
+	runBank(t, func(t *testing.T) {
+		if n, err := rotateSessionHistory(time.Now()); n != 0 || err != nil {
 			t.Fatalf("missing history: got %d, %v", n, err)
 		}
-		path := b.Path("sessionHistory.md")
+		path := Path("sessionHistory.md")
 		if err := os.Mkdir(path, 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -63,7 +62,7 @@ func TestRotateSessionHistoryReportsReadError(t *testing.T) {
 		if !errors.As(readErr, &want) {
 			t.Fatalf("fixture did not produce a read error: %v", readErr)
 		}
-		n, err := rotateSessionHistory(b, time.Now())
+		n, err := rotateSessionHistory(time.Now())
 		if n != 0 || !errors.Is(err, want.Err) {
 			t.Fatalf("unreadable history: got %d, %v; want wrapped %v", n, err, want.Err)
 		}
@@ -101,7 +100,7 @@ func TestSettleBankRefusesCredentialFile(t *testing.T) {
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	write(t, HomeBank().Path("leak.md"), "key: "+fakeCredential()+"\n")
+	write(t, Path("leak.md"), "key: "+fakeCredential()+"\n")
 	_, err := settleBank(time.Now())
 	if err == nil || !strings.Contains(err.Error(), "credential-shaped content") {
 		t.Fatalf("a credential-shaped file in the store must be refused, got %v", err)
@@ -113,24 +112,24 @@ func TestSettleBankRefusesCredentialFile(t *testing.T) {
 
 // TestSettleDirWrapsTypedFilesWhenALaterStepFails: a failed rotation still leaves every typed file wrapped.
 func TestSettleDirWrapsTypedFilesWhenALaterStepFails(t *testing.T) {
-	runBank(t, func(t *testing.T, b Bank) {
+	runBank(t, func(t *testing.T) {
 		long := "- " + strings.Repeat("word ", 40) + "\n"
-		write(t, b.Path("activeContext.md"), "# Active\n\n"+long)
-		write(t, b.Path("decisionLog.md"), "# Log\n\n## 2026-11-13 — d\n\n"+long)
+		write(t, Path("activeContext.md"), "# Active\n\n"+long)
+		write(t, Path("decisionLog.md"), "# Log\n\n## 2026-11-13 — d\n\n"+long)
 		entries := make([]string, sessionHistoryMaxEntries+1)
 		for i := range entries {
 			entries[i] = fmt.Sprintf("## Session %02d\n\n%s", i, long)
 		}
-		write(t, b.Path("sessionHistory.md"), rejoin("# Session history", entries))
+		write(t, Path("sessionHistory.md"), rejoin("# Session history", entries))
 		now := time.Date(2026, time.November, 13, 12, 0, 0, 0, time.UTC)
-		if err := os.MkdirAll(b.Sub("archive", "sessionHistory-2026-11.md"), 0o700); err != nil { // the rotation cannot append
+		if err := os.MkdirAll(Sub("archive", "sessionHistory-2026-11.md"), 0o700); err != nil { // the rotation cannot append
 			t.Fatal(err)
 		}
 
-		if _, err := settleDir(b, now); err == nil {
+		if _, err := settleDir(now); err == nil {
 			t.Fatal("settle succeeded with an unwritable archive")
 		}
-		files := []string{b.Path("activeContext.md"), b.Path("decisionLog.md"), b.Path("sessionHistory.md")}
+		files := []string{Path("activeContext.md"), Path("decisionLog.md"), Path("sessionHistory.md")}
 		if changed, err := formatFiles(files, true); err != nil || len(changed) != 0 {
 			t.Fatalf("settle left unwrapped files %v (err %v)", changed, err)
 		}
@@ -143,14 +142,13 @@ func TestSettleBankCommitsEveryStoreFile(t *testing.T) {
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	b := HomeBank()
 	write(t, filepath.Join(StoreDir(), "topic.md"), "a topic\n")
-	write(t, b.Sub("reports", "r.md"), "a report\n")
-	write(t, b.Path("decisionLog.md"), "# Log\n\n## 2026-11-16 — new entry\nBody.\n")
+	write(t, Sub("reports", "r.md"), "a report\n")
+	write(t, Path("decisionLog.md"), "# Log\n\n## 2026-11-16 — new entry\nBody.\n")
 	if _, err := settleBank(time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(aliasRead(t, b.Path("decisionLog.md")), "<!-- id:") {
+	if !strings.Contains(aliasRead(t, Path("decisionLog.md")), "<!-- id:") {
 		t.Fatal("entry not indexed")
 	}
 	for _, name := range []string{"decisionLog.md", "topic.md", "reports--r.md", layoutFile} {

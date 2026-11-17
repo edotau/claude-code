@@ -24,7 +24,7 @@ func judgmentFixture(t *testing.T) (id, localPath string, before []byte) {
 	tempConfig(t)
 	repoRoot(t, "proj")
 	id = seedConventionBlock(t)
-	localPath = HomeBank().Path("conventions.md")
+	localPath = Path("conventions.md")
 	before, _ = os.ReadFile(localPath)
 	return id, localPath, before
 }

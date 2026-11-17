@@ -84,8 +84,8 @@ func TestAccessLogConcurrentRotationRotatesOnce(t *testing.T) {
 func TestLogHitsCreditsTheOneBank(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
-	write(t, HomeBank().Sub("archive", "old.md"), "# A\n\n## 2026-01-01 — zebra archived quota <!-- id:bbbb0001 -->\n\nzebra quota\n")
-	write(t, HomeBank().Path("decisionLog.md"), "# D\n\n## 2026-01-01 — zebra live quota <!-- id:bbbb0003 -->\n\nzebra quota\n")
+	write(t, Sub("archive", "old.md"), "# A\n\n## 2026-01-01 — zebra archived quota <!-- id:bbbb0001 -->\n\nzebra quota\n")
+	write(t, Path("decisionLog.md"), "# D\n\n## 2026-01-01 — zebra live quota <!-- id:bbbb0003 -->\n\nzebra quota\n")
 	now := time.Now()
 	logHits(searchAll("zebra quota", 0), AccessSearch, now)
 	got := returnCounts([]string{accessDir()}, now)

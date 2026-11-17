@@ -465,7 +465,7 @@ func TestDocsPlacementNamesExactDest(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	repo := placementRepo(t)
-	day, bank := time.Now().Format("2006-01-02"), memory.HomeBank()
+	day := time.Now().Format("2006-01-02")
 	planHome := plans.Home(planRepoRoot(repo))
 	if err := errors.Join(os.MkdirAll(planHome, 0o700), os.WriteFile(filepath.Join(planHome, day+"-taken-plan.md"), nil, 0o600)); err != nil {
 		t.Fatal(err)
@@ -481,9 +481,9 @@ func TestDocsPlacementNamesExactDest(t *testing.T) {
 		{"bash plan", "Bash", map[string]any{"command": "echo x > migration-plan.md"}, filepath.Join(planHome, day+"-migration-plan.md")},
 		{"codex patch plan", "apply_patch", patch("command", "rollout-plan.md"), filepath.Join(planHome, day+"-rollout-plan.md")},
 		{"taken plan name", "Bash", map[string]any{"command": "echo x > taken-plan.md"}, filepath.Join(planHome, day+"-taken-plan-2.md")},
-		{"report", "Write", map[string]any{"file_path": filepath.Join(repo, "audit-report.md")}, bank.Sub("reports", day+"-audit-report.md")},
-		{"findings", "Bash", map[string]any{"command": "echo x | tee review-findings.md"}, bank.Sub("reports", day+"-review-findings.md")},
-		{"handoff", "apply_patch", patch("patchText", "session-handoff.md"), bank.Sub("handoffs", day+"-session-handoff.md")},
+		{"report", "Write", map[string]any{"file_path": filepath.Join(repo, "audit-report.md")}, memory.Sub("reports", day+"-audit-report.md")},
+		{"findings", "Bash", map[string]any{"command": "echo x | tee review-findings.md"}, memory.Sub("reports", day+"-review-findings.md")},
+		{"handoff", "apply_patch", patch("patchText", "session-handoff.md"), memory.Sub("handoffs", day+"-session-handoff.md")},
 		{"no kind word", "Write", map[string]any{"file_path": filepath.Join(repo, "NOTES.md")}, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {

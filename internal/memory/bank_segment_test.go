@@ -15,7 +15,7 @@ import (
 func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
 	root := isolatedConfig1(t)
 	initStore(t)
-	if _, err := EnsureBank(""); err != nil {
+	if err := EnsureBank(""); err != nil {
 		t.Fatal(err)
 	}
 	topic := filepath.Join(StoreDir(), "global-topic.md")
@@ -125,8 +125,7 @@ func TestCorpusFilesOwnershipInEachLayout(t *testing.T) {
 		if _, err := Init(); err != nil {
 			t.Fatal(err)
 		}
-		b := HomeBank()
-		topic, arc := b.Path("topic.md"), b.Sub("archive", "old.md")
+		topic, arc := Path("topic.md"), Sub("archive", "old.md")
 		for _, p := range []string{topic, arc} {
 			write(t, p, "---\nname: x\n---\nzebra\n")
 		}
@@ -143,7 +142,7 @@ func TestCorpusFilesOwnershipInEachLayout(t *testing.T) {
 		if !slices.Contains(archive, arc) {
 			t.Errorf("archive corpus = %v, want %s", archive, arc)
 		}
-		if got := pathsOf(files, "home"); len(got) != len(bankFiles) || got[0] != b.Path(bankFiles[0]) {
+		if got := pathsOf(files, "home"); len(got) != len(bankFiles) || got[0] != Path(bankFiles[0]) {
 			t.Errorf("typed files = %v", got)
 		}
 	})

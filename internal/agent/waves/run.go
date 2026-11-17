@@ -41,7 +41,6 @@ type runner struct {
 	h                   runHooks
 	state               State
 	path, slug, reports string
-	bank                memory.Bank
 	day                 time.Time // fixed at start so report names agree across midnight
 }
 
@@ -134,9 +133,7 @@ func (r *runner) prepare() error {
 	}
 	r.slug = paths.Slug(strings.TrimSuffix(filepath.Base(r.o.Plan), filepath.Ext(r.o.Plan)), "._-", 50, "plan")
 	r.day = time.Now()
-	b := memory.HomeBank()
-	r.bank = b
-	r.path, r.reports = b.Sub("waves", r.slug+"/state.json"), b.SubDir("reports")
+	r.path, r.reports = memory.Sub("waves", r.slug+"/state.json"), memory.SubDir("reports")
 	r.state.Plan = r.o.Plan
 	return nil
 }
@@ -172,7 +169,7 @@ func (r *runner) gate(w plans.Wave) string {
 }
 
 func (r *runner) load() error {
-	if _, err := memory.EnsureBank("waves"); err != nil {
+	if err := memory.EnsureBank("waves"); err != nil {
 		return err
 	}
 	if !r.o.Fresh {

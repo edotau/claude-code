@@ -29,17 +29,15 @@ func TestPersistenceFailedDreamRetriesWithOldBanks(t *testing.T) {
 	}
 	now := time.Now()
 	old := now.Add(-48 * time.Hour)
-	for _, b := range []Bank{HomeBank(), HomeBank()} {
-		for name := range templates() {
-			path := b.Path(name)
-			write(t, path, templates()[name])
-			if err := os.Chtimes(path, old, old); err != nil {
-				t.Fatal(err)
-			}
+	for name := range templates() {
+		path := Path(name)
+		write(t, path, templates()[name])
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
 		}
-		if got := newestMtime(b); got.After(old) {
-			t.Fatalf("bank fixture has recent mtime: %v", got)
-		}
+	}
+	if got := newestMtime(); got.After(old) {
+		t.Fatalf("bank fixture has recent mtime: %v", got)
 	}
 	if dreamDue(now.Add(dreamRetry - time.Minute)) {
 		t.Error("failed dream is due before six-hour backoff")
@@ -69,15 +67,15 @@ func TestDreamGateRefusalsWithoutEditsStampForRetry(t *testing.T) {
 				t.Fatal(err)
 			}
 			old := time.Now().Add(-48 * time.Hour)
-			if err := os.Chtimes(HomeBank().Path("conventions.md"), old, old); err != nil {
+			if err := os.Chtimes(Path("conventions.md"), old, old); err != nil {
 				t.Fatal(err)
 			}
 			run := func(ctx context.Context, _, _ string) (string, error) {
 				NoteGateBlocks(ctx, tc.blocks)
 				if tc.edit {
-					write(t, HomeBank().Path("conventions.md"), templates()["conventions.md"]+"\n- merged\n")
+					write(t, Path("conventions.md"), templates()["conventions.md"]+"\n- merged\n")
 					future := time.Now().Add(time.Second) // past the coarser filesystem clock
-					if err := os.Chtimes(HomeBank().Path("conventions.md"), future, future); err != nil {
+					if err := os.Chtimes(Path("conventions.md"), future, future); err != nil {
 						t.Error(err)
 					}
 				}
@@ -103,7 +101,6 @@ func TestPreviewDreamReadsEachBankFileOnce(t *testing.T) {
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	dir := HomeBank()
 	var conv, hist strings.Builder
 	conv.WriteString("# Conventions\n")
 	for i := range 90 {
@@ -113,9 +110,9 @@ func TestPreviewDreamReadsEachBankFileOnce(t *testing.T) {
 	for i := range sessionHistoryMaxEntries + 5 {
 		fmt.Fprintf(&hist, "\n## 2026-10-01 — session %d\n\nbody\n", i)
 	}
-	write(t, dir.Path("conventions.md"), conv.String()+"\n")
-	write(t, dir.Path("sessionHistory.md"), hist.String())
-	_, _, overflow, err := splitOverflow(dir.Path("conventions.md"), archiveCaps["conventions.md"])
+	write(t, Path("conventions.md"), conv.String()+"\n")
+	write(t, Path("sessionHistory.md"), hist.String())
+	_, _, overflow, err := splitOverflow(Path("conventions.md"), archiveCaps["conventions.md"])
 	if err != nil || len(overflow) == 0 {
 		t.Fatalf("fixture has no conventions overflow: %v", err)
 	}
@@ -142,7 +139,7 @@ func TestDreamReportPluralizesRotatedEntries(t *testing.T) {
 // TestPreviewDreamReportsUnreadableBankFile: a bank file that cannot be read is named, never "nothing to consolidate".
 func TestPreviewDreamReportsUnreadableBankFile(t *testing.T) {
 	tempConfig(t)
-	locked := HomeBank().Path("decisionLog.md")
+	locked := Path("decisionLog.md")
 	orig := readFile
 	readFile = func(p string) ([]byte, error) {
 		if p == locked {

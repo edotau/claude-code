@@ -217,7 +217,7 @@ func completeHandoff(sessionID string, claim handoffClaim) error {
 func StewardStale(sessionID string, now time.Time) bool {
 	p := StewardHandoff(sessionID, now)
 	fi, err := os.Stat(p)
-	return err != nil || fi.ModTime().Before(lastCompactAt(HomeBank(), sessionID))
+	return err != nil || fi.ModTime().Before(lastCompactAt(sessionID))
 }
 
 // WaitStewardHandoff waits until the running steward job has written its file, or ctx ends; "" on a timeout.
@@ -237,16 +237,15 @@ func WaitStewardHandoff(ctx context.Context, sessionID string) string {
 	}
 }
 
-// ResolveBank returns the session root and the one bank.
-func ResolveBank() (string, Bank) { return root(""), HomeBank() }
+// ResolveBank returns the session root.
+func ResolveBank() string { return root("") }
 
 // Report appends a report to the bank's reports/ under the bank lock.
 func Report(label string, in ReportInput) ([]string, error) {
-	b, err := EnsureBank("")
-	if err != nil {
+	if err := EnsureBank(""); err != nil {
 		return nil, err
 	}
-	return appendReport(b, label, in)
+	return appendReport(label, in)
 }
 
 // InitBank creates the bank and reports where it landed, with the init procedure on a fresh template.
@@ -255,7 +254,7 @@ func InitBank(w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, HomeBank().SubDir(""))
+	fmt.Fprintf(w, "bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, SubDir(""))
 	if isProjectContextTemplate() {
 		ref, err := Reference("init")
 		if err != nil {
@@ -275,7 +274,7 @@ type IndexOptions struct {
 
 // Index settles the bank (unless MintOnly) and refreshes the embedding cache; errors carry their verb prefix.
 func Index(out, errw io.Writer, o IndexOptions) error {
-	root, own := ResolveBank()
+	root := ResolveBank()
 	ctx := context.Background()
 	profile, _ := embedEndpoint(ctx) // none usable: the session's profile, else the default
 	profile = cmp.Or(profile, providers.SessionProfileContext(ctx))
@@ -288,7 +287,7 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 		embedIndex(ctx, out, errw, root, profile, o.Reembed)
 		return nil
 	}
-	hasStore := scaffolded(own)
+	hasStore := scaffolded()
 	var rotated int
 	err := withFlatLock(BankLockWait, func() error {
 		var serr error
@@ -299,15 +298,15 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 		return fmt.Errorf("memory index: %w", err)
 	}
 	if hasStore {
-		fmt.Fprintf(out, "indexed %s", own.SubDir(""))
+		fmt.Fprintf(out, "indexed %s", SubDir(""))
 		if rotated > 0 {
 			fmt.Fprintf(out, " (rotated %d sessionHistory entries to archive/)", rotated)
 		}
 		fmt.Fprintln(out)
 	} else {
-		fmt.Fprintf(out, "no store at %s; run `claude-code memory init` in the repo to create one\n", own.SubDir(""))
+		fmt.Fprintf(out, "no store at %s; run `claude-code memory init` in the repo to create one\n", SubDir(""))
 	}
-	refreshBankNotice(errw, "memory index", root, own)
+	refreshBankNotice(errw, "memory index", root)
 	embedIndex(ctx, out, errw, root, profile, o.Reembed)
 	return nil
 }
@@ -389,7 +388,7 @@ func UpdateSession(o UpdateSessionOptions) error {
 		return nil
 	}
 	if o.DryRun {
-		fmt.Fprintf(o.Out, "memory update (dry run): session %s, transcript %s, bank %s\n", session, transcript, HomeBank().SubDir(""))
+		fmt.Fprintf(o.Out, "memory update (dry run): session %s, transcript %s, bank %s\n", session, transcript, SubDir(""))
 		return nil
 	}
 	return update(updateOptions{Run: o.Run, Transcript: transcript, CWD: root, Session: session, Historical: o.Historical, Out: o.Out})
@@ -497,11 +496,11 @@ type ReviewOptions struct {
 
 // ReviewReport writes doctor + stats (Notice refreshes the cached session-start notice and prints nothing).
 func ReviewReport(w io.Writer, o ReviewOptions) error {
-	root, own := ResolveBank()
+	root := ResolveBank()
 	if o.Notice {
-		return cacheDoctorNotice(doctorBank(root, own, o.StaleDays, time.Now()))
+		return cacheDoctorNotice(doctorBank(root, o.StaleDays, time.Now()))
 	}
-	problems := doctorBank(root, own, o.StaleDays, time.Now())
+	problems := doctorBank(root, o.StaleDays, time.Now())
 	if err := cacheDoctorNotice(problems); err != nil {
 		fmt.Fprintln(w, "memory review: doctor notice:", err)
 	}
@@ -530,7 +529,7 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 
 // TimelineReport writes the n most recent bank entries, then the sessionHistory lines.
 func TimelineReport(w io.Writer, n int) error {
-	entries, sessions, err := timelineBank(HomeBank(), n)
+	entries, sessions, err := timelineBank(n)
 	if err != nil {
 		return fmt.Errorf("sessionHistory: %w", err)
 	}

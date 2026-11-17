@@ -30,21 +30,21 @@ func newRecallIndexFixture(t testing.TB) recallIndexFixture {
 	}
 	f := recallIndexFixture{
 		root:    root,
-		source:  HomeBank().Path("decisionLog.md"),
-		archive: HomeBank().Sub("archive", "sessionHistory-old.md"),
+		source:  Path("decisionLog.md"),
+		archive: Sub("archive", "sessionHistory-old.md"),
 		stamp:   stamp,
 	}
 	files := map[string]string{
 		f.source: "# Decisions\n\n## router retry\nrouter retry latency\n" +
 			"```\n## fenced marker\n- fenced marker\n```\n\n## the and of\nwith the and\n",
-		HomeBank().Path("conventions.md"):           "# Conventions\n\n- commit small\nreview focused changes\n",
+		Path("conventions.md"):                      "# Conventions\n\n- commit small\nreview focused changes\n",
 		filepath.Join(StoreDir(), "conventions.md"): "# Global\n\n- router retry\nbounded latency\n",
 		f.archive: "# Archive\n\n## archive storm\nrouter retry during outage\n",
-		HomeBank().Path("recall.md"): "---\nname: native recall\n" +
+		Path("recall.md"): "---\nname: native recall\n" +
 			"description: router context\n---\nNative recall preserves retry details.\n",
-		HomeBank().Path("bank-topic.md"): "---\nname: excludedbanktoken\n" +
+		Path("bank-topic.md"): "---\nname: excludedbanktoken\n" +
 			"description: excludedbanktoken\nharness_kind: bank\n---\nexcludedbanktoken\n",
-		filepath.Join(HomeBank().SubDir("knowledge"), "invariant.md"): "---\nname: strippedmetadata\n---\n" +
+		filepath.Join(SubDir("knowledge"), "invariant.md"): "---\nname: strippedmetadata\n---\n" +
 			"# knowledge invariant\nRouter retry requires bounded latency.\n",
 	}
 	for path, body := range files {
@@ -280,6 +280,6 @@ func BenchmarkSearchBanksTermsWarm(b *testing.B) {
 	b.ReportAllocs()
 	b.ResetTimer()
 	for b.Loop() {
-		searchBankTerms(HomeBank(), terms, 0)
+		searchBankTerms(terms, 0)
 	}
 }

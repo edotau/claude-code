@@ -52,9 +52,8 @@ func (p dreamPreview) Report() string {
 
 // previewDream computes dreamPreview without writing anything.
 func previewDream() dreamPreview {
-	own := HomeBank()
-	local := statBank(own) // one read per typed file feeds the cap, archive and rotation checks below
-	p := dreamPreview{Dir: own.SubDir(""), Oversized: local.Oversized, Unreadable: local.Unreadable}
+	local := statBank() // one read per typed file feeds the cap, archive and rotation checks below
+	p := dreamPreview{Dir: SubDir(""), Oversized: local.Oversized, Unreadable: local.Unreadable}
 	for name, capLines := range archiveCaps {
 		_, _, overflow := overflowSplit(name, string(local.data[name]), capLines) // archiveFile's split, read-only
 		p.Archivable += len(overflow)
@@ -111,7 +110,7 @@ func dreamDue(now time.Time) bool {
 	if ok && failed {
 		return true
 	}
-	return newestMtime(HomeBank()).After(stamp)
+	return newestMtime().After(stamp)
 }
 
 // dreamOptions drive one consolidation.

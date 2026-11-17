@@ -12,6 +12,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/plans"
 )
 
@@ -191,7 +192,7 @@ func (r *runner) taskCheck(ctx context.Context, s Spec) (bool, *stepResult, erro
 }
 
 func (r *runner) step(ctx context.Context, cmd, name string, owns []string) (stepResult, error) {
-	result, err := GateRun(ctx, r.h.check, GateInput{Dir: r.o.Dir, Cmd: cmd, OutPath: r.bank.Sub("waves", r.slug+"/"+name+".txt"),
+	result, err := GateRun(ctx, r.h.check, GateInput{Dir: r.o.Dir, Cmd: cmd, OutPath: memory.Sub("waves", r.slug+"/"+name+".txt"),
 		Env: []string{"BASE=" + r.state.Base, "OWNED=" + strings.Join(owns, "\n")}})
 	return stepResult{Cmd: cmd, Exit: result.Exit, Saved: result.Saved, Tail: result.Tail}, err
 }

@@ -267,11 +267,11 @@ func isLowerHex(s string) bool {
 func stripID(s string) string { return idMarker().ReplaceAllString(s, "") }
 
 // assignIDTexts stamps unmarked blocks, collapses stacked markers to the oldest and returns each id file's text.
-func assignIDTexts(b Bank, now time.Time) (int, map[string]string, error) {
+func assignIDTexts(now time.Time) (int, map[string]string, error) {
 	n := 0
 	texts := map[string]string{}
 	for name, prefix := range idFiles {
-		stamped, text, err := assignFileIDs(b, name, prefix, now)
+		stamped, text, err := assignFileIDs(name, prefix, now)
 		n += stamped
 		if err != nil {
 			return n, texts, err
@@ -284,8 +284,8 @@ func assignIDTexts(b Bank, now time.Time) (int, map[string]string, error) {
 }
 
 // assignFileIDs is assignIDs for one typed file, returning its settled text; a missing file is skipped ("" text).
-func assignFileIDs(b Bank, name, prefix string, now time.Time) (int, string, error) {
-	path := b.Path(name)
+func assignFileIDs(name, prefix string, now time.Time) (int, string, error) {
+	path := Path(name)
 	data, err := readFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
 		return 0, "", nil

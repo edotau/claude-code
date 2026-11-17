@@ -37,20 +37,20 @@ func Remember(kind, fact string, now time.Time) (string, error) {
 	if fact == "" {
 		return "", errors.New("empty fact")
 	}
-	b, err := EnsureBank("")
+	err := EnsureBank("")
 	if err != nil {
 		return "", err
 	}
 	var id string
 	err = withFlatLock(BankLockWait, func() error {
-		snap, werr := snapshotPaths(b.Path(file))
+		snap, werr := snapshotPaths(Path(file))
 		if werr != nil {
 			return werr
 		}
-		if id, werr = writeRememberFact(b, file, kind, fact, now); werr != nil {
+		if id, werr = writeRememberFact(file, kind, fact, now); werr != nil {
 			return werr
 		}
-		return restoreOnError(stampAndSettle(b, file, now), snap)
+		return restoreOnError(stampAndSettle(file, now), snap)
 	})
 	if err != nil {
 		return "", err
@@ -59,13 +59,13 @@ func Remember(kind, fact string, now time.Time) (string, error) {
 }
 
 // stampAndSettle stamps the other id files and settles, inside Remember's critical section: no writer slips in.
-func stampAndSettle(b Bank, file string, now time.Time) error {
+func stampAndSettle(file string, now time.Time) error {
 	// Stamp ids directly: a fresh bank must get its id back to round-trip through `memory recall`.
 	for name, prefix := range idFiles {
 		if name == file { // already stamped in memory before its one write
 			continue
 		}
-		if _, _, err := assignFileIDs(b, name, prefix, now); err != nil {
+		if _, _, err := assignFileIDs(name, prefix, now); err != nil {
 			return err
 		}
 	}
@@ -73,9 +73,9 @@ func stampAndSettle(b Bank, file string, now time.Time) error {
 	return settleLockedBank(now)
 }
 
-// writeRememberFact adds fact to b's file, stamps its id in memory, writes the file once, and returns the id.
-func writeRememberFact(b Bank, file, kind, fact string, now time.Time) (string, error) {
-	path := b.Path(file)
+// writeRememberFact adds fact to the file, stamps its id in memory, writes the file once, and returns the id.
+func writeRememberFact(file, kind, fact string, now time.Time) (string, error) {
+	path := Path(file)
 	data, err := readFile(path)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return "", err // never rewrite the file from an unread one
@@ -136,7 +136,7 @@ var labelUnsafe = sync.OnceValue(func() *regexp.Regexp {
 })
 
 // appendReport appends in's report to reports/<date>-<label>.md and its decisions to <date>-decisions.md; returns both.
-func appendReport(b Bank, label string, in ReportInput) ([]string, error) {
+func appendReport(label string, in ReportInput) ([]string, error) {
 	if label == "" {
 		return nil, errors.New("--label is required")
 	}
@@ -150,20 +150,20 @@ func appendReport(b Bank, label string, in ReportInput) ([]string, error) {
 	var out []string
 	err := withFlatLock(BankLockWait, func() error {
 		var err error
-		out, err = appendReportLocked(b, label, in)
+		out, err = appendReportLocked(label, in)
 		return err
 	})
 	return out, err
 }
 
 // appendReportLocked is appendReport's body; the caller holds the bank lock.
-func appendReportLocked(b Bank, label string, in ReportInput) ([]string, error) {
-	if err := os.MkdirAll(b.SubDir("reports"), 0o700); err != nil {
+func appendReportLocked(label string, in ReportInput) ([]string, error) {
+	if err := os.MkdirAll(SubDir("reports"), 0o700); err != nil {
 		return nil, err
 	}
 	day := now().Format("2006-01-02")
-	reportPath := b.Sub("reports", day+"-"+label+".md")
-	decisionsPath := b.Sub("reports", day+"-decisions.md")
+	reportPath := Sub("reports", day+"-"+label+".md")
+	decisionsPath := Sub("reports", day+"-decisions.md")
 	report, err := snapshotFile(reportPath)
 	if err != nil {
 		return nil, err

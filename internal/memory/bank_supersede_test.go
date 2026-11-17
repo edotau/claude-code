@@ -30,7 +30,7 @@ Shard layout audit tests run concurrently.
 // TestSettleStrikesSupersededAndRecallFollows: settle strikes what a newer entry supersedes; recall serves the newer.
 func TestSettleStrikesSupersededAndRecallFollows(t *testing.T) {
 	tempConfig(t)
-	path := HomeBank().Path("decisionLog.md")
+	path := Path("decisionLog.md")
 	write(t, path, reviseLog)
 	if _, err := settleBank(time.Now()); err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ Supersedes 9d40e6c1. Embeddings are on.
 // TestPartlyStruckTitleStaysLive: a partly struck title loses its pointer at settle and stays in recall.
 func TestPartlyStruckTitleStaysLive(t *testing.T) {
 	tempConfig(t)
-	path := HomeBank().Path("decisionLog.md")
+	path := Path("decisionLog.md")
 	write(t, path, partlyStruckLog)
 	if _, err := settleBank(time.Now()); err != nil {
 		t.Fatal(err)
@@ -161,7 +161,7 @@ func TestReviseBlockPosition(t *testing.T) {
 
 func TestSettleRecoversPendingJournal(t *testing.T) {
 	tempConfig(t)
-	path := HomeBank().Path("decisionLog.md")
+	path := Path("decisionLog.md")
 	write(t, path, reviseLog)
 	recovered := reviseLog + "\n## Recovered <!-- id:f0000006 -->\nRecovered journal payload.\n"
 	rel, err := filepath.Rel(StoreDir(), path)
@@ -199,7 +199,7 @@ func TestReviseRecallBoundaries(t *testing.T) {
 func assertReviseCorpus(t *testing.T) {
 	t.Helper()
 	old := markReplaced("## Old <!-- id:aaaaaaaa -->\nunique quasar shard layout audit.", "bbbbbbbb", "")
-	write(t, HomeBank().Path("decisionLog.md"), rejoin("# Log", []string{old, "## New <!-- id:bbbbbbbb -->\nNew policy."}))
+	write(t, Path("decisionLog.md"), rejoin("# Log", []string{old, "## New <!-- id:bbbbbbbb -->\nNew policy."}))
 	hits := RecallBank("projb unique quasar shard layout audit", 1)
 	if len(hits) != 1 || hits[0].ID != "bbbbbbbb" {
 		t.Fatalf("recall = %+v, want bbbbbbbb", hits)
@@ -233,7 +233,7 @@ func assertReviseChain(t *testing.T, mode string) {
 		}
 		blocks = append(blocks, b)
 	}
-	path := HomeBank().Path("decisionLog.md")
+	path := Path("decisionLog.md")
 	write(t, path, rejoin("# Log", blocks))
 	files := []corpusFile{{Bank: "local", Path: path, Mode: segEntries}}
 	if mode == "missing" {
@@ -253,10 +253,9 @@ func assertReviseChain(t *testing.T, mode string) {
 // TestReviseResolvesRefsOfLoadedArchives: a reference carried by an archive loaded for another is resolved too.
 func TestReviseResolvesRefsOfLoadedArchives(t *testing.T) {
 	tempConfig(t)
-	b := HomeBank()
-	write(t, b.Path("decisionLog.md"), "# Decision Log\n\n## 2026-11-16 — Live <!-- id:a1000001 -->\nSupersedes b2000002. Live.\n")
-	write(t, b.Sub("archive", "decisionLog-2026-11.md"), "## 2026-11-10 — Mid <!-- id:b2000002 -->\nSupersedes c3000003. Mid.\n")
-	write(t, HomeBank().Sub("archive", "decisionLog-2026-10.md"), "## 2026-10-01 — Old <!-- id:c3000003 -->\nOld.\n")
+	write(t, Path("decisionLog.md"), "# Decision Log\n\n## 2026-11-16 — Live <!-- id:a1000001 -->\nSupersedes b2000002. Live.\n")
+	write(t, Sub("archive", "decisionLog-2026-11.md"), "## 2026-11-10 — Mid <!-- id:b2000002 -->\nSupersedes c3000003. Mid.\n")
+	write(t, Sub("archive", "decisionLog-2026-10.md"), "## 2026-10-01 — Old <!-- id:c3000003 -->\nOld.\n")
 	if p := reviseBankProblems(); strings.Contains(strings.Join(p, "\n"), "unknown id") {
 		t.Fatalf("review problems = %q; want no unknown id", p)
 	}

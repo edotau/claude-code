@@ -226,7 +226,7 @@ func workspaceHasIgnore(path string) (bool, error) {
 
 // workspaceMemoryAction seeds the memory bank, or reports it kept.
 func workspaceMemoryAction() workspaceAction {
-	bank := memory.HomeBank().Path(memory.BankFiles()[0])
+	bank := memory.Path(memory.BankFiles()[0])
 	dir := filepath.Dir(bank)
 	present, err := workspaceExists(bank)
 	if err != nil {
@@ -305,7 +305,7 @@ func workspaceStatus(root string, out io.Writer) error {
 	if err != nil {
 		return err
 	}
-	bank := memory.HomeBank().Path(memory.BankFiles()[0])
+	bank := memory.Path(memory.BankFiles()[0])
 	bankState, err := workspacePresent(bank)
 	if err != nil {
 		return err

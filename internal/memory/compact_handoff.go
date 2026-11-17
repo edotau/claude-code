@@ -61,21 +61,20 @@ func WriteCompactHandoff(ctx context.Context, h CompactHandoff) (string, error) 
 	if h.SessionID == "" || h.CWD == "" || !hasBank() {
 		return "", nil
 	}
-	b := HomeBank()
-	since := lastCompactAt(b, h.SessionID)
+	since := lastCompactAt(h.SessionID)
 	gctx, cancel := context.WithTimeout(ctx, handoffGitBudget)
-	body := renderCompactHandoff(gctx, b, h, since)
+	body := renderCompactHandoff(gctx, h, since)
 	cancel()
-	if err := os.MkdirAll(b.SubDir("handoffs"), 0o755); err != nil {
+	if err := os.MkdirAll(SubDir("handoffs"), 0o755); err != nil {
 		return "", err
 	}
-	path := b.Sub("handoffs", h.Now.Format("2006-01-02")+"-compact-"+compactID(h.SessionID)+".md")
+	path := Sub("handoffs", h.Now.Format("2006-01-02")+"-compact-"+compactID(h.SessionID)+".md")
 	return path, paths.AtomicWrite(path, []byte(body), 0o600)
 }
 
-// sessionCompactHandoffs are b's generated handoffs for sessionID, any date.
-func sessionCompactHandoffs(b Bank, sessionID string) []string {
-	files := ownedFiles(b, "handoffs")
+// sessionCompactHandoffs are the generated handoffs for sessionID, any date.
+func sessionCompactHandoffs(sessionID string) []string {
+	files := ownedFiles("handoffs")
 	suffix := "-compact-" + compactID(sessionID) + ".md"
 	return slices.DeleteFunc(files, func(p string) bool {
 		return !strings.HasSuffix(p, suffix) || !generatedHandoff().MatchString(filepath.Base(p))
@@ -95,8 +94,8 @@ func newestFile(files []string, now time.Time, maxAge time.Duration) (string, ti
 }
 
 // lastCompactAt is this session's previous generated handoff, else its first SessionStart, else zero.
-func lastCompactAt(b Bank, sessionID string) time.Time {
-	if _, at := newestFile(sessionCompactHandoffs(b, sessionID), time.Now(), 1<<62); !at.IsZero() {
+func lastCompactAt(sessionID string) time.Time {
+	if _, at := newestFile(sessionCompactHandoffs(sessionID), time.Now(), 1<<62); !at.IsZero() {
 		return at
 	}
 	if fi, err := os.Stat(sessionRootPath(sessionID)); err == nil {
@@ -106,15 +105,15 @@ func lastCompactAt(b Bank, sessionID string) time.Time {
 }
 
 // renderCompactHandoff is the file body; any line shaped like a credential is dropped.
-func renderCompactHandoff(ctx context.Context, b Bank, h CompactHandoff, since time.Time) string {
+func renderCompactHandoff(ctx context.Context, h CompactHandoff, since time.Time) string {
 	g := readHandoffGit(ctx, h.CWD)
 	sections := [][]string{
 		{"# Compaction handoff: " + h.Now.Format("2006-01-02 15:04")},
 		headerSection(g, h),
 		dispatchSection(h.Dispatches, h.Now, since),
 		treeSection(g),
-		rulingsSection(b),
-		pointersSection(b, h.Now),
+		rulingsSection(),
+		pointersSection(h.Now),
 		{handoffClosing},
 	}
 	var out []string
@@ -292,9 +291,9 @@ var idComment = sync.OnceValue(func() *regexp.Regexp {
 })
 
 // rulingsSection is the decision log's newest entries (the file is newest first), titles and ids only.
-func rulingsSection(b Bank) []string {
+func rulingsSection() []string {
 	out := []string{"## Owner rulings (newest " + strconv.Itoa(handoffRulingsMax) + ")"}
-	data, err := os.ReadFile(b.Path("decisionLog.md"))
+	data, err := os.ReadFile(Path("decisionLog.md"))
 	if err == nil {
 		_, body := textutil.StripFrontMatter(data)
 		for _, h := range textutil.Headings(body) {
@@ -315,13 +314,13 @@ func rulingsSection(b Bank) []string {
 }
 
 // pointersSection names the fresh model-written handoff, today's newest plan and today's reports.
-func pointersSection(b Bank, now time.Time) []string {
-	handoff := cmp.Or(newestHandoff(b, now, 24*time.Hour), "none")
+func pointersSection(now time.Time) []string {
+	handoff := cmp.Or(newestHandoff(now, 24*time.Hour), "none")
 	dir := filepath.Join(paths.ConfigDir(), "plans")
 	plans := append(transcript.GlobIn(dir, "*.md"), transcript.GlobIn(dir, "*/*.md")...)
 	plan, _ := newestFile(todays(plans, now), now, 24*time.Hour)
 	var reports []string
-	for _, p := range todays(ownedFiles(b, "reports"), now) {
+	for _, p := range todays(ownedFiles("reports"), now) {
 		reports = append(reports, filepath.Base(p))
 	}
 	slices.Sort(reports)

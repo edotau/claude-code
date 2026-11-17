@@ -16,16 +16,15 @@ import (
 var fakeKey = "sk-" + "proj-" + strings.Repeat("Fk", 12)
 
 // compactRepo is a banked git repo with a decision log, today's plan and report, in an isolated config.
-func compactRepo(t *testing.T) (root string, b Bank) {
+func compactRepo(t *testing.T) (root string) {
 	t.Helper()
 	isolatedConfig(t)
 	root = repoRoot(t, "proj")
-	b = HomeBank()
-	write(t, b.Path("decisionLog.md"), "# Decision Log\n\n## 2026-11-16 — Ship the handoff <!-- id:9c2d7e41 -->\n\nbody\n\n"+
+	write(t, Path("decisionLog.md"), "# Decision Log\n\n## 2026-11-16 — Ship the handoff <!-- id:9c2d7e41 -->\n\nbody\n\n"+
 		"## 2026-11-15 — Older ruling <!-- id:e19b50c3 -->\n\nbody\n")
 	write(t, filepath.Join(paths.ConfigDir(), "plans", "2026-11-16-plan.md"), "# plan\n")
-	write(t, b.Sub("reports", "2026-11-16-review.md"), "r\n")
-	return root, b
+	write(t, Sub("reports", "2026-11-16-review.md"), "r\n")
+	return root
 }
 
 func compactInput(root string, now time.Time, ds ...HandoffDispatch) CompactHandoff {
@@ -42,7 +41,7 @@ func writeHandoff(t *testing.T, h CompactHandoff) string {
 }
 
 func TestCompactHandoffWritesSixSections(t *testing.T) {
-	root, _ := compactRepo(t)
+	root := compactRepo(t)
 	now := time.Now()
 	running := HandoffDispatch{ID: "r1", Agent: "claude", Model: "opus", Status: "running", Started: now.Add(-12 * time.Minute),
 		Brief: "TASK ID: relay-fix\nTier: deep\nOwns: /abs/agents/codex.md\nsecret body line"}
@@ -68,8 +67,8 @@ func TestCompactHandoffWritesSixSections(t *testing.T) {
 }
 
 func TestCompactHandoffDropsCredentialShapedBriefLines(t *testing.T) {
-	root, b := compactRepo(t)
-	write(t, b.Path("decisionLog.md"), "# Decision Log\n\n## 2026-11-16 — Rotate "+fakeKey+" <!-- id:aa11bb22 -->\n")
+	root := compactRepo(t)
+	write(t, Path("decisionLog.md"), "# Decision Log\n\n## 2026-11-16 — Rotate "+fakeKey+" <!-- id:aa11bb22 -->\n")
 	now := time.Now()
 	d := HandoffDispatch{ID: "20261116T1-claude", Agent: "claude", Status: "running", Started: now,
 		Brief: "TASK ID: " + fakeKey + "\nOwns: /abs/x.go " + fakeKey}
@@ -83,10 +82,10 @@ func TestCompactHandoffDropsCredentialShapedBriefLines(t *testing.T) {
 }
 
 func TestCompactHandoffOverwritesOnlyItsOwnFile(t *testing.T) {
-	root, b := compactRepo(t)
+	root := compactRepo(t)
 	now := time.Now()
-	other := b.Sub("handoffs", now.Format("2006-01-02")+"-compact-99999999.md")
-	model := b.Sub("handoffs", now.Format("2006-01-02")+"-topic.md")
+	other := Sub("handoffs", now.Format("2006-01-02")+"-compact-99999999.md")
+	model := Sub("handoffs", now.Format("2006-01-02")+"-topic.md")
 	write(t, other, "other session")
 	write(t, model, "model written")
 	writeHandoff(t, compactInput(root, now))
@@ -94,13 +93,13 @@ func TestCompactHandoffOverwritesOnlyItsOwnFile(t *testing.T) {
 	if mustRead(t, other) != "other session" || mustRead(t, model) != "model written" {
 		t.Fatal("a second compaction touched another session's or a model-written handoff")
 	}
-	if mine := sessionCompactHandoffs(b, "4f1c2a9e-1111"); len(mine) != 1 || !strings.Contains(second, "- x: codex") {
+	if mine := sessionCompactHandoffs("4f1c2a9e-1111"); len(mine) != 1 || !strings.Contains(second, "- x: codex") {
 		t.Fatalf("own files = %v, want one rewritten file", mine)
 	}
 }
 
 func TestResumeNoteListsModelHandoffBeforeGenerated(t *testing.T) {
-	root, b := compactRepo(t)
+	root := compactRepo(t)
 	now := time.Now()
 	gen, err := WriteCompactHandoff(context.Background(), compactInput(root, now))
 	if err != nil {
@@ -109,8 +108,8 @@ func TestResumeNoteListsModelHandoffBeforeGenerated(t *testing.T) {
 	if got := ResumeNote("compact", "4f1c2a9e-1111", root, now); got != "handoff: "+gen {
 		t.Fatalf("generated only: ResumeNote = %q, want the generated handoff", got)
 	}
-	model := b.Sub("handoffs", now.Format("2006-01-02")+"-session-4f1c2a9e.md")
-	peer := b.Sub("handoffs", now.Format("2006-01-02")+"-session-99999999.md")
+	model := Sub("handoffs", now.Format("2006-01-02")+"-session-4f1c2a9e.md")
+	peer := Sub("handoffs", now.Format("2006-01-02")+"-session-99999999.md")
 	write(t, model, handoffIdentity("4f1c2a9e-1111")+"\nmodel written")
 	write(t, handoffDoneMarker("4f1c2a9e-1111"), "4f1c2a9e-1111\n"+model+"\nrequest")
 	write(t, peer, "another session")

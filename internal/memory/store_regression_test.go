@@ -51,7 +51,7 @@ func TestInitLeavesNoPartialFileWhenWriteFails(t *testing.T) {
 func TestInitLeavesNoTempFile(t *testing.T) {
 	tempConfig(t)
 	const own = "# my own conventions\n"
-	write(t, HomeBank().Path("conventions.md"), own)
+	write(t, Path("conventions.md"), own)
 	dir, err := Init()
 	if err != nil {
 		t.Fatal(err)
@@ -60,7 +60,7 @@ func TestInitLeavesNoTempFile(t *testing.T) {
 		if name == "conventions.md" {
 			want = own
 		}
-		if got := mustRead(t, HomeBank().Path(name)); got != want {
+		if got := mustRead(t, Path(name)); got != want {
 			t.Errorf("%s = %q, want %q", name, got, want)
 		}
 	}
