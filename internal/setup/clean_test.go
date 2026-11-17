@@ -637,7 +637,7 @@ func TestCleanSessionsTTYPrompt(t *testing.T) {
 	}
 }
 
-// TestProtectedMemoryStoresAndMigrationState: invariant 2 — the memory store (incl. its .git), journals, access logs, the bank lock are never pruned, at any age.
+// TestProtectedMemoryStoresAndMigrationState verifies memory stores, journals, logs, and bank lock are never pruned.
 func TestProtectedMemoryStoresAndMigrationState(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)

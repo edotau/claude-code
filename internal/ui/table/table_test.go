@@ -51,3 +51,17 @@ func TestDropEmptyColsShortRow(t *testing.T) {
 		t.Errorf("rows %v, want the short row padded with an empty cell", rows)
 	}
 }
+
+func BenchmarkRender(b *testing.B) {
+	head := []string{"NAME", "PROVIDER", "STATUS", "EXPIRES"}
+	colMax := []int{20, 16, 12, 16}
+	rows := [][]string{
+		{"anthropic", "anthropic", "active", "2h"},
+		{"dbx-sp", "databricks", "active", "42m"},
+		{"bedrock-prod", "bedrock", "ok", "iam"},
+		{"vertex-dev", "vertex", "expired", "0m"},
+	}
+	for b.Loop() {
+		_ = Render(head, colMax, rows, 80)
+	}
+}

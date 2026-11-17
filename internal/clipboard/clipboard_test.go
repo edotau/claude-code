@@ -150,3 +150,12 @@ func TestGrabMac(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func BenchmarkDecodeRaster(b *testing.B) {
+	bmp := bitfieldsBMP()
+	for b.Loop() {
+		if _, err := decodeRaster(bytes.NewReader(bmp)); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

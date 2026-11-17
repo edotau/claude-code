@@ -69,26 +69,24 @@ func writeVelocity(out *strings.Builder, vel, sep string, col, width int) {
 	out.WriteString(vel)
 }
 
-func writePaintedCell(out *strings.Builder, c cell, mode string, dim, rgb ansi.RGB) {
-	var buf [48]byte
-	b := buf[:0]
+func appendPaintedCell(buf []byte, c cell, mode string, dim, rgb ansi.RGB) []byte {
 	switch c.kind {
 	case "sep", "empty": // empty ─ cells take the separator dim: the trough tone all but vanished on them
-		b = ansi.AppendFgSeq(b, mode, dim, false)
+		buf = ansi.AppendFgSeq(buf, mode, dim, false)
 	case "dot":
-		b = ansi.AppendFgSeq(b, mode, ansi.TowardWhite(rgb, 0.45), true)
+		buf = ansi.AppendFgSeq(buf, mode, ansi.TowardWhite(rgb, 0.45), true)
 	default:
-		b = ansi.AppendFgSeq(b, mode, rgb, true)
+		buf = ansi.AppendFgSeq(buf, mode, rgb, true)
 	}
-	b = utf8.AppendRune(b, c.ch)
-	b = append(b, ansi.Reset...)
-	out.Write(b)
+	buf = utf8.AppendRune(buf, c.ch)
+	return append(buf, ansi.Reset...)
 }
 
 // wrapSegments writes cells from col, breaking before a segment that crosses width (0: never); widths are cells.
 func wrapSegments(out *strings.Builder, cells []cell, brks []brk, stops []ansi.RGB, ease float64, mode string, dim ansi.RGB, col, width int) int {
 	next := 0
 	total := float64(max(len(cells)-1, 1))
+	var buf [48]byte
 	for i := 0; i < len(cells); {
 		if next < len(brks) && brks[next].at == i {
 			sep := brks[next]
@@ -104,7 +102,7 @@ func wrapSegments(out *strings.Builder, cells []cell, brks []brk, stops []ansi.R
 			}
 		}
 		rgb := ansi.GradAt(stops, easeAt(float64(i)/total, ease))
-		writePaintedCell(out, cells[i], mode, dim, rgb)
+		out.Write(appendPaintedCell(buf[:0], cells[i], mode, dim, rgb))
 		col += cellWidth(cells[i].ch)
 		i++
 	}
@@ -185,7 +183,10 @@ func (b *cellBuf) pushContextBlock(v values, sepMajor string, lead bool) bool {
 }
 
 func gradientCells(v values, cfg config) cellBuf {
-	var b cellBuf
+	b := cellBuf{
+		cells: make([]cell, 0, 64),
+		brks:  make([]brk, 0, 8),
+	}
 	if cfg.seg("path") {
 		b.push(v.path, "g")
 		b.pushSep(sepPath)

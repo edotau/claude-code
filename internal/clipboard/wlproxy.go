@@ -326,8 +326,7 @@ func installProxyAt(w io.Writer, dest string, dryRun bool) error {
 	return nil
 }
 
-// DoctorDetail describes the proxy for `claude-code doctor`; ok is false on WSL when image paste would go through
-// an unproxied wl-paste, and on macOS when the clip bridge agent is not installed or listening.
+// DoctorDetail reports clipboard proxy health; ok is false when WSL image paste or macOS bridge is unconfigured.
 func DoctorDetail() (ok bool, detail string) {
 	if doctorGOOS == "darwin" {
 		return launchDoctorDetail()

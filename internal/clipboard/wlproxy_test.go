@@ -354,8 +354,7 @@ func TestInstallProxyAtForeignUntouched(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Teeth: grep the fixture file for OUR marker before asserting non-overwrite — proves the
-	// precondition (a genuinely foreign file, not an accidental copy of the proxy) actually holds.
+	// Teeth: verify the fixture lacks proxyMarker so non-overwrite is genuinely tested.
 	if bytes.Contains(before, []byte(proxyMarker)) {
 		t.Fatal("fixture precondition: foreign file unexpectedly contains the proxy marker")
 	}
@@ -465,8 +464,7 @@ func TestDoctorDetailCurrentOnWSL(t *testing.T) {
 	if err := os.WriteFile(dest, ProxyScript, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// PATH scoped to dest's own dir only — a real machine's wl-paste elsewhere on PATH must not
-	// make exec.LookPath resolve ahead of the fixture and spuriously flip this to "not ok".
+	// Scope PATH to dest's dir so a host wl-paste cannot shadow the fixture.
 	t.Setenv("PATH", filepath.Dir(dest))
 	ok, detail := DoctorDetail()
 	if !ok {

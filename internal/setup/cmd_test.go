@@ -154,7 +154,7 @@ func TestSetupWorkspaceInitDryRunWritesNothing(t *testing.T) {
 	}
 }
 
-// TestCmdSetupNukeAcceptsConfirmationWithSpaces: the whole typed line is the confirmation, so a path with a space works.
+// TestCmdSetupNukeAcceptsConfirmationWithSpaces verifies typed confirmation lines with spaces are accepted.
 func TestCmdSetupNukeAcceptsConfirmationWithSpaces(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

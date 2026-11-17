@@ -271,3 +271,25 @@ func TestGradAtSpanMatchesTheLegacyScan(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func BenchmarkAppendFgSeq(b *testing.B) {
+	var buf [32]byte
+	rgb := RGB{120, 180, 240}
+	for b.Loop() {
+		_ = AppendFgSeq(buf[:0], TrueColor, rgb, true)
+	}
+}
+
+func BenchmarkSweep(b *testing.B) {
+	stops := []RGB{{255, 100, 100}, {100, 200, 255}}
+	for b.Loop() {
+		_ = Sweep(TrueColor, stops, "~/src/claude-code/internal/ui/ansi")
+	}
+}
+
+func BenchmarkGradAt(b *testing.B) {
+	stops := []RGB{{255, 100, 100}, {100, 200, 255}, {120, 255, 150}}
+	for b.Loop() {
+		_ = GradAt(stops, 0.37)
+	}
+}

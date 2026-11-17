@@ -24,9 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
-// clipPS saves the Windows clipboard image as a PNG (GDI+, bypassing WSLg's 32bpp BI_BITFIELDS BMP
-// that common decoders reject). Prints "OK <winpath> <W>x<H>", "NOIMAGE", "BUSY" or "SAVEFAIL".
-// -Sta: MTA lacks the API.
+// clipPS saves the Windows clipboard image as a PNG via GDI+ (-Sta: MTA lacks the API).
 const clipPS = `Add-Type -AssemblyName System.Windows.Forms,System.Drawing
 $img = $null
 for ($i = 0; $i -lt 10; $i++) { # another app holding the clipboard makes every call throw; retry briefly
@@ -229,8 +227,7 @@ func grab(onWSL func() bool, run func(string) (string, error), translate func(st
 // maxBMPBytes bounds the total input read — a clipboard screenshot has no business exceeding this.
 const maxBMPBytes = 128 << 20
 
-// maxPixels bounds width*height before any pixel buffer is allocated, ahead of the per-dimension
-// check below — two dimensions each under the cap can still multiply into a DoS-sized allocation.
+// maxPixels bounds width*height before allocating pixel buffers to prevent DoS allocations.
 const maxPixels = 64 << 20
 
 // maxDim is a per-dimension sanity ceiling — generous past any real screenshot, cheap overflow guard.
@@ -242,8 +239,7 @@ const (
 	biBitFields    = 3
 )
 
-// raster is a decoded image as packed 24bpp BGR rows, each padded to stride. topDown reports that
-// rows[0] is the TOP image row; a plain BMP stores the bottom row first.
+// raster holds packed 24bpp BGR rows padded to stride; topDown means rows[0] is the top image row.
 type raster struct {
 	width, height, stride int
 	rows                  []byte
@@ -268,9 +264,7 @@ func transcodePNG(r io.Reader, w io.Writer) error {
 	return writePNG(w, img)
 }
 
-// decodeRaster reads a BMP from r and returns its pixels as packed 24bpp BGR rows. Shared by both
-// encoders so the format-specific part is only the write. Alpha is discarded — correct for a
-// paste target, not a bug.
+// decodeRaster reads a BMP into packed 24bpp BGR rows, discarding alpha for paste targets.
 func decodeRaster(r io.Reader) (raster, error) {
 	data, dib, pixelOffset, err := readBMPHeader(r)
 	if err != nil {
@@ -422,8 +416,7 @@ func rowStride(width, bitCount int) int {
 	return ((width*bitCount + 31) / 32) * 4
 }
 
-// maskShiftWidth returns the bit offset and population count of a channel mask (0,0 if mask is 0).
-// Masks in real BMPs are contiguous, so OnesCount doubles as the run's bit width.
+// maskShiftWidth returns the bit offset and popcount of a contiguous channel mask (0,0 if 0).
 func maskShiftWidth(mask uint32) (shift, width int) {
 	if mask == 0 {
 		return 0, 0
@@ -441,8 +434,7 @@ func scaleChannel(px, mask uint32, shift, width int) byte {
 	return byte(uint64(val) * 255 / maxVal)
 }
 
-// writeBMP24 emits a BITMAPFILEHEADER + 40-byte BITMAPINFOHEADER, 24bpp BI_RGB, bottom-up. rows is
-// in on-disk row order for the source (row 0 = file's first row); reversed here iff that was top-down.
+// writeBMP24 emits a 24bpp BI_RGB bottom-up BMP; rows is reversed when topDown is true.
 func writeBMP24(w io.Writer, width, height, stride int, rows []byte, topDown bool) error {
 	dataSize := stride * height
 	fileSize := fileHeaderSize + 40 + dataSize

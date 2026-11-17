@@ -124,6 +124,22 @@ func toANSI16(rgb RGB) int {
 	return bi
 }
 
+// appendByteDec appends n (0..255) in base 10 without strconv's general loop.
+func appendByteDec(dst []byte, n int) []byte {
+	if n < 0 || n > 255 {
+		return strconv.AppendInt(dst, int64(n), 10)
+	}
+	if n >= 100 {
+		dst = append(dst, byte('0'+n/100))
+		n %= 100
+		return append(dst, byte('0'+n/10), byte('0'+n%10))
+	}
+	if n >= 10 {
+		return append(dst, byte('0'+n/10), byte('0'+n%10))
+	}
+	return append(dst, byte('0'+n))
+}
+
 // AppendFgSeq appends the foreground SGR escape for rgb in mode to dst.
 func AppendFgSeq(dst []byte, mode string, rgb RGB, bold bool) []byte {
 	dst = append(dst, "\x1b["...)
@@ -133,15 +149,15 @@ func AppendFgSeq(dst []byte, mode string, rgb RGB, bold bool) []byte {
 	switch mode {
 	case TrueColor:
 		dst = append(dst, "38;2;"...)
-		dst = strconv.AppendInt(dst, int64(rgb[0]), 10)
+		dst = appendByteDec(dst, rgb[0])
 		dst = append(dst, ';')
-		dst = strconv.AppendInt(dst, int64(rgb[1]), 10)
+		dst = appendByteDec(dst, rgb[1])
 		dst = append(dst, ';')
-		dst = strconv.AppendInt(dst, int64(rgb[2]), 10)
+		dst = appendByteDec(dst, rgb[2])
 		return append(dst, 'm')
 	case ANSI256:
 		dst = append(dst, "38;5;"...)
-		dst = strconv.AppendInt(dst, int64(toANSI256(rgb)), 10)
+		dst = appendByteDec(dst, toANSI256(rgb))
 		return append(dst, 'm')
 	default:
 		c := toANSI16(rgb)
@@ -152,7 +168,7 @@ func AppendFgSeq(dst []byte, mode string, rgb RGB, bold bool) []byte {
 				dst = append(dst, "1;"...)
 			}
 		}
-		dst = strconv.AppendInt(dst, int64(base), 10)
+		dst = appendByteDec(dst, base)
 		return append(dst, 'm')
 	}
 }
@@ -169,15 +185,15 @@ func AppendBgSeq(dst []byte, mode string, rgb RGB) []byte {
 	switch mode {
 	case TrueColor:
 		dst = append(dst, "48;2;"...)
-		dst = strconv.AppendInt(dst, int64(rgb[0]), 10)
+		dst = appendByteDec(dst, rgb[0])
 		dst = append(dst, ';')
-		dst = strconv.AppendInt(dst, int64(rgb[1]), 10)
+		dst = appendByteDec(dst, rgb[1])
 		dst = append(dst, ';')
-		dst = strconv.AppendInt(dst, int64(rgb[2]), 10)
+		dst = appendByteDec(dst, rgb[2])
 		return append(dst, 'm')
 	case ANSI256:
 		dst = append(dst, "48;5;"...)
-		dst = strconv.AppendInt(dst, int64(toANSI256(rgb)), 10)
+		dst = appendByteDec(dst, toANSI256(rgb))
 		return append(dst, 'm')
 	default:
 		c := toANSI16(rgb)
@@ -185,7 +201,7 @@ func AppendBgSeq(dst []byte, mode string, rgb RGB) []byte {
 		if c >= 8 {
 			base = 40 + c - 8
 		}
-		dst = strconv.AppendInt(dst, int64(base), 10)
+		dst = appendByteDec(dst, base)
 		return append(dst, 'm')
 	}
 }
