@@ -6,6 +6,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -113,7 +114,41 @@ func Cloud(args []string) int {
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
-	return agent.RunOwnLogin(ctx, "codex", bin, []string{"OPENAI_BASE_URL"}, argv)
+	return runCloud(ctx, bin, argv)
+}
+
+// vendorLog is the debug log `codex cloud` appends to in its working directory; it names the account.
+const vendorLog = "error.log"
+
+// runCloud runs the vendor in the caller's cwd, then moves the error.log it left there into the state dir.
+func runCloud(ctx context.Context, bin string, argv []string) int {
+	before, err := os.Lstat(vendorLog)
+	rc := agent.RunOwnLogin(ctx, "codex", bin, []string{"OPENAI_BASE_URL"}, argv)
+	after, aerr := os.Lstat(vendorLog)
+	switch {
+	case aerr != nil || !after.Mode().IsRegular():
+	case err == nil: // the caller's own file: the run's lines cannot be split off safely
+		if after.Size() != before.Size() {
+			fmt.Fprintf(os.Stderr, "claude-code: codex cloud appended to your %s; remove it to keep the tree clean\n", vendorLog)
+		}
+	default:
+		if err := moveVendorLog(); err != nil {
+			fmt.Fprintf(os.Stderr, "claude-code: codex cloud: %s left in place: %v\n", vendorLog, err)
+		}
+	}
+	return rc
+}
+
+// moveVendorLog appends the cwd's error.log to the state log and removes it.
+func moveVendorLog() error {
+	b, err := os.ReadFile(vendorLog)
+	if err != nil {
+		return err
+	}
+	if err := paths.AppendLine(filepath.Join(paths.StateDir(), "codex", "cloud.log"), b); err != nil {
+		return err
+	}
+	return os.Remove(vendorLog)
 }
 
 // cloudPlan gates the verb on the overlay, then builds its argv and finds the binary.

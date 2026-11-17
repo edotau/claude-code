@@ -278,6 +278,7 @@ var writers = map[string]string{
 	"internal/agent/ask/reviewdiff.go:reviewArgs":               unversioned("foreign: temp diff handed to a vendor CLI"),
 	"internal/codex/catalog.go:validateCodexCatalog":            "codex-catalog",
 	"internal/codex/catalog.go:storeCodexCatalog":               "codex-catalog",
+	"internal/codex/cloud.go:moveVendorLog":                     unversioned("foreign: vendor `codex cloud` debug log moved out of the cwd"),
 	"internal/codex/hooks.go:writeCodexHooks":                   unversioned("foreign: codex hooks.json in the vendor home"),
 	"internal/copilot/home.go:copySettings":                     unversioned("foreign: copilot private home settings copy"),
 	"internal/agentconfig/opencode.go:WriteOpencodeOverlay":     "opencode-overlay",

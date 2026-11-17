@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -82,6 +83,33 @@ func TestCloudGateRuns(t *testing.T) {
 		t.Setenv(proc.DispatchIDEnv, id)
 		if rc := Cloud(tc.args); rc != tc.wantRC || ran() != tc.want {
 			t.Errorf("%s: rc=%d ran=%q, want rc=%d ran=%q", tc.name, rc, ran(), tc.wantRC, tc.want)
+		}
+	}
+}
+
+// The vendor's cwd-relative error.log must not stay in the caller's tree; a pre-existing one is left alone.
+func TestCloudMovesVendorLog(t *testing.T) {
+	vaulttest.Use(t)
+	pathstest.FakeVendor(t, "codex", `echo "auth: mode=ChatGPT" >> error.log`)
+	stateLog := filepath.Join(paths.StateDir(), "codex", "cloud.log")
+	for _, tc := range []struct{ name, pre, wantCwd, wantState string }{
+		{"fresh", "", "", "auth: mode=ChatGPT\n"},
+		{"pre-existing", "mine\n", "mine\nauth: mode=ChatGPT\n", ""},
+	} {
+		os.Remove(stateLog)
+		t.Chdir(t.TempDir())
+		if tc.pre != "" {
+			if err := os.WriteFile("error.log", []byte(tc.pre), 0o600); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if rc := Cloud([]string{"list"}); rc != 0 {
+			t.Fatalf("%s: rc=%d", tc.name, rc)
+		}
+		cwd, _ := os.ReadFile("error.log")
+		state, _ := os.ReadFile(stateLog)
+		if string(cwd) != tc.wantCwd || string(state) != tc.wantState {
+			t.Errorf("%s: cwd log=%q state log=%q, want %q and %q", tc.name, cwd, state, tc.wantCwd, tc.wantState)
 		}
 	}
 }
