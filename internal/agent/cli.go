@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -347,6 +348,7 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry
 	lg := wire.EventLogFor(ctx)
 	idle := &idleReader{src: eofReader{R: stdout}, last: time.Now().UnixNano()}
 	stop := heartbeat(lg, idle, name)
+	defer stop() // a panicking parser must not leave the ticker goroutine running
 	// the parser writes formatted event lines to the dispatch log and fires onMeaningful on its first real event.
 	out, perr := parse(bufio.NewReader(idle), sink, opts.meaningful(), lg)
 	stop()
@@ -434,7 +436,7 @@ func heartbeat(lg wire.StreamLog, i *idleReader, name string) (stop func()) {
 			}
 		}
 	}()
-	return func() { close(done) }
+	return sync.OnceFunc(func() { close(done) })
 }
 
 // HeadBuffer keeps the first 4 KiB of a stream: codex prints the session id in its stderr banner.

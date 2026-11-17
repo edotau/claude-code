@@ -7,6 +7,8 @@ import (
 	"errors"
 	"io"
 	"os/exec"
+	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -68,6 +70,27 @@ func TestHeartbeatLogsWhenQuiet(t *testing.T) {
 	defer mu.Unlock()
 	if len(got) == 0 || got[0] != "heartbeat" {
 		t.Errorf("log kinds = %v, want a heartbeat", got)
+	}
+}
+
+// A parser that panics still stops the heartbeat goroutine.
+func TestRunEventStreamPanicStopsHeartbeat(t *testing.T) {
+	ctx := wire.WithLog(context.Background(), wire.NewLogSink(filepath.Join(t.TempDir(), "d.log")))
+	parse := func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error) { panic("parse boom") }
+	running := func() bool {
+		buf := make([]byte, 1<<20)
+		return strings.Contains(string(buf[:runtime.Stack(buf, true)]), "agent.heartbeat.func")
+	}
+	cmd := exec.Command("sleep", "5")
+	func() {
+		defer func() { _ = recover() }()
+		_, _ = RunEventStream(ctx, "x", cmd, nil, wire.Discard, parse, StreamOpts{})
+	}()
+	defer func() { _ = cmd.Process.Kill() }()
+	for deadline := time.Now().Add(time.Second); running(); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("heartbeat goroutine still running after the parser panicked")
+		}
 	}
 }
 

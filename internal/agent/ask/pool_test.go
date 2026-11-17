@@ -797,6 +797,21 @@ func TestBatchPanickingDispatchesReleaseTheirPermits(t *testing.T) {
 	}
 }
 
+// A task whose Prepare panics fails alone with the panic text; the rest of the batch still runs.
+func TestBatchPanickingPrepareFailsOnlyThatTask(t *testing.T) {
+	bad := batchTask{ID: "bad", Agent: "x", Prepare: func(context.Context) (*agent.Prepared, error) { panic("prep boom") }}
+	out, ok := runPool(t, poolOptions{Jobs: 2}, bad, acctTask(t, "good", "prep·acct", okRunner("good")))
+	if ok {
+		t.Fatal("batch reported ok although a task's Prepare panicked")
+	}
+	if ln := envLine(out, "bad"); !strings.Contains(ln, "panic: prep boom") {
+		t.Errorf("bad task envelope = %q, want the panic text", ln)
+	}
+	if ln := envLine(out, "good"); ln == "" || strings.Contains(ln, "panic") {
+		t.Errorf("good task envelope = %q, want it to run normally", ln)
+	}
+}
+
 // Tasks parked on a full account hold no pool slot: account-A tasks block until task b (idle account B) runs.
 func TestBatchParkedTasksDoNotHoldPoolSlots(t *testing.T) {
 	bRan := make(chan struct{})
