@@ -320,14 +320,10 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 }
 
 // buildDispatches returns each "ask: dispatch <id>" the transcript shows, plus a heuristic match when `ask` is pending.
-func buildDispatches(transcriptPath, cwd string, now time.Time, act Activity, ids []string) []Dispatch {
+func buildDispatches(transcriptPath, cwd string, now time.Time, act Activity, recs []agent.Record) []Dispatch {
 	var dispatches []Dispatch
 	matched := map[string]bool{}
-	for _, id := range ids {
-		rec, err := agent.LoadRecord(id)
-		if err != nil {
-			continue
-		}
+	for _, rec := range recs {
 		dispatches = append(dispatches, dispatchFromRecord(rec, "", now))
 		matched[rec.ID] = true
 	}

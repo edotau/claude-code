@@ -177,7 +177,7 @@ func TestBuildDispatchesEnvelopeID(t *testing.T) {
 	if err := os.WriteFile(path, []byte(line), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	got := buildDispatches(path, "", time.Now(), Activity{}, transcript.AppendDispatchIDs(nil, map[string]bool{}, []byte(line)))
+	got := buildDispatches(path, "", time.Now(), Activity{}, (&agent.RecordIndex{}).Load(transcript.AppendDispatchIDs(nil, map[string]bool{}, []byte(line))))
 	if len(got) != 1 || got[0].ID != "20261017T231131.948-codex" {
 		t.Fatalf("buildDispatches = %+v, want the envelope dispatch", got)
 	}
