@@ -87,23 +87,8 @@ func (c *Config) Clone() *Config {
 	if c.records != nil {
 		out.records = make(map[string]vault.AgentRecord, len(c.records))
 		for name, r := range c.records {
-			out.records[name] = cloneRecord(r)
+			out.records[name] = r.Clone()
 		}
-	}
-	return out
-}
-
-// cloneRecord returns a deep copy of r: aliases, extras and the policy and launch blocks.
-func cloneRecord(r vault.AgentRecord) vault.AgentRecord {
-	out := r
-	out.Aliases, out.Extras = maps.Clone(r.Aliases), maps.Clone(r.Extras)
-	if p := r.Permissions; p != nil {
-		c := *p
-		c.Allow, c.Ask, c.Deny = slices.Clone(p.Allow), slices.Clone(p.Ask), slices.Clone(p.Deny)
-		out.Permissions = &c
-	}
-	if l := r.Launch; l != nil {
-		out.Launch = &vault.AgentLaunch{Env: slices.Clone(l.Env), Args: slices.Clone(l.Args)}
 	}
 	return out
 }
@@ -246,7 +231,7 @@ func BuiltinSettings(name string) (vault.AgentRecord, error) {
 	if err != nil {
 		return vault.AgentRecord{}, err
 	}
-	return cloneRecord(cfg.records[name]), nil
+	return cfg.records[name].Clone(), nil
 }
 
 // templateGuardRules reads the embedded settings template's permissions.deny verbatim.
