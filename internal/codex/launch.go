@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -153,6 +154,22 @@ func codexToolsEnv(ctx context.Context, env []string, tools bool, sandbox string
 		}
 	}
 	return values.Env(), notes, func() { _ = os.RemoveAll(dir) }, nil
+}
+
+// codexCacheArgv repeats env's Go cache vars as shell-policy overrides; a user config's `inherit = "core"` drops them.
+func codexCacheArgv(argv, env []string) []string {
+	at := len(argv)
+	if i := slices.Index(argv, "--skip-git-repo-check"); i >= 0 {
+		at = i
+	}
+	values := proc.ValuesFromEnv(env)
+	var add []string
+	for _, c := range codexCaches {
+		if v := values[c[0]]; v != "" {
+			add = append(add, "-c", "shell_environment_policy.set."+c[0]+"="+agentconfig.TOMLQuote(v))
+		}
+	}
+	return slices.Insert(slices.Clone(argv), at, add...)
 }
 
 // codexStatus runs `codex login status` on the scrubbed agent env; tests replace it so none of it reaches the real CLI.

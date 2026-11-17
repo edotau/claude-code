@@ -103,7 +103,7 @@ func (e codexEngine) RenderSettings(ctx context.Context, s agent.Settings, env, 
 		return env, argv, emulated, func() { remove(); cleanup() }, err
 	}
 	env, notes, rmCache, err := codexToolsEnv(ctx, env, s.Tools, sandbox)
-	return env, argv, append(emulated, notes...), func() { rmCache(); remove(); cleanup() }, err
+	return env, codexCacheArgv(argv, env), append(emulated, notes...), func() { rmCache(); remove(); cleanup() }, err
 }
 
 // codexEffortArgv adds s.Effort, in codex's spelling, before exec's own flags; a plain launch has no route to tune.
