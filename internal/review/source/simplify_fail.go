@@ -138,12 +138,7 @@ func sizeViolations(path, text, base string, spans lineSpans) ([]string, error) 
 	if err != nil {
 		return nil, err
 	}
-	old := map[string]bool{}
-	if baseRes, berr := complexityContent(path, base, "go", th); berr == nil && base != "" {
-		for _, f := range baseRes.Findings {
-			old[f.Rule] = true
-		}
-	}
+	old := baseRules(path, base, th)
 	var out []string
 	for _, f := range res.Findings {
 		switch {
@@ -156,6 +151,17 @@ func sizeViolations(path, text, base string, spans lineSpans) ([]string, error) 
 		}
 	}
 	return out, nil
+}
+
+// baseRules is the set of file-level rules already firing on the base text.
+func baseRules(path, base string, th ComplexityThresholds) map[string]bool {
+	old := map[string]bool{}
+	if res, err := complexityContent(path, base, "go", th); err == nil && base != "" {
+		for _, f := range res.Findings {
+			old[f.Rule] = true
+		}
+	}
+	return old
 }
 
 // newGoViolations lists the rules path breaks on lines changed since base, as "path:line: message".
