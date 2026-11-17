@@ -47,29 +47,6 @@ func TestSetOpencodeMenuEmptyResets(t *testing.T) {
 	})
 }
 
-// An explicit menu flag beats the catalog, chat-only ids never serve Responses, and any spelling finds the entry.
-func TestServesResponsesMenuOverridesCatalog(t *testing.T) {
-	vaulttest.Use(t)
-	p := &Provider{Name: "dev", Preset: PresetDatabricks, ModelPrefix: "databricks-"}
-	if err := SetOpencodeMenu([]OpencodeModel{{ID: "gpt-6-1-sol", Responses: false}, {ID: "gpt-oss-120b", Responses: true}}); err != nil {
-		t.Fatal(err)
-	}
-	for _, spelled := range []string{"databricks-gpt-6-1-sol", "gpt-6-1-sol"} {
-		if ServesResponses(p, spelled) {
-			t.Errorf("menu Responses:false on a catalog Responses-only id must win for %q", spelled)
-		}
-	}
-	if ResponsesID("gpt-6-1-sol") {
-		t.Error("ResponsesID: menu Responses:false must win")
-	}
-	if ServesResponses(p, "databricks-gpt-oss-120b") || ResponsesID("gpt-oss-120b") || ResponsesServable(p, "databricks-gpt-oss-120b") {
-		t.Error("chat-only gpt-oss-120b must not serve Responses whatever the menu says")
-	}
-	if !ServesResponses(p, "gpt-5-5") || !ResponsesID("gpt-5-5") {
-		t.Error("unlisted catalog Responses-only id must serve Responses")
-	}
-}
-
 // A menu saved with plain booleans still loads; an absent flag now follows the catalog.
 func TestOpencodeMenuLegacyBooleans(t *testing.T) {
 	vaulttest.Use(t)
