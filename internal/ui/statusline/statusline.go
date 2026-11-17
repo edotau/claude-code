@@ -345,7 +345,7 @@ func providerLabel(name string) string {
 	return name
 }
 
-// capProfile truncates the profile after "·" to max runes; the provider part is never cut.
+// capProfile truncates the profile after "·" to max cells; the provider part is never cut.
 func capProfile(label string, max int) string {
 	prov, prof, ok := strings.Cut(label, "·")
 	if !ok {

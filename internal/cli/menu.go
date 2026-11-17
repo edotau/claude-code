@@ -9,8 +9,8 @@ import (
 	"os"
 	"slices"
 	"strings"
-	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/theme"
@@ -133,10 +133,10 @@ func menuSVG() []byte {
 	rows := menuRows()
 	cols := 0
 	for _, l := range menuHeader {
-		cols = max(cols, utf8.RuneCountInString(l))
+		cols = max(cols, textutil.DisplayWidth(l))
 	}
 	for _, r := range rows {
-		cols = max(cols, utf8.RuneCountInString(r.head), 2+utf8.RuneCountInString(r.name+r.summary))
+		cols = max(cols, textutil.DisplayWidth(r.head), 2+textutil.DisplayWidth(r.name+r.summary))
 	}
 	w := int(math.Round(2*svgLeft + float64(cols)*svgCell))
 	h := svgTop + (len(menuHeader)+len(rows)-1)*svgLine + svgBottom
@@ -168,7 +168,7 @@ func menuSVG() []byte {
 		case r.name != "":
 			text(0, line, svgFG, "  ", false)
 			text(2, line, hexOf(ansi.GradAt(stops, r.frac)), r.name, true)
-			text(2+utf8.RuneCountInString(r.name), line, svgFG, r.summary, false)
+			text(2+textutil.DisplayWidth(r.name), line, svgFG, r.summary, false)
 		}
 	}
 	b.WriteString("</g></svg>\n")

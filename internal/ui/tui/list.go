@@ -212,7 +212,7 @@ func oneLine(s string) string {
 	return strings.Join(strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == '\r' || r == '\t' }), " ")
 }
 
-func pad(s string, w int) string { return s + strings.Repeat(" ", max(0, w-textutil.RuneLen(s))) }
+func pad(s string, w int) string { return textutil.PadCells(s, w, false) }
 
 // listLines builds the frame: title, Search line, grouped rows (windowed to fit h-1 lines at cols), blank, footer.
 func listLines(s listState, color bool, cols, h int) []line {
@@ -228,7 +228,7 @@ func listLines(s listState, color bool, cols, h int) []line {
 // listColumns sizes label and detail columns over every row so filtering never shifts them.
 func listColumns(rows []ListRow) (lw, dw int, hasSec bool) {
 	for _, r := range rows {
-		lw, dw = max(lw, textutil.RuneLen(oneLine(r.Label))), max(dw, textutil.RuneLen(oneLine(r.Detail)))
+		lw, dw = max(lw, textutil.DisplayWidth(oneLine(r.Label))), max(dw, textutil.DisplayWidth(oneLine(r.Detail)))
 		hasSec = hasSec || r.Section != ""
 	}
 	return lw, dw, hasSec
@@ -344,7 +344,7 @@ func plainRowStyled(color bool, r ListRow, lw, dw int) string {
 func countLines(ls []line, cols int) int {
 	n := 0
 	for _, l := range ls {
-		n += wrappedLines(textutil.RuneLen(l.plain), cols)
+		n += wrappedLines(textutil.DisplayWidth(l.plain), cols)
 	}
 	return n
 }

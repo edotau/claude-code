@@ -4,28 +4,41 @@ package table
 import (
 	"slices"
 	"strings"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
-// Truncate clips a plain (unpainted) line to width runes, ending in "…"; width <= 0 means no cap.
+// Truncate clips a plain (unpainted) line to width cells, ending in "…"; width <= 0 means no cap.
 func Truncate(s string, width int) string {
 	if width <= 0 {
 		return s
 	}
-	return textutil.Truncate(s, width)
+	return textutil.TruncateCells(s, width, "…")
 }
 
-// TruncateMiddle clips s to width runes keeping both ends, so names that share a long prefix stay distinct.
+// TruncateMiddle clips s to width cells keeping both ends, so names that share a long prefix stay distinct.
 func TruncateMiddle(s string, width int) string {
-	r := []rune(s)
-	if width <= 2 || len(r) <= width {
+	if width <= 2 || textutil.DisplayWidth(s) <= width {
 		return Truncate(s, width)
 	}
 	tail := (width - 1) / 2
-	return string(r[:width-1-tail]) + "…" + string(r[len(r)-tail:])
+	return textutil.TruncateCells(s, width-1-tail, "") + "…" + cellSuffix(s, tail)
+}
+
+// cellSuffix is the longest suffix of s that fits in n cells.
+func cellSuffix(s string, n int) string {
+	r := []rune(s)
+	i, w := len(r), 0
+	for i > 0 {
+		cw := textutil.DisplayWidth(string(r[i-1]))
+		if w+cw > n {
+			break
+		}
+		w += cw
+		i--
+	}
+	return string(r[i:])
 }
 
 const (
@@ -82,7 +95,7 @@ func columnWidths(rows [][]string, n int) []int {
 	for _, r := range rows {
 		for i, c := range r {
 			if !spansRest(r, n, i) {
-				ws[i] = max(ws[i], utf8.RuneCountInString(c))
+				ws[i] = max(ws[i], textutil.DisplayWidth(c))
 			}
 		}
 	}
@@ -130,7 +143,7 @@ func justifyRow(r []string, n int, ws []int, gap, width int, clip func(string, i
 		}
 		b.WriteString(c)
 		if i < len(r)-1 {
-			writeSpaces(&b, ws[i]-utf8.RuneCountInString(c)+gap)
+			writeSpaces(&b, ws[i]-textutil.DisplayWidth(c)+gap)
 		}
 		start += ws[i] + gap
 	}

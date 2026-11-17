@@ -100,6 +100,10 @@ func TestTwolinePaletteForeground(t *testing.T) {
 	if !strings.Contains(out, "\x1b[38;2;238;212;159mu") {
 		t.Errorf("auth cell lacks the palette fg #EED49F: %q", out)
 	}
+	wide := paintTwoRow([]twoSeg{{key: "x", text: "日本y"}}, nil, []ansi.RGB{{}, {200, 100, 50}}, "truecolor")
+	if !strings.Contains(wide, "\x1b[38;2;200;100;50my") {
+		t.Errorf("last cell after wide text misses the end stop: %q", wide)
+	}
 }
 
 // A ramp-only palette (gemini) backs each cell and separator with a darker shade of its ramp color; padding stays bare.
