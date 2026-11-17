@@ -157,6 +157,7 @@ var writers = map[string]string{
 	"internal/agentconfig/vendorfile.go:writeBaseline":          "vendor-baseline",
 	"internal/configure/history.go:stageFile":                   unversioned("text: session history snapshot of a transcript"),
 	"internal/hosttest/capture.go:ClosedStdout":                 unversioned("test helper: an empty temp file standing in for a closed stdout"),
+	"internal/hosttest/hosttest.go:goTelemetryOff":              unversioned("test helper: go telemetry mode file under a test's temp HOME"),
 	"internal/hosttest/git.go:WriteRel":                         unversioned("test fixture: a file in a test's temp repo"),
 	"internal/hooks/memhook/checkpoint.go:createFlag":           unversioned("marker: context-checkpoint flag file"),
 	"internal/hooks/leaves_watch.go:writeWatch":                 unversioned("marker: stuck-leaf watchdog tick, seen, resumed and collected files"),

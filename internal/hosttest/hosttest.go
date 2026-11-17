@@ -155,9 +155,26 @@ func HermeticEnv(t testing.TB) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	t.Setenv("BASH_COMPLETION_USER_DIR", "")
+	goTelemetryOff(t, home)
 	for _, k := range []string{"CLAUDE_PROFILE", "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL",
 		"CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL", "ANTHROPIC_API_KEY", "TEST_GW_KEY"} {
 		t.Setenv(k, "")
+	}
+}
+
+// goTelemetryOff stops a probed `go`'s telemetry sidecar racing cleanup under home (Windows' %AppData% is outside).
+func goTelemetryOff(t testing.TB, home string) {
+	t.Helper()
+	cfg, err := os.UserConfigDir()
+	if err != nil || !strings.HasPrefix(cfg, home) {
+		return
+	}
+	dir := filepath.Join(cfg, "go", "telemetry")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mode"), []byte("off"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
