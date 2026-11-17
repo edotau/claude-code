@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -20,6 +21,9 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 	res, err := client.Exec(ctx, p, sinkTo(sinkOut(out, format, save), format, p.Record.ID), jobOpts(isJob, format, out))
 	return reportAsk(out, format, save, p, res, err)
 }
+
+// denialSummaryCells is the widest the sandbox summary line prints, in terminal columns.
+const denialSummaryCells = 80
 
 // saveHead is how many answer lines stdout keeps when --save files the whole answer.
 const saveHead = 8
@@ -90,7 +94,10 @@ func reportSaved(out io.Writer, format, save string, res wire.Result, runErr err
 	if format != helptext.Text {
 		return saveErr
 	}
-	return cmp.Or(saveErr, printHead(out, res))
+	if headErr := printHead(out, res); headErr != nil {
+		return cmp.Or(saveErr, headErr)
+	}
+	return cmp.Or(saveErr, printDenials(out, res))
 }
 
 // askTrailer is the stderr lines after a dispatch; the json envelope already carries ran_on and dispatch_id.
@@ -124,7 +131,24 @@ func reportAskResult(out io.Writer, format string, res wire.Result, err error) e
 	}
 	if res.Answer != "" && !strings.HasSuffix(res.Answer, "\n") {
 		_, werr := fmt.Fprintln(out)
-		return werr
+		if werr != nil {
+			return werr
+		}
 	}
-	return nil
+	return printDenials(out, res)
+}
+
+func printDenials(out io.Writer, res wire.Result) error {
+	d := res.Denials
+	if d == nil || d.Count == 0 {
+		return nil
+	}
+	noun := "commands"
+	if d.Count == 1 {
+		noun = "command"
+	}
+	head, tail := fmt.Sprintf("sandbox refused %d %s: ", d.Count, noun), "; re-run outside the sandbox"
+	list := textutil.TruncateCells(strings.Join(d.Commands, ", "), max(0, denialSummaryCells-textutil.DisplayWidth(head+tail)), "…")
+	_, err := fmt.Fprintln(out, head+list+tail)
+	return err
 }

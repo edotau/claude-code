@@ -24,6 +24,11 @@ type EnvelopeError struct {
 	Message string `json:"message"`
 }
 
+type Denials struct {
+	Count    int      `json:"count"`
+	Commands []string `json:"commands"`
+}
+
 // Envelope is the one typed JSON body `ask --format json` prints for every agent, on success and on every error path.
 type Envelope struct {
 	Schema          int             `json:"schema"`
@@ -41,6 +46,7 @@ type Envelope struct {
 	Usage           *Usage          `json:"usage"`                   // null when the agent reports no token counts
 	DurationMs      int64           `json:"duration_ms"`
 	Error           *EnvelopeError  `json:"error"` // null on success
+	Denials         *Denials        `json:"denials,omitempty"`
 	Answer          string          `json:"answer"`
 	Dropped         []string        `json:"dropped"`
 	SchemaUnchecked []string        `json:"schema_unchecked,omitempty"` // --output-schema keywords structured was not checked against
@@ -59,6 +65,7 @@ func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 	env := Envelope{Schema: EnvelopeSchema, Status: res.Status, Agent: res.Agent, Provider: res.Provider, Model: res.Model,
 		Invoked: res.Invoked, DispatchID: dispatchID, SessionID: res.SessionID, FallbackReason: res.FallbackReason, Requested: res.Requested, RequestedWhy: res.RequestedWhy,
 		DurationMs: res.DurationMs, Answer: res.Answer, Dropped: res.Dropped, Emulated: res.Emulated, Handoff: res.Handoff, Transport: res.Transport, Hops: res.Hops, RanOn: RanOn(res), Structured: res.Structured, SchemaUnchecked: res.SchemaUnchecked}
+	env.Denials = res.Denials
 	if env.Dropped == nil {
 		env.Dropped = []string{}
 	}
@@ -243,6 +250,7 @@ type Result struct {
 	Model           string          `json:"model,omitempty"`
 	Invoked         string          `json:"invoked_model,omitempty"` // the model (<profile>:<model> when pinned) the run was asked for; not upstream-confirmed
 	SessionID       string          `json:"session_id,omitempty"`
+	Denials         *Denials        `json:"denials,omitempty"`
 	Answer          string          `json:"answer"`
 	Usage           Usage           `json:"usage"`
 	DurationMs      int64           `json:"duration_ms"`
