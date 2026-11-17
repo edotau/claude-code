@@ -31,8 +31,13 @@ func (f fakeLauncher) Claude(context.Context, agent.ClaudeOptions, []string) (ag
 // runFakeClaude runs claudeExec against a shell script standing in for claude, with the idle limit shortened.
 func runFakeClaude(t *testing.T, script string) (wire.Result, error) {
 	t.Helper()
+	return runFakeClaudeIdle(t, 300*time.Millisecond, script)
+}
+
+func runFakeClaudeIdle(t *testing.T, limit time.Duration, script string) (wire.Result, error) {
+	t.Helper()
 	old := claudeIdleLimit
-	claudeIdleLimit = 300 * time.Millisecond
+	claudeIdleLimit = limit
 	t.Cleanup(func() { claudeIdleLimit = old })
 	bin := filepath.Join(t.TempDir(), "claude")
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\n"+script), 0o755); err != nil {
@@ -181,10 +186,11 @@ func TestClaudeExecParseErrorAfterEOFKeepsExitStatus(t *testing.T) {
 
 // Given claude emits an error result and keeps running, Then the run fails promptly with that error, not the stall.
 func TestClaudeExecMidStreamParseErrorKillsChild(t *testing.T) {
+	const idle = 5 * time.Second // far above a loaded child's start-up, so only the kill can end the run early
 	start := time.Now()
 	errLine := `{"type":"result","subtype":"error_during_execution","is_error":true,"result":"boom","session_id":"s"}`
-	_, err := runFakeClaude(t, "echo '"+initLine+"'\necho '"+errLine+"'\nexec sleep 30\n")
-	if err == nil || !strings.Contains(err.Error(), "boom") || errors.Is(err, agent.ErrStalled) || time.Since(start) > 5*time.Second {
+	_, err := runFakeClaudeIdle(t, idle, "echo '"+initLine+"'\necho '"+errLine+"'\nexec sleep 30\n")
+	if err == nil || !strings.Contains(err.Error(), "boom") || errors.Is(err, agent.ErrStalled) || time.Since(start) > 2*idle {
 		t.Fatalf("took %v, err = %v; want a prompt kill keeping the result error", time.Since(start), err)
 	}
 }
