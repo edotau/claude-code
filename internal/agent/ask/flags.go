@@ -523,6 +523,9 @@ func overlayLocal(ov agentconfig.Overlay, live bool, host string) error {
 	if ov.CodexNetwork {
 		keys = append(keys, "codexNetwork")
 	}
+	if ov.Cloud {
+		keys = append(keys, "cloud")
+	}
 	if ov.BudgetUSD != nil || ov.BudgetCredits != nil {
 		keys = append(keys, "budgetUSD/budgetCredits")
 	}

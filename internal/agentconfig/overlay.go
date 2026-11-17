@@ -59,6 +59,7 @@ type Overlay struct {
 	BudgetUSD     *float64          `json:"budgetUSD,omitempty"`
 	BudgetCredits *int              `json:"budgetCredits,omitempty"`
 	CodexNetwork  bool              `json:"codexNetwork,omitempty"`
+	Cloud         bool              `json:"cloud,omitempty"`
 	Files         json.RawMessage   `json:"files,omitempty"`
 }
 
@@ -270,7 +271,7 @@ func overlayJSONErr(err error) error {
 		if uerr != nil {
 			key = q
 		}
-		keys := slices.Concat([]string{"schema"}, RoutingKeys(), []string{"tokenCommand", "codexNetwork", "maxChildren", "maxTreeTokens", "budgetUSD", "budgetCredits", "set", "unset", "keep"})
+		keys := slices.Concat([]string{"schema"}, RoutingKeys(), []string{"tokenCommand", "codexNetwork", "cloud", "maxChildren", "maxTreeTokens", "budgetUSD", "budgetCredits", "set", "unset", "keep"})
 		return fmt.Errorf("unknown key %s (%s)", key, strings.Join(keys, "|"))
 	}
 	return err
@@ -284,7 +285,7 @@ func keyType(key string) string {
 		return "an integer"
 	case "budgetUSD":
 		return "a number > 0"
-	case "codexNetwork":
+	case "codexNetwork", "cloud":
 		return "true or false"
 	case "set":
 		return "an object of string values"
@@ -312,13 +313,13 @@ func FlagOverlay(env, keep []string) (Overlay, error) {
 
 // Empty reports an overlay whose environment and execution controls change nothing.
 func (o Overlay) Empty() bool {
-	return len(o.Set)+len(o.Unset)+len(o.Keep) == 0 && !o.CodexNetwork &&
+	return len(o.Set)+len(o.Unset)+len(o.Keep) == 0 && !o.CodexNetwork && !o.Cloud &&
 		o.MaxChildren == nil && o.MaxTreeTokens == nil && o.BudgetUSD == nil && o.BudgetCredits == nil
 }
 
 // Routed reports an overlay naming where or how the dispatch runs: any of its routing keys.
 func (o Overlay) Routed() bool {
-	if o.TokenCommand != nil || o.CodexNetwork || o.BudgetUSD != nil || o.BudgetCredits != nil {
+	if o.TokenCommand != nil || o.CodexNetwork || o.Cloud || o.BudgetUSD != nil || o.BudgetCredits != nil {
 		return true
 	}
 	return slices.ContainsFunc(routeKeys, func(k routeKey) bool { return k.get(o) != "" })

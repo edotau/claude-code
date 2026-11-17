@@ -2,6 +2,7 @@ package ask
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -13,6 +14,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -28,10 +31,14 @@ var reviewDiffTimeout = 2 * time.Minute
 type ReviewOptions struct {
 	Uncommitted, PR, Adversarial, Background   bool
 	Base, Commit, Rubric, Model, Focus, Format string
+	Overlay                                    string
 }
 
 // Review is `<agent> review`: review scope's diff in one run, or in parts; a detached split replays args.
 func Review(name string, args []string, o ReviewOptions) int {
+	if rc, done := reviewLane(name, o); done {
+		return rc
+	}
 	parent, perr := reviewParent()
 	if perr != nil { // the job record cannot be closed later, so do not run a review nobody will be told about
 		return helptext.Fail("%s review: %v", name, perr)
@@ -63,6 +70,45 @@ func Review(name string, args []string, o ReviewOptions) int {
 		return runSplitReview(name, args, parts, o, parent)
 	}
 	return runSingleReview(name, diff, o, parent, started)
+}
+
+// reviewLane runs the cloud review when the overlay sets cloud; a run with no overlay does no work here.
+func reviewLane(name string, o ReviewOptions) (rc int, done bool) {
+	value := cmp.Or(o.Overlay, os.Getenv(agentconfig.OverlayVar))
+	if value == "" {
+		return 0, false
+	}
+	ov, err := agentconfig.LoadOverlayContext(context.Background(), value, os.Stdin)
+	if err == nil {
+		err = ov.CheckCloudAgent(name)
+	}
+	switch {
+	case err != nil:
+		return helptext.Fail("%s review: %v", name, err), true
+	case o.Overlay != "" && (!ov.Cloud || name != "claude"):
+		return helptext.Fail("%s review: --overlay only selects the cloud review; use $%s for the local one",
+			name, agentconfig.OverlayVar), true
+	case !ov.Cloud || name != "claude":
+		return 0, false
+	}
+	return ultrareview(ov, o), true
+}
+
+// ultrareview is `claude review` with cloud set: the CLI's own cloud review of the branch, a base or a PR.
+func ultrareview(ov agentconfig.Overlay, o ReviewOptions) int {
+	ctx := context.Background()
+	if o.Adversarial || o.Background || o.Rubric != "" || o.Model != "" {
+		return helptext.Fail("claude review: the cloud review takes no --adversarial, --background, --rubric or --model")
+	}
+	u := claude.Ultrareview{Base: o.Base, Commit: o.Commit, Focus: o.Focus, Uncommitted: o.Uncommitted, PR: o.PR, JSON: o.Format == "json"}
+	argv, err := u.Argv()
+	if err == nil {
+		err = agentconfig.CloudGate(ctx, ov, "claude", "claude ultrareview", "the diff")
+	}
+	if err != nil {
+		return helptext.Fail("claude review: %v", err)
+	}
+	return claude.RunUltrareview(ctx, argv)
 }
 
 func reviewInput(name, cwd string, scope diffScope, o ReviewOptions) ([]byte, ReviewOptions, error) {

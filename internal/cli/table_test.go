@@ -450,8 +450,12 @@ func TestVendorCompletionOffersEverySubverb(t *testing.T) {
 	for _, vendor := range agent.Names() {
 		got := candidates(vendor, "")
 		slices.Sort(got)
-		if !slices.Equal(got, want) {
-			t.Errorf("Candidates([%q \"\"]) = %v, want %v", vendor, got, want)
+		wantVendor := want
+		if vendor == "codex" { // cloud is the codex verb's own subcommand, not a shared page
+			wantVendor = slices.Sorted(slices.Values(append(slices.Clone(want), "cloud")))
+		}
+		if !slices.Equal(got, wantVendor) {
+			t.Errorf("Candidates([%q \"\"]) = %v, want %v", vendor, got, wantVendor)
 		}
 	}
 }

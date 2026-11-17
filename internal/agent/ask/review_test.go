@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
@@ -229,5 +230,44 @@ func TestSingleReviewChildParentUsageSummed(t *testing.T) {
 	got, err := agent.LoadRecord(parent.ID)
 	if err != nil || rc != 0 || !strings.Contains(out, "SHIP") || got.Usage == nil || got.Usage.InputTokens != 9 {
 		t.Fatalf("rc=%d out=%q usage=%+v err=%v", rc, out, got.Usage, err)
+	}
+}
+
+// Only overlay cloud on claude reaches ultrareview; every other review takes the local path or is refused.
+func TestReviewLaneCloudGate(t *testing.T) {
+	vaulttest.Use(t)
+	log := filepath.Join(t.TempDir(), "argv")
+	pathstest.FakeVendor(t, "claude", `echo "$*" >> `+log)
+	open := `{"cloud":true}`
+	tests := []struct {
+		name, agent, flag, env string
+		nested                 bool
+		wantDone               bool
+		wantRC                 int
+		ran                    string
+	}{
+		{"no overlay", "claude", "", "", false, false, 0, ""},
+		{"overlay without cloud in env", "claude", "", `{"maxChildren":1}`, false, false, 0, ""},
+		{"cloud by flag", "claude", open, "", false, true, 0, "ultrareview main"},
+		{"cloud by env", "claude", "", open, false, true, 0, "ultrareview main"},
+		{"cloud nested", "claude", open, "", true, true, 1, ""},
+		{"cloud on copilot", "copilot", open, "", false, true, 1, ""},
+		{"cloud on codex stays local", "codex", "", open, false, false, 0, ""},
+		{"flag without cloud", "claude", `{"maxChildren":1}`, "", false, true, 1, ""},
+		{"databricks", "claude", `{"cloud":true,"provider":"databricks"}`, "", false, true, 1, ""},
+	}
+	for _, tc := range tests {
+		os.Remove(log)
+		t.Setenv(agentconfig.OverlayVar, tc.env)
+		id := ""
+		if tc.nested {
+			id = "d1"
+		}
+		t.Setenv(proc.DispatchIDEnv, id)
+		rc, done := reviewLane(tc.agent, ReviewOptions{Base: "main", Overlay: tc.flag})
+		b, _ := os.ReadFile(log)
+		if rc != tc.wantRC || done != tc.wantDone || strings.TrimSpace(string(b)) != tc.ran {
+			t.Errorf("%s: rc=%d done=%v ran=%q, want rc=%d done=%v ran=%q", tc.name, rc, done, b, tc.wantRC, tc.wantDone, tc.ran)
+		}
 	}
 }

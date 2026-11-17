@@ -63,16 +63,24 @@ func agentSpec(name string) func() *helptext.Node {
 
 func agentNode(name string) *helptext.Node {
 	flag, boolFlag, formatFlag := helptext.Plain, helptext.BoolFlag, helptext.CompletionFormatFlag
-	return &helptext.Node{Sub: map[string]*helptext.Node{
+	n := &helptext.Node{Sub: map[string]*helptext.Node{
 		"ask": {Flags: ask.CompletionFlags()},
 		"review": {Flags: []helptext.Flag{boolFlag("uncommitted"), flag("base"), flag("commit"), boolFlag("pr"),
-			boolFlag("adversarial"), boolFlag("background"), flag("rubric"), flag("model"), formatFlag()}},
+			boolFlag("adversarial"), boolFlag("background"), flag("rubric"), flag("model"), flag("overlay"), formatFlag()}},
 		"explore":  {Flags: []helptext.Flag{boolFlag("no-web"), boolFlag("background"), formatFlag()}},
 		"transfer": {Flags: []helptext.Flag{flag("source"), boolFlag("wait")}},
 		"profile":  {Args: []func() []string{providers.ProfileNames}, Flags: []helptext.Flag{boolFlag("clear"), boolFlag("off")}},
 		"setup":    {Flags: []helptext.Flag{formatFlag()}},
 		"catalog":  catalogSpec(name),
 	}}
+	if name == "codex" {
+		task := func(f ...helptext.Flag) *helptext.Node { return &helptext.Node{Flags: append(f, flag("overlay"))} }
+		n.Sub["cloud"] = &helptext.Node{Sub: map[string]*helptext.Node{
+			"exec": task(flag("env"), flag("attempts"), flag("branch")), "status": task(),
+			"list": task(flag("env"), flag("limit")), "diff": task(flag("attempt")), "apply": task(flag("attempt")),
+		}}
+	}
+	return n
 }
 
 // agentsPage is `agents -h`, also printed by bare `agents`.
@@ -610,6 +618,9 @@ func agentPage(name string) helptext.Page {
 		rows[catalogRow][1] = "own model list; no Databricks route"
 	}
 	rows = append(rows, s.CLI.ExtraUsage...)
+	if name == "codex" {
+		rows = append(rows, [2]string{"cloud", "Codex Cloud tasks: exec|status|list|diff|apply"})
+	}
 	binary := name
 	if s.External() {
 		binary = s.CLI.Binary
@@ -660,7 +671,7 @@ func launchFlags(name string) *flag.FlagSet {
 var agentSubPages = map[string][2]string{
 	"setup":   {"setup [flags]", "Check %s's binary, login, route and projection; exits 1 if binary or login fails."},
 	"catalog": {"catalog [list|check|sync] [flags]", "Databricks serving endpoints %s can use, or its own model catalog."},
-	"review":  {"review [flags] [focus…]", "Review a diff with %s; trailing words name the focus."},
+	"review":  {"review [flags] [focus…]", "Review a diff with %s; flag-like focus words go after --."},
 	"explore": {"explore [flags] <question>", "Scan the code and research the web with %s, then return a brief."},
 	"profile": {"profile [<profile>|--clear|--off]", "Show %s's profile, or set %[1]s to <profile>; --clear = own login, " +
 		"--off = no profile (stop routing). The three are exclusive. Exit 0, 1 failed."},
@@ -744,6 +755,8 @@ func cmdAgentVerb(name string, args []string) int {
 		return unknownSub(name, args[0], agentPage(name))
 	case args[0] == "ask":
 		return ask.Run(append([]string{"--agent", name}, args[1:]...), name)
+	case name == "codex" && args[0] == "cloud":
+		return codexCloud(args[1:])
 	case agentSubPages[args[0]] != [2]string{}:
 		return agentSub(name, args)
 	case len(args) == 1 && isHelpVerb(args[0]):
@@ -793,16 +806,53 @@ func agentReview(name string, args []string) int {
 	fs.BoolVar(&o.Background, "background", false, "detach; claude-code agents status|result --agent "+name+" to follow up")
 	fs.StringVar(&o.Rubric, "rubric", "", "grade the review against this rubric file")
 	fs.StringVar(&o.Model, "model", "", "model for the review (default: the agent's pin)")
+	fs.StringVar(&o.Overlay, "overlay", "", `{"cloud":true} runs claude ultrareview in Anthropic's cloud`)
 	format := helptext.FormatFlag(fs)
-	if code, done := helptext.Parse(fs, args); done {
-		return code
+	repeated := guardScopeFlags(fs)
+	pos, err := helptext.ParseArgs(fs, args) // flags may follow `--pr 12`
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	if *repeated != "" {
+		return helptext.FailUsage("%s review: --%s given more than once; put flag-like focus text after --", name, *repeated)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
 		return helptext.BadFormat(name+" review", err)
 	}
 	o.Format = *format
-	o.Focus = strings.Join(fs.Args(), " ")
+	o.Focus = strings.Join(pos, " ")
 	return ask.Review(name, args, o)
+}
+
+// onceFlag records a scope flag set twice: the flag package keeps only the last value.
+type onceFlag struct {
+	flag.Value
+	name     string
+	repeated *string
+	seen     bool
+}
+
+func (f *onceFlag) Set(s string) error {
+	if f.seen {
+		*f.repeated = f.name
+	}
+	f.seen = true
+	return f.Value.Set(s)
+}
+
+func (f *onceFlag) IsBoolFlag() bool {
+	b, ok := f.Value.(interface{ IsBoolFlag() bool })
+	return ok && b.IsBoolFlag()
+}
+
+// guardScopeFlags wraps the review scope flags; the result names the first one given twice, else "".
+func guardScopeFlags(fs *flag.FlagSet) *string {
+	repeated := new(string)
+	for _, n := range []string{"uncommitted", "base", "commit", "pr"} {
+		f := fs.Lookup(n)
+		f.Value = &onceFlag{Value: f.Value, name: n, repeated: repeated}
+	}
+	return repeated
 }
 
 // agentExplore is `<v> explore [--no-web] [--background] [--format f] <question>`.

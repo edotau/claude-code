@@ -7,6 +7,7 @@ import (
 	"os"
 
 	"github.com/edotau/claude-code/internal/claude"
+	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -15,12 +16,19 @@ func anthropicSpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{"science": {}}, Flags: helptext.FlagsOf(anthropicFlags(io.Discard), nil)}
 }
 
+// codexCloud is `codex cloud`, wired here to keep agents.go under the import cap.
+var codexCloud = codex.Cloud
+
 // cmdClaude is `claude-code claude`: Claude Code on the selected profile.
 func cmdClaude(args []string) int {
+	if len(args) > 0 && args[0] == "review" { // claude has no review verb of its own; --overlay '{"cloud":true}' = ultrareview
+		return agentSub("claude", args)
+	}
 	code := claude.Launch("", args)
 	if code == 0 && len(args) == 1 && helptext.WantsHelp(args) { // claude's own help is relayed; say what the harness takes first
 		fmt.Println("\nclaude-code claude takes --profile P --model M --as user|sp --overlay F\n" +
-			"--keep-env NAMES --print-env; everything else goes to claude.")
+			"--keep-env NAMES --print-env; everything else goes to claude.\n" +
+			"claude-code claude review [scope] --overlay '{\"cloud\":true}' = cloud ultrareview.")
 	}
 	return code
 }

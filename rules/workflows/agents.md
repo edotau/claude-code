@@ -22,6 +22,11 @@ agent: `skills/subagent-workflows/SKILL.md`.
   `review scope --range <r> --caps`.
 - Read an exit code, not output: `agents wait`, `agents diff --check --path <p>...`.
 - Review a diff: `/code-review`, `claude-code codex review [--adversarial] [--base <b>]`, or `@agent-codex`.
+- Cloud lanes send the diff or repo to the vendor's cloud, so each needs overlay `{"cloud":true}` on the outermost run
+  and the vendor's own login: `claude-code claude review [--base b|--pr N] --overlay '{"cloud":true}'` runs
+  `claude ultrareview`; `claude-code codex cloud exec "<q>" --env <id>` submits a Codex Cloud task, while
+  `cloud status|list|diff|apply` read back without the opt-in. The
+  vendor passthrough refuses `claude ultrareview` and `codex cloud exec`; the lane is the only way in.
 - `claude-code agents list` lists the CLI agents, not this roster; `--format json` gives the capability schema.
 
 ## Slash commands

@@ -49,6 +49,11 @@ func TestCodexHeadlessNetworkOptIn(t *testing.T) {
 		remove()
 		t.Error("a nested dispatch must not open network for itself")
 	}
+	depthOnly := proc.WithValues(context.Background(), proc.Values{agentconfig.OverlayVar: `{"codexNetwork":true}`, proc.DispatchDepthEnv: "1"})
+	if _, _, remove, err := codexToolsEnv(depthOnly, nil, true, "workspace-write"); err == nil {
+		remove()
+		t.Error("a dispatch child with only its depth marker must not open network for itself")
+	}
 }
 
 // HARNESS_CODEX_SANDBOX: default unchanged, an accepted value applied and noted, a bad one refused with a usage error.

@@ -1228,6 +1228,16 @@ func TestAgentReviewFormat(t *testing.T) {
 	}
 }
 
+// A scope flag given twice is refused, not read as the last value with the focus words dropped.
+func TestAgentReviewRefusesRepeatedScopeFlag(t *testing.T) {
+	rc, _, stderr := hosttest.CaptureOutput(t, func() int {
+		return agentReview("codex", []string{"--base", "main", "audit", "--base", "release", "--commit", "HEAD"})
+	})
+	if rc != 2 || !strings.Contains(stderr, "--base given more than once") || !strings.Contains(stderr, "after --") {
+		t.Fatalf("rc=%d stderr=%s", rc, stderr)
+	}
+}
+
 // Given a reap that panics or lags, agents ask joins it, keeps ask's exit code and reports the panic on stderr.
 func TestCmdAgentsAskJoinsContainedReap(t *testing.T) {
 	cfgDir(t)
