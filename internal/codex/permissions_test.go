@@ -1,6 +1,8 @@
 package codex
 
 import (
+	"fmt"
+	"slices"
 	"time"
 
 	"os"
@@ -360,3 +362,102 @@ func emitThroughDenialSink(t *testing.T, events []wire.Event) (got []wire.Event,
 type sinkFunc func(wire.Event) error
 
 func (f sinkFunc) Emit(ev wire.Event) error { return f(ev) }
+
+// fixtureDenials replays a stream captured from codex-cli 0.166.0 through a read-only denialSink via cat.
+func fixtureDenials(t *testing.T, name string) (wire.Result, error) {
+	t.Helper()
+	sink := &denialSink{next: wire.Discard, sandbox: "read-only", commands: map[string]string{}}
+	cmd, tail := agent.ChildCmd(t.Context(), "/bin/cat", []string{filepath.Join("testdata", name)}, nil, "", "", nil, true)
+	return sink.runStream(t.Context(), "codex", cmd, tail, wire.Result{})
+}
+
+func TestDenialStreamCollectsRealRefusal(t *testing.T) {
+	res, err := fixtureDenials(t, "stream-sandbox-refused.jsonl")
+	if err != nil || res.Denials == nil {
+		t.Fatalf("result = %+v, err = %v", res, err)
+	}
+	if res.Denials.Count != 1 || !slices.Equal(res.Denials.Commands, []string{"go env"}) || res.Answer == "" {
+		t.Fatalf("denials = %+v, answer = %q", res.Denials, res.Answer)
+	}
+}
+
+// code-mode exec calls reach codex --json as agent_message only, so a refusal there leaves no structured signal.
+func TestDenialStreamCodeModeRefusalHasNoSignal(t *testing.T) {
+	res, err := fixtureDenials(t, "stream-code-mode-refused.jsonl")
+	if err != nil || res.Denials != nil || res.Answer == "" {
+		t.Fatalf("denials = %+v, answer = %q, err = %v", res.Denials, res.Answer, err)
+	}
+}
+
+func TestDenialSinkCapsCommandsAndKeepsCount(t *testing.T) {
+	var events []wire.Event
+	for i, command := range []string{"go test ./...", "python3 -c x", strings.Repeat("界", 81) + " arg", "ps aux"} {
+		id := fmt.Sprint(i)
+		use := wire.ToolEvent("shell", id)
+		use.Text = "/bin/bash -lc '" + command + "'"
+		events = append(events, use, wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: "shell", ID: id},
+			Status: "failed (exit 1)", Text: "touch: x: Operation not permitted"})
+	}
+	s := &denialSink{next: wire.Discard, sandbox: "read-only", commands: map[string]string{}}
+	for _, ev := range events {
+		if err := s.Emit(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	want := []string{"go test", "python3 -c", strings.Repeat("界", 80)}
+	if s.denials.Count != 4 || !slices.Equal(s.denials.Commands, want) {
+		t.Fatalf("denials = %+v, want count 4 and %q", s.denials, want)
+	}
+}
+
+func TestDenialLabelHidesValues(t *testing.T) {
+	for _, c := range []struct{ command, want string }{
+		{"/bin/bash -lc 'go test ./...'", "go test"},
+		{"python3 -c secret", "python3 -c"},
+		{"ps aux", "ps aux"},
+		{"export TOKEN=abc123", "export"},
+		{"/bin/bash -lc 'export TOKEN=abc123'", "export"},
+		{"env TOKEN=abc123 make", "env"},
+		{"FOO=secret cmd", "cmd"},
+		{"FOO=secret go test ./...", "go test"},
+		{"cat /Users/someone/x", "cat"},
+		{"curl https://u:p@host/x", "curl"},
+		{"git user@host", "git"},
+		{"/usr/bin/env bash -lc 'ps aux'", "ps aux"},
+		{"env FOO=1 /bin/zsh -c 'FOO=secret go vet'", "go vet"},
+		{"/Users/someone/bin/tool run", "tool run"},
+		{"bash -lc 'bash -c \"ls -la\"'", "ls -la"},
+		{"", ""},
+		{strings.Repeat("a", 90), strings.Repeat("a", 80)},
+	} {
+		if got := denialLabel(c.command); got != c.want {
+			t.Errorf("denialLabel(%q) = %q, want %q", c.command, got, c.want)
+		}
+	}
+}
+
+func TestCodexShellCommandUnwrapsAnyDashC(t *testing.T) {
+	for command, want := range map[string]string{
+		"/bin/bash -lc 'make lint'": "make lint",
+		"env bash -lc 'make lint'":  "make lint",
+		"python3 -c secret":         "secret",
+		"make lint":                 "make lint",
+	} {
+		if got := codexShellCommand(command); got != want {
+			t.Errorf("codexShellCommand(%q) = %q, want %q", command, got, want)
+		}
+	}
+}
+
+func TestDenialSinkIgnoresNonCommandRefusals(t *testing.T) {
+	clean := &denialSink{next: wire.Discard, sandbox: "read-only", commands: map[string]string{}}
+	for _, ev := range []wire.Event{{Type: wire.EventText, Text: "Operation not permitted"},
+		{Type: wire.EventToolResult, Tool: &wire.ToolRef{ID: "other"}, Status: "failed", Text: "No such file"}} {
+		if err := clean.Emit(ev); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if clean.denials != nil {
+		t.Fatalf("non-command refusals counted: %+v", clean.denials)
+	}
+}

@@ -99,3 +99,23 @@ func TestEnvelopeNewFieldsOmitEmpty(t *testing.T) {
 		t.Errorf("usage = %s, want cost_usd", full["usage"])
 	}
 }
+
+func TestEnvelopeDenialsOptional(t *testing.T) {
+	for _, d := range []*Denials{nil, {Count: 1, Commands: []string{"go test"}}} {
+		raw, err := json.Marshal(NewEnvelope(Result{Denials: d}, nil, "d"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			t.Fatal(err)
+		}
+		got, present := fields["denials"]
+		if present != (d != nil) {
+			t.Fatalf("denials presence = %v: %s", present, raw)
+		}
+		if d != nil && string(got) != `{"count":1,"commands":["go test"]}` {
+			t.Fatalf("denials = %s", got)
+		}
+	}
+}

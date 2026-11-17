@@ -1,16 +1,19 @@
 package codex
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
@@ -397,8 +400,88 @@ func codexShellCommand(command string) string {
 	return command
 }
 
-// denialSink forwards every event and, on an unitemized OS refusal, adds a warning naming the layer and control.
+const (
+	denialCommandLimit = 3
+	denialLabelRunes   = 80
+)
+
+func (s *denialSink) runStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry.TailBuffer, res wire.Result) (wire.Result, error) {
+	res, err := agent.RunStream(ctx, name, cmd, tail, res, s, parseCodexStream)
+	res.Denials = s.denials
+	return res, err
+}
+
+func (s *denialSink) collect(d agent.Denial, ev wire.Event) {
+	if ev.Type != wire.EventToolResult || d.Layer != "os-sandbox" {
+		return
+	}
+	if s.denials == nil {
+		s.denials = &wire.Denials{}
+	}
+	s.denials.Count++
+	if len(s.denials.Commands) >= denialCommandLimit {
+		return
+	}
+	if label := denialLabel(s.commands[ev.Tool.ID]); label != "" {
+		s.denials.Commands = append(s.denials.Commands, label)
+	}
+}
+
+var labelShells = []string{"bash", "sh", "zsh", "dash", "ksh", "fish"}
+
+// denialLabel is a command's verb plus a bare second word: a value, path or address never reaches the summary.
+func denialLabel(command string) string {
+	words := labelWords(command)
+	if len(words) == 0 {
+		return ""
+	}
+	label := filepath.Base(words[0])
+	if label != "export" && label != "env" && len(words) > 1 && !strings.ContainsAny(words[1], "/=:@") {
+		label += " " + words[1]
+	}
+	runes := []rune(label)
+	return string(runes[:min(denialLabelRunes, len(runes))])
+}
+
+// labelWords unwraps a shell -c/-lc (also behind env) and drops leading NAME=value words.
+func labelWords(command string) []string {
+	words := shell.Tokens(command)
+	for range 3 {
+		words = dropAssignments(words)
+		if len(words) > 0 && filepath.Base(words[0]) == "env" {
+			if rest := dropAssignments(words[1:]); len(rest) > 0 && slices.Contains(labelShells, filepath.Base(rest[0])) {
+				words = rest
+			}
+		}
+		if len(words) == 0 || !slices.Contains(labelShells, filepath.Base(words[0])) {
+			return words
+		}
+		i := slices.IndexFunc(words, func(w string) bool { return w == "-c" || w == "-lc" })
+		if i < 0 || i+1 >= len(words) {
+			return words
+		}
+		words = shell.Tokens(words[i+1])
+	}
+	return words
+}
+
+func dropAssignments(words []string) []string {
+	for len(words) > 0 && isAssignment(words[0]) {
+		words = words[1:]
+	}
+	return words
+}
+
+func isAssignment(word string) bool {
+	name, _, ok := strings.Cut(word, "=")
+	return ok && name != "" && !strings.ContainsFunc(name, func(r rune) bool {
+		return r != '_' && (r < '0' || r > '9') && (r < 'a' || r > 'z') && (r < 'A' || r > 'Z')
+	})
+}
+
+// denialSink preserves events and warns about the layer and control behind refusals.
 type denialSink struct {
+	denials  *wire.Denials
 	next     wire.Sink
 	p        agent.Permissions
 	tools    bool
@@ -415,6 +498,7 @@ func (s *denialSink) Emit(ev wire.Event) error {
 	if !ok {
 		return nil
 	}
+	s.collect(d, ev)
 	s.warned = s.warned || d.Layer == "os-sandbox"
 	what := d.Call.String()
 	if d.Call.Arg == "" {
