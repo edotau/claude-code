@@ -3,6 +3,7 @@ package copilot
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -64,6 +65,15 @@ func TestResolveModelWordUsesSealedSnapshotOnly(t *testing.T) {
 	effortModels = func() []SDKModel { return nil }
 	if got, err := copilotAgent.ResolveModelWord(t.Context(), "gpt"); err != nil || got != "gpt" {
 		t.Fatalf("no snapshot must leave the word: %q, %v", got, err)
+	}
+}
+
+func TestColdModelWordNamesTheFix(t *testing.T) {
+	if err := copilotAgent.ColdModelWord("gemini"); err == nil || !strings.Contains(err.Error(), "copilot catalog") {
+		t.Fatalf("family word: %v", err)
+	}
+	if err := copilotAgent.ColdModelWord("gpt-6-luna"); err != nil {
+		t.Fatalf("concrete id: %v", err)
 	}
 }
 

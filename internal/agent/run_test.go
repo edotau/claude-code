@@ -1036,3 +1036,43 @@ func TestRunBudgetsFromOverlay(t *testing.T) {
 		}
 	}
 }
+
+type wordDriver struct {
+	fixtureDriver
+	err error
+}
+
+func (w wordDriver) ResolveModelWord(_ context.Context, m string) (string, error) {
+	if m == "gpt" {
+		return "gpt-9", w.err
+	}
+	return m, nil
+}
+
+// The run path resolves a family word like the label does; a driver without the resolver keeps the typed string.
+func TestPrepareResolvesModelWordForResolverDriver(t *testing.T) {
+	setupWorkdirFixture(t)
+	for _, tc := range []struct {
+		agent, want string
+		err         error
+		host        string
+	}{{"copilot", "gpt-9", nil, ""}, {"opencode", "gpt", nil, ""}, {"copilot", "gpt", nil, "box"}, {"copilot", "", errors.New("cold"), ""}} {
+		registryMu.Lock()
+		orig := drivers["copilot"]
+		drivers["copilot"] = wordDriver{fixtureDriver{NewBaseEngine("copilot")}, tc.err}
+		registryMu.Unlock()
+		client := NewClient(router.RuleClassifier{}.Alias, nil, nil)
+		p, err := client.Prepare(context.Background(), RunOptions{Agent: tc.agent, Prompt: "p", Model: "gpt", Host: tc.host,
+			Fallback: router.FallbackNone}, nil)
+		registryMu.Lock()
+		drivers["copilot"] = orig
+		registryMu.Unlock()
+		var ue clientUsageError
+		switch {
+		case tc.err != nil && (!errors.As(err, &ue) || !strings.Contains(err.Error(), ErrModelRoute.Error())):
+			t.Fatalf("%+v: err = %v, want a model-route usage error", tc, err)
+		case tc.err == nil && tc.host == "" && (err != nil || p.Opts.Model != tc.want):
+			t.Fatalf("%+v: err = %v, want model %q", tc, err, tc.want)
+		}
+	}
+}

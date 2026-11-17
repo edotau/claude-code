@@ -56,6 +56,11 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Pre
 	if err != nil {
 		return nil, err
 	}
+	if o.Host == "" { // a remote host resolves the word itself
+		if o.Model, err = resolveRunModel(ctx, o); err != nil {
+			return nil, clientUsageError{fmt.Errorf("%w: %w", ErrModelRoute, err)}
+		}
+	}
 	if err := refuseDirectContext(ctx, o.Direct); err != nil {
 		return nil, clientUsageError{err}
 	}
