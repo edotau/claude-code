@@ -45,6 +45,7 @@ func Repo(t *testing.T) string {
 // RepoAt makes dir (and parents) a repo like Repo's, for callers that need a chosen directory name.
 func RepoAt(t *testing.T, dir string) string {
 	t.Helper()
+	SkipOnWindows(t, "cp -a template copy")
 	once.Do(buildTemplate)
 	if tmplErr != nil {
 		t.Fatal(tmplErr)
@@ -79,7 +80,7 @@ func buildTemplate() {
 		return
 	}
 	env := append(cleanEnv(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t.com",
-		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+		"GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t.com", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
 	steps := [][]string{{"init", "-q", "-b", "main"}, {"config", "user.name", "t"}, {"config", "user.email", "t@t.com"},
 		{"commit", "--allow-empty", "-q", "-m", "init"}}
 	ctx, cancel := context.WithTimeout(context.Background(), setupTimeout)
@@ -102,7 +103,7 @@ func In(t *testing.T, dir string, args ...string) string {
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", append([]string{"-C", dir}, args...)...)
 	cmd.Env = append(cleanEnv(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t",
-		"GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+		"GIT_COMMITTER_EMAIL=t@t", "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
 	cmd.WaitDelay = gitTimeout // a hook child holding the pipes must not block Wait after the kill
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
