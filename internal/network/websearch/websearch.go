@@ -480,7 +480,7 @@ func normURL(raw string) string {
 // vetExtractURLs splits urls into those safe to send to Tavily and a failure reason per refused URL.
 func vetExtractURLs(ctx context.Context, urls []string) ([]string, map[string]string) {
 	failed := map[string]string{}
-	dead := map[string]bool{} // origins whose robots.txt could not be read: one timeout per origin, not per URL
+	dead := warmRobots(ctx, urls) // origins whose robots.txt could not be read: one timeout per origin, not per URL
 	var send []string
 	for _, raw := range urls {
 		u, err := checkExtractURL(raw)
