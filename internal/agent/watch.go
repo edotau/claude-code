@@ -83,6 +83,8 @@ type StaleJob struct {
 	Agent     string        `json:"agent"`
 	Model     string        `json:"model"`
 	Reason    string        `json:"reason"`
+	Parent    string        `json:"parent,omitempty"`
+	Depth     int           `json:"depth,omitempty"`
 	Age       time.Duration `json:"age_ns"`
 	Silence   time.Duration `json:"silence_ns"`
 	LastLine  string        `json:"last_line,omitempty"`
@@ -247,6 +249,7 @@ func ResumeArgs(r Record, session string) []string {
 // staleFrom fills the fields every stale entry shows.
 func staleFrom(r Record, now time.Time, reason string) StaleJob {
 	return StaleJob{ID: r.ID, Task: taskOf(r), Agent: cmp.Or(r.RanAs, r.Agent), Reason: reason,
+		Parent: r.Parent, Depth: r.Depth,
 		Model: cmp.Or(r.Model, r.Invoked, r.Request.Model, "?"), Age: now.Sub(r.Time),
 		Silence: now.Sub(lastSignal(r)), LastLine: lastLogLine(r.LogPath())}
 }
