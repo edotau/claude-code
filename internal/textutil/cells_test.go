@@ -82,7 +82,7 @@ func assertCellEscapes(t *testing.T, s string) {
 
 func TestTruncateCellsASCIICompatibility(t *testing.T) {
 	const asciiCases = 400
-	for length := 0; length < asciiCases; length++ {
+	for length := range asciiCases {
 		var b strings.Builder
 		for i := 0; i < length; i++ {
 			b.WriteByte(byte(32 + (i*17+length)%95))
@@ -98,7 +98,7 @@ func TestTruncateCellsASCIICompatibility(t *testing.T) {
 
 func TestPadCells(t *testing.T) {
 	for _, s := range []string{"", "abc", "界", "é", "✈️", "👨‍👩‍👧‍👦", "\x1b[31mred\x1b[0m"} {
-		for n := 0; n < 12; n++ {
+		for n := range 12 {
 			for _, left := range []bool{false, true} {
 				got := PadCells(s, n, left)
 				if DisplayWidth(got) != max(n, DisplayWidth(s)) {
@@ -124,8 +124,7 @@ func TestCellsUnchangedAllocations(t *testing.T) {
 		}
 		if allocs := testing.AllocsPerRun(allocationRuns, func() {
 			cellsBenchWidth = DisplayWidth(s)
-			cellsBenchText = TruncateCells(s, n, "…")
-			cellsBenchText = PadCells(s, n, false)
+			cellsBenchText = PadCells(TruncateCells(s, n, "…"), n, false)
 		}); allocs != 0 {
 			t.Fatalf("unchanged allocated %v", allocs)
 		}
