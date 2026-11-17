@@ -120,7 +120,8 @@ dream` archives the overflow.
   edits; the first dispatch claims a detached `memory watch` that updates after 10 quiet minutes (a crash fires no
   SessionEnd); `memory-compact` does the same before compaction.
   At the context-steward threshold the Stop update is the one spawned worker and also writes a handoff (a
-  `handoff-<session>` marker in `state/harness/memory/` adds the step; the "bg" stamp stops a second Stop update).
+  `handoff-<session>` marker in `state/harness/memory/` holds the path
+  `handoffs/<date>-session-<id8>.md` and adds the step; the "bg" stamp stops a second Stop update).
   A detached worker (`CLAUDE_MEMORY_DETACHED`) waits up
   to `detachedLockWait` (16 min) for the store lock behind a dream; a foreground update waits `updateLockWait` (5 s).
   If the permission gate refused writes and no bank file changed it reruns once; a second miss records status

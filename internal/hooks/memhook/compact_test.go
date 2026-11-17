@@ -26,6 +26,7 @@ func swap[T any](t *testing.T, p *T, v T) {
 // compactSession is a hermetic banked session with work worth one update; it returns its PreCompact input.
 func compactSession(t *testing.T) (in *core.Input, handoffs string) {
 	t.Helper()
+	swap(t, &stewardWait, 50*time.Millisecond)
 	tr, payload := hookSession(t)
 	hosttest.WriteEdits(t, tr, 3)
 	in = payload()

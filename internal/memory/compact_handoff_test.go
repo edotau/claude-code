@@ -109,10 +109,15 @@ func TestResumeNoteListsModelHandoffBeforeGenerated(t *testing.T) {
 	if got := ResumeNote("compact", "4f1c2a9e-1111", root, now); got != "handoff: "+gen {
 		t.Fatalf("generated only: ResumeNote = %q, want the generated handoff", got)
 	}
-	model := b.Sub("handoffs", now.Format("2006-01-02")+"-topic.md")
+	model := b.Sub("handoffs", now.Format("2006-01-02")+"-session-4f1c2a9e.md")
+	peer := b.Sub("handoffs", now.Format("2006-01-02")+"-session-99999999.md")
 	write(t, model, "model written")
+	write(t, peer, "another session")
 	later := now.Add(time.Minute)
 	if err := os.Chtimes(model, later, later); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chtimes(peer, later.Add(time.Minute), later.Add(time.Minute)); err != nil { // the peer's is newer
 		t.Fatal(err)
 	}
 	want := "handoff: " + model + "; generated handoff: " + gen
