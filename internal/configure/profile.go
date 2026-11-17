@@ -47,7 +47,7 @@ func ValidProfile(agents []string, profile string) error {
 		if err := agentpkg.ValidAgentPin(reg, a, profile); err != nil {
 			return err
 		}
-		if row := reg.Providers[profile]; row != nil && a != "claude" && !agentpkg.CanServe(a, row) {
+		if row := reg.Providers[profile]; row != nil && !agentpkg.VaultAgentIsClaude(a) && !agentpkg.CanServe(a, row) {
 			return fmt.Errorf("%s cannot serve profile %q", a, profile)
 		}
 	}

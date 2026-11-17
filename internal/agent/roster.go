@@ -255,7 +255,7 @@ func GeminiGatewayRow(p *providers.Provider) bool {
 
 // CanServe reports whether p is usable by agent name (Serves without the reason).
 func CanServe(name string, p *providers.Provider) bool {
-	if name == agentid.Gemini && GeminiGatewayRow(p) {
+	if agentid.Routing(name).GoogleOrDatabricks && GeminiGatewayRow(p) {
 		return true
 	}
 	ok, _ := Serves(name, p, "")
@@ -422,7 +422,7 @@ func AgentUnbillable(agent string) string {
 
 // AgentActive reports whether agent is on: claude always, else a profile is set (copilot's no-bill-off stays derived).
 func AgentActive(agent string) bool {
-	if agent == agentid.Claude {
+	if VaultAgentIsClaude(agent) {
 		return true
 	}
 	if _, ok := lookupRow(agent); !ok {
@@ -593,7 +593,7 @@ func capFields(c Caps) []capField {
 // wireAgent is an agent with dialects whose profile row takes a caller's model: not claude, a hub or codex.
 func wireAgent(name string) bool {
 	s, ok := lookupRow(name)
-	return ok && len(s.CLI.Dialects) > 0 && name != "claude" && !isHubAgent(name) && !speaksResponses(name)
+	return ok && len(s.CLI.Dialects) > 0 && !VaultAgentIsClaude(name) && !isHubAgent(name) && !speaksResponses(name)
 }
 
 // speaksResponses reports an agent whose schema lists the Responses dialect (codex): it needs a Responses route.

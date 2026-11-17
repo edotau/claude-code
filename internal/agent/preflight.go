@@ -153,7 +153,7 @@ func CredentialFingerprint(p *providers.Provider) string {
 }
 
 func launchWorkspaceFindings(agentName string, p *providers.Provider, st router.State, now time.Time, pf *Preflight) []Finding {
-	if agentName != agentid.Codex {
+	if !agentid.Routing(agentName).ResponsesRoute {
 		return CheckWorkspace(p, st, now)
 	}
 	if pf == nil {
@@ -266,12 +266,12 @@ func checkServed(agentName string, p *providers.Provider, model string, now time
 // geminiEffort cuts gemini's trailing native effort off model; ok is false for any other agent or no suffix.
 func geminiEffort(agentName, model string) (base, effort string, ok bool) {
 	base, effort, cut := strings.CutLast(model, "-")
-	return base, effort, agentName == agentid.Gemini && cut && slices.Contains(agentid.NativeEfforts(agentid.Gemini), effort)
+	return base, effort, agentid.Routing(agentName).EffortSuffix && cut && slices.Contains(agentid.NativeEfforts(agentid.Gemini), effort)
 }
 
 // servedSpelling is id as agentName asks p for it: databricks-<id> where served; claude never takes GPT/Gemini.
 func servedSpelling(agentName string, p *providers.Provider, id string, now time.Time) string {
-	if fam := models.FamilyKind(id); agentName == "claude" && (fam == models.FamilyGPT || fam == models.FamilyGemini) {
+	if fam := models.FamilyKind(id); agentid.Routing(agentName).ModelFamily == string(models.FamilyClaude) && (fam == models.FamilyGPT || fam == models.FamilyGemini) {
 		return providers.SpellPin(p, id)
 	}
 	return router.SpellServed(p, id, now)
@@ -300,7 +300,7 @@ func preflightResponsesMismatch(agentName string, p *providers.Provider, wire st
 
 // preflightModelWire permits agy's gateway transport without requiring a custom-base-URL dialect.
 func preflightModelWire(agentName string, p *providers.Provider, model string) (wire, why string) {
-	if agentName == "claude" || (agentName == "gemini" && GeminiGatewayRow(p)) {
+	if agentid.Routing(agentName).AnthropicRoute || (agentid.Routing(agentName).GoogleOrDatabricks && GeminiGatewayRow(p)) {
 		if wire = providers.SpellPin(p, model); wire == "" {
 			why = p.Name + " serves no " + model
 		}
@@ -600,7 +600,7 @@ func previewOutcome(chain Chain, pick router.PickResult) router.PickResult {
 		}
 		c := pick.Candidates[d.rung-1]
 		model := strings.TrimPrefix(d.Model, c.Profile+":")
-		if c.Agent != "claude" || c.Profile != "" && !slices.Contains(models.AliasNames, model) {
+		if !VaultAgentIsClaude(c.Agent) || c.Profile != "" && !slices.Contains(models.AliasNames, model) {
 			c.Model, c.Effort = d.Model, d.Effort
 		}
 		res.Candidates = append(res.Candidates, c)

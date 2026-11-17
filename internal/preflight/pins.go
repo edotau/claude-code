@@ -119,7 +119,7 @@ func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, sessi
 		p.Fix = fmt.Sprintf("claude-code %s profile %s", name, cmp.Or(session, "<profile>"))
 		return p
 	}
-	if name == "opencode" && slices.Contains(providers.RouteOpencodeSubIDs, p.Profile) {
+	if agentid.Routing(name).SubLadder && slices.Contains(providers.RouteOpencodeSubIDs, p.Profile) {
 		p.Status = StatusOK
 		return p
 	}
@@ -175,7 +175,7 @@ func checkServed(p *Pin, prov *providers.Provider, name string, now time.Time) {
 
 // servedName is the model's serving-endpoint name: gemini's effort suffix (gemini-3.8-flash-high) is not part of it.
 func servedName(agent, model string) string {
-	if base, effort, ok := strings.CutLast(model, "-"); agent == agentid.Gemini && ok &&
+	if base, effort, ok := strings.CutLast(model, "-"); agentid.Routing(agent).EffortSuffix && ok &&
 		slices.Contains(agentid.NativeEfforts(agentid.Gemini), effort) {
 		return base
 	}

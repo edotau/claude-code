@@ -8,6 +8,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -22,10 +23,10 @@ func resolveAccount(agentName string, c router.Cell) (string, string) {
 
 func resolveAccountContext(ctx context.Context, agentName string, c router.Cell) (string, string) {
 	var t providers.Target
-	switch agentName {
-	case "opencode":
+	switch {
+	case agentid.Routing(agentName).SubLadder:
 		return "", "" // the cell's provider prefix is the account; Configured gates its credential
-	case "claude":
+	case VaultAgentIsClaude(agentName):
 		_, ct, err := ResolveRequestTarget(RunOptions{Provider: providers.SessionProfileContext(ctx), Model: c.Model, Values: contextValues(ctx)})
 		if err != nil || ct.Provider == nil || ct.Provider.Auth.Method() == providers.AuthCLI {
 			return "", ""
@@ -58,7 +59,7 @@ func SessionProviderContext(ctx context.Context, agentName string) string {
 		return ""
 	}
 	p := reg.Providers[providers.SessionLeadContext(ctx, reg, false)]
-	if p != nil && (agentName == "claude" || CanServe(agentName, p)) {
+	if p != nil && (VaultAgentIsClaude(agentName) || CanServe(agentName, p)) {
 		return p.Name
 	}
 	return ""

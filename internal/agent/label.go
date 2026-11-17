@@ -25,7 +25,7 @@ import (
 func RunQuery(ctx context.Context, reg *providers.Registry, q ModelQuery, aliasHint string) (ModelQuery, string, error) {
 	prefix, auto := SplitAuto(q.Model)
 	typed := q.Model != "" && (!auto || prefix != "") // a bare auto routes like an untyped run
-	if q.Agent == agentid.Claude || typed || q.Profile != "" || q.Provider != "" || q.Account != "" {
+	if VaultAgentIsClaude(q.Agent) || typed || q.Profile != "" || q.Provider != "" || q.Account != "" {
 		return q, "", nil
 	}
 	pin := agentModelPinContext(ctx, q.Agent)
@@ -71,7 +71,7 @@ func ladderHop(reg *providers.Registry, q ModelQuery, d Dispatch) (ModelQuery, s
 	if reg.Row(acct) != nil {
 		hop.Profile = acct
 	}
-	if !d.keepCaller && !d.unroutedDispatch && (strings.Contains(d.Model, ":") || hop.Agent == agentid.Claude) {
+	if !d.keepCaller && !d.unroutedDispatch && (strings.Contains(d.Model, ":") || VaultAgentIsClaude(hop.Agent)) {
 		hop.Model = d.Model // dispatchRequest's CellModel: a bare alias is dropped for a vendor CLI's own pin
 	}
 	note := ""
@@ -501,12 +501,12 @@ const chatTask = "llm/v1/chat"
 
 // agentRuns is the tier rule: claude runs Claude, gemini Gemini (any chat model on Databricks), codex Responses.
 func agentRuns(agentName string, p *providers.Provider, wire string) bool {
-	switch agentName {
-	case agentid.Claude:
+	switch facts := agentid.Routing(agentName); {
+	case facts.ModelFamily == string(models.FamilyClaude):
 		return models.FamilyKind(wire) == models.FamilyClaude
-	case agentid.Gemini:
+	case facts.GoogleOrDatabricks:
 		return models.FamilyKind(wire) == models.FamilyGemini || GeminiGatewayRow(p)
-	case agentid.Codex:
+	case facts.ResponsesRoute:
 		return providers.ServesResponses(p, wire)
 	}
 	return true

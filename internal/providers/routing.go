@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -154,7 +155,7 @@ func validateCellAccount(agent, alias string, cell RouteCell) []string {
 	switch {
 	case cell.Account != "" && !validRouteAccountKey(cell.Account):
 		return []string{fmt.Sprintf("routing.cells %s/%s names account_key %q with no known billing entry", agent, alias, cell.Account)}
-	case cell.Account == "" && agent == "opencode" && cell.Model != "" &&
+	case cell.Account == "" && agentid.Routing(agent).SubLadder && cell.Model != "" &&
 		!slices.Contains(routeOpencodeModelPrefixes, routeModelPrefix(cell.Model)):
 		return []string{fmt.Sprintf("routing.cells opencode/%s model %q prefix has no known billing account; set account_key explicitly", alias, cell.Model)}
 	}
@@ -233,7 +234,7 @@ func rungNameErrors(label string, g Rung) []string {
 
 // rungModelOK: opencode takes its sub ids; others take an alias or a model a row, the seed or saved menu serves.
 func rungModelOK(r *Registry, agent, m string) bool {
-	if agent == "opencode" {
+	if agentid.Routing(agent).SubLadder {
 		return slices.Contains(RouteOpencodeSubIDs, m)
 	}
 	if slices.Contains(RouteAliases, m) {

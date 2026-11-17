@@ -496,7 +496,7 @@ func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, pr
 
 // agyOwnTarget is agy's own model typed on its Google row, spelled as agy takes it; an effort it lacks errors.
 func agyOwnTarget(req RunOptions, p *providers.Provider) (t providers.Target, ok bool, err error) {
-	if req.Agent != agentid.Gemini || p.Auth.Login != agentid.Gemini {
+	if !agentid.Routing(req.Agent).EffortSuffix || p.Auth.Login != agentid.Gemini {
 		return t, false, nil
 	}
 	base, effort := strings.ToLower(req.Model), ""

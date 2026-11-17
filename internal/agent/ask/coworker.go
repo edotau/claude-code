@@ -117,7 +117,7 @@ func confineLine(ctx context.Context, agentName string, req agent.RunOptions) (a
 		return req, nil
 	}
 	q := agent.RouteReq{Agent: agentName, Model: req.Model, Profile: profile, Provider: provider, Fallback: req.Fallback}
-	lead, prov, err := routedLead(q, agentName == "claude")
+	lead, prov, err := routedLead(q, agent.VaultAgentIsClaude(agentName))
 	if err != nil {
 		return req, err
 	}
@@ -364,7 +364,7 @@ func CheckArm(ctx context.Context, agentName, profile, provider, model string, d
 	if spec.Row != "" && spec.Row != arm {
 		return fmt.Errorf("--model: profile %s is outside overlay databricks:%s", spec.Row, arm)
 	}
-	if agentName != "claude" { // claude has no own-cell hop; the chain's preflight validates every other agent
+	if !agent.VaultAgentIsClaude(agentName) { // claude has no own-cell hop; the chain's preflight validates every other agent
 		return nil
 	}
 	model = spec.Model
