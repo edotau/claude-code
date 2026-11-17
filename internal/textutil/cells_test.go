@@ -84,7 +84,7 @@ func TestTruncateCellsASCIICompatibility(t *testing.T) {
 	const asciiCases = 400
 	for length := range asciiCases {
 		var b strings.Builder
-		for i := 0; i < length; i++ {
+		for i := range length {
 			b.WriteByte(byte(32 + (i*17+length)%95))
 		}
 		s := b.String()
