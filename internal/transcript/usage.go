@@ -86,6 +86,9 @@ type ResponseAccumulator struct {
 }
 
 func (a *ResponseAccumulator) Add(line []byte) {
+	if !bytes.Contains(line, usageKey) { // a line without a "usage" key cannot count; skips the full decode
+		return
+	}
 	var rec usageLine
 	if json.Unmarshal(line, &rec) != nil || rec.Type != "assistant" || rec.Message.Usage == nil {
 		return
