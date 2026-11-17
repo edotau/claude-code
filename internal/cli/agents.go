@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
+	"github.com/edotau/claude-code/internal/agent/inspect"
 	"github.com/edotau/claude-code/internal/agent/tree"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
@@ -398,13 +399,13 @@ func cmdAgentsDiff(args []string) int {
 	if err != nil {
 		return helptext.Fail("agents diff: %v", err)
 	}
-	return agent.Diff(agent.DiffOptions{Dir: cwd, Base: *base, Paths: sel, Verify: *verify, Check: *check, JSON: *format == helptext.JSON,
+	return inspect.Diff(inspect.DiffOptions{Dir: cwd, Base: *base, Paths: sel, Verify: *verify, Check: *check, JSON: *format == helptext.JSON,
 		Out: os.Stdout, Err: os.Stderr})
 }
 
 func cmdAgentsFind(args []string) int {
 	fs := agentsFlags("find")
-	o := agent.FindOptions{Dir: ".", Out: os.Stdout, Err: os.Stderr}
+	o := inspect.FindOptions{Dir: ".", Out: os.Stdout, Err: os.Stderr}
 	fs.BoolVar(&o.Name, "name", false, "match file paths instead of content")
 	fs.BoolVar(&o.Func, "func", false, "match Go function or method declarations")
 	fs.BoolVar(&o.Def, "def", false, "match Go top-level func, type, const or var declarations")
@@ -412,7 +413,7 @@ func cmdAgentsFind(args []string) int {
 	fs.BoolVar(&o.IgnoreCase, "i", false, "ignore case")
 	fs.BoolVar(&o.Word, "w", false, "match whole words")
 	fs.BoolVar(&o.Files, "l", false, "print matching file names only")
-	fs.IntVar(&o.Max, "max", agent.FindDefaultMax, "result-line budget; more is a lower bound when cut")
+	fs.IntVar(&o.Max, "max", inspect.FindDefaultMax, "result-line budget; more is a lower bound when cut")
 	fs.Func("path", "limit to a repo path prefix or glob; repeat per path (as agents diff)", func(v string) error {
 		o.Paths = append(o.Paths, v)
 		return nil
@@ -430,7 +431,7 @@ func cmdAgentsFind(args []string) int {
 		return 2
 	}
 	o.Pattern, o.JSON = pos[0], *format == helptext.JSON
-	return agent.Find(o)
+	return inspect.Find(o)
 }
 
 // cmdAgentsDispatch is `agents dispatch --waves <plan>`: the wave runner.

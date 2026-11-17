@@ -11,7 +11,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/inspect"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/plans"
 )
@@ -184,8 +184,8 @@ func (r *runner) verifyLeaf(ctx context.Context, w WaveState, s Spec) (WaveState
 
 func (r *runner) taskCheck(ctx context.Context, s Spec) (bool, *stepResult, error) {
 	if s.Verify == "" {
-		rep, err := checkDiff(r.h.check, agent.DiffOptions{Dir: r.o.Dir, Base: r.state.Base, Paths: checkScope(s.Owns), Check: true})
-		return !slices.ContainsFunc(rep.Gates, func(g agent.GateResult) bool { return g.Status == "FAIL" }), nil, err
+		rep, err := checkDiff(r.h.check, inspect.DiffOptions{Dir: r.o.Dir, Base: r.state.Base, Paths: checkScope(s.Owns), Check: true})
+		return !slices.ContainsFunc(rep.Gates, func(g inspect.GateResult) bool { return g.Status == "FAIL" }), nil, err
 	}
 	result, err := r.step(ctx, s.Verify, "verify-"+s.ID, s.Owns)
 	return result.Exit == 0, &result, err

@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"slices"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/inspect"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -40,19 +40,19 @@ type State struct {
 
 // WaveState is one wave's record; Status is a WaveState* constant.
 type WaveState struct {
-	N            int                `json:"n"`
-	Status       string             `json:"status"`
-	Leaves       []LeafState        `json:"leaves"`
-	Reason       string             `json:"reason,omitempty"`
-	Outside      []string           `json:"outside"`
-	Unattributed []string           `json:"unattributed,omitempty"` // changed files with no attributable writer
-	Fallback     []string           `json:"fallback,omitempty"`     // leaves whose dispatch recorded no writes
-	Gates        []agent.GateResult `json:"gates"`
-	Verifier     *stepResult        `json:"verifier,omitempty"`
-	Proof        []RoutingResult    `json:"proof"`
-	Violations   []CheckViolation   `json:"violations,omitempty"`
-	Manual       []string           `json:"manual,omitempty"`
-	Packages     []Spec             `json:"packages,omitempty"`
+	N            int                  `json:"n"`
+	Status       string               `json:"status"`
+	Leaves       []LeafState          `json:"leaves"`
+	Reason       string               `json:"reason,omitempty"`
+	Outside      []string             `json:"outside"`
+	Unattributed []string             `json:"unattributed,omitempty"` // changed files with no attributable writer
+	Fallback     []string             `json:"fallback,omitempty"`     // leaves whose dispatch recorded no writes
+	Gates        []inspect.GateResult `json:"gates"`
+	Verifier     *stepResult          `json:"verifier,omitempty"`
+	Proof        []RoutingResult      `json:"proof"`
+	Violations   []CheckViolation     `json:"violations,omitempty"`
+	Manual       []string             `json:"manual,omitempty"`
+	Packages     []Spec               `json:"packages,omitempty"`
 }
 
 // LeafState is one leaf's record; Status is the envelope status, Verdict "" or "ok" unless the routing check failed.

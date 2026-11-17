@@ -11,7 +11,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/inspect"
 )
 
 type runFixture struct {
@@ -64,8 +64,8 @@ func (f *runFixture) launch(_ context.Context, _ string, specs []Spec, o LaunchO
 	return out, nil
 }
 
-func (f *runFixture) diff(o agent.DiffOptions) int {
-	rep := agent.DiffReport{}
+func (f *runFixture) diff(o inspect.DiffOptions) int {
+	rep := inspect.DiffReport{}
 	if o.Verify != "" {
 		rep = verifyWindow(0, 30)
 		rep.Verify.ID = o.Verify

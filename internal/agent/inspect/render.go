@@ -1,4 +1,4 @@
-package agent
+package inspect
 
 import (
 	"cmp"
@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
 
@@ -109,7 +110,7 @@ func renderVerify(w io.Writer, v *VerifyReport) {
 	fmt.Fprintln(w, took)
 	if v.Wrote != nil {
 		n, more := len(*v.Wrote), ""
-		if n > 0 && (*v.Wrote)[n-1] == WroteTruncated {
+		if n > 0 && (*v.Wrote)[n-1] == agent.WroteTruncated {
 			n, more = n-1, "+"
 		}
 		fmt.Fprintf(w, "  wrote: %d%s files\n", n, more)

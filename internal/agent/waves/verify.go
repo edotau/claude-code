@@ -18,14 +18,15 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/inspect"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
 // Exit codes of CheckUnion, the same as `agents diff`.
 const (
-	CheckExitGate    = agent.DiffExitGate
-	CheckExitOutside = agent.DiffExitOutside
+	CheckExitGate    = inspect.DiffExitGate
+	CheckExitOutside = inspect.DiffExitOutside
 )
 
 // GateTailLines is how many trailing output lines GateRun returns.
@@ -33,8 +34,8 @@ const GateTailLines = 40
 
 // CheckEnv holds the side-effecting calls; a nil field means the real one.
 type CheckEnv struct {
-	// Diff is agent.Diff.
-	Diff func(agent.DiffOptions) int
+	// Diff is inspect.Diff.
+	Diff func(inspect.DiffOptions) int
 	// Fingerprint is a file's content hash, "absent" when missing, as state.go FingerprintAbsent.
 	Fingerprint func(dir, rel string) (string, error)
 	// Exec runs script with `bash -c` in dir with extra env, writes combined output to out and returns the exit code.
@@ -70,7 +71,7 @@ type CheckUnionResult struct {
 	Outside      []string // changed outside every package since launch; pre-existing unchanged dirt is not listed
 	Violations   []CheckViolation
 	Unattributed []string // changed files owned by another package whose writer the run windows cannot tell
-	Gates        []agent.GateResult
+	Gates        []inspect.GateResult
 	Fallback     []string // packages whose dispatch recorded no writes, judged by run window and last write time
 }
 
@@ -83,7 +84,7 @@ func CheckUnion(env CheckEnv, in CheckUnionInput) (CheckUnionResult, error) {
 	if err != nil {
 		return CheckUnionResult{}, err
 	}
-	rep, err := checkDiff(env, agent.DiffOptions{Dir: in.Dir, Base: in.Base, Paths: checkScope(owned), Check: true})
+	rep, err := checkDiff(env, inspect.DiffOptions{Dir: in.Dir, Base: in.Base, Paths: checkScope(owned), Check: true})
 	if err != nil {
 		return CheckUnionResult{}, err
 	}
@@ -100,7 +101,7 @@ func CheckUnion(env CheckEnv, in CheckUnionInput) (CheckUnionResult, error) {
 	}
 	res.Fallback = checkUnrecorded(pkgs)
 	switch {
-	case slices.ContainsFunc(rep.Gates, func(g agent.GateResult) bool { return g.Status == "FAIL" }):
+	case slices.ContainsFunc(rep.Gates, func(g inspect.GateResult) bool { return g.Status == "FAIL" }):
 		res.Exit = CheckExitGate
 	case len(res.Outside)+len(res.Violations)+len(res.Unattributed) > 0:
 		res.Exit = CheckExitOutside
@@ -182,7 +183,7 @@ func (p checkPkg) blind(mt time.Time) bool {
 func checkPackages(env CheckEnv, in CheckUnionInput) ([]checkPkg, error) {
 	out := make([]checkPkg, 0, len(in.Packages))
 	for _, p := range in.Packages {
-		o := agent.DiffOptions{Dir: in.Dir, Base: in.Base, Paths: checkScope(p.Owns), Verify: p.Dispatch}
+		o := inspect.DiffOptions{Dir: in.Dir, Base: in.Base, Paths: checkScope(p.Owns), Verify: p.Dispatch}
 		rep, err := checkDiff(env, o)
 		if err != nil {
 			return nil, fmt.Errorf("package %s: %w", p.ID, err)
@@ -358,16 +359,16 @@ func checkHashObject(dir, rel string) (string, error) {
 }
 
 // checkDiff runs Diff in JSON mode and decodes its report; exit 2 (usage) is an error, 1 and 3 are in the report.
-func checkDiff(env CheckEnv, o agent.DiffOptions) (agent.DiffReport, error) {
+func checkDiff(env CheckEnv, o inspect.DiffOptions) (inspect.DiffReport, error) {
 	run := env.Diff
 	if run == nil {
-		run = agent.Diff
+		run = inspect.Diff
 	}
 	var out, errb bytes.Buffer
 	o.JSON, o.Out, o.Err = true, &out, &errb
 	exit := run(o)
-	var rep agent.DiffReport
-	if exit == agent.DiffExitUsage {
+	var rep inspect.DiffReport
+	if exit == inspect.DiffExitUsage {
 		return rep, fmt.Errorf("agents diff: %s", strings.TrimSpace(errb.String()))
 	}
 	if err := json.Unmarshal(out.Bytes(), &rep); err != nil {
@@ -386,7 +387,7 @@ type RoutingResult struct {
 
 // RoutingProof reads only verify.mismatch of dispatch id.
 func RoutingProof(env CheckEnv, dir, id string) (RoutingResult, error) {
-	rep, err := checkDiff(env, agent.DiffOptions{Dir: dir, Verify: id})
+	rep, err := checkDiff(env, inspect.DiffOptions{Dir: dir, Verify: id})
 	if err != nil {
 		return RoutingResult{}, err
 	}
