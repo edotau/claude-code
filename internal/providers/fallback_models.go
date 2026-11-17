@@ -73,7 +73,9 @@ var modelDeniedRE = sync.OnceValue(func() *regexp.Regexp {
 
 // accountTail is the account-exhaustion alternation shared by accountRE and hardAccountRE.
 const accountTail = `usage limit|out of (?:premium )?(?:credits|requests)|(?:monthly|weekly) quota|` +
-	`you've hit your (?:session |weekly |5-hour |monthly (?:spend )?|team's shared |channel's monthly spend )?(?:limit|budget)|out of usage credits`
+	`you've hit your (?:session |weekly |5-hour |monthly (?:spend )?|team's shared |channel's monthly spend )?(?:limit|budget)|out of usage credits|` +
+	// Placeholder pending Copilot's real out-of-credits message (not found in the local CLI bundle).
+	`premium requests? (?:quota|limit)|no (?:remaining )?quota\b`
 
 // accountRE covers markers meaning this ACCOUNT is exhausted (plan window, credits, a 402), not a rate limit.
 var accountRE = sync.OnceValue(func() *regexp.Regexp {

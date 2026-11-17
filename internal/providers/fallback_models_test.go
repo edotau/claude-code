@@ -100,6 +100,9 @@ func TestQuotaClassification(t *testing.T) {
 		{"You've hit your fast limit", false, false},
 		{"429 Too Many Requests, retry in 2s", false, false},
 		{"rate limit exceeded", false, false},
+		{"premium request quota exhausted", true, false},
+		{"You have no quota", true, false},
+		{"disk quota exceeded", false, false},
 		{"line 4021", false, false},
 	} {
 		if IsQuota(c.text) != c.quota || ModelDenied(c.text) != c.denied {
