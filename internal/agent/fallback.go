@@ -785,7 +785,7 @@ func (c Chain) yieldsFallback(req RunOptions, res wire.Result, err error) bool {
 func (c Chain) retryYield(ctx context.Context, i int, req RunOptions) func(wire.Result, error) bool {
 	return func(res wire.Result, err error) bool {
 		return c.yieldsFallback(req, res, err) ||
-			(i+1 < len(c.Dispatches) && !(i == 0 && explicitBackend(req)) &&
+			(i+1 < len(c.Dispatches) && (i != 0 || !explicitBackend(req)) &&
 				dispatchUnavailableContext(ctx, c.Dispatches[i].Agent, res, err))
 	}
 }
