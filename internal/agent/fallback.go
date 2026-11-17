@@ -32,7 +32,7 @@ func askedSkips(reasons []string, want string) []string {
 	})
 }
 
-// runWithFallback runs c's dispatches in turn while the previous one was unavailable; see dispatchUnavailable.
+// runWithFallback runs c's dispatches in turn while the previous one was unavailable; see dispatchUnavailableContext.
 func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sink, notify func(string)) (wire.Result, error) {
 	if sink == nil {
 		sink = wire.Discard
@@ -292,11 +292,7 @@ func FallbackReason(err error) string {
 	return textutil.CapRunes(textutil.RedactSecrets(s), 200, "")
 }
 
-// dispatchUnavailable: a pre-answer auth failure or state refusal, or a failed hop that falls through.
-func dispatchUnavailable(r Engine, res wire.Result, err error) bool {
-	return dispatchUnavailableContext(context.Background(), r, res, err)
-}
-
+// dispatchUnavailableContext: a pre-answer auth failure or state refusal, or a failed hop that falls through.
 func dispatchUnavailableContext(ctx context.Context, r Engine, res wire.Result, err error) bool {
 	if requestFault(err) {
 		return false
@@ -481,6 +477,7 @@ func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispa
 	retry.WaitCooldown(ctx, key, retry.DefaultMaxDelay)
 	var dhops []wire.Hop
 	var panicked bool
+	lreq.YieldFallback = c.retryYield(ctx, i, s.req)
 	s.res, dhops, panicked, s.err = runDispatch(ctx, c, i, disp, lreq, s.req, key, sink, notify)
 	s.hops = append(s.hops, dhops...)
 	if s.res.Handoff != s.handoff {
@@ -770,7 +767,7 @@ func fallToNextAlias(r Engine, req *RunOptions, e *retry.Error, notify func(stri
 		if notify != nil {
 			notify(fmt.Sprintf("%s: the %s model is quota-dead on this key; retrying on %s", r.Name(), cur, next))
 		}
-		req.Model, e.RetryAfter, e.Kind = next, 0, retry.KindRateLimit
+		req.Model, e.RetryAfter, e.Kind, e.RetryNow = next, 0, retry.KindRateLimit, true
 	}
 }
 
@@ -783,4 +780,12 @@ func aliasDenied(r Engine, req RunOptions, e *retry.Error) bool {
 // yieldsFallback lets an internal caller handle a failure before the next fallback dispatch.
 func (c Chain) yieldsFallback(req RunOptions, res wire.Result, err error) bool {
 	return len(c.Dispatches) > 0 && req.YieldFallback != nil && req.YieldFallback(res, err)
+}
+
+func (c Chain) retryYield(ctx context.Context, i int, req RunOptions) func(wire.Result, error) bool {
+	return func(res wire.Result, err error) bool {
+		return c.yieldsFallback(req, res, err) ||
+			(i+1 < len(c.Dispatches) && !(i == 0 && explicitBackend(req)) &&
+				dispatchUnavailableContext(ctx, c.Dispatches[i].Agent, res, err))
+	}
 }

@@ -39,6 +39,24 @@ func TestBackoff(t *testing.T) {
 }
 
 func TestDelayJittersRetryAfter(t *testing.T) {
+	for _, hint := range []time.Duration{0, time.Millisecond} {
+		ResetCooldowns()
+		t.Cleanup(ResetCooldowns)
+		p := DefaultPolicy()
+		p.Key = t.Name()
+		wait := p.retryDelay(&Error{Kind: KindRateLimit, RetryAfter: hint}, 1)
+		cooldowns.Lock()
+		_, recorded := cooldowns.until[p.Key]
+		cooldowns.Unlock()
+		t.Logf("hint=%s requested=%s cooldown=%t", hint, wait, recorded)
+		lo, hi := RateLimitFloor, RateLimitFloor+RateLimitFloor/2
+		if hint > 0 {
+			lo, hi = hint, hint+hint/4
+		}
+		if wait < lo || wait > hi || !recorded {
+			t.Errorf("hint=%s: wait=%s, want [%s,%s] and a shared cooldown", hint, wait, lo, hi)
+		}
+	}
 	p := Policy{BaseDelay: 2 * time.Second, MaxDelay: 30 * time.Second}
 	lo, hi := p.delay(5*time.Second, 1, 0), p.delay(5*time.Second, 1, 1)
 	if lo != 5*time.Second || hi <= lo || hi > p.MaxDelay {

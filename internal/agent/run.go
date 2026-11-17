@@ -324,6 +324,10 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink wire.Sink, notify f
 	}
 	start := time.Now()
 	state := runState{res: res, req: req, dropped: dropped, emulated: emulated}
+	p.GiveUp = func(e *retry.Error) bool {
+		return !e.RetryNow && e.Kind == retry.KindRateLimit && !e.Progressed &&
+			req.YieldFallback != nil && req.YieldFallback(state.res, e)
+	}
 	e := retry.Do(ctx, p, func(actx context.Context, attempt int) *retry.Error {
 		state.attempts = attempt
 		return state.attempt(ctx, actx, r, sink, notify)

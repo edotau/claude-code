@@ -44,6 +44,7 @@ type Error struct {
 	Agent      string
 	Status     int // HTTP status when known
 	RetryAfter time.Duration
+	RetryNow   bool // move to another model without delaying or cooling the account
 	Progressed bool // output already reached the stream: never retried
 	Attempts   int
 	AuthReason string // set on a KindAuth whose Recover failed with a login/rejected verdict: mark the account, move on
@@ -233,6 +234,7 @@ type Policy struct {
 	// Recover refreshes a rejected credential; KindAuth is retried only when it is set and succeeds.
 	Recover func(context.Context) error
 	Notify  func(string)
+	GiveUp  func(*Error) bool // yield to an available fallback before waiting
 	// Idle runs wait with the caller's concurrency permit released and retaken after; nil just runs wait.
 	Idle func(ctx context.Context, wait func()) error
 	// Key names the provider account whose rate limit this loop shares with other loops; "" shares nothing.
@@ -361,7 +363,7 @@ func Do(ctx context.Context, p Policy, fn func(ctx context.Context, attempt int)
 			return fail()
 		}
 		wait := p.retryDelay(last, attempt)
-		if !p.mayRetry(ctx, last, attempt) {
+		if (p.GiveUp != nil && p.GiveUp(last)) || !p.mayRetry(ctx, last, attempt) {
 			return fail()
 		}
 		p.notifyRetry(last, attempt, wait)
@@ -404,6 +406,9 @@ func (p Policy) notifyRetry(last *Error, attempt int, wait time.Duration) {
 }
 
 func (p Policy) retryDelay(last *Error, attempt int) time.Duration {
+	if last.RetryNow {
+		return 0
+	}
 	jitter := rand.Float64()
 	wait := p.delay(last.RetryAfter, attempt, jitter)
 	if last.Kind == KindRateLimit && last.RetryAfter <= 0 {
