@@ -111,6 +111,9 @@ func truncate(s string, n int) string {
 
 // oneLine collapses newlines/tabs and repeated spaces so a multi-line prompt renders as one title line.
 func oneLine(s string) string {
+	if !strings.ContainsAny(s, "\n\r\t") && !strings.Contains(s, "  ") {
+		return s
+	}
 	out := make([]rune, 0, len(s))
 	prevSpace := false
 	for _, c := range s {

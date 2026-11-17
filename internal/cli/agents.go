@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/par"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -34,7 +35,7 @@ func agentsSpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
 		"sync": {Flags: []helptext.Flag{valuedFlag("agent", project.Names), boolFlag("dry-run"), boolFlag("check"),
 			formatFlag()}},
-		"tree": {Flags: []helptext.Flag{flag("days"), flag("session"), boolFlag("finished"),
+		"tree": {Flags: []helptext.Flag{flag("days"), flag("session"), boolFlag("detail"),
 			boolFlag("watch"), flag("interval"), formatFlag()}},
 		"label": {Flags: []helptext.Flag{flag("model"), flag("profile"), flag("task"), flag("session-model"), formatFlag()}},
 		"find": {Flags: []helptext.Flag{boolFlag("name"), boolFlag("func"), boolFlag("def"), boolFlag("callers"),
@@ -110,9 +111,9 @@ var agentsSubPages = map[string][3]string{
 		"(plus gemini's and copilot's own skills dirs). Also re-renders each agent's native hook and config files " +
 		"(codex, opencode, gemini, copilot); --check reports a stale one."},
 	"tree": {"tree [flags]", "Live tree of running Claude sessions, their subagents and agent dispatches, in every repo. " +
-		"--finished adds idle and finished work in the --days window. Subagent columns: marker, agent, state, " +
-		"↑tokens in, ↓tokens out, age, idle; piped output is unclipped, a terminal clips rows to 80 columns.",
-		"Exit 0, 2 usage (bad --format, --watch with json, or a non-positive\n--interval)."},
+		"--detail adds idle, stale and finished work in the --days window. Subagent columns: marker, agent, model, " +
+		"↑tokens in, ↓tokens out, Σ subtree total, age, idle; piped output is unclipped, a terminal clips rows to 80 columns.",
+		"Exit 0, 2 usage (bad --format, --watch with json, or a non-positive --interval)."},
 	"label": {"label <type> [flags]", "Print the \"<model>: \" prefix the dispatch-effort hook requires on a dispatch " +
 		"description, for a leaf of <type> with the given model and task.",
 		"Exit 0, 1 the hook refuses <type> or the task is unreadable, 2 usage."},
@@ -169,9 +170,14 @@ func cmdAgents(args []string) int {
 	return unknownSub("agents", args[0], agentsPage)
 }
 
-// cmdAgentsAsk runs ask after starting a silent, unwaited reap, so orphaned dispatch children never pile up unseen.
+// cmdAgentsAsk joins cleanup so short dispatches cannot interrupt a reap.
 func cmdAgentsAsk(args []string) int {
-	go tree.Reap(false, io.Discard, io.Discard)
+	done := make(chan struct{})
+	par.Go(func() {
+		tree.Reap(false, io.Discard, io.Discard)
+		close(done)
+	}, func(err error) { fmt.Fprintln(os.Stderr, "agents reap:", err); close(done) })
+	defer func() { <-done }()
 	return ask.Cmd(args)
 }
 
@@ -282,9 +288,9 @@ func agentConfigsExit(changed []string, err error, check bool) int {
 // cmdAgentsTree is `agents tree`; --watch clears and redraws every --interval until a render fails.
 func cmdAgentsTree(args []string) int {
 	fs := agentsFlags("tree")
-	days := fs.Int("days", 1, "sessions modified in the last N days (ignored with --session)")
+	days := fs.Int("days", 1, "last N days; ignored with --session")
 	session := fs.String("session", "", "scope to one session id (every project dir is searched)")
-	finished := fs.Bool("finished", false, "also show idle and finished work")
+	detail := fs.Bool("detail", false, "also show idle, stale and finished work")
 	watch := fs.Bool("watch", false, "clear and re-render on --interval (text only)")
 	interval := fs.Duration("interval", 2*time.Second, "redraw interval for --watch")
 	format := helptext.FormatFlag(fs)
@@ -295,9 +301,9 @@ func cmdAgentsTree(args []string) int {
 		fmt.Fprintln(os.Stderr, "agents tree:", err)
 		return 2
 	}
-	// A named session shows whole.
-	opts := tree.Options{Days: *days, Session: *session, Running: !*finished && *session == ""}
-	return tree.Show(paths.ConfigDir(), opts, tree.View{JSON: *format == helptext.JSON, All: *finished || *session != "",
+	all := *detail || *format == helptext.JSON || *session != "" // a named session shows whole
+	opts := tree.Options{Days: *days, Session: *session}
+	return tree.Show(paths.ConfigDir(), opts, tree.View{JSON: *format == helptext.JSON, All: all,
 		Watch: *watch, Interval: *interval})
 }
 

@@ -4,7 +4,6 @@ package tree
 
 import (
 	"strings"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -15,7 +14,7 @@ const (
 	levelFree     = iota // a single text cell: repo headers, phase lines, blank separators
 	levelSession         // label state age branch | title
 	levelRun             // "workflow <name>" state age | id
-	levelSubagent        // marker type state ↑in ↓out age idle tool | description
+	levelSubagent        // marker type model ↑in ↓out total age idle | description
 	levelDispatch        // marker agent state duration signal | model
 	levelJob             // id where model duration signal | task
 	levelCount
@@ -30,9 +29,9 @@ type col struct {
 
 // levelCols holds the fixed columns per level; the cells of a row are these columns, then the text.
 var levelCols = [levelCount][]col{
-	levelSession:  {{max: 20}, {}, {right: true}, {max: 12}},
+	levelSession:  {{max: 20}, {}, {right: true}, {max: 12}, {right: true}},
 	levelRun:      {{}, {}, {right: true}},
-	levelSubagent: {{}, {max: 14}, {}, {right: true}, {right: true}, {right: true}, {right: true}, {max: 14, optional: true}},
+	levelSubagent: {{}, {max: 10}, {max: 12}, {right: true}, {right: true}, {right: true}, {right: true, optional: true}, {right: true, optional: true}},
 	levelDispatch: {{}, {max: 14}, {}, {right: true}, {}},
 	levelJob:      {{}, {max: 15}, {max: 22}, {right: true}, {}},
 }
@@ -87,30 +86,25 @@ func (l *layout) lines(width int, paint string) []string {
 	dropOptional(widths, width)
 	out := make([]string, len(rows))
 	for i, r := range rows {
-		out[i] = r.line(widths[r.level], width)
-		if paint != "" && r.hot != 0 {
-			out[i] = r.paintHot(out[i], widths[r.level], paint)
-		}
+		out[i] = r.line(widths[r.level], width, paint)
 	}
 	return out
 }
 
 // capped returns rows whose fixed cells are clipped to their column's max, for a terminal only.
 func (l *layout) capped(width int) []row {
-	out := make([]row, len(l.rows))
-	for i, r := range l.rows {
-		r.cells = append([]string(nil), r.cells...)
+	out := l.rows
+	for i, r := range out {
 		for c, k := range levelCols[r.level] {
 			if width > 0 && k.max > 0 {
-				r.cells[c] = textutil.Truncate(r.cells[c], k.max)
+				out[i].cells[c] = textutil.TruncateCells(r.cells[c], k.max, "…")
 			}
 		}
-		out[i] = r
 	}
 	return out
 }
 
-// levelWidths is each level's widest cell per fixed column, in runes (the tree's glyphs are one column each).
+// levelWidths is each level's widest cell per fixed column, in display cells.
 func levelWidths(rows []row) [levelCount][]int {
 	var ws [levelCount][]int
 	for level, cols := range levelCols {
@@ -118,7 +112,7 @@ func levelWidths(rows []row) [levelCount][]int {
 	}
 	for _, r := range rows {
 		for c := range levelCols[r.level] {
-			ws[r.level][c] = max(ws[r.level][c], textutil.RuneLen(r.cells[c]))
+			ws[r.level][c] = max(ws[r.level][c], textutil.DisplayWidth(r.cells[c]))
 		}
 	}
 	return ws
@@ -150,61 +144,46 @@ func prefixWidth(ws []int, indent int) int {
 }
 
 // line pads r's visible fixed columns to ws, then the text, and clips the whole row to width (0 = no clip).
-func (r row) line(ws []int, width int) string {
+func (r row) line(ws []int, width int, paint string) string {
 	var b strings.Builder
+	extra := 0
+	if r.hot != 0 {
+		extra = len(levelCols[r.level]) * (len(paint) + len(ansi.Reset))
+	}
+	b.Grow(max(width, prefixWidth(ws, r.indent)+len(r.cells[len(r.cells)-1])) + extra)
 	b.WriteString(strings.Repeat(" ", r.indent))
-	for c, k := range levelCols[r.level] {
+	pos := r.indent
+	for c := range levelCols[r.level] {
 		if ws[c] == 0 {
 			continue
 		}
-		cell, pad := r.cells[c], strings.Repeat(" ", ws[c]-textutil.RuneLen(r.cells[c]))
-		if k.right {
-			b.WriteString(pad + cell + gap)
-		} else {
-			b.WriteString(cell + pad + gap)
-		}
+		r.writeCell(&b, c, ws[c], width <= 0 || pos+ws[c] <= width, paint)
+		pos += ws[c] + len(gap)
+		b.WriteString(gap)
 	}
 	text := r.cells[len(r.cells)-1]
-	if avail := width - textutil.RuneLen(b.String()); width > 0 && avail > 0 {
-		text = textutil.Truncate(text, avail)
+	if avail := width - prefixWidth(ws, r.indent); width > 0 {
+		if avail <= 0 {
+			text = ""
+		} else {
+			text = textutil.TruncateCells(text, avail, "…")
+		}
 	}
-	line := strings.TrimRight(b.String()+text, " ")
-	if width > 0 {
-		line = textutil.Truncate(line, width)
+	b.WriteString(text)
+	line := strings.TrimRight(b.String(), " ")
+	if width > 0 && prefixWidth(ws, r.indent) > width {
+		line = textutil.TruncateCells(line, width, "…")
 	}
 	return line
 }
 
-// paintHot wraps r's hot cells found intact in the clipped line with paint and a reset.
-func (r row) paintHot(line string, ws []int, paint string) string {
-	var b strings.Builder
-	b.Grow(len(line) + 2*(len(paint)+len(ansi.Reset)))
-	col, runes, at, written := r.indent, 0, 0, 0 // col: next cell's column; runes/at: how far line has been walked
-	for c, k := range levelCols[r.level] {
-		if ws[c] == 0 {
-			continue
-		}
-		cell, start := r.cells[c], col
-		if k.right {
-			start += ws[c] - textutil.RuneLen(cell)
-		}
-		col += ws[c] + len(gap)
-		if r.hot>>c&1 == 0 || cell == "" {
-			continue
-		}
-		for ; runes < start && at < len(line); runes++ {
-			_, n := utf8.DecodeRuneInString(line[at:])
-			at += n
-		}
-		if runes != start || !strings.HasPrefix(line[at:], cell) {
-			continue
-		}
-		b.WriteString(line[written:at])
+func (r row) writeCell(b *strings.Builder, c, size int, visible bool, paint string) {
+	hot := paint != "" && r.hot>>c&1 != 0 && visible
+	if hot {
 		b.WriteString(paint)
-		b.WriteString(cell)
-		b.WriteString(ansi.Reset)
-		written = at + len(cell)
 	}
-	b.WriteString(line[written:])
-	return b.String()
+	b.WriteString(textutil.PadCells(r.cells[c], size, levelCols[r.level][c].right))
+	if hot {
+		b.WriteString(ansi.Reset)
+	}
 }

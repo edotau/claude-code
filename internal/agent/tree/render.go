@@ -107,7 +107,7 @@ func addJobs(l *layout, dispatches []Dispatch, now time.Time) {
 		where := cmp.Or(d.Route, d.Provider, providers.AgentRecord(d.Agent).Profile, "own login") // no overlay provider: its pinned profile
 		id := d.ID
 		if n.level > 0 {
-			id = strings.Repeat("  ", n.level-1) + "↳ " + id
+			id = n.guide + id
 		}
 		l.add(levelJob, id, where, strings.TrimPrefix(cmp.Or(d.Model, "default"), "databricks-"), durationText(d.Duration),
 			signalText(d, now), joinText(n.tokenText(), "  ", oneLine(cmp.Or(d.Task, d.Repo))))
@@ -151,7 +151,7 @@ func addSession(l *layout, s Session, now time.Time, home string) {
 	if title == "" {
 		title = "(no prompt yet)"
 	}
-	l.add(levelSession, cmp.Or(s.Name, treeShortID(s.ID)), sessionStatusText(s), age(s.Updated, now), s.Branch, title)
+	l.add(levelSession, cmp.Or(s.Name, treeShortID(s.ID)), sessionStatusText(s), age(s.Updated, now), s.Branch, sessionTotal(s), title)
 	l.mark(s.Status == statusActive, 1<<1)
 	for _, sub := range s.Subagents {
 		addSubagent(l, sub, now, home, s.Cwd)
@@ -226,15 +226,15 @@ func durationText(s string) string {
 // addSubagent adds one subagent row, then a row per dispatch; deeper spawns indent inside the marker cell.
 func addSubagent(l *layout, sub Subagent, now time.Time, home, cwd string) {
 	nest := strings.Repeat("  ", max(sub.Depth, 1)-1)
-	l.add(levelSubagent, nest+statusGlyph(sub.Status), sub.Type, sub.Status,
+	l.add(levelSubagent, nest+statusGlyph(sub.Status), sub.Type, subModel(sub),
 		"↑"+textutil.CompactCount(sub.Tokens.In), "↓"+textutil.CompactCount(sub.Tokens.Out),
-		age(sub.Updated, now), idleSince(sub, now), "tool="+cmp.Or(sub.LastTool, "-"),
-		oneLine(stripPaths(sub.Description, home, cwd)))
-	l.mark(sub.Status == statusRunning, 1<<0|1<<2)
+		subTotal(sub), age(sub.Updated, now), idleSince(sub, now),
+		oneLine(stripPaths(subTask(sub), home, cwd)))
+	l.mark(sub.Status == statusRunning, 1<<0)
 	for _, n := range nestDispatches(sub.Dispatches) {
 		cells := dispatchCells(n.Dispatch, now)
 		cells[len(cells)-1] = joinText(cells[len(cells)-1], " · ", n.tokenText())
-		l.add(levelDispatch, append([]string{nest + strings.Repeat("  ", n.level) + "↳"}, cells...)...)
+		l.add(levelDispatch, append([]string{nest + n.guide + "↳"}, cells...)...)
 		l.mark(n.Status == statusRunning, 1<<2)
 	}
 }
@@ -249,7 +249,7 @@ func dispatchCells(d Dispatch, now time.Time) []string {
 	if d.Fallback != "" {
 		signal = strings.TrimSpace(signal + " ⚠ fallback")
 	}
-	return []string{name, d.Status, durationText(d.Duration), signal, d.Model}
+	return []string{name, d.Status, durationText(d.Duration), signal, strings.TrimPrefix(d.Model, "databricks-")}
 }
 
 // phaseDone counts a phase's agents that have a journal/meta result in, against its total.
@@ -265,11 +265,17 @@ func phaseDone(agents []Subagent) (done, total int) {
 
 // addWorkflowRun adds a run header then its phases -> agents, each phase showing done/total.
 func addWorkflowRun(l *layout, run WorkflowRun, now time.Time, home, cwd string) {
-	l.add(levelRun, "workflow "+run.Name, run.Status, age(run.Updated, now), run.ID)
+	var sum int64
+	forEachRunAgent(run, func(sub Subagent) { sum += subTokens(sub) })
+	l.add(levelRun, "workflow "+run.Name, run.Status, age(run.Updated, now), "Σ"+textutil.CompactCount(sum)+"  "+run.ID)
 	l.mark(run.Status == statusRunning, 1<<1)
 	for _, phase := range run.Phases {
 		done, total := phaseDone(phase.Agents)
-		l.free(6, fmt.Sprintf("phase %s (%d/%d done)", phase.Name, done, total))
+		var sum int64
+		for _, sub := range phase.Agents {
+			sum += subTokens(sub)
+		}
+		l.free(6, fmt.Sprintf("phase %s (%d/%d done) Σ%s", phase.Name, done, total, textutil.CompactCount(sum)))
 		for _, sub := range phase.Agents {
 			addSubagent(l, sub, now, home, cwd)
 		}
@@ -331,7 +337,10 @@ func Show(claudeDir string, opts Options, v View) int {
 
 // show lists the tree once and writes it as JSON or text, or as a watch frame when f is set.
 func show(claudeDir string, opts Options, v View, f *frame) int {
-	listing, err := listing(claudeDir, opts, v.All)
+	if v.JSON {
+		opts.Running = false
+	}
+	listing, err := listing(claudeDir, opts, v.All || v.JSON)
 	if err == nil && v.JSON {
 		err = helptext.WriteJSON(os.Stdout, listing)
 	}
@@ -389,6 +398,7 @@ func (f *frame) draw(w io.Writer, tree *Tree, now time.Time) error {
 type nested struct {
 	Dispatch
 	level    int
+	guide    string
 	children bool
 	sum      int64
 }
@@ -423,6 +433,94 @@ func joinText(a, sep, b string) string {
 
 // nestDispatches orders ds so each child follows its parent; a parent outside ds, or a cycle, leaves a root.
 func nestDispatches(ds []Dispatch) []nested {
+	if len(ds) == 0 {
+		return nil
+	}
+	if len(ds) == 1 {
+		return []nested{{Dispatch: ds[0], sum: ds[0].tokens()}}
+	}
+	kids, roots := dispatchLinks(ds)
+	out, seen := make([]nested, 0, len(ds)), make([]bool, len(ds))
+	var walk func(i, level int, prefix, guide string) int64
+	walk = func(i, level int, prefix, guide string) int64 {
+		seen[i] = true
+		at := len(out)
+		out = append(out, nested{Dispatch: ds[i], level: level, guide: guide})
+		sum := ds[i].tokens()
+		for j, k := range kids[i] {
+			if !seen[k] {
+				out[at].children = true
+				branch, next := "├─ ", "│  "
+				if j == len(kids[i])-1 {
+					branch, next = "└─ ", "   "
+				}
+				sum += walk(k, level+1, prefix+next, prefix+branch)
+			}
+		}
+		out[at].sum = sum
+		return sum
+	}
+	for _, i := range roots {
+		walk(i, 0, "", "")
+	}
+	for i := range ds { // members of a parent cycle have no root
+		if !seen[i] {
+			walk(i, 0, "", "")
+		}
+	}
+	return out
+}
+
+func subModel(sub Subagent) string {
+	if model, _, ok := strings.Cut(sub.Description, ": "); ok && !strings.ContainsAny(model, " /\t\n") {
+		return strings.TrimPrefix(model, "databricks-")
+	}
+	return "-"
+}
+
+func subTask(sub Subagent) string {
+	if model, task, ok := strings.Cut(sub.Description, ": "); ok && model != "" && !strings.ContainsAny(model, " /\t\n") {
+		return task
+	}
+	return sub.Description
+}
+
+func subTokens(sub Subagent) int64 {
+	sum := sub.Tokens.In + sub.Tokens.Out + sub.Tokens.CacheRead
+	for _, d := range sub.Dispatches {
+		sum += d.tokens()
+	}
+	return sum
+}
+
+func subTotal(sub Subagent) string {
+	if len(sub.Dispatches) == 0 {
+		return ""
+	}
+	return "Σ" + textutil.CompactCount(subTokens(sub))
+}
+
+func sessionTotal(s Session) string {
+	if len(s.Subagents) == 0 && len(s.Workflows) == 0 {
+		return ""
+	}
+	sum := s.Tokens.In + s.Tokens.Out + s.Tokens.CacheRead
+	for _, sub := range s.Subagents {
+		for _, d := range sub.Dispatches {
+			sum += d.tokens()
+		}
+	}
+	for _, run := range s.Workflows {
+		forEachRunAgent(run, func(sub Subagent) {
+			for _, d := range sub.Dispatches {
+				sum += d.tokens()
+			}
+		})
+	}
+	return "Σ" + textutil.CompactCount(sum)
+}
+
+func dispatchLinks(ds []Dispatch) (map[int][]int, []int) {
 	byID := make(map[string]int, len(ds))
 	for i, d := range ds {
 		byID[d.ID] = i
@@ -435,29 +533,5 @@ func nestDispatches(ds []Dispatch) []nested {
 			roots = append(roots, i)
 		}
 	}
-	out, seen := make([]nested, 0, len(ds)), make([]bool, len(ds))
-	var walk func(i, level int) int64
-	walk = func(i, level int) int64 {
-		seen[i] = true
-		at := len(out)
-		out = append(out, nested{Dispatch: ds[i], level: level})
-		sum := ds[i].tokens()
-		for _, k := range kids[i] {
-			if !seen[k] {
-				out[at].children = true
-				sum += walk(k, level+1)
-			}
-		}
-		out[at].sum = sum
-		return sum
-	}
-	for _, i := range roots {
-		walk(i, 0)
-	}
-	for i := range ds { // members of a parent cycle have no root
-		if !seen[i] {
-			walk(i, 0)
-		}
-	}
-	return out
+	return kids, roots
 }

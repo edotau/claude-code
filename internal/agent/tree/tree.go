@@ -152,8 +152,11 @@ func listing(claudeDir string, opts Options, showAll bool) (*Tree, error) {
 	}
 	if !showAll {
 		tree.Sessions = filterIdleSessions(tree.Sessions)
+		for i, s := range tree.Sessions {
+			tree.Sessions[i] = activeSession(s)
+		}
 	}
-	if opts.Session == "" { // every view lists them, so --finished stays a superset of the default
+	if opts.Session == "" { // every view lists them, so --detail stays a superset of the default
 		tree.Dispatches = runningDispatches(opts.now())
 		tree.Sessions = dropDispatchSessions(tree.Sessions, tree.Dispatches)
 	}
@@ -168,7 +171,7 @@ func build(claudeDir string, opts Options) (*Tree, error) {
 		return nil, err
 	}
 	reg := readRegistry(claudeDir)
-	if opts.Session == "" { // live sessions stay listed past --days, under --finished too
+	if opts.Session == "" { // live sessions stay listed past --days, under --detail too
 		sessionFiles = appendLiveTranscripts(claudeDir, reg, sessionFiles)
 	}
 	scans := opts.scans
@@ -236,7 +239,7 @@ func forEachRunAgent(run WorkflowRun, fn func(Subagent)) {
 	}
 }
 
-// pruneToRunning returns a copy without finished/error subagents and emptied runs; stale ones stay.
+// pruneToRunning removes completed children while retaining potentially hung work for scan callers.
 func pruneToRunning(s Session) Session {
 	s.Subagents = slices.DeleteFunc(slices.Clone(s.Subagents), finished)
 	var runs []WorkflowRun
@@ -402,11 +405,11 @@ func subagentStatus(finished bool, updated, now time.Time) string {
 	return statusStale
 }
 
-// filterIdleSessions drops idle sessions that never dispatched a subagent or workflow run.
+// filterIdleSessions retains ancestors when their descendants are still running.
 func filterIdleSessions(sessions []Session) []Session {
 	var kept []Session
 	for _, s := range sessions {
-		if !s.Live && s.Status == statusIdle && len(s.Subagents) == 0 && len(s.Workflows) == 0 {
+		if !s.isActive() {
 			continue
 		}
 		kept = append(kept, s)
@@ -472,4 +475,44 @@ func liveTranscripts(claudeDir string, reg map[string]regEntry, have map[string]
 		files = append(files, matches...)
 	}
 	return files
+}
+
+func activeSession(s Session) Session {
+	s.Subagents = activeSubagents(s.Subagents)
+	s.Workflows = slices.Clone(s.Workflows)
+	for i, run := range s.Workflows {
+		run.Phases = slices.Clone(run.Phases)
+		for j, ph := range run.Phases {
+			ph.Agents = activeSubagents(ph.Agents)
+			run.Phases[j] = ph
+		}
+		run.Phases = slices.DeleteFunc(run.Phases, func(ph WorkflowPhase) bool { return len(ph.Agents) == 0 })
+		s.Workflows[i] = run
+	}
+	s.Workflows = slices.DeleteFunc(s.Workflows, func(run WorkflowRun) bool {
+		return run.Status != statusRunning && len(run.Phases) == 0
+	})
+	return s
+}
+
+func activeSubagents(subs []Subagent) []Subagent {
+	out := make([]Subagent, 0, len(subs))
+	for _, sub := range subs {
+		if !sub.running() {
+			continue
+		}
+		if len(sub.Dispatches) > 0 {
+			nodes := nestDispatches(sub.Dispatches)
+			keep := make(map[string]bool, len(nodes))
+			for i := len(nodes) - 1; i >= 0; i-- {
+				n := nodes[i]
+				if n.Status == statusRunning || keep[n.ID] {
+					keep[n.ID], keep[n.Parent] = true, true
+				}
+			}
+			sub.Dispatches = slices.DeleteFunc(slices.Clone(sub.Dispatches), func(d Dispatch) bool { return !keep[d.ID] })
+		}
+		out = append(out, sub)
+	}
+	return out
 }

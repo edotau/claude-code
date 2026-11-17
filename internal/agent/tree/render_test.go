@@ -11,7 +11,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -42,16 +41,18 @@ type span struct{ start, end int }
 func fields(line string) []span {
 	var out []span
 	in := false
-	for col, r := range []rune(line) {
+	col := 0
+	for _, r := range line {
 		switch {
 		case r != ' ' && !in:
 			out, in = append(out, span{start: col}), true
 		case r == ' ' && in:
 			out[len(out)-1].end, in = col, false
 		}
+		col += textutil.DisplayWidth(string(r))
 	}
 	if in {
-		out[len(out)-1].end = utf8.RuneCountInString(line)
+		out[len(out)-1].end = textutil.DisplayWidth(line)
 	}
 	return out
 }
@@ -64,7 +65,7 @@ func TestRenderTextColumnsAlignAndFit(t *testing.T) {
 		renderTree(&buf, tree, now, width, "")
 		var sessions, subagents, dispatches []string
 		for i, line := range strings.Split(strings.TrimRight(buf.String(), "\n"), "\n") {
-			if n := utf8.RuneCountInString(line); width > 0 && n > width {
+			if n := textutil.DisplayWidth(line); width > 0 && n > width {
 				t.Errorf("width %d: line %d is %d columns: %q", width, i, n, line)
 			}
 			if width == 0 && strings.Contains(line, "…") {
@@ -186,7 +187,7 @@ func TestRenderNestsDispatchesWithSubtreeTokens(t *testing.T) {
 	}
 	// legacy first, then the chain given grandchild-first: the children must still follow their parents
 	lines := render(0, legacy, chain[2], chain[1], chain[0])
-	for i, want := range []string{"legacy-codex", "root-claude", "↳ child-codex", "↳ grand-opencode"} {
+	for i, want := range []string{"legacy-codex", "root-claude", "└─ child-codex", "└─ grand-opencode"} {
 		if i+1 >= len(lines) || !strings.Contains(lines[i+1], want) {
 			t.Fatalf("row %d want %q in %q", i, want, strings.Join(lines, "\n"))
 		}
@@ -200,7 +201,7 @@ func TestRenderNestsDispatchesWithSubtreeTokens(t *testing.T) {
 		t.Errorf("legacy row = %q, want %q as when alone", got, alone)
 	}
 	for _, line := range render(80, legacy, chain[0], chain[1], chain[2]) {
-		if n := utf8.RuneCountInString(line); n > 80 {
+		if n := textutil.DisplayWidth(line); n > 80 {
 			t.Errorf("row is %d columns, want <= 80: %q", n, line)
 		}
 	}
@@ -390,7 +391,7 @@ func TestRenderPaintsOnlyActiveRows(t *testing.T) {
 			t.Errorf("width %d: no active row is painted", width)
 		}
 		for i, line := range painted {
-			if n := utf8.RuneCountInString(escapes.ReplaceAllString(line, "")); width > 0 && n > width {
+			if n := textutil.DisplayWidth(escapes.ReplaceAllString(line, "")); width > 0 && n > width {
 				t.Errorf("width %d: row %d is %d columns: %q", width, i, n, line)
 			}
 		}
@@ -432,5 +433,29 @@ func BenchmarkRender(b *testing.B) {
 				renderTree(io.Discard, tree, now, 80, paint)
 			}
 		})
+	}
+}
+
+func TestParentTotalsCountUsageOnce(t *testing.T) {
+	sub := Subagent{Tokens: Tokens{In: 100, Out: 20}, Dispatches: []Dispatch{
+		{ID: "root", Usage: &wire.Usage{InputTokens: 30}},
+		{ID: "child", Parent: "root", Usage: &wire.Usage{OutputTokens: 10}},
+	}}
+	s := Session{Tokens: sub.Tokens, Subagents: []Subagent{sub}}
+	if got := sessionTotal(s); got != "Σ160" {
+		t.Errorf("session total = %q", got)
+	}
+	if got := subTotal(sub); got != "Σ160" {
+		t.Errorf("subagent total = %q", got)
+	}
+	var l layout
+	addWorkflowRun(&l, WorkflowRun{Name: "run", Phases: []WorkflowPhase{{Name: "phase", Agents: []Subagent{sub}}}}, time.Time{}, "", "")
+	if got := strings.Join(l.lines(0, ""), "\n"); strings.Count(got, "Σ160") != 3 {
+		t.Errorf("workflow, phase and subagent totals missing: %s", got)
+	}
+
+	sub.Description = "review the code: preserve this task prefix"
+	if got := subTask(sub); got != sub.Description {
+		t.Errorf("task prefix lost: %q", got)
 	}
 }
