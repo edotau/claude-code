@@ -15,8 +15,31 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+func TestReviewAuthorModelUsesInvokingDispatchThenSession(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("CLAUDE_MODEL", "claude-opus-5-5")
+	t.Setenv(proc.DispatchIDEnv, "")
+	if got := reviewAuthorModel(); got != "claude-opus-5-5" {
+		t.Fatalf("session model = %q", got)
+	}
+	r := agent.Record{ID: "20261117T120000-copilot", Model: "gpt-6.1-sol"}
+	if err := r.Save(); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv(proc.DispatchIDEnv, r.ID)
+	if got := reviewAuthorModel(); got != r.Model {
+		t.Fatalf("dispatch model = %q, want %q", got, r.Model)
+	}
+	t.Setenv(proc.DispatchIDEnv, "")
+	t.Setenv("CLAUDE_MODEL", "")
+	if got := reviewAuthorModel(); got != "" {
+		t.Fatalf("unknown author model = %q", got)
+	}
+}
 
 func captureFailedStdout(t *testing.T, run func() int) (int, string) {
 	t.Helper()

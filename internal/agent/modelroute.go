@@ -79,6 +79,11 @@ func QueryFor(ctx context.Context, q ModelQuery) ModelQuery {
 
 // ResolveModel is the one rule from agent + typed model string to profile, account and wire id.
 func ResolveModel(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRoute, error) {
+	model, err := resolveModelWord(q)
+	if err != nil {
+		return ModelRoute{}, fmt.Errorf("%w: %w", ErrModelRoute, err)
+	}
+	q.Model = model
 	spec, pool, err := splitQuery(reg, q)
 	if err != nil {
 		return ModelRoute{}, fmt.Errorf("%w: %w", ErrModelRoute, err)
@@ -93,6 +98,19 @@ func ResolveModel(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRo
 	r, err := resolveOn(p, source, q, spec, now)
 	r.Note = joinNotes(note, r.Note)
 	return r, err
+}
+
+// ModelWordResolver is an optional driver method: it turns a typed word such as a model family into a model id.
+type ModelWordResolver interface {
+	ResolveModelWord(ctx context.Context, model string) (string, error)
+}
+
+func resolveModelWord(q ModelQuery) (string, error) {
+	d, ok := driverFor(q.Agent)
+	if w, has := d.(ModelWordResolver); ok && has && q.Model != "" {
+		return w.ResolveModelWord(cmp.Or(q.ctx, context.Background()), q.Model)
+	}
+	return q.Model, nil
 }
 
 // splitQuery reads the typed prefix; pool is true for databricks:<model> and overlay profile auto.

@@ -329,7 +329,8 @@ func TestModelEffort(t *testing.T) {
 	old := effortModels
 	t.Cleanup(func() { effortModels = old })
 	effortModels = func() []SDKModel {
-		return []SDKModel{{ID: "supported", Efforts: []string{"high", "low"}}, {ID: "gpt-4.1", Efforts: []string{}}, {ID: "nil"}}
+		return []SDKModel{{ID: "supported", Efforts: []string{"high", "low"}}, {ID: "gpt-4.1", Efforts: []string{}}, {ID: "nil", ReasoningEffort: true},
+			{ID: "plain"}}
 	}
 	for _, c := range []struct{ model, effort, want, note, argv string }{
 		{"supported", "high", "high", "", "--reasoning-effort high"},
@@ -337,6 +338,8 @@ func TestModelEffort(t *testing.T) {
 		{"gpt-4.1", "medium", "", "copilot: gpt-4.1 takes no reasoning effort; not sent", ""},
 		{"gpt-4.1[1m]", "medium", "", "copilot: gpt-4.1[1m] takes no reasoning effort; not sent", ""},
 		{"unknown", "medium", "medium", "", "--reasoning-effort medium"},
+		{"auto", "medium", "", "copilot: auto takes no reasoning effort; not sent", ""},
+		{"plain", "medium", "", "copilot: plain takes no reasoning effort; not sent", ""},
 		{"nil", "medium", "medium", "", "--reasoning-effort medium"},
 	} {
 		t.Run(c.model+"/"+c.effort, func(t *testing.T) {
