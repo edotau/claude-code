@@ -15,7 +15,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -50,9 +49,7 @@ func secretSegment(s string) string {
 
 // SecretName is the vault name <PROVIDER>_<PROFILE>_<AUTH>; the profile segment is dropped when it equals the provider.
 func SecretName(provider, profile, method string) string {
-	switch method {
-	case AuthOAuth, AuthM2M, AuthPAT, AuthKey:
-	default:
+	if !authTable[method].Token {
 		return ""
 	}
 	prov, prof := secretSegment(provider), secretSegment(profile)
@@ -118,7 +115,7 @@ func writeOAuth(p *Provider, ov oauthValue) error {
 	return vault.Store(AuthSecretName(p), string(b))
 }
 
-func sealedAuth(t string) bool { return slices.Contains(supportedAuthTypes, t) }
+func sealedAuth(t string) bool { return authTable[t].Sealed }
 
 // AuthHost is the https://host a row talks to: the preset host, else BaseURL's origin; "" when neither parses.
 func AuthHost(p *Provider) string {
@@ -148,9 +145,6 @@ func checkAuthScheme(p *Provider) error {
 	}
 	return fmt.Errorf("%s: auth.type %s needs an https host, got scheme %q", p.Name, p.Auth.Type, u.Scheme)
 }
-
-// supportedAuthTypes are the auth types that keep their credential in the vault.
-var supportedAuthTypes = []string{AuthOAuth, AuthM2M, AuthPAT}
 
 var (
 	accountIDRE   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-fA-F-]{8,64}$`) })
@@ -838,6 +832,18 @@ const (
 	AuthNone  = "none"
 )
 
+// authFacts is what the registry asks of an auth type: Sealed keeps its credential in the vault, Token sends one.
+type authFacts struct{ Sealed, Token bool }
+
+// authTable is the one per-type table; a type absent from it is unknown and reads as the zero value.
+var authTable = map[string]authFacts{
+	AuthOAuth: {Sealed: true, Token: true},
+	AuthM2M:   {Sealed: true, Token: true},
+	AuthPAT:   {Sealed: true, Token: true},
+	AuthKey:   {Token: true},
+	AuthCLI:   {}, AuthNone: {},
+}
+
 // Header styles for auth.header.
 const (
 	HeaderXAPIKey = "x-api-key"
@@ -860,14 +866,10 @@ func (a Auth) Method() string { return a.Type }
 
 // HeaderStyle is the header a row sends its token in (x-api-key or bearer); "" for cli and none.
 func (a Auth) HeaderStyle() string {
-	switch a.Type {
-	case AuthOAuth, AuthM2M, AuthPAT, AuthKey:
-		if a.Header != "" {
-			return a.Header
-		}
-		return HeaderBearer
+	if !authTable[a.Type].Token {
+		return ""
 	}
-	return ""
+	return cmp.Or(a.Header, HeaderBearer)
 }
 
 func (a Auth) Sealed() bool { return sealedAuth(a.Type) }
