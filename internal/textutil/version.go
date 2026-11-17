@@ -46,12 +46,12 @@ func versionParts(v string) []int {
 }
 
 // BuildVersion is the module version stamped into the binary, or "devel" when none is.
-func BuildVersion() string {
+var BuildVersion = sync.OnceValue(func() string {
 	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" {
 		return bi.Main.Version
 	}
 	return "devel"
-}
+})
 
 var majorRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(\d+)\.\d+`) })
 

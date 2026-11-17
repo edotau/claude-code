@@ -10,7 +10,6 @@ import (
 	"net/url"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
@@ -165,12 +164,9 @@ func (r *Router) attribute(h http.Header, in *http.Request) {
 	h.Set("User-Agent", userAgent(in.Header.Get(gateway.AgentHeader)))
 }
 
-// buildVersion caches textutil.BuildVersion: debug.ReadBuildInfo re-parses the module info on every call.
-var buildVersion = sync.OnceValue(textutil.BuildVersion)
-
 // userAgent is "claude-code/<version>" plus the sanitized agent name when the client sent one.
 func userAgent(agent string) string {
-	v := buildVersion()
+	v := textutil.BuildVersion()
 	if v == "(devel)" {
 		v = "devel"
 	}

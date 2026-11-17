@@ -244,3 +244,10 @@ func TestHeadings(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkBuildVersion(b *testing.B) {
+	b.ReportAllocs()
+	for range b.N {
+		_ = BuildVersion()
+	}
+}
