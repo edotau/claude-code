@@ -341,7 +341,7 @@ func update(o updateOptions) error {
 	b := HomeBank()
 	var run updateRun
 	// Bounded wait: a peer update/dream may hold this lock for minutes; only a detached worker can afford to queue.
-	ran, lockErr := paths.TryFileLock(lockPathOf(b)+".lock", lockWait(), func() error { return run.locked(o, b) })
+	ran, lockErr := paths.TryFileLock(lockPathOf()+".lock", lockWait(), func() error { return run.locked(o, b) })
 	if !ran { // lock never taken: nothing ran, and settling unlocked would race the holder
 		uncoverStamp(o.Session) // the dispatch stamped this work as covered; hand it back to the next trigger or sweep
 		return errors.Join(fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock; retry when it finishes"))), record(updateFailed, false))

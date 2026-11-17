@@ -530,6 +530,6 @@ func (s *Semantic) hitFor(f corpusFile, block string, floor float64) (SearchHit,
 	if h.ID == "" || !ok || cos < floor {
 		return h, 0, false
 	}
-	h.Dir = accessDir(HomeBank())
+	h.Dir = accessDir()
 	return h, cos, true
 }
