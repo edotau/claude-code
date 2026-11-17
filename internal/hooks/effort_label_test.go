@@ -233,6 +233,7 @@ func TestSameLabel(t *testing.T) {
 		{"sonnet", "claude-sonnet-5-5", true}, {"claude-sonnet-5.5", "claude-sonnet-5-5", true},
 		{"sonnet", "databricks-claude-sonnet-5-5", true}, {"databricks-claude-sonnet-5-5", "databricks-claude-sonnet-5-5", true},
 		{"databricks-claude-sonnet-5-5", "sonnet", false}, {"opus", "claude-sonnet-5-5", false}, {"", "sonnet", false},
+		{"opencode-go/kimi-k3", "databricks-kimi-k3", false}, {"github/gpt-5.5", "gpt-5.5", false}, {"opencode-go/kimi-k3", "opencode-go/kimi-k3", true},
 	} {
 		if got := sameLabel(c.head, c.label); got != c.want {
 			t.Errorf("sameLabel(%q,%q) = %v, want %v", c.head, c.label, got, c.want)
@@ -264,5 +265,15 @@ func TestEquivalentLabelNotRewritten(t *testing.T) {
 	stubLabelModels(t, "claude-sonnet-5-5")
 	if r := effortResult(autoDispatch("claude", "claude-sonnet-5.5: fix bug")); r.UpdatedInput != nil {
 		t.Fatalf("equivalent label rewritten: %+v", r)
+	}
+}
+
+// A same-model head that stripLabels cannot cut (`sonnet[1m]`) is not kept, or the label would be stacked on it.
+func TestEquivalentUncuttableLabelNotStacked(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stubLabelModels(t, "claude-sonnet-5-5")
+	r := effortResult(autoDispatch("claude", "sonnet[1m]: fix bug"))
+	if got, _ := r.UpdatedInput["description"].(string); strings.Contains(got, "sonnet[1m]: sonnet[1m]") {
+		t.Fatalf("label stacked: %q", got)
 	}
 }

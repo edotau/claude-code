@@ -34,7 +34,7 @@ func applyLabel(ctx context.Context, run *dispatchRun, updated map[string]any, t
 	out := lowerFirst(rest)
 	if label != "" {
 		head, _, _ := strings.Cut(orig, ":")
-		if sameLabel(head, label) {
+		if sameLabel(head, label) && labelShaped(strings.TrimSpace(head), label) { // an uncuttable head would stack
 			label = head // an equivalent label is kept as typed, so no rewrite is asked of auto mode
 		}
 		out = label + ": " + out
@@ -50,6 +50,9 @@ func applyLabel(ctx context.Context, run *dispatchRun, updated map[string]any, t
 func sameLabel(head, label string) bool {
 	head = strings.TrimSpace(head)
 	claimsDBX := strings.HasPrefix(strings.ToLower(head), models.DatabricksPrefix)
+	if strings.Contains(head, "/") { // a provider-qualified head matches only the identical label
+		return head == label
+	}
 	return head != "" && models.SameModel(head, label) && (!claimsDBX || strings.HasPrefix(label, models.DatabricksPrefix))
 }
 
@@ -98,7 +101,7 @@ func ownModel(ctx context.Context, run *dispatchRun, updated map[string]any, st 
 
 // databricksID is a Claude alias or id spelled as its `databricks-` id on a Databricks-routed session; else m as is.
 func (r *dispatchRun) databricksID(m string) string {
-	name, routed := providers.SessionName() // routed is read from ANTHROPIC_BASE_URL alone; no file is touched
+	name, routed := providers.SessionName() // routed comes from a loopback ANTHROPIC_BASE_URL /p/<name>
 	if !routed || m == "" {
 		return m
 	}
