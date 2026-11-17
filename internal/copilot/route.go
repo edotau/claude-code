@@ -500,8 +500,17 @@ func modelEffort(s agent.Settings) (string, string) {
 	if s.Effort == "" {
 		return "", ""
 	}
+	if models.Strip1M(s.Target.Model) == agent.AutoModel {
+		return "", "copilot: auto takes no reasoning effort; not sent"
+	}
 	for _, m := range effortModels() {
-		if m.ID != models.Strip1M(s.Target.Model) || m.Efforts == nil {
+		if m.ID != models.Strip1M(s.Target.Model) {
+			continue
+		}
+		if m.Efforts == nil && !m.ReasoningEffort {
+			return "", "copilot: " + s.Target.Model + " takes no reasoning effort; not sent"
+		}
+		if m.Efforts == nil {
 			continue
 		}
 		supported := make([]string, 0, len(m.Efforts))

@@ -13,6 +13,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/copilot"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -49,7 +51,7 @@ func Review(name string, args []string, o ReviewOptions) int {
 	if err != nil {
 		return fail(err)
 	}
-	diff, err := reviewDiff(cwd, scope)
+	diff, o, err := reviewInput(name, cwd, scope, o)
 	if err != nil {
 		return fail(err)
 	}
@@ -61,6 +63,33 @@ func Review(name string, args []string, o ReviewOptions) int {
 		return runSplitReview(name, args, parts, o, parent)
 	}
 	return runSingleReview(name, diff, o, parent, started)
+}
+
+func reviewInput(name, cwd string, scope diffScope, o ReviewOptions) ([]byte, ReviewOptions, error) {
+	diff, err := reviewDiff(cwd, scope)
+	if err != nil {
+		return nil, o, err
+	}
+	o, err = reviewModelOptions(name, o)
+	return diff, o, err
+}
+
+func reviewModelOptions(name string, o ReviewOptions) (ReviewOptions, error) {
+	if name != "copilot" {
+		return o, nil
+	}
+	model, err := copilot.ReviewModel(context.Background(), o.Model, reviewAuthorModel())
+	o.Model = model
+	return o, err
+}
+
+func reviewAuthorModel() string {
+	if id := os.Getenv(proc.DispatchIDEnv); id != "" {
+		if record, err := agent.LoadRecord(id); err == nil && record.Model != "" {
+			return record.Model
+		}
+	}
+	return os.Getenv("CLAUDE_MODEL")
 }
 
 func runSingleReview(name string, diff []byte, o ReviewOptions, parent *agent.Record, started time.Time) int {
