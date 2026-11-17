@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -163,4 +164,25 @@ func TestH7ProjectionRendersFromSourceNotLiveHomes(t *testing.T) {
 	}
 	hosttest.WriteRel(t, root, "agents/x.md", "---\nname: y\ndescription: does things\n---\nbody\n")
 	wantOne(t, sessionPrompts(root), "agents projection:", "(fix at agents/")
+}
+
+func BenchmarkMissingPaths(b *testing.B) {
+	ctx := strings.Repeat("see /tmp and ~/.claude/CLAUDE.md, /serving-endpoints, <lens> and `/usr/bin`\n", 50)
+	for b.Loop() {
+		missingPaths("bench", ctx)
+	}
+}
+
+func BenchmarkPromptPathStatic(b *testing.B) {
+	root := b.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte("# Benchmark\n"), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	for b.Loop() {
+		claudeMD(root)
+		rules(root)
+		skills(root)
+		workflows(root)
+		agents(root)
+	}
 }

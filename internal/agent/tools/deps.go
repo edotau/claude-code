@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -220,16 +221,25 @@ type DepStatus struct {
 
 // DepStatusAll reports every host tool in table order.
 func DepStatusAll() []DepStatus {
+	const probeConcurrency = 4
+	var probes sync.WaitGroup
+	slots := make(chan struct{}, probeConcurrency)
 	out := make([]DepStatus, len(deps))
 	for i, d := range deps {
 		s := DepStatus{Name: d.Name, Class: string(d.Class), Use: d.Use, Required: d.Class == depRequired}
 		if s.Path = depPath(d); s.Path == "" {
 			s.Fix = depFix(d)
-		} else {
-			s.Version = depVersion(d, s.Path)
 		}
 		out[i] = s
+		if s.Path != "" {
+			slots <- struct{}{}
+			probes.Go(func() {
+				defer func() { <-slots }()
+				out[i].Version = depVersion(d, s.Path)
+			})
+		}
 	}
+	probes.Wait()
 	return out
 }
 
