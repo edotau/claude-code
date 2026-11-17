@@ -190,7 +190,10 @@ func (s *streamer) dispatch(f *sseFrame) (bool, error) {
 		f.event = ""
 		return false, nil
 	}
-	payload, event := bytes.Join(f.data, []byte("\n")), f.event
+	payload, event := f.data[0], f.event
+	if len(f.data) > 1 {
+		payload = bytes.Join(f.data, []byte("\n"))
+	}
 	f.data, f.event, f.size = f.data[:0], "", 0
 	return s.handle(event, payload)
 }
@@ -460,11 +463,14 @@ func (s *streamer) fail(msg string, cause error) error {
 // event marshals payload into the reused s.buf (no per-call json.Marshal allocation) and writes one SSE frame.
 func (s *streamer) event(typ string, payload any) error {
 	s.buf.Reset()
+	s.buf.WriteString("event: ")
+	s.buf.WriteString(typ)
+	s.buf.WriteString("\ndata: ")
 	if err := json.NewEncoder(&s.buf).Encode(payload); err != nil {
 		return err
 	}
-	b := bytes.TrimRight(s.buf.Bytes(), "\n")
-	if _, err := fmt.Fprintf(s.w, "event: %s\ndata: %s\n\n", typ, b); err != nil {
+	s.buf.WriteByte('\n')
+	if _, err := s.w.Write(s.buf.Bytes()); err != nil {
 		return err
 	}
 	if s.flush != nil {
