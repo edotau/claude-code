@@ -372,18 +372,22 @@ func TestAgentSetUpOrderAndStops(t *testing.T) {
 
 func TestAgentSetUpCopilotCreditsReadAsNotLoginFailure(t *testing.T) {
 	d, out := setupDialog(t)
-	installSetupFake(t, &setupFake{verifyErr: errors.New("402 payment required")})
+	f := &setupFake{verifyErr: errors.New("402 payment required")}
+	installSetupFake(t, f)
 	agentSetUp(d, "copilot")
-	for _, w := range []string{"copilot: set up stopped at verify: signed in, but copilot has no credits left", "not a login failure"} {
-		if !strings.Contains(out.String(), w) {
-			t.Errorf("out = %q, want %q", out.String(), w)
-		}
+	if got := strings.Join(f.calls, ","); got != "login,verify,route" {
+		t.Errorf("copilot calls = %s, want login,verify,route", got)
+	}
+	if !strings.Contains(out.String(), "signed in, but copilot has no credits left") ||
+		strings.Contains(out.String(), "verified with one live request") || strings.Contains(out.String(), "stopped") {
+		t.Errorf("out = %q, want the credits line, no verified or stopped text", out.String())
 	}
 	d2, out2 := setupDialog(t)
-	installSetupFake(t, &setupFake{verifyErr: errors.New("402 payment required")})
+	f2 := &setupFake{verifyErr: errors.New("402 payment required")}
+	installSetupFake(t, f2)
 	agentSetUp(d2, "codex")
-	if strings.Contains(out2.String(), "credits") {
-		t.Errorf("only copilot gets the credits message: %q", out2.String())
+	if got := strings.Join(f2.calls, ","); got != "login,verify" || strings.Contains(out2.String(), "credits") {
+		t.Errorf("codex calls = %s out = %q, want to stop at verify with no credits text", got, out2.String())
 	}
 }
 

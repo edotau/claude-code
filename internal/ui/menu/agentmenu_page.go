@@ -753,14 +753,14 @@ func agentSetUp(d *dialog, agent string) {
 		d.changed = true
 		agentActiveOn(d, agent)
 	}
-	if err := setupVerify(context.Background(), agent); err != nil {
-		if agent == "copilot" && configure.QuotaFailure(err) {
-			err = fmt.Errorf("signed in, but copilot has no credits left, so this is not a login failure (%w)", err)
-		}
+	if err := setupVerify(context.Background(), agent); err == nil {
+		d.printf("%s: verified with one live request\n", name)
+	} else if agent == "copilot" && configure.QuotaFailure(err) {
+		d.printf("%s: signed in, but copilot has no credits left\n", name)
+	} else {
 		stop("verify", err)
 		return
 	}
-	d.printf("%s: verified with one live request\n", name)
 	changed, err := setupRoute(d, agent)
 	switch {
 	case err != nil:
