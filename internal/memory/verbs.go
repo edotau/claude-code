@@ -499,10 +499,10 @@ type ReviewOptions struct {
 func ReviewReport(w io.Writer, o ReviewOptions) error {
 	root, own := ResolveBank()
 	if o.Notice {
-		return cacheDoctorNotice(own, doctorBank(root, own, o.StaleDays, time.Now()))
+		return cacheDoctorNotice(doctorBank(root, own, o.StaleDays, time.Now()))
 	}
 	problems := doctorBank(root, own, o.StaleDays, time.Now())
-	if err := cacheDoctorNotice(own, problems); err != nil {
+	if err := cacheDoctorNotice(problems); err != nil {
 		fmt.Fprintln(w, "memory review: doctor notice:", err)
 	}
 	problems = append(problems, reviseBankProblems()...)

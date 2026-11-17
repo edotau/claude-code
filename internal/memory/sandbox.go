@@ -140,7 +140,7 @@ func sandboxFlat(config string, opt SandboxOptions) ([]SandboxStore, error) {
 	if err := os.WriteFile(filepath.Join(dst, layoutFile), stamp, 0o600); err != nil {
 		return nil, err
 	}
-	return []SandboxStore{{stateKey(b), len(names)}}, sandboxSnapshot(dst, append(names, layoutFile))
+	return []SandboxStore{{stateKey(), len(names)}}, sandboxSnapshot(dst, append(names, layoutFile))
 }
 
 // sandboxFlatBank places b's files in the flat store at dst: its templates when empty, else every file it owns.

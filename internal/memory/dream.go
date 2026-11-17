@@ -80,7 +80,7 @@ func isDreamChild() bool {
 
 // dreamStampPath records the last consolidation time.
 func dreamStampPath() string {
-	return filepath.Join(StateDir(), "last-dream-"+stateKey(HomeBank()))
+	return filepath.Join(StateDir(), "last-dream-"+stateKey())
 }
 
 // dreamStamp reads the stamp: its time (line 1) and whether that run failed (line 2 = "failed").

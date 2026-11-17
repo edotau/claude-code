@@ -269,7 +269,7 @@ func logShown(id, reason string, now time.Time) {
 
 // accessDir is b's access-log key dir, named by stateKey so a repo keyed "home" never shares home.log.
 func accessDir(b Bank) string {
-	return filepath.Join(StoreDir(), stateKey(b))
+	return filepath.Join(StoreDir(), stateKey())
 }
 
 // AccessLogPath puts store traces in state/harness/memory/access, otherwise beside the bank.

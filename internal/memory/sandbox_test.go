@@ -65,7 +65,6 @@ func TestSandboxRefusesUnstampedStore(t *testing.T) {
 
 func TestSandboxCopiesTheOneBankAndWritesNoOrigins(t *testing.T) {
 	tempConfig(t)
-	b := HomeBank()
 	rels := []string{"progress.md", "topic.md", "reports--r.md", "reports--bundle--sub--review.md", "waves--plan--state.json"}
 	for _, rel := range rels {
 		write(t, filepath.Join(StoreDir(), rel), "x")
@@ -81,7 +80,7 @@ func TestSandboxCopiesTheOneBankAndWritesNoOrigins(t *testing.T) {
 			t.Errorf("sandbox lacks %s", rel)
 		}
 	}
-	if len(res.Stores) != 1 || res.Stores[0].Key != stateKey(b) {
+	if len(res.Stores) != 1 || res.Stores[0].Key != stateKey() {
 		t.Errorf("sandbox stores = %+v, want the one bank", res.Stores)
 	}
 }

@@ -124,11 +124,11 @@ func settleBankLocked(now time.Time) (rotated int, err error) {
 	if err := writeCatalog(now); err != nil {
 		return rotated, err
 	}
-	return rotated, commitBanks("settle: "+stateKey(banks[0]), banks)
+	return rotated, commitBanks("settle: " + stateKey())
 }
 
 // Git runs with literal pathspecs, so flat scopes must name files rather than prefix globs.
-func commitBanks(subject string, _ []Bank) error {
+func commitBanks(subject string) error {
 	var scope []string
 	if !StoreRepo().Exists() {
 		if err := StoreRepo().Ensure(); err != nil {
