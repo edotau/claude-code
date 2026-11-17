@@ -90,7 +90,45 @@ func paintSpan(sp string) string {
 
 // paintTokens paints the status tokens in text that sits outside any span.
 func paintTokens(text string) string {
-	return statusRE().ReplaceAllStringFunc(text, func(tok string) string { return statusCode[tok] + tok + Reset })
+	var out strings.Builder
+	last := 0
+	for i := range len(text) {
+		if i < last || i > 0 && isWordByte(text[i-1]) {
+			continue
+		}
+		n := statusTokenAt(text[i:])
+		if n < 0 {
+			continue
+		}
+		token := statusTokens[n]
+		if last == 0 {
+			out.Grow(len(text) + len(token.code) + len(Reset))
+		}
+		out.WriteString(text[last:i])
+		out.WriteString(token.code)
+		out.WriteString(token.token)
+		out.WriteString(Reset)
+		last = i + len(token.token)
+	}
+	if last == 0 {
+		return text
+	}
+	out.WriteString(text[last:])
+	return out.String()
+}
+
+func statusTokenAt(text string) int {
+	for _, n := range statusByFirst[text[0]] {
+		tok := statusTokens[n].token
+		if !strings.HasPrefix(text, tok) {
+			continue
+		}
+		if len(text) > len(tok) && isWordByte(tok[len(tok)-1]) && isWordByte(text[len(tok)]) {
+			continue
+		}
+		return n
+	}
+	return -1
 }
 
 // Span markers wrap one value in a row: SpanOK..SpanEnd green, SpanWarn yellow, SpanOff dim; Strip removes them.
@@ -113,38 +151,22 @@ func Strip(s string) string {
 	return spanStrip.Replace(s)
 }
 
-var statusCode = func() map[string]string {
-	m := make(map[string]string, len(statusTokens))
-	for _, t := range statusTokens {
-		m[t.token] = t.code
+const statusByteValues = 1 << 8
+
+var statusByFirst = func() [statusByteValues][]int {
+	var buckets [statusByteValues][]int
+	for i, t := range statusTokens {
+		buckets[t.token[0]] = append(buckets[t.token[0]], i)
 	}
-	return m
+	for _, bucket := range buckets {
+		sort.Slice(bucket, func(i, j int) bool {
+			return len(statusTokens[bucket[i]].token) > len(statusTokens[bucket[j]].token)
+		})
+	}
+	return buckets
 }()
 
-var statusRE = sync.OnceValue(func() *regexp.Regexp {
-	toks := make([]string, len(statusTokens))
-	for i, t := range statusTokens {
-		toks[i] = t.token
-	}
-	sort.Slice(toks, func(i, j int) bool { return len(toks[i]) > len(toks[j]) })
-	for i, t := range toks {
-		toks[i] = wordBounded(t)
-	}
-	return regexp.MustCompile(strings.Join(toks, "|"))
-})
-
-// wordBounded quotes tok with \b on each word-character edge, so "pinned" never paints inside "unpinned".
-func wordBounded(tok string) string {
-	q := regexp.QuoteMeta(tok)
-	if isWordByte(tok[0]) {
-		q = `\b` + q
-	}
-	if isWordByte(tok[len(tok)-1]) {
-		q += `\b`
-	}
-	return q
-}
-
+// ASCII word edges match regexp's \b even beside invalid UTF-8 or terminal escapes.
 func isWordByte(c byte) bool {
 	return c == '_' || '0' <= c && c <= '9' || 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z'
 }
