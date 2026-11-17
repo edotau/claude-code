@@ -10,6 +10,8 @@ import (
 // DispatchIDEnv names the dispatch record id every dispatch child carries in its env, so a sweep can tell it apart.
 const DispatchIDEnv = "HARNESS_DISPATCH_ID"
 
+const DispatchDepthEnv = "HARNESS_DISPATCH_DEPTH"
+
 // Info is one row of the process table: identity, ancestry, start, executable and the value of the marker env var.
 type Info struct {
 	PID, PPID, PGID int

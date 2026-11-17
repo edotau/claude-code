@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -70,6 +71,10 @@ type Record struct {
 	Preflight      *Preflight `json:"preflight,omitempty"`       // what the preflight failed or skipped, and what it chose
 	Wrote          *[]string  `json:"wrote,omitempty"`           // files the run changed, absolute; nil: not observed
 
+	Parent string      `json:"parent,omitempty"`
+	Depth  int         `json:"depth,omitempty"`
+	Usage  *wire.Usage `json:"usage,omitempty"`
+
 	Widened []string `json:"permissions_widened,omitempty"` // what the request grants beyond the agent's default permissions
 }
 
@@ -102,9 +107,18 @@ func NewRecord(name string, req RunOptions, now time.Time) Record {
 	}
 	widened, _ := widenedChecked(name, req.Permissions) // a bad default fails the run itself
 	ctx := valuesContext(context.Background(), req.Values)
+	parent := proc.Value(ctx, proc.DispatchIDEnv)
+	depth := 0
+	if parent != "" {
+		inherited, err := strconv.Atoi(proc.Value(ctx, proc.DispatchDepthEnv))
+		if err != nil {
+			inherited = 0
+		}
+		depth = inherited + 1
+	}
 	provider, profile, _ := router.CoworkerContext(ctx)
 	return Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
-		Widened: widened, Route: router.JoinCoworker(provider, profile)}
+		Parent: parent, Depth: depth, Widened: widened, Route: router.JoinCoworker(provider, profile)}
 }
 
 // widenedChecked is what p grants beyond name's default permissions; an unreadable default is returned, not hidden.
@@ -232,6 +246,11 @@ func (r Record) LogLine() string {
 func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	r.Status, r.Provider, r.Model, r.SessionID = "ok", res.Provider, res.Model, res.SessionID
 	r.Invoked = res.Invoked
+	r.Usage = nil
+	if res.Usage != (wire.Usage{}) {
+		usage := res.Usage
+		r.Usage = &usage
+	}
 	r.Fallback, r.FallbackReason = res.Fallback, textutil.RedactSecrets(res.FallbackReason)
 	if res.Fallback != "" {
 		r.RanAs = res.Agent
@@ -455,7 +474,7 @@ func runRecorded(ctx context.Context, rec *Record, agentName string, out wire.Si
 	logSink := wire.NewLogSink(rec.LogPath())
 	defer logSink.Close() // idempotent: covers a panic in Run
 	ctx = wire.WithLog(ctx, logSink)
-	ctx = withDispatchID(ctx, rec.ID)
+	ctx = withDispatchID(ctx, rec.ID, rec.Depth)
 	if o.Job {
 		ctx, out = wire.WithLogEvents(ctx, logSink), wire.Discard
 	}
