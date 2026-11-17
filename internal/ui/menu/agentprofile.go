@@ -4,6 +4,7 @@ package menu
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
@@ -17,6 +18,7 @@ import (
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/opencode"
+	"github.com/edotau/claude-code/internal/par"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -113,6 +115,9 @@ func pickAgentProfile(d *dialog, agent, cur string) (bool, error) {
 	name, ok := pickProfileName(d, agent, agentProfileChoices(d, agent), cur)
 	if !ok {
 		return false, nil
+	}
+	if slices.Contains(providers.DatabricksProfiles(d.reg), name) {
+		return pinWorkspace(d, agent, name), nil
 	}
 	return writeAgentField(d, agent, "PROFILE", name)
 }
@@ -303,40 +308,52 @@ func dbxWorkspaceRow(d *dialog, agent string) *billingRow {
 		if !ok {
 			return false
 		}
-		changed, err := writeAgentField(d, agent, "PROFILE", name)
-		if err != nil {
-			d.printf("%s: %v\n", agent, err)
-			return false
-		}
+		changed := pinWorkspace(d, agent, name)
 		dbxTokenCheck(d, name)
 		return changed
 	}}
 }
 
+// pinWorkspace pins agent and every other agent on a Databricks workspace to ws; true if agent's pin changed.
+func pinWorkspace(d *dialog, agent, ws string) (changed bool) {
+	all := providers.DatabricksProfiles(d.reg)
+	var moved []string
+	for _, a := range seedAgents() {
+		if a != agent && !slices.Contains(all, vault.GetAgentRecord(a).Profile) {
+			continue
+		}
+		ch, err := writeAgentField(d, a, "PROFILE", ws)
+		switch {
+		case err != nil:
+			d.printf("%s: %v\n", a, err)
+		case ch && a != agent:
+			moved = append(moved, a)
+		case a == agent:
+			changed = ch
+		}
+	}
+	if len(moved) > 0 {
+		d.printf("databricks %s: also moved %s\n", ws, strings.Join(moved, ", "))
+	}
+	return changed
+}
+
 // dbxTokenCheck mints ws's token the way a headless ask does and prints one line; the token is never shown.
 func dbxTokenCheck(d *dialog, ws string) {
-	ctx, cancel := context.WithTimeout(providers.WithIdentity(context.Background(), providers.IdentityHeadless), dbxCheckTimeout)
-	defer cancel()
-	ctx = providers.WithNotes(ctx, func(string) {})
-	type outcome struct {
-		auth string
-		err  error
-	}
-	done := make(chan outcome, 1)
-	go func() {
+	ctx := providers.WithNotes(providers.WithIdentity(context.Background(), providers.IdentityHeadless), func(string) {})
+	auth, err := par.Within(ctx, dbxCheckTimeout, func(ctx context.Context) (string, error) {
 		res, _, err := dbxMint(ctx, ws)
-		done <- outcome{res.AuthType, err}
-	}()
-	var out outcome
-	select {
-	case out = <-done:
-	case <-ctx.Done():
-		out.err = fmt.Errorf("timed out after %s", dbxCheckTimeout)
+		return res.AuthType, err
+	})
+	if _, isPanic := errors.AsType[*par.PanicError](err); isPanic {
+		err = errors.New("token check failed unexpectedly")
+	} else if errors.Is(err, context.DeadlineExceeded) {
+		err = fmt.Errorf("timed out after %s", dbxCheckTimeout)
 	}
-	if out.err == nil {
-		d.printf("databricks %s: token ok (%s)\n", ws, out.auth)
+	if err == nil {
+		d.printf("databricks %s: token ok (%s)\n", ws, auth)
 		return
 	}
-	why := strings.Join(strings.Fields(textutil.RedactSecrets(out.err.Error())), " ")
+	why := strings.Join(strings.Fields(textutil.RedactSecrets(err.Error())), " ")
 	d.printf("databricks %s: %s · fix: %s\n", ws, textutil.TruncateCells(why, 70, "…"), providers.LoginCommand(ws))
 }
