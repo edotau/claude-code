@@ -3,6 +3,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -262,6 +263,75 @@ type Row struct {
 	Parent string      `json:"parent,omitempty"`
 	Depth  int         `json:"depth,omitempty"`
 	Usage  *wire.Usage `json:"usage,omitempty"`
+}
+
+// Observed is what the harness itself recorded about a dispatch, apart from the agent's own account.
+type Observed struct {
+	Parent   string      `json:"parent,omitempty"`
+	Depth    int         `json:"depth,omitempty"`
+	Usage    *wire.Usage `json:"usage,omitempty"`
+	Model    string      `json:"model,omitempty"`
+	Route    string      `json:"route,omitempty"`
+	Duration string      `json:"duration,omitempty"`
+	State    string      `json:"state,omitempty"`
+	Files    *int        `json:"files,omitempty"` // files the run changed; nil: not observed
+}
+
+// ObservedOf is rec's harness-observed facts, taken from the record alone.
+func ObservedOf(rec Record) *Observed {
+	o := &Observed{Parent: rec.Parent, Depth: rec.Depth, Usage: rec.Usage, Model: cmp.Or(rec.Invoked, rec.Model),
+		Route: rec.Route, State: rec.Status}
+	if rec.DurationMs > 0 {
+		o.Duration = roundedRun(rec)
+	}
+	if n, _ := wroteCount(rec); rec.Wrote != nil {
+		o.Files = &n
+	}
+	return o
+}
+
+// roundedRun is rec's recorded run time to the second.
+func roundedRun(rec Record) string {
+	return (time.Duration(rec.DurationMs) * time.Millisecond).Round(time.Second).String()
+}
+
+// wroteCount is how many files rec.Wrote names and whether the list was cut at its cap.
+func wroteCount(rec Record) (int, bool) {
+	if rec.Wrote == nil {
+		return 0, false
+	}
+	n := len(*rec.Wrote)
+	if n > 0 && (*rec.Wrote)[n-1] == WroteTruncated {
+		return n - 1, true
+	}
+	return n, false
+}
+
+// ObservedLine is the one-line `observed:` footer ("3 files · 41k tok · depth 1 · 2m10s"), or "" for a legacy record.
+func ObservedLine(rec Record) string {
+	var parts []string
+	if n, more := wroteCount(rec); rec.Wrote != nil {
+		plus := ""
+		if more {
+			plus = "+"
+		}
+		parts = append(parts, fmt.Sprintf("%d%s files", n, plus))
+	}
+	if u := rec.Usage; u != nil {
+		if t := int64(u.InputTokens + u.CacheCreationTokens + u.CacheReadTokens + u.OutputTokens); t > 0 {
+			parts = append(parts, textutil.CompactCount(t)+" tok")
+		}
+	}
+	if rec.Depth > 0 {
+		parts = append(parts, fmt.Sprintf("depth %d", rec.Depth))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	if rec.DurationMs > 0 {
+		parts = append(parts, roundedRun(rec))
+	}
+	return textutil.Truncate("observed: "+strings.Join(parts, " · "), 80)
 }
 
 // Detail is a status row's tail: progress and preview, or the preview plus the one-line error text.

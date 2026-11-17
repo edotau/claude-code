@@ -19,6 +19,8 @@ type WaitResult struct {
 	ID      string `json:"id"`
 	State   string `json:"state"`
 	Elapsed string `json:"elapsed"`
+
+	Observed *Observed `json:"observed,omitempty"`
 }
 
 // Line is the `agents wait` row: id, state, elapsed.
@@ -46,7 +48,7 @@ func Wait(ctx context.Context, ids []string, timeout, poll time.Duration) ([]Wai
 		case <-deadline:
 			for i := range recs {
 				if out[i].State == "" {
-					out[i] = WaitResult{ID: recs[i].ID, State: WaitTimeout, Elapsed: waitElapsed(recs[i], WaitTimeout)}
+					out[i] = WaitResult{ID: recs[i].ID, State: WaitTimeout, Elapsed: waitElapsed(recs[i], WaitTimeout), Observed: ObservedOf(recs[i])}
 				}
 			}
 			return out, nil
@@ -66,7 +68,7 @@ func waitPass(recs []Record, out []WaitResult) bool {
 			recs[i] = rec // an unreadable re-read keeps the last good record
 		}
 		if state := waitState(recs[i]); state != "" {
-			out[i] = WaitResult{ID: recs[i].ID, State: state, Elapsed: waitElapsed(recs[i], state)}
+			out[i] = WaitResult{ID: recs[i].ID, State: state, Elapsed: waitElapsed(recs[i], state), Observed: ObservedOf(recs[i])}
 		} else {
 			pending = true
 		}

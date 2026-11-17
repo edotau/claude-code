@@ -27,6 +27,9 @@ func resultText(rec agent.Record, log string) string {
 	if line := env.RanOn; line != "" {
 		fmt.Fprintln(&b, "ask:", line)
 	}
+	if line := agent.ObservedLine(rec); line != "" {
+		fmt.Fprintln(&b, line)
+	}
 	if rec.SessionID != "" {
 		fmt.Fprintf(&b, "session: %s\n", rec.SessionID)
 		fprintResumeHint(&b, rec.Agent, rec.SessionID)
@@ -94,8 +97,9 @@ func Verdict(rec agent.Record, n int, format string) int {
 	if format == helptext.JSON {
 		env := struct {
 			wire.Envelope
-			Verdict []string `json:"verdict"`
-		}{rec.ResultEnvelope(os.Stderr), tail}
+			Verdict  []string        `json:"verdict"`
+			Observed *agent.Observed `json:"observed,omitempty"`
+		}{rec.ResultEnvelope(os.Stderr), tail, agent.ObservedOf(rec)}
 		if code := helptext.WriteJSONOrFail("agents result", env); code != 0 {
 			return code
 		}
@@ -109,7 +113,7 @@ func Verdict(rec agent.Record, n int, format string) int {
 }
 
 // footerPrefixes start the trailing ask/session/resume lines a log ends with; they are not part of the answer.
-var footerPrefixes = []string{"ask: ", "session: ", "resume: "}
+var footerPrefixes = []string{"ask: ", "observed: ", "session: ", "resume: "}
 
 // lastLines is the last n non-empty answer lines of text (footers and `▸ ` trace lines dropped), never nil.
 func lastLines(text string, n int) []string {
