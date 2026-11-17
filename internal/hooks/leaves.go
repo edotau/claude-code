@@ -407,7 +407,7 @@ func headID(line string) string {
 	return ""
 }
 
-// exitID is the last `ask: dispatch <id>` line among the trailing footer and error lines; a wrapped id is rejoined.
+// exitID is the last `ask: dispatch <id>` line past trailing footer lines (incl. a background `[exited…]`).
 func exitID(lines []string) string {
 	for i := len(lines) - 1; i >= 0; i-- {
 		l := lines[i]
@@ -417,7 +417,7 @@ func exitID(lines []string) string {
 		if m := ownIDRe().FindStringSubmatch(l); m != nil && m[2] != "" {
 			return m[2]
 		}
-		if !slices.ContainsFunc([]string{"ask: ", "session: ", "resume: ", "claude-code: "}, func(p string) bool { return strings.HasPrefix(l, p) }) {
+		if !slices.ContainsFunc([]string{"ask: ", "session: ", "resume: ", "claude-code: ", "[exited with code "}, func(p string) bool { return strings.HasPrefix(l, p) }) {
 			return ""
 		}
 	}
