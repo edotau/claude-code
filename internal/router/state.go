@@ -73,7 +73,54 @@ type Entry struct {
 	// canonical model -> quota-denied until
 	ModelDead map[string]time.Time `json:"model_dead,omitempty"`
 	// "·" (the account) -> rate-limit hold until
-	Cooling map[string]time.Time `json:"cooling,omitempty"`
+	Cooling  map[string]time.Time `json:"cooling,omitempty"`
+	Verified map[string]Verdict   `json:"verified,omitempty"`
+}
+
+// Verdict contains only health metadata, never a credential or upstream response body.
+type Verdict struct {
+	Status     string    `json:"status"`
+	Source     string    `json:"source"`
+	At         time.Time `json:"at"`
+	ValidUntil time.Time `json:"valid_until"`
+	CredFP     string    `json:"cred_fp"`
+}
+
+// VerdictKey separates workspace auth (empty model and effort) from a model-specific live verdict.
+func VerdictKey(profile, account, model, effort string) string {
+	return strings.Join([]string{profile, account, model, effort}, "|")
+}
+
+// VerifiedOK trusts only fresh, well-formed successes bound to the current credential generation.
+func (s State) VerifiedOK(account, key, fp string, now time.Time) bool {
+	v := s[account].Verified[key]
+	return fp != "" && v.CredFP == fp && v.Status == "ok" &&
+		(v.Source == "listing" || v.Source == "live") && !v.At.IsZero() && !v.At.After(now) &&
+		v.ValidUntil.After(now) && !v.ValidUntil.After(v.At.Add(15*time.Minute))
+}
+
+// StoreVerdict is best-effort and nonblocking; failures expire before successes and never gate a launch.
+func StoreVerdict(account, key string, v Verdict) {
+	fp, status, now := v.CredFP, v.Status, v.At
+	if fp == "" {
+		return
+	}
+	ttl := 30 * time.Second
+	if status == "ok" {
+		ttl = 15 * time.Minute
+	}
+	_, _ = tryUpdate(0, func(s State) {
+		e := s[account]
+		next := make(map[string]Verdict)
+		for k, v := range e.Verified {
+			if v.ValidUntil.After(now) && v.CredFP == fp {
+				next[k] = v
+			}
+		}
+		next[key] = Verdict{Status: status, Source: v.Source, At: now, ValidUntil: now.Add(ttl), CredFP: fp}
+		e.Verified = next
+		s[account] = e
+	})
 }
 
 // State is every account's entry, keyed by account key.
@@ -100,6 +147,7 @@ func (s State) clone() State {
 		e.Unserved = maps.Clone(e.Unserved)
 		e.ModelDead = maps.Clone(e.ModelDead)
 		e.Cooling = maps.Clone(e.Cooling)
+		e.Verified = maps.Clone(e.Verified)
 		out[k] = e
 	}
 	return out
@@ -306,7 +354,7 @@ func clearAuth(account string) func(State) {
 // ClearProviderAuth drops provider's auth and model-dead marks: the router's own and each dispatch's "<provider>·<p>".
 func ClearProviderAuth(provider string) error {
 	hit := func(account string, e Entry) bool {
-		return (!e.AuthAt.IsZero() || len(e.ModelDead) > 0) && strings.HasSuffix(account, "·"+provider)
+		return (!e.AuthAt.IsZero() || len(e.ModelDead) > 0 || len(e.Verified) > 0) && strings.HasSuffix(account, "·"+provider)
 	}
 	marked := false
 	for account, e := range LoadState() {
@@ -319,7 +367,7 @@ func ClearProviderAuth(provider string) error {
 	return update(func(s State) {
 		for account, e := range s {
 			if hit(account, e) {
-				e.AuthReason, e.AuthAt, e.ModelDead = "", time.Time{}, nil
+				e.AuthReason, e.AuthAt, e.ModelDead, e.Verified = "", time.Time{}, nil, nil
 				s[account] = e
 			}
 		}

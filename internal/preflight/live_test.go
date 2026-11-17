@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/catalog"
@@ -21,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -291,5 +293,34 @@ func BenchmarkPrintFixRows(b *testing.B) {
 	ps := []Pin{{Status: StatusOK}, {Status: statusStale}, {Status: StatusOK}, {Status: statusUnserved}}
 	for b.Loop() {
 		printFixRows(io.Discard, ps)
+	}
+}
+
+func TestCachePongDoesNotBlessFallbackOrRotatedCredential(t *testing.T) {
+	vaulttest.Use(t)
+	p := &providers.Provider{Name: "pong-cache", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthPAT}}
+	secret := providers.AuthSecretName(p)
+	if err := vault.Store(secret, "fixture"); err != nil {
+		t.Fatal(err)
+	}
+	fp := agent.CredentialFingerprint(p)
+	r := Pong{Agent: "codex", Profile: p.Name, Model: "wire", OK: true, Fallback: "other"}
+	cachePong(p, fp, r)
+	account := router.AccountOf(p)
+	key := router.VerdictKey(p.Name, account, "wire", "")
+	if len(router.LoadState()[account].Verified) != 0 {
+		t.Fatal("fallback warmed the requested target")
+	}
+	r.Fallback = ""
+	cachePong(p, fp, r)
+	if !router.LoadState().VerifiedOK(account, key, fp, time.Now()) {
+		t.Fatal("successful pong did not warm cache")
+	}
+	if err := vault.Store(secret, "rotated-fixture"); err != nil {
+		t.Fatal(err)
+	}
+	cachePong(p, fp, r)
+	if router.LoadState().VerifiedOK(account, key, agent.CredentialFingerprint(p), time.Now()) {
+		t.Fatal("old pong blessed a new credential")
 	}
 }

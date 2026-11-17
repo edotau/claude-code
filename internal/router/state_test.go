@@ -516,3 +516,39 @@ func TestUpdateKeepsOnlyOneCorruptBackup(t *testing.T) {
 		t.Errorf("backup holds %q, want the corrupt bytes", got)
 	}
 }
+
+func TestVerdictCacheBoundsAndIsolation(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now()
+	account := "databricks·cache"
+	key := VerdictKey("cache", account, "wire", "high")
+	StoreVerdict(account, key, Verdict{CredFP: "fp", Status: "ok", Source: "live", At: now})
+	st := LoadState()
+	if !st.VerifiedOK(account, key, "fp", now) {
+		t.Fatal("fresh success was not reusable")
+	}
+	for _, tc := range []struct {
+		key, fp string
+		at      time.Time
+	}{
+		{key, "rotated", now}, {key, "", now}, {key, "fp", now.Add(16 * time.Minute)},
+		{VerdictKey("cache", account, "wire", "low"), "fp", now},
+	} {
+		if st.VerifiedOK(account, tc.key, tc.fp, tc.at) {
+			t.Fatal("untrusted success was reused")
+		}
+	}
+	clone := st.clone()
+	clone[account].Verified[key] = Verdict{Status: "unknown"}
+	if !st.VerifiedOK(account, key, "fp", now) {
+		t.Fatal("clone mutated the original verdict")
+	}
+	StoreVerdict(account, key, Verdict{CredFP: "fp", Status: "auth", Source: "live", At: now})
+	v := LoadState()[account].Verified[key]
+	if v.ValidUntil.Sub(v.At) >= 15*time.Minute {
+		t.Fatal("failure outlives success")
+	}
+	if LoadState().VerifiedOK(account, key, "fp", now) {
+		t.Fatal("failure counted as success")
+	}
+}
