@@ -1450,7 +1450,7 @@ func TestRanOnRunLineClaimIsExclusive(t *testing.T) {
 
 // Regression (2026-11-16): an exit line the terminal wrapped, or coloured, still names the ask's job.
 func TestLeafJobIDsWrappedExitLine(t *testing.T) {
-	for _, out := range []string{"job " + leafJob + " started", leafJob, "ask: dispatch " + leafJob, "a\nask: dispatch\n" + leafJob + " (replay)", "a\n\x1b[2mask: dispatch " + leafJob + "\x1b[0m"} {
+	for _, out := range []string{"job " + leafJob + " started", leafJob, "ask: dispatch " + leafJob, "a\nask: dispatch\n" + leafJob + " (replay)", "a\n\x1b[2mask: dispatch " + leafJob + "\x1b[0m", "a\nask: dispatch " + leafJob + "\n\n[exited with code 0]"} {
 		if got := readLeaf(leafEnv(t, out), leafWant{ids: true}).ids; fmt.Sprint(got) != fmt.Sprint([]string{leafJob}) {
 			t.Errorf("%q: ids = %v, want [%s]", out, got, leafJob)
 		}
