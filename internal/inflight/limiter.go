@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -202,9 +203,17 @@ func cloneCounts(m map[string]int) map[string]int {
 // readMarker splits a marker file into its account and session transcript; ok=false when it cannot be read.
 func readMarker(dir, name string) (account, transcript string, mod time.Time, ok bool) {
 	path := filepath.Join(dir, name)
-	fi, ierr := os.Stat(path)
-	b, rerr := os.ReadFile(path)
-	if ierr != nil || rerr != nil {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", "", time.Time{}, false
+	}
+	defer func() { _ = f.Close() }()
+	fi, err := f.Stat()
+	if err != nil {
+		return "", "", time.Time{}, false
+	}
+	b, err := io.ReadAll(f)
+	if err != nil {
 		return "", "", time.Time{}, false
 	}
 	account, transcript, _ = strings.Cut(string(b), "\n") // cut before trimming: the account line may be empty
