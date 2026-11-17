@@ -140,11 +140,10 @@ type Tree struct {
 	Dispatches []Dispatch `json:"dispatches,omitempty"` // unscoped views: live dispatch jobs machine-wide
 }
 
-// Options scopes a build by Days (ignored with Session), one Session id, or Running only; Now defaults to time.Now.
+// Options scopes a build by Days (ignored with Session) or one Session id; Now defaults to time.Now.
 type Options struct {
 	Days    int
 	Session string
-	Running bool
 	Now     func() time.Time
 	scans   *scanCache // kept across watch ticks; nil loads and saves one per build
 }
@@ -201,12 +200,6 @@ func build(claudeDir string, opts Options) (*Tree, error) {
 		if e, ok := reg[s.ID]; ok {
 			s = applyRegistry(s, e)
 		}
-		if opts.Running && !s.Live && !sessionHasActivity(s) {
-			continue
-		}
-		if opts.Running {
-			s = pruneToRunning(s)
-		}
 		tree.Sessions = append(tree.Sessions, s)
 	}
 	slices.SortStableFunc(tree.Sessions, func(a, b Session) int { return b.Updated.Compare(a.Updated) })
@@ -221,24 +214,6 @@ func appendLiveTranscripts(claudeDir string, reg map[string]regEntry, sessionFil
 	return append(sessionFiles, liveTranscripts(claudeDir, reg, have)...)
 }
 
-// sessionHasActivity reports whether --running keeps s: it is active or any subagent (direct or in a run) is open.
-func sessionHasActivity(s Session) bool {
-	if s.Status == statusActive {
-		return true
-	}
-	if slices.ContainsFunc(s.Subagents, unfinished) {
-		return true
-	}
-	running := false
-	for _, run := range s.Workflows {
-		forEachRunAgent(run, func(sub Subagent) { running = running || unfinished(sub) })
-	}
-	return running
-}
-
-// unfinished is true for a subagent pruneToRunning keeps: running or stale, not finished or error.
-func unfinished(sub Subagent) bool { return !finished(sub) }
-
 // finished is true for a subagent with a result in: finished or error.
 func finished(sub Subagent) bool {
 	return sub.Status == statusFinished || sub.Status == statusError
@@ -251,27 +226,6 @@ func forEachRunAgent(run WorkflowRun, fn func(Subagent)) {
 			fn(sub)
 		}
 	}
-}
-
-// pruneToRunning removes completed children while retaining potentially hung work for scan callers.
-func pruneToRunning(s Session) Session {
-	s.Subagents = slices.DeleteFunc(slices.Clone(s.Subagents), finished)
-	var runs []WorkflowRun
-	for _, run := range s.Workflows {
-		var phases []WorkflowPhase
-		for _, ph := range run.Phases {
-			ph.Agents = slices.DeleteFunc(slices.Clone(ph.Agents), finished)
-			if len(ph.Agents) > 0 {
-				phases = append(phases, ph)
-			}
-		}
-		run.Phases = phases
-		if len(phases) > 0 || run.Status == statusRunning {
-			runs = append(runs, run)
-		}
-	}
-	s.Workflows = runs
-	return s
 }
 
 const (

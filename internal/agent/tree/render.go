@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -327,9 +328,6 @@ func Show(claudeDir string, opts Options, v View) int {
 
 // show lists the tree once and writes it as JSON or text, or as a watch frame when f is set.
 func show(claudeDir string, opts Options, v View, f *frame) int {
-	if v.JSON {
-		opts.Running = false
-	}
 	listing, err := listing(claudeDir, opts, v.All || v.JSON)
 	if err == nil && v.JSON {
 		err = helptext.WriteJSON(os.Stdout, listing)
@@ -485,16 +483,29 @@ func ownRecord(sub Subagent) (Dispatch, bool) {
 	return sub.Dispatches[i], true
 }
 
-// subLabel splits "<model>: <task>"; a "/" in the model counts only when the row's own record ends it.
+// modelLike is true for a model alias or an id: a digit and only letters, digits and "._/-", as in "kimi-k3".
+func modelLike(s string) bool {
+	if slices.Contains(models.AliasNames, s) {
+		return true
+	}
+	digit := false
+	for _, r := range s {
+		switch {
+		case r >= '0' && r <= '9':
+			digit = true
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r == '.', r == '_', r == '/', r == '-':
+		default:
+			return false
+		}
+	}
+	return digit
+}
+
+// subLabel splits "<model>: <task>"; a prefix that does not look like a model ("fix: x") stays in the task.
 func subLabel(sub Subagent) (model, task string, ok bool) {
 	model, task, ok = strings.Cut(sub.Description, ": ")
-	if !ok || model == "" || strings.ContainsAny(model, " \t\n") {
+	if !ok || !modelLike(model) {
 		return "", sub.Description, false
-	}
-	if strings.Contains(model, "/") {
-		if d, has := ownRecord(sub); !has || !strings.HasSuffix(model, "/"+d.Model) && model != d.Model {
-			return "", sub.Description, false
-		}
 	}
 	return model, task, true
 }

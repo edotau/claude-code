@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/par"
 )
 
 // Spec supplies one package's brief and batch routing, with ID expressed as W.k.
@@ -82,7 +83,7 @@ func Launch(ctx context.Context, executable string, specs []Spec, options Launch
 	}
 	out, runErr := make([]Envelope, len(specs)), error(nil)
 	for _, res := range launchAll(ctx, executable, specs, options) {
-		runErr = errors.Join(runErr, res.err, res.snapErr)
+		runErr = errors.Join(runErr, containPanic(res, specs), res.snapErr)
 		for j, e := range res.envelopes {
 			out[res.batch.idx[j]], out[res.batch.idx[j]].Scoped = e, res.batch.enforced
 			out[res.batch.idx[j]].Foreign = res.foreign
@@ -93,6 +94,20 @@ func Launch(ctx context.Context, executable string, specs []Spec, options Launch
 		out = nil
 	}
 	return out, runErr
+}
+
+// containPanic keeps a panic's value and stack, which the run's persisted reason must not carry, on stderr.
+func containPanic(res batchResult, specs []Spec) error {
+	var pe *par.PanicError
+	if !errors.As(res.err, &pe) {
+		return res.err
+	}
+	fmt.Fprintln(os.Stderr, res.err)
+	ids := make([]string, len(res.batch.idx))
+	for j, i := range res.batch.idx {
+		ids[j] = specs[i].ID
+	}
+	return fmt.Errorf("leaves %s: launcher panicked (stack on stderr)", strings.Join(ids, ","))
 }
 
 // launchBatchRun runs one `agents ask --batch` over specs with the extra scope flags, saving each leaf's result.

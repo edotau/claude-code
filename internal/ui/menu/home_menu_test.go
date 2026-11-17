@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"io"
 	"os"
 	"regexp"
 	"slices"
@@ -13,6 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/par"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/table"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -635,8 +637,24 @@ func TestFanOutContainsPanic(t *testing.T) {
 		}
 		got[i] = "ok"
 	}, func(i int, err error) { got[i] = panicLine(err) })
-	if got[0] != "ok" || got[1] != "panic: row exploded" || got[2] != "ok" {
+	if got[0] != "ok" || got[1] != panicRow || got[2] != "ok" {
 		t.Fatalf("rows = %q; the panicking row must show its error and leave the rest", got)
+	}
+}
+
+func TestPanicLineKeepsTheValueOffTheRow(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	stderr := os.Stderr
+	os.Stderr = w
+	row := panicLine(par.All(1, func(int) error { panic("token-abc") })[0])
+	os.Stderr = stderr
+	w.Close()
+	logged, _ := io.ReadAll(r)
+	if row != panicRow || strings.Contains(row, "token-abc") || strings.Count(string(logged), "token-abc") != 1 {
+		t.Fatalf("row %q, stderr %q: want a generic row and the value once on stderr", row, logged)
 	}
 }
 
@@ -655,8 +673,7 @@ func TestHomeSectionsContainBuilderPanics(t *testing.T) {
 			rows++
 		}
 	}
-	if rows != len(acts) || !strings.Contains(text, "menu exploded") || !strings.Contains(text, "extra exploded") ||
-		!strings.Contains(text, "claude") {
-		t.Fatalf("rows=%d acts=%d, want both panics shown and the healthy rows kept:\n%s", rows, len(acts), text)
+	if rows != len(acts) || strings.Count(text, panicRow) != 2 || strings.Contains(text, "exploded") || !strings.Contains(text, "claude") {
+		t.Fatalf("rows=%d acts=%d, want both panics shown generically and the healthy rows kept:\n%s", rows, len(acts), text)
 	}
 }
