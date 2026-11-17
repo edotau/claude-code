@@ -1,6 +1,8 @@
 package hooks
 
 import (
+	"cmp"
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -18,6 +20,20 @@ var builtinTypes = []string{"Explore", "general-purpose"}
 
 // listAgents loads the agent definitions; a seam so tests count or fail the read.
 var listAgents = project.DiscoverAgents
+
+// inContextTypes work on the parent's model and never run a brief's `Run:` line.
+var inContextTypes = map[string]bool{"Plan": true, "Explore": true}
+
+// runLineBlock denies a Run: brief sent to an in-context type, naming the type that would run it.
+func runLineBlock(ctx context.Context, st, task string) *core.Result {
+	if !inContextTypes[st] || !opensWithAsk(task) {
+		return nil
+	}
+	to := cmp.Or(parseAskLine(ctx, task).agent, agentid.Claude)
+	return &core.Result{Decision: core.Block, Reason: fmt.Sprintf("dispatch-effort: a %s leaf works in-context and "+
+		"never runs a `Run:` line; drop the line (pass `model` for the model) or send the brief as subagent_type %q.",
+		st, to)}
+}
 
 // dispatchTypes is every allowed subagent_type, sorted; an unreadable or empty agents/ falls back to the roster.
 func dispatchTypes() []string {
