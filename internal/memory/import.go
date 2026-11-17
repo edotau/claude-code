@@ -101,7 +101,7 @@ func planImport(opt ImportOptions) (*importPlan, error) {
 	if len(p.leaks) > 0 { // refuse before apply: the commit gate would fail only after the writes
 		var msg strings.Builder
 		for _, rel := range p.leaks {
-			msg.WriteString("credential-shaped content: " + rel + "\n")
+			fmt.Fprintf(&msg, "credential-shaped content: %s\n", rel)
 		}
 		return p, errors.New(msg.String() + "nothing was imported; scrub the source file(s) and re-run")
 	}

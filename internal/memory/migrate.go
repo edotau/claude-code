@@ -441,7 +441,7 @@ func migMergeSections(target, src string) (string, int) {
 		t.WriteString(spre)
 		for _, b := range sblocks {
 			h, _, _ := strings.Cut(b, "\n")
-			t.WriteString("\n\n" + h)
+			fmt.Fprintf(&t, "\n\n%s", h)
 		}
 		target = t.String()
 	}
