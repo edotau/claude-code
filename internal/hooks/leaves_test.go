@@ -558,7 +558,7 @@ func leafTxCmd(t *testing.T, agentType, command, brief string, toolResults ...st
 func TestRanOnReceiptFromResultFollow(t *testing.T) {
 	const receipt = "ask: ran on codex · gpt-5 · profile x\nresult"
 	for command, wantNote := range map[string]bool{
-		"claude-code agents result -f job1": false, "claude-code agents result job1": false, "claude-code agents tail -f job1": true,
+		"claude-code agents result -f job1": false, "claude-code agents result job1": false, "rtk claude-code codex ask x": false, "claude-code agents tail -f job1": true,
 	} {
 		in := leafTxCmd(t, "codex", command, "Objective: x\nAgent: codex\n", receipt)
 		if r, blocked := leafStopBlock(in, "a1"); blocked || strings.Contains(r.SystemMessage, relayNote) != wantNote {
