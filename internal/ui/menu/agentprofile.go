@@ -11,10 +11,10 @@ import (
 
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
-
 	"github.com/edotau/claude-code/internal/vault"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -91,7 +91,7 @@ func fallbackRow(d *dialog, agent string) billingRow {
 // agentProfileChoices is the picker's profile values: off ("") first, then the own login, then the rest.
 func agentProfileChoices(d *dialog, agent string) []string {
 	names := configure.SeedProfiles(d.reg, agent)
-	if agent == "opencode" {
+	if agentid.Routing(agent).SubLadder {
 		for _, id := range providers.RouteOpencodeSubIDs {
 			if !slices.Contains(names, id) {
 				names = append(names, id)
