@@ -1,6 +1,7 @@
 package shell
 
 import (
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -168,14 +169,48 @@ func footerLine(arg string) bool {
 	return slices.ContainsFunc(footerLines(), func(re *regexp.Regexp) bool { return re.MatchString(arg) })
 }
 
+// maxMessageFile caps how much of an existing -F/-t file is read.
+const maxMessageFile = 64 << 10
+
+// messageFileFooter reports a footer line in an existing file named by -F/--file/-t/--template.
+func messageFileFooter(target string, args []string) bool {
+	for i, a := range args {
+		path := ""
+		switch {
+		case (a == "-F" || a == "--file" || a == "-t" || a == "--template") && i+1 < len(args):
+			path = args[i+1]
+		case strings.HasPrefix(a, "--file="), strings.HasPrefix(a, "--template="):
+			_, path, _ = strings.Cut(a, "=")
+		case len(a) > 2 && (strings.HasPrefix(a, "-F") || strings.HasPrefix(a, "-t")):
+			path = a[2:]
+		}
+		if path == "" || path == "-" {
+			continue
+		}
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(target, path)
+		}
+		if fi, err := os.Lstat(path); err != nil || !fi.Mode().IsRegular() || fi.Size() > maxMessageFile {
+			continue
+		}
+		if b, err := os.ReadFile(path); err == nil && footerLine(string(b)) {
+			return true
+		}
+	}
+	return false
+}
+
 // AttributionFooterCommit reports a commit footer at an argument's line start, in raw text past a subject, or built.
-func AttributionFooterCommit(cmd string) bool {
+func AttributionFooterCommit(cmd, cwd string) bool {
 	_, subs := ExtractSubstitutions(cmd)
 	dynamic := slices.ContainsFunc(subs, func(s string) bool { return !strings.Contains(s, "<<") })
 	var subjects []string
-	if EachGit(cmd, "", func(_, verb string, args []string) bool {
+	if EachGit(cmd, cwd, func(target, verb string, args []string) bool {
 		if verb != "commit" {
 			return false
+		}
+		if messageFileFooter(target, args) {
+			return true
 		}
 		for _, a := range args {
 			if footerLine(a) {
