@@ -427,3 +427,15 @@ func TestConfigureWireDirectNeverRefusesOnTokenLife(t *testing.T) {
 		t.Fatalf("err=%v wired=%v, want a wired direct run", err, spy.wired)
 	}
 }
+
+func TestConfinementCarriesDispatchLimits(t *testing.T) {
+	ctx := proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: `{"maxChildren":0,"maxTreeTokens":123,"budgetUSD":1}`})
+	for range 2 {
+		doc := confinementDocContext(ctx)
+		o, err := agentconfig.LoadOverlayContext(t.Context(), doc, nil)
+		if err != nil || o.MaxChildren == nil || *o.MaxChildren != 0 || o.MaxTreeTokens == nil || *o.MaxTreeTokens != 123 || o.BudgetUSD != nil {
+			t.Fatalf("nested limits: %s, %v", doc, err)
+		}
+		ctx = proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: doc})
+	}
+}

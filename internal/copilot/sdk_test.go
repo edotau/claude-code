@@ -729,3 +729,30 @@ done
 		t.Fatalf("runtime pid %d still alive after ctx cancel", pid)
 	}
 }
+
+func TestSessionBudgetCredits(t *testing.T) {
+	o := sdkOptions{BudgetCredits: new(30)}
+	for _, limits := range []*rpc.SessionLimitsConfig{buildSessionConfig(o).SessionLimits, buildResumeSessionConfig(o).SessionLimits} {
+		if limits == nil || limits.MaxAiCredits == nil || *limits.MaxAiCredits != 30 {
+			t.Fatalf("credit limit: %+v", limits)
+		}
+	}
+	if buildSessionConfig(sdkOptions{}).SessionLimits != nil {
+		t.Fatal("unset budget imposed a limit")
+	}
+}
+
+func TestLimitsExhaustedNamesBudgetCredits(t *testing.T) {
+	got := make(chan string, 1)
+	c := assistantCollector{onLimit: func(id string) { got <- id }}
+	if c.limitError() != nil {
+		t.Fatal("no event, no error")
+	}
+	c.onEvent(copilot.SessionEvent{Data: &copilot.SessionLimitsExhaustedRequestedData{RequestID: "r1", MaxAiCredits: 30, UsedAiCredits: 31}})
+	if err := c.limitError(); err == nil || !strings.Contains(err.Error(), "budgetCredits") {
+		t.Fatalf("cap error: %v", err)
+	}
+	if id := <-got; id != "r1" {
+		t.Fatalf("cancel must answer the request: %q", id)
+	}
+}

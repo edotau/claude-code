@@ -208,3 +208,24 @@ func TestDispatchWidthConcurrentClaims(t *testing.T) {
 		t.Fatalf("live children = %d, admitted = %d; want 3", got, admitted)
 	}
 }
+
+func TestDispatchLimitOverlayPrecedence(t *testing.T) {
+	for _, key := range []string{maxDispatchChildrenEnv, maxTreeTokensEnv} {
+		for _, tc := range []struct {
+			env, doc string
+			want     int
+		}{
+			{"7", `{"maxChildren":2,"maxTreeTokens":2}`, 7},
+			{"", `{"maxChildren":2,"maxTreeTokens":2}`, 2},
+			{"", `{"maxChildren":0,"maxTreeTokens":0}`, 0},
+			{"", `{"maxChildren":-1,"maxTreeTokens":"bad"}`, 8},
+			{"bad", `{"maxChildren":2,"maxTreeTokens":2}`, 8},
+			{"", "{}", 8},
+		} {
+			ctx := proc.WithValues(t.Context(), proc.Values{key: tc.env, "COWORKER_OVERLAY": tc.doc})
+			if got := dispatchLimit(ctx, key, 8); got != tc.want {
+				t.Errorf("%s %+v: got %d", key, tc, got)
+			}
+		}
+	}
+}

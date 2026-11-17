@@ -205,7 +205,7 @@ func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Setti
 	}
 	effort, note := modelEffort(s)
 	o := sdkOptions{
-		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model,
+		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model, BudgetCredits: req.BudgetCredits,
 		// --effort over the record; there is no per-call --context, so the record decides it
 		ReasoningEffort: effort,
 		Context:         s.Record.Context, WorkingDirectory: workDir,
