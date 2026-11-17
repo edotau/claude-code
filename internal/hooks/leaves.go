@@ -125,7 +125,7 @@ func Stop(in *core.Input) core.Result {
 	if id == "" {
 		return core.Result{}
 	}
-	lr := readLeaf(in.AgentTranscriptPath, leafWants(in))
+	lr := readLeaf(in.AgentTranscriptPath, leafWants(in), in.CWD)
 	note, blocked := leafGate(in, id, lr)
 	owner := inflight.SessionOwner()
 	if blocked || owner == 0 { // the gates need no owner; only the claim retire does
@@ -179,7 +179,10 @@ type leafRead struct {
 }
 
 // readLeaf reads the transcript once; an empty path reads nothing and reports an open error.
-func readLeaf(path string, w leafWant) (r leafRead) {
+func readLeaf(path string, w leafWant, cwd ...string) (r leafRead) {
+	if len(cwd) > 0 {
+		r.scan.cwd = cwd[0]
+	}
 	if path == "" {
 		r.openErr = os.ErrNotExist
 		return r
@@ -213,7 +216,7 @@ func readLeaf(path string, w leafWant) (r leafRead) {
 
 // leafStopBlock is leafGate over a fresh read of the leaf's transcript.
 func leafStopBlock(in *core.Input, agentID string) (core.Result, bool) {
-	return leafGate(in, agentID, readLeaf(in.AgentTranscriptPath, leafWants(in)))
+	return leafGate(in, agentID, readLeaf(in.AgentTranscriptPath, leafWants(in), in.CWD))
 }
 
 // leafGate returns a Block while a dispatch the stopping leaf started is alive; any error fails open.
@@ -430,12 +433,6 @@ const askLaunchWindow = 2 * time.Minute
 // handedBackMark is SubagentHandback's success result: the run is over, so a later stop block cannot reopen it.
 const handedBackMark = "Report delivered to your caller"
 
-// askCmdRe matches a command segment running claude-code agents ask|result or <agent> ask; a quoted mention never.
-var askCmdRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?:^|[;&|(\n])\s*(?:\w+=\S*\s+|(?:timeout\s+\S+|nohup|env|time|command|rtk)\s+)*` +
-		`((?:\S*/)?claude-code\s+(?:--remote\s+\S+\s+)?(?:agents\s+(?:ask|result|dispatch)|(?:codex|copilot|gemini|opencode)\s+ask))\b`)
-})
-
 // didNotRunRe matches the lines an ask prints when no agent ran: its `did not run` line or a pre-run refusal.
 var didNotRunRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?m)^(?:ask: did not run |claude-code: ask: )`)
@@ -443,6 +440,9 @@ var didNotRunRe = sync.OnceValue(func() *regexp.Regexp {
 
 // leafScan is what the gates read from a leaf transcript: ask calls and their results, the hand-back, prior blocks.
 type leafScan struct {
+	cwd               string
+	pendingAsks       map[string]time.Time
+	pendingEdits      map[string]bool
 	seenBrief         bool
 	runLine           string          // the brief's opening `Run:` command, the one the hook runs
 	task              string          // the brief after its Run: line: the prompt a promptless Run: line is missing
@@ -528,7 +528,7 @@ func (s *leafScan) addIDs(text string) {
 func askOutputRan(paths []string) (ran, failed bool) {
 	for _, p := range paths {
 		text := readEnds(p, savedResultCap)
-		ok := ranOnPattern().MatchString(text)
+		ok := ranOnPattern().MatchString(text) && boundReceipt(text)
 		ran = ran || ok
 		failed = failed || !ok && didNotRunRe().MatchString(text)
 	}
@@ -546,33 +546,22 @@ func (s *leafScan) addCalls(content json.RawMessage, at time.Time) {
 			continue
 		}
 		if editTools[it.Name] {
-			s.edited = s.edited || !scratchPath(it.Input.FilePath)
+			s.trackEdit(it.ID, !scratchPath(it.Input.FilePath, s.cwd))
 			continue
 		}
 		if it.Name != "Bash" {
 			continue
 		}
-		calls := askCmdRe().FindAllStringSubmatch(it.Input.Command, -1)
+		calls := relayCommands(it.Input.Command)
+		calls = slices.DeleteFunc(calls, func(words []string) bool { return askVerb(words) == "" })
 		if len(calls) == 0 {
-			s.edited = s.edited || bashWrites(it.Input.Command)
+			s.trackEdit(it.ID, bashWrites(it.Input.Command, s.cwd))
 			continue
 		}
 		if it.ID == "" {
 			continue
 		}
-		if s.askCalls == nil {
-			s.askCalls = map[string]bool{}
-		}
-		s.askCalls[it.ID] = true
-		if job, follow, ok := pollJob(it.Input.Command); ok {
-			if s.polls == nil {
-				s.polls = map[string]pollCall{}
-			}
-			s.polls[it.ID] = pollCall{job: job, follow: follow}
-		}
-		if slices.ContainsFunc(calls, func(m []string) bool { return !strings.HasSuffix(m[1], "result") }) {
-			s.askTimes = append(s.askTimes, at)
-		}
+		s.recordAsk(it, calls, at)
 	}
 }
 
@@ -596,10 +585,20 @@ func (s *leafScan) addResults(content json.RawMessage) {
 func (s *leafScan) scanResult(it leafToolResult) {
 	raw := transcript.ContentText(it.Content)
 	text := resultText(raw)
-	if s.askCalls[it.ToolUseID] {
+	success := !it.IsError && !hookDenyRe().MatchString(text)
+	if success && s.pendingEdits[it.ToolUseID] {
+		s.edited = true
+	}
+	if at, ok := s.pendingAsks[it.ToolUseID]; ok {
+		if success {
+			s.askTimes = append(s.askTimes, at)
+		}
+		delete(s.pendingAsks, it.ToolUseID)
+	}
+	if s.askCalls[it.ToolUseID] && success {
 		s.addBgAsk(text)
 		s.addIDs(strings.TrimPrefix(text, raw+"\n")) // a persisted result's ids sit in its saved output, not the preview
-		ran := ranOnPattern().MatchString(text)
+		ran := ranOnPattern().MatchString(text) && boundReceipt(text)
 		s.ranOn = s.ranOn || ran
 		s.askFailed = s.askFailed || !ran && didNotRunRe().MatchString(text)
 	}
@@ -734,7 +733,7 @@ func Handback(in *core.Input) core.Result {
 	}
 	leaf := *in
 	leaf.AgentTranscriptPath = leafTranscript(in, id)
-	lr := readLeaf(leaf.AgentTranscriptPath, leafWants(&leaf))
+	lr := readLeaf(leaf.AgentTranscriptPath, leafWants(&leaf), leaf.CWD)
 	lr.until = time.Now().Add(handbackWait)
 	res, _ := leafGate(&leaf, id, lr)
 	return res
@@ -869,3 +868,42 @@ func reapLeafBackground(in *core.Input, lr leafRead) {
 		fmt.Fprintf(os.Stderr, "dispatch-stop: reaped %d leftover background group(s)\n", len(groups))
 	}
 }
+
+func (s *leafScan) trackEdit(id string, edited bool) {
+	if s.pendingEdits == nil {
+		s.pendingEdits = map[string]bool{}
+	}
+	s.pendingEdits[id] = edited
+}
+
+func boundReceipt(text string) bool {
+	for _, id := range ownIDs(text) {
+		if _, err := loadDispatch(id); err == nil {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *leafScan) recordAsk(it leafToolUse, calls [][]string, at time.Time) {
+	if s.askCalls == nil {
+		s.askCalls = map[string]bool{}
+	}
+	s.askCalls[it.ID] = true
+	if job, follow, ok := pollJob(it.Input.Command); ok {
+		if s.polls == nil {
+			s.polls = map[string]pollCall{}
+		}
+		s.polls[it.ID] = pollCall{job: job, follow: follow}
+	}
+	if slices.ContainsFunc(calls, func(words []string) bool { return askVerb(words) != "result" }) {
+		if s.pendingAsks == nil {
+			s.pendingAsks = map[string]time.Time{}
+		}
+		s.pendingAsks[it.ID] = at
+	}
+}
+
+var hookDenyRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)PreToolUse[^\n]*(?:hook error|denied|blocked)|"permissionDecision"\s*:\s*"deny"`)
+})

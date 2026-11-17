@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -29,9 +30,13 @@ import (
 var editTools = map[string]bool{"Edit": true, "Write": true, "MultiEdit": true, "NotebookEdit": true}
 
 // bashWrites reports a Bash command that changes a file outside the temp dirs: a write, removal, patch or formatter.
-func bashWrites(cmd string) bool {
-	targets := append(core.WrittenPathsPrecise(cmd, "/"), core.RemovedPaths(cmd, "/")...)
-	if slices.ContainsFunc(targets, func(p string) bool { return !scratchPath(p) }) {
+func bashWrites(cmd string, cwd ...string) bool {
+	dir := "/"
+	if len(cwd) > 0 && cwd[0] != "" {
+		dir = cwd[0]
+	}
+	targets := append(core.WrittenPathsPrecise(cmd, dir), core.RemovedPaths(cmd, dir)...)
+	if slices.ContainsFunc(targets, func(p string) bool { return !scratchPath(p, cwd...) }) {
 		return true
 	}
 	gitWrites := shell.EachGit(cmd, "/", func(_, verb string, args []string) bool {
@@ -87,26 +92,89 @@ var printOnly = map[string][]string{
 }
 
 // scratchPath is a path under /tmp, the OS temp dir or the memory reports, handoffs and notes homes: not the work.
-func scratchPath(p string) bool {
+func scratchPath(p string, cwd ...string) bool {
+	if len(cwd) > 0 && cwd[0] != "" && !filepath.IsAbs(p) {
+		p = filepath.Join(cwd[0], p)
+	}
+	p = canonicalPath(p)
+	if p == "" {
+		return false
+	}
 	bank := memory.HomeBank()
 	dirs := []string{"/tmp", "/private/tmp", os.TempDir(), bank.SubDir("reports"), bank.SubDir("handoffs"), bank.SubDir("notes")}
 	return slices.ContainsFunc(dirs, func(dir string) bool {
-		return dir != "" && strings.HasPrefix(p, strings.TrimSuffix(dir, "/")+"/")
+		if dir == "" {
+			return false
+		}
+		rel, err := filepath.Rel(canonicalPath(dir), p)
+		return err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel)
 	})
+}
+
+func canonicalPath(p string) string {
+	if p == "" {
+		return ""
+	}
+	p, err := filepath.Abs(p)
+	if err != nil {
+		return ""
+	}
+	p = filepath.Clean(p)
+	if real, err := filepath.EvalSymlinks(p); err == nil {
+		return real
+	}
+	if _, err := os.Lstat(p); err == nil {
+		return ""
+	}
+	parent := filepath.Dir(p)
+	if parent == p {
+		return p
+	}
+	real := canonicalPath(parent)
+	if real == "" {
+		return ""
+	}
+	return filepath.Join(real, filepath.Base(p))
 }
 
 // Seam for testing the detached launch of a brief's Run: line.
 var spawnBriefLine = spawnDetached
 
 // spawnDetached starts words (a PATH name or path, then its args) in dir, detached, output on out.
-func spawnDetached(words []string, dir string, out *os.File) error {
+func spawnDetached(words []string, dir, inputPath string, out *os.File) error {
+	if len(words) == 0 {
+		return errors.New("empty Run line")
+	}
+	var input *os.File
+	if inputPath != "" {
+		if !filepath.IsAbs(inputPath) {
+			inputPath = filepath.Join(dir, inputPath)
+		}
+		f, err := os.Open(inputPath)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		input = f
+	}
 	bin, err := exec.LookPath(words[0])
 	if err != nil {
 		return err
 	}
-	if !proc.SpawnDetached(bin, words[1:], dir, out, agent.DispatchClaimEnv+"="+out.Name()+".claim") {
-		return fmt.Errorf("%s did not start", bin)
+	if proc.IsSelfUnderTest(bin) {
+		return errors.New("refusing test binary launch")
 	}
+	cmd := exec.CommandContext(context.Background(), bin, words[1:]...)
+	cmd.Dir, cmd.Stdout, cmd.Stderr = dir, out, out
+	if input != nil {
+		cmd.Stdin = input
+	}
+	cmd.Env = append(os.Environ(), agent.DispatchClaimEnv+"="+out.Name()+".claim")
+	proc.Detach(cmd)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
 	return nil
 }
 
@@ -187,9 +255,15 @@ func receiptFix(in *core.Input, agentID string, lr *leafRead) (core.Result, bool
 		return relayRunPending(in, *lr, m)
 	}
 	if len(lr.scan.askTimes) > 0 || len(lr.ids) > 0 {
+		if missingIDExpired(in, lr.scan.askTimes) {
+			return missingIDLimit(in)
+		}
 		return core.Result{Decision: core.Block, Reason: "No exact dispatch id is available for your ask call. " +
 			"Recover the id from that call's saved output, then run `claude-code agents result -f <id>` " +
 			"once and hand back again; sibling dispatch records cannot supply your receipt."}, true
+	}
+	if _, _, err := relayInput(lr.scan.runLine); lr.scan.runLine != "" && (err != nil || len(shell.Segments(lr.scan.runLine)) != 1) {
+		return attach(in, "NOTE: the hook refused unsupported shell syntax in the brief's `Run:` line; this is the relay report.", jobOut{}), false
 	}
 	words := briefWords(lr.scan)
 	if lr.scan.edited || len(words) == 0 {
@@ -220,11 +294,31 @@ func dispatchReceipts(in *core.Input, lr *leafRead, recs []agent.Record, how str
 
 // briefWords is the Run: line's words, with the brief body as the task when the line carries no prompt.
 func briefWords(s leafScan) []string {
-	words := openingAskWords("Run: " + s.runLine)
+	words, input, err := relayInput(s.runLine)
+	if err != nil || len(shell.Segments(s.runLine)) != 1 || askVerb(relayWords(s.runLine)) != "ask" {
+		return nil
+	}
+	if input != "" {
+		return words
+	}
 	if len(words) > 0 && s.task != "" && parseAskLine(context.Background(), "Run: "+s.runLine).prompt == "" {
 		words = append(words, s.task)
 	}
 	return words
+}
+
+func missingIDExpired(in *core.Input, times []time.Time) bool {
+	for _, at := range times {
+		if !at.IsZero() {
+			return time.Since(at) >= leafStopMaxWait
+		}
+	}
+	fi, err := os.Stat(in.AgentTranscriptPath)
+	return err == nil && time.Since(fi.ModTime()) >= leafStopMaxWait
+}
+
+func missingIDLimit(in *core.Input) (core.Result, bool) {
+	return attach(in, fmt.Sprintf("NOTE: no exact dispatch id at the %s limit; failing open with the relay report.", leafStopMaxWait), jobOut{}), false
 }
 
 // leafDispatch uses only records named by this leaf's tool results.
@@ -278,6 +372,9 @@ func attachAll(in *core.Input, rs []receipt) core.Result {
 
 // relayRunPending is the hook's launch with no record yet: its output decides, else its record, else a hold.
 func relayRunPending(in *core.Input, lr leafRead, m relayRun) (core.Result, bool) {
+	if time.Since(m.Started) >= leafStopMaxWait {
+		return missingIDLimit(in)
+	}
 	out := readEnds(m.Output, resultCap)
 	body := jobResult(nil, m.Output)
 	switch {
@@ -350,6 +447,10 @@ func runBriefLine(in *core.Input, lr leafRead, agentID string, words []string) (
 			"this report was made on the relay model.", err), jobOut{}), false
 	}
 	line := lr.scan.runLine
+	_, input, err := relayInput(line)
+	if err != nil || len(shell.Segments(line)) != 1 {
+		return fail(errors.New("unsupported shell syntax"))
+	}
 	m := relayRun{Started: time.Now(), Line: line, Output: strings.TrimSuffix(relayRunPath(agentID), ".json") + ".output"}
 	if err := os.MkdirAll(filepath.Dir(m.Output), 0o700); err != nil {
 		return fail(err)
@@ -366,7 +467,7 @@ func runBriefLine(in *core.Input, lr leafRead, agentID string, words []string) (
 	}
 	f, err := os.OpenFile(m.Output, os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o600)
 	if err == nil {
-		err = spawnBriefLine(words, in.CWD, f)
+		err = spawnBriefLine(words, in.CWD, input, f)
 		_ = f.Close()
 	}
 	if err != nil {
