@@ -31,18 +31,18 @@ const historicalRule = "\n\nThis is an OLDER session, not the current one: write
 var currentStateFiles = []string{"activeContext.md", "progress.md", "conventions.md", "projectContext.md"}
 
 // snapshotFiles reads each of names in b; a missing file maps to nil.
-func snapshotFiles(b Bank, names []string) map[string][]byte {
+func snapshotFiles(names []string) map[string][]byte {
 	snap := make(map[string][]byte, len(names))
 	for _, n := range names {
-		snap[n], _ = os.ReadFile(b.Path(n))
+		snap[n], _ = os.ReadFile(Path(n))
 	}
 	return snap
 }
 
 // warnChanged names every file whose bytes differ from snap; it never restores (a live session may own the write).
-func warnChanged(out io.Writer, b Bank, snap map[string][]byte) {
+func warnChanged(out io.Writer, snap map[string][]byte) {
 	for _, n := range slices.Sorted(maps.Keys(snap)) {
-		if now, _ := os.ReadFile(b.Path(n)); !bytes.Equal(now, snap[n]) {
+		if now, _ := os.ReadFile(Path(n)); !bytes.Equal(now, snap[n]) {
 			fmt.Fprintf(out, "memory update: WARNING: historical run changed %s (not restored)\n", n)
 		}
 	}
@@ -141,7 +141,7 @@ func agentUpdatePrompt(transcript, cwd string, historical bool) (string, error) 
 	if historical {
 		ref = dropCurrentStateSteps(ref)
 	}
-	return fmt.Sprintf(updatePromptFormat, bankPaths(HomeBank())) +
+	return fmt.Sprintf(updatePromptFormat, bankPaths()) +
 		"Follow this procedure, the COMPLETE pass:\n\n" + ref + "\n\n" +
 		"Write in this order so a truncated run leaves the bank coherent: sessionHistory first, then " +
 		"activeContext, progress, decisionLog, conventions. Be surgical; touch nothing else." +
@@ -149,10 +149,10 @@ func agentUpdatePrompt(transcript, cwd string, historical bool) (string, error) 
 }
 
 // bankPaths lists b's six typed file paths, comma-separated on one line.
-func bankPaths(b Bank) string {
+func bankPaths() string {
 	ps := make([]string, len(bankFiles))
 	for i, n := range bankFiles {
-		ps[i] = b.Path(n)
+		ps[i] = Path(n)
 	}
 	return strings.Join(ps, ", ")
 }
@@ -338,10 +338,9 @@ func update(o updateOptions) error {
 	record := func(status string, updated bool) error {
 		return recordUpdateResult(o.Session, prior.Log, status, updated)
 	}
-	b := HomeBank()
 	var run updateRun
 	// Bounded wait: a peer update/dream may hold this lock for minutes; only a detached worker can afford to queue.
-	ran, lockErr := paths.TryFileLock(lockPathOf()+".lock", lockWait(), func() error { return run.locked(o, b) })
+	ran, lockErr := paths.TryFileLock(lockPathOf()+".lock", lockWait(), func() error { return run.locked(o) })
 	if !ran { // lock never taken: nothing ran, and settling unlocked would race the holder
 		uncoverStamp(o.Session) // the dispatch stamped this work as covered; hand it back to the next trigger or sweep
 		return errors.Join(fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock; retry when it finishes"))), record(updateFailed, false))
@@ -403,8 +402,8 @@ type updateRun struct {
 }
 
 // finish settles under the writer lock and reports whether the update wrote the bank.
-func (r *updateRun) finish(o updateOptions, b Bank) (updated bool, err error) {
-	updated = r.touched(b)
+func (r *updateRun) finish(o updateOptions) (updated bool, err error) {
+	updated = r.touched()
 	if _, err := settleBank(time.Now()); err != nil {
 		return updated, fmt.Errorf("settle: %w", err)
 	}
@@ -414,17 +413,17 @@ func (r *updateRun) finish(o updateOptions, b Bank) (updated bool, err error) {
 }
 
 // touched reports whether the bank changed since the run began.
-func (r *updateRun) touched(b Bank) bool {
-	return newestMtime(b).After(r.before)
+func (r *updateRun) touched() bool {
+	return newestMtime().After(r.before)
 }
 
 // runAgent runs the agent, once more when the gate refused calls and no bank file changed.
-func (r *updateRun) runAgent(ctx context.Context, o updateOptions, b Bank) {
+func (r *updateRun) runAgent(ctx context.Context, o updateOptions) {
 	for range 2 {
 		r.blocks = 0
 		r.runErr = runAgentUpdate(context.WithValue(ctx, gateBlocksKey{}, &r.blocks), o)
-		if r.runErr != nil || r.blocks == 0 || r.touched(b) {
-			if r.runErr == nil && o.Handoff.block != "" && (r.blocks == 0 || r.touched(b)) {
+		if r.runErr != nil || r.blocks == 0 || r.touched() {
+			if r.runErr == nil && o.Handoff.block != "" && (r.blocks == 0 || r.touched()) {
 				r.runErr = completeHandoff(o.Session, o.Handoff)
 			}
 			return
@@ -433,16 +432,16 @@ func (r *updateRun) runAgent(ctx context.Context, o updateOptions, b Bank) {
 }
 
 // locked runs the agent update and its settlement under the store lock; errors ride in the run struct.
-func (r *updateRun) locked(o updateOptions, b Bank) error {
+func (r *updateRun) locked(o updateOptions) error {
 	if o.Historical {
-		snap := snapshotFiles(b, currentStateFiles)
-		defer warnChanged(o.Out, b, snap)
+		snap := snapshotFiles(currentStateFiles)
+		defer warnChanged(o.Out, snap)
 	}
-	r.before = newestMtime(b)
+	r.before = newestMtime()
 	ctx, cancel := context.WithTimeout(context.Background(), o.Timeout)
 	defer cancel()
-	r.runAgent(ctx, o, b)
-	r.updated, r.settleErr = r.finish(o, b)
+	r.runAgent(ctx, o)
+	r.updated, r.settleErr = r.finish(o)
 	return nil
 }
 
@@ -587,5 +586,5 @@ func handoffRunMarker(sessionID string) string {
 
 // stewardHandoffPath is the one path the steward's handoff for this session is written to.
 func stewardHandoffPath(sessionID string, now time.Time) string {
-	return HomeBank().Sub("handoffs", now.Format("2006-01-02")+"-session-"+compactID(sessionID)+".md")
+	return Sub("handoffs", now.Format("2006-01-02")+"-session-"+compactID(sessionID)+".md")
 }

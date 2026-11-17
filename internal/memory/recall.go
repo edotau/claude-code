@@ -35,10 +35,9 @@ func recallPicks(ctx context.Context, session, query string, semantic, explain b
 		trace.Embeddings = "skipped: empty, command, update child or fewer than four distinct terms"
 		return nil, trace
 	}
-	b := HomeBank()
 	ready := startSemantic(ctx, q, semantic)
 	seen := seenBlocks(session)
-	ranked, files, segs := searchBankTerms(b, terms, 0)
+	ranked, files, segs := searchBankTerms(terms, 0)
 	ranked = followReplaced(ranked, files, segs)
 	var sem *Semantic
 	semSeen := false
@@ -153,8 +152,8 @@ func PromptRecall(ctx context.Context, sessionID, prompt string, warn io.Writer)
 	return context
 }
 
-func searchBankTerms(b Bank, terms []string, k int) ([]SearchHit, []corpusFile, []segView) {
-	files := corpusOf(b)
+func searchBankTerms(terms []string, k int) ([]SearchHit, []corpusFile, []segView) {
+	files := corpusOf()
 	segs := loadSegments(files, true)
 	return rankFiles(terms, k, files, segs), files, segs
 }

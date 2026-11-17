@@ -48,7 +48,6 @@ func TestJobScopeBankAndDreamWrites(t *testing.T) {
 	if out, err := exec.Command("git", "-C", work, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, out)
 	}
-	bank := memory.HomeBank()
 	home := memory.StoreDir()
 	claudeMD := filepath.Join(paths.ConfigDir(), "CLAUDE.md")
 	other := filepath.Join(store, "other-repo", "progress.md")
@@ -56,7 +55,7 @@ func TestJobScopeBankAndDreamWrites(t *testing.T) {
 		kind, tool, arg string
 		want            agent.Decision
 	}{
-		{memory.JobUpdate, "Write", bank.Path("progress.md"), agent.Allow},
+		{memory.JobUpdate, "Write", memory.Path("progress.md"), agent.Allow},
 		{memory.JobUpdate, "Edit", filepath.Join(home, "conventions.md"), agent.Allow},
 		{memory.JobUpdate, "Write", other, agent.Deny},
 		{memory.JobUpdate, "Write", claudeMD, agent.Deny},

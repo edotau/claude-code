@@ -222,7 +222,7 @@ func overCapDecisions(t *testing.T, repo string) {
 	for i := 80; i >= 1; i-- {
 		fmt.Fprintf(&b, "\n## decision %02d\n\nrationale topic%d choice%d\n", i, i, i)
 	}
-	hosttest.WriteRel(t, memory.HomeBank().SubDir(""), "decisionLog.md", b.String())
+	hosttest.WriteRel(t, memory.SubDir(""), "decisionLog.md", b.String())
 }
 
 // checkReviewCandidates requires the review procedure to print after the stats block.
@@ -305,12 +305,12 @@ func dirChecksum(dir string) string {
 func TestMemoryDreamDryRunWritesNothing(t *testing.T) {
 	memCfg(t)
 	repo := memoryBankRepo(t)
-	before := dirChecksum(memory.HomeBank().SubDir(""))
+	before := dirChecksum(memory.SubDir(""))
 	out := memCLIOK(t, "dream", "--cwd", repo, "--dry-run")
-	if !strings.Contains(out, "bank: "+memory.HomeBank().SubDir("")) {
+	if !strings.Contains(out, "bank: "+memory.SubDir("")) {
 		t.Errorf("output missing the preview's bank line: %q", out)
 	}
-	if after := dirChecksum(memory.HomeBank().SubDir("")); before != after {
+	if after := dirChecksum(memory.SubDir("")); before != after {
 		t.Errorf("--dry-run changed the bank directory: before=%s after=%s", before, after)
 	}
 }
@@ -322,7 +322,7 @@ func TestMemoryDreamDefaultsToCwd(t *testing.T) {
 	memInit(t)
 	t.Chdir(repo)
 	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemoryDream([]string{"--dry-run"}) })
-	if code != 0 || !strings.Contains(out, "bank: "+memory.HomeBank().SubDir("")) {
+	if code != 0 || !strings.Contains(out, "bank: "+memory.SubDir("")) {
 		t.Errorf("memory dream --dry-run in %s: code=%d out=%q stderr=%q, want its bank", repo, code, out, stderr)
 	}
 }
@@ -466,9 +466,9 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 	memCfg(t)
 	memMust(t, memory.StoreRepo().Ensure())
 	memoryBankRepo(t)
-	hosttest.WriteRel(t, memory.HomeBank().SubDir(""), "conventions.md", "# Conventions\n\n- stamped id-marked rule <!-- id:deadbeef -->\n")
+	hosttest.WriteRel(t, memory.SubDir(""), "conventions.md", "# Conventions\n\n- stamped id-marked rule <!-- id:deadbeef -->\n")
 	// activeContext.md is never id-assigned, so this line stays unstamped (SearchBanks still indexes it).
-	hosttest.WriteRel(t, memory.HomeBank().SubDir(""), "activeContext.md", "# Active Context\n\n- rule stamped id-marked never settled here\n")
+	hosttest.WriteRel(t, memory.SubDir(""), "activeContext.md", "# Active Context\n\n- rule stamped id-marked never settled here\n")
 
 	out := memCLIOK(t, "recall", "stamped", "id-marked", "rule")
 	if !strings.Contains(out, "deadbeef — ") {
@@ -496,7 +496,7 @@ func TestMemoryRecallLoad(t *testing.T) {
 		memCfg(t)
 		memMust(t, memory.StoreRepo().Ensure())
 		memoryBankRepo(t)
-		hosttest.WriteRel(t, memory.HomeBank().SubDir(""), "activeContext.md", "# Active Context\n\n- never settled widget rollout detail\n")
+		hosttest.WriteRel(t, memory.SubDir(""), "activeContext.md", "# Active Context\n\n- never settled widget rollout detail\n")
 		out := memCLIOK(t, "recall", "--load", "1", "never", "settled", "widget", "rollout")
 		if !strings.Contains(out, "never settled widget rollout detail") {
 			t.Errorf("recall --load did not resolve the unstamped hit's body: %q", out)
@@ -681,14 +681,13 @@ func checkSandboxCompletion(t *testing.T) {
 func TestMemoryPathSubNameAndBareDir(t *testing.T) {
 	memCfg(t)
 	hosttest.Repo(t)
-	bank := memory.HomeBank()
 	for args, want := range map[string]string{
-		"":                                     bank.SubDir(""),
-		"reports":                              bank.SubDir("reports"),
-		"reports claude-code--2026-01-02-x.md": bank.Sub("reports", "2026-01-02-x.md"),
-		"knowledge claude-code--a.md":          bank.Sub("knowledge", "a.md"),
-		"knowledge a.md":                       bank.Sub("knowledge", "a.md"),
-		"knowledge a":                          bank.Sub("knowledge", "a.md"),
+		"":                                     memory.SubDir(""),
+		"reports":                              memory.SubDir("reports"),
+		"reports claude-code--2026-01-02-x.md": memory.Sub("reports", "2026-01-02-x.md"),
+		"knowledge claude-code--a.md":          memory.Sub("knowledge", "a.md"),
+		"knowledge a.md":                       memory.Sub("knowledge", "a.md"),
+		"knowledge a":                          memory.Sub("knowledge", "a.md"),
 	} {
 		argv := append([]string{"path"}, strings.Fields(args)...)
 		if code, out, errs := memCLI(t, argv...); code != 0 || strings.TrimSpace(out) != want {

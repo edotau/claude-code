@@ -38,13 +38,13 @@ var (
 var bankFmtTargetDirs = []string{"archive", "handoffs", "reports"}
 
 // bankFmtTargets lists every markdown file formatBank formats.
-func bankFmtTargets() ([]string, error) { return dirFmtTargets(HomeBank()) }
+func bankFmtTargets() ([]string, error) { return dirFmtTargets() }
 
 // dirFmtTargets lists the typed files plus the archive--, handoffs-- and reports-- markdown.
-func dirFmtTargets(b Bank) ([]string, error) {
+func dirFmtTargets() ([]string, error) {
 	var files []string
 	for _, name := range bankFiles {
-		p := b.Path(name)
+		p := Path(name)
 		_, err := os.Stat(p)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue
@@ -55,7 +55,7 @@ func dirFmtTargets(b Bank) ([]string, error) {
 		files = append(files, p)
 	}
 	for _, sub := range bankFmtTargetDirs {
-		files = append(files, ownedFiles(b, sub)...)
+		files = append(files, ownedFiles(sub)...)
 	}
 	return files, nil
 }

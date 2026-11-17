@@ -31,8 +31,7 @@ type ledgerCandidate struct{ file, date, repo string }
 
 // ledgerPath is name's ledger for the repo at main (newest match), or a new one dated now.
 func ledgerPath(main, name string, now time.Time) string {
-	bank := memory.HomeBank()
-	cands := ledgerCandidates(bank.SubDir("worktrees"), name)
+	cands := ledgerCandidates(memory.SubDir("worktrees"), name)
 	var own, unowned *ledgerCandidate
 	for i, c := range cands {
 		switch {
@@ -46,16 +45,16 @@ func ledgerPath(main, name string, now time.Time) string {
 		own = unowned
 	}
 	if own != nil {
-		return bank.Sub("worktrees", own.file)
+		return memory.Sub("worktrees", own.file)
 	}
 	if now.IsZero() {
 		now = time.Now()
 	}
 	file := now.Format("2006-01-02") + "-" + name + ".md"
-	if _, err := os.Stat(bank.Sub("worktrees", file)); err == nil {
+	if _, err := os.Stat(memory.Sub("worktrees", file)); err == nil {
 		file = now.Format("2006-01-02") + "-" + name + "-" + filepath.Base(main) + ".md"
 	}
-	return bank.Sub("worktrees", file)
+	return memory.Sub("worktrees", file)
 }
 
 // newerLedger is the later-dated of a and b (a nil loses; the later file name wins a tie).
@@ -94,7 +93,7 @@ func openLedger(main, name string, info ledgerInfo) error {
 	if err := ledgerName(name); err != nil {
 		return err
 	}
-	if _, err := memory.EnsureBank("worktrees"); err != nil {
+	if err := memory.EnsureBank("worktrees"); err != nil {
 		return err
 	}
 	path := ledgerPath(main, name, info.Now)

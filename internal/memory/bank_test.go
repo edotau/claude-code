@@ -9,18 +9,18 @@ import (
 
 func TestBankPaths(t *testing.T) {
 	isolatedConfig(t)
-	s, b := StoreDir(), HomeBank()
+	s := StoreDir()
 	for got, want := range map[string]string{
-		b.Path("activeContext.md"):       "activeContext.md",
-		b.Sub("reports", "x.md"):         "reports/x.md",
-		b.Sub("waves", "run/state.json"): "waves/run/state.json",
-		b.NativeIndex():                  "MEMORY.md",
+		Path("activeContext.md"):       "activeContext.md",
+		Sub("reports", "x.md"):         "reports/x.md",
+		Sub("waves", "run/state.json"): "waves/run/state.json",
+		NativeIndex():                  "MEMORY.md",
 	} {
 		if got != filepath.Join(s, want) {
 			t.Errorf("got %s, want %s", got, filepath.Join(s, want))
 		}
 	}
-	if got := b.SubDir("reports"); got != filepath.Join(s, "reports") {
+	if got := SubDir("reports"); got != filepath.Join(s, "reports") {
 		t.Errorf("SubDir(reports) = %s", got)
 	}
 }
@@ -41,7 +41,7 @@ func TestWritersRefuseLegacyStoreAndStampFreshOne(t *testing.T) {
 	isolatedConfig(t)
 	write(t, filepath.Join(StoreDir(), layoutFile), layoutPerKey+"\n")
 	forgetLayout()
-	if _, err := EnsureBank(""); !errors.Is(err, errStoreNotFlat) {
+	if err := EnsureBank(""); !errors.Is(err, errStoreNotFlat) {
 		t.Errorf("EnsureBank = %v, want errStoreNotFlat", err)
 	}
 	if _, err := Init(); !errors.Is(err, errStoreNotFlat) {

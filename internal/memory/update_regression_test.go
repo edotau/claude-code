@@ -21,7 +21,7 @@ func TestUpdateSettlementFailureRecordsFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	run := func(context.Context, string, string) (string, error) {
-		path := HomeBank().Path("sessionHistory.md")
+		path := Path("sessionHistory.md")
 		if err := os.Remove(path); err != nil {
 			return "fixture", err
 		}
@@ -54,7 +54,7 @@ func TestUpdateSettlementHoldsWriterLock(t *testing.T) {
 	}
 	initStore(t)
 	ready, release := installSettlementBarrier(t)
-	history := HomeBank().Path("sessionHistory.md")
+	history := Path("sessionHistory.md")
 	done := make(chan error, 1)
 	go func() {
 		defer close(done)

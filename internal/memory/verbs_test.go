@@ -110,12 +110,12 @@ func TestAppendReportLandsUnderTheBanksReports(t *testing.T) {
 	prev := now
 	now = func() time.Time { return time.Date(2026, 11, 8, 0, 0, 0, 0, time.UTC) }
 	t.Cleanup(func() { now = prev })
-	runBank(t, func(t *testing.T, b Bank) {
-		got, err := appendReport(b, "rev", ReportInput{Report: "# R\n", Decisions: []string{"d"}})
+	runBank(t, func(t *testing.T) {
+		got, err := appendReport("rev", ReportInput{Report: "# R\n", Decisions: []string{"d"}})
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []string{b.Sub("reports", "2026-11-08-rev.md"), b.Sub("reports", "2026-11-08-decisions.md")}
+		want := []string{Sub("reports", "2026-11-08-rev.md"), Sub("reports", "2026-11-08-decisions.md")}
 		if !slices.Equal(got, want) {
 			t.Fatalf("appendReport = %v, want %v", got, want)
 		}

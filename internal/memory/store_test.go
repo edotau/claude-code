@@ -214,7 +214,7 @@ func write(t testing.TB, path, body string) {
 func repoRoot(t *testing.T, name string) string {
 	t.Helper()
 	root := gitRepo(t, canonTemp(t, t.TempDir()), name)
-	if _, err := EnsureBank(""); err != nil {
+	if err := EnsureBank(""); err != nil {
 		t.Fatal(err)
 	}
 	return root
@@ -401,17 +401,16 @@ func TestInitSeedsTheBank(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		b := HomeBank()
-		if b != HomeBank() || dir != b.SubDir("") {
-			t.Fatalf("Init = %s for bank %+v, want its SubDir", dir, b)
+		if dir != SubDir("") {
+			t.Fatalf("Init = %s, want its SubDir", dir)
 		}
 		for _, name := range bankFiles {
-			if !statOK(b.Path(name)) {
-				t.Errorf("Init left %s missing", b.Path(name))
+			if !statOK(Path(name)) {
+				t.Errorf("Init left %s missing", Path(name))
 			}
 		}
-		if dir != StoreDir() || filepath.Base(b.Path("progress.md")) != "progress.md" {
-			t.Errorf("dir %s and file %s disagree with the flat layout", dir, b.Path("progress.md"))
+		if dir != StoreDir() || filepath.Base(Path("progress.md")) != "progress.md" {
+			t.Errorf("dir %s and file %s disagree with the flat layout", dir, Path("progress.md"))
 		}
 	})
 }
@@ -422,7 +421,7 @@ func TestNativeLinksShareTheStoreRoot(t *testing.T) {
 			t.Fatal(err)
 		}
 		res, ok := linkNativeFor(root)
-		wantTarget := HomeBank().SubDir("")
+		wantTarget := SubDir("")
 		if !ok || res.Target != wantTarget {
 			t.Fatalf("linkNativeFor = %+v, %v, want target %s", res, ok, wantTarget)
 		}

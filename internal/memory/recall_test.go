@@ -22,7 +22,7 @@ import (
 
 // searchBanks ranks root's local, home and archive banks plus native topics; top k (0 = all).
 func searchBanks(query string, k int) []SearchHit {
-	ranked, _, _ := searchBankTerms(HomeBank(), contentTerms(query), k)
+	ranked, _, _ := searchBankTerms(contentTerms(query), k)
 	return ranked
 }
 

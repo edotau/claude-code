@@ -253,7 +253,7 @@ func cmdMemoryRemember(args []string) int {
 	if err != nil {
 		return helptext.Fail("memory remember: %v", err)
 	}
-	fmt.Printf("remembered [%s] -> %s\n", id, memory.HomeBank().SubDir(""))
+	fmt.Printf("remembered [%s] -> %s\n", id, memory.SubDir(""))
 	return 0
 }
 
@@ -371,14 +371,13 @@ func cmdMemoryPath(args []string) int {
 	if len(pos) > 0 && !slices.Contains(memoryPathSubs, pos[0]) {
 		return helptext.FailUsage("memory path: unexpected argument %q (SUB is one of %s)", pos[0], strings.Join(memoryPathSubs, ", "))
 	}
-	b := memory.HomeBank()
 	switch len(pos) {
 	case 0:
-		fmt.Println(b.SubDir(""))
+		fmt.Println(memory.SubDir(""))
 	case 1:
-		fmt.Println(b.SubDir(pos[0]))
+		fmt.Println(memory.SubDir(pos[0]))
 	default:
-		fmt.Println(b.Sub(pos[0], memoryPathName(pos[0], pos[1])))
+		fmt.Println(memory.Sub(pos[0], memoryPathName(pos[0], pos[1])))
 	}
 	return 0
 }

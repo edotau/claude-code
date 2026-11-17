@@ -118,7 +118,7 @@ func TestSessionStartLinksNativeMemoryAfterCutover(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Pre-scaffold the store (steady state: a .origin exists) so this test isolates the link-repair contract.
-	if _, err := EnsureBank(""); err != nil {
+	if err := EnsureBank(""); err != nil {
 		t.Fatal(err)
 	}
 
@@ -347,18 +347,18 @@ func TestUnifiedSurfaceFocusOnly(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
 	repo := gitRepo(t, t.TempDir(), "proj")
-	dir, err := EnsureBank("")
+	err := EnsureBank("")
 	if err != nil {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(StoreDir(), catalogFile), "# Memory catalog\n\n- proj — hook · last never -> proj/MEMORY.md\n")
-	write(t, dir.Path("activeContext.md"), "# Active Context\n\n"+
+	write(t, Path("activeContext.md"), "# Active Context\n\n"+
 		"## Current Focus\n\n- shipping the router\n\n"+
 		"## Open Questions\n\n- should not appear\n\n"+
 		"## Blockers\n\n- none\n\n"+
 		"## Next Steps\n\n- ship it\n\n"+
 		"## Parked\n\n- should not appear either\n")
-	write(t, dir.Path("progress.md"), "# Progress\n\n"+
+	write(t, Path("progress.md"), "# Progress\n\n"+
 		"## What Works\n\n- should not appear\n\n"+
 		"## In Progress\n\n- the router\n\n"+
 		"## What's Next\n\n- should not appear\n")
@@ -440,8 +440,8 @@ func TestAccessLogPathMovesToStateAfterCutover(t *testing.T) {
 func TestKnowledgeIsSearchedAndCataloged(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
-	write(t, HomeBank().Sub("knowledge", "README.md"), "# Knowledge\nzebracorn readme\n")
-	write(t, HomeBank().Sub("knowledge", "zebra.md"), "# Zebra\nZebracorn invariant: probes never ship.\n")
+	write(t, Sub("knowledge", "README.md"), "# Knowledge\nzebracorn readme\n")
+	write(t, Sub("knowledge", "zebra.md"), "# Zebra\nZebracorn invariant: probes never ship.\n")
 	hits := searchBanks("zebracorn invariant probes", 5)
 	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != "zebra.md" {
 		t.Fatalf("knowledge not ranked first: %+v", hits)
@@ -482,7 +482,7 @@ func TestUnifiedSurfaceFallsBackWhenNativeUnlinked(t *testing.T) {
 	if err := exec.Command("git", "init", "-q", repo).Run(); err != nil {
 		t.Skip("git unavailable")
 	}
-	if _, err := EnsureBank(""); err != nil {
+	if err := EnsureBank(""); err != nil {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(StoreDir(), nativeIndexFile), "- [Topic](topic.md) — fallback marker\n")
@@ -507,7 +507,7 @@ func TestSessionSurfaceRelativeNativeLink(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
 	root := paths.CanonDeep(gitRepo(t, t.TempDir(), "relative-link")) // production keys the link by the resolved path
-	if _, err := EnsureBank(""); err != nil {
+	if err := EnsureBank(""); err != nil {
 		t.Fatal(err)
 	}
 	write(t, filepath.Join(StoreDir(), nativeIndexFile), "unique native-only index marker\n")
@@ -532,10 +532,10 @@ func TestSessionSurfaceRelativeNativeLink(t *testing.T) {
 }
 
 func TestRepoFocusReadsTheBanksTypedFiles(t *testing.T) {
-	runBank(t, func(t *testing.T, b Bank) {
-		write(t, b.Path("activeContext.md"), "# A\n\n## Current Focus\nship it\n")
-		write(t, b.Path("progress.md"), "# P\n\n## In Progress\nthe thing\n")
-		got := strings.Join(repoFocus(b), "\n")
+	runBank(t, func(t *testing.T) {
+		write(t, Path("activeContext.md"), "# A\n\n## Current Focus\nship it\n")
+		write(t, Path("progress.md"), "# P\n\n## In Progress\nthe thing\n")
+		got := strings.Join(repoFocus(), "\n")
 		if !strings.Contains(got, "ship it") || !strings.Contains(got, "the thing") {
 			t.Errorf("repoFocus = %q", got)
 		}

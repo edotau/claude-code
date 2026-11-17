@@ -33,9 +33,8 @@ var fileCaps = map[string]int{
 
 // bankExists reports whether any typed file exists in the bank.
 func bankExists() bool {
-	b := HomeBank()
 	for _, name := range BankFiles() {
-		if _, err := os.Stat(b.Path(name)); err == nil {
+		if _, err := os.Stat(Path(name)); err == nil {
 			return true
 		}
 	}
@@ -44,12 +43,11 @@ func bankExists() bool {
 
 // Init ensures the bank exists and seeds missing files (never overwrites); returns the dir holding them.
 func Init() (string, error) {
-	b, err := EnsureBank("")
-	if err != nil {
+	if err := EnsureBank(""); err != nil {
 		return "", err
 	}
 	for name, body := range templates() {
-		p := b.Path(name)
+		p := Path(name)
 		if _, err := os.Stat(p); err == nil {
 			continue
 		}
@@ -57,7 +55,7 @@ func Init() (string, error) {
 			return "", err
 		}
 	}
-	return b.SubDir(""), nil
+	return SubDir(""), nil
 }
 
 // writeBody writes a new file's body (seedFile, createExcl); tests swap it to fail mid-write.
@@ -99,7 +97,7 @@ func createExcl(p, body string, mode os.FileMode) error {
 
 // isProjectContextTemplate reports whether projectContext.md still equals the scaffold, so init offers enrichment.
 func isProjectContextTemplate() bool {
-	data, err := os.ReadFile(HomeBank().Path("projectContext.md"))
+	data, err := os.ReadFile(Path("projectContext.md"))
 	if err != nil {
 		return false
 	}

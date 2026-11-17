@@ -38,7 +38,7 @@ func TestRememberProjectTypeWritesDatedDecisionLogEntryAtTop(t *testing.T) {
 	if id == "" {
 		t.Fatal("Remember returned an empty id")
 	}
-	path := HomeBank().Path("decisionLog.md")
+	path := Path("decisionLog.md")
 	if n := reads[path]; n != 2 {
 		t.Errorf("Remember read decisionLog.md %d times, want 2 (its write, then settle)", n)
 	}
@@ -56,7 +56,7 @@ func assertLaterProjectEntryFirst(t *testing.T, id string, now time.Time) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	data, _ := os.ReadFile(HomeBank().Path("decisionLog.md"))
+	data, _ := os.ReadFile(Path("decisionLog.md"))
 	first := strings.Index(string(data), id2)
 	second := strings.Index(string(data), id)
 	if first == -1 || second == -1 || first > second {
@@ -73,7 +73,7 @@ func TestRememberNonProjectTypesWriteConventionsBullet(t *testing.T) {
 				t.Fatalf("Remember(%s): %v", kind, err)
 			}
 			label := strings.ToUpper(kind[:1]) + kind[1:]
-			body := mustRead(t, HomeBank().Path("conventions.md"))
+			body := mustRead(t, Path("conventions.md"))
 			if !strings.Contains(body, "- "+label+": prefer early returns over deep nesting") {
 				t.Errorf("conventions.md missing the labeled bullet: %q", body)
 			}
@@ -86,12 +86,12 @@ func TestRememberNonProjectTypesWriteConventionsBullet(t *testing.T) {
 
 // TestPrependBlockUnreadableLogIsNotRewritten: a read error other than not-exist leaves decisionLog.md alone.
 func TestPrependBlockUnreadableLogIsNotRewritten(t *testing.T) {
-	runBank(t, func(t *testing.T, b Bank) {
-		p := b.Path("decisionLog.md") // a directory: ReadFile fails with EISDIR
+	runBank(t, func(t *testing.T) {
+		p := Path("decisionLog.md") // a directory: ReadFile fails with EISDIR
 		if err := os.Mkdir(p, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := writeRememberFact(b, "decisionLog.md", "project", "x", time.Now()); err == nil {
+		if _, err := writeRememberFact("decisionLog.md", "project", "x", time.Now()); err == nil {
 			t.Fatal("writeRememberFact on an unreadable log = nil error, want the read error")
 		}
 		if fi, err := os.Stat(p); err != nil || !fi.IsDir() {
@@ -120,7 +120,7 @@ func TestRememberSeedsMissingFileFromScaffold(t *testing.T) {
 	if _, err := Remember("user", "likes tea", time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	body := mustRead(t, HomeBank().Path("conventions.md"))
+	body := mustRead(t, Path("conventions.md"))
 	scaffold := strings.TrimRight(templates()["conventions.md"], "\n")
 	if strings.Contains(body, "(archived)") || !strings.HasPrefix(body, scaffold) {
 		t.Errorf("conventions.md = %q, want it to start with the scaffold %q", body, scaffold)
@@ -130,7 +130,7 @@ func TestRememberSeedsMissingFileFromScaffold(t *testing.T) {
 // TestRememberRefusesFactItCannotStamp: a fact that would get no id of its own errors and leaves the file untouched.
 func TestRememberRefusesFactItCannotStamp(t *testing.T) {
 	tempConfig(t)
-	path := HomeBank().Path("conventions.md")
+	path := Path("conventions.md")
 	for _, c := range []struct{ name, body, fact string }{
 		{"unclosed fence above", "# Conventions\n\n- a rule\n\n```go\nx := 1\n", "fact after the fence"},
 		{"id marker in the fact", "# Conventions\n\n- a rule\n", "quote <!-- id:deadbeef --> here"},
@@ -194,7 +194,7 @@ func TestRememberSettleFailureRollsBackTheWrite(t *testing.T) {
 	tempConfig(t)
 	repoRoot(t, "proj")
 	seedConventionBlock(t)
-	path := HomeBank().Path("conventions.md")
+	path := Path("conventions.md")
 	before, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -226,9 +226,9 @@ func TestAppendReportRollsBackWhenDecisionsFail(t *testing.T) {
 	t.Cleanup(func() { now = previousNow })
 	for _, previous := range []string{"", "# Existing\n\nKeep these bytes.\t"} {
 		t.Run(previous, func(t *testing.T) {
-			runBank(t, func(t *testing.T, b Bank) {
-				report := b.Sub("reports", "2026-11-08-review.md")
-				decisions := b.Sub("reports", "2026-11-08-decisions.md")
+			runBank(t, func(t *testing.T) {
+				report := Sub("reports", "2026-11-08-review.md")
+				decisions := Sub("reports", "2026-11-08-decisions.md")
 				if previous != "" {
 					write(t, report, previous)
 				}
@@ -236,7 +236,7 @@ func TestAppendReportRollsBackWhenDecisionsFail(t *testing.T) {
 					t.Fatal(err)
 				}
 				in := ReportInput{Report: "# Review\n\nUnique report body.", Decisions: []string{"Keep it."}}
-				paths, err := appendReport(b, "review", in)
+				paths, err := appendReport("review", in)
 				if err == nil || len(paths) != 0 {
 					t.Fatalf("failed decisions write = %v, %v; want no paths and an error", paths, err)
 				}
@@ -244,7 +244,7 @@ func TestAppendReportRollsBackWhenDecisionsFail(t *testing.T) {
 				if err := os.Remove(decisions); err != nil {
 					t.Fatal(err)
 				}
-				if _, err := appendReport(b, "review", in); err != nil {
+				if _, err := appendReport("review", in); err != nil {
 					t.Fatalf("retry report: %v", err)
 				}
 				assertReportTextOccursOnce(t, report, "Unique report body.")
@@ -310,7 +310,7 @@ func TestAppendReportRejectsDecisionsLabel(t *testing.T) {
 	tempConfig(t)
 	for _, label := range []string{"decisions", "DECISIONS", "Decisions"} {
 		t.Run(label, func(t *testing.T) {
-			paths, err := appendReport(HomeBank(), label, ReportInput{
+			paths, err := appendReport(label, ReportInput{
 				Report:    "# Review\n\nReport body.\n",
 				Decisions: []string{"Keep reports separate from decisions."},
 			})
@@ -320,7 +320,7 @@ func TestAppendReportRejectsDecisionsLabel(t *testing.T) {
 			if len(paths) != 0 {
 				t.Fatalf("rejected report returned paths: %v", paths)
 			}
-			if _, err := os.Stat(HomeBank().SubDir("reports")); !os.IsNotExist(err) {
+			if _, err := os.Stat(SubDir("reports")); !os.IsNotExist(err) {
 				t.Fatalf("rejected label created reports directory: %v", err)
 			}
 		})
@@ -340,7 +340,7 @@ func TestRememberWritesTheBanksFileInEachLayout(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		body := mustRead(t, HomeBank().Path("conventions.md"))
+		body := mustRead(t, Path("conventions.md"))
 		if !strings.Contains(body, "prefer small diffs") || !strings.Contains(body, "id:"+id) {
 			t.Errorf("conventions.md missing the fact or its id %s: %q", id, body)
 		}

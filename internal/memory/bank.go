@@ -16,30 +16,25 @@ import (
 // layoutFile stamps the store root: layoutFlat is the one-bank layout; layoutFlat2 is older, layoutPerKey retired.
 const layoutFile, layoutFlat, layoutFlat2, layoutPerKey = ".layout", "flat 3", "flat 2", "flat 1"
 
-// Bank is the store's one bank; a handle for the store root.
-type Bank struct{}
-
-func HomeBank() Bank { return Bank{} }
-
 // Path is one of the bank's top-level files.
-func (b Bank) Path(name string) string { return filepath.Join(StoreDir(), name) }
+func Path(name string) string { return filepath.Join(StoreDir(), name) }
 
 // SubDir is the store root: a named sub is a filename prefix, not a directory.
-func (b Bank) SubDir(sub string) string { return filepath.Join(StoreDir(), sub) }
+func SubDir(sub string) string { return filepath.Join(StoreDir(), sub) }
 
 // Sub is name inside the store folder sub (archive, handoffs, reports, …); sub "" is a top-level file.
-func (b Bank) Sub(sub, name string) string {
+func Sub(sub, name string) string {
 	return filepath.Join(StoreDir(), sub, filepath.FromSlash(name))
 }
 
 // NativeIndex is the one shared MEMORY.md.
-func (b Bank) NativeIndex() string { return filepath.Join(StoreDir(), "MEMORY.md") }
+func NativeIndex() string { return filepath.Join(StoreDir(), "MEMORY.md") }
 
-func (b Bank) Ensure(sub string) error {
+func Ensure(sub string) error {
 	if err := requireFlat(); err != nil {
 		return err
 	}
-	return os.MkdirAll(b.SubDir(sub), 0o755)
+	return os.MkdirAll(SubDir(sub), 0o755)
 }
 
 // layoutCache memoizes the stamp per store root: tests swap the config dir mid-process.
@@ -118,10 +113,6 @@ func withFlatLock(wait time.Duration, fn func() error) error {
 }
 
 // EnsureBank is the one bank with the store root created.
-func EnsureBank(sub string) (b Bank, err error) {
-	err = WithBankLock(BankLockWait, func() error {
-		b = HomeBank()
-		return b.Ensure(sub)
-	})
-	return b, err
+func EnsureBank(sub string) error {
+	return WithBankLock(BankLockWait, func() error { return Ensure(sub) })
 }

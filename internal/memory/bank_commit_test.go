@@ -879,11 +879,10 @@ func TestDoctorAndCommitGateAgree(t *testing.T) {
 		cases[v] = false
 	}
 	isolatedConfig(t)
-	b := HomeBank()
 	for v, want := range cases {
-		path := b.Path("progress.md")
+		path := Path("progress.md")
 		write(t, path, "- note "+v+"\n")
-		doctorFlags := len(statBank(b).Credentials) > 0
+		doctorFlags := len(statBank().Credentials) > 0
 		gateRefuses := checkStageContent(path, "progress.md") != nil
 		if doctorFlags != want || gateRefuses != want {
 			t.Errorf("%q: doctor flags %v, gate refuses %v, want both %v", v, doctorFlags, gateRefuses, want)

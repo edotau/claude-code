@@ -258,7 +258,7 @@ func TestEditEvidence(t *testing.T) {
 		}
 		path := tc.path
 		if strings.HasPrefix(path, "memory/") {
-			path, err = filepath.Rel(cwd, memory.HomeBank().Sub("reports", "x.md"))
+			path, err = filepath.Rel(cwd, memory.Sub("reports", "x.md"))
 			if err != nil {
 				t.Fatal(err)
 			}

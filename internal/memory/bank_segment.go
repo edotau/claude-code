@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -32,23 +31,18 @@ type corpusFile struct {
 }
 
 // corpusFiles preserves bank, archive, native and knowledge order without reading file contents.
-func corpusFiles() []corpusFile { return corpusOf(HomeBank()) }
+func corpusFiles() []corpusFile { return corpusOf() }
 
-func corpusOf(own Bank) []corpusFile {
+func corpusOf() []corpusFile {
 	var out []corpusFile
-	banks := func(label string, b Bank) {
-		for _, name := range bankFiles {
-			out = append(out, corpusFile{label, b.Path(name), segEntries})
-		}
+	for _, name := range bankFiles {
+		out = append(out, corpusFile{"home", Path(name), segEntries})
 	}
-	banks("home", HomeBank())
-	for _, path := range ownedFiles(own, "archive") {
+	for _, path := range ownedFiles("archive") {
 		out = append(out, corpusFile{"archive", path, segEntries})
 	}
-	for _, b := range nativeBanks(own) {
-		for _, path := range topicFiles(b) {
-			out = append(out, corpusFile{"native", path, segNative})
-		}
+	for _, path := range topicFiles() {
+		out = append(out, corpusFile{"native", path, segNative})
 	}
 	for _, path := range knowledgeNotes() {
 		out = append(out, corpusFile{"knowledge", path, segKnowledge})
@@ -57,13 +51,13 @@ func corpusOf(own Bank) []corpusFile {
 }
 
 // ownedFiles lists the *.md in the store folder sub; sub "" is the top-level files.
-func ownedFiles(b Bank, sub string) []string { return transcript.GlobIn(b.SubDir(sub), "*.md") }
+func ownedFiles(sub string) []string { return transcript.GlobIn(SubDir(sub), "*.md") }
 
 // topicFiles are the native topics: top-level non-typed notes plus the feedback/ and notes/ folders.
-func topicFiles(b Bank) []string {
+func topicFiles() []string {
 	files := searchTopicFiles(StoreDir())
 	for _, d := range noteDirs {
-		files = append(files, searchTopicFiles(b.SubDir(d))...)
+		files = append(files, searchTopicFiles(SubDir(d))...)
 	}
 	return files
 }
@@ -503,15 +497,6 @@ var readIfExists = func(path string) ([]byte, error) {
 	return data, err
 }
 
-// nativeBanks lists the banks recall searches natively: the home tier (user-wide facts), then root's.
-func nativeBanks(b Bank) []Bank {
-	out := []Bank{HomeBank()}
-	if !slices.Contains(out, b) {
-		out = append(out, b)
-	}
-	return out
-}
-
 // Native auto-memory file names recognised when classifying a bank directory's files.
 const (
 	nativeIndexFile        = "MEMORY.md"     // the injected index of `- [Title](topic.md) — hook` lines
@@ -595,9 +580,8 @@ func contentQueryTerms(tokens []string) []string {
 
 // corpusBlocks loads every searchable block; a vanished file is skipped, any other read error fails the corpus.
 func corpusBlocks() ([]SearchHit, error) {
-	b := HomeBank()
 	var out []SearchHit
-	for _, f := range corpusOf(b) {
+	for _, f := range corpusOf() {
 		data, err := os.ReadFile(f.Path)
 		if errors.Is(err, fs.ErrNotExist) {
 			continue

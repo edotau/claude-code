@@ -336,25 +336,25 @@ func TestFormatBankMarkdownIdempotent(t *testing.T) {
 	}
 }
 
-// bankFmtRepoStore builds a cut-over store with one registered repo, returning the repo's bank dir.
-func bankFmtRepoStore(t *testing.T) (globalDir string, repo Bank) {
+// bankFmtRepoStore builds a cut-over store with one registered repo, returning the store dir.
+func bankFmtRepoStore(t *testing.T) (globalDir string) {
 	t.Helper()
 	isolatedConfig1(t)
 	initStore(t)
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	return StoreDir(), HomeBank()
+	return StoreDir()
 }
 
 func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.T) {
-	global, repo := bankFmtRepoStore(t)
+	global := bankFmtRepoStore(t)
 	for _, name := range bankFiles {
-		write(t, repo.Path(name), "# "+name+"\nbody\n")
+		write(t, Path(name), "# "+name+"\nbody\n")
 	}
-	write(t, repo.Sub("archive", "sessionHistory-2026-01.md"), "# archived\nbody\n")
-	write(t, repo.Sub("handoffs", "2026-01-01-x.md"), "# handoff\nbody\n")
-	write(t, repo.Sub("reports", "review.md"), "# report\nbody\n")
+	write(t, Sub("archive", "sessionHistory-2026-01.md"), "# archived\nbody\n")
+	write(t, Sub("handoffs", "2026-01-01-x.md"), "# handoff\nbody\n")
+	write(t, Sub("reports", "review.md"), "# report\nbody\n")
 	write(t, filepath.Join(StoreDir(), nativeIndexFile), "native MEMORY.md\n")
 	write(t, filepath.Join(StoreDir(), catalogFile), "catalog\n")
 	write(t, filepath.Join(global, "decisionLog.md"), "# decisionLog\nbody\n")
@@ -364,16 +364,16 @@ func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		repo.Path("projectContext.md"):                   true,
-		repo.Path("activeContext.md"):                    true,
-		repo.Path("progress.md"):                         true,
-		repo.Path("decisionLog.md"):                      true,
-		repo.Path("conventions.md"):                      true,
-		repo.Path("sessionHistory.md"):                   true,
-		repo.Sub("archive", "sessionHistory-2026-01.md"): true,
-		repo.Sub("handoffs", "2026-01-01-x.md"):          true,
-		repo.Sub("reports", "review.md"):                 true,
-		filepath.Join(global, "decisionLog.md"):          true,
+		Path("projectContext.md"):                   true,
+		Path("activeContext.md"):                    true,
+		Path("progress.md"):                         true,
+		Path("decisionLog.md"):                      true,
+		Path("conventions.md"):                      true,
+		Path("sessionHistory.md"):                   true,
+		Sub("archive", "sessionHistory-2026-01.md"): true,
+		Sub("handoffs", "2026-01-01-x.md"):          true,
+		Sub("reports", "review.md"):                 true,
+		filepath.Join(global, "decisionLog.md"):     true,
 	}
 	got := map[string]bool{}
 	for _, f := range files {
@@ -392,7 +392,7 @@ func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.
 }
 
 func TestFormatBankCheckWritesNothingAndListsFiles(t *testing.T) {
-	global, _ := bankFmtRepoStore(t)
+	global := bankFmtRepoStore(t)
 	target := filepath.Join(global, "decisionLog.md")
 	longLine := "- " + strings.Join(repeatWords(15), " ")
 	write(t, target, "# decisionLog\n\n"+longLine+"\n")
@@ -444,7 +444,7 @@ func assertWrappedKeepsWords(t *testing.T, target, longLine string) {
 }
 
 func TestFormatBankWritesAndCommitsOnlyOnChange(t *testing.T) {
-	global, _ := bankFmtRepoStore(t)
+	global := bankFmtRepoStore(t)
 	target := filepath.Join(global, "decisionLog.md")
 	longLine := "- " + strings.Join(repeatWords(15), " ")
 	write(t, target, "# decisionLog\n\n"+longLine+"\n")
@@ -484,7 +484,7 @@ func assertBankFmtNoOp(t *testing.T, headAfterFirst string) {
 
 // A real fmt pass that rewrites a dirty typed file leaves an over-width MEMORY.md and catalog byte-identical.
 func TestFormatBankNativeAndCatalogUntouched(t *testing.T) {
-	global, _ := bankFmtRepoStore(t)
+	global := bankFmtRepoStore(t)
 	longLine := strings.Join(repeatWords(15), " ")
 	typed := filepath.Join(global, "decisionLog.md")
 	write(t, typed, "# decisionLog\n\n"+longLine+"\n")

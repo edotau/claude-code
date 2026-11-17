@@ -34,11 +34,10 @@ func TestUpdateSandboxRegistryTidiesMessyFile(t *testing.T) {
 
 func TestSandboxEmpty(t *testing.T) {
 	tempConfig(t)
-	b := HomeBank()
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	write(t, b.Path("topic.md"), "do not copy")
+	write(t, Path("topic.md"), "do not copy")
 	res, err := Sandbox(SandboxOptions{Empty: true})
 	if err != nil {
 		t.Fatal(err)
@@ -88,7 +87,7 @@ func TestSandboxCopiesTheOneBankAndWritesNoOrigins(t *testing.T) {
 // D6: a sandbox of an unstamped flat store must not write the layout stamp into the source store.
 func TestSandboxLeavesSourceUnstamped(t *testing.T) {
 	tempConfig(t)
-	write(t, HomeBank().Path("progress.md"), "x\n")
+	write(t, Path("progress.md"), "x\n")
 	res, err := Sandbox(SandboxOptions{})
 	if err != nil {
 		t.Fatal(err)
@@ -97,7 +96,7 @@ func TestSandboxLeavesSourceUnstamped(t *testing.T) {
 	if statOK(filepath.Join(StoreDir(), layoutFile)) {
 		t.Error("Sandbox stamped the source store")
 	}
-	if !statOK(HomeBank().Path("progress.md")) { // a copy, not a move
+	if !statOK(Path("progress.md")) { // a copy, not a move
 		t.Error("Sandbox removed progress.md from the source store")
 	}
 }
@@ -105,14 +104,14 @@ func TestSandboxLeavesSourceUnstamped(t *testing.T) {
 // D8: a file listed but deleted before its copy is skipped and dropped from the result.
 func TestSandboxCopySkipsVanishedFile(t *testing.T) {
 	tempConfig(t)
-	write(t, HomeBank().Path("progress.md"), "x\n")
+	write(t, Path("progress.md"), "x\n")
 	dst := t.TempDir()
 	got, err := placeStoreRels(dst, []string{"gone.md", "progress.md"}, false)
 	if err != nil || !reflect.DeepEqual(got, []string{"progress.md"}) {
 		t.Fatalf("placeStoreRels = %q, %v; want [progress.md], nil", got, err)
 	}
 	wantFile(t, filepath.Join(dst, "progress.md"), "x\n")
-	if statOK(filepath.Join(dst, "gone.md")) || statOK(HomeBank().Path("gone.md")) {
+	if statOK(filepath.Join(dst, "gone.md")) || statOK(Path("gone.md")) {
 		t.Error("gone.md exists in the sandbox or the source; it was deleted before its copy")
 	}
 }

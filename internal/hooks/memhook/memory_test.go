@@ -114,7 +114,7 @@ func resumeSession(t *testing.T) (cwd, fresh string) {
 	memory.StubSpawn(t, true)
 	swap(t, &stewardWait, 50*time.Millisecond)
 	cwd = t.TempDir()
-	dir := memory.HomeBank().SubDir("handoffs")
+	dir := memory.SubDir("handoffs")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -423,7 +423,7 @@ func TestUpdateAppendsWorktreeLedger(t *testing.T) {
 	if res := Stop(core.ParseInput(strings.NewReader(updatePayload(tr, dest)))); res.Decision == core.Block || spawns.Update.Load() != 1 {
 		t.Fatalf("update = %+v, spawns=%d; want not blocked and one background worker", res, spawns.Update.Load())
 	}
-	data, err := os.ReadFile(memory.HomeBank().Sub("worktrees", time.Now().Format("2006-01-02")+"-wt-h.md"))
+	data, err := os.ReadFile(memory.Sub("worktrees", time.Now().Format("2006-01-02")+"-wt-h.md"))
 	if err != nil || !strings.Contains(string(data), "update (") || !strings.Contains(string(data), "3 edits, session s1") {
 		t.Fatalf("no update line in ledger: %v\n%s", err, data)
 	}

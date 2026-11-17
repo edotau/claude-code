@@ -166,7 +166,7 @@ type e2eRun struct {
 }
 
 // file is the repo bank's top-level file name in the flat store.
-func (x *e2eRun) file(name string) string { return HomeBank().Path(name) }
+func (x *e2eRun) file(name string) string { return Path(name) }
 
 const e2eFact = "rotate the zebrafish kestrel gearbox calibration before every deploy"
 
@@ -420,18 +420,17 @@ func decisionLogOver(t *testing.T, path string, n int) {
 
 func TestArchiveOverflowKeepsOldestInArchive(t *testing.T) {
 	tempConfig(t)
-	local := HomeBank()
-	decisionLogOver(t, local.Path("decisionLog.md"), 80)
+	decisionLogOver(t, Path("decisionLog.md"), 80)
 
 	n, err := archiveOverflow(time.Now())
 	if err != nil || n == 0 {
 		t.Fatalf("archived %d err %v", n, err)
 	}
-	kept, _ := os.ReadFile(local.Path("decisionLog.md"))
+	kept, _ := os.ReadFile(Path("decisionLog.md"))
 	if n := strings.Count(string(kept), "\n"); n > fileCaps["decisionLog.md"] {
 		t.Errorf("local decisionLog still over cap: %d lines", n)
 	}
-	arch, err := os.ReadFile(archivePath(HomeBank(), "decisionLog.md", time.Now()))
+	arch, err := os.ReadFile(archivePath("decisionLog.md", time.Now()))
 	if err != nil || !strings.Contains(string(arch), "decision 01") {
 		t.Errorf("oldest entry did not land in the archive: %v %q", err, arch)
 	}
@@ -502,7 +501,7 @@ func TestCollectBankStatsAndTimeline(t *testing.T) {
 	tempConfig(t)
 	_ = writeUpdateResult("s1", UpdateResult{Status: updateOK, Time: time.Now(), BankUpdated: true})
 	_ = writeUpdateResult("s2", UpdateResult{Status: updateFailed, Time: time.Now()})
-	write(t, HomeBank().Path("sessionHistory.md"), "# H\n\n## 2026-01-02 — did work\n")
+	write(t, Path("sessionHistory.md"), "# H\n\n## 2026-01-02 — did work\n")
 
 	s := collectBankStats()
 	if s.Updates != 2 || s.OK != 1 || s.Failed != 1 || s.BankUpdated != 1 {
@@ -513,7 +512,7 @@ func TestCollectBankStatsAndTimeline(t *testing.T) {
 		t.Errorf("report %q", report)
 	}
 
-	entries, sessions, err := timelineBank(HomeBank(), 10)
+	entries, sessions, err := timelineBank(10)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -576,7 +575,7 @@ func TestDoctorReadsEachBankFileOnce(t *testing.T) {
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	write(t, HomeBank().Path("progress.md"), "# Progress\n\n- token sk-ABCDEFGHIJKLMNOPQRSTUV\n")
+	write(t, Path("progress.md"), "# Progress\n\n- token sk-ABCDEFGHIJKLMNOPQRSTUV\n")
 	reads := countBankReads(t)
 	got := doctor(root, DefaultStaleDays, time.Now())
 	want := "home progress.md: possible credential-shaped value — scrub before promoting"

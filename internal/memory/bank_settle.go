@@ -14,10 +14,10 @@ import (
 )
 
 // buildBankIndex renders one routing line per durable entry (two-stage recall); "" when nothing is indexable.
-func buildBankIndex(b Bank) (string, error) {
+func buildBankIndex() (string, error) {
 	var sb strings.Builder
 	section := func(name, prefix, unit string) error {
-		entries, err := entriesWithPrefix(b.Path(name), prefix)
+		entries, err := entriesWithPrefix(Path(name), prefix)
 		if err != nil || len(entries) == 0 {
 			return err
 		}
@@ -37,9 +37,9 @@ func buildBankIndex(b Bank) (string, error) {
 	return sb.String(), nil
 }
 
-// rotateSessionHistory moves entries past the cap to b's archive/sessionHistory-<yyyy-mm>.md, archive first.
-func rotateSessionHistory(b Bank, now time.Time) (int, error) {
-	path := b.Path("sessionHistory.md")
+// rotateSessionHistory moves entries past the cap to archive/sessionHistory-<yyyy-mm>.md, archive first.
+func rotateSessionHistory(now time.Time) (int, error) {
+	path := Path("sessionHistory.md")
 	data, err := readFile(path)
 	if os.IsNotExist(err) {
 		return 0, nil
@@ -51,7 +51,7 @@ func rotateSessionHistory(b Bank, now time.Time) (int, error) {
 	if len(overflow) == 0 {
 		return 0, nil
 	}
-	archive := b.Sub("archive", "sessionHistory-"+now.Format("2006-01")+".md")
+	archive := Sub("archive", "sessionHistory-"+now.Format("2006-01")+".md")
 	if err := appendUnarchived(archive, overflow); err != nil {
 		return 0, err // never truncate unarchived entries
 	}
@@ -110,13 +110,9 @@ func settleBankLocked(now time.Time) (rotated int, err error) {
 	if skipped, err := recoverEach(); err != nil || skipped != nil {
 		return 0, errors.Join(err, skipped)
 	}
-	banks := bankSet() // an unscaffolded repo gets its store from Init (with its origin), never here
-	for _, b := range banks {
-		n, err := settleDir(b, now)
-		rotated += n
-		if err != nil {
-			return rotated, err
-		}
+	// an unscaffolded repo gets its store from Init (with its origin), never here
+	if rotated, err = settleDir(now); err != nil {
+		return rotated, err
 	}
 	if err := sweepNotes(); err != nil {
 		return rotated, err
@@ -146,14 +142,9 @@ func commitBanks(subject string) error {
 	return commitStore(subject, append(scope, catalogFile)...)
 }
 
-// bankSet is the banks a settle covers: the one home bank.
-func bankSet() []Bank {
-	return []Bank{HomeBank()}
-}
-
-// scaffolded reports whether b has any typed file.
-func scaffolded(b Bank) bool {
-	return slices.ContainsFunc(bankFiles, func(n string) bool { return statOK(b.Path(n)) })
+// scaffolded reports whether the bank has any typed file.
+func scaffolded() bool {
+	return slices.ContainsFunc(bankFiles, func(n string) bool { return statOK(Path(n)) })
 }
 
 func settleLockedBank(now time.Time) error {
@@ -219,10 +210,10 @@ func restoreOnError(err error, snaps []fileSnapshot) error {
 }
 
 // newestMtime is the newest mtime across dir's six typed files — the "did the update write?" probe.
-func newestMtime(b Bank) time.Time {
+func newestMtime() time.Time {
 	var newest time.Time
 	for _, name := range bankFiles {
-		if fi, err := os.Stat(b.Path(name)); err == nil && fi.ModTime().After(newest) {
+		if fi, err := os.Stat(Path(name)); err == nil && fi.ModTime().After(newest) {
 			newest = fi.ModTime()
 		}
 	}
@@ -230,36 +221,36 @@ func newestMtime(b Bank) time.Time {
 }
 
 // settleDir stamps IDs, strikes revised entries, rotates sessionHistory, writes the MEMORY.md region, wraps files.
-func settleDir(b Bank, now time.Time) (int, error) {
-	rotated, wrapped, err := settleSteps(b, now)
-	return rotated, errors.Join(err, wrapDir(b, wrapped)) // a failed step still leaves the dir wrapped
+func settleDir(now time.Time) (int, error) {
+	rotated, wrapped, err := settleSteps(now)
+	return rotated, errors.Join(err, wrapDir(wrapped)) // a failed step still leaves the dir wrapped
 }
 
 // settleSteps is settleDir's writing steps; wrapped names the typed files they already left wrapped (nil on error).
-func settleSteps(b Bank, now time.Time) (rotated int, wrapped map[string]string, err error) {
-	_, texts, err := assignIDTexts(b, now)
+func settleSteps(now time.Time) (rotated int, wrapped map[string]string, err error) {
+	_, texts, err := assignIDTexts(now)
 	if err != nil {
 		return 0, nil, err
 	}
-	if err := reviseDir(b, texts); err != nil {
+	if err := reviseDir(texts); err != nil {
 		return 0, nil, err
 	}
-	if rotated, err = rotateSessionHistory(b, now); err != nil {
+	if rotated, err = rotateSessionHistory(now); err != nil {
 		return rotated, nil, err
 	}
-	_, err = writeBankRegion(b, now)
+	_, err = writeBankRegion(now)
 	return rotated, texts, err
 }
 
-// wrapDir wraps b's markdown, skipping the typed files in held: settle wrapped their text before writing it.
-func wrapDir(b Bank, held map[string]string) error {
-	targets, err := dirFmtTargets(b)
+// wrapDir wraps the bank's markdown, skipping the typed files in held: settle wrapped their text before writing it.
+func wrapDir(held map[string]string) error {
+	targets, err := dirFmtTargets()
 	if err != nil {
 		return err
 	}
 	targets = slices.DeleteFunc(targets, func(p string) bool {
 		_, ok := held[filepath.Base(p)]
-		return ok && p == b.Path(filepath.Base(p)) // only the typed files at b's top level
+		return ok && p == Path(filepath.Base(p)) // only the typed files at b's top level
 	})
 	_, err = formatFiles(targets, false) // update writes land wrapped, so lint-docs stays clean
 	return err

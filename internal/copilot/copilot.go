@@ -481,7 +481,7 @@ var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 }}
 
 // Seams for the mid-dispatch quota hand-off; tests replace them.
-var handoffPath = func(root, name string) string { return memory.HomeBank().Sub("handoffs", name) }
+var handoffPath = func(root, name string) string { return memory.Sub("handoffs", name) }
 
 // copilotQuotaHandoff marks the exhausted account and returns a redacted handoff of the failed run's partial output.
 func copilotQuotaHandoff(

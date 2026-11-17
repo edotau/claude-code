@@ -254,10 +254,9 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 
 // blockPlacement prints where a stranded markdown write belongs: the one exact path when its name picks a kind.
 func blockPlacement(stderr io.Writer, base, where, root string) int {
-	b := memory.HomeBank()
 	fix := fmt.Sprintf("Plans belong in %s, reports in %s, handoffs in %s; re-issue the write there.",
-		plans.Home(planRepoRoot(root)), b.Sub("reports", "YYYY-MM-DD-<name>.md"), b.Sub("handoffs", "YYYY-MM-DD-<topic>.md"))
-	if dest := exactDest(base, root, b); dest != "" {
+		plans.Home(planRepoRoot(root)), memory.Sub("reports", "YYYY-MM-DD-<name>.md"), memory.Sub("handoffs", "YYYY-MM-DD-<topic>.md"))
+	if dest := exactDest(base, root); dest != "" {
 		fix = "Re-issue the write to " + dest + "."
 	}
 	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
@@ -270,16 +269,16 @@ func blockPlacement(stderr io.Writer, base, where, root string) int {
 }
 
 // exactDest is the free dated plan, report or handoff path a kind word in base picks ("" when it picks none).
-func exactDest(base, root string, b memory.Bank) string {
+func exactDest(base, root string) string {
 	stem, day := strings.TrimSuffix(base, filepath.Ext(base)), time.Now().Format("2006-01-02")
 	var prefix string
 	switch {
 	case hasNameToken(base, "plan", "plans"):
 		prefix = filepath.Join(plans.Home(planRepoRoot(root)), day+"-"+paths.Slug(stem, "-", 60, "plan"))
 	case hasNameToken(base, "report", "reports", "audit", "review", "findings"):
-		prefix = b.Sub("reports", day+"-"+paths.Slug(stem, "-", 60, "report"))
+		prefix = memory.Sub("reports", day+"-"+paths.Slug(stem, "-", 60, "report"))
 	case hasNameToken(base, "handoff", "handoffs"):
-		prefix = b.Sub("handoffs", day+"-"+paths.Slug(stem, "-", 60, "handoff"))
+		prefix = memory.Sub("handoffs", day+"-"+paths.Slug(stem, "-", 60, "handoff"))
 	default:
 		return ""
 	}

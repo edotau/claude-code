@@ -75,14 +75,13 @@ func TestImportRefusesSourceWithDifferentLayout(t *testing.T) {
 	}
 }
 
-func flatImportFixture(t *testing.T) (string, Bank) {
+func flatImportFixture(t *testing.T) string {
 	t.Helper()
 	isolatedConfig(t)
 	initStore(t)
-	b := HomeBank()
-	write(t, b.Path("decisionLog.md"), "# Log\n\n## 2026-11-01 — local <!-- id:11111111 -->\nLocal body.\n")
-	write(t, b.NativeIndex(), "- [Local](local.md)\n")
-	write(t, b.Path("topic.md"), "keep local\n")
+	write(t, Path("decisionLog.md"), "# Log\n\n## 2026-11-01 — local <!-- id:11111111 -->\nLocal body.\n")
+	write(t, NativeIndex(), "- [Local](local.md)\n")
+	write(t, Path("topic.md"), "keep local\n")
 	src := t.TempDir()
 	files := map[string]string{
 		layoutFile: layoutFlat + "\n", "decisionLog.md": "# Log\n\n## 2026-11-02 — remote <!-- id:22222222 -->\nRemote body.\n",
@@ -98,11 +97,11 @@ func flatImportFixture(t *testing.T) (string, Bank) {
 	if err := os.Symlink("new.md", filepath.Join(src, "link.md")); err != nil {
 		t.Fatal(err)
 	}
-	return src, b
+	return src
 }
 
 func TestImportFlatAdditiveAndIdempotent(t *testing.T) {
-	src, b := flatImportFixture(t)
+	src := flatImportFixture(t)
 	o := ImportOptions{From: src, Topics: true}
 	res, err := ImportBank(o)
 	if err != nil {
@@ -111,15 +110,15 @@ func TestImportFlatAdditiveAndIdempotent(t *testing.T) {
 	if !strings.Contains(res.Summary, "1 conflict(s)") {
 		t.Fatalf("%+v", res)
 	}
-	log := aliasRead(t, b.Path("decisionLog.md"))
+	log := aliasRead(t, Path("decisionLog.md"))
 	if !strings.Contains(log, "11111111") || !strings.Contains(log, "22222222") {
 		t.Fatal(log)
 	}
-	wantFile(t, b.Path("topic.md"), "keep local\n")
-	wantFile(t, b.Path("new.md"), "new topic\n")
+	wantFile(t, Path("topic.md"), "keep local\n")
+	wantFile(t, Path("new.md"), "new topic\n")
 	wantFile(t, filepath.Join(StoreDir(), "native-only.md"), "shared topic\n")
-	wantFile(t, b.Sub("reports", "bundle/report.md"), "nested report\n")
-	if idx := aliasRead(t, b.NativeIndex()); !strings.Contains(idx, "(new.md)") || strings.Contains(idx, "## ") {
+	wantFile(t, Sub("reports", "bundle/report.md"), "nested report\n")
+	if idx := aliasRead(t, NativeIndex()); !strings.Contains(idx, "(new.md)") || strings.Contains(idx, "## ") {
 		t.Fatalf("MEMORY.md = %q, want the remote pointer and no header", idx)
 	}
 	for _, rel := range []string{"writer.lock", "huge.md", "link.md", "locks/writer.md"} {
@@ -137,23 +136,23 @@ func TestImportFlatAdditiveAndIdempotent(t *testing.T) {
 }
 
 func TestImportFlatKeyLogsOnlyAndDryRun(t *testing.T) {
-	src, b := flatImportFixture(t)
+	src := flatImportFixture(t)
 	o := ImportOptions{From: src, DryRun: true}
 	res, err := ImportBank(o)
 	if err != nil || !strings.Contains(res.Summary, "would import") {
 		t.Fatalf("%+v %v", res, err)
 	}
-	if strings.Contains(aliasRead(t, b.Path("decisionLog.md")), "22222222") {
+	if strings.Contains(aliasRead(t, Path("decisionLog.md")), "22222222") {
 		t.Fatal("dry run wrote")
 	}
 	o.DryRun = false
 	if _, err := ImportBank(o); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(aliasRead(t, b.Path("decisionLog.md")), "22222222") {
+	if !strings.Contains(aliasRead(t, Path("decisionLog.md")), "22222222") {
 		t.Fatal("missing remote log")
 	}
-	if pathExists(b.Path("new.md")) || strings.Contains(aliasRead(t, b.NativeIndex()), "(new.md)") {
+	if pathExists(Path("new.md")) || strings.Contains(aliasRead(t, NativeIndex()), "(new.md)") {
 		t.Fatal("topics imported without flag")
 	}
 }
@@ -165,7 +164,7 @@ func TestImportRefusesCredentialShapedSourceBeforeWriting(t *testing.T) {
 		{"merge", "decisionLog.md", "## 2026-11-03 — leak <!-- id:55555555 -->\nuses " + key + "\n"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			src, _ := flatImportFixture(t)
+			src := flatImportFixture(t)
 			write(t, filepath.Join(src, tc.rel), tc.body)
 			write(t, filepath.Join(src, "topic.md"), key+"\n") // a kept-local conflict is not a blocker
 			// Stamp first: a live store already carries .layout, which the first lock would otherwise write.

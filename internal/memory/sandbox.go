@@ -128,8 +128,7 @@ func sandboxFlat(config string, opt SandboxOptions) ([]SandboxStore, error) {
 	if err := os.MkdirAll(dst, 0o700); err != nil {
 		return nil, err
 	}
-	b := HomeBank()
-	names, err := sandboxFlatBank(dst, b, opt.Empty)
+	names, err := sandboxFlatBank(dst, opt.Empty)
 	if err != nil {
 		return nil, err
 	}
@@ -143,12 +142,12 @@ func sandboxFlat(config string, opt SandboxOptions) ([]SandboxStore, error) {
 	return []SandboxStore{{stateKey(), len(names)}}, sandboxSnapshot(dst, append(names, layoutFile))
 }
 
-// sandboxFlatBank places b's files in the flat store at dst: its templates when empty, else every file it owns.
-func sandboxFlatBank(dst string, b Bank, empty bool) ([]string, error) {
+// sandboxFlatBank places the bank's files in the flat store at dst: its templates when empty, else every file it owns.
+func sandboxFlatBank(dst string, empty bool) ([]string, error) {
 	var rels []string
 	if empty {
 		for name := range templates() {
-			rels = append(rels, filepath.Base(b.Path(name)))
+			rels = append(rels, filepath.Base(Path(name)))
 		}
 	} else {
 		rels = ownedStoreRels()
@@ -156,7 +155,7 @@ func sandboxFlatBank(dst string, b Bank, empty bool) ([]string, error) {
 	return placeStoreRels(dst, rels, empty)
 }
 
-// placeStoreRels writes each rel under dst: b's template when empty, else the store's copy.
+// placeStoreRels writes each rel under dst: the bank's template when empty, else the store's copy.
 func placeStoreRels(dst string, rels []string, empty bool) ([]string, error) {
 	placed := make([]string, 0, len(rels))
 	for _, rel := range rels {
