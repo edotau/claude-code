@@ -146,3 +146,27 @@ func TestDemotionCycleTerminates(t *testing.T) {
 		t.Errorf("demotion(A) = %+v, %v; want B, true", d, ok)
 	}
 }
+
+func TestStateWritesContainPanic(t *testing.T) {
+	oldCooling, oldDead := persistCooling, persistModelDead
+	t.Cleanup(func() { persistCooling, persistModelDead = oldCooling, oldDead })
+	persistCooling = func(string, time.Time, time.Time) (bool, error) { panic("cooling exploded") }
+	persistModelDead = func(string, string, time.Time, time.Time) (bool, error) { panic("quota exploded") }
+	for _, kind := range []string{"cooling", "quota"} {
+		t.Run(kind, func(t *testing.T) {
+			r := newRouter("s")
+			var logs strings.Builder
+			r.log = &logs
+			p := &providers.Provider{Name: "test"}
+			if kind == "cooling" {
+				r.coolDown(p, &http.Response{Header: http.Header{"Retry-After": {"10"}}})
+			} else {
+				r.markDead(providers.Target{Provider: p, Model: "test"})
+			}
+			r.bg.Wait()
+			if strings.Count(logs.String(), "state write panicked") != 1 {
+				t.Fatalf("log = %q", logs.String())
+			}
+		})
+	}
+}

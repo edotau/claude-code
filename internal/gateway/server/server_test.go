@@ -16,6 +16,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/edotau/claude-code/internal/gateway"
@@ -772,4 +773,38 @@ func TestMessagesStreamCutMidBodyIsLoggedAndMetered(t *testing.T) {
 	if line := logs.String(); !strings.Contains(line, " prod m-haiku ") || !strings.Contains(line, " stream=broken") {
 		t.Errorf("request log = %q, want a prod m-haiku line marked stream=broken", line)
 	}
+}
+
+func TestStateWriteDrain(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r := newRouter("s")
+		r.log = io.Discard
+		var finished atomic.Bool
+		goStateWrite(r, func() { time.Sleep(2 * time.Millisecond); finished.Store(true) })
+		drainStateWrites(r)
+		if !finished.Load() || r.inflight.Load() != 0 {
+			t.Fatal("drain returned before write")
+		}
+		r.bg.Wait()
+	})
+}
+
+func TestStateWriteDrainBound(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		r := newRouter("s")
+		var logs strings.Builder
+		r.log = &logs
+		release := make(chan struct{})
+		goStateWrite(r, func() { <-release })
+		start := time.Now()
+		drainStateWrites(r)
+		if elapsed := time.Since(start); elapsed != stateWriteDrain {
+			t.Fatalf("elapsed %v", elapsed)
+		}
+		if !strings.Contains(logs.String(), "drain timed out") {
+			t.Fatalf("log %q", logs.String())
+		}
+		close(release)
+		r.bg.Wait()
+	})
 }

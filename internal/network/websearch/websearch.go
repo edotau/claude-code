@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/network/httpx"
+	"github.com/edotau/claude-code/internal/par"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
@@ -225,9 +226,9 @@ func (s *server) handleToolsCall(ctx context.Context, req rpcRequest) map[string
 	return result(req.ID, toolText(text))
 }
 
-// Serve answers newline-delimited JSON-RPC from in to out until EOF; ctx bounds every search.
-// Gotcha: one goroutine per request (Claude Code batches tool calls); only writes lock, and EOF waits for in-flight.
+// Serve bounds concurrent JSON-RPC requests, serializes replies, and joins in-flight work at EOF.
 func (s *server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
+	slots := make(chan struct{}, requestConcurrency)
 	reader := bufio.NewReaderSize(in, 64*1024)
 	enc := json.NewEncoder(out)
 	var (
@@ -259,11 +260,11 @@ func (s *server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 		if !ok {
 			continue
 		}
-		wg.Go(func() {
-			if resp := s.handle(ctx, req); resp != nil {
-				send(resp)
-			}
-		})
+		if !admitRequest(ctx, slots) {
+			readErr = context.Cause(ctx)
+			break
+		}
+		s.launch(ctx, req, send, slots, &wg)
 	}
 	wg.Wait()
 	mu.Lock()
@@ -272,6 +273,34 @@ func (s *server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 		return writeErr
 	}
 	return readErr
+}
+
+func admitRequest(ctx context.Context, slots chan struct{}) bool {
+	select {
+	case slots <- struct{}{}:
+		return true
+	default:
+	}
+	select {
+	case slots <- struct{}{}:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (s *server) launch(ctx context.Context, req rpcRequest, send func(map[string]any), slots chan struct{}, wg *sync.WaitGroup) {
+	wg.Add(1)
+	finish := func() { <-slots; wg.Done() }
+	par.Go(func() {
+		if resp := s.handle(ctx, req); resp != nil {
+			send(resp)
+		}
+		finish()
+	}, func(error) {
+		defer finish()
+		send(rpcError(req.ID, rpcInternalError, "Internal error"))
+	})
 }
 
 // readRequestLine reads one capped line; an unterminated last line is served and the next read reports EOF.
@@ -295,6 +324,11 @@ func parseRequest(raw []byte, send func(map[string]any)) (req rpcRequest, ok boo
 	}
 	return req, true
 }
+
+const rpcInternalError = -32603
+
+// requestConcurrency matches robots fan-out and caps simultaneous outbound tool requests.
+const requestConcurrency = 8
 
 // maxLineBytes caps one JSON-RPC line; a longer line is drained and answered with a parse error.
 const maxLineBytes = 4 * 1024 * 1024
