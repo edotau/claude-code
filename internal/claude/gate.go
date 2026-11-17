@@ -18,7 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/shell"
 )
 
-// gatewayAllow is a --tools leaf's base allow list off Anthropic (dontAsk denies the rest); it takes every claude-code verb.
+// gatewayAllow is a --tools leaf's allow list off Anthropic (dontAsk denies the rest), every claude-code verb included.
 func gatewayAllow() []agent.Rule {
 	rules := []agent.Rule{{Tool: "Edit"}, {Tool: "Write"}, {Tool: "Read"}, {Tool: "Grep"}, {Tool: "Glob"}}
 	rewritten := []string{"go build *", "go vet *", "go test *", "git diff *", "git status *", "git log *", "git show *",
