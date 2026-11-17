@@ -131,6 +131,12 @@ func refreshLink(src, dst string) error {
 		if fi.Mode()&os.ModeSymlink == 0 {
 			return nil
 		}
+		// already pointing at src: no swap, and the stat below is only needed to drop a stale link
+		if cur, rerr := os.Readlink(dst); rerr == nil && cur == src {
+			if _, serr := os.Stat(src); serr == nil {
+				return nil
+			}
+		}
 	}
 	if _, err := os.Stat(src); err != nil {
 		if !errors.Is(err, os.ErrNotExist) {
@@ -165,7 +171,8 @@ func copySettings(src, dst string) error {
 	if err != nil {
 		return fmt.Errorf("copilot: settings.json not carried over: %w", err)
 	}
-	return paths.AtomicWrite(dst, out, 0o600)
+	_, err = paths.WriteIfChanged(dst, out, 0o600)
+	return err
 }
 
 // removeStale deletes a stale settings copy; a failed remove is an error, since the copy may carry a model key.
