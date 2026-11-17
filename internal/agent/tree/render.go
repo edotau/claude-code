@@ -47,8 +47,7 @@ func renderText(w io.Writer, tree *Tree, now time.Time) error {
 	return ew.Err
 }
 
-// renderTree writes the active sessions and jobs, a blank line, then the inactive sessions, each grouped by repo.
-// Rows clip to width (0 = whole) before paint (an SGR prefix, "" = none) wraps the active rows' state cells.
+// renderTree writes active sessions and jobs, a blank line, then inactive sessions; rows clip to width before paint.
 func renderTree(w io.Writer, tree *Tree, now time.Time, width int, paint string) {
 	if len(tree.Sessions) == 0 && len(tree.Dispatches) == 0 {
 		fmt.Fprintln(w, "agents tree: no sessions in scope")

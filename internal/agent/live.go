@@ -541,8 +541,7 @@ func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
 	s.runTurn(ctx, rq.Prompt, wire.Multi(out, s.events))
 }
 
-// connPanic contains a panic of one client's handler: the client gets a generic refusal, the job log one redacted line.
-// A panic inside a turn leaves the agent stream half-read, so it ends the session as a broken stream does.
+// connPanic contains one client's handler panic; inside a turn the stream is half-read, so the session ends too.
 func (s *liveSession) connPanic(c net.Conn, r any, inTurn bool) {
 	fmt.Fprintf(os.Stderr, "claude-code: ask --live: client handler panic: %s\n", textutil.RedactSecrets(fmt.Sprint(r)))
 	_ = c.SetWriteDeadline(time.Now().Add(liveIOTimeout))

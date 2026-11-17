@@ -284,7 +284,7 @@ func watchFixture(tb testing.TB, n int) (string, time.Time) {
 	return dir, now
 }
 
-// BenchmarkWatchTick is one redraw: "wipe" reloads the scan cache and clears the screen first, "inplace" is the live loop.
+// BenchmarkWatchTick is one redraw: "wipe" reloads the scan cache and clears the screen, "inplace" is the live loop.
 func BenchmarkWatchTick(b *testing.B) {
 	dir, now := watchFixture(b, 10)
 	opts := Options{Days: 99999, Now: func() time.Time { return now }}
@@ -421,7 +421,7 @@ func synthTree(n int, now time.Time) *Tree {
 	return tree
 }
 
-// BenchmarkRender is the text render alone over about 900 rows: "plain" paints nothing, "paint" colours the active half.
+// BenchmarkRender is the text render over about 900 rows: "plain" paints nothing, "paint" colours the active half.
 func BenchmarkRender(b *testing.B) {
 	now := time.Date(2026, 10, 18, 3, 10, 0, 0, time.UTC)
 	tree := synthTree(100, now)
