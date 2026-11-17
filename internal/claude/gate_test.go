@@ -240,10 +240,11 @@ func TestGatePolicyAllowsWorkflowStageCommands(t *testing.T) {
 		{"doctor --mcp", agent.Permissions{}, "Bash", bash("claude-code doctor --mcp"), false, "", ""},
 		{"doctor --prompts", agent.Permissions{}, "Bash", bash("claude-code doctor --prompts"), false, "", ""},
 		{"doctor --git", agent.Permissions{}, "Bash", bash("claude-code doctor --git"), false, "", ""},
-		{"doctor --scan stays denied", agent.Permissions{}, "Bash", bash("claude-code doctor --scan x"), true, "deny: ", ""},
-		{"memory remember stays denied", agent.Permissions{}, "Bash", bash("claude-code memory remember x"), true, "deny: ", ""},
+		{"doctor --scan", agent.Permissions{}, "Bash", bash("claude-code doctor --scan x"), false, "", ""},
+		{"memory remember", agent.Permissions{}, "Bash", bash("claude-code memory remember x"), false, "", ""},
+		{"agents ask", agent.Permissions{}, "Bash", bash("claude-code agents ask --agent codex x"), false, "", ""},
 		{"python3 -m", agent.Permissions{}, "Bash", bash("python3 -m exports.tests.test_invoices"), false, "", ""},
-		{"memory worktree stays unlisted", agent.Permissions{}, "Bash", bash("claude-code worktree merge x"), true, "deny: ", ""},
+		{"worktree merge", agent.Permissions{}, "Bash", bash("claude-code worktree merge x"), false, "", ""},
 	})
 }
 
@@ -264,6 +265,7 @@ func TestReadOnlyGatePolicy(t *testing.T) {
 		row("Write", "Write", gateWrite(filepath.Join(wd, "b.go")), true),
 		row("file redirect", "Bash", gateBash("git log -1 > out"), true),
 		row("substitution", "Bash", gateBash("cat $(ls)"), true),
+		row("memory remember", "Bash", gateBash("claude-code memory remember x"), true),
 	})
 	if got := gateArgs(agent.RunOptions{ReadOnly: true}); !slices.Contains(got, readOnlyGateTools) || slices.Contains(got, gateTools) {
 		t.Errorf("read-only gate tools = %v, want %s", got, readOnlyGateTools)
@@ -403,8 +405,8 @@ func TestGatewayAllowsMergedAgentVerbs(t *testing.T) {
 	for cmd, allowed := range map[string]bool{
 		"claude-code agents result -f job": true, "claude-code agents result job --events -f": true,
 		"claude-code agents status": true, "claude-code agents status job --agent codex": true,
-		"claude-code agents cancel job": false, "claude-code agents cancel --lost": false,
-		"claude-code agents tail -f job": false, "claude-code agents reap": false,
+		"claude-code agents cancel job": true, "claude-code agents cancel --lost": true,
+		"claude-code agents tail -f job": true, "claude-code agents reap": true, "curl x": false,
 	} {
 		if got := p.Decide("Bash", cmd) == agent.Allow; got != allowed {
 			t.Errorf("%s: allowed = %v, want %v", cmd, got, allowed)
