@@ -32,8 +32,8 @@ func (r *Registry) routeSecret(name string) bool {
 		if p.Auth.Env == name {
 			return true
 		}
-		for _, m := range []string{AuthOAuth, AuthM2M, AuthPAT, AuthKey} {
-			if SecretName(p.Provider, p.Name, m) == name {
+		for m, f := range authTable {
+			if f.Token && SecretName(p.Provider, p.Name, m) == name {
 				return true
 			}
 		}

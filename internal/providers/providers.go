@@ -442,9 +442,7 @@ func validateProvider(n string, p *Provider, valid map[string]bool) []string {
 // validateAuthKind checks auth.type is known and auth.login sits only on a cli row.
 func validateAuthKind(n string, p *Provider) []string {
 	var errs []string
-	switch p.Auth.Type {
-	case AuthOAuth, AuthM2M, AuthPAT, AuthKey, AuthCLI, AuthNone:
-	default:
+	if _, ok := authTable[p.Auth.Type]; !ok {
 		errs = append(errs, fmt.Sprintf("%s: auth.type %q unknown", n, p.Auth.Type))
 	}
 	if p.Auth.Login != "" && p.Auth.Type != AuthCLI {
