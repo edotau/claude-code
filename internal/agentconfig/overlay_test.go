@@ -240,6 +240,17 @@ func TestLoadOverlayCodexNetworkType(t *testing.T) {
 	}
 }
 
+func TestLoadOverlayCloud(t *testing.T) {
+	_, err := LoadOverlayContext(t.Context(), `{"schema":1,"cloud":"yes"}`, nil)
+	if err == nil || !strings.Contains(err.Error(), "cloud: want true or false") {
+		t.Errorf("bad cloud: %v; want a type error naming cloud", err)
+	}
+	o, err := LoadOverlayContext(t.Context(), `{"schema":1,"cloud":true}`, nil)
+	if err != nil || !o.Cloud || o.Empty() || !o.Routed() {
+		t.Errorf("valid cloud not recognized: %v", err)
+	}
+}
+
 func TestOverlayDispatchControls(t *testing.T) {
 	for _, doc := range []string{`{"maxChildren":0}`, `{"maxTreeTokens":500}`, `{"budgetUSD":0.0001}`, `{"budgetCredits":30}`} {
 		o, err := LoadOverlayContext(t.Context(), doc, nil)

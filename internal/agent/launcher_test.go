@@ -331,3 +331,25 @@ func TestVendorSignInSkipsRouting(t *testing.T) {
 		t.Errorf("configure offered %d times for sign-in commands, want 0", offers)
 	}
 }
+
+// A vendor argv that submits to the vendor's cloud is refused by RunPlan before any launch (--print-env included).
+func TestRunPlanRefusesCloudSubmission(t *testing.T) {
+	vaulttest.Use(t)
+	tests := []struct {
+		agent string
+		argv  []string
+		want  int
+	}{
+		{"claude", []string{"ultrareview", "main", "--post"}, 1},
+		{"claude", []string{"--settings", "s.json", "ultrareview"}, 1},
+		{"codex", []string{"-c", "m=1", "cloud", "exec", "x", "--env", "e"}, 1},
+		{"codex", []string{"cloud", "status", "t1"}, 0},
+		{"codex", []string{"exec", "ultrareview"}, 0},
+		{"claude", []string{"-p", "hi"}, 0},
+	}
+	for _, tc := range tests {
+		if rc := RunPlan(tc.agent, Plan{Binary: "vendor", Argv: tc.argv}, LaunchOptions{PrintEnv: true}, nil); rc != tc.want {
+			t.Errorf("%s %v: rc=%d, want %d", tc.agent, tc.argv, rc, tc.want)
+		}
+	}
+}

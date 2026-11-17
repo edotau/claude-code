@@ -53,6 +53,7 @@ paths:
   | `account` | copilot GitHub account (its login) | the credit gate's account pick |
   | `identity` | `auto\|user\|sp` (Databricks) | `--as`, the profile's identity |
   | `codexNetwork` | `true`: codex `--tools` workspace-write sandbox gets network (top-level ask only) | sealed network |
+  | `cloud` | `true`: diff or repo goes to the vendor's cloud (`claude review`, `codex cloud exec`); own login | local |
   | `maxChildren` | Concurrent children per parent; env > overlay > default; 0 = no cap, invalid = default | 8 |
   | `maxTreeTokens` | Known subtree tokens; env > overlay > default; 0 = no cap, invalid = default | 0 |
   | `budgetUSD` | Claude only: number > 0, passed as `--max-budget-usd` | uncapped |

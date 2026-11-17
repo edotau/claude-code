@@ -1,6 +1,7 @@
 package proc
 
 import (
+	"context"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -11,6 +12,12 @@ import (
 const DispatchIDEnv = "HARNESS_DISPATCH_ID"
 
 const DispatchDepthEnv = "HARNESS_DISPATCH_DEPTH"
+
+// InDispatch reports a dispatch child: its id or a depth above 0 is set; a child that clears both is undetectable.
+func InDispatch(ctx context.Context) bool {
+	depth, _ := strconv.Atoi(Value(ctx, DispatchDepthEnv))
+	return Value(ctx, DispatchIDEnv) != "" || depth > 0
+}
 
 // Info is one row of the process table: identity, ancestry, start, executable and the value of the marker env var.
 type Info struct {

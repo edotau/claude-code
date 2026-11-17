@@ -280,6 +280,8 @@ claude-code agents ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many t
 claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- forces passthrough
 claude-code opencode catalog [list|add|remove|import|reset|check|sync]   # shared Databricks model menu
 claude-code codex review --adversarial --base main     # per-agent verbs; claude-code codex -h lists them
+claude-code claude review --base main --overlay '{"cloud":true}'   # cloud ultrareview; sends the diff to Anthropic
+claude-code codex cloud exec "<task>" --env <id> --overlay '{"cloud":true}'   # Codex Cloud; status|list|diff|apply
 claude-code agents ask --agent gemini --tools --dirs internal "<task>"  # one 1M-context sweep via agy
 claude-code agents ask --agent codex --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools "<task>"
                                                        # per-call config

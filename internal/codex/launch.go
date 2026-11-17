@@ -131,7 +131,7 @@ func codexNetwork(ctx context.Context, tools bool, sandbox string) (bool, error)
 	if o, err := agentconfig.LoadOverlayContext(ctx, "", nil); err != nil || !o.CodexNetwork {
 		return false, nil // a bad overlay is refused where it is loaded; sealed is the strict reading
 	}
-	if proc.Value(ctx, proc.DispatchIDEnv) != "" { // an outer dispatch's sandbox decides; only a top-level ask may open network
+	if proc.InDispatch(ctx) { // an outer dispatch's sandbox decides; only a top-level ask may open network
 		return false, &agent.UsageError{Msg: "codex: overlay codexNetwork is refused inside a dispatch; set it on the outermost ask"}
 	}
 	return true, nil

@@ -178,6 +178,9 @@ func RunPlan(name string, plan Plan, opts LaunchOptions, err error) int {
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
+	if form := cloudForm(name, plan.Argv); form != "" {
+		return helptext.Fail("%s sends the repo to the vendor's cloud: use %s", name, form)
+	}
 	ov, oerr := launchOverlay(opts)
 	if oerr == nil {
 		oerr = plan.checkOverlay(ov) // a launch-owned route name is refused, not silently overridden
