@@ -577,3 +577,18 @@ func TestRenderFullModelAt80Columns(t *testing.T) {
 		t.Errorf("clipped task missing:\n%s", out.String())
 	}
 }
+
+func TestPhaseProgressSurvivesActiveFilter(t *testing.T) {
+	now := time.Date(2026, 10, 18, 3, 10, 0, 0, time.UTC)
+	phase := WorkflowPhase{Name: "p1", Agents: []Subagent{{Type: "a", Status: statusFinished}, {Type: "b", Status: statusRunning}}}
+	s := cacheSessionTotals(Session{ID: "s1", Cwd: "/x", Status: statusActive,
+		Workflows: []WorkflowRun{{ID: "wf_1", Name: "w", Status: statusRunning, Phases: []WorkflowPhase{phase}}}})
+	var all, active strings.Builder
+	renderTree(&all, &Tree{Sessions: []Session{s}}, now, 0, "")
+	renderTree(&active, &Tree{Sessions: []Session{activeSession(s)}}, now, 0, "")
+	for name, out := range map[string]string{"all": all.String(), "active": active.String()} {
+		if !strings.Contains(out, "phase p1 (1/2 done)") {
+			t.Errorf("%s view lost the phase progress:\n%s", name, out)
+		}
+	}
+}

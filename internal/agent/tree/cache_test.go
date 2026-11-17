@@ -19,3 +19,19 @@ func TestScanRecordsNewestModel(t *testing.T) {
 		t.Errorf("model = %q, want the newest real one", got)
 	}
 }
+
+func TestLoadScanCacheDiscardsOlderSchema(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	path := scanCachePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	old := `{"schema":1,"files":{"/t/agent-a.jsonl":{"size":9,"offset":9}}}`
+	if err := os.WriteFile(path, []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := loadScanCache()
+	if len(c.Files) != 0 || c.Schema != scanCacheSchema {
+		t.Fatalf("v1 cache kept: schema %d, files %v", c.Schema, c.Files)
+	}
+}

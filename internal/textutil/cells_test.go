@@ -21,6 +21,7 @@ func TestDisplayWidth(t *testing.T) {
 		{"\x1b]0;title\aabc", 3}, {"\x1b]8;;https://example.org\x1b\\界\x1b]8;;\x1b\\", 2},
 		{"a\x1b[31", 1}, {"a\x1b]title", 1}, {"a\x1b", 1},
 		{"\x1b[31\x1b[0mabc", 3}, {"\x1b]0;t\x1b[0mabc", 3}, {"\x1b[31\x1b", 0},
+		{"b\u200d\x1b[0mcd", 3}, {"\x1b(B\x1b[mabc", 3}, {"\x1bé", 1},
 	} {
 		t.Run(fmt.Sprintf("%q", tc.s), func(t *testing.T) {
 			if got := DisplayWidth(tc.s); got != tc.want {
@@ -61,7 +62,8 @@ func TestTruncateCells(t *testing.T) {
 func TestTruncateCellsBoundaries(t *testing.T) {
 	for _, s := range []string{"a界b😀c", "x#️⃣abc", "a✈️b", "👨‍👩‍👧‍👦xyz", "éabcd", "👍🏽abcd",
 		"\x1b[31mabcdef\x1b[0m", "\x1b]0;title\aabcdef", "\x1b]0;title\x1b\\abcdef",
-		"\x1b]8;;http://x\x1b\\abcdef\x1b]8;;\x1b\\"} {
+		"\x1b]8;;http://x\x1b\\abcdef\x1b]8;;\x1b\\",
+		"\x1b[31mb\u200d\x1b[0mcd", "😀\u200d\x1b[31m🇺🇸✈️", "\x1b(B\x1b[mabc"} {
 		for n := 0; n <= DisplayWidth(s); n++ {
 			for _, marker := range []string{"…", "...", "界", ""} {
 				got := TruncateCells(s, n, marker)

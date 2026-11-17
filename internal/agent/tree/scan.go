@@ -109,9 +109,9 @@ func truncate(s string, n int) string {
 	return textutil.CapRunes(oneLine(s), n, "…")
 }
 
-// oneLine collapses newlines/tabs and repeated spaces so a multi-line prompt renders as one title line.
+// oneLine makes a prompt one title line: newlines/tabs and repeated spaces collapse, other controls (ESC) drop.
 func oneLine(s string) string {
-	if !strings.ContainsAny(s, "\n\r\t") && !strings.Contains(s, "  ") {
+	if !strings.ContainsFunc(s, isControl) && !strings.Contains(s, "  ") {
 		return s
 	}
 	out := make([]rune, 0, len(s))
@@ -120,7 +120,7 @@ func oneLine(s string) string {
 		if c == '\n' || c == '\r' || c == '\t' {
 			c = ' '
 		}
-		if c == ' ' && prevSpace {
+		if c == ' ' && prevSpace || isControl(c) {
 			continue
 		}
 		prevSpace = c == ' '
@@ -128,6 +128,8 @@ func oneLine(s string) string {
 	}
 	return string(out)
 }
+
+func isControl(c rune) bool { return c < 0x20 || c == 0x7f }
 
 var toolUseMarker = []byte(`"tool_use"`)
 

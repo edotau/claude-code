@@ -261,7 +261,10 @@ func addWorkflowRun(l *layout, run WorkflowRun, now time.Time, home, cwd string)
 	l.add(levelRun, "workflow "+run.Name, run.Status, age(run.Updated, now), "Σ"+textutil.CompactCount(run.total.sum)+"  "+run.ID)
 	l.mark(run.Status == statusRunning, 1<<1)
 	for _, phase := range run.Phases {
-		done, total := phaseDone(phase.Agents)
+		done, total := phase.done, phase.count
+		if !phase.total.ready {
+			done, total = phaseDone(phase.Agents)
+		}
 		l.free(6, fmt.Sprintf("phase %s (%d/%d done) Σ%s", phase.Name, done, total, textutil.CompactCount(phase.total.sum)))
 		for _, sub := range phase.Agents {
 			addSubagent(l, sub, now, home, cwd)
@@ -482,7 +485,7 @@ func ownRecord(sub Subagent) (Dispatch, bool) {
 	return sub.Dispatches[i], true
 }
 
-// subLabel splits "<model>: <task>"; a "/" in the model counts only when the row's own record ends it, else it is prose.
+// subLabel splits "<model>: <task>"; a "/" in the model counts only when the row's own record ends it.
 func subLabel(sub Subagent) (model, task string, ok bool) {
 	model, task, ok = strings.Cut(sub.Description, ": ")
 	if !ok || model == "" || strings.ContainsAny(model, " \t\n") {
