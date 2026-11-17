@@ -306,7 +306,7 @@ func dispatchUnavailableContext(ctx context.Context, r Engine, res wire.Result, 
 
 func fallsThroughContext(ctx context.Context, r Engine) bool {
 	s, ok := LookupSchema(r.Name())
-	return !ok || s.External() || (r.Name() == "claude" && router.ArmProfileContext(ctx) != "")
+	return !ok || s.External() || (VaultAgentIsClaude(r.Name()) && router.ArmProfileContext(ctx) != "")
 }
 
 // HopFailed is true when a dispatch failed before giving any answer for a reason a later hop could fix.
@@ -680,7 +680,7 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 
 // claudeTier gives an untyped local claude dispatch its task tier unless a concrete claude pin decides.
 func claudeTier(out RunOptions, disp Dispatch) RunOptions {
-	if out.Model != "" || out.Host != "" || disp.Agent == nil || disp.Agent.Name() != agentid.Claude {
+	if out.Model != "" || out.Host != "" || disp.Agent == nil || !VaultAgentIsClaude(disp.Agent.Name()) {
 		return out
 	}
 	pin := agentModelPinContext(valuesContext(context.Background(), out.Values), agentid.Claude)
@@ -740,7 +740,7 @@ func leadProfile(out RunOptions, disp Dispatch) RunOptions {
 
 // armClaudeProfile runs a claude hop inside databricks:<p> on its "<profile>:" row; claude reads only Provider.
 func armClaudeProfile(out RunOptions, disp Dispatch) RunOptions {
-	if router.ArmProfileContext(valuesContext(context.Background(), out.Values)) == "" || disp.Agent == nil || disp.Agent.Name() != "claude" {
+	if router.ArmProfileContext(valuesContext(context.Background(), out.Values)) == "" || disp.Agent == nil || !VaultAgentIsClaude(disp.Agent.Name()) {
 		return out
 	}
 	prof, model, ok := strings.Cut(out.Model, ":")

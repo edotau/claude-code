@@ -209,7 +209,7 @@ func (t *RouteTable) gateArm(
 	}
 	own := ownRows(pg.reg, agent)
 	pg.armPinSkip(agent, spec.Profile, arm, own, res)
-	if agent == "claude" {
+	if agentid.Routing(agent).AnthropicRoute {
 		// Serves covers external agents only; claude runs on the workspace and its own login
 		o.CanServe = nil
 	}
@@ -250,7 +250,7 @@ func (pg *pickGate) armPinSkip(agent, pin, arm string, own []string, res *PickRe
 // ownRows lists agent's own-login rows: loginProfiles, plus for claude the anthropic CLI-login rows.
 func ownRows(reg *providers.Registry, agent string) []string {
 	rows := loginProfiles(reg, agent)
-	if agent != "claude" {
+	if !agentid.Routing(agent).AnthropicRoute {
 		return rows
 	}
 	for _, n := range reg.Names() {

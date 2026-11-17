@@ -290,7 +290,7 @@ func routeLaunch(ctx context.Context, name string, o LaunchOptions) (_ LaunchOpt
 		return o, false, err
 	}
 	o.Model, o.Provider = r.Model, r.Profile
-	if r.Effort != "" && name == "gemini" {
+	if r.Effort != "" && agentid.Routing(name).EffortSuffix {
 		o.Model += "-" + r.Effort // gemini reads its effort off the id's suffix
 	}
 	if r.Dialect == "own-login" {

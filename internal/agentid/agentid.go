@@ -55,6 +55,8 @@ func EffortNames() []string {
 
 // RouteFacts is what routing needs to know about an agent, so callers test a fact, not a name.
 type RouteFacts struct {
+	// EffortSuffix encodes native reasoning effort as a trailing model-id component.
+	EffortSuffix bool
 	// AnthropicRoute accepts unlisted ids and enforces Claude Code profile constraints.
 	AnthropicRoute bool
 	// FreezeTarget resolves billing once before dispatch guards and retries.
@@ -69,7 +71,7 @@ var routeFacts = map[string]RouteFacts{
 	Claude:   {AnthropicRoute: true, ModelFamily: "claude", nativeEfforts: EffortNames()},
 	Codex:    {ResponsesRoute: true, nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh"}},
 	Copilot:  {FreezeTarget: true, Discovery: true},
-	Gemini:   {ModelFamily: "gemini", binary: "agy", GoogleOrDatabricks: true, NoWorkspaceFallback: true, nativeEfforts: EffortNames()},
+	Gemini:   {EffortSuffix: true, ModelFamily: "gemini", binary: "agy", GoogleOrDatabricks: true, NoWorkspaceFallback: true, nativeEfforts: EffortNames()},
 	OpenCode: {SubLadder: true, Discovery: true},
 }
 

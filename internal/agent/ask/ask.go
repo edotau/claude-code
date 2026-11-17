@@ -598,7 +598,7 @@ func narrowLead(ag string, f *askFlags, routed bool) (string, error) {
 		fallback = router.FallbackNone
 	}
 	q := agent.RouteReq{Agent: ag, Model: f.model, Profile: f.provider, Provider: f.leadProvider, Fallback: fallback}
-	lead, provider, err := routedLead(q, ag == "claude" || f.live)
+	lead, provider, err := routedLead(q, agent.VaultAgentIsClaude(ag) || f.live)
 	if err != nil {
 		return "", err
 	}

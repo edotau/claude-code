@@ -41,7 +41,7 @@ func checkProfile(reg *providers.Registry, agent, p string) error {
 
 // ownsProfile reports whether p is the agent's own login or an opencode sub id, neither a registry row.
 func ownsProfile(agent, p string) bool {
-	return p == vault.OwnLoginProfiles[agent] || agent == agentid.OpenCode && slices.Contains(providers.RouteOpencodeSubIDs, p)
+	return p == vault.OwnLoginProfiles[agent] || agentid.Routing(agent).SubLadder && slices.Contains(providers.RouteOpencodeSubIDs, p)
 }
 
 // vaultSession is the --profile value naming the session's own profile (agent.LeadSession).

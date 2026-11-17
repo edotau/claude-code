@@ -81,7 +81,7 @@ func SeedProfiles(reg *providers.Registry, agent string) []string {
 		for n, p := range reg.Providers {
 			switch {
 			case p == nil || !canPick(agent, p):
-			case agent != "claude" && p.Auth.Login == agent:
+			case !agentpkg.VaultAgentIsClaude(agent) && p.Auth.Login == agent:
 				own = append(own, n)
 			default:
 				rest = append(rest, n)
@@ -98,7 +98,7 @@ func SeedProfiles(reg *providers.Registry, agent string) []string {
 
 // canPick is whether agent's profile picker offers p; claude takes any row without another agent's sign-in.
 func canPick(agent string, p *providers.Provider) bool {
-	if agent == "claude" {
+	if agentpkg.VaultAgentIsClaude(agent) {
 		return p.Auth.Login == ""
 	}
 	return agentpkg.CanServe(agent, p)
