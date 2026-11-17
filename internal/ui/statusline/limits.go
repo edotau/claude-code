@@ -23,36 +23,6 @@ func limitsSegment(in input) string {
 	return fmt.Sprintf("7d:%d%%", week)
 }
 
-// authSegment is the credential countdown ("m2m:42m"), or "login:<p>" while the user login is dead; "" when neither.
-func authSegment(session string) string {
-	if loginDead(session) {
-		return "login:" + session
-	}
-	exp, method, ok := providers.TokenExpiryMethodFor(session, sessionIdentity(session))
-	if !ok {
-		return ""
-	}
-	return tokenLeft(tokenLabel(session, method), exp, time.Now())
-}
-
-// sessionIdentity is the session row's stored identity mode ("" reads as auto).
-func sessionIdentity(session string) string {
-	if reg := registry(); reg != nil && reg.Providers[session] != nil {
-		return reg.Providers[session].Identity
-	}
-	return ""
-}
-
-// loginDead is true when the session row's user login is remembered dead and its identity can reach for it.
-func loginDead(session string) bool {
-	reg := registry()
-	if reg == nil || reg.Providers[session] == nil || reg.Providers[session].Identity == providers.IdentitySP {
-		return false
-	}
-	_, dead := providers.LoginStatus(reg.Providers[session])
-	return dead
-}
-
 // onSubscription is true when the session profile row is first-party Anthropic on its cli (passthrough) login.
 func onSubscription(session string) bool {
 	reg := registry()
@@ -61,38 +31,6 @@ func onSubscription(session string) bool {
 	}
 	p := reg.Providers[session]
 	return p != nil && p.Provider == "anthropic" && p.Auth.Method() == providers.AuthCLI
-}
-
-// tokenLabel names the countdown's credential: the recorded mint method, else pat/m2m by the row's auth, else u2m.
-func tokenLabel(session, recorded string) string {
-	switch recorded {
-	case "u2m", providers.AuthM2M, providers.AuthPAT:
-		return recorded
-	}
-	if reg := registry(); reg != nil {
-		if p := reg.Providers[session]; p != nil {
-			if m := p.Auth.Method(); m == providers.AuthM2M || m == providers.AuthPAT {
-				return m
-			}
-		}
-	}
-	return "u2m"
-}
-
-// tokenLeft renders the time until exp: "u2m:30m", "m2m:1h05m", "pat:89d", "u2m:<1m", or "u2m:exp" once past.
-func tokenLeft(method string, exp, now time.Time) string {
-	left := exp.Sub(now)
-	switch {
-	case left <= 0:
-		return method + ":exp"
-	case left < time.Minute:
-		return method + ":<1m"
-	case left < time.Hour:
-		return fmt.Sprintf("%s:%dm", method, int(left/time.Minute))
-	case left < 24*time.Hour:
-		return fmt.Sprintf("%s:%dh%02dm", method, int(left/time.Hour), int(left%time.Hour/time.Minute))
-	}
-	return fmt.Sprintf("%s:%dd", method, int(left/(24*time.Hour)))
 }
 
 // pct is the window's rounded used percent; -1 when absent or its reset already passed.
