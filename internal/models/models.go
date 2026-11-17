@@ -73,8 +73,8 @@ func atLeast(major, minor, wantMajor, wantMinor int) bool {
 
 // Strip1M removes the client-only [1m] marker; no upstream accepts it on the wire.
 func Strip1M(id string) string {
-	if Has1M(id) {
-		return id[:len(id)-len(marker1M)]
+	for Has1M(id) {
+		id = id[:len(id)-len(marker1M)]
 	}
 	return id
 }

@@ -351,6 +351,13 @@ func relayChatBuffered(w *statusWriter, in *http.Request, body io.Reader, t prov
 
 func (r *Router) sendRequest(in *http.Request, method string, p *providers.Provider, url string, body []byte,
 	hdr func(http.Header), credential string) (*http.Response, error) {
+	model := passthroughModel(body)
+	if models.Has1M(model) {
+		var err error
+		if body, err = withModel(body, models.Strip1M(model)); err != nil {
+			return nil, err
+		}
+	}
 	ctx := in.Context()
 	if n, ok := ctx.Value(attemptsKey{}).(*int); ok {
 		*n++

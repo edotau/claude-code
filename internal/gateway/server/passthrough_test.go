@@ -767,7 +767,7 @@ func TestDatabricksGeminiRouteRejectsTraversal(t *testing.T) {
 	for _, rest := range []string{
 		"v1beta/models/%2e%2e/%2e%2e/api/2.0/secrets:generateContent", "v1beta/../../api/2.0/clusters/list",
 		"v1beta/models/m%252e:generateContent", "v1beta//models/m:generateContent", "v1beta/models/m:countTokens",
-		"v1beta/models/m%5c:generateContent",
+		"v1beta/models/m%5c:generateContent", "v1beta/models/m[1m]:generateContent",
 	} {
 		resp := ptDo(t, http.MethodPost, base+rest, `{}`, nil)
 		if resp.StatusCode < 400 {

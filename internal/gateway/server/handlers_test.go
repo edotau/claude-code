@@ -670,3 +670,51 @@ func TestUnservedOnlyDatabricksMissingEndpoint(t *testing.T) {
 		}
 	}
 }
+
+func TestLastHopStripsMarker(t *testing.T) {
+	for _, c := range []struct {
+		marker string
+		status int
+	}{
+		{"[1m]", http.StatusOK},
+		{"[1m][1m]", http.StatusOK},
+		{"[1m]", http.StatusTooManyRequests},
+	} {
+		t.Run(fmt.Sprintf("%s/%d", c.marker, c.status), func(t *testing.T) {
+			var up *rawUp
+			up = newRawUp(t, func(w http.ResponseWriter, req *http.Request, n int) {
+				if got := passthroughModel([]byte(up.got()[n-1].body)); got != "m" {
+					t.Errorf("wire model = %q, want m", got)
+				}
+				if req.Header.Get("Anthropic-Beta") != "context-1m-test" {
+					t.Error("lost beta header")
+				}
+				w.WriteHeader(c.status)
+			})
+			t.Setenv("LAST_HOP_KEY", "test")
+			p := &providers.Provider{Name: "last", Auth: providers.Auth{Type: providers.AuthKey, Env: "LAST_HOP_KEY"}}
+			r := newRouter("test")
+			in := httptest.NewRequest(http.MethodPost, "/v1/messages", nil)
+			var resp *http.Response
+			var err error
+			if c.status == http.StatusTooManyRequests {
+				srv := setupRouter(t, `{"default":"last","providers":{"anthropic":{"last":`+
+					anthropicProvider(up.URL, "LAST_HOP_KEY", `{"opus":"m"}`)+`}}}`, nil)
+				resp = post(t, srv.URL+"/p/last/v1/messages", `{"model":"m`+c.marker+`"}`,
+					map[string]string{"Anthropic-Beta": "context-1m-test"})
+			} else {
+				resp, err = r.sendRequest(in, http.MethodPost, p, up.URL, []byte(`{"model":"m`+c.marker+`"}`),
+					func(h http.Header) { h.Set("Anthropic-Beta", "context-1m-test") }, "")
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer resp.Body.Close()
+			w := httptest.NewRecorder()
+			relay(w, resp)
+			if w.Code != c.status || len(up.got()) != 1 {
+				t.Fatalf("status=%d calls=%d; want %d/1", w.Code, len(up.got()), c.status)
+			}
+		})
+	}
+}
