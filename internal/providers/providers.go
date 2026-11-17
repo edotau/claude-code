@@ -50,12 +50,13 @@ type Provider struct {
 	// Identity selects auto, user, or sp credentials for this profile.
 	Identity string `json:"identity,omitempty"`
 	// Protocol is the wire protocol BaseURL itself speaks; Routes add further dialects (gateway paths).
-	Protocol string            `json:"protocol"`
-	BaseURL  string            `json:"base_url"`
-	Routes   map[string]string `json:"routes,omitempty"`
-	Auth     Auth              `json:"auth"`
-	Models   map[string]string `json:"models,omitempty"`
-	Headers  map[string]string `json:"headers,omitempty"`
+	Protocol     string            `json:"protocol"`
+	BaseURL      string            `json:"base_url"`
+	Routes       map[string]string `json:"routes,omitempty"`
+	Auth         Auth              `json:"auth"`
+	TokenCommand []string          `json:"tokenCommand,omitzero"`
+	Models       map[string]string `json:"models,omitempty"`
+	Headers      map[string]string `json:"headers,omitempty"`
 	// OpencodeFallback is the model id opencode substitutes when an alias resolves to "auto", absent from its catalog.
 	OpencodeFallback string `json:"opencode_fallback,omitempty"`
 	// OpencodeID is this provider's key in opencode's auth.json and catalog; empty means opencode cannot route to it.
@@ -414,6 +415,9 @@ func uniqueOwner(r *Registry, key func(*Provider) string, msg string) []string {
 // validateProvider checks one provider's dialect, routes, and auth shape.
 func validateProvider(n string, p *Provider, valid map[string]bool) []string {
 	var errs []string
+	if len(p.TokenCommand) > 0 && strings.TrimSpace(p.TokenCommand[0]) == "" {
+		errs = append(errs, n+": tokenCommand needs an executable")
+	}
 	if !valid[p.Protocol] {
 		errs = append(errs, fmt.Sprintf("%s: protocol %q is not supported", n, p.Protocol))
 	}

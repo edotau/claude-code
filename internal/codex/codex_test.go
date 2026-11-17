@@ -16,9 +16,12 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -465,3 +468,55 @@ func TestCodexNoToolsRefusedNotDropped(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func TestCodexCommandAuthOmitsLaunchToken(t *testing.T) {
+	for _, auth := range []providers.Auth{
+		{Type: providers.AuthOAuth}, {Type: providers.AuthM2M}, {Command: "mint-token"},
+	} {
+		p := &providers.Provider{Name: "refreshable", Headers: map[string]string{gateway.AgentHeader: "codex"}, Auth: auth, TokenCommand: []string{"{self}", "resolve", "--profile", "{profile}", "{identity}", "{proxy}"}}
+		ctx := providers.WithIdentity(context.Background(), providers.IdentityHeadless)
+		env, argv, err := codex(ctx, p, "https://example.test/v1", "gpt-x", "launch-token-fixture", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		joined := strings.Join(argv, " ")
+		if strings.Contains(joined+strings.Join(env, " "), "launch-token-fixture") ||
+			strings.Contains(joined, "env_key") || strings.Contains(strings.Join(env, " "), codexKeyEnv+"=") {
+			t.Fatal("command auth retained a launch credential")
+		}
+		for _, want := range []string{`auth = {`, `"resolve", "--profile", "refreshable", "--as", "headless"`,
+			`refresh_interval_ms = 300000`, `timeout_ms = 15000`, `"--proxy"`, `base_url = "https://example.test/v1"`} {
+			if !strings.Contains(joined, want) {
+				t.Errorf("command auth missing %s", want)
+			}
+		}
+	}
+	p := &providers.Provider{Name: "static", Auth: providers.Auth{Type: providers.AuthKey}}
+	env, argv, err := codex(t.Context(), p, "https://example.test/v1", "gpt-x", "static-fixture", nil)
+	joined := strings.Join(argv, " ")
+	if err != nil || !strings.Contains(joined, `env_key = "HARNESS_CODEX_API_KEY"`) ||
+		strings.Contains(joined, "static-fixture") || !slices.Contains(env, codexKeyEnv+"=static-fixture") {
+		t.Fatalf("static key path changed: err %v", err)
+	}
+
+}
+
+func TestCodexCommandOverlayAndOwnLogin(t *testing.T) {
+	agenttest.StubProxy(t, testRouterBase, testRouterSecret)
+	pathstest.FakeVendor(t, "codex", "echo 'Logged in using ChatGPT' >&2")
+	p := &providers.Provider{Name: "refreshable", Provider: "databricks", Protocol: providers.ProtocolResponses,
+		BaseURL: "https://example.test/v1", Auth: providers.Auth{Type: providers.AuthNone}}
+	ctx := proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: `{"tokenCommand":["mint-bearer"]}`})
+	env, argv, err := agent.SchemaFor("codex").Configure(ctx, providers.Target{Provider: p, Model: "gpt-x"})
+	if err != nil || len(env) != 0 || !strings.Contains(strings.Join(argv, " "), `command = "mint-bearer"`) {
+		t.Fatalf("overlay command: env count %d, argv %v, err %v", len(env), argv, err)
+	}
+	p.Auth = providers.Auth{Type: providers.AuthCLI, Login: "codex"}
+	p.TokenCommand = []string{"must-not-run"}
+	env, argv, err = agent.SchemaFor("codex").Configure(ctx, providers.Target{Provider: p, Model: "gpt-x"})
+	joined := strings.Join(argv, " ")
+	if err != nil || len(env) != 0 || strings.Contains(joined, "auth") || strings.Contains(joined, "env_key") ||
+		!strings.Contains(joined, `model_provider="openai"`) {
+		t.Fatalf("own login: env count %d, argv %v, err %v", len(env), argv, err)
+	}
+}

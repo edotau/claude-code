@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/gateway"
@@ -92,6 +93,14 @@ func StubRefreshListingForTest() { refreshListing = func(string) {} }
 
 // CheckWorkspace checks local credentials, token lifetime and cached or live workspace authentication.
 func CheckWorkspace(p *providers.Provider, st router.State, now time.Time, timeout ...time.Duration) []Finding {
+	budget := DefaultToolsTimeout
+	if len(timeout) > 0 && timeout[0] > 0 {
+		budget = timeout[0]
+	}
+	return checkWorkspace(p, st, now, budget, nil)
+}
+
+func checkWorkspace(p *providers.Provider, st router.State, now time.Time, budget time.Duration, pf *Preflight) []Finding {
 	var out []Finding
 	if !providers.CredentialPresent(p) {
 		out = append(out, Finding{Check: "credential", Profile: p.Name, Detail: "no stored credential for " + p.Name})
@@ -105,12 +114,11 @@ func CheckWorkspace(p *providers.Provider, st router.State, now time.Time, timeo
 	if len(out) > 0 {
 		return out
 	}
-	budget := DefaultToolsTimeout
-	if len(timeout) > 0 && timeout[0] > 0 {
-		budget = timeout[0]
-	}
 	if f := tokenFinding(p, now, budget); f != nil {
-		return []Finding{*f}
+		if pf == nil || !p.CommandAuth() {
+			return []Finding{*f}
+		}
+		pf.note(p.Name + ": " + f.Detail + "; credential command will refresh during the run")
 	}
 	if f := workspaceAuth(p, st, now); f != nil {
 		out = append(out, *f)
@@ -142,6 +150,16 @@ func CredentialFingerprint(p *providers.Provider) string {
 	stamp := strings.Join([]string{at.UTC().Format(time.RFC3339Nano), spAt.UTC().Format(time.RFC3339Nano),
 		p.Identity, p.Auth.Type, p.Host, p.BaseURL}, "|")
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(stamp)))
+}
+
+func launchWorkspaceFindings(agentName string, p *providers.Provider, st router.State, now time.Time, pf *Preflight) []Finding {
+	if agentName != agentid.Codex {
+		return CheckWorkspace(p, st, now)
+	}
+	if pf == nil {
+		pf = &Preflight{}
+	}
+	return checkWorkspace(p, st, now, DefaultToolsTimeout, pf)
 }
 
 func tokenFinding(p *providers.Provider, now time.Time, budget time.Duration) *Finding {
@@ -399,7 +417,11 @@ func (rc routeCtx) armFinding() *Finding {
 	if p == nil || p.Preset != providers.PresetDatabricks {
 		return nil
 	}
-	fs := CheckWorkspace(p, loadState(), time.Now())
+	resolved, err := agentconfig.CommandProvider(ctx, p)
+	if err != nil {
+		return &Finding{Check: "credential", Profile: p.Name, Detail: "invalid tokenCommand overlay"}
+	}
+	fs := launchWorkspaceFindings(rc.want, resolved, loadState(), time.Now(), rc.pf)
 	if len(fs) == 0 {
 		return nil
 	}
@@ -423,12 +445,17 @@ func proxyNote() string {
 }
 
 // explicitFinding is the first failed preflight check of an explicit Databricks backend, nil when it passes.
-func explicitFinding(q RouteReq, p *providers.Provider, pf *Preflight) *Finding {
+func explicitFinding(ctx context.Context, q RouteReq, p *providers.Provider, pf *Preflight) *Finding {
 	if p.Preset != providers.PresetDatabricks {
 		return nil
 	}
+	resolved, err := agentconfig.CommandProvider(ctx, p)
+	if err != nil {
+		return &Finding{Check: "credential", Profile: p.Name, Detail: "invalid tokenCommand overlay"}
+	}
+	p = resolved
 	now := time.Now()
-	if fs := CheckWorkspace(p, loadState(), now); len(fs) > 0 {
+	if fs := launchWorkspaceFindings(q.Agent, p, loadState(), now, pf); len(fs) > 0 {
 		return &fs[0]
 	}
 	_, failed := CheckModelNoted(q.Agent, p, routedWire(q, p, now), now, pf)
@@ -450,7 +477,7 @@ func routedWire(q RouteReq, p *providers.Provider, now time.Time) string {
 }
 
 // modelFinding is explicitFinding for a --model <profile>:<model> with no --profile; nil when it names no row.
-func modelFinding(q RouteReq, pf *Preflight) *Finding {
+func modelFinding(ctx context.Context, q RouteReq, pf *Preflight) *Finding {
 	name, _, ok := strings.Cut(q.Model, ":")
 	if !ok {
 		return nil
@@ -459,7 +486,7 @@ func modelFinding(q RouteReq, pf *Preflight) *Finding {
 	if err != nil || reg.Providers[name] == nil {
 		return nil
 	}
-	return explicitFinding(q, reg.Providers[name], pf)
+	return explicitFinding(ctx, q, reg.Providers[name], pf)
 }
 
 // previewServes refuses an explicit --model that is no alias, no catalog id and no READY endpoint of profiles.

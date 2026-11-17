@@ -56,6 +56,9 @@ func checkPresetRoutes(t *testing.T, p *Provider) {
 }
 
 func checkPresetAuth(t *testing.T, p *Provider) {
+	if !p.CommandAuth() {
+		t.Error("CLI preset did not enable token command")
+	}
 	if p.Auth.Type != AuthKey || p.Auth.TTL != 1800 {
 		t.Errorf("auth = %+v", p.Auth)
 	}
@@ -486,5 +489,30 @@ func TestWindowDisable1MCapsServing(t *testing.T) {
 	t.Setenv("CLAUDE_CODE_DISABLE_1M_CONTEXT", "1")
 	if got := Window(&Provider{ModelPrefix: models.DatabricksPrefix}, "claude-opus-5-5"); got != models.ContextWindowStd {
 		t.Errorf("Window under DISABLE_1M = %d, want %d", got, models.ContextWindowStd)
+	}
+}
+
+func TestPresetTokenCommandOverrides(t *testing.T) {
+	for _, command := range []string{`[]`, `["mint-bearer"]`} {
+		reg := mustParse(t, `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://db.example.com","auth":{"type":"oauth"},"tokenCommand":`+command+`}}}}`)
+		p := reg.Providers["dev"]
+		if p.CommandAuth() != (command != `[]`) {
+			t.Fatalf("command override %s ignored", command)
+		}
+		if p.CommandAuth() {
+			args, err := p.CredentialCommand(t.Context(), false)
+			if err != nil || !reflect.DeepEqual(args, []string{"mint-bearer"}) {
+				t.Fatalf("command = %v, %v", args, err)
+			}
+		}
+	}
+	for _, name := range []string{"dev", "qa", "prod"} {
+		for _, kind := range []string{AuthOAuth, AuthM2M, AuthPAT} {
+			p := &Provider{Name: name, Host: "https://db.example.com", Auth: Auth{Type: kind}}
+			expandDatabricks(p)
+			if p.CommandAuth() != (kind != AuthPAT) {
+				t.Fatalf("%s/%s: command auth %v", name, kind, p.CommandAuth())
+			}
+		}
 	}
 }

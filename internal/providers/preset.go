@@ -1,6 +1,8 @@
 package providers
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"net"
@@ -13,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -85,6 +88,9 @@ func expandDatabricks(p *Provider) {
 	}
 	if p.Auth.TTL == 0 {
 		p.Auth.TTL = 1800
+	}
+	if p.TokenCommand == nil && (p.Auth.Type == AuthOAuth || p.Auth.Type == AuthM2M || p.Auth.Type == AuthKey && (p.Auth.Command != "" || p.CLIProfile != "")) {
+		p.TokenCommand = []string{"{self}", "resolve", "--profile", "{profile}", "{identity}", "{proxy}"}
 	}
 	fillDatabricksModelsEnv(p)
 	applyCLIProfile(p)
@@ -376,4 +382,39 @@ func servingRow(p *Provider, label string) error {
 		return fmt.Errorf("%s: not a Databricks profile", label)
 	}
 	return nil
+}
+
+// CommandAuth reports a renewable bearer supplied by the resolved provider command.
+func (p Provider) CommandAuth() bool {
+	return len(p.TokenCommand) > 0 && p.Auth.Login == "" && p.Auth.Type != AuthCLI &&
+		p.Auth.HeaderStyle() != HeaderXAPIKey
+}
+
+// CredentialCommand expands non-secret launch placeholders without executing the command.
+func (p Provider) CredentialCommand(ctx context.Context, proxy bool) ([]string, error) {
+	bin, err := paths.SelfBinary()
+	if err != nil {
+		return nil, fmt.Errorf("credential command: %w", err)
+	}
+	replacements := map[string][]string{
+		"{self}": {bin}, "{profile}": {p.Name}, "{identity}": nil, "{proxy}": nil,
+	}
+	if as := IdentityFrom(ctx); as != "" {
+		replacements["{identity}"] = []string{"--as", as}
+	}
+	if proxy {
+		replacements["{proxy}"] = []string{"--proxy"}
+	}
+	var out []string
+	for _, arg := range p.TokenCommand {
+		if replacement, ok := replacements[arg]; ok {
+			out = append(out, replacement...)
+		} else {
+			out = append(out, arg)
+		}
+	}
+	if len(out) == 0 || strings.TrimSpace(out[0]) == "" {
+		return nil, errors.New("tokenCommand: needs an executable")
+	}
+	return out, nil
 }

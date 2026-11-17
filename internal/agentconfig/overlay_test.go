@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -15,6 +16,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -206,5 +208,23 @@ func TestDispatchOverlayContextSnapshotEmptyKeySuppressesStored(t *testing.T) {
 		if got := DispatchOverlayContext(tc.ctx, tc.flag); got != tc.want {
 			t.Errorf("%s: DispatchOverlayContext = %q, want %q", tc.name, got, tc.want)
 		}
+	}
+}
+
+func TestTokenCommandOverlayDisableSurvivesRelay(t *testing.T) {
+	p := &providers.Provider{Name: "dev", Provider: "databricks", TokenCommand: []string{"mint-bearer"}}
+	ctx := proc.WithValues(t.Context(), proc.Values{OverlayVar: `{"provider":"databricks","profile":"dev","tokenCommand":[]}`})
+	o, err := LoadOverlayContext(ctx, "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, err := json.Marshal(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx = proc.WithValues(ctx, proc.Values{OverlayVar: string(raw)})
+	resolved, err := CommandProvider(ctx, p)
+	if err != nil || resolved.TokenCommand == nil || len(resolved.TokenCommand) != 0 || len(p.TokenCommand) != 1 {
+		t.Fatalf("disable override lost or mutated provider: %v", err)
 	}
 }

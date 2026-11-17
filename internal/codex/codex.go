@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 
+	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -262,19 +263,14 @@ func codex(ctx context.Context, p *providers.Provider, base, model, cred string,
 	if err != nil {
 		return nil, nil, err
 	}
-	fields := [][2]string{{"name", agentconfig.TOMLQuote(p.Name)}, {"base_url", agentconfig.TOMLQuote(base)}, {"wire_api", agentconfig.TOMLQuote("responses")}}
-	env := proc.Values{}
+	fields, envHs, env, err := codexAuthFields(ctx, p, cred)
+	if err != nil {
+		return nil, nil, err
+	}
+	fields = append(fields, [2]string{"name", agentconfig.TOMLQuote(p.Name)},
+		[2]string{"base_url", agentconfig.TOMLQuote(base)}, [2]string{"wire_api", agentconfig.TOMLQuote("responses")})
 	if p.Preset == providers.PresetDatabricks {
 		env = env.Merge(proc.Values{settings.CodexProfileEnv: p.Name, settings.CodexCatalogEnv: ""})
-	}
-	var envHs [][2]string // env_http_headers: header name -> env var carrying its value
-	if cred != "" {
-		env = env.With(codexKeyEnv, cred)
-		if p.Auth.HeaderStyle() == providers.HeaderXAPIKey {
-			envHs = append(envHs, [2]string{agentconfig.TOMLQuote("x-api-key"), agentconfig.TOMLQuote(codexKeyEnv)})
-		} else {
-			fields = append(fields, [2]string{"env_key", agentconfig.TOMLQuote(codexKeyEnv)})
-		}
 	}
 	env, envHs, fields = codexProviderHeaders(p, env, envHs, fields)
 	if len(envHs) > 0 {
@@ -287,6 +283,38 @@ func codex(ctx context.Context, p *providers.Provider, base, model, cred string,
 		env = env.With(settings.CodexCatalogEnv, path)
 	}
 	return env.Env(), codexHeadless(ctx, argv, h), nil
+}
+
+func codexAuthFields(ctx context.Context, p *providers.Provider, cred string) ([][2]string, [][2]string, proc.Values, error) {
+	env := proc.Values{}
+	if p.CommandAuth() {
+		auth, err := codexCommandAuth(ctx, p)
+		return [][2]string{{"auth", auth}}, nil, env, err
+	}
+	if cred == "" {
+		return nil, nil, env, nil
+	}
+	env = env.With(codexKeyEnv, cred)
+	if p.Auth.HeaderStyle() == providers.HeaderXAPIKey {
+		return nil, [][2]string{{agentconfig.TOMLQuote("x-api-key"), agentconfig.TOMLQuote(codexKeyEnv)}}, env, nil
+	}
+	return [][2]string{{"env_key", agentconfig.TOMLQuote(codexKeyEnv)}}, nil, env, nil
+}
+
+func codexCommandAuth(ctx context.Context, p *providers.Provider) (string, error) {
+	args, err := p.CredentialCommand(ctx, p.Headers[gateway.AgentHeader] != "")
+	if err != nil {
+		return "", err
+	}
+	bin, args := args[0], args[1:]
+	quoted := make([]string, len(args))
+	for i, arg := range args {
+		quoted[i] = agentconfig.TOMLQuote(arg)
+	}
+	return agentconfig.TOMLInline([][2]string{
+		{"command", agentconfig.TOMLQuote(bin)}, {"args", "[" + strings.Join(quoted, ", ") + "]"},
+		{"refresh_interval_ms", "300000"}, {"timeout_ms", "15000"},
+	}), nil
 }
 
 // codexHeaderEnv names the env var carrying header k's value into codex; punctuation is hex-escaped to stay distinct.
