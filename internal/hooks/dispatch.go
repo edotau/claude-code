@@ -3,6 +3,7 @@ package hooks
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -65,20 +66,28 @@ func (c matchers) matches(matcher, tool string) bool {
 	return re != nil && tool != "" && re.MatchString(tool)
 }
 
-// startBudgeted launches one Runner with panic recovery; wait yields its result, or an error on a panic or overrun.
-func startBudgeted(b Bound, in *core.Input, wg *sync.WaitGroup) (wait func() (core.Result, error)) {
+// runError is a handler that panicked or overran; Outcome is the telemetry word for it.
+type runError struct{ msg, outcome string }
+
+func (e *runError) Error() string { return e.msg }
+
+// startBudgeted runs one Runner with panic recovery; wait yields its result and time, or a panic or overrun error.
+func startBudgeted(b Bound, in *core.Input, wg *sync.WaitGroup) (wait func() (core.Result, time.Duration, error)) {
 	type outcome struct {
 		r   core.Result
+		dur time.Duration
 		err error
 	}
 	done, res := make(chan outcome, 1), make(chan outcome, 1)
+	start := time.Now()
 	wg.Go(func() {
 		defer func() {
 			if p := recover(); p != nil {
-				done <- outcome{err: fmt.Errorf("panic: %v", p)}
+				done <- outcome{dur: time.Since(start), err: &runError{fmt.Sprintf("panic: %v", p), core.OutcomePanic}}
 			}
 		}()
-		done <- outcome{r: b.Run(in)}
+		r := b.Run(in)
+		done <- outcome{r: r, dur: time.Since(start)}
 	})
 	budget := b.Spec.Budget
 	if budget <= 0 {
@@ -92,13 +101,27 @@ func startBudgeted(b Bound, in *core.Input, wg *sync.WaitGroup) (wait func() (co
 		case o := <-done:
 			res <- o
 		case <-time.After(budget):
-			res <- outcome{err: fmt.Errorf("overran its %s budget", budget)}
+			res <- outcome{dur: time.Since(start), err: &runError{fmt.Sprintf("overran its %s budget", budget), core.OutcomeOverrun}}
 		}
 	}()
-	return func() (core.Result, error) {
+	return func() (core.Result, time.Duration, error) {
 		o := <-res
-		return o.r, o.err
+		return o.r, o.dur, o.err
 	}
+}
+
+// outcomeOf is the telemetry word for one finished handler: a failed run, or its decision.
+func outcomeOf(b Bound, r core.Result, err error) string {
+	var re *runError
+	switch {
+	case errors.As(err, &re):
+		return re.outcome
+	case r.Decision == core.Block && !b.Spec.Blocks:
+		return core.OutcomeBlock
+	case r.Decision != core.Allow:
+		return core.OutcomeDeny
+	}
+	return core.OutcomeOK
 }
 
 // skipOrBlock names what a failed handler's log line reports, keyed by Spec.Blocks.
@@ -113,6 +136,7 @@ type dispatchMerge struct {
 	ctx, sys, errs []string
 	firstErr       error
 	log            io.Writer
+	rows           []core.TelemetryRow
 }
 
 func (m *dispatchMerge) fail(err error) {
@@ -176,7 +200,7 @@ func (m *dispatchMerge) failed(b Bound, err error) (gateFailed bool) {
 type step struct {
 	b           Bound
 	note, block string
-	wait        func() (core.Result, error)
+	wait        func() (core.Result, time.Duration, error)
 }
 
 // plan starts every runnable handler for event at once and lists the steps in declaration order.
@@ -208,7 +232,8 @@ func (m *dispatchMerge) apply(s step, event string) (gateFailed bool) {
 	case s.block != "":
 		m.merged.Decision, m.merged.Reason = core.Block, s.block
 	default:
-		r, err := s.wait()
+		r, dur, err := s.wait()
+		m.rows = append(m.rows, core.TelemetryRow{Event: event, Module: s.b.Spec.Name, Outcome: outcomeOf(s.b, r, err), Dur: dur})
 		if err != nil {
 			return m.failed(s.b, err)
 		}
@@ -232,6 +257,7 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 	m.merged.Context = core.CapContext(core.JoinContext(m.ctx...))
 	m.merged.SystemMessage = core.JoinNonEmpty("; ", m.sys...)
 	m.merged.Stderr = core.JoinNonEmpty("\n", m.errs...)
+	core.RecordTelemetry(m.rows)
 	return m.merged, m.firstErr
 }
 
@@ -437,7 +463,10 @@ func (gw gateWriter) Write(p []byte) (int, error) {
 // runModuleDirect parses stdin, runs one module and renders its result for the agent that sent it.
 func runModuleDirect(name string, run core.Runner, stdin io.Reader, stdout, stderr io.Writer) int {
 	in := core.ParseInput(stdin)
+	start := time.Now()
 	res := runGated(name, run, in, stderr)
+	spec := specOf(name)
+	core.RecordTelemetry([]core.TelemetryRow{{Event: spec.Event, Module: name, Outcome: outcomeOf(Bound{Spec: spec}, res, nil), Dur: time.Since(start)}})
 	if res.Decision == core.Block && specOf(name).Blocks {
 		return renderBlock(name, in.Agent(), res, stdout, stderr)
 	}
