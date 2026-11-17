@@ -111,7 +111,8 @@ func TestResumeNoteListsModelHandoffBeforeGenerated(t *testing.T) {
 	}
 	model := b.Sub("handoffs", now.Format("2006-01-02")+"-session-4f1c2a9e.md")
 	peer := b.Sub("handoffs", now.Format("2006-01-02")+"-session-99999999.md")
-	write(t, model, "model written")
+	write(t, model, handoffIdentity("4f1c2a9e-1111")+"\nmodel written")
+	write(t, handoffDoneMarker("4f1c2a9e-1111"), "4f1c2a9e-1111\n"+model+"\nrequest")
 	write(t, peer, "another session")
 	later := now.Add(time.Minute)
 	if err := os.Chtimes(model, later, later); err != nil {

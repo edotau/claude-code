@@ -33,7 +33,8 @@ func Start(in *core.Input) core.Result {
 			res.SystemMessage = core.JoinNonEmpty("; ", res.SystemMessage, note)
 			body := ""
 			if in.Source == "compact" {
-				body = memory.StewardHandoffBody(in.SessionID, time.Now())
+				remaining := core.ContextCapChars - len(core.JoinContext(res.Context, note)) - len("\n\n")
+				body = memory.StewardHandoffBodyBudget(in.SessionID, time.Now(), remaining)
 			}
 			res.Context = core.JoinContext(res.Context, body, note)
 		}

@@ -734,34 +734,52 @@ func TestUpdateGateBlockedRetriesOnceThenRecordsBlocked(t *testing.T) {
 			t.Setenv(DetachedEnv, "1")
 			root := repoRoot(t, "proj")
 			_, _ = Init()
-			runs := 0
-			agent := func(ctx context.Context, _, _ string) (string, error) {
-				runs++
-				NoteGateBlocks(ctx, tc.blocks[runs-1])
-				if runs == tc.writeOn {
-					f := HomeBank().Path("sessionHistory.md")
-					future := time.Now().Add(time.Hour)
-					if err := errors.Join(os.WriteFile(f, []byte("# h\n"), 0o644), os.Chtimes(f, future, future)); err != nil {
-						return "fake", err
-					}
-				}
-				return "fake", nil
-			}
 			const sid = "22222222-2222-2222-2222-222222222222"
+			agent, count := handoffRetryAgent(t, sid, tc.blocks, tc.writeOn)
 			if err := update(updateOptions{Run: agent, CWD: root, Session: sid}); err != nil {
 				t.Fatal(err)
 			}
+			if StewardRunning(sid, time.Now()) {
+				t.Error("worker left a handoff marker")
+			}
 			r, _ := readUpdateResult(sid)
-			if runs != tc.wantRuns || r.Status != tc.wantStatus || r.needsAttention(time.Now()) {
-				t.Errorf("runs=%d result=%+v, want %d runs, status %s", runs, r, tc.wantRuns, tc.wantStatus)
+			if *count != tc.wantRuns || r.Status != tc.wantStatus || r.needsAttention(time.Now()) {
+				t.Errorf("runs=%d result=%+v, want %d runs, status %s", *count, r, tc.wantRuns, tc.wantStatus)
 			}
 			note := ConsumeCatchupNote()
 			if (note != "") != tc.wantNote || ConsumeCatchupNote() != "" {
 				t.Errorf("note %q, want present=%v and consumed once", note, tc.wantNote)
 			}
-			t.Logf("runs=%d status=%s bank_updated=%v note=%q", runs, r.Status, r.BankUpdated, note)
+			t.Logf("runs=%d status=%s bank_updated=%v note=%q", *count, r.Status, r.BankUpdated, note)
 		})
 	}
+}
+
+func handoffRetryAgent(t *testing.T, sid string, blocks []int, writeOn int) (AgentFunc, *int) {
+	t.Helper()
+	if err := markHandoff(sid, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	runs := new(int)
+	agent := func(ctx context.Context, prompt, _ string) (string, error) {
+		*runs++
+		if !strings.Contains(prompt, handoffIdentity(sid)) {
+			t.Error("retry lost handoff block")
+		}
+		NoteGateBlocks(ctx, blocks[*runs-1])
+		if *runs == writeOn {
+			f := HomeBank().Path("sessionHistory.md")
+			future := time.Now().Add(time.Hour)
+			if err := errors.Join(os.WriteFile(f, []byte("# h\n"), 0o644), os.Chtimes(f, future, future)); err != nil {
+				return "fake", err
+			}
+		}
+		if blocks[*runs-1] == 0 || *runs == writeOn {
+			write(t, stewardHandoffPath(sid, time.Now()), handoffIdentity(sid)+"\n## State\ncomplete")
+		}
+		return "fake", nil
+	}
+	return agent, runs
 }
 
 func TestUpdatePromptNamesEverySixPathsOfBothBanks(t *testing.T) {

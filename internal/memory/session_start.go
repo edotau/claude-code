@@ -221,20 +221,37 @@ func ResumeNote(source, sessionID, cwd string, now time.Time) string {
 }
 
 // handoffBodyMax caps the injected steward handoff in bytes.
-const handoffBodyMax = 12 << 10
+const handoffBodyMax = 9000
 
 // StewardHandoffBody is this session's steward handoff text, capped, for the post-compact start; "" when none.
 func StewardHandoffBody(sessionID string, now time.Time) string {
+	return StewardHandoffBodyBudget(sessionID, now, handoffBodyMax)
+}
+
+// StewardHandoffBodyBudget reserves the path and truncation notice within the caller's remaining byte budget.
+func StewardHandoffBodyBudget(sessionID string, now time.Time, budget int) string {
 	p := StewardHandoff(sessionID, now)
 	b, err := os.ReadFile(p)
-	if p == "" || err != nil {
+	if p == "" || err != nil || !strings.HasPrefix(string(b), handoffIdentity(sessionID)+"\n") {
 		return ""
 	}
 	body := strings.TrimSpace(string(b))
-	if len(body) > handoffBodyMax {
-		body = strings.ToValidUTF8(body[:handoffBodyMax], "") + "\n[handoff truncated; read " + p + "]"
+	prefix := "Session handoff (" + p + "):\n"
+	notice := "\n[handoff truncated; read " + p + "]"
+	if budget < len(prefix)+len(notice) {
+		notice = strings.TrimPrefix(notice, "\n")
+		if len(notice) > budget {
+			notice = "[handoff truncated; read the handoff path below]"
+		}
+		if len(notice) > budget {
+			return ""
+		}
+		return notice
 	}
-	return "Session handoff (" + p + "):\n" + body
+	if len(prefix)+len(body) > budget {
+		body = strings.ToValidUTF8(body[:budget-len(prefix)-len(notice)], "") + notice
+	}
+	return prefix + body
 }
 
 // compactedText renders "compacted (auto, 91%) at 14:02", dropping what the record lacks.

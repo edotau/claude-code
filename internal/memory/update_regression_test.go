@@ -161,6 +161,9 @@ func TestBusyUpdateUncoversDispatchStamp(t *testing.T) {
 	if err := writeStamp(stampPath("busy"), at, "bg", 7); err != nil {
 		t.Fatal(err)
 	}
+	if err := markHandoff("busy", time.Now()); err != nil {
+		t.Fatal(err)
+	}
 	var updateErr error
 	ran, err := paths.TryFileLock(lockPathOf(HomeBank())+".lock", 0, func() error {
 		updateErr = update(updateOptions{CWD: root, Session: "busy", Run: func(context.Context, string, string) (string, error) {
@@ -171,6 +174,9 @@ func TestBusyUpdateUncoversDispatchStamp(t *testing.T) {
 	})
 	if err != nil || !ran {
 		t.Fatalf("hold peer lock: ran=%v err=%v", ran, err)
+	}
+	if StewardRunning("busy", time.Now()) {
+		t.Error("busy worker left its handoff request")
 	}
 	if updateErr == nil {
 		t.Fatal("busy update returned nil, want an error")
