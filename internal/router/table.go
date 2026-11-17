@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -80,16 +81,9 @@ func DatabricksModel(agent, alias string, p *providers.Provider) string {
 
 // bucketRunnable reports whether agent can run wire: claude and gemini their own family, codex a Responses model.
 func bucketRunnable(agent string, p *providers.Provider, wire string) bool {
-	switch agent {
-	case "claude":
-		return models.FamilyKind(wire) == models.FamilyClaude
-	case "gemini":
-		return models.FamilyKind(wire) == models.FamilyGemini
-	case "codex":
-		// the Responses wire codex speaks (providers.WireFor)
-		return providers.ServesResponses(p, wire)
-	}
-	return true
+	facts := agentid.Routing(agent)
+	return (facts.ModelFamily == "" || string(models.FamilyKind(wire)) == facts.ModelFamily) &&
+		(!facts.ResponsesRoute || providers.ServesResponses(p, wire))
 }
 
 // tierUnusable reports wire missing or not READY in p's fresh listing, marked unserved, or quota-dead on dead.
@@ -218,7 +212,7 @@ func (t *RouteTable) applyRegistry(reg *providers.Registry) error {
 			if err != nil {
 				return err
 			}
-			if alias := rowAlias(id); agent == "opencode" && alias != "" {
+			if alias := rowAlias(id); agentid.Routing(agent).SubLadder && alias != "" {
 				t.OpencodeRowOverridden[alias] = true
 			}
 		}
@@ -286,7 +280,7 @@ func (t *RouteTable) applyRouteOverlayCell(agent, key string, o providers.RouteC
 	if !ok {
 		return "", fmt.Errorf("router: overlay names unknown cell %s/%s: %w", agent, key, errStaleCell)
 	}
-	if o.Account == "" && o.Model != "" && agent == "opencode" && prefixOf(o.Model) != prefixOf(c.Model) {
+	if o.Account == "" && o.Model != "" && agentid.Routing(agent).SubLadder && prefixOf(o.Model) != prefixOf(c.Model) {
 		acct, err := opencodeOverrideAccount(prefixOf(o.Model))
 		if err != nil {
 			return "", fmt.Errorf("router: overlay %s/%s: %w", agent, key, err)

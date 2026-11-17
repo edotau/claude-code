@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -163,7 +164,7 @@ func (t *RouteTable) gateRow(
 
 // peekDiscovery is pickPool's choice for p without recording it; "" when pickPool would fall back to the alias.
 func (pg *pickGate) peekDiscovery(agent string, p *providers.Provider, now time.Time) string {
-	if (agent != "copilot" && agent != "opencode") || p == nil || p.Preset != providers.PresetDatabricks {
+	if !agentid.Routing(agent).Discovery || p == nil || p.Preset != providers.PresetDatabricks {
 		return ""
 	}
 	st, err := loadState()
@@ -188,7 +189,7 @@ func (t *RouteTable) gateLead(
 		if prof == "" || (i > 0 && slices.Contains(rows[:i], prof)) {
 			continue
 		}
-		if agent == "gemini" && !geminiRow(pg.reg, prof) {
+		if agentid.Routing(agent).GoogleOrDatabricks && !geminiRow(pg.reg, prof) {
 			res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google or a Databricks row, not " + prof})
 			continue
 		}
@@ -213,7 +214,7 @@ func (t *RouteTable) gateArm(
 		o.CanServe = nil
 	}
 	var group []Candidate
-	if agent != "gemini" || geminiRow(pg.reg, arm) {
+	if !agentid.Routing(agent).GoogleOrDatabricks || geminiRow(pg.reg, arm) {
 		group = t.gateProfile(ctx, pg.reg, alias, agent, arm, spec.Model, "", st, o, now, configured, res)
 	} else {
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google or a Databricks row, not " + arm})
@@ -221,7 +222,7 @@ func (t *RouteTable) gateArm(
 	if o.oneHop() {
 		return group
 	}
-	if agent == "opencode" {
+	if agentid.Routing(agent).SubLadder {
 		group = append(group, t.gateOpencodeCandidate(ctx, alias, ArmOpencodeSub, st, o, now, configured, res)...)
 	}
 	for _, row := range own {
@@ -235,12 +236,12 @@ const ArmOpencodeSub = "opencode-go"
 
 // armPinSkip records a pin the arm sets aside: a profile or opencode sub id that is neither arm nor agent's own login.
 func (pg *pickGate) armPinSkip(agent, pin, arm string, own []string, res *PickResult) {
-	if pin == "" || pin == arm || slices.Contains(own, pin) || (agent == "opencode" && pin == ArmOpencodeSub) {
+	if pin == "" || pin == arm || slices.Contains(own, pin) || (agentid.Routing(agent).SubLadder && pin == ArmOpencodeSub) {
 		return
 	}
 	// an opencode sub id is no registry row
 	label := agent + "·" + pin
-	if agent != "opencode" || !slices.Contains(providers.RouteOpencodeSubIDs, pin) {
+	if !agentid.Routing(agent).SubLadder || !slices.Contains(providers.RouteOpencodeSubIDs, pin) {
 		label = skipLabel(Candidate{Agent: agent, Account: pg.providerAccount(pin)})
 	}
 	res.Skipped = append(res.Skipped, Skip{label, gateLadder, armOutside(arm)})
@@ -270,7 +271,7 @@ func (t *RouteTable) gateWorkspaces(
 	ctx context.Context, pg *pickGate, alias, agent string, spec PinSpec, own []Candidate, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
-	if pg.reg == nil || len(own) == 0 || agent != res.Want || o.Lead != "" || agent == "gemini" || o.oneHop() ||
+	if pg.reg == nil || len(own) == 0 || agent != res.Want || o.Lead != "" || agentid.Routing(agent).NoWorkspaceFallback || o.oneHop() ||
 		!slices.Contains(providers.DatabricksProfiles(pg.reg), spec.Profile) {
 		return nil
 	}
@@ -428,7 +429,7 @@ func (t *RouteTable) gateRecordFallback(
 
 func leadRows(reg *providers.Registry, agent string, o PickOpts) []string {
 	rows := []string{o.Lead}
-	if agent != "gemini" && !o.oneHop() && slices.Contains(providers.DatabricksProfiles(reg), o.Lead) {
+	if !agentid.Routing(agent).NoWorkspaceFallback && !o.oneHop() && slices.Contains(providers.DatabricksProfiles(reg), o.Lead) {
 		rows = append(rows, workspaceRows(reg, o.Lead)...)
 	}
 	rows = append(rows, loginProfiles(reg, agent)...)

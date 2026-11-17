@@ -15,6 +15,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -27,10 +28,10 @@ func (t *RouteTable) gatePinned(
 	ctx context.Context, reg *providers.Registry, alias, agent, pin string, spec PinSpec, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
-	if agent == "opencode" && slices.Contains(providers.RouteOpencodeSubIDs, pin) {
+	if agentid.Routing(agent).SubLadder && slices.Contains(providers.RouteOpencodeSubIDs, pin) {
 		return t.gateOpencodeCandidate(ctx, alias, pin, st, o, now, configured, res)
 	}
-	if agent == "gemini" && reg != nil && !geminiRow(reg, pin) {
+	if agentid.Routing(agent).GoogleOrDatabricks && reg != nil && !geminiRow(reg, pin) {
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "gemini runs on Google or a Databricks row, not " + pin})
 		return nil
 	}
@@ -102,7 +103,7 @@ func pinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin
 	}
 	m := selectPinnedModel(agent, alias, cell, p, modelPin)
 	if modelPin == "" && unserved(p, m, now) {
-		if alt, _ := ServedFirst(p, agent == "codex", now); alt != "" {
+		if alt, _ := ServedFirst(p, agentid.Routing(agent).ResponsesRoute, now); alt != "" {
 			return alt, ""
 		}
 	}
@@ -112,7 +113,7 @@ func pinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin
 func discoveryPinnedModel(agent, alias string, cell Cell, p *providers.Provider, now time.Time) (string, string) {
 	why := ""
 	switch {
-	case agent != "copilot" && agent != "opencode":
+	case !agentid.Routing(agent).Discovery:
 		why = "discovery requires copilot or opencode; using alias"
 	case p == nil || p.Preset != providers.PresetDatabricks:
 		why = "discovery requires Databricks; using alias"
@@ -145,7 +146,7 @@ func selectPinnedModel(agent, alias string, cell Cell, p *providers.Provider, mo
 		return cell.Model
 	}
 	m := cmp.Or(DatabricksModel(agent, alias, p), p.WireModel(cmp.Or(p.Models[alias], cell.Model)))
-	if agent == "codex" && !providers.ServesResponses(p, m) {
+	if agentid.Routing(agent).ResponsesRoute && !providers.ServesResponses(p, m) {
 		return cmp.Or(providers.FirstResponsesModel(p), m)
 	}
 	return m

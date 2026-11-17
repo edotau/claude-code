@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 
@@ -145,7 +146,7 @@ func (lp ladderPick) units(groups [][]Candidate) []rungGroup {
 	for _, g := range groups {
 		split := [][]Candidate{g}
 		// the arm runs no free+backup pair
-		if g[0].Agent != "opencode" || lp.l.arm != "" {
+		if !agentid.Routing(g[0].Agent).SubLadder || lp.l.arm != "" {
 			split = make([][]Candidate, len(g))
 			for i, c := range g {
 				split[i] = []Candidate{c}
@@ -273,7 +274,7 @@ func accountProvider(account string) string {
 func (lp ladderPick) rungCandidates(g providers.Rung, u []Candidate) []Candidate {
 	var out []Candidate
 	for _, m := range g.Models {
-		if u[0].Agent == "opencode" {
+		if agentid.Routing(u[0].Agent).SubLadder {
 			sub := lp.t.OpencodeSub[m][lp.alias].Account
 			out = append(out, slices.DeleteFunc(slices.Clone(u), func(c Candidate) bool { return sub == "" || c.Account != sub })...)
 			continue
