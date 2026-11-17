@@ -154,6 +154,15 @@ func TestPanelLinesFullWidthSectionHeading(t *testing.T) {
 	}
 }
 
+// A section title wider than the terminal is clipped to one line, so panelLines must not count it as wrapped.
+func TestPanelLinesClippedSectionHeading(t *testing.T) {
+	s := pickState{rows: []string{"== a very long section title ==", "x", "Enter"}, heads: map[int]bool{0: true}, cols: 10}
+	s = s.step(1)
+	if got, want := panelLines("", s, 10), strings.Count(render("", s, false), "\r\n")+1; got != want {
+		t.Fatalf("panelLines = %d, rendered lines = %d: a clipped heading over-counts and the rewind erases scrollback", got, want)
+	}
+}
+
 // A panel taller than the screen shows only the rows that fit, so the rewind never reaches scrolled-off lines.
 func TestFitWindowsRowsToTerminalHeight(t *testing.T) {
 	rows := make([]string, 30)

@@ -279,7 +279,9 @@ func panelLinesRange(title string, s pickState, lo, hi, cols int) int {
 	}
 	for i := lo; i < hi; i++ {
 		n := textutil.DisplayWidth(s.rows[i])
-		if !s.heads[i] {
+		if s.heads[i] {
+			n = s.lineWidth(n) // render clips a heading to one line
+		} else {
 			n += 2
 		}
 		lines += wrappedLines(n, cols)
