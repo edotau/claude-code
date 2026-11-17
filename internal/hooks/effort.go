@@ -65,6 +65,9 @@ func agentEffortResult(ctx context.Context, in *core.Input) core.Result {
 	if !core.SpawnTools[in.ToolName] {
 		return core.Result{}
 	}
+	if deny := runLineBlock(ctx, in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")); deny != nil {
+		return *deny
+	}
 	fixType := ""
 	if deny := typeBlock(in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")); deny != nil {
 		if fixType = coworkerTarget(in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")); fixType == "" {
