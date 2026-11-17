@@ -842,3 +842,44 @@ func TestPostToolUseAsyncSplitRunsEachModuleOnce(t *testing.T) {
 		t.Errorf("an async invocation on Write ran %v; its modules are synchronous there", runs)
 	}
 }
+
+// Dispatch writes one telemetry line per run module with its outcome and never the command text.
+func TestDispatchRecordsTelemetry(t *testing.T) {
+	dir := t.TempDir()
+	defer core.TelemetryDirForTest(dir)()
+	secret := `{"tool_name":"Bash","hook_event_name":"PreToolUse","tool_input":{"command":"echo SECRET-TOKEN"}}`
+	in := core.ParseInput(strings.NewReader(secret))
+	blocker := bound("blocker", "Bash", time.Second, func(*core.Input) core.Result { return core.Result{Decision: core.Block} })
+	blocker.Spec.Blocks = true
+	bs := []Bound{
+		bound("fine", "Bash", time.Second, func(*core.Input) core.Result { return core.Result{} }),
+		blocker,
+		bound("stopper", "Bash", time.Second, func(*core.Input) core.Result { return core.Result{Decision: core.Block} }),
+		bound("boom", "Bash", time.Second, func(*core.Input) core.Result { panic("x") }),
+		bound("slow", "Bash", 20*time.Millisecond, func(*core.Input) core.Result { time.Sleep(200 * time.Millisecond); return core.Result{} }),
+		bound("other", "Write", time.Second, func(*core.Input) core.Result { return core.Result{} }),
+	}
+	if _, err := Dispatch(bs, "PreToolUse", in, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "telemetry-*.jsonl"))
+	if len(files) != 1 {
+		t.Fatalf("telemetry files = %v, want one", files)
+	}
+	raw, _ := os.ReadFile(files[0])
+	if strings.Contains(string(raw), "SECRET-TOKEN") {
+		t.Fatalf("telemetry holds command text: %s", raw)
+	}
+	got := map[string]string{}
+	for l := range strings.SplitSeq(strings.TrimSpace(string(raw)), "\n") {
+		var row struct{ T, Event, Module, Outcome string }
+		if err := json.Unmarshal([]byte(l), &row); err != nil || row.T == "" || row.Event != "PreToolUse" {
+			t.Fatalf("bad line %q: %v", l, err)
+		}
+		got[row.Module] = row.Outcome
+	}
+	want := map[string]string{"fine": "ok", "blocker": "deny", "stopper": "block", "boom": "panic", "slow": "overrun"}
+	if !maps.Equal(got, want) {
+		t.Errorf("outcomes = %v, want %v", got, want)
+	}
+}
