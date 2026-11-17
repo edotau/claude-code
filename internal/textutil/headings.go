@@ -1,7 +1,6 @@
 package textutil
 
 import (
-	"bytes"
 	"slices"
 	"strings"
 )
@@ -51,22 +50,20 @@ type mdLine struct {
 // Headings returns src's headings (front matter stripped) as CommonMark finds them, entering quotes and list items.
 func Headings(src []byte) []Heading {
 	var s headingScan
-	for pos := 0; pos < len(src); {
-		next := len(src)
-		if i := bytes.IndexByte(src[pos:], '\n'); i >= 0 {
+	str := string(src)
+	for pos := 0; pos < len(str); {
+		next := len(str)
+		if i := strings.IndexByte(str[pos:], '\n'); i >= 0 {
 			next = pos + i + 1
 		}
-		s.feed(pos, next, strings.TrimSuffix(string(src[pos:next]), "\n"))
+		s.feed(pos, next, strings.TrimSuffix(str[pos:next], "\n"))
 		pos = next
 	}
 	return s.out
 }
 
 func (s *headingScan) feed(start, end int, text string) {
-	if n := len(s.stack); n > 0 && s.stack[n-1].bare {
-		s.stack[n-1].dead = strings.TrimSpace(text) == ""
-		s.stack[n-1].bare = false
-	}
+	s.settleBare(text)
 	rest, matched := s.match(text)
 	l := mdLine{start: start, end: end, text: rest}
 	if matched < len(s.stack) {
@@ -76,28 +73,44 @@ func (s *headingScan) feed(start, end int, text string) {
 		}
 		s.pop(matched)
 	}
-	switch {
-	case s.fenceCh != 0:
-		if closesFence(rest, s.fenceCh, s.fenceLen) {
-			s.fenceCh = 0
-		}
+	if s.inOpenLeaf(rest) {
 		return
-	case s.htmlClose != nil:
-		if s.htmlClose(strings.ToLower(rest)) {
-			s.htmlClose = nil
-		}
-		return
-	case s.htmlBlank:
-		if strings.TrimSpace(rest) != "" {
-			return
-		}
-		s.htmlBlank = false
 	}
 	if strings.TrimSpace(rest) == "" {
 		s.endPara()
 		return
 	}
 	s.leaf(l, matched == len(s.stack))
+}
+
+// settleBare closes a list item opened with an empty line when the line after it is blank.
+func (s *headingScan) settleBare(text string) {
+	if n := len(s.stack); n > 0 && s.stack[n-1].bare {
+		s.stack[n-1].dead = strings.TrimSpace(text) == ""
+		s.stack[n-1].bare = false
+	}
+}
+
+// inOpenLeaf feeds rest to an open fence or HTML block and reports whether the line was consumed by it.
+func (s *headingScan) inOpenLeaf(rest string) bool {
+	switch {
+	case s.fenceCh != 0:
+		if closesFence(rest, s.fenceCh, s.fenceLen) {
+			s.fenceCh = 0
+		}
+		return true
+	case s.htmlClose != nil:
+		if s.htmlClose(strings.ToLower(rest)) {
+			s.htmlClose = nil
+		}
+		return true
+	case s.htmlBlank:
+		if strings.TrimSpace(rest) != "" {
+			return true
+		}
+		s.htmlBlank = false
+	}
+	return false
 }
 
 // match strips the open containers' prefixes from text and counts how many of them the line continues.
@@ -253,18 +266,8 @@ func containerOpen(body string, ind int, inPara bool) (string, mdContainer, bool
 	if body[0] == '>' {
 		return strings.TrimPrefix(body[1:], " "), mdContainer{quote: true}, true
 	}
-	w := 1
-	switch {
-	case body[0] == '-' || body[0] == '*' || body[0] == '+':
-	case body[0] >= '0' && body[0] <= '9':
-		for w < len(body) && w < 10 && body[w] >= '0' && body[w] <= '9' {
-			w++
-		}
-		if w >= len(body) || w > 9 || (body[w] != '.' && body[w] != ')') || (inPara && body[:w] != "1") {
-			return "", mdContainer{}, false
-		}
-		w++
-	default:
+	w, ok := markerWidth(body, inPara)
+	if !ok {
 		return "", mdContainer{}, false
 	}
 	after := body[w:]
@@ -279,6 +282,29 @@ func containerOpen(body string, ind int, inPara bool) (string, mdContainer, bool
 		content, gap = strings.Repeat(" ", max(gap-1, 0))+content, 1
 	}
 	return content, mdContainer{width: ind + w + gap}, true
+}
+
+// markerWidth returns the width of a bullet or ordered-list marker at the start of body.
+func markerWidth(body string, inPara bool) (int, bool) {
+	switch {
+	case body[0] == '-' || body[0] == '*' || body[0] == '+':
+		return 1, true
+	case isDigit(body[0]):
+		return orderedWidth(body, inPara)
+	}
+	return 0, false
+}
+
+// orderedWidth returns the width of a "12." or "12)" marker; inside a paragraph only "1" may interrupt it.
+func orderedWidth(body string, inPara bool) (int, bool) {
+	w := 1
+	for w < len(body) && w < 10 && isDigit(body[w]) {
+		w++
+	}
+	if w >= len(body) || w > 9 || (body[w] != '.' && body[w] != ')') || (inPara && body[:w] != "1") {
+		return 0, false
+	}
+	return w + 1, true
 }
 
 // lazyText reports whether rest, as an unmatched line, continues the open paragraph instead of ending its containers.
@@ -340,14 +366,19 @@ func atxHeading(body string) (level int, text string, ok bool) {
 	if strings.Trim(rest, "#") == "" {
 		return level, "", true
 	}
+	return level, trimClosingHashes(rest), true
+}
+
+// trimClosingHashes drops an optional closing "#" run that is preceded by a space or tab.
+func trimClosingHashes(rest string) string {
 	j := len(rest)
 	for j > 0 && rest[j-1] == '#' {
 		j--
 	}
 	if j < len(rest) && j > 0 && (rest[j-1] == ' ' || rest[j-1] == '\t') {
-		rest = strings.TrimRight(rest[:j], " \t")
+		return strings.TrimRight(rest[:j], " \t")
 	}
-	return level, rest, true
+	return rest
 }
 
 // htmlBlockStart reports how an HTML block opening on body ends: a closer (types 1-5) or a blank line (6, 7).
@@ -356,37 +387,58 @@ func htmlBlockStart(body string, inPara bool) (closes func(string) bool, blank b
 		return nil, false
 	}
 	low := strings.ToLower(body)
+	if closer := htmlSpecialClose(body, low); closer != nil {
+		return closer, false
+	}
+	name, atEnd, spaced, tab := htmlTagName(low)
+	if low[1] != '/' && isRawOpen(name) && (atEnd || spaced || tab) {
+		return rawClose, false
+	}
+	return nil, htmlBlankBlock(low, name, atEnd || spaced, inPara)
+}
+
+// htmlBlankBlock reports whether a type-6 or type-7 HTML block (ended by a blank line) opens on low.
+func htmlBlankBlock(low, name string, delimited, inPara bool) bool {
+	if _, found := slices.BinarySearch(htmlBlockNames, name); found && delimited {
+		return true
+	}
+	if name == "script" || name == "style" || name == "pre" {
+		return false
+	}
+	return !inPara && completeTag(low)
+}
+
+// htmlTagName returns the tag name in lowercased low and how it ends: at the line end, at a space, or at a tab.
+func htmlTagName(low string) (name string, atEnd, spaced, tab bool) {
+	rest := strings.TrimLeft(strings.TrimPrefix(low[1:], "/"), " ")
+	n := 0
+	for n < len(rest) && (isAlpha(rest[n]) || isDigit(rest[n]) || rest[n] == '-') {
+		n++
+	}
+	atEnd = n == len(rest)
+	if atEnd {
+		return rest, true, false, false
+	}
+	spaced = rest[n] == ' ' || rest[n] == '>' || strings.HasPrefix(rest[n:], "/>")
+	return rest[:n], false, spaced, rest[n] == '\t'
+}
+
+// htmlSpecialClose returns the closer of a comment, processing instruction, CDATA or declaration block, else nil.
+func htmlSpecialClose(body, low string) func(string) bool {
 	contains := func(end string) func(string) bool {
 		return func(line string) bool { return strings.Contains(line, end) }
 	}
 	switch {
 	case strings.HasPrefix(low, "<!--"):
-		return contains("-->"), false
+		return contains("-->")
 	case strings.HasPrefix(low, "<?"):
-		return contains("?>"), false
+		return contains("?>")
 	case strings.HasPrefix(low, "<![cdata["):
-		return contains("]]>"), false
+		return contains("]]>")
 	case len(body) > 2 && body[1] == '!' && body[2] >= 'A' && body[2] <= 'Z':
-		return contains(">"), false
+		return contains(">")
 	}
-	name := strings.TrimLeft(strings.TrimPrefix(low[1:], "/"), " ")
-	n := 0
-	for n < len(name) && (isAlpha(name[n]) || isDigit(name[n]) || name[n] == '-') {
-		n++
-	}
-	tail := name[n:]
-	spaced := n < len(name) && (name[n] == ' ' || name[n] == '>' || strings.HasPrefix(tail, "/>"))
-	if low[1] != '/' && isRawOpen(name[:n]) && (n == len(name) || spaced || name[n] == '\t') {
-		return rawClose, false
-	}
-	if _, found := slices.BinarySearch(htmlBlockNames, name[:n]); found && (n == len(name) || spaced) {
-		return nil, true
-	}
-	switch name[:n] {
-	case "script", "style", "pre":
-		return nil, false
-	}
-	return nil, !inPara && completeTag(low)
+	return nil
 }
 
 func isRawOpen(name string) bool {
@@ -400,30 +452,43 @@ func rawClose(line string) bool {
 
 // completeTag reports whether s is one complete open or closing tag followed only by whitespace (HTML block type 7).
 func completeTag(s string) bool {
-	i := 1
-	if i < len(s) && s[i] == '/' {
-		i++
-	}
-	if i >= len(s) || !isAlpha(s[i]) {
+	i, ok := tagNameEnd(s)
+	if !ok {
 		return false
-	}
-	for i < len(s) && (isAlpha(s[i]) || isDigit(s[i]) || s[i] == '-') {
-		i++
 	}
 	if s[1] == '/' {
 		i = skipSpace(s, i)
 		return i < len(s) && s[i] == '>' && strings.TrimSpace(s[i+1:]) == ""
 	}
+	return openTagTail(s, i)
+}
+
+// tagNameEnd returns the index past the tag name that follows the "<" (and any "/") at the start of s.
+func tagNameEnd(s string) (int, bool) {
+	i := 1
+	if i < len(s) && s[i] == '/' {
+		i++
+	}
+	if i >= len(s) || !isAlpha(s[i]) {
+		return 0, false
+	}
+	for i < len(s) && (isAlpha(s[i]) || isDigit(s[i]) || s[i] == '-') {
+		i++
+	}
+	return i, true
+}
+
+// openTagTail reports whether s[i:], after an open tag's name, is attributes then ">" or "/>" and only whitespace.
+func openTagTail(s string, i int) bool {
 	for {
 		j := skipSpace(s, i)
-		switch {
-		case j >= len(s):
+		if j >= len(s) {
 			return false
-		case s[j] == '>':
-			return strings.TrimSpace(s[j+1:]) == ""
-		case s[j] == '/':
-			return j+1 < len(s) && s[j+1] == '>' && strings.TrimSpace(s[j+2:]) == ""
-		case j == i || (!isAlpha(s[j]) && s[j] != '_' && s[j] != ':'):
+		}
+		if s[j] == '>' || s[j] == '/' {
+			return tagCloses(s, j)
+		}
+		if j == i || (!isAlpha(s[j]) && s[j] != '_' && s[j] != ':') {
 			return false
 		}
 		var ok bool
@@ -431,6 +496,14 @@ func completeTag(s string) bool {
 			return false
 		}
 	}
+}
+
+// tagCloses reports whether s[j] starts ">" or "/>" followed only by whitespace.
+func tagCloses(s string, j int) bool {
+	if s[j] == '>' {
+		return strings.TrimSpace(s[j+1:]) == ""
+	}
+	return j+1 < len(s) && s[j+1] == '>' && strings.TrimSpace(s[j+2:]) == ""
 }
 
 // attrEnd returns the index past the attribute starting at s[j] (name, optional =value).
@@ -443,7 +516,11 @@ func attrEnd(s string, j int) (int, bool) {
 	if m >= len(s) || s[m] != '=' {
 		return k, true
 	}
-	m = skipSpace(s, m+1)
+	return attrValueEnd(s, skipSpace(s, m+1))
+}
+
+// attrValueEnd returns the index past the quoted or unquoted attribute value starting at s[m].
+func attrValueEnd(s string, m int) (int, bool) {
 	if m >= len(s) {
 		return 0, false
 	}
@@ -451,7 +528,7 @@ func attrEnd(s string, j int) (int, bool) {
 		e := strings.IndexByte(s[m+1:], q)
 		return m + 2 + e, e >= 0
 	}
-	k = m
+	k := m
 	for k < len(s) && strings.IndexByte(" \t\"'=<>`", s[k]) < 0 {
 		k++
 	}
