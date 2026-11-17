@@ -58,11 +58,17 @@ func Show(id string) (path, block string, err error) {
 	return path, block, nil
 }
 
-// DispatchCheckpoint counts r's work and dispatches a Stop update under the stamp lock; false when no worker started.
-func DispatchCheckpoint(r UpdateRequest, now time.Time) bool {
+// DispatchCheckpoint dispatches a Stop update under the stamp lock, with a handoff when asked; false when none started.
+func DispatchCheckpoint(r UpdateRequest, handoff bool, now time.Time) bool {
 	started := false
 	withStampLock(r.SessionID, func() {
+		if handoff {
+			markHandoff(r.SessionID)
+		}
 		started = dispatchUpdate(r, TriggerStop, countSessionEdits(r.SessionID, r.Transcript), now)
+		if handoff && !started {
+			_ = os.Remove(handoffMarker(r.SessionID))
+		}
 	})
 	return started
 }

@@ -446,6 +446,7 @@ func runAgentUpdate(ctx context.Context, o updateOptions) error {
 	if err != nil {
 		return err
 	}
+	prompt += takeHandoffBlock(o.Session)
 	who, err := o.Run(withChildEnv(ctx, UpdateChildEnv+"=1"), prompt, o.CWD) // a fallback dispatch must not re-trigger hooks
 	fmt.Fprintln(o.Out, "memory update: ran on", who)
 	return err
@@ -564,4 +565,25 @@ func parseTagLine(ln string) (tag, bool) {
 		}
 	}
 	return tag{}, false
+}
+
+// handoffMarker is the per-session file the context steward leaves for its update worker.
+func handoffMarker(sessionID string) string {
+	return filepath.Join(StateDir(), "handoff-"+filepath.Base(sessionID))
+}
+
+func markHandoff(sessionID string) {
+	if os.MkdirAll(StateDir(), 0o700) == nil {
+		_ = os.WriteFile(handoffMarker(sessionID), nil, 0o600)
+	}
+}
+
+// takeHandoffBlock consumes the session's handoff marker and returns the extra prompt step, or "" without one.
+func takeHandoffBlock(sessionID string) string {
+	if sessionID == "" || os.Remove(handoffMarker(sessionID)) != nil {
+		return ""
+	}
+	path := HomeBank().Sub("handoffs", time.Now().Format("2006-01-02")+"-<slug>.md")
+	return "\n\nAlso write a handoff to " + path + " (pick a short topic slug; never name it compact): " +
+		"## State, ## In flight, ## Next, from this transcript, so a compacted session resumes from it."
 }

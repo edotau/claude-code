@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
-// stewardPctEnv is the vault env for the context share that starts the handoff; 0 mutes the prompt only.
+// stewardPctEnv is the vault env for the context share that starts the handoff; 0 mutes the handoff only.
 const stewardPctEnv = "HARNESS_CONTEXT_STEWARD_PCT"
 
 // defaultStewardPct is the threshold for an unset or invalid stewardPctEnv.
@@ -29,8 +29,8 @@ var (
 	liveDispatches = inflight.LiveDispatches
 )
 
-// stewardPct is the threshold and whether the handoff prompt is on (env 0 keeps the update, mutes the prompt).
-func stewardPct() (pct int, prompt bool) {
+// stewardPct is the threshold and whether the handoff is on (env 0 keeps the update, mutes the handoff).
+func stewardPct() (pct int, handoff bool) {
 	n, err := strconv.Atoi(strings.TrimSpace(os.Getenv(stewardPctEnv)))
 	switch {
 	case err != nil || n < 0 || n > 100:
@@ -60,40 +60,25 @@ func inFlight(in *core.Input, now time.Time) bool {
 	return in.BackgroundTasks > 0 || countOwned(owner, now) > 0 || liveDispatches(owner) > 0
 }
 
-// handoffPrompt asks the model to write the handoff, then the owner to compact.
-func handoffPrompt(pct int) core.Result {
-	path := memory.HomeBank().Sub("handoffs", "YYYY-MM-DD-<slug>.md")
-	return core.Result{
-		Context: fmt.Sprintf("Context at %d%% with nothing in flight: write a handoff to %s "+
-			"(State, In flight, Next), then ask the owner to run /compact.", pct, path),
-		SystemMessage: fmt.Sprintf("context %d%%: writing handoff; run /compact after", pct),
-	}
-}
-
-// contextCheckpoint: once per crossing with nothing in flight, spawn an update and prompt a handoff.
-func contextCheckpoint(in *core.Input) core.Result {
+// contextCheckpoint: once per crossing with nothing in flight, spawn one detached update that also writes a handoff.
+func contextCheckpoint(in *core.Input) {
 	if in.StopHookActive || !memory.Updatable(in.SessionID, in.TranscriptPath) {
-		return core.Result{}
+		return
 	}
 	pct, ok := contextPct(in.SessionID, in.TranscriptPath)
 	if !ok {
-		return core.Result{}
+		return
 	}
-	threshold, prompt := stewardPct()
+	threshold, handoff := stewardPct()
 	flag := filepath.Join(paths.StateDir(), "checkpoint", filepath.Base(in.SessionID))
 	if !claimCrossing(in, flag, pct, threshold) {
-		return core.Result{}
+		return
 	}
 	// The fresh "bg" stamp makes the same Stop's sessionUpdate a no-op.
-	if !memory.DispatchCheckpoint(updateRequest(in), time.Now()) { // under the stamp lock, like UpdateIfNew
+	if !memory.DispatchCheckpoint(updateRequest(in), handoff, time.Now()) { // under the stamp lock, like UpdateIfNew
 		fmt.Fprintln(os.Stderr, "context-checkpoint: could not start the background handoff; retrying at the next Stop")
 		_ = os.Remove(flag)
-		return core.Result{}
 	}
-	if !prompt {
-		return core.Result{}
-	}
-	return handoffPrompt(pct)
 }
 
 // claimCrossing writes flag for a first crossing of threshold with nothing in flight; below it, it re-arms.
@@ -128,15 +113,13 @@ func createFlag(flag string) bool {
 	return true
 }
 
-// Stop runs the checkpoint and memory update; never blocks, but the steward's handoff context continues the turn once.
+// Stop runs the checkpoint and memory update; never blocks and never continues the turn.
 func Stop(in *core.Input) core.Result {
 	var r core.Result
 	in = AgentInput(sessionRootInput(in)) // once per Stop: the checkpoint and the update share it
-	steward := contextCheckpoint(in)
+	contextCheckpoint(in)
 	if sessionUpdate(in) {
 		r.SystemMessage = updateNotSaved
 	}
-	r.Context = core.JoinContext(r.Context, steward.Context)
-	r.SystemMessage = core.JoinNonEmpty("; ", r.SystemMessage, steward.SystemMessage)
 	return r
 }

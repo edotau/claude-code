@@ -147,8 +147,8 @@ touches (an older plan only with a live claim); `git commit -q` prints no sha, s
 
 ## memory-update
 
-Context steward first: at ≥`HARNESS_CONTEXT_STEWARD_PCT` context (default 75; `0` mutes only the prompt) it spawns a
-detached `claude-code memory update` and asks for a handoff then `/compact`, once per crossing and only with no
+Context steward first: at ≥`HARNESS_CONTEXT_STEWARD_PCT` context (default 75; `0` mutes only the handoff) it spawns a
+detached `claude-code memory update` that also writes a handoff, silently, once per crossing and only with no
 background task, subagent marker or live dispatch (a dip below the threshold re-arms; never blocks Stop). Then the
 memory update, weighing edits and user turns (2 turns = 1 edit); it never blocks Stop; a failed spawn prints
 a NOT-saved note naming `claude-code memory update` (SessionEnd/PreCompact retry)
