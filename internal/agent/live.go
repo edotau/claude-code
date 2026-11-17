@@ -506,6 +506,12 @@ func (k *connSink) Emit(ev wire.Event) error {
 
 // serveConn reads one wire.LiveRequest and runs it as the session's single in-flight turn.
 func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
+	inTurn := false
+	defer func() {
+		if r := recover(); r != nil {
+			s.connPanic(c, r, inTurn)
+		}
+	}()
 	if uc, ok := c.(*net.UnixConn); ok { // defense in depth beside the 0600 socket: a peer of another uid is dropped
 		if uid, err := proc.PeerUID(uc); !errors.Is(err, proc.ErrPeerUnsupported) && (err != nil || uid != uint32(os.Getuid())) {
 			return
@@ -531,7 +537,21 @@ func (s *liveSession) serveConn(ctx context.Context, c net.Conn) {
 		refuse(statusRefused, "the session is ending")
 		return
 	}
+	inTurn = true
 	s.runTurn(ctx, rq.Prompt, wire.Multi(out, s.events))
+}
+
+// connPanic contains a panic of one client's handler: the client gets a generic refusal, the job log one redacted line.
+// A panic inside a turn leaves the agent stream half-read, so it ends the session as a broken stream does.
+func (s *liveSession) connPanic(c net.Conn, r any, inTurn bool) {
+	fmt.Fprintf(os.Stderr, "claude-code: ask --live: client handler panic: %s\n", textutil.RedactSecrets(fmt.Sprint(r)))
+	_ = c.SetWriteDeadline(time.Now().Add(liveIOTimeout))
+	_ = wire.NewJSONLSink(c, "").Emit(wire.Event{Type: wire.EventError, Status: statusRefused,
+		Text: "internal error: the session failed this request"})
+	if inTurn {
+		s.cancel(errors.New("session turn panicked"))
+		s.busy.Store(false)
+	}
 }
 
 // runTurn writes one user message to the agent and relays its events up to the turn's result.

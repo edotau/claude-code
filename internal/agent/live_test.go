@@ -242,6 +242,46 @@ func TestLiveAcceptRetriesAndReportsFailure(t *testing.T) {
 	}
 }
 
+type panicLive struct{ recordingLive }
+
+func (panicLive) WriteTurn(io.Writer, string) error { panic("turn boom") }
+
+// A panic while serving one client reaches that client as an error line and never escapes serveConn.
+func TestLiveServeConnContainsPanic(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		s       func(cancel func(error)) *liveSession
+		wantEnd bool
+	}{
+		{"before_turn", func(cancel func(error)) *liveSession { return &liveSession{name: "gemini", cancel: cancel} }, false},
+		{"in_turn", func(cancel func(error)) *liveSession {
+			return &liveSession{rec: &Record{ID: "r"}, name: "gemini", be: panicLive{}, stdin: io.Discard,
+				events: &wire.EventLog{}, idle: time.NewTimer(time.Hour), idleFor: time.Hour, cancel: cancel}
+		}, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx, cancel := context.WithCancelCause(context.Background())
+			defer cancel(nil)
+			s := tc.s(cancel)
+			srv, cli := net.Pipe()
+			done := make(chan struct{})
+			go func() { defer close(done); defer srv.Close(); s.serveConn(ctx, srv) }()
+			go func() { _, _ = cli.Write([]byte(`{"schema":1,"prompt":"hi"}` + "\n")) }() // a pipe has no buffer
+			var last string
+			for sc := bufio.NewScanner(cli); sc.Scan(); {
+				last = sc.Text()
+			}
+			<-done
+			if !strings.Contains(last, `"status":"refused"`) || strings.Contains(last, "boom") {
+				t.Errorf("last client line = %q, want a generic refused error", last)
+			}
+			if got := ctx.Err() != nil; got != tc.wantEnd {
+				t.Errorf("session ended = %v, want %v", got, tc.wantEnd)
+			}
+		})
+	}
+}
+
 type noLauncher struct{ Launcher }
 
 func TestRunHolderRestoresLauncher(t *testing.T) {

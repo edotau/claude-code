@@ -175,7 +175,7 @@ func (b *batchRun) claim(ctx context.Context, wg *sync.WaitGroup, t batchTask, i
 
 // execute prepares and runs t on its reserved slot and reports to done.
 func (b *batchRun) execute(ctx, sctx context.Context, t batchTask, i int, done chan<- batchDone) {
-	prepared, err := t.Prepare(ctx)
+	prepared, err := prepareTask(ctx, t)
 	if err != nil {
 		b.failBeforeStart(ctx, sctx, t, i, err, done, true)
 		return
@@ -183,6 +183,16 @@ func (b *batchRun) execute(ctx, sctx context.Context, t batchTask, i int, done c
 	defer retry.Settle(sctx)
 	env, ok := b.run(sctx, t, prepared)
 	done <- batchDone{i, env, ok}
+}
+
+// prepareTask runs t.Prepare; a panic becomes the same fatal error a panicking run reports, so one task fails alone.
+func prepareTask(ctx context.Context, t batchTask) (p *agent.Prepared, err error) {
+	defer func() {
+		if r := recover(); r != nil {
+			p, err = nil, retry.Fatal(t.Agent, fmt.Errorf("panic: %v", r))
+		}
+	}()
+	return t.Prepare(ctx)
 }
 
 // failBeforeStart reports t as failed before it ran; stopFirst stops a FailFast batch before Settle frees the slot.
