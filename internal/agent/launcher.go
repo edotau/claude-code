@@ -527,7 +527,22 @@ func plainPlan(spec Schema, args []string) (Plan, error) {
 	if err != nil {
 		return Plan{}, err
 	}
-	env, prefix := spec.LaunchSpec()
+	var env, prefix []string
+	if spec.Name == "copilot" {
+		st := spec.launchSettings(providers.Target{Model: opts.Model}, false)
+		var notes []string
+		var cleanup func()
+		env, prefix, notes, cleanup, err = spec.Eng().RenderSettings(context.Background(), st, nil, nil)
+		defer cleanup()
+		if err != nil {
+			return Plan{}, err
+		}
+		for _, note := range notes {
+			fmt.Fprintln(NoticeOut, note)
+		}
+	} else {
+		env, prefix = spec.LaunchSpec()
+	}
 	return Plan{Binary: bin, Set: proc.ValuesFromEnv(env), Argv: append(prefix, args...)}, nil
 }
 

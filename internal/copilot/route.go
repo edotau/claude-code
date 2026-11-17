@@ -512,7 +512,7 @@ func modelEffort(s agent.Settings) (string, string) {
 		}
 		native, clamped := agentid.ClampEffort(supported, agentid.Effort(s.Effort))
 		if len(m.Efforts) == 0 {
-			return native, "copilot: " + m.ID + " takes no reasoning effort; not sent"
+			return native, "copilot: " + s.Target.Model + " takes no reasoning effort; not sent"
 		}
 		if clamped {
 			return native, "effort " + s.Effort + "→" + native

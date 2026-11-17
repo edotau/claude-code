@@ -184,6 +184,44 @@ func TestPlainPlanRefusesWorkspaceModel(t *testing.T) {
 	}
 }
 
+type launchModelSpy struct {
+	fixtureDriver
+	model *string
+}
+
+func (s launchModelSpy) RenderSettings(_ context.Context, st Settings, env, argv []string) ([]string, []string, []string, func(), error) {
+	*s.model = st.Target.Model
+	return env, append(argv, "--reasoning-effort", "low"), []string{"effort medium→low"}, func() {}, nil
+}
+
+func TestPlainPlanPassesResolvedCopilotModel(t *testing.T) {
+	vaulttest.Use(t)
+	pathstest.FakeVendor(t, "copilot", "")
+	var notice strings.Builder
+	seen := ""
+	registryMu.Lock()
+	orig := drivers["copilot"]
+	drivers["copilot"] = launchModelSpy{fixtureDriver{NewBaseEngine("copilot")}, &seen}
+	registryMu.Unlock()
+	out := NoticeOut
+	NoticeOut = &notice
+	t.Cleanup(func() {
+		registryMu.Lock()
+		drivers["copilot"] = orig
+		registryMu.Unlock()
+		NoticeOut = out
+	})
+	args := []string{"--model", "kimi-k3", "--resume"}
+	plan, err := plainPlan(SchemaFor("copilot"), args)
+	want := append([]string{"--reasoning-effort", "low"}, args...)
+	if err != nil || seen != "kimi-k3" || !slices.Equal(plan.Argv, want) {
+		t.Fatalf("model = %q, argv = %q, err = %v", seen, plan.Argv, err)
+	}
+	if notice.String() != "effort medium→low\n" {
+		t.Fatalf("notice = %q", notice.String())
+	}
+}
+
 func TestPlainPlansResolveVendorBinNotPATH(t *testing.T) {
 	for _, name := range Names() {
 		t.Run(name, func(t *testing.T) {
