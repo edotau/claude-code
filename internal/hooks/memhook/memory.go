@@ -21,10 +21,7 @@ func Start(in *core.Input) core.Result {
 	cwd := cwdOf(in)
 	now := time.Now()
 	ctx := memory.StartSession(in.SessionID, cwd, now)
-	reg, err := loadProviders() // one registry load serves the served refresh and the pin check
-	if err != nil {
-		reg = nil
-	}
+	reg := loadRegistry() // one registry load serves the served refresh and the pin check
 	pins := pinsOf(hctx, reg, now)
 	refreshServed(reg, pins, cwd, now)
 	res := core.Result{Context: core.JoinContext(ctx, preflightNotice(reg, pins))}
@@ -45,10 +42,7 @@ func StartText(in *core.Input) core.Result {
 	ctx, cancel := core.HookContext("memory-start")
 	defer cancel()
 	now := time.Now()
-	reg, err := loadProviders()
-	if err != nil {
-		reg = nil
-	}
+	reg := loadRegistry()
 	return core.Result{Context: core.JoinContext(memory.SessionText(in.SessionID, cwdOf(in), now), preflightNotice(reg, pinsOf(ctx, reg, now)))}
 }
 
@@ -90,6 +84,15 @@ func servedRefreshDue(reg *providers.Registry, pins []preflight.Pin, now time.Ti
 		return false
 	}
 	return reg != nil && preflight.Stale(reg, pins, now) && preflight.Claim(now)
+}
+
+// loadRegistry is the provider registry, nil when it cannot load.
+func loadRegistry() *providers.Registry {
+	reg, err := loadProviders()
+	if err != nil {
+		return nil
+	}
+	return reg
 }
 
 // loadProviders reads the provider registry (vault included); tests count it.
