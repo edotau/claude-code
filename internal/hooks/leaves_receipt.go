@@ -516,7 +516,7 @@ func preserveReport(in *core.Input, agentID string, lr leafRead, res core.Result
 	var sb strings.Builder
 	sb.WriteString(text)
 	for _, r := range lr.held { // the finished jobs' answers, so a leaf that stops on this hold loses none
-		sb.WriteString("\n\n" + r.note + r.body.render(text))
+		fmt.Fprintf(&sb, "\n\n%s%s", r.note, r.body.render(text))
 	}
 	text = sb.String()
 	if strings.TrimSpace(text) == "" {
