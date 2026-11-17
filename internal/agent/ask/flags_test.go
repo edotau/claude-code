@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"context"
 	"errors"
 	"io"
 	"os"
@@ -12,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/pack"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -286,5 +288,26 @@ func TestAskRetryFallbackFromEnv(t *testing.T) {
 				t.Fatalf("fallback = %q, want %q", f.fallback, tc.want)
 			}
 		})
+	}
+}
+
+// Given a limit-only, budget-only or env overlay, overlayLocal refuses --live/--host only for the last two, naming them.
+func TestOverlayLocalRefusalNamesKeys(t *testing.T) {
+	cases := []struct {
+		name, doc, want string
+	}{
+		{"limits pass", `{"maxChildren":2,"maxTreeTokens":9}`, ""},
+		{"budget", `{"budgetUSD":1.5}`, "budgetUSD/budgetCredits"},
+		{"env", `{"set":{"A":"b"}}`, "set/unset/keep cannot"},
+	}
+	for _, c := range cases {
+		ov, err := agentconfig.LoadOverlayContext(context.Background(), c.doc, nil)
+		if err != nil {
+			t.Fatalf("%s: %v", c.name, err)
+		}
+		err = overlayLocal(ov, true, "")
+		if (c.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.want)) {
+			t.Errorf("%s: err %v, want %q", c.name, err, c.want)
+		}
 	}
 }

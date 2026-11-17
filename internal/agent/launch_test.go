@@ -439,3 +439,16 @@ func TestConfinementCarriesDispatchLimits(t *testing.T) {
 		ctx = proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: doc})
 	}
 }
+
+// Given a budget-only overlay, an interactive launch is refused naming the budget keys; a limit-only one passes.
+func TestLaunchOverlayRefusalNamesKeys(t *testing.T) {
+	for _, c := range []struct{ doc, want string }{
+		{`{"budgetUSD":1}`, "budgetUSD/budgetCredits"},
+		{`{"maxChildren":2}`, ""},
+	} {
+		_, err := launchOverlay(LaunchOptions{Overlay: c.doc, PrintEnv: true})
+		if (c.want == "") != (err == nil) || (err != nil && !strings.Contains(err.Error(), c.want)) {
+			t.Errorf("%s: err %v, want %q", c.doc, err, c.want)
+		}
+	}
+}

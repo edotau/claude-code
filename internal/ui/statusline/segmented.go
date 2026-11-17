@@ -222,20 +222,22 @@ func layoutDashboard(built []builtCol, gutter, W int) (hdr, val []cell) {
 	}
 	for idx, bc := range left {
 		hw := textutil.DisplayWidth(bc.hdr)
-		colW := max(hw, len(bc.cells)) // gotcha: cells count runes, hw counts cells; they differ only for wide text
+		vw := cellsWidth(bc.cells)
+		colW := max(hw, vw)
 		hdr = pad(append(hdr, runeCells(bc.hdr, "dim")...), colW-hw, "pad")
-		val = pad(append(val, bc.cells...), colW-len(bc.cells), "g")
+		val = pad(append(val, bc.cells...), colW-vw, "g")
 		if idx < len(left)-1 || ctxCol != nil {
 			hdr, val = pad(hdr, gutter, "pad"), pad(val, gutter, "g")
 		}
 	}
 	if ctxCol != nil {
 		hw := textutil.DisplayWidth(ctxCol.hdr)
-		colW := max(hw, len(ctxCol.cells))
-		filler := max(W-len(val)-colW, 1)
+		vw := cellsWidth(ctxCol.cells)
+		colW := max(hw, vw)
+		filler := max(W-cellsWidth(val)-colW, 1)
 		hdr, val = pad(hdr, filler, "pad"), pad(val, filler, "g")
 		hdr = append(pad(hdr, colW-hw, "pad"), runeCells(ctxCol.hdr, "dim")...)
-		val = append(pad(val, colW-len(ctxCol.cells), "g"), ctxCol.cells...)
+		val = append(pad(val, colW-vw, "g"), ctxCol.cells...)
 	}
 	return hdr, val
 }

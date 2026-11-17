@@ -78,8 +78,8 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 
 - Continue a session with `ask --session <id> <task>`; the native CLI resumes with `copilot --resume <id>` (a flag,
   not a subcommand).
-- `ask --fleet` (Copilot's own parallel subagents; experimental SDK call): prefer for wide scans, audits and
-  multi-file edits; verify with the diff stat, since we do not brief those subagents.
+- `ask --fleet` (Copilot's own parallel subagents; experimental SDK call): for wide read-only scans and audits only.
+  Never for edits: a fleet run can report `ok` with no file changed (3 file-disjoint todos, 0 landed); check the diff.
 - `ask --agent copilot`: both system-prompt flags are native (passed to the SDK as the system message), `--env`
   honored, no `cost_usd`. Stream, `--host` and the lifecycle verbs: `cost-routing.md` → Ask flags and lifecycle.
 - Dispatch routing, the GitHub-credit fallback and the Databricks `/model` registry: `rules/harness/agent.md` →

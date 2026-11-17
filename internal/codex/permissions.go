@@ -443,11 +443,18 @@ func denialLabel(command string) string {
 	return string(runes[:min(denialLabelRunes, len(runes))])
 }
 
-// labelWords unwraps a shell -c/-lc (also behind env) and drops leading NAME=value words.
+// labelWords unwraps a shell -c/-lc (also behind env or rtk) and drops leading NAME=value words.
 func labelWords(command string) []string {
 	words := shell.Tokens(command)
 	for range 3 {
 		words = dropAssignments(words)
+		if len(words) > 1 && filepath.Base(words[0]) == "rtk" { // the harness's command wrapper hides the real verb
+			words = words[1:]
+			if words[0] == "proxy" && len(words) > 1 {
+				words = words[1:]
+			}
+			continue
+		}
 		if len(words) > 0 && filepath.Base(words[0]) == "env" {
 			if rest := dropAssignments(words[1:]); len(rest) > 0 && slices.Contains(labelShells, filepath.Base(rest[0])) {
 				words = rest

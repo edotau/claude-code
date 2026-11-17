@@ -96,9 +96,8 @@ job id on the `Ran on:` line and report the result as a claim, not as the leaf's
 
 - **Output is a claim:** diff it against the brief's file list (revert or park outside edits), rerun the gate of its
   last-touched package, compare confirmed findings to fixed ones (a gap = dropped findings, rerun). A red run caused
-  only
-  by a `blocked` stage (classifier down) is not a code failure; a stage refusing a change because behavior would differ
-  is right — accept the partial landing.
+  only by a `blocked` stage (classifier down) is not a code failure; a stage refusing a change because behavior would
+  differ is right — accept the partial landing.
 - **While it runs:** package-scoped gates only (a repo-wide check trips on peers' WIP), main shell at the repo root,
   never let it edit the `workflows/*.js` it runs from (fix afterwards with a leaf), rename a condition in its runbook
   (`eval.md`) and fixture dirs in the same pass.
