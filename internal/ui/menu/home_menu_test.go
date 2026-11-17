@@ -548,16 +548,37 @@ func TestMenuRowWidthsFitEightyColumns(t *testing.T) {
 		rows := agentPageRows(d, name, build(d))
 		assertFitsEighty(t, name+" page", rows)
 		secs, _ := agentSections(rows[:len(rows)-1])
+		var titles []string
+		for _, sec := range secs {
+			for _, w := range []string{"sign-in", "profile", "actions"} {
+				if strings.Contains(sec.Title, w) {
+					titles = append(titles, w)
+					break
+				}
+			}
+		}
+		if got := strings.Join(titles, ","); len(titles) < 2 || !strings.HasPrefix("sign-in,profile,actions", got) {
+			t.Errorf("%s sections = %s, want sign-in, profile, then actions when it has rows", name, got)
+		}
 		for _, sec := range secs {
 			t.Logf("%s — %s", displayLabel(name), sec.Title)
 			for _, row := range sec.Rows {
 				t.Logf("  %-16s %s", row[0], row[1])
 			}
-			if strings.Contains(sec.Title, "profile") && (len(sec.Rows) != 2 || sec.Rows[0][0] != "Pin / default" || sec.Rows[1][0] != "Fallback") {
-				t.Errorf("%s profile section = %v", name, sec.Rows)
+			if strings.Contains(sec.Title, "profile") && !profileSectionOK(sec.Rows) {
+				t.Errorf("%s profile section = %v, want Pin / default, Databricks, Model, Fallback", name, sec.Rows)
 			}
 		}
 	}
+}
+
+// profileSectionOK is the profile section in order: Pin / default, Databricks, Model, Fallback.
+func profileSectionOK(rows [][2]string) bool {
+	var got []string
+	for _, r := range rows {
+		got = append(got, r[0])
+	}
+	return slices.Equal(got, []string{"Pin / default", "Databricks", "Model", "Fallback"})
 }
 
 // worstCaseHomeDialog loads three Databricks envs (one expiring in 23h59m) and a connected tailnet with a long host.
