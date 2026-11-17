@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -642,4 +643,39 @@ func TestTavilySearchIsSnippetOnly(t *testing.T) {
 	if n := hits.Load(); n != 0 {
 		t.Fatalf("origin received %d requests, want 0 (search must not fetch pages)", n)
 	}
+}
+
+func TestServeContainsPanic(t *testing.T) {
+	s := &server{Search: func(context.Context, string, int) (string, error) { panic("backend exploded") }}
+	replies := drive(t, s,
+		`{"id":1,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"panic"}}}`,
+		`{"id":2,"method":"ping"}`)
+	if len(replies) != 2 || replies[0]["error"] == nil || replies[1]["result"] == nil {
+		t.Fatalf("panic response and surviving ping: %v", replies)
+	}
+}
+
+func TestServeBoundsRequests(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		var active, peak atomic.Int32
+		s := &server{Search: func(context.Context, string, int) (string, error) {
+			current := active.Add(1)
+			for old := peak.Load(); current > old; old = peak.Load() {
+				if peak.CompareAndSwap(old, current) {
+					break
+				}
+			}
+			defer active.Add(-1)
+			time.Sleep(time.Millisecond)
+			return "ok", nil
+		}}
+		var lines []string
+		for i := 0; i < 24; i++ {
+			lines = append(lines, fmt.Sprintf(`{"id":%d,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"q"}}}`, i))
+		}
+		replies := drive(t, s, lines...)
+		if peak.Load() != 8 || active.Load() != 0 || len(replies) != 24 {
+			t.Fatalf("peak=%d active=%d replies=%d", peak.Load(), active.Load(), len(replies))
+		}
+	})
 }

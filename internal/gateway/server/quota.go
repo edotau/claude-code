@@ -10,6 +10,8 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
+var persistModelDead = router.MarkModelDead
+
 // demotion walks t's provider down the slot ladder to the first model not known to be quota-dead.
 func (r *Router) demotion(t providers.Target) (providers.Target, bool) {
 	seen := map[string]bool{t.Model: true} // a slot table like opus=A sonnet=B haiku=A demotes A→B→A forever
@@ -86,8 +88,8 @@ func (r *Router) markDead(t providers.Target) {
 	r.dead[key] = until
 	delete(r.deadAt, key) // a re-mark is unpersisted again until its own write lands
 	r.mu.Unlock()
-	r.bg.Go(func() {
-		ran, err := router.MarkModelDead(router.AccountOf(t.Provider), t.Model, until, now)
+	goStateWrite(r, func() {
+		ran, err := persistModelDead(router.AccountOf(t.Provider), t.Model, until, now)
 		if err != nil || !ran {
 			fmt.Fprintf(r.log, "proxy: persist %s %s quota-dead: %v\n", t.Provider.Name, t.Model,
 				cmp.Or(err, errors.New("state lock busy")))

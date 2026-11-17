@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/gateway/translate"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/par"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -43,7 +44,7 @@ type Router struct {
 	sessions *sessionStore // lifetime-limited per-profile tokens, persisted across restarts
 	clients  *clientTokens // named long-lived editor tokens, hashes sealed in the vault
 	inflight atomic.Int64
-	bg       sync.WaitGroup // background state writes (cooling, quota-dead); tests wait on it before cleanup
+	bg       sync.WaitGroup // background state writes (cooling, quota-dead)
 
 	regLoad  sync.Mutex // serializes providers.Load outside mu
 	mu       sync.Mutex
@@ -539,4 +540,32 @@ func (r *Router) sendMethod(in *http.Request, method string, p *providers.Provid
 		}
 	}
 	return resp, nil
+}
+
+func goStateWrite(r *Router, fn func()) {
+	r.bg.Add(1)
+	r.inflight.Add(1)
+	finish := func() { r.inflight.Add(-1); r.bg.Done() }
+	par.Go(func() { fn(); finish() }, func(error) {
+		defer finish()
+		fmt.Fprintln(r.log, "proxy: state write panicked")
+	})
+}
+
+// stateWriteDrain allows the state lock's two-second wait plus a short write, without delaying shutdown indefinitely.
+const stateWriteDrain = 3 * time.Second
+
+func drainStateWrites(r *Router) {
+	timer := time.NewTimer(min(stateWriteDrain, gateway.ShutdownDrain))
+	defer timer.Stop()
+	tick := time.NewTicker(time.Millisecond)
+	defer tick.Stop()
+	for r.inflight.Load() != 0 {
+		select {
+		case <-tick.C:
+		case <-timer.C:
+			fmt.Fprintln(r.log, "proxy: state write drain timed out")
+			return
+		}
+	}
 }

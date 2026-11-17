@@ -33,6 +33,8 @@ var retryable = map[int]bool{429: true, 500: true, 502: true, 503: true, 504: tr
 
 var loadRegistry = providers.Load
 
+var persistCooling = router.MarkCooling
+
 // authFailure condemns p when err's verdict says only a login can fix it (the router then moves on); else err as is.
 func (r *Router) authFailure(ctx context.Context, p *providers.Provider, err error) error {
 	v := providers.Verdict(err)
@@ -152,8 +154,8 @@ func (r *Router) coolDown(p *providers.Provider, resp *http.Response) {
 	if d < coolPersistMin {
 		return
 	}
-	r.bg.Go(func() { // off the request path; a failed write is only logged
-		ran, err := router.MarkCooling(router.AccountOf(p), until, now)
+	goStateWrite(r, func() {
+		ran, err := persistCooling(router.AccountOf(p), until, now)
 		if err != nil || !ran {
 			fmt.Fprintf(r.log, "proxy: persist %s cooling: %v\n", p.Name, cmp.Or(err, errors.New("state lock busy")))
 		}

@@ -44,6 +44,7 @@ func Serve(ctx context.Context, port int) error {
 	defer cleanup()
 
 	r := newRouter(secret)
+	defer drainStateWrites(r) // in-flight state writes finish before the process exits, within a short bound
 	defer r.startKeepalive(ctx)()
 	srv := &http.Server{Handler: r, ReadHeaderTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
 	serveListening()
