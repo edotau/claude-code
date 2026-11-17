@@ -4,9 +4,11 @@ package usage
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -32,16 +34,33 @@ func stubLookPathSqlite3(t *testing.T, fn func() error) {
 	t.Cleanup(func() { lookPathSqlite3 = orig })
 }
 
-// stubOpencodeSqlite replaces opencodeSqliteCmd: GROUP BY queries get the models fixture, the rest the totals.
+// opencodeDocRow wraps totals and models fixture rows into the one-row JSON document opencodeQuery returns.
+func opencodeDocRow(t testing.TB, totals, models []byte) []byte {
+	t.Helper()
+	if len(totals) == 0 {
+		return []byte("[]")
+	}
+	var rows []json.RawMessage
+	if err := json.Unmarshal(totals, &rows); err != nil || len(rows) == 0 {
+		return []byte("[]")
+	}
+	inner, err := json.Marshal(map[string]any{"totals": rows[0], "models": json.RawMessage(models), "daily": []dailyBucket{}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := json.Marshal([]opencodeDoc{{Doc: string(inner)}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+// stubOpencodeSqlite replaces opencodeSqliteCmd: every query gets the single document built from the fixtures.
 func stubOpencodeSqlite(t *testing.T, totals, models []byte) {
 	t.Helper()
 	orig := opencodeSqliteCmd
-	opencodeSqliteCmd = func(_ context.Context, _ string, query string) ([]byte, error) {
-		if strings.Contains(query, "GROUP BY") {
-			return models, nil
-		}
-		return totals, nil
-	}
+	doc := opencodeDocRow(t, totals, models)
+	opencodeSqliteCmd = func(context.Context, string, string) ([]byte, error) { return doc, nil }
 	t.Cleanup(func() { opencodeSqliteCmd = orig })
 }
 
@@ -268,7 +287,37 @@ func TestOpencodeUsageSqlite3Missing(t *testing.T) {
 	}
 }
 
-// A failed daily-series query keeps the totals but says so in the row's Note, instead of a silently empty series.
+// A bad daily series keeps totals and models with a note; a MATERIALIZED syntax error retries without the keyword.
+func TestOpencodeUsageDailyNoteAndRetry(t *testing.T) {
+	writeOpencodeStore(t)
+	stubLookPathSqlite3(t, func() error { return nil })
+	good := opencodeDocRow(t, readFixture(t, "opencode-totals-fixture.json"), readFixture(t, "opencode-models-fixture.json"))
+	var rows []map[string]string
+	if err := json.Unmarshal(good, &rows); err != nil {
+		t.Fatal(err)
+	}
+	var inner map[string]json.RawMessage
+	if err := json.Unmarshal([]byte(rows[0]["doc"]), &inner); err != nil {
+		t.Fatal(err)
+	}
+	inner["daily"] = json.RawMessage(`"bad"`)
+	bad, _ := json.Marshal(inner)
+	badOut, _ := json.Marshal([]opencodeDoc{{Doc: string(bad)}})
+	orig := opencodeSqliteCmd
+	t.Cleanup(func() { opencodeSqliteCmd = orig })
+	calls := 0
+	opencodeSqliteCmd = func(_ context.Context, _, q string) ([]byte, error) {
+		calls++
+		if strings.Contains(q, "MATERIALIZED") {
+			return nil, errors.New("near \"MATERIALIZED\": syntax error")
+		}
+		return badOut, nil
+	}
+	got := opencodeUsage(context.Background(), time.Now().Add(-24*time.Hour))
+	if calls != 2 || got.Turns == 0 || len(got.Models) == 0 || !strings.HasPrefix(got.Note, "daily series:") {
+		t.Errorf("calls=%d turns=%d models=%d note=%q", calls, got.Turns, len(got.Models), got.Note)
+	}
+}
 
 // --- copilot: copilotUsage ---
 
@@ -545,9 +594,7 @@ func TestOpencodeTotalsQueryFoldsReasoningIntoOutput(t *testing.T) {
 	var totalsQuery string
 	orig := opencodeSqliteCmd
 	opencodeSqliteCmd = func(_ context.Context, _, query string) ([]byte, error) {
-		if !strings.Contains(query, "GROUP BY") && totalsQuery == "" {
-			totalsQuery = query
-		}
+		totalsQuery = query
 		return []byte(`[]`), nil
 	}
 	t.Cleanup(func() { opencodeSqliteCmd = orig })
@@ -665,5 +712,30 @@ func TestCodexUsageCancelsMidTranscript(t *testing.T) {
 	}
 	if !strings.Contains(row.Note, "incomplete:") || !strings.Contains(row.Note, context.Canceled.Error()) {
 		t.Fatalf("mid-transcript cancellation produced complete-looking totals: %+v", row)
+	}
+}
+
+// BenchmarkOpencodeUsage runs the real sqlite3 binary over a generated 20k-message store, never the live one.
+func BenchmarkOpencodeUsage(b *testing.B) {
+	b.Setenv("PATH", "/usr/bin:/bin:/usr/local/bin:/opt/homebrew/bin:"+os.Getenv("PATH")) // TestMain's host has no tools
+	if lookPathSqlite3() != nil {
+		b.Skip("sqlite3 not installed")
+	}
+	db := filepath.Join(b.TempDir(), "opencode.db")
+	const seed = `CREATE TABLE message(id TEXT, session_id TEXT, data TEXT);
+		WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i+1 FROM n WHERE i<20000)
+		INSERT INTO message SELECT 'm'||i, 's'||(i%200), json_object('role','assistant','providerID','p'||(i%3),
+		'modelID','m'||(i%5),'time',json_object('created',1790000000000+i*60000),'cost',0.001,
+		'tokens',json_object('total',1000+i,'input',500,'output',400,'reasoning',100,'cache',json_object('read',10,'write',5)))
+		FROM n;`
+	if out, err := exec.Command("sqlite3", db, seed).CombinedOutput(); err != nil {
+		b.Fatalf("seed: %v: %s", err, out)
+	}
+	b.Setenv("OPENCODE_DB", db)
+	b.ReportAllocs()
+	for range b.N {
+		if got := opencodeUsage(context.Background(), time.UnixMilli(0)); got.Turns != 20000 {
+			b.Fatalf("turns = %d, note %q", got.Turns, got.Note)
+		}
 	}
 }

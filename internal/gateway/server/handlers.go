@@ -24,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -364,7 +365,7 @@ func authHint(p *providers.Provider) string {
 
 func (r *Router) health(w http.ResponseWriter) {
 	w.Header().Set(gateway.PIDHeader, strconv.Itoa(os.Getpid())) // lets a new router identify and replace this one
-	w.Header().Set(gateway.HeaderBuild, buildVersion())
+	w.Header().Set(gateway.HeaderBuild, textutil.BuildVersion())
 	w.Header().Set(gateway.HeaderConfig, gateway.ConfigID())
 	w.Header().Set(gateway.HeaderDispatchTag, "1")
 	w.Header().Set(gateway.HeaderSessions, strconv.Itoa(r.sessions.count()))

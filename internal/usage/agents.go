@@ -479,10 +479,30 @@ func opencodeUsage(ctx context.Context, cutoff time.Time) agentUsage {
 		return agentUsage{Agent: "opencode", Note: note}
 	}
 
-	totalsQ, modelsQ, dailyQ := opencodeQueries(cutoff.UnixMilli())
-	return sqliteAgentUsage(ctx, "opencode", dbPath, opencodeSqliteCmd, totalsQ, modelsQ, dailyQ, func(r opencodeModelRow) agentModel {
-		return agentModel{Provider: r.Provider, Model: r.Model, Turns: r.Turns, Tokens: r.Tokens, CostUSD: r.CostUSD}
-	})
+	docs, note := sqliteRows[opencodeDoc](ctx, opencodeSqliteCmd, dbPath, opencodeQuery(cutoff.UnixMilli(), true), true)
+	if strings.Contains(note, "syntax error") {
+		docs, note = sqliteRows[opencodeDoc](ctx, opencodeSqliteCmd, dbPath, opencodeQuery(cutoff.UnixMilli(), false), true)
+	}
+	if note != "" {
+		return agentUsage{Agent: "opencode", Note: note}
+	}
+	if len(docs) == 0 {
+		return agentUsage{Agent: "opencode", Note: "no sessions in window"}
+	}
+	var doc opencodeResult
+	if err := json.Unmarshal([]byte(docs[0].Doc), &doc); err != nil {
+		return agentUsage{Agent: "opencode", Note: "sqlite3 output unreadable: " + err.Error()}
+	}
+	if doc.Totals.Turns == 0 {
+		return agentUsage{Agent: "opencode", Note: "no sessions in window"}
+	}
+	models := make([]agentModel, 0, len(doc.Models))
+	for _, r := range doc.Models {
+		models = append(models, agentModel{Provider: r.Provider, Model: r.Model, Turns: r.Turns, Tokens: r.Tokens, CostUSD: r.CostUSD})
+	}
+	sortModelsByTokens(models)
+	daily, dailyNote := opencodeDaily(doc.Daily)
+	return sqliteUsageRow("opencode", doc.Totals, models, daily, dailyNote)
 }
 
 // sqliteAgentUsage is the shared sqlite reader: totals, per-model rows (toModel maps each), then daily buckets.
@@ -509,32 +529,65 @@ func sqliteAgentUsage[R any](
 	sortModelsByTokens(models)
 
 	daily, note := fetchDailyBuckets(ctx, dbPath, dailyQ, run)
+	return sqliteUsageRow(agent, totals[0], models, daily, note)
+}
 
-	t := totals[0]
+func sqliteUsageRow(agent string, t sqliteTotalsRow, models []agentModel, daily []dailyBucket, note string) agentUsage {
 	mix := tokenMix{Input: t.Input, Output: t.Output, CacheRead: t.CacheRead, CacheWrite: t.CacheWrite}
 	return agentUsage{Agent: agent, Sessions: t.Session, Turns: t.Turns, Tokens: t.Tokens, CostUSD: t.CostUSD, Models: models,
 		Mix: mixPtr(mix), Daily: daily, ActiveDays: len(daily), Note: note}
 }
 
-// opencodeQueries builds the totals, per-model and per-day queries over assistant messages since cutoffMs.
-func opencodeQueries(cutoffMs int64) (totalsQ, modelsQ, dailyQ string) {
-	where := fmt.Sprintf(`json_extract(data,'$.role')='assistant' AND json_extract(data,'$.time.created') >= %d`, cutoffMs)
+// opencodeDoc is the single row opencodeQuery returns: one JSON document string holding all three result sets.
+type opencodeDoc struct {
+	Doc string `json:"doc"`
+}
 
-	totalsQ = fmt.Sprintf(`SELECT COUNT(*) AS turns, COALESCE(SUM(json_extract(data,'$.tokens.total')),0) AS tokens,
-		COALESCE(SUM(json_extract(data,'$.cost')),0) AS cost_usd, COUNT(DISTINCT session_id) AS sessions,
-		COALESCE(SUM(json_extract(data,'$.tokens.input')),0) AS input,
-		COALESCE(SUM(json_extract(data,'$.tokens.output')),0) + COALESCE(SUM(json_extract(data,'$.tokens.reasoning')),0) AS output,
-		COALESCE(SUM(json_extract(data,'$.tokens.cache.read')),0) AS cache_read,
-		COALESCE(SUM(json_extract(data,'$.tokens.cache.write')),0) AS cache_write
-		FROM message WHERE %s;`, where)
-	modelsQ = fmt.Sprintf(`SELECT json_extract(data,'$.providerID') AS provider, json_extract(data,'$.modelID') AS model,
-		COUNT(*) AS turns, COALESCE(SUM(json_extract(data,'$.tokens.total')),0) AS tokens,
-		COALESCE(SUM(json_extract(data,'$.cost')),0) AS cost_usd
-		FROM message WHERE %s GROUP BY provider, model;`, where)
-	dailyQ = fmt.Sprintf(`SELECT date(json_extract(data,'$.time.created')/1000,'unixepoch','localtime') AS date,
-		COALESCE(SUM(json_extract(data,'$.tokens.total')),0) AS tokens, COUNT(*) AS turns
-		FROM message WHERE %s GROUP BY date;`, where)
-	return totalsQ, modelsQ, dailyQ
+type opencodeResult struct {
+	Totals sqliteTotalsRow    `json:"totals"`
+	Models []opencodeModelRow `json:"models"`
+	Daily  json.RawMessage    `json:"daily"`
+}
+
+// opencodeDaily parses the daily member; a missing or unreadable series keeps the totals and returns a note.
+func opencodeDaily(raw json.RawMessage) ([]dailyBucket, string) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return nil, "daily series: missing from sqlite3 output"
+	}
+	var daily []dailyBucket
+	if err := json.Unmarshal(raw, &daily); err != nil {
+		return nil, "daily series: sqlite3 output unreadable: " + err.Error()
+	}
+	daily = slices.DeleteFunc(daily, func(d dailyBucket) bool { return d.Date == "" })
+	slices.SortFunc(daily, func(a, b dailyBucket) int { return cmp.Compare(a.Date, b.Date) })
+	return daily, ""
+}
+
+// opencodeQuery scans assistant messages since cutoffMs once and derives totals, per-model and per-day from that scan.
+func opencodeQuery(cutoffMs int64, materialized bool) string {
+	kw := ""
+	if materialized {
+		kw = "MATERIALIZED "
+	}
+	return fmt.Sprintf(`WITH m AS %s(SELECT session_id AS sid, json_extract(data,'$.providerID') AS provider,
+		json_extract(data,'$.modelID') AS model,
+		date(json_extract(data,'$.time.created')/1000,'unixepoch','localtime') AS date,
+		json_extract(data,'$.tokens.total') AS tok, json_extract(data,'$.cost') AS cost,
+		json_extract(data,'$.tokens.input') AS inp, json_extract(data,'$.tokens.output') AS outp,
+		json_extract(data,'$.tokens.reasoning') AS reason, json_extract(data,'$.tokens.cache.read') AS cread,
+		json_extract(data,'$.tokens.cache.write') AS cwrite
+		FROM message WHERE json_extract(data,'$.role')='assistant' AND json_extract(data,'$.time.created') >= %d)
+	SELECT json_object(
+		'totals', (SELECT json_object('turns', COUNT(*), 'tokens', COALESCE(SUM(tok),0), 'cost_usd', COALESCE(SUM(cost),0),
+			'sessions', COUNT(DISTINCT sid), 'input', COALESCE(SUM(inp),0),
+			'output', COALESCE(SUM(outp),0) + COALESCE(SUM(reason),0),
+			'cache_read', COALESCE(SUM(cread),0), 'cache_write', COALESCE(SUM(cwrite),0)) FROM m),
+		'models', json((SELECT json_group_array(json_object('provider', provider, 'model', model, 'turns', turns,
+			'tokens', tokens, 'cost_usd', cost_usd)) FROM (SELECT provider, model, COUNT(*) AS turns,
+			COALESCE(SUM(tok),0) AS tokens, COALESCE(SUM(cost),0) AS cost_usd FROM m GROUP BY provider, model))),
+		'daily', json((SELECT json_group_array(json_object('date', date, 'tokens', tokens, 'turns', turns))
+			FROM (SELECT date, COALESCE(SUM(tok),0) AS tokens, COUNT(*) AS turns FROM m GROUP BY date)))
+	) AS doc;`, kw, cutoffMs)
 }
 
 // fetchDailyBuckets runs a GROUP BY date query into ascending []dailyBucket; a failure returns a note instead.
