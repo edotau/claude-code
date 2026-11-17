@@ -44,6 +44,9 @@ func runReviewAsk(name string, args []string, o ReviewOptions) int {
 	answer, rc := captureAnswer(func(out io.Writer) int { return reviewAskCmd(args, out) })
 	env, rc, err := parseReviewEnvelope([]byte(answer), rc, reviewNote(rc))
 	if err != nil {
+		if rc != 0 { // a failed ask may print no envelope; keep its own exit code
+			return rc
+		}
 		return helpReviewError(err)
 	}
 	if err := agent.WriteJSONLine(os.Stdout, env); err != nil {
@@ -89,7 +92,7 @@ func reviewFindings(env reviewEnvelope, note io.Writer) (reviewEnvelope, error) 
 	if err := json.Unmarshal(checked, &rows); err != nil {
 		return env, err
 	}
-	env.Findings = rows.Findings
+	env.Findings, env.Structured = rows.Findings, nil // the findings ride once
 	return env, nil
 }
 
@@ -137,6 +140,7 @@ func printReviewMerged(o ReviewOptions, parts []part, answers []string) error {
 	var merged reviewEnvelope
 	rows := []json.RawMessage{}
 	var usage wire.Usage
+	var denials *wire.Denials
 	prose := make([]string, 0, len(answers))
 	for _, answer := range answers {
 		var env reviewEnvelope
@@ -153,6 +157,7 @@ func printReviewMerged(o ReviewOptions, parts []part, answers []string) error {
 			}
 			rows = append(rows, findings...)
 		}
+		denials = sumReviewDenials(denials, env.Denials)
 		prose = append(prose, env.Answer)
 		merged = env
 	}
@@ -163,10 +168,23 @@ func printReviewMerged(o ReviewOptions, parts []part, answers []string) error {
 			return err
 		}
 	}
-	merged.Structured = nil
+	merged.Structured, merged.Denials = nil, denials
 	merged.Answer = mergeReports(o.Adversarial, parts, prose)
 	merged.Usage = &usage
 	return agent.WriteJSONLine(os.Stdout, merged)
+}
+
+// sumReviewDenials adds b's count to a and keeps the first three labels overall.
+func sumReviewDenials(a, b *wire.Denials) *wire.Denials {
+	if b == nil {
+		return a
+	}
+	if a == nil {
+		a = &wire.Denials{Commands: []string{}}
+	}
+	a.Count += b.Count
+	a.Commands = append(a.Commands, b.Commands...)[:min(3, len(a.Commands)+len(b.Commands))]
+	return a
 }
 
 func helpReviewError(err error) int {

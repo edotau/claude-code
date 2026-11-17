@@ -101,9 +101,13 @@ func runSingleReview(name string, diff []byte, o ReviewOptions, parent *agent.Re
 		return helptext.Fail("%s review: %v", name, err)
 	}
 	defer cleanup()
-	rc := runReviewAsk(name, askArgs, o)
 	if parent == nil {
-		return rc
+		return runReviewAsk(name, askArgs, o)
+	}
+	ans, usage, rc := reviewPartAnswer(name, askArgs, o) // the parent record sums the one run's usage
+	addReviewUsage(parent, usage)
+	if _, err := io.WriteString(os.Stdout, ans); err != nil {
+		return finishSplitReview(parent, fmt.Errorf("write review: %w", err))
 	}
 	if rc != 0 { // the diff no longer splits in the child: the one run's outcome is the job's
 		return finishSplitReview(parent, fmt.Errorf("review failed: %s", lastDispatchError(name, started)))

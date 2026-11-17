@@ -210,3 +210,24 @@ func TestSplitReviewParentUsageSummed(t *testing.T) {
 		t.Fatalf("usage=%+v want=%+v", got.Usage, want)
 	}
 }
+
+func TestSingleReviewChildParentUsageSummed(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	parent := agent.NewRecord("codex", agent.RunOptions{Prompt: "review"}, time.Now())
+	original := reviewAskCmd
+	t.Cleanup(func() { reviewAskCmd = original })
+	reviewAskCmd = func(args []string, out io.Writer) int {
+		env := wire.NewEnvelope(wire.Result{Answer: "SHIP", Usage: wire.Usage{InputTokens: 9, OutputTokens: 2}}, nil, "part")
+		if err := json.NewEncoder(out).Encode(env); err != nil {
+			t.Fatal(err)
+		}
+		return 0
+	}
+	rc, out, _ := hosttest.CaptureOutput(t, func() int {
+		return runSingleReview("codex", []byte("diff"), ReviewOptions{}, &parent, time.Now())
+	})
+	got, err := agent.LoadRecord(parent.ID)
+	if err != nil || rc != 0 || !strings.Contains(out, "SHIP") || got.Usage == nil || got.Usage.InputTokens != 9 {
+		t.Fatalf("rc=%d out=%q usage=%+v err=%v", rc, out, got.Usage, err)
+	}
+}

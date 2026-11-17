@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hosttest"
 )
 
@@ -67,5 +68,22 @@ func TestReviewTextUnchanged(t *testing.T) {
 	rc, out, stderr := hosttest.CaptureOutput(t, func() int { return runReviewAsk("codex", args, ReviewOptions{}) })
 	if rc != 0 || out != want || stderr != "" {
 		t.Fatalf("rc=%d stdout=%q stderr=%q", rc, out, stderr)
+	}
+}
+
+func TestReviewFindingsCarriedOnce(t *testing.T) {
+	data := []byte(`{"schema":1,"status":"ok","agent":"codex","answer":"{\"findings\":[]}","structured":{"findings":[]}}`)
+	env, _, err := parseReviewEnvelope(data, 0, io.Discard)
+	if err != nil || string(env.Findings) != "[]" || len(env.Structured) != 0 {
+		t.Fatalf("findings=%s structured=%s err=%v", env.Findings, env.Structured, err)
+	}
+}
+
+func TestSumReviewDenials(t *testing.T) {
+	a := sumReviewDenials(nil, &wire.Denials{Count: 2, Commands: []string{"a", "b"}})
+	a = sumReviewDenials(a, nil)
+	a = sumReviewDenials(a, &wire.Denials{Count: 3, Commands: []string{"c", "d"}})
+	if a.Count != 5 || !slices.Equal(a.Commands, []string{"a", "b", "c"}) {
+		t.Fatalf("denials=%+v", a)
 	}
 }
