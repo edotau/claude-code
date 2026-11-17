@@ -116,6 +116,41 @@ func FailoverTarget(from *Provider, model string, next *Provider) (Target, bool)
 	return Target{}, false
 }
 
+// FirstResponsesModel is the first Responses-capable OpencodeMenu entry spelled for p, or "" when none.
+func FirstResponsesModel(p *Provider) string {
+	for _, m := range OpencodeMenu() {
+		if m.Responses {
+			return p.WireModel(m.ID)
+		}
+	}
+	return ""
+}
+
+// ServesResponses reports whether p serves model on Responses: its menu entry's flag when listed, else the catalog.
+func ServesResponses(p *Provider, model string) bool {
+	for _, m := range OpencodeMenu() {
+		if p.WireModel(m.ID) == model || models.SameModel(m.ID, model) {
+			return m.Responses
+		}
+	}
+	return models.ResponsesOnly(model)
+}
+
+// ResponsesServable reports a wire id codex can run on p: a non-chat-only GPT id, or one the menu marks Responses.
+func ResponsesServable(p *Provider, wire string) bool {
+	return (models.FamilyKind(wire) == models.FamilyGPT && !models.ChatOnly(wire)) || ServesResponses(p, wire)
+}
+
+// ResponsesID is ServesResponses for a bare menu id: the entry's flag when listed, else the catalog.
+func ResponsesID(id string) bool {
+	for _, m := range OpencodeMenu() {
+		if models.SameModel(m.ID, id) {
+			return m.Responses
+		}
+	}
+	return models.ResponsesOnly(id)
+}
+
 // WireFor picks the wire model uses on p: Claude anthropic, a Responses model responses, else openai; why when not ok.
 func WireFor(p *Provider, model string) (wire string, ok bool, why string) {
 	has := func(d string) bool { _, ok := p.Route(d); return ok }
