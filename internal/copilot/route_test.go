@@ -324,3 +324,37 @@ func TestCopilotGateExplicitAccountNoCredits(t *testing.T) {
 		t.Fatalf("pin: got %+v note %q err %v, want the business pin and a note naming both", got.Provider, note, err)
 	}
 }
+
+func TestModelEffort(t *testing.T) {
+	old := effortModels
+	t.Cleanup(func() { effortModels = old })
+	effortModels = func() []SDKModel {
+		return []SDKModel{{ID: "supported", Efforts: []string{"high", "low"}}, {ID: "none", Efforts: []string{}}, {ID: "nil"}}
+	}
+	for _, c := range []struct{ model, effort, want, note, argv string }{
+		{"supported", "high", "high", "", "--reasoning-effort high"},
+		{"supported", "medium", "low", "effort medium→low", "--reasoning-effort low"},
+		{"none", "medium", "", "copilot: none takes no reasoning effort; not sent", ""},
+		{"unknown", "medium", "medium", "", "--reasoning-effort medium"},
+		{"nil", "medium", "medium", "", "--reasoning-effort medium"},
+	} {
+		t.Run(c.model+"/"+c.effort, func(t *testing.T) {
+			s := agent.Settings{Effort: c.effort, Target: providers.Target{Model: c.model}}
+			_, argv, notes, cleanup, err := copilotAgent.RenderSettings(t.Context(), s, nil, nil)
+			cleanup()
+			if err != nil || strings.Join(argv, " ") != c.argv {
+				t.Errorf("argv = %q, err = %v", argv, err)
+			}
+			if strings.Join(notes, "") != c.note {
+				t.Errorf("notes = %q; want %q", notes, c.note)
+			}
+			opts, err := newSDKOptions("copilot", nil, agent.RunOptions{WorkDir: t.TempDir()}, s)
+			if strings.Join(opts.EffortNotes, "") != c.note {
+				t.Errorf("SDK notes = %q; want %q", opts.EffortNotes, c.note)
+			}
+			if err != nil || opts.ReasoningEffort != c.want {
+				t.Errorf("SDK effort = %q, err = %v; want %q", opts.ReasoningEffort, err, c.want)
+			}
+		})
+	}
+}

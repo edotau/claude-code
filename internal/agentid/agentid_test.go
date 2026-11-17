@@ -105,3 +105,18 @@ func TestNativeEfforts(t *testing.T) {
 		}
 	}
 }
+
+func TestClampEffort(t *testing.T) {
+	for _, c := range []struct {
+		supported []string
+		e         Effort
+		want      string
+		clamped   bool
+	}{
+		{[]string{"low", "high"}, EffortMedium, "low", true},
+	} {
+		if got, clamped := ClampEffort(c.supported, c.e); got != c.want || clamped != c.clamped {
+			t.Errorf("ClampEffort(%v, %s) = %q, %v; want %q, %v", c.supported, c.e, got, clamped, c.want, c.clamped)
+		}
+	}
+}

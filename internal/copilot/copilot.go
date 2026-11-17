@@ -56,6 +56,7 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 		return res, err
 	}
 	opts, env, done, err := e.options(ctx, cs, req, t)
+	res.Emulated = opts.EffortNotes
 	// done is never nil, so an error path still releases a registry route
 	defer done()
 	if err != nil {
@@ -202,14 +203,18 @@ func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Setti
 			return sdkOptions{}, fmt.Errorf("resolve working directory: %w", err)
 		}
 	}
+	effort, note := modelEffort(s)
 	o := sdkOptions{
 		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model,
 		// --effort over the record; there is no per-call --context, so the record decides it
-		ReasoningEffort: s.Effort,
+		ReasoningEffort: effort,
 		Context:         s.Record.Context, WorkingDirectory: workDir,
 		AllowAllTools: req.Tools, ReadOnlyTools: req.ReadOnly, Permissions: req.Permissions, UseLoggedInUser: true, Autonomous: req.Autonomous, Fleet: req.Fleet, EnableMemory: req.EnableMemory,
 		SessionID: req.SessionID,
 		System:    strings.TrimSpace(req.SystemPrompt + "\n\n" + req.AppendSystemPrompt),
+	}
+	if note != "" {
+		o.EffortNotes = []string{note}
 	}
 	if home, err := paths.CopilotHome(); err == nil {
 		o.InstructionDirs = existingDirs(home)
