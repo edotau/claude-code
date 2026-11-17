@@ -61,10 +61,15 @@ func addJobs(l *layout, dispatches []Dispatch, now time.Time) {
 		return
 	}
 	l.free(0, "dispatches")
-	for _, d := range dispatches { // the id already ends in the agent name; where it runs and on what model come next
+	for _, n := range nestDispatches(dispatches) { // the id already ends in the agent name; where it runs and on what model come next
+		d := n.Dispatch
 		where := cmp.Or(d.Route, d.Provider, providers.AgentRecord(d.Agent).Profile, "own login") // no overlay provider: its pinned profile
-		l.add(levelJob, d.ID, where, strings.TrimPrefix(cmp.Or(d.Model, "default"), "databricks-"), durationText(d.Duration),
-			signalText(d, now), oneLine(cmp.Or(d.Task, d.Repo)))
+		id := d.ID
+		if n.level > 0 {
+			id = strings.Repeat("  ", n.level-1) + "↳ " + id
+		}
+		l.add(levelJob, id, where, strings.TrimPrefix(cmp.Or(d.Model, "default"), "databricks-"), durationText(d.Duration),
+			signalText(d, now), joinText(n.tokenText(), "  ", oneLine(cmp.Or(d.Task, d.Repo))))
 	}
 }
 
@@ -179,8 +184,10 @@ func addSubagent(l *layout, sub Subagent, now time.Time, home, cwd string) {
 		"↑"+textutil.CompactCount(sub.Tokens.In), "↓"+textutil.CompactCount(sub.Tokens.Out),
 		age(sub.Updated, now), idleSince(sub, now), "tool="+cmp.Or(sub.LastTool, "-"),
 		oneLine(stripPaths(sub.Description, home, cwd)))
-	for _, d := range sub.Dispatches {
-		l.add(levelDispatch, append([]string{nest + "↳"}, dispatchCells(d, now)...)...)
+	for _, n := range nestDispatches(sub.Dispatches) {
+		cells := dispatchCells(n.Dispatch, now)
+		cells[len(cells)-1] = joinText(cells[len(cells)-1], " · ", n.tokenText())
+		l.add(levelDispatch, append([]string{nest + strings.Repeat("  ", n.level) + "↳"}, cells...)...)
 	}
 }
 
@@ -282,4 +289,81 @@ func show(claudeDir string, opts Options, v View) int {
 		}
 	}
 	return 0
+}
+
+// nested is a dispatch placed under its parent: level is its depth in the list, sum its subtree's tokens.
+type nested struct {
+	Dispatch
+	level    int
+	children bool
+	sum      int64
+}
+
+// tokens is the dispatch's own token total (input, cache and output); 0 when the record carries no usage.
+func (d Dispatch) tokens() int64 {
+	if d.Usage == nil {
+		return 0
+	}
+	return int64(d.Usage.InputTokens + d.Usage.CacheCreationTokens + d.Usage.CacheReadTokens + d.Usage.OutputTokens)
+}
+
+// tokenText is "24k" for the dispatch's own tokens, plus "Σ70k" when it has children; "" with nothing to show.
+func (n nested) tokenText() string {
+	own := ""
+	if t := n.tokens(); t > 0 {
+		own = textutil.CompactCount(t)
+	}
+	if !n.children || n.sum == 0 {
+		return own
+	}
+	return joinText(own, " ", "Σ"+textutil.CompactCount(n.sum))
+}
+
+// joinText is a and b around sep, or just the one that is not empty.
+func joinText(a, sep, b string) string {
+	if a == "" || b == "" {
+		return a + b
+	}
+	return a + sep + b
+}
+
+// nestDispatches orders ds so each child follows its parent; a parent outside ds, or a cycle, leaves a root.
+func nestDispatches(ds []Dispatch) []nested {
+	byID := make(map[string]int, len(ds))
+	for i, d := range ds {
+		byID[d.ID] = i
+	}
+	kids, roots := map[int][]int{}, []int{}
+	for i, d := range ds {
+		if p, ok := byID[d.Parent]; ok && d.Parent != "" && p != i {
+			kids[p] = append(kids[p], i)
+		} else {
+			roots = append(roots, i)
+		}
+	}
+	out, seen := make([]nested, 0, len(ds)), make([]bool, len(ds))
+	var walk func(i, level int) int64
+	walk = func(i, level int) int64 {
+		seen[i] = true
+		at := len(out)
+		out = append(out, nested{Dispatch: ds[i], level: level})
+		sum := ds[i].tokens()
+		for _, k := range kids[i] {
+			if !seen[k] {
+				out[at].children = true
+				sum += walk(k, level+1)
+			}
+		}
+		out[at].sum = sum
+		return sum
+	}
+	for _, i := range roots {
+		walk(i, 0)
+	}
+	for i := range ds { // members of a parent cycle have no root
+		if !seen[i] {
+			walk(i, 0)
+		}
+	}
+	return out
 }

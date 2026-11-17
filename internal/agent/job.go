@@ -13,6 +13,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -257,6 +258,10 @@ type Row struct {
 	Session  string
 	Error    string `json:",omitempty"` // the failed dispatch's redacted error text
 	Progress string `json:",omitempty"` // "part 2/3" while a split review runs
+
+	Parent string      `json:"parent,omitempty"`
+	Depth  int         `json:"depth,omitempty"`
+	Usage  *wire.Usage `json:"usage,omitempty"`
 }
 
 // Detail is a status row's tail: progress and preview, or the preview plus the one-line error text.
@@ -344,7 +349,8 @@ func toRow(r Record) Row {
 	}
 	preview := textutil.PreviewRedacted(r.Request.Prompt, 60)
 	return Row{ID: r.ID, Status: status, Elapsed: elapsed, Preview: preview, Session: r.SessionID,
-		Error: textutil.RedactSecrets(r.Error), Progress: r.Progress}
+		Error: textutil.RedactSecrets(r.Error), Progress: r.Progress,
+		Parent: r.Parent, Depth: r.Depth, Usage: r.Usage}
 }
 
 // interrupt sends SIGINT to pid's process group and pid.
