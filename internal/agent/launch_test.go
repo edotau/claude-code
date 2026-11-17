@@ -324,6 +324,18 @@ func TestPlanVendorKeepsOwnLogin(t *testing.T) {
 	}
 }
 
+// An interactive vendor plan's Set credential beats a different inherited value of the same name.
+func TestPlanInjectedCredentialBeatsInherited(t *testing.T) {
+	for _, r := range injectedRows {
+		t.Run(r.agent+"/"+r.name, func(t *testing.T) {
+			p := Plan{CLI: true, Agent: r.agent, Set: map[string]string{r.name: "injected"}}
+			if n, val := injectedOnce(p.plainEnv([]string{"PATH=/bin", r.name + "=inherited"}), r.name); n != 1 || val != "injected" {
+				t.Errorf("%s: %d entries, value %q; want one entry, injected", r.name, n, val)
+			}
+		})
+	}
+}
+
 // plainEnv scrubs the base environ before Set is layered on, so a target's addition for a denied name wins.
 func TestPlanEnvTargetAdditionWinsOverDenyTable(t *testing.T) {
 	p := Plan{Set: map[string]string{"COPILOT_GITHUB_TOKEN": "own-token"}}
