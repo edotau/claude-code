@@ -2,6 +2,7 @@
 package agentid
 
 import (
+	"cmp"
 	"fmt"
 	"slices"
 	"strings"
@@ -26,12 +27,7 @@ func External() []string { return All()[1:] }
 func Known(name string) bool { return slices.Contains(All(), name) }
 
 // Binary is the executable an agent runs: gemini is agy, every other agent its own name.
-func Binary(name string) string {
-	if name == Gemini {
-		return "agy"
-	}
-	return name
-}
+func Binary(name string) string { return cmp.Or(routeFacts[name].binary, name) }
 
 // Effort is a reasoning-effort level on the harness scale.
 type Effort string
@@ -57,16 +53,27 @@ func EffortNames() []string {
 	return names
 }
 
-// NativeEfforts is the values agent's CLI accepts, weakest first; nil means model-specific (passed through).
-func NativeEfforts(agent string) []string {
-	switch agent {
-	case Claude, Gemini:
-		return EffortNames()
-	case Codex:
-		return []string{"minimal", "low", "medium", "high", "xhigh"}
-	}
-	return nil
+// RouteFacts is what routing needs to know about an agent, so callers test a fact, not a name.
+type RouteFacts struct {
+	ModelFamily, binary                                                           string
+	ResponsesRoute, SubLadder, Discovery, GoogleOrDatabricks, NoWorkspaceFallback bool
+	nativeEfforts                                                                 []string
 }
+
+// routeFacts is the one per-agent table; an unknown agent reads as the zero value.
+var routeFacts = map[string]RouteFacts{
+	Claude:   {ModelFamily: "claude", nativeEfforts: EffortNames()},
+	Codex:    {ResponsesRoute: true, nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh"}},
+	Copilot:  {Discovery: true},
+	Gemini:   {ModelFamily: "gemini", binary: "agy", GoogleOrDatabricks: true, NoWorkspaceFallback: true, nativeEfforts: EffortNames()},
+	OpenCode: {SubLadder: true, Discovery: true},
+}
+
+// Routing is name's routing facts.
+func Routing(name string) RouteFacts { return routeFacts[name] }
+
+// NativeEfforts is the values agent's CLI accepts, weakest first; nil means model-specific (passed through).
+func NativeEfforts(agent string) []string { return slices.Clone(routeFacts[agent].nativeEfforts) }
 
 // NativeEffort spells e for agent's CLI; clamped reports a move to the nearest value the CLI has; "" means refused.
 func NativeEffort(agent string, e Effort) (native string, clamped bool) {

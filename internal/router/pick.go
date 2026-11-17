@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -328,7 +329,7 @@ func (t *RouteTable) gateAgent(
 	ctx context.Context, alias, agent string, st State, o PickOpts, now time.Time,
 	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
-	if agent == "opencode" && !t.OpencodeRowOverridden[alias] {
+	if agentid.Routing(agent).SubLadder && !t.OpencodeRowOverridden[alias] {
 		return t.gateOpencodeCandidate(ctx, alias, "", st, o, now, configured, res)
 	}
 	c, ok := t.Cell(agent, alias)
