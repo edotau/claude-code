@@ -491,3 +491,20 @@ func TestPickRecordFallbackRunsWithoutPin(t *testing.T) {
 		t.Fatalf("codex accounts = %v, want the record fallback databricks·qa (skipped %+v)", got, r.Skipped)
 	}
 }
+
+func BenchmarkDatabricksPick(b *testing.B) {
+	tb := testTable(b)
+	vaulttest.Use(b)
+	vaulttest.Put(b, vault.Overlay, "providers", routeDbxRow)
+	vaulttest.Secret(b, "DATABRICKS_DEV_PAT", "dapi-test")
+	vaulttest.SetRecord(b, "claude", "profile", "dev")
+	if err := providers.SetOpencodeMenu([]providers.OpencodeModel{dbxClaudeNoResp, dbxGPT}); err != nil {
+		b.Fatal(err)
+	}
+	o := PickOpts{Configured: allConfigured, Now: func() time.Time { return now0 },
+		Fallback: FallbackAll, WorkRepo: func() bool { return true }}
+	b.ReportAllocs()
+	for b.Loop() {
+		tb.Pick(context.Background(), "sonnet", "codex", nil, o)
+	}
+}
