@@ -86,7 +86,7 @@ func (l *layout) free(indent int, text string) {
 	l.rows = append(l.rows, row{level: levelFree, indent: indent, cells: []string{text}})
 }
 
-// lines builds one line per row, clipped to width (0 = whole); paint wraps hot cells after, so escapes add no width.
+// lines builds one line per row, clipped to width (0 = whole); it clips the rows' cells in place, so call it once.
 func (l *layout) lines(width int, paint string) []string {
 	rows := l.capped(width)
 	widths := levelWidths(rows)

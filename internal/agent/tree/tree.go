@@ -98,6 +98,8 @@ type Dispatch struct {
 // WorkflowPhase folds a run's agents under the workflowPhase their meta.json names ("(none)" when absent).
 type WorkflowPhase struct {
 	total  subtreeTotal
+	done   int        // agents with a result in, counted before the active-only filter
+	count  int        // all agents, counted before the active-only filter
 	Name   string     `json:"name"`
 	Agents []Subagent `json:"agents"`
 }
@@ -565,6 +567,7 @@ func cacheWorkflowTotal(run WorkflowRun) WorkflowRun {
 	run.total = subtreeTotal{ready: true}
 	for i, phase := range run.Phases {
 		phase.total = subtreeTotal{ready: true}
+		phase.done, phase.count = phaseDone(phase.Agents)
 		for j, sub := range phase.Agents {
 			sub = cacheSubagentTotal(sub)
 			phase.Agents[j] = sub

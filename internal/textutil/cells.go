@@ -129,12 +129,12 @@ func cellToken(s string, i int) (int, int) {
 	for end < len(s) {
 		next, size := utf8.DecodeRuneInString(s[end:])
 		switch {
+		case next < 0x20: // a control, ESC above all, never joins a cluster: it would hide an escape's start
+			return end, width
 		case next == 0x200d:
 			joined = true
 		case next == 0xfe0f:
-			if width > 0 {
-				width = max(width, 2)
-			}
+			width = emojiWidth(width)
 		case zeroCellRune(next), emojiModifier(next):
 		case joined:
 			width = max(width, runeCells(next))
@@ -147,6 +147,14 @@ func cellToken(s string, i int) (int, int) {
 		end += size
 	}
 	return end, width
+}
+
+// emojiWidth widens a visible base to two cells for a variation selector 16; a zero-width base stays zero.
+func emojiWidth(w int) int {
+	if w > 0 {
+		return max(w, 2)
+	}
+	return w
 }
 
 func cellEscapeEnd(s string, i int) int {
@@ -166,9 +174,21 @@ func cellEscapeEnd(s string, i int) int {
 	case ']':
 		return cellOSCEnd(s, i+2)
 	default:
-		return i + 2
+		return cellShortEscapeEnd(s, i)
 	}
 	return len(s)
+}
+
+// cellShortEscapeEnd ends ESC, intermediates (0x20-0x2f) and one final byte, as in "\x1b(B"; a lone ESC stays alone.
+func cellShortEscapeEnd(s string, i int) int {
+	j := i + 1
+	for j < len(s) && s[j] >= 0x20 && s[j] <= 0x2f {
+		j++
+	}
+	if j < len(s) && s[j] >= 0x30 && s[j] < 0x7f {
+		j++
+	}
+	return j
 }
 
 func cellOSCEnd(s string, start int) int {
@@ -200,7 +220,7 @@ func completeEscape(s string) bool {
 	case ']':
 		return strings.HasSuffix(s, "\a") || strings.HasSuffix(s, "\x1b\\")
 	}
-	return true
+	return s[len(s)-1] >= 0x30
 }
 
 func zeroCellRune(r rune) bool {

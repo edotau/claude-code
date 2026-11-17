@@ -210,27 +210,37 @@ func phaseAgents(run WorkflowRun) map[string][]string {
 	return phases
 }
 
+func subagentsByID(s Session) map[string]Subagent {
+	byID := map[string]Subagent{}
+	for _, sub := range s.Subagents {
+		byID[sub.ID] = sub
+	}
+	return byID
+}
+
 // TestBuildFixtureSession reads the finished session once; its subtests share that one tree.
 func TestBuildFixtureSession(t *testing.T) {
 	t.Parallel()
 	tree := buildShared(t, Options{Days: 60})
 	s := sessionByID(t, tree, finishedSID)
-	subs := func(t *testing.T) map[string]Subagent {
-		byID := map[string]Subagent{}
-		for _, sub := range s.Subagents {
-			byID[sub.ID] = sub
-		}
-		return byID
-	}
 
 	t.Run("subagents by depth", func(t *testing.T) {
 		t.Parallel()
-		byID := subs(t)
+		byID := subagentsByID(s)
 		if len(s.Subagents) != 2 {
 			t.Fatalf("got %d subagents, want 2: %+v", len(s.Subagents), s.Subagents)
 		}
 		if byID["fakeagentid001"].Depth != 1 || byID["fakeagentid002"].Depth != 2 || byID["fakeagentid001"].Type != "copilot" {
 			t.Errorf("agent001 = %+v, agent002 = %+v, want depth 1/2 and type copilot", byID["fakeagentid001"], byID["fakeagentid002"])
+		}
+	})
+	t.Run("journal started without result stays running", func(t *testing.T) {
+		t.Parallel()
+		if got := mustSub(t, s, "fakewfagent020").Status; got != statusRunning {
+			t.Errorf("fakewfagent020 status = %q, want running (started, no result, fresh mtime)", got)
+		}
+		if got := workflowByID(t, s.Workflows, "wf_fake0003-running").Status; got != statusRunning {
+			t.Errorf("wf_fake0003-running run status = %q, want running", got)
 		}
 	})
 	t.Run("workflow phases", func(t *testing.T) {
@@ -254,6 +264,13 @@ func TestBuildFixtureSession(t *testing.T) {
 			}
 		}
 	})
+}
+
+// TestBuildFixtureStatus reads the same finished session's statuses, tokens and journal-driven runs.
+func TestBuildFixtureStatus(t *testing.T) {
+	t.Parallel()
+	tree := buildShared(t, Options{Days: 60})
+	s := sessionByID(t, tree, finishedSID)
 	t.Run("status uses the pinned clock", func(t *testing.T) {
 		t.Parallel()
 		if got := sessionByID(t, tree, runningSID).Status; got != statusActive {
@@ -262,7 +279,7 @@ func TestBuildFixtureSession(t *testing.T) {
 		if got := sessionByID(t, tree, staleSID).Status; got != statusIdle {
 			t.Errorf("stale-session status = %q, want idle", got)
 		}
-		byID := subs(t)
+		byID := subagentsByID(s)
 		if got := byID["fakeagentid001"].Status; got != statusFinished {
 			t.Errorf("agent001 (finished:true) status = %q, want finished", got)
 		}
@@ -273,7 +290,7 @@ func TestBuildFixtureSession(t *testing.T) {
 	t.Run("cache read is separate from in", func(t *testing.T) {
 		t.Parallel()
 		// Fixture usage: input_tokens=2, cache_creation_input_tokens=27907, cache_read_input_tokens=0.
-		a := subs(t)["fakeagentid001"]
+		a := subagentsByID(s)["fakeagentid001"]
 		if a.Tokens.In != 2+27907 || a.Tokens.CacheRead != 0 {
 			t.Errorf("agent001 Tokens = %+v, want In=%d (input+cache-creation) CacheRead=0", a.Tokens, 2+27907)
 		}
@@ -294,35 +311,22 @@ func TestBuildFixtureSession(t *testing.T) {
 			t.Errorf("fakewfagent030 status = %q, want error (journal result:null)", got)
 		}
 	})
-	t.Run("journal started without result stays running", func(t *testing.T) {
-		t.Parallel()
-		if got := mustSub(t, s, "fakewfagent020").Status; got != statusRunning {
-			t.Errorf("fakewfagent020 status = %q, want running (started, no result, fresh mtime)", got)
+}
+
+func TestFilterIdleSessionsKeepsOnlyActiveWork(t *testing.T) {
+	t.Parallel()
+	tree := buildShared(t, Options{Days: 60})
+	kept := filterIdleSessions(tree.Sessions)
+	for _, s := range kept {
+		if !s.isActive() {
+			t.Errorf("inactive session retained: %s", s.ID)
 		}
-		if got := workflowByID(t, s.Workflows, "wf_fake0003-running").Status; got != statusRunning {
-			t.Errorf("wf_fake0003-running run status = %q, want running", got)
+	}
+	for _, s := range tree.Sessions {
+		if s.isActive() && !slices.ContainsFunc(kept, func(k Session) bool { return k.ID == s.ID }) {
+			t.Errorf("active session dropped: %s", s.ID)
 		}
-	})
-	t.Run("plain build keeps finished children", func(t *testing.T) {
-		t.Parallel()
-		if len(s.Subagents) != 2 || len(s.Workflows) != 5 {
-			t.Errorf("plain subagents=%d runs=%d, want 2 and 5", len(s.Subagents), len(s.Workflows))
-		}
-	})
-	t.Run("filterIdleSessions keeps only active work", func(t *testing.T) {
-		t.Parallel()
-		kept := filterIdleSessions(tree.Sessions)
-		for _, s := range kept {
-			if !s.isActive() {
-				t.Errorf("inactive session retained: %s", s.ID)
-			}
-		}
-		for _, s := range tree.Sessions {
-			if s.isActive() && !slices.ContainsFunc(kept, func(k Session) bool { return k.ID == s.ID }) {
-				t.Errorf("active session dropped: %s", s.ID)
-			}
-		}
-	})
+	}
 }
 
 func TestBuildFilters(t *testing.T) {
