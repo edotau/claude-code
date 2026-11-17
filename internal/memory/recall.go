@@ -82,7 +82,7 @@ func recallSemantic(result semanticReady, files []corpusFile, segs []segView, se
 	sem := result.sem
 	var skipped []SearchHit
 	skip := func(h SearchHit) bool {
-		if !seen[blockKey(h.Block)] {
+		if !seen[h.key()] {
 			return false
 		}
 		if trace != nil {
@@ -94,16 +94,16 @@ func recallSemantic(result semanticReady, files []corpusFile, segs []segView, se
 	if trace != nil {
 		have := map[string]bool{}
 		for _, h := range ranked {
-			have[blockKey(h.Block)] = true
+			have[h.key()] = true
 		}
 		for _, h := range skipped {
-			if have[blockKey(h.Block)] {
+			if have[h.key()] {
 				continue
 			}
 			c := recallTracePick(h)
 			c.Score, _ = scoreRecall(c, 0, false, sem)
 			trace.candidate(c, need, sem)
-			trace.outcome(blockKey(h.Block), "seen")
+			trace.outcome(h.key(), "seen")
 		}
 	}
 	return withSemanticCandidates(ranked, extra), sem, semSeen, "ran"
@@ -237,10 +237,10 @@ const (
 func withSemanticCandidates(ranked, extra []SearchHit) []SearchHit {
 	have := map[string]bool{}
 	for _, h := range ranked {
-		have[blockKey(h.Block)] = true
+		have[h.key()] = true
 	}
 	for _, h := range extra {
-		if !have[blockKey(h.Block)] {
+		if !have[h.key()] {
 			ranked = append(ranked, h)
 		}
 	}
@@ -322,7 +322,7 @@ func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool,
 	for _, c := range pool {
 		if c.Score < pool[0].Score*recallScoreFloor {
 			if trace != nil {
-				trace.outcome(blockKey(c.Hit.Block), "below floor")
+				trace.outcome(c.Hit.key(), "below floor")
 			}
 			continue
 		}
@@ -334,7 +334,7 @@ func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool,
 	orderRecall(survivors)
 	var out []recallPick
 	for _, c := range survivors {
-		if key := blockKey(c.Hit.Block); seen[key] || len(out) >= recallBodies && seen["p:"+key] {
+		if key := c.Hit.key(); seen[key] || len(out) >= recallBodies && seen["p:"+key] {
 			trace.outcome(key, "seen")
 			continue
 		}
@@ -394,7 +394,7 @@ func recallPool(cands []SearchHit, top float64, need int, sem *Semantic, trace *
 				if h.Matched < need {
 					reason = "matched too few"
 				}
-				trace.outcome(blockKey(h.Block), reason)
+				trace.outcome(h.key(), reason)
 			}
 			continue
 		}
@@ -420,10 +420,13 @@ var sessionIDShape = sync.OnceValue(func() *regexp.Regexp {
 func looksLikeSessionID(id string) bool { return sessionIDShape().MatchString(id) }
 
 // blockKey identifies a block by its whitespace-normalized text.
-func blockKey(block string) string {
+func blockKey(block string) string { return strconv.FormatUint(blockSum(block), 16) }
+
+// blockSum is the FNV-1a sum behind blockKey, kept apart so a segment can store it.
+func blockSum(block string) uint64 {
 	h := fnv.New64a()
 	h.Write(appendFields(nil, block))
-	return strconv.FormatUint(h.Sum64(), 16)
+	return h.Sum64()
 }
 
 // appendFields appends strings.Join(strings.Fields(s), " ") to dst without building the fields slice.
@@ -502,7 +505,7 @@ func markSeen(sessionID string, hits []SearchHit) {
 	}
 	defer f.Close()
 	for i, h := range hits {
-		key := blockKey(h.Block)
+		key := h.key()
 		if i >= recallBodies { // pointers ride after the bodies; "p:" keeps them promotable to a body later
 			key = "p:" + key
 		}
@@ -573,7 +576,7 @@ func (t *recallTrace) candidate(c recallPick, need int, sem *Semantic) {
 	if t == nil {
 		return
 	}
-	key := blockKey(c.Hit.Block)
+	key := c.Hit.key()
 	for _, row := range t.Rows {
 		if row.key == key {
 			return
@@ -601,7 +604,7 @@ func (t *recallTrace) scores(c recallPick, boost float64) {
 	if t == nil {
 		return
 	}
-	key := blockKey(c.Hit.Block)
+	key := c.Hit.key()
 	for i := range t.Rows {
 		if t.Rows[i].key == key {
 			t.Rows[i].Blended = c.Score
@@ -647,7 +650,7 @@ func (t *recallTrace) selected(picks []recallPick) {
 				outcome = "body"
 			}
 		}
-		t.outcome(blockKey(p.Hit.Block), outcome)
+		t.outcome(p.Hit.key(), outcome)
 	}
 }
 

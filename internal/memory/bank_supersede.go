@@ -593,7 +593,7 @@ func followReplaced(ranked []SearchHit, files []corpusFile, segs []segView) []Se
 	at := map[string]int{} // blockKey -> index in out
 	followed := false
 	add := func(h SearchHit) {
-		key := blockKey(h.Block)
+		key := h.key()
 		if i, dup := at[key]; dup {
 			if h.Score > out[i].Score {
 				out[i].Score, out[i].Matched = h.Score, h.Matched
@@ -613,6 +613,7 @@ func followReplaced(ranked []SearchHit, files []corpusFile, segs []segView) []Se
 			} else {
 				h.UnresolvedReplacement = true
 				h.Block += "\n[Replacement unavailable; showing the original entry.]"
+				h.sum = 0
 				add(h)
 			}
 		}

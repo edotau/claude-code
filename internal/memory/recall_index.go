@@ -1,7 +1,9 @@
 package memory
 
 import (
+	"crypto/sha256"
 	"encoding/binary"
+	"hash/crc32"
 	"maps"
 	"os"
 	"path/filepath"
@@ -15,11 +17,35 @@ import (
 const (
 	recallIndexFile           = "recall.idx"
 	recallIndexMagic          = "CCRI"
-	recallIndexVersion uint32 = 1
+	recallIndexVersion uint32 = 2 // bump on any encode or ref change the encoderKey samples cannot see
 	racyWindow                = 2 * time.Second
+	indexHeaderLen            = 20 // magic, version, encoder key, entry count
+	indexTrailerLen           = 4  // CRC-32C of every byte before it
 )
 
-type exeStamp struct{ size, mtimeNs int64 }
+var indexCRC = crc32.MakeTable(crc32.Castagnoli)
+
+// encoderKey fingerprints the encoder's output on samples, so an encoder change misses the index on its own.
+var encoderKey = sync.OnceValue(func() uint64 {
+	sum := sha256.New()
+	for _, c := range []struct {
+		mode segMode
+		base string
+		text string
+	}{
+		{segEntries, "decisionLog.md", "# Log\n\n## 2026-01-01 — Subagent-Router retry\n" +
+			"the and of `fenced` <!-- id:0a1b2c3d -->\n```\n## fenced marker\n```\n\n## héllo wörld 42\nplain body\n"},
+		{segEntries, "conventions.md", "# Conventions\n\n- commit small, review focused\n  continued line\n- second rule\n"},
+		{segNative, "topic.md", "---\nname: Native Topic\ndescription: router context\n---\nbody text here\n"},
+		{segEntries, "progress.md", "# P\n\n## One <!-- id:aaaa0001 --> <!-- id:bbbb0002 -->\n" +
+			"text with `tick` and snake_case\n```go\n## not a heading <!-- id:cccc0003 -->\nx := 1\n```\ntail\n"},
+		{segKnowledge, "note.md", "---\nname: n\n---\n# Knowledge\nbounded latency\n"},
+	} {
+		sum.Write(encodeSegment(parseBlocks(c.mode, c.base, []byte(c.text))))
+	}
+	return binary.LittleEndian.Uint64(sum.Sum(nil))
+})
+
 type fileKey struct {
 	path string
 	mode segMode
@@ -29,31 +55,19 @@ type indexed struct {
 	seg           segView
 }
 
-func currentExeStamp() (exeStamp, bool) {
-	path, err := os.Executable()
-	if err != nil {
-		return exeStamp{}, false
-	}
-	info, err := os.Stat(path)
-	if err != nil {
-		return exeStamp{}, false
-	}
-	return exeStamp{info.Size(), info.ModTime().UnixNano()}, true
-}
-
 // readRecallIndex decodes the entries in want, or every entry when want is nil; invalid entries are left out.
-func readRecallIndex(path string, stamp exeStamp, want map[fileKey]bool) map[fileKey]indexed {
+func readRecallIndex(path string, key uint64, want map[fileKey]bool) map[fileKey]indexed {
 	data, err := os.ReadFile(path)
-	if err != nil || len(data) < 28 {
+	if err != nil || len(data) < indexHeaderLen+indexTrailerLen {
 		return make(map[fileKey]indexed)
 	}
 	u32 := func(b []byte) uint32 { return binary.LittleEndian.Uint32(b) }
-	u64 := func(b []byte) int64 { return int64(binary.LittleEndian.Uint64(b)) }
-	if string(data[:4]) != recallIndexMagic || u32(data[4:]) != recallIndexVersion ||
-		u64(data[8:]) != stamp.size || u64(data[16:]) != stamp.mtimeNs {
+	body, trailer := data[:len(data)-indexTrailerLen], data[len(data)-indexTrailerLen:]
+	if string(body[:4]) != recallIndexMagic || u32(body[4:]) != recallIndexVersion ||
+		binary.LittleEndian.Uint64(body[8:]) != key || crc32.Checksum(body, indexCRC) != u32(trailer) {
 		return make(map[fileKey]indexed)
 	}
-	m, ok := readIndexEntries(data[28:], u32(data[24:]), want)
+	m, ok := readIndexEntries(body[indexHeaderLen:], u32(body[16:]), want)
 	if !ok {
 		return make(map[fileKey]indexed)
 	}
@@ -101,12 +115,12 @@ func readIndexEntry(data []byte) (key fileKey, entry indexed, rest []byte, ok bo
 	return key, entry, data[length:], true
 }
 
-func writeRecallIndex(path string, stamp exeStamp, m map[fileKey]indexed) error {
+func writeRecallIndex(path string, key uint64, m map[fileKey]indexed) error {
 	keys := make([]fileKey, 0, len(m))
-	size := len(recallIndexMagic) + 24
-	for key, entry := range m {
-		keys = append(keys, key)
-		size += 25 + len(key.path) + len(entry.seg)
+	size := indexHeaderLen + indexTrailerLen
+	for fk, entry := range m {
+		keys = append(keys, fk)
+		size += 25 + len(fk.path) + len(entry.seg)
 	}
 	sort.Slice(keys, func(i, j int) bool {
 		if keys[i].path != keys[j].path {
@@ -116,20 +130,20 @@ func writeRecallIndex(path string, stamp exeStamp, m map[fileKey]indexed) error 
 	})
 	data := append(make([]byte, 0, size), recallIndexMagic...)
 	data = binary.LittleEndian.AppendUint32(data, recallIndexVersion)
-	data = binary.LittleEndian.AppendUint64(data, uint64(stamp.size))
-	data = binary.LittleEndian.AppendUint64(data, uint64(stamp.mtimeNs))
+	data = binary.LittleEndian.AppendUint64(data, key)
 	data = binary.LittleEndian.AppendUint32(data, uint32(len(keys)))
-	for _, key := range keys {
-		entry := m[key]
-		data = binary.LittleEndian.AppendUint32(data, uint32(len(key.path)))
-		data = append(data, key.path...)
-		data = append(data, byte(key.mode))
+	for _, fk := range keys {
+		entry := m[fk]
+		data = binary.LittleEndian.AppendUint32(data, uint32(len(fk.path)))
+		data = append(data, fk.path...)
+		data = append(data, byte(fk.mode))
 		data = binary.LittleEndian.AppendUint64(data, uint64(entry.size))
 		data = binary.LittleEndian.AppendUint64(data, uint64(entry.mtimeNs))
 		data = binary.LittleEndian.AppendUint32(data, uint32(len(entry.seg)))
 		data = append(data, entry.seg...)
 	}
-	return paths.AtomicWrite(path, data, 0o600)
+	data = binary.LittleEndian.AppendUint32(data, crc32.Checksum(data, indexCRC))
+	return paths.AtomicWriteNoSync(path, data, 0o600) // derived cache: a torn file fails the CRC and rebuilds
 }
 
 // pruneMissing drops index entries whose file is gone, reusing stats and statting only the unchecked ones.
@@ -165,12 +179,9 @@ func encodeFile(f corpusFile) segView {
 }
 
 func loadSegments(files []corpusFile, persist bool) []segView {
-	stamp, ok := currentExeStamp()
+	key := encoderKey()
 	path := filepath.Join(StateDir(), recallIndexFile)
-	var index map[fileKey]indexed
-	if ok {
-		index = readFilesIndex(path, stamp, files)
-	}
+	index := readFilesIndex(path, key, files)
 	segs := make([]segView, len(files))
 	// Reuse query stats when pruning so each corpus file is statted only once.
 	stats := make(map[string]bool, len(files))
@@ -194,11 +205,11 @@ func loadSegments(files []corpusFile, persist bool) []segView {
 	encodeMissing(files, missing, segs)
 	for j, i := range missing {
 		info := infos[j]
-		if segs[i] != nil && persist && ok && time.Since(info.ModTime()) >= racyWindow {
+		if segs[i] != nil && persist && time.Since(info.ModTime()) >= racyWindow {
 			added[fileKey{files[i].Path, files[i].Mode}] = indexed{info.Size(), info.ModTime().UnixNano(), segs[i]}
 		}
 	}
-	persistIndex(path, stamp, added, stats)
+	persistIndex(path, key, added, stats)
 	return segs
 }
 
@@ -222,23 +233,23 @@ func encodeMissing(files []corpusFile, missing []int, segs []segView) {
 }
 
 // readFilesIndex is the persisted index restricted to files' (path, mode) keys.
-func readFilesIndex(path string, stamp exeStamp, files []corpusFile) map[fileKey]indexed {
+func readFilesIndex(path string, key uint64, files []corpusFile) map[fileKey]indexed {
 	want := make(map[fileKey]bool, len(files))
 	for _, f := range files {
 		want[fileKey{f.Path, f.Mode}] = true
 	}
-	return readRecallIndex(path, stamp, want)
+	return readRecallIndex(path, key, want)
 }
 
 // persistIndex merges added into the on-disk index and drops files that no longer exist.
-func persistIndex(path string, stamp exeStamp, added map[fileKey]indexed, stats map[string]bool) {
+func persistIndex(path string, key uint64, added map[fileKey]indexed, stats map[string]bool) {
 	if len(added) == 0 || os.MkdirAll(filepath.Dir(path), 0o755) != nil {
 		return
 	}
 	_, _ = paths.TryFileLock(path+".lock", time.Second, func() error { // re-read under the lock: keep peers' entries
-		cur := readRecallIndex(path, stamp, nil)
+		cur := readRecallIndex(path, key, nil)
 		maps.Copy(cur, added)
 		pruneMissing(cur, stats)
-		return writeRecallIndex(path, stamp, cur)
+		return writeRecallIndex(path, key, cur)
 	})
 }
