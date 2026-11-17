@@ -92,14 +92,17 @@ func agentEffortResult(ctx context.Context, in *core.Input) core.Result {
 	}
 	e.retype(in, fixType)
 	// auto mode refuses a hook-modified input, so its recall rides additionalContext too
-	recallNote := e.recall(ctx, in, promptField, task, direct || in.Nested("permission_mode") == "auto")
-	if !direct {
+	st := in.Nested("tool_input", "subagent_type")
+	recallNote := e.recall(ctx, in, promptField, task, direct || fixedModelTypes[st] || in.Nested("permission_mode") == "auto")
+	if !direct && !fixedModelTypes[st] {
 		pinNote, pinMsg := pinModel(e.run, in, updated, task)
 		e.fix(pinNote)
 		e.systemMessage = strings.TrimSpace(e.systemMessage + " " + pinMsg)
 		e.changed = e.changed || pinNote != ""
 	}
-	e.label(ctx, task)
+	if !fixedModelTypes[st] {
+		e.label(ctx, task)
+	}
 	e.note = strings.TrimSpace(e.note + "\n" + recallNote)
 	return e.result()
 }

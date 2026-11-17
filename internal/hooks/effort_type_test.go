@@ -25,14 +25,14 @@ func TestDispatchTypeGateFollowsAgentFiles(t *testing.T) {
 		}
 		return r.Reason
 	}
-	for _, st := range []string{"claude", "codex", "Plan", "Explore", "general-purpose", ""} {
+	for _, st := range []string{"claude", "codex", "Plan", "Explore", "general-purpose", "web-fetch", ""} {
 		if r := blocked(st, "do it"); r != "" {
 			t.Errorf("%q blocked: %s", st, r)
 		}
 	}
-	const roster = "(Explore, Plan, claude, codex, general-purpose)"
+	const roster = "(Explore, Plan, claude, codex, general-purpose, web-fetch)"
 	for st, c := range map[string]struct{ brief, use string }{
-		"copilot": {"do it", `use "general-purpose"`}, "web-fetch": {"read a page", `use "general-purpose"`},
+		"copilot": {"do it", `use "general-purpose"`}, "not-a-type": {"read a page", `use "general-purpose"`},
 		"claude-code-guide": {"q", `use "general-purpose"`}, "statusline-setup": {"q", `use "general-purpose"`},
 		"claude-context-optimizer:context-analyzer": {"q", `use "general-purpose"`},
 		"coworker:copilot":                          {"do it", `use "copilot"`},
@@ -61,7 +61,7 @@ func TestDispatchTypeGateFallsBackToRoster(t *testing.T) {
 	orig := listAgents
 	t.Cleanup(func() { listAgents = orig })
 	listAgents = func(string) ([]project.Source, error) { return nil, os.ErrPermission }
-	if got, want := dispatchTypes(), []string{"Explore", "claude", "codex", "copilot", "gemini", "general-purpose", "opencode"}; fmt.Sprint(got) != fmt.Sprint(want) {
+	if got, want := dispatchTypes(), []string{"Explore", "claude", "codex", "copilot", "gemini", "general-purpose", "opencode", "web-fetch"}; fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("fallback types = %v, want %v", got, want)
 	}
 	useAgentsDir(t) // no agents/ at all
@@ -76,9 +76,9 @@ func TestDispatchTypeGateClaimsNoSlot(t *testing.T) {
 	dispatchEnv(t)
 	writeAgentFile(t, os.Getenv("CLAUDE_CONFIG_DIR"), "claude")
 	before := markerNames(t)
-	r := pre(`{"tool_name":"Agent","tool_use_id":"gate1","tool_input":{"subagent_type":"web-fetch","prompt":"x","description":"x"}}`)
+	r := pre(`{"tool_name":"Agent","tool_use_id":"gate1","tool_input":{"subagent_type":"not-a-type","prompt":"x","description":"x"}}`)
 	if r.Decision != core.Block || len(markerNames(t)) != len(before) || hasMarker(t, "gate1") {
-		t.Fatalf("web-fetch = %+v, markers %v -> %v; want a block and no new marker", r, before, markerNames(t))
+		t.Fatalf("not-a-type = %+v, markers %v -> %v; want a block and no new marker", r, before, markerNames(t))
 	}
 	if r := pre(`{"tool_name":"Agent","tool_use_id":"gate2","tool_input":{"subagent_type":"claude","model":"opus","prompt":"x","description":"x"}}`); r.Decision == core.Block || !hasMarker(t, "gate2") {
 		t.Fatalf("claude = %+v, want a claimed slot (negative control)", r)

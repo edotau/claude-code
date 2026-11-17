@@ -581,8 +581,8 @@ func TestAgentsLabelEmptyMeansNoPrefix(t *testing.T) {
 // A type the hook refuses prints its block reason and fails, never a prefix the hook would not accept.
 func TestAgentsLabelRefusedType(t *testing.T) {
 	labelConfig(t)
-	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsLabel([]string{"web-fetch", "--session-model", "s"}) })
-	if code != 1 || out != "" || !strings.Contains(stderr, `subagent_type "web-fetch" is not on the roster`) {
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsLabel([]string{"not-a-type", "--session-model", "s"}) })
+	if code != 1 || out != "" || !strings.Contains(stderr, `subagent_type "not-a-type" is not on the roster`) {
 		t.Fatalf("exit = %d, stdout = %q, stderr = %q, want exit 1 and the block reason", code, out, stderr)
 	}
 }

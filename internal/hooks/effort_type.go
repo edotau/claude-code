@@ -16,13 +16,16 @@ import (
 )
 
 // builtinTypes are the harness built-in Claude-run leaf types with no agents/<name>.md that a dispatch may use.
-var builtinTypes = []string{"Explore", "general-purpose"}
+var builtinTypes = []string{"Explore", "general-purpose", "web-fetch"}
 
 // listAgents loads the agent definitions; a seam so tests count or fail the read.
 var listAgents = project.DiscoverAgents
 
 // inContextTypes work on the parent's model and never run a brief's `Run:` line.
 var inContextTypes = map[string]bool{"Plan": true, "Explore": true}
+
+// fixedModelTypes run a host-chosen model on a bare prompt: no pin, no label, recall only as a note.
+var fixedModelTypes = map[string]bool{"web-fetch": true}
 
 // runLineBlock denies a Run: brief sent to an in-context type, naming the type that would run it.
 func runLineBlock(ctx context.Context, st, task string) *core.Result {
@@ -102,7 +105,7 @@ func typeSuggestion(st, task string) string {
 	case st == "Plan":
 		return `use "claude" and state read-only in the brief`
 	case st != "coworker" && !strings.HasPrefix(st, "coworker:"):
-		return `use "general-purpose"` // every tool, WebFetch included: covers web-fetch, claude-code-guide, plugin agents
+		return `use "general-purpose"` // the host-wide agent with every tool
 	}
 	if agent := coworkerAgent(st, task); agent != "" {
 		return fmt.Sprintf("use %q", agent)

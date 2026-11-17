@@ -42,6 +42,7 @@ Shell `agents ask` belongs only inside an external relay or a requested script. 
 | `Explore` | Scoped read-only scan before non-trivial work | Codebase Context Brief |
 | `Plan` | Read-only design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
 | `general-purpose` | Built-in work when no named role fits | Brief's requested report |
+| `web-fetch` | Host built-in page fetch: a URL and a question; the hook changes nothing | The answer |
 
 `claude-code agents label <type> --task FILE` prints the label (`--model` previews a model, `--session-model` supplies
 the parent's). Pass the Agent tool's `model` to raise one call (`fable` only for two large designs at once). Wrapper
