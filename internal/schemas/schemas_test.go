@@ -196,6 +196,7 @@ var writers = map[string]string{
 	"internal/memory/update.go:writeUpdateResult":               unversioned("text: update result text"),
 	"internal/memory/update.go:markHandoff":                     unversioned("marker: steward handoff request holding the session handoff path"),
 	"internal/memory/bank_blocks.go:assignFileIDs":              unversioned("memory-bank: bank id comments"),
+	"internal/memory/queue.go:queueAdd":                         unversioned("marker: memory worker job queue file, one JSON job per kind and key"),
 	"internal/memory/bank_supersede.go:writeDirtyDocs":          unversioned("memory-bank: replaced-entry pointers"),
 	"internal/memory/promote.go:archiveFile":                    unversioned("memory-bank: bank overflow archive"),
 	"internal/memory/catchup.go:runSweep":                       unversioned("text: catch-up sweep done count"),
