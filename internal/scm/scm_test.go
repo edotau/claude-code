@@ -112,3 +112,18 @@ func TestOpenDefaultsBaseToRemoteHost(t *testing.T) {
 		t.Fatalf("requests went to %v, want https://bb.example.com", rt.seen)
 	}
 }
+
+func BenchmarkDetect(b *testing.B) {
+	remotes := []string{
+		"https://github.com/edotau/claude-code.git",
+		"git@github.com:edotau/claude-code.git",
+		"https://git.biscrum.com/scm/PROJ/repo.git",
+		"ssh://git@git.biscrum.com:7999/PROJ/repo.git",
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		for _, r := range remotes {
+			_, _ = Detect(r)
+		}
+	}
+}

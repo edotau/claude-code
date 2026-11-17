@@ -385,3 +385,20 @@ func TestFableToOpus(t *testing.T) {
 		})
 	}
 }
+
+func BenchmarkWithModel(b *testing.B) {
+	b.SetBytes(int64(len(benchChatBody)))
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := withModel(benchChatBody, "wire-model"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkUserAgent(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		userAgent("opencode-agent/1.2")
+	}
+}

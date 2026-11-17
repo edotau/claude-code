@@ -820,3 +820,53 @@ func TestPassthroughRespellsModelForTheRow(t *testing.T) {
 		}
 	}
 }
+
+// benchChatBody is an agentic chat-completions request: tools plus a ~100 KB history.
+var benchChatBody = []byte(`{"model":"claude-x","max_tokens":999999,"stream":true,"tool_choice":"auto",
+	"tools":[{"type":"function","function":{"name":"read","description":"read","parameters":{"type":"object","properties":{"path":{"type":"string"}}}}},
+	{"type":"custom","name":"web_search"}],
+	"messages":[{"role":"user","content":"` + strings.Repeat("package main // <x> & y\\n", 4000) + `"}]}`)
+
+func BenchmarkPassthroughModel(b *testing.B) {
+	b.SetBytes(int64(len(benchChatBody)))
+	b.ReportAllocs()
+	for b.Loop() {
+		passthroughModel(benchChatBody)
+	}
+}
+
+func BenchmarkDropNonFunctionTools(b *testing.B) {
+	b.SetBytes(int64(len(benchChatBody)))
+	b.ReportAllocs()
+	for b.Loop() {
+		dropNonFunctionTools(benchChatBody)
+	}
+}
+
+func BenchmarkClampOutputTokens(b *testing.B) {
+	b.SetBytes(int64(len(benchChatBody)))
+	b.ReportAllocs()
+	for b.Loop() {
+		if string(clampOutputTokens(benchChatBody, "claude-sonnet-5-5")) == string(benchChatBody) {
+			b.Fatal("the cap was not clamped")
+		}
+	}
+}
+
+func BenchmarkFixGeminiChat(b *testing.B) {
+	b.SetBytes(int64(len(benchChatBody)))
+	b.ReportAllocs()
+	for b.Loop() {
+		fixGeminiChat(benchChatBody)
+	}
+}
+
+func BenchmarkScrapeUsage(b *testing.B) {
+	tail := []byte(strings.Repeat(`data: {"choices":[{"delta":{"content":"x"}}]}`+"\n\n", 2000) +
+		`data: {"choices":[],"usage":{"prompt_tokens":1200,"completion_tokens":80,"prompt_tokens_details":{"cached_tokens":1000}}}` + "\n\ndata: [DONE]\n\n")
+	b.SetBytes(int64(len(tail)))
+	b.ReportAllocs()
+	for b.Loop() {
+		scrapeUsage(tail)
+	}
+}

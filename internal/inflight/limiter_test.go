@@ -429,3 +429,15 @@ func TestComputeLimits(t *testing.T) {
 		t.Errorf("For without override = %d, want Base %d", got, Base)
 	}
 }
+
+func BenchmarkReadMarker(b *testing.B) {
+	dir := b.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "marker"), []byte("account\n/session.jsonl"), 0600); err != nil {
+		b.Fatal(err)
+	}
+	for b.Loop() {
+		if _, _, _, ok := readMarker(dir, "marker"); !ok {
+			b.Fatal("unreadable marker")
+		}
+	}
+}

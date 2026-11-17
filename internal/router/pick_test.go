@@ -743,3 +743,16 @@ func TestDefaultFallbackModes(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkPick(b *testing.B) {
+	tb := testTable(b)
+	st := State{
+		"openai·chatgpt":     {UsedPct: 10, Seen: now0},
+		"google·antigravity": {UsedPct: 60, Seen: now0},
+		"opencode·go":        {UsedPct: 20, Seen: now0},
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		pickRepo(tb, "sonnet", st, true)
+	}
+}

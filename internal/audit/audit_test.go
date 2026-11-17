@@ -260,3 +260,10 @@ func TestLogTightensExistingModes(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func BenchmarkLog(b *testing.B) {
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	for b.Loop() {
+		Log(ProviderSwitch, "gemini", "")
+	}
+}

@@ -1,6 +1,8 @@
 package preflight
 
 import (
+	"io"
+
 	"bytes"
 	"context"
 	"os"
@@ -284,3 +286,10 @@ func TestRunProfilePongsFailRowWhenNonePong(t *testing.T) {
 
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func BenchmarkPrintFixRows(b *testing.B) {
+	ps := []Pin{{Status: StatusOK}, {Status: statusStale}, {Status: StatusOK}, {Status: statusUnserved}}
+	for b.Loop() {
+		printFixRows(io.Discard, ps)
+	}
+}

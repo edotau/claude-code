@@ -174,3 +174,15 @@ func TestWavesTaskVerifyAndOwnsRefused(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkParseWaves(b *testing.B) {
+	raw := "# Plan: bench\n\n## Tasks\n\n" + strings.Repeat("### Phase 1: wave\n\n- [ ] 1.1 task (agent: claude; profile: edit; owns: a.go)\n", 1)
+	path := b.TempDir() + "/p.md"
+	if err := os.WriteFile(path, []byte(raw), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		_, _ = ParseWaves(path)
+	}
+}

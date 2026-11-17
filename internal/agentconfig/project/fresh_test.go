@@ -32,3 +32,21 @@ func TestCheckFreshRenderIgnoresLiveHomeAndWritesNothingThere(t *testing.T) {
 		t.Error("CheckFreshRender accepted an agent whose name differs from its file")
 	}
 }
+
+func BenchmarkCheckFreshRender(b *testing.B) {
+	root := b.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, "agents"), 0o700); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.WriteFile(sourcePath(root, "agents", "demo-agent"), []byte("---\nname: demo-agent\ndescription: Fixture agent.\n---\n\nbody\n"), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte("# Fixture rules\n"), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	for i := 0; i < b.N; i++ {
+		if err := CheckFreshRender(root); err != nil {
+			b.Fatal(err)
+		}
+	}
+}

@@ -1,6 +1,8 @@
 package vault
 
 import (
+	"fmt"
+
 	"bytes"
 	"encoding/base64"
 	"errors"
@@ -391,5 +393,19 @@ func TestAppendDotenvRefusesMultilineValue(t *testing.T) {
 	}
 	if _, serr := os.Stat(path); !os.IsNotExist(serr) {
 		t.Fatalf("a refused export left %s behind (stat err %v)", path, serr)
+	}
+}
+
+const benchDotenvEntries = 200
+
+func BenchmarkParseDotenv(b *testing.B) {
+	var sb strings.Builder
+	for i := range benchDotenvEntries {
+		fmt.Fprintf(&sb, "# c\nKEY_%d=\"value %d\"\nexport K2_%d=plain\n", i, i, i)
+	}
+	text := sb.String()
+	b.ReportAllocs()
+	for b.Loop() {
+		ParseDotenv(strings.NewReader(text))
 	}
 }

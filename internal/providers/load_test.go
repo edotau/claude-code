@@ -14,6 +14,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -374,6 +375,38 @@ func TestParseNamesGithubRowsByLogin(t *testing.T) {
 		}
 		if reg.Providers["x"] != nil && !slices.Contains(tc.kept, "x") {
 			t.Errorf("%s: row x was not renamed: %v", tc.name, reg.Names())
+		}
+	}
+}
+
+func settledVault(b *testing.B) {
+	b.Helper()
+	vaulttest.Use(b)
+	vaulttest.Put(b, vault.Overlay, "providers", `{"fallback":["ultra"]}`)
+	old := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(vault.Path(), old, old); err != nil {
+		b.Fatal(err)
+	}
+	// Chtimes bumps ctime, so move the stamp clock past the racy window
+	b.Cleanup(paths.SetStampNowForTest(func() time.Time { return time.Now().Add(time.Hour) }))
+}
+
+func BenchmarkLoad(b *testing.B) {
+	settledVault(b)
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := Load(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkLoadShared(b *testing.B) {
+	settledVault(b)
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := LoadShared(); err != nil {
+			b.Fatal(err)
 		}
 	}
 }
