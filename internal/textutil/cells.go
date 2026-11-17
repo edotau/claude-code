@@ -45,11 +45,27 @@ func TruncateCells(s string, n int, marker string) string {
 		return s[:n-markerWidth] + marker
 	}
 	end := cellPrefix(s, n-markerWidth)
-	reset := ""
+	tail := ""
 	if strings.Contains(s[:end], "\x1b") {
-		reset = "\x1b[0m"
+		tail = "\x1b[0m"
+		if linkOpen(s[:end]) {
+			tail += linkClose
+		}
 	}
-	return s[:end] + marker + reset
+	return s[:end] + marker + tail
+}
+
+const linkClose = "\x1b]8;;\x1b\\"
+
+// linkOpen reports whether the last OSC 8 sequence in a complete-escape prefix has a non-empty URI.
+func linkOpen(s string) bool {
+	const intro = "\x1b]8;"
+	i := strings.LastIndex(s, intro)
+	if i < 0 {
+		return false
+	}
+	_, uri, ok := strings.Cut(s[i+len(intro):], ";")
+	return ok && uri != "" && uri[0] != 7 && uri[0] != 0x1b
 }
 
 func cellPrefix(s string, n int) int {
@@ -119,6 +135,9 @@ func cellEscapeEnd(s string, i int) int {
 	switch s[i+1] {
 	case '[':
 		for j := i + 2; j < len(s); j++ {
+			if s[j] == 0x1b {
+				return j
+			}
 			if s[j] >= 0x40 && s[j] <= 0x7e {
 				return j + 1
 			}
@@ -136,8 +155,11 @@ func cellOSCEnd(s string, start int) int {
 		if s[j] == 7 {
 			return j + 1
 		}
-		if s[j] == 0x1b && j+1 < len(s) && s[j+1] == '\\' {
-			return j + 2
+		if s[j] == 0x1b {
+			if j+1 < len(s) && s[j+1] == '\\' {
+				return j + 2
+			}
+			return j
 		}
 	}
 	return len(s)
