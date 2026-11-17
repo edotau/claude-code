@@ -1,6 +1,7 @@
 package ansi
 
 import (
+	"strings"
 	"testing"
 )
 
@@ -27,5 +28,16 @@ func TestStatusTokensMatchWholeWords(t *testing.T) {
 		if got := Status(true, c.in); got != c.want {
 			t.Errorf("Status(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// TestStatusNotLoggedInIsOneToken: the negative phrase is one styled token, so its "logged in" tail is never split off.
+func TestStatusNotLoggedInIsOneToken(t *testing.T) {
+	got := Status(true, "[not logged in]")
+	if !strings.Contains(got, "not logged in"+Reset) || strings.Contains(got, Green) {
+		t.Fatalf("Status = %q, want one styled token with no green span", got)
+	}
+	if got := Status(true, "[logged in]"); !strings.Contains(got, Green+"logged in"+Reset) {
+		t.Fatalf("Status(logged in) = %q", got)
 	}
 }

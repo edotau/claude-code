@@ -50,7 +50,7 @@ func Style(on bool, code, s string) string {
 
 // statusTokens are the words Status paints; longer tokens precede their prefixes so "cred:ok" wins over "ok".
 var statusTokens = []struct{ token, code string }{
-	{"cred:missing", Red}, {"cred:ok", Green}, {"rejected", Red}, {"not verified", Dim},
+	{"cred:missing", Red}, {"cred:ok", Green}, {"rejected", Red}, {"not verified", Dim}, {"not logged in", Dim},
 	{"REJECTED", Red}, {"ABSENT", Red}, {"DRIFT", Red}, {"FIX:", Red}, {"ERROR", Red}, {"failed", Red},
 	{"unreachable", Yellow}, {"unverified", Yellow}, {"skipped", Dim}, {"KEEP", Dim},
 	{"present", Green}, {"verified", Green}, {"routes to", Green}, {"runs on", Green}, {"logged in", Green},

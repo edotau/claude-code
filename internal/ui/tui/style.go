@@ -73,17 +73,22 @@ func muted(on bool, s string) string {
 	return ansi.Style(on, "\x1b[37m", s)
 }
 
-// muteDetail paints a laid-out row's middle cells (after the label, before a trailing [badge]) in Muted.
+// muteDetail paints a laid-out row's middle cells in Muted and its trailing [badge] in the accent; colour runs
+// after layout, so escapes never count toward the clip.
 func muteDetail(on bool, row string) string {
 	i := strings.Index(row, "  ")
 	if !on || i < 0 {
 		return row
 	}
-	j := len(row)
+	j, b := len(row), len(row)
 	if strings.HasSuffix(row, "]") {
 		if k := strings.LastIndex(row, " ["); k > i {
-			j = k
+			j, b = k, k+1
 		}
 	}
-	return row[:i] + muted(on, row[i:j]) + row[j:]
+	if b == len(row) {
+		return row[:i] + muted(on, row[i:j])
+	}
+	// the closing bracket is its own span: a status word inside the badge resets colour before it
+	return row[:i] + muted(on, row[i:j]) + row[j:b] + accentMark(on, row[b:len(row)-1]) + accentMark(on, "]")
 }
