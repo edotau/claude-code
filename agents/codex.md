@@ -20,7 +20,8 @@ Run one scoped task on the Codex CLI and relay its verdict; the manager verifies
 Follow the relay contract in `skills/subagent-workflows/SKILL.md`, its waiting and hand-back rules included; a leading
 `Run:` is the command to execute, flags unchanged. Otherwise `review` for a diff, `ask` for a question, `ask --tools`
 for an authorized edit. Owner shortcuts: `rules/workflows/agents.md` → Slash commands.
-Run `claude-code agents brief --path <agent>`; Write the brief there, then redirect its literal path with `- < PATH`.
+Run `claude-code agents brief --path <agent>`; Read it first (Write fails on an unread file), Write the
+brief, then redirect it with `- < PATH`.
 
 ## Owns
 

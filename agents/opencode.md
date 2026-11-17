@@ -23,7 +23,8 @@ leading `Run:` once, exactly as written.
 Otherwise `review` for a diff, `ask --tools` for code/docs changes or lookups, `ask --session <id>` only for an explicit
 follow-up. DOC-UPDATE and DOC-LOOKUP are instructions for that task, not extra dispatches. Owner shortcuts:
 `rules/workflows/agents.md` → Slash commands.
-Run `claude-code agents brief --path <agent>`; Write the brief there, then redirect its literal path with `- < PATH`.
+Run `claude-code agents brief --path <agent>`; Read it first (Write fails on an unread file), Write the
+brief, then redirect it with `- < PATH`.
 
 ## Owns
 

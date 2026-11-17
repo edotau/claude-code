@@ -56,8 +56,8 @@ For `codex`, `copilot`, `gemini` and `opencode` wrappers:
 - A thin pipe: run the brief's leading `Run:` line exactly as written, once, task appended unchanged; never add, drop
   or swap a flag (an "edit nothing" brief keeps `--tools`) or start another ask. Without a `Run:`, pick one supported
   verb (a bare task means `ask`), default a named-agent task to `--fallback none`, keep explicit policy and pins.
-  Run `claude-code agents brief --path <agent>`; Write the brief there, then redirect its literal path with `- < PATH`.
-  Never choose or reuse a path; no `$`, `~` or glob.
+  Run `claude-code agents brief --path <agent>`; Read it first (Write fails on an unread file), Write the
+  brief, then redirect it with `- < PATH`. Never choose or reuse a path; no `$`, `~` or glob.
 - Background only via the `Run:` line's `--background` (never the shell or `run_in_background`). No duplicate ask,
   readiness smoke or repeat discovery.
 - **Waiting and handing back** (hooks back these up: `rules/harness/hooks.md` → `dispatch-handback`):
@@ -152,6 +152,24 @@ an idle slot with unblocked work is a fault. Spread leaves over the three Databr
 dev|qa|prod` on the relay's Run line) and the four vendor CLIs so no single account carries the wave. The only
 limits are overlapping files, dependency order and an account's own rate limit.
 
+#### Wave loop
+
+The main thread plans waves, dispatches, decides and commits; file reads, diff review, gate runs and review fixes go to
+leaves that hand back a short verdict, so its context stays small. Run it without prompting:
+
+1. **Queue:** keep a list of blocked tasks, each naming the file or leaf that blocks it; dispatch one the moment that
+   frees, and again after every hand-back, until none remain or what is left needs the owner.
+2. **Per hand-back:** a review leaf returns PASS/FAIL, ranked findings and the exact files to stage (it measures and
+   reads the diff, not the manager) → a fix leaf for each finding → the manager re-runs the scoped gate and commits
+   named files (`rules/standards/worktree-git.md`) → dispatch what that unblocked. One `make audit`, `make install` and
+   push per green wave (`CLAUDE.md` hard rule 5).
+3. **Bugs:** any bug or issue a leaf or review reports gets a fix leaf at once, without asking.
+4. **Open items:** pick the recommended option, apply it and tag `DECISION:`; ask only for frozen hook code,
+   `settings.json`, secrets or an irreversible outward action.
+5. **Briefs that do not stall:** say what is already verified (never "survey, then stop"), name a hand-back line cap,
+   and own each source file's `_test.go` (a test that must sit in another package's test file to avoid an import cycle
+   is allowed); a leaf stops only for a production file another agent owns.
+
 #### Test agent
 
 A feature or bug fix gets a test agent (`copilot`, or `claude` for a scoped suite) in the SAME message as the
@@ -172,8 +190,9 @@ reports and stops (`rules/standards/testing-guidelines.md` → When a test fails
 
 #### Fan-in
 
-Treat every report as a claim: read the diff and gate output, check deleted blocks (callers, `git log -S`) and edits
-outside the leaf's files, confirm a new test can fail, re-run scoped checks yourself, rebuild before trusting a binary.
+Treat every report as a claim, verified by a review leaf (diff, deleted blocks via callers and `git log -S`, edits
+outside the leaf's files, a new test that can fail); the manager reads its verdict, re-runs the scoped check and
+rebuilds before trusting a binary ([Wave loop](#wave-loop)).
 
 - Parallel leaves that built both sides of a seam (flag/argv builder ↔ consumer, JSON shape ↔ reader, hook key ↔
   brief writer): read both together; `go build ./...` misses a broken consumer.
@@ -197,7 +216,8 @@ timeout, at most 12 times;
 
 ## Shared tree
 
-Every brief says: never `git stash` / `checkout` / `reset` / `restore`; gate on a scoped target (a repo-wide red is
+The main shell stays at the repo root (use absolute paths, never a bare `cd`). Every brief says: never `git stash` /
+`checkout` / `reset` / `restore`; gate on a scoped target (a repo-wide red is
 a sibling's half-finished edit); check writes with `git diff --stat`; stage named files only.
 
 ## Rules
