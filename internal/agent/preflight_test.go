@@ -238,14 +238,58 @@ func TestCommandTokenLifetimeWarnsWithoutMaskingAuthFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	pf := &Preflight{}
-	if fs := launchWorkspaceFindings("codex", p, router.State{}, now, pf); len(fs) != 0 || len(pf.Notes) != 1 {
+	if fs := launchWorkspaceFindings(context.Background(), "codex", p, router.State{}, now, pf); len(fs) != 0 || len(pf.Notes) != 1 {
 		t.Fatalf("command lifetime: findings %v, notes %v", fs, pf.Notes)
 	}
-	if fs := launchWorkspaceFindings("claude", p, router.State{}, now, nil); len(fs) != 1 || fs[0].Check != "token" {
+	if fs := launchWorkspaceFindings(context.Background(), "claude", p, router.State{}, now, nil); len(fs) != 1 || fs[0].Check != "token" {
 		t.Fatalf("static path accepted short lifetime: %v", fs)
 	}
 	st := router.State{router.AccountOf(p): {AuthReason: "rejected", AuthAt: now}}
-	if fs := launchWorkspaceFindings("codex", p, st, now, pf); len(fs) != 1 || fs[0].Check != "auth" {
+	if fs := launchWorkspaceFindings(context.Background(), "codex", p, st, now, pf); len(fs) != 1 || fs[0].Check != "auth" {
 		t.Fatalf("command masked auth failure: %v", fs)
+	}
+}
+
+func TestLaunchWorkspaceRunTimeout(t *testing.T) {
+	vaulttest.Use(t)
+	p := &providers.Provider{Name: "run-timeout", Provider: "databricks", Preset: providers.PresetDatabricks,
+		Host: "https://timeout.example.com", Auth: providers.Auth{Type: providers.AuthPAT}}
+	calls, old := 0, http.DefaultClient.Transport
+	http.DefaultClient.Transport = preflightTransport(func(*http.Request) (*http.Response, error) {
+		calls++
+		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"endpoints":[]}`))}, nil
+	})
+	t.Cleanup(func() { http.DefaultClient.Transport = old })
+	if err := vault.Store(providers.AuthSecretName(p), "fixture"); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(paths.StateDir(), "cache", "token-expiry")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	for _, tc := range []struct {
+		name          string
+		timeout, life time.Duration
+		wantFail      bool
+	}{
+		{"five minutes", 5 * time.Minute, 20 * time.Minute, false},
+		{"two hours", 2 * time.Hour, time.Hour, true},
+		{"default", 0, 20 * time.Minute, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			raw := fmt.Sprintf(`{"schema":2,"exp":%d}`, now.Add(tc.life).Unix())
+			if err := os.WriteFile(filepath.Join(dir, p.Name+".json"), []byte(raw), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			ctx := context.WithValue(context.Background(), runTimeoutKey{}, tc.timeout)
+			fs := launchWorkspaceFindings(ctx, "claude", p, router.LoadState(), now, nil)
+			if got := len(fs) > 0 && fs[0].Check == "token"; got != tc.wantFail {
+				t.Fatalf("timeout %s, token life %s: token refusal = %v, want %v; findings %v", tc.timeout, tc.life, got, tc.wantFail, fs)
+			}
+		})
+	}
+	if calls != 1 {
+		t.Fatalf("auth probes = %d, want one cached success", calls)
 	}
 }

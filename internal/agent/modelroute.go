@@ -500,7 +500,7 @@ func resolvePool(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec
 			skipped = append(skipped, name+": "+why)
 			continue
 		}
-		if fs := launchWorkspaceFindings(q.Agent, p, st, now, nil); len(fs) > 0 {
+		if fs := launchWorkspaceFindings(q.ctx, q.Agent, p, st, now, nil); len(fs) > 0 {
 			skipped = append(skipped, name+": "+fs[0].Detail)
 			continue
 		}

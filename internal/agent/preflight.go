@@ -152,14 +152,22 @@ func CredentialFingerprint(p *providers.Provider) string {
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(stamp)))
 }
 
-func launchWorkspaceFindings(agentName string, p *providers.Provider, st router.State, now time.Time, pf *Preflight) []Finding {
+type runTimeoutKey struct{}
+
+func launchWorkspaceFindings(ctx context.Context, agentName string, p *providers.Provider, st router.State, now time.Time, pf *Preflight) []Finding {
+	budget := DefaultToolsTimeout
+	if ctx != nil {
+		if timeout, ok := ctx.Value(runTimeoutKey{}).(time.Duration); ok && timeout > 0 {
+			budget = timeout
+		}
+	}
 	if !agentid.Routing(agentName).ResponsesRoute {
-		return CheckWorkspace(p, st, now)
+		return CheckWorkspace(p, st, now, budget)
 	}
 	if pf == nil {
 		pf = &Preflight{}
 	}
-	return checkWorkspace(p, st, now, DefaultToolsTimeout, pf)
+	return checkWorkspace(p, st, now, budget, pf)
 }
 
 func tokenFinding(p *providers.Provider, now time.Time, budget time.Duration) *Finding {
@@ -421,7 +429,7 @@ func (rc routeCtx) armFinding() *Finding {
 	if err != nil {
 		return &Finding{Check: "credential", Profile: p.Name, Detail: "invalid tokenCommand overlay"}
 	}
-	fs := launchWorkspaceFindings(rc.want, resolved, loadState(), time.Now(), rc.pf)
+	fs := launchWorkspaceFindings(ctx, rc.want, resolved, loadState(), time.Now(), rc.pf)
 	if len(fs) == 0 {
 		return nil
 	}
@@ -455,7 +463,7 @@ func explicitFinding(ctx context.Context, q RouteReq, p *providers.Provider, pf 
 	}
 	p = resolved
 	now := time.Now()
-	if fs := launchWorkspaceFindings(q.Agent, p, loadState(), now, pf); len(fs) > 0 {
+	if fs := launchWorkspaceFindings(ctx, q.Agent, p, loadState(), now, pf); len(fs) > 0 {
 		return &fs[0]
 	}
 	_, failed := CheckModelNoted(q.Agent, p, routedWire(q, p, now), now, pf)
