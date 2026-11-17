@@ -55,10 +55,20 @@ func readOnlySegment(seg string, raw bool) bool {
 	if len(toks) == 0 || raw && !rawSegmentOK(seg, rawToks, toks) {
 		return false
 	}
-	if len(toks) == 2 && helpWord().MatchString(toks[0]) && slices.Contains([]string{"--help", "-h", "--version"}, toks[1]) {
+	if len(toks) == 2 && helpWord().MatchString(toks[0]) && slices.Contains([]string{"--help", "-h", "--version"}, toks[1]) ||
+		claudeHelp(toks) {
 		return true
 	}
 	return readOnlyCommand(toks)
+}
+
+// claudeHelp is `claude-code <verb> [<subverb>] -h|--help`: help text never writes.
+func claudeHelp(toks []string) bool {
+	n := len(toks)
+	if n < 3 || n > 4 || toks[0] != "claude-code" || toks[n-1] != "-h" && toks[n-1] != "--help" {
+		return false
+	}
+	return !slices.ContainsFunc(toks[1:n-1], func(t string) bool { return !helpWord().MatchString(t) })
 }
 
 // rawSegmentOK is the as-typed part of the check: no write or `<`, and only a harmless env or time prefix.
