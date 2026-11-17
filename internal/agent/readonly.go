@@ -397,7 +397,7 @@ func cdReadDenied(reads []Rule, toks []string) bool {
 
 // denyParentDirs are the directory globs a cd may not reach, since a relative operand there would name the denied path.
 func denyParentDirs(pattern string) []string {
-	p := cleanGlobPath(pattern)
+	p := paths.CleanGlob(pattern)
 	if !path.IsAbs(p) && !strings.HasPrefix(p, "**/") {
 		p = "**/" + p // a relative rule may match under any cwd
 	}
