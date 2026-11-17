@@ -64,6 +64,45 @@ func TestEnvironLaunchSetSurvivesScrub(t *testing.T) {
 	}
 }
 
+// An agent CLI child drops inherited credential-shaped names except its own login, HARNESS_KEEP_ENV and launch values.
+func TestEnvironAgentDropsInheritedCredentials(t *testing.T) {
+	inherited := []string{"PATH=/bin", "MISTRAL_API_KEY=x", "GITHUB_PERSONAL_ACCESS_TOKEN=x", "SOME_SERVICE_SECRET=x",
+		"GH_TOKEN=x", "OPENCODE_API_KEY=x", "DATABRICKS_TOKEN=inherited"}
+	rows := []struct {
+		name    string
+		spec    EnvSpec
+		keepEnv string
+		want    []string // credential-shaped names the child ends with
+	}{
+		{"codex", EnvSpec{Mode: EnvAgent, Agent: "codex"}, "", nil},
+		{"copilot keeps its login", EnvSpec{Mode: EnvAgent, Agent: "copilot"}, "", []string{"GH_TOKEN"}},
+		{"gemini", EnvSpec{Mode: EnvAgent, Agent: "gemini"}, "", nil},
+		{"opencode keeps its login", EnvSpec{Mode: EnvAgent, Agent: "opencode"}, "", []string{"OPENCODE_API_KEY"}},
+		{"no agent", EnvSpec{Mode: EnvAgent}, "", nil},
+		{"claude is unchanged", EnvSpec{Mode: EnvClaude}, "", []string{"MISTRAL_API_KEY", "GITHUB_PERSONAL_ACCESS_TOKEN",
+			"SOME_SERVICE_SECRET", "GH_TOKEN", "OPENCODE_API_KEY"}},
+		{"HARNESS_KEEP_ENV", EnvSpec{Mode: EnvAgent, Agent: "codex"}, "MISTRAL_API_KEY", []string{"MISTRAL_API_KEY"}},
+		{"launch value after the scrub", EnvSpec{Mode: EnvAgent, Agent: "codex", Set: []string{"DATABRICKS_TOKEN=launch"}}, "",
+			[]string{"DATABRICKS_TOKEN"}},
+	}
+	for _, r := range rows {
+		t.Run(r.name, func(t *testing.T) {
+			t.Setenv("HARNESS_KEEP_ENV", r.keepEnv)
+			r.spec.Base = inherited
+			env := r.spec.Environ(context.Background())
+			got := slices.DeleteFunc(envNames(env), func(n string) bool {
+				return !strings.HasSuffix(n, "_KEY") && !strings.HasSuffix(n, "_TOKEN") && !strings.HasSuffix(n, "_SECRET")
+			})
+			if !slices.Equal(slices.Sorted(slices.Values(got)), slices.Sorted(slices.Values(r.want))) {
+				t.Errorf("credential-shaped names = %v, want %v", got, r.want)
+			}
+			if slices.Contains(env, "DATABRICKS_TOKEN=inherited") {
+				t.Error("an inherited DATABRICKS_TOKEN reached the child")
+			}
+		})
+	}
+}
+
 // Given an outer dispatch's policy in the env, Then a nested policy keeps its Deny rules and plan mode, never fewer.
 func TestInheritPermissionsKeepsOuterDeny(t *testing.T) {
 	t.Setenv(DispatchPermissionsEnv, `{"mode":"plan","deny":[{"Tool":"Bash","Arg":"rm *"}]}`)
@@ -205,7 +244,7 @@ func TestChildCmdOwnLoginDropsForeignCredentialsUnderIsolation(t *testing.T) {
 	if has(iso, "PA_BATCH_KEY=foreign-secret") || !has(iso, "OPENCODE_API_KEY=native") {
 		t.Errorf("isolated env leaks PA_BATCH_KEY or lost the native var: %d", len(iso.Env))
 	}
-	plain, _ := ChildCmd(context.Background(), "/bin/true", nil, nil, "", "", nil, true)
+	plain, _ := ChildCmd(context.Background(), "/bin/true", nil, nil, "", "", nil, false) // claude: no agent scrub
 	if !has(plain, "PA_BATCH_KEY=foreign-secret") {
 		t.Error("outside a batch the env must stay unchanged")
 	}
@@ -220,18 +259,18 @@ func TestProbeContextScrubsCredentials(t *testing.T) {
 	for _, k := range planted {
 		t.Setenv(k, "SENTINEL")
 	}
-	creds := func(ctx context.Context) []string {
-		names := envNames(EnvSpec{Mode: EnvAgent}.Environ(ctx))
+	creds := func(ctx context.Context, mode EnvMode) []string {
+		names := envNames(EnvSpec{Mode: mode}.Environ(ctx))
 		return slices.DeleteFunc(names, func(n string) bool { return !slices.Contains(planted, n) })
 	}
 	wants := map[string][]string{"": nil, "opencode": {"OPENCODE_API_KEY"}, "copilot": {"GH_TOKEN", "GITHUB_TOKEN"}}
 	for login, want := range wants {
-		if got := creds(ProbeContext(context.Background(), login)); !slices.Equal(slices.Sorted(slices.Values(got)), want) {
+		if got := creds(ProbeContext(context.Background(), login), EnvAgent); !slices.Equal(slices.Sorted(slices.Values(got)), want) {
 			t.Errorf("probe for login %q keeps %v, want %v", login, got, want)
 		}
 	}
-	if got := creds(context.Background()); len(got) != 5 {
-		t.Errorf("a plain child keeps %v, want all five planted names", got)
+	if got := creds(context.Background(), EnvClaude); len(got) != 5 {
+		t.Errorf("a claude child keeps %v, want all five planted names", got)
 	}
 }
 

@@ -188,7 +188,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 
 | Variable | Effect |
 | --- | --- |
-| `HARNESS_KEEP_ENV` | comma-separated names an agent CLI child keeps instead of having them scrubbed |
+| `HARNESS_KEEP_ENV` | comma-separated names an agent CLI child keeps; codex, copilot, gemini and opencode otherwise drop every inherited `*_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD` and `*_CREDENTIALS` name except their own login (launch values are added after the scrub) |
 | `COWORKER_OVERLAY` | the whole `--overlay` dispatch document (routing keys plus the env layer; `rules/harness/agent.md`): a file path (regular, yours, not group/world-writable, <=64 KiB), inline JSON `'{...}'` or `-` (stdin), applied to the launched child only (one hop: a nested dispatch inherits it cut to `provider`/`profile`, its confinement); `set` secrets only as `@secret:<NAME>`; refused env names: see `rules/harness/agent.md` |
 | `HARNESS_KEYRING=off` | skip the OS keyring when finding the vault key |
 | `CLAUDE_RECALL_SEMANTIC=0` | memory recall ranks by keyword only (no embeddings) |

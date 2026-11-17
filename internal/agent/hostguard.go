@@ -155,6 +155,7 @@ func hopProvider(ctx context.Context, r Engine, req RunOptions) (*providers.Prov
 
 // guardAttempt runs inside a timed attempt: it validates the hop's credential and marks its one own profile on ctx.
 func guardAttempt(ctx context.Context, r Engine, req RunOptions) (context.Context, *retry.Error) {
+	ctx = withLaunchAgent(ctx, r.Name()) // every headless child built from this ctx keeps r's own login names
 	arm := router.ArmProfileContext(ctx)
 	cp, _ := router.ConfinedContext(ctx)
 	confined := arm != "" || cp != ""

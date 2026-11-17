@@ -3,6 +3,7 @@
 package proc
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -88,6 +89,20 @@ func Scrub(environ []string, keep map[string]bool) (kept, dropped []string) {
 // ScrubAgent is Scrub plus scrubAgentOnlyDeny: use for codex/gemini/opencode/copilot child launches.
 func ScrubAgent(environ []string, keep map[string]bool) (kept, dropped []string) {
 	return scrub(environ, keep, append(slices.Clone(ScrubDeny), scrubAgentOnlyDeny...))
+}
+
+// ScrubAgentCredentials is ScrubAgent plus every credential-shaped name except keep and agent's OwnLoginEnv.
+func ScrubAgentCredentials(environ []string, keep map[string]bool, agent string) (kept, dropped []string) {
+	kept, dropped = ScrubAgent(environ, keep)
+	spared := maps.Clone(keep)
+	if spared == nil {
+		spared = map[string]bool{}
+	}
+	for _, n := range OwnLoginEnv[agent] {
+		spared[n] = true
+	}
+	kept, more := scrub(kept, spared, ScrubDenyCredentials)
+	return kept, append(dropped, more...)
 }
 
 // Drop returns environ without the names matching a deny glob, except those in keep.

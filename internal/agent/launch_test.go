@@ -295,6 +295,35 @@ func TestPlanVendorScrubsVaultKeyClaudeDoesNot(t *testing.T) {
 	}
 }
 
+// A vendor launch keeps its own agent's login names unless ScrubDeny blocks them, and drops every other agent's.
+func TestPlanVendorKeepsOwnLogin(t *testing.T) {
+	foreign := []string{"MISTRAL_API_KEY", "GITHUB_PERSONAL_ACCESS_TOKEN"}
+	for name, own := range proc.OwnLoginEnv {
+		if name == "claude" {
+			continue
+		}
+		t.Run(name, func(t *testing.T) {
+			names := slices.Concat(proc.ForeignLogins("", false), foreign)
+			var base []string
+			for _, n := range names {
+				t.Setenv(n, "dummy")
+				base = append(base, n+"=dummy")
+			}
+			p := Plan{CLI: true, Agent: name}
+			env, unset := p.envWith(base, nil), p.unsetNames()
+			for _, n := range names {
+				want := slices.Contains(own, n) && !proc.EnvBlocked(n)
+				if got := slices.Contains(env, n+"=dummy"); got != want {
+					t.Errorf("%s: %s kept = %v, want %v", name, n, got, want)
+				}
+				if slices.Contains(unset, n) == want {
+					t.Errorf("%s: %s listed under unset = %v, want %v", name, n, want, !want)
+				}
+			}
+		})
+	}
+}
+
 // plainEnv scrubs the base environ before Set is layered on, so a target's addition for a denied name wins.
 func TestPlanEnvTargetAdditionWinsOverDenyTable(t *testing.T) {
 	p := Plan{Set: map[string]string{"COPILOT_GITHUB_TOKEN": "own-token"}}
