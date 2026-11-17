@@ -303,7 +303,7 @@ func TestClassifyProbeTransient(t *testing.T) {
 	spec := EnvSpec{Mode: EnvAgent}
 	short, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel()
-	_, err := ProbeCLI(short, "/bin/sh", spec, false, "-c", "sleep 5")
+	_, err := ProbeCLI(short, "/bin/sh", spec, false, "-c", "exec sleep 5")
 	if v, d := ClassifyProbe(short, err); v != providers.VerdictTransient || d != context.DeadlineExceeded.Error() {
 		t.Errorf("deadline = %s %q, want transient with the ctx error", v, d)
 	}

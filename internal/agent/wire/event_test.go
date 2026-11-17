@@ -63,6 +63,9 @@ func TestEventLogFlushesHeldTextBeforeToolUse(t *testing.T) {
 }
 
 func TestEventLogRejectsTextPastCap(t *testing.T) {
+	orig := eventsTextCap
+	eventsTextCap = 64 << 10 // the boundary logic is size-independent; a 4 MiB fixture only costs time
+	t.Cleanup(func() { eventsTextCap = orig })
 	full := strings.Repeat("x", eventsTextCap)
 	for _, tc := range []struct {
 		name   string

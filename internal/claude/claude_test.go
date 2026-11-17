@@ -872,10 +872,10 @@ func TestLiveClaudeCostIsPerTurn(t *testing.T) {
 	}
 }
 
-// fakeExitAfterResult answers the first turn with a bulky assistant line and the final result, then exits at once.
+// fakeExitAfterResult sends a 100 KB line (past the 64 KiB pipe buffer) and the final result, then exits at once.
 const fakeExitAfterResult = `#!/bin/sh
 IFS= read -r line
-pad=$(head -c 400000 /dev/zero | tr '\0' x)
+pad=$(head -c 100000 /dev/zero | tr '\0' x)
 printf '{"type":"assistant","session_id":"s1","message":{"content":[{"type":"text","text":"%s"}]}}\n' "$pad"
 printf '{"type":"result","subtype":"success","is_error":false,"result":"final","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}\n'
 `

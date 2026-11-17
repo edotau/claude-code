@@ -712,6 +712,7 @@ func TestParseAgyEmptyAnswerNamesDeniedTools(t *testing.T) {
 
 // agy's per-model 429 (bytes captured from agy 1.5.9 on Argon) is a rate limit naming the held model.
 func TestClassifyAgyError(t *testing.T) {
+	stubUsage(t, func(context.Context) ([]byte, error) { return nil, errors.New("no usage in this test") })
 	const limit = "Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 151h0m24s.\n" +
 		`AGY_ERROR: {"short_error":"RESOURCE_EXHAUSTED (code 429): Individual quota reached. Please upgrade your subscription to increase your limits. Resets in 151h0m24s.","status":"RESOURCE_EXHAUSTED","error_code":429,"retryable":true}`
 	for _, c := range []struct {
