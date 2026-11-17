@@ -23,6 +23,9 @@ import (
 
 // RunQuery is q as the run's first hop resolves it; a routed external dispatch takes the ladder's first hop.
 func RunQuery(ctx context.Context, reg *providers.Registry, q ModelQuery, aliasHint string) (ModelQuery, string, error) {
+	if ownConnectorModel(q.Agent, q.Model) {
+		return q, "", nil
+	}
 	prefix, auto := SplitAuto(q.Model)
 	typed := q.Model != "" && (!auto || prefix != "") // a bare auto routes like an untyped run
 	if VaultAgentIsClaude(q.Agent) || typed || q.Profile != "" || q.Provider != "" || q.Account != "" {
@@ -89,6 +92,9 @@ func ResolveRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRout
 
 // ExplainRun is ResolveRun plus its auto choice; an unlisted Databricks model is marked; none refuses it unless auto.
 func ExplainRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRoute, *AutoChoice, error) {
+	if ownConnectorModel(q.Agent, q.Model) {
+		return ModelRoute{Agent: q.Agent, Model: q.Model}, nil, nil
+	}
 	q, need := autoQuery(q)
 	r, err := autoBase(reg, q, need, now)
 	if err != nil && need.mode != autoOff && errors.Is(err, ErrModelRoute) {

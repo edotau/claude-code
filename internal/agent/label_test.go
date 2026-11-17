@@ -411,3 +411,19 @@ func TestImplicitAutoStaleListingNote(t *testing.T) {
 		t.Errorf("fresh untyped run = %s %q %v; want %s with no note", r.Model, r.Note, err, want)
 	}
 }
+
+func TestResolveRunOwnConnector(t *testing.T) {
+	setConfigDir(t)
+	reg := routeRegistry(t)
+	for _, model := range []string{"opencode-go/kimi-k3", "opencode/kimi-k3"} {
+		q := ModelQuery{Agent: "opencode", Model: model, PinProfile: "dev", PinModel: "databricks-claude-sonnet-5-5"}
+		hop, _, err := RunQuery(context.Background(), reg, q, "opus")
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, err := ResolveRun(reg, hop, time.Now())
+		if err != nil || r.Label() != model {
+			t.Fatalf("label=%s err=%v want=%s", r.Label(), err, model)
+		}
+	}
+}

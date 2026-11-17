@@ -662,3 +662,35 @@ func TestRetryModelSkipsProgressedError(t *testing.T) {
 		t.Errorf("unprogressed capability error = %q, want dbx:m-b", got)
 	}
 }
+
+func TestRouteChainOwnConnector(t *testing.T) {
+	setConfigDir(t)
+	for _, model := range []string{"opencode-go/kimi-k3", "opencode/kimi-k3"} {
+		c, _, err := RouteChainFor(context.Background(), "opencode", model, "opus", router.FallbackAll, false, router.PickOpts{})
+		if err != nil || len(c.Dispatches) != 1 {
+			t.Fatalf("%s: chain=%+v err=%v", model, c, err)
+		}
+		d := c.Dispatches[0]
+		if d.Model != "kimi-k3" || !d.keepCaller || c.Preflight != nil || d.Agent.(HubEngine).HubProvider().OpencodeID != strings.Split(model, "/")[0] {
+			t.Fatalf("%s: dispatch=%+v preflight=%+v", model, d, c.Preflight)
+		}
+	}
+}
+
+func TestPinnedCallerAlias(t *testing.T) {
+	setConfigDir(t)
+	reg := routeRegistry(t)
+	cand := router.Candidate{Agent: "opencode", Profile: "dev"}
+	for _, alias := range []string{"opus", "sonnet"} {
+		_, row, _ := router.ModelRow(alias)
+		rc := routeCtx{want: "opencode", reg: reg, pins: map[string]router.PinSpec{"opencode": {Profile: "dev", Model: "databricks-claude-sonnet-5-5"}}, explicitModel: true, callerModel: alias, row: row}
+		if !rc.pinnedCaller(cand) {
+			t.Fatalf("%s: alias refused on pin", alias)
+		}
+		cell := router.Cell{Model: "databricks-claude-sonnet-5-5"}
+		rc.pinnedCell(cand, &cell)
+		if want := router.DatabricksModel("opencode", alias, reg.Providers["dev"]); cell.Model != want {
+			t.Fatalf("%s: model=%s want=%s", alias, cell.Model, want)
+		}
+	}
+}
