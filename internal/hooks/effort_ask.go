@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // openingAskWords uses the receipt grammar for a leading Run command, retaining its flags and quoted prompt.
@@ -43,6 +44,33 @@ func openingAskWords(task string) []string {
 	return words
 }
 
+// reviewLine is a leading `Run: claude-code <agent> review …` line's --model/--profile; ok only when it types one.
+func reviewLine(task string) (l askLine, ok bool) {
+	line, _, _ := strings.Cut(strings.TrimSpace(task), "\n")
+	command, found := strings.CutPrefix(line, "Run:")
+	if !found {
+		return askLine{}, false
+	}
+	segs := shell.Segments(command)
+	if len(segs) != 1 {
+		return askLine{}, false
+	}
+	words := agentCommand(relayWords(segs[0]))
+	if len(words) < 2 || !externalTypes[words[0]] || words[1] != "review" {
+		return askLine{}, false
+	}
+	l = askLine{agent: words[0], model: flagValue(words[2:], "model"), profile: flagValue(words[2:], "profile"), review: true}
+	return l, l.model != "" || l.profile != ""
+}
+
+// labelLine is the opening ask line, else a review line that types a route: the one the run's label follows.
+func (r *dispatchRun) labelLine(ctx context.Context, st, task string) askLine {
+	if l, ok := reviewLine(task); ok && !inContextTypes[st] { // an in-context leaf never runs the line
+		return l
+	}
+	return r.opening(ctx, task)
+}
+
 // opensWithAsk is a brief opening with its own ask command: never rewritten, only labelled.
 func opensWithAsk(task string) bool { return len(openingAskWords(task)) > 0 }
 
@@ -52,6 +80,7 @@ type askLine struct {
 	profile, fallback    string // --profile and --fallback as typed
 	local                bool   // no flag runs it off this machine or off the line's own route: preflight predictable
 	tools                bool   // --tools, or --read-only, which ask folds into tools
+	review               bool   // a `<agent> review` line: the Agent call's own model is the relay's, not the vendor's
 	cfg                  agentconfig.Overlay
 }
 

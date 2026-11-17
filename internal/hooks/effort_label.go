@@ -258,12 +258,12 @@ func googleQuotaNote(ctx context.Context, r agentpkg.ModelRoute) string {
 
 // labelQuery is the resolver query for the dispatch: the Run: line's flags and overlay, as `agents ask` reads them.
 func labelQuery(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) (agentpkg.ModelQuery, bool) {
-	line := run.opening(ctx, task)
+	line := run.labelLine(ctx, st, task)
 	agent := line.workAgent(st, task)
 	q := agentpkg.ModelQuery{Agent: cmp.Or(agent, agentid.Claude), Model: cmp.Or(line.model, line.cfg.Model),
 		Profile: cmp.Or(line.profile, line.cfg.Profile, run.profile), Provider: line.cfg.Provider, Account: line.cfg.Account,
 		Effort: line.cfg.Effort, Identity: line.cfg.Identity, Fallback: cmp.Or(line.fallback, line.cfg.Fallback)}
-	if m, _ := updated["model"].(string); q.Model == "" && m != "" && !slices.Contains(models.AliasNames, models.Strip1M(m)) && m != "inherit" {
+	if m, _ := updated["model"].(string); q.Model == "" && !line.review && m != "" && !slices.Contains(models.AliasNames, models.Strip1M(m)) && m != "inherit" {
 		q.Model = m // an exact dispatch model, spelled as a --model ask runs it
 	}
 	if q.Model == "" && agent != "" && run.model != "inherit" {

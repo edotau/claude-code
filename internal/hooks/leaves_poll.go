@@ -235,6 +235,12 @@ func askVerb(words []string) string {
 	return ""
 }
 
+// reviewVerb is `claude-code <external agent> review`: a vendor run that is no ask, so no job id is waited on.
+func reviewVerb(words []string) bool {
+	words = agentCommand(words)
+	return len(words) > 1 && externalTypes[words[0]] && words[1] == "review"
+}
+
 // relayInput permits only literal argv and one stdin file redirect; no expansions or shell execution.
 func relayInput(seg string) (words []string, input string, err error) {
 	if !relayQuotesClosed(seg) {
