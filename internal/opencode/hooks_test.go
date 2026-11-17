@@ -6,9 +6,12 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -85,5 +88,31 @@ func TestHookLogKeepsNewestHalfPastCap(t *testing.T) {
 	_, _ = hookLog(path).Write([]byte("LAST\n"))
 	if one, _ := os.ReadFile(path); string(one) != "LAST\n" {
 		t.Errorf("a window with no newline kept %d bytes, want a restart", len(one))
+	}
+}
+
+func TestHookLogConcurrentAppendersAndLockTimeout(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "hooks.log")
+	var wg sync.WaitGroup
+	for w := range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := range 50 {
+				_, _ = hookLog(path).Write([]byte(fmt.Sprintf("w%d line %d\n", w, i)))
+			}
+		}()
+	}
+	wg.Wait()
+	got, _ := os.ReadFile(path)
+	if n := strings.Count(string(got), "\n"); n != 100 {
+		t.Fatalf("lines = %d, want 100", n)
+	}
+	ran, err := paths.TryFileLock(path+".lock", time.Second, func() error {
+		_, err := hookLog(path).Write([]byte("HELD\n"))
+		return err
+	})
+	if after, _ := os.ReadFile(path); !ran || err != nil || !strings.HasSuffix(string(after), "HELD\n") {
+		t.Fatalf("held lock: ran=%v err=%v, want the line appended after the wait", ran, err)
 	}
 }

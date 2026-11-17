@@ -73,7 +73,11 @@ func diskCached(ctx context.Context, run func(context.Context) ([]byte, error)) 
 func CheckCached(_ context.Context, model string, now time.Time) (ModelQuota, error) {
 	file := filepath.Join(paths.StateDir(), "agy-usage.json")
 	st, err := os.Stat(file)
-	if err != nil || quotaNow().Sub(st.ModTime()) >= quotaStaleMax {
+	if err != nil {
+		return ModelQuota{}, errors.New("no recent agy usage cache")
+	}
+	// a future mtime (clock change) would otherwise pass the bound forever
+	if age := quotaNow().Sub(st.ModTime()); age < 0 || age >= quotaStaleMax {
 		return ModelQuota{}, errors.New("no recent agy usage cache")
 	}
 	b, err := os.ReadFile(file)

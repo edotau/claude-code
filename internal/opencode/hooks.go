@@ -187,13 +187,6 @@ func trimLog(path string, capBytes int64) error {
 	return paths.AtomicWrite(path, keep, 0o600)
 }
 
-// close releases the log file.
-func (h *hookHost) close() {
-	if c, ok := h.log.(io.Closer); ok {
-		_ = c.Close()
-	}
-}
-
 // note appends one line to the hook log: time, session, phase and the finding; never a prompt or command text.
 func (h *hookHost) note(phase, format string, args ...any) {
 	h.mu.Lock()
@@ -249,7 +242,6 @@ func (h *hookHost) before(argv []string, prompt string) ([]string, error) {
 		ctx = append(ctx, more...)
 	}
 	if err != nil {
-		h.close()
 		return argv, err
 	}
 	if len(ctx) == 0 || len(argv) == 0 || argv[len(argv)-1] != prompt {
@@ -289,7 +281,6 @@ func (h *hookHost) after(res wire.Result) {
 	if h == nil {
 		return
 	}
-	defer h.close()
 	if res.SessionID != "" {
 		h.session = res.SessionID
 	}
