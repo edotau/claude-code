@@ -222,7 +222,7 @@ func checkCopilotDefaults(t *testing.T, copilot vault.AgentRecord) {
 func checkOpencodeDefaults(t *testing.T, opencode vault.AgentRecord) {
 	t.Helper()
 	if opencode.Launch != nil && len(opencode.Launch.Env) != 0 { // opencode reads ~/.claude/skills natively, synced/ included
-		t.Errorf("opencode.Launch.Env = %v, want none", opencode.Launch.Env)
+		t.Errorf("opencode.Launch.Env has %d entries, want none", len(opencode.Launch.Env))
 	}
 	if opencode.Launch != nil && len(opencode.Launch.Args) != 0 {
 		t.Errorf("opencode.Launch.Args = %v, want none", opencode.Launch.Args)

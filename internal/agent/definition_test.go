@@ -239,7 +239,7 @@ func assertAppliedCaps(t *testing.T, c Caps, w capsWant, schema string) {
 	in := RunOptions{Prompt: "TASK", SystemPrompt: "SYS", AppendSystemPrompt: "APP", OutputSchema: schema, Env: []string{"A=1"}}
 	out, dropped, emulated := applyCaps(c, in)
 	if len(dropped) != 0 || !slices.Equal(out.Env, in.Env) {
-		t.Errorf("dropped = %v, env = %v; env is native everywhere", dropped, out.Env)
+		t.Errorf("dropped = %v, env = %d; env is native everywhere", dropped, len(out.Env))
 	}
 	wantEm, wantPrompt := wantEmulation(w, schema)
 	if !slices.Equal(emulated, wantEm) {

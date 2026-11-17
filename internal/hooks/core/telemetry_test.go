@@ -10,9 +10,10 @@ import (
 
 func TestRecordTelemetryAppendsOneLinePerRow(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "hooks")
-	defer TelemetryDirForTest(dir)()
-	RecordTelemetry([]TelemetryRow{{"Stop", "a", OutcomeOK, 1500 * time.Microsecond}, {"Stop", "b", OutcomeDeny, time.Millisecond}})
-	RecordTelemetry([]TelemetryRow{{"Stop", "c", OutcomePanic, 0}})
+	now := time.Date(2026, time.November, 16, 12, 0, 0, 0, time.UTC)
+	deadline := time.Now().Add(time.Hour)
+	recordTelemetry(dir, []TelemetryRow{{"Stop", "a", OutcomeOK, 1500 * time.Microsecond}, {"Stop", "b", OutcomeDeny, time.Millisecond}}, now, deadline)
+	recordTelemetry(dir, []TelemetryRow{{"Stop", "c", OutcomePanic, 0}}, now, deadline)
 	files, _ := filepath.Glob(filepath.Join(dir, "telemetry-*.jsonl"))
 	if len(files) != 1 {
 		t.Fatalf("files = %v", files)
@@ -22,30 +23,30 @@ func TestRecordTelemetryAppendsOneLinePerRow(t *testing.T) {
 	if len(lines) != 3 || !strings.Contains(lines[0], `"module":"a"`) || !strings.Contains(lines[0], `"ms":1.5`) {
 		t.Errorf("lines = %q", lines)
 	}
-	checkTelemetryStorageBounds(t, dir, files[0])
+	checkTelemetryStorageBounds(t, dir, files[0], now)
 	if st, _ := os.Stat(files[0]); st.Mode().Perm() != 0o600 && filepath.Separator == '/' {
 		t.Errorf("mode = %v, want 0600", st.Mode().Perm())
 	}
 }
 
-func checkTelemetryStorageBounds(t *testing.T, dir, file string) {
+func checkTelemetryStorageBounds(t *testing.T, dir, file string, now time.Time) {
 	t.Helper()
-	old := filepath.Join(dir, "telemetry-"+time.Now().AddDate(0, 0, -15).Format("20060102")+".jsonl")
+	old := filepath.Join(dir, "telemetry-"+now.AddDate(0, 0, -15).Format("20060102")+".jsonl")
 	if err := os.WriteFile(old, nil, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	marker := filepath.Join(dir, "telemetry-"+time.Now().Format("20060102")+".pruned")
+	marker := filepath.Join(dir, "telemetry-"+now.Format("20060102")+".pruned")
 	if err := os.Remove(marker); err != nil {
 		t.Fatal(err)
 	}
-	pruneTelemetry(dir, time.Now())
+	pruneTelemetry(dir, now)
 	if _, err := os.Stat(old); !os.IsNotExist(err) {
 		t.Errorf("expired telemetry remains: %v", err)
 	}
 	if err := os.Truncate(file, telemetryDailyBytes); err != nil {
 		t.Fatal(err)
 	}
-	RecordTelemetry([]TelemetryRow{{"Stop", "full", OutcomeOK, 0}})
+	recordTelemetry(dir, []TelemetryRow{{"Stop", "full", OutcomeOK, 0}}, now, time.Now().Add(time.Hour))
 	if st, err := os.Stat(file); err != nil || st.Size() != telemetryDailyBytes {
 		t.Fatalf("daily ceiling: stat %v, err %v", st, err)
 	}

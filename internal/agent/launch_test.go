@@ -250,12 +250,12 @@ func TestEnvWithCustomLosesToSetAndUnset(t *testing.T) {
 	env := p.envWith([]string{"PATH=/usr/bin", "KEEP=1", "CLAUDE_X=old"}, custom)
 	for _, want := range []string{"ANTHROPIC_MODEL=harness", "FOO=bar", "PATH=/custom", "KEEP=1"} {
 		if !slices.Contains(env, want) {
-			t.Errorf("env missing %q: %v", want, env)
+			t.Errorf("env missing %q: %d", want, len(env))
 		}
 	}
 	for _, bad := range []string{"ANTHROPIC_MODEL=mine", "CLAUDE_X=mine", "CLAUDE_X=old", "PATH=/usr/bin"} {
 		if slices.Contains(env, bad) {
-			t.Errorf("env has %q: %v", bad, env)
+			t.Errorf("env has %q: %d", bad, len(env))
 		}
 	}
 }
@@ -270,10 +270,10 @@ func TestCustomEnvLookupErrorLeavesExportedKeySurviving(t *testing.T) {
 	p := Plan{}
 	env := p.Env([]string{"K=exported-value", "PATH=/usr/bin"})
 	if !slices.Contains(env, "K=exported-value") {
-		t.Fatalf("Env = %v, want K=exported-value preserved from base", env)
+		t.Fatalf("Env = %d, want K=exported-value preserved from base", len(env))
 	}
 	if slices.Contains(env, "K=") {
-		t.Fatalf("Env = %v, a Lookup error must not set K=", env)
+		t.Fatalf("Env = %d, a Lookup error must not set K=", len(env))
 	}
 }
 
@@ -283,15 +283,15 @@ func TestPlanVendorScrubsVaultKeyClaudeDoesNot(t *testing.T) {
 
 	claude := Plan{}.envWith(base, nil)
 	if !slices.Contains(claude, "HARNESS_VAULT_KEY=topsecret") {
-		t.Errorf("Claude Plan.Env = %v, want HARNESS_VAULT_KEY kept", claude)
+		t.Errorf("Claude Plan.Env = %d, want HARNESS_VAULT_KEY kept", len(claude))
 	}
 
 	vendor := Plan{CLI: true}.envWith(base, nil)
 	if slices.ContainsFunc(vendor, func(kv string) bool { return strings.HasPrefix(kv, "HARNESS_VAULT_KEY=") }) {
-		t.Errorf("vendor Plan.Env = %v, want HARNESS_VAULT_KEY scrubbed", vendor)
+		t.Errorf("vendor Plan.Env = %d, want HARNESS_VAULT_KEY scrubbed", len(vendor))
 	}
 	if !slices.Contains(vendor, "PATH=/usr/bin") {
-		t.Errorf("vendor Plan.Env = %v, want PATH kept", vendor)
+		t.Errorf("vendor Plan.Env = %d, want PATH kept", len(vendor))
 	}
 }
 
@@ -301,10 +301,10 @@ func TestPlanEnvTargetAdditionWinsOverDenyTable(t *testing.T) {
 	base := []string{"COPILOT_GITHUB_TOKEN=inherited", "PATH=/bin"}
 	env := p.plainEnv(base)
 	if !slices.Contains(env, "COPILOT_GITHUB_TOKEN=own-token") {
-		t.Errorf("env = %q, want the plan's own COPILOT_GITHUB_TOKEN to win", env)
+		t.Errorf("env = %d, want the plan's own COPILOT_GITHUB_TOKEN to win", len(env))
 	}
 	if slices.Contains(env, "COPILOT_GITHUB_TOKEN=inherited") {
-		t.Errorf("env = %q, inherited value must not survive", env)
+		t.Errorf("env = %d, inherited value must not survive", len(env))
 	}
 }
 
@@ -314,13 +314,13 @@ func TestPlanEnvScrubsDenyTableRespectingKeep(t *testing.T) {
 	p := Plan{Keep: []string{"DATABRICKS_HOST"}}
 	env := p.plainEnv(base)
 	if slices.Contains(env, "DATABRICKS_TOKEN=secret") {
-		t.Errorf("env = %q, DATABRICKS_TOKEN must be scrubbed", env)
+		t.Errorf("env = %d, DATABRICKS_TOKEN must be scrubbed", len(env))
 	}
 	if !slices.Contains(env, "DATABRICKS_HOST=keepme") {
-		t.Errorf("env = %q, kept name must survive", env)
+		t.Errorf("env = %d, kept name must survive", len(env))
 	}
 	if !slices.Contains(env, "PATH=/bin") {
-		t.Errorf("env = %q, non-credential var must survive", env)
+		t.Errorf("env = %d, non-credential var must survive", len(env))
 	}
 }
 

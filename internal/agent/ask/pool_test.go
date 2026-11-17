@@ -568,7 +568,7 @@ func TestBatchChildDropsOtherProfilesCustomCredentialVar(t *testing.T) {
 		t.Error("pa's child holds pb's custom credential var")
 	}
 	if !strings.Contains(env, "TOKEN-AAAA-1111") || !strings.Contains(env, "pa-note") {
-		t.Errorf("pa's child lost its own token or an unrelated custom var:\n%s", env)
+		t.Errorf("pa's child lost its own token or an unrelated custom var:\n%d", len(env))
 	}
 }
 

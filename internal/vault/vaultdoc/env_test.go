@@ -59,7 +59,7 @@ func TestSetEnvRefusesSecretsAndBadInput(t *testing.T) {
 		}
 	}
 	if env := providers.CustomEnv(); len(env) != 0 {
-		t.Errorf("refusals wrote %v", env)
+		t.Errorf("refusals wrote %d entries", len(env))
 	}
 }
 

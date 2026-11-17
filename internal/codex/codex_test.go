@@ -47,7 +47,7 @@ func TestAuthNoneNotRouted(t *testing.T) {
 		t.Fatal(err)
 	}
 	if strings.Contains(strings.Join(argv, " "), testRouterBase) || strings.Contains(strings.Join(env, " "), testRouterSecret) {
-		t.Errorf("AuthNone was routed: %q %q", env, argv)
+		t.Errorf("AuthNone was routed: %d %q", len(env), argv)
 	}
 }
 
@@ -364,7 +364,7 @@ func TestCodexCredentialHeaderTravelsInEnvNotArgv(t *testing.T) {
 		found = found || e == wantEnv
 	}
 	if !found {
-		t.Errorf("env lacks %q: %q", "CLAUDE_CODE_CODEX_HDR_AUTHORIZATION", env)
+		t.Errorf("env lacks %q: %d", "CLAUDE_CODE_CODEX_HDR_AUTHORIZATION", len(env))
 	}
 }
 

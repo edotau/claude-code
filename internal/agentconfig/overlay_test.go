@@ -158,7 +158,7 @@ func TestResolveOverlayFailsClosedAndNeverEchoes(t *testing.T) {
 	for _, c := range cases {
 		c.arm()
 		if _, err := ResolveOverlay(c.o); err == nil || !strings.HasPrefix(err.Error(), c.want) || leak.MatchString(err.Error()) {
-			t.Errorf("ResolveOverlay(%v): err = %v, want prefix %q and no value or key-tool stderr", c.o.Set, err, c.want)
+			t.Errorf("ResolveOverlay (%d env entries): err = %v, want prefix %q and no value or key-tool stderr", len(c.o.Set), err, c.want)
 		}
 	}
 }

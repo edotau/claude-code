@@ -42,7 +42,7 @@ func TestSpawnSelfLaunchesWithLogUnderStateDir(t *testing.T) {
 	want := launch{bin: self, dir: "/work", log: filepath.Join(StateDir(), "x.log"), args: []string{"memory", "x"},
 		env: []string{"A=1"}}
 	if len(*got) != 1 || !sameLaunch((*got)[0], want) {
-		t.Fatalf("launches = %+v; want [%+v]", *got, want)
+		t.Fatalf("launch count = %d; want one launch matching args %q", len(*got), want.args)
 	}
 	if st, err := os.Stat(want.log); err != nil || st.Mode().Perm() != 0o600 {
 		t.Fatalf("log file stat = %v, %v; want an 0600 file", st, err)
@@ -71,12 +71,12 @@ func TestDefaultSpawnersBuildTodaysArgvAndLogs(t *testing.T) {
 			[]string{providers.EnvSessionProfile + "=p1", UpdateChildEnv + "=1"}},
 	}
 	if len(*got) != len(want) {
-		t.Fatalf("launches = %+v; want %d", *got, len(want))
+		t.Fatalf("launch count = %d; want %d", len(*got), len(want))
 	}
 	for i, w := range want {
 		g := (*got)[i]
 		if !slices.Equal(g.args, w.args) || g.dir != w.dir || !stateLog(g.log, w.logRE) || !slices.Equal(g.env, w.env) {
-			t.Errorf("launch %d = %+v; want args %q dir %q log %q env %q", i, g, w.args, w.dir, w.logRE, w.env)
+			t.Errorf("launch %d: args %q dir %q; want args %q dir %q log %q", i, g.args, g.dir, w.args, w.dir, w.logRE)
 		}
 	}
 	if r, ok := readUpdateResult("s1"); !ok || r.Status != updatePending || r.Log != (*got)[0].log {

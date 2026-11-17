@@ -243,7 +243,7 @@ func TestClaudeModelFlag(t *testing.T) {
 			}
 			for k, v := range tc.want {
 				if p.Set[k] != v {
-					t.Errorf("%s = %q, want %q (set %v)", k, p.Set[k], v, p.Set)
+					t.Errorf("%s = %q, want %q (set %d)", k, p.Set[k], v, len(p.Set))
 				}
 			}
 			if p.Set[providers.EnvSessionProfile] != "ollama" {
@@ -307,7 +307,7 @@ func TestClaudeShellEndpointBeatsVault(t *testing.T) {
 	env := p.Env([]string{"ANTHROPIC_MODEL=shell-model", "ANTHROPIC_BASE_URL=https://shell.example", "ANTHROPIC_AUTH_TOKEN=stale"})
 	for _, w := range []string{"ANTHROPIC_MODEL=shell-model", "ANTHROPIC_BASE_URL=https://shell.example"} {
 		if !slices.Contains(env, w) {
-			t.Errorf("env lost %s: %q", w, env)
+			t.Errorf("env lost %s: %d", w, len(env))
 		}
 	}
 	if slices.Contains(env, "ANTHROPIC_AUTH_TOKEN=stale") {
@@ -501,7 +501,7 @@ func TestClaudeInteractiveRendersRecord(t *testing.T) {
 		p := plan()
 		checkArgv(t, prof+" record", p.Argv, []string{"--launch-arg --effort high"}, []string{"--permission"})
 		if p.Set["FOO_LAUNCH"] != "1" || p.Set["ANTHROPIC_SMALL_FAST_MODEL"] != "" {
-			t.Errorf("%s: set %v, want FOO_LAUNCH=1 and no wiped launch.env name", prof, p.Set)
+			t.Errorf("%s: set %d, want FOO_LAUNCH=1 and no wiped launch.env name", prof, len(p.Set))
 		}
 		checkArgv(t, prof+" typed", plan("--effort=low").Argv, []string{"--launch-arg --effort=low"}, []string{"--effort high"})
 		checkArgv(t, prof+" prompt", plan("--", "--effort").Argv, []string{"--effort high -- --effort"}, nil)

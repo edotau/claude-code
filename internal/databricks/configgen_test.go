@@ -55,7 +55,7 @@ func checkServingEnv(t *testing.T, env map[string]string) {
 	}
 	if env["ANTHROPIC_BASE_URL"] != "https://x.example.com/serving-endpoints/anthropic" ||
 		env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] != "1" || env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] != "databricks-claude-haiku-5-5" {
-		t.Errorf("env %v", env)
+		t.Errorf("env %d", len(env))
 	}
 }
 
@@ -157,7 +157,7 @@ func TestClaudeSeedsEveryAliasFromRow(t *testing.T) {
 		t.Fatal(err)
 	}
 	if d.Env["ANTHROPIC_DEFAULT_SONNET_MODEL"] != "databricks-claude-sonnet-5" || d.Env["ANTHROPIC_DEFAULT_FABLE_MODEL"] == "" {
-		t.Errorf("alias env %v", d.Env)
+		t.Errorf("alias env %d", len(d.Env))
 	}
 }
 
@@ -244,7 +244,7 @@ func checkMatrixClaude(t *testing.T, name, text, auth string) {
 	}
 	if d.K != helper || d.Env["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] != "300000" ||
 		d.Env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] != "1" {
-		t.Errorf("%s: helper/env %q %v", name, d.K, d.Env)
+		t.Errorf("%s: helper/env %q %d", name, d.K, len(d.Env))
 	}
 }
 
@@ -295,7 +295,7 @@ func TestSetOverridesAndCredentialRefusal(t *testing.T) {
 	var d struct{ Env map[string]string }
 	_ = json.Unmarshal([]byte(r.Text), &d)
 	if d.Env["ANTHROPIC_MODEL"] != "databricks-claude-haiku-5-5" || d.Env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] != "0" {
-		t.Errorf("--set not applied: %v", d.Env)
+		t.Errorf("--set not applied: %d", len(d.Env))
 	}
 	for _, k := range []string{"ANTHROPIC_AUTH_TOKEN", "anthropic_auth_token", "X-API-KEY", "db.password", "CLIENT_SECRET"} {
 		o.Set = []string{k + "=v"}
@@ -332,7 +332,7 @@ func TestClaudeRefusesCredentialProviderEnvAndHeaderValues(t *testing.T) {
 		o := base(t, targetClaude)
 		set(o.P)
 		if _, err := renderConfig(o); err == nil {
-			t.Errorf("credential-shaped provider entry rendered: env=%v headers=%v", o.P.Env, o.P.Headers)
+			t.Errorf("credential-shaped provider entry rendered: env=%d headers=%d", len(o.P.Env), len(o.P.Headers))
 		}
 	}
 }

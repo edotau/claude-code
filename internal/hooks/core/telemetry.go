@@ -73,7 +73,7 @@ func RecordTelemetry(rows []TelemetryRow) {
 	go func() {
 		defer close(done)
 		defer telemetryBusy.Store(false)
-		recordTelemetry(dir, rows, deadline)
+		recordTelemetry(dir, rows, time.Now(), deadline)
 	}()
 	select {
 	case <-done:
@@ -81,8 +81,7 @@ func RecordTelemetry(rows []TelemetryRow) {
 	}
 }
 
-func recordTelemetry(dir string, rows []TelemetryRow, deadline time.Time) {
-	now := time.Now()
+func recordTelemetry(dir string, rows []TelemetryRow, now, deadline time.Time) {
 	file := filepath.Join(dir, "telemetry-"+now.Format(telemetryDateLayout)+".jsonl")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return

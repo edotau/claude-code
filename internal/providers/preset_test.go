@@ -81,7 +81,7 @@ func checkPresetModelsEnv(t *testing.T, p *Provider) {
 		t.Errorf("models = %v", p.Models)
 	}
 	if !reflect.DeepEqual(p.Env, map[string]string{"CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS": "1"}) {
-		t.Errorf("env = %v", p.Env)
+		t.Errorf("env = %d", len(p.Env))
 	}
 }
 
@@ -121,7 +121,7 @@ func checkExplicitAuthModelsEnv(t *testing.T, p *Provider) {
 		t.Errorf("models = %v", p.Models)
 	}
 	if p.Env["CLAUDE_CODE_DISABLE_EXPERIMENTAL_BETAS"] != "0" || p.Env["OTHER"] != "x" {
-		t.Errorf("env = %v", p.Env)
+		t.Errorf("env = %d", len(p.Env))
 	}
 }
 

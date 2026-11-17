@@ -36,7 +36,7 @@ func TestEnvironPassesMemoryOrigin(t *testing.T) {
 	for _, s := range []EnvSpec{{Mode: EnvClaude}, {Mode: EnvAgent}, {Mode: EnvClaude, Base: []string{"PATH=/bin"}}} {
 		env := s.Environ(context.Background())
 		if n := len(slices.DeleteFunc(slices.Clone(env), func(e string) bool { return e != want })); n != 1 {
-			t.Errorf("%+v: %s present %d times, want 1", s, want, n)
+			t.Errorf("%+v: %s present %d times, want 1", s.Mode, want, n)
 		}
 	}
 }
@@ -188,7 +188,7 @@ func TestCredentialScrubRegistryFailure(t *testing.T) {
 			want = append(want, "OWN_KEY=own")
 		}
 		if got := scrubIsolated(ctx, env, []string{"KEPT_TOKEN"}); !reflect.DeepEqual(got, want) {
-			t.Errorf("own=%v: scrubbed env = %q, want %q", own, got, want)
+			t.Errorf("own=%v: scrubbed env = %d, want %q", own, len(got), want)
 		}
 	}
 }
@@ -203,7 +203,7 @@ func TestChildCmdOwnLoginDropsForeignCredentialsUnderIsolation(t *testing.T) {
 	has := func(cmd interface{ Environ() []string }, kv string) bool { return slices.Contains(cmd.Environ(), kv) }
 	iso, _ := ChildCmd(withIsolation(context.Background()), "/bin/true", nil, []string{"OPENCODE_API_KEY=native"}, "", "", nil, true)
 	if has(iso, "PA_BATCH_KEY=foreign-secret") || !has(iso, "OPENCODE_API_KEY=native") {
-		t.Errorf("isolated env leaks PA_BATCH_KEY or lost the native var: %v", iso.Env)
+		t.Errorf("isolated env leaks PA_BATCH_KEY or lost the native var: %d", len(iso.Env))
 	}
 	plain, _ := ChildCmd(context.Background(), "/bin/true", nil, nil, "", "", nil, true)
 	if !has(plain, "PA_BATCH_KEY=foreign-secret") {
@@ -249,8 +249,7 @@ func TestChildCmdLaunchValuesSurviveIsolationScrub(t *testing.T) {
 	ctx := withOwnProvider(withIsolation(context.Background()), reg.Providers["ocgo"])
 	cmd, _ := ChildCmd(ctx, "/bin/true", nil, []string{"OPENCODE_API_KEY=launch"}, "", "", nil, true)
 	if !slices.Contains(cmd.Env, "OPENCODE_API_KEY=launch") || slices.Contains(cmd.Env, "OPENCODE_API_KEY=inherited-foreign") {
-		t.Errorf("env keeps the inherited foreign value or lost the launch's: %v", slices.DeleteFunc(slices.Clone(cmd.Env),
-			func(kv string) bool { return !strings.HasPrefix(kv, "OPENCODE_API_KEY") }))
+		t.Errorf("env keeps the inherited foreign value or lost the launch's: %d", len(cmd.Env))
 	}
 }
 

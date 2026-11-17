@@ -139,7 +139,7 @@ func TestAnthropicOAuthLaunchPlan(t *testing.T) {
 	}
 	p := planFor(t, fakeToken, "--oauth", "--print-env")
 	if p.Set[oauthKey] != fakeToken || p.Set[providers.EnvSessionProfile] != "ultra" {
-		t.Errorf("set %v", p.Set)
+		t.Errorf("set %d", len(p.Set))
 	}
 	if len(p.Files) != 0 || slices.Contains(p.Argv, "--settings") {
 		t.Errorf("a login profile must not set an apiKeyHelper: %q", p.Argv)
@@ -159,7 +159,7 @@ func TestAnthropicNamedAPIKeyLaunchPlan(t *testing.T) {
 	}
 	p := planFor(t, fakeToken, "--x-api-key=WORK_KEY")
 	if p.Set["ANTHROPIC_API_KEY"] != fakeToken || p.Set[providers.EnvSessionProfile] != "anthropic" {
-		t.Errorf("set %v", p.Set)
+		t.Errorf("set %d", len(p.Set))
 	}
 	if len(p.Files) != 0 || slices.Contains(p.Argv, "--settings") {
 		t.Errorf("a named key drops the apiKeyHelper overlay: %q %s", p.Argv, overlayFile(p).Data)
@@ -181,7 +181,7 @@ func TestAnthropicDefaultAPIKeyLaunchPlan(t *testing.T) {
 	hermetic(t, "")
 	p := planFor(t, fakeToken, "--x-api-key")
 	if p.Set[providers.EnvSessionProfile] != "anthropic" || p.Set["ANTHROPIC_API_KEY"] != "" {
-		t.Errorf("set %v", p.Set)
+		t.Errorf("set %d", len(p.Set))
 	}
 	if !slices.Contains(p.Argv, "--settings") || !strings.Contains(string(overlayFile(p).Data), "apiKeyHelper") {
 		t.Errorf("bare --x-api-key should use the apiKeyHelper overlay: %q", p.Argv)
