@@ -91,12 +91,6 @@ func memoryFlagSet(sub string) *flag.FlagSet {
 	return helptext.NewFlagSet("memory "+sub, memorySubPage(sub))
 }
 
-// memoryRepoFlagSet adds --repo; only review and index take it, the checkout their link and embedding checks read.
-func memoryRepoFlagSet(sub string) (*flag.FlagSet, *string) {
-	fs := memoryFlagSet(sub)
-	return fs, fs.String("repo", "", "checkout path (default: $CLAUDE_PROJECT_DIR, git toplevel, cwd)")
-}
-
 // memoryParseNoArgs parses args and refuses a positional: it stops flag parsing, so later flags would be ignored.
 func memoryParseNoArgs(fs *flag.FlagSet, sub string, args []string) (code int, done bool) {
 	if code, done := helptext.Parse(fs, args); done {
@@ -209,7 +203,7 @@ func memorySpec() *helptext.Node {
 			helptext.Plain("load"), helptext.BoolFlag("explain"), helptext.CompletionFormatFlag()}},
 		"remember": {Flags: []helptext.Flag{helptext.ValuedFlag("type", memoryRememberTypes)}},
 		"init":     {},
-		"review": {Flags: []helptext.Flag{helptext.Plain("repo"), helptext.Plain("stale-days"), helptext.BoolFlag("notice"),
+		"review": {Flags: []helptext.Flag{helptext.Plain("stale-days"), helptext.BoolFlag("notice"),
 			helptext.BoolFlag("brief"), helptext.BoolFlag("candidates"), helptext.BoolFlag("timeline"), helptext.Plain("n")}},
 		"promote": {Flags: []helptext.Flag{
 			helptext.ValuedFlag("to", func() []string { return memory.PromoteTargets })}},
@@ -218,7 +212,7 @@ func memorySpec() *helptext.Node {
 		"dream":   {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("force"), helptext.BoolFlag("dry-run")}},
 		"search":  {Flags: []helptext.Flag{helptext.Plain("k"), helptext.CompletionFormatFlag()}},
 		"show":    {},
-		"index":   {Flags: []helptext.Flag{helptext.Plain("repo"), helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only")}},
+		"index":   {Flags: []helptext.Flag{helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only")}},
 		"path":    {},
 		"report":  {Flags: []helptext.Flag{helptext.Plain("label"), helptext.Plain("file"), helptext.BoolFlag("stdin"), helptext.CompletionFormatFlag()}},
 		"fmt":     {Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("own")}},
@@ -350,13 +344,13 @@ func printMemoryBlock(path, block string) {
 }
 
 func cmdMemoryIndex(args []string) int {
-	fs, repo := memoryRepoFlagSet("index")
+	fs := memoryFlagSet("index")
 	reembed := fs.Bool("reembed", false, "re-embed all entries; last 8 min of the lease or expired")
 	mintOnly := fs.Bool("mint-only", false, "refresh embedding cache without settling bank contents")
 	if code, done := memoryParseNoArgs(fs, "index", args); done {
 		return code
 	}
-	if err := memory.Index(os.Stdout, os.Stderr, memory.IndexOptions{Repo: *repo, Reembed: *reembed, MintOnly: *mintOnly}); err != nil {
+	if err := memory.Index(os.Stdout, os.Stderr, memory.IndexOptions{Reembed: *reembed, MintOnly: *mintOnly}); err != nil {
 		return helptext.Fail("%v", err)
 	}
 	return 0
@@ -479,7 +473,7 @@ func cmdMemoryFmt(args []string) int {
 
 // cmdMemoryReview runs the doctor and stats engine calls and prints both output blocks.
 func cmdMemoryReview(args []string) int {
-	fs, repo := memoryRepoFlagSet("review")
+	fs := memoryFlagSet("review")
 	staleDays := fs.Int("stale-days", memory.DefaultStaleDays, "flag a bank untouched for this many days")
 	brief := fs.Bool("brief", false, "print only the problem count, not each line")
 	notice := fs.Bool("notice", false, "refresh the cached session-start notice and print nothing")
@@ -495,7 +489,7 @@ func cmdMemoryReview(args []string) int {
 		}
 		return 0
 	}
-	err := memory.ReviewReport(os.Stdout, memory.ReviewOptions{Repo: *repo, StaleDays: *staleDays, Brief: *brief,
+	err := memory.ReviewReport(os.Stdout, memory.ReviewOptions{StaleDays: *staleDays, Brief: *brief,
 		Notice: *notice, Candidates: *candidates})
 	if err != nil {
 		return helptext.Fail("memory review: %v", err)

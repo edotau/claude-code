@@ -438,7 +438,7 @@ func refreshStampFresh(stamp string, now time.Time) bool {
 
 // spawnEmbedRefresh uses the mint-only index path so automatic refresh never settles the bank.
 func spawnEmbedRefresh(root, profile string) bool {
-	args := []string{"memory", "index", "--mint-only", "--repo", root}
+	args := []string{"memory", "index", "--mint-only"}
 	return spawnSelf(args, root, "", proc.Values{providers.EnvSessionProfile: profile, UpdateChildEnv: "1"}.Env()...)
 }
 

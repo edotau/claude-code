@@ -84,7 +84,7 @@ func TestIndexRefreshesTheCachedDoctorNotice(t *testing.T) {
 		t.Fatal(err)
 	}
 	write(t, decisionLog, "# D\n")
-	if err := Index(&bytes.Buffer{}, &bytes.Buffer{}, IndexOptions{Repo: StoreDir()}); err != nil {
+	if err := Index(&bytes.Buffer{}, &bytes.Buffer{}, IndexOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if notice := mustRead(t, doctorNoticePath()); notice != "" {
@@ -96,8 +96,9 @@ func TestIndexRefreshesTheCachedDoctorNotice(t *testing.T) {
 func TestIndexSaysWhenThereIsNoStore(t *testing.T) {
 	tempConfig(t)
 	root := gitRepo(t, canonTemp(t, t.TempDir()), "bare")
+	t.Chdir(root)
 	var out bytes.Buffer
-	if err := Index(&out, &bytes.Buffer{}, IndexOptions{Repo: root}); err != nil {
+	if err := Index(&out, &bytes.Buffer{}, IndexOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if got := out.String(); strings.Contains(got, "indexed ") || !strings.Contains(got, "no store") || !strings.Contains(got, "memory init") {

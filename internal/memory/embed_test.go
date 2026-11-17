@@ -61,9 +61,9 @@ func expireEmbed(t *testing.T) {
 }
 
 // mustEntryHashes is currentEntryHashes for tests: it fails the test on a corpus read error.
-func mustEntryHashes(t *testing.T, root string) map[string]string {
+func mustEntryHashes(t *testing.T) map[string]string {
 	t.Helper()
-	h, err := currentEntryHashes(root)
+	h, err := currentEntryHashes()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,11 +98,11 @@ func TestEmbedEntriesReusesCacheByContentHash(t *testing.T) {
 	expireEmbed(t)
 	n, _, err = embedChanged(context.Background(), root, c)
 	wantEmbedded(t, "edit must re-embed only that entry", n, calls, err, 1, 3)
-	assertSemanticCloser(t, c, root)
+	assertSemanticCloser(t, c)
 }
 
 // assertSemanticCloser opens a Semantic over c and requires a gamma query to sit closer to the gamma entry.
-func assertSemanticCloser(t *testing.T, c *EmbedClient, root string) {
+func assertSemanticCloser(t *testing.T, c *EmbedClient) {
 	t.Helper()
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return c, nil }
@@ -111,16 +111,16 @@ func assertSemanticCloser(t *testing.T, c *EmbedClient, root string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	gamma, delta := entryCosines(t, sem, root)
+	gamma, delta := entryCosines(t, sem)
 	if gamma <= delta {
 		t.Errorf("a gamma query must sit closer to the gamma entry: gamma=%.3f delta=%.3f", gamma, delta)
 	}
 }
 
 // entryCosines returns the query's cosine to entry aaaa0001 (gamma) and to the other entry (delta).
-func entryCosines(t *testing.T, sem *Semantic, root string) (gamma, delta float64) {
+func entryCosines(t *testing.T, sem *Semantic) (gamma, delta float64) {
 	t.Helper()
-	hits, err := corpusBlocks(root)
+	hits, err := corpusBlocks()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +172,7 @@ func TestEmbedEntriesConcurrentRunsMerge(t *testing.T) {
 			nested = true
 			write(t, bankFile, "# D\n\n## 2026-10-01 — gamma one <!-- id:aaaa0001 -->\n\nbody\n\n## 2026-10-02 — delta two <!-- id:aaaa0002 -->\n\nbody\n")
 			cur := freshEmbedCache(inner)
-			cur.Rows["aaaa0002"] = vectorRow{Root: root, Hash: mustEntryHashes(t, root)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
+			cur.Rows["aaaa0002"] = vectorRow{Root: root, Hash: mustEntryHashes(t)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
 			if err := saveEmbedCache(cur); err != nil {
 				t.Error(err)
 			}
@@ -270,7 +270,7 @@ func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
 			nested = true
 			write(t, bankFile, v2)
 			cur := freshEmbedCache(inner)
-			cur.Rows["aaaa0001"] = vectorRow{Root: root, Hash: mustEntryHashes(t, root)["aaaa0001"], Vec: encodeVec([]float32{1, 0, 0})}
+			cur.Rows["aaaa0001"] = vectorRow{Root: root, Hash: mustEntryHashes(t)["aaaa0001"], Vec: encodeVec([]float32{1, 0, 0})}
 			if err := saveEmbedCache(cur); err != nil {
 				t.Error(err)
 			}
@@ -280,7 +280,7 @@ func TestEmbedMergeKeepsVectorMatchingCurrentContent(t *testing.T) {
 	if _, _, err := embedChanged(context.Background(), root, outer); err != nil {
 		t.Fatal(err)
 	}
-	want := mustEntryHashes(t, root)["aaaa0001"]
+	want := mustEntryHashes(t)["aaaa0001"]
 	if got := loadEmbedCache().Rows["aaaa0001"].Hash; got != want {
 		t.Errorf("cache holds the older run's vector: hash %s, current content %s", got, want)
 	}
@@ -584,7 +584,7 @@ func TestStaleEmbedRunCannotRevertDimension(t *testing.T) {
 	old := dimEmbedClient(3, func() { // the old-dimension run is mid-embed when the migration finishes
 		cur := freshEmbedCache(newer)
 		cur.Dim, cur.DimAt = 2, time.Now().UnixNano()
-		for id, h := range mustEntryHashes(t, root) {
+		for id, h := range mustEntryHashes(t) {
 			cur.Rows[id] = vectorRow{Root: root, Hash: h, Vec: encodeVec([]float32{1, 0})}
 		}
 		if err := saveEmbedCache(cur); err != nil {
@@ -628,7 +628,7 @@ func TestPruneKeepsRowsOfEntriesAddedMidRun(t *testing.T) {
 			nested = true
 			write(t, bankFile, "# D\n\n"+e1+e2)
 			cur := loadEmbedCache()
-			cur.Rows["aaaa0002"] = vectorRow{Root: root, Hash: mustEntryHashes(t, root)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
+			cur.Rows["aaaa0002"] = vectorRow{Root: root, Hash: mustEntryHashes(t)["aaaa0002"], Vec: encodeVec([]float32{1, 0, 0})}
 			if err := saveEmbedCache(cur); err != nil {
 				t.Error(err)
 			}

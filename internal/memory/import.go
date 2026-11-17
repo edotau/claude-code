@@ -73,7 +73,7 @@ func ImportBank(opt ImportOptions) (ImportResult, error) {
 		return p.apply(opt)
 	})
 	if err == nil {
-		top, b, _ := ResolveBank("")
+		top, b := ResolveBank()
 		refreshBankNotice(os.Stderr, "memory import", top, b)
 	}
 	return res, err

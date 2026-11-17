@@ -364,7 +364,7 @@ func TestShowBlockExpandsNativeAndKnowledgeRefs(t *testing.T) {
 	isolatedConfig1(t)
 	note := Bank{}.Sub("knowledge", "wires.md")
 	write(t, note, "---\ndescription: d\n---\n# Wires\nknowledge body zebra\n")
-	hits, err := corpusBlocks(t.TempDir())
+	hits, err := corpusBlocks()
 	if err != nil {
 		t.Fatal(err)
 	}
