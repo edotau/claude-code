@@ -40,7 +40,7 @@ func TestTwolineRendersBothRows(t *testing.T) {
 	if want := promptUser() + ":proj | databricks·dbx-u2m · Fable 5.1:high"; rows[0] != want {
 		t.Errorf("row 1 = %q, want %q", rows[0], want)
 	}
-	want := "ctx ━━━━━━━━━─────────── 47% · 94.4k/200k · 7d ━━──────── 18%"
+	want := "ctx ━━━━━━━━━─────────── 47% · 94k/200k · 7d ━━──────── 18%"
 	if rows[1] != want {
 		t.Errorf("row 2 = %q, want %q", rows[1], want)
 	}
@@ -128,4 +128,12 @@ func atoi(t *testing.T, s string) int {
 		t.Fatal(err)
 	}
 	return n
+}
+
+func TestTokenCountRoundsHalfUpToWholeThousands(t *testing.T) {
+	for n, want := range map[int]string{999: "999", 1000: "1k", 246_499: "246k", 246_500: "247k", 999_499: "999k", 999_500: "1M", 1_000_000: "1M"} {
+		if got := tokenCount(n); got != want {
+			t.Errorf("tokenCount(%d) = %q, want %q", n, got, want)
+		}
+	}
 }
