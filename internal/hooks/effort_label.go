@@ -266,6 +266,9 @@ func labelQuery(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	if m, _ := updated["model"].(string); q.Model == "" && m != "" && !slices.Contains(models.AliasNames, models.Strip1M(m)) && m != "inherit" {
 		q.Model = m // an exact dispatch model, spelled as a --model ask runs it
 	}
+	if q.Model == "" && agent != "" && run.model != "inherit" {
+		q.Model = run.model // the verb's --model is the ask's, an alias included
+	}
 	if q.Model == "" && agent == "" && q.Profile == "" && q.Provider == "" {
 		return q, false // an in-context leaf: its own model
 	}
