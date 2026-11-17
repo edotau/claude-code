@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"time"
 
@@ -94,8 +95,7 @@ func dispatchTreeUsage(parent string) (string, int, int) {
 	records := dispatchTreeRecords(root)
 	members := map[string]bool{root: true}
 	spent, unknown := 0, 0
-	for i := len(records) - 1; i >= 0; i-- {
-		rec := records[i]
+	for _, rec := range slices.Backward(records) {
 		if !members[rec.ID] && !members[rec.Parent] {
 			continue
 		}
@@ -114,8 +114,8 @@ func dispatchTreeRecords(root string) []Record {
 	dir := paths.DispatchDir()
 	names, _ := recordNames(dir) // Missing history cannot supply usage.
 	var records []Record
-	for i := len(names) - 1; i >= 0; i-- {
-		rec, err := readRecord(filepath.Join(dir, names[i]))
+	for _, name := range slices.Backward(names) {
+		rec, err := readRecord(filepath.Join(dir, name))
 		if err != nil {
 			continue
 		}

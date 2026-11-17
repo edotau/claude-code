@@ -3,6 +3,7 @@ package copilot
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/catalog"
@@ -49,12 +50,7 @@ func modelFamily(id string) string {
 }
 
 func familyWord(model string) bool {
-	for _, family := range modelFamilies {
-		if model == family {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(modelFamilies, model)
 }
 
 // ReviewModel preserves ordinary model validation and defaults when no author family is known.

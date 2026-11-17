@@ -570,7 +570,7 @@ func TestRenderFullModelAt80Columns(t *testing.T) {
 	}}
 	var out strings.Builder
 	renderTree(&out, &Tree{Sessions: []Session{cacheSessionTotals(s)}}, time.Time{}, 80, "")
-	for _, line := range strings.Split(out.String(), "\n") {
+	for line := range strings.SplitSeq(out.String(), "\n") {
 		if textutil.DisplayWidth(line) > 80 {
 			t.Errorf("line too wide: %q", line)
 		}

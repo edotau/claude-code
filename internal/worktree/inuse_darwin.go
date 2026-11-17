@@ -20,8 +20,7 @@ func init() {
 	commName = func(pid int) string { return cmp.Or(proc.Comm(pid), "?") }
 }
 
-// scanProcsDarwin runs lsof once (no /proc on macOS); -w mutes warnings: only exit 1 + empty stderr = no match.
-// -b skips lsof's device-cache build (about half its runtime); cwd paths come from the kernel, so rows are unchanged.
+// scanProcsDarwin runs lsof once (no /proc on macOS); -w mutes warnings, -b skips its device-cache build.
 func scanProcsDarwin() ([]procCwd, error) { return lsofCwd() }
 
 // maxAgentPIDs caps the -p list; a longer one is not an agent list, so the caller falls back to the full scan.

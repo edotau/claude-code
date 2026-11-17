@@ -2,7 +2,7 @@ package ask
 
 import (
 	"bytes"
-	"fmt"
+	"errors"
 	"slices"
 	"strings"
 	"testing"
@@ -52,7 +52,7 @@ func TestReportSandboxDenialsTextOnly(t *testing.T) {
 			}
 			if format == helptext.Text {
 				var saved bytes.Buffer
-				if err := reportSaved(&saved, format, "", res, fmt.Errorf("run failed")); err != nil {
+				if err := reportSaved(&saved, format, "", res, errors.New("run failed")); err != nil {
 					t.Fatal(err)
 				}
 				if saved.String() != res.Answer+want {

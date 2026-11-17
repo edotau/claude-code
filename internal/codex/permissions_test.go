@@ -1,8 +1,8 @@
 package codex
 
 import (
-	"fmt"
 	"slices"
+	"strconv"
 	"time"
 
 	"os"
@@ -392,7 +392,7 @@ func TestDenialStreamCodeModeRefusalHasNoSignal(t *testing.T) {
 func TestDenialSinkCapsCommandsAndKeepsCount(t *testing.T) {
 	var events []wire.Event
 	for i, command := range []string{"go test ./...", "python3 -c x", strings.Repeat("界", 81) + " arg", "ps aux"} {
-		id := fmt.Sprint(i)
+		id := strconv.Itoa(i)
 		use := wire.ToolEvent("shell", id)
 		use.Text = "/bin/bash -lc '" + command + "'"
 		events = append(events, use, wire.Event{Type: wire.EventToolResult, Tool: &wire.ToolRef{Name: "shell", ID: id},

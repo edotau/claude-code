@@ -69,7 +69,7 @@ func diskCached(ctx context.Context, run func(context.Context) ([]byte, error)) 
 	return out, err
 }
 
-// CheckCached is Check from the disk cache at any age up to quotaStaleMax, never spawning agy; an error means no usable read.
+// CheckCached is Check from the disk cache up to quotaStaleMax old, never spawning agy; an error means no usable read.
 func CheckCached(_ context.Context, model string, now time.Time) (ModelQuota, error) {
 	file := filepath.Join(paths.StateDir(), "agy-usage.json")
 	st, err := os.Stat(file)

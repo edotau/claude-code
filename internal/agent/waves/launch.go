@@ -98,8 +98,7 @@ func Launch(ctx context.Context, executable string, specs []Spec, options Launch
 
 // containPanic keeps a panic's value and stack, which the run's persisted reason must not carry, on stderr.
 func containPanic(res batchResult, specs []Spec) error {
-	var pe *par.PanicError
-	if !errors.As(res.err, &pe) {
+	if _, ok := errors.AsType[*par.PanicError](res.err); !ok {
 		return res.err
 	}
 	fmt.Fprintln(os.Stderr, res.err)

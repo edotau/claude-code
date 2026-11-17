@@ -287,7 +287,7 @@ func pidsWithin(all []procCwd, dirs []string) map[int]bool {
 // helperSubcmds are claude subcommands that manage config or installs and never edit a checkout.
 var helperSubcmds = map[string]bool{"update": true, "upgrade": true, "doctor": true, "auth": true, "setup-token": true}
 
-// isDaemon reports a non-session helper: agy's IDE `--hub`, Chrome's `--chrome-native-host`, or a claude admin subcommand.
+// isDaemon reports a non-session helper: agy's IDE `--hub`, Chrome's native host, or a claude admin subcommand.
 func isDaemon(pid int) bool {
 	argv, err := argvOf(pid)
 	return err == nil && isHelperArgv(argv)
