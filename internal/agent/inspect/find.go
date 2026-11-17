@@ -15,14 +15,12 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"sync"
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 const findFileLimit = 1 << 20
-const findWorkers = 8
 const findSniffBytes = 8 << 10
 
 // FindDefaultMax is the default result-line budget.
@@ -110,24 +108,26 @@ func findReport(o FindOptions) (FindReport, error) {
 	if err != nil {
 		return rep, err
 	}
-	for start := 0; start < len(files); start += findWorkers {
-		batch := files[start:min(start+findWorkers, len(files))]
-		rows, errs := findBatch(root, batch, o, re)
-		for i, matches := range rows {
-			if skip, ok := errors.AsType[*findSkip](errs[i]); ok {
-				fmt.Fprintf(o.Err, "find: skipped %s: %v\n", batch[i], skip.error)
-				continue
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		return rep, err
+	}
+	defer r.Close()
+	for _, p := range files {
+		matches, err := findFile(r, p, o, re)
+		if skip, ok := errors.AsType[*findSkip](err); ok {
+			fmt.Fprintf(o.Err, "find: skipped %s: %v\n", p, skip.error)
+			continue
+		}
+		if err != nil {
+			return rep, fmt.Errorf("%s: %w", p, err)
+		}
+		for _, match := range matches {
+			if len(rep.Matches) == o.Max {
+				rep.More = 1
+				return rep, nil
 			}
-			if errs[i] != nil {
-				return rep, fmt.Errorf("%s: %w", batch[i], errs[i])
-			}
-			for _, match := range matches {
-				if len(rep.Matches) == o.Max {
-					rep.More = 1
-					return rep, nil
-				}
-				rep.Matches = append(rep.Matches, match)
-			}
+			rep.Matches = append(rep.Matches, match)
 		}
 	}
 	return rep, nil
@@ -152,26 +152,16 @@ func findTracked(root string, o FindOptions) ([]string, error) {
 	return files, nil
 }
 
-func findBatch(root string, files []string, o FindOptions, re *regexp.Regexp) ([][]FindMatch, []error) {
-	rows, errs := make([][]FindMatch, len(files)), make([]error, len(files))
-	var wg sync.WaitGroup
-	for i, p := range files {
-		wg.Go(func() { rows[i], errs[i] = findFile(root, p, o, re) })
+func findFile(root *os.Root, p string, o FindOptions, re *regexp.Regexp) ([]FindMatch, error) {
+	if o.Name && !re.MatchString(p) {
+		return nil, nil
 	}
-	wg.Wait()
-	return rows, errs
-}
-
-func findFile(root, p string, o FindOptions, re *regexp.Regexp) ([]FindMatch, error) {
-	data, err := readFindTracked(root, p)
+	data, err := readFindTracked(root, p, o.Name)
 	if err != nil || data == nil {
 		return nil, err
 	}
 	if o.Name {
-		if re.MatchString(p) {
-			return []FindMatch{{Path: p}}, nil
-		}
-		return nil, nil
+		return []FindMatch{{Path: p}}, nil
 	}
 	if o.Func || o.Def || o.Callers {
 		return findGo(p, data, o, re)
@@ -201,37 +191,43 @@ func findContent(p string, data []byte, o FindOptions, re *regexp.Regexp) []Find
 }
 
 // readFindTracked reads p through os.Root, so a symlinked parent leaving the repo is skipped like a missing file.
-func readFindTracked(root, p string) ([]byte, error) {
-	r, err := os.OpenRoot(root)
-	if err != nil {
-		return nil, err
-	}
-	defer r.Close()
+func readFindTracked(root *os.Root, p string, sniffOnly bool) ([]byte, error) {
 	rel := filepath.FromSlash(p)
-	st, err := r.Lstat(rel)
+	st, err := root.Lstat(rel)
 	if err != nil || !st.Mode().IsRegular() || st.Size() > findFileLimit {
 		return nil, nil
 	}
-	f, err := r.Open(rel)
+	f, err := root.Open(rel)
 	if err != nil {
 		return nil, nil
 	}
-	return readFindFile(f)
+	return readFindFile(f, sniffOnly)
 }
 
-func readFindFile(f *os.File) ([]byte, error) {
-	data, readErr := io.ReadAll(io.LimitReader(f, findFileLimit+1))
-	closeErr := f.Close()
-	if readErr != nil {
-		return nil, readErr
+func readFindFile(f io.ReadCloser, sniffOnly bool) (data []byte, err error) {
+	defer func() {
+		if closeErr := f.Close(); err == nil {
+			err = closeErr
+		}
+	}()
+	data, err = io.ReadAll(io.LimitReader(f, findSniffBytes))
+	if err != nil {
+		return nil, err
 	}
-	if closeErr != nil {
-		return nil, closeErr
-	}
-	if len(data) > findFileLimit || bytes.IndexByte(data[:min(len(data), findSniffBytes)], 0) >= 0 {
+	if bytes.IndexByte(data, 0) >= 0 {
 		return nil, nil
 	}
-	return data, nil
+	if sniffOnly || len(data) < findSniffBytes {
+		return data, nil
+	}
+	rest, err := io.ReadAll(io.LimitReader(f, findFileLimit+1-int64(len(data))))
+	if err != nil {
+		return nil, err
+	}
+	if len(data)+len(rest) > findFileLimit {
+		return nil, nil
+	}
+	return append(data, rest...), nil
 }
 
 func renderFind(o FindOptions, rep FindReport) error {

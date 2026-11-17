@@ -3,9 +3,12 @@ package inspect
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -33,7 +36,7 @@ func findFixture(t *testing.T) string {
 	return root
 }
 
-func writeFindFixture(t *testing.T, root, p, content string) {
+func writeFindFixture(t testing.TB, root, p, content string) {
 	t.Helper()
 	full := filepath.Join(root, p)
 	if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
@@ -234,5 +237,65 @@ func TestFindPhysicalLines(t *testing.T) {
 	code := Find(FindOptions{Dir: root, Pattern: "Target", Func: true, Max: FindDefaultMax, Out: &out, Err: &stderr})
 	if code != 0 || out.String() != "src/code.go:3:func Target() {}\n" {
 		t.Fatalf("%d %q %q", code, out.String(), stderr.String())
+	}
+}
+
+func TestFindBinaryStopsAtSniff(t *testing.T) {
+	r := &findCountReader{Reader: strings.NewReader("\x00" + strings.Repeat("x", findFileLimit-1))}
+	data, err := readFindFile(r, false)
+	if err != nil || data != nil || r.bytes > findSniffBytes || !r.closed {
+		t.Fatalf("data=%d err=%v bytes=%d closed=%v", len(data), err, r.bytes, r.closed)
+	}
+}
+
+type findCountReader struct {
+	io.Reader
+	bytes  int
+	closed bool
+}
+
+func (r *findCountReader) Read(p []byte) (int, error) {
+	n, err := r.Reader.Read(p)
+	r.bytes += n
+	return n, err
+}
+
+func (r *findCountReader) Close() error {
+	r.closed = true
+	return nil
+}
+
+func BenchmarkFindFixture(b *testing.B) {
+	const fixtureFiles = 300
+	root := b.TempDir()
+	files := make([]string, 0, fixtureFiles)
+	for i := range fixtureFiles {
+		p := fmt.Sprintf("small-%03d.go", i)
+		writeFindFixture(b, root, p, "package fixture\nfunc Needle() {}\n")
+		files = append(files, p)
+	}
+	writeFindFixture(b, root, "large", strings.Repeat("x", findFileLimit+1))
+	writeFindFixture(b, root, "binary", "\x00"+strings.Repeat("x", findFileLimit-1))
+	files = append(files, "large", "binary")
+	if runtime.GOOS != "windows" {
+		if err := os.Symlink(files[0], filepath.Join(root, "link")); err != nil {
+			b.Fatal(err)
+		}
+		files = append(files, "link")
+	}
+	r, err := os.OpenRoot(root)
+	if err != nil {
+		b.Fatal(err)
+	}
+	defer r.Close()
+	re := regexp.MustCompile("Needle")
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		for _, p := range files {
+			if _, err := findFile(r, p, FindOptions{Max: FindDefaultMax}, re); err != nil {
+				b.Fatal(err)
+			}
+		}
 	}
 }
