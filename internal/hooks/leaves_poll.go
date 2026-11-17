@@ -29,13 +29,16 @@ type pollCall struct {
 var jobArgRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\d{8}T\d{6}\.\d{3}(?:-[A-Za-z0-9._-]+)?$`) })
 
 // pollJob is the job id a command's `claude-code agents result [-f] <id>` segment names.
-func pollJob(cmd string) (job string, follow, ok bool) {
-	if !strings.Contains(cmd, "result") {
+func pollJob(cmd string) (job string, follow, ok bool) { return verbJob(cmd, "result") }
+
+// verbJob is the job id a command's `claude-code agents <verb> [flags] <id>` segment names.
+func verbJob(cmd, verb string) (job string, follow, ok bool) {
+	if !strings.Contains(cmd, verb) {
 		return "", false, false
 	}
 	for _, toks := range relayCommands(cmd) {
 		toks = agentCommand(toks)
-		if len(toks) < 3 || toks[0] != "agents" || toks[1] != "result" {
+		if len(toks) < 3 || toks[0] != "agents" || toks[1] != verb {
 			continue
 		}
 		for _, a := range toks[2:] {
