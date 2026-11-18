@@ -114,6 +114,7 @@ func checkProviderHealth(ctx context.Context, check func(bool, bool, string, str
 }
 
 func checkToolHealth(ctx context.Context, check func(bool, bool, string, string)) {
+	flagRows := startFlagProbes(ctx)
 	for _, s := range tools.StatusAll() {
 		check(toolDoctorOK(s), false, "tool "+s.Name, toolDoctorDetail(ctx, s))
 	}
@@ -125,6 +126,7 @@ func checkToolHealth(ctx context.Context, check func(bool, bool, string, string)
 		pass, detail := agentVersionDetail(spec)
 		check(pass, false, "agent version "+spec.Name, detail)
 	}
+	flagRows(check)
 	for _, q := range quotaDoctorRows(time.Now()) {
 		check(q.OK, false, q.Name, q.Detail)
 	}

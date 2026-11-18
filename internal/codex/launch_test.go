@@ -202,3 +202,15 @@ func TestCodexHeadlessDropsLeafTools(t *testing.T) {
 		}
 	}
 }
+
+// Every long flag a headless codex launch passes is in the roster row's Flags, the one place that names vendor flags.
+func TestCodexHeadlessFlagsAreDeclared(t *testing.T) {
+	vaulttest.Use(t)
+	putCodexRecord(t, vault.AgentRecord{Extras: map[string]string{extraSandboxMode: "workspace-write"}})
+	h := &agent.Headless{Tools: true, NoPersist: true, SafeMode: true, SessionID: "s1"}
+	argv := codexHeadless(context.Background(), nil, h)
+	argv = append(argv, codexSwapSandbox(slices.Clone(argv))...)
+	if got := codexSchema().CLI.Undeclared(argv); len(got) > 0 {
+		t.Errorf("codex passes %v, not in its row's Flags", got)
+	}
+}

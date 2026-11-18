@@ -2,9 +2,11 @@ package doctor
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/tools"
 )
 
@@ -51,5 +53,42 @@ func TestCheckToolHealthListsDeps(t *testing.T) {
 		if _, ok := rows["dep "+s.Name]; !ok {
 			t.Errorf("doctor has no row for %s", s.Name)
 		}
+	}
+}
+
+// Given codex's help lacks one declared flag, When doctor runs its tool checks, Then the row names it and the version.
+func TestCheckToolHealthReportsFlagDrift(t *testing.T) {
+	hermetic(t)
+	help, err := os.ReadFile("testdata/codex-exec-help.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := agentHelp
+	t.Cleanup(func() { agentHelp = orig })
+	text := string(help)
+	agentHelp = func(_ context.Context, spec agent.Schema) (string, string, error) {
+		if spec.Name != "codex" {
+			return "", "", tools.ErrAgentNotInstalled
+		}
+		return "0.166.0", text, nil
+	}
+	row := func() (bool, string) {
+		var got *check
+		checkToolHealth(context.Background(), func(ok, hard bool, name, d string) {
+			if name == "agent flags codex" {
+				got = &check{Name: name, OK: ok, Hard: hard, Detail: d}
+			}
+		})
+		if got == nil {
+			t.Fatal("no flag row for codex")
+		}
+		return got.OK, got.Detail
+	}
+	if ok, got := row(); !ok || got != "ok" {
+		t.Errorf("full help = %v %q, want ok", ok, got)
+	}
+	text = strings.ReplaceAll(text, "--ephemeral", "--ephemeral-run")
+	if ok, got := row(); ok || got != "drift: --ephemeral (installed 0.166.0)" {
+		t.Errorf("help without --ephemeral = %v %q, want drift naming it (a longer flag does not count)", ok, got)
 	}
 }

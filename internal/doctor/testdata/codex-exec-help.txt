@@ -1,0 +1,8 @@
+  -s, --sandbox <SANDBOX_MODE>
+      --approve-for-me
+      --skip-git-repo-check
+      --ephemeral
+      --ignore-user-config
+      --ignore-rules
+      --output-schema <FILE>
+      --json

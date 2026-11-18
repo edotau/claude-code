@@ -64,6 +64,10 @@ type CLI struct {
 
 	// Extras maps the record extras keys the CLI reads to their allowed values; nil = not declared yet, not validated.
 	Extras map[string][]string
+
+	// Flags are the long flags the adapter passes, each named here once; doctor checks them against HelpArgv's output.
+	Flags    []string
+	HelpArgv []string // the help subcommand listing Flags; nil = --help
 }
 
 // PromptTransport is how a headless prompt reaches an agent; the zero value is the capped argv (fail closed).
@@ -202,6 +206,8 @@ func cloneSchema(s Schema) Schema {
 	s.CLI.Dialects = slices.Clone(s.CLI.Dialects)
 	s.CLI.RouterSuffix = maps.Clone(s.CLI.RouterSuffix)
 	s.CLI.Events = slices.Clone(s.CLI.Events)
+	s.CLI.Flags = slices.Clone(s.CLI.Flags)
+	s.CLI.HelpArgv = slices.Clone(s.CLI.HelpArgv)
 	s.CLI.ModelsArgv = slices.Clone(s.CLI.ModelsArgv)
 	s.CLI.PinIDs = slices.Clone(s.CLI.PinIDs)
 	s.CLI.LoginArgv = slices.Clone(s.CLI.LoginArgv)
@@ -228,6 +234,18 @@ func lookupRow(name string) (Schema, bool) {
 
 // External reports whether the row drives an external CLI rather than the harness's Claude launcher.
 func (s Schema) External() bool { return s.CLI.Binary != "" }
+
+// Undeclared lists the long flags in argv that the row's Flags do not name, in order and without duplicates.
+func (c CLI) Undeclared(argv []string) []string {
+	var out []string
+	for _, a := range argv {
+		name, _, _ := strings.Cut(a, "=")
+		if strings.HasPrefix(name, "--") && len(name) > 2 && !slices.Contains(c.Flags, name) && !slices.Contains(out, name) {
+			out = append(out, name)
+		}
+	}
+	return out
+}
 
 // ResumeHint renders the CLI's resume command, empty when the format or session id is empty.
 func (s Schema) ResumeHint(id string) string {

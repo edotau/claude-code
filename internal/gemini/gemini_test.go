@@ -764,3 +764,13 @@ func TestClassifyAgyErrorBeyondRetryBudget(t *testing.T) {
 		t.Errorf("a 3 hour retry hint must be Terminal: %+v", hint)
 	}
 }
+
+// Every long flag agy's headless and quota launches pass is in the roster row's Flags, the one place that names them.
+func TestAgyArgvFlagsAreDeclared(t *testing.T) {
+	argv := agyArgv(agyRequest{Model: "m", Effort: "high", SessionID: "c1", OutputSchema: "{}", Tools: true,
+		DebugFile: "/tmp/log", SettingsArgv: []string{"--settings", "{}"}})
+	s, _ := agent.LookupSchema("gemini")
+	if got := s.CLI.Undeclared(argv); len(got) > 0 {
+		t.Errorf("agy passes %v, not in its row's Flags", got)
+	}
+}

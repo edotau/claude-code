@@ -3,13 +3,18 @@ package doctor
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/tools"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -39,6 +44,87 @@ func agentVersionDetail(spec agent.Schema) (pass bool, detail string) {
 		return false, "warn " + v + " " + p
 	}
 	return true, "ok " + v
+}
+
+// helpProbeTimeout bounds one `<cli> --help`; the probes run concurrently, so doctor waits for the slowest.
+var helpProbeTimeout = 3 * time.Second
+
+// agentHelp is the installed CLI's version and its help text (spec.CLI.HelpArgv); tests swap it.
+var agentHelp = func(ctx context.Context, spec agent.Schema) (version, help string, err error) {
+	if version, err = tools.Version(spec.Name); err != nil {
+		return "", "", err
+	}
+	path, err := paths.AgentBin(spec.Name)
+	if err != nil {
+		if path, err = paths.LookPathReal(agentid.Binary(spec.Name)); err != nil {
+			return "", "", fmt.Errorf("%w: %v", tools.ErrAgentNotInstalled, err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, helpProbeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, path, append(append([]string(nil), spec.CLI.HelpArgv...), helpFlagIfBare(spec)...)...)
+	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(agent.ProbeContext(ctx, "")) // a help probe gets no credential
+	cmd.WaitDelay = 200 * time.Millisecond
+	out, runErr := cmd.CombinedOutput() // some CLIs print help on stderr or exit non-zero
+	if len(out) == 0 {
+		return version, "", fmt.Errorf("no help output: %v", runErr)
+	}
+	return version, string(out), nil
+}
+
+// helpFlagIfBare is --help when the row names no help subcommand.
+func helpFlagIfBare(spec agent.Schema) []string {
+	if len(spec.CLI.HelpArgv) == 0 {
+		return []string{"--help"}
+	}
+	return nil
+}
+
+// flagMentioned reports whether help names flag as a whole token (--sandbox is not --sandbox-mode).
+func flagMentioned(help, flag string) bool {
+	return regexp.MustCompile(`(?:^|[^\w-])` + regexp.QuoteMeta(flag) + `(?:[^\w-]|$)`).MatchString(help)
+}
+
+// agentFlagDetail is the flag-drift row: ok, drift: <missing flags> (installed <v>), or skipped: <why>.
+func agentFlagDetail(ctx context.Context, spec agent.Schema) (pass bool, detail string) {
+	version, help, err := agentHelp(ctx, spec)
+	switch {
+	case errors.Is(err, tools.ErrAgentNotInstalled):
+		return true, "skipped: not installed"
+	case err != nil:
+		return true, "skipped: help unavailable"
+	}
+	var missing []string
+	for _, f := range spec.CLI.Flags {
+		if !flagMentioned(help, f) {
+			missing = append(missing, f)
+		}
+	}
+	if len(missing) > 0 {
+		return false, "drift: " + strings.Join(missing, ", ") + " (installed " + version + ")"
+	}
+	return true, "ok"
+}
+
+// startFlagProbes runs every flag-declaring agent's help probe at once; the result reports their rows when called.
+func startFlagProbes(ctx context.Context) func(check func(bool, bool, string, string)) {
+	var specs []agent.Schema
+	for _, spec := range agent.Roster() {
+		if len(spec.CLI.Flags) > 0 {
+			specs = append(specs, spec)
+		}
+	}
+	pass, detail := make([]bool, len(specs)), make([]string, len(specs))
+	var wg sync.WaitGroup
+	for i, spec := range specs {
+		wg.Go(func() { pass[i], detail[i] = agentFlagDetail(ctx, spec) })
+	}
+	return func(check func(bool, bool, string, string)) {
+		wg.Wait()
+		for i, spec := range specs {
+			check(pass[i], false, "agent flags "+spec.Name, detail[i])
+		}
+	}
 }
 
 // toolDoctorDetail renders one tool's doctor line: an agent's bin/ entry, else path + version, then extra PATH copies.
