@@ -39,6 +39,12 @@ var dispatchFormat = schemas.Register(schemas.Format{
 	Migrate: schemas.SameShape,
 })
 
+// FailKind values: what a failed record blames, for the routing fit table.
+const (
+	FailAvailability = "availability"
+	FailQuality      = "quality"
+)
+
 // Record is one `ask` dispatch: written as "running" before the run, so a killed run stays visible.
 type Record struct {
 	Schema         int        `json:"schema"`
@@ -48,6 +54,8 @@ type Record struct {
 	Request        RunOptions `json:"request"`
 	Status         string     `json:"status"` // running | ok | error
 	Error          string     `json:"error,omitempty"`
+	FailKind       string     `json:"fail_kind,omitempty"` // availability | quality; empty when the run succeeded
+	Gates          string     `json:"gates,omitempty"`     // pass | fail | none (empty reads as none): set by SetGates
 	Provider       string     `json:"provider,omitempty"`
 	Model          string     `json:"model,omitempty"`         // as the agent reported it; may be empty
 	Invoked        string     `json:"invoked_model,omitempty"` // the model the last hop was asked to run; RunOptions keeps the original
@@ -371,6 +379,7 @@ func (r Record) LogLine() string {
 
 // Finish records the outcome of the run.
 func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
+	r.FailKind = ""
 	r.Status, r.Provider, r.Model, r.SessionID = "ok", res.Provider, res.Model, res.SessionID
 	r.Invoked = res.Invoked
 	r.Usage = nil
@@ -389,8 +398,32 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	}
 	r.DurationMs = took.Milliseconds()
 	if err != nil {
-		r.Status, r.Error = "error", textutil.RedactSecrets(err.Error())
+		r.Status, r.Error, r.FailKind = "error", textutil.RedactSecrets(err.Error()), failKind(err)
 	}
+}
+
+// failKind: availability when no model could answer (limits, auth, routing, transport, timeout, cancel), else quality.
+func failKind(err error) string {
+	if _, ok := errors.AsType[*PreflightError](err); ok || errors.Is(err, ErrModelRoute) {
+		return FailAvailability
+	}
+	switch wire.ErrorKind(err) {
+	case "auth", "rate_limit", "quota", "transient", "timeout", "canceled":
+		return FailAvailability
+	}
+	return FailQuality
+}
+
+// SetGates records the gate result (pass|fail|none) on a concluded dispatch; no caller sets it yet.
+func SetGates(id, gates string) error {
+	if gates != "pass" && gates != "fail" && gates != "none" {
+		return fmt.Errorf("dispatch %s: gates %q is not pass, fail or none", id, gates)
+	}
+	_, _, err := updateRecord(id, func(r Record) (Record, bool) {
+		r.Gates = gates
+		return r, true
+	})
+	return err
 }
 
 func (r *Record) finishSave(res wire.Result, err error, took time.Duration, notify func(string)) {

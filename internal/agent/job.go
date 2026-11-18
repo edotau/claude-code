@@ -163,7 +163,7 @@ func isReviewArgv(argv []string, rec *Record) bool {
 
 func failIfRunning(rec *Record, msg string, deadOnly bool) (bool, error) {
 	fix := func(r Record) Record {
-		r.Status = "error"
+		r.Status, r.FailKind = "error", FailAvailability // a cancel or a dead process says nothing about the model
 		if r.Error == "" {
 			r.Error = msg
 		}
