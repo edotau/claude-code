@@ -76,7 +76,6 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 
 | Need | Hand off to |
 | --- | --- |
-| New tests (feature/bug fix only) | `copilot` |
 | Docs refresh | `opencode` |
 | Wide 1M-context sweep across many files | `gemini` (`claude-code agents ask --agent gemini --tools --dirs <d>`) |
 | Judging a claimed-done task | `skills/evaluate-code/references/judge.md` (borrow its stance; manager runs it) |

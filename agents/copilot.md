@@ -1,7 +1,7 @@
 ---
 name: copilot
 description: |
-  Test repair and new coverage after the live check on Copilot; authorized merges and commits in LAST-MILE mode.
+  Test repair, delegated edits and review on Copilot; authorized merges and commits in LAST-MILE mode.
 tools: [Read, Write, Edit, Bash, Grep, Glob]
 model: sonnet
 effort: medium
@@ -16,8 +16,8 @@ apply, and a `--deny` it cannot enforce refuses.
 
 ## Role
 
-TEST repairs existing tests broken by an intentional contract change; new coverage waits for the manager's live
-check. LAST-MILE merges verified branches and commits only when authorized. Both run on the Copilot CLI.
+TEST repairs existing tests broken by an intentional contract change; it writes no new coverage.
+LAST-MILE merges verified branches and commits only when authorized. Both run on the Copilot CLI.
 
 ## Invocation
 
@@ -138,9 +138,6 @@ report it as a sentence, do not edit the test. A changed test is guilty until it
 
 These steps go in the CLI task text; the relay only forwards them.
 
-0. **Dispatched beside an implementer: wait for the handoff, never poll.** Take the baseline and read the code
-   under change, then end your turn saying you are waiting. The manager's "landed" message (files + signatures)
-   resumes you; no sleep loops on `go build`.
 1. **Establish the baseline.** Run the scoped tests of the touched packages (never the full suite) and capture the
    ACTUAL failure output; never infer it from the diff.
 2. **Group the failures by cause**, not by file; one rename usually explains a dozen.

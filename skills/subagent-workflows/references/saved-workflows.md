@@ -1,6 +1,6 @@
 # Saved Workflows (`workflows/*.js`)
 
-Run one only when the user asks; the default dispatch is `claude` ‖ `copilot` (`../SKILL.md` → Test agent). Each is a
+Run one only when the user asks; the default dispatch is a `claude` leaf per task (`../SKILL.md` → Tests). Each is a
 deterministic template of master-workflow phases, run by path (`Workflow({scriptPath: "~/.claude/workflows/<name>.js",
 args})`; a by-name call is accepted but `dispatch-effort` rewrites it to an inline `script` read from
 `workflows/<name>.js`; a `scriptPath` script with an unpinned `agent()` or a wrong-case pin is fixed and sent inline

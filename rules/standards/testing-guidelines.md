@@ -20,7 +20,7 @@ writing any NEW test.** A test written first pins your guess, not the behavior.
 
 - **A bug fix's live run is the RED:** reproduce it, state the root cause ("X because Y"), fix, re-run the same
   command; the before/after output is the evidence.
-- **Repairing existing tests** the change breaks is not new testing; it runs concurrently (`copilot`).
+- **Repairing existing tests** the change breaks is not new testing; the implementer or a repair leaf does it.
 - **No real input:** say so, ask for exactly what is needed, and mark anything written as unverified.
 - **No runnable surface:** pin the spec as Given/When/Then in a test that imports the code.
 
@@ -50,8 +50,7 @@ it, never raise the limit.
   `go test`'s; stub every daemon-spawn seam). Shrink timeouts through package vars and seed fixtures directly.
 - **An agent's or workflow's test stage writes only** repairs of tests its edits broke, plus one new test per major
   feature. Every other test is proposed in the final report (the case, what it guards, its runtime) for the owner to
-  decide; judge proposals by speed first, then teeth, then no overlap. Who writes tests and the "landed" handoff:
-  `skills/subagent-workflows/SKILL.md` → Test agent.
+  decide; judge proposals by speed first, then teeth, then no overlap. The implementer writes its feature's basic tests.
 - **At a boundary, error paths first**, asserting shape (required fields present, sensitive ones absent); a crash or
   500 on bad input is a finding.
 - **Stop and ask** rather than encode a guess when behavior isn't determinable, or the change touches an API/DB

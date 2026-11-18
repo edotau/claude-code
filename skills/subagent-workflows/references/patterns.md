@@ -71,7 +71,7 @@ finder claim -> blind re-derivation from file:line + symptom -> reproduced | dro
 ### Supervisor
 
 ```text
-main session -> Explore x3 -> Plan -> claude || copilot (test agent) -> fan-in -> verify -> commit
+main session -> Explore x3 -> Plan -> claude || claude -> fan-in -> verify -> commit
 ```
 
 - Ownership: `../SKILL.md` → Handoff contract. Run-state: `claude-code agents tree`; proof an external agent ran:

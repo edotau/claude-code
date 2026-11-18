@@ -44,7 +44,7 @@ All dispatched by the manager, never by Plan itself:
 - **`codex`** — review of the drafted plan: checklist `skills/evaluate-code/references/task-review.md#plan-review`,
   brief `~/.claude/skills/subagent-workflows/references/prompts.md#plan-reviewer`.
 - **`Explore` / `gemini`** — wide research before drafting (structure, conventions, a 1M-context sweep).
-- **`copilot`** — the plan's test tasks, once a leaf implements them.
+- **`copilot`** — ordinary implementer or reviewer leaf; repairs tests an intentional change broke.
 
 ## Procedure
 
@@ -154,7 +154,7 @@ Build every plan for the widest parallel delegation, so the main session never r
 Respect CLAUDE.md hard rules and `rules/harness/docs-placement.md`; dispatch shape and cost
 routing: `skills/subagent-workflows/SKILL.md`; the repo is public, CLI/TUI text ≤80 columns.
 
-Every code step names a `leaf:` and `Agent:` and pairs a `copilot` test agent only for a feature or bug fix.
+Every code step names a `leaf:` and `Agent:` and leaves new tests to its implementer (R15).
 Many leaf-sized tasks across disjoint packages: weigh a lane plan
 (`skills/subagent-workflows/references/lane-orchestrator.md`) against a saved workflow, and say which and why.
 

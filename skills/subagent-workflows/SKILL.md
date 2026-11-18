@@ -163,7 +163,7 @@ Independent leaves go in one message as Agent calls with `run_in_background` (th
 
 #### Concurrency
 
-Cap: `rules/harness/hooks.md` → (dispatch cap); test agents count. Batch deep-context leaves (Databricks `429`) and
+Cap: `rules/harness/hooks.md` → (dispatch cap); repair leaves count. Batch deep-context leaves (Databricks `429`) and
 fleet scans.
 
 Run at capacity: keep every unblocked task dispatched, and refill as soon as a leaf hands back or a file frees up;
@@ -216,19 +216,18 @@ Write it before the first dispatch of a multi-part request, re-check it on every
   `skills/using-git-worktrees/SKILL.md` → The lane protocol.
 - **Read-only scouts and reviews** never wait for edit work.
 
-#### Test agent
+#### Tests
 
-A feature or bug fix gets a test agent (`copilot`, or `claude` for a scoped suite) in the SAME message as the
-implementer (refactors get none). The main thread owns the live check; the test agent repairs broken tests at once, ends
-its turn after the baseline, and resumes on the manager's "landed" `SendMessage`, testing the seam as each piece lands.
-One per suite, never for review. Loop: `rules/standards/testing-guidelines.md`. A leaf that fails one test 3 times
-reports and stops (`rules/standards/testing-guidelines.md` → When a test fails).
+The implementer writes the basic tests for its own feature (R15); other cases are proposals in its hand-back. Broken
+existing tests are repaired by the implementer or one repair leaf (`copilot` or `claude`). The main thread owns the
+live check. Loop: `rules/standards/testing-guidelines.md`. A leaf that fails one test 3 times reports and stops
+(`rules/standards/testing-guidelines.md` → When a test fails).
 
 | Situation | Shape |
 | --- | --- |
 | One failing test or package | the loop yourself, or one `copilot` leaf |
 | Failures across packages | one `copilot` leaf per package in ONE message, each owning only its `_test.go` files |
-| A change being implemented | `claude` ‖ `copilot` in one message; copilot repairs now, writes new tests after "landed" |
+| A change being implemented | the implementer writes its basic tests; a repair leaf only for tests the change broke |
 | A fixed bug | after your live before/after, the regression test is a proposal the owner approves |
 | Suite must go green, bounded | `Workflow code-looper` — only when the user asks |
 
@@ -297,8 +296,8 @@ files only.
 
 ## Test scenarios
 
-- **Normal**: two `claude` leaves on disjoint packages plus a `copilot` test agent in one message; fan-in reads each
-  diff and the seam, the test agent runs on "landed", simplify runs once, one commit names the files and task
+- **Normal**: two `claude` leaves on disjoint packages in one message; fan-in reads each
+  diff and the seam, simplify runs once, one commit names the files and task
   (`worktree commit --task <id>`; repeat for multiple ids).
   Use `--plan <file>` when ids collide. The trailer `Task: <plan-slug> <id>` survives rebase and cherry-pick;
   a named task ticks once its commit is on main, however many `owns:` files it covers; name it on its last commit.
