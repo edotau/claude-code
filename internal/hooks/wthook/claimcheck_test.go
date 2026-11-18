@@ -1,6 +1,7 @@
 package wthook
 
 import (
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -778,6 +779,12 @@ var verbForms = []string{
 	"cd . && go run ./cmd/claude-code worktree commit -m x a.txt && echo done",
 }
 
+// wrapperForms hold one commit inside a wrapper (%s): the verb form must be judged as the git form is.
+var wrapperForms = []string{"bash -c '%s'", `sh -c "%s"`, "eval '%s'", "( %s )", "echo $(%s)", "echo `%s`", "env X=1 %s",
+	"command %s", "true && %s", "true; %s", "false || %s", "echo hi | %s", "bash -c 'cd . && %s'", "bash -c \"sh -c '%s'\"",
+	"sudo -u x %s", "nohup %s", "xargs %s", "watch '%s'", "time %s", "setsid sh -c '%s'", "bash <<< '%s'",
+	"echo '%s' | sh", "bash -c 'bash -c \"%s\"'", "{ %s; }", "if true; then %s; fi"}
+
 // withoutCommandLine drops the verdict's echo of the checked command, the one line that differs by spelling.
 func withoutCommandLine(reason string) string {
 	var keep []string
@@ -787,6 +794,26 @@ func withoutCommandLine(reason string) string {
 		}
 	}
 	return strings.Join(keep, "")
+}
+
+// verbParity judges the verb form like the git form inside every wrapper and binary spelling.
+func verbParity(t *testing.T, check func(string) core.Result) {
+	t.Helper()
+	for _, w := range wrapperForms {
+		g := check(fmt.Sprintf(w, "git commit -m x -- a.txt"))
+		v := check(fmt.Sprintf(w, "claude-code worktree commit -m x a.txt"))
+		if v.Decision != g.Decision || withoutCommandLine(v.Reason) != withoutCommandLine(g.Reason) {
+			t.Errorf("%q: verb %v %q; want the git verdict %v %q", w, v.Decision, v.Reason, g.Decision, g.Reason)
+		}
+	}
+	for _, pair := range [][2]string{{`/usr/bin/git commit -m x -- a.txt`, `/usr/local/bin/claude-code worktree commit -m x a.txt`},
+		{`"/usr/bin/git" commit -m x -- a.txt`, `"/usr/local/bin/claude-code" worktree commit -m x a.txt`},
+		{`bash -c '"git" commit -m x -- a.txt'`, `bash -c '"claude-code" worktree commit -m x a.txt'`}} {
+		g, v := check(pair[0]), check(pair[1])
+		if v.Decision != g.Decision || withoutCommandLine(v.Reason) != withoutCommandLine(g.Reason) {
+			t.Errorf("%q: verb %v %q; want the git verdict %v %q", pair[1], v.Decision, v.Reason, g.Decision, g.Reason)
+		}
+	}
 }
 
 // TestClaimCheckVerbCommitJudgedLikeGitCommit: the verb text gets the verdict of `git commit -- file`.
@@ -829,6 +856,7 @@ func TestClaimCheckVerbCommitJudgedLikeGitCommit(t *testing.T) {
 			if git.Decision != tc.want {
 				t.Fatalf("git commit -- a.txt: %v %q; want %v", git.Decision, git.Reason, tc.want)
 			}
+			verbParity(t, check)
 			for _, form := range verbForms {
 				if r := check(form); r.Decision != git.Decision || withoutCommandLine(r.Reason) != withoutCommandLine(git.Reason) {
 					t.Errorf("%q: %v %q; want the git verdict %v %q", form, r.Decision, r.Reason, git.Decision, git.Reason)
@@ -841,7 +869,9 @@ func TestClaimCheckVerbCommitJudgedLikeGitCommit(t *testing.T) {
 // TestClaimCheckVerbCommitWithoutFiles: the main session passes; a subagent is told to name its files.
 func TestClaimCheckVerbCommitWithoutFiles(t *testing.T) {
 	repo := claimFixture(t)
-	for _, form := range []string{"claude-code worktree commit -m x", "rtk claude-code worktree commit --dry-run -m 'x y'"} {
+	for _, form := range []string{"claude-code worktree commit -m x", "rtk claude-code worktree commit -m 'x y'",
+		"bash -c 'claude-code worktree commit -m x'", `claude-code worktree commit -m "--dry-run"`,
+		"claude-code worktree commit -m 'x --dry-run'"} {
 		main := claimCheckOn(t, repo, "S", "Bash", map[string]any{"command": form})
 		if main.Decision != core.Allow {
 			t.Fatalf("main %q: %v %q; want allow", form, main.Decision, main.Reason)
@@ -850,6 +880,23 @@ func TestClaimCheckVerbCommitWithoutFiles(t *testing.T) {
 			"tool_name": "Bash", "tool_input": map[string]any{"command": form}}))
 		if r.Decision != core.Ask || !strings.Contains(r.Reason, "claude-code worktree commit -m <msg> <files>") {
 			t.Fatalf("subagent %q: %v %q; want an ask to name its files", form, r.Decision, r.Reason)
+		}
+	}
+}
+
+// TestClaimCheckVerbDryRunNamesNothing: a parsed --dry-run commits nothing, in every wrapper, for a subagent too.
+func TestClaimCheckVerbDryRunNamesNothing(t *testing.T) {
+	repo := claimFixture(t)
+	for _, form := range []string{"claude-code worktree commit --dry-run", "claude-code worktree commit -m x --dry-run",
+		"rtk claude-code worktree commit --dry-run -m 'x y'", "claude-code worktree commit -dry-run=true",
+		"bash -c 'claude-code worktree commit --dry-run'", `sh -c "claude-code worktree commit -m x --dry-run"`,
+		"eval 'claude-code worktree commit --dry-run'", "( claude-code worktree commit --dry-run )",
+		"echo $(claude-code worktree commit --dry-run)", "env X=1 claude-code worktree commit --dry-run",
+		"true && /usr/local/bin/claude-code worktree commit --dry-run a.txt"} {
+		r := ClaimCheck(claimInput(t, map[string]any{"session_id": "S", "agent_id": "leaftwo2", "cwd": repo,
+			"tool_name": "Bash", "tool_input": map[string]any{"command": form}}))
+		if r.Decision != core.Allow {
+			t.Errorf("subagent %q: %v %q; want allow", form, r.Decision, r.Reason)
 		}
 	}
 }

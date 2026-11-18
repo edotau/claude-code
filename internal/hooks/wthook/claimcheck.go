@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -33,6 +34,12 @@ const claimShown = 5
 
 // gitStageCmd pre-screens a Bash command for a git add/commit before any claims file is read.
 var gitStageCmd = core.Gate(`\bgit\b[^;&|\n]*\b(?:add|commit)\b`, "git")
+
+// verbText pre-screens a Bash command for a worktree-commit call, which commits like git.
+var verbText = core.Gate(`\bworktree\b[\s\S]*\bcommit\b`, "worktree")
+
+// stageText reports text that may stage or commit: a git add/commit or a worktree-commit call.
+func stageText(cmd string) bool { return gitStageCmd.MatchString(cmd) || verbText.MatchString(cmd) }
 
 // liveClaims maps each path other live parties claim to its claimants; a dead owner pid's file is removed.
 func liveClaims(in *core.Input) (map[string][]worktree.ClaimHit, error) {
@@ -233,10 +240,8 @@ func (v *claimView) scopePaths(edits []string) {
 
 // ClaimCheck notes a dirty claimed file before an edit and asks (a leaf blocks) when git stages one.
 func ClaimCheck(in *core.Input) core.Result {
-	cmd, bare := in.ToolCommand(), false
-	if in.ToolName == "Bash" {
-		cmd, bare = verbCommits(cmd)
-	}
+	cmd := in.ToolCommand()
+	bare := in.ToolName == "Bash" && bareVerbCall(cmd)
 	res := checkClaims(in, cmd)
 	if bare && in.AgentID != "" && in.SessionID != "" && res.Decision == core.Allow {
 		return bareVerbResult(in, res)
@@ -244,10 +249,10 @@ func ClaimCheck(in *core.Input) core.Result {
 	return res
 }
 
-// checkClaims is ClaimCheck over cmd, the command with each worktree-commit call written as the git commit it makes.
+// checkClaims is ClaimCheck over cmd, where a worktree-commit call is judged as the git commit it makes.
 func checkClaims(in *core.Input, cmd string) core.Result {
 	bash := in.ToolName == "Bash"
-	git := gitAnyCmd().MatchString(cmd)
+	git := gitAnyCmd().MatchString(cmd) || verbText.MatchString(cmd)
 	if in.SessionID == "" || bash && !git && !core.MayWrite(cmd) {
 		return core.Result{}
 	}
@@ -258,7 +263,7 @@ func checkClaims(in *core.Input, cmd string) core.Result {
 		return claimResult(ctx, in, cmd, edits)
 	}
 	res := core.Result{}
-	if gitStageCmd.MatchString(cmd) || len(edits) > 0 {
+	if stageText(cmd) || len(edits) > 0 {
 		res = claimResult(ctx, in, cmd, edits)
 	}
 	if !git {
@@ -278,7 +283,7 @@ func claimResult(ctx context.Context, in *core.Input, cmd string, edits []string
 		v := claimView{ctx: ctx, in: in, cmd: cmd, claims: claims, status: map[string]dirtyState{},
 			clean: sync.OnceValue(func() map[string]int64 { return cleanMarks(in.SessionID) })}
 		v.scopePaths(edits)
-		if in.ToolName == "Bash" && gitStageCmd.MatchString(cmd) {
+		if in.ToolName == "Bash" && stageText(cmd) {
 			res = v.stageCheck()
 		}
 		for _, p := range edits {
@@ -427,6 +432,10 @@ func (v claimView) stageCheck() core.Result {
 	// A data heredoc body (file sink, script interpreter) stages nothing.
 	cmd := dropScriptHeredocs(core.DropDataHeredocs(v.cmd))
 	shell.EachGit(cmd, v.in.CWD, func(target, verb string, args []string) bool {
+		verb, args = verbAsGit(verb, args)
+		if verb == "" {
+			return false
+		}
 		res = v.stageVerdict(target, verb, args)
 		if verb == shell.Uninspectable {
 			res = v.uninspectableVerdict(target, shell.TooDeep(args) && cdWord.MatchString(cmd))
@@ -446,65 +455,42 @@ func (v claimView) stageCheck() core.Result {
 	return res
 }
 
-// verbCommits writes each worktree-commit call as its `git commit -- <files>`; bare: a call naming no file.
-func verbCommits(cmd string) (string, bool) {
-	if !strings.Contains(cmd, "worktree") || !strings.Contains(cmd, "commit") {
-		return cmd, false
-	}
-	segs, seps := shell.SegmentsSep(cmd)
-	var b strings.Builder
-	bare := false
-	for i, seg := range segs {
-		files, dry, ok := verbFiles(seg)
-		switch {
-		case !ok:
-		case len(files) == 0:
-			seg, bare = " true ", true
-		default:
-			seg = " git commit " + dry + "-- " + strings.Join(files, " ") + " "
-		}
-		b.WriteString(seg + seps[i])
-	}
-	return b.String(), bare
+// verbFiles reads a worktree-commit call's words with the CLI's own grammar: its files and whether --dry-run is set.
+func verbFiles(args []string) (files []string, dry, ok bool) {
+	fs := helptext.NewFlagSet("worktree commit", helptext.Page{})
+	fs.SetOutput(io.Discard)
+	fs.String("m", "", "")
+	d := fs.Bool("dry-run", false, "")
+	files, err := helptext.ParseArgs(fs, args)
+	return files, *d, err == nil
 }
 
-// verbFiles reads a segment as a worktree-commit call (behind env, rtk, a path or go run): its quoted files.
-func verbFiles(seg string) (files []string, dry string, ok bool) {
-	rest, _ := shell.Unwrap(shell.Tokens(seg), "")
-	for len(rest) > 0 && filepath.Base(rest[0]) == "rtk" {
-		rest = rest[1:]
+// bareVerbCall reports a worktree-commit call, at any nesting, that names no file and is not a dry run.
+func bareVerbCall(cmd string) bool {
+	if !verbText.MatchString(cmd) {
+		return false
 	}
-	if len(rest) > 2 && filepath.Base(rest[0]) == "go" && rest[1] == "run" {
-		rest = rest[2:]
-		for len(rest) > 0 && strings.HasPrefix(rest[0], "-") {
-			rest = rest[1:]
-		}
-		if len(rest) == 0 {
-			return nil, "", false
-		}
-	}
-	if len(rest) < 3 || filepath.Base(rest[0]) != "claude-code" || rest[1] != "worktree" || rest[2] != "commit" {
-		return nil, "", false
-	}
-	args, onlyFiles := rest[3:], false
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		switch {
-		case onlyFiles || !strings.HasPrefix(a, "-") || a == "-":
-			files = append(files, shellQuote(a))
-		case a == "--":
-			onlyFiles = true
-		case strings.TrimLeft(a, "-") == "m":
-			i++ // the message is the next word
-		case strings.TrimLeft(a, "-") == "dry-run":
-			dry = "--dry-run "
-		}
-	}
-	return files, dry, true
+	return shell.EachGit(dropScriptHeredocs(core.DropDataHeredocs(cmd)), "", func(_, verb string, args []string) bool {
+		files, dry, ok := verbFiles(args)
+		return verb == shell.WorktreeCommit && ok && !dry && len(files) == 0
+	})
 }
 
-// shellQuote is s as one single-quoted shell word.
-func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+// verbAsGit reads a worktree-commit call as the git commit it makes (-- <files>); other calls come back unchanged.
+func verbAsGit(verb string, args []string) (string, []string) {
+	if verb != shell.WorktreeCommit {
+		return verb, args
+	}
+	files, dry, ok := verbFiles(args)
+	if !ok || len(files) == 0 {
+		return "", nil
+	}
+	out := []string{"--"}
+	if dry {
+		out = []string{"--dry-run", "--"}
+	}
+	return "commit", append(out, files...)
+}
 
 // bareVerbResult asks (a leaf under ~/.claude: blocks) a subagent's file-less worktree commit to name its files.
 func bareVerbResult(in *core.Input, res core.Result) core.Result {

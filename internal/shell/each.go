@@ -17,6 +17,9 @@ const maxNest = 4
 // Uninspectable is EachGit's verb (cwd as target) for nesting past maxNest, unseen code a guard must fail closed on.
 const Uninspectable = "<uninspectable>"
 
+// WorktreeCommit is EachGit's verb for a `claude-code worktree commit` call; its args are the verb's own words.
+const WorktreeCommit = "worktree commit"
+
 const tooDeepArg = "<too-deep>"
 
 // TooDeep reports an Uninspectable call's args as nesting past maxNest, not a verb the shell expands.
@@ -506,6 +509,9 @@ func (s *segScan) word(toks []string, i int) bool {
 		s.afterGit = true
 		return s.fn(resolvedGit(toks[i+1:], s.dir))
 	}
+	if !s.inert && i+2 < len(toks) && filepath.Base(t) == "claude-code" && toks[i+1] == "worktree" && toks[i+2] == "commit" {
+		return s.fn(s.dir, WorktreeCommit, toks[i+3:])
+	}
 	switch {
 	case i == 0:
 	case shellWrapperNames[filepath.Base(t)]: // `find -exec sh -c 'STR'`, `setsid sh -c 'STR'`
@@ -541,7 +547,7 @@ func commandText(t string) bool {
 		return false
 	}
 	name := filepath.Base(f[0])
-	return name == "git" || shellWrapperNames[name]
+	return name == "git" || shellWrapperNames[name] || name == "claude-code" && f[1] == "worktree"
 }
 
 // hereString returns the string a bare shell reads from `<<< STR` (also attached `<<<STR`).
