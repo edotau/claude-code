@@ -65,10 +65,10 @@ func TestTickRangePropagatesOutputErrors(t *testing.T) {
 		{"ticked", "internal/a/a.go", "2026-11-09-0.md", "candidate", 1},
 		{"partial", "internal/a/a.go, missing.go", "2026-11-09-0.md", "candidate", 1},
 	}
+	repo, base := tickRangeRepo(t)
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			hermetic(t)
-			repo, base := tickRangeRepo(t)
 			home := Home(repo)
 			for i := range tc.plans {
 				name := "2026-11-09-" + strconv.Itoa(i) + ".md"
@@ -223,7 +223,12 @@ func TestCandidateMemoResetsAndIsCapped(t *testing.T) {
 	if !announce(plan, "1.1", false) {
 		t.Fatal("a reopened task must be announced again")
 	}
-	for i := range memoCap + 10 {
+	seed := make([]string, memoCap-5)
+	for i := range seed {
+		seed[i] = plan + "\tseed" + strconv.Itoa(i)
+	}
+	writeMemo(seed)
+	for i := range 15 {
 		announce(plan, strconv.Itoa(i), false)
 	}
 	if n := len(readMemo()); n != memoCap {
