@@ -853,3 +853,22 @@ func TestClaimCheckVerbCommitWithoutFiles(t *testing.T) {
 		}
 	}
 }
+
+// TestClaimCheckHowToOncePerSession: only a session's first advisory carries the how-to.
+func TestClaimCheckHowToOncePerSession(t *testing.T) {
+	repo := claimFixture(t)
+	claimEdit(t, repo, liveOwner, "A", "a.txt")
+	claimEdit(t, repo, liveOwner, "A", "b.txt")
+	edit := func(session, rel string) string {
+		return claimCheckOn(t, repo, session, "Edit", map[string]any{"file_path": filepath.Join(repo, rel)}).Context
+	}
+	first, second, other := edit("B", "a.txt"), edit("B", "b.txt"), edit("C", "a.txt")
+	for _, c := range []struct{ name, got, file string }{{"first", first, "a.txt"}, {"second", second, "b.txt"}, {"new session", other, "a.txt"}} {
+		if !strings.Contains(c.got, c.file+" has uncommitted edits by claude pid ") {
+			t.Errorf("%s advisory %q lacks its file, holder or time", c.name, c.got)
+		}
+	}
+	if !strings.Contains(first, howTo) || strings.Contains(second, "stage just those") || !strings.Contains(other, howTo) {
+		t.Errorf("how-to placement wrong:\nfirst  %q\nsecond %q\nnew    %q", first, second, other)
+	}
+}

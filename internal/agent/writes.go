@@ -56,12 +56,15 @@ func (s treeSnap) add(path string) {
 	s[path] = sig
 }
 
-// watchWrites snapshots workdir; its func lists changed files and pre-dirty ones that differ (nil: unseen or none).
-func watchWrites(ctx context.Context, workdir string) func() (changed, touched *[]string) {
+// watchWrites snapshots workdir (top: its git toplevel, "" asks git); its func lists changed and re-touched files.
+func watchWrites(ctx context.Context, workdir, top string) func() (changed, touched *[]string) {
 	unobserved := func() (*[]string, *[]string) { return nil, nil }
-	gctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writesTimeout)
-	root := paths.GitTop(gctx, workdir)
-	cancel()
+	root := top
+	if root == "" {
+		gctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writesTimeout)
+		root = paths.GitTop(gctx, workdir)
+		cancel()
+	}
 	if root == "" {
 		return unobserved
 	}

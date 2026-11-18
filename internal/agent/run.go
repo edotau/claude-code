@@ -255,7 +255,7 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 		if p.remote != nil {
 			return p.remote.Run(ctx, p.Opts, sink)
 		}
-		wrote := watchWrites(ctx, p.Opts.WorkDir)
+		wrote := watchWrites(ctx, p.Opts.WorkDir, p.Record.Tree)
 		res, err := runWithFallback(ctx, p.Chain, p.Opts, sink, d.Notify)
 		p.Record.Wrote, p.Record.PreDirtyTouched = wrote()
 		if w := p.Record.Wrote; w != nil && len(*w) > 0 && sharesTree(p.Record, time.Now()) {

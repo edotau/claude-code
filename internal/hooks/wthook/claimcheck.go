@@ -334,13 +334,23 @@ func (v claimView) editCheck(p string) core.Result {
 	var lines []string
 	for _, h := range hits {
 		if firstSighting(v.in.SessionID, p+"\t"+h.Who) {
-			lines = append(lines, fmt.Sprintf("%s has uncommitted edits by %s (since %s); edit only your own hunks "+
-				"and stage just those (%s), or hand the change to its owner.", cmp.Or(rel, p), h.Who, clock(h.TS),
-				ownHunks))
+			lines = append(lines, fmt.Sprintf("%s has uncommitted edits by %s (since %s)", cmp.Or(rel, p), h.Who, clock(h.TS)))
 		}
+	}
+	if len(lines) > 0 && firstSighting(v.in.SessionID, howToMark) {
+		lines[0] += howTo
+	}
+	for i := range lines {
+		lines[i] += "."
 	}
 	return core.Result{Context: strings.Join(lines, "\n")}
 }
+
+// howToMark is the seen-store key of the session's first advisory, which alone carries howTo.
+const howToMark = "advisory-howto"
+
+// howTo is the advice appended to a session's first advisory.
+const howTo = "; edit only your own hunks and stage just those (" + ownHunks + "), or hand the change to its owner"
 
 // ownHunks is the non-interactive way to stage part of a file; `git add -p` waits on a prompt no hook shell answers.
 const ownHunks = "save `git diff <path>` to a patch file outside the repo, delete the hunks that are not yours, " +

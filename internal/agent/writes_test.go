@@ -79,7 +79,7 @@ func TestExecRecordsNoWritesOutsideARepo(t *testing.T) {
 // Given a rewrite that keeps the file's size, the changed write time still marks it.
 func TestWatchWritesSeesASameSizeRewrite(t *testing.T) {
 	dir := gitRepoWith(t, map[string]string{"a.txt": "one\n"})
-	done := watchWrites(context.Background(), dir)
+	done := watchWrites(context.Background(), dir, "")
 	time.Sleep(10 * time.Millisecond)
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("two\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -105,7 +105,7 @@ func TestWatchWritesSeesAFileTheRunMadeClean(t *testing.T) {
 	if err := os.WriteFile(file, []byte("two\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	done := watchWrites(context.Background(), dir)
+	done := watchWrites(context.Background(), dir, "")
 	time.Sleep(10 * time.Millisecond)
 	if err := os.WriteFile(file, []byte("one\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -118,7 +118,7 @@ func TestWatchWritesSeesAFileTheRunMadeClean(t *testing.T) {
 // Given a run that changes more files than the cap, the record keeps the cap's worth of paths and ends on the marker.
 func TestWatchWritesCapsTheListWithAMarker(t *testing.T) {
 	dir := gitRepoWith(t, map[string]string{"a.txt": "a\n"})
-	done := watchWrites(context.Background(), dir)
+	done := watchWrites(context.Background(), dir, "")
 	for i := range writesCap + 5 {
 		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("f%04d.txt", i)), []byte("x"), 0o600); err != nil {
 			t.Fatal(err)
@@ -133,14 +133,17 @@ func TestWatchWritesCapsTheListWithAMarker(t *testing.T) {
 // Given a git failure around the run (here a directory that vanished), the snapshot yields no list and never panics.
 func TestWatchWritesGitFailureLeavesNil(t *testing.T) {
 	dir := gitRepoWith(t, map[string]string{"a.txt": "a\n"})
-	done := watchWrites(context.Background(), dir)
+	done := watchWrites(context.Background(), dir, "")
 	if err := os.RemoveAll(dir); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := done(); got != nil {
 		t.Fatalf("list = %v, want nil", *got)
 	}
-	if got := func() *[]string { g, _ := watchWrites(context.Background(), filepath.Join(dir, "missing"))(); return g }(); got != nil {
+	if got := func() *[]string {
+		g, _ := watchWrites(context.Background(), filepath.Join(dir, "missing"), "")()
+		return g
+	}(); got != nil {
 		t.Fatalf("a missing workdir must record nothing, got %v", *got)
 	}
 }
@@ -210,7 +213,7 @@ func TestWatchWritesListsPreDirtyFilesTheRunTouched(t *testing.T) {
 	for _, n := range []string{"edited.txt", "idle.txt", "reverted.txt"} {
 		write(n, "dirty\n")
 	}
-	done := watchWrites(context.Background(), dir)
+	done := watchWrites(context.Background(), dir, "")
 	time.Sleep(10 * time.Millisecond)
 	write("edited.txt", "again, longer\n")
 	write("reverted.txt", "1\n")
@@ -220,7 +223,7 @@ func TestWatchWritesListsPreDirtyFilesTheRunTouched(t *testing.T) {
 		filepath.Base((*touched)[1]) != "reverted.txt" {
 		t.Fatalf("touched = %v, want edited.txt and reverted.txt only", touched)
 	}
-	if _, none := watchWrites(context.Background(), dir)(); none != nil {
+	if _, none := watchWrites(context.Background(), dir, "")(); none != nil {
 		t.Fatalf("a run touching no pre-dirty file must report nil, got %v", *none)
 	}
 }
