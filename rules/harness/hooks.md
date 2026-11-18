@@ -29,6 +29,7 @@ module's agent applicability.
 Each module run appends one row to `state/harness/hooks/telemetry-YYYYMMDD.jsonl` (14 days, capped): event, module,
 outcome, ms, 8-char session id, tool, and when a decision fired a `rule` and a `verdict` (`block`, `ask`, `rewrite`,
 `held`, `refused`, `passed`); never command text, a path, a brief or a credential.
+`claude-code doctor` reports seven days of fires, denies, budget overruns and p95 duration per module.
 
 ## Applicability by agent
 

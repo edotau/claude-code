@@ -44,6 +44,7 @@ var doctorSections = []doctorSection{
 	collect(checkBinaryHealth), collect(checkProviderHealth), collect(checkToolHealth), collect(checkHostHealth),
 	func(context.Context) ([]check, bool) { return vaultDoctorChecks(), true },
 	func(context.Context) ([]check, bool) { return []check{formatsCheck()}, true },
+	func(context.Context) ([]check, bool) { return hookTelemetryChecks(time.Now()), true },
 }
 
 const doctorWorkers = 4

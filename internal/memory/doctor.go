@@ -2,10 +2,8 @@
 package memory
 
 import (
-	"bufio"
 	"encoding/json"
 	"encoding/json/jsontext"
-	jsonv2 "encoding/json/v2"
 	"errors"
 	"fmt"
 	"io"
@@ -19,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/hooktelemetry"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
@@ -303,144 +302,8 @@ func collectBankStats() bankStats {
 	return s
 }
 
-const (
-	signalDays   = 14
-	signalBudget = 128 << 20
-	signalLine   = 16 << 10
-	signalTop    = 2
-)
-
-// Keep the telemetry projection local because hooks already depend on memory.
-type signalRow struct {
-	Module  string `json:"module"`
-	Rule    string `json:"rule"`
-	Verdict string `json:"verdict"`
-	Outcome string `json:"outcome"`
-}
-
-type signalRule struct{ rule, module string }
-
-type hookSignals struct {
-	runs      map[string]int
-	rules     map[string]map[signalRule]int
-	totals    map[string]int
-	dropped   int
-	truncated bool
-}
-
 func writeHookSignals(w io.Writer, now time.Time) {
-	dir := filepath.Join(paths.StateDir(), "hooks")
-	s := hookSignals{
-		runs: make(map[string]int), totals: make(map[string]int),
-		rules: map[string]map[signalRule]int{"block": {}, "ask": {}, "refused": {}},
-	}
-	left := int64(signalBudget)
-	for day := range signalDays {
-		date := now.AddDate(0, 0, -day).Format("20060102")
-		used, truncated := s.readFile(filepath.Join(dir, "telemetry-"+date+".jsonl"), left)
-		left -= used
-		if truncated {
-			s.truncated = true
-			break
-		}
-	}
-	if len(s.runs) == 0 && s.dropped == 0 && !s.truncated {
-		return
-	}
-	start := now.AddDate(0, 0, 1-signalDays).Format(time.DateOnly)
-	s.report(w, start)
-}
-
-func (s *hookSignals) readFile(path string, budget int64) (used int64, truncated bool) {
-	info, err := os.Lstat(path)
-	if err != nil || !info.Mode().IsRegular() {
-		return 0, false
-	}
-	f, err := os.Open(path)
-	if err != nil {
-		return 0, false
-	}
-	defer func() { _ = f.Close() }()
-	limit := io.LimitedReader{R: f, N: budget}
-	r := bufio.NewReaderSize(&limit, signalLine)
-	for {
-		line, oversized, err := textutil.ReadLineCapped(r, signalLine)
-		if err != nil {
-			break
-		}
-		if !oversized {
-			s.add(line)
-		}
-	}
-	return budget - limit.N, limit.N == 0 && info.Size() > budget
-}
-
-var signalName = regexp.MustCompile(`^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,99}$`)
-
-func (s *hookSignals) add(line []byte) {
-	var row signalRow
-	if jsonv2.Unmarshal(line, &row) != nil {
-		return
-	}
-	if row.Outcome == "dropped" {
-		s.dropped++
-		return
-	}
-	if !signalName.MatchString(row.Module) {
-		return
-	}
-	s.runs[row.Module]++
-	switch row.Verdict {
-	case "block", "ask", "refused", "held", "passed", "rewrite":
-		s.totals[row.Verdict]++
-	}
-	if counts := s.rules[row.Verdict]; counts != nil && signalName.MatchString(row.Rule) {
-		counts[signalRule{row.Rule, row.Module}]++
-	}
-}
-
-func rankedSignals(counts map[signalRule]int) []signalRule {
-	keys := make([]signalRule, 0, len(counts))
-	for key := range counts {
-		keys = append(keys, key)
-	}
-	sort.Slice(keys, func(i, j int) bool {
-		a, b := keys[i], keys[j]
-		if counts[a] != counts[b] {
-			return counts[a] > counts[b]
-		}
-		if a.rule != b.rule {
-			return a.rule < b.rule
-		}
-		return a.module < b.module
-	})
-	return keys
-}
-
-func (s hookSignals) report(w io.Writer, start string) {
-	fmt.Fprintf(w, "signals (since %s", start)
-	if s.truncated {
-		fmt.Fprintf(w, "; %d MiB read limit reached", signalBudget>>20)
-	}
-	fmt.Fprintln(w, "):")
-	for _, verdict := range []string{"block", "ask"} {
-		counts := s.rules[verdict]
-		keys := rankedSignals(counts)
-		for _, key := range keys[:min(signalTop, len(keys))] {
-			fmt.Fprintf(w, "  %s: %s (%s) %d (%.1f%%)\n", verdict, key.rule, key.module,
-				counts[key], 100*float64(counts[key])/float64(s.runs[key.module]))
-		}
-	}
-	fmt.Fprintf(w, "  hand-backs: held %d, refused %d, passed %d", s.totals["held"], s.totals["refused"], s.totals["passed"])
-	counts := s.rules["refused"]
-	if keys := rankedSignals(counts); len(keys) > 0 {
-		key := keys[0]
-		fmt.Fprintf(w, "; top refused: %s (%s) %d", key.rule, key.module, counts[key])
-	}
-	fmt.Fprintf(w, "\n  rewrite: %d\n", s.totals["rewrite"])
-	if s.dropped > 0 {
-		fmt.Fprintf(w, "  dropped: >=%d (cap markers)\n", s.dropped)
-	}
+	hooktelemetry.Read(now, hooktelemetry.Signals).WriteSignals(w)
 }
 
 // tally counts one receipt by status.
