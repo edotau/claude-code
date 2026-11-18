@@ -121,12 +121,14 @@ type dreamOptions struct {
 	IfDue bool // re-check dreamDue once the lock is held: a racing peer may have just dreamed
 }
 
-// dreamChanged lists the top-level store .md files modified after since (all when zero).
+// dreamChanged lists the top-level and feedback/ and notes/ store .md files modified after since (all when zero).
 func dreamChanged(since time.Time) []string {
 	var out []string
-	for _, f := range transcript.GlobIn(StoreDir(), "*.md") {
-		if fi, err := os.Stat(f); err == nil && fi.ModTime().After(since) {
-			out = append(out, f)
+	for _, dir := range []string{StoreDir(), filepath.Join(StoreDir(), "feedback"), filepath.Join(StoreDir(), "notes")} {
+		for _, f := range transcript.GlobIn(dir, "*.md") {
+			if fi, err := os.Stat(f); err == nil && fi.ModTime().After(since) {
+				out = append(out, f)
+			}
 		}
 	}
 	return out

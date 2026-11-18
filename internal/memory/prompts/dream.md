@@ -17,8 +17,8 @@ is the undo path.
 ## Phase 2: Audit all memory layers
 
 Read only the files in the prompt's "Changed since the last dream" list, plus any file a phase needs to judge
-them (the over-cap file being archived, the entry a change supersedes). Never read the whole bank; an empty
-list means skip to Phase 5.
+them (the over-cap file being archived, the entry a change supersedes). The list also covers `feedback/` and
+`notes/`. Never read the whole bank; an empty list means skip to Phase 5.
 
 ## Phase 3: Review recent sessions
 
@@ -47,6 +47,25 @@ Run `claude-code memory review` for cap/staleness findings, then:
 1. **Current Focus** in `activeContext.md`: verify it reflects the latest session's state
 2. **Next Steps**: remove completed items, keep active ones
 3. **`sessionHistory.md`**: if over 30 entries, `claude-code memory index` rotates overflow into `archive/`
+
+## Phase 5b: Feedback candidates
+
+Propose, never apply: this phase edits no code, no rule and no plan, only `knowledge/feedback-candidates.md`.
+A lesson that recurs across `feedback/` and `notes/` notes may belong in a tool instead of prose. Using the changed
+notes, Grep to find other notes that restate the same lesson, then rewrite that one file (a prose header, then one
+fenced block). Each line of the block is one JSON object with exactly these fields, no others:
+
+```jsonl
+{"id":"fc-<slug>","evidence":["feedback/<a>.md","notes/<b>.md"],"repeats":0,"change":"One sentence.","target":"rules/standards/<x>.md","kind":"hook","size":"small"}
+```
+
+- `id`: `fc-` plus lower-case letters, digits and hyphens; unique and never renumbered.
+- `evidence`: at least two distinct note paths that exist in the store, or one path plus `repeats` of at least 2
+  (how often the owner restated it); one remark is never a candidate.
+- `change`: one sentence, at most 200 characters. `target`: a path inside `~/.claude` or the store, or `unknown`.
+- `kind`: `prose`, `hook`, `verb` or `test`. `size`: `small`, `medium` or `large` (an estimate).
+- Never write a credential-shaped string. Run `claude-code memory review` after writing: it prints one line per
+  problem with its line number and exits non-zero; fix them before Phase 6.
 
 ## Phase 6: Cross-pollinate
 

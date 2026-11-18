@@ -2,6 +2,7 @@ package memory
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -635,4 +636,68 @@ func TestFailedRefreshLeadsReviewAndTheNextSessionStartLine(t *testing.T) {
 			t.Fatalf("problems = %q, want the refresh failure with its path-free advice first", problems)
 		}
 	})
+}
+
+// Dream lists feedback notes, its seam writes the candidates file; review accepts it and rejects each bad variant.
+func TestCandidatesEndToEnd(t *testing.T) {
+	isolatedConfig(t)
+	t.Setenv(UpdateChildEnv, "")
+	t.Setenv(dreamChildEnv, "")
+	root := repoRoot(t, "proj")
+	for _, n := range []string{"feedback/feedback-a.md", "feedback/feedback-b.md", "notes/note-c.md"} {
+		write(t, filepath.Join(StoreDir(), filepath.FromSlash(n)), "restated twice\n")
+	}
+	candidates := filepath.Join(StoreDir(), filepath.FromSlash(candidatesRel))
+	good := `{"id":"fc-a","evidence":["feedback/feedback-a.md","notes/note-c.md"],"change":"Add a hook.","target":"unknown","kind":"hook","size":"small"}` + "\n" +
+		`{"id":"fc-b","evidence":["feedback/feedback-b.md"],"repeats":3,"change":"Add a verb flag.","target":"rules/standards/x.md","kind":"verb","size":"medium"}`
+	file := func(rows string) string { return "# Candidates\n\n```jsonl\n" + rows + "\n```\n" }
+	run := func(_ context.Context, prompt, _ string) (string, error) {
+		if !strings.Contains(prompt, filepath.Join("feedback", "feedback-a.md")) {
+			t.Errorf("dream prompt does not list the changed feedback note: %s", prompt)
+		}
+		write(t, candidates, file(good))
+		return "stub", nil
+	}
+	if err := dream(dreamOptions{CWD: root, Run: run}); err != nil {
+		t.Fatal(err)
+	}
+	if got := candidateProblems(); len(got) != 0 {
+		t.Fatalf("a valid file has problems: %v", got)
+	}
+	var out strings.Builder
+	if err := ReviewReport(&out, ReviewOptions{StaleDays: DefaultStaleDays}); err != nil {
+		t.Errorf("review on a valid file failed: %v", err)
+	}
+	secret := "AKIA" + "ABCDEFGHIJKLMNOP"
+	for _, tc := range candidateVariants(good, secret) {
+		write(t, candidates, file(tc.body))
+		got := strings.Join(candidateProblems(), "\n")
+		if !strings.Contains(got, candidatesRel+tc.want) {
+			t.Errorf("%s: problems = %q, want %q", tc.name, got, tc.want)
+		}
+		if strings.Contains(got, secret) {
+			t.Errorf("%s: a problem row echoes the secret", tc.name)
+		}
+		if err := ReviewReport(&out, ReviewOptions{StaleDays: DefaultStaleDays}); err == nil {
+			t.Errorf("%s: review exited zero", tc.name)
+		}
+	}
+}
+
+type candidateVariant struct{ name, body, want string }
+
+// candidateVariants are malformed copies of good with the problem each must produce.
+func candidateVariants(good, secret string) []candidateVariant {
+	row := func(old, new string) string { return strings.Replace(good, old, new, 1) }
+	return []candidateVariant{
+		{"unknown field", row(`"size":"small"`, `"size":"small","extra":1`), ":4: invalid record: json: unknown field"},
+		{"missing evidence", row(`"evidence":["feedback/feedback-a.md","notes/note-c.md"],`, ``), ":4: evidence is missing"},
+		{"one file no repeats", row(`,"notes/note-c.md"`, ``), ":4: evidence needs two distinct files"},
+		{"missing file", row("note-c.md", "gone.md"), ":4: evidence notes/gone.md does not exist"},
+		{"target outside", row(`"unknown"`, `"../../etc/passwd"`), ":4: target ../../etc/passwd is outside"},
+		{"duplicate id", row(`"fc-b"`, `"fc-a"`), ":5: duplicate id fc-a (first at line 4)"},
+		{"credential", row("Add a hook.", secret), ":4: credential-shaped"},
+		{"bad kind", row(`"hook"`, `"magic"`), ":4: kind must be one of"},
+		{"two sentences", row("Add a hook.", "Add a hook. Then more."), ":4: change must be one sentence"},
+	}
 }

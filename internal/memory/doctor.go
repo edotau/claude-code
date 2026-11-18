@@ -2,11 +2,13 @@
 package memory
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -123,6 +125,7 @@ func doctorBank(root string, staleDays int, now time.Time) []string {
 	if root != "" {
 		problems = append(problems, nativeLinkProblems(root)...)
 	}
+	problems = append(problems, candidateProblems()...)
 	return append(problems, accessNominations(now)...)
 }
 
@@ -379,6 +382,178 @@ func readReceipts() []receipt {
 		if r, ok := readUpdateResult(id); ok {
 			out = append(out, receipt{id, r})
 		}
+	}
+	return out
+}
+
+// candidatesRel is the dream-written candidate list; knowledge/ is inside the dream job's write scope.
+const candidatesRel = "knowledge/feedback-candidates.md"
+
+// candidate is one proposed harness change; unknown fields are rejected so the shape stays machine-checked.
+type candidate struct {
+	ID       string   `json:"id"`
+	Evidence []string `json:"evidence"`
+	Repeats  int      `json:"repeats"`
+	Change   string   `json:"change"`
+	Target   string   `json:"target"`
+	Kind     string   `json:"kind"`
+	Size     string   `json:"size"`
+}
+
+var (
+	candidateIDRE    = regexp.MustCompile(`^fc-[a-z0-9][a-z0-9-]*$`)
+	candidateKinds   = []string{"prose", "hook", "verb", "test"}
+	candidateSizes   = []string{"small", "medium", "large"}
+	candidateMaxText = 200
+)
+
+// candidateProblems validates the candidates file, one `<file>:<line>: <message>` row each; none when it is absent.
+func candidateProblems() []string {
+	data, err := os.ReadFile(filepath.Join(StoreDir(), filepath.FromSlash(candidatesRel)))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return []string{candidatesRel + ": " + err.Error()}
+	}
+	return validateCandidates(string(data))
+}
+
+// candidateError fails `memory review` when problems hold candidate rows; every other row stays advisory.
+func candidateError(problems []string) error {
+	n := 0
+	for _, p := range problems {
+		if strings.HasPrefix(p, candidatesRel+":") {
+			n++
+		}
+	}
+	if n == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d problem(s) in %s", n, candidatesRel)
+}
+
+// validateCandidates checks the file's one ```jsonl block, one JSON record per line, and every line for secrets.
+func validateCandidates(text string) []string {
+	var problems []string
+	add := func(n int, msg string) { problems = append(problems, fmt.Sprintf("%s:%d: %s", candidatesRel, n, msg)) }
+	seen := map[string]int{}
+	inBlock, blocks := false, 0
+	for i, line := range strings.Split(text, "\n") {
+		n, trimmed := i+1, strings.TrimSpace(line)
+		if len(textutil.SecretSpans(line)) > 0 {
+			add(n, "credential-shaped text; remove it")
+		}
+		switch {
+		case !inBlock && trimmed == "```jsonl":
+			inBlock, blocks = true, blocks+1
+			if blocks > 1 {
+				add(n, "second jsonl block; the file holds exactly one")
+			}
+		case inBlock && trimmed == "```":
+			inBlock = false
+		case inBlock && trimmed != "":
+			for _, msg := range checkCandidateLine(trimmed, n, seen) {
+				add(n, msg)
+			}
+		}
+	}
+	if inBlock {
+		add(len(strings.Split(text, "\n")), "jsonl block is not closed")
+	}
+	if blocks == 0 {
+		add(1, "no ```jsonl block")
+	}
+	return problems
+}
+
+// checkCandidateLine decodes one record strictly and returns its problems; seen maps ids to their first line.
+func checkCandidateLine(line string, n int, seen map[string]int) []string {
+	var c candidate
+	dec := json.NewDecoder(strings.NewReader(line))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&c); err != nil {
+		return []string{"invalid record: " + err.Error()}
+	}
+	if dec.More() {
+		return []string{"invalid record: more than one JSON value on the line"}
+	}
+	var out []string
+	switch {
+	case !candidateIDRE.MatchString(c.ID):
+		out = append(out, "id must match fc-<slug> (lower-case letters, digits, hyphens)")
+	case seen[c.ID] > 0:
+		out = append(out, fmt.Sprintf("duplicate id %s (first at line %d)", c.ID, seen[c.ID]))
+	default:
+		seen[c.ID] = n
+	}
+	if !slices.Contains(candidateKinds, c.Kind) {
+		out = append(out, "kind must be one of "+strings.Join(candidateKinds, ", "))
+	}
+	if !slices.Contains(candidateSizes, c.Size) {
+		out = append(out, "size must be one of "+strings.Join(candidateSizes, ", "))
+	}
+	if !oneSentence(c.Change) {
+		out = append(out, fmt.Sprintf("change must be one sentence of at most %d characters", candidateMaxText))
+	}
+	if msg := targetProblem(c.Target); msg != "" {
+		out = append(out, msg)
+	}
+	return append(out, evidenceProblems(c)...)
+}
+
+// oneSentence is true for non-empty text under the cap with no sentence break inside it.
+func oneSentence(s string) bool {
+	s = strings.TrimRight(strings.TrimSpace(s), ".!?")
+	return s != "" && len(s) <= candidateMaxText && !strings.ContainsAny(s, "\n") &&
+		!strings.Contains(s, ". ") && !strings.Contains(s, "? ") && !strings.Contains(s, "! ")
+}
+
+// targetProblem accepts "unknown" or a path inside the repository (the config dir) or the store.
+func targetProblem(target string) string {
+	if target == "" {
+		return `target is missing (a path, or "unknown")`
+	}
+	if target == "unknown" {
+		return ""
+	}
+	p := target
+	if !filepath.IsAbs(p) && !strings.HasPrefix(p, "/") && !strings.HasPrefix(p, `\`) {
+		p = filepath.Join(paths.ConfigDir(), p)
+	}
+	for _, root := range []string{paths.ConfigDir(), StoreDir()} {
+		if rel, err := filepath.Rel(root, filepath.Clean(p)); err == nil && rel != ".." &&
+			!strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
+			return ""
+		}
+	}
+	return "target " + target + " is outside the repository and the store"
+}
+
+// evidenceProblems needs existing feedback/ or notes/ files: two distinct, or one plus repeats of at least two.
+func evidenceProblems(c candidate) []string {
+	var out []string
+	distinct := map[string]bool{}
+	for _, e := range c.Evidence {
+		clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(e)))
+		dir, _, _ := strings.Cut(clean, "/")
+		if clean != e || (dir != "feedback" && dir != "notes") || !strings.HasSuffix(e, ".md") {
+			out = append(out, "evidence "+e+" must be feedback/<name>.md or notes/<name>.md")
+			continue
+		}
+		if fi, err := os.Stat(filepath.Join(StoreDir(), filepath.FromSlash(e))); err != nil || !fi.Mode().IsRegular() {
+			out = append(out, "evidence "+e+" does not exist in the store")
+			continue
+		}
+		distinct[e] = true
+	}
+	switch {
+	case len(c.Evidence) == 0:
+		out = append(out, "evidence is missing")
+	case c.Repeats < 0:
+		out = append(out, "repeats must not be negative")
+	case len(out) == 0 && len(distinct) < 2 && (len(distinct) != 1 || c.Repeats < 2):
+		out = append(out, "evidence needs two distinct files, or one file with repeats of at least 2")
 	}
 	return out
 }

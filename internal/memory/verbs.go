@@ -533,7 +533,7 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 		fmt.Fprintln(w)
 		fmt.Fprintln(w, ref)
 	}
-	return nil
+	return candidateError(problems)
 }
 
 // TimelineReport writes the n most recent bank entries, then the sessionHistory lines.

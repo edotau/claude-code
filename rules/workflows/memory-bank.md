@@ -171,6 +171,10 @@ The loader reads the whole generated file. Past a `fileCaps` limit `memory dream
   memory → refresh bank → cross-pollinate → report; archives durable-file overflow. It never edits `rules/**`; its only
   `CLAUDE.md` edit is a block `promote --to claude-md` printed in its own run. Native memory edits never touch a
   `<!-- RULES:BEGIN -->`…`<!-- RULES:END -->` region without human approval (guard in `internal/memory/bank_fmt.go`).
+  Its input is the top-level, `feedback/` and `notes/` files changed since the last dream. It also rewrites
+  `knowledge/feedback-candidates.md`: proposals for tool or rule changes, one JSON record per line of one `jsonl`
+  block, no more than two lines of prose. `memory review` validates it (unknown fields, evidence under 2 files or
+  absent from the store, a target outside the repo and store, duplicate ids, credentials) and exits non-zero on any.
 - `memory index` — appends model-added entries to `index.md`, regenerates `MEMORY.md` and `catalog.md` (router, one
   line per native note), rotates sessionHistory, commits the store; `--dry-run` prints the counts and writes nothing;
   a failed refresh fails, and `memory review` and the session-start line report it.
