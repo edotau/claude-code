@@ -73,6 +73,24 @@ func TestDrainDeliversNewestFiveOnceAndRemovesInbox(t *testing.T) {
 	}
 }
 
+// TestAppendKeepsNewestInboxKeep: an undrained inbox never holds more than inboxKeep notices, the newest ones.
+func TestAppendKeepsNewestInboxKeep(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for i := range inboxKeep + 20 {
+		if err := Append("lane-x", Notice{TS: int64(i), Text: fmt.Sprint("n", i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw, err := os.ReadFile(inbox("lane-x"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	if len(lines) != inboxKeep || !strings.Contains(lines[0], fmt.Sprintf(`"n%d"`, 20)) || !strings.Contains(lines[inboxKeep-1], fmt.Sprintf(`"n%d"`, inboxKeep+19)) {
+		t.Fatalf("inbox holds %d lines, want the newest %d (n20..n%d)", len(lines), inboxKeep, inboxKeep+19)
+	}
+}
+
 // TestNoticesIsolateSessions: the inbox is 0600, another session's drain is empty, an empty session is refused.
 func TestNoticesIsolateSessions(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

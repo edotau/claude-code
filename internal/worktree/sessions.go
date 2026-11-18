@@ -373,7 +373,33 @@ func Append(session string, n Notice) error {
 	if err != nil {
 		return err
 	}
-	return paths.AppendLine(inbox(session), line)
+	file := inbox(session)
+	if err := paths.AppendLine(file, line); err != nil {
+		return err
+	}
+	return capInbox(file)
+}
+
+// inboxKeep is how many of the newest notices an inbox keeps; a lane nobody drains stays small.
+const inboxKeep = 50
+
+// capInbox rewrites file to its newest inboxKeep lines when it holds more.
+func capInbox(file string) error {
+	return paths.WithFileLock(file, func() error {
+		raw, err := os.ReadFile(file)
+		if os.IsNotExist(err) { // drained between the append and here
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		lines := bytes.SplitAfter(bytes.TrimRight(raw, "\n"), []byte("\n"))
+		if len(lines) <= inboxKeep {
+			return nil
+		}
+		keep := bytes.Join(lines[len(lines)-inboxKeep:], nil)
+		return paths.AtomicWrite(file, append(keep, '\n'), 0o600)
+	})
 }
 
 // DrainErr returns and removes session's notices (≤ drainMax, newest last); an error still yields what was read.

@@ -381,11 +381,16 @@ func cleanInspectReason(repo *Repo, dest, gitDir string) (entry Entry, reason st
 func removeMerged(repo *Repo, name, dest string, entry Entry, result CleanResult, log io.Writer, closing LedgerClose) CleanResult {
 	ctx, cancel := gitTimeoutCtx()
 	defer cancel()
+	// keyed by the canonical path, so computed while dest still exists
+	laneInbox := inbox(LaneInbox(dest))
 	if out, err := gitCmd(ctx, "-C", repo.Main, "worktree", "remove", dest).CombinedOutput(); err != nil {
 		result.Reason = fmt.Sprintf("git worktree remove: %v: %s", err, strings.TrimSpace(string(out)))
 		return result
 	}
 	result.Removed = true
+	if err := os.Remove(laneInbox); err != nil && !os.IsNotExist(err) {
+		fmt.Fprintf(log, "worktree-clean: warning: notice inbox: %v\n", err)
+	}
 	if result.Branch != "" && gitCmd(ctx, "-C", repo.Main, "branch", "-d", result.Branch).Run() == nil {
 		// -d refuses an unmerged branch; failure there just keeps it
 		result.BranchDeleted = true

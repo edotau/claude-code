@@ -159,6 +159,25 @@ func TestCleanRemovesMergedAndDeletesBranch(t *testing.T) {
 	}
 }
 
+// TestCleanRemovesLaneInbox: cleaning a lane deletes its own notice inbox.
+func TestCleanRemovesLaneInbox(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := testRepo(t)
+	dest, err := Create(repo, "inbox", CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := Append(LaneInbox(dest), Notice{Text: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if res, err := Clean(repo, "inbox", false); err != nil || !res.Removed {
+		t.Fatalf("clean = %+v, %v", res, err)
+	}
+	if _, err := os.Stat(inbox(LaneInbox(dest))); !os.IsNotExist(err) {
+		t.Fatalf("lane inbox survived its clean: %v", err)
+	}
+}
+
 func TestCleanDryRunThenRealRemovalRechecksAfterDirtyChange(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)

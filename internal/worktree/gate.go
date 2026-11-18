@@ -309,13 +309,17 @@ func ScopedVerifyGate(dir string, scope []string, lintCheck bool) (gate, source 
 	return gate, source
 }
 
-// lintVerb is the lint set `make lint` runs, as the agent verb: the whole tree, or only the scope's changes.
+// mergeBaseEnv carries the merge's pinned target OID into the gate; unset, the lint compares against HEAD.
+const mergeBaseEnv = "HARNESS_MERGE_BASE"
+
+// lintVerb is the lint set `make lint` runs, as the agent verb: the whole tree, or the scope's changes since the base.
 func lintVerb(dirs []string) string {
-	const base = "claude-code agents diff --check --gates lint"
+	const verb = "claude-code agents diff --check --gates lint"
 	if len(dirs) == 0 {
-		return base + " --all"
+		return verb + " --all"
 	}
-	return base + " --path " + strings.Join(mapStrings(dirs, textutil.ShellQuote), " --path ")
+	// a merged lane is committed, so HEAD alone shows no change
+	return verb + ` --base "${` + mergeBaseEnv + `:-HEAD}" --path ` + strings.Join(mapStrings(dirs, textutil.ShellQuote), " --path ")
 }
 
 // normalizeScope slash-cleans scope dirs ("."/"" = whole repo); a leading - keeps its ./ so it is never an option.
@@ -438,9 +442,9 @@ func hasRuffTable(toml string) bool {
 }
 
 // runVerify runs cmdStr under `bash -c "set -o pipefail; ..."`; a nonzero exit is the one signal that stops promotion.
-func runVerify(ctx context.Context, workDir, cmdStr string, stdout, stderr io.Writer) error {
+func runVerify(ctx context.Context, workDir, cmdStr, base string, stdout, stderr io.Writer) error {
 	cmd := exec.CommandContext(ctx, "bash", "-c", "set -o pipefail; "+cmdStr)
-	cmd.Dir, cmd.Env = workDir, gateEnv()
+	cmd.Dir, cmd.Env = workDir, append(gateEnv(), mergeBaseEnv+"="+base)
 	cmd.Stdout = stdout
 	cmd.Stderr = stderr
 	proc.OwnGroup(cmd)

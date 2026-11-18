@@ -161,7 +161,7 @@ func TestScopedVerifyGate(t *testing.T) {
 		{"go wins over makefile test", "go.mod,Makefile", nil, false, goBase, "go.mod"},
 		{"lint-check prefixes the verb", "go.mod,Makefile:lint", nil, true, lintAll + " && " + goBase, "go.mod"},
 		{"lint-check scopes the verb", "go.mod,Makefile:lint", []string{"./a/", "b c"}, true,
-			lintVerbBase + " --path 'a' --path 'b c' && go build ./... && go vet './a/...' './b c/...' && go test './a/...' './b c/...'", "go.mod"},
+			lintVerbBase + ` --base "${HARNESS_MERGE_BASE:-HEAD}" --path 'a' --path 'b c'` + " && go build ./... && go vet './a/...' './b c/...' && go test './a/...' './b c/...'", "go.mod"},
 		{"lint-only without toolchain", "Makefile:lint", nil, true, "", "none"},
 		{"lint-check with makefile test only", "go.mod,Makefile", nil, true, goBase, "go.mod"},
 	}
@@ -197,6 +197,24 @@ func writeGateFiles(t *testing.T, dir, spec string) {
 	}
 }
 
+// A scoped lint compares against the merge's pinned target (the lane is committed); HEAD when no merge runs.
+func TestScopedLintDiffsAgainstMergeBase(t *testing.T) {
+	dir := t.TempDir()
+	writeGateFiles(t, dir, "go.mod,Makefile:lint")
+	gate, _ := ScopedVerifyGate(dir, []string{"pkg"}, true)
+	lint, _, _ := strings.Cut(gate, " && ")
+	stub := "claude-code() { printf '<%s>' \"$@\"; }; "
+	for base, want := range map[string]string{"abc123": "<--base><abc123>", "": "<--base><HEAD>"} {
+		var out strings.Builder
+		if err := runVerify(context.Background(), dir, stub+lint, base, &out, &out); err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("base %q: lint args %q lack %q", base, out.String(), want)
+		}
+	}
+}
+
 func TestScopedVerifyGateQuotesScope(t *testing.T) {
 	scope := []string{"tests/my pkg", "dir[1]", "x; echo injected", "$(printf substituted)"}
 	goTargets := " <./tests/my pkg/...> <./dir[1]/...> <./x; echo injected/...> <./$(printf substituted)/...>\n"
@@ -223,7 +241,7 @@ func TestScopedVerifyGateQuotesScope(t *testing.T) {
 			var out, stderr strings.Builder
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			if err := runVerify(ctx, dir, stub+gate, &out, &stderr); err != nil {
+			if err := runVerify(ctx, dir, stub+gate, "", &out, &stderr); err != nil {
 				t.Fatalf("runVerify: %v; stderr=%s", err, &stderr)
 			}
 			if got := out.String(); got != c.want {
@@ -266,7 +284,7 @@ func TestScopedVerifyGateRuffTable(t *testing.T) {
 func TestRunVerifyCancelledByContextStopsPromptly(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	err := runVerify(ctx, t.TempDir(), "sleep 30", io.Discard, io.Discard)
+	err := runVerify(ctx, t.TempDir(), "sleep 30", "", io.Discard, io.Discard)
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("runVerify = %v, want context.Canceled without running the gate", err)
 	}
@@ -360,14 +378,14 @@ func TestRunVerifyCancelKillsProcessTree(t *testing.T) {
 	gateWaitDelay = time.Hour // only killing the group can release the pipe before this
 	t.Cleanup(func() { gateWaitDelay = orig })
 	var out strings.Builder
-	_ = runVerify(ctx, t.TempDir(), "sleep 600 & wait", &out, &out)
+	_ = runVerify(ctx, t.TempDir(), "sleep 600 & wait", "", &out, &out)
 }
 
 // The vault master key must not reach the gate process.
 func TestRunVerifyDropsVaultKey(t *testing.T) {
 	t.Setenv("HARNESS_VAULT_KEY", "sekrit")
 	var out strings.Builder
-	if err := runVerify(context.Background(), t.TempDir(), `echo "key=[${HARNESS_VAULT_KEY}]"`, &out, &out); err != nil {
+	if err := runVerify(context.Background(), t.TempDir(), `echo "key=[${HARNESS_VAULT_KEY}]"`, "", &out, &out); err != nil {
 		t.Fatal(err)
 	}
 	if got := strings.TrimSpace(out.String()); got != "key=[]" {

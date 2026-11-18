@@ -5,3 +5,4 @@ internal/worktree/ledger.go:openLedger	unversioned: memory-bank: worktree ledger
 internal/worktree/operation.go:SaveOperation	worktree-merge-op
 internal/worktree/seed.go:copyEnvFile	unversioned: text: .env copied into a new worktree
 internal/worktree/sessions.go:Append	notices
+internal/worktree/sessions.go:capInbox	notices

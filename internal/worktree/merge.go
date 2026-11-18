@@ -313,7 +313,7 @@ func runGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gateS
 		return nil
 	}
 	fmt.Fprintf(req.Out, "verify: %s\n", gate)
-	if err := runVerify(ctx, plan.WorktreePath, gate, req.Out, req.Err); err != nil {
+	if err := runVerify(ctx, plan.WorktreePath, gate, plan.TargetOID, req.Out, req.Err); err != nil {
 		fmt.Fprintf(req.Err, "worktree left on disk at %s for inspection\n", plan.WorktreePath)
 		return fmt.Errorf("verify failed, not promoting: %w", err)
 	}
