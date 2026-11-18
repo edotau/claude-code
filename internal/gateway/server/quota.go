@@ -57,6 +57,9 @@ func (r *Router) credentialPresent(p *providers.Provider) (present bool) {
 		return probeCredential(p)
 	}
 	defer func() { credInflight.Delete(k); close(done) }()
+	if cached, present, _, _ := r.cachedCredential(name, r.now()); cached { // a probe finished since our first read
+		return present
+	}
 	present = probeCredential(p)
 	r.storeCredentialProbe(p, gen, stamp, now, present)
 	return present
