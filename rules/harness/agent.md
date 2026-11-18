@@ -154,5 +154,5 @@ vendor CLI untouched.
 - Codex-only hooks log to `state/harness/codex/routing-<session-hash>.jsonl` (0600, no prompts); a decision is verified
   only when the spawn result's agent ID joins a child-start event, else `matches_router_decision` stays `null`.
 - `doctor` row `agent flags <agent>` checks the row's `CLI.Flags` against the CLI's help: `ok`,
-  `drift: --flag (installed v)` or `skipped: …`; report-only, declared for codex and gemini.
+  `drift: --flag (installed v)` or `skipped: …`; report-only, declared for claude, codex, copilot, gemini and opencode.
 - `doctor` inspects Codex machine and `CODEX_HOME` config by metadata only: policy presence leaves the route unverified.

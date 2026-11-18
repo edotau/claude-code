@@ -362,3 +362,26 @@ func TestModelEffort(t *testing.T) {
 		})
 	}
 }
+
+func TestCopilotArgvFlagsAreDeclared(t *testing.T) {
+	copilotSettings(t, &vault.AgentRecord{Effort: "high", Context: "long_context"}, "", false)
+	setGOOS(t, "linux")
+	t.Setenv("COPILOT_HOME", t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	stubSettingsRegistry(t)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cr, err := configureCopilotRegistry(t.Context(), reg, providers.Target{Provider: &providers.Provider{Name: "fixture"}}, nil, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, prefix := copilotSchema().LaunchSpec()
+	for _, h := range []*agent.Headless{nil, {Prompt: "prompt", Tools: true, Autonomous: true}} {
+		argv := slices.Concat(prefix, cr.Argv, cr.Args, copilotArgv(h))
+		if got := copilotSchema().CLI.Undeclared(argv); len(got) > 0 {
+			t.Errorf("copilot passes %v, not in its row's Flags", got)
+		}
+	}
+}

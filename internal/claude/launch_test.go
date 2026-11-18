@@ -987,3 +987,35 @@ func TestClaudePickerSkipsHeadless(t *testing.T) {
 		t.Errorf("headless overlay carries a picker: %s", overlayFile(p).Data)
 	}
 }
+
+func TestClaudeArgvFlagsAreDeclared(t *testing.T) {
+	hermetic(t, gwProviders)
+	t.Setenv("TEST_GW_KEY", fakeToken)
+	budget := 1.0
+	req := agent.RunOptions{BudgetUSD: &budget, NoPersist: true, SafeMode: true, DebugFile: "log",
+		SystemPrompt: "system", AppendSystemPrompt: "append", OutputSchema: "{}", SessionID: "s1",
+		Persona: &agent.Schema{Name: "fixture", Prompt: "prompt"}}
+	for _, live := range []bool{false, true} {
+		for _, tools := range []bool{false, true} {
+			req.Tools, req.NoTools = tools, !tools
+			argv := append(claudeStreamArgs(req, live), toolArgs(req)...)
+			st := agent.Settings{Headless: true, Tools: tools, Effort: "high",
+				Permissions: agent.Permissions{Allow: []agent.Rule{{Tool: "Read"}}, Deny: []agent.Rule{{Tool: "Edit"}}}}
+			_, argv, _, cleanup, err := claudeAgent.RenderSettings(t.Context(), st, nil, argv)
+			cleanup()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := row.CLI.Undeclared(argv); len(got) > 0 {
+				t.Errorf("live=%v tools=%v: undeclared %v", live, tools, got)
+			}
+		}
+	}
+	p, err := claudePlan(t.Context(), agent.LaunchOptions{Provider: "gw"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := row.CLI.Undeclared(p.Argv); len(got) > 0 {
+		t.Errorf("interactive: undeclared %v", got)
+	}
+}

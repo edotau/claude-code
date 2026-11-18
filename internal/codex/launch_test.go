@@ -210,6 +210,7 @@ func TestCodexHeadlessFlagsAreDeclared(t *testing.T) {
 	h := &agent.Headless{Tools: true, NoPersist: true, SafeMode: true, SessionID: "s1"}
 	argv := codexHeadless(context.Background(), nil, h)
 	argv = append(argv, codexSwapSandbox(slices.Clone(argv))...)
+	argv = codexExecArgs(argv, codexOutputArgs(nil, "schema.json", true)...)
 	if got := codexSchema().CLI.Undeclared(argv); len(got) > 0 {
 		t.Errorf("codex passes %v, not in its row's Flags", got)
 	}

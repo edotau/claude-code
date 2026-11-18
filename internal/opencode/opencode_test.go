@@ -515,3 +515,15 @@ func TestOpencodeChildPermissionReadOnly(t *testing.T) {
 		t.Fatalf("child plugin lacks effective read-only policy: %+v", p)
 	}
 }
+
+func TestOpencodeArgvFlagsAreDeclared(t *testing.T) {
+	for _, session := range []string{"", "s1"} {
+		h := agent.Headless{Prompt: "prompt", WorkDir: t.TempDir(), SessionID: session,
+			Effort: "high", Autonomous: true, SafeMode: true, Attach: []string{"file"}}
+		argv := opencodeArgv("model", h)
+		_, argv = opencodeSystemPrompt(nil, argv, "system")
+		if got := row.CLI.Undeclared(argv); len(got) > 0 {
+			t.Errorf("opencode passes %v, not in its row's Flags", got)
+		}
+	}
+}

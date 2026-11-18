@@ -73,7 +73,7 @@ func runNoTools(ctx context.Context, req agent.RunOptions, sink wire.Sink) (wire
 // claudeExec runs one stream-json claude process to completion and parses its events into sink.
 func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink wire.Sink) (wire.Result, error) {
 	ctx, req = gateOffAnthropic(ctx, req)
-	args := claudeArgs([]string{"--print", "--output-format", "stream-json", "--verbose", "--include-partial-messages"}, req)
+	args := claudeStreamArgs(req, false)
 	cmd, tail, cl, err := claudeCmd(ctx, req, args, prompt)
 	if err != nil {
 		return wire.Result{}, err
@@ -85,6 +85,15 @@ func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink w
 	res, err := agent.RunEventStream(ctx, "claude", cmd, tail, sink, parse, agent.StreamOpts{Idle: wd.IdleTimeout})
 	res.Provider = cl.Set[providers.EnvSessionProfile]
 	return res, err
+}
+
+func claudeStreamArgs(req agent.RunOptions, live bool) []string {
+	argv := []string{"--print"}
+	if live {
+		argv = append(argv, "--input-format", "stream-json")
+	}
+	argv = append(argv, "--output-format", "stream-json", "--verbose", "--include-partial-messages")
+	return claudeArgs(argv, req)
 }
 
 // claudeArgs appends the request's option flags to base; effort and permissions are RenderSettings', tools toolArgs'.
@@ -679,6 +688,11 @@ func init() {
 // row is claude's roster entry: binary, dialects, capabilities, events and launch hints.
 var row = agent.Schema{Name: "claude", CLI: agent.CLI{
 	PromptVia: agent.PromptStdin,
+	Flags: []string{"--print", "--output-format", "--verbose", "--include-partial-messages", "--input-format",
+		"--max-budget-usd", "--no-session-persistence", "--safe-mode", "--debug-file", "--system-prompt",
+		"--append-system-prompt", "--json-schema", "--resume", "--permission-mode", "--tools", "--setting-sources",
+		"--strict-mcp-config", "--mcp-config", "--exclude-dynamic-system-prompt-sections", "--effort",
+		"--permission-prompts", "--allowedTools", "--disallowedTools", "--agents", "--agent", "--settings"},
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, NoTools: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, SafeMode: agent.Native, DebugFile: agent.Native,
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, Env: agent.Native, OutputSchema: agent.Native, Persona: agent.Native,
@@ -724,8 +738,7 @@ type claudeLive struct {
 
 func (b *claudeLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer, string, error) {
 	ctx, req = gateOffAnthropic(ctx, req)
-	args := claudeArgs([]string{"--print", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose",
-		"--include-partial-messages"}, req)
+	args := claudeStreamArgs(req, true)
 	cmd, tail, cl, err := claudeCmd(ctx, req, args, "")
 	b.cmd = cmd
 	return cmd, tail, cl.Set[providers.EnvSessionProfile], err

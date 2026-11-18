@@ -21,7 +21,9 @@ func init() {
 
 // row is opencode's roster entry: binary, dialects, capabilities, events and launch hints.
 var row = agent.Schema{Name: "opencode", CLI: agent.CLI{
-	Binary: "opencode", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolGemini, providers.ProtocolOpenAI},
+	Flags:    []string{"--format", "--dir", "--session", "--title", "--variant", "--auto", "--pure", "--agent"},
+	HelpArgv: []string{"run", "--help"},
+	Binary:   "opencode", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolGemini, providers.ProtocolOpenAI},
 	RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolGemini: "/" + providers.ProtocolGemini,
 		providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI, providers.ProtocolResponses: "/" + providers.ProtocolResponses},
 	// keep in step with opencodeMaxMajor in internal/agent/tools/install.go

@@ -470,6 +470,7 @@ func init() {
 // row is copilot's roster entry: binary, dialects, capabilities, events and launch hints.
 var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 	PromptVia: agent.PromptMessage,
+	Flags:     []string{"--allow-all", "--prompt", "--allow-all-tools", "--reasoning-effort", "--context", "--model"},
 	Binary:    "copilot", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI},
 	RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI,
 		providers.ProtocolResponses: "/" + providers.ProtocolResponses},

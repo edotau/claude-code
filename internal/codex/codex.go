@@ -51,11 +51,11 @@ func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpt
 			return res, retry.Fatal(e.Name(), err)
 		}
 		defer func() { _ = os.Remove(file) }()
-		extra = append(extra, "--output-schema", file)
+		extra = codexOutputArgs(extra, file, false)
 	}
 	codexJSON := codexHasJSON()
 	if codexJSON {
-		extra = append(extra, "--json")
+		extra = codexOutputArgs(extra, "", true)
 	}
 	argv = codexExecArgs(codexImageArgs(argv, req.Attach), extra...)
 	cmd, tail := agent.ChildCmd(ctx, bin, argv, env, req.WorkDir, prompt, req.KeepEnv, true)
@@ -167,6 +167,17 @@ func (codexEngine) LaunchArgs(file string, args []string) ([]string, error) {
 		return nil, err
 	}
 	return append(overrides, args...), nil
+}
+
+func codexOutputArgs(argv []string, schemaFile string, jsonOutput bool) []string {
+	out := slices.Clone(argv)
+	if schemaFile != "" {
+		out = append(out, "--output-schema", schemaFile)
+	}
+	if jsonOutput {
+		out = append(out, "--json")
+	}
+	return out
 }
 
 // codexExecArgs inserts extra right after the exec subcommand, where codex takes its flags.
