@@ -22,9 +22,10 @@ Moved from the README: install options, setup, agent and utility commands, the s
   `bin/<agent>`. Confirm with `<agent> --version`, the doctor
   `<agent> route:` line, or `claude-code agents ask --agent <agent> "Reply with exactly: ok"`.
 - The same step installs missing host tools (shfmt, ruff, node, prettier, gh, tmux, shellcheck) through `go install`,
-  `npm --prefix ~/.local`, uv/pipx or, as the fallback, brew, and runs no root command; git, go, make, curl and the
-  `DEV_TOOLS` linters are report-only. `claude-code doctor` prints a `dep <name>` row per tool with the command that
-  installs it, and a failed install never fails `make install`.
+  `npm --prefix ~/.local`, uv/pipx or, as the fallback, brew, and runs no root command; git, go, make, curl are
+  report-only, and `DEV_TOOLS=1` (default) also `go install`s three pinned linters (`DEV_TOOLS=0` skips). `claude-code
+  doctor` prints a `dep <name>` row per tool with the command that installs it, and a failed install never fails `make
+  install`.
 - `bin/<agent>` is the real, unrouted CLI. Routed launches go through `claude-code <agent>`.
 
 ## Setup
@@ -72,7 +73,8 @@ claude-code usage --days 7                             # subagent token usage
 claude-code usage --context                          # where one session's context went, by source
 ```
 
-Without `--tools`, agents are read-only. `agents sync` renders under `state/projections/<agent>/`, installs into
+Without `--tools` the agent's tools are off (per agent: `rules/harness/agent.md`); `--read-only` adds a read-command
+allow list. `agents sync` renders under `state/projections/<agent>/`, installs into
 `~/.codex`, `~/.copilot`, `~/.gemini`, `~/.config/opencode`, and links `skills/` into `~/.agents/skills` (plus gemini's
 and copilot's own skills dirs); no AGENTS.md lives at this root (Claude Code would load it as a second CLAUDE.md).
 claude.ai `skills/synced/**` is linked for no agent; opencode reads it from `~/.claude/skills` natively. Envelope
