@@ -14,6 +14,7 @@ paths:
 | Plan | `~/.claude/plans/YYYY-MM-DD-<slug>.md` (this repo) · `~/.claude/plans/<repo>/YYYY-MM-DD-<slug>.md` (others); gitignored; dated from the first write (`docs-plan-mirror`), filed on approval (`docs-plan-save`); the undated draft is scratch |
 | Session handoff | `~/.claude/memory/handoffs/YYYY-MM-DD-<topic>.md` — only when `activeContext.md` can't hold it; point to it from there |
 | Report (review, audit, techdebt scan, research brief) | `~/.claude/memory/reports/YYYY-MM-DD-<name>.md` |
+| Techdebt | `~/.claude/memory/techdebt/<area>.md`, one file per area; a plan or report may list it, its home is here |
 | Promoted knowledge (local-only) | `~/.claude/memory/knowledge/<topic>.md` |
 
 The store is one bank for every workspace; `claude-code memory path reports <name>` prints the exact path. It is a
