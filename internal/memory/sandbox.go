@@ -187,18 +187,21 @@ func placeStoreRels(dst string, rels []string, empty bool) ([]string, error) {
 func ownedStoreRels() []string {
 	var rels []string
 	for _, dir := range append([]string{""}, flatSubs...) {
-		ents, _ := os.ReadDir(filepath.Join(StoreDir(), dir))
-		for _, e := range ents {
-			rel := path.Join(dir, e.Name())
-			if strings.HasPrefix(e.Name(), ".") || storeLevelFile(rel) {
-				continue
-			}
-			switch {
-			case e.Type().IsRegular():
-				rels = append(rels, rel)
-			case e.IsDir() && dir != "":
-				rels = append(rels, regularFilesUnder(rel)...)
-			}
+		rels = append(rels, ownedIn(dir)...)
+	}
+	return rels
+}
+
+func ownedIn(dir string) (rels []string) {
+	ents, _ := os.ReadDir(filepath.Join(StoreDir(), dir))
+	for _, e := range ents {
+		rel := path.Join(dir, e.Name())
+		switch {
+		case strings.HasPrefix(e.Name(), ".") || storeLevelFile(rel):
+		case e.Type().IsRegular():
+			rels = append(rels, rel)
+		case e.IsDir() && dir != "":
+			rels = append(rels, regularFilesUnder(rel)...)
 		}
 	}
 	return rels

@@ -431,27 +431,22 @@ func ShowBlock(ref string) (string, string, error) {
 	derived := derivedRef().MatchString(ref)
 	var foundPath, foundBlock string
 	err := filepath.WalkDir(StoreDir(), func(p string, d fs.DirEntry, err error) error {
-		if errors.Is(err, fs.ErrNotExist) { // no store yet: nothing to find
+		switch {
+		case errors.Is(err, fs.ErrNotExist): // no store yet: nothing to find
 			return nil
-		}
-		if err != nil {
+		case err != nil:
 			return err
-		}
-		if d.IsDir() && d.Name() == ".git" {
+		case d.IsDir() && d.Name() == ".git":
 			return filepath.SkipDir
-		}
-		if d.IsDir() {
+		case d.IsDir():
 			return nil
 		}
 		b, ok, err := blockWithRef(p, ref, derived)
-		if err != nil {
-			return err
-		}
-		if ok {
+		if err == nil && ok {
 			foundPath, foundBlock = p, b
 			return filepath.SkipAll // stop at the first file holding it: the rest of the store need not be read
 		}
-		return nil
+		return err
 	})
 	if err != nil {
 		return "", "", err
