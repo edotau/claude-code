@@ -11,11 +11,11 @@ import (
 
 // credentialCmds print a credential: per tool, its subcommand words in order; flags and their values may sit between.
 var credentialCmds = map[string][][]string{
-	"claude-code": {{"vault", "get"}}, "databricks": {{"auth", "token"}},
+	"claude-code": {{"--secret"}}, "databricks": {{"auth", "token"}}, // only --secret prints a harness credential
 	"gh": {{"auth", "token"}, {"auth", "status", "-t"}, {"auth", "status", "--show-token"}},
 	"gcloud": {{"auth", "print-access-token"}, {"auth", "print-identity-token"}, // application-default sits between
 		{"auth", "print-refresh-token"}},
-	"az":     {{"account", "get-access-token"}},
+	"az": {{"account", "get-access-token"}},
 	"aws": {{"ecr", "get-login-password"}, {"ecr-public", "get-login-password"}, {"sts", "get-session-token"},
 		{"sts", "assume-role"}, {"sts", "get-federation-token"}, {"configure", "export-credentials"},
 		{"sso", "get-role-credentials"}, {"secretsmanager", "get-secret-value"}},
