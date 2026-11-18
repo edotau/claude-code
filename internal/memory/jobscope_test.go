@@ -238,3 +238,36 @@ func TestDreamPlanPhaseKeepsProvenChangesOnly(t *testing.T) {
 		t.Errorf("log:\n%s", log)
 	}
 }
+
+// A dream job cannot approve or close a candidate, nor tick or reopen a plan, by any spelling of the command.
+func TestJobScopeDreamOwnerVerbsRefusedInEveryShape(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	work := t.TempDir()
+	if out, err := exec.Command("git", "-C", work, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+	p := permissions(memory.JobScope(memory.JobDream, work))
+	review := "claude-code memory review --candidate fc-x "
+	for _, c := range []string{
+		review + "--approve", review + "--enforced abc1234",
+		"claude-code memory review --approve --candidate fc-x", "claude-code memory review --candidate=fc-x --approve",
+		"CLAUDE_MEMORY_DREAM_CHILD=0 " + review + "--approve", "X=0 " + review + "--approve",
+		"env X=0 " + review + "--approve", "bash -c '" + review + "--approve'", "sh -c \"" + review + "--enforced abc1234\"",
+		"/usr/local/bin/claude-code memory review --candidate fc-x --approve",
+		"~/.claude/bin/claude-code memory review --candidate fc-x --approve",
+		"CLAUDE_MEMORY_DREAM_CHILD=0 claude-code plan task 1 --reopen", "X=0 claude-code plan task 1 --reopen",
+		"env X=0 claude-code plan task 1 --reopen", "bash -c 'claude-code plan task 1 --reopen'",
+		"/usr/local/bin/claude-code plan task 1 --reopen",
+		"X=0 claude-code plan tick --audit", "env X=0 claude-code plan tick --audit",
+		"bash -c 'claude-code plan tick --audit'", "/usr/local/bin/claude-code plan tick --audit",
+	} {
+		if got := p.Decide("Bash", c); got != agent.Deny {
+			t.Errorf("Decide(Bash, %q) = %v, want Deny", c, got)
+		}
+	}
+	for _, c := range []string{"claude-code memory review --candidate fc-x", "X=0 claude-code memory review --brief"} {
+		if got := p.Decide("Bash", c); got != agent.Allow {
+			t.Errorf("Decide(Bash, %q) = %v, want Allow", c, got)
+		}
+	}
+}

@@ -37,7 +37,8 @@ func JobScope(kind, workdir string) Scope {
 		s.Write = []string{StoreDir() + "/**", filepath.Join(paths.ConfigDir(), "CLAUDE.md")}
 		s.Bash = append([]string{"claude-code memory review *", "claude-code memory index *",
 			"claude-code memory promote *"}, planGrants(workdir)...)
-		s.NoBash = []string{"claude-code plan task *-reopen*", "claude-code plan tick*"}
+		s.NoBash = []string{"claude-code plan task *-reopen*", "claude-code plan tick*",
+			"claude-code memory review *-approve*", "claude-code memory review *-enforced*"} // the owner's, whatever env says
 	default:
 		return s
 	}
