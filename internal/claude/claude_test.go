@@ -890,8 +890,8 @@ printf '{"type":"result","subtype":"success","is_error":false,"result":"final","
 // The last turn's tail survives a child that exits right after writing it: Wait runs only once stdout is drained.
 func TestLiveFinalResultSurvivesImmediateChildExit(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
+	liveEnvScript(t, fakeExitAfterResult)
 	for i := range 30 {
-		liveEnvScript(t, fakeExitAfterResult)
 		id, wait := startHolder(t, context.Background(), time.Minute)
 		env, err := agent.SendLive(context.Background(), id, "go", wire.Discard)
 		if err != nil || env.Answer != "final" {

@@ -49,7 +49,7 @@ func fixed(script string) func(time.Duration) string {
 // runFakeClaudeStall retries with a doubled limit (to 4.8 s) while the child was too slow to emit its first event.
 func runFakeClaudeStall(t *testing.T, script func(limit time.Duration) string) fakeRun {
 	t.Helper()
-	limit := 300 * time.Millisecond
+	limit := 150 * time.Millisecond
 	for {
 		start := time.Now()
 		res, err := runFakeClaudeIdle(t, limit, script(limit))
@@ -137,7 +137,7 @@ func TestClaudeExecSilenceBeforeResultStillFails(t *testing.T) {
 func TestClaudeLiveStallsWhenSilent(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	old := claudeIdleLimit
-	claudeIdleLimit = 300 * time.Millisecond
+	claudeIdleLimit = 100 * time.Millisecond
 	t.Cleanup(func() { claudeIdleLimit = old })
 	// the stub stays silent and alive until the test closes its stdin, not for a fixed time
 	bin := filepath.Join(t.TempDir(), "claude")
@@ -200,7 +200,7 @@ func TestClaudeExecGoldenStreamCompletes(t *testing.T) {
 
 // Given claude never emits anything, Then the window armed at process start trips it.
 func TestClaudeExecStallsBeforeFirstEvent(t *testing.T) {
-	_, err := runFakeClaudeIdle(t, 300*time.Millisecond, "exec sleep 30\n")
+	_, err := runFakeClaudeIdle(t, 100*time.Millisecond, "exec sleep 30\n")
 	if !errors.Is(err, agent.ErrStalled) || !strings.Contains(err.Error(), "last event: none") {
 		t.Fatalf("err = %v, want ErrStalled with no event seen", err)
 	}
