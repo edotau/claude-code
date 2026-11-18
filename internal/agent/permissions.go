@@ -454,15 +454,14 @@ func (s *codeScan) lineEnd(i int) (int, bool) {
 }
 
 // dataConsumers read a heredoc as data: interpreters, readers and git/gh; a shell, a writer or a remote run is none.
-var dataConsumers = map[string]bool{"cat": true, "head": true, "tail": true, "wc": true, "grep": true, "rg": true,
-	"jq": true, "go": true, "gofmt": true, "git": true, "gh": true, "node": true, "ruby": true, "perl": true}
+var dataConsumers = sync.OnceValue(func() map[string]bool { return shell.GuardSet("heredoc_data_consumers") })
 
 var pythonName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^python[23]?(\.[0-9]+)?$`) })
 
 // dataConsumer reports a segment (text before its `<<`) whose command reads its heredoc as data.
 func dataConsumer(seg string) bool {
 	toks, _ := shell.Unwrap(shell.Tokens(seg), "")
-	return len(toks) > 0 && (dataConsumers[toks[0]] || pythonName().MatchString(toks[0]))
+	return len(toks) > 0 && (dataConsumers()[toks[0]] || pythonName().MatchString(toks[0]))
 }
 
 func spansOf(docs []heredoc, dataOnly bool) []span {
@@ -585,9 +584,11 @@ func (p Permissions) decideSeg(seg, cdTo string, at opDir, depth int) (Decision,
 // mayMoveCwd reports a segment that may change the shell's cwd: any cd, pushd or popd word, or eval and source.
 func mayMoveCwd(seg string) bool {
 	return slices.ContainsFunc(shell.Tokens(seg), func(t string) bool {
-		return slices.Contains([]string{"cd", "pushd", "popd", "eval", "source", "."}, t)
+		return slices.Contains(cwdMovingWords(), t)
 	})
 }
+
+var cwdMovingWords = sync.OnceValue(func() []string { return shell.GuardWords("cwd_moving_words") })
 
 // cdVerdict joins a relative cd's verdict d with its absolute spelling's: a deny of either wins, then an allow.
 func (p Permissions) cdVerdict(d Decision, raw, norm, abs string) Decision {

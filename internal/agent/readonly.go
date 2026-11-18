@@ -33,13 +33,14 @@ func ReadOnlyShell(line string) bool {
 func ReadOnlyBashHeads() []string {
 	heads := []string{"rg", "grep", "ls", "wc", "head", "tail", "cat", "sed -n", "go doc", "go list", "go env", "go version",
 		"git branch --list"}
-	for _, v := range gitPlainVerbs {
-		if !slices.Contains(gitGatedVerbs, v) {
+	for _, v := range gitPlainVerbs() {
+		if !slices.Contains(gitGatedVerbs(), v) {
 			heads = append(heads, "git "+v)
 		}
 	}
-	for _, group := range slices.Sorted(maps.Keys(readOnlyClaudeVerbs)) {
-		for _, v := range readOnlyClaudeVerbs[group] {
+	verbs := readOnlyClaudeVerbs()
+	for _, group := range slices.Sorted(maps.Keys(verbs)) {
+		for _, v := range verbs[group] {
 			heads = append(heads, "claude-code "+group+" "+v)
 		}
 	}
@@ -71,14 +72,16 @@ func rtkPlain(toks []string) []string {
 	if len(toks) < 2 || toks[0] != "rtk" {
 		return toks
 	}
-	switch toks[1] {
-	case "git", "ls", "grep", "rg", "find", "claude-code":
+	if rtkPlainSubcommands()[toks[1]] {
 		return toks[1:]
-	case "read":
+	}
+	if toks[1] == "read" {
 		return append([]string{"cat"}, toks[2:]...)
 	}
 	return toks
 }
+
+var rtkPlainSubcommands = sync.OnceValue(func() map[string]bool { return shell.GuardSet("read_only_rtk_plain_subcommands") })
 
 // claudeHelp is `claude-code <verb> [<subverb>] -h|--help`: help text never writes.
 func claudeHelp(toks []string) bool {
@@ -94,7 +97,7 @@ func rawSegmentOK(seg string, rawToks, toks []string) bool {
 	if hasWrite(seg) || shell.Expands(seg) || braceExpands(seg) {
 		return false
 	}
-	if name := rtkPlain(toks)[0]; slices.Contains([]string{"rg", "find", "git", "go", "claude-code"}, name) || readOnlyCLIs[name] != nil {
+	if name := rtkPlain(toks)[0]; slices.Contains([]string{"rg", "find", "git", "go", "claude-code"}, name) || readOnlyCLIs()[name] != nil {
 		// a glob leading a word, or in a word that starts with -, can expand to a flag (a file named --pre=x)
 		at, lead, dash := shell.QuoteAt(seg), true, false
 		for i := 0; i < len(seg); i++ {
@@ -140,6 +143,9 @@ func braceExpands(seg string) bool {
 
 // readOnlyCommand judges a wrapper-free command by its name.
 func readOnlyCommand(toks []string) bool {
+	if plainReadCommands()[toks[0]] {
+		return true
+	}
 	switch toks[0] {
 	case "git":
 		return readOnlyGit(toks)
@@ -148,23 +154,28 @@ func readOnlyCommand(toks []string) bool {
 	case "go":
 		return readOnlyGo(toks[1:])
 	case "rg":
-		return noFlag(toks[1:], "--pre", "--pre-glob", "-z", "--search-zip", "--hostname-bin")
-	case "grep", "ls", "wc", "cat", "echo":
-		return true
+		return noFlag(toks[1:], bannedFlags()["rg"]...)
 	case "printf": // -v assigns a variable, and bash evaluates an array subscript in its name
 		return len(toks) < 2 || !strings.HasPrefix(toks[1], "-v")
 	case "find":
-		return noFlag(toks[1:], findActions...)
+		return noFlag(toks[1:], findActions()...)
 	case "head", "tail":
-		return noFlag(toks[1:], "-f", "-F", "--follow", "--retry")
+		return noFlag(toks[1:], bannedFlags()[toks[0]]...)
 	case "sed":
 		return sedPrintMatches(strings.Join(toks, " "))
 	}
 	return readOnlyCLI(toks)
 }
 
+var plainReadCommands = sync.OnceValue(func() map[string]bool { return shell.GuardSet("read_only_plain_commands") })
+
+// bannedFlags are the flags refused on rg, head, tail and the go and claude-code verbs that are otherwise read-only.
+var bannedFlags = sync.OnceValue(func() map[string][]string { return shell.GuardTools("read_only_banned_flags") })
+
 // findActions are the find tokens that write a file or run a command.
-var findActions = []string{"-exec", "-execdir", "-ok", "-okdir", "-delete", "-fprint", "-fprint0", "-fprintf", "-fls"}
+var findActions = sync.OnceValue(func() []string {
+	return slices.Concat(shell.GuardWords("find_exec_flags"), shell.GuardWords("find_write_flags"))
+})
 
 // hasWrite is a raw-segment property: a file redirect, or an unquoted `<` (heredoc, here-string, process substitution).
 func hasWrite(seg string) bool {
@@ -205,20 +216,18 @@ func flagIs(a, banned string) bool {
 }
 
 // gitPlainVerbs are the git subcommands a read-only run may shell out to, in their plain spelling.
-var gitPlainVerbs = []string{"log", "show", "diff", "status", "blame", "ls-files", "rev-parse", "grep", "branch",
-	"remote", "worktree", "stash", "clean", "reflog"}
+var gitPlainVerbs = sync.OnceValue(func() []string { return shell.GuardWords("git_read_only_verbs") })
 
 // gitGatedVerbs are the gitPlainVerbs that also write, so only the read forms their arg check names pass.
-var gitGatedVerbs = []string{"branch", "remote", "worktree", "stash", "clean", "reflog"}
+var gitGatedVerbs = sync.OnceValue(func() []string { return shell.GuardWords("git_read_only_gated_verbs") })
 
 // gitBannedLong lets the caller pick a program, config, repo or output file (abbreviations too); not shell.ReadOnlyGit.
-var gitBannedLong = []string{"--output", "--exec-path", "--open-files-in-pager", "--config-env", "--config", "--git-dir",
-	"--work-tree", "--paginate", "--pager", "--contents", "--ext-diff", "--textconv"}
+var gitBannedLong = sync.OnceValue(func() []string { return shell.GuardWords("git_read_only_banned_long") })
 
 // readOnlyGit is plain git: configured drivers are the owner's; the caller picks no program, config, repo or output.
 func readOnlyGit(toks []string) bool {
 	rest, dirs := gitGlobalOpts(toks[1:])
-	if len(rest) == 0 || !slices.Contains(gitPlainVerbs, rest[0]) || !gitArgsOK(rest) || len(dirs) > 0 && noIndexDiff(rest) {
+	if len(rest) == 0 || !slices.Contains(gitPlainVerbs(), rest[0]) || !gitArgsOK(rest) || len(dirs) > 0 && noIndexDiff(rest) {
 		return false
 	}
 	switch rest[0] {
@@ -288,7 +297,7 @@ func gitArgsOK(rest []string) bool {
 		case strings.Contains(letters, "O"):
 			return false // git grep -O runs a pager program
 		case strings.HasPrefix(a, "--"):
-			if slices.ContainsFunc(gitBannedLong, func(b string) bool { return len(name) >= 4 && name != "--text" && strings.HasPrefix(b, name) }) {
+			if slices.ContainsFunc(gitBannedLong(), func(b string) bool { return len(name) >= 4 && name != "--text" && strings.HasPrefix(b, name) }) {
 				return false
 			}
 		case !strings.HasPrefix(a, "-") && escapesCheckout(a):
@@ -303,13 +312,11 @@ func escapesCheckout(a string) bool {
 	return strings.HasPrefix(a, "/") || strings.HasPrefix(a, "~") || slices.Contains(strings.Split(a, "/"), "..")
 }
 
-var lsFilesFlags = []string{"-d", "-m", "-o", "-i", "-s", "-u", "-k", "-z", "-t", "-v", "-f", "--cached", "--deleted",
-	"--modified", "--others", "--ignored", "--stage", "--unmerged", "--killed", "--directory", "--no-empty-directory",
-	"--eol", "--full-name", "--exclude-standard", "--deduplicate", "--error-unmatch", "--"}
+var lsFilesFlags = sync.OnceValue(func() []string { return shell.GuardWords("git_ls_files_flags") })
 
 func lsFilesArgs(args []string) bool {
 	for _, a := range args {
-		if strings.HasPrefix(a, "-") && !slices.Contains(lsFilesFlags, a) {
+		if strings.HasPrefix(a, "-") && !slices.Contains(lsFilesFlags(), a) {
 			return false
 		}
 	}
@@ -354,9 +361,11 @@ func remoteArgs(args []string) bool {
 // worktreeArgs is `git worktree list` with its display flags.
 func worktreeArgs(args []string) bool {
 	return len(args) > 0 && args[0] == "list" && !slices.ContainsFunc(args[1:], func(a string) bool {
-		return !slices.Contains([]string{"-v", "--verbose", "--porcelain", "-z"}, a)
+		return !slices.Contains(worktreeListFlags(), a)
 	})
 }
+
+var worktreeListFlags = sync.OnceValue(func() []string { return shell.GuardWords("git_worktree_list_flags") })
 
 // cleanArgs is `git clean` only with a dry-run flag, which git honors over -f; -i and -e are out.
 func cleanArgs(args []string) bool {
@@ -378,19 +387,9 @@ func cleanArgs(args []string) bool {
 }
 
 // writeFlags are option names that suggest an output file, a repair or a deletion; any one denies a claude-code verb.
-var writeFlags = []string{"--out", "--output", "-o", "--write", "--fix", "--apply", "--save", "--delete", "--remove",
-	"--kill", "--reap", "--clean", "--prune", "--force", "--sync", "--set", "--install", "--restore"}
+var writeFlags = sync.OnceValue(func() []string { return shell.GuardWords("claude_code_write_flags") })
 
-var readOnlyClaudeVerbs = map[string][]string{
-	"agents":  {"find", "diff", "result", "wait", "status", "tree", "list", "label"},
-	"memory":  {"recall", "search", "show", "path"},
-	"review":  {"simplify", "scope", "quality"},
-	"plan":    {"status", "assumptions", "goals"},
-	"models":  {"preflight"},
-	"network": {"websearch"},
-	"gateway": {"resolve"},
-	"vault":   {"get", "ls"},
-}
+var readOnlyClaudeVerbs = sync.OnceValue(func() map[string][]string { return shell.GuardTools("claude_code_read_only_verbs") })
 
 // readOnlyClaudeCode is a listed `claude-code <group> <verb>` with no write-looking flag or --secret.
 func readOnlyClaudeCode(args []string) bool {
@@ -399,7 +398,7 @@ func readOnlyClaudeCode(args []string) bool {
 			detectorArgsOK(args[2:], []string{"--check", "--dry-run"}, map[string]func(string) bool{
 				"--agent": helpWord().MatchString, "--format": func(v string) bool { return v == "text" || v == "json" }})
 	}
-	if len(args) < 2 || !slices.Contains(readOnlyClaudeVerbs[args[0]], args[1]) || shell.SecretFlag(args) {
+	if len(args) < 2 || !slices.Contains(readOnlyClaudeVerbs()[args[0]], args[1]) || shell.SecretFlag(args) {
 		return false
 	}
 	switch args[0] + " " + args[1] {
@@ -408,11 +407,11 @@ func readOnlyClaudeCode(args []string) bool {
 	case "review scope":
 		return scopeArgsOK(args[2:])
 	case "models preflight":
-		return noFlag(args[2:], "--refresh", "--discover", "--live", "--profile")
+		return noFlag(args[2:], bannedFlags()["models preflight"]...)
 	case "agents diff":
-		return noFlag(args[2:], append(slices.Clone(writeFlags), "--check")...)
+		return noFlag(args[2:], append(slices.Clone(writeFlags()), "--check")...)
 	}
-	return noFlag(args[2:], writeFlags...)
+	return noFlag(args[2:], writeFlags()...)
 }
 
 // unsafeSimplifyRune is any rune outside letters, digits and the plain punctuation a path or ref needs.
@@ -478,9 +477,9 @@ func readOnlyGo(args []string) bool {
 	case "doc", "version":
 		return true
 	case "env":
-		return noFlag(args[1:], "-w", "-u", "-changed")
+		return noFlag(args[1:], bannedFlags()["go env"]...)
 	case "list":
-		return noFlag(args[1:], "-toolexec", "-exec", "-export", "-compiled", "-mod", "-modfile", "-overlay", "-pkgdir", "-u", "-test")
+		return noFlag(args[1:], bannedFlags()["go list"]...)
 	}
 	return false
 }
@@ -507,7 +506,7 @@ func readOnlyReadDenied(p Permissions, seg string, at opDir) bool {
 	}
 	toks, _ := shell.Unwrap(shell.Tokens(seg), "")
 	toks = rtkPlain(toks)
-	if len(toks) > 0 && slices.Contains(noFileCommands, toks[0]) {
+	if len(toks) > 0 && slices.Contains(noFileCommands(), toks[0]) {
 		return false
 	}
 	if len(toks) > 0 && toks[0] == "cd" {
@@ -528,7 +527,7 @@ func readOnlyReadDenied(p Permissions, seg string, at opDir) bool {
 func climbs(o string) bool { return slices.Contains(strings.Split(filepath.ToSlash(o), "/"), "..") }
 
 // noFileCommands read no file: builtins whose arguments are printed, never opened (a redirect never reaches here).
-var noFileCommands = []string{"echo", "printf", "true", ":", "pwd"}
+var noFileCommands = sync.OnceValue(func() []string { return shell.GuardWords("no_file_commands") })
 
 // cdReadDenied refuses a cd that is not one literal absolute path, or whose target a Read deny covers or sits above.
 func cdReadDenied(reads []Rule, toks []string) bool {
@@ -584,7 +583,7 @@ func operandForms(o, dir string) []string {
 }
 
 // patchFlags make git log print file contents.
-var patchFlags = []string{"-p", "-u", "-L", "--patch", "--cc", "--dd", "--patch-with-stat", "--patch-with-raw"}
+var patchFlags = sync.OnceValue(func() []string { return shell.GuardWords("git_log_patch_flags") })
 
 const expansionChars = "*?[{$~"
 
@@ -640,7 +639,7 @@ func commandOperands(name string, args, files []string) ([]string, bool) {
 	case "go":
 		return nil, true
 	}
-	_, cli := readOnlyCLIs[name]
+	_, cli := readOnlyCLIs()[name]
 	return nil, cli // rg and find search the tree; a cluster or cloud CLI reads no repo path
 }
 
@@ -663,7 +662,7 @@ func gitReadOperands(args []string) ([]string, bool) {
 		return dirs, true
 	case "log":
 		return dirs, !slices.ContainsFunc(args[1:], func(a string) bool {
-			return slices.Contains(patchFlags, a) || strings.HasPrefix(a, "-L") || strings.HasPrefix(a, "--patch")
+			return slices.Contains(patchFlags(), a) || strings.HasPrefix(a, "-L") || strings.HasPrefix(a, "--patch")
 		})
 	}
 	return nil, false
@@ -702,82 +701,65 @@ type cliForm struct {
 	flags map[string]string // flag: "" takes no value, "*" any value, "/" an owner/repo, else `|`-separated values
 }
 
-// cliForms builds forms from spec: space-separated `-x` (no value), `--name=` (any value) and `--name=a|b` entries.
-func cliForms(spec string, words ...string) []cliForm {
+// cliFlags parses `-x` (no value), `--name=` (any value) and `--name=a|b` entries into a flag table.
+func cliFlags(spec []string) map[string]string {
 	flags := map[string]string{}
-	for f := range strings.FieldsSeq(spec) {
+	for _, f := range spec {
 		name, val, hasVal := strings.Cut(f, "=")
 		if flags[name] = val; hasVal && val == "" {
 			flags[name] = "*"
 		}
 	}
-	forms := make([]cliForm, len(words))
-	for i, w := range words {
-		forms[i] = cliForm{w, flags}
-	}
-	return forms
+	return flags
 }
 
-const (
-	kubeScope  = "-n= --namespace= --context= "
-	kubeSelect = "-A --all-namespaces -l= --selector= "
-	kubeOut    = "-o=wide|name --output=wide|name --no-headers --sort-by= " // yaml, json and templates print env values
-	ghRepo     = "-R=/ --repo=/ --json= "                                   // no --jq: gojq reads the environment ($ENV)
-	ghList     = ghRepo + "-L= --limit= -a= --assignee= -A= --author= -l= --label= -S= --search= "
-)
-
-func kubeForms() []cliForm {
-	return slices.Concat(
-		cliForms(kubeScope+kubeSelect+kubeOut+"--field-selector= --show-labels -L= --label-columns= --ignore-not-found", "get"),
-		cliForms(kubeScope+kubeSelect, "describe"),
-		cliForms(kubeScope+"-l= --selector= -c= --container= --tail= --since= --since-time= --timestamps -p --previous "+
-			"--all-containers --prefix --limit-bytes=", "logs"),
-		cliForms(kubeScope+kubeSelect+"--containers --no-headers --sort-by=", "top"),
-		cliForms("--client -o=yaml|json --output=yaml|json", "version"),
-		cliForms(kubeOut+"--namespaced --api-group= --verbs=", "api-resources"),
-		cliForms("--recursive --api-version=", "explain"),
-		cliForms("-o=name --output=name --no-headers", "config get-contexts"),
-		cliForms("", "config current-context"))
+// cliTools are the tools a table row keyed by tool names: a kubectl row is every kube CLI's (oc too).
+func cliTools(tool string) []string {
+	if tool == "kubectl" {
+		return shell.GuardWords("kube_clis")
+	}
+	return []string{tool}
 }
 
 // readOnlyCLIs is the (tool, subcommand) table: nothing is allowed by tool name alone; kubectl config view is out.
-var readOnlyCLIs = map[string][]cliForm{
-	"kubectl": kubeForms(),
-	"oc":      append(kubeForms(), cliForms("--show-context --show-server --show-console", "whoami")...),
-	"docker": slices.Concat(cliForms("-a --all -q --quiet -n= --last= -l --latest --no-trunc -s --size -f= --filter= --format=", "ps"),
-		cliForms("-a --all -q --quiet --no-trunc --digests -f= --filter= --format=", "images"), cliForms("", "version", "info"),
-		cliForms("-n= --tail= --since= --until= -t --timestamps", "logs"),
-		cliForms("-q --quiet --no-trunc -f= --filter= --format=", "network ls", "volume ls")), // no env in these templates
-	"gh": slices.Concat(cliForms(ghRepo+"-c --comments", "pr view", "issue view"),
-		cliForms(ghList+"-s=open|closed|merged|all --state=open|closed|merged|all -B= --base= -H= --head= -d --draft", "pr list"),
-		cliForms(ghRepo+"-c --conflict-status", "pr status"), cliForms(ghRepo, "issue status", "release view"),
-		cliForms("-R=/ --repo=/ --name-only --patch --color=never|always|auto", "pr diff"),
-		cliForms(ghRepo+"--required", "pr checks"),
-		cliForms(ghList+"-s=open|closed|all --state=open|closed|all -m= --milestone= --mention=", "issue list"),
-		cliForms("--json= -b= --branch=", "repo view"),
-		cliForms(ghRepo+"-v --verbose --log --log-failed -j= --job= --attempt= --exit-status", "run view"),
-		cliForms(ghRepo+"-L= --limit= -b= --branch= -s= --status= -e= --event= -u= --user= -w= --workflow= -c= --commit=",
-			"run list"),
-		cliForms(ghRepo+"-L= --limit= --exclude-drafts --exclude-pre-releases -O=asc|desc --order=asc|desc", "release list"),
-		cliForms("-a --active --hostname=", "auth status")),
-	"aws": append(cliForms("", "--version", "help"),
-		cliForms("--output=json|text|table --query= --region=", "sts get-caller-identity")...),
-	"gcloud": append(cliForms("", "--version", "version", "help"), cliForms("--format=json|text", "config list")...),
-}
+var readOnlyCLIs = sync.OnceValue(func() map[string][]cliForm {
+	out := map[string][]cliForm{}
+	add := func(key string, spec []string) {
+		tool, words, _ := strings.Cut(key, " ")
+		for _, t := range cliTools(tool) {
+			out[t] = append(out[t], cliForm{words, cliFlags(spec)})
+		}
+	}
+	for key, spec := range shell.GuardTools("read_only_cli_forms") {
+		add(key, spec)
+	}
+	for _, key := range shell.GuardWords("read_only_cli_bare_forms") {
+		add(key, nil)
+	}
+	return out
+})
 
 // cliGlobals are the value flags a tool may carry before its subcommand; any other leading flag refuses the command.
-var cliGlobals = map[string][]string{
-	"kubectl": {"-n", "--namespace", "--context"}, "oc": {"-n", "--namespace", "--context"}, "docker": {"--context"},
-}
+var cliGlobals = sync.OnceValue(func() map[string][]string {
+	out := map[string][]string{}
+	for tool, flags := range shell.GuardTools("read_only_cli_global_flags") {
+		for _, t := range cliTools(tool) {
+			out[t] = flags
+		}
+	}
+	return out
+})
+
+var kubeCLIs = sync.OnceValue(func() map[string]bool { return shell.GuardSet("kube_clis") })
 
 // readOnlyCLI judges `<tool> [globals] <subcommand> …` against readOnlyCLIs.
 func readOnlyCLI(toks []string) bool {
-	forms, ok := readOnlyCLIs[toks[0]]
+	forms, ok := readOnlyCLIs()[toks[0]]
 	if !ok {
 		return false
 	}
 	rest, ok := skipCLIGlobals(toks[0], toks[1:])
-	if !ok || slices.ContainsFunc(rest, secretKind) && (toks[0] == "kubectl" || toks[0] == "oc") {
+	if !ok || slices.ContainsFunc(rest, secretKind) && kubeCLIs()[toks[0]] {
 		return false
 	}
 	return slices.ContainsFunc(forms, func(f cliForm) bool {
@@ -790,7 +772,7 @@ func readOnlyCLI(toks []string) bool {
 func skipCLIGlobals(tool string, rest []string) ([]string, bool) {
 	for len(rest) > 0 && strings.HasPrefix(rest[0], "-") {
 		name, val, hasVal := strings.Cut(rest[0], "=")
-		if !slices.Contains(cliGlobals[tool], name) {
+		if !slices.Contains(cliGlobals()[tool], name) {
 			return rest, true
 		}
 		rest = rest[1:]
@@ -861,12 +843,12 @@ func cliValueOK(want, v string) bool {
 }
 
 // credentialKinds are the resources whose get/describe output carries a secret or token.
-var credentialKinds = []string{"secret", "oauthclient", "oauthaccesstoken", "oauthauthorizetoken", "useroauthaccesstoken"}
+var credentialKinds = sync.OnceValue(func() []string { return shell.GuardWords("kube_credential_kinds") })
 
 // secretKind is a kubectl resource list naming a credentialKinds kind, singular or plural, any group or case.
 func secretKind(a string) bool {
 	return slices.ContainsFunc(strings.FieldsFunc(a, func(r rune) bool { return r == ',' || r == '/' }), func(k string) bool {
 		k, _, _ = strings.Cut(strings.ToLower(k), ".")
-		return slices.Contains(credentialKinds, strings.TrimSuffix(k, "s"))
+		return slices.Contains(credentialKinds(), strings.TrimSuffix(k, "s"))
 	})
 }

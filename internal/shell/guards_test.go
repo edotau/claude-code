@@ -47,6 +47,7 @@ func TestGuardsFileIsValid(t *testing.T) {
 // guardSubsets are section pairs whose first names (words or tools) must all be in the second.
 var guardSubsets = [][2]string{
 	{"relay_go_bool_flags", "relay_go_value_flags"},
+	{"git_read_only_gated_verbs", "git_read_only_verbs"},
 }
 
 func TestDecodeGuardsRejects(t *testing.T) {

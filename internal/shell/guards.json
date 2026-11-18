@@ -137,5 +137,160 @@
   "writer_destination_commands": {
     "purpose": "commands that write their last operand, or the -t directory",
     "words": ["cp", "mv", "install"]
+  },
+  "read_only_rtk_plain_subcommands": {
+    "purpose": "rtk subcommands that stand for the plain command after them in the read-only check",
+    "words": ["git", "ls", "grep", "rg", "find", "claude-code"]
+  },
+  "read_only_plain_commands": {
+    "purpose": "commands the read-only check allows whatever their arguments",
+    "words": ["grep", "ls", "wc", "cat", "echo"]
+  },
+  "read_only_banned_flags": {
+    "purpose": "command or verb -> flags that make an otherwise read-only command write, follow or run",
+    "tools": {
+      "rg": ["--pre", "--pre-glob", "-z", "--search-zip", "--hostname-bin"],
+      "head": ["-f", "-F", "--follow", "--retry"],
+      "tail": ["-f", "-F", "--follow", "--retry"],
+      "go env": ["-w", "-u", "-changed"],
+      "go list": ["-toolexec", "-exec", "-export", "-compiled", "-mod", "-modfile", "-overlay", "-pkgdir", "-u",
+        "-test"],
+      "models preflight": ["--refresh", "--discover", "--live", "--profile"]
+    }
+  },
+  "find_exec_flags": {
+    "purpose": "find actions that run a command",
+    "words": ["-exec", "-execdir", "-ok", "-okdir"]
+  },
+  "find_write_flags": {
+    "purpose": "find actions that delete or write a file",
+    "words": ["-delete", "-fprint", "-fprint0", "-fprintf", "-fls"]
+  },
+  "git_read_only_verbs": {
+    "purpose": "git subcommands a read-only run may use, in their plain spelling (drift X6: shell's list differs)",
+    "words": ["log", "show", "diff", "status", "blame", "ls-files", "rev-parse", "grep", "branch", "remote", "worktree",
+      "stash", "clean", "reflog"]
+  },
+  "git_read_only_gated_verbs": {
+    "purpose": "read-only git verbs that also write, so only the read forms their argument check names pass",
+    "words": ["branch", "remote", "worktree", "stash", "clean", "reflog"]
+  },
+  "git_read_only_banned_long": {
+    "purpose": "git long flags, abbreviations too, that pick a program, config, repo or output (drift X6)",
+    "words": ["--output", "--exec-path", "--open-files-in-pager", "--config-env", "--config", "--git-dir",
+      "--work-tree", "--paginate", "--pager", "--contents", "--ext-diff", "--textconv"]
+  },
+  "git_ls_files_flags": {
+    "purpose": "the only git ls-files flags a read-only run may pass",
+    "words": ["-d", "-m", "-o", "-i", "-s", "-u", "-k", "-z", "-t", "-v", "-f", "--cached", "--deleted", "--modified",
+      "--others", "--ignored", "--stage", "--unmerged", "--killed", "--directory", "--no-empty-directory", "--eol",
+      "--full-name", "--exclude-standard", "--deduplicate", "--error-unmatch", "--"]
+  },
+  "git_worktree_list_flags": {
+    "purpose": "the only flags a read-only git worktree list may pass",
+    "words": ["-v", "--verbose", "--porcelain", "-z"]
+  },
+  "git_log_patch_flags": {
+    "purpose": "git log flags that print file contents",
+    "words": ["-p", "-u", "-L", "--patch", "--cc", "--dd", "--patch-with-stat", "--patch-with-raw"]
+  },
+  "claude_code_write_flags": {
+    "purpose": "option names that suggest an output file, a repair or a deletion; any one denies a claude-code verb",
+    "words": ["--out", "--output", "-o", "--write", "--fix", "--apply", "--save", "--delete", "--remove", "--kill",
+      "--reap", "--clean", "--prune", "--force", "--sync", "--set", "--install", "--restore"]
+  },
+  "claude_code_read_only_verbs": {
+    "purpose": "claude-code group -> verbs a read-only run may call",
+    "tools": {
+      "agents": ["find", "diff", "result", "wait", "status", "tree", "list", "label"],
+      "memory": ["recall", "search", "show", "path"],
+      "review": ["simplify", "scope", "quality"],
+      "plan": ["status", "assumptions", "goals"],
+      "models": ["preflight"],
+      "network": ["websearch"],
+      "gateway": ["resolve"],
+      "vault": ["get", "ls"]
+    }
+  },
+  "no_file_commands": {
+    "purpose": "builtins whose arguments are printed, never opened as files",
+    "words": ["echo", "printf", "true", ":", "pwd"]
+  },
+  "kube_clis": {
+    "purpose": "the kubectl family: a kubectl row of the read-only CLI tables holds for each",
+    "words": ["kubectl", "oc"]
+  },
+  "kube_credential_kinds": {
+    "purpose": "kubernetes resources whose get or describe output carries a secret or token",
+    "words": ["secret", "oauthclient", "oauthaccesstoken", "oauthauthorizetoken", "useroauthaccesstoken"]
+  },
+  "read_only_cli_forms": {
+    "purpose": "\"tool verb\" -> its only flags, none printing env: -x, --x= any, --x=a|b listed, --x=/ owner/repo",
+    "tools": {
+      "kubectl get": ["-n=", "--namespace=", "--context=", "-A", "--all-namespaces", "-l=", "--selector=",
+        "-o=wide|name", "--output=wide|name", "--no-headers", "--sort-by=", "--field-selector=", "--show-labels", "-L=",
+        "--label-columns=", "--ignore-not-found"],
+      "kubectl describe": ["-n=", "--namespace=", "--context=", "-A", "--all-namespaces", "-l=", "--selector="],
+      "kubectl logs": ["-n=", "--namespace=", "--context=", "-l=", "--selector=", "-c=", "--container=", "--tail=",
+        "--since=", "--since-time=", "--timestamps", "-p", "--previous", "--all-containers", "--prefix",
+        "--limit-bytes="],
+      "kubectl top": ["-n=", "--namespace=", "--context=", "-A", "--all-namespaces", "-l=", "--selector=",
+        "--containers", "--no-headers", "--sort-by="],
+      "kubectl version": ["--client", "-o=yaml|json", "--output=yaml|json"],
+      "kubectl api-resources": ["-o=wide|name", "--output=wide|name", "--no-headers", "--sort-by=", "--namespaced",
+        "--api-group=", "--verbs="],
+      "kubectl explain": ["--recursive", "--api-version="],
+      "kubectl config get-contexts": ["-o=name", "--output=name", "--no-headers"],
+      "oc whoami": ["--show-context", "--show-server", "--show-console"],
+      "docker ps": ["-a", "--all", "-q", "--quiet", "-n=", "--last=", "-l", "--latest", "--no-trunc", "-s", "--size",
+        "-f=", "--filter=", "--format="],
+      "docker images": ["-a", "--all", "-q", "--quiet", "--no-trunc", "--digests", "-f=", "--filter=", "--format="],
+      "docker logs": ["-n=", "--tail=", "--since=", "--until=", "-t", "--timestamps"],
+      "docker network ls": ["-q", "--quiet", "--no-trunc", "-f=", "--filter=", "--format="],
+      "docker volume ls": ["-q", "--quiet", "--no-trunc", "-f=", "--filter=", "--format="],
+      "gh pr view": ["-R=/", "--repo=/", "--json=", "-c", "--comments"],
+      "gh issue view": ["-R=/", "--repo=/", "--json=", "-c", "--comments"],
+      "gh pr list": ["-R=/", "--repo=/", "--json=", "-L=", "--limit=", "-a=", "--assignee=", "-A=", "--author=", "-l=",
+        "--label=", "-S=", "--search=", "-s=open|closed|merged|all", "--state=open|closed|merged|all", "-B=", "--base=",
+        "-H=", "--head=", "-d", "--draft"],
+      "gh pr status": ["-R=/", "--repo=/", "--json=", "-c", "--conflict-status"],
+      "gh issue status": ["-R=/", "--repo=/", "--json="],
+      "gh release view": ["-R=/", "--repo=/", "--json="],
+      "gh pr diff": ["-R=/", "--repo=/", "--name-only", "--patch", "--color=never|always|auto"],
+      "gh pr checks": ["-R=/", "--repo=/", "--json=", "--required"],
+      "gh issue list": ["-R=/", "--repo=/", "--json=", "-L=", "--limit=", "-a=", "--assignee=", "-A=", "--author=",
+        "-l=", "--label=", "-S=", "--search=", "-s=open|closed|all", "--state=open|closed|all", "-m=", "--milestone=",
+        "--mention="],
+      "gh repo view": ["--json=", "-b=", "--branch="],
+      "gh run view": ["-R=/", "--repo=/", "--json=", "-v", "--verbose", "--log", "--log-failed", "-j=", "--job=",
+        "--attempt=", "--exit-status"],
+      "gh run list": ["-R=/", "--repo=/", "--json=", "-L=", "--limit=", "-b=", "--branch=", "-s=", "--status=", "-e=",
+        "--event=", "-u=", "--user=", "-w=", "--workflow=", "-c=", "--commit="],
+      "gh release list": ["-R=/", "--repo=/", "--json=", "-L=", "--limit=", "--exclude-drafts",
+        "--exclude-pre-releases", "-O=asc|desc", "--order=asc|desc"],
+      "gh auth status": ["-a", "--active", "--hostname="],
+      "aws sts get-caller-identity": ["--output=json|text|table", "--query=", "--region="],
+      "gcloud config list": ["--format=json|text"]
+    }
+  },
+  "read_only_cli_bare_forms": {
+    "purpose": "\"tool subcommand\" forms of the read-only CLIs that take no flag",
+    "words": ["kubectl config current-context", "docker version", "docker info", "aws --version", "aws help",
+      "gcloud --version", "gcloud version", "gcloud help"]
+  },
+  "read_only_cli_global_flags": {
+    "purpose": "tool -> value flags it may carry before its subcommand",
+    "tools": {
+      "kubectl": ["-n", "--namespace", "--context"],
+      "docker": ["--context"]
+    }
+  },
+  "heredoc_data_consumers": {
+    "purpose": "commands that read a heredoc as data; a shell, a writer or a remote run is none",
+    "words": ["cat", "head", "tail", "wc", "grep", "rg", "jq", "go", "gofmt", "git", "gh", "node", "ruby", "perl"]
+  },
+  "cwd_moving_words": {
+    "purpose": "words that may change the shell's cwd for the segments after them",
+    "words": ["cd", "pushd", "popd", "eval", "source", "."]
   }
 }
