@@ -141,10 +141,7 @@ func pyStdinArgs(args []string) bool {
 }
 
 // pyImportsOK are stdlib modules a plain edit script imports; none runs a command or loads code.
-var pyImportsOK = []string{"re", "json", "pathlib", "os", "shutil", "io", "sys", "textwrap", "collections",
-	"itertools", "functools", "glob", "fnmatch", "difflib", "string", "datetime", "time", "math", "hashlib", "csv",
-	"tomllib", "typing", "dataclasses", "argparse", "unicodedata", "pprint", "statistics", "enum", "copy",
-	"operator", "bisect", "heapq", "tempfile", "filecmp", "uuid", "random", "decimal", "fractions", "html"}
+var pyImportsOK = sync.OnceValue(func() []string { return shell.GuardWords("python_import_modules") })
 
 // pyHandOff matches code that runs a command or builds code: exec/eval, os.system/popen/exec*/spawn*, reflection.
 var pyHandOff = sync.OnceValue(func() *regexp.Regexp {
@@ -175,7 +172,7 @@ func pyImportsPlain(code string) bool {
 	for _, m := range pyImport().FindAllStringSubmatch(code, -1) {
 		for mod := range strings.SplitSeq(m[1]+m[2], ",") {
 			root, _, _ := strings.Cut(strings.Fields(mod + " .")[0], ".")
-			if !slices.Contains(pyImportsOK, root) {
+			if !slices.Contains(pyImportsOK(), root) {
 				return false
 			}
 		}
@@ -252,23 +249,16 @@ func pyRunsOther(rest string) bool {
 }
 
 // pyRunners run a program in a managed environment (`uv run`, `poetry run`, …), with their value-taking options.
-var pyRunners = map[string]map[string]bool{
-	"uv": {"--with": true, "--with-editable": true, "--with-requirements": true, "--python": true, "-p": true,
-		"--project": true, "--directory": true, "--package": true, "--extra": true, "--group": true, "--env-file": true,
-		"--index": true, "--default-index": true, "--index-url": true, "--extra-index-url": true, "-w": true},
-	"poetry": {"-C": true, "--directory": true, "-P": true, "--project": true},
-	"pipx":   {"--spec": true, "--python": true, "--pip-args": true, "--index-url": true},
-	"conda":  {"-n": true, "--name": true, "-p": true, "--prefix": true, "--cwd": true},
-}
+var pyRunners = sync.OnceValue(func() map[string]map[string]bool { return shell.GuardToolSets("python_runner_options") })
 
 // runnerUnwrap is toks past wrappers and `[python -m] uv|poetry|pipx|conda run [opts]`, from the program run.
 func runnerUnwrap(toks []string) []string {
 	rest, _ := shell.Unwrap(toks, "")
 	for len(rest) > 2 {
-		if pyInterp().MatchString(filepath.Base(rest[0])) && rest[1] == "-m" && pyRunners[rest[2]] != nil {
+		if pyInterp().MatchString(filepath.Base(rest[0])) && rest[1] == "-m" && pyRunners()[rest[2]] != nil {
 			rest = rest[2:]
 		}
-		opts := pyRunners[filepath.Base(rest[0])]
+		opts := pyRunners()[filepath.Base(rest[0])]
 		if opts == nil || len(rest) < 2 || rest[1] != "run" {
 			return rest
 		}

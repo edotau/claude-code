@@ -20,19 +20,10 @@ import (
 )
 
 // rtkMachineReadable are flags asking for exact, parseable output (gates read `git status --porcelain`): bypass rtk.
-var rtkMachineReadable = []string{
-	"--porcelain", "--json", "--format", "--pretty", "--name-only", "--name-status",
-	"--numstat", "--shortstat", "--raw", "-z", "--null", "--format-version", "--parseable", "--parse",
-	"--show-current",
-}
+var rtkMachineReadable = sync.OnceValue(func() []string { return shell.GuardWords("rtk_machine_readable_flags") })
 
 // rtkValueSubcommands are git subcommands whose stdout is a value parsed verbatim (`git rev-parse HEAD` has no flag).
-var rtkValueSubcommands = map[string]bool{
-	"rev-parse": true, "rev-list": true, "config": true, "describe": true, "symbolic-ref": true,
-	"hash-object": true, "cat-file": true, "ls-files": true, "ls-tree": true, "ls-remote": true,
-	"show-ref": true, "for-each-ref": true, "merge-base": true, "name-rev": true, "var": true,
-	"check-ignore": true, "check-attr": true, "count-objects": true,
-}
+var rtkValueSubcommands = sync.OnceValue(func() map[string]bool { return shell.GuardSet("rtk_value_subcommands") })
 
 // RTKRewrite rewrites a Bash command via `rtk rewrite`, the source of truth for what rtk compresses. It says nothing
 // when rtk is absent, the tool is not Bash, a harness veto applies, or rtk leaves the command unchanged.
@@ -233,10 +224,12 @@ func rtkGoRaw(cmd string) bool {
 	return false
 }
 
+var rtkGoTestRawFlags = sync.OnceValue(func() []string { return shell.GuardWords("rtk_go_test_raw_flags") })
+
 // rtkGoTestRawFlag reports a go test flag whose output rtk's summary drops: -v, -list (also -test.* and --).
 func rtkGoTestRawFlag(arg string) bool {
 	name, _, _ := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(arg, "-"), "-"), "=")
-	return strings.HasPrefix(arg, "-") && slices.Contains([]string{"v", "list", "test.v", "test.list"}, name)
+	return strings.HasPrefix(arg, "-") && slices.Contains(rtkGoTestRawFlags(), name)
 }
 
 // rtkGitValueVetoed reports whether any git segment runs a value subcommand or one gitRTKSubcommand can't classify.
@@ -247,7 +240,7 @@ func rtkGitValueVetoed(cmd string) bool {
 			continue
 		}
 		// "" is gitRTKSubcommand's fail-closed answer (unknown option, no subcommand): never wrap what it can't classify.
-		if sub := gitRTKSubcommand(args); sub == "" || rtkValueSubcommands[sub] {
+		if sub := gitRTKSubcommand(args); sub == "" || rtkValueSubcommands()[sub] {
 			return true
 		}
 	}
@@ -259,7 +252,7 @@ func rtkMachineReadableFlag(cmd string) bool {
 	tokens := shell.Tokens(strings.ToLower(cmd))
 	for i, token := range tokens {
 		name, _, _ := strings.Cut(token, "=")
-		if slices.Contains(rtkMachineReadable, name) || name == "-o" && i+1 < len(tokens) && tokens[i+1] == "json" {
+		if slices.Contains(rtkMachineReadable(), name) || name == "-o" && i+1 < len(tokens) && tokens[i+1] == "json" {
 			return true
 		}
 	}
@@ -343,7 +336,7 @@ func gitRTKSubcommand(args []string) string {
 			i++ // consume its value
 			continue
 		}
-		if !gitRTKGlobalBoolFlags[a] {
+		if !gitRTKGlobalBoolFlags()[a] {
 			return "" // unrecognized option — fail closed rather than misread the next word
 		}
 	}
@@ -351,8 +344,4 @@ func gitRTKSubcommand(args []string) string {
 }
 
 // gitRTKGlobalBoolFlags are git's valueless global options; anything outside it and shell.GitValueOpt is unknown.
-var gitRTKGlobalBoolFlags = map[string]bool{
-	"--no-pager": true, "--paginate": true, "-p": true, "--bare": true, "--literal-pathspecs": true,
-	"--no-replace-objects": true, "--glob-pathspecs": true, "--noglob-pathspecs": true,
-	"--icase-pathspecs": true, "--no-optional-locks": true, "--no-lazy-fetch": true,
-}
+var gitRTKGlobalBoolFlags = sync.OnceValue(func() map[string]bool { return shell.GuardSet("git_valueless_global_flags") })

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -19,10 +20,10 @@ import (
 // rewriteTimeout bounds the guard's git and process calls; safety-scan's budget is 5s.
 const rewriteTimeout = 2 * time.Second
 
-var rebaseResumeFlags = map[string]bool{"--continue": true, "--skip": true, "--abort": true, "--quit": true,
-	"--edit-todo": true, "--show-current-patch": true}
-var rebaseValueFlags = map[string]bool{"--onto": true, "-x": true, "--exec": true, "-s": true, "--strategy": true,
-	"-X": true, "--strategy-option": true, "--empty": true, "--whitespace": true, "-C": true}
+var rebaseResumeFlags = sync.OnceValue(func() map[string]bool { return shell.GuardSet("rebase_resume_flags") })
+var rebaseValueFlags = sync.OnceValue(func() map[string]bool { return shell.GuardSet("rebase_value_flags") })
+var updateRefValueFlags = sync.OnceValue(func() map[string]bool { return shell.GuardSet("update_ref_value_flags") })
+var branchValueFlags = sync.OnceValue(func() map[string]bool { return shell.GuardSet("branch_value_flags") })
 
 // rewriteRisk is one history rewrite: its verb, how many commits it rewrites, and why the tree is shared.
 type rewriteRisk struct {
@@ -73,7 +74,7 @@ func rewriteRange(verb string, args []string) ([]string, bool) {
 			return []string{"--max-count=1", "HEAD"}, true
 		}
 	case "rebase":
-		if slices.ContainsFunc(args, func(a string) bool { return rebaseResumeFlags[a] }) {
+		if slices.ContainsFunc(args, func(a string) bool { return rebaseResumeFlags()[a] }) {
 			return nil, false // acts on a rebase whose start was already checked
 		}
 		return rebaseRange(args), true
@@ -100,7 +101,7 @@ func lostCommits(ref, newTip string) []string {
 
 // updateRefRange is the commits update-ref strands on any branch ref, checked out or not.
 func updateRefRange(args []string) ([]string, bool) {
-	ops := rewriteOperands(args, map[string]bool{"-m": true})
+	ops := rewriteOperands(args, updateRefValueFlags())
 	if len(ops) == 0 || !strings.HasPrefix(ops[0], "refs/heads/") {
 		return nil, false
 	}
@@ -115,7 +116,7 @@ func updateRefRange(args []string) ([]string, bool) {
 
 // branchRange is the commits branch -f/-D/-M strands by moving, deleting or overwriting a branch.
 func branchRange(args []string) ([]string, bool) {
-	ops := rewriteOperands(args, map[string]bool{"-u": true, "--set-upstream-to": true})
+	ops := rewriteOperands(args, branchValueFlags())
 	if len(ops) == 0 || slices.Contains(args, "--") {
 		return nil, false
 	}
@@ -141,7 +142,7 @@ func shortFlag(a, letter string) bool {
 
 // rebaseRange selects the explicit target branch, or HEAD when rebasing the current branch.
 func rebaseRange(args []string) []string {
-	operands := rewriteOperands(args, rebaseValueFlags)
+	operands := rewriteOperands(args, rebaseValueFlags())
 	if slices.Contains(args, "--root") {
 		if len(operands) > 0 {
 			return []string{operands[0]}

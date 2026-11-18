@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -59,37 +60,28 @@ func patchOrFormat(toks []string) bool {
 	if tool == "apply_patch" {
 		return true
 	}
-	flags := slices.Concat(printOnly[""], printOnly[tool])
+	printOnly := printOnlyFlags()
+	flags := slices.Concat(printOnly["*"], printOnly[tool])
 	if slices.ContainsFunc(args, func(a string) bool { return slices.Contains(flags, a) }) {
 		return false
 	}
-	switch tool {
-	case "patch":
-		return true
-	case "gofmt", "goimports", "shfmt":
-		return slices.Contains(args, "-w")
-	case "go":
-		return len(args) > 0 && args[0] == "fmt"
-	case "prettier":
-		return slices.Contains(args, "--write") || slices.Contains(args, "-w")
-	case "ruff":
-		return len(args) > 0 && args[0] == "format" || slices.Contains(args, "--fix")
-	case "black", "isort", "rustfmt":
+	if patchWriteTools()[tool] {
 		return true
 	}
-	return false
+	if slices.ContainsFunc(args, func(a string) bool { return slices.Contains(formatterWriteFlags()[tool], a) }) {
+		return true
+	}
+	return len(args) > 0 && slices.Contains(formatterWriteSubcommands()[tool], args[0])
 }
 
-// printOnly are the flags that make a patch tool or formatter print instead of write; "" holds every tool's.
-var printOnly = map[string][]string{
-	"":        {"--dry-run", "--version", "--help", "-h"},
-	"black":   {"--check", "--diff"},
-	"go":      {"-n"},
-	"isort":   {"--check", "--check-only", "-c", "--diff", "-V", "--show-config", "--show-files"},
-	"patch":   {"-v"},
-	"ruff":    {"--check", "--diff"},
-	"rustfmt": {"--check", "-V", "--print-config"},
-}
+var patchWriteTools = sync.OnceValue(func() map[string]bool { return shell.GuardSet("patch_write_tools") })
+var formatterWriteFlags = sync.OnceValue(func() map[string][]string { return shell.GuardTools("formatter_write_flags") })
+var formatterWriteSubcommands = sync.OnceValue(func() map[string][]string {
+	return shell.GuardTools("formatter_write_subcommands")
+})
+
+// printOnlyFlags are the flags that make a patch tool or formatter print instead of write; "*" holds every tool's.
+var printOnlyFlags = sync.OnceValue(func() map[string][]string { return shell.GuardTools("print_only_flags") })
 
 // scratchPath is a path under /tmp, the OS temp dir or the memory reports, handoffs and notes homes: not the work.
 func scratchPath(p string, cwd ...string) bool {

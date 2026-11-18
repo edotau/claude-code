@@ -1,6 +1,7 @@
 package core
 
 import (
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -15,8 +16,19 @@ import (
 // nestedDepth caps `bash -c "…"` recursion.
 const nestedDepth = 2
 
-// writeHints are the substrings a command needs to write a file; none present means nothing to parse.
-var writeHints = []string{">", "sed", "perl", "tee", "cp", "mv", "install"}
+// writeHints are the substrings a command needs to write a file: `>` and the writer command names.
+var writeHints = sync.OnceValue(func() []string {
+	hints := append([]string{">"}, slices.Sorted(maps.Keys(shell.GuardTools("writer_script_flags")))...)
+	return slices.Concat(hints, shell.GuardWords("writer_operand_commands"), shell.GuardWords("writer_destination_commands"))
+})
+
+var removalOperandCommands = sync.OnceValue(func() map[string]bool { return shell.GuardSet("removal_operand_commands") })
+var removalMoveCommands = sync.OnceValue(func() map[string]bool { return shell.GuardSet("removal_move_commands") })
+var writerScriptFlags = sync.OnceValue(func() map[string][]string { return shell.GuardTools("writer_script_flags") })
+var writerOperandCommands = sync.OnceValue(func() map[string]bool { return shell.GuardSet("writer_operand_commands") })
+var writerDestinationCommands = sync.OnceValue(func() map[string]bool {
+	return shell.GuardSet("writer_destination_commands")
+})
 
 // redirectTok matches a redirect word: optional fd or `&`, `>`/`>>`, then the target when glued on.
 var redirectTok = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(?:\d*|&)>>?\|?(.*)$`) })
@@ -105,10 +117,10 @@ func removalTargets(toks []string) []string {
 	if len(toks) < 2 {
 		return nil
 	}
-	switch filepath.Base(toks[0]) {
-	case "rm", "unlink", "truncate":
+	switch name := filepath.Base(toks[0]); {
+	case removalOperandCommands()[name]:
 		return operands(toks[1:])
-	case "mv":
+	case removalMoveCommands()[name]:
 		return movedSources(toks[1:])
 	}
 	return nil
@@ -136,7 +148,7 @@ func movedSources(args []string) []string {
 
 // MayWrite reports whether cmd contains anything that could write a file; a cheap gate before WrittenPaths.
 func MayWrite(cmd string) bool {
-	for _, h := range writeHints {
+	for _, h := range writeHints() {
 		if strings.Contains(cmd, h) {
 			return true
 		}
@@ -201,14 +213,14 @@ func commandTargets(toks []string) []string {
 		return nil
 	}
 	args := toks[1:]
-	switch filepath.Base(toks[0]) {
-	case "sed":
-		return inPlaceFiles(args, "ef")
-	case "perl":
-		return inPlaceFiles(args, "eE")
-	case "tee":
+	name := filepath.Base(toks[0])
+	if letters, ok := writerScriptFlags()[name]; ok {
+		return inPlaceFiles(args, strings.Join(letters, ""))
+	}
+	switch {
+	case writerOperandCommands()[name]:
 		return operands(args)
-	case "cp", "mv", "install":
+	case writerDestinationCommands()[name]:
 		return destinations(args)
 	}
 	return nil

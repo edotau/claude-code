@@ -75,7 +75,7 @@ func TestRTKMachineReadableFlagsMatchTokens(t *testing.T) {
 			t.Errorf("%q: got %q (emitted=%v), want rewrite", cmd, got, ok)
 		}
 	}
-	for _, flag := range rtkMachineReadable {
+	for _, flag := range rtkMachineReadable() {
 		variants := []string{flag, strings.ToUpper(flag), flag + "=value"}
 		for _, suffix := range variants {
 			if got, ok := rtkOut(t, hosttest.RTKBashIn("git log "+suffix)); ok {

@@ -809,13 +809,10 @@ func gitPaths(ctx context.Context, top, dir string, args ...string) ([]string, e
 }
 
 // commitValueFlags are git commit options whose value is the next word.
-var commitValueFlags = map[string]bool{"-m": true, "-F": true, "-C": true, "-c": true, "--author": true,
-	"--date": true, "-t": true, "--fixup": true, "--squash": true, "--message": true, "--file": true,
-	"--template": true, "--reuse-message": true, "--reedit-message": true,
-	"--trailer": true, "--cleanup": true, "--pathspec-from-file": true}
+var commitValueFlags = sync.OnceValue(func() map[string]bool { return shell.GuardSet("commit_value_flags") })
 
 // allTracked are the add flags that stage every tracked change when no pathspec is given (commit: -a/--all only).
-var allTracked = map[string]bool{"-A": true, "--all": true, "-u": true, "--update": true}
+var allTracked = sync.OnceValue(func() map[string]bool { return shell.GuardSet("add_stage_all_flags") })
 
 // stageWords is an add/commit's words by role: pathspecs, option flags, and the value each value-taking flag took.
 type stageWords struct {
@@ -882,13 +879,24 @@ func tracked(ctx context.Context, top string, dirty map[string]bool) (map[string
 // stageFlag classifies one add/commit flag: whether the next word is its value, and whether it stages all tracked.
 func stageFlag(verb, a string) (takesValue, stagesAll bool) {
 	if verb != "commit" {
-		return a == "--pathspec-from-file", allTracked[a]
+		return a == "--pathspec-from-file", allTracked()[a]
 	}
-	return commitValueFlags[a] || valueCluster(a), a == "--all" || clusterHas(a, 'a')
+	return commitValueFlags()[a] || valueCluster(a), a == "--all" || clusterHas(a, 'a')
 }
 
+// commitValueLetters are the short letters of commit's value flags (-m -F -C -c -t), in file order.
+var commitValueLetters = sync.OnceValue(func() string {
+	var b strings.Builder
+	for _, f := range shell.GuardWords("commit_value_flags") {
+		if len(f) == 2 && f[0] == '-' && f[1] != '-' {
+			b.WriteByte(f[1])
+		}
+	}
+	return b.String()
+})
+
 // clusterStops are the short git commit letters that take a value, attached (-u/-S) or from the next word.
-const clusterStops = "uSmFCct"
+var clusterStops = sync.OnceValue(func() string { return "uS" + commitValueLetters() })
 
 // shortCluster is the letters of a short-flag cluster such as -am; "" for a long flag, a lone dash or a word.
 func shortCluster(a string) string {
@@ -901,13 +909,14 @@ func shortCluster(a string) string {
 // valueCluster is a cluster such as -am whose last letter takes the next word; -mc or -um attach it instead.
 func valueCluster(a string) bool {
 	c := shortCluster(a)
-	return len(c) > 1 && strings.IndexAny(c, clusterStops) == len(c)-1 && strings.IndexByte("mFCct", c[len(c)-1]) >= 0
+	return len(c) > 1 && strings.IndexAny(c, clusterStops()) == len(c)-1 &&
+		strings.IndexByte(commitValueLetters(), c[len(c)-1]) >= 0
 }
 
 // clusterHas reports a short-flag cluster holding letter before any value-taking letter.
 func clusterHas(a string, letter byte) bool {
 	c := shortCluster(a)
-	i, stop := strings.IndexByte(c, letter), strings.IndexAny(c, clusterStops)
+	i, stop := strings.IndexByte(c, letter), strings.IndexAny(c, clusterStops())
 	return i >= 0 && (stop < 0 || i < stop)
 }
 

@@ -1,0 +1,115 @@
+{
+  "rebase_resume_flags": {
+    "purpose": "git rebase flags that act on a rebase already started, so its start was already checked",
+    "words": ["--continue", "--skip", "--abort", "--quit", "--edit-todo", "--show-current-patch"]
+  },
+  "rebase_value_flags": {
+    "purpose": "git rebase options whose value is the next word, not an operand",
+    "words": ["--onto", "-x", "--exec", "-s", "--strategy", "-X", "--strategy-option", "--empty", "--whitespace", "-C"]
+  },
+  "update_ref_value_flags": {
+    "purpose": "git update-ref options whose value is the next word",
+    "words": ["-m"]
+  },
+  "branch_value_flags": {
+    "purpose": "git branch options whose value is the next word",
+    "words": ["-u", "--set-upstream-to"]
+  },
+  "rtk_machine_readable_flags": {
+    "purpose": "flags asking for exact, parseable output: such a command bypasses rtk",
+    "words": ["--porcelain", "--json", "--format", "--pretty", "--name-only", "--name-status", "--numstat", "--shortstat",
+      "--raw", "-z", "--null", "--format-version", "--parseable", "--parse", "--show-current"]
+  },
+  "rtk_value_subcommands": {
+    "purpose": "git subcommands whose stdout is a value parsed verbatim, so rtk must not wrap them",
+    "words": ["rev-parse", "rev-list", "config", "describe", "symbolic-ref", "hash-object", "cat-file", "ls-files",
+      "ls-tree", "ls-remote", "show-ref", "for-each-ref", "merge-base", "name-rev", "var", "check-ignore", "check-attr",
+      "count-objects"]
+  },
+  "git_valueless_global_flags": {
+    "purpose": "git global options that take no value; any other option is unknown and fails closed",
+    "words": ["--no-pager", "--paginate", "-p", "--bare", "--literal-pathspecs", "--no-replace-objects",
+      "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs", "--no-optional-locks", "--no-lazy-fetch"]
+  },
+  "rtk_go_test_raw_flags": {
+    "purpose": "go test flags whose output rtk's summary drops, named without their dashes",
+    "words": ["v", "list", "test.v", "test.list"]
+  },
+  "python_import_modules": {
+    "purpose": "stdlib modules a plain edit script imports; none runs a command or loads code",
+    "words": ["re", "json", "pathlib", "os", "shutil", "io", "sys", "textwrap", "collections", "itertools", "functools",
+      "glob", "fnmatch", "difflib", "string", "datetime", "time", "math", "hashlib", "csv", "tomllib", "typing",
+      "dataclasses", "argparse", "unicodedata", "pprint", "statistics", "enum", "copy", "operator", "bisect", "heapq",
+      "tempfile", "filecmp", "uuid", "random", "decimal", "fractions", "html"]
+  },
+  "python_runner_options": {
+    "purpose": "managed-environment runners (`uv run`, `poetry run`, ...) and the options that take the next word",
+    "tools": {
+      "uv": ["--with", "--with-editable", "--with-requirements", "--python", "-p", "--project", "--directory",
+        "--package", "--extra", "--group", "--env-file", "--index", "--default-index", "--index-url",
+        "--extra-index-url", "-w"],
+      "poetry": ["-C", "--directory", "-P", "--project"],
+      "pipx": ["--spec", "--python", "--pip-args", "--index-url"],
+      "conda": ["-n", "--name", "-p", "--prefix", "--cwd"]
+    }
+  },
+  "patch_write_tools": {
+    "purpose": "patch tools and formatters that rewrite files in place whatever their arguments",
+    "words": ["patch", "black", "isort", "rustfmt"]
+  },
+  "formatter_write_flags": {
+    "purpose": "formatter -> flags that make it write files instead of printing",
+    "tools": {
+      "gofmt": ["-w"],
+      "goimports": ["-w"],
+      "shfmt": ["-w"],
+      "prettier": ["--write", "-w"],
+      "ruff": ["--fix"]
+    }
+  },
+  "formatter_write_subcommands": {
+    "purpose": "tool -> first argument that makes it write files",
+    "tools": {"go": ["fmt"], "ruff": ["format"]}
+  },
+  "print_only_flags": {
+    "purpose": "flags that make a patch tool or formatter print instead of write; * holds every tool's",
+    "tools": {
+      "*": ["--dry-run", "--version", "--help", "-h"],
+      "black": ["--check", "--diff"],
+      "go": ["-n"],
+      "isort": ["--check", "--check-only", "-c", "--diff", "-V", "--show-config", "--show-files"],
+      "patch": ["-v"],
+      "ruff": ["--check", "--diff"],
+      "rustfmt": ["--check", "-V", "--print-config"]
+    }
+  },
+  "commit_value_flags": {
+    "purpose": "git commit options whose value is the next word; their short letters also end a value cluster",
+    "words": ["-m", "-F", "-C", "-c", "--author", "--date", "-t", "--fixup", "--squash", "--message", "--file",
+      "--template", "--reuse-message", "--reedit-message", "--trailer", "--cleanup", "--pathspec-from-file"]
+  },
+  "add_stage_all_flags": {
+    "purpose": "git add flags that stage every tracked change when no pathspec is given",
+    "words": ["-A", "--all", "-u", "--update"]
+  },
+  "removal_operand_commands": {
+    "purpose": "commands that remove every file operand they are given",
+    "words": ["rm", "unlink", "truncate"]
+  },
+  "removal_move_commands": {
+    "purpose": "commands that move their sources away, removing them from where they were",
+    "words": ["mv"]
+  },
+  "writer_script_flags": {
+    "purpose": "in-place editor -> short flags that take the script as their value; the rest are files to write",
+    "tools": {"sed": ["e", "f"], "perl": ["e", "E"]}
+  },
+  "writer_operand_commands": {
+    "purpose": "commands that write every file operand they are given",
+    "words": ["tee"]
+  },
+  "writer_destination_commands": {
+    "purpose": "commands that write their last operand, or the -t directory",
+    "words": ["cp", "mv", "install"]
+  }
+}
