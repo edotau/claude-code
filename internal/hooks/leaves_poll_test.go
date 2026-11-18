@@ -153,6 +153,26 @@ func TestRelaySyntax(t *testing.T) {
 	}
 }
 
+// A relay may run read-only commands and go gates; edits, other runners and a `cd` stay refused.
+func TestRelayReadOnlyAndGates(t *testing.T) {
+	cases := map[string]bool{
+		"rtk grep -n foo internal/hooks/x.go": true, "grep -rn foo internal": true, "git diff": true,
+		"git -C /Users/edotau/.claude diff --stat": true, "git show 1ca08500 --stat": true,
+		"go test -count=1 -run TestCancelDetectsPIDReuse ./internal/agent/": true, "rtk go test ./internal/hooks/": true,
+		"go test ./... | tail -20": true, "go build ./... && go vet ./internal/hooks/": true, "gofmt -l internal/hooks/x.go": true,
+		"sed -i s/a/b/ f": false, "echo x > f": false, "git commit -m x": false, "git add f": false, "git stash": false,
+		"go run ./cmd/x": false, "go test -exec ./x ./...": false, "go build -o /tmp/x ./cmd/claude-code": false,
+		"make test": false, "rm f": false, `python3 -c "print(1)"`: false, `bash -c "ls"`: false, "gofmt -w f.go": false,
+		"cd /x && grep y z": false, "go generate ./...": false, "GOFLAGS=-toolexec=x go test ./...": false,
+	}
+	for cmd, want := range cases {
+		r := Handback(bashHook("PreToolUse", relayTx(t), "a1", "t2", cmd, ""))
+		if got := r.Decision != core.Block; got != want {
+			t.Errorf("%q allowed=%v, want %v: %s", cmd, got, want, r.Reason)
+		}
+	}
+}
+
 // A relay's own successful `agents result|wait <id>` after a backgrounded ask binds an id whose record is its ask's.
 func TestHandbackBindsOwnPoll(t *testing.T) {
 	const id = "20261117T101000.000-opencode"

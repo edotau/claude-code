@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/shell"
@@ -97,7 +98,7 @@ func relayPoll(in *core.Input) (lr leafRead, job, own string, follow, ok bool) {
 	return lr, job, ownJob(lr.ids, job), follow, true
 }
 
-// relayBash refuses a relay's Bash call that is not a claude-code command: the job does the work, not the relay.
+// relayBash refuses a relay's Bash call that is not a claude-code, read-only or go gate command: the job does the work.
 func relayBash(in *core.Input) (core.Result, bool) {
 	cmd := in.Nested("tool_input", "command")
 	if _, relay := relayLeaf(in); !relay || cmd == "" {
@@ -107,7 +108,8 @@ func relayBash(in *core.Input) (core.Result, bool) {
 		if rule := relayRefusal(seg); rule != "" {
 			shown := textutil.Truncate(strings.Join(strings.Fields(textutil.RedactSecrets(seg)), " "), 60)
 			return core.Result{Decision: core.Block, Reason: fmt.Sprintf("relay: refused `%s`: %s; run only "+
-				"`claude-code <agent> ask ... - < /absolute/brief/file` (no cd: use --workdir).", shown, rule)}, true
+				"`claude-code <agent> ask ... - < /absolute/brief/file` (no cd: use --workdir), read-only commands "+
+				"(git diff, grep, ls, cat) and go build|vet|test or gofmt -l.", shown, rule)}, true
 		}
 	}
 	return core.Result{}, false
@@ -116,6 +118,9 @@ func relayBash(in *core.Input) (core.Result, bool) {
 // relayRefusal names the rule a relay's Bash segment breaks; "" when it is allowed.
 func relayRefusal(seg string) string {
 	if toks := relayWords(seg); len(toks) == 0 || filepath.Base(toks[0]) != "claude-code" {
+		if agent.ReadOnlyShell(seg) || relayGoGate(seg) {
+			return ""
+		}
 		return "not a `claude-code` command"
 	}
 	_, _, err := relayInput(seg)
@@ -123,6 +128,32 @@ func relayRefusal(seg string) string {
 		return err.Error()
 	}
 	return ""
+}
+
+// relayGoFlags write files or run other programs, so a relay's go gate refuses them.
+var relayGoFlags = []string{"-o", "-c", "-exec", "-toolexec", "-vettool", "-overlay", "-coverprofile", "-cpuprofile",
+	"-memprofile", "-blockprofile", "-mutexprofile", "-trace", "-outputdir", "-fuzz", "-w", "-d", "-s"}
+
+// relayGoGate is `[rtk] go build|vet|test` or `gofmt -l`: a check of a returned diff that writes and runs nothing else.
+func relayGoGate(seg string) bool {
+	toks := shell.Tokens(seg)
+	if len(toks) > 0 && toks[0] == "rtk" {
+		toks = toks[1:]
+	}
+	if len(toks) < 2 || strings.ContainsAny(seg, "$`<>") {
+		return false
+	}
+	isGo := toks[0] == "go" && slices.Contains([]string{"build", "vet", "test"}, toks[1])
+	if !isGo && toks[0] != "gofmt" {
+		return false
+	}
+	for _, a := range toks[1:] {
+		name, _, _ := strings.Cut(a, "=")
+		if slices.Contains(relayGoFlags, name) && (isGo || name != "-s") {
+			return false
+		}
+	}
+	return isGo || slices.Contains(toks[1:], "-l")
 }
 
 // pollGate (PreToolUse Bash) refuses a poll of a finished job already handed back, and a second live poller.
