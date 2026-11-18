@@ -23,20 +23,20 @@ var doctorChecks = func(ctx context.Context) ([]check, bool) {
 }
 
 type doctorOpts struct {
-	format                                                            *string
-	auditMode, scan, gitScan, refresh, all, prompts, mcp, permissions bool
-	days, since                                                       int
-	rev, agent                                                        string
+	format                                                                 *string
+	auditMode, scan, gitScan, refresh, all, fix, prompts, mcp, permissions bool
+	days, since                                                            int
+	rev, agent                                                             string
 }
 
 var doctorPage = helptext.Page{
 	Usage: "claude-code doctor [flags] [--scan [path...]]",
 	About: "Check binaries, providers, credentials and the proxy; exits 1 when a hard check fails " +
 		"(claude binary, provider registry, session credential), soft rows only report. " +
-		"Writes only caches: the version cache, --refresh's model cache and the credential probe's refreshed token slots. --audit prints the action log (profile " +
+		"Without --fix, writes only caches: the version cache, --refresh's model cache and the credential probe's refreshed token slots. --audit prints the action log (profile " +
 		"switches, pins, secret sets, key use, safety blocks, failovers, tailscale and setup actions) " +
 		"instead. --scan, --git and --secrets audit for plaintext credentials instead, text only, " +
-		"and exit 1 on any finding. --mcp prints every MCP server's live health, cross-scope drift " +
+		"and exit 1 on any finding. --secrets --fix masks idle transcript stores in place; paths restrict this pass. --mcp prints every MCP server's live health, cross-scope drift " +
 		"and inline secrets; exits 1 on a failed server, an inline secret or an unreadable config. " +
 		"--prompts audits the instruction path. --permissions checks every agent's launch policy against the jobs " +
 		"its definition needs, with no model call; exits 1 on a missed expectation. The mode flags cannot be combined.",
@@ -52,7 +52,8 @@ func doctorFlags() (*flag.FlagSet, *doctorOpts) {
 	fs.IntVar(&o.since, "since", 0, "with --git or --secrets: only the last N commits (0 = all)")
 	fs.StringVar(&o.rev, "range", "", "with --git or --secrets: only this revision range, e.g. @{u}..HEAD")
 	fs.BoolVar(&o.refresh, "refresh", false, "re-list pinned Databricks models into the cache first")
-	fs.BoolVar(&o.all, "secrets", false, "--scan, --git and the vault checks together; worst exit wins")
+	fs.BoolVar(&o.all, "secrets", false, "--scan, --git, vault and transcript checks; worst exit wins")
+	fs.BoolVar(&o.fix, "fix", false, "with --secrets: mask idle transcript files in place")
 	fs.BoolVar(&o.prompts, "prompts", false, "audit the CLAUDE.md, rules, skills and agents instruction path")
 	fs.BoolVar(&o.mcp, "mcp", false, "MCP server health, cross-scope drift and inline plaintext secrets")
 	fs.BoolVar(&o.permissions, "permissions", false, "check each agent's launch policy against its jobs")
@@ -69,7 +70,7 @@ func Run(args []string) int {
 	if err := helptext.CheckFormat(*o.format); err != nil {
 		return helptext.BadFormat("doctor", err)
 	}
-	if len(fs.Args()) > 0 && !o.scan {
+	if len(fs.Args()) > 0 && !o.scan && !(o.all && o.fix) {
 		helptext.Fail("doctor: unexpected arguments %v (paths go after --scan)", fs.Args())
 		return 2
 	}
@@ -87,7 +88,7 @@ func strayFlags(fs *flag.FlagSet, o *doctorOpts) (string, bool) {
 		on         bool
 	}{
 		{"days", "--audit", o.auditMode}, {"since", "--git or --secrets", git}, {"range", "--git or --secrets", git},
-		{"agent", "--permissions", o.permissions},
+		{"agent", "--permissions", o.permissions}, {"fix", "--secrets", o.all},
 	} {
 		if helptext.Explicit(fs, f.name) && !f.on {
 			return fmt.Sprintf("--%s only applies with %s; add it or drop --%s", f.name, f.mode, f.name), true
@@ -194,8 +195,15 @@ func runDoctorAudits(o *doctorOpts, targets []string) int {
 		helptext.Fail("doctor: --scan, --git and --secrets print text only")
 		return 2
 	}
-	return runAudits(os.Stdout, auditOpts{Scan: o.scan || o.all, Git: o.gitScan || o.all, Vault: o.all,
-		Targets: targets, Rev: o.rev, Since: o.since})
+	rc := 0
+	if !o.fix || len(targets) == 0 {
+		rc = runAudits(os.Stdout, auditOpts{Scan: o.scan || o.all, Git: o.gitScan || o.all, Vault: o.all,
+			Targets: targets, Rev: o.rev, Since: o.since})
+	}
+	if o.all {
+		rc = max(rc, transcriptAudit(os.Stdout, o.fix, targets))
+	}
+	return rc
 }
 
 // refreshServed re-lists every pinned Databricks profile's endpoints into the served-models cache.
@@ -208,5 +216,5 @@ func refreshServed(ctx context.Context) {
 // SpecNode is the `doctor` completion spec.
 func SpecNode() *helptext.Node {
 	return &helptext.Node{Flags: []helptext.Flag{helptext.BoolFlag("audit"), helptext.Plain("days"), helptext.BoolFlag("scan"), helptext.BoolFlag("git"), helptext.Plain("since"),
-		helptext.Plain("range"), helptext.BoolFlag("secrets"), helptext.BoolFlag("refresh"), helptext.BoolFlag("prompts"), helptext.BoolFlag("mcp"), helptext.BoolFlag("permissions"), helptext.Plain("agent"), helptext.CompletionFormatFlag()}}
+		helptext.Plain("range"), helptext.BoolFlag("secrets"), helptext.BoolFlag("fix"), helptext.BoolFlag("refresh"), helptext.BoolFlag("prompts"), helptext.BoolFlag("mcp"), helptext.BoolFlag("permissions"), helptext.Plain("agent"), helptext.CompletionFormatFlag()}}
 }
