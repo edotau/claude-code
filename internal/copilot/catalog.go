@@ -267,7 +267,7 @@ func copilotCheckedModelInfos(ctx context.Context, reg *providers.Registry, p *p
 		return infos, false, err
 	}
 	if !found {
-		infos, err = copilotRefresh(ctx, reg, p, scope, old)
+		infos, err = copilotRefresh(ctx, p, scope, old)
 		return infos, false, err
 	}
 	if time.Since(old.DiscoveredAt) < serving.CacheTTL() {
@@ -277,7 +277,7 @@ func copilotCheckedModelInfos(ctx context.Context, reg *providers.Registry, p *p
 	// a failed refresh must leave the launch time to use the stale snapshot
 	listCtx, cancel := halfRemaining(ctx)
 	defer cancel()
-	infos, err = copilotRefresh(listCtx, reg, p, scope, old)
+	infos, err = copilotRefresh(listCtx, p, scope, old)
 	if err == nil || ctx.Err() != nil {
 		return infos, false, err
 	}
@@ -302,7 +302,7 @@ func relistCopilotEndpoints(ctx context.Context, reg *providers.Registry, p *pro
 	if err != nil {
 		return nil, err
 	}
-	infos, err := copilotRefresh(ctx, reg, p, scope, old)
+	infos, err := copilotRefresh(ctx, p, scope, old)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +310,7 @@ func relistCopilotEndpoints(ctx context.Context, reg *providers.Registry, p *pro
 }
 
 // copilotRefresh lists live and seals, keeping old's Checks; a failed seal only costs the next launch a listing.
-func copilotRefresh(ctx context.Context, reg *providers.Registry, p *providers.Provider, scope serving.Scope,
+func copilotRefresh(ctx context.Context, p *providers.Provider, scope serving.Scope,
 	old serving.Snapshot,
 ) ([]providers.ModelInfo, error) {
 	infos, err := providers.ListModels(ctx, p)
