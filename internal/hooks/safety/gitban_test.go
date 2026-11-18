@@ -3,6 +3,7 @@ package safety
 import (
 	"bytes"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -140,9 +141,16 @@ func TestSafetyHarnessGitWrapperForms(t *testing.T) {
 
 // TestHarnessGitBlocked pins harnessGitVerb: config-tree bans, the worktree exception, targets, cd and nesting.
 func TestHarnessGitBlocked(t *testing.T) {
-	cfg := t.TempDir()
+	cfg, outside := t.TempDir(), t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	for _, tt := range harnessGitCases(cfg, t.TempDir()) {
+	lane := filepath.Join(outside, "lane") // a linked worktree of the harness repository, outside the config dir
+	if err := os.MkdirAll(lane, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(lane, ".git"), []byte("gitdir: "+cfg+"/.git/worktrees/lane\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	for _, tt := range harnessGitCases(cfg, outside) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := harnessGitVerb(tt.cmd, tt.cwd) != ""; got != tt.want {
 				t.Errorf("harnessGitVerb(%q, %q) = %v, want %v", tt.cmd, tt.cwd, got, tt.want)
@@ -160,7 +168,7 @@ type harnessGitCase struct {
 
 // harnessGitCases lists TestHarnessGitBlocked's commands; want is whether harnessGitVerb flags them.
 func harnessGitCases(cfg, outside string) []harnessGitCase {
-	worktree := filepath.Join(cfg, ".claude", "worktrees", "repo", "slug")
+	worktree, lane := filepath.Join(cfg, ".claude", "worktrees", "repo", "slug"), filepath.Join(outside, "lane")
 	return append([]harnessGitCase{
 		{"stash inside tree", "git stash", cfg, true},
 		{"checkout inside tree", "git checkout main", cfg, true},
@@ -191,6 +199,14 @@ func harnessGitCases(cfg, outside string) []harnessGitCase {
 		{"linked worktree's own git dir", "git --git-dir=" + cfg + "/.git/worktrees/x --work-tree=" + outside + " checkout -- f", cfg, false},
 		{"GIT_DIR into tree through sh -c", "GIT_DIR=" + cfg + "/.git sh -c 'git stash'", outside, true},
 		{"GIT_DIR outside, unguarded verb", "GIT_DIR=" + outside + "/.git git status", cfg, false},
+		{"stash in a harness lane", "git stash", lane, true},
+		{"stash push in a harness lane subdir", "git stash push -m x", filepath.Join(lane, "internal"), true},
+		{"-C stash into a harness lane", "git -C " + lane + " stash pop", outside, true},
+		{"stash list in a harness lane allowed", "git stash list", lane, false},
+		{"stash show in a harness lane allowed", "git stash show", lane, false},
+		{"reset in a harness lane allowed", "git reset --hard HEAD", lane, false},
+		{"checkout in a harness lane allowed", "git checkout main", lane, false},
+		{"clean in a harness lane allowed", "git clean -fd", lane, false},
 	}, harnessGitNestedCases(cfg, outside)...)
 }
 

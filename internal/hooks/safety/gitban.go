@@ -169,12 +169,13 @@ func cleanDryRun(args []string) bool {
 	return dry
 }
 
-// gitBannedUnder reports whether one git invocation is a banned verb targeting the harness tree.
+// gitBannedUnder reports a banned verb targeting the harness tree, or a stash in any harness lane (one shared list).
 func gitBannedUnder(target, verb string, args []string) bool {
 	if !bannedGit(verb, args) {
 		return false
 	}
 	worktrees := filepath.Join(paths.ConfigDir(), ".claude", "worktrees") // a linked worktree is its own checkout
 	return paths.InsideDir(target, paths.ConfigDir()) &&
-		(!paths.InsideDir(target, worktrees) || paths.SameFile(target, worktrees))
+		(!paths.InsideDir(target, worktrees) || paths.SameFile(target, worktrees)) ||
+		verb == "stash" && harnessWorktree(target)
 }
