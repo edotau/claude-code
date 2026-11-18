@@ -102,6 +102,10 @@ clean:  ## Remove bin/claude-code
 	@rm -f $(BIN)
 	@echo -e "$(C_OK)cleaned: $(BIN)"
 
+.PHONY: sweep
+sweep:  ## Preview stale state; APPLY=1 removes (AGE=7d, ONLY=x)
+	@$(BIN) clean $(if $(APPLY),,--dry-run) $(if $(AGE),--older-than $(AGE)) $(if $(ONLY),--target $(ONLY))
+
 .PHONY: cover
 cover:  ## Per-package test coverage (opt-in; cached when unchanged)
 	@set -o pipefail; $(GO) test -cover $(PKGS) | awk '/coverage:/ {print $$2, $$(NF-2)}' | sort -t' ' -k2 -n
