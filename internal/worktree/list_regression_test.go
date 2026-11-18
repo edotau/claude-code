@@ -13,6 +13,7 @@ import (
 )
 
 func TestListKeepsDotDotPrefixedChildRegistered(t *testing.T) {
+	t.Parallel()
 	repo := testRepo(t)
 	wt, err := Create(repo, "..scratch", CreateOptions{Branch: "scratch"})
 	if err != nil {

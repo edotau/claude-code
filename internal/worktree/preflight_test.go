@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -53,18 +55,69 @@ func mergeFixtureRun(t *testing.T, dir string, args ...string) {
 	}
 }
 
-// preflightFixtureSetup makes an isolated main repo plus a "feature" worktree without touching process env.
+var fixtureSeq atomic.Int64
+
+var fixture struct {
+	once sync.Once
+	dir  string
+	base string
+	err  error
+}
+
+// buildFixtureTemplate builds, once, a main repo with the base commit and its "feature" worktree via the live Create.
+func buildFixtureTemplate(t *testing.T) {
+	fixture.once.Do(func() {
+		dir, err := os.MkdirTemp("", "wt-fixture-")
+		if err != nil {
+			fixture.err = err
+			return
+		}
+		fixture.dir = paths.Canon(dir)
+		main := hosttest.RepoAt(t, filepath.Join(fixture.dir, "repo"))
+		mergeFixtureWrite(t, main, "f.txt", "base\n", "base")
+		fixture.base = headOf(main)
+		_, fixture.err = Create(&Repo{Main: main, Root: filepath.Join(fixture.dir, "worktrees", "repo")}, "feature", CreateOptions{})
+	})
+	if fixture.err != nil {
+		t.Fatalf("fixture template: %v", fixture.err)
+	}
+}
+
+func fixtureCopy(t *testing.T, src, dst string) {
+	t.Helper()
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("cp", "-a", src+"/.", dst).CombinedOutput(); err != nil {
+		t.Fatalf("copy %s to %s: %v %s", src, dst, err, out)
+	}
+}
+
+// preflightFixtureSetup returns an isolated main repo plus a "feature" worktree, copied from a template built once.
 func preflightFixtureSetup(t *testing.T) (repo *Repo, main, wt string) {
 	t.Helper()
-	r := testRepo(t)
-	main = r.Main
-	// The gittest template carries a local identity, so integrateTarget's `git merge` (no GIT_AUTHOR env) can commit.
-	mergeFixtureWrite(t, main, "f.txt", "base\n", "base")
-	dest, err := Create(r, "feature", CreateOptions{})
-	if err != nil {
-		t.Fatalf("Create: %v", err)
+	hosttest.SkipOnWindows(t, "cp -a template copy")
+	buildFixtureTemplate(t)
+	base := paths.Canon(t.TempDir())
+	name := fmt.Sprintf("repo%d", fixtureSeq.Add(1)) // unique: the ledger file name derives from the main's base name
+	main = filepath.Join(base, name)
+	repo = &Repo{Main: main, Root: filepath.Join(base, "worktrees", name)}
+	wt = filepath.Join(repo.Root, "feature")
+	fixtureCopy(t, filepath.Join(fixture.dir, "repo"), main)
+	fixtureCopy(t, filepath.Join(fixture.dir, "worktrees", "repo", "feature"), wt)
+	// the two absolute links a copy carries point at the template; rewrite them to this copy
+	adminDir := filepath.Join(main, ".git", "worktrees", "feature")
+	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: "+adminDir+"\n"), 0o644); err != nil {
+		t.Fatal(err)
 	}
-	return r, main, dest
+	if err := os.WriteFile(filepath.Join(adminDir, "gitdir"), []byte(filepath.Join(wt, ".git")+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	info := ledgerInfo{Path: wt, Branch: "worktree-feature", Base: fixture.base, BaseRef: "HEAD"}
+	if err := openLedger(main, "feature", info); err != nil {
+		t.Fatalf("open ledger: %v", err)
+	}
+	return repo, main, wt
 }
 
 // mergeFixtureAssertMainUntouched checks main's HEAD and index are unchanged and no MERGE_HEAD exists there.
@@ -92,6 +145,7 @@ func mergeFixtureAssertMainUntouched(t *testing.T, main, wantHEAD string) {
 }
 
 func TestScreenCheckoutsStopsOnTargetMismatch(t *testing.T) {
+	t.Parallel()
 	repo := testRepo(t)
 	plan := &MergePlan{WorktreePath: filepath.Join(t.TempDir(), "missing-worktree")}
 	stop, err := screenCheckouts(context.Background(), repo, plan, "release", false)

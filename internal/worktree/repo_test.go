@@ -347,6 +347,9 @@ func TestMain(m *testing.M) {
 	StubProcessScanForTest()
 	code := m.Run()
 	cleanup()
+	if fixture.dir != "" {
+		_ = os.RemoveAll(fixture.dir)
+	}
 	hosttest.Cleanup()
 	os.Exit(code)
 }

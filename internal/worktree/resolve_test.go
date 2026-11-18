@@ -52,6 +52,7 @@ func resolveFixtureFakeAgent(t *testing.T, fn func(ctx context.Context, agentNam
 }
 
 func TestHasMergeHeadUsesCheckoutLocalFile(t *testing.T) {
+	t.Parallel()
 	_, main, wt := preflightFixtureSetup(t)
 	gitDir, err := gitDirFromPath(wt)
 	if err != nil {

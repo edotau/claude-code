@@ -693,6 +693,7 @@ func TestCleanRefusesWhileWorktreeLeaseHeld(t *testing.T) {
 }
 
 func TestCleanAllDoesNotAliasNestedWorktree(t *testing.T) {
+	t.Parallel()
 	repo := testRepo(t)
 	sibling, err := Create(repo, "feature", CreateOptions{})
 	if err != nil {

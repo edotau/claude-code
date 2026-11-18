@@ -29,6 +29,7 @@ func TestResolveRepoBoundsDiscoverySubprocess(t *testing.T) {
 }
 
 func TestResolveWorktreePropagatesLstatError(t *testing.T) {
+	t.Parallel()
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	repo := testRepo(t)
 	repo.Root = filepath.Join(t.TempDir(), "not-a-directory")
