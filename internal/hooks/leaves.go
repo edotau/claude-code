@@ -345,9 +345,9 @@ func leafStopVerdict(agentID string, rec agent.Record, held []string) (core.Resu
 		return core.Result{SystemMessage: fmt.Sprintf("leaf %s stopped with dispatch %s still running (%s limit reached)", agentID, rec.ID, leafStopMaxWait)}, false
 	}
 	if slices.Contains(held, rec.ID) {
-		return core.Result{Decision: core.Block, Reason: repeatHold(rec.ID)}, true
+		return core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: repeatHold(rec.ID)}, true
 	}
-	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("Dispatch %s you started is still running. %s", rec.ID, pollOnce(rec.ID))}, true
+	return core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("Dispatch %s you started is still running. %s", rec.ID, pollOnce(rec.ID))}, true
 }
 
 // heldAgain marks a repeat hold: the job's full rule was already sent, so only its id and the command follow.

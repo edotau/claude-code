@@ -917,3 +917,41 @@ func TestDispatchRecordsTelemetry(t *testing.T) {
 		t.Errorf("outcomes = %v, want %v", got, want)
 	}
 }
+
+// A decision that fired logs a rule and a verdict word; an allow logs neither, and no text of the call is stored.
+func TestDispatchTelemetryTagsRuleAndVerdict(t *testing.T) {
+	dir := t.TempDir()
+	defer core.TelemetryDirForTest(dir)()
+	in := core.ParseInput(strings.NewReader(`{"tool_name":"Bash","hook_event_name":"PreToolUse","tool_input":{"command":"echo SECRET-TOKEN"}}`))
+	res := map[string]core.Result{
+		"allowed":  {},
+		"blocker":  {Decision: core.Block, Reason: "SECRET-TOKEN"},
+		"asker":    {Decision: core.Ask},
+		"rewriter": {UpdatedInput: map[string]any{"command": "x"}},
+		"holder":   {Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld},
+	}
+	var bs []Bound
+	for name, r := range res {
+		bs = append(bs, bound(name, "Bash", time.Second, func(*core.Input) core.Result { return r }))
+	}
+	if _, err := Dispatch(bs, "PreToolUse", in, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	files, _ := filepath.Glob(filepath.Join(dir, "telemetry-*.jsonl"))
+	raw, _ := os.ReadFile(strings.Join(files, ""))
+	if strings.Contains(string(raw), "SECRET-TOKEN") {
+		t.Fatalf("telemetry holds call text: %s", raw)
+	}
+	got := map[string]string{}
+	for l := range strings.SplitSeq(strings.TrimSpace(string(raw)), "\n") {
+		var row struct{ Module, Rule, Verdict string }
+		if err := json.Unmarshal([]byte(l), &row); err != nil {
+			t.Fatalf("bad line %q: %v", l, err)
+		}
+		got[row.Module] = row.Rule + "/" + row.Verdict
+	}
+	want := map[string]string{"allowed": "/", "blocker": "blocker/block", "asker": "asker/ask", "rewriter": "rewriter/rewrite", "holder": "job-running/held"}
+	if !maps.Equal(got, want) {
+		t.Errorf("rule/verdict = %v, want %v", got, want)
+	}
+}

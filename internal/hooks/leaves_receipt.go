@@ -377,9 +377,9 @@ func dispatchReceipt(rec agent.Record, how, output string, lr leafRead) (receipt
 			"(`claude-code agents result %s`).", rec.ID, how, leafStopMaxWait, rec.ID)}, nil
 	}
 	if slices.Contains(lr.scan.heldJobs, rec.ID) {
-		return receipt{}, &core.Result{Decision: core.Block, Reason: repeatHold(rec.ID)}
+		return receipt{}, &core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: repeatHold(rec.ID)}
 	}
-	return receipt{}, &core.Result{Decision: core.Block, Reason: fmt.Sprintf("Dispatch %s (%s) is still running, so your hand-back is held, "+
+	return receipt{}, &core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("Dispatch %s (%s) is still running, so your hand-back is held, "+
 		"not refused. %s", rec.ID, how, pollOnce(rec.ID))}
 }
 
@@ -420,10 +420,10 @@ func relayRunPending(in *core.Input, lr leafRead, m relayRun) (core.Result, bool
 		if rec, ok := hookJob(lr, m.Output); ok {
 			return hookJobReceipt(in, rec, m.Output, lr)
 		}
-		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("The hook is running your brief's `Run:` line (`%s`, output %s), "+
+		return core.Result{Decision: core.Block, Rule: "run-line-pending", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("The hook is running your brief's `Run:` line (`%s`, output %s), "+
 			"so your hand-back is held, not refused. %s", m.Line, m.Output, handBackForID)}, true
 	}
-	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("No exact dispatch id appeared within %s. "+
+	return core.Result{Decision: core.Block, Rule: "no-dispatch-id", Verdict: core.VerdictRefused, Reason: fmt.Sprintf("No exact dispatch id appeared within %s. "+
 		"Recover the id from the hook launch output %s, run `claude-code agents result -f <id>` once, "+
 		"and hand back again; sibling records cannot supply the receipt.", askLaunchWindow, m.Output)}, true
 }
@@ -511,7 +511,7 @@ func runBriefLine(in *core.Input, lr leafRead, agentID string, words []string) (
 	if rec, ok := hookJob(lr, m.Output); ok {
 		return hookJobReceipt(in, rec, m.Output, lr)
 	}
-	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("Your brief's `Run:` line was never run, so the hook started it "+
+	return core.Result{Decision: core.Block, Rule: "run-line-started", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("Your brief's `Run:` line was never run, so the hook started it "+
 		"with your brief as its task: `%s` (output %s). Your hand-back is held, not refused. %s", line, m.Output, handBackForID)}, true
 }
 
@@ -625,7 +625,7 @@ func (j jobOut) render(report string) string {
 
 // attach puts a one-line note on top of the hand-back and the results below it; a stop gets the note only.
 func attach(in *core.Input, note string, bodies ...jobOut) core.Result {
-	res := core.Result{SystemMessage: note}
+	res := core.Result{SystemMessage: note, Rule: "receipt", Verdict: core.VerdictPassed}
 	if in.ToolName != "SubagentHandback" {
 		return res
 	}

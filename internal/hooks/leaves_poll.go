@@ -115,7 +115,7 @@ func relayBash(in *core.Input) (core.Result, bool) {
 	for _, seg := range shell.Segments(cmd) {
 		if rule := relayRefusal(seg); rule != "" {
 			shown := textutil.Truncate(strings.Join(strings.Fields(textutil.RedactSecrets(seg)), " "), 60)
-			return core.Result{Decision: core.Block, Reason: fmt.Sprintf("relay: refused `%s`: %s; run only "+
+			return core.Result{Decision: core.Block, Rule: "relay-shell", Verdict: core.VerdictRefused, Reason: fmt.Sprintf("relay: refused `%s`: %s; run only "+
 				"`claude-code <agent> ask ... - < /absolute/brief/file` (no cd: use --workdir), read-only commands "+
 				"(git diff, grep, ls, cat), or: "+relayGoShapes+".", shown, rule)}, true
 		}
@@ -305,7 +305,7 @@ func pollGate(in *core.Input) core.Result {
 	}
 	if own != "" && slices.Contains(lr.scan.reported, own) {
 		if rec, err := loadDispatch(own); err == nil && !jobRunning(rec) {
-			return core.Result{Decision: core.Block, Reason: fmt.Sprintf("already reported: stop. You handed back job %s after "+
+			return core.Result{Decision: core.Block, Rule: "already-reported", Verdict: core.VerdictRefused, Reason: fmt.Sprintf("already reported: stop. You handed back job %s after "+
 				"it ended; do not poll it again, and answer any later notice about it with \"already reported\".", own)}
 		}
 	}
@@ -313,7 +313,7 @@ func pollGate(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	if where, live := livePoller(lr.scan.polls, in.Nested("tool_use_id"), cmp.Or(own, job), lr.ids); live {
-		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("one poller only: an `agents result -f` call already "+
+		return core.Result{Decision: core.Block, Rule: "one-poller", Verdict: core.VerdictRefused, Reason: fmt.Sprintf("one poller only: an `agents result -f` call already "+
 			"follows job %s%s; wait for it to return, then hand back with its result.", cmp.Or(own, job), where)}
 	}
 	return core.Result{}

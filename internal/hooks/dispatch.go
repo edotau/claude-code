@@ -3,6 +3,7 @@ package hooks
 
 import (
 	"bytes"
+	"cmp"
 	"errors"
 	"fmt"
 	"io"
@@ -143,6 +144,25 @@ func outcomeOf(b Bound, r core.Result, err error) string {
 	return core.OutcomeOK
 }
 
+// tagOf is the rule and verdict word of a decision that fired; empty when the handler only allowed or failed.
+func tagOf(module string, r core.Result, err error) (rule, verdict string) {
+	verdict = r.Verdict
+	switch {
+	case err != nil:
+		return "", ""
+	case verdict != "":
+	case r.Decision == core.Block:
+		verdict = core.VerdictBlock
+	case r.Decision == core.Ask:
+		verdict = core.VerdictAsk
+	case r.UpdatedInput != nil || r.UpdatedToolOutput != nil:
+		verdict = core.VerdictRewrite
+	default:
+		return "", ""
+	}
+	return cmp.Or(r.Rule, module), verdict
+}
+
 // skipOrBlock names what a failed handler's log line reports, keyed by Spec.Blocks.
 var skipOrBlock = map[bool]string{false: "skipped", true: "blocked"}
 
@@ -255,7 +275,8 @@ func (m *dispatchMerge) apply(s step, event string) (gateFailed bool) {
 		m.merged.Decision, m.merged.Reason = core.Block, s.block
 	default:
 		r, dur, err := s.wait()
-		m.rows = append(m.rows, core.TelemetryRow{Event: event, Module: s.b.Spec.Name, Outcome: outcomeOf(s.b, r, err), Dur: dur})
+		rule, verdict := tagOf(s.b.Spec.Name, r, err)
+		m.rows = append(m.rows, core.TelemetryRow{Event: event, Module: s.b.Spec.Name, Outcome: outcomeOf(s.b, r, err), Dur: dur, Rule: rule, Verdict: verdict})
 		if err != nil {
 			return m.failed(s.b, err)
 		}
@@ -512,7 +533,8 @@ func runModuleDirect(name string, run core.Runner, stdin io.Reader, stdout, stde
 	o := invokeDirect(name, run, stdin, spec)
 	dur := time.Since(start)
 	code := emitDirect(name, o, stdout, &boundedHookWriter{w: stderr})
-	row := core.TelemetryRow{Event: spec.Event, Module: name, Outcome: outcomeOf(Bound{Spec: spec}, o.res, o.err), Dur: dur}
+	rule, verdict := tagOf(name, o.res, o.err)
+	row := core.TelemetryRow{Event: spec.Event, Module: name, Outcome: outcomeOf(Bound{Spec: spec}, o.res, o.err), Dur: dur, Rule: rule, Verdict: verdict}
 	if o.in != nil {
 		row.Sid, row.Tool = o.in.SessionID, o.in.ToolName
 	}

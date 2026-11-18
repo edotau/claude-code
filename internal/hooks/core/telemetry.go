@@ -28,11 +28,22 @@ const (
 	OutcomeDropped = "dropped"
 )
 
-// TelemetryRow is one module run: names, wall time and outcome, plus the payload's session id and tool name.
+// Verdict words a TelemetryRow reports for a decision; a hand-back is held, refused or passed, never both.
+const (
+	VerdictBlock   = "block"
+	VerdictAsk     = "ask"
+	VerdictRewrite = "rewrite"
+	VerdictHeld    = "held"
+	VerdictRefused = "refused"
+	VerdictPassed  = "passed"
+)
+
+// TelemetryRow is one module run; Rule and Verdict are set only when a decision fired, never call text.
 type TelemetryRow struct {
 	Event, Module, Outcome string
 	Dur                    time.Duration
 	Sid, Tool              string
+	Rule, Verdict          string
 }
 
 type telemetryLine struct {
@@ -43,6 +54,8 @@ type telemetryLine struct {
 	Outcome string  `json:"outcome"`
 	Sid     string  `json:"sid,omitempty"`
 	Tool    string  `json:"tool,omitempty"`
+	Rule    string  `json:"rule,omitempty"`
+	Verdict string  `json:"verdict,omitempty"`
 }
 
 const telemetrySidLen = 8
@@ -119,7 +132,7 @@ func recordTelemetry(dir string, rows []TelemetryRow, now, deadline time.Time) {
 			return
 		}
 		line, err := json.Marshal(telemetryLine{now.Format(time.RFC3339), r.Event, r.Module, float64(r.Dur) / float64(time.Millisecond), r.Outcome,
-			r.Sid[:min(len(r.Sid), telemetrySidLen)], r.Tool})
+			r.Sid[:min(len(r.Sid), telemetrySidLen)], r.Tool, r.Rule, r.Verdict})
 		if err != nil {
 			return
 		}

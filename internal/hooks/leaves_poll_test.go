@@ -91,6 +91,9 @@ func TestPollGateAlreadyReported(t *testing.T) {
 	if r.Decision != core.Block || !strings.HasPrefix(r.Reason, "already reported: stop") {
 		t.Fatalf("handed back: %+v, want a block starting \"already reported: stop\"", r)
 	}
+	if r.Verdict != core.VerdictRefused || r.Rule != "already-reported" {
+		t.Errorf("refused tag = %q/%q, want already-reported/refused", r.Rule, r.Verdict)
+	}
 }
 
 // (c) A second follow poll of one job is refused while the first is in flight or backgrounded with a live writer.

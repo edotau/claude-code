@@ -1065,6 +1065,9 @@ func TestHandbackHeldUntilJobDone(t *testing.T) {
 	if !blocked || !strings.Contains(r.Reason, "Run `claude-code agents result -f "+id) || !strings.Contains(r.Reason, "is saved at ") {
 		t.Fatalf("running = %+v blocked=%v, want a hold naming the saved report", r, blocked)
 	}
+	if r.Verdict != core.VerdictHeld || r.Rule != "job-running" {
+		t.Errorf("held tag = %q/%q, want job-running/held", r.Rule, r.Verdict)
+	}
 	rec := body("ok")
 	writeDispatch(t, id, rec)
 	var log struct{ Log string }
@@ -1077,6 +1080,9 @@ func TestHandbackHeldUntilJobDone(t *testing.T) {
 	if blocked || !strings.HasPrefix(msg, "NOTE: dispatch "+id) || !strings.Contains(msg, "ask: ran on codex") ||
 		!strings.Contains(msg, "early report") || !strings.Contains(msg, "job answer") {
 		t.Fatalf("finished = %+v blocked=%v, want the hand-back through with note, receipt, report and result", r, blocked)
+	}
+	if r.Verdict != core.VerdictPassed || r.Rule != "receipt" {
+		t.Errorf("passed tag = %q/%q, want receipt/passed", r.Rule, r.Verdict)
 	}
 }
 

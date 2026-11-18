@@ -177,6 +177,8 @@ type Result struct {
 	Stdout            string // raw stdout: only the worktree group may set it
 	Stderr            string
 	ExitCode          int // non-zero exit other than 2; honored only from the worktree group
+	// Rule and Verdict name what decided, for telemetry only; empty fills from the module and the decision.
+	Rule, Verdict string
 }
 
 // Runner is one handler bound to an event.
