@@ -137,7 +137,7 @@ func TestEnvironInjectedCredentialBeatsInherited(t *testing.T) {
 
 // Given an outer dispatch's policy in the env, Then a nested policy keeps its Deny rules and plan mode, never fewer.
 func TestInheritPermissionsKeepsOuterDeny(t *testing.T) {
-	t.Setenv(DispatchPermissionsEnv, `{"mode":"plan","deny":[{"Tool":"Bash","Arg":"rm *"}]}`)
+	t.Setenv(DispatchPermissionsEnv, `{"mode":"plan","deny":[{"Tool":"Bash","Arg":"rm *"}],"ask":[{"Tool":"Bash","Arg":"curl *"}]}`)
 	inner, err := ParsePermissions("auto", []string{"Bash"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -145,6 +145,9 @@ func TestInheritPermissionsKeepsOuterDeny(t *testing.T) {
 	got, err := inheritPermissions(inner)
 	if err != nil || got.Mode != "plan" || got.Decide("Bash", "rm x") != Deny || got.Decide("Bash", "ls") != Allow {
 		t.Fatalf("inherit = %+v, %v; want plan mode, rm denied, ls allowed", got, err)
+	}
+	if got.Decide("Bash", "curl x") != Ask { // the inner Bash allow must not reopen the outer ask
+		t.Fatalf("inherit = %+v; want the outer curl ask kept", got)
 	}
 	if got, _ := inheritPermissions(Permissions{}); len(got.Deny) != 1 {
 		t.Fatalf("no inner policy: got %+v, want the outer policy whole", got)

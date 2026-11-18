@@ -389,6 +389,52 @@ func TestCheckRunReadOnlyDisablesGitOptionalLocks(t *testing.T) {
 	}
 }
 
+// ancestorPolicyCase is one root request and what a grandchild's checkRun must still show of it.
+type ancestorPolicyCase struct {
+	name  string
+	outer RunOptions
+	holds func(RunOptions) bool
+}
+
+// ancestorPolicyCases cover inherited deny, ask, read-only and plan, and an ancestor allow that must not pass down.
+func ancestorPolicyCases() []ancestorPolicyCase {
+	curl, edit, git := Rule{Tool: "Bash", Arg: "curl *"}, Rule{Tool: "Edit", Arg: "/x/**"}, Rule{Tool: "Bash", Arg: "git *"}
+	return []ancestorPolicyCase{
+		{"deny bash", RunOptions{Tools: true, Permissions: Permissions{Deny: []Rule{curl}}},
+			func(o RunOptions) bool { return slices.Contains(o.Permissions.Deny, curl) }},
+		{"deny edit", RunOptions{Tools: true, Permissions: Permissions{Deny: []Rule{edit}}},
+			func(o RunOptions) bool { return slices.Contains(o.Permissions.Deny, edit) }},
+		{"ask", RunOptions{Tools: true, Permissions: Permissions{Ask: []Rule{curl}}},
+			func(o RunOptions) bool { return slices.Contains(o.Permissions.Ask, curl) }},
+		{"read-only", RunOptions{Tools: true, ReadOnly: true}, func(o RunOptions) bool { return o.ReadOnly }},
+		{"plan", RunOptions{Permissions: Permissions{Mode: "plan"}}, func(o RunOptions) bool { return o.Permissions.Mode == "plan" }},
+		{"allow stays with the ancestor", RunOptions{Tools: true, Permissions: Permissions{Allow: []Rule{git}}},
+			func(o RunOptions) bool { return !slices.Contains(o.Permissions.Allow, git) }},
+	}
+}
+
+// A leaf that clears or overwrites the policy env still gets every recorded ancestor's deny, ask, plan and read-only.
+func TestCheckRunKeepsRecordedAncestorPolicy(t *testing.T) {
+	for _, tc := range ancestorPolicyCases() {
+		setConfigDir(t)
+		root := Record{ID: "root", Agent: "copilot", Status: "running", Request: tc.outer}
+		mid := Record{ID: "mid", Agent: "codex", Status: "running", Parent: "root", Depth: 1}
+		if err := cmp.Or(root.Save(), mid.Save()); err != nil {
+			t.Fatal(err)
+		}
+		for _, name := range Names() {
+			e, _ := Lookup(name)
+			for _, policy := range []string{"", "{}"} {
+				values := proc.Values{proc.DispatchIDEnv: "mid", DispatchPermissionsEnv: policy}
+				got, err := checkRun(e, RunOptions{Tools: true, Values: values})
+				if err != nil || !tc.holds(got) {
+					t.Errorf("%s: %s child, policy env %q: %+v read-only=%v, err %v", tc.name, name, policy, got.Permissions, got.ReadOnly, err)
+				}
+			}
+		}
+	}
+}
+
 // fastDefaultBackoff shrinks DefaultPolicy's backoff for the test and restores it on cleanup.
 func fastDefaultBackoff(t *testing.T) {
 	t.Helper()

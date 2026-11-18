@@ -73,9 +73,11 @@ type Record struct {
 	Tree           string     `json:"tree,omitempty"`            // git top of the working tree the run started in
 	TreeChanged    *[]string  `json:"tree_changed,omitempty"`    // files changed in a tree another dispatch shared; Wrote is then nil
 
-	Parent string      `json:"parent,omitempty"`
-	Depth  int         `json:"depth,omitempty"`
-	Usage  *wire.Usage `json:"usage,omitempty"`
+	Parent string `json:"parent,omitempty"`
+	Depth  int    `json:"depth,omitempty"`
+	// MaxDepth is the depth cap this dispatch ran under (0 = none); nil is a legacy record, read as the default cap.
+	MaxDepth *int        `json:"max_depth,omitempty"`
+	Usage    *wire.Usage `json:"usage,omitempty"`
 
 	Widened []string `json:"permissions_widened,omitempty"` // what the request grants beyond the agent's default permissions
 }
@@ -114,17 +116,70 @@ func NewRecord(name string, req RunOptions, now time.Time) Record {
 	widened, _ := widenedChecked(name, req.Permissions) // a bad default fails the run itself
 	ctx := valuesContext(context.Background(), req.Values)
 	parent := proc.Value(ctx, proc.DispatchIDEnv)
-	depth := 0
-	if parent != "" {
-		inherited, err := strconv.Atoi(proc.Value(ctx, proc.DispatchDepthEnv))
-		if err != nil {
-			inherited = 0
-		}
-		depth = inherited + 1
-	}
+	depth, maxDepth := lineage(ctx, parent)
 	provider, profile, _ := router.CoworkerContext(ctx)
 	return Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
-		Parent: parent, Depth: depth, Widened: widened, Route: router.JoinCoworker(provider, profile)}
+		Parent: parent, Depth: depth, MaxDepth: &maxDepth, Widened: widened, Route: router.JoinCoworker(provider, profile)}
+}
+
+// lineage is the depth and cap from the parent's record; the env may tighten both, never loosen (cap 0 = none).
+func lineage(ctx context.Context, parent string) (depth, maxDepth int) {
+	env, set := envDepthCap(ctx)
+	if parent == "" {
+		return 0, env
+	}
+	inherited, _ := strconv.Atoi(proc.Value(ctx, proc.DispatchDepthEnv))
+	depth, maxDepth = max(inherited, 0)+1, DefaultMaxDispatchDepth
+	if pr, ok := parentRecord(parent); !ok { // a reaped or stale parent degrades to the default cap, never uncapped
+		fmt.Fprintf(NoticeOut, "claude-code: parent dispatch %s has no readable record; default depth cap applies\n", parent)
+	} else if depth = max(depth, pr.Depth+1); pr.MaxDepth != nil {
+		maxDepth = *pr.MaxDepth
+	}
+	if set && env > 0 && (maxDepth == 0 || env < maxDepth) {
+		maxDepth = env
+	}
+	return depth, maxDepth
+}
+
+// envDepthCap is HARNESS_DISPATCH_MAX_DEPTH; unset, invalid or negative is the default and not set.
+func envDepthCap(ctx context.Context) (int, bool) {
+	n, err := strconv.Atoi(proc.Value(ctx, maxDispatchDepthEnv))
+	if err != nil || n < 0 {
+		return DefaultMaxDispatchDepth, false
+	}
+	return n, true
+}
+
+// parentRecord is the dispatch record named exactly id, read from disk rather than trusted from the caller's env.
+func parentRecord(id string) (Record, bool) {
+	if id == "" || id != filepath.Base(id) || strings.Contains(id, "..") {
+		return Record{}, false
+	}
+	rec, err := readRecord(filepath.Join(paths.DispatchDir(), id+".json"))
+	return rec, err == nil
+}
+
+// maxAncestorWalk bounds ancestorPolicy; past it only the rules collected so far and the env policy apply.
+const maxAncestorWalk = 32
+
+// ancestorPolicy unions the deny and ask rules, plan mode and read-only of parent and every recorded ancestor.
+func ancestorPolicy(parent string) (p Permissions, readOnly bool) {
+	seen := map[string]bool{}
+	for id := parent; id != "" && !seen[id] && len(seen) < maxAncestorWalk; {
+		seen[id] = true
+		rec, ok := parentRecord(id)
+		if !ok {
+			break
+		}
+		req := rec.Request
+		p.Deny, p.Ask = union(p.Deny, req.Permissions.Deny), union(p.Ask, req.Permissions.Ask)
+		if req.Permissions.Mode == "plan" {
+			p.Mode = "plan"
+		}
+		readOnly = readOnly || req.ReadOnly
+		id = rec.Parent
+	}
+	return p, readOnly
 }
 
 // widenedChecked is what p grants beyond name's default permissions; an unreadable default is returned, not hidden.
@@ -572,9 +627,9 @@ func buildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Re
 	} else {
 		rec = NewRecord(name, req, time.Now())
 	}
-	maxDepth, err := strconv.Atoi(proc.Value(ctx, maxDispatchDepthEnv))
-	if err != nil || maxDepth < 0 {
-		maxDepth = DefaultMaxDispatchDepth
+	maxDepth := DefaultMaxDispatchDepth // a legacy job record carries no cap
+	if rec.MaxDepth != nil {
+		maxDepth = *rec.MaxDepth
 	}
 	if maxDepth > 0 && rec.Depth > maxDepth {
 		return Record{}, &UsageError{Msg: fmt.Sprintf("dispatch depth %d exceeds cap %d (parent %s); "+
@@ -583,7 +638,7 @@ func buildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Re
 	if jobRec != nil {
 		return rec, nil // same id: a job run continues the record it was spawned from
 	}
-	rec, err = claimLimitedRecord(ctx, name, rec)
+	rec, err := claimLimitedRecord(ctx, name, rec)
 	if err != nil {
 		return Record{}, err
 	}

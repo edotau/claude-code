@@ -149,7 +149,7 @@ func inheritPermissionsContext(ctx context.Context, p Permissions) (Permissions,
 	if p.IsZero() {
 		return outer, nil
 	}
-	p.Deny = append(slices.Clone(p.Deny), outer.Deny...)
+	p.Deny, p.Ask = append(slices.Clone(p.Deny), outer.Deny...), union(p.Ask, outer.Ask)
 	if outer.Mode == "plan" {
 		p.Mode = "plan"
 	}
