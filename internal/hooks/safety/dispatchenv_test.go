@@ -49,6 +49,27 @@ var tamperCases = []tamperCase{
 	{"printenv depth", `printenv HARNESS_DISPATCH_DEPTH`, "a1", "", core.Allow},
 	{"unrelated assign", `FOO=1 claude-code agents ask --agent codex x`, "a1", "", core.Allow},
 	{"env -i other command", `env -i PATH=/usr/bin ls`, "a1", "", core.Allow},
+	{"assign before env -u", `A=1 env -u HARNESS_DISPATCH_ID claude-code agents ask x`, "a1", "", core.Block},
+	{"sudo env -u", `sudo env -u HARNESS_DISPATCH_ID claude-code agents ask x`, "a1", "", core.Block},
+	{"xargs env -u", `echo x | xargs env -u HARNESS_DISPATCH_ID claude-code agents ask`, "a1", "", core.Block},
+	{"find -exec env -u", `find . -exec env -u HARNESS_DISPATCH_ID claude-code agents ask {} \;`, "a1", "", core.Block},
+	{"exec -a env -u", `exec -a x env -u HARNESS_DISPATCH_ID claude-code agents ask x`, "a1", "", core.Block},
+	{"then env -u", `if true; then env -u HARNESS_DISPATCH_ID claude-code agents ask x; fi`, "a1", "", core.Block},
+	{"else env -u", `if false; then true; else env -u HARNESS_DISPATCH_ID claude-code agents ask x; fi`, "a1", "", core.Block},
+	{"do env -u", `for i in 1; do env -u HARNESS_DISPATCH_ID claude-code agents ask x; done`, "a1", "", core.Block},
+	{"export -n", `export -n HARNESS_DISPATCH_ID`, "a1", "", core.Block},
+	{"declare +x", `declare +x HARNESS_DISPATCH_DEPTH`, "a1", "", core.Block},
+	{"typeset +x", `typeset +x HARNESS_DISPATCH_ID`, "a1", "", core.Block},
+	{"env -i sh -c claude-code", `env -i sh -c 'claude-code agents ask x'`, "a1", "", core.Block},
+	{"env -i claude-code", `env -i claude-code agents ask x`, "a1", "", core.Block},
+	{"env dash claude-code", `env - claude-code agents ask x`, "a1", "", core.Block},
+	{"env -u other var", `env -u SOME_OTHER_VAR claude-code agents ask x`, "a1", "", core.Allow},
+	{"env -i make", `env -i make`, "a1", "", core.Allow},
+	{"find exec grep id", `find . -exec grep HARNESS_DISPATCH_ID {} \;`, "a1", "", core.Allow},
+	{"grep -rn id", `grep -rn HARNESS_DISPATCH_ID .`, "a1", "", core.Allow},
+	{"export other", `export FOO=1`, "a1", "", core.Allow},
+	{"commit message mentions unset", `git commit -m 'docs: unset HARNESS_DISPATCH_ID is blocked'`, "a1", "", core.Allow},
+	{"heredoc mentions unset", "cat > notes.txt <<'EOF'\nunset HARNESS_DISPATCH_ID\nenv -u HARNESS_DISPATCH_ID x\nEOF", "a1", "", core.Allow},
 	{"main session sets depth", `HARNESS_DISPATCH_MAX_DEPTH=5 claude-code agents ask --agent codex x`, "", "", core.Allow},
 }
 
@@ -64,5 +85,12 @@ func TestDispatchTamper(t *testing.T) {
 				t.Fatalf("decision %v, want %v: %s", r.Decision, c.want, r.Reason)
 			}
 		})
+	}
+}
+
+// sudo is blocked by its own rule; the tamper check alone must not read an ordinary sudo command as a tamper.
+func TestTamperNameIgnoresPlainSudo(t *testing.T) {
+	if name := tamperName("sudo ls"); name != "" {
+		t.Errorf("tamperName(sudo ls) = %q, want none", name)
 	}
 }

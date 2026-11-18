@@ -383,7 +383,7 @@ func mktempCdsOnly(cmd string) bool {
 
 // runsGit reports text holding any git invocation or nesting EachGit cannot see into, wherever it would run.
 func runsGit(text string) bool {
-	return shell.EachGit(text, "/", func(string, string, []string) bool { return true })
+	return shell.EachGit(text, "/", func(_, verb string, _ []string) bool { return verb != shell.WorktreeCommit })
 }
 
 // bannedGit is a hard rule 4 verb that writes the tree; `stash list|show`, `clean -n` and harmlessGit forms are fine.

@@ -2,6 +2,7 @@ package shell
 
 import (
 	"reflect"
+	"slices"
 	"testing"
 )
 
@@ -226,6 +227,34 @@ func TestEachGitHiddenVerbs(t *testing.T) {
 		got := collectGit(cmd, "/w")
 		if len(got) == 0 || got[len(got)-1].verb != want {
 			t.Errorf("EachGit(%q) = %v, want verb %s", cmd, got, want)
+		}
+	}
+}
+
+func TestEachGitWorktreeCommitNeedsCommandWord(t *testing.T) {
+	ph := "claude-code worktree commit"
+	text := []string{
+		"grep -rn '" + ph + "' rules", "rg '" + ph + "' rules", "rtk grep -rn \"" + ph + "\" rules", "rtk rg '" + ph + "' .",
+		"rtk read '" + ph + "'", "rtk find . -name '" + ph + "'", "rtk ls '" + ph + "'", "echo " + ph, "printf '%s' '" + ph + "'",
+		"git log --grep='" + ph + "'", "rtk git log --grep=\"" + ph + "\"", "git commit -m \"fix: " + ph + " verb\"",
+		"cat <<'EOF'\n" + ph + " -m x\nEOF", "ls # " + ph, "ls '" + ph + "' dir", "xargs grep " + ph,
+	}
+	for _, cmd := range text {
+		for _, c := range collectGit(cmd, "/w") {
+			if c.verb == WorktreeCommit {
+				t.Errorf("EachGit(%q) emitted the verb for text", cmd)
+			}
+		}
+	}
+	real := []string{
+		ph + " -m x f", "/usr/local/bin/" + ph, "rtk " + ph, "env -i " + ph, "sudo -u me " + ph, "nohup " + ph, "time " + ph,
+		"command " + ph, "go run ./cmd/" + ph, "bash -c '" + ph + "'", "sh -c \"" + ph + "\"", "eval '" + ph + "'",
+		"(" + ph + ")", "echo $(" + ph + ")", "xargs -n 1 " + ph, "watch '" + ph + "'", "watch -n1 " + ph,
+		"find . -exec " + ph + " {} \\;", "ls && " + ph,
+	}
+	for _, cmd := range real {
+		if !slices.ContainsFunc(collectGit(cmd, "/w"), func(c gitCall) bool { return c.verb == WorktreeCommit }) {
+			t.Errorf("EachGit(%q) lost the worktree commit verb", cmd)
 		}
 	}
 }

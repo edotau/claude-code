@@ -578,6 +578,7 @@ func shellFeedCases(harness string) []safetyTierCase {
 	return append(rows,
 		safetyTierCase{`printf 'go test ./...\n' | sh`, harness, core.Allow},
 		safetyTierCase{`echo -e 'make lint\n' | sh`, harness, core.Allow},
+		safetyTierCase{`printf 'claude-code worktree commit -m x a.txt\n' | sh`, harness, core.Allow},
 		safetyTierCase{`printf "rm -rf $D\n" | bash`, harness, core.Block},
 		safetyTierCase{`printf "$(cat cmd)\n" | bash`, harness, core.Block},
 		safetyTierCase{`printf 'git stash\n' | sh`, harness, core.Block},
