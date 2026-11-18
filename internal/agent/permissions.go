@@ -560,10 +560,10 @@ func (p Permissions) spliceReadDenied(cmd string) bool {
 // decideSeg is one segment's verdict, cdTo a relative cd's absolute target; heredocs and file redirects never Allow.
 func (p Permissions) decideSeg(seg, cdTo string, at opDir, depth int) (Decision, bool) {
 	rawToks := shell.Tokens(seg)
-	toks, _ := shell.Unwrap(rawToks, "")
-	if len(toks) == 0 {
+	if len(rawToks) == 0 { // a blank line, a trailing `;` or a masked substitution; `env` or `x=1` alone is judged
 		return Allow, false
 	}
+	toks, _ := shell.Unwrap(rawToks, "")
 	d := p.decideSegment(strings.TrimSpace(seg), rawToks, toks)
 	judged := seg
 	if cdTo != "" {

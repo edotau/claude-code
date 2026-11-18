@@ -162,6 +162,15 @@ func TestPermissionWrapperNormalizationGrants(t *testing.T) {
 	})
 }
 
+// A segment that only assigns or only prints the environment is judged like any command; an empty one is skipped.
+func TestPermissionWordlessSegmentJudged(t *testing.T) {
+	p := Permissions{Mode: "plan", Allow: []Rule{{"Bash", "grep *"}, {"Bash", "wc *"}}}
+	checkBash(t, p, map[string]Decision{
+		"env | grep TOKEN": Deny, "env | wc -l": Deny, "x=1; grep a f": Deny, "nohup env | grep x": Deny, "exec env | wc -l": Deny,
+		"grep a f;": Allow, "grep a f\n\ngrep b f": Allow, "grep a f; ; wc -l f": Allow,
+	})
+}
+
 // Given the sed print rule, Then only `sed -n <range>p FILE` passes: no -i, -e, w/e commands or extra options.
 func TestPermissionSedPrintOnly(t *testing.T) {
 	p := Permissions{Mode: "plan", Allow: []Rule{{"Bash", SedPrintArg}}, Deny: []Rule{{"Bash", RedirectFileArg}}}

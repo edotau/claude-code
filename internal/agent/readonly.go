@@ -89,31 +89,36 @@ func claudeHelp(toks []string) bool {
 	return !slices.ContainsFunc(toks[1:n-1], func(t string) bool { return !helpWord().MatchString(t) })
 }
 
-// rawSegmentOK is the as-typed part of the check: no write or `<`, and only a harmless env or time prefix.
+// rawSegmentOK is the as-typed part of the check: no write, `<` or expansion, and only a `time` or locale prefix.
 func rawSegmentOK(seg string, rawToks, toks []string) bool {
-	if hasWrite(seg) {
+	if hasWrite(seg) || shell.Expands(seg) || braceExpands(seg) {
 		return false
 	}
 	n := len(rawToks) - len(toks)
-	if n == 0 {
-		return true
-	}
-	if !grantsNormalized(rawToks, toks) {
-		return false
-	}
-	return !envPrefixRisk(rawToks[:n], seg)
+	return n == 0 || !slices.ContainsFunc(rawToks[:n], func(t string) bool { return t != "time" && !localeAssign().MatchString(t) })
 }
 
-// envPrefixRisk is a prefix assignment that could steer git or a pager, or any `$` a prefix assignment could feed.
-func envPrefixRisk(prefix []string, seg string) bool {
-	for _, t := range prefix {
-		m := envAssign().FindStringSubmatch(t)
-		if m == nil {
+// localeAssign is the one prefix assignment a read may carry: a locale, time zone or display setting, no path.
+var localeAssign = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(LANG|LC_[A-Z]+|TZ|NO_COLOR|COLUMNS)=[A-Za-z0-9._@-]*$`)
+})
+
+// braceExpands is an unquoted `{a,b}` or `{1..3}`, which bash turns into several words the check never sees.
+func braceExpands(seg string) bool {
+	at, open, list := shell.QuoteAt(seg), false, false
+	for i := 0; i < len(seg); i++ {
+		if at[i] != 0 {
 			continue
 		}
-		up := strings.ToUpper(m[1])
-		if strings.HasPrefix(up, "GIT_") || strings.Contains(up, "PAGER") || strings.Contains(seg, "$") {
+		switch c := seg[i]; {
+		case c == '{':
+			open, list = true, false
+		case c == ',' || c == '.' && i+1 < len(seg) && seg[i+1] == '.':
+			list = list || open
+		case c == '}' && list:
 			return true
+		case c == '}' || c == ' ' || c == '\t' || c == '\n':
+			open = false
 		}
 	}
 	return false
@@ -130,8 +135,10 @@ func readOnlyCommand(toks []string) bool {
 		return readOnlyGo(toks[1:])
 	case "rg":
 		return noFlag(toks[1:], "--pre", "--pre-glob", "-z", "--search-zip", "--hostname-bin")
-	case "grep", "ls", "wc", "cat", "echo", "printf":
+	case "grep", "ls", "wc", "cat", "echo":
 		return true
+	case "printf": // -v assigns a variable, and bash evaluates an array subscript in its name
+		return len(toks) < 2 || !strings.HasPrefix(toks[1], "-v")
 	case "find":
 		return noFlag(toks[1:], findActions...)
 	case "head", "tail":
@@ -256,8 +263,8 @@ func gitArgsOK(args []string) bool {
 	for _, a := range args {
 		name, _, _ := strings.Cut(a, "=")
 		switch {
-		case a == "-c" || a == "-C" || strings.HasPrefix(a, "-O"):
-			return false
+		case a == "-c" || a == "-C" || !strings.HasPrefix(a, "--") && strings.HasPrefix(a, "-") && strings.Contains(a, "O"):
+			return false // -O runs a pager program, in any short cluster
 		case strings.HasPrefix(a, "--"):
 			if slices.ContainsFunc(gitBannedLong, func(b string) bool { return len(name) >= 4 && name != "--text" && strings.HasPrefix(b, name) }) {
 				return false
@@ -299,7 +306,9 @@ func branchArgs(args []string) bool {
 			if !hasVal {
 				return false
 			}
-		case slices.Contains([]string{"--show-current", "-a", "--all", "-r", "--remotes", "-v", "-vv"}, a):
+		case slices.Contains([]string{"--show-current", "--all", "--remotes"}, a):
+		case len(a) > 1 && a[0] == '-' && strings.Trim(a[1:], "arvl") == "":
+			list = list || strings.Contains(a, "l")
 		case strings.HasPrefix(a, "-"):
 			return false
 		default:
@@ -363,6 +372,11 @@ var readOnlyClaudeVerbs = map[string][]string{
 
 // readOnlyClaudeCode is a listed `claude-code <group> <verb>` with no write-looking flag; `agents diff --check` is out.
 func readOnlyClaudeCode(args []string) bool {
+	if len(args) >= 2 && args[0] == "agents" && args[1] == "sync" { // only its --check and --dry-run forms write nothing
+		return slices.ContainsFunc(args[2:], func(a string) bool { return a == "--check" || a == "--dry-run" }) &&
+			detectorArgsOK(args[2:], []string{"--check", "--dry-run"}, map[string]func(string) bool{
+				"--agent": helpWord().MatchString, "--format": func(v string) bool { return v == "text" || v == "json" }})
+	}
 	if len(args) < 2 || !slices.Contains(readOnlyClaudeVerbs[args[0]], args[1]) {
 		return false
 	}
@@ -662,38 +676,72 @@ func scopeOperands(args []string) []string {
 
 func notLocal(p string) bool { return !filepath.IsLocal(p) }
 
-// cliForm is a read-only subcommand (one or two words) of a cluster or cloud CLI and the flags it must not carry.
+// cliForm is a read-only subcommand (one or two words) of a cluster or cloud CLI and the only flags it may carry.
 type cliForm struct {
-	words  string
-	banned []string
+	words string
+	flags map[string]string // flag: "" takes no value, "*" any value, "/" an owner/repo, else `|`-separated values
 }
 
-func cliForms(banned []string, words ...string) []cliForm {
+// cliForms builds forms from spec: space-separated `-x` (no value), `--name=` (any value) and `--name=a|b` entries.
+func cliForms(spec string, words ...string) []cliForm {
+	flags := map[string]string{}
+	for f := range strings.FieldsSeq(spec) {
+		name, val, hasVal := strings.Cut(f, "=")
+		if flags[name] = val; hasVal && val == "" {
+			flags[name] = "*"
+		}
+	}
 	forms := make([]cliForm, len(words))
 	for i, w := range words {
-		forms[i] = cliForm{w, banned}
+		forms[i] = cliForm{w, flags}
 	}
 	return forms
 }
 
-// kubeBanned are flags that pick another cluster or identity, read a raw API path, or never end.
-var kubeBanned = []string{"--raw", "--token", "--kubeconfig", "--server", "-s", "--as", "--as-group", "--as-uid", "--username",
-	"--password", "--client-key", "--client-certificate", "--certificate-authority", "-f", "--follow", "-w", "--watch", "--watch-only"}
+const (
+	kubeScope  = "-n= --namespace= --context= "
+	kubeSelect = "-A --all-namespaces -l= --selector= "
+	kubeOut    = "-o=wide|name --output=wide|name --no-headers --sort-by= " // yaml, json and templates print env values
+	ghRepo     = "-R=/ --repo=/ --json= "                                   // no --jq: gojq reads the environment ($ENV)
+	ghList     = ghRepo + "-L= --limit= -a= --assignee= -A= --author= -l= --label= -S= --search= "
+)
 
-var kubeForms = cliForms(kubeBanned, "get", "describe", "logs", "top", "version", "api-resources", "explain",
-	"config get-contexts", "config current-context")
+func kubeForms() []cliForm {
+	return slices.Concat(
+		cliForms(kubeScope+kubeSelect+kubeOut+"--field-selector= --show-labels -L= --label-columns= --ignore-not-found", "get"),
+		cliForms(kubeScope+kubeSelect, "describe"),
+		cliForms(kubeScope+"-l= --selector= -c= --container= --tail= --since= --since-time= --timestamps -p --previous "+
+			"--all-containers --prefix --limit-bytes=", "logs"),
+		cliForms(kubeScope+kubeSelect+"--containers --no-headers --sort-by=", "top"),
+		cliForms("--client -o=yaml|json --output=yaml|json", "version"),
+		cliForms(kubeOut+"--namespaced --api-group= --verbs=", "api-resources"),
+		cliForms("--recursive --api-version=", "explain"),
+		cliForms("-o=name --output=name --no-headers", "config get-contexts"),
+		cliForms("", "config current-context"))
+}
 
 // readOnlyCLIs is the (tool, subcommand) table: nothing is allowed by tool name alone; kubectl config view is out.
 var readOnlyCLIs = map[string][]cliForm{
-	"kubectl": kubeForms,
-	"oc":      kubeForms,
-	"docker": append(cliForms([]string{"--follow"}, "ps", "images", "inspect", "version", "info"),
-		cliForm{"logs", []string{"--follow", "-f"}}),
-	"gh": cliForms([]string{"--web", "-w", "--watch", "--show-token", "-t"}, "pr view", "pr list", "pr status", "pr diff",
-		"pr checks", "issue view", "issue list", "issue status", "repo view", "run view", "run list", "release view",
-		"release list", "auth status"),
-	"aws":    cliForms(nil, "--version", "help", "sts get-caller-identity"),
-	"gcloud": cliForms(nil, "--version", "version", "help", "config list"),
+	"kubectl": kubeForms(),
+	"oc":      append(kubeForms(), cliForms("--show-context --show-server --show-console", "whoami")...),
+	"docker": slices.Concat(cliForms("-a --all -q --quiet -n= --last= -l --latest --no-trunc -s --size -f= --filter=", "ps"),
+		cliForms("-a --all -q --quiet --no-trunc --digests -f= --filter=", "images"), cliForms("", "version", "info"),
+		cliForms("-n= --tail= --since= --until= -t --timestamps", "logs"),
+		cliForms("-q --quiet --no-trunc -f= --filter=", "network ls", "volume ls")),
+	"gh": slices.Concat(cliForms(ghRepo+"-c --comments", "pr view", "issue view"),
+		cliForms(ghList+"-s=open|closed|merged|all --state=open|closed|merged|all -B= --base= -H= --head= -d --draft", "pr list"),
+		cliForms(ghRepo+"-c --conflict-status", "pr status"), cliForms(ghRepo, "issue status", "release view"),
+		cliForms("-R=/ --repo=/ --name-only --patch --color=never|always|auto", "pr diff"),
+		cliForms(ghRepo+"--required", "pr checks"),
+		cliForms(ghList+"-s=open|closed|all --state=open|closed|all -m= --milestone= --mention=", "issue list"),
+		cliForms("--json= -b= --branch=", "repo view"),
+		cliForms(ghRepo+"-v --verbose --log --log-failed -j= --job= --attempt= --exit-status", "run view"),
+		cliForms(ghRepo+"-L= --limit= -b= --branch= -s= --status= -e= --event= -u= --user= -w= --workflow= -c= --commit=",
+			"run list"),
+		cliForms(ghRepo+"-L= --limit= --exclude-drafts --exclude-pre-releases -O=asc|desc --order=asc|desc", "release list"),
+		cliForms("-a --active --hostname=", "auth status")),
+	"aws":    cliForms("", "--version", "help", "sts get-caller-identity"),
+	"gcloud": cliForms("", "--version", "version", "help", "config list"),
 }
 
 // cliGlobals are the value flags a tool may carry before its subcommand; any other leading flag refuses the command.
@@ -713,9 +761,7 @@ func readOnlyCLI(toks []string) bool {
 	}
 	return slices.ContainsFunc(forms, func(f cliForm) bool {
 		w := strings.Fields(f.words)
-		return len(rest) >= len(w) && slices.Equal(rest[:len(w)], w) && !slices.ContainsFunc(rest[len(w):], func(a string) bool {
-			return slices.ContainsFunc(f.banned, func(b string) bool { return bannedCLIFlag(a, b) })
-		})
+		return len(rest) >= len(w) && slices.Equal(rest[:len(w)], w) && cliFlagsOK(rest[len(w):], f.flags)
 	})
 }
 
@@ -740,16 +786,57 @@ func skipCLIGlobals(tool string, rest []string) ([]string, bool) {
 	return rest, true
 }
 
-// bannedCLIFlag: a long flag matches by name (any =value), a short one also with an attached value (-sURL).
-func bannedCLIFlag(a, banned string) bool {
-	name, _, _ := strings.Cut(a, "=")
-	return name == banned || len(banned) == 2 && strings.HasPrefix(a, banned) && !strings.HasPrefix(a, "--")
+// cliFlagsOK: each flag is listed, a value flag has a passing value, and a short cluster holds only no-value letters.
+func cliFlagsOK(args []string, flags map[string]string) bool {
+	for i := 0; i < len(args); i++ {
+		name, val, hasVal := strings.Cut(args[i], "=")
+		want, known := flags[name]
+		switch {
+		case !strings.HasPrefix(name, "-"): // an operand: a name, number or kind
+		case known && want == "":
+			if hasVal {
+				return false
+			}
+		case known:
+			if !hasVal && i+1 < len(args) {
+				i++
+				val, hasVal = args[i], true
+			}
+			if !hasVal || !cliValueOK(want, val) {
+				return false
+			}
+		case !shortCluster(args[i], flags):
+			return false
+		}
+	}
+	return true
 }
 
-// secretKind is a kubectl resource list naming secrets, whose get/describe output carries credentials.
+// shortCluster is `-abc` whose every letter is a listed flag that takes no value.
+func shortCluster(a string, flags map[string]string) bool {
+	if len(a) < 3 || strings.HasPrefix(a, "--") || strings.Contains(a, "=") {
+		return false
+	}
+	return !strings.ContainsFunc(a[1:], func(r rune) bool { want, ok := flags["-"+string(r)]; return !ok || want != "" })
+}
+
+func cliValueOK(want, v string) bool {
+	switch {
+	case v == "" || strings.HasPrefix(v, "-"):
+		return false
+	case want == "/":
+		return strings.Count(v, "/") == 1 // owner/repo, never host/owner/repo
+	}
+	return want == "*" || slices.Contains(strings.Split(want, "|"), v)
+}
+
+// credentialKinds are the resources whose get/describe output carries a secret or token.
+var credentialKinds = []string{"secret", "oauthclient", "oauthaccesstoken", "oauthauthorizetoken", "useroauthaccesstoken"}
+
+// secretKind is a kubectl resource list naming a credentialKinds kind, singular or plural, any group or case.
 func secretKind(a string) bool {
 	return slices.ContainsFunc(strings.FieldsFunc(a, func(r rune) bool { return r == ',' || r == '/' }), func(k string) bool {
 		k, _, _ = strings.Cut(strings.ToLower(k), ".")
-		return k == "secret" || k == "secrets"
+		return slices.Contains(credentialKinds, strings.TrimSuffix(k, "s"))
 	})
 }

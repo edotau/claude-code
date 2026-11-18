@@ -111,12 +111,12 @@ func exfilMatch(i int, re *core.Gated, scan, cmd string) bool {
 	if i == 0 && toolEnv.MayMatch(scan) {
 		scan = toolEnv.Regexp().ReplaceAllString(scan, "${1}${3}${4}")
 	}
-	return re.MatchString(scan) && (i != 1 || !credsShownOnly(cmd))
+	return i == 1 && secretPiped(scan) || re.MatchString(scan) && (i != 1 || !credsShownOnly(cmd))
 }
 
 // credsShownOnly reports every credential read is a cat/head/tail piped only to filters, with nothing to carry it on.
 func credsShownOnly(cmd string) bool {
-	if secretPiped().MatchString(cmd) || strings.ContainsAny(cmd, "(){}<>`$") {
+	if secretPiped(cmd) || strings.ContainsAny(cmd, "(){}<>`$") {
 		return false
 	}
 	segs, seps := shell.SegmentsSep(cmd)
