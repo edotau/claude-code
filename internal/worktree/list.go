@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -93,12 +94,16 @@ func fillDivergence(repo *Repo, entries []Entry, target string) {
 	reads := readLanes(ctx, repo, entries, target)
 	for i := range entries {
 		e, r := &entries[i], &reads[i]
-		if r.countErr == nil && r.counts != nil {
+		if err := cmp.Or(r.countErr, r.diffErr); err != nil {
+			e.Problems = append(e.Problems, divergenceProblem+err.Error())
+			continue
+		}
+		if r.counts != nil {
 			if _, err := fmt.Sscanf(string(r.counts), "%d %d", &e.Behind, &e.Ahead); err != nil {
-				e.Behind, e.Ahead = 0, 0
+				e.Problems = append(e.Problems, divergenceProblem+err.Error())
 			}
 		}
-		if r.diffErr == nil && r.changed != nil {
+		if r.changed != nil {
 			files[laneLabel(entries, e.Path)] = nameSet(strings.Split(string(r.changed), "\x00"))
 		}
 	}
@@ -113,6 +118,14 @@ func fillDivergence(repo *Repo, entries []Entry, target string) {
 			}
 		}
 	}
+}
+
+// divergenceProblem prefixes the Problem of a lane whose ahead/behind or changed files could not be read.
+const divergenceProblem = "divergence unknown: "
+
+// DivergenceUnknown reports whether this lane's +ahead -behind and overlaps could not be read.
+func (e Entry) DivergenceUnknown() bool {
+	return slices.ContainsFunc(e.Problems, func(p string) bool { return strings.HasPrefix(p, divergenceProblem) })
 }
 
 // readLanes runs every existing lane's two divergence reads concurrently, at most divergenceReads at once.

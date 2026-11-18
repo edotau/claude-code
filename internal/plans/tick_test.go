@@ -238,12 +238,12 @@ func TestTickRequiresMatchingTaskTrailer(t *testing.T) {
 		t.Fatalf("candidates: %+v %v", results, err)
 	}
 	wantBytes(t, plan, "coverage only", body)
-	c := Commit{Sha: cs[1].Sha, Files: cs[1].Files, Message: "Task: another-plan 1.1"}
+	c := Commit{Sha: cs[1].Sha, Files: cs[1].Files, Message: "feat: x\n\nTask: another-plan 1.1"}
 	if _, err := tickCommits(repo, plan, []Commit{c}, false, nil); err != nil {
 		t.Fatal(err)
 	}
 	wantBytes(t, plan, "wrong plan", body)
-	c.Message = "Task: 2026-10-05-named 1.1"
+	c.Message = "feat: x\n\nTask: 2026-10-05-named 1.1"
 	if _, err := tickCommits(repo, plan, []Commit{c}, false, nil); err != nil {
 		t.Fatal(err)
 	}
@@ -262,29 +262,36 @@ func gitRepo(t *testing.T, br string) string {
 	return repo
 }
 
-// Ticks happen on the primary checkout's trunk, whatever it is called; a lane or a detached HEAD lands nothing.
-func TestOnTrunkNamesNoBranch(t *testing.T) {
+// Trunk is origin/HEAD, else init.defaultBranch, main or master, whichever exists; with none, nothing is trunk.
+func TestTrunkTipFailsClosedWithoutTrunk(t *testing.T) {
 	hermetic(t)
 	ctx := context.Background()
 	repo := gitRepo(t, "trunk")
-	if !onTrunk(ctx, repo) {
-		t.Fatal("a repo whose only branch is trunk must tick there")
+	if _, on, err := trunkTip(ctx, repo); !errors.Is(err, ErrNoTrunk) || on {
+		t.Fatalf("a repo with no main, master or default must not guess its checked-out branch: on=%v err=%v", on, err)
 	}
 	hosttest.In(t, repo, "branch", "main")
-	if onTrunk(ctx, repo) {
-		t.Fatal("trunk beside an existing main is not the landing branch")
+	if _, on, err := trunkTip(ctx, repo); err != nil || on {
+		t.Fatalf("trunk beside an existing main is not the landing branch: on=%v err=%v", on, err)
 	}
+	hosttest.In(t, repo, "update-ref", "refs/remotes/origin/old", "HEAD")
+	hosttest.In(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/old")
 	hosttest.In(t, repo, "checkout", "-q", "main")
-	if !onTrunk(ctx, repo) {
-		t.Fatal("main is the landing branch once it exists")
+	if _, on, err := trunkTip(ctx, repo); err != nil || !on {
+		t.Fatalf("origin/HEAD naming a branch with no local copy must fall through to main: on=%v err=%v", on, err)
+	}
+	hosttest.In(t, repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/gone")
+	hosttest.In(t, repo, "checkout", "-q", "main")
+	if tip, on, err := trunkTip(ctx, repo); err != nil || !on || tip == "" {
+		t.Fatalf("a stale origin/HEAD must fall through to main: tip=%q on=%v err=%v", tip, on, err)
 	}
 	lane := filepath.Join(t.TempDir(), "lane")
 	hosttest.In(t, repo, "worktree", "add", "-q", "-b", "lane", lane)
-	if onTrunk(ctx, lane) {
+	if _, on, _ := trunkTip(ctx, lane); on {
 		t.Fatal("a linked worktree never lands")
 	}
 	hosttest.In(t, repo, "checkout", "-q", "--detach")
-	if onTrunk(ctx, repo) {
+	if _, on, _ := trunkTip(ctx, repo); on {
 		t.Fatal("a detached HEAD lands nothing")
 	}
 }
@@ -292,7 +299,7 @@ func TestOnTrunkNamesNoBranch(t *testing.T) {
 // A commit made in a lane ticks nothing; cherry-picked, rebased or squashed onto trunk, its trailer ticks it once.
 func TestNamedTaskTicksWhenItsCommitLands(t *testing.T) {
 	hermetic(t)
-	repo := gitRepo(t, "trunk")
+	repo := gitRepo(t, "main")
 	plan := filepath.Join(Home(repo), "2026-10-05-p.md")
 	writeFile(t, plan, "- [ ] 1.1 One owns: a.go\n- [ ] 1.2 Two owns: b.go\n- [ ] 1.3 Three owns: c.go\n")
 	lane := filepath.Join(t.TempDir(), "lane")
@@ -308,7 +315,7 @@ func TestNamedTaskTicksWhenItsCommitLands(t *testing.T) {
 	}
 	hosttest.In(t, repo, "cherry-pick", "lane~2")
 	hosttest.In(t, repo, "merge", "--squash", "lane~1")
-	hosttest.In(t, repo, "commit", "-q", "-F", filepath.Join(repo, ".git", "SQUASH_MSG"))
+	hosttest.In(t, repo, "commit", "-q", "-m", "feat: squash\n\nTask: 2026-10-05-p 1.2")
 	got := ""
 	for sha := range strings.FieldsSeq(hosttest.In(t, repo, "rev-list", "--reverse", "-2", "HEAD")) {
 		if _, _, err := TickCommit(repo, sha, nil); err != nil {
@@ -320,7 +327,7 @@ func TestNamedTaskTicksWhenItsCommitLands(t *testing.T) {
 		t.Fatalf("cherry-pick and squash keep their trailers, the unlanded task stays open:\n%s", got)
 	}
 	var out strings.Builder
-	if err := TickRange(context.Background(), lane, "lane", "trunk~1..HEAD", "", nil, false, &out); !errors.Is(err, ErrNotOnTrunk) {
+	if err := TickRange(context.Background(), lane, "lane", "main~1..HEAD", "", nil, false, &out); !errors.Is(err, ErrNotOnTrunk) {
 		t.Fatalf("a range tick from a lane must say why nothing ticked: %v", err)
 	}
 }
@@ -337,6 +344,7 @@ func TestTaskTrailersRefusals(t *testing.T) {
 		{"1.1", "", "2026-10-04-b and 2026-10-05-a"},
 		{"1.1", filepath.Join(home, "2026-10-04-b.md"), "\n\nTask: 2026-10-04-b 1.1"},
 		{"1.2", "", "already ticked or struck in 2026-10-05-a"},
+		{"1.2", "", "plan task '1.2' --reopen --plan '"},
 		{"1.3", "", "already ticked or struck in 2026-10-05-a"},
 		{"1.4", "", "nearest ids: 1.1"},
 		{"Phase 2.1", "", "\n\nTask: 2026-10-05-a Phase 2.1"},

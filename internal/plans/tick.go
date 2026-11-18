@@ -53,7 +53,7 @@ func tickCommits(root, planPath string, commits []Commit, dryRun bool, ok func(T
 			c.Message = message
 			r := tickResult{Sha: strings.TrimSpace(c.Sha)}
 			r.Candidate = candidates(root, planPath, text, c, ok, dryRun)
-			text, r.Ticked, r.Notes = tickText(root, planPath, text, c)
+			text, r.Ticked, r.Notes = tickText(root, planPath, text, c, dryRun)
 			if len(r.Ticked)+len(r.Notes)+len(r.Candidate) > 0 {
 				results = append(results, r)
 			}
@@ -67,7 +67,7 @@ func tickCommits(root, planPath string, commits []Commit, dryRun bool, ok func(T
 }
 
 // tickText ticks every open task c's trailers name, noting the owned files c did not touch.
-func tickText(root, planPath, text string, c Commit) (out string, ticked, notes []string) {
+func tickText(root, planPath, text string, c Commit, dryRun bool) (out string, ticked, notes []string) {
 	lines := strings.Split(text, "\n")
 	for _, t := range parseBytes(planPath, []byte(text)).Tasks {
 		if !open(t) || !namesTask(c.Message, planPath, t.ID) {
@@ -75,11 +75,19 @@ func tickText(root, planPath, text string, c Commit) (out string, ticked, notes 
 		}
 		lines = markDone(lines, t, c.Sha)
 		ticked = append(ticked, t.Title)
+		if !dryRun {
+			forget(planPath, t.ID)
+		}
 		if missing := missingOwns(root, t.Owns, c.Files); len(missing) > 0 {
-			notes = append(notes, fmt.Sprintf("plans: %s ticked without owns: %s; `claude-code plan task %q --reopen` if it is unfinished", t.ID, strings.Join(missing, ", "), t.ID))
+			notes = append(notes, fmt.Sprintf("plans: %s ticked without owns: %s; `%s` if it is unfinished", t.ID, strings.Join(missing, ", "), reopenCmd(planPath, t.ID)))
 		}
 	}
 	return strings.Join(lines, "\n"), ticked, notes
+}
+
+// reopenCmd is the by-hand reopen of task id in plan, naming the plan so a shared id is not ambiguous.
+func reopenCmd(plan, id string) string {
+	return "claude-code plan task " + textutil.ShellQuote(id) + " --reopen --plan " + textutil.ShellQuote(plan)
 }
 
 // missingOwns lists the file entries of owns that files do not touch; directory entries never count.
@@ -257,16 +265,16 @@ func TickRange(ctx context.Context, dir, worktree, rng, plan string, drafts []st
 	if err != nil {
 		return err
 	}
+	targets, allow, done, err := pickPlans(dir, worktree, plan, drafts, commits, w)
+	if err != nil || done {
+		return err
+	}
 	landed, err := commitsOnMain(ctx, dir, commits)
 	if err != nil {
 		return err
 	}
 	if !landed {
 		return ErrNotOnTrunk
-	}
-	targets, allow, done, err := pickPlans(dir, worktree, plan, drafts, commits, w)
-	if err != nil || done {
-		return err
 	}
 	for _, target := range targets {
 		results, err := tickCommits(dir, target, commits, dryRun, allow[target]) // a named plan has no allow: every task
@@ -346,15 +354,16 @@ func TickCommit(top, sha string, files []string) (out []PlanTick, tied []string,
 	if err != nil {
 		return nil, nil, err
 	}
-	landed, err := commitsOnMain(ctx, top, []Commit{c})
-	if err != nil || !landed {
-		return nil, nil, err
-	}
 	if files != nil {
 		c.Files = files
 	}
-	wt := WorktreeName(top)
-	targets, allow := tickTargets(top, wt, MirrorDests(), []Commit{c})
+	targets, allow := tickTargets(top, "", MirrorDests(), []Commit{c})
+	if len(targets) == 0 {
+		return nil, nil, nil
+	}
+	if landed, err := commitsOnMain(ctx, top, []Commit{c}); err != nil || !landed {
+		return nil, nil, err
+	}
 	var errs []error
 	for _, p := range targets {
 		results, terr := tickCommits(top, p, []Commit{c}, false, allow[p])
@@ -387,6 +396,7 @@ func MarkDone(planPath, taskID, sha string) error {
 		if t.Done || t.Dropped {
 			return lines
 		}
+		forget(planPath, t.ID)
 		return markDone(lines, t, strings.TrimSpace(sha))
 	})
 }
@@ -414,6 +424,7 @@ func Reopen(planPath, taskID string) error {
 		if !t.Done {
 			return lines
 		}
+		forget(planPath, t.ID)
 		lines[t.Start] = boxRe().ReplaceAllString(lines[t.Start], "${1} ${2}")
 		lines[t.End] = shaTail().ReplaceAllString(lines[t.End], "$1")
 		return lines
@@ -603,17 +614,35 @@ func commitMessage(root string, c Commit) (string, error) {
 	return proc.RunGitInherit(ctx, root, "show", "-s", "--format=%B", c.Sha, "--")
 }
 
+// trailerRe is a git trailer line: a token at column zero, a colon and a value.
+var trailerRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]*[ \t]*:[ \t]*\S`) })
+
+// trailerBlock is message's last paragraph, never the first, if all of it is trailers; Go, not git, to save a spawn.
+func trailerBlock(message string) []string {
+	lines := strings.Split(strings.TrimRight(strings.ReplaceAll(message, "\r\n", "\n"), " \t\n"), "\n")
+	last := len(lines) - 1
+	for last >= 0 && strings.TrimSpace(lines[last]) != "" {
+		last--
+	}
+	block := lines[last+1:]
+	if last < 1 || len(block) == 0 {
+		return nil
+	}
+	for i, l := range block {
+		if continuation := i > 0 && (l[0] == ' ' || l[0] == '\t'); !continuation && !trailerRe().MatchString(l) {
+			return nil
+		}
+	}
+	return block
+}
+
+// namesTask reports whether message carries the trailer `Task: <plan-slug> <id>`; quoted or prose lines never count.
 func namesTask(message, plan, id string) bool {
-	want := "Task: " + strings.TrimSuffix(filepath.Base(plan), ".md") + " " + id
 	if id == "" {
 		return false
 	}
-	for line := range strings.Lines(message) {
-		if strings.TrimSpace(line) == want {
-			return true
-		}
-	}
-	return false
+	want := "Task: " + strings.TrimSuffix(filepath.Base(plan), ".md") + " " + id
+	return slices.ContainsFunc(trailerBlock(message), func(l string) bool { return strings.TrimRight(l, " \t") == want })
 }
 
 // candidates lists open unnamed tasks c covers, once per task: a repeat would nag on every later commit.
@@ -630,17 +659,41 @@ func candidates(root, plan, text string, c Commit, ok func(Task) bool, dryRun bo
 	return out
 }
 
+// memoCap bounds the candidate memo; the oldest keys fall off first.
+const memoCap = 500
+
+func memoFile() string { return filepath.Join(ScratchDir(), "candidates") }
+
+func readMemo() []string {
+	data, _ := os.ReadFile(memoFile()) // a missing memo is an empty one
+	return slices.DeleteFunc(strings.Split(string(data), "\n"), func(k string) bool { return k == "" })
+}
+
+func writeMemo(keys []string) {
+	if os.MkdirAll(ScratchDir(), 0o700) == nil {
+		_ = paths.AtomicWrite(memoFile(), []byte(strings.Join(keys, "\n")+"\n"), 0o600) // an unwritable memo only repeats a hint
+	}
+}
+
 // announce reports whether task id of plan has not been announced as a candidate yet, recording it unless dryRun.
 func announce(plan, id string, dryRun bool) bool {
-	file, key := filepath.Join(ScratchDir(), "candidates"), plan+"\t"+id
-	data, err := os.ReadFile(file)
-	if err == nil && slices.Contains(strings.Split(string(data), "\n"), key) {
+	keys, key := readMemo(), plan+"\t"+id
+	if slices.Contains(keys, key) {
 		return false
 	}
-	if !dryRun && os.MkdirAll(ScratchDir(), 0o700) == nil {
-		_ = paths.AtomicWrite(file, append(data, key+"\n"...), 0o600) // an unwritable memo only repeats a hint
+	if !dryRun {
+		keys = append(keys, key)
+		writeMemo(keys[max(0, len(keys)-memoCap):])
 	}
 	return true
+}
+
+// forget clears a task's candidate memo, so a reopened task can be announced again.
+func forget(plan, id string) {
+	keys := readMemo()
+	if i := slices.Index(keys, plan+"\t"+id); i >= 0 {
+		writeMemo(slices.Delete(keys, i, i+1))
+	}
 }
 
 func tickTargets(root, worktree string, skip []string, commits []Commit) ([]string, map[string]func(Task) bool) {
@@ -648,12 +701,13 @@ func tickTargets(root, worktree string, skip []string, commits []Commit) ([]stri
 	if err != nil {
 		return nil, nil
 	}
-	var files, messages []string
+	var files []string
 	for _, c := range commits {
 		files = append(files, c.Files...)
-		messages = append(messages, c.Message)
 	}
-	message := strings.Join(messages, "\n")
+	named := func(path, id string) bool {
+		return slices.ContainsFunc(commits, func(c Commit) bool { return namesTask(c.Message, path, id) })
+	}
 	var targets []string
 	allow := map[string]func(Task) bool{}
 	for _, d := range loadDatedPlans(entries, Home(root), skip) {
@@ -663,7 +717,7 @@ func tickTargets(root, worktree string, skip []string, commits []Commit) ([]stri
 			if !open(t) {
 				continue
 			}
-			if _, any := covers(root, t.Owns, files); namesTask(message, d.path, t.ID) || (any && elig(t)) {
+			if _, any := covers(root, t.Owns, files); named(d.path, t.ID) || (any && elig(t)) {
 				targets = append(targets, d.path)
 				allow[d.path] = elig
 				break
@@ -692,11 +746,11 @@ func TaskTrailers(root, plan string, ids []string) (string, error) {
 		if slices.Contains(MirrorDests(), plan) {
 			return "", fmt.Errorf("plans: %s is an unapproved draft mirror", plan)
 		}
-		data, readErr := os.ReadFile(plan)
-		if readErr != nil {
-			return "", readErr
+		found := slices.IndexFunc(all, func(d datedPlan) bool { return paths.SamePath(d.path, plan) })
+		if found < 0 {
+			return "", fmt.Errorf("plans: %s is not a dated plan in %s, the only place landing finds the plan its trailer names", plan, home)
 		}
-		all = []datedPlan{{path: plan, plan: parseBytes(plan, data)}}
+		all = all[found : found+1]
 	}
 	var trailers []string
 	for _, id := range ids {
@@ -712,7 +766,7 @@ func TaskTrailers(root, plan string, ids []string) (string, error) {
 
 // resolveTrailer finds the one open task id; an explicit plan skips the recent-or-claimed filter.
 func resolveTrailer(all []datedPlan, worktree, id string, explicit bool) (string, error) {
-	var hits, near, closed []string
+	var hits, near, closed, reopen []string
 	for _, d := range all {
 		base := strings.TrimSuffix(filepath.Base(d.path), ".md")
 		for _, t := range d.plan.Tasks {
@@ -723,7 +777,7 @@ func resolveTrailer(all []datedPlan, worktree, id string, explicit bool) (string
 			case t.ID == id && open(t):
 				hits = append(hits, base)
 			case t.ID == id:
-				closed = append(closed, base)
+				closed, reopen = append(closed, base), append(reopen, reopenCmd(d.path, id))
 			case open(t):
 				near = append(near, t.ID)
 			}
@@ -735,7 +789,7 @@ func resolveTrailer(all []datedPlan, worktree, id string, explicit bool) (string
 	case len(hits) > 1:
 		return "", fmt.Errorf("plans: task %q is open in %s; choose one with --plan <file>", id, strings.Join(hits, " and "))
 	case len(closed) > 0:
-		return "", fmt.Errorf("plans: task %q is already ticked or struck in %s; reopen it with `claude-code plan task %q --reopen`", id, strings.Join(closed, ", "), id)
+		return "", fmt.Errorf("plans: task %q is already ticked or struck in %s; reopen it with `%s`", id, strings.Join(closed, ", "), strings.Join(reopen, "` or `"))
 	}
 	slices.SortFunc(near, func(a, b string) int {
 		return cmp.Or(cmp.Compare(taskDistance(id, a), taskDistance(id, b)), strings.Compare(a, b))
@@ -764,28 +818,52 @@ func taskDistance(a, b string) int {
 	return row[len(b)]
 }
 
-// onTrunk reports whether root is the primary checkout with HEAD attached to the repository's trunk branch.
-func onTrunk(ctx context.Context, root string) bool {
+// ErrNoTrunk is the refusal when no trunk branch can be established, so no commit can be known to have landed on it.
+var ErrNoTrunk = errors.New("plans: nothing ticked: the trunk branch is unknown (no usable origin/HEAD, init.defaultBranch, main or master); " +
+	"tick by hand with `claude-code plan task <id> --done --sha <sha> --plan <file>`")
+
+// trunkTip is HEAD's tip and whether it is trunk: origin/HEAD if a local branch, else init.defaultBranch, main, master.
+func trunkTip(ctx context.Context, root string) (tip string, on bool, err error) {
 	if WorktreeName(root) != "" {
-		return false
+		return "", false, nil
 	}
-	git := func(args ...string) string {
-		out, _ := proc.RunGitInherit(ctx, root, args...) // a missing ref or detached HEAD is the empty answer
-		return strings.TrimSpace(out)
+	out, err := proc.RunGitInherit(ctx, root, "for-each-ref", "--format=%(HEAD)\t%(refname)\t%(symref)\t%(objectname)", "refs/heads", "refs/remotes/origin/HEAD")
+	if err != nil {
+		return "", false, err
 	}
-	cur := git("symbolic-ref", "-q", "--short", "HEAD")
-	if cur == "" {
-		return false
-	}
-	if ref := git("symbolic-ref", "-q", "--short", "refs/remotes/origin/HEAD"); ref != "" {
-		return strings.TrimPrefix(ref, "origin/") == cur
-	}
-	for _, name := range []string{git("config", "--get", "init.defaultBranch"), "main", "master"} {
-		if name != "" && git("rev-parse", "--verify", "-q", "refs/heads/"+name) != "" {
-			return name == cur
+	var cur, origin string
+	heads := map[string]bool{}
+	for line := range strings.SplitSeq(out, "\n") {
+		f := strings.Split(line, "\t")
+		if len(f) != 4 {
+			continue
+		}
+		if f[1] == "refs/remotes/origin/HEAD" {
+			origin = strings.TrimPrefix(f[2], "refs/remotes/origin/")
+			continue
+		}
+		name := strings.TrimPrefix(f[1], "refs/heads/")
+		heads[name] = true
+		if f[0] == "*" {
+			cur, tip = name, f[3]
 		}
 	}
-	return true
+	trunk := ""
+	if heads[origin] {
+		trunk = origin
+	} else {
+		cfg, _ := proc.RunGitInherit(ctx, root, "config", "--get", "init.defaultBranch") // unset is the empty answer
+		for _, name := range []string{strings.TrimSpace(cfg), "main", "master"} {
+			if heads[name] {
+				trunk = name
+				break
+			}
+		}
+	}
+	if trunk == "" {
+		return "", false, ErrNoTrunk
+	}
+	return tip, cur == trunk, nil
 }
 
 func readCommit(ctx context.Context, root, sha string) (Commit, error) {
@@ -806,10 +884,14 @@ func readCommit(ctx context.Context, root, sha string) (Commit, error) {
 
 // commitsOnMain reports whether the primary checkout is on its trunk and every commit is in that branch's history.
 func commitsOnMain(ctx context.Context, root string, commits []Commit) (bool, error) {
-	if !onTrunk(ctx, root) {
-		return false, nil
+	tip, on, err := trunkTip(ctx, root)
+	if err != nil || !on {
+		return false, err
 	}
 	for _, c := range commits {
+		if strings.HasPrefix(tip, c.Sha) { // the tip itself, the common commit: no history walk
+			continue
+		}
 		_, err := proc.RunGitInherit(ctx, root, "merge-base", "--is-ancestor", c.Sha, "HEAD")
 		var exit *exec.ExitError
 		if errors.As(err, &exit) && exit.ExitCode() == 1 {

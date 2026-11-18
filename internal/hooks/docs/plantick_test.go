@@ -304,6 +304,8 @@ func TestPlanTickLaneWaitsForMainFastForward(t *testing.T) {
 	t.Run("quiet", func(t *testing.T) { testLaneLanding(t, true, false, false) })
 	t.Run("later command fails", func(t *testing.T) { testLaneLanding(t, false, true, false) })
 	t.Run("merge commit", func(t *testing.T) { testLaneLanding(t, false, false, true) })
+	t.Run("quiet merge commit", func(t *testing.T) { testLaneLanding(t, true, false, true) })
+	t.Run("merge commit then failure", func(t *testing.T) { testLaneLanding(t, false, true, true) })
 }
 
 func testLaneLanding(t *testing.T, quiet, failed, mergeCommit bool) {

@@ -34,10 +34,13 @@ func worktreeRoot() string {
 	return filepath.Join(home, "worktrees")
 }
 
-// Root is repo main's own worktree root: worktreeRoot()/<basename of the main checkout, one leading dot dropped>.
-func Root(main string) string {
-	return filepath.Join(worktreeRoot(), strings.TrimPrefix(filepath.Base(filepath.Clean(main)), "."))
+// laneName is main's basename with one leading dot dropped, the directory its lanes live in.
+func laneName(main string) string {
+	return strings.TrimPrefix(filepath.Base(filepath.Clean(main)), ".")
 }
+
+// Root is repo main's own worktree root: worktreeRoot()/laneName(main).
+func Root(main string) string { return filepath.Join(worktreeRoot(), laneName(main)) }
 
 // legacyRoot is the pre-dot-strip root of main, "" when it equals Root.
 func legacyRoot(main string) string {
@@ -89,6 +92,9 @@ func repoFromCommonDir(cwd, commonDir string) (*Repo, error) {
 		return nil, fmt.Errorf("%s: cannot place worktrees without a home directory (set HOME): %w", cwd, err)
 	}
 	main := paths.Canon(filepath.Dir(commonDir))
+	if strings.Trim(filepath.Base(main), ".") == "" {
+		return nil, fmt.Errorf("%s: a repository directory named only dots cannot hold worktrees; rename it", main)
+	}
 	return &Repo{Main: main, Root: Root(main), Legacy: legacyRoot(main), CommonDir: commonDir}, nil
 }
 

@@ -19,7 +19,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/parallel"
@@ -54,8 +53,8 @@ func watchMode() string {
 // busyWatched is worktree-busy plus the watchdog check (UserPromptSubmit).
 func busyWatched(in *core.Input) core.Result { return watched(wthook.Busy, in) }
 
-// reminderWatched is docs-plan-reminder plus the watchdog check (Stop).
-func reminderWatched(in *core.Input) core.Result { return watched(docs.Reminder, in) }
+// reminderWatched is the Stop slot of docs-plan-reminder, which now only hosts the watchdog check.
+func reminderWatched(in *core.Input) core.Result { return watchTick(in) }
 
 // watched runs r, then the watchdog check, joining their notes.
 func watched(r core.Runner, in *core.Input) core.Result {

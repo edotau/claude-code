@@ -12,9 +12,12 @@
    to commit: it takes only named files, or with none the main session's own claims (a subagent or CLI leaf must name
    its files; a CLI leaf is refused any claimed file), and refuses a peer's.
    Repeat `--task` for multiple tasks; `--plan <file>` selects the plan when ids collide. Each id must name one open
-   task (a recent or claimed plan, or the `--plan` file) before staging; quote an id with spaces. The commit carries
-   `Task: <plan-slug> <id>` trailers: a named task ticks once the commit is on main (a lane commit when it lands),
-   even if it left some `owns:` files out. Coverage alone prints one candidate and changes nothing. Manual
+   task (a recent or claimed plan, or a dated `--plan` file in the repo's plans home) before staging; quote an id with
+   spaces. The commit carries `Task: <plan-slug> <id>` trailers: only a real trailer counts (last paragraph, every line
+   a column-zero trailer; quoted or prose lines never do); a named task ticks once the commit is on main (a lane
+   commit when it lands), even if it left some `owns:` files out. Main is the primary checkout on the trunk: origin/HEAD
+   when it names an existing local branch, else `init.defaultBranch`, `main`, `master`; none exists, nothing ticks.
+   Coverage alone prints one candidate and changes nothing. Manual
    `plan task <id> --done --sha <sha> --plan <file>` needs no trailer.
    A file another live session or leaf has
    uncommitted edits in asks first (`worktree-claim-check` blocks a leaf under `~/.claude`, asks elsewhere).

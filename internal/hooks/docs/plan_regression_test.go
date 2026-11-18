@@ -17,19 +17,6 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 )
 
-func TestReminderDoesNotCreateSessionLocks(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	for _, session := range []string{"empty", "partial"} {
-		if session == "partial" {
-			recordPartials(session, "plan", "", []string{"task"}, &bytes.Buffer{})
-		}
-		Reminder(&core.Input{SessionID: session})
-		if _, err := os.Stat(partialFile(session) + ".lock"); !os.IsNotExist(err) {
-			t.Errorf("%s left per-session lock: %v", session, err)
-		}
-	}
-}
-
 func TestMirrorConcurrentFirstWriteUsesOneDestination(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
@@ -319,24 +306,10 @@ func TestHooksDegradeWhenLockHeld(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	old := hookLockWait
 	t.Cleanup(func() { hookLockWait = old })
-	recordPartials("held", "plan", "", []string{"task"}, &bytes.Buffer{})
-	holdLock(t, partialsLock())
 	draft := writeMirrorDraft(t, filepath.Join(cfg, "plans"), "held.md", planTemplate)
 	holdLock(t, filepath.Join(paths.StateDir(), "plan-mirror"))
 	hookLockWait = 20 * time.Millisecond
 
-	res := Reminder(&core.Input{SessionID: "held"})
-	if !strings.Contains(res.SystemMessage, "kept for the next Stop") {
-		t.Errorf("Reminder SystemMessage = %q, want the kept-record notice", res.SystemMessage)
-	}
-	if _, err := os.Stat(partialFile("held")); err != nil {
-		t.Errorf("Reminder dropped the partial record: %v", err)
-	}
-	var tick bytes.Buffer
-	recordPartials("held", "plan", "", []string{"task2"}, &tick)
-	if !strings.Contains(tick.String(), "plan-tick:") || !strings.Contains(tick.String(), paths.ErrLockTimeout.Error()) {
-		t.Errorf("recordPartials stderr = %q, want a plan-tick lock-timeout line", tick.String())
-	}
 	var mirror bytes.Buffer
 	in := core.ParseInput(strings.NewReader(writePayload(t, "Write", cfg, draft, planTemplate)))
 	if code := Mirror(in, &mirror); code != core.ExitProceed || !strings.Contains(mirror.String(), "plan-mirror:") {

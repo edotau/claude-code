@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 
@@ -101,7 +102,7 @@ func cmdWorktreeList(repo *worktree.Repo, args []string) int {
 		if err := helptext.WriteJSON(os.Stdout, entries); err != nil {
 			return helptext.Fail("worktree list: %v", err)
 		}
-		return 0
+		return listExit(entries)
 	}
 	if len(entries) == 0 {
 		fmt.Println("no worktrees under", repo.Root)
@@ -110,13 +111,25 @@ func cmdWorktreeList(repo *worktree.Repo, args []string) int {
 	for _, e := range entries {
 		printEntry(e)
 	}
+	return listExit(entries)
+}
+
+// listExit is 1 when any lane's divergence could not be read, after the other lanes were printed.
+func listExit(entries []worktree.Entry) int {
+	if slices.ContainsFunc(entries, worktree.Entry.DivergenceUnknown) {
+		return 1
+	}
 	return 0
 }
 
 // printEntry renders one text-mode row plus a quoted reopen command and, when eligible, a cleanup one.
 func printEntry(e worktree.Entry) {
 	name := filepath.Base(e.Path)
-	fmt.Printf("%-24s branch=%-20s +%d -%d %s\n", name, e.Branch, e.Ahead, e.Behind, strings.Join(e.StatusFlags(), ","))
+	ahead, behind := strconv.Itoa(e.Ahead), strconv.Itoa(e.Behind)
+	if e.DivergenceUnknown() {
+		ahead, behind = "?", "?"
+	}
+	fmt.Printf("%-24s branch=%-20s +%s -%s %s\n", name, e.Branch, ahead, behind, strings.Join(e.StatusFlags(), ","))
 	for _, other := range slices.Sorted(maps.Keys(e.Overlaps)) {
 		fmt.Printf("  overlaps %s: %s\n", other, strings.Join(e.Overlaps[other], ", "))
 	}

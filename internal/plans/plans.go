@@ -596,12 +596,12 @@ func CommitFiles(ctx context.Context, dir, sha string) ([]string, error) {
 	return files, nil
 }
 
-// rangeCommits lists rng's non-merge commits oldest first, each with a 7-char sha and its changed files.
+// rangeCommits lists rng's commits oldest first, merges included (one may carry the trailer), each with its files.
 func rangeCommits(ctx context.Context, dir, rng string) ([]Commit, error) {
 	if !strings.Contains(rng, "..") || strings.HasPrefix(rng, "-") {
 		return nil, fmt.Errorf("range %q: want <a>..<b>", rng)
 	}
-	raw, err := proc.RunGitInherit(ctx, dir, "rev-list", "--reverse", "--no-merges", rng, "--")
+	raw, err := proc.RunGitInherit(ctx, dir, "rev-list", "--reverse", rng, "--")
 	if err != nil {
 		return nil, fmt.Errorf("git rev-list %s: %w", rng, err)
 	}

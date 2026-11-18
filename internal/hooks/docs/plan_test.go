@@ -335,44 +335,6 @@ func TestPlanGateBlocksWithSkeleton(t *testing.T) {
 	}
 }
 
-// The Stop reminder names a recorded partly-landed task once, then stays quiet.
-func TestPlanTickReminderOnce(t *testing.T) {
-	planPath, _, _ := tickFixture(t)
-	recordPartials("tick1", "w", planPath, []string{"1.2 Partial task owns: a/one.go, c/never.go"}, os.Stderr)
-	stop := func() string {
-		return Reminder(core.ParseInput(hookJSON(t, map[string]any{"hook_event_name": "Stop", "session_id": "tick1"}))).SystemMessage
-	}
-	if first := stop(); !strings.Contains(first, "1.2") {
-		t.Fatalf("first Stop = %q, want a systemMessage naming 1.2", first)
-	}
-	if second := stop(); second != "" {
-		t.Fatalf("second Stop = %q, want nothing", second)
-	}
-}
-
-// The Stop reminder drops a partial that a later commit fully ticked.
-func TestPlanReminderDropsLaterTicked(t *testing.T) {
-	_, _ = planGroupEnv(t, false)
-	p := filepath.Join(t.TempDir(), "plan.md")
-	if err := os.WriteFile(p, []byte("- [x] 1.1 Done owns: a (abc1234)\n- [ ] 1.2 Open owns: b\n"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	recordPartials("rem1", "plan", p, []string{"1.1 Done owns: a", "1.2 Open owns: b"}, os.Stderr)
-	out := stillPartial(readPartial(t, "rem1"))
-	if strings.Contains(out, "1.1") || !strings.Contains(out, "1.2") {
-		t.Fatalf("stillPartial = %q, want only 1.2", out)
-	}
-}
-
-func readPartial(t *testing.T, session string) string {
-	t.Helper()
-	b, err := os.ReadFile(partialFile(session))
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
-}
-
 func dateStamp() string { return time.Now().Format("2006-01-02") }
 
 const planTemplate = "# Plan: Widget Refactor\n\n## Context\n\nwhy\n\n## Phases\n\n### Phase 1 — do thing\n\n" +

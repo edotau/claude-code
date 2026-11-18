@@ -115,7 +115,9 @@ func tickPlans(ctx context.Context, out io.Writer, top string, set []string) {
 	if n := plans.TieNote(tied); n != "" {
 		fmt.Fprintln(out, n)
 	}
-	if err != nil {
+	if errors.Is(err, plans.ErrNoTrunk) { // its text already says nothing ticked
+		fmt.Fprintln(out, err)
+	} else if err != nil {
 		fmt.Fprintf(out, "plans: not ticked: %v\n", err)
 	}
 }

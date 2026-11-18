@@ -98,7 +98,7 @@ func TestTickSpanning(t *testing.T) {
 	// A named commit touching one of three owns ticks the task and notes the rest; the done 1.3 is skipped.
 	ticked, notes := tickOK(t, path, "aaaaaaa", "internal/plans/plans.go")
 	wantTicks(t, "subset", ticked, notes, 2, "1.1 Build", 2)
-	if !strings.Contains(notes[0], "plans: 1.1 ticked without owns: internal/hooks/safety_*_test.go, internal/cli/cli.go") || !strings.Contains(notes[0], "plan task \"1.1\" --reopen") {
+	if !strings.Contains(notes[0], "plans: 1.1 ticked without owns: internal/hooks/safety_*_test.go, internal/cli/cli.go") || !strings.Contains(notes[0], "plan task '1.1' --reopen --plan '") {
 		t.Fatalf("note must list the untouched owned files and the reopen route: %v", notes)
 	}
 	want := strings.Replace(tickPlan, "- [ ] 1.1 Build", "- [x] 1.1 Build", 1)
@@ -494,7 +494,7 @@ func TestTickCommitsTicksNamedTaskOnce(t *testing.T) {
 	hermetic(t)
 	plan := filepath.Join(t.TempDir(), "plan.md")
 	writeFile(t, plan, "- [ ] 1.1 Split owns: a.go, b.go, c.go\n")
-	commits := []Commit{{Sha: "aaa1111", Files: []string{"a.go"}, Message: "Task: plan 1.1"}, {Sha: "bbb2222", Files: []string{"b.go"}, Message: "Task: plan 1.1"}}
+	commits := []Commit{{Sha: "aaa1111", Files: []string{"a.go"}, Message: "feat: x\n\nTask: plan 1.1"}, {Sha: "bbb2222", Files: []string{"b.go"}, Message: "feat: x\n\nTask: plan 1.1"}}
 	res, err := tickCommits("", plan, commits, false, nil)
 	if err != nil || len(res) != 1 || len(res[0].Ticked) != 1 || res[0].Sha != "aaa1111" {
 		t.Fatalf("results %+v err=%v", res, err)
@@ -636,7 +636,7 @@ func TestSelectAbbreviatedSubsetOwns(t *testing.T) {
 	home := t.TempDir()
 	planPath := filepath.Join(home, "2026-11-05-abbreviated.md")
 	writeFile(t, planPath, "- [ ] 1.1 Parser owns: internal/plans/plans.go, tick.go\n")
-	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/plans/tick.go"}, Message: "Task: 2026-11-05-abbreviated 1.1"}}
+	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/plans/tick.go"}, Message: "feat: x\n\nTask: 2026-11-05-abbreviated 1.1"}}
 	plan, tied, _ := Select(home, "", "", nil, commits)
 	if len(plan) != 1 || plan[0] != planPath || len(tied) != 0 {
 		t.Fatalf("partial abbreviated ownership: plan=%q tied=%v, want %q", plan, tied, planPath)
@@ -715,7 +715,7 @@ func namedTestTick(t *testing.T, root, plan, sha string, files []string) (ticked
 	t.Helper()
 	data := readFile(t, plan)
 	var message strings.Builder
-	message.WriteString("test")
+	message.WriteString("test\n")
 	for _, task := range parseBytes(plan, []byte(data)).Tasks {
 		message.WriteString("\nTask: " + strings.TrimSuffix(filepath.Base(plan), ".md") + " " + task.ID)
 	}

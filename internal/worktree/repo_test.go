@@ -390,3 +390,17 @@ func TestMain(m *testing.M) {
 	hosttest.Cleanup()
 	os.Exit(code)
 }
+
+// A repository directory named only dots cannot name a lane root, so no lane could land in $HOME itself.
+func TestRepoFromCommonDirRefusesDotOnlyName(t *testing.T) {
+	parent := t.TempDir()
+	for _, name := range []string{"...", "...."} {
+		dir := filepath.Join(parent, name)
+		if err := os.MkdirAll(filepath.Join(dir, ".git"), 0o755); err != nil {
+			t.Skip("directory name not creatable here")
+		}
+		if _, err := repoFromCommonDir(dir, filepath.Join(dir, ".git")); err == nil || !strings.Contains(err.Error(), "only dots") {
+			t.Fatalf("%s: err = %v, want a refusal naming dots", name, err)
+		}
+	}
+}

@@ -83,11 +83,40 @@ func TestListReportsDivergenceAndOverlaps(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(entries) != 2 {
+		t.Fatalf("got %d lanes, want 2: %+v", len(entries), entries)
+	}
 	for _, e := range entries {
 		other := map[string]string{"one": "two", "two": "one"}[filepath.Base(e.Path)]
 		if e.Ahead != 1 || e.Behind != 2 || strings.Join(e.Overlaps[other], ",") != "shared.txt" || len(e.Overlaps) != 1 {
 			t.Fatalf("%s: ahead %d behind %d overlaps %v", e.Path, e.Ahead, e.Behind, e.Overlaps)
 		}
+	}
+}
+
+// A lane whose divergence cannot be read carries a Problem instead of a clean +0 -0, and the good lanes still fill.
+func TestListMarksUnreadableDivergence(t *testing.T) {
+	repo := testRepo(t)
+	wt, err := Create(repo, "good", CreateOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commitIn(t, wt, "commit", "--allow-empty", "-m", "feat: good")
+	target, err := currentBranch(repo.Main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	branch, err := currentBranch(wt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries := []Entry{{Path: wt, Exists: true, Branch: branch}, {Path: filepath.Join(repo.Root, "gone"), Exists: true, Branch: "no-such-branch"}}
+	fillDivergence(repo, entries, target)
+	if entries[0].Ahead != 1 || entries[0].DivergenceUnknown() {
+		t.Fatalf("the readable lane must fill: %+v", entries[0])
+	}
+	if !entries[1].DivergenceUnknown() {
+		t.Fatalf("an unreadable lane must say so, not read +0 -0: %+v", entries[1])
 	}
 }
 

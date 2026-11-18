@@ -3,10 +3,8 @@ package docs
 import (
 	"bytes"
 	"cmp"
-	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"iter"
 	"os"
 	"path/filepath"
@@ -577,78 +575,4 @@ func mirrorSource(in *core.Input) (path string, content []byte, ok bool) {
 		return "", nil, false
 	}
 	return path, content, true
-}
-
-func partialFile(session string) string {
-	return filepath.Join(plans.ScratchDir(), paths.Slug(session, "", 80, "session")+".partial")
-}
-
-func partialsLock() string { return filepath.Join(plans.ScratchDir(), "partials") }
-
-// Reminder warns once at Stop about commits that only partly landed a plan task, then clears the record.
-func Reminder(in *core.Input) core.Result {
-	var stderr bytes.Buffer
-	file := partialFile(in.SessionID)
-	if _, err := os.Stat(file); err != nil { // the common Stop: no partial record, so take no lock
-		return core.Result{}
-	}
-	var data []byte
-	err := paths.WithFileLockWithin(partialsLock(), hookLockWait, func() error {
-		var rerr error
-		if data, rerr = os.ReadFile(file); rerr != nil {
-			return rerr
-		}
-		if rerr = os.Remove(file); rerr != nil {
-			fmt.Fprintf(&stderr, "plan-reminder: %v\n", rerr)
-		}
-		return nil
-	})
-	if errors.Is(err, fs.ErrNotExist) { // a peer's Stop consumed the record between the Stat and the lock
-		return core.Result{}
-	}
-	if err != nil {
-		fmt.Fprintf(&stderr, "plan-reminder: %v\n", err)
-		res := core.ExitResult(core.ExitProceed, stderr.String())
-		res.SystemMessage = "plans: could not read the partial-task record (" + err.Error() + "); kept for the next Stop"
-		return res
-	}
-	res := core.ExitResult(core.ExitProceed, stderr.String())
-	if items := stillPartial(string(data)); items != "" {
-		res.SystemMessage = "plans: this turn's commits only partly landed: " + items + "; finish the task's owns: or tick it by hand"
-	}
-	return res
-}
-
-// stillPartial joins the recorded "<path>\t<plan>: <task>" lines whose task is still open, re-read from the plan.
-func stillPartial(data string) string {
-	var out []string
-	for line := range strings.SplitSeq(strings.TrimSpace(data), "\n") {
-		path, entry, ok := strings.Cut(line, "\t")
-		if !ok {
-			path, entry = "", line
-		}
-		if path != "" {
-			if _, task, ok := strings.Cut(entry, ": "); ok && taskDone(path, task) {
-				continue
-			}
-		}
-		if entry = strings.Join(strings.Fields(entry), " "); entry != "" {
-			out = append(out, entry)
-		}
-	}
-	return strings.Join(out, "; ")
-}
-
-// taskDone reports whether the plan at path now shows the titled task ticked.
-func taskDone(path, title string) bool {
-	p, err := plans.Parse(path)
-	if err != nil {
-		return false
-	}
-	for _, t := range p.Tasks {
-		if t.Title == title {
-			return t.Done
-		}
-	}
-	return false
 }

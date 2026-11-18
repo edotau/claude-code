@@ -10,7 +10,6 @@ import (
 
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -191,29 +190,6 @@ func candidateDir(p, base string) string {
 	return core.AnchorPath(paths.ExpandHome(p), base)
 }
 
-// recordPartials appends "<path>\\t<plan>: <task>" lines for the Stop reminder.
-func recordPartials(session, plan, planPath string, tasks []string, stderr io.Writer) {
-	if err := os.MkdirAll(plans.ScratchDir(), 0o700); err != nil {
-		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
-		return
-	}
-	var b strings.Builder
-	for _, t := range tasks {
-		fmt.Fprintf(&b, "%s\t%s: %s\n", planPath, plan, t)
-	}
-	file := partialFile(session)
-	if err := paths.WithFileLockWithin(partialsLock(), hookLockWait, func() error {
-		f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
-		if err != nil {
-			return err
-		}
-		_, err = f.WriteString(b.String())
-		return errors.Join(err, f.Close())
-	}); err != nil {
-		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
-	}
-}
-
 var briefTaskRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?mi)^[\s>*-]*Task:[ \t]*(\S.*?)\s*$`)
 })
@@ -335,24 +311,13 @@ func ClearStoppedClaim(in *core.Input, dirs []string, id string) error {
 	return nil
 }
 
-var fastForwardRange = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?m)^Updating ([0-9a-f]{7,40})\.\.([0-9a-f]{7,40})\r?$`)
-})
-
 func tickFastForward(in *core.Input, cmd string) core.Result {
 	if !strings.Contains(cmd, "merge") && !strings.Contains(cmd, "pull") {
 		return core.Result{}
 	}
-	out := in.Nested("tool_response", "stdout")
-	if out == "" {
-		out = in.ToolResponseText()
-	}
-	if in.ToolFailed() && !strings.Contains(out, "Fast-forward") {
-		return core.Result{}
-	}
 	ctx, cancel := core.HookContext("docs-plan-tick")
 	defer cancel()
-	before, after, dir := landedRange(ctx, in.CWD, cmd, out)
+	before, after, dir := landedRange(ctx, in.CWD, cmd)
 	if dir == "" {
 		return core.Result{}
 	}
@@ -369,43 +334,31 @@ var landingRun = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(strings.Replace(commitRun().String(), `\s+commit\b`, `\s+(?:merge|pull)\b`, 1))
 })
 
-func landedRange(ctx context.Context, cwd, cmd, out string) (string, string, string) {
+// landingEntry matches a HEAD reflog subject (and its unix time) that a merge or pull wrote when it moved HEAD.
+var landingEntry = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^(?:merge|pull)[^:\x00]*: (?:Fast-forward|Merge made by)[^\x00]*\x00HEAD@\{(\d+)\}$`)
+})
+
+// landedRange is the HEAD move a fresh merge or pull left in the reflog, whatever it printed or a later command did.
+func landedRange(ctx context.Context, cwd, cmd string) (before, after, dir string) {
 	if !landingRun().MatchString(cmd) {
 		return "", "", ""
 	}
-	if m := fastForwardRange().FindStringSubmatch(out); m != nil && strings.Contains(out, "Fast-forward") {
-		return m[1], m[2], commitRepoDir(ctx, cwd, cmd, m[2])
-	}
-	if strings.Contains(out, "Merge made by") { // a merge commit lands its second parent's commits
-		return mergedRange(ctx, cwd, cmd)
-	}
-	if strings.TrimSpace(out) != "" && !quietFlag().MatchString(cmd) {
-		return "", "", ""
-	}
-	for _, dir := range commitCandidates(cwd, cmd) {
-		raw, err := proc.RunGit(ctx, dir, "reflog", "-2", "--format=%H%x00%gs", "HEAD")
-		if err != nil {
+	for _, d := range commitCandidates(cwd, cmd) {
+		raw, err := proc.RunGit(ctx, d, "reflog", "-2", "--date=unix", "--format=%H%x00%gs%x00%gd", "HEAD")
+		if d == "" || err != nil {
 			continue
 		}
 		rows := strings.Split(strings.TrimSpace(raw), "\n")
 		if len(rows) != 2 {
 			continue
 		}
-		after, note, _ := strings.Cut(rows[0], "\x00")
+		after, rest, _ := strings.Cut(rows[0], "\x00")
 		before, _, _ := strings.Cut(rows[1], "\x00")
-		if strings.Contains(note, "Fast-forward") {
-			return before, after, dir
-		}
-	}
-	return "", "", ""
-}
-
-// mergedRange is HEAD^1 and HEAD of the first candidate repo that just made a merge commit.
-func mergedRange(ctx context.Context, cwd, cmd string) (string, string, string) {
-	for _, dir := range commitCandidates(cwd, cmd) {
-		raw, err := proc.RunGit(ctx, dir, "rev-parse", "HEAD^1", "HEAD")
-		if f := strings.Fields(raw); err == nil && len(f) == 2 {
-			return f[0], f[1], dir
+		if m := landingEntry().FindStringSubmatch(rest); m != nil {
+			if sec, perr := strconv.ParseInt(m[1], 10, 64); perr == nil && time.Since(time.Unix(sec, 0)) < recentWindow {
+				return before, after, d
+			}
 		}
 	}
 	return "", "", ""
