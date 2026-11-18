@@ -13,11 +13,8 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/edotau/claude-code/internal/hooks/wthook"
-	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -189,11 +186,16 @@ func cmdWorktreeCommit(cwd string, args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	session := os.Getenv(memory.SessionIDEnv)
+	if *plan != "" {
+		top, _ := paths.CheckoutOf(cwd)
+		resolved, err := plans.ResolvePlan(top, *plan)
+		if err != nil {
+			return helptext.FailUsage("worktree commit: %v", err)
+		}
+		*plan = resolved
+	}
 	err = worktree.Commit(context.Background(), worktree.CommitRequest{
-		Dir: cwd, Message: *msg, Tasks: tasks, Plan: *plan, Paths: files, DryRun: *dryRun, Out: os.Stdout,
-		Source: worktree.ClaimSource{Alive: proc.Alive, Self: worktree.SessionSlug(session), Owner: inflight.SessionOwner,
-			Label: func(pid int) string { return wthook.SessionLabel(worktree.Proc{PID: pid, Comm: "claude"}) }},
+		Dir: cwd, Message: *msg, Tasks: tasks, Plan: *plan, Paths: files, DryRun: *dryRun, Out: os.Stdout, Source: callerClaims(),
 	})
 	var ce *worktree.CommitError
 	switch {

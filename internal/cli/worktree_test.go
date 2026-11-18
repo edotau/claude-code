@@ -720,3 +720,22 @@ func TestCmdWorktreeCommitDryRunAndUsage(t *testing.T) {
 		t.Fatalf("no message: exit %d, stderr %q; want 2 naming -m", code, errb)
 	}
 }
+
+// --plan outside the plans home is a usage error (2) before anything is staged or committed.
+func TestCmdWorktreeCommitPlanOutsidePlansHomeIsUsage(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := gitRepoCLI(t)
+	hosttest.WriteRel(t, repo, "a.txt", "one\n")
+	hosttest.In(t, repo, "add", "a.txt")
+	hosttest.In(t, repo, "commit", "-qm", "chore: base")
+	hosttest.WriteRel(t, repo, "a.txt", "one\ntwo\n")
+	hosttest.WriteRel(t, repo, "2026-11-18-outside.md", "# x\n")
+	t.Chdir(repo)
+	head := hosttest.In(t, repo, "rev-parse", "HEAD")
+	code, _, errb := hosttest.CaptureOutput(t, func() int {
+		return cmdWorktree([]string{"commit", "-m", "fix: a", "--task", "x", "--plan", "2026-11-18-outside.md", "a.txt"})
+	})
+	if code != 2 || !strings.Contains(errb, "not a dated plan") || hosttest.In(t, repo, "rev-parse", "HEAD") != head {
+		t.Fatalf("outside plan: exit %d, stderr %q; want 2 and no commit", code, errb)
+	}
+}
