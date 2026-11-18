@@ -168,12 +168,26 @@ const relayGoShapes = "go vet|test <./packages> [-tags -p -race -v], go test als
 	"-short -failfast -cover -covermode -coverpkg -bench -benchmem -benchtime -parallel -cpu -vet -json], " +
 	"go build ./... or go build <./packages> -o /dev/null, gofmt -l <./paths>"
 
-// relayGoGate judges `[rtk] go build|vet|test` and `gofmt -l`: !isGo for others, else rule is "" or why not.
-func relayGoGate(seg string) (rule string, isGo bool) {
-	toks := shell.Tokens(seg)
-	if len(toks) > 0 && toks[0] == "rtk" {
-		toks = toks[1:]
+// relayWrapRe is one leading wrapper in a safe shape; env takes no flag, and an assignment after it fails the go check.
+var relayWrapRe = regexp.MustCompile(`^(?:rtk|env|(?:command )?time(?: -p)?|nice(?: -n -?[0-9]+)?|` +
+	`g?timeout(?: -k [0-9]+[smh]?| --kill-after=[0-9]+[smh]?| -s [A-Za-z0-9]+| --signal=[A-Za-z0-9]+)*` +
+	` [0-9]+[smh]?) `)
+
+// relayUnwrap drops the leading wrappers relayWrapRe accepts, so the rest meets the checks of a bare command.
+func relayUnwrap(toks []string) []string {
+	for len(toks) > 1 {
+		m := relayWrapRe.FindString(strings.Join(toks, " "))
+		if m == "" {
+			break
+		}
+		toks = toks[strings.Count(m, " "):]
 	}
+	return toks
+}
+
+// relayGoGate judges `go build|vet|test`, `gofmt -l` and their wrappers: !isGo for others, else rule is "" or why not.
+func relayGoGate(seg string) (rule string, isGo bool) {
+	toks := relayUnwrap(shell.Tokens(seg))
 	if len(toks) < 2 || strings.ContainsAny(seg, "<>") || relayExpands(seg) {
 		return "", false
 	}

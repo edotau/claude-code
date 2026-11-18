@@ -241,6 +241,26 @@ var relayGoCases = map[string]bool{
 	"gofmt -w f.go": false, "gofmt -d f.go": false, "gofmt -l -w f.go": false, "gofmt f.go": false,
 }
 
+func init() {
+	run := "go test ./internal/x/ -run '^TestY$' -count=1"
+	for _, w := range []string{"rtk", "timeout 60", "gtimeout 2m", "timeout -k 5 -s KILL 90s", "timeout --kill-after=5s --signal=TERM 1h",
+		"time", "time -p", "command time", "command time -p", "nice", "nice -n 5", "nice -n -5", "env",
+		"rtk timeout 120", "time nice -n 5", "env time", "timeout 60 rtk"} {
+		for _, c := range []string{run, "go vet ./...", "go build ./...", "gofmt -l internal/x"} {
+			relayGoCases[w+" "+c] = true
+		}
+	}
+	for _, c := range []string{"timeout 60 sh -c 'go test ./...'", "timeout 60 go test ./... ; rm x",
+		"env -u HARNESS_DISPATCH_ID go test ./...", "env FOO=1 go test ./...", "env GOFLAGS=-exec=sh go test ./...",
+		"env GOEXPERIMENT=x go test ./...", "env CC=x go test ./...", "nice -n 5 rm x", "time -o out.txt go test ./...",
+		"timeout 60 go test ./... -args -x", "rtk proxy sh", "timeout --foreground 60 go test ./...", "timeout go test ./...",
+		"timeout 1.5 go test ./...", "timeout -k x 60 go test ./...", "nice -n x go test ./...", "env -i go test ./...",
+		"time go test ./... > out", "rtk timeout 60 go test -exec ./x ./...", "timeout 60 go test /tmp/x", "command go test ./...",
+		"timeout 60 time -o x go vet ./..."} {
+		relayGoCases[c] = false
+	}
+}
+
 // A relay's own successful `agents result|wait <id>` after a backgrounded ask binds an id whose record is its ask's.
 func TestHandbackBindsOwnPoll(t *testing.T) {
 	const id = "20261117T101000.000-opencode"
