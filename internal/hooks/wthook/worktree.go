@@ -294,7 +294,7 @@ var gitAnyCmd = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile
 // noticeContext drains this session's inbox and adds the divergence line; warn names an infra error (fail open).
 func noticeContext(ctx context.Context, in *core.Input, run *hookRun) (text, warn string) {
 	var lines []string
-	notices, drainErr := worktree.DrainErr(in.SessionID)
+	notices, drainErr := worktree.DrainFor(in.SessionID, func() string { return run.checkout().top })
 	for _, n := range notices {
 		lines = append(lines, fmt.Sprintf("notice (%s, from %s): %s", n.Kind, n.From, n.Text))
 	}

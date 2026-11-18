@@ -274,7 +274,7 @@ func scopeGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gat
 	return scoped, "scoped go gate, " + strconv.Itoa(len(pkgs)) + " test pkgs", nil
 }
 
-// afterPromote reports the promotion, ticks the plan, then cleans unless NoClean; the ledger closes exactly once.
+// afterPromote reports the promotion, ticks the plan, then cleans unless NoClean; clean closes the ledger once.
 func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeRequest, promoted, integrated *MergeResult) (*mergeOutcome, error) {
 	fmt.Fprintf(req.Out, "promoted:   %s -> %s on %s\n", ShortOID(promoted.BeforeOID), ShortOID(promoted.AfterOID), plan.TargetRef)
 	if req.AfterPromote != nil {
@@ -283,11 +283,11 @@ func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReq
 		}
 	}
 	notifyLanes(ctx, repo, req, plan, promoted)
-	closing := LedgerClose{Via: "merge", MergeSHA: promoted.AfterOID, Head: integrated.AfterOID}
 	if req.NoClean {
-		warnLedger(req.Err, CloseLedger(repo.Main, req.Name, closing))
+		// the lane stays in use by design: its ledger stays open so it keeps getting notices until clean
 		return &mergeOutcome{}, nil
 	}
+	closing := LedgerClose{Via: "merge", MergeSHA: promoted.AfterOID, Head: integrated.AfterOID}
 	result, err := cleanAtWith(repo, req.Name, plan.WorktreePath, false, req.Err, closing)
 	if !result.Removed {
 		// refused or failed: the merge still landed
@@ -405,7 +405,7 @@ func notifyConflict(plan *MergePlan, errOut io.Writer) {
 	if s == "" {
 		return
 	}
-	err := Append(s, Notice{TS: time.Now().Unix(), Kind: "conflict", From: "worktree merge",
+	err := Append(inboxFor(s, plan.WorktreePath), Notice{TS: time.Now().Unix(), Kind: "conflict", From: "worktree merge",
 		Text: fmt.Sprintf("rebase of %s onto %s hit a conflict in %s and was aborted, lane unchanged; resolve it there "+
 			"or run `claude-code worktree merge --resolve-agent codex %s`", plan.WorktreePath, plan.TargetRef,
 			issuePaths(plan.Issues), filepath.Base(plan.WorktreePath))})
@@ -528,7 +528,7 @@ func notifyLanes(ctx context.Context, repo *Repo, req MergeRequest, plan *MergeP
 			touched = nameSet(names)
 		}
 		text := fmt.Sprintf("%s moved to %s (lane %s merged)", plan.TargetRef, ShortOID(landed.AfterOID), req.Name)
-		warnNotice(req.Err, noticeLane(ctx, repo, e, session, touched, landed.AfterOID, text))
+		warnNotice(req.Err, noticeLane(ctx, repo, e, inboxFor(session, e.Path), touched, landed.AfterOID, text))
 	}
 }
 

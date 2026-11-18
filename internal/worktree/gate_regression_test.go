@@ -6,36 +6,6 @@ import (
 	"testing"
 )
 
-func TestScopedVerifyGateRequiresExactCheckVariable(t *testing.T) {
-	for _, c := range []struct {
-		name, variable string
-		wantLint       bool
-	}{
-		{"make CHECKER", "$(CHECKER)", false},
-		{"braced CHECKER", "${CHECKER}", false},
-		{"shell CHECKER", "$$CHECKER", false},
-		{"make CHECK", "$(CHECK)", true},
-		{"braced CHECK", "${CHECK}", true},
-		{"shell CHECK", "$$CHECK", true},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			dir := t.TempDir()
-			writeGateFiles(t, dir, "go.mod")
-			body := "lint:\n\techo " + c.variable + "\n"
-			if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(body), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			want := fullGoGate
-			if c.wantLint {
-				want = "make lint CHECK=1 && " + want
-			}
-			if gate, source := ScopedVerifyGate(dir, nil, true); gate != want || source != "go.mod" {
-				t.Fatalf("CHECK reference %q: gate=%q source=%q, want %q from go.mod", c.variable, gate, source, want)
-			}
-		})
-	}
-}
-
 func TestScopedVerifyGatePythonOptionLikePath(t *testing.T) {
 	for _, c := range []struct {
 		name, files, want string

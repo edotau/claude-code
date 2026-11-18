@@ -141,6 +141,8 @@ func TestScopedGoGateNonGoFiles(t *testing.T) {
 // TestScopedVerifyGate covers scope rendering per toolchain and that a Makefile test target is never the gate.
 func TestScopedVerifyGate(t *testing.T) {
 	const goBase = fullGoGate
+	const lintVerbBase = "claude-code agents diff --check --gates lint"
+	const lintAll = lintVerbBase + " --all"
 	cases := []struct {
 		name, files string
 		scope       []string
@@ -157,8 +159,10 @@ func TestScopedVerifyGate(t *testing.T) {
 		{"no toolchain", "", nil, false, "", "none"},
 		{"makefile test only is not a gate", "Makefile", nil, false, "", "none"},
 		{"go wins over makefile test", "go.mod,Makefile", nil, false, goBase, "go.mod"},
-		{"lint-check prefixes toolchain", "go.mod,Makefile:lint", nil, true, "make lint CHECK=1 && " + goBase, "go.mod"},
-		{"lint-only without toolchain", "Makefile:lint", nil, true, "make lint CHECK=1", "Makefile"},
+		{"lint-check prefixes the verb", "go.mod,Makefile:lint", nil, true, lintAll + " && " + goBase, "go.mod"},
+		{"lint-check scopes the verb", "go.mod,Makefile:lint", []string{"./a/", "b c"}, true,
+			lintVerbBase + " --path 'a' --path 'b c' && go build ./... && go vet './a/...' './b c/...' && go test './a/...' './b c/...'", "go.mod"},
+		{"lint-only without toolchain", "Makefile:lint", nil, true, "", "none"},
 		{"lint-check with makefile test only", "go.mod,Makefile", nil, true, goBase, "go.mod"},
 	}
 	for _, c := range cases {
@@ -253,34 +257,6 @@ func TestScopedVerifyGateRuffTable(t *testing.T) {
 			}
 			if gate, source := ScopedVerifyGate(dir, nil, false); gate != want || source != "pyproject" {
 				t.Fatalf("gate=%q source=%q, want %q from pyproject", gate, source, want)
-			}
-		})
-	}
-}
-
-func TestScopedVerifyGateLintRecipe(t *testing.T) {
-	for _, c := range []struct {
-		name, makefile string
-		wantLint       bool
-	}{
-		{"recipe reads CHECK", "lint:\n\tif [ \"$(CHECK)\" = 1 ]; then echo check; fi\n", true},
-		{"target comment", "lint: # CHECK=1 reports\n\ttrue\n", false},
-		{"recipe comment", "lint:\n\ttrue # CHECK=1 reports\n", false},
-		{"other recipe", "lint:\n\ttrue\n\ntest:\n\techo $(CHECK)\n", false},
-		{"blank line in recipe", "lint:\n\n\techo $(CHECK)\n", true},
-	} {
-		t.Run(c.name, func(t *testing.T) {
-			dir := t.TempDir()
-			writeGateFiles(t, dir, "go.mod")
-			if err := os.WriteFile(filepath.Join(dir, "Makefile"), []byte(c.makefile), 0o644); err != nil {
-				t.Fatal(err)
-			}
-			want := fullGoGate
-			if c.wantLint {
-				want = "make lint CHECK=1 && " + want
-			}
-			if gate, source := ScopedVerifyGate(dir, nil, true); gate != want || source != "go.mod" {
-				t.Fatalf("gate=%q source=%q, want %q from go.mod", gate, source, want)
 			}
 		})
 	}

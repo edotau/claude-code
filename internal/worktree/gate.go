@@ -11,10 +11,8 @@ import (
 	"os/exec"
 	"path"
 	"path/filepath"
-	"regexp"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -301,16 +299,23 @@ func hasNPMTestScript(pkgJSON string) bool {
 func ScopedVerifyGate(dir string, scope []string, lintCheck bool) (gate, source string) {
 	dirs := normalizeScope(dir, scope)
 	gate, source = toolchainGate(dir, dirs)
-	lint := lintCheck && hasMakeLintCheck(filepath.Join(dir, "Makefile"))
-	switch {
-	case source == "" && lint:
-		return "make lint CHECK=1", "Makefile"
-	case source == "":
+	if source == "" {
 		return "", "none"
-	case lint:
-		gate = "make lint CHECK=1 && " + gate
+	}
+	// the verb needs a Go module and a Makefile lint target (today's probe); other repos get no lint part
+	if lintCheck && paths.FileExists(filepath.Join(dir, "go.mod")) && hasMakeTarget(filepath.Join(dir, "Makefile"), "lint") {
+		gate = lintVerb(dirs) + " && " + gate
 	}
 	return gate, source
+}
+
+// lintVerb is the lint set `make lint` runs, as the agent verb: the whole tree, or only the scope's changes.
+func lintVerb(dirs []string) string {
+	const base = "claude-code agents diff --check --gates lint"
+	if len(dirs) == 0 {
+		return base + " --all"
+	}
+	return base + " --path " + strings.Join(mapStrings(dirs, textutil.ShellQuote), " --path ")
 }
 
 // normalizeScope slash-cleans scope dirs ("."/"" = whole repo); a leading - keeps its ./ so it is never an option.
@@ -427,32 +432,6 @@ func hasRuffTable(toml string) bool {
 		h := strings.TrimSpace(line)
 		if strings.HasPrefix(h, "[tool.ruff]") || strings.HasPrefix(h, "[tool.ruff.") {
 			return true
-		}
-	}
-	return false
-}
-
-// makeCheckRef matches a reference to the CHECK variable itself: $(CHECK), ${CHECK}, $CHECK or $$CHECK.
-var makeCheckRef = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\$(\(CHECK\)|\{CHECK\}|CHECK\b)`) })
-
-// hasMakeLintCheck reports whether the lint target's recipe reads CHECK (report-only mode); comments are ignored.
-func hasMakeLintCheck(makefile string) bool {
-	data, err := os.ReadFile(makefile)
-	if err != nil {
-		return false
-	}
-	inRecipe := false
-	for line := range strings.SplitSeq(string(data), "\n") {
-		switch {
-		case strings.HasPrefix(line, "lint:"):
-			inRecipe = true
-		case strings.TrimSpace(line) == "":
-		case strings.HasPrefix(line, "\t") && inRecipe:
-			if code, _, _ := strings.Cut(line, "#"); makeCheckRef().MatchString(code) {
-				return true
-			}
-		default:
-			inRecipe = false
 		}
 	}
 	return false

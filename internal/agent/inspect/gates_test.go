@@ -112,7 +112,7 @@ func TestGatesDocsOnlySkipGoGates(t *testing.T) {
 	dir, _ := gateRepo(t)
 	(&fakeGates{lint: true}).install(t)
 	docs := runGates(context.Background(), dir, "HEAD", []DiffFile{{Path: "README.md", Status: "M"}})
-	if got := gateStatuses(docs); got != "skip go gates, ok docs" || !strings.Contains(docs[0].Reason, "make lint") {
+	if got := gateStatuses(docs); got != "skip go gates, ok docs" || !strings.Contains(docs[0].Reason, "agents diff") {
 		t.Errorf("docs-only change: %+v", docs)
 	}
 }

@@ -115,7 +115,7 @@ func runGates(ctx context.Context, root, base string, files []DiffFile) []GateRe
 func runDefaultGates(ctx context.Context, in gateInput) []GateResult {
 	defs := gateDefs()
 	if len(in.pkgs) == 0 {
-		out := []GateResult{{Name: "go gates", Status: "skip", Reason: "no Go changes; run make lint for docs"}}
+		out := []GateResult{{Name: "go gates", Status: "skip", Reason: "no Go changes; run agents diff --check --gates docs"}}
 		if len(in.srcs) > 0 {
 			out = append(out, runGate(ctx, defs[complexityIdx], in))
 		}

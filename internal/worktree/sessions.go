@@ -6,6 +6,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -324,6 +326,41 @@ func noticesDir() string { return filepath.Join(paths.StateDir(), "notices") }
 // inbox is session's inbox file.
 func inbox(session string) string {
 	return filepath.Join(noticesDir(), paths.Slug(session, "", 80, "session")+".jsonl")
+}
+
+// cliSession is the session a lane made from a shell records; it is no reader, so such a lane keys its own inbox.
+const cliSession = "cli"
+
+// lanePrefix starts every lane inbox key; no session id has it.
+const lanePrefix = "lane-"
+
+// LaneInbox is a lane's own inbox key: its name plus a hash of its canonical path, so equal names never share.
+func LaneInbox(lane string) string {
+	sum := sha256.Sum256([]byte(paths.Canon(lane)))
+	return lanePrefix + paths.Slug(filepath.Base(lane), "", 40, "lane") + "-" + hex.EncodeToString(sum[:4])
+}
+
+// inboxFor is the key for a notice to a lane whose ledger names session: a real session, else the lane itself.
+func inboxFor(session, lane string) string {
+	if session == cliSession {
+		return LaneInbox(lane)
+	}
+	return session
+}
+
+// DrainFor drains session's inbox and the inbox of the lane laneTop names; laneTop runs only when a lane inbox exists.
+func DrainFor(session string, laneTop func() string) ([]Notice, error) {
+	notices, err := DrainErr(session)
+	ents, _ := os.ReadDir(noticesDir())
+	if !slices.ContainsFunc(ents, func(e os.DirEntry) bool { return strings.HasPrefix(e.Name(), lanePrefix) }) {
+		return notices, err
+	}
+	top := laneTop()
+	if top == "" {
+		return notices, err
+	}
+	more, laneErr := DrainErr(LaneInbox(top))
+	return append(notices, more...), errors.Join(err, laneErr)
 }
 
 // Append adds n to session's inbox under its file lock.

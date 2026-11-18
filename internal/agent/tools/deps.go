@@ -55,12 +55,12 @@ var deps = []dep{
 	{Name: "gh", Class: depFeature, Use: "usage quotas, copilot auth switch", Brew: "gh",
 		Go: "github.com/cli/cli/v2/cmd/gh@v2.104.0", Apt: "gh"},
 	{Name: "tmux", Class: depFeature, Use: "network remote sessions", Version: "-V", Brew: "tmux", Apt: "tmux"},
-	{Name: "shellcheck", Class: depGate, Use: "make lint (shell)", Pick: `(?m)^version: (\S+)`,
+	{Name: "shellcheck", Class: depGate, Use: "agents diff --gates shell", Pick: `(?m)^version: (\S+)`,
 		Brew: "shellcheck", Apt: "shellcheck"},
-	{Name: "golangci-lint", Class: depGate, Use: "make lint (Go)", Manual: "make install DEV_TOOLS=1"},
+	{Name: "golangci-lint", Class: depGate, Use: "agents diff --gates lint (Go)", Manual: "make install DEV_TOOLS=1"},
 	{Name: "govulncheck", Class: depGate, Use: "make audit", Pick: `(?m)^Scanner: govulncheck@v?(\S+)`,
 		Manual: "make install DEV_TOOLS=1"},
-	{Name: "yamlfmt", Class: depGate, Use: "make lint (YAML)", Manual: "make install DEV_TOOLS=1"},
+	{Name: "yamlfmt", Class: depGate, Use: "agents diff --gates yaml", Manual: "make install DEV_TOOLS=1"},
 }
 
 // depTools are deps as install-table rows, so --tools=<name> selects them.

@@ -627,3 +627,48 @@ func TestLaneMergeResolveAgentResolvesInLane(t *testing.T) {
 		t.Fatalf("calls %d; main f.txt = %q %v", calls, data, err)
 	}
 }
+
+// CLI-created lanes each get their own inbox, and a lane kept by --no-clean stays open and still hears.
+func TestLaneMergeCLILanesOwnInboxAndKeptLaneHears(t *testing.T) {
+	repo, main, _ := laneMergeFixture(t)
+	lane := map[string]string{}
+	for _, n := range []string{"b", "c", "d"} {
+		dir, err := Create(repo, n, CreateOptions{Session: cliSession, Log: io.Discard})
+		if err != nil {
+			t.Fatal(err)
+		}
+		lane[n] = dir
+	}
+	mergeFixtureWrite(t, lane["b"], "f.txt", "B\n", "feat: b")
+	mergeFixtureWrite(t, lane["b"], "p.txt", "B\n", "feat: b p")
+	for n, f := range map[string]string{"c": "f.txt", "d": "p.txt"} {
+		if err := os.WriteFile(filepath.Join(lane[n], f), []byte(n+"\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	req := laneRequest("b", io.Discard)
+	req.NoClean = true
+	if _, err := Merge(t.Context(), repo, req); err != nil {
+		t.Fatal(err)
+	}
+	for n, f := range map[string]string{"c": "f.txt", "d": "p.txt"} {
+		notices, err := DrainFor("", func() string { return lane[n] })
+		if err != nil || len(notices) != 1 || !strings.HasSuffix(notices[0].Text, "overlaps yours in "+f) {
+			t.Fatalf("lane %s: want its own notice naming %s, got %+v %v", n, f, notices, err)
+		}
+	}
+	if !strings.Contains(ledgerFile(t, main, "b"), "- Status: open\n") {
+		t.Fatal("--no-clean closed the kept lane's ledger")
+	}
+	mergeFixtureRun(t, lane["c"], "checkout", "--", "f.txt")
+	mergeFixtureWrite(t, lane["c"], "c.txt", "C\n", "feat: c")
+	req = laneRequest("c", io.Discard)
+	req.NoClean = true
+	if _, err := Merge(t.Context(), repo, req); err != nil {
+		t.Fatal(err)
+	}
+	kept, err := DrainFor("", func() string { return lane["b"] })
+	if err != nil || len(kept) != 1 || !strings.Contains(kept[0].Text, "lane c merged") {
+		t.Fatalf("kept lane b: want a notice for c's merge, got %+v %v", kept, err)
+	}
+}

@@ -103,8 +103,6 @@ reset.
 Known gaps:
 
 - A conflict only in a generated file (goldens, projections) is not regenerated automatically: do it in the lane.
-- With `--no-clean` the lane's session ledger is closed, so it gets no further "main moved" notices until reopened.
-- Lanes created from the CLI share one notice inbox.
 - A `--resolve-agent` merge commit can conflict again if `main` moves before the next rebase.
 
 Registry files: a new file writer is one row in its package's own `internal/schemas/testdata/writers/<pkg>.txt`, so
