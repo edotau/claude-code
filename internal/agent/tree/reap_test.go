@@ -295,7 +295,7 @@ func TestOrphanDeadlineFollowsTheDispatchRecord(t *testing.T) {
 		want time.Duration
 		ok   bool
 	}{{live.ID, 0, false}, {short.ID, 2 * time.Minute, true}, {long.ID, 3 * time.Hour, true},
-		{"20200101T000000.000-opencode", 0, false}} {
+		{"20200101T000000.000-opencode", orphanMissingTimeout, true}} {
 		if got, ok := orphanDeadline(c.id); got != c.want || ok != c.ok {
 			t.Errorf("orphanDeadline(%s) = %v, %v; want %v, %v", c.id, got, ok, c.want, c.ok)
 		}
@@ -303,6 +303,9 @@ func TestOrphanDeadlineFollowsTheDispatchRecord(t *testing.T) {
 }
 
 func TestReapOrphanOwnTimeout(t *testing.T) {
+	orig := orphanMissingTimeout
+	orphanMissingTimeout = 21 * time.Minute
+	t.Cleanup(func() { orphanMissingTimeout = orig })
 	now := time.Now()
 	for _, tc := range []struct {
 		name                string
@@ -314,6 +317,8 @@ func TestReapOrphanOwnTimeout(t *testing.T) {
 		{"default inside", 0, 14 * time.Minute, false, false, false},
 		{"default past", 0, 17 * time.Minute, false, false, true},
 		{"pruned timeout unknown", 30 * time.Minute, 20 * time.Minute, true, false, false},
+		{"pruned at ceiling", 0, orphanMissingTimeout + orphanSlack, true, false, false},
+		{"pruned past ceiling", 0, orphanMissingTimeout + orphanSlack + time.Second, true, false, true},
 		{"live dispatcher", 30 * time.Minute, time.Hour, false, true, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

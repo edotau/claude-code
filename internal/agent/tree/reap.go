@@ -192,6 +192,9 @@ const orphanGrace = 3 * time.Second
 // orphanSlack is how far past its dispatch deadline a child may run before it counts as leaked.
 const orphanSlack = time.Minute
 
+// Missing records have no timeout bound, so confirmed orphans need a fixed reclamation ceiling.
+var orphanMissingTimeout = 24 * time.Hour
+
 // reapOrphans stops the children orphanedChildren finds; returns their count and 1 on a failed signal or listing.
 func reapOrphans(dryRun bool, verb string, out, errw io.Writer) (int, int) {
 	procs, err := listProcs(proc.DispatchIDEnv)
@@ -246,7 +249,7 @@ func orphanDeadline(id string) (time.Duration, bool) {
 	rec, err := agent.LoadRecord(id)
 	switch {
 	case err != nil: // a pruned record may have allowed a longer timeout
-		return 0, false
+		return orphanMissingTimeout, true
 	case rec.Alive():
 		return 0, false
 	case rec.Request.Timeout > 0:
