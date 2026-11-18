@@ -74,7 +74,7 @@ func (f recallIndexFixture) index(t testing.TB) map[fileKey]indexed {
 func (f recallIndexFixture) persisted(t testing.TB) map[fileKey]indexed {
 	t.Helper()
 	index := f.index(t)
-	for _, file := range corpusFiles() {
+	for _, file := range corpusOf() {
 		assertPersistedRecallFile(t, file, index)
 	}
 	return index

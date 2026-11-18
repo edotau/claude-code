@@ -31,9 +31,7 @@ type corpusFile struct {
 	Mode       segMode
 }
 
-// corpusFiles preserves bank, archive, native and knowledge order without reading file contents.
-func corpusFiles() []corpusFile { return corpusOf() }
-
+// corpusOf lists bank, archive, native and knowledge files in that order without reading file contents.
 func corpusOf() []corpusFile {
 	var out []corpusFile
 	for _, name := range bankFiles {
@@ -355,16 +353,30 @@ func (s segView) lookupWeighted(term string) map[int]float64 {
 func (s segView) containing(term string) []string {
 	termStart := segHeader + s.Docs()*docStride
 	nterms := int(binary.LittleEndian.Uint32(s[termStart:]))
+	if nterms == 0 || term == "" {
+		return nil
+	}
 	postStart := termStart + 4 + nterms*16
 	blobStart := postStart + 4 + int(binary.LittleEndian.Uint32(s[postStart:]))*8
-	var out []string
-	for i := range nterms {
+	at := func(i int) (start, n int) { // absolute start and length of term i
 		off := termStart + 4 + i*16
-		start := blobStart + int(binary.LittleEndian.Uint32(s[off:]))
-		t := s[start : start+int(binary.LittleEndian.Uint32(s[off+4:]))]
-		if len(t) > len(term) && bytes.Contains(t, []byte(term)) {
-			out = append(out, string(t))
+		return blobStart + int(binary.LittleEndian.Uint32(s[off:])), int(binary.LittleEndian.Uint32(s[off+4:]))
+	}
+	last, ln := at(nterms - 1)
+	region := s[blobStart : last+ln] // the terms are stored contiguously, so one scan covers them all
+	var out []string
+	for pos := 0; pos < len(region); {
+		h := bytes.Index(region[pos:], []byte(term))
+		if h < 0 {
+			break
 		}
+		h += blobStart + pos
+		i := sort.Search(nterms, func(j int) bool { st, _ := at(j); return st > h }) - 1
+		st, n := at(i)
+		if n > len(term) && h+len(term) <= st+n {
+			out = append(out, string(s[st:st+n]))
+		}
+		pos = st + n - blobStart
 	}
 	return out
 }

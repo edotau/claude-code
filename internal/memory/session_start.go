@@ -236,9 +236,9 @@ func StewardHandoffBodyBudget(sessionID string, now time.Time, budget int) strin
 	}
 	body := strings.TrimSpace(string(b))
 	prefix := "Session handoff (" + p + "):\n"
-	notice := "\n[handoff truncated; read " + p + "]"
+	notice := "\n[handoff truncated; read the path above]"
 	if budget < len(prefix)+len(notice) {
-		notice = strings.TrimPrefix(notice, "\n")
+		notice = "[handoff truncated; read " + p + "]" // no header is shown here, so the notice names the path
 		if len(notice) > budget {
 			notice = "[handoff truncated; read the handoff path below]"
 		}

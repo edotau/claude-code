@@ -169,7 +169,7 @@ func TestPreCompactRecordRoundTripsIntoSessionStart(t *testing.T) {
 	if !strings.Contains(r.Context, "Session handoff ("+fresh+"):\n<!-- session: s1 -->\nx") || strings.Index(r.Context, "Session handoff") > strings.Index(r.Context, "compacted") {
 		t.Errorf("Context must open with this session's handoff body: %q", r.Context)
 	}
-	if !strings.Contains(r.Context, "[handoff truncated; read "+fresh+"]") || len(r.Context) > core.ContextCapChars {
+	if !strings.Contains(r.Context, "[handoff truncated; read the path above]") || len(r.Context) > core.ContextCapChars {
 		t.Error("handoff budget lost its notice or exceeded context cap")
 	}
 	if strings.Contains(r.SystemMessage, "old.md") {

@@ -250,7 +250,7 @@ func TestSeenSetTracksInjectedBlocks(t *testing.T) {
 	if !seen[blockKey("- injected rule\n  continues here")] || seen[blockKey("- other rule")] || len(seen) != 1 {
 		t.Fatalf("seen after reset: %v", seen)
 	}
-	markSeen("11111111-1111-1111-1111-111111111111", []SearchHit{{Block: "- other rule"}})
+	markSeen("11111111-1111-1111-1111-111111111111", []SearchHit{{Block: "- other rule"}}, false)
 	if !seenBlocks("11111111-1111-1111-1111-111111111111")[blockKey("- other rule")] {
 		t.Error("markSeen did not record the hit")
 	}
@@ -259,7 +259,7 @@ func TestSeenSetTracksInjectedBlocks(t *testing.T) {
 		t.Error("a SessionStart (e.g. after compact) must clear what recall injected")
 	}
 	for _, bad := range []string{"", ".."} {
-		markSeen(bad, []SearchHit{{Block: "x"}})
+		markSeen(bad, []SearchHit{{Block: "x"}}, false)
 		if len(seenBlocks(bad)) != 0 {
 			t.Errorf("session id %q must be a no-op", bad)
 		}

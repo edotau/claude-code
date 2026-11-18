@@ -285,7 +285,7 @@ func TestRecallSemanticSkipsSeenBeforeTopK(t *testing.T) {
 			seen = append(seen, h)
 		}
 	}
-	markSeen("sess", seen) // the five closest are already in context
+	markSeen("sess", seen, false) // the five closest are already in context
 	got := PromptRecall(context.Background(), "sess", "hello world foo bar zeta", io.Discard)
 	if !strings.Contains(got, "dddd0006") {
 		t.Errorf("the sixth entry never surfaced:\n%s", got)
@@ -558,5 +558,30 @@ func TestRecallLoadSkipsWhatDoesNotFit(t *testing.T) {
 	out.Reset()
 	if recallLoad(&out, &errw, even, len(even)); out.Len() > recallLoadCap || errw.Len() != 0 {
 		t.Errorf("wrote %d bytes, want at most %d; stderr %q", out.Len(), recallLoadCap, errw.String())
+	}
+}
+
+// The expand header shows once per session and returns after resetSeen; a native topic hit skips its label.
+func TestRecallExpandHeaderOncePerSessionAndNativeLabel(t *testing.T) {
+	recallEnv(t)
+	writeBank(t, "conventions.md", "# C\n\n- Zebra quota limiter fallback convention rule <!-- id:aaaa0005 -->\n\n"+
+		"- Quokka burrow tunnel survey convention rule <!-- id:aaaa0006 -->\n")
+	write(t, filepath.Join(StoreDir(), "notes", "zebra-topic.md"),
+		"---\nname: zebra-topic\ndescription: zebra quota limiter fallback guidance\n---\nbody\n")
+	const sid = "51111111-2222-4333-8444-555555555555"
+	first := PromptRecall(context.Background(), sid, "zebra quota limiter fallback", io.Discard)
+	second := PromptRecall(context.Background(), sid, "quokka burrow tunnel survey", io.Discard)
+	if !strings.HasPrefix(first, "<!-- memory-recall; expand:") || !strings.HasPrefix(second, "<!-- memory-recall -->") {
+		t.Fatalf("expand header must lead the first block only:\n%s\n---\n%s", first, second)
+	}
+	if strings.Contains(first, "[zebra-topic.md]") || !strings.Contains(first, "zebra-topic —") {
+		t.Errorf("native topic line must drop its repeated label:\n%s", first)
+	}
+	if !strings.Contains(first, "[conventions.md]") {
+		t.Errorf("typed-bank hit must keep its label:\n%s", first)
+	}
+	resetSeen(sid, "")
+	if got := PromptRecall(context.Background(), sid, "quokka burrow tunnel survey", io.Discard); !strings.HasPrefix(got, "<!-- memory-recall; expand:") {
+		t.Errorf("a restarted seen set must show the expand header again: %q", got)
 	}
 }

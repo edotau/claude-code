@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/textutil"
@@ -29,9 +30,9 @@ var (
 	migRenameDirs = []string{"archive", "handoffs", "reports", "worktrees", "knowledge", "waves"}
 	migDatedDirs  = []string{"handoffs", "reports", "worktrees"}
 
-	migKeyRE      = regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*--`)
-	migDashDateRE = regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
-	migCompactRE  = regexp.MustCompile(`^(\d{4})(\d{2})(\d{2})-`)
+	migKeyRE      = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*--`) })
+	migDashDateRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\d{4}-\d{2}-\d{2}`) })
+	migCompactRE  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(\d{4})(\d{2})(\d{2})-`) })
 )
 
 func migValidDate(s string) bool {
@@ -42,7 +43,7 @@ func migValidDate(s string) bool {
 func migStripKeys(name string) (keys []string, rest string) {
 	rest = name
 	for {
-		k := migKeyRE.FindString(rest)
+		k := migKeyRE().FindString(rest)
 		if k == "" || len(k) == len(rest) {
 			return keys, rest
 		}
@@ -70,10 +71,10 @@ func migDatedName(rest string, fallback func() string) string {
 	if len(rest) > 10 && rest[10] == '-' && migValidDate(rest[:10]) {
 		return rest
 	}
-	if m := migCompactRE.FindStringSubmatch(rest); m != nil && migValidDate(m[1]+"-"+m[2]+"-"+m[3]) {
+	if m := migCompactRE().FindStringSubmatch(rest); m != nil && migValidDate(m[1]+"-"+m[2]+"-"+m[3]) {
 		return m[1] + "-" + m[2] + "-" + m[3] + rest[8:]
 	}
-	for _, d := range migDashDateRE.FindAllString(rest, -1) {
+	for _, d := range migDashDateRE().FindAllString(rest, -1) {
 		if migValidDate(d) {
 			return d + "-" + rest
 		}
@@ -132,7 +133,7 @@ func migBodyDate(file string) string {
 	sc := bufio.NewScanner(f)
 	sc.Buffer(nil, 1<<20)
 	for n := 0; n < migBodyLines && sc.Scan(); n++ {
-		for _, d := range migDashDateRE.FindAllString(sc.Text(), -1) {
+		for _, d := range migDashDateRE().FindAllString(sc.Text(), -1) {
 			if migValidDate(d) {
 				return d
 			}
@@ -279,7 +280,7 @@ func (p *migPlan) liveOf(dir, base string) string {
 
 func migHeadKey(block string) string {
 	h, _, _ := strings.Cut(block, "\n")
-	return strings.TrimSpace(migIDRE.ReplaceAllString(h, ""))
+	return strings.TrimSpace(migIDRE().ReplaceAllString(h, ""))
 }
 
 // migMergeArchive adds src's blocks absent from target and live; an id-less src merges by heading.
@@ -288,12 +289,12 @@ func migMergeArchive(target, src, live string) (string, int) {
 	if len(blocks) == 0 {
 		return migMergeParas(target, src, live)
 	}
-	byID := slices.ContainsFunc(blocks, migIDRE.MatchString)
+	byID := slices.ContainsFunc(blocks, migIDRE().MatchString)
 	skip := map[string]bool{}
 	if byID {
 		_, lb := migSplitBlocks(live)
 		for _, b := range lb {
-			skip[migIDRE.FindString(b)] = true
+			skip[migIDRE().FindString(b)] = true
 		}
 	} else {
 		_, tb := migSplitBlocks(target)
@@ -305,7 +306,7 @@ func migMergeArchive(target, src, live string) (string, int) {
 	for _, b := range blocks {
 		k := migHeadKey(b)
 		if byID {
-			k = migIDRE.FindString(b)
+			k = migIDRE().FindString(b)
 		}
 		if k == "" || !skip[k] {
 			keep = append(keep, b)
@@ -322,7 +323,7 @@ func migMergeParas(target, src, live string) (string, int) {
 	var add []string
 	for para := range strings.SplitSeq(src, "\n\n") {
 		para = strings.TrimSpace(para)
-		id := migIDRE.FindString(para)
+		id := migIDRE().FindString(para)
 		switch {
 		case para == "" || strings.HasPrefix(para, "# "):
 		case id != "" && (strings.Contains(target, id) || strings.Contains(live, id)):

@@ -1,6 +1,8 @@
 package memory
 
 import (
+	"bytes"
+	"encoding/binary"
 	"errors"
 	"io/fs"
 	"os"
@@ -24,11 +26,11 @@ func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
 	write(t, topic, "---\nname: global-topic\n---\n\nglobal fact\n")
 
 	var found bool
-	for _, f := range corpusFiles() {
+	for _, f := range corpusOf() {
 		found = found || f.Path == topic && f.Bank == "native"
 	}
 	if !found {
-		t.Errorf("corpusFiles(%s) missing global topic %s", root, topic)
+		t.Errorf("corpusOf(%s) missing global topic %s", root, topic)
 	}
 }
 
@@ -132,7 +134,7 @@ func TestCorpusFilesOwnershipInEachLayout(t *testing.T) {
 		for _, p := range []string{topic, arc} {
 			write(t, p, "---\nname: x\n---\nzebra\n")
 		}
-		files := corpusFiles()
+		files := corpusOf()
 		native, archive := pathsOf(files, "native"), pathsOf(files, "archive")
 		if !slices.Contains(native, topic) {
 			t.Errorf("native corpus lacks %s: %v", topic, native)
@@ -178,5 +180,37 @@ func TestSegmentStoresBlockSumAndRef(t *testing.T) {
 		if hit := (SearchHit{Block: block, sum: sum}); hit.key() != blockKey(block) {
 			t.Errorf("doc %d: key from stored sum %q != blockKey %q", i, hit.key(), blockKey(block))
 		}
+	}
+}
+
+// containingOracle is the per-term scan containing replaced.
+func containingOracle(s segView, term string) []string {
+	termStart := segHeader + s.Docs()*docStride
+	nterms := int(binary.LittleEndian.Uint32(s[termStart:]))
+	postStart := termStart + 4 + nterms*16
+	blobStart := postStart + 4 + int(binary.LittleEndian.Uint32(s[postStart:]))*8
+	var out []string
+	for i := range nterms {
+		off := termStart + 4 + i*16
+		start := blobStart + int(binary.LittleEndian.Uint32(s[off:]))
+		t := s[start : start+int(binary.LittleEndian.Uint32(s[off+4:]))]
+		if len(t) > len(term) && bytes.Contains(t, []byte(term)) {
+			out = append(out, string(t))
+		}
+	}
+	return out
+}
+
+// The one-pass term scan must return what the per-term scan did, including hits that straddle two stored terms.
+func TestContainingMatchesPerTermScan(t *testing.T) {
+	seg := encodeSegment([]string{"- agent subagent agents reagent agentic", "- routing router rerouting routed", "- fta gyy class subclass classes"})
+	for _, q := range []string{"agent", "agent", "rout", "outer", "class", "zzzz", "tag", "agentic", "gyy", "fta", "a"} {
+		got, want := seg.containing(q), containingOracle(seg, q)
+		if !slices.Equal(got, want) {
+			t.Errorf("containing(%q) = %v, want %v", q, got, want)
+		}
+	}
+	if got := seg.containing("agent"); len(got) != 4 {
+		t.Errorf("containing(agent) = %v, want agents, agentic, reagent, subagent", got)
 	}
 }

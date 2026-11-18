@@ -110,18 +110,33 @@ func recallSemantic(result semanticReady, files []corpusFile, segs []segView, se
 	return withSemanticCandidates(ranked, extra), sem, semSeen, "ran"
 }
 
+// expandKey marks a seen set that already showed the expand header; resetSeen drops it, so a compaction re-shows it.
+const expandKey = "expand-shown"
+
+// recallBodyLine is a body hit's line; a native topic whose body opens with its file stem skips the repeated label.
+func recallBodyLine(e Entry) string {
+	flat := textutil.CapRunes(recallFlat(e), recallBodyCapRunes, "…")
+	if e.Type == "topic" && strings.HasPrefix(strings.TrimLeft(e.Body, "#- "), strings.TrimSuffix(e.File, ".md")) {
+		return "- " + flat
+	}
+	return fmt.Sprintf("- [%s] %s", e.File, flat)
+}
+
 // recallContext renders the prompt recall and returns only the hits whose line survived the char cap.
-func recallContext(picks []recallPick) (string, []SearchHit) {
+func recallContext(picks []recallPick, expand bool) (string, []SearchHit) {
 	if len(picks) == 0 {
 		return "", nil
 	}
-	const header = "<!-- memory-recall; expand: claude-code memory search <id> -->"
+	header := "<!-- memory-recall -->"
+	if expand {
+		header = "<!-- memory-recall; expand: claude-code memory search <id> -->"
+	}
 	var b strings.Builder
 	b.WriteString(header)
 	lines := make([]string, len(picks))
 	for i, p := range picks {
 		if i < recallBodies {
-			lines[i] = fmt.Sprintf("\n- [%s] %s", p.Entry.File, textutil.CapRunes(recallFlat(p.Entry), recallBodyCapRunes, "…"))
+			lines[i] = "\n" + recallBodyLine(p.Entry)
 		} else {
 			lines[i] = "\n- " + p.Entry.pointer()
 		}
@@ -144,12 +159,13 @@ func PromptRecall(ctx context.Context, sessionID, prompt string, warn io.Writer)
 	if trace.Degraded != nil && os.Getenv("CLAUDE_RECALL_SEMANTIC") != "0" { // the deliberate opt-out is not a degradation
 		fmt.Fprintf(warn, "memory-recall: keyword-only (%s)\n", textutil.CapRunes(trace.Degraded.Error(), 120, "…"))
 	}
-	context, hits := recallContext(picks)
+	expand := !seenBlocks(sessionID)[expandKey]
+	context, hits := recallContext(picks, expand)
 	if context == "" {
 		return ""
 	}
 	logHits(hits, accessRecall, time.Now())
-	markSeen(sessionID, hits) // bodies mark the key, pointers "p:"+key
+	markSeen(sessionID, hits, expand) // bodies mark the key, pointers "p:"+key
 	return context
 }
 
@@ -161,11 +177,9 @@ func searchBankTerms(terms []string, k int) ([]SearchHit, []corpusFile, []segVie
 
 // searchAll ranks the one store as one corpus.
 func searchAll(query string, k int) []SearchHit {
-	files := allCorpusFiles()
+	files := corpusOf()
 	return rankFiles(contentTerms(query), k, files, loadSegments(files, false))
 }
-
-func allCorpusFiles() []corpusFile { return corpusFiles() }
 
 // SearchBank ranks blocks for q across the store, k best.
 func SearchBank(q string, k int) []SearchHit { return searchAll(q, k) }
@@ -463,12 +477,16 @@ func resetSeen(sessionID, surface string) {
 	flat := appendFields(nil, surface)
 	var norm []byte
 	var b strings.Builder
-	for _, seg := range loadSegments(corpusFiles(), true) {
+	for _, seg := range loadSegments(corpusOf(), true) {
 		if seg == nil { // missing or unreadable: the surface could not carry its blocks either
 			continue
 		}
 		for i := range seg.Docs() {
 			block, _ := seg.Doc(i)
+			head, _, _ := strings.Cut(block, "\n") // a block is in flat only if its first line is: skip the full normalise
+			if norm = appendFields(norm[:0], head); !bytes.Contains(flat, norm) {
+				continue
+			}
 			if norm = appendFields(norm[:0], block); bytes.Contains(flat, norm) {
 				b.WriteString(blockKey(block))
 				b.WriteString("\n")
@@ -494,7 +512,7 @@ func seenBlocks(sessionID string) map[string]bool {
 }
 
 // markSeen appends the injected hits to sessionID's seen set; fail-open.
-func markSeen(sessionID string, hits []SearchHit) {
+func markSeen(sessionID string, hits []SearchHit, expanded bool) {
 	p := seenPath(sessionID)
 	if p == "" || len(hits) == 0 {
 		return
@@ -511,6 +529,9 @@ func markSeen(sessionID string, hits []SearchHit) {
 			key = "p:" + key
 		}
 		_, _ = f.WriteString(key + "\n")
+	}
+	if expanded {
+		_, _ = f.WriteString(expandKey + "\n")
 	}
 }
 
@@ -532,7 +553,7 @@ func pruneSeen(dir string) {
 
 // RecallBank is SearchBank as recall serves it: replaced entries give way to their live replacement, top k kept.
 func RecallBank(q string, k int) []SearchHit {
-	files := allCorpusFiles()
+	files := corpusOf()
 	segs := loadSegments(files, false)
 	hits := followReplaced(rankFiles(contentTerms(q), 0, files, segs), files, segs)
 	if k > 0 && len(hits) > k {
@@ -638,12 +659,12 @@ func (t *recallTrace) selected(picks []recallPick) {
 	if t == nil {
 		return
 	}
-	context, _ := recallContext(picks)
+	context, _ := recallContext(picks, true)
 	for i, p := range picks {
 		outcome := "over cap"
 		line := "- " + p.Entry.pointer()
 		if i < recallBodies {
-			line = fmt.Sprintf("- [%s] %s", p.Entry.File, textutil.CapRunes(recallFlat(p.Entry), recallBodyCapRunes, "…"))
+			line = recallBodyLine(p.Entry)
 		}
 		if strings.Contains(context, "\n"+line) {
 			outcome = "pointer"

@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -37,12 +38,12 @@ var (
 	// ErrMigrateBlocked is a migration refused before any write (exit 1).
 	ErrMigrateBlocked = errors.New("migrate refused")
 
-	migIDRE      = regexp.MustCompile(`<!-- id:\S+ -->`)
-	migDateRE    = regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`)
-	migTemplate  = regexp.MustCompile(`^\(.*\)$`)
-	migPointerRE = regexp.MustCompile(`^- \[[^\]]*\]\(([^)]+)\)`)
-	migTwoRE     = regexp.MustCompile(`(\S)(- \[[^\]\n]+\]\()`)
-	migKeyHeadRE = regexp.MustCompile(`^## (\S+)\s*$`)
+	migIDRE      = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`<!-- id:\S+ -->`) })
+	migDateRE    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`) })
+	migTemplate  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\(.*\)$`) })
+	migPointerRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^- \[[^\]]*\]\(([^)]+)\)`) })
+	migTwoRE     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(\S)(- \[[^\]\n]+\]\()`) })
+	migKeyHeadRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^## (\S+)\s*$`) })
 )
 
 // MigrateOptions is one `memory migrate` (flat 1 → one bank); DryRun lists the plan and blockers and writes nothing.
@@ -287,11 +288,11 @@ func migRewriteIndex(text string, links map[string]string) string {
 			out = append(out, l)
 			continue
 		}
-		if migKeyHeadRE.MatchString(l) {
+		if migKeyHeadRE().MatchString(l) {
 			continue
 		}
-		for part := range strings.SplitSeq(migTwoRE.ReplaceAllString(l, "$1\n$2"), "\n") {
-			if m := migPointerRE.FindStringSubmatch(part); m != nil {
+		for part := range strings.SplitSeq(migTwoRE().ReplaceAllString(l, "$1\n$2"), "\n") {
+			if m := migPointerRE().FindStringSubmatch(part); m != nil {
 				if seen[m[1]] {
 					continue
 				}
@@ -385,7 +386,7 @@ func migSplitBlocks(text string) (pre string, blocks []string) {
 
 func migDate(block string) string {
 	head, _, _ := strings.Cut(block, "\n")
-	if m := migDateRE.FindStringSubmatch(head); m != nil {
+	if m := migDateRE().FindStringSubmatch(head); m != nil {
 		return m[1]
 	}
 	return ""
@@ -413,13 +414,13 @@ func migMergeBlocks(target, src string) (string, int) {
 	known := map[string]bool{}
 	for _, b := range blocks {
 		known[b] = true
-		if id := migIDRE.FindString(b); id != "" {
+		if id := migIDRE().FindString(b); id != "" {
 			known[id] = true
 		}
 	}
 	added := 0
 	for _, b := range sblocks {
-		id := migIDRE.FindString(b)
+		id := migIDRE().FindString(b)
 		if known[b] || (id != "" && known[id]) {
 			continue
 		}
@@ -491,7 +492,7 @@ func migItems(body []string) []string {
 		case t == "":
 			prevBlank = true
 			continue
-		case migTemplate.MatchString(t):
+		case migTemplate().MatchString(t):
 		case strings.HasPrefix(l, "- ") || strings.HasPrefix(l, "* "):
 			out = append(out, l)
 		case strings.HasPrefix(l, " ") || !prevBlank:
