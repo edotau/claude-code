@@ -1002,3 +1002,37 @@ func TestCleanCodexHomesSweepsOnlyOldEmpty(t *testing.T) {
 		}
 	}
 }
+
+// overlays: an idle regular overlay goes; a fresh one, a symlink and a non-regular match stay.
+func TestCleanOverlaysKeepsFreshAndNonRegular(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	st := paths.StateDir()
+	stale, fresh := filepath.Join(st, "overlay-a.json"), filepath.Join(st, "overlay-b-proxy.json")
+	link, sub := filepath.Join(st, "overlay-c.json"), filepath.Join(st, "overlay-d.json")
+	write(t, stale, "{}")
+	write(t, fresh, "{}")
+	write(t, filepath.Join(sub, "x"), "{}")
+	if err := os.Symlink(fresh, link); err != nil {
+		t.Skip("symlinks unavailable:", err)
+	}
+	old := time.Now().Add(-48 * time.Hour)
+	for _, p := range []string{stale, sub} {
+		if err := os.Chtimes(p, old, old); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var out, errw bytes.Buffer
+	if code := Clean([]string{"--target", "overlays", "--dry-run"}, &out, &errw); code != 0 || !strings.Contains(errw.String(), "would remove 1 entry") {
+		t.Fatalf("dry run = %d, want 1 entry listed: %s", code, errw.String())
+	}
+	if !exists(t, stale) {
+		t.Fatal("dry run removed the overlay")
+	}
+	if code := Clean([]string{"--target", "overlays"}, &out, &errw); code != 0 {
+		t.Fatalf("clean = %d: %s", code, errw.String())
+	}
+	if exists(t, stale) || !exists(t, fresh) || !exists(t, sub) || !exists(t, link) {
+		t.Errorf("stale=%v fresh=%v dir=%v link=%v, want only stale gone", exists(t, stale), exists(t, fresh), exists(t, sub), exists(t, link))
+	}
+}

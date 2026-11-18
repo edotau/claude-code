@@ -10,7 +10,7 @@ paths:
 | --- | --- |
 | Search the web or read a page (any agent) | `claude-code network websearch --query "<query>"` · `--extract <url>` (`skills/web-explorer/SKILL.md`) |
 | Check MCP health, scope drift, inline secrets | `claude-code doctor --mcp [--format json]` |
-| Sweep accumulated state (caches, run dirs, backups, leftover `memory sandbox` dirs) | `claude-code clean [--list\|--dry-run]` · opt-in `--target projections\|sessions` |
+| Sweep accumulated state (caches, run dirs, backups, stale launch overlays, leftover `memory sandbox` dirs) | `claude-code clean [--list\|--dry-run]` · opt-in `--target projections\|sessions` |
 | Restart the proxy only when its binary changed (`make install` only notes it) | `claude-code gateway proxy --restart --if-changed` |
 | Run any harness verb on a tailnet host | `claude-code --host <host> <verb …>` (ssh, `-t` on a terminal); `databricks login` forwards its callback port, or `--host-browser` opens the host's browser |
 | Least-busy Databricks workspace, requests through the other machine | `claude-code agents ask --agent <a> --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools "<task>"` (what `/coworker` sends); `--host auto` runs the whole ask on that machine |

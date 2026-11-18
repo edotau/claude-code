@@ -142,6 +142,11 @@ func daemonTargets() []target {
 			keep:    paths.CopilotRegistryKeep,
 		},
 		{
+			name: "overlays", doc: "state/harness/overlay-*.json launch settings idle over a day",
+			globs:   func() []string { return []string{statePath("overlay-*.json")} },
+			ageless: true, keep: keepFreshOverlay,
+		},
+		{
 			name: "settings-backups", doc: "state/harness/backups/setup/* and .claude.json.backups",
 			globs: func() []string {
 				return []string{statePath("backups", "setup", "*"), cfgPath("backups", ".claude.json.backup.*")}
@@ -418,6 +423,15 @@ func keepLiveSession(p string) bool {
 		return true
 	}
 	return pidAlive(pid)
+}
+
+// overlayFreshWindow spares an overlay a launch just rewrote; the process table exposes no argv to match --settings.
+const overlayFreshWindow = 24 * time.Hour
+
+// keepFreshOverlay protects a recently written overlay and anything that is not a regular file.
+func keepFreshOverlay(p string) bool {
+	fi, err := os.Lstat(p)
+	return err != nil || !fi.Mode().IsRegular() || time.Since(fi.ModTime()) < overlayFreshWindow
 }
 
 // dispatchKeeper protects the files of the newest agent.DispatchKeep() records; an unreadable dir protects all.
