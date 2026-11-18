@@ -300,8 +300,21 @@ func TestCheckoutOfPassesOnlyNestedWorktrees(t *testing.T) {
 	if top, _, skip := CheckoutOf(ctx, nested); top != nested || len(skip) != 0 {
 		t.Fatalf("from the nested worktree: top %q, skip %v; want top %q and no skip dirs", top, skip, nested)
 	}
-	if top, _, skip := CheckoutOf(ctx, main); top != main || len(skip) != 1 || skip[0] != nested {
-		t.Fatalf("from the main tree: top %q, skip %v; want top %q and skip [%s]", top, skip, main, nested)
+	if top, branch, skip := CheckoutOf(ctx, main); top != main || branch == "" || len(skip) != 1 || skip[0] != nested {
+		t.Fatalf("from the main tree: top %q, branch %q, skip %v; want top %q, a branch and skip [%s]", top, branch, skip, main, nested)
+	}
+}
+
+// TestCheckoutOfKeepsTopWhenGitFails: both git calls failing leaves the top and yields no branch and no nested dirs.
+func TestCheckoutOfKeepsTopWhenGitFails(t *testing.T) {
+	dir := paths.Real(t.TempDir())
+	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: "+filepath.Join(dir, "missing")+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := core.HookContext("worktree-busy")
+	defer cancel()
+	if top, branch, nested := CheckoutOf(ctx, dir); top != dir || branch != "" || len(nested) != 0 {
+		t.Fatalf("top %q, branch %q, nested %v; want top %q and nothing else", top, branch, nested, dir)
 	}
 }
 

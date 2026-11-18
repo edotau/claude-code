@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/par"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -215,9 +216,21 @@ func CheckoutOf(ctx context.Context, cwd string) (top, branch string, nested []s
 		return "", "", nil
 	}
 	top = paths.Canon(top)
-	branch = git("rev-parse", "--abbrev-ref", "HEAD")
+	var list string
+	for _, err := range par.All(2, func(i int) error { // the two git calls are independent
+		if i == 0 {
+			branch = git("rev-parse", "--abbrev-ref", "HEAD")
+		} else {
+			list = git("worktree", "list", "--porcelain")
+		}
+		return nil
+	}) {
+		if err != nil {
+			panic(err) // par contains a panic; keep it the dispatcher's to recover
+		}
+	}
 	var others []string
-	for line := range strings.SplitSeq(git("worktree", "list", "--porcelain"), "\n") {
+	for line := range strings.SplitSeq(list, "\n") {
 		path, ok := strings.CutPrefix(line, "worktree ")
 		if !ok {
 			continue

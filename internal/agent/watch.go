@@ -136,6 +136,10 @@ func ResumedAs(id string) (string, bool) {
 
 // Watch classifies owner's jobs (and the jobs the watchdog resumed for them) at now.
 func Watch(owner int, now time.Time, lim WatchLimits) (WatchReport, error) {
+	if owner <= 1 {
+		_, err := recordNames(paths.DispatchDir()) // no jobs to classify; ReadRecent's only error is this listing's
+		return WatchReport{}, err
+	}
 	recs, err := ReadRecent(AllRecords)
 	return classifyJobs(ownedJobs(recs, owner), now, lim, scanRelays), err
 }
@@ -343,19 +347,37 @@ func scanRelays(recs []Record) map[string]relayState {
 	if len(recs) == 0 {
 		return out
 	}
-	since := recs[0].Time
+	ids := map[string]bool{}
 	for _, r := range recs {
-		if r.Time.Before(since) {
-			since = r.Time
-		}
+		ids[r.ID] = true
 	}
 	files, _ := filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", "*", "subagents", "agent-*.jsonl"))
+	since := oldestUnmatched(recs, out)
 	for _, f := range files {
+		if len(out) == len(ids) {
+			break // every job is matched: later transcripts cannot change an entry
+		}
 		if info, err := os.Stat(f); err == nil && !info.ModTime().Before(since) {
+			n := len(out)
 			matchRelay(out, recs, f, info.ModTime())
+			if len(out) != n {
+				since = oldestUnmatched(recs, out)
+			}
 		}
 	}
 	return out
+}
+
+// oldestUnmatched is the earliest start among jobs with no entry in out: no older transcript can name them.
+func oldestUnmatched(recs []Record, out map[string]relayState) time.Time {
+	var since time.Time
+	first := true
+	for _, r := range recs {
+		if _, seen := out[r.ID]; !seen && (first || r.Time.Before(since)) {
+			since, first = r.Time, false
+		}
+	}
+	return since
 }
 
 // matchRelay records transcript f against every job it names that started before it was last written.

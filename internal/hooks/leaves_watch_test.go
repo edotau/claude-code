@@ -60,6 +60,21 @@ func TestWatchTickThrottlesAndReportsOncePerReason(t *testing.T) {
 	}
 }
 
+// The runner and the tick run together; their notes join runner first, as when they ran one after the other.
+func TestWatchedJoinsRunnerThenTick(t *testing.T) {
+	silent := agent.StaleJob{ID: "20261116T100000.000-codex", Task: "slow-leaf", Agent: "codex", Reason: agent.WatchSilent,
+		Next: []string{"claude-code", "agents", "result", "20261116T100000.000-codex"}}
+	watchStubs(t, silent)
+	runner := func(*core.Input) core.Result {
+		return core.Result{Context: "runner note", SystemMessage: "sm", Stderr: "err"}
+	}
+	got := watched(runner, promptIn("s1"))
+	if !strings.HasPrefix(got.Context, "runner note") || !strings.Contains(got.Context, "slow-leaf") ||
+		!strings.HasPrefix(got.SystemMessage, "sm; watch: 1 stale") || got.Stderr != "err" {
+		t.Fatalf("watched = %+v, want runner text first, then the tick's line and message", got)
+	}
+}
+
 func TestWatchTickResumesADeadJobOnce(t *testing.T) {
 	now, _, resumes := watchStubs(t, deadStale())
 	got := watchTick(promptIn("s1"))

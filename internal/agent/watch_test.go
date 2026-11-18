@@ -190,6 +190,51 @@ func TestScanRelaysFindsTheLaunchingTranscript(t *testing.T) {
 	}
 }
 
+// Matched jobs keep their transcript's state however early the scan stops; foreign and too-old ones name no job.
+func TestScanRelaysMatchesAndStopsWithTheFullScan(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	dir := filepath.Join(cfg, "projects", "p", "sess", "subagents")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	a := Record{ID: "20261116T110000.000-codex", Time: now.Add(-time.Hour)}
+	b := Record{ID: "20261116T110100.000-codex", Time: now.Add(-30 * time.Minute)}
+	c := Record{ID: "20261116T110200.000-codex", Time: now.Add(-20 * time.Minute)}
+	write := func(name, body string, mod time.Time) {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(p, mod, mod); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("agent-a1.jsonl", "job "+a.ID+" started\n", now.Add(-10*time.Minute))
+	write("agent-b1.jsonl", "job "+b.ID+" started\n", now.Add(-5*time.Minute))
+	write("agent-b1.meta.json", `{"finished":true}`, now)
+	write("agent-c1.jsonl", "nothing here\n", now)
+	write("agent-d1.jsonl", "late "+a.ID+" and "+c.ID+"\n", now.Add(-25*time.Minute)) // older than c, after a
+	got := scanRelays([]Record{a, b, c})
+	if len(got) != 2 || got[a.ID].finished || !got[b.ID].finished || !got[a.ID].at.Before(got[b.ID].at) {
+		t.Fatalf("relay states %+v, want a (unfinished) and b (finished) only", got)
+	}
+	if _, ok := got[c.ID]; ok {
+		t.Fatalf("job c matched a transcript last written before it started: %+v", got[c.ID])
+	}
+}
+
+// An owner that cannot own jobs (0 or init) reports nothing without reading any record.
+func TestWatchOwnerBelowTwoReportsNothing(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, owner := range []int{0, 1} {
+		if rep, err := Watch(owner, time.Now(), WatchLimits{}); err != nil || len(rep.Stale) != 0 || rep.Pending != 0 {
+			t.Fatalf("Watch(%d) = %+v, %v; want an empty report", owner, rep, err)
+		}
+	}
+}
+
 func TestWatchLinesFit80Columns(t *testing.T) {
 	s := StaleJob{ID: "20261116T110000.000-opencode", Task: strings.Repeat("long task ", 12), Agent: "opencode",
 		Model: "databricks-claude-sonnet-4-6", Reason: WatchDead, Age: 90 * time.Minute, Silence: time.Hour,

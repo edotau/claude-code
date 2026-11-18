@@ -445,3 +445,26 @@ func BenchmarkReadMarker(b *testing.B) {
 		}
 	}
 }
+
+// Every marker on one transcript is answered from one read, with the answers the per-id needle search gave.
+func TestAnsweredReadsEachTranscriptOnce(t *testing.T) {
+	transcript := filepath.Join(t.TempDir(), "sess.jsonl")
+	pad := strings.Repeat("x", scanChunk-len(`"tool_use_id":"`)-3) // puts the next key across the chunk edge
+	writeFile(t, transcript, pad+`"tool_use_id":"toolu_edge"`+`"tool_use_id":"toolu_next"`+"\n{\"tool_use_id\":\"toolu_b\"}\n")
+	opens := 0
+	orig := openTranscript
+	openTranscript = func(p string) (*os.File, error) { opens++; return orig(p) }
+	t.Cleanup(func() { openTranscript = orig })
+	s := newScanner(time.Now())
+	for id, want := range map[string]bool{"toolu_edge": true, "toolu_next": true, "toolu_b": true, "toolu_c": false, "toolu_": false} {
+		if got := s.answered(transcript, id); got != want {
+			t.Errorf("answered(%q) = %v, want %v", id, got, want)
+		}
+	}
+	if s.answered(filepath.Join(t.TempDir(), "missing.jsonl"), "toolu_b") {
+		t.Error("a missing transcript answered a marker")
+	}
+	if opens != 2 {
+		t.Errorf("opened %d times for 5 markers on one transcript and one missing, want 2", opens)
+	}
+}

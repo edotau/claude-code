@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/par"
 )
 
 const (
@@ -58,7 +59,19 @@ func reminderWatched(in *core.Input) core.Result { return watched(docs.Reminder,
 
 // watched runs r, then the watchdog check, joining their notes.
 func watched(r core.Runner, in *core.Input) core.Result {
-	res, w := r(in), watchTick(in)
+	var res, w core.Result
+	for _, err := range par.All(2, func(i int) error { // the runner and the tick touch different state
+		if i == 0 {
+			res = r(in)
+		} else {
+			w = watchTick(in)
+		}
+		return nil
+	}) {
+		if err != nil {
+			panic(err) // par contains a panic; keep it the dispatcher's to recover
+		}
+	}
 	res.Context = core.JoinContext(res.Context, w.Context)
 	res.SystemMessage = core.JoinNonEmpty("; ", res.SystemMessage, w.SystemMessage)
 	res.Stderr = core.JoinNonEmpty("\n", res.Stderr, w.Stderr)

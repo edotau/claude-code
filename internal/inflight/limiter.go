@@ -303,11 +303,11 @@ type scanner struct {
 	now     time.Time
 	trusted bool
 	meta    map[string]map[string]metaAgent // session transcript → tool_use_id → agent
-	answers map[string]bool                 // transcript + id → answered result
+	answers map[string]map[string]bool      // transcript → tool_use_ids it answered
 }
 
 func newScanner(now time.Time) *scanner {
-	return &scanner{now: now, trusted: probeTrusted(), meta: map[string]map[string]metaAgent{}, answers: map[string]bool{}}
+	return &scanner{now: now, trusted: probeTrusted(), meta: map[string]map[string]metaAgent{}, answers: map[string]map[string]bool{}}
 }
 
 // live checks dispatch/sessionless markers by owner; spawn markers by agent metadata and transcript.
@@ -382,47 +382,68 @@ func readMeta(path string) (meta, bool) {
 	return m, err == nil && json.Unmarshal(b, &m) == nil
 }
 
-// scanChunk is the read size of answered: memory is bounded by it, not by the transcript size.
+// scanChunk is the read size of answeredIDs: memory is bounded by it plus one id, not by the transcript size.
 const scanChunk = 64 << 10
 
-// answered memoizes tool_result lookup per transcript/id; Workflow leaf markers share the id.
+// resultKey precedes every tool_result's id in a transcript line.
+var resultKey = []byte(`"tool_use_id":"`)
+
+// openTranscript opens a session transcript; tests count its calls.
+var openTranscript = os.Open
+
+// answered reports a tool_result for id in transcript; the file is read once per scanner for every marker on it.
 func (s *scanner) answered(transcript, id string) bool {
 	if id == "" {
 		return false
 	}
-	key := transcript + "\x00" + id
-	if v, ok := s.answers[key]; ok {
-		return v
+	ids, ok := s.answers[transcript]
+	if !ok {
+		ids = answeredIDs(transcript)
+		s.answers[transcript] = ids
 	}
-	v := transcriptHas(transcript, []byte(`"tool_use_id":"`+id+`"`))
-	s.answers[key] = v
-	return v
+	return ids[id]
 }
 
-// transcriptHas reports whether the file at path contains needle, reading it in bounded chunks.
-func transcriptHas(path string, needle []byte) bool {
-	f, err := os.Open(path)
+// answeredIDs is every tool_use_id value in the file at path, read in bounded chunks; nil when it cannot be opened.
+func answeredIDs(path string) map[string]bool {
+	f, err := openTranscript(path)
 	if err != nil {
-		return false
+		return nil
 	}
 	defer f.Close()
-	keep := len(needle) - 1 // overlap so a match straddling two chunks is still seen
-	buf := make([]byte, keep+scanChunk)
-	have := 0
+	ids := map[string]bool{}
+	buf := make([]byte, scanChunk)
+	var pending []byte // the unprocessed tail: a partial key or a value still waiting for its closing quote
 	for {
-		n, err := f.Read(buf[have:])
-		have += n
-		if bytes.Contains(buf[:have], needle) {
-			return true
-		}
+		n, err := f.Read(buf)
+		pending = append(pending, buf[:n]...)
+		pending = collectIDs(pending, ids)
 		if err != nil {
-			return false
-		}
-		if have > keep {
-			copy(buf, buf[have-keep:have])
-			have = keep
+			return ids
 		}
 	}
+}
+
+// collectIDs adds each complete key+value in b to ids and returns the tail that may still complete in the next chunk.
+func collectIDs(b []byte, ids map[string]bool) []byte {
+	for {
+		i := bytes.Index(b, resultKey)
+		if i < 0 {
+			return keepTail(b, len(resultKey)-1)
+		}
+		end := bytes.IndexByte(b[i+len(resultKey):], '"')
+		if end < 0 {
+			return b[i:]
+		}
+		start := i + len(resultKey)
+		ids[string(b[start:start+end])] = true
+		b = b[start+end:] // the closing quote may open the next key
+	}
+}
+
+// keepTail is the last n bytes of b: a key cut by the chunk edge starts inside them.
+func keepTail(b []byte, n int) []byte {
+	return b[max(len(b)-n, 0):]
 }
 
 // Base is the per-account cap on concurrent agents unless a profile's `concurrency` overrides it.
