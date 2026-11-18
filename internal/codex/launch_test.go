@@ -2,7 +2,6 @@ package codex
 
 import (
 	"context"
-	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -12,6 +11,8 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func TestCodexStatusScrubsVaultKey(t *testing.T) {
@@ -28,6 +29,8 @@ func TestCodexStatusScrubsVaultKey(t *testing.T) {
 
 // Tool runs stay sealed by default: network only with overlay codexNetwork, never read-only, never inside a dispatch.
 func TestCodexHeadlessNetworkOptIn(t *testing.T) {
+	vaulttest.Use(t)
+	putCodexRecord(t, vault.AgentRecord{Extras: map[string]string{extraSandboxMode: "workspace-write"}})
 	const net = "sandbox_workspace_write.network_access=true"
 	open := proc.WithValues(context.Background(), proc.Values{agentconfig.OverlayVar: `{"codexNetwork":true}`})
 	if got := codexHeadless(context.Background(), nil, &agent.Headless{Tools: true}); slices.Contains(got, net) {
@@ -56,52 +59,28 @@ func TestCodexHeadlessNetworkOptIn(t *testing.T) {
 	}
 }
 
-// HARNESS_CODEX_SANDBOX: default unchanged, an accepted value applied and noted, a bad one refused with a usage error.
+// Tools sandbox: record sandboxMode (empty: workspace-write), bad value refused; no tools is read-only.
 func TestCodexSandboxOptIn(t *testing.T) {
-	t.Setenv(codexSandboxEnv, "")
-	if got := codexHeadless(context.Background(), nil, &agent.Headless{Tools: true}); !slices.Contains(got, "workspace-write") {
-		t.Fatalf("default tools run lost workspace-write: %q", got)
-	}
-	t.Setenv(codexSandboxEnv, "danger-full-access")
-	got := codexHeadless(context.Background(), nil, &agent.Headless{Tools: true})
-	if !slices.Contains(got, "danger-full-access") || slices.Contains(got, "workspace-write") {
-		t.Fatalf("opted-in tools run: %q", got)
+	vaulttest.Use(t)
+	putCodexRecord(t, vault.AgentRecord{Extras: map[string]string{extraSandboxMode: "danger-full-access"}})
+	if got := codexHeadless(context.Background(), nil, &agent.Headless{Tools: true}); !slices.Contains(got, "danger-full-access") {
+		t.Fatalf("tools run ignored the record's sandboxMode: %q", got)
 	}
 	if got := codexHeadless(context.Background(), nil, &agent.Headless{}); !slices.Contains(got, "read-only") {
 		t.Fatalf("a tools-off run must stay read-only: %q", got)
 	}
-	_, notes, remove, err := codexToolsEnv(context.Background(), nil, true, "danger-full-access")
-	defer remove()
-	if err != nil || len(notes) != 1 || !strings.Contains(notes[0], "danger-full-access") {
-		t.Fatalf("launch note = %q, err %v; want one note naming the sandbox", notes, err)
+	putCodexRecord(t, vault.AgentRecord{Extras: map[string]string{extraSandboxMode: ""}})
+	if got := codexHeadless(context.Background(), nil, &agent.Headless{Tools: true}); !slices.Contains(got, "workspace-write") {
+		t.Fatalf("empty record sandboxMode must give workspace-write: %q", got)
 	}
-	t.Setenv(codexSandboxEnv, "read-only")
-	_, err = codexSandbox(context.Background(), true)
-	var usage *agent.UsageError
-	if !errors.As(err, &usage) || !strings.Contains(err.Error(), "workspace-write, danger-full-access") {
-		t.Fatalf("bad value err = %v; want a usage error naming the accepted values", err)
-	}
-}
-
-// codex on its own login reads the sandbox opt-in from the run's values, not the parent's environment.
-func TestCodexLoginTakesSandboxFromRunValues(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("CODEX_HOME", home)
-	t.Setenv("PATH", t.TempDir())
-	t.Setenv(codexSandboxEnv, "")
-	if err := os.WriteFile(filepath.Join(home, "auth.json"), []byte(`{"tokens":{"access_token":"synthetic"}}`), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	ctx := proc.WithValues(context.Background(), proc.Values{codexSandboxEnv: "danger-full-access"})
-	_, argv, err := codexEngine{}.Login(ctx, nil, "gpt-x", &agent.Headless{Tools: true})
-	if err != nil || !slices.Contains(argv, "danger-full-access") {
-		t.Fatalf("Login argv = %q, err %v; want the run's danger-full-access sandbox", argv, err)
+	putCodexRecord(t, vault.AgentRecord{Extras: map[string]string{extraSandboxMode: "read-only"}})
+	if _, err := codexSandbox(true); err == nil {
+		t.Fatal("an invalid record sandboxMode must be refused")
 	}
 }
 
 // Go caches land under a temp dir only where the caller set none, and only under workspace-write.
 func TestCodexToolsEnvCaches(t *testing.T) {
-	t.Setenv(codexSandboxEnv, "")
 	for _, k := range []string{"GOCACHE", "GOMODCACHE", "GOLANGCI_LINT_CACHE"} {
 		t.Setenv(k, "")
 		os.Unsetenv(k)
@@ -122,7 +101,6 @@ func TestCodexToolsEnvCaches(t *testing.T) {
 }
 
 func TestCodexToolsEnvKeepsCallerCaches(t *testing.T) {
-	t.Setenv(codexSandboxEnv, "")
 	t.Setenv("GOCACHE", "/process")
 	env, _, remove, _ := codexToolsEnv(context.Background(), nil, true, "workspace-write")
 	defer remove()
@@ -134,15 +112,12 @@ func TestCodexToolsEnvKeepsCallerCaches(t *testing.T) {
 	}
 }
 
-// A run's snapshot decides the sandbox opt-ins and caller caches, whatever the process environment says.
+// A run's snapshot decides the network opt-in and caller caches, whatever the process environment says.
 func TestCodexHeadlessReadsRunValues(t *testing.T) {
-	t.Setenv(codexSandboxEnv, "")
+	vaulttest.Use(t)
+	putCodexRecord(t, vault.AgentRecord{Extras: map[string]string{extraSandboxMode: "workspace-write"}})
 	t.Setenv("GOCACHE", "/ambient")
-	ctx := proc.WithValues(context.Background(), proc.Values{codexSandboxEnv: "danger-full-access"})
-	if got := codexHeadless(ctx, nil, &agent.Headless{Tools: true}); !slices.Contains(got, "danger-full-access") {
-		t.Fatalf("run snapshot sandbox ignored: %q", got)
-	}
-	ctx = proc.WithValues(context.Background(), proc.Values{agentconfig.OverlayVar: `{"codexNetwork":true}`, "GOCACHE": "/run"})
+	ctx := proc.WithValues(context.Background(), proc.Values{agentconfig.OverlayVar: `{"codexNetwork":true}`, "GOCACHE": "/run"})
 	got := codexHeadless(ctx, nil, &agent.Headless{Tools: true})
 	if !slices.Contains(got, "sandbox_workspace_write.network_access=true") {
 		t.Fatalf("run snapshot overlay network opt-in ignored: %q", got)

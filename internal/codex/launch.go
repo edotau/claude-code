@@ -12,7 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
-
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -107,20 +107,22 @@ func (codexEngine) RouteDetail(context.Context) (string, bool) {
 	return fmt.Sprintf("model=%s source=%s effort=%s", cmp.Or(model, "(default)"), source, cmp.Or(effort, "default")), true
 }
 
-// codexSandboxEnv names the per-dispatch opt-in to a wider tools sandbox; unset keeps workspace-write.
-const codexSandboxEnv = "HARNESS_CODEX_SANDBOX"
-
-// codexSandbox is the exec sandbox: read-only without tools, else the run's HARNESS_CODEX_SANDBOX or workspace-write.
-func codexSandbox(ctx context.Context, tools bool) (string, error) {
-	v := proc.Value(ctx, codexSandboxEnv)
-	if v != "" && v != "workspace-write" && v != "danger-full-access" {
-		return "read-only", &agent.UsageError{Msg: fmt.Sprintf("codex: %s=%q is not a sandbox; accepted values: "+
-			"workspace-write, danger-full-access", codexSandboxEnv, v)}
-	}
+// codexSandbox is read-only without tools, else the record's sandboxMode or workspace-write.
+func codexSandbox(tools bool) (string, error) {
 	if !tools {
 		return "read-only", nil
 	}
-	return cmp.Or(v, "workspace-write"), nil
+	rec, err := agentconfig.Settings(agentid.Codex)
+	if err != nil {
+		return "read-only", fmt.Errorf("codex: agent settings: %w", err)
+	}
+	switch m := rec.Extras[extraSandboxMode]; m {
+	case "", "workspace-write", "danger-full-access":
+		return cmp.Or(m, "workspace-write"), nil
+	default:
+		return "read-only", fmt.Errorf("codex: agent settings: sandboxMode %q is not a sandbox; accepted values: "+
+			"workspace-write, danger-full-access", m)
+	}
 }
 
 // codexNetwork reports the overlay's codexNetwork under a workspace-write tools run; a nested dispatch may not set it.
@@ -140,14 +142,11 @@ func codexNetwork(ctx context.Context, tools bool, sandbox string) (bool, error)
 // codexCaches are the Go cache variables a workspace-write run needs writable, with their dirs under the temp dir.
 var codexCaches = [][2]string{{"GOCACHE", "go-build"}, {"GOLANGCI_LINT_CACHE", "lint"}, {"GOMODCACHE", "gomod"}}
 
-// codexToolsEnv adds the sandbox launch note and, under workspace-write, temp-dir Go caches the caller left unset.
+// codexToolsEnv adds the network note and, under workspace-write, temp-dir Go caches the caller left unset.
 func codexToolsEnv(ctx context.Context, env []string, tools bool, sandbox string) (out, notes []string, remove func(), err error) {
 	remove = func() {}
 	if !tools {
 		return env, nil, remove, nil
-	}
-	if proc.Value(ctx, codexSandboxEnv) != "" {
-		notes = append(notes, fmt.Sprintf("codex: sandbox %s (%s)", sandbox, codexSandboxEnv))
 	}
 	if sandbox != "workspace-write" {
 		return env, notes, remove, nil
