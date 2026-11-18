@@ -202,16 +202,13 @@ func permLayer(name string, p agent.Permissions, ro bool, wd string) permVerdict
 	}
 }
 
-// gateDecide is the verdict of claude's permission-gate policy gp: an Ask is refused where no judge answers it.
+// gateDecide is the verdict of claude's permission-gate policy gp, decided by the hook's own GateBlocks.
 func gateDecide(gp agent.Permissions) permVerdict {
 	return func(t, a string) permResult {
-		switch gp.Decide(t, a) {
-		case agent.Allow:
-			return permResult{"allow", "", ""}
-		case agent.Ask:
-			return permResult{"deny", "Ask refused off Anthropic", ""}
+		if safety.GateBlocks(gp, strings.Replace(t, "Write", "Edit", 1), a) {
+			return permResult{"deny", "permission-gate", ""}
 		}
-		return permResult{"deny", "permission rules", ""}
+		return permResult{"allow", "", ""}
 	}
 }
 
@@ -219,7 +216,10 @@ func gateDecide(gp agent.Permissions) permVerdict {
 func bareLayer(name string, p agent.Permissions, ro bool, wd string) (permVerdict, agent.Permissions) {
 	switch name {
 	case "claude":
-		gp := claude.GatePolicy(p, wd)
+		gp, gated := claude.LaunchGate(p, ro)
+		if !gated {
+			return func(string, string) permResult { return permResult{"allow", "", ""} }, p
+		}
 		return gateDecide(gp), gp
 	case "copilot":
 		return func(t, a string) permResult {
@@ -275,10 +275,19 @@ func expectation(pr probe, mode string) (expect string, design bool) {
 		return "allow", false
 	case pr.deny&bit == 0:
 		return "", false
+	case pr.scoped && mode == "tools/gateway" && !gatewayGated():
+		return "", false // a bare launch scopes nothing, and no owner decision covers it
 	case pr.scoped && bit == modeTools && mode != "tools/gateway":
 		return "", true
 	}
 	return "deny", false
+}
+
+// gatewayGated reports whether the default claude --tools launch off Anthropic is gated, as the launcher decides.
+func gatewayGated() bool {
+	p, err := agent.LaunchPermissions("claude", false)
+	_, gated := claude.LaunchGate(p, false)
+	return err == nil && gated
 }
 
 // permCellFor judges pr in mode and marks it against the expectation; judged counts it, design flags a design note.

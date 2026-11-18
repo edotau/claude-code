@@ -61,8 +61,8 @@ func TestGateOffAnthropicLaunchArgs(t *testing.T) {
 		}
 	}
 	got := envPolicy(t, env)
-	if !req.Gate || got.Mode != "plan" || !slices.Contains(got.Allow, agent.Rule{Tool: "Bash", Arg: "curl --version"}) {
-		t.Errorf("gate %v, env policy %+v: want plan mode with the user's allow", req.Gate, got)
+	if !req.Gate || got.Mode != "" || !slices.Contains(got.Allow, agent.Rule{Tool: "Bash", Arg: "curl --version"}) {
+		t.Errorf("gate %v, env policy %+v: want only the user's allow", req.Gate, got)
 	}
 }
 
@@ -75,20 +75,43 @@ func TestGateOffAnthropicSkipsAnthropic(t *testing.T) {
 	}
 }
 
-// A bare --autonomous off Anthropic is the gated launch, never bare bypassPermissions; --safe-mode is refused.
-func TestGateOffAnthropicGatesBareAutonomous(t *testing.T) {
+// A bare --autonomous off Anthropic runs bare under bypassPermissions; --safe-mode is refused.
+func TestGateOffAnthropicBareAutonomous(t *testing.T) {
 	hermetic(t, dbxProfiles)
-	req, args, env := launchOf(t, agent.RunOptions{Tools: true, Autonomous: true, Provider: "qa", WorkDir: t.TempDir()})
-	if joined := strings.Join(args, " "); !req.Gate || !strings.Contains(joined, "--permission-gate || exit 2") ||
-		!strings.Contains(joined, "--tools "+gateTools) || envPolicy(t, env).Mode != "plan" {
-		t.Errorf("bare autonomous off Anthropic: gate=%v args %q, want the gated launch", req.Gate, args)
+	req, args, _ := launchOf(t, agent.RunOptions{Tools: true, Autonomous: true, Provider: "qa", WorkDir: t.TempDir()})
+	if joined := strings.Join(args, " "); req.Gate || !strings.Contains(joined, "bypassPermissions") ||
+		strings.Contains(joined, "--permission-gate") || strings.Contains(joined, "--tools "+gateTools) {
+		t.Errorf("bare autonomous off Anthropic: gate=%v args %q, want bare bypassPermissions", req.Gate, args)
 	}
 	bare := []string{"--permission-mode", "bypassPermissions"}
 	if err := refuseUngatedBypass(context.Background(), bare, agent.RunOptions{Tools: true, Autonomous: true, Provider: "qa", SafeMode: true}); err == nil {
-		t.Error("ungated bypassPermissions off Anthropic must be refused")
+		t.Error("ungated bypassPermissions off Anthropic with --safe-mode must be refused")
 	}
 	if err := refuseUngatedBypass(context.Background(), bare, agent.RunOptions{Tools: true, Autonomous: true, Provider: "ultra"}); err != nil {
 		t.Errorf("bare autonomous on Anthropic keeps its launch, got %v", err)
+	}
+}
+
+// A default off-Anthropic --tools launch has no implicit policy; --read-only and explicit rules still gate.
+func TestGateOffAnthropicImplicitPolicy(t *testing.T) {
+	hermetic(t, dbxProfiles)
+	deny := agent.Rule{Tool: "Bash", Arg: "curl *"}
+	ask := agent.Rule{Tool: "Bash", Arg: "rm *"}
+	def, dargs, _ := launchOf(t, agent.RunOptions{Tools: true, Provider: "qa", WorkDir: t.TempDir()})
+	if joined := strings.Join(dargs, " "); def.Gate || !strings.Contains(joined, "bypassPermissions") ||
+		strings.Contains(joined, "dontAsk") || strings.Contains(joined, "--allowedTools") {
+		t.Errorf("default launch: gate=%v args %q, want no implicit policy", def.Gate, joined)
+	}
+	_, _, env := launchOf(t, agent.RunOptions{Tools: true, Provider: "qa", WorkDir: t.TempDir(),
+		Permissions: agent.Permissions{Deny: []agent.Rule{deny}, Ask: []agent.Rule{ask}}})
+	got := envPolicy(t, env)
+	if got.Mode != "" || len(got.Allow) != 0 || !slices.Contains(got.Deny, deny) || !slices.Contains(got.Deny, ask) ||
+		slices.Contains(got.Deny, agent.Rule{Tool: "Bash", Arg: agent.RedirectFileArg}) {
+		t.Errorf("explicit rules policy %+v, want only the dispatch's deny and ask-as-deny", got)
+	}
+	_, _, env = launchOf(t, agent.RunOptions{Tools: true, ReadOnly: true, Provider: "qa", WorkDir: t.TempDir()})
+	if ro := envPolicy(t, env); ro.Mode != "plan" || !slices.Contains(ro.Deny, agent.Rule{Tool: "Bash", Arg: agent.RedirectFileArg}) {
+		t.Errorf("read-only policy %+v, want its plan-mode gate policy", ro)
 	}
 }
 
@@ -127,18 +150,16 @@ type gateRow struct {
 	reason, not string
 }
 
-func gateRule(s string) agent.Rule { r, _ := agent.ParseRule(s); return r }
-
 func gateWrite(path string) map[string]any { return map[string]any{"file_path": path, "content": "ok"} }
 
 func gateBash(cmd string) map[string]any { return map[string]any{"command": cmd} }
 
-// runGateRows runs each row through the real gate under the policy gatePolicy builds from the row's user rules.
+// runGateRows runs each row through the real gate under the policy readOnlyGatePolicy builds from the row's user rules.
 func runGateRows(t *testing.T, wd string, cases []gateRow) {
 	t.Helper()
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			res := gateCall(t, gatePolicy(c.user, wd), wd, c.tool, c.input)
+			res := gateCall(t, readOnlyGatePolicy(c.user), wd, c.tool, c.input)
 			if (res.Decision == core.Block) != c.block || !strings.Contains(res.Reason, c.reason) ||
 				c.not != "" && strings.Contains(res.Reason, c.not) {
 				t.Fatalf("decision %v reason %q, want block=%v naming %q and not %q", res.Decision, res.Reason, c.block,
@@ -146,106 +167,6 @@ func runGateRows(t *testing.T, wd string, cases []gateRow) {
 			}
 		})
 	}
-}
-
-// The built policy's file rules through the gate: the workdir is writable, everything else is refused, deny wins.
-func TestGatePolicyFileDecisions(t *testing.T) {
-	wd := t.TempDir()
-	rule, write := gateRule, gateWrite
-	runGateRows(t, wd, []gateRow{
-		{"write inside the workdir", agent.Permissions{}, "Write", write(filepath.Join(wd, "a.txt")), false, "", ""},
-		{"write outside the workdir", agent.Permissions{}, "Write", write("/tmp/outside-probe.txt"), true,
-			"--allow 'Edit(/tmp/outside-probe.txt)'", ""},
-		{"write in a sibling of the workdir", agent.Permissions{}, "Write", write(filepath.Join(filepath.Dir(wd), "sib.txt")),
-			true, "deny: ", ""},
-		{"the hinted --allow Edit opens a Write", agent.Permissions{Allow: []agent.Rule{rule("Edit(/tmp/open/**)")}},
-			"Write", write("/tmp/open/x.txt"), false, "", ""},
-		{"user --allow Write alone opens a path", agent.Permissions{Allow: []agent.Rule{rule("Write(/tmp/open/**)")}},
-			"Write", write("/tmp/open/x.txt"), false, "", ""},
-		{"user --deny beats the workdir allow", agent.Permissions{Deny: []agent.Rule{rule("Write(" + wd + "/state/**)")}},
-			"Write", write(filepath.Join(wd, "state", "p.txt")), true, "deny: Write(", "re-dispatch"},
-		{"user --ask has no judge, so it refuses", agent.Permissions{Ask: []agent.Rule{rule("Edit(" + wd + "/ask/**)")}},
-			"Edit", write(filepath.Join(wd, "ask", "p.txt")), true, "deny: Edit(", ""},
-	})
-}
-
-// The built policy's shell rules through the gate: listed commands run, redirects and unlisted commands are refused.
-func TestGatePolicyShellDecisions(t *testing.T) {
-	wd := t.TempDir()
-	rule, bash := gateRule, gateBash
-	const miss = "continue with another allowed call"
-	runGateRows(t, wd, []gateRow{
-		{"unlisted bash", agent.Permissions{}, "Bash", bash("curl --version"), true,
-			"Bash(curl --version) is not on it: " + miss, "do not retry"},
-		{"a near miss names the allowed form", agent.Permissions{}, "Bash", bash("go generate ./..."), true,
-			"Bash(go generate ./...) is not on it: the nearest allowed form is Bash(go build *); rewrite", ""},
-		{"a compound miss names its segment", agent.Permissions{}, "Bash", bash("go vet ./... && curl x"), true,
-			"Bash(curl x) is not on it: " + miss, ""},
-		{"unlisted bash names the rule to add", agent.Permissions{}, "Bash", bash("curl --version"), true,
-			"--allow 'Bash(curl --version)'", ""},
-		{"listed bash", agent.Permissions{}, "Bash", bash("go vet ./..."), false, "", ""},
-		{"user-allowed bash", agent.Permissions{Allow: []agent.Rule{rule("Bash(curl --version)")}}, "Bash",
-			bash("curl --version"), false, "", ""},
-		{"redirect out of a listed command", agent.Permissions{}, "Bash", bash("ls > /tmp/x"), true, "without them", ""},
-		{"user --deny beats a listed command", agent.Permissions{Deny: []agent.Rule{rule("Bash(go vet *)")}}, "Bash",
-			bash("go vet ./..."), true, "deny: Bash(go vet *)", "re-dispatch"},
-		{"stream merge is not a file write", agent.Permissions{}, "Bash", bash("go test ./x 2>&1 | tail -5"), false, "", ""},
-		{"descriptor duplication", agent.Permissions{}, "Bash", bash("go vet ./... >&2"), false, "", ""},
-		{"quoted > is an argument", agent.Permissions{}, "Bash", bash(`grep "a > b" x.go`), false, "", ""},
-		{"file redirect names the refusal", agent.Permissions{}, "Bash", bash("go test ./x > o"), true, "File redirects", ""},
-		{"append redirect", agent.Permissions{}, "Bash", bash("go test ./x 2>> o"), true, "File redirects", ""},
-	})
-}
-
-// The built policy's command forms through the gate: cd scope, env and time prefixes, sed print, websearch.
-func TestGatePolicyCommandForms(t *testing.T) {
-	wd := t.TempDir()
-	bash := gateBash
-	runGateRows(t, wd, []gateRow{
-		{"cd into the workdir", agent.Permissions{}, "Bash", bash("cd " + wd + " && go test ./..."), false, "", ""},
-		{"cd below the workdir", agent.Permissions{}, "Bash", bash("cd " + wd + "/sub"), false, "", ""},
-		{"cd elsewhere stays denied", agent.Permissions{}, "Bash", bash("cd /tmp && go test ./..."), true, "deny: ", ""},
-		{"cd out through ..", agent.Permissions{}, "Bash", bash("cd " + wd + "/../x"), true, "deny: ", ""},
-		{"env-prefixed go test", agent.Permissions{}, "Bash", bash("GOOS=linux go build ./..."), false, "", ""},
-		{"time go test", agent.Permissions{}, "Bash", bash("time go test ./..."), false, "", ""},
-		{"env prefix with a route name", agent.Permissions{}, "Bash", bash("NODE_OPTIONS=--x go test ./..."), true, "deny: ", ""},
-		{"env prefix on an unlisted command", agent.Permissions{}, "Bash", bash("FOO=1 curl --version"), true, "deny: ", ""},
-		{"sed -n print", agent.Permissions{}, "Bash", bash("sed -n 5,9p x.go"), false, "", ""},
-		{"sed -i", agent.Permissions{}, "Bash", bash("sed -i s/a/b/ x.go"), true, "deny: ", ""},
-		{"sed -n -i", agent.Permissions{}, "Bash", bash("sed -n -i 5p x.go"), true, "deny: ", ""},
-		{"sed -n with a write command", agent.Permissions{}, "Bash", bash("sed -n 'w out' x.go"), true, "deny: ", ""},
-		{"network websearch", agent.Permissions{}, "Bash", bash(`claude-code network websearch --query "x"`), false, "", ""},
-		{"curl stays unlisted", agent.Permissions{}, "Bash", bash("curl https://example.com"), true, "deny: ", ""},
-	})
-}
-
-// A claude leaf launched through ask runs the review scope, memory report and python its workflow stages call.
-func TestGatePolicyAllowsWorkflowStageCommands(t *testing.T) {
-	wd := t.TempDir()
-	bash := gateBash
-	runGateRows(t, wd, []gateRow{
-		{"review scope", agent.Permissions{}, "Bash", bash("claude-code review scope --range HEAD~1..HEAD --caps"), false, "", ""},
-		{"memory report", agent.Permissions{}, "Bash", bash("claude-code memory report --label x --file /tmp/f"), false, "", ""},
-		{"python", agent.Permissions{}, "Bash", bash("python test_pricing.py"), false, "", ""},
-		{"agents label", agent.Permissions{}, "Bash", bash("claude-code agents label claude"), false, "", ""},
-		{"agents list bare", agent.Permissions{}, "Bash", bash("claude-code agents list"), false, "", ""},
-		{"agents list args", agent.Permissions{}, "Bash", bash("claude-code agents list --json"), false, "", ""},
-		{"agents brief", agent.Permissions{}, "Bash", bash("claude-code agents brief x"), false, "", ""},
-		{"agents watch", agent.Permissions{}, "Bash", bash("claude-code agents watch x"), false, "", ""},
-		{"memory path", agent.Permissions{}, "Bash", bash("claude-code memory path reports x"), false, "", ""},
-		{"memory review", agent.Permissions{}, "Bash", bash("claude-code memory review"), false, "", ""},
-		{"worktree gate", agent.Permissions{}, "Bash", bash("claude-code worktree gate x"), false, "", ""},
-		{"review gate", agent.Permissions{}, "Bash", bash("claude-code review gate"), false, "", ""},
-		{"doctor bare", agent.Permissions{}, "Bash", bash("claude-code doctor"), false, "", ""},
-		{"doctor --mcp", agent.Permissions{}, "Bash", bash("claude-code doctor --mcp"), false, "", ""},
-		{"doctor --prompts", agent.Permissions{}, "Bash", bash("claude-code doctor --prompts"), false, "", ""},
-		{"doctor --git", agent.Permissions{}, "Bash", bash("claude-code doctor --git"), false, "", ""},
-		{"doctor --scan", agent.Permissions{}, "Bash", bash("claude-code doctor --scan x"), false, "", ""},
-		{"memory remember", agent.Permissions{}, "Bash", bash("claude-code memory remember x"), false, "", ""},
-		{"agents ask", agent.Permissions{}, "Bash", bash("claude-code agents ask --agent codex x"), false, "", ""},
-		{"python3 -m", agent.Permissions{}, "Bash", bash("python3 -m exports.tests.test_invoices"), false, "", ""},
-		{"worktree merge", agent.Permissions{}, "Bash", bash("claude-code worktree merge x"), false, "", ""},
-	})
 }
 
 // A --read-only claude run's gate policy: reads and the shared shell list run; builds, writes and redirects do not.
@@ -284,11 +205,11 @@ func TestGatePolicyAllowsRtkSpellings(t *testing.T) {
 	}
 	t.Setenv("HOME", home)
 	t.Setenv(paths.RTKBinaryEnv, bin)
-	p := gatePolicy(agent.Permissions{}, t.TempDir())
+	p := agent.Permissions{Allow: gatewayAllow()}
 	for cmd, want := range map[string]agent.Decision{
 		"rtk go test ./x": agent.Allow, `"$HOME/bin/rtk" go test ./x`: agent.Allow, bin + " git status": agent.Allow,
-		`"$HOME/bin/rtk" read x.go`: agent.Allow, `"$HOME/other/rtk" go test ./x`: agent.Deny, "/tmp/evil/rtk go test": agent.Deny,
-		`"$HOME/bin/rtk" curl x`: agent.Deny,
+		`"$HOME/bin/rtk" read x.go`: agent.Allow, `"$HOME/other/rtk" go test ./x`: agent.Ask, "/tmp/evil/rtk go test": agent.Ask,
+		`"$HOME/bin/rtk" curl x`: agent.Ask,
 	} {
 		if got := p.Decide("Bash", cmd); got != want {
 			t.Errorf("%q: got %v, want %v", cmd, got, want)
@@ -332,8 +253,8 @@ func TestGatedLaunchRefusedWithoutItsParts(t *testing.T) {
 func TestGatePermissionCapabilityRefusal(t *testing.T) {
 	hermetic(t, dbxProfiles)
 	for _, req := range []agent.RunOptions{
-		{Tools: true, Provider: "qa", Prompt: "Run saved Workflow code-workers"},
-		{Tools: true, Provider: "qa", Prompt: `Run Workflow({scriptPath: "~/.claude/workflows/x.js"}) and print it`},
+		{Tools: true, Provider: "qa", Prompt: "Run saved Workflow code-workers", Permissions: agent.Permissions{Deny: []agent.Rule{{Tool: "Bash", Arg: "curl *"}}}},
+		{Tools: true, Provider: "qa", Prompt: `Run Workflow({scriptPath: "~/.claude/workflows/x.js"}) and print it`, Permissions: agent.Permissions{Deny: []agent.Rule{{Tool: "Bash", Arg: "curl *"}}}},
 		{Tools: true, Provider: "qa", Permissions: agent.Permissions{Allow: []agent.Rule{{Tool: "Workflow"}}}},
 		{Tools: true, Provider: "qa", Permissions: agent.Permissions{Allow: []agent.Rule{{Tool: "WebFetch"}}}},
 		{NoTools: true, Gate: true},
@@ -349,30 +270,32 @@ func TestGatePermissionCapabilityRefusal(t *testing.T) {
 	}
 }
 
+// On a gated launch the hook's verdict replays the env policy exactly: the gate blocks iff the policy denies the call.
 func TestGatePermissionExactReplay(t *testing.T) {
 	hermetic(t, dbxProfiles)
 	wd := t.TempDir()
-	for _, profile := range []string{"ultra", "qa"} {
-		t.Run(profile, func(t *testing.T) {
-			req, _, env := launchOf(t, agent.RunOptions{Tools: true, Provider: profile, WorkDir: wd})
+	curl := agent.Rule{Tool: "Bash", Arg: "curl *"}
+	for name, c := range map[string]struct {
+		req  agent.RunOptions
+		deny map[string]bool
+	}{
+		"explicit deny": {agent.RunOptions{Permissions: agent.Permissions{Deny: []agent.Rule{curl}, Allow: []agent.Rule{curl}}},
+			map[string]bool{"curl -s x": true, "ls -l": false}},
+		"read-only": {agent.RunOptions{ReadOnly: true},
+			map[string]bool{"git log -1": false, "go test ./x": true, "git log -1 > out": true}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			c.req.Tools, c.req.Provider, c.req.WorkDir = true, "qa", wd
+			req, _, env := launchOf(t, c.req)
 			if !req.Gate {
-				return // Anthropic retains its native judge; the launch test above asserts its flags.
+				t.Fatal("explicit rules or --read-only must gate the launch")
 			}
 			policy := envPolicy(t, env)
-			for _, call := range []agent.Rule{{Tool: "Read", Arg: wd + "/a.go"},
-				{Tool: "Edit", Arg: wd + "/a.go"}, {Tool: "Bash", Arg: "go test ./internal/claude"}} {
-				if policy.Decide(call.Tool, call.Arg) != agent.Allow {
-					t.Fatalf("lost assigned call %s", call.String())
+			for cmd, deny := range c.deny {
+				blocked := gateCall(t, policy, wd, "Bash", gateBash(cmd)).Decision == core.Block
+				if blocked != deny || (policy.Decide("Bash", cmd) == agent.Deny) != deny {
+					t.Errorf("%q: gate blocked=%v, policy %v, want deny=%v", cmd, blocked, policy.Decide("Bash", cmd), deny)
 				}
-			}
-			denial := policy.Explain("Bash", "make lint")
-			if denial.Remedy != "--allow 'Bash(make lint)'" {
-				t.Fatalf("inexact remedy: %+v", denial)
-			}
-			replayed, _, replayEnv := launchOf(t, agent.RunOptions{Tools: true, Provider: profile, WorkDir: wd,
-				Permissions: agent.Permissions{Allow: []agent.Rule{denial.Call}}})
-			if !replayed.Gate || gateCall(t, envPolicy(t, replayEnv), wd, "Bash", gateBash("make lint")).Decision == core.Block {
-				t.Fatal("exact remedy did not pass on rerun")
 			}
 		})
 	}
@@ -401,7 +324,7 @@ func TestAsksToRunWorkflow(t *testing.T) {
 }
 
 func TestGatewayAllowsMergedAgentVerbs(t *testing.T) {
-	p := gatePolicy(agent.Permissions{}, t.TempDir())
+	p := agent.Permissions{Allow: gatewayAllow()}
 	for cmd, allowed := range map[string]bool{
 		"claude-code agents result -f job": true, "claude-code agents result job --events -f": true,
 		"claude-code agents status": true, "claude-code agents status job --agent codex": true,
@@ -415,7 +338,7 @@ func TestGatewayAllowsMergedAgentVerbs(t *testing.T) {
 }
 
 func TestGatewayAllowsDispatchAndWait(t *testing.T) {
-	p := gatePolicy(agent.Permissions{}, t.TempDir())
+	p := agent.Permissions{Allow: gatewayAllow()}
 	for _, cmd := range []string{"claude-code agents dispatch --waves plan --background", "claude-code agents wait job --timeout 10m"} {
 		if got := p.Decide("Bash", cmd); got != agent.Allow {
 			t.Errorf("%s: %v", cmd, got)

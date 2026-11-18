@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"os"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -53,40 +52,35 @@ func onAnthropic(t providers.Target) bool {
 	return t.Provider != nil && t.Provider.Provider == "anthropic"
 }
 
-// gateOffAnthropic gates a --tools run off Anthropic (read-only runs on any route); plan and --safe-mode keep theirs.
+// gateOffAnthropic gates a --tools run off Anthropic by its explicit rules only; plan and --safe-mode keep theirs.
 func gateOffAnthropic(ctx context.Context, req agent.RunOptions) (context.Context, agent.RunOptions) {
-	if !req.Tools || req.Gate || req.SafeMode || req.Permissions.Mode == "plan" || onAnthropic(launchTarget(ctx, req)) && !req.ReadOnly {
+	req = offAnthropicLaunch(req, onAnthropic(launchTarget(ctx, req)))
+	if !req.Gate {
 		return ctx, req
+	}
+	return agent.WithPermissionsEnv(ctx, req.Permissions), req
+}
+
+// offAnthropicLaunch is req after the gate decision: read-only gates fully, explicit rules gate alone, none runs bare.
+func offAnthropicLaunch(req agent.RunOptions, anthropic bool) agent.RunOptions {
+	if !req.Tools || req.Gate || req.SafeMode || req.Permissions.Mode == "plan" || anthropic && !req.ReadOnly {
+		return req
 	}
 	if req.ReadOnly && !slices.Contains(req.Permissions.Allow, agent.ReadOnlyAllow) { // a caller that skipped checkRun
 		req.Permissions.Allow = append(slices.Clone(req.Permissions.Allow), agent.ReadOnlyAllow)
 	}
-	req.Permissions = gatePolicy(req.Permissions, req.WorkDir)
+	switch {
+	case req.ReadOnly:
+		req.Permissions = readOnlyGatePolicy(req.Permissions)
+	case req.Permissions.IsZero(): // no explicit rule: bare bypassPermissions, safety-scan still hooks
+		req.Autonomous = true
+		return req
+	default: // only the dispatch's own rules gate; Ask has no judge here, so it denies
+		req.Permissions = agent.Permissions{Mode: req.Permissions.Mode, Allow: req.Permissions.Allow,
+			Deny: slices.Concat(req.Permissions.Deny, req.Permissions.Ask)}
+	}
 	req.Gate = true
-	return agent.WithPermissionsEnv(ctx, req.Permissions), req
-}
-
-// gatePolicy is p as a gate policy: plan mode (it alone refuses unmatched calls), Edit/Write scoped to workDir.
-func gatePolicy(p agent.Permissions, workDir string) agent.Permissions {
-	if slices.Contains(p.Allow, agent.ReadOnlyAllow) {
-		return readOnlyGatePolicy(p)
-	}
-	allow := slices.DeleteFunc(gatewayAllow(), func(r agent.Rule) bool {
-		return r.Arg == "" && (r.Tool == "Edit" || r.Tool == "Write")
-	})
-	if wd, err := filepath.Abs(workDir); err == nil { // no cwd: no workdir scope, only the dispatch's own allows
-		allow = append(allow, agent.Rule{Tool: "Edit", Arg: wd + "/**"}, agent.Rule{Tool: "Write", Arg: wd + "/**"},
-			agent.CdRule(wd))
-	}
-	for _, r := range p.Allow {
-		allow = append(allow, r)
-		if pair, ok := editPair(r); ok {
-			allow = append(allow, pair)
-		}
-	}
-	// Ask rules deny (no judge) and file redirects deny (Decide would only downgrade them to Ask, which the gate passes)
-	deny := slices.Concat(p.Deny, p.Ask, []agent.Rule{{Tool: "Bash", Arg: agent.RedirectFileArg}})
-	return agent.Permissions{Mode: "plan", Allow: allow, Deny: deny}
+	return req
 }
 
 // readOnlyGatePolicy is a --read-only run's gate policy: reads, the shared shell list, no write, no redirect, no Ask.
@@ -96,24 +90,16 @@ func readOnlyGatePolicy(p agent.Permissions) agent.Permissions {
 	return agent.Permissions{Mode: "plan", Allow: allow, Deny: deny}
 }
 
-// GatePolicy is gatePolicy for the doctor report: the policy a gated launch hands the permission-gate.
-func GatePolicy(p agent.Permissions, workDir string) agent.Permissions { return gatePolicy(p, workDir) }
-
-// editPair is the Write rule for an Edit rule and the reverse: the gate judges a Write call as both.
-func editPair(r agent.Rule) (agent.Rule, bool) {
-	switch r.Tool {
-	case "Edit":
-		return agent.Rule{Tool: "Write", Arg: r.Arg}, true
-	case "Write":
-		return agent.Rule{Tool: "Edit", Arg: r.Arg}, true
-	}
-	return agent.Rule{}, false
+// LaunchGate is the policy an off-Anthropic --tools launch of p hands the permission-gate; false means no gate.
+func LaunchGate(p agent.Permissions, ro bool) (agent.Permissions, bool) {
+	req := offAnthropicLaunch(agent.RunOptions{Tools: true, ReadOnly: ro, Permissions: p}, false)
+	return req.Permissions, req.Gate
 }
 
-// refuseUngatedBypass keeps bypassPermissions to a gated launch or a bare --autonomous one on Anthropic.
+// refuseUngatedBypass keeps bypassPermissions to a gated or bare --autonomous launch (off Anthropic, not --safe-mode).
 func refuseUngatedBypass(ctx context.Context, args []string, req agent.RunOptions) error {
 	if req.Gate || !slices.Contains(args, "bypassPermissions") ||
-		req.Autonomous && req.Permissions.IsZero() && onAnthropic(launchTarget(ctx, req)) {
+		req.Autonomous && req.Permissions.IsZero() && (onAnthropic(launchTarget(ctx, req)) || !req.SafeMode) {
 		return nil
 	}
 	return retry.Fatal("claude", errors.New("bypassPermissions without the permission-gate refused"))
