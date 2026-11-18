@@ -9,6 +9,7 @@ import (
 	"math/rand"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"sort"
 	"strconv"
@@ -261,6 +262,16 @@ func TestSortByScoreNaNMatchesOldSort(t *testing.T) {
 	for i := range want {
 		if got[i].ID != want[i].ID {
 			t.Fatalf("row %d: got id %s, want %s", i, got[i].ID, want[i].ID)
+		}
+	}
+}
+
+// stripIDMarks must match the whitespace-eating regexp it replaced on well-formed, unterminated and stacked markers.
+func TestStripIDMarksMatchesMarkerRegexp(t *testing.T) {
+	re := regexp.MustCompile(`\s*<!-- id:[^>]*-->`)
+	for _, s := range []string{"", "plain", "a <!-- id:0000002a-->", "a \n<!-- id:x-->  <!-- id:y--> b", "a <!-- id:", "<!-- id:x > --> b <!-- id:-->", "x<!-- id:ab>--> y<!-- id:c-->"} {
+		if got, want := stripIDMarks(s), re.ReplaceAllString(s, ""); got != want {
+			t.Errorf("stripIDMarks(%q) = %q, want %q", s, got, want)
 		}
 	}
 }

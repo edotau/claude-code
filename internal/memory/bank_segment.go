@@ -692,15 +692,42 @@ var (
 	entryDate = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`\d{4}-\d{2}-\d{2}`)
 	})
-	anyIDMark = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`\s*<!-- id:[^>]*-->`)
-	}) // persisted 8-hex ids and alias ids alike
 	// entryTypes maps a typed bank file to its entry type.
 	entryTypes = map[string]string{
 		"decisionLog.md": "decision", "conventions.md": "convention", "progress.md": "progress",
 		"sessionHistory.md": "session", "activeContext.md": "context", "projectContext.md": "context",
 	}
 )
+
+// stripIDMarks drops every `<!-- id:…-->` marker and the whitespace before it, in one linear scan.
+func stripIDMarks(s string) string {
+	const open = "<!-- id:"
+	var b strings.Builder
+	pos := 0
+	for from := 0; ; {
+		i := strings.Index(s[from:], open)
+		if i < 0 {
+			break
+		}
+		i += from
+		end := strings.IndexByte(s[i:], '>')
+		if end < 0 {
+			break
+		}
+		if end < len(open)+2 || s[i+end-2:i+end] != "--" {
+			from = i + 1
+			continue
+		}
+		b.WriteString(strings.TrimRight(s[pos:i], "\t\n\f\r "))
+		pos = i + end + 1
+		from = pos
+	}
+	if pos == 0 {
+		return s
+	}
+	b.WriteString(s[pos:])
+	return b.String()
+}
 
 // isSupersededTitle reports a fully struck-out or SUPERSEDED title line; a partly struck one is still live.
 func isSupersededTitle(first string) bool {
@@ -724,10 +751,10 @@ func entryFromHit(h SearchHit) Entry {
 	default:
 		typ = "topic"
 	}
-	title := strings.TrimLeft(anyIDMark().ReplaceAllString(textutil.FirstLine(h.Block), ""), "#- ")
+	title := strings.TrimLeft(stripIDMarks(textutil.FirstLine(h.Block)), "#- ")
 	return Entry{
 		ID: id, Date: entryDate().FindString(title), Type: typ, Title: truncateLine(title),
-		Body: strings.TrimSpace(anyIDMark().ReplaceAllString(h.Block, "")), Bank: h.Bank, File: h.File,
+		Body: strings.TrimSpace(stripIDMarks(h.Block)), Bank: h.Bank, File: h.File,
 		Archived: h.Bank == "archive", Superseded: isSupersededBlock(h.Block),
 	}
 }
