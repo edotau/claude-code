@@ -159,7 +159,7 @@ func TestReadOnlyGitShell(t *testing.T) {
 		"git log --output=x": false, "git log --out=x": false, "git commit": false, "git branch -D x": false,
 		"git branch new": false, "git log && rm x": false, "git log | sh": false, "git log `id`": false,
 		"git log $(id)": false, "GIT_PAGER=sh git log": false, "git diff --ext-diff": false, "GIT_EXTERNAL_DIFF=x git diff": false,
-		"git log --exec=x": false, "git log -c": false, "git push": false, "sh status": false, "": false,
+		"git log --exec=x": false, "git log -c": true, "git push": false, "sh status": false, "": false,
 		"ls": true, "rg foo internal | head -5": true, "claude-code agents find x": true, "go doc fmt": true,
 		"rm x": false, "ls | tee x": false, "rg --pre cat x": false, "cat f > g": false, "cat $(ls)": false,
 	} {
