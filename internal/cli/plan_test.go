@@ -73,3 +73,10 @@ func TestPlanTaskDoneReopenStrikeAndAmbiguousId(t *testing.T) {
 		t.Fatal("no mode must fail")
 	}
 }
+
+// plan task is offered by completion, so TestCompletionMatchesHelpFlags then holds its flags to -h.
+func TestPlanSpecOffersTask(t *testing.T) {
+	if planSpec().Sub["task"] == nil {
+		t.Fatal("completion spec has no plan task")
+	}
+}

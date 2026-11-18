@@ -162,6 +162,12 @@ func TestPlanTaskOps(t *testing.T) {
 	if s := summarize(p); s.Total != 2 || s.Dropped != 1 {
 		t.Fatalf("summary %+v", s)
 	}
+	if err := Strike(plan, "1.3", "why"); err != nil {
+		t.Fatal(err)
+	}
+	if err := Reopen(plan, "1.3"); err != nil || readFile(t, plan) != got {
+		t.Fatalf("reopen must undo a one-line strike byte for byte (err=%v):\n%s", err, readFile(t, plan))
+	}
 	if Strike(plan, "1.1", "") == nil {
 		t.Fatal("a strike needs a reason")
 	}
@@ -224,5 +230,37 @@ func TestTickRangeExplicitPlanIgnoresAge(t *testing.T) {
 	}
 	if err := TickRange(context.Background(), repo, "", rng, old, nil, false, io.Discard); err != nil || !strings.Contains(readFile(t, old), "[x] 1.1") {
 		t.Fatalf("explicit old plan not ticked (err=%v):\n%s", err, readFile(t, old))
+	}
+}
+
+// A partial sha amended out of history adds no coverage: the task stays open and names the manual route.
+func TestTickDropsAmendedAwayEvidence(t *testing.T) {
+	hermetic(t)
+	repo, cs := landRepo(t, "a.go")
+	plan := filepath.Join(t.TempDir(), "plan.md")
+	writeFile(t, plan, "- [ ] 1 Both owns: a.go, b.go\n")
+	if _, _, err := Tick(repo, plan, cs[0].Sha, cs[0].Files); err != nil {
+		t.Fatal(err)
+	}
+	hosttest.In(t, repo, "rm", "-q", "--cached", "a.go")
+	writeFile(t, filepath.Join(repo, "b.go"), "x")
+	hosttest.In(t, repo, "add", "b.go")
+	hosttest.In(t, repo, "commit", "-q", "--amend", "-m", "b.go")
+	sha := strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "--short=7", "HEAD"))
+	results, err := tickCommits(repo, plan, []Commit{{Sha: sha, Files: []string{"b.go"}}}, false, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, plan); strings.Contains(got, "[x]") {
+		t.Fatalf("completed despite a.go absent from amended history:\n%s", got)
+	}
+	if len(results) != 1 || len(results[0].Stale) != 1 || !strings.Contains(results[0].Stale[0], "plan task 1 --done") {
+		t.Fatalf("want one stale note naming the manual route: %+v", results)
+	}
+	if got := readFile(t, plan); strings.Contains(got, cs[0].Sha) || !strings.Contains(got, "partly landed: "+sha) {
+		t.Fatalf("the dead sha must leave the note:\n%s", got)
+	}
+	if again, _ := tickCommits(repo, plan, []Commit{{Sha: sha, Files: []string{"b.go"}}}, false, nil); len(again) != 0 {
+		t.Fatalf("a second tick must print no stale line: %+v", again)
 	}
 }

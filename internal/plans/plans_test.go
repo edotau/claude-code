@@ -573,7 +573,7 @@ func TestSelectPicksOwningPlan(t *testing.T) {
 	writeFile(t, filepath.Join(home, "2026-10-01-roles.md"), "- [ ] 1.1 Roles owns: internal/roles/r.go\n")
 	writeFile(t, filepath.Join(home, "2026-10-01-gateway.md"), "- [ ] 2.1 Proxy owns: internal/proxy\n- [ ] 2.2 Other owns: internal/gw/g.go\n")
 	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/roles/r.go", "internal/proxy/h.go"}}}
-	plan, tied := Select(home, "", "", nil, commits)
+	plan, tied, _ := Select(home, "", "", nil, commits)
 	if len(plan) != 1 || filepath.Base(plan[0]) != "2026-10-01-roles.md" || tied != nil {
 		t.Fatalf("plan=%q tied=%v", plan, tied)
 	}
@@ -586,12 +586,26 @@ func TestSelectTieRule(t *testing.T) {
 	writeFile(t, filepath.Join(home, "2026-10-01-roles.md"), "- [ ] 1.1 Roles owns: internal/roles/r.go\n")
 	writeFile(t, filepath.Join(home, "2026-10-01-dup.md"), "- [ ] 3.1 Roles owns: internal/roles/r.go\n")
 	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/roles/r.go"}}}
-	if plan, tied := Select(home, "", "", nil, commits); len(plan) != 2 || len(tied) != 2 {
+	if plan, tied, _ := Select(home, "", "", nil, commits); len(plan) != 2 || len(tied) != 2 {
 		t.Fatalf("a tie with no claim must update both: plan=%v tied=%v", plan, tied)
 	}
 	writeFile(t, filepath.Join(home, "2026-10-01-dup.md"), "- [ ] 3.1 Roles owns: internal/roles/r.go <!-- working: x · worktree wt -->\n")
-	if plan, tied := Select(home, "", "wt", nil, commits); len(plan) != 1 || filepath.Base(plan[0]) != "2026-10-01-dup.md" || tied != nil {
+	if plan, tied, _ := Select(home, "", "wt", nil, commits); len(plan) != 1 || filepath.Base(plan[0]) != "2026-10-01-dup.md" || tied != nil {
 		t.Fatalf("worktree claim should break the tie: plan=%v tied=%v", plan, tied)
+	}
+	day := "2026-10-05"
+	writeFile(t, filepath.Join(home, day+"-a.md"), "- [ ] 1.1 A owns: shared.go <!-- working: x · worktree wt -->\n")
+	writeFile(t, filepath.Join(home, day+"-b.md"), "- [ ] 2.1 B owns: shared.go\n- [ ] 2.2 U owns: unique.go\n")
+	both := []Commit{{Sha: "abc1234", Files: []string{"shared.go", "unique.go"}}}
+	plan, _, allow := Select(home, "", "wt", nil, both)
+	b := filepath.Join(home, day+"-b.md")
+	if !slices.Contains(plan, b) {
+		t.Fatalf("independent unique.go task excluded with its entire plan: %v", plan)
+	}
+	shared, _ := findTask(parseBytes(b, []byte(readFile(t, b))), "2.1")
+	unique, _ := findTask(parseBytes(b, []byte(readFile(t, b))), "2.2")
+	if allow[b](shared) || !allow[b](unique) {
+		t.Fatalf("the claim must hold shared.go only: shared=%v unique=%v", allow[b](shared), allow[b](unique))
 	}
 }
 
@@ -602,11 +616,11 @@ func TestSelectOlderPlanWhileNewerIsOpen(t *testing.T) {
 	writeFile(t, filepath.Join(home, "2026-10-01-old.md"), "- [ ] 1.1 Old owns: internal/a/a.go\n")
 	writeFile(t, filepath.Join(home, "2026-10-09-new.md"), "- [ ] 2.1 New owns: internal/b/b.go\n")
 	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/a/a.go", "internal/b/b.go"}}}
-	plan, tied := Select(home, "", "", nil, commits)
+	plan, tied, _ := Select(home, "", "", nil, commits)
 	if len(plan) != 2 || tied != nil {
 		t.Fatalf("both plans advance, no tie: plan=%v tied=%v", plan, tied)
 	}
-	if plan, _ := Select(home, "", "", nil, []Commit{{Sha: "abc1234", Files: []string{"internal/a/a.go"}}}); len(plan) != 1 || filepath.Base(plan[0]) != "2026-10-01-old.md" {
+	if plan, _, _ := Select(home, "", "", nil, []Commit{{Sha: "abc1234", Files: []string{"internal/a/a.go"}}}); len(plan) != 1 || filepath.Base(plan[0]) != "2026-10-01-old.md" {
 		t.Fatalf("older plan not selected: %v", plan)
 	}
 }
@@ -618,7 +632,7 @@ func TestStruckTaskIsClosed(t *testing.T) {
 	struck := filepath.Join(dir, "2026-10-01-struck.md")
 	writeFile(t, struck, "- [ ] ~~1.1 Old owns: internal/a/a.go~~ — superseded: gone <!-- working: x · worktree wt -->\n")
 	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/a/a.go"}}}
-	if plan, _ := Select(dir, "", "wt", nil, commits); plan != nil {
+	if plan, _, _ := Select(dir, "", "wt", nil, commits); plan != nil {
 		t.Fatalf("struck task selected: %v", plan)
 	}
 	if _, _, ok := Active(dir, "wt", nil); ok {
@@ -649,7 +663,7 @@ func TestSelectAbbreviatedPartialOwns(t *testing.T) {
 	planPath := filepath.Join(home, "2026-11-05-abbreviated.md")
 	writeFile(t, planPath, "- [ ] 1.1 Parser owns: internal/plans/plans.go, tick.go\n")
 	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/plans/tick.go"}}}
-	plan, tied := Select(home, "", "", nil, commits)
+	plan, tied, _ := Select(home, "", "", nil, commits)
 	if len(plan) != 1 || plan[0] != planPath || len(tied) != 0 {
 		t.Fatalf("partial abbreviated ownership: plan=%q tied=%v, want %q", plan, tied, planPath)
 	}

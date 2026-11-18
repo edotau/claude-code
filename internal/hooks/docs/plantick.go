@@ -58,7 +58,7 @@ func Tick(in *core.Input) core.Result {
 			shas = append(shas, m[1])
 		}
 	}
-	if len(shas) == 0 && strings.TrimSpace(out) == "" && !in.ToolFailed() && realCommit(cmd) { // -q prints nothing
+	if len(shas) == 0 && !in.ToolFailed() && realCommit(cmd) && (strings.TrimSpace(out) == "" || quietFlag().MatchString(cmd)) {
 		if sha := recentHead(in.CWD, cmd); sha != "" {
 			shas = append(shas, sha)
 		}
@@ -70,6 +70,9 @@ func Tick(in *core.Input) core.Result {
 	res.Context = core.JoinContext(blocks...)
 	return res
 }
+
+// quietFlag matches commit's -q/--quiet (alone or bundled), which prints no summary line to find a sha in.
+var quietFlag = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\s(?:--quiet|-[a-zA-Z]*q[a-zA-Z]*)(?:\s|$)`) })
 
 // commitRun matches a real `git [-C d|-c k=v|--flag]... commit`, not a log or grep that mentions the word.
 var commitRun = sync.OnceValue(func() *regexp.Regexp {
@@ -86,7 +89,7 @@ func realCommit(cmd string) bool {
 	return false
 }
 
-// recentWindow is how young HEAD must be for a quiet commit's fallback; older HEADs are not this call's commit.
+// recentWindow is how young HEAD must be for a quiet commit's fallback; the payload gives no call start time.
 const recentWindow = 2 * time.Minute
 
 // recentHead is the HEAD sha of the first candidate repo whose HEAD was committed just now, else "".

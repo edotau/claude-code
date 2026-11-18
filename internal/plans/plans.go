@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
@@ -403,48 +404,77 @@ func touchedFiles(root string, plan Plan, files []string) map[string]bool {
 	return out
 }
 
-// Select returns every dated plan whose open task owns a touched file; a claim breaks a shared-file tie, else tied.
-func Select(home, root, worktree string, skip []string, commits []Commit) (selected, tied []string) {
+// selectCand is one plan's eligible tasks that touch a commit's files, with each task's touched set.
+type selectCand struct {
+	path    string
+	elig    func(Task) bool
+	tasks   []Task
+	touched []map[string]bool
+}
+
+// selectCands loads the plans' touched tasks plus, per plan, the files its worktree-claimed tasks touch.
+func selectCands(home, root, worktree string, skip, files []string) (cands []selectCand, claimed []map[string]bool) {
 	entries, err := os.ReadDir(home)
 	if err != nil {
 		return nil, nil
 	}
+	for _, d := range loadDatedPlans(entries, home, skip) {
+		c, mine := selectCand{path: d.path, elig: eligible(d.path, worktree)}, map[string]bool{}
+		for _, t := range d.plan.Tasks {
+			tf := touchedFiles(root, Plan{Tasks: []Task{t}}, files)
+			if !c.elig(t) || len(tf) == 0 {
+				continue
+			}
+			c.tasks, c.touched = append(c.tasks, t), append(c.touched, tf)
+			if worktree != "" && claimNamesWorktree(t.Claim, worktree) {
+				maps.Copy(mine, tf)
+			}
+		}
+		if len(c.tasks) > 0 {
+			cands, claimed = append(cands, c), append(claimed, mine)
+		}
+	}
+	return cands, claimed
+}
+
+// Select returns plans with an open task owning a touched file, each plan's tickable tasks; a claim wins ties per task.
+func Select(home, root, worktree string, skip []string, commits []Commit) (selected, tied []string, allow map[string]func(Task) bool) {
 	var files []string
 	for _, c := range commits {
 		files = append(files, c.Files...)
 	}
-	all := loadDatedPlans(entries, home, skip)
-	var cands []datedPlan
-	var touched []map[string]bool
-	for _, d := range all {
-		d.plan.Tasks = slices.DeleteFunc(slices.Clone(d.plan.Tasks), func(t Task) bool { return !eligible(d.path, worktree)(t) })
-		if t := touchedFiles(root, d.plan, files); len(t) > 0 {
-			cands, touched = append(cands, d), append(touched, t)
-		}
-	}
-	keep := make([]bool, len(cands))
-	for i := range cands {
-		keep[i] = true
-		for j := range cands {
-			if i != j && sharesFile(touched[i], touched[j]) && worktree != "" &&
-				claimsWorktree(cands[j].plan, worktree) && !claimsWorktree(cands[i].plan, worktree) {
-				keep[i] = false
+	cands, claimed := selectCands(home, root, worktree, skip, files)
+	won := make([]map[string]bool, len(cands))
+	allow = map[string]func(Task) bool{}
+	for i, c := range cands {
+		won[i] = map[string]bool{}
+		var lost []string
+		for k, t := range c.tasks {
+			contested := false
+			for j, m := range claimed {
+				contested = contested || j != i && sharesFile(c.touched[k], m)
 			}
+			if contested && !claimNamesWorktree(t.Claim, worktree) {
+				lost = append(lost, t.Title)
+				continue
+			}
+			maps.Copy(won[i], c.touched[k])
 		}
+		allow[c.path] = func(t Task) bool { return c.elig(t) && !slices.Contains(lost, t.Title) }
 	}
-	for i := range cands {
-		if !keep[i] {
+	for i, c := range cands {
+		if len(won[i]) == 0 {
 			continue
 		}
-		selected = append(selected, cands[i].path)
-		for j := range cands {
-			if j != i && keep[j] && sharesFile(touched[i], touched[j]) {
-				tied = append(tied, cands[i].path)
+		selected = append(selected, c.path)
+		for j := range won {
+			if j != i && sharesFile(won[i], won[j]) {
+				tied = append(tied, c.path)
 				break
 			}
 		}
 	}
-	return selected, tied
+	return selected, tied, allow
 }
 
 // recentDays is how many days old a plan's file-name date may be for a commit to tick or annotate it.

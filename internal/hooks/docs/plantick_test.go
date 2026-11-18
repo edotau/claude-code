@@ -96,6 +96,15 @@ func TestPlanTickQuietCommitFallsBackToHead(t *testing.T) {
 	}
 }
 
+// A quiet commit followed by a command that prints output still ticks its HEAD.
+func TestPlanTickQuietCommitWithOtherOutput(t *testing.T) {
+	planPath, sha, tick := tickFixture(t)
+	tick("git -C ~/widgets commit -q -m x && echo done", "done\n")
+	if got, _ := os.ReadFile(planPath); !strings.Contains(string(got), "- [x] 1.1 Full task owns: a/one.go, b/two file.go ("+sha+")") {
+		t.Fatalf("quiet commit with other output did not tick:\n%s", got)
+	}
+}
+
 // Two quiet commits inside the two-minute window: each ticks its own sha, the second is not skipped.
 func TestPlanTickTwoQuietCommitsTickOwnShas(t *testing.T) {
 	planPath, sha1, tick := tickFixture(t)

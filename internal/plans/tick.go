@@ -1,12 +1,14 @@
 package plans
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -17,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -32,6 +35,7 @@ type Commit struct {
 type tickResult struct {
 	Sha             string
 	Ticked, Partial []string
+	Stale           []string
 }
 
 // Tick ticks fully covered tasks and notes partly covered ones; returns touched titles, writes only on change.
@@ -52,8 +56,8 @@ func tickCommits(root, planPath string, commits []Commit, dryRun bool, ok func(T
 		for _, c := range commits {
 			r := tickResult{Sha: strings.TrimSpace(c.Sha)}
 			seen = append(seen, c.Files...)
-			text, r.Ticked, r.Partial = tickText(root, planPath, text, r.Sha, c.Files, seen, recorded, ok)
-			if len(r.Ticked)+len(r.Partial) > 0 {
+			text, r.Ticked, r.Partial, r.Stale = tickText(root, planPath, text, r.Sha, c.Files, seen, recorded, ok)
+			if len(r.Ticked)+len(r.Partial)+len(r.Stale) > 0 {
 				results = append(results, r)
 			}
 		}
@@ -65,21 +69,33 @@ func tickCommits(root, planPath string, commits []Commit, dryRun bool, ok func(T
 	return results, err
 }
 
-// recordedFiles reads the files of a commit already recorded in a partly landed note; root "" reads none.
-func recordedFiles(root string) func(sha string) []string {
-	cache := map[string][]string{}
-	return func(sha string) []string {
+// recordedFiles reads the files of a commit recorded in a partly landed note; stale means it left landing's history.
+func recordedFiles(root string) func(sha, landing string) (files []string, stale bool) {
+	type evidence struct {
+		files []string
+		stale bool
+	}
+	cache := map[string]evidence{}
+	return func(sha, landing string) ([]string, bool) {
 		if root == "" {
-			return nil
+			return nil, false
 		}
-		if f, ok := cache[sha]; ok {
-			return f
+		key := sha + ">" + landing
+		if e, ok := cache[key]; ok {
+			return e.files, e.stale
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), recordedTimeout)
 		defer cancel()
-		f, _ := CommitFiles(ctx, root, sha) // an unreadable sha (rewritten history) adds no coverage
-		cache[sha] = f
-		return f
+		var e evidence
+		_, err := proc.RunGitInherit(ctx, root, "merge-base", "--is-ancestor", sha, landing)
+		var exit *exec.ExitError
+		if errors.As(err, &exit) && exit.ExitCode() == 1 { // an amend or rebase left the object but not the history
+			e.stale = true
+		} else if e.files, err = CommitFiles(ctx, root, sha); err != nil {
+			e.stale = true
+		}
+		cache[key] = e
+		return e.files, e.stale
 	}
 }
 
@@ -87,20 +103,30 @@ func recordedFiles(root string) func(sha string) []string {
 const recordedTimeout = 10 * time.Second
 
 // tickText is Tick's pure edit: ticks on seen plus each task's recorded partial commits, notes partials from files.
-func tickText(root, planPath, text, sha string, files, seen []string, recorded func(string) []string, ok func(Task) bool) (out string, ticked, partial []string) {
+func tickText(root, planPath, text, sha string, files, seen []string, recorded func(string, string) ([]string, bool), ok func(Task) bool) (out string, ticked, partial, stale []string) {
 	lines := strings.Split(text, "\n")
 	for _, t := range parseBytes(planPath, []byte(text)).Tasks {
 		if !open(t) || len(t.Owns) == 0 || (ok != nil && !ok(t)) {
 			continue
 		}
 		have := slices.Clone(seen)
+		var gone []string
 		for _, s := range t.Partial {
-			if recorded != nil && !strings.EqualFold(s, sha) {
-				have = append(have, recorded(s)...)
+			if recorded == nil || strings.EqualFold(s, sha) {
+				continue
+			}
+			f, lost := recorded(s, sha)
+			have = append(have, f...)
+			if lost {
+				gone = append(gone, s)
 			}
 		}
 		all, _ := covers(root, t.Owns, have)
 		_, any := covers(root, t.Owns, files)
+		if id := cmp.Or(t.ID, t.Title); len(gone) > 0 && !all {
+			lines = dropPartial(lines, t, gone)
+			stale = append(stale, fmt.Sprintf("plans: earlier commit %s of %s is no longer in history; tick it by hand with `claude-code plan task %s --done`", strings.Join(gone, ", "), id, id))
+		}
 		switch {
 		case all:
 			lines = markDone(lines, t, sha)
@@ -110,7 +136,25 @@ func tickText(root, planPath, text, sha string, files, seen []string, recorded f
 			partial = append(partial, t.Title)
 		}
 	}
-	return strings.Join(lines, "\n"), ticked, partial
+	return strings.Join(lines, "\n"), ticked, partial, stale
+}
+
+// dropPartial removes shas from t's partly-landed note and deletes the note once it names none.
+func dropPartial(lines []string, t Task, shas []string) []string {
+	re := partialRe()
+	for i := t.Start; i <= t.End; i++ {
+		if !re.MatchString(lines[i]) {
+			continue
+		}
+		lines[i] = strings.TrimRight(re.ReplaceAllStringFunc(lines[i], func(comment string) string {
+			kept := slices.DeleteFunc(textutil.SplitCSV(re.FindStringSubmatch(comment)[1]), func(s string) bool { return hasSha(shas, s) })
+			if len(kept) == 0 {
+				return ""
+			}
+			return "<!-- partly landed: " + strings.Join(kept, ", ") + " -->"
+		}), " \t")
+	}
+	return lines
 }
 
 // markDone ticks t's box, drops its claim and partial notes and appends sha (when given) as its landing commit.
@@ -299,16 +343,12 @@ func TickRange(ctx context.Context, dir, worktree, rng, plan string, drafts []st
 	if err != nil {
 		return err
 	}
-	targets, done, err := pickPlans(dir, worktree, plan, drafts, commits, w)
+	targets, allow, done, err := pickPlans(dir, worktree, plan, drafts, commits, w)
 	if err != nil || done {
 		return err
 	}
 	for _, target := range targets {
-		var ok func(Task) bool // a plan named by the caller is always eligible
-		if plan == "" {
-			ok = eligible(target, worktree)
-		}
-		results, err := tickCommits(dir, target, commits, dryRun, ok)
+		results, err := tickCommits(dir, target, commits, dryRun, allow[target]) // a named plan has no allow: every task
 		if err != nil {
 			return err
 		}
@@ -325,20 +365,20 @@ func TickRange(ctx context.Context, dir, worktree, rng, plan string, drafts []st
 	return nil
 }
 
-// pickPlans resolves the plans to tick; done is true when none was chosen and the reason is already printed.
-func pickPlans(dir, worktree, plan string, drafts []string, commits []Commit, w io.Writer) ([]string, bool, error) {
+// pickPlans resolves the plans to tick and their allowed tasks; done is true when none was chosen and printed why.
+func pickPlans(dir, worktree, plan string, drafts []string, commits []Commit, w io.Writer) ([]string, map[string]func(Task) bool, bool, error) {
 	if plan != "" {
 		if abs, err := filepath.Abs(plan); err == nil && slices.Contains(drafts, abs) {
-			return nil, false, fmt.Errorf("%s mirrors an unapproved draft; approve it before ticking", plan)
+			return nil, nil, false, fmt.Errorf("%s mirrors an unapproved draft; approve it before ticking", plan)
 		}
-		return []string{plan}, false, nil
+		return []string{plan}, nil, false, nil
 	}
-	targets, tied := Select(Home(dir), dir, worktree, drafts, commits)
+	targets, tied, allow := Select(Home(dir), dir, worktree, drafts, commits)
 	if len(targets) > 0 {
-		return targets, false, printTie(w, tied)
+		return targets, allow, false, printTie(w, tied)
 	}
 	_, err := fmt.Fprintln(w, "plans: no plan owns these files; nothing to tick")
-	return nil, true, err
+	return nil, nil, true, err
 }
 
 // printTie prints TieNote when plans tied.
@@ -352,8 +392,8 @@ func printTie(w io.Writer, tied []string) error {
 
 // PlanTick is what one commit ticked or marked partly landed in one plan.
 type PlanTick struct {
-	Plan            string
-	Ticked, Partial []string
+	Plan                   string
+	Ticked, Partial, Stale []string
 }
 
 // Notes are the report lines for sha: what ticked and what is partly landed in this plan.
@@ -366,7 +406,7 @@ func (r PlanTick) Notes(sha string) []string {
 	if len(r.Partial) > 0 {
 		out = append(out, "plans: partly landed "+strings.Join(r.Partial, "; ")+" in "+base)
 	}
-	return out
+	return append(out, r.Stale...)
 }
 
 // TieNote is the one line naming plans that own the same file and were all updated; "" when none tied.
@@ -384,13 +424,13 @@ func TickCommit(top, sha string, files []string) (out []PlanTick, tied []string,
 		short = short[:7]
 	}
 	wt := WorktreeName(top)
-	targets, tied := Select(Home(top), top, wt, MirrorDests(), []Commit{{Sha: short, Files: files}})
+	targets, tied, allow := Select(Home(top), top, wt, MirrorDests(), []Commit{{Sha: short, Files: files}})
 	var errs []error
 	for _, p := range targets {
-		results, terr := tickCommits(top, p, []Commit{{Sha: short, Files: files}}, false, eligible(p, wt))
+		results, terr := tickCommits(top, p, []Commit{{Sha: short, Files: files}}, false, allow[p])
 		errs = append(errs, terr)
 		for _, r := range results {
-			out = append(out, PlanTick{p, r.Ticked, r.Partial})
+			out = append(out, PlanTick{p, r.Ticked, r.Partial, r.Stale})
 		}
 	}
 	return out, tied, errors.Join(errs...)
@@ -426,9 +466,21 @@ var shaTail = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?i)(?:\s*\([0-9a-f]{7,40}\)|\s+(?:—|--|-)\s+[0-9a-f]{7,40})((?:\s*<!--.*?-->)*)\s*$`)
 })
 
-// Reopen unticks taskID and removes its landing sha, for a reverted commit.
+// struckLine matches one line struckLines wrote: its ~~ wrapping and, on the last line, the superseded reason.
+var struckLine = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(\s*(?:[-*] \[ \] )?)~~(.*?)~~(?: — superseded: .*)?$`)
+})
+
+// Reopen unticks taskID and removes its landing sha, or restores a struck task; for a reverted commit or a bad strike.
 func Reopen(planPath, taskID string) error {
 	return editTask(planPath, taskID, func(t Task, lines []string) []string {
+		if t.Dropped {
+			span := slices.DeleteFunc(slices.Clone(lines[t.Start:t.End+1]), func(l string) bool { return strings.HasPrefix(strings.TrimSpace(l), "— superseded:") })
+			for i, l := range span {
+				span[i] = struckLine().ReplaceAllString(l, "${1}${2}")
+			}
+			return slices.Concat(lines[:t.Start], span, lines[t.End+1:])
+		}
 		if !t.Done {
 			return lines
 		}
@@ -513,6 +565,11 @@ func printTicked(w io.Writer, results []tickResult, base string, dryRun bool) er
 		}
 		if len(r.Partial) > 0 {
 			if _, err := fmt.Fprintf(w, "plans: partly landed %s (%s) in %s\n", strings.Join(r.Partial, "; "), r.Sha, base); err != nil {
+				return err
+			}
+		}
+		for _, line := range r.Stale {
+			if _, err := fmt.Fprintln(w, line); err != nil {
 				return err
 			}
 		}
