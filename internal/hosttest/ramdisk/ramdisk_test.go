@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -55,6 +57,29 @@ func TestRunOnDiskPassesTMPDIRAndExitCodeThenDetaches(t *testing.T) {
 	}
 	if len(f.detached) != 1 || f.detached[0] != "/dev/disk9" {
 		t.Errorf("detached = %v, want the attached device once", f.detached)
+	}
+}
+
+func TestRunCancelDuringAttachDetachesAndSkipsCommand(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("signals to self are not supported on windows")
+	}
+	f := stubDisk(t, "darwin", nil)
+	attach = func(volume string) (string, string, error) {
+		p, _ := os.FindProcess(os.Getpid())
+		_ = p.Signal(syscall.SIGTERM)
+		time.Sleep(300 * time.Millisecond) // let the runtime deliver it to the handler
+		return "/dev/disk9", f.tmp, nil
+	}
+	out := filepath.Join(t.TempDir(), "tmpdir")
+	if code := Run(probe(out, "0")); code != 143 {
+		t.Errorf("exit = %d, want 143", code)
+	}
+	if _, err := os.Stat(out); err == nil {
+		t.Error("command ran despite the cancel")
+	}
+	if len(f.detached) != 1 {
+		t.Errorf("detached %v, want one detach", f.detached)
 	}
 }
 

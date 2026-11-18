@@ -8,9 +8,11 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"runtime"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
@@ -59,13 +61,33 @@ func Run(args []string) int {
 	if goos != "darwin" || os.Getenv(offEnv) == "0" {
 		return run(argv, "")
 	}
+	sigs := make(chan os.Signal, 2)
+	signal.Notify(sigs, os.Interrupt, syscall.SIGTERM) // before attach, so a cancel at any point still detaches
+	defer signal.Stop(sigs)
 	dev, tmp, err := attach(fmt.Sprintf("claude-code-test-%d", os.Getpid()))
+	if code, cancelled := cancelledDuring(sigs, dev, err); cancelled {
+		return code
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "claude-code: test ramdisk: using the normal TMPDIR (expect a slower run): %v\n", err)
 		return run(argv, "")
 	}
 	defer detach(dev)
 	return run(argv, tmp)
+}
+
+// cancelledDuring detaches a just-attached disk and returns 128+signal when a cancel arrived during attach.
+func cancelledDuring(sigs <-chan os.Signal, dev string, attachErr error) (int, bool) {
+	select {
+	case s := <-sigs:
+		if attachErr == nil {
+			detach(dev)
+		}
+		n, _ := s.(syscall.Signal)
+		return 128 + int(n), true
+	default:
+		return 0, false
+	}
 }
 
 // run starts argv with TMPDIR set when tmp is non-empty and survives signals, so the caller lives to detach.

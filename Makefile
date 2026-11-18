@@ -178,21 +178,33 @@ setup-env:  ## Print the PATH line (APPLY=1 writes shell rc)
 ##@ Quality
 # Umbrella gate on the working-tree build (bin/.lint, never the live binary): lint, test and the read-only checks run in
 # parallel with one log per stage; the writers (lint-docs, agents sync) run alone afterwards. Compile + vet cover the build.
+# Each worker runs under `set -m` (own process group) so a cancel signals `-pid` and reaches its grandchildren.
+# AUDIT_INNER=1 drops the audit-* targets' `compile` prerequisite: audit compiles once, standalone runs compile themselves.
+AUDIT_LINT   ?= $(MAKE) lint SKIP=docs
+AUDIT_TEST   ?= if [ "$(SKIP_TESTS)" = 1 ]; then echo -e "$(C_NOTE)tests skipped (SKIP_TESTS=1)"; else $(BIN) test ramdisk -- $(MAKE) audit-test; fi
+AUDIT_CHECKS ?= $(MAKE) -k audit-git audit-vuln audit-prompts audit-svg BIN=$(BIN) AUDIT_INNER=1
+AUDIT_PRE    := $(if $(AUDIT_INNER),,compile)
 .PHONY: audit
 audit: BIN := bin/.lint/$(BINARY)
 audit: check-clean compile  ## Local gate: lint, git secrets, test, build, vuln, docs
-	@d=$$(mktemp -d); trap 'rm -r -f -- "$$d"' EXIT; trap 'trap - INT TERM; rm -r -f -- "$$d"; kill 0' INT TERM; \
-	names=(lint test checks); pids=(); \
-	$(MAKE) lint SKIP=docs >"$$d/lint" 2>&1 & pids+=($$!); \
-	( if [ "$(SKIP_TESTS)" = 1 ]; then echo -e "$(C_NOTE)tests skipped (SKIP_TESTS=1)"; \
-		else $(BIN) test ramdisk -- $(MAKE) audit-test; fi ) >"$$d/test" 2>&1 & pids+=($$!); \
-	$(MAKE) -k audit-git audit-vuln audit-prompts audit-svg BIN=$(BIN) >"$$d/checks" 2>&1 & pids+=($$!); \
-	rc=0; for i in 0 1 2; do if wait $${pids[$$i]}; then s=ok; else s=FAILED; rc=1; fi; \
-		echo "== $${names[$$i]}: $$s =="; cat "$$d/$${names[$$i]}"; done; \
+	@set -euo pipefail; d=$$(mktemp -d); c=0; rc=0; pids=(); names=(lint test checks); set -m; \
+	trap 'rm -r -f -- "$$d"' EXIT; \
+	stop() { c=$$1; for p in $${pids[@]+"$${pids[@]}"}; do kill -TERM -- -$$p 2>/dev/null || :; done; }; \
+	trap 'stop 130' INT; trap 'stop 143' TERM; \
+	( $(AUDIT_LINT) ) >"$$d/lint" 2>&1 </dev/null & pids+=($$!); \
+	( $(AUDIT_TEST) ) >"$$d/test" 2>&1 </dev/null & pids+=($$!); \
+	( $(AUDIT_CHECKS) ) >"$$d/checks" 2>&1 </dev/null & pids+=($$!); set +m; \
+	for i in 0 1 2; do n=$${names[$$i]}; if wait $${pids[$$i]}; then s=ok; else s=FAILED; fi; \
+		if [ $$c != 0 ]; then wait $${pids[$$i]} 2>/dev/null || :; s=cancelled; fi; \
+		[ $$s = ok ] || rc=1; echo "== $$n: $$s =="; cat "$$d/$$n" || rc=1; done; \
+	[ $$c = 0 ] || { echo "audit cancelled" >&2; exit $$c; }; \
 	[ $$rc = 0 ] || { echo "audit failed: see the FAILED stages above" >&2; exit 1; }
 	@$(MAKE) lint-docs CHECK=1
-	@$(MAKE) audit-sync BIN=$(BIN)
+	@$(MAKE) audit-sync BIN=$(BIN) AUDIT_INNER=1
 	@echo -e "$(C_OK)audit passed (lint/test/build + sync smoke + generated docs; vuln when installed and online)"
+
+audit-git audit-prompts audit-svg audit-sync: BIN := bin/.lint/$(BINARY)
+audit-git audit-prompts audit-svg audit-sync: $(AUDIT_PRE)
 
 .PHONY: audit-vuln
 audit-vuln:  # (folded into `audit`) govulncheck when installed and vuln.go.dev answers
@@ -279,8 +291,8 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 only re
 		else echo -e "$(C_NOTE)shellcheck not on PATH — skipped"; fi ;; \
 	yaml) if ! command -v yamlfmt >/dev/null 2>&1; then echo -e "$(C_NOTE)yamlfmt not installed — skipped (make install)"; \
 		elif [ -n "$(YAML_FILES)" ]; then yamlfmt -lint $(YAML_FILES); fi ;; \
-	help) out="$$($(MAKE) --no-print-directory help | sed 's/\x1b\[[0-9;]*m//g' | awk \
-			'length>80 && substr($$0,20) ~ / / {print "over 80: " $$0} /^   / && !/^                   [^ ]/ {print "misaligned continuation: " $$0}')"; \
+	help) set -o pipefail; out="$$($(MAKE) --no-print-directory help | sed 's/\x1b\[[0-9;]*m//g' | awk \
+			'length>80 && substr($$0,20) ~ / / {print "over 80: " $$0} /^   / && !/^                   [^ ]/ {print "misaligned continuation: " $$0}')" || { echo "make help failed"; exit 1; }; \
 		if [ -n "$$out" ]; then echo "help rows break the wrap rule:"; echo "$$out"; exit 1; fi ;; \
 	docs) rc=0; $(MDSMITH) $(if $(filter 1,$(CHECK)),check,fix) || rc=1; \
 		live="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}"; \
