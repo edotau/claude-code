@@ -22,6 +22,8 @@ paths:
 
 - Transcript cleanup: `claude-code doctor --secrets --fix` masks idle Claude and harness transcript stores in place at
   the same byte length; optional paths restrict the pass. Codex and Copilot session stores are not enabled yet.
+  `--secrets` scans transcripts modified within seven days (`--days N` changes the window, `--days 0` covers all
+  ages) and prints each store's counts and older-file skips; `--since N` limits git commits only.
 - Secrets: CLAUDE.md hard rule 2; `configure provider --list` shows the source, never the value. Credential verbs
   (`vault get`, `resolve`, `gateway proxy --client-token`, `network tailscale --key`) print `<redacted: N bytes>`
   (to a pipe also exit 1) unless `--secret`, which only the main session may run; a leaf gets credentials at launch

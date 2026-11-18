@@ -46,7 +46,7 @@ func doctorFlags() (*flag.FlagSet, *doctorOpts) {
 	fs := helptext.NewFlagSet("doctor", doctorPage)
 	o := &doctorOpts{format: helptext.FormatFlag(fs)}
 	fs.BoolVar(&o.auditMode, "audit", false, "print the typed action log instead of health checks")
-	fs.IntVar(&o.days, "days", 7, "with --audit: events from the last N days")
+	fs.IntVar(&o.days, "days", 7, "with --audit/--secrets: last N days (0 = all)")
 	fs.BoolVar(&o.scan, "scan", false, "scan paths given, else configs and vault, for inline secrets")
 	fs.BoolVar(&o.gitScan, "git", false, "scan this repo's git history for committed secrets")
 	fs.IntVar(&o.since, "since", 0, "with --git or --secrets: only the last N commits (0 = all)")
@@ -87,7 +87,7 @@ func strayFlags(fs *flag.FlagSet, o *doctorOpts) (string, bool) {
 		name, mode string
 		on         bool
 	}{
-		{"days", "--audit", o.auditMode}, {"since", "--git or --secrets", git}, {"range", "--git or --secrets", git},
+		{"days", "--audit or --secrets", o.auditMode || o.all}, {"since", "--git or --secrets", git}, {"range", "--git or --secrets", git},
 		{"agent", "--permissions", o.permissions}, {"fix", "--secrets", o.all},
 	} {
 		if helptext.Explicit(fs, f.name) && !f.on {
@@ -195,13 +195,16 @@ func runDoctorAudits(o *doctorOpts, targets []string) int {
 		helptext.Fail("doctor: --scan, --git and --secrets print text only")
 		return 2
 	}
+	if o.all && o.days < 0 {
+		return helptext.FailUsage("doctor: --days must be nonnegative (0 = all)")
+	}
 	rc := 0
 	if !o.fix || len(targets) == 0 {
 		rc = runAudits(os.Stdout, auditOpts{Scan: o.scan || o.all, Git: o.gitScan || o.all, Vault: o.all,
 			Targets: targets, Rev: o.rev, Since: o.since})
 	}
 	if o.all {
-		rc = max(rc, transcriptAudit(os.Stdout, o.fix, targets))
+		rc = max(rc, transcriptAudit(os.Stdout, o.fix, targets, o.days))
 	}
 	return rc
 }

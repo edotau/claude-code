@@ -8,8 +8,10 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -77,7 +79,7 @@ func transcriptMatcher() (*secretredact.Matcher, error) {
 	})
 }
 
-func transcriptAudit(w io.Writer, fix bool, targets []string) int {
+func transcriptAudit(w io.Writer, fix bool, targets []string, days int) int {
 	ew := &textutil.ErrWriter{W: w}
 	fmt.Fprintln(ew, "\n== transcript stores ==")
 	m, err := transcriptMatcher()
@@ -90,10 +92,10 @@ func transcriptAudit(w io.Writer, fix bool, targets []string) int {
 		}
 	}
 	fmt.Fprintf(ew, "  vault values skipped: %d\n", m.Skipped)
-	for _, store := range transcriptStores() {
-		counts := scanTranscriptStore(store, m, fix, targets)
-		printTranscriptCounts(ew, store, counts)
-		if counts.failed > 0 || (!fix && counts.matches > 0) {
+	counter := secretredact.NewCounter(m)
+	for result := range transcriptResults(counter, fix, targets, days) {
+		printTranscriptCounts(ew, result.store, result.counts)
+		if result.counts.failed > 0 || (!fix && result.counts.matches > 0) {
 			rc = 1
 		}
 	}
@@ -107,7 +109,7 @@ func transcriptAudit(w io.Writer, fix bool, targets []string) int {
 func printTranscriptCounts(w io.Writer, store transcriptStore, c transcriptCounts) {
 	fmt.Fprintf(w, "  %s: scanned %d, with matches %d, matches %d, masked files %d, matches masked %d, bytes %d",
 		store.name, c.scanned, c.found, c.matches, c.masked, c.maskedMatches, c.bytes)
-	for _, reason := range []string{"not yet enabled", "symlink or outside root", "not idle", "would not stay valid", "error"} {
+	for _, reason := range []string{"older (include with --days 0)", "not yet enabled", "symlink or outside root", "not idle", "would not stay valid", "error"} {
 		if n := c.skipped[reason]; n > 0 || (reason == "not yet enabled" && store.disabled) {
 			fmt.Fprintf(w, ", skipped: %s %d", reason, n)
 		}
@@ -128,41 +130,42 @@ func transcriptSelected(path string, targets []string) bool {
 	return false
 }
 
-func scanTranscriptStore(s transcriptStore, m *secretredact.Matcher, fix bool, targets []string) transcriptCounts {
+func scanTranscriptStore(s transcriptStore, counter *secretredact.Counter, fix bool, targets []string, cutoff time.Time, slots chan struct{}) transcriptCounts {
 	c := transcriptCounts{skipped: map[string]int{}}
+	var wg sync.WaitGroup
+	results := make(chan transcriptCounts)
+	total := collectTranscriptCounts(results)
 	root, err := filepath.Abs(s.root)
 	if err != nil {
-		c.failed++
-		c.skipped["error"]++
+		close(results)
+		mergeTranscriptCounts(&c, <-total)
+		transcriptFailure(&c, err)
 		return c
 	}
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
-		if errors.Is(walkErr, fs.ErrNotExist) && path == root {
+		if !transcriptWalkEntry(&c, s, root, path, d, walkErr, targets) {
 			return nil
 		}
-		if walkErr != nil {
-			c.failed++
-			c.skipped["error"]++
-			return nil
-		}
-		if d.Type()&os.ModeSymlink != 0 {
-			c.skipped["symlink or outside root"]++
-			return nil
-		}
-		if d.IsDir() || !s.accept(path) || !transcriptSelected(path, targets) {
-			return nil
-		}
-		scanTranscriptEntry(&c, s, path, d, m, fix)
+		slots <- struct{}{}
+		wg.Go(func() {
+			entry := transcriptCounts{skipped: map[string]int{}}
+			scanTranscriptEntry(&entry, s, path, d, counter, fix, cutoff)
+			<-slots
+			results <- entry
+		})
 		return nil
 	})
 	if err != nil {
 		c.failed++
 		c.skipped["error"]++
 	}
+	wg.Wait()
+	close(results)
+	mergeTranscriptCounts(&c, <-total)
 	return c
 }
 
-func scanTranscriptEntry(c *transcriptCounts, s transcriptStore, path string, d fs.DirEntry, m *secretredact.Matcher, fix bool) {
+func scanTranscriptEntry(c *transcriptCounts, s transcriptStore, path string, d fs.DirEntry, counter *secretredact.Counter, fix bool, cutoff time.Time) {
 	info, err := d.Info()
 	if err != nil {
 		c.failed++
@@ -177,7 +180,14 @@ func scanTranscriptEntry(c *transcriptCounts, s transcriptStore, path string, d 
 		c.bytes += info.Size()
 		return
 	}
-	resolved, err := filepath.EvalSymlinks(path)
+	if !cutoff.IsZero() && info.ModTime().Before(cutoff) {
+		c.skipped["older (include with --days 0)"]++
+		return
+	}
+	resolved := path
+	if fix {
+		resolved, err = filepath.EvalSymlinks(path)
+	}
 	if err != nil || resolved != path {
 		c.skipped["symlink or outside root"]++
 		return
@@ -188,11 +198,15 @@ func scanTranscriptEntry(c *transcriptCounts, s transcriptStore, path string, d 
 	}
 	c.scanned++
 	c.bytes += info.Size()
-	hits, err := transcriptFile(path, m, fix)
+	hits, err := transcriptCountFile(path, counter, fix)
 	if err != nil {
 		transcriptFailure(c, err)
 		return
 	}
+	recordTranscriptHits(c, hits, fix)
+}
+
+func recordTranscriptHits(c *transcriptCounts, hits int, fix bool) {
 	if hits > 0 {
 		c.found++
 		c.matches += hits
@@ -201,6 +215,21 @@ func scanTranscriptEntry(c *transcriptCounts, s transcriptStore, path string, d 
 		c.masked++
 		c.maskedMatches += hits
 	}
+}
+
+func transcriptWalkEntry(c *transcriptCounts, s transcriptStore, root, path string, d fs.DirEntry, err error, targets []string) bool {
+	if errors.Is(err, fs.ErrNotExist) && path == root {
+		return false
+	}
+	if err != nil {
+		transcriptFailure(c, err)
+		return false
+	}
+	if d.Type()&os.ModeSymlink != 0 {
+		c.skipped["symlink or outside root"]++
+		return false
+	}
+	return !d.IsDir() && s.accept(path) && transcriptSelected(path, targets)
 }
 
 func transcriptFailure(c *transcriptCounts, err error) {
@@ -230,4 +259,62 @@ func transcriptFile(path string, m *secretredact.Matcher, fix bool) (int, error)
 		}
 	}
 	return secretredact.File(path, m, transcriptIdle)
+}
+
+type transcriptResult struct {
+	store  transcriptStore
+	counts transcriptCounts
+}
+
+func transcriptResults(counter *secretredact.Counter, fix bool, targets []string, days int) <-chan transcriptResult {
+	results := make(chan transcriptResult)
+	cutoff := time.Time{}
+	if days > 0 {
+		cutoff = time.Now().AddDate(0, 0, -days)
+	}
+	workers := max(1, min(4, runtime.GOMAXPROCS(0)/2))
+	if fix {
+		workers = 1
+	}
+	slots := make(chan struct{}, workers)
+	var wg sync.WaitGroup
+	for _, store := range transcriptStores() {
+		wg.Go(func() {
+			results <- transcriptResult{store, scanTranscriptStore(store, counter, fix, targets, cutoff, slots)}
+		})
+	}
+	go func() { wg.Wait(); close(results) }()
+	return results
+}
+
+func collectTranscriptCounts(results <-chan transcriptCounts) <-chan transcriptCounts {
+	total := make(chan transcriptCounts, 1)
+	go func() {
+		c := transcriptCounts{skipped: map[string]int{}}
+		for entry := range results {
+			mergeTranscriptCounts(&c, entry)
+		}
+		total <- c
+	}()
+	return total
+}
+
+func mergeTranscriptCounts(c *transcriptCounts, entry transcriptCounts) {
+	c.scanned += entry.scanned
+	c.found += entry.found
+	c.matches += entry.matches
+	c.masked += entry.masked
+	c.maskedMatches += entry.maskedMatches
+	c.failed += entry.failed
+	c.bytes += entry.bytes
+	for reason, n := range entry.skipped {
+		c.skipped[reason] += n
+	}
+}
+
+func transcriptCountFile(path string, counter *secretredact.Counter, fix bool) (int, error) {
+	if fix {
+		return transcriptFile(path, counter.Matcher(), true)
+	}
+	return counter.File(path)
 }

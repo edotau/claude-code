@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	secretredact "github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -140,4 +143,167 @@ func transcriptMasked(t *testing.T, files []string, original []byte) {
 			}
 		}
 	}
+}
+
+func TestTranscriptWindow(t *testing.T) {
+	cfg := resolvedPath(vaulttest.UseFreshKey(t))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("TMPDIR", t.TempDir())
+	path := filepath.Join(cfg, "projects", "old.jsonl")
+	transcriptWrite(t, path, []byte("sk-"+strings.Repeat("A", 24)), 8*24*time.Hour)
+	_, opts := doctorFlags()
+	if opts.days != 7 {
+		t.Fatal("default window is not seven days")
+	}
+	var report bytes.Buffer
+	if code := transcriptAudit(&report, false, nil, opts.days); code != 0 {
+		t.Fatalf("default exit %d", code)
+	}
+	if !strings.Contains(report.String(), "claude projects: scanned 0") || !strings.Contains(report.String(), "older (include with --days 0) 1") {
+		t.Fatal("old transcript not explicitly skipped")
+	}
+	report.Reset()
+	if code := transcriptAudit(&report, false, nil, 0); code != 1 {
+		t.Fatalf("all ages exit %d", code)
+	}
+	if !strings.Contains(report.String(), "claude projects: scanned 1, with matches 1, matches 1") {
+		t.Fatal("all ages did not read old transcript")
+	}
+}
+
+func TestTranscriptCountBoundary(t *testing.T) {
+	m := secretredact.FromValues([]string{transcriptFake})
+	counter := secretredact.NewCounter(m)
+	forms := []string{
+		transcriptFake, base64.StdEncoding.EncodeToString([]byte(transcriptFake)),
+		"sk-" + strings.Repeat("A", 64), "BeArEr " + strings.Repeat("A", 64),
+		"eyJ" + strings.Repeat("a", 20) + "." + strings.Repeat("b", 20),
+		"-----BEGIN PRIVATE KEY-----\n" + strings.Repeat("A", 2*secretredact.CountWindow) + "\n-----END PRIVATE KEY-----",
+	}
+	for i, form := range forms {
+		for _, delta := range []int{-20, -2, 0, 2} {
+			input := append(bytes.Repeat([]byte(" "), secretredact.CountWindow+delta), []byte(form)...)
+			input = append(input, '\n')
+			want := m.Mask(bytes.Clone(input))
+			if want != 1 {
+				t.Fatal("fixture must contain exactly one match")
+			}
+			path := filepath.Join(t.TempDir(), "boundary.jsonl")
+			transcriptWrite(t, path, input, time.Hour)
+			got, err := counter.File(path)
+			if err != nil || got != want {
+				t.Fatalf("form %d delta %d: count %d want %d error %v", i, delta, got, want, err)
+			}
+		}
+	}
+}
+
+func TestTranscriptCountPrefilter(t *testing.T) {
+	m := secretredact.FromValues([]string{transcriptFake, "Abcdefghijkl0123456789"})
+	counter := secretredact.NewCounter(m)
+	forms := []string{"ghp_a", "xoxb-a", "ordinary prose", transcriptFake, "Bearer " + transcriptFake,
+		"sk-" + strings.Repeat("a", 24), "dapi" + strings.Repeat("a", 32),
+		"nvapi-" + strings.Repeat("A", 24), "ghp_" + strings.Repeat("A", 28),
+		"github_pat_" + strings.Repeat("A", 22), "AIza" + strings.Repeat("A", 35),
+		"tvly-" + strings.Repeat("A", 16), "gsk_" + strings.Repeat("A", 24),
+		"AKIA" + strings.Repeat("A", 16), "ASIA" + strings.Repeat("A", 16),
+		"xoxb-" + strings.Repeat("A", 12), "[redacted]************************",
+		transcriptFake + transcriptFake, "YOUR_sk-" + strings.Repeat("A", 24), "Bearer\t" + transcriptFake + strings.Repeat("*", 50),
+	}
+	for i, form := range forms {
+		path := filepath.Join(t.TempDir(), "candidate.txt")
+		input := []byte(form)
+		transcriptWrite(t, path, input, time.Hour)
+		want := m.Mask(bytes.Clone(input))
+		got, err := counter.File(path)
+		if err != nil || got != want {
+			t.Fatalf("case %d: count %d want %d error %v", i, got, want, err)
+		}
+	}
+}
+
+func TestTranscriptCountParity(t *testing.T) {
+	values := []string{transcriptFake, transcriptFake[10:] + "TAIL", "ghp_Ab12", "Énergie-0123456789", "\xffAbcdefghijkl012"}
+	m := secretredact.FromValues(values)
+	counter := secretredact.NewCounter(m)
+	random := rand.New(rand.NewPCG(1, 2))
+	pieces := []string{"Énergie-0123456789", "\xffAbcdefghijkl012", "plain ", "ghp_a", "xoxb-a", "[redacted]******", "ghp_Ab12", transcriptFake,
+		transcriptFake[10:] + "TAIL", "Bearer " + strings.Repeat("Ab1_", 12),
+		"sk-" + strings.Repeat("a", 24), "github_pat_", "YOUR_sk-" + strings.Repeat("a", 24),
+		"-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----", "\n", " ", "_", "."}
+	path := filepath.Join(t.TempDir(), "parity.txt")
+	for i := range 200 {
+		var input []byte
+		for range 20 {
+			input = append(input, pieces[random.IntN(len(pieces))]...)
+		}
+		transcriptWrite(t, path, input, time.Hour)
+		want := m.Mask(bytes.Clone(input))
+		got, err := counter.File(path)
+		if err != nil || got != want {
+			t.Fatalf("case %d count %d want %d error %v", i, got, want, err)
+		}
+	}
+}
+
+func BenchmarkTranscriptStore(b *testing.B) {
+	for _, count := range []int{1, 500} {
+		for _, streaming := range []bool{false, true} {
+			b.Run(fmt.Sprintf("files=%d/stream=%t", count, streaming), func(b *testing.B) {
+				benchmarkTranscriptStore(b, count, streaming)
+			})
+		}
+	}
+}
+
+func benchmarkTranscriptStore(b *testing.B, count int, streaming bool) {
+	size := 400 << 10
+	if count == 1 {
+		size = 300 << 20
+	}
+	files := transcriptBenchmarkFiles(b, count, size)
+	m := secretredact.FromValues([]string{transcriptFake})
+	counter := secretredact.NewCounter(m)
+	b.SetBytes(int64(count * size))
+	b.ReportAllocs()
+	b.ResetTimer()
+	for b.Loop() {
+		for _, path := range files {
+			var err error
+			if streaming {
+				_, err = counter.File(path)
+			} else {
+				_, err = transcriptFile(path, m, false)
+			}
+			if err != nil {
+				b.Fatal(err)
+			}
+		}
+	}
+}
+
+func transcriptBenchmarkFiles(b *testing.B, count, size int) []string {
+	b.Helper()
+	root := b.TempDir()
+	block := bytes.Repeat([]byte("ordinary prose. "), 4096)
+	files := make([]string, count)
+	for i := range count {
+		path := filepath.Join(root, fmt.Sprintf("%d.txt", i))
+		f, err := os.Create(path)
+		if err != nil {
+			b.Fatal(err)
+		}
+		for written := 0; written < size; {
+			n, err := f.Write(block[:min(len(block), size-written)])
+			if err != nil {
+				b.Fatal(err)
+			}
+			written += n
+		}
+		if err := f.Close(); err != nil {
+			b.Fatal(err)
+		}
+		files[i] = path
+	}
+	return files
 }
