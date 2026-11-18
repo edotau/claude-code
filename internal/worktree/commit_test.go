@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/shell"
 )
 
@@ -20,6 +21,8 @@ import (
 func commitRepo(t *testing.T) string {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(proc.DispatchIDEnv, "")
+	t.Setenv(proc.DispatchDepthEnv, "")
 	dir := paths.Real(hosttest.Repo(t))
 	for _, f := range []string{"a.txt", "b.txt", "c.txt"} {
 		hosttest.WriteRel(t, dir, f, "base\n")
@@ -274,10 +277,62 @@ func TestCommitNoPathsRefusesClaimsOfSeveralAgents(t *testing.T) {
 	if err := os.Remove(filepath.Join(ClaimsDir(), fmt.Sprintf("%d-me.jsonl", peerPid))); err != nil {
 		t.Fatal(err)
 	}
-	claimAs(t, "me", "leaf-1", filepath.Join(dir, "a.txt")) // one agent id: the selection is unambiguous
-	claimAs(t, "me", "leaf-1", filepath.Join(dir, "b.txt"))
-	if _, err := commitRun(commitReq(dir, "fix: leaf")); err != nil {
+	claimAs(t, "me", "leaf-1", filepath.Join(dir, "a.txt")) // a subagent's claims alone are refused too
+	_, err = commitRun(commitReq(dir, "fix: leaf"))
+	wantCode(t, err, 2)
+}
+
+func TestCommitNoPathsTakesOnlyMainClaims(t *testing.T) {
+	dir := commitRepo(t)
+	hosttest.WriteRel(t, dir, "a.txt", "main's\n")
+	claimAs(t, "me", "", filepath.Join(dir, "a.txt"))
+	if _, err := commitRun(commitReq(dir, "fix: main")); err != nil {
 		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(commitFiles(t, dir)); got != "M\ta.txt" {
+		t.Fatalf("commit holds %q", got)
+	}
+}
+
+func TestCommitCLIDispatchNeedsNamedFiles(t *testing.T) {
+	dir := commitRepo(t)
+	t.Setenv(proc.DispatchIDEnv, "d1")
+	hosttest.WriteRel(t, dir, "a.txt", "main's\n")
+	claimAs(t, "me", "", filepath.Join(dir, "a.txt"))
+	head := hosttest.In(t, dir, "rev-parse", "HEAD")
+	_, err := commitRun(commitReq(dir, "fix: x"))
+	wantCode(t, err, 2)
+	if !strings.Contains(err.Error(), "name your files") || hosttest.In(t, dir, "rev-parse", "HEAD") != head {
+		t.Fatalf("err = %v, HEAD must not move", err)
+	}
+}
+
+func TestCommitCLIDispatchRefusesSessionClaims(t *testing.T) {
+	dir := commitRepo(t)
+	t.Setenv(proc.DispatchIDEnv, "d1")
+	hosttest.WriteRel(t, dir, "a.txt", "main's\n")
+	hosttest.WriteRel(t, dir, "b.txt", "sibling's\n")
+	claimAs(t, "me", "", filepath.Join(dir, "a.txt"))
+	claimAs(t, "me", "leaf-2", filepath.Join(dir, "b.txt"))
+	for f, who := range map[string]string{"a.txt": "this session's main agent", "b.txt": "sibling leaf leaf-2"} {
+		_, err := commitRun(commitReq(dir, "fix: x", f))
+		wantCode(t, err, 1)
+		if !strings.Contains(err.Error(), f+" is claimed by "+who) {
+			t.Fatalf("%s: error = %v, want the holder named", f, err)
+		}
+	}
+}
+
+func TestCommitCLIDispatchCommitsUnclaimedFile(t *testing.T) {
+	dir := commitRepo(t)
+	t.Setenv(proc.DispatchDepthEnv, "1")
+	hosttest.WriteRel(t, dir, "c.txt", "leaf's own\n")
+	claimAs(t, "me", "", filepath.Join(dir, "a.txt"))
+	if _, err := commitRun(commitReq(dir, "fix: leaf", "c.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.TrimSpace(commitFiles(t, dir)); got != "M\tc.txt" {
+		t.Fatalf("commit holds %q", got)
 	}
 }
 
@@ -376,5 +431,63 @@ func TestCommitRefusesWhenIndexIsLocked(t *testing.T) {
 	wantCode(t, err, 1)
 	if _, statErr := os.Stat(lock); statErr != nil {
 		t.Fatal("the verb removed a lock it does not own")
+	}
+}
+
+// failingCommitIndex stages new.txt as runCommit's add would and returns the index bytes before and after.
+func failingCommitIndex(t *testing.T, dir string) (idx string, before, after []byte) {
+	t.Helper()
+	hosttest.WriteRel(t, dir, "new.txt", "x\n")
+	idx = strings.TrimSpace(hosttest.In(t, dir, "rev-parse", "--path-format=absolute", "--git-path", "index"))
+	before = indexBytes(t, dir)
+	hosttest.In(t, dir, "add", "new.txt")
+	return idx, before, indexBytes(t, dir)
+}
+
+func TestUndoAddRestoresUnderLockAndLeavesNoLock(t *testing.T) {
+	dir := commitRepo(t)
+	idx, before, after := failingCommitIndex(t, dir)
+	if err := undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(indexBytes(t, dir), before) {
+		t.Fatal("the index is not byte identical to before")
+	}
+	if _, err := os.Stat(idx + ".lock"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("index.lock left behind: %v", err)
+	}
+}
+
+func TestUndoAddWithForeignLockUnstagesOurFilesOnly(t *testing.T) {
+	dir := commitRepo(t)
+	idx, before, after := failingCommitIndex(t, dir)
+	if err := os.WriteFile(idx+".lock", []byte("theirs"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"})
+	if err == nil || !strings.Contains(err.Error(), "held by another process") ||
+		!strings.Contains(err.Error(), "git rm --cached") {
+		t.Fatalf("err = %v, want the fallback named", err)
+	}
+	if b, _ := os.ReadFile(idx + ".lock"); string(b) != "theirs" {
+		t.Fatal("the other process's lock was touched")
+	}
+}
+
+func TestUndoAddKeepsPeerStagedEntry(t *testing.T) {
+	dir := commitRepo(t)
+	idx, before, after := failingCommitIndex(t, dir)
+	hosttest.WriteRel(t, dir, "c.txt", "peer\n")
+	hosttest.In(t, dir, "add", "c.txt") // a peer's add lands between our add and the rollback
+	err := undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"})
+	if err == nil || !strings.Contains(err.Error(), "index changed since our add") {
+		t.Fatalf("err = %v", err)
+	}
+	st := hosttest.In(t, dir, "status", "--porcelain")
+	if !strings.Contains(st, "M  c.txt") || strings.Contains(st, "A  new.txt") {
+		t.Fatalf("status = %q, want the peer's entry kept and ours unstaged", st)
+	}
+	if _, err := os.Stat(idx + ".lock"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("index.lock left behind: %v", err)
 	}
 }

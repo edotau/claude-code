@@ -8,7 +8,7 @@
    `hotfix/<issue>-<description>`, `test/<feature>`; delete after merging.
 3. **Stage named files only** (never `add -A`, `.` or a directory); commit when the request or
    an approved wave plan authorizes it, else confirm first. `claude-code worktree commit -m <msg> [files]` is the way
-   to commit: it takes only named or claimed files and refuses a peer's. A file another live session or leaf has uncommitted edits
+   to commit: it takes only named files, or with none the main session's own claims (a subagent or CLI leaf must name its files; a CLI leaf is refused any claimed file), and refuses a peer's. A file another live session or leaf has uncommitted edits
    in asks first (`worktree-claim-check` blocks a leaf under `~/.claude`, asks elsewhere).
 4. Atomic commits, one logical change each; never force-push a shared branch; never skip gates.
 5. Read scoped checks' exit codes before `git push`; chain with `&&`, never `;`; a docs

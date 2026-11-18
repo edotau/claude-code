@@ -64,7 +64,8 @@ func Commit(ctx context.Context, req CommitRequest) error {
 	if strings.TrimSpace(req.Message) == "" {
 		return usage("give the message with -m")
 	}
-	set, err := commitSet(req, tree)
+	dispatched := proc.InDispatch(ctx)
+	set, err := commitSet(req, tree, dispatched)
 	if err != nil {
 		return err
 	}
@@ -72,7 +73,7 @@ func Commit(ctx context.Context, req CommitRequest) error {
 	if err != nil {
 		return err
 	}
-	if err := checkHolders(ctx, req, tree, set); err != nil {
+	if err := checkHolders(ctx, req, tree, set, dispatched); err != nil {
 		return err
 	}
 	untracked := printSet(ctx, req.Out, tree, set)
@@ -89,13 +90,16 @@ func Commit(ctx context.Context, req CommitRequest) error {
 }
 
 // commitSet is the repo-relative dirty paths to commit: named ones, else the caller's own claimed ones.
-func commitSet(req CommitRequest, t commitTree) ([]string, error) {
+func commitSet(req CommitRequest, t commitTree, dispatched bool) ([]string, error) {
 	var want []string
 	var err error
 	if len(req.Paths) > 0 {
 		if want, err = namedPaths(req.Dir, t.top, req.Paths); err != nil {
 			return nil, err
 		}
+	} else if dispatched {
+		return nil, usage("a dispatched leaf's own edits carry no claims: name your files " +
+			"(claude-code worktree commit -m <msg> <files>)")
 	} else if want, err = ownClaimed(req, t); err != nil {
 		return nil, err
 	}
@@ -159,10 +163,10 @@ func inCheckout(top, p string) (string, bool) {
 	return filepath.ToSlash(rel), ok
 }
 
-// ownClaimed is the dirty paths this session claimed under top; claims of several agents are ambiguous.
+// ownClaimed is the dirty paths the main session claimed under top; any subagent's claim makes the pick ambiguous.
 func ownClaimed(req CommitRequest, t commitTree) ([]string, error) {
 	var out []string
-	agents := map[string]bool{}
+	subagent := false
 	own := req.Source.Owner
 	_ = ScanClaims(req.Source.Alive, func(pid int, slug string, c Claim) {
 		if slug != req.Source.Self && pid != own() {
@@ -172,14 +176,17 @@ func ownClaimed(req CommitRequest, t commitTree) ([]string, error) {
 		if !ok || !t.dirty[c.Path] {
 			return
 		}
-		agents[c.Agent] = true
+		subagent = subagent || c.Agent != ""
+		if c.Agent != "" {
+			return
+		}
 		if rel = filepath.ToSlash(rel); !slices.Contains(out, rel) {
 			out = append(out, rel)
 		}
 	})
 	switch {
-	case len(agents) > 1:
-		return nil, usage("this session's claims belong to several agents: name your files " +
+	case subagent:
+		return nil, usage("a subagent of this session also has claims: name your files " +
 			"(claude-code worktree commit -m <msg> <files>)")
 	case len(out) == 0:
 		return nil, usage("no files to commit: name your files (claude-code worktree commit -m <msg> <files>)")
@@ -187,10 +194,13 @@ func ownClaimed(req CommitRequest, t commitTree) ([]string, error) {
 	return out, nil
 }
 
-// checkHolders refuses when another live session claims a dirty path of the set, naming it like the claim check.
-func checkHolders(ctx context.Context, req CommitRequest, t commitTree, set []string) error {
+// checkHolders refuses a dirty path of the set that another live session claims; a CLI leaf is refused any claim.
+func checkHolders(ctx context.Context, req CommitRequest, t commitTree, set []string, dispatched bool) error {
 	src := req.Source
-	src.Leaf = func(Claim) string { return "" } // sibling leaves of this session are not told apart from the caller
+	src.Leaf = func(Claim) string { return "" } // outside a dispatch the worktree-claim-check hook judges this session
+	if dispatched {
+		src.Leaf = sessionHolder
+	}
 	claims, err := LiveClaims(src)
 	if err != nil && len(claims) == 0 {
 		return fmt.Errorf("could not read file claims: %w", err)
@@ -210,6 +220,14 @@ func checkHolders(ctx context.Context, req CommitRequest, t commitTree, set []st
 			"hand them to their owner", strings.Join(held, "; "))
 	}
 	return nil
+}
+
+// sessionHolder labels a claim of the caller's own session, which a CLI leaf may not commit.
+func sessionHolder(c Claim) string {
+	if c.Agent == "" {
+		return "this session's main agent"
+	}
+	return "sibling leaf " + c.Agent
 }
 
 // cleanMessage refuses a non-Conventional subject, drops attribution trailers and trailing blanks, reporting each.
@@ -402,18 +420,52 @@ func indexSnapshot(ctx context.Context, top string) (string, []byte, error) {
 	return idx, before, nil
 }
 
-// undoAdd puts the index back byte for byte; when something else changed it since our add, it unstages only our files.
+// undoAdd restores the index under git's own index.lock; with the lock held or the index changed, it unstages ours.
 func undoAdd(ctx context.Context, top, idx string, before, after []byte, untracked []string) error {
-	if cur, _ := os.ReadFile(idx); bytes.Equal(cur, after) {
-		if len(before) == 0 {
-			return os.Remove(idx)
-		}
-		if paths.AtomicWrite(idx, before, 0o644) == nil {
-			return nil
-		}
+	lock := idx + ".lock"
+	f, err := os.OpenFile(lock, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if err != nil {
+		return unstage(ctx, top, untracked, "held by another process")
 	}
+	if cur, _ := os.ReadFile(idx); !bytes.Equal(cur, after) {
+		_ = f.Close()
+		_ = os.Remove(lock)
+		return unstage(ctx, top, untracked, "index changed since our add")
+	}
+	if err := restoreIndex(f, lock, idx, before); err != nil {
+		_ = f.Close()
+		_ = os.Remove(lock)
+		return unstage(ctx, top, untracked, err.Error())
+	}
+	return nil
+}
+
+// restoreIndex writes before into the held lock file and renames it over idx, which releases the lock.
+func restoreIndex(f *os.File, lock, idx string, before []byte) error {
+	if len(before) == 0 { // the index did not exist before our add
+		_ = f.Close()
+		if err := os.Remove(idx); err != nil {
+			return err
+		}
+		return os.Remove(lock)
+	}
+	if _, err := f.Write(before); err != nil {
+		return err
+	}
+	if err := f.Sync(); err != nil {
+		return err
+	}
+	if err := f.Close(); err != nil {
+		return err
+	}
+	return os.Rename(lock, idx)
+}
+
+// unstage drops only our added files from the index (git locks it) and names why the byte restore did not run.
+func unstage(ctx context.Context, top string, untracked []string, why string) error {
 	_, err := proc.RunGit(ctx, top, append([]string{"rm", "--cached", "-q", "--"}, literal(untracked)...)...)
-	return err
+	note := fmt.Errorf("index not restored byte for byte (%s): unstaged only the files this run added with git rm --cached", why)
+	return errors.Join(note, err)
 }
 
 // printAhead prints how far HEAD is ahead of its upstream; nothing when there is none.

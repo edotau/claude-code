@@ -32,7 +32,7 @@ claude-code worktree list [--format json]        # all worktrees + status
 claude-code worktree gate --dir . --scope internal/worktree   # prints the gate for this scope (that dir) only; narrower than merge's
 claude-code worktree merge add-auth-endpoint     # preview, verify gate, fast-forward-only promote, clean
 claude-code worktree clean add-auth-endpoint     # safe single removal
-claude-code worktree commit -m "fix: x" <files>   # one pathspec commit of named files; no paths = the session's claims (a subagent names its files)
+claude-code worktree commit -m "fix: x" <files>   # one pathspec commit of named files; no paths = the main session's own claims (a subagent or CLI leaf names its files)
 ```
 
 More verbs and options:
@@ -42,7 +42,7 @@ More verbs and options:
 | `claude-code worktree create <name> [--branch <b>]` | New worktree, then the venv/env steps |
 | `claude-code worktree merge <name> [--target <ref>] [--no-clean] [--verify "<cmd>"\|--no-verify\|--full-verify]` | `--dry-run` preview, confirm, apply |
 | `claude-code worktree merge <name> --resolve-agent <agent>` · `--resume` | Agent resolves a predicted conflict; reattach |
-| `claude-code worktree commit -m <msg> [<files>] [--dry-run]` | Conventional subject, files only; refuses a peer's file; never pushes |
+| `claude-code worktree commit -m <msg> [<files>] [--dry-run]` | Conventional subject, files only; refuses a peer's file (a CLI leaf: any claimed file); never pushes |
 | `claude-code worktree clean <name>` · `clean-all [--yes]` | `--dry-run` preview, confirm, apply |
 
 `clean` takes `--force` (discard uncommitted and unmerged work); `clean-all` takes only `--dry-run` and `--yes`; every

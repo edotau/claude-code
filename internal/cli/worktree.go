@@ -31,7 +31,7 @@ var worktreePage = helptext.Page{
 		{"clean", "remove one merged worktree (--force, --dry-run)"},
 		{"clean-all", "remove every eligible worktree (--dry-run|--yes)"},
 		{"gate", "print the verify gate for --dir (--scope, --lint-check)"},
-		{"commit", "commit named or claimed files only (-m msg, --dry-run)"},
+		{"commit", "commit named files; main session may omit them (-m, --dry-run)"},
 	},
 	Hint: worktreeVerifyNote + "\n\nclaude-code worktree <command> -h lists that command's flags.",
 }
@@ -157,7 +157,7 @@ func cmdWorktreeGate(args []string) int {
 // cmdWorktreeCommit commits the named files (else this session's claimed ones); 1 refused, 2 usage.
 func cmdWorktreeCommit(cwd string, args []string) int {
 	fs := helptext.NewFlagSet("worktree commit", helptext.Page{Usage: "claude-code worktree commit -m <message> [flags] [<file>...]",
-		About: "One pathspec commit of the named files, else this session's own claimed dirty ones.\n" +
+		About: "One pathspec commit of the named files, else the main session's claimed dirty ones.\n" +
 			"Refuses another live session's file or a non-Conventional subject; never pushes."})
 	msg := fs.String("m", "", "commit message; the subject must be a Conventional Commit")
 	dryRun := fs.Bool("dry-run", false, "print the files and message notes without committing")
