@@ -37,7 +37,7 @@ const HOTSPOTS = ['internal/schemas/schemas_test.go', 'skills/subagent-workflows
 const HOT = [...HOTSPOTS, ...(Array.isArray(a.hotspots) ? a.hotspots.filter(Boolean) : [])]
 // Wave width: args.cap, bounded by the dispatch hook's 24 per account.
 const CAP = Math.min(Number.isInteger(a.cap) && a.cap > 0 ? a.cap : 8, 24)
-// tests:false skips the per-package test agent for every package (no test agent).
+// tests:false skips the per-package test repair stage for every package.
 if (a.tests !== undefined && typeof a.tests !== 'boolean') return ERR('args.tests must be a boolean')
 const TESTS = a.tests !== false
 const MAX_ITER = Number.isInteger(a.maxIterations) && a.maxIterations > 0 ? a.maxIterations : 3
@@ -979,11 +979,11 @@ for (let round = 1; round <= ROUNDS; round++) {
   }
   const planMd = planMarkdown(partition, byPkg, {})
 
-  // ── Fix: waves in sequence, tasks of a wave in parallel (per task ADK Sequential: implementer, then test agent), then the hotspot task ──
+  // ── Fix: waves in sequence, tasks of a wave in parallel (per task ADK Sequential: implementer, then test repair), then the hotspot task ──
   phase('Fix')
   const fixTask = async (pkg, fs, owns, hotspot) => {
     const high = fs.some(f => ORDER[f.severity] <= ORDER.high)
-    const tests = !hotspot && TESTS && fs.some(f => !f.noTest && SRC_RE.test(relPath(f.file))) // docs-only or all-noTest: no test agent
+    const tests = !hotspot && TESTS && fs.some(f => !f.noTest && SRC_RE.test(relPath(f.file))) // docs-only or all-noTest: no test repair
     const fx = await stageFix(FCTX, { pkg, findings: fs, owns, tests, label: round + ':' + pkg, pin: { model: FIX_MODEL || (high ? 'opus' : 'sonnet'), effort: FIX_EFFORT || (high ? 'high' : 'medium') } })
     // a test stage that did not finish (blocked or partial) blocks the task like an unfinished fix
     return { package: pkg, pkg, findings: fs.length, impl: fx.impl, tests: fx.test, test: fx.test, blocked: !fx.done || !fx.testOk, notDone: !fx.done, testNotDone: fx.done && !fx.testOk }

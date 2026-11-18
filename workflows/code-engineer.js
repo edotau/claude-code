@@ -12,7 +12,7 @@ export const meta = {
     { title: 'Simplify', detail: 'once over the merged diff; review simplify plus the simplify gate' },
     { title: 'Review', detail: 'once over the merged diff; review findings get one Fix-all, test repair and gate per package (no second child run)' },
     { title: 'Fix', detail: 'Fix-all: one implementer per package with review findings, numstat-measured against lineBudget' },
-    { title: 'Test', detail: 'repair tests the edits broke; kind feature adds ONE test; every other test is proposed (proposedTests)' },
+    { title: 'Test', detail: 'repair tests the edits broke; kind feature adds basic tests (seconds at most); every other test is proposed (proposedTests)' },
     { title: 'Gate', detail: 'package-scoped re-gate after Fix-all, up to 2 fixer iterations on red' },
     { title: 'Record', detail: 'one cheap agent appends the report and decisions to the memory store (record:false skips)' },
   ],
@@ -925,9 +925,9 @@ async function implShrink(dirs, snap) { // ONE shrink-or-justify pass over an ov
   for (const [pkg, net] of implOver()) ST_OVER.push({ pkg, net, budget: LINE_BUDGET, why: (why && why.summary) || '' })
   return s2
 }
-async function implTest(dirs, snap) { // kind feature earns ONE new test; every other test is proposed in the report
+async function implTest(dirs, snap) { // kind feature gets basic tests that run in seconds; every other test is proposed in the report
   const t = await stageAsk(CTX, CS.test, 'test:feature', 'Test', RULES + ' A feature just landed (' + stDiff(dirs) + '; changed: ' + IMPL_FILES.join(', ') + '). Task: ' + TASK +
-    '\nWrite ONE test for the feature\'s main behavior that calls the real code, and repair any test the change broke. Edit only *_test.go and testdata files in ' + dirs.join(', ') + '.' + ST_PROPOSE + ' Put "n/a" in callers.', ST_TESTW)
+    '\nWrite basic tests for the feature\'s main behavior that call the real code (a couple of seconds at most), and repair any test the change broke. Edit only *_test.go and testdata files in ' + dirs.join(', ') + '.' + ST_PROPOSE + ' Put "n/a" in callers.', ST_TESTW)
   for (const p of (t && t.proposed) || []) ST_PROPOSED.push({ pkg: dirs.join(','), ...p })
   if (t) IMPL_FILES = [...new Set([...IMPL_FILES, ...strs(t.files).map((f) => stRel(CTX, f))])]
   stDelta('test:feature', stDir, snap, t ? await stSnap(CTX, 'test:feature', dirs) : snap)
