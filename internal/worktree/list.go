@@ -43,6 +43,8 @@ type Entry struct {
 	Overlaps map[string][]string `json:",omitempty"`
 	// dest's git-dir when the caller already resolved it
 	gitDir string
+	// Ancestry is known only for this List's matching porcelain and divergence snapshots.
+	mergedKnown bool
 }
 
 // List returns every worktree under repo.Root (git registration plus directories on disk), each inspected.
@@ -56,6 +58,9 @@ func List(repo *Repo) ([]Entry, error) {
 		return nil, err
 	}
 	target, targetErr := currentBranch(repo.Main)
+	if targetErr == nil {
+		fillDivergence(repo, entries, target)
+	}
 	now := time.Now()
 	var in func(string) ([]Proc, error)
 	for i := range entries {
@@ -64,12 +69,12 @@ func List(repo *Repo) ([]Entry, error) {
 			if in == nil {
 				in = firstLook()
 			}
+			problems := entries[i].Problems
+			entries[i].Problems = nil
 			inspect(repo, &entries[i], target, targetErr, now)
+			entries[i].Problems = append(entries[i].Problems, problems...)
 			_, entries[i].Busy = cleanBusyReason(entries[i].Path, in)
 		}
-	}
-	if targetErr == nil {
-		fillDivergence(repo, entries, target)
 	}
 	return entries, nil
 }
@@ -78,6 +83,7 @@ func List(repo *Repo) ([]Entry, error) {
 type laneReads struct {
 	counts, changed   []byte
 	countErr, diffErr error
+	head              string
 }
 
 // divergenceReads caps the concurrent git reads of one list.
@@ -98,11 +104,7 @@ func fillDivergence(repo *Repo, entries []Entry, target string) {
 			e.Problems = append(e.Problems, divergenceProblem+err.Error())
 			continue
 		}
-		if r.counts != nil {
-			if _, err := fmt.Sscanf(string(r.counts), "%d %d", &e.Behind, &e.Ahead); err != nil {
-				e.Problems = append(e.Problems, divergenceProblem+err.Error())
-			}
-		}
+		fillCounts(e, r)
 		if r.changed != nil {
 			files[laneLabel(entries, e.Path)] = nameSet(strings.Split(string(r.changed), "\x00"))
 		}
@@ -120,6 +122,19 @@ func fillDivergence(repo *Repo, entries []Entry, target string) {
 	}
 }
 
+func fillCounts(e *Entry, r *laneReads) {
+	if r.counts == nil {
+		return
+	}
+	if _, err := fmt.Sscanf(string(r.counts), "%d %d", &e.Behind, &e.Ahead); err != nil {
+		e.Problems = append(e.Problems, divergenceProblem+err.Error())
+		return
+	}
+	if e.Head != "" && e.Head == r.head {
+		e.Merged, e.mergedKnown = e.Ahead == 0, true
+	}
+}
+
 // divergenceProblem prefixes the Problem of a lane whose ahead/behind or changed files could not be read.
 const divergenceProblem = "divergence unknown: "
 
@@ -131,6 +146,10 @@ func (e Entry) DivergenceUnknown() bool {
 // readLanes runs every existing lane's two divergence reads concurrently, at most divergenceReads at once.
 func readLanes(ctx context.Context, repo *Repo, entries []Entry, target string) []laneReads {
 	reads := make([]laneReads, len(entries))
+	if !slices.ContainsFunc(entries, func(e Entry) bool { return e.Exists && e.Branch != "" }) {
+		return reads
+	}
+	tips := branchTips(ctx, repo.Main)
 	sem := make(chan struct{}, divergenceReads)
 	var wg sync.WaitGroup
 	run := func(dst *[]byte, err *error, args ...string) {
@@ -142,12 +161,38 @@ func readLanes(ctx context.Context, repo *Repo, entries []Entry, target string) 
 	}
 	for i, e := range entries {
 		if e.Exists && e.Branch != "" {
-			run(&reads[i].counts, &reads[i].countErr, "rev-list", "--left-right", "--count", target+"..."+e.Branch)
-			run(&reads[i].changed, &reads[i].diffErr, "diff", "--name-only", "-z", target+"..."+e.Branch)
+			left, right := target, e.Branch
+			if tips[target] != "" && tips[e.Branch] != "" {
+				left, right = tips[target], tips[e.Branch]
+				reads[i].head = right
+			}
+			if left == right && reads[i].head != "" {
+				reads[i].counts = []byte("0 0")
+				continue
+			}
+			run(&reads[i].counts, &reads[i].countErr, "rev-list", "--left-right", "--count", left+"..."+right)
+			run(&reads[i].changed, &reads[i].diffErr, "diff", "--name-only", "-z", left+"..."+right)
 		}
 	}
 	wg.Wait()
 	return reads
+}
+
+// branchTips is a snapshot for one divergence read; ambiguous names and failed reads use the original probes.
+func branchTips(ctx context.Context, main string) map[string]string {
+	out, err := gitCmd(ctx, "-C", main, "-c", "core.warnAmbiguousRefs=true", "for-each-ref",
+		"--format=%(refname:short)%00%(objectname)%00%(objecttype)", "refs/heads/").Output()
+	if err != nil {
+		return nil
+	}
+	tips := map[string]string{}
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
+		fields := strings.Split(line, "\x00")
+		if len(fields) == 3 && fields[2] == "commit" {
+			tips[fields[0]] = fields[1]
+		}
+	}
+	return tips
 }
 
 func laneLabel(entries []Entry, path string) string {
@@ -321,6 +366,7 @@ func inspect(repo *Repo, e *Entry, target string, targetErr error, now time.Time
 		e.Problems = append(e.Problems, "merge target unresolved: "+targetErr.Error())
 	case e.Head == "":
 		e.Problems = append(e.Problems, "worktree HEAD unknown")
+	case e.mergedKnown:
 	default:
 		merged, runErr := isAncestor(ctx, repo.Main, e.Head, target)
 		e.Merged = merged

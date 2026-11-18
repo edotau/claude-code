@@ -402,13 +402,18 @@ func removeMerged(repo *Repo, name, dest string, entry Entry, result CleanResult
 
 // CleanAll previews (or, with apply, runs) Clean for every existing, non-orphaned entry; orphans are only reported.
 func CleanAll(repo *Repo, apply bool) ([]CleanResult, error) {
-	entries, err := List(repo)
+	registered, err := listPorcelain(repo)
+	if err != nil {
+		return nil, err
+	}
+	// Discovery lasts for this clean-all; Clean still rechecks each lane under its lease before removal.
+	entries, err := unionFilesystem(repo, registered)
 	if err != nil {
 		return nil, err
 	}
 	var results []CleanResult
 	for _, e := range entries {
-		if !e.Exists || e.Orphaned {
+		if !e.Exists || e.Registered != e.Exists {
 			continue
 		}
 		if !repo.holds(filepath.Dir(e.Path)) {

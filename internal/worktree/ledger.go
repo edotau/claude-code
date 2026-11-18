@@ -349,11 +349,23 @@ func ledgerSession(worktreePath string) string {
 	if err != nil || !found {
 		return ""
 	}
+	return ledgerSessionAt(path)
+}
+
+func ledgerSessionAt(path string) string {
 	text, err := os.ReadFile(path)
 	if err != nil {
 		return ""
 	}
 	return ledgerField(openSection(string(text)), "Session")
+}
+
+// listedSession reuses this notification's porcelain identity instead of resolving each listed lane again.
+func listedSession(repo *Repo, path string) string {
+	if !repo.holds(filepath.Dir(path)) {
+		return ""
+	}
+	return ledgerSessionAt(ledgerPath(repo.Main, filepath.Base(path), time.Time{}))
 }
 
 func ledgerName(name string) error {

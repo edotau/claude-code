@@ -105,12 +105,12 @@ func newMergePlan(ctx context.Context, repo *Repo, name string, trackedOnlyWorkt
 	if _, err := os.Stat(worktreePath); err != nil {
 		return nil, fmt.Errorf("worktree %q not found at %s", name, worktreePath)
 	}
-	mainGitDir, commonDir, err := gitDirsOf(ctx, repo.Main)
-	if err != nil {
-		return nil, err
-	}
-	if repo.CommonDir != "" {
-		commonDir = repo.CommonDir
+	// ResolveRepo's main identity is reused only while constructing this operation's plan.
+	mainGitDir, commonDir := repo.CommonDir, repo.CommonDir
+	if commonDir == "" {
+		if mainGitDir, commonDir, err = gitDirsOf(ctx, repo.Main); err != nil {
+			return nil, err
+		}
 	}
 	plan := &MergePlan{CommonDir: commonDir, MainGitDir: mainGitDir, WorktreePath: worktreePath,
 		AfterResolution: trackedOnlyWorktree}

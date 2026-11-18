@@ -515,7 +515,7 @@ func notifyLanes(ctx context.Context, repo *Repo, req MergeRequest, plan *MergeP
 		if e.Branch == "" || e.Prunable || paths.SamePath(e.Path, plan.WorktreePath) {
 			continue
 		}
-		session := ledgerSession(e.Path)
+		session := listedSession(repo, e.Path)
 		if session == "" {
 			continue
 		}

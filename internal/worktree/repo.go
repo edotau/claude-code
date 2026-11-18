@@ -188,6 +188,11 @@ func ownsWorktree(ctx context.Context, repo *Repo, dest string) (bool, error) {
 	if paths.Within(destCanon, mainCanon) {
 		return false, fmt.Errorf("%s is the live main checkout %s (or inside it), not a worktree", dest, repo.Main)
 	}
+	// Both identity paths belong to this ownership probe; failures retain the individual probe's diagnostics.
+	out, probeErr := gitCmd(ctx, "-C", dest, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir").Output()
+	if top, common, ok := strings.Cut(strings.TrimSpace(string(out)), "\n"); probeErr == nil && ok && !strings.Contains(common, "\n") {
+		return paths.Canon(top) == destCanon && paths.Canon(common) == paths.Canon(filepath.Join(repo.Main, ".git")), nil
+	}
 	top, ok, err := revParseCanon(ctx, dest, "--show-toplevel")
 	if err != nil || !ok || top != destCanon {
 		// not a git repo is a collision, and a subdirectory of some checkout is not a worktree root
