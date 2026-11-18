@@ -130,7 +130,7 @@ var agentsSubPages = map[string][3]string{
 		"description, for a leaf of <type> with the given model and task.",
 		"Exit 0, 1 the hook refuses <type> or the task is unreadable, 2 usage."},
 	"diff": {"diff [flags]", "List the files changed since --base (default HEAD: uncommitted), with line counts, " +
-		"the ones outside every --path, and with --check the Go and docs gates (on the --path files; complexity only for " +
+		"the ones outside every --path, each new Go test or helper with its caller count (advisory), and with --check the Go and docs gates (on the --path files; complexity only for " +
 		"findings the change introduced), findings as `path:line: tool/rule: message` rows. --gates picks gates (lint: " +
 		"gofmt, vet, golangci-lint, docs, yaml, shell, quality; a missing golangci-lint or mdsmith then fails); --all checks the whole " +
 		"tree. --verify <id> adds a dispatch's routing proof. Exit 1 gate failed or MISMATCH, 3 outside --path, 2 usage."},

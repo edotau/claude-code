@@ -29,6 +29,7 @@ func renderDiff(o DiffOptions, rep DiffReport, scoped bool) {
 	if !rep.fromBrief && !rep.all {
 		renderFiles(o.Out, rep.Files)
 	}
+	renderNewDecls(o.Out, rep.newDecls)
 	renderOutside(o.Out, rep)
 	renderGates(o, rep.Gates)
 	renderVerify(o.Out, rep.Verify)
@@ -49,6 +50,16 @@ func renderFiles(w io.Writer, files []DiffFile) {
 			name = f.From + " -> " + f.Path
 		}
 		fmt.Fprintf(w, "%s %-12s %s%s\n", f.Status, counts, name, tag)
+	}
+}
+
+func renderNewDecls(w io.Writer, rows []string) {
+	if len(rows) == 0 {
+		return
+	}
+	fmt.Fprintf(w, "new tests and helpers (%d, approve or cut):\n", len(rows))
+	for _, r := range rows {
+		fmt.Fprintf(w, "  %s\n", r)
 	}
 }
 

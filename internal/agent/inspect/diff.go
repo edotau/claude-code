@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/review/source"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -80,9 +81,10 @@ type DiffReport struct {
 	Gates   []GateResult  `json:"gates"`
 	Verify  *VerifyReport `json:"verify,omitempty"`
 
-	fromBrief bool // --path came from the verified dispatch's brief Owned line: the text report is compact
-	noScope   bool // --verify with neither --path nor an Owned line: the text report is a short verdict
-	all       bool // --all: the file rows would list the dirty files, which the gates did not narrow to
+	fromBrief bool     // --path came from the verified dispatch's brief Owned line: the text report is compact
+	noScope   bool     // --verify with neither --path nor an Owned line: the text report is a short verdict
+	all       bool     // --all: the file rows would list the dirty files, which the gates did not narrow to
+	newDecls  []string // advisory rows for new tests and helpers; text report only, never a failed gate
 }
 
 // Diff prints the report for o; exit code: 0 clean, 1 gate failed or MISMATCH, 2 usage, 3 outside --path.
@@ -118,9 +120,21 @@ func Diff(o DiffOptions) int {
 			return DiffExitGate
 		}
 	} else {
+		rep.newDecls = newDeclRows(in)
 		renderDiff(o, rep, len(in.sel) > 0)
 	}
 	return diffExit(rep)
+}
+
+// newDeclRows lists the new tests and helpers of the changed Go files inside the scope, read from the worktree.
+func newDeclRows(in diffIn) []string {
+	var cs []source.GoChange
+	for _, f := range in.files {
+		if f.Status != "D" && (len(in.sel) == 0 || inPaths(in.sel, f.Path)) {
+			cs = append(cs, source.GoChange{Path: f.Path, From: f.From})
+		}
+	}
+	return source.GoAdvisory(in.root, proc.GitEnv(), in.base, false, cs).New
 }
 
 func runGatesFor(ctx context.Context, gi gateInput, want map[string]bool) []GateResult {

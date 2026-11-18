@@ -145,8 +145,26 @@ func RunGate(args []string, stdout, stderr io.Writer) int {
 	var out2 bytes.Buffer
 	printDetector(stdout, runDiffIn(repo, nil, &out2, &out2), out2.String(), gateNoiseLineRe())
 
+	printAdvisory(stdout, repo, changed)
 	fmt.Fprintln(stdout, "--- /code-review gate ---")
 	return 0
+}
+
+// printAdvisory lists new tests and helpers in the staged Go files; silent when there are none.
+func printAdvisory(w io.Writer, repo string, changed []string) {
+	var cs []source.GoChange
+	for _, p := range changed {
+		if rel, err := filepath.Rel(repo, p); err == nil {
+			cs = append(cs, source.GoChange{Path: filepath.ToSlash(rel)})
+		}
+	}
+	adv := source.GoAdvisory(repo, os.Environ(), "HEAD", true, cs)
+	if rows := adv.New; len(rows) > 0 {
+		fmt.Fprintln(w, "[additions] new tests and helpers (approve or cut):")
+		for _, r := range rows {
+			fmt.Fprintln(w, "  "+r)
+		}
+	}
 }
 
 // gateRepo parses RunGate's flags; a bad flag must not block a commit, so it falls back to scanning for --repo.
@@ -154,7 +172,8 @@ func gateRepo(args []string, stderr io.Writer) (repo string, help bool) {
 	fs := helptext.NewFlagSet("gate", helptext.Page{
 		Usage: "claude-code review gate [flags]",
 		About: "Advisory pre-commit summary of the staged change: complexity and diff-noise\n" +
-			"findings. Always exits 0, so it never blocks a commit.",
+			"findings and each new test or helper with its caller count.\n" +
+			"Always exits 0, so it never blocks a commit.",
 	})
 	fs.SetOutput(stderr)
 	repoFlag := fs.String("repo", ".", "the git repo whose staged change to check")
