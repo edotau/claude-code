@@ -176,6 +176,21 @@ func ProbedSaltedLine(path, salt string, probe func(string) string) string {
 	return line
 }
 
+// DropSaltedLine forgets the cached row for path and salt, in memory and on disk; other salts stay.
+func DropSaltedLine(path, salt string) {
+	key, ok := paths.BinKey(path)
+	if !ok {
+		return
+	}
+	if salt != "" {
+		key += "|" + salt
+	}
+	versionMu.Lock()
+	delete(versionMemo, key)
+	versionMu.Unlock()
+	writeVersionCache(path, key, "")
+}
+
 // readVersionCache loads the disk cache; a missing or corrupt file is an empty cache.
 func readVersionCache() map[string]string {
 	data, err := os.ReadFile(versionCacheFile())
@@ -189,7 +204,7 @@ func readVersionCache() map[string]string {
 	return f.Versions
 }
 
-// writeVersionCache records key, dropping rows of path's other builds but keeping this build's other salts.
+// writeVersionCache records key (empty line: removes it), pruning other builds' rows but keeping this build's salts.
 func writeVersionCache(path, key, line string) {
 	versionWriteMu.Lock()
 	defer versionWriteMu.Unlock()
@@ -202,7 +217,11 @@ func writeVersionCache(path, key, line string) {
 				delete(cache, k)
 			}
 		}
-		cache[key] = line
+		if line == "" {
+			delete(cache, key) // an empty line drops the row
+		} else {
+			cache[key] = line
+		}
 		data, err := json.Marshal(versionFile{Schema: schemaVersion, Versions: cache})
 		if err != nil {
 			return err

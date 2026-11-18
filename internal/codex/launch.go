@@ -231,6 +231,10 @@ func codexHasJSON() bool {
 	if !probed && line != "" && line != "true" { // a "false" persisted by an older build is not an answer
 		r := probeExecJSON(bin)
 		sawFalse, line = r == "false", strings.Replace(r, "false", "", 1)
+		tools.DropSaltedLine(bin, "exec-json") // the stale row is replaced by a yes or removed
+		if line == "true" {
+			tools.ProbedSaltedLine(bin, "exec-json", func(string) string { return line })
+		}
 	}
 	if line != "" || sawFalse {
 		codexJSONKnown, codexJSONValue = true, line == "true"

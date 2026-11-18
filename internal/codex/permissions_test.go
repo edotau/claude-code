@@ -250,18 +250,23 @@ func TestLinkHomeSurfacesReadDirError(t *testing.T) {
 	}
 }
 
-func TestCodexHasJSONCachesOnlyDefinitiveAnswers(t *testing.T) {
-	origTimeout := agent.ProbeTimeout
-	agent.ProbeTimeout = 300 * time.Millisecond
-	t.Cleanup(func() {
-		agent.ProbeTimeout = origTimeout
+// resetCodexJSON clears the process memo now and again when the test ends.
+func resetCodexJSON(t *testing.T) {
+	t.Helper()
+	reset := func() {
 		codexJSONMu.Lock()
 		codexJSONKnown = false
 		codexJSONMu.Unlock()
-	})
-	codexJSONMu.Lock()
-	codexJSONKnown = false
-	codexJSONMu.Unlock()
+	}
+	reset()
+	t.Cleanup(reset)
+}
+
+func TestCodexHasJSONCachesOnlyDefinitiveAnswers(t *testing.T) {
+	origTimeout := agent.ProbeTimeout
+	agent.ProbeTimeout = 300 * time.Millisecond
+	t.Cleanup(func() { agent.ProbeTimeout = origTimeout })
+	resetCodexJSON(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	pathstest.FakeVendor(t, "codex", "exec sleep 5") // exec: the kill reaches sleep, not an orphan holding the pipe
 	if codexHasJSON() {
@@ -276,28 +281,40 @@ func TestCodexHasJSONCachesOnlyDefinitiveAnswers(t *testing.T) {
 		t.Fatal("definitive answer was not cached")
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // a fresh disk cache and a fresh process memo
-	codexJSONMu.Lock()
-	codexJSONKnown = false
-	codexJSONMu.Unlock()
+	resetCodexJSON(t)
 	pathstest.FakeVendor(t, "codex", "echo '  --help only'")
 	if codexHasJSON() {
 		t.Fatal("help without --json reported true")
 	}
-	codexJSONMu.Lock()
-	codexJSONKnown = false
-	codexJSONMu.Unlock()
+	resetCodexJSON(t)
 	pathstest.FakeVendor(t, "codex", "echo '  --json  print events'")
 	if !codexHasJSON() {
 		t.Fatal("a false answer reached the disk cache; an upgrade would never be re-probed")
 	}
+}
+
+// A persisted false is ignored and replaced; a no re-probe drops it.
+func TestCodexHasJSONDropsStaleFalseRow(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	codexJSONMu.Lock()
-	codexJSONKnown = false
-	codexJSONMu.Unlock()
+	resetCodexJSON(t)
 	bin := pathstest.FakeVendor(t, "codex", "echo '  --json  print events'")
 	tools.ProbedSaltedLine(bin, "exec-json", func(string) string { return "false" }) // persisted by an older build
 	if !codexHasJSON() {
 		t.Fatal("a persisted false was honored; want it ignored and re-probed")
+	}
+	if got := tools.ProbedSaltedLine(bin, "exec-json", func(string) string { return "" }); got != "true" {
+		t.Fatalf("cached row after a yes re-probe = %q, want true", got)
+	}
+
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	resetCodexJSON(t)
+	bin = pathstest.FakeVendor(t, "codex", "echo '  --help only'")
+	tools.ProbedSaltedLine(bin, "exec-json", func(string) string { return "false" })
+	if codexHasJSON() {
+		t.Fatal("help without --json reported true")
+	}
+	if got := tools.ProbedSaltedLine(bin, "exec-json", func(string) string { return "" }); got != "" {
+		t.Fatalf("stale false row survived a no re-probe: %q", got)
 	}
 }
 

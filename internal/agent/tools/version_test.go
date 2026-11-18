@@ -316,3 +316,21 @@ func TestProbedSaltedLineIsCachedAcrossProcesses(t *testing.T) {
 		t.Fatalf("salted row = %q after %d probes; want true after 1", got, calls)
 	}
 }
+
+// TestDropSaltedLineRemovesOnlyItsRow: the dropped salt leaves the disk and memo; other salts of the build stay.
+func TestDropSaltedLineRemovesOnlyItsRow(t *testing.T) {
+	bin, _ := probeFixture(t, "echo 'fake 1.0.0'")
+	resetMemo()
+	ProbedSaltedLine(bin, "exec-json", func(string) string { return "false" })
+	ProbedSaltedLine(bin, "other", func(string) string { return "keep" })
+	DropSaltedLine(bin, "exec-json")
+	resetMemo()
+	var probed bool
+	ProbedSaltedLine(bin, "exec-json", func(string) string { probed = true; return "" })
+	if !probed {
+		t.Fatal("the dropped row was still cached")
+	}
+	if got := ProbedSaltedLine(bin, "other", func(string) string { return "changed" }); got != "keep" {
+		t.Fatalf("other salt = %q, want it kept", got)
+	}
+}
