@@ -60,10 +60,10 @@ Claude Code reads these source files directly; external CLI projections refresh 
    also keep this session's context small: send file reads, diff review and gate runs to a leaf and take back a
    short verdict, with the long report saved at `$(claude-code memory path reports <name>)`. Parallel writers own
    disjoint files. Wave loop (blocked queue, review → fix → commit): `skills/subagent-workflows/SKILL.md`.
-   **A bug or issue you notice is fixed right away, without asking:** dispatch its fix leaf at once instead of
    **Before the first dispatch of a multi-part request, write the DISPATCH TABLE** (task → owned files → blocked-by →
    agent) and dispatch every unblocked row in one message; redo it on every hand-back and new user message, merging
    new asks into it, not handling them in arrival order (`skills/subagent-workflows/SKILL.md` → Dispatch table).
+   **A bug or issue you notice is fixed right away, without asking:** dispatch its fix leaf at once instead of
    listing it. Verify every returned diff, gate and deletion. Briefs, relay rules and recovery:
    `skills/subagent-workflows/SKILL.md`;
    pipeline: `rules/workflows/master-workflow.md`.
