@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path"
@@ -96,11 +97,12 @@ func gitLogArgs(dir, rev string, since int) []string {
 	return args
 }
 
-// scanGitLogOutput returns one finding per secret-shaped added line; ReadLine fragments an over-long line.
-func scanGitLogOutput(stdout io.Reader) ([]string, error) {
+// scanGitLogOutput returns one finding per secret-shaped or workspace-identifier added line; deny is the host list.
+func scanGitLogOutput(stdout io.Reader, deny []string) ([]string, error) {
 	var findings []string
 	commit, file := "", ""
 	addition, hunk := false, false
+	next := 0
 	// fragments of one over-long line, joined before any match
 	var pending []byte
 	br := bufio.NewReaderSize(stdout, 1<<20)
@@ -119,10 +121,36 @@ func scanGitLogOutput(stdout io.Reader) ([]string, error) {
 		line := string(pending)
 		pending = pending[:0]
 		commit, file, addition, hunk = parseGitLogLine(line, commit, file, hunk)
-		if addition && !isTestFixture(file) && slices.ContainsFunc(secretPattern().FindAllString(line, -1), tokenShaped) {
+		var lineNo int
+		lineNo, next = newLineNo(line, hunk, addition, next)
+		if !addition {
+			continue
+		}
+		fixture := isTestFixture(file)
+		if !fixture && slices.ContainsFunc(secretPattern().FindAllString(line, -1), tokenShaped) {
 			findings = append(findings, fmt.Sprintf("%s %s", commit, file))
 		}
+		for _, kind := range identifierKinds(line, deny, fixture) {
+			findings = append(findings, fmt.Sprintf("%s %s:%d — %s", commit, file, lineNo, kind))
+		}
 	}
+}
+
+var hunkNewStart = regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)`)
+
+// newLineNo tracks the new-file line number: it is the number of an added line, and next is the one after it.
+func newLineNo(line string, hunk, addition bool, next int) (int, int) {
+	if m := hunkNewStart.FindStringSubmatch(line); m != nil {
+		n, _ := strconv.Atoi(m[1])
+		return 0, n
+	}
+	if addition {
+		return next, next + 1
+	}
+	if hunk && strings.HasPrefix(line, " ") {
+		return 0, next + 1
+	}
+	return 0, next
 }
 
 // parseGitLogLine advances commit, file and hunk state and reports an added line; "+++ " occurs only before a hunk.
@@ -167,11 +195,15 @@ func ScanGit(out io.Writer, dir, rev string, since int) int {
 		return ExitFindings
 	}
 	if len(findings) == 0 {
-		fmt.Fprintln(out, "  ✓ no secret-shaped additions in scanned history")
+		fmt.Fprintln(out, "  ✓ no secret-shaped or workspace-identifier additions in scanned history")
 		fmt.Fprintln(out, "doctor --git: clean.")
 		return ExitClean
 	}
 	for _, f := range findings {
+		if strings.Contains(f, " — ") {
+			fmt.Fprintf(out, "  ⚠ %s (value withheld; rotate or scrub before pushing)\n", f)
+			continue
+		}
 		fmt.Fprintf(out, "  ⚠ %s — secret-shaped addition (rotate + scrub history)\n", f)
 	}
 	fmt.Fprintf(out, "doctor --git: %d finding(s).\n", len(findings))
@@ -180,6 +212,11 @@ func ScanGit(out io.Writer, dir, rev string, since int) int {
 
 // gitLogFindings runs and scans `git log -p`; ok is false once a failure line has been written to out.
 func gitLogFindings(out io.Writer, dir, rev string, since int) (findings []string, ok bool) {
+	deny, denyErr := denyHosts()
+	if denyErr != nil {
+		msg := workspaceHost.ReplaceAllString(denyErr.Error(), "<host>")
+		fmt.Fprintf(out, "  ⚠ configured-host check disabled, only shape rules ran: %s\n", msg)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), gitLogTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "git", gitLogArgs(dir, rev, since)...)
@@ -195,7 +232,7 @@ func gitLogFindings(out io.Writer, dir, rev string, since int) (findings []strin
 		return nil, false
 	}
 
-	findings, readErr := scanGitLogOutput(stdout)
+	findings, readErr := scanGitLogOutput(stdout, deny)
 	if readErr != nil {
 		// unread output would block git on a full pipe until the timeout
 		cancel()
@@ -249,4 +286,71 @@ func isTestFixture(p string) bool {
 // tokenShaped rejects prose that merely starts like a key, since a minted key mixes digits; a JWT always counts.
 func tokenShaped(match string) bool {
 	return strings.HasPrefix(match, "eyJ") || strings.ContainsAny(match, "0123456789")
+}
+
+const hostDomains = `(?:azuredatabricks\.net|cloud\.databricks\.com|gcp\.databricks\.com)`
+
+var (
+	workspaceHost = regexp.MustCompile(
+		`(?i)\b(?:[a-z0-9][a-z0-9-]*\.)*[a-z0-9][a-z0-9-]*\.` + hostDomains + `\b`)
+	workspaceOrgID = regexp.MustCompile(`(?i)databricks[^\s"'<>]*[?&]o=\d{6,}`)
+	// hostShape matches the live-workspace names anywhere on a line, so an escape or extra label cannot hide one.
+	hostShape = regexp.MustCompile(`(?i)(?:adb-\d{10,}|dbc-[0-9a-f]{8}-[0-9a-f]{4})[a-z0-9.-]*\.` + hostDomains)
+)
+
+// placeholderNames are the profile-name labels the docs and fixtures use for a fake workspace host.
+var placeholderNames = []string{"example", "dev", "qa", "prod", "x", "accounts", "community"}
+
+// realWorkspaceHost reports a named host that is no placeholder; adb-/dbc- shapes are hostShape's.
+func realWorkspaceHost(host string) bool {
+	host = strings.ToLower(host)
+	if strings.HasSuffix(host, ".azuredatabricks.net") || strings.HasPrefix(host, "dbc-") {
+		return false
+	}
+	return !slices.Contains(placeholderNames, strings.Split(host, ".")[0]) && !strings.Contains(host, "example")
+}
+
+// denyHosts lists every configured Databricks profile host (never a public commit); the error is the registry load's.
+var denyHosts = func() ([]string, error) {
+	reg, err := LoadShared()
+	if err != nil || reg == nil {
+		return nil, err
+	}
+	var out []string
+	for _, p := range reg.Providers {
+		if p.Preset != "databricks" && p.Provider != "databricks" {
+			continue
+		}
+		if host := denyHost(AuthHost(p)); host != "" {
+			out = append(out, host)
+		}
+	}
+	return out, nil
+}
+
+// denyHost is rawURL's lower-cased host, empty for a bare name or an example host; nothing else is exempt.
+func denyHost(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	host := strings.ToLower(u.Hostname())
+	if err != nil || !strings.Contains(host, ".") || strings.Contains(host, "example") {
+		return ""
+	}
+	return host
+}
+
+// identifierKinds names the kinds of real workspace identifiers on an added line, never their values.
+func identifierKinds(line string, deny []string, fixture bool) []string {
+	var kinds []string
+	named := slices.ContainsFunc(workspaceHost.FindAllString(line, -1), realWorkspaceHost)
+	if !fixture && (named || hostShape.MatchString(line)) {
+		kinds = append(kinds, "real-shaped Databricks workspace host")
+	}
+	if !fixture && workspaceOrgID.MatchString(line) {
+		kinds = append(kinds, "Databricks workspace id in a URL")
+	}
+	lower := strings.ToLower(line)
+	if slices.ContainsFunc(deny, func(h string) bool { return strings.Contains(lower, h) }) {
+		kinds = append(kinds, "host of a configured Databricks profile")
+	}
+	return kinds
 }

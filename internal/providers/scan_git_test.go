@@ -2,6 +2,7 @@ package providers
 
 import (
 	"bytes"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -70,7 +71,7 @@ func TestScanGitLogPlusPrefixedSecret(t *testing.T) {
 		t.Run(content, func(t *testing.T) {
 			patch := "commit 0123456789abcdef\ndiff --git a/" + name + " b/" + name + "\n" +
 				"--- /dev/null\n+++ b/" + name + "\n@@ -0,0 +1 @@\n+" + content + token + "\n"
-			got, err := scanGitLogOutput(strings.NewReader(patch))
+			got, err := scanGitLogOutput(strings.NewReader(patch), nil)
 			want := []string{"0123456789ab " + name}
 			if err != nil || !slices.Equal(got, want) {
 				t.Fatalf("scan plus-prefixed addition = %v, %v; want %v", got, err, want)
@@ -84,7 +85,7 @@ func TestScanGitLogSecretStraddlesFragment(t *testing.T) {
 	line := "+" + strings.Repeat("x", (1<<20)-3) + token + "\n"
 	patch := "commit 0123456789abcdef\ndiff --git a/config.env b/config.env\n" +
 		"--- /dev/null\n+++ b/config.env\n@@ -0,0 +1 @@\n" + line
-	got, err := scanGitLogOutput(strings.NewReader(patch))
+	got, err := scanGitLogOutput(strings.NewReader(patch), nil)
 	want := []string{"0123456789ab config.env"}
 	if err != nil || !slices.Equal(got, want) {
 		t.Fatalf("scan token split after gh = %v, %v; want %v", got, err, want)
@@ -359,6 +360,94 @@ func TestSecretPatternGitHubFamilies(t *testing.T) {
 		}
 		if secretPattern().MatchString("x = " + p + strings.Repeat("a", 19)) {
 			t.Errorf("%s with a 19-char body must not be caught", p)
+		}
+	}
+}
+
+func addedPatch(file, line string) string {
+	return "commit 0123456789abcdef\ndiff --git a/" + file + " b/" + file + "\n--- /dev/null\n+++ b/" + file +
+		"\n@@ -0,0 +1,2 @@\n+first\n+" + line + "\n"
+}
+
+// A real-shaped host, a workspace id and a configured-profile host are flagged by kind and line, never by value.
+func TestScanGitFlagsWorkspaceIdentifiers(t *testing.T) {
+	deny := []string{"corp-private.example.net", "dev.corp-fake.cloud.databricks.com"}
+	const adb = "adb-1234567890123456.7.azuredatabricks.net"
+	cases := map[string]struct{ line, kind string }{
+		"azure":   {"url: https://" + adb, "real-shaped"},
+		"upper":   {"url: HTTPS://" + strings.ToUpper(adb), "real-shaped"},
+		"urlenc":  {"url: https%3A%2F%2F" + adb, "real-shaped"},
+		"newline": {`{"a":"x\n` + adb + `"}`, "real-shaped"},
+		"slash":   {`{"a":"https:\/\/` + adb + `"}`, "real-shaped"},
+		"label":   {"host: foo." + adb, "real-shaped"},
+		"cloud":   {"host: acme.cloud.databricks.com", "real-shaped"},
+		"dbc":     {"host: dbc-1a2b3c4d-5e6f.cloud.databricks.com", "real-shaped"},
+		"gcp":     {"host: acme.gcp.databricks.com", "real-shaped"},
+		"orgid":   {"https://x.test/databricks/?o=1234567890123456", "workspace id"},
+		"denied":  {"see Corp-Private.example.net", "configured Databricks profile"},
+		"devhost": {"host: dev.corp-fake.cloud.databricks.com", "configured Databricks profile"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got, err := scanGitLogOutput(strings.NewReader(addedPatch("doc.md", c.line)), deny)
+			if err != nil || len(got) < 1 || !strings.Contains(got[0], "doc.md:2 — ") || !strings.Contains(got[0], c.kind) {
+				t.Fatalf("findings = %v, %v; want a %q finding at doc.md:2", got, err, c.kind)
+			}
+			if strings.Contains(strings.ToLower(got[0]), "acme") || strings.Contains(got[0], "1234567890") {
+				t.Errorf("finding echoes the value: %v", got)
+			}
+		})
+	}
+}
+
+// The repo's documented placeholders never count; fixtures skip the shape rules but not the configured-host list.
+func TestScanGitAllowsPlaceholders(t *testing.T) {
+	for _, line := range []string{
+		"host: example.cloud.databricks.com", "host: dev.example.cloud.databricks.com",
+		"host: prod.cloud.databricks.com", "host: adb-1.azuredatabricks.net", "host: dbc-1.cloud.databricks.com",
+	} {
+		if got, _ := scanGitLogOutput(strings.NewReader(addedPatch("doc.md", line)), nil); len(got) != 0 {
+			t.Errorf("%q flagged: %v", line, got)
+		}
+	}
+	fake := "host: adb-1234567890123456.7.azuredatabricks.net"
+	if got, _ := scanGitLogOutput(strings.NewReader(addedPatch("a_test.go", fake)), nil); len(got) != 0 {
+		t.Errorf("test fixture shape flagged: %v", got)
+	}
+	deny := []string{"corp-private.example.net"}
+	if got, _ := scanGitLogOutput(strings.NewReader(addedPatch("a_test.go", "see corp-private.example.net")), deny); len(got) != 1 {
+		t.Errorf("configured host in a fixture not flagged: %v", got)
+	}
+}
+
+// An unreadable registry is announced without echoing its error's host, and the shape rules still decide the exit.
+func TestScanGitRegistryUnreadable(t *testing.T) {
+	old := denyHosts
+	denyHosts = func() ([]string, error) { return nil, errors.New("overlay: bad row for acme.cloud.databricks.com") }
+	t.Cleanup(func() { denyHosts = old })
+	dir := hosttest.Repo(t)
+	if err := os.WriteFile(filepath.Join(dir, "n.md"), []byte("host: acme.cloud.databricks.com\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	hosttest.In(t, dir, "add", "n.md")
+	hosttest.In(t, dir, "commit", "-q", "-m", "add")
+	var buf bytes.Buffer
+	rc := ScanGit(&buf, dir, "", 0)
+	if out := buf.String(); rc != ExitFindings || !strings.Contains(out, "check disabled") || strings.Contains(out, "acme") {
+		t.Fatalf("rc = %d, want findings plus the notice without the host:\n%s", rc, out)
+	}
+}
+
+// Every configured host stays on the deny list, whatever its first label; only example hosts drop out.
+func TestDenyHost(t *testing.T) {
+	for raw, want := range map[string]string{
+		"https://Dev.corp-fake.cloud.databricks.com": "dev.corp-fake.cloud.databricks.com",
+		"https://x.corp-fake.cloud.databricks.com":   "x.corp-fake.cloud.databricks.com",
+		"https://dev.example.cloud.databricks.com":   "",
+		"https://localhost:8080":                     "",
+	} {
+		if got := denyHost(raw); got != want {
+			t.Errorf("denyHost(%q) = %q, want %q", raw, got, want)
 		}
 	}
 }

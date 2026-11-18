@@ -5,7 +5,7 @@ Harness credentials: CLAUDE.md hard rule 2.
 
 1. **No secrets in code** — env vars or a secret manager; `.env`, `credentials.json`, `*.pem` stay out of git
    (`claude-code doctor --scan [path…]` flags inline secrets in configs and the vault; `doctor --git` scans history
-   for committed ones). A secret in a tracked file is urgent: rotate it at the source, replace it with `${ENV_VAR}`,
+   for committed ones and real workspace hosts, line by line, so a concatenated host passes). A secret in a tracked file is urgent: rotate it, use `${ENV_VAR}`,
    scrub history if pushed.
 2. **Validate input** — sanitize file paths (no traversal); subprocess with list args, never a concatenated shell
    string; parameterized queries.
