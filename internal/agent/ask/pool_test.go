@@ -14,6 +14,7 @@ import (
 	"sync/atomic"
 	"syscall"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -21,7 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
-	_ "github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -898,15 +898,17 @@ func TestBatchWaitingAccountDoesNotBlockOthers(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			c.setup(t)
-			out, ok := runPool(t, poolOptions{Jobs: c.jobs}, acctTask(t, c.id, c.acct, c.slow), acctTask(t, "free", "free·B", okRunner("free")))
-			if !ok {
-				t.Fatalf("batch failed: %s", out)
-			}
-			if first := firstLine(out); !strings.Contains(first, `"task_id":"free"`) {
-				t.Errorf("first envelope = %s, want the free-account task to finish first", first)
-			}
+			synctest.Test(t, func(t *testing.T) {
+				t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+				c.setup(t)
+				out, ok := runPool(t, poolOptions{Jobs: c.jobs}, acctTask(t, c.id, c.acct, c.slow), acctTask(t, "free", "free·B", okRunner("free")))
+				if !ok {
+					t.Fatalf("batch failed: %s", out)
+				}
+				if first := firstLine(out); !strings.Contains(first, `"task_id":"free"`) {
+					t.Errorf("first envelope = %s, want the free-account task to finish first", first)
+				}
+			})
 		})
 	}
 }

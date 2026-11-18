@@ -317,11 +317,11 @@ func TestFingerprintGitRefusesPathsOutsideRepoAndStateDir(t *testing.T) {
 	}
 }
 
-// TestFingerprintFilesMatchesOneSpawnPerFile: batched hashes equal `git hash-object` per file, past a chunk.
-func TestFingerprintFilesMatchesOneSpawnPerFile(t *testing.T) {
+func TestFingerprintFilesMatchesGitAcrossChunks(t *testing.T) {
 	dir, run, write := stateGitRepo(t)
 	write("with space.go", "spaced\n")
 	files := []string{"new.go", "gone.go", "with space.go", "tracked.go"}
+	fixtureCount := len(files)
 	for i := range hashChunk + 5 {
 		name := "f" + strings.Repeat("x", i%3) + string(rune('a'+i%26)) + "-" + strconv.Itoa(i)
 		write(name, name+"\n")
@@ -331,7 +331,7 @@ func TestFingerprintFilesMatchesOneSpawnPerFile(t *testing.T) {
 	if err != nil || len(got) != len(files) {
 		t.Fatalf("fingerprintFiles: %d hashes, %v", len(got), err)
 	}
-	for i, f := range files {
+	for i, f := range files[:fixtureCount] {
 		want := FingerprintAbsent
 		if f != "gone.go" {
 			want = run("hash-object", "--", f)
@@ -339,6 +339,16 @@ func TestFingerprintFilesMatchesOneSpawnPerFile(t *testing.T) {
 		if got[i] != want {
 			t.Fatalf("%s: batched %q, per-file %q", f, got[i], want)
 		}
+	}
+	// Use Git's stdin mode as the oracle for the bulk paths without spawning Git per file.
+	cmd := exec.Command("git", "-C", dir, "hash-object", "--stdin-paths")
+	cmd.Stdin = strings.NewReader(strings.Join(files[fixtureCount:], "\n") + "\n")
+	out, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := strings.Fields(string(out)); !slices.Equal(got[fixtureCount:], want) {
+		t.Fatal("batched hashes differ from git hash-object --stdin-paths")
 	}
 	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
 		t.Fatal(err)

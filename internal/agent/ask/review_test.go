@@ -132,13 +132,13 @@ func TestAgentReviewBoundsDiffPreparation(t *testing.T) {
 	bin := t.TempDir()
 	git := filepath.Join(bin, "git")
 	// exec keeps the hung git at one PID, so cancellation cannot leave a child holding its output pipes open.
-	if err := os.WriteFile(git, []byte("#!/bin/sh\ncase \"$3\" in diff) exec sleep 125;; esac\n"), 0o700); err != nil {
+	if err := os.WriteFile(git, []byte("#!/bin/sh\ncase \"$3\" in diff) exec sleep 1;; esac\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Chdir(t.TempDir())
 	orig := reviewDiffTimeout
-	reviewDiffTimeout = 600 * time.Millisecond
+	reviewDiffTimeout = 150 * time.Millisecond
 	t.Cleanup(func() { reviewDiffTimeout = orig })
 	start := time.Now()
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {

@@ -100,6 +100,7 @@ func (f *runFixture) exec(_ context.Context, _, cmd string, _ []string, _ io.Wri
 }
 
 func TestRunEndToEnd(t *testing.T) {
+	f := newRunFixture(t)
 	for _, tc := range []struct {
 		name                    string
 		fail, outside, mismatch bool
@@ -109,7 +110,9 @@ func TestRunEndToEnd(t *testing.T) {
 		{name: "routing", mismatch: true, code: 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			f := newRunFixture(t)
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			f.calls, f.gates = nil, 0
+			f.out.Reset()
 			f.fail, f.outside, f.mismatch = tc.fail, tc.outside, tc.mismatch
 			if code := runWith(t.Context(), f.o, f.h); code != tc.code {
 				t.Fatalf("exit %d want %d: %s", code, tc.code, &f.out)

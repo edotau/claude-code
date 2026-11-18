@@ -1046,11 +1046,11 @@ func decodeEnvelope(t *testing.T, out string) map[string]any {
 
 // Every agent's --format json success emits the one standard envelope.
 func TestEnvelopeContractSuccess(t *testing.T) {
+	cliEnv(t)
+	cliFakes(t)
 	noUsage := map[string]bool{"codex": true}
 	for _, name := range []string{"claude", "codex", "gemini", "opencode"} {
 		t.Run(name, func(t *testing.T) {
-			cliEnv(t)
-			cliFakes(t)
 			code, out, stderr := runCLI(t, "ask", "--agent", name, "--profile", profileFor[name], "--fallback", "none", "--native", "--format", "json", "say hello")
 			if code != 0 {
 				t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)

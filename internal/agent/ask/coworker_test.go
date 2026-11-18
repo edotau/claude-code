@@ -207,7 +207,7 @@ func armChildEnvFixture(t *testing.T) string { return armFixture(t, false) }
 func armVendorBody(dumpAt, bin string) string {
 	return `case "$1 $2" in login*) echo "Logged in using ChatGPT"; exit 0;; ` +
 		`--version*|*--help*|debug*) echo 1.0.0; exit 0;; esac` + "\n" + `dump=` + dumpAt + "\n" +
-		`n=$(ls "$dump" | wc -l | tr -d ' ')` + "\n" + `{ echo "ARGV $*"; env; } > "$dump/$n-` + bin + `"` + "\n" +
+		`n=0; for f in "$dump"/*; do [ ! -f "$f" ] || n=$((n+1)); done` + "\n" + `{ echo "ARGV $*"; env; } > "$dump/$n-` + bin + `"` + "\n" +
 		`echo '402 Payment Required: monthly quota exceeded' >&2; exit 1`
 }
 
@@ -226,7 +226,7 @@ func armSharedFakes(t *testing.T) string {
 		}
 		armSharedBin.dir = dir
 		for _, h := range armDevHop {
-			body := "#!/bin/sh\n" + armVendorBody(`"$(cat "$(dirname "$0")/dump-path")"`, h.bin) + "\n"
+			body := "#!/bin/sh\nIFS= read -r dump < \"${0%/*}/dump-path\" || exit 1\n" + armVendorBody(`"$dump"`, h.bin) + "\n"
 			file, _ := paths.AgentName(h.bin)
 			if err := os.WriteFile(filepath.Join(dir, file), []byte(body), 0o755); err != nil {
 				t.Fatal(err)
@@ -244,7 +244,7 @@ func armFixture(t *testing.T, shared bool) string {
 	dump := t.TempDir()
 	if shared {
 		dir := armSharedFakes(t)
-		if err := os.WriteFile(filepath.Join(dir, "dump-path"), []byte(dump), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(dir, "dump-path"), []byte(dump+"\n"), 0o600); err != nil {
 			t.Fatal(err)
 		}
 		t.Setenv(paths.AgentBinDirEnv, dir)

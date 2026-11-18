@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -70,35 +71,33 @@ func TestCodexRedirectCleansOriginalNpmInstall(t *testing.T) {
 func TestBinMutationsWaitForConcurrentDirectInstall(t *testing.T) {
 	for _, name := range []string{"replace", "remove", "install"} {
 		t.Run(name, func(t *testing.T) {
-			setupToolsTestEnv(t)
-			dir := paths.BinDir()
-			dst := filepath.Join(dir, "codex")
-			symlinkToolsFixture(t, filepath.Join(t.TempDir(), "missing"), dst)
-			done := make(chan error, 1)
-			err := paths.WithFileLock(binLockPath(dir), func() error {
-				started := make(chan struct{})
-				go func() {
-					close(started)
-					done <- mutateBinForRegression(name, dst)
-				}()
-				<-started
-				select {
-				case err := <-done:
-					done <- err
-					t.Errorf("%s completed while the direct install held the bin lock: %v", name, err)
-				case <-time.After(200 * time.Millisecond):
+			synctest.Test(t, func(t *testing.T) {
+				setupToolsTestEnv(t)
+				dir := paths.BinDir()
+				dst := filepath.Join(dir, "codex")
+				symlinkToolsFixture(t, filepath.Join(t.TempDir(), "missing"), dst)
+				done := make(chan error, 1)
+				err := paths.WithFileLock(binLockPath(dir), func() error {
+					go func() { done <- mutateBinForRegression(name, dst) }()
+					synctest.Wait()
+					select {
+					case err := <-done:
+						done <- err
+						t.Errorf("%s completed while the direct install held the bin lock: %v", name, err)
+					default:
+					}
+					return paths.AtomicWrite(dst, []byte("direct install"), 0o755)
+				})
+				if err != nil {
+					t.Fatal(err)
 				}
-				return paths.AtomicWrite(dst, []byte("direct install"), 0o755)
+				awaitBinMutation(t, done)
+				want := "direct install"
+				if name == "install" {
+					want = "next install"
+				}
+				assertInstalledCodexBinary(t, "codex", want)
 			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			awaitBinMutation(t, done)
-			want := "direct install"
-			if name == "install" {
-				want = "next install"
-			}
-			assertInstalledCodexBinary(t, "codex", want)
 		})
 	}
 }

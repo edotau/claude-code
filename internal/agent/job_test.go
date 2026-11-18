@@ -905,28 +905,34 @@ func TestCancelKeepsSavedErrorOfRunningRecord(t *testing.T) {
 // A finisher and a canceller race on one record: the job that reports it finished must stay finished.
 func TestCancelNeverOverwritesConcurrentFinish(t *testing.T) {
 	setConfigDir(t)
-	for i := range 50 {
-		rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now().Add(time.Duration(i)*time.Millisecond))
-		if err := rec.Save(); err != nil {
-			t.Fatal(err)
-		}
-		gate, done, cancelled := make(chan struct{}), make(chan bool, 1), make(chan struct{})
-		id, mine := rec.ID, rec
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	started, cancelled := make(chan struct{}), make(chan error, 1)
+	mine := rec
+	_, finished, err := UpdateRunning(rec.ID, func(r Record) Record {
+		// Start cancellation while the finisher holds the record lock.
 		go func() {
-			<-gate
-			_, applied, err := UpdateRunning(id, func(r Record) Record {
-				r.Finish(wire.Result{Usage: wire.Usage{InputTokens: 5}}, nil, time.Second)
-				return r
-			})
-			done <- applied && err == nil
+			close(started)
+			_, err := failIfRunning(&mine, "cancelled", false)
+			cancelled <- err
 		}()
-		go func() { <-gate; _, _ = failIfRunning(&mine, "cancelled", false); close(cancelled) }()
-		close(gate)
-		finished := <-done
-		<-cancelled
-		got, _ := LoadRecord(rec.ID)
-		if finished && (got.Status != "ok" || got.Usage == nil || got.DurationMs != 1000) {
-			t.Fatalf("iteration %d: finish lost to cancel: %q/%q usage=%v", i, got.Status, got.Error, got.Usage)
-		}
+		<-started
+		r.Finish(wire.Result{Usage: wire.Usage{InputTokens: 5}}, nil, time.Second)
+		return r
+	})
+	if !finished || err != nil {
+		t.Fatalf("finish applied=%t, err=%v", finished, err)
+	}
+	if err := <-cancelled; err != nil {
+		t.Fatal(err)
+	}
+	got, err := LoadRecord(rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "ok" || got.Usage == nil || got.DurationMs != 1000 {
+		t.Fatalf("finish lost to cancel: %q/%q usage=%v", got.Status, got.Error, got.Usage)
 	}
 }
