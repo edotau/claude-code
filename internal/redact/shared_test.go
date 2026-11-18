@@ -80,3 +80,45 @@ func TestValueBytesKeepsJSONValid(t *testing.T) {
 		}
 	}
 }
+
+// A fresh down-latch skips the vault read and an old one does not; a good read removes the latch.
+func TestSharedWithinLatchSkipsRead(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	reads, fail := 0, true
+	stub := func() { // a new stub drops the process cache, as a new hook process starts without one
+		StubSource(t, func() ([]string, error) {
+			reads++
+			if fail {
+				return nil, vault.ErrKeyringNoAnswer
+			}
+			return nil, nil
+		})
+	}
+	stub()
+	now := time.Unix(1_700_000_000, 0)
+	prev := clock
+	clock = func() time.Time { return now }
+	t.Cleanup(func() { clock = prev })
+
+	if _, cause, announce := SharedWithin(time.Second); reads != 1 || cause == "" || !announce {
+		t.Fatalf("first: reads %d cause %q announce %v", reads, cause, announce)
+	}
+	now = now.Add(latchTTL - time.Second)
+	stub()
+	if _, cause, announce := SharedWithin(time.Second); reads != 1 || cause != downPhrases["noanswer"] || announce {
+		t.Fatalf("fresh latch: reads %d cause %q announce %v, want the read skipped", reads, cause, announce)
+	}
+	now = now.Add(2 * time.Second)
+	stub()
+	if _, _, announce := SharedWithin(time.Second); reads != 2 || !announce {
+		t.Fatalf("old latch: reads %d announce %v, want a new read and a renewed latch", reads, announce)
+	}
+	now, fail = now.Add(latchTTL+time.Second), false
+	stub()
+	if _, cause, _ := SharedWithin(time.Second); cause != "" {
+		t.Fatalf("good read: cause %q", cause)
+	}
+	if _, _, found := readLatch(); found {
+		t.Error("a successful read left the latch")
+	}
+}

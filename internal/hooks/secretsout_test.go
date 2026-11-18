@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/redact"
+	"github.com/edotau/claude-code/internal/vault"
 
 	_ "github.com/edotau/claude-code/internal/nonet"
 )
@@ -84,5 +85,18 @@ func TestSecretsOutStalledVaultMasksShapes(t *testing.T) {
 	stdout, _ := got.UpdatedToolOutput["stdout"].(string)
 	if strings.Contains(stdout, shape) || len(stdout) != len("GH="+shape+" ok") || got.Stderr != shapesOnlyNote {
 		t.Errorf("stdout %d bytes masked=%v, stderr %q", len(stdout), !strings.Contains(stdout, shape), got.Stderr)
+	}
+}
+
+// An unreadable vault sends the message on the call that sets the latch, not on the next one inside the minute.
+func TestSecretsOutFallbackMessageOncePerMinute(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	redact.StubSource(t, func() ([]string, error) { return nil, vault.ErrLocked })
+	first := SecretsOut(bashOutput("plain output long enough to open", ""))
+	if !strings.Contains(first.SystemMessage, "could not be loaded (no key or vault locked)") || first.Stderr != shapesOnlyNote {
+		t.Errorf("first call: message %q stderr %q", first.SystemMessage, first.Stderr)
+	}
+	if next := SecretsOut(bashOutput("plain output long enough to open", "")); next.SystemMessage != "" || next.Stderr != shapesOnlyNote {
+		t.Errorf("next call: message %q stderr %q, want no message and the stderr note", next.SystemMessage, next.Stderr)
 	}
 }

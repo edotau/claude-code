@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"fmt"
 	"maps"
 	"time"
 
@@ -10,6 +11,8 @@ import (
 
 // vaultWait gives up on the vault read with a quarter of the budget left, so a stalled keyring never skips masking.
 var vaultWait = func() time.Duration { return budgetOf(specOf("secrets-out")) * 3 / 4 }
+
+const shapesOnlyMsg = "claude-code: secrets-out: vault values could not be loaded (%s); only credential-shaped text was masked"
 
 const shapesOnlyNote = "claude-code: secrets-out: vault values unavailable; masked credential shapes only"
 
@@ -28,7 +31,7 @@ func SecretsOut(in *core.Input) core.Result {
 	if len(texts) == 0 {
 		return core.Result{}
 	}
-	mask, note := outputMask()
+	mask, note, msg := outputMask()
 	var updated map[string]any
 	for key, text := range texts {
 		if masked, n := maskText(mask, text); n > 0 {
@@ -39,18 +42,21 @@ func SecretsOut(in *core.Input) core.Result {
 		}
 	}
 	if updated == nil {
-		return core.Result{Stderr: note}
+		return core.Result{Stderr: note, SystemMessage: msg}
 	}
-	return core.Result{UpdatedToolOutput: updated, Stderr: note}
+	return core.Result{UpdatedToolOutput: updated, Stderr: note, SystemMessage: msg}
 }
 
-// outputMask is the vault-value masker, or shapes with a note when the vault is unreadable or too slow.
-func outputMask() (func([]byte) int, string) {
-	m, fromVault := redact.SharedWithin(vaultWait())
-	if !fromVault {
-		return m.Mask, shapesOnlyNote
+// outputMask is the vault-value masker; unreadable or slow, shapes with a note, and a message once a minute.
+func outputMask() (mask func([]byte) int, note, msg string) {
+	m, cause, announce := redact.SharedWithin(vaultWait())
+	if cause == "" {
+		return m.MaskValues, "", ""
 	}
-	return m.MaskValues, ""
+	if announce {
+		msg = fmt.Sprintf(shapesOnlyMsg, cause)
+	}
+	return m.Mask, shapesOnlyNote, msg
 }
 
 // maskText masks s with mask: vault values only, unless the vault is unreadable and shapes stand in.

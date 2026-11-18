@@ -1,12 +1,17 @@
 package redact
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -18,22 +23,39 @@ var (
 
 // sharedState is the process matcher; ok means it holds the vault's values, not the shapes-only fallback.
 type sharedState struct {
-	m  *Matcher
-	ok bool
+	m   *Matcher
+	ok  bool
+	err error
 }
 
 // Shared is the process matcher over the vault's values; unreadable leaves shapes only, one stderr line.
 func Shared() *Matcher { return loadShared().m }
 
-// SharedWithin is Shared bounded by d; ok is false when the vault values were unreadable or not read in time.
-func SharedWithin(d time.Duration) (*Matcher, bool) {
+// SharedWithin is Shared bounded by d; cause says why vault values are missing, announce marks a set or renewed latch.
+func SharedWithin(d time.Duration) (m *Matcher, cause string, announce bool) {
+	word, age, found := readLatch()
+	if found && age >= 0 && age < latchTTL {
+		return FromValues(nil), downPhrase(word), false
+	}
+	st := loadSharedWithin(d)
+	if st.ok {
+		if found {
+			_ = os.Remove(latchPath())
+		}
+		return st.m, "", false
+	}
+	word = downWord(st.err)
+	return st.m, downPhrase(word), writeLatch(word) == nil
+}
+
+func loadSharedWithin(d time.Duration) *sharedState {
 	done := make(chan *sharedState, 1)
 	go func() { done <- loadShared() }()
 	select {
 	case st := <-done:
-		return st.m, st.ok
+		return st
 	case <-time.After(d):
-		return FromValues(nil), false
+		return &sharedState{FromValues(nil), false, vault.ErrKeyringNoAnswer}
 	}
 }
 
@@ -42,12 +64,63 @@ func loadShared() *sharedState {
 	defer sharedMu.Unlock()
 	if current == nil {
 		vals, err := source()
-		current = &sharedState{FromValues(vals), err == nil}
+		current = &sharedState{FromValues(vals), err == nil, err}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "claude-code: redact: vault values unavailable; masking credential shapes only")
 		}
 	}
 	return current
+}
+
+var (
+	latchTTL = time.Minute
+	clock    = time.Now
+)
+
+var downPhrases = map[string]string{
+	"noanswer":    "keyring did not answer",
+	"locked":      "no key or vault locked",
+	"unavailable": "keyring unavailable",
+	"unreadable":  "vault unreadable",
+}
+
+func downWord(err error) string {
+	switch {
+	case errors.Is(err, vault.ErrKeyringNoAnswer):
+		return "noanswer"
+	case errors.Is(err, vault.ErrLocked):
+		return "locked"
+	case errors.Is(err, vault.ErrKeyringUnavailable):
+		return "unavailable"
+	}
+	return "unreadable"
+}
+
+func downPhrase(word string) string {
+	if p, ok := downPhrases[word]; ok {
+		return p
+	}
+	return downPhrases["unreadable"]
+}
+
+func latchPath() string { return filepath.Join(paths.StateDir(), "hooks", "secrets-down") }
+
+// readLatch parses "<unix seconds> <cause word>"; a malformed file reads as stale, so it can never skip the vault.
+func readLatch() (word string, age time.Duration, found bool) {
+	b, err := os.ReadFile(latchPath())
+	if err != nil {
+		return "", 0, false
+	}
+	secs, w, _ := strings.Cut(strings.TrimSpace(string(b)), " ")
+	n, err := strconv.ParseInt(secs, 10, 64)
+	if err != nil {
+		return "", latchTTL, true
+	}
+	return w, clock().Sub(time.Unix(n, 0)), true
+}
+
+func writeLatch(word string) error {
+	return paths.AtomicWrite(latchPath(), []byte(strconv.FormatInt(clock().Unix(), 10)+" "+word+"\n"), 0o600)
 }
 
 // Text masks s with the shared matcher; empty text never opens the vault.
