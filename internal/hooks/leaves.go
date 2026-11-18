@@ -874,11 +874,11 @@ func askBound(asks []askCall, rec agent.Record) bool {
 	})
 }
 
-// askTied: rec has the ask's agent and a prompt equal to its task (argv, else brief file); no task ties nothing.
+// askTied: rec has the ask's agent and a prompt equal to its task, memory-recall block aside; no task ties nothing.
 func askTied(cmd string, rec agent.Record) bool {
 	for _, seg := range shell.Segments(cmd) {
 		name, task := askTask(seg)
-		if task != "" && name == rec.Agent && task == normalizeTask(rec.Request.Prompt) {
+		if task != "" && name == rec.Agent && withoutRecall(rec.Request.Prompt) == task {
 			return true
 		}
 	}
@@ -909,6 +909,12 @@ func askTask(seg string) (name, task string) {
 		task = string(b)
 	}
 	return name, normalizeTask(task)
+}
+
+// withoutRecall is the prompt normalized, minus the memory-recall block `ask` appends to a brief.
+func withoutRecall(prompt string) string {
+	before, _, _ := strings.Cut(prompt, "<memory-recall>")
+	return normalizeTask(before)
 }
 
 func normalizeTask(s string) string { return strings.Join(strings.Fields(s), " ") }
