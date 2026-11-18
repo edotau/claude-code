@@ -5,27 +5,16 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/shell"
-)
-
-const (
-	exfilSink = `(curl|nc|ncat|wget)([^[:alnum:]_]|$)`
-	// The regex secretPipe is superseded by secretPiped; it stays while safety.go's exfilPatterns names it.
-	secretCmd = `(?:claude-code\s+vault\s+get|security\s+find-(?:generic|internet)-password\s[^|;&\n]*-[a-zA-Z]*w|` +
-		`gh\s+auth\s+token|databricks\s+auth\s+token|oc\s+whoami\s+-t|gcloud\s+auth\s+print-(?:access|identity)-token|` +
-		`az\s+account\s+get-access-token|aws\s+ecr\s+get-login-password|aws\s+sts\s+get-session-token|` +
-		`kubectl\s+config\s+view\s[^|;&\n]*--raw)`
-	stageTail = `(?:[^|;&\n]|>&|&>)*`
-	secretSrc = cmdStart + `(?:\S*/)?(?:` + secretCmd + stageTail +
-		`|(?:env(?:\s+-\S+)*|printenv(?:\s+\w+)*)\s*)`
-	secretSink = `\|&?[ \t]*(?:xargs\s+(?:-[^Ii\s]\S*\s+)*|env\s+|command\s+|\\)?(?:\S*/)?` + exfilSink
-	secretPipe = secretSrc + `(?:\|&?[ \t]*[^|;&\n \t]` + stageTail + `)*` + secretSink
 )
 
 // credentialCmds print a credential: per tool, its subcommand words in order; flags and their values may sit between.
 var credentialCmds = map[string][][]string{
-	"claude-code": {{"vault", "get"}}, "gh": {{"auth", "token"}}, "databricks": {{"auth", "token"}},
-	"gcloud": {{"auth", "print-access-token"}, {"auth", "print-identity-token"}}, // application-default sits between
+	"claude-code": {{"vault", "get"}}, "databricks": {{"auth", "token"}},
+	"gh": {{"auth", "token"}, {"auth", "status", "-t"}, {"auth", "status", "--show-token"}},
+	"gcloud": {{"auth", "print-access-token"}, {"auth", "print-identity-token"}, // application-default sits between
+		{"auth", "print-refresh-token"}},
 	"az":     {{"account", "get-access-token"}},
 	"aws": {{"ecr", "get-login-password"}, {"ecr-public", "get-login-password"}, {"sts", "get-session-token"},
 		{"sts", "assume-role"}, {"sts", "get-federation-token"}, {"configure", "export-credentials"},
@@ -35,8 +24,11 @@ var credentialCmds = map[string][][]string{
 	"security": {{"find-generic-password", "-w"}, {"find-internet-password", "-w"}},
 }
 
-// networkSinks send their input to another host; openssl counts only as s_client.
+// networkSinks send their input to another host, for credential commands and files; openssl counts only as s_client.
 var networkSinks = []string{"curl", "wget", "nc", "ncat", "netcat", "socat", "telnet", "ssh", "scp", "sftp", "ftp"}
+
+// publicKey is a public key or known_hosts path under .ssh/: no secret, so credRead skips it (RE2 has no lookahead).
+var publicKey = core.Gate(`\.ssh/(?:[^\s|;&<>'"]*\.pub|(?:[^\s|;&<>'"]*/)?known_hosts[^\s|;&<>'"]*)([\s|;&<>'"]|$)`, ".ssh/")
 
 // secretMark stands in for a substitution whose command prints a credential, so its segment counts as a source.
 const secretMark = "\x00secret"
@@ -54,18 +46,21 @@ func pipesSecret(cmd string, depth int) bool {
 	cmd = markSubs(cmd, depth)
 	socket := strings.Contains(cmd, "/dev/tcp/") || strings.Contains(cmd, "/dev/udp/")
 	segs, seps := shell.SegmentsSep(cmd)
-	carry, inGroup, open := false, false, 0
+	carry, whole, groupEnv, inGroup, open := false, false, false, false, 0
 	for i, seg := range segs {
 		toks := shell.Tokens(seg)
-		if nested, ok := shell.NestedCommand(toks); ok && pipesSecret(nested, depth+1) || carry && sends(toks, depth) {
+		if nested, ok := shell.NestedCommand(toks); ok && pipesSecret(nested, depth+1) || carry && sends(seg, depth, whole) {
 			return true
 		}
-		src := carry || strings.Contains(seg, secretMark) || printsSecret(toks, depth)
+		prints, env := printsSecret(toks, depth)
+		src := carry || strings.Contains(seg, secretMark) || prints
 		if src && socket {
 			return true
 		}
 		src, inGroup, open = grouped(seg, src, inGroup, open)
 		carry = src && (seps[i] == "|" || seps[i] == "|&")
+		whole = carry && (whole || env || groupEnv)
+		groupEnv = open > 0 && (groupEnv || env) // an env dump inside `{ …; }` or `( … )` leaves with the group
 	}
 	return false
 }
@@ -108,23 +103,32 @@ func printsAny(text string, depth int) bool {
 	}
 	text = markSubs(text, depth)
 	return slices.ContainsFunc(shell.Segments(text), func(seg string) bool {
-		return strings.Contains(seg, secretMark) || printsSecret(shell.Tokens(seg), depth)
+		if strings.Contains(seg, secretMark) {
+			return true
+		}
+		prints, _ := printsSecret(shell.Tokens(seg), depth)
+		return prints
 	})
 }
 
-// printsSecret reports a command word of toks, past wrappers and runners, that prints a credential or the environment.
-func printsSecret(toks []string, depth int) bool {
+// printsSecret reports a command word of toks, past wrappers and runners, printing a credential; env: the environment.
+func printsSecret(toks []string, depth int) (prints, env bool) {
 	if nested, ok := shell.NestedCommand(toks); ok {
-		return printsAny(nested, depth+1)
+		return printsAny(nested, depth+1), false
 	}
-	return slices.ContainsFunc(shell.CommandStarts(toks), func(st []string) bool {
+	for _, st := range shell.CommandStarts(toks) {
 		w, _ := shell.Unwrap(st, "")
-		if len(w) == 0 {
-			return len(st) > 0 && filepath.Base(st[0]) == "env" // env with no command prints the environment
+		if len(w) > 1 && w[0] == "builtin" { // bash's builtin prefix, which Unwrap keeps
+			w, _ = shell.Unwrap(w[1:], "")
 		}
-		name := filepath.Base(w[0])
-		return name == "printenv" || slices.ContainsFunc(credentialCmds[name], func(words []string) bool { return inOrder(w[1:], words) })
-	})
+		switch {
+		case len(w) == 0 && len(st) > 0 && filepath.Base(st[0]) == "env", len(w) > 0 && filepath.Base(w[0]) == "printenv":
+			return true, true // env with no command prints the environment
+		case len(w) > 0 && slices.ContainsFunc(credentialCmds[filepath.Base(w[0])], func(words []string) bool { return inOrder(w[1:], words) }):
+			return true, false
+		}
+	}
+	return false, false
 }
 
 // inOrder reports words appearing in args in order; a one-letter flag also matches inside a short cluster.
@@ -142,27 +146,57 @@ func inOrder(args, words []string) bool {
 	return len(words) == 0
 }
 
-// sends reports a command word of toks, past wrappers, runners and `sh -c`, that sends its input to another host.
-func sends(toks []string, depth int) bool {
+// sends reports a command word of seg (past wrappers, runners, sh -c, >(…)) sending its input on; whole: an env dump.
+func sends(seg string, depth int, whole bool) bool {
+	toks := shell.Tokens(seg)
 	if nested, ok := shell.NestedCommand(toks); ok {
-		return depth < maxSecretNest && slices.ContainsFunc(shell.Segments(nested), func(seg string) bool {
-			return sends(shell.Tokens(seg), depth+1)
-		})
+		return sendsAny(nested, depth, whole)
 	}
+	if strings.Contains(seg, ">(") { // `tee >(curl …)` and `> >(nc …)` feed the input to the substitution
+		_, subs := shell.ExtractSubstitutions(seg)
+		if slices.ContainsFunc(subs, func(s string) bool { return strings.Contains(seg, ">("+s+")") && sendsAny(s, depth, whole) }) {
+			return true
+		}
+	}
+	replaced := false
 	for _, st := range shell.CommandStarts(toks) {
 		w, _ := shell.Unwrap(st, "")
 		if len(w) == 0 {
 			continue
 		}
+		if replaced { // `-I{}` puts one token in an argument, as a header does; an env dump still goes whole
+			if nested, ok := shell.NestedCommand(w); ok || !whole {
+				return ok && shellPipesOn(nested, depth, whole)
+			}
+		}
 		name, _, _ := strings.Cut(filepath.Base(w[0]), ".") // nc.openbsd is nc
 		if name == "xargs" && xargsReplaces(w[1:]) {
-			return false // `-I{}` puts the token in an argument, as a header does: allowed like `$(…)` in one
+			replaced = true
+			continue
 		}
 		if slices.Contains(networkSinks, name) || name == "openssl" && slices.Contains(w[1:], "s_client") {
 			return true
 		}
 	}
 	return false
+}
+
+// shellPipesOn reports an xargs -I `sh -c` text sending the token on: a piped segment, or any one for an env dump.
+func shellPipesOn(text string, depth int, whole bool) bool {
+	segs, seps := shell.SegmentsSep(text)
+	for k := 0; depth < maxSecretNest && k < len(segs); k++ {
+		if (whole || k > 0 && (seps[k-1] == "|" || seps[k-1] == "|&")) && sends(segs[k], depth+1, whole) {
+			return true
+		}
+	}
+	return false
+}
+
+// sendsAny reports any segment of text that sends its input to another host.
+func sendsAny(text string, depth int, whole bool) bool {
+	return depth < maxSecretNest && slices.ContainsFunc(shell.Segments(text), func(seg string) bool {
+		return sends(seg, depth+1, whole)
+	})
 }
 
 // xargsReplaces reports a leading -I/-i/--replace option of xargs.

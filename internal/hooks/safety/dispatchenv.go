@@ -13,9 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/shell"
 )
 
-// cmdStart anchors a pattern at a command word; secretpipe.go builds on it.
-const cmdStart = "(?:^|[;&|({`])\\s*(?:rtk\\s+)?(?:(?:exec|nohup|time|command|builtin|nice|stdbuf\\S*)\\s+(?:-\\S+\\s+)*)*"
-
 const wipeName = "every variable (env -i)"
 
 var (

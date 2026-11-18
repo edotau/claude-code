@@ -45,6 +45,8 @@ func TestReadOnlyGitForms(t *testing.T) {
 		{"git -C ../sibling status", true},
 		{"git -C a -C b status", true},
 		{"git --no-pager -C d log --oneline -3", true},
+		{"git log -C", true},
+		{"git grep -C 2 x", true},
 	})
 }
 
@@ -135,6 +137,8 @@ func TestReadOnlyRenamedVerbs(t *testing.T) {
 		{"claude-code vault get NAME | wc -c", true},
 		{"claude-code vault get NAME 2>/dev/null", true},
 		{"claude-code vault get X > out.txt", false},
+		{"claude-code vault get GH_TOKEN", true},
+		{"claude-code vault get GH_TOKEN --reveal", false},
 	})
 }
 
@@ -429,6 +433,7 @@ func TestReadOnlyHardening(t *testing.T) {
 		"command env | grep x", "nohup env | grep x", "time env | grep x", "ls | env", "printenv | grep x", "set | grep x",
 		"export -p | grep x", "declare -p | grep x", "compgen -v | grep x", "compgen -e",
 		"claude-code agents sync", "claude-code agents sync --agent codex", "claude-code agents sync --check --force",
+		"rg x *", "git grep x *", "rg x -*", "git grep -nOless x",
 	} {
 		rows = append(rows, roCase{c, false})
 	}
@@ -437,6 +442,7 @@ func TestReadOnlyHardening(t *testing.T) {
 		"echo '$HOME'", "echo done", "LC_ALL=C git status", "TZ=UTC git log -1", "git stash show -p stash@{1}",
 		"git branch -av", "git branch -rv", "git grep -n foo", "git grep -il foo", "git remote -v",
 		"claude-code agents sync --check", "claude-code agents sync --dry-run --agent codex",
+		"rg x src/*.go", "cat *.go", "git log -SOpenFile", "git grep -eOpen",
 	} {
 		rows = append(rows, roCase{c, true})
 	}
@@ -447,8 +453,9 @@ func TestReadOnlyHardening(t *testing.T) {
 func TestReadOnlyCLIFlagAllowList(t *testing.T) {
 	var rows []roCase
 	for _, c := range []string{
-		"gh auth status -at", "gh auth status -atq", "kubectl get pods -Aw", "kubectl get pods -lw x", "kubectl logs x -pf",
-		"docker logs x -tf", "gh pr view -cw", "gh issue view 1 -cw", "gh pr list -aw", "gh run view 1 -vw",
+		"gh auth status -at", "gh auth status -atq", "kubectl get pods -Aw", "kubectl get pods -wl x", "kubectl logs x -pf",
+		"docker logs x -tf", "gh pr view -cw", "gh issue view 1 -cw", "gh pr list -wa", "gh run view 1 -vw",
+		"kubectl get pods -oyaml", "aws sts get-caller-identity --output yaml2",
 		"git grep -iOsh x", "git grep -nO sh x",
 		"docker inspect x", "docker inspect -f '{{.Config.Env}}' x", "oc get oauthclients", "oc get oauthclient x -o yaml",
 		"oc get oauthaccesstokens", "oc get oauthauthorizetokens", "oc get useroauthaccesstokens", "kubectl get pods -o yaml",
@@ -458,7 +465,7 @@ func TestReadOnlyCLIFlagAllowList(t *testing.T) {
 		"kubectl get pods --user=x", "kubectl get pods --filename=x", "kubectl get pods -A=true", "kubectl get pods --all-namespaces=1",
 		"aws sts get-caller-identity --debug", "aws sts get-caller-identity --endpoint-url http://evil", "aws --debug sts get-caller-identity",
 		"gcloud config list --access-token-file=/x", "gcloud config list --log-http", "gh pr list --jq .[]", "gh pr view 1 -t x",
-		"oc whoami -t", "oc whoami --show-token", "oc whoami -ct", "docker logs x --details", "docker ps --format x",
+		"oc whoami -t", "oc whoami --show-token", "oc whoami -ct", "docker logs x --details", "docker ps --format",
 		"kubectl logs x --follow=true", "kubectl get pods --", "gh pr list -R evil.com/a/b",
 	} {
 		rows = append(rows, roCase{c, false})
@@ -470,6 +477,8 @@ func TestReadOnlyCLIFlagAllowList(t *testing.T) {
 		"docker volume ls -q", "gh pr view 42 --json title,body", "gh pr list -L 5 -s open", "gh auth status -a",
 		"gh run list -L 5", "gh pr view 42 -c", "gh pr list -R a/b", "oc whoami", "oc whoami --show-server",
 		"kubectl get serviceaccounts",
+		"kubectl get pods -owide", "kubectl get pods -lapp=web", "docker ps -n5", "docker ps --format '{{.Names}}'",
+		"aws sts get-caller-identity --output json", "gcloud config list --format=json",
 	} {
 		rows = append(rows, roCase{c, true})
 	}

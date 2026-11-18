@@ -94,9 +94,8 @@ const credRead = `(cat|tail|head|base64)\s+.*(\.claude/settings\.json|\.credenti
 // exfilPatterns match credential-exfiltration shapes.
 var exfilPatterns = []*core.Gated{
 	core.Gate(`(^|[\s;&|({/\x60'"\\])(env|printenv)['"]?\s*>\s*/tmp/`, "/tmp/"),
-	core.Gate(`(`+credRead+`.*\|.*(^|[^[:alnum:]_])`+exfilSink+`)|(`+secretPipe+`)`,
-		".claude/settings.json", ".credentials.json", "secrets.env", ".ssh/", ".aws/credentials", ".netrc",
-		"vault", "find-", "env", "auth", "whoami", "get-", "--raw"), // every secretCmd printer holds one
+	core.Gate(credRead+`.*\|.*(^|[^[:alnum:]_])(`+strings.Join(networkSinks, "|")+`)([^[:alnum:]_]|$)`,
+		".claude/settings.json", ".credentials.json", "secrets.env", ".ssh/", ".aws/credentials", ".netrc"),
 	core.Gate(`base64\s+.*(\.ssh/id_|\.aws/credentials|\.credentials\.json|secrets\.env)`, "base64"),
 	core.Gate(`(scp|rsync)\s+.*\.ssh/id_`, ".ssh/id_"),
 }
@@ -106,10 +105,13 @@ var toolEnv = core.Gate(`(^|[\s;&|({\x60])(\S*/)?(go|conda|mamba|poetry)[ \t]+en
 
 var credReader = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(credRead) })
 
-// exfilMatch is exfilPatterns[i] on scan, minus a tool's `env` subcommand and credentials cmd only prints.
+// exfilMatch is exfilPatterns[i] on scan, minus a tool's `env` subcommand, public keys and credentials cmd only prints.
 func exfilMatch(i int, re *core.Gated, scan, cmd string) bool {
 	if i == 0 && toolEnv.MayMatch(scan) {
 		scan = toolEnv.Regexp().ReplaceAllString(scan, "${1}${3}${4}")
+	}
+	if i == 1 && publicKey.MayMatch(scan) {
+		scan = publicKey.Regexp().ReplaceAllString(scan, " ${1}")
 	}
 	return i == 1 && secretPiped(scan) || re.MatchString(scan) && (i != 1 || !credsShownOnly(cmd))
 }

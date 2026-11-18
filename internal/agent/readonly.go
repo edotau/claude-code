@@ -94,6 +94,20 @@ func rawSegmentOK(seg string, rawToks, toks []string) bool {
 	if hasWrite(seg) || shell.Expands(seg) || braceExpands(seg) {
 		return false
 	}
+	if name := rtkPlain(toks)[0]; slices.Contains([]string{"rg", "find", "git", "go", "claude-code"}, name) || readOnlyCLIs[name] != nil {
+		// a glob leading a word, or in a word that starts with -, can expand to a flag (a file named --pre=x)
+		at, lead, dash := shell.QuoteAt(seg), true, false
+		for i := 0; i < len(seg); i++ {
+			switch c := seg[i]; {
+			case at[i] == 0 && (c == ' ' || c == '\t' || c == '\n'):
+				lead, dash = true, false
+			case at[i] == 0 && strings.IndexByte("*?[", c) >= 0 && (lead || dash):
+				return false
+			case c != '\'' && c != '"' && c != '\\':
+				dash, lead = lead && c == '-' || dash, false
+			}
+		}
+	}
 	n := len(rawToks) - len(toks)
 	return n == 0 || !slices.ContainsFunc(rawToks[:n], func(t string) bool { return t != "time" && !localeAssign().MatchString(t) })
 }
@@ -204,7 +218,7 @@ var gitBannedLong = []string{"--output", "--exec-path", "--open-files-in-pager",
 // readOnlyGit is plain git: configured drivers are the owner's; the caller picks no program, config, repo or output.
 func readOnlyGit(toks []string) bool {
 	rest, dirs := gitGlobalOpts(toks[1:])
-	if len(rest) == 0 || !slices.Contains(gitPlainVerbs, rest[0]) || !gitArgsOK(rest[1:]) || len(dirs) > 0 && noIndexDiff(rest) {
+	if len(rest) == 0 || !slices.Contains(gitPlainVerbs, rest[0]) || !gitArgsOK(rest) || len(dirs) > 0 && noIndexDiff(rest) {
 		return false
 	}
 	switch rest[0] {
@@ -259,12 +273,20 @@ func noIndexDiff(rest []string) bool {
 	return rest[0] == "diff" && n >= 2
 }
 
-func gitArgsOK(args []string) bool {
-	for _, a := range args {
+// gitArgsOK judges the words after the verb at rest[0].
+func gitArgsOK(rest []string) bool {
+	for _, a := range rest[1:] {
 		name, _, _ := strings.Cut(a, "=")
+		letters := ""
+		if rest[0] == "grep" && len(a) > 1 && a[0] == '-' && a[1] != '-' {
+			letters = a[1:]
+			if i := strings.IndexAny(letters, "efABC"); i >= 0 { // these take the rest of the word as their value
+				letters = letters[:i]
+			}
+		}
 		switch {
-		case a == "-c" || a == "-C" || !strings.HasPrefix(a, "--") && strings.HasPrefix(a, "-") && strings.Contains(a, "O"):
-			return false // -O runs a pager program, in any short cluster
+		case strings.Contains(letters, "O"):
+			return false // git grep -O runs a pager program
 		case strings.HasPrefix(a, "--"):
 			if slices.ContainsFunc(gitBannedLong, func(b string) bool { return len(name) >= 4 && name != "--text" && strings.HasPrefix(b, name) }) {
 				return false
@@ -388,7 +410,7 @@ func readOnlyClaudeCode(args []string) bool {
 	case "models preflight":
 		return noFlag(args[2:], "--refresh", "--discover", "--live", "--profile")
 	case "vault get":
-		return noFlag(args[2:], append(slices.Clone(writeFlags), "--key")...)
+		return noFlag(args[2:], append(slices.Clone(writeFlags), "--key", "--reveal")...)
 	case "agents diff":
 		return noFlag(args[2:], append(slices.Clone(writeFlags), "--check")...)
 	}
@@ -724,10 +746,10 @@ func kubeForms() []cliForm {
 var readOnlyCLIs = map[string][]cliForm{
 	"kubectl": kubeForms(),
 	"oc":      append(kubeForms(), cliForms("--show-context --show-server --show-console", "whoami")...),
-	"docker": slices.Concat(cliForms("-a --all -q --quiet -n= --last= -l --latest --no-trunc -s --size -f= --filter=", "ps"),
-		cliForms("-a --all -q --quiet --no-trunc --digests -f= --filter=", "images"), cliForms("", "version", "info"),
+	"docker": slices.Concat(cliForms("-a --all -q --quiet -n= --last= -l --latest --no-trunc -s --size -f= --filter= --format=", "ps"),
+		cliForms("-a --all -q --quiet --no-trunc --digests -f= --filter= --format=", "images"), cliForms("", "version", "info"),
 		cliForms("-n= --tail= --since= --until= -t --timestamps", "logs"),
-		cliForms("-q --quiet --no-trunc -f= --filter=", "network ls", "volume ls")),
+		cliForms("-q --quiet --no-trunc -f= --filter= --format=", "network ls", "volume ls")), // no env in these templates
 	"gh": slices.Concat(cliForms(ghRepo+"-c --comments", "pr view", "issue view"),
 		cliForms(ghList+"-s=open|closed|merged|all --state=open|closed|merged|all -B= --base= -H= --head= -d --draft", "pr list"),
 		cliForms(ghRepo+"-c --conflict-status", "pr status"), cliForms(ghRepo, "issue status", "release view"),
@@ -740,8 +762,9 @@ var readOnlyCLIs = map[string][]cliForm{
 			"run list"),
 		cliForms(ghRepo+"-L= --limit= --exclude-drafts --exclude-pre-releases -O=asc|desc --order=asc|desc", "release list"),
 		cliForms("-a --active --hostname=", "auth status")),
-	"aws":    cliForms("", "--version", "help", "sts get-caller-identity"),
-	"gcloud": cliForms("", "--version", "version", "help", "config list"),
+	"aws": append(cliForms("", "--version", "help"),
+		cliForms("--output=json|text|table --query= --region=", "sts get-caller-identity")...),
+	"gcloud": append(cliForms("", "--version", "version", "help"), cliForms("--format=json|text", "config list")...),
 }
 
 // cliGlobals are the value flags a tool may carry before its subcommand; any other leading flag refuses the command.
@@ -786,7 +809,7 @@ func skipCLIGlobals(tool string, rest []string) ([]string, bool) {
 	return rest, true
 }
 
-// cliFlagsOK: each flag is listed, a value flag has a passing value, and a short cluster holds only no-value letters.
+// cliFlagsOK: each flag is listed, a value flag has a passing value, and a short cluster passes shortCluster.
 func cliFlagsOK(args []string, flags map[string]string) bool {
 	for i := 0; i < len(args); i++ {
 		name, val, hasVal := strings.Cut(args[i], "=")
@@ -812,12 +835,21 @@ func cliFlagsOK(args []string, flags map[string]string) bool {
 	return true
 }
 
-// shortCluster is `-abc` whose every letter is a listed flag that takes no value.
+// shortCluster is `-abc` of listed no-value letters, or such letters then a value letter with its value (`-n5`).
 func shortCluster(a string, flags map[string]string) bool {
-	if len(a) < 3 || strings.HasPrefix(a, "--") || strings.Contains(a, "=") {
+	if len(a) < 3 || strings.HasPrefix(a, "--") {
 		return false
 	}
-	return !strings.ContainsFunc(a[1:], func(r rune) bool { want, ok := flags["-"+string(r)]; return !ok || want != "" })
+	for i := 1; i < len(a); i++ {
+		want, ok := flags["-"+a[i:i+1]]
+		if !ok {
+			return false
+		}
+		if want != "" {
+			return cliValueOK(want, a[i+1:]) // pflag reads the rest of the word as the value
+		}
+	}
+	return true
 }
 
 func cliValueOK(want, v string) bool {
