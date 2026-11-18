@@ -14,6 +14,15 @@ import (
 	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
+// realTempDir is t.TempDir with links resolved: File refuses a path through any link, and macOS /var is one.
+func realTempDir(t *testing.T) string {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func TestFile(t *testing.T) {
 	value := "FAKE-SECRET-0123456789abcdef+/?\"\\"
 	m, err := Load(func() ([]string, error) { return []string{value, "short123"}, nil })
@@ -25,7 +34,7 @@ func TestFile(t *testing.T) {
 	if err != nil {
 		t.Fatal("fixture encoding")
 	}
-	path := filepath.Join(t.TempDir(), "session.jsonl")
+	path := filepath.Join(realTempDir(t), "session.jsonl")
 	before := append(encoded, '\n')
 	if os.WriteFile(path, before, 0600) != nil {
 		t.Fatal("fixture write")
@@ -109,7 +118,7 @@ func TestLoadAndFileGuards(t *testing.T) {
 	if m.Skipped != 1 || m.String("FAKE-SECRET-0123456789abcdef") == "FAKE-SECRET-0123456789abcdef" {
 		t.Fatal("JSON leaves")
 	}
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	path := filepath.Join(dir, "bad.jsonl")
 	input := []byte("{\"FAKE-SECRET-0123456789abcdef\": broken}\n")
 	if os.WriteFile(path, input, 0600) != nil {
@@ -128,6 +137,13 @@ func TestLoadAndFileGuards(t *testing.T) {
 	}
 	if _, err := File(link, m, 0); err == nil {
 		t.Fatal("symlink accepted")
+	}
+	good := []byte("{\"k\":\"FAKE-SECRET-0123456789abcdef\"}\n")
+	if os.WriteFile(filepath.Join(dir, "good.jsonl"), good, 0600) != nil || os.Symlink(filepath.Base(dir), dir+"-link") != nil {
+		t.Fatal("fixture directory symlink")
+	}
+	if _, err := File(filepath.Join(dir+"-link", "good.jsonl"), m, 0); err == nil {
+		t.Fatal("path through a directory symlink accepted")
 	}
 	if _, err := File(dir, m, 0); err == nil {
 		t.Fatal("directory accepted")
@@ -174,7 +190,7 @@ func TestFileWindowBoundary(t *testing.T) {
 	input := append([]byte("{\"content\":\""), bytes.Repeat([]byte(" "), windowSize-20)...)
 	input = append(input, value...)
 	input = append(input, []byte("\"}\n")...)
-	path := filepath.Join(t.TempDir(), "boundary.jsonl")
+	path := filepath.Join(realTempDir(t), "boundary.jsonl")
 	if os.WriteFile(path, input, 0600) != nil {
 		t.Fatal("fixture write")
 	}

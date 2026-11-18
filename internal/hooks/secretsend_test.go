@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"slices"
@@ -82,5 +83,40 @@ func TestSecretsJobMasksIdleFilesAndSkipsBusyOnes(t *testing.T) {
 	}
 	if log, _ := os.ReadFile(filepath.Join(cfg, "state", "harness", "hooks", "secrets-end.log")); !strings.Contains(string(log), "masked=2 hits=2") {
 		t.Errorf("log %q lacks the counts", log)
+	}
+}
+
+// A session directory swapped for a link during the idle wait never redirects masking outside projects/.
+func TestSecretsJobRefusesDirectorySwappedDuringWait(t *testing.T) {
+	cfg, _ := filepath.EvalSymlinks(t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	redact.StubValues(t, []string{fakeSecret})
+	proj, outside := filepath.Join(cfg, "projects", "p"), filepath.Join(cfg, "outside")
+	_ = os.MkdirAll(proj, 0o755)
+	_ = os.MkdirAll(outside, 0o755)
+	line := []byte(`{"text":"` + fakeSecret + `"}` + "\n")
+	inside, stray := filepath.Join(proj, "s.jsonl"), filepath.Join(outside, "s.jsonl")
+	_ = os.WriteFile(inside, line, 0o600)
+	_ = os.WriteFile(stray, line, 0o600)
+	recent, old := time.Now().Add(-30*time.Minute), time.Now().Add(-2*time.Hour)
+	_ = os.Chtimes(inside, recent, recent)
+	_ = os.Chtimes(stray, old, old)
+	defer func(idle time.Duration, sleep func(time.Duration)) { secretsIdle, sleepFn = idle, sleep }(secretsIdle, sleepFn)
+	secretsIdle = time.Hour
+	swapped := false
+	sleepFn = func(time.Duration) {
+		if !swapped {
+			swapped = os.Rename(proj, proj+".bak") == nil && os.Symlink(outside, proj) == nil
+		}
+	}
+	code := runSecretsJob("SessionEnd", []string{inside, "clear"})
+	if !swapped {
+		t.Skip("symlinks unavailable")
+	}
+	if code != 0 {
+		t.Fatalf("job exit %d", code)
+	}
+	if b, _ := os.ReadFile(stray); !bytes.Equal(b, line) {
+		t.Fatalf("a file outside projects/ was rewritten: %q", b)
 	}
 }

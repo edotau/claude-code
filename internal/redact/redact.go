@@ -28,6 +28,7 @@ type Matcher struct {
 	needles [256][]string
 	Skipped int
 	longest int
+	breaks  bool // some value holds a line break, so a match can span lines
 }
 
 type sourceError struct{ cause error }
@@ -58,6 +59,7 @@ func FromValues(vals []string) *Matcher {
 					m.needles[v[0]] = append(m.needles[v[0]], v)
 					unique[v] = true
 					m.longest = max(m.longest, len(v))
+					m.breaks = m.breaks || strings.Contains(v, "\n")
 				}
 			}
 		}
@@ -139,45 +141,94 @@ func fill(b []byte) {
 }
 
 func (m *Matcher) Mask(b []byte) int {
-	hits := m.MaskValues(b)
-	for _, span := range textutil.SecretSpans(shapeText(b)) {
+	hits, _ := m.mask(b)
+	return hits
+}
+
+// mask also reports a shape that could run past the end of b: an open PEM block or a bearer still awaiting its token.
+func (m *Matcher) mask(b []byte) (hits int, open bool) {
+	hits = m.MaskValues(b)
+	text := shapeText(b)
+	spans := textutil.SecretSpans(text)
+	for _, span := range spans {
 		fill(b[span[0]:span[1]])
 		hits++
 	}
-	return hits
+	tail := strings.TrimRight(text, "\t\n\f\r ")
+	bearer := len(tail) >= len("bearer") && strings.EqualFold(tail[len(tail)-len("bearer"):], "bearer")
+	return hits, bearer || len(spans) > 0 && spans[len(spans)-1][1] == len(b)
 }
 
 // MaskValues masks only exact vault values and their encodings, for text whose structure a shape span could cut.
 func (m *Matcher) MaskValues(b []byte) int {
-	hits := 0
-	for i := 0; i < len(b); {
-		if n := maskWidth(b[i:]); n > 0 {
-			i += n
-			continue
-		}
-		width := m.match(b[i:])
-		if width == 0 {
-			i++
-			continue
-		}
-		end := i + width
-		for j := i + 1; j < end; j++ {
-			end = max(end, j+m.match(b[j:]))
-		}
-		fill(b[i:end])
-		hits++
-		i = end
-	}
+	hits, _ := m.scan(b, true, nil)
 	return hits
 }
 
-func (m *Matcher) match(b []byte) int {
+// scan masks the leading bytes of b whose masking no later byte can change (all of b when final) and counts them.
+func (m *Matcher) scan(b []byte, final bool, lx *jsonLexer) (hits, done int) {
+	for done < len(b) {
+		if c := b[done]; c != '[' && len(m.needles[c]) == 0 { // neither a mask nor a value starts here
+			if lx != nil {
+				lx.advance(c)
+			}
+			done++
+			continue
+		}
+		width, hit, ok := m.step(b[done:], final)
+		if !ok {
+			break
+		}
+		span := b[done : done+width]
+		switch {
+		case hit && lx == nil:
+			fill(span)
+		case hit:
+			lx.mask(span)
+		case lx != nil:
+			lx.skip(span)
+		}
+		if hit {
+			hits++
+		}
+		done += width
+	}
+	return hits, done
+}
+
+// step is one move of the left-to-right scan at b[0]: an existing mask, a value span with every overlap, or one byte.
+func (m *Matcher) step(b []byte, final bool) (width int, hit, ok bool) {
+	if n, ok := maskWidth(b, final); n > 0 || !ok {
+		return n, false, ok
+	}
+	end, ok := m.matchAt(b, final)
+	if !ok || end == 0 {
+		return 1, false, ok
+	}
+	for j := 1; j < end; j++ {
+		n, ok := m.matchAt(b[j:], final)
+		if !ok {
+			return 0, false, false
+		}
+		end = max(end, j+n)
+	}
+	return end, true, true
+}
+
+// matchAt is the longest value at b[0]; not ok while b is a proper prefix of a longer value that could still complete.
+func (m *Matcher) matchAt(b []byte, final bool) (int, bool) {
 	for _, needle := range m.needles[b[0]] {
-		if bytes.HasPrefix(b, []byte(needle)) {
-			return len(needle)
+		if len(needle) > len(b) {
+			if !final && needle[:len(b)] == string(b) {
+				return 0, false
+			}
+			continue
+		}
+		if string(b[:len(needle)]) == needle {
+			return len(needle), true
 		}
 	}
-	return 0
+	return 0, true
 }
 
 func (m *Matcher) String(s string) string {
@@ -188,29 +239,34 @@ func (m *Matcher) String(s string) string {
 	return string(b)
 }
 
-func File(path string, m *Matcher, idle time.Duration) (hits int, err error) {
-	info, err := os.Lstat(path)
+// File masks path in place; every directory from the volume root down must be a real one, checked as it is opened.
+func File(path string, m *Matcher, idle time.Duration) (int, error) {
+	abs, err := filepath.Abs(path)
 	if err != nil {
-		return 0, errors.New("redact: file metadata unavailable")
+		return 0, errors.New("redact: file path unresolvable")
 	}
-	if !info.Mode().IsRegular() {
-		return 0, errors.New("redact: regular file required")
-	}
-	if time.Since(info.ModTime()) < idle {
-		return 0, nil
-	}
-	f, err := os.OpenFile(path, os.O_RDWR, 0)
+	vol := filepath.VolumeName(abs) + string(filepath.Separator)
+	root, err := os.OpenRoot(vol)
 	if err != nil {
-		return 0, errors.New("redact: file open failed")
+		return 0, errors.New("redact: volume root open failed")
+	}
+	defer root.Close()
+	return FileAt(root, abs[len(vol):], m, idle)
+}
+
+// FileAt is File for name under root; a root opened before a wait keeps a later directory swap from moving the write.
+func FileAt(root *os.Root, name string, m *Matcher, idle time.Duration) (hits int, err error) {
+	f, info, err := openNoLinks(root, name)
+	if err != nil {
+		return 0, err
 	}
 	defer func() {
 		if f.Close() != nil {
 			err = errors.New("redact: file close failed")
 		}
 	}()
-	current, err := f.Stat()
-	if err != nil || !os.SameFile(info, current) {
-		return 0, errors.New("redact: file changed before open")
+	if time.Since(info.ModTime()) < idle {
+		return 0, nil
 	}
 	before, err := snapshot(f, info.Size(), max(0, m.longest-1))
 	if err != nil {
@@ -221,10 +277,10 @@ func File(path string, m *Matcher, idle time.Duration) (hits int, err error) {
 	if hits == 0 {
 		return 0, nil
 	}
-	if filepath.Ext(path) == ".jsonl" && !validLines(before, after) {
+	if filepath.Ext(name) == ".jsonl" && !validLines(before, after) {
 		return 0, errors.New("redact: invalid changed JSON line")
 	}
-	current, err = f.Stat()
+	current, err := f.Stat()
 	if err != nil || current.Size() != info.Size() || !current.ModTime().Equal(info.ModTime()) {
 		return 0, errors.New("redact: file changed during scan")
 	}
@@ -232,6 +288,59 @@ func File(path string, m *Matcher, idle time.Duration) (hits int, err error) {
 		return 0, err
 	}
 	return hits, nil
+}
+
+// openNoLinks opens name under root read-write; a link, or an object swapped between check and open, fails it.
+func openNoLinks(root *os.Root, name string) (*os.File, os.FileInfo, error) {
+	if !filepath.IsLocal(name) {
+		return nil, nil, errors.New("redact: path outside root")
+	}
+	parts := strings.Split(filepath.Clean(name), string(filepath.Separator))
+	dir := root
+	for _, part := range parts[:len(parts)-1] {
+		next, err := enterDir(dir, part)
+		if dir != root {
+			_ = dir.Close()
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		dir = next
+	}
+	if dir != root {
+		defer dir.Close()
+	}
+	leaf := parts[len(parts)-1]
+	info, err := dir.Lstat(leaf)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, nil, errors.New("redact: regular file required")
+	}
+	f, err := dir.OpenFile(leaf, os.O_RDWR, 0)
+	if err != nil {
+		return nil, nil, errors.New("redact: file open failed")
+	}
+	if current, err := f.Stat(); err != nil || !os.SameFile(info, current) {
+		_ = f.Close()
+		return nil, nil, errors.New("redact: file changed before open")
+	}
+	return f, info, nil
+}
+
+// enterDir opens the real directory name under dir, refusing a link and a directory swapped in after the check.
+func enterDir(dir *os.Root, name string) (*os.Root, error) {
+	info, err := dir.Lstat(name)
+	if err != nil || !info.IsDir() {
+		return nil, errors.New("redact: path through a link or non-directory")
+	}
+	sub, err := dir.OpenRoot(name)
+	if err != nil {
+		return nil, errors.New("redact: directory open failed")
+	}
+	if current, err := sub.Stat("."); err != nil || !os.SameFile(info, current) {
+		_ = sub.Close()
+		return nil, errors.New("redact: directory changed before open")
+	}
+	return sub, nil
 }
 
 // A full snapshot permits JSON validation before any write, including lines and PEM blocks spanning windows.
@@ -294,15 +403,19 @@ func writeChanges(f *os.File, before, after []byte) error {
 	return nil
 }
 
-func maskWidth(b []byte) int {
-	if len(b) == 0 || b[0] != '[' || !bytes.HasPrefix(b, []byte(marker)) {
-		return 0
+// maskWidth is the length of an existing mask at b[0]; not ok while more bytes could extend or complete it.
+func maskWidth(b []byte, final bool) (int, bool) {
+	if len(b) == 0 || b[0] != '[' {
+		return 0, true
+	}
+	if !bytes.HasPrefix(b, []byte(marker)) {
+		return 0, final || len(b) >= len(marker) || !strings.HasPrefix(marker, string(b))
 	}
 	n := len(marker)
 	for n < len(b) && b[n] == '*' {
 		n++
 	}
-	return n
+	return n, final || n < len(b)
 }
 
 // Existing masks must not let a bearer shape consume following punctuation or fields.
@@ -313,7 +426,7 @@ func shapeText(b []byte) string {
 	}
 	shadow := bytes.Clone(b)
 	for start >= 0 {
-		n := maskWidth(shadow[start:])
+		n, _ := maskWidth(shadow[start:], true)
 		for j := start; j < start+n; j++ {
 			shadow[j] = ' '
 		}

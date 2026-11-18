@@ -13,20 +13,26 @@ func SecretsOut(in *core.Input) core.Result {
 	if !ok {
 		return core.Result{}
 	}
-	out, _ := resp["stdout"].(string)
-	errText, _ := resp["stderr"].(string)
-	// No vault value is shorter than MinLen, so shorter output never opens the vault.
-	if len(out) < redact.MinLen && len(errText) < redact.MinLen {
+	var updated map[string]any
+	var m *redact.Matcher
+	for _, key := range []string{"stdout", "stderr"} {
+		text, ok := resp[key].(string)
+		if !ok || len(text) < redact.MinLen { // no vault value is shorter, so short output never opens the vault
+			continue
+		}
+		if m == nil {
+			m = redact.Shared()
+		}
+		if masked, n := maskText(m, text); n > 0 {
+			if updated == nil {
+				updated = maps.Clone(resp)
+			}
+			updated[key] = masked // only a string that held a value changes; other keys, types and absence stay
+		}
+	}
+	if updated == nil {
 		return core.Result{}
 	}
-	m := redact.Shared()
-	masked, a := maskText(m, out)
-	maskedErr, b := maskText(m, errText)
-	if a+b == 0 {
-		return core.Result{}
-	}
-	updated := maps.Clone(resp)
-	updated["stdout"], updated["stderr"] = masked, maskedErr
 	return core.Result{UpdatedToolOutput: updated}
 }
 

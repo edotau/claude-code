@@ -104,7 +104,7 @@ func sessionFiles(root, transcript string) []string {
 	return files
 }
 
-// waitIdle sleeps until every file has been quiet for secretsIdle, a few rounds at most; redact.File rechecks each.
+// waitIdle sleeps until every file has been quiet for secretsIdle, a few rounds at most; redact.FileAt rechecks each.
 func waitIdle(files []string) {
 	for range maxIdleRounds {
 		var newest time.Time
@@ -131,6 +131,11 @@ func runSecretsJob(event string, args []string) int {
 	if !ok {
 		return 1
 	}
+	dir, err := os.OpenRoot(root) // opened before the wait, so a later swap of any path component cannot move a write
+	if err != nil {
+		return 1
+	}
+	defer dir.Close()
 	files := sessionFiles(root, path)
 	waitIdle(files)
 	var masked, hits, failed int
@@ -138,7 +143,11 @@ func runSecretsJob(event string, args []string) int {
 	ran, _ := paths.TryFileLock(filepath.Join(paths.StateDir(), "hooks", "secrets-end.lock"), secretsLockWait, func() error {
 		m := redact.Shared()
 		for _, f := range files {
-			n, err := redact.File(f, m, secretsIdle)
+			rel, err := filepath.Rel(root, f)
+			n := 0
+			if err == nil {
+				n, err = redact.FileAt(dir, rel, m, secretsIdle)
+			}
 			if err != nil {
 				failed++
 			}

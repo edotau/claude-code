@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"bytes"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -48,6 +49,23 @@ func TestSecretsOutMasksVaultValuesOnly(t *testing.T) {
 	} {
 		if r := SecretsOut(in); r.UpdatedToolOutput != nil || r.Stderr != "" || r.Context != "" {
 			t.Errorf("%s: returned %+v, want nothing", name, r)
+		}
+	}
+}
+
+// Only the string stream that held a value changes: a non-string stream keeps its type, an absent one stays absent.
+func TestSecretsOutKeepsResponseShape(t *testing.T) {
+	redact.StubValues(t, []string{fakeSecret})
+	for name, stderr := range map[string]string{"object": `,"stderr":{"isImage":true}`, "array": `,"stderr":[1]`,
+		"null": `,"stderr":null`, "absent": ``} {
+		in := core.ParseInput(strings.NewReader(`{"tool_name":"Bash","tool_response":{"stdout":"t=` + fakeSecret + `"` + stderr + `,"n":3}}`))
+		got := SecretsOut(in).UpdatedToolOutput
+		orig := in.Field("tool_response").(map[string]any)
+		if got == nil || strings.Contains(got["stdout"].(string), fakeSecret) {
+			t.Fatalf("%s: stdout not masked: %v", name, got)
+		}
+		if len(got) != len(orig) || fmt.Sprint(got["stderr"]) != fmt.Sprint(orig["stderr"]) || got["n"] != orig["n"] {
+			t.Errorf("%s: response %v, want %v with only stdout masked", name, got, orig)
 		}
 	}
 }

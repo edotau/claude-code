@@ -46,12 +46,13 @@ func Bytes(b []byte) int {
 	return Shared().Mask(b)
 }
 
-// ValueBytes is Bytes without the shape pass, for encoded JSON lines.
+// ValueBytes masks vault values in one encoded JSON document or line in place, keeping it valid JSON (JSONWriter).
 func ValueBytes(b []byte) int {
 	if len(b) == 0 {
 		return 0
 	}
-	return Shared().MaskValues(b)
+	hits, _ := Shared().scan(b, true, &jsonLexer{})
+	return hits
 }
 
 // vaultValues is empty inside a test binary, so a test never opens a real vault.
