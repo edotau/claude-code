@@ -169,3 +169,20 @@ func longestLine(s string) int {
 	}
 	return w
 }
+
+// walkAncestors climbs at most 8 hops from pid to the first tty whose width cols reports; a failed lookup ends it.
+func walkAncestors(pid int, lookup func(int) (int, string, error), cols func(dev string) int) int {
+	for hop := 0; hop < 8 && pid > 1; hop++ {
+		ppid, tty, err := lookup(pid)
+		if err != nil {
+			return 0
+		}
+		if tty != "" && !strings.HasPrefix(tty, "?") && tty != "-" {
+			if w := cols("/dev/" + tty); w > 0 {
+				return w
+			}
+		}
+		pid = ppid
+	}
+	return 0
+}

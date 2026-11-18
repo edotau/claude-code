@@ -33,31 +33,39 @@ func gitBranch(cwd string) string {
 	return strings.TrimSpace(out)
 }
 
-// gitBranchFast walks up to .git (one gitfile hop; detached → "HEAD"); ok=false → ask git; ("", true) → no repo.
+// gitBranchFast reads HEAD from the nearest gitdir (detached → "HEAD"); ok=false → ask git; ("", true) → no repo.
 func gitBranchFast(cwd string) (string, bool) {
-	if os.Getenv("GIT_DIR") != "" {
+	gitDir, inRepo, ok := gitDirOf(cwd)
+	if !ok {
 		return "", false
+	}
+	if !inRepo {
+		return "", true
+	}
+	return gitHeadBranch(gitDir)
+}
+
+// gitDirOf walks up to .git (one gitfile hop); ok=false → ask git; inRepo=false (ok) → no repo.
+func gitDirOf(cwd string) (gitDir string, inRepo, ok bool) {
+	if os.Getenv("GIT_DIR") != "" {
+		return "", false, false
 	}
 	dir, err := filepath.Abs(cwd)
 	if err != nil {
-		return "", false
+		return "", false, false
 	}
 	for {
 		gitPath := filepath.Join(dir, ".git")
 		if fi, err := os.Stat(gitPath); err == nil {
-			gitDir := gitPath
-			if !fi.IsDir() {
-				var ok bool
-				gitDir, ok = gitfileTarget(gitPath)
-				if !ok {
-					return "", false
-				}
+			if fi.IsDir() {
+				return gitPath, true, true
 			}
-			return gitHeadBranch(gitDir)
+			target, ok := gitfileTarget(gitPath)
+			return target, ok, ok
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			return "", true
+			return "", false, true
 		}
 		dir = parent
 	}
@@ -175,6 +183,9 @@ func branchBase(ctx context.Context, cwd string) string {
 
 // defaultBranch is origin/HEAD's target (e.g. "origin/main"), else a local main or master; "" if none.
 func defaultBranch(ctx context.Context, cwd string) string {
+	if ref, ok := originHeadFast(cwd); ok {
+		return ref
+	}
 	if ref := gitLine(ctx, cwd, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); ref != "" {
 		return ref
 	}
@@ -184,6 +195,48 @@ func defaultBranch(ctx context.Context, cwd string) string {
 		}
 	}
 	return ""
+}
+
+// originHeadFast is `symbolic-ref --short refs/remotes/origin/HEAD` read from the common dir; ok=false → ask git.
+func originHeadFast(cwd string) (string, bool) {
+	gitDir, inRepo, ok := gitDirOf(cwd)
+	if !ok || !inRepo || os.Getenv("GIT_COMMON_DIR") != "" {
+		return "", false
+	}
+	common := commonDir(gitDir)
+	head, err := os.ReadFile(filepath.Join(common, "refs", "remotes", "origin", "HEAD"))
+	if err != nil || len(head) > headReadCap {
+		return "", false
+	}
+	short, ok := remoteShortName(strings.TrimSpace(string(head)))
+	if !ok {
+		return "", false
+	}
+	for _, other := range []string{"heads", "tags"} { // --short keeps a longer name when these exist
+		if _, err := os.Lstat(filepath.Join(common, "refs", other, filepath.FromSlash(short))); err == nil {
+			return "", false
+		}
+	}
+	return short, true
+}
+
+// commonDir is where a linked worktree's gitdir keeps shared refs (its commondir file), else gitDir itself.
+func commonDir(gitDir string) string {
+	raw, err := os.ReadFile(filepath.Join(gitDir, "commondir"))
+	if err != nil {
+		return gitDir
+	}
+	if common := strings.TrimSpace(string(raw)); filepath.IsAbs(common) {
+		return common
+	}
+	return filepath.Join(gitDir, strings.TrimSpace(string(raw)))
+}
+
+// remoteShortName is "origin/main" for "ref: refs/remotes/origin/main"; ok=false for any other content.
+func remoteShortName(ref string) (string, bool) {
+	rest, isRef := strings.CutPrefix(ref, "ref: ")
+	short, isRemote := strings.CutPrefix(rest, "refs/remotes/")
+	return short, isRef && isRemote && short != "" && printableRef(ref)
 }
 
 // gitLine is the trimmed stdout of a read-only git call; "" on any failure.

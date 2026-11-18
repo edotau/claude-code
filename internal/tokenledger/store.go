@@ -2,6 +2,7 @@
 package tokenledger
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -42,7 +43,10 @@ func Append(e Entry) {
 }
 
 // Read reads every entry, oldest first; a missing ledger file is empty, not an error.
-func Read() ([]Entry, error) {
+func Read() ([]Entry, error) { return readMatching(nil) }
+
+// readMatching is Read decoding only lines that contain sub (nil keeps every line).
+func readMatching(sub []byte) ([]Entry, error) {
 	f, err := os.Open(Path())
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -53,6 +57,9 @@ func Read() ([]Entry, error) {
 	defer f.Close()
 	var out []Entry
 	err = textutil.EachLineErr(f, func(line []byte) {
+		if !bytes.Contains(line, sub) {
+			return
+		}
 		var e Entry
 		if _, err := schemas.Decode(format, line, &e); err == nil {
 			out = append(out, e)
@@ -74,7 +81,8 @@ func SessionTotals(id string) (in, out, cacheRead int, err error) {
 	if id == "" {
 		return 0, 0, 0, nil
 	}
-	entries, err := Read()
+	quoted, _ := json.Marshal(id) // a line of this session holds the quoted id; the Session check drops lookalikes
+	entries, err := readMatching(quoted)
 	for _, e := range entries {
 		if e.Session == id {
 			in, out, cacheRead = in+e.Input, out+e.Output, cacheRead+e.CacheRead

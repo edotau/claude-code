@@ -132,3 +132,37 @@ func TestTreeDiffStatCountsBranchSinceBase(t *testing.T) {
 		t.Fatalf("treeDiffStat = (%d, %d, %v), want (5, 0, true)", adds, dels, ok)
 	}
 }
+
+// originHeadFast equals `git symbolic-ref --short refs/remotes/origin/HEAD` wherever it answers.
+func TestOriginHeadFastMatchesGit(t *testing.T) {
+	t.Setenv("GIT_DIR", "")
+	spawn := func(cwd string) string {
+		return gitLine(t.Context(), cwd, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
+	}
+	repo := hosttest.Repo(t)
+	check := func(name, cwd string, wantFast bool) {
+		t.Helper()
+		got, ok := originHeadFast(cwd)
+		if ok != wantFast || (ok && got != spawn(cwd)) {
+			t.Errorf("%s: originHeadFast = %q, %v; spawn %q; want fast=%v", name, got, ok, spawn(cwd), wantFast)
+		}
+	}
+	check("no origin", repo, false)
+	hosttest.In(t, repo, "remote", "add", "origin", repo)
+	hosttest.In(t, repo, "fetch", "-q", "origin")
+	if err := os.Remove(filepath.Join(repo, ".git", "refs", "remotes", "origin", "HEAD")); err != nil && !os.IsNotExist(err) {
+		t.Fatal(err)
+	}
+	check("origin HEAD unset", repo, false)
+	hosttest.In(t, repo, "remote", "set-head", "origin", "-a")
+	if spawn(repo) == "" {
+		t.Skip("git did not set origin/HEAD")
+	}
+	check("normal clone", repo, true)
+	check("subdir", filepath.Join(repo, "."), true)
+	wt := filepath.Join(t.TempDir(), "wt")
+	hosttest.In(t, repo, "worktree", "add", "-q", "-b", "side", wt)
+	check("linked worktree", wt, true)
+	hosttest.In(t, repo, "branch", "origin/"+strings.TrimPrefix(spawn(repo), "origin/"))
+	check("ambiguous short name", repo, false)
+}

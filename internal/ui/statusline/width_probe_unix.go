@@ -4,6 +4,7 @@ package statusline
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"strconv"
@@ -14,38 +15,25 @@ import (
 )
 
 // ancestorTTYWidth is the column count of the first ancestor process attached to a terminal (0 if none).
-func ancestorTTYWidth() int {
+func ancestorTTYWidth() int { return walkAncestors(os.Getppid(), psParentTTY, ttyCols) }
+
+// psParentTTY asks ps for pid's parent and controlling tty; a missing pid is an error.
+func psParentTTY(pid int) (ppid int, tty string, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, "ps", "-A", "-o", "pid=,ppid=,tty=").Output()
+	out, err := exec.CommandContext(ctx, "ps", "-o", "ppid=,tty=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
-		return 0
+		return 0, "", err
 	}
-	type entry struct{ ppid, tty string }
-	table := map[string]entry{}
-	for line := range strings.SplitSeq(string(out), "\n") {
-		if f := strings.Fields(line); len(f) >= 2 {
-			p := entry{ppid: f[1]}
-			if len(f) > 2 {
-				p.tty = f[2]
-			}
-			table[f[0]] = p
-		}
+	f := strings.Fields(string(out))
+	if len(f) == 0 {
+		return 0, "", errors.New("no such process")
 	}
-	pid := os.Getppid()
-	for hop := 0; hop < 8 && pid > 1; hop++ {
-		p, ok := table[strconv.Itoa(pid)]
-		if !ok {
-			return 0
-		}
-		if p.tty != "" && !strings.HasPrefix(p.tty, "?") && p.tty != "-" {
-			if w := ttyCols("/dev/" + p.tty); w > 0 {
-				return w
-			}
-		}
-		pid, _ = strconv.Atoi(p.ppid)
+	ppid, _ = strconv.Atoi(f[0])
+	if len(f) > 1 {
+		tty = f[1]
 	}
-	return 0
+	return ppid, tty, nil
 }
 
 func ttyCols(dev string) int {

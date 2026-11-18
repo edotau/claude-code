@@ -188,6 +188,19 @@ func TestUsageLedgerSchemaStampsNewLinesAndSkipsNewer(t *testing.T) {
 	}
 }
 
+func TestSessionTotalsIgnoresLinesOfOtherSessions(t *testing.T) {
+	withLedgerDir(t)
+	ts := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	Append(Entry{Ts: ts, Provider: "p", Model: "m", Session: "abc", Input: 1, Output: 2, CacheRead: 3})
+	Append(Entry{Ts: ts, Provider: "p", Model: "m", Session: "abcd", Input: 50, Output: 50, CacheRead: 50})
+	Append(Entry{Ts: ts, Provider: "abc", Model: `"abc"`, Session: "other", Input: 70})
+	Append(Entry{Ts: ts, Provider: "p", Model: "m", Session: "abc", Input: 10, Output: 20, CacheRead: 30})
+	in, out, cr, err := SessionTotals("abc")
+	if err != nil || in != 11 || out != 22 || cr != 33 {
+		t.Fatalf("SessionTotals = %d, %d, %d, %v; want 11, 22, 33, nil", in, out, cr, err)
+	}
+}
+
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
 // TestAppendAfterTornLine: a fragment with no trailing newline must not swallow the next entry.
