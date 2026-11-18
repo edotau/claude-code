@@ -62,6 +62,9 @@ func TestToolPATHCopiesAndExtras(t *testing.T) {
 			}
 		})
 	}
+	origTimeout := pathCopyVersionTimeout
+	pathCopyVersionTimeout = time.Minute // a loaded host must not time out the fake --version
+	t.Cleanup(func() { pathCopyVersionTimeout = origTimeout })
 	status := tools.Status{Name: "opencode", Path: aBin, Version: "1.0.0"}
 	for _, order := range []string{join(a, bin, b), join(bin, a, b)} {
 		t.Run(order, func(t *testing.T) {
