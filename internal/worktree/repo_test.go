@@ -242,6 +242,31 @@ func TestRootDropsLeadingDotAndKeepsLegacy(t *testing.T) {
 	}
 }
 
+func TestLegacyLaneResolutionAndDuplicate(t *testing.T) {
+	repo := testRepo(t)
+	repo.Legacy = repo.Root
+	repo.Root = filepath.Join(t.TempDir(), "new root")
+	dest, err := Create(repo, "old lane", CreateOptions{Branch: "old-lane"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo.Root, repo.Legacy = repo.Legacy, repo.Root
+	got, err := resolveWorktreeBounded(repo, "old lane")
+	if err != nil || got != dest {
+		t.Fatalf("legacy resolution: %q, %v", got, err)
+	}
+	entries, err := List(repo)
+	if err != nil || len(entries) != 1 || !paths.SamePath(entries[0].Path, dest) {
+		t.Fatalf("legacy list: %v, %v", entries, err)
+	}
+	if err := os.MkdirAll(filepath.Join(repo.Root, "old lane"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := resolveWorktreeBounded(repo, "old lane"); err == nil {
+		t.Fatal("duplicate name accepted")
+	}
+}
+
 func TestWorktreeRootUnderHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

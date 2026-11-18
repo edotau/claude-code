@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -85,15 +86,25 @@ func fillDivergence(repo *Repo, entries []Entry, target string) {
 		if !e.Exists || e.Branch == "" {
 			continue
 		}
-		if out, err := gitCmd(ctx, "-C", repo.Main, "rev-list", "--left-right", "--count", target+"..."+e.Branch).Output(); err == nil {
-			fmt.Sscanf(string(out), "%d %d", &e.Behind, &e.Ahead)
+		var counts, changed []byte
+		var countErr, diffErr error
+		var wg sync.WaitGroup
+		wg.Go(func() {
+			counts, countErr = gitCmd(ctx, "-C", repo.Main, "rev-list", "--left-right", "--count", target+"..."+e.Branch).Output()
+		})
+		wg.Go(func() {
+			changed, diffErr = gitCmd(ctx, "-C", repo.Main, "diff", "--name-only", "-z", target+"..."+e.Branch).Output()
+		})
+		wg.Wait()
+		if countErr == nil {
+			fmt.Sscanf(string(counts), "%d %d", &e.Behind, &e.Ahead)
 		}
-		if out, err := gitCmd(ctx, "-C", repo.Main, "diff", "--name-only", "-z", target+"..."+e.Branch).Output(); err == nil {
-			files[filepath.Base(e.Path)] = nameSet(strings.Split(string(out), "\x00"))
+		if diffErr == nil {
+			files[laneLabel(entries, e.Path)] = nameSet(strings.Split(string(changed), "\x00"))
 		}
 	}
 	for i := range entries {
-		name := filepath.Base(entries[i].Path)
+		name := laneLabel(entries, entries[i].Path)
 		for other, set := range files {
 			if other == name {
 				continue
@@ -108,6 +119,16 @@ func fillDivergence(repo *Repo, entries []Entry, target string) {
 	}
 }
 
+func laneLabel(entries []Entry, path string) string {
+	name := filepath.Base(path)
+	for _, e := range entries {
+		if name == "main" || (e.Path != path && filepath.Base(e.Path) == name) {
+			return path
+		}
+	}
+	return name
+}
+
 // statusFiles reads the paths out of `git status --porcelain -z` (a rename record carries a second path).
 func statusFiles(out string) map[string]bool {
 	set := map[string]bool{}
@@ -115,8 +136,9 @@ func statusFiles(out string) map[string]bool {
 	for i := 0; i < len(recs); i++ {
 		if len(recs[i]) > 3 {
 			set[recs[i][3:]] = true
-			if recs[i][0] == 'R' || recs[i][0] == 'C' {
+			if strings.ContainsAny(recs[i][:2], "RC") && i+1 < len(recs) {
 				i++
+				set[recs[i]] = true
 			}
 		}
 	}
@@ -245,7 +267,7 @@ func repoRoots(repo *Repo) []string {
 // underRoots reports whether path sits at or below one of repo's roots.
 func underRoots(repo *Repo, path string) bool {
 	for _, root := range repoRoots(repo) {
-		if rel, err := filepath.Rel(root, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if rel, err := filepath.Rel(paths.Canon(root), path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 			return true
 		}
 	}

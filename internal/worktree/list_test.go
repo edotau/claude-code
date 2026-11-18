@@ -91,6 +91,18 @@ func TestListReportsDivergenceAndOverlaps(t *testing.T) {
 	}
 }
 
+func TestOverlapLabelsDistinguishDuplicateRoots(t *testing.T) {
+	entries := []Entry{{Path: "/new/lane"}, {Path: "/old/lane"}, {Path: "/new/main"}}
+	for _, e := range entries {
+		if got := laneLabel(entries, e.Path); got != e.Path {
+			t.Fatalf("ambiguous label %q for %s", got, e.Path)
+		}
+	}
+	if got := laneLabel([]Entry{{Path: "/new/unique"}}, "/new/unique"); got != "unique" {
+		t.Fatalf("unique label: %q", got)
+	}
+}
+
 func TestListEmptyRepo(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)
@@ -339,6 +351,15 @@ func BenchmarkParsePorcelain(b *testing.B) {
 	for b.Loop() {
 		for _, r := range splitRecords(out) {
 			parseRecord(r)
+		}
+	}
+}
+
+func TestStatusFilesRenamesWithSpaces(t *testing.T) {
+	got := statusFiles("R  new name\x00old name\x00 M another file\x00 R unstaged name\x00source name\x00")
+	for _, name := range []string{"new name", "old name", "another file", "unstaged name", "source name"} {
+		if !got[name] {
+			t.Errorf("missing %q in %v", name, got)
 		}
 	}
 }

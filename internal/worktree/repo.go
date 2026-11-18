@@ -143,7 +143,10 @@ func checkWorktreeName(repo *Repo, name string) (string, error) {
 	if repo.Legacy != "" {
 		old := filepath.Join(repo.Legacy, name)
 		_, newErr := os.Lstat(dest)
-		if _, oldErr := os.Lstat(old); newErr != nil && oldErr == nil {
+		if _, oldErr := os.Lstat(old); oldErr == nil {
+			if newErr == nil {
+				return "", fmt.Errorf("worktree %q exists under both %s and %s; resolve the duplicate first", name, repo.Root, repo.Legacy)
+			}
 			return old, nil
 		}
 	}
