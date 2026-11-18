@@ -139,6 +139,55 @@ func TestWithModelRejectsNonObject(t *testing.T) {
 	}
 }
 
+func TestPassthroughBodyByteIdentity(t *testing.T) {
+	up := newRawUp(t, okMsg)
+	t.Setenv("PT_KEY", "test-key")
+	srv := setup(t, `{"default":"pt","providers":{"openai":{"pt":{"protocol":"openai","base_url":"`+
+		up.URL+`/v1","auth":{"type":"key","env":"PT_KEY"},"models":{"opus":"m"}}}}}`)
+
+	body := " \n" + `{ "z" : "\u0061", "model" : "m", "n" : 900719925474099312345, "z" : "\u263a" }` + "\r\n"
+	resp := ptDo(t, http.MethodPost, srv.URL+"/p/pt/openai/chat/completions", body, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d, want 200", resp.StatusCode)
+	}
+	got := up.got()
+	if len(got) != 1 || got[0].body != body {
+		t.Fatalf("upstream request did not preserve the original JSON bytes")
+	}
+}
+
+func BenchmarkRouteBody(b *testing.B) {
+	vaulttest.Use(b)
+	b.Setenv("AN_KEY", "test-key")
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		_, _ = io.Copy(io.Discard, req.Body)
+		okMsg(w, req, 0)
+	}))
+	b.Cleanup(up.Close)
+	vaulttest.Put(b, vault.Overlay, "providers",
+		`{"default":"an","providers":{"anthropic":{"an":`+anthropicProvider(up.URL, "AN_KEY", `{"opus":"m"}`)+`}}}`)
+	r := newRouter(secret)
+	r.log = io.Discard
+	b.Cleanup(r.bg.Wait)
+
+	for _, size := range []int{256, 1 << 20, 8 << 20, 24 << 20} {
+		b.Run(strconv.Itoa(size), func(b *testing.B) {
+			const start, end = `{"model":"m","messages":[{"role":"user","content":"`, `"}]}`
+			body := start + strings.Repeat("x", size-len(start)-len(end)) + end
+			b.SetBytes(int64(size))
+			for b.Loop() {
+				req := httptest.NewRequest(http.MethodPost, "/v1/messages", strings.NewReader(body))
+				rec := httptest.NewRecorder()
+				w := &statusWriter{ResponseWriter: rec, rc: http.NewResponseController(rec)}
+				r.route(w, req, "an", false)
+				if w.status != http.StatusOK {
+					b.Fatalf("status %d, want 200", w.status)
+				}
+			}
+		})
+	}
+}
+
 func TestCrossProviderTarget(t *testing.T) {
 	up1 := newUpstream(t, ok)
 	up2 := newUpstream(t, ok)

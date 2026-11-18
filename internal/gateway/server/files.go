@@ -71,13 +71,8 @@ func fileScope(in *http.Request, p *providers.Provider) (string, bool) {
 	return p.Name + "|" + textutil.SHA256Hex([]byte(cred)), true
 }
 
-// rewriteFiles returns body with large base64 image/document blocks swapped for file sources; body is never mutated.
-func (r *Router) rewriteFiles(in *http.Request, p *providers.Provider, route string, body []byte, count bool) []byte {
-	if count || len(body) < fileMinBytes || !anthropicOrigin(route) || !bytes.Contains(body, []byte(`"base64"`)) {
-		return body
-	}
-	var m map[string]json.RawMessage
-	if json.Unmarshal(body, &m) != nil {
+func (r *Router) rewriteFiles(in *http.Request, p *providers.Provider, route string, body proxyBody, count bool) proxyBody {
+	if count || len(body.raw) < fileMinBytes || !anthropicOrigin(route) || !bytes.Contains(body.raw, []byte(`"base64"`)) {
 		return body
 	}
 	scope, ok := fileScope(in, p)
@@ -85,16 +80,18 @@ func (r *Router) rewriteFiles(in *http.Request, p *providers.Provider, route str
 		return body
 	}
 	fr := &fileRewriter{r: r, in: in, p: p, route: route, scope: scope}
-	msgs, changed := fr.messages(m["messages"])
+	msgs, changed := fr.messages(body.top["messages"])
 	if !changed {
 		return body
 	}
+	m := maps.Clone(body.top)
 	m["messages"] = msgs
 	out, err := textutil.MarshalNoEscape(m)
 	if err != nil {
 		return body
 	}
-	return out
+	body.raw, body.top = out, m
+	return body
 }
 
 func (fr *fileRewriter) messages(raw json.RawMessage) (json.RawMessage, bool) {

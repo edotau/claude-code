@@ -1,10 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"net/textproto"
 	"net/url"
@@ -101,7 +104,54 @@ func parsePath(path string) (provider string, count, ok bool) {
 	return "", false, false
 }
 
-// withModel rewrites the top-level model; an unchanged id forwards the client's bytes verbatim.
+type proxyBody struct {
+	raw   []byte
+	top   map[string]json.RawMessage
+	model string
+}
+
+func decodeProxyBody(raw []byte) proxyBody {
+	d := jsontext.NewDecoder(bytes.NewBuffer(raw), jsontext.AllowDuplicateNames(true), jsontext.AllowInvalidUTF8(true))
+	if d.PeekKind() != '{' {
+		return proxyBody{raw: raw}
+	}
+	if _, err := d.ReadToken(); err != nil {
+		return proxyBody{raw: raw}
+	}
+	b := proxyBody{raw: raw, top: make(map[string]json.RawMessage)}
+	for d.PeekKind() == '"' {
+		if !b.readField(d) {
+			return proxyBody{raw: raw}
+		}
+	}
+	if end, err := d.ReadToken(); err != nil || end.Kind() != '}' {
+		return proxyBody{raw: raw}
+	}
+	if _, err := d.ReadToken(); err != io.EOF {
+		return proxyBody{raw: raw}
+	}
+	return b
+}
+
+func (b *proxyBody) readField(d *jsontext.Decoder) bool {
+	key, err := d.ReadToken()
+	if err != nil {
+		return false
+	}
+	name := key.String()
+	value, err := d.ReadValue()
+	if err != nil {
+		return false
+	}
+	end := d.InputOffset()
+	b.top[name] = b.raw[end-int64(len(value)) : end]
+	// Routing uses the last string across case variants, while rewrites use the exact key.
+	if strings.EqualFold(name, "model") && value.Kind() == '"' {
+		_ = json.Unmarshal(value, &b.model)
+	}
+	return true
+}
+
 func withModel(body []byte, model string) ([]byte, error) {
 	var m map[string]json.RawMessage
 	if err := json.Unmarshal(body, &m); err != nil {
@@ -110,12 +160,20 @@ func withModel(body []byte, model string) ([]byte, error) {
 	if m == nil { // a literal null body unmarshals without error
 		return nil, errors.New("request body is not a JSON object")
 	}
+	out, err := (proxyBody{raw: body, top: m}).withModel(model)
+	return out.raw, err
+}
+
+func (b proxyBody) withModel(model string) (proxyBody, error) {
 	var cur string
-	if json.Unmarshal(m["model"], &cur) == nil && cur == model {
-		return body, nil
+	if json.Unmarshal(b.top["model"], &cur) == nil && cur == model {
+		return b, nil
 	}
-	m["model"], _ = json.Marshal(model)
-	return textutil.MarshalNoEscape(m)
+	top := maps.Clone(b.top)
+	top["model"], _ = json.Marshal(model)
+	raw, err := textutil.MarshalNoEscape(top)
+	b.top, b.raw = top, raw
+	return b, err
 }
 
 // copyRequestHeaders forwards only wire-relevant headers; client auth is added back for passthrough providers only.

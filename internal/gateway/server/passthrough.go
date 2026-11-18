@@ -144,28 +144,33 @@ func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *provi
 // fixPassthroughBody applies the per-dialect request fixes; model is the body's (or the wire) model even on error.
 func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect string,
 	dbxGemini bool) (out []byte, newModel string, geminiChat bool, err error) {
-	model = cmp.Or(passthroughModel(body), model)
+	decoded := decodeProxyBody(body)
+	model = cmp.Or(decoded.model, model)
 	if wire := models.Strip1M(p.WireModel(model)); model != "" && wire != model &&
 		(dialect == providers.ProtocolOpenAI || dialect == providers.ProtocolResponses) {
-		if body, err = withModel(body, wire); err != nil {
+		if decoded.top == nil {
+			_, err := withModel(body, wire)
+			return nil, model, false, err
+		}
+		if decoded, err = decoded.withModel(wire); err != nil {
 			return nil, model, false, err
 		}
 		model = wire
 	}
 	if dbxGemini {
-		body = dropOffThoughts(body)
+		decoded.raw = decoded.dropOffThoughts()
 	}
 	if isChatCompletion(dialect, path) {
 		if translate.IsGeminiModel(model) {
-			body = fixGeminiChat(body)
+			decoded.raw = decoded.fixGeminiChat()
 			geminiChat = true
 		}
-		body = dropNonFunctionTools(body)
+		decoded.raw = decoded.dropNonFunctionTools()
 	}
 	if dialect != providers.ProtocolGemini {
-		body = clampOutputTokens(body, model)
+		decoded.raw = decoded.clampOutputTokens(model)
 	}
-	return body, model, geminiChat, nil
+	return decoded.raw, model, geminiChat, nil
 }
 
 func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *providers.Provider,
@@ -323,17 +328,11 @@ func geminiTools(raw json.RawMessage) (json.RawMessage, bool) {
 }
 
 // dropNonFunctionTools removes tools[] entries with no function object (custom, web_search): chat endpoints 400.
-func dropNonFunctionTools(body []byte) []byte {
-	if !mayHoldKey(body, "tools") {
-		return body
-	}
-	var top map[string]json.RawMessage
-	if json.Unmarshal(body, &top) != nil {
-		return body
-	}
+func (b proxyBody) dropNonFunctionTools() []byte {
+	top := b.top
 	var tools []map[string]json.RawMessage
 	if json.Unmarshal(top["tools"], &tools) != nil {
-		return body
+		return b.raw
 	}
 	kept := make([]map[string]json.RawMessage, 0, len(tools))
 	for _, t := range tools {
@@ -342,7 +341,7 @@ func dropNonFunctionTools(body []byte) []byte {
 		}
 	}
 	if len(kept) == len(tools) {
-		return body
+		return b.raw
 	}
 	if len(kept) == 0 {
 		delete(top, "tools")
@@ -351,15 +350,12 @@ func dropNonFunctionTools(body []byte) []byte {
 	} else {
 		top["tools"], _ = json.Marshal(kept)
 	}
-	return marshalOr(top, body)
+	return marshalOr(top, b.raw)
 }
 
 // fixGeminiChat normalizes streaming options, tool choice, schemas, and thought signatures.
-func fixGeminiChat(body []byte) []byte {
-	var top map[string]json.RawMessage
-	if json.Unmarshal(body, &top) != nil {
-		return body
-	}
+func (b proxyBody) fixGeminiChat() []byte {
+	top := b.top
 	changed := false
 	if _, ok := top["stream_options"]; ok {
 		delete(top, "stream_options")
@@ -375,14 +371,9 @@ func fixGeminiChat(body []byte) []byte {
 	}
 	changed = geminiSignatures(top, changed)
 	if !changed {
-		return body
+		return b.raw
 	}
-	return marshalOr(top, body)
-}
-
-// mayHoldKey is false only when no key containing stem can be in body: no plain stem and no \u00xx escape.
-func mayHoldKey(body []byte, stem string) bool {
-	return bytes.Contains(body, []byte(stem)) || bytes.Contains(body, []byte("u00"))
+	return marshalOr(top, b.raw)
 }
 
 // marshalOr marshals v, or returns body when v cannot be encoded.
@@ -397,22 +388,12 @@ func marshalOr(v any, body []byte) []byte {
 var outputTokenKeys = [...]string{"max_tokens", "max_completion_tokens", "max_output_tokens"}
 
 // clampOutputTokens lowers any output cap above model's catalog limit, so the endpoint can't 400; else body as is.
-func clampOutputTokens(body []byte, model string) []byte {
+func (b proxyBody) clampOutputTokens(model string) []byte {
 	limits, ok := models.Limits(model)
-	if !ok || limits.Output <= 0 {
-		return body
+	if !ok || limits.Output <= 0 || !clampCaps(b.top, limits.Output) {
+		return b.raw
 	}
-	if !mayHoldKey(body, "tokens") {
-		return body
-	}
-	var top map[string]json.RawMessage
-	if json.Unmarshal(body, &top) != nil {
-		return body
-	}
-	if !clampCaps(top, limits.Output) {
-		return body
-	}
-	return marshalOr(top, body)
+	return marshalOr(b.top, b.raw)
 }
 
 // clampCaps lowers every output cap in top above max to max; false when none changed.
@@ -593,28 +574,25 @@ func geminiGatewayCall(p *providers.Provider, rest string, q url.Values) (path, 
 }
 
 // dropOffThoughts removes includeThoughts when thinkingBudget is 0: Vertex rejects thoughts with thinking off.
-func dropOffThoughts(body []byte) []byte {
-	var top map[string]json.RawMessage
-	if json.Unmarshal(body, &top) != nil {
-		return body
-	}
+func (b proxyBody) dropOffThoughts() []byte {
+	top := b.top
 	var gen map[string]json.RawMessage
 	if json.Unmarshal(top["generationConfig"], &gen) != nil {
-		return body
+		return b.raw
 	}
 	var think map[string]json.RawMessage
 	if json.Unmarshal(gen["thinkingConfig"], &think) != nil {
-		return body
+		return b.raw
 	}
 	var budget float64
 	if _, ok := think["includeThoughts"]; !ok || json.Unmarshal(think["thinkingBudget"], &budget) != nil ||
 		budget != 0 {
-		return body
+		return b.raw
 	}
 	delete(think, "includeThoughts")
 	gen["thinkingConfig"], _ = json.Marshal(think)
 	top["generationConfig"], _ = json.Marshal(gen)
-	return marshalOr(top, body)
+	return marshalOr(top, b.raw)
 }
 
 func geminiSignatures(top map[string]json.RawMessage, changed bool) bool {

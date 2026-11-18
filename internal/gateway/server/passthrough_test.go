@@ -400,7 +400,7 @@ func TestClampOutputTokensLowersOnlyOversizedCaps(t *testing.T) {
 	over := limit.Output + 1000
 	in := fmt.Sprintf(`{"max_tokens":%d,"max_output_tokens":5}`, over)
 	var got map[string]float64
-	if err := json.Unmarshal(clampOutputTokens([]byte(in), "claude-sonnet-5-5"), &got); err != nil {
+	if err := json.Unmarshal(decodeProxyBody([]byte(in)).clampOutputTokens("claude-sonnet-5-5"), &got); err != nil {
 		t.Fatal(err)
 	}
 	if got["max_tokens"] != float64(limit.Output) || got["max_output_tokens"] != 5 {
@@ -622,7 +622,7 @@ func TestPassthroughNonGeminiChatUntouched(t *testing.T) {
 // A null tool_calls entry passes through instead of panicking the handler.
 func TestFixGeminiChatNullToolCall(t *testing.T) {
 	in := `{"model":"databricks-gemini-3-8-flash","messages":[{"role":"assistant","tool_calls":[null,{"id":"a","type":"function"}]}]}`
-	out := string(fixGeminiChat([]byte(in)))
+	out := string(decodeProxyBody([]byte(in)).fixGeminiChat())
 	if !strings.Contains(out, "null") || !strings.Contains(out, translate.SkipThoughtSignature) {
 		t.Fatalf("null entry or signature lost: %s", out)
 	}
@@ -634,7 +634,7 @@ func TestFixGeminiChatToolChoice(t *testing.T) {
 		`{"type":"auto"}`: `"auto"`, `{"type":"any"}`: `"required"`, `"auto"`: `"auto"`, `"validated"`: `"auto"`,
 		`{"type":"function","function":{"name":"p"}}`: `{"type":"function","function":{"name":"p"}}`,
 	} {
-		out := string(fixGeminiChat([]byte(`{"model":"databricks-gemini-3-8-flash","tool_choice":` + in + `}`)))
+		out := string(decodeProxyBody([]byte(`{"model":"databricks-gemini-3-8-flash","tool_choice":` + in + `}`)).fixGeminiChat())
 		if !strings.Contains(out, `"tool_choice":`+want) {
 			t.Errorf("tool_choice %s -> %s, want %s", in, out, want)
 		}
@@ -839,7 +839,7 @@ func BenchmarkDropNonFunctionTools(b *testing.B) {
 	b.SetBytes(int64(len(benchChatBody)))
 	b.ReportAllocs()
 	for b.Loop() {
-		dropNonFunctionTools(benchChatBody)
+		decodeProxyBody(benchChatBody).dropNonFunctionTools()
 	}
 }
 
@@ -847,7 +847,7 @@ func BenchmarkClampOutputTokens(b *testing.B) {
 	b.SetBytes(int64(len(benchChatBody)))
 	b.ReportAllocs()
 	for b.Loop() {
-		if string(clampOutputTokens(benchChatBody, "claude-sonnet-5-5")) == string(benchChatBody) {
+		if string(decodeProxyBody(benchChatBody).clampOutputTokens("claude-sonnet-5-5")) == string(benchChatBody) {
 			b.Fatal("the cap was not clamped")
 		}
 	}
@@ -857,7 +857,7 @@ func BenchmarkFixGeminiChat(b *testing.B) {
 	b.SetBytes(int64(len(benchChatBody)))
 	b.ReportAllocs()
 	for b.Loop() {
-		fixGeminiChat(benchChatBody)
+		decodeProxyBody(benchChatBody).fixGeminiChat()
 	}
 }
 
@@ -944,10 +944,10 @@ func TestRequestFixGatesMatchTheFullDecode(t *testing.T) {
 	}
 	for _, b := range bodies {
 		in := []byte(b)
-		if got, want := clampOutputTokens(in, model), oracleClampOutputTokens(in, model); !bytes.Equal(got, want) {
+		if got, want := decodeProxyBody(in).clampOutputTokens(model), oracleClampOutputTokens(in, model); !bytes.Equal(got, want) {
 			t.Errorf("clamp(%q) = %q, want %q", b, got, want)
 		}
-		if got, want := dropNonFunctionTools(in), oracleDropNonFunctionTools(in); !bytes.Equal(got, want) {
+		if got, want := decodeProxyBody(in).dropNonFunctionTools(), oracleDropNonFunctionTools(in); !bytes.Equal(got, want) {
 			t.Errorf("drop(%q) = %q, want %q", b, got, want)
 		}
 	}

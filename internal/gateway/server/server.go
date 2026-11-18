@@ -203,7 +203,8 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 	if !ok {
 		return session, "-", 0
 	}
-	model := passthroughModel(body)
+	decoded := decodeProxyBody(body)
+	model := decoded.model
 	if model == "" {
 		writeError(w, http.StatusBadRequest, "proxy: request body must be JSON with a model")
 		return session, "-", 0
@@ -226,10 +227,10 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 	clientModel := models.Strip1M(model)
 	ladder := r.attempts(reg, target, clientAuth)
 	ladder = confineLadder(in, ladder)
-	return r.walkAttempts(w, in, body, ladder, clientModel, count)
+	return r.walkAttempts(w, in, decoded, ladder, clientModel, count)
 }
 
-func (r *Router) walkAttempts(w *statusWriter, in *http.Request, body []byte, ladder []providers.Target,
+func (r *Router) walkAttempts(w *statusWriter, in *http.Request, body proxyBody, ladder []providers.Target,
 	clientModel string, count bool) (string, string, int) {
 	var lastErr error
 	for i := 0; i < len(ladder); i++ { // indexed: a hard-quota failure inserts the demoted model right after t
@@ -402,7 +403,7 @@ func (r *Router) oauthToken() string {
 }
 
 // try runs one attempt. done=false means nothing was written and err says why (the caller may fail over).
-func (r *Router) try(w *statusWriter, in *http.Request, body []byte, t providers.Target, clientModel string,
+func (r *Router) try(w *statusWriter, in *http.Request, body proxyBody, t providers.Target, clientModel string,
 	count, last bool) (bool, error) {
 	// Databricks serving endpoints have no count_tokens path (400 BAD_REQUEST), so the estimate is answered here.
 	route, ok := providers.AnthropicRoute(t.Provider, t.Model)
@@ -410,7 +411,7 @@ func (r *Router) try(w *statusWriter, in *http.Request, body []byte, t providers
 		return r.tryAnthropic(w, in, body, t, route, clientModel, count, last)
 	}
 	if count {
-		out, err := translate.CountTokens(body)
+		out, err := translate.CountTokens(body.raw)
 		if err != nil {
 			return false, err
 		}
@@ -426,10 +427,10 @@ func (r *Router) try(w *statusWriter, in *http.Request, body []byte, t providers
 		writeError(w, http.StatusBadRequest, providers.ClaudeCodeError(t.Provider, t.Model).Error())
 		return true, nil
 	}
-	return r.tryOpenAI(w, in, body, t, clientModel, last)
+	return r.tryOpenAI(w, in, body.raw, t, clientModel, last)
 }
 
-func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body []byte, t providers.Target, route,
+func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body proxyBody, t providers.Target, route,
 	clientModel string, count, last bool) (bool, error) {
 	p := t.Provider
 	url := route + "/v1/messages"
@@ -439,11 +440,11 @@ func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body []by
 	if in.URL.RawQuery != "" {
 		url += "?" + in.URL.RawQuery
 	}
-	out, err := withModel(r.rewriteFiles(in, p, route, body, count), t.Model)
+	out, err := r.rewriteFiles(in, p, route, body, count).withModel(t.Model)
 	if err != nil {
 		return false, err
 	}
-	resp, err := r.send(in, p, url, out, func(h http.Header) {
+	resp, err := r.send(in, p, url, out.raw, func(h http.Header) {
 		copyRequestHeaders(h, in.Header)
 		if p.Auth.Method() == providers.AuthCLI {
 			r.passthroughAuth(h, in, route)
