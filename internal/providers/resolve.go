@@ -130,8 +130,14 @@ func FirstResponsesModel(p *Provider) string {
 }
 
 // ServesResponses reports whether p serves model on Responses: its menu entry's flag, the catalog, else its family's.
-func ServesResponses(p *Provider, model string) bool {
-	for _, m := range OpencodeMenu() {
+func ServesResponses(p *Provider, model string) bool { return ServesResponsesIn(nil, p, model) }
+
+// ServesResponsesIn is ServesResponses against a menu the caller already read; nil reads it.
+func ServesResponsesIn(menu []OpencodeModel, p *Provider, model string) bool {
+	if menu == nil {
+		menu = OpencodeMenu()
+	}
+	for _, m := range menu {
 		if p.WireModel(m.ID) == model || models.SameModel(m.ID, model) {
 			return m.Responses
 		}
@@ -162,12 +168,17 @@ func ResponsesID(id string) bool {
 
 // WireFor picks the wire model uses on p: Claude anthropic, a Responses model responses, else openai; why when not ok.
 func WireFor(p *Provider, model string) (wire string, ok bool, why string) {
+	return WireForIn(nil, p, model)
+}
+
+// WireForIn is WireFor against a menu the caller already read; nil reads it.
+func WireForIn(menu []OpencodeModel, p *Provider, model string) (wire string, ok bool, why string) {
 	has := func(d string) bool { _, ok := p.Route(d); return ok }
 	claude := models.FamilyKind(model) == models.FamilyClaude
 	switch {
 	case claude && has(ProtocolAnthropic):
 		return ProtocolAnthropic, true, ""
-	case !claude && ServesResponses(p, model):
+	case !claude && ServesResponsesIn(menu, p, model):
 		if has(ProtocolResponses) {
 			return ProtocolResponses, true, ""
 		}

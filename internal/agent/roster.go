@@ -282,6 +282,11 @@ func CanServe(name string, p *providers.Provider) bool {
 
 // Serves reports whether p is usable by agent: a login naming it, or a route on a dialect it speaks (and model's wire).
 func Serves(agent string, p *providers.Provider, model string) (ok bool, why string) {
+	return servesIn(nil, agent, p, model)
+}
+
+// servesIn is Serves against a menu the caller already read; nil reads it.
+func servesIn(menu []providers.OpencodeModel, agent string, p *providers.Provider, model string) (ok bool, why string) {
 	spec, known := lookupRow(agent)
 	if !known || !spec.External() {
 		return false, fmt.Sprintf("unknown agent %q", agent)
@@ -303,14 +308,14 @@ func Serves(agent string, p *providers.Provider, model string) (ok bool, why str
 	if p.Auth.Method() == providers.AuthCLI {
 		return false, fmt.Sprintf("provider %s uses cli (subscription) auth, which %s cannot use; pick a keyed provider", p.Name, agent)
 	}
-	return servesModel(spec, agent, p, model)
+	return servesModel(menu, spec, agent, p, model)
 }
 
-func servesModel(spec Schema, agent string, p *providers.Provider, model string) (bool, string) {
+func servesModel(menu []providers.OpencodeModel, spec Schema, agent string, p *providers.Provider, model string) (bool, string) {
 	if model == "" {
 		return true, ""
 	}
-	wire, ok, why := providers.WireFor(p, model)
+	wire, ok, why := providers.WireForIn(menu, p, model)
 	if !ok {
 		return false, why
 	}

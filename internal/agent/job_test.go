@@ -469,7 +469,7 @@ func adapterDeadPID(t *testing.T) int {
 	return cmd.Process.Pid
 }
 
-func setConfigDir(t *testing.T) {
+func setConfigDir(t testing.TB) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 }

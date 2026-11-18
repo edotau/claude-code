@@ -99,6 +99,10 @@ func ExplainRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRout
 		return ownConnectorRoute(q), nil, nil
 	}
 	q, need := autoQuery(q)
+	if need.mode != autoOff {
+		menu := providers.OpencodeMenu()
+		q.menu = &menu
+	}
 	r, err := autoBase(reg, q, need, now)
 	if err != nil && need.mode != autoOff && errors.Is(err, ErrModelRoute) {
 		need.noTier = true // no tier model runs here, so the agent's default stands in
@@ -385,7 +389,7 @@ func newAutoChoice(need autoNeed) *AutoChoice {
 // autoPick ranks the served models of base's row for need and resolves the winner; no ranking keeps base.
 func autoPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need autoNeed, now time.Time) (ModelRoute, *AutoChoice) {
 	c := newAutoChoice(need)
-	cands, why := autoCandidates(reg, q.Agent, reg.Row(base.Profile), q.Tools, now)
+	cands, why := autoCandidates(reg, q, reg.Row(base.Profile), now)
 	c.Candidates = len(cands)
 	ch := catalog.Choose(cands, q.Agent, need.tier, q.Tools)
 	c.Ranked, c.Stepped, c.FitShadow = ch.Ranked, ch.Stepped, ch.Shadow
@@ -481,7 +485,7 @@ func autoEffort(cur, agentName string, need autoNeed) string {
 }
 
 // autoCandidates is every READY chat model on p's fresh listing the agent can run there, with its tool probe.
-func autoCandidates(reg *providers.Registry, agentName string, p *providers.Provider, tools bool, now time.Time) ([]catalog.Candidate, string) {
+func autoCandidates(reg *providers.Registry, q ModelQuery, p *providers.Provider, now time.Time) ([]catalog.Candidate, string) {
 	if p == nil {
 		return nil, "no row"
 	}
@@ -490,13 +494,13 @@ func autoCandidates(reg *providers.Registry, agentName string, p *providers.Prov
 		return nil, "no fresh model listing on " + p.Name
 	}
 	var probes map[string]serving.CheckResult // only a tools run reads Tools
-	if tools {
+	if q.Tools {
 		probes, _ = catalog.LoadCheckCache(p.Name)
 	}
 	var out []catalog.Candidate
 	seen := map[string]bool{}
 	for _, m := range s.Models {
-		wire, ok := servedCandidate(reg, agentName, p, m, now)
+		wire, ok := servedCandidate(reg, q, p, m, now)
 		if ok && !seen[wire] {
 			seen[wire] = true
 			out = append(out, catalog.Candidate{Model: wire, Tools: probes[catalog.ID(wire)].Tools})
@@ -506,12 +510,12 @@ func autoCandidates(reg *providers.Registry, agentName string, p *providers.Prov
 }
 
 // servedCandidate is m's wire id when m is a READY chat endpoint the agent runs on p, by the launch's own checks.
-func servedCandidate(reg *providers.Registry, agentName string, p *providers.Provider, m router.ServedModel, now time.Time) (string, bool) {
+func servedCandidate(reg *providers.Registry, q ModelQuery, p *providers.Provider, m router.ServedModel, now time.Time) (string, bool) {
 	if m.Task != chatTask || !m.IsReady() || catalog.ID(m.ID) == AutoModel {
 		return "", false
 	}
-	r, err := ResolveModel(reg, ModelQuery{Agent: agentName, Model: p.Name + ":" + m.ID}, now)
-	return r.Model, err == nil && agentRuns(agentName, p, r.Model)
+	r, err := ResolveModel(reg, ModelQuery{Agent: q.Agent, Model: p.Name + ":" + m.ID, menu: q.menu}, now)
+	return r.Model, err == nil && agentRunsIn(q.menuIn(), q.Agent, p, r.Model)
 }
 
 // chatTask is the serving task of a chat-completions endpoint.
@@ -519,13 +523,17 @@ const chatTask = "llm/v1/chat"
 
 // agentRuns is the tier rule: claude runs Claude, gemini Gemini (any chat model on Databricks), codex Responses.
 func agentRuns(agentName string, p *providers.Provider, wire string) bool {
+	return agentRunsIn(nil, agentName, p, wire)
+}
+
+func agentRunsIn(menu []providers.OpencodeModel, agentName string, p *providers.Provider, wire string) bool {
 	switch facts := agentid.Routing(agentName); {
 	case facts.ModelFamily == string(models.FamilyClaude):
 		return models.FamilyKind(wire) == models.FamilyClaude
 	case facts.GoogleOrDatabricks:
 		return models.FamilyKind(wire) == models.FamilyGemini || GeminiGatewayRow(p)
 	case facts.ResponsesRoute:
-		return providers.ServesResponses(p, wire)
+		return providers.ServesResponsesIn(menu, p, wire)
 	}
 	return true
 }

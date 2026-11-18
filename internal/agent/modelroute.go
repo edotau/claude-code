@@ -50,9 +50,18 @@ type ModelQuery struct {
 	Identity, Fallback             string // overlay keys echoed into the route
 	Session, PinProfile, PinModel  string
 	PinAccount                     string
-	Interactive                    bool   // a prefix and Profile naming different rows is an error, not an override
-	Task                           string // the brief: ResolveRun sizes its tier when auto picks the model
-	Tools                          bool   // the run calls tools: auto skips a model whose probe refused them
+	Interactive                    bool                       // a prefix and Profile naming different rows is an error, not an override
+	Task                           string                     // the brief: ResolveRun sizes its tier when auto picks the model
+	Tools                          bool                       // the run calls tools: auto skips a model whose probe refused them
+	menu                           *[]providers.OpencodeModel // read once per auto resolution; nil reads per use
+}
+
+// menuIn is the menu read for this resolution, nil when none was.
+func (q ModelQuery) menuIn() []providers.OpencodeModel {
+	if q.menu == nil {
+		return nil
+	}
+	return *q.menu
 }
 
 // ErrModelRoute marks a typed model string the agent cannot run as written; callers exit 2.
@@ -308,7 +317,7 @@ func resolveOn(p *providers.Provider, source string, q ModelQuery, spec provider
 		return ModelRoute{}, err
 	}
 	r.Effort = cmp.Or(r.Effort, q.Effort)
-	return r, routeServes(&r, p)
+	return r, routeServes(&r, p, q.menuIn())
 }
 
 // routeModel picks the typed model, else the record's, else the default alias, then cuts a gemini effort and spells it.
@@ -401,7 +410,7 @@ func spellModel(r *ModelRoute, p *providers.Provider, agent, typed string, now t
 }
 
 // routeServes checks the agent speaks the wire p uses for r.Model.
-func routeServes(r *ModelRoute, p *providers.Provider) error {
+func routeServes(r *ModelRoute, p *providers.Provider, menu []providers.OpencodeModel) error {
 	if r.Model == AutoModel {
 		r.Dialect = p.Protocol
 		return nil
@@ -418,7 +427,7 @@ func routeServes(r *ModelRoute, p *providers.Provider) error {
 			return fmt.Errorf("%w: %w", ErrModelRoute, err)
 		}
 	}
-	wire, ok, why := providers.WireFor(p, r.Model)
+	wire, ok, why := providers.WireForIn(menu, p, r.Model)
 	if _, has := p.Route(providers.ProtocolAnthropic); !ok && has && agentid.Routing(r.Agent).AnthropicRoute && !slices.Contains([]models.Family{models.FamilyClaude, models.FamilyGPT, models.FamilyGemini}, models.FamilyKind(r.Model)) {
 		wire, ok = providers.ProtocolAnthropic, true // an unlisted id goes out as typed on the anthropic wire
 	}
@@ -432,7 +441,7 @@ func routeServes(r *ModelRoute, p *providers.Provider) error {
 	if agentid.Routing(r.Agent).AnthropicRoute {
 		return agentFamily(r, p)
 	}
-	if ok, why := Serves(r.Agent, p, r.Model); !ok {
+	if ok, why := servesIn(menu, r.Agent, p, r.Model); !ok {
 		return fmt.Errorf("%w: %s", ErrModelRoute, why)
 	}
 	return agentFamily(r, p)

@@ -167,7 +167,7 @@ const (
 	deepBrief     = "Audit the safety-scan rules for false blocks."
 )
 
-func saveListing(t *testing.T, profile string, ids []string) {
+func saveListing(t testing.TB, profile string, ids []string) {
 	t.Helper()
 	s := router.Served{Profile: profile, FetchedAt: time.Now()}
 	for _, id := range ids {
@@ -193,7 +193,7 @@ func oracle(ids []string, tier string, needTools bool, tools map[string]string) 
 }
 
 // crossFamily finds a non-Claude model ranked like sonnet but cheaper, so cost alone must decide.
-func crossFamily(t *testing.T) (claude, other string) {
+func crossFamily(t testing.TB) (claude, other string) {
 	t.Helper()
 	claude = "databricks-claude-sonnet-5-5"
 	s := catalog.RankOf(claude)
@@ -207,7 +207,7 @@ func crossFamily(t *testing.T) (claude, other string) {
 }
 
 // autoFixture loads autoOverlay and listings: dev full, qa below deep, xf a cross-family pair, ax unknowns, prod none.
-func autoFixture(t *testing.T) (*providers.Registry, []string, []string) {
+func autoFixture(t testing.TB) (*providers.Registry, []string, []string) {
 	t.Helper()
 	setConfigDir(t)
 	vaulttest.Use(t)
@@ -453,5 +453,38 @@ func TestExplainRunOwnConnectorExplicitProfile(t *testing.T) {
 	q := ModelQuery{Agent: "opencode", Model: "opencode-go/kimi-k3", Profile: "ultra"}
 	if r, _, err := ExplainRun(reg, q, time.Now()); err == nil {
 		t.Errorf("ExplainRun(--profile ultra, %s) = %s, want the run's refusal", q.Model, r.Label())
+	}
+}
+
+func BenchmarkResolveRunAuto(b *testing.B) {
+	reg, _, _ := autoFixture(b)
+	time.Sleep(2100 * time.Millisecond) // let every state file settle past the stamp cache's racy window
+	q := ModelQuery{Agent: "opencode", Model: "dev:auto", Task: deepBrief}
+	now := time.Now()
+	if _, err := ResolveRun(reg, q, now); err != nil {
+		b.Fatal(err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := ResolveRun(reg, q, now); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// A menu edit between two resolutions reaches the second: the menu is read once per resolution, never kept.
+func TestResolveRunSeesMenuChangeBetweenRuns(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	q := ModelQuery{Agent: "codex", Model: "dev:auto", Task: deepBrief}
+	if err := providers.SetOpencodeMenu([]providers.OpencodeModel{{ID: "gpt-6-1-sol", Label: "GPT-6.1 Sol"}}); err != nil {
+		t.Fatal(err)
+	}
+	_, first, _ := ExplainRun(reg, q, time.Now())
+	if err := providers.SetOpencodeMenu(nil); err != nil {
+		t.Fatal(err)
+	}
+	_, second, err := ExplainRun(reg, q, time.Now())
+	if err != nil || second == nil || second.Candidates != 1 || first != nil && first.Candidates != 0 {
+		t.Errorf("candidates %+v then %+v (%v); want none, then the one Responses model", first, second, err)
 	}
 }
