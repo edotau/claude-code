@@ -381,6 +381,42 @@ func TestParseSkipsFencedCheckboxes(t *testing.T) {
 	}
 }
 
+// Struck-out tasks (text opens with ~~ and closes later on the line) are dropped: not done, not open, not in the total.
+func TestDroppedTasks(t *testing.T) {
+	cases := []struct {
+		name, md                           string
+		wantIDs                            string // every parsed task id, dropped ones included
+		wantTicked, wantTotal, wantDropped int
+	}{
+		{"struck open with superseded note", "- [ ] ~~Phase 2.1 — add the foo verb~~ — superseded: folded into agents sync (a1b2c3d4)\n",
+			"Phase 2.1", 0, 0, 1},
+		{"ticked and struck, strike wins", "- [x] ~~Phase 2.2 — old thing~~ (deadbee)\n", "Phase 2.2", 0, 0, 1},
+		{"tilde only in the middle is open", "- [ ] Phase 1 — use ~~old~~ new name\n", "Phase 1", 0, 1, 0},
+		{"unclosed tilde is open", "- [ ] ~~Phase 1.5 — never closed\n", "Phase 1.5", 0, 1, 0},
+		{"mixed plan", "- [x] Phase 1.1 a\n- [x] Phase 1.2 b\n- [x] Phase 1.3 c\n" +
+			"- [ ] Phase 2.1 d\n- [ ] Phase 2.2 e\n" +
+			"- [ ] ~~Phase 3.1 f~~ — superseded (a1b2c3d4)\n- [x] ~~Phase 3.2 g~~\n- [ ] ~~Phase 3.3 h~~\n- [x] ~~Phase 3.4 i~~ (deadbee)\n",
+			"Phase 1.1 Phase 1.2 Phase 1.3 Phase 2.1 Phase 2.2 Phase 3.1 Phase 3.2 Phase 3.3 Phase 3.4", 3, 5, 4},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			plan := parseBytes("p.md", []byte(c.md))
+			var ids []string
+			for _, task := range plan.Tasks {
+				ids = append(ids, task.ID)
+			}
+			if got := strings.Join(ids, " "); got != c.wantIDs {
+				t.Fatalf("ids = %q, want %q", got, c.wantIDs)
+			}
+			s := summarize(plan)
+			if s.Ticked != c.wantTicked || s.Total != c.wantTotal || s.Dropped != c.wantDropped {
+				t.Fatalf("ticked/total/dropped = %d/%d/%d, want %d/%d/%d",
+					s.Ticked, s.Total, s.Dropped, c.wantTicked, c.wantTotal, c.wantDropped)
+			}
+		})
+	}
+}
+
 // ClaimFree leaves a live claim alone and ClearClaimOwned clears only its owner's claim.
 func TestClaimFreeAndClearOwned(t *testing.T) {
 	hermetic(t)

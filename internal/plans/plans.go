@@ -22,6 +22,7 @@ import (
 type Task struct {
 	Start, End int // 0-based line indexes, inclusive
 	Done       bool
+	Dropped    bool   // struck-out tasks are neither done nor open, so they leave the total
 	ID         string // "Phase N.M" or a leading lane id such as "3.2a"
 	Title      string
 	Owns       []string
@@ -40,6 +41,7 @@ type Plan struct {
 type Summary struct {
 	Path    string
 	Ticked  int
+	Dropped int
 	Total   int
 	Claims  []string
 	Partial int
@@ -88,13 +90,19 @@ func parseBytes(path string, b []byte) Plan {
 			continue
 		}
 		cont, end := continuation(lines, i, len(m[1]))
-		text := m[3] + cont
-		t := Task{Start: i, End: end, Done: m[2] == "x" || m[2] == "X"}
+		// the leading strike marker is stripped so a struck task keeps its id
+		text := strings.TrimPrefix(m[3]+cont, "~~")
+		t := Task{Start: i, End: end, Done: m[2] == "x" || m[2] == "X", Dropped: struck(m[3])}
 		t.ID, t.Title, t.Owns, t.Sha, t.Claim, t.Partial = parseTaskText(text)
 		p.Tasks = append(p.Tasks, t)
 		i = end
 	}
 	return p
+}
+
+// struck reports whether a checklist item's first line opens with "~~" and closes it again later on the same line.
+func struck(first string) bool {
+	return strings.HasPrefix(first, "~~") && strings.Contains(first[2:], "~~")
 }
 
 // continuation joins the wrapped lines after lines[i] that are indented past indent, and returns the last line used.
@@ -514,8 +522,13 @@ func Status(dirs ...string) ([]Summary, error) {
 
 // summarize counts plan's task states and lists its claims.
 func summarize(plan Plan) Summary {
-	s := Summary{Path: plan.Path, Total: len(plan.Tasks)}
+	s := Summary{Path: plan.Path}
 	for _, t := range plan.Tasks {
+		if t.Dropped {
+			s.Dropped++
+			continue
+		}
+		s.Total++
 		if t.Done {
 			s.Ticked++
 		}
