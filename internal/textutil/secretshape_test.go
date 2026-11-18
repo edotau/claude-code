@@ -179,3 +179,32 @@ func BenchmarkRedactSecrets(b *testing.B) {
 		RedactSecrets(s)
 	}
 }
+
+func TestSecretSpans(t *testing.T) {
+	cases := []string{
+		"dapi" + strings.Repeat("a1", 16),
+		"Bearer " + strings.Repeat("Ab1_", 12),
+		"eyJ" + strings.Repeat("a", 18) + "." + strings.Repeat("b", 20) + ".signature",
+		"-----BEGIN PRIVATE KEY-----\nAb123\n-----END PRIVATE KEY-----",
+		"sk-learn password " + strings.Repeat("a", 64),
+		"Bearer " + "eyJ" + strings.Repeat("a", 18) + "." + strings.Repeat("b", 20),
+	}
+	for i, input := range cases {
+		input = "\xff" + input + " suffix"
+		spans := SecretSpans(input)
+		var b strings.Builder
+		offset := 0
+		for _, span := range spans {
+			if span[0] < offset || span[1] <= span[0] || span[1] > len(input) {
+				t.Fatalf("case %d: invalid offsets", i)
+			}
+			b.WriteString(input[offset:span[0]])
+			b.WriteString("REDACTED")
+			offset = span[1]
+		}
+		b.WriteString(input[offset:])
+		if b.String() != RedactSecrets(input) {
+			t.Errorf("case %d: coverage mismatch (%d spans)", i, len(spans))
+		}
+	}
+}

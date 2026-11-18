@@ -2,6 +2,7 @@ package textutil
 
 import (
 	"regexp"
+	"regexp/syntax"
 	"slices"
 	"strconv"
 	"strings"
@@ -197,3 +198,112 @@ func farMarker(s string) bool {
 	return strings.Contains(s, "-----BEGIN") || strings.Contains(s, "eyJ") ||
 		strings.Contains(strings.ToLower(s), "bearer")
 }
+
+// SecretSpans preserves byte offsets so callers can overwrite secrets without moving stored records.
+func SecretSpans(s string) [][2]int {
+	var spans [][2]int
+	shadow := s
+	add := func(start, end int) { spans = append(spans, [2]int{start, end}) }
+	hide := func(from int) {
+		if from == len(spans) {
+			return
+		}
+		b := []byte(shadow)
+		for _, span := range spans[from:] {
+			for i := span[0]; i < span[1]; i++ {
+				b[i] = ' '
+			}
+		}
+		shadow = string(b)
+	}
+	for i, re := range []*regexp.Regexp{pemPrivateKey(), jwtToken()} {
+		if !strings.Contains(shadow, []string{"-----BEGIN ", "eyJ"}[i]) {
+			continue
+		}
+		from := len(spans)
+		for _, loc := range re.FindAllStringIndex(shadow, -1) {
+			add(loc[0], loc[1])
+		}
+		hide(from)
+	}
+	from := len(spans)
+	if strings.Contains(strings.ToLower(shadow), "bearer") {
+		for _, loc := range bearerAuth().FindAllStringSubmatchIndex(shadow, -1) {
+			add(loc[3], loc[1])
+		}
+	}
+	hide(from)
+	starts := credentialStarts()
+	for i := 0; i < len(shadow); {
+		j := i
+		for j < len(shadow) && tokenByte(shadow[j]) {
+			j++
+		}
+		if j > i && starts[shadow[i]] && looksSecretToken(shadow[i:j]) {
+			add(i, j)
+		}
+		i = max(j, i+1)
+	}
+	return mergeSecretSpans(spans)
+}
+
+func mergeSecretSpans(spans [][2]int) [][2]int {
+	slices.SortFunc(spans, func(a, b [2]int) int { return a[0] - b[0] })
+	merged := spans[:0]
+	for _, span := range spans {
+		if n := len(merged); n > 0 && span[0] < merged[n-1][1] {
+			merged[n-1][1] = max(merged[n-1][1], span[1])
+		} else {
+			merged = append(merged, span)
+		}
+	}
+	return merged
+}
+
+// Derive the cheap rejection filter from the shared pattern so the prefix list cannot drift.
+var credentialStarts = sync.OnceValue(func() [256]bool {
+	re, err := syntax.Parse(CredentialRE().String(), syntax.Perl)
+	if err != nil {
+		panic("invalid credential pattern")
+	}
+	var starts [256]bool
+	var visit func(*syntax.Regexp) bool
+	visit = func(r *syntax.Regexp) bool {
+		switch r.Op {
+		case syntax.OpLiteral:
+			if len(r.Rune) > 0 && r.Rune[0] < 256 {
+				starts[r.Rune[0]] = true
+			}
+			return false
+		case syntax.OpCharClass:
+			for i := 0; i < len(r.Rune); i += 2 {
+				for c := r.Rune[i]; c <= min(r.Rune[i+1], 255); c++ {
+					starts[c] = true
+				}
+			}
+			return false
+		case syntax.OpConcat:
+			for _, sub := range r.Sub {
+				if !visit(sub) {
+					return false
+				}
+			}
+			return true
+		case syntax.OpAlternate:
+			nullable := false
+			for _, sub := range r.Sub {
+				nullable = visit(sub) || nullable
+			}
+			return nullable
+		case syntax.OpCapture, syntax.OpPlus, syntax.OpRepeat:
+			return visit(r.Sub[0])
+		case syntax.OpQuest, syntax.OpStar:
+			visit(r.Sub[0])
+			return true
+		default:
+			return true
+		}
+	}
+	visit(re)
+	return starts
+})
