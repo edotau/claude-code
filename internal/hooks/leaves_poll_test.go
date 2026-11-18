@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -164,6 +165,10 @@ func TestRelayReadOnlyAndGates(t *testing.T) {
 		"go run ./cmd/x": false, "go test -exec ./x ./...": false, "go build -o /tmp/x ./cmd/claude-code": false,
 		"make test": false, "rm f": false, `python3 -c "print(1)"`: false, `bash -c "ls"`: false, "gofmt -w f.go": false,
 		"cd /x && grep y z": false, "go generate ./...": false, "GOFLAGS=-toolexec=x go test ./...": false,
+		`claude-code worktree commit -m "fix: x" a.txt`: false, `rtk claude-code worktree commit -m "fix: x" a.txt`: false,
+		`/usr/local/bin/claude-code --remote h worktree commit -m x a.txt`: false, `env claude-code worktree commit -m x a.txt`: false,
+		"claude-code agents ask --agent codex x": true, "claude-code agents status 20261116T120000.000-codex": true,
+		"claude-code worktree list": true, "claude-code agents diff --check --path a.go": true,
 	}
 	for cmd, want := range cases {
 		r := Handback(bashHook("PreToolUse", relayTx(t), "a1", "t2", cmd, ""))
@@ -333,4 +338,66 @@ func pollTranscript(t *testing.T, at time.Time, ask, cmd, out string, isErr bool
 	}
 	return msg("user", at.Add(-time.Minute), "Objective: x\nAgent: opencode\n") + launch +
 		use("t2", cmd, at.Add(10*time.Minute)) + res("t2", out, isErr)
+}
+
+// reapGroups never targets our own, the parent's, init's, our pid's or a failed probe's group, and lists each once.
+func TestReapGroupsSkipsProtectedAndDuplicates(t *testing.T) {
+	origOwn, origOf := reapOwnGroup, reapGroupOf
+	t.Cleanup(func() { reapOwnGroup, reapGroupOf = origOwn, origOf })
+	groups := map[int]int{os.Getppid(): 200, 11: 100, 12: 200, 13: 1, 14: 300, 15: 300, os.Getpid(): 400, 17: 500}
+	reapOwnGroup = func() int { return 100 }
+	reapGroupOf = func(pid int) (int, error) {
+		if g, ok := groups[pid]; ok {
+			return g, nil
+		}
+		return 0, syscall.ESRCH
+	}
+	got := reapGroups([]int{11, 12, 13, 14, 15, 16, os.Getpid(), 17})
+	if want := []int{300, 500}; !slices.Equal(got, want) {
+		t.Fatalf("reapGroups = %v, want %v", got, want)
+	}
+}
+
+// terminateGroups sends SIGTERM, polls through the grace period, then SIGKILLs only when a group outlived it.
+func TestTerminateGroupsEscalatesToKill(t *testing.T) {
+	origSignal, origSleep := reapSignal, reapSleep
+	t.Cleanup(func() { reapSignal, reapSleep = origSignal, origSleep })
+	reapSleep = func(time.Duration) {}
+	for _, tc := range []struct {
+		name     string
+		stubborn bool
+		want     []string
+	}{
+		{"dies on TERM", false, []string{"7:15", "8:15"}},
+		{"outlives grace", true, []string{"7:15", "8:15", "7:9", "8:9"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var sent []string
+			reapSignal = func(g int, sig syscall.Signal) error {
+				if sig == 0 {
+					if tc.stubborn {
+						return nil
+					}
+					return syscall.ESRCH
+				}
+				sent = append(sent, fmt.Sprintf("%d:%d", g, sig))
+				return nil
+			}
+			terminateGroups([]int{7, 8})
+			if !slices.Equal(sent, tc.want) {
+				t.Fatalf("signals = %v, want %v", sent, tc.want)
+			}
+		})
+	}
+}
+
+func TestAppendOutputFilesMovedToBackground(t *testing.T) {
+	out := "/tmp/c/tasks/bX1.output"
+	for _, text := range []string{bgNotice(out), "Command running in background with ID: bX1. Output is being written to: " + out + ". You"} {
+		line, _ := json.Marshal(map[string]any{"type": "user", "message": map[string]any{"content": []map[string]any{
+			{"type": "tool_result", "tool_use_id": "t", "content": text}}}})
+		if got := appendOutputFiles(nil, map[string]bool{}, line); len(got) != 1 || got[0] != out {
+			t.Errorf("%.40s...: got %v, want [%s]", text, got, out)
+		}
+	}
 }
