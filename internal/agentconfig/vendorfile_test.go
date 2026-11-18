@@ -40,6 +40,31 @@ func TestApplyRollsBackOnFailure(t *testing.T) {
 	}
 }
 
+func TestApplyKeepsConcurrentEdit(t *testing.T) {
+	dir := t.TempDir()
+	first, second := filepath.Join(dir, "a.json"), filepath.Join(dir, "b.json")
+	if err := os.WriteFile(first, []byte("old"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	boom := errors.New("boom")
+	p := &RenderPlan{writes: []stagedWrite{
+		{path: first, write: func() error { return os.WriteFile(first, []byte("plan"), 0o600) }},
+		{path: second, write: func() error {
+			if err := os.WriteFile(first, []byte("other writer"), 0o600); err != nil {
+				return err
+			}
+			return boom
+		}},
+	}}
+	err := p.Apply()
+	if !errors.Is(err, boom) || !strings.Contains(err.Error(), first) {
+		t.Fatalf("Apply = %v, want boom naming %s", err, first)
+	}
+	if got, _ := os.ReadFile(first); string(got) != "other writer" {
+		t.Fatalf("a.json = %q, want the concurrent edit kept", got)
+	}
+}
+
 // backupEnv isolates HOME and CLAUDE_CONFIG_DIR and returns a vendor config path under HOME.
 func backupEnv(t *testing.T) (path, mirrorGlob string) {
 	t.Helper()

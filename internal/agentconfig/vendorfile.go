@@ -59,9 +59,16 @@ func (p *RenderPlan) Apply() error {
 			return errors.Join(err, restore(done))
 		}
 		if err := w.write(); err != nil {
+			snap.wrote, snap.wroteAbsent = snap.data, snap.absent
 			return errors.Join(err, restore(append(done, snap)))
 		}
 		snap.undo = w.undo
+		if snap.path != "" {
+			var rerr error
+			if snap.wrote, snap.wroteAbsent, rerr = readWrote(snap.path); rerr != nil {
+				return errors.Join(rerr, restore(append(done, snap)))
+			}
+		}
 		done = append(done, snap)
 	}
 	return nil
@@ -73,6 +80,14 @@ type snapshot struct {
 	data   []byte
 	absent bool
 	undo   func() error
+	// wrote is what the file held right after this plan's write; restore touches the file only while it still does.
+	wrote       []byte
+	wroteAbsent bool
+}
+
+func readWrote(path string) (data []byte, absent bool, err error) {
+	data, existed, err := ReadExisting(path)
+	return data, !existed && err == nil, err
 }
 
 func takeSnapshot(path string) (snapshot, error) {
@@ -90,17 +105,29 @@ func restore(done []snapshot) error {
 		if s.undo != nil {
 			errs = append(errs, s.undo())
 		}
-		switch {
-		case s.path == "":
-		case s.absent:
-			if err := os.Remove(s.path); err != nil && !errors.Is(err, os.ErrNotExist) {
-				errs = append(errs, err)
-			}
-		default:
-			errs = append(errs, paths.AtomicWrite(s.path, s.data, 0o600))
+		if s.path != "" {
+			errs = append(errs, paths.WithFileLock(s.path, func() error { return restoreFile(s) }))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// restoreFile reverts s.path only while it still holds what this plan wrote; a later edit by another writer stays.
+func restoreFile(s snapshot) error {
+	cur, absent, err := readWrote(s.path)
+	if err != nil {
+		return err
+	}
+	if absent != s.wroteAbsent || !bytes.Equal(cur, s.wrote) {
+		return fmt.Errorf("rollback left %s alone: it changed after this render wrote it", s.path)
+	}
+	if s.absent {
+		if err := os.Remove(s.path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return nil
+	}
+	return paths.AtomicWrite(s.path, s.data, 0o600)
 }
 
 // queue appends w to the staged writes, or runs it at once when the options were not built with Stage.
