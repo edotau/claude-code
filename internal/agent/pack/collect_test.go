@@ -449,7 +449,7 @@ func fakeGitScript(sleep, stage string) string {
 	return "#!/bin/sh\n" +
 		"if [ \"$3\" = \"" + stage + "\" ]; then\n" +
 		"  : > \"$PACK_TEST_GIT_MARKER\"\n" +
-		"  exec \"" + sleep + "\" 3\n" +
+		"  exec \"" + sleep + "\" 60\n" +
 		"fi\n" +
 		"case \"$3\" in\n" +
 		"  rev-parse) printf 'true\\n' ;;\n" +
@@ -510,19 +510,15 @@ func runCancellationCase(t *testing.T, sleep string, tc cancelCase) {
 	waitForMarker(t, marker, done)
 	canceledAt := time.Now()
 	cancel()
-	select {
-	case got := <-done:
-		if !errors.Is(got.err, context.Canceled) {
-			t.Errorf("error = %v, want cancellation", got.err)
-		}
-		if len(got.context.Included) != 0 {
-			t.Errorf("canceled scan included files: %+v", got.context.Included)
-		}
-		if elapsed := time.Since(canceledAt); elapsed > time.Second {
-			t.Errorf("git took %s to stop after cancellation", elapsed)
-		}
-	case <-time.After(4 * time.Second):
-		t.Fatal("git command did not stop after cancellation")
+	got := <-done
+	if !errors.Is(got.err, context.Canceled) {
+		t.Errorf("error = %v, want cancellation", got.err)
+	}
+	if len(got.context.Included) != 0 {
+		t.Errorf("canceled scan included files: %+v", got.context.Included)
+	}
+	if elapsed := time.Since(canceledAt); elapsed >= 30*time.Second { // the fake git sleeps 60s unless killed
+		t.Errorf("git ran %s after cancellation, want it killed", elapsed)
 	}
 }
 

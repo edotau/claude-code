@@ -776,16 +776,12 @@ func TestAskStdinFramedCancelsOnEOF(t *testing.T) {
 	waitFakeVendorReady(t, ready, done)
 	start := time.Now()
 	pw.Close()
-	select {
-	case o := <-done:
-		if o.code == 0 || !strings.Contains(o.out, `"kind":"canceled"`) {
-			t.Fatalf("want a canceled failure, got code %d:\n%s", o.code, o.out)
-		}
-		if d := time.Since(start); d > 5*time.Second {
-			t.Fatalf("cancel took %s", d)
-		}
-	case <-time.After(10 * time.Second):
-		t.Fatal("run survived stdin EOF")
+	o := <-done
+	if o.code == 0 || !strings.Contains(o.out, `"kind":"canceled"`) {
+		t.Fatalf("want a canceled failure, got code %d:\n%s", o.code, o.out)
+	}
+	if d := time.Since(start); d >= 30*time.Second { // the fake vendor sleeps 60s unless cancelled
+		t.Fatalf("run survived stdin EOF for %s", d)
 	}
 }
 

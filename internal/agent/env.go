@@ -267,11 +267,14 @@ func envNames(env []string) []string {
 	return out
 }
 
+// childWaitDelay is how long a killed child's open pipes may delay Wait; a var so tests can lengthen it.
+var childWaitDelay = 5 * time.Second
+
 // ChildCmd builds an exec.Cmd in its own process group with inherited credentials scrubbed; claude keeps the vault key.
 func ChildCmd(ctx context.Context, bin string, argv, env []string, dir, stdin string, keepEnv []string, cli bool) (*exec.Cmd, *retry.TailBuffer) {
 	cmd := exec.CommandContext(ctx, bin, argv...)
 	proc.OwnGroup(cmd)
-	cmd.WaitDelay = 5 * time.Second
+	cmd.WaitDelay = childWaitDelay
 	mode := EnvClaude
 	if cli {
 		mode = EnvAgent

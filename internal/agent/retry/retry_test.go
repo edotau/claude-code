@@ -89,9 +89,12 @@ func TestDoSharedProviderCooldown(t *testing.T) {
 	}
 	other := pol
 	other.Key = ""
-	t1 := time.Now()
+	CoolDown("", time.Hour)
+	t.Cleanup(ResetCooldowns)
+	idled := false
+	other.Idle = func(context.Context, func()) error { idled = true; return nil }
 	Do(context.Background(), other, func(context.Context, int) *Error { return nil })
-	if time.Since(t1) > time.Second {
+	if idled {
 		t.Errorf("an empty Key must not wait on any cooldown")
 	}
 }

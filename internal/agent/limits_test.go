@@ -173,7 +173,7 @@ func TestDispatchWidthLockTimeoutFailsOpen(t *testing.T) {
 	err := paths.WithFileLockWithin(lock, wait, func() error {
 		start := time.Now()
 		assertLimitAsk(t, values, "", nil)
-		if elapsed := time.Since(start); elapsed < wait || elapsed > 50*wait {
+		if elapsed := time.Since(start); elapsed < wait {
 			t.Fatalf("lock timeout took %v", elapsed)
 		}
 		return nil

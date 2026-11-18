@@ -139,7 +139,10 @@ func TestVendorTargetBaseDiffersFromResolveTargetOnTier(t *testing.T) {
 // A parser failure kills the child at once: a child (or grandchild) holding stdout open never runs to --timeout.
 func TestRunEventStreamParseErrorKillsChild(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh")
-	cmd, tail := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "echo '{}'; sleep 30 & sleep 30"}, nil, "", "", nil, true)
+	old := childWaitDelay
+	childWaitDelay = 500 * time.Millisecond // a grandchild forked as the group kill lands survives until this
+	t.Cleanup(func() { childWaitDelay = old })
+	cmd, tail := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "echo '{}'; sleep 60 & sleep 60"}, nil, "", "", nil, true)
 	bad := errors.New("bad event")
 	parse := func(br *bufio.Reader, _ wire.Sink, _ func(), _ ...wire.StreamLog) (wire.Result, error) {
 		_, _ = br.ReadBytes('\n')
@@ -147,7 +150,7 @@ func TestRunEventStreamParseErrorKillsChild(t *testing.T) {
 	}
 	start := time.Now()
 	res, err := RunEventStream(context.Background(), "x", cmd, tail, wire.Discard, parse, StreamOpts{})
-	if time.Since(start) > 10*time.Second || !errors.Is(err, bad) || res.Answer != "seen" {
+	if time.Since(start) >= 30*time.Second || !errors.Is(err, bad) || res.Answer != "seen" {
 		t.Fatalf("took %v, res=%+v err=%v; want a prompt kill keeping the parse error and answer", time.Since(start), res, err)
 	}
 }

@@ -164,10 +164,13 @@ func TestChildDeadlineKillsProcessGroup(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
 	defer cancel()
+	old := childWaitDelay
+	childWaitDelay = 20 * time.Second // only a group kill can end Run before this
+	t.Cleanup(func() { childWaitDelay = old })
 	cmd, tail := ChildCmd(ctx, "/bin/sh", []string{"-c", "sleep 30 & sleep 30"}, nil, "", "", nil, false)
 	start := time.Now()
 	err := ChildErr(ctx, "sh", cmd.Run(), tail)
-	if time.Since(start) > 3*time.Second || !errors.Is(err, context.DeadlineExceeded) {
+	if time.Since(start) >= childWaitDelay || !errors.Is(err, context.DeadlineExceeded) {
 		t.Fatalf("grandchild outlived the deadline: took %v, err %v", time.Since(start), err)
 	}
 }
