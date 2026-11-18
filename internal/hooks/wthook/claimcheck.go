@@ -44,14 +44,16 @@ func stageText(cmd string) bool { return gitStageCmd.MatchString(cmd) || verbTex
 // liveClaims maps each path other live parties claim to its claimants; a dead owner pid's file is removed.
 func liveClaims(in *core.Input) (map[string][]worktree.ClaimHit, error) {
 	return worktree.LiveClaims(worktree.ClaimSource{Alive: claimAlive, Self: sessionSlug(in.SessionID), Owner: claimOwner,
-		Leaf: siblingLeaf(in), Label: func(pid int) string { return SessionLabel(worktree.Proc{PID: pid, Comm: "claude"}) }})
+		Leaf: siblingLeaf(in), Dispatch: hookDispatch(in), Label: func(pid int) string {
+			return SessionLabel(worktree.Proc{PID: pid, Comm: cmp.Or(proc.Comm(pid), "claude")})
+		}})
 }
 
 // siblingLeaf names another leaf's claim in this session's file while its transcript is fresh; own and main's yield "".
 func siblingLeaf(in *core.Input) func(worktree.Claim) string {
 	live := map[string]bool{}
 	return func(c worktree.Claim) string {
-		if c.Agent == "" || c.Agent == in.AgentID {
+		if c.Agent == "" || c.Agent == claimAgent(in) {
 			return ""
 		}
 		ok, seen := live[c.Agent]
@@ -241,7 +243,7 @@ func (v *claimView) scopePaths(edits []string) {
 // ClaimCheck notes a dirty claimed file before an edit and asks (a leaf blocks) when git stages one.
 func ClaimCheck(in *core.Input) core.Result {
 	cmd := in.ToolCommand()
-	bare := in.ToolName == "Bash" && bareVerbCall(cmd)
+	bare := isBash(in) && bareVerbCall(cmd)
 	res := checkClaims(in, cmd)
 	if bare && in.AgentID != "" && in.SessionID != "" && res.Decision == core.Allow {
 		return bareVerbResult(in, res)
@@ -251,7 +253,7 @@ func ClaimCheck(in *core.Input) core.Result {
 
 // checkClaims is ClaimCheck over cmd, where a worktree-commit call is judged as the git commit it makes.
 func checkClaims(in *core.Input, cmd string) core.Result {
-	bash := in.ToolName == "Bash"
+	bash := isBash(in)
 	git := gitAnyCmd().MatchString(cmd) || verbText.MatchString(cmd)
 	if in.SessionID == "" || bash && !git && !core.MayWrite(cmd) {
 		return core.Result{}
@@ -283,7 +285,7 @@ func claimResult(ctx context.Context, in *core.Input, cmd string, edits []string
 		v := claimView{ctx: ctx, in: in, cmd: cmd, claims: claims, status: map[string]dirtyState{},
 			clean: sync.OnceValue(func() map[string]int64 { return cleanMarks(in.SessionID) })}
 		v.scopePaths(edits)
-		if in.ToolName == "Bash" && stageText(cmd) {
+		if isBash(in) && stageText(cmd) {
 			res = v.stageCheck()
 		}
 		for _, p := range edits {
@@ -303,19 +305,25 @@ func claimWarn(err error) core.Result {
 	return core.Result{Stderr: fmt.Sprintf("worktree-claim-check: WARNING — could not check file claims (%v); allowed", err)}
 }
 
-// editPaths are the files the call edits, absolute and canonical: a Write/Edit target, or what a Bash command writes.
+// isBash reports a shell call under any agent's tool name (Claude's Bash, Copilot's bash).
+func isBash(in *core.Input) bool { return strings.EqualFold(in.CanonicalTool(), "Bash") }
+
+// editPaths are the call's edited files, absolute and canonical: edit-tool or patch targets, or what Bash writes.
 func editPaths(in *core.Input) []string {
-	if in.ToolName == "Bash" {
+	if isBash(in) {
 		out := core.WrittenPaths(in.ToolCommand(), in.CWD)
 		for i, p := range out {
 			out[i] = paths.Real(p)
 		}
 		return out
 	}
-	if p := in.Nested("tool_input", "file_path"); p != "" {
-		return []string{paths.Real(core.AnchorPath(p, in.CWD))}
+	var out []string
+	for _, e := range in.EditedPaths() {
+		if p := paths.Real(core.AnchorPath(e.Path, in.CWD)); !slices.Contains(out, p) {
+			out = append(out, p)
+		}
 	}
-	return nil
+	return out
 }
 
 // editCheck returns the once-per-(session, path, who) advisory for an edit of a dirty claimed file.

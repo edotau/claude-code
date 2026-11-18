@@ -5,9 +5,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -110,5 +112,151 @@ func TestClaimSkipsOwnerLookupWhenNothingToRecord(t *testing.T) {
 	got := readClaims(t, claimsFile(liveOwner, "S1"))
 	if lookups != 1 || len(got) != 1 || got[0].Path != filepath.Join(dir, "a.txt") {
 		t.Fatalf("edit: %d lookups, claims %+v; want one lookup and the a.txt claim", lookups, got)
+	}
+}
+
+// agentInput parses doc as agent's hook would deliver it (copilot and opencode also announce themselves by shape).
+func agentInput(t *testing.T, agent string, doc map[string]any) *core.Input {
+	t.Helper()
+	b, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return core.ParseInputFor(strings.NewReader(string(b)), agent)
+}
+
+// claimedPaths is every path in session's claims file, relative to dir.
+func claimedPaths(t *testing.T, dir, session string) []string {
+	t.Helper()
+	var out []string
+	for _, c := range readClaims(t, claimsFile(liveOwner, session)) {
+		rel, _ := filepath.Rel(dir, c.Path)
+		out = append(out, rel)
+	}
+	return out
+}
+
+// TestClaimRecordsEveryAgentsEditShape: Codex apply_patch, Copilot and OpenCode edits claim their files.
+func TestClaimRecordsEveryAgentsEditShape(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	useClaimOwner(t, liveOwner)
+	dir := paths.Real(t.TempDir())
+	patch := "*** Begin Patch\n*** Add File: new.txt\n+x\n*** Update File: old.txt\n*** Move to: moved.txt\n@@\n-a\n+b\n" +
+		"*** Delete File: gone.txt\n*** End Patch\n"
+	cases := []struct {
+		agent string
+		doc   map[string]any
+		want  []string
+	}{
+		{core.AgentCodex, map[string]any{"session_id": "codex1", "turn_id": "t1", "transcript_path": "", "cwd": dir,
+			"hook_event_name": "PostToolUse", "model": "m", "permission_mode": "default", "tool_name": "apply_patch",
+			"tool_input": map[string]any{"command": patch}, "tool_response": map[string]any{}, "tool_use_id": "u1"},
+			[]string{"new.txt", "old.txt", "moved.txt", "gone.txt"}},
+		{core.AgentCopilot, map[string]any{"sessionId": "cop1", "timestamp": 1, "cwd": dir, "toolCallId": "c1", "toolName": "edit",
+			"toolArgs": map[string]any{"path": "sub/x.txt", "file_text": "x"}, "toolResult": map[string]any{"resultType": "success"}},
+			[]string{"sub/x.txt"}},
+		{core.AgentCopilot, map[string]any{"sessionId": "cop2", "timestamp": 1, "cwd": dir, "toolCallId": "c2", "toolName": "bash",
+			"toolArgs": map[string]any{"command": "echo hi > out.txt"}, "toolResult": map[string]any{}},
+			[]string{"out.txt"}},
+		{core.AgentOpencode, map[string]any{"hook_event_name": "PostToolUse", "tool_name": "Edit", "cwd": dir, "session_id": "oc1",
+			"harness_agent": "opencode", "tool_input": map[string]any{"file_path": filepath.Join(dir, "o.txt")}},
+			[]string{"o.txt"}},
+	}
+	for _, tc := range cases {
+		in := agentInput(t, tc.agent, tc.doc)
+		Claim(in)
+		if got := claimedPaths(t, dir, in.SessionID); !slices.Equal(got, tc.want) {
+			t.Errorf("%s %v: claimed %v, want %v", tc.agent, tc.doc["toolName"], got, tc.want)
+		}
+	}
+}
+
+// TestClaimStampsDispatchIDForNonClaudeAgents: a dispatched Codex claim names its dispatch; Claude's do not.
+func TestClaimStampsDispatchIDForNonClaudeAgents(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_DISPATCH_ID", "d-77")
+	useClaimOwner(t, liveOwner)
+	dir := paths.Real(t.TempDir())
+	edit := func(session string) map[string]any {
+		return map[string]any{"session_id": session, "cwd": dir, "tool_name": "Edit", "tool_input": map[string]any{"file_path": "a.txt"}}
+	}
+	Claim(agentInput(t, core.AgentCodex, edit("cx")))
+	Claim(agentInput(t, core.AgentClaude, edit("cl")))
+	if got := readClaims(t, claimsFile(liveOwner, "cx")); got[0].Agent != "d-77" {
+		t.Errorf("codex claim agent = %q, want the dispatch id d-77", got[0].Agent)
+	}
+	if got := readClaims(t, claimsFile(liveOwner, "cl")); got[0].Agent != "" {
+		t.Errorf("claude claim agent = %q, want it unchanged (empty)", got[0].Agent)
+	}
+}
+
+// TestClaimStampsDispatchFromRunningRecord: with no id in the environment, a running record of an ancestor names it.
+func TestClaimStampsDispatchFromRunningRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_DISPATCH_ID", "")
+	owner := os.Getpid()
+	useClaimOwner(t, owner)
+	orig := runningDispatches
+	t.Cleanup(func() { runningDispatches = orig })
+	dir := paths.Real(t.TempDir())
+	for _, tc := range []struct {
+		name, want string
+		recs       []agent.Record
+	}{
+		{"job is an ancestor", "d-rec", []agent.Record{{ID: "d-rec", Status: "running", PID: os.Getppid()}}},
+		{"job is unrelated", "", []agent.Record{{ID: "d-rec", Status: "running", PID: 1 << 30}}},
+		{"job ended", "", []agent.Record{{ID: "d-rec", Status: "ok", PID: os.Getppid()}}},
+	} {
+		runningDispatches = func() ([]agent.Record, error) { return tc.recs, nil }
+		session := "s-" + strings.ReplaceAll(tc.name, " ", "")
+		Claim(agentInput(t, core.AgentCodex, map[string]any{"session_id": session, "cwd": dir, "tool_name": "Edit",
+			"tool_input": map[string]any{"file_path": "a.txt"}}))
+		if got := readClaims(t, claimsFile(owner, session)); got[0].Agent != tc.want {
+			t.Errorf("%s: stamp = %q, want %q", tc.name, got[0].Agent, tc.want)
+		}
+	}
+}
+
+// TestClaimSkipsFailedEdits: a patch or edit the vendor reports as failed claims nothing; an unstated outcome claims.
+func TestClaimSkipsFailedEdits(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	useClaimOwner(t, liveOwner)
+	dir := paths.Real(t.TempDir())
+	patch := "*** Begin Patch\n*** Update File: a.txt\n@@\n-a\n+b\n*** End Patch\n"
+	codex := func(session string, resp any) (string, map[string]any) {
+		return core.AgentCodex, map[string]any{"session_id": session, "cwd": dir, "tool_name": "apply_patch",
+			"tool_input": map[string]any{"command": patch}, "tool_response": resp}
+	}
+	copilot := func(session, result string) (string, map[string]any) {
+		return core.AgentCopilot, map[string]any{"sessionId": session, "cwd": dir, "toolName": "edit",
+			"toolArgs": map[string]any{"path": "a.txt"}, "toolResult": map[string]any{"resultType": result}}
+	}
+	type doc struct {
+		agent   string
+		payload map[string]any
+		claims  bool
+	}
+	mk := func(claims bool, a string, p map[string]any) doc { return doc{a, p, claims} }
+	cases := map[string]doc{}
+	a, p := codex("cx-bad", "apply_patch verification failed: no such file")
+	cases["cx-bad"] = mk(false, a, p)
+	a, p = codex("cx-flag", map[string]any{"success": false})
+	cases["cx-flag"] = mk(false, a, p)
+	a, p = codex("cx-ok", "Success. Updated the following files:\nM a.txt")
+	cases["cx-ok"] = mk(true, a, p)
+	a, p = codex("cx-none", map[string]any{})
+	cases["cx-none"] = mk(true, a, p)
+	a, p = copilot("cp-bad", "failure")
+	cases["cp-bad"] = mk(false, a, p)
+	a, p = copilot("cp-denied", "denied")
+	cases["cp-denied"] = mk(false, a, p)
+	a, p = copilot("cp-ok", "success")
+	cases["cp-ok"] = mk(true, a, p)
+	for session, c := range cases {
+		Claim(agentInput(t, c.agent, c.payload))
+		_, err := os.Stat(claimsFile(liveOwner, session))
+		if claimed := err == nil; claimed != c.claims {
+			t.Errorf("%s: claimed = %v, want %v", session, claimed, c.claims)
+		}
 	}
 }

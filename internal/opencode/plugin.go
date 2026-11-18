@@ -74,20 +74,40 @@ function eventPayload(name, sid, cwd) {
   return JSON.stringify({ hook_event_name: name, session_id: sid, cwd, harness_agent: "opencode" })
 }
 
+// toolDoc is the Claude-shaped tool-call document; a bash call's cwd is its workdir resolved against the project dir.
+function toolDoc(event, tool, args, sid, directory) {
+  const wd = tool === "Bash" && typeof args?.workdir === "string" && args.workdir
+  return { hook_event_name: event, tool_name: tool, tool_input: claudeInput(args),
+    cwd: wd ? resolve(directory, wd) : directory, session_id: sid }
+}
+
+const applies = (m, event, tool) => m.event === event && new RegExp("^(?:" + m.matcher + ")$", "i").test(tool)
+
 export const ClaudeCodeHarness = async ({ directory }) => ({
   "tool.execute.before": async (input, output) => {
     const tool = TOOLS[input.tool]
     if (!tool) return
-    // gates judge a bash call where it runs: its workdir, resolved against the project dir like opencode's bash tool
-    const wd = tool === "Bash" && typeof output.args?.workdir === "string" && output.args.workdir
-    const doc = { hook_event_name: "PreToolUse", tool_name: tool,
-      tool_input: claudeInput(output.args), cwd: wd ? resolve(directory, wd) : directory, session_id: input.sessionID }
+    const doc = toolDoc("PreToolUse", tool, output.args, input.sessionID, directory)
     const plain = JSON.stringify(doc), tagged = JSON.stringify({ ...doc, harness_agent: "opencode" })
     for (const m of MODULES) {
-      if (!new RegExp("^(?:" + m.matcher + ")$", "i").test(tool)) continue
+      if (!applies(m, "PreToolUse", tool)) continue
       const reason = verdict(m, m.asOpencode ? tagged : plain)
       if (reason) throw new Error(reason)
     }
+  },
+  // PostToolUse modules run detached, one spawn each; they never block or throw.
+  "tool.execute.after": async (input) => {
+    try {
+      const tool = TOOLS[input.tool]
+      if (!tool) return
+      const payload = JSON.stringify({ ...toolDoc("PostToolUse", tool, input.args, input.sessionID, directory), harness_agent: "opencode" })
+      for (const m of MODULES) {
+        if (!applies(m, "PostToolUse", tool)) continue
+        const p = execFile(BIN, ["hook", "PostToolUse", "--" + m.name], { timeout: m.budgetMs, stdio: "pipe" }, () => {})
+        p.stdin?.on("error", () => {})
+        p.stdin?.end(payload)
+      }
+    } catch {}
   },
   // session.idle runs Stop --memory-update (async, one per session); session.deleted runs SessionEnd --memory-end.
   event: async ({ event }) => {
@@ -127,29 +147,30 @@ var pluginFailClosed = []string{"permission-gate", "safety-scan"}
 // pluginAsClaude names the modules sent an untagged payload: tagged, docs-placement would deny the plan-path rewrite.
 var pluginAsClaude = []string{"docs-placement"}
 
-// pluginModule is one hook the plugin runs before an opencode tool call, as the JS reads it.
+// pluginModule is one hook the plugin runs around an opencode tool call, as the JS reads it.
 type pluginModule struct {
 	Name       string `json:"name"`
+	Event      string `json:"event"`
 	Matcher    string `json:"matcher"`
 	BudgetMs   int64  `json:"budgetMs"`
 	FailClosed bool   `json:"failClosed"`
 	AsOpencode bool   `json:"asOpencode"` // payload carries harness_agent, so the gate words an ask as the block it is
 }
 
-// pluginModules are SpecsFor("opencode", "plugin"): the PreToolUse guards the plugin runs in place of the host.
+// pluginModules are SpecsFor("opencode", "plugin"): the tool-event hooks the plugin runs in place of the host.
 func pluginModules() []pluginModule {
 	var out []pluginModule
 	for _, s := range settings.SpecsFor("opencode", "plugin") {
-		if s.Event != settings.EventPreToolUse {
+		if s.Event != settings.EventPreToolUse && s.Event != settings.EventPostToolUse {
 			continue
 		}
-		out = append(out, pluginModule{Name: s.Name, Matcher: s.Matcher, BudgetMs: s.Budget.Milliseconds(),
+		out = append(out, pluginModule{Name: s.Name, Event: s.Event, Matcher: s.Matcher, BudgetMs: s.Budget.Milliseconds(),
 			FailClosed: slices.Contains(pluginFailClosed, s.Name), AsOpencode: !slices.Contains(pluginAsClaude, s.Name)})
 	}
 	return out
 }
 
-// renderPlugin is the plugin's JS: tool.execute.before runs `<bin> hook PreToolUse --<module>` per matching module.
+// renderPlugin is the plugin's JS: its before and after handlers run `<bin> hook <Event> --<module>` per module.
 func renderPlugin(bin string, mods []pluginModule) ([]byte, error) {
 	binJSON, err := json.Marshal(bin)
 	if err != nil {

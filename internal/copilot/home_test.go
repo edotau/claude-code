@@ -56,6 +56,38 @@ func TestCopilotJSONRendersNativeSpecs(t *testing.T) {
 	}
 }
 
+// sessionStart, postToolUse and preToolUse carry memory-start and the claim pair, edit tools matched lower-case too.
+func TestCopilotJSONRendersClaimAndMemoryStart(t *testing.T) {
+	body, err := CopilotJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Hooks map[string][]struct {
+			Matcher string `json:"matcher"`
+			Bash    string `json:"bash"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(body, &doc); err != nil {
+		t.Fatal(err)
+	}
+	for event, module := range map[string]string{"sessionStart": "memory-start", "postToolUse": "worktree-claim", "preToolUse": "worktree-claim-check"} {
+		found := false
+		for _, e := range doc.Hooks[event] {
+			if !strings.Contains(e.Bash, "--"+module) {
+				continue
+			}
+			found = true
+			if event != "sessionStart" && (!slices.Contains(strings.Split(e.Matcher, "|"), "edit") || !slices.Contains(strings.Split(e.Matcher, "|"), "bash")) {
+				t.Errorf("%s matcher = %q, want the lower-case edit and bash tools", module, e.Matcher)
+			}
+		}
+		if !found {
+			t.Errorf("%s has no %s entry: %+v", event, module, doc.Hooks[event])
+		}
+	}
+}
+
 // Stop and SessionEnd map to Copilot's agentStop and sessionEnd, advisory (never denying).
 func TestCopilotJSONMemoryEvents(t *testing.T) {
 	body, err := CopilotJSON()
@@ -134,6 +166,47 @@ func TestCopilotSettingsMergesDefaultPermissionModeKeepingOtherKeys(t *testing.T
 	urls, ok := got["allowedUrls"].([]any)
 	if got["theme"] != "default" || !ok || len(urls) != 1 || urls[0] != "https://example.com" {
 		t.Errorf("foreign keys dropped or altered: %s", raw)
+	}
+}
+
+// The settings render adds the co-author-footer and server-memory off switches only when absent; the owner's stay.
+func TestCopilotSettingsAddsOffSwitchesOnlyWhenAbsent(t *testing.T) {
+	for _, tc := range []struct {
+		name, in string
+		want     map[string]any
+	}{
+		{"absent", `{"theme":"default"}`, map[string]any{"includeCoAuthoredBy": false, "memory": false}},
+		{"owner true", `{"theme":"default","includeCoAuthoredBy":true,"memory":true}`, map[string]any{"includeCoAuthoredBy": true, "memory": true}},
+		{"owner false", `{"theme":"default","includeCoAuthoredBy":false}`, map[string]any{"includeCoAuthoredBy": false, "memory": false}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			home := t.TempDir()
+			path := settingsPath(home)
+			if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(path, []byte(tc.in), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			var plan agentconfig.RenderPlan
+			if _, err := renderCopilotSettings(home, agentconfig.RenderOptions{}.Stage(&plan), &bytes.Buffer{}); err != nil {
+				t.Fatal(err)
+			}
+			if err := plan.Apply(); err != nil {
+				t.Fatal(err)
+			}
+			raw, _ := os.ReadFile(path)
+			var got map[string]any
+			if err := json.Unmarshal(raw, &got); err != nil || got["theme"] != "default" {
+				t.Fatalf("settings.json = %s (%v), want the theme kept", raw, err)
+			}
+			for k, v := range tc.want {
+				if got[k] != v {
+					t.Errorf("%s = %v in %s, want %v", k, got[k], raw, v)
+				}
+			}
+		})
 	}
 }
 

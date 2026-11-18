@@ -353,6 +353,17 @@ func (in *Input) ToolResponseText() string {
 	return ""
 }
 
+// ToolFailed reports that the payload states a Codex or Copilot tool call failed; unstated outcomes read as success.
+func (in *Input) ToolFailed() bool {
+	if t := in.Nested("toolResult", "resultType"); t != "" {
+		return t != "success"
+	}
+	if m, ok := in.doc["tool_response"].(map[string]any); ok && (m["success"] == false || m["is_error"] == true) {
+		return true
+	}
+	return strings.HasPrefix(in.ToolResponseText(), "apply_patch verification failed")
+}
+
 // ContextCapChars stays under Claude Code's 10,000-char additionalContext ceiling (larger payloads are dropped).
 const ContextCapChars = 9500
 

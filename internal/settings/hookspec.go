@@ -145,7 +145,7 @@ var Registry = []Group{
 	{Name: "memory", Events: []EventSpec{
 		// One Stop hook: context checkpoint, then the memory update; neither blocks.
 		{Name: "memory-update", Event: EventStop, Budget: 20 * sec, Agents: []string{"codex", "copilot", "gemini"}, Hosted: []string{"opencode"}},
-		{Name: "memory-start", Event: EventSessionStart, Budget: 10 * sec, Agents: []string{"gemini"}, StatusMessage: "Loading session memory", Hosted: []string{"opencode"}},
+		{Name: "memory-start", Event: EventSessionStart, Budget: 10 * sec, Agents: []string{"codex", "copilot", "gemini"}, StatusMessage: "Loading session memory", Hosted: []string{"opencode"}},
 		// Per-prompt bank recall: advisory and capped, so an empty bank costs the turn nothing.
 		{Name: "memory-recall", Event: EventUserPromptSubmit, Budget: 5 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
 		{Name: "memory-end", Event: EventSessionEnd, Budget: 15 * sec, Agents: []string{"codex", "copilot"}, Hosted: []string{"opencode"}},
@@ -167,9 +167,9 @@ var Registry = []Group{
 		// Ask-about-a-worktree notes (silent when HARNESS_WORKTREE=off); the busy check runs every prompt.
 		{Name: "worktree-busy", Raw: true, Event: EventUserPromptSubmit, Budget: 5 * sec},
 		// Each Write/Edit path (and each `git add`-staged path) appends to this session's claims ledger; never blocks.
-		{Name: "worktree-claim", Raw: true, Event: EventPostToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Async: "Bash", Budget: 5 * sec, Agents: []string{"gemini"}},
+		{Name: "worktree-claim", Raw: true, Event: EventPostToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Async: "Bash", Budget: 5 * sec, Agents: []string{"codex", "copilot", "gemini"}, Plugin: []string{"opencode"}},
 		// Before an edit, notes a dirty file another live session/leaf claims; before git add/commit, asks on one.
-		{Name: "worktree-claim-check", Raw: true, Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Agents: []string{"gemini"}, Plugin: []string{"opencode"}},
+		{Name: "worktree-claim-check", Raw: true, Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Agents: []string{"codex", "copilot", "gemini"}, Plugin: []string{"opencode"}},
 	}},
 	{Name: "codex", AgentOnly: true, Events: []EventSpec{
 		{Name: "codex-agent-route", Event: EventPreToolUse, Matcher: ".*spawn_agent$", Budget: 5 * sec, Agents: []string{"codex"}},

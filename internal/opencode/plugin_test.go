@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // TestOpencodeApplyPluginRendersGuards writes the plugin into a hermetic config dir and wires it into the config.
@@ -62,6 +63,29 @@ func TestPluginToolMapCoversPatchAndSearch(t *testing.T) {
 	for _, want := range []string{`apply_patch: "Edit"`, `glob: "Glob"`, `grep: "Grep"`, `list: "Read"`} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("plugin tool map lacks %s", want)
+		}
+	}
+}
+
+// TestPluginRunsClaimAfterEditAndCheckBefore: the claim is a PostToolUse module the after-handler spawns, never a gate.
+func TestPluginRunsClaimAfterEditAndCheckBefore(t *testing.T) {
+	mods := map[string]pluginModule{}
+	for _, m := range pluginModules() {
+		mods[m.Name] = m
+	}
+	if m := mods["worktree-claim"]; m.Event != settings.EventPostToolUse || m.FailClosed || !strings.Contains(m.Matcher, "Edit") {
+		t.Errorf("worktree-claim = %+v; want a fail-open PostToolUse module matching Edit", m)
+	}
+	if m := mods["worktree-claim-check"]; m.Event != settings.EventPreToolUse {
+		t.Errorf("worktree-claim-check = %+v; want a PreToolUse module", m)
+	}
+	body, err := renderPlugin("/bin/cc", pluginModules())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`"tool.execute.after"`, `["hook", "PostToolUse", "--" + m.name]`} {
+		if !strings.Contains(string(body), want) {
+			t.Errorf("plugin lacks %s", want)
 		}
 	}
 }
@@ -183,7 +207,7 @@ func TestPluginAskDecisionBlocksTool(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho '"+ask+"'\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	body, err := renderPlugin(bin, []pluginModule{{Name: "permission-gate", Matcher: "Bash", BudgetMs: 5000, FailClosed: true}})
+	body, err := renderPlugin(bin, []pluginModule{{Name: "permission-gate", Event: settings.EventPreToolUse, Matcher: "Bash", BudgetMs: 5000, FailClosed: true}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,6 +226,37 @@ try {
 	}
 }
 
+// TestPluginAfterEditSpawnsClaimOncePerEdit: edit and multiedit feed the claim; an unserializable one never throws.
+func TestPluginAfterEditSpawnsClaimOncePerEdit(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
+	dir := t.TempDir()
+	logf, bin := filepath.Join(dir, "execs.log"), filepath.Join(dir, "fakecc")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"$@\" >> "+logf+"\ncat >> "+logf+"\necho >> "+logf+"\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	mods := []pluginModule{{Name: "worktree-claim", Event: settings.EventPostToolUse, Matcher: "Write|Edit|MultiEdit|Bash", BudgetMs: 5000}}
+	body, err := renderPlugin(bin, mods)
+	if err != nil {
+		t.Fatal(err)
+	}
+	driver := `import { ClaudeCodeHarness } from "./plugin.mjs"
+const h = await ClaudeCodeHarness({ directory: "/proj" })
+await h["tool.execute.after"]({ tool: "edit", sessionID: "s1", callID: "c1", args: { filePath: "/proj/a.go" } })
+await h["tool.execute.after"]({ tool: "multiedit", sessionID: "s1", callID: "c3", args: { filePath: "/proj/m.go" } })
+await h["tool.execute.after"]({ tool: "read", sessionID: "s1", callID: "c2", args: { filePath: "/proj/b.go" } })
+await h["tool.execute.after"]({ tool: "edit", sessionID: "s1", callID: "c4", args: { filePath: 5n } })
+await new Promise((r) => setTimeout(r, 400))
+`
+	runPluginNode(t, dir, body, driver, os.Environ())
+	data, _ := os.ReadFile(logf)
+	got := string(data)
+	if strings.Count(got, "hook PostToolUse --worktree-claim") != 2 || !strings.Contains(got, `"file_path":"/proj/a.go"`) ||
+		!strings.Contains(got, `"file_path":"/proj/m.go"`) ||
+		!strings.Contains(got, `"session_id":"s1"`) || !strings.Contains(got, `"harness_agent":"opencode"`) || strings.Contains(got, "b.go") {
+		t.Errorf("want one claim spawn for the edit and none for the read, got:\n%s", got)
+	}
+}
+
 // A fail-closed hook that exits 0 without reading stdin (EPIPE) keeps its verdict.
 func TestPluginHookAnsweringBeforeStdinIsNotEPIPEBlocked(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh script")
@@ -215,7 +270,7 @@ func TestPluginHookAnsweringBeforeStdinIsNotEPIPEBlocked(t *testing.T) {
 			if err := os.WriteFile(bin, []byte("#!/bin/sh\necho '"+c.echo+"'\n"), 0o700); err != nil {
 				t.Fatal(err)
 			}
-			body, err := renderPlugin(bin, []pluginModule{{Name: "permission-gate", Matcher: "Bash", BudgetMs: 5000, FailClosed: true}})
+			body, err := renderPlugin(bin, []pluginModule{{Name: "permission-gate", Event: settings.EventPreToolUse, Matcher: "Bash", BudgetMs: 5000, FailClosed: true}})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -288,7 +343,7 @@ func TestPluginPayloadCwdIsBashWorkdir(t *testing.T) {
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncat > "+seen+"\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	body, err := renderPlugin(bin, []pluginModule{{Name: "permission-gate", Matcher: "Bash|Write", BudgetMs: 5000}})
+	body, err := renderPlugin(bin, []pluginModule{{Name: "permission-gate", Event: settings.EventPreToolUse, Matcher: "Bash|Write", BudgetMs: 5000}})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +395,7 @@ func TestPluginMalformedGuardOutput(t *testing.T) {
 		{"explicit allow", `{"hookSpecificOutput":{"permissionDecision":"allow"}}`, true, "RAN"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			mods := []pluginModule{{Name: "permission-gate", Matcher: "Edit", BudgetMs: 5000, FailClosed: tc.failClosed}}
+			mods := []pluginModule{{Name: "permission-gate", Event: settings.EventPreToolUse, Matcher: "Edit", BudgetMs: 5000, FailClosed: tc.failClosed}}
 			out := regressionPluginTool(t, "edit", tc.stdout, mods)
 			if strings.TrimSpace(out) != tc.want {
 				t.Fatalf("guard verdict = %q, want %q", out, tc.want)

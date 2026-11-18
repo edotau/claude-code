@@ -270,7 +270,7 @@ func renderCopilot(ctx context.Context, reg *providers.Registry, sel providers.S
 // extraDefaultPermissionMode is the record extras key copilot's settings.json takes as defaultPermissionMode.
 const extraDefaultPermissionMode = "defaultPermissionMode"
 
-// renderCopilotSettings merges extras.defaultPermissionMode into settings.json, never clobbering non-JSON.
+// renderCopilotSettings merges the permission mode and two absent off switches into settings.json; non-JSON is skipped.
 func renderCopilotSettings(home string, o agentconfig.RenderOptions, out io.Writer) (bool, error) {
 	rec, err := agentconfig.Settings("copilot")
 	if err != nil {
@@ -278,16 +278,21 @@ func renderCopilotSettings(home string, o agentconfig.RenderOptions, out io.Writ
 		return false, nil
 	}
 	mode := rec.Extras[extraDefaultPermissionMode]
-	if mode == "" {
-		return false, nil
-	}
 	return agentconfig.CommitJSONObject(settingsPath(home), o, out, "copilot-settings", func(obj map[string]any, _ bool) bool {
-		obj["defaultPermissionMode"] = mode
+		if mode != "" {
+			obj["defaultPermissionMode"] = mode
+		}
+		for _, k := range []string{"includeCoAuthoredBy", "memory"} { // the owner's own value, true or false, stays
+			if _, set := obj[k]; !set {
+				obj[k] = false // no footer the harness blocks on every commit, no second server-side memory store
+			}
+		}
 		return true
 	})
 }
 
 var agentEvents = map[string]string{
+	settings.EventSessionStart:     "sessionStart",
 	settings.EventPreToolUse:       "preToolUse",
 	settings.EventPostToolUse:      "postToolUse",
 	settings.EventUserPromptSubmit: "userPromptSubmitted",

@@ -177,3 +177,50 @@ func TestCodexJSONAddsApplyPatchToFileWriteMatchers(t *testing.T) {
 	}
 	t.Error("docs-placement is not a Codex spec")
 }
+
+// The claim hooks and memory-start reach Codex: apply_patch edits are claimed, and each rendered hook has a trust hash.
+func TestCodexJSONRendersClaimAndMemoryStartWithTrust(t *testing.T) {
+	raw, err := CodexJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Hooks map[string][]settings.MatcherGroup `json:"hooks"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	find := func(event, module string) (settings.MatcherGroup, bool) {
+		for _, g := range doc.Hooks[event] {
+			for _, h := range g.Hooks {
+				if strings.HasSuffix(h.Command, "hook "+event+" --"+module) {
+					return g, true
+				}
+			}
+		}
+		return settings.MatcherGroup{}, false
+	}
+	for event, module := range map[string]string{settings.EventPostToolUse: "worktree-claim", settings.EventPreToolUse: "worktree-claim-check"} {
+		g, ok := find(event, module)
+		if !ok || !slices.Contains(strings.Split(g.Matcher, "|"), "apply_patch") || !slices.Contains(strings.Split(g.Matcher, "|"), "Bash") {
+			t.Errorf("%s on %s: group %+v (present %v), want a matcher selecting apply_patch and Bash", module, event, g, ok)
+		}
+	}
+	if g, ok := find(settings.EventSessionStart, "memory-start"); !ok || g.Matcher != "" {
+		t.Errorf("memory-start group %+v (present %v), want the unmatched SessionStart group", g, ok)
+	}
+	trust, err := codexTrustEntries(filepath.Join(t.TempDir(), "hooks.json"), raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := len(settings.SpecsFor("codex", "native")); len(trust) != want {
+		t.Errorf("%d trust entries for %d rendered hooks", len(trust), want)
+	}
+	for key := range trust {
+		if !strings.Contains(key, ":post_tool_use:") {
+			continue
+		}
+		return
+	}
+	t.Error("no post_tool_use trust entry: the claim hook would be untrusted")
+}

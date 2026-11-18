@@ -2,13 +2,16 @@ package wthook
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
@@ -48,13 +51,54 @@ func claimsFile(owner int, session string) string {
 	return filepath.Join(worktree.ClaimsDir(), fmt.Sprintf("%d-%s.jsonl", owner, sessionSlug(session)))
 }
 
+// claimAgent names the leaf behind a claim: a subagent's id, else a dispatched non-Claude agent's dispatch id.
+func claimAgent(in *core.Input) string { return cmp.Or(in.AgentID, hookDispatch(in)) }
+
+// hookDispatch is the dispatch id in a non-Claude hook's environment; Claude's own leaves carry agent_id instead.
+func hookDispatch(in *core.Input) string {
+	if in.Agent() == core.AgentClaude {
+		return ""
+	}
+	return os.Getenv(proc.DispatchIDEnv)
+}
+
+// runningDispatches lists running dispatch records; a var seam so tests supply them.
+var runningDispatches = func() ([]agent.Record, error) { return agent.RunningRecent(runningScan) }
+
+// runningScan is how many of the newest dispatch records the stamp lookup reads.
+const runningScan = 64
+
+// ownerHops bounds the ancestor walk from a claim's owner pid to a dispatch's job process.
+const ownerHops = 8
+
+// recordDispatch is the id of the running dispatch whose job process is owner or an ancestor of it; "" when none.
+func recordDispatch(owner int) string {
+	recs, err := runningDispatches()
+	if err != nil || len(recs) == 0 {
+		return ""
+	}
+	chain := map[int]bool{}
+	for pid := owner; pid > 1 && len(chain) < ownerHops && !chain[pid]; pid = proc.Parent(pid) {
+		chain[pid] = true
+	}
+	for _, r := range recs {
+		if r.Status == "running" && r.PID > 0 && chain[r.PID] {
+			return r.ID
+		}
+	}
+	return ""
+}
+
 // Claim records the written path (a Bash command's sed -i, redirect or tee targets too) and each path `git add` staged.
 func Claim(in *core.Input) core.Result {
 	if in.SessionID == "" {
 		return core.Result{}
 	}
+	if !isBash(in) && in.ToolFailed() {
+		return core.Result{} // a failed edit changed nothing
+	}
 	edits := editPaths(in)
-	staged := in.ToolName == "Bash" && gitStageCmd.MatchString(in.ToolCommand())
+	staged := isBash(in) && gitStageCmd.MatchString(in.ToolCommand())
 	if len(edits) == 0 && !staged {
 		return core.Result{} // records nothing: skip the owner lookup, which spawns ps on macOS
 	}
@@ -63,12 +107,16 @@ func Claim(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	now := time.Now().Unix()
+	stamp := claimAgent(in)
+	if stamp == "" && in.Agent() != core.AgentClaude {
+		stamp = recordDispatch(owner) // the hook's environment lacks the id: the running record names it
+	}
 	var lines []worktree.Claim
 	for _, p := range edits {
-		lines = append(lines, worktree.Claim{Path: p, Agent: in.AgentID, TS: now})
+		lines = append(lines, worktree.Claim{Path: p, Agent: stamp, TS: now})
 	}
 	if staged {
-		lines = append(lines, stagedClaims(in, now)...) // external-agent edits are claimed when staged
+		lines = append(lines, stagedClaims(in, now, stamp)...) // external-agent edits are claimed when staged
 	}
 	lines = filterDirty(lines, !staged)
 	if len(lines) == 0 {
@@ -111,14 +159,14 @@ func filterDirty(lines []worktree.Claim, scoped bool) []worktree.Claim {
 }
 
 // stagedClaims claims, for the stager, each path the command's git add invocations left staged.
-func stagedClaims(in *core.Input, now int64) []worktree.Claim {
+func stagedClaims(in *core.Input, now int64, stamp string) []worktree.Claim {
 	ctx, cancel := core.HookContext("worktree-claim")
 	defer cancel()
 	var out []worktree.Claim
 	shell.EachGit(in.ToolCommand(), in.CWD, func(target, verb string, args []string) bool {
 		if verb == "add" {
 			for _, p := range addedPaths(ctx, target, args) {
-				out = append(out, worktree.Claim{Path: p, Agent: in.AgentID, TS: now})
+				out = append(out, worktree.Claim{Path: p, Agent: stamp, TS: now})
 			}
 		}
 		return false

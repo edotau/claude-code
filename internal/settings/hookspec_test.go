@@ -292,11 +292,15 @@ func TestSpecsFor(t *testing.T) {
 	}{
 		{"claude", "native", -1, "rtk-rewrite", "codex-agent-route", nil},
 		{"copilot", "native", -1, "safety-scan", "rtk-rewrite", nil},
-		{"copilot", "native", -1, "format-stop", "memory-start", nil},
+		{"copilot", "native", -1, "memory-start", "worktree-busy", nil},
+		{"copilot", "native", -1, "worktree-claim-check", "rtk-rewrite", nil},
+		{"codex", "native", -1, "worktree-claim", "worktree-busy", nil},
+		{"codex", "native", -1, "memory-start", "rtk-rewrite", nil},
 		{"gemini", "native", 12, "docs-placement", "rtk-rewrite", []string{
 			"docs-placement", "docs-plan-mirror", "docs-plan-reminder", "docs-plan-tick", "format-stop", "memory-start",
 			"memory-update", "permission-gate", "review-simplicity", "safety-scan", "worktree-claim", "worktree-claim-check"}},
-		{"copilot", "native", -1, "memory-end", "memory-start", nil},
+		{"copilot", "native", -1, "memory-end", "memory-compact", nil},
+		{"opencode", "plugin", -1, "worktree-claim", "memory-end", nil},
 		{"opencode", "hosted", -1, "memory-end", "worktree-busy", []string{
 			"docs-placement", "docs-plan-mirror", "docs-plan-reminder",
 			"docs-plan-tick", "format-stop", "memory-end", "memory-recall", "memory-start", "memory-update",

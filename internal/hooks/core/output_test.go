@@ -122,6 +122,25 @@ func TestOutputCopilotAskIsDeny(t *testing.T) {
 	}
 }
 
+// memory-start's context reaches the model in codex's and copilot's own SessionStart shapes (probed live).
+func TestEmitSessionStartContextShapePerAgent(t *testing.T) {
+	var out, errb bytes.Buffer
+	if code := Emit(AgentCodex, "SessionStart", Result{Context: "memory"}, &out, &errb); code != 0 {
+		t.Fatalf("codex exit %d: %s", code, errb.String())
+	}
+	inner, _ := hosttest.OneDoc(t, out.String())["hookSpecificOutput"].(map[string]any)
+	if inner["hookEventName"] != "SessionStart" || inner["additionalContext"] != "memory" {
+		t.Errorf("codex SessionStart = %v, want hookSpecificOutput{hookEventName, additionalContext}", inner)
+	}
+	out.Reset()
+	if code := Emit(AgentCopilot, "SessionStart", Result{Context: "memory"}, &out, &errb); code != 0 {
+		t.Fatalf("copilot exit %d: %s", code, errb.String())
+	}
+	if m := hosttest.OneDoc(t, out.String()); m["additionalContext"] != "memory" || m["hookSpecificOutput"] != nil {
+		t.Errorf("copilot SessionStart = %v, want the flat additionalContext", m)
+	}
+}
+
 func TestDialectOf(t *testing.T) {
 	ask := Result{Decision: Ask, Reason: "r", Context: "c", UpdatedInput: map[string]any{"k": "v"}}
 	claude := func(event string, r Result) string { return claudeDoc(event, r, claudeStyle{}) }

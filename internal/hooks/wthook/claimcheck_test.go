@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -884,6 +885,19 @@ func TestClaimCheckVerbCommitWithoutFiles(t *testing.T) {
 	}
 }
 
+// TestClaimCheckVerbTextIsNotACommit: the phrase as an argument is a search, never the verb, for a subagent too.
+func TestClaimCheckVerbTextIsNotACommit(t *testing.T) {
+	repo := claimFixture(t)
+	for _, form := range []string{`rtk grep -rn "claude-code worktree commit" rules`, `grep -rn 'claude-code worktree commit' rules`,
+		`rtk rg "claude-code worktree commit" .`, `echo claude-code worktree commit`, `git log --grep="claude-code worktree commit"`} {
+		r := ClaimCheck(claimInput(t, map[string]any{"session_id": "S", "agent_id": "leaftwo2", "cwd": repo,
+			"tool_name": "Bash", "tool_input": map[string]any{"command": form}}))
+		if r.Decision != core.Allow {
+			t.Errorf("subagent %q: %v %q; want allow", form, r.Decision, r.Reason)
+		}
+	}
+}
+
 // TestClaimCheckVerbDryRunNamesNothing: a parsed --dry-run commits nothing, in every wrapper, for a subagent too.
 func TestClaimCheckVerbDryRunNamesNothing(t *testing.T) {
 	repo := claimFixture(t)
@@ -917,5 +931,65 @@ func TestClaimCheckHowToOncePerSession(t *testing.T) {
 	}
 	if !strings.Contains(first, howTo) || strings.Contains(second, "stage just those") || !strings.Contains(other, howTo) {
 		t.Errorf("how-to placement wrong:\nfirst  %q\nsecond %q\nnew    %q", first, second, other)
+	}
+}
+
+// TestClaimCheckJudgesEveryAgentLikeClaude: Codex, Copilot and OpenCode get Claude's verdict on one claim state.
+func TestClaimCheckJudgesEveryAgentLikeClaude(t *testing.T) {
+	repo := claimFixture(t)
+	claimEdit(t, repo, liveOwner, "A", "a.txt")
+	patch := "*** Begin Patch\n*** Update File: a.txt\n@@\n-a\n+b\n*** End Patch\n"
+	type shape struct {
+		agent string
+		doc   map[string]any
+	}
+	bash := func(cmd string) []shape {
+		return []shape{
+			{core.AgentClaude, map[string]any{"session_id": "B", "cwd": repo, "tool_name": "Bash", "tool_input": map[string]any{"command": cmd}}},
+			{core.AgentCodex, map[string]any{"session_id": "B", "cwd": repo, "tool_name": "Bash", "tool_input": map[string]any{"command": cmd}}},
+			{core.AgentCopilot, map[string]any{"sessionId": "B", "cwd": repo, "toolName": "bash", "toolArgs": map[string]any{"command": cmd}}},
+			{core.AgentOpencode, map[string]any{"session_id": "B", "cwd": repo, "tool_name": "Bash", "harness_agent": "opencode", "tool_input": map[string]any{"command": cmd}}},
+		}
+	}
+	edit := []shape{
+		{core.AgentClaude, map[string]any{"session_id": "B", "cwd": repo, "tool_name": "Edit", "tool_input": map[string]any{"file_path": "a.txt"}}},
+		{core.AgentCodex, map[string]any{"session_id": "B", "cwd": repo, "tool_name": "apply_patch", "tool_input": map[string]any{"command": patch}}},
+		{core.AgentCopilot, map[string]any{"sessionId": "B", "cwd": repo, "toolName": "edit", "toolArgs": map[string]any{"path": "a.txt"}}},
+		{core.AgentOpencode, map[string]any{"session_id": "B", "cwd": repo, "tool_name": "Edit", "harness_agent": "opencode", "tool_input": map[string]any{"file_path": "a.txt"}}},
+	}
+	for name, shapes := range map[string][]shape{"git add -A": bash("git add -A"), "edit a.txt": edit} {
+		var want core.Result
+		for i, s := range shapes {
+			_ = os.Remove(seenFile("B")) // the advisory is once per session: each agent starts unseen
+			useClaimOwner(t, checkerOwner)
+			got := ClaimCheck(agentInput(t, s.agent, s.doc))
+			if i == 0 {
+				want = got
+				if want.Decision != core.Ask && want.Context == "" {
+					t.Fatalf("%s: claude's verdict %+v is neither an ask nor an advisory; the fixture proves nothing", name, want)
+				}
+				continue
+			}
+			// the reason's lead word differs where the agent has no ask (BLOCKED, not ASK); the files named do not
+			if got.Decision != want.Decision || got.Context != want.Context || strings.Contains(want.Reason, "a.txt takes") != strings.Contains(got.Reason, "a.txt takes") {
+				t.Errorf("%s as %s: %+v, want claude's %+v", name, s.agent, got, want)
+			}
+		}
+	}
+}
+
+// TestClaimCheckLabelsPeerByItsCommandName: a live peer is named by its process's real command, not always claude.
+func TestClaimCheckLabelsPeerByItsCommandName(t *testing.T) {
+	comm := proc.Comm(os.Getpid())
+	if comm == "" {
+		t.Skip("no process name source on this platform")
+	}
+	repo := claimFixture(t)
+	peer := os.Getpid()
+	claimAlive = func(pid int) bool { return pid == peer }
+	claimEdit(t, repo, peer, "A", "a.txt")
+	got := claimCheckOn(t, repo, "B", "Edit", map[string]any{"file_path": filepath.Join(repo, "a.txt")}).Context
+	if want := "a.txt has uncommitted edits by " + comm + " pid "; !strings.Contains(got, want) {
+		t.Errorf("advisory %q lacks %q", got, want)
 	}
 }
