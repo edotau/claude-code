@@ -38,8 +38,8 @@ func TestPermCellForScopedRowIsADesignNoteOutsideTheGate(t *testing.T) {
 	if judged || !design || !c.Met || c.Note != designNote {
 		t.Fatalf("--tools approve: want a design note, not a miss: %+v", c)
 	}
-	if c, judged, design = permCellFor(fixed("allow", ""), "", pr, "tools/gateway"); !judged || design || c.Met {
-		t.Fatalf("gated claude must keep the expectation: %+v", c)
+	if c, judged, design = permCellFor(fixed("allow", ""), "", pr, "tools/gateway"); judged || design || !c.Met {
+		t.Fatalf("a bare claude launch scopes nothing: no expectation, no note: %+v", c)
 	}
 	if c, judged, _ = permCellFor(fixed("allow", ""), "", pr, "read-only"); !judged || c.Met {
 		t.Fatalf("read-only must keep the expectation: %+v", c)
@@ -139,5 +139,15 @@ func checkRemedyRepairs(t *testing.T, ag, mode string, row permRow, c permCell, 
 	again, _ := bareLayer(ag, withAllow(p, rule), mode == "read-only", wd)
 	if r := again(tool, arg); r.verdict != "allow" {
 		t.Fatalf("%s %s %q: %s does not repair the call: %+v", ag, mode, row.Job, c.Remedy, r)
+	}
+}
+
+func TestGateDecideMatchesHook(t *testing.T) {
+	deny := agent.Permissions{Deny: []agent.Rule{{Tool: "Bash", Arg: "curl *"}}}
+	if r := gateDecide(deny)("Bash", "ls"); r.verdict != "allow" {
+		t.Fatalf("an unmatched call under a deny-only policy: %+v, the hook lets it through", r)
+	}
+	if r := gateDecide(deny)("Bash", "curl x"); r.verdict != "deny" {
+		t.Fatalf("a denied call: %+v", r)
 	}
 }
