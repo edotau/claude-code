@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
-// armPicks is state/harness/ask/route-auto.json: when databricks:auto last picked each workspace (the tie-break).
+// armPicks is state/harness/router/route-auto.json: when databricks:auto last picked each workspace (the tie-break).
 type armPicks struct {
 	Schema int                  `json:"schema"`
 	Picked map[string]time.Time `json:"picked"`
@@ -30,7 +30,7 @@ var armPicksFormat = schemas.Register(schemas.Format{
 	Keep: "rebuildable cache: it only breaks ties between equally loaded workspaces",
 })
 
-func armPicksFile() string { return filepath.Join(paths.StateDir(), "ask", "route-auto.json") }
+func armPicksFile() string { return filepath.Join(paths.StateDir(), "router", "route-auto.json") }
 
 // WorkspaceQuery requires Findings, Unserved and Cooling; nil Live uses in-flight markers and live routes.
 type WorkspaceQuery[F any] struct {

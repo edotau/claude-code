@@ -31,7 +31,7 @@ paths:
 - Overlay `profile: auto` picks, among Databricks serving rows passing the local checks (stored credential, no auth
   mark, model served to that agent; no token is requested, so a revoked login is found on the first request), the
   workspace not cooling from a rate limit with the fewest live dispatches; a tie goes to the least recently picked
-  (`state/harness/ask/route-auto.json`), then name order. Never name a profile `auto`: it cannot be addressed.
+  (`state/harness/router/route-auto.json`), then name order. Never name a profile `auto`: it cannot be addressed.
   `ask --provider databricks` with no `--profile` is the same pick; a `--batch` picks per line, each line counted as
   load for the next. A typed model no workspace serves fails before launch naming up to five served ids, unless
   `--fallback` was typed as `pin`, `agents` or `all` (an env default never allows the swap).
