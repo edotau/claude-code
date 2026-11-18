@@ -1,6 +1,8 @@
 package memory
 
 import (
+	"bufio"
+	"cmp"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -256,12 +258,85 @@ func wrapDir(held map[string]string) error {
 	return err
 }
 
+// writeCatalog writes index.md: the router, then the complete native-memory catalog.
 func writeCatalog(now time.Time) error {
 	c, err := BuildCatalog(now)
 	if err != nil {
 		return err
 	}
+	c += nativeCatalog()
 	return paths.AtomicWrite(filepath.Join(StoreDir(), catalogFile), []byte(c), 0o644)
+}
+
+// catalogDescMax caps a catalog description in runes, ellipsis included.
+const catalogDescMax = 160
+
+// nativeCatalog lists every native note by folder, one line each, from its front matter alone.
+func nativeCatalog() string {
+	var b strings.Builder
+	b.WriteString("\n## Native memories (complete)\n")
+	bad := 0
+	for _, d := range noteDirs {
+		files := searchTopicFiles(SubDir(d))
+		if len(files) == 0 {
+			continue
+		}
+		fmt.Fprintf(&b, "\n### %s/\n\n", d)
+		for _, f := range files {
+			stem := strings.TrimSuffix(filepath.Base(f), ".md")
+			name, desc, ok := readNoteHead(f)
+			if !ok {
+				bad++
+			}
+			fmt.Fprintf(&b, "- [%s](%s/%s.md) — %s\n", cmp.Or(name, stem), d, stem, cmp.Or(desc, stem))
+		}
+	}
+	if bad > 0 {
+		fmt.Fprintf(&b, "\n%d note(s) listed by file name: front matter did not parse.\n", bad)
+	}
+	return b.String()
+}
+
+// readNoteHead reads only the leading front-matter block; ok is false when it is absent, unclosed or has no name.
+func readNoteHead(path string) (name, desc string, ok bool) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", "", false
+	}
+	defer f.Close()
+	sc := bufio.NewScanner(f)
+	if !sc.Scan() || strings.TrimSpace(sc.Text()) != "---" {
+		return "", "", false
+	}
+	inDesc := false
+	for sc.Scan() {
+		line := sc.Text()
+		if strings.TrimSpace(line) == "---" {
+			return name, clipDesc(desc), name != ""
+		}
+		if v, found := strings.CutPrefix(line, "name:"); found {
+			name, inDesc = strings.Trim(strings.TrimSpace(v), `"'`), false
+		} else if v, found := strings.CutPrefix(line, "description:"); found {
+			desc, inDesc = strings.Trim(strings.TrimSpace(v), `"'`), true
+			if strings.Trim(desc, ">|+-") == "" {
+				desc = "" // a block-scalar marker, its text follows on the indented lines
+			}
+		} else if inDesc && strings.HasPrefix(line, " ") { // a folded or block continuation line
+			desc += " " + strings.TrimSpace(line)
+		} else {
+			inDesc = false
+		}
+	}
+	return "", "", false
+}
+
+// clipDesc folds whitespace to one line and clips it to catalogDescMax runes with an ellipsis.
+func clipDesc(s string) string {
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > catalogDescMax {
+		return string(r[:catalogDescMax-1]) + "…"
+	}
+	return s
 }
 
 // storeRels maps paths to store-relative pathspecs, dropping any outside the store (an inert unresolved-store path).

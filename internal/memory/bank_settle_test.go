@@ -157,3 +157,70 @@ func TestSettleBankCommitsEveryStoreFile(t *testing.T) {
 		}
 	}
 }
+
+// writeNote writes a native note under the store's folder.
+func writeNote(t *testing.T, folder, file, content string) {
+	t.Helper()
+	write(t, Sub(folder, file), content)
+}
+
+func catalogOf(t *testing.T) string {
+	t.Helper()
+	if err := writeCatalog(time.Unix(0, 0)); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(StoreDir(), catalogFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestCatalogListsEveryNativeNoteOnceSortedWithFallbacks(t *testing.T) {
+	runBank(t, func(t *testing.T) {
+		writeNote(t, "notes", "b.md", "---\nname: Bee\ndescription: bee desc\n---\nbody\n")
+		writeNote(t, "notes", "a.md", "---\nname: Ay\ndescription: >\n  folded one\n  folded two\n---\n")
+		writeNote(t, "feedback", "z.md", "---\nname: Zed\n---\nbody\n")
+		writeNote(t, "notes", "long.md", "---\nname: Long\ndescription: "+strings.Repeat("é", 200)+"\n---\n")
+		writeNote(t, "notes", "bad.md", "no front matter\n")
+		write(t, Path("projectContext.md"), "Hook line.\n") // keeps the router's "last" date independent of index.md
+		router, err := BuildCatalog(time.Unix(0, 0))
+		c := catalogOf(t)
+		if err != nil || !strings.HasPrefix(c, router) {
+			t.Fatalf("router part changed (err=%v)", err)
+		}
+		want := []string{
+			"### feedback/", "- [Zed](feedback/z.md) — z",
+			"### notes/", "- [Ay](notes/a.md) — folded one folded two", "- [Bee](notes/b.md) — bee desc",
+			"- [bad](notes/bad.md) — bad", "- [Long](notes/long.md) — " + strings.Repeat("é", 159) + "…",
+			"1 note(s) listed by file name",
+		}
+		at := strings.Index(c, "## Native memories")
+		for _, w := range want {
+			i := strings.Index(c[at:], w)
+			if i < 0 {
+				t.Fatalf("missing %q in:\n%s", w, c[at:])
+			}
+			at += i
+		}
+		if n := strings.Count(c, "](notes/a.md)"); n != 1 {
+			t.Errorf("a.md listed %d times", n)
+		}
+		if c2 := catalogOf(t); c2 != c {
+			t.Errorf("second generation differs")
+		}
+	})
+}
+
+func TestCatalogGrowthDoesNotGrowSessionSurface(t *testing.T) {
+	runBank(t, func(t *testing.T) {
+		before := len(sessionSurface(t.TempDir()))
+		for i := range 150 {
+			writeNote(t, "notes", fmt.Sprintf("n%03d.md", i), "---\nname: N\ndescription: "+strings.Repeat("x", 150)+"\n---\n")
+		}
+		small := len(catalogOf(t))
+		if after := len(sessionSurface(t.TempDir())); after > before+len("<!-- catalog: ")+len(StoreDir())+200 || small < 20000 {
+			t.Errorf("surface grew %d -> %d (catalog %d bytes)", before, after, small)
+		}
+	})
+}

@@ -135,7 +135,8 @@ dream` archives the overflow.
   memory → refresh bank → cross-pollinate → report; archives durable-file overflow. It never edits `rules/**`; its only
   `CLAUDE.md` edit is a block `promote --to claude-md` printed in its own run. Native memory edits never touch a
   `<!-- RULES:BEGIN -->`…`<!-- RULES:END -->` region without human approval (guard in `internal/memory/bank_fmt.go`).
-- `memory index` — regenerates the `MEMORY.md` region and `memory/index.md`, rotates sessionHistory, commits the store.
+- `memory index` — regenerates the `MEMORY.md` region and `memory/index.md` (router plus one line per native note),
+  rotates sessionHistory, commits the store.
   `index`, `dream`, `update`, `import` and plain `review` also refresh the session-start notice
   (`state/harness/memory/doctor-notice-<store>`), which session start only reads.
 - The embedding cache (`state/harness/memory/embeddings.db`) is one per embedding model, shared by every Databricks
