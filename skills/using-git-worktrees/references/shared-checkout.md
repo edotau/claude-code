@@ -30,8 +30,9 @@ takes whatever a peer staged.
 ## Notices: what reaches you without a message
 
 Hooks queue notices in a per-session inbox (`~/.claude/state/harness/notices/<session>.jsonl`), drained into
-context at your next prompt or `git` command: a `worktree merge` stopped on a predicted conflict tells the session
-that opened the worktree (ledger `Session:`) which files conflict; a diverged local branch gives one line per
+context at your next prompt or `git` command: a `worktree merge` stopped on a rebase conflict tells the session
+that opened the worktree (ledger `Session:`) which files conflict, and a promote tells every other lane's session
+that `main` moved and which files overlap; a diverged local branch gives one line per
 HEAD/upstream pair naming the sides and whose commits they are: do not commit until reconciled. A `dirty-target`
 refusal names the session or leaf claiming each overlapping file.
 
@@ -41,7 +42,9 @@ Files every lane appends to (`internal/schemas/testdata/registry.golden`,
 `internal/settings/hookspec.go`, `internal/providers/defaults.json`, `internal/hooks/dispatch.go`'s handler map,
 `rules/harness/hooks.md`) are never in a leaf's `owns:`. The leaf's report carries its entry as a fenced block
 (file, anchor line, exact text); main applies every lane's entries in one commit after the leaves land. A leaf that
-must compile against a new entry first gets its own linked worktree (`claude-code worktree create <slug>`).
+must compile against a new entry first gets its own linked worktree (`claude-code worktree create <slug>`). A new file
+writer is the exception: one row in `internal/schemas/testdata/writers/<pkg>.txt`, owned by its package. Under
+`HARNESS_WORKTREE=lanes`, see [the lane protocol](../SKILL.md).
 
 ## Before committing
 

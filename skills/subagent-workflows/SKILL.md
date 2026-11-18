@@ -211,6 +211,9 @@ Write it before the first dispatch of a multi-part request, re-check it on every
 - **Review per finished file or package** as each implementer hands back, not after all of them.
 - **Gates lock the tree, not the dispatcher:** during a timed `make audit`, an install or a live check, keep
   dispatching read-only work and work outside the tree (scratch dirs, a linked worktree); queue only the commits.
+- **Lanes:** with `HARNESS_WORKTREE=lanes` each stream's leaves work in their own lane and the main session lands it
+  with `claude-code worktree merge <lane>` (rebase in the lane, gate, fast-forward; a conflict exits 3):
+  `skills/using-git-worktrees/SKILL.md` → The lane protocol.
 - **Read-only scouts and reviews** never wait for edit work.
 
 #### Test agent

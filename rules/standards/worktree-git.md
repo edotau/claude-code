@@ -37,6 +37,11 @@ user's yes; no answer means keep working in place.
 `HARNESS_WORKTREE=lanes` asks nothing: the claim check refuses (a leaf) or asks (main) an edit or stage of a tracked
 file in the live checkout and names `claude-code worktree create <slug>`; a lane is never refused.
 
+- **Lane protocol:** one lane per stream; edit and `worktree commit` in the lane; `worktree merge <lane>` rebases the
+  lane onto `main` inside the lane, gates the rebased tree and fast-forwards `main` (a moved `main` is refused: re-run).
+  A conflict exits 3, the lane stays as it was and the files are named: fix it in the lane, then re-run the merge.
+  Never rebase or reset `main`. The full audit runs on clean `main`, main session only.
+
 - Never `git stash` in any worktree (the stash list is shared; convention in a linked worktree); rewrite history only in
   your own linked worktree (CLAUDE.md hard rule 4). `safety-scan` blocks stash|checkout|switch|reset|restore|clean under
   `~/.claude` (a new branch, an unstage and dry runs pass) and `commit --amend`, `rebase` and `reset <commit>` in a

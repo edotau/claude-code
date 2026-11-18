@@ -110,7 +110,7 @@ plain rows on an older binary).
 | Adopt, wipe or scope a `.claude/` | `claude-code install --setup adopt\|nuke\|workspace` |
 | Bash tab completion | `claude-code completion --install` |
 | OpenCode reasoning effort | TUI `ctrl+t` · `opencode run --variant high` · `claude-code agents ask --effort high` |
-| Worktrees under `~/worktrees/<repo>/` | `claude-code worktree list\|create <n>\|merge <n>\|clean <n>\|clean-all` |
+| Worktrees under `~/worktrees/<repo>/` | `claude-code worktree list\|create <n>\|gate\|commit\|merge <n>\|clean <n>\|clean-all` |
 | Subagent status and dispatches | `claude-code agents tree [--watch\|--detail]` · `agents cancel --lost [--dry-run]` |
 | What an agent changed, in its files, passing the gates, routed right | `claude-code agents diff [--path <p>]... [--check] [--verify <id>]` |
 | Search repo code deterministically (tracked and new files, never ignored ones) | `claude-code agents find <pattern> [--name\|--func\|--def\|--callers] [-i] [-w] [-l] [--path <p>]... [--max 200] [--format text\|json]` |
