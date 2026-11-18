@@ -75,11 +75,14 @@ type GateResult struct {
 
 // DiffReport is the whole answer, also the --format json document.
 type DiffReport struct {
-	Files   []DiffFile    `json:"files"`
-	Totals  DiffTotals    `json:"totals"`
-	Outside []string      `json:"outside"`
-	Gates   []GateResult  `json:"gates"`
-	Verify  *VerifyReport `json:"verify,omitempty"`
+	Files           []DiffFile    `json:"files"`
+	Totals          DiffTotals    `json:"totals"`
+	Outside         []string      `json:"outside"`
+	Gates           []GateResult  `json:"gates"`
+	Verify          *VerifyReport `json:"verify,omitempty"`
+	PreDirtyOutside []string      `json:"predirty_outside,omitempty"`
+
+	dispatch string
 
 	fromBrief bool     // --path came from the verified dispatch's brief Owned line: the text report is compact
 	noScope   bool     // --verify with neither --path nor an Owned line: the text report is a short verdict
@@ -105,7 +108,9 @@ func Diff(o DiffOptions) int {
 		return DiffExitUsage
 	}
 	rep := DiffReport{Files: in.files, Totals: sumDiff(in.files), Outside: outsidePaths(in.files, in.sel),
-		Gates: []GateResult{}, Verify: in.verify, fromBrief: in.fromBrief, noScope: in.noScope, all: o.All}
+		Gates: []GateResult{}, Verify: in.verify, fromBrief: in.fromBrief, noScope: in.noScope, all: o.All,
+		PreDirtyOutside: in.preDirtyOutside, dispatch: in.dispatch}
+	rep.Outside = mergeOutside(rep.Outside, rep.PreDirtyOutside)
 	if o.Check && (len(in.files) > 0 || o.All) {
 		gi, err := gatesInput(ctx, o, in, filesInPaths(in.files, rep.Outside), len(want) > 0)
 		if err != nil {
@@ -176,12 +181,14 @@ func fileExists(p string) bool {
 
 // diffIn is what Diff resolves before it reports: the repo root, the cleaned --path list, the base commit and files.
 type diffIn struct {
-	root, base string
-	sel        []string
-	files      []DiffFile
-	verify     *VerifyReport
-	fromBrief  bool
-	noScope    bool
+	root, base      string
+	sel             []string
+	files           []DiffFile
+	verify          *VerifyReport
+	fromBrief       bool
+	noScope         bool
+	preDirtyOutside []string
+	dispatch        string
 }
 
 func diffInputs(ctx context.Context, o DiffOptions) (in diffIn, err error) {
@@ -205,6 +212,9 @@ func diffInputs(ctx context.Context, o DiffOptions) (in diffIn, err error) {
 		return
 	}
 	in.files, err = collectChanges(ctx, in.root, in.base)
+	if err == nil {
+		in.preDirtyOutside, in.dispatch = preDirtyOutside(in.root, in.sel, in.verify)
+	}
 	return
 }
 

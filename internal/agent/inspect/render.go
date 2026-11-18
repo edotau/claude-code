@@ -14,7 +14,7 @@ import (
 )
 
 func renderDiff(o DiffOptions, rep DiffReport, scoped bool) {
-	if len(rep.Files) == 0 && len(rep.Gates) == 0 {
+	if len(rep.Files) == 0 && len(rep.Gates) == 0 && len(rep.Outside) == 0 {
 		fmt.Fprintln(o.Out, "agents diff: no changes")
 		renderVerify(o.Out, rep.Verify)
 		return
@@ -71,7 +71,7 @@ func renderOutside(w io.Writer, rep DiffReport) {
 	if !rep.fromBrief {
 		fmt.Fprintf(w, "outside --path (%d):\n", len(rep.Outside))
 		for _, p := range rep.Outside {
-			fmt.Fprintf(w, "  %s\n", p)
+			renderOutsidePath(w, rep, p)
 		}
 		return
 	}
@@ -81,6 +81,17 @@ func renderOutside(w io.Writer, rep DiffReport) {
 		more = fmt.Sprintf(" ... %d more", n)
 	}
 	fmt.Fprintf(w, "outside the brief's Owned line (%d): %s%s\n", len(rep.Outside), strings.Join(shown, ", "), more)
+	for _, p := range rep.PreDirtyOutside {
+		renderOutsidePath(w, rep, p)
+	}
+}
+
+func renderOutsidePath(w io.Writer, rep DiffReport, p string) {
+	if slices.Contains(rep.PreDirtyOutside, p) {
+		fmt.Fprintf(w, "  %s: was already modified before dispatch %s started and is outside --path\n", p, rep.dispatch)
+		return
+	}
+	fmt.Fprintf(w, "  %s\n", p)
 }
 
 func renderGates(o DiffOptions, gates []GateResult) {

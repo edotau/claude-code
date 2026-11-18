@@ -133,7 +133,7 @@ var agentsSubPages = map[string][3]string{
 		"the ones outside every --path, each new Go test or helper with its caller count (advisory), and with --check the Go and docs gates (on the --path files; complexity only for " +
 		"findings the change introduced), findings as `path:line: tool/rule: message` rows. --gates picks gates (lint: " +
 		"gofmt, vet, golangci-lint, docs, yaml, shell, quality; a missing golangci-lint or mdsmith then fails); --all checks the whole " +
-		"tree. --verify <id> adds a dispatch's routing proof. Exit 1 gate failed or MISMATCH, 3 outside --path, 2 usage."},
+		"tree. --verify <id> adds a dispatch's routing proof and flags pre-existing dirty files it touched outside --path. Exit 1 gate failed or MISMATCH, 3 outside --path, 2 usage."},
 	"fix": {"fix --path <p> [flags]", "Run the fixers make fmt runs (gofmt, golangci-lint fmt, mdsmith fix, yamlfmt) on " +
 		"the tracked files under each --path, and nothing else. Refuses no --path, an untracked or symlinked file, and a " +
 		"file a live session or leaf holds. --dry-run lists what would change.",
