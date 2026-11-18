@@ -17,15 +17,27 @@ func List(mark string) ([]Info, error) {
 	if testing.Testing() {
 		return nil, nil
 	}
+	return listWith(psOutput, mark)
+}
+
+// listWith runs both ps calls concurrently; the first call's error wins, as when they ran in sequence.
+func listWith(ps func(ctx context.Context, args ...string) (string, error), mark string) ([]Info, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	out, err := psOutput(ctx, "axeww", "-o", "pid=,ppid=,pgid=,lstart=,command=")
+	var commOut string
+	var commErr error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		commOut, commErr = ps(ctx, "-axo", "pid=,comm=")
+	}()
+	out, err := ps(ctx, "axeww", "-o", "pid=,ppid=,pgid=,lstart=,command=")
+	<-done
 	if err != nil {
 		return nil, err
 	}
-	commOut, err := psOutput(ctx, "-axo", "pid=,comm=")
-	if err != nil {
-		return nil, err
+	if commErr != nil {
+		return nil, commErr
 	}
 	comms := parseComms(commOut)
 	if runtime.GOOS == "linux" { // comm is the 15-char task name there; /proc/<pid>/exe has the full path

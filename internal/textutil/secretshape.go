@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 // bearerToken matches a bearer-style header value: the scheme plus a long opaque token.
@@ -160,5 +161,39 @@ func AnySecret(m map[string]string) bool {
 
 // PreviewRedacted collapses prompt's whitespace, redacts credential-shaped words, and truncates to n runes.
 func PreviewRedacted(prompt string, n int) string {
-	return Truncate(RedactSecrets(strings.Join(strings.Fields(prompt), " ")), n)
+	s := strings.Join(strings.Fields(prompt), " ")
+	if n <= 0 || len(s) <= n {
+		return Truncate(RedactSecrets(s), n)
+	}
+	k := 0
+	for k < len(s) {
+		k = runeOffset(s, k, n+1)
+		for k < len(s) && tokenByte(s[k]) {
+			k++
+		}
+		if k < len(s) && farMarker(s[:min(len(s), k+len("-----BEGIN")-1)]) {
+			k = len(s)
+		}
+		out := RedactSecrets(s[:k])
+		if k == len(s) || utf8.RuneCountInString(out) > n {
+			return Truncate(out, n)
+		}
+	}
+	return Truncate(RedactSecrets(s), n)
+}
+
+// runeOffset is the byte offset in s after count more runes from from, or len(s).
+func runeOffset(s string, from, count int) int {
+	for i := range s[from:] {
+		if count--; count < 0 {
+			return from + i
+		}
+	}
+	return len(s)
+}
+
+// farMarker reports a start of a pem, jwt or bearer match, which can reach far past a cut (redaction can shorten text).
+func farMarker(s string) bool {
+	return strings.Contains(s, "-----BEGIN") || strings.Contains(s, "eyJ") ||
+		strings.Contains(strings.ToLower(s), "bearer")
 }
