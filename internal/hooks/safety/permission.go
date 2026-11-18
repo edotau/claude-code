@@ -53,7 +53,7 @@ func protectedEdit(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	for _, f := range gateArgs(in, "Edit") {
-		if f = paths.ExpandHome(f); filepath.IsAbs(f) && protectedPath(f) && !tempWriteAllowed("", f) {
+		if f = paths.ExpandHome(f); filepath.IsAbs(f) && protectedPath(f, isLeaf(in)) && !tempWriteAllowed("", f) {
 			return core.Result{Decision: core.Block, Reason: core.SafetyMessage(in, core.Block,
 				"writes a file Edit/Write may never touch", f, "Edit it by hand, or run it yourself in a terminal.")}
 		}

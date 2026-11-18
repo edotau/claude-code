@@ -42,6 +42,8 @@ func rewriteFixture(t *testing.T) (work, wt string) {
 	run(work, "push", "-qu", "origin", "HEAD:main")
 	run(work, "worktree", "add", "-q", "-b", "feat", wt)
 	run(wt, "push", "-qu", "origin", "feat")
+	solo := strings.TrimSpace(hosttest.In(t, work, "commit-tree", "HEAD^{tree}", "-p", "HEAD", "-m", "solo"))
+	hosttest.In(t, work, "branch", "solo", solo) // a branch holding one commit no other ref reaches
 	return work, wt
 }
 
@@ -112,12 +114,44 @@ func seedLeafMarker(t *testing.T) {
 	}
 }
 
+// rewriteRefCases are the branch-ref moves and GIT_DIR spellings of a rewrite.
+func rewriteRefCases() []rewriteCase {
+	return []rewriteCase{
+		{name: "branch -f in the live tree", cmd: "git branch -f solo HEAD", cwd: "work", live: true, want: core.Block,
+			text: "live config tree"},
+		{name: "update-ref move in the live tree", cmd: "git update-ref refs/heads/solo HEAD", cwd: "work", live: true,
+			want: core.Block, text: "live config tree"},
+		{name: "update-ref -d in the live tree", cmd: "git update-ref -d refs/heads/solo", cwd: "work", live: true,
+			want: core.Block, text: "live config tree"},
+		{name: "branch -D in the live tree", cmd: "git branch -D solo", cwd: "work", live: true, want: core.Block,
+			text: "live config tree"},
+		{name: "branch -M in the live tree", cmd: "git branch -M solo", cwd: "work", live: true, want: core.Block,
+			text: "live config tree"},
+		{name: "GIT_DIR names the live tree", cmd: "GIT_DIR=WORK/.git git reset --hard HEAD~1", cwd: "wt", live: true,
+			want: core.Block, text: "live config tree"},
+		{name: "branch -f in an unshared clone", cmd: "git branch -f solo HEAD", cwd: "work", want: core.Allow},
+		{name: "branch -D in an own worktree", cmd: "git branch -D feat", cwd: "wt", want: core.Allow},
+		{name: "branch -D of a merged branch", cmd: "git branch -D feat", cwd: "work", live: true, want: core.Allow},
+		{name: "update-ref -d of a merged branch", cmd: "git update-ref -d refs/heads/feat", cwd: "work", live: true,
+			want: core.Allow},
+		{name: "branch --delete is -d", cmd: "git branch --delete solo", cwd: "work", live: true, want: core.Allow},
+		{name: "live leaves, repo outside the config tree", cmd: "git commit --amend --no-edit", cwd: "work", leaves: true,
+			want: core.Allow},
+		{name: "live leaves and a peer outside the tree", cmd: "git commit --amend --no-edit", cwd: "work", leaves: true,
+			peerIn: "work", want: core.Block, text: "works in it"},
+		{name: "new branch in the live tree", cmd: "git branch feature", cwd: "work", live: true, want: core.Allow},
+		{name: "branch list in the live tree", cmd: "git branch --list", cwd: "work", live: true, want: core.Allow},
+		{name: "branch -d in the live tree", cmd: "git branch -d feat", cwd: "work", live: true, want: core.Allow},
+		{name: "update-ref help in the live tree", cmd: "git update-ref -h", cwd: "work", live: true, want: core.Allow},
+	}
+}
+
 // TestRewriteGuard pins the shared-history rule: block in a shared tree, allow in an unshared or own linked one.
 func TestRewriteGuard(t *testing.T) {
 	work, wt := rewriteFixture(t)
 	dirs := map[string]string{"work": work, "wt": wt}
 	amend := "git commit --amend --no-edit"
-	cases := []rewriteCase{
+	cases := append(rewriteRefCases(), []rewriteCase{
 		{name: "live tree amend", cmd: amend, cwd: "work", live: true, want: core.Block, text: "live config tree"},
 		{name: "unshared clone amend", cmd: amend, cwd: "work", want: core.Allow},
 		{name: "peer rebase", cmd: "git rebase -i HEAD~1", cwd: "work", peerIn: "work", want: core.Block,
@@ -135,7 +169,7 @@ func TestRewriteGuard(t *testing.T) {
 			live: true, want: core.Block, text: "live config tree"},
 		{name: "unquoted heredoc runs a reset", cmd: "git commit -m \"$(cat <<EOF\n$(git reset --soft HEAD~1)\nEOF\n)\"",
 			cwd: "work", live: true, want: core.Block, text: "live config tree"},
-		{name: "live leaves in main tree", cmd: "git reset --soft HEAD~1", cwd: "work", leaves: true, want: core.Block,
+		{name: "live leaves in main tree", cmd: "git reset --soft HEAD~1", cwd: "work", leaves: true, live: true, want: core.Block,
 			text: "1 live leaf"},
 		{name: "path reset", cmd: "git reset -- one.txt", cwd: "work", peerIn: "work", want: core.Allow},
 		{name: "reset HEAD", cmd: "git reset HEAD", cwd: "work", peerIn: "work", want: core.Allow},
@@ -149,12 +183,13 @@ func TestRewriteGuard(t *testing.T) {
 		// a `sudo` ask rule must not downgrade the rewrite block to an approvable ask
 		{name: "sudo clustered wrapper", cmd: "sudo -nu root git commit --amend --no-edit", cwd: "work", live: true,
 			want: core.Block, text: "live config tree"},
-	}
+	}...)
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			rewriteSetup(t, c, dirs)
+			cmd := strings.ReplaceAll(c.cmd, "WORK", work)
 			payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": dirs[c.cwd],
-				"agent_id": c.agentID, "tool_input": map[string]string{"command": c.cmd}})
+				"agent_id": c.agentID, "tool_input": map[string]string{"command": cmd}})
 			r := Scan(core.ParseInput(strings.NewReader(string(payload))))
 			if got := r.Reason + r.Stderr; r.Decision != c.want || !strings.Contains(got, c.text) {
 				t.Fatalf("decision %v, want %v containing %q:\n%s", r.Decision, c.want, c.text, got)

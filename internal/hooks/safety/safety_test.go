@@ -469,6 +469,8 @@ func safetyBlockCases() []safetyTierCase {
 // safetyAllowCases are near-miss shapes that must keep proceeding.
 func safetyAllowCases() []safetyTierCase {
 	return []safetyTierCase{
+		{"GIT_DIR=/tmp/x/.git git status", "", core.Allow},
+		{"GIT_PAGER=cat git log", "", core.Allow},
 		{"git push --force-with-lease origin my-branch", "", core.Allow},
 		{"git push origin main", "", core.Allow},
 		{"git push my-f main", "", core.Allow},
@@ -658,18 +660,22 @@ func TestSafetyTierDecisions(t *testing.T) {
 	cases = append(cases, dataOnlyCases(harness)...)
 	cases = append(cases, sharedGitFormCases(harness)...)
 	for _, c := range cases {
-		t.Run(c.cmd, func(t *testing.T) {
-			if got, stderr := safetyScanDecision(t, tierPayload(c.cmd, c.cwd)); got != c.want {
-				t.Errorf("got %v want %v (stderr %s)", got, c.want, stderr)
-			}
-			want := c.want
-			if want == core.Ask { // gemini has no ask decision
-				want = core.Block
-			}
-			if got := Scan(core.ParseInputFor(agyPayload(c.cmd, c.cwd), core.AgentGemini)).Decision; got != want {
-				t.Errorf("gemini run_command: got %v want %v", got, want)
-			}
-		})
+		t.Run(c.cmd, func(t *testing.T) { checkTierCase(t, c) })
+	}
+}
+
+// checkTierCase asserts the Claude-shape decision and the gemini run_command decision for one row.
+func checkTierCase(t *testing.T, c safetyTierCase) {
+	t.Helper()
+	if got, stderr := safetyScanDecision(t, tierPayload(c.cmd, c.cwd)); got != c.want {
+		t.Errorf("got %v want %v (stderr %s)", got, c.want, stderr)
+	}
+	want := c.want
+	if want == core.Ask { // gemini has no ask decision
+		want = core.Block
+	}
+	if got := Scan(core.ParseInputFor(agyPayload(c.cmd, c.cwd), core.AgentGemini)).Decision; got != want {
+		t.Errorf("gemini run_command: got %v want %v", got, want)
 	}
 }
 
@@ -904,6 +910,19 @@ func harnessGitCases(cfg, outside string) []harnessGitCase {
 		{"--work-tree into tree", "git --work-tree=" + cfg + " --git-dir=" + cfg + "/.git reset --hard", outside, true},
 		{"cd into tree then reset", "cd " + cfg + " && git reset --hard", outside, true},
 		{"cd out of tree then reset", "cd " + outside + " && git reset --hard", cfg, false},
+		{"GIT_DIR and GIT_WORK_TREE into tree", "GIT_DIR=" + cfg + "/.git GIT_WORK_TREE=" + cfg + " git stash", outside, true},
+		{"env GIT_DIR into tree", "env GIT_DIR=" + cfg + "/.git git stash", outside, true},
+		{"export GIT_DIR into tree", "export GIT_DIR=" + cfg + "/.git; git stash", outside, true},
+		{"GIT_DIR outside tree, cwd outside", "GIT_DIR=" + outside + "/.git git stash", outside, false},
+		{"GIT_DIR outside, cwd is the tree", "GIT_DIR=" + outside + "/.git git stash", cfg, true},
+		{"--git-dir outside, cwd is the tree", "git --git-dir=" + outside + "/.git stash", cfg, true},
+		{"git dir in tree, work tree outside", "git --git-dir=" + cfg + "/.git --work-tree=" + outside + " stash", outside, true},
+		{"GIT_DIR outside, GIT_WORK_TREE the tree", "GIT_DIR=" + outside + "/.git GIT_WORK_TREE=" + cfg + " git clean -fd", outside, true},
+		{"--git-dir and --work-tree outside", "git --git-dir=" + outside + "/.git --work-tree=" + outside + " reset --hard", outside, false},
+		{"GIT_DIR and GIT_WORK_TREE outside, cwd is the tree", "GIT_DIR=" + outside + "/.git GIT_WORK_TREE=" + outside + " git checkout main", cfg, false},
+		{"linked worktree's own git dir", "git --git-dir=" + cfg + "/.git/worktrees/x --work-tree=" + outside + " checkout -- f", cfg, false},
+		{"GIT_DIR into tree through sh -c", "GIT_DIR=" + cfg + "/.git sh -c 'git stash'", outside, true},
+		{"GIT_DIR outside, unguarded verb", "GIT_DIR=" + outside + "/.git git status", cfg, false},
 	}, harnessGitNestedCases(cfg, outside)...)
 }
 
@@ -1207,4 +1226,40 @@ func foldString(n ast.Node) (string, bool) {
 		return foldString(e.X)
 	}
 	return "", false
+}
+
+// A leaf (agent_id, or a dispatch id in the env) may never write settings.json; the main session follows the deny list.
+func TestLeafNeverWritesSettings(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("HARNESS_DISPATCH_DEPTH", "")
+	set := filepath.Join(cfg, "settings.json")
+	cases := []struct {
+		name, cmd, agentID, dispatchID string
+		want                           core.Decision
+	}{
+		{"subagent append", "echo x >> " + set, "a1", "", core.Block},
+		{"subagent copy", "cp /tmp/a " + set, "a1", "", core.Block},
+		{"subagent local file", "echo x >> " + filepath.Join(cfg, "settings.local.json"), "a1", "", core.Block},
+		{"dispatch leaf write", "echo x >> " + set, "", "d1", core.Block},
+		{"main session write", "echo x >> " + set, "", "", core.Allow},
+		{"subagent other file", "echo x >> " + filepath.Join(cfg, "scratch.log"), "a1", "", core.Allow},
+		{"home spelling", "echo x > $HOME/.claude/settings.json", "a1", "", core.Block},
+		{"config dir variable", "echo x > ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/settings.json", "a1", "", core.Block},
+		{"node home concatenation", `node -e "require('fs').writeFileSync(process.env.HOME+'/.claude/settings.json','{}')"`, "a1", "", core.Ask},
+		{"another repo's settings", "echo x > /Users/edotau/other-repo/.claude/settings.json", "a1", "", core.Allow},
+		{"relative project settings", "echo x > ./.claude/settings.json", "a1", "", core.Allow},
+		{"editor settings", "echo x > .vscode/settings.json", "a1", "", core.Allow},
+		{"subagent read", "cat " + set + " | jq .", "a1", "", core.Allow},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("HARNESS_DISPATCH_ID", c.dispatchID)
+			payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": "/tmp", "agent_id": c.agentID,
+				"tool_input": map[string]string{"command": c.cmd}})
+			if r := Scan(core.ParseInput(bytes.NewReader(payload))); r.Decision != c.want {
+				t.Fatalf("decision %v, want %v: %s", r.Decision, c.want, r.Reason)
+			}
+		})
+	}
 }
