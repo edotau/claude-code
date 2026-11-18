@@ -115,6 +115,7 @@ row); only `metadata.pinned: true` pins; a pointer into `handoffs/`, `reports/` 
 list, dated by its `YYYY-MM-DD-` name; the 10 newest unresolved entries and a count follow. An I/O error or a
 refusal fails the refresh with path-free advice; pins past the loader limit drop oldest first with unpin advice;
 each sets the next session-start line, and `claude-code memory review` gives the cause. Never hand-edit `MEMORY.md`.
+When rewriting a note, keep its existing `metadata` keys, including `pinned`.
 
 ## Replaced entries
 
@@ -177,6 +178,7 @@ The loader reads the whole generated file. Past a `fileCaps` limit `memory dream
   `knowledge/feedback-candidates.md`: proposals for tool or rule changes, one JSON record per line of one `jsonl`
   block, no more than two lines of prose. `memory review` validates it (unknown fields, evidence under 2 files or
   absent from the store, a target outside the repo and store, duplicate ids, credentials) and exits non-zero on any.
+  It also lists test proposals from recent hand-backs in `techdebt/tests.md`.
 - `memory index` — appends model-added entries to `index.md`, regenerates `MEMORY.md` and `catalog.md` (router, one
   line per native note), rotates sessionHistory, commits the store; `--dry-run` prints the counts and writes nothing;
   a failed refresh fails, and `memory review` and the session-start line report it.

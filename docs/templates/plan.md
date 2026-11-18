@@ -73,7 +73,7 @@ One message dispatches a whole wave; owned files are disjoint within it; a read-
 ## Leaf rules
 
 - Never revert a change you did not make; no `git commit`, `stash`, `checkout`, `reset` or `restore`.
-- Reproduce before fixing; one fast regression test with proven teeth per bug.
+- Reproduce before fixing; the live before/after run is the evidence; a regression test is an owner-approved proposal.
 - Write the full report to `<store>/reports/`; return a verdict of at most 8 lines.
 
 ## Tests (when the plan moves, deletes or breaks tests)
@@ -124,7 +124,7 @@ multi-lane split, see `skills/subagent-workflows/references/lane-orchestrator.md
 - [ ] Phase 2.1 — <name> — leaf: <subagent_type>, Agent: <agent> — owns: <files>
 - [ ] **you** — Decide D1 before Phase N
 - [ ] Live check on the real surface
-- [ ] Scoped tests for the touched packages
+- [ ] Basic tests that the feature works (a couple of seconds to run at most; more cases: proposals)
 - [ ] Review (`claude-code codex review --adversarial --base <branch>`)
 - [ ] Full suite once
 - [ ] Commit, `make audit`, `make install`, push per task (named files only)

@@ -24,3 +24,4 @@ A row is deleted only when the tool makes the prose redundant.
 | R13 Guard walls | `--secret`, `vault get --key --secret`, production exec/delete, `oc rsh`: `hooks.md` main-session rules | `safety-scan` |
 | R13 New walls | A new guard wall needs the owner's yes; permission additions shown as a table first | prose |
 | R14 Transcripts | Never print a secret value into a session, report or brief; byte counts only; `--secret` main session only, leaves get credentials at launch | credential verbs redact; hooks `secrets-out` (Bash output) and `secrets-end` (ended transcripts) |
+| R15 Plan tests | Default, not absolute: new feature: basic tests that it works, a couple of seconds to run at most; no long tests before it has been used a while; more tests are suggestions `dream` lists | plan template, `brief.tmpl`, dream Phase 5c |

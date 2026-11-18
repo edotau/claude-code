@@ -243,7 +243,7 @@ var taskHeadingWord = sync.OnceValue(func() *regexp.Regexp {
 // planCloseout is the completion tail every plan's checklist ends with.
 var planCloseout = []string{
 	"Live check on the real surface",
-	"Scoped tests for the touched packages",
+	"Basic tests that the feature works (a couple of seconds to run at most; more cases: proposals)",
 	"Review (`claude-code codex review --adversarial --base <branch>`)",
 	"Full suite once",
 	"Commit, `make install`, push per task (named files only)",

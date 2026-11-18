@@ -38,6 +38,7 @@ For the shared `~/.claude/memory/MEMORY.md` (index) and the topic files beside i
 4. **Merge related items**: Fold overlapping topic files together; keep TOC entries coherent
 5. **Do not hand-prune `MEMORY.md`**: it is generated (pinned notes plus the newest 20 pointers). Pointer lines you
    add are appended to `index.md`, which Go never rewrites; to keep a note in view set `metadata.pinned: true`
+   When rewriting a note, keep its existing `metadata` keys, including `pinned`.
 6. **Never edit the RULES region** (`<!-- RULES:BEGIN -->`…`<!-- RULES:END -->`) without explicit approval
 
 ## Phase 5: Refresh the bank
@@ -66,6 +67,12 @@ fenced block). Each line of the block is one JSON object with exactly these fiel
 - `kind`: `prose`, `hook`, `verb` or `test`. `size`: `small`, `medium` or `large` (an estimate).
 - Never write a credential-shaped string. Run `claude-code memory review` after writing: it prints one line per
   problem with its line number and exits non-zero; fix them before Phase 6.
+
+## Phase 5c: Test proposals
+
+Collect the tests agents proposed but did not write ("Proposed tests", "proposals" in `reports/`, `handoffs/` and
+`sessionHistory.md`) into `techdebt/tests.md`: one line each (package, case, what it guards, source report), newest
+first, at most 40 lines. Drop a line once a test covers that behavior or the feature is gone. The owner picks from it.
 
 ## Phase 6: Cross-pollinate
 

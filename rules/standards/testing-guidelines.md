@@ -26,10 +26,12 @@ writing any NEW test.** A test written first pins your guess, not the behavior.
 
 ## Scope — logic, not a coverage number
 
-Per feature, one end-to-end test plus the corner cases found while building it; per bug, one regression test that
-fails without the fix. Renames, moves and deletions need none; a refactor that breaks only tests means rewriting them
-against behavior, not keeping fixtures for states the code can no longer produce. A test `review-simplicity` flags
-(complexity > 10, > 50 lines) tests too much at once: cut or split it, never raise the limit.
+Default per feature: basic tests that it works (a couple of seconds to run at most) before it has been used a while;
+corner cases and per-bug regression tests are proposals (unneeded tests cost repair time); a change that needs more up
+front (a security boundary, a data-loss path) says why in the hand-back. Renames, moves and deletions need none; a
+refactor that breaks only tests means rewriting them against behavior, not keeping fixtures for states the code can no
+longer produce. A test `review-simplicity` flags (complexity > 10, > 50 lines) tests too much at once: cut or split
+it, never raise the limit.
 
 ## A test must guard
 

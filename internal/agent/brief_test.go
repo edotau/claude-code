@@ -90,9 +90,8 @@ func assertBriefContract(t *testing.T, first string, input BriefInput) {
 			t.Errorf("brief states %q %d times; want once", once, got)
 		}
 	}
-	for _, want := range []string{"one fast regression test per bug", "one end-to-end test per feature",
-		"teeth proven by breaking the fix in a\n  copy", "no value-pinning", "A copilot test leaf writes it after the implementer returns",
-		"refactor packages get none", "Order: format → lint → live check → scoped tests → Skill(simplify); never the full suite."} {
+	for _, want := range []string{"basic tests that a new feature works", "a bug fix shows its live\n  before/after run",
+		"other cases are proposals in the hand-back", "Order: format → lint → live check → scoped tests → Skill(simplify); never the full suite."} {
 		if !strings.Contains(first, want) {
 			t.Errorf("brief missing restored rule %q", want)
 		}

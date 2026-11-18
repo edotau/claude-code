@@ -26,7 +26,7 @@ const (
 )
 
 // processPrefixes open the template's fixed closing steps (docs/templates/plan.md).
-var processPrefixes = []string{"Live check", "Scoped tests", "Review", "Full suite", "Commit", "Handoff"}
+var processPrefixes = []string{"Live check", "Scoped tests", "One short validation test", "Basic tests", "Review", "Full suite", "Commit", "Handoff"}
 
 // Change is one plan edit the audit made (or would make) and the command that undoes it.
 type Change struct {

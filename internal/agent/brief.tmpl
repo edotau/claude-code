@@ -11,8 +11,8 @@ Task:
 - Never revert a change you did not make; no `git commit`, `stash`, `checkout`, `reset` or `restore`.
 - Edit only the owned files; a package owns the `_test.go` of each owned source file. A compile error in a file you do
   not own is reported, not fixed.
-- Tests: one fast regression test per bug, one end-to-end test per feature, teeth proven by breaking the fix in a
-  copy; no value-pinning. A copilot test leaf writes it after the implementer returns (refactor packages get none).
+- Tests, by default: basic tests that a new feature works (a couple of seconds at most); a bug fix shows its live
+  before/after run; other cases are proposals in the hand-back (case, what it guards, runtime); need more, say why.
 - Order: format → lint → live check → scoped tests → Skill(simplify); never the full suite.
 - A relay waiting on this job: the moment `claude-code agents result -f <id>` returns with the job ended, hand back
   the job's result as your next action; do nothing in between.
