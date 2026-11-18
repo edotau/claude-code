@@ -136,11 +136,11 @@ func scanGitLogOutput(stdout io.Reader, deny []string) ([]string, error) {
 	}
 }
 
-var hunkNewStart = regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)`)
+var hunkNewStart = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^@@ -\d+(?:,\d+)? \+(\d+)`) })
 
 // newLineNo tracks the new-file line number: it is the number of an added line, and next is the one after it.
 func newLineNo(line string, hunk, addition bool, next int) (int, int) {
-	if m := hunkNewStart.FindStringSubmatch(line); m != nil {
+	if m := hunkNewStart().FindStringSubmatch(line); m != nil {
 		n, _ := strconv.Atoi(m[1])
 		return 0, n
 	}
@@ -214,7 +214,7 @@ func ScanGit(out io.Writer, dir, rev string, since int) int {
 func gitLogFindings(out io.Writer, dir, rev string, since int) (findings []string, ok bool) {
 	deny, denyErr := denyHosts()
 	if denyErr != nil {
-		msg := workspaceHost.ReplaceAllString(denyErr.Error(), "<host>")
+		msg := workspaceHost().ReplaceAllString(denyErr.Error(), "<host>")
 		fmt.Fprintf(out, "  ⚠ configured-host check disabled, only shape rules ran: %s\n", msg)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), gitLogTimeout)
@@ -291,11 +291,16 @@ func tokenShaped(match string) bool {
 const hostDomains = `(?:azuredatabricks\.net|cloud\.databricks\.com|gcp\.databricks\.com)`
 
 var (
-	workspaceHost = regexp.MustCompile(
-		`(?i)\b(?:[a-z0-9][a-z0-9-]*\.)*[a-z0-9][a-z0-9-]*\.` + hostDomains + `\b`)
-	workspaceOrgID = regexp.MustCompile(`(?i)databricks[^\s"'<>]*[?&]o=\d{6,}`)
+	workspaceHost = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)\b(?:[a-z0-9][a-z0-9-]*\.)*[a-z0-9][a-z0-9-]*\.` + hostDomains + `\b`)
+	})
+	workspaceOrgID = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)databricks[^\s"'<>]*[?&]o=\d{6,}`)
+	})
 	// hostShape matches the live-workspace names anywhere on a line, so an escape or extra label cannot hide one.
-	hostShape = regexp.MustCompile(`(?i)(?:adb-\d{10,}|dbc-[0-9a-f]{8}-[0-9a-f]{4})[a-z0-9.-]*\.` + hostDomains)
+	hostShape = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?i)(?:adb-\d{10,}|dbc-[0-9a-f]{8}-[0-9a-f]{4})[a-z0-9.-]*\.` + hostDomains)
+	})
 )
 
 // placeholderNames are the profile-name labels the docs and fixtures use for a fake workspace host.
@@ -341,11 +346,11 @@ func denyHost(rawURL string) string {
 // identifierKinds names the kinds of real workspace identifiers on an added line, never their values.
 func identifierKinds(line string, deny []string, fixture bool) []string {
 	var kinds []string
-	named := slices.ContainsFunc(workspaceHost.FindAllString(line, -1), realWorkspaceHost)
-	if !fixture && (named || hostShape.MatchString(line)) {
+	named := slices.ContainsFunc(workspaceHost().FindAllString(line, -1), realWorkspaceHost)
+	if !fixture && (named || hostShape().MatchString(line)) {
 		kinds = append(kinds, "real-shaped Databricks workspace host")
 	}
-	if !fixture && workspaceOrgID.MatchString(line) {
+	if !fixture && workspaceOrgID().MatchString(line) {
 		kinds = append(kinds, "Databricks workspace id in a URL")
 	}
 	lower := strings.ToLower(line)

@@ -149,10 +149,9 @@ var noSync atomic.Bool
 // DisableSyncForTests makes commits skip fsync, which is slow on darwin.
 func DisableSyncForTests() { noSync.Store(true) }
 
-func Update(fn func(*Tx) error) error { return UpdateAt(Path(), fn) }
-
-// UpdateAt is Update on the vault file at path, creating it when missing; it reads no environment.
-func UpdateAt(path string, fn func(*Tx) error) error {
+// Update runs fn in one write transaction on the vault file, creating it when missing.
+func Update(fn func(*Tx) error) error {
+	path := Path()
 	if err := create(path); err != nil {
 		return err
 	}

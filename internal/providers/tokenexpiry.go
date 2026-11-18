@@ -69,8 +69,8 @@ func recordTokenExpiry(name, v, method string) {
 	if os.MkdirAll(filepath.Dir(path), 0o700) != nil {
 		return
 	}
-	// temp+rename: a concurrent TokenExpiry never reads a truncated file
-	_ = paths.AtomicWrite(path, b, 0o600)
+	// derived cache: temp+rename keeps reads whole; a crash-torn file is a miss the next resolution rewrites
+	_ = paths.AtomicWriteNoSync(path, b, 0o600)
 }
 
 // spExpirySuffix keys a paired row's service-principal expiry record apart from its user login's (name + suffix).

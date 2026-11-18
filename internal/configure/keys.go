@@ -15,7 +15,6 @@ import (
 	"os/signal"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"syscall"
@@ -403,7 +402,7 @@ func TrackedSecrets(reg *providers.Registry) []TrackedSecret {
 		src, shadowed := locateSecret(name, meta, metaErr)
 		out = append(out, TrackedSecret{Name: name, Source: src, Shadowed: shadowed, Users: strings.Join(u, ", ")})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	slices.SortFunc(out, func(a, b TrackedSecret) int { return strings.Compare(a.Name, b.Name) })
 	return out
 }
 

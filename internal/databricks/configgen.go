@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 
@@ -166,7 +165,7 @@ func headerLines(h map[string]string) string {
 	for k, v := range h {
 		ls = append(ls, k+": "+v)
 	}
-	sort.Strings(ls)
+	slices.Sort(ls)
 	return strings.Join(ls, "\n")
 }
 

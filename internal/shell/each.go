@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // maxNest bounds substitution/`bash -c`/`eval` recursion so a pathological command cannot loop.
@@ -199,7 +200,7 @@ func (w *segWalk) pipesIntoShell(i int) bool {
 }
 
 // casePatternHead matches the segment `case WORD in PATTERN` that opens a case pattern list.
-var casePatternHead = regexp.MustCompile(`\bcase\s.*\sin\s+\S+$`)
+var casePatternHead = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\bcase\s.*\sin\s+\S+$`) })
 
 // casePattern reports the `|` after segment i as a case pattern separator (`in sh|bash) …`), not a pipe.
 func (w *segWalk) casePattern(i int) bool {
@@ -212,7 +213,7 @@ func (w *segWalk) casePattern(i int) bool {
 	}
 	bare := func(s string) bool { return s != "" && !strings.ContainsAny(strings.TrimSpace(s), " \t") }
 	opens := head == 0 || w.seps[head-1] == ";;" || w.seps[head-1] == "\n"
-	if h := strings.TrimSpace(w.segs[head]); !casePatternHead.MatchString(h) && (!opens || !bare(h)) {
+	if h := strings.TrimSpace(w.segs[head]); !casePatternHead().MatchString(h) && (!opens || !bare(h)) {
 		return false
 	}
 	for _, s := range w.segs[head+1 : last] {

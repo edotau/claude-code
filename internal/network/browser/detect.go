@@ -7,7 +7,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 
@@ -177,7 +176,7 @@ func detectProfiles(supportDir string) []profile {
 			}
 		}
 	}
-	sort.Strings(names)
+	slices.Sort(names)
 	profiles := make([]profile, 0, len(names))
 	for _, name := range names {
 		profiles = append(profiles, profile{Name: name, Extension: profileExtensionState(filepath.Join(supportDir, name))})

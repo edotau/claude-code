@@ -18,6 +18,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"text/template"
 	"time"
 
@@ -480,7 +481,8 @@ const launchLabel = "com.edotau.claude-code.clip"
 const launchctlTimeout = 30 * time.Second
 
 // plistTmpl is the socket-activated agent: launchd accepts each connection and hands it over as stdin/stdout.
-var plistTmpl = template.Must(template.New("plist").Funcs(template.FuncMap{"xml": xmlText}).Parse(`<?xml version="1.0" encoding="UTF-8"?>
+var plistTmpl = sync.OnceValue(func() *template.Template {
+	return template.Must(template.New("plist").Funcs(template.FuncMap{"xml": xmlText}).Parse(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
@@ -510,6 +512,7 @@ var plistTmpl = template.Must(template.New("plist").Funcs(template.FuncMap{"xml"
 </dict>
 </plist>
 `))
+})
 
 // xmlText escapes s for a plist <string> body, so a path with & or < stays well-formed.
 func xmlText(s string) (string, error) {
@@ -527,7 +530,7 @@ func launchPlistPath(home string) string {
 
 func renderPlist(bin, home string) ([]byte, error) {
 	var buf bytes.Buffer
-	err := plistTmpl.Execute(&buf, struct{ Bin, Sock string }{bin, launchSocket(home)})
+	err := plistTmpl().Execute(&buf, struct{ Bin, Sock string }{bin, launchSocket(home)})
 	return buf.Bytes(), err
 }
 

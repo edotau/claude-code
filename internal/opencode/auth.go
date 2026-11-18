@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -285,7 +284,7 @@ func parseOpencodeAuthList(data []byte) ([]OpencodeIntegration, error) {
 		}
 		ints = append(ints, in)
 	}
-	sort.SliceStable(ints, func(i, j int) bool { return ints[i].ID < ints[j].ID })
+	slices.SortStableFunc(ints, func(a, b OpencodeIntegration) int { return strings.Compare(a.ID, b.ID) })
 	return ints, nil
 }
 

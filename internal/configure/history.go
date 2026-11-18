@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 	"time"
 
@@ -250,7 +249,7 @@ func mergeLeftover(r SnapshotResult, leftover []string) []string {
 			changed = append(changed, l)
 		}
 	}
-	sort.Strings(changed)
+	slices.Sort(changed)
 	return changed
 }
 
