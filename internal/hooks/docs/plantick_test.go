@@ -5,9 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // tickFixture commits a/one.go and "b/two file.go" in a fresh repo with a two-task plan; tick feeds a commit result.
@@ -382,5 +388,100 @@ func TestPlanNoopLandingReplay(t *testing.T) {
 	hosttest.In(t, repo, "commit", "--amend", "--no-edit")
 	if out := tick(command, ""); strings.Contains(out, "ticked") || strings.Contains(out, "candidate") {
 		t.Errorf("amended merge: %s", out)
+	}
+}
+
+func sharedCommitCandidates(cwd, cmd string) []string {
+	var out []string
+	shell.EachGit(cmd, cwd, func(dir, verb string, _ []string) bool {
+		if slices.Contains([]string{"commit", "merge", "pull", shell.WorktreeCommit}, verb) && dir != cwd {
+			out = append(out, dir)
+		}
+		return false
+	})
+	return append(out, cwd)
+}
+
+func TestPlanTickShellDifferential(t *testing.T) {
+	for _, cmd := range planTickShellInputs(t) {
+		a, b := commitCandidates("/repo", cmd), sharedCommitCandidates("/repo", cmd)
+		if !slices.Equal(a, b) {
+			t.Logf("input=%q candidates=%q/%q", cmd, a, b)
+			if cmd != "git -C a -C b commit -m x" && cmd != "git -C ~/widgets log --grep=commit" && cmd != "cd dir && git -C child commit -m x" {
+				t.Errorf("unclassified candidate disagreement: %q", cmd)
+			}
+		}
+	}
+}
+
+func planTickShellInputs(t *testing.T) []string {
+	t.Helper()
+	out := []string{
+		`git commit -m 'say "hello"'`, `X=1 git commit -m x`, `env X=1 git commit -m x`,
+		`true && git commit -m x; git status | cat`, `(git commit -m x)`,
+		"cat <<'EOF'\ngit commit -m x\nEOF", `echo $(git commit -m x)`,
+		"git \\\ncommit -m x", `# git commit -m x`, `cd dir && git commit -m x`,
+		"git\tcommit -m x", `git commit -m 'unfinished`, `echo 'git commit -m x'`,
+		`git -C a -C b commit -m x`, `cd dir && git -C child commit -m x`, `git -C dir status; git commit -m x`,
+		`claude-code worktree commit -m x a.go`, `git commit -m 'a;b'`,
+	}
+	files, err := filepath.Glob("*test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range files {
+		f, err := parser.ParseFile(token.NewFileSet(), name, nil, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			if lit, ok := n.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+				s, err := strconv.Unquote(lit.Value)
+				if err != nil {
+					t.Fatal(err)
+				}
+				out = append(out, s)
+			}
+			return true
+		})
+	}
+	return out
+}
+
+func TestRealCommitShellCases(t *testing.T) {
+	for _, tc := range []struct {
+		cmd  string
+		want bool
+	}{
+		{`git commit -m 'say "hello"'`, true}, {`X=1 git commit -m x`, true},
+		{`env X=1 git commit -m x`, true}, {`true && git commit -m x; git status | cat`, true},
+		{`(git commit -m x)`, true}, {"cat <<'EOF'\ngit commit -m x\nEOF", true},
+		{`echo $(git commit -m x)`, true}, {"git \\\ncommit -m x", true},
+		{`# git commit -m x`, true}, {`cd dir && git commit -m x`, true},
+		{"git\tcommit -m x", true}, {`git commit -m 'unfinished`, true},
+		{`echo 'git commit -m x'`, false}, {`git commit --dry-run`, false},
+		{`git log --grep=commit`, false}, {`claude-code worktree commit -m x`, false},
+	} {
+		if got := realCommit(tc.cmd); got != tc.want {
+			t.Errorf("realCommit(%q) = %v, want %v", tc.cmd, got, tc.want)
+		}
+	}
+}
+
+func TestCommitCandidatesCompatibility(t *testing.T) {
+	cmd := "git -C a -C b commit -m x"
+	if got := commitCandidates("/repo", cmd); !slices.Equal(got, []string{"/repo/a", "/repo"}) {
+		t.Fatalf("legacy candidate priority changed: %q", got)
+	}
+	if got := sharedCommitCandidates("/repo", cmd); !slices.Equal(got, []string{"/repo/a/b", "/repo"}) {
+		t.Fatalf("shared candidate semantics changed: %q", got)
+	}
+}
+
+func BenchmarkPlanTickShell(b *testing.B) {
+	cmd := strings.Repeat("git status --short\n", 29) + "git -C dir commit -q -m x"
+	b.ReportAllocs()
+	for b.Loop() {
+		realCommit(cmd)
 	}
 }

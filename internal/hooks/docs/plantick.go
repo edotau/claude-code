@@ -23,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -88,12 +89,9 @@ var commitRun = sync.OnceValue(func() *regexp.Regexp {
 
 // realCommit reports whether cmd runs a git commit that is not a dry run.
 func realCommit(cmd string) bool {
-	for _, seg := range cmdSegment().Split(cmd, -1) {
-		if commitRun().MatchString(seg) && !strings.Contains(seg, "--dry-run") {
-			return true
-		}
-	}
-	return false
+	return shell.EachGit(cmd, "", func(_ string, verb string, args []string) bool {
+		return verb == "commit" && !strings.Contains(strings.Join(args, " "), "--dry-run")
+	})
 }
 
 // recentWindow is how young HEAD must be for a quiet commit's fallback; the payload gives no call start time.
