@@ -131,12 +131,17 @@ var softWarn = []*core.Gated{
 // Scan checks command safety: a block or non-Claude ask rejects, a Claude ask prompts, soft warnings ride stderr.
 func Scan(in *core.Input) core.Result {
 	cmd := dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))
-	decision, msg, detail := commandVerdict(in, cmd)
+	dropped := dropInertHeredocs(cmd)
+	scan := blankInert(dropped)
+	decision, msg, detail := commandVerdict(in, cmd, scan)
 	var warn strings.Builder
 	if decision != core.Block && (in.ToolName == "" || strings.EqualFold(in.CanonicalTool(), "Bash")) {
-		cmd := blankInert(cmd) // a message only names the shape
+		view := scan // a message only names the shape; with no inert heredoc dropped, scan is cmd's inert view
+		if dropped != cmd {
+			view = blankInert(cmd)
+		}
 		for _, re := range softWarn {
-			if re.MatchString(cmd) {
+			if re.MatchString(view) {
 				fmt.Fprintf(&warn, "safety: WARNING — %s (not blocked; review carefully)\n", re)
 			}
 		}
@@ -163,17 +168,18 @@ func Verdict(in *core.Input) core.Decision { d, _, _ := safetyVerdict(in); retur
 
 // safetyVerdict checks all block patterns before considering any ask pattern.
 func safetyVerdict(in *core.Input) (core.Decision, string, string) {
-	return commandVerdict(in, dropMessageHeredocs(dropPatchBodies(in.ToolCommand())))
+	cmd := dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))
+	return commandVerdict(in, cmd, inertStripped(cmd))
 }
 
-func commandVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
+// commandVerdict judges cmd; scan is inertStripped(cmd), computed once by the caller.
+func commandVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string) {
 	if in.ToolName != "" && !strings.EqualFold(in.CanonicalTool(), "Bash") {
 		return core.Allow, "", ""
 	}
 	if cmd == "" {
 		return core.Allow, "", ""
 	}
-	scan := inertStripped(cmd)
 	for _, re := range pipeBlocks {
 		if re.MatchString(scan) {
 			return core.Block, core.SafetyMessage(in, core.Block, "destructive command", re.String(), terminalHint), re.String()
@@ -198,7 +204,8 @@ func safetyAskVerdict(in *core.Input, cmd string) (core.Decision, string, string
 		return d, warn + msg, detail
 	}
 	// A plain Python stdin script's body is Python and data text is no invocation; interpreterWrite judges its paths.
-	asked := intentView(withPyLaunches(dropPyScripts(cmd)), false)
+	py := withPyLaunches(dropPyScripts(cmd))
+	asked := intentView(py, false)
 	if sudoInvoked(asked, in.CWD) {
 		return core.Block, warn + core.SafetyMessage(in, core.Block, "sudo command", "", sudoHint), "sudo"
 	}
@@ -212,7 +219,11 @@ func safetyAskVerdict(in *core.Input, cmd string) (core.Decision, string, string
 			}
 		}
 	}
-	if d, msg, detail = pushOrScriptVerdict(in, cmd, asked); d != core.Allow {
+	plain := asked // intentView(cmd, false), the same view when no Python script was dropped
+	if py != cmd {
+		plain = intentView(cmd, false)
+	}
+	if d, msg, detail = pushOrScriptVerdict(in, plain, asked); d != core.Allow {
 		return d, warn + msg, detail
 	}
 	d, msg, detail = askPatternVerdict(in, asked)
@@ -220,11 +231,11 @@ func safetyAskVerdict(in *core.Input, cmd string) (core.Decision, string, string
 }
 
 // pushOrScriptVerdict blocks a force-push with no refspec and asks on an interpreter that may write a protected file.
-func pushOrScriptVerdict(in *core.Input, cmd, asked string) (core.Decision, string, string) {
+func pushOrScriptVerdict(in *core.Input, plain, asked string) (core.Decision, string, string) {
 	if branch := bareForcePush(asked, in.CWD); branch != "" {
 		return core.Block, core.SafetyMessage(in, core.Block, forcePushWhat, "", forcePushHint), "force push of " + branch
 	}
-	if p := interpreterWrite(intentView(cmd, false), isLeaf(in)); p != "" {
+	if p := interpreterWrite(plain, isLeaf(in)); p != "" {
 		hint := "Approve only if you asked for it; otherwise edit it by hand or run it yourself in a terminal."
 		what := "an interpreter script that may write a file Edit/Write may never touch"
 		return core.Ask, core.SafetyMessage(in, core.Ask, what, p, hint), "interpreter protected write"
@@ -347,27 +358,10 @@ func inertStripped(cmd string) string { return blankInert(dropInertHeredocs(cmd)
 
 // blankInert is cmd with each inert segment's words blanked (substitutions kept), heredoc bodies untouched.
 func blankInert(cmd string) string {
-	if strings.Contains(cmd, ">(") || strings.Contains(cmd, "<(") || fdToSubst().MatchString(cmd) {
-		return cmd
-	}
-	segs, seps := shell.SegmentsSep(cmd)
-	var b strings.Builder
-	for i, seg := range segs {
+	return blankSegments(cmd, false, func(segs, seps []string, i int, _ bool) bool {
 		// A piped segment feeds the next command, so its text stays (`echo "curl x" | sh`) unless only filters read it.
-		if inertSegment(seg) && (seps[i] == "" || seps[i][0] != '|' || seps[i] == "||" || filtersOnly(segs, seps, i+1)) {
-			_, subs := shell.ExtractSubstitutions(seg)
-			var kept strings.Builder
-			for _, sub := range subs {
-				kept.WriteString(" $(")
-				kept.WriteString(sub)
-				kept.WriteString(")")
-			}
-			seg = kept.String()
-		}
-		b.WriteString(seg)
-		b.WriteString(seps[i])
-	}
-	return b.String()
+		return inertSegment(segs[i]) && (seps[i] == "" || seps[i][0] != '|' || seps[i] == "||" || filtersOnly(segs, seps, i+1))
+	})
 }
 
 // pipeFilters only read stdin and print it: none runs, writes or forwards its input.

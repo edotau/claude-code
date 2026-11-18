@@ -59,18 +59,28 @@ const bodySlot = "\x00HEREDOCBODY"
 
 // blankData blanks each data segment's words (substitutions kept); kept heredoc bodies are never judged as shell.
 func blankData(cmd string, keepCommit bool) string {
+	return blankSegments(cmd, true, func(segs, seps []string, i int, runs bool) bool {
+		return dataSegment(segs[i], runs, keepCommit) && dataPipeline(segs, seps, i, runs, keepCommit)
+	})
+}
+
+// blankSegments cuts each segment blank picks to its substitutions; lift keeps heredoc bodies out of the segments.
+func blankSegments(cmd string, lift bool, blank func(segs, seps []string, i int, runs bool) bool) string {
 	if strings.Contains(cmd, ">(") || strings.Contains(cmd, "<(") || fdToSubst().MatchString(cmd) {
 		return cmd
 	}
-	outer, bodies, ok := liftBodies(cmd)
-	if !ok {
-		return cmd
+	outer, bodies, runs := cmd, []string(nil), false
+	if lift {
+		var ok bool
+		if outer, bodies, ok = liftBodies(cmd); !ok {
+			return cmd
+		}
+		runs = core.RunsWrittenFile().MatchString(outer)
 	}
-	runs := core.RunsWrittenFile().MatchString(outer)
 	segs, seps := shell.SegmentsSep(outer)
 	var b strings.Builder
 	for i, seg := range segs {
-		if dataSegment(seg, runs, keepCommit) && dataPipeline(segs, seps, i, runs, keepCommit) {
+		if blank(segs, seps, i, runs) {
 			seg = keptSubstitutions(seg)
 		}
 		b.WriteString(seg)
@@ -384,21 +394,9 @@ var runnerNames = sync.OnceValue(func() map[string]bool { return shell.GuardSet(
 
 // blankHardData blanks the words of hardDataCommands segments outside heredoc bodies, keeping substitutions.
 func blankHardData(cmd string) string {
-	outer, bodies, ok := liftBodies(cmd)
-	if !ok || strings.Contains(cmd, ">(") || strings.Contains(cmd, "<(") || fdToSubst().MatchString(cmd) {
-		return cmd
-	}
-	runs := core.RunsWrittenFile().MatchString(outer)
-	segs, seps := shell.SegmentsSep(outer)
-	var b strings.Builder
-	for i, seg := range segs {
-		if hardDataSegment(seg, runs) && !pipesIntoRunner(segs, seps, i) {
-			seg = keptSubstitutions(seg)
-		}
-		b.WriteString(seg)
-		b.WriteString(seps[i])
-	}
-	return spliceBodies(b.String(), bodies)
+	return blankSegments(cmd, true, func(segs, seps []string, i int, runs bool) bool {
+		return hardDataSegment(segs[i], runs) && !pipesIntoRunner(segs, seps, i)
+	})
 }
 
 // hardDataSegment reports a hardDataCommands segment; a redirect counts only when no file runs in the same line.
