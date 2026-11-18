@@ -9,10 +9,10 @@ naming convention. Root: `~/worktrees/<repo>/<slug>`. Part 2 is for non-harness 
 ### The merge rule (from `internal/worktree/merge.go`)
 
 Promotion is **fast-forward only**: `Preflight` pins both OIDs and simulates with `git merge-tree`,
-`integrateTarget` merges the pinned target **inside the worktree** and runs the verify gate there, `promote`
-runs `git merge --ff-only` on the main checkout and refuses any OID other than the one just verified. Never a
-`--no-ff` merge commit on the live branch, never a real conflicting merge there. A predicted conflict stops
-before anything mutates unless `--resolve-agent <agent>` hands it to an agent inside the worktree.
+`integrateTarget` rebases the lane onto the pinned target **inside the worktree** and runs the verify gate there,
+`promote` runs `git merge --ff-only` on the main checkout and refuses any OID other than the one just verified. Never
+a `--no-ff` merge commit on the live branch, never a real conflicting merge there. A rebase conflict aborts the rebase,
+leaves the lane as it was and exits 3, unless `--resolve-agent <agent>` hands it to an agent inside the worktree.
 
 ### create
 
@@ -35,12 +35,12 @@ Print path, branch, base SHA; launch with `cd $WT && claude`.
 ### merge
 
 1. **Preview, always:** `claude-code worktree merge --dry-run "$SLUG"`. `clean — no predicted conflicts`
-   exits 0; any `issue:` (dirty worktree, detached target, `--target` mismatch, unrelated histories,
-   merge-tree failure, predicted `conflict [<files>]`) exits 1 with nothing mutated — report it and stop.
+   exits 0; any blocking `issue:` (dirty worktree, detached target, `--target` mismatch, unrelated histories,
+   merge-tree failure) exits 1 with nothing mutated — report it and stop. A predicted `conflict [<files>]`
+   alone no longer blocks: the apply rebases the lane and exits 3 when the conflict is real (step 2).
    A dirty target is refused only when its uncommitted paths overlap files the merge touches; the issue names
    who claims each one.
-2. Ask: "Merge $SLUG into <target>? (Y/n)".
-3. **Apply:** `claude-code worktree merge "$SLUG"`. `--verify "<cmd>"` overrides auto-detection (Makefile test /
+2. **Apply:** `claude-code worktree merge "$SLUG"`. `--verify "<cmd>"` overrides auto-detection (Makefile test /
    go.mod / pyproject / package.json / Cargo.toml); `--no-verify` is the only unverified path; no gate found
    refuses before integrating. Makefile test target plus `go.mod` runs the scoped gate: `go build ./... &&
    go vet ./...`, then `go test` on the packages `<target>...HEAD` changed (a non-Go file maps to its package,
@@ -51,12 +51,13 @@ Print path, branch, base SHA; launch with `cd $WT && claude`.
    promotes, ticks the active plan (`claude-code plan tick --range <old>..<new>`) and, unless `--no-clean`, cleans as
    `clean` would. A refused promote (target moved, worktree HEAD changed since the verified integration, not a
    fast-forward) prints `retry:` and promotes nothing: re-run step 1. A failure after the promote leaves the merge
-   landed (plan-tick and ledger problems only warn). An apply run (no `--dry-run`, no `--resolve-agent`) that
-   predicts a conflict queues a notice for the worktree's owning session; the preview does not.
-4. **Report:** the `promoted: <old> -> <new> on <target>` line, `verify: passed (<source>)`, and `removed: <path>` /
+   landed (plan-tick and ledger problems only warn). An apply run (no `--dry-run`, no `--resolve-agent`) whose
+   rebase conflicts aborts it, leaves the lane as it was, names the files, exits 3 and queues a notice for the
+   lane's owning session; the preview does not.
+3. **Report:** the `promoted: <old> -> <new> on <target>` line, `verify: passed (<source>)`, and `removed: <path>` /
    `branch deleted: <branch>` (or the "worktree left on disk" line with `--no-clean`).
 
-**Predicted conflict:** `claude-code worktree merge --resolve-agent codex "$SLUG"` materializes it in the
+**Rebase conflict (exit 3):** `claude-code worktree merge --resolve-agent codex "$SLUG"` materializes it in the
 worktree and runs the agent once on the conflicted paths only (no `git add`/`commit`); the controller then checks
 every marker is gone and nothing else changed, commits, revalidates ancestry and promotes. Markers left, an
 unexpected path, a silent codex→Claude fallback, a timeout or Ctrl-C fail the operation with everything left on
