@@ -58,7 +58,9 @@ func TestPermissionGateApplyPatchJudgesEachFile(t *testing.T) {
 		var body strings.Builder
 		body.WriteString("*** Begin Patch\\n")
 		for _, f := range files {
-			body.WriteString("*** Add File: " + f + "\\n+x\\n")
+			body.WriteString("*** Add File: ")
+			body.WriteString(f)
+			body.WriteString("\\n+x\\n")
 		}
 		return `{"tool_name":"Edit","cwd":"/repo","tool_input":{"patchText":"` + body.String() + `*** End Patch"}}`
 	}
@@ -104,6 +106,9 @@ func TestPermissionGateCodexApplyPatch(t *testing.T) {
 		{"denied file in patch", `{"deny":[{"Tool":"Edit","Arg":"secret.txt"}]}`, body("patch", "secret.txt"), true, "Edit(secret.txt)"},
 		{"denied absolute path", `{"deny":[{"Tool":"Edit","Arg":"secret.txt"}]}`, body("command", "/repo/secret.txt"), true, "Edit(secret.txt)"},
 		{"denied file second of two", `{"deny":[{"Tool":"Edit","Arg":"secret.txt"}]}`, body("command", "ok.txt", "secret.txt"), true, "Edit(secret.txt)"},
+		{"no rules: protected vault", ``, body("command", "/x/state/vault.db"), true, "writes a file Edit/Write may never touch"},
+		{"no rules: protected ssh dir", ``, body("command", "~/.ssh/authorized_keys2"), true, "authorized_keys2"},
+		{"no rules: temp file", ``, body("command", "/tmp/fixture/a.txt"), false, ""},
 		{"plan mode refuses any patch", `{"mode":"plan"}`, body("command", "ok.txt"), true, "mode: plan"},
 		{"headerless patch under a scoped deny", `{"deny":[{"Tool":"Edit","Arg":"secret.txt"}]}`,
 			`{"tool_name":"apply_patch","cwd":"/repo","tool_input":{"command":"no headers"}}`, true, "has no path"},

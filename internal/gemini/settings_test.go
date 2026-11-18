@@ -326,22 +326,48 @@ func TestAgyGateCoversIgnoresDisabledSet(t *testing.T) {
 
 // Only useGuardRules "false" drops the guard denies from --settings; any other value keeps them.
 func TestAgyGuardRulesFromExtras(t *testing.T) {
-	deny := agent.Permissions{Deny: []agent.Rule{{Tool: "Write", Arg: "x.txt"}}}
-	for guard, want := range map[string]bool{"true": true, "false": false, "": true} {
-		s := agent.Settings{Agent: "gemini", Headless: true, Tools: true, WorkDir: "/w", Permissions: deny,
-			Record: vault.AgentRecord{Extras: map[string]string{extraUseGuardRules: guard}}}
-		_, argv, _, cleanup, err := geminiEngine{agent.NewBaseEngine("gemini")}.RenderSettings(context.Background(), s, nil, nil)
-		if err != nil {
-			t.Fatal(err)
-		}
-		cleanup()
-		i := slices.Index(argv, "--settings")
-		if i < 0 {
-			t.Fatalf("useGuardRules=%q: argv %q lacks --settings", guard, argv)
-		}
-		if got := strings.Contains(argv[i+1], "command(rm -rf /)"); got != want {
-			t.Errorf("useGuardRules=%q: guard denies present = %v, want %v (%s)", guard, got, want, argv[i+1])
-		}
+	var tpl struct{ Permissions settings.PermissionLists }
+	if err := json.Unmarshal(settings.Template(), &tpl); err != nil {
+		t.Fatal(err)
+	}
+	fallback := mergeAgyDeny(nil, agyGuardRules(tpl.Permissions.Deny, io.Discard))
+	for _, c := range []struct {
+		name, body, guard string
+		want              []string
+	}{
+		{"live deny honored", `{"permissions":{"deny":["Bash(owner-command)"]}}`, "", []string{"command(owner-command)"}},
+		{"template rules omitted", `{"permissions":{"deny":[]}}`, "true", nil},
+		{"guard disabled", `{"permissions":{"deny":["Bash(owner-command)"]}}`, "false", nil},
+		{"missing file", "", "", fallback},
+		{"invalid file", "{", "", fallback},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			home := agenttest.Scratch(t)
+			if c.body != "" {
+				if err := os.WriteFile(settings.SettingsFile(), []byte(c.body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			s := agent.Settings{Agent: "gemini", Headless: true, Tools: true, WorkDir: home,
+				Permissions: agent.Permissions{Mode: "bypassPermissions"},
+				Record:      vault.AgentRecord{Extras: map[string]string{extraUseGuardRules: c.guard}}}
+			_, argv, _, cleanup, err := geminiEngine{agent.NewBaseEngine("gemini")}.RenderSettings(t.Context(), s, nil, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			cleanup()
+			i := slices.Index(argv, "--settings")
+			if i < 0 {
+				t.Fatalf("argv %q lacks --settings", argv)
+			}
+			var doc struct{ Permissions settings.PermissionLists }
+			if err := json.Unmarshal([]byte(argv[i+1]), &doc); err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(doc.Permissions.Deny, c.want) {
+				t.Errorf("deny = %v, want %v", doc.Permissions.Deny, c.want)
+			}
+		})
 	}
 }
 
@@ -411,6 +437,9 @@ var templateDeny = []any{"command(rm -rf /)", "command(rm -rf ~)"}
 // renderGeminiSettings merges the guard denies into agy's settings.json, keeping other keys; a rerun is byte-identical.
 func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
 	home := agenttest.Scratch(t)
+	if err := os.WriteFile(settings.SettingsFile(), []byte(`{"permissions":{"deny":["Bash(owner-command)"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	path := geminiSettingsPath(home)
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)
@@ -444,7 +473,7 @@ func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
 	}
 }
 
-// checkMergedSettings requires foreign keys intact and the user's deny rule followed by the template denies.
+// checkMergedSettings requires foreign keys intact and the user's deny rule followed by the live denies.
 func checkMergedSettings(t *testing.T, raw []byte) {
 	t.Helper()
 	var got map[string]any
@@ -461,7 +490,7 @@ func checkMergedSettings(t *testing.T, raw []byte) {
 	checkMergedPermissions(t, got, raw)
 }
 
-// checkMergedPermissions requires allow untouched and deny as the user's rule plus the template denies.
+// checkMergedPermissions requires allow untouched and deny as the user's rule plus the live denies.
 func checkMergedPermissions(t *testing.T, got map[string]any, raw []byte) {
 	t.Helper()
 	perms, ok := got["permissions"].(map[string]any)
@@ -476,7 +505,7 @@ func checkMergedPermissions(t *testing.T, got map[string]any, raw []byte) {
 	if !ok {
 		t.Fatalf("permissions.deny missing or wrong type: %s", raw)
 	}
-	wantDeny := append([]any{"command(user rule)"}, templateDeny...)
+	wantDeny := []any{"command(user rule)", "command(owner-command)"}
 	if !reflect.DeepEqual(deny, wantDeny) {
 		t.Errorf("permissions.deny = %v, want %v", deny, wantDeny)
 	}

@@ -944,24 +944,30 @@ func dropInertHeredocs(cmd string) string {
 // extraProtected are Edit-protected files the settings template does not list.
 var extraProtected = []string{"~/.claude/settings.local.json"}
 
-// protectedGlobs are the template's `Edit(...)` deny globs plus extraProtected: what Edit/Write may never touch.
-var protectedGlobs = sync.OnceValue(func() []string {
-	var doc struct {
-		Permissions struct {
-			Deny []string `json:"deny"`
-		} `json:"permissions"`
-	}
+// protectedGlobs are the live settings.json `Edit(...)` deny globs (template's if unreadable) plus extraProtected.
+func protectedGlobs() []string {
 	globs := append([]string(nil), extraProtected...)
-	if json.Unmarshal(settings.Template(), &doc) != nil {
-		return globs // the embedded template is tested; the extras still guard
-	}
-	for _, rule := range doc.Permissions.Deny {
+	for _, rule := range liveDeny() {
 		if g, ok := strings.CutPrefix(rule, "Edit("); ok && strings.HasSuffix(g, ")") {
 			globs = append(globs, strings.TrimSuffix(g, ")"))
 		}
 	}
 	return globs
-})
+}
+
+// liveDeny is the live deny list; a missing or broken settings.json falls back to the template's so the guard stays on.
+func liveDeny() []string {
+	if live, err := settings.LivePermissions(); err == nil {
+		return live.Deny
+	}
+	var doc struct {
+		Permissions settings.PermissionLists `json:"permissions"`
+	}
+	if json.Unmarshal(settings.Template(), &doc) != nil {
+		return nil // the embedded template is tested; the extras still guard
+	}
+	return doc.Permissions.Deny
+}
 
 // protectedWrite is the first Edit-denied path a command writes or removes ("" if none); temp folders are allowed.
 func protectedWrite(cmd, cwd string) string {
