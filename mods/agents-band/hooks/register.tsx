@@ -2,7 +2,7 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren } from 'claude-code'
 
 import type { Row, Snapshot } from '../types'
-import { age, clip, pack, shorten, strings } from './text'
+import { age, clip, pack, plain, shorten, strings } from './text'
 
 const snapshot = atom({ plugin: 'agents-band', key: 'snapshot' } as const, null)
 const isOpen = atom({ plugin: 'agents-band', key: 'isOpen' } as const, false)
@@ -50,13 +50,13 @@ const sinceIso = (iso: string | undefined, nowMs: number): string => {
   return Number.isNaN(then) ? '' : age(nowMs - then)
 }
 
-const routeOf = (d: Dispatch | undefined): string => (d && d.route ? d.route.replace(/^databricks:/, '') : '')
+const routeOf = (d: Dispatch | undefined): string => (d && d.route ? plain(d.route).replace(/^databricks:/, '') : '')
 
 // what names the job: the leg's own description without its model prefix, else a readable form of the task text.
 const what = (leg: Leg | undefined, d: Dispatch | undefined): string => {
-  const desc = (leg && leg.description ? leg.description : '').replace(/^[a-z0-9.-]+:\s+/i, '')
+  const desc = plain(leg && leg.description).replace(/^[a-z0-9.-]+:\s+/i, '')
   if (desc) return desc
-  const task = (d && d.task ? d.task : '').replace(/\s+/g, ' ')
+  const task = plain(d && d.task)
   if (task.startsWith('Background update of a finished session')) return 'memory update'
 
   return task.slice(0, 60)
@@ -70,13 +70,13 @@ type Tally = { rows: Raw[]; running: number; quiet: number; byRoute: Map<string,
 const addLeg = (t: Tally, leg: Leg | undefined, d: Dispatch | undefined, nowMs: number, indent: string): void => {
   const route = routeOf(d) || 'here'
   const isQuiet = d !== undefined && d.quiet === true
-  const life = d ? (isQuiet ? `quiet ${sinceIso(d.lastSignal, nowMs)}` : `last=${sinceIso(d.lastSignal, nowMs)}`) : (leg && leg.activity && leg.activity.tool) || ''
-  const agent = (d && d.agent) || (leg && leg.type) || '?'
+  const life = d ? (isQuiet ? `quiet ${sinceIso(d.lastSignal, nowMs)}` : `last=${sinceIso(d.lastSignal, nowMs)}`) : plain(leg && leg.activity && leg.activity.tool)
+  const agent = plain(d && d.agent) || plain(leg && leg.type) || '?'
   const held = [...new Set([...strings(leg && leg.files), ...strings(d && d.files)])]
-  const note = typeof (d && d.note) === 'string' ? (d!.note as string).replace(/\s+/g, ' ') : ''
+  const note = plain(d && d.note)
   const flags = (held.length ? `${held.length}f ` : '') + (note ? '✎ ' : '')
-  const text = `${agent.padEnd(8)}${route.padEnd(6)}${((d && d.duration) || '').padEnd(7)}${life.padEnd(11)}${flags}${what(leg, d)}`
-  const id = (d && d.id) || (leg && leg.id) || String(t.rows.length)
+  const text = `${agent.padEnd(8)}${route.padEnd(6)}${plain(d && d.duration).padEnd(7)}${life.padEnd(11)}${flags}${what(leg, d)}`
+  const id = plain(d && d.id) || plain(leg && leg.id) || String(t.rows.length)
   t.rows.push({ key: `leg:${id}`, text: `${indent}${text}`, isQuiet, isHead: false, details: [], held, note })
   t.running += 1
   if (isQuiet) t.quiet += 1
@@ -97,7 +97,7 @@ const finish = (t: Tally, notes: string[], free: string[]): Row[] => {
       ...(note ? [`note: ${note}`] : []),
     ],
   }))
-  if (notes.length) rows.push({ key: 'notes', text: `  notes: ${notes.length} from subagents`, isQuiet: false, isHead: false, details: notes.map(n => `note: ${n.replace(/\s+/g, ' ')}`) })
+  if (notes.length) rows.push({ key: 'notes', text: `  notes: ${notes.length} from subagents`, isQuiet: false, isHead: false, details: notes.map(n => `note: ${n}`) })
   if (free.length) {
     const more = free.length > FREE_SHOWN ? [`(+${free.length - FREE_SHOWN} more)`] : []
     rows.push({ key: 'free', text: `  free: ${free.length} dirty, held by no live leaf`, isQuiet: false, isHead: false, details: pack([...free.slice(0, FREE_SHOWN).map(name), ...more]) })
@@ -118,10 +118,10 @@ const summarize = (tree: Tree, nowMs: number): Snapshot => {
     }
     for (const w of s.workflows || []) {
       if (w.status !== 'running') continue
-      const legs = (w.phases || []).flatMap(p => (p.agents || []).map(a => ({ a, phase: (p.name || '').replace(/^\W+/, '') })))
+      const legs = (w.phases || []).flatMap(p => (p.agents || []).map(a => ({ a, phase: plain(p.name).replace(/^\W+/, '') })))
       const live = legs.filter(l => l.a.status === 'running')
       const done = legs.length - live.length
-      t.rows.push({ key: `flow:${w.id || w.name || ''}`, text: `  workflow ${w.name || w.id || ''}: ${live[0] ? live[0].phase : 'between phases'} (${done}/${legs.length} legs done)`, isQuiet: false, isHead: true, details: [], held: [], note: '' })
+      t.rows.push({ key: `flow:${plain(w.id) || plain(w.name)}`, text: `  workflow ${plain(w.name) || plain(w.id)}: ${live[0] ? live[0].phase : 'between phases'} (${done}/${legs.length} legs done)`, isQuiet: false, isHead: true, details: [], held: [], note: '' })
       for (const l of live) addLeg(t, l.a, liveDispatch(l.a), nowMs, '    ')
     }
   }
@@ -146,9 +146,9 @@ const LIVE = ['pending', 'running', 'waiting']
 
 // withLocal adds this session's live agents that the tree did not already list.
 const withLocal = (snap: Snapshot, agents: readonly Local[]): Snapshot => {
-  const names = (a: Local) => a.description.replace(/^[a-z0-9.-]+:\s+/i, '')
+  const names = (a: Local) => plain(a.description).replace(/^[a-z0-9.-]+:\s+/i, '')
   const extra = agents.filter(a => LIVE.includes(a.status) && !snap.rows.some(r => r.text.includes(names(a))))
-  const rows = extra.map(a => ({ key: `local:${a.id}`, text: `  ${a.type.padEnd(8)}${'here'.padEnd(6)}${''.padEnd(7)}${a.status.padEnd(11)}${names(a)}`, isQuiet: false, isHead: false, details: [] }))
+  const rows = extra.map(a => ({ key: `local:${plain(a.id)}`, text: `  ${plain(a.type).padEnd(8)}${'here'.padEnd(6)}${''.padEnd(7)}${plain(a.status).padEnd(11)}${names(a)}`, isQuiet: false, isHead: false, details: [] }))
 
   return { ...snap, running: snap.running + extra.length, rows: [...rows, ...snap.rows] }
 }
@@ -182,9 +182,12 @@ async function poll($: EngineInterface): Promise<void> {
   await update($, polledAt, () => nowMs)
   try {
     const snap = await fetch($, nowMs)
-    if (snap !== null) await update($, snapshot, () => snap)
+    if (snap === null) return
+    await update($, snapshot, () => snap)
+    const keys = new Set(snap.rows.map(r => r.key))
+    await update($, expanded, v => (v.every(k => keys.has(k)) ? v : v.filter(k => keys.has(k))))
   } catch (err) {
-    const error = String(err).slice(0, 80)
+    const error = plain(String(err), 80)
     await update($, snapshot, prev => (prev === null ? null : { ...prev, error }))
   }
 }
@@ -205,8 +208,13 @@ async function tick($: EngineInterface, force: boolean): Promise<void> {
   }
 }
 
-const toggle = ($: EngineInterface, key: string) =>
-  update($, expanded, v => (v.includes(key) ? v.filter(k => k !== key) : [...v, key]))
+const toggle = async ($: EngineInterface, key: string): Promise<void> => {
+  try {
+    await update($, expanded, v => (v.includes(key) ? v.filter(k => k !== key) : [...v, key]))
+  } catch {
+    // a press handler must never reject: it would unload the mod
+  }
+}
 
 // rowsOf draws the leaf rows within MAX_ROWS lines; a row with details is a button that shows them.
 function rowsOf($: EngineInterface, { Button, Text }: Ui, snap: Snapshot, open: readonly string[]) {
@@ -239,16 +247,24 @@ async function list($: EngineInterface, ui: Ui, snap: Snapshot, tail: RenderChil
 }
 
 const flip = async ($: EngineInterface): Promise<boolean> => {
-  const open = await update($, isOpen, v => !v)
-  if (open) void tick($, true)
+  try {
+    const open = await update($, isOpen, v => !v)
+    if (open) void tick($, true)
 
-  return open
+    return open
+  } catch {
+    return false
+  }
 }
 
 export const register: Register = on => {
   on('session.start', async ($, e, next) => {
     inFlight = false
-    await $.command.register({ name: 'agents-band', description: 'Expand or collapse the running-agents list' })
+    try {
+      await $.command.register({ name: 'agents-band', description: 'Expand or collapse the running-agents list' })
+    } catch {
+      // without the command the band still works from its button
+    }
     $.clock.every(TICK_MS, () => tick($, false))
     void tick($, true)
 

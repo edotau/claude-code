@@ -119,4 +119,57 @@ describe('agents-band', () => {
     await clock.advance(5000)
     expect(calls).toHaveLength(2)
   })
+
+  test('hostile text from the tree is drawn as plain capped text', async ($, on) => {
+    const evil = `red\x1b[31m \x1b]0;pwned\x07nul\x00 bidi\u202Eevil ${'x'.repeat(5000)}`
+    const hostile = { ...disp, note: evil, agent: `co\x1b[2Jdex`, task: 'review' }
+    const stdout = JSON.stringify({ sessions: [{ notes: [evil], subagents: [{ ...leg, description: `sonnet: ${evil}`, files: [`a/\x1b[1mb.go`], dispatches: [hostile] }] }] })
+    world(on, () => ({ exitCode: 0, stdout }))
+    const clock = mock.clock(on)
+    await start($)
+    await clock.settle()
+    const ui = await open($)
+    await ui.press({ key: 'leg:d1' })
+    await ui.press({ key: 'notes' })
+    const drawn = [...(await texts(ui)), ...(await ui.findAll({ type: 'Button' })).map((b: any) => b.props.label as string)]
+    const all = drawn.join('\n')
+    expect(all).toContain('note: red')
+    expect(all).toContain('codex')
+    expect(all).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/)
+    expect(all).not.toContain('pwned')
+    expect(Math.max(...drawn.map((l: string) => l.length))).toBeLessThanOrEqual(80)
+  })
+
+  test('a row that disappears drops its expanded key', async ($, on) => {
+    let live = true
+    world(on, () => ({ exitCode: 0, stdout: live ? tree() : JSON.stringify({ sessions: [] }) }))
+    const clock = mock.clock(on)
+    await start($)
+    await clock.settle()
+    const ui = await open($)
+    await ui.press({ key: 'leg:d1' })
+    live = false
+    await clock.advance(5000)
+    live = true
+    await clock.advance(5000)
+    expect((await texts(ui)).some((l: string) => l.includes('note: halfway there'))).toBe(false)
+  })
+
+  test('a press handler survives a failing state write', async ($, on) => {
+    let broken = false
+    on('state.set', async (_$, e, next) => {
+      if (broken) throw new Error('write failed')
+
+      return next(e)
+    })
+    world(on, () => ({ exitCode: 0, stdout: tree() }))
+    const clock = mock.clock(on)
+    await start($)
+    await clock.settle()
+    const ui = await open($)
+    broken = true
+    await ui.press({ key: 'leg:d1' })
+    await clock.settle()
+    expect((await ui.findAll({ type: 'Button' })).length).toBeGreaterThan(0)
+  })
 })
