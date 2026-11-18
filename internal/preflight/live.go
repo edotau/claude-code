@@ -183,6 +183,8 @@ func cachePong(p *providers.Provider, fp string, r Pong) {
 	status := "unknown"
 	if r.OK {
 		status = "ok"
+	} else if r.Err == "auth" {
+		status = "auth"
 	} else if !slices.Contains([]string{"", "unknown"}, r.Err) {
 		status = "fail"
 	}

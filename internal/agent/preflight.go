@@ -116,8 +116,15 @@ func checkWorkspace(ctx context.Context, p *providers.Provider, st router.State,
 		return out
 	}
 	if !cmdRoute {
-		mintPairedSP(ctx, p, now, budget)
-		if f := CheckToken(p, now, budget); f != nil {
+		minted := mintPairedSP(ctx, p, now, budget)
+		f, refreshed := tokenFinding(p, now, budget)
+		switch {
+		case f == nil:
+		case minted:
+			pf.note(p.Name + ": the fresh service-principal token cannot cover the run timeout plus 2m; running on it")
+		case refreshed:
+			pf.note(p.Name + ": the fresh token cannot cover the run timeout plus 2m; running on it")
+		default:
 			return []Finding{*f}
 		}
 	}
@@ -194,35 +201,32 @@ func pairedSPFor(ctx context.Context, p *providers.Provider) bool {
 	return p.Identity != providers.IdentityUser && providers.IdentityFrom(ctx) != providers.IdentityUser && providers.SPPresent(p)
 }
 
-// CheckToken gates only credentials whose auth type has an expiry.
-func CheckToken(p *providers.Provider, now time.Time, budget time.Duration) *Finding {
-	if p.Auth.Type != providers.AuthOAuth && p.Auth.Type != providers.AuthM2M {
-		return nil
-	}
+// tokenFinding is the finding for a token too short for the run after a keepalive; refreshed says it was just renewed.
+func tokenFinding(p *providers.Provider, now time.Time, budget time.Duration) (f *Finding, refreshed bool) {
 	exp, _, ok := providers.TokenExpiryMethodFor(p.Name, p.Identity)
 	if !ok || exp.Sub(now) >= budget+2*time.Minute {
-		return nil
+		return nil, false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	_, err := providers.Keepalive(ctx, p)
+	refreshed, err := providers.Keepalive(ctx, p)
 	exp, _, ok = providers.TokenExpiryMethodFor(p.Name, p.Identity)
-	if ok && exp.Sub(now) >= budget+2*time.Minute {
-		return nil
+	if ok && time.Until(exp) >= budget+2*time.Minute {
+		return nil, false
 	}
-	detail := p.Name + ": token cannot cover the run timeout plus 2m"
+	detail := "token cannot cover the run timeout plus 2m"
 	if err != nil {
 		detail += "; refresh failed"
 	}
-	return &Finding{Check: "token", Profile: p.Name, Detail: detail + ": " + tokenHint(p)}
+	return &Finding{Check: "token", Profile: p.Name, Detail: detail + ": run `" + tokenHint(p) + "`"}, refreshed && err == nil
 }
 
 // tokenHint is the command that renews p's token here: the headless service-principal mint when one is paired.
 func tokenHint(p *providers.Provider) string {
 	if p.Identity != providers.IdentityUser && providers.SPPresent(p) {
-		return "run `claude-code databricks login --profile " + p.Name + " --as sp`"
+		return "claude-code databricks login --profile " + p.Name + " --as sp"
 	}
-	return providers.AuthHint(p, providers.AuthSecretName(p))
+	return providers.LoginCommand(p.Name)
 }
 
 func workspaceAuth(p *providers.Provider, st router.State, now time.Time) *Finding {
@@ -240,13 +244,13 @@ func workspaceAuth(p *providers.Provider, st router.State, now time.Time) *Findi
 	case providers.ProbeVerified:
 		verdict = "ok"
 	case providers.ProbeRejected:
-		verdict = "fail"
+		verdict = "auth"
 	}
 	// A refresh during the probe invalidates its result rather than blessing an untested credential.
 	if CredentialFingerprint(p) == fp {
 		router.StoreVerdict(account, key, router.Verdict{CredFP: fp, Status: verdict, Source: "listing", At: time.Now()})
 	}
-	if verdict != "fail" {
+	if verdict != "auth" {
 		return nil
 	}
 	return &Finding{Check: "auth", Profile: p.Name, Detail: "credential rejected: run `" + providers.LoginCommand(p.Name) + "`"}

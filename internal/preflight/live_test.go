@@ -370,3 +370,18 @@ func assertPreflightWorkspace(t *testing.T, p *providers.Provider, st router.Sta
 		t.Fatalf("listing requests=%d, want %d", *hits, want)
 	}
 }
+
+func TestCachePongStoresFailureKind(t *testing.T) {
+	vaulttest.Use(t)
+	p := &providers.Provider{Name: "pong-kind", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthPAT}}
+	if err := vault.Store(providers.AuthSecretName(p), "fixture"); err != nil {
+		t.Fatal(err)
+	}
+	fp, account := agent.CredentialFingerprint(p), router.AccountOf(p)
+	for err, want := range map[string]string{"auth": "auth", "rate_limit": "fail", "timeout": "fail", "unknown": "unknown", "": "unknown"} {
+		cachePong(p, fp, Pong{Agent: "codex", Profile: p.Name, Model: "wire", Err: err})
+		if got := router.LoadState()[account].Verified[router.VerdictKey(p.Name, account, "wire", "")].Status; got != want {
+			t.Errorf("probe error %q stored %q, want %q", err, got, want)
+		}
+	}
+}

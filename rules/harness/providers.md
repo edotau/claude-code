@@ -86,7 +86,8 @@ the vault overlay map each alias per provider.
 `configure routing` → `servedAware` (off by default) checks codex, copilot and opencode picks against the workspace's
 cached endpoint listing (`state/harness/preflight/served-<profile>.json`, 24h TTL).
 Preflight reuses credential-bound successes in router state for 15 minutes (failures and unknowns expire after
-30 seconds and never block a launch); OAuth and M2M tokens must cover the run timeout plus 2 minutes after keepalive.
+30 seconds and never block a launch); a token must cover the run timeout plus 2 minutes after keepalive or a
+service-principal mint, unless one of those just renewed it (then a note, not a refusal).
 Off, cold or stale reads as the static menu: routing never touches the network.
 
 - **Refresh:** `make install`, `doctor --refresh`, `models preflight --live`; switched on, also `switch`,

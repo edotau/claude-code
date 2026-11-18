@@ -50,7 +50,7 @@ func (p Pin) Line() string {
 	return s
 }
 
-// Check resolves pins and checks token lifetime; an unreadable vault is one StatusError.
+// Check resolves cached pins from ctx's run snapshot with no network or writes; an unreadable vault is one StatusError.
 func Check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
 	pins, err := agent.AgentPinsContext(ctx)
 	if err != nil {
@@ -137,10 +137,6 @@ func checkProfile(reg *providers.Registry, p Pin, name string, now time.Time) Pi
 	if !providers.CredentialPresent(prov) {
 		p.Status, p.Served, p.Detail = statusUnserved, "unknown", "no credential for "+p.Profile
 		p.Fix = "claude-code configure provider --list " + p.Profile
-		return p
-	}
-	if f := agent.CheckToken(prov, now, agent.DefaultToolsTimeout); f != nil {
-		p.Status, p.Detail = StatusError, f.String()
 		return p
 	}
 	if prov.Preset == providers.PresetDatabricks {
