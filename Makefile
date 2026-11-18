@@ -36,6 +36,7 @@ GO_TEST_TIMEOUT ?= 300s
 GO_SH_SRC       := $(wildcard scripts/*.sh scripts/lib/*.sh skills/*/scripts/*.sh)
 # Gate tools are PINNED: `@latest` could change under us between runs. `make install` installs all three (DEV_TOOLS=0 skips).
 DEV_TOOLS       ?= 1
+DEV_TOOLS_ON    := $(findstring $(DEV_TOOLS),1)
 GOVULN_VERSION  ?= v1.8.0
 GOLANGCI_VERSION ?= v2.15.0
 YAMLFMT_VERSION ?= v0.21.0
@@ -76,11 +77,10 @@ install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 	@$(BIN) install$(if $(filter 1,$(V)), --verbose,)
 	@$(if $(TOOLS),$(BIN) install --tools$(if $(filter-out 1,$(TOOLS)),=$(TOOLS)) && $(BIN) doctor,\
 		$(BIN) install --tools --missing || echo -e "$(C_NOTE)a missing CLI failed to install (install itself succeeded)")
-	@if [ "$(DEV_TOOLS)" = 1 ]; then \
-		$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION) && \
+	@$(if $(DEV_TOOLS_ON),$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION) && \
 		$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) && \
-		$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION); fi
-	@$(if $(filter 1,$(DEV_TOOLS)),$(MAKE) --no-print-directory tools-sync)
+		$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION))
+	@$(if $(DEV_TOOLS_ON),$(MAKE) --no-print-directory tools-sync)
 	@$(BIN) theme apply --only opencode-themes >/dev/null || echo -e "$(C_NOTE)opencode theme not applied (install itself succeeded)"
 	@if $(BIN) gateway proxy --restart --if-changed --force --dry-run | grep -q 'would restart'; then \
 		echo -e "$(C_NOTE)the running proxy is an older build; restart it when idle: claude-code gateway proxy --restart"; fi
@@ -122,12 +122,14 @@ bootstrap:  ## Set up a fresh box: toolchain, install, configure
 	@$(if $(filter 1,$(CHECK)),$(BIN) configure --check,$(BIN) configure)
 
 INTO ?= $(HOME)/.claude
+# Not spelled $(MAKE), so `make -n adopt` prints the bootstrap line instead of entering a destination not adopted yet.
+ADOPT_MAKE = $(MAKE)
 .PHONY: adopt
 adopt:  ## Stage clone: adopt INTO (~/.claude), then bootstrap
 	@$(if $(shell [ -e "$(INTO)/.git" ] && echo 1),echo "$(INTO) is already a checkout")
 	@$(if $(shell [ -e "$(INTO)/.git" ] && echo 1),,$(MAKE) toolchain compile)
 	@$(if $(shell [ -e "$(INTO)/.git" ] && echo 1),,CLAUDE_CONFIG_DIR="$(INTO)" $(BIN) install --setup adopt --from "$(CURDIR)" --into "$(INTO)" $(ADOPT_ARGS))
-	@$(if $(or $(shell [ -e "$(INTO)/.git" ] && echo 1),$(findstring --dry-run,$(ADOPT_ARGS))),,$(MAKE) -C "$(INTO)" bootstrap)
+	@$(if $(or $(shell [ -e "$(INTO)/.git" ] && echo 1),$(findstring --dry-run,$(ADOPT_ARGS))),,$(ADOPT_MAKE) -C "$(INTO)" bootstrap)
 
 .PHONY: toolchain
 toolchain:  ## Install go.mod's Go and pinned tsc to ~/.local if missing
@@ -267,18 +269,16 @@ lint:  ## Check only, never writes: go, shell, yaml, md, js, memory
 	@echo -e "$(C_OK)lint passed"
 
 lint-%: BIN := bin/.lint/$(BINARY)
-lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 reports, else fixes
+lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 reports, else fixes (go: gofmt -w, golangci --fix)
 	@case "$*" in \
-	go) rc=0; \
-		if [ "$(CHECK)" = 1 ]; then \
-			out="$$(gofmt -l -d $(GO_FMT_DIRS))"; \
-			if [ -n "$$out" ]; then echo "unformatted (make fmt fixes):"; echo "$$out"; rc=1; fi; \
-			$(GO) vet $(PKGS) || rc=1; \
-			if [ $$rc = 0 ]; then echo -e "$(C_OK)gofmt + vet clean"; fi; \
-		else gofmt -w $(GO_FMT_DIRS); fi; \
-		if ! command -v golangci-lint >/dev/null; then echo -e "$(C_NOTE)golangci-lint skipped: not installed (make install DEV_TOOLS=1)"; exit $$rc; fi; \
-		golangci-lint run $(if $(filter 1,$(CHECK)),,--fix --disable gocognit) --max-issues-per-linter=0 --max-same-issues=0 ./... || { [ "$(CHECK)" = 1 ] && rc=1; }; \
-		exit $$rc ;; \
+	go) if [ "$(CHECK)" = 1 ]; then g=gofmt,vet; \
+			if command -v golangci-lint >/dev/null; then g=$$g,golangci-lint; \
+			else echo -e "$(C_NOTE)golangci-lint skipped: not installed (make install DEV_TOOLS=1)"; fi; \
+			$(BIN) agents diff --check --all --gates $$g; \
+		else gofmt -w $(GO_FMT_DIRS); \
+			if command -v golangci-lint >/dev/null; then \
+				golangci-lint run --fix --disable gocognit --max-issues-per-linter=0 --max-same-issues=0 ./... || :; \
+			else echo -e "$(C_NOTE)golangci-lint skipped: not installed (make install DEV_TOOLS=1)"; fi; fi ;; \
 	quality) $(BIN) review simplify --fail ;; \
 	shell) if [ -z "$(GO_SH_SRC)" ]; then echo -e "$(C_NOTE)no shell scripts to lint"; \
 		elif command -v shellcheck >/dev/null 2>&1; then shellcheck -S error $(GO_SH_SRC) && echo -e "$(C_OK)shellcheck clean"; \
@@ -295,9 +295,14 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 reports
 	js) $(BIN) workflow lint ;; \
 	*) printf "Unknown lint '%s' (use %s)\n" "$*" "$(subst $(C_SP),|,$(LINT_WHAT))"; exit 1 ;; \
 	esac
-	@$(if $(filter help,$*),$(if $(findstring n,$(filter-out -% %=%,$(MAKEFLAGS))),,set -o pipefail; out="$$($(MAKE) --no-print-directory help | sed 's/\x1b\[[0-9;]*m//g' | awk \
+	@$(if $(filter help,$*),$(MAKE) --no-print-directory help-check)
+
+# Help rows must fit 80 columns; its recipe holds no $(MAKE), so `make -n` never starts the pipeline.
+.PHONY: help-check
+help-check:
+	@set -o pipefail; out="$$($(HELP_TEXT) | sed 's/\x1b\[[0-9;]*m//g' | awk \
 			'length>80 && substr($$0,20) ~ / / {print "over 80: " $$0} /^   / && !/^                   [^ ]/ {print "misaligned continuation: " $$0}')" || { echo "make help failed"; exit 1; }; \
-		if [ -n "$$out" ]; then echo "help rows break the wrap rule:"; echo "$$out"; exit 1; fi))
+		if [ -n "$$out" ]; then echo "help rows break the wrap rule:"; echo "$$out"; exit 1; fi
 
 .PHONY: mdsmith
 mdsmith:  # (folded into `install`) pinned mdsmith binary in bin/
@@ -346,21 +351,25 @@ statusline: compile  ## Render a sample statusline (COLS=…)
 		| COLUMNS=$${COLS:-120} $(BIN) theme statusline
 
 ##@ Quick Reference
+# The help text, shared by `help` and `help-check`: one shell group, every line continued.
+define HELP_TEXT
+{ printf "\n\033[1mclaude-code\033[0m\n"; \
+printf "\033[2mUsage:\033[0m make <target> [VAR=value]\n"; \
+awk 'BEGIN{FS=":"} \
+	/^##@/{sec=substr($$0,5); if(!(sec in o)) o[sec]=++n; next} \
+	/^[a-zA-Z0-9_.%\/-]+:[^=]/{t=$$1; if(t ~ /^[._]/) next; \
+		if(!match($$0,/##[ \t]*/)) next; d=substr($$0,RSTART+RLENGTH); \
+		if(t in seen) next; seen[t]=1; \
+		printf "%d\t%s\t%s\t%s\n", o[sec], sec, t, d}' $(MAKEFILE_LIST) \
+	| sort -t "$$(printf '\t')" -k1,1n -k3,3 \
+	| awk -F"\t" '{if($$2!=cur){cur=$$2; printf "\n\033[1m%s\033[0m\n", $$2} \
+		n=split($$4,w," "); line=""; lab=sprintf("  \033[36m%-16s\033[0m ",$$3); \
+		for(i=1;i<=n;i++){ if(line!="" && 19+length(line)+1+length(w[i])>80){ \
+			print lab line; lab=sprintf("%19s",""); line=w[i]} \
+			else line=(line==""?w[i]:line" "w[i]) } \
+		print lab line}'; \
+printf "\n"; }
+endef
 .PHONY: help
 help:  ## Show this help
-	@printf "\n\033[1mclaude-code\033[0m\n"
-	@printf "\033[2mUsage:\033[0m make <target> [VAR=value]\n"
-	@awk 'BEGIN{FS=":"} \
-		/^##@/{sec=substr($$0,5); if(!(sec in o)) o[sec]=++n; next} \
-		/^[a-zA-Z0-9_.%\/-]+:[^=]/{t=$$1; if(t ~ /^[._]/) next; \
-			if(!match($$0,/##[ \t]*/)) next; d=substr($$0,RSTART+RLENGTH); \
-			if(t in seen) next; seen[t]=1; \
-			printf "%d\t%s\t%s\t%s\n", o[sec], sec, t, d}' $(MAKEFILE_LIST) \
-		| sort -t "$$(printf '\t')" -k1,1n -k3,3 \
-		| awk -F"\t" '{if($$2!=cur){cur=$$2; printf "\n\033[1m%s\033[0m\n", $$2} \
-			n=split($$4,w," "); line=""; lab=sprintf("  \033[36m%-16s\033[0m ",$$3); \
-			for(i=1;i<=n;i++){ if(line!="" && 19+length(line)+1+length(w[i])>80){ \
-				print lab line; lab=sprintf("%19s",""); line=w[i]} \
-				else line=(line==""?w[i]:line" "w[i]) } \
-			print lab line}'
-	@printf "\n"
+	@$(HELP_TEXT)
