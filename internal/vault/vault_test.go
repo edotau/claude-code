@@ -19,8 +19,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"go.etcd.io/bbolt"
@@ -467,10 +467,12 @@ func TestNestedOpenErrors(t *testing.T) {
 	t.Cleanup(func() { readLockTimeout, writeLockTimeout = oldRead, oldWrite })
 	for _, operation := range []string{"View", "Update", "MasterKey"} {
 		t.Run(operation, func(t *testing.T) {
-			elapsed, nested := nestedOpen(t, operation)
-			if !errors.Is(nested, bolterrors.ErrTimeout) || elapsed < shortTimeout/2 || elapsed >= 3*time.Second {
-				t.Fatalf("nested %s = %v after %s, want bbolt.ErrTimeout bounded by its own Timeout", operation, nested, elapsed)
-			}
+			synctest.Test(t, func(t *testing.T) {
+				elapsed, nested := nestedOpen(t, operation)
+				if !errors.Is(nested, bolterrors.ErrTimeout) || elapsed < shortTimeout/2 || elapsed >= 3*time.Second {
+					t.Fatalf("nested %s = %v after %s, want bbolt.ErrTimeout bounded by its own Timeout", operation, nested, elapsed)
+				}
+			})
 		})
 	}
 }
@@ -514,9 +516,10 @@ func TestMultiProcessProgress(t *testing.T) {
 	if err := Update(func(tx *Tx) error { return tx.Put(Pins, "progress", "initial") }); err != nil {
 		t.Fatal(err)
 	}
-	stop := make(chan struct{})
-	readers := startReaders(4, stop)
+	startReaders := make(chan struct{})
+	readers := progressReaders(4, startReaders)
 	latencies := make([]time.Duration, 0, 30)
+	close(startReaders)
 	for i := range 30 {
 		start := time.Now()
 		err := Update(func(tx *Tx) error { return tx.Put(Pins, "progress", strconv.Itoa(i)) })
@@ -524,9 +527,7 @@ func TestMultiProcessProgress(t *testing.T) {
 		if err != nil {
 			t.Errorf("writer %d: %v", i, err)
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
-	close(stop)
 	for range 4 {
 		if err := <-readers; err != nil {
 			t.Errorf("reader: %v", err)
@@ -540,42 +541,27 @@ func TestMultiProcessProgress(t *testing.T) {
 	}
 }
 
-// startReaders starts n goroutines reading the vault until stop closes (10s at most); each sends its outcome once.
-func startReaders(n int, stop <-chan struct{}) <-chan error {
-	var ready sync.WaitGroup
+func progressReaders(n int, start <-chan struct{}) <-chan error {
 	results := make(chan error, n)
 	for range n {
-		ready.Add(1)
 		go func() {
-			ready.Done()
-			results <- readUntil(stop, time.Now().Add(10*time.Second))
+			<-start
+			results <- readProgress()
 		}()
 	}
-	ready.Wait()
 	return results
 }
 
-// readUntil reads the progress pin every millisecond until stop closes or deadline passes; it must read at least once.
-func readUntil(stop <-chan struct{}, deadline time.Time) error {
-	reads := 0
-loop:
-	for time.Now().Before(deadline) {
-		select {
-		case <-stop:
-			break loop
-		default:
-		}
+func readProgress() error {
+	for reads := range 30 {
 		if err := View(func(tx *Tx) error {
-			_, _ = tx.Get(Pins, "progress")
+			if _, ok := tx.Get(Pins, "progress"); !ok {
+				return errors.New("missing progress pin")
+			}
 			return nil
 		}); err != nil {
 			return fmt.Errorf("reader failed after %d reads: %w", reads, err)
 		}
-		reads++
-		time.Sleep(time.Millisecond)
-	}
-	if reads == 0 {
-		return errors.New("reader did not make progress")
 	}
 	return nil
 }
@@ -686,6 +672,10 @@ func TestNoNestedVaultOpensCatchesIntroducedNesting(t *testing.T) {
 }
 
 func TestSnapshotToConsistent(t *testing.T) {
+	synctest.Test(t, checkSnapshotWithWriter)
+}
+
+func checkSnapshotWithWriter(t *testing.T) {
 	phase1bRing(t)
 	const base = 64
 	if err := Update(func(tx *Tx) error {
@@ -698,24 +688,33 @@ func TestSnapshotToConsistent(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	started, stop, done, writes := startRecordWriter(base)
-	<-started
 	snapshot := filepath.Join(t.TempDir(), "snapshot.db")
 	f, err := os.OpenFile(snapshot, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0600)
 	if err != nil {
-		close(stop)
-		<-done
 		t.Fatal(err)
 	}
-	err = SnapshotTo(Path(), f)
+	done := make(chan error, 1)
+	startWriter := sync.OnceFunc(func() {
+		go func() { done <- appendSnapshotRecord(base) }()
+		synctest.Wait()
+		select {
+		case <-done:
+			t.Error("writer returned while the snapshot read transaction was open")
+			done <- nil
+		default:
+		}
+	})
+	err = SnapshotTo(Path(), snapshotOutput(func(p []byte) (int, error) {
+		startWriter()
+		return f.Write(p)
+	}))
 	closeErr := f.Close()
-	close(stop)
-	writerErr := <-done
-	if err != nil || closeErr != nil || writerErr != nil {
-		t.Fatalf("snapshot=%v close=%v concurrent writer=%v", err, closeErr, writerErr)
+	if err != nil || closeErr != nil {
+		t.Fatalf("snapshot=%v close=%v", err, closeErr)
 	}
-	if writes.Load() == 0 {
-		t.Fatal("concurrent writer never committed; snapshot fixture was vacuous")
+	writerErr := <-done
+	if writerErr != nil {
+		t.Fatal(writerErr)
 	}
 	checkSnapshotGeneration(t, snapshot, base)
 	checkSnapshotMissingSource(t)
@@ -734,41 +733,19 @@ func checkSnapshotMissingSource(t *testing.T) {
 	}
 }
 
-// startRecordWriter keeps committing TOKEN_n plus meta/record_count from base until stop; started closes after the first.
-func startRecordWriter(base int) (started, stop chan struct{}, done chan error, writes *atomic.Int32) {
-	started, stop, done, writes = make(chan struct{}), make(chan struct{}), make(chan error, 1), new(atomic.Int32)
-	go func() {
-		for n := base; ; n++ {
-			select {
-			case <-stop:
-				done <- nil
-				return
-			default:
-			}
-			if err := Update(func(tx *Tx) error {
-				if err := tx.PutRecord(fmt.Sprintf("TOKEN_%03d", n), Record{Prefix: fmt.Sprintf("value-%d", n), Len: n + 1}); err != nil {
-					return err
-				}
-				return tx.Put(Meta, "record_count", strconv.Itoa(n+1))
-			}); err != nil {
-				if n == base {
-					close(started)
-				}
-				done <- err
-				return
-			}
-			writes.Add(1)
-			if n == base {
-				close(started)
-			}
-			// bbolt polls a blocked flock every 50ms; a gapless writer starves the snapshot's shared lock.
-			time.Sleep(10 * time.Millisecond)
+type snapshotOutput func([]byte) (int, error)
+
+func (w snapshotOutput) Write(p []byte) (int, error) { return w(p) }
+
+func appendSnapshotRecord(n int) error {
+	return Update(func(tx *Tx) error {
+		if err := tx.PutRecord(fmt.Sprintf("TOKEN_%03d", n), Record{Prefix: fmt.Sprintf("value-%d", n), Len: n + 1}); err != nil {
+			return err
 		}
-	}()
-	return started, stop, done, writes
+		return tx.Put(Meta, "record_count", strconv.Itoa(n+1))
+	})
 }
 
-// checkSnapshotGeneration opens snapshot read-only and asserts it holds one committed generation of at least base.
 func checkSnapshotGeneration(t *testing.T, snapshot string, base int) {
 	t.Helper()
 	db, err := bbolt.Open(snapshot, 0600, &bbolt.Options{ReadOnly: true, Timeout: time.Second})
@@ -789,7 +766,7 @@ func snapshotGenerationErr(tx *bbolt.Tx, base int) error {
 		return errors.New("snapshot missing records or metadata bucket")
 	}
 	count, err := strconv.Atoi(string(meta.Get([]byte("record_count"))))
-	if err != nil || count < base || records.Stats().KeyN != count {
+	if err != nil || count != base || records.Stats().KeyN != count {
 		return fmt.Errorf("snapshot is not a committed generation: count=%d records=%d err=%v",
 			count, records.Stats().KeyN, err)
 	}

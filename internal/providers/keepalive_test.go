@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/edotau/claude-code/internal/vault"
@@ -25,20 +26,24 @@ func TestKeepaliveUserRefreshesAt14MinutesAndNotAt16(t *testing.T) {
 		want bool
 	}{{14 * time.Minute, true}, {16 * time.Minute, false}} {
 		r := newLoginRig(t, "ka-user-"+c.left.String())
-		r.mode.Store("ok")
-		putAccess(t, r.p, jwtExpIn(c.left, "https://x"))
-		holdRefreshLock(t, r.p)
-		defer func(d time.Duration) { refreshLockWait = d }(refreshLockWait)
-		refreshLockWait = 30 * time.Millisecond
-		if !c.want {
-			if got, err := Keepalive(context.Background(), r.p); err != nil || got || r.hits.Load() != 0 {
-				t.Errorf("%v left: Keepalive = %v, %v (hits %d); want nothing due, no lock, no network", c.left, got, err, r.hits.Load())
-			}
-			continue
+		synctest.Test(t, func(t *testing.T) { checkKeepaliveUserRefreshWindow(t, r, c.left, c.want) })
+	}
+}
+
+func checkKeepaliveUserRefreshWindow(t *testing.T, r *loginRig, left time.Duration, want bool) {
+	r.mode.Store("ok")
+	putAccess(t, r.p, jwtExpIn(left, "https://x"))
+	holdRefreshLock(t, r.p)
+	defer func(d time.Duration) { refreshLockWait = d }(refreshLockWait)
+	refreshLockWait = 30 * time.Millisecond
+	if !want {
+		if got, err := Keepalive(context.Background(), r.p); err != nil || got || r.hits.Load() != 0 {
+			t.Errorf("%v left: Keepalive = %v, %v (hits %d); want nothing due, no lock, no network", left, got, err, r.hits.Load())
 		}
-		if _, err := Keepalive(context.Background(), r.p); !errors.Is(err, errRefreshLockTimeout) || r.hits.Load() != 0 {
-			t.Errorf("%v left, lock held: err %v, hits %d; want the lock to be honored", c.left, err, r.hits.Load())
-		}
+		return
+	}
+	if _, err := Keepalive(context.Background(), r.p); !errors.Is(err, errRefreshLockTimeout) || r.hits.Load() != 0 {
+		t.Errorf("%v left, lock held: err %v, hits %d; want the lock to be honored", left, err, r.hits.Load())
 	}
 }
 
@@ -74,6 +79,10 @@ func assertKeepaliveRewrote(t *testing.T, r *loginRig, old string) {
 // A peer that refreshed while this call waited for the lock is adopted, never minted over.
 func TestKeepaliveUserNeverDoubleMintsUnderTheLock(t *testing.T) {
 	r := newLoginRig(t, "ka-user-peer")
+	synctest.Test(t, func(t *testing.T) { checkKeepalivePeerWins(t, r) })
+}
+
+func checkKeepalivePeerWins(t *testing.T, r *loginRig) {
 	r.mode.Store("ok")
 	putAccess(t, r.p, jwtExpIn(14*time.Minute, "https://x"))
 	release := holdRefreshLock(t, r.p)
@@ -83,7 +92,12 @@ func TestKeepaliveUserNeverDoubleMintsUnderTheLock(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() { ok, err := Keepalive(context.Background(), r.p); done <- result{ok, err} }()
-	time.Sleep(100 * time.Millisecond)
+	synctest.Wait()
+	select {
+	case <-done:
+		t.Fatal("Keepalive returned before the refresh lock was released")
+	default:
+	}
 	peer := jwtExpIn(time.Hour, "https://x")
 	putAccess(t, r.p, peer)
 	release()

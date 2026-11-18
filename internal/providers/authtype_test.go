@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
@@ -267,12 +268,9 @@ func TestVerdictU2MWithoutSealedTokenNeedsLogin(t *testing.T) {
 }
 
 func TestVerdictTransientNeverCondemns(t *testing.T) {
-	deadline, cancel := context.WithTimeout(context.Background(), time.Nanosecond)
-	defer cancel()
-	<-deadline.Done()
 	for name, err := range map[string]error{
 		"deadline exceeded":     context.DeadlineExceeded,
-		"wrapped deadline":      fmt.Errorf("mint: %w", deadline.Err()),
+		"wrapped deadline":      fmt.Errorf("mint: %w", context.DeadlineExceeded),
 		"canceled":              context.Canceled,
 		"transport":             &url.Error{Op: "Post", URL: "https://x", Err: errors.New("connection refused")},
 		"plain":                 errors.New("boom"),
@@ -490,7 +488,7 @@ func TestIdentityUserCannotJoinAutoSPFlight(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("auto request never reached SP mint")
 	}
-	time.AfterFunc(200*time.Millisecond, finish)
+	setFlightHook(t, func(bool) { finish() })
 	ctx, cancel := context.WithTimeout(WithIdentity(context.Background(), IdentityUser), 10*time.Second)
 	defer cancel()
 	got, err := Credential(ctx, p)
@@ -1094,6 +1092,10 @@ func holdRefreshLock(t *testing.T, p *Provider) (release func()) {
 // An SP mint that waited on the lock serves the token the winner sealed instead of minting again.
 func TestSPMintFollowerServesWinnersToken(t *testing.T) {
 	p, _, _, _ := spHarness(t, IdentitySP)
+	synctest.Test(t, func(t *testing.T) { checkSPMintFollower(t, p) })
+}
+
+func checkSPMintFollower(t *testing.T, p *Provider) {
 	mints := countingM2M(t, jwtExpIn(time.Hour, ""))
 	release := holdRefreshLock(t, p)
 	type result struct {
@@ -1102,7 +1104,12 @@ func TestSPMintFollowerServesWinnersToken(t *testing.T) {
 	}
 	done := make(chan result, 1)
 	go func() { v, _, err := mintSP(context.Background(), p, false, expiryMargin); done <- result{v, err} }()
-	time.Sleep(100 * time.Millisecond)
+	synctest.Wait()
+	select {
+	case <-done:
+		t.Fatal("mintSP returned before the refresh lock was released")
+	default:
+	}
 	winner := jwtExpIn(time.Hour, "")
 	b, _ := json.Marshal(clientAccess{Access: winner, Bind: clientBind(AuthHost(p), "sp-client", "sp-secret")})
 	if err := vault.Store(SecretName(GroupDatabricks, p.Name, AuthM2M)+"_ACCESS", string(b)); err != nil {
@@ -1122,6 +1129,10 @@ func TestSPMintFollowerServesWinnersToken(t *testing.T) {
 // A lock timeout never fails an SP mint: it proceeds unlocked.
 func TestSPMintLockTimeoutMintsUnlocked(t *testing.T) {
 	p, _, _, _ := spHarness(t, IdentitySP)
+	synctest.Test(t, func(t *testing.T) { checkSPMintLockTimeout(t, p) })
+}
+
+func checkSPMintLockTimeout(t *testing.T, p *Provider) {
 	tok := jwtExpIn(time.Hour, "")
 	mints := countingM2M(t, tok)
 	holdRefreshLock(t, p)
@@ -1135,6 +1146,10 @@ func TestSPMintLockTimeoutMintsUnlocked(t *testing.T) {
 
 // A read that times out on the vault lock is retried once.
 func TestReadOAuthRetriesOneVaultLockTimeout(t *testing.T) {
+	synctest.Test(t, checkReadOAuthRetry)
+}
+
+func checkReadOAuthRetry(t *testing.T) {
 	p := mintRow(t, "read-retry", AuthOAuth, "", "http://127.0.0.1:1")
 	putOAuth(t, p, oauthValue{Refresh: "refresh-1"})
 	defer vault.SetReadLockTimeoutForTest(300 * time.Millisecond)()
@@ -1157,24 +1172,29 @@ func TestReadOAuthRetriesOneVaultLockTimeout(t *testing.T) {
 // A caller whose context ends right after the token endpoint answered still gets the rotated refresh token sealed.
 func TestRotatedSealSurvivesCallerCancel(t *testing.T) {
 	needReadOnlyVault(t)
+	synctest.Test(t, checkRotatedSealAfterCancel)
+}
+
+func checkRotatedSealAfterCancel(t *testing.T) {
 	defer func(d time.Duration) { sealRetryDelay = d }(sealRetryDelay)
 	sealRetryDelay = 40 * time.Millisecond
-	r := newRotRig(t, "seal-cancel")
+	p := mintRow(t, "seal-cancel", AuthOAuth, "", "http://127.0.0.1:1")
+	putOAuth(t, p, oauthValue{Refresh: "refresh-1"})
+	t.Cleanup(func() { unsealedRefresh.Delete(p.Name) })
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	orig := refreshU2M
 	t.Cleanup(func() { refreshU2M = orig })
-	refreshU2M = func(c context.Context, host, rt string) (oauth.Token, error) {
-		tok, err := orig(c, host, rt)
+	refreshU2M = func(context.Context, string, string) (oauth.Token, error) {
 		repair := breakWrites(t)
 		time.AfterFunc(10*time.Millisecond, repair)
 		cancel()
-		return tok, err
+		return oauth.Token{Refresh: "refresh-2", Access: jwtExpIn(time.Hour, "https://x")}, nil
 	}
-	if _, _, err := lockedUserMint(ctx, r.p, true, expiryMargin); err != nil {
+	if _, _, err := lockedUserMint(ctx, p, true, expiryMargin); err != nil {
 		t.Fatalf("lockedUserMint = %v", err)
 	}
-	if ov, _ := readOAuth(r.p); ov.Refresh != "refresh-2" {
+	if ov, _ := readOAuth(p); ov.Refresh != "refresh-2" {
 		t.Fatalf("sealed refresh = %q; want refresh-2 sealed despite the cancelled caller", ov.Refresh)
 	}
 }

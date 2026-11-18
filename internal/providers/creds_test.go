@@ -370,7 +370,6 @@ func (s *rotatingIdP) handle(_ *http.Request, f url.Values) (int, map[string]any
 		return 200, map[string]any{"access_token": "login-access", "refresh_token": s.rotate(), "expires_in": 3600}
 	}
 	s.refreshes.Add(1)
-	time.Sleep(5 * time.Millisecond)
 	s.mu.Lock()
 	tok := f.Get("refresh_token")
 	s.presented = append(s.presented, tok)
@@ -387,12 +386,23 @@ func (s *rotatingIdP) handle(_ *http.Request, f url.Values) (int, map[string]any
 }
 
 func TestRefreshRotationConcurrentNoReuse(t *testing.T) {
+	const n = 16
 	idp := &rotatingIdP{}
-	srv := oidcServer(t, idp.handle)
+	joined := mintFollowersReady(t, n-1)
+	var first sync.Once
+	srv := oidcServer(t, func(r *http.Request, f url.Values) (int, map[string]any) {
+		first.Do(func() {
+			select {
+			case <-joined:
+			case <-time.After(5 * time.Second):
+				t.Error("not all refresh callers joined the first flight")
+			}
+		})
+		return idp.handle(r, f)
+	})
 	p := mintRow(t, "race-u2m", AuthOAuth, "", srv.URL)
 	putOAuth(t, p, oauthValue{Refresh: idp.rotate()})
 
-	const n = 16
 	for err := range concurrentRefreshes(p, n) {
 		if err != nil {
 			t.Errorf("concurrent call failed: %v", err)
@@ -451,6 +461,8 @@ func concurrentRefreshes(p *Provider, n int) <-chan error {
 
 func TestValidU2MCannotReplayInflightRefresh(t *testing.T) {
 	entered, release := make(chan struct{}), make(chan struct{})
+	unblock := sync.OnceFunc(func() { close(release) })
+	joined := mintFollowersReady(t, 1)
 	var posts atomic.Int32
 	idp := &rotatingIdP{}
 	access := jwtExpIn(time.Hour, "https://x")
@@ -468,10 +480,13 @@ func TestValidU2MCannotReplayInflightRefresh(t *testing.T) {
 	p := mintRow(t, "valid-inflight", AuthOAuth, "", srv.URL)
 	putOAuth(t, p, oauthValue{Refresh: idp.rotate()})
 	done, valid := make(chan error, 1), make(chan bool, 1)
-	go func() { _, err := Credential(context.Background(), p); done <- err }()
-	<-entered
-	go func() { _, ok := ValidU2M(context.Background(), p); valid <- ok }()
-	time.AfterFunc(100*time.Millisecond, func() { close(release) })
+	var wg sync.WaitGroup
+	defer func() { unblock(); wg.Wait() }()
+	wg.Go(func() { _, err := Credential(context.Background(), p); done <- err })
+	waitFlightSignal(t, entered)
+	wg.Go(func() { _, ok := ValidU2M(context.Background(), p); valid <- ok })
+	waitFlightSignal(t, joined)
+	unblock()
 	err, ok := <-done, <-valid
 	idp.mu.Lock()
 	defer idp.mu.Unlock()
@@ -648,7 +663,6 @@ func TestCredentialPresentWithoutDecrypting(t *testing.T) {
 
 // TestRunAuthCommandFailures: malformed output is refused, failures are classified, stderr secrets are masked.
 func TestRunAuthCommandFailures(t *testing.T) {
-	t.Parallel()
 	p := &Provider{Name: "row"}
 	cases := []struct{ cmd, want, absent string }{
 		{`echo null`, "printed nothing", ""},
@@ -672,7 +686,6 @@ func TestRunAuthCommandFailures(t *testing.T) {
 }
 
 func TestRunAuthCommandTimeoutNotHeldByOrphanedPipe(t *testing.T) {
-	t.Parallel()
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
 	start := time.Now()
@@ -686,7 +699,6 @@ func TestRunAuthCommandTimeoutNotHeldByOrphanedPipe(t *testing.T) {
 
 // io.Copy into a capBuffer keeps at most max bytes, however much the helper writes.
 func TestCapBufferBoundsIOCopy(t *testing.T) {
-	t.Parallel()
 	c := &capBuffer{max: 1024}
 	n, err := io.Copy(c, io.LimitReader(zeroReader{}, 1<<20))
 	if err != nil || n != 1<<20 || len(c.Bytes()) != 1024 {
@@ -698,11 +710,10 @@ type zeroReader struct{}
 
 func (zeroReader) Read(p []byte) (int, error) { clear(p); return len(p), nil }
 
-// countingCmd returns an auth command that appends a line to a counter file, sleeps, then runs tail.
-func countingCmd(t *testing.T, name, sleep, tail string) (cmd, counter string) {
+func countingCmd(t *testing.T, name, tail string) (cmd, counter string) {
 	t.Helper()
 	counter = filepath.Join(t.TempDir(), name+".count")
-	return fmt.Sprintf("echo x >> %q; sleep %s; %s", counter, sleep, tail), counter
+	return fmt.Sprintf("echo x >> %q; %s", counter, tail), counter
 }
 
 func runCount(t *testing.T, counter string) int {
@@ -758,9 +769,11 @@ func TestCommandCredentialSingleFlight(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			cmd, counter := countingCmd(t, "sf", "0.1", c.tail)
+			gate := subprocessGate(t)
+			joined := mintFollowersReady(t, 19)
+			cmd, counter := countingCmd(t, "sf", gate.command+"; "+c.tail)
 			p := freshProvider(t, &Provider{Name: "sf-" + c.name, Auth: Auth{Type: AuthKey, Command: cmd}})
-			vals, errs := herd(p, 20)
+			vals, errs := gatedHerd(t, p, gate.release, joined)
 			for i := range vals {
 				if vals[i] != c.want || (errs[i] == nil) != (c.errHas == "") || errs[i] != nil && !strings.Contains(errs[i].Error(), c.errHas) {
 					t.Fatalf("caller %d: %q, %v; want %q, err containing %q", i, vals[i], errs[i], c.want, c.errHas)
@@ -777,79 +790,99 @@ func TestCommandCredentialSingleFlight(t *testing.T) {
 }
 
 func TestRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
-	cmd, counter := countingCmd(t, "rf", "0.2", "echo stale-token")
+	gate := subprocessGate(t)
+	cmd, counter := countingCmd(t, "rf", gate.command+"; echo stale-token")
 	forced := counter + ".forced"
 	refresh := fmt.Sprintf("echo forced >> %q; echo fresh-token", forced)
 	p := freshProvider(t, &Provider{Name: "sf-refresh",
 		Auth: Auth{Type: AuthKey, Command: cmd, RefreshCommand: refresh}})
-	var startOnce sync.Once
-	started := make(chan struct{})
-	setFlightHook(t, func(leader bool) {
-		if leader {
-			startOnce.Do(func() { close(started) })
-		}
-	})
+	joined := mintFollowersReady(t, 1)
 	done := make(chan struct{})
 	go func() { _, _ = Credential(context.Background(), p); close(done) }()
-	select {
-	case <-started:
-	case <-time.After(5 * time.Second):
-		t.Fatal("non-forced mint never started")
-	}
-	got, err := Refresh(context.Background(), p)
+	defer func() { gate.release(); <-done }()
+	waitFlightSignal(t, gate.ready)
+	var got string
+	var err error
+	refreshed := make(chan struct{})
+	go func() { defer close(refreshed); got, err = Refresh(context.Background(), p) }()
+	defer func() { gate.release(); <-refreshed }()
+	waitFlightSignal(t, joined)
+	gate.release()
+	<-refreshed
 	if err != nil || got != "fresh-token" {
-		t.Fatalf("Refresh = %q, %v; want fresh-token (forced mint, not the in-flight result)", got, err)
+		t.Fatalf("Refresh returned %d bytes, %v; want the forced mint", len(got), err)
 	}
 	if b, _ := os.ReadFile(forced); strings.Count(string(b), "forced") != 1 {
 		t.Fatalf("refresh command ran %q, want once", b)
 	}
-	<-done
 }
 
-// subprocessStartSignal is emitted by a real child of the auth shell, not the flight hook.
-func subprocessStartSignal(t *testing.T) (signal struct {
-	command string
-	ready   chan struct{}
-}) {
+func gatedHerd(t *testing.T, p *Provider, release func(), joined <-chan struct{}) ([]string, []error) {
 	t.Helper()
+	var vals []string
+	var errs []error
+	done := make(chan struct{})
+	go func() { vals, errs = herd(p, 20); close(done) }()
+	defer func() { release(); <-done }()
+	waitFlightSignal(t, joined)
+	release()
+	<-done
+	return vals, errs
+}
+
+type shellGate struct {
+	command string
+	script  string
+	ready   chan struct{}
+	release func()
+}
+
+func subprocessGate(t *testing.T) (signal shellGate) {
+	t.Helper()
+	skipOffUnix(t)
 	listener, err := net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = listener.Close() })
 	signal.ready = make(chan struct{})
+	stop, done := make(chan struct{}), make(chan struct{})
+	signal.release = sync.OnceFunc(func() { close(stop) })
+	t.Cleanup(func() { signal.release(); _ = listener.Close(); <-done })
 	go func() {
+		defer close(done)
 		conn, err := listener.Accept()
 		if err != nil {
 			return
 		}
-		_ = conn.Close()
 		close(signal.ready)
+		<-stop
+		_ = conn.Close()
 	}()
 	address := strings.ReplaceAll(listener.Addr().String(), ":", "/")
-	signal.command = fmt.Sprintf("bash -c 'echo started > /dev/tcp/%s'", address)
+	signal.script = fmt.Sprintf("exec 3<>/dev/tcp/%s; read -r line <&3 || :", address)
+	signal.command = "bash -c '" + signal.script + "'"
 	return signal
 }
 
 func TestCommandCredentialLeaderCancelDoesNotFailFollowers(t *testing.T) {
-	gate := filepath.Join(t.TempDir(), "gate")
-	started := subprocessStartSignal(t)
-	cmd, counter := countingCmd(t, "lc", "0", fmt.Sprintf("%s; while [ ! -e %q ]; do sleep 0.02; done; echo survived-token", started.command, gate))
+	gate := subprocessGate(t)
+	cmd, counter := countingCmd(t, "lc", gate.command+"; echo survived-token")
 	p := freshProvider(t, &Provider{Name: "sf-cancel", Auth: Auth{Type: AuthKey, Command: cmd}})
+	joined := mintFollowersReady(t, 5)
 	lctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go func() { _, _ = Credential(lctx, p) }()
-	waitFlightSignal(t, started.ready)
+	waitFlightSignal(t, gate.ready)
 	vals, errs := make([]string, 5), make([]error, 5)
 	var wg sync.WaitGroup
 	for i := range vals {
 		wg.Add(1)
 		go func(i int) { defer wg.Done(); vals[i], errs[i] = Credential(context.Background(), p) }(i)
 	}
+	defer func() { gate.release(); wg.Wait() }()
+	waitFlightSignal(t, joined)
 	cancel()
-	if err := os.WriteFile(gate, nil, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	gate.release()
 	wg.Wait()
 	for i := range vals {
 		if errs[i] != nil || vals[i] != "survived-token" {
@@ -921,13 +954,7 @@ func TestRunAuthCommandTimeoutKillsDescendants(t *testing.T) {
 	}
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
 	t.Cleanup(func() { killPID(pid) })
-	for range 40 {
-		if gone(t, pid) {
-			return
-		}
-		time.Sleep(50 * time.Millisecond)
-	}
-	t.Errorf("descendant %d still running after the auth command timed out", pid)
+	requireProcessExit(t, pid)
 }
 
 // A shell that exits before its background child must not leave the child running.
@@ -945,13 +972,17 @@ func TestRunAuthCommandReapsChildAfterShellExits(t *testing.T) {
 	}
 	pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
 	t.Cleanup(func() { killPID(pid) })
-	for range 40 {
+	requireProcessExit(t, pid)
+}
+
+func requireProcessExit(t *testing.T, pid int) {
+	t.Helper()
+	for deadline := time.Now().Add(2 * time.Second); time.Now().Before(deadline); {
 		if gone(t, pid) {
 			return
 		}
-		time.Sleep(50 * time.Millisecond)
 	}
-	t.Errorf("child %d still running after its shell exited", pid)
+	t.Errorf("child %d still running after the auth command returned", pid)
 }
 
 // skipOffUnix skips auth-command process tests off unix: they run sh pipelines in a process group.
@@ -1013,13 +1044,25 @@ func TestRunAuthCommandEscapedChildDoesNotHang(t *testing.T) {
 	authDrainLimit = 300 * time.Millisecond
 	t.Cleanup(func() { authDrainLimit = old })
 	pidfile := filepath.Join(t.TempDir(), "escaped.pid")
+	child, parent := subprocessGate(t), subprocessGate(t)
 	start := time.Now()
-	v, rerr := runAuthCommand(context.Background(), &Provider{Name: "escaped"},
-		setsid+" sh -c 'echo $$ > "+pidfile+"; exec sleep 60' & while [ ! -s "+pidfile+" ]; do sleep 0.05; done; echo tok")
+	var v string
+	var rerr error
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		command := fmt.Sprintf(`%q bash -c 'echo $$ > "$1"; %s' sh %q & %s; echo tok`,
+			setsid, child.script, pidfile, parent.command)
+		v, rerr = runAuthCommand(context.Background(), &Provider{Name: "escaped"}, command)
+	}()
+	defer func() { parent.release(); child.release(); <-done }()
+	waitFlightSignal(t, child.ready)
 	if raw, err := os.ReadFile(pidfile); err == nil {
 		pid, _ := strconv.Atoi(strings.TrimSpace(string(raw)))
 		t.Cleanup(func() { killPID(pid) })
 	}
+	parent.release()
+	<-done
 	if rerr != nil || v != "tok" {
 		t.Fatalf("runAuthCommand = %q, %v; want tok", v, rerr)
 	}

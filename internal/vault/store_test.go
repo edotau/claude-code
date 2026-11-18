@@ -20,6 +20,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/edotau/claude-code/internal/audit"
@@ -822,6 +823,10 @@ func TestConcurrentUpdatePreservesEightKeys(t *testing.T) {
 }
 
 func TestViewWaitsForHeldUpdate(t *testing.T) {
+	synctest.Test(t, checkViewWaitsForUpdate)
+}
+
+func checkViewWaitsForUpdate(t *testing.T) {
 	useZeroRootVault(t)
 	putVault(t, Pins, "held", "before")
 	held, release := make(chan struct{}), make(chan struct{})
@@ -833,12 +838,8 @@ func TestViewWaitsForHeldUpdate(t *testing.T) {
 			return tx.Put(Pins, "held", "after")
 		})
 	}()
-	released := false
-	defer func() {
-		if !released {
-			close(release)
-		}
-	}()
+	unblock := sync.OnceFunc(func() { close(release) })
+	defer unblock()
 	select {
 	case <-held:
 	case err := <-writeDone:
@@ -854,13 +855,13 @@ func TestViewWaitsForHeldUpdate(t *testing.T) {
 			return nil
 		})
 	}()
+	synctest.Wait()
 	select {
 	case err := <-readDone:
 		t.Fatalf("View returned while write transaction was held: %v", err)
-	case <-time.After(150 * time.Millisecond):
+	default:
 	}
-	close(release)
-	released = true
+	unblock()
 	for name, done := range map[string]chan error{"writer": writeDone, "reader": readDone} {
 		select {
 		case err := <-done:

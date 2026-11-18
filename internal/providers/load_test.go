@@ -71,9 +71,13 @@ func TestSealedAuthRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
 		t.Run(k.kind, func(t *testing.T) {
 			var posts atomic.Int32
 			gate := make(chan struct{})
+			entered := make(chan struct{})
+			release := sync.OnceFunc(func() { close(gate) })
+			joined := mintFollowersReady(t, 1)
 			srv := oidcServer(t, func(*http.Request, url.Values) (int, map[string]any) {
 				n := posts.Add(1)
 				if n == 1 {
+					close(entered)
 					<-gate
 				}
 				return 200, map[string]any{"access_token": fmt.Sprintf("tok-%d", n), "expires_in": 3600}
@@ -81,17 +85,14 @@ func TestSealedAuthRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
 			p := mintRow(t, "sf-refresh-"+k.kind, k.kind, k.clientID, srv.URL)
 			sealFor(t, p, k.secret)
 			var wg sync.WaitGroup
+			defer func() { release(); wg.Wait() }()
 			wg.Go(func() { _, _ = Credential(context.Background(), p) })
-			deadline := time.Now().Add(5 * time.Second)
-			for posts.Load() == 0 {
-				if time.Now().After(deadline) {
-					close(gate)
-					t.Fatal("non-forced mint never reached the endpoint")
-				}
-				time.Sleep(10 * time.Millisecond)
-			}
-			time.AfterFunc(150*time.Millisecond, func() { close(gate) })
-			got, err := Refresh(context.Background(), p)
+			waitFlightSignal(t, entered)
+			var got string
+			var err error
+			wg.Go(func() { got, err = Refresh(context.Background(), p) })
+			waitFlightSignal(t, joined)
+			release()
 			wg.Wait()
 			if err != nil || got != "tok-2" {
 				t.Fatalf("Refresh = %d-byte token, %v; want the forced mint tok-2, not the in-flight result", len(got), err)
@@ -391,6 +392,63 @@ func settledVault(b *testing.B) {
 	b.Cleanup(paths.SetStampNowForTest(func() time.Time { return time.Now().Add(time.Hour) }))
 }
 
+func TestLoadSharedFreshSameSizeRewrite(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"ultra"    }`)
+	fi, err := os.Stat(vault.Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	t.Cleanup(paths.SetStampNowForTest(func() time.Time { return now }))
+	assertRegistryDefault(t, "ultra")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"anthropic"}`)
+	if err := os.Chtimes(vault.Path(), fi.ModTime(), fi.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	after, err := os.Stat(vault.Path())
+	if err != nil || after.Size() != fi.Size() || !after.ModTime().Equal(fi.ModTime()) {
+		t.Fatal("rewrite did not preserve file size and mtime")
+	}
+	assertRegistryDefault(t, "anthropic")
+}
+
+func assertRegistryDefault(t *testing.T, want string) {
+	t.Helper()
+	got, err := LoadShared()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Default != want {
+		t.Fatalf("registry default = %q, want %q", got.Default, want)
+	}
+}
+
+func TestLoadSharedFreshUnchangedDoesNotReparse(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"fallback":["anthropic","ultra"]}`)
+	now := time.Now()
+	t.Cleanup(paths.SetStampNowForTest(func() time.Time { return now }))
+	orig := parseProviderOverlay
+	t.Cleanup(func() { parseProviderOverlay = orig })
+	calls := 0
+	parseProviderOverlay = func(doc []byte) (*Registry, error) {
+		calls++
+		return orig(doc)
+	}
+	registryContent.Lock()
+	registryContent.doc, registryContent.reg = nil, nil
+	registryContent.Unlock()
+	for range 2 {
+		if _, err := LoadShared(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if calls != 1 {
+		t.Fatalf("overlay parsed %d times, want one", calls)
+	}
+}
+
 func BenchmarkLoad(b *testing.B) {
 	settledVault(b)
 	b.ReportAllocs()
@@ -404,6 +462,21 @@ func BenchmarkLoad(b *testing.B) {
 func BenchmarkLoadShared(b *testing.B) {
 	settledVault(b)
 	b.ReportAllocs()
+	for b.Loop() {
+		if _, err := LoadShared(); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+func BenchmarkLoadSharedFresh(b *testing.B) {
+	vaulttest.Use(b)
+	vaulttest.Put(b, vault.Overlay, "providers", `{"fallback":["ultra"]}`)
+	now := time.Now()
+	b.Cleanup(paths.SetStampNowForTest(func() time.Time { return now }))
+	if _, err := LoadShared(); err != nil {
+		b.Fatal(err)
+	}
 	for b.Loop() {
 		if _, err := LoadShared(); err != nil {
 			b.Fatal(err)

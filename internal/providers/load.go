@@ -61,6 +61,14 @@ func RoutingOverlay() (Routing, error) {
 // loadCache holds the merged registry per vault.db stamp; Load hands out clones so callers may mutate freely.
 var loadCache paths.StampCache[*Registry]
 
+var registryContent struct {
+	sync.Mutex
+	doc []byte
+	reg *Registry
+}
+
+var parseProviderOverlay = func(doc []byte) (*Registry, error) { return Parse(defaultsJSON, doc) }
+
 // Load merges the embedded defaults with the user overlay and validates the result.
 func Load() (*Registry, error) {
 	reg, err := LoadShared()
@@ -80,7 +88,17 @@ func loadRegistry() (*Registry, error) {
 	} else if err != nil {
 		return nil, err
 	}
-	return Parse(defaultsJSON, doc)
+	registryContent.Lock()
+	defer registryContent.Unlock()
+	// Compare the exact bytes that will be parsed, without trusting a recent stamp or reading sealed records.
+	if registryContent.reg != nil && bytes.Equal(registryContent.doc, doc) {
+		return registryContent.reg, nil
+	}
+	reg, err := parseProviderOverlay(doc)
+	if err == nil {
+		registryContent.doc, registryContent.reg = doc, reg
+	}
+	return reg, err
 }
 
 // Known errors unless profile is in the registry.
