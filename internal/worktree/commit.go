@@ -26,6 +26,8 @@ import (
 type CommitRequest struct {
 	Dir, Message string
 	Paths        []string
+	Tasks        []string
+	Plan         string
 	DryRun       bool
 	Source       ClaimSource
 	Out          io.Writer
@@ -74,6 +76,11 @@ func Commit(ctx context.Context, req CommitRequest) error {
 	if err != nil {
 		return err
 	}
+	trailers, err := plans.TaskTrailers(tree.top, req.Plan, req.Tasks)
+	if err != nil {
+		return err
+	}
+	msg += trailers
 	if err := checkHolders(ctx, req, tree, set, dispatched); err != nil {
 		return err
 	}

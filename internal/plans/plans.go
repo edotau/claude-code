@@ -611,7 +611,11 @@ func rangeCommits(ctx context.Context, dir, rng string) ([]Commit, error) {
 		if err != nil {
 			return nil, err
 		}
-		commits = append(commits, Commit{Sha: sha[:7], Files: files})
+		message, err := commitMessage(dir, Commit{Sha: sha})
+		if err != nil {
+			return nil, err
+		}
+		commits = append(commits, Commit{Sha: sha[:7], Files: files, Message: message})
 	}
 	return commits, nil
 }

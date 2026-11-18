@@ -66,7 +66,7 @@ Intro prose line.
 // tickOK ticks path for sha and fails the test on error.
 func tickOK(t *testing.T, path, sha string, files ...string) (ticked, partial []string) {
 	t.Helper()
-	ticked, partial, err := Tick("", path, sha, files)
+	ticked, partial, err := namedTestTick(t, "", path, sha, files)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,7 +466,7 @@ func tickRangeRepo(t *testing.T) (repo, base string) {
 	for _, rel := range []string{"internal/a/a.go", "internal/b/b.go", "README.md"} {
 		writeFile(t, filepath.Join(repo, rel), "x")
 		hosttest.In(t, repo, "add", rel)
-		hosttest.In(t, repo, "commit", "-q", "-m", rel)
+		hosttest.In(t, repo, "commit", "-q", "-m", rel+"\n\nTask: plan 1.1\nTask: plan 1.2\nTask: 2026-01-01-old 1.1")
 	}
 	return repo, base
 }
@@ -520,7 +520,7 @@ func TestTickCommitsUnionsRange(t *testing.T) {
 	hermetic(t)
 	plan := filepath.Join(t.TempDir(), "plan.md")
 	writeFile(t, plan, "- [ ] 1.1 Split owns: a.go, b.go, c.go\n")
-	commits := []Commit{{Sha: "aaa1111", Files: []string{"a.go"}}, {Sha: "bbb2222", Files: []string{"b.go"}}, {Sha: "ccc3333", Files: []string{"c.go"}}}
+	commits := []Commit{{Sha: "aaa1111", Files: []string{"a.go"}, Message: "Task: plan 1.1"}, {Sha: "bbb2222", Files: []string{"b.go"}, Message: "Task: plan 1.1"}, {Sha: "ccc3333", Files: []string{"c.go"}, Message: "Task: plan 1.1"}}
 	res, err := tickCommits("", plan, commits, false, nil)
 	if err != nil || len(res) != 3 || len(res[2].Ticked) != 1 {
 		t.Fatalf("results %+v err=%v", res, err)
@@ -662,7 +662,7 @@ func TestSelectAbbreviatedPartialOwns(t *testing.T) {
 	home := t.TempDir()
 	planPath := filepath.Join(home, "2026-11-05-abbreviated.md")
 	writeFile(t, planPath, "- [ ] 1.1 Parser owns: internal/plans/plans.go, tick.go\n")
-	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/plans/tick.go"}}}
+	commits := []Commit{{Sha: "abc1234", Files: []string{"internal/plans/tick.go"}, Message: "Task: 2026-11-05-abbreviated 1.1"}}
 	plan, tied, _ := Select(home, "", "", nil, commits)
 	if len(plan) != 1 || plan[0] != planPath || len(tied) != 0 {
 		t.Fatalf("partial abbreviated ownership: plan=%q tied=%v, want %q", plan, tied, planPath)
@@ -733,4 +733,20 @@ func BenchmarkParseBytes(b *testing.B) {
 	for b.Loop() {
 		parseBytes("p.md", raw)
 	}
+}
+
+func namedTestTick(t *testing.T, root, plan, sha string, files []string) ([]string, []string, error) {
+	t.Helper()
+	data := readFile(t, plan)
+	message := "test"
+	for _, task := range parseBytes(plan, []byte(data)).Tasks {
+		message += "\nTask: " + strings.TrimSuffix(filepath.Base(plan), ".md") + " " + task.ID
+	}
+	results, err := tickCommits(root, plan, []Commit{{Sha: sha, Files: files, Message: message}}, false, nil)
+	var ticked, partial []string
+	for _, r := range results {
+		ticked = append(ticked, r.Ticked...)
+		partial = append(partial, r.Partial...)
+	}
+	return ticked, partial, err
 }

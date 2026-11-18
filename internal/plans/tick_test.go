@@ -33,7 +33,7 @@ func TestTickRangeSkipsDraftMirror(t *testing.T) {
 		t.Fatal(err)
 	}
 	hosttest.In(t, repo, "add", "a.go")
-	hosttest.In(t, repo, "commit", "-q", "-m", "a")
+	hosttest.In(t, repo, "commit", "-q", "-m", "a\n\nTask: 2026-01-03-approved 1.1")
 
 	home := Home(repo)
 	approved, draft := filepath.Join(home, "2026-01-03-approved.md"), filepath.Join(home, "2026-01-02-draft.md")
@@ -82,14 +82,14 @@ func TestTickAccumulatesAcrossCommits(t *testing.T) {
 	plan := filepath.Join(t.TempDir(), "plan.md")
 	writeFile(t, plan, "- [ ] 1.1 Split owns: a.go, b.go, c.go\n- [ ] 1.2 Pair owns: c.go, d.go\n")
 	for i, c := range cs[:2] {
-		if _, _, err := Tick(repo, plan, c.Sha, c.Files); err != nil {
+		if _, _, err := namedTestTick(t, repo, plan, c.Sha, c.Files); err != nil {
 			t.Fatal(err)
 		}
 		if got := readFile(t, plan); strings.Contains(got, "[x]") || strings.Count(got, "partly landed") != 1 {
 			t.Fatalf("after commit %d want one partial note, no tick:\n%s", i+1, got)
 		}
 	}
-	ticked, _, err := Tick(repo, plan, cs[2].Sha, cs[2].Files)
+	ticked, _, err := namedTestTick(t, repo, plan, cs[2].Sha, cs[2].Files)
 	if err != nil || len(ticked) != 1 {
 		t.Fatalf("third commit: ticked=%v err=%v", ticked, err)
 	}
@@ -100,7 +100,7 @@ func TestTickAccumulatesAcrossCommits(t *testing.T) {
 	if !strings.Contains(got, "- [ ] 1.2 Pair owns: c.go, d.go <!-- partly landed: "+cs[2].Sha+" -->") {
 		t.Fatalf("the commit covering two tasks must leave a note on the one it did not complete:\n%s", got)
 	}
-	if _, _, err := Tick(repo, plan, cs[3].Sha, cs[3].Files); err != nil || !strings.Contains(readFile(t, plan), "- [x] 1.2 Pair owns: c.go, d.go ("+cs[3].Sha+")\n") {
+	if _, _, err := namedTestTick(t, repo, plan, cs[3].Sha, cs[3].Files); err != nil || !strings.Contains(readFile(t, plan), "- [x] 1.2 Pair owns: c.go, d.go ("+cs[3].Sha+")\n") {
 		t.Fatalf("1.2 must tick on its second commit:\n%s", readFile(t, plan))
 	}
 }
@@ -120,11 +120,14 @@ func TestTickCommitIsIdempotentAcrossPlans(t *testing.T) {
 		t.Fatalf("first call: %+v err=%v", res, err)
 	}
 	snap := readFile(t, oldP) + readFile(t, newP)
-	if !strings.Contains(snap, "[x] 1.1") || !strings.Contains(snap, "partly landed: "+cs[1].Sha) {
-		t.Fatalf("older plan must tick and newer must note:\n%s", snap)
+	if strings.Contains(snap, "[x]") || strings.Contains(snap, "partly landed") {
+		t.Fatalf("coverage wrote plans: %s", snap)
 	}
-	if res, _, err = TickCommit(repo, cs[1].Sha, files); err != nil || len(res) != 0 || readFile(t, oldP)+readFile(t, newP) != snap {
-		t.Fatalf("second call must change nothing: %+v err=%v", res, err)
+	if len(res[0].Candidate)+len(res[1].Candidate) != 2 {
+		t.Fatalf("missing candidates: %+v", res)
+	}
+	if res, _, err = TickCommit(repo, cs[1].Sha, files); err != nil || len(res) != 2 || readFile(t, oldP)+readFile(t, newP) != snap {
+		t.Fatalf("repeat candidates must not write: %+v err=%v", res, err)
 	}
 }
 
@@ -201,18 +204,20 @@ func TestEligibilityWindowAndClaim(t *testing.T) {
 	for _, n := range names {
 		writeFile(t, filepath.Join(home, n), "- [ ] 1.1 Task owns: a.go, zzz.go\n")
 	}
-	if _, _, err := TickCommit(repo, cs[0].Sha, cs[0].Files); err != nil {
-		t.Fatal(err)
+	res, _, err := TickCommit(repo, cs[0].Sha, cs[0].Files)
+	if err != nil || len(res) != 2 {
+		t.Fatalf("eligible candidates: %+v, %v", res, err)
 	}
-	for k, want := range map[string]bool{"old": false, "edge": true, "new": true} {
-		if got := strings.Contains(readFile(t, filepath.Join(home, names[k])), "partly landed"); got != want {
-			t.Errorf("%s plan annotated=%v, want %v", k, got, want)
+	for _, n := range names {
+		if strings.Contains(readFile(t, filepath.Join(home, n)), "partly landed") {
+			t.Fatal("unnamed task annotated")
 		}
 	}
 	claimed := filepath.Join(home, names["old"])
 	writeFile(t, claimed, "- [ ] 1.1 Task owns: a.go, zzz.go <!-- working: x · worktree main -->\n")
-	if _, _, err := TickCommit(repo, cs[0].Sha, cs[0].Files); err != nil || !strings.Contains(readFile(t, claimed), "partly landed") {
-		t.Fatalf("a claimed task in an old plan must be annotated (err=%v):\n%s", err, readFile(t, claimed))
+	res, _, err = TickCommit(repo, cs[0].Sha, cs[0].Files)
+	if err != nil || len(res) != 3 {
+		t.Fatalf("claimed candidate missing: %+v, %v", res, err)
 	}
 }
 
@@ -239,7 +244,7 @@ func TestTickDropsAmendedAwayEvidence(t *testing.T) {
 	repo, cs := landRepo(t, "a.go")
 	plan := filepath.Join(t.TempDir(), "plan.md")
 	writeFile(t, plan, "- [ ] 1 Both owns: a.go, b.go\n")
-	if _, _, err := Tick(repo, plan, cs[0].Sha, cs[0].Files); err != nil {
+	if _, _, err := namedTestTick(t, repo, plan, cs[0].Sha, cs[0].Files); err != nil {
 		t.Fatal(err)
 	}
 	hosttest.In(t, repo, "rm", "-q", "--cached", "a.go")
@@ -247,7 +252,7 @@ func TestTickDropsAmendedAwayEvidence(t *testing.T) {
 	hosttest.In(t, repo, "add", "b.go")
 	hosttest.In(t, repo, "commit", "-q", "--amend", "-m", "b.go")
 	sha := strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "--short=7", "HEAD"))
-	results, err := tickCommits(repo, plan, []Commit{{Sha: sha, Files: []string{"b.go"}}}, false, nil)
+	results, err := tickCommits(repo, plan, []Commit{{Sha: sha, Files: []string{"b.go"}, Message: "Task: plan 1"}}, false, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -260,7 +265,33 @@ func TestTickDropsAmendedAwayEvidence(t *testing.T) {
 	if got := readFile(t, plan); strings.Contains(got, cs[0].Sha) || !strings.Contains(got, "partly landed: "+sha) {
 		t.Fatalf("the dead sha must leave the note:\n%s", got)
 	}
-	if again, _ := tickCommits(repo, plan, []Commit{{Sha: sha, Files: []string{"b.go"}}}, false, nil); len(again) != 0 {
+	if again, _ := tickCommits(repo, plan, []Commit{{Sha: sha, Files: []string{"b.go"}, Message: "Task: plan 1"}}, false, nil); len(again) != 0 {
 		t.Fatalf("a second tick must print no stale line: %+v", again)
+	}
+}
+
+func TestTickRequiresMatchingTaskTrailer(t *testing.T) {
+	hermetic(t)
+	repo, cs := landRepo(t, "a.go", "b.go")
+	plan := filepath.Join(Home(repo), "2026-10-05-named.md")
+	body := "- [ ] 1.1 Named owns: a.go, b.go <!-- partly landed: " + cs[0].Sha + " -->\n- [ ] 1.2 Unnamed owns: b.go\n"
+	writeFile(t, plan, body)
+	results, _, err := TickCommit(repo, cs[1].Sha, cs[1].Files)
+	if err != nil || len(results) != 1 || len(results[0].Candidate) != 2 {
+		t.Fatalf("candidates: %+v %v", results, err)
+	}
+	wantBytes(t, plan, "coverage only", body)
+	c := Commit{Sha: cs[1].Sha, Files: cs[1].Files, Message: "Task: another-plan 1.1"}
+	if _, err := tickCommits(repo, plan, []Commit{c}, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	wantBytes(t, plan, "wrong plan", body)
+	c.Message = "Task: 2026-10-05-named 1.1"
+	if _, err := tickCommits(repo, plan, []Commit{c}, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	got := readFile(t, plan)
+	if !strings.Contains(got, "[x] 1.1") || !strings.Contains(got, "("+cs[1].Sha+")") || !strings.Contains(got, "[ ] 1.2") || strings.Contains(got, "partly landed") {
+		t.Fatalf("named legacy coverage: %s", got)
 	}
 }

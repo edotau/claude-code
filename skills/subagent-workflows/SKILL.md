@@ -294,6 +294,10 @@ a sibling's half-finished edit); run `make lint` (checks only) and fix your own 
 ## Test scenarios
 
 - **Normal**: two `claude` leaves on disjoint packages plus a `copilot` test agent in one message; fan-in reads each
-  diff and the seam, the test agent runs on "landed", simplify runs once, one commit names the files.
+  diff and the seam, the test agent runs on "landed", simplify runs once, one commit names the files and task
+  (`worktree commit --task <id>`; repeat for multiple ids).
+  Use `--plan <file>` when ids collide. The trailer `Task: <plan-slug> <id>` survives rebase and cherry-pick;
+  named commits accumulate owned-file coverage, and tick only on main after landing. Coverage alone prints a
+  candidate without changing plans; `plan task <id> --done --sha <sha> --plan <file>` is the manual route.
 - **Error**: a leaf fails `Verify:` twice (second time with failure output and a changed brief); the others land, the
   report names the gap, nothing is silently redone in-context.

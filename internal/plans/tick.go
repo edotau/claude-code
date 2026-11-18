@@ -27,8 +27,9 @@ var boxRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(
 
 // Commit is one landed commit: the sha recorded on ticks and the files it changed.
 type Commit struct {
-	Sha   string
-	Files []string
+	Sha     string
+	Files   []string
+	Message string
 }
 
 // tickResult is what one commit ticked or marked partly landed.
@@ -36,9 +37,10 @@ type tickResult struct {
 	Sha             string
 	Ticked, Partial []string
 	Stale           []string
+	Candidate       []string
 }
 
-// Tick ticks fully covered tasks and notes partly covered ones; returns touched titles, writes only on change.
+// Tick advances only tasks named by the commit, recording coverage until complete.
 func Tick(root, planPath, sha string, files []string) (ticked, partial []string, err error) {
 	results, err := tickCommits(root, planPath, []Commit{{Sha: sha, Files: files}}, false, nil)
 	for _, r := range results {
@@ -52,12 +54,23 @@ func tickCommits(root, planPath string, commits []Commit, dryRun bool, ok func(T
 	recorded := recordedFiles(root)
 	err = editPlan(planPath, func(text string) (string, error) {
 		orig := text
-		var seen []string
+		seen := map[string][]string{}
 		for _, c := range commits {
 			r := tickResult{Sha: strings.TrimSpace(c.Sha)}
-			seen = append(seen, c.Files...)
-			text, r.Ticked, r.Partial, r.Stale = tickText(root, planPath, text, r.Sha, c.Files, seen, recorded, ok)
-			if len(r.Ticked)+len(r.Partial)+len(r.Stale) > 0 {
+			message, readErr := commitMessage(root, c)
+			if readErr != nil {
+				return "", readErr
+			}
+			named := func(t Task) bool { return namesTask(message, planPath, t.ID) && (ok == nil || ok(t)) }
+			for _, t := range parseBytes(planPath, []byte(text)).Tasks {
+				if named(t) {
+					seen[t.ID] = append(seen[t.ID], c.Files...)
+				}
+			}
+
+			r.Candidate = candidates(root, planPath, text, c, message, ok)
+			text, r.Ticked, r.Partial, r.Stale = tickText(root, planPath, text, c.Sha, c.Files, seen, recorded, named)
+			if len(r.Ticked)+len(r.Partial)+len(r.Stale)+len(r.Candidate) > 0 {
 				results = append(results, r)
 			}
 		}
@@ -103,13 +116,13 @@ func recordedFiles(root string) func(sha, landing string) (files []string, stale
 const recordedTimeout = 10 * time.Second
 
 // tickText is Tick's pure edit: ticks on seen plus each task's recorded partial commits, notes partials from files.
-func tickText(root, planPath, text, sha string, files, seen []string, recorded func(string, string) ([]string, bool), ok func(Task) bool) (out string, ticked, partial, stale []string) {
+func tickText(root, planPath, text, sha string, files []string, seen map[string][]string, recorded func(string, string) ([]string, bool), ok func(Task) bool) (out string, ticked, partial, stale []string) {
 	lines := strings.Split(text, "\n")
 	for _, t := range parseBytes(planPath, []byte(text)).Tasks {
 		if !open(t) || len(t.Owns) == 0 || (ok != nil && !ok(t)) {
 			continue
 		}
-		have := slices.Clone(seen)
+		have := slices.Clone(seen[t.ID])
 		var gone []string
 		for _, s := range t.Partial {
 			if recorded == nil || strings.EqualFold(s, sha) {
@@ -373,7 +386,8 @@ func pickPlans(dir, worktree, plan string, drafts []string, commits []Commit, w 
 		}
 		return []string{plan}, nil, false, nil
 	}
-	targets, tied, allow := Select(Home(dir), dir, worktree, drafts, commits)
+	targets, allow := tickTargets(dir, worktree, drafts, commits)
+	var tied []string
 	if len(targets) > 0 {
 		return targets, allow, false, printTie(w, tied)
 	}
@@ -394,6 +408,7 @@ func printTie(w io.Writer, tied []string) error {
 type PlanTick struct {
 	Plan                   string
 	Ticked, Partial, Stale []string
+	Candidate              []string
 }
 
 // Notes are the report lines for sha: what ticked and what is partly landed in this plan.
@@ -406,7 +421,7 @@ func (r PlanTick) Notes(sha string) []string {
 	if len(r.Partial) > 0 {
 		out = append(out, "plans: partly landed "+strings.Join(r.Partial, "; ")+" in "+base)
 	}
-	return append(out, r.Stale...)
+	return append(append(out, r.Stale...), r.Candidate...)
 }
 
 // TieNote is the one line naming plans that own the same file and were all updated; "" when none tied.
@@ -417,20 +432,25 @@ func TieNote(tied []string) string {
 	return "plans: open tasks of " + baseNames(tied) + " own the same file; all updated"
 }
 
-// TickCommit ticks every plan the commit's files advance and lists plans tied on a shared file; idempotent per sha.
+// TickCommit advances named tasks and reports unnamed coverage without writing it.
 func TickCommit(top, sha string, files []string) (out []PlanTick, tied []string, err error) {
 	short := sha
 	if len(short) > 7 {
 		short = short[:7]
 	}
 	wt := WorktreeName(top)
-	targets, tied, allow := Select(Home(top), top, wt, MirrorDests(), []Commit{{Sha: short, Files: files}})
+	c := Commit{Sha: short, Files: files}
+	c.Message, err = commitMessage(top, c)
+	if err != nil {
+		return nil, nil, err
+	}
+	targets, allow := tickTargets(top, wt, MirrorDests(), []Commit{c})
 	var errs []error
 	for _, p := range targets {
-		results, terr := tickCommits(top, p, []Commit{{Sha: short, Files: files}}, false, allow[p])
+		results, terr := tickCommits(top, p, []Commit{c}, false, allow[p])
 		errs = append(errs, terr)
 		for _, r := range results {
-			out = append(out, PlanTick{p, r.Ticked, r.Partial, r.Stale})
+			out = append(out, PlanTick{p, r.Ticked, r.Partial, r.Stale, r.Candidate})
 		}
 	}
 	return out, tied, errors.Join(errs...)
@@ -568,7 +588,7 @@ func printTicked(w io.Writer, results []tickResult, base string, dryRun bool) er
 				return err
 			}
 		}
-		for _, line := range r.Stale {
+		for _, line := range append(slices.Clone(r.Stale), r.Candidate...) {
 			if _, err := fmt.Fprintln(w, line); err != nil {
 				return err
 			}
@@ -667,4 +687,143 @@ func RecordDest(draftBase, dest string) error {
 // writePlan is the package's one write site (the schemas registry keys on it): atomic replace keeping dest's mode.
 func writePlan(dest string, data []byte, mode os.FileMode) error {
 	return paths.AtomicWrite(dest, data, mode)
+}
+
+func commitMessage(root string, c Commit) (string, error) {
+	if c.Message != "" {
+		return c.Message, nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), recordedTimeout)
+	defer cancel()
+	return proc.RunGitInherit(ctx, root, "show", "-s", "--format=%B", c.Sha, "--")
+}
+
+func namesTask(message, plan, id string) bool {
+	want := "Task: " + strings.TrimSuffix(filepath.Base(plan), ".md") + " " + id
+	return id != "" && slices.Contains(strings.Split(strings.TrimSpace(message), "\n"), want)
+}
+
+func candidates(root, plan, text string, c Commit, message string, ok func(Task) bool) []string {
+	var out []string
+	for _, t := range parseBytes(plan, []byte(text)).Tasks {
+		if !open(t) || (ok != nil && !ok(t)) || namesTask(message, plan, t.ID) {
+			continue
+		}
+		if _, any := covers(root, t.Owns, c.Files); any {
+			out = append(out, fmt.Sprintf("plans: candidate %s %s in %s (not ticked); tick with claude-code plan task %q --done --sha %s --plan %s", t.ID, strings.TrimSpace(strings.TrimPrefix(t.Title, t.ID)), filepath.Base(plan), t.ID, c.Sha, textutil.ShellQuote(plan)))
+		}
+	}
+	return out
+}
+
+func tickTargets(root, worktree string, skip []string, commits []Commit) ([]string, map[string]func(Task) bool) {
+	entries, err := os.ReadDir(Home(root))
+	if err != nil {
+		return nil, nil
+	}
+	var targets []string
+	allow := map[string]func(Task) bool{}
+	for _, d := range loadDatedPlans(entries, Home(root), skip) {
+		elig := eligible(d.path, worktree)
+		for _, t := range d.plan.Tasks {
+			if !open(t) || !elig(t) {
+				continue
+			}
+			hit := false
+			for _, c := range commits {
+				_, any := covers(root, t.Owns, c.Files)
+				hit = hit || any || namesTask(c.Message, d.path, t.ID)
+			}
+			if hit {
+				targets = append(targets, d.path)
+				allow[d.path] = elig
+				break
+			}
+		}
+	}
+	return targets, allow
+}
+
+// TaskTrailers validates every requested task before the commit touches the index.
+func TaskTrailers(root, plan string, ids []string) (string, error) {
+	if len(ids) == 0 {
+		return "", nil
+	}
+	home := Home(root)
+	entries, err := os.ReadDir(home)
+	if err != nil && plan == "" {
+		return "", fmt.Errorf("plans: no open tasks: %w", err)
+	}
+	all := loadDatedPlans(entries, home, MirrorDests())
+	if plan != "" {
+		plan, err = filepath.Abs(plan)
+		if err != nil {
+			return "", err
+		}
+		if slices.Contains(MirrorDests(), plan) {
+			return "", fmt.Errorf("plans: %s is an unapproved draft mirror", plan)
+		}
+		data, readErr := os.ReadFile(plan)
+		if readErr != nil {
+			return "", readErr
+		}
+		all = []datedPlan{{path: plan, plan: parseBytes(plan, data)}}
+	}
+	var trailers []string
+	for _, id := range ids {
+		line, err := resolveTrailer(all, WorktreeName(root), id)
+		if err != nil {
+			return "", err
+		}
+		if !slices.Contains(trailers, line) {
+			trailers = append(trailers, line)
+		}
+	}
+	return "\n\n" + strings.Join(trailers, "\n"), nil
+}
+
+func resolveTrailer(all []datedPlan, worktree, id string) (string, error) {
+	var hits, near []string
+	for _, d := range all {
+		for _, t := range d.plan.Tasks {
+			if !open(t) || !eligible(d.path, worktree)(t) {
+				continue
+			}
+			near = append(near, t.ID)
+			if t.ID == id {
+				hits = append(hits, "Task: "+strings.TrimSuffix(filepath.Base(d.path), ".md")+" "+id)
+			}
+		}
+	}
+	if len(hits) == 1 {
+		return hits[0], nil
+	}
+	if len(hits) > 1 {
+		return "", fmt.Errorf("plans: task %q is ambiguous; choose --plan", id)
+	}
+	slices.SortFunc(near, func(a, b string) int {
+		return cmp.Or(cmp.Compare(taskDistance(id, a), taskDistance(id, b)), strings.Compare(a, b))
+	})
+	near = slices.Compact(near)
+	return "", fmt.Errorf("plans: no open task %q in a recent or claimed plan; nearest ids: %s", id, strings.Join(near[:min(5, len(near))], ", "))
+}
+
+func taskDistance(a, b string) int {
+	row := make([]int, len(b)+1)
+	for i := range row {
+		row[i] = i
+	}
+	for i := range len(a) {
+		next := make([]int, len(b)+1)
+		next[0] = i + 1
+		for j := range len(b) {
+			cost := 0
+			if a[i] != b[j] {
+				cost = 1
+			}
+			next[j+1] = min(next[j]+1, row[j+1]+1, row[j]+cost)
+		}
+		row = next
+	}
+	return row[len(b)]
 }

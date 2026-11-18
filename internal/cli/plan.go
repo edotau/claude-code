@@ -19,7 +19,7 @@ var planPage = helptext.Page{
 	About: "Plan checklists (ticked/total, live claims) and plan detectors for vague steps and goals.",
 	Commands: [][2]string{
 		{"status", "progress per plan; --all spans every repo under the plans home"},
-		{"tick", "tick tasks covered by each commit in --range <a>..<b> (--dry-run)"},
+		{"tick", "tick named tasks on main in --range <a>..<b> (--dry-run)"},
 		{"task", "tick, reopen or strike one task by hand"},
 		{"assumptions", "vague or hopeful steps in a plan"},
 		{"goals", "plan steps with no verifiable goal"},
@@ -100,9 +100,9 @@ func printPlanSummaries(summaries []plans.Summary) {
 
 func cmdPlanTick(args []string) int {
 	fs := helptext.NewFlagSet("plan tick", helptext.Page{Usage: "claude-code plan tick --range <a>..<b> [flags]",
-		About: "Tick the plan tasks that each commit in --range landed."})
+		About: "Tick tasks named by commit trailers on main; coverage alone prints candidates."})
 	rng := fs.String("range", "", "commits to tick, <a>..<b> as git rev-list reads it")
-	plan := fs.String("plan", "", "plan file to tick (default: the plan whose open tasks own the range's files)")
+	plan := fs.String("plan", "", "plan file (default: recent or claimed plans matching the range)")
 	dryRun := fs.Bool("dry-run", false, "print what would tick without writing the plan")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -127,8 +127,8 @@ func cmdPlanTick(args []string) int {
 // cmdPlanTask is `plan task`: the by-hand tick, reopen and strike for what no commit can decide.
 func cmdPlanTask(args []string) int {
 	fs := helptext.NewFlagSet("plan task", helptext.Page{Usage: "claude-code plan task <id> --done|--reopen|--strike <why> [flags]",
-		About: "Tick, reopen or strike one task by hand; a commit ticks owned tasks itself."})
-	done := fs.Bool("done", false, "tick the task (a task with no owns: list)")
+		About: "Tick, reopen or strike one task by hand; --done needs no commit trailer."})
+	done := fs.Bool("done", false, "tick the task manually, with or without owns:")
 	reopen := fs.Bool("reopen", false, "untick the task and drop its sha (a revert)")
 	strike := fs.String("strike", "", "strike the task as superseded, with this reason")
 	sha := fs.String("sha", "", "with --done: the commit to record")

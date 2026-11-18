@@ -163,16 +163,20 @@ func cmdWorktreeGate(args []string) int {
 func cmdWorktreeCommit(cwd string, args []string) int {
 	fs := helptext.NewFlagSet("worktree commit", helptext.Page{Usage: "claude-code worktree commit -m <message> [flags] [<file>...]",
 		About: "One pathspec commit of the named files, else the main session's claimed dirty ones.\n" +
-			"Refuses another live session's file or a non-Conventional subject; never pushes."})
+			"Refuses a peer's file or a non-Conventional subject; never pushes.\n" +
+			"--task writes Task: <plan-slug> <id>; named coverage ticks on main after landing."})
 	msg := fs.String("m", "", "commit message; the subject must be a Conventional Commit")
 	dryRun := fs.Bool("dry-run", false, "print the files and message notes without committing")
+	var tasks []string
+	fs.Func("task", "name an open task `id`; repeat for multiple trailers", func(id string) error { tasks = append(tasks, id); return nil })
+	plan := fs.String("plan", "", "plan file for --task (default: recent or claimed plans)")
 	files, err := helptext.ParseArgs(fs, args) // files come first in the usual call, so flags may follow them
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
 	session := os.Getenv(memory.SessionIDEnv)
 	err = worktree.Commit(context.Background(), worktree.CommitRequest{
-		Dir: cwd, Message: *msg, Paths: files, DryRun: *dryRun, Out: os.Stdout,
+		Dir: cwd, Message: *msg, Tasks: tasks, Plan: *plan, Paths: files, DryRun: *dryRun, Out: os.Stdout,
 		Source: worktree.ClaimSource{Alive: proc.Alive, Self: worktree.SessionSlug(session), Owner: inflight.SessionOwner,
 			Label: func(pid int) string { return wthook.SessionLabel(worktree.Proc{PID: pid, Comm: "claude"}) }},
 	})
@@ -430,7 +434,7 @@ func worktreeSpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
 		"list":   {Flags: []helptext.Flag{helptext.CompletionFormatFlag()}},
 		"create": {Flags: []helptext.Flag{helptext.Plain("branch")}},
-		"commit": {Flags: []helptext.Flag{helptext.Plain("m"), helptext.BoolFlag("dry-run")}},
+		"commit": {Flags: []helptext.Flag{helptext.Plain("m"), helptext.Plain("task"), helptext.Plain("plan"), helptext.BoolFlag("dry-run")}},
 		"merge": {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("target"),
 			helptext.BoolFlag("no-clean"), {Name: "resolve-agent", Values: worktree.ResolveAgents}, helptext.BoolFlag("resume"), helptext.Plain("verify"), helptext.BoolFlag("no-verify"), helptext.BoolFlag("full-verify")}},
 		"clean":     {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("force")}},

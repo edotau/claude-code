@@ -25,12 +25,12 @@ func tickFixture(t *testing.T) (planPath, sha string, tick func(command, out str
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	hosttest.In(t, repo, "init", "-q")
+	hosttest.In(t, repo, "init", "-q", "-b", "main")
 	hosttest.In(t, repo, "config", "commit.gpgsign", "false")
 	hosttest.WriteRel(t, repo, "a/one.go", "package a\n")
 	hosttest.WriteRel(t, repo, "b/two file.go", "package b\n")
 	hosttest.In(t, repo, "add", "a/one.go", "b/two file.go")
-	hosttest.In(t, repo, "commit", "-q", "-m", "x", "--no-gpg-sign")
+	hosttest.In(t, repo, "commit", "-q", "-m", "x\n\nTask: "+time.Now().Format(time.DateOnly)+"-widgets 1.1\nTask: "+time.Now().Format(time.DateOnly)+"-widgets 1.2\nTask: "+time.Now().Format(time.DateOnly)+"-gadgets 1.1\nTask: "+time.Now().Format(time.DateOnly)+"-gadgets 1.2", "--no-gpg-sign")
 	sha = strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "--short=7", "HEAD"))
 
 	dir := plans.Home(repo)
@@ -112,7 +112,7 @@ func TestPlanTickTwoQuietCommitsTickOwnShas(t *testing.T) {
 	tick("git -C ~/widgets commit -q -m x", "")
 	hosttest.WriteRel(t, repo, "c/never.go", "package c\n")
 	hosttest.In(t, repo, "add", "c/never.go")
-	hosttest.In(t, repo, "commit", "-q", "-m", "y", "--no-gpg-sign")
+	hosttest.In(t, repo, "commit", "-q", "-m", "y\n\nTask: "+time.Now().Format(time.DateOnly)+"-widgets 1.2", "--no-gpg-sign")
 	sha2 := strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "--short=7", "HEAD"))
 	tick("git -C ~/widgets commit -q -m y", "")
 	got, _ := os.ReadFile(planPath)
@@ -169,12 +169,12 @@ func TestPlanTickMultiCommitDetachedQuoted(t *testing.T) {
 	if err := os.MkdirAll(repo, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	hosttest.In(t, repo, "init", "-q")
+	hosttest.In(t, repo, "init", "-q", "-b", "main")
 	hosttest.In(t, repo, "config", "commit.gpgsign", "false")
 	commit := func(rel string) string {
 		hosttest.WriteRel(t, repo, rel, "x\n")
 		hosttest.In(t, repo, "add", rel)
-		hosttest.In(t, repo, "commit", "-q", "-m", "x", "--no-gpg-sign")
+		hosttest.In(t, repo, "commit", "-q", "-m", "x\n\nTask: "+time.Now().Format(time.DateOnly)+"-widgets 1.1\nTask: "+time.Now().Format(time.DateOnly)+"-widgets 1.2\nTask: "+time.Now().Format(time.DateOnly)+"-gadgets 1.1\nTask: "+time.Now().Format(time.DateOnly)+"-gadgets 1.2", "--no-gpg-sign")
 		return strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "--short=7", "HEAD"))
 	}
 	s1 := commit("a/one.go")
@@ -249,7 +249,7 @@ func claimPlanRepo(t *testing.T) (repo, plan string) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo, _ = filepath.EvalSymlinks(t.TempDir())
-	hosttest.In(t, repo, "init", "-q")
+	hosttest.In(t, repo, "init", "-q", "-b", "main")
 	plan = filepath.Join(plans.Home(memory.GitToplevel(repo)), "2026-10-29-x.md")
 	hosttest.WriteRel(t, filepath.Dir(plan), filepath.Base(plan),
 		"# P\n\n- [ ] 1.2 wire the claim call point owns: a.go\n- [ ] 1.3 delete dead recall helper owns: b.go\n")

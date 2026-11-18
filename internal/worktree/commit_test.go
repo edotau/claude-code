@@ -695,7 +695,9 @@ func TestCommitTicksPlansItself(t *testing.T) {
 	hosttest.WriteRel(t, filepath.Dir(planPath), filepath.Base(planPath), "- [ ] 1.1 Pair owns: a.txt, b.txt\n")
 	for _, f := range []string{"a.txt", "b.txt"} {
 		hosttest.WriteRel(t, dir, f, "changed\n")
-		out, err := commitRun(commitReq(dir, "feat: "+f, f))
+		req := commitReq(dir, "feat: "+f, f)
+		req.Tasks = []string{"1.1"}
+		out, err := commitRun(req)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -707,5 +709,36 @@ func TestCommitTicksPlansItself(t *testing.T) {
 	got, err := os.ReadFile(planPath)
 	if err != nil || string(got) != "- [x] 1.1 Pair owns: a.txt, b.txt ("+sha+")\n" {
 		t.Fatalf("plan after two commits: %q err=%v", got, err)
+	}
+}
+
+func TestCommitTaskTrailersValidateBeforeStaging(t *testing.T) {
+	dir := commitRepo(t)
+	name := time.Now().Format(time.DateOnly) + "-named.md"
+	plan := filepath.Join(plans.Home(dir), name)
+	hosttest.WriteRel(t, filepath.Dir(plan), name, "- [ ] 1.1 First owns: fresh.txt\n- [ ] 1.2 Second owns: fresh.txt\n")
+	hosttest.WriteRel(t, dir, "fresh.txt", "new\n")
+	req := commitReq(dir, "feat: named", "fresh.txt")
+	req.Plan, req.Tasks = plan, []string{"1.1", "1.9"}
+	before := hosttest.In(t, dir, "rev-parse", "HEAD")
+	out, err := commitRun(req)
+	if err == nil || !strings.Contains(err.Error(), "nearest ids: 1.1, 1.2") {
+		t.Fatalf("unknown task: %s, %v", out, err)
+	}
+	if got := hosttest.In(t, dir, "diff", "--cached", "--name-only"); strings.TrimSpace(got) != "" {
+		t.Fatalf("staged unknown task: %s", got)
+	}
+	if hosttest.In(t, dir, "rev-parse", "HEAD") != before {
+		t.Fatal("unknown task committed")
+	}
+	req.Tasks = []string{"1.1", "1.2"}
+	if _, err := commitRun(req); err != nil {
+		t.Fatal(err)
+	}
+	message := hosttest.In(t, dir, "show", "-s", "--format=%B", "HEAD")
+	for _, id := range req.Tasks {
+		if !strings.Contains(message, "Task: "+strings.TrimSuffix(name, ".md")+" "+id) {
+			t.Fatalf("missing trailer: %s", message)
+		}
 	}
 }
