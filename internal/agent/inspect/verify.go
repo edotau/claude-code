@@ -66,7 +66,8 @@ type VerifyReport struct {
 	Proxy      ProxyMatch    `json:"proxy"`
 	Mismatch   bool          `json:"mismatch"`
 	Mismatches []string      `json:"mismatches,omitempty"`
-	Wrote      *[]string     `json:"wrote,omitempty"` // Record.Wrote; nil: not observed
+	Wrote      *[]string     `json:"wrote,omitempty"`            // Record.Wrote; nil: not observed
+	PreDirty   *[]string     `json:"predirty_touched,omitempty"` // Record.PreDirtyTouched
 
 	owned []string // the Owned: paths of the dispatch's brief; unset for a brief without that line
 }
@@ -85,7 +86,7 @@ func verifyDispatch(id, logPath string) (*VerifyReport, error) {
 	rep := &VerifyReport{ID: rec.ID, Agent: rec.Agent, Workspace: rec.Provider, Route: rec.Route, Model: rec.Model,
 		Status: rec.Status, Fallback: fallbackText(rec), DurationMs: rec.DurationMs, Tokens: logTokens(rec.LogPath()),
 		Start: start.Local().Format(time.RFC3339), End: end.Local().Format(time.RFC3339),
-		Mismatches: routingMismatches(rec), Wrote: rec.Wrote, owned: agent.ParseOwned(rec.Request.Prompt)}
+		Mismatches: routingMismatches(rec), Wrote: rec.Wrote, PreDirty: rec.PreDirtyTouched, owned: agent.ParseOwned(rec.Request.Prompt)}
 	rep.Mismatch = len(rep.Mismatches) > 0
 	rep.Proxy = matchProxy(logPath, rec, start, end.Add(windowSlack))
 	return rep, nil

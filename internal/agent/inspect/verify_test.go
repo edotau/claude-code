@@ -84,12 +84,23 @@ func TestVerifyCarriesRecordedWrites(t *testing.T) {
 	renderVerify(&out, v)
 	wantInOutput(t, out.String(), "wrote: 1 files")
 	cut := []string{"/r/a.go", agent.WroteTruncated}
+	cutPre := []string{"/r/mine.go", agent.WroteTruncated}
 	out.Reset()
 	renderVerify(&out, &VerifyReport{Wrote: &cut})
-	wantInOutput(t, out.String(), "wrote: 1+ files")
+	wantInOutput(t, out.String(), "wrote: 1 files (list truncated at the cap)")
+	pre := []string{"/r/mine.go"}
+	out.Reset()
+	renderVerify(&out, &VerifyReport{PreDirty: &pre})
+	wantInOutput(t, out.String(), "ADVISORY: 1 file(s) had uncommitted changes before the run", "/r/mine.go")
+	out.Reset()
+	renderVerify(&out, &VerifyReport{PreDirty: &cutPre})
+	wantInOutput(t, out.String(), "ADVISORY: 1 file(s)", "(list truncated at the cap)")
+	if strings.Contains(out.String(), "    (truncated)") {
+		t.Errorf("cap marker printed as a file row:\n%s", out.String())
+	}
 	saveVerifyFixture(t, agent.Record{ID: "w2", Agent: "codex", Provider: "prod", Model: "m1"})
-	if v, err = verifyDispatch("w2", logPath); err != nil || v.Wrote != nil {
-		t.Fatalf("an old record must carry no list: %v, err %v", v.Wrote, err)
+	if v, err = verifyDispatch("w2", logPath); err != nil || v.Wrote != nil || v.PreDirty != nil {
+		t.Fatalf("an old record must carry no lists: %v %v, err %v", v.Wrote, v.PreDirty, err)
 	}
 }
 

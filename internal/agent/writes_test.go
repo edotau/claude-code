@@ -84,7 +84,7 @@ func TestWatchWritesSeesASameSizeRewrite(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("two\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := done(); got == nil || len(*got) != 1 {
+	if got, _ := done(); got == nil || len(*got) != 1 {
 		t.Fatalf("changed = %v, want a.txt", got)
 	}
 }
@@ -110,7 +110,7 @@ func TestWatchWritesSeesAFileTheRunMadeClean(t *testing.T) {
 	if err := os.WriteFile(file, []byte("one\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got := done(); got == nil || len(*got) != 1 {
+	if got, _ := done(); got == nil || len(*got) != 1 {
 		t.Fatalf("changed = %v, want a.txt: it left the status list but was rewritten", got)
 	}
 }
@@ -124,7 +124,7 @@ func TestWatchWritesCapsTheListWithAMarker(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got := done()
+	got, _ := done()
 	if got == nil || len(*got) != writesCap+1 || (*got)[writesCap] != WroteTruncated {
 		t.Fatalf("list = %d entries, want %d ending in %q", len(*got), writesCap+1, WroteTruncated)
 	}
@@ -137,10 +137,10 @@ func TestWatchWritesGitFailureLeavesNil(t *testing.T) {
 	if err := os.RemoveAll(dir); err != nil {
 		t.Fatal(err)
 	}
-	if got := done(); got != nil {
+	if got, _ := done(); got != nil {
 		t.Fatalf("list = %v, want nil", *got)
 	}
-	if got := watchWrites(context.Background(), filepath.Join(dir, "missing"))(); got != nil {
+	if got := func() *[]string { g, _ := watchWrites(context.Background(), filepath.Join(dir, "missing"))(); return g }(); got != nil {
 		t.Fatalf("a missing workdir must record nothing, got %v", *got)
 	}
 }
@@ -187,5 +187,40 @@ func TestExecAttributesWritesOnlyWhenAloneInTheTree(t *testing.T) {
 				t.Fatalf("Wrote = %v, TreeChanged = %v, want %v and nil", rec.Wrote, rec.TreeChanged, want)
 			}
 		})
+	}
+}
+
+// Given files dirty before the run, only those the run changed or reverted are listed as pre-existing touched.
+func TestWatchWritesListsPreDirtyFilesTheRunTouched(t *testing.T) {
+	dir := gitRepoWith(t, map[string]string{"edited.txt": "1\n", "idle.txt": "1\n", "reverted.txt": "1\n", "clean.txt": "1\n"})
+	git := func(args ...string) {
+		t.Helper()
+		base := []string{"-C", dir, "-c", "user.email=t@t", "-c", "user.name=t"}
+		if out, err := exec.Command("git", append(base, args...)...).CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("commit", "-q", "-m", "base")
+	write := func(name, body string) {
+		t.Helper()
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, n := range []string{"edited.txt", "idle.txt", "reverted.txt"} {
+		write(n, "dirty\n")
+	}
+	done := watchWrites(context.Background(), dir)
+	time.Sleep(10 * time.Millisecond)
+	write("edited.txt", "again, longer\n")
+	write("reverted.txt", "1\n")
+	write("clean.txt", "2\n")
+	_, touched := done()
+	if touched == nil || len(*touched) != 2 || filepath.Base((*touched)[0]) != "edited.txt" ||
+		filepath.Base((*touched)[1]) != "reverted.txt" {
+		t.Fatalf("touched = %v, want edited.txt and reverted.txt only", touched)
+	}
+	if _, none := watchWrites(context.Background(), dir)(); none != nil {
+		t.Fatalf("a run touching no pre-dirty file must report nil, got %v", *none)
 	}
 }

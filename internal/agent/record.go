@@ -80,6 +80,9 @@ type Record struct {
 	Usage    *wire.Usage `json:"usage,omitempty"`
 
 	Widened []string `json:"permissions_widened,omitempty"` // what the request grants beyond the agent's default permissions
+
+	// PreDirtyTouched: files dirty before the run that differ after it; advisory, may be the dispatcher's own work.
+	PreDirtyTouched *[]string `json:"predirty_touched,omitempty"`
 }
 
 // Alive reports whether this dispatch is still running, by the shared inflight.DispatchAlive rule.

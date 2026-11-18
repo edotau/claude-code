@@ -109,11 +109,19 @@ func renderVerify(w io.Writer, v *VerifyReport) {
 	}
 	fmt.Fprintln(w, took)
 	if v.Wrote != nil {
-		n, more := len(*v.Wrote), ""
-		if n > 0 && (*v.Wrote)[n-1] == agent.WroteTruncated {
-			n, more = n-1, "+"
+		fmt.Fprintf(w, "  wrote: %d files%s\n", countFiles(*v.Wrote), truncatedNote(*v.Wrote))
+	}
+	if v.PreDirty != nil && len(*v.PreDirty) > 0 {
+		fmt.Fprintf(w, "  ADVISORY: %d file(s) had uncommitted changes before the run and differ now;"+
+			" if they were not yours to edit, check them:\n", countFiles(*v.PreDirty))
+		for _, f := range *v.PreDirty {
+			if f != agent.WroteTruncated {
+				fmt.Fprintf(w, "    %s\n", f)
+			}
 		}
-		fmt.Fprintf(w, "  wrote: %d%s files\n", n, more)
+		if note := truncatedNote(*v.PreDirty); note != "" {
+			fmt.Fprintf(w, "   %s\n", note)
+		}
 	}
 	p := v.Proxy
 	fmt.Fprintf(w, "  proxy: %d requests; %s\n", p.Requests, p.Note)
@@ -169,4 +177,20 @@ func diffSummary(rep DiffReport, scoped bool) string {
 		s += fmt.Sprintf(", %d skip", n["skip"])
 	}
 	return s
+}
+
+// countFiles is the number of real paths in list, leaving out the cap marker.
+func countFiles(list []string) int {
+	if n := len(list); n > 0 && list[n-1] == agent.WroteTruncated {
+		return n - 1
+	}
+	return len(list)
+}
+
+// truncatedNote is the trailing note for a list cut at the record's cap, empty otherwise.
+func truncatedNote(list []string) string {
+	if len(list) > countFiles(list) {
+		return " (list truncated at the cap)"
+	}
+	return ""
 }

@@ -56,35 +56,47 @@ func (s treeSnap) add(path string) {
 	s[path] = sig
 }
 
-// watchWrites snapshots workdir's repository; the func it returns lists the files changed since, nil if unobserved.
-func watchWrites(ctx context.Context, workdir string) func() *[]string {
+// watchWrites snapshots workdir; its func lists changed files and pre-dirty ones that differ (nil: unseen or none).
+func watchWrites(ctx context.Context, workdir string) func() (changed, touched *[]string) {
+	unobserved := func() (*[]string, *[]string) { return nil, nil }
 	gctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writesTimeout)
 	root := paths.GitTop(gctx, workdir)
 	cancel()
 	if root == "" {
-		return func() *[]string { return nil }
+		return unobserved
 	}
 	before, err := snapTree(ctx, root, nil)
 	if err != nil {
-		return func() *[]string { return nil }
+		return unobserved
 	}
-	return func() *[]string {
+	return func() (*[]string, *[]string) {
 		after, err := snapTree(ctx, root, before)
 		if err != nil {
-			return nil
+			return nil, nil
 		}
-		changed := []string{}
+		changed, touched := []string{}, []string{}
 		for p, sig := range after {
-			if was, ok := before[p]; !ok || was != sig {
+			was, dirty := before[p]
+			if dirty && was != sig {
+				touched = append(touched, p)
+			}
+			if !dirty || was != sig {
 				changed = append(changed, p)
 			}
 		}
-		slices.Sort(changed)
-		if len(changed) > writesCap {
-			changed = append(changed[:writesCap], WroteTruncated)
+		if len(touched) == 0 {
+			return capPaths(changed), nil
 		}
-		return &changed
+		return capPaths(changed), capPaths(touched)
 	}
+}
+
+func capPaths(list []string) *[]string {
+	slices.Sort(list)
+	if len(list) > writesCap {
+		list = append(list[:writesCap], WroteTruncated)
+	}
+	return &list
 }
 
 // sharesTree reports whether another dispatch in rec's git tree overlapped rec's run, which ended at end.

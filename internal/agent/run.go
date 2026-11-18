@@ -257,7 +257,7 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 		}
 		wrote := watchWrites(ctx, p.Opts.WorkDir)
 		res, err := runWithFallback(ctx, p.Chain, p.Opts, sink, d.Notify)
-		p.Record.Wrote = wrote()
+		p.Record.Wrote, p.Record.PreDirtyTouched = wrote()
 		if w := p.Record.Wrote; w != nil && len(*w) > 0 && sharesTree(p.Record, time.Now()) {
 			p.Record.Wrote, p.Record.TreeChanged = nil, w // a peer's writes are in the diff: claim none
 		}
