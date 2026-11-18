@@ -23,7 +23,7 @@ func (s *streamWriter) Write(p []byte) (int, error) {
 	s.pend = append(s.pend, p...) // a copy: an io.Writer must not modify p
 	done := len(s.pend)
 	if m.longest > 0 {
-		_, done = m.scan(s.pend, false, s.json)
+		_, done = m.scan(s.pend, false, s.json, nil)
 	}
 	if err := s.emit(done); err != nil {
 		return 0, err
@@ -52,7 +52,7 @@ func (s *streamWriter) Close() error {
 	if s.err != nil {
 		return s.err
 	}
-	Shared().scan(s.pend, true, s.json)
+	Shared().scan(s.pend, true, s.json, nil)
 	err := s.emit(len(s.pend))
 	s.pend = nil
 	return err

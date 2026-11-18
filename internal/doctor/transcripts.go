@@ -1,11 +1,13 @@
 package doctor
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -61,22 +63,13 @@ func transcriptStores() []transcriptStore {
 	}
 }
 
+// transcriptMatcher counts the same records the live hooks mask: a labeled cache (model listings) is no credential.
 func transcriptMatcher() (*secretredact.Matcher, error) {
-	return secretredact.Load(func() ([]string, error) {
-		names, err := vault.NamesErr()
-		if err != nil {
-			return nil, err
-		}
-		records, err := vault.ReadSecrets(names)
-		if err != nil {
-			return nil, err
-		}
-		values := make([]string, 0, len(records))
-		for _, value := range records {
-			values = append(values, value)
-		}
-		return values, nil
-	})
+	records, err := secretredact.VaultRecords()
+	if err != nil {
+		return nil, err
+	}
+	return secretredact.FromRecords(records), nil
 }
 
 func transcriptAudit(w io.Writer, fix bool, targets []string, days int) int {
@@ -91,10 +84,10 @@ func transcriptAudit(w io.Writer, fix bool, targets []string, days int) int {
 			rc = 1
 		}
 	}
-	fmt.Fprintf(ew, "  vault values skipped: %d\n", m.Skipped)
-	counter := secretredact.NewCounter(m)
-	for result := range transcriptResults(counter, fix, targets, days) {
+	fmt.Fprintf(ew, "  vault values: %d, skipped: %d\n", m.Values(), m.Skipped)
+	for result := range transcriptResults(m, fix, targets, days) {
 		printTranscriptCounts(ew, result.store, result.counts)
+		printTranscriptTally(ew, result.tally)
 		if result.counts.failed > 0 || (!fix && result.counts.matches > 0) {
 			rc = 1
 		}
@@ -115,6 +108,39 @@ func printTranscriptCounts(w io.Writer, store transcriptStore, c transcriptCount
 		}
 	}
 	fmt.Fprintln(w)
+}
+
+// tallyTop is how many vault needles and mask lengths the breakdown names, busiest first.
+const tallyTop = 5
+
+// printTranscriptTally prints one indented line per kind; vault needles by record, field, form and length, never bytes.
+func printTranscriptTally(w io.Writer, t *secretredact.Tally) {
+	for _, kind := range slices.Sorted(maps.Keys(t.Kinds)) {
+		if kind != "vault" {
+			fmt.Fprintf(w, "    %s: %d\n", kind, t.Kinds[kind])
+		}
+	}
+	if n := t.Kinds["vault"]; n > 0 {
+		fmt.Fprintf(w, "    vault value: %d from %d needles\n", n, len(t.Needles))
+		origins := slices.SortedFunc(maps.Keys(t.Needles), func(a, b secretredact.Origin) int {
+			return cmp.Or(t.Needles[b]-t.Needles[a], cmp.Compare(a.Record+a.Field+a.Form, b.Record+b.Field+b.Form))
+		})
+		for _, o := range origins[:min(tallyTop, len(origins))] {
+			fmt.Fprintf(w, "      %s %q %s %d B: %d\n", o.Record, o.Field, o.Form, o.Len, t.Needles[o])
+		}
+	}
+	if len(t.Masks) == 0 {
+		return
+	}
+	lengths := slices.SortedFunc(maps.Keys(t.Masks), func(a, b int) int { return cmp.Or(t.Masks[b]-t.Masks[a], a-b) })
+	total, parts := 0, []string{}
+	for i, n := range lengths {
+		total += t.Masks[n]
+		if i < tallyTop {
+			parts = append(parts, fmt.Sprintf("%d B: %d", n, t.Masks[n]))
+		}
+	}
+	fmt.Fprintf(w, "    existing masks: %d (%s)\n", total, strings.Join(parts, ", "))
 }
 
 func transcriptSelected(path string, targets []string) bool {
@@ -264,9 +290,10 @@ func transcriptFile(path string, m *secretredact.Matcher, fix bool) (int, error)
 type transcriptResult struct {
 	store  transcriptStore
 	counts transcriptCounts
+	tally  *secretredact.Tally
 }
 
-func transcriptResults(counter *secretredact.Counter, fix bool, targets []string, days int) <-chan transcriptResult {
+func transcriptResults(m *secretredact.Matcher, fix bool, targets []string, days int) <-chan transcriptResult {
 	results := make(chan transcriptResult)
 	cutoff := time.Time{}
 	if days > 0 {
@@ -280,7 +307,9 @@ func transcriptResults(counter *secretredact.Counter, fix bool, targets []string
 	var wg sync.WaitGroup
 	for _, store := range transcriptStores() {
 		wg.Go(func() {
-			results <- transcriptResult{store, scanTranscriptStore(store, counter, fix, targets, cutoff, slots)}
+			counter := secretredact.NewCounter(m)
+			counter.Tally = secretredact.NewTally()
+			results <- transcriptResult{store, scanTranscriptStore(store, counter, fix, targets, cutoff, slots), counter.Tally}
 		})
 	}
 	go func() { wg.Wait(); close(results) }()

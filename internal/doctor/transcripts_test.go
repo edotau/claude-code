@@ -171,6 +171,29 @@ func TestTranscriptWindow(t *testing.T) {
 	}
 }
 
+// The report counts only credential records, the set the hooks mask, and breaks matches down by kind and needle.
+func TestTranscriptBreakdown(t *testing.T) {
+	cfg := resolvedPath(vaulttest.UseFreshKey(t))
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("TMPDIR", t.TempDir())
+	const listed = "databricks-fake-model-id"
+	vaulttest.Secret(t, "FAKE_TOKEN", transcriptFake)
+	if err := vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
+		return tx.PutSealed(key, "model-cache", `{"models":["`+listed+`"]}`, "cache", time.Now())
+	}); err != nil {
+		t.Fatal("seal")
+	}
+	transcriptWrite(t, filepath.Join(cfg, "projects", "s.jsonl"), []byte(listed+" "+transcriptFake+" "+listed+"\n"), time.Hour)
+	var report bytes.Buffer
+	transcriptAudit(&report, false, nil, 0)
+	for _, want := range []string{"claude projects: scanned 1, with matches 1, matches 1,", "vault value: 1 from 1 needles",
+		fmt.Sprintf(`FAKE_TOKEN "" raw %d B: 1`, len(transcriptFake))} {
+		if !strings.Contains(report.String(), want) {
+			t.Errorf("report lacks %q", want)
+		}
+	}
+}
+
 func TestTranscriptCountBoundary(t *testing.T) {
 	m := secretredact.FromValues([]string{transcriptFake})
 	counter := secretredact.NewCounter(m)

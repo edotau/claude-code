@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strings"
 	"sync"
 )
 
@@ -19,9 +20,90 @@ type Counter struct {
 	matcher       *Matcher
 	window, piece int
 	buffers       sync.Pool
+	Tally         *Tally // nil counts only; set before the first File
 }
 
-type countBuffers struct{ data, scratch []byte }
+type countBuffers struct {
+	data, scratch []byte
+	log           []hit
+}
+
+// Tally breaks counted matches down by kind and vault needle, plus masks already present by byte length.
+type Tally struct {
+	mu      sync.Mutex
+	Kinds   map[string]int
+	Needles map[Origin]int
+	Masks   map[int]int
+}
+
+// hit is one counted match (kind "vault" with its origin, or a shape kind) or an existing mask (kind "mask").
+type hit struct {
+	kind   string
+	origin Origin
+	mask   int
+}
+
+func NewTally() *Tally {
+	return &Tally{Kinds: map[string]int{}, Needles: map[Origin]int{}, Masks: map[int]int{}}
+}
+
+func (t *Tally) add(log []hit) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for _, h := range log {
+		switch h.kind {
+		case "mask":
+			t.Masks[h.mask]++
+		case "vault":
+			t.Kinds[h.kind]++
+			t.Needles[h.origin]++
+		default:
+			t.Kinds[h.kind]++
+		}
+	}
+}
+
+// note logs the step at span: a value hit by the needle that starts it, or an existing mask (the only multi-byte miss).
+func (m *Matcher) note(log *[]hit, span []byte, matched bool) {
+	switch {
+	case matched:
+		n, _ := m.matchAt(span, true)
+		*log = append(*log, hit{kind: "vault", origin: m.origins[string(span[:n])]})
+	case len(span) > 1:
+		*log = append(*log, hit{kind: "mask", mask: len(span)})
+	}
+}
+
+// shapeFamilies are the credential prefixes SecretSpans recognises, longest first so github_pat_ beats gh.
+var shapeFamilies = []string{"github_pat_", "nvapi-", "tvly-", "AIza", "AKIA", "ASIA", "dapi", "gsk_", "xox", "sk-", "gh"}
+
+// shapeKind names the shape that produced span in text: pem, jwt, bearer, or prefix:<family>.
+func shapeKind(text string, span [2]int) string {
+	s := text[span[0]:span[1]]
+	switch {
+	case strings.HasPrefix(s, "-----BEGIN"):
+		return "pem"
+	case strings.HasPrefix(s, "eyJ"):
+		return "jwt"
+	case strings.HasSuffix(strings.ToLower(strings.TrimRight(text[:span[0]], "\t\n\f\r ")), "bearer"):
+		return "bearer"
+	}
+	for _, p := range shapeFamilies {
+		if strings.HasPrefix(s, p) {
+			return "prefix:" + p
+		}
+	}
+	return "shape:other"
+}
+
+// logFor is the hit log a count records into, or nil when no Tally wants one.
+func (c *Counter) logFor(bufs *countBuffers) *[]hit {
+	if c.Tally == nil {
+		return nil
+	}
+	bufs.log = bufs.log[:0]
+	return &bufs.log
+}
 
 func NewCounter(m *Matcher) *Counter {
 	return &Counter{matcher: m, window: CountWindow, piece: countPiece}
@@ -76,7 +158,10 @@ func (c *Counter) count(r io.Reader, bufs *countBuffers) (int, error) {
 		n, cut, stop := c.segment(buf, from, bufs)
 		hits += n
 		if eof {
-			return hits + c.matcher.Mask(buf[cut:]), nil
+			log := c.logFor(bufs)
+			n, _ := c.matcher.mask(buf[cut:], log)
+			c.commit(log)
+			return hits + n, nil
 		}
 		buf = buf[:copy(buf, buf[cut:])]
 		from = stop - cut
@@ -111,14 +196,22 @@ func (c *Counter) segment(b []byte, from int, bufs *countBuffers) (hits, cut, st
 			continue
 		}
 		bufs.scratch = append(bufs.scratch[:0], b[cut:end]...)
-		n, open := c.matcher.mask(bufs.scratch)
+		log := c.logFor(bufs)
+		n, open := c.matcher.mask(bufs.scratch, log)
 		if open {
 			end = cut + 2*(end-cut) // doubling keeps a long open PEM block from being masked once per line
 			continue
 		}
+		c.commit(log)
 		hits, cut, end = hits+n, end, end+c.piece
 	}
 	return hits, cut, end
+}
+
+func (c *Counter) commit(log *[]hit) {
+	if log != nil {
+		c.Tally.add(*log)
+	}
 }
 
 // crosses reports a value occurrence spanning offset p of b, or one the bytes after p cannot yet settle.

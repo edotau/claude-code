@@ -180,6 +180,18 @@ func BenchmarkRedactSecrets(b *testing.B) {
 	}
 }
 
+// A bare GitHub or Slack prefix in prose is no credential; the full shape still is.
+func TestSecretSpansSkipsBarePrefixes(t *testing.T) {
+	for _, prose := range []string{"the ghp_ prefix", "github_pat_", "gho_x", "xoxb-a and xoxp-"} {
+		if spans := SecretSpans(prose); len(spans) != 0 {
+			t.Errorf("%q: %d spans, want none", prose, len(spans))
+		}
+	}
+	if spans := SecretSpans("ghp_" + strings.Repeat("Ab1", 12)); len(spans) != 1 {
+		t.Errorf("full GitHub token: %d spans, want 1", len(spans))
+	}
+}
+
 func TestSecretSpans(t *testing.T) {
 	cases := []string{
 		"dapi" + strings.Repeat("a1", 16),

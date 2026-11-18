@@ -26,9 +26,16 @@ const windowSize = 4 << 20
 // Matcher keeps the value index reusable across independent text buffers.
 type Matcher struct {
 	needles [256][]string
+	origins map[string]Origin
 	Skipped int
 	longest int
 	breaks  bool // some value holds a line break, so a match can span lines
+}
+
+// Origin names a needle without its bytes: vault record, JSON field, encoded form and length.
+type Origin struct {
+	Record, Field, Form string
+	Len                 int
 }
 
 type sourceError struct{ cause error }
@@ -46,18 +53,35 @@ func Load(values func() ([]string, error)) (*Matcher, error) {
 }
 
 func FromValues(vals []string) *Matcher {
-	m := &Matcher{}
-	unique := make(map[string]bool)
-	for _, val := range vals {
-		for _, leaf := range leaves(val) {
-			if !eligible(leaf) {
+	recs := make([][2]string, len(vals))
+	for i, v := range vals {
+		recs[i][1] = v
+	}
+	return fromRecords(recs)
+}
+
+// FromRecords is FromValues keeping each value's record name, so a Tally can attribute matches.
+func FromRecords(recs map[string]string) *Matcher {
+	pairs := make([][2]string, 0, len(recs))
+	for name, v := range recs {
+		pairs = append(pairs, [2]string{name, v})
+	}
+	sort.Slice(pairs, func(a, b int) bool { return pairs[a][0] < pairs[b][0] })
+	return fromRecords(pairs)
+}
+
+func fromRecords(recs [][2]string) *Matcher {
+	m := &Matcher{origins: map[string]Origin{}}
+	for _, rec := range recs {
+		for _, leaf := range leaves(rec[1]) {
+			if !eligible(leaf.text) {
 				m.Skipped++
 				continue
 			}
-			for _, v := range variants(leaf) {
-				if !unique[v] {
+			for i, v := range variants(leaf.text) {
+				if _, dup := m.origins[v]; !dup {
 					m.needles[v[0]] = append(m.needles[v[0]], v)
-					unique[v] = true
+					m.origins[v] = Origin{rec[0], leaf.field, variantForms[i], len(v)}
 					m.longest = max(m.longest, len(v))
 					m.breaks = m.breaks || strings.Contains(v, "\n")
 				}
@@ -70,35 +94,48 @@ func FromValues(vals []string) *Matcher {
 	return m
 }
 
-func leaves(val string) []string {
+// Values is how many distinct values the matcher masks, each in all its encoded forms.
+func (m *Matcher) Values() int {
+	n := 0
+	for _, o := range m.origins {
+		if o.Form == "raw" {
+			n++
+		}
+	}
+	return n
+}
+
+type leaf struct{ field, text string }
+
+func leaves(val string) []leaf {
 	var obj any
 	if json.Unmarshal([]byte(val), &obj) != nil {
-		return []string{val}
+		return []leaf{{"", val}}
 	}
 	switch obj.(type) {
 	case map[string]any, []any:
 	default:
-		return []string{val}
+		return []leaf{{"", val}}
 	}
-	var out []string
-	var visit func(any)
-	visit = func(v any) {
+	var out []leaf
+	var visit func(string, any)
+	visit = func(field string, v any) {
 		switch x := v.(type) {
 		case string:
 			if !strings.Contains(x, "://") { // a URL leaf is an address, never the credential
-				out = append(out, x)
+				out = append(out, leaf{field, x})
 			}
 		case []any:
 			for _, item := range x {
-				visit(item)
+				visit(field+"[]", item)
 			}
 		case map[string]any:
-			for _, item := range x {
-				visit(item)
+			for k, item := range x {
+				visit(strings.TrimPrefix(field+"."+k, "."), item)
 			}
 		}
 	}
-	visit(obj)
+	visit("", obj)
 	return out
 }
 
@@ -122,6 +159,8 @@ func eligible(v string) bool {
 	return bits.OnesCount(classes) >= 2
 }
 
+var variantForms = []string{"raw", "json", "query", "bearer", "base64", "base64-raw", "base64url", "base64url-raw"}
+
 func variants(v string) []string {
 	encoded, _ := json.Marshal(v)
 	out := []string{v, string(encoded[1 : len(encoded)-1]), url.QueryEscape(v), "Bearer " + v}
@@ -141,16 +180,19 @@ func fill(b []byte) {
 }
 
 func (m *Matcher) Mask(b []byte) int {
-	hits, _ := m.mask(b)
+	hits, _ := m.mask(b, nil)
 	return hits
 }
 
 // mask also reports a shape that could run past the end of b: an open PEM block or a bearer still awaiting its token.
-func (m *Matcher) mask(b []byte) (hits int, open bool) {
-	hits = m.MaskValues(b)
+func (m *Matcher) mask(b []byte, log *[]hit) (hits int, open bool) {
+	hits, _ = m.scan(b, true, nil, log)
 	text := shapeText(b)
 	spans := textutil.SecretSpans(text)
 	for _, span := range spans {
+		if log != nil {
+			*log = append(*log, hit{kind: shapeKind(text, span)})
+		}
 		fill(b[span[0]:span[1]])
 		hits++
 	}
@@ -161,12 +203,12 @@ func (m *Matcher) mask(b []byte) (hits int, open bool) {
 
 // MaskValues masks only exact vault values and their encodings, for text whose structure a shape span could cut.
 func (m *Matcher) MaskValues(b []byte) int {
-	hits, _ := m.scan(b, true, nil)
+	hits, _ := m.scan(b, true, nil, nil)
 	return hits
 }
 
 // scan masks the leading bytes of b whose masking no later byte can change (all of b when final) and counts them.
-func (m *Matcher) scan(b []byte, final bool, lx *jsonLexer) (hits, done int) {
+func (m *Matcher) scan(b []byte, final bool, lx *jsonLexer, log *[]hit) (hits, done int) {
 	for done < len(b) {
 		if c := b[done]; c != '[' && len(m.needles[c]) == 0 { // neither a mask nor a value starts here
 			if lx != nil {
@@ -180,6 +222,9 @@ func (m *Matcher) scan(b []byte, final bool, lx *jsonLexer) (hits, done int) {
 			break
 		}
 		span := b[done : done+width]
+		if log != nil {
+			m.note(log, span, hit) // before the switch masks span
+		}
 		switch {
 		case hit && lx == nil:
 			fill(span)

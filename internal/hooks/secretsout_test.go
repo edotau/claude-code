@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/redact"
@@ -67,5 +68,21 @@ func TestSecretsOutKeepsResponseShape(t *testing.T) {
 		if len(got) != len(orig) || fmt.Sprint(got["stderr"]) != fmt.Sprint(orig["stderr"]) || got["n"] != orig["n"] {
 			t.Errorf("%s: response %v, want %v with only stdout masked", name, got, orig)
 		}
+	}
+}
+
+// A vault read that stalls past the wait still masks credential shapes, with a note, before the hook budget ends.
+func TestSecretsOutStalledVaultMasksShapes(t *testing.T) {
+	release := make(chan struct{})
+	redact.StubSource(t, func() ([]string, error) { <-release; return []string{fakeSecret}, nil })
+	t.Cleanup(func() { close(release) })
+	prev := vaultWait
+	vaultWait = func() time.Duration { return 20 * time.Millisecond }
+	t.Cleanup(func() { vaultWait = prev })
+	shape := "ghp_" + "Zq8rT2vLm9XwK4pB7nC1dF6hJ3sY5aE0uQiO"
+	got := SecretsOut(bashOutput("GH="+shape+" ok", ""))
+	stdout, _ := got.UpdatedToolOutput["stdout"].(string)
+	if strings.Contains(stdout, shape) || len(stdout) != len("GH="+shape+" ok") || got.Stderr != shapesOnlyNote {
+		t.Errorf("stdout %d bytes masked=%v, stderr %q", len(stdout), !strings.Contains(stdout, shape), got.Stderr)
 	}
 }

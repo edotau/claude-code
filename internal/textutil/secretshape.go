@@ -239,12 +239,17 @@ func SecretSpans(s string) [][2]int {
 		for j < len(shadow) && tokenByte(shadow[j]) {
 			j++
 		}
-		if j > i && starts[shadow[i]] && looksSecretToken(shadow[i:j]) {
+		if j > i && starts[shadow[i]] && fullCredential(shadow[i:j]) {
 			add(i, j)
 		}
 		i = max(j, i+1)
 	}
 	return mergeSecretSpans(spans)
+}
+
+// fullCredential is looksSecretToken minus the bare GitHub and Slack prefix checks, which match prose like "ghp_".
+func fullCredential(run string) bool {
+	return !notCredentialShaped(run) && startsCredential(run)
 }
 
 func mergeSecretSpans(spans [][2]int) [][2]int {
