@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
@@ -87,10 +88,33 @@ func leadForProvider(reg *providers.Registry, agent string, l Launch, profile st
 		}
 		return "", fmt.Errorf("--profile %s is not a %s profile", profile, provider)
 	}
+	return signedProviderLead(reg, agent, l)
+}
+
+func signedProviderLead(reg *providers.Registry, agent string, l Launch) (string, error) {
+	provider := l.Provider
+	eligible := &providers.Registry{Providers: map[string]*providers.Provider{}}
 	for _, n := range reg.ProfilesOf(provider) {
 		if p := reg.Providers[n]; serves(l, agent, p) && providers.CredentialPresent(p) {
-			return n, nil
+			if provider != router.RouteDatabricks {
+				return n, nil
+			}
+			eligible.Providers[n] = p
 		}
+	}
+	if len(eligible.Providers) > 0 {
+		st := router.LoadState()
+		q := router.WorkspaceQuery[struct{}]{
+			Findings: func(*providers.Provider, string, string, time.Time) []struct{} { return nil },
+			Cooling: func(p *providers.Provider, now time.Time) bool {
+				return st.CoolingUntil(router.AccountOf(p)).After(now)
+			},
+		}
+		names, _, err := router.RankWorkspaces(eligible, q, time.Now())
+		if err != nil {
+			return "", err
+		}
+		return names[0], nil
 	}
 	return "", fmt.Errorf("no signed-in %s profile serves %s", provider, agent)
 }

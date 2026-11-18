@@ -37,6 +37,7 @@ func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 	if sink == nil {
 		sink = wire.Discard
 	}
+	c.Dispatches = slices.Clone(c.Dispatches)
 	reasons := slices.Clone(c.Skipped)
 	if len(c.Dispatches) == 0 {
 		return wire.Result{Agent: c.Want, Status: wire.StatusError, FallbackReason: strings.Join(reasons, "; ")},
@@ -450,6 +451,7 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 	if cerr := ctx.Err(); cerr != nil {
 		return true, s.cancelled(i, disp, cerr)
 	}
+	disp = claimSibling(c, i, disp)
 	if herr := s.handOff(i, disp, midRun, sink, notify); herr != nil {
 		return true, herr
 	}
@@ -457,6 +459,52 @@ func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch,
 	// Bookkeeping precedes panic handling so a panicking fallback is still reported as the fallback.
 	s.stopped = panicked || (i == 0 && explicitBackend(s.req))
 	return s.stopped, nil
+}
+
+func claimSibling(c Chain, i int, disp Dispatch) Dispatch {
+	if disp.Agent.Name() != c.Want || !disp.otherRoute || disp.quotaOverflow || disp.swap {
+		return disp
+	}
+	if !strings.HasPrefix(c.Dispatches[0].Account, "databricks·") {
+		return disp
+	}
+	reg, slots := siblingSlots(c, i, disp)
+	if len(slots) == 0 {
+		return disp
+	}
+	// The chain already admitted these exact models and accounts; only their order may change.
+	st := loadState()
+	q := router.WorkspaceQuery[struct{}]{
+		Findings: func(*providers.Provider, string, string, time.Time) []struct{} { return nil },
+		Cooling: func(p *providers.Provider, now time.Time) bool {
+			return st.CoolingUntil(router.AccountOf(p)).After(now)
+		},
+	}
+	name, _, _, err := router.PickWorkspaceAndStamp(reg, q, time.Now())
+	if err != nil {
+		warnHold(disp.Account, err)
+		return disp
+	}
+	j := slots[name]
+	c.Dispatches[i], c.Dispatches[j] = c.Dispatches[j], c.Dispatches[i]
+	return c.Dispatches[i]
+}
+
+func siblingSlots(c Chain, i int, disp Dispatch) (*providers.Registry, map[string]int) {
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
+	slots := map[string]int{}
+	_, model, _ := strings.Cut(disp.Model, ":")
+	for j := i; j < len(c.Dispatches); j++ {
+		d := c.Dispatches[j]
+		ws, ok := strings.CutPrefix(d.Account, "databricks·")
+		_, otherModel, _ := strings.Cut(d.Model, ":")
+		if !ok || d.Agent.Name() != c.Want || !d.otherRoute || d.quotaOverflow || !models.SameModel(model, otherModel) {
+			break
+		}
+		reg.Providers[ws] = &providers.Provider{Name: ws, Preset: providers.PresetDatabricks}
+		slots[ws] = j
+	}
+	return reg, slots
 }
 
 // quotaFailure reports err as a quota-class failure (retry.KindQuota).

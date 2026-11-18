@@ -2,9 +2,14 @@ package agentconfig
 
 import (
 	"errors"
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -219,5 +224,28 @@ func TestForProviderPickMatchesRouted(t *testing.T) {
 	got, err := ForContext(t.Context(), "codex", Launch{Provider: "databricks"})
 	if err != nil || got.Profile != routed.Profile {
 		t.Fatalf("non-routed = %+v, %v; want %q like routed", got, err, routed.Profile)
+	}
+}
+
+func TestLeadProviderRanksWithoutStamp(t *testing.T) {
+	setup(t)
+	vaulttest.Secret(t, "DATABRICKS_DEV2_PAT", "dapi-test")
+	if err := os.MkdirAll(inflight.Dir(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	name := fmt.Sprintf("agent-%d-busy", os.Getpid())
+	if err := os.WriteFile(filepath.Join(inflight.Dir(), name), []byte("databricks·dev"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := leadForProvider(reg, "codex", Launch{Provider: "databricks"}, "", false)
+	if err != nil || got != "dev2" {
+		t.Fatalf("lead=%q err=%v; want dev2", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(paths.StateDir(), "router", "route-auto.json")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("read-only lead stamped: %v", err)
 	}
 }

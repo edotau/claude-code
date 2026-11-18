@@ -17,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -1135,5 +1136,114 @@ func TestDispatchRequestKeepCallerFamilyIsConcrete(t *testing.T) {
 	}
 	if got := dispatchRequest(RunOptions{Model: "gpt-6.1-sol"}, d, true).Model; got != "gpt-6.1-sol" {
 		t.Errorf("typed concrete id became %q, want it kept", got)
+	}
+}
+
+func TestFallbackSiblingLoad(t *testing.T) {
+	retry.ResetCooldowns()
+	t.Cleanup(retry.ResetCooldowns)
+	setConfigDir(t)
+	siblingLoads(t)
+	c := siblingFallbackChain()
+	res, err := runWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
+	if err != nil || len(res.Hops) != 2 || res.Hops[0].Profile != "dev" || res.Hops[1].Profile != "stage" {
+		t.Fatalf("hops=%+v err=%v; want dev, stage", res.Hops, err)
+	}
+	if res.Provider != "stage" || res.Invoked != "stage:test-model" || !strings.Contains(wire.RanOn(res), "databricks·stage") {
+		t.Fatalf("receipt=%+v", res)
+	}
+	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
+	rec.Finish(res, err, 0)
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	saved, err := LoadRecord(rec.ID)
+	if err != nil || saved.Provider != "stage" {
+		t.Fatalf("record=%+v err=%v", saved, err)
+	}
+}
+
+func siblingFallbackChain() Chain {
+	c := Chain{Want: "codex"}
+	for i, ws := range []string{"dev", "qa", "prod", "stage"} {
+		r := &siblingRunner{fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{nil}}}
+		if i == 0 {
+			r.errs, r.emptyAnswer = []error{&retry.Error{Kind: retry.KindRateLimit, Terminal: true, Agent: "codex", Err: errors.New("429")}}, true
+		}
+		c.Dispatches = append(c.Dispatches, Dispatch{Agent: r, Account: "databricks·" + ws, Model: ws + ":test-model", otherRoute: i > 0})
+	}
+	return c
+}
+
+type siblingRunner struct{ fakeRunner }
+
+func (r *siblingRunner) Run(ctx context.Context, req RunOptions, sink wire.Sink) (wire.Result, error) {
+	res, err := r.fakeRunner.Run(ctx, req, sink)
+	res.Provider, _, _ = strings.Cut(req.Model, ":")
+	return res, err
+}
+
+func siblingLoads(t *testing.T) {
+	t.Helper()
+	if err := os.MkdirAll(inflight.Dir(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	for ws, count := range map[string]int{"qa": 7, "prod": 3} {
+		for i := range count {
+			name := fmt.Sprintf("agent-%d-%s-%d", os.Getpid(), ws, i)
+			if err := os.WriteFile(filepath.Join(inflight.Dir(), name), []byte("databricks·"+ws), 0600); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
+}
+
+func TestFallbackSiblingConcurrent(t *testing.T) {
+	retry.ResetCooldowns()
+	t.Cleanup(retry.ResetCooldowns)
+	setConfigDir(t)
+	start := make(chan struct{})
+	results := make(chan wire.Result, 2)
+	errs := make(chan error, 2)
+	for range 2 {
+		go func() {
+			c := siblingFallbackChain()
+			<-start
+			s := fallbackState{req: RunOptions{Prompt: "p"}, prevDispatch: c.Dispatches[0],
+				err: &retry.Error{Kind: retry.KindRateLimit, Terminal: true, Err: errors.New("429")}}
+			_, err := s.step(context.Background(), c, 1, c.Dispatches[1], wire.Discard, nil)
+			results <- s.attach(s.res)
+			errs <- err
+		}()
+	}
+	close(start)
+	a, b := <-results, <-results
+	for range 2 {
+		if err := <-errs; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(a.Hops) != 1 || len(b.Hops) != 1 || a.Provider == b.Provider || a.Provider == "" || b.Provider == "" {
+		t.Fatalf("concurrent fallbacks: %+v / %+v", a, b)
+	}
+}
+
+func BenchmarkFallbackSiblingClaim(b *testing.B) {
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	c := siblingFallbackChain()
+	for b.Loop() {
+		claimSibling(c, 1, c.Dispatches[1])
+	}
+}
+
+func TestFallbackSiblingSkippedPin(t *testing.T) {
+	setConfigDir(t)
+	siblingLoads(t)
+	c := siblingFallbackChain()
+	c.Dispatches = c.Dispatches[1:]
+	c.Skipped = []string{"codex: dev signed out"}
+	res, err := runWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
+	if err != nil || res.Provider != "stage" {
+		t.Fatalf("receipt=%+v err=%v", res, err)
 	}
 }
