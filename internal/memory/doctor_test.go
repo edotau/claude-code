@@ -690,14 +690,90 @@ type candidateVariant struct{ name, body, want string }
 func candidateVariants(good, secret string) []candidateVariant {
 	row := func(old, new string) string { return strings.Replace(good, old, new, 1) }
 	return []candidateVariant{
-		{"unknown field", row(`"size":"small"`, `"size":"small","extra":1`), ":4: invalid record: json: unknown field"},
+		{"unknown field", row(`"size":"small"`, `"size":"small","extra":1`), ":4: invalid record: unknown field"},
 		{"missing evidence", row(`"evidence":["feedback/feedback-a.md","notes/note-c.md"],`, ``), ":4: evidence is missing"},
 		{"one file no repeats", row(`,"notes/note-c.md"`, ``), ":4: evidence needs two distinct files"},
-		{"missing file", row("note-c.md", "gone.md"), ":4: evidence notes/gone.md does not exist"},
-		{"target outside", row(`"unknown"`, `"../../etc/passwd"`), ":4: target ../../etc/passwd is outside"},
-		{"duplicate id", row(`"fc-b"`, `"fc-a"`), ":5: duplicate id fc-a (first at line 4)"},
+		{"missing file", row("note-c.md", "gone.md"), ":4: evidence[1] does not exist"},
+		{"target outside", row(`"unknown"`, `"../../etc/passwd"`), ":4: target is outside"},
+		{"duplicate id", row(`"fc-b"`, `"fc-a"`), ":5: duplicate id (first at line 4)"},
 		{"credential", row("Add a hook.", secret), ":4: credential-shaped"},
 		{"bad kind", row(`"hook"`, `"magic"`), ":4: kind must be one of"},
 		{"two sentences", row("Add a hook.", "Add a hook. Then more."), ":4: change must be one sentence"},
+		{"trailing brace", row(`"size":"small"}`, `"size":"small"}}`), ":4: invalid record: more than one JSON value"},
+		{"duplicate key", row(`"kind":"hook"`, `"kind":"hook","kind":"verb"`), ":4: invalid record: duplicate key"},
+		{"invalid utf8", row("Add a hook.", "Add \xff hook."), ":4: invalid record: not valid UTF-8"},
+	}
+}
+
+// Every diagnostic names the line and the reason, never the offending value, wherever the value sits in the record.
+func TestCandidateDiagnosticsNeverEchoInput(t *testing.T) {
+	isolatedConfig(t)
+	const base = `{"id":"fc-a","evidence":["feedback/feedback-a.md","notes/note-c.md"],"change":"Add a hook.","target":"unknown","kind":"hook","size":"small"}`
+	rec := func(old, new string) string { return strings.Replace(base, old, new, 1) }
+	templates := map[string]string{
+		"unknown field": rec(`"size"`, `"@":1,"size"`), "target": rec(`"unknown"`, `"@"`),
+		"evidence name": rec(`feedback/feedback-a.md`, `feedback/@.md`), "evidence dir": rec(`feedback/feedback-a.md`, `@/x.md`),
+		"id": rec(`fc-a`, `fc-@`), "kind": rec(`"hook"`, `"@"`), "size": rec(`"small"`, `"@"`),
+		"repeats type": rec(`"change"`, `"repeats":"@","change"`), "change": rec(`Add a hook.`, `@ one. @ two`),
+		"syntax": rec(`"fc-a"`, `@`), "trailing": base + ` @`, "duplicate key": rec(`"size"`, `"@":1,"@":2,"size"`),
+		"bad utf8": rec(`Add a hook.`, "\xff@"), "scalar": `"@"`, "array": `["@"]`,
+	}
+	for _, val := range []string{"zq9fakevalue", "AKIA" + "ABCDEFGHIJKLMNOP"} {
+		for name, tpl := range templates {
+			text := "```jsonl\n" + strings.ReplaceAll(tpl, "@", val) + "\n" + strings.ReplaceAll(tpl, "@", val) + "\n```\n"
+			got := validateCandidates(text)
+			if len(got) == 0 {
+				t.Errorf("%s: accepted", name)
+			}
+			if strings.Contains(strings.Join(got, "\n"), val) {
+				t.Errorf("%s: a diagnostic echoes %q: %q", name, val, got)
+			}
+		}
+	}
+}
+
+// Target and evidence are resolved before the containment test; a symlink out of the store or an alias is refused.
+func TestCandidatePathsResolveSymlinks(t *testing.T) {
+	cfg, _ := isolatedConfig(t)
+	outside := canonTemp(t, t.TempDir())
+	write(t, filepath.Join(outside, "n.md"), "x\n")
+	write(t, filepath.Join(StoreDir(), "feedback", "feedback-a.md"), "x\n")
+	write(t, filepath.Join(StoreDir(), "notes", "note-c.md"), "x\n")
+	for _, l := range [][2]string{{outside, filepath.Join(cfg, "linkout")}, {outside, filepath.Join(StoreDir(), "knowledge-out")},
+		{filepath.Join(StoreDir(), "feedback", "feedback-a.md"), filepath.Join(StoreDir(), "feedback", "alias.md")},
+		{filepath.Join(StoreDir(), "feedback"), filepath.Join(StoreDir(), "notes-alias")}} {
+		if err := os.Symlink(l[0], l[1]); err != nil {
+			t.Skip("symlinks unavailable:", err)
+		}
+	}
+	for _, target := range []string{"linkout/x.md", "linkout/n.md", "memory/knowledge-out/new.md", "rules/new.md"} {
+		got := targetProblem(target)
+		if (target == "rules/new.md") != (got == "") {
+			t.Errorf("target %s: problem %q", target, got)
+		}
+	}
+	ev := func(e ...string) string {
+		return strings.Join(evidenceProblems(candidate{Evidence: e, Repeats: 0}), "|")
+	}
+	if got := ev("feedback/feedback-a.md", "feedback/alias.md"); got == "" {
+		t.Error("a symlinked evidence file was accepted as a second distinct file")
+	}
+	if got := ev("feedback/feedback-a.md", "notes/note-c.md"); got != "" {
+		t.Errorf("two real files refused: %s", got)
+	}
+	if got := ev("notes-alias/feedback-a.md"); got == "" {
+		t.Error("evidence outside feedback/ and notes/ accepted")
+	}
+	if upper := filepath.Join(StoreDir(), "feedback", "FEEDBACK-A.md"); paths.FoldsCase {
+		if _, err := os.Stat(upper); err == nil && ev("feedback/feedback-a.md", "feedback/FEEDBACK-A.md") == "" {
+			t.Error("two spellings of one file counted as two")
+		}
+	}
+}
+
+// The change cap counts characters, not bytes.
+func TestOneSentenceCountsRunes(t *testing.T) {
+	if !oneSentence(strings.Repeat("é", candidateMaxText)) || oneSentence(strings.Repeat("é", candidateMaxText+1)) {
+		t.Error("the cap is not 200 runes")
 	}
 }

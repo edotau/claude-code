@@ -3,6 +3,7 @@ package memory
 
 import (
 	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
 	"io"
@@ -14,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -467,23 +469,49 @@ func validateCandidates(text string) []string {
 	return problems
 }
 
-// checkCandidateLine decodes one record strictly and returns its problems; seen maps ids to their first line.
-func checkCandidateLine(line string, n int, seen map[string]int) []string {
+// decodeCandidate parses exactly one UTF-8 JSON object with unique names; its errors never quote the input.
+func decodeCandidate(line string) (candidate, string) {
 	var c candidate
+	if !utf8.ValidString(line) {
+		return c, "invalid record: not valid UTF-8"
+	}
+	d := jsontext.NewDecoder(strings.NewReader(line))
+	if _, err := d.ReadValue(); err != nil {
+		if se, ok := errors.AsType[*jsontext.SyntacticError](err); ok && se.Err == jsontext.ErrDuplicateName {
+			return c, "invalid record: duplicate key"
+		}
+		return c, "invalid record: not valid JSON"
+	}
+	if _, err := d.ReadValue(); err != io.EOF {
+		return c, "invalid record: more than one JSON value on the line"
+	}
 	dec := json.NewDecoder(strings.NewReader(line))
 	dec.DisallowUnknownFields()
-	if err := dec.Decode(&c); err != nil {
-		return []string{"invalid record: " + err.Error()}
+	err := dec.Decode(&c)
+	if te, ok := errors.AsType[*json.UnmarshalTypeError](err); ok {
+		if te.Field == "" {
+			return c, "invalid record: not a JSON object"
+		}
+		return c, "invalid record: field " + te.Field + " has the wrong type"
 	}
-	if dec.More() {
-		return []string{"invalid record: more than one JSON value on the line"}
+	if err != nil {
+		return c, "invalid record: unknown field (allowed: id, evidence, repeats, change, target, kind, size)"
+	}
+	return c, ""
+}
+
+// checkCandidateLine returns one record's problems, none quoting its text; seen maps ids to their first line.
+func checkCandidateLine(line string, n int, seen map[string]int) []string {
+	c, msg := decodeCandidate(line)
+	if msg != "" {
+		return []string{msg}
 	}
 	var out []string
 	switch {
 	case !candidateIDRE.MatchString(c.ID):
 		out = append(out, "id must match fc-<slug> (lower-case letters, digits, hyphens)")
 	case seen[c.ID] > 0:
-		out = append(out, fmt.Sprintf("duplicate id %s (first at line %d)", c.ID, seen[c.ID]))
+		out = append(out, fmt.Sprintf("duplicate id (first at line %d)", seen[c.ID]))
 	default:
 		seen[c.ID] = n
 	}
@@ -505,7 +533,7 @@ func checkCandidateLine(line string, n int, seen map[string]int) []string {
 // oneSentence is true for non-empty text under the cap with no sentence break inside it.
 func oneSentence(s string) bool {
 	s = strings.TrimRight(strings.TrimSpace(s), ".!?")
-	return s != "" && len(s) <= candidateMaxText && !strings.ContainsAny(s, "\n") &&
+	return s != "" && utf8.RuneCountInString(s) <= candidateMaxText && !strings.ContainsAny(s, "\n") &&
 		!strings.Contains(s, ". ") && !strings.Contains(s, "? ") && !strings.Contains(s, "! ")
 }
 
@@ -521,31 +549,35 @@ func targetProblem(target string) string {
 	if !filepath.IsAbs(p) && !strings.HasPrefix(p, "/") && !strings.HasPrefix(p, `\`) {
 		p = filepath.Join(paths.ConfigDir(), p)
 	}
-	for _, root := range []string{paths.ConfigDir(), StoreDir()} {
-		if rel, err := filepath.Rel(root, filepath.Clean(p)); err == nil && rel != ".." &&
-			!strings.HasPrefix(rel, ".."+string(filepath.Separator)) && !filepath.IsAbs(rel) {
-			return ""
-		}
+	if paths.InsideDir(p, paths.ConfigDir()) || paths.InsideDir(p, StoreDir()) {
+		return ""
 	}
-	return "target " + target + " is outside the repository and the store"
+	return "target is outside the repository and the store"
 }
 
-// evidenceProblems needs existing feedback/ or notes/ files: two distinct, or one plus repeats of at least two.
+// evidenceProblems needs real, unaliased feedback/ or notes/ files: two distinct, or one plus repeats of at least two.
 func evidenceProblems(c candidate) []string {
 	var out []string
 	distinct := map[string]bool{}
-	for _, e := range c.Evidence {
+	store := paths.Real(StoreDir())
+	for i, e := range c.Evidence {
 		clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(e)))
 		dir, _, _ := strings.Cut(clean, "/")
 		if clean != e || (dir != "feedback" && dir != "notes") || !strings.HasSuffix(e, ".md") {
-			out = append(out, "evidence "+e+" must be feedback/<name>.md or notes/<name>.md")
+			out = append(out, fmt.Sprintf("evidence[%d] must be feedback/<name>.md or notes/<name>.md", i))
 			continue
 		}
-		if fi, err := os.Stat(filepath.Join(StoreDir(), filepath.FromSlash(e))); err != nil || !fi.Mode().IsRegular() {
-			out = append(out, "evidence "+e+" does not exist in the store")
+		full := filepath.Join(StoreDir(), filepath.FromSlash(e))
+		if fi, err := os.Lstat(full); err != nil || !fi.Mode().IsRegular() {
+			out = append(out, fmt.Sprintf("evidence[%d] does not exist in the store as a regular file", i))
 			continue
 		}
-		distinct[e] = true
+		real := paths.Real(full)
+		if !paths.SameFile(real, filepath.Join(store, filepath.FromSlash(e))) {
+			out = append(out, fmt.Sprintf("evidence[%d] passes through a symlink", i))
+			continue
+		}
+		distinct[paths.FoldCase(real)] = true
 	}
 	switch {
 	case len(c.Evidence) == 0:
