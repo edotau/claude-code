@@ -23,7 +23,9 @@ func BenchmarkIndexCodexModels(b *testing.B) {
 		if i > 0 {
 			raw.WriteByte(',')
 		}
-		raw.WriteString(`{"slug":"gpt-model-` + strconv.Itoa(i) + `"}`)
+		raw.WriteString(`{"slug":"gpt-model-`)
+		raw.WriteString(strconv.Itoa(i))
+		raw.WriteString(`"}`)
 	}
 	raw.WriteString(`]}`)
 	data := []byte(raw.String())

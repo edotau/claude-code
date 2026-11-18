@@ -71,14 +71,16 @@ func pyScripts(lines []string) []pyScript {
 		line := lines[i]
 		ms := core.HeredocOp().FindAllStringSubmatchIndex(line, -1)
 		if len(ms) == 0 {
-			shellText.WriteString(line + "\n")
+			shellText.WriteString(line)
+			shellText.WriteString("\n")
 			continue
 		}
 		at := shell.QuoteAt(shellText.String() + line)
 		if at[shellText.Len()+ms[0][0]] != 0 {
 			return nil // the operator sits in a quote opened earlier: the lines are not what they seem
 		}
-		shellText.WriteString(line + "\n")
+		shellText.WriteString(line)
+		shellText.WriteString("\n")
 		end := i
 		for _, m := range ms {
 			delim := line[max(m[4], m[6], m[8]):max(m[5], m[7], m[9])]
@@ -303,12 +305,15 @@ func withPyLaunches(view string) string {
 		}
 		if code, ok := pyCode(segs, i, bodies, lineOps == 0); ok {
 			if cmds := pyLaunches(code); len(cmds) > 0 {
-				b.WriteString("( " + strings.Join(cmds, " && ") + " ) && ") // && keeps a dynamic cd's chain
+				b.WriteString("( ")
+				b.WriteString(strings.Join(cmds, " && "))
+				b.WriteString(" ) && ") // && keeps a dynamic cd's chain
 				added = true
 			}
 		}
 		lineOps += len(core.HeredocOp().FindAllString(seg, -1))
-		b.WriteString(seg + seps[i])
+		b.WriteString(seg)
+		b.WriteString(seps[i])
 	}
 	if !added {
 		return view

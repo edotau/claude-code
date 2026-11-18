@@ -216,7 +216,7 @@ func TestApplyCaps(t *testing.T) {
 type capsWant struct{ sys, app, schema Level }
 
 // wantEmulation derives the emulated flags and the prompt applyCaps must produce for the wanted levels.
-func wantEmulation(w capsWant, schema string) ([]string, string) {
+func wantEmulation(w capsWant) ([]string, string) {
 	var wantEm []string
 	wantPrompt := "TASK"
 	if w.sys == Emulated {
@@ -241,7 +241,7 @@ func assertAppliedCaps(t *testing.T, c Caps, w capsWant, schema string) {
 	if len(dropped) != 0 || !slices.Equal(out.Env, in.Env) {
 		t.Errorf("dropped = %v, env = %d; env is native everywhere", dropped, len(out.Env))
 	}
-	wantEm, wantPrompt := wantEmulation(w, schema)
+	wantEm, wantPrompt := wantEmulation(w)
 	if !slices.Equal(emulated, wantEm) {
 		t.Errorf("emulated = %v, want %v", emulated, wantEm)
 	}

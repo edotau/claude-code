@@ -108,7 +108,8 @@ func heredocBodies(cmd string) (spans [][2]int, ok bool) {
 		if m != nil && !strings.Contains(lines[i], "<<<") && quotedOp(outer.String(), lines[i], m[0]) {
 			return nil, false // the operator is quoted text: the lines are not what they seem
 		}
-		outer.WriteString(lines[i] + "\n")
+		outer.WriteString(lines[i])
+		outer.WriteString("\n")
 		if m == nil || strings.Contains(lines[i], "<<<") {
 			continue
 		}
@@ -426,7 +427,9 @@ func keptSubstitutions(seg string) string {
 	_, subs := shell.ExtractSubstitutions(seg)
 	var kept strings.Builder
 	for _, sub := range subs {
-		kept.WriteString(" $(" + sub + ")")
+		kept.WriteString(" $(")
+		kept.WriteString(sub)
+		kept.WriteString(")")
 	}
 	return kept.String()
 }
