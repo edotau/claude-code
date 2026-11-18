@@ -73,6 +73,15 @@ func List(repo *Repo) ([]Entry, error) {
 	return entries, nil
 }
 
+// laneReads holds one lane's divergence git outputs.
+type laneReads struct {
+	counts, changed   []byte
+	countErr, diffErr error
+}
+
+// divergenceReads caps the concurrent git reads of one list.
+const divergenceReads = 8
+
 // fillDivergence sets Ahead/Behind per branch and Overlaps: files two lanes changed, or a lane and main's dirty edits.
 func fillDivergence(repo *Repo, entries []Entry, target string) {
 	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
@@ -81,35 +90,22 @@ func fillDivergence(repo *Repo, entries []Entry, target string) {
 	if out, err := gitCmd(ctx, "-C", repo.Main, "status", "--porcelain", "-z", "--untracked-files=no").Output(); err == nil {
 		files["main"] = statusFiles(string(out))
 	}
+	reads := readLanes(ctx, repo, entries, target)
 	for i := range entries {
-		e := &entries[i]
-		if !e.Exists || e.Branch == "" {
-			continue
+		e, r := &entries[i], &reads[i]
+		if r.countErr == nil && r.counts != nil {
+			if _, err := fmt.Sscanf(string(r.counts), "%d %d", &e.Behind, &e.Ahead); err != nil {
+				e.Behind, e.Ahead = 0, 0
+			}
 		}
-		var counts, changed []byte
-		var countErr, diffErr error
-		var wg sync.WaitGroup
-		wg.Go(func() {
-			counts, countErr = gitCmd(ctx, "-C", repo.Main, "rev-list", "--left-right", "--count", target+"..."+e.Branch).Output()
-		})
-		wg.Go(func() {
-			changed, diffErr = gitCmd(ctx, "-C", repo.Main, "diff", "--name-only", "-z", target+"..."+e.Branch).Output()
-		})
-		wg.Wait()
-		if countErr == nil {
-			fmt.Sscanf(string(counts), "%d %d", &e.Behind, &e.Ahead)
-		}
-		if diffErr == nil {
-			files[laneLabel(entries, e.Path)] = nameSet(strings.Split(string(changed), "\x00"))
+		if r.diffErr == nil && r.changed != nil {
+			files[laneLabel(entries, e.Path)] = nameSet(strings.Split(string(r.changed), "\x00"))
 		}
 	}
 	for i := range entries {
 		name := laneLabel(entries, entries[i].Path)
 		for other, set := range files {
-			if other == name {
-				continue
-			}
-			if shared := sharedFiles(files[name], set); len(shared) > 0 {
+			if shared := sharedFiles(files[name], set); other != name && len(shared) > 0 {
 				if entries[i].Overlaps == nil {
 					entries[i].Overlaps = map[string][]string{}
 				}
@@ -117,6 +113,28 @@ func fillDivergence(repo *Repo, entries []Entry, target string) {
 			}
 		}
 	}
+}
+
+// readLanes runs every existing lane's two divergence reads concurrently, at most divergenceReads at once.
+func readLanes(ctx context.Context, repo *Repo, entries []Entry, target string) []laneReads {
+	reads := make([]laneReads, len(entries))
+	sem := make(chan struct{}, divergenceReads)
+	var wg sync.WaitGroup
+	run := func(dst *[]byte, err *error, args ...string) {
+		wg.Go(func() {
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			*dst, *err = gitCmd(ctx, append([]string{"-C", repo.Main}, args...)...).Output()
+		})
+	}
+	for i, e := range entries {
+		if e.Exists && e.Branch != "" {
+			run(&reads[i].counts, &reads[i].countErr, "rev-list", "--left-right", "--count", target+"..."+e.Branch)
+			run(&reads[i].changed, &reads[i].diffErr, "diff", "--name-only", "-z", target+"..."+e.Branch)
+		}
+	}
+	wg.Wait()
+	return reads
 }
 
 func laneLabel(entries []Entry, path string) string {
