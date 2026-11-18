@@ -155,6 +155,8 @@ The loader reads the whole generated file. Past a `fileCaps` limit `memory dream
   decisionLog, patterns → conventions. `memory-update` / `memory-end` (Stop / SessionEnd) run it headless after enough
   edits; the first dispatch claims a detached `memory watch` that updates after 10 quiet minutes (a crash fires no
   SessionEnd); `memory-compact` does the same before compaction.
+  After releasing the bank lock, live updates audit recent plans in the session checkout in Go and log findings;
+  historical replays skip it and audit errors never fail the update.
   At the context-steward threshold the Stop update is the one spawned worker and also writes a handoff (a
   `handoff-<session>` marker in `state/harness/memory/` holds the path
   `handoffs/<date>-session-<id8>.md`, the full session id and request time, and adds the step;
@@ -180,6 +182,7 @@ The loader reads the whole generated file. Past a `fileCaps` limit `memory dream
   a failed refresh fails, and `memory review` and the session-start line report it.
   `index`, `dream`, `update`, `import` and plain `review` also refresh the session-start notice
   (`state/harness/memory/doctor-notice-<store>`), which session start only reads.
+  Plain `memory review` adds 14 days of hook verdict counts and cap markers when available; `--notice` skips them.
 - The embedding cache (`state/harness/memory/embeddings.db`) is one per embedding model, shared by every Databricks
   workspace: the profile only picks the endpoint. A model change re-embeds; a damaged file is set aside as `.damaged`
   and rebuilt empty.

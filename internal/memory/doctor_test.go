@@ -24,6 +24,58 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
+func TestHookSignalsReport(t *testing.T) {
+	tempConfig(t)
+	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	var report bytes.Buffer
+	writeHookSignals(&report, now)
+	if report.Len() != 0 {
+		t.Fatal("signals printed without telemetry")
+	}
+	dir := filepath.Join(paths.StateDir(), "hooks")
+	rows := signalTestRows()
+	for day := range 3 {
+		file := "telemetry-" + now.AddDate(0, 0, -day).Format("20060102") + ".jsonl"
+		write(t, filepath.Join(dir, file), rows)
+	}
+	file := filepath.Join(dir, "telemetry-20261118.jsonl")
+	write(t, file, rows+"not-json\n"+`{"module":false}`+"\n"+`{"outcome":"dropped"}`+"\n")
+	write(t, filepath.Join(dir, "telemetry-20261104.jsonl"), rows)
+	writeHookSignals(&report, now)
+	const want = `signals (since 2026-11-05):
+  block: guard-a (gate) 72 (24.0%)
+  block: guard-b (gate) 36 (12.0%)
+  ask: confirm-a (gate) 27 (9.0%)
+  ask: confirm-b (gate) 9 (3.0%)
+  hand-backs: held 12, refused 12, passed 21; top refused: missing-id (handoff) 9
+  rewrite: 15
+  dropped: >=1 (cap markers)
+`
+	if got := report.String(); got != want {
+		t.Errorf("signals output differs from allowlisted report:\n got: %q\nwant: %q", got, want)
+	}
+}
+
+func signalTestRows() string {
+	var rows strings.Builder
+	for _, row := range []struct {
+		module, rule, verdict string
+		count                 int
+	}{
+		{"gate", "guard-a", "block", 24}, {"gate", "guard-b", "block", 12}, {"gate", "guard-c", "block", 2},
+		{"gate", "confirm-a", "ask", 9}, {"gate", "confirm-b", "ask", 3}, {"gate", "", "", 50},
+		{"handoff", "running", "held", 4}, {"handoff", "missing-id", "refused", 3},
+		{"handoff", "duplicate", "refused", 1}, {"handoff", "receipt", "passed", 7},
+		{"sanitizer", "rewrite-label", "rewrite", 5},
+	} {
+		line := fmt.Sprintf(`{"module":%q,"rule":%q,"verdict":%q,"outcome":"deny",`+
+			`"t":"fake-time","event":"fake-event","ms":123456789,"sid":"fake-sid","tool":"fake-tool","future":"fake-future"}`+"\n",
+			row.module, row.rule, row.verdict)
+		rows.WriteString(strings.Repeat(line, row.count))
+	}
+	return rows.String()
+}
+
 // e2eEnv is one isolated world: the built binary, a temp config/home, and a temp git repo as project and cwd.
 type e2eEnv struct {
 	bin, cfg, home, repo, pathDir string

@@ -29,7 +29,7 @@ var memorySubs = []memorySub{
 	{"recall", "<terms>", "rank bank blocks for terms; --load appends the top bodies"},
 	{"remember", "<fact>", "append a fact to the bank (--type picks the file)"},
 	{"init", "", "create the bank"},
-	{"review", "", "doctor + bank stats; --timeline lists recent entries"},
+	{"review", "", "doctor + bank stats + hook signals; --timeline lists entries"},
 	{"promote", "<id> --to <target>", "print one block and its target for rules|skill|claude-md"},
 	{"update", "", "save the live session; --catchup saves missed sessions"},
 	{"dream", "", "consolidate the bank when due (--force, --dry-run)"},

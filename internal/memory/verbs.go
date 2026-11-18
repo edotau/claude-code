@@ -525,6 +525,9 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 		}
 	}
 	fmt.Fprint(w, collectBankStats().Report())
+	if !o.Brief && !o.Candidates {
+		writeHookSignals(w, time.Now())
+	}
 	if o.Candidates {
 		ref, err := Reference("review")
 		if err != nil {
