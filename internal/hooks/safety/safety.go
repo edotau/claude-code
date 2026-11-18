@@ -316,15 +316,16 @@ func withGitEnv(cmd string) string {
 	if !gitEnvAssign.MayMatch(cmd) {
 		return cmd
 	}
-	var opts string
+	var opts strings.Builder
 	for _, m := range gitEnvAssign.Regexp().FindAllStringSubmatch(cmd, -1) {
-		flag := "--git-dir="
+		flag := " --git-dir="
 		if m[1] == "GIT_WORK_TREE" {
-			flag = "--work-tree="
+			flag = " --work-tree="
 		}
-		opts += " " + flag + m[2]
+		opts.WriteString(flag)
+		opts.WriteString(m[2])
 	}
-	return gitWord.ReplaceAllString(cmd, "${1}${2}"+strings.ReplaceAll(opts, "$", "$$")+"${3}")
+	return gitWord.ReplaceAllString(cmd, "${1}${2}"+strings.ReplaceAll(opts.String(), "$", "$$")+"${3}")
 }
 
 // bannedVerb is harnessGitVerb's first hit in cmd, with no feed decoding.
