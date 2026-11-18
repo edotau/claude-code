@@ -202,9 +202,21 @@ func Home(repoRoot string) string {
 	return filepath.Join(paths.ConfigDir(), "plans", paths.RepoSlug(repoRoot))
 }
 
+// homeOf is the plan's directory when it is the plans root or a direct child of it, else the plans root.
+func homeOf(plan string) string {
+	dir, root := filepath.Dir(plan), filepath.Join(paths.ConfigDir(), "plans")
+	if paths.SamePath(filepath.Dir(dir), root) {
+		return dir
+	}
+	return root
+}
+
 // ResolvePlan confines explicit writes to dated regular plans in this repository's home.
 func ResolvePlan(root, plan string) (string, error) {
 	home := Home(root)
+	if abs, err := filepath.Abs(plan); err == nil && root == "" && filepath.Base(plan) != plan {
+		home = homeOf(abs) // outside a checkout the plan's own dir is the home, if it is under the plans root
+	}
 	refusal := fmt.Errorf("plans: --plan is not a dated plan in %s (regular non-symlink required)", home)
 	if filepath.Base(plan) == plan {
 		if !strings.HasSuffix(plan, ".md") {

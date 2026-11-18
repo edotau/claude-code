@@ -396,6 +396,7 @@ func TestTaskTrailerGitDifferential(t *testing.T) {
 		{"Task: p\n 1\n", false}, {"Task: p 1\r\nSigned-off-by: A <a@b>\r\n", false},
 		{"Signed-off-by: A <a@b>\nTask: p 1", false},
 		{"Task: p 1\nTask: p 2\n", false},
+		{"Task:\n p 1\n", false}, {"Foo:\nTask: p 1\n", false}, {"123: x\nTask: p 1\n", false},
 		{"prose\nSigned-off-by: A <a@b>\nTask: p 1\n", true},
 		{"> Task: p 1\nSigned-off-by: A <a@b>\n", true},
 	}

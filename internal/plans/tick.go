@@ -619,8 +619,8 @@ func commitMessage(root string, c Commit) (string, error) {
 	return proc.RunGitInherit(ctx, root, "show", "-s", "--format=%B", c.Sha, "--")
 }
 
-// trailerRe is a git trailer line: a token at column zero, a colon and a value.
-var trailerRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z][A-Za-z0-9-]*[ \t]*:[ \t]*\S`) })
+// trailerRe is a git trailer line: an alphanumeric token at column zero and a colon; the value may be empty or folded.
+var trailerRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9-]+[ \t]*:`) })
 
 // trailerBlock is message's last paragraph, never the first, if all of it is trailers; Go, not git, to save a spawn.
 func trailerBlock(message string) []string {

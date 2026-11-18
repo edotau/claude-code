@@ -726,3 +726,18 @@ func namedTestTick(t *testing.T, root, plan, sha string, files []string) (ticked
 	}
 	return ticked, notes, err
 }
+
+// Outside a checkout an absolute --plan inside the plans home resolves; one outside it is refused.
+func TestResolvePlanOutsideCheckout(t *testing.T) {
+	dir := hermetic(t)
+	in := filepath.Join(dir, "plans", "repo", "2026-10-05-a.md")
+	out := filepath.Join(t.TempDir(), "2026-10-05-b.md")
+	writeFile(t, in, "- [ ] 1.1 One\n")
+	writeFile(t, out, "- [ ] 1.1 One\n")
+	if got, err := ResolvePlan("", in); err != nil || got != in {
+		t.Errorf("ResolvePlan in home = %q, %v", got, err)
+	}
+	if _, err := ResolvePlan("", out); err == nil {
+		t.Error("a plan outside the plans home must be refused")
+	}
+}
