@@ -149,19 +149,45 @@ func TestClaimCheckOwnPidNewSlug(t *testing.T) {
 	}
 }
 
-// TestClaimCheckLeafBlocksOnSiblingClaim: a leaf staging a file a live sibling leaf of its session claims is blocked.
+// TestClaimCheckLeafBlocksOnSiblingClaim: a leaf staging a sibling leaf's claim asks; under ~/.claude it is blocked.
 func TestClaimCheckLeafBlocksOnSiblingClaim(t *testing.T) {
-	repo := claimFixture(t)
-	useClaimOwner(t, liveOwner)
-	tr := filepath.Join(t.TempDir(), "S.jsonl")
-	hosttest.WriteRel(t, filepath.Dir(tr), "S/subagents/agent-leafone1.jsonl", "{}\n")
-	hosttest.WriteRel(t, repo, "a.txt", "leaf one\n")
-	Claim(claimInput(t, map[string]any{"session_id": "S", "agent_id": "leafone1", "cwd": repo,
-		"transcript_path": tr, "tool_name": "Edit", "tool_input": map[string]any{"file_path": "a.txt"}}))
-	r := ClaimCheck(claimInput(t, map[string]any{"session_id": "S", "agent_id": "leaftwo2", "cwd": repo,
-		"transcript_path": tr, "tool_name": "Bash", "tool_input": map[string]any{"command": "git commit -am x"}}))
-	if r.Decision != core.Block || !strings.Contains(r.Reason, "leaf leafone1") {
-		t.Fatalf("sibling leaf commit -am: %v %q; want a block naming leaf leafone1", r.Decision, r.Reason)
+	for _, tc := range []struct {
+		name  string
+		inCfg bool
+		link  bool
+		sub   bool
+		want  core.Decision
+	}{{"outside the config tree", false, false, false, core.Ask}, {"inside the config tree", true, false, false, core.Block},
+		{"linked worktree of the config tree", false, true, false, core.Block},
+		{"subdirectory of a linked worktree", false, true, true, core.Block}} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := claimFixture(t)
+			if tc.inCfg {
+				t.Setenv("CLAUDE_CONFIG_DIR", filepath.Dir(repo))
+			}
+			if tc.link {
+				t.Setenv("CLAUDE_CONFIG_DIR", repo)
+				wt := filepath.Join(paths.Real(t.TempDir()), "wt")
+				hosttest.In(t, repo, "worktree", "add", "-q", "-b", "linked", wt)
+				repo = wt
+			}
+			useClaimOwner(t, liveOwner)
+			tr := filepath.Join(t.TempDir(), "S.jsonl")
+			hosttest.WriteRel(t, filepath.Dir(tr), "S/subagents/agent-leafone1.jsonl", "{}\n")
+			hosttest.WriteRel(t, repo, "a.txt", "leaf one\n")
+			Claim(claimInput(t, map[string]any{"session_id": "S", "agent_id": "leafone1", "cwd": repo,
+				"transcript_path": tr, "tool_name": "Edit", "tool_input": map[string]any{"file_path": "a.txt"}}))
+			cwd := repo
+			if tc.sub {
+				cwd = filepath.Join(repo, "sub")
+				hosttest.WriteRel(t, repo, "sub/f.txt", "x\n")
+			}
+			r := ClaimCheck(claimInput(t, map[string]any{"session_id": "S", "agent_id": "leaftwo2", "cwd": cwd,
+				"transcript_path": tr, "tool_name": "Bash", "tool_input": map[string]any{"command": "git commit -am x"}}))
+			if r.Decision != tc.want || !strings.Contains(r.Reason, "leaf leafone1") {
+				t.Fatalf("sibling leaf commit -am: %v %q; want %v naming leaf leafone1", r.Decision, r.Reason, tc.want)
+			}
+		})
 	}
 }
 
@@ -261,8 +287,8 @@ func TestClaimCheckCommitInteractiveFlags(t *testing.T) {
 		command string
 		want    core.Decision
 	}{
-		{"git commit -i -m x -- a.txt", core.Block},
-		{"git commit -m '-p' -- a.txt", core.Block},
+		{"git commit -i -m x -- a.txt", core.Ask},
+		{"git commit -m '-p' -- a.txt", core.Ask},
 		{"git commit -p -m x -- a.txt", core.Allow},
 		{"git add -i -- a.txt", core.Allow},
 	} {
@@ -274,7 +300,7 @@ func TestClaimCheckCommitInteractiveFlags(t *testing.T) {
 			if r.Decision != tc.want {
 				t.Fatalf("%s: %v %q; want %v", tc.command, r.Decision, r.Reason, tc.want)
 			}
-			if tc.want == core.Block && !strings.Contains(r.Reason, "a.txt takes") {
+			if tc.want == core.Ask && !strings.Contains(r.Reason, "a.txt takes") {
 				t.Fatalf("block must name claimed a.txt, got %q", r.Reason)
 			}
 		})
@@ -291,8 +317,8 @@ func TestClaimCheckCommitIncludeRetainsStaged(t *testing.T) {
 			command := "git commit " + flag + " -m x -- b.txt"
 			r := ClaimCheck(claimInput(t, map[string]any{"session_id": "B", "agent_id": "leafB", "cwd": repo,
 				"tool_name": "Bash", "tool_input": map[string]any{"command": command}}))
-			if r.Decision != core.Block || !strings.Contains(r.Reason, "a.txt takes") {
-				t.Fatalf("%s: %v %q; want block naming staged a.txt", command, r.Decision, r.Reason)
+			if r.Decision != core.Ask || !strings.Contains(r.Reason, "a.txt takes") {
+				t.Fatalf("%s: %v %q; want ask naming staged a.txt", command, r.Decision, r.Reason)
 			}
 			if !strings.Contains(r.Reason, "takes 2 file(s), 1 of them") {
 				t.Fatalf("include must count staged a.txt and operand b.txt, got %q", r.Reason)
@@ -308,10 +334,10 @@ func TestClaimCheckAddPathspecFromFile(t *testing.T) {
 		content string
 		want    core.Decision
 	}{
-		{"lines", "--pathspec-from-file paths.txt", "a.txt\n", core.Block},
-		{"equals", "--pathspec-from-file=paths.txt", "a.txt\n", core.Block},
-		{"quoted", "--pathspec-from-file paths.txt", "\"a.txt\"\r\n", core.Block},
-		{"nul", "--pathspec-from-file paths.txt --pathspec-file-nul", "a.txt\x00", core.Block},
+		{"lines", "--pathspec-from-file paths.txt", "a.txt\n", core.Ask},
+		{"equals", "--pathspec-from-file=paths.txt", "a.txt\n", core.Ask},
+		{"quoted", "--pathspec-from-file paths.txt", "\"a.txt\"\r\n", core.Ask},
+		{"nul", "--pathspec-from-file paths.txt --pathspec-file-nul", "a.txt\x00", core.Ask},
 		{"unclaimed", "--pathspec-from-file paths.txt", "b.txt\n", core.Allow},
 		{"empty", "--pathspec-from-file paths.txt", "", core.Allow},
 	} {
@@ -325,7 +351,7 @@ func TestClaimCheckAddPathspecFromFile(t *testing.T) {
 			if r.Decision != tc.want {
 				t.Fatalf("%s: %v %q; want %v", tc.option, r.Decision, r.Reason, tc.want)
 			}
-			if tc.want == core.Block && !strings.Contains(r.Reason, "a.txt takes") {
+			if tc.want == core.Ask && !strings.Contains(r.Reason, "a.txt takes") {
 				t.Fatalf("block must name claimed a.txt, got %q", r.Reason)
 			}
 		})
@@ -349,8 +375,8 @@ func TestClaimCheckCommitPathspecFromFile(t *testing.T) {
 			hosttest.WriteRel(t, repo, "paths.txt", tc.content)
 			r := ClaimCheck(claimInput(t, map[string]any{"session_id": "B", "agent_id": "leafB", "cwd": repo,
 				"tool_name": "Bash", "tool_input": map[string]any{"command": "git commit -m x " + tc.option}}))
-			if r.Decision != core.Block || !strings.Contains(r.Reason, "a.txt takes") {
-				t.Fatalf("%s: %v %q; want block naming unstaged a.txt", tc.option, r.Decision, r.Reason)
+			if r.Decision != core.Ask || !strings.Contains(r.Reason, "a.txt takes") {
+				t.Fatalf("%s: %v %q; want ask naming unstaged a.txt", tc.option, r.Decision, r.Reason)
 			}
 		})
 	}
@@ -438,6 +464,32 @@ func TestClaimCheckNestedTooDeepAsks(t *testing.T) {
 	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "eval eval eval eval eval git add -A"})
 	if r.Decision != core.Ask || !strings.Contains(r.Reason, "nests too deep") {
 		t.Errorf("%v %q; want an ask naming the nesting", r.Decision, r.Reason)
+	}
+}
+
+func TestClaimCheckLeafNestedCdIntoConfigBlocks(t *testing.T) {
+	repo := claimFixture(t)
+	other := paths.Real(hosttest.Repo(t))
+	t.Setenv("CLAUDE_CONFIG_DIR", repo)
+	claimEdit(t, repo, liveOwner, "A", "a.txt")
+	for cmd, want := range map[string]core.Decision{
+		"cd " + repo + " && eval eval eval eval eval git add -A": core.Block,
+		"eval eval eval eval eval git add -A":                    core.Ask,
+		"eval eval eval eval eval cd " + repo + " && git add -A": core.Block,
+	} {
+		r := ClaimCheck(claimInput(t, map[string]any{"session_id": "B", "agent_id": "leafone1", "cwd": other,
+			"tool_name": "Bash", "tool_input": map[string]any{"command": cmd}}))
+		if r.Decision != want {
+			t.Errorf("%q: %v %q; want %v", cmd, r.Decision, r.Reason, want)
+		}
+	}
+	wt := filepath.Join(paths.Real(t.TempDir()), "wt")
+	hosttest.In(t, repo, "worktree", "add", "-q", "-b", "linked", wt)
+	hosttest.WriteRel(t, wt, "sub/f.txt", "x\n")
+	r := ClaimCheck(claimInput(t, map[string]any{"session_id": "B", "agent_id": "leafone1", "cwd": filepath.Join(wt, "sub"),
+		"tool_name": "Bash", "tool_input": map[string]any{"command": "eval eval eval eval eval git add -A"}}))
+	if r.Decision != core.Block {
+		t.Errorf("subdirectory of a linked worktree: %v %q; want block", r.Decision, r.Reason)
 	}
 }
 
@@ -668,10 +720,10 @@ func TestClaimCheckDryRunAndIntentStageNothing(t *testing.T) {
 		{"git add -N a.txt", core.Allow},
 		{"git add --intent-to-add -A", core.Allow},
 		{"git commit --dry-run -a", core.Allow},
-		{"git commit -n -am x", core.Block},
-		{"git add -n --no-dry-run a.txt", core.Block},
-		{"git add -- -n a.txt", core.Block},
-		{"git add -n a.txt && git add a.txt", core.Block},
+		{"git commit -n -am x", core.Ask},
+		{"git add -n --no-dry-run a.txt", core.Ask},
+		{"git add -- -n a.txt", core.Ask},
+		{"git add -n a.txt && git add a.txt", core.Ask},
 	} {
 		t.Run(tc.command, func(t *testing.T) {
 			r := ClaimCheck(claimInput(t, map[string]any{"session_id": "B", "agent_id": "leafB", "cwd": repo,
