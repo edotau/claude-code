@@ -127,7 +127,7 @@ func (h *hookHost) dropPlugin() {
 const hookLogCap = 2 << 20
 
 // hookLogLockWait keeps a hung lock holder from stalling every tool call on a log line.
-const hookLogLockWait = 250 * time.Millisecond
+var hookLogLockWait = 250 * time.Millisecond
 
 // openHookLog appends to state/harness/opencode/hooks.log (0600); io.Discard when its directory cannot be made.
 func openHookLog() io.Writer {

@@ -146,7 +146,7 @@ func idleHookExecs(t *testing.T, env []string) int {
 	dir := t.TempDir()
 	logf, endf := filepath.Join(dir, "execs.log"), filepath.Join(dir, "ends.log")
 	bin := filepath.Join(dir, "fakecc")
-	script := "#!/bin/sh\necho \"$@\" >> " + logf + "\nsleep 0.3\necho done >> " + endf + "\n"
+	script := "#!/bin/sh\necho \"$@\" >> " + logf + "\nsleep 0.1\necho done >> " + endf + "\n"
 	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -164,7 +164,7 @@ const hosted = process.env.HARNESS_OPENCODE_HOSTED === "1"
 const h = await ClaudeCodeHarness({ directory: "/tmp" })
 const idle = { event: { type: "session.idle", properties: { sessionID: "s1" } } }
 await h.event(idle); await h.event(idle)
-if (hosted) await sleep(300) // a hosted plugin launches nothing: a grace catches a stray exec
+if (hosted) await sleep(150) // a hosted plugin launches nothing: a grace catches a stray exec
 else await waitEnds(1)
 await h.event(idle)
 if (!hosted) await waitEnds(2)

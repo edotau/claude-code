@@ -106,6 +106,9 @@ func TestHookLogConcurrentAppendersAndLockTimeout(t *testing.T) {
 	if n := strings.Count(string(got), "\n"); n != 100 {
 		t.Fatalf("lines = %d, want 100", n)
 	}
+	orig := hookLogLockWait
+	hookLogLockWait = 50 * time.Millisecond
+	t.Cleanup(func() { hookLogLockWait = orig })
 	ran, err := paths.TryFileLock(path+".lock", time.Second, func() error {
 		_, err := hookLog(path).Write([]byte("HELD\n"))
 		return err

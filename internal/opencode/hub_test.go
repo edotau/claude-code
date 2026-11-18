@@ -185,12 +185,12 @@ func stallRun(t *testing.T, window, settle time.Duration, lines []string, delays
 func TestFirstOutputIdleTimeoutStepStart(t *testing.T) {
 	const step = `{"type":"step_start","sessionID":"s"}`
 	const text = `{"type":"text","sessionID":"s","part":{"text":"hi"}}`
-	ms := func(n int) time.Duration { return time.Duration(n) * time.Millisecond }
+	ms := func(n int) time.Duration { return time.Duration(n) * time.Millisecond / 5 } // one 1/5 scale for every wait
 
 	if !stallRun(t, ms(100), ms(300), []string{step}, []time.Duration{0}) {
 		t.Error("step_start then silence did not stall: step_start must not disarm the idle timeout")
 	}
-	// text at 1000ms is past the first window (800ms); only the 500ms renewal saves it, with 300ms slack for load.
+	// text at 1000 is past the first window (800); only the 500 renewal saves it, with 300 slack for load (all /5 ms).
 	if stallRun(t, ms(800), ms(1000), []string{step, step, text}, []time.Duration{0, ms(500), ms(500)}) {
 		t.Error("step_start, step_start, text stalled: step_start must renew the window and text must disarm it")
 	}
@@ -263,7 +263,7 @@ func TestHubRunSilentChildStalls(t *testing.T) {
 	writeAuthJSON(t, data, `{"opencode":{"type":"api","key":"k"}}`)
 	pathstest.FakeVendor(t, "opencode", "exec /bin/sleep 30")
 	p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
-	l := hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}.WithFirstOutput(300 * time.Millisecond)
+	l := hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}.WithFirstOutput(60 * time.Millisecond)
 
 	start := time.Now()
 	_, err := l.Run(context.Background(), agent.RunOptions{Prompt: "hi"}, wire.Discard)
@@ -271,7 +271,7 @@ func TestHubRunSilentChildStalls(t *testing.T) {
 		t.Fatalf("err = %v, want agent.ErrStalled", err)
 	}
 	if took := time.Since(start); took > 10*time.Second {
-		t.Errorf("stall took %v, want the 300ms window to end the run", took)
+		t.Errorf("stall took %v, want the 60ms window to end the run", took)
 	}
 }
 
