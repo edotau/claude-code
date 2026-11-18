@@ -625,19 +625,26 @@ type RunRecordedOpts struct {
 	Hold     bool         // a retried attempt: no answer, result event or Finish; the caller's Conclude does them once
 }
 
-// Conclude ends a record whose attempts ran with Hold: the answer, the one result event, then Finish and Save.
-func (r *Record) Conclude(res wire.Result, err error, o RunRecordedOpts) {
+// Conclude ends a Hold-attempt record and returns the error it recorded (a failed answer or event write).
+func (r *Record) Conclude(res wire.Result, err error, o RunRecordedOpts) error {
+	events := wire.NewEventLog(r.EventsPath(), r.ID)
+	defer events.Close()
+	return r.conclude(res, err, time.Since(r.Time), o, events.Emit)
+}
+
+// conclude is the one finish step: answer, result event, then the record save; it returns the error the record holds.
+func (r *Record) conclude(res wire.Result, err error, took time.Duration, o RunRecordedOpts, emit func(wire.Event) error) error {
 	if o.AnswerTo != nil && res.Answer != "" {
 		if _, werr := io.WriteString(o.AnswerTo, res.Answer); werr != nil && err == nil {
 			err = fmt.Errorf("write final answer: %w", werr)
 		}
 	}
-	events := wire.NewEventLog(r.EventsPath(), r.ID)
-	if rerr := events.Emit(wire.ResultEvent(wire.NewEnvelope(res, err, r.ID))); rerr != nil && err == nil {
+	// the result event lands before the record leaves running, so a tail follower never exits without it
+	if rerr := emit(wire.ResultEvent(wire.NewEnvelope(res, err, r.ID))); rerr != nil && err == nil {
 		err = rerr
 	}
-	events.Close()
-	r.finishSave(res, err, time.Since(r.Time), o.Notify)
+	r.finishSave(res, err, took, o.Notify)
+	return err
 }
 
 // runRecorded runs one recorded dispatch (log, event file, start, run, Finish/Save, result): one pair per id.
@@ -656,25 +663,17 @@ func runRecorded(ctx context.Context, rec *Record, agentName string, out wire.Si
 	begin := time.Now()
 	res := wire.Result{Agent: agentName, Status: wire.StatusError}
 	err := sink.Emit(wire.Event{Type: wire.EventStart, Agent: agentName, DispatchID: rec.ID, Status: "running"})
-	if err == nil {
-		res, err = run(ctx, sink)
-		logSink.Close() // flush before writing the answer, so tail -f never misses the last line
-		if o.Hold {
-			return res, err
-		}
-		if o.AnswerTo != nil && res.Answer != "" {
-			if _, werr := io.WriteString(o.AnswerTo, res.Answer); werr != nil && err == nil {
-				err = fmt.Errorf("write final answer: %w", werr)
-			}
-		}
-		// the result event lands before the record leaves running, so a tail follower never exits without it
-		if rerr := sink.Emit(wire.ResultEvent(wire.NewEnvelope(res, err, rec.ID))); rerr != nil && err == nil {
-			err = rerr
-		}
+	if err != nil {
+		logSink.Close()
+		rec.finishSave(res, err, time.Since(begin), o.Notify)
+		return res, err
 	}
-	logSink.Close()
-	rec.finishSave(res, err, time.Since(begin), o.Notify)
-	return res, err
+	res, err = run(ctx, sink)
+	logSink.Close() // flush before writing the answer, so tail -f never misses the last line
+	if o.Hold {
+		return res, err
+	}
+	return res, rec.conclude(res, err, time.Since(begin), o, sink.Emit)
 }
 
 // lastResultEvent is the last result event's envelope in rec's events file; nil when none or the file is unreadable.

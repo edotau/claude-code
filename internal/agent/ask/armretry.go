@@ -81,7 +81,7 @@ func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared,
 	})
 	if a.job {
 		opts.Notify = cl.Notify
-		p.Record.Conclude(res, err, opts)
+		err = p.Record.Conclude(res, err, opts)
 	}
 	if prep, ok := errors.AsType[*prepareFailure](err); ok {
 		return failAskCode(a.format, a.agentName, prep.err, prepareExitCode(prep.err))

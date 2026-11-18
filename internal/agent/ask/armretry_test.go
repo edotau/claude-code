@@ -285,6 +285,41 @@ func TestJobRetryKeepsOneRecord(t *testing.T) {
 	}
 }
 
+// failFirstWrite fails its first write, as a closed job pipe would, then accepts the rest.
+type failFirstWrite struct{ failed bool }
+
+func (w *failFirstWrite) Write(b []byte) (int, error) {
+	if !w.failed {
+		w.failed = true
+		return 0, errors.New("pipe closed")
+	}
+	return len(b), nil
+}
+
+// A job whose answer cannot be written is recorded as an error, so the process must exit non-zero too.
+func TestJobRetryAnswerWriteFailureExitsWithRecord(t *testing.T) {
+	armRateFixture(t, []string{"dev"}, nil)
+	cl := newClient()
+	a := &armRetry{agentName: "codex", fallback: router.FallbackNone, format: helptext.Text, out: &failFirstWrite{}, job: true,
+		tried: []string{"dev"}}
+	req := agent.RunOptions{Agent: "codex", Prompt: "go", Fallback: router.FallbackNone, AutoArm: true}
+	p, err := a.prepare(t.Context(), cl, req, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.Record.Save(); err != nil {
+		t.Fatal(err)
+	}
+	code := a.run(t.Context(), cl, p, req)
+	rec, err := agent.LoadRecord(p.Record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rec.Status != "error" || code == 0 {
+		t.Errorf("record status %q, exit %d; want error and a non-zero exit", rec.Status, code)
+	}
+}
+
 // Two attempts on different workspaces both reach Prepare before either finishes, each on its own run values.
 func TestArmAttemptsOnDifferentWorkspacesRunTogether(t *testing.T) {
 	armRateFixture(t, nil, nil)
