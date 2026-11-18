@@ -4,6 +4,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -11,6 +12,20 @@ import (
 )
 
 var persistModelDead = router.MarkModelDead
+var probeCredential = providers.CredentialPresent
+var credInflight sync.Map // probes in flight, keyed by credProbe
+var credMissTTL = 5 * time.Second
+
+type credProbe struct {
+	r    *Router
+	name string
+}
+
+const (
+	credPresentKey = "present:"
+	credMissKey    = "miss:"
+	credStampKey   = "stamp:"
+)
 
 // demotion walks t's provider down the slot ladder to the first model not known to be quota-dead.
 func (r *Router) demotion(t providers.Target) (providers.Target, bool) {
@@ -25,37 +40,58 @@ func (r *Router) demotion(t providers.Target) (providers.Target, bool) {
 	return providers.Target{}, false
 }
 
-// credentialPresent caches only present credentials for credTTL, so newly added credentials are seen immediately.
-func (r *Router) credentialPresent(p *providers.Provider) bool {
+func (r *Router) credentialPresent(p *providers.Provider) (present bool) {
+	name := p.Name
 	now := r.now()
-	r.mu.Lock()
-	if until, ok := r.cred[p.Name]; ok && now.Before(until) {
-		r.mu.Unlock()
-		return true
+	cached, present, stamp, gen := r.cachedCredential(name, now)
+	if cached {
+		return present
 	}
-	startGen := r.credGen[p.Name]
-	r.mu.Unlock()
-	if !providers.CredentialPresent(p) {
-		return false
+	k := credProbe{r, name}
+	done := make(chan struct{})
+	if wait, loaded := credInflight.LoadOrStore(k, done); loaded {
+		<-wait.(chan struct{})
+		if cached, present, _, _ := r.cachedCredential(name, r.now()); cached {
+			return present
+		}
+		return probeCredential(p)
 	}
-	r.storeCredentialPresent(p.Name, startGen, now.Add(credTTL))
-	return true
+	defer func() { credInflight.Delete(k); close(done) }()
+	present = probeCredential(p)
+	r.storeCredentialProbe(p, gen, stamp, now, present)
+	return present
 }
 
-// storeCredentialPresent records a successful probe only if no invalidation advanced its generation.
-func (r *Router) storeCredentialPresent(name string, startGen int, until time.Time) {
+func (r *Router) cachedCredential(name string, now time.Time) (cached, present bool, stamp time.Time, gen int) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if r.credGen[name] != startGen {
-		return
-	}
-	r.cred[name] = until
+	present = now.Before(r.cred[credPresentKey+name])
+	// A vault-backed sign-in changes the stamp that registry() reloads on.
+	miss := r.regRetry.IsZero() && r.regStamp.Equal(r.cred[credStampKey+name]) && now.Before(r.cred[credMissKey+name])
+	return present || miss, present, r.regStamp, r.credGen[name]
 }
 
-// invalidateCredential clears cached presence and advances the generation to reject stale probes.
+func (r *Router) storeCredentialProbe(p *providers.Provider, gen int, stamp, now time.Time, present bool) {
+	name := p.Name
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.credGen[name] != gen {
+		return
+	}
+	if present {
+		r.cred[credPresentKey+name] = now.Add(credTTL)
+	} else if r.regStamp.Equal(stamp) && r.regRetry.IsZero() && (r.reg == nil || r.reg.Providers[name] == p) {
+		r.cred[credMissKey+name] = now.Add(credMissTTL)
+		r.cred[credStampKey+name] = stamp
+	}
+}
+
+// The generation prevents an in-flight probe from repopulating an invalidated row.
 func (r *Router) invalidateCredential(name string) {
 	r.mu.Lock()
-	delete(r.cred, name)
+	delete(r.cred, credPresentKey+name)
+	delete(r.cred, credMissKey+name)
+	delete(r.cred, credStampKey+name)
 	r.credGen[name]++
 	r.mu.Unlock()
 }

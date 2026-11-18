@@ -3,12 +3,14 @@ package server
 import (
 	"io"
 	"net/http"
-	"os"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -49,21 +51,54 @@ func TestQuotaDeadModelDemotesWithinProvider(t *testing.T) {
 	}
 }
 
-// An absent credential is rechecked immediately so a newly added fallback becomes available.
-func TestCredentialPresentDoesNotCacheAbsence(t *testing.T) {
+func TestCredentialLadderCachesMissesUntilSignIn(t *testing.T) {
+	vaulttest.Use(t)
+	const route = `"protocol":"anthropic","base_url":"https://example.test",`
+	const overlay = `{"default":"lead","fallback":["signed-out-a","signed-out-b"],"providers":{"anthropic":{"lead":{` +
+		route + `"auth":{"type":"none"},"models":{"opus":"lead-model"}},"signed-out-a":{` + route +
+		`"auth":{"type":"pat","header":"x-api-key"},"models":{"opus":"a-model"}},"signed-out-b":{` + route +
+		`"auth":{"type":"pat","header":"x-api-key"},"models":{"opus":"b-model"}}}}}`
+	vaulttest.Put(t, vault.Overlay, "providers", overlay)
 	r := newRouter("s")
-	const envVar = "ROUTER_TEST_CRED_ABSENT_THEN_PRESENT"
-	os.Unsetenv(envVar)
-	p := &providers.Provider{
-		Name: "envprov",
-		Auth: providers.Auth{Type: providers.AuthKey, Header: providers.HeaderXAPIKey, Env: envVar},
+	r.now = func() time.Time { return time.Unix(1, 0) }
+	reg, err := r.registry()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if r.credentialPresent(p) {
-		t.Fatal("credential reported present with no env var set")
+	for _, name := range reg.Fallback {
+		t.Setenv(providers.AuthSecretName(reg.Providers[name]), "")
 	}
-	t.Setenv(envVar, "v")
-	if !r.credentialPresent(p) {
-		t.Fatal("newly set credential must be seen on the next call, not cached as absent")
+	opens, probe := map[string]*atomic.Int32{"signed-out-a": {}, "signed-out-b": {}}, probeCredential
+	t.Cleanup(func() { probeCredential = probe })
+	probeCredential = func(p *providers.Provider) bool {
+		opens[p.Name].Add(1) // Each of these PAT rows has exactly one vault-backed presence check.
+		return probe(p)
+	}
+	var requests sync.WaitGroup
+	for range 99 {
+		requests.Go(func() {
+			ladder := r.failoverLadder(reg, providers.Target{Provider: reg.Providers["lead"], Model: "lead-model"}, false)
+			if len(ladder) != 1 {
+				t.Errorf("signed-out rows reached ladder: %d targets", len(ladder))
+			}
+		})
+	}
+	requests.Wait()
+	r.failoverLadder(reg, providers.Target{Provider: reg.Providers["lead"], Model: "lead-model"}, false)
+	a, b := opens["signed-out-a"].Load(), opens["signed-out-b"].Load()
+	t.Logf("presence vault opens over 100 ladder builds: %d", a+b)
+	if a != 1 || b != 1 {
+		t.Errorf("opens per missing row = %d and %d, want one per row", a, b)
+	}
+	vaulttest.Secret(t, providers.AuthSecretName(reg.Providers["signed-out-a"]), "fake")
+	bumpMtime(t, vault.Path(), r.regStamp.Add(time.Second))
+	reg, err = r.registry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ladder := r.failoverLadder(reg, providers.Target{Provider: reg.Providers["lead"], Model: "lead-model"}, false)
+	if len(ladder) != 2 || ladder[1].Provider.Name != "signed-out-a" {
+		t.Fatal("the vault sign-in did not reach the next ladder inside the miss window")
 	}
 }
 
@@ -96,21 +131,19 @@ func TestDeadKeyCanonicalizesOneMarker(t *testing.T) {
 	}
 }
 
-// storeCredentialPresent rejects a probe whose generation was invalidated before it stored its result.
-func TestStoreCredentialPresentDropsStaleGeneration(t *testing.T) {
+func TestStoreCredentialProbeDropsStaleGeneration(t *testing.T) {
 	r := newRouter("s")
-	const name = "genprov"
-	startGen := r.credGen[name]
-	r.invalidateCredential(name) // races ahead of the in-flight probe below, bumping the generation
-	r.storeCredentialPresent(name, startGen, r.now().Add(credTTL))
-	if _, cached := r.cred[name]; cached {
+	p := &providers.Provider{Name: "genprov"}
+	startGen := r.credGen[p.Name]
+	r.invalidateCredential(p.Name)
+	r.storeCredentialProbe(p, startGen, time.Time{}, r.now(), true)
+	if cached, _, _, _ := r.cachedCredential(p.Name, r.now()); cached {
 		t.Fatal("a probe that started before an invalidation must not resurrect the cache after it")
 	}
 
-	// A probe that starts (captures its generation) after the invalidation must still store normally.
-	freshGen := r.credGen[name]
-	r.storeCredentialPresent(name, freshGen, r.now().Add(credTTL))
-	if _, cached := r.cred[name]; !cached {
+	freshGen := r.credGen[p.Name]
+	r.storeCredentialProbe(p, freshGen, time.Time{}, r.now(), true)
+	if cached, _, _, _ := r.cachedCredential(p.Name, r.now()); !cached {
 		t.Fatal("a probe matching the current generation must still populate the cache")
 	}
 }
