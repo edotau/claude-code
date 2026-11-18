@@ -144,7 +144,7 @@ func toolPATHCopies(name string) []string {
 }
 
 // pathCopyVersionTimeout bounds `--version` on a PATH copy, shorter than tools' probe so doctor stays quick.
-const pathCopyVersionTimeout = 2 * time.Second
+var pathCopyVersionTimeout = 2 * time.Second
 
 // toolPATHVersion is the first --version line of a PATH copy, cached by path+size+mtime like the tools version cache.
 func toolPATHVersion(ctx context.Context, path string) string {

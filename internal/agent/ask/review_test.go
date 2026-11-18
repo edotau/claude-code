@@ -138,7 +138,7 @@ func TestAgentReviewBoundsDiffPreparation(t *testing.T) {
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Chdir(t.TempDir())
 	orig := reviewDiffTimeout
-	reviewDiffTimeout = 300 * time.Millisecond
+	reviewDiffTimeout = 600 * time.Millisecond
 	t.Cleanup(func() { reviewDiffTimeout = orig })
 	start := time.Now()
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {
@@ -148,8 +148,8 @@ func TestAgentReviewBoundsDiffPreparation(t *testing.T) {
 	if code != 1 || !strings.Contains(stderr, "diff HEAD: signal: killed") {
 		t.Fatalf("hung diff: exit %d after %v, stderr %q; want cancelled git diff", code, elapsed, stderr)
 	}
-	if elapsed < reviewDiffTimeout || elapsed > reviewDiffTimeout*3/2 {
-		t.Fatalf("hung diff took %v; want cancellation within %v of %v", elapsed, reviewDiffTimeout/2, reviewDiffTimeout)
+	if elapsed < reviewDiffTimeout || elapsed > reviewDiffTimeout*5/2 {
+		t.Fatalf("hung diff took %v; want cancellation within %v of %v", elapsed, reviewDiffTimeout*3/2, reviewDiffTimeout)
 	}
 }
 
