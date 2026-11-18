@@ -36,6 +36,7 @@ func TestCopilotEventsFromUsesFileEdits(t *testing.T) {
 }
 
 func TestOpencodeExportRejectsOutputOverCap(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	dir := t.TempDir()
 	script := "#!/bin/sh\nhead -c " + strconv.Itoa(exportMaxBytes+1<<20) + " /dev/zero\n"
 	if err := os.WriteFile(filepath.Join(dir, "opencode"), []byte(script), 0o755); err != nil {

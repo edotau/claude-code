@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -37,6 +38,7 @@ func TestRunInstallScriptDryRunTouchesNoNetwork(t *testing.T) {
 }
 
 func TestInstallCopilotFallsBackToBinDirForNonBinDir(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	skipWithoutPOSIXShell(t)
 	setupToolsTestEnv(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -62,6 +64,7 @@ func TestInstallCopilotFallsBackToBinDirForNonBinDir(t *testing.T) {
 }
 
 func TestInstallCopilotUsesDirDirectlyWhenNamedBin(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	skipWithoutPOSIXShell(t)
 	setupToolsTestEnv(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -87,6 +90,7 @@ func TestInstallCopilotUsesDirDirectlyWhenNamedBin(t *testing.T) {
 }
 
 func TestInstallOpencodeCopiesFromHomeInstallDir(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	skipWithoutPOSIXShell(t)
 	setupToolsTestEnv(t)
 	const installed = "#!/bin/sh\nprintf 'opencode 1.0.0\\n'\n"
@@ -121,7 +125,7 @@ chmod 755 "$HOME/.opencode/bin/opencode"
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o755 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o755 {
 		t.Errorf("copied mode = %o, want 755", info.Mode().Perm())
 	}
 }
@@ -183,6 +187,7 @@ func TestInstallOpencodeRefusesMajorV2(t *testing.T) {
 
 // A refusal restores the pre-existing ~/.opencode/bin/opencode byte-for-byte rather than leaving the rejected 2.x.
 func TestInstallOpencodeRefusalRestoresPriorBinary(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	env := setupToolsTestEnv(t)
 	priorContent := "#!/bin/sh\nprintf 'prior opencode 1.x\\n'\n"
 	priorPath := filepath.Join(env.home, ".opencode", "bin", "opencode")
@@ -209,6 +214,7 @@ func TestInstallOpencodeRefusalRestoresPriorBinary(t *testing.T) {
 
 // A successful install cleans up the aside copy it made of the prior binary.
 func TestInstallOpencodeSuccessLeavesNoAsideCopy(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	env := setupToolsTestEnv(t)
 	priorPath := filepath.Join(env.home, ".opencode", "bin", "opencode")
 	writeToolsFixture(t, priorPath, "#!/bin/sh\nprintf 'prior opencode 1.x\\n'\n", 0o755)
@@ -283,6 +289,7 @@ func TestInstallOpencodeAllowMajorEnvOverride(t *testing.T) {
 
 // An unparsable probe (as a timeout yields) is refused and the prior binary kept.
 func TestInstallOpencodeRefusesUnknownVersion(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	env := setupToolsTestEnv(t)
 	priorContent := "#!/bin/sh\nprintf 'prior opencode 1.x\\n'\n"
 	priorPath := filepath.Join(env.home, ".opencode", "bin", "opencode")
@@ -498,7 +505,7 @@ func assertInstalledCodexBinary(t *testing.T, name, want string) {
 	if !info.Mode().IsRegular() {
 		t.Errorf("%s is not a regular file (mode %v)", p, info.Mode())
 	}
-	if info.Mode().Perm()&0o111 == 0 {
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
 		t.Errorf("%s not executable: mode %o", p, info.Mode().Perm())
 	}
 }
@@ -676,7 +683,7 @@ func TestInstallTailscaleStaticWritesTwoBinaries(t *testing.T) {
 	for name, want := range map[string]string{"tailscale": "CLI", "tailscaled": "DAEMON"} {
 		got, err := os.ReadFile(filepath.Join(bin, name))
 		fi, _ := os.Stat(filepath.Join(bin, name))
-		if err != nil || string(got) != want || fi.Mode().Perm() != 0o755 {
+		if err != nil || string(got) != want || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o755) {
 			t.Errorf("%s = %q, %v, want %q at 0755", name, got, err, want)
 		}
 	}
@@ -716,6 +723,7 @@ func TestInstallTailscaleRootKeepsOfficialScript(t *testing.T) {
 
 // The macOS app puts no tailscale on PATH: the wrapper runs the app's CLI with the caller's args; a file stays.
 func TestLinkTailscaleCLIWrapsAppBinary(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	setupToolsTestEnv(t)
 	app := filepath.Join(t.TempDir(), "Tailscale")
 	if err := os.WriteFile(app, []byte("#!/bin/sh\necho app \"$@\"\n"), 0o755); err != nil {
@@ -739,6 +747,7 @@ func TestLinkTailscaleCLIWrapsAppBinary(t *testing.T) {
 }
 
 func TestTailscaleRepairsDanglingCLI(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	setupToolsTestEnv(t)
 	app := filepath.Join(t.TempDir(), "Tailscale")
 	writeToolsFixture(t, app, "#!/bin/sh\nprintf 'app %s\\n' \"$1\"\n", 0o755)

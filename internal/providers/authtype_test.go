@@ -829,6 +829,10 @@ type rotRig struct {
 func newRotRig(t *testing.T, name string) *rotRig {
 	t.Helper()
 	r := &rotRig{}
+	if origDelay := sealRetryDelay; origDelay == time.Second {
+		sealRetryDelay = time.Millisecond
+		t.Cleanup(func() { sealRetryDelay = origDelay })
+	}
 	srv := oidcServer(t, func(_ *http.Request, f url.Values) (int, map[string]any) {
 		r.mu.Lock()
 		r.sent = append(r.sent, f.Get("refresh_token"))

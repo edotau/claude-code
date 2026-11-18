@@ -535,6 +535,9 @@ var (
 // buildFakeCLI compiles the hermetic fake copilot CLI once per package; TestMain removes its dir.
 func buildFakeCLI(t *testing.T) string {
 	t.Helper()
+	if testing.Short() {
+		t.Skip("pre-ship tier: builds fake CLI")
+	}
 	fakeCLIOnce.Do(func() {
 		fakeCLIDir, fakeCLIErr = os.MkdirTemp("", "copilot-fakecli-")
 		if fakeCLIErr != nil {

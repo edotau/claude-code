@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/paths"
@@ -265,6 +267,7 @@ func TestPickCopilotModelRowsFitEightyColumns(t *testing.T) {
 
 // fakeCopilotBin makes paths.AgentBin("copilot") resolve.
 func fakeCopilotBin(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	bin := paths.BinDir()
 	if err := os.MkdirAll(bin, 0o755); err != nil {

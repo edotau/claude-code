@@ -49,6 +49,7 @@ type mainCheckoutCase struct{ root, lexical, git string }
 
 // mainCheckoutCases builds the repo, worktree, symlink, separate-gitdir and bare layouts MainCheckout must tell apart.
 func mainCheckoutCases(t *testing.T) []mainCheckoutCase {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	base := t.TempDir()
 	repo := gitRepo(t, base, "repo")

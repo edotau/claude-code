@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -38,6 +39,7 @@ func TestFakeVendorRejectsExternalSymlinks(t *testing.T) {
 }
 
 func externalVendorSymlink(t *testing.T, link string, executable bool) string {
+	hosttest.SkipOnWindows(t, "symlinks")
 	t.Helper()
 	cfg, outside := t.TempDir(), t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)

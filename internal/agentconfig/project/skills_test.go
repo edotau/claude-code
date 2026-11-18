@@ -6,10 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // The copilot pass manages ~/.copilot/skills
 func TestCopilotSkillsDirOwnership(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	home, claude := isolate(t)
 	writeSource(t, claude, "agents", "demo", "demo")
 	writeSource(t, claude, "skills", "new-dir", "fresh")
@@ -57,6 +60,7 @@ func TestCopilotSkillsDirOwnership(t *testing.T) {
 
 // A managed-looking link into skills/synced is reported preserved and never pruned.
 func TestPruneKeepsSyncedLink(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	agentsSkills := filepath.Join(t.TempDir(), "skills-dest")
 	skillsDir := filepath.Join(t.TempDir(), "skills")
 	if err := os.MkdirAll(agentsSkills, 0o755); err != nil {

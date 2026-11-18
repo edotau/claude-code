@@ -15,6 +15,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -279,6 +281,7 @@ func TestValidateSecretGitHubVaultNames(t *testing.T) {
 
 // TestProbeCLIClassify runs a real child: stdout vs combined output, and a chosen exit classifies as NeedsLogin.
 func TestProbeCLIClassify(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	ctx := context.Background()
 	spec := EnvSpec{Mode: EnvAgent}
 	script := "echo out; echo 'bad login' >&2; exit 3"
@@ -299,11 +302,12 @@ func TestProbeCLIClassify(t *testing.T) {
 
 // TestClassifyProbeTransient: a deadline and a missing binary are transient, never NeedsLogin.
 func TestClassifyProbeTransient(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	ctx := context.Background()
 	spec := EnvSpec{Mode: EnvAgent}
 	short, cancel := context.WithTimeout(ctx, 50*time.Millisecond)
 	defer cancel()
-	_, err := ProbeCLI(short, "/bin/sh", spec, false, "-c", "sleep 5")
+	_, err := ProbeCLI(short, "/bin/sh", spec, false, "-c", "exec sleep 5")
 	if v, d := ClassifyProbe(short, err); v != providers.VerdictTransient || d != context.DeadlineExceeded.Error() {
 		t.Errorf("deadline = %s %q, want transient with the ctx error", v, d)
 	}

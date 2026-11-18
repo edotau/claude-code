@@ -60,6 +60,7 @@ func writeToolsFixture(t *testing.T, path, content string, mode os.FileMode) {
 }
 
 func symlinkToolsFixture(t *testing.T, target, link string) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 		t.Fatal(err)
@@ -70,6 +71,7 @@ func symlinkToolsFixture(t *testing.T, target, link string) {
 }
 
 func npmToolsFixture(t *testing.T, root, name, pkg string) string {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	prefix := filepath.Join(root, "npm prefix")
 	target := filepath.Join(prefix, "lib", "node_modules", pkg, "bin", name)
@@ -79,6 +81,7 @@ func npmToolsFixture(t *testing.T, root, name, pkg string) string {
 }
 
 func isolateToolsEnv(t *testing.T, root string) (string, string) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	env := setupToolsTestEnv(t)
 	bin := filepath.Join(env.home, ".local", "bin")
@@ -112,6 +115,7 @@ func assertNpmNotRun(t *testing.T, marker string) {
 }
 
 func TestNpmCleanupForCanceledCtxKeepsNpm(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	root := t.TempDir()
 	_, marker := isolateToolsEnv(t, root)
 	local := filepath.Join(t.TempDir(), "opencode")
@@ -138,6 +142,7 @@ func npmCleanupLines(output string) []string {
 }
 
 func TestInstallSelectedDryRunCleansEveryNpmPrefix(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	for _, tc := range []struct{ name, pkg string }{
 		{"opencode", "opencode-ai"},
 		{"codex", "@openai/codex"},
@@ -216,6 +221,7 @@ func assertDryRunNpmPrefixes(t *testing.T, name, pkg, prefixA, prefixB, marker s
 }
 
 func TestInstallSelectedFailureSkipsNpmCleanup(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	root := t.TempDir()
 	localBin, marker := isolateToolsEnv(t, root)
 	writeToolsFixture(t, filepath.Join(localBin, "opencode"), "#!/bin/sh\nprintf '1.0.0\\n'\n", 0o755)
@@ -237,6 +243,7 @@ func TestInstallSelectedFailureSkipsNpmCleanup(t *testing.T) {
 }
 
 func TestInstallSelectedKeepsNpmWithoutWorkingLocalVersion(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	for _, tc := range []struct{ name, script string }{
 		{"missing", ""},
 		{"failed-version", "#!/bin/sh\nprintf '1.0.0\\n'\nexit 1\n"},
@@ -283,6 +290,7 @@ func TestInstallSelectedKeepsNpmWithoutWorkingLocalVersion(t *testing.T) {
 }
 
 func TestInstallDir(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	for _, tc := range []struct {
 		name       string
 		pathCopy   bool
@@ -332,6 +340,7 @@ func expectedInstallDir(home, path1, name string, wantVendor, pathCopy, direct b
 }
 
 func TestInstallSelectedCopilotDryRunReportsInstallDir(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	for _, pathCopy := range []bool{false, true} {
 		t.Run("path-copy-"+strconv.FormatBool(pathCopy), func(t *testing.T) {
 			env := setupToolsTestEnv(t)
@@ -388,6 +397,7 @@ func TestLocalBinDirUnsetHomeIsNotCwdRelative(t *testing.T) {
 }
 
 func TestStatusOneTargetIsLinkTargetOnly(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	env := setupToolsTestEnv(t)
 	candidate := filepath.Join(env.path1, "codex")
 	writeToolsFixture(t, candidate, "#!/bin/sh\nprintf '1.0.0\\n'\n", 0o755)

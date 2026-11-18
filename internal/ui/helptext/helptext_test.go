@@ -209,6 +209,7 @@ func TestPaintColorsDoubleDashFlagRows(t *testing.T) {
 
 // WrappedDocs runs `<bin> --help` from PATH and passes its exit code through; a missing binary is exit 1.
 func TestWrappedDocsRunsBinaryHelp(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	dir := t.TempDir()
 	out := filepath.Join(dir, "argv")
 	script := "#!/bin/sh\necho \"$@\" > " + out + "\nexit 3\n"
@@ -229,6 +230,7 @@ func TestWrappedDocsRunsBinaryHelp(t *testing.T) {
 
 // `<bin> --help` holds no login or credential-shaped var, but keeps PATH and the proxy/CA settings.
 func TestWrappedDocsScrubsCredentials(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	dir := t.TempDir()
 	dump := filepath.Join(dir, "env")
 	script := "#!/bin/sh\n/usr/bin/env > " + dump + "\nexit 3\n"
@@ -673,6 +675,9 @@ func usageText(e ast.Expr, decls map[string]string) bool {
 
 // TestHelpGuard enforces shared help renderers and rejects legacy headers and raw usage writes.
 func TestHelpGuard(t *testing.T) {
+	if testing.Short() {
+		t.Skip("pre-ship tier: whole-repo AST walk")
+	}
 	for _, f := range scanHelpGuard(t, "../../..") {
 		t.Errorf("%s: %s", f.pos, f.msg)
 	}

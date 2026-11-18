@@ -224,6 +224,7 @@ func init() {
 
 // routeJSONFixture installs a work copilot profile, fake copilot+codex binaries and a 402-exhausted account.
 func routeJSONFixture(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	dir := vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"github":{"work":{"protocol":"openai",
@@ -416,6 +417,7 @@ func TestGatewayRouteRejectsStrayArgument(t *testing.T) {
 
 // parityEnv signs in a Databricks profile (gpt-6-astra Responses-capable or not); agent stubs mark any prompt run.
 func parityEnv(t *testing.T, profile string, responses bool) (marker string) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	dir := vaulttest.Use(t)
 	t.Setenv("CLAUDE_PROFILE", profile)

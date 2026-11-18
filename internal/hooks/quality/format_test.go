@@ -130,6 +130,7 @@ func TestMakeFormatRefusesProvisioningAndUnreachedVariable(t *testing.T) {
 
 // formatPythonFixture builds a project whose .venv/bin tools append their argv to a trace file.
 func formatPythonFixture(t *testing.T) (root, py, trace string) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	root = t.TempDir()
 	bin := filepath.Join(root, ".venv", "bin")
@@ -153,6 +154,7 @@ func formatPythonFixture(t *testing.T) (root, py, trace string) {
 }
 
 func TestFormatPythonPartialFailureRemainsRetryable(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	root, py, trace := formatPythonFixture(t)
 	if err := os.WriteFile(filepath.Join(root, "pyproject.toml"), []byte("[tool.isort]\n[tool.black]\n"), 0o644); err != nil {
 		t.Fatal(err)

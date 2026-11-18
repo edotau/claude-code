@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // A linked worktree's bank tag is its main checkout's name, never the branch dir it was checked out into.
@@ -193,6 +195,7 @@ func ancestorHasGit(dir string) bool {
 
 // Given two spellings, Then SameFile/InsideDir resolve symlinks and missing tails, folding case per FoldsCase.
 func TestPathIdentity(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	dir := t.TempDir()
 	real, err := filepath.EvalSymlinks(dir)
 	if err != nil {

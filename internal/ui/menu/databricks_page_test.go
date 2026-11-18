@@ -17,6 +17,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/paths"
@@ -322,6 +324,7 @@ func TestDbxCopyOutcomes(t *testing.T) {
 
 // TestDbxCopyRealWriteSecretSeam: the real clipboard.WriteSecret path via a stub xclip; ErrNoClipboard without it.
 func TestDbxCopyRealWriteSecretSeam(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	defer clipboard.SetWSLForTest(false)()
 	bin := t.TempDir()
 	t.Setenv("PATH", bin)

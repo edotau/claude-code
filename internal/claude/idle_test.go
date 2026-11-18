@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/anthropics/anthropic-sdk-go"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -60,6 +62,7 @@ func runFakeClaudeStall(t *testing.T, script func(limit time.Duration) string) f
 }
 
 func runFakeClaudeIdle(t *testing.T, limit time.Duration, script string) (wire.Result, error) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	old := claudeIdleLimit
 	claudeIdleLimit = limit
@@ -132,6 +135,7 @@ func TestClaudeExecSilenceBeforeResultStillFails(t *testing.T) {
 }
 
 func TestClaudeLiveStallsWhenSilent(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	old := claudeIdleLimit
 	claudeIdleLimit = 300 * time.Millisecond
 	t.Cleanup(func() { claudeIdleLimit = old })

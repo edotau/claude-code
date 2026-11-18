@@ -75,6 +75,7 @@ func TestInReturnsStdoutOnly(t *testing.T) {
 }
 
 func TestInTimesOutHangingHook(t *testing.T) {
+	SkipOnWindows(t, "sh scripts, symlinks or errno")
 	orig := gitTimeout
 	gitTimeout = 300 * time.Millisecond
 	t.Cleanup(func() { gitTimeout = orig })

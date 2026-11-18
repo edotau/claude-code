@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
@@ -218,6 +220,7 @@ func TestLeafSuccessfulEvidence(t *testing.T) {
 }
 
 func TestScratchContainment(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatal(err)

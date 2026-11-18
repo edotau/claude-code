@@ -12,6 +12,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestRequireBranchPreservesGitFailures(t *testing.T) {
@@ -74,6 +76,7 @@ func TestRunGitCancellationBoundsInheritedPipes(t *testing.T) {
 }
 
 func regressionFakeGit(t *testing.T, body string) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "git"), []byte("#!/bin/sh\n"+body), 0o700); err != nil {

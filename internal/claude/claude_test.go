@@ -2,7 +2,6 @@ package claude
 
 import (
 	"bufio"
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -14,6 +13,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/agent/agenttest"
 
@@ -616,6 +617,7 @@ func TestClaudeLoginProbeTriState(t *testing.T) {
 }
 
 func TestClaudeLoginProbeNativeInstall(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	resetClaudeProbe()
 	t.Cleanup(resetClaudeProbe)
 	t.Setenv("HOME", t.TempDir())
@@ -693,7 +695,10 @@ done
 `
 
 // liveEnv gives the test a short /tmp config dir (unix socket paths cap at 104 bytes on macOS) holding the fake claude.
-func liveEnv(t *testing.T) { liveEnvScript(t, fakeLiveClaude) }
+func liveEnv(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
+	liveEnvScript(t, fakeLiveClaude)
+}
 
 func liveEnvScript(t *testing.T, script string) {
 	t.Helper()
@@ -815,6 +820,7 @@ printf '{"type":"system","subtype":"noise","message":"%s"}\n' "$(head -c 200000 
 
 // A large prompt sent while claude's between-turn output fills the stdout pipe must not deadlock the holder.
 func TestLiveLargePromptWithPendingOutputDoesNotDeadlock(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	liveEnvScript(t, fakeNoisyClaude)
 	id, wait := startHolder(t, context.Background(), 300*time.Millisecond)
 	done := make(chan error, 1)
@@ -860,6 +866,7 @@ done
 
 // Claude's total_cost_usd accumulates over the process; each live turn must report only its own cost.
 func TestLiveClaudeCostIsPerTurn(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	liveEnvScript(t, fakeCostClaude)
 	ctx, cancel := context.WithCancel(context.Background())
 	id, wait := startHolder(t, ctx, time.Minute)
@@ -872,16 +879,17 @@ func TestLiveClaudeCostIsPerTurn(t *testing.T) {
 	}
 }
 
-// fakeExitAfterResult answers the first turn with a bulky assistant line and the final result, then exits at once.
+// fakeExitAfterResult sends a 100 KB line (past the 64 KiB pipe buffer) and the final result, then exits at once.
 const fakeExitAfterResult = `#!/bin/sh
 IFS= read -r line
-pad=$(head -c 400000 /dev/zero | tr '\0' x)
+pad=$(head -c 100000 /dev/zero | tr '\0' x)
 printf '{"type":"assistant","session_id":"s1","message":{"content":[{"type":"text","text":"%s"}]}}\n' "$pad"
 printf '{"type":"result","subtype":"success","is_error":false,"result":"final","session_id":"s1","usage":{"input_tokens":1,"output_tokens":1}}\n'
 `
 
 // The last turn's tail survives a child that exits right after writing it: Wait runs only once stdout is drained.
 func TestLiveFinalResultSurvivesImmediateChildExit(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	for i := range 30 {
 		liveEnvScript(t, fakeExitAfterResult)
 		id, wait := startHolder(t, context.Background(), time.Minute)
@@ -895,6 +903,7 @@ func TestLiveFinalResultSurvivesImmediateChildExit(t *testing.T) {
 
 // A cancelled run still reaps the child and ends the holder: serveChild's Wait goroutine must not block forever.
 func TestLiveCancelEndsHolderAndReapsChild(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	liveEnvScript(t, "#!/bin/sh\nexec /bin/sleep 20\n")
 	ctx, cancel := context.WithCancel(context.Background())
 	_, wait := startHolder(t, ctx, time.Minute)
@@ -910,7 +919,7 @@ func TestLiveCancelEndsHolderAndReapsChild(t *testing.T) {
 
 type syncBuffer struct {
 	mu sync.Mutex
-	b  bytes.Buffer
+	b  strings.Builder
 }
 
 func (s *syncBuffer) Write(p []byte) (int, error) {
@@ -956,6 +965,9 @@ func awaitTailResult(t *testing.T, results <-chan struct{}, done <-chan tailOutc
 
 // Runs at agent's production tail cadence (250ms poll): the swap seam is unexported in package agent.
 func TestTailEventsFollowsTwoLiveTurns(t *testing.T) {
+	if testing.Short() {
+		t.Skip("pre-ship tier: real child, poll waits")
+	}
 	liveEnv(t)
 	ctx, cancel := context.WithCancel(context.Background())
 	id, wait := startHolder(t, ctx, time.Minute)

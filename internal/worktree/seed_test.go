@@ -5,8 +5,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -137,6 +140,7 @@ func TestCleanFreshBranchDeletedAfterMerge(t *testing.T) {
 }
 
 func TestSeedSymlinksVenvCopiesEnv(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Parallel()
 	repo := testRepo(t)
 	main := repo.Main
@@ -203,7 +207,7 @@ func requireSeededEnv(t *testing.T, dest string) {
 	if !envInfo.Mode().IsRegular() {
 		t.Fatalf(".env mode = %v, want a regular file copy", envInfo.Mode())
 	}
-	if envInfo.Mode().Perm() != 0o640 {
+	if runtime.GOOS != "windows" && envInfo.Mode().Perm() != 0o640 {
 		t.Fatalf(".env mode = %o, want 640 (source mode preserved)", envInfo.Mode().Perm())
 	}
 	if data, err := os.ReadFile(filepath.Join(dest, ".env")); err != nil || string(data) != "TOKEN=secret\n" {

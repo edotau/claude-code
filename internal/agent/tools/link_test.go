@@ -8,10 +8,12 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestLinkVendorsLinksPathEntryAndIsIdempotent(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	env := setupToolsTestEnv(t)
 	candidate := filepath.Join(env.path1, "agy")
 	resolved := filepath.Join(t.TempDir(), "agy")
@@ -39,6 +41,7 @@ func TestLinkVendorsLinksPathEntryAndIsIdempotent(t *testing.T) {
 }
 
 func TestLinkVendorsKeepsDirectFileAndReportsPathCopy(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	env := setupToolsTestEnv(t)
 	candidate := filepath.Join(env.path1, "codex")
 	writeToolsFixture(t, candidate, "#!/bin/sh\nexit 0\n", 0o755)
@@ -56,6 +59,7 @@ func TestLinkVendorsKeepsDirectFileAndReportsPathCopy(t *testing.T) {
 }
 
 func TestLinkVendorsRemovesLegacyShimLinkWithoutCandidate(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	setupToolsTestEnv(t)
 	legacy := filepath.Join(t.TempDir(), "claude-code")
 	writeToolsFixture(t, legacy, "#!/bin/sh\nexit 0\n", 0o755)
@@ -88,6 +92,7 @@ func TestLinkVendorsRemovesDanglingLink(t *testing.T) {
 }
 
 func TestLinkVendorsKeepsWorkingLinkWithoutCandidate(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	setupToolsTestEnv(t)
 	target := filepath.Join(t.TempDir(), "opencode-real")
 	writeToolsFixture(t, target, "#!/bin/sh\nexit 0\n", 0o755)
@@ -106,6 +111,7 @@ func TestLinkVendorsKeepsWorkingLinkWithoutCandidate(t *testing.T) {
 
 // With no real file at BinDir()/codex, a stale symlink is replaced to point at the current PATH candidate.
 func TestLinkVendorsRelinksSymlinkWhenNoRealCodexInstall(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	env := setupToolsTestEnv(t)
 	candidate := filepath.Join(env.path1, "codex")
 	writeToolsFixture(t, candidate, "#!/bin/sh\nexit 0\n", 0o755)
@@ -132,6 +138,7 @@ func TestLinkVendorsRelinksSymlinkWhenNoRealCodexInstall(t *testing.T) {
 }
 
 func TestReplaceLinkKeepsRegularFileWithoutReplacing(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	setupToolsTestEnv(t)
 	dst := filepath.Join(t.TempDir(), "codex")
 	writeToolsFixture(t, dst, "#!/bin/sh\nexit 0\n", 0o755)
@@ -160,6 +167,7 @@ func TestLinkVendorsReportsMissingTool(t *testing.T) {
 }
 
 func TestLinkVendorsUsesLocalBinFallback(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	env := setupToolsTestEnv(t)
 	candidate := filepath.Join(env.home, ".local", "bin", "claude")
 	writeToolsFixture(t, candidate, "#!/bin/sh\nexit 0\n", 0o755)
@@ -176,6 +184,7 @@ func TestLinkVendorsUsesLocalBinFallback(t *testing.T) {
 }
 
 func TestLinkVendorsMarksNPMGlobalCandidate(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	env := setupToolsTestEnv(t)
 	target := filepath.Join(t.TempDir(), "prefix", "lib", "node_modules", "@github", "copilot", "bin", "copilot")
 	writeToolsFixture(t, target, "#!/bin/sh\nexit 0\n", 0o755)
@@ -194,6 +203,7 @@ func TestLinkVendorsMarksNPMGlobalCandidate(t *testing.T) {
 }
 
 func TestLinkVendorsDryRunDoesNotChangeDisk(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	env := setupToolsTestEnv(t)
 	candidate := filepath.Join(env.path1, "codex")
 	writeToolsFixture(t, candidate, "#!/bin/sh\nexit 0\n", 0o755)
@@ -212,6 +222,7 @@ func TestLinkVendorsDryRunDoesNotChangeDisk(t *testing.T) {
 }
 
 func TestLinkVendorsLinksOnlyNamedTools(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	env := setupToolsTestEnv(t)
 	for _, name := range []string{"codex", "copilot"} {
 		writeToolsFixture(t, filepath.Join(env.path1, name), "#!/bin/sh\nexit 0\n", 0o755)
@@ -228,6 +239,7 @@ func TestLinkVendorsLinksOnlyNamedTools(t *testing.T) {
 }
 
 func TestLinkRelativePathEntryRemainsUsable(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	setupToolsTestEnv(t)
 	root := t.TempDir()
 	candidate := filepath.Join(root, "vendor", "bin", "codex")

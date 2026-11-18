@@ -64,8 +64,7 @@ func Setup() (cleanup func()) {
 			panic(err)
 		}
 	}
-	linkTools(bin)
-	setHostEnv(bin, home)
+	setHostEnv(strings.Join(append([]string{bin}, linkTools(bin)...), string(os.PathListSeparator)), home)
 	_ = os.Setenv(activeEnv, root)
 	return func() { _ = os.RemoveAll(root) }
 }
@@ -82,13 +81,13 @@ func makeRoot() string {
 }
 
 // setHostEnv points PATH, HOME, the XDG dirs, the vault key and git's config at the hermetic host.
-func setHostEnv(bin, home string) {
+func setHostEnv(path, home string) {
 	key := make([]byte, 32)
 	if _, err := rand.Read(key); err != nil {
 		panic(err)
 	}
 	for k, v := range map[string]string{
-		"PATH": bin, "HOME": home, "CLAUDE_CONFIG_DIR": filepath.Join(home, ".claude"),
+		"PATH": path, "HOME": home, "CLAUDE_CONFIG_DIR": filepath.Join(home, ".claude"),
 		"XDG_CONFIG_HOME": filepath.Join(home, ".config"), "XDG_DATA_HOME": filepath.Join(home, ".local", "share"),
 		"XDG_STATE_HOME": filepath.Join(home, ".local", "state"), "XDG_CACHE_HOME": filepath.Join(home, ".cache"),
 		"HARNESS_VAULT_KEY": base64.StdEncoding.EncodeToString(key),
@@ -132,16 +131,31 @@ func keepGo() {
 	}
 }
 
-func linkTools(bin string) {
+// linkTools symlinks Tools into bin; on Windows (no unprivileged links, no .exe) it returns their real dirs for PATH.
+func linkTools(bin string) []string {
+	var dirs []string
 	for _, t := range Tools {
 		p, err := exec.LookPath(t)
 		if err != nil {
+			continue
+		}
+		if runtime.GOOS == "windows" {
+			dirs = append(dirs, filepath.Dir(p))
 			continue
 		}
 		if real, err := filepath.EvalSymlinks(p); err == nil && filepath.Base(real) == t {
 			p = real
 		}
 		_ = os.Symlink(p, filepath.Join(bin, t))
+	}
+	return dirs
+}
+
+// SkipOnWindows skips the calling test on Windows; why names the unix-only dependency.
+func SkipOnWindows(t testing.TB, why string) {
+	if runtime.GOOS == "windows" {
+		t.Helper()
+		t.Skip("unix-only: " + why)
 	}
 }
 
@@ -155,9 +169,26 @@ func HermeticEnv(t testing.TB) {
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
 	t.Setenv("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
 	t.Setenv("BASH_COMPLETION_USER_DIR", "")
+	goTelemetryOff(t, home)
 	for _, k := range []string{"CLAUDE_PROFILE", "CLAUDE_MODEL", "CLAUDE_OPUS_MODEL", "CLAUDE_SONNET_MODEL",
 		"CLAUDE_HAIKU_MODEL", "CLAUDE_FABLE_MODEL", "ANTHROPIC_API_KEY", "TEST_GW_KEY"} {
 		t.Setenv(k, "")
+	}
+}
+
+// goTelemetryOff stops a probed `go`'s telemetry sidecar racing cleanup under home (Windows' %AppData% is outside).
+func goTelemetryOff(t testing.TB, home string) {
+	t.Helper()
+	cfg, err := os.UserConfigDir()
+	if err != nil || !strings.HasPrefix(cfg, home) {
+		return
+	}
+	dir := filepath.Join(cfg, "go", "telemetry")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "mode"), []byte("off"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 }
 
@@ -221,6 +252,7 @@ func fakeScript(t *testing.T, name, script string) string {
 // WriteExec writes body as an executable file at path, creating parent directories.
 func WriteExec(t *testing.T, path, body string) {
 	t.Helper()
+	SkipOnWindows(t, "executable script fixture")
 	WriteRel(t, filepath.Dir(path), filepath.Base(path), body)
 	if err := os.Chmod(path, 0o755); err != nil {
 		t.Fatal(err)
@@ -268,6 +300,7 @@ func CountFiles(dir, prefix, want string) int {
 // FakeRTK installs a stub rtk (HARNESS_RTK_BIN) whose `rewrite <cmd>` prints FAKE_RTK_OUT or "rtk <cmd>".
 func FakeRTK(t *testing.T) string {
 	t.Helper()
+	SkipOnWindows(t, "#!/bin/sh stub")
 	bin := fakeScript(t, "rtk", "#!/bin/sh\n[ \"$1\" = rewrite ] || exit 9\n"+
 		"if [ -n \"$FAKE_RTK_OUT\" ]; then printf '%s' \"$FAKE_RTK_OUT\"; else printf '%s' \"rtk $2\"; fi\n"+
 		"exit ${FAKE_RTK_EXIT:-0}\n")
@@ -278,6 +311,7 @@ func FakeRTK(t *testing.T) string {
 // FakeOpencode puts an `opencode` script running body first on PATH and returns a directory to use as cwd.
 func FakeOpencode(t *testing.T, body string) string {
 	t.Helper()
+	SkipOnWindows(t, "#!/bin/sh stub")
 	dir := filepath.Dir(fakeScript(t, "opencode", "#!/bin/sh\n"+body+"\n"))
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	return dir

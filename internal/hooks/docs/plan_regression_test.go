@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -185,7 +186,7 @@ func TestSavePlanKeepsDraftEditedAfterApproval(t *testing.T) {
 }
 
 func TestSavePlanFailedRecordRemovalCannotOverwriteApproval(t *testing.T) {
-	if os.Geteuid() == 0 {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("root bypasses directory deletion permissions")
 	}
 	cfg := t.TempDir()
@@ -284,6 +285,7 @@ func TestWriteVerifiedPlanDropsEmptyClaimOnFailure(t *testing.T) {
 
 // A draft written through a symlink to the config dir is still an undated draft in <config>/plans.
 func TestIsUndatedDraftThroughSymlink(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	root := t.TempDir()
 	real := filepath.Join(root, "real")
 	if err := os.MkdirAll(filepath.Join(real, "plans"), 0o755); err != nil {

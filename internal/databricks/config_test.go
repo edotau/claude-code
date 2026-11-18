@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -119,12 +120,13 @@ func TestConfigOutGuard(t *testing.T) {
 	if code := config([]string{"claude", "--host", exHost, "--auth", "cli", "--out", fresh}); code != 0 {
 		t.Fatal(code)
 	}
-	if fi, _ := os.Stat(fresh); fi.Mode().Perm() != 0o600 {
+	if fi, _ := os.Stat(fresh); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("mode %v", fi.Mode())
 	}
 }
 
 func fakeClaudeOnPath(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	d := t.TempDir()
 	if err := os.WriteFile(filepath.Join(d, "claude"), []byte("#!/bin/sh\nexit 99\n"), 0o755); err != nil {
@@ -156,7 +158,7 @@ func TestRescuePrintNeverExecs(t *testing.T) {
 	}
 	t.Cleanup(func() { os.Remove(file) })
 	fi, err := os.Stat(file)
-	if err != nil || fi.Mode().Perm() != 0o600 {
+	if err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600) {
 		t.Fatalf("scratch %v %v", fi, err)
 	}
 	if !strings.Contains(out, "-p hi") || !strings.Contains(out, "databricks auth token --host "+exHost) {

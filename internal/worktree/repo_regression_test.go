@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestResolveRepoBoundsDiscoverySubprocess(t *testing.T) {
@@ -27,6 +29,7 @@ func TestResolveRepoBoundsDiscoverySubprocess(t *testing.T) {
 }
 
 func TestResolveWorktreePropagatesLstatError(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	repo := testRepo(t)
 	repo.Root = filepath.Join(t.TempDir(), "not-a-directory")
 	regressionWriteFile(t, repo.Root, "file\n")

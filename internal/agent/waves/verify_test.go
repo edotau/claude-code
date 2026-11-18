@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/inspect"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // verifyRepo makes a git repo holding files (path to content), committed once, and returns its root.
@@ -363,6 +364,7 @@ func TestVerifyOverlappingLeavesUseRecordedWrites(t *testing.T) {
 
 // Recorded writes are absolute and resolved; they match `agents diff` paths even when the repo dir is a symlink.
 func TestVerifyRecordedWritesResolveSymlinkedRepo(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	real := t.TempDir()
 	link := filepath.Join(t.TempDir(), "link")
 	if err := os.Symlink(real, link); err != nil {

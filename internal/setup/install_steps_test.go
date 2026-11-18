@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -100,6 +101,7 @@ func assertInstalledLinks(t *testing.T, file, codex string) {
 }
 
 func retiredShimSources(t *testing.T) map[string]string {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	if err := os.MkdirAll(paths.BinDir(), 0o755); err != nil {
 		t.Fatal(err)
@@ -244,7 +246,7 @@ func assertInstalledClipboardProxy(t *testing.T, proxyPath, output string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if info.Mode().Perm() != 0o755 {
+	if runtime.GOOS != "windows" && info.Mode().Perm() != 0o755 {
 		t.Errorf("mode = %v, want 0755", info.Mode().Perm())
 	}
 	if !strings.Contains(output, "wl-paste") {

@@ -6,12 +6,15 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // science unsets the harness's session/routing env but keeps claude-science's own CLAUDE_SCIENCE_*/ANTHROPIC_* knobs.
 func TestScienceLaunchPlanStripsHarnessEnvOnly(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Env, "HARNESS_WORKTREE", "off")
 	vaulttest.Put(t, vault.Env, "MY_OWN_VAR", "1")

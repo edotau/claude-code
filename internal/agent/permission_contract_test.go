@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestExplainPermissionReplay(t *testing.T) {
@@ -108,6 +109,7 @@ func TestCapabilityDroppedFlagsStillRun(t *testing.T) {
 }
 
 func assertPermissionReplay(t *testing.T, call Rule) {
+	hosttest.SkipOnWindows(t, "sh")
 	t.Helper()
 	p := Permissions{Mode: "plan"}
 	d := p.Explain(call.Tool, call.Arg)

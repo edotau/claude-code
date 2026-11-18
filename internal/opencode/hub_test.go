@@ -187,7 +187,7 @@ func TestFirstOutputIdleTimeoutStepStart(t *testing.T) {
 	const text = `{"type":"text","sessionID":"s","part":{"text":"hi"}}`
 	ms := func(n int) time.Duration { return time.Duration(n) * time.Millisecond }
 
-	if !stallRun(t, ms(200), ms(500), []string{step}, []time.Duration{0}) {
+	if !stallRun(t, ms(100), ms(300), []string{step}, []time.Duration{0}) {
 		t.Error("step_start then silence did not stall: step_start must not disarm the idle timeout")
 	}
 	// text at 1000ms is past the first window (800ms); only the 500ms renewal saves it, with 300ms slack for load.

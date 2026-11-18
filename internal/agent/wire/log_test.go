@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -72,7 +73,7 @@ func TestLogSinkModeAppendRedact(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat: %v", err)
 	}
-	if mode := fi.Mode().Perm(); mode != 0o600 {
+	if mode := fi.Mode().Perm(); runtime.GOOS != "windows" && mode != 0o600 {
 		t.Errorf("log mode = %o, want 600", mode)
 	}
 

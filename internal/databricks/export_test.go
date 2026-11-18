@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -87,7 +88,7 @@ func TestExportNeverContainsASecretValue(t *testing.T) {
 		t.Fatal(err)
 	}
 	noSentinel(t, "--out file", string(b))
-	if fi, _ := os.Stat(file); fi.Mode().Perm() != 0o600 {
+	if fi, _ := os.Stat(file); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("--out mode = %v, want 0600", fi.Mode().Perm())
 	}
 }

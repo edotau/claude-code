@@ -121,6 +121,7 @@ func TestCommitChangesLockedDeleteRules(t *testing.T) {
 
 // Regression: validateRel refuses an escaping rel and a symlinked ancestor directory, not just a symlinked leaf.
 func TestCommitChangesLockedRefusesEscapeAndSymlinkAncestorBeforeJournal(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	store, _ := storeFixture(t)
 	if _, err := commitLocked(t, "x", []Change{{Rel: "../out.md", Data: []byte("a")}}); err == nil {
 		t.Fatal("escaping rel accepted")
@@ -150,6 +151,7 @@ func TestCommitChangesLockedRefusesEscapeAndSymlinkAncestorBeforeJournal(t *test
 }
 
 func TestCommitChangesLockedSkipsSymlinkPreexisting(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	store, _ := storeFixture(t)
 	if _, err := commitLocked(t, "seed", []Change{{Rel: "r/a.md", Data: []byte("a\n")}}); err != nil {
 		t.Fatal(err)
@@ -557,6 +559,7 @@ func assertFreshRepoEmpty(t *testing.T, r Repo) {
 
 // assertPrePushRefuses runs the hook and requires exit status 1.
 func assertPrePushRefuses(t *testing.T, hookPath string) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	if _, err := exec.LookPath("sh"); err != nil {
 		t.Skip("running the pre-push hook needs sh on PATH")
@@ -638,6 +641,7 @@ func TestCommitDropsUntrackedAndStagesDeletion(t *testing.T) {
 }
 
 func TestCommitRejectsBadPathsAndSymlinks(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	store, decoy := storeFixture(t)
 	r := StoreRepo()
 	if err := r.Ensure(); err != nil {

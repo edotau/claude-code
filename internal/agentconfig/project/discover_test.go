@@ -5,12 +5,14 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func writeSkill(t *testing.T, dir, name string) {
@@ -38,6 +40,7 @@ func skillNames(t *testing.T, skillsDir string) []string {
 }
 
 func TestDiscoverSkillsFollowsInsideSymlinkExcludesSynced(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	skills := filepath.Join(t.TempDir(), "skills")
 	writeSkill(t, filepath.Join(skills, "real"), "real")
 	writeSkill(t, filepath.Join(skills, "vendor", "deep"), "deep")
@@ -121,7 +124,7 @@ func checkCommandScripts(root, path string) ([]string, error) {
 			failures = append(failures, rel+": references "+ref+" which does not exist")
 			continue
 		}
-		if info.Mode().Perm()&0o111 == 0 {
+		if runtime.GOOS != "windows" && info.Mode().Perm()&0o111 == 0 {
 			failures = append(failures, rel+": references "+ref+" which is not executable")
 		}
 	}

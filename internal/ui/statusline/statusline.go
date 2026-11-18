@@ -80,7 +80,6 @@ type values struct {
 	duration     string
 	session      string
 	limits       string // a first-party subscription's 7d:N%
-	auth         string // any other session's credential countdown: m2m:42m
 	profile      string // the profile part of provider ("dev"); "" when the row bears its provider's name
 	contextPct   int
 	adds         int
@@ -106,7 +105,7 @@ func (v values) text(key string) string {
 	case "session":
 		return v.session
 	case "limits":
-		return cmp.Or(v.limits, v.auth)
+		return v.limits
 	}
 	return ""
 }
@@ -229,7 +228,7 @@ func collect(in input, cfg config) values {
 	}
 	if cfg.Style == "twoline" {
 		v.path = filepath.Base(cwd)
-		v.two = collectTwoline(in, v.auth)
+		v.two = collectTwoline(in)
 	}
 	return v
 }
@@ -296,9 +295,6 @@ func (v *values) collectUsage(in input, cfg config, cwd, provider string) {
 	twoline := cfg.Style == "twoline"
 	if limits && sub && !twoline {
 		v.limits = limitsSegment(in)
-	}
-	if (limits || twoline) && !sub {
-		v.auth = authSegment(provider)
 	}
 	if !cfg.gradientStyle() && !twoline {
 		if cfg.seg("context") {
@@ -497,7 +493,7 @@ func clampPct(pct int) int { return max(0, min(100, pct)) }
 // velocityTTL bounds the git diff + untracked sweep, the largest per-render cost.
 const velocityTTL = 5 * time.Second
 
-// codeVelocity is the uncommitted git diff (Claude Code's ledger misses Bash edits), else the ledger.
+// codeVelocity is the branch diff vs its base (git, since the ledger misses Bash edits), else the ledger.
 func codeVelocity(in input, cwd string, cfg config) (adds, dels int) {
 	if !cfg.seg("velocity") {
 		return 0, 0

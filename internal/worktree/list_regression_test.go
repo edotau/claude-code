@@ -8,6 +8,8 @@ import (
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestListKeepsDotDotPrefixedChildRegistered(t *testing.T) {
@@ -30,6 +32,7 @@ func TestListKeepsDotDotPrefixedChildRegistered(t *testing.T) {
 }
 
 func TestUnionFilesystemPropagatesRegisteredStatError(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	root := t.TempDir()
 	wt := filepath.Join(root, "loop")
 	if err := os.Symlink("loop", wt); err != nil {
