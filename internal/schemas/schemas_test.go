@@ -160,6 +160,7 @@ var writers = map[string]string{
 	"internal/hosttest/hosttest.go:goTelemetryOff":              unversioned("test helper: go telemetry mode file under a test's temp HOME"),
 	"internal/hosttest/git.go:WriteRel":                         unversioned("test fixture: a file in a test's temp repo"),
 	"internal/hooks/memhook/checkpoint.go:createFlag":           unversioned("marker: context-checkpoint flag file"),
+	"internal/hooks/secretsend.go:runSecretsJob":                unversioned("log: secrets-end counts line; lock: one masking pass at a time"),
 	"internal/hooks/leaves_watch.go:writeWatch":                 unversioned("marker: stuck-leaf watchdog tick, seen, resumed and collected files"),
 	"internal/memory/session_start.go:WriteCompactRecord":       unversioned("marker: per-session PreCompact record (trigger, pct, at) read once by SessionStart"),
 	"internal/gemini/quota.go:diskCached":                       unversioned("cache: agy /usage output, 60 s, state/harness/agy-usage.json"),

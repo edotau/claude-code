@@ -171,6 +171,12 @@ var Registry = []Group{
 		// Before an edit, notes a dirty file another live session/leaf claims; before git add/commit, asks on one.
 		{Name: "worktree-claim-check", Raw: true, Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Agents: []string{"codex", "copilot", "gemini"}, Plugin: []string{"opencode"}},
 	}},
+	{Name: "secrets", Events: []EventSpec{
+		// A Bash result holding a vault value is replaced before the model and the transcript keep it (Claude only).
+		{Name: "secrets-out", Event: EventPostToolUse, Matcher: "Bash", Budget: 2 * sec},
+		// A detached pass masks the ended session's transcripts in place once they sit idle (Claude only).
+		{Name: "secrets-end", Event: EventSessionEnd, Budget: 2 * sec},
+	}},
 	{Name: "codex", AgentOnly: true, Events: []EventSpec{
 		{Name: "codex-agent-route", Event: EventPreToolUse, Matcher: ".*spawn_agent$", Budget: 5 * sec, Agents: []string{"codex"}},
 		{Name: "codex-routing-result", Event: EventPostToolUse, Matcher: ".*spawn_agent$", Budget: 5 * sec, Agents: []string{"codex"}},

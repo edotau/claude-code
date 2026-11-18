@@ -181,6 +181,13 @@ func (m *dispatchMerge) add(b Bound, event string, r core.Result) {
 		}
 		merged.UpdatedInput = r.UpdatedInput
 	}
+	if r.UpdatedToolOutput != nil {
+		if merged.UpdatedToolOutput != nil {
+			m.fail(fmt.Errorf("%s/%s: second updatedToolOutput on %s", b.Group, b.Spec.Name, event))
+			return
+		}
+		merged.UpdatedToolOutput = r.UpdatedToolOutput
+	}
 	m.addWorktree(b, r)
 }
 
@@ -414,6 +421,8 @@ var native = map[string]core.Runner{
 	"worktree-claim":       wthook.Claim,
 	"worktree-claim-check": wthook.ClaimCheck,
 	"permission-gate":      safety.PermissionGate,
+	"secrets-out":          SecretsOut,
+	"secrets-end":          SecretsEnd,
 }
 
 // runDirect is `hook <Event> --<module>`: a blocking module exits 2 with its reason on stderr.
@@ -554,6 +563,8 @@ func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Wr
 		return unknownHook(event, "unknown hook event", stderr)
 	}
 	switch {
+	case len(flags) > 0 && flags[0] == secretsJobFlag:
+		return runSecretsJob(event, flags[1:])
 	case len(flags) == 0:
 		return runEvent(event, "", stdin, stdout, stderr)
 	case len(flags) == 1 && (flags[0] == settings.AllFlag || flags[0] == settings.AsyncFlag):

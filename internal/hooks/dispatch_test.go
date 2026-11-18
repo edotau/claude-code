@@ -265,6 +265,7 @@ var pointerBound = map[string]core.Runner{
 	"dispatch-failure": Release, "dispatch-workflow": AfterTool, "dispatch-stop": Stop,
 	"dispatch-handback": Handback, "docs-plan-tick": docs.Tick, "docs-plan-reminder": reminderWatched,
 	"worktree-busy": busyWatched, "worktree-claim": wthook.Claim, "worktree-claim-check": wthook.ClaimCheck,
+	"secrets-out": SecretsOut, "secrets-end": SecretsEnd,
 }
 
 // Bind routes every hook name to its own handler: a probe only it reacts to, else its runner's identity.
@@ -820,7 +821,7 @@ func TestPostToolUseAsyncSplitRunsEachModuleOnce(t *testing.T) {
 		}
 		stubs = append(stubs, b)
 	}
-	want := []string{"dispatch-workflow/sync", "docs-plan-tick/async", "worktree-claim/async"}
+	want := []string{"dispatch-workflow/sync", "docs-plan-tick/async", "secrets-out/sync", "worktree-claim/async"}
 	if got := postToolRuns(stubs, &mode, &runs, "Bash"); !slices.Equal(got, want) {
 		t.Fatalf("Bash PostToolUse ran %v, want %v (the sync entry runs no Async alternative)", got, want)
 	}

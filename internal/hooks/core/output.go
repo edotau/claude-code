@@ -42,6 +42,9 @@ func claudeDoc(event string, r Result, style claudeStyle) string {
 			inner["updatedInput"] = r.UpdatedInput
 		}
 	}
+	if event == "PostToolUse" && r.UpdatedToolOutput != nil {
+		inner["updatedToolOutput"] = r.UpdatedToolOutput
+	}
 	if r.Context != "" {
 		inner["additionalContext"] = r.Context
 	}
@@ -169,9 +172,11 @@ type Result struct {
 	Context       string // model-visible additionalContext
 	SystemMessage string // user-visible note
 	UpdatedInput  map[string]any
-	Stdout        string // raw stdout: only the worktree group may set it
-	Stderr        string
-	ExitCode      int // non-zero exit other than 2; honored only from the worktree group
+	// UpdatedToolOutput replaces a tool's output before the model sees it; only Claude's PostToolUse renders it.
+	UpdatedToolOutput map[string]any
+	Stdout            string // raw stdout: only the worktree group may set it
+	Stderr            string
+	ExitCode          int // non-zero exit other than 2; honored only from the worktree group
 }
 
 // Runner is one handler bound to an event.
