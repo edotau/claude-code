@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -23,6 +24,8 @@ const (
 	OutcomeBlock   = "block"
 	OutcomeOverrun = "overrun"
 	OutcomePanic   = "panic"
+	// OutcomeDropped marks the point a full day file stopped recording; later rows that day are missing.
+	OutcomeDropped = "dropped"
 )
 
 // TelemetryRow is one module run: names, wall time and outcome, plus the payload's session id and tool name.
@@ -66,7 +69,10 @@ func TelemetryWaitForTest(d time.Duration) (restore func()) {
 	return func() { telemetryWait = prev }
 }
 
-const telemetryDailyBytes = 4 << 20
+// A heavy day wrote 4 MiB by 10:08 (~138 B/row), so 16 MiB spans one; the total cap bounds all retained days.
+const telemetryDailyBytes = 16 << 20
+const telemetryTotalBytes = 128 << 20
+const telemetryMarkerReserve = 1 << 10
 const telemetryDateLayout = "20060102"
 const telemetryRetentionDays = 14
 
@@ -149,10 +155,50 @@ func pruneTelemetry(dir string, now time.Time) {
 			continue
 		}
 		switch name[18:] {
-		case ".jsonl", ".jsonl.lock", ".pruned":
+		case ".jsonl", ".jsonl.lock", ".pruned", ".dropped":
 			_ = os.Remove(filepath.Join(dir, name))
 		}
 	}
+	trimTelemetryBytes(dir, now)
+}
+
+// trimTelemetryBytes removes the oldest day files until the rest fit telemetryTotalBytes; today's stays.
+func trimTelemetryBytes(dir string, now time.Time) {
+	files, err := filepath.Glob(filepath.Join(dir, "telemetry-????????.jsonl"))
+	if err != nil {
+		return
+	}
+	var total int64
+	sizes := make([]int64, len(files))
+	for i, f := range files {
+		if st, err := os.Stat(f); err == nil {
+			sizes[i] = st.Size()
+			total += sizes[i]
+		}
+	}
+	today := "telemetry-" + now.Format(telemetryDateLayout) + ".jsonl"
+	for i, f := range files {
+		if total <= telemetryTotalBytes || filepath.Base(f) >= today {
+			return
+		}
+		if os.Remove(f) == nil {
+			total -= sizes[i]
+		}
+	}
+}
+
+// telemetryDropMarker is the one row a full day file gets, once (an O_EXCL .dropped file); nil when already marked.
+func telemetryDropMarker(file string) []byte {
+	mk, err := os.OpenFile(strings.TrimSuffix(file, ".jsonl")+".dropped", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if err != nil {
+		return nil
+	}
+	_ = mk.Close()
+	line, err := json.Marshal(telemetryLine{T: time.Now().Format(time.RFC3339), Event: "telemetry", Module: "telemetry", Outcome: OutcomeDropped})
+	if err != nil {
+		return nil
+	}
+	return append(line, '\n')
 }
 
 // appendTelemetry holds the daily lock across its size check, append and short-write rollback.
@@ -170,8 +216,13 @@ func appendTelemetry(file string, buf []byte) error {
 	if err != nil {
 		return errors.Join(err, f.Close())
 	}
-	if !st.Mode().IsRegular() || st.Size()+int64(len(buf)) > telemetryDailyBytes {
+	if !st.Mode().IsRegular() {
 		return f.Close()
+	}
+	if st.Size()+int64(len(buf)) > telemetryDailyBytes-telemetryMarkerReserve {
+		if buf = telemetryDropMarker(file); buf == nil || st.Size()+int64(len(buf)) > telemetryDailyBytes {
+			return f.Close()
+		}
 	}
 	n, werr := f.Write(buf)
 	if n != len(buf) {

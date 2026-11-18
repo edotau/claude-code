@@ -52,6 +52,53 @@ func checkTelemetryStorageBounds(t *testing.T, dir, file string, now time.Time) 
 	}
 }
 
+func TestRecordTelemetryKeepsRecordingPastTheOldCapAndMarksTheDrop(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, time.November, 18, 12, 0, 0, 0, time.UTC)
+	file := filepath.Join(dir, "telemetry-20261118.jsonl")
+	if err := os.WriteFile(file, make([]byte, 4<<20), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record := func(m string) {
+		recordTelemetry(dir, []TelemetryRow{{"Stop", m, OutcomeOK, 0, "", ""}}, now, time.Now().Add(time.Hour))
+	}
+	record("after-old-cap")
+	if raw, _ := os.ReadFile(file); !strings.Contains(string(raw), "after-old-cap") {
+		t.Fatal("a row past the old 4 MiB cap was dropped")
+	}
+	if err := os.Truncate(file, telemetryDailyBytes-telemetryMarkerReserve); err != nil {
+		t.Fatal(err)
+	}
+	record("lost1")
+	record("lost2")
+	raw, _ := os.ReadFile(file)
+	if n := strings.Count(string(raw), `"outcome":"`+OutcomeDropped+`"`); n != 1 || strings.Contains(string(raw), "lost") {
+		t.Errorf("dropped markers = %d, lost rows present = %v", n, strings.Contains(string(raw), "lost"))
+	}
+	if st, _ := os.Stat(file); st.Size() > telemetryDailyBytes {
+		t.Errorf("size %d exceeds the daily cap", st.Size())
+	}
+}
+
+func TestPruneTelemetryBoundsTotalBytes(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, time.November, 18, 12, 0, 0, 0, time.UTC)
+	for _, d := range []string{"20261110", "20261111", "20261118"} {
+		f := filepath.Join(dir, "telemetry-"+d+".jsonl")
+		if err := os.WriteFile(f, nil, 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Truncate(f, telemetryTotalBytes*2/5); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pruneTelemetry(dir, now)
+	left, _ := filepath.Glob(filepath.Join(dir, "telemetry-*.jsonl"))
+	if len(left) != 2 || !strings.HasSuffix(left[0], "20261111.jsonl") {
+		t.Errorf("left = %v, want the two newest", left)
+	}
+}
+
 func TestRecordTelemetryOffAndTestBinaryWriteNothing(t *testing.T) {
 	RecordTelemetry([]TelemetryRow{{"Stop", "a", OutcomeOK, 0, "", ""}}) // test binary: no directory, no write
 	dir := t.TempDir()
