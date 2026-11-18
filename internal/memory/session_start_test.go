@@ -2,6 +2,7 @@ package memory
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -301,30 +302,40 @@ func TestRecordSessionRootRacingRepairsAgree(t *testing.T) {
 	orig := gitOut // no git: sessionRootFor falls back to the absolute cwd
 	gitOut = func(string, ...string) (string, error) { return "", errors.New("no git") }
 	t.Cleanup(func() { gitOut = orig })
-	const id = "11111111-2222-3333-4444-555555555555"
 	cwds := make([]string, 6)
 	for i := range cwds {
 		cwds[i] = canonTemp(t, t.TempDir())
 	}
-	for round := range 40 {
-		write(t, sessionRootPath(id), "relative/path\n")
-		seen := make([]string, len(cwds))
-		start := make(chan struct{})
-		var wg sync.WaitGroup
-		for i, cwd := range cwds {
-			wg.Go(func() {
-				<-start
-				recordSessionRoot(id, cwd)
-				seen[i] = SessionRoot(id, "")
+	t.Run("rounds", func(t *testing.T) { // each round owns a session id, so rounds race in parallel
+		for round := range 40 {
+			t.Run(fmt.Sprint(round), func(t *testing.T) {
+				t.Parallel()
+				id := fmt.Sprintf("11111111-2222-3333-4444-%012d", round)
+				racingRepairRound(t, id, cwds)
 			})
 		}
-		close(start)
-		wg.Wait()
-		final := SessionRoot(id, "")
-		for i, got := range seen {
-			if got == "" || got != final {
-				t.Fatalf("round %d: caller %d saw %q, final root %q", round, i, got, final)
-			}
+	})
+}
+
+func racingRepairRound(t *testing.T, id string, cwds []string) {
+	t.Helper()
+	write(t, sessionRootPath(id), "relative/path\n")
+	seen := make([]string, len(cwds))
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for i, cwd := range cwds {
+		wg.Go(func() {
+			<-start
+			recordSessionRoot(id, cwd)
+			seen[i] = SessionRoot(id, "")
+		})
+	}
+	close(start)
+	wg.Wait()
+	final := SessionRoot(id, "")
+	for i, got := range seen {
+		if got == "" || got != final {
+			t.Fatalf("caller %d saw %q, final root %q", i, got, final)
 		}
 	}
 }
