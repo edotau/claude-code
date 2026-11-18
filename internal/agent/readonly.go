@@ -180,7 +180,7 @@ var gitPlainVerbs = []string{"log", "show", "diff", "status", "blame", "ls-files
 
 // gitBannedLong lets the caller pick a program, config, repo or output file (abbreviations too); not shell.ReadOnlyGit.
 var gitBannedLong = []string{"--output", "--exec-path", "--open-files-in-pager", "--config-env", "--config", "--git-dir",
-	"--work-tree", "--paginate", "--pager", "--contents"}
+	"--work-tree", "--paginate", "--pager", "--contents", "--ext-diff", "--textconv"}
 
 // readOnlyGit is plain git: configured drivers are the owner's; the caller picks no program, config, repo or output.
 func readOnlyGit(toks []string) bool {
@@ -237,7 +237,7 @@ func gitArgsOK(args []string) bool {
 		case a == "-c" || a == "-C" || strings.HasPrefix(a, "-O"):
 			return false
 		case strings.HasPrefix(a, "--"):
-			if slices.ContainsFunc(gitBannedLong, func(b string) bool { return len(name) >= 4 && strings.HasPrefix(b, name) }) {
+			if slices.ContainsFunc(gitBannedLong, func(b string) bool { return len(name) >= 4 && name != "--text" && strings.HasPrefix(b, name) }) {
 				return false
 			}
 		case !strings.HasPrefix(a, "-") && escapesCheckout(a):
