@@ -29,8 +29,8 @@ var opencodeTools = map[string]struct {
 // opencodeEntry is one pattern/action pair; opencode is last-match-wins, so order is the policy.
 type opencodeEntry struct{ pattern, action string }
 
-// opencodePermission preserves rule precedence: unmatched ask uses --auto; auto allows and plan denies unlisted.
-func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
+// opencodePermission keeps rule precedence; gated (plugin judges every bash call) leaves read-only bash to the gate.
+func opencodePermission(p agent.Permissions, gated bool) (json.RawMessage, error) {
 	base := cmp.Or(map[string]string{"auto": "allow", "plan": "deny"}[p.Mode], "ask")
 	byKey := planEntries(p.Mode)
 	readOnly := opencodeReadOnly(agent.RunOptions{Permissions: p})
@@ -40,7 +40,7 @@ func opencodePermission(p agent.Permissions) (json.RawMessage, error) {
 	}{{p.Allow, "allow"}, {p.Ask, "ask"}, {p.Deny, "deny"}}
 	for _, set := range sets {
 		for _, r := range set.rules {
-			key, pats, err := opencodeRuleOrList(r, set.action)
+			key, pats, err := opencodeRuleOrList(r, set.action, gated)
 			if err != nil {
 				return nil, err
 			}
@@ -155,8 +155,10 @@ func opencodePaths(arg, action string) []string {
 }
 
 // opencodeRuleOrList is opencodeRule, but read-only shell rules become the list's heads (the plugin judges exactly).
-func opencodeRuleOrList(r agent.Rule, action string) (string, []string, error) {
+func opencodeRuleOrList(r agent.Rule, action string, gated bool) (string, []string, error) {
 	switch {
+	case r == agent.ReadOnlyAllow && gated:
+		return "bash", []string{"*"}, nil
 	case r == agent.ReadOnlyAllow:
 		return "bash", readOnlyPatterns(), nil
 	case r.Tool == "Bash" && r.Arg == agent.NotReadOnlyShellArg:
@@ -183,7 +185,7 @@ func opencodeCommand(arg string) string {
 }
 
 // opencodeApplyPermissions pins config and permission env over global policy; no policy leaves env unchanged.
-func opencodeApplyPermissions(env []string, req agent.RunOptions) ([]string, error) {
+func opencodeApplyPermissions(env []string, req agent.RunOptions, gated bool) ([]string, error) {
 	if err := refusePureGates(req); err != nil {
 		return nil, err
 	}
@@ -194,7 +196,7 @@ func opencodeApplyPermissions(env []string, req agent.RunOptions) ([]string, err
 	if req.Permissions.IsZero() {
 		return env, nil
 	}
-	perm, err := opencodePermission(req.Permissions)
+	perm, err := opencodePermission(req.Permissions, gated)
 	if err != nil {
 		return nil, retry.Fatal("opencode", err)
 	}
