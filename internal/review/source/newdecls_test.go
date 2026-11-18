@@ -55,3 +55,16 @@ func TestGoAdvisoryNewTestsAndHelpers(t *testing.T) {
 		t.Fatalf("rows = %q, want %q", got, want)
 	}
 }
+
+func TestGoAdvisoryFlagGrowth(t *testing.T) {
+	decl := func(flags string) string {
+		return "package p\n\nfunc cmdFoo() {\n\tfs := helptext.NewFlagSet(\"foo\", helptext.Page{})\n" + flags + "}\n"
+	}
+	root := advisoryRepo(t,
+		map[string]string{"c.go": decl("\t_ = fs.String(\"a\", \"\", \"\")\n\t_ = fs.Bool(\"b\", false, \"\")\n")},
+		map[string]string{"c.go": decl("\t_ = fs.String(\"a\", \"\", \"\")\n\t_ = fs.Bool(\"c\", false, \"\")\n\t_ = fs.Bool(\"d\", false, \"\")\n")})
+	got := GoAdvisory(root, proc.GitEnv(), "HEAD", true, []GoChange{{Path: "c.go"}}).Flags
+	if want := []string{"flags: foo +2 −1"}; !slices.Equal(got, want) {
+		t.Fatalf("rows = %q, want %q", got, want)
+	}
+}

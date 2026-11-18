@@ -1,4 +1,4 @@
-// Advisory rows for a change: new tests and new helpers with their caller counts.
+// Advisory rows for a change: new tests, new helpers with their caller counts, and flag growth per verb.
 
 package source
 
@@ -21,8 +21,8 @@ import (
 // GoChange is one changed Go file under the repo root; From is its rename or copy source.
 type GoChange struct{ Path, From string }
 
-// Advisory holds the printable rows for new tests and helpers.
-type Advisory struct{ New []string }
+// Advisory holds the printable rows: New for new tests and helpers, Flags for per-verb flag growth.
+type Advisory struct{ New, Flags []string }
 
 type goPair struct {
 	path       string
@@ -54,6 +54,7 @@ func GoAdvisory(root string, env []string, baseRev string, staged bool, changes 
 	for _, p := range a.pairs {
 		adv.New = append(adv.New, a.newDeclRows(p)...)
 	}
+	adv.Flags = flagGrowthRows(a.pairs)
 	return adv
 }
 

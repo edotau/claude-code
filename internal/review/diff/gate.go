@@ -150,7 +150,7 @@ func RunGate(args []string, stdout, stderr io.Writer) int {
 	return 0
 }
 
-// printAdvisory lists new tests and helpers in the staged Go files; silent when there are none.
+// printAdvisory lists new tests, helpers and flag growth in the staged Go files; silent when there are none.
 func printAdvisory(w io.Writer, repo string, changed []string) {
 	var cs []source.GoChange
 	for _, p := range changed {
@@ -159,8 +159,8 @@ func printAdvisory(w io.Writer, repo string, changed []string) {
 		}
 	}
 	adv := source.GoAdvisory(repo, os.Environ(), "HEAD", true, cs)
-	if rows := adv.New; len(rows) > 0 {
-		fmt.Fprintln(w, "[additions] new tests and helpers (approve or cut):")
+	if rows := append(adv.New, adv.Flags...); len(rows) > 0 {
+		fmt.Fprintln(w, "[additions] new tests, helpers and flags (approve or cut):")
 		for _, r := range rows {
 			fmt.Fprintln(w, "  "+r)
 		}
@@ -172,7 +172,7 @@ func gateRepo(args []string, stderr io.Writer) (repo string, help bool) {
 	fs := helptext.NewFlagSet("gate", helptext.Page{
 		Usage: "claude-code review gate [flags]",
 		About: "Advisory pre-commit summary of the staged change: complexity and diff-noise\n" +
-			"findings and each new test or helper with its caller count.\n" +
+			"findings, each new test or helper with its caller count, and flags added or removed per verb.\n" +
 			"Always exits 0, so it never blocks a commit.",
 	})
 	fs.SetOutput(stderr)
