@@ -122,22 +122,33 @@ func TestReapRecordsFinishesDeadRecordWithSavedOKResult(t *testing.T) {
 		return rec
 	}
 	okEnv := wire.NewEnvelope(wire.Result{Agent: "claude", Model: "m", SessionID: "s", Answer: "done"}, nil, "x")
-	failEnv := wire.NewEnvelope(wire.Result{Agent: "claude"}, errors.New("boom"), "x")
+	failEnv := wire.NewEnvelope(wire.Result{Agent: "claude", Usage: wire.Usage{InputTokens: 7, OutputTokens: 3}}, errors.New("boom"), "x")
 	done, failed, bare := save(&okEnv), save(&failEnv), save(nil)
+	kept := saveReapRecord(t, deadPID, time.Now().Add(-time.Minute))
+	kept.Error, kept.Usage, kept.DurationMs = "saved reason", &wire.Usage{InputTokens: 5}, 1234
+	if err := kept.Save(); err != nil {
+		t.Fatal(err)
+	}
 	var out bytes.Buffer
 	snapshot, _ := agent.ReadRecent(agent.AllRecords)
-	if n, code := reapRecords(snapshot, false, "reaped", &out, &out); n != 3 || code != 0 {
+	if n, code := reapRecords(snapshot, false, "reaped", &out, &out); n != 4 || code != 0 {
 		t.Fatalf("reapRecords = %d, %d: %s", n, code, out.String())
 	}
 	for _, c := range []struct {
 		rec             agent.Record
 		status, errText string
 	}{
-		{done, "ok", ""}, {failed, "error", lostError}, {bare, "error", lostError}} {
+		{done, "ok", ""}, {failed, "error", "boom"}, {bare, "error", lostError}, {kept, "error", "saved reason"}} {
 		got, err := agent.LoadRecord(c.rec.ID)
 		if err != nil || got.Status != c.status || got.Error != c.errText {
 			t.Errorf("%s = %q %q (%v), want %q %q", c.rec.ID, got.Status, got.Error, err, c.status, c.errText)
 		}
+	}
+	if got, _ := agent.LoadRecord(failed.ID); got.Usage == nil || got.Usage.InputTokens != 7 {
+		t.Errorf("failed record usage = %+v, want the saved envelope's", got.Usage)
+	}
+	if got, _ := agent.LoadRecord(kept.ID); got.Usage == nil || got.Usage.InputTokens != 5 || got.DurationMs != 1234 {
+		t.Errorf("kept record = usage %+v, %dms, want its own outcome untouched", got.Usage, got.DurationMs)
 	}
 	if got, _ := agent.LoadRecord(done.ID); got.Model != "m" || got.SessionID != "s" {
 		t.Errorf("finished record = model %q session %q, want them copied from the saved result", got.Model, got.SessionID)

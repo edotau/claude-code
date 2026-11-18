@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // lostError is the Error a reaped dispatch record carries.
@@ -119,12 +120,22 @@ func reapRecords(snapshot []agent.Record, dryRun bool, verb string, out, errw io
 		if err != nil || cur.Status != "running" || cur.Alive() {
 			continue // the owner may have finished or started after the snapshot
 		}
-		rec, outcome := settleDead(cur)
-		if !dryRun {
-			if err := rec.Save(); err != nil {
-				fmt.Fprintf(errw, "agents cancel --lost: %s: %v\n", rec.ID, err)
+		outcome := ""
+		settle := func(r agent.Record) agent.Record {
+			r, outcome = settleDead(r)
+			return r
+		}
+		if dryRun {
+			rec, outcome = settleDead(cur)
+		} else {
+			var repaired bool
+			if rec, repaired, err = agent.RepairDead(cur.ID, settle); err != nil {
+				fmt.Fprintf(errw, "agents cancel --lost: %s: %v\n", cur.ID, err)
 				code = 1
 				continue
+			}
+			if !repaired {
+				continue // the owner revived or finished it while we waited for the lock
 			}
 		}
 		fmt.Fprintf(out, "%s %s %s (%s, pid %d)\n", verb, outcome, rec.ID, rec.Agent, rec.PID)
@@ -133,14 +144,26 @@ func reapRecords(snapshot []agent.Record, dryRun bool, verb string, out, errw io
 	return records, code
 }
 
-// settleDead finishes a dead record with a saved ok answer, else marks it lost; returns it and the outcome label.
+// settleDead finishes a dead record from its saved result, else marks it error; what the run saved is kept.
 func settleDead(cur agent.Record) (agent.Record, string) {
 	env, ok := cur.SavedEnvelope()
 	if ok && env.Status == wire.StatusOK && env.Error == nil && (env.Answer != "" || len(env.Structured) > 0) {
 		cur.Finish(envelopeResult(env), nil, time.Duration(env.DurationMs)*time.Millisecond)
 		return cur, "finished dispatch (result saved before the process left)"
 	}
-	cur.Status, cur.Error = "error", lostError
+	if ok && env.Error != nil && cur.Error == "" {
+		cur.Error = textutil.RedactSecrets(env.Error.Message)
+	}
+	if ok && cur.Usage == nil && env.Usage != nil {
+		cur.Usage = env.Usage
+	}
+	if ok && cur.DurationMs == 0 {
+		cur.DurationMs = env.DurationMs
+	}
+	cur.Status = "error"
+	if cur.Error == "" {
+		cur.Error = lostError
+	}
 	return cur, "dispatch"
 }
 
