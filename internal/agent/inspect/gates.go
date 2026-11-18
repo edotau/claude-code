@@ -168,6 +168,15 @@ func allGateDefs() []gateDef {
 		gateDef{"quality", false, qualityGate, parseQuality})
 }
 
+// GateNames lists the values --gates takes: the groups, then every gate.
+func GateNames() []string {
+	names := slices.Sorted(maps.Keys(gateGroups))
+	for _, d := range allGateDefs() {
+		names = append(names, d.name)
+	}
+	return names
+}
+
 // gateGroups are the names --gates expands: lint is the set `make lint` runs.
 var gateGroups = map[string][]string{
 	"lint": {"gofmt", "vet", "golangci-lint", "docs", "yaml", "shell", "quality"},
@@ -285,10 +294,11 @@ func stepGate(st step) gateFn {
 		if st.install != "" {
 			var ok bool
 			if bin, ok = findTool(in.root, bin); !ok {
-				if in.strict {
-					return "", "", fmt.Errorf("%s not installed (%s)", st.cmd[0], st.install)
+				reason := fmt.Sprintf("%s not installed (%s)", st.cmd[0], st.install)
+				if in.strict && !st.optional {
+					return "", "", errors.New(reason)
 				}
-				return "", st.cmd[0] + " not installed", nil
+				return "", reason, nil
 			}
 		}
 		return runStep(ctx, in, st, cmd, bin, files)
@@ -372,7 +382,7 @@ func docsGate(ctx context.Context, in gateInput) (string, string, error) {
 	return out + memOut, skip, errors.Join(err, memErr)
 }
 
-// memoryFmtGate runs the `memory fmt --check` package function and fails on the changed memory-store files it lists.
+// memoryFmtGate runs `memory fmt --check`; it fails on the changed bank files it lists, or all of them with --all.
 func memoryFmtGate(in gateInput) (string, error) {
 	store := paths.CanonDeep(memory.StoreDir())
 	changed := map[string]bool{}
@@ -382,7 +392,8 @@ func memoryFmtGate(in gateInput) (string, error) {
 			changed[abs] = true
 		}
 	}
-	if len(changed) == 0 {
+	live := in.whole && paths.CanonDeep(in.root) == paths.CanonDeep(paths.ConfigDir()) // the whole bank, as make lint-docs
+	if len(changed) == 0 && !live {
 		return "", nil
 	}
 	var report bytes.Buffer
@@ -391,7 +402,7 @@ func memoryFmtGate(in gateInput) (string, error) {
 	}
 	var dirty []string
 	for line := range strings.Lines(report.String()) {
-		if line = strings.TrimSpace(line); changed[paths.CanonDeep(line)] {
+		if line = strings.TrimSpace(line); changed[paths.CanonDeep(line)] || (live && filepath.IsAbs(line) && strings.HasSuffix(line, ".md")) {
 			dirty = append(dirty, line+": memory fmt --check: would change (run `claude-code memory fmt`)\n")
 		}
 	}

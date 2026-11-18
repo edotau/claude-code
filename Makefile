@@ -32,8 +32,6 @@ PKGS            := ./...
 # Dirs that `make fmt` and lint run gofmt over.
 GO_FMT_DIRS     := cmd internal
 GO_TEST_TIMEOUT ?= 300s
-# Repo-owned shell scripts (skill scripts included); lint-shell no-ops when the wildcard is empty.
-GO_SH_SRC       := $(wildcard scripts/*.sh scripts/lib/*.sh skills/*/scripts/*.sh)
 # Gate tools are PINNED: `@latest` could change under us between runs. `make install` installs all three (DEV_TOOLS=0 skips).
 DEV_TOOLS       ?= 1
 DEV_TOOLS_ON    := $(findstring $(DEV_TOOLS),1)
@@ -280,18 +278,17 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 reports
 				golangci-lint run --fix --disable gocognit --max-issues-per-linter=0 --max-same-issues=0 ./... || :; \
 			else echo -e "$(C_NOTE)golangci-lint skipped: not installed (make install DEV_TOOLS=1)"; fi; fi ;; \
 	quality) $(BIN) review simplify --fail ;; \
-	shell) if [ -z "$(GO_SH_SRC)" ]; then echo -e "$(C_NOTE)no shell scripts to lint"; \
-		elif command -v shellcheck >/dev/null 2>&1; then shellcheck -S error $(GO_SH_SRC) && echo -e "$(C_OK)shellcheck clean"; \
-		else echo -e "$(C_NOTE)shellcheck not on PATH — skipped"; fi ;; \
-	yaml) if ! command -v yamlfmt >/dev/null 2>&1; then echo -e "$(C_NOTE)yamlfmt not installed — skipped (make install)"; \
-		elif [ -n "$(YAML_FILES)" ]; then yamlfmt $(if $(filter 1,$(CHECK)),-lint) $(YAML_FILES); fi ;; \
+	shell) $(BIN) agents diff --check --all --gates shell ;; \
+	yaml) if [ "$(CHECK)" = 1 ]; then $(BIN) agents diff --check --all --gates yaml; \
+		elif ! command -v yamlfmt >/dev/null 2>&1; then echo -e "$(C_NOTE)yamlfmt not installed — skipped (make install)"; \
+		elif [ -n "$(YAML_FILES)" ]; then yamlfmt $(YAML_FILES); fi ;; \
 	help) ;; \
-	docs) rc=0; $(MDSMITH) $(if $(filter 1,$(CHECK)),check,fix) || rc=1; \
+	docs) if [ "$(CHECK)" = 1 ]; then $(BIN) agents diff --check --all --gates docs; else rc=0; $(MDSMITH) fix || rc=1; \
 		live="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}"; \
 		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \
-			$(BIN) memory fmt $(if $(filter 1,$(CHECK)),--check) || rc=1; \
+			$(BIN) memory fmt || rc=1; \
 		else echo -e "$(C_NOTE)memory fmt skipped: $(CURDIR) is not the live config dir ($$live) — a worktree must not write the shared memory store"; fi; \
-		exit $$rc ;; \
+		exit $$rc; fi ;; \
 	js) $(BIN) workflow lint ;; \
 	*) printf "Unknown lint '%s' (use %s)\n" "$*" "$(subst $(C_SP),|,$(LINT_WHAT))"; exit 1 ;; \
 	esac

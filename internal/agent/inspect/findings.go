@@ -47,6 +47,7 @@ type step struct {
 	wholeCmd   []string // the command for --all without --path, when the tool's own config picks the files (mdsmith)
 	install    string   // how the Makefile installs the tool; empty for a tool that is always present
 	listsFiles bool     // the tool exits 0 and prints the files that need work (gofmt -l)
+	optional   bool     // a missing tool skips even under --gates, as the Makefile always did for it
 	parse      parseFn
 }
 
@@ -65,10 +66,11 @@ var steps = []step{
 		cmd: []string{"golangci-lint", "run", "--max-issues-per-linter=0", "--max-same-issues=0", "{pkgs}"}},
 	{kind: "markdown", gate: "docs", globs: []string{mdGlob}, install: "make mdsmith", parse: parseDocs,
 		cmd: []string{"mdsmith", "check", "--no-color", "--", "{files}"}, wholeCmd: []string{"mdsmith", "check", "--no-color"}},
-	{kind: "yaml", gate: "yaml", globs: []string{"**/*.yml", "**/*.yaml"}, install: installDev, parse: parseYamlfmt,
-		cmd: []string{"yamlfmt", "-lint", "{files}"}},
+	{kind: "yaml", gate: "yaml", globs: []string{"**/*.yml", "**/*.yaml"}, install: "make install", optional: true,
+		parse: parseYamlfmt,
+		cmd:   []string{"yamlfmt", "-lint", "{files}"}},
 	{kind: "shell", gate: "shell", globs: []string{"scripts/*.sh", "scripts/lib/*.sh", "skills/*/scripts/*.sh"},
-		install: "install shellcheck; make does not", parse: parseShellcheck,
+		install: "install shellcheck; make does not", optional: true, parse: parseShellcheck,
 		cmd: []string{"shellcheck", "-S", "error", "-f", "gcc", "{files}"}},
 }
 

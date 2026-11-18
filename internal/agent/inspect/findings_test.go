@@ -3,6 +3,7 @@ package inspect
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"os/exec"
 	"slices"
@@ -147,7 +148,7 @@ func TestMissingToolFailsOnlyWithGates(t *testing.T) {
 	if want := "golangci-lint: golangci-lint not installed (make install DEV_TOOLS=1)"; code != DiffExitGate || !strings.Contains(out, want) {
 		t.Errorf("--gates: exit %d, out %q; want exit 1 and the row %q", code, out, want)
 	}
-	if code, out, _ := runDiff(t, DiffOptions{Dir: dir, Check: true}); code != 0 || !strings.Contains(out, "skip golangci-lint (golangci-lint not installed)") {
+	if code, out, _ := runDiff(t, DiffOptions{Dir: dir, Check: true}); code != 0 || !strings.Contains(out, "skip golangci-lint (golangci-lint not installed (make install DEV_TOOLS=1))") {
 		t.Errorf("default: exit %d, out %q; want the skip as before", code, out)
 	}
 }
@@ -191,5 +192,37 @@ func TestAllDocsLetsMdsmithPickItsFiles(t *testing.T) {
 	runDiff(t, DiffOptions{Dir: dir, Check: true, Gates: []string{"docs"}})
 	if got := callOf(*calls, "mdsmith"); !slices.Equal(got, []string{"check", "--no-color", "--", "notes.md"}) {
 		t.Errorf("dirty mdsmith args = %v, want the changed file after --", got)
+	}
+}
+
+// make lint-yaml|shell|docs run these gates: a finding becomes a row and fails, a missing yamlfmt or shellcheck skips.
+func TestKindGatesParseFindingsAndSkipMissingTools(t *testing.T) {
+	cases := []struct{ gate, file, tool, output, row, skip string }{
+		{"yaml", ".github/x.yml", "yamlfmt", ".github/x.yml:\n", ".github/x.yml: yamlfmt: needs formatting",
+			"yamlfmt not installed (make install)"},
+		{"shell", "scripts/a.sh", "shellcheck", "scripts/a.sh:3:5: error: Bad. [SC1000]\n",
+			"scripts/a.sh:3: shellcheck/SC1000: Bad.", "shellcheck not installed (install shellcheck; make does not)"},
+		{"docs", "notes.md", "mdsmith", "notes.md:3:1 MDS008 blank lines\n", "notes.md:3: mdsmith/MDS008: blank lines", ""},
+	}
+	for _, c := range cases {
+		dir, _ := scopeRepo(t)
+		writeRepoFile(t, dir, c.file, "x\n")
+		gateRun = func(_ context.Context, _, name string, _ ...string) (string, error) {
+			if strings.HasSuffix(name, c.tool) {
+				return c.output, errors.New("exit status 1")
+			}
+			return "", nil
+		}
+		o := DiffOptions{Dir: dir, Check: true, All: true, Gates: []string{c.gate}}
+		if code, out, _ := runDiff(t, o); code != DiffExitGate || !strings.Contains(out, c.row) {
+			t.Errorf("%s: exit %d, out %q; want exit 1 and the row %q", c.gate, code, out, c.row)
+		}
+		if c.skip == "" {
+			continue
+		}
+		gateLookPath = func(string) (string, error) { return "", exec.ErrNotFound }
+		if code, out, _ := runDiff(t, o); code != 0 || !strings.Contains(out, "skip "+c.gate+" ("+c.skip+")") {
+			t.Errorf("%s missing tool: exit %d, out %q; want a skip carrying the install hint", c.gate, code, out)
+		}
 	}
 }

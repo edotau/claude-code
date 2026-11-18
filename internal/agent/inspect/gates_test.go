@@ -103,7 +103,7 @@ func TestGatesCutLongFailureAndRunTheRest(t *testing.T) {
 	if len(rows) != diffHeadLines+1 || rows[len(rows)-1].String() != "vet: +15 more lines cut" {
 		t.Errorf("vet kept %d rows, last %v; want 30 unparsed lines then one +15 row", len(rows), rows[len(rows)-1])
 	}
-	if rs[3].Reason != "golangci-lint not installed" || diffExit(DiffReport{Gates: rs}) != DiffExitGate {
+	if rs[3].Reason != "golangci-lint not installed (make install DEV_TOOLS=1)" || diffExit(DiffReport{Gates: rs}) != DiffExitGate {
 		t.Errorf("lint reason %q, exit %d", rs[3].Reason, diffExit(DiffReport{Gates: rs}))
 	}
 }
@@ -168,7 +168,7 @@ func TestDocsGateRunsOnChangedMarkdownOnly(t *testing.T) {
 		t.Errorf("a Go-only change ran the docs gate: %s", gateStatuses(rs))
 	}
 	(&fakeGates{}).install(t)
-	if rs = runGates(context.Background(), dir, "HEAD", md); rs[len(rs)-1].Reason != "mdsmith not installed" {
+	if rs = runGates(context.Background(), dir, "HEAD", md); rs[len(rs)-1].Reason != "mdsmith not installed (make mdsmith)" {
 		t.Errorf("missing mdsmith: %+v", rs)
 	}
 }
@@ -240,5 +240,23 @@ func TestTestGateAddsSchemasOnProductionChange(t *testing.T) {
 		if got := slices.Contains(args, "./internal/schemas"); got != c.want {
 			t.Errorf("%s: test args %v, schemas = %v, want %v", c.file, args, got, c.want)
 		}
+	}
+}
+
+// --all on the live config dir checks the whole memory bank, as make lint-docs does, though it is untracked.
+func TestDocsGateAllChecksWholeBankOnLiveDir(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	long := "- " + strings.TrimSpace(strings.Repeat("word ", 40)) + "\n"
+	writeRepoFile(t, cfg, "memory/activeContext.md", "# Focus\n\n"+long)
+	writeRepoFile(t, cfg, "README.md", "# R\n")
+	(&fakeGates{lint: true}).install(t)
+	in := newGateInput(cfg, "HEAD", []DiffFile{{Path: "README.md", Status: "M"}})
+	if out, err := memoryFmtGate(in); err != nil || out != "" {
+		t.Fatalf("changed-files mode: out %q err %v; want the unchanged bank left alone", out, err)
+	}
+	in.whole = true
+	if out, err := memoryFmtGate(in); err == nil || !strings.Contains(out, "activeContext.md: memory fmt --check") {
+		t.Errorf("whole mode: out %q err %v; want the dirty bank file reported", out, err)
 	}
 }
