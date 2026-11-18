@@ -138,7 +138,7 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 	if opts, err = newSDKOptions(bin, env, req, st); err != nil {
 		return opts, nil, done, copilotFatal(err)
 	}
-	if err := routeOptions(&opts, route, env, req, t); err != nil {
+	if err := routeOptions(&opts, route, env, req); err != nil {
 		return opts, nil, done, err
 	}
 	if armedBYOK(ctx, route, t) {
@@ -148,7 +148,7 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 }
 
 // routeOptions layers the route, --env and the account token onto opts, refusing an overlay name the route sets.
-func routeOptions(opts *sdkOptions, route *copilotRegistryRoute, env []string, req agent.RunOptions, t providers.Target) error {
+func routeOptions(opts *sdkOptions, route *copilotRegistryRoute, env []string, req agent.RunOptions) error {
 	if route != nil {
 		route.apply(opts)
 	}
