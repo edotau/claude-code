@@ -278,7 +278,8 @@ func mainOnlyHit(in *core.Input, cmd string) *mainOnly {
 				"The main session runs production changes after the owner approves."}
 		case (name == "make" || name == "gmake") && isLeaf(in) && reservedMake(w, dir):
 			hit = &mainOnly{"runs a reserved make target (audit, install, fmt or one that runs them) in the harness tree",
-				"Run `make lint` and fix the files it names that are yours; the main session runs these from a clean tree."}
+				"Run `claude-code agents diff --check --path <files>` to check and `claude-code agents fix --path <files>` to " +
+					"fix the files that are yours; the main session runs `make` targets from a clean tree."}
 		}
 		return hit != nil
 	})

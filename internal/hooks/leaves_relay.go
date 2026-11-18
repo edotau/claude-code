@@ -25,7 +25,9 @@ func relayBash(in *core.Input) (core.Result, bool) {
 	for _, seg := range shell.Segments(cmd) {
 		if rule := relayRefusal(seg); rule != "" {
 			shown := textutil.Truncate(strings.Join(strings.Fields(textutil.RedactSecrets(seg)), " "), 60)
-			return core.Result{Decision: core.Block, Rule: "relay-shell", Verdict: core.VerdictRefused, Reason: fmt.Sprintf("relay: refused `%s`: %s; run only "+
+			return core.Result{Decision: core.Block, Rule: "relay-shell", Verdict: core.VerdictRefused, Reason: fmt.Sprintf("relay: refused `%s`: %s; "+
+				"run the ask alone in the foreground (no `; echo`, no `run_in_background`) and hand back after it exits; "+
+				"run only "+
 				"`claude-code <agent> ask ... - < /absolute/brief/file` (no cd: use --workdir), read-only commands "+
 				"(git diff, grep, ls, cat), or: "+relayGoShapes+".", shown, rule)}, true
 		}
