@@ -394,7 +394,9 @@ func TestCmdWorktreeMerge(t *testing.T) {
 	for _, tc := range worktreeMergeCases {
 		t.Run(tc.name, func(t *testing.T) { runWorktreeMergeCase(t, tc) })
 	}
-	mergeFixtureCLISetup(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Chdir(gitRepoCLI(t)) // a bare repo suffices: neither arg set names an existing worktree
 	for _, args := range [][]string{{"merge"}, {"merge", "does-not-exist"}} {
 		if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdWorktree(args) }); code == 0 {
 			t.Errorf("worktree %q: exit 0, want a failure", args)

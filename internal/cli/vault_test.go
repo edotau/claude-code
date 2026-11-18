@@ -946,6 +946,16 @@ func blockSecretWrite(t *testing.T, name string) {
 	}
 }
 
+// drainEcho reads the echo of unread pty input, since closing a pty with it queued waits out a 0.6 s drain on darwin.
+func drainEcho(master *os.File) {
+	done := make(chan struct{})
+	go func() { defer close(done); _, _ = master.Read(make([]byte, 64)) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+	}
+}
+
 func TestVaultImportFileYesSkipsTerminalConfirm(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	path := filepath.Join(t.TempDir(), "import.txt")
@@ -953,6 +963,7 @@ func TestVaultImportFileYesSkipsTerminalConfirm(t *testing.T) {
 		t.Fatal(err)
 	}
 	master, slave := hosttest.PTY(t)
+	t.Cleanup(func() { drainEcho(master) })
 	old := os.Stdin
 	os.Stdin = slave
 	t.Cleanup(func() { os.Stdin = old })

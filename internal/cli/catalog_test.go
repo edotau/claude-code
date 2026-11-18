@@ -494,7 +494,7 @@ func TestOpencodeCheckProbes(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	code, rows, stdout, stderr := ocCheckJSON(t, "--timeout", "500ms")
+	code, rows, stdout, stderr := ocCheckJSON(t, "--timeout", "150ms")
 	if code != 0 {
 		t.Fatalf("code %d %s", code, stderr)
 	}
