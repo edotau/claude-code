@@ -60,7 +60,8 @@ func checkEnvSet(name, value string) error {
 
 // secretEnvName reports a name the sealed-secret path owns: internal, route credential, stored or credential-shaped.
 func secretEnvName(name string) bool {
-	return providers.InternalSecretName(name) || providers.IsSecretName(strings.ToUpper(name)) ||
+	// not every HARNESS_ name: the harness switches (HARNESS_WORKTREE, HARNESS_WATCH) are plain env values
+	return name == providers.RouterSecretName || providers.IsSecretName(strings.ToUpper(name)) ||
 		providers.RouteSecretGuard()(name) || slices.Contains(providers.SecretNames(), name)
 }
 

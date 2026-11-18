@@ -61,6 +61,9 @@ func TestSetEnvRefusesSecretsAndBadInput(t *testing.T) {
 	if env := providers.CustomEnv(); len(env) != 0 {
 		t.Errorf("refusals wrote %d entries", len(env))
 	}
+	if _, err := SetEnv("HARNESS_WORKTREE", "lanes", true); err != nil { // a harness switch is not a secret
+		t.Errorf("harness switch refused: %v", err)
+	}
 }
 
 // An existing @secret reference is the configure menu's to change, not SetEnv's.
