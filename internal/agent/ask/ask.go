@@ -121,7 +121,9 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) int 
 	if remote.IsSelf(f.host) { // --host naming this machine runs here
 		f.host = ""
 	}
-	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out}
+	masked := maskedOut(out)
+	defer masked.Close()
+	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: masked}
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
 		if code, done := phase(); done {
 			return code

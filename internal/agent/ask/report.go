@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -21,6 +22,9 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 	res, err := client.Exec(ctx, p, sinkTo(sinkOut(out, format, save), format, p.Record.ID), jobOpts(isJob, format, out))
 	return reportAsk(out, format, save, p, res, err)
 }
+
+// maskedOut masks vault values on every answer path (text, envelope, a job's log); the caller closes it.
+func maskedOut(out io.Writer) io.WriteCloser { return redact.Writer(out) }
 
 // denialSummaryCells is the widest the sandbox summary line prints, in terminal columns.
 const denialSummaryCells = 80

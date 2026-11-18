@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -99,5 +100,15 @@ func TestPrintDenialsWithoutLabels(t *testing.T) {
 	}
 	if want := "sandbox refused 2 commands; re-run outside the sandbox\n"; out.String() != want {
 		t.Errorf("summary = %q, want %q", out.String(), want)
+	}
+}
+
+// A --job run writes its answer to the log through stdout; a vault value in it is masked there too.
+func TestCmdAskJobLogMasksVaultValueInAnswer(t *testing.T) {
+	redact.StubValues(t, []string{"answer-alpha"})
+	agyJobFixture(t)
+	got := runAskJobIntoLog(t)
+	if strings.Contains(got, "answer-alpha") || !strings.Contains(got, "[redacted]") {
+		t.Errorf("log must mask the vault value in every line:\n%s", got)
 	}
 }

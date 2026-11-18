@@ -222,7 +222,7 @@ func TestEventLogMasksEncodedVaultValue(t *testing.T) {
 	raw, _ := os.ReadFile(path)
 	escaped, _ := json.Marshal(value)
 	want := "[redacted]" + strings.Repeat("*", len(escaped)-2-10)
-	for _, ln := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+	for ln := range strings.SplitSeq(strings.TrimSpace(string(raw)), "\n") {
 		if !json.Valid([]byte(ln)) {
 			t.Fatalf("line is not JSON: %s", ln)
 		}
