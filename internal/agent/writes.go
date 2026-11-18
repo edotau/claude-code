@@ -70,7 +70,7 @@ func treeHolds(top, workdir string) bool {
 	return err == nil && paths.Within(real, realTop)
 }
 
-// watchWrites snapshots workdir's tree (top if it holds workdir, else git's); its func lists changed and re-touched files.
+// watchWrites snapshots workdir's tree; its func lists changed and re-touched files.
 func watchWrites(ctx context.Context, workdir, top string) func() (changed, touched *[]string) {
 	unobserved := func() (*[]string, *[]string) { return nil, nil }
 	root := top

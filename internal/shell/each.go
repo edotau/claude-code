@@ -660,7 +660,7 @@ func harnessCommandWord(toks []string, i int) bool {
 	case name == "go":
 		return toks[1] == "run" && optionsOnly(toks[2:i])
 	case name == "find":
-		return slices.Contains([]string{"-exec", "-execdir", "-ok", "-okdir"}, toks[i-1])
+		return slices.Contains(execFlags, toks[i-1])
 	case name == "xargs" || name == "watch":
 		return optionsOnly(toks[1:i])
 	}

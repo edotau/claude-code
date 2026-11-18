@@ -429,7 +429,7 @@ func collectIDs(b []byte, ids map[string]bool) []byte {
 	for {
 		i := bytes.Index(b, resultKey)
 		if i < 0 {
-			return keepTail(b, len(resultKey)-1)
+			return b[max(len(b)-(len(resultKey)-1), 0):] // a key cut by the chunk edge starts inside this tail
 		}
 		end := bytes.IndexByte(b[i+len(resultKey):], '"')
 		if end < 0 {
@@ -439,11 +439,6 @@ func collectIDs(b []byte, ids map[string]bool) []byte {
 		ids[string(b[start:start+end])] = true
 		b = b[start+end:] // the closing quote may open the next key
 	}
-}
-
-// keepTail is the last n bytes of b: a key cut by the chunk edge starts inside them.
-func keepTail(b []byte, n int) []byte {
-	return b[max(len(b)-n, 0):]
 }
 
 // Base is the per-account cap on concurrent agents unless a profile's `concurrency` overrides it.
