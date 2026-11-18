@@ -24,29 +24,46 @@ func TestReadOnlyGitForms(t *testing.T) {
 		{"git status", true},
 		{"git log --no-ext-diff --no-textconv -n 5", true},
 		{"git ls-files internal", true},
-		{"git -c core.pager=x log", false},
-		{"git log --output=x", false},
-		{"git commit -m x", false},
 		{"git diff", true},
 		{"git log -3 --oneline | head -2", true},
 		{"git show HEAD~1:internal/x.go", true},
 		{"git blame -L 1,5 f.go", true},
 		{"git branch --list", true},
-		{"git branch -D x", false},
-		{"git branch new", false},
 		{"git diff --ext-diff", true},
-		{"GIT_EXTERNAL_DIFF=x git diff", false},
-		{"X=--output=f git log $X", false},
-		{"git --config-env=a=B log", false},
-		{"git -C /tmp log", false},
-		{"git log --exec-path=/x", false},
-		{"git log --out=x", false},
-		{"git grep -O foo", false},
-		{"git diff --no-index /etc/passwd x", false},
-		{"git diff /etc/passwd /etc/hosts", false},
-		{"git diff ~root", false},
-		{"git log --pager=x", false},
+		{"git diff --no-index a b", true},
+		{"git -C /tmp log", true},
+		{"git -C /abs/repo status --short", true},
+		{"git -C /abs/repo status --short | wc -l", true},
+		{"git -C /abs/repo log --oneline -5", true},
+		{"git -C /abs/repo diff --stat", true},
+		{"git -C /abs/repo diff --ext-diff", true},
+		{"git -C ~/repo status", true},
+		{"git -C ../sibling status", true},
+		{"git -C a -C b status", true},
+		{"git --no-pager -C d log --oneline -3", true},
 	})
+}
+
+func TestReadOnlyGitRefused(t *testing.T) {
+	cmds := []string{"git -c core.pager=x log", "git log --output=x", "git commit -m x", "git branch -D x", "git branch new",
+		"GIT_EXTERNAL_DIFF=x git diff", "X=--output=f git log $X", "git --config-env=a=B log", "git log --exec-path=/x",
+		"git log --out=x", "git grep -O foo", "git diff --no-index /etc/passwd x", "git diff /etc/passwd /etc/hosts",
+		"git diff ~root", "git log --pager=x",
+		"git -C /abs/repo -c core.pager=touch\\ /tmp/x log", "git -C /abs/repo diff --output=/tmp/x", "git -C /abs/repo branch new",
+		"git -C /abs/repo stash", "git -C /abs/repo config user.name x", "GIT_PAGER=x git -C /abs/repo log",
+		"git -C /etc diff passwd hosts", "git -C /etc diff --no-index passwd hosts", "git -C /abs/repo log -- /etc/passwd",
+		"git -C /etc diff passwd -- hosts", "git -C /etc diff -- passwd hosts", "git -C /etc grep --no-index root",
+		"git -C /etc grep --no-ind root", "git -C d --git-dir=/x status", "git -C d --work-tree=/x status",
+		"git -C d --exec-path=/x status", "git --exec-path=/x -C d status", "git --no-pager --exec-path=/x status",
+		"git -C d -p log", "git -C d format-patch HEAD~1", "git -C d bundle create /tmp/b HEAD", "git -C d archive -o /tmp/a.tar HEAD",
+		"git -C d tag x", "git -C d worktree add /tmp/w", "git -C d gc", "git -C d fetch", "git -C d pull",
+		"git -C d submodule update", "git -C d difftool", "git -C d grep -O x", "GIT_DIR=/x git -C d status",
+		"GIT_EXTERNAL_DIFF=x git -C d diff", "GIT_CONFIG_COUNT=1 git -C d log", "git -C", "git -C=d status", "git -Cd status"}
+	for _, c := range cmds {
+		if ReadOnlyShell(c) {
+			t.Errorf("ReadOnlyShell(%q) = true, want false", c)
+		}
+	}
 }
 
 func TestReadOnlyTools(t *testing.T) {
@@ -198,6 +215,8 @@ func TestReadOnlyReadDenySparesNoFileSegments(t *testing.T) {
 		"cd " + root + "/state && cat vault.db":        {Deny, Allow},
 		"cd " + root + " && cat state/vault.db":        {Deny, Allow},
 		"cd " + store + " && cat ../state/vault.db":    {Deny, Allow},
+		"git -C " + secret + " status":                 {Deny, Allow},
+		"git -C " + store + " status":                  {Allow, Allow},
 		"cd memory && cat f":                           {Deny, Deny},
 		"cd $HOME && cat f":                            {Deny, Deny},
 		"cat $(echo " + secret + ")":                   {Deny, Ask},
