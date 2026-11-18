@@ -212,6 +212,9 @@ func ResolvePlan(root, plan string) (string, error) {
 		}
 		plan = filepath.Join(home, plan)
 	}
+	if abs, err := filepath.Abs(plan); err == nil {
+		plan = abs // a relative --plan must compare against the absolute home
+	}
 	info, err := os.Lstat(plan)
 	if err != nil || !info.Mode().IsRegular() || !datedName().MatchString(filepath.Base(plan)) {
 		return "", refusal
