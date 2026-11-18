@@ -60,7 +60,8 @@ compile:  ## Compile bin/claude-code, no install
 .PHONY: build
 build: install  # (dev recipe, hidden from help) compile + install + fmt + audit (SKIP_AUDIT=1)
 	@$(MAKE) --no-print-directory fmt
-	@$(if $(SKIP_AUDIT),echo -e "$(C_NOTE)audit skipped (SKIP_AUDIT)",$(MAKE) audit)
+	@$(if $(SKIP_AUDIT),echo -e "$(C_NOTE)audit skipped (SKIP_AUDIT)")
+	@$(if $(SKIP_AUDIT),,$(MAKE) audit)
 
 # `claude-code install` links the bare shims, seeds a missing settings.json and writes bash completion (helptext.Install).
 .PHONY: check-clean
@@ -78,8 +79,8 @@ install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 	@if [ "$(DEV_TOOLS)" = 1 ]; then \
 		$(GO) install golang.org/x/vuln/cmd/govulncheck@$(GOVULN_VERSION) && \
 		$(GO) install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_VERSION) && \
-		$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION) && \
-		$(MAKE) --no-print-directory tools-sync; fi
+		$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION); fi
+	@$(if $(filter 1,$(DEV_TOOLS)),$(MAKE) --no-print-directory tools-sync)
 	@$(BIN) theme apply --only opencode-themes >/dev/null || echo -e "$(C_NOTE)opencode theme not applied (install itself succeeded)"
 	@if $(BIN) gateway proxy --restart --if-changed --force --dry-run | grep -q 'would restart'; then \
 		echo -e "$(C_NOTE)the running proxy is an older build; restart it when idle: claude-code gateway proxy --restart"; fi
@@ -123,10 +124,10 @@ bootstrap:  ## Set up a fresh box: toolchain, install, configure
 INTO ?= $(HOME)/.claude
 .PHONY: adopt
 adopt:  ## Stage clone: adopt INTO (~/.claude), then bootstrap
-	@if [ -e "$(INTO)/.git" ]; then echo "$(INTO) is already a checkout"; exit 0; fi; \
-	$(MAKE) toolchain compile && \
-	CLAUDE_CONFIG_DIR="$(INTO)" $(BIN) install --setup adopt --from "$(CURDIR)" --into "$(INTO)" $(ADOPT_ARGS) && \
-	$(if $(findstring --dry-run,$(ADOPT_ARGS)),true,$(MAKE) -C "$(INTO)" bootstrap)
+	@$(if $(shell [ -e "$(INTO)/.git" ] && echo 1),echo "$(INTO) is already a checkout")
+	@$(if $(shell [ -e "$(INTO)/.git" ] && echo 1),,$(MAKE) toolchain compile)
+	@$(if $(shell [ -e "$(INTO)/.git" ] && echo 1),,CLAUDE_CONFIG_DIR="$(INTO)" $(BIN) install --setup adopt --from "$(CURDIR)" --into "$(INTO)" $(ADOPT_ARGS))
+	@$(if $(or $(shell [ -e "$(INTO)/.git" ] && echo 1),$(findstring --dry-run,$(ADOPT_ARGS))),,$(MAKE) -C "$(INTO)" bootstrap)
 
 .PHONY: toolchain
 toolchain:  ## Install go.mod's Go and pinned tsc to ~/.local if missing
@@ -284,9 +285,7 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 reports
 		else echo -e "$(C_NOTE)shellcheck not on PATH — skipped"; fi ;; \
 	yaml) if ! command -v yamlfmt >/dev/null 2>&1; then echo -e "$(C_NOTE)yamlfmt not installed — skipped (make install)"; \
 		elif [ -n "$(YAML_FILES)" ]; then yamlfmt $(if $(filter 1,$(CHECK)),-lint) $(YAML_FILES); fi ;; \
-	help) set -o pipefail; out="$$($(MAKE) --no-print-directory help | sed 's/\x1b\[[0-9;]*m//g' | awk \
-			'length>80 && substr($$0,20) ~ / / {print "over 80: " $$0} /^   / && !/^                   [^ ]/ {print "misaligned continuation: " $$0}')" || { echo "make help failed"; exit 1; }; \
-		if [ -n "$$out" ]; then echo "help rows break the wrap rule:"; echo "$$out"; exit 1; fi ;; \
+	help) ;; \
 	docs) rc=0; $(MDSMITH) $(if $(filter 1,$(CHECK)),check,fix) || rc=1; \
 		live="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}"; \
 		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \
@@ -296,6 +295,9 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 reports
 	js) $(BIN) workflow lint ;; \
 	*) printf "Unknown lint '%s' (use %s)\n" "$*" "$(subst $(C_SP),|,$(LINT_WHAT))"; exit 1 ;; \
 	esac
+	@$(if $(filter help,$*),$(if $(findstring n,$(filter-out -% %=%,$(MAKEFLAGS))),,set -o pipefail; out="$$($(MAKE) --no-print-directory help | sed 's/\x1b\[[0-9;]*m//g' | awk \
+			'length>80 && substr($$0,20) ~ / / {print "over 80: " $$0} /^   / && !/^                   [^ ]/ {print "misaligned continuation: " $$0}')" || { echo "make help failed"; exit 1; }; \
+		if [ -n "$$out" ]; then echo "help rows break the wrap rule:"; echo "$$out"; exit 1; fi))
 
 .PHONY: mdsmith
 mdsmith:  # (folded into `install`) pinned mdsmith binary in bin/
