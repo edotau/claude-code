@@ -83,6 +83,32 @@
       "rustfmt": ["--check", "-V", "--print-config"]
     }
   },
+  "relay_go_env_flags": {
+    "purpose": "go flags that write files or run other programs; a relay refuses a GOFLAGS carrying one (no dashes)",
+    "words": ["o", "c", "exec", "toolexec", "vettool", "overlay", "coverprofile", "cpuprofile", "memprofile",
+      "blockprofile", "mutexprofile", "trace", "outputdir", "fuzz", "modfile", "args"]
+  },
+  "relay_go_env_vars": {
+    "purpose": "Go variables that can redirect what the toolchain runs or writes; a relay refuses an inline assignment",
+    "words": ["GOFLAGS", "GOENV", "GOWORK", "GOBIN", "GOCACHE", "GOTOOLCHAIN"]
+  },
+  "relay_go_value_flags": {
+    "purpose": "go verb -> value flags a relay's go gate allows, without dashes; the keys are the only gated verbs",
+    "tools": {
+      "build": ["tags", "p", "o"],
+      "vet": ["tags", "p"],
+      "test": ["run", "count", "timeout", "shuffle", "list", "tags", "bench", "benchtime", "parallel", "cpu", "p",
+        "covermode", "coverpkg", "vet", "skip"]
+    }
+  },
+  "relay_go_bool_flags": {
+    "purpose": "go verb -> valueless flags a relay's go gate allows, without dashes",
+    "tools": {
+      "build": ["race", "v"],
+      "vet": ["race", "v"],
+      "test": ["v", "race", "short", "failfast", "cover", "benchmem", "json"]
+    }
+  },
   "commit_value_flags": {
     "purpose": "git commit options whose value is the next word; their short letters also end a value cluster",
     "words": ["-m", "-F", "-C", "-c", "--author", "--date", "-t", "--fixup", "--squash", "--message", "--file",

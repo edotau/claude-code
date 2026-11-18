@@ -35,6 +35,18 @@ func TestGuardsFileIsValid(t *testing.T) {
 	if len(seen) != len(secs) {
 		t.Errorf("%d keys decoded to %d sections", len(seen), len(secs))
 	}
+	for _, pair := range guardSubsets {
+		for w := range secs[pair[0]].names() {
+			if _, ok := secs[pair[1]].names()[w]; !ok {
+				t.Errorf("%q is in %s but not in %s", w, pair[0], pair[1])
+			}
+		}
+	}
+}
+
+// guardSubsets are section pairs whose first names (words or tools) must all be in the second.
+var guardSubsets = [][2]string{
+	{"relay_go_bool_flags", "relay_go_value_flags"},
 }
 
 func TestDecodeGuardsRejects(t *testing.T) {

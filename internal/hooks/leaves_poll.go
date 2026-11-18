@@ -148,20 +148,16 @@ func relayRefusal(seg string) string {
 }
 
 // relayGoEnvFlags write files or run other programs; a GOFLAGS carrying one is refused (leading dashes dropped).
-var relayGoEnvFlags = []string{"o", "c", "exec", "toolexec", "vettool", "overlay", "coverprofile", "cpuprofile", "memprofile",
-	"blockprofile", "mutexprofile", "trace", "outputdir", "fuzz", "modfile", "args"}
+var relayGoEnvFlags = sync.OnceValue(func() []string { return shell.GuardWords("relay_go_env_flags") })
 
 // relayGoEnvRe is an inline assignment of a Go variable that can redirect what the toolchain runs or writes.
 var relayGoEnvRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^(GOFLAGS|GOENV|GOWORK|GOBIN|GOCACHE|GOTOOLCHAIN)=`)
+	return regexp.MustCompile(`^(` + strings.Join(shell.GuardWords("relay_go_env_vars"), "|") + `)=`)
 })
 
 // relayGoValue and relayGoBool are the flags a relay's go gate allows, by subcommand; a value flag takes one word.
-var relayGoValue = map[string][]string{"build": {"tags", "p", "o"}, "vet": {"tags", "p"},
-	"test": {"run", "count", "timeout", "shuffle", "list", "tags", "bench", "benchtime", "parallel", "cpu", "p",
-		"covermode", "coverpkg", "vet", "skip"}}
-var relayGoBool = map[string][]string{"build": {"race", "v"}, "vet": {"race", "v"},
-	"test": {"v", "race", "short", "failfast", "cover", "benchmem", "json"}}
+var relayGoValue = sync.OnceValue(func() map[string][]string { return shell.GuardTools("relay_go_value_flags") })
+var relayGoBool = sync.OnceValue(func() map[string][]string { return shell.GuardTools("relay_go_bool_flags") })
 
 // relayGoShapes names the allowed go shapes in one line for the refusal message.
 const relayGoShapes = "go vet|test <./packages> [-tags -p -race -v], go test also [-run -skip -count -timeout -shuffle -list " +
@@ -194,7 +190,7 @@ func relayGoGate(seg string) (rule string, isGo bool) {
 	if toks[0] == "gofmt" {
 		return relayGofmtArgs(toks[1:]), true
 	}
-	if toks[0] != "go" || !slices.Contains([]string{"build", "vet", "test"}, toks[1]) {
+	if _, gated := relayGoValue()[toks[1]]; toks[0] != "go" || !gated { // the gated verbs are the value-flag table's
 		return "", false
 	}
 	if rule := relayGoEnvRule(); rule != "" {
@@ -235,7 +231,7 @@ func relayPkgOK(p string) bool { return strings.HasPrefix(p, "./") && relayPathO
 func relayGoEnvRule() string {
 	for f := range strings.FieldsSeq(os.Getenv("GOFLAGS")) {
 		name, _, _ := strings.Cut(strings.TrimLeft(f, "-"), "=")
-		if slices.Contains(relayGoEnvFlags, name) {
+		if slices.Contains(relayGoEnvFlags(), name) {
 			return "the inherited GOFLAGS carries -" + name
 		}
 	}
@@ -256,10 +252,10 @@ func relayGoArgs(sub string, args []string) string {
 			continue
 		}
 		name, val, hasVal := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(a, "-"), "-"), "=")
-		if slices.Contains(relayGoBool[sub], name) {
+		if slices.Contains(relayGoBool()[sub], name) {
 			continue
 		}
-		if !slices.Contains(relayGoValue[sub], name) {
+		if !slices.Contains(relayGoValue()[sub], name) {
 			return "flag " + a + " is not allowed (or it writes files or runs another program)"
 		}
 		if !hasVal && i+1 < len(args) {
