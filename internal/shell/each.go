@@ -37,9 +37,32 @@ func EachGit(cmd, cwd string, fn gitFn) bool {
 		if verb != commandVerb {
 			return fn(target, verb, args)
 		}
-		harness := len(args) > 2 && filepath.Base(args[0]) == "claude-code" && args[1] == "worktree" && args[2] == "commit"
-		return harness && fn(target, WorktreeCommit, args[3:])
+		if h := HarnessArgs(args); len(h) > 1 && h[0] == "worktree" && h[1] == "commit" {
+			return fn(target, WorktreeCommit, h[2:])
+		}
+		return false
 	}, 0, false)
+}
+
+// harnessGlobalFlags take a host and precede the verb: remote.Flag (network/remote/ssh.go), egressFlag (cli/table.go).
+var harnessGlobalFlags = []string{"--host", "--remote"}
+
+// HarnessArgs is a claude-code command's verb and its words, past the global host flags; nil for another command.
+func HarnessArgs(words []string) []string {
+	if len(words) == 0 || filepath.Base(words[0]) != "claude-code" {
+		return nil
+	}
+	rest := words[1:]
+	for len(rest) > 0 {
+		flag, _, attached := strings.Cut(rest[0], "=")
+		if !slices.Contains(harnessGlobalFlags, flag) {
+			break
+		}
+		if rest = rest[1:]; !attached && len(rest) > 0 {
+			rest = rest[1:]
+		}
+	}
+	return rest
 }
 
 // EachCommand calls fn with each command's words and dir, found as EachGit finds git, until fn is true.
@@ -160,20 +183,20 @@ func (w *segWalk) run(i int) bool {
 // heredocText reports segment i as the body of a heredoc that only pure readers consume and nothing runs.
 func (w *segWalk) heredocText(i int) bool {
 	if w.inertBody == nil {
-		w.inertBody = w.heredocBodies()
+		w.inertBody = w.heredocBodies(true)
 	}
 	return w.inertBody[i]
 }
 
 // HeredocBodies marks the heredoc bodies that are text: only pure readers consume them and no file they write runs.
-func HeredocBodies(segs, seps []string) []bool { return newSegWalk(segs, seps).heredocBodies() }
+func HeredocBodies(segs, seps []string) []bool { return newSegWalk(segs, seps).heredocBodies(true) }
 
-// heredocBodies marks each heredoc body readOnly consumes; any other body is scanned as commands.
-func (w *segWalk) heredocBodies() []bool {
+// heredocBodies marks each heredoc body that is text (readOnly consumes it), or with text false each live one.
+func (w *segWalk) heredocBodies(text bool) []bool {
 	out := make([]bool, len(w.segs))
 	for j := range w.segs {
 		delim, ok := heredocDelim(w.cmdWords(j))
-		if !ok || !w.readOnly(j) {
+		if !ok || w.readOnly(j) != text {
 			continue
 		}
 		k := j + 1
@@ -202,15 +225,17 @@ func heredocDelim(toks []string) (string, bool) {
 	return "", false
 }
 
-// pureReaders read or count their input; tee and cat may also write it to a file, which readOnly checks.
+// pureReaders read, filter or copy their input and never run it (not awk, mysql, sed without -n); readOnly checks tee.
 var pureReaders = map[string]bool{"cat": true, "tee": true, "wc": true, "grep": true, "egrep": true, "fgrep": true,
-	"rg": true, "head": true, "tail": true}
+	"rg": true, "head": true, "tail": true, "sort": true, "uniq": true, "jq": true, "tr": true, "base64": true,
+	"pbcopy": true, "diff": true, "gh": true}
 
-// pureReader reports a pureReaders command, `sed -n`, or `git commit|tag -F -` (a message read from stdin).
+// pureReader reports a pureReaders command, `sed -n` with no `e` in its script, or `git commit|tag -F -`.
 func pureReader(toks []string) bool {
 	switch filepath.Base(toks[0]) {
 	case "sed":
-		return slices.ContainsFunc(toks[1:], func(t string) bool { return t == "-n" || t == "--quiet" || t == "--silent" })
+		quiet := slices.ContainsFunc(toks[1:], func(t string) bool { return t == "-n" || t == "--quiet" || t == "--silent" })
+		return quiet && !slices.ContainsFunc(toks[1:], func(t string) bool { return !strings.HasPrefix(t, "-") && strings.Contains(t, "e") })
 	case "git":
 		_, verb, args := resolvedGit(toks[1:], "")
 		for i, a := range args {
@@ -279,32 +304,67 @@ func pathPieces(t string) []string {
 	})
 }
 
-// evaluators read text as code: a string, a file or stdin; shells count too, pass-through runners by their command.
+// evaluators read text as code: a string, a file or stdin; shells and interpreterName count too.
 var evaluators = map[string]bool{"eval": true, "source": true, ".": true, "su": true, "script": true, "flock": true,
-	"ssh": true, "python": true, "python3": true, "perl": true, "ruby": true, "node": true}
+	"ssh": true}
 
-// evaluates reports a command start in toks that is an evaluator or a shell.
-func evaluates(toks []string) bool {
-	return slices.ContainsFunc(CommandStarts(toks), func(st []string) bool {
-		st = skipEnvAssignments(st)
-		return len(st) > 0 && (evaluators[filepath.Base(st[0])] || shellWrapperNames[filepath.Base(st[0])])
-	})
+// interpreterName is an interpreter's base name with an optional version: python3.12, pypy3, node, bun, deno, php5.
+var interpreterName = regexp.MustCompile(`^(?:python|pypy|perl|ruby|node|nodejs|bun|deno|php|lua|luajit|fish|tclsh|` +
+	`osascript|Rscript|pwsh)[0-9.]*$`)
+
+// evaluator reports a command word that reads text as code, or a dynamic one (`$CMD`, `$(…)`) whose text is unknown.
+func evaluator(word string) bool {
+	name := filepath.Base(word)
+	return evaluators[name] || shellWrapperNames[name] || interpreterName.MatchString(name) ||
+		strings.HasPrefix(word, "$") || strings.HasPrefix(word, "`")
 }
 
-// Evaluates reports a command in cmd, outside a heredoc body that is text, that reads text as code.
-func Evaluates(cmd string) bool {
-	masked, subs := extractSubstitutions(cmd, subMask)
-	if slices.ContainsFunc(subs, Evaluates) {
-		return true
+// evaluatorStart is the first command start in toks that is an evaluator.
+func evaluatorStart(toks []string) ([]string, bool) {
+	for _, st := range CommandStarts(toks) {
+		if st = skipEnvAssignments(st); len(st) > 0 && evaluator(st[0]) {
+			return st, true
+		}
 	}
-	segs, seps := SegmentsSep(masked)
-	body := HeredocBodies(segs, seps)
+	return nil, false
+}
+
+func evaluates(toks []string) bool { _, ok := evaluatorStart(toks); return ok }
+
+// EvaluatedText is cmd's text an evaluator runs: its words, a live heredoc body, a pipe's left side, a script run.
+func EvaluatedText(cmd, cwd string) []string {
+	cmd = DropComments(cmd)
+	var out []string
+	for _, s := range RunScripts(cmd, cwd) {
+		out = append(out, s.Text)
+	}
+	_, subs := extractSubstitutions(cmd, subMask)
+	for _, sub := range subs {
+		out = append(out, EvaluatedText(sub, cwd)...)
+	}
+	segs, seps := SegmentsSep(cmd)
+	w := newSegWalk(segs, seps)
+	text, live := w.heredocBodies(true), w.heredocBodies(false)
 	for i, seg := range segs {
 		toks := Tokens(seg) // not commandWords: an ssh command evaluates its string remotely
 		if len(toks) > 0 {
 			toks[0] = strings.TrimLeft(toks[0], "({`")
 		}
-		if !body[i] && evaluates(toks) {
+		st, ok := evaluatorStart(toks)
+		switch {
+		case live[i] || !text[i] && w.pipesIntoEvaluator(i):
+			out = append(out, seg)
+		case ok && !text[i]:
+			out = append(out, strings.Join(st, " "))
+		}
+	}
+	return out
+}
+
+// pipesIntoEvaluator reports segment i feeding, through the rest of its pipeline, an evaluator's stdin.
+func (w *segWalk) pipesIntoEvaluator(i int) bool {
+	for k := i; k+1 < len(w.segs) && (w.seps[k] == "|" || w.seps[k] == "|&"); k++ {
+		if evaluates(w.cmdWords(k + 1)) {
 			return true
 		}
 	}
@@ -789,6 +849,10 @@ func afterPrefix(toks []string) []string {
 		return optionsDropped(toks[1:], runnerValueFlags)
 	case name == "go" && len(toks) > 1 && toks[1] == "run":
 		return optionsDropped(toks[2:], goRunValueFlags)
+	case name == "caffeinate" || name == "nsenter": // nsenter runs the command in this env, in other namespaces
+		return optionsDropped(toks[1:], []string{"-t", "-w", "-S", "-G"})
+	case name == "busybox": // the applet name is the command
+		return toks[1:]
 	}
 	return nil
 }
@@ -816,19 +880,6 @@ func dropRtk(toks []string) []string {
 
 // cStringCommands run the string after their -c flag through a shell.
 var cStringCommands = map[string]bool{"su": true, "script": true, "flock": true}
-
-// CString is the shell string a su, script or flock command runs through its -c flag.
-func CString(toks []string) (string, bool) {
-	if len(toks) == 0 || !cStringCommands[filepath.Base(toks[0])] {
-		return "", false
-	}
-	for i := 1; i < len(toks)-1; i++ {
-		if isCFlag(toks[i]) {
-			return toks[i+1], true
-		}
-	}
-	return "", false
-}
 
 func isCFlag(t string) bool {
 	return len(t) > 1 && t[0] == '-' && t[1] != '-' && strings.ContainsRune(t[1:], 'c')

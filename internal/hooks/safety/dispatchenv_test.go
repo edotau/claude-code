@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -113,7 +114,50 @@ var tamperCases = []tamperCase{
 	{"xargs sh -c from printf", `printf '%s\n' 'unset HARNESS_DISPATCH_ID' | xargs -I CMD sh -c CMD`, "a1", "", core.Block},
 	{"python heredoc", "python3 - <<'PY'\nimport os; os.system('unset HARNESS_DISPATCH_ID')\nPY", "a1", "", core.Block},
 	{"ssh env -u", `ssh h 'env -u HARNESS_DISPATCH_ID x'`, "a1", "", core.Block},
-	{"evaluator anywhere with phrase", `sh build.sh && echo "unset HARNESS_DISPATCH_ID"`, "a1", "", core.Block},
+	{"phrase in echo beside an evaluator", `sh build.sh && echo "unset HARNESS_DISPATCH_ID"`, "a1", "", core.Allow},
+	{"inert note then python", "cat > note.md <<'EOF'\nunset HARNESS_DISPATCH_ID\nEOF\npython3 -m pytest", "a1", "", core.Allow},
+	{"commit body then bash", "git commit -F - <<'EOF'\nfix: x\n\nunset HARNESS_DISPATCH_ID is refused\nEOF\nbash post.sh",
+		"a1", "", core.Allow},
+	{"comment after bash -c", `bash -c 'echo hi' # unset HARNESS_DISPATCH_ID`, "a1", "", core.Allow},
+	{"node then echo", `node script.js; echo "unset HARNESS_DISPATCH_ID"`, "a1", "", core.Allow},
+	{"commit -m then bash", `git commit -m "docs: unset HARNESS_DISPATCH_ID guidance" && bash build.sh`, "a1", "", core.Allow},
+	{"grep then python", `grep -rn 'unset HARNESS_DISPATCH_ID' rules/ | head; python3 x.py`, "a1", "", core.Allow},
+	{"rg assignment then node", `rg -n 'HARNESS_DISPATCH_ID=' internal | head && node a.js`, "a1", "", core.Allow},
+	{"value names a dispatch var", `FOO=HARNESS_DISPATCH_ID_X bash run.sh`, "a1", "", core.Allow},
+	{"ssh grep", `ssh host 'grep -rn HARNESS_DISPATCH_ID .'`, "a1", "", core.Allow},
+	{"bash then echo the id", `bash build.sh; echo $HARNESS_DISPATCH_ID`, "a1", "", core.Allow},
+	{"commit mentions assignment", `git commit -m "docs: mention HARNESS_DISPATCH_ID=" && make test`, "a1", "", core.Allow},
+	{"container shell", `docker run img sh -c 'unset HARNESS_DISPATCH_ID'`, "a1", "", core.Allow},
+	{"inert heredoc beside sh -c", "sh -c 'echo hi'; cat <<EOF\nunset HARNESS_DISPATCH_ID\nEOF", "a1", "", core.Allow},
+	{"alias into bash -c", `N=HARNESS_DISPATCH_ID; bash -c "unset $N"`, "a1", "", core.Block},
+	{"echo script run by path", `echo 'unset HARNESS_DISPATCH_ID' > s.sh && chmod +x s.sh && ./s.sh`, "a1", "", core.Block},
+	{"heredoc script run by path", "cat > s.sh <<EOF\nunset HARNESS_DISPATCH_ID\nEOF\n./s.sh", "a1", "", core.Block},
+	{"absolute script path", "cat > /tmp/s.sh <<EOF\nunset HARNESS_DISPATCH_ID\nEOF\nchmod +x /tmp/s.sh && /tmp/s.sh", "a1", "",
+		core.Block},
+	{"versioned python", `python3.12 -c 'import os; os.system("unset HARNESS_DISPATCH_ID")'`, "a1", "", core.Block},
+	{"pypy3", `pypy3 -c 'import os; os.system("unset HARNESS_DISPATCH_ID")'`, "a1", "", core.Block},
+	{"bun", `bun -e 'require("child_process").execSync("unset HARNESS_DISPATCH_ID")'`, "a1", "", core.Block},
+	{"deno", `deno eval 'Deno.run({cmd: ["sh", "-c", "unset HARNESS_DISPATCH_ID"]})'`, "a1", "", core.Block},
+	{"php", `php -r 'system("unset HARNESS_DISPATCH_ID");'`, "a1", "", core.Block},
+	{"lua", `lua -e 'os.execute("unset HARNESS_DISPATCH_ID")'`, "a1", "", core.Block},
+	{"fish", `fish -c 'set -e HARNESS_DISPATCH_ID; env -u HARNESS_DISPATCH_ID x'`, "a1", "", core.Block},
+	{"busybox sh", `busybox sh -c 'unset HARNESS_DISPATCH_ID'`, "a1", "", core.Block},
+	{"nsenter sh", `nsenter -t 1 sh -c 'unset HARNESS_DISPATCH_ID'`, "a1", "", core.Block},
+	{"pipe through sort into bash", `printf 'unset HARNESS_DISPATCH_ID' | sort | bash`, "a1", "", core.Block},
+	{"substitution as command", `$(printf 'unset HARNESS_DISPATCH_ID')`, "a1", "", core.Block},
+	{"env --unset=", `env --unset=HARNESS_DISPATCH_ID x`, "a1", "", core.Block},
+	{"env -uNAME", `env -uHARNESS_DISPATCH_ID x`, "a1", "", core.Block},
+	{"heredoc with spaced delimiter", "cat << EOF\nunset HARNESS_DISPATCH_ID\nEOF", "a1", "", core.Allow},
+	{"sed -n reader", "sed -n p <<EOF\nunset HARNESS_DISPATCH_ID\nEOF", "a1", "", core.Allow},
+	{"keyword before reader", "if true; then cat <<EOF\nunset HARNESS_DISPATCH_ID\nEOF\nfi", "a1", "", core.Allow},
+	{"sort filter", "sort <<EOF\nunset HARNESS_DISPATCH_ID\nEOF", "a1", "", core.Allow},
+	{"jq filter", "jq . <<EOF\nunset HARNESS_DISPATCH_ID\nEOF", "a1", "", core.Allow},
+	{"tr filter", "tr a b <<EOF\nunset HARNESS_DISPATCH_ID\nEOF", "a1", "", core.Allow},
+	{"base64 filter", "base64 <<EOF\nunset HARNESS_DISPATCH_ID\nEOF", "a1", "", core.Allow},
+	{"pbcopy filter", "pbcopy <<EOF\nunset HARNESS_DISPATCH_ID\nEOF", "a1", "", core.Allow},
+	{"gh body file", "gh pr create --title t --body-file - <<EOF\nunset HARNESS_DISPATCH_ID\nEOF", "a1", "", core.Allow},
+	{"awk may run its input", "awk '{system($0)}' <<EOF\nunset HARNESS_DISPATCH_ID\nEOF", "a1", "", core.Block},
+	{"mysql may shell out", "mysql <<EOF\nunset HARNESS_DISPATCH_ID\nEOF", "a1", "", core.Block},
 	{"tee note never run", "tee notes.md <<'EOF'\nunset HARNESS_DISPATCH_ID\nEOF", "a1", "", core.Allow},
 	{"cat note then git add", "cat > notes.md <<'EOF'\nunset HARNESS_DISPATCH_ID\nEOF\ngit add notes.md", "a1", "", core.Allow},
 	{"heredoc to wc", "cat <<EOF | wc -l\nunset HARNESS_DISPATCH_ID\nEOF", "a1", "", core.Allow},
@@ -198,7 +242,6 @@ var roleCases = []roleCase{
 	{"make lint", "", devKube, core.Allow, core.Allow},
 	{"make lint WHAT=go", "", devKube, core.Allow, core.Allow},
 	{"make test", "", devKube, core.Allow, core.Allow},
-	{"make build", "", devKube, core.Allow, core.Allow},
 	{"make auditx", "", devKube, core.Allow, core.Allow},
 	{"make fmtx", "", devKube, core.Allow, core.Allow},
 	{"make install-tools", "", devKube, core.Allow, core.Allow},
@@ -206,11 +249,51 @@ var roleCases = []roleCase{
 	{`grep -n "make fmt" Makefile`, "", devKube, core.Allow, core.Allow},
 	{"make audit", "/tmp", devKube, core.Allow, core.Allow},
 	{"make -C /tmp audit", "", devKube, core.Allow, core.Allow},
+	{"make build", "", devKube, core.Allow, core.Block},
+	{"make SKIP_AUDIT=1 build", "", devKube, core.Allow, core.Block},
+	{"make verify", "", devKube, core.Allow, core.Block},
+	{"make bootstrap", "", devKube, core.Allow, core.Block},
+	{"make adopt", "", devKube, core.Allow, core.Block},
+	{"gmake install", "", devKube, core.Allow, core.Block},
+	{"make lint install", "", devKube, core.Allow, core.Block},
+	{"make -f Makefile audit", "", devKube, core.Allow, core.Block},
+	{"make lint-go", "", devKube, core.Allow, core.Block},
+	{"make -n audit", "", devKube, core.Allow, core.Block},
+	{"make lint-go CHECK=1", "", devKube, core.Allow, core.Allow},
+	{"make compile", "", devKube, core.Allow, core.Allow},
+	{"make install", "WT", devKube, core.Allow, core.Block},
+	{"make -C WT build", "/tmp", devKube, core.Allow, core.Block},
+	{"make audit", "WT", devKube, core.Allow, core.Allow},
+	{"make fmt", "WT", devKube, core.Allow, core.Allow},
+	{"kubectl -nprod delete pod x", "", devKube, core.Ask, core.Block},
+	{"kubectl --request-timeout 5s delete pod x -n prod", "", devKube, core.Ask, core.Block},
+	{"kubectl --v 6 delete pod x -n prod", "", devKube, core.Ask, core.Block},
+	{"kubectl --context prod-eu -n x exec pod -- ls", "", devKube, core.Ask, core.Block},
+	{"kubectl -n x --as y delete pod z", "", "", core.Ask, core.Block},
+	{"KUBECONFIG=/path/prod.yaml kubectl delete pod x", "", devKube, core.Ask, core.Block},
+	{"export KUBECONFIG=/p/prod.yaml; kubectl delete pod x", "", devKube, core.Ask, core.Block},
+	{"kubectl delete namespace prod", "", devKube, core.Ask, core.Block},
+	{"kubectl delete ns/prod", "", devKube, core.Ask, core.Block},
+	{"oc delete project prod", "", devKube, core.Ask, core.Block},
+	{"kubectl config use-context prod && kubectl delete pod x", "", devKube, core.Ask, core.Block},
+	{"kubectl --server https://api.prod.example.com delete pod x", "", devKube, core.Ask, core.Block},
+	{"kubectl exec -n prod-like-test pod -- ls", "", devKube, core.Ask, core.Block},
+	{"kubectl exec pod -- env ENV=prod true", "", devKube, core.Allow, core.Allow},
+	{"kubectl delete namespace staging", "", devKube, core.Allow, core.Allow},
+	{"KUBECONFIG=/kube/config kubectl delete pod x", "", devKube, core.Allow, core.Allow},
+	{"KUBECONFIG=/kube/other kubectl delete pod x", "", devKube, core.Ask, core.Block},
+	{"claude-code --remote h vault get --key", "", devKube, core.Ask, core.Block},
+	{"claude-code --host h vault get --key", "", devKube, core.Ask, core.Block},
+	{"claude-code --host=h vault get --key", "", devKube, core.Ask, core.Block},
+	{"claude-code --host h vault get NAME", "", devKube, core.Allow, core.Allow},
 }
 
 // The main session is asked (or keeps its verdict); a subagent and a CLI-dispatched agent are refused.
 func TestRoleRules(t *testing.T) {
-	cfg := t.TempDir()
+	cfg, wt := t.TempDir(), t.TempDir() // wt is a linked worktree of the harness repo
+	if err := os.WriteFile(filepath.Join(wt, ".git"), []byte("gitdir: "+cfg+"/.git/worktrees/x\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	t.Setenv("HARNESS_DISPATCH_DEPTH", "")
 	t.Setenv("KUBECONFIG", "/kube/config:/other")
@@ -222,7 +305,8 @@ func TestRoleRules(t *testing.T) {
 			}
 			return []byte(kube), nil
 		})
-		cmd, cwd := strings.ReplaceAll(c.cmd, "CFG", cfg), cmp.Or(c.cwd, cfg)
+		at := strings.NewReplacer("CFG", cfg, "WT", wt)
+		cmd, cwd := at.Replace(c.cmd), at.Replace(cmp.Or(c.cwd, cfg))
 		for _, role := range []struct{ agentID, dispatchID string }{{"", ""}, {"a1", ""}, {"", "d1"}} {
 			t.Setenv("HARNESS_DISPATCH_ID", role.dispatchID)
 			payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": cwd, "agent_id": role.agentID,
@@ -235,6 +319,18 @@ func TestRoleRules(t *testing.T) {
 				t.Errorf("%q as %+v: decision %v, want %v: %s", cmd, role, r.Decision, want, r.Reason)
 			}
 		}
+	}
+}
+
+// On an agent with no ask decision the main session is blocked, and the message names the routes that ask.
+func TestMainOnlyRouteWithoutAsk(t *testing.T) {
+	t.Setenv("HARNESS_DISPATCH_ID", "")
+	t.Setenv("HARNESS_DISPATCH_DEPTH", "")
+	payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": "/tmp",
+		"tool_input": map[string]string{"command": "claude-code vault get --key"}})
+	r := Scan(core.ParseInputFor(bytes.NewReader(payload), "copilot"))
+	if r.Decision != core.Block || !strings.Contains(r.Reason, "from a Claude session") || !strings.Contains(r.Reason, "terminal") {
+		t.Errorf("copilot main session: decision %v, want a block naming the Claude and terminal routes: %s", r.Decision, r.Reason)
 	}
 }
 

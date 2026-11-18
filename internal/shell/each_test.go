@@ -3,7 +3,6 @@ package shell
 import (
 	"reflect"
 	"slices"
-	"strings"
 	"testing"
 )
 
@@ -268,6 +267,8 @@ func TestEachGitWorktreeCommitNeedsCommandWord(t *testing.T) {
 		"parallel " + ph + " f", "parallel -j4 " + ph + " ::: f", "xargs -- " + ph + " f", "xargs -0 -n1 -P4 " + ph,
 		"xargs -I{} " + ph + " {}", "timeout 5 " + ph, "exec " + ph, "env X=1 " + ph, "watch -n 1 " + ph,
 		"find . -exec grep x {} \\; -exec " + ph + " {} \\;", "go run -race ./cmd/" + ph,
+		"claude-code --remote h worktree commit -m x f", "claude-code --host=h worktree commit -m x f",
+		"caffeinate " + ph + " -m x f", "caffeinate -i -t 5 " + ph,
 	}
 	for _, run := range []string{"source s", ". s", "sh s", "bash < s", "env bash s", "sh <s", "cat s | bash", "chmod +x s; ./s"} {
 		real = append(real, "tee s <<'EOF'\n"+ph+" -m 'fix: x' f\nEOF\n"+run, "cat <<E | tee -a s\n"+ph+"\nE\n"+run)
@@ -303,21 +304,14 @@ func TestHeredocBodies(t *testing.T) {
 		{"tee s <<EOF\nbody\nEOF\nbash < s", false},
 		{"cat <<EOF >> s\nbody\nEOF\nenv bash s", false},
 		{"python3 <<EOF\nbody\nEOF", false},
-		{"cat <<EOF | sort\nbody\nEOF", false},
+		{"cat <<EOF | sort\nbody\nEOF", true},
+		{"cat <<EOF | awk '{print}'\nbody\nEOF", false},
+		{"sed -n 's/a/b/ep' <<EOF\nbody\nEOF", false},
 	}
 	for _, c := range cases {
 		segs, seps := SegmentsSep(c.cmd)
 		if got := HeredocBodies(segs, seps); !slices.Contains(got, true) == c.want {
 			t.Errorf("HeredocBodies(%q) = %v, want a marked body: %v", c.cmd, got, c.want)
-		}
-	}
-}
-
-func TestCString(t *testing.T) {
-	for toks, want := range map[string]string{"su -c STR": "STR", "su root -c STR": "STR", "script -qc STR /dev/null": "STR",
-		"su - other": "", "script -q /dev/null ls": "", "ls -c x": ""} {
-		if got, ok := CString(strings.Fields(toks)); got != want || ok != (want != "") {
-			t.Errorf("CString(%q) = %q, %v", toks, got, ok)
 		}
 	}
 }
