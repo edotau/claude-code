@@ -189,3 +189,16 @@ func TestCommitCLIDispatchOwnProcessClaims(t *testing.T) {
 		t.Fatalf("own process's claim refused: %v", err)
 	}
 }
+
+// TestCommitCLIDispatchRefusesSubagentClaimUnderSamePid: a sibling subagent's claim shares the CLI pid but is not own.
+func TestCommitCLIDispatchRefusesSubagentClaimUnderSamePid(t *testing.T) {
+	dir := commitRepo(t)
+	t.Setenv(proc.DispatchIDEnv, "d1")
+	hosttest.WriteRel(t, dir, "b.txt", "sibling's\n")
+	claimAs(t, "claude-sess", "sub-2", filepath.Join(dir, "b.txt"))
+	r := commitReq(dir, "fix: x", "b.txt")
+	r.Source.Owner = func() int { return peerPid }
+	if _, err := commitRun(r); err == nil || !strings.Contains(err.Error(), "b.txt is claimed by") {
+		t.Fatalf("err = %v, want a refusal naming b.txt", err)
+	}
+}

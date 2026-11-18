@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -214,6 +215,29 @@ func TestClaimStampsDispatchFromRunningRecord(t *testing.T) {
 		if got := readClaims(t, claimsFile(owner, session)); got[0].Agent != tc.want {
 			t.Errorf("%s: stamp = %q, want %q", tc.name, got[0].Agent, tc.want)
 		}
+	}
+}
+
+// TestClaimDoesNotStampFromDeadRecord: a "running" record whose job process is gone (a reused pid) names no dispatch.
+func TestClaimDoesNotStampFromDeadRecord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_DISPATCH_ID", "")
+	cmd := exec.Command("true")
+	if err := cmd.Run(); err != nil {
+		t.Skip("no true binary")
+	}
+	dead := cmd.Process.Pid
+	useClaimOwner(t, dead)
+	orig := runningDispatches
+	t.Cleanup(func() { runningDispatches = orig })
+	runningDispatches = func() ([]agent.Record, error) {
+		return []agent.Record{{ID: "d-dead", Status: "running", PID: dead}}, nil
+	}
+	dir := paths.Real(t.TempDir())
+	Claim(agentInput(t, core.AgentCodex, map[string]any{"session_id": "s", "cwd": dir, "tool_name": "Edit",
+		"tool_input": map[string]any{"file_path": "a.txt"}}))
+	if got := readClaims(t, claimsFile(dead, "s")); len(got) == 0 || got[0].Agent != "" {
+		t.Fatalf("claims = %+v, want one unstamped claim", got)
 	}
 }
 

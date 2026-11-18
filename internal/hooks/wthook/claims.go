@@ -82,7 +82,7 @@ func recordDispatch(owner int) string {
 		chain[pid] = true
 	}
 	for _, r := range recs {
-		if r.Status == "running" && r.PID > 0 && chain[r.PID] {
+		if r.PID > 0 && chain[r.PID] && r.Alive() {
 			return r.ID
 		}
 	}

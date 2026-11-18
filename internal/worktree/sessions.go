@@ -203,9 +203,9 @@ func LiveClaims(src ClaimSource) (map[string][]ClaimHit, error) {
 	return flattenClaims(byPath), err
 }
 
-// ownLine: the CLI process this caller runs under filed c, and still holds that pid (a reused pid is not own).
+// ownLine: an unstamped claim the CLI process this caller runs under filed, still holding that pid (not a reuse).
 func ownLine(pid int, c Claim, own func() int) bool {
-	return pid == own() && (c.OwnerStart == "" || !reused(pid, c.OwnerStart))
+	return c.Agent == "" && pid == own() && (c.OwnerStart == "" || !reused(pid, c.OwnerStart))
 }
 
 func flattenClaims(byPath map[string]map[string]int64) map[string][]ClaimHit {

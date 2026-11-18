@@ -465,7 +465,7 @@ func failingCommitIndex(t *testing.T, dir string) (idx string, before, after []b
 func TestUndoAddRestoresUnderLockAndLeavesNoLock(t *testing.T) {
 	dir := commitRepo(t)
 	idx, before, after := failingCommitIndex(t, dir)
-	if err := undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"}); err != nil {
+	if err := undoAdd(context.Background(), dir, idx, before, after, 0o644, []string{"new.txt"}); err != nil {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(indexBytes(t, dir), before) {
@@ -483,7 +483,7 @@ func TestUndoAddWithForeignLockUnstagesOurFilesOnly(t *testing.T) {
 	if err := os.WriteFile(idx+".lock", []byte("theirs"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err := undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"})
+	err := undoAdd(context.Background(), dir, idx, before, after, 0o644, []string{"new.txt"})
 	if err == nil || !strings.Contains(err.Error(), "held by another process") ||
 		!strings.Contains(err.Error(), "git rm --cached") {
 		t.Fatalf("err = %v, want the fallback named", err)
@@ -498,7 +498,7 @@ func TestUndoAddKeepsPeerStagedEntry(t *testing.T) {
 	idx, before, after := failingCommitIndex(t, dir)
 	hosttest.WriteRel(t, dir, "c.txt", "peer\n")
 	hosttest.In(t, dir, "add", "c.txt") // a peer's add lands between our add and the rollback
-	err := undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"})
+	err := undoAdd(context.Background(), dir, idx, before, after, 0o644, []string{"new.txt"})
 	if err == nil || !strings.Contains(err.Error(), "index changed since our add") {
 		t.Fatalf("err = %v", err)
 	}
@@ -530,7 +530,7 @@ func TestUndoAddRetriesUnstageUntilForeignLockReleases(t *testing.T) {
 		time.Sleep(100 * time.Millisecond)
 		_ = os.Remove(idx + ".lock")
 	}()
-	err := undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"})
+	err := undoAdd(context.Background(), dir, idx, before, after, 0o644, []string{"new.txt"})
 	if err == nil || strings.Contains(err.Error(), "remain staged") {
 		t.Fatalf("err = %v, want the unstage to succeed after the lock cleared", err)
 	}
@@ -546,9 +546,9 @@ func TestUndoAddStuckLockNamesStagedFilesAndCommand(t *testing.T) {
 	if err := os.WriteFile(idx+".lock", []byte("theirs"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	err := undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"})
+	err := undoAdd(context.Background(), dir, idx, before, after, 0o644, []string{"new.txt"})
 	if err == nil || !strings.Contains(err.Error(), "remain staged: new.txt") ||
-		!strings.Contains(err.Error(), "git rm --cached -- new.txt") || strings.Contains(err.Error(), "unstaged only") {
+		!strings.Contains(err.Error(), "git rm --cached -f -- new.txt") || strings.Contains(err.Error(), "unstaged only") {
 		t.Fatalf("err = %v, want the staged file and the unstage command, no claim of an unstage", err)
 	}
 	if st := hosttest.In(t, dir, "status", "--porcelain"); !strings.Contains(st, "A  new.txt") {
@@ -559,15 +559,47 @@ func TestUndoAddStuckLockNamesStagedFilesAndCommand(t *testing.T) {
 func TestUndoAddKeepsIndexMode(t *testing.T) {
 	hosttest.SkipOnWindows(t, "unix permission bits")
 	dir := commitRepo(t)
-	idx, before, after := failingCommitIndex(t, dir)
-	if err := os.Chmod(idx, 0o640); err != nil {
+	hosttest.WriteRel(t, dir, "new.txt", "x\n")
+	idx := strings.TrimSpace(hosttest.In(t, dir, "rev-parse", "--path-format=absolute", "--git-path", "index"))
+	if err := os.Chmod(idx, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if err := undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"}); err != nil {
+	_, before, mode, err := indexSnapshot(context.Background(), dir)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if fi, err := os.Stat(idx); err != nil || fi.Mode().Perm() != 0o640 {
-		t.Fatalf("index mode = %v (%v), want 0640", fi.Mode().Perm(), err)
+	hosttest.In(t, dir, "add", "new.txt") // git add rewrites the index as 0644
+	if err := undoAdd(context.Background(), dir, idx, before, indexBytes(t, dir), mode, []string{"new.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(idx); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("index mode = %v (%v), want 0600", fi.Mode().Perm(), err)
+	}
+}
+
+func TestCommitHookReformatsAddedFileLeavesItUntracked(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh hook")
+	dir := commitRepo(t)
+	hook := strings.TrimSpace(hosttest.In(t, dir, "rev-parse", "--path-format=absolute", "--git-path", "hooks/pre-commit"))
+	if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(hook, []byte("#!/bin/sh\necho reformatted > new.txt\nexit 1\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	hosttest.WriteRel(t, dir, "new.txt", "selected\n")
+	old := renameIndex
+	renameIndex = func(string, string) error { return errors.New("injected") } // forces the unstage fallback
+	t.Cleanup(func() { renameIndex = old })
+	_, err := commitRun(commitReq(dir, "feat: new", "new.txt"))
+	if err == nil {
+		t.Fatal("the hook exits 1, so the commit must fail")
+	}
+	if st := hosttest.In(t, dir, "status", "--porcelain"); !strings.Contains(st, "?? new.txt") {
+		t.Fatalf("status = %q, want new.txt untracked again", st)
+	}
+	if b, _ := os.ReadFile(filepath.Join(dir, "new.txt")); string(b) != "reformatted\n" {
+		t.Fatalf("working-tree content = %q, want the hook's rewrite kept", b)
 	}
 }
 
@@ -579,7 +611,7 @@ func TestUndoAddPanicBetweenCreateAndRenameLeavesNoLock(t *testing.T) {
 	t.Cleanup(func() { renameIndex = old })
 	func() {
 		defer func() { _ = recover() }()
-		_ = undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"})
+		_ = undoAdd(context.Background(), dir, idx, before, after, 0o644, []string{"new.txt"})
 	}()
 	if _, err := os.Stat(idx + ".lock"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("index.lock left behind after a panic: %v", err)
@@ -592,7 +624,7 @@ func TestUndoAddRenameFailureLeavesNoLockAndUnstages(t *testing.T) {
 	old := renameIndex
 	renameIndex = func(string, string) error { return errors.New("injected") }
 	t.Cleanup(func() { renameIndex = old })
-	_ = undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"})
+	_ = undoAdd(context.Background(), dir, idx, before, after, 0o644, []string{"new.txt"})
 	if _, err := os.Stat(idx + ".lock"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("index.lock left behind: %v", err)
 	}
@@ -608,7 +640,7 @@ func TestUndoAddNeverUnstagesAFileStagedBeforeTheRun(t *testing.T) {
 	idx, before, after := failingCommitIndex(t, dir)
 	hosttest.WriteRel(t, dir, "c.txt", "peer\n")
 	hosttest.In(t, dir, "add", "c.txt") // forces the fallback
-	_ = undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"})
+	_ = undoAdd(context.Background(), dir, idx, before, after, 0o644, []string{"new.txt"})
 	if st := hosttest.In(t, dir, "status", "--porcelain"); !strings.Contains(st, "A  pre.txt") || strings.Contains(st, "A  new.txt") {
 		t.Fatalf("status = %q, want pre.txt still staged and new.txt not", st)
 	}

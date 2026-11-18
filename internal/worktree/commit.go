@@ -98,7 +98,7 @@ func commitSet(req CommitRequest, t commitTree, dispatched bool) ([]string, erro
 			return nil, err
 		}
 	} else if dispatched {
-		return nil, usage("a dispatched leaf's own edits carry no claims: name your files " +
+		return nil, usage("a dispatched leaf commits named files only: name your files " +
 			"(claude-code worktree commit -m <msg> <files>)")
 	} else if want, err = ownClaimed(req, t); err != nil {
 		return nil, err
@@ -385,9 +385,10 @@ func literal(set []string) []string {
 func runCommit(ctx context.Context, top, msg string, set, untracked []string) (string, error) {
 	var idx string
 	var before, after []byte
+	var mode os.FileMode
 	if len(untracked) > 0 {
 		var err error
-		if idx, before, err = indexSnapshot(ctx, top); err != nil {
+		if idx, before, mode, err = indexSnapshot(ctx, top); err != nil {
 			return "", err
 		}
 		if _, err = proc.RunGit(ctx, top, append([]string{"add", "--"}, literal(untracked)...)...); err != nil {
@@ -397,28 +398,32 @@ func runCommit(ctx context.Context, top, msg string, set, untracked []string) (s
 	}
 	res, err := proc.RunGit(ctx, top, append([]string{"commit", "-m", msg, "--"}, literal(set)...)...)
 	if err != nil && len(untracked) > 0 {
-		err = errors.Join(err, undoAdd(ctx, top, idx, before, after, untracked))
+		err = errors.Join(err, undoAdd(ctx, top, idx, before, after, mode, untracked))
 	}
 	return res, err
 }
 
-// indexSnapshot is the index file's path and bytes (nil when absent); a held index.lock refuses before any change.
-func indexSnapshot(ctx context.Context, top string) (string, []byte, error) {
+// indexSnapshot is the index file's path, bytes (nil when absent) and permission bits; a held index.lock refuses.
+func indexSnapshot(ctx context.Context, top string) (string, []byte, os.FileMode, error) {
 	idx, err := proc.RunGit(ctx, top, "rev-parse", "--git-path", "index")
 	if err != nil {
-		return "", nil, err
+		return "", nil, 0, err
 	}
 	if idx = strings.TrimSpace(idx); !filepath.IsAbs(idx) {
 		idx = filepath.Join(top, idx)
 	}
 	if _, err := os.Lstat(idx + ".lock"); err == nil {
-		return "", nil, refuse("%s.lock exists: another git process is writing the index", idx)
+		return "", nil, 0, refuse("%s.lock exists: another git process is writing the index", idx)
 	}
 	before, err := os.ReadFile(idx)
 	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		return "", nil, err
+		return "", nil, 0, err
 	}
-	return idx, before, nil
+	var mode os.FileMode = 0o644
+	if fi, err := os.Stat(idx); err == nil {
+		mode = fi.Mode().Perm() // taken before our add: git add rewrites the index as 0644
+	}
+	return idx, before, mode, nil
 }
 
 // Bounds for the unstage fallback: git's own lock holders are done in milliseconds.
@@ -429,7 +434,7 @@ var (
 )
 
 // undoAdd restores the index under git's own index.lock; with the lock held or the index changed, it unstages ours.
-func undoAdd(ctx context.Context, top, idx string, before, after []byte, untracked []string) error {
+func undoAdd(ctx context.Context, top, idx string, before, after []byte, mode os.FileMode, untracked []string) error {
 	lock := idx + ".lock"
 	f, err := os.OpenFile(lock, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
@@ -448,7 +453,7 @@ func undoAdd(ctx context.Context, top, idx string, before, after []byte, untrack
 		release()
 		return unstage(ctx, top, untracked, "index changed since our add")
 	}
-	if err := restoreIndex(f, lock, idx, before); err != nil {
+	if err := restoreIndex(f, lock, idx, before, mode); err != nil {
 		release()
 		return unstage(ctx, top, untracked, err.Error())
 	}
@@ -456,8 +461,8 @@ func undoAdd(ctx context.Context, top, idx string, before, after []byte, untrack
 	return nil
 }
 
-// restoreIndex writes before into the held lock file, gives it the index's mode and renames it over idx.
-func restoreIndex(f *os.File, lock, idx string, before []byte) error {
+// restoreIndex writes before into the held lock file, gives it the pre-add mode and renames it over idx.
+func restoreIndex(f *os.File, lock, idx string, before []byte, mode os.FileMode) error {
 	if len(before) == 0 { // the index did not exist before our add
 		_ = f.Close()
 		if err := os.Remove(idx); err != nil {
@@ -465,10 +470,8 @@ func restoreIndex(f *os.File, lock, idx string, before []byte) error {
 		}
 		return os.Remove(lock)
 	}
-	if fi, err := os.Stat(idx); err == nil {
-		if err := f.Chmod(fi.Mode().Perm()); err != nil {
-			return err
-		}
+	if err := f.Chmod(mode); err != nil {
+		return err
 	}
 	if _, err := f.Write(before); err != nil {
 		return err
@@ -484,7 +487,7 @@ func restoreIndex(f *os.File, lock, idx string, before []byte) error {
 
 // unstage drops only our added files, retrying while git cannot take the lock; it never claims a missed unstage.
 func unstage(ctx context.Context, top string, untracked []string, why string) error {
-	args := append([]string{"rm", "--cached", "-q", "--"}, literal(untracked)...)
+	args := append([]string{"rm", "--cached", "-f", "-q", "--"}, literal(untracked)...)
 	deadline := time.Now().Add(unstageWait)
 	var err error
 	for {
@@ -503,7 +506,7 @@ func unstage(ctx context.Context, top string, untracked []string, why string) er
 	}
 	list := strings.Join(untracked, " ")
 	return errors.Join(fmt.Errorf("index not restored byte for byte (%s); files this run added remain staged: %s; "+
-		"unstage them with: git rm --cached -- %s", why, list, list), err)
+		"unstage them with: git rm --cached -f -- %s", why, list, list), err)
 }
 
 // printAhead prints how far HEAD is ahead of its upstream; nothing when there is none.
