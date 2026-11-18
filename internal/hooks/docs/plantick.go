@@ -13,6 +13,8 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -50,19 +52,64 @@ func Tick(in *core.Input) core.Result {
 	}
 	var blocks []string
 	var stderr bytes.Buffer
-	seen := map[string]bool{}
+	var shas []string
 	for _, m := range core.CommitLine().FindAllStringSubmatch(out, -1) {
-		if !seen[m[1]] {
-			seen[m[1]] = true
-			blocks = append(blocks, tickCommit(in, cmd, m[1], &stderr)...)
+		if !slices.Contains(shas, m[1]) {
+			shas = append(shas, m[1])
 		}
+	}
+	if len(shas) == 0 && strings.TrimSpace(out) == "" && !in.ToolFailed() && realCommit(cmd) { // -q prints nothing
+		if sha := recentHead(in.CWD, cmd); sha != "" {
+			shas = append(shas, sha)
+		}
+	}
+	for _, sha := range shas {
+		blocks = append(blocks, tickCommit(in, cmd, sha, &stderr)...)
 	}
 	res := core.ExitResult(core.ExitProceed, stderr.String())
 	res.Context = core.JoinContext(blocks...)
 	return res
 }
 
-// tickCommit ticks the active plan's tasks covered by one landed commit and returns the context blocks.
+// commitRun matches a real `git [-C d|-c k=v|--flag]... commit`, not a log or grep that mentions the word.
+var commitRun = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?:^|[\s;&|(])git(?:\s+(?:-[Cc]\s+(?:"[^"]*"|'[^']*'|\S+)|--?\S+))*\s+commit\b`)
+})
+
+// realCommit reports whether cmd runs a git commit that is not a dry run.
+func realCommit(cmd string) bool {
+	for _, seg := range cmdSegment().Split(cmd, -1) {
+		if commitRun().MatchString(seg) && !strings.Contains(seg, "--dry-run") {
+			return true
+		}
+	}
+	return false
+}
+
+// recentWindow is how young HEAD must be for a quiet commit's fallback; older HEADs are not this call's commit.
+const recentWindow = 2 * time.Minute
+
+// recentHead is the HEAD sha of the first candidate repo whose HEAD was committed just now, else "".
+func recentHead(cwd, cmd string) string {
+	ctx, cancel := core.HookContext("docs-plan-tick")
+	defer cancel()
+	for _, d := range commitCandidates(cwd, cmd) {
+		if d == "" {
+			continue
+		}
+		out, err := proc.RunGit(ctx, d, "log", "-1", "--format=%H %ct", "HEAD")
+		if err != nil {
+			continue
+		}
+		sha, ct, ok := strings.Cut(strings.TrimSpace(out), " ")
+		if sec, perr := strconv.ParseInt(ct, 10, 64); ok && perr == nil && time.Since(time.Unix(sec, 0)) < recentWindow {
+			return sha
+		}
+	}
+	return ""
+}
+
+// tickCommit ticks every plan one landed commit advances and returns the context blocks.
 func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
 	ctx, cancel := core.HookContext("docs-plan-tick")
 	defer cancel()
@@ -71,38 +118,24 @@ func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
 		return nil
 	}
 	top := memory.GitToplevel(dir)
-	worktree := plans.WorktreeName(top)
 	files, err := plans.CommitFiles(ctx, dir, sha)
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
 		return nil
 	}
-	plan, tied := plans.Select(plans.Home(top), top, worktree, plans.MirrorDests(), []plans.Commit{{Sha: sha, Files: files}})
-	if plan == "" {
-		if len(tied) > 0 {
-			fmt.Fprintf(stderr, "plan-tick: %d plans match %s equally; nothing annotated\n", len(tied), sha)
-		}
-		return nil
-	}
-	short := sha
-	if len(short) > 7 {
-		short = short[:7]
-	}
-	ticked, partial, err := plans.Tick(top, plan, short, files)
+	results, tied, err := plans.TickCommit(top, sha, files)
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
-		return nil
-	}
-	base := strings.TrimSuffix(filepath.Base(plan), ".md")
-	if len(partial) > 0 {
-		recordPartials(in.SessionID, base, plan, partial, stderr)
 	}
 	var blocks []string
-	if len(ticked) > 0 {
-		blocks = append(blocks, "plans: ticked "+strings.Join(ticked, "; ")+" ("+short+") in "+base)
+	for _, r := range results {
+		blocks = append(blocks, r.Notes(sha)...)
+		if len(r.Partial) > 0 {
+			recordPartials(in.SessionID, strings.TrimSuffix(filepath.Base(r.Plan), ".md"), r.Plan, r.Partial, stderr)
+		}
 	}
-	if len(partial) > 0 {
-		blocks = append(blocks, "plans: partly landed "+strings.Join(partial, "; ")+" in "+base)
+	if n := plans.TieNote(tied); n != "" {
+		blocks = append(blocks, n)
 	}
 	return blocks
 }
@@ -262,7 +295,7 @@ func matchBriefTask(p plans.Plan, brief, description string) (plans.Task, bool) 
 func matchTaskByID(p plans.Plan, want string) (plans.Task, bool) {
 	var hit []plans.Task
 	for _, t := range p.Tasks {
-		if !t.Done && want != "" && (normTask(t.ID) == want || normTask(t.Title) == want) {
+		if !t.Done && !t.Dropped && want != "" && (normTask(t.ID) == want || normTask(t.Title) == want) {
 			hit = append(hit, t)
 		}
 	}
@@ -275,7 +308,7 @@ func matchTaskByTitle(p plans.Plan, want string) (plans.Task, bool) {
 	}
 	var hit []plans.Task
 	for _, t := range p.Tasks {
-		if title := normTask(t.Title); !t.Done && (title == want || strings.Contains(title, want)) {
+		if title := normTask(t.Title); !t.Done && !t.Dropped && (title == want || strings.Contains(title, want)) {
 			hit = append(hit, t)
 		}
 	}

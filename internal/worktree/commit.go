@@ -17,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/shell"
 )
@@ -85,8 +86,31 @@ func Commit(ctx context.Context, req CommitRequest) error {
 		return err
 	}
 	fmt.Fprintln(req.Out, res)
+	tickPlans(ctx, req.Out, tree.top, set)
 	printAhead(ctx, req.Out, tree.top)
 	return nil
+}
+
+// tickPlans ticks the plans the new HEAD advances for every agent; a failure never fails the commit.
+func tickPlans(ctx context.Context, out io.Writer, top string, set []string) {
+	sha, err := proc.RunGit(ctx, top, "rev-parse", "HEAD")
+	if err != nil {
+		fmt.Fprintf(out, "plans: not ticked: %v\n", err)
+		return
+	}
+	sha = strings.TrimSpace(sha)
+	results, tied, err := plans.TickCommit(top, sha, set)
+	for _, r := range results {
+		for _, n := range r.Notes(sha) {
+			fmt.Fprintln(out, n)
+		}
+	}
+	if n := plans.TieNote(tied); n != "" {
+		fmt.Fprintln(out, n)
+	}
+	if err != nil {
+		fmt.Fprintf(out, "plans: not ticked: %v\n", err)
+	}
 }
 
 // readOnlyStatus is gitStatus without git's opportunistic index refresh, which would rewrite the index as 0644.

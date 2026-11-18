@@ -2,6 +2,7 @@
 package plans
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"os"
@@ -214,7 +215,7 @@ func Active(home, worktree string, skip []string) (string, Plan, bool) {
 	if err != nil {
 		return "", Plan{}, false
 	}
-	all, _ := loadDatedPlans(entries, home, skip)
+	all := loadDatedPlans(entries, home, skip)
 	best, bestPlan, bestMod, bestClaimed := "", Plan{}, time.Time{}, false
 	for _, d := range all {
 		info, err := os.Stat(d.path)
@@ -257,17 +258,15 @@ func claimNamesWorktree(claim, worktree string) bool {
 
 // claimsWorktree reports whether an open task's claim names worktree ("· worktree <w>").
 func claimsWorktree(plan Plan, worktree string) bool {
-	return slices.ContainsFunc(plan.Tasks, func(t Task) bool { return !t.Done && claimNamesWorktree(t.Claim, worktree) })
+	return slices.ContainsFunc(plan.Tasks, func(t Task) bool { return open(t) && claimNamesWorktree(t.Claim, worktree) })
 }
 
-// hasLiveClaim reports whether an open task carries a claim.
-func hasLiveClaim(plan Plan) bool {
-	return slices.ContainsFunc(plan.Tasks, func(t Task) bool { return !t.Done && t.Claim != "" })
-}
+// open reports whether t still has to land: neither ticked nor struck.
+func open(t Task) bool { return !t.Done && !t.Dropped }
 
 // hasOpenOwnedTask reports whether plan still has a task to land.
 func hasOpenOwnedTask(plan Plan) bool {
-	return slices.ContainsFunc(plan.Tasks, func(t Task) bool { return !t.Done && len(t.Owns) > 0 })
+	return slices.ContainsFunc(plan.Tasks, func(t Task) bool { return open(t) && len(t.Owns) > 0 })
 }
 
 // spliceOwn expands an entry abbreviated against the previous one (a bare name takes its directory).
@@ -383,59 +382,92 @@ func touchesEntry(root, entry, dir string, files []string) bool {
 	return false
 }
 
-// planScore is how well a commit range matches one plan: tasks fully owned by it, then tasks with a file entry touched.
-type planScore struct{ exact, touched int }
-
-// below reports whether s scores lower than o: fewer exact tasks, or equal exact and fewer touched.
-func (s planScore) below(o planScore) bool {
-	return s.exact < o.exact || s.exact == o.exact && s.touched < o.touched
-}
-
-// scorePlan counts open tasks the range's union of files completes (exact) or touches through a file entry.
-func scorePlan(root string, plan Plan, files []string) (s planScore) {
+// touchedFiles is the set of files an open owned task of plan names through a file entry.
+func touchedFiles(root string, plan Plan, files []string) map[string]bool {
+	out := map[string]bool{}
 	for _, t := range plan.Tasks {
-		if t.Done || len(t.Owns) == 0 {
-			continue
-		}
-		if all, _ := covers(root, t.Owns, files); all {
-			s.exact++
+		if !open(t) || len(t.Owns) == 0 {
 			continue
 		}
 		for _, entry := range ownEntries(t.Owns, files) {
-			if !isDirOwn(entry) && touchesEntry(root, entry, strings.TrimSuffix(entry, "/"), files) {
-				s.touched++
-				break
+			if isDirOwn(entry) {
+				continue
+			}
+			for _, f := range files {
+				if touchesEntry(root, entry, strings.TrimSuffix(entry, "/"), []string{f}) {
+					out[f] = true
+				}
 			}
 		}
 	}
-	return s
+	return out
 }
 
-// Select ranks dated plans by newest touched date, then exact then touched score; stale unclaimed plans are skipped.
-func Select(home, root, worktree string, skip []string, commits []Commit) (plan string, tied []string) {
+// Select returns every dated plan whose open task owns a touched file; a claim breaks a shared-file tie, else tied.
+func Select(home, root, worktree string, skip []string, commits []Commit) (selected, tied []string) {
 	entries, err := os.ReadDir(home)
 	if err != nil {
-		return "", nil
+		return nil, nil
 	}
 	var files []string
 	for _, c := range commits {
 		files = append(files, c.Files...)
 	}
-	all, newestOpen := loadDatedPlans(entries, home, skip)
-	cands, claimed := bestCandidates(root, all, newestOpen, worktree, files)
-	if len(cands) == 1 {
-		return cands[0], nil
-	}
-	var linked []string
-	for _, p := range cands {
-		if claimed[p] {
-			linked = append(linked, p)
+	all := loadDatedPlans(entries, home, skip)
+	var cands []datedPlan
+	var touched []map[string]bool
+	for _, d := range all {
+		d.plan.Tasks = slices.DeleteFunc(slices.Clone(d.plan.Tasks), func(t Task) bool { return !eligible(d.path, worktree)(t) })
+		if t := touchedFiles(root, d.plan, files); len(t) > 0 {
+			cands, touched = append(cands, d), append(touched, t)
 		}
 	}
-	if len(linked) == 1 {
-		return linked[0], nil
+	keep := make([]bool, len(cands))
+	for i := range cands {
+		keep[i] = true
+		for j := range cands {
+			if i != j && sharesFile(touched[i], touched[j]) && worktree != "" &&
+				claimsWorktree(cands[j].plan, worktree) && !claimsWorktree(cands[i].plan, worktree) {
+				keep[i] = false
+			}
+		}
 	}
-	return "", cands
+	for i := range cands {
+		if !keep[i] {
+			continue
+		}
+		selected = append(selected, cands[i].path)
+		for j := range cands {
+			if j != i && keep[j] && sharesFile(touched[i], touched[j]) {
+				tied = append(tied, cands[i].path)
+				break
+			}
+		}
+	}
+	return selected, tied
+}
+
+// recentDays is how many days old a plan's file-name date may be for a commit to tick or annotate it.
+const recentDays = 7
+
+// now is the clock behind plan recency, swapped in tests.
+var now = time.Now
+
+// eligible says which tasks of a plan a commit may tick: all in a recent plan, else the claimed ones.
+func eligible(planPath, worktree string) func(Task) bool {
+	cutoff := now().AddDate(0, 0, -recentDays).Format(time.DateOnly)
+	recent := len(filepath.Base(planPath)) >= 10 && filepath.Base(planPath)[:10] >= cutoff
+	return func(t Task) bool { return recent || claimNamesWorktree(t.Claim, cmp.Or(worktree, "main")) }
+}
+
+// sharesFile reports whether two file sets intersect.
+func sharesFile(a, b map[string]bool) bool {
+	for f := range a {
+		if b[f] {
+			return true
+		}
+	}
+	return false
 }
 
 type datedPlan struct {
@@ -443,8 +475,8 @@ type datedPlan struct {
 	plan Plan
 }
 
-// loadDatedPlans parses the dated, non-skipped plans and returns them with the newest date holding an open owned task.
-func loadDatedPlans(entries []os.DirEntry, home string, skip []string) (all []datedPlan, newestOpen string) {
+// loadDatedPlans parses the dated, non-skipped plans in home.
+func loadDatedPlans(entries []os.DirEntry, home string, skip []string) (all []datedPlan) {
 	for _, e := range entries {
 		p := filepath.Join(home, e.Name())
 		if !e.Type().IsRegular() || !datedName().MatchString(e.Name()) || slices.Contains(skip, p) {
@@ -455,40 +487,8 @@ func loadDatedPlans(entries []os.DirEntry, home string, skip []string) (all []da
 			continue
 		}
 		all = append(all, datedPlan{p, parsed})
-		if hasOpenOwnedTask(parsed) && e.Name()[:10] > newestOpen {
-			newestOpen = e.Name()[:10]
-		}
 	}
-	return all, newestOpen
-}
-
-// bestCandidates returns the plans tied on the newest touched date's best score, and which claim worktree.
-func bestCandidates(root string, all []datedPlan, newestOpen, worktree string, files []string) (cands []string, claimed map[string]bool) {
-	var best planScore
-	var bestDate string
-	claimed = map[string]bool{}
-	for _, d := range all {
-		name := filepath.Base(d.path)
-		if name[:10] != newestOpen && !hasLiveClaim(d.plan) { // a stale plan sharing a file is never ticked
-			continue
-		}
-		s := scorePlan(root, d.plan, files)
-		if s == (planScore{}) || name[:10] < bestDate {
-			continue
-		}
-		if name[:10] > bestDate { // the newest touched plan wins; scores compare only within one date
-			bestDate, best, cands, claimed = name[:10], planScore{}, nil, map[string]bool{}
-		}
-		if s.below(best) {
-			continue
-		}
-		if s != best {
-			best, cands, claimed = s, nil, map[string]bool{}
-		}
-		cands = append(cands, d.path)
-		claimed[d.path] = worktree != "" && claimsWorktree(d.plan, worktree)
-	}
-	return cands, claimed
+	return all
 }
 
 // Status summarizes every *.md directly in each dir that carries at least one task, sorted by path.

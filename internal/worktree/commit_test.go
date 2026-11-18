@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/shell"
 )
@@ -684,5 +685,27 @@ func TestUndoAddNeverUnstagesAFileStagedBeforeTheRun(t *testing.T) {
 	_ = undoAdd(context.Background(), dir, idx, before, after, 0o644, []string{"new.txt"})
 	if st := hosttest.In(t, dir, "status", "--porcelain"); !strings.Contains(st, "A  pre.txt") || strings.Contains(st, "A  new.txt") {
 		t.Fatalf("status = %q, want pre.txt still staged and new.txt not", st)
+	}
+}
+
+// The verb ticks plans itself: a task owning two files notes the first commit and ticks on the second.
+func TestCommitTicksPlansItself(t *testing.T) {
+	dir := commitRepo(t)
+	planPath := filepath.Join(plans.Home(dir), time.Now().Format(time.DateOnly)+"-p.md")
+	hosttest.WriteRel(t, filepath.Dir(planPath), filepath.Base(planPath), "- [ ] 1.1 Pair owns: a.txt, b.txt\n")
+	for _, f := range []string{"a.txt", "b.txt"} {
+		hosttest.WriteRel(t, dir, f, "changed\n")
+		out, err := commitRun(commitReq(dir, "feat: "+f, f))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(out, "plans: ") {
+			t.Fatalf("no plan line for %s:\n%s", f, out)
+		}
+	}
+	sha := strings.TrimSpace(hosttest.In(t, dir, "rev-parse", "--short=7", "HEAD"))
+	got, err := os.ReadFile(planPath)
+	if err != nil || string(got) != "- [x] 1.1 Pair owns: a.txt, b.txt ("+sha+")\n" {
+		t.Fatalf("plan after two commits: %q err=%v", got, err)
 	}
 }

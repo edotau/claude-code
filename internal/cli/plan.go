@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
@@ -19,6 +20,7 @@ var planPage = helptext.Page{
 	Commands: [][2]string{
 		{"status", "progress per plan; --all spans every repo under the plans home"},
 		{"tick", "tick tasks covered by each commit in --range <a>..<b> (--dry-run)"},
+		{"task", "tick, reopen or strike one task by hand"},
 		{"assumptions", "vague or hopeful steps in a plan"},
 		{"goals", "plan steps with no verifiable goal"},
 	},
@@ -35,6 +37,8 @@ func cmdPlan(args []string) int {
 		return cmdPlanStatus(args[1:])
 	case "tick":
 		return cmdPlanTick(args[1:])
+	case "task":
+		return cmdPlanTask(args[1:])
 	case "assumptions":
 		return planlint.RunAssumptions(args[1:], os.Stdin, os.Stdout, os.Stderr)
 	case "goals":
@@ -84,6 +88,9 @@ func printPlanSummaries(summaries []plans.Summary) {
 			rel = s.Path
 		}
 		row := fmt.Sprintf("%d/%d  %s", s.Ticked, s.Total, filepath.ToSlash(rel))
+		if s.Dropped > 0 {
+			row = fmt.Sprintf("%d/%d (%d dropped)  %s", s.Ticked, s.Total, s.Dropped, filepath.ToSlash(rel))
+		}
 		fmt.Println(textutil.TruncateCells(row, 80, "…"))
 		for _, c := range s.Claims {
 			fmt.Printf("  %s\n", c)
@@ -115,6 +122,82 @@ func cmdPlanTick(args []string) int {
 		return helptext.Fail("plan tick: %v", err)
 	}
 	return 0
+}
+
+// cmdPlanTask is `plan task`: the by-hand tick, reopen and strike for what no commit can decide.
+func cmdPlanTask(args []string) int {
+	fs := helptext.NewFlagSet("plan task", helptext.Page{Usage: "claude-code plan task <id> --done|--reopen|--strike <why> [flags]",
+		About: "Tick, reopen or strike one task by hand; a commit ticks owned tasks itself."})
+	done := fs.Bool("done", false, "tick the task (a task with no owns: list)")
+	reopen := fs.Bool("reopen", false, "untick the task and drop its sha (a revert)")
+	strike := fs.String("strike", "", "strike the task as superseded, with this reason")
+	sha := fs.String("sha", "", "with --done: the commit to record")
+	plan := fs.String("plan", "", "plan file (default: the one plan holding the id)")
+	id := ""
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		id, args = args[0], args[1:]
+	}
+	if code, stop := helptext.Parse(fs, args); stop {
+		return code
+	}
+	if id == "" && fs.NArg() == 1 {
+		id = fs.Arg(0)
+	}
+	modes := 0
+	for _, on := range []bool{*done, *reopen, *strike != ""} {
+		if on {
+			modes++
+		}
+	}
+	if id == "" || modes != 1 || fs.NArg() > 1 || (*sha != "" && !*done) {
+		return helptext.Fail("plan task: give <id> and exactly one of --done, --reopen, --strike <why>")
+	}
+	path, err := taskPlan(id, *plan, *reopen)
+	if err != nil {
+		return helptext.Fail("plan task: %v", err)
+	}
+	switch {
+	case *done:
+		err = plans.MarkDone(path, id, *sha)
+	case *reopen:
+		err = plans.Reopen(path, id)
+	default:
+		err = plans.Strike(path, id, *strike)
+	}
+	if err != nil {
+		return helptext.Fail("plan task: %v", err)
+	}
+	fmt.Printf("plans: %s updated in %s\n", id, filepath.Base(path))
+	return 0
+}
+
+// taskPlan is the plan file holding id: --plan as given, else the one repo plan with a matching task.
+func taskPlan(id, plan string, ticked bool) (string, error) {
+	if plan != "" {
+		return plan, nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	top, _ := paths.CheckoutOf(cwd)
+	if top == "" {
+		return "", fmt.Errorf("%s is not in a git checkout; pass --plan", cwd)
+	}
+	found := plans.TaskPlans(plans.Home(top), plans.MirrorDests(), id, func(t plans.Task) bool {
+		return !t.Dropped && t.Done == ticked
+	})
+	switch len(found) {
+	case 0:
+		return "", fmt.Errorf("no plan of this repo has a matching task %q", id)
+	case 1:
+		return found[0], nil
+	}
+	names := make([]string, len(found))
+	for i, f := range found {
+		names[i] = filepath.Base(f)
+	}
+	return "", fmt.Errorf("task %q is in %d plans (%s); pick one with --plan <file>", id, len(found), strings.Join(names, ", "))
 }
 
 // planSpec returns the plan completion tree.

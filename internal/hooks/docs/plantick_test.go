@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -33,8 +34,9 @@ func tickFixture(t *testing.T) (planPath, sha string, tick func(command, out str
 	sha = strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "--short=7", "HEAD"))
 
 	dir := plans.Home(repo)
-	planPath = filepath.Join(dir, "2026-10-29-widgets.md")
-	hosttest.WriteRel(t, dir, "2026-10-29-widgets.md", "# Plan: w\n\n## Tasks\n\n"+
+	name := time.Now().Format(time.DateOnly) + "-widgets.md" // recent, so commits may tick it
+	planPath = filepath.Join(dir, name)
+	hosttest.WriteRel(t, dir, name, "# Plan: w\n\n## Tasks\n\n"+
 		"- [ ] 1.1 Full task owns: a/one.go, b/two file.go\n"+
 		"- [ ] 1.2 Partial task owns: a/one.go, c/never.go\n")
 	t.Setenv("HOME", home)
@@ -77,6 +79,51 @@ func TestPlanTickSpanning(t *testing.T) {
 		t.Fatalf("additionalContext = %q, want both tasks named", out)
 	}
 
+}
+
+// `git commit -q` prints no sha: the hook falls back to HEAD, only for a real commit command.
+func TestPlanTickQuietCommitFallsBackToHead(t *testing.T) {
+	planPath, sha, tick := tickFixture(t)
+	before, _ := os.ReadFile(planPath)
+	tick("git -C ~/widgets log --grep=commit", "")
+	tick("git -C ~/widgets commit --dry-run -q -m x", "")
+	if after, _ := os.ReadFile(planPath); !bytes.Equal(before, after) {
+		t.Fatalf("a non-commit command ticked:\n%s", after)
+	}
+	tick("git -C ~/widgets commit -q -m x", "")
+	if got, _ := os.ReadFile(planPath); !strings.Contains(string(got), "- [x] 1.1 Full task owns: a/one.go, b/two file.go ("+sha+")") {
+		t.Fatalf("quiet commit did not tick:\n%s", got)
+	}
+}
+
+// Two quiet commits inside the two-minute window: each ticks its own sha, the second is not skipped.
+func TestPlanTickTwoQuietCommitsTickOwnShas(t *testing.T) {
+	planPath, sha1, tick := tickFixture(t)
+	repo := filepath.Join(os.Getenv("HOME"), "widgets")
+	tick("git -C ~/widgets commit -q -m x", "")
+	hosttest.WriteRel(t, repo, "c/never.go", "package c\n")
+	hosttest.In(t, repo, "add", "c/never.go")
+	hosttest.In(t, repo, "commit", "-q", "-m", "y", "--no-gpg-sign")
+	sha2 := strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "--short=7", "HEAD"))
+	tick("git -C ~/widgets commit -q -m y", "")
+	got, _ := os.ReadFile(planPath)
+	if !strings.Contains(string(got), "("+sha1+")") || !strings.Contains(string(got), "- [x] 1.2 Partial task owns: a/one.go, c/never.go ("+sha2+")") {
+		t.Fatalf("each quiet commit must tick its own sha:\n%s", got)
+	}
+}
+
+// The verb ticks first, the hook then sees the same commit: the plan does not change again.
+func TestPlanTickAfterVerbChangesNothing(t *testing.T) {
+	planPath, sha, tick := tickFixture(t)
+	repo := filepath.Join(os.Getenv("HOME"), "widgets")
+	if _, _, err := plans.TickCommit(repo, sha, []string{"a/one.go", "b/two file.go"}); err != nil {
+		t.Fatal(err)
+	}
+	once, _ := os.ReadFile(planPath)
+	tick(tickCmd, "[main "+sha+"] x\n 2 files changed\n")
+	if twice, _ := os.ReadFile(planPath); !bytes.Equal(once, twice) || !strings.Contains(string(twice), "[x] 1.1") {
+		t.Fatalf("hook after verb changed the plan:\n%s\n--\n%s", once, twice)
+	}
 }
 
 func TestPlanTickRelativeDashCAfterCD(t *testing.T) {
@@ -125,8 +172,9 @@ func TestPlanTickMultiCommitDetachedQuoted(t *testing.T) {
 	s2 := commit("b/café two.go")
 
 	dir := plans.Home(repo)
-	planPath := filepath.Join(dir, "2026-10-29-gadgets.md")
-	hosttest.WriteRel(t, dir, "2026-10-29-gadgets.md", "# Plan: g\n\n- [ ] 1.1 First owns: a/one.go\n"+
+	name := time.Now().Format(time.DateOnly) + "-gadgets.md"
+	planPath := filepath.Join(dir, name)
+	hosttest.WriteRel(t, dir, name, "# Plan: g\n\n- [ ] 1.1 First owns: a/one.go\n"+
 		"- [ ] 1.2 Second owns: b/café two.go\n\n```md\n- [ ] 1.3 Fenced owns: a/one.go\n```\n")
 	runDocs(t, Tick, map[string]any{
 		"hook_event_name": "PostToolUse", "session_id": "mc1", "tool_name": "Bash", "cwd": repo,

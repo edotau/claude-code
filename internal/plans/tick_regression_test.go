@@ -60,7 +60,7 @@ func TestTickRangePropagatesOutputErrors(t *testing.T) {
 		plans                        int
 	}{
 		{"no owner", "other.go", "", "no plan owns", 1},
-		{"ambiguous", "internal/a/a.go", "", "ambiguous", 2},
+		{"tie updates both", "internal/a/a.go", "", "own the same file", 2},
 		{"nothing ticked", "other.go", "2026-11-09-0.md", "nothing to tick in", 1},
 		{"ticked", "internal/a/a.go", "2026-11-09-0.md", "would tick", 1},
 		{"partial", "internal/a/a.go, missing.go", "2026-11-09-0.md", "partly landed", 1},

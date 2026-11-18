@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -35,22 +36,23 @@ type tickResult struct {
 
 // Tick ticks fully covered tasks and notes partly covered ones; returns touched titles, writes only on change.
 func Tick(root, planPath, sha string, files []string) (ticked, partial []string, err error) {
-	results, err := tickCommits(root, planPath, []Commit{{Sha: sha, Files: files}}, false)
+	results, err := tickCommits(root, planPath, []Commit{{Sha: sha, Files: files}}, false, nil)
 	for _, r := range results {
 		ticked, partial = r.Ticked, r.Partial
 	}
 	return ticked, partial, err
 }
 
-// tickCommits ticks per commit under one lock, a task completing once the range's union covers it; dryRun skips writes.
-func tickCommits(root, planPath string, commits []Commit, dryRun bool) (results []tickResult, err error) {
+// tickCommits ticks per commit under one lock, a task completing once the range's union covers it; ok nil allows all.
+func tickCommits(root, planPath string, commits []Commit, dryRun bool, ok func(Task) bool) (results []tickResult, err error) {
+	recorded := recordedFiles(root)
 	err = editPlan(planPath, func(text string) (string, error) {
 		orig := text
 		var seen []string
 		for _, c := range commits {
 			r := tickResult{Sha: strings.TrimSpace(c.Sha)}
 			seen = append(seen, c.Files...)
-			text, r.Ticked, r.Partial = tickText(root, planPath, text, r.Sha, c.Files, seen)
+			text, r.Ticked, r.Partial = tickText(root, planPath, text, r.Sha, c.Files, seen, recorded, ok)
 			if len(r.Ticked)+len(r.Partial) > 0 {
 				results = append(results, r)
 			}
@@ -63,20 +65,45 @@ func tickCommits(root, planPath string, commits []Commit, dryRun bool) (results 
 	return results, err
 }
 
-// tickText is Tick's pure edit: ticks on seen (files so far), notes partials from this commit's files.
-func tickText(root, planPath, text, sha string, files, seen []string) (out string, ticked, partial []string) {
+// recordedFiles reads the files of a commit already recorded in a partly landed note; root "" reads none.
+func recordedFiles(root string) func(sha string) []string {
+	cache := map[string][]string{}
+	return func(sha string) []string {
+		if root == "" {
+			return nil
+		}
+		if f, ok := cache[sha]; ok {
+			return f
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), recordedTimeout)
+		defer cancel()
+		f, _ := CommitFiles(ctx, root, sha) // an unreadable sha (rewritten history) adds no coverage
+		cache[sha] = f
+		return f
+	}
+}
+
+// recordedTimeout bounds each git read of a recorded commit.
+const recordedTimeout = 10 * time.Second
+
+// tickText is Tick's pure edit: ticks on seen plus each task's recorded partial commits, notes partials from files.
+func tickText(root, planPath, text, sha string, files, seen []string, recorded func(string) []string, ok func(Task) bool) (out string, ticked, partial []string) {
 	lines := strings.Split(text, "\n")
 	for _, t := range parseBytes(planPath, []byte(text)).Tasks {
-		if t.Done || len(t.Owns) == 0 {
+		if !open(t) || len(t.Owns) == 0 || (ok != nil && !ok(t)) {
 			continue
 		}
-		all, _ := covers(root, t.Owns, seen)
+		have := slices.Clone(seen)
+		for _, s := range t.Partial {
+			if recorded != nil && !strings.EqualFold(s, sha) {
+				have = append(have, recorded(s)...)
+			}
+		}
+		all, _ := covers(root, t.Owns, have)
 		_, any := covers(root, t.Owns, files)
 		switch {
 		case all:
-			lines = removeClaims(lines, t)
-			lines[t.Start] = boxRe().ReplaceAllString(lines[t.Start], "${1}x${2}")
-			lines[t.End] = appendSuffix(lines[t.End], " ("+sha+")")
+			lines = markDone(lines, t, sha)
 			ticked = append(ticked, t.Title)
 		case any && !hasSha(t.Partial, sha):
 			lines = addPartial(lines, t, sha)
@@ -84,6 +111,28 @@ func tickText(root, planPath, text, sha string, files, seen []string) (out strin
 		}
 	}
 	return strings.Join(lines, "\n"), ticked, partial
+}
+
+// markDone ticks t's box, drops its claim and partial notes and appends sha (when given) as its landing commit.
+func markDone(lines []string, t Task, sha string) []string {
+	lines = removeNotes(lines, t)
+	lines[t.Start] = boxRe().ReplaceAllString(lines[t.Start], "${1}x${2}")
+	if sha != "" {
+		lines[t.End] = appendSuffix(lines[t.End], " ("+sha+")")
+	}
+	return lines
+}
+
+// removeNotes drops every claim and partly-landed comment across t's line span.
+func removeNotes(lines []string, t Task) []string {
+	lines = removeClaims(lines, t)
+	re := partialRe()
+	for i := t.Start; i <= t.End; i++ {
+		if re.MatchString(lines[i]) {
+			lines[i] = strings.TrimRight(re.ReplaceAllString(lines[i], ""), " \t")
+		}
+	}
+	return lines
 }
 
 // plansLock is the path of the lock every plan write holds.
@@ -244,51 +293,210 @@ func findTask(p Plan, taskID string) (Task, bool) {
 	return Task{}, false
 }
 
-// TickRange ticks plan (default: the one plan the range's files match) for each commit in rng; drafts are never ticked.
+// TickRange ticks plan (default: every plan the range's files match) for each commit in rng; drafts are never ticked.
 func TickRange(ctx context.Context, dir, worktree, rng, plan string, drafts []string, dryRun bool, w io.Writer) error {
 	commits, err := rangeCommits(ctx, dir, rng)
 	if err != nil {
 		return err
 	}
-	plan, done, err := pickPlan(dir, worktree, plan, drafts, commits, w)
+	targets, done, err := pickPlans(dir, worktree, plan, drafts, commits, w)
 	if err != nil || done {
 		return err
 	}
-	results, err := tickCommits(dir, plan, commits, dryRun)
-	if err != nil {
-		return err
+	for _, target := range targets {
+		var ok func(Task) bool // a plan named by the caller is always eligible
+		if plan == "" {
+			ok = eligible(target, worktree)
+		}
+		results, err := tickCommits(dir, target, commits, dryRun, ok)
+		if err != nil {
+			return err
+		}
+		base := strings.TrimSuffix(filepath.Base(target), ".md")
+		if err := printTicked(w, results, base, dryRun); err != nil {
+			return err
+		}
+		if len(results) == 0 {
+			if _, err = fmt.Fprintf(w, "plans: %d commits, nothing to tick in %s\n", len(commits), base); err != nil {
+				return err
+			}
+		}
 	}
-	base := strings.TrimSuffix(filepath.Base(plan), ".md")
-	if err := printTicked(w, results, base, dryRun); err != nil {
-		return err
+	return nil
+}
+
+// pickPlans resolves the plans to tick; done is true when none was chosen and the reason is already printed.
+func pickPlans(dir, worktree, plan string, drafts []string, commits []Commit, w io.Writer) ([]string, bool, error) {
+	if plan != "" {
+		if abs, err := filepath.Abs(plan); err == nil && slices.Contains(drafts, abs) {
+			return nil, false, fmt.Errorf("%s mirrors an unapproved draft; approve it before ticking", plan)
+		}
+		return []string{plan}, false, nil
 	}
-	if len(results) == 0 {
-		_, err = fmt.Fprintf(w, "plans: %d commits, nothing to tick in %s\n", len(commits), base)
+	targets, tied := Select(Home(dir), dir, worktree, drafts, commits)
+	if len(targets) > 0 {
+		return targets, false, printTie(w, tied)
+	}
+	_, err := fmt.Fprintln(w, "plans: no plan owns these files; nothing to tick")
+	return nil, true, err
+}
+
+// printTie prints TieNote when plans tied.
+func printTie(w io.Writer, tied []string) error {
+	if n := TieNote(tied); n != "" {
+		_, err := fmt.Fprintln(w, n)
 		return err
 	}
 	return nil
 }
 
-// pickPlan resolves the plan to tick; done is true when none was chosen and the reason is already printed.
-func pickPlan(dir, worktree, plan string, drafts []string, commits []Commit, w io.Writer) (string, bool, error) {
-	if plan != "" {
-		if abs, err := filepath.Abs(plan); err == nil && slices.Contains(drafts, abs) {
-			return "", false, fmt.Errorf("%s mirrors an unapproved draft; approve it before ticking", plan)
+// PlanTick is what one commit ticked or marked partly landed in one plan.
+type PlanTick struct {
+	Plan            string
+	Ticked, Partial []string
+}
+
+// Notes are the report lines for sha: what ticked and what is partly landed in this plan.
+func (r PlanTick) Notes(sha string) []string {
+	base := strings.TrimSuffix(filepath.Base(r.Plan), ".md")
+	var out []string
+	if len(r.Ticked) > 0 {
+		out = append(out, "plans: ticked "+strings.Join(r.Ticked, "; ")+" ("+sha[:min(len(sha), 7)]+") in "+base)
+	}
+	if len(r.Partial) > 0 {
+		out = append(out, "plans: partly landed "+strings.Join(r.Partial, "; ")+" in "+base)
+	}
+	return out
+}
+
+// TieNote is the one line naming plans that own the same file and were all updated; "" when none tied.
+func TieNote(tied []string) string {
+	if len(tied) == 0 {
+		return ""
+	}
+	return "plans: open tasks of " + baseNames(tied) + " own the same file; all updated"
+}
+
+// TickCommit ticks every plan the commit's files advance and lists plans tied on a shared file; idempotent per sha.
+func TickCommit(top, sha string, files []string) (out []PlanTick, tied []string, err error) {
+	short := sha
+	if len(short) > 7 {
+		short = short[:7]
+	}
+	wt := WorktreeName(top)
+	targets, tied := Select(Home(top), top, wt, MirrorDests(), []Commit{{Sha: short, Files: files}})
+	var errs []error
+	for _, p := range targets {
+		results, terr := tickCommits(top, p, []Commit{{Sha: short, Files: files}}, false, eligible(p, wt))
+		errs = append(errs, terr)
+		for _, r := range results {
+			out = append(out, PlanTick{p, r.Ticked, r.Partial})
 		}
-		return plan, false, nil
 	}
-	plan, tied := Select(Home(dir), dir, worktree, drafts, commits)
-	if plan != "" {
-		return plan, false, nil
+	return out, tied, errors.Join(errs...)
+}
+
+// TaskPlans lists the non-skipped dated plans in home holding a task matching id for which want is true.
+func TaskPlans(home string, skip []string, id string, want func(Task) bool) []string {
+	entries, err := os.ReadDir(home)
+	if err != nil {
+		return nil
 	}
-	var err error
-	if len(tied) > 0 {
-		_, err = fmt.Fprintf(w, "plans: ambiguous, %d plans match equally (%s); nothing annotated; "+
-			"pick one with `claude-code plan tick --plan <file>`\n", len(tied), baseNames(tied))
+	var out []string
+	for _, d := range loadDatedPlans(entries, home, skip) {
+		if t, ok := findTask(d.plan, id); ok && want(t) {
+			out = append(out, d.path)
+		}
+	}
+	return out
+}
+
+// MarkDone ticks taskID by hand (a task with no owns:), appending sha when given; a ticked task stays as it is.
+func MarkDone(planPath, taskID, sha string) error {
+	return editTask(planPath, taskID, func(t Task, lines []string) []string {
+		if t.Done || t.Dropped {
+			return lines
+		}
+		return markDone(lines, t, strings.TrimSpace(sha))
+	})
+}
+
+// shaTail matches the landing sha of a ticked task, ahead of any trailing comments.
+var shaTail = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(?:\s*\([0-9a-f]{7,40}\)|\s+(?:—|--|-)\s+[0-9a-f]{7,40})((?:\s*<!--.*?-->)*)\s*$`)
+})
+
+// Reopen unticks taskID and removes its landing sha, for a reverted commit.
+func Reopen(planPath, taskID string) error {
+	return editTask(planPath, taskID, func(t Task, lines []string) []string {
+		if !t.Done {
+			return lines
+		}
+		lines[t.Start] = boxRe().ReplaceAllString(lines[t.Start], "${1} ${2}")
+		lines[t.End] = shaTail().ReplaceAllString(lines[t.End], "$1")
+		return lines
+	})
+}
+
+// strikeWidth is the column cap of a struck task's lines.
+const strikeWidth = 120
+
+// Strike wraps taskID's text in ~~…~~, one wrapped line each, and appends " — superseded: <reason>".
+func Strike(planPath, taskID, reason string) error {
+	reason = strings.Join(strings.Fields(reason), " ")
+	if reason == "" {
+		return errors.New("plans: a strike needs a reason")
+	}
+	ticked := false
+	err := editTask(planPath, taskID, func(t Task, lines []string) []string {
+		if t.Dropped {
+			return lines
+		}
+		if t.Done {
+			ticked = true
+			return lines
+		}
+		lines = removeNotes(lines, t)
+		return slices.Concat(lines[:t.Start], struckLines(lines[t.Start:t.End+1], reason), lines[t.End+1:])
+	})
+	if err == nil && ticked {
+		return fmt.Errorf("plans: task %q is ticked; reopen it before striking", taskID)
+	}
+	return err
+}
+
+// struckLines re-flows a task's lines into ~~-wrapped lines of at most strikeWidth columns, ending in the reason.
+func struckLines(task []string, reason string) []string {
+	m := checkLine().FindStringSubmatch(task[0])
+	head := m[1] + "- [ ] "
+	if strings.HasPrefix(strings.TrimSpace(task[0]), "*") {
+		head = m[1] + "* [ ] "
+	}
+	pad := strings.Repeat(" ", len(m[1])+2)
+	words := strings.Fields(m[3])
+	for _, l := range task[1:] {
+		words = append(words, strings.Fields(l)...)
+	}
+	var out []string
+	prefix, cur := head, []string{}
+	flush := func() {
+		out = append(out, prefix+"~~"+strings.Join(cur, " ")+"~~")
+		prefix, cur = pad, nil
+	}
+	for _, w := range words {
+		if len(cur) > 0 && utf8.RuneCountInString(prefix)+utf8.RuneCountInString(strings.Join(cur, " "))+utf8.RuneCountInString(w)+5 > strikeWidth {
+			flush()
+		}
+		cur = append(cur, w)
+	}
+	flush()
+	tail := " — superseded: " + reason
+	if last := out[len(out)-1]; utf8.RuneCountInString(last)+utf8.RuneCountInString(tail) <= strikeWidth {
+		out[len(out)-1] = last + tail
 	} else {
-		_, err = fmt.Fprintln(w, "plans: no plan owns these files; nothing to tick")
+		out = append(out, pad+strings.TrimPrefix(tail, " "))
 	}
-	return "", true, err
+	return out
 }
 
 // printTicked writes one line per commit that ticked or partly landed tasks in base, returning the first write error.
