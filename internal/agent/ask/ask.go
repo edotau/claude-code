@@ -517,6 +517,9 @@ func (r *askRun) execute() int {
 		printAskFailure(f.format, f.name, errors.New("no task: give a prompt, or \"-\" to read stdin"))
 		return 2
 	}
+	if framed == nil {
+		prompt = r.withRecall(prompt)
+	}
 	ctx, stop := signal.NotifyContext(r.ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP) // a kill finalizes the record
 	defer stop()
 	if framed != nil { // the remote end of `ask --host`: stdin closing means the local side cancelled or vanished

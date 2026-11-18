@@ -2,12 +2,16 @@ package ask
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/router"
@@ -96,5 +100,52 @@ func TestMemoryRunOptionsReadOnlyBash(t *testing.T) {
 		if got := p.Decide("Bash", cmd); got != want {
 			t.Errorf("Decide(Bash, %q) = %v, want %v", cmd, got, want)
 		}
+	}
+}
+
+// An ask brief gains one recall block, keeps a held one unchanged, and a retry replays the sent bytes.
+func TestAskAttachesRecallOnce(t *testing.T) {
+	dir := t.TempDir()
+	for _, k := range []string{"CLAUDE_CONFIG_DIR", "HOME", "PATH"} {
+		t.Setenv(k, dir)
+	}
+	task := "stage the deploy pipeline staging signoff rollout"
+	run := func(args ...string) string {
+		hosttest.CaptureOutput(t, func() int {
+			return Cmd(append([]string{"--agent", "claude", "--fallback", "none", "--format", "json"}, args...))
+		})
+		return agent.RecentRecords(1)[0].Request.Prompt
+	}
+	if bare := run(task); bare != task {
+		t.Fatalf("empty bank: prompt = %q, want the bare task", bare)
+	}
+	bareID := agent.RecentRecords(1)[0].ID
+	var b strings.Builder
+	for i := range 3 {
+		fmt.Fprintf(&b, "- deploy pipeline staging signoff rule %d <!-- id:%08x -->\n", i, i+1)
+	}
+	bank := filepath.Join(memory.StoreDir(), "conventions.md")
+	if err := os.MkdirAll(filepath.Dir(bank), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bank, []byte("# Conventions\n\n"+b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	first := run(task)
+	if strings.Count(first, "<memory-recall>") != 1 || !strings.HasPrefix(first, task) {
+		t.Fatalf("prompt = %q, want the task plus one block", first)
+	}
+	id := agent.RecentRecords(1)[0].ID
+	if held := run(first); held != first {
+		t.Errorf("a brief holding a block changed: %q", held)
+	}
+	if again := run("--retry", id); again != first {
+		t.Errorf("retry sent %q, want %q", again, first)
+	}
+	if again := run("--retry", bareID); again != task {
+		t.Errorf("retry of a bare send = %q, want %q", again, task)
+	}
+	if off := run("--safe-mode", task); off != task {
+		t.Errorf("--safe-mode prompt = %q, want the bare task", off)
 	}
 }

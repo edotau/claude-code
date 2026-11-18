@@ -17,7 +17,7 @@ A row is deleted only when the tool makes the prose redundant.
 | R6 Model mix | Sonnet authors; a wave of 3+ puts a third on other families; reviewer is another family | prose |
 | R7 Databricks | Prefer `--provider databricks` over a fixed `--profile`; if named, rotate | `agents ask --provider` |
 | R8 Typed model | No silent swap; unserved fails with nearest ids; report names model | `unservedError`; retry prose |
-| R9 Memory recall | Paste `memory recall` pointers into Copilot, Gemini, OpenCode briefs | prose (until ask injects) |
+| R9 Memory recall | `hooks.md` → `dispatch-effort`: every dispatched brief carries the recall block | `withRecall` in `agents ask`; `--safe-mode` off |
 | R10 File-blocked | `worktree-git.md`; 2+ tasks wait on a file: propose a lane | prose (plan worktree-lanes) |
 | R11 make | `quality.md`; leaves: `make lint`, `agents diff --check`; no fmt, audit, install | `safety-scan` |
 | R12 Dispatch timeout | Tools dispatch gets 15 minutes; a longer job passes `--timeout` | `DefaultToolsTimeout` |
