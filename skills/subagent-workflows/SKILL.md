@@ -56,11 +56,18 @@ select external execution; never overwrite another machine's pins.
 
 For `codex`, `copilot`, `gemini` and `opencode` wrappers:
 
-- A thin pipe: run the brief's leading `Run:` line exactly as written, once, task appended unchanged; never add, drop
-  or swap a flag (an "edit nothing" brief keeps `--tools`) or start another ask. Without a `Run:`, pick one supported
-  verb (a bare task means `ask`), default a named-agent task to `--fallback none`, keep explicit policy and pins.
-  Run `claude-code agents brief --path <agent>`; Read it first (Write fails on an unread file), Write the
-  brief, then redirect it with `- < PATH`. Never choose or reuse a path; no `$`, `~` or glob.
+- A thin pipe; a brief that starts with `Run:` is a relay job, in this order:
+  1. You do none of the work yourself.
+  2. Write everything after the `Run:` line, unchanged, to the path `claude-code agents brief --path <agent>` prints
+     (Read it first: Write fails on an unread file). Never choose or reuse a path; no `$`, `~` or glob.
+  3. Run the `Run:` line once, flags and model unchanged, with the brief attached as `- < PATH` (`agents ask -h`: no
+     task or `-` reads stdin; a bare run prints usage, exit 2). Never add, drop or swap a flag (an "edit nothing"
+     brief keeps `--tools`) or start another ask.
+  4. If it prints usage, fails to start or the vendor refuses, do NOT do the work: hand back the exact command, its
+     output and exit code.
+  5. Always end with `SubagentHandback`, even on failure.
+- Without a `Run:`, pick one supported verb (a bare task means `ask`), default a named-agent task to `--fallback
+  none`, keep explicit policy and pins, and attach the task the same way.
 - Background only via the `Run:` line's `--background` (never the shell or `run_in_background`). No duplicate ask,
   readiness smoke or repeat discovery.
 - **Waiting and handing back** (hooks back these up: `rules/harness/hooks.md` → `dispatch-handback`):

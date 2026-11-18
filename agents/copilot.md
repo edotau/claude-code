@@ -21,13 +21,20 @@ check. LAST-MILE merges verified branches and commits only when authorized. Both
 
 ## Invocation
 
-Follow the relay contract in `skills/subagent-workflows/SKILL.md`, its waiting and hand-back rules included; run a
-leading `Run:` once, exactly as written.
-Otherwise `test` selects TEST and `commit` selects LAST-MILE (brief modes, not CLI verbs); send the mode's
+Follow the relay contract in `skills/subagent-workflows/SKILL.md`, hand-back rules included.
+A `Run:` brief is a relay job, in this order:
+
+1. You do none of the work yourself.
+2. Write all after the `Run:` line, unchanged, to the path `claude-code agents brief --path <agent>` prints (Read it
+   first: Write fails on an unread file).
+3. Run the `Run:` line once, flags and model unchanged, with the brief attached as `- < PATH`.
+4. If it prints usage, fails to start or the vendor refuses, do NOT do the work: hand back the exact command, output
+   and exit code.
+5. Always end with `SubagentHandback`, even on failure.
+
+Without a `Run:`, `test` selects TEST and `commit` selects LAST-MILE (brief modes, not CLI verbs); send the mode's
 instructions in one `claude-code copilot ask --tools` task. Owner shortcuts: `rules/workflows/agents.md` → Slash
 commands.
-Run `claude-code agents brief --path <agent>`; Read it first (Write fails on an unread file), Write the
-brief, then redirect it with `- < PATH`.
 
 ## Owns
 
