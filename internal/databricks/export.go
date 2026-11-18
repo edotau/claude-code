@@ -316,7 +316,7 @@ func rowHint(r exportRow) string {
 		r.ID = r.SecretID
 	}
 	if env, ok := rowHintEnv[r.Auth]; ok {
-		return fmt.Sprintf("[%s] %s=$(claude-code vault get %s) databricks -p %s ...",
+		return fmt.Sprintf("[%s] %s=$(claude-code vault get --reveal %s) databricks -p %s ...",
 			r.Section, env, secretName(r.ID, r.Auth), r.Section)
 	}
 	return fmt.Sprintf("[%s] databricks auth login -p %s (the CLI keeps its own login)", r.Section, r.Section)

@@ -267,7 +267,7 @@ test('createClient.dashboard: an explicit state is passed through; omitted state
 
 test('resolveToken: trims the binary\'s stdout', async () => {
   const execFileImpl = (binary, args, opts, cb) => {
-    assert.deepEqual(args, ['vault', 'get', 'BITBUCKET_TOKEN']);
+    assert.deepEqual(args, ['vault', 'get', '--reveal', 'BITBUCKET_TOKEN']);
     cb(null, 'BITBUCKET_TOKEN=obviously-fake-token\n');
   };
   const token = await resolveToken({ binary: 'claude-code', env: {}, execFileImpl });

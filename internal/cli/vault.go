@@ -31,7 +31,7 @@ func vaultSpec() *helptext.Node {
 		"ls": {Args: []func() []string{vaultSections}, Flags: []helptext.Flag{boolFlag("tailscale"), formatFlag()}},
 		"set": {Args: []func() []string{secretNames}, Flags: []helptext.Flag{boolFlag("tailscale"), boolFlag("api-key"),
 			boolFlag("dry-run")}},
-		"get":           {Args: []func() []string{secretNames}, Flags: []helptext.Flag{boolFlag("export"), boolFlag("key")}},
+		"get":           {Args: []func() []string{secretNames}, Flags: []helptext.Flag{boolFlag("export"), boolFlag("key"), boolFlag("reveal")}},
 		"delete":        {Args: []func() []string{secretNames}},
 		"env":           {Sub: map[string]*helptext.Node{"set": {Flags: []helptext.Flag{boolFlag("dry-run")}}, "unset": {Flags: []helptext.Flag{boolFlag("dry-run")}}}},
 		"import":        {Flags: []helptext.Flag{boolFlag("yes")}},
@@ -274,7 +274,7 @@ func vaultSetSecret(name string, dryRun bool) int {
 	if err := configure.StoreSecret(name, value); err != nil {
 		return helptext.Fail("vault set: %v", err)
 	}
-	fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s); `claude-code vault get %s` prints it\n", name, vault.Redact(value), name)
+	fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s); `claude-code vault get --reveal %s` prints it\n", name, vault.Redact(value), name)
 	if login != nil {
 		printLoginVerdict(login)
 	}
@@ -316,13 +316,14 @@ func readSecretValue(name string) (string, error) {
 	return strings.TrimSpace(string(raw)), nil
 }
 
-// cmdVaultGet prints NAME=value per name (vault -> env), or the master key with --key (pipes only).
+// cmdVaultGet prints NAME=<redacted: N bytes> per name, the value with --reveal, or the master key with --key.
 func cmdVaultGet(args []string) int {
 	fs := helptext.NewFlagSet("vault get", helptext.Page{
 		Usage: "claude-code vault get NAME... [flags]",
-		About: "Print each secret as NAME=value (vault first, then the process env).",
+		About: "Print each secret as NAME=<redacted: N bytes>; --reveal prints NAME=value (vault, then env).",
 	})
 	export := fs.Bool("export", false, "print export NAME='value' lines for a shell")
+	reveal := fs.Bool("reveal", false, "print the real values; the default redacts them")
 	key := fs.Bool("key", false, "print the master key (base64) instead; refused on a terminal")
 	names, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -346,17 +347,22 @@ func cmdVaultGet(args []string) int {
 	if err != nil {
 		return helptext.Fail("vault get: %v", err)
 	}
-	if err := printVaultValues(names, values, *export); err != nil {
+	if *export && !*reveal {
+		fmt.Fprintln(os.Stderr, "vault get: --export prints redacted lines; add --reveal to print values")
+	}
+	if err := printVaultValues(names, values, *export, *reveal); err != nil {
 		return helptext.Fail("vault get: %v", err)
 	}
 	return 0
 }
 
-// printVaultValues prints NAME=value lines, or shell-quoted export lines; the first write error is returned.
-func printVaultValues(names, values []string, export bool) error {
+// printVaultValues prints redacted lines, or with reveal values or export lines; the first write error is returned.
+func printVaultValues(names, values []string, export, reveal bool) error {
 	for i, name := range names {
 		var err error
-		if export {
+		if !reveal {
+			_, err = fmt.Printf("%s=<redacted: %d bytes>\n", name, len(values[i]))
+		} else if export {
 			_, err = fmt.Printf("export %s=%s\n", name, textutil.ShellQuote(values[i]))
 		} else {
 			_, err = fmt.Printf("%s=%s\n", name, values[i])

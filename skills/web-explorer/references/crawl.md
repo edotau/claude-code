@@ -1,7 +1,7 @@
 # Map and crawl
 
 Map lists URLs on a site without reading them; crawl follows links and returns page content. Both need
-`TAVILY_API_KEY`: run `eval "$(claude-code vault get --export TAVILY_API_KEY)"` in the same shell command.
+`TAVILY_API_KEY`: run `eval "$(claude-code vault get --reveal --export TAVILY_API_KEY)"` in the same shell command.
 
 ## Map first
 

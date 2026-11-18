@@ -14,7 +14,7 @@ paths:
 | Check binaries, providers, credentials, proxy | `claude-code doctor` · leaked credentials: `doctor --scan\|--git\|--secrets` |
 | See providers and credential state | `claude-code configure provider --list [<name>]` |
 | Set a credential | `claude-code vault set [NAME]` (bare on a terminal = guided dialog), or a provider's `auth.command` |
-| Inspect or edit the vault | `claude-code vault [ls]\|get\|delete\|import\|export\|rotate-secret`; env and overlays: `claude-code configure` |
+| Inspect or edit the vault | `claude-code vault [ls]\|get\|delete\|import\|export\|rotate-secret` (`get` redacts; `--reveal` prints); env and overlays: `claude-code configure` |
 | Switch the session profile | `claude-code switch <profile> [--dry-run]` · one launch: `claude-code --profile <p>` |
 | Set claude's models | `claude-code models --pin opus=<id>` · `--pin all=<id>` · `--unpin` (`--dry-run` previews) |
 | List what a provider serves | `claude-code models --live [--profile <p>]` |

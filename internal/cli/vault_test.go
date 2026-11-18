@@ -33,7 +33,7 @@ const vaultLeakSecret = "tvly-dev-secret-leak-me-not"
 var vaultGetModes = []struct {
 	name  string
 	flags []string
-}{{"plain", nil}, {"export", []string{"--export"}}}
+}{{"plain", []string{"--reveal"}}, {"export", []string{"--reveal", "--export"}}}
 
 func vaultRun(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
@@ -524,7 +524,7 @@ func TestVaultGetMultipleNames(t *testing.T) {
 			if code != 0 || stderr != "" {
 				t.Fatalf("get: exit %d, stderr empty=%v", code, stderr == "")
 			}
-			if got, want := maskGetOutput(stdout, names, values, mode.flags != nil); got != want {
+			if got, want := maskGetOutput(stdout, names, values, slices.Contains(mode.flags, "--export")); got != want {
 				t.Fatal("get did not produce the expected masked NAME=value rows")
 			}
 		})
@@ -543,6 +543,21 @@ func maskGetOutput(stdout string, names, values []string, export bool) (got, wan
 		fmt.Fprintf(&wantSb, "%s%s=%s\n", prefix, name, vault.Redact(values[i]))
 	}
 	return stdout, wantSb.String()
+}
+
+func TestVaultGetRedactsUnlessRevealed(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	vaultStore(t, "ALPHA", vaultLeakSecret)
+	for _, flags := range [][]string{nil, {"--export"}} {
+		code, stdout, stderr := vaultRun(t, append([]string{"get", "ALPHA"}, flags...)...)
+		want := fmt.Sprintf("ALPHA=<redacted: %d bytes>\n", len(vaultLeakSecret))
+		if code != 0 || stdout != want || strings.Contains(stdout+stderr, vaultLeakSecret) {
+			t.Fatalf("get %v: exit %d, stdout=%q", flags, code, stdout)
+		}
+	}
+	if _, stdout, _ := vaultRun(t, "get", "--reveal", "ALPHA"); stdout != "ALPHA="+vaultLeakSecret+"\n" {
+		t.Fatal("get --reveal did not print the value")
+	}
 }
 
 func TestVaultGetMissingNamePrintsNothing(t *testing.T) {

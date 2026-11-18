@@ -23,4 +23,4 @@ A row is deleted only when the tool makes the prose redundant.
 | R12 Dispatch timeout | Tools dispatch gets 15 minutes; a longer job passes `--timeout` | `DefaultToolsTimeout` |
 | R13 Guard walls | `vault get --key`, production exec/delete, `oc rsh`: `hooks.md` main-session rules | `safety-scan` |
 | R13 New walls | A new guard wall needs the owner's yes; permission additions shown as a table first | prose |
-| R14 Transcripts | Never print a secret value into a session, report or brief; byte counts only | prose (until redact) |
+| R14 Transcripts | Never print a secret value into a session, report or brief; byte counts only | `vault get` redacts |

@@ -153,13 +153,13 @@ function tokenFromFiles(env, readFileImpl) {
 
 const VAULT_TIMEOUT_MS = 15000; // a hung vault must not block the env/file fallback
 
-/** Resolves JIRA_TOKEN: `<binary> vault get` (NAME=value), then env (JIRA_TOKEN, ATLASSIAN_TOKEN), then the token files. */
+/** Resolves JIRA_TOKEN: `<binary> vault get --reveal` (NAME=value), then env (JIRA_TOKEN, ATLASSIAN_TOKEN), then the token files. */
 function resolveToken(opts) {
   const { binary, env, execFileImpl, readFileImpl } = opts || {};
   const runExecFile = execFileImpl || require('node:child_process').execFile;
   const environment = env || process.env;
   return new Promise((resolve, reject) => {
-    runExecFile(binary, ['vault', 'get', 'JIRA_TOKEN'], { timeout: VAULT_TIMEOUT_MS }, (err, stdout) => {
+    runExecFile(binary, ['vault', 'get', '--reveal', 'JIRA_TOKEN'], { timeout: VAULT_TIMEOUT_MS }, (err, stdout) => {
       const fromBinary = err ? null : stdout.toString().trim().replace(/^JIRA_TOKEN=/, '');
       if (fromBinary) return resolve(fromBinary);
       if (environment.JIRA_TOKEN) return resolve(environment.JIRA_TOKEN);

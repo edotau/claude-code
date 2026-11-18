@@ -95,9 +95,9 @@ Example: `"auth": {"type": "key", "command": "op read op://Private/example/crede
 
 ```bash
 claude-code vault set [KEY]            # bare on a terminal = guided dialog
-claude-code vault get KEY... [--export]
+claude-code vault get KEY... [--reveal [--export]]   # redacted without --reveal
 claude-code vault import keys.env      # then delete the plaintext file
-claude-code vault get KEY... | ssh box claude-code vault import - --yes
+claude-code vault get --reveal KEY... | ssh box claude-code vault import - --yes
 claude-code doctor --scan|--git|--secrets   # leak audits; never print values
 ```
 
