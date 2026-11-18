@@ -3,6 +3,7 @@ package memory
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
@@ -615,4 +616,23 @@ func TestDoctorNoticeTruncationPreservesUTF8(t *testing.T) {
 	if len(truncated) > 300 {
 		t.Errorf("truncation did not work: result is %d bytes", len(truncated))
 	}
+}
+
+func TestFailedRefreshLeadsReviewAndTheNextSessionStartLine(t *testing.T) {
+	runBank(t, func(t *testing.T) {
+		decisionLogOver(t, Path("decisionLog.md"), 80) // a competing bank problem the notice must not show first
+		if err := os.Mkdir(NativeIndex(), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := settleBankLocked(indexNow); !errors.Is(err, errIndexProblem) || !strings.Contains(err.Error(), "refused") {
+			t.Fatalf("err = %v; a MEMORY.md that is not a regular file must refuse the refresh", err)
+		}
+		if doctorNotice() != " memory review: "+indexNotice+"." {
+			t.Errorf("session-start line = %q; the failed settle alone must set the fixed index notice", doctorNotice())
+		}
+		problems := doctorBank("", DefaultStaleDays, time.Now())
+		if len(problems) < 2 || !strings.HasPrefix(problems[0], errIndexProblem.Error()) || !strings.Contains(problems[0], "`claude-code memory index`") {
+			t.Fatalf("problems = %q, want the refresh failure with its path-free advice first", problems)
+		}
+	})
 }

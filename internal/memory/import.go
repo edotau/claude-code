@@ -72,9 +72,8 @@ func ImportBank(opt ImportOptions) (ImportResult, error) {
 		res = p.result(opt)
 		return p.apply(opt)
 	})
-	if err == nil {
-		top := ResolveBank()
-		refreshBankNotice(os.Stderr, "memory import", top)
+	if err == nil || errors.Is(err, errIndexProblem) {
+		refreshBankNotice(os.Stderr, "memory import", ResolveBank())
 	}
 	return res, err
 }
@@ -82,11 +81,13 @@ func ImportBank(opt ImportOptions) (ImportResult, error) {
 type importStats struct{ merged, copied, kept, conflicts, skipped, left int }
 
 type importPlan struct {
-	changes []Change
-	leaks   []string // planned writes the store commit would refuse as credential-shaped
-	lines   []string
-	st      importStats
-	topics  bool
+	changes  []Change
+	leaks    []string // planned writes the store commit would refuse as credential-shaped
+	lines    []string
+	st       importStats
+	topics   bool
+	pointers []string // the source's entries, folded into the destination catalog after its own
+	newPtrs  int      // how many of them the destination does not hold yet
 }
 
 // planImport reads both sides and builds the changes without writing.
@@ -105,6 +106,7 @@ func planImport(opt ImportOptions) (*importPlan, error) {
 		}
 		return p, errors.New(msg.String() + "nothing was imported; scrub the source file(s) and re-run")
 	}
+	p.countNewPointers()
 	return p, nil
 }
 
@@ -113,8 +115,11 @@ func (p *importPlan) result(opt ImportOptions) ImportResult {
 	if s.left > 0 {
 		left = fmt.Sprintf("; %d non-log file(s) left out (--topics imports them)", s.left)
 	}
-	if len(p.changes) == 0 {
+	if len(p.changes) == 0 && p.newPtrs == 0 {
 		return ImportResult{Lines: p.lines, Summary: "nothing to import" + left}
+	}
+	if p.newPtrs > 0 {
+		left = fmt.Sprintf("; %d pointer line(s)", p.newPtrs) + left
 	}
 	verb := "imported"
 	if opt.DryRun {
@@ -124,22 +129,35 @@ func (p *importPlan) result(opt ImportOptions) ImportResult {
 		verb, s.merged, s.copied, s.kept, s.conflicts, s.skipped) + left}
 }
 
+// countNewPointers counts the source entries the destination's index.md and pending MEMORY.md input do not hold.
+func (p *importPlan) countNewPointers() {
+	_, held, _, _ := readStored()
+	if held == nil {
+		held = map[string]bool{}
+	}
+	for _, f := range []string{storePath(asideFile), NativeIndex()} {
+		data, _ := readIfExists(f)
+		in, _ := inputEntries(string(data), lastGenerated())
+		for _, e := range in {
+			held[e] = true
+		}
+	}
+	p.newPtrs = len(fresh(p.pointers, held))
+}
+
 // apply commits the changes atomically, settles the touched stores and commits that, all under the caller's lock.
 func (p *importPlan) apply(opt ImportOptions) error {
-	if len(p.changes) == 0 {
+	if len(p.changes) == 0 && p.newPtrs == 0 {
 		return nil
 	}
 	label := strings.Join(strings.Fields(opt.Label), " ")
-	if _, err := commitChangesLocked("memory: import "+label, p.changes); err != nil {
-		return err
+	if len(p.changes) > 0 {
+		if _, err := commitChangesLocked("memory: import "+label, p.changes); err != nil {
+			return err
+		}
 	}
-	if _, err := settleDir(opt.Now); err != nil {
-		return err
-	}
-	if err := writeCatalog(opt.Now); err != nil {
-		return err
-	}
-	return commitBanks("settle: import " + label)
+	_, err := settleBankWith(opt.Now, p.pointers, "settle: import "+label)
+	return err
 }
 
 // Mixed layouts cannot share file attribution safely; read-only, as the apply path's withFlatLock already stamped.
@@ -153,12 +171,27 @@ func checkImportLayout(from string) error {
 	return nil
 }
 
-// flatImportFile reports a source file import reads: MEMORY.md once under --topics, never a dotfile.
+// flatImportFile reports a source file import reads: never MEMORY.md (its pointer lines merge) or a dotfile.
 func (p *importPlan) flatImportFile(rel string) bool {
-	if rel == nativeIndexFile {
-		return p.topics
+	return rel != nativeIndexFile && !strings.HasPrefix(path.Base(rel), ".")
+}
+
+// readPointers collects the source's entries: its index.md records, then its moved-aside and live MEMORY.md input.
+func (p *importPlan) readPointers(root *os.Root) {
+	gen, _ := readSource(root, genFile) // the source's own proof of which edited-block lines it generated
+	for i, rel := range []string{catalogFile, asideFile, nativeIndexFile} {
+		data, err := readSource(root, rel)
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+		case err != nil:
+			p.skipFile(rel, err.Error()+"; its entries were not imported")
+		case i == 0:
+			p.pointers = append(p.pointers, decodeCatalog(string(data))...)
+		default:
+			in, _ := inputEntries(string(data), string(gen))
+			p.pointers = append(p.pointers, in...)
+		}
 	}
-	return !strings.HasPrefix(path.Base(rel), ".")
 }
 
 // planStore walks the source store through os.Root, so no entry can resolve outside it.
@@ -168,13 +201,16 @@ func (p *importPlan) planStore(from string) error {
 		return importInput("--from %s: %v", from, err)
 	}
 	defer root.Close()
+	if p.topics {
+		p.readPointers(root)
+	}
 	return fs.WalkDir(root.FS(), ".", func(rel string, d fs.DirEntry, err error) error {
 		switch {
 		case err != nil:
 			p.skipFile(rel, err.Error())
 		case d.IsDir() && skipImportDir(rel, d.Name()):
 			return fs.SkipDir
-		case d.IsDir(), foldSkips(rel), rel == layoutFile:
+		case d.IsDir(), foldSkips(rel), rel == layoutFile, rel == catalogFile: // index.md's entries go by readPointers
 		case !p.flatImportFile(rel):
 		case !filepath.IsLocal(filepath.FromSlash(rel)):
 			p.skipFile(rel, "path escapes the store")
@@ -228,6 +264,9 @@ func (p *importPlan) importFile(root *os.Root, rel string) {
 		data = unarchived(StoreDir(), rel, data)
 	}
 	dst := filepath.Join(StoreDir(), filepath.FromSlash(rel))
+	if f := NoteFolder(rel); f != "" && !strings.Contains(rel, "/") && !statOK(dst) && statOK(Sub(f, rel)) {
+		dst = Sub(f, rel) // settle already filed the loose note, so compare against it
+	}
 	cur, err := os.ReadFile(dst)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		p.record(rel, importAction{kind: impConflict, line: "conflict " + rel + ": kept local (" + err.Error() + ")"})
@@ -295,17 +334,11 @@ func (p *importPlan) record(rel string, a importAction) {
 	p.changes = append(p.changes, Change{Rel: filepath.FromSlash(rel), Data: a.data})
 }
 
-// decideImport applies the import rules: logs and the native index merge, replace files keep local, new files copy.
+// decideImport applies the import rules: logs merge, replace files keep local, new files copy.
 func decideImport(rel string, cur, data []byte, exists bool) importAction {
 	switch {
 	case !exists:
 		return importAction{kind: impCopy, data: data, line: "copy " + rel}
-	case rel == nativeIndexFile:
-		merged, n, err := mergeNativeIndex(string(cur), string(data))
-		if err != nil {
-			return importAction{kind: impConflict, line: "conflict " + rel + ": kept local (" + err.Error() + ")"}
-		}
-		return mergedAction(rel, "append %d pointer line(s)", merged, n)
 	case idFiles[rel] != "" || monthlyArchive(rel):
 		merged, n := mergeLog(logicalName(rel), string(cur), string(data))
 		return mergedAction(rel, "merge %d entr(ies)", merged, n)
@@ -394,64 +427,9 @@ func writeTarFile(root *os.Root, name string, r io.Reader) error {
 	return f.Close()
 }
 
-// foldSkips reports the generated index and lock files, which do not travel.
+// foldSkips reports the generated router and lock files, which do not travel.
 func foldSkips(rel string) bool {
-	return rel == catalogFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate"
-}
-
-// pointerLines lists src's non-blank, non-header lines whose link target (else full text) tgt lacks, each once.
-func pointerLines(tgt, src string) []string {
-	key := func(l string) string {
-		if m := indexLink().FindStringSubmatch(l); m != nil {
-			return m[1]
-		}
-		return l
-	}
-	seen := map[string]bool{}
-	for l := range strings.SplitSeq(tgt, "\n") {
-		seen[key(strings.TrimSpace(l))] = true
-	}
-	var add []string
-	for l := range strings.SplitSeq(src, "\n") {
-		t := strings.TrimSpace(l)
-		if k := key(t); t != "" && !strings.HasPrefix(t, "## ") && !seen[k] {
-			seen[k] = true
-			add = append(add, l)
-		}
-	}
-	return add
-}
-
-// mergeNativeIndex adds the source pointer lines the target lacks (outside the generated region), before any header.
-func mergeNativeIndex(tgt, src string) (string, int, error) {
-	if _, _, err := scanBankRegion(tgt); err != nil {
-		return "", 0, err
-	}
-	s, e, err := scanBankRegion(src)
-	if err != nil {
-		return "", 0, err
-	}
-	if s >= 0 {
-		src = src[:s] + src[e:]
-	}
-	add := pointerLines(tgt, src)
-	if len(add) == 0 {
-		return tgt, 0, nil
-	}
-	at := len(tgt)
-	if strings.HasPrefix(tgt, "## ") {
-		at = 0
-	} else if i := strings.Index(tgt, "\n## "); i >= 0 {
-		at = i + 1
-	}
-	for at >= 2 && tgt[at-2:at] == "\n\n" {
-		at-- // insert above the blank line that precedes the header
-	}
-	head, tail := tgt[:at], tgt[at:]
-	if head != "" && !strings.HasSuffix(head, "\n") {
-		head += "\n"
-	}
-	return head + strings.Join(add, "\n") + "\n" + tail, len(add), nil
+	return rel == routerFile || strings.HasSuffix(rel, ".lock") || filepath.Base(rel) == ".postupdate"
 }
 
 // mergeLog adds the source blocks missing from the target (by id, else text); dated logs stay newest-first.
@@ -514,7 +492,3 @@ func sortNewestFirst(all []string) []string {
 	}
 	return sorted
 }
-
-var indexLink = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`\]\(([^)\s]+)\)`)
-})

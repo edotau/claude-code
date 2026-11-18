@@ -434,8 +434,8 @@ const focusCapChars = 1200
 // sessionSurface is the capped session preload: the one bank's focus plus a pointer to the catalog, whatever root is.
 func sessionSurface(root string) string {
 	var parts []string
-	if _, err := os.Stat(filepath.Join(StoreDir(), catalogFile)); err == nil {
-		parts = append(parts, "<!-- catalog: "+filepath.Join(StoreDir(), catalogFile)+"; search: `claude-code memory search <terms>` -->")
+	if _, err := os.Stat(filepath.Join(StoreDir(), routerFile)); err == nil {
+		parts = append(parts, "<!-- catalog: "+filepath.Join(StoreDir(), routerFile)+"; search: `claude-code memory search <terms>` -->")
 	}
 	if bankExists() { // the header alone still names the bank when there is no focus text yet
 		head := "<!-- MEMORY (" + SubDir("") + ") -->"

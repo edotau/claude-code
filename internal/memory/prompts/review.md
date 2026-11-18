@@ -8,10 +8,11 @@
 
 Read in order:
 
-1. **Catalog** — `index.md` in the store root (the generated router); `claude-code
-   memory path` prints the store root
+1. **Catalog** — `catalog.md` in the store root (the generated router; `index.md` beside it keeps every `MEMORY.md`
+   entry, append-only); `claude-code memory path` prints the store root
 2. **Native `MEMORY.md` + topic files** — in the store root (the native loader reads the one shared `MEMORY.md` up to
-   200 lines / 25 KB, including its generated `<!-- bank:begin -->`…`<!-- bank:end -->` region of ≤ 20 lines)
+   200 lines / 25 KB; it is generated: pinned notes plus the newest 20 pointers; past 120 lines / 12 KB the newest
+   pointers drop first, and past the loader's 200 lines / 25 KB the oldest pins drop too, with unpin advice)
 3. **Typed bank files** — the six typed files (`decisionLog.md`, …) beside `MEMORY.md`; `claude-code memory
    review` surfaces caps/staleness across both native and typed
 4. **Rules tiers** — `rules/standards/*.md`, `rules/workflows/*.md`

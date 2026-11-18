@@ -1,7 +1,8 @@
-// Bank health: per-file cap roll-ups and the advisories `memory doctor` + SessionStart's cached notice read.
+// Bank health: per-file cap roll-ups and the advisories `memory review` + SessionStart's cached notice read.
 package memory
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -86,7 +87,9 @@ func cacheDoctorNotice(problems []string) error {
 	})
 	line := ""
 	if len(problems) > 0 {
-		line = problems[0]
+		if line = problems[0]; strings.HasPrefix(line, errIndexProblem.Error()) {
+			line = indexNotice // path-free and fixed, so the 200-rune cut never splits a command
+		}
 		if len(problems) > 1 {
 			line += " (+" + strconv.Itoa(len(problems)-1) + " more)"
 		}
@@ -113,7 +116,7 @@ func doctor(root string, staleDays int, now time.Time) []string {
 }
 
 func doctorBank(root string, staleDays int, now time.Time) []string {
-	var problems []string
+	problems := indexProblems(now) // first: the session-start notice shows only the first problem
 	problems = append(problems, bankProblems("home", statBank(), staleDays, now)...)
 	problems = append(problems, updateProblems(now)...)
 	problems = append(problems, journalProblems(now)...)
@@ -121,6 +124,46 @@ func doctorBank(root string, staleDays int, now time.Time) []string {
 		problems = append(problems, nativeLinkProblems(root)...)
 	}
 	return append(problems, accessNominations(now)...)
+}
+
+// indexNotice is the session-start line for any index problem; `memory review` prints the cause and the fix.
+const indexNotice = "MEMORY.md is not being refreshed: run `claude-code memory review` for the cause and the fix"
+
+// indexProblems is what stops MEMORY.md's refresh: what a dry plan finds now, else the last settle's failure.
+func indexProblems(now time.Time) []string {
+	if _, err := refreshNativeIndex(now, true, nil); err != nil {
+		return []string{indexProblem(err)}
+	}
+	if last, err := os.ReadFile(indexProblemPath()); err == nil && len(last) > 0 {
+		return []string{string(last)}
+	}
+	return nil
+}
+
+// indexProblem is err as one review row that starts like every index problem; an I/O error gets its own advice.
+func indexProblem(err error) string {
+	msg := strings.Join(strings.Fields(err.Error()), " ")
+	if errors.Is(err, errIndexProblem) {
+		return msg
+	}
+	return fmt.Sprintf("%v: %s; fix the path it names (type, permissions, free space), then run `claude-code memory index`",
+		errIndexProblem, msg)
+}
+
+func indexProblemPath() string { return filepath.Join(StateDir(), "index-problem-"+stateKey()) }
+
+// recordIndexProblem keeps a failed settle's cause for `memory review` and the next session-start line.
+func recordIndexProblem(err error) {
+	if err == nil {
+		if rerr := os.Remove(indexProblemPath()); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
+			fmt.Fprintln(os.Stderr, "memory index: clear the last failure:", rerr)
+		}
+		return
+	}
+	row := indexProblem(err) + " (last settle)"
+	if werr := errors.Join(paths.AtomicWrite(indexProblemPath(), []byte(row), 0o600), cacheDoctorNotice([]string{row})); werr != nil {
+		fmt.Fprintln(os.Stderr, "memory index: record the failure:", werr)
+	}
 }
 
 // updateProblems surfaces receipts needing a human: a failed update, or a pending one past the grace window.

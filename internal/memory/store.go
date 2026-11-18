@@ -117,8 +117,8 @@ var templates = sync.OnceValue(func() map[string]string {
 	return m
 })
 
-// catalogFile is the reserved global catalog at the store root; BuildCatalog is its only writer.
-const catalogFile = "index.md"
+// catalogFile holds every MEMORY.md entry, append-only; routerFile is the generated router BuildCatalog writes.
+const catalogFile, routerFile = "index.md", "catalog.md"
 
 // StoreDir is the memory store root and the work tree of the local memory repo.
 func StoreDir() string { return filepath.Join(paths.ConfigDir(), "memory") }

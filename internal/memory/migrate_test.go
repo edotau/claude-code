@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -90,10 +91,9 @@ func TestMigrateMergesIntoOneBank(t *testing.T) {
 	if read("notes/topic.md") != "topic\n" || read("topic.md") != "" || read(".layout") != layoutFlat+"\n" {
 		t.Error("topic or layout")
 	}
-	idx := read("MEMORY.md")
-	if strings.Contains(idx, "## alpha") || strings.Count(idx, "(notes/topic.md)") != 1 ||
-		!strings.Contains(idx, "(progress.md)") || !strings.Contains(idx, "- keep") {
-		t.Errorf("index: %q", idx)
+	want := []string{"- [t](topic.md) — a", "- [t](topic.md) — dup", "- [p](progress.md)"}
+	if got := testDecode(read("index.md")); !slices.Equal(got, want) {
+		t.Errorf("index.md = %q, want each entry repointed past the renames", got)
 	}
 	for _, gone := range []string{".origins", "alpha--progress.md", "alpha--topic.md"} {
 		if _, err := os.Stat(filepath.Join(dir, gone)); err == nil {
@@ -127,5 +127,30 @@ func TestMigrateRefusalChangesNothing(t *testing.T) {
 	}
 	if migHash(t, dir) != before {
 		t.Error("store changed despite refusal")
+	}
+}
+
+func TestMigrateAppendsRepointedEntriesAndRewritesNoIndexFile(t *testing.T) {
+	const hook = " — see handoffs/claude-code--2026-11-01-a.md and knowledge/claude-code--tip.md"
+	ptr := func(h, k, w string) []string {
+		return []string{"- [h](handoffs/" + h + ")" + hook, "- [k](knowledge/" + k + ")" + hook, "- [w](worktrees/" + w + "/x.md)" + hook}
+	}
+	old := ptr("claude-code--2026-11-01-a.md", "claude-code--tip.md", "claude-code--2026-09-09-dir")
+	cat := "# c\n\n" + encodeRecord(old[0])
+	dir := migFixture(t, map[string]string{
+		".layout": "flat 2\n", "MEMORY.md": strings.Join(old[1:], "\n") + "\n", "index.md": cat,
+		"handoffs/claude-code--2026-11-01-a.md": "handoff\n", "knowledge/claude-code--tip.md": "tip\n",
+		"worktrees/claude-code--2026-09-09-dir/x.md": "x\n",
+	})
+	mem := readRel(dir, "MEMORY.md")
+	if err := Migrate(MigrateOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	if readRel(dir, "MEMORY.md") != mem || !strings.HasPrefix(readRel(dir, "index.md"), cat) {
+		t.Error("migrate must leave MEMORY.md to the next refresh and only append to index.md")
+	}
+	want := append([]string{old[0]}, ptr("2026-11-01-a.md", "tip.md", "2026-09-09-dir")...)
+	if got := testDecode(readRel(dir, "index.md")); !slices.Equal(got, want) {
+		t.Errorf("index.md = %q, want the stored entry, then each entry repointed with its hook text kept", got)
 	}
 }

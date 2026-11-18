@@ -36,12 +36,8 @@ For the shared `~/.claude/memory/MEMORY.md` (index) and the topic files beside i
 2. **Remove contradictions**: If older entry is contradicted by newer, keep only newer
 3. **Remove stale entries**: Items referencing files, APIs, or patterns that no longer exist
 4. **Merge related items**: Fold overlapping topic files together; keep TOC entries coherent
-5. **Keep `MEMORY.md` a lean index**: it is capped at 200 lines / 25 KB and its generated bank region at 20
-   lines (`rules/workflows/memory-bank.md` → Caps), so detail lives in topic files — trim the index to one-line TOC
-   entries, prioritizing:
-   - Keep: Gotchas, active conventions, recent patterns
-   - Remove: Generic observations, one-time context, resolved issues
-   - Pointer hooks ≤ 80 characters; never repeat the six bank links — the generated region already carries them
+5. **Do not hand-prune `MEMORY.md`**: it is generated (pinned notes plus the newest 20 pointers). Pointer lines you
+   add are appended to `index.md`, which Go never rewrites; to keep a note in view set `metadata.pinned: true`
 6. **Never edit the RULES region** (`<!-- RULES:BEGIN -->`…`<!-- RULES:END -->`) without explicit approval
 
 ## Phase 5: Refresh the bank
@@ -94,7 +90,7 @@ After all updates:
 
 1. Confirm all updated memory files are well-formed markdown
 2. Confirm `sessionHistory.md` has <= 30 entries and each typed file is within its cap
-3. Confirm the project `MEMORY.md` is a lean index (detail pushed to topic files; RULES region untouched)
+3. Confirm the topic files are coherent (RULES region untouched); `MEMORY.md` is generated, never edited by hand
 
 ## When to run
 

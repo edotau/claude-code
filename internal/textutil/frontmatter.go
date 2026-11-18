@@ -16,7 +16,7 @@ var fmRes = sync.OnceValue(func() (r struct {
 	return
 })
 
-// ParseFrontmatter parses a YAML subset (string, bool, int, []string) from markdown; returns (frontmatter, body).
+// ParseFrontmatter parses a YAML subset (string, bool, int, []string, nested map); returns frontmatter and body.
 func ParseFrontmatter(content string) (map[string]any, string) {
 	// BOM/CRLF-normalize first: StripFrontMatter anchors on \n, so a CRLF file would silently drop the frontmatter.
 	content = strings.ReplaceAll(strings.TrimPrefix(content, "\ufeff"), "\r\n", "\n")
@@ -44,6 +44,7 @@ type fmParser struct {
 	key      string
 	list     []string
 	haveList bool
+	bare     bool // the open key had no inline value, so an indented "k: v" may open a nested map
 }
 
 func (p *fmParser) feed(line string) {
@@ -54,11 +55,11 @@ func (p *fmParser) feed(line string) {
 	}
 	kv := fmRes().kv.FindStringSubmatch(line)
 	if kv == nil {
-		p.key, p.list, p.haveList = "", nil, false
+		p.key, p.list, p.haveList, p.bare = "", nil, false, false
 		return
 	}
 	key, value := kv[1], strings.TrimSpace(kv[2])
-	p.key, p.list, p.haveList = key, nil, false
+	p.key, p.list, p.haveList, p.bare = key, nil, false, value == ""
 	p.fm[key] = parseScalar(value)
 	if value == "" {
 		p.haveList = true
@@ -72,6 +73,15 @@ func (p *fmParser) continuation(line string) {
 			p.list = append(p.list, stripQuotes(strings.TrimSpace(lm[1])))
 			p.fm[p.key] = p.list
 		}
+		return
+	}
+	if kv := fmRes().kv.FindStringSubmatch(strings.TrimSpace(line)); kv != nil && p.bare {
+		nested, ok := p.fm[p.key].(map[string]any)
+		if !ok {
+			nested = map[string]any{}
+			p.fm[p.key] = nested
+		}
+		nested[kv[1]] = parseScalar(strings.TrimSpace(kv[2]))
 		return
 	}
 	if existing, isString := p.fm[p.key].(string); isString {

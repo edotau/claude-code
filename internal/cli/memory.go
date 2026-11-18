@@ -33,7 +33,7 @@ var memorySubs = []memorySub{
 	{"promote", "<id> --to <target>", "print one block and its target for rules|skill|claude-md"},
 	{"update", "", "save the live session; --catchup saves missed sessions"},
 	{"dream", "", "consolidate the bank when due (--force, --dry-run)"},
-	{"index", "", "settle the bank, rewrite MEMORY.md and index.md, file loose notes"},
+	{"index", "", "settle the bank, regenerate MEMORY.md, append to index.md"},
 	{"migrate", "[--dry-run]", "merge old per-repo bank files into the one bank (--dry-run previews)"},
 }
 
@@ -212,7 +212,7 @@ func memorySpec() *helptext.Node {
 		"dream":   {Flags: []helptext.Flag{helptext.Plain("cwd"), helptext.BoolFlag("force"), helptext.BoolFlag("dry-run")}},
 		"search":  {Flags: []helptext.Flag{helptext.Plain("k"), helptext.CompletionFormatFlag()}},
 		"show":    {},
-		"index":   {Flags: []helptext.Flag{helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only")}},
+		"index":   {Flags: []helptext.Flag{helptext.BoolFlag("reembed"), helptext.BoolFlag("mint-only"), helptext.BoolFlag("dry-run")}},
 		"path":    {},
 		"report":  {Flags: []helptext.Flag{helptext.Plain("label"), helptext.Plain("file"), helptext.BoolFlag("stdin"), helptext.CompletionFormatFlag()}},
 		"fmt":     {Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("own")}},
@@ -347,10 +347,11 @@ func cmdMemoryIndex(args []string) int {
 	fs := memoryFlagSet("index")
 	reembed := fs.Bool("reembed", false, "re-embed all entries; last 8 min of the lease or expired")
 	mintOnly := fs.Bool("mint-only", false, "refresh embedding cache without settling bank contents")
+	dryRun := fs.Bool("dry-run", false, "print the counts MEMORY.md and index.md would get; write nothing")
 	if code, done := memoryParseNoArgs(fs, "index", args); done {
 		return code
 	}
-	if err := memory.Index(os.Stdout, os.Stderr, memory.IndexOptions{Reembed: *reembed, MintOnly: *mintOnly}); err != nil {
+	if err := memory.Index(os.Stdout, os.Stderr, memory.IndexOptions{Reembed: *reembed, MintOnly: *mintOnly, DryRun: *dryRun}); err != nil {
 		return helptext.Fail("%v", err)
 	}
 	return 0

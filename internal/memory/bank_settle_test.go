@@ -169,7 +169,7 @@ func catalogOf(t *testing.T) string {
 	if err := writeCatalog(time.Unix(0, 0)); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(StoreDir(), catalogFile))
+	data, err := os.ReadFile(filepath.Join(StoreDir(), routerFile))
 	if err != nil {
 		t.Fatal(err)
 	}

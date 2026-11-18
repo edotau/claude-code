@@ -27,6 +27,8 @@ overrides:
       blank-line-around-headings: false
       cross-file-reference-integrity: false # bank links point at files a real store has, not this folder
       no-undefined-reference-labels: false # generated rows end in [<entry id>], not a link label
+      heading-increment: false # MEMORY.md has no H1: it would load into every session
+      code-block-style: false # index.md records are 4-space indented on purpose, so no entry line reads as structure
 rules:
   # Mirrors .markdownlint-cli2.jsonc (converted with bin/mdsmith init --from-markdownlint) so make lint matches VS Code.
   code-block-style:

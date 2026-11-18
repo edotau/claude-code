@@ -6,9 +6,11 @@ paths:
 
 `~/.claude/memory/` is one local-only git repo (never pushed); `claude-code memory path` prints it. There is ONE bank
 for every workspace (any repo, scratch dir, provider or profile): six typed files at the top plus Claude Code's native
-topic files, one flat `MEMORY.md` pointer list and the generated `index.md`. Folders: `archive/`, `handoffs/`,
-`reports/`, `knowledge/`, `worktrees/`, `waves/`, `feedback/`, `notes/` (no `<key>--` prefix; `handoffs/`, `reports/`
-and `worktrees/` names start `YYYY-MM-DD-`, and the docs-placement gate dates a new one). `.layout` (`flat 3`) stamps
+topic files, the generated `MEMORY.md` (head, pinned, newest 20 pointers), the append-only `index.md` of its
+entries and the generated `catalog.md` router. Folders:
+`archive/`, `handoffs/`, `reports/`, `knowledge/`, `worktrees/`, `waves/`, `feedback/`, `notes/` (no `<key>--`
+prefix; `handoffs/`, `reports/` and `worktrees/` names start `YYYY-MM-DD-`, and the docs-placement gate dates a new
+one). `.layout` (`flat 3`) stamps
 the layout (`flat 2` stores still work until migrated), and every `~/.claude/projects/<slug>/memory` is a symlink to
 the store root, repaired at SessionStart. The bank holds session STATE; durable facts belong in `rules/` or
 `CLAUDE.md` — point at them, never copy.
@@ -46,9 +48,11 @@ update`; the rest print none.
   bank, origin-only vault).
 - Hook-spawned: `watch`; SessionStart spawns `update --catchup`.
 - `import` is additive and idempotent (`--dry-run` previews; `git -C ~/.claude/memory log` is the undo): logs merge
-  (missing blocks only); `--topics` also merges `MEMORY.md` pointers, copies files only the source has, and keeps
-  local state files and any differing file (reported as a conflict). Never imported: catalog, locks, `.git/`,
-  symlinks, files over 4 MiB, stores with no local counterpart.
+  (missing blocks only); `--topics` copies files only the source has, appends the source's `index.md` records and
+  pending `MEMORY.md` entries to `index.md` after the local ones, settles, and keeps local state files and any
+  differing file (reported as a conflict); `migrate` appends each entry it repoints and never rewrites either file.
+  Never imported as files: `index.md`, `catalog.md`, locks, `.git/`, symlinks, files over 4 MiB, stores with no
+  local counterpart.
 
 ## Promotion ladder
 
@@ -75,10 +79,40 @@ Handoffs are `handoffs/YYYY-MM-DD-<topic>.md`, reports `reports/YYYY-MM-DD-<name
 `knowledge/<topic>.md`. `memory-compact` also writes a fact-only handoff, `handoffs/YYYY-MM-DD-compact-<id8>.md` (one
 per session per day, rewritten in place); after compaction `memory-start` names a fresh model-written handoff first,
 the generated one second. `memory migrate` and `memory index` file loose top-level notes: `feedback*.md` into
-`feedback/`, any other non-core `.md` into `notes/`, with `MEMORY.md` links repointed.
-Typed files carry no frontmatter. `MEMORY.md` carries a generated `<!-- bank:begin -->`…`<!-- bank:end -->` region;
-lines outside it are Claude's own and never rewritten. Never hand-edit generated regions. Each pointer is one unwrapped
-line (≤ ~200 chars): the 120-column wrap skips `MEMORY.md` so it stays under the loader's 200-line cap.
+`feedback/`, any other non-core `.md` into `notes/`.
+Typed files carry no frontmatter and no note is ever edited. `catalog.md` is the generated router (layout, knowledge,
+home rows, one line per note), rewritten whole. `index.md` keeps every entry the model writes to `MEMORY.md` and is
+append-only: Go never rewrites, truncates or reorders it, and only appends records (each line prefixed with four
+spaces, then `<!-- end of entry -->`), skipping an entry whose bytes are already stored. Reading is tolerant: other
+text is skipped and stays where it is, so a parse problem only changes what `MEMORY.md` shows.
+An entry is a list item (`-`, `*`, `+`, `1.`) or bare link at column 0 plus every line up to the next one, blank
+lines and headings included; text before the first is an entry. Its bytes are stored exactly, `\r` and BOM included;
+the newline ending its last line and blank lines at its edges are separators, not stored, and the refresh output
+counts those blank lines. Identical bytes are one entry. Generated `MEMORY.md` text runs from its begin line to
+`<!-- end of generated text <hash> -->` (the hash covers that block only; an `index.md` record's end line has none);
+the rest is input. Once the hash fails, the lines between the longest head and tail the block shares with
+`.archive-MEMORY.md.gen` (the last text installed, proven by its own end line) are input; without that proof every
+line is. In an older `bank:begin`…`bank:end` region only the lines that writer emitted are dropped.
+A refresh, under the bank lock, first refuses with nothing changed when `index.md`, `MEMORY.md`, `catalog.md` or
+`.archive-MEMORY.md.prev` is a symlink, not a regular file, or one file under two names. Then it (1) folds the kept copy
+`.archive-MEMORY.md.prev`; (2) leaves an exactly current `MEMORY.md` alone, else writes the new text to a temp file and
+renames `MEMORY.md` to the kept copy; (3) appends the copy's input to `index.md`; (4) places the temp file as
+`MEMORY.md` only where none exists (`os.Link`, else an `O_EXCL` create where hard links fail), else leaves the writer's
+file to the next refresh; if placing fails it puts the moved text back the same way. Interleavings: a write by path
+before the rename is in the moved file; one after it creates a new `MEMORY.md` that the install leaves alone; a write
+through a handle opened before the rename lands in the copy, which the next step 1 folds. The one loss: a handle opened
+before a refresh's rename and written after the next moving refresh's step 1 read the copy, as that rename replaces it
+(a refresh that finds `MEMORY.md` current moves nothing). An editor saving a stale `index.md` over appended records
+loses them unless a step 1 re-appends them from the copy; the store's git history keeps every commit. If the store
+directory turns unwritable between the rename and the install, `MEMORY.md` is missing until the next refresh; its
+text is in the kept copy. Owner edits
+anywhere in `index.md` stay byte for byte; a record deleted by hand is appended again while the kept copy or pending
+`MEMORY.md` input holds it, so delete it there too.
+`MEMORY.md` shows a pinned or newest note's first entry (over 512 bytes, 4 lines or with a marker line: its built
+row); only `metadata.pinned: true` pins; a pointer into `handoffs/`, `reports/` or `knowledge/` joins the newest
+list, dated by its `YYYY-MM-DD-` name; the 10 newest unresolved entries and a count follow. An I/O error or a
+refusal fails the refresh with path-free advice; pins past the loader limit drop oldest first with unpin advice;
+each sets the next session-start line, and `claude-code memory review` gives the cause. Never hand-edit `MEMORY.md`.
 
 ## Replaced entries
 
@@ -100,11 +134,11 @@ chain returns the original flagged unavailable. `memory search` still lists it a
 | `activeContext.md` · `conventions.md` | 80 lines each | `fileCaps` |
 | `decisionLog.md` | 200 lines | `fileCaps` |
 | `sessionHistory.md` | 30 entries (rotates) | `sessionHistoryMaxEntries` |
-| Generated bank region of `MEMORY.md` | 20 lines / 2 KB, markers included | `bankRegionMaxLines`, `bankRegionMaxBytes` |
+| Generated `MEMORY.md` | 120 lines / 12 KB; newest drop first, pins stay (warns) | `bankIndexMaxLines/Bytes` |
+| Pinned lines | past 200 lines / 25 KB the oldest pins drop, `memory index` and `import` fail | `loaderMax*` |
 | Whole `MEMORY.md` (native index) | 200 lines / 25 KB | Claude Code loader |
 
-The region is the harness's slice; the index is everything the native loader reads. Past a `fileCaps` limit `memory
-dream` archives the overflow.
+The loader reads the whole generated file. Past a `fileCaps` limit `memory dream` archives the overflow.
 
 ## Who writes what
 
@@ -135,8 +169,9 @@ dream` archives the overflow.
   memory → refresh bank → cross-pollinate → report; archives durable-file overflow. It never edits `rules/**`; its only
   `CLAUDE.md` edit is a block `promote --to claude-md` printed in its own run. Native memory edits never touch a
   `<!-- RULES:BEGIN -->`…`<!-- RULES:END -->` region without human approval (guard in `internal/memory/bank_fmt.go`).
-- `memory index` — regenerates the `MEMORY.md` region and `memory/index.md` (router plus one line per native note),
-  rotates sessionHistory, commits the store.
+- `memory index` — appends model-added entries to `index.md`, regenerates `MEMORY.md` and `catalog.md` (router, one
+  line per native note), rotates sessionHistory, commits the store; `--dry-run` prints the counts and writes nothing;
+  a failed refresh fails, and `memory review` and the session-start line report it.
   `index`, `dream`, `update`, `import` and plain `review` also refresh the session-start notice
   (`state/harness/memory/doctor-notice-<store>`), which session start only reads.
 - The embedding cache (`state/harness/memory/embeddings.db`) is one per embedding model, shared by every Databricks

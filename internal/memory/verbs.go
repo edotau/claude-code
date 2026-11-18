@@ -270,10 +270,19 @@ func InitBank(w io.Writer) error {
 type IndexOptions struct {
 	Reembed  bool
 	MintOnly bool
+	DryRun   bool // print what MEMORY.md would hold and what folds; write nothing
 }
 
 // Index settles the bank (unless MintOnly) and refreshes the embedding cache; errors carry their verb prefix.
 func Index(out, errw io.Writer, o IndexOptions) error {
+	if o.DryRun {
+		rep, err := refreshNativeIndex(time.Now(), true, nil)
+		if err != nil {
+			return fmt.Errorf("memory index: %w", err)
+		}
+		fmt.Fprintln(out, "dry run:", rep)
+		return nil
+	}
 	root := ResolveBank()
 	ctx := context.Background()
 	profile, _ := embedEndpoint(ctx) // none usable: the session's profile, else the default
@@ -507,9 +516,9 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 	problems = append(problems, reviseBankProblems()...)
 	switch {
 	case len(problems) == 0:
-		fmt.Fprintln(w, "memory doctor: no problems found")
+		fmt.Fprintln(w, "memory review: no problems found")
 	case o.Brief:
-		fmt.Fprintf(w, "memory doctor: %d problem(s) found\n", len(problems))
+		fmt.Fprintf(w, "memory review: %d problem(s) found\n", len(problems))
 	default:
 		for _, p := range problems {
 			fmt.Fprintln(w, "- "+p)

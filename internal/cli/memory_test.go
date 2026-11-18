@@ -252,7 +252,7 @@ func TestMemoryReview(t *testing.T) {
 		check func(*testing.T, string)
 	}{
 		{"doctor and stats blocks", "", nil, func(t *testing.T, out string) {
-			if !strings.Contains(out, "memory doctor: no problems found") {
+			if !strings.Contains(out, "memory review: no problems found") {
 				t.Errorf("review output missing the doctor block: %q", out)
 			}
 			if !strings.Contains(out, memStatsHeader) {

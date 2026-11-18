@@ -147,7 +147,9 @@ entry under cap):
 
 1. Delete the topic file (memory git keeps its history) — or, if the fact shared a file with
    still-relevant content, edit out only the promoted portion.
-2. Remove its index line from that project's `MEMORY.md`.
+2. Delete its entry from every replay source, or the next refresh appends it again: its record in `index.md`
+   (the indented lines and the `<!-- end of entry -->` line after them), the same lines in `.archive-MEMORY.md.prev`
+   in the store root, and any copy below the end line of `MEMORY.md`.
 3. Confirm the index no longer references a deleted file (no dangling links).
 4. Run `claude-code memory index`.
 

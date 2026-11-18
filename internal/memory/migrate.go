@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"os/exec"
+	"path"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -21,8 +22,6 @@ import (
 
 const (
 	migSubject     = "memory: migrate to one bank"
-	migBankBegin   = "<!-- bank:begin"
-	migBankEnd     = "<!-- bank:end -->"
 	migIndexFile   = "MEMORY.md"
 	migOriginsFile = ".origins"
 	migLayoutName  = ".layout"
@@ -38,12 +37,9 @@ var (
 	// ErrMigrateBlocked is a migration refused before any write (exit 1).
 	ErrMigrateBlocked = errors.New("migrate refused")
 
-	migIDRE      = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`<!-- id:\S+ -->`) })
-	migDateRE    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`) })
-	migTemplate  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\(.*\)$`) })
-	migPointerRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^- \[[^\]]*\]\(([^)]+)\)`) })
-	migTwoRE     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(\S)(- \[[^\]\n]+\]\()`) })
-	migKeyHeadRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^## (\S+)\s*$`) })
+	migIDRE     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`<!-- id:\S+ -->`) })
+	migDateRE   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^## (\d{4}-\d{2}-\d{2})`) })
+	migTemplate = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\(.*\)$`) })
 )
 
 // MigrateOptions is one `memory migrate` (flat 1 → one bank); DryRun lists the plan and blockers and writes nothing.
@@ -54,9 +50,10 @@ type MigrateOptions struct {
 
 type migPlan struct {
 	renames  [][2]string       // store-relative from, to
-	writes   map[string]string // merged typed files and MEMORY.md
+	writes   map[string]string // merged typed files
+	entries  []string          // index.md entries with their link target repointed, appended after the moves
 	removes  []string
-	links    map[string]string // old rel -> new rel, for MEMORY.md
+	links    map[string]string // old rel -> new rel, for index entries
 	merged   map[string]int
 	kept     []string
 	blockers []string
@@ -141,10 +138,11 @@ func planMigration(dir, stamp string) (*migPlan, error) {
 	if p.perKey {
 		keys = p.planMerges(dir, orig, have)
 		p.planTopics(dir, keys, orig, have)
-		p.planIndex(dir, keys)
+		p.addTypedLinks(keys)
 	}
 	p.planFolders(dir)
 	p.planRefs(dir)
+	p.planEntries(dir)
 	return p, nil
 }
 
@@ -254,54 +252,58 @@ func (p *migPlan) renameTopic(dir, from, to string, have map[string]bool) {
 	}
 }
 
-// planIndex rewrites MEMORY.md outside its generated bank region.
-func (p *migPlan) planIndex(dir string, keys []string) {
-	text := p.read(filepath.Join(dir, migIndexFile))
-	if text == "" {
-		return
-	}
+// addTypedLinks maps each merged <key>--<typed>.md to <typed>.md.
+func (p *migPlan) addTypedLinks(keys []string) {
 	for _, k := range keys {
 		for _, t := range append(slices.Clone(migLogTyped), migSectionTyped...) {
 			p.links[k+"--"+t+".md"] = t + ".md"
 		}
 	}
-	p.writes[migIndexFile] = migRewriteIndex(text, p.links)
 }
 
-func migRewriteIndex(text string, links map[string]string) string {
-	for from, to := range links {
-		text = strings.ReplaceAll(text, "]("+from+")", "]("+to+")")
+// mapTarget is where a store-relative link target lands once every file and folder rename is applied.
+func (p *migPlan) mapTarget(t string) string {
+	if n, ok := p.refs[t]; ok {
+		return n
 	}
-	var out []string
-	seen := map[string]bool{}
-	inBank := false
-	for l := range strings.SplitSeq(text, "\n") {
-		switch {
-		case strings.Contains(l, migBankBegin):
-			inBank = true
-		case strings.Contains(l, migBankEnd):
-			inBank = false
-			out = append(out, l)
-			continue
+	if n, ok := p.links[t]; ok {
+		return n
+	}
+	if f, rest, ok := strings.Cut(t, "--"); ok && slices.Contains(migRenameDirs, f) { // legacy `folder--name`
+		if n, ok := p.refs[f+"/"+rest]; ok {
+			return n
 		}
-		if inBank {
-			out = append(out, l)
-			continue
+	}
+	var hits []string
+	for old, n := range p.refs {
+		if !strings.Contains(t, "/") && path.Base(old) == t {
+			hits = append(hits, n)
 		}
-		if migKeyHeadRE().MatchString(l) {
-			continue
-		}
-		for part := range strings.SplitSeq(migTwoRE().ReplaceAllString(l, "$1\n$2"), "\n") {
-			if m := migPointerRE().FindStringSubmatch(part); m != nil {
-				if seen[m[1]] {
-					continue
-				}
-				seen[m[1]] = true
+	}
+	if len(hits) == 1 {
+		return hits[0]
+	}
+	return p.postRel(t)
+}
+
+// planEntries queues each stored or pending entry repointed past the renames; originals stay, index.md only grows.
+func (p *migPlan) planEntries(dir string) {
+	if err := checkIndexFiles(); err != nil {
+		p.blockers = append(p.blockers, err.Error())
+		return
+	}
+	all, gen := decodeCatalog(p.read(filepath.Join(dir, catalogFile))), p.read(filepath.Join(dir, genFile))
+	for _, rel := range []string{asideFile, migIndexFile} {
+		in, _ := inputEntries(p.read(filepath.Join(dir, rel)), gen)
+		all = append(all, in...)
+	}
+	for _, e := range all {
+		if m := pointerRE().FindStringSubmatchIndex(textutil.FirstLine(e)); m != nil {
+			if t := e[m[2]:m[3]]; p.mapTarget(t) != t {
+				p.entries = append(p.entries, e[:m[2]]+p.mapTarget(t)+e[m[3]:])
 			}
-			out = append(out, part)
 		}
 	}
-	return strings.Join(out, "\n")
 }
 
 func (p *migPlan) apply(dir string) error {
@@ -334,6 +336,7 @@ func (p *migPlan) apply(dir string) error {
 	if p.perKey {
 		step("sweep notes", sweepNotes) // last move: loose notes into feedback/ and notes/, MEMORY.md repointed
 	}
+	step(catalogFile, func() error { _, err := appendToCatalog(p.entries); return err })
 	step("commit", func() error { return migCommit(dir, p.perKey) }) // only after every move succeeded
 	if err != nil {
 		return fmt.Errorf("memory migrate: %w", err)

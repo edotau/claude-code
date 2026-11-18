@@ -208,3 +208,14 @@ func TestParseFrontmatterBareKeyIsEmptyString(t *testing.T) {
 		t.Errorf("tags = %#v, want [a]", fm["tags"])
 	}
 }
+
+func TestParseFrontmatterNestedMetadataKeys(t *testing.T) {
+	fm, _ := ParseFrontmatter("---\nname: n\nmetadata:\n  type: feedback\n  modified: 2026-11-14T00:21:38.852Z\n  pinned: true\ndescription: >\n  Note: folded\n---\nbody\n")
+	meta, ok := fm["metadata"].(map[string]any)
+	if !ok || meta["type"] != "feedback" || meta["modified"] != "2026-11-14T00:21:38.852Z" || meta["pinned"] != true {
+		t.Errorf("metadata = %#v, want type, modified and pinned read", fm["metadata"])
+	}
+	if fm["description"] != "Note: folded" {
+		t.Errorf("a block scalar line that looks like k: v must stay folded, got %#v", fm["description"])
+	}
+}

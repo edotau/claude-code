@@ -1,7 +1,8 @@
 # CLAUDE.md
 
 Injected into **every** session's system prompt — a map of the harness, not an exposition.
-Depth lives elsewhere: `README.md` (infrastructure), `rules/` (gotchas and corrected behavior), skills (how-to).
+Depth lives elsewhere: `README.md` (overview, install, safety, design decisions), `rules/` (reference and gotchas),
+skills (how-to).
 
 ## What this repo is
 
@@ -24,7 +25,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
 | `rules/` | `standards/` (unscoped files always-on) · `workflows/` · `harness/` · `software/<lang>/`; non-standards rules need `paths:` (`rules/harness/change-protocol.md`) |
 | `skills/<name>/SKILL.md` | On-demand references. Untracked skill dirs are the user's own (symlinks into `~/.agents`) — leave them. `skills/synced/` = claude.ai account skills, re-downloaded each sync; edit them on claude.ai |
 | `plans/` | Implementation plans (native `plansDirectory`), gitignored: this repo's at the top, others' under `plans/<repo-slug>/` |
-| `memory/` | The one memory store, a local-only git repo, one bank for every workspace, no repo keys; `index.md` is generated, never hand-edit (`rules/workflows/memory-bank.md`) |
+| `memory/` | The one memory store, a local-only git repo, one bank for every workspace, no repo keys; `MEMORY.md` and `index.md` are generated, never hand-edit (`rules/workflows/memory-bank.md`) |
 | `container/` · `mods/` | Ubuntu harness image, podman (`make image\|image-audit\|image-shell`) · TypeScript plugins (`mods/slash-usage`; `mods/agents-band` is kept but not loaded) |
 | `~/worktrees/<repo>/<slug>` | Linked worktrees |
 

@@ -525,6 +525,7 @@ func reservedNameSet() map[string]bool {
 		nativeSearchableFile:   true,
 		nativeArchiveIndexFile: true,
 		catalogFile:            true,
+		routerFile:             true,
 	}
 	for _, name := range bankFiles {
 		out[name] = true

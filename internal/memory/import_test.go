@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -88,7 +89,7 @@ func flatImportFixture(t *testing.T) string {
 	src := t.TempDir()
 	files := map[string]string{
 		layoutFile: layoutFlat + "\n", "decisionLog.md": "# Log\n\n## 2026-11-02 — remote <!-- id:22222222 -->\nRemote body.\n",
-		"topic.md": "remote conflict\n", "new.md": "new topic\n", "MEMORY.md": "## Old header\n- [Remote](new.md)\n",
+		"topic.md": "remote conflict\n", "new.md": "new topic\n", "MEMORY.md": "## Old header\n- [Remote](new.md) — remote hook\n",
 		catalogFile: "foreign catalog\n", "writer.lock": "lock\n", ".git/config": "foreign git\n",
 		"archive/decisionLog-2026-10.md": "## 2026-10-01 — archived <!-- id:44444444 -->\n",
 		"native-only.md":                 "shared topic\n", "reports/bundle/report.md": "nested report\n", "locks/writer.md": "lock metadata\n",
@@ -117,12 +118,13 @@ func TestImportFlatAdditiveAndIdempotent(t *testing.T) {
 	if !strings.Contains(log, "11111111") || !strings.Contains(log, "22222222") {
 		t.Fatal(log)
 	}
-	wantFile(t, Path("topic.md"), "keep local\n")
-	wantFile(t, Path("new.md"), "new topic\n")
-	wantFile(t, filepath.Join(StoreDir(), "native-only.md"), "shared topic\n")
+	wantFile(t, Sub("notes", "topic.md"), "keep local\n")
+	wantFile(t, Sub("notes", "new.md"), "new topic\n")
+	wantFile(t, Sub("notes", "native-only.md"), "shared topic\n")
 	wantFile(t, Sub("reports", "bundle/report.md"), "nested report\n")
-	if idx := aliasRead(t, NativeIndex()); !strings.Contains(idx, "(new.md)") || strings.Contains(idx, "## ") {
-		t.Fatalf("MEMORY.md = %q, want the remote pointer and no header", idx)
+	if idx := aliasRead(t, NativeIndex()); !strings.Contains(idx, "- [Remote](new.md) — remote hook\n") || !strings.Contains(idx, "- [Local](local.md)\n") ||
+		!slices.Contains(stored(t), "## Old header") {
+		t.Fatalf("MEMORY.md = %q, want the remote line verbatim and the local line kept", idx)
 	}
 	for _, rel := range []string{"writer.lock", "huge.md", "link.md", "locks/writer.md"} {
 		if pathExists(filepath.Join(StoreDir(), rel)) {
@@ -155,7 +157,7 @@ func TestImportFlatKeyLogsOnlyAndDryRun(t *testing.T) {
 	if !strings.Contains(aliasRead(t, Path("decisionLog.md")), "22222222") {
 		t.Fatal("missing remote log")
 	}
-	if pathExists(Path("new.md")) || strings.Contains(aliasRead(t, NativeIndex()), "(new.md)") {
+	if pathExists(Sub("notes", "new.md")) || strings.Contains(aliasRead(t, NativeIndex()), "(new.md)") {
 		t.Fatal("topics imported without flag")
 	}
 }
@@ -191,16 +193,16 @@ func TestImportRefusesCredentialShapedSourceBeforeWriting(t *testing.T) {
 
 func TestExtractStoreTarKeepsFlatInputs(t *testing.T) {
 	dir := t.TempDir()
-	_, err := ExtractStoreTar(importTar(t, map[string]string{layoutFile: layoutFlat + "\n", "alpha--decisionLog.md": "entry\n", nativeIndexFile: "pointer\n", catalogFile: "catalog\n", "alpha--writer.lock": "lock\n", ".git/config": "git\n"}), dir)
+	_, err := ExtractStoreTar(importTar(t, map[string]string{layoutFile: layoutFlat + "\n", "alpha--decisionLog.md": "entry\n", nativeIndexFile: "pointer\n", catalogFile: "catalog\n", routerFile: "router\n", "alpha--writer.lock": "lock\n", ".git/config": "git\n"}), dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, rel := range []string{layoutFile, "alpha--decisionLog.md", nativeIndexFile} {
+	for _, rel := range []string{layoutFile, "alpha--decisionLog.md", nativeIndexFile, catalogFile} {
 		if !pathExists(filepath.Join(dir, rel)) {
 			t.Errorf("missing %s from host archive", rel)
 		}
 	}
-	for _, rel := range []string{catalogFile, "alpha--writer.lock", ".git/config"} {
+	for _, rel := range []string{routerFile, "alpha--writer.lock", ".git/config"} {
 		if pathExists(filepath.Join(dir, rel)) {
 			t.Errorf("extracted excluded %s", rel)
 		}
@@ -217,19 +219,6 @@ func aliasRead(t *testing.T, p string) string {
 }
 
 func pathExists(p string) bool { _, err := os.Lstat(p); return err == nil }
-
-func TestMergeNativeIndexDedupesByTargetAndKeepsHeadersOut(t *testing.T) {
-	tgt := "- [Old title](a.md) — old hook\n\n## Notes\n- [N](n.md)\n"
-	src := "## Remote header\n- [New title](a.md) — new hook\n- [B](b.md)\n"
-	got, n, err := mergeNativeIndex(tgt, src)
-	want := "- [Old title](a.md) — old hook\n- [B](b.md)\n\n## Notes\n- [N](n.md)\n"
-	if err != nil || n != 1 || got != want {
-		t.Errorf("got %q n=%d err=%v, want %q n=1", got, n, err, want)
-	}
-	if got, _, _ := mergeNativeIndex("\n## H\n", "- [B](b.md)\n"); got != "\n- [B](b.md)\n## H\n" {
-		t.Errorf("leading blank + header: got %q", got)
-	}
-}
 
 func TestBlocksMissingFromUsesFullIdentity(t *testing.T) {
 	tgt := []string{"## 2026-11-01 — same <!-- id:11111111 -->\nbody\n"}
@@ -257,5 +246,85 @@ func TestFlatArchiveNames(t *testing.T) {
 	src := []byte("## 2026-10-01 — old <!-- id:44444444 -->\n\n## 2026-11-01 — new <!-- id:55555555 -->\n")
 	if got := string(unarchived(tgt, "decisionLog.md", src)); strings.Contains(got, "44444444") || !strings.Contains(got, "55555555") {
 		t.Errorf("unarchived = %q", got)
+	}
+}
+
+// pointerOnlySource is a flat source whose files all match the destination's, but whose MEMORY.md has a pointer line.
+func pointerOnlySource(t *testing.T, line string) string {
+	t.Helper()
+	const note = "---\nname: a\ndescription: d\n---\n"
+	write(t, Sub("notes", "a.md"), note)
+	src := t.TempDir()
+	write(t, filepath.Join(src, layoutFile), layoutFlat+"\n")
+	write(t, filepath.Join(src, "notes", "a.md"), note)
+	write(t, filepath.Join(src, "MEMORY.md"), line+"\n")
+	return src
+}
+
+func TestImportOfOnlyPointerLinesMergesAndRegenerates(t *testing.T) {
+	isolatedConfig(t)
+	initStore(t)
+	line := "- [a](notes/a.md) — remote hook wording"
+	res, err := ImportBank(ImportOptions{From: pointerOnlySource(t, line), Topics: true})
+	if err != nil || !strings.Contains(res.Summary, "1 pointer line(s)") {
+		t.Fatalf("%+v, %v", res, err)
+	}
+	if !strings.Contains(aliasRead(t, NativeIndex()), line+"\n") || !slices.Contains(stored(t), line) {
+		t.Error("the remote line must reach MEMORY.md and the catalog")
+	}
+	if res, err = ImportBank(ImportOptions{From: pointerOnlySource(t, line), Topics: true}); err != nil || res.Summary != "nothing to import" {
+		t.Errorf("repeat: %+v, %v", res, err)
+	}
+}
+
+func TestImportReadsOnlyTheRecordsOfTheSourceIndex(t *testing.T) {
+	isolatedConfig(t)
+	initStore(t)
+	line, free := "- [a](notes/a.md) — remote hook wording", "remote free text\n\n  second paragraph"
+	src := pointerOnlySource(t, line)
+	write(t, filepath.Join(src, catalogFile), "# Memory catalog\n\n- [x](notes/x.md) — router row\n\n"+encodeRecord(free))
+	res, err := ImportBank(ImportOptions{From: src, Topics: true})
+	if err != nil || !strings.Contains(res.Summary, "2 pointer line(s)") {
+		t.Fatalf("%+v, %v; want the stored record and the pending pointer", res, err)
+	}
+	if got := stored(t); !slices.Equal(got, []string{free, line}) {
+		t.Errorf("index.md = %q, want the source's record, then its pending line, and no router row", got)
+	}
+}
+
+func TestImportOfAnOldFormatStoreKeepsEveryEntryShape(t *testing.T) {
+	isolatedConfig(t)
+	initStore(t)
+	src := pointerOnlySource(t, "")
+	entries := []string{"- [odd](notes/odd.md) - first\n  wrapped continuation for odd", "* [star](notes/star.md) - star",
+		"[bare](notes/bare.md) - bare"}
+	for _, n := range []string{"odd", "star", "bare"} {
+		note := "---\nname: " + n + "\ndescription: d\n---\n"
+		write(t, Sub("notes", n+".md"), note)
+		write(t, filepath.Join(src, "notes", n+".md"), note)
+	}
+	write(t, filepath.Join(src, catalogFile), "# Memory catalog\n\n## Index\n\n- decisionLog.md (1 entries)\n")
+	write(t, filepath.Join(src, "MEMORY.md"), strings.Join(entries, "\n")+"\n")
+	if _, err := ImportBank(ImportOptions{From: src, Topics: true}); err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		if !slices.Contains(stored(t), e) {
+			t.Errorf("entry %q did not reach the catalog whole", e)
+		}
+	}
+}
+
+func TestImportPinOverflowFailsButStoresThePointers(t *testing.T) {
+	isolatedConfig(t)
+	initStore(t)
+	seedNotes(t, 230, seq(230)...)
+	line := "- [a](notes/a.md) — remote hook wording"
+	_, err := ImportBank(ImportOptions{From: pointerOnlySource(t, line), Topics: true})
+	if !errors.Is(err, errIndexProblem) {
+		t.Fatalf("err = %v, want the pin overflow", err)
+	}
+	if !slices.Contains(stored(t), line) {
+		t.Error("the merged pointer line must be durable in index.md")
 	}
 }

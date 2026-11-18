@@ -1,8 +1,6 @@
 package memory
 
 import (
-	"bufio"
-	"cmp"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -98,17 +96,44 @@ func appendUnarchived(archive string, blocks []string) error {
 // lockPath serializes bank writers; the physical lock lives under state per store key, never beside the bank.
 func lockPathOf() string { return filepath.Join(storeLockDir(), ".postupdate") }
 
-// settleBank rotates sessionHistory, archives overflow, regenerates region and catalog, and commits, under the lock.
+// settleBank rotates sessionHistory, regenerates MEMORY.md and the catalog, and commits, under the lock.
 func settleBank(now time.Time) (rotated int, err error) {
 	err = withFlatLock(BankLockWait, func() error {
 		rotated, err = settleBankLocked(now)
 		return err
 	})
-	return rotated, err
+	return rotated, tolerateIndex(err)
 }
 
-// settleBankLocked is settleBank for a caller already holding the bank lock.
+// tolerateIndex logs a refresh that wrote MEMORY.md without every pin, the doctor row carries it, and drops only that.
+func tolerateIndex(err error) error {
+	joined, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		if errors.Is(err, errIndexProblem) {
+			fmt.Fprintln(os.Stderr, "memory index:", err)
+			return nil
+		}
+		return err
+	}
+	var rest []error
+	for _, e := range joined.Unwrap() {
+		if errors.Is(e, errIndexProblem) {
+			fmt.Fprintln(os.Stderr, "memory index:", e)
+		} else {
+			rest = append(rest, e)
+		}
+	}
+	return errors.Join(rest...)
+}
+
+// settleBankLocked is settleBank for a caller already holding the bank lock; a blocked MEMORY.md refresh is its error.
 func settleBankLocked(now time.Time) (rotated int, err error) {
+	return settleBankWith(now, nil, "settle: "+stateKey())
+}
+
+// settleBankWith settles with extra entries folded into the catalog (an import's), committing under subject.
+func settleBankWith(now time.Time, extra []string, subject string) (rotated int, err error) {
+	defer func() { recordIndexProblem(err) }()
 	if skipped, err := recoverEach(); err != nil || skipped != nil {
 		return 0, errors.Join(err, skipped)
 	}
@@ -119,10 +144,25 @@ func settleBankLocked(now time.Time) (rotated int, err error) {
 	if err := sweepNotes(); err != nil {
 		return rotated, err
 	}
-	if err := writeCatalog(now); err != nil {
-		return rotated, err
+	rep, ierr := refreshIndexFiles(now, extra)
+	if ierr != nil && !errors.Is(ierr, errIndexProblem) {
+		return rotated, ierr
 	}
-	return rotated, commitBanks("settle: " + stateKey())
+	if rep.notable() {
+		fmt.Fprintln(os.Stderr, "memory index:", rep)
+	}
+	return rotated, errors.Join(commitBanks(subject), ierr)
+}
+
+// refreshIndexFiles writes catalog.md and refreshes MEMORY.md, after the alias check that guards both.
+func refreshIndexFiles(now time.Time, extra []string) (indexReport, error) {
+	if err := checkIndexFiles(); err != nil {
+		return indexReport{}, err
+	}
+	if err := writeCatalog(now); err != nil {
+		return indexReport{}, err
+	}
+	return refreshNativeIndex(now, false, extra)
 }
 
 // Git runs with literal pathspecs, so flat scopes must name files rather than prefix globs.
@@ -141,7 +181,7 @@ func commitBanks(subject string) error {
 	for _, e := range dirty {
 		scope = append(scope, e.Path)
 	}
-	return commitStore(subject, append(scope, catalogFile)...)
+	return commitStore(subject, append(scope, catalogFile, routerFile)...)
 }
 
 // scaffolded reports whether the bank has any typed file.
@@ -150,7 +190,7 @@ func scaffolded() bool {
 }
 
 func settleLockedBank(now time.Time) error {
-	if _, err := settleBankLocked(now); err != nil {
+	if _, err := settleBankLocked(now); tolerateIndex(err) != nil {
 		return fmt.Errorf("settle: %w", err)
 	}
 	return nil
@@ -222,7 +262,7 @@ func newestMtime() time.Time {
 	return newest
 }
 
-// settleDir stamps IDs, strikes revised entries, rotates sessionHistory, writes the MEMORY.md region, wraps files.
+// settleDir stamps IDs, strikes revised entries, rotates sessionHistory and wraps files.
 func settleDir(now time.Time) (int, error) {
 	rotated, wrapped, err := settleSteps(now)
 	return rotated, errors.Join(err, wrapDir(wrapped)) // a failed step still leaves the dir wrapped
@@ -240,8 +280,7 @@ func settleSteps(now time.Time) (rotated int, wrapped map[string]string, err err
 	if rotated, err = rotateSessionHistory(now); err != nil {
 		return rotated, nil, err
 	}
-	_, err = writeBankRegion(now)
-	return rotated, texts, err
+	return rotated, texts, nil
 }
 
 // wrapDir wraps the bank's markdown, skipping the typed files in held: settle wrapped their text before writing it.
@@ -258,76 +297,44 @@ func wrapDir(held map[string]string) error {
 	return err
 }
 
-// writeCatalog writes index.md: the router, then the complete native-memory catalog.
+// catalogDescMax caps a catalog description in runes, ellipsis included.
+const catalogDescMax = 160
+
+// writeCatalog writes catalog.md: the router, then the complete native-memory catalog; it holds no input.
 func writeCatalog(now time.Time) error {
 	c, err := BuildCatalog(now)
 	if err != nil {
 		return err
 	}
-	c += nativeCatalog()
-	return paths.AtomicWrite(filepath.Join(StoreDir(), catalogFile), []byte(c), 0o644)
+	return paths.AtomicWrite(filepath.Join(StoreDir(), routerFile), []byte(c+nativeCatalog()), 0o644)
 }
-
-// catalogDescMax caps a catalog description in runes, ellipsis included.
-const catalogDescMax = 160
 
 // nativeCatalog lists every native note by folder, one line each, from its front matter alone.
 func nativeCatalog() string {
 	var b strings.Builder
 	b.WriteString("\n## Native memories (complete)\n")
 	bad := 0
+	rows := scanRows(noteDirs...)
 	for _, d := range noteDirs {
-		files := searchTopicFiles(SubDir(d))
-		if len(files) == 0 {
-			continue
-		}
-		fmt.Fprintf(&b, "\n### %s/\n\n", d)
-		for _, f := range files {
-			stem := strings.TrimSuffix(filepath.Base(f), ".md")
-			name, desc, ok := readNoteHead(f)
-			if !ok {
+		first := true
+		for _, r := range rows {
+			if !strings.HasPrefix(r.Rel, d+"/") {
+				continue
+			}
+			if first {
+				fmt.Fprintf(&b, "\n### %s/\n\n", d)
+				first = false
+			}
+			if !r.OK {
 				bad++
 			}
-			fmt.Fprintf(&b, "- [%s](%s/%s.md) — %s\n", cmp.Or(name, stem), d, stem, cmp.Or(desc, stem))
+			fmt.Fprintln(&b, r.line())
 		}
 	}
 	if bad > 0 {
 		fmt.Fprintf(&b, "\n%d note(s) listed by file name: front matter did not parse.\n", bad)
 	}
 	return b.String()
-}
-
-// readNoteHead reads only the leading front-matter block; ok is false when it is absent, unclosed or has no name.
-func readNoteHead(path string) (name, desc string, ok bool) {
-	f, err := os.Open(path)
-	if err != nil {
-		return "", "", false
-	}
-	defer f.Close()
-	sc := bufio.NewScanner(f)
-	if !sc.Scan() || strings.TrimSpace(sc.Text()) != "---" {
-		return "", "", false
-	}
-	inDesc := false
-	for sc.Scan() {
-		line := sc.Text()
-		if strings.TrimSpace(line) == "---" {
-			return name, clipDesc(desc), name != ""
-		}
-		if v, found := strings.CutPrefix(line, "name:"); found {
-			name, inDesc = strings.Trim(strings.TrimSpace(v), `"'`), false
-		} else if v, found := strings.CutPrefix(line, "description:"); found {
-			desc, inDesc = strings.Trim(strings.TrimSpace(v), `"'`), true
-			if strings.Trim(desc, ">|+-") == "" {
-				desc = "" // a block-scalar marker, its text follows on the indented lines
-			}
-		} else if inDesc && strings.HasPrefix(line, " ") { // a folded or block continuation line
-			desc += " " + strings.TrimSpace(line)
-		} else {
-			inDesc = false
-		}
-	}
-	return "", "", false
 }
 
 // clipDesc folds whitespace to one line and clips it to catalogDescMax runes with an ellipsis.
@@ -393,14 +400,13 @@ func NoteFolder(name string) string {
 // noteDirs are the folders Claude Code's native notes are sorted into.
 var noteDirs = []string{"feedback", "notes"}
 
-// sweepNotes moves top-level native notes into feedback/ or notes/ and repoints MEMORY.md links to them.
+// sweepNotes moves top-level native notes into feedback/ or notes/.
 func sweepNotes() error {
 	dir := StoreDir()
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return err
 	}
-	moved := map[string]string{}
 	for _, e := range ents {
 		folder := NoteFolder(e.Name())
 		if e.IsDir() || folder == "" {
@@ -416,28 +422,6 @@ func sweepNotes() error {
 		if err := os.Rename(filepath.Join(dir, e.Name()), to); err != nil {
 			return err
 		}
-		moved[e.Name()] = folder
 	}
-	return relinkNotes(filepath.Join(dir, nativeIndexFile), moved)
-}
-
-// relinkNotes rewrites `](name)` pointers in the native index to `](folder/name)`.
-func relinkNotes(index string, moved map[string]string) error {
-	if len(moved) == 0 {
-		return nil
-	}
-	data, err := os.ReadFile(index)
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil
-	} else if err != nil {
-		return err
-	}
-	text := string(data)
-	for name, folder := range moved {
-		text = strings.ReplaceAll(text, "]("+name+")", "]("+folder+"/"+name+")")
-	}
-	if text == string(data) {
-		return nil
-	}
-	return paths.AtomicWrite(index, []byte(text), 0o644)
+	return nil
 }

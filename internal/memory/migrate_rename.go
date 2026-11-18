@@ -375,7 +375,7 @@ func (p *migPlan) planRefs(dir string) {
 }
 
 func (p *migPlan) refFile(fp, rel string, d fs.DirEntry, byBase map[string][]string) {
-	if !d.Type().IsRegular() || !strings.HasSuffix(rel, ".md") || rel == "index.md" || p.gone[rel] {
+	if !d.Type().IsRegular() || !strings.HasSuffix(rel, ".md") || storeLevelFile(rel) || p.gone[rel] {
 		return
 	}
 	now := p.postRel(rel)

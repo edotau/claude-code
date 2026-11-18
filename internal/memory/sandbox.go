@@ -214,8 +214,10 @@ func regularFilesUnder(rel string) (rels []string) {
 	return
 }
 
-// storeLevelFile is a top-level file shared by every bank: the index, the catalog.
-func storeLevelFile(rel string) bool { return rel == nativeIndexFile || rel == catalogFile }
+// storeLevelFile is a top-level file shared by every bank: MEMORY.md, its entries and the router.
+func storeLevelFile(rel string) bool {
+	return rel == nativeIndexFile || rel == catalogFile || rel == routerFile
+}
 
 func sandboxSnapshot(dir string, files []string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)

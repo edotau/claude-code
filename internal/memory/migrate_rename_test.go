@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -38,11 +39,12 @@ func readRel(dir, rel string) string {
 
 func checkRenamedRefs(t *testing.T, dir string) {
 	t.Helper()
-	if readRel(dir, "index.md") != "handoffs/claude-code--2026-11-01-a.md\n" {
-		t.Error("index.md rewritten")
+	if got := readRel(dir, "index.md"); !strings.HasPrefix(got, "handoffs/claude-code--2026-11-01-a.md\n") ||
+		!slices.Equal(testDecode(got), []string{"- [h](handoffs/2026-11-01-a.md)"}) {
+		t.Errorf("index.md must keep its text and gain the repointed entry: %q", got)
 	}
-	if got := readRel(dir, "MEMORY.md"); !strings.Contains(got, "(handoffs/2026-11-01-a.md)") {
-		t.Errorf("MEMORY.md: %q", got)
+	if got := readRel(dir, "MEMORY.md"); got != "- [h](handoffs--claude-code--2026-11-01-a.md)\n" {
+		t.Errorf("MEMORY.md must be left to the next refresh: %q", got)
 	}
 	if got := readRel(dir, "reports/2026-10-05-audit.md"); strings.Contains(got, "claude-code--") {
 		t.Errorf("audit: %q", got)
