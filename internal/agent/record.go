@@ -273,22 +273,31 @@ func ClaimJob(id string) (Record, error) {
 
 // RepairDead applies fix to id's record under its lock if it is still a dead running one; false when it is not.
 func RepairDead(id string, fix func(Record) Record) (Record, bool, error) {
+	return updateRunning(id, true, fix)
+}
+
+// UpdateRunning applies fix to id's record under its lock if it is still running, live or dead; false when it is not.
+func UpdateRunning(id string, fix func(Record) Record) (Record, bool, error) {
+	return updateRunning(id, false, fix)
+}
+
+func updateRunning(id string, deadOnly bool, fix func(Record) Record) (Record, bool, error) {
 	path := filepath.Join(paths.DispatchDir(), id+".json")
 	var r Record
-	repaired := false
+	applied := false
 	err := paths.WithFileLock(path, func() error {
 		var lerr error
 		if r, lerr = readRecord(path); lerr != nil {
 			return lerr
 		}
-		if r.Status != "running" || r.Alive() {
+		if r.Status != "running" || (deadOnly && r.Alive()) {
 			return nil
 		}
 		r = fix(r)
-		repaired = true
+		applied = true
 		return r.Save()
 	})
-	return r, repaired, err
+	return r, applied, err
 }
 
 // recordID is the id NewRecord stamps for agent at now.

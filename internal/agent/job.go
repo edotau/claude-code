@@ -161,14 +161,25 @@ func isReviewArgv(argv []string, rec *Record) bool {
 	return false
 }
 
-// failIfRunning reloads rec and marks it Status "error" with msg only if it is still "running".
-func failIfRunning(rec *Record, msg string) error {
-	*rec = reloaded(*rec)
-	if rec.Status != "running" {
-		return nil
+// failIfRunning errors rec under the record lock if still running, keeping a saved reason; rec becomes the stored one.
+func failIfRunning(rec *Record, msg string, deadOnly bool) error {
+	fix := func(r Record) Record {
+		r.Status = "error"
+		if r.Error == "" {
+			r.Error = msg
+		}
+		return r
 	}
-	rec.Status, rec.Error = "error", msg
-	return rec.Save()
+	update := UpdateRunning
+	if deadOnly {
+		update = RepairDead
+	}
+	cur, _, err := update(rec.ID, fix)
+	if err != nil {
+		return err
+	}
+	*rec = cur
+	return nil
 }
 
 // Cancel checks rec.PID is still its job, SIGINTs it (SIGKILL after 5s), then marks a still-running record cancelled.
@@ -177,7 +188,7 @@ func Cancel(rec *Record) error {
 		return fmt.Errorf("dispatch %q has no pid to cancel", rec.ID)
 	}
 	if !proc.Alive(rec.PID) {
-		return failIfRunning(rec, "process gone")
+		return failIfRunning(rec, "process gone", true)
 	}
 	if err := checkJobPID(rec); err != nil {
 		return err
@@ -185,7 +196,7 @@ func Cancel(rec *Record) error {
 	if err := escalate(rec.PID, rec.ID); err != nil {
 		return err
 	}
-	return failIfRunning(rec, "cancelled by claude-code agents cancel")
+	return failIfRunning(rec, "cancelled by claude-code agents cancel", false)
 }
 
 // checkJobPID refuses to signal a rec.PID that is a foreground run or a reused pid.

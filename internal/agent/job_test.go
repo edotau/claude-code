@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -823,6 +824,65 @@ func TestStatusRefMatchesFullHistoryResolution(t *testing.T) {
 		}
 		if err == nil && (len(rows) != 1 || rows[0].ID != oracle.ID) {
 			t.Errorf("ref %q: rows = %v, want %s", ref, rows, oracle.ID)
+		}
+	}
+}
+
+// A running record that already carries the run's saved error, usage and duration keeps them through every cancel path.
+func TestCancelKeepsSavedErrorOfRunningRecord(t *testing.T) {
+	hosttest.SkipOnWindows(t, "unix tools")
+	dead := exec.Command("true")
+	if err := dead.Run(); err != nil {
+		t.Fatal(err)
+	}
+	for name, mark := range map[string]func(*Record) error{
+		"cancelled now": func(r *Record) error { return failIfRunning(r, "cancelled", false) },
+		"process gone":  func(r *Record) error { return Cancel(r) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			setConfigDir(t)
+			rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
+			rec.PID = dead.Process.Pid
+			rec.Error, rec.Usage, rec.DurationMs = "quota exhausted", &wire.Usage{InputTokens: 7}, 1234
+			if err := rec.Save(); err != nil {
+				t.Fatal(err)
+			}
+			if err := mark(&rec); err != nil {
+				t.Fatal(err)
+			}
+			got, _ := LoadRecord(rec.ID)
+			if got.Status != "error" || got.Error != "quota exhausted" || got.Usage == nil || got.Usage.InputTokens != 7 || got.DurationMs != 1234 {
+				t.Errorf("saved result lost: %q/%q usage=%v dur=%d", got.Status, got.Error, got.Usage, got.DurationMs)
+			}
+		})
+	}
+}
+
+// A finisher and a canceller race on one record: the job that reports it finished must stay finished.
+func TestCancelNeverOverwritesConcurrentFinish(t *testing.T) {
+	setConfigDir(t)
+	for i := range 50 {
+		rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now().Add(time.Duration(i)*time.Millisecond))
+		if err := rec.Save(); err != nil {
+			t.Fatal(err)
+		}
+		gate, done, cancelled := make(chan struct{}), make(chan bool, 1), make(chan struct{})
+		id, mine := rec.ID, rec
+		go func() {
+			<-gate
+			_, applied, err := UpdateRunning(id, func(r Record) Record {
+				r.Finish(wire.Result{Usage: wire.Usage{InputTokens: 5}}, nil, time.Second)
+				return r
+			})
+			done <- applied && err == nil
+		}()
+		go func() { <-gate; _ = failIfRunning(&mine, "cancelled", false); close(cancelled) }()
+		close(gate)
+		finished := <-done
+		<-cancelled
+		got, _ := LoadRecord(rec.ID)
+		if finished && (got.Status != "ok" || got.Usage == nil || got.DurationMs != 1000) {
+			t.Fatalf("iteration %d: finish lost to cancel: %q/%q usage=%v", i, got.Status, got.Error, got.Usage)
 		}
 	}
 }
