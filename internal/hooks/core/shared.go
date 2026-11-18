@@ -138,7 +138,14 @@ func AutomatedDelivery(prompt string) bool {
 }
 
 // seenWait bounds the seen-store lock wait; hooks must not stall, so a held lock fails open.
-const seenWait = time.Second
+var seenWait = time.Second
+
+// SwapSeenWait sets the seen-store lock wait and returns the func that restores it; a test seam.
+func SwapSeenWait(d time.Duration) (restore func()) {
+	orig := seenWait
+	seenWait = d
+	return func() { seenWait = orig }
+}
 
 // seenMaxAge is how long a session's seen file may sit untouched before a new session's first write prunes it.
 const seenMaxAge = 7 * 24 * time.Hour

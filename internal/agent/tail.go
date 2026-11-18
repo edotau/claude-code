@@ -18,6 +18,13 @@ var (
 	tailPoll = 250 * time.Millisecond
 )
 
+// SwapTailPoll sets the log re-read interval and returns the func that restores it; a test seam for other packages.
+func SwapTailPoll(d time.Duration) (restore func()) {
+	orig := tailPoll
+	tailPoll = d
+	return func() { tailPoll = orig }
+}
+
 // Tail copies ref's log (default: name's newest job in cwd's repo) to w; follow heartbeats until the record stops.
 func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) (Record, error) {
 	rec, err := resolveJob(ctx, name, cwd, ref, nil)

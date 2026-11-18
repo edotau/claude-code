@@ -963,12 +963,13 @@ func awaitTailResult(t *testing.T, results <-chan struct{}, done <-chan tailOutc
 	}
 }
 
-// Runs at agent's production tail cadence (250ms poll): the swap seam is unexported in package agent.
 func TestTailEventsFollowsTwoLiveTurns(t *testing.T) {
 	if testing.Short() {
 		t.Skip("pre-ship tier: real child, poll waits")
 	}
 	liveEnv(t)
+	const poll = 20 * time.Millisecond
+	t.Cleanup(agent.SwapTailPoll(poll))
 	ctx, cancel := context.WithCancel(context.Background())
 	id, wait := startHolder(t, ctx, time.Minute)
 	t.Cleanup(func() { cancel(); _ = wait() })
@@ -991,7 +992,7 @@ func TestTailEventsFollowsTwoLiveTurns(t *testing.T) {
 	select {
 	case got := <-done:
 		t.Fatalf("healthy live session lost after a turn: status=%s err=%v", got.rec.Status, got.err)
-	case <-time.After(750 * time.Millisecond): // three production tail polls
+	case <-time.After(3 * poll): // three tail polls
 	}
 	stop()
 	got := <-done
