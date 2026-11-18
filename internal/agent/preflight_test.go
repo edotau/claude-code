@@ -2,17 +2,21 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -200,7 +204,7 @@ func TestPreflightAuthCacheReprobesFailuresAndRotatedCredentials(t *testing.T) {
 
 func TestPreflightTokenBudgetRejectsShortFixture(t *testing.T) {
 	vaulttest.Use(t)
-	p := &providers.Provider{Name: "token-fixture", Auth: providers.Auth{Type: providers.AuthPAT}}
+	p := &providers.Provider{Name: "token-fixture", Auth: providers.Auth{Type: providers.AuthOAuth}}
 	dir := filepath.Join(paths.StateDir(), "cache", "token-expiry")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -210,7 +214,7 @@ func TestPreflightTokenBudgetRejectsShortFixture(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, p.Name+".json"), []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	f := tokenFinding(p, now, 10*time.Minute)
+	f := CheckToken(p, now, 10*time.Minute)
 	if f == nil || f.Check != "token" || !strings.Contains(f.Detail, providers.LoginCommand(p.Name)) {
 		t.Fatalf("expired fixture finding = %v", f)
 	}
@@ -218,17 +222,18 @@ func TestPreflightTokenBudgetRejectsShortFixture(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, p.Name+".json"), []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if f := tokenFinding(p, now, 10*time.Minute); f != nil {
+	if f := CheckToken(p, now, 10*time.Minute); f != nil {
 		t.Fatalf("sufficient lifetime: %v", f)
 	}
-	if f := tokenFinding(p, now, DefaultToolsTimeout); f == nil {
+	if f := CheckToken(p, now, DefaultToolsTimeout); f == nil {
 		t.Fatal("default run accepted a short token")
 	}
 }
 
 func TestCommandTokenLifetimeWarnsWithoutMaskingAuthFailures(t *testing.T) {
 	vaulttest.Use(t)
-	p := &providers.Provider{Name: "command-life", Auth: providers.Auth{Type: providers.AuthNone}, TokenCommand: []string{"mint"}}
+	p := &providers.Provider{Name: "command-life", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthOAuth}, TokenCommand: []string{"mint"}}
+	vaulttest.Secret(t, providers.AuthSecretName(p), "fixture")
 	dir := filepath.Join(paths.StateDir(), "cache", "token-expiry")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
@@ -239,7 +244,7 @@ func TestCommandTokenLifetimeWarnsWithoutMaskingAuthFailures(t *testing.T) {
 		t.Fatal(err)
 	}
 	pf := &Preflight{}
-	if fs := launchWorkspaceFindings(context.Background(), "codex", p, router.State{}, now, pf); len(fs) != 0 || len(pf.Notes) != 0 {
+	if fs := launchWorkspaceFindings(context.Background(), "codex", p, router.State{}, now, pf); len(fs) != 0 {
 		t.Fatalf("command lifetime: findings %v, notes %v", fs, pf.Notes)
 	}
 	if fs := launchWorkspaceFindings(context.Background(), "claude", p, router.State{}, now, nil); len(fs) != 1 || fs[0].Check != "token" {
@@ -259,14 +264,14 @@ func TestCommandTokenLifetimeWarnsWithoutMaskingAuthFailures(t *testing.T) {
 func TestLaunchWorkspaceRunTimeout(t *testing.T) {
 	vaulttest.Use(t)
 	p := &providers.Provider{Name: "run-timeout", Provider: "databricks", Preset: providers.PresetDatabricks,
-		Host: "https://timeout.example.com", Auth: providers.Auth{Type: providers.AuthPAT}}
+		Host: "https://timeout.example.com", Auth: providers.Auth{Type: providers.AuthOAuth}}
 	calls, old := 0, http.DefaultClient.Transport
 	http.DefaultClient.Transport = preflightTransport(func(*http.Request) (*http.Response, error) {
 		calls++
 		return &http.Response{StatusCode: http.StatusOK, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(`{"endpoints":[]}`))}, nil
 	})
 	t.Cleanup(func() { http.DefaultClient.Transport = old })
-	if err := vault.Store(providers.AuthSecretName(p), "fixture"); err != nil {
+	if err := vault.Store(providers.AuthSecretName(p), fmt.Sprintf(`{"access":%q,"refresh":"fixture"}`, hosttest.UnsignedJWT(fmt.Sprintf(`{"exp":%d}`, time.Now().Add(time.Hour).Unix())))); err != nil {
 		t.Fatal(err)
 	}
 	dir := filepath.Join(paths.StateDir(), "cache", "token-expiry")
@@ -312,7 +317,7 @@ func TestLaunchWorkspaceMintsPairedServicePrincipal(t *testing.T) {
 		{"covers", "", "", true, 0, 50 * time.Minute, time.Hour, 0, "", 0},
 		{"short, minted", "", "", true, 0, 10 * time.Minute, time.Hour, 1, "", 0},
 		{"short, mint fails", "", "", true, 0, 10 * time.Minute, 0, 1, "databricks login --profile mint-row --as sp", 0},
-		{"short, minted still short", "", "", true, 2 * time.Hour, 10 * time.Minute, time.Hour, 1, "", 1},
+		{"short, minted still short", "", "", true, 2 * time.Hour, 10 * time.Minute, time.Hour, 1, "token cannot cover", 0},
 		{"no pairing", "", "", false, 0, 10 * time.Minute, time.Hour, 0, providers.LoginCommand("mint-row"), 0},
 		{"identity user", providers.IdentityUser, "", true, 0, 10 * time.Minute, time.Hour, 0, providers.LoginCommand("mint-row"), 0},
 		{"--as user", "", providers.IdentityUser, true, 0, 10 * time.Minute, time.Hour, 0, "token cannot cover", 0},
@@ -338,7 +343,7 @@ func (tc mintRow) seed(t *testing.T) (*providers.Provider, func(name string, lif
 		sp = "sp-client"
 	}
 	p := &providers.Provider{Name: "mint-row", Provider: "databricks", Preset: providers.PresetDatabricks,
-		Host: "https://mint.example.com", Identity: tc.identity, Auth: providers.Auth{Type: providers.AuthPAT, SPClientID: sp}}
+		Host: "https://mint.example.com", Identity: tc.identity, Auth: providers.Auth{Type: providers.AuthOAuth, SPClientID: sp}}
 	if err := vault.Store(providers.AuthSecretName(p), "fixture"); err != nil {
 		t.Fatal(err)
 	}
@@ -399,5 +404,54 @@ func (tc mintRow) run(t *testing.T) {
 	}
 	if tc.wantFinding != "" && (len(fs) != 1 || fs[0].Check != "token" || !strings.Contains(fs[0].Detail, tc.wantFinding)) {
 		t.Fatalf("findings %v, want one token finding containing %q", fs, tc.wantFinding)
+	}
+}
+
+func TestPreflightKeepaliveExtendsOnlyExpiringAuth(t *testing.T) {
+	for _, extend := range []bool{false, true} {
+		t.Run(strconv.FormatBool(extend), func(t *testing.T) {
+			vaulttest.Use(t)
+			now := time.Now()
+			hits := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits++
+				if !extend {
+					w.WriteHeader(500)
+					return
+				}
+				tok := hosttest.UnsignedJWT(fmt.Sprintf(`{"exp":%d}`, now.Add(time.Hour).Unix()))
+				if err := json.NewEncoder(w).Encode(map[string]any{"access_token": tok, "expires_in": 3600}); err != nil {
+					t.Error(err)
+				}
+			}))
+			defer srv.Close()
+			p := &providers.Provider{Name: "gate-refresh", Provider: "databricks", BaseURL: srv.URL + "/serving-endpoints/anthropic", Auth: providers.Auth{Type: providers.AuthOAuth}}
+			seedPreflightToken(t, p, now.Add(5*time.Minute))
+			f := CheckToken(p, now, DefaultToolsTimeout)
+			if (f == nil) != extend || hits != 1 {
+				t.Fatalf("extend=%v finding=%v refresh requests=%d", extend, f, hits)
+			}
+			p.Auth.Type = providers.AuthPAT
+			if f := CheckToken(p, now, 2*time.Hour); f != nil || hits != 1 {
+				t.Fatalf("PAT touched: finding=%v requests=%d", f, hits)
+			}
+		})
+	}
+}
+
+func seedPreflightToken(t *testing.T, p *providers.Provider, exp time.Time) {
+	t.Helper()
+	raw, err := json.Marshal(map[string]string{"refresh": "fixture-refresh", "access": hosttest.UnsignedJWT(fmt.Sprintf(`{"exp":%d}`, exp.Unix()))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	vaulttest.Secret(t, providers.AuthSecretName(p), string(raw))
+	dir := filepath.Join(paths.StateDir(), "cache", "token-expiry")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	raw = []byte(fmt.Sprintf(`{"schema":2,"exp":%d,"method":"u2m"}`, exp.Unix()))
+	if err := os.WriteFile(filepath.Join(dir, p.Name+".json"), raw, 0600); err != nil {
+		t.Fatal(err)
 	}
 }

@@ -203,13 +203,13 @@ func TestValidIDShape(t *testing.T) {
 func TestAuthHintOAuthNamesLoginAndSetUp(t *testing.T) {
 	p := kindRow(AuthOAuth, "", "")
 	p.Name = "dbx"
-	got := authHint(p, "DBX_TOKEN")
+	got := AuthHint(p, "DBX_TOKEN")
 	for _, want := range []string{"claude-code --remote <host> databricks login --profile dbx", "claude-code configure", "Set up"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("OAuth hint %q lacks %q", got, want)
 		}
 	}
-	if key := authHint(kindRow(AuthKey, "", ""), "DBX_TOKEN"); !strings.Contains(key, "vault set") || strings.Contains(key, "databricks login") {
+	if key := AuthHint(kindRow(AuthKey, "", ""), "DBX_TOKEN"); !strings.Contains(key, "vault set") || strings.Contains(key, "databricks login") {
 		t.Errorf("key-auth hint = %q, want the vault set route only", key)
 	}
 }

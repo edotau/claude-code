@@ -87,6 +87,13 @@ func resolveOne(ctx context.Context, reg *providers.Registry, q agent.ModelQuery
 	} else if err != nil {
 		return helptext.Fail("gateway resolve: %v", err)
 	}
+	if p := reg.Row(r.Profile); p != nil {
+		target := *p
+		target.Identity = cmp.Or(r.Identity, p.Identity)
+		if f := agent.CheckToken(&target, time.Now(), agent.DefaultToolsTimeout); f != nil {
+			r.Note = strings.TrimPrefix(r.Note+"; "+f.String(), "; ")
+		}
+	}
 	return printRoute(withGoogleQuota(ctx, r, os.Stderr), choice, format)
 }
 

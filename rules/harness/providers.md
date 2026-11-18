@@ -84,8 +84,10 @@ the vault overlay map each alias per provider.
 ## Served-aware Databricks routing
 
 `configure routing` → `servedAware` (off by default) checks codex, copilot and opencode picks against the workspace's
-cached endpoint listing (`state/harness/preflight/served-<profile>.json`, 24h TTL). Off, cold or stale reads as the
-static menu: routing never touches the network.
+cached endpoint listing (`state/harness/preflight/served-<profile>.json`, 24h TTL).
+Preflight reuses credential-bound successes in router state for 15 minutes (failures and unknowns expire after
+30 seconds and never block a launch); OAuth and M2M tokens must cover the run timeout plus 2 minutes after keepalive.
+Off, cold or stale reads as the static menu: routing never touches the network.
 
 - **Refresh:** `make install`, `doctor --refresh`, `models preflight --live`; switched on, also `switch`,
   `<agent> profile`, `configure` exit and a detached `models preflight --refresh`

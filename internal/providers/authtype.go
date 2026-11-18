@@ -644,7 +644,7 @@ func clientAccessHit(raw, bind string, margin time.Duration) (string, bool) {
 
 // noSecretError is the missing-credential error; an oauth row's is a loginRequiredError.
 func noSecretError(p *Provider, name string) error {
-	err := fmt.Errorf("%s: no credential (%s)", p.Name, authHint(p, name))
+	err := fmt.Errorf("%s: no credential (%s)", p.Name, AuthHint(p, name))
 	if p.Auth.Type == AuthOAuth {
 		err = &loginRequiredError{err: err}
 	}
@@ -655,7 +655,7 @@ func noSecretError(p *Provider, name string) error {
 func mintU2M(ctx context.Context, p *Provider, host, name, secret string, base int64) (oauth.Token, error) {
 	tok, err := refreshU2M(ctx, host, secret)
 	if err != nil {
-		wrapped := fmt.Errorf("%s: %w (%s)", p.Name, err, authHint(p, name))
+		wrapped := fmt.Errorf("%s: %w (%s)", p.Name, err, AuthHint(p, name))
 		if oauth.IsLoginRequired(err) {
 			wrapped = &loginRequiredError{err: wrapped}
 		}
@@ -752,8 +752,8 @@ func mintSource(p *Provider) (secret string, base int64, err error) {
 	return strings.TrimSpace(ov.Refresh), ov.Sealed, err
 }
 
-// authHint is the one fix-it phrase for a missing or rejected credential: a login for oauth, else the vault secret.
-func authHint(p *Provider, name string) string {
+// AuthHint is the one fix-it phrase for a missing or rejected credential: a login for oauth, else the vault secret.
+func AuthHint(p *Provider, name string) string {
 	if p.Auth.Type == AuthOAuth {
 		return "run `" + LoginCommand(p.Name) + "`, or `claude-code configure` and pick Set up"
 	}

@@ -2,6 +2,8 @@ package preflight
 
 import (
 	"io"
+	"net/http"
+	"net/http/httptest"
 
 	"bytes"
 	"context"
@@ -322,5 +324,49 @@ func TestCachePongDoesNotBlessFallbackOrRotatedCredential(t *testing.T) {
 	cachePong(p, fp, r)
 	if router.LoadState().VerifiedOK(account, key, agent.CredentialFingerprint(p), time.Now()) {
 		t.Fatal("old pong blessed a new credential")
+	}
+}
+
+func TestPreflightPongFeedsWorkspaceCache(t *testing.T) {
+	vaulttest.Use(t)
+	hits := 0
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if _, err := io.WriteString(w, `{"endpoints":[]}`); err != nil {
+			t.Error(err)
+		}
+	}))
+	defer srv.Close()
+	old := http.DefaultClient.Transport
+	http.DefaultClient.Transport = srv.Client().Transport
+	t.Cleanup(func() { http.DefaultClient.Transport = old })
+	p := &providers.Provider{Name: "integration", Provider: "databricks", Preset: providers.PresetDatabricks, Host: srv.URL, Auth: providers.Auth{Type: providers.AuthPAT}}
+	name := providers.AuthSecretName(p)
+	if err := vault.Store(name, "fixture"); err != nil {
+		t.Fatal(err)
+	}
+	fp := agent.CredentialFingerprint(p)
+	cachePong(p, fp, Pong{Agent: "codex", Profile: p.Name, Model: "wire", OK: true})
+	now := time.Now()
+	st := router.LoadState()
+	assertPreflightWorkspace(t, p, st, now, &hits, 0)
+	assertPreflightWorkspace(t, p, st, now.Add(16*time.Minute), &hits, 1)
+	if err := vault.Store(name, "rotated-fixture"); err != nil {
+		t.Fatal(err)
+	}
+	assertPreflightWorkspace(t, p, st, now, &hits, 2)
+	account := router.AccountOf(p)
+	router.StoreVerdict(account, router.VerdictKey(p.Name, account, "", ""), router.Verdict{Status: "unknown", Source: "live", At: now, CredFP: agent.CredentialFingerprint(p)})
+	assertPreflightWorkspace(t, p, router.LoadState(), now, &hits, 3)
+}
+
+func assertPreflightWorkspace(t *testing.T, p *providers.Provider, st router.State, now time.Time, hits *int, want int) {
+	t.Helper()
+	fs := agent.CheckWorkspace(p, st, now)
+	if len(fs) != 0 {
+		t.Fatalf("findings=%v", fs)
+	}
+	if *hits != want {
+		t.Fatalf("listing requests=%d, want %d", *hits, want)
 	}
 }

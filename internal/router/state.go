@@ -91,12 +91,15 @@ func VerdictKey(profile, account, model, effort string) string {
 	return strings.Join([]string{profile, account, model, effort}, "|")
 }
 
+// A pong proves current access, so successes live less than a listing and failures are retried promptly.
+const verdictOKTTL, verdictOtherTTL = 15 * time.Minute, 30 * time.Second
+
 // VerifiedOK trusts only fresh, well-formed successes bound to the current credential generation.
 func (s State) VerifiedOK(account, key, fp string, now time.Time) bool {
 	v := s[account].Verified[key]
 	return fp != "" && v.CredFP == fp && v.Status == "ok" &&
 		(v.Source == "listing" || v.Source == "live") && !v.At.IsZero() && !v.At.After(now) &&
-		v.ValidUntil.After(now) && !v.ValidUntil.After(v.At.Add(15*time.Minute))
+		v.ValidUntil.After(now) && !v.ValidUntil.After(v.At.Add(verdictOKTTL))
 }
 
 // StoreVerdict is best-effort and nonblocking; failures expire before successes and never gate a launch.
@@ -105,9 +108,9 @@ func StoreVerdict(account, key string, v Verdict) {
 	if fp == "" {
 		return
 	}
-	ttl := 30 * time.Second
+	ttl := verdictOtherTTL
 	if status == "ok" {
-		ttl = 15 * time.Minute
+		ttl = verdictOKTTL
 	}
 	_, _ = tryUpdate(0, func(s State) {
 		e := s[account]

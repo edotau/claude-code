@@ -278,7 +278,7 @@ func TestResolveModelGeminiNoProfile(t *testing.T) {
 	}
 }
 
-func TestCommandTokenPoolHonorsDispatchOverride(t *testing.T) {
+func TestCommandTokenPoolSkipsLifetimeWithoutExpiringAuth(t *testing.T) {
 	vaulttest.Use(t)
 	reg := routeRegistry(t)
 	p := reg.Providers["dev"]
@@ -298,7 +298,7 @@ func TestCommandTokenPoolHonorsDispatchOverride(t *testing.T) {
 	}
 	ctx := proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: `{"tokenCommand":[]}`})
 	q = QueryFor(ctx, q)
-	if _, err := ResolveModel(reg, q, now); err == nil {
-		t.Fatal("disabled command accepted short token")
+	if _, err := ResolveModel(reg, q, now); err != nil {
+		t.Fatalf("non-expiring auth was gated: %v", err)
 	}
 }

@@ -183,8 +183,8 @@ func cachePong(p *providers.Provider, fp string, r Pong) {
 	status := "unknown"
 	if r.OK {
 		status = "ok"
-	} else if r.Err == "auth" {
-		status = "auth"
+	} else if !slices.Contains([]string{"", "unknown"}, r.Err) {
+		status = "fail"
 	}
 	effort := ""
 	if base := servedName(r.Agent, r.Model); base != r.Model {
@@ -192,7 +192,7 @@ func cachePong(p *providers.Provider, fp string, r Pong) {
 	}
 	account := router.AccountOf(p)
 	now := time.Now()
-	router.StoreVerdict(account, router.VerdictKey(p.Name, account, r.Model, effort), router.Verdict{CredFP: fp, Status: status, Source: "live", At: now})
+	router.StoreVerdict(account, router.VerdictKey(p.Name, account, servedName(r.Agent, r.Model), effort), router.Verdict{CredFP: fp, Status: status, Source: "live", At: now})
 	if r.OK {
 		router.StoreVerdict(account, router.VerdictKey(p.Name, account, "", ""), router.Verdict{CredFP: fp, Status: status, Source: "live", At: now})
 	}
