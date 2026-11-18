@@ -51,3 +51,20 @@ func TestCandidateApproveAndClose(t *testing.T) {
 		t.Error("a dream job approved a candidate")
 	}
 }
+
+// A target with shell metacharacters fails validation, and the printed gate is a quoted clean package path.
+func TestCandidateTargetNeverReachesShell(t *testing.T) {
+	isolatedConfig(t)
+	for _, target := range []string{"internal/x/$(touch /tmp/pwned).go", "internal/x;id", "internal/a b/c.go", "internal/x'y/z.go",
+		"internal/`id`/z.go", "-internal/x.go", "internal/-rf/x.go", "internal/../x.go", "internal/x\ny/z.go"} {
+		if problem := targetProblem(target); problem == "" || strings.Contains(problem, "touch") {
+			t.Errorf("target %q: problem %q", target, problem)
+		}
+		if g := candidateGate(target); g != "" {
+			t.Errorf("target %q: gate %q", target, g)
+		}
+	}
+	if g := candidateGate("internal/foo/a.go"); targetProblem("internal/foo/a.go") != "" || !strings.HasSuffix(g, "go test ./internal/foo/...") {
+		t.Errorf("plain target: gate %q", g)
+	}
+}

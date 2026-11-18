@@ -720,6 +720,9 @@ func targetProblem(target string) string {
 	if target == "unknown" {
 		return ""
 	}
+	if !plainPath(target) {
+		return "target must use only letters, digits and / . _ - (no leading - or .. in an element)"
+	}
 	p := target
 	if !filepath.IsAbs(p) && !strings.HasPrefix(p, "/") && !strings.HasPrefix(p, `\`) {
 		p = filepath.Join(paths.ConfigDir(), p)
@@ -728,6 +731,16 @@ func targetProblem(target string) string {
 		return ""
 	}
 	return "target is outside the repository and the store"
+}
+
+// plainPath is true for a path of letters, digits and / . _ - with no element that starts with - or is "..".
+func plainPath(p string) bool {
+	for _, r := range p {
+		if r > 'z' || !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789/._-", r) {
+			return false
+		}
+	}
+	return !slices.ContainsFunc(strings.Split(p, "/"), func(e string) bool { return e == ".." || strings.HasPrefix(e, "-") })
 }
 
 // evidenceProblems needs real, unaliased feedback/ or notes/ files: two distinct, or one plus repeats of at least two.

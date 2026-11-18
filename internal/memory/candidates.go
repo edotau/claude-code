@@ -16,6 +16,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // No status means proposed; the owner's yes makes it approved, a landed change enforced.
@@ -292,6 +293,9 @@ func launchLine(c candidate) string {
 
 // candidateGate scopes the gate to the target's Go package, "" when the target is not Go code in this repository.
 func candidateGate(target string) string {
+	if targetProblem(target) != "" {
+		return ""
+	}
 	rel := target
 	if filepath.IsAbs(target) {
 		r, err := filepath.Rel(paths.ConfigDir(), target)
@@ -308,5 +312,6 @@ func candidateGate(target string) string {
 	if path.Ext(rel) != "" {
 		dir = path.Dir(rel)
 	}
-	return "go build ./... && go vet ./" + dir + "/... && go test ./" + dir + "/..."
+	pkgs := textutil.QuoteSH("./" + dir + "/...")
+	return "go build ./... && go vet " + pkgs + " && go test " + pkgs
 }

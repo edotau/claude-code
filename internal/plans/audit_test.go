@@ -150,3 +150,24 @@ func TestRecheckJobCapsChanges(t *testing.T) {
 		t.Fatalf("kept %d reverted %+v err %v", len(rep.Kept), rep.Reverted, err)
 	}
 }
+
+// A failing log append never stops the reverts: every unproven strike is reopened and the error is returned.
+func TestRecheckJobRevertsDespiteLogErrors(t *testing.T) {
+	hermetic(t)
+	repo := gitRepo(t, "main")
+	plan := filepath.Join(Home(repo), "2026-10-06-l.md")
+	writeFile(t, plan, "- [ ] 1.1 One\n- [ ] 1.2 Two\n")
+	if err := os.MkdirAll(auditLogFile(), 0o700); err != nil { // a directory where the log file belongs
+		t.Fatal(err)
+	}
+	before := TakeSnapshot(repo)
+	for _, id := range []string{"1.1", "1.2"} {
+		if err := Strike(plan, id, "x — evidence: decision:deadbeef"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rep, err := RecheckJob(context.Background(), repo, "dream", before, func(string, string) bool { return false })
+	if got := readFile(t, plan); err == nil || len(rep.Reverted) != 2 || strings.Contains(got, "~~") {
+		t.Fatalf("reverted %d err %v:\n%s", len(rep.Reverted), err, got)
+	}
+}

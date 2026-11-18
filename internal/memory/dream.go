@@ -270,7 +270,7 @@ func (d *dreamPlans) finish(out io.Writer) {
 	}
 	line := rep.Line()
 	if err != nil {
-		line += "; re-check stopped: " + strings.Join(strings.Fields(err.Error()), " ")
+		line += "; re-check errors: " + strings.Join(strings.Fields(err.Error()), " ")
 	}
 	fmt.Fprintln(out, "memory dream:", line)
 }

@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -481,10 +482,10 @@ func TakeSnapshot(root string) Snapshot {
 // Cite reports whether a strike's cited evidence exists: kind is "decision" (an id8) or "note" (a store path).
 type Cite func(kind, ref string) bool
 
-// JobReport is what RecheckJob kept, reverted and flagged; TextChanged means bytes outside task lines moved.
+// JobReport is what RecheckJob kept, reverted, flagged and failed to revert; TextChanged: prose outside tasks moved.
 type JobReport struct {
-	Kept, Reverted, Flagged []Change
-	TextChanged             bool
+	Kept, Reverted, Flagged, Failed []Change
+	TextChanged                     bool
 }
 
 // taskEdit is one task whose lines a run changed: its states, the plan's lines before and its lines after.
@@ -504,52 +505,59 @@ func (e taskEdit) action() string {
 	return "edit"
 }
 
-// RecheckJob verifies every task a judged job closed since before; a failure is reopened, every verdict logged.
+// RecheckJob reopens each failed task and logs each verdict, trying all despite errors; prose is flagged, not restored.
 func RecheckJob(ctx context.Context, root, job string, before Snapshot, cite Cite) (JobReport, error) {
 	var rep JobReport
-	edits, clean := planEdits(before, TakeSnapshot(root))
-	rep.TextChanged = !clean
+	edits, dirty := planEdits(before, TakeSnapshot(root))
+	rep.TextChanged = len(dirty) > 0
 	trunk, _, _, terr := trunkBranch(ctx, root)
 	v := &verifier{ctx: ctx, root: root, trunk: "refs/heads/" + trunk, noTrunk: terr != nil, cite: cite}
+	var errs []error
+	for _, p := range dirty { // never restored: a live edit by the owner may be in it
+		c := Change{Time: now().UTC(), Plan: p, ID: "plan text", Action: "text", Rule: job, Job: job, Verdict: "flagged: plan text outside task lines changed"}
+		errs = append(errs, appendAuditLog(c))
+	}
 	for i, e := range edits {
 		var why string
 		switch {
-		case !clean:
+		case rep.TextChanged:
 			why = "plan text outside task lines changed"
 		case i >= JobChangeCap:
 			why = fmt.Sprintf("over the cap of %d changes", JobChangeCap)
 		default:
 			why = v.verify(e)
 		}
-		if err := rep.settle(e, job, why); err != nil {
-			return rep, err
-		}
+		errs = append(errs, rep.settle(e, job, why))
 	}
-	return rep, nil
+	return rep, errors.Join(errs...)
 }
 
-// settle keeps, reopens or flags one edit and logs it with its verdict.
+// settle keeps, reopens or flags one edit and logs it with its verdict, reverting before logging.
 func (r *JobReport) settle(e taskEdit, job, why string) error {
 	c := Change{Time: now().UTC(), Plan: e.plan, ID: cmp.Or(e.before.ID, e.before.Title), Action: e.action(), Rule: job, Job: job}
 	c.Evidence = e.after.Sha
 	if c.Action == "strike" {
 		c.Evidence = strikeReason(e.span)
 	}
+	var rerr error
 	switch {
 	case why == "":
 		c.Verdict, c.Reopen = "kept", reopenCmd(c.Plan, c.ID)
 		r.Kept = append(r.Kept, c)
 	case open(e.before):
 		c.Verdict = "reverted: " + why
-		if err := Reopen(e.plan, c.ID); err != nil {
-			return err
+		if rerr = Reopen(e.plan, c.ID); rerr != nil {
+			c.Verdict = "revert failed: " + why
+			r.Failed = append(r.Failed, c)
+			rerr = fmt.Errorf("revert %s: %w", c.ID, rerr)
+		} else {
+			r.Reverted = append(r.Reverted, c)
 		}
-		r.Reverted = append(r.Reverted, c)
 	default: // a closed task changed: no verb restores it, so the owner decides
 		c.Verdict = "flagged: " + why
 		r.Flagged = append(r.Flagged, c)
 	}
-	return appendAuditLog(c)
+	return errors.Join(rerr, appendAuditLog(c))
 }
 
 // Line is the job's one-line plan outcome.
@@ -558,24 +566,29 @@ func (r JobReport) Line() string {
 	if len(r.Reverted) > 0 {
 		s += fmt.Sprintf(" (first: %s: %s)", textutil.CapRunes(r.Reverted[0].ID, auditIDCells, "…"), r.Reverted[0].Verdict)
 	}
+	if len(r.Failed) > 0 {
+		s += fmt.Sprintf(", %d REVERTS FAILED", len(r.Failed))
+	}
 	if r.TextChanged {
-		s += "; plan text outside task lines changed"
+		s += "; plan text outside task lines changed and was left as is"
 	}
 	return s
 }
 
-// planEdits pairs each plan's tasks before and after a run; clean is false when bytes outside task lines changed.
-func planEdits(before, after Snapshot) (edits []taskEdit, clean bool) {
-	clean = true
+// planEdits pairs each plan's tasks before and after a run; dirty lists plans whose bytes outside task lines changed.
+func planEdits(before, after Snapshot) (edits []taskEdit, dirty []string) {
 	for _, p := range slices.Sorted(maps.Keys(before)) {
 		a, ok := after[p]
 		if !ok || bytes.Equal(before[p], a) { // a verb never deletes a plan
 			continue
 		}
 		e, same := fileEdits(p, before[p], a)
-		edits, clean = append(edits, e...), clean && same
+		edits = append(edits, e...)
+		if !same {
+			dirty = append(dirty, p)
+		}
 	}
-	return edits, clean
+	return edits, dirty
 }
 
 // fileEdits lists the tasks whose box state changed or that were closed before; same reports untouched other text.
