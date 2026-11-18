@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/redact"
 
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -158,5 +159,20 @@ func TestLogSinkConcurrentStreamsNoInterleave(t *testing.T) {
 			t.Fatalf("log line %q is not a whole expected line", l)
 		}
 		delete(want, l)
+	}
+}
+
+// A vault value (and its JSON-escaped form) never reaches the log file; the mask keeps the byte length.
+func TestLogSinkMasksVaultValue(t *testing.T) {
+	value := "FAKE-SECRET-0123456789abcdef"
+	redact.StubValues(t, []string{value})
+	path := filepath.Join(t.TempDir(), "job.log")
+	s := NewLogSink(path)
+	_, _ = s.Stream().Write([]byte("out " + value + "\n"))
+	LogEvent(WithLog(context.Background(), s), "note", "saw "+value)
+	s.Close()
+	got := pathstest.ReadFile(t, path)
+	if strings.Contains(got, value) || !strings.Contains(got, "out [redacted]"+strings.Repeat("*", len(value)-10)+"\n") {
+		t.Errorf("log = %q, want the value masked at its own length", got)
 	}
 }

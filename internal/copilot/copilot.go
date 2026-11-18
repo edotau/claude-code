@@ -26,8 +26,8 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -533,7 +533,7 @@ func writeCopilotHandoff(
 		time.Now().UTC().Format(time.RFC3339), cmp.Or(acct, "unpinned"), cmp.Or(res.Provider, "?"),
 		cmp.Or(res.Model, "?"), root, session, agent.FallbackReason(cause),
 		strings.TrimSpace(req.Prompt), cmp.Or(strings.TrimSpace(partial), "(none)"))
-	doc = textutil.RedactSecrets(redactValues(doc, creds))
+	doc = redact.Text(redactValues(doc, creds))
 	path := handoffPath(root, time.Now().Format("2006-01-02")+"-copilot-"+shortID(res.SessionID)+".md")
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {

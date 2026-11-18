@@ -10,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 func TestFile(t *testing.T) {

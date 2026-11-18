@@ -10,6 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -52,7 +53,7 @@ func SaveResult(rec agent.Record, path string, head int, format string) int {
 	if err != nil {
 		return helptext.Fail("agents result: %v", err)
 	}
-	text := resultText(rec, log)
+	text := redact.Text(resultText(rec, log))
 	if err := paths.AtomicWrite(path, []byte(text), 0o600); err != nil {
 		return helptext.Fail("agents result: save %s: %v", path, err)
 	}

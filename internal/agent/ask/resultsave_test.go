@@ -2,12 +2,16 @@ package ask
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/redact"
 )
 
 func TestResultCarriesObservedFactsOnlyWhenRecorded(t *testing.T) {
@@ -65,5 +69,32 @@ func TestLastLinesDropsTraceLinesWhenAnswerExists(t *testing.T) {
 	bare := []string{"▸ result: a", "▸ result: b"}
 	if got := lastLines("▸ result: a\n▸ result: b\n", 10); !slices.Equal(got, bare) {
 		t.Errorf("log with no answer = %q, want %q", got, bare)
+	}
+}
+
+// The saved result file never holds a vault value; the mask keeps the byte length.
+func TestSaveResultMasksVaultValue(t *testing.T) {
+	value := "FAKE-SECRET-0123456789abcdef"
+	redact.StubValues(t, []string{value})
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "say hi"}, time.Now().Add(-time.Hour))
+	rec.Repo, rec.Status = t.TempDir(), "ok"
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(rec.LogPath(), []byte("token "+value+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rec.Log = rec.LogPath()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(t.TempDir(), "out.txt")
+	if code := SaveResult(rec, dest, 0, ""); code != 0 {
+		t.Fatalf("SaveResult = %d", code)
+	}
+	saved, _ := os.ReadFile(dest)
+	if strings.Contains(string(saved), value) || !strings.Contains(string(saved), "[redacted]"+strings.Repeat("*", len(value)-10)) {
+		t.Fatalf("saved result = %q, want the value masked at its own length", saved)
 	}
 }

@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/redact"
 )
 
 // readEvents decodes the event file at path, one Event per line.
@@ -208,3 +210,25 @@ func TestAnswerTurnsJoinAndLast(t *testing.T) {
 type recSink struct{ got []Event }
 
 func (s *recSink) Emit(ev Event) error { s.got = append(s.got, ev); return nil }
+
+// A vault value with JSON-special bytes is masked in the encoded event line, which stays valid JSON.
+func TestEventLogMasksEncodedVaultValue(t *testing.T) {
+	value := `FAKE-SECRET-0123456789"\abc`
+	redact.StubValues(t, []string{value})
+	path := filepath.Join(t.TempDir(), "x.events.jsonl")
+	l := NewEventLog(path, "id1")
+	_ = l.Emit(Event{Type: EventText, Text: "token " + value + " end\n"})
+	l.Close()
+	raw, _ := os.ReadFile(path)
+	escaped, _ := json.Marshal(value)
+	want := "[redacted]" + strings.Repeat("*", len(escaped)-2-10)
+	for _, ln := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		if !json.Valid([]byte(ln)) {
+			t.Fatalf("line is not JSON: %s", ln)
+		}
+	}
+	if strings.Contains(string(raw), value) || strings.Contains(string(raw), string(escaped[1:len(escaped)-1])) ||
+		!strings.Contains(string(raw), want) {
+		t.Fatalf("event file keeps the value or lost the mask:\n%s", raw)
+	}
+}

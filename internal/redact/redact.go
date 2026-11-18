@@ -136,6 +136,16 @@ func fill(b []byte) {
 }
 
 func (m *Matcher) Mask(b []byte) int {
+	hits := m.MaskValues(b)
+	for _, span := range textutil.SecretSpans(shapeText(b)) {
+		fill(b[span[0]:span[1]])
+		hits++
+	}
+	return hits
+}
+
+// MaskValues masks only exact vault values and their encodings, for text whose structure a shape span could cut.
+func (m *Matcher) MaskValues(b []byte) int {
 	hits := 0
 	for i := 0; i < len(b); {
 		if n := maskWidth(b[i:]); n > 0 {
@@ -154,10 +164,6 @@ func (m *Matcher) Mask(b []byte) int {
 		fill(b[i:end])
 		hits++
 		i = end
-	}
-	for _, span := range textutil.SecretSpans(shapeText(b)) {
-		fill(b[span[0]:span[1]])
-		hits++
 	}
 	return hits
 }

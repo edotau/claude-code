@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -155,7 +156,7 @@ func (s *LogSink) writeLocked(b []byte) {
 	if len(b) == 0 || s.f == nil {
 		return
 	}
-	line := textutil.RedactSecrets(string(b))
+	line := redact.Text(textutil.RedactSecrets(string(b))) // vault values and their encodings, after the shape pass
 	if !strings.HasSuffix(line, "\n") {
 		line += "\n"
 	}

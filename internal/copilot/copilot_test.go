@@ -30,6 +30,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
@@ -694,5 +695,22 @@ func TestSDKOptionsBudgetCredits(t *testing.T) {
 	o, err := newSDKOptions("copilot", nil, agent.RunOptions{WorkDir: t.TempDir(), BudgetCredits: new(30)}, agent.Settings{})
 	if err != nil || o.BudgetCredits == nil || *o.BudgetCredits != 30 {
 		t.Fatalf("SDK budget transfer: %+v, %v", o.BudgetCredits, err)
+	}
+}
+
+// A vault value inside the partial answer is masked in the quota hand-off even when no credential list names it.
+func TestRunQuotaHandoffMasksVaultValue(t *testing.T) {
+	value := "FAKE-SECRET-0123456789abcdef"
+	redact.StubValues(t, []string{value})
+	runScratch(t, func(_ context.Context, _ sdkOptions, _ string, _ []string) (sdkResult, error) {
+		return sdkResult{Text: "half done with " + value, SessionID: "abcdef1234567"}, errors.New("402 payment required")
+	})
+	res, _ := runPersonal(t)
+	body, err := os.ReadFile(res.Handoff)
+	if err != nil {
+		t.Fatalf("no hand-off: %v", err)
+	}
+	if s := string(body); strings.Contains(s, value) || !strings.Contains(s, "[redacted]"+strings.Repeat("*", len(value)-10)) {
+		t.Errorf("hand-off = %s, want the value masked at its own length", s)
 	}
 }

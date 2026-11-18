@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/redact"
 )
 
 // Exact printed IDs bind multiple jobs; timestamps alone bind none.
@@ -573,5 +574,21 @@ func TestLeafErroredAskNoRelaunch(t *testing.T) {
 	r, blocked := leafGate(in, "a1", lr)
 	if blocked || len(*spawned) != 0 || !strings.Contains(r.SystemMessage, unattributedNote) {
 		t.Fatalf("error relaunched: %+v, spawns %v", r, *spawned)
+	}
+}
+
+// A saved hand-back report never holds a vault value; the mask keeps the byte length.
+func TestPreserveReportMasksVaultValue(t *testing.T) {
+	value := "FAKE-SECRET-0123456789abcdef"
+	redact.StubValues(t, []string{value})
+	in := handbackOf(leafTx(t, "codex", "Objective: x\nAgent: codex\n", "ls output"), "report with "+value)
+	res := preserveReport(in, "a-mask", leafRead{}, core.Result{})
+	_, path, _ := strings.Cut(res.Reason, "is saved at ")
+	saved, err := os.ReadFile(strings.TrimSuffix(path, "."))
+	if err != nil {
+		t.Fatalf("report not saved: %v (reason %q)", err, res.Reason)
+	}
+	if strings.Contains(string(saved), value) || !strings.Contains(string(saved), "[redacted]"+strings.Repeat("*", len(value)-10)) {
+		t.Fatalf("saved report = %q, want the value masked at its own length", saved)
 	}
 }

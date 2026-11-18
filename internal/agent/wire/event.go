@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -240,7 +241,7 @@ func NewEventLog(path, dispatchID string) *EventLog {
 		return l
 	}
 	l.f, l.bw = f, bufio.NewWriter(f)
-	l.sink = NewJSONLSink(l.bw, dispatchID)
+	l.sink = NewJSONLSink(maskWriter{l.bw}, dispatchID)
 	return l
 }
 
@@ -305,6 +306,14 @@ func (l *EventLog) writeText(held string) {
 	ev.Text, ev.Sep = held, l.pendSep
 	l.pendSep = false
 	l.writeLocked(ev)
+}
+
+// maskWriter masks vault values in each encoded event line, so JSON-escaped forms are caught too.
+type maskWriter struct{ w io.Writer }
+
+func (m maskWriter) Write(p []byte) (int, error) {
+	redact.ValueBytes(p)
+	return m.w.Write(p)
 }
 
 // writeLocked redacts the event's free text, envelope answer and structured value, then writes it.
