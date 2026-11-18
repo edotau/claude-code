@@ -101,7 +101,7 @@ func legacyBankDir(e os.DirEntry) bool {
 	if !e.IsDir() || strings.HasPrefix(e.Name(), ".") {
 		return false
 	}
-	return !slices.Contains(flatSubs, e.Name())
+	return !slices.Contains(flatSubs, e.Name()) && e.Name() != "waves" // waves/ is retired run state, left alone
 }
 
 // withFlatLock is WithBankLock for writers: a store without the flat stamp is refused.

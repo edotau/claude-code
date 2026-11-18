@@ -8,15 +8,17 @@ paths:
 for every workspace (any repo, scratch dir, provider or profile): six typed files at the top plus Claude Code's native
 topic files, the generated `MEMORY.md` (head, pinned, newest 20 pointers), the append-only `index.md` of its
 entries and the generated `catalog.md` router. Folders:
-`archive/`, `handoffs/`, `reports/`, `knowledge/`, `worktrees/`, `waves/`, `feedback/`, `notes/` (no `<key>--`
+`archive/`, `handoffs/`, `reports/`, `knowledge/`, `worktrees/`, `feedback/`, `notes/`, `techdebt/` (no `<key>--`
 prefix; `handoffs/`, `reports/` and `worktrees/` names start `YYYY-MM-DD-`, and the docs-placement gate dates a new
-one). `.layout` (`flat 3`) stamps
-the layout (`flat 2` stores still work until migrated), and every `~/.claude/projects/<slug>/memory` is a symlink to
-the store root, repaired at SessionStart. The bank holds session STATE; durable facts belong in `rules/` or
-`CLAUDE.md` — point at them, never copy.
+one). `techdebt/<area>.md` holds known debt, one file per area: searchable and in the catalog, never in prompt
+recall. `.layout` (`flat 3`) stamps the layout (`flat 2` stores still work until migrated), and every
+`~/.claude/projects/<slug>/memory` is a symlink to the store root, repaired at SessionStart.
+The bank holds session STATE; durable facts belong
+in `rules/` or `CLAUDE.md` — point at them, never copy.
 
-`claude-code memory path [handoffs|reports|knowledge|worktrees] [NAME]` prints the path (no NAME = store root); NAME
-loses any `<key>--`, gains `.md` when it has no extension, and in the dated folders gains today's date when it has none.
+`claude-code memory path [handoffs|reports|knowledge|worktrees|techdebt] [NAME]` prints the path (no NAME = store
+root); NAME loses any `<key>--`, gains `.md` when it has no extension, and in the dated folders gains today's
+date when it has none.
 `claude-code memory migrate [--dry-run]` brings any store to `flat 3`: it merges per-repo `<key>--<typed>.md` files
 into the one bank (ids kept, a block whose id exists is skipped), strips every `<key>--` from folder entries (dated
 folders take the name's date, else the first date in the file, else git's first-add date, else mtime), merges archive

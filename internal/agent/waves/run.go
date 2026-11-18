@@ -37,11 +37,11 @@ type runHooks struct {
 }
 
 type runner struct {
-	o                   Options
-	h                   runHooks
-	state               State
-	path, slug, reports string
-	day                 time.Time // fixed at start so report names agree across midnight
+	o                        Options
+	h                        runHooks
+	state                    State
+	path, dir, slug, reports string
+	day                      time.Time // fixed at start so report names agree across midnight
 }
 
 // Run prints the wave report and returns the dispatch exit code.
@@ -133,7 +133,8 @@ func (r *runner) prepare() error {
 	}
 	r.slug = paths.Slug(strings.TrimSuffix(filepath.Base(r.o.Plan), filepath.Ext(r.o.Plan)), "._-", 50, "plan")
 	r.day = time.Now()
-	r.path, r.reports = memory.Sub("waves", r.slug+"/state.json"), memory.SubDir("reports")
+	r.dir, r.reports = filepath.Join(paths.StateDir(), "waves", r.slug), memory.SubDir("reports")
+	r.path = filepath.Join(r.dir, "state.json")
 	r.state.Plan = r.o.Plan
 	return nil
 }
@@ -169,9 +170,6 @@ func (r *runner) gate(w plans.Wave) string {
 }
 
 func (r *runner) load() error {
-	if err := memory.EnsureBank("waves"); err != nil {
-		return err
-	}
 	if !r.o.Fresh {
 		s, err := StateLoad(r.path)
 		if err == nil {

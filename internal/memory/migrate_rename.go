@@ -27,7 +27,7 @@ const (
 
 var (
 	// migRenameDirs hold entries that carried a `<key>--` repo prefix; migDatedDirs also get a leading date.
-	migRenameDirs = []string{"archive", "handoffs", "reports", "worktrees", "knowledge", "waves"}
+	migRenameDirs = []string{"archive", "handoffs", "reports", "worktrees", "knowledge"}
 	migDatedDirs  = []string{"handoffs", "reports", "worktrees"}
 
 	migKeyRE      = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[a-z][a-z0-9]*(?:-[a-z0-9]+)*--`) })

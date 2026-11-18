@@ -688,6 +688,7 @@ func TestMemoryPathSubNameAndBareDir(t *testing.T) {
 		"knowledge claude-code--a.md":          memory.Sub("knowledge", "a.md"),
 		"knowledge a.md":                       memory.Sub("knowledge", "a.md"),
 		"knowledge a":                          memory.Sub("knowledge", "a.md"),
+		"techdebt area":                        memory.Sub("techdebt", "area.md"),
 	} {
 		argv := append([]string{"path"}, strings.Fields(args)...)
 		if code, out, errs := memCLI(t, argv...); code != 0 || strings.TrimSpace(out) != want {

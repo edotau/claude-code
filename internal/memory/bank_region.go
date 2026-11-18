@@ -898,7 +898,7 @@ var folderRoles = [][2]string{
 	{"feedback", "Claude Code feedback notes"},
 	{"notes", "Claude Code topic notes"},
 	{"worktrees", "worktree ledgers"},
-	{"waves", "wave runner state"},
+	{"techdebt", "techdebt notes, one file per area"},
 }
 
 func storeFolderNames() []string {

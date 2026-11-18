@@ -11,10 +11,10 @@ func TestBankPaths(t *testing.T) {
 	isolatedConfig(t)
 	s := StoreDir()
 	for got, want := range map[string]string{
-		Path("activeContext.md"):       "activeContext.md",
-		Sub("reports", "x.md"):         "reports/x.md",
-		Sub("waves", "run/state.json"): "waves/run/state.json",
-		NativeIndex():                  "MEMORY.md",
+		Path("activeContext.md"):   "activeContext.md",
+		Sub("reports", "x.md"):     "reports/x.md",
+		Sub("techdebt", "area.md"): "techdebt/area.md",
+		NativeIndex():              "MEMORY.md",
 	} {
 		if got != filepath.Join(s, want) {
 			t.Errorf("got %s, want %s", got, filepath.Join(s, want))

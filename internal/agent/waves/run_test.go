@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/inspect"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 type runFixture struct {
@@ -277,6 +278,9 @@ func TestPrepareKeepsUndatedSlugAndFixesDay(t *testing.T) {
 	r := &runner{o: Options{Dir: t.TempDir(), Plan: "/x/my-plan.md"}}
 	if err := r.prepare(); err != nil {
 		t.Fatal(err)
+	}
+	if !strings.HasPrefix(r.path, paths.StateDir()) {
+		t.Errorf("state path %q is outside the harness state tree", r.path)
 	}
 	if r.slug != "my-plan" || !strings.HasSuffix(r.path, filepath.Join("waves", "my-plan", "state.json")) || r.day.IsZero() {
 		t.Errorf("slug %q path %q day %v", r.slug, r.path, r.day)

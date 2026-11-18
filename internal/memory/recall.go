@@ -364,7 +364,7 @@ func recallTier(ranked []SearchHit, archived bool, need int) ([]SearchHit, float
 	var cands []SearchHit
 	top, topAny := 0.0, 0.0
 	for _, h := range ranked {
-		if (h.Bank == "archive") != archived || (isSupersededBlock(h.Block) && !h.UnresolvedReplacement) {
+		if (h.Bank == "archive") != archived || h.Bank == techdebtDir || (isSupersededBlock(h.Block) && !h.UnresolvedReplacement) {
 			continue
 		}
 		if topAny == 0 {

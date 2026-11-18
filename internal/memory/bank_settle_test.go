@@ -212,6 +212,22 @@ func TestCatalogListsEveryNativeNoteOnceSortedWithFallbacks(t *testing.T) {
 	})
 }
 
+func TestTechdebtNoteIsCatalogedAndSearchableButNotPromptRecalled(t *testing.T) {
+	runBank(t, func(t *testing.T) {
+		writeNote(t, "techdebt", "area.md", "---\nname: Area\ndescription: zorblax debt\n---\nthe zorblax parser is slow\n")
+		if c, err := BuildCatalog(time.Unix(0, 0)); err != nil || !strings.Contains(c+catalogOf(t), "](techdebt/area.md)") {
+			t.Errorf("techdebt note not cataloged (err=%v)", err)
+		}
+		hits := SearchBank("zorblax parser", 5)
+		if len(hits) != 1 || hits[0].Bank != techdebtDir {
+			t.Fatalf("search hits %+v", hits)
+		}
+		if cands, _ := recallTier(hits, false, 1); len(cands) != 0 {
+			t.Errorf("prompt recall admitted techdebt: %+v", cands)
+		}
+	})
+}
+
 func TestCatalogGrowthDoesNotGrowSessionSurface(t *testing.T) {
 	runBank(t, func(t *testing.T) {
 		before := len(sessionSurface(t.TempDir()))

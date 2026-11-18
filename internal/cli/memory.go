@@ -358,7 +358,7 @@ func cmdMemoryIndex(args []string) int {
 }
 
 // memoryPathSubs are the sub dirs `memory path` resolves; SUB NAME names one file in the bank's.
-var memoryPathSubs = []string{"handoffs", "reports", "knowledge", "worktrees"}
+var memoryPathSubs = []string{"handoffs", "reports", "knowledge", "worktrees", "techdebt"}
 
 func cmdMemoryPath(args []string) int {
 	fs := memoryFlagSet("path")
@@ -385,7 +385,7 @@ func cmdMemoryPath(args []string) int {
 
 // memoryPathName is the store file name for NAME in sub: date-first for dated subs, prefix-free, .md by default.
 func memoryPathName(sub, name string) string {
-	if sub == "knowledge" {
+	if sub == "knowledge" || sub == "techdebt" {
 		name, _ = memory.StripRepoPrefix(name)
 	} else if sub != "" {
 		name = memory.DatedName(name, time.Now())

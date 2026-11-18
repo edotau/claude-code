@@ -398,7 +398,10 @@ func NoteFolder(name string) string {
 }
 
 // noteDirs are the folders Claude Code's native notes are sorted into.
-var noteDirs = []string{"feedback", "notes"}
+var noteDirs = []string{"feedback", "notes", techdebtDir}
+
+// techdebtDir is searched and cataloged but kept out of prompt recall.
+const techdebtDir = "techdebt"
 
 // sweepNotes moves top-level native notes into feedback/ or notes/.
 func sweepNotes() error {

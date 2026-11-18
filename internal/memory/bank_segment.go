@@ -44,6 +44,9 @@ func corpusOf() []corpusFile {
 	for _, path := range topicFiles() {
 		out = append(out, corpusFile{"native", path, segNative})
 	}
+	for _, path := range searchTopicFiles(SubDir(techdebtDir)) {
+		out = append(out, corpusFile{techdebtDir, path, segNative})
+	}
 	for _, path := range knowledgeNotes() {
 		out = append(out, corpusFile{"knowledge", path, segKnowledge})
 	}
@@ -57,6 +60,9 @@ func ownedFiles(sub string) []string { return transcript.GlobIn(SubDir(sub), "*.
 func topicFiles() []string {
 	files := searchTopicFiles(StoreDir())
 	for _, d := range noteDirs {
+		if d == techdebtDir {
+			continue
+		}
 		files = append(files, searchTopicFiles(SubDir(d))...)
 	}
 	return files

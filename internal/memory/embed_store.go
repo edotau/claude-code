@@ -491,7 +491,7 @@ func (s *Semantic) cosineRow(row vectorRow) (float64, bool) {
 func (s *Semantic) candidates(files []corpusFile, segs []segView, k int, floor float64, skip func(SearchHit) bool) (hits []SearchHit, skipped bool) {
 	var all []scoredHit
 	for i, seg := range segs {
-		if seg == nil || files[i].Bank == "archive" {
+		if seg == nil || files[i].Bank == "archive" || files[i].Bank == techdebtDir {
 			continue
 		}
 		for doc := range seg.Docs() {
