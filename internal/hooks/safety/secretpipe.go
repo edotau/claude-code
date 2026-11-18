@@ -2,8 +2,10 @@ package safety
 
 import (
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/shell"
@@ -52,7 +54,7 @@ func pipesSecret(cmd string, depth int) bool {
 		if nested, ok := shell.NestedCommand(toks); ok && pipesSecret(nested, depth+1) || carry && sends(seg, depth, whole) {
 			return true
 		}
-		prints, env := printsSecret(toks, depth)
+		prints, env := printsSecret(sourceWords(seg, toks), depth)
 		src := carry || strings.Contains(seg, secretMark) || prints
 		if src && (socket || subSends(seg, depth, whole || env)) || fedMark(seg) && sends(seg, depth, false) {
 			return true
@@ -106,9 +108,25 @@ func printsAny(text string, depth int) bool {
 		if strings.Contains(seg, secretMark) {
 			return true
 		}
-		prints, _ := printsSecret(shell.Tokens(seg), depth)
+		prints, _ := printsSecret(sourceWords(seg, shell.Tokens(seg)), depth)
 		return prints
 	})
+}
+
+// stdoutAway is a redirection sending stdout to a file or another fd (`>f`, `1>&2`, `&>f`), so none reaches a pipe.
+var stdoutAway = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?:^|\s)(?:1?>>?|&>>?|>\|)\s*\S`) })
+
+// sourceWords are toks minus redirections (`env 2>/dev/null`, `env > >(…)` still dump), unless stdout goes elsewhere.
+func sourceWords(seg string, toks []string) []string {
+	if !strings.ContainsAny(seg, "<>") {
+		return toks
+	}
+	masked, _ := shell.ExtractSubstitutions(seg)
+	words, _ := shell.Redirects(masked)
+	if stdoutAway().MatchString(masked) || slices.Equal(words, shell.Tokens(masked)) {
+		return toks
+	}
+	return words
 }
 
 // printsSecret reports a command word of toks, past wrappers and runners, printing a credential; env: the environment.
