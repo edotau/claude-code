@@ -188,7 +188,7 @@ func locateLedger(cwd string) (repo *Repo, top, path string, found bool, err err
 		return nil, "", "", false, err
 	}
 	top = paths.Canon(strings.TrimSpace(topLine))
-	if !paths.SamePath(filepath.Dir(top), repo.Root) {
+	if !repo.holds(filepath.Dir(top)) {
 		return nil, "", "", false, nil
 	}
 	name := filepath.Base(top)

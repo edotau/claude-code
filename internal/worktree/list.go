@@ -82,7 +82,7 @@ func listPorcelain(repo *Repo) ([]Entry, error) {
 		if e.Path == repo.Main {
 			continue
 		}
-		if rel, err := filepath.Rel(repo.Root, e.Path); err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+		if !underRoots(repo, e.Path) {
 			// registered elsewhere on disk, outside the convention this package governs
 			continue
 		}
@@ -137,18 +137,38 @@ func unionFilesystem(repo *Repo, registered []Entry) ([]Entry, error) {
 			return nil, fmt.Errorf("stat registered worktree %s: %w", e.Path, err)
 		}
 	}
-	dirs, err := worktreeDirNames(repo.Root)
-	if err != nil {
-		return nil, err
-	}
-	for _, name := range dirs {
-		path := paths.Canon(filepath.Join(repo.Root, name))
-		if _, ok := byPath[path]; ok {
-			continue
+	for _, root := range repoRoots(repo) {
+		dirs, err := worktreeDirNames(root)
+		if err != nil {
+			return nil, err
 		}
-		registered = append(registered, Entry{Path: path, Exists: true})
+		for _, name := range dirs {
+			path := paths.Canon(filepath.Join(root, name))
+			if _, ok := byPath[path]; ok {
+				continue
+			}
+			registered = append(registered, Entry{Path: path, Exists: true})
+		}
 	}
 	return registered, nil
+}
+
+// repoRoots lists the roots to scan: Root, then Legacy when set.
+func repoRoots(repo *Repo) []string {
+	if repo.Legacy == "" {
+		return []string{repo.Root}
+	}
+	return []string{repo.Root, repo.Legacy}
+}
+
+// underRoots reports whether path sits at or below one of repo's roots.
+func underRoots(repo *Repo, path string) bool {
+	for _, root := range repoRoots(repo) {
+		if rel, err := filepath.Rel(root, path); err == nil && rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 // inspect fills Dirty, Merged, Stale and activity on e; a failed git call goes to Problems with the fail-safe default.
@@ -309,6 +329,10 @@ func Names(cwd string) []string {
 	if err != nil {
 		return nil
 	}
-	names, _ := worktreeDirNames(repo.Root)
+	var names []string
+	for _, root := range repoRoots(repo) {
+		n, _ := worktreeDirNames(root)
+		names = append(names, n...)
+	}
 	return names
 }

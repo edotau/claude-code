@@ -230,6 +230,18 @@ func TestRootUsesMainBasename(t *testing.T) {
 	}
 }
 
+func TestRootDropsLeadingDotAndKeepsLegacy(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	root, legacy := Root("/some/path/.claude"), legacyRoot("/some/path/.claude")
+	if filepath.Base(root) != "claude" || filepath.Base(legacy) != ".claude" || legacyRoot("/some/path/repo") != "" {
+		t.Fatalf("Root = %q, legacy = %q", root, legacy)
+	}
+	repo := &Repo{Main: "/some/path/.claude", Root: root, Legacy: legacy}
+	if !repo.holds(root) || !repo.holds(legacy) || repo.holds(filepath.Dir(root)) {
+		t.Fatalf("holds must accept both roots only: %+v", repo)
+	}
+}
+
 func TestWorktreeRootUnderHome(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)

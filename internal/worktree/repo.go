@@ -19,8 +19,10 @@ const gitFatalExit = 128
 // Repo is a repository's canonical identity: the main checkout (never a linked worktree) and its worktree root.
 type Repo struct {
 	Main string
-	// Root(Main): ~/worktrees/<basename(Main)>
+	// Root(Main): ~/worktrees/<basename(Main) without a leading dot>
 	Root string
+	// Legacy is the dotted root older versions used (~/worktrees/.claude); "" when Main's name has no leading dot.
+	Legacy string
 	// CommonDir is the absolute git common dir ResolveRepo saw; "" (a hand-built Repo) means look it up.
 	CommonDir string
 }
@@ -32,9 +34,22 @@ func worktreeRoot() string {
 	return filepath.Join(home, "worktrees")
 }
 
-// Root is repo main's own worktree root: worktreeRoot()/<basename of the main checkout>.
+// Root is repo main's own worktree root: worktreeRoot()/<basename of the main checkout, one leading dot dropped>.
 func Root(main string) string {
-	return filepath.Join(worktreeRoot(), filepath.Base(filepath.Clean(main)))
+	return filepath.Join(worktreeRoot(), strings.TrimPrefix(filepath.Base(filepath.Clean(main)), "."))
+}
+
+// legacyRoot is the pre-dot-strip root of main, "" when it equals Root.
+func legacyRoot(main string) string {
+	if legacy := filepath.Join(worktreeRoot(), filepath.Base(filepath.Clean(main))); legacy != Root(main) {
+		return legacy
+	}
+	return ""
+}
+
+// holds reports whether dir is a worktree root of repo: Root, or the Legacy root where older lanes still live.
+func (r *Repo) holds(dir string) bool {
+	return paths.SamePath(dir, r.Root) || (r.Legacy != "" && paths.SamePath(dir, r.Legacy))
 }
 
 // gitCmd builds a git command with per-repo GIT_* environment variables scrubbed.
@@ -74,7 +89,7 @@ func repoFromCommonDir(cwd, commonDir string) (*Repo, error) {
 		return nil, fmt.Errorf("%s: cannot place worktrees without a home directory (set HOME): %w", cwd, err)
 	}
 	main := paths.Canon(filepath.Dir(commonDir))
-	return &Repo{Main: main, Root: Root(main), CommonDir: commonDir}, nil
+	return &Repo{Main: main, Root: Root(main), Legacy: legacyRoot(main), CommonDir: commonDir}, nil
 }
 
 // resolveWorktreeBounded returns where name lives under repo.Root, rejecting traversal, symlinks and collisions.
@@ -124,6 +139,13 @@ func checkWorktreeName(repo *Repo, name string) (string, error) {
 	}
 	if err := rejectLiveCheckoutRoot(repo); err != nil {
 		return "", err
+	}
+	if repo.Legacy != "" {
+		old := filepath.Join(repo.Legacy, name)
+		_, newErr := os.Lstat(dest)
+		if _, oldErr := os.Lstat(old); newErr != nil && oldErr == nil {
+			return old, nil
+		}
 	}
 	return dest, nil
 }
