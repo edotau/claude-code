@@ -261,10 +261,18 @@ func checkClaims(in *core.Input, cmd string) core.Result {
 	edits := editPaths(in)
 	ctx, cancel := core.HookContext("worktree-claim-check")
 	defer cancel()
-	if r := laneVerdict(ctx, in, cmd, edits); r.Decision != core.Allow {
-		return r
+	lane := laneVerdict(ctx, in, cmd, edits)
+	if lane.Decision != core.Allow {
+		return lane
 	}
-	if !bash {
+	res := checkRest(ctx, in, cmd, edits, git)
+	res.Stderr = strings.TrimSpace(lane.Stderr + "\n" + res.Stderr)
+	return res
+}
+
+// checkRest is the claim and notice check that follows the lanes verdict.
+func checkRest(ctx context.Context, in *core.Input, cmd string, edits []string, git bool) core.Result {
+	if !isBash(in) {
 		return claimResult(ctx, in, cmd, edits)
 	}
 	res := core.Result{}
@@ -286,11 +294,15 @@ func laneVerdict(ctx context.Context, in *core.Input, cmd string, edits []string
 		return core.Result{}
 	}
 	live := paths.Real(paths.ConfigDir())
-	hits := liveTracked(ctx, live, edits)
-	if isBash(in) && stageText(cmd) {
-		hits = append(hits, liveStaged(ctx, in, cmd, live)...)
+	hits, err := liveTracked(ctx, live, edits)
+	if isBash(in) && laneText(cmd) {
+		staged, serr := liveStaged(ctx, in, cmd, live)
+		hits, err = append(hits, staged...), cmp.Or(err, serr)
 	}
 	if len(hits) == 0 {
+		if err = cmp.Or(err, ctx.Err()); err != nil {
+			return core.Result{Stderr: fmt.Sprintf("worktree-claim-check: WARNING — could not check lanes-mode protection (%v); allowed", err)}
+		}
 		return core.Result{}
 	}
 	hits = slices.Compact(slices.Sorted(slices.Values(hits)))
@@ -309,8 +321,8 @@ func laneVerdict(ctx context.Context, in *core.Input, cmd string, edits []string
 	return core.Result{Decision: d, Reason: core.SafetyMessage(in, d, what, "", hint)}
 }
 
-// liveTracked is the edited paths that are tracked files of the live checkout; git errors yield none (fail open).
-func liveTracked(ctx context.Context, live string, edits []string) []string {
+// liveTracked is the edited paths that are tracked files of the live checkout, with any git error (fail open).
+func liveTracked(ctx context.Context, live string, edits []string) ([]string, error) {
 	var specs []string
 	for _, p := range edits {
 		if top, _ := paths.CheckoutOf(filepath.Dir(p)); paths.Real(top) != live {
@@ -321,40 +333,89 @@ func liveTracked(ctx context.Context, live string, edits []string) []string {
 		}
 	}
 	if len(specs) == 0 {
-		return nil
+		return nil, nil
 	}
-	out, _ := gitPaths(ctx, live, live, append([]string{"ls-files", "-z", "--"}, specs...)...)
-	return out
+	return gitPaths(ctx, live, live, append([]string{"ls-files", "-z", "--"}, specs...)...)
 }
 
-// liveStaged is the dirty tracked files of the live checkout that the command's git add/commit would stage.
-func liveStaged(ctx context.Context, in *core.Input, cmd, live string) []string {
-	var out []string
+// laneGitCmd pre-screens a Bash command for the git verbs besides add/commit that change tracked files.
+var laneGitCmd = core.Gate(`\bgit\b[^;&|\n]*\b(?:apply|am|mv)\b`, "git")
+
+// laneText reports text that may stage, commit, apply a patch or move a file.
+func laneText(cmd string) bool { return stageText(cmd) || laneGitCmd.MatchString(cmd) }
+
+// liveStaged is what the command's git add, commit, apply, am or mv would change in the live checkout, and any error.
+func liveStaged(ctx context.Context, in *core.Input, cmd, live string) (out []string, err error) {
 	shell.EachGit(dropScriptHeredocs(core.DropDataHeredocs(cmd)), in.CWD, func(target, verb string, args []string) bool {
 		verb, args = verbAsGit(verb, args)
-		w := splitStage(verb, args)
-		if verb != "add" && verb != "commit" || interactive(verb, w.flags) || stagesNothing(verb, w.flags) {
-			return false
-		}
-		top, dirty, err := dirtySet(ctx, target)
-		if err != nil || top != live {
-			return false
-		}
-		scopes, err := stageScopes(ctx, top, target, verb, args)
-		if err != nil {
-			return false
-		}
-		if dirty, err = tracked(ctx, top, dirty); err != nil {
-			return false
-		}
-		for p := range dirty {
-			if underAny(p, scopes) {
-				out = append(out, p)
-			}
-		}
+		hits, e := laneHits(ctx, target, verb, args, live)
+		out, err = append(out, hits...), cmp.Or(err, e)
 		return false
 	})
-	return out
+	return out, err
+}
+
+// laneHits is one git call's changes to the live checkout; apply and am name no files, so they stand for any.
+func laneHits(ctx context.Context, target, verb string, args []string, live string) ([]string, error) {
+	w := splitStage(verb, args)
+	switch verb {
+	case "add", "commit":
+		if stagesNothing(verb, w.flags) {
+			return nil, nil
+		}
+		return stagedHits(ctx, target, verb, args, live)
+	case "mv":
+		if top, _ := paths.CheckoutOf(target); len(w.ops) < 2 || mvDry(w.flags) || paths.Real(top) != live {
+			return nil, nil
+		}
+		specs := make([]string, 0, len(w.ops)-1)
+		for _, op := range w.ops[:len(w.ops)-1] {
+			specs = append(specs, ":(literal)"+op)
+		}
+		return gitPaths(ctx, live, target, append([]string{"ls-files", "--cached", "-z", "--"}, specs...)...)
+	case "apply", "am":
+		if top, _ := paths.CheckoutOf(target); !applyDry(w.flags) && paths.Real(top) == live {
+			return []string{filepath.Join(live, "git "+verb)}, nil
+		}
+	}
+	return nil, nil
+}
+
+// stagedHits is the dirty tracked files of the live checkout under the scopes of a git add/commit (hunk mode included).
+func stagedHits(ctx context.Context, target, verb string, args []string, live string) ([]string, error) {
+	top, dirty, err := dirtySet(ctx, target)
+	if err != nil || top != live {
+		return nil, err
+	}
+	scopes, err := stageScopes(ctx, top, target, verb, args)
+	if err != nil {
+		return nil, err
+	}
+	if dirty, err = tracked(ctx, top, dirty); err != nil {
+		return nil, err
+	}
+	var out []string
+	for p := range dirty {
+		if underAny(p, scopes) {
+			out = append(out, p)
+		}
+	}
+	return out, nil
+}
+
+// mvDry reports git mv -n, which moves nothing.
+func mvDry(flags []string) bool {
+	return slices.ContainsFunc(flags, func(f string) bool { return f == "--dry-run" || clusterHas(f, 'n') })
+}
+
+// applyDry reports a git apply or am call that only reports (--check, --stat, ...).
+func applyDry(flags []string) bool {
+	if slices.Contains(flags, "--apply") {
+		return false
+	}
+	return slices.ContainsFunc(flags, func(f string) bool {
+		return slices.Contains([]string{"--check", "--stat", "--numstat", "--summary", "--show-current-patch"}, f)
+	})
 }
 
 // claimResult runs the edit check on each edited path and, for Bash, the stage check, against the live claims.

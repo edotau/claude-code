@@ -7,6 +7,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -1012,22 +1013,41 @@ func TestClaimCheckLabelsPeerByItsCommandName(t *testing.T) {
 	}
 }
 
+// lanesCases are the lanes-mode claim check's rows: mode, file, command, in a lane, agent id and the verdict.
+var lanesCases = []struct {
+	name, mode, file, cmd string
+	lane                  bool
+	agent                 string
+	want                  core.Decision
+}{
+	{"live checkout edit asks main", "lanes", "a.txt", "", false, "", core.Ask},
+	{"live checkout edit blocks a leaf", "lanes", "a.txt", "", false, "leaftwo2", core.Block},
+	{"live checkout stage asks main", "lanes", "a.txt", "git add a.txt", false, "", core.Ask},
+	{"untracked file is free", "lanes", "new.txt", "", false, "", core.Allow},
+	{"same path in a lane is free", "lanes", "a.txt", "", true, "leaftwo2", core.Allow},
+	{"stage in a lane is free", "lanes", "a.txt", "git add a.txt", true, "", core.Allow},
+	{"not lanes mode", "", "a.txt", "", false, "leaftwo2", core.Allow},
+	{"apply asks main", "lanes", "a.txt", "git apply p.patch", false, "", core.Ask},
+	{"apply --index blocks a leaf", "lanes", "a.txt", "git apply --index p.patch", false, "leaftwo2", core.Block},
+	{"am blocks a leaf", "lanes", "a.txt", "git am p.mbox", false, "leaftwo2", core.Block},
+	{"mv of a tracked file asks main", "lanes", "a.txt", "git mv a.txt c.txt", false, "", core.Ask},
+	{"mv of a tracked file blocks a leaf", "lanes", "a.txt", "git mv a.txt c.txt", false, "leaftwo2", core.Block},
+	{"add -p asks main", "lanes", "a.txt", "git add -p a.txt", false, "", core.Ask},
+	{"add --patch blocks a leaf", "lanes", "a.txt", "git add --patch a.txt", false, "leaftwo2", core.Block},
+	{"apply --check passes", "lanes", "a.txt", "git apply --check p.patch", false, "leaftwo2", core.Allow},
+	{"apply --stat passes", "lanes", "a.txt", "git apply --stat p.patch", false, "leaftwo2", core.Allow},
+	{"apply --numstat passes", "lanes", "a.txt", "git apply --numstat p.patch", false, "leaftwo2", core.Allow},
+	{"mv -n passes", "lanes", "a.txt", "git mv -n a.txt c.txt", false, "leaftwo2", core.Allow},
+	{"add -n passes", "lanes", "a.txt", "git add -n a.txt", false, "leaftwo2", core.Allow},
+	{"apply in a lane is free", "lanes", "a.txt", "git apply p.patch", true, "leaftwo2", core.Allow},
+	{"not lanes apply", "", "a.txt", "git apply p.patch", false, "leaftwo2", core.Allow},
+	{"not lanes mv", "", "a.txt", "git mv a.txt c.txt", false, "leaftwo2", core.Allow},
+	{"not lanes add -p", "", "a.txt", "git add -p a.txt", false, "leaftwo2", core.Allow},
+}
+
 // TestClaimCheckLanesMode: lanes mode refuses tracked edits and stages in the live checkout only; a lane stays open.
 func TestClaimCheckLanesMode(t *testing.T) {
-	for _, tc := range []struct {
-		name, mode, file, cmd string
-		lane                  bool
-		agent                 string
-		want                  core.Decision
-	}{
-		{"live checkout edit asks main", "lanes", "a.txt", "", false, "", core.Ask},
-		{"live checkout edit blocks a leaf", "lanes", "a.txt", "", false, "leaftwo2", core.Block},
-		{"live checkout stage asks main", "lanes", "a.txt", "git add a.txt", false, "", core.Ask},
-		{"untracked file is free", "lanes", "new.txt", "", false, "", core.Allow},
-		{"same path in a lane is free", "lanes", "a.txt", "", true, "leaftwo2", core.Allow},
-		{"stage in a lane is free", "lanes", "a.txt", "git add a.txt", true, "", core.Allow},
-		{"not lanes mode", "", "a.txt", "", false, "leaftwo2", core.Allow},
-	} {
+	for _, tc := range lanesCases {
 		t.Run(tc.name, func(t *testing.T) {
 			repo := claimFixture(t)
 			t.Setenv("CLAUDE_CONFIG_DIR", repo)
@@ -1052,5 +1072,44 @@ func TestClaimCheckLanesMode(t *testing.T) {
 				t.Errorf("reason %q must name the lane command", r.Reason)
 			}
 		})
+	}
+}
+
+// TestClaimCheckLanesGitFailureWarns: lanes mode fails open when git breaks or the budget ends, with a warning.
+func TestClaimCheckLanesGitFailureWarns(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		arm  func(t *testing.T)
+	}{
+		{"git fails", func(t *testing.T) {
+			if runtime.GOOS == "windows" {
+				t.Skip("shell shim")
+			}
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "git"), []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		}},
+		{"budget expired", func(t *testing.T) { hookBudget(t, "worktree-claim-check", time.Nanosecond) }},
+	} {
+		for _, cmd := range []string{"", "git add a.txt"} {
+			t.Run(tc.name+" "+cmd, func(t *testing.T) {
+				repo := claimFixture(t)
+				t.Setenv("CLAUDE_CONFIG_DIR", repo)
+				t.Setenv(worktreeModeEnv, "lanes")
+				hosttest.WriteRel(t, repo, "a.txt", "edited\n")
+				in := map[string]any{"session_id": "S", "cwd": repo, "tool_name": "Edit",
+					"tool_input": map[string]any{"file_path": filepath.Join(repo, "a.txt")}}
+				if cmd != "" {
+					in["tool_name"], in["tool_input"] = "Bash", map[string]any{"command": cmd}
+				}
+				tc.arm(t)
+				r := ClaimCheck(claimInput(t, in))
+				if r.Decision != core.Allow || !strings.Contains(r.Stderr, "could not check lanes-mode protection") {
+					t.Fatalf("%v %q; want allow with the lanes warning", r.Decision, r.Stderr)
+				}
+			})
+		}
 	}
 }
