@@ -274,6 +274,21 @@ func TestCodexHasJSONCachesOnlyDefinitiveAnswers(t *testing.T) {
 	if !codexHasJSON() {
 		t.Fatal("definitive answer was not cached")
 	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir()) // a fresh disk cache and a fresh process memo
+	codexJSONMu.Lock()
+	codexJSONKnown = false
+	codexJSONMu.Unlock()
+	pathstest.FakeVendor(t, "codex", "echo '  --help only'")
+	if codexHasJSON() {
+		t.Fatal("help without --json reported true")
+	}
+	codexJSONMu.Lock()
+	codexJSONKnown = false
+	codexJSONMu.Unlock()
+	pathstest.FakeVendor(t, "codex", "echo '  --json  print events'")
+	if !codexHasJSON() {
+		t.Fatal("a false answer reached the disk cache; an upgrade would never be re-probed")
+	}
 }
 
 func TestCodexPermissionDenialNamesRealControl(t *testing.T) {
