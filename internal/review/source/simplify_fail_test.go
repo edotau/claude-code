@@ -24,7 +24,7 @@ func BenchmarkCommentViolations(b *testing.B) {
 
 func TestTestLayoutViolations(t *testing.T) {
 	dir := t.TempDir()
-	for _, f := range []string{"ok.go", "bad.go", "plat_unix.go", "other_windows.go"} {
+	for _, f := range []string{"ok.go", "bad.go", "plat_unix.go", "other_windows.go", "bar_x.go", "lin_linux.go", "win_windows_amd64.go", "uni_unix.go", "oth_other.go"} {
 		if err := os.WriteFile(filepath.Join(dir, f), []byte("package x\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -39,6 +39,11 @@ func TestTestLayoutViolations(t *testing.T) {
 		{"ok_regression_test.go", "package x\n\nfunc TestA(t *testing.T) {}\n", "", 1, false},
 		{"ok_regression_test.go", "package x\n\nfunc TestA(t *testing.T) {}\n", "package x\n\nfunc TestA(t *testing.T) {}\n", 0, false},
 		{"plat_test.go", "package x\n", "", 0, false},
+		{"bar_test.go", "package x\n", "", 1, false},
+		{"lin_test.go", "package x\n", "", 0, false},
+		{"win_test.go", "package x\n", "", 0, false},
+		{"uni_test.go", "package x\n", "", 0, false},
+		{"oth_test.go", "package x\n", "", 0, false},
 		{"other_test.go", "package x\n", "", 0, false},
 		{"plat_other_test.go", "package x\n", "", 1, false},
 		{"helpers_test.go", "package x\n", "package x\n", 1, true},

@@ -308,7 +308,24 @@ func testLayoutRules(path, text string) map[string]string {
 
 var testFuncRe = regexp.MustCompile(`(?m)^func Test\w*\(`)
 
-// hasSource reports whether dir holds stem.go or an OS-specific stem_<suffix>.go that a foo_test.go may cover.
+// platformNames are Go's file-name build-constraint GOOS/GOARCH names plus this repo's unix and other source suffixes.
+var platformNames = map[string]bool{}
+
+func init() {
+	for n := range strings.FieldsSeq(`aix android darwin dragonfly freebsd hurd illumos ios js linux nacl netbsd openbsd plan9 solaris
+		wasip1 windows zos unix other 386 amd64 amd64p32 arm armbe arm64 arm64be loong64 mips mipsle mips64 mips64le mips64p32
+		mips64p32le ppc ppc64 ppc64le riscv riscv64 s390 s390x sparc sparc64 wasm`) {
+		platformNames[n] = true
+	}
+}
+
+// isPlatformSuffix is true for GOOS, GOARCH or GOOS_GOARCH.
+func isPlatformSuffix(s string) bool {
+	first, arch, two := strings.Cut(s, "_")
+	return platformNames[first] && (!two || platformNames[arch])
+}
+
+// hasSource reports whether dir holds stem.go or stem_<GOOS|GOARCH|GOOS_GOARCH|unix|other>.go for a test to cover.
 func hasSource(dir, stem string) bool {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -319,7 +336,8 @@ func hasSource(dir, stem string) bool {
 		if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
 			continue
 		}
-		if n == stem+".go" || strings.HasPrefix(n, stem+"_") {
+		suffix, found := strings.CutPrefix(strings.TrimSuffix(n, ".go"), stem+"_")
+		if n == stem+".go" || found && isPlatformSuffix(suffix) {
 			return true
 		}
 	}
