@@ -181,6 +181,20 @@ func TestReadOnlyShell(t *testing.T) {
 	})
 }
 
+func TestReadOnlyRtkPrefix(t *testing.T) {
+	checkReadOnly(t, []roCase{
+		{"rtk git status", true}, {"rtk git -C /abs/repo status --short | wc -l", true},
+		{"rtk git -C /abs/repo log --oneline -5", true}, {"rtk ls", true}, {"rtk grep -rn x .", true}, {"rtk rg x", true},
+		{"rtk read f.go", true}, {"rtk read -n f.go", true}, {"rtk claude-code vault get NAME | wc -c", true},
+		{"rtk find . -name y", false}, {"rtk go test ./...", false}, {"rtk make lint", false}, {"rtk proxy rm x", false},
+		{"rtk run ls", false}, {"rtk rtk git status", false}, {"rtk git -C /abs/repo stash", false},
+		{"rtk git diff --output=/tmp/x", false}, {"rtk git -c core.pager=x log", false}, {"rtk rg --pre cat x", false},
+		{"rtk claude-code vault get --key", false}, {"rtk claude-code vault set X", false},
+		{"rtk read /abs/file > /tmp/x", false}, {"rtk git -C /etc diff -- passwd hosts", false}, {"rtk", false}, {"rtk --help", true}, {"rtk -h", true}, {"git --help", true}, {"claude-code vault --help", true},
+		{"rtk git --help", true}, {"rtk claude-code vault --help", true}, {"rtk git --help x", false},
+	})
+}
+
 // With a Read deny present, a read-only shell command may not reach the denied path, or must be listable to prove it.
 func TestReadOnlyShellHonorsReadDeny(t *testing.T) {
 	p := Permissions{Allow: []Rule{ReadOnlyAllow}, Deny: append([]Rule{{Tool: "Read", Arg: ".env"}}, ReadOnlyDeny...)}
@@ -190,6 +204,7 @@ func TestReadOnlyShellHonorsReadDeny(t *testing.T) {
 		"git show HEAD:.env": Deny, "git log -p": Deny, "rg foo": Deny, "grep -r foo .": Deny, "grep foo a.go": Allow,
 		"sed -n 1,3p .env": Deny, "claude-code agents find x": Deny, "claude-code memory recall x": Allow,
 		"go doc fmt": Allow, "git log --stat | head -3": Allow,
+		"rtk read .env": Deny, "rtk read README.md": Allow, "rtk git -C .env status": Deny, "rtk git -C d status": Allow,
 	} {
 		if got := p.Decide("Bash", cmd); got != want {
 			t.Errorf("%q = %v, want %v", cmd, got, want)
