@@ -236,6 +236,7 @@ func receiptFix(in *core.Input, agentID string, lr *leafRead) (core.Result, bool
 	st := relayAgent(in, lr)
 	m, hookRan := loadRelayRun(agentID)
 	if hookRan {
+		lr.capHold(m.Started)
 		if rec, ok := hookJob(*lr, m.Output); ok {
 			return hookJobReceipt(in, rec, m.Output, *lr)
 		}
@@ -304,7 +305,7 @@ func missingIDReceipt(in *core.Input, lr *leafRead, st string) (core.Result, boo
 	if len(tied) > 0 {
 		return dispatchReceipts(in, lr, tied, "looked up by session, agent, brief and launch time")
 	}
-	if running := runningAfter(recs); len(running) > 0 {
+	if running := runningAfter(recs, lr.holdUntil); len(running) > 0 {
 		if res, held := dispatchReceipts(in, lr, running, "a running dispatch of this agent launched after the relay's ask"); held {
 			return res, true
 		}
@@ -325,8 +326,10 @@ func missingIDReceipt(in *core.Input, lr *leafRead, st string) (core.Result, boo
 	return res, false
 }
 
-// runningAfter keeps the records still running within leafStopMaxWait.
-func runningAfter(recs []agent.Record) []agent.Record {
+func runningAfter(recs []agent.Record, holdUntil time.Time) []agent.Record {
+	if holdExpired(holdUntil) {
+		return nil
+	}
 	return slices.DeleteFunc(slices.Clone(recs), func(r agent.Record) bool {
 		return !jobRunning(r) || time.Since(r.Time) >= leafStopMaxWait
 	})
@@ -345,14 +348,19 @@ func labelUnverified(msg string) string {
 
 const unverifiedLabel = "unverified (written by the relay): "
 
-// askRecords is this session's records of agentName launched at or after the earliest ask, newest first.
-func askRecords(times []time.Time, agentName string) []agent.Record {
+func firstAskAt(times []time.Time) time.Time {
 	var first time.Time
 	for _, at := range times {
 		if !at.IsZero() && (first.IsZero() || at.Before(first)) {
 			first = at
 		}
 	}
+	return first
+}
+
+// askRecords is this session's records of agentName launched at or after the earliest ask, newest first.
+func askRecords(times []time.Time, agentName string) []agent.Record {
+	first := firstAskAt(times)
 	if first.IsZero() {
 		return nil
 	}
@@ -385,7 +393,7 @@ func dispatchReceipt(rec agent.Record, how, output string, lr leafRead) (receipt
 			"is not attached (`claude-code agents result %s`).", rec.ID, how, err, rec.ID)}, nil
 	case !jobRunning(rec):
 		return endedNote(rec, how, output), nil
-	case time.Since(rec.Time) >= leafStopMaxWait:
+	case time.Since(rec.Time) >= leafStopMaxWait || holdExpired(lr.holdUntil):
 		return receipt{note: fmt.Sprintf("NOTE: dispatch %s (%s) still running at the %s limit; its result is not in this report "+
 			"(`claude-code agents result %s`).", rec.ID, how, leafStopMaxWait, rec.ID)}, nil
 	}
@@ -419,7 +427,8 @@ func attachAll(in *core.Input, rs []receipt) core.Result {
 
 // relayRunPending is the hook's launch with no record yet: its output decides, else its record, else a hold.
 func relayRunPending(in *core.Input, lr leafRead, m relayRun) (core.Result, bool) {
-	if time.Since(m.Started) >= leafStopMaxWait {
+	lr.capHold(m.Started)
+	if holdExpired(lr.holdUntil) {
 		return missingIDLimit(in)
 	}
 	out := readEnds(m.Output, resultCap)
@@ -521,6 +530,7 @@ func runBriefLine(in *core.Input, lr leafRead, agentID string, words []string) (
 		_ = os.Remove(relayRunPath(agentID)) // nothing started: a later hand-back may try again
 		return fail(err)
 	}
+	lr.capHold(m.Started)
 	if rec, ok := hookJob(lr, m.Output); ok {
 		return hookJobReceipt(in, rec, m.Output, lr)
 	}

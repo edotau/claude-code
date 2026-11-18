@@ -144,7 +144,7 @@ func Stop(in *core.Input) core.Result {
 
 // The leaf-stop gate: no stop while its dispatch runs; an external-agent leaf needs a ran-on line in a tool result.
 
-// leafStopMaxWait bounds the wait from the dispatch's start, so a hung job cannot trap a leaf.
+// leafStopMaxWait keeps a hung dispatch or a fresh sibling from trapping a leaf.
 const leafStopMaxWait = 2 * time.Hour
 
 // loadDispatch reads state/dispatch/<id>.json by its exact id (LoadRecord also takes a prefix); tests replace it.
@@ -173,6 +173,24 @@ type leafRead struct {
 	openErr    error     // the transcript could not be opened
 	scanErr    error     // reading stopped early: scan is partial and files are dropped
 	until      time.Time // Handback's deadline for waiting on a running job; zero never waits
+	holdUntil  time.Time // the relay-wide cap; zero leaves only the record's cap
+}
+
+func (lr *leafRead) capHold(start time.Time) {
+	if start.IsZero() {
+		return
+	}
+	deadline := start.Add(leafStopMaxWait)
+	if lr.holdUntil.IsZero() || deadline.Before(lr.holdUntil) {
+		lr.holdUntil = deadline
+	}
+	if !lr.until.IsZero() && deadline.Before(lr.until) {
+		lr.until = deadline
+	}
+}
+
+func holdExpired(deadline time.Time) bool {
+	return !deadline.IsZero() && time.Until(deadline) <= 0
 }
 
 // readLeaf reads the transcript once; an empty path reads nothing and reports an open error.
@@ -222,6 +240,7 @@ func leafGate(in *core.Input, agentID string, lr leafRead) (core.Result, bool) {
 		return core.Result{}, false
 	}
 	lr.recs = loadRecords(lr.ids)
+	lr.capHold(firstAskAt(lr.scan.askTimes))
 	expired, block := liveDispatchVerdict(in, &lr, agentID)
 	if block {
 		return preserveReport(in, agentID, lr, expired), true
@@ -275,7 +294,7 @@ func liveDispatchVerdict(in *core.Input, lr *leafRead, agentID string) (expired 
 			waited[i] = true
 			continue
 		}
-		res, block := leafStopVerdict(agentID, rec, lr.scan.heldJobs)
+		res, block := leafStopVerdict(agentID, rec, lr.scan.heldJobs, lr.holdUntil)
 		if block { // keep the finished answers: the hold saves them and the later pass attaches them
 			lr.recs, lr.held = recs, endedReceipts(recs, waited)
 			return res, true
@@ -340,8 +359,8 @@ func pidReused(rec agent.Record) bool {
 }
 
 // leafStopVerdict blocks until the wait limit, then allows the stop with a visible note.
-func leafStopVerdict(agentID string, rec agent.Record, held []string) (core.Result, bool) {
-	if time.Since(rec.Time) >= leafStopMaxWait {
+func leafStopVerdict(agentID string, rec agent.Record, held []string, holdUntil time.Time) (core.Result, bool) {
+	if time.Since(rec.Time) >= leafStopMaxWait || holdExpired(holdUntil) {
 		return core.Result{SystemMessage: fmt.Sprintf("leaf %s stopped with dispatch %s still running (%s limit reached)", agentID, rec.ID, leafStopMaxWait)}, false
 	}
 	if slices.Contains(held, rec.ID) {
@@ -911,10 +930,15 @@ func askTask(seg string) (name, task string) {
 	return name, normalizeTask(task)
 }
 
-// withoutRecall is the prompt normalized, minus the memory-recall block `ask` appends to a brief.
 func withoutRecall(prompt string) string {
-	before, _, _ := strings.Cut(prompt, "<memory-recall>")
-	return normalizeTask(before)
+	const footer = "\nLoad one with: claude-code memory show <id>\n</memory-recall>"
+	// Match AgentRecall's suffix, not a marker mentioned in the task.
+	if strings.HasSuffix(prompt, footer) {
+		if i := strings.LastIndex(prompt, "\n\n<memory-recall>\n- "); i >= 0 {
+			prompt = prompt[:i]
+		}
+	}
+	return normalizeTask(prompt)
 }
 
 func normalizeTask(s string) string { return strings.Join(strings.Fields(s), " ") }

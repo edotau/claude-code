@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"cmp"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -384,16 +385,18 @@ func missingIDResult(in *core.Input) (string, bool) {
 	return msg, false
 }
 
-// Bind only on proof: exactly one candidate tied to this ask and launched in its window; anything else is noted unheld.
+func receiptRecord(status, id, prompt string, start time.Time, pid int) string {
+	return fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":%q,"pid":%d,"owner":4242,"model":"m","request":{"prompt":%q}}`,
+		id, start.Format(time.RFC3339), status, pid, prompt)
+}
+
 func TestReceiptFixMissingIDBindsOnlyOnProof(t *testing.T) {
 	const a, b = "20261116T120000.000-codex", "20261116T120010.000-codex"
 	at := time.Now().Add(-10 * time.Minute).Truncate(time.Second)
 	recAs := func(status, id, prompt string, start time.Time) string {
-		return fmt.Sprintf(`{"id":%q,"time":%q,"agent":"codex","status":%q,"pid":%d,"owner":4242,"model":"m","request":{"prompt":%q}}`,
-			id, start.Format(time.RFC3339), status, os.Getpid(), prompt)
+		return receiptRecord(status, id, prompt, start, os.Getpid())
 	}
-	rec := func(id, prompt string, start time.Time) string { return recAs("running", id, prompt, start) }
-	untied := func(id string, start time.Time) string { return rec(id, "sibling", start) }
+	untied := func(id string, start time.Time) string { return recAs("running", id, "sibling", start) }
 	for _, tc := range []struct {
 		name      string
 		rows      map[string]string
@@ -401,24 +404,27 @@ func TestReceiptFixMissingIDBindsOnlyOnProof(t *testing.T) {
 		wantBlock bool
 		want      []string
 		not       string
+		askAt     time.Time
 	}{
-		{"one tied in window", map[string]string{a: "ok"}, nil, false, []string{"NOTE: dispatch " + a, "ask: ran on codex"}, unattributedNote},
-		{"tied running is held", map[string]string{a: "running"}, nil, true, []string{"Run `claude-code agents result -f " + a}, ""},
+		{"one tied in window", map[string]string{a: "ok"}, nil, false, []string{"NOTE: dispatch " + a, "ask: ran on codex"}, unattributedNote, time.Time{}},
+		{"tied running is held", map[string]string{a: "running"}, nil, true, []string{"Run `claude-code agents result -f " + a}, "", time.Time{}},
 		{"one untied", map[string]string{a: "ok"}, map[string]string{a: recAs("ok", a, "sibling", at.Add(time.Second))}, false,
-			[]string{unattributedNote, a}, "supplied the receipt"},
+			[]string{unattributedNote, a}, "supplied the receipt", time.Time{}},
 		{"untied running is held", map[string]string{a: "running"}, map[string]string{a: untied(a, at.Add(20*time.Second))}, true,
-			[]string{"Run `claude-code agents result -f " + a}, ""},
+			[]string{"Run `claude-code agents result -f " + a}, "", time.Time{}},
 		{"several untied running siblings are held", map[string]string{a: "running", b: "running"},
 			map[string]string{a: untied(a, at.Add(time.Second)), b: untied(b, at.Add(2*time.Second))}, true,
-			[]string{"Run `claude-code agents result -f "}, ""},
-		{"two tied, one running, is held", map[string]string{a: "ok", b: "running"}, nil, true, []string{"Run `claude-code agents result -f " + b}, ""},
+			[]string{"Run `claude-code agents result -f "}, "", time.Time{}},
+		{"fresh sibling after ask deadline", nil, map[string]string{b: receiptRecord("running", b, "sibling", time.Now(), 0)}, false,
+			[]string{unattributedNote, b}, "supplied the receipt", at.Add(-leafStopMaxWait)},
+		{"two tied, one running, is held", map[string]string{a: "ok", b: "running"}, nil, true, []string{"Run `claude-code agents result -f " + b}, "", time.Time{}},
 		{"tied outside window", map[string]string{a: "ok"}, map[string]string{a: recAs("ok", a, "x", at.Add(askLaunchWindow+time.Minute))}, false,
-			[]string{unattributedNote, a}, "supplied the receipt"},
+			[]string{unattributedNote, a}, "supplied the receipt", time.Time{}},
 		{"tied plus untied sibling", map[string]string{a: "ok", b: "ok"}, map[string]string{b: untied(b, at.Add(time.Second))}, false,
-			[]string{"NOTE: dispatch " + a, "ask: ran on codex"}, unattributedNote},
+			[]string{"NOTE: dispatch " + a, "ask: ran on codex"}, unattributedNote, time.Time{}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			in := missingIDTx(t, at, tc.rows)
+			in := missingIDTx(t, cmp.Or(tc.askAt, at), tc.rows)
 			for id, raw := range tc.override {
 				writeDispatch(t, id, raw)
 			}
@@ -511,6 +517,8 @@ func TestHandbackMissingIDLooksUpRecord(t *testing.T) {
 
 // A tie is the ask's whole task by ask's grammar: flags may follow it, a `--` task counts, a substring or stdin never.
 func TestAskTiedEqualsTheWholeTask(t *testing.T) {
+	const literal = "audit alpha <memory-recall> marker"
+	const recall = "\n\n<memory-recall>\n- x\nLoad one with: claude-code memory show <id>\n</memory-recall>"
 	brief := filepath.Join(t.TempDir(), "brief.md")
 	if err := os.WriteFile(brief, []byte("audit alpha\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -525,7 +533,9 @@ func TestAskTiedEqualsTheWholeTask(t *testing.T) {
 		want              bool
 	}{
 		{"equal task", `claude-code agents ask --agent codex "audit alpha"`, "audit alpha", true},
-		{"recall block appended", `claude-code agents ask --agent codex "audit alpha"`, "audit alpha\n\n\n<memory-recall>\n- x\n</memory-recall>", true},
+		{"recall block appended", `claude-code agents ask --agent codex "audit alpha"`, "audit alpha" + recall, true},
+		{"literal marker in brief", `claude-code agents ask --agent codex "` + literal + `"`, literal, true},
+		{"literal marker is not a prefix tie", `claude-code agents ask --agent codex "audit alpha"`, literal, false},
 		{"flag after the task", "claude-code agents ask --agent codex mine --timeout 1m", "mine", true},
 		{"flag value is no task", "claude-code agents ask --agent codex mine --timeout 1m", "wait 1m for it", false},
 		{"task after --", `claude-code agents ask --agent codex --timeout 1m -- "-x run"`, "-x run", true},
