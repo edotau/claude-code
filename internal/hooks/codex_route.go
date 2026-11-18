@@ -2,6 +2,7 @@ package hooks
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"os"
@@ -26,12 +27,20 @@ func CodexAgentRoute(in *core.Input) core.Result {
 	}
 	updated := in.CloneToolInput()
 	task := strings.TrimSpace(in.Nested("tool_input", "message"))
-	if updated == nil || task == "" || codexSpawnPinned(in) {
+	if updated == nil || task == "" {
 		return core.Result{}
 	}
-	cell, signal, ok := codexSpawnCell(in, task)
+	// a fresh child has no parent context, so its brief carries the memory pointers a Claude dispatch gets
+	recall, _ := briefRecall(context.Background(), in.SessionID, task, false)
+	if recall != "" {
+		updated["message"] = in.Nested("tool_input", "message") + recall
+	}
+	cell, signal, ok := codexSpawnRoute(in, task)
 	if !ok {
-		return core.Result{}
+		if recall == "" {
+			return core.Result{}
+		}
+		return core.Result{UpdatedInput: updated}
 	}
 	updated["model"] = cell.Model
 	if cell.Effort != "" {
@@ -41,6 +50,14 @@ func CodexAgentRoute(in *core.Input) core.Result {
 		RequestedModel: cell.Model, Effort: cell.Effort, Signal: signal})
 	res.UpdatedInput = updated
 	return res
+}
+
+// codexSpawnRoute is the router's cell for an unpinned spawn; ok=false leaves model and effort alone.
+func codexSpawnRoute(in *core.Input, task string) (router.Cell, string, bool) {
+	if codexSpawnPinned(in) {
+		return router.Cell{}, "", false
+	}
+	return codexSpawnCell(in, task)
 }
 
 func codexSpawnTool(name string) bool { return strings.HasSuffix(name, "spawn_agent") }

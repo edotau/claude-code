@@ -539,3 +539,43 @@ func TestCodexRouteMatchesAcrossSpellings(t *testing.T) {
 		}
 	}
 }
+
+// A fresh child's brief carries the recall block for a store match, routed or not; no match leaves it untouched.
+func TestCodexAgentRouteAppendsMemoryRecallToFreshBrief(t *testing.T) {
+	for _, tc := range []struct {
+		name         string
+		edit         func(map[string]any)
+		wantModelSet bool
+	}{
+		{"routed", func(map[string]any) {}, true},
+		{"pinned model", func(a map[string]any) { a["model"] = "user-model" }, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			setupCodexRoute(t)
+			seedHomeRecallBlock(t, 1)
+			args := map[string]any{"fork_turns": "none", "message": recallPrompt}
+			tc.edit(args)
+			got := runCodexRoute(t, codexRoutePayload(args))
+			if msg, _ := got["message"].(string); !strings.HasPrefix(msg, recallPrompt) || !strings.Contains(msg, "<memory-recall>") {
+				t.Fatalf("message = %q, want the task followed by a recall block", msg)
+			}
+			if _, set := got["reasoning_effort"]; set != tc.wantModelSet {
+				t.Errorf("reasoning_effort set = %v, want %v", set, tc.wantModelSet)
+			}
+		})
+	}
+	t.Run("forked child gets none", func(t *testing.T) {
+		setupCodexRoute(t)
+		seedHomeRecallBlock(t, 1)
+		if got := runCodexRoute(t, codexRoutePayload(map[string]any{"fork_turns": "all", "message": recallPrompt})); got != nil {
+			t.Fatalf("forked spawn rewritten: %#v", got)
+		}
+	})
+	t.Run("empty store", func(t *testing.T) {
+		setupCodexRoute(t)
+		got := runCodexRoute(t, codexRoutePayload(map[string]any{"fork_turns": "none", "message": recallPrompt}))
+		if msg, _ := got["message"].(string); msg != recallPrompt {
+			t.Fatalf("message = %q, want it unchanged", msg)
+		}
+	})
+}

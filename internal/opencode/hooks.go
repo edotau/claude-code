@@ -287,8 +287,8 @@ func (h *hookHost) after(res wire.Result) {
 	h.mu.Lock()
 	acted := len(h.seen) > 0
 	h.mu.Unlock()
-	// no watched tool call ran, so there is nothing to format, tick or save (about 1 s per dispatch)
-	if !acted {
+	// a run with no watched call and no answer has nothing to format, tick or save (about 1 s per dispatch)
+	if !acted && strings.TrimSpace(res.Answer) == "" {
 		return
 	}
 	// The child has exited, so a Block has nothing left to stop; fire has logged it.

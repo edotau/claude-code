@@ -2,6 +2,7 @@ package opencode
 
 import (
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,7 +11,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -115,5 +118,48 @@ func TestHookLogConcurrentAppendersAndLockTimeout(t *testing.T) {
 	})
 	if after, _ := os.ReadFile(path); !ran || err != nil || !strings.HasSuffix(string(after), "HELD\n") {
 		t.Fatalf("held lock: ran=%v err=%v, want the line appended after the wait", ran, err)
+	}
+}
+
+// afterHost is a host whose Stop and SessionEnd hooks only count their runs.
+func afterHost(seen map[string]bool) (*hookHost, *[]string) {
+	var ran []string
+	bind := func(event string) hooks.Bound {
+		return hooks.Bound{Spec: settings.EventSpec{Name: "memory-update", Event: event, Budget: time.Second},
+			Run: func(*core.Input) core.Result { ran = append(ran, event); return core.Result{} }}
+	}
+	h := &hookHost{bound: []hooks.Bound{bind(settings.EventStop), bind(settings.EventSessionEnd)},
+		session: "s", log: io.Discard, seen: seen}
+	return h, &ran
+}
+
+// TestAfterRunsMemoryUpdateOnlyWhenThereIsSomethingToSave pins an answer or a watched call as the trigger.
+func TestAfterRunsMemoryUpdateOnlyWhenThereIsSomethingToSave(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		seen   map[string]bool
+		answer string
+		want   int
+	}{
+		{"tool-free answer", map[string]bool{}, "OK", 2},
+		{"empty answer, no calls", map[string]bool{}, "  \n", 0},
+		{"watched call, empty answer", map[string]bool{"c1": true}, "", 2},
+		{"watched call and answer", map[string]bool{"c1": true}, "done", 2},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h, ran := afterHost(tc.seen)
+			h.after(wire.Result{Answer: tc.answer})
+			if len(*ran) != tc.want {
+				t.Errorf("hooks run = %v, want %d", *ran, tc.want)
+			}
+		})
+	}
+}
+
+// BenchmarkAfterToolFree measures the session-end phase of a tool-free run that answered.
+func BenchmarkAfterToolFree(b *testing.B) {
+	h, _ := afterHost(map[string]bool{})
+	for b.Loop() {
+		h.after(wire.Result{Answer: "OK"})
 	}
 }

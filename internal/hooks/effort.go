@@ -124,19 +124,27 @@ type effortPlan struct {
 
 // recall appends the memory-recall block to the prompt, or returns it as a note (direct ask run or auto mode).
 func (e *effortPlan) recall(ctx context.Context, in *core.Input, promptField, task string, asNote bool) string {
-	recallBlock, _ := memory.AgentRecall(ctx, in.SessionID, task)
+	suffix, note := briefRecall(ctx, in.SessionID, task, asNote)
+	if suffix != "" {
+		e.updated[promptField] = task + suffix
+		e.changed = true
+	}
+	return note
+}
+
+// briefRecall is a dispatch's memory-recall block, as text to append to its brief or, with asNote, a context note.
+func briefRecall(ctx context.Context, session, task string, asNote bool) (suffix, note string) {
+	recallBlock, _ := memory.AgentRecall(ctx, session, task)
 	if recallBlock == "" {
-		return ""
+		return "", ""
 	}
-	if asNote {
-		if recallBlock = freshPointers(in.SessionID, recallBlock); recallBlock == "" {
-			return ""
-		}
-		return "memory-recall for this dispatch (paste into the brief if relevant):" + recallBlock
+	if !asNote {
+		return recallBlock, ""
 	}
-	e.updated[promptField] = task + recallBlock
-	e.changed = true
-	return ""
+	if recallBlock = freshPointers(session, recallBlock); recallBlock == "" {
+		return "", ""
+	}
+	return "", "memory-recall for this dispatch (paste into the brief if relevant):" + recallBlock
 }
 
 // freshPointers drops pointer lines already noted this session and records the rest; "" when none are new.
