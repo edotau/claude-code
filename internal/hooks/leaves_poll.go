@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -109,7 +110,7 @@ func relayBash(in *core.Input) (core.Result, bool) {
 			shown := textutil.Truncate(strings.Join(strings.Fields(textutil.RedactSecrets(seg)), " "), 60)
 			return core.Result{Decision: core.Block, Reason: fmt.Sprintf("relay: refused `%s`: %s; run only "+
 				"`claude-code <agent> ask ... - < /absolute/brief/file` (no cd: use --workdir), read-only commands "+
-				"(git diff, grep, ls, cat) and go build|vet|test or gofmt -l.", shown, rule)}, true
+				"(git diff, grep, ls, cat), or: "+relayGoShapes+".", shown, rule)}, true
 		}
 	}
 	return core.Result{}, false
@@ -117,9 +118,15 @@ func relayBash(in *core.Input) (core.Result, bool) {
 
 // relayRefusal names the rule a relay's Bash segment breaks; "" when it is allowed.
 func relayRefusal(seg string) string {
+	if slices.ContainsFunc(shell.Tokens(seg), relayGoEnvRe().MatchString) {
+		return "sets a Go environment variable (GOFLAGS, GOENV, GOWORK, GOBIN, GOCACHE or GOTOOLCHAIN)"
+	}
 	if toks := relayWords(seg); len(toks) == 0 || filepath.Base(toks[0]) != "claude-code" {
-		if agent.ReadOnlyShell(seg) || relayGoGate(seg) {
+		if agent.ReadOnlyShell(seg) {
 			return ""
+		}
+		if rule, isGo := relayGoGate(seg); isGo {
+			return rule
 		}
 		return "not a `claude-code` command"
 	}
@@ -130,30 +137,88 @@ func relayRefusal(seg string) string {
 	return ""
 }
 
-// relayGoFlags write files or run other programs, so a relay's go gate refuses them.
-var relayGoFlags = []string{"-o", "-c", "-exec", "-toolexec", "-vettool", "-overlay", "-coverprofile", "-cpuprofile",
-	"-memprofile", "-blockprofile", "-mutexprofile", "-trace", "-outputdir", "-fuzz", "-w", "-d", "-s"}
+// relayGoEnvFlags write files or run other programs; a GOFLAGS carrying one is refused (leading dashes dropped).
+var relayGoEnvFlags = []string{"o", "c", "exec", "toolexec", "vettool", "overlay", "coverprofile", "cpuprofile", "memprofile",
+	"blockprofile", "mutexprofile", "trace", "outputdir", "fuzz", "json", "modfile", "args"}
 
-// relayGoGate is `[rtk] go build|vet|test` or `gofmt -l`: a check of a returned diff that writes and runs nothing else.
-func relayGoGate(seg string) bool {
+// relayGoEnvRe is an inline assignment of a Go variable that can redirect what the toolchain runs or writes.
+var relayGoEnvRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(GOFLAGS|GOENV|GOWORK|GOBIN|GOCACHE|GOTOOLCHAIN)=`)
+})
+
+// relayGoValue and relayGoBool are the flags a relay's go gate allows, by subcommand; a value flag takes the next word.
+var relayGoValue = map[string][]string{"build": {"tags"}, "vet": {"tags"},
+	"test": {"run", "count", "timeout", "shuffle", "list", "tags"}}
+var relayGoBool = map[string][]string{"build": {"race", "v"}, "vet": {"race", "v"},
+	"test": {"v", "race", "short", "failfast", "cover"}}
+
+// relayGoShapes names the allowed go shapes in one line for the refusal message.
+const relayGoShapes = "go build|vet <packages> [-tags -race -v], go test <packages> [-run -count -v -race -short -timeout " +
+	"-failfast -shuffle -list -tags -cover], go build ./... or -o /dev/null, gofmt -l <paths>"
+
+// relayGoGate judges `[rtk] go build|vet|test` and `gofmt -l`: !isGo for others, else rule is "" or why not.
+func relayGoGate(seg string) (rule string, isGo bool) {
 	toks := shell.Tokens(seg)
 	if len(toks) > 0 && toks[0] == "rtk" {
 		toks = toks[1:]
 	}
 	if len(toks) < 2 || strings.ContainsAny(seg, "$`<>") {
-		return false
+		return "", false
 	}
-	isGo := toks[0] == "go" && slices.Contains([]string{"build", "vet", "test"}, toks[1])
-	if !isGo && toks[0] != "gofmt" {
-		return false
+	if toks[0] == "gofmt" {
+		if slices.Contains(toks[1:], "-l") && !slices.ContainsFunc(toks[1:], func(a string) bool { return strings.HasPrefix(a, "-") && a != "-l" }) {
+			return "", true
+		}
+		return "gofmt is allowed only as `gofmt -l <paths>`", true
 	}
-	for _, a := range toks[1:] {
-		name, _, _ := strings.Cut(a, "=")
-		if slices.Contains(relayGoFlags, name) && (isGo || name != "-s") {
-			return false
+	if toks[0] != "go" || !slices.Contains([]string{"build", "vet", "test"}, toks[1]) {
+		return "", false
+	}
+	if rule := relayGoEnvRule(); rule != "" {
+		return rule, true
+	}
+	return relayGoArgs(toks[1], toks[2:]), true
+}
+
+// relayGoEnvRule refuses a GOFLAGS this process sees with a refused flag; the relay shell's env is invisible.
+func relayGoEnvRule() string {
+	for _, f := range strings.Fields(os.Getenv("GOFLAGS")) {
+		name, _, _ := strings.Cut(strings.TrimLeft(f, "-"), "=")
+		if slices.Contains(relayGoEnvFlags, name) {
+			return "the inherited GOFLAGS carries -" + name
 		}
 	}
-	return isGo || slices.Contains(toks[1:], "-l")
+	return ""
+}
+
+// relayGoArgs is "" when args are package patterns and allowed flags only, and a build cannot drop a binary.
+func relayGoArgs(sub string, args []string) string {
+	var pkgs []string
+	devNull := false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if !strings.HasPrefix(a, "-") {
+			pkgs = append(pkgs, a)
+			continue
+		}
+		name, _, hasVal := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(a, "-"), "-"), "=")
+		switch {
+		case sub == "build" && name == "o" && !hasVal && i+1 < len(args) && args[i+1] == "/dev/null":
+			devNull = true
+			i++
+		case slices.Contains(relayGoValue[sub], name):
+			if !hasVal {
+				i++
+			}
+		case slices.Contains(relayGoBool[sub], name):
+		default:
+			return "flag " + a + " is not allowed (or it writes files or runs another program)"
+		}
+	}
+	if sub == "build" && !devNull && (len(pkgs) == 0 || len(pkgs) == 1 && !strings.Contains(pkgs[0], "...")) {
+		return "a go build of one package may drop a binary; build ./... or add -o /dev/null"
+	}
+	return ""
 }
 
 // pollGate (PreToolUse Bash) refuses a poll of a finished job already handed back, and a second live poller.

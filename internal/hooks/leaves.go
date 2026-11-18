@@ -1001,35 +1001,44 @@ func askBound(asks []askCall, rec agent.Record) bool {
 	})
 }
 
-// askTied: rec has the ask's agent and a prompt holding its brief file (else its last word); no prompt ties nothing.
+// askTied: rec has the ask's agent and a prompt equal to its task (argv, else brief file); no task ties nothing.
 func askTied(cmd string, rec agent.Record) bool {
 	for _, seg := range shell.Segments(cmd) {
-		words := agentCommand(relayWords(seg))
-		_, file, err := relayInput(seg)
-		if err != nil || len(words) < 3 {
-			continue
-		}
-		name, prompt := "", words[len(words)-1]
-		if file != "" {
-			b, _ := os.ReadFile(file)
-			words, prompt = words[:len(words)-2], string(b)
-		}
-		for i, w := range words {
-			if v, ok := strings.CutPrefix(w, "--agent="); ok {
-				name = v
-			} else if w == "--agent" && i+1 < len(words) {
-				name = words[i+1]
-			}
-		}
-		if name == "" && externalTypes[words[0]] {
-			name = words[0]
-		}
-		if prompt = strings.TrimSpace(prompt); name == rec.Agent && prompt != "" && strings.Contains(rec.Request.Prompt, prompt) {
+		name, task := askTask(seg)
+		if task != "" && name == rec.Agent && task == normalizeTask(rec.Request.Prompt) {
 			return true
 		}
 	}
 	return false
 }
+
+// askTask is the ask segment's agent and normalized task by ask's own grammar; "" task: stdin or none, nothing to tie.
+func askTask(seg string) (name, task string) {
+	full := relayWords(seg)
+	words := agentCommand(full)
+	_, file, err := relayInput(seg)
+	if err != nil || len(words) < 3 || askVerb(full) == "" {
+		return "", ""
+	}
+	if file != "" {
+		words = words[:len(words)-2]
+	}
+	a, ok := ParseAskWords(words[2:])
+	if !ok {
+		return "", ""
+	}
+	name, task = a.Value("agent"), a.Prompt()
+	if name == "" && externalTypes[words[0]] {
+		name = words[0]
+	}
+	if file != "" {
+		b, _ := os.ReadFile(file)
+		task = string(b)
+	}
+	return name, normalizeTask(task)
+}
+
+func normalizeTask(s string) string { return strings.Join(strings.Fields(s), " ") }
 
 var hookDenyRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?i)PreToolUse[^\n]*(?:hook error|denied|blocked)|"permissionDecision"\s*:\s*"deny"`)

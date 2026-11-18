@@ -173,6 +173,39 @@ func TestRelayReadOnlyAndGates(t *testing.T) {
 	}
 }
 
+// A relay's go gate is an explicit shape: packages and a short flag list, nothing that writes or runs a program.
+func TestRelayGoGateShapes(t *testing.T) {
+	cases := map[string]bool{
+		"go test ./internal/x/ -run TestY -count=1": true, "go test -race -short -timeout 2m -failfast -shuffle on ./...": true,
+		"go test -v -tags integration -cover -list . ./internal/x": true, "go vet ./...": true, "go vet -tags x ./a ./b": true,
+		"go build ./...": true, "go build ./a ./b": true, "go build -o /dev/null ./cmd/claude-code": true, "gofmt -l file.go": true,
+		"ls internal": true, "go doc fmt": true,
+		"go test ./x -args -test.cpuprofile=/outside/file": false, "go test ./x -args": false, "GOFLAGS=-toolexec=x go test ./...": false,
+		"GOENV=/x go vet ./...": false, "GOCACHE=/x go build ./...": false, "env GOFLAGS=-exec=x go test ./...": false,
+		"go build ./cmd/claude-code": false, "go build": false, "go build -o /tmp/x ./...": false, "go test -c ./x": false,
+		"go test -exec ./x ./...": false, "go test -toolexec=x ./...": false, "go test -overlay=o.json ./...": false,
+		"go vet -vettool=./x ./...": false, "go test -o /tmp/x ./x": false, "go test -coverprofile=c.out ./x": false,
+		"go test -cpuprofile cpu.out ./x": false, "go test -memprofile=m ./x": false, "go test -trace=t ./x": false,
+		"go test -json ./x": false, "go test -modfile=x.mod ./x": false, "go test --exec=x ./x": false,
+		"gofmt -w f.go": false, "gofmt -d f.go": false, "gofmt -l -w f.go": false, "gofmt f.go": false,
+	}
+	for cmd, want := range cases {
+		r := Handback(bashHook("PreToolUse", relayTx(t), "a1", "t2", cmd, ""))
+		if got := r.Decision != core.Block; got != want {
+			t.Errorf("%q allowed=%v, want %v: %s", cmd, got, want, r.Reason)
+		}
+	}
+	t.Setenv("GOFLAGS", "-mod=readonly -toolexec=/x/y")
+	r := Handback(bashHook("PreToolUse", relayTx(t), "a1", "t2", "go test ./...", ""))
+	if r.Decision != core.Block || !strings.Contains(r.Reason, "inherited GOFLAGS") || !strings.Contains(r.Reason, "go test <packages>") {
+		t.Errorf("inherited GOFLAGS: %+v, want a block naming it and the allowed shapes", r)
+	}
+	t.Setenv("GOFLAGS", "-mod=readonly")
+	if r := Handback(bashHook("PreToolUse", relayTx(t), "a1", "t2", "go test ./...", "")); r.Decision == core.Block {
+		t.Errorf("harmless GOFLAGS: %+v, want allowed", r)
+	}
+}
+
 // A relay's own successful `agents result|wait <id>` after a backgrounded ask binds an id whose record is its ask's.
 func TestHandbackBindsOwnPoll(t *testing.T) {
 	const id = "20261117T101000.000-opencode"

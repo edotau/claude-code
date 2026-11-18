@@ -499,3 +499,35 @@ func TestHandbackMissingIDLooksUpRecord(t *testing.T) {
 		t.Fatalf("got %+v blocked=%v, want the hand-back through with the looked-up receipt and the report", r, blocked)
 	}
 }
+
+// A tie is the ask's whole task by ask's grammar: flags may follow it, a `--` task counts, a substring or stdin never.
+func TestAskTiedEqualsTheWholeTask(t *testing.T) {
+	brief := filepath.Join(t.TempDir(), "brief.md")
+	if err := os.WriteFile(brief, []byte("audit alpha\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	rec := func(prompt string) agent.Record {
+		var r agent.Record
+		r.Agent, r.Request.Prompt = "codex", prompt
+		return r
+	}
+	for _, c := range []struct {
+		name, cmd, prompt string
+		want              bool
+	}{
+		{"equal task", `claude-code agents ask --agent codex "audit alpha"`, "audit alpha", true},
+		{"flag after the task", "claude-code agents ask --agent codex mine --timeout 1m", "mine", true},
+		{"flag value is no task", "claude-code agents ask --agent codex mine --timeout 1m", "wait 1m for it", false},
+		{"task after --", `claude-code agents ask --agent codex --timeout 1m -- "-x run"`, "-x run", true},
+		{"whitespace normalized", "claude-code codex ask 'a   b'", "a b", true},
+		{"substring of the prompt", "claude-code agents ask --agent codex audit", "audit alpha", false},
+		{"stdin task", "claude-code agents ask --agent codex -", "-", false},
+		{"brief file equal", "claude-code agents ask --agent codex --background - < " + brief, "audit alpha", true},
+		{"brief file is only a substring", "claude-code agents ask --agent codex - < " + brief, "audit alpha beta", false},
+		{"other agent", `claude-code agents ask --agent gemini "audit alpha"`, "audit alpha", false},
+	} {
+		if got := askTied(c.cmd, rec(c.prompt)); got != c.want {
+			t.Errorf("%s: askTied(%q, %q) = %v, want %v", c.name, c.cmd, c.prompt, got, c.want)
+		}
+	}
+}
