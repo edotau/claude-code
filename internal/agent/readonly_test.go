@@ -191,7 +191,7 @@ func TestReadOnlyRtkPrefix(t *testing.T) {
 		{"rtk git status", true}, {"rtk git -C /abs/repo status --short | wc -l", true},
 		{"rtk git -C /abs/repo log --oneline -5", true}, {"rtk ls", true}, {"rtk grep -rn x .", true}, {"rtk rg x", true},
 		{"rtk read f.go", true}, {"rtk read -n f.go", true}, {"rtk claude-code vault get NAME | wc -c", true},
-		{"rtk find . -name y", false}, {"rtk go test ./...", false}, {"rtk make lint", false}, {"rtk proxy rm x", false},
+		{"rtk find . -name y", true}, {"rtk find . -delete", false}, {"rtk go test ./...", false}, {"rtk make lint", false}, {"rtk proxy rm x", false},
 		{"rtk run ls", false}, {"rtk rtk git status", false}, {"rtk git -C /abs/repo stash", false},
 		{"rtk git diff --stat", true}, {"rtk git diff --ext-diff", false}, {"rtk git -C /abs/repo show --textconv", false},
 		{"rtk git diff --output=/tmp/x", false}, {"rtk git -c core.pager=x log", false}, {"rtk rg --pre cat x", false},
@@ -316,4 +316,97 @@ func TestReadOnlyAgentsMergedVerbs(t *testing.T) {
 		{"claude-code agents tail job", false},
 		{"claude-code agents reap", false},
 	})
+}
+
+func TestReadOnlyGitReadForms(t *testing.T) {
+	var rows []roCase
+	for _, c := range []string{
+		"git branch", "git branch -a", "git branch -r", "git branch -v", "git branch -vv", "git branch --list", "git branch -l",
+		"git branch --show-current", "git branch --contains HEAD", "git branch --merged", "git branch --no-merged main",
+		"git branch --format=%(refname) --sort=-committerdate", "git branch -a --list feat*", "git branch -r --merged main",
+		"git remote", "git remote -v", "git remote show origin", "git remote get-url origin",
+		"git worktree list", "git worktree list --porcelain",
+		"git stash list", "git stash show", "git stash show -p stash@{1}",
+		"git clean -n", "git clean --dry-run", "git clean -nd", "git clean -ndx", "git clean -fn", "git clean -f -d --dry-run",
+		"git reflog", "git reflog -5", "git reflog show HEAD", "git reflog show --date=iso",
+	} {
+		rows = append(rows, roCase{c, true})
+	}
+	for _, c := range []string{
+		"git branch new", "git branch -d x", "git branch -D x", "git branch -m a b", "git branch -M a b", "git branch -c a b",
+		"git branch -C a b", "git branch -f x", "git branch --set-upstream-to=origin/x", "git branch -u origin/x",
+		"git branch --unset-upstream", "git branch --edit-description", "git branch -v new", "git branch -a new",
+		"git branch --list -D x", "git branch --show-current new", "git branch --delete x", "git branch --del x",
+		"git remote add o u", "git remote remove o", "git remote rm o", "git remote rename a b", "git remote set-url o u",
+		"git remote set-head o x", "git remote prune o", "git remote update", "git remote show ext::sh", "git remote get-url",
+		"git remote -v add o u", "git remote show origin extra",
+		"git worktree add /tmp/w", "git worktree remove w", "git worktree prune", "git worktree move a b", "git worktree lock w",
+		"git worktree", "git worktree list --output=x",
+		"git stash", "git stash push", "git stash pop", "git stash drop", "git stash apply", "git stash clear",
+		"git stash branch x", "git stash create", "git stash store x", "git stash show --output=x",
+		"git clean", "git clean -f", "git clean -fd", "git clean -fdx", "git clean -d", "git clean -n -i", "git clean -e x -n",
+		"git clean --force", "git clean --no-dry-run", "git clean -i", "git clean -n -- /etc",
+		"git reflog expire --all", "git reflog delete HEAD@{1}", "git reflog exists x", "git reflog HEAD",
+		"git reflog show --output=x",
+	} {
+		rows = append(rows, roCase{c, false})
+	}
+	checkReadOnly(t, rows)
+}
+
+func TestReadOnlyFindEchoPrintf(t *testing.T) {
+	checkReadOnly(t, []roCase{
+		{`find . -name "*.go"`, true}, {"rtk find . -name '*.go'", true}, {"find . -type f -print0", true},
+		{"find . -maxdepth 2 ( -name a -o -name b ) ! -path x -ls", true}, {"find . -newer a -print", true},
+		{"find . -exec rm {} ;", false}, {"find . -execdir rm {} ;", false}, {"find . -ok rm {} ;", false},
+		{"find . -okdir rm {} ;", false}, {"find . -delete", false}, {"find . -fprint out", false},
+		{"find . -fprint0 out", false}, {"find . -fprintf out %p", false}, {"find . -fls out", false},
+		{`find . -name x "-exec" rm`, false}, {`find . -name x \-delete`, false}, {"find . -name x | xargs rm", false},
+		{"find . > out", false},
+		{`echo "git reset --hard"`, true}, {`printf "%s" "rm -rf /"`, true}, {`echo hi; printf '%s\n' a`, true},
+		{"echo hi > f", false}, {"echo $(rm x)", false}, {"echo `rm x`", false}, {"printf '%s\\n' a | sh", false},
+		{"printf x >> f", false}, {"echo hi | tee f", false},
+	})
+}
+
+func TestReadOnlyClusterCLIs(t *testing.T) {
+	var rows []roCase
+	for _, c := range []string{
+		"kubectl get pods", "kubectl logs deployment/app", "kubectl describe pod x", "kubectl top pods", "kubectl version",
+		"kubectl api-resources", "kubectl explain pod", "kubectl config get-contexts", "kubectl config current-context",
+		"kubectl -n ns get pods", "kubectl --namespace ns get pods", "kubectl --namespace=ns get pods", "kubectl --context x get pods -o wide",
+		"oc get pods", "oc -n ns logs x", "oc config current-context", "kubectl get pods | wc -l",
+		"docker ps", "docker images", "docker inspect x", "docker logs x", "docker version", "docker info", "docker --context x ps",
+		"docker --context=x ps -a",
+		"gh pr view 42", "gh pr list", "gh pr status", "gh pr diff 42", "gh pr checks 42", "gh issue view 1", "gh issue list",
+		"gh issue status", "gh repo view", "gh run view 1", "gh run list", "gh release view v1", "gh release list", "gh auth status",
+		"aws --version", "aws help", "aws sts get-caller-identity", "gcloud --version", "gcloud version", "gcloud help",
+		"gcloud config list",
+	} {
+		rows = append(rows, roCase{c, true})
+	}
+	for _, c := range []string{
+		"kubectl", "kubectl config view", "kubectl config view --raw", "kubectl config use-context x", "kubectl config set x y",
+		"kubectl apply -f x", "kubectl delete pod x", "kubectl exec x -- sh", "kubectl port-forward x 1", "kubectl cp a b",
+		"kubectl edit x", "kubectl patch x", "kubectl run x", "kubectl auth can-i x", "kubectl create x",
+		"kubectl get secret x -o yaml", "kubectl get secrets", "kubectl get cm,secret", "kubectl get secret/x", "kubectl describe secret x",
+		"kubectl get pods --raw /api", "kubectl get pods -w", "kubectl logs x -f", "kubectl logs x --follow", "kubectl get pods --token x",
+		"kubectl get pods --kubeconfig /x", "kubectl get pods --server https://x", "kubectl --kubeconfig /x get pods",
+		"kubectl --server x get pods", "kubectl -n get pods", "kubectl -n --context get pods", "kubectl --as x get pods",
+		"oc delete x", "oc whoami -t", "oc login", "oc config view",
+		"docker run x", "docker rm x", "docker exec x sh", "docker build .", "docker pull x", "docker stop x", "docker logs -f x",
+		"docker -H tcp://x ps", "docker --host x ps", "docker context use x", "docker --context ps",
+		"gh api /user", "gh auth token", "gh auth login", "gh auth status --show-token", "gh auth status -t", "gh pr create",
+		"gh pr merge 1", "gh pr checkout 1", "gh pr view 1 --web", "gh pr checks 1 --watch", "gh issue create", "gh repo clone x",
+		"gh repo view -w", "gh run rerun 1", "gh release create v1", "gh release download v1", "gh -R a/b pr view 1", "gh",
+		"aws", "aws s3 ls", "aws ec2 describe-instances", "aws sts get-session-token", "aws ecr get-login-password",
+		"aws sts assume-role x", "aws configure list", "aws --profile x sts get-caller-identity",
+		"gcloud auth print-access-token", "gcloud auth print-identity-token", "gcloud config set x y", "gcloud compute list",
+		"gcloud auth list", "gcloud",
+		"databricks auth token", "databricks clusters list", "databricks jobs delete 1",
+		"env", "env FOO=1 ls", "printenv", "az account get-access-token",
+	} {
+		rows = append(rows, roCase{c, false})
+	}
+	checkReadOnly(t, rows)
 }
