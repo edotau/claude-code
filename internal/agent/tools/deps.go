@@ -245,7 +245,7 @@ func DepStatusAll() []DepStatus {
 
 // depVersion is the version in d's probe output at path (else its first line), cached like agent versions.
 func depVersion(d dep, path string) string {
-	line := probedLine(path, d.Pick, func(p string) string {
+	line := ProbedSaltedLine(path, d.Pick, func(p string) string {
 		return depPick(d, versionOutput(context.Background(), p, versionProbeTimeout, cmp.Or(d.Version, "--version")))
 	})
 	return cmp.Or(parseVersion(line), line)

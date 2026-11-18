@@ -8,12 +8,9 @@ import (
 	"io"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
-	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -170,36 +167,6 @@ func (codexEngine) LaunchArgs(file string, args []string) ([]string, error) {
 		return nil, err
 	}
 	return append(overrides, args...), nil
-}
-
-var (
-	codexJSONMu    sync.Mutex
-	codexJSONKnown bool
-	codexJSONValue bool
-)
-
-// codexHasJSON is true when the installed codex has `exec --json`; only a definitive probe is cached per process.
-func codexHasJSON() bool {
-	codexJSONMu.Lock()
-	defer codexJSONMu.Unlock()
-	if codexJSONKnown {
-		return codexJSONValue
-	}
-	bin, err := paths.AgentBin("codex")
-	if err != nil {
-		return false
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, bin, "exec", "--help")
-	cmd.WaitDelay = time.Second                                                        // a helper holding the pipe must not outlive the timeout
-	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(agent.ProbeContext(ctx, "")) // no login or route credential
-	out, runErr := cmd.CombinedOutput()
-	has := strings.Contains(string(out), "--json")
-	if ctx.Err() == nil && (runErr == nil || has) {
-		codexJSONKnown, codexJSONValue = true, has
-	}
-	return has
 }
 
 // codexExecArgs inserts extra right after the exec subcommand, where codex takes its flags.

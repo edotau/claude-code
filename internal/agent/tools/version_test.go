@@ -276,3 +276,43 @@ func TestFirstVersionLineHonoursTimeout(t *testing.T) {
 		t.Fatalf("FirstVersionLine = %q, want the first line", got)
 	}
 }
+
+// TestSaltedRowsCoexistAndAChangedStampDropsBoth: salts of one build share the file; a new build evicts every old row.
+func TestSaltedRowsCoexistAndAChangedStampDropsBoth(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const p = "/fake/bin"
+	writeVersionCache(p, p+"|1|1", "v")
+	writeVersionCache(p, p+"|1|1|a", "A")
+	writeVersionCache(p, p+"|1|1|b|c", "B")
+	if c := readVersionCache(); c[p+"|1|1"] != "v" || c[p+"|1|1|a"] != "A" || c[p+"|1|1|b|c"] != "B" {
+		t.Fatalf("salted rows erased each other: %v", c)
+	}
+	writeVersionCache(p, p+"|1|1|a", "A2")
+	if c := readVersionCache(); len(c) != 3 || c[p+"|1|1|a"] != "A2" {
+		t.Fatalf("same path+salt must replace its row only: %v", c)
+	}
+	writeVersionCache(p, p+"|2|2|a", "new")
+	if c := readVersionCache(); len(c) != 1 || c[p+"|2|2|a"] != "new" {
+		t.Fatalf("a changed stamp must drop every old row: %v", c)
+	}
+}
+
+// TestProbedSaltedLineIsCachedAcrossProcesses: a fresh in-process memo reads the answer from the state file.
+func TestProbedSaltedLineIsCachedAcrossProcesses(t *testing.T) {
+	bin, _ := probeFixture(t, "echo 'fake 1.0.0'")
+	resetMemo()
+	var calls int
+	probe := func(string) string { calls++; return "true" }
+	for range 2 {
+		if got := ProbedSaltedLine(bin, "exec-json", probe); got != "true" {
+			t.Fatalf("line = %q", got)
+		}
+		resetMemo() // a second process starts with an empty memo
+	}
+	if got := ProbedSaltedLine(bin, "", func(string) string { return "ver" }); got != "ver" {
+		t.Fatalf("the unsalted row = %q; want it kept apart from the salted one", got)
+	}
+	if got := ProbedSaltedLine(bin, "exec-json", probe); got != "true" || calls != 1 {
+		t.Fatalf("salted row = %q after %d probes; want true after 1", got, calls)
+	}
+}

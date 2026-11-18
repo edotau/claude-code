@@ -6,11 +6,15 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
@@ -196,4 +200,46 @@ func codexCacheArgv(argv, env []string) []string {
 var codexStatus = func(ctx context.Context, bin string) ([]byte, error) {
 	ctx = agent.ProbeContext(ctx, "codex") // the login status reads codex's own sign-in only
 	return agent.ProbeCLI(ctx, bin, agent.EnvSpec{Mode: agent.EnvAgent}, true, "login", "status")
+}
+
+var (
+	codexJSONMu    sync.Mutex
+	codexJSONKnown bool
+	codexJSONValue bool
+)
+
+// codexHasJSON is true when the installed codex has `exec --json`; only a definitive probe is cached per process.
+func codexHasJSON() bool {
+	codexJSONMu.Lock()
+	defer codexJSONMu.Unlock()
+	if codexJSONKnown {
+		return codexJSONValue
+	}
+	bin, err := paths.AgentBin("codex")
+	if err != nil {
+		return false
+	}
+	line := tools.ProbedSaltedLine(bin, "exec-json", probeExecJSON)
+	if line != "" {
+		codexJSONKnown, codexJSONValue = true, line == "true"
+	}
+	return line == "true"
+}
+
+// probeExecJSON is "true" or "false" when `exec --help` answered definitively, else "" (a timeout is never cached).
+func probeExecJSON(bin string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, bin, "exec", "--help")
+	cmd.WaitDelay = time.Second                                                        // a helper holding the pipe must not outlive the timeout
+	cmd.Env = agent.EnvSpec{Mode: agent.EnvAgent}.Environ(agent.ProbeContext(ctx, "")) // no login or route credential
+	out, runErr := cmd.CombinedOutput()
+	has := strings.Contains(string(out), "--json")
+	if ctx.Err() != nil || runErr != nil && !has {
+		return ""
+	}
+	if has {
+		return "true"
+	}
+	return "false"
 }

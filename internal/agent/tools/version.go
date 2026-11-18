@@ -146,11 +146,11 @@ func versionLine(path string) string {
 
 // ProbedVersionLine is versionLine with the caller's own probe (its timeout and parsing), sharing the same cache.
 func ProbedVersionLine(path string, probe func(string) string) string {
-	return probedLine(path, "", probe)
+	return ProbedSaltedLine(path, "", probe)
 }
 
-// probedLine is ProbedVersionLine with a salt that keys a probe whose line is not the first --version line.
-func probedLine(path, salt string, probe func(string) string) string {
+// ProbedSaltedLine is ProbedVersionLine with a salt that keys a probe whose line is not the first --version line.
+func ProbedSaltedLine(path, salt string, probe func(string) string) string {
 	key, ok := paths.BinKey(path)
 	if !ok {
 		return probe(path)
@@ -189,14 +189,16 @@ func readVersionCache() map[string]string {
 	return f.Versions
 }
 
-// writeVersionCache records key (dropping older builds of path) via temp file + rename; any failure is silent.
+// writeVersionCache records key, dropping rows of path's other builds but keeping this build's other salts.
 func writeVersionCache(path, key, line string) {
 	versionWriteMu.Lock()
 	defer versionWriteMu.Unlock()
 	_ = paths.WithFileLock(versionCacheFile(), func() error {
 		cache := readVersionCache()
+		stamp := strings.SplitN(strings.TrimPrefix(key, path+"|"), "|", 3) // size, mtime, salt
+		build := path + "|" + strings.Join(stamp[:min(len(stamp), 2)], "|")
 		for k := range cache {
-			if strings.HasPrefix(k, path+"|") {
+			if strings.HasPrefix(k, path+"|") && k != build && !strings.HasPrefix(k, build+"|") {
 				delete(cache, k)
 			}
 		}
