@@ -108,7 +108,7 @@ func tickPlans(ctx context.Context, out io.Writer, top string, set []string) {
 	sha = strings.TrimSpace(sha)
 	results, tied, err := plans.TickCommit(top, sha, set)
 	for _, r := range results {
-		for _, n := range r.Notes(sha) {
+		for _, n := range r.Lines(sha) {
 			fmt.Fprintln(out, n)
 		}
 	}

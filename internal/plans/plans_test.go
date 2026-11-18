@@ -64,13 +64,13 @@ Intro prose line.
 `
 
 // tickOK ticks path for sha and fails the test on error.
-func tickOK(t *testing.T, path, sha string, files ...string) (ticked, partial []string) {
+func tickOK(t *testing.T, path, sha string, files ...string) (ticked, notes []string) {
 	t.Helper()
-	ticked, partial, err := namedTestTick(t, "", path, sha, files)
+	ticked, notes, err := namedTestTick(t, "", path, sha, files)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return ticked, partial
+	return ticked, notes
 }
 
 // wantBytes fails unless path holds exactly want.
@@ -81,58 +81,32 @@ func wantBytes(t *testing.T, path, label, want string) {
 	}
 }
 
-// wantTicks fails unless exactly nTicked tasks ticked (the first containing tickedSub) and nPartial partly landed.
-func wantTicks(t *testing.T, label string, ticked, partial []string, nTicked int, tickedSub string, nPartial int) {
+// wantTicks fails unless exactly nTicked tasks ticked (the first containing tickedSub) with nNotes notes.
+func wantTicks(t *testing.T, label string, ticked, notes []string, nTicked int, tickedSub string, nNotes int) {
 	t.Helper()
-	if len(ticked) != nTicked || len(partial) != nPartial || (nTicked > 0 && !strings.Contains(ticked[0], tickedSub)) {
-		t.Fatalf("%s: ticked=%v partial=%v", label, ticked, partial)
+	if len(ticked) != nTicked || len(notes) != nNotes || (nTicked > 0 && !strings.Contains(ticked[0], tickedSub)) {
+		t.Fatalf("%s: ticked=%v notes=%v", label, ticked, notes)
 	}
 }
 
-// TestTickSpanning ticks a plan through partial, repeat, full and claimed steps, asserting exact bytes.
+// TestTickSpanning ticks named tasks from a subset commit, then a claimed one, asserting exact bytes.
 func TestTickSpanning(t *testing.T) {
 	hermetic(t)
 	path := filepath.Join(t.TempDir(), "plan.md")
 	writeFile(t, path, tickPlan)
 
-	// A commit covering one of three owns (the dir entry) marks the task partly landed.
-	ticked, partial := tickOK(t, path, "aaaaaaa", "internal/plans/plans.go")
-	wantTicks(t, "step1", ticked, partial, 0, "", 1)
-	if !strings.Contains(partial[0], "1.1 Build") {
-		t.Fatalf("step1: partial=%v", partial)
+	// A named commit touching one of three owns ticks the task and notes the rest; the done 1.3 is skipped.
+	ticked, notes := tickOK(t, path, "aaaaaaa", "internal/plans/plans.go")
+	wantTicks(t, "subset", ticked, notes, 2, "1.1 Build", 2)
+	if !strings.Contains(notes[0], "plans: 1.1 ticked without owns: internal/hooks/safety_*_test.go, internal/cli/cli.go") || !strings.Contains(notes[0], "plan task \"1.1\" --reopen") {
+		t.Fatalf("note must list the untouched owned files and the reopen route: %v", notes)
 	}
-	after1 := strings.Replace(tickPlan, "(verb row only)\n", "(verb row only) <!-- partly landed: aaaaaaa -->\n", 1)
-	wantBytes(t, path, "step1", after1)
-
-	// A second partial sha (the glob entry) extends the existing comment.
-	_, partial = tickOK(t, path, "bbbbbbb", "internal/hooks/safety_a_test.go")
-	if len(partial) != 1 {
-		t.Fatalf("step2: partial=%v", partial)
-	}
-	after2 := strings.Replace(after1, "aaaaaaa -->", "aaaaaaa, bbbbbbb -->", 1)
-	wantBytes(t, path, "step2", after2)
-
-	assertRepeatShaIsNoop(t, path, after2)
-
-	// A commit covering all owns (dir + glob + noted file) ticks the task; ticked 1.3 is skipped.
-	ticked, partial = tickOK(t, path, "fffffff",
-		"internal/plans/tick.go",
-		"internal/hooks/safety_b_test.go",
-		"internal/cli/cli.go",
-		"internal/done/z.go",
-	)
-	wantTicks(t, "full tick", ticked, partial, 1, "1.1 Build", 0)
-	after4 := strings.Replace(after2, "- [ ] 1.1 Build", "- [x] 1.1 Build", 1)
-	after4 = strings.Replace(after4, " <!-- partly landed: aaaaaaa, bbbbbbb -->\n", " (fffffff)\n", 1)
-	wantBytes(t, path, "step4", after4)
-
-	// Ticking the claimed task removes its working: comment and appends the sha.
-	ticked, _ = tickOK(t, path, "ccccccc", "internal/claimed/y.go")
-	wantTicks(t, "claim tick", ticked, nil, 1, "1.2 Claimed", 0)
-	want := strings.Replace(after4,
-		"- [ ] 1.2 Claimed task owns: internal/claimed/y.go <!-- working: alice on it -->\n",
-		"- [x] 1.2 Claimed task owns: internal/claimed/y.go (ccccccc)\n", 1)
-	wantBytes(t, path, "final", want)
+	want := strings.Replace(tickPlan, "- [ ] 1.1 Build", "- [x] 1.1 Build", 1)
+	want = strings.Replace(want, "(verb row only)\n", "(verb row only) (aaaaaaa)\n", 1)
+	want = strings.Replace(want, "- [ ] 1.2 Claimed task owns: internal/claimed/y.go <!-- working: alice on it -->\n",
+		"- [x] 1.2 Claimed task owns: internal/claimed/y.go (aaaaaaa)\n", 1)
+	wantBytes(t, path, "subset", want)
+	assertRepeatShaIsNoop(t, path, want)
 	if !strings.HasSuffix(want, "\n") {
 		t.Fatal("fixture lost its trailing newline")
 	}
@@ -145,8 +119,8 @@ func assertRepeatShaIsNoop(t *testing.T, path, want string) {
 	if err := os.Chtimes(path, stamp, stamp); err != nil {
 		t.Fatal(err)
 	}
-	ticked, partial := tickOK(t, path, "aaaaaaa", "internal/plans/tick.go")
-	wantTicks(t, "repeat sha", ticked, partial, 0, "", 0)
+	ticked, notes := tickOK(t, path, "aaaaaaa", "internal/plans/tick.go")
+	wantTicks(t, "repeat sha", ticked, notes, 0, "", 0)
 	wantBytes(t, path, "repeat sha", want)
 	if info, err := os.Stat(path); err != nil || info.ModTime().Unix() != stamp.Unix() {
 		t.Fatalf("repeat sha rewrote file: mtime=%v err=%v", info.ModTime(), err)
@@ -471,7 +445,7 @@ func tickRangeRepo(t *testing.T) (repo, base string) {
 	return repo, base
 }
 
-// TestTickRange ticks a plan from real commits: a partial commit, a completing one, dry-run, and the unticked base.
+// TestTickRange ticks a plan from real commits naming its tasks: dry-run first, then applied with the first sha.
 func TestTickRange(t *testing.T) {
 	hermetic(t)
 	repo, base := tickRangeRepo(t)
@@ -495,7 +469,7 @@ func TestTickRange(t *testing.T) {
 func assertTickDryRun(t *testing.T, plan string, commits []Commit) {
 	t.Helper()
 	res, err := tickCommits("", plan, commits, true, nil)
-	if err != nil || len(res) != 2 || len(res[0].Partial) != 1 || len(res[1].Ticked) != 2 || len(res[1].Partial) != 0 {
+	if err != nil || len(res) != 1 || len(res[0].Ticked) != 2 {
 		t.Fatalf("dry-run results %+v err=%v", res, err)
 	}
 	if got := readFile(t, plan); strings.Contains(got, "[x]") || strings.Contains(got, "partly") {
@@ -510,22 +484,22 @@ func assertTickApplied(t *testing.T, plan string, commits []Commit) {
 		t.Fatal(err)
 	}
 	got := readFile(t, plan)
-	if !strings.Contains(got, "- [x] 1.1 Solo") || !strings.Contains(got, "("+commits[1].Sha+")") || !strings.Contains(got, "- [ ] 1.3") {
+	if !strings.Contains(got, "- [x] 1.1 Solo") || !strings.Contains(got, "("+commits[0].Sha+")") || !strings.Contains(got, "- [ ] 1.3") {
 		t.Fatalf("applied plan:\n%s", got)
 	}
 }
 
-// A task whose owned files land across several commits ticks once the range covers them all.
-func TestTickCommitsUnionsRange(t *testing.T) {
+// Every commit of a range naming a task is a trailer, but the task ticks once, with the first sha.
+func TestTickCommitsTicksNamedTaskOnce(t *testing.T) {
 	hermetic(t)
 	plan := filepath.Join(t.TempDir(), "plan.md")
 	writeFile(t, plan, "- [ ] 1.1 Split owns: a.go, b.go, c.go\n")
-	commits := []Commit{{Sha: "aaa1111", Files: []string{"a.go"}, Message: "Task: plan 1.1"}, {Sha: "bbb2222", Files: []string{"b.go"}, Message: "Task: plan 1.1"}, {Sha: "ccc3333", Files: []string{"c.go"}, Message: "Task: plan 1.1"}}
+	commits := []Commit{{Sha: "aaa1111", Files: []string{"a.go"}, Message: "Task: plan 1.1"}, {Sha: "bbb2222", Files: []string{"b.go"}, Message: "Task: plan 1.1"}}
 	res, err := tickCommits("", plan, commits, false, nil)
-	if err != nil || len(res) != 3 || len(res[2].Ticked) != 1 {
+	if err != nil || len(res) != 1 || len(res[0].Ticked) != 1 || res[0].Sha != "aaa1111" {
 		t.Fatalf("results %+v err=%v", res, err)
 	}
-	if got := readFile(t, plan); !strings.Contains(got, "- [x] 1.1") || !strings.Contains(got, "(ccc3333)") {
+	if got := readFile(t, plan); !strings.Contains(got, "- [x] 1.1") || !strings.Contains(got, "(aaa1111)") {
 		t.Fatalf("plan:\n%s", got)
 	}
 }
@@ -657,7 +631,7 @@ func TestClaimsWorktreeMatchesWholeName(t *testing.T) {
 	}
 }
 
-func TestSelectAbbreviatedPartialOwns(t *testing.T) {
+func TestSelectAbbreviatedSubsetOwns(t *testing.T) {
 	hermetic(t)
 	home := t.TempDir()
 	planPath := filepath.Join(home, "2026-11-05-abbreviated.md")
@@ -668,8 +642,8 @@ func TestSelectAbbreviatedPartialOwns(t *testing.T) {
 		t.Fatalf("partial abbreviated ownership: plan=%q tied=%v, want %q", plan, tied, planPath)
 	}
 	results, err := tickCommits("", plan[0], commits, false, nil)
-	if err != nil || len(results) != 1 || len(results[0].Partial) != 1 || len(results[0].Ticked) != 0 {
-		t.Fatalf("partial annotation: results=%+v err=%v", results, err)
+	if err != nil || len(results) != 1 || len(results[0].Ticked) != 1 || len(results[0].Notes) != 1 || !strings.Contains(results[0].Notes[0], "internal/plans/plans.go") {
+		t.Fatalf("a named subset commit ticks and names the missing owned file: results=%+v err=%v", results, err)
 	}
 }
 
@@ -711,9 +685,11 @@ func TestCommitFilesPreservesLeadingNewline(t *testing.T) {
 	plan := filepath.Join(t.TempDir(), "plan.md")
 	body := "- [ ] 1.1 Ordinary file owns: foo.go\n"
 	writeFile(t, plan, body)
-	ticked, partial := tickOK(t, plan, "abc1234", files...)
-	wantTicks(t, "unchanged ordinary path", ticked, partial, 0, "", 0)
-	wantBytes(t, plan, "unchanged ordinary path", body)
+	ticked, notes := tickOK(t, plan, "abc1234", files...)
+	wantTicks(t, "unchanged ordinary path", ticked, notes, 1, "1.1 Ordinary", 1)
+	if got := readFile(t, plan); !strings.HasPrefix(got, "- [x] 1.1 Ordinary file owns: foo.go (abc1234)") {
+		t.Fatalf("a named task ticks even when its commit missed the owned file:\n%s", got)
+	}
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
@@ -735,18 +711,18 @@ func BenchmarkParseBytes(b *testing.B) {
 	}
 }
 
-func namedTestTick(t *testing.T, root, plan, sha string, files []string) ([]string, []string, error) {
+func namedTestTick(t *testing.T, root, plan, sha string, files []string) (ticked, notes []string, err error) {
 	t.Helper()
 	data := readFile(t, plan)
-	message := "test"
+	var message strings.Builder
+	message.WriteString("test")
 	for _, task := range parseBytes(plan, []byte(data)).Tasks {
-		message += "\nTask: " + strings.TrimSuffix(filepath.Base(plan), ".md") + " " + task.ID
+		message.WriteString("\nTask: " + strings.TrimSuffix(filepath.Base(plan), ".md") + " " + task.ID)
 	}
-	results, err := tickCommits(root, plan, []Commit{{Sha: sha, Files: files, Message: message}}, false, nil)
-	var ticked, partial []string
+	results, err := tickCommits(root, plan, []Commit{{Sha: sha, Files: files, Message: message.String()}}, false, nil)
 	for _, r := range results {
 		ticked = append(ticked, r.Ticked...)
-		partial = append(partial, r.Partial...)
+		notes = append(notes, r.Notes...)
 	}
-	return ticked, partial, err
+	return ticked, notes, err
 }

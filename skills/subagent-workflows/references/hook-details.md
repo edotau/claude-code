@@ -142,9 +142,10 @@ command also gets the drained notices and divergence line
 
 ## docs-plan-tick / docs-plan-reminder
 
-A landed commit ticks the plan tasks its `owns:` covers (`claude-code plan status`), in the newest open plan it
-touches (an older plan only with a live claim); `git commit -q` prints no sha, so it ticks nothing (`plan tick
---range`); partly landed tasks are reported once at Stop under one shared partials lock, not per-session locks.
+A commit on the trunk of the primary checkout ticks the plan tasks its `Task: <plan-slug> <id>` trailers name
+(`claude-code plan status`), in any plan; coverage alone only prints one candidate per task; a lane commit ticks when
+it lands (`worktree merge`, or a fast-forward or merge commit the hook sees; `plan tick --range` otherwise).
+The Stop reminder's partials record (one shared lock) is no longer written.
 `claude-code clean` sweeps obsolete `*.partial.lock` files older than one day
 
 ## memory-update

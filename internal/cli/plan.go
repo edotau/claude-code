@@ -100,7 +100,7 @@ func printPlanSummaries(summaries []plans.Summary) {
 
 func cmdPlanTick(args []string) int {
 	fs := helptext.NewFlagSet("plan tick", helptext.Page{Usage: "claude-code plan tick --range <a>..<b> [flags]",
-		About: "Tick tasks named by commit trailers on main; coverage alone prints candidates."})
+		About: "Tick tasks named by commit trailers once on main; coverage alone prints a candidate."})
 	rng := fs.String("range", "", "commits to tick, <a>..<b> as git rev-list reads it")
 	plan := fs.String("plan", "", "plan file (default: matching recent or claimed plans)")
 	dryRun := fs.Bool("dry-run", false, "print what would tick without writing the plan")
@@ -127,7 +127,7 @@ func cmdPlanTick(args []string) int {
 // cmdPlanTask is `plan task`: the by-hand tick, reopen and strike for what no commit can decide.
 func cmdPlanTask(args []string) int {
 	fs := helptext.NewFlagSet("plan task", helptext.Page{Usage: "claude-code plan task <id> --done|--reopen|--strike <why> [flags]",
-		About: "Tick, reopen or strike one task by hand; --done needs no commit trailer."})
+		About: "Tick, reopen or strike one task by hand; quote an id with spaces: \"Phase 2.1\"."})
 	done := fs.Bool("done", false, "tick the task manually, with or without owns:")
 	reopen := fs.Bool("reopen", false, "untick the task and drop its sha (a revert)")
 	strike := fs.String("strike", "", "strike the task as superseded, with this reason")

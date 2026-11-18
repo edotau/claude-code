@@ -164,11 +164,12 @@ func cmdWorktreeCommit(cwd string, args []string) int {
 	fs := helptext.NewFlagSet("worktree commit", helptext.Page{Usage: "claude-code worktree commit -m <message> [flags] [<file>...]",
 		About: "One pathspec commit of the named files, else the main session's claimed dirty ones.\n" +
 			"Refuses a peer's file or a non-Conventional subject; never pushes.\n" +
-			"--task writes Task: <plan-slug> <id>; named coverage ticks on main after landing."})
+			"--task writes Task: <plan-slug> <id>; a named task ticks once the commit is on main.\n" +
+			"Quote an id with spaces: --task \"Phase 2.1\"."})
 	msg := fs.String("m", "", "commit message; the subject must be a Conventional Commit")
 	dryRun := fs.Bool("dry-run", false, "print the files and message notes without committing")
 	var tasks []string
-	fs.Func("task", "name an open task `id`; repeat for multiple trailers", func(id string) error { tasks = append(tasks, id); return nil })
+	fs.Func("task", "name an open task `id` (ticks on landing); repeat for several", func(id string) error { tasks = append(tasks, id); return nil })
 	plan := fs.String("plan", "", "plan file for --task (default: recent or claimed plans)")
 	files, err := helptext.ParseArgs(fs, args) // files come first in the usual call, so flags may follow them
 	if err != nil {

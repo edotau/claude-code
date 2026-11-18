@@ -335,10 +335,10 @@ func TestPlanGateBlocksWithSkeleton(t *testing.T) {
 	}
 }
 
-// The Stop reminder names a partly-landed task once, then stays quiet.
+// The Stop reminder names a recorded partly-landed task once, then stays quiet.
 func TestPlanTickReminderOnce(t *testing.T) {
-	_, sha, tick := tickFixture(t)
-	tick(tickCmd, "[main "+sha+"] x\n 2 files changed\n")
+	planPath, _, _ := tickFixture(t)
+	recordPartials("tick1", "w", planPath, []string{"1.2 Partial task owns: a/one.go, c/never.go"}, os.Stderr)
 	stop := func() string {
 		return Reminder(core.ParseInput(hookJSON(t, map[string]any{"hook_event_name": "Stop", "session_id": "tick1"}))).SystemMessage
 	}

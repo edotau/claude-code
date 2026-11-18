@@ -688,27 +688,28 @@ func TestUndoAddNeverUnstagesAFileStagedBeforeTheRun(t *testing.T) {
 	}
 }
 
-// The verb ticks plans itself: a task owning two files notes the first commit and ticks on the second.
+// The verb ticks a named task at once, notes the owned file it left out, and refuses to name the ticked task again.
 func TestCommitTicksPlansItself(t *testing.T) {
 	dir := commitRepo(t)
 	planPath := filepath.Join(plans.Home(dir), time.Now().Format(time.DateOnly)+"-p.md")
 	hosttest.WriteRel(t, filepath.Dir(planPath), filepath.Base(planPath), "- [ ] 1.1 Pair owns: a.txt, b.txt\n")
-	for _, f := range []string{"a.txt", "b.txt"} {
-		hosttest.WriteRel(t, dir, f, "changed\n")
-		req := commitReq(dir, "feat: "+f, f)
-		req.Tasks = []string{"1.1"}
-		out, err := commitRun(req)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if !strings.Contains(out, "plans: ") {
-			t.Fatalf("no plan line for %s:\n%s", f, out)
-		}
+	hosttest.WriteRel(t, dir, "a.txt", "changed\n")
+	req := commitReq(dir, "feat: a.txt", "a.txt")
+	req.Tasks = []string{"1.1"}
+	out, err := commitRun(req)
+	if err != nil || !strings.Contains(out, "plans: ticked 1.1") || !strings.Contains(out, "owns: b.txt") {
+		t.Fatalf("want a tick line and the missing owned file (err=%v):\n%s", err, out)
 	}
 	sha := strings.TrimSpace(hosttest.In(t, dir, "rev-parse", "--short=7", "HEAD"))
 	got, err := os.ReadFile(planPath)
 	if err != nil || string(got) != "- [x] 1.1 Pair owns: a.txt, b.txt ("+sha+")\n" {
-		t.Fatalf("plan after two commits: %q err=%v", got, err)
+		t.Fatalf("plan after the named commit: %q err=%v", got, err)
+	}
+	hosttest.WriteRel(t, dir, "b.txt", "changed\n")
+	req = commitReq(dir, "feat: b.txt", "b.txt")
+	req.Tasks = []string{"1.1"}
+	if _, err := commitRun(req); err == nil || !strings.Contains(err.Error(), "already ticked") {
+		t.Fatalf("a ticked task cannot be named again: %v", err)
 	}
 }
 

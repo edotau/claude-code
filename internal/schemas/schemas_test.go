@@ -181,6 +181,7 @@ var writers = map[string]string{
 	"internal/memory/update_gate.go:writeSidecar":               unversioned("text: update sidecar text"),
 	"internal/memory/update_gate.go:writeStampAttempts":         unversioned("text: update stamp"),
 	"internal/hooks/docs/plantick.go:recordPartials":            unversioned("text: partly landed plan tasks"),
+	"internal/plans/tick.go:announce":                           unversioned("text: plan task ids already announced as candidates"),
 	"internal/plans/tick.go:RecordDest":                         unversioned("text: plan draft destination pointer"),
 	"internal/hooks/docs/plan.go:claimPlanFile":                 unversioned("marker: reserved dated plan file, replaced by the plan"),
 	"internal/hooks/docs/plan.go:dropRecord":                    unversioned("marker: plan mirror record emptied when it cannot be removed"),

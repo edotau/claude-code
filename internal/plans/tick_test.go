@@ -2,6 +2,8 @@ package plans
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -75,33 +77,19 @@ func landRepo(t *testing.T, files ...string) (string, []Commit) {
 	return repo, out
 }
 
-// A task owning three files landed in three commits ticks on the third, with the last sha and no partial note.
-func TestTickAccumulatesAcrossCommits(t *testing.T) {
+// A named commit that touches only some owned files still ticks, and its note names the untouched ones.
+func TestNamedSubsetCommitTicksAndNotes(t *testing.T) {
 	hermetic(t)
-	repo, cs := landRepo(t, "a.go", "b.go", "c.go", "d.go")
-	plan := filepath.Join(t.TempDir(), "plan.md")
-	writeFile(t, plan, "- [ ] 1.1 Split owns: a.go, b.go, c.go\n- [ ] 1.2 Pair owns: c.go, d.go\n")
-	for i, c := range cs[:2] {
-		if _, _, err := namedTestTick(t, repo, plan, c.Sha, c.Files); err != nil {
-			t.Fatal(err)
-		}
-		if got := readFile(t, plan); strings.Contains(got, "[x]") || strings.Count(got, "partly landed") != 1 {
-			t.Fatalf("after commit %d want one partial note, no tick:\n%s", i+1, got)
-		}
+	repo, cs := landRepo(t, "a.go")
+	plan := filepath.Join(t.TempDir(), "2026-10-05-p.md")
+	writeFile(t, plan, "- [ ] 1.1 Pair owns: a.go, b.go\n- [ ] 1.2 Bare\n")
+	c := Commit{Sha: cs[0].Sha, Files: cs[0].Files, Message: "feat: a\r\n\r\nTask: 2026-10-05-p 1.1\r\nTask: 2026-10-05-p 1.2\r\n"}
+	res, err := tickCommits(repo, plan, []Commit{c}, false, nil)
+	if err != nil || len(res) != 1 || len(res[0].Ticked) != 2 || len(res[0].Notes) != 1 || !strings.Contains(res[0].Notes[0], "owns: b.go") {
+		t.Fatalf("results %+v err=%v", res, err)
 	}
-	ticked, _, err := namedTestTick(t, repo, plan, cs[2].Sha, cs[2].Files)
-	if err != nil || len(ticked) != 1 {
-		t.Fatalf("third commit: ticked=%v err=%v", ticked, err)
-	}
-	got := readFile(t, plan)
-	if !strings.Contains(got, "- [x] 1.1 Split owns: a.go, b.go, c.go ("+cs[2].Sha+")\n") {
-		t.Fatalf("task 1.1 not ticked with the last sha and no note:\n%s", got)
-	}
-	if !strings.Contains(got, "- [ ] 1.2 Pair owns: c.go, d.go <!-- partly landed: "+cs[2].Sha+" -->") {
-		t.Fatalf("the commit covering two tasks must leave a note on the one it did not complete:\n%s", got)
-	}
-	if _, _, err := namedTestTick(t, repo, plan, cs[3].Sha, cs[3].Files); err != nil || !strings.Contains(readFile(t, plan), "- [x] 1.2 Pair owns: c.go, d.go ("+cs[3].Sha+")\n") {
-		t.Fatalf("1.2 must tick on its second commit:\n%s", readFile(t, plan))
+	if got := readFile(t, plan); !strings.Contains(got, "[x] 1.1") || !strings.Contains(got, "[x] 1.2 Bare ("+cs[0].Sha+")") {
+		t.Fatalf("a named task with missing or no owns must tick:\n%s", got)
 	}
 }
 
@@ -126,8 +114,8 @@ func TestTickCommitIsIdempotentAcrossPlans(t *testing.T) {
 	if len(res[0].Candidate)+len(res[1].Candidate) != 2 {
 		t.Fatalf("missing candidates: %+v", res)
 	}
-	if res, _, err = TickCommit(repo, cs[1].Sha, files); err != nil || len(res) != 2 || readFile(t, oldP)+readFile(t, newP) != snap {
-		t.Fatalf("repeat candidates must not write: %+v err=%v", res, err)
+	if res, _, err = TickCommit(repo, cs[1].Sha, files); err != nil || len(res) != 0 || readFile(t, oldP)+readFile(t, newP) != snap {
+		t.Fatalf("a candidate prints once and never writes: %+v err=%v", res, err)
 	}
 }
 
@@ -216,57 +204,26 @@ func TestEligibilityWindowAndClaim(t *testing.T) {
 	claimed := filepath.Join(home, names["old"])
 	writeFile(t, claimed, "- [ ] 1.1 Task owns: a.go, zzz.go <!-- working: x · worktree main -->\n")
 	res, _, err = TickCommit(repo, cs[0].Sha, cs[0].Files)
-	if err != nil || len(res) != 3 {
-		t.Fatalf("claimed candidate missing: %+v, %v", res, err)
+	if err != nil || len(res) != 1 || res[0].Plan != claimed {
+		t.Fatalf("only the newly claimed plan is a new candidate: %+v, %v", res, err)
 	}
 }
 
-// An explicit plan is always eligible, whatever its age; a range without one skips the old plan.
-func TestTickRangeExplicitPlanIgnoresAge(t *testing.T) {
+// A trailer names its plan, so a task in an old plan ticks without --plan; unnamed coverage there stays silent.
+func TestTickRangeNamedTaskIgnoresPlanAge(t *testing.T) {
 	hermetic(t)
 	clockAt(t, "2026-11-10")
 	repo, base := tickRangeRepo(t)
 	old := filepath.Join(Home(repo), "2026-01-01-old.md")
+	unnamed := filepath.Join(Home(repo), "2026-01-02-unnamed.md")
 	writeFile(t, old, "- [ ] 1.1 Task owns: internal/a/a.go\n")
-	rng := base + "..HEAD"
+	writeFile(t, unnamed, "- [ ] 1.1 Task owns: internal/a/a.go\n")
 	var out strings.Builder
-	if err := TickRange(context.Background(), repo, "", rng, "", nil, false, &out); err != nil || strings.Contains(readFile(t, old), "[x]") {
-		t.Fatalf("old plan ticked without being named (err=%v): %s", err, out.String())
-	}
-	if err := TickRange(context.Background(), repo, "", rng, old, nil, false, io.Discard); err != nil || !strings.Contains(readFile(t, old), "[x] 1.1") {
-		t.Fatalf("explicit old plan not ticked (err=%v):\n%s", err, readFile(t, old))
-	}
-}
-
-// A partial sha amended out of history adds no coverage: the task stays open and names the manual route.
-func TestTickDropsAmendedAwayEvidence(t *testing.T) {
-	hermetic(t)
-	repo, cs := landRepo(t, "a.go")
-	plan := filepath.Join(t.TempDir(), "plan.md")
-	writeFile(t, plan, "- [ ] 1 Both owns: a.go, b.go\n")
-	if _, _, err := namedTestTick(t, repo, plan, cs[0].Sha, cs[0].Files); err != nil {
+	if err := TickRange(context.Background(), repo, "", base+"..HEAD", "", nil, false, &out); err != nil {
 		t.Fatal(err)
 	}
-	hosttest.In(t, repo, "rm", "-q", "--cached", "a.go")
-	writeFile(t, filepath.Join(repo, "b.go"), "x")
-	hosttest.In(t, repo, "add", "b.go")
-	hosttest.In(t, repo, "commit", "-q", "--amend", "-m", "b.go")
-	sha := strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "--short=7", "HEAD"))
-	results, err := tickCommits(repo, plan, []Commit{{Sha: sha, Files: []string{"b.go"}, Message: "Task: plan 1"}}, false, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := readFile(t, plan); strings.Contains(got, "[x]") {
-		t.Fatalf("completed despite a.go absent from amended history:\n%s", got)
-	}
-	if len(results) != 1 || len(results[0].Stale) != 1 || !strings.Contains(results[0].Stale[0], "plan task 1 --done") {
-		t.Fatalf("want one stale note naming the manual route: %+v", results)
-	}
-	if got := readFile(t, plan); strings.Contains(got, cs[0].Sha) || !strings.Contains(got, "partly landed: "+sha) {
-		t.Fatalf("the dead sha must leave the note:\n%s", got)
-	}
-	if again, _ := tickCommits(repo, plan, []Commit{{Sha: sha, Files: []string{"b.go"}, Message: "Task: plan 1"}}, false, nil); len(again) != 0 {
-		t.Fatalf("a second tick must print no stale line: %+v", again)
+	if !strings.Contains(readFile(t, old), "[x] 1.1") || strings.Contains(readFile(t, unnamed), "[x]") || strings.Contains(out.String(), "unnamed") {
+		t.Fatalf("named old plan must tick and the unnamed old plan stay silent: %s", out.String())
 	}
 }
 
@@ -293,5 +250,122 @@ func TestTickRequiresMatchingTaskTrailer(t *testing.T) {
 	got := readFile(t, plan)
 	if !strings.Contains(got, "[x] 1.1") || !strings.Contains(got, "("+cs[1].Sha+")") || !strings.Contains(got, "[ ] 1.2") || strings.Contains(got, "partly landed") {
 		t.Fatalf("named legacy coverage: %s", got)
+	}
+}
+
+// gitRepo is a repo on branch br with one seed commit.
+func gitRepo(t *testing.T, br string) string {
+	t.Helper()
+	repo := t.TempDir()
+	hosttest.In(t, repo, "init", "-q", "-b", br)
+	hosttest.In(t, repo, "commit", "-q", "--allow-empty", "-m", "seed")
+	return repo
+}
+
+// Ticks happen on the primary checkout's trunk, whatever it is called; a lane or a detached HEAD lands nothing.
+func TestOnTrunkNamesNoBranch(t *testing.T) {
+	hermetic(t)
+	ctx := context.Background()
+	repo := gitRepo(t, "trunk")
+	if !onTrunk(ctx, repo) {
+		t.Fatal("a repo whose only branch is trunk must tick there")
+	}
+	hosttest.In(t, repo, "branch", "main")
+	if onTrunk(ctx, repo) {
+		t.Fatal("trunk beside an existing main is not the landing branch")
+	}
+	hosttest.In(t, repo, "checkout", "-q", "main")
+	if !onTrunk(ctx, repo) {
+		t.Fatal("main is the landing branch once it exists")
+	}
+	lane := filepath.Join(t.TempDir(), "lane")
+	hosttest.In(t, repo, "worktree", "add", "-q", "-b", "lane", lane)
+	if onTrunk(ctx, lane) {
+		t.Fatal("a linked worktree never lands")
+	}
+	hosttest.In(t, repo, "checkout", "-q", "--detach")
+	if onTrunk(ctx, repo) {
+		t.Fatal("a detached HEAD lands nothing")
+	}
+}
+
+// A commit made in a lane ticks nothing; cherry-picked, rebased or squashed onto trunk, its trailer ticks it once.
+func TestNamedTaskTicksWhenItsCommitLands(t *testing.T) {
+	hermetic(t)
+	repo := gitRepo(t, "trunk")
+	plan := filepath.Join(Home(repo), "2026-10-05-p.md")
+	writeFile(t, plan, "- [ ] 1.1 One owns: a.go\n- [ ] 1.2 Two owns: b.go\n- [ ] 1.3 Three owns: c.go\n")
+	lane := filepath.Join(t.TempDir(), "lane")
+	hosttest.In(t, repo, "worktree", "add", "-q", "-b", "lane", lane)
+	for i, f := range []string{"a.go", "b.go", "c.go"} {
+		writeFile(t, filepath.Join(lane, f), "x")
+		hosttest.In(t, lane, "add", f)
+		hosttest.In(t, lane, "commit", "-q", "-m", "feat: "+f+"\n\nTask: 2026-10-05-p 1."+string(rune('1'+i)))
+	}
+	laneHead := strings.TrimSpace(hosttest.In(t, lane, "rev-parse", "HEAD"))
+	if res, _, err := TickCommit(lane, laneHead, nil); err != nil || len(res) != 0 || strings.Contains(readFile(t, plan), "[x]") {
+		t.Fatalf("a lane commit must tick nothing: %+v %v", res, err)
+	}
+	hosttest.In(t, repo, "cherry-pick", "lane~2")
+	hosttest.In(t, repo, "merge", "--squash", "lane~1")
+	hosttest.In(t, repo, "commit", "-q", "-F", filepath.Join(repo, ".git", "SQUASH_MSG"))
+	got := ""
+	for sha := range strings.FieldsSeq(hosttest.In(t, repo, "rev-list", "--reverse", "-2", "HEAD")) {
+		if _, _, err := TickCommit(repo, sha, nil); err != nil {
+			t.Fatal(err)
+		}
+		got = readFile(t, plan)
+	}
+	if !strings.Contains(got, "[x] 1.1") || !strings.Contains(got, "[x] 1.2") || strings.Contains(got, "[x] 1.3") {
+		t.Fatalf("cherry-pick and squash keep their trailers, the unlanded task stays open:\n%s", got)
+	}
+	var out strings.Builder
+	if err := TickRange(context.Background(), lane, "lane", "trunk~1..HEAD", "", nil, false, &out); !errors.Is(err, ErrNotOnTrunk) {
+		t.Fatalf("a range tick from a lane must say why nothing ticked: %v", err)
+	}
+}
+
+// A requested task id must resolve to exactly one open task, or the refusal says why and what is near.
+func TestTaskTrailersRefusals(t *testing.T) {
+	hermetic(t)
+	repo := gitRepo(t, "main")
+	home := Home(repo)
+	writeFile(t, filepath.Join(home, "2026-10-05-a.md"), "- [ ] 1.1 One\n- [x] 1.2 Done\n- [ ] ~~1.3 Struck~~ — superseded: no\n- [ ] Phase 2.1 Spaced\n")
+	writeFile(t, filepath.Join(home, "2026-10-04-b.md"), "- [ ] 1.1 Twin\n")
+	writeFile(t, filepath.Join(home, "2026-01-01-old.md"), "- [ ] 9.1 Old\n")
+	cases := []struct{ id, plan, want string }{
+		{"1.1", "", "2026-10-04-b and 2026-10-05-a"},
+		{"1.1", filepath.Join(home, "2026-10-04-b.md"), "\n\nTask: 2026-10-04-b 1.1"},
+		{"1.2", "", "already ticked or struck in 2026-10-05-a"},
+		{"1.3", "", "already ticked or struck in 2026-10-05-a"},
+		{"1.4", "", "nearest ids: 1.1"},
+		{"Phase 2.1", "", "\n\nTask: 2026-10-05-a Phase 2.1"},
+		{"9.1", "", "--plan <file> reaches any"},
+		{"9.1", filepath.Join(home, "2026-01-01-old.md"), "\n\nTask: 2026-01-01-old 9.1"},
+	}
+	for _, c := range cases {
+		got, err := TaskTrailers(repo, c.plan, []string{c.id})
+		if msg := got + fmt.Sprint(err); !strings.Contains(msg, c.want) {
+			t.Errorf("%q --plan %q: got %q, %v; want %q", c.id, c.plan, got, err, c.want)
+		}
+	}
+}
+
+// A candidate for coverage alone is announced on the first commit that covers it, not on every later one.
+func TestCandidateAnnouncedOnce(t *testing.T) {
+	hermetic(t)
+	plan := filepath.Join(Home(t.TempDir()), "2026-10-05-c.md")
+	writeFile(t, plan, "- [ ] 1.1 Quiet owns: a.go\n")
+	c := Commit{Sha: "abc1234", Files: []string{"a.go"}, Message: "feat: a"}
+	first, err := tickCommits("", plan, []Commit{c}, true, nil)
+	if err != nil || len(first) != 1 || len(first[0].Candidate) != 1 {
+		t.Fatalf("dry run announces: %+v %v", first, err)
+	}
+	if first, _ = tickCommits("", plan, []Commit{c}, true, nil); len(first) != 1 {
+		t.Fatalf("a dry run must not use up the announcement: %+v", first)
+	}
+	got, _ := tickCommits("", plan, []Commit{c, {Sha: "def5678", Files: []string{"a.go"}, Message: "fix: a"}}, false, nil)
+	if len(got) != 1 || !strings.Contains(got[0].Candidate[0], "plan task '1.1' --done --sha abc1234 --plan ") {
+		t.Fatalf("one announcement for the whole range, with a copy-paste command: %+v", got)
 	}
 }

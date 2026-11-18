@@ -54,7 +54,7 @@ func tickFixture(t *testing.T) (planPath, sha string, tick func(command, out str
 
 const tickCmd = "git -C ~/widgets commit -m x"
 
-// Tick spanning: real commit -> PostToolUse Bash -> full tick + partial note + context.
+// Tick spanning: a real commit naming two tasks ticks both and notes the owned file the second missed.
 func TestPlanTickSpanning(t *testing.T) {
 	planPath, sha, tick := tickFixture(t)
 	cmd := tickCmd
@@ -73,11 +73,11 @@ func TestPlanTickSpanning(t *testing.T) {
 	if !strings.Contains(text, "- [x] 1.1 Full task owns: a/one.go, b/two file.go ("+sha+")") {
 		t.Fatalf("task 1.1 not ticked (space filename should match):\n%s", text)
 	}
-	if !strings.Contains(text, "- [ ] 1.2") || !strings.Contains(strings.ToLower(text), "partly landed") {
-		t.Fatalf("task 1.2 should stay open with a partly-landed note:\n%s", text)
+	if !strings.Contains(text, "- [x] 1.2 Partial task owns: a/one.go, c/never.go ("+sha+")") {
+		t.Fatalf("a named task ticks even with an owned file missing:\n%s", text)
 	}
-	if !strings.Contains(out, "1.1") || !strings.Contains(out, "1.2") {
-		t.Fatalf("additionalContext = %q, want both tasks named", out)
+	if !strings.Contains(out, "1.1") || !strings.Contains(out, "owns: c/never.go") {
+		t.Fatalf("additionalContext = %q, want the tick and the missing owned file", out)
 	}
 
 }
@@ -111,13 +111,15 @@ func TestPlanTickTwoQuietCommitsTickOwnShas(t *testing.T) {
 	planPath, sha1, tick := tickFixture(t)
 	repo := filepath.Join(os.Getenv("HOME"), "widgets")
 	tick("git -C ~/widgets commit -q -m x", "")
+	late, _ := os.ReadFile(planPath)
+	hosttest.WriteRel(t, filepath.Dir(planPath), filepath.Base(planPath), string(late)+"- [ ] 1.3 Late owns: c/never.go\n")
 	hosttest.WriteRel(t, repo, "c/never.go", "package c\n")
 	hosttest.In(t, repo, "add", "c/never.go")
-	hosttest.In(t, repo, "commit", "-q", "-m", "y\n\nTask: "+time.Now().Format(time.DateOnly)+"-widgets 1.2", "--no-gpg-sign")
+	hosttest.In(t, repo, "commit", "-q", "-m", "y\n\nTask: "+time.Now().Format(time.DateOnly)+"-widgets 1.3", "--no-gpg-sign")
 	sha2 := strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "--short=7", "HEAD"))
 	tick("git -C ~/widgets commit -q -m y", "")
 	got, _ := os.ReadFile(planPath)
-	if !strings.Contains(string(got), "("+sha1+")") || !strings.Contains(string(got), "- [x] 1.2 Partial task owns: a/one.go, c/never.go ("+sha2+")") {
+	if !strings.Contains(string(got), "("+sha1+")") || !strings.Contains(string(got), "- [x] 1.3 Late owns: c/never.go ("+sha2+")") {
 		t.Fatalf("each quiet commit must tick its own sha:\n%s", got)
 	}
 }
@@ -172,14 +174,14 @@ func TestPlanTickMultiCommitDetachedQuoted(t *testing.T) {
 	}
 	hosttest.In(t, repo, "init", "-q", "-b", "main")
 	hosttest.In(t, repo, "config", "commit.gpgsign", "false")
-	commit := func(rel string) string {
+	commit := func(rel, task string) string {
 		hosttest.WriteRel(t, repo, rel, "x\n")
 		hosttest.In(t, repo, "add", rel)
-		hosttest.In(t, repo, "commit", "-q", "-m", "x\n\nTask: "+time.Now().Format(time.DateOnly)+"-widgets 1.1\nTask: "+time.Now().Format(time.DateOnly)+"-widgets 1.2\nTask: "+time.Now().Format(time.DateOnly)+"-gadgets 1.1\nTask: "+time.Now().Format(time.DateOnly)+"-gadgets 1.2", "--no-gpg-sign")
+		hosttest.In(t, repo, "commit", "-q", "-m", "x\n\nTask: "+time.Now().Format(time.DateOnly)+"-gadgets "+task, "--no-gpg-sign")
 		return strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "--short=7", "HEAD"))
 	}
-	s1 := commit("a/one.go")
-	s2 := commit("b/café two.go")
+	s1 := commit("a/one.go", "1.1")
+	s2 := commit("b/café two.go", "1.2")
 
 	dir := plans.Home(repo)
 	name := time.Now().Format(time.DateOnly) + "-gadgets.md"
@@ -298,12 +300,13 @@ func TestPlanClaimNeedsConfidentMatch(t *testing.T) {
 }
 
 func TestPlanTickLaneWaitsForMainFastForward(t *testing.T) {
-	t.Run("summary", func(t *testing.T) { testLaneLanding(t, false, false) })
-	t.Run("quiet", func(t *testing.T) { testLaneLanding(t, true, false) })
-	t.Run("later command fails", func(t *testing.T) { testLaneLanding(t, false, true) })
+	t.Run("summary", func(t *testing.T) { testLaneLanding(t, false, false, false) })
+	t.Run("quiet", func(t *testing.T) { testLaneLanding(t, true, false, false) })
+	t.Run("later command fails", func(t *testing.T) { testLaneLanding(t, false, true, false) })
+	t.Run("merge commit", func(t *testing.T) { testLaneLanding(t, false, false, true) })
 }
 
-func testLaneLanding(t *testing.T, quiet, failed bool) {
+func testLaneLanding(t *testing.T, quiet, failed, mergeCommit bool) {
 	plan, _, tick := tickFixture(t)
 	repo := filepath.Join(os.Getenv("HOME"), "widgets")
 	body := "- [ ] 1.1 Landing owns: a/one.go\n"
@@ -328,6 +331,9 @@ func testLaneLanding(t *testing.T, quiet, failed bool) {
 		t.Fatal("unlanded sha ticked through main")
 	}
 	args := []string{"merge", "--ff-only", "landing"}
+	if mergeCommit {
+		args = []string{"merge", "--no-ff", "-m", "merge landing", "landing"}
+	}
 	if quiet {
 		args = append(args, "--quiet")
 	}

@@ -122,9 +122,9 @@ var Registry = []Group{
 		{Name: "docs-plan-mirror", Event: EventPostToolUse, Matcher: "Write|Edit", Budget: 10 * sec, Agents: []string{"gemini"}, Hosted: []string{"opencode"}},
 		// An approved plan is filed under plans/, tagged with its repo.
 		{Name: "docs-plan-save", Event: EventPostToolUse, Matcher: "ExitPlanMode", Budget: 10 * sec},
-		// A landed git commit ticks the active plan's tasks whose owns: it covers; partial coverage is noted.
+		// A commit on main ticks the plan tasks its Task: trailers name; coverage alone only prints a candidate.
 		{Name: "docs-plan-tick", Event: EventPostToolUse, Matcher: "Bash", Async: "Bash", Budget: 10 * sec, Agents: []string{"gemini"}, Hosted: []string{"opencode"}},
-		// Commits that only partly landed a task are reported once at Stop (advisory).
+		// The Stop slot of the plan hooks; its partly-landed record is no longer written.
 		{Name: "docs-plan-reminder", Event: EventStop, Budget: 5 * sec, Agents: []string{"gemini"}, Hosted: []string{"opencode"}},
 	}},
 	{Name: "dispatch", Events: []EventSpec{

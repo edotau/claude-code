@@ -135,10 +135,7 @@ func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
 	}
 	var blocks []string
 	for _, r := range results {
-		blocks = append(blocks, r.Notes(sha)...)
-		if len(r.Partial) > 0 {
-			recordPartials(in.SessionID, strings.TrimSuffix(filepath.Base(r.Plan), ".md"), r.Plan, r.Partial, stderr)
-		}
+		blocks = append(blocks, r.Lines(sha)...)
 	}
 	if n := plans.TieNote(tied); n != "" {
 		blocks = append(blocks, n)
@@ -362,7 +359,7 @@ func tickFastForward(in *core.Input, cmd string) core.Result {
 	var notes bytes.Buffer
 	err := plans.TickRange(ctx, memory.GitToplevel(dir), "", before+".."+after, "", plans.MirrorDests(), false, &notes)
 	res := core.Result{Context: notes.String()}
-	if err != nil {
+	if err != nil && !errors.Is(err, plans.ErrNotOnTrunk) { // a lane or a feature branch ticks nothing, by design
 		res.Stderr = fmt.Sprintf("plan-tick: %v\n", err)
 	}
 	return res
@@ -378,6 +375,9 @@ func landedRange(ctx context.Context, cwd, cmd, out string) (string, string, str
 	}
 	if m := fastForwardRange().FindStringSubmatch(out); m != nil && strings.Contains(out, "Fast-forward") {
 		return m[1], m[2], commitRepoDir(ctx, cwd, cmd, m[2])
+	}
+	if strings.Contains(out, "Merge made by") { // a merge commit lands its second parent's commits
+		return mergedRange(ctx, cwd, cmd)
 	}
 	if strings.TrimSpace(out) != "" && !quietFlag().MatchString(cmd) {
 		return "", "", ""
@@ -395,6 +395,17 @@ func landedRange(ctx context.Context, cwd, cmd, out string) (string, string, str
 		before, _, _ := strings.Cut(rows[1], "\x00")
 		if strings.Contains(note, "Fast-forward") {
 			return before, after, dir
+		}
+	}
+	return "", "", ""
+}
+
+// mergedRange is HEAD^1 and HEAD of the first candidate repo that just made a merge commit.
+func mergedRange(ctx context.Context, cwd, cmd string) (string, string, string) {
+	for _, dir := range commitCandidates(cwd, cmd) {
+		raw, err := proc.RunGit(ctx, dir, "rev-parse", "HEAD^1", "HEAD")
+		if f := strings.Fields(raw); err == nil && len(f) == 2 {
+			return f[0], f[1], dir
 		}
 	}
 	return "", "", ""
