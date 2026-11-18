@@ -55,11 +55,26 @@ func readOnlySegment(seg string, raw bool) bool {
 	if len(toks) == 0 || raw && !rawSegmentOK(seg, rawToks, toks) {
 		return false
 	}
+	toks = rtkPlain(toks)
 	if len(toks) == 2 && helpWord().MatchString(toks[0]) && slices.Contains([]string{"--help", "-h", "--version"}, toks[1]) ||
 		claudeHelp(toks) {
 		return true
 	}
 	return readOnlyCommand(toks)
+}
+
+// rtkPlain is the plain command `rtk <sub> …` stands for; claude-code is no rtk subcommand, so rtk runs it as typed.
+func rtkPlain(toks []string) []string {
+	if len(toks) < 2 || toks[0] != "rtk" {
+		return toks
+	}
+	switch toks[1] {
+	case "git", "ls", "grep", "rg", "claude-code":
+		return toks[1:]
+	case "read":
+		return append([]string{"cat"}, toks[2:]...)
+	}
+	return toks
 }
 
 // claudeHelp is `claude-code <verb> [<subverb>] -h|--help`: help text never writes.
@@ -390,6 +405,7 @@ func readOnlyReadDenied(p Permissions, seg string, at opDir) bool {
 		return false
 	}
 	toks, _ := shell.Unwrap(shell.Tokens(seg), "")
+	toks = rtkPlain(toks)
 	if len(toks) > 0 && slices.Contains(noFileCommands, toks[0]) {
 		return false
 	}
