@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/shell"
 )
@@ -93,8 +94,9 @@ const credRead = `(cat|tail|head|base64)\s+.*(\.claude/settings\.json|\.credenti
 // exfilPatterns match credential-exfiltration shapes.
 var exfilPatterns = []*core.Gated{
 	core.Gate(`(^|[\s;&|({/\x60'"\\])(env|printenv)['"]?\s*>\s*/tmp/`, "/tmp/"),
-	core.Gate(credRead+`.*\|.*(^|[^[:alnum:]_])(curl|nc|ncat|wget)([^[:alnum:]_]|$)`,
-		".claude/settings.json", ".credentials.json", "secrets.env", ".ssh/", ".aws/credentials", ".netrc"),
+	core.Gate(`(`+credRead+`.*\|.*(^|[^[:alnum:]_])`+exfilSink+`)|(`+secretPipe+`)`,
+		".claude/settings.json", ".credentials.json", "secrets.env", ".ssh/", ".aws/credentials", ".netrc",
+		"vault", "find-", "env", "auth", "whoami"),
 	core.Gate(`base64\s+.*(\.ssh/id_|\.aws/credentials|\.credentials\.json|secrets\.env)`, "base64"),
 	core.Gate(`(scp|rsync)\s+.*\.ssh/id_`, ".ssh/id_"),
 }
@@ -114,7 +116,7 @@ func exfilMatch(i int, re *core.Gated, scan, cmd string) bool {
 
 // credsShownOnly reports every credential read is a cat/head/tail piped only to filters, with nothing to carry it on.
 func credsShownOnly(cmd string) bool {
-	if strings.ContainsAny(cmd, "(){}<>`$") {
+	if secretPiped().MatchString(cmd) || strings.ContainsAny(cmd, "(){}<>`$") {
 		return false
 	}
 	segs, seps := shell.SegmentsSep(cmd)
@@ -232,7 +234,7 @@ func pushOrScriptVerdict(in *core.Input, cmd, asked string) (core.Decision, stri
 	if branch := bareForcePush(asked, in.CWD); branch != "" {
 		return core.Block, core.SafetyMessage(in, core.Block, forcePushWhat, "", forcePushHint), "force push of " + branch
 	}
-	if p := interpreterWrite(intentView(cmd, false)); p != "" {
+	if p := interpreterWrite(intentView(cmd, false), isLeaf(in)); p != "" {
 		hint := "Approve only if you asked for it; otherwise edit it by hand or run it yourself in a terminal."
 		what := "an interpreter script that may write a file Edit/Write may never touch"
 		return core.Ask, core.SafetyMessage(in, core.Ask, what, p, hint), "interpreter protected write"
@@ -270,7 +272,7 @@ var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": t
 // harnessGitVerb is the first banned verb, or shell.Uninspectable, whose target tree is under the config dir.
 func harnessGitVerb(cmd, cwd string) string {
 	cmd = expandVars(dropRemoteHeredocs(core.DropDataHeredocs(cmd))) // `T=/tmp/x; git -C $T`
-	hit := bannedVerb(cmd, cwd)
+	hit := treeVerb(cmd, cwd)
 	if hit != shell.Uninspectable {
 		return hit
 	}
@@ -280,6 +282,49 @@ func harnessGitVerb(cmd, cwd string) string {
 		return hit
 	}
 	return ""
+}
+
+var gitDirOpt = regexp.MustCompile(`(--git-dir(=|\s+)|GIT_DIR=)("[^"]*"|'[^']*'|[^\s;&|)]+)`)
+
+var workTreeOpt = regexp.MustCompile(`(--work-tree(=|\s+)|GIT_WORK_TREE=)("[^"]*"|'[^']*'|[^\s;&|)]+)`)
+
+// treeVerb is bannedVerb judged on the git dir and the work tree: with none given git's work tree is cwd.
+func treeVerb(cmd, cwd string) string {
+	if !gitEnvAssign.MayMatch(cmd) && !strings.Contains(cmd, "--git-dir") && !strings.Contains(cmd, "--work-tree") {
+		return bannedVerb(cmd, cwd)
+	}
+	variants := []string{withGitEnv(cmd)}
+	if !workTreeOpt.MatchString(cmd) {
+		variants = append(variants, gitDirOpt.ReplaceAllString(cmd, ""))
+	} else if m := gitDirOpt.FindStringSubmatch(cmd); m != nil && path.Base(strings.Trim(m[3], `"'`)) == ".git" {
+		variants = append(variants, withGitEnv(workTreeOpt.ReplaceAllString(cmd, "")))
+	}
+	for _, v := range variants {
+		if hit := bannedVerb(v, cwd); hit != "" {
+			return hit
+		}
+	}
+	return ""
+}
+
+var gitEnvAssign = core.Gate(`(?:^|[\s;&|(])(GIT_DIR|GIT_WORK_TREE)=("[^"]*"|'[^']*'|[^\s;&|)]+)`, "GIT_DIR=", "GIT_WORK_TREE=")
+
+var gitWord = regexp.MustCompile(`(^|[\s;&|('"])((?:\S*/)?git)(\s)`)
+
+// withGitEnv spells GIT_DIR=/GIT_WORK_TREE= as --git-dir/--work-tree on each git word, so one resolver reads both.
+func withGitEnv(cmd string) string {
+	if !gitEnvAssign.MayMatch(cmd) {
+		return cmd
+	}
+	var opts string
+	for _, m := range gitEnvAssign.Regexp().FindAllStringSubmatch(cmd, -1) {
+		flag := "--git-dir="
+		if m[1] == "GIT_WORK_TREE" {
+			flag = "--work-tree="
+		}
+		opts += " " + flag + m[2]
+	}
+	return gitWord.ReplaceAllString(cmd, "${1}${2}"+strings.ReplaceAll(opts, "$", "$$")+"${3}")
 }
 
 // bannedVerb is harnessGitVerb's first hit in cmd, with no feed decoding.
@@ -388,7 +433,12 @@ func gitBannedUnder(target, verb string, args []string) bool {
 
 // hardBlockVerdict blocks a protected write or a hard shape outside inert text; one only in inert text is data.
 func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string) {
-	if p := protectedWrite(cmd, in.CWD); p != "" {
+	if name := dispatchTamper(in, scan); name != "" {
+		what := "changes " + name + "; a nested dispatch inherits its ancestors' limits and deny rules"
+		return core.Block, core.SafetyMessage(in, core.Block, what, "", "Leave the HARNESS_DISPATCH_* variables as the "+
+			"dispatch set them."+ownerRoute), "dispatch env tamper"
+	}
+	if p := protectedWrite(cmd, in.CWD, isLeaf(in)); p != "" {
 		return core.Block, core.SafetyMessage(in, core.Block, "writes a file Edit/Write may never touch", p,
 			"Edit it by hand, or run it yourself in a terminal."), "protected write"
 	}
@@ -944,9 +994,19 @@ func dropInertHeredocs(cmd string) string {
 // extraProtected are Edit-protected files the settings template does not list.
 var extraProtected = []string{"~/.claude/settings.local.json"}
 
+// isLeaf reports an Agent-tool subagent (agent_id) or a dispatched CLI leaf (dispatch id or depth in the env).
+func isLeaf(in *core.Input) bool { return in.AgentID != "" || proc.InDispatch(context.Background()) }
+
+// leafSettings spells settings.json from $HOME, ~, a HOME concatenation or CLAUDE_CONFIG_DIR; a leaf may not write it.
+var leafSettings = regexp.MustCompile(`(?i)(?:\$\{?home\}?|~|\bhome\b[^/\n]{0,12}|homedir\(\)[^/\n]{0,12}|expanduser\([^/\n]{0,4}~)` +
+	`/\.claude/settings(?:\.local)?\.json|claude_config_dir[^\n]{0,40}/settings(?:\.local)?\.json`)
+
 // protectedGlobs are the live settings.json `Edit(...)` deny globs (template's if unreadable) plus extraProtected.
-func protectedGlobs() []string {
+func protectedGlobs(leaf bool) []string {
 	globs := append([]string(nil), extraProtected...)
+	if leaf { // a leaf never writes the harness settings, whatever the live deny list names
+		globs = append(globs, filepath.Join(paths.ConfigDir(), "settings.json"), filepath.Join(paths.ConfigDir(), "settings.local.json"))
+	}
 	for _, rule := range liveDeny() {
 		if g, ok := strings.CutPrefix(rule, "Edit("); ok && strings.HasSuffix(g, ")") {
 			globs = append(globs, strings.TrimSuffix(g, ")"))
@@ -970,14 +1030,14 @@ func liveDeny() []string {
 }
 
 // protectedWrite is the first Edit-denied path a command writes or removes ("" if none); temp folders are allowed.
-func protectedWrite(cmd, cwd string) string {
+func protectedWrite(cmd, cwd string, leaf bool) string {
 	for _, p := range core.WrittenPaths(cmd, cwd) {
-		if protectedPath(p) && !tempWriteAllowed(cmd, p) {
+		if (protectedPath(p, leaf) || leaf && leafSettings.MatchString(p)) && !tempWriteAllowed(cmd, p) {
 			return p
 		}
 	}
 	for _, p := range core.RemovedPaths(cmd, cwd) {
-		if protectedPath(p) && !removalAllowed(cmd, cwd) {
+		if protectedPath(p, leaf) && !removalAllowed(cmd, cwd) {
 			return p
 		}
 	}
@@ -985,8 +1045,8 @@ func protectedWrite(cmd, cwd string) string {
 }
 
 // protectedPath reports whether p, or its symlink-resolved form, falls under an Edit deny glob.
-func protectedPath(p string) bool {
-	return slices.ContainsFunc([]string{p, paths.Real(p)}, matchesProtected)
+func protectedPath(p string, leaf bool) bool {
+	return slices.ContainsFunc([]string{p, paths.Real(p)}, func(q string) bool { return matchesProtected(q, leaf) })
 }
 
 // interpreterWrites are the per-language write indicators; reads (open(p), readFile) match none.
@@ -1015,7 +1075,7 @@ func interpreterLang(base string) string {
 }
 
 // interpreterWrite is the protected file an interpreter command's text mentions beside a write indicator, else "".
-func interpreterWrite(cmd string) string {
+func interpreterWrite(cmd string, leaf bool) string {
 	cmd = core.DropDataHeredocs(cmd)
 	used := paths.FoldCase(pyUsedText(cmd)) // a Python comment or prose string only mentions a path
 	for _, seg := range shell.Segments(cmd) {
@@ -1027,11 +1087,14 @@ func interpreterWrite(cmd string) string {
 		if re := interpreterWrites()[lang]; re == nil || !scriptWrites(lang, re, cmd) {
 			continue
 		}
-		for _, g := range protectedGlobs() {
+		for _, g := range protectedGlobs(leaf) {
 			needle := strings.TrimPrefix(strings.TrimSuffix(strings.TrimPrefix(g, "**/"), "**"), "~/")
 			if needle != "" && strings.Contains(used, paths.FoldCase(needle)) {
 				return needle
 			}
+		}
+		if m := leafSettings.FindString(used); leaf && m != "" {
+			return m
 		}
 	}
 	return ""
@@ -1110,9 +1173,9 @@ func pyArgCount(cmd string, from int) (n int, ok bool) {
 }
 
 // matchesProtected reports whether abs falls under a deny glob: `**/x` by suffix, `dir/**` by prefix, else exact.
-func matchesProtected(abs string) bool {
+func matchesProtected(abs string, leaf bool) bool {
 	abs = paths.FoldCase(abs)
-	for _, g := range protectedGlobs() {
+	for _, g := range protectedGlobs(leaf) {
 		g = paths.FoldCase(paths.ExpandHome(g))
 		switch {
 		case strings.HasPrefix(g, "**/"):

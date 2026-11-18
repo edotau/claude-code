@@ -333,3 +333,23 @@ func checkVendorsRelayReason(t *testing.T, r core.Result) {
 		}
 	}
 }
+
+// A leaf's apply_patch on settings.json is refused with no dispatch policy; the main session's is not.
+func TestPermissionGateLeafSettingsPatch(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("HARNESS_DISPATCH_ID", "")
+	t.Setenv("HARNESS_DISPATCH_DEPTH", "")
+	t.Setenv(agent.DispatchPermissionsEnv, "")
+	for _, c := range []struct {
+		agentID string
+		block   bool
+	}{{"a1", true}, {"", false}} {
+		payload, _ := json.Marshal(map[string]any{"tool_name": "apply_patch", "cwd": "/tmp", "agent_id": c.agentID,
+			"tool_input": map[string]string{"command": "*** Begin Patch\n*** Update File: " + cfg + "/settings.json\n@@\n+x\n*** End Patch"}})
+		res := PermissionGate(core.ParseInputFor(bytes.NewReader(payload), "codex"))
+		if (res.Decision == core.Block) != c.block {
+			t.Errorf("agent_id %q: decision %v reason %q, want block=%v", c.agentID, res.Decision, res.Reason, c.block)
+		}
+	}
+}

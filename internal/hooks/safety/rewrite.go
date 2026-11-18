@@ -49,7 +49,7 @@ func rewriteVerdict(in *core.Input, cmd string) (d core.Decision, msg, detail, w
 func rewriteScan(in *core.Input, cmd, cwd string) (rewriteRisk, bool) {
 	var found rewriteRisk
 	var warn string
-	risky := shell.EachGit(dropRemoteHeredocs(cmd), cwd, func(target, verb string, args []string) bool {
+	risky := shell.EachGit(withGitEnv(dropRemoteHeredocs(cmd)), cwd, func(target, verb string, args []string) bool {
 		rng, ok := rewriteRange(verb, args)
 		if !ok {
 			return false
@@ -77,12 +77,66 @@ func rewriteRange(verb string, args []string) ([]string, bool) {
 			return nil, false // acts on a rebase whose start was already checked
 		}
 		return rebaseRange(args), true
+	case "update-ref":
+		return updateRefRange(args)
+	case "branch":
+		return branchRange(args)
 	case "reset":
 		if ops := rewriteOperands(args, nil); len(ops) > 0 && ops[0] != "" && !slices.Contains(args, "--") {
 			return []string{ops[0] + "..HEAD"}, true
 		}
 	}
 	return nil, false
+}
+
+// lostCommits is the rev-list range of commits only ref's tip holds (--exclude names the branch without refs/heads/).
+func lostCommits(ref, newTip string) []string {
+	not := []string{"--not"}
+	if newTip != "" {
+		not = append(not, newTip)
+	}
+	return append(append([]string{ref}, not...), "--exclude="+strings.TrimPrefix(ref, "refs/heads/"), "--branches", "--tags", "--remotes")
+}
+
+// updateRefRange is the commits update-ref strands on any branch ref, checked out or not.
+func updateRefRange(args []string) ([]string, bool) {
+	ops := rewriteOperands(args, map[string]bool{"-m": true})
+	if len(ops) == 0 || !strings.HasPrefix(ops[0], "refs/heads/") {
+		return nil, false
+	}
+	if slices.Contains(args, "-d") || slices.Contains(args, "--delete") {
+		return lostCommits(ops[0], ""), true
+	}
+	if len(ops) > 1 {
+		return lostCommits(ops[0], ops[1]), true
+	}
+	return nil, false
+}
+
+// branchRange is the commits branch -f/-D/-M strands by moving, deleting or overwriting a branch.
+func branchRange(args []string) ([]string, bool) {
+	ops := rewriteOperands(args, map[string]bool{"-u": true, "--set-upstream-to": true})
+	if len(ops) == 0 || slices.Contains(args, "--") {
+		return nil, false
+	}
+	switch {
+	case slices.ContainsFunc(args, func(a string) bool { return shortFlag(a, "D") }):
+		return lostCommits("refs/heads/"+ops[0], ""), true
+	case slices.ContainsFunc(args, func(a string) bool { return shortFlag(a, "M") }):
+		return lostCommits("refs/heads/"+ops[len(ops)-1], ""), true
+	case slices.ContainsFunc(args, func(a string) bool { return a == "--force" || shortFlag(a, "f") }):
+		start := "HEAD"
+		if len(ops) > 1 {
+			start = ops[1]
+		}
+		return lostCommits("refs/heads/"+ops[0], start), true
+	}
+	return nil, false
+}
+
+// shortFlag reports a short option cluster (`-fu`) holding the letter.
+func shortFlag(a, letter string) bool {
+	return len(a) > 1 && a[0] == '-' && a[1] != '-' && strings.Contains(a[1:], letter)
 }
 
 // rebaseRange selects the explicit target branch, or HEAD when rebasing the current branch.
@@ -204,7 +258,7 @@ func shareReasons(ctx context.Context, in *core.Input, top string, linked bool, 
 		}
 		return append(reasons, "you are a leaf in the main tree"), err
 	}
-	if owner := inflight.SessionOwner(); owner != 0 {
+	if owner := inflight.SessionOwner(); owner != 0 && paths.InsideDir(top, paths.ConfigDir()) {
 		if n := inflight.CountOwned(owner, time.Now()); n > 0 {
 			reasons = append(reasons, fmt.Sprintf("this session has %d live leaf agent(s) in the main tree", n))
 		}
