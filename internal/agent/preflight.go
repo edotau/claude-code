@@ -535,8 +535,8 @@ func modelFinding(ctx context.Context, q RouteReq, pf *Preflight) *Finding {
 
 // previewServes refuses an explicit --model that is no alias, no catalog id and no READY endpoint of profiles.
 func previewServes(tb *router.RouteTable, model string, profiles []*providers.Provider) error {
-	if model == "" || model == router.DiscoveryModel || tb.AliasOf(model) != "" {
-		return nil
+	if model == "" || model == router.DiscoveryModel || tb.AliasOf(model) != "" || providers.FamilyName(model) != "" {
+		return nil // a family is resolved per candidate row, like an alias
 	}
 	if id, _, ok := models.Resolve(model); ok {
 		if models.FamilyKind(id) == models.FamilyClaude {

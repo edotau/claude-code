@@ -142,19 +142,33 @@ func Catalog(ctx context.Context) ([]SDKModel, error) {
 	return refreshCatalog(ctx, "")
 }
 
-// snapshotIDs reads the sealed snapshot once per process, on the first family name resolved.
-var snapshotIDs = sync.OnceValue(readSnapshotIDs)
+var (
+	snapshotMu  sync.Mutex
+	snapshotMap = map[string][]string{} // per row login, read once per process on its first family name
+)
 
-func init() { router.GithubCatalogIDs = func() []string { return snapshotIDs() } }
+func init() { router.GithubCatalogIDs = snapshotIDs }
 
-// readSnapshotIDs is the enabled model ids of the sealed snapshot; nil on a miss, never a listing or a refresh.
-func readSnapshotIDs() []string {
-	auth, ok := copilotAuthSource()
-	if !ok {
-		return nil
+// snapshotIDs is readSnapshotIDs for p's login, memoized per login.
+func snapshotIDs(p *providers.Provider) []string {
+	login := ""
+	if p != nil {
+		login = p.Login
 	}
-	tok, err := catalogToken(auth)
-	if err != nil {
+	snapshotMu.Lock()
+	defer snapshotMu.Unlock()
+	ids, ok := snapshotMap[login]
+	if !ok {
+		ids = readSnapshotIDs(login)
+		snapshotMap[login] = ids
+	}
+	return ids
+}
+
+// readSnapshotIDs is the enabled ids of the sealed snapshot of the account a launch on login uses; nil on a miss.
+func readSnapshotIDs(login string) []string {
+	auth, tok, ok, err := catalogAuth(login)
+	if !ok || err != nil {
 		return nil
 	}
 	s, hit := readCatalogSnapshot(auth, tok)

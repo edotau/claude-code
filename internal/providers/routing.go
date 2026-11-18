@@ -6,8 +6,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"maps"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentid"
@@ -239,6 +242,65 @@ var FamilyDefaults = map[string]string{"sol": "gpt-6.1-sol", "astra": "gpt-6-ast
 func IsFamily(name string) bool {
 	_, ok := FamilyDefaults[strings.ToLower(strings.TrimSpace(name))]
 	return ok
+}
+
+// FamilyName is the family a typed model names, bare ("sol") or row-prefixed ("dev:sol"); "" for any other model.
+func FamilyName(model string) string {
+	_, name, ok := strings.Cut(model, ":")
+	if !ok {
+		name = model
+	}
+	if !IsFamily(name) {
+		return ""
+	}
+	return strings.ToLower(strings.TrimSpace(name))
+}
+
+// FamilyPick resolves a family on a row for an agent; the router sets it, as providers cannot import the router.
+var FamilyPick func(agent, family string, p *Provider) string
+
+// ConcreteModel is the one pairing rule: a family name on row p becomes the id p runs; any other model is unchanged.
+func ConcreteModel(agent string, p *Provider, model string) string {
+	if !IsFamily(model) {
+		return model
+	}
+	family := strings.ToLower(strings.TrimSpace(model))
+	if FamilyPick != nil {
+		return FamilyPick(agent, family, p)
+	}
+	if p == nil {
+		return FamilyDefaults[family]
+	}
+	return p.WireModel(FamilyDefaults[family])
+}
+
+var familyIDRE = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(?:.*/)?(?:databricks-)?gpt-(\d+(?:[.-]\d+)*)-([a-z]+)$`)
+})
+
+// FamilyVersion is id's family and numeric version ("databricks-gpt-6-1-sol" → sol, [6 1]); ok false for other ids.
+func FamilyVersion(id string) (family string, version []int, ok bool) {
+	m := familyIDRE().FindStringSubmatch(strings.ToLower(strings.TrimSpace(id)))
+	if m == nil || !IsFamily(m[2]) {
+		return "", nil, false
+	}
+	for part := range strings.FieldsFuncSeq(m[1], func(r rune) bool { return r == '.' || r == '-' }) {
+		n, err := strconv.Atoi(part)
+		if err != nil {
+			return "", nil, false
+		}
+		version = append(version, n)
+	}
+	return m[2], version, true
+}
+
+// familySibling is the known id of an uncatalogued family member's family ("gpt-7-sol" → gpt-6.1-sol); ok false else.
+func familySibling(id string) (string, bool) {
+	if _, _, known := models.Resolve(id); known {
+		return "", false
+	}
+	f, _, ok := FamilyVersion(id)
+	return FamilyDefaults[f], ok && !models.SameModel(FamilyDefaults[f], id)
 }
 
 // rungModelOK: opencode takes sub ids; others an alias, a family or a model a row, the seed or saved menu serves.

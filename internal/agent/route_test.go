@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -737,6 +738,157 @@ func TestRouteChainAgyOverflow(t *testing.T) {
 		}
 		if id, _ := models.Alias(c.alias); c.hop && (last.Agent.Name() != "gemini" || last.Model != id || last.Account != "google·antigravity") {
 			t.Errorf("%s: hop = %s %s on %s, want gemini %s on google·antigravity", c.alias, last.Agent.Name(), last.Model, last.Account, id)
+		}
+	}
+}
+
+const familyRows = `{"routing":{"servedAware":true},"providers":{"databricks":{"dev":{"preset":"databricks",` +
+	`"host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}},"github":{"octo":{"auth":{"login":"copilot",` +
+	`"type":"cli"},"base_url":"https://api.githubcopilot.com","login":"octo-user","protocol":"openai"}}}}`
+
+// familyEnv seeds dev listing 6.1 and 6.2 Sol and Astra plus Claude, and counts reads of the Copilot list.
+func familyEnv(t *testing.T) (*providers.Registry, *int) {
+	t.Helper()
+	setConfigDir(t)
+	vaulttest.Use(t)
+	t.Setenv("HOME", t.TempDir())
+	vaulttest.Put(t, vault.Overlay, "providers", familyRows)
+	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
+	activateAgents(t, "codex")
+	vaulttest.SetRecord(t, "copilot", "profile", "octo")
+	for _, a := range []string{"codex", "copilot"} {
+		pathstest.FakeVendor(t, a, "exit 0")
+	}
+	s := router.Served{Profile: "dev", FetchedAt: time.Now()}
+	for _, id := range []string{"claude-opus-5-5", "claude-sonnet-5-5", "gpt-6-1-sol", "gpt-6-2-sol", "gpt-6-astra", "gpt-6-2-astra"} {
+		s.Models = append(s.Models, router.ServedModel{ID: "databricks-" + id, Ready: "READY"})
+	}
+	if err := router.SaveServed(s); err != nil {
+		t.Fatal(err)
+	}
+	reads := 0
+	prev := router.GithubCatalogIDs
+	router.GithubCatalogIDs = func(*providers.Provider) []string { reads++; return []string{"gpt-6.1-sol", "gpt-6.2-sol"} }
+	t.Cleanup(func() { router.GithubCatalogIDs = prev })
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reg, &reads
+}
+
+// chainModels is every dispatch model of a chain, or the error text.
+func chainModels(c Chain, err error) []string {
+	if err != nil {
+		return []string{"error: " + err.Error()}
+	}
+	var out []string
+	for _, d := range c.Dispatches {
+		out = append(out, d.Model)
+	}
+	return out
+}
+
+type familyCase struct {
+	name string
+	got  func() []string
+}
+
+// rungDispatches builds a dispatch from each family rung candidate of a want-less opus pick.
+func rungDispatches(ctx context.Context, reg *providers.Registry) []string {
+	tb, err := router.Load()
+	if err != nil {
+		return chainModels(Chain{}, err)
+	}
+	pick := tb.Pick(ctx, "opus", "", loadState(), router.PickOpts{Fallback: router.FallbackAll, Configured: allConfigured})
+	rc, out := routeCtx{ctx: ctx, tb: tb, reg: reg, want: "copilot"}, []string(nil)
+	for _, c := range pick.Candidates {
+		if providers.IsFamily(c.Model) {
+			d, _, err := rc.buildDispatch(c, c.Cell)
+			out = append(out, chainModels(Chain{Dispatches: []Dispatch{d}}, err)...)
+		}
+	}
+	return out
+}
+
+// familyEntryCases is each entry point (typed, row:family, overlay, pin, rung, bucket) on the direct and routed path.
+func familyEntryCases(t *testing.T, reg *providers.Registry) []familyCase {
+	ctx, dev := context.Background(), reg.Providers["dev"]
+	direct := func(q ModelQuery) []string {
+		r, err := ResolveModel(reg, q, time.Now())
+		return append(chainModels(Chain{}, err), r.Model)
+	}
+	target := func(req RunOptions) []string {
+		_, tg, err := resolveIn(reg, req)
+		return append(chainModels(Chain{}, err), tg.Model)
+	}
+	routedOn := func(lead, want, model, alias string) []string {
+		c, _, err := RouteChainFor(ctx, want, model, alias, router.FallbackAll, false, router.PickOpts{Configured: allConfigured, Lead: lead})
+		return chainModels(c, err)
+	}
+	routed := func(want, model, alias string) []string { return routedOn("dev", want, model, alias) }
+	preview := func(q RouteReq) []string { c, _, err := Resolve(ctx, q); return chainModels(c, err) }
+	pinned := func(agent string, run func() []string) []string {
+		vaulttest.SetRecord(t, agent, "model", "sol")
+		defer vaulttest.SetRecord(t, agent, "model", "")
+		return run()
+	}
+	return []familyCase{
+		{"direct typed", func() []string { return target(RunOptions{Agent: "codex", Provider: "dev", Model: "sol"}) }},
+		{"direct row:family", func() []string { return target(RunOptions{Agent: "codex", Model: "dev:sol"}) }},
+		{"direct overlay", func() []string { return direct(ModelQuery{Agent: "codex", Profile: "dev", Model: "sol"}) }},
+		{"direct pin", func() []string {
+			return pinned("codex", func() []string { return []string{PinnedTarget(ctx, "codex", providers.Target{Provider: dev}).Model} })
+		}},
+		{"direct bucket", func() []string { return direct(ModelQuery{Agent: "codex", Profile: "dev", Model: "opus"}) }},
+		{"routed typed", func() []string { return routed("codex", "sol", "sonnet") }},
+		{"routed typed own login", func() []string { return routedOn("", "copilot", "sol", "sonnet") }},
+		{"routed row:family", func() []string { return preview(RouteReq{Agent: "codex", Model: "dev:sol", Preview: true}) }},
+		{"routed overlay", func() []string { return preview(RouteReq{Agent: "codex", Profile: "dev", Model: "sol", Preview: true}) }},
+		{"routed pin", func() []string { return pinned("copilot", func() []string { return routed("copilot", "", "sonnet") }) }},
+		{"routed served pin", func() []string {
+			vaulttest.SetRecord(t, "codex", "profile", "dev")
+			defer vaulttest.SetRecord(t, "codex", "profile", "chatgpt")
+			return pinned("codex", func() []string { return routedOn("", "codex", "", "sonnet") })
+		}},
+		{"routed ladder rung", func() []string { return rungDispatches(ctx, reg) }},
+		{"routed bucket", func() []string { return routed("codex", "", "opus") }},
+	}
+}
+
+// Past the row pairing no family name survives: every entry point on both paths hands on a concrete id.
+func TestFamilyIsConcreteAtEveryEntry(t *testing.T) {
+	reg, _ := familyEnv(t)
+	for _, c := range familyEntryCases(t, reg) {
+		got := c.got()
+		if len(got) == 0 {
+			t.Fatalf("%s: no dispatch", c.name)
+		}
+		first := got[0][strings.Index(got[0], ":")+1:] // a row-qualified dispatch model loses its "<row>:"
+		if _, _, member := providers.FamilyVersion(first); !member {
+			t.Errorf("%s: first hop runs %q, want a family member (all %v)", c.name, got[0], got)
+		}
+		for _, m := range got {
+			if strings.HasPrefix(m, "error: ") || providers.FamilyName(m) != "" {
+				t.Errorf("%s: %q is no concrete id (all %v)", c.name, m, got)
+			}
+		}
+	}
+}
+
+// A routed request naming no family reads no first-party list; the Copilot rungs stay unresolved until run.
+func TestRoutedConcreteReadsNoFamilyList(t *testing.T) {
+	_, reads := familyEnv(t)
+	for _, c := range []struct{ want, model, alias string }{
+		{"codex", "", "sonnet"}, {"codex", "sonnet", ""}, {"codex", "gpt-6.1-sol", "sonnet"},
+		{"copilot", "gpt-6.1-sol", "sonnet"}, {"copilot", "claude-sonnet-5.5", ""},
+	} {
+		if _, _, err := RouteChainFor(context.Background(), c.want, c.model, c.alias, router.FallbackAll, false,
+			router.PickOpts{Configured: allConfigured}); err != nil {
+			t.Fatalf("%+v: %v", c, err)
+		}
+		if *reads != 0 {
+			t.Fatalf("%+v read the Copilot list %d times, want 0", c, *reads)
 		}
 	}
 }

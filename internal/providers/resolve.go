@@ -39,6 +39,9 @@ func ParseTarget(reg *Registry, spec string, def *Provider) Target {
 	if err == nil && ms.Row != "" {
 		p, model = reg.Providers[ms.Row], ms.Model
 	}
+	if IsFamily(model) {
+		return Target{Provider: p, Model: ConcreteModel("", p, model)}
+	}
 	base, oneM := models.Canonical(model)
 	return Target{Provider: p, Model: p.WireModel(base), OneM: oneM}
 }
@@ -126,12 +129,15 @@ func FirstResponsesModel(p *Provider) string {
 	return ""
 }
 
-// ServesResponses reports whether p serves model on Responses: its menu entry's flag when listed, else the catalog.
+// ServesResponses reports whether p serves model on Responses: its menu entry's flag, the catalog, else its family's.
 func ServesResponses(p *Provider, model string) bool {
 	for _, m := range OpencodeMenu() {
 		if p.WireModel(m.ID) == model || models.SameModel(m.ID, model) {
 			return m.Responses
 		}
+	}
+	if sib, ok := familySibling(model); ok {
+		return ResponsesID(sib)
 	}
 	return models.ResponsesOnly(model)
 }
@@ -141,12 +147,15 @@ func ResponsesServable(p *Provider, wire string) bool {
 	return (models.FamilyKind(wire) == models.FamilyGPT && !models.ChatOnly(wire)) || ServesResponses(p, wire)
 }
 
-// ResponsesID is ServesResponses for a bare menu id: the entry's flag when listed, else the catalog.
+// ResponsesID is ServesResponses for a bare menu id: the entry's flag when listed, the catalog, else its family's.
 func ResponsesID(id string) bool {
 	for _, m := range OpencodeMenu() {
 		if models.SameModel(m.ID, id) {
 			return m.Responses
 		}
+	}
+	if sib, ok := familySibling(id); ok {
+		return ResponsesID(sib)
 	}
 	return models.ResponsesOnly(id)
 }

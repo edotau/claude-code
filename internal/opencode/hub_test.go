@@ -140,6 +140,12 @@ func TestHubDispatchResolveModel(t *testing.T) {
 	if got := l.resolveModel("raw-model-id"); got != "raw-model-id" {
 		t.Errorf("resolveModel(raw id) = %q, want it passed through", got)
 	}
+	t.Setenv("CODEX_HOME", t.TempDir()) // no cache: the family's known id
+	for _, m := range []string{"sol", "chatgpt:sol"} {
+		if f, _, ok := providers.FamilyVersion(l.resolveModel(m)); !ok || f != "sol" {
+			t.Errorf("resolveModel(%q) = %q, want a concrete sol id", m, l.resolveModel(m))
+		}
+	}
 }
 
 // hubDispatch keeps the prompt in argv, so its MaxPromptBytes check precedes the binary lookup.

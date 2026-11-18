@@ -295,8 +295,11 @@ func pinCaller() string {
 	return "via " + cmp.Or(verb, "?") + " (parent " + cmp.Or(proc.Comm(os.Getppid()), "?") + ")"
 }
 
-// SpellPin is pin spelled the way p serves it, or "" when p cannot serve it (a Databricks wire id off Databricks).
+// SpellPin is pin spelled the way p serves it (a family as its concrete id), or "" when p cannot serve it.
 func SpellPin(p *Provider, pin string) string {
+	if IsFamily(pin) {
+		return ConcreteModel("", p, pin)
+	}
 	if p == nil {
 		return pin
 	}

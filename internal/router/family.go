@@ -1,34 +1,17 @@
 package router
 
 import (
-	"regexp"
 	"slices"
-	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-var familyIDRE = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^(?:.*/)?(?:databricks-)?gpt-(\d+(?:[.-]\d+)*)-([a-z]+)$`)
-})
-
-// familyVersion is id's family and numeric version ("databricks-gpt-6-1-sol" → sol, [6 1]); ok is false for other ids.
-func familyVersion(id string) (family string, version []int, ok bool) {
-	m := familyIDRE().FindStringSubmatch(strings.ToLower(strings.TrimSpace(id)))
-	if m == nil || !providers.IsFamily(m[2]) {
-		return "", nil, false
+func init() {
+	providers.FamilyPick = func(agent, family string, p *providers.Provider) string {
+		return FamilyModel(agent, family, p, nil, time.Now())
 	}
-	for part := range strings.FieldsFuncSeq(m[1], func(r rune) bool { return r == '.' || r == '-' }) {
-		n, err := strconv.Atoi(part)
-		if err != nil {
-			return "", nil, false
-		}
-		version = append(version, n)
-	}
-	return m[2], version, true
 }
 
 // compareVersions orders dotted versions numerically; a missing part counts as 0.
@@ -52,7 +35,7 @@ func compareVersions(a, b []int) int {
 func FamilyLatest(family string, ids []string) string {
 	best, bestVer := "", []int(nil)
 	for _, id := range ids {
-		f, v, ok := familyVersion(id)
+		f, v, ok := providers.FamilyVersion(id)
 		if ok && f == strings.ToLower(family) && (best == "" || compareVersions(v, bestVer) > 0) {
 			best, bestVer = id, v
 		}
@@ -60,8 +43,8 @@ func FamilyLatest(family string, ids []string) string {
 	return best
 }
 
-// GithubCatalogIDs lists the ids of the GitHub Copilot catalog snapshot the harness keeps; the copilot package sets it.
-var GithubCatalogIDs func() []string
+// GithubCatalogIDs lists the ids of the Copilot catalog snapshot kept for row p's account; the copilot package sets it.
+var GithubCatalogIDs func(p *providers.Provider) []string
 
 // FamilyModel is the highest READY runnable version of family on p, else today's id; ids overrides a first-party list.
 func FamilyModel(agent, family string, p *providers.Provider, ids []string, now time.Time) string {
@@ -97,7 +80,7 @@ func firstPartyIDs(p *providers.Provider) []string {
 	case p == nil:
 		return nil
 	case p.Provider == "github" && GithubCatalogIDs != nil:
-		return GithubCatalogIDs()
+		return GithubCatalogIDs(p)
 	case p.Auth.Login == "codex":
 		return providers.CodexCachedIDs()
 	}
@@ -119,8 +102,8 @@ func servedIDs(p *providers.Provider, now time.Time) []string {
 	return out
 }
 
-// inFamily reports whether id is a version of the family name m.
-func inFamily(m, id string) bool {
-	f, _, ok := familyVersion(id)
+// InFamily reports whether id is a version of the family name m.
+func InFamily(m, id string) bool {
+	f, _, ok := providers.FamilyVersion(id)
 	return ok && providers.IsFamily(m) && f == strings.ToLower(m)
 }

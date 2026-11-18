@@ -63,7 +63,7 @@ func TestRungKeepsOpusTierGPT(t *testing.T) {
 	for _, c := range got.Candidates {
 		models = append(models, c.Agent+"/"+c.Model)
 	}
-	want := []string{"copilot/gpt-6.1-sol", "copilot/gpt-6-astra"}
+	want := []string{"copilot/sol", "copilot/astra"} // a rung family resolves once its candidate is a dispatch
 	if !slices.Equal(models, want) {
 		t.Errorf("opus candidates under github = %v, want %v (skips %+v)", models, want, got.Skipped)
 	}
@@ -84,7 +84,7 @@ func TestRungDoesNotSwapHaikuPriceToGPT(t *testing.T) {
 		}
 	}
 	if !slices.ContainsFunc(got.Skipped, func(s Skip) bool {
-		return s.Gate == gateLadder && strings.Contains(s.Reason, "gpt-6.1-sol") && strings.Contains(s.Reason, "claude-haiku-5.5")
+		return s.Gate == gateLadder && strings.Contains(s.Reason, "model sol ") && strings.Contains(s.Reason, "claude-haiku-5.5")
 	}) {
 		t.Errorf("missing skip naming incompatible rung swap: %+v", got.Skipped)
 	}

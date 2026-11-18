@@ -314,32 +314,32 @@ func modelTier(id string) string {
 		return f
 	}
 	for alias, ids := range databricksTiers() {
-		if slices.ContainsFunc(ids, func(m string) bool { return models.SameModel(m, id) || inFamily(m, id) }) {
+		if slices.ContainsFunc(ids, func(m string) bool { return models.SameModel(m, id) || InFamily(m, id) }) {
 			return alias
 		}
 	}
 	return ""
 }
 
-// rungProvider is c's profile (or the one named by its account) in the registry, nil without a registry.
-func (lp ladderPick) rungProvider(c Candidate) *providers.Provider {
-	if lp.reg == nil {
+// CandidateRow is c's profile (or the one named by its account) in reg, nil without a registry.
+func CandidateRow(reg *providers.Registry, c Candidate) *providers.Provider {
+	if reg == nil {
 		return nil
 	}
 	_, profile, _ := strings.Cut(c.Account, "·")
-	return lp.reg.Providers[cmp.Or(c.Profile, profile)]
+	return reg.Providers[cmp.Or(c.Profile, profile)]
 }
 
 // rungModel spells rung model m for c's account row; why is non-empty when that row can't serve it.
 func (lp ladderPick) rungModel(c Candidate, m string) (model, why string) {
-	p := lp.rungProvider(c)
+	p := CandidateRow(lp.reg, c)
 	switch {
 	case slices.Contains(Aliases, m) && p != nil && p.Models[m] != "":
 		return p.Models[m], ""
 	case slices.Contains(Aliases, m):
 		return lp.aliasCell(c, m)
-	case providers.IsFamily(m):
-		return FamilyModel(c.Agent, m, p, nil, lp.now), ""
+	case providers.IsFamily(m): // resolved only once the candidate is a dispatch the chain may run
+		return m, ""
 	case p == nil:
 		return m, ""
 	}

@@ -372,7 +372,7 @@ func codexTierPin(r *ModelRoute, p *providers.Provider, q ModelQuery, typed stri
 func spellModel(r *ModelRoute, p *providers.Provider, agent, typed string, now time.Time) (string, error) {
 	name := strings.ToLower(models.Strip1M(typed))
 	if providers.IsFamily(name) {
-		return router.FamilyModel(agent, name, p, nil, now), nil
+		return providers.ConcreteModel(agent, p, name), nil
 	}
 	if slices.Contains(models.AliasNames, name) {
 		r.Alias = name

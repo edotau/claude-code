@@ -119,9 +119,10 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	}
 	c.Skipped = pickSkips(pick, nativeLead)
 	current, _ := models.Alias(alias)
+	family := providers.FamilyName(callerModel)
 	rc := routeCtx{ctx: ctx, tb: tb, reg: reg, pins: pins, want: want, lead: o.Lead, row: row, exact: exact, callerModel: callerModel,
-		current: current, dispatchID: router.NonClaudeDispatchID(exact, explicitModel, pins[want].Model),
-		explicitModel: explicitModel, native: native, mode: mode, pf: &Preflight{}}
+		current: current, dispatchID: router.NonClaudeDispatchID(cmp.Or(exact, providers.FamilyDefaults[family]), explicitModel, pins[want].Model),
+		family: family, explicitModel: explicitModel, native: native, mode: mode, pf: &Preflight{}}
 	c, err = rc.addCandidates(c, pick, nativeLead, alias)
 	if err != nil {
 		return Chain{}, pick, err
@@ -289,7 +290,7 @@ func (rc routeCtx) onPin(c router.Candidate) bool {
 }
 
 func (rc routeCtx) asPin() routeCtx {
-	rc.lead, rc.row, rc.exact, rc.callerModel, rc.explicitModel = "", "", "", "", false
+	rc.lead, rc.row, rc.exact, rc.callerModel, rc.family, rc.explicitModel = "", "", "", "", "", false
 	rc.dispatchID = router.NonClaudeDispatchID("", false, rc.pins[rc.want].Model)
 	return rc
 }
@@ -322,6 +323,7 @@ func (rc routeCtx) stepDispatch(cand router.Candidate, s step, req int, armFaile
 	if armFailed != nil && s.i == req { // the overlay workspace failed its local check, like a failed model check
 		return Dispatch{}, cand.Agent + " (" + cmp.Or(cand.Account, cand.Profile) + "): preflight " + armFailed.String(), false, nil
 	}
+	s.rc = s.rc.forFamily(cand)
 	cell, skip := s.rc.candidateCell(cand)
 	if skip != "" {
 		return Dispatch{}, skip, false, nil
@@ -541,9 +543,28 @@ type routeCtx struct {
 	want, row, exact, callerModel string
 	lead                          string // profile the wanted agent leads with; "" = its pin
 	current, dispatchID           string
+	family                        string // the caller's typed family name; forFamily makes it each candidate's id
 	explicitModel, native         bool
 	mode                          string     // --fallback: all = requested, pin, claude; agents = no claude
 	pf                            *Preflight // findings and notes the candidate checks add
+}
+
+// forFamily is rc with a typed family as the exact id cand's own row resolves it to; Claude keeps the tier match.
+func (rc routeCtx) forFamily(cand router.Candidate) routeCtx {
+	if rc.family == "" || VaultAgentIsClaude(cand.Agent) {
+		return rc
+	}
+	id := providers.ConcreteModel(cand.Agent, router.CandidateRow(rc.reg, cand), rc.family)
+	if canonical, _, ok := models.Resolve(id); ok && cand.Profile == "" {
+		id = canonical
+	}
+	rc.exact = id
+	if prefix, _, ok := strings.Cut(rc.callerModel, ":"); ok {
+		rc.callerModel = prefix + ":" + id
+	} else {
+		rc.callerModel = id
+	}
+	return rc
 }
 
 // candidateCell adjusts cand's cell for the row or exact model; skip is non-empty when cand serves none.
@@ -661,15 +682,18 @@ func (rc routeCtx) profileCell(cand router.Candidate, cell router.Cell) (router.
 		cell.Model = wire
 		return cell, ""
 	}
-	if id, _, ok := models.Resolve(cell.Model); !ok || id != rc.exact {
+	if id, _, ok := models.Resolve(cell.Model); (!ok || id != rc.exact) && !router.InFamily(cell.Model, rc.exact) {
 		return cell, who + ": serves no " + rc.exact
 	}
 	return cell, ""
 }
 
 func (rc routeCtx) buildDispatch(cand router.Candidate, cell router.Cell) (disp Dispatch, skip string, err error) {
-	disp = Dispatch{Model: cell.Model, Effort: cell.Effort, Account: cand.Account, Billing: cand.Billing}
-	disp.keepCaller = cand.Agent == rc.want && rc.explicitModel && cand.Profile == "" && rc.callerModel != router.DiscoveryModel
+	keepCaller := cand.Agent == rc.want && rc.explicitModel && cand.Profile == "" && rc.callerModel != router.DiscoveryModel
+	if !keepCaller || rc.exact == "" { // a ladder rung's family resolves here, for a step the chain may run
+		cell.Model = providers.ConcreteModel(cand.Agent, router.CandidateRow(rc.reg, cand), cell.Model)
+	}
+	disp = Dispatch{Model: cell.Model, Effort: cell.Effort, Account: cand.Account, Billing: cand.Billing, keepCaller: keepCaller}
 	if disp.keepCaller && rc.exact != "" {
 		disp.Model = rc.exact // an exact non-Claude id runs as asked; an alias runs the cell's model
 	}

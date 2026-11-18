@@ -95,7 +95,8 @@ func defaultProviderID(p *providers.Provider, id, model string, claudeRoute bool
 	case chat[model] != nil:
 		return id, nil
 	}
-	if !allowed[model] {
+	_, _, member := providers.FamilyVersion(model) // a family's newest id, judged by its family, not a menu row
+	if !allowed[model] && !member {
 		return "", fmt.Errorf("opencode: model %q is not on the %s menu; see `claude-code opencode catalog list --live` or `claude-code opencode catalog add`", model, p.Name)
 	}
 	// an alias off the curated menu
@@ -103,8 +104,13 @@ func defaultProviderID(p *providers.Provider, id, model string, claudeRoute bool
 		claude[model] = claudeEntry(map[string]any{"name": model})
 		return id + "-claude", nil
 	}
-	if _, ok, why := providers.WireFor(p, model); !ok {
+	w, ok, why := providers.WireFor(p, model)
+	switch {
+	case !ok:
 		return "", fmt.Errorf("opencode: model %q: %s", model, why)
+	case w == providers.ProtocolResponses:
+		resp[model] = map[string]any{"name": model}
+		return id + "-gpt", nil
 	}
 	chat[model] = map[string]any{"name": model}
 	return id, nil

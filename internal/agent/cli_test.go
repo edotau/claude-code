@@ -279,7 +279,7 @@ func TestResolveInFamilyTargetsAreConcrete(t *testing.T) {
 		t.Fatal(err)
 	}
 	reads := 0
-	router.GithubCatalogIDs = func() []string { reads++; return []string{"gpt-6.1-sol", "gpt-6.2-sol"} }
+	router.GithubCatalogIDs = func(*providers.Provider) []string { reads++; return []string{"gpt-6.1-sol", "gpt-6.2-sol"} }
 	t.Cleanup(func() { router.GithubCatalogIDs = nil })
 	reg := routeRegistry(t)
 	for _, c := range []struct{ agent, model, want string }{

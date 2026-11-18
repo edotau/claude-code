@@ -21,7 +21,6 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 )
 
 // OwnProfile is the profile a run on the agent's own login bills: the registry row naming that login, else the agent.
@@ -101,7 +100,7 @@ func typedModelTarget(req RunOptions, t providers.Target, applied bool) (_ provi
 		return t, false
 	}
 	if t.Provider == nil && req.Model != "" && !auto && !slices.Contains(models.AliasNames, req.Model) {
-		t.Model = req.Model
+		t.Model = providers.ConcreteModel(req.Agent, nil, req.Model)
 	}
 	return t, true
 }
@@ -509,7 +508,7 @@ func familyTarget(reg *providers.Registry, req RunOptions, row *providers.Provid
 	if !providers.IsFamily(name) {
 		return providers.Target{}, false
 	}
-	return providers.Target{Provider: row, Model: router.FamilyModel(req.Agent, name, row, nil, time.Now())}, true
+	return providers.Target{Provider: row, Model: providers.ConcreteModel(req.Agent, row, name)}, true
 }
 
 // agyOwnTarget is agy's own model typed on its Google row, spelled as agy takes it; an effort it lacks errors.

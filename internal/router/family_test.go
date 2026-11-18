@@ -96,3 +96,14 @@ func TestDatabricksModelBucketFollowsFamily(t *testing.T) {
 func providersGitHub() *providers.Provider {
 	return &providers.Provider{Name: "gh", Provider: "github"}
 }
+
+// A listed family id the catalog does not know yet is runnable by its family's wire, so codex picks it.
+func TestFamilyModelPicksUnknownNewestForResponsesAgent(t *testing.T) {
+	vaulttest.Use(t)
+	if err := SaveServed(listing("dev", map[string]string{"databricks-gpt-7-sol": "READY"})); err != nil {
+		t.Fatal(err)
+	}
+	if got := FamilyModel("codex", "sol", dbxProv("dev"), nil, time.Now()); got != "databricks-gpt-7-sol" {
+		t.Errorf("codex sol = %q, want the listed databricks-gpt-7-sol", got)
+	}
+}

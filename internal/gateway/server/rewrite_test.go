@@ -162,6 +162,20 @@ func TestCrossProviderTarget(t *testing.T) {
 	}
 }
 
+// A family name a client sends is resolved on the row the request routes to, never forwarded as typed.
+func TestProxyResolvesFamilyOnItsRow(t *testing.T) {
+	up := newUpstream(t, ok)
+	t.Setenv("UP_KEY", "k")
+	srv := setup(t, `{"default":"up","providers":{"anthropic":{"up":`+anthropicProvider(up.URL, "UP_KEY", `{"opus":"m1"}`)+`}}}`)
+	if resp := post(t, srv.URL+"/p/up/v1/messages", `{"model":"sol"}`, nil); resp.StatusCode != 200 {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	m, _ := (*up.body.Load())["model"].(string)
+	if f, _, ok := providers.FamilyVersion(m); !ok || f != "sol" {
+		t.Errorf("upstream model = %q, want a concrete sol id", m)
+	}
+}
+
 func TestSessionTokenCannotReachOtherProfiles(t *testing.T) {
 	up1 := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) { w.WriteHeader(429) })
 	up2 := newUpstream(t, ok)

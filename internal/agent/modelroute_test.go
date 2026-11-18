@@ -96,9 +96,9 @@ func TestResolveModelFamily(t *testing.T) {
 	}
 	check("codex", "dev:sol", "databricks-gpt-6-2-sol")
 	check("codex", "dev:databricks-gpt-6-1-sol", "databricks-gpt-6-1-sol")
-	router.GithubCatalogIDs = func() []string { return []string{"gpt-6.1-sol", "gpt-6.2-sol", "claude-opus-5.5"} }
+	router.GithubCatalogIDs = func(*providers.Provider) []string { return []string{"gpt-6.1-sol", "gpt-6.2-sol", "claude-opus-5.5"} }
 	check("copilot", "aueric_boehcp:sol", "gpt-6.2-sol")
-	router.GithubCatalogIDs = func() []string { return nil }
+	router.GithubCatalogIDs = func(*providers.Provider) []string { return nil }
 	check("copilot", "aueric_boehcp:sol", "gpt-6.1-sol")
 	check("codex", "chatgpt:sol", "gpt-6.1-sol")
 	cache(`{"models":[{"slug":"gpt-6.1-sol"},{"slug":"gpt-6.2-sol"}]}`)

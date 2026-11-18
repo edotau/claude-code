@@ -67,11 +67,12 @@ func DatabricksModel(agent, alias string, p *providers.Provider) string {
 	// dead[0] is p's own account, where MarkUnserved writes
 	dead := deadAccounts(ProviderAccount(p.Name))
 	for _, id := range databricksTiers()[alias] {
-		wire := SpellServed(p, id, now)
+		var wire string
 		if providers.IsFamily(id) {
 			// a listed newest id may be too new for the catalog
-			wire = FamilyModel(agent, id, p, nil, now)
-			id = ""
+			wire, id = providers.ConcreteModel(agent, p, id), ""
+		} else {
+			wire = SpellServed(p, id, now)
 		}
 		if _, _, known := models.Resolve(cmp.Or(id, wire)); id != "" && !known && wire == id {
 			// an unlisted id with no READY endpoint to spell it by
@@ -398,9 +399,9 @@ func (t *RouteTable) registryAliasOf(bare string) string {
 	return ""
 }
 
-// ModelRow resolves a --model value to its row's alias and canonical Claude id; exact is a non-Claude id as asked.
+// ModelRow is a --model's row alias and canonical Claude id; exact a non-Claude id as asked, never a family name.
 func ModelRow(model string) (alias, row, exact string) {
-	if model == DiscoveryModel {
+	if model == DiscoveryModel || providers.FamilyName(model) != "" {
 		return "", "", ""
 	}
 	canonical, _, ok := models.Resolve(model)

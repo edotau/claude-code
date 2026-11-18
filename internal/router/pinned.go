@@ -138,7 +138,7 @@ func selectPinnedModel(agent, alias string, cell Cell, p *providers.Provider, mo
 		return cell.Model
 	}
 	if modelPin != "" {
-		if m := providers.SpellPin(p, modelPin); m != "" {
+		if m := providers.SpellPin(p, providers.ConcreteModel(agent, p, modelPin)); m != "" {
 			return m
 		}
 	}

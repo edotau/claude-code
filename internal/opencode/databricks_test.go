@@ -86,3 +86,15 @@ func TestMenuImportPreservesExplicitRouting(t *testing.T) {
 		t.Fatalf("import must retain explicit Responses and chat overrides: got %+v, want %+v", got, want)
 	}
 }
+
+// A family id newer than the menu and catalog runs on the Responses provider, as its known sibling does.
+func TestOpencodeDatabricksRunsUnknownFamilyMember(t *testing.T) {
+	p := regressionDatabricksProfile(t, "dev", providers.DatabricksOpencodeMenu)
+	body := string(regressionGeneratedMenu(t, p, "gpt-7-sol"))
+	if !strings.Contains(body, `"model":"harness-dev-gpt/databricks-gpt-7-sol"`) {
+		t.Errorf("gpt-7-sol launch config = %s, want it on the Responses provider", body)
+	}
+	if _, err := opencodeDatabricks(p, "harness-dev", providers.ProtocolOpenAI, p.BaseURL, "databricks-gpt-7-nova", "", false, nil); err == nil {
+		t.Error("an off-menu id outside every family must stay refused")
+	}
+}
