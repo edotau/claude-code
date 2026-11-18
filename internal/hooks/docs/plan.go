@@ -342,8 +342,11 @@ func hasPlanHeading(headings []textutil.Heading, want templateHeading) bool {
 func Gate(in *core.Input, stderr io.Writer) int {
 	tool := strings.ToLower(in.ToolName)
 	if tool == "apply_patch" { // an Add File hunk is a first write; Update is an Edit, which the gate leaves alone
-		for path, content := range patchAdds(applyPatchText(in)) {
-			if code := gateDraft(core.AnchorPath(path, in.CWD), content, stderr); code != core.ExitProceed {
+		for _, e := range in.EditedPaths() {
+			if e.Kind != textutil.PatchAdd {
+				continue
+			}
+			if code := gateDraft(core.AnchorPath(e.Path, in.CWD), e.Body, stderr); code != core.ExitProceed {
 				return code
 			}
 		}
@@ -434,28 +437,6 @@ func hasNameToken(base string, words ...string) bool {
 		}
 	}
 	return false
-}
-
-// patchAdds yields each file an apply_patch body adds, with its content (the hunk's "+" lines).
-func patchAdds(patch string) iter.Seq2[string, string] {
-	return func(yield func(string, string) bool) {
-		path, lines := "", []string(nil)
-		for line := range strings.SplitSeq(patch+"\n*** ", "\n") {
-			if !strings.HasPrefix(line, "*** ") {
-				if body, ok := strings.CutPrefix(line, "+"); ok && path != "" {
-					lines = append(lines, body)
-				}
-				continue
-			}
-			if path != "" && !yield(path, strings.Join(lines, "\n")) {
-				return
-			}
-			path, lines = "", nil
-			if p, ok := strings.CutPrefix(line, "*** Add File: "); ok {
-				path = strings.TrimSpace(p)
-			}
-		}
-	}
 }
 
 // firstDraftWrite reports whether path is an undated draft not yet on disk; a later write was already checked.

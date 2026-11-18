@@ -1,6 +1,7 @@
 package core
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"strings"
@@ -134,4 +135,37 @@ func BenchmarkParseInputFor(b *testing.B) {
 	for b.Loop() {
 		ParseInputFor(strings.NewReader(payload), AgentClaude)
 	}
+}
+
+// EditedPaths reads every agent's edit shape; a shell command edits nothing and a malformed header is skipped.
+func TestEditedPathsEveryAgentShape(t *testing.T) {
+	const patch = "*** Begin Patch\r\n*** Add File: a.md \r\n+x\r\n+y\r\n*** Update File: b.go\r\n@@\r\n+z\r\n" +
+		"*** Delete File: c.go\r\n*** Move to: d.go\r\n*** Add File:\r\n*** End Patch"
+	want := "add:a.md update:b.go delete:c.go move:d.go"
+	for _, tc := range []struct{ name, doc, want string }{
+		{"claude Write", `{"tool_name":"Write","tool_input":{"file_path":"/r/a.go"}}`, "update:/r/a.go"},
+		{"gemini write_file", `{"tool_name":"write_file","tool_input":{"file_path":"/r/a.go"}}`, "update:/r/a.go"},
+		{"copilot create", `{"toolName":"create","toolArgs":{"path":"/r/a.go"}}`, "update:/r/a.go"},
+		{"copilot filePath", `{"toolName":"edit","toolArgs":{"filePath":"/r/a.go"}}`, "update:/r/a.go"},
+		{"opencode edit", `{"tool_name":"edit","tool_input":{"filePath":"/r/a.go"}}`, "update:/r/a.go"},
+		{"opencode apply_patch", `{"tool_name":"apply_patch","tool_input":{"patchText":` + jsonString(patch) + `}}`, want},
+		{"codex command", `{"tool_name":"apply_patch","tool_input":{"command":` + jsonString(patch) + `}}`, want},
+		{"codex input", `{"tool_name":"apply_patch","tool_input":{"input":` + jsonString(patch) + `}}`, want},
+		{"empty patch", `{"tool_name":"apply_patch","tool_input":{"command":""}}`, ""},
+		{"bash is no edit", `{"tool_name":"Bash","tool_input":{"command":` + jsonString(patch) + `}}`, ""},
+	} {
+		in := ParseInputFor(strings.NewReader(tc.doc), strings.SplitN(tc.name, " ", 2)[0])
+		var got []string
+		for _, e := range in.EditedPaths() {
+			got = append(got, string(e.Kind)+":"+e.Path)
+		}
+		if g := strings.Join(got, " "); g != tc.want {
+			t.Errorf("%s: got %q, want %q", tc.name, g, tc.want)
+		}
+	}
+}
+
+func jsonString(s string) string {
+	b, _ := json.Marshal(s)
+	return string(b)
 }

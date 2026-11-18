@@ -281,36 +281,15 @@ func gateArgs(in *core.Input, tool string) []string {
 	case "WebFetch":
 		return []string{in.Nested("tool_input", "url")}
 	}
-	for _, key := range patchKeys {
-		var out []string
-		for _, f := range patchFiles(in.Nested("tool_input", key)) {
-			out = append(out, pathForms(in.CWD, f)...)
-		}
-		if len(out) > 0 {
-			return out
-		}
-	}
-	return pathForms(in.CWD, cmp.Or(in.Nested("tool_input", "file_path"), in.Nested("tool_input", "filePath"),
-		in.Nested("tool_input", "path")))
-}
-
-// patchFiles are the files an apply_patch body adds, updates, deletes or moves to.
-func patchFiles(patch string) []string {
 	var out []string
-	for line := range strings.SplitSeq(patch, "\n") {
-		for _, h := range patchHeaders {
-			if f, ok := strings.CutPrefix(line, h); ok && strings.TrimSpace(f) != "" {
-				out = append(out, strings.TrimSpace(f))
-			}
-		}
+	for _, e := range in.EditedPaths() {
+		out = append(out, pathForms(in.CWD, e.Path)...)
 	}
-	return out
+	if len(out) > 0 {
+		return out
+	}
+	return pathForms(in.CWD, "")
 }
-
-// patchKeys are the tool_input keys a patch body arrives under: opencode's, then codex's.
-var patchKeys = []string{"patchText", "patch", "input", "command"}
-
-var patchHeaders = []string{"*** Add File:", "*** Update File:", "*** Delete File:", "*** Move to:"}
 
 // pathForms are p's cwd-relative and absolute spellings, as typed and symlink-resolved; "" stays "".
 func pathForms(cwd, p string) []string {

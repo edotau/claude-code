@@ -17,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Exit codes per the Claude Code hook contract.
@@ -229,14 +230,44 @@ func (in *Input) normalizeToolArgs() string {
 	if input == nil {
 		return ""
 	}
-	for _, key := range []string{"file_path", "filePath", "path"} {
-		if path, _ := input[key].(string); path != "" {
-			input["file_path"] = AnchorPath(path, in.CWD)
-			break
-		}
+	if path := toolPath(input); path != "" {
+		input["file_path"] = AnchorPath(path, in.CWD)
 	}
 	in.doc["tool_input"] = input
 	return ""
+}
+
+// patchKeys are the tool_input keys an apply_patch body arrives under: opencode's, then codex's.
+var patchKeys = []string{"patchText", "patch", "input", "command"}
+
+// toolPath is a single-file edit tool's file: file_path (Claude, Gemini), filePath (OpenCode) or path (Copilot).
+func toolPath(input map[string]any) string {
+	for _, key := range []string{"file_path", "filePath", "path"} {
+		if path, _ := input[key].(string); path != "" {
+			return path
+		}
+	}
+	return ""
+}
+
+// EditedPaths are the files an edit tool call changes, in every agent's shape; a shell command edits none here.
+func (in *Input) EditedPaths() []textutil.FileEdit {
+	if strings.EqualFold(in.ToolName, "bash") {
+		return nil
+	}
+	for _, key := range patchKeys {
+		text := in.Nested("tool_input", key)
+		if key == "command" {
+			text = in.ToolCommand()
+		}
+		if edits := textutil.PatchEdits(text); len(edits) > 0 {
+			return edits
+		}
+	}
+	if path := toolPath(in.ToolInput()); path != "" {
+		return []textutil.FileEdit{{Path: path, Kind: textutil.PatchUpdate}}
+	}
+	return nil
 }
 
 // toolAliases maps an agent's tool names to Claude's; renderers map back (CopilotJSON, agyGateTools, codexMatcher).

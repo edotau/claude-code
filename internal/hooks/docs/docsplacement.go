@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // rootAnchors are the stems of the markdown files tooling requires at the repo root (README.md, README.markdown).
@@ -140,31 +141,14 @@ func docsPlacementBash(ctx context.Context, in *core.Input, stderr io.Writer) in
 	return core.ExitProceed
 }
 
-// applyPatchText returns the first apply_patch payload carrying a patch header: opencode's key, then codex's.
-func applyPatchText(in *core.Input) string {
-	for _, key := range []string{"patchText", "patch", "input", "command"} {
-		text := in.Nested("tool_input", key)
-		if key == "command" {
-			text = in.ToolCommand()
-		}
-		if strings.Contains(text, "*** Begin Patch") {
-			return text
-		}
-	}
-	return ""
-}
-
 // docsPlacementPatch checks every file an apply_patch payload adds, updates or moves to.
 func docsPlacementPatch(ctx context.Context, in *core.Input, stderr io.Writer) int {
-	for line := range strings.SplitSeq(applyPatchText(in), "\n") {
-		for _, prefix := range []string{"*** Add File: ", "*** Update File: ", "*** Move to: "} {
-			path, ok := strings.CutPrefix(line, prefix)
-			if !ok {
-				continue
-			}
-			if code := docsPlacementPath(ctx, in, strings.TrimSpace(path), stderr); code != core.ExitProceed {
-				return code
-			}
+	for _, e := range in.EditedPaths() {
+		if e.Kind == textutil.PatchDelete {
+			continue
+		}
+		if code := docsPlacementPath(ctx, in, e.Path, stderr); code != core.ExitProceed {
+			return code
 		}
 	}
 	return core.ExitProceed

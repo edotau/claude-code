@@ -46,3 +46,55 @@ func CompactCount(n int64) string {
 	}
 	return strconv.FormatInt(n, 10)
 }
+
+// PatchKind is how an apply_patch hunk changes its file.
+type PatchKind string
+
+// The hunk header kinds of an apply_patch body.
+const (
+	PatchAdd    PatchKind = "add"
+	PatchUpdate PatchKind = "update"
+	PatchDelete PatchKind = "delete"
+	PatchMove   PatchKind = "move"
+)
+
+// FileEdit is one file a tool call changes; Body holds an apply_patch hunk's "+" lines.
+type FileEdit struct {
+	Path string
+	Kind PatchKind
+	Body string
+}
+
+var patchHeaders = []struct {
+	prefix string
+	kind   PatchKind
+}{{"*** Add File:", PatchAdd}, {"*** Update File:", PatchUpdate}, {"*** Delete File:", PatchDelete}, {"*** Move to:", PatchMove}}
+
+// PatchEdits lists the files an apply_patch body adds, updates, deletes or moves to, in order; empty paths are skipped.
+func PatchEdits(patch string) []FileEdit {
+	var out []FileEdit
+	var body []string
+	closeHunk := func() {
+		if len(out) > 0 && body != nil {
+			out[len(out)-1].Body = strings.Join(body, "\n")
+		}
+		body = nil
+	}
+	for line := range strings.SplitSeq(patch, "\n") {
+		if !strings.HasPrefix(line, "*** ") {
+			if text, ok := strings.CutPrefix(line, "+"); ok && body != nil {
+				body = append(body, text)
+			}
+			continue
+		}
+		closeHunk()
+		for _, h := range patchHeaders {
+			if path, ok := strings.CutPrefix(line, h.prefix); ok && strings.TrimSpace(path) != "" {
+				out = append(out, FileEdit{Path: strings.TrimSpace(path), Kind: h.kind})
+				body = []string{}
+			}
+		}
+	}
+	closeHunk()
+	return out
+}
