@@ -178,6 +178,10 @@ The loader reads the whole generated file. Past a `fileCaps` limit `memory dream
   `knowledge/feedback-candidates.md`: proposals for tool or rule changes, one JSON record per line of one `jsonl`
   block, no more than two lines of prose. `memory review` validates it (unknown fields, evidence under 2 files or
   absent from the store, a target outside the repo and store, duplicate ids, credentials) and exits non-zero on any.
+  A record may also carry `status` (`approved`, `enforced`) and `enforced_by` (a main commit sha or `file:line`); dream
+  skips those. Plain `review` lists the open ones, `--notice` counts them; `review --candidate <id>` prints one with
+  its launch line, and after the owner's yes the main session runs `--approve`, then the launch, then
+  `--enforced <sha|file:line>` (refused inside a memory job; the sha must be on main).
   It also lists test proposals from recent hand-backs in `techdebt/tests.md`.
 - `memory index` — appends model-added entries to `index.md`, regenerates `MEMORY.md` and `catalog.md` (router, one
   line per native note), rotates sessionHistory, commits the store; `--dry-run` prints the counts and writes nothing;

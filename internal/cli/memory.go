@@ -204,7 +204,8 @@ func memorySpec() *helptext.Node {
 		"remember": {Flags: []helptext.Flag{helptext.ValuedFlag("type", memoryRememberTypes)}},
 		"init":     {},
 		"review": {Flags: []helptext.Flag{helptext.Plain("stale-days"), helptext.BoolFlag("notice"),
-			helptext.BoolFlag("brief"), helptext.BoolFlag("candidates"), helptext.BoolFlag("timeline"), helptext.Plain("n")}},
+			helptext.BoolFlag("brief"), helptext.BoolFlag("candidates"), helptext.BoolFlag("timeline"), helptext.Plain("n"), helptext.Plain("candidate"),
+			helptext.BoolFlag("approve"), helptext.Plain("enforced")}},
 		"promote": {Flags: []helptext.Flag{
 			helptext.ValuedFlag("to", func() []string { return memory.PromoteTargets })}},
 		"update": {Flags: []helptext.Flag{helptext.Plain("transcript"), helptext.Plain("cwd"), helptext.Plain("session"),
@@ -480,8 +481,14 @@ func cmdMemoryReview(args []string) int {
 	candidates := fs.Bool("candidates", false, "also print the promotion-ranking procedure")
 	timeline := fs.Bool("timeline", false, "print recent bank entries and sessionHistory")
 	n := fs.Int("n", 20, "max timeline entries")
+	candidate := fs.String("candidate", "", "show a feedback candidate and its launch line")
+	approve := fs.Bool("approve", false, "with --candidate: the owner said yes; dream skips it")
+	enforced := fs.String("enforced", "", "with --candidate: close it with a main commit sha or file:line")
 	if code, done := memoryParseNoArgs(fs, "review", args); done {
 		return code
+	}
+	if (*approve || *enforced != "") && (*candidate == "" || *approve == (*enforced != "")) {
+		return helptext.FailUsage("memory review: --approve or --enforced needs --candidate and takes only one")
 	}
 	if *timeline {
 		if err := memory.TimelineReport(os.Stdout, *n); err != nil {
@@ -490,7 +497,7 @@ func cmdMemoryReview(args []string) int {
 		return 0
 	}
 	err := memory.ReviewReport(os.Stdout, memory.ReviewOptions{StaleDays: *staleDays, Brief: *brief,
-		Notice: *notice, Candidates: *candidates})
+		Notice: *notice, Candidates: *candidates, Candidate: *candidate, Approve: *approve, Enforced: *enforced})
 	if err != nil {
 		return helptext.Fail("memory review: %v", err)
 	}

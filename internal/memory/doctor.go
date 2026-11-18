@@ -95,6 +95,9 @@ func cacheDoctorNotice(problems []string) error {
 		return strings.Contains(p, ": hot — recalled") // advice, not a problem; `memory review` still lists it
 	})
 	line := ""
+	if len(problems) == 0 {
+		line = openCandidatesNotice()
+	}
 	if len(problems) > 0 {
 		if line = problems[0]; strings.HasPrefix(line, errIndexProblem.Error()) {
 			line = indexNotice // path-free and fixed, so the 200-rune cut never splits a command
@@ -569,6 +572,9 @@ type candidate struct {
 	Target   string   `json:"target"`
 	Kind     string   `json:"kind"`
 	Size     string   `json:"size"`
+	// Status and EnforcedBy are absent until the owner approves the change and it lands.
+	Status     string `json:"status,omitempty"`
+	EnforcedBy string `json:"enforced_by,omitempty"`
 }
 
 var (
@@ -664,7 +670,7 @@ func decodeCandidate(line string) (candidate, string) {
 		return c, "invalid record: field " + te.Field + " has the wrong type"
 	}
 	if err != nil {
-		return c, "invalid record: unknown field (allowed: id, evidence, repeats, change, target, kind, size)"
+		return c, "invalid record: unknown field (allowed: id, evidence, repeats, change, target, kind, size, status, enforced_by)"
 	}
 	return c, ""
 }
@@ -696,7 +702,7 @@ func checkCandidateLine(line string, n int, seen map[string]int) []string {
 	if msg := targetProblem(c.Target); msg != "" {
 		out = append(out, msg)
 	}
-	return append(out, evidenceProblems(c)...)
+	return append(append(out, statusProblems(c)...), evidenceProblems(c)...)
 }
 
 // oneSentence is true for non-empty text under the cap with no sentence break inside it.

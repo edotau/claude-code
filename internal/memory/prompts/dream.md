@@ -65,6 +65,7 @@ fenced block). Each line of the block is one JSON object with exactly these fiel
   (how often the owner restated it); one remark is never a candidate.
 - `change`: one sentence, at most 200 characters. `target`: a path inside `~/.claude` or the store, or `unknown`.
 - `kind`: `prose`, `hook`, `verb` or `test`. `size`: `small`, `medium` or `large` (an estimate).
+- Skip ids whose record has `status` `approved` or `enforced`: the owner or a landed change owns them; keep the line.
 - Never write a credential-shaped string. Run `claude-code memory review` after writing: it prints one line per
   problem with its line number and exits non-zero; fix them before Phase 6.
 

@@ -501,10 +501,15 @@ func FormatCheck(w io.Writer) (dirty bool, err error) {
 type ReviewOptions struct {
 	StaleDays                 int
 	Brief, Notice, Candidates bool
+	Candidate, Enforced       string // a candidate id; Enforced is the sha or file:line that closes it
+	Approve                   bool
 }
 
 // ReviewReport writes doctor + stats (Notice refreshes the cached session-start notice and prints nothing).
 func ReviewReport(w io.Writer, o ReviewOptions) error {
+	if o.Candidate != "" {
+		return candidateAction(w, o)
+	}
 	root := ResolveBank()
 	if o.Notice {
 		return cacheDoctorNotice(doctorBank(root, o.StaleDays, time.Now()))
@@ -526,6 +531,7 @@ func ReviewReport(w io.Writer, o ReviewOptions) error {
 	}
 	fmt.Fprint(w, collectBankStats().Report())
 	if !o.Brief && !o.Candidates {
+		writeOpenCandidates(w)
 		writeHookSignals(w, time.Now())
 	}
 	if o.Candidates {

@@ -92,6 +92,10 @@ claude-code agents ask --agent claude --tools --timeout 20m \
 `--background` past ~3 minutes; from a scratch cwd pass the script inline (`Workflow({script: <contents>})`). Put the
 job id on the `Ran on:` line and report the result as a claim, not as the leaf's own verification.
 
+Feedback candidates: `claude-code memory review --candidate <id>` prints the `code-engineer` call for one (a small
+prose change is a one-line edit instead). The main session runs it only after the owner approves, then closes the
+record with `--enforced <sha|file:line>`; no launcher or sixth workflow exists.
+
 ## Fan-in and run rules
 
 - **Output is a claim:** diff it against the brief's file list (revert or park outside edits), rerun the gate of its
