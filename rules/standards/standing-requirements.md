@@ -10,8 +10,8 @@ A row is deleted only when the tool makes the prose redundant.
 | R2 Dead tasks | Strike, never delete or leave open: `plan task <id> --strike "<why>"` | `plan task` verb |
 | R2 Unknown state | Strike with a comment; move to the backlog plan (do now) or techdebt | prose |
 | R3 Techdebt | Lives in `~/.claude/memory/techdebt/<area>.md`, one file per area | prose (until memory knows it) |
-| R4 Plans audit | Before `memory update` and in `dream`: audit plans under 7 days old | prose (until loop plan) |
-| R4 Boilerplate | Plan before today: tick process steps if built on `origin/main`, else strike | prose (same plan) |
+| R4 Plans audit | Before `memory update` and in `dream`: audit plans under 7 days old | `plan tick --audit` (deterministic part); prose for the rest |
+| R4 Boilerplate | Plan before today: tick process steps if built on `origin/main`, strike if all build tasks struck, else report | `plan tick --audit` |
 | R5 Verify returns | CLAUDE.md guideline 3, plus re-run one claim and the whole suite before a commit | prose |
 | R5 Cheap authors | Haiku, Kimi, fell-back relay: full read plus higher-tier, other-family review | prose |
 | R6 Model mix | Sonnet authors; a wave of 3+ puts a third on other families; reviewer is another family | prose |

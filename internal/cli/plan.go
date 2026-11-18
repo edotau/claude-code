@@ -19,7 +19,7 @@ var planPage = helptext.Page{
 	About: "Plan checklists (ticked/total, live claims) and plan detectors for vague steps and goals.",
 	Commands: [][2]string{
 		{"status", "progress per plan; --all spans every repo under the plans home"},
-		{"tick", "tick named tasks on main in --range <a>..<b> (--dry-run)"},
+		{"tick", "tick tasks in --range <a>..<b>; --audit closes this week's plans"},
 		{"task", "tick, reopen or strike one task by hand"},
 		{"assumptions", "vague or hopeful steps in a plan"},
 		{"goals", "plan steps with no verifiable goal"},
@@ -99,16 +99,24 @@ func printPlanSummaries(summaries []plans.Summary) {
 }
 
 func cmdPlanTick(args []string) int {
-	fs := helptext.NewFlagSet("plan tick", helptext.Page{Usage: "claude-code plan tick --range <a>..<b> [flags]",
-		About: "Tick tasks named by commit trailers once on main; coverage alone prints a candidate."})
+	fs := helptext.NewFlagSet("plan tick", helptext.Page{Usage: "claude-code plan tick (--range <a>..<b> | --audit) [flags]",
+		About: "Tick tasks named by commit trailers once on main; --audit also closes steps and reports."})
 	rng := fs.String("range", "", "commits to tick, <a>..<b> as git rev-list reads it")
 	plan := fs.String("plan", "", "plan file (default: matching recent or claimed plans)")
 	dryRun := fs.Bool("dry-run", false, "print what would tick without writing the plan")
+	audit := fs.Bool("audit", false, "audit this week's plans: tick, strike or report what git proves")
+	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if *rng == "" {
+	if *audit && (*rng != "" || *plan != "") {
+		return helptext.FailUsage("plan tick: --audit takes neither --range nor --plan")
+	}
+	if *rng == "" && !*audit {
 		return helptext.Fail("plan tick: --range <a>..<b> is required")
+	}
+	if err := helptext.CheckFormat(*format); err != nil {
+		return helptext.BadFormat("", err)
 	}
 	cwd, err := os.Getwd()
 	if err != nil {
@@ -118,6 +126,9 @@ func cmdPlanTick(args []string) int {
 	if top == "" {
 		return helptext.Fail("plan tick: %s is not in a git checkout", cwd)
 	}
+	if *audit {
+		return cmdPlanAudit(top, *dryRun, *format)
+	}
 	if *plan != "" {
 		resolved, err := plans.ResolvePlan(top, *plan)
 		if err != nil {
@@ -126,6 +137,20 @@ func cmdPlanTick(args []string) int {
 		*plan = resolved
 	}
 	if err := plans.TickRange(context.Background(), top, plans.WorktreeName(top), *rng, *plan, plans.MirrorDests(), *dryRun, os.Stdout); err != nil {
+		return helptext.Fail("plan tick: %v", err)
+	}
+	return 0
+}
+
+// cmdPlanAudit runs plans.Audit and prints its report as text or one JSON object.
+func cmdPlanAudit(top string, dryRun bool, format string) int {
+	rep, err := plans.Audit(context.Background(), top, dryRun)
+	if err == nil && format == helptext.JSON {
+		err = helptext.WriteJSON(os.Stdout, rep)
+	} else if err == nil {
+		err = rep.WriteText(os.Stdout)
+	}
+	if err != nil {
 		return helptext.Fail("plan tick: %v", err)
 	}
 	return 0
@@ -216,7 +241,8 @@ func planSpec() *helptext.Node {
 		"status": {Flags: []helptext.Flag{{Name: "all", IsBool: true},
 			helptext.CompletionFormatFlag()}},
 		"assumptions": {Flags: []helptext.Flag{helptext.BoolFlag("json")}}, "goals": {Flags: []helptext.Flag{helptext.BoolFlag("json")}},
-		"tick": {Flags: []helptext.Flag{{Name: "range"}, {Name: "plan"}, {Name: "dry-run", IsBool: true}}},
+		"tick": {Flags: []helptext.Flag{{Name: "range"}, {Name: "plan"}, {Name: "dry-run", IsBool: true}, {Name: "audit", IsBool: true},
+			helptext.CompletionFormatFlag()}},
 		"task": {Flags: []helptext.Flag{helptext.BoolFlag("done"), helptext.BoolFlag("reopen"), {Name: "strike"}, {Name: "sha"}, {Name: "plan"}}},
 	}}
 }

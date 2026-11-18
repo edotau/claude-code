@@ -871,11 +871,20 @@ func trunkTip(ctx context.Context, root string) (tip string, on bool, err error)
 	if WorktreeName(root) != "" {
 		return "", false, nil
 	}
-	out, err := proc.RunGitInherit(ctx, root, "for-each-ref", "--format=%(HEAD)\t%(refname)\t%(symref)\t%(objectname)", "refs/heads", "refs/remotes/origin/HEAD")
+	trunk, cur, tip, err := trunkBranch(ctx, root)
 	if err != nil {
 		return "", false, err
 	}
-	var cur, origin string
+	return tip, cur == trunk, nil
+}
+
+// trunkBranch names the trunk branch, the checked-out branch and its tip; it works from any linked worktree.
+func trunkBranch(ctx context.Context, root string) (trunk, cur, tip string, err error) {
+	out, err := proc.RunGitInherit(ctx, root, "for-each-ref", "--format=%(HEAD)\t%(refname)\t%(symref)\t%(objectname)", "refs/heads", "refs/remotes/origin/HEAD")
+	if err != nil {
+		return "", "", "", err
+	}
+	var origin string
 	heads := map[string]bool{}
 	for line := range strings.SplitSeq(out, "\n") {
 		f := strings.Split(line, "\t")
@@ -892,22 +901,16 @@ func trunkTip(ctx context.Context, root string) (tip string, on bool, err error)
 			cur, tip = name, f[3]
 		}
 	}
-	trunk := ""
 	if heads[origin] {
-		trunk = origin
-	} else {
-		cfg, _ := proc.RunGitInherit(ctx, root, "config", "--get", "init.defaultBranch") // unset is the empty answer
-		for _, name := range []string{strings.TrimSpace(cfg), "main", "master"} {
-			if heads[name] {
-				trunk = name
-				break
-			}
+		return origin, cur, tip, nil
+	}
+	cfg, _ := proc.RunGitInherit(ctx, root, "config", "--get", "init.defaultBranch") // unset is the empty answer
+	for _, name := range []string{strings.TrimSpace(cfg), "main", "master"} {
+		if heads[name] {
+			return name, cur, tip, nil
 		}
 	}
-	if trunk == "" {
-		return "", false, ErrNoTrunk
-	}
-	return tip, cur == trunk, nil
+	return "", "", "", ErrNoTrunk
 }
 
 func readCommit(ctx context.Context, root, sha string) (Commit, error) {

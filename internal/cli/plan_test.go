@@ -118,3 +118,17 @@ func TestPlanExplicitBoundary(t *testing.T) {
 		t.Fatalf("outside changed: %s %v", got, err)
 	}
 }
+
+// plan tick --audit refuses --range and --plan with usage, and prints one JSON object on --dry-run.
+func TestPlanTickAuditFlags(t *testing.T) {
+	planRepo(t, map[string]string{"2026-11-18-a.md": "- [ ] 1.1 One\n"})
+	for _, extra := range [][]string{{"--range", "a..b"}, {"--plan", "2026-11-18-a.md"}} {
+		if code, _, stderr := runCLI(t, append([]string{"plan", "tick", "--audit"}, extra...)...); code != 2 {
+			t.Errorf("%v: exit=%d %s", extra, code, stderr)
+		}
+	}
+	code, stdout, stderr := runCLI(t, "plan", "tick", "--audit", "--dry-run", "--format", "json")
+	if code != 0 || !strings.Contains(stdout, `"dry_run": true`) || !strings.Contains(stdout, `"changed": []`) {
+		t.Fatalf("exit=%d stdout=%s stderr=%s", code, stdout, stderr)
+	}
+}
