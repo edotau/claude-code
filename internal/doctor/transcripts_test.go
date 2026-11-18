@@ -134,7 +134,7 @@ func transcriptMasked(t *testing.T, files []string, original []byte) {
 		if bytes.Contains(b, []byte("FAKE-SECRET")) || bytes.Contains(b, []byte(base64.StdEncoding.EncodeToString([]byte(transcriptFake)))) {
 			t.Fatal("planted value remains")
 		}
-		for _, line := range bytes.Split(bytes.TrimSpace(b), []byte{'\n'}) {
+		for line := range bytes.SplitSeq(bytes.TrimSpace(b), []byte{'\n'}) {
 			if !json.Valid(line) {
 				t.Fatal("invalid JSON after masking")
 			}

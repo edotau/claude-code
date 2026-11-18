@@ -70,7 +70,7 @@ func Run(args []string) int {
 	if err := helptext.CheckFormat(*o.format); err != nil {
 		return helptext.BadFormat("doctor", err)
 	}
-	if len(fs.Args()) > 0 && !o.scan && !(o.all && o.fix) {
+	if len(fs.Args()) > 0 && !o.scan && (!o.all || !o.fix) {
 		helptext.Fail("doctor: unexpected arguments %v (paths go after --scan)", fs.Args())
 		return 2
 	}
