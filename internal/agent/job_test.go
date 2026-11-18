@@ -8,6 +8,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -829,6 +830,49 @@ func TestStatusRefMatchesFullHistoryResolution(t *testing.T) {
 }
 
 // A running record that already carries the run's saved error, usage and duration keeps them through every cancel path.
+func TestFinishSaveWhileCancelHoldsRecordLock(t *testing.T) {
+	setConfigDir(t)
+	rec := NewRecord("claude", RunOptions{}, time.Now())
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	synctest.Test(t, func(t *testing.T) {
+		held, release := make(chan struct{}), make(chan struct{})
+		cancelled, finished := make(chan error, 1), make(chan string, 1)
+		id := rec.ID
+		go func() {
+			_, _, err := UpdateRunning(id, func(r Record) Record {
+				close(held)
+				<-release
+				r.Status, r.Error = "error", "cancelled"
+				return r
+			})
+			cancelled <- err
+		}()
+		<-held
+		go func() {
+			var notice string
+			rec.finishSave(wire.Result{Usage: wire.Usage{InputTokens: 7}}, nil, time.Second, func(s string) { notice = s })
+			finished <- notice
+		}()
+		synctest.Wait()
+		close(release)
+		if err := <-cancelled; err != nil {
+			t.Error(err)
+		}
+		if notice := <-finished; notice != "" {
+			t.Error(notice)
+		}
+	})
+	got, err := LoadRecord(rec.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "ok" || got.Error != "" || got.Usage == nil || got.Usage.InputTokens != 7 || got.DurationMs != 1000 {
+		t.Fatalf("runner result lost: status=%q error=%q usage=%v duration=%d", got.Status, got.Error, got.Usage, got.DurationMs)
+	}
+}
+
 func TestCancelKeepsSavedErrorOfRunningRecord(t *testing.T) {
 	hosttest.SkipOnWindows(t, "unix tools")
 	dead := exec.Command("true")
@@ -836,7 +880,7 @@ func TestCancelKeepsSavedErrorOfRunningRecord(t *testing.T) {
 		t.Fatal(err)
 	}
 	for name, mark := range map[string]func(*Record) error{
-		"cancelled now": func(r *Record) error { return failIfRunning(r, "cancelled", false) },
+		"cancelled now": func(r *Record) error { _, err := failIfRunning(r, "cancelled", false); return err },
 		"process gone":  func(r *Record) error { return Cancel(r) },
 	} {
 		t.Run(name, func(t *testing.T) {
@@ -876,7 +920,7 @@ func TestCancelNeverOverwritesConcurrentFinish(t *testing.T) {
 			})
 			done <- applied && err == nil
 		}()
-		go func() { <-gate; _ = failIfRunning(&mine, "cancelled", false); close(cancelled) }()
+		go func() { <-gate; _, _ = failIfRunning(&mine, "cancelled", false); close(cancelled) }()
 		close(gate)
 		finished := <-done
 		<-cancelled

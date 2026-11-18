@@ -282,19 +282,27 @@ func UpdateRunning(id string, fix func(Record) Record) (Record, bool, error) {
 }
 
 func updateRunning(id string, deadOnly bool, fix func(Record) Record) (Record, bool, error) {
+	return updateRecord(id, func(r Record) (Record, bool) {
+		if r.Status != "running" || (deadOnly && r.Alive()) {
+			return r, false
+		}
+		return fix(r), true
+	})
+}
+
+func updateRecord(id string, fix func(Record) (Record, bool)) (Record, bool, error) {
 	path := filepath.Join(paths.DispatchDir(), id+".json")
 	var r Record
-	applied := false
+	var applied bool
 	err := paths.WithFileLock(path, func() error {
 		var lerr error
 		if r, lerr = readRecord(path); lerr != nil {
 			return lerr
 		}
-		if r.Status != "running" || (deadOnly && r.Alive()) {
+		r, applied = fix(r)
+		if !applied {
 			return nil
 		}
-		r = fix(r)
-		applied = true
 		return r.Save()
 	})
 	return r, applied, err
@@ -385,11 +393,18 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	}
 }
 
-// finishSave is Finish then Save; a failed save goes to notify (the record stays at running), never to the run.
 func (r *Record) finishSave(res wire.Result, err error, took time.Duration, notify func(string)) {
+	r.Error = ""
 	r.Finish(res, err, took)
-	if serr := r.Save(); serr != nil && notify != nil {
-		notify(fmt.Sprintf("dispatch %s record not saved, it stays at running: %v", r.ID, serr))
+	_, _, serr := updateRecord(r.ID, func(current Record) (Record, bool) {
+		// The runner has the actual outcome; only a failed run needs the provisional reason as context.
+		if err != nil && current.Status == "error" && current.Error != "" && current.Error != r.Error {
+			r.Error += "; " + current.Error
+		}
+		return *r, true
+	})
+	if serr != nil && notify != nil {
+		notify(fmt.Sprintf("dispatch %s record not saved: %v", r.ID, serr))
 	}
 }
 

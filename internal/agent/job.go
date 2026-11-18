@@ -161,8 +161,7 @@ func isReviewArgv(argv []string, rec *Record) bool {
 	return false
 }
 
-// failIfRunning errors rec under the record lock if still running, keeping a saved reason; rec becomes the stored one.
-func failIfRunning(rec *Record, msg string, deadOnly bool) error {
+func failIfRunning(rec *Record, msg string, deadOnly bool) (bool, error) {
 	fix := func(r Record) Record {
 		r.Status = "error"
 		if r.Error == "" {
@@ -174,27 +173,32 @@ func failIfRunning(rec *Record, msg string, deadOnly bool) error {
 	if deadOnly {
 		update = RepairDead
 	}
-	cur, _, err := update(rec.ID, fix)
+	cur, applied, err := update(rec.ID, fix)
 	if err != nil {
-		return err
+		return false, err
 	}
 	*rec = cur
-	return nil
+	return applied, nil
 }
 
 // Cancel checks rec.PID is still its job, SIGINTs it (SIGKILL after 5s), then marks a still-running record cancelled.
 func Cancel(rec *Record) error {
+	_, err := cancel(rec)
+	return err
+}
+
+func cancel(rec *Record) (bool, error) {
 	if rec.PID <= 0 {
-		return fmt.Errorf("dispatch %q has no pid to cancel", rec.ID)
+		return false, fmt.Errorf("dispatch %q has no pid to cancel", rec.ID)
 	}
 	if !proc.Alive(rec.PID) {
 		return failIfRunning(rec, "process gone", true)
 	}
 	if err := checkJobPID(rec); err != nil {
-		return err
+		return false, err
 	}
 	if err := escalate(rec.PID, rec.ID); err != nil {
-		return err
+		return false, err
 	}
 	return failIfRunning(rec, "cancelled by claude-code agents cancel", false)
 }
@@ -434,19 +438,27 @@ func JobResult(ctx context.Context, name, cwd, ref string) (Record, string, erro
 	return rec, string(log), nil
 }
 
-// CancelJob interrupts ref's job, default: the single running job for name in cwd's repo.
-func CancelJob(ctx context.Context, name, cwd, ref string) (Record, error) {
+type CancelResult struct {
+	Record
+	AlreadyFinished bool
+}
+
+func CancelJob(ctx context.Context, name, cwd, ref string) (CancelResult, error) {
 	rec, err := resolveJob(ctx, name, cwd, ref, func(r Record) bool { return r.Alive() })
 	if err != nil {
-		return Record{}, err
+		return CancelResult{}, err
 	}
 	if !rec.Alive() {
-		return Record{}, fmt.Errorf("job %s is not running", rec.ID)
+		return CancelResult{}, fmt.Errorf("job %s is not running", rec.ID)
 	}
-	if err := Cancel(&rec); err != nil {
-		return Record{}, err
+	applied, err := cancel(&rec)
+	if err != nil {
+		return CancelResult{}, err
 	}
-	return rec, nil
+	if rec.Status == "running" {
+		return CancelResult{}, fmt.Errorf("job %s is still running", rec.ID)
+	}
+	return CancelResult{Record: rec, AlreadyFinished: !applied}, nil
 }
 
 // toRow derives a status Row from a dispatch record; redaction matches Record.LogLine.

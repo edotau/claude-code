@@ -43,6 +43,20 @@ func TestResultExitRedactsError(t *testing.T) {
 	}
 }
 
+// A job that finished on its own between the read and the cancel is reported as finished, not cancelled.
+func TestCancelJobReportsConcurrentFinish(t *testing.T) {
+	const id = "20261118T150806.000-claude"
+	old := cancelDispatch
+	t.Cleanup(func() { cancelDispatch = old })
+	cancelDispatch = func(context.Context, string, string, string) (agent.CancelResult, error) {
+		return agent.CancelResult{ID: id, Status: "error", AlreadyFinished: true}, nil
+	}
+	rc, out, _ := hosttest.CaptureOutput(t, func() int { return CancelJob("agents cancel", "claude", id, "") })
+	if want := id + " already finished: error\n"; rc != 0 || out != want {
+		t.Errorf("rc=%d stdout=%q, want 0 and %q", rc, out, want)
+	}
+}
+
 func TestLiveProviderRetainedInHolderRecord(t *testing.T) {
 	vaulttest.Use(t)
 	cliEnv(t)

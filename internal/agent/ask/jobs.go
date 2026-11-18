@@ -142,13 +142,15 @@ func emitResult(prefix string, rec agent.Record, log, format string) int {
 	return resultExit(rec)
 }
 
+var cancelDispatch = agent.CancelJob
+
 // CancelJob interrupts agent's job ref and prints its id (json: id, status, error).
 func CancelJob(prefix, agentName, ref, format string) int {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return helptext.Fail("%s: %v", prefix, err)
 	}
-	rec, err := agent.CancelJob(context.Background(), agentName, cwd, ref)
+	rec, err := cancelDispatch(context.Background(), agentName, cwd, ref)
 	if err != nil {
 		return helptext.Fail("%s: %v", prefix, err)
 	}
@@ -158,6 +160,10 @@ func CancelJob(prefix, agentName, ref, format string) int {
 			Status string `json:"status"`
 			Error  string `json:"error,omitempty"`
 		}{rec.ID, rec.Status, rec.Error})
+	}
+	if rec.AlreadyFinished {
+		fmt.Printf("%s already finished: %s\n", rec.ID, rec.Status)
+		return 0
 	}
 	fmt.Printf("cancelled %s\n", rec.ID)
 	return 0
