@@ -48,6 +48,7 @@ func TestGuardsFileIsValid(t *testing.T) {
 var guardSubsets = [][2]string{
 	{"relay_go_bool_flags", "relay_go_value_flags"},
 	{"git_read_only_gated_verbs", "git_read_only_verbs"},
+	{"git_shared_tree_banned_verbs", "git_alias_proof_verbs"},
 }
 
 func TestDecodeGuardsRejects(t *testing.T) {

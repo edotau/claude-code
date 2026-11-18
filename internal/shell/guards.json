@@ -72,6 +72,36 @@
     "purpose": "git flags, abbreviations too, whose value is a file git reads",
     "words": ["--contents", "--ignore-revs-file"]
   },
+  "data_commands": {
+    "purpose": "commands that only print, search, store or hand on their words as text; none runs them",
+    "words": ["echo", "printf", "cat", "tee", "head", "tail", "wc", "cut", "tr", "jq", "which", "whereis", "type",
+      "man", "tldr", "apropos", "whatis", "claude", "codex", "copilot", "gemini", "opencode", "agy"]
+  },
+  "data_harness_verbs": {
+    "purpose": "claude-code verbs whose words are briefs, search terms, facts or PR text",
+    "words": ["agents", "memory", "network", "scm", "plan", "review"]
+  },
+  "branch_quiet_flags": {
+    "purpose": "git checkout and switch flags that neither discard nor overwrite",
+    "words": ["-q", "--quiet", "-t", "--track", "--no-track"]
+  },
+  "sudo_prefix_extras": {
+    "purpose": "runners the sudo guard sees through besides wrapper_names and shell_keywords (X1: no gtimeout)",
+    "words": ["builtin", "xargs", "watch", "flock", "caffeinate"]
+  },
+  "agents_brief_verbs": {
+    "purpose": "claude-code agents verbs whose words are a brief, never run here",
+    "words": ["ask", "send", "dispatch", "brief"]
+  },
+  "runner_names": {
+    "purpose": "commands that take their input or arguments as code; text piped into one is not data (X3 X4 X8)",
+    "words": ["sh", "bash", "zsh", "dash", "ksh", "fish", "eval", "source", ".", "xargs", "sudo", "doas", "env", "exec",
+      "su", "ssh", "parallel", "watch", "node", "perl", "ruby", "php", "deno", "bun"]
+  },
+  "git_shared_tree_banned_verbs": {
+    "purpose": "git verbs hard rule 4 bans in the shared checkout, in the guard regex's order",
+    "words": ["stash", "checkout", "switch", "reset", "restore", "clean"]
+  },
   "rebase_resume_flags": {
     "purpose": "git rebase flags that act on a rebase already started, so its start was already checked",
     "words": ["--continue", "--skip", "--abort", "--quit", "--edit-todo", "--show-current-patch"]

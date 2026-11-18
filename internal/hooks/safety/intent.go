@@ -2,6 +2,7 @@ package safety
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -140,13 +141,10 @@ func dataPipeline(segs, seps []string, i int, runs, keepCommit bool) bool {
 }
 
 // dataCommands only print, search, store or hand on their words as text; none runs them as a command.
-var dataCommands = map[string]bool{"echo": true, "printf": true, "cat": true, "tee": true, "head": true, "tail": true,
-	"wc": true, "cut": true, "tr": true, "jq": true, "which": true, "whereis": true, "type": true, "man": true, "tldr": true, "apropos": true, "whatis": true,
-	"claude": true, "codex": true, "copilot": true, "gemini": true, "opencode": true, "agy": true}
+var dataCommands = sync.OnceValue(func() map[string]bool { return shell.GuardSet("data_commands") })
 
 // dataHarnessVerbs are the claude-code verbs whose words are briefs, search terms, facts or PR text.
-var dataHarnessVerbs = map[string]bool{"agents": true, "memory": true, "network": true, "scm": true, "plan": true,
-	"review": true}
+var dataHarnessVerbs = sync.OnceValue(func() map[string]bool { return shell.GuardSet("data_harness_verbs") })
 
 // dataSegment reports a segment whose words are text; a redirect counts only when no file runs in the same line.
 func dataSegment(seg string, runs, keepCommit bool) bool {
@@ -161,14 +159,14 @@ func dataSegment(seg string, runs, keepCommit bool) bool {
 	if judge, ok := dataJudges[name]; ok {
 		return judge(toks)
 	}
-	return dataCommands[name] || name == "git" && !keepCommit && inertGit(toks)
+	return dataCommands()[name] || name == "git" && !keepCommit && inertGit(toks)
 }
 
 // dataJudges decide per command whether its words are text: grep without a --pre, sed without `e`, PR text, briefs.
 var dataJudges = map[string]func(toks []string) bool{"grep": inertGrep, "egrep": inertGrep, "fgrep": inertGrep,
 	"rg": inertGrep, "ag": inertGrep, "gh": inertGh,
 	"sed":         func(toks []string) bool { return !slices.ContainsFunc(toks[1:], sedExec().MatchString) },
-	"claude-code": func(toks []string) bool { return len(toks) > 1 && dataHarnessVerbs[toks[1]] },
+	"claude-code": func(toks []string) bool { return len(toks) > 1 && dataHarnessVerbs()[toks[1]] },
 }
 
 // envAssign matches a leading NAME=value word.
@@ -195,7 +193,7 @@ func harmlessGit(verb string, args []string) bool {
 }
 
 // branchQuietFlags are the checkout/switch flags that neither discard nor overwrite.
-var branchQuietFlags = map[string]bool{"-q": true, "--quiet": true, "-t": true, "--track": true, "--no-track": true}
+var branchQuietFlags = sync.OnceValue(func() map[string]bool { return shell.GuardSet("branch_quiet_flags") })
 
 // newBranchOnly reports a create flag with its name, at most one start point and only quiet/track flags.
 func newBranchOnly(args []string, create ...string) bool {
@@ -208,7 +206,7 @@ func newBranchOnly(args []string, create ...string) bool {
 			i++
 		case !strings.HasPrefix(a, "-"):
 			points++
-		case !branchQuietFlags[a] && !strings.HasPrefix(a, "--track="):
+		case !branchQuietFlags()[a] && !strings.HasPrefix(a, "--track="):
 			return false // -f, -B, --discard-changes, --orphan, -- paths …
 		}
 	}
@@ -297,10 +295,13 @@ func sudoRuns(text string, depth int) bool {
 }
 
 // sudoPrefixes run the command after their options; a sudo word among those options' values also counts.
-var sudoPrefixes = map[string]bool{"env": true, "nice": true, "nohup": true, "command": true, "builtin": true,
-	"exec": true, "time": true, "timeout": true, "setsid": true, "stdbuf": true, "ionice": true, "chrt": true,
-	"xargs": true, "watch": true, "flock": true, "caffeinate": true, "if": true, "then": true, "else": true,
-	"elif": true, "do": true, "while": true, "until": true, "!": true, "{": true, "(": true}
+var sudoPrefixes = sync.OnceValue(func() map[string]bool {
+	out := shell.GuardSet("sudo_prefix_extras")
+	maps.Copy(out, shell.GuardSet("wrapper_names"))
+	maps.Copy(out, shell.GuardSet("shell_keywords"))
+	delete(out, "sudo") // sudoLeads tests sudo before this set
+	return out
+})
 
 // sudoLeads reports a token sequence whose command, past prefixes and wrappers, is sudo or runs a string holding it.
 func sudoLeads(toks []string, depth int) bool {
@@ -312,7 +313,7 @@ func sudoLeads(toks []string, depth int) bool {
 		switch name := filepath.Base(toks[0]); {
 		case name == "sudo" || name == "doas":
 			return true
-		case sudoPrefixes[name]:
+		case sudoPrefixes()[name]:
 			if slices.ContainsFunc(toks[1:], func(t string) bool {
 				return t == "sudo" || t == "doas" || strings.Contains(t, " ") && sudoRuns(t, depth+1)
 			}) {
@@ -370,17 +371,16 @@ var hardDataCommands = map[string]func(toks []string) bool{
 	"jq": inertWords, "test": inertWords, "[": inertWords,
 	"git": func(toks []string) bool { return inertGit(toks) || len(toks) > 1 && toks[1] == "log" },
 	"claude-code": func(toks []string) bool {
-		return len(toks) > 2 && toks[1] == "agents" && slices.Contains([]string{"ask", "send", "dispatch", "brief"}, toks[2])
+		return len(toks) > 2 && toks[1] == "agents" && slices.Contains(briefVerbs(), toks[2])
 	},
 }
 
 func inertWords([]string) bool { return true }
 
+var briefVerbs = sync.OnceValue(func() []string { return shell.GuardWords("agents_brief_verbs") })
+
 // runnerNames take their input or arguments as code; text piped into one is not data.
-var runnerNames = map[string]bool{"sh": true, "bash": true, "zsh": true, "dash": true, "ksh": true, "fish": true,
-	"eval": true, "source": true, ".": true, "xargs": true, "sudo": true, "doas": true, "env": true, "exec": true,
-	"su": true, "ssh": true, "parallel": true, "watch": true, "node": true, "perl": true, "ruby": true, "php": true,
-	"deno": true, "bun": true}
+var runnerNames = sync.OnceValue(func() map[string]bool { return shell.GuardSet("runner_names") })
 
 // blankHardData blanks the words of hardDataCommands segments outside heredoc bodies, keeping substitutions.
 func blankHardData(cmd string) string {
@@ -415,7 +415,7 @@ func hardDataSegment(seg string, runs bool) bool {
 func pipesIntoRunner(segs, seps []string, i int) bool {
 	for k := i; k+1 < len(segs) && (seps[k] == "|" || seps[k] == "|&"); k++ {
 		rest, _ := shell.Unwrap(shell.Tokens(segs[k+1]), "")
-		if len(rest) == 0 || runnerNames[filepath.Base(rest[0])] || interpreterLang(filepath.Base(rest[0])) != "" {
+		if len(rest) == 0 || runnerNames()[filepath.Base(rest[0])] || interpreterLang(filepath.Base(rest[0])) != "" {
 			return true
 		}
 	}
@@ -530,9 +530,12 @@ func expandWith(text string, vals map[string]string) string {
 }
 
 // guardedWord matches a hard rule 4 git verb as a whole word anywhere in text.
-var guardedWord = core.Gate(`\b(?:stash|checkout|switch|reset|restore|clean)\b`, "stash", "checkout", "switch", "reset", "restore", "clean")
+var guardedWord = sync.OnceValue(func() *core.Gated {
+	verbs := shell.GuardWords("git_shared_tree_banned_verbs")
+	return core.Gate(`\b(?:`+strings.Join(verbs, "|")+`)\b`, verbs...)
+})
 
 // tooDeepNoVerb reports a too-deep call whose command text holds no guarded verb word, so nothing there can mutate.
 func tooDeepNoVerb(verb string, args []string, cmd string) bool {
-	return verb == shell.Uninspectable && shell.TooDeep(args) && !guardedWord.MatchString(cmd)
+	return verb == shell.Uninspectable && shell.TooDeep(args) && !guardedWord().MatchString(cmd)
 }
