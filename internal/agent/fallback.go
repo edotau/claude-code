@@ -469,7 +469,7 @@ func claimSibling(c Chain, i int, disp Dispatch) Dispatch {
 		return disp
 	}
 	reg, slots := siblingSlots(c, i, disp)
-	if len(slots) == 0 {
+	if len(slots) < 2 {
 		return disp
 	}
 	// The chain already admitted these exact models and accounts; only their order may change.
@@ -498,7 +498,7 @@ func siblingSlots(c Chain, i int, disp Dispatch) (*providers.Registry, map[strin
 		d := c.Dispatches[j]
 		ws, ok := strings.CutPrefix(d.Account, "databricks·")
 		_, otherModel, _ := strings.Cut(d.Model, ":")
-		if !ok || d.Agent.Name() != c.Want || !d.otherRoute || d.quotaOverflow || !models.SameModel(model, otherModel) {
+		if !ok || d.Agent.Name() != c.Want || !d.otherRoute || d.quotaOverflow || d.swap || !models.SameModel(model, otherModel) {
 			break
 		}
 		reg.Providers[ws] = &providers.Provider{Name: ws, Preset: providers.PresetDatabricks}

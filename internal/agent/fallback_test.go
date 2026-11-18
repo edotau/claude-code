@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -1233,6 +1234,39 @@ func BenchmarkFallbackSiblingClaim(b *testing.B) {
 	c := siblingFallbackChain()
 	for b.Loop() {
 		claimSibling(c, 1, c.Dispatches[1])
+	}
+}
+
+func routeStamped(t *testing.T) bool {
+	t.Helper()
+	found := false
+	err := filepath.WalkDir(os.Getenv("CLAUDE_CONFIG_DIR"), func(_ string, d fs.DirEntry, err error) error {
+		found = found || (err == nil && d.Name() == "route-auto.json")
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return found
+}
+
+func TestFallbackSiblingLoneCandidateNeverClaims(t *testing.T) {
+	setConfigDir(t)
+	c := siblingFallbackChain()
+	c.Dispatches = c.Dispatches[:2]
+	if got := claimSibling(c, 1, c.Dispatches[1]); got.Account != "databricks·qa" || routeStamped(t) {
+		t.Fatalf("lone sibling: got %s, stamped=%v; want qa untouched, no stamp", got.Account, routeStamped(t))
+	}
+}
+
+func TestFallbackSiblingSwapRowNeverCounted(t *testing.T) {
+	setConfigDir(t)
+	siblingLoads(t)
+	c := siblingFallbackChain()
+	c.Dispatches = c.Dispatches[:3]
+	c.Dispatches[2].swap = true
+	if got := claimSibling(c, 1, c.Dispatches[1]); got.Account != "databricks·qa" || c.Dispatches[2].Account != "databricks·prod" {
+		t.Fatalf("got %s, row 2 %s; want qa and the swap row (prod) in place", got.Account, c.Dispatches[2].Account)
 	}
 }
 

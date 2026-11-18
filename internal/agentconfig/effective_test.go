@@ -249,3 +249,16 @@ func TestLeadProviderRanksWithoutStamp(t *testing.T) {
 		t.Fatalf("read-only lead stamped: %v", err)
 	}
 }
+
+// A signed-in databricks profile the ranker skips (no databricks preset) still leads, as before the ranker.
+func TestLeadProviderNonPresetDatabricksFallsBack(t *testing.T) {
+	setup(t)
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{
+		"b": {Name: "b", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthNone}},
+		"a": {Name: "a", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthNone}},
+	}}
+	got, err := leadForProvider(reg, "codex", Launch{Provider: "databricks"}, "", false)
+	if err != nil || got != "a" {
+		t.Fatalf("lead=%q err=%v; want a", got, err)
+	}
+}

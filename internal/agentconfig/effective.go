@@ -93,30 +93,45 @@ func leadForProvider(reg *providers.Registry, agent string, l Launch, profile st
 
 func signedProviderLead(reg *providers.Registry, agent string, l Launch) (string, error) {
 	provider := l.Provider
+	first := ""
 	eligible := &providers.Registry{Providers: map[string]*providers.Provider{}}
 	for _, n := range reg.ProfilesOf(provider) {
 		if p := reg.Providers[n]; serves(l, agent, p) && providers.CredentialPresent(p) {
 			if provider != router.RouteDatabricks {
 				return n, nil
 			}
-			eligible.Providers[n] = p
+			first = cmp.Or(first, n)
+			if p.Preset == providers.PresetDatabricks {
+				eligible.Providers[n] = p
+			}
 		}
 	}
-	if len(eligible.Providers) > 0 {
-		st := router.LoadState()
-		q := router.WorkspaceQuery[struct{}]{
-			Findings: func(*providers.Provider, string, string, time.Time) []struct{} { return nil },
-			Cooling: func(p *providers.Provider, now time.Time) bool {
-				return st.CoolingUntil(router.AccountOf(p)).After(now)
-			},
-		}
-		names, _, err := router.RankWorkspaces(eligible, q, time.Now())
-		if err != nil {
-			return "", err
-		}
+	if first == "" {
+		return "", fmt.Errorf("no signed-in %s profile serves %s", provider, agent)
+	}
+	// The ranker only takes preset rows; with none, or on its error, the first signed-in profile leads as before.
+	if names := rankLead(eligible); len(names) > 0 {
 		return names[0], nil
 	}
-	return "", fmt.Errorf("no signed-in %s profile serves %s", provider, agent)
+	return first, nil
+}
+
+func rankLead(eligible *providers.Registry) []string {
+	if len(eligible.Providers) == 0 {
+		return nil
+	}
+	st := router.LoadState()
+	q := router.WorkspaceQuery[struct{}]{
+		Findings: func(*providers.Provider, string, string, time.Time) []struct{} { return nil },
+		Cooling: func(p *providers.Provider, now time.Time) bool {
+			return st.CoolingUntil(router.AccountOf(p)).After(now)
+		},
+	}
+	names, _, err := router.RankWorkspaces(eligible, q, time.Now())
+	if err != nil {
+		return nil
+	}
+	return names
 }
 
 // serves is l.CanServe; with none set (a non-routed launch) only databricks rows qualify, as every agent can use them.
