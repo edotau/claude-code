@@ -14,7 +14,7 @@ import (
 )
 
 func renderDiff(o DiffOptions, rep DiffReport, scoped bool) {
-	if len(rep.Files) == 0 {
+	if len(rep.Files) == 0 && len(rep.Gates) == 0 {
 		fmt.Fprintln(o.Out, "agents diff: no changes")
 		renderVerify(o.Out, rep.Verify)
 		return
@@ -26,7 +26,7 @@ func renderDiff(o DiffOptions, rep DiffReport, scoped bool) {
 		fmt.Fprintln(o.Out, diffSummary(rep, scoped))
 		return
 	}
-	if !rep.fromBrief {
+	if !rep.fromBrief && !rep.all {
 		renderFiles(o.Out, rep.Files)
 	}
 	renderOutside(o.Out, rep)
@@ -81,14 +81,8 @@ func renderGates(o DiffOptions, gates []GateResult) {
 		} else {
 			fmt.Fprintf(o.Out, "%s %s (%.1fs)\n", status, g.Name, g.Seconds)
 		}
-		if g.OutputHead == "" {
-			continue
-		}
-		for l := range strings.SplitSeq(g.OutputHead, "\n") {
-			fmt.Fprintf(o.Out, "    %s\n", l)
-		}
-		if g.CutLines > 0 {
-			fmt.Fprintf(o.Out, "    ... %d more lines cut\n", g.CutLines)
+		for _, f := range g.Findings {
+			fmt.Fprintln(o.Out, f)
 		}
 	}
 }
@@ -156,6 +150,9 @@ func diffSummary(rep DiffReport, scoped bool) string {
 	t := rep.Totals
 	s := fmt.Sprintf("agents diff: %d files +%d -%d (prod +%d -%d, test +%d -%d)", t.Files, t.Added, t.Deleted,
 		t.Prod.Added, t.Prod.Deleted, t.Test.Added, t.Test.Deleted)
+	if rep.all {
+		s = "agents diff --all"
+	}
 	switch {
 	case len(rep.Outside) > 0:
 		s += fmt.Sprintf("; %d outside %s", len(rep.Outside), scopeName(rep))

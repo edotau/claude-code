@@ -40,7 +40,8 @@ func agentsSpec() *helptext.Node {
 		"label": {Flags: []helptext.Flag{flag("model"), flag("profile"), flag("task"), flag("session-model"), formatFlag()}},
 		"find": {Flags: []helptext.Flag{boolFlag("name"), boolFlag("func"), boolFlag("def"), boolFlag("callers"),
 			boolFlag("i"), boolFlag("w"), boolFlag("l"), flag("path"), flag("max"), formatFlag()}},
-		"diff": {Flags: []helptext.Flag{flag("base"), flag("path"), flag("verify"), boolFlag("check"), formatFlag()}},
+		"diff": {Flags: []helptext.Flag{flag("base"), flag("path"), flag("verify"), boolFlag("check"), flag("gates"),
+			boolFlag("all"), formatFlag()}},
 		"list": {Flags: []helptext.Flag{flag("host"), formatFlag()}},
 		"ask":  {Flags: ask.CompletionFlags()},
 		"dispatch": {Flags: []helptext.Flag{flag("timeout"), formatFlag(), boolFlag("background"),
@@ -128,8 +129,9 @@ var agentsSubPages = map[string][3]string{
 		"Exit 0, 1 the hook refuses <type> or the task is unreadable, 2 usage."},
 	"diff": {"diff [flags]", "List the files changed since --base (default HEAD: uncommitted), with line counts, " +
 		"the ones outside every --path, and with --check the Go and docs gates (on the --path files; complexity only for " +
-		"findings the change introduced). --verify <id> adds a dispatch's routing proof. Exit 1 gate failed or " +
-		"MISMATCH, 3 outside --path, 2 usage."},
+		"findings the change introduced), findings as `path:line: tool/rule: message` rows. --gates picks gates (lint: " +
+		"gofmt, vet, golangci-lint, docs, yaml, shell, quality; a missing tool then fails); --all checks the whole " +
+		"tree. --verify <id> adds a dispatch's routing proof. Exit 1 gate failed or MISMATCH, 3 outside --path, 2 usage."},
 	"send": {"send <id> <task | -> [flags]", "Send one user turn to a live claude or gemini session (ask --agent <a> " +
 		"--live), or resume a finished dispatch's session on any agent as a new child dispatch; exits on its result. One turn at a time per live session. " +
 		"send parent <note> files the note (200 characters, one line) as a note in the calling leaf's dispatcher inbox, shown on its next prompt; " +
@@ -405,6 +407,12 @@ func cmdAgentsDiff(args []string) int {
 	})
 	verify := fs.String("verify", "", "also prove where dispatch <id> ran: workspace, model, fallback, proxy requests")
 	check := fs.Bool("check", false, "run gofmt, build, vet, lint, complexity, test and docs on the touched packages")
+	var gates []string
+	fs.Func("gates", "gates to run: lint, test or names; repeat or comma list", func(v string) error {
+		gates = append(gates, v)
+		return nil
+	})
+	all := fs.Bool("all", false, "with --check: the whole tree, not just the changes")
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -420,7 +428,7 @@ func cmdAgentsDiff(args []string) int {
 	if err != nil {
 		return helptext.Fail("agents diff: %v", err)
 	}
-	return inspect.Diff(inspect.DiffOptions{Dir: cwd, Base: *base, Paths: sel, Verify: *verify, Check: *check, JSON: *format == helptext.JSON,
+	return inspect.Diff(inspect.DiffOptions{Dir: cwd, Base: *base, Paths: sel, Verify: *verify, Check: *check, Gates: gates, All: *all, JSON: *format == helptext.JSON,
 		Out: os.Stdout, Err: os.Stderr})
 }
 

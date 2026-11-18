@@ -23,13 +23,13 @@ import (
 	"github.com/edotau/claude-code/internal/review/source"
 )
 
-// Go gates for `agents diff --check`: gofmt, build, vet, lint, complexity, test and docs on the touched packages.
+// Gates for `agents diff --check`: gofmt, build, vet, lint, complexity, test, docs; --gates adds yaml, shell, quality.
 
 const (
 	diffHeadLines   = 30
 	diffGateTimeout = 10 * time.Minute
 	outsideShown    = 3
-	docsGateChunk   = 200
+	fileChunk       = 200
 )
 
 // Seams: production runs real processes; tests swap them so no go or lint process is spawned.
@@ -42,10 +42,13 @@ var (
 
 // gateInput carries what the gates share: the repo root, the Go packages and the files to check.
 type gateInput struct {
-	root, base          string
-	pkgs, goFiles, srcs []string
-	mds                 []string          // changed Markdown files still present
-	old                 map[string]string // checked path -> its path at base; absent for a file new since base
+	root, base string
+	pkgs       []string          // Go packages to vet, lint and test; ./... when whole
+	files      []string          // files the per-kind steps check: the change set, or the whole tree with --all
+	srcs       []string          // changed source files: complexity and quality judge what the change introduced
+	old        map[string]string // checked path -> its path at base; absent for a file new since base
+	strict     bool              // --gates was given: a missing tool fails instead of skipping
+	whole      bool              // --all without --path: run the quality gate over the repo's own changed files
 }
 
 // gateFn returns the gate's output and a non-empty skip reason when it did not apply; an error is a FAIL.
@@ -55,6 +58,7 @@ type gateDef struct {
 	name       string
 	needsBuild bool
 	fn         gateFn
+	parse      parseFn
 }
 
 func newGateInput(root, base string, files []DiffFile) gateInput {
@@ -68,9 +72,8 @@ func newGateInput(root, base string, files []DiffFile) gateInput {
 		}
 	}
 	in.pkgs = slices.Sorted(maps.Keys(pkgSet))
-	slices.Sort(in.goFiles)
+	slices.Sort(in.files)
 	slices.Sort(in.srcs)
-	slices.Sort(in.mds)
 	return in
 }
 
@@ -90,12 +93,7 @@ func addGateFile(in *gateInput, pkgSet map[string]bool, p string, gone bool) {
 	if gone {
 		return
 	}
-	if strings.HasSuffix(p, ".md") {
-		in.mds = append(in.mds, p)
-	}
-	if isGo {
-		in.goFiles = append(in.goFiles, p)
-	}
+	in.files = append(in.files, p)
 	if source.DetectLanguage(p) != "" {
 		in.srcs = append(in.srcs, p)
 	}
@@ -110,7 +108,11 @@ func dirHasGo(dir string) bool {
 }
 
 func runGates(ctx context.Context, root, base string, files []DiffFile) []GateResult {
-	in := newGateInput(root, base, files)
+	return runDefaultGates(ctx, newGateInput(root, base, files))
+}
+
+// runDefaultGates is the gate set without --gates: the Go gates on the touched packages, docs when Markdown changed.
+func runDefaultGates(ctx context.Context, in gateInput) []GateResult {
 	defs := gateDefs()
 	if len(in.pkgs) == 0 {
 		out := []GateResult{{Name: "go gates", Status: "skip", Reason: "no Go changes; run make lint for docs"}}
@@ -132,10 +134,10 @@ func runGates(ctx context.Context, root, base string, files []DiffFile) []GateRe
 
 // appendDocs adds the docs gate after the others, only when the change set holds Markdown.
 func appendDocs(ctx context.Context, res []GateResult, in gateInput) []GateResult {
-	if len(in.mds) == 0 {
+	if len(match(in.files, stepFor("docs").globs)) == 0 {
 		return res
 	}
-	return append(res, runGate(ctx, gateDef{name: "docs", fn: docsGate}, in))
+	return append(res, runGate(ctx, docsDef, in))
 }
 
 const (
@@ -143,31 +145,91 @@ const (
 	complexityIdx = 4
 )
 
-// gateDefs lists the gates in report order, run one after another: concurrent vet, lint and test were not faster.
+// gateDefs lists the default gates in report order, run one after another: concurrent ones were not faster.
 func gateDefs() []gateDef {
 	return []gateDef{
-		{"gofmt", false, gofmtGate},
+		stepDef("gofmt", false),
 		{"build", false, func(ctx context.Context, in gateInput) (string, string, error) {
 			out, err := gateRun(ctx, in.root, "go", "build", "./...")
 			return out, "", err
-		}},
-		{"vet", true, pkgGate("go", "vet")},
-		{"golangci-lint", true, lintGate},
-		{"complexity", false, complexityGate},
-		{"test", true, testGate},
+		}, parseGoOutput("build")},
+		stepDef("vet", true),
+		stepDef("golangci-lint", true),
+		{"complexity", false, complexityGate, parseComplexity},
+		{"test", true, testGate, parseTest},
 	}
+}
+
+var docsDef = gateDef{"docs", false, docsGate, parseDocs}
+
+// allGateDefs is every gate --gates can pick, in report order.
+func allGateDefs() []gateDef {
+	return append(gateDefs(), docsDef, stepDef("yaml", false), stepDef("shell", false),
+		gateDef{"quality", false, qualityGate, parseQuality})
+}
+
+// gateGroups are the names --gates expands: lint is the set `make lint` runs.
+var gateGroups = map[string][]string{
+	"lint": {"gofmt", "vet", "golangci-lint", "docs", "yaml", "shell", "quality"},
+}
+
+// parseGates expands --gates values (group or gate names, comma lists allowed) into a set; unknown names are an error.
+func parseGates(vals []string) (map[string]bool, error) {
+	if len(vals) == 0 {
+		return nil, nil
+	}
+	known := map[string]bool{}
+	for _, d := range allGateDefs() {
+		known[d.name] = true
+	}
+	want := map[string]bool{}
+	for _, v := range vals {
+		for n := range strings.SplitSeq(v, ",") {
+			names := gateGroups[strings.TrimSpace(n)]
+			if names == nil {
+				names = []string{strings.TrimSpace(n)}
+			}
+			for _, g := range names {
+				if !known[g] {
+					return nil, fmt.Errorf("--gates %q: unknown gate (want lint or one of %s)", g, strings.Join(slices.Sorted(maps.Keys(known)), ", "))
+				}
+				want[g] = true
+			}
+		}
+	}
+	return want, nil
+}
+
+// runSelectedGates runs the picked gates in report order; build is a gate like any other here.
+func runSelectedGates(ctx context.Context, in gateInput, want map[string]bool) []GateResult {
+	var res []GateResult
+	buildFailed := false
+	for _, d := range allGateDefs() {
+		if !want[d.name] {
+			continue
+		}
+		if d.needsBuild && buildFailed {
+			res = append(res, GateResult{Name: d.name, Status: "skip", Reason: "build failed", Findings: []Finding{}})
+			continue
+		}
+		r := runGate(ctx, d, in)
+		buildFailed = buildFailed || (d.name == "build" && r.Status == "FAIL")
+		res = append(res, r)
+	}
+	return res
 }
 
 func runGate(ctx context.Context, d gateDef, in gateInput) GateResult {
 	start := time.Now()
 	out, skip, err := d.fn(ctx, in)
-	r := GateResult{Name: d.name, Status: "ok", Seconds: time.Since(start).Round(10 * time.Millisecond).Seconds()}
+	r := GateResult{Name: d.name, Status: "ok", Findings: []Finding{},
+		Seconds: time.Since(start).Round(10 * time.Millisecond).Seconds()}
 	switch {
 	case skip != "":
 		r.Status, r.Reason, r.Seconds = "skip", skip, 0
 	case err != nil:
 		r.Status = "FAIL"
-		r.OutputHead, r.CutLines = cutHead(scrubPaths(out+errText(out, err), in.root), diffHeadLines)
+		r.Findings = capRows(d.name, d.parse(scrubPaths(out+errText(out, err), in.root)), diffHeadLines)
 	}
 	return r
 }
@@ -200,74 +262,66 @@ func replaceDir(s, dir, repl string) string {
 	return s
 }
 
-func cutHead(out string, limit int) (string, int) {
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	if len(lines) <= limit {
-		return strings.Join(lines, "\n"), 0
-	}
-	return strings.Join(lines[:limit], "\n"), len(lines) - limit
+// stepDef is the gate that runs the table step of that name.
+func stepDef(gate string, needsBuild bool) gateDef {
+	st := stepFor(gate)
+	return gateDef{gate, needsBuild, stepGate(st), st.parse}
 }
 
-func gofmtGate(ctx context.Context, in gateInput) (string, string, error) {
-	if len(in.goFiles) == 0 {
-		return "", "no Go files", nil
-	}
-	out, err := gateRun(ctx, in.root, "gofmt", append([]string{"-l"}, in.goFiles...)...)
-	if err == nil && strings.TrimSpace(out) != "" {
-		err = errors.New("files need gofmt")
-	}
-	return out, "", err
-}
-
-func pkgGate(name string, args ...string) gateFn {
+// stepGate runs a table step: placeholders filled from the input, the tool by list args, a missing tool skips or fails.
+func stepGate(st step) gateFn {
 	return func(ctx context.Context, in gateInput) (string, string, error) {
-		if len(in.pkgs) == 0 {
+		files, cmd := match(in.files, st.globs), st.cmd
+		if in.whole && st.wholeCmd != nil {
+			cmd = st.wholeCmd
+		}
+		switch {
+		case slices.Contains(cmd, "{files}") && len(files) == 0:
+			return "", "no " + st.kind + " files", nil
+		case slices.Contains(cmd, "{pkgs}") && len(in.pkgs) == 0:
 			return "", "no Go packages", nil
 		}
-		out, err := gateRun(ctx, in.root, name, append(args, in.pkgs...)...)
-		return out, "", err
-	}
-}
-
-// testGate tests the touched packages, plus internal/schemas (it pins file writers) when production Go changed.
-func testGate(ctx context.Context, in gateInput) (string, string, error) {
-	const schemas = "./internal/schemas"
-	prod := slices.ContainsFunc(in.goFiles, func(p string) bool { return !pack.IsTestPath(p) })
-	if prod && !slices.Contains(in.pkgs, schemas) && dirHasGo(filepath.Join(in.root, "internal", "schemas")) {
-		in.pkgs = append(slices.Clone(in.pkgs), schemas)
-	}
-	return pkgGate("go", "test", "-count=1")(ctx, in)
-}
-
-func lintGate(ctx context.Context, in gateInput) (string, string, error) {
-	if _, err := gateLookPath("golangci-lint"); err != nil {
-		return "", "not installed", nil
-	}
-	return pkgGate("golangci-lint", "run")(ctx, in)
-}
-
-// docsGate runs mdsmith (the `make lint-docs` check) and the memory formatter check on the changed Markdown.
-func docsGate(ctx context.Context, in gateInput) (string, string, error) {
-	out, skip, err := mdsmithGate(ctx, in)
-	memOut, memRan, memErr := memoryFmtGate(in)
-	if skip != "" && memRan {
-		skip = ""
-	}
-	return out + memOut, skip, errors.Join(err, memErr)
-}
-
-func mdsmithGate(ctx context.Context, in gateInput) (string, string, error) {
-	bin := filepath.Join(in.root, "bin", "mdsmith")
-	if _, err := gateLookPath(bin); err != nil {
-		bin = "mdsmith"
-		if _, err := gateLookPath(bin); err != nil {
-			return "", "mdsmith not installed", nil
+		bin := st.cmd[0]
+		if st.install != "" {
+			var ok bool
+			if bin, ok = findTool(in.root, bin); !ok {
+				if in.strict {
+					return "", "", fmt.Errorf("%s not installed (%s)", st.cmd[0], st.install)
+				}
+				return "", st.cmd[0] + " not installed", nil
+			}
 		}
+		return runStep(ctx, in, st, cmd, bin, files)
 	}
+}
+
+// findTool prefers the repo's bin/<tool> (make installs mdsmith there) over the PATH.
+func findTool(root, tool string) (string, bool) {
+	if local := filepath.Join(root, "bin", tool); fileFound(local) {
+		return local, true
+	}
+	_, err := gateLookPath(tool)
+	return tool, err == nil
+}
+
+func fileFound(p string) bool {
+	_, err := gateLookPath(p)
+	return err == nil
+}
+
+// runStep runs the step's command, in chunks of fileChunk files when it takes {files}; stops at the first failure.
+func runStep(ctx context.Context, in gateInput, st step, cmd []string, bin string, files []string) (string, string, error) {
 	var all []string
-	for chunk := range slices.Chunk(in.mds, docsGateChunk) {
-		out, err := gateRun(ctx, in.root, bin, append([]string{"check", "--no-color", "--"}, chunk...)...)
+	chunks := [][]string{nil}
+	if slices.Contains(cmd, "{files}") {
+		chunks = slices.Collect(slices.Chunk(files, fileChunk))
+	}
+	for _, chunk := range chunks {
+		out, err := gateRun(ctx, in.root, bin, expandArgs(cmd[1:], chunk, in.pkgs)...)
 		all = append(all, out)
+		if err == nil && st.listsFiles && strings.TrimSpace(out) != "" {
+			err = errors.New("files need formatting")
+		}
 		if err != nil {
 			return strings.Join(all, ""), "", err
 		}
@@ -275,11 +329,54 @@ func mdsmithGate(ctx context.Context, in gateInput) (string, string, error) {
 	return strings.Join(all, ""), "", nil
 }
 
+// expandArgs fills the two placeholders in place; an argument is never split or joined into a shell string.
+func expandArgs(cmd, files, pkgs []string) []string {
+	out := make([]string, 0, len(cmd)+len(files)+len(pkgs))
+	for _, a := range cmd {
+		switch a {
+		case "{files}":
+			out = append(out, files...)
+		case "{pkgs}":
+			out = append(out, pkgs...)
+		default:
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+// testGate tests the touched packages, plus internal/schemas (it pins file writers) when production Go changed.
+func testGate(ctx context.Context, in gateInput) (string, string, error) {
+	const schemas = "./internal/schemas"
+	prod := slices.ContainsFunc(match(in.files, []string{goGlob}), func(p string) bool { return !pack.IsTestPath(p) })
+	if prod && !slices.Contains(in.pkgs, schemas) && !slices.Contains(in.pkgs, "./...") && dirHasGo(filepath.Join(in.root, "internal", "schemas")) {
+		in.pkgs = append(slices.Clone(in.pkgs), schemas)
+	}
+	if len(in.pkgs) == 0 {
+		return "", "no Go packages", nil
+	}
+	out, err := gateRun(ctx, in.root, "go", append([]string{"test", "-count=1"}, in.pkgs...)...)
+	return out, "", err
+}
+
+// docsGate runs mdsmith (the `make lint-docs` check) and the memory formatter check on the changed Markdown.
+func docsGate(ctx context.Context, in gateInput) (string, string, error) {
+	if len(match(in.files, stepFor("docs").globs)) == 0 {
+		return "", "no markdown files", nil
+	}
+	out, skip, err := stepGate(stepFor("docs"))(ctx, in)
+	memOut, memRan, memErr := memoryFmtGate(in)
+	if skip != "" && memRan {
+		skip = ""
+	}
+	return out + memOut, skip, errors.Join(err, memErr)
+}
+
 // memoryFmtGate runs the `memory fmt --check` package function and fails on the changed memory-store files it lists.
 func memoryFmtGate(in gateInput) (out string, ran bool, err error) {
 	store := paths.CanonDeep(memory.StoreDir())
 	changed := map[string]bool{}
-	for _, p := range in.mds {
+	for _, p := range match(in.files, []string{mdGlob}) {
 		abs := paths.CanonDeep(filepath.Join(in.root, filepath.FromSlash(p)))
 		if rel, rerr := filepath.Rel(store, abs); rerr == nil && !strings.HasPrefix(rel, "..") {
 			changed[abs] = true
@@ -295,14 +392,13 @@ func memoryFmtGate(in gateInput) (out string, ran bool, err error) {
 	var dirty []string
 	for line := range strings.Lines(report.String()) {
 		if line = strings.TrimSpace(line); changed[paths.CanonDeep(line)] {
-			dirty = append(dirty, line)
+			dirty = append(dirty, line+": memory fmt --check: would change (run `claude-code memory fmt`)\n")
 		}
 	}
 	if len(dirty) == 0 {
 		return "", true, nil
 	}
-	return strings.Join(dirty, "\n") + "\nmemory fmt --check: would change (run `claude-code memory fmt`)\n", true,
-		errors.New("memory fmt")
+	return strings.Join(dirty, ""), true, errors.New("memory fmt")
 }
 
 // complexityGate runs the `review simplify` engine in-process; only MEDIUM+ findings the change introduced fail it.
@@ -332,6 +428,39 @@ func complexityGate(ctx context.Context, in gateInput) (string, string, error) {
 		return "", "", nil
 	}
 	return strings.Join(lines, "\n"), "", errors.New("findings")
+}
+
+// qualityGate is `review simplify --fail` in-process: new comment and size violations; --all runs it as make does.
+func qualityGate(_ context.Context, in gateInput) (string, string, error) {
+	args := []string{"--fail"}
+	if in.base != "" && in.base != "HEAD" {
+		args = append(args, "--base", in.base)
+	}
+	if !in.whole {
+		goFiles := match(in.srcs, []string{goGlob})
+		if len(goFiles) == 0 {
+			return "", "no Go changes", nil
+		}
+		for _, p := range goFiles {
+			args = append(args, relToCwd(in.root, p))
+		}
+	}
+	var out, errBuf bytes.Buffer
+	if gateSimplify(args, &out, &errBuf) == 0 {
+		return "", "", nil
+	}
+	return out.String() + errBuf.String(), "", errors.New("new violations")
+}
+
+// relToCwd names a repo file relative to the working directory, which is how the simplify engine reads git.
+func relToCwd(root, p string) string {
+	abs := filepath.Join(root, filepath.FromSlash(p))
+	if wd, err := os.Getwd(); err == nil {
+		if rel, err := filepath.Rel(wd, abs); err == nil {
+			return rel
+		}
+	}
+	return abs
 }
 
 func runSimplify(dir string, rels []string) (rep simplifyReport, stderr string, err error) {

@@ -76,8 +76,8 @@ func TestGatesSkipAfterBuildFailure(t *testing.T) {
 	if got := gateStatuses(rs); got != want {
 		t.Fatalf("gates = %s, want %s", got, want)
 	}
-	if rs[1].OutputHead != "pkg/p.go:3:1: undefined: x" || rs[2].Reason != "build failed" {
-		t.Errorf("build output %q (root must be scrubbed), vet reason %q", rs[1].OutputHead, rs[2].Reason)
+	if got := rs[1].Findings; len(got) != 1 || got[0].String() != "pkg/p.go:3: build: undefined: x" || rs[2].Reason != "build failed" {
+		t.Errorf("build rows %v (root must be scrubbed), vet reason %q", got, rs[2].Reason)
 	}
 	if slices.Contains(f.calls, "go vet") || slices.Contains(f.calls, "go test") {
 		t.Errorf("gates after a failed build ran anyway: %v", f.calls)
@@ -99,10 +99,11 @@ func TestGatesCutLongFailureAndRunTheRest(t *testing.T) {
 	if got, want := gateStatuses(rs), "ok gofmt, ok build, FAIL vet, skip golangci-lint, ok complexity, ok test"; got != want {
 		t.Fatalf("gates = %s, want %s", got, want)
 	}
-	if n := strings.Count(rs[2].OutputHead, "\n") + 1; n != diffHeadLines || rs[2].CutLines != 15 {
-		t.Errorf("vet kept %d lines, cut %d; want 30 kept, 15 cut", n, rs[2].CutLines)
+	rows := rs[2].Findings
+	if len(rows) != diffHeadLines+1 || rows[len(rows)-1].String() != "vet: +15 more lines cut" {
+		t.Errorf("vet kept %d rows, last %v; want 30 unparsed lines then one +15 row", len(rows), rows[len(rows)-1])
 	}
-	if rs[3].Reason != "not installed" || diffExit(DiffReport{Gates: rs}) != DiffExitGate {
+	if rs[3].Reason != "golangci-lint not installed" || diffExit(DiffReport{Gates: rs}) != DiffExitGate {
 		t.Errorf("lint reason %q, exit %d", rs[3].Reason, diffExit(DiffReport{Gates: rs}))
 	}
 }
@@ -139,12 +140,12 @@ func TestDocsGateEndsOptionsAndChunks(t *testing.T) {
 	for i := range 450 {
 		files = append(files, fmt.Sprintf("d/f%d.md", i))
 	}
-	if _, _, err := docsGate(context.Background(), gateInput{root: t.TempDir(), mds: files}); err != nil {
+	if _, _, err := docsGate(context.Background(), gateInput{root: t.TempDir(), files: files}); err != nil {
 		t.Fatal(err)
 	}
 	total := 0
 	for _, args := range calls {
-		if len(args) < 3 || args[2] != "--" || len(args)-3 > docsGateChunk {
+		if len(args) < 3 || args[2] != "--" || len(args)-3 > fileChunk {
 			t.Fatalf("bad call %v...", args[:min(len(args), 5)])
 		}
 		total += len(args) - 3
@@ -156,12 +157,12 @@ func TestDocsGateEndsOptionsAndChunks(t *testing.T) {
 
 func TestDocsGateRunsOnChangedMarkdownOnly(t *testing.T) {
 	dir, files := gateRepo(t)
-	f := &fakeGates{lint: true, fail: map[string]string{dir + "/bin/mdsmith check": "a.md:3:121 MDS001 line too long\n"}}
+	f := &fakeGates{lint: true, fail: map[string]string{dir + "/bin/mdsmith check": "a.md:3:1 MDS008 multiple consecutive blank lines\n"}}
 	f.install(t)
 	md := []DiffFile{{Path: "a.md", Status: "M"}, {Path: "gone.md", Status: "D"}}
 	rs := runGates(context.Background(), dir, "HEAD", append(files, md...))
-	if last := rs[len(rs)-1]; last.Name != "docs" || last.Status != "FAIL" || !strings.Contains(last.OutputHead, "MDS001") {
-		t.Errorf("docs gate = %+v; want a FAIL carrying the mdsmith line", last)
+	if last := rs[len(rs)-1]; last.Name != "docs" || last.Status != "FAIL" || len(last.Findings) != 1 || last.Findings[0].String() != "a.md:3: mdsmith/MDS008: multiple consecutive blank lines" {
+		t.Errorf("docs gate = %+v; want a FAIL with the mdsmith row", last)
 	}
 	if rs = runGates(context.Background(), dir, "HEAD", files); strings.Contains(gateStatuses(rs), "docs") {
 		t.Errorf("a Go-only change ran the docs gate: %s", gateStatuses(rs))
@@ -189,7 +190,7 @@ func TestDocsGateChecksChangedMemoryBankFiles(t *testing.T) {
 			return rs[len(rs)-1]
 		}
 		r := last(dirty)
-		if r.Name != "docs" || r.Status != "FAIL" || !strings.Contains(r.OutputHead, dirty) {
+		if r.Name != "docs" || r.Status != "FAIL" || len(r.Findings) != 1 || r.Findings[0].Path != dirty {
 			t.Errorf("lint=%t dirty changed bank file: %+v, want a docs FAIL naming the file", lint, r)
 		}
 		if r := last(clean); r.Status == "FAIL" {
@@ -205,9 +206,13 @@ func TestGatesComplexityFindings(t *testing.T) {
 		`"location":"l"},{"type":"long_function","severity":"medium","message":"long","location":"f"}]}}]}`
 	(&fakeGates{simpOut: finding}).install(t)
 	rs := runGates(context.Background(), dir, "HEAD", files)
-	head := rs[4].OutputHead
-	if rs[4].Status != "FAIL" || !strings.Contains(head, "pkg/p.go line 3 [warn]") || !strings.Contains(head, "long_function") ||
-		strings.Contains(head, "magic_number") || strings.Contains(head, dir) {
+	var rows []string
+	for _, f := range rs[4].Findings {
+		rows = append(rows, f.String())
+	}
+	head := strings.Join(rows, "\n")
+	if rs[4].Status != "FAIL" || !strings.Contains(head, "pkg/p.go:3: complexity/cyclomatic-complexity: warn too branchy") ||
+		!strings.Contains(head, "long_function") || strings.Contains(head, "magic_number") || strings.Contains(head, dir) {
 		t.Errorf("complexity gate = %s %q; want the warn and medium findings only, relative paths", rs[4].Status, head)
 	}
 }

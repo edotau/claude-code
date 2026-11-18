@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"path"
 	"path/filepath"
 	"slices"
@@ -32,6 +33,8 @@ type DiffOptions struct {
 	Paths     []string
 	Verify    string
 	Check     bool
+	Gates     []string // --gates values; empty runs the default gate set
+	All       bool     // --all: the per-kind steps cover the whole tree, not only the changed files
 	JSON      bool
 	Out, Err  io.Writer
 }
@@ -62,12 +65,11 @@ type DiffTotals struct {
 
 // GateResult is one gate's outcome; Status is ok, FAIL or skip.
 type GateResult struct {
-	Name       string  `json:"name"`
-	Status     string  `json:"status"`
-	Seconds    float64 `json:"seconds"`
-	Reason     string  `json:"reason,omitempty"`
-	OutputHead string  `json:"output_head"`
-	CutLines   int     `json:"cut_lines"`
+	Name     string    `json:"name"`
+	Status   string    `json:"status"`
+	Seconds  float64   `json:"seconds"`
+	Reason   string    `json:"reason,omitempty"`
+	Findings []Finding `json:"findings"`
 }
 
 // DiffReport is the whole answer, also the --format json document.
@@ -80,21 +82,35 @@ type DiffReport struct {
 
 	fromBrief bool // --path came from the verified dispatch's brief Owned line: the text report is compact
 	noScope   bool // --verify with neither --path nor an Owned line: the text report is a short verdict
+	all       bool // --all: the file rows would list the dirty files, which the gates did not narrow to
 }
 
 // Diff prints the report for o; exit code: 0 clean, 1 gate failed or MISMATCH, 2 usage, 3 outside --path.
 func Diff(o DiffOptions) int {
 	ctx, cancel := context.WithTimeout(context.Background(), diffGateTimeout)
 	defer cancel()
+	want, err := parseGates(o.Gates)
+	if err == nil && !o.Check && (len(o.Gates) > 0 || o.All) {
+		err = errors.New("--gates and --all need --check")
+	}
+	if err != nil {
+		fmt.Fprintf(o.Err, "agents diff: %v\n", err)
+		return DiffExitUsage
+	}
 	in, err := diffInputs(ctx, o)
 	if err != nil {
 		fmt.Fprintf(o.Err, "agents diff: %v\n", err)
 		return DiffExitUsage
 	}
 	rep := DiffReport{Files: in.files, Totals: sumDiff(in.files), Outside: outsidePaths(in.files, in.sel),
-		Gates: []GateResult{}, Verify: in.verify, fromBrief: in.fromBrief, noScope: in.noScope}
-	if o.Check && len(in.files) > 0 {
-		rep.Gates = runGates(ctx, in.root, in.base, filesInPaths(in.files, rep.Outside))
+		Gates: []GateResult{}, Verify: in.verify, fromBrief: in.fromBrief, noScope: in.noScope, all: o.All}
+	if o.Check && (len(in.files) > 0 || o.All) {
+		gi, err := gatesInput(ctx, o, in, filesInPaths(in.files, rep.Outside), len(want) > 0)
+		if err != nil {
+			fmt.Fprintf(o.Err, "agents diff: %v\n", err)
+			return DiffExitUsage
+		}
+		rep.Gates = runGatesFor(ctx, gi, want)
 	}
 	if o.JSON {
 		if err := helptext.WriteJSON(o.Out, rep); err != nil {
@@ -105,6 +121,43 @@ func Diff(o DiffOptions) int {
 		renderDiff(o, rep, len(in.sel) > 0)
 	}
 	return diffExit(rep)
+}
+
+func runGatesFor(ctx context.Context, gi gateInput, want map[string]bool) []GateResult {
+	if want == nil {
+		return runDefaultGates(ctx, gi)
+	}
+	return runSelectedGates(ctx, gi, want)
+}
+
+// gatesInput is the gates' input: the change set, or with --all every tracked and untracked file inside --path.
+func gatesInput(ctx context.Context, o DiffOptions, in diffIn, changed []DiffFile, strict bool) (gateInput, error) {
+	gi := newGateInput(in.root, in.base, changed)
+	gi.strict = strict
+	if !o.All {
+		return gi, nil
+	}
+	list, err := proc.RunGitRaw(ctx, in.root, "ls-files", "--cached", "--others", "--exclude-standard", "-z")
+	if err != nil {
+		return gi, err
+	}
+	var all []DiffFile
+	for p := range strings.SplitSeq(list, "\x00") {
+		if p != "" && (len(in.sel) == 0 || inPaths(in.sel, p)) && fileExists(filepath.Join(in.root, filepath.FromSlash(p))) {
+			all = append(all, DiffFile{Path: p, Status: "M"})
+		}
+	}
+	wide := newGateInput(in.root, in.base, all)
+	wide.srcs, wide.old, wide.strict, wide.whole = gi.srcs, gi.old, strict, len(in.sel) == 0
+	if wide.whole {
+		wide.pkgs = []string{"./..."}
+	}
+	return wide, nil
+}
+
+func fileExists(p string) bool {
+	_, err := os.Stat(p)
+	return err == nil
 }
 
 // diffIn is what Diff resolves before it reports: the repo root, the cleaned --path list, the base commit and files.
