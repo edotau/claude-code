@@ -85,6 +85,14 @@ func assertBriefContract(t *testing.T, first string, input BriefInput) {
 			t.Errorf("brief missing contract %q", want)
 		}
 	}
+	for _, once := range []string{"Final answer:", "--save files it", "gross production lines"} {
+		if got := strings.Count(first, once); got != 1 {
+			t.Errorf("brief states %q %d times; want once", once, got)
+		}
+	}
+	if strings.Contains(first, "regression test per bug") {
+		t.Error("brief tells the leaf to write a regression test unasked")
+	}
 }
 
 func TestBriefPathAllocation(t *testing.T) {

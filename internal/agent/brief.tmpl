@@ -11,26 +11,20 @@ Task:
 - Never revert a change you did not make; no `git commit`, `stash`, `checkout`, `reset` or `restore`.
 - Edit only the owned files; a package owns the `_test.go` of each owned source file. A compile error in a file you do
   not own is reported, not fixed.
-- Order: format → lint → live check on the changed surface → scoped tests → `Skill(simplify)`; never the full suite.
-- Tests: one fast regression test per bug, one end-to-end test per feature, teeth proven by breaking the fix in a copy;
-  no value-pinning. A copilot test leaf writes it after the implementer returns (refactor packages get none).
-- Report gross added and deleted production lines separately; a package with net growth names what it clarified.
-{{if .ReadOnly}}- Read-only: your final answer is the full report, its first 8 lines the verdict; the Run: line's --save files it.
-{{else}}- Write the full report to `{{.ReportsDir}}/YYYY-MM-DD-<name>.md`; return at most 8 lines.
-{{end}}- A relay waiting on this job: the moment `claude-code agents result -f <id>` returns with the job ended, hand back
+- Tests: propose regression cases in the report; write one only when the brief asks. No value-pinning.
+- A relay waiting on this job: the moment `claude-code agents result -f <id>` returns with the job ended, hand back
   the job's result as your next action; do nothing in between.
 - Code leaves run on the Databricks arm (`/coworker`'s default overlay `{"provider":"databricks","profile":"auto",
   "remote":"auto"}`), spread over dev/qa/prod; docs leaves on claude sonnet.
 
 ## Reporting contract
 
-{{if .ReadOnly}}Read-only: your final answer is the full report; the Run: line's --save files it.
-{{else}}Write the full report to {{.ReportsDir}}/YYYY-MM-DD-<name>.md.
+{{if not .ReadOnly}}Write the full report to {{.ReportsDir}}/YYYY-MM-DD-<name>.md.
 {{end}}{{if .Report}}Use the Report path above.
 {{end}}Wrap lines at 118 columns. Include outcome, commands and exit codes, observable proof, test teeth proof,
 gross production lines added and deleted, what net growth clarified, and anything blocked.
 {{if .ReadOnly}}Final answer: the full report, opening with an at most 8-line verdict: done or not, verify result,
-observable proof, anything blocked.
+observable proof, anything blocked; the Run: line's --save files it.
 {{else}}Final answer: at most 8 lines: done or not, verify result, observable proof, gross production lines added
 and deleted, anything blocked, and the full report path.
 {{end}}
