@@ -261,6 +261,9 @@ func checkClaims(in *core.Input, cmd string) core.Result {
 	edits := editPaths(in)
 	ctx, cancel := core.HookContext("worktree-claim-check")
 	defer cancel()
+	if r := laneVerdict(ctx, in, cmd, edits); r.Decision != core.Allow {
+		return r
+	}
 	if !bash {
 		return claimResult(ctx, in, cmd, edits)
 	}
@@ -275,6 +278,83 @@ func checkClaims(in *core.Input, cmd string) core.Result {
 	res.Context = core.JoinContext(notes, res.Context)
 	res.Stderr = strings.TrimSpace(warn + "\n" + res.Stderr)
 	return res
+}
+
+// laneVerdict, in lanes mode, asks (a leaf: blocks) on an edit or stage of a tracked file in the live checkout.
+func laneVerdict(ctx context.Context, in *core.Input, cmd string, edits []string) core.Result {
+	if !worktreeLanes() {
+		return core.Result{}
+	}
+	live := paths.Real(paths.ConfigDir())
+	hits := liveTracked(ctx, live, edits)
+	if isBash(in) && stageText(cmd) {
+		hits = append(hits, liveStaged(ctx, in, cmd, live)...)
+	}
+	if len(hits) == 0 {
+		return core.Result{}
+	}
+	hits = slices.Compact(slices.Sorted(slices.Values(hits)))
+	names := make([]string, 0, claimShown)
+	for _, p := range hits[:min(len(hits), claimShown)] {
+		rel, _ := core.RelWithin(live, p)
+		names = append(names, rel)
+	}
+	d := core.Ask
+	if in.AgentID != "" {
+		d = core.Block
+	}
+	what := fmt.Sprintf("lanes mode: %d tracked file(s) of the live checkout (%s) would change; it only fast-forwards",
+		len(hits), strings.Join(names, ", "))
+	hint := "work in a lane: claude-code worktree create <slug>, then edit under its ~/worktrees/<repo>/<slug> path"
+	return core.Result{Decision: d, Reason: core.SafetyMessage(in, d, what, "", hint)}
+}
+
+// liveTracked is the edited paths that are tracked files of the live checkout; git errors yield none (fail open).
+func liveTracked(ctx context.Context, live string, edits []string) []string {
+	var specs []string
+	for _, p := range edits {
+		if top, _ := paths.CheckoutOf(filepath.Dir(p)); paths.Real(top) != live {
+			continue
+		}
+		if rel, ok := core.RelWithin(live, p); ok {
+			specs = append(specs, ":(literal)"+rel)
+		}
+	}
+	if len(specs) == 0 {
+		return nil
+	}
+	out, _ := gitPaths(ctx, live, live, append([]string{"ls-files", "-z", "--"}, specs...)...)
+	return out
+}
+
+// liveStaged is the dirty tracked files of the live checkout that the command's git add/commit would stage.
+func liveStaged(ctx context.Context, in *core.Input, cmd, live string) []string {
+	var out []string
+	shell.EachGit(dropScriptHeredocs(core.DropDataHeredocs(cmd)), in.CWD, func(target, verb string, args []string) bool {
+		verb, args = verbAsGit(verb, args)
+		w := splitStage(verb, args)
+		if verb != "add" && verb != "commit" || interactive(verb, w.flags) || stagesNothing(verb, w.flags) {
+			return false
+		}
+		top, dirty, err := dirtySet(ctx, target)
+		if err != nil || top != live {
+			return false
+		}
+		scopes, err := stageScopes(ctx, top, target, verb, args)
+		if err != nil {
+			return false
+		}
+		if dirty, err = tracked(ctx, top, dirty); err != nil {
+			return false
+		}
+		for p := range dirty {
+			if underAny(p, scopes) {
+				out = append(out, p)
+			}
+		}
+		return false
+	})
+	return out
 }
 
 // claimResult runs the edit check on each edited path and, for Bash, the stage check, against the live claims.

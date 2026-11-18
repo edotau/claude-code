@@ -34,6 +34,9 @@ current branch with no asks; any other value, including unset, means ask the use
 whether to use a linked worktree, and again when another session joins the checkout. Never create one without the
 user's yes; no answer means keep working in place.
 
+`HARNESS_WORKTREE=lanes` asks nothing: the claim check refuses (a leaf) or asks (main) an edit or stage of a tracked
+file in the live checkout and names `claude-code worktree create <slug>`; a lane is never refused.
+
 - Never `git stash` in any worktree (the stash list is shared; convention in a linked worktree); rewrite history only in
   your own linked worktree (CLAUDE.md hard rule 4). `safety-scan` blocks stash|checkout|switch|reset|restore|clean under
   `~/.claude` (a new branch, an unstage and dry runs pass) and `commit --amend`, `rebase` and `reset <commit>` in a

@@ -98,7 +98,7 @@ func closeRemoved(main, path, head string, branchDeleted bool, stderr io.Writer)
 	}
 }
 
-// worktreeModeEnv selects the mode: off|false|0 never asks; unset or anything else asks (session start, new peer).
+// worktreeModeEnv selects the mode: off|false|0 never asks; lanes enforces lanes; else asks (session start, new peer).
 const worktreeModeEnv = "HARNESS_WORKTREE"
 
 // PeerAgents is the process scan; a var seam so tests never see the host's live sessions.
@@ -110,6 +110,11 @@ func worktreeModeOff() bool {
 		return true
 	}
 	return false
+}
+
+// worktreeLanes is lanes mode: nothing tracked is edited in the live checkout, work goes to a lane.
+func worktreeLanes() bool {
+	return strings.EqualFold(strings.TrimSpace(os.Getenv(worktreeModeEnv)), "lanes")
 }
 
 // Busy runs on UserPromptSubmit: the busy line when the peer set changed (mode on), then drained notices.
@@ -185,8 +190,12 @@ func busyLine(in *core.Input, run *hookRun) (string, error) {
 	if !first || len(peers) == 0 {
 		return "", err
 	}
-	return fmt.Sprintf("Peer session (%s pid %d) is editing this checkout (%s); ask about a linked worktree before editing.",
-		peers[0].Comm, peers[0].PID, branch), err
+	next := "ask about a linked worktree before editing."
+	if worktreeLanes() {
+		next = "work in a lane: claude-code worktree create <slug>."
+	}
+	return fmt.Sprintf("Peer session (%s pid %d) is editing this checkout (%s); %s", peers[0].Comm, peers[0].PID, branch,
+		next), err
 }
 
 // notePeers records the peer set in the seen store; false when unchanged, which only refreshes the scan TTL.

@@ -533,8 +533,22 @@ func TestFirstSightingFailsOpenOnHeldLock(t *testing.T) {
 	const wait = 50 * time.Millisecond
 	t.Cleanup(core.SwapSeenWait(wait))
 	start := time.Now()
-	if !firstSighting("sess", "k1") || time.Since(start) > 5*time.Second {
-		t.Fatalf("held lock: want fail-open true within the bounded wait, took %v", time.Since(start))
+	if !firstSighting("sess", "k1") {
+		t.Fatal("held lock: want fail-open true")
+	}
+	if took := time.Since(start); took < wait {
+		t.Fatalf("held lock: returned after %v, before the %v wait", took, wait)
+	}
+}
+
+// TestClaimCheckExpiredBudgetFailsOpen: a check past its deadline allows with a warning instead of a verdict.
+func TestClaimCheckExpiredBudgetFailsOpen(t *testing.T) {
+	repo := claimFixture(t)
+	claimEdit(t, repo, liveOwner, "A", "a.txt")
+	hookBudget(t, "worktree-claim-check", time.Nanosecond)
+	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git add a.txt"})
+	if r.Decision != core.Allow || !strings.Contains(r.Stderr, "could not check file claims") {
+		t.Fatalf("expired budget: %v %q; want allow with the warning", r.Decision, r.Stderr)
 	}
 }
 
@@ -991,5 +1005,48 @@ func TestClaimCheckLabelsPeerByItsCommandName(t *testing.T) {
 	got := claimCheckOn(t, repo, "B", "Edit", map[string]any{"file_path": filepath.Join(repo, "a.txt")}).Context
 	if want := "a.txt has uncommitted edits by " + comm + " pid "; !strings.Contains(got, want) {
 		t.Errorf("advisory %q lacks %q", got, want)
+	}
+}
+
+// TestClaimCheckLanesMode: lanes mode refuses tracked edits and stages in the live checkout only; a lane stays open.
+func TestClaimCheckLanesMode(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode, file, cmd string
+		lane                  bool
+		agent                 string
+		want                  core.Decision
+	}{
+		{"live checkout edit asks main", "lanes", "a.txt", "", false, "", core.Ask},
+		{"live checkout edit blocks a leaf", "lanes", "a.txt", "", false, "leaftwo2", core.Block},
+		{"live checkout stage asks main", "lanes", "a.txt", "git add a.txt", false, "", core.Ask},
+		{"untracked file is free", "lanes", "new.txt", "", false, "", core.Allow},
+		{"same path in a lane is free", "lanes", "a.txt", "", true, "leaftwo2", core.Allow},
+		{"stage in a lane is free", "lanes", "a.txt", "git add a.txt", true, "", core.Allow},
+		{"not lanes mode", "", "a.txt", "", false, "leaftwo2", core.Allow},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := claimFixture(t)
+			t.Setenv("CLAUDE_CONFIG_DIR", repo)
+			t.Setenv(worktreeModeEnv, tc.mode)
+			root := repo
+			if tc.lane {
+				root = filepath.Join(paths.Real(t.TempDir()), "lane")
+				hosttest.In(t, repo, "worktree", "add", "-q", "-b", "lane", root)
+			}
+			hosttest.WriteRel(t, root, tc.file, "edited\n")
+			in := map[string]any{"session_id": "S", "cwd": root, "agent_id": tc.agent, "tool_name": "Edit",
+				"tool_input": map[string]any{"file_path": filepath.Join(root, tc.file)}}
+			if tc.cmd != "" {
+				in["tool_name"], in["tool_input"] = "Bash", map[string]any{"command": tc.cmd}
+			}
+			useClaimOwner(t, checkerOwner)
+			r := ClaimCheck(claimInput(t, in))
+			if r.Decision != tc.want {
+				t.Fatalf("%v %q; want %v", r.Decision, r.Reason, tc.want)
+			}
+			if tc.want != core.Allow && !strings.Contains(r.Reason, "claude-code worktree create <slug>") {
+				t.Errorf("reason %q must name the lane command", r.Reason)
+			}
+		})
 	}
 }
