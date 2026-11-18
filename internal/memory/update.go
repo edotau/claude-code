@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -345,10 +346,33 @@ func update(o updateOptions) error {
 		uncoverStamp(o.Session) // the dispatch stamped this work as covered; hand it back to the next trigger or sweep
 		return errors.Join(fmt.Errorf("headless update: %w", cmp.Or(lockErr, errors.New("another update or dream holds the store lock; retry when it finishes"))), record(updateFailed, false))
 	}
+	auditUpdatePlans(o)
 	if err := errors.Join(lockErr, run.runErr, run.settleErr); err != nil {
 		return errors.Join(fmt.Errorf("headless update: %w", err), record(updateFailed, run.updated))
 	}
 	return record(run.okStatus(prior.Log), run.updated)
+}
+
+func auditUpdatePlans(o updateOptions) {
+	if o.Historical || o.CWD == "" {
+		return
+	}
+	top := GitToplevel(o.CWD)
+	if top == "" {
+		return
+	}
+	if _, err := os.Stat(plans.Home(top)); errors.Is(err, os.ErrNotExist) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	report, err := plans.Audit(ctx, top, false)
+	if len(report.Changed) > 0 || len(report.Reported) > 0 {
+		err = errors.Join(err, report.WriteText(o.Out))
+	}
+	if err != nil {
+		fmt.Fprintf(o.Out, "memory update: plans audit: %s\n", strings.Join(strings.Fields(err.Error()), " "))
+	}
 }
 
 // okStatus is ok, or blocked (with its quiet note) when the gate refused writes and no bank file changed.

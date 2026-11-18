@@ -1,10 +1,12 @@
 package memory
 
 import (
+	"bytes"
 	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/plans"
 )
 
 func TestUpdateSettlementFailureRecordsFailure(t *testing.T) {
@@ -247,4 +250,101 @@ func TestDetachedUpdateQueuesBehindALongLock(t *testing.T) {
 	if err != nil || !ranAgent {
 		t.Fatalf("detached update behind a lock held 100ms: err=%v ran=%v, want it queued and run", err, ranAgent)
 	}
+}
+
+func TestUpdatePlansAudit(t *testing.T) {
+	clearChildEnv(t)
+	isolatedConfig(t)
+	root := repoRoot(t, "audit")
+	hosttest.In(t, root, "branch", "-M", "main")
+	origin := t.TempDir()
+	hosttest.In(t, origin, "init", "--bare", "-q")
+	hosttest.In(t, root, "remote", "add", "origin", origin)
+	slug := time.Now().Format(time.DateOnly) + "-update"
+	hosttest.In(t, root, "commit", "--allow-empty", "-qm", "feat: fixture\n\nTask: "+slug+" 1.1")
+	hosttest.In(t, root, "push", "-q", "origin", "main")
+	plan := filepath.Join(plans.Home(root), slug+".md")
+	body := "- [ ] 1.1 Fixture\n"
+	write(t, plan, body)
+	run := func(context.Context, string, string) (string, error) { return "fake", nil }
+	var out bytes.Buffer
+	opts := updateOptions{Run: run, CWD: root, Out: &out}
+	var durations []time.Duration
+	for range 5 {
+		write(t, plan, body)
+		out.Reset()
+		start := time.Now()
+		if err := update(opts); err != nil {
+			t.Fatal(err)
+		}
+		durations = append(durations, time.Since(start))
+	}
+	slices.Sort(durations)
+	t.Logf("fake update median of 5: %s", durations[2])
+	if !strings.Contains(mustRead(t, plan), "[x]") || !strings.Contains(out.String(), "plans: audit 1 plans: ticked 1") {
+		t.Fatalf("missing tick or log block: %s", out.String())
+	}
+	t.Logf("update log block: %s", out.String())
+	log := filepath.Join(StateDir(), "plans-audit.jsonl")
+	before := mustRead(t, log)
+	t.Logf("audit log line: %s", strings.Split(before, "\n")[0])
+	checkUpdateAuditSkips(t, opts, plan, body, log, before)
+	checkUpdateAuditWorktree(t, opts, plan, body)
+}
+
+func checkUpdateAuditSkips(t *testing.T, opts updateOptions, plan, body, log, before string) {
+	t.Helper()
+	for _, mode := range []string{"historical", "non-git", "no-home", "quiet", "error"} {
+		write(t, plan, body)
+		o := opts
+		var out bytes.Buffer
+		o.Out = &out
+		switch mode {
+		case "historical":
+			o.Historical = true
+		case "non-git":
+			o.CWD = t.TempDir()
+		case "no-home":
+			o.CWD = gitRepo(t, t.TempDir(), "no-home")
+		case "quiet":
+			sha := strings.TrimSpace(hosttest.In(t, opts.CWD, "rev-parse", "--short=7", "HEAD"))
+			write(t, plan, "- [x] 1.1 Fixture ("+sha+")\n")
+		case "error":
+			o.CWD = gitRepo(t, t.TempDir(), "no-trunk")
+			write(t, filepath.Join(plans.Home(o.CWD), filepath.Base(plan)), body)
+			hosttest.In(t, o.CWD, "branch", "-m", "topic")
+			hosttest.In(t, o.CWD, "config", "init.defaultBranch", "missing")
+		}
+		if err := update(o); err != nil {
+			t.Fatalf("%s: %v", mode, err)
+		}
+		if mode == "error" && !strings.Contains(out.String(), "memory update: plans audit:") {
+			t.Fatalf("missing audit error: %s", out.String())
+		}
+		if mode != "error" && strings.Contains(out.String(), "plans:") {
+			t.Fatalf("%s audited: %s", mode, out.String())
+		}
+		if mustRead(t, log) != before {
+			t.Fatalf("%s wrote audit log", mode)
+		}
+		if mode == "historical" && mustRead(t, plan) != body {
+			t.Fatal("replay ticked task")
+		}
+		t.Logf("%s: %s", mode, strings.TrimSpace(out.String()))
+	}
+}
+
+func checkUpdateAuditWorktree(t *testing.T, opts updateOptions, plan, body string) {
+	t.Helper()
+	lane := filepath.Join(t.TempDir(), "lane")
+	hosttest.In(t, opts.CWD, "worktree", "add", "-qb", "lane", lane)
+	opts.CWD = lane
+	write(t, plan, body)
+	if err := update(opts); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(mustRead(t, plan), "[x]") {
+		t.Fatal("linked worktree did not audit trunk")
+	}
+	t.Log("linked worktree: ticked pushed trunk task")
 }
