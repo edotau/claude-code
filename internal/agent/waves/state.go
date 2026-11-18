@@ -111,16 +111,30 @@ func fingerprintFiles(dir string, files []string) ([]string, error) {
 	for start := 0; start < len(live); start += hashChunk {
 		chunk := live[start:min(start+hashChunk, len(live))]
 		res, err := proc.RunGit(context.Background(), dir, append([]string{"hash-object", "--"}, chunk...)...)
-		if err != nil {
-			return nil, err
-		}
-		hashes := strings.Split(res, "\n")
-		if len(hashes) != len(chunk) {
+		var hashes []string
+		if err != nil { // the first failing file's own error, as one spawn per file gave
+			if hashes, err = hashEach(dir, chunk); err != nil {
+				return nil, err
+			}
+		} else if hashes = strings.Split(res, "\n"); len(hashes) != len(chunk) {
 			return nil, fmt.Errorf("git hash-object returned %d hashes for %d files", len(hashes), len(chunk))
 		}
 		for j, h := range hashes {
 			out[at[start+j]] = h
 		}
+	}
+	return out, nil
+}
+
+// hashEach hashes files one spawn each, in order, stopping at the first error.
+func hashEach(dir string, files []string) ([]string, error) {
+	out := make([]string, 0, len(files))
+	for _, f := range files {
+		h, err := proc.RunGit(context.Background(), dir, "hash-object", "--", f)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, h)
 	}
 	return out, nil
 }

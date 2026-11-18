@@ -219,14 +219,19 @@ func codexHasJSON() bool {
 	if err != nil {
 		return false
 	}
-	sawFalse := false
+	sawFalse, probed := false, false
 	line := tools.ProbedSaltedLine(bin, "exec-json", func(b string) string {
+		probed = true
 		r := probeExecJSON(b)
 		if sawFalse = r == "false"; sawFalse {
 			return "" // never persisted: an upgrade behind a shim keeps the size and mtime
 		}
 		return r
 	})
+	if !probed && line != "" && line != "true" { // a "false" persisted by an older build is not an answer
+		r := probeExecJSON(bin)
+		sawFalse, line = r == "false", strings.Replace(r, "false", "", 1)
+	}
 	if line != "" || sawFalse {
 		codexJSONKnown, codexJSONValue = true, line == "true"
 	}

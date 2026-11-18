@@ -56,11 +56,25 @@ func (s treeSnap) add(path string) {
 	s[path] = sig
 }
 
-// watchWrites snapshots workdir (top: its git toplevel, "" asks git); its func lists changed and re-touched files.
+// treeHolds reports whether workdir ("" is the process cwd) is inside top, both symlink-resolved as git reports a top.
+func treeHolds(top, workdir string) bool {
+	wd, err := filepath.Abs(workdir)
+	if err != nil {
+		return false
+	}
+	real, err := filepath.EvalSymlinks(wd)
+	if err != nil {
+		return false
+	}
+	realTop, err := filepath.EvalSymlinks(top)
+	return err == nil && paths.Within(real, realTop)
+}
+
+// watchWrites snapshots workdir's tree (top if it holds workdir, else git's); its func lists changed and re-touched files.
 func watchWrites(ctx context.Context, workdir, top string) func() (changed, touched *[]string) {
 	unobserved := func() (*[]string, *[]string) { return nil, nil }
 	root := top
-	if root == "" {
+	if root == "" || !treeHolds(root, workdir) { // a resumed or re-run job can carry another directory's tree
 		gctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writesTimeout)
 		root = paths.GitTop(gctx, workdir)
 		cancel()

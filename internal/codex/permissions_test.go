@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
@@ -288,6 +289,15 @@ func TestCodexHasJSONCachesOnlyDefinitiveAnswers(t *testing.T) {
 	pathstest.FakeVendor(t, "codex", "echo '  --json  print events'")
 	if !codexHasJSON() {
 		t.Fatal("a false answer reached the disk cache; an upgrade would never be re-probed")
+	}
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	codexJSONMu.Lock()
+	codexJSONKnown = false
+	codexJSONMu.Unlock()
+	bin := pathstest.FakeVendor(t, "codex", "echo '  --json  print events'")
+	tools.ProbedSaltedLine(bin, "exec-json", func(string) string { return "false" }) // persisted by an older build
+	if !codexHasJSON() {
+		t.Fatal("a persisted false was honored; want it ignored and re-probed")
 	}
 }
 

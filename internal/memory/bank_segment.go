@@ -2,7 +2,6 @@ package memory
 
 import (
 	"bytes"
-	"cmp"
 	"encoding/binary"
 	"errors"
 	"io/fs"
@@ -374,11 +373,18 @@ func (s segView) containing(term string) []string {
 		}
 		h += blobStart + pos
 		i := sort.Search(nterms, func(j int) bool { st, _ := at(j); return st > h }) - 1
+		if i < 0 {
+			break
+		}
 		st, n := at(i)
 		if n > len(term) && h+len(term) <= st+n {
 			out = append(out, string(s[st:st+n]))
 		}
-		pos = st + n - blobStart
+		if next := st + n - blobStart; next > pos { // a damaged file whose terms are not contiguous must not loop
+			pos = next
+		} else {
+			break
+		}
 	}
 	return out
 }
@@ -475,7 +481,12 @@ func sortByScore(hits []SearchHit) []SearchHit {
 	for i := range idx {
 		idx[i] = int32(i)
 	}
-	slices.SortStableFunc(idx, func(a, b int32) int { return cmp.Compare(hits[b].Score, hits[a].Score) })
+	slices.SortStableFunc(idx, func(a, b int32) int { // only "< 0" is read: the old `>` less, NaN included
+		if hits[a].Score > hits[b].Score {
+			return -1
+		}
+		return 0
+	})
 	out := make([]SearchHit, len(hits))
 	for i, j := range idx {
 		out[i] = hits[j]

@@ -227,3 +227,37 @@ func TestWatchWritesListsPreDirtyFilesTheRunTouched(t *testing.T) {
 		t.Fatalf("a run touching no pre-dirty file must report nil, got %v", *none)
 	}
 }
+
+// Given a tree that contains the workdir, it is the root watched: no git spawn picks the nested repo instead.
+func TestWatchWritesUsesATreeThatHoldsTheWorkdir(t *testing.T) {
+	outer := gitRepoWith(t, map[string]string{"a.txt": "a\n"})
+	nested := filepath.Join(outer, "nested")
+	if err := os.Mkdir(nested, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("git", "-C", nested, "init", "-q").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v\n%s", err, out)
+	}
+	done := watchWrites(context.Background(), nested, outer)
+	if err := os.WriteFile(filepath.Join(outer, "new.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := done(); got == nil || len(*got) != 1 || filepath.Base((*got)[0]) != "new.txt" {
+		t.Fatalf("changed = %v, want new.txt from the passed tree", got)
+	}
+}
+
+// Given a tree that does not contain the workdir, it is ignored and the workdir's own repository is watched.
+func TestWatchWritesIgnoresATreeOutsideTheWorkdir(t *testing.T) {
+	other := gitRepoWith(t, map[string]string{"a.txt": "a\n"})
+	work := gitRepoWith(t, map[string]string{"b.txt": "b\n"})
+	done := watchWrites(context.Background(), work, other)
+	for _, f := range []string{filepath.Join(other, "elsewhere.txt"), filepath.Join(work, "mine.txt")} {
+		if err := os.WriteFile(f, []byte("x"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, _ := done(); got == nil || len(*got) != 1 || filepath.Base((*got)[0]) != "mine.txt" {
+		t.Fatalf("changed = %v, want only mine.txt from the workdir's repo", got)
+	}
+}

@@ -347,3 +347,22 @@ func TestFingerprintFilesMatchesOneSpawnPerFile(t *testing.T) {
 		t.Error("a directory must still be an error, as for the single-file hash")
 	}
 }
+
+// TestFingerprintFilesNamesFirstBadPath: several bad paths in a batch give the first one's single-file error.
+func TestFingerprintFilesNamesFirstBadPath(t *testing.T) {
+	dir, _, write := stateGitRepo(t)
+	write("good.go", "ok\n")
+	for _, d := range []string{"bad1", "bad2"} {
+		if err := os.Mkdir(filepath.Join(dir, d), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	_, want := FingerprintGit(dir)("bad1")
+	if want == nil {
+		t.Fatal("a directory hashed without error")
+	}
+	_, err := fingerprintFiles(dir, []string{"good.go", "bad1", "good.go", "bad2"})
+	if err == nil || err.Error() != want.Error() {
+		t.Fatalf("batch error %v, want the single-file error %v", err, want)
+	}
+}

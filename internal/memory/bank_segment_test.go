@@ -5,12 +5,17 @@ import (
 	"encoding/binary"
 	"errors"
 	"io/fs"
+	"math"
+	"math/rand"
 	"os"
 	"path/filepath"
 	"slices"
+	"sort"
+	"strconv"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 )
@@ -201,6 +206,31 @@ func containingOracle(s segView, term string) []string {
 	return out
 }
 
+// A segment whose term starts are scrambled (a damaged or foreign file) must end the term walk, never loop.
+func TestContainingTerminatesOnScrambledTermStarts(t *testing.T) {
+	base := encodeSegment([]string{"- agent subagent agents reagent agentic", "- routing router rerouting routed"})
+	termStart := segHeader + base.Docs()*docStride
+	nterms := int(binary.LittleEndian.Uint32(base[termStart:]))
+	var blobLen int
+	for i := range nterms {
+		blobLen += int(binary.LittleEndian.Uint32(base[termStart+4+i*16+4:]))
+	}
+	r := rand.New(rand.NewSource(1))
+	for n := range 200 {
+		seg := segView(bytes.Clone(base))
+		for i := range nterms {
+			binary.LittleEndian.PutUint32(seg[termStart+4+i*16:], uint32(r.Intn(blobLen)))
+		}
+		done := make(chan bool, 1)
+		go func() { defer func() { _ = recover(); done <- true }(); seg.containing("agent") }() // a panic is not a loop
+		select {
+		case <-done:
+		case <-time.After(200 * time.Millisecond):
+			t.Fatalf("scramble %d: containing did not terminate", n)
+		}
+	}
+}
+
 // The one-pass term scan must return what the per-term scan did, including hits that straddle two stored terms.
 func TestContainingMatchesPerTermScan(t *testing.T) {
 	seg := encodeSegment([]string{"- agent subagent agents reagent agentic", "- routing router rerouting routed", "- fta gyy class subclass classes"})
@@ -212,5 +242,25 @@ func TestContainingMatchesPerTermScan(t *testing.T) {
 	}
 	if got := seg.containing("agent"); len(got) != 4 {
 		t.Errorf("containing(agent) = %v, want agents, agentic, reagent, subagent", got)
+	}
+}
+
+// TestSortByScoreNaNMatchesOldSort: a NaN score orders exactly as the replaced sort.SliceStable did.
+func TestSortByScoreNaNMatchesOldSort(t *testing.T) {
+	var hits []SearchHit
+	for i := range 90 {
+		score := float64(i * 7 % 5)
+		if i%6 == 0 {
+			score = math.NaN()
+		}
+		hits = append(hits, SearchHit{Score: score, ID: strconv.Itoa(i)})
+	}
+	want := append([]SearchHit(nil), hits...)
+	sort.SliceStable(want, func(i, j int) bool { return want[i].Score > want[j].Score })
+	got := sortByScore(append([]SearchHit(nil), hits...))
+	for i := range want {
+		if got[i].ID != want[i].ID {
+			t.Fatalf("row %d: got id %s, want %s", i, got[i].ID, want[i].ID)
+		}
 	}
 }
