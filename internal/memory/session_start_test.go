@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -308,7 +309,7 @@ func TestRecordSessionRootRacingRepairsAgree(t *testing.T) {
 	}
 	t.Run("rounds", func(t *testing.T) { // each round owns a session id, so rounds race in parallel
 		for round := range 40 {
-			t.Run(fmt.Sprint(round), func(t *testing.T) {
+			t.Run(strconv.Itoa(round), func(t *testing.T) {
 				t.Parallel()
 				id := fmt.Sprintf("11111111-2222-3333-4444-%012d", round)
 				racingRepairRound(t, id, cwds)

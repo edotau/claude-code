@@ -12,6 +12,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -535,8 +536,8 @@ func jsonToken(s string) string {
 func eachRecent(dir, needle string, fn func(Record) bool) error {
 	names, err := recordNames(dir)
 	probe := []byte(needle)
-	for i := len(names) - 1; i >= 0; i-- {
-		b, rerr := os.ReadFile(filepath.Join(dir, names[i]))
+	for _, n := range slices.Backward(names) {
+		b, rerr := os.ReadFile(filepath.Join(dir, n))
 		if rerr != nil || !bytes.Contains(b, probe) {
 			continue
 		}

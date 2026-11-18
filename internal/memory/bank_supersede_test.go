@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -321,8 +322,8 @@ func TestBlockFinderMatchesScan(t *testing.T) {
 // TestSortByScoreMatchesStableSort: equal scores keep their order, as sort.SliceStable did.
 func TestSortByScoreMatchesStableSort(t *testing.T) {
 	var hits []SearchHit
-	for i := 0; i < 200; i++ {
-		hits = append(hits, SearchHit{Score: float64(i * 7 % 5), ID: fmt.Sprint(i)})
+	for i := range 200 {
+		hits = append(hits, SearchHit{Score: float64(i * 7 % 5), ID: strconv.Itoa(i)})
 	}
 	want := append([]SearchHit(nil), hits...)
 	sort.SliceStable(want, func(i, j int) bool { return want[i].Score > want[j].Score })

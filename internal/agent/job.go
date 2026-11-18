@@ -82,11 +82,11 @@ func list(ctx context.Context, name, cwd, ref string, all bool) []Record {
 	}
 	var out []Record
 	names, _ := recordNames(paths.DispatchDir())
-	for i := len(names) - 1; i >= 0; i-- {
-		if !strings.HasPrefix(names[i], ref) {
+	for _, n := range slices.Backward(names) {
+		if !strings.HasPrefix(n, ref) {
 			continue
 		}
-		if r, err := readRecord(filepath.Join(paths.DispatchDir(), names[i])); err == nil && r.Agent == name && (ref != "" || all || r.Repo == repo) {
+		if r, err := readRecord(filepath.Join(paths.DispatchDir(), n)); err == nil && r.Agent == name && (ref != "" || all || r.Repo == repo) {
 			out = append(out, r)
 		}
 	}
