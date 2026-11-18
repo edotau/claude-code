@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -220,10 +219,18 @@ func TestRTKRewriteExitCodesAndFailures(t *testing.T) {
 	if got, ok := rtkOut(t, hosttest.RTKBashIn("ls")); !ok || !strings.HasSuffix(got, " ls") {
 		t.Errorf("exit 3 = %q (emitted=%v), want a rewrite", got, ok)
 	}
-	hold := filepath.Join(t.TempDir(), "rtk") // a grandchild holding stdout must not stall the hook
-	hosttest.WriteExec(t, hold, "#!/bin/sh\nprintf 'rtk ls'; sleep 3 & exit 3\n")
-	if start := time.Now(); rtkRewritten(hold, "ls") != "rtk ls" || time.Since(start) > time.Second {
-		t.Errorf("held stdout: rewrite took %v, want the output within 1s", time.Since(start))
+	dir := t.TempDir()
+	hold := filepath.Join(dir, "rtk") // a grandchild holding stdout must not stall the hook
+	release, expired := filepath.Join(dir, "release"), filepath.Join(dir, "expired")
+	script := "#!/bin/sh\nprintf 'rtk ls'\n(i=0; while [ ! -e " + release + " ] && [ $i -lt 300 ]; do sleep 0.1; i=$((i+1)); done;" +
+		" [ -e " + release + " ] || touch " + expired + ") 2>/dev/null &\nexit 3\n"
+	hosttest.WriteExec(t, hold, script)
+	got := rtkRewritten(hold, "ls")
+	if err := os.WriteFile(release, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(expired); got != "rtk ls" || err == nil {
+		t.Errorf("held stdout: rewrite = %q, grandchild expired unreleased = %v; want the output while it still held the pipe", got, err == nil)
 	}
 	bad := filepath.Join(t.TempDir(), "rtk") // present but not executable: a failure, not a rewrite
 	if err := os.WriteFile(bad, []byte("#!/bin/sh\n"), 0o644); err != nil {

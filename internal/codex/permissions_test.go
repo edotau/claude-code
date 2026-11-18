@@ -272,6 +272,7 @@ func TestCodexHasJSONCachesOnlyDefinitiveAnswers(t *testing.T) {
 	if codexHasJSON() {
 		t.Fatal("timed-out probe reported --json")
 	}
+	agent.ProbeTimeout = origTimeout // later probes must answer, not race the short timeout under load
 	pathstest.FakeVendor(t, "codex", "echo '  --json  print events'")
 	if !codexHasJSON() {
 		t.Fatal("slow first probe stuck codexHasJSON at false; want a re-probe")
