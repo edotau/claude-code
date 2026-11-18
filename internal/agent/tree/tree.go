@@ -11,9 +11,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/transcript"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // subagentActiveWindow is how recently a subagent transcript must be written to count as running, else stale.
@@ -53,6 +56,7 @@ type Subagent struct {
 	Updated     time.Time  `json:"updated"`
 	Activity    *Activity  `json:"activity,omitempty"`   // newest tool/text signal; nil when none seen yet
 	Dispatches  []Dispatch `json:"dispatches,omitempty"` // agent dispatches this relay agent launched via `ask`
+	Files       []string   `json:"files,omitempty"`      // --files: still-dirty files this agent wrote, repo-relative
 	Phase       string     `json:"-"`                    // workflowPhase from the sidecar meta, for run grouping
 	Model       string     `json:"-"`                    // transcript's newest message.model; the provider shows in its prefix
 }
@@ -80,6 +84,9 @@ type Dispatch struct {
 	Repo           string `json:"repo,omitempty"`    // main checkout root; set on the machine-wide running list
 	Route          string `json:"route,omitempty"`   // the overlay confinement it was launched on; "" is no overlay confinement
 	Task           string `json:"task,omitempty"`    // first line of the prompt
+
+	Files []string `json:"files,omitempty"` // --files: files the run wrote that are still dirty, repo-relative
+	Note  string   `json:"note,omitempty"`  // --files: the run's latest undelivered note to its dispatcher
 
 	Parent string      `json:"parent,omitempty"` // id of the dispatch that launched this one
 	Depth  int         `json:"depth,omitempty"`  // 0 for a dispatch launched outside any other
@@ -132,12 +139,14 @@ type Session struct {
 	Live      bool          `json:"live,omitempty"`      // a live registry entry names this session
 	CLIStatus string        `json:"cliStatus,omitempty"` // registry status: idle|busy|waiting
 	Mode      string        `json:"mode,omitempty"`      // launch mode: interactive|bg
+	Notes     []string      `json:"notes,omitempty"`     // --files: undelivered notes from this session's subagents
 }
 
 // Tree is the stable `agents tree --format json` schema; live sessions also carry registry fields.
 type Tree struct {
 	Sessions   []Session  `json:"sessions"`
 	Dispatches []Dispatch `json:"dispatches,omitempty"` // unscoped views: live dispatch jobs machine-wide
+	Free       []string   `json:"free,omitempty"`       // --files: dirty files in this repo that no live leaf holds
 }
 
 // Options scopes a build by Days (ignored with Session) or one Session id; Now defaults to time.Now.
@@ -145,6 +154,7 @@ type Options struct {
 	Days    int
 	Session string
 	Now     func() time.Time
+	Files   bool       // add the files each leaf holds, its latest note, and the free files
 	scans   *scanCache // kept across watch ticks; nil loads and saves one per build
 }
 
@@ -172,6 +182,9 @@ func listing(claudeDir string, opts Options, showAll bool) (*Tree, error) {
 		tree.Dispatches = runningDispatches(opts.now())
 		cacheDispatchTotals(tree.Dispatches)
 		tree.Sessions = dropDispatchSessions(tree.Sessions, tree.Dispatches)
+	}
+	if opts.Files {
+		attachHoldings(tree, cwdTop(), opts.now())
 	}
 	return tree, nil
 }
@@ -539,5 +552,109 @@ func cacheDispatchTotals(ds []Dispatch) {
 	}
 	for _, n := range nestDispatches(ds) {
 		ds[n.index].total = subtreeTotal{sum: n.sum, ready: true, children: n.children}
+	}
+}
+
+// heldShown and freeShown are how many files a leaf row and the free list show before "(+N)".
+const (
+	heldShown = 5
+	freeShown = 20
+)
+
+// attachHoldings fills Files, Note, Notes and Free from claims, notices and records; a failed source warns on stderr.
+func attachHoldings(t *Tree, top string, now time.Time) {
+	h, err := worktree.ReadHoldings(top, now)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "agents tree: files:", err)
+	}
+	t.Free = h.Free
+	for i := range t.Sessions {
+		s := &t.Sessions[i]
+		for j := range s.Subagents {
+			attachSubagent(&s.Subagents[j], s.ID, h)
+		}
+		for _, run := range s.Workflows {
+			for _, ph := range run.Phases {
+				for j := range ph.Agents {
+					attachSubagent(&ph.Agents[j], s.ID, h)
+				}
+			}
+		}
+		s.Notes = subagentNotes(s.ID)
+	}
+	for i := range t.Dispatches {
+		attachDispatch(&t.Dispatches[i], h)
+	}
+}
+
+// cwdTop is the repo the verb runs in; "" outside one.
+func cwdTop() string {
+	cwd, _ := os.Getwd()
+	top, _ := paths.CheckoutOf(cwd)
+	return top
+}
+
+func attachSubagent(sub *Subagent, session string, h worktree.Holdings) {
+	sub.Files = h.Subagent(session, sub.ID)
+	for i := range sub.Dispatches {
+		attachDispatch(&sub.Dispatches[i], h)
+	}
+}
+
+// attachDispatch sets the files its record says it wrote and its latest note, read from its owner's inbox.
+func attachDispatch(d *Dispatch, h worktree.Holdings) {
+	rec, err := agent.LoadRecord(d.ID)
+	if err != nil {
+		return
+	}
+	if rec.Wrote != nil {
+		d.Files = h.Keep(*rec.Wrote)
+	}
+	from := worktree.DispatchNoteFrom(rec.ID)
+	for _, n := range worktree.PeekNotices(worktree.OwnerSession(rec.Owner), worktree.LeafNoteKind) {
+		if n.From == from {
+			d.Note = worktree.NoteText(n)
+		}
+	}
+}
+
+// subagentNotes are session's undelivered notes from Agent-tool subagents, which carry no id of their own.
+func subagentNotes(session string) []string {
+	var out []string
+	for _, n := range worktree.PeekNotices(session, worktree.LeafNoteKind) {
+		if n.From == worktree.SubagentNoteFrom {
+			out = append(out, worktree.NoteText(n))
+		}
+	}
+	return out
+}
+
+// addHeld adds the files and note lines under a leaf row; nothing when it holds none.
+func addHeld(l *layout, indent int, files []string, note string) {
+	if len(files) > 0 {
+		shown := files[:min(len(files), heldShown)]
+		more := ""
+		if len(files) > heldShown {
+			more = fmt.Sprintf(" (+%d)", len(files)-heldShown)
+		}
+		l.free(indent, "files: "+strings.Join(shown, " ")+more)
+	}
+	if note != "" {
+		l.free(indent, "note: "+oneLine(note))
+	}
+}
+
+// addFree adds the dirty files no live leaf holds, after the sessions.
+func addFree(l *layout, free []string) {
+	if len(free) == 0 {
+		return
+	}
+	l.sep()
+	l.free(0, fmt.Sprintf("free: %d dirty, held by no live leaf", len(free)))
+	for _, f := range free[:min(len(free), freeShown)] {
+		l.free(2, f)
+	}
+	if len(free) > freeShown {
+		l.free(2, fmt.Sprintf("(+%d more)", len(free)-freeShown))
 	}
 }

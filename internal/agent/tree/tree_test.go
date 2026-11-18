@@ -1,11 +1,13 @@
 package tree
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -15,6 +17,9 @@ import (
 	_ "github.com/edotau/claude-code/internal/claude" // the vendors register their roster rows from their own init
 	_ "github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 const (
@@ -706,5 +711,66 @@ func TestActiveSessionKeepsRunningAncestry(t *testing.T) {
 	}
 	if len(s.Subagents) != 2 || len(s.Subagents[1].Dispatches) != 3 || len(s.Workflows) != 1 {
 		t.Fatal("filter changed the complete source tree")
+	}
+}
+
+func TestAttachHoldingsShowsHeldFilesNoteAndFreeOnlyWhenAsked(t *testing.T) {
+	hosttest.SkipOnWindows(t, "git repo and pid liveness")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := hosttest.Repo(t)
+	hosttest.WriteRel(t, repo, "held.go", "package x\n")
+	hosttest.WriteRel(t, repo, "loose.go", "package x\n")
+	start, err := proc.StartTime(os.Getpid())
+	if err != nil {
+		t.Fatal(err)
+	}
+	line, _ := json.Marshal(worktree.Claim{Path: filepath.Join(repo, "held.go"), Agent: "ag1", TS: time.Now().Unix(), OwnerStart: start})
+	ledger := filepath.Join(worktree.ClaimsDir(), strconv.Itoa(os.Getpid())+"-sess1.jsonl")
+	if err := os.MkdirAll(filepath.Dir(ledger), 0o700); err != nil || os.WriteFile(ledger, append(line, '\n'), 0o600) != nil {
+		t.Fatal("write ledger", err)
+	}
+	claimLiveLeaf(t)
+	t.Setenv("CLAUDE_CODE_SESSION_ID", "sess1")
+	t.Setenv(proc.DispatchIDEnv, "")
+	if sent, err := worktree.NoteDispatcher("half done"); !sent || err != nil {
+		t.Fatalf("note: %v %v", sent, err)
+	}
+	mk := func() *Tree {
+		return &Tree{Sessions: []Session{{ID: "sess1", Subagents: []Subagent{{ID: "ag1", Type: "claude", Status: "running"}}}}}
+	}
+
+	plain := mk()
+	var buf bytes.Buffer
+	renderTree(&buf, plain, time.Now(), 0, "")
+	if strings.Contains(buf.String(), "held.go") || strings.Contains(buf.String(), "free:") {
+		t.Errorf("default view changed:\n%s", buf.String())
+	}
+
+	withFiles := mk()
+	attachHoldings(withFiles, repo, time.Now())
+	buf.Reset()
+	renderTree(&buf, withFiles, time.Now(), 0, "")
+	for _, want := range []string{"files: held.go", "note: half done", "free: 1 dirty", "loose.go"} {
+		if !strings.Contains(buf.String(), want) {
+			t.Errorf("--files view lacks %q:\n%s", want, buf.String())
+		}
+	}
+}
+
+// claimLiveLeaf gives agent ag1 of session sess1 a live in-flight marker owned by this process.
+func claimLiveLeaf(t *testing.T) {
+	t.Helper()
+	transcript := filepath.Join(t.TempDir(), "sess1.jsonl")
+	sub := inflight.SubagentDir(transcript)
+	if err := os.MkdirAll(sub, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{"agent-ag1.meta.json": `{"toolUseId":"toolu_x"}`, "agent-ag1.jsonl": "{}\n"} {
+		if err := os.WriteFile(filepath.Join(sub, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if ok, _ := inflight.TryClaim(inflight.Claim{Owner: os.Getpid(), ID: "toolu_x", Transcript: transcript}, inflight.Limits{Total: 9}); !ok {
+		t.Fatal("marker not claimed")
 	}
 }

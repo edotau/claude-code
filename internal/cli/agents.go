@@ -36,7 +36,7 @@ func agentsSpec() *helptext.Node {
 		"sync": {Flags: []helptext.Flag{valuedFlag("agent", project.Names), boolFlag("dry-run"), boolFlag("check"),
 			formatFlag()}},
 		"tree": {Flags: []helptext.Flag{flag("days"), flag("session"), boolFlag("detail"),
-			boolFlag("watch"), flag("interval"), formatFlag()}},
+			boolFlag("watch"), flag("interval"), boolFlag("files"), formatFlag()}},
 		"label": {Flags: []helptext.Flag{flag("model"), flag("profile"), flag("task"), flag("session-model"), formatFlag()}},
 		"find": {Flags: []helptext.Flag{boolFlag("name"), boolFlag("func"), boolFlag("def"), boolFlag("callers"),
 			boolFlag("i"), boolFlag("w"), boolFlag("l"), flag("path"), flag("max"), formatFlag()}},
@@ -103,7 +103,7 @@ var agentsPage = helptext.Page{
 		{"wait", "block until dispatches finish: wait <id>... [--timeout 10m]"},
 		{"watch", "report this session's stale dispatches: watch [--once]"},
 		{"brief", "render a leaf brief or reserve its file with --path"},
-		{"send", "resume a finished dispatch, or message a live one: send <id> <task>"},
+		{"send", "message a live one, resume a finished one, or send <parent> <note>"},
 	},
 	Hint: "claude-code agents <command> -h lists that command's flags.",
 }
@@ -120,7 +120,8 @@ var agentsSubPages = map[string][3]string{
 		"(codex, opencode, gemini, copilot); --check reports a stale one."},
 	"tree": {"tree [flags]", "Live tree of running Claude sessions, their subagents and agent dispatches, in every repo. " +
 		"--detail adds idle, stale and finished work in the --days window. Subagent columns: marker, agent, model, " +
-		"↑tokens in, ↓tokens out, Σ subtree total, age, idle; piped output is unclipped, a terminal clips rows to 80 columns.",
+		"↑tokens in, ↓tokens out, Σ subtree total, age, idle; piped output is unclipped, a terminal clips rows to 80 columns. " +
+		"--files adds each leaf's still-dirty files (claims ledger, or a dispatch's run), its latest undelivered note, and the dirty files no live leaf holds.",
 		"Exit 0, 2 usage (bad --format, --watch with json, or a non-positive --interval)."},
 	"label": {"label <type> [flags]", "Print the \"<model>: \" prefix the dispatch-effort hook requires on a dispatch " +
 		"description, for a leaf of <type> with the given model and task.",
@@ -130,7 +131,9 @@ var agentsSubPages = map[string][3]string{
 		"findings the change introduced). --verify <id> adds a dispatch's routing proof. Exit 1 gate failed or " +
 		"MISMATCH, 3 outside --path, 2 usage."},
 	"send": {"send <id> <task | -> [flags]", "Send one user turn to a live claude or gemini session (ask --agent <a> " +
-		"--live), or resume a finished dispatch's session on any agent as a new child dispatch; exits on its result. One turn at a time per live session."},
+		"--live), or resume a finished dispatch's session on any agent as a new child dispatch; exits on its result. One turn at a time per live session. " +
+		"send parent <note> files the note (200 characters, one line) as a note in the calling leaf's dispatcher inbox, shown on its next prompt; " +
+		"the note is literal text; it exits 0 with \"no dispatcher to notify\" on stderr when no live one exists, skips a repeat, refuses a sixth unread note."},
 	"dispatch": {"dispatch --waves <plan> [flags]", "Run a plan’s waves with observed verification and no commits; " +
 		"the shared route and permission flags reach every leaf.",
 		"Exit 0 passed, 1 failed wave, 2 usage or invalid plan,\n" +
@@ -304,6 +307,7 @@ func cmdAgentsTree(args []string) int {
 	detail := fs.Bool("detail", false, "also show idle, stale and finished work")
 	watch := fs.Bool("watch", false, "clear and re-render on --interval (text only)")
 	interval := fs.Duration("interval", 2*time.Second, "redraw interval for --watch")
+	files := fs.Bool("files", false, "show each leaf's dirty files and note, and the free files")
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -313,7 +317,7 @@ func cmdAgentsTree(args []string) int {
 		return 2
 	}
 	all := *detail || *session != "" // a named session shows whole; json always does
-	opts := tree.Options{Days: *days, Session: *session}
+	opts := tree.Options{Days: *days, Session: *session, Files: *files}
 	return tree.Show(paths.ConfigDir(), opts, tree.View{JSON: *format == helptext.JSON, All: all,
 		Watch: *watch, Interval: *interval})
 }

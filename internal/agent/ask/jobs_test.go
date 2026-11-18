@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -17,9 +18,11 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // A failed job's stderr tail may carry a key; result must not echo it raw.
@@ -416,5 +419,30 @@ func TestSendResumesFinishedDispatch(t *testing.T) {
 	if r.Prompt != "follow up" || r.SessionID != "sess-1" || !r.ReadOnly || !r.Tools || r.Effort != "low" || r.WorkDir != cwd ||
 		!reflect.DeepEqual(agent.RuleStrings(r.Permissions.Allow), []string{"Read"}) {
 		t.Errorf("resume request = %+v; want the record's session, tools, read-only, effort, workdir and permissions with the new prompt", r)
+	}
+}
+
+func TestSendParentFilesTheLiteralNoteOrSaysNoDispatcher(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(proc.DispatchIDEnv, "")
+	t.Setenv(memory.SessionIDEnv, "main-sess")
+	reg := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "sessions")
+	pid := strconv.Itoa(os.Getpid())
+	if err := os.MkdirAll(reg, 0o700); err != nil || os.WriteFile(filepath.Join(reg, pid+".json"), []byte(`{"pid":`+pid+`,"sessionId":"main-sess"}`), 0o600) != nil {
+		t.Fatal("register session", err)
+	}
+	for _, note := range []string{"done with x.go", "-", "@notes.txt"} {
+		if code := Send(ParentTarget, note, "text"); code != 0 {
+			t.Fatalf("Send parent %q = %d, want 0", note, code)
+		}
+	}
+	got, err := worktree.DrainErr("main-sess")
+	if err != nil || len(got) != 3 || worktree.NoteText(got[0]) != "done with x.go" || worktree.NoteText(got[1]) != "-" || worktree.NoteText(got[2]) != "@notes.txt" {
+		t.Fatalf("inbox = %+v, %v; want the three literal notes", got, err)
+	}
+
+	t.Setenv(memory.SessionIDEnv, "")
+	if code := Send(ParentTarget, "nobody", "text"); code != 0 {
+		t.Errorf("no parent: code %d, want 0", code)
 	}
 }

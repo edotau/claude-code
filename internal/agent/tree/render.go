@@ -54,6 +54,7 @@ func renderTree(w io.Writer, tree *Tree, now time.Time, width int, paint string)
 	addJobs(&l, tree.Dispatches, now)
 	l.active = false
 	addRepos(&l, tree.Sessions, false, now, home)
+	addFree(&l, tree.Free)
 	for _, line := range l.lines(width, paint) {
 		fmt.Fprintln(w, line)
 	}
@@ -106,6 +107,7 @@ func addJobs(l *layout, dispatches []Dispatch, now time.Time) {
 		l.add(levelJob, id, where, cmp.Or(d.Model, "default"), durationText(d.Duration),
 			signalText(d, now), joinText(n.tokenText(), "  ", oneLine(cmp.Or(d.Task, d.Repo))))
 		l.mark(d.Status == statusRunning, 1<<0)
+		addHeld(l, 4, d.Files, d.Note)
 	}
 }
 
@@ -147,6 +149,9 @@ func addSession(l *layout, s Session, now time.Time, home string) {
 	}
 	l.add(levelSession, cmp.Or(s.Name, treeShortID(s.ID)), sessionStatusText(s), age(s.Updated, now), s.Branch, sessionTotal(s), title)
 	l.mark(s.Status == statusActive, 1<<1)
+	for _, note := range s.Notes {
+		addHeld(l, 4, nil, note)
+	}
 	for _, sub := range s.Subagents {
 		addSubagent(l, sub, now, home, s.Cwd)
 	}
@@ -225,11 +230,13 @@ func addSubagent(l *layout, sub Subagent, now time.Time, home, cwd string) {
 		subTotal(sub), age(sub.Updated, now), idleSince(sub, now),
 		oneLine(stripPaths(subTask(sub), home, cwd)))
 	l.mark(sub.Status == statusRunning, 1<<0)
+	addHeld(l, 8, sub.Files, "")
 	for _, n := range nestDispatches(sub.Dispatches) {
 		cells := dispatchCells(n.Dispatch, now)
 		cells[len(cells)-1] = joinText(cells[len(cells)-1], " · ", n.tokenText())
 		l.add(levelDispatch, append([]string{nest + n.guide + "↳"}, cells...)...)
 		l.mark(n.Status == statusRunning, 1<<2)
+		addHeld(l, 10, n.Files, n.Note)
 	}
 }
 

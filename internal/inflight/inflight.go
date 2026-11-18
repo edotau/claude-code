@@ -189,3 +189,68 @@ func liveRecords(fn func(owner int, route string)) {
 		}
 	}
 }
+
+// Leaf is one live Agent-tool spawn marker: its session's owner pid and transcript, and its agent once named.
+type Leaf struct {
+	Owner      int
+	ToolUseID  string
+	AgentID    string    // "" until the agent's meta.json exists
+	Transcript string    // the session transcript the spawn belongs to
+	Started    time.Time // the marker's mtime: when the slot was claimed
+	Activity   time.Time // the agent transcript's mtime; zero before it exists
+}
+
+// LiveLeaves lists the live spawn markers by the limiter's own liveness rule, reading and removing nothing.
+func LiveLeaves(now time.Time) []Leaf {
+	entries, err := os.ReadDir(Dir())
+	if err != nil {
+		return nil
+	}
+	s := newScanner(now)
+	seen := map[string]bool{}
+	var out []Leaf
+	for _, e := range entries {
+		owner, ok := Owner(e.Name())
+		if !ok {
+			continue
+		}
+		id := strings.TrimPrefix(e.Name(), Prefix+strconv.Itoa(owner)+"-")
+		_, transcript, mod, ok := readMarker(Dir(), e.Name())
+		if !ok || transcript == "" || strings.HasPrefix(id, DispatchPrefix) || !s.live(e.Name(), mod, transcript) {
+			continue
+		}
+		base := spawnBase(id)
+		if key := strconv.Itoa(owner) + "-" + base; !seen[key] {
+			seen[key] = true
+			out = append(out, newLeaf(s, owner, base, transcript, mod))
+		}
+	}
+	return out
+}
+
+func newLeaf(s *scanner, owner int, base, transcript string, mod time.Time) Leaf {
+	l := Leaf{Owner: owner, ToolUseID: base, Transcript: transcript, Started: mod}
+	if a, ok := s.agents(transcript)[base]; ok {
+		l.AgentID = a.id
+		if fi, err := os.Stat(filepath.Join(SubagentDir(transcript), "agent-"+a.id+".jsonl")); err == nil {
+			l.Activity = fi.ModTime()
+		}
+	}
+	return l
+}
+
+// MarkerSession is the session id of a live marker owned by pid (its transcript's base name); "" with none.
+func MarkerSession(owner int) string {
+	entries, err := os.ReadDir(Dir())
+	if err != nil {
+		return ""
+	}
+	for _, e := range entries {
+		if pid, ok := Owner(e.Name()); ok && pid == owner {
+			if _, t, _, ok := readMarker(Dir(), e.Name()); ok && t != "" {
+				return strings.TrimSuffix(filepath.Base(t), ".jsonl")
+			}
+		}
+	}
+	return ""
+}

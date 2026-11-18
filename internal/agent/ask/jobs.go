@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // Status prints agent's jobs in this repo (all: every repo; ref narrows) as JSON or text; empty stands in for none.
@@ -171,8 +172,28 @@ func resultExit(rec agent.Record) int {
 	return 1
 }
 
-// Send is `agents send`: one turn to live session id, or a resume of finished dispatch id; exit 1 unless ok.
+// ParentTarget is the `agents send` target that addresses the calling leaf's dispatcher instead of a session.
+const ParentTarget = "parent"
+
+// sendParent files task, literally, as a note in the dispatcher's inbox; with none (or a full one) it says so, exit 0.
+func sendParent(task string) int {
+	sent, err := worktree.NoteDispatcher(task)
+	switch {
+	case errors.Is(err, worktree.ErrNoteLimit):
+		fmt.Fprintf(os.Stderr, "agents send: %v\n", err)
+	case err != nil:
+		return helptext.Fail("agents send: %v", err)
+	case !sent:
+		fmt.Fprintln(os.Stderr, "agents send: no dispatcher to notify")
+	}
+	return 0
+}
+
+// Send is `agents send`: a note to the dispatcher (id "parent"), a live turn, or a resume; exit 1 unless ok.
 func Send(id, task, format string) int {
+	if id == ParentTarget {
+		return sendParent(task)
+	}
 	prompt, err := resolveAskPrompt(task)
 	if err != nil {
 		return helptext.Fail("agents send: %v", err)
