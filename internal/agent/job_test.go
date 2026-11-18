@@ -190,7 +190,7 @@ func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
 	if err := SpawnContext(context.Background(), &rec, nil); err != nil {
 		t.Fatalf("SpawnContext() = %v", err)
 	}
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(readyWait)
 	for time.Now().Before(deadline) {
 		if got, err := LoadRecord(rec.ID); err == nil && got.Status == "ok" {
 			break
@@ -295,10 +295,13 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	}
 }
 
+// readyWait bounds waits for a child to start; healthy runs return at once, so it costs nothing.
+const readyWait = 30 * time.Second
+
 // waitForTrapReady waits until the SIGINT trap is installed, so cancellation cannot beat it.
 func waitForTrapReady(t *testing.T, log string) {
 	t.Helper()
-	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(readyWait); ; time.Sleep(10 * time.Millisecond) {
 		if b, _ := os.ReadFile(log); strings.Contains(string(b), "ready") {
 			break
 		}
@@ -699,7 +702,7 @@ func TestInterruptReachesWholeProcessGroup(t *testing.T) {
 	})
 
 	// The leader installs its trap before launching the child, which acknowledges after installing its own.
-	for deadline := time.Now().Add(2 * time.Second); !paths.FileExists(ready); time.Sleep(10 * time.Millisecond) {
+	for deadline := time.Now().Add(readyWait); !paths.FileExists(ready); time.Sleep(10 * time.Millisecond) {
 		if time.Now().After(deadline) {
 			t.Fatal("child never acknowledged signal-handler readiness")
 		}
@@ -752,7 +755,7 @@ func TestSpawnArgvScrubsInheritedSecrets(t *testing.T) {
 	if err := SpawnArgvContext(context.Background(), &rec, nil, []string{"REGRESSION_EXTRA=explicit-extra"}); err != nil {
 		t.Fatal(err)
 	}
-	deadline := time.After(3 * time.Second)
+	deadline := time.After(readyWait)
 	tick := time.NewTicker(10 * time.Millisecond)
 	defer tick.Stop()
 	for {

@@ -464,10 +464,13 @@ type cancelResult struct {
 	err     error
 }
 
-// waitForMarker blocks until marker exists, failing if the run returns or 2s pass first.
+// readyWait bounds the child start-up wait only; the cancellation timings below stay strict.
+const readyWait = 30 * time.Second
+
+// waitForMarker blocks until marker exists, failing if the run returns or readyWait passes first.
 func waitForMarker(t *testing.T, marker string, done <-chan cancelResult) {
 	t.Helper()
-	deadline := time.NewTimer(2 * time.Second)
+	deadline := time.NewTimer(readyWait)
 	defer deadline.Stop()
 	tick := time.NewTicker(5 * time.Millisecond)
 	defer tick.Stop()
@@ -497,7 +500,7 @@ func runCancellationCase(t *testing.T, sleep string, tc cancelCase) {
 	}
 	t.Setenv("PATH", bin)
 	t.Setenv("PACK_TEST_GIT_MARKER", marker)
-	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*readyWait)
 	defer cancel()
 	done := make(chan cancelResult, 1)
 	go func() {

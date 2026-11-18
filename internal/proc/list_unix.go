@@ -6,10 +6,7 @@ import (
 	"context"
 	"os"
 	"os/exec"
-	"runtime"
-	"strconv"
 	"testing"
-	"time"
 )
 
 // List runs `ps axeww` plus `ps -axo pid=,comm=` for executable paths, keeping each row's mark value; empty in tests.
@@ -18,36 +15,6 @@ func List(mark string) ([]Info, error) {
 		return nil, nil
 	}
 	return listWith(psOutput, mark)
-}
-
-// listWith runs both ps calls concurrently; the first call's error wins, as when they ran in sequence.
-func listWith(ps func(ctx context.Context, args ...string) (string, error), mark string) ([]Info, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	var commOut string
-	var commErr error
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		commOut, commErr = ps(ctx, "-axo", "pid=,comm=")
-	}()
-	out, err := ps(ctx, "axeww", "-o", "pid=,ppid=,pgid=,lstart=,command=")
-	<-done
-	if err != nil {
-		return nil, err
-	}
-	if commErr != nil {
-		return nil, commErr
-	}
-	comms := parseComms(commOut)
-	if runtime.GOOS == "linux" { // comm is the 15-char task name there; /proc/<pid>/exe has the full path
-		for pid := range comms {
-			if exe, err := os.Readlink("/proc/" + strconv.Itoa(pid) + "/exe"); err == nil {
-				comms[pid] = exe
-			}
-		}
-	}
-	return parseList(out, comms, mark, time.Local), nil
 }
 
 func psOutput(ctx context.Context, args ...string) (string, error) {
