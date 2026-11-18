@@ -27,9 +27,10 @@ var boxRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^(
 
 // Commit is one landed commit: the sha recorded on ticks and the files it changed.
 type Commit struct {
-	Sha     string
-	Files   []string
-	Message string
+	Sha      string
+	Files    []string
+	Message  string
+	mainHead bool
 }
 
 // tickResult is what one commit ticked or marked partly landed.
@@ -42,6 +43,10 @@ type tickResult struct {
 
 // Tick advances only tasks named by the commit, recording coverage until complete.
 func Tick(root, planPath, sha string, files []string) (ticked, partial []string, err error) {
+	landed, err := commitsOnMain(context.Background(), root, []Commit{{Sha: sha}})
+	if !landed {
+		return nil, nil, err
+	}
 	results, err := tickCommits(root, planPath, []Commit{{Sha: sha, Files: files}}, false, nil)
 	for _, r := range results {
 		ticked, partial = r.Ticked, r.Partial
@@ -68,7 +73,8 @@ func tickCommits(root, planPath string, commits []Commit, dryRun bool, ok func(T
 				}
 			}
 
-			r.Candidate = candidates(root, planPath, text, c, message, ok)
+			c.Message = message
+			r.Candidate = candidates(root, planPath, text, c, ok)
 			text, r.Ticked, r.Partial, r.Stale = tickText(root, planPath, text, c.Sha, c.Files, seen, recorded, named)
 			if len(r.Ticked)+len(r.Partial)+len(r.Stale)+len(r.Candidate) > 0 {
 				results = append(results, r)
@@ -356,6 +362,10 @@ func TickRange(ctx context.Context, dir, worktree, rng, plan string, drafts []st
 	if err != nil {
 		return err
 	}
+	landed, err := commitsOnMain(ctx, dir, commits)
+	if !landed {
+		return err
+	}
 	targets, allow, done, err := pickPlans(dir, worktree, plan, drafts, commits, w)
 	if err != nil || done {
 		return err
@@ -434,16 +444,25 @@ func TieNote(tied []string) string {
 
 // TickCommit advances named tasks and reports unnamed coverage without writing it.
 func TickCommit(top, sha string, files []string) (out []PlanTick, tied []string, err error) {
-	short := sha
-	if len(short) > 7 {
-		short = short[:7]
+	if WorktreeName(top) != "" {
+		return nil, nil, nil
 	}
-	wt := WorktreeName(top)
-	c := Commit{Sha: short, Files: files}
-	c.Message, err = commitMessage(top, c)
+	ctx, cancel := context.WithTimeout(context.Background(), recordedTimeout)
+	defer cancel()
+	c, err := readCommit(ctx, top, sha)
 	if err != nil {
 		return nil, nil, err
 	}
+	if !c.mainHead {
+		landed, err := onMain(ctx, top, sha)
+		if err != nil || !landed {
+			return nil, nil, err
+		}
+	}
+	if files != nil {
+		c.Files = files
+	}
+	wt := WorktreeName(top)
 	targets, allow := tickTargets(top, wt, MirrorDests(), []Commit{c})
 	var errs []error
 	for _, p := range targets {
@@ -703,10 +722,10 @@ func namesTask(message, plan, id string) bool {
 	return id != "" && slices.Contains(strings.Split(strings.TrimSpace(message), "\n"), want)
 }
 
-func candidates(root, plan, text string, c Commit, message string, ok func(Task) bool) []string {
+func candidates(root, plan, text string, c Commit, ok func(Task) bool) []string {
 	var out []string
 	for _, t := range parseBytes(plan, []byte(text)).Tasks {
-		if !open(t) || (ok != nil && !ok(t)) || namesTask(message, plan, t.ID) {
+		if !open(t) || (ok != nil && !ok(t)) || namesTask(c.Message, plan, t.ID) {
 			continue
 		}
 		if _, any := covers(root, t.Owns, c.Files); any {
@@ -721,19 +740,23 @@ func tickTargets(root, worktree string, skip []string, commits []Commit) ([]stri
 	if err != nil {
 		return nil, nil
 	}
+	var files, messages []string
+	for _, c := range commits {
+		files = append(files, c.Files...)
+		messages = append(messages, c.Message)
+	}
+	message := strings.Join(messages, "\n")
 	var targets []string
 	allow := map[string]func(Task) bool{}
 	for _, d := range loadDatedPlans(entries, Home(root), skip) {
-		elig := eligible(d.path, worktree)
+		recent := eligible(d.path, worktree)
+		elig := func(t Task) bool { return recent(t) || t.Claim != "" }
 		for _, t := range d.plan.Tasks {
 			if !open(t) || !elig(t) {
 				continue
 			}
-			hit := false
-			for _, c := range commits {
-				_, any := covers(root, t.Owns, c.Files)
-				hit = hit || any || namesTask(c.Message, d.path, t.ID)
-			}
+			_, any := covers(root, t.Owns, files)
+			hit := any || namesTask(message, d.path, t.ID)
 			if hit {
 				targets = append(targets, d.path)
 				allow[d.path] = elig
@@ -775,18 +798,17 @@ func TaskTrailers(root, plan string, ids []string) (string, error) {
 		if err != nil {
 			return "", err
 		}
-		if !slices.Contains(trailers, line) {
-			trailers = append(trailers, line)
-		}
+		trailers = append(trailers, line)
 	}
-	return "\n\n" + strings.Join(trailers, "\n"), nil
+	slices.Sort(trailers)
+	return "\n\n" + strings.Join(slices.Compact(trailers), "\n"), nil
 }
 
 func resolveTrailer(all []datedPlan, worktree, id string) (string, error) {
 	var hits, near []string
 	for _, d := range all {
 		for _, t := range d.plan.Tasks {
-			if !open(t) || !eligible(d.path, worktree)(t) {
+			if !open(t) || (!eligible(d.path, worktree)(t) && t.Claim == "") {
 				continue
 			}
 			near = append(near, t.ID)
@@ -826,4 +848,50 @@ func taskDistance(a, b string) int {
 		row = next
 	}
 	return row[len(b)]
+}
+
+func onMain(ctx context.Context, root, sha string) (bool, error) {
+	if WorktreeName(root) != "" {
+		return false, nil
+	}
+	raw, err := proc.RunGitInherit(ctx, root, "for-each-ref", "--contains="+sha, "--format=%(HEAD)", "refs/heads/main")
+	return strings.TrimSpace(raw) == "*", err
+}
+
+func readCommit(ctx context.Context, root, sha string) (Commit, error) {
+	raw, err := proc.RunGitInherit(ctx, root, "show", "--no-renames", "-z", "--name-only", "--format=%H%x00%B%x00", sha, "--")
+	if err != nil {
+		return Commit{}, err
+	}
+	oid, rest, _ := strings.Cut(raw, "\x00")
+	message, files, _ := strings.Cut(rest, "\x00")
+	c := Commit{Sha: sha[:min(7, len(sha))], Message: message, mainHead: isMainHead(root, oid)}
+	for f := range strings.SplitSeq(strings.TrimPrefix(files, "\x00\n"), "\x00") {
+		if f != "" {
+			c.Files = append(c.Files, f)
+		}
+	}
+	return c, nil
+}
+
+func isMainHead(root, oid string) bool {
+	head, err := os.ReadFile(filepath.Join(root, ".git", "HEAD"))
+	if err != nil || strings.TrimSpace(string(head)) != "ref: refs/heads/main" {
+		return false
+	}
+	ref, err := os.ReadFile(filepath.Join(root, ".git", "refs", "heads", "main"))
+	return err == nil && strings.TrimSpace(string(ref)) == oid
+}
+
+func commitsOnMain(ctx context.Context, root string, commits []Commit) (bool, error) {
+	if len(commits) == 0 {
+		return onMain(ctx, root, "HEAD")
+	}
+	for _, c := range commits {
+		landed, err := onMain(ctx, root, c.Sha)
+		if err != nil || !landed {
+			return false, err
+		}
+	}
+	return true, nil
 }

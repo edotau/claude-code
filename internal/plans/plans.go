@@ -607,15 +607,11 @@ func rangeCommits(ctx context.Context, dir, rng string) ([]Commit, error) {
 	}
 	var commits []Commit
 	for sha := range strings.FieldsSeq(raw) {
-		files, err := CommitFiles(ctx, dir, sha)
+		c, err := readCommit(ctx, dir, sha)
 		if err != nil {
 			return nil, err
 		}
-		message, err := commitMessage(dir, Commit{Sha: sha})
-		if err != nil {
-			return nil, err
-		}
-		commits = append(commits, Commit{Sha: sha[:7], Files: files, Message: message})
+		commits = append(commits, c)
 	}
 	return commits, nil
 }

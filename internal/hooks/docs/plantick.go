@@ -40,18 +40,26 @@ var leadingCD = sync.OnceValue(func() *regexp.Regexp {
 // tickMatch matches a `git commit` or the `claude-code worktree commit` verb, alone or behind rtk or a && chain.
 var tickMatch = core.Gate(`\bgit\b[^;&|\n]*\bcommit\b|\bclaude-code\s+worktree\s+commit\b`, "commit")
 
-// Tick is the PostToolUse(Bash) plan-tick hook: a landed commit ticks the active plan's covered tasks.
+// Tick advances named tasks only after their commits land on main.
 func Tick(in *core.Input) core.Result {
 	cmd := in.ToolCommand()
-	if in.ToolName != "Bash" || !tickMatch.MatchString(cmd) {
+	if in.ToolName != "Bash" {
 		return core.Result{}
+	}
+	if !tickMatch.MatchString(cmd) {
+		return tickFastForward(in, cmd)
 	}
 	out := in.Nested("tool_response", "stdout")
 	if out == "" {
 		out = in.ToolResponseText()
 	}
+	ff := tickFastForward(in, cmd)
 	var blocks []string
+	if ff.Context != "" {
+		blocks = append(blocks, ff.Context)
+	}
 	var stderr bytes.Buffer
+	stderr.WriteString(ff.Stderr)
 	var shas []string
 	for _, m := range core.CommitLine().FindAllStringSubmatch(out, -1) {
 		if !slices.Contains(shas, m[1]) {
@@ -121,12 +129,7 @@ func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
 		return nil
 	}
 	top := memory.GitToplevel(dir)
-	files, err := plans.CommitFiles(ctx, dir, sha)
-	if err != nil {
-		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
-		return nil
-	}
-	results, tied, err := plans.TickCommit(top, sha, files)
+	results, tied, err := plans.TickCommit(top, sha, nil)
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
 	}
@@ -173,7 +176,7 @@ func commitCandidates(cwd, cmd string) []string {
 	}
 	var cands []string
 	for _, seg := range cmdSegment().Split(cmd, -1) { // only commit invocations name a candidate repo
-		if !core.GitCommitCmd().MatchString(seg) {
+		if !core.GitCommitCmd().MatchString(seg) && !strings.Contains(seg, "merge") && !strings.Contains(seg, "pull") {
 			continue
 		}
 		if m := gitDirArg().FindStringSubmatch(seg); m != nil {
@@ -333,4 +336,66 @@ func ClearStoppedClaim(in *core.Input, dirs []string, id string) error {
 		}
 	}
 	return nil
+}
+
+var fastForwardRange = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^Updating ([0-9a-f]{7,40})\.\.([0-9a-f]{7,40})\r?$`)
+})
+
+func tickFastForward(in *core.Input, cmd string) core.Result {
+	if !strings.Contains(cmd, "merge") && !strings.Contains(cmd, "pull") {
+		return core.Result{}
+	}
+	out := in.Nested("tool_response", "stdout")
+	if out == "" {
+		out = in.ToolResponseText()
+	}
+	if in.ToolFailed() && !strings.Contains(out, "Fast-forward") {
+		return core.Result{}
+	}
+	ctx, cancel := core.HookContext("docs-plan-tick")
+	defer cancel()
+	before, after, dir := landedRange(ctx, in.CWD, cmd, out)
+	if dir == "" {
+		return core.Result{}
+	}
+	var notes bytes.Buffer
+	err := plans.TickRange(ctx, memory.GitToplevel(dir), "", before+".."+after, "", plans.MirrorDests(), false, &notes)
+	res := core.Result{Context: notes.String()}
+	if err != nil {
+		res.Stderr = fmt.Sprintf("plan-tick: %v\n", err)
+	}
+	return res
+}
+
+var landingRun = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(strings.Replace(commitRun().String(), `\s+commit\b`, `\s+(?:merge|pull)\b`, 1))
+})
+
+func landedRange(ctx context.Context, cwd, cmd, out string) (string, string, string) {
+	if !landingRun().MatchString(cmd) {
+		return "", "", ""
+	}
+	if m := fastForwardRange().FindStringSubmatch(out); m != nil && strings.Contains(out, "Fast-forward") {
+		return m[1], m[2], commitRepoDir(ctx, cwd, cmd, m[2])
+	}
+	if strings.TrimSpace(out) != "" && !quietFlag().MatchString(cmd) {
+		return "", "", ""
+	}
+	for _, dir := range commitCandidates(cwd, cmd) {
+		raw, err := proc.RunGit(ctx, dir, "reflog", "-2", "--format=%H%x00%gs", "HEAD")
+		if err != nil {
+			continue
+		}
+		rows := strings.Split(strings.TrimSpace(raw), "\n")
+		if len(rows) != 2 {
+			continue
+		}
+		after, note, _ := strings.Cut(rows[0], "\x00")
+		before, _, _ := strings.Cut(rows[1], "\x00")
+		if strings.Contains(note, "Fast-forward") {
+			return before, after, dir
+		}
+	}
+	return "", "", ""
 }

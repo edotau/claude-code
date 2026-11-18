@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -293,5 +294,50 @@ func TestPlanClaimNeedsConfidentMatch(t *testing.T) {
 	claimSpawn(t, repo, "toolu_n3", "no task line", "Delete dead recall helper")
 	if data, _ := os.ReadFile(plan); !strings.Contains(string(data), "1.3 delete dead recall helper owns: b.go <!-- working: Agent toolu_n3") {
 		t.Fatalf("unique description match not claimed:\n%s", data)
+	}
+}
+
+func TestPlanTickLaneWaitsForMainFastForward(t *testing.T) {
+	t.Run("summary", func(t *testing.T) { testLaneLanding(t, false, false) })
+	t.Run("quiet", func(t *testing.T) { testLaneLanding(t, true, false) })
+	t.Run("later command fails", func(t *testing.T) { testLaneLanding(t, false, true) })
+}
+
+func testLaneLanding(t *testing.T, quiet, failed bool) {
+	plan, _, tick := tickFixture(t)
+	repo := filepath.Join(os.Getenv("HOME"), "widgets")
+	body := "- [ ] 1.1 Landing owns: a/one.go\n"
+	hosttest.WriteRel(t, filepath.Dir(plan), filepath.Base(plan), body)
+	lane := filepath.Join(t.TempDir(), "lane with spaces")
+	hosttest.In(t, repo, "worktree", "add", "-q", "-b", "landing", lane)
+	hosttest.WriteRel(t, lane, "a/one.go", "package a\n// landed\n")
+	hosttest.In(t, lane, "add", "a/one.go")
+	slug := strings.TrimSuffix(filepath.Base(plan), ".md")
+	summary := hosttest.In(t, lane, "commit", "-m", "feat: landing\n\nTask: "+slug+" 1.1")
+	sha := strings.TrimSpace(hosttest.In(t, lane, "rev-parse", "--short=7", "HEAD"))
+	tick("git -C "+fmt.Sprintf("%q", lane)+" commit -m trailer", summary)
+	before, err := os.ReadFile(plan)
+	if err != nil || string(before) != body {
+		t.Fatalf("lane ticked: %s, %v", before, err)
+	}
+	if _, _, err := plans.TickCommit(repo, sha, []string{"a/one.go"}); err != nil {
+		t.Fatal(err)
+	}
+	before, _ = os.ReadFile(plan)
+	if string(before) != body {
+		t.Fatal("unlanded sha ticked through main")
+	}
+	args := []string{"merge", "--ff-only", "landing"}
+	if quiet {
+		args = append(args, "--quiet")
+	}
+	out := hosttest.In(t, repo, args...)
+	if quiet {
+		hosttest.In(t, repo, "pack-refs", "--all")
+	}
+	note := runDocs(t, Tick, map[string]any{"tool_name": "Bash", "cwd": repo, "tool_input": map[string]string{"command": "git " + strings.Join(args, " ")}, "tool_response": map[string]any{"stdout": out, "is_error": failed}})
+	got, _ := os.ReadFile(plan)
+	if !strings.Contains(string(got), "[x] 1.1 Landing owns: a/one.go ("+sha+")") || !strings.Contains(note, "ticked") {
+		t.Fatalf("landing: %s, %s", got, note)
 	}
 }

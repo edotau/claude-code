@@ -102,7 +102,7 @@ func cmdPlanTick(args []string) int {
 	fs := helptext.NewFlagSet("plan tick", helptext.Page{Usage: "claude-code plan tick --range <a>..<b> [flags]",
 		About: "Tick tasks named by commit trailers on main; coverage alone prints candidates."})
 	rng := fs.String("range", "", "commits to tick, <a>..<b> as git rev-list reads it")
-	plan := fs.String("plan", "", "plan file (default: recent or claimed plans matching the range)")
+	plan := fs.String("plan", "", "plan file (default: matching recent or claimed plans)")
 	dryRun := fs.Bool("dry-run", false, "print what would tick without writing the plan")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
