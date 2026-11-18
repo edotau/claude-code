@@ -356,11 +356,12 @@ var fdToSubst = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile
 // inertStripped blanks data-only text but keeps command substitutions; pipeBlocks, exfil and SQL patterns match it.
 func inertStripped(cmd string) string { return blankInert(dropInertHeredocs(cmd)) }
 
-// blankInert is cmd with each inert segment's words blanked (substitutions kept), heredoc bodies untouched.
+// blankInert is the shape rules' view: a segment is blanked only if it is inert and the intent view blanks it too.
 func blankInert(cmd string) string {
 	return blankSegments(cmd, false, func(segs, seps []string, i int, _ bool) bool {
 		// A piped segment feeds the next command, so its text stays (`echo "curl x" | sh`) unless only filters read it.
-		return inertSegment(segs[i]) && (seps[i] == "" || seps[i][0] != '|' || seps[i] == "||" || filtersOnly(segs, seps, i+1))
+		return inertSegment(segs[i]) && (seps[i] == "" || seps[i][0] != '|' || seps[i] == "||" || filtersOnly(segs, seps, i+1)) &&
+			dataSegment(segs[i], false, false) && dataPipeline(segs, seps, i, false, false)
 	})
 }
 
