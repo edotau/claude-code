@@ -180,10 +180,6 @@ func (l hubDispatch) prepareLaunch(ctx context.Context, req agent.RunOptions, mo
 	if err := agent.CheckRouteNames(env, req.OverlaySet, req.OverlayUnset); err != nil {
 		return "", nil, nil, err
 	}
-	env, err = opencodeApplyPermissions(env, req)
-	if err != nil {
-		return "", nil, nil, err
-	}
 	argv = opencodePolicyArgv(argv, req)
 	// --env goes last so it wins
 	env = append(env, req.Env...)

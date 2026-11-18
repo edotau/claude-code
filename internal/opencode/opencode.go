@@ -444,7 +444,7 @@ func (e opencodeEngine) RenderSettings(ctx context.Context, s agent.Settings, en
 		argv = slices.Insert(slices.Clone(argv), 1, "--variant", s.Effort)
 	}
 	req := agent.RunOptions{Tools: s.Tools, SafeMode: s.SafeMode, Permissions: s.Permissions}
-	if env, err = opencodeApplyPermissions(env, req); err != nil {
+	if env, err = opencodeApplyPermissions(env, req, false); err != nil {
 		return nil, nil, emulated, cleanup, err
 	}
 	return env, opencodePolicyArgv(argv, req), emulated, cleanup, nil
@@ -456,7 +456,7 @@ func opencodeChild(ctx context.Context, name, bin string, env, argv []string, pr
 		return nil, nil, nil, err
 	}
 	var err error
-	if env, err = opencodeApplyPermissions(env, req); err != nil {
+	if env, err = opencodeApplyPermissions(env, req, req.Tools && !req.SafeMode); err != nil { // the plugin follows
 		return nil, nil, nil, retry.Fatal(name, err)
 	}
 	env, plugged, err := opencodeApplyPlugin(env, req)
