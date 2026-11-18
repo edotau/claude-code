@@ -2,6 +2,7 @@ package memory
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/binary"
 	"errors"
 	"io/fs"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -464,6 +466,23 @@ func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl f
 	return hits
 }
 
+// sortByScore is hits stably ordered by descending score; it sorts an index permutation, as the hits are wide.
+func sortByScore(hits []SearchHit) []SearchHit {
+	if len(hits) < 2 {
+		return hits
+	}
+	idx := make([]int32, len(hits))
+	for i := range idx {
+		idx[i] = int32(i)
+	}
+	slices.SortStableFunc(idx, func(a, b int32) int { return cmp.Compare(hits[b].Score, hits[a].Score) })
+	out := make([]SearchHit, len(hits))
+	for i, j := range idx {
+		out[i] = hits[j]
+	}
+	return out
+}
+
 func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []SearchHit {
 	if len(qTerms) == 0 {
 		return nil
@@ -479,7 +498,7 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 	for _, i := range usable {
 		hits = append(hits, scoreSegmentDocs(qTerms, uniq, df, n, avgdl, segs[i], weighted[i], files[i], dir)...)
 	}
-	sort.SliceStable(hits, func(i, j int) bool { return hits[i].Score > hits[j].Score })
+	hits = sortByScore(hits)
 	if k > 0 && len(hits) > k {
 		hits = hits[:k]
 	}

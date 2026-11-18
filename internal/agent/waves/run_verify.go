@@ -54,12 +54,12 @@ func (r *runner) fingerprint(path string) (string, error) {
 	}
 	slices.Sort(files)
 	hash := sha256.New()
-	for _, p := range files {
-		fp, err := FingerprintGit(r.o.Dir)(p)
-		if err != nil {
-			return "", err
-		}
-		fmt.Fprintf(hash, "%s\x00%s\x00", p, fp)
+	fps, err := fingerprintFiles(r.o.Dir, files)
+	if err != nil {
+		return "", err
+	}
+	for i, p := range files {
+		fmt.Fprintf(hash, "%s\x00%s\x00", p, fps[i])
 	}
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }

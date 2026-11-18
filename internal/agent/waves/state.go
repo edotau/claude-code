@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/inspect"
 	"github.com/edotau/claude-code/internal/paths"
@@ -76,19 +77,52 @@ type LeafState struct {
 // FingerprintGit returns a FingerprintFunc hashing files with `git hash-object`; paths outside dir are refused.
 func FingerprintGit(dir string) FingerprintFunc {
 	return func(path string) (string, error) {
+		hashes, err := fingerprintFiles(dir, []string{path})
+		if err != nil {
+			return "", err
+		}
+		return hashes[0], nil
+	}
+}
+
+// hashChunk caps the paths of one `git hash-object` spawn, well inside the argument-length limit.
+const hashChunk = 256
+
+// fingerprintFiles is FingerprintGit's hash for each of files, one git spawn per hashChunk paths.
+func fingerprintFiles(dir string, files []string) ([]string, error) {
+	out := make([]string, len(files))
+	var live []string
+	var at []int // out index of each live path
+	for i, path := range files {
 		if !filepath.IsAbs(path) {
 			path = filepath.Join(dir, path)
 		}
 		if path = filepath.Clean(path); !paths.Within(path, dir) && !paths.Within(path, paths.StateDir()) {
-			return "", fmt.Errorf("fingerprint %s: outside the repo %s and the state dir", path, dir)
+			return nil, fmt.Errorf("fingerprint %s: outside the repo %s and the state dir", path, dir)
 		}
 		if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-			return FingerprintAbsent, nil
+			out[i] = FingerprintAbsent
 		} else if err != nil {
-			return "", err
+			return nil, err
+		} else {
+			live, at = append(live, path), append(at, i)
 		}
-		return proc.RunGit(context.Background(), dir, "hash-object", "--", path)
 	}
+	for start := 0; start < len(live); start += hashChunk {
+		chunk := live[start:min(start+hashChunk, len(live))]
+		res, err := proc.RunGit(context.Background(), dir, append([]string{"hash-object", "--"}, chunk...)...)
+		if err != nil {
+			return nil, err
+		}
+		hashes := strings.Split(res, "\n")
+		if len(hashes) != len(chunk) {
+			return nil, fmt.Errorf("git hash-object returned %d hashes for %d files", len(hashes), len(chunk))
+		}
+		for j, h := range hashes {
+			out[at[start+j]] = h
+		}
+	}
+	return out, nil
 }
 
 // FingerprintAll fingerprints every path into a new map.

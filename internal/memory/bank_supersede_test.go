@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -277,5 +278,58 @@ func TestLocateBlocksSlugAlias(t *testing.T) {
 	}
 	if got := missingRefs([]*bankDoc{{blocks: d.blocks, ids: d.ids, refs: [][]string{{"b5ad9e07-semorder", "b5ad9e07-nope"}}}}); len(got) != 1 || !strings.Contains(got[0], "nope") {
 		t.Errorf("missingRefs = %v", got)
+	}
+}
+
+func oldFindBlockByID(id string, files []corpusFile, segs []segView) (SearchHit, bool) {
+	marker := "<!-- id:" + id + " -->"
+	for i, seg := range segs {
+		if seg == nil {
+			continue
+		}
+		for d := range seg.Docs() {
+			if block, _ := seg.Doc(d); strings.Contains(block, marker) && ownerID(block) == id {
+				f := files[i]
+				return SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: id, Dir: accessDir()}, true
+			}
+		}
+	}
+	return SearchHit{}, false
+}
+
+// TestBlockFinderMatchesScan: the lookup answers as the per-id scan did, duplicates and a missing id included.
+func TestBlockFinderMatchesScan(t *testing.T) {
+	tempConfig(t)
+	write(t, Path("decisionLog.md"), "# Log\n\n## A <!-- id:a1000001 -->\nfirst\n\n## B <!-- id:b2000002 -->\nb\n\n## A again <!-- id:a1000001 -->\nsecond\n")
+	write(t, Path("progress.md"), "# P\n\n## C <!-- id:a1000001 -->\nthird\n\n## D <!-- id:c3000003 -->\nd\n")
+	files := []corpusFile{
+		{Bank: "local", Path: Path("decisionLog.md"), Mode: segEntries},
+		{Bank: "local", Path: Path("progress.md"), Mode: segEntries},
+		{Bank: "local", Path: Path("gone.md"), Mode: segEntries},
+	}
+	segs := loadSegments(files, true)
+	find := blockFinder(files, segs)
+	for _, id := range []string{"a1000001", "b2000002", "c3000003", "deadbeef", ""} {
+		want, wok := oldFindBlockByID(id, files, segs)
+		got, ok := find(id)
+		if ok != wok || got != want {
+			t.Errorf("id %q: got %+v %v, want %+v %v", id, got, ok, want, wok)
+		}
+	}
+}
+
+// TestSortByScoreMatchesStableSort: equal scores keep their order, as sort.SliceStable did.
+func TestSortByScoreMatchesStableSort(t *testing.T) {
+	var hits []SearchHit
+	for i := 0; i < 200; i++ {
+		hits = append(hits, SearchHit{Score: float64(i * 7 % 5), ID: fmt.Sprint(i)})
+	}
+	want := append([]SearchHit(nil), hits...)
+	sort.SliceStable(want, func(i, j int) bool { return want[i].Score > want[j].Score })
+	got := sortByScore(append([]SearchHit(nil), hits...))
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("row %d: got %+v, want %+v", i, got[i], want[i])
+		}
 	}
 }

@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -313,5 +314,36 @@ func TestFingerprintGitRefusesPathsOutsideRepoAndStateDir(t *testing.T) {
 		if got, err := fp(p); err != nil || got == "" {
 			t.Errorf("fingerprint(%q) = %q, %v, want a hash", p, got, err)
 		}
+	}
+}
+
+// TestFingerprintFilesMatchesOneSpawnPerFile: batched hashes equal `git hash-object` per file, past a chunk.
+func TestFingerprintFilesMatchesOneSpawnPerFile(t *testing.T) {
+	dir, run, write := stateGitRepo(t)
+	write("with space.go", "spaced\n")
+	files := []string{"new.go", "gone.go", "with space.go", "tracked.go"}
+	for i := range hashChunk + 5 {
+		name := "f" + strings.Repeat("x", i%3) + string(rune('a'+i%26)) + "-" + strconv.Itoa(i)
+		write(name, name+"\n")
+		files = append(files, name)
+	}
+	got, err := fingerprintFiles(dir, files)
+	if err != nil || len(got) != len(files) {
+		t.Fatalf("fingerprintFiles: %d hashes, %v", len(got), err)
+	}
+	for i, f := range files {
+		want := FingerprintAbsent
+		if f != "gone.go" {
+			want = run("hash-object", "--", f)
+		}
+		if got[i] != want {
+			t.Fatalf("%s: batched %q, per-file %q", f, got[i], want)
+		}
+	}
+	if err := os.Mkdir(filepath.Join(dir, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fingerprintFiles(dir, []string{"new.go", "sub"}); err == nil {
+		t.Error("a directory must still be an error, as for the single-file hash")
 	}
 }

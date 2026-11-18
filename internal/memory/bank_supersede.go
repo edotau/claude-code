@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
-	"sort"
 	"strings"
 	"sync"
 
@@ -548,7 +547,7 @@ func reviseBankProblems() []string {
 }
 
 // chainEnd follows h's `Replaced by` pointers to the live entry, within reviseHopCap hops; false when it breaks.
-func chainEnd(h SearchHit, files []corpusFile, segs []segView) (SearchHit, bool) {
+func chainEnd(h SearchHit, find func(string) (SearchHit, bool)) (SearchHit, bool) {
 	cur := h
 	for hop := 0; hop <= reviseHopCap; hop++ {
 		next := replacedBy(cur.Block)
@@ -558,7 +557,7 @@ func chainEnd(h SearchHit, files []corpusFile, segs []segView) (SearchHit, bool)
 		if hop == reviseHopCap {
 			break
 		}
-		n, ok := findBlockByID(next, files, segs)
+		n, ok := find(next)
 		if !ok {
 			return SearchHit{}, false
 		}
@@ -567,21 +566,31 @@ func chainEnd(h SearchHit, files []corpusFile, segs []segView) (SearchHit, bool)
 	return SearchHit{}, false
 }
 
-// findBlockByID is the corpus block carrying persisted id, scanning the segments the search already holds.
-func findBlockByID(id string, files []corpusFile, segs []segView) (SearchHit, bool) {
-	marker := "<!-- id:" + id + " -->"
-	for i, seg := range segs {
-		if seg == nil { // a missing or unreadable file has no segment
-			continue
-		}
-		for d := range seg.Docs() {
-			if block, _ := seg.Doc(d); strings.Contains(block, marker) && ownerID(block) == id {
-				f := files[i]
-				return SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: id, Dir: accessDir()}, true
+// blockFinder returns the lookup of a corpus block by persisted id; the first block per id wins, built on first use.
+func blockFinder(files []corpusFile, segs []segView) func(id string) (SearchHit, bool) {
+	var byID map[string]SearchHit
+	return func(id string) (SearchHit, bool) {
+		if byID == nil {
+			byID = map[string]SearchHit{}
+			dir := accessDir()
+			for i, seg := range segs {
+				if seg == nil { // a missing or unreadable file has no segment
+					continue
+				}
+				for d := range seg.Docs() {
+					block, _ := seg.Doc(d)
+					owner := ownerID(block)
+					if _, seen := byID[owner]; seen || !strings.Contains(block, "<!-- id:"+owner+" -->") {
+						continue
+					}
+					f := files[i]
+					byID[owner] = SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: owner, Dir: dir}
+				}
 			}
 		}
+		h, ok := byID[id]
+		return h, ok
 	}
-	return SearchHit{}, false
 }
 
 // followReplaced drops struck or replaced hits; each replaced one hands its score to the live end of its chain, once.
@@ -592,6 +601,7 @@ func followReplaced(ranked []SearchHit, files []corpusFile, segs []segView) []Se
 	out := make([]SearchHit, 0, len(ranked))
 	at := map[string]int{} // blockKey -> index in out
 	followed := false
+	find := blockFinder(files, segs)
 	add := func(h SearchHit) {
 		key := h.key()
 		if i, dup := at[key]; dup {
@@ -607,7 +617,7 @@ func followReplaced(ranked []SearchHit, files []corpusFile, segs []segView) []Se
 		if !isSupersededBlock(h.Block) {
 			add(h)
 		} else if replacedBy(h.Block) != "" {
-			if live, ok := chainEnd(h, files, segs); ok {
+			if live, ok := chainEnd(h, find); ok {
 				add(live.withScore(h))
 				followed = true
 			} else {
@@ -619,7 +629,7 @@ func followReplaced(ranked []SearchHit, files []corpusFile, segs []segView) []Se
 		}
 	}
 	if followed {
-		sort.SliceStable(out, func(i, j int) bool { return out[i].Score > out[j].Score })
+		out = sortByScore(out)
 	}
 	return out
 }
