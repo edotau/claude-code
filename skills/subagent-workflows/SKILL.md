@@ -126,6 +126,7 @@ Give each leaf named files it owns, never shared between parallel leaves. Fan ou
 - `Owns:` absolute paths and forbidden files. `Method:` the skill. `Context:` evidence, decisions, plan path.
   `Constraints:` applicable rules and the [Shared tree](#shared-tree) line. `Verify:` a scoped command;
   `Acceptance:` its observable outcome. `Workflow:` a saved Workflow, only when the owner requested it.
+- Ask the leaf to list the files it actually changed in its report.
 - State what to report on a missing credential, a red gate or a file the leaf doesn't own, and any dependency on
   another leaf.
 - `claude-code agents brief --task F --own P…` (or `--read-only`) prints the brief: `Owned:`, mode, your task, the leaf
@@ -168,7 +169,7 @@ limits are overlapping files, dependency order and an account's own rate limit.
 The main thread plans waves, dispatches, decides and commits; file reads, diff review, gate runs and review fixes go to
 leaves that hand back a short verdict, so its context stays small. Run it without prompting:
 
-1. **Queue:** keep a list of blocked tasks, each naming the file or leaf that blocks it; dispatch one the moment that
+1. **Queue:** the [Dispatch table](#dispatch-table) holds the blocked tasks; dispatch one the moment its blocker
    frees, and again after every hand-back, until none remain or what is left needs the owner.
 2. **Per hand-back:** a review leaf returns PASS/FAIL, ranked findings and the exact files to stage (it measures and
    reads the diff, not the manager) → a fix leaf for each finding → the manager re-runs the scoped gate and commits
@@ -180,6 +181,30 @@ leaves that hand back a short verdict, so its context stays small. Run it withou
 5. **Briefs that do not stall:** say what is already verified (never "survey, then stop"), name a hand-back line cap,
    and own each source file's `_test.go` (a test that must sit in another package's test file to avoid an import cycle
    is allowed); a leaf stops only for a production file another agent owns.
+
+#### Dispatch table
+
+Write it before the first dispatch of a multi-part request, re-check it on every hand-back and every new user message
+(merge the new asks into it; never serve requests in arrival order), and dispatch every unblocked row in one message.
+
+| Task | Owns | Blocked by | Agent |
+|---|---|---|---|
+| A: fix flag parse | `/r/internal/cli/args.go` | none | claude |
+| B: fix flag help | `/r/internal/cli/args.go` | A (lane 2 of 2) | claude (lane of A) |
+| C: add retry | `/r/internal/net/retry.go` | none | copilot |
+| D: review A | read-only | A | codex |
+
+- **Hot file:** when 2+ queued tasks own one file, first dispatch a split (extract by function into a new file in the
+  same package, behavior unchanged) so they run in parallel; if not worth it, show that file's queue and length.
+- **Lane:** `SendMessage` / `claude-code agents send <id> <task>` is for work in files that leaf already owns; show
+  the lane's length, and past 2 queued items start a second leaf on a different file instead of appending a third.
+- **Know what leaves hold:** ask, never assume the brief: every brief has the leaf list the files actually changed in
+  its report; while it runs, `git status --short` and the `worktree-claim` files (`rules/harness/hooks.md`) show what is
+  dirty, and `claude-code agents tree` / `agents status` show who is live.
+- **Review per finished file or package** as each implementer hands back, not after all of them.
+- **Gates lock the tree, not the dispatcher:** during a timed `make audit`, an install or a live check, keep
+  dispatching read-only work and work outside the tree (scratch dirs, a linked worktree); queue only the commits.
+- **Read-only scouts and reviews** never wait for edit work.
 
 #### Test agent
 
