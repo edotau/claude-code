@@ -16,15 +16,10 @@ func TestResolveRepoBoundsDiscoverySubprocess(t *testing.T) {
 	orig := probeTimeout
 	probeTimeout = 200 * time.Millisecond
 	t.Cleanup(func() { probeTimeout = orig })
-	regressionFakeGit(t, fmt.Sprintf("exec /bin/sleep %d\n", int((probeTimeout+4*time.Second)/time.Second)))
-	start := time.Now()
+	regressionFakeGit(t, fmt.Sprintf("exec /bin/sleep %d\n", int(time.Minute/time.Second)))
 	_, err := ResolveRepo(t.TempDir())
-	elapsed := time.Since(start)
-	if err == nil {
-		t.Fatal("hung discovery must fail")
-	}
-	if elapsed >= probeTimeout+3*time.Second {
-		t.Fatalf("git discovery ignored its deadline: %s", elapsed)
+	if err == nil || !strings.Contains(err.Error(), "killed") {
+		t.Fatalf("hung discovery: err=%v, want git killed at its deadline", err)
 	}
 }
 

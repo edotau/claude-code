@@ -50,28 +50,27 @@ func TestRunGitCancellationBoundsInheritedPipes(t *testing.T) {
 	gitWaitDelay = 200 * time.Millisecond
 	t.Cleanup(func() { gitWaitDelay = orig })
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
-	regressionFakeGit(t, fmt.Sprintf("/bin/sleep 10 &\necho $! > %q\nwait\n", pidFile))
+	expired := filepath.Join(t.TempDir(), "expired")
+	regressionFakeGit(t, fmt.Sprintf("(/bin/sleep 30; touch %q) &\necho $! > %q\nwait\n", expired, pidFile))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	cancelledAt := make(chan time.Time, 1)
 	// cancel only once the fake git has recorded its child, so the pid file always exists
 	go func() {
-		for deadline := time.Now().Add(10 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		for ; ; time.Sleep(10 * time.Millisecond) {
 			if data, err := os.ReadFile(pidFile); err == nil && strings.HasSuffix(string(data), "\n") {
 				break
 			}
 		}
-		cancelledAt <- time.Now()
 		cancel()
 	}()
 	_, err := runGit(ctx, t.TempDir(), nil, "status")
-	elapsed := time.Since(<-cancelledAt)
+	_, expiredErr := os.Stat(expired)
 	regressionKillChild(t, pidFile)
 	if err == nil || ctx.Err() == nil {
 		t.Fatalf("git call must fail after cancellation: err=%v ctx=%v", err, ctx.Err())
 	}
-	if elapsed >= gitWaitDelay+2*time.Second {
-		t.Fatalf("cancelled git waited for inherited output pipes: %s", elapsed)
+	if expiredErr == nil {
+		t.Fatal("cancelled git waited for the child holding its output pipes to exit")
 	}
 }
 

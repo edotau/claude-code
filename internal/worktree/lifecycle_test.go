@@ -611,17 +611,18 @@ func resolveCancelledPoll(t *testing.T, repo *Repo, plan *MergePlan, op *Operati
 	// already cancelled: the very first loop iteration's ctx.Err() check must fire
 	cancel()
 
-	start := time.Now()
+	origSleep, sleeps := sleepFn, 0
+	sleepFn = func(time.Duration) { sleeps++ }
+	t.Cleanup(func() { sleepFn = origSleep })
 	gotOp, result, err := resolveWithAgent(ctx, repo, plan, "claude", op)
-	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("ResolveWithAgent (resume, cancelled): want an error")
 	}
 	if result != nil {
 		t.Fatalf("result = %+v, want nil on cancellation", result)
 	}
-	if elapsed > 5*time.Second {
-		t.Fatalf("ResolveWithAgent took %s to return after cancellation, want it to stop promptly", elapsed)
+	if sleeps != 0 {
+		t.Fatalf("ResolveWithAgent polled %d times after cancellation, want it to stop before the first", sleeps)
 	}
 	if gotOp.Phase != "cancelled" {
 		t.Fatalf("gotOp.Phase = %q, want %q", gotOp.Phase, "cancelled")

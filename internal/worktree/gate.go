@@ -466,9 +466,11 @@ func runVerify(ctx context.Context, workDir, cmdStr string, stdout, stderr io.Wr
 	cmd.Stderr = stderr
 	proc.OwnGroup(cmd)
 	// orphans holding the output pipes must not block Wait after cancel
-	cmd.WaitDelay = 5 * time.Second
+	cmd.WaitDelay = gateWaitDelay
 	return cmd.Run()
 }
+
+var gateWaitDelay = 5 * time.Second
 
 // gateEnv is gitEnv (so a caller's GIT_* hook state cannot redirect the gate's git) minus the vault master key.
 func gateEnv() []string {

@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"os/exec"
@@ -289,13 +290,9 @@ func TestScopedVerifyGateLintRecipe(t *testing.T) {
 func TestRunVerifyCancelledByContextStopsPromptly(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	start := time.Now()
 	err := runVerify(ctx, t.TempDir(), "sleep 30", io.Discard, io.Discard)
-	if err == nil {
-		t.Fatal("runVerify: want an error for an already-cancelled context")
-	}
-	if elapsed := time.Since(start); elapsed > 5*time.Second {
-		t.Fatalf("runVerify took %s after cancellation, want it to stop promptly", elapsed)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("runVerify = %v, want context.Canceled without running the gate", err)
 	}
 }
 
@@ -383,12 +380,11 @@ func TestScopedGoGateRootPackageAndGlobPath(t *testing.T) {
 func TestRunVerifyCancelKillsProcessTree(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 300*time.Millisecond)
 	defer cancel()
+	orig := gateWaitDelay
+	gateWaitDelay = time.Hour // only killing the group can release the pipe before this
+	t.Cleanup(func() { gateWaitDelay = orig })
 	var out strings.Builder
-	start := time.Now()
-	_ = runVerify(ctx, t.TempDir(), "sleep 30 & wait", &out, &out)
-	if elapsed := time.Since(start); elapsed > 3*time.Second {
-		t.Fatalf("runVerify took %s after cancellation; the orphaned grandchild held the pipe", elapsed)
-	}
+	_ = runVerify(ctx, t.TempDir(), "sleep 600 & wait", &out, &out)
 }
 
 // The vault master key must not reach the gate process.
