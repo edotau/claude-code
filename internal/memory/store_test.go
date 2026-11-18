@@ -7,6 +7,7 @@ import (
 	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -157,9 +158,38 @@ func isolatedConfig(t *testing.T) (cfg, home string) {
 // initStore creates the unified store's git repo; callers must already hold an isolated CLAUDE_CONFIG_DIR.
 func initStore(t *testing.T) {
 	t.Helper()
-	if err := StoreRepo().Ensure(); err != nil {
+	repo := StoreRepo()
+	if err := repo.plainDir(); err != nil {
 		t.Fatal(err)
 	}
+	if !repo.Exists() { // a copy of what Ensure's `git init` writes; Ensure below still runs every check
+		if err := os.CopyFS(filepath.Join(repo.Dir, ".git"), os.DirFS(storeTemplate(t))); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := repo.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// storeTmpl is the .git of one store built by Ensure, made once per test binary and removed by TestMain.
+var storeTmpl struct {
+	once sync.Once
+	dir  string
+	err  error
+}
+
+func storeTemplate(t *testing.T) string {
+	t.Helper()
+	storeTmpl.once.Do(func() {
+		if storeTmpl.dir, storeTmpl.err = os.MkdirTemp("", "memstore-"); storeTmpl.err == nil {
+			storeTmpl.err = Repo{Dir: storeTmpl.dir}.Ensure()
+		}
+	})
+	if storeTmpl.err != nil {
+		t.Fatal(storeTmpl.err)
+	}
+	return filepath.Join(storeTmpl.dir, ".git")
 }
 
 // gitRepo makes a real disposable repository with one commit at <parent>/<name>.
@@ -178,6 +208,9 @@ func TestMain(m *testing.M) {
 	}
 	cleanup()
 	hosttest.Cleanup()
+	if storeTmpl.dir != "" {
+		_ = os.RemoveAll(storeTmpl.dir)
+	}
 	os.Exit(code)
 }
 

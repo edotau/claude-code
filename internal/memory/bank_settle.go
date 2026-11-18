@@ -167,21 +167,25 @@ func refreshIndexFiles(now time.Time, extra []string) (indexReport, error) {
 
 // Git runs with literal pathspecs, so flat scopes must name files rather than prefix globs.
 func commitBanks(subject string) error {
-	var scope []string
-	if !StoreRepo().Exists() {
-		if err := StoreRepo().Ensure(); err != nil {
+	repo := StoreRepo()
+	if !repo.Exists() {
+		if err := repo.Ensure(); err != nil {
 			return err
 		}
-		scope = append(scope, ".gitignore")
 	}
-	dirty, err := StoreRepo().Status()
+	dirty, err := repo.Status() // every dirty path is in scope, so a second status scoped to them would say the same
 	if err != nil {
 		return err
 	}
+	var rels []string
 	for _, e := range dirty {
-		scope = append(scope, e.Path)
+		rels = append(rels, e.Path)
 	}
-	return commitStore(subject, append(scope, catalogFile, routerFile)...)
+	if len(rels) == 0 {
+		return nil
+	}
+	_, _, err = repo.Commit(rels, subject, "")
+	return err
 }
 
 // scaffolded reports whether the bank has any typed file.

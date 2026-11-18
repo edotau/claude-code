@@ -540,13 +540,12 @@ func (r Repo) Commit(rels []string, subject, body string) (sha string, committed
 			_, _ = r.run("reset", "--quiet") // a stuck index would fail every later commit as "unexpected staged change"
 		}
 	}()
-	if err := r.stageRels(rels); err != nil {
+	staged, err := r.stageRels(rels)
+	if err != nil {
 		return "", false, err
 	}
-	if _, err := r.run("diff", "--cached", "--quiet"); err == nil {
+	if len(staged) == 0 { // the staged-names diff already answers what `diff --cached --quiet` would
 		return "", false, nil
-	} else if exitCode(err) != 1 {
-		return "", false, err
 	}
 	args := []string{"commit", "--quiet", "-m", subject}
 	if body != "" {
@@ -559,14 +558,15 @@ func (r Repo) Commit(rels []string, subject, body string) (sha string, committed
 	return sha, true, err
 }
 
-func (r Repo) stageRels(rels []string) error {
+// stageRels stages rels and returns every path the index now differs from HEAD in.
+func (r Repo) stageRels(rels []string) ([]string, error) {
 	stage, err := r.stageable(rels)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	for chunk := range slices.Chunk(stage, 200) { // keeps the argv under the Windows command-line limit
 		if _, err := r.run(append([]string{"add", "-A", "--"}, chunk...)...); err != nil {
-			return err
+			return nil, err
 		}
 	}
 	return r.checkStaged(rels)
@@ -643,10 +643,10 @@ func (r Repo) refuseCredentialShaped(rels []string, keep func(rel string) bool) 
 }
 
 // checkStaged refuses an index holding anything beyond rels: a stray `git add` (or a pathspec glob) skipped validation.
-func (r Repo) checkStaged(rels []string) error {
+func (r Repo) checkStaged(rels []string) (staged []string, err error) {
 	out, err := r.run("diff", "--cached", "--name-only", "--no-renames", "-z")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	want := make(map[string]bool, len(rels))
 	for _, rel := range rels {
@@ -654,10 +654,13 @@ func (r Repo) checkStaged(rels []string) error {
 	}
 	for p := range strings.SplitSeq(out, "\x00") {
 		if p != "" && !want[p] {
-			return fmt.Errorf("memory repo: unexpected staged change: %s", p)
+			return nil, fmt.Errorf("memory repo: unexpected staged change: %s", p)
+		}
+		if p != "" {
+			staged = append(staged, p)
 		}
 	}
-	return nil
+	return staged, nil
 }
 
 // validateRel rejects any rel that is not a plain store-relative path to a regular (or absent) file.
