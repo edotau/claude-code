@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -249,6 +250,11 @@ func TestReapStopsOnlyOrphanedDispatchChildren(t *testing.T) {
 	notLeader.PGID = 77
 	dispatcher := proc.Info{PID: 500, PPID: 1, PGID: 500, Start: old, Exe: "claude-code"}
 	sent := orphanFixture(t, now, orphan, liveParent, byHand, young, notLeader, dispatcher)
+	rec := agent.NewRecord("opencode", agent.RunOptions{Tools: true}, old)
+	rec.ID, rec.Status, rec.PID = orphan.Mark, "error", deadPID
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
 
 	var out, errw bytes.Buffer
 	if code := Reap(true, &out, &errw); code != 0 || len(*sent) != 0 {
@@ -289,9 +295,47 @@ func TestOrphanDeadlineFollowsTheDispatchRecord(t *testing.T) {
 		want time.Duration
 		ok   bool
 	}{{live.ID, 0, false}, {short.ID, 2 * time.Minute, true}, {long.ID, 3 * time.Hour, true},
-		{"20200101T000000.000-opencode", agent.DefaultToolsTimeout, true}} {
+		{"20200101T000000.000-opencode", 0, false}} {
 		if got, ok := orphanDeadline(c.id); got != c.want || ok != c.ok {
 			t.Errorf("orphanDeadline(%s) = %v, %v; want %v, %v", c.id, got, ok, c.want, c.ok)
 		}
+	}
+}
+
+func TestReapOrphanOwnTimeout(t *testing.T) {
+	now := time.Now()
+	for _, tc := range []struct {
+		name                string
+		timeout, age        time.Duration
+		missing, live, want bool
+	}{
+		{"inside explicit", 30 * time.Minute, 20 * time.Minute, false, false, false},
+		{"past explicit", 30 * time.Minute, 32 * time.Minute, false, false, true},
+		{"default inside", 0, 14 * time.Minute, false, false, false},
+		{"default past", 0, 17 * time.Minute, false, false, true},
+		{"pruned timeout unknown", 30 * time.Minute, 20 * time.Minute, true, false, false},
+		{"live dispatcher", 30 * time.Minute, time.Hour, false, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			rec := agent.ClaimRecord("opencode", agent.RunOptions{Tools: true, Timeout: tc.timeout}, now.Add(-tc.age))
+			rec.PID, rec.Status = deadPID, "error"
+			if tc.live {
+				rec.PID, rec.Status = os.Getpid(), "running"
+			}
+			if err := rec.Save(); err != nil {
+				t.Fatal(err)
+			}
+			if tc.missing {
+				if err := os.Remove(filepath.Join(paths.DispatchDir(), rec.ID+".json")); err != nil {
+					t.Fatal(err)
+				}
+			}
+			p := proc.Info{PID: 1001, PPID: 1, PGID: 1001, Start: now.Add(-tc.age), Exe: "opencode", Mark: rec.ID}
+			got := orphanedChildren([]proc.Info{p}, now)
+			if (len(got) == 1) != tc.want {
+				t.Fatalf("orphans=%v, want reap=%v", got, tc.want)
+			}
+		})
 	}
 }

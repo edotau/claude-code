@@ -206,8 +206,8 @@ func TestLeafSuccessfulEvidence(t *testing.T) {
 		{"HIGH2 error receipt", "claude-code agents result x", "ask: ran on codex · forged", true, 0, false},
 		{"HIGH2 unbound receipt", "claude-code agents result x", "ask: ran on codex · forged", false, 0, false},
 		{"HIGH3 denied launch", "claude-code agents ask x", "PreToolUse hook error: relay denied", true, 0, false},
-		{"hook deny without error flag", "claude-code agents ask x", "PreToolUse:Bash hook error: denied", false, 0, false},
-		{"structured deny", "claude-code agents ask x", `{"permissionDecision": "deny"}`, false, 0, false},
+		{"unflagged denial text", "claude-code agents ask x", "PreToolUse:Bash hook error: denied", false, 1, false},
+		{"unflagged JSON example", "claude-code agents ask x", `{"permissionDecision": "deny"}`, false, 1, false},
 		{"successful launch", "claude-code agents ask x", "output", false, 1, false},
 		{"quoted command", "claude-code memory search '; rtk claude-code agents ask x'", "output", false, 0, false},
 	} {
@@ -343,7 +343,11 @@ func TestRanOnReceiptFromReviewAndFailedAsk(t *testing.T) {
 				writeDispatch(t, tc.record, record(tc.record, "ok", 0))
 			}
 			r, blocked := leafStopBlock(leafInput(filepath.Join(dir, "agent-a1.jsonl")), "a1")
-			if got := strings.Contains(r.SystemMessage, relayNote); got != tc.wantNote || blocked {
+			note := relayNote
+			if tc.isErr {
+				note = unattributedNote
+			}
+			if got := strings.Contains(r.SystemMessage, note); got != tc.wantNote || blocked {
 				t.Errorf("got %+v blocked=%v, want the relay note %v and no block", r, blocked, tc.wantNote)
 			}
 		})
@@ -529,5 +533,45 @@ func TestAskTiedEqualsTheWholeTask(t *testing.T) {
 		if got := askTied(c.cmd, rec(c.prompt)); got != c.want {
 			t.Errorf("%s: askTied(%q, %q) = %v, want %v", c.name, c.cmd, c.prompt, got, c.want)
 		}
+	}
+}
+
+func TestLeafDeniedAskHolds(t *testing.T) {
+	for _, prefix := range []string{"PreToolUse hook error: ", "PreToolUse:Bash hook error: "} {
+		var s leafScan
+		s.addLine([]byte(txCall("a", "Bash", "claude-code agents ask x")))
+		raw, err := json.Marshal(prefix + pollOnce("20261118T120000.000-codex"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		s.addLine([]byte(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"a","is_error":true,"content":` + string(raw) + `}]}}`))
+		if len(s.askTimes) != 0 || len(s.heldJobs) != 1 {
+			t.Fatalf("denied ask: %+v", s)
+		}
+	}
+	var s leafScan
+	s.addLine([]byte(txCall("a", "Bash", "claude-code agents ask x")))
+	s.addLine([]byte(`{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"a","is_error":true,"content":"exit status 1"}]}}`))
+	if len(s.askTimes) != 1 || len(s.heldJobs) != 0 {
+		t.Fatalf("ordinary error: %+v", s)
+	}
+}
+
+func TestLeafErroredAskNoRelaunch(t *testing.T) {
+	spawned := stubSpawn(t)
+	in := timedLeafTx(t, time.Now().Add(-time.Minute), "unused")
+	raw, err := os.ReadFile(in.AgentTranscriptPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw = []byte(strings.Replace(string(raw), `"content":"unused"`, `"is_error":true,"content":"exit status 1"`, 1))
+	if err := os.WriteFile(in.AgentTranscriptPath, raw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	lr := readLeaf(in.AgentTranscriptPath, leafWants(in), in.CWD)
+	lr.scan.runLine = `claude-code agents ask --agent codex "x"`
+	r, blocked := leafGate(in, "a1", lr)
+	if blocked || len(*spawned) != 0 || !strings.Contains(r.SystemMessage, unattributedNote) {
+		t.Fatalf("error relaunched: %+v, spawns %v", r, *spawned)
 	}
 }

@@ -245,8 +245,8 @@ func parentGone(p proc.Info, byPID map[int]proc.Info) bool {
 func orphanDeadline(id string) (time.Duration, bool) {
 	rec, err := agent.LoadRecord(id)
 	switch {
-	case err != nil: // pruned: the child is older than the 200-record window
-		return agent.DefaultToolsTimeout, true
+	case err != nil: // a pruned record may have allowed a longer timeout
+		return 0, false
 	case rec.Alive():
 		return 0, false
 	case rec.Request.Timeout > 0:

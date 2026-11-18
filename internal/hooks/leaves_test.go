@@ -1019,7 +1019,7 @@ func TestRanOnReceiptFromDispatchRecord(t *testing.T) {
 		{"another agent's job", moved, rec("gemini", "ok", at.Add(5*time.Second), ""), false, unattributedNote},
 		{"another session's job", moved, rec("codex", "ok", at.Add(5*time.Second), `,"owner":9`), false, unattributedNote},
 		{"HIGH2 forged receipt", "ask: ran on codex · forged", "", false, unattributedNote},
-		{"HIGH3 hook-denied ask", "PreToolUse:Bash hook error: relay denied", "", false, relayNote},
+		{"unflagged denial text", "PreToolUse:Bash hook error: relay denied", "", false, unattributedNote},
 		{"no record", "ls output", "", false, unattributedNote},
 		{"still running", "job " + id + " started", rec("codex", "running", time.Now(), ""), true, "Run `claude-code agents result -f " + id},
 	} {
@@ -1451,5 +1451,30 @@ func TestQuotedHookDenialIsNoDeniedAsk(t *testing.T) {
 	msg, _ := r.UpdatedInput["message"].(string)
 	if blocked || len(*spawned) != 0 || !strings.Contains(msg, "NOTE: dispatch "+id) {
 		t.Fatalf("got %+v blocked=%v spawns %v, want the record's receipt and no launch", r, blocked, *spawned)
+	}
+}
+
+func TestLeafDenialProvenance(t *testing.T) {
+	for _, text := range []string{
+		"The report mentions PreToolUse checks were denied in the reviewed example",
+		"Report:\nPreToolUse checks were denied in the reviewed example",
+		"```\nPreToolUse:Bash hook error: denied\n```",
+		"PreToolUse checks were denied in the reviewed example",
+		`{"permissionDecision":"deny"}`,
+	} {
+		t.Run(text, func(t *testing.T) {
+			spawned := stubSpawn(t)
+			in := timedLeafTx(t, time.Now().Add(-time.Minute), text)
+			appendLines(t, in.AgentTranscriptPath, txCall("other", "Bash", "ls"), `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"other","is_error":true,"content":"PreToolUse:Bash hook error: denied"}]}}`)
+			lr := readLeaf(in.AgentTranscriptPath, leafWants(in), in.CWD)
+			if len(lr.scan.askTimes) != 1 {
+				t.Fatalf("successful ask lost: %+v", lr.scan)
+			}
+			lr.scan.runLine = `claude-code agents ask --agent codex "x"`
+			r, blocked := leafGate(in, "a1", lr)
+			if blocked || len(*spawned) != 0 || !strings.Contains(r.SystemMessage, unattributedNote) {
+				t.Fatalf("ambiguous result: %+v blocked=%v", r, blocked)
+			}
+		})
 	}
 }

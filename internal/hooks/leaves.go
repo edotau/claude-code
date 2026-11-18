@@ -480,7 +480,7 @@ type leafScan struct {
 	seenBrief         bool
 	runLine           string    // the brief's opening `Run:` command, the one the hook runs
 	task              string    // the brief after its Run: line: the prompt a promptless Run: line is missing
-	asks              []askCall // the successful launching calls: time and command, to tie a polled record to its ask
+	asks              []askCall // the non-denied launching calls: time and command, to tie a polled record to its ask
 	askCmds           map[string]string
 	askTimes          []time.Time     // when each launching (ask|dispatch) call was made, to find its dispatch record
 	askCalls          map[string]bool // tool_use ids of Bash calls that ran an ask, dispatch or result
@@ -635,16 +635,16 @@ func (s *leafScan) addResults(content json.RawMessage) {
 func (s *leafScan) scanResult(it leafToolResult) {
 	raw := transcript.ContentText(it.Content)
 	text := resultText(raw)
-	denied := hookDenyRe().MatchString(text)
-	if it.IsError && denied { // a hold reaches the leaf as a denied hand-back call; a quoting tool result is no hold
+	denied := it.IsError && hookDenyRe().MatchString(text)
+	if denied { // a hold reaches the leaf as a denied hand-back call; a quoting tool result is no hold
 		s.addHolds(raw)
 	}
-	success := !it.IsError && !denied
+	success := !it.IsError
 	if success && s.pendingEdits[it.ToolUseID] {
 		s.edited = true
 	}
 	if at, ok := s.pendingAsks[it.ToolUseID]; ok {
-		if success {
+		if !denied {
 			s.askTimes = append(s.askTimes, at)
 			s.asks = append(s.asks, askCall{at, s.askCmds[it.ToolUseID]})
 		}
