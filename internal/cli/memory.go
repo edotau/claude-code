@@ -118,6 +118,9 @@ func cmdMemoryUpdate(args []string) int {
 		return helptext.FailUsage("memory update: unexpected argument %q; name a session with --session <id>", fs.Arg(0))
 	}
 	if *catchup {
+		if !*dryRun {
+			dailyLearn(time.Now(), os.Stderr)
+		}
 		return memory.CatchUpSweep(memory.SweepOptions{DryRun: *dryRun, Skip: *skip, Stdout: os.Stdout, Stderr: os.Stderr})
 	}
 	err := memory.UpdateSession(memory.UpdateSessionOptions{Transcript: *transcript, CWD: *cwd, Session: *session,

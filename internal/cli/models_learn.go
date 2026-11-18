@@ -43,18 +43,25 @@ func modelsLearn(args []string) int {
 	if err := helptext.CheckFormat(*format); err != nil {
 		return helptext.BadFormat("models learn", err)
 	}
-	prev, err := catalog.ReadFit()
+	now := time.Now()
+	next, err := foldFit(now, *dry)
 	if err != nil {
 		return helptext.Fail("models learn: %v", err)
 	}
-	now := time.Now()
-	next := prev.Fold(agent.FitOutcomes(agent.RecentRecords(agent.AllRecords)), now)
-	if !*dry {
-		if err := catalog.SaveFit(next); err != nil {
-			return helptext.Fail("models learn: %v", err)
-		}
-	}
 	return printFit(next, now, *format)
+}
+
+// foldFit folds the dispatch records into fit.json (unless dry) and returns the new table.
+func foldFit(now time.Time, dry bool) (catalog.Fit, error) {
+	prev, err := catalog.ReadFit()
+	if err != nil {
+		return catalog.Fit{}, err
+	}
+	next := prev.Fold(agent.FitOutcomes(agent.RecentRecords(agent.AllRecords)), now)
+	if dry {
+		return next, nil
+	}
+	return next, catalog.SaveFit(next)
 }
 
 func printFit(f catalog.Fit, now time.Time, format string) int {

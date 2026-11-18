@@ -92,7 +92,8 @@ Off, cold or stale reads as the static menu: routing never touches the network.
 
 - **Refresh:** `make install`, `doctor --refresh`, `models preflight --live`; switched on, also `switch`,
   `<agent> profile`, `configure` exit and a detached `models preflight --refresh`
-  at session start (≤ once per 15 minutes).
+  at session start (≤ once per 15 minutes). The detached catch-up child spawned at every session start also runs the
+  daily learn steps (`models learn` fold, recall weights), stamped `state/harness/preflight/learn-daily`.
 - **A swap ignores the alias:** an alias-derived pick (no `--model`, overlay `model` or record model) that is not
   READY is replaced by the first READY entry in menu order, so a sonnet dispatch can land on an opus endpoint; menu
   order is the control. A pinned or explicit model that is not READY is never swapped: its candidate is skipped

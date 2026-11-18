@@ -48,7 +48,7 @@ update`; the rest print none.
 - Move: `promote <id> --to <target>` (ladder below), `import --from <dir> | --host <h>` (refuses a source not yet
   migrated: run `claude-code memory migrate` on it), `migrate`, `sandbox [--empty]` (disposable config with a copied
   bank, origin-only vault).
-- Hook-spawned: `watch`; SessionStart spawns `update --catchup`.
+- Hook-spawned: `watch`; SessionStart spawns `update --catchup`, which also runs the daily learn steps.
 - `import` is additive and idempotent (`--dry-run` previews; `git -C ~/.claude/memory log` is the undo): logs merge
   (missing blocks only); `--topics` copies files only the source has, appends the source's `index.md` records and
   pending `MEMORY.md` entries to `index.md` after the local ones, settles, and keeps local state files and any

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/paths"
@@ -57,6 +58,19 @@ func inflightDoctorDetail() string {
 		parts = []string{"none"}
 	}
 	return fmt.Sprintf("%d/%d (%s)", snap.Total, lim.Total, strings.Join(parts, ", "))
+}
+
+// fitDoctorDetail is when the daily learn step last ran and what fit.json has folded (the cached read of the file).
+func fitDoctorDetail() string {
+	f := catalog.LoadFit()
+	if f == nil {
+		return "no fit table yet; `claude-code models learn` or the daily catch-up job writes it"
+	}
+	ran := "never by the daily job"
+	if fi, err := os.Stat(filepath.Join(paths.StateDir(), "preflight", "learn-daily")); err == nil {
+		ran = "daily job ran " + fi.ModTime().Local().Format("2006-01-02 15:04")
+	}
+	return fmt.Sprintf("%s; folded through %s, %d cells", ran, f.Folded.Local().Format("2006-01-02 15:04"), len(f.Cells))
 }
 
 // quotaDoctorRows is one row per exhausted or low account in route's quota.json, with its reset and the manual fix.

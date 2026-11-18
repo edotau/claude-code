@@ -84,11 +84,17 @@ func recallSnapshot(ctx context.Context, p *providers.Provider, usable func([]pr
 const refreshRetry = 15 * time.Minute
 
 // ClaimNamed takes the detached-refresh slot stamped name; false when another attempt started within refreshRetry.
-func ClaimNamed(name string, now time.Time) bool {
+func ClaimNamed(name string, now time.Time) bool { return ClaimEvery(name, refreshRetry, now) }
+
+// ClaimEvery takes the slot stamped name; false when an attempt started within every (a fresh stamp costs a stat).
+func ClaimEvery(name string, every time.Duration, now time.Time) bool {
 	path := filepath.Join(paths.StateDir(), "preflight", name)
+	if fi, err := os.Stat(path); err == nil && now.Sub(fi.ModTime()) < every {
+		return false
+	}
 	claimed := true
 	err := paths.WithFileLock(path, func() error {
-		if fi, err := os.Stat(path); err == nil && now.Sub(fi.ModTime()) < refreshRetry {
+		if fi, err := os.Stat(path); err == nil && now.Sub(fi.ModTime()) < every {
 			claimed = false
 			return nil
 		}
