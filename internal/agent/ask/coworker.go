@@ -303,9 +303,9 @@ var armPicksFormat = schemas.Register(schemas.Format{
 func armPicksFile() string { return filepath.Join(paths.StateDir(), "ask", "route-auto.json") }
 
 // usableArms is the workspaces outside tried passing the preflight; a model none serves is dropped with a finding.
-func usableArms(reg *providers.Registry, agentName, model string, now time.Time, tried []string) ([]*providers.Provider, []agent.Finding) {
+func usableArms(reg *providers.Registry, agentName, model string, strict bool, now time.Time, tried []string) ([]*providers.Provider, []agent.Finding) {
 	usable, skipped := armCandidates(reg, agentName, model, now, tried)
-	if len(usable) == 0 && model != "" {
+	if len(usable) == 0 && model != "" && !strict {
 		usable, skipped = armCandidates(reg, agentName, "", now, tried)
 	}
 	return usable, skipped
@@ -328,11 +328,11 @@ type armQuery struct {
 func pickWith(reg *providers.Registry, q armQuery, now time.Time) (name string, live int, skipped []agent.Finding, err error) {
 	usable, skipped := armCandidates(reg, q.agentName, q.model, now, q.tried)
 	if len(usable) == 0 && q.model != "" {
-		any, anySkipped := armCandidates(reg, q.agentName, "", now, q.tried)
-		if q.strict && len(q.tried) == 0 && len(any) > 0 {
+		others, othersSkipped := armCandidates(reg, q.agentName, "", now, q.tried)
+		if q.strict && len(others) > 0 {
 			return "", 0, skipped, errUnserved(q.model, skipped)
 		}
-		usable, skipped = any, anySkipped
+		usable, skipped = others, othersSkipped
 	}
 	if len(usable) == 0 {
 		return "", 0, skipped, errors.New("overlay databricks:auto: no Databricks workspace passes the preflight (claude-code doctor)")
@@ -353,7 +353,13 @@ func pickWith(reg *providers.Registry, q armQuery, now time.Time) (name string, 
 				picks.Picked[a.Name].Compare(picks.Picked[b.Name]), cmp.Compare(a.Name, b.Name))
 		})
 		name, live = best.Name, counts[best.Name]
-		picks.Picked[name] = now
+		stamp := now // never behind another pick's stamp: concurrent picks take the lock out of order of their own now
+		for _, at := range picks.Picked {
+			if !stamp.After(at) {
+				stamp = at.Add(time.Nanosecond)
+			}
+		}
+		picks.Picked[name] = stamp
 		return writeArmPicks(picks)
 	}
 	if err := paths.WithFileLock(armPicksFile(), pick); name == "" && err != nil { // the stamp is best-effort, the pick is not

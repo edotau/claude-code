@@ -264,6 +264,9 @@ func (r *askRun) checkArm() (int, bool) {
 	fallback := f.fallback
 	if picks && !r.swap { // an env default never licenses swapping a typed model
 		fallback = router.FallbackNone
+		if typedModel(f.model) { // the chain and a 429 retry both keep the typed model
+			f.fallback = fallback
+		}
 	}
 	// applied here, not in export: CheckArm, ConfineLead and resolveLead read the confinement from the run's values
 	ctx, err := ApplyCoworker(r.ctx, value, f.provider, agentName, f.model, fallback)

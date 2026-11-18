@@ -717,4 +717,20 @@ func TestPickWithPendingAndConcurrent(t *testing.T) {
 	if len(distinct) != 3 {
 		t.Fatalf("three concurrent picks chose %v, want three distinct workspaces", distinct)
 	}
+	spread := make(chan string, 6)
+	for range 6 {
+		wg.Go(func() {
+			name, _, _, _ := pickWith(reg, armQuery{}, time.Now())
+			spread <- name
+		})
+	}
+	wg.Wait()
+	close(spread)
+	per := map[string]int{}
+	for n := range spread {
+		per[n]++
+	}
+	if per["dev"] != 2 || per["prod"] != 2 || per["qa"] != 2 {
+		t.Fatalf("six concurrent picks = %v, want two on each workspace", per)
+	}
 }

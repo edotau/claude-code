@@ -364,7 +364,7 @@ func TestArmProbePreservesRequestedFallbackAfterProgress(t *testing.T) {
 	orig := armFindings
 	armFindings = noCredential(nil)
 	t.Cleanup(func() { armFindings = orig })
-	if !armsLeft("lead-stub", "", []string{"dev"}) {
+	if !armsLeft("lead-stub", "", false, []string{"dev"}) {
 		t.Fatal("fixture has no spare workspace")
 	}
 	a := &armRetry{agentName: "lead-stub", fallback: "all", tried: []string{"dev"}}
@@ -433,4 +433,45 @@ func TestArmProbeYieldsOnlyRetryableWorkspaceFailures(t *testing.T) {
 			}
 		})
 	}
+}
+
+// A 429 on a typed model's workspace never moves to a workspace that lacks it; an alias still follows the pool.
+func TestArmRetryKeepsTypedModel(t *testing.T) {
+	retryUnit(t, func(t *testing.T) {
+		armFindings = servesOnly("dev")
+		typed := &armRetry{agentName: "codex", model: "kimi-k3-1-pro", strict: true, tried: []string{"dev"}}
+		if armsLeft(typed.agentName, typed.model, typed.strict, typed.tried) {
+			t.Error("armsLeft = true: qa does not serve the typed model")
+		}
+		if typed.move(0) || len(typed.tried) != 1 {
+			t.Errorf("move landed on %v: the retry swapped the typed model's workspace", typed.tried)
+		}
+		armFindings = servesOnly("dev", "qa")
+		typed = &armRetry{agentName: "codex", model: "kimi-k3-1-pro", strict: true, tried: []string{"dev"}}
+		if !typed.move(0) || typed.current() != "qa" {
+			t.Errorf("tried = %v, want a move to qa, which serves the model", typed.tried)
+		}
+	})
+}
+
+// An env fallback default never rides a typed model onto the picked workspace; an alias keeps it.
+func TestCheckArmClampsFallbackForTypedModel(t *testing.T) {
+	retryUnit(t, func(t *testing.T) {
+		armFindings = servesOnly("dev", "qa")
+		t.Setenv(router.EnvFallback, router.FallbackAll)
+		for model, want := range map[string]string{"kimi-k3-1-pro": router.FallbackNone, "opus": router.FallbackAll} {
+			fs, f := askFlagSet()
+			if err := fs.Parse([]string{"--provider", "databricks", "--model", model}); err != nil {
+				t.Fatal(err)
+			}
+			f.fallback = router.DefaultFallback()
+			r := &askRun{ctx: t.Context(), fs: fs, f: f, ag: "codex"}
+			if code, failed := r.checkArm(); failed {
+				t.Fatalf("%s: checkArm exit %d", model, code)
+			}
+			if f.fallback != want {
+				t.Errorf("%s: f.fallback = %q, want %q", model, f.fallback, want)
+			}
+		}
+	})
 }

@@ -37,6 +37,7 @@ func armAutoPick(ctx context.Context, value string) bool {
 // armRetry is one foreground ask on an auto-picked workspace; a workspace answering 429 is cooled and the ask moves on.
 type armRetry struct {
 	agentName, model, fallback, format, save string
+	strict                                   bool      // a typed model: a retry only moves to a workspace serving it
 	out                                      io.Writer // where the answer and envelope go
 	job                                      bool      // a --job child: the answer also lands on stdout, the log
 	tried                                    []string  // the workspaces asked so far, in order
@@ -52,7 +53,7 @@ func (r *askRun) armRun() *armRetry {
 		return nil
 	}
 	return &armRetry{agentName: r.ag, model: f.model, fallback: f.fallback, format: f.format, save: f.save, out: r.out, job: r.jobRec != nil,
-		tried: []string{r.auto}}
+		strict: !r.swap && typedModel(f.model), tried: []string{r.auto}}
 }
 
 // probe keeps the requested chain, yielding only a pre-progress 429 to another usable workspace.
@@ -60,7 +61,7 @@ func (a *armRetry) probe(req agent.RunOptions) agent.RunOptions {
 	req.YieldFallback = func(res wire.Result, err error) bool {
 		e, ok := errors.AsType[*retry.Error](err)
 		return ok && e.Kind == retry.KindRateLimit && agent.HopFailed(res, err) &&
-			armsLeft(a.agentName, a.model, a.tried)
+			armsLeft(a.agentName, a.model, a.strict, a.tried)
 	}
 	return req
 }
@@ -172,7 +173,7 @@ func (a *armRetry) next(ctx context.Context, res wire.Result, err error, req age
 func (a *armRetry) move(retryAfter time.Duration) bool {
 	cur := a.current()
 	coolArm(cur, retryAfter)
-	name, _, err := nextArm(a.agentName, a.model, a.tried)
+	name, _, err := nextArm(a.agentName, a.model, a.strict, a.tried)
 	if err != nil {
 		return false
 	}
@@ -194,27 +195,27 @@ func coolArm(name string, retryAfter time.Duration) {
 }
 
 // nextArm is pickArm outside tried, printed like the first pick; more: another workspace is left behind it.
-func nextArm(agentName, model string, tried []string) (name string, more bool, err error) {
+func nextArm(agentName, model string, strict bool, tried []string) (name string, more bool, err error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return "", false, fmt.Errorf("overlay databricks:auto: %w", err)
 	}
 	now := time.Now()
-	p, live, skipped, err := pickArm(reg, agentName, model, now, tried...)
+	p, live, skipped, err := pickWith(reg, armQuery{agentName: agentName, model: model, strict: strict, tried: tried}, now)
 	if name, err = reportPick(p, live, skipped, err); err != nil {
 		return "", false, err
 	}
-	rest, _ := usableArms(reg, agentName, model, now, append(slices.Clone(tried), name))
+	rest, _ := usableArms(reg, agentName, model, strict, now, append(slices.Clone(tried), name))
 	return name, len(rest) > 0, nil
 }
 
 // armsLeft reports a workspace outside tried that passes the preflight.
-func armsLeft(agentName, model string, tried []string) bool {
+func armsLeft(agentName, model string, strict bool, tried []string) bool {
 	reg, err := providers.Load()
 	if err != nil {
 		return false
 	}
-	usable, _ := usableArms(reg, agentName, model, time.Now(), tried)
+	usable, _ := usableArms(reg, agentName, model, strict, time.Now(), tried)
 	return len(usable) > 0
 }
 
