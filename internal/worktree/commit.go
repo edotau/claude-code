@@ -56,7 +56,7 @@ func Commit(ctx context.Context, req CommitRequest) error {
 	if top == "" {
 		return usage("not inside a git work tree: %s", req.Dir)
 	}
-	entries, err := gitStatus(ctx, paths.Real(top))
+	entries, err := readOnlyStatus(ctx, paths.Real(top))
 	if err != nil {
 		return err
 	}
@@ -87,6 +87,15 @@ func Commit(ctx context.Context, req CommitRequest) error {
 	fmt.Fprintln(req.Out, res)
 	printAhead(ctx, req.Out, tree.top)
 	return nil
+}
+
+// readOnlyStatus is gitStatus without git's opportunistic index refresh, which would rewrite the index as 0644.
+func readOnlyStatus(ctx context.Context, top string) ([]proc.StatusEntry, error) {
+	raw, err := proc.RunGit(ctx, top, "--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all")
+	if err != nil {
+		return nil, fmt.Errorf("git status in %s: %w", top, err)
+	}
+	return proc.StatusEntries(raw), nil
 }
 
 // commitSet is the repo-relative dirty paths to commit: named ones, else the caller's own claimed ones.

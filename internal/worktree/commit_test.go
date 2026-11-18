@@ -556,6 +556,47 @@ func TestUndoAddStuckLockNamesStagedFilesAndCommand(t *testing.T) {
 	}
 }
 
+func TestCommitFailedCommitKeepsIndexModeAndBytes(t *testing.T) {
+	hosttest.SkipOnWindows(t, "unix permission bits and sh hook")
+	for _, mode := range []os.FileMode{0o600, 0o640} {
+		for _, file := range []string{"new.txt", "a.txt"} {
+			t.Run(fmt.Sprintf("%o/%s", mode, file), func(t *testing.T) {
+				dir := commitRepo(t)
+				hook := strings.TrimSpace(hosttest.In(t, dir, "rev-parse", "--path-format=absolute", "--git-path", "hooks/pre-commit"))
+				if err := os.MkdirAll(filepath.Dir(hook), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				if err := os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
+					t.Fatal(err)
+				}
+				hosttest.WriteRel(t, dir, file, "changed\n")
+				// a newer mtime makes git's status refresh want to rewrite the index
+				later := time.Now().Add(time.Minute)
+				if err := os.Chtimes(filepath.Join(dir, "b.txt"), later, later); err != nil {
+					t.Fatal(err)
+				}
+				idx := strings.TrimSpace(hosttest.In(t, dir, "rev-parse", "--path-format=absolute", "--git-path", "index"))
+				if err := os.Chmod(idx, mode); err != nil {
+					t.Fatal(err)
+				}
+				bytesBefore, staged := indexBytes(t, dir), hosttest.In(t, dir, "ls-files", "-s")
+				if _, err := commitRun(commitReq(dir, "feat: change", file)); err == nil {
+					t.Fatal("the pre-commit hook exits 1, so the commit must fail")
+				}
+				if fi, err := os.Stat(idx); err != nil || fi.Mode().Perm() != mode {
+					t.Fatalf("index mode = %v (%v), want %v", fi.Mode().Perm(), err, mode)
+				}
+				if got := hosttest.In(t, dir, "ls-files", "-s"); got != staged {
+					t.Fatalf("staged set = %q, want %q", got, staged)
+				}
+				if !bytes.Equal(bytesBefore, indexBytes(t, dir)) {
+					t.Fatal("a failed commit left the index bytes changed")
+				}
+			})
+		}
+	}
+}
+
 func TestUndoAddKeepsIndexMode(t *testing.T) {
 	hosttest.SkipOnWindows(t, "unix permission bits")
 	dir := commitRepo(t)
