@@ -47,12 +47,10 @@ behavior stay in the rule):
   sandbox shell. codex and gemini refuse `--tools` with `--mode plan`. An `--allow` adds but can never reopen a matching
   deny. copilot file rules are judged as both Edit and Write, in absolute and workdir-relative form. copilot `--tools`
   approves every request like the other agents' `--tools`, still subject to the dispatch's permission rules (a Deny
-  returns feedback and the run continues) and the native hooks. claude `--tools` off
-  Anthropic is an allow list (go/git/read commands, `sed -n <range>p FILE`, `cd` into `--workdir` or below, env-prefixed
-  and `time` forms of listed commands, the `rtk` spellings the rewrite hook emits, the
-  `claude-code agents find|diff|result|dispatch|wait|status|tree`, `memory recall|search|show|report`,
-  `review simplify|scope` and `network websearch` verbs, Edit/Write under `--workdir`; `--allow` adds,
-  `--deny`/`--ask` refuse; bare `--autonomous` takes this same gated policy; `--mode plan` and `--safe-mode` keep the
-  old launch, and `--safe-mode` with bare `--autonomous` is refused), not approve-all: no judge, so anything unlisted is
-  denied. It runs gated like a memory job (`bypassPermissions`, because `dontAsk` hard-denies `.claude/` writes; tools
-  `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, no MCP/Agent/WebFetch; file redirects refused, `2>&1` allowed).
+  returns feedback and the run continues) and the native hooks. claude `--tools` off Anthropic has no implicit
+  policy: no plan mode, Bash allow list, Edit/Write `--workdir` limit or redirect deny. With no explicit rule it runs
+  under `bypassPermissions` and the `safety-scan` hook still applies; bare `--autonomous` is the same launch. Explicit
+  `--allow`/`--ask`/`--deny`/`--mode` rules gate with only those rules and no judge, so `--ask` becomes a deny; that
+  gate runs like a memory job (`bypassPermissions`, because `dontAsk` hard-denies `.claude/` writes; tools
+  `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, no MCP/Agent/WebFetch). `--mode plan` and `--safe-mode` keep their own
+  launch, and `--safe-mode` with bare `--autonomous` is refused.
