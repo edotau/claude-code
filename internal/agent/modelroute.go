@@ -371,6 +371,9 @@ func codexTierPin(r *ModelRoute, p *providers.Provider, q ModelQuery, typed stri
 // spellModel spells typed on p: alias through the row (Databricks bucket, Models), then the catalog by rule.
 func spellModel(r *ModelRoute, p *providers.Provider, agent, typed string, now time.Time) (string, error) {
 	name := strings.ToLower(models.Strip1M(typed))
+	if providers.IsFamily(name) {
+		return router.FamilyModel(agent, name, p, nil, now), nil
+	}
 	if slices.Contains(models.AliasNames, name) {
 		r.Alias = name
 		canonical, _ := models.Alias(name)

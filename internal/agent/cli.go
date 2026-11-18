@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 )
 
 // OwnProfile is the profile a run on the agent's own login bills: the registry row naming that login, else the agent.
@@ -493,7 +494,22 @@ func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, pr
 	if t, ok := aliasTarget(sel, req.Model); ok && !namesProvider(reg, req.Model) {
 		return reg, t, nil
 	}
+	if t, ok := familyTarget(reg, req, sel.Provider); ok {
+		return reg, t, nil
+	}
 	return reg, servedTarget(cmp.Or(req.Agent, "claude"), providers.ParseTarget(reg, req.Model, sel.Provider)), nil
+}
+
+// familyTarget is a typed GPT family name (sol, dev:sol) as the concrete id its row resolves to; else ok is false.
+func familyTarget(reg *providers.Registry, req RunOptions, row *providers.Provider) (providers.Target, bool) {
+	name := req.Model
+	if prefix, m, ok := strings.Cut(name, ":"); ok && namesProvider(reg, name) {
+		row, name = reg.Providers[prefix], m
+	}
+	if !providers.IsFamily(name) {
+		return providers.Target{}, false
+	}
+	return providers.Target{Provider: row, Model: router.FamilyModel(req.Agent, name, row, nil, time.Now())}, true
 }
 
 // agyOwnTarget is agy's own model typed on its Google row, spelled as agy takes it; an effort it lacks errors.

@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -62,6 +63,52 @@ func TestResolveModel(t *testing.T) {
 		if err != nil || r.Profile != c.profile || r.Model != c.wire {
 			t.Errorf("%s %s = %+v, %v; want %s %s", c.agent, c.model, r, err, c.profile, c.wire)
 		}
+	}
+}
+
+func familyWire(t *testing.T, agent, model string) (string, error) {
+	t.Helper()
+	r, err := ResolveModel(routeRegistry(t), ModelQuery{Agent: agent, Model: model}, time.Now())
+	return r.Model, err
+}
+
+// A typed family is the row's highest listed version, else today's id; an unknown name errors like an unknown alias.
+func TestResolveModelFamily(t *testing.T) {
+	vaulttest.Use(t)
+	codexHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	t.Cleanup(func() { router.GithubCatalogIDs = nil })
+	cache := func(body string) {
+		if err := os.WriteFile(filepath.Join(codexHome, "models_cache.json"), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	check := func(agent, model, want string) {
+		t.Helper()
+		if got, err := familyWire(t, agent, model); err != nil || got != want {
+			t.Errorf("%s %s = %q, %v; want %s", agent, model, got, err, want)
+		}
+	}
+	check("codex", "dev:sol", "databricks-gpt-6-1-sol")
+	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+		{ID: "databricks-gpt-6-sol"}, {ID: "databricks-gpt-6-1-sol"}, {ID: "databricks-gpt-6-2-sol"}}}); err != nil {
+		t.Fatal(err)
+	}
+	check("codex", "dev:sol", "databricks-gpt-6-2-sol")
+	check("codex", "dev:databricks-gpt-6-1-sol", "databricks-gpt-6-1-sol")
+	router.GithubCatalogIDs = func() []string { return []string{"gpt-6.1-sol", "gpt-6.2-sol", "claude-opus-5.5"} }
+	check("copilot", "aueric_boehcp:sol", "gpt-6.2-sol")
+	router.GithubCatalogIDs = func() []string { return nil }
+	check("copilot", "aueric_boehcp:sol", "gpt-6.1-sol")
+	check("codex", "chatgpt:sol", "gpt-6.1-sol")
+	cache(`{"models":[{"slug":"gpt-6.1-sol"},{"slug":"gpt-6.2-sol"}]}`)
+	check("codex", "chatgpt:sol", "gpt-6.2-sol")
+	cache(`{not json`)
+	check("codex", "chatgpt:sol", "gpt-6.1-sol")
+	_, errFamily := familyWire(t, "codex", "dev:vega")
+	_, errAlias := familyWire(t, "codex", "dev:no-such-model")
+	if !errors.Is(errFamily, ErrModelRoute) || strings.ReplaceAll(errFamily.Error(), "vega", "X") != strings.ReplaceAll(errAlias.Error(), "no-such-model", "X") {
+		t.Errorf("unknown family err = %v, want the unknown-alias error %v", errFamily, errAlias)
 	}
 }
 

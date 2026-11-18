@@ -10,10 +10,12 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -310,7 +312,7 @@ func renderCodex(o renderOptions) (renderResult, error) {
 	}
 	head, _, _ := strings.Cut(raw, authHeader)
 	head = replaceLine(head, "base_url", base)
-	head = replaceLine(head, "model", p.WireModel(cmp.Or(o.Model, "gpt-6.1-sol")))
+	head = replaceLine(head, "model", p.WireModel(cmp.Or(o.Model, router.FamilyModel(targetCodex, "sol", p, nil, time.Now()))))
 	auth := fmt.Sprintf("command = \"sh\"\nargs = [\"-c\", %s]\n", agentconfig.TOMLQuoteRaw(cliTokenCmd(o.Host)))
 	if o.Auth == authHarness {
 		auth = fmt.Sprintf("command = %s\nargs = [\"resolve\", \"--profile\", %s]\n", agentconfig.TOMLQuoteRaw(o.Self), agentconfig.TOMLQuoteRaw(p.Name))

@@ -29,6 +29,19 @@ func FallbackModels(p *Provider, liveErr error) ([]ModelInfo, string, error) {
 	return nil, "", liveErr
 }
 
+// CodexCachedIDs is the slugs in codex's local model cache; nil when missing or unreadable, never a network call.
+func CodexCachedIDs() []string {
+	cached, err := codexCachedModels()
+	if err != nil {
+		return nil
+	}
+	ids := make([]string, len(cached))
+	for i, m := range cached {
+		ids[i] = m.ID
+	}
+	return ids
+}
+
 // registryModels is provider p's configured alias models, in alias order, each tagged with its use case.
 func registryModels(p *Provider) []ModelInfo {
 	var out []ModelInfo

@@ -65,6 +65,8 @@ the vault overlay map each alias per provider.
 - On a Databricks profile an alias picks the first member of its bucket (`internal/router/table.json` → `databricks`)
   the agent can run and, with a fresh listing, the workspace lists READY. An explicit `--model`, overlay `model` and
   record model outrank the bucket.
+- A GPT family name (`sol`, `astra`, `terra`, `luna`) is the highest numeric version the row's listing serves READY
+  (`6.1` = `6-1` < `6.2` < `7`); no listing or member falls back to today's id. A concrete id stays exactly that id.
 - Model `auto` is the harness pick, never a wire id: a listed model named auto is ignored.
 - Any endpoint the workspace serves runs by its bare name (`gpt-6-1-terra` → `databricks-gpt-6-1-terra`); an unlisted
   name is refused at preflight (with `--fallback` it falls back instead).

@@ -1,6 +1,7 @@
 package router
 
 import (
+	"cmp"
 	"encoding/json"
 	"maps"
 	"strings"
@@ -268,7 +269,7 @@ func bucketWant(p *providers.Provider, agent, alias, skip string) string {
 		"codex":  func(w string) bool { return providers.ServesResponses(p, w) },
 	}[agent]
 	for _, id := range databricksTiers()[alias] {
-		if w := models.DatabricksPrefix + id; w != skip && (runs == nil || runs(w)) {
+		if w := models.DatabricksPrefix + canonicalID(cmp.Or(providers.FamilyDefaults[id], id)); w != skip && (runs == nil || runs(w)) {
 			return w
 		}
 	}
@@ -281,10 +282,10 @@ func TestDatabricksModelPicksFirstRunnableBucketMember(t *testing.T) {
 	p, ready := dbxProv("dev"), map[string]string{}
 	for _, ids := range databricksTiers() {
 		for _, id := range ids {
-			ready[models.DatabricksPrefix+id] = "READY"
+			ready[models.DatabricksPrefix+canonicalID(cmp.Or(providers.FamilyDefaults[id], id))] = "READY"
 		}
 	}
-	first := models.DatabricksPrefix + databricksTiers()["opus"][0]
+	first := models.DatabricksPrefix + canonicalID(cmp.Or(providers.FamilyDefaults[databricksTiers()["opus"][0]], databricksTiers()["opus"][0]))
 	notReady := maps.Clone(ready)
 	notReady[first] = "NOT_READY"
 	for _, c := range []struct {
@@ -375,4 +376,12 @@ func BenchmarkAliasOf(b *testing.B) {
 	for i := 0; b.Loop(); i++ {
 		tb.AliasOf(models[i%len(models)])
 	}
+}
+
+// canonicalID is id as the catalog spells it (dashed), or id itself when the catalog does not list it.
+func canonicalID(id string) string {
+	if c, _, ok := models.Resolve(id); ok {
+		return c
+	}
+	return id
 }

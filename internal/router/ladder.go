@@ -314,7 +314,7 @@ func modelTier(id string) string {
 		return f
 	}
 	for alias, ids := range databricksTiers() {
-		if slices.ContainsFunc(ids, func(m string) bool { return models.SameModel(m, id) }) {
+		if slices.ContainsFunc(ids, func(m string) bool { return models.SameModel(m, id) || inFamily(m, id) }) {
 			return alias
 		}
 	}
@@ -338,6 +338,8 @@ func (lp ladderPick) rungModel(c Candidate, m string) (model, why string) {
 		return p.Models[m], ""
 	case slices.Contains(Aliases, m):
 		return lp.aliasCell(c, m)
+	case providers.IsFamily(m):
+		return FamilyModel(c.Agent, m, p, nil, lp.now), ""
 	case p == nil:
 		return m, ""
 	}

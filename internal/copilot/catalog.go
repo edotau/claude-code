@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/catalog"
@@ -15,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -138,6 +140,34 @@ func Catalog(ctx context.Context) ([]SDKModel, error) {
 		}
 	}
 	return refreshCatalog(ctx, "")
+}
+
+// snapshotIDs reads the sealed snapshot once per process, on the first family name resolved.
+var snapshotIDs = sync.OnceValue(readSnapshotIDs)
+
+func init() { router.GithubCatalogIDs = func() []string { return snapshotIDs() } }
+
+// readSnapshotIDs is the enabled model ids of the sealed snapshot; nil on a miss, never a listing or a refresh.
+func readSnapshotIDs() []string {
+	auth, ok := copilotAuthSource()
+	if !ok {
+		return nil
+	}
+	tok, err := catalogToken(auth)
+	if err != nil {
+		return nil
+	}
+	s, hit := readCatalogSnapshot(auth, tok)
+	if !hit {
+		return nil
+	}
+	var ids []string
+	for _, m := range s.Models {
+		if m.Enabled {
+			ids = append(ids, m.ID)
+		}
+	}
+	return ids
 }
 
 // spawnCatalogRefresh starts a detached discovery for copilot's own GitHub profile, when the registry names one.

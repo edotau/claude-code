@@ -232,12 +232,21 @@ func rungNameErrors(label string, g Rung) []string {
 	return errs
 }
 
-// rungModelOK: opencode takes its sub ids; others take an alias or a model a row, the seed or saved menu serves.
+// FamilyDefaults maps each GPT family alias to the concrete id it falls back to when a row lists no member.
+var FamilyDefaults = map[string]string{"sol": "gpt-6.1-sol", "astra": "gpt-6-astra", "terra": "gpt-6.1-terra", "luna": "gpt-6-luna"}
+
+// IsFamily reports whether name is a GPT family alias (sol, astra, terra, luna).
+func IsFamily(name string) bool {
+	_, ok := FamilyDefaults[strings.ToLower(strings.TrimSpace(name))]
+	return ok
+}
+
+// rungModelOK: opencode takes sub ids; others an alias, a family or a model a row, the seed or saved menu serves.
 func rungModelOK(r *Registry, agent, m string) bool {
 	if agentid.Routing(agent).SubLadder {
 		return slices.Contains(RouteOpencodeSubIDs, m)
 	}
-	if slices.Contains(RouteAliases, m) {
+	if slices.Contains(RouteAliases, m) || IsFamily(m) {
 		return true
 	}
 	id, _, ok := models.Resolve(m)

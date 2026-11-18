@@ -13,8 +13,8 @@
     "claudeAnywhere": true,
     "ladders": {
       "default": [
-        {"agent": "copilot", "provider": "databricks", "models": ["gpt-6.1-sol", "gpt-6-astra"]},
-        {"agent": "copilot", "provider": "github", "models": ["gpt-6.1-sol", "gpt-6-astra"]},
+        {"agent": "copilot", "provider": "databricks", "models": ["sol", "astra"]},
+        {"agent": "copilot", "provider": "github", "models": ["sol", "astra"]},
         {"provider": "databricks"},
         {"agent": "codex", "provider": "openai"},
         {"agent": "opencode"}

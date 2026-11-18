@@ -36,9 +36,9 @@
     }
   },
   "databricks": {
-    "opus": ["claude-opus-5-5", "gpt-6-1-sol", "gpt-6-astra", "grok-4-7", "kimi-k3", "claude-opus-5", "claude-opus-4-8"],
-    "sonnet": ["claude-sonnet-5-5", "gpt-6-1-terra", "glm-5-3", "gemini-3-8-flash", "claude-sonnet-5", "claude-sonnet-4-6"],
-    "haiku": ["claude-haiku-5-5", "gpt-6-luna", "gpt-5-5", "gemini-3-1-flash-lite", "glm-5-3-flash", "claude-haiku-4-5"]
+    "opus": ["claude-opus-5-5", "sol", "astra", "grok-4-7", "kimi-k3", "claude-opus-5", "claude-opus-4-8"],
+    "sonnet": ["claude-sonnet-5-5", "terra", "glm-5-3", "gemini-3-8-flash", "claude-sonnet-5", "claude-sonnet-4-6"],
+    "haiku": ["claude-haiku-5-5", "luna", "gpt-5-5", "gemini-3-1-flash-lite", "glm-5-3-flash", "claude-haiku-4-5"]
   },
   "opencode_sub": {
     "zen-free": {

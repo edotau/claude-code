@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -262,5 +263,44 @@ func TestRoutedModelRunsTaskTier(t *testing.T) {
 	vaulttest.SetRecord(t, "opencode", "model", "databricks-claude-sonnet-5-5")
 	if a, b := run(trivial, "", false), run(hard, "", false); a != b {
 		t.Errorf("a pinned agent ran %s and %s, want its pin on both", a, b)
+	}
+}
+
+// A typed family reaches the launch target concrete on Databricks and first-party rows; a concrete id reads no list.
+func TestResolveInFamilyTargetsAreConcrete(t *testing.T) {
+	vaulttest.Use(t)
+	codexHome := t.TempDir()
+	t.Setenv("CODEX_HOME", codexHome)
+	if err := os.WriteFile(filepath.Join(codexHome, "models_cache.json"), []byte(`{"models":[{"slug":"gpt-6.1-sol"},{"slug":"gpt-6.2-sol"}]}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+		{ID: "databricks-gpt-6-1-sol"}, {ID: "databricks-gpt-6-2-sol"}}}); err != nil {
+		t.Fatal(err)
+	}
+	reads := 0
+	router.GithubCatalogIDs = func() []string { reads++; return []string{"gpt-6.1-sol", "gpt-6.2-sol"} }
+	t.Cleanup(func() { router.GithubCatalogIDs = nil })
+	reg := routeRegistry(t)
+	for _, c := range []struct{ agent, model, want string }{
+		{"codex", "dev:sol", "databricks-gpt-6-2-sol"},
+		{"codex", "chatgpt:sol", "gpt-6.2-sol"},
+		{"copilot", "aueric_boehcp:sol", "gpt-6.2-sol"},
+	} {
+		_, tgt, err := resolveIn(reg, RunOptions{Agent: c.agent, Model: c.model})
+		if err != nil || tgt.Model != c.want {
+			t.Errorf("%s %s = %q, %v; want %s", c.agent, c.model, tgt.Model, err, c.want)
+		}
+	}
+	if reads != 1 {
+		t.Fatalf("github list reads = %d, want 1 for the one github family request", reads)
+	}
+	for _, m := range []string{"aueric_boehcp:gpt-6.1-sol", "aueric_boehcp:claude-opus-5.5", "aueric_boehcp:opus"} {
+		if _, tgt, err := resolveIn(reg, RunOptions{Agent: "copilot", Model: m}); err != nil || tgt.Model == "" {
+			t.Errorf("concrete %s = %q, %v", m, tgt.Model, err)
+		}
+	}
+	if reads != 1 {
+		t.Errorf("a concrete id or alias read the list: reads = %d", reads)
 	}
 }

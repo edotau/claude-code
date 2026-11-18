@@ -140,6 +140,8 @@ var DatabricksOpencodeMenu = []OpencodeModel{
 	{ID: "gpt-6-sol", Label: "GPT-6 Sol", Responses: true},
 	{ID: "gpt-6-astra", Label: "GPT-6 Astra", Responses: true},
 	{ID: "gpt-5-5", Label: "GPT 5.5", Responses: true},
+	{ID: "gpt-6-2-sol", Label: "GPT-6.2 Sol", Responses: true},
+	{ID: "gpt-6-2-astra", Label: "GPT-6.2 Astra", Responses: true},
 }
 
 // pickerCatalog stores profile-scoped selectable history, not current availability.

@@ -141,6 +141,23 @@ func TestValidateOpencodeLadderNames(t *testing.T) {
 	}
 }
 
+// A ladder rung lists GPT family names in order; an unknown name fails like any unknown rung model.
+func TestValidateLadderFamilyRungs(t *testing.T) {
+	for _, c := range []struct {
+		models []string
+		want   string
+	}{
+		{[]string{"sol", "astra"}, ""},
+		{[]string{"vega"}, "is no alias or model a row serves"},
+	} {
+		reg := &Registry{Providers: map[string]*Provider{}, Routing: Routing{Ladders: map[string][]Rung{
+			"default": {{Agent: "copilot", Models: c.models}}}}}
+		if err := reg.validate(); (err == nil) != (c.want == "") || err != nil && !strings.Contains(err.Error(), c.want) {
+			t.Errorf("rung models %v: validate = %v, want %q", c.models, err, c.want)
+		}
+	}
+}
+
 func TestSelectPinsAndCrossProvider(t *testing.T) {
 	reg := load(t)
 	vaulttest.SetRecord(t, "claude", "model", "claude-opus-4-8")

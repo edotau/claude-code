@@ -68,7 +68,12 @@ func DatabricksModel(agent, alias string, p *providers.Provider) string {
 	dead := deadAccounts(ProviderAccount(p.Name))
 	for _, id := range databricksTiers()[alias] {
 		wire := SpellServed(p, id, now)
-		if _, _, known := models.Resolve(id); !known && wire == id {
+		if providers.IsFamily(id) {
+			// a listed newest id may be too new for the catalog
+			wire = FamilyModel(agent, id, p, nil, now)
+			id = ""
+		}
+		if _, _, known := models.Resolve(cmp.Or(id, wire)); id != "" && !known && wire == id {
 			// an unlisted id with no READY endpoint to spell it by
 			continue
 		}
