@@ -375,9 +375,15 @@ func checkRun(r Engine, req RunOptions) (RunOptions, error) {
 		return req, err
 	}
 	req.Permissions, _ = resolvePermissions(def, req.Permissions)
-	if req.Permissions, err = inheritPermissionsContext(valuesContext(context.Background(), req.Values), req.Permissions); err != nil {
+	vctx := valuesContext(context.Background(), req.Values)
+	if req.Permissions, err = inheritPermissionsContext(vctx, req.Permissions); err != nil {
 		return req, err
 	}
+	// the records, unlike the policy env, survive a leaf clearing HARNESS_DISPATCH_PERMISSIONS
+	outer, readOnly := ancestorPolicy(proc.Value(vctx, proc.DispatchIDEnv))
+	req.Permissions.Deny, req.Permissions.Ask = union(req.Permissions.Deny, outer.Deny), union(req.Permissions.Ask, outer.Ask)
+	req.Permissions.Mode = cmp.Or(outer.Mode, req.Permissions.Mode)
+	req.ReadOnly = req.ReadOnly || readOnly && req.Tools
 	if err = refusePersona(r.Caps(), r.Name(), req.Persona); err != nil {
 		return req, err
 	}

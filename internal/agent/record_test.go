@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -797,46 +797,84 @@ func TestSessionModel(t *testing.T) {
 	}
 }
 
+// depthCapCase is one nested ask: the env's cap and depth ("" = top level), the parent's record and the outcome.
+type depthCapCase struct {
+	name, max, envDepth, parent string // parent: the record's JSON, "" = none on disk
+	depth, refusedCap           int    // refusedCap 0 = the dispatch is allowed
+}
+
+// depthCapCases covers env caps, recorded caps (absent, 0, n) and a missing or corrupt parent record.
+func depthCapCases() []depthCapCase {
+	return []depthCapCase{
+		{"top level", "", "", "", 0, 0},
+		{"depth one", "", "0", "", 1, 0},
+		{"at cap", "", "2", "", 3, 0},
+		{"above cap", "", "3", "", 4, 3},
+		{"recorded override five", "5", "4", parentJSON(4, "5"), 5, 0},
+		{"recorded unlimited", "0", "1048575", parentJSON(1048575, "0"), 1 << 20, 0},
+		{"garbage at cap", "garbage", "2", "", 3, 0},
+		{"garbage above cap", "garbage", "3", "", 4, 3},
+		{"negative above cap", "-1", "3", "", 4, 3},
+		{"leaf env 0 cannot lift a recorded 3", "0", "0", parentJSON(3, "3"), 4, 3},
+		{"recorded depth beats a spoofed env depth", "", "0", parentJSON(2, "5"), 3, 0},
+		{"legacy record without a cap, env 0", "0", "0", parentJSON(3, ""), 4, 3},
+		{"legacy record without a cap, env 2", "2", "0", parentJSON(2, ""), 3, 2},
+		{"recorded 0 stays uncapped with env unset", "", "0", parentJSON(4, "0"), 5, 0},
+		{"missing record, env 0 cannot uncap", "0", "3", "", 4, 3},
+		{"corrupt record, env 0 cannot uncap", "0", "3", "{corrupt", 4, 3},
+		{"missing record still nests", "0", "-5", "", 1, 0},
+	}
+}
+
 func TestBuildAskRecordDepthCap(t *testing.T) {
-	for _, tc := range []struct {
-		name, max string
-		depth     int
-		refused   bool
-	}{
-		{"top level", "", 0, false},
-		{"depth one", "", 1, false},
-		{"depth two", "", 2, false},
-		{"at cap", "", 3, false},
-		{"above cap", "", 4, true},
-		{"override five", "5", 5, false},
-		{"unlimited", "0", 1 << 20, false},
-		{"garbage at cap", "garbage", 3, false},
-		{"garbage above cap", "garbage", 4, true},
-		{"negative above cap", "-1", 4, true},
-	} {
+	for _, tc := range depthCapCases() {
 		t.Run(tc.name, func(t *testing.T) {
 			setConfigDir(t)
-			values := proc.Values{"HARNESS_DISPATCH_MAX_DEPTH": tc.max}
-			if tc.depth > 0 {
-				values = values.Merge(proc.Values{proc.DispatchIDEnv: "fixture", proc.DispatchDepthEnv: strconv.Itoa(tc.depth - 1)})
-			}
+			values := depthCapValues(t, tc)
 			rec, err := (&Client{}).Record(t.Context(), RunOptions{Agent: "codex", Values: values}, nil)
-			if !tc.refused {
+			if tc.refusedCap == 0 {
 				if err != nil || rec.Depth != tc.depth {
 					t.Fatalf("depth = %d, err = %v; want depth %d", rec.Depth, err, tc.depth)
 				}
 				return
 			}
 			var usage *UsageError
-			want := "dispatch depth 4 exceeds cap 3 (parent fixture); set HARNESS_DISPATCH_MAX_DEPTH (0 = no cap)"
+			want := fmt.Sprintf("dispatch depth %d exceeds cap %d (parent fixture); set HARNESS_DISPATCH_MAX_DEPTH (0 = no cap)", tc.depth, tc.refusedCap)
 			if !errors.As(err, &usage) || err.Error() != want {
 				t.Fatalf("error = %v; want UsageError %q", err, want)
 			}
-			if names, err := recordNames(paths.DispatchDir()); err != nil || len(names) != 0 {
+			if names, err := recordNames(paths.DispatchDir()); err != nil || len(slices.DeleteFunc(names, func(n string) bool { return n == "fixture.json" })) != 0 {
 				t.Fatalf("refused dispatch records = %v, err = %v", names, err)
 			}
 		})
 	}
+}
+
+// parentJSON is the parent's record at depth with cap max spliced in raw ("" = the field absent, as a legacy record).
+func parentJSON(depth int, max string) string {
+	body, _ := Record{ID: "fixture", Agent: "codex", Status: "running", Depth: depth}.encode()
+	if max == "" {
+		return string(body)
+	}
+	return `{"max_depth": ` + max + "," + string(body[1:])
+}
+
+// depthCapValues is tc's env, with the parent's record written first when tc names one.
+func depthCapValues(t *testing.T, tc depthCapCase) proc.Values {
+	t.Helper()
+	values := proc.Values{"HARNESS_DISPATCH_MAX_DEPTH": tc.max}
+	if tc.envDepth != "" {
+		values = values.Merge(proc.Values{proc.DispatchIDEnv: "fixture", proc.DispatchDepthEnv: tc.envDepth})
+	}
+	if tc.parent != "" {
+		if err := os.MkdirAll(paths.DispatchDir(), 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(paths.DispatchDir(), "fixture.json"), []byte(tc.parent), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return values
 }
 
 func TestRecordLineageAndUsage(t *testing.T) {
