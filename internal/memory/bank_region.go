@@ -53,7 +53,7 @@ const (
 	genFile        = ".archive-MEMORY.md.gen"  // the last installed MEMORY.md: proves which lines of an edited block are ours
 )
 
-// errIndexProblem marks a refresh settle tolerates: MEMORY.md was written, but without every pin.
+// errIndexProblem marks a refresh failure that automatic settle tolerates.
 var errIndexProblem = errors.New("MEMORY.md refresh")
 
 // The section titles render emits; the newest one carries its count ("## Newest 20").
@@ -139,10 +139,12 @@ type indexReport struct {
 	Clipped              bool // the pinned set alone is over the soft cap, so no newest pointer fits
 	Left                 bool // a writer recreated MEMORY.md during the refresh; the next one folds it
 	Blank                int  // blank lines at entry edges in MEMORY.md: separators, not stored
+	LostPins             string
 }
 
-// notable reports a refresh that appended, clipped or left something, worth a stderr line.
-func (r indexReport) notable() bool { return r.Folded > 0 || r.Clipped || r.Left || r.Blank > 0 }
+func (r indexReport) notable() bool {
+	return r.Folded > 0 || r.Clipped || r.Left || r.Blank > 0 || r.LostPins != ""
+}
 
 func (r indexReport) String() string {
 	s := fmt.Sprintf("MEMORY.md %d lines, %d bytes: %d pinned, %d newest, %d more; %d entr(ies) appended to index.md, "+
@@ -155,6 +157,9 @@ func (r indexReport) String() string {
 	}
 	if r.Blank > 0 {
 		s += fmt.Sprintf("; %d blank line(s) at entry edges in MEMORY.md not stored (separators)", r.Blank)
+	}
+	if r.LostPins != "" {
+		s += "; " + r.LostPins
 	}
 	return s
 }
@@ -434,7 +439,10 @@ func resolvePointer(line string, byRel map[string]bool) (string, bool) {
 		}
 	}
 	for _, c := range cands {
-		if fi, err := os.Stat(storePath(c)); byRel[c] || err == nil && fi.Mode().IsRegular() {
+		if _, ok := byRel[c]; ok {
+			return c, true
+		}
+		if fi, err := os.Stat(storePath(c)); err == nil && fi.Mode().IsRegular() {
 			return c, true
 		}
 	}
@@ -442,11 +450,11 @@ func resolvePointer(line string, byRel map[string]bool) (string, bool) {
 }
 
 // renderIndex is the whole MEMORY.md from index.md's entries and the notes' front matter, clipped to the bounds.
-func renderIndex(rows []pointerRow, entries []string) (string, indexReport, error) {
+func renderIndex(rows []pointerRow, entries []string, prevGen string) (string, indexReport, error) {
 	var rep indexReport
 	byRel, byFile, order, unresolved := map[string]bool{}, map[string][]string{}, []string{}, []string(nil)
 	for _, r := range rows {
-		byRel[r.Rel] = true
+		byRel[r.Rel] = r.Pinned
 	}
 	for _, e := range entries {
 		rel, ok := resolvePointer(textutil.FirstLine(e), byRel)
@@ -459,6 +467,7 @@ func renderIndex(rows []pointerRow, entries []string) (string, indexReport, erro
 		}
 	}
 	pinned, rest, hidden := shownRows(rows, byFile, order)
+	rep.LostPins = lostPinProblem(prevGen, byRel)
 	shown, unshown := shownUnresolved(unresolved)
 	pins, k := len(pinned), min(bankIndexNewest, len(rest))
 	build := func() string {
@@ -588,6 +597,38 @@ func lastGenerated() string {
 	return string(data)
 }
 
+const lostPinLabel = "note(s) lost metadata.pinned:"
+
+func lostPinProblem(prevGen string, byRel map[string]bool) string {
+	_, section, ok := strings.Cut(prevGen, "\n## "+titlePinned+"\n")
+	if !ok {
+		return ""
+	}
+	var lost []string
+	for line := range strings.SplitSeq(section, "\n") {
+		if strings.HasPrefix(line, blockEndPrefix) || line == "## "+titleUnresolved ||
+			strings.HasPrefix(line, "## "+titleNewest+" ") {
+			break
+		}
+		if rel, ok := resolvePointer(line, byRel); ok && !pinStillSet(rel, byRel) {
+			lost = append(lost, rel)
+		}
+	}
+	if len(lost) == 0 {
+		return ""
+	}
+	slices.Sort(lost)
+	lost = slices.Compact(lost)
+	return fmt.Sprintf("%d %s %s", len(lost), lostPinLabel, strings.Join(lost, ", "))
+}
+
+func pinStillSet(rel string, byRel map[string]bool) bool {
+	if pinned, ok := byRel[rel]; ok {
+		return pinned
+	}
+	return folderRow(rel).Pinned
+}
+
 // foldFile appends path's input entries, then extra, to index.md; it never writes path.
 func foldFile(path string, extra []string) (int, error) {
 	data, err := readIfExists(path)
@@ -609,16 +650,17 @@ func planRefresh(rows []pointerRow, extra []string) (string, indexReport, error)
 	}
 	var in []string
 	blanks := 0
+	prevGen := lastGenerated()
 	for _, p := range []string{storePath(asideFile), NativeIndex()} {
 		data, err := readIfExists(p)
 		if err != nil {
 			return "", indexReport{}, err
 		}
-		es, n := inputEntries(string(data), lastGenerated())
+		es, n := inputEntries(string(data), prevGen)
 		in, blanks = append(in, es...), blanks+n
 	}
 	add := fresh(append(in, extra...), held)
-	text, rep, err := renderIndex(rows, append(entries, add...))
+	text, rep, err := renderIndex(rows, append(entries, add...), prevGen)
 	rep.Folded, rep.Blank = len(add), blanks
 	return text, rep, err
 }
@@ -627,7 +669,7 @@ func planRefresh(rows []pointerRow, extra []string) (string, indexReport, error)
 func refreshNativeIndex(_ time.Time, dry bool, extra []string) (indexReport, error) {
 	rows := scanRows(noteDirs...)
 	if _, err := os.Stat(StoreDir()); !dry && errors.Is(err, fs.ErrNotExist) {
-		return indexReport{}, nil
+		return finishIndexRefresh(indexReport{}, nil)
 	}
 	aside, n := storePath(asideFile), 0
 	if !dry {
@@ -641,9 +683,13 @@ func refreshNativeIndex(_ time.Time, dry bool, extra []string) (indexReport, err
 	}
 	text, rep, perr := planRefresh(rows, extra)
 	mem, merr := readIfExists(NativeIndex())
-	if dry || perr != nil && !errors.Is(perr, errIndexProblem) || merr != nil || rep.Folded == 0 && string(mem) == text {
+	if dry || perr != nil && !errors.Is(perr, errIndexProblem) || merr != nil {
 		rep.Folded += n
 		return rep, errors.Join(perr, merr)
+	}
+	if rep.Folded == 0 && rep.LostPins == "" && string(mem) == text {
+		rep.Folded += n
+		return finishIndexRefresh(rep, perr)
 	}
 	tmp, err := stageFile(NativeIndex(), []byte(text)) // before anything moves, so a full disk fails here
 	if err != nil {
@@ -663,7 +709,7 @@ func refreshNativeIndex(_ time.Time, dry bool, extra []string) (indexReport, err
 	}
 	indexStep("installed")
 	rep.Folded, rep.Left = n+m, !installed && ierr == nil
-	return rep, errors.Join(ferr, ierr, perr)
+	return finishIndexRefresh(rep, errors.Join(ferr, ierr, perr))
 }
 
 // restoreMoved puts the moved file's bytes back as MEMORY.md when the new one could not be placed.

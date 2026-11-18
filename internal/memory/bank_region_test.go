@@ -108,6 +108,29 @@ func TestNativeIndexHoldsPinnedPlusNewestTwentyAndAMoreLine(t *testing.T) {
 	})
 }
 
+func TestNativeIndexReportsLostPinUntilNextRefresh(t *testing.T) {
+	runBank(t, func(t *testing.T) {
+		seedNotes(t, 3, 0, 1, 2)
+		refreshIndex(t)
+		writeNote(t, "feedback", "f00.md", "---\nname: f00\n---\n")
+		if err := os.Remove(storePath("feedback/f01.md")); err != nil {
+			t.Fatal(err)
+		}
+		want := "1 note(s) lost metadata.pinned: feedback/f00.md"
+		rep, _ := refreshIndex(t)
+		if rep.LostPins != want || !rep.notable() {
+			t.Fatalf("refresh advisory = %q, want %q", rep.LostPins, want)
+		}
+		if got := indexProblems(indexNow); !slices.Equal(got, []string{want}) {
+			t.Fatalf("review advisories = %q, want only %q", got, want)
+		}
+		refreshIndex(t)
+		if got := indexProblems(indexNow); len(got) != 0 {
+			t.Fatalf("review after acknowledgement = %q, want none", got)
+		}
+	})
+}
+
 func TestFolderPointersJoinTheNewestListByFileDate(t *testing.T) {
 	runBank(t, func(t *testing.T) {
 		const handoffs = 120 // past the soft cap: pinned by folder, they would push MEMORY.md over it

@@ -78,7 +78,10 @@ func doctorNotice() string {
 	if notice == "" {
 		return ""
 	}
-	return " memory review: " + textutil.TruncateRunes(notice, 200) + "."
+	if !isLostPinProblem(notice) {
+		notice = textutil.TruncateRunes(notice, 200)
+	}
+	return " memory review: " + notice + "."
 }
 
 // writeDoctorNotice runs the doctor and caches its notice for root.
@@ -136,10 +139,14 @@ func doctorBank(root string, staleDays int, now time.Time) []string {
 // indexNotice is the session-start line for any index problem; `memory review` prints the cause and the fix.
 const indexNotice = "MEMORY.md is not being refreshed: run `claude-code memory review` for the cause and the fix"
 
-// indexProblems is what stops MEMORY.md's refresh: what a dry plan finds now, else the last settle's failure.
+// indexProblems prefers live findings to a cached outcome.
 func indexProblems(now time.Time) []string {
-	if _, err := refreshNativeIndex(now, true, nil); err != nil {
+	rep, err := refreshNativeIndex(now, true, nil)
+	if err != nil {
 		return []string{indexProblem(err)}
+	}
+	if rep.LostPins != "" {
+		return []string{rep.LostPins}
 	}
 	if last, err := os.ReadFile(indexProblemPath()); err == nil && len(last) > 0 {
 		return []string{string(last)}
@@ -159,17 +166,37 @@ func indexProblem(err error) string {
 
 func indexProblemPath() string { return filepath.Join(StateDir(), "index-problem-"+stateKey()) }
 
-// recordIndexProblem keeps a failed settle's cause for `memory review` and the next session-start line.
-func recordIndexProblem(err error) {
-	if err == nil {
+func isLostPinProblem(line string) bool {
+	_, rest, found := strings.Cut(line, " ")
+	return found && strings.HasPrefix(rest, lostPinLabel)
+}
+
+// Keep the advisory after replacing the baseline, without turning a successful refresh into a failure.
+func finishIndexRefresh(rep indexReport, err error) (indexReport, error) {
+	if err == nil && !rep.Left {
+		recordIndexProblem(nil, rep.LostPins)
+	}
+	return rep, err
+}
+
+// Only a completed refresh can acknowledge a pin advisory; the settle defer records errors only.
+func recordIndexProblem(err error, refreshed ...string) {
+	var row string
+	switch {
+	case err != nil:
+		row = indexProblem(err) + " (last settle)"
+	case len(refreshed) == 0:
+		return
+	case refreshed[0] != "":
+		row = refreshed[0]
+	default:
 		if rerr := os.Remove(indexProblemPath()); rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
-			fmt.Fprintln(os.Stderr, "memory index: clear the last failure:", rerr)
+			fmt.Fprintln(os.Stderr, "memory index: clear the last problem:", rerr)
 		}
 		return
 	}
-	row := indexProblem(err) + " (last settle)"
 	if werr := errors.Join(paths.AtomicWrite(indexProblemPath(), []byte(row), 0o600), cacheDoctorNotice([]string{row})); werr != nil {
-		fmt.Fprintln(os.Stderr, "memory index: record the failure:", werr)
+		fmt.Fprintln(os.Stderr, "memory index: record the problem:", werr)
 	}
 }
 
