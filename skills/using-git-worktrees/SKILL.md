@@ -28,7 +28,7 @@ The verbs handle everything with the harness conventions baked in:
 
 ```bash
 claude-code worktree create add-auth-endpoint   # → ~/worktrees/<repo>/add-auth-endpoint, branch worktree-add-auth-endpoint
-claude-code worktree list [--format json]        # all worktrees + status
+claude-code worktree list [--format json]        # all worktrees: status, +ahead -behind main, file overlaps
 claude-code worktree gate --dir . --scope internal/worktree   # prints the gate for this scope (that dir) only; narrower than merge's
 claude-code worktree merge add-auth-endpoint     # preview, verify gate, fast-forward-only promote, clean
 claude-code worktree clean add-auth-endpoint     # safe single removal
@@ -51,14 +51,14 @@ other verb refuses with a reason instead. Only pass `--force` with the user's ex
 or `ExitWorktree`). Inside a session prefer the native `EnterWorktree`/`ExitWorktree` for create/enter; the additive
 value here is `merge` and `clean-all`.
 
-`create` makes the worktree under `~/worktrees/<repo>/<slug>` (outside the repo, shared with native Claude Code) via
-`git worktree add`, then seeds a `.venv` symlink and an `.env` copy when the source exists, the destination is absent
-and the new branch ignores the path (a seeding failure only warns). The full procedure, the fast-forward-only merge rule
-and conflict handling: [references/manual-worktrees.md](references/manual-worktrees.md) Part 1.
-In the harness repo itself, a worktree here is a separate checkout exempt from CLAUDE.md hard rule 4 —
-but `make install` and `claude-code` verbs run from it still target the live `~/.claude` unless `CLAUDE_CONFIG_DIR`
-points at it (`rules/harness/settings-management.md` → Worktree render). Never run a worktree-built binary as the
-proxy.
+`create` makes the worktree under `~/worktrees/<repo>/<slug>` (`<repo>` drops a leading dot; older
+`~/worktrees/.claude` lanes still list; outside the repo, shared with native Claude Code) via `git worktree add`, then
+seeds a `.venv` symlink and an `.env` copy when the source exists, the destination is absent and the new branch
+ignores the path (a seeding failure only warns). The full procedure, the fast-forward-only merge rule and conflict
+handling: [references/manual-worktrees.md](references/manual-worktrees.md) Part 1. In the harness repo itself, a
+worktree here is a separate checkout exempt from CLAUDE.md hard rule 4 — but `make install` and `claude-code` verbs
+run from it still target the live `~/.claude` unless `CLAUDE_CONFIG_DIR` points at it
+(`rules/harness/settings-management.md` → Worktree render). Never run a worktree-built binary as the proxy.
 
 ## Manual control / non-harness repos
 

@@ -28,7 +28,9 @@ Print path, branch, base SHA; launch with `cd $WT && claude`.
 ### list
 
 `claude-code worktree list` unions git's registration with the directories on disk and inspects each live
-(dirty / merged / stale / orphaned / prunable / locked). Present its `reopen:` and `cleanup:` lines verbatim.
+(dirty / merged / stale / orphaned / prunable / locked), plus `+ahead -behind` against the merge target and
+`overlaps` (changed files shared with another lane or with main's uncommitted edits). Present its `reopen:` and
+`cleanup:` lines verbatim.
 
 ### merge
 

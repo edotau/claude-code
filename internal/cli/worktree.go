@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 
@@ -80,7 +82,7 @@ var worktreeHandlers = map[string]func(*worktree.Repo, []string) int{
 
 func cmdWorktreeList(repo *worktree.Repo, args []string) int {
 	fs := helptext.NewFlagSet("worktree list", helptext.Page{Usage: "claude-code worktree list [flags]",
-		About: "List linked worktrees with status, reopen and cleanup commands."})
+		About: "List linked worktrees: +ahead -behind main, overlaps with lanes and main, reopen, cleanup."})
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -114,7 +116,10 @@ func cmdWorktreeList(repo *worktree.Repo, args []string) int {
 // printEntry renders one text-mode row plus a quoted reopen command and, when eligible, a cleanup one.
 func printEntry(e worktree.Entry) {
 	name := filepath.Base(e.Path)
-	fmt.Printf("%-24s branch=%-20s %s\n", name, e.Branch, strings.Join(e.StatusFlags(), ","))
+	fmt.Printf("%-24s branch=%-20s +%d -%d %s\n", name, e.Branch, e.Ahead, e.Behind, strings.Join(e.StatusFlags(), ","))
+	for _, other := range slices.Sorted(maps.Keys(e.Overlaps)) {
+		fmt.Printf("  overlaps %s: %s\n", other, strings.Join(e.Overlaps[other], ", "))
+	}
 	for _, p := range e.Problems {
 		fmt.Printf("  ! %s\n", p)
 	}

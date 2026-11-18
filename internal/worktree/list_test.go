@@ -57,6 +57,40 @@ func TestInspectDerivesGitDirWithoutRevParse(t *testing.T) {
 	}
 }
 
+func TestListReportsDivergenceAndOverlaps(t *testing.T) {
+	repo := testRepo(t)
+	write := func(dir, name string) {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(dir), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	var lanes [2]string
+	for i, name := range []string{"one", "two"} {
+		wt, err := Create(repo, name, CreateOptions{})
+		if err != nil {
+			t.Fatal(err)
+		}
+		write(wt, "shared.txt")
+		commitIn(t, wt, "add", "shared.txt")
+		commitIn(t, wt, "commit", "-m", "feat: "+name)
+		lanes[i] = wt
+	}
+	write(repo.Main, "other.txt")
+	commitIn(t, repo.Main, "add", "other.txt")
+	commitIn(t, repo.Main, "commit", "-m", "feat: main moves")
+	commitIn(t, repo.Main, "commit", "--allow-empty", "-m", "feat: main moves again")
+	entries, err := List(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		other := map[string]string{"one": "two", "two": "one"}[filepath.Base(e.Path)]
+		if e.Ahead != 1 || e.Behind != 2 || strings.Join(e.Overlaps[other], ",") != "shared.txt" || len(e.Overlaps) != 1 {
+			t.Fatalf("%s: ahead %d behind %d overlaps %v", e.Path, e.Ahead, e.Behind, e.Overlaps)
+		}
+	}
+}
+
 func TestListEmptyRepo(t *testing.T) {
 	t.Parallel()
 	repo := testRepo(t)

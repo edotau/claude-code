@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -34,6 +35,10 @@ type Entry struct {
 	// live refusal reason from in-use, lock or operation checks ("" = free)
 	Busy     string
 	Problems []string
+	// commits the branch has that the merge target lacks, and the target has that it lacks
+	Ahead, Behind int
+	// other lanes (by name) and "main" (its uncommitted edits) mapped to the changed files shared with this lane
+	Overlaps map[string][]string `json:",omitempty"`
 	// dest's git-dir when the caller already resolved it
 	gitDir string
 }
@@ -61,7 +66,83 @@ func List(repo *Repo) ([]Entry, error) {
 			_, entries[i].Busy = cleanBusyReason(entries[i].Path, in)
 		}
 	}
+	if targetErr == nil {
+		fillDivergence(repo, entries, target)
+	}
 	return entries, nil
+}
+
+// fillDivergence sets Ahead/Behind per branch and Overlaps: files two lanes changed, or a lane and main's dirty edits.
+func fillDivergence(repo *Repo, entries []Entry, target string) {
+	ctx, cancel := context.WithTimeout(context.Background(), probeTimeout)
+	defer cancel()
+	files := map[string]map[string]bool{}
+	if out, err := gitCmd(ctx, "-C", repo.Main, "status", "--porcelain", "-z", "--untracked-files=no").Output(); err == nil {
+		files["main"] = statusFiles(string(out))
+	}
+	for i := range entries {
+		e := &entries[i]
+		if !e.Exists || e.Branch == "" {
+			continue
+		}
+		if out, err := gitCmd(ctx, "-C", repo.Main, "rev-list", "--left-right", "--count", target+"..."+e.Branch).Output(); err == nil {
+			fmt.Sscanf(string(out), "%d %d", &e.Behind, &e.Ahead)
+		}
+		if out, err := gitCmd(ctx, "-C", repo.Main, "diff", "--name-only", "-z", target+"..."+e.Branch).Output(); err == nil {
+			files[filepath.Base(e.Path)] = nameSet(strings.Split(string(out), "\x00"))
+		}
+	}
+	for i := range entries {
+		name := filepath.Base(entries[i].Path)
+		for other, set := range files {
+			if other == name {
+				continue
+			}
+			if shared := sharedFiles(files[name], set); len(shared) > 0 {
+				if entries[i].Overlaps == nil {
+					entries[i].Overlaps = map[string][]string{}
+				}
+				entries[i].Overlaps[other] = shared
+			}
+		}
+	}
+}
+
+// statusFiles reads the paths out of `git status --porcelain -z` (a rename record carries a second path).
+func statusFiles(out string) map[string]bool {
+	set := map[string]bool{}
+	recs := strings.Split(out, "\x00")
+	for i := 0; i < len(recs); i++ {
+		if len(recs[i]) > 3 {
+			set[recs[i][3:]] = true
+			if recs[i][0] == 'R' || recs[i][0] == 'C' {
+				i++
+			}
+		}
+	}
+	return set
+}
+
+func nameSet(names []string) map[string]bool {
+	set := map[string]bool{}
+	for _, n := range names {
+		if n != "" {
+			set[n] = true
+		}
+	}
+	return set
+}
+
+// sharedFiles is the sorted intersection of two file sets.
+func sharedFiles(a, b map[string]bool) []string {
+	var shared []string
+	for f := range a {
+		if b[f] {
+			shared = append(shared, f)
+		}
+	}
+	slices.Sort(shared)
+	return shared
 }
 
 // listPorcelain parses `git worktree list --porcelain -z`, keeping only records under repo.Root.
