@@ -32,7 +32,7 @@ func TestDispatchLabelsLineRefreshesOnModelChange(t *testing.T) {
 		return core.ParseInputFor(strings.NewReader(`{"session_id":"s1","model":"`+model+`"}`), core.AgentClaude)
 	}
 	first := dispatchLabelsLine(in("databricks-claude-sonnet-5-5"))
-	if !strings.HasPrefix(first, "Dispatch labels (description prefix): ") || !strings.Contains(first, "Explore=") {
+	if !strings.HasPrefix(first, "Dispatch labels (description prefix): ") || !strings.Contains(first, "Explore") {
 		t.Fatalf("first line = %q", first)
 	}
 	if again := dispatchLabelsLine(in("databricks-claude-sonnet-5-5")); again != "" {
@@ -47,8 +47,9 @@ func TestDispatchLabelsLineListsEveryTierForUnpinnedTypes(t *testing.T) {
 	useAgentsDir(t, "Explore")
 	stubResolve(t, func(q agentpkg.ModelQuery) string { return "wire-" + q.Model })
 	line := dispatchLabelsLine(core.ParseInputFor(strings.NewReader(`{"session_id":"s2","model":"sess-m"}`), core.AgentClaude))
-	entry := line[strings.Index(line, "Explore="):]
+	entry := line[strings.Index(line, "Explore"):]
 	entry, _, _ = strings.Cut(entry, " ")
+	entry = entry[strings.Index(entry, "=")+1:]
 	for _, tier := range []string{"haiku", "sonnet", "opus"} {
 		label, _, _ := dispatchLabel(context.Background(), LabelInput{Type: "Explore", Model: tier, SessionModel: "sess-m"})
 		if label == "" || !strings.Contains(entry, label+":") {

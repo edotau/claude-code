@@ -30,11 +30,9 @@ func applyLabel(ctx context.Context, run *dispatchRun, updated map[string]any, t
 		return false, ""
 	}
 	label, note := labelModel(ctx, run, updated, st, task)
-	rest := stripLabels(orig, st, label)
-	out := lowerFirst(rest)
+	out := lowerFirst(stripLabels(orig, st, label))
 	if label != "" {
-		head, _, _ := strings.Cut(orig, ":")
-		if sameLabel(head, label) && labelShaped(strings.TrimSpace(head), label) { // an uncuttable head would stack
+		if head, _, _ := strings.Cut(orig, ":"); sameLabel(head, label) && labelShaped(strings.TrimSpace(head), label) { // else it stacks
 			label = head // an equivalent label is kept as typed, so no rewrite is asked of auto mode
 		}
 		out = label + ": " + out
@@ -43,7 +41,10 @@ func applyLabel(ctx context.Context, run *dispatchRun, updated map[string]any, t
 		return false, note
 	}
 	updated["description"] = out
-	return true, strings.TrimSpace(note + "\n" + fmt.Sprintf("dispatch-effort: description %q rewritten to %q.", orig, out))
+	a, b := []rune(orig), []rune(out) // only the differing head is quoted, never the shared task text
+	for ; len(a) > 0 && len(b) > 0 && a[len(a)-1] == b[len(b)-1]; a, b = a[:len(a)-1], b[:len(b)-1] {
+	}
+	return true, strings.TrimSpace(note + "\n" + fmt.Sprintf("dispatch-effort: description head %q rewritten to %q.", string(a), string(b)))
 }
 
 // sameLabel: head names label's model (models.SameModel), and claims `databricks-` only when label does too.
@@ -152,22 +153,18 @@ func pinModel(run *dispatchRun, in *core.Input, updated map[string]any, task str
 	}
 	updated["model"] = model
 	tier := agentpkg.TierEffort(model)
-	effort := ""
-	if set := pinEffort(run, in, updated, tier); set != "" {
-		effort = " effort=" + set
-	}
-	return fmt.Sprintf("dispatch-effort: dispatch model unset and the task classifies %s — pinned model=%s%s"+
-			" (set model explicitly to override).", tier, model, effort),
+	effort := pinEffort(run, in, updated, tier)
+	return fmt.Sprintf("dispatch-effort: model unset, task classifies %s: pinned model=%s%s (set model explicitly to override).", tier, model, effort),
 		fmt.Sprintf("dispatch-effort: %s → %s%s (%s)", tier, model, effort, signal)
 }
 
-// pinEffort sets updated["effort"] to tier unless the call or agent file sets one; returns what it set, else "".
+// pinEffort sets updated["effort"] to tier unless the call or agent file sets one; returns " effort=<tier>", else "".
 func pinEffort(run *dispatchRun, in *core.Input, updated map[string]any, tier string) string {
 	if strings.TrimSpace(in.Nested("tool_input", "effort")) != "" || run.rosterEffort(effectiveType(updated)) != "" {
 		return ""
 	}
 	updated["effort"] = tier
-	return tier
+	return " effort=" + tier
 }
 
 // effectiveType is the subagent_type the dispatch will run as, after any coworker retype.

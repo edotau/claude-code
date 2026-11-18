@@ -133,7 +133,7 @@ func WithDispatchLabels(next core.Runner) core.Runner {
 	}
 }
 
-// dispatchLabelsLine reports labels once per known session model, "" otherwise.
+// dispatchLabelsLine reports labels once per known session model, types sharing a list grouped; "" otherwise.
 func dispatchLabelsLine(in *core.Input) string {
 	model := sessionModel(in)
 	if model == "" {
@@ -144,11 +144,18 @@ func dispatchLabelsLine(in *core.Input) string {
 		return ""
 	}
 	var parts []string
+	byLabels := map[string][]string{}
 	run := newDispatchRun(func() string { return model })
 	for _, t := range dispatchTypes() {
-		if part := dispatchLabelEntry(run, t, model); part != "" {
-			parts = append(parts, part)
+		if labels := dispatchLabelEntry(run, t, model); labels != "" {
+			if byLabels[labels] == nil {
+				parts = append(parts, labels)
+			}
+			byLabels[labels] = append(byLabels[labels], t)
 		}
+	}
+	for i, labels := range parts {
+		parts[i] = strings.Join(byLabels[labels], ",") + "=" + labels // `a,b=haiku:|sonnet:|opus:`
 	}
 	if len(parts) == 0 {
 		return ""
@@ -162,20 +169,16 @@ func dispatchLabelsLine(in *core.Input) string {
 // labelRuleLine is the one extra session-start line: how a Run line's flags change the label.
 const labelRuleLine = "A Run line's --model/--profile makes the label that ask's model (databricks- id if routed); equivalents pass."
 
-// dispatchLabelEntry lists one label per tier when the hook pins the model by task class.
+// dispatchLabelEntry is the type's accepted prefixes: its pin's label, else one per tier; "" when blocked.
 func dispatchLabelEntry(run *dispatchRun, t, model string) string {
 	if agentPinsModel(run, t) {
 		label, _, blocked := dispatchLabel(context.Background(), LabelInput{Type: t, SessionModel: model})
 		if blocked != "" || label == "" {
 			return ""
 		}
-		return t + "=" + label + ":"
+		return label + ":"
 	}
-	tiers := dispatchTierLabels(t, model)
-	if tiers == "" {
-		return ""
-	}
-	return t + "=" + tiers
+	return dispatchTierLabels(t, model)
 }
 
 // dispatchTierLabels is the accepted prefix per tier (`haiku:|sonnet:|opus:`); "" when the type is blocked.
