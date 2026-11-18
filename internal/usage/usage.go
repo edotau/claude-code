@@ -2,6 +2,7 @@
 package usage
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -11,10 +12,10 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/tokenledger"
@@ -388,20 +389,14 @@ type sessionModTime struct {
 }
 
 func sessionModTimes(dirs []string) []sessionModTime {
-	out := make([]sessionModTime, len(dirs))
 	const scanWorkers = 8
-	var wg sync.WaitGroup
-	for worker := range min(scanWorkers, len(dirs)) {
-		wg.Go(func() {
-			for i := worker; i < len(dirs); i += scanWorkers {
-				info, err := os.Stat(dirs[i])
-				if err == nil && info.IsDir() {
-					out[i].mtime, out[i].err = newestModTime(dirs[i])
-				}
-			}
-		})
-	}
-	wg.Wait()
+	out, err := parallel.Map(context.Background(), dirs, scanWorkers, func(_ context.Context, dir string) (r sessionModTime, _ error) {
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			r.mtime, r.err = newestModTime(dir)
+		}
+		return r, nil
+	})
+	parallel.Rethrow(err)
 	return out
 }
 

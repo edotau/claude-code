@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"hash/crc32"
@@ -11,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -219,17 +221,11 @@ func encodeMissing(files []corpusFile, missing []int, segs []segView) {
 	if len(missing) == 0 {
 		return
 	}
-	var wg sync.WaitGroup
-	workers := min(corpusReadWorkers, len(missing))
-	for worker := range workers {
-		wg.Go(func() {
-			for j := worker; j < len(missing); j += workers {
-				i := missing[j]
-				segs[i] = encodeFile(files[i])
-			}
-		})
-	}
-	wg.Wait()
+	_, err := parallel.Map(context.Background(), missing, corpusReadWorkers, func(_ context.Context, i int) (struct{}, error) {
+		segs[i] = encodeFile(files[i])
+		return struct{}{}, nil
+	})
+	parallel.Rethrow(err)
 }
 
 // readFilesIndex is the persisted index restricted to files' (path, mode) keys.

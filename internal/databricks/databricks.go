@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -452,17 +453,10 @@ func checkLine(label, cell string) string {
 
 // checkProfiles probes names concurrently, checkWorkers at a time; rows keep the names' order.
 func checkProfiles(reg *providers.Registry, names []string, model string) []checkRow {
-	rows := make([]checkRow, len(names))
-	sem := make(chan struct{}, checkWorkers)
-	var wg sync.WaitGroup
-	for i, name := range names {
-		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			rows[i] = checkProfile(reg.Providers[name], name, model)
-		})
-	}
-	wg.Wait()
+	rows, err := parallel.Map(context.Background(), names, checkWorkers, func(_ context.Context, name string) (checkRow, error) {
+		return checkProfile(reg.Providers[name], name, model), nil
+	})
+	parallel.Rethrow(err)
 	return rows
 }
 

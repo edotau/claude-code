@@ -3,6 +3,7 @@ package parallel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"runtime"
 	"strings"
@@ -246,3 +247,14 @@ func TestPanicStackIsThePanickingGoroutines(t *testing.T) {
 
 //go:noinline
 func explode() error { panic("explode exploded") }
+
+func TestRethrow(t *testing.T) {
+	Rethrow(nil, errors.New("plain"))
+	defer func() {
+		if got := recover(); got != "boom" {
+			t.Fatalf("recovered %v, want the original panic value", got)
+		}
+	}()
+	Rethrow(errors.New("plain"), fmt.Errorf("item 1: %w", &PanicError{Value: "boom"}))
+	t.Fatal("contained panic was not re-raised")
+}

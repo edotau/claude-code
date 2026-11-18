@@ -60,21 +60,14 @@ func reminderWatched(in *core.Input) core.Result { return watched(docs.Reminder,
 // watched runs r, then the watchdog check, joining their notes.
 func watched(r core.Runner, in *core.Input) core.Result {
 	var res, w core.Result
-	for _, err := range parallel.All(2, func(i int) error { // the runner and the tick touch different state
+	parallel.Rethrow(parallel.All(2, func(i int) error { // the runner and the tick touch different state
 		if i == 0 {
 			res = r(in)
 		} else {
 			w = watchTick(in)
 		}
 		return nil
-	}) {
-		if err != nil {
-			if pe, ok := errors.AsType[*parallel.PanicError](err); ok {
-				panic(pe.Value) // the dispatcher recovers the runner's own value, as before
-			}
-			panic(err)
-		}
-	}
+	})...) // the dispatcher recovers the runner's own value
 	res.Context = core.JoinContext(res.Context, w.Context)
 	res.SystemMessage = core.JoinNonEmpty("; ", res.SystemMessage, w.SystemMessage)
 	res.Stderr = core.JoinNonEmpty("\n", res.Stderr, w.Stderr)

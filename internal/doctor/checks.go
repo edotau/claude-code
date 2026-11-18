@@ -10,7 +10,6 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -21,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/opencode"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
@@ -48,24 +48,6 @@ var doctorSections = []doctorSection{
 
 const doctorWorkers = 4
 
-// fanOut runs fn(0..n-1) on at most workers goroutines and returns the results in index order.
-func fanOut[T any](n, workers int, fn func(i int) T) []T {
-	out := make([]T, n)
-	sem := make(chan struct{}, workers)
-	var wg sync.WaitGroup
-	for i := range n {
-		wg.Add(1)
-		sem <- struct{}{}
-		go func() {
-			defer wg.Done()
-			defer func() { <-sem }()
-			out[i] = fn(i)
-		}()
-	}
-	wg.Wait()
-	return out
-}
-
 type sectionRows struct {
 	rows []check
 	ok   bool
@@ -74,10 +56,13 @@ type sectionRows struct {
 // runChecks runs every read-only health check; ok is false when any hard check failed.
 func runChecks(ctx context.Context) (checks []check, ok bool) {
 	ok = true
-	for _, r := range fanOut(len(doctorSections), doctorWorkers, func(i int) sectionRows {
-		rows, sok := doctorSections[i](ctx)
-		return sectionRows{rows, sok}
-	}) {
+	results, err := parallel.Map(context.Background(), doctorSections, doctorWorkers,
+		func(_ context.Context, section doctorSection) (sectionRows, error) {
+			rows, sok := section(ctx)
+			return sectionRows{rows, sok}, nil
+		})
+	parallel.Rethrow(err)
+	for _, r := range results {
 		checks = append(checks, r.rows...)
 		ok = ok && r.ok
 	}

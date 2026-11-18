@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/audit"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -27,9 +28,12 @@ var readAudit = audit.Read
 func providerCredentialChecks(ctx context.Context, reg *providers.Registry, sel providers.Selection, selectErr error, names []string) []check {
 	agents := sync.OnceValue(providers.AgentRecords) // one vault read per run, not per profile
 	seals := sync.OnceValue(recentSealFailures)      // one audit read per run
-	return fanOut(len(names), credentialProbeWorkers, func(i int) check {
-		return providerCredentialCheck(ctx, reg, sel, selectErr, names[i], agents, seals)
-	})
+	rows, err := parallel.Map(context.Background(), names, credentialProbeWorkers,
+		func(_ context.Context, name string) (check, error) {
+			return providerCredentialCheck(ctx, reg, sel, selectErr, name, agents, seals), nil
+		})
+	parallel.Rethrow(err)
+	return rows
 }
 
 func providerCredentialCheck(ctx context.Context, reg *providers.Registry, sel providers.Selection, selectErr error, name string,

@@ -66,6 +66,15 @@ func All(n int, fn func(int) error) []error {
 	return errs
 }
 
+// Rethrow re-panics the original value of the first contained panic in errs; other errors are ignored.
+func Rethrow(errs ...error) {
+	for _, err := range errs {
+		if pe, ok := errors.AsType[*PanicError](err); ok {
+			panic(pe.Value)
+		}
+	}
+}
+
 // Map preserves order, joins started work, and cancels on first error; limit <= 0 means one worker.
 func Map[A, B any](ctx context.Context, items []A, limit int, fn func(context.Context, A) (B, error)) ([]B, error) {
 	ctx, cancel := context.WithCancelCause(ctx)

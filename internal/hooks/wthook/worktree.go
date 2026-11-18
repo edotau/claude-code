@@ -217,18 +217,14 @@ func CheckoutOf(ctx context.Context, cwd string) (top, branch string, nested []s
 	}
 	top = paths.Canon(top)
 	var list string
-	for _, err := range parallel.All(2, func(i int) error { // the two git calls are independent
+	parallel.Rethrow(parallel.All(2, func(i int) error { // the two git calls are independent
 		if i == 0 {
 			branch = git("rev-parse", "--abbrev-ref", "HEAD")
 		} else {
 			list = git("worktree", "list", "--porcelain")
 		}
 		return nil
-	}) {
-		if err != nil {
-			panic(err) // par contains a panic; keep it the dispatcher's to recover
-		}
-	}
+	})...) // a contained panic stays the dispatcher's to recover
 	var others []string
 	for line := range strings.SplitSeq(list, "\n") {
 		path, ok := strings.CutPrefix(line, "worktree ")

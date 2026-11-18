@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -215,16 +216,11 @@ func (t *RouteTable) refreshStale(
 		return false
 	}
 	t.pick(ctx, alias, want, st.clone(), o, now, configured)
-	var wg sync.WaitGroup
-	sem := make(chan struct{}, refreshConcurrency)
-	for _, account := range stale {
-		wg.Go(func() {
-			sem <- struct{}{}
-			defer func() { <-sem }()
-			refresh(ctx, account)
-		})
-	}
-	wg.Wait()
+	_, err := parallel.Map(context.Background(), stale, refreshConcurrency, func(_ context.Context, account string) (struct{}, error) {
+		refresh(ctx, account)
+		return struct{}{}, nil
+	})
+	parallel.Rethrow(err)
 	if len(stale) > 0 {
 		fresh := LoadState()
 		for _, account := range stale {
