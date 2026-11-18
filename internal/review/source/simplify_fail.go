@@ -306,8 +306,28 @@ func testLayoutRules(path, text string) map[string]string {
 	return out
 }
 
-// testLayoutViolations are the whole-file test layout findings a changed test file adds over its base text.
-func testLayoutViolations(path, text, base string) []string {
+var testFuncRe = regexp.MustCompile(`(?m)^func Test\w*\(`)
+
+// hasSource reports whether dir holds stem.go or an OS-specific stem_<suffix>.go that a foo_test.go may cover.
+func hasSource(dir, stem string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		n := e.Name()
+		if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
+			continue
+		}
+		if n == stem+".go" || strings.HasPrefix(n, stem+"_") {
+			return true
+		}
+	}
+	return false
+}
+
+// testLayoutViolations are the layout findings a changed test file adds over base; renamed counts it as new.
+func testLayoutViolations(path, text, base string, renamed bool) []string {
 	if !strings.HasSuffix(path, "_test.go") {
 		return nil
 	}
@@ -325,8 +345,12 @@ func testLayoutViolations(path, text, base string) []string {
 		}
 	}
 	stem := strings.TrimSuffix(strings.TrimSuffix(strings.TrimSuffix(filepath.Base(path), ".go"), "_test"), "_regression")
-	if _, err := os.Stat(filepath.Join(filepath.Dir(path), stem+".go")); err != nil && base == "" {
+	if (base == "" || renamed) && !hasSource(filepath.Dir(path), stem) {
 		out = append(out, "1: test file has no matching "+stem+".go in its directory (rules/harness/go.md)")
+	}
+	if strings.HasSuffix(path, "_regression_test.go") && len(testFuncRe.FindAllString(text, 2)) < 2 &&
+		(base == "" || renamed || len(testFuncRe.FindAllString(base, 2)) >= 2) {
+		out = append(out, "1: a _regression_test.go file needs 2 or more tests; fold one into the main test file (rules/harness/go.md)")
 	}
 	return out
 }
@@ -352,7 +376,7 @@ func newGoViolations(path, base string, g *gitBatch) ([]string, error) {
 		return nil, err
 	}
 	out = append(out, commentViolations(text, baseText, spans)...)
-	out = append(out, testLayoutViolations(path, text, baseText)...)
+	out = append(out, testLayoutViolations(path, text, baseText, old != path)...)
 	sort.Strings(out)
 	for i, v := range out {
 		out[i] = path + ":" + v
