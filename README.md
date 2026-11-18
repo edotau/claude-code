@@ -461,7 +461,7 @@ tree but not loaded; add its path to `CLAUDE_CODE_PLUGIN_DIRS` to try it.
 go test ./internal/<pkg>   # while developing — only what you touched
 make fmt                   # format + auto-fix go, md, js; copilot fixes the rest (AGENT=off skips it)
 make lint                  # check go, shell, yaml, make help, md, workflows; auto-wraps own memory banks
-make audit                 # full gate, once before pushing
+make audit                 # full gate on the working-tree build (live binary untouched), once before pushing
 ```
 
 - `git push` runs no gate (`.githooks/pre-push` is disabled) and CI is manual-only: run `make audit` locally before
