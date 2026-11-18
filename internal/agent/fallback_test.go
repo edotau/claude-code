@@ -797,7 +797,7 @@ func TestSkipNoticeOnlyForWantedAgent(t *testing.T) {
 }
 
 func TestAstraModelIdentityZeroLegs(t *testing.T) {
-	stub := &pinFallbackRunner{name: "codex"}
+	stub := &pinFallbackRunner{}
 	_, err := runWithFallback(context.Background(), Chain{Want: "codex"}, RunOptions{Prompt: "x", Model: astra}, wire.Discard, nil)
 	var e *retry.Error
 	if !errors.As(err, &e) || e.Kind != retry.KindFatal {
