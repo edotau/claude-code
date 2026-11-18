@@ -427,7 +427,7 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 		return p.Result, err
 	}
 	res, err := agent.RunStream(ctx, e.Name(), cmd, tail, p.Result, sink, host.parser(nil))
-	host.after(res)
+	host.after(res, err)
 	if err == nil {
 		err = refuseToolCallText(e.Name(), req, res.Answer)
 	}

@@ -277,7 +277,7 @@ func (h *hookHost) during(ev openCodeEvent) {
 }
 
 // after runs Stop then SessionEnd once the child has exited; res carries the session id opencode minted.
-func (h *hookHost) after(res wire.Result) {
+func (h *hookHost) after(res wire.Result, runErr error) {
 	if h == nil {
 		return
 	}
@@ -287,8 +287,8 @@ func (h *hookHost) after(res wire.Result) {
 	h.mu.Lock()
 	acted := len(h.seen) > 0
 	h.mu.Unlock()
-	// a run with no watched call and no answer has nothing to format, tick or save (about 1 s per dispatch)
-	if !acted && strings.TrimSpace(res.Answer) == "" {
+	// Tool-free write-back requires a successful answer; watched calls retain their existing policy.
+	if !acted && (runErr != nil || res.Status != "" && res.Status != wire.StatusOK || strings.TrimSpace(res.Answer) == "") {
 		return
 	}
 	// The child has exited, so a Block has nothing left to stop; fire has logged it.

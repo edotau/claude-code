@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -139,16 +140,21 @@ func TestAfterRunsMemoryUpdateOnlyWhenThereIsSomethingToSave(t *testing.T) {
 		name   string
 		seen   map[string]bool
 		answer string
+		status string
+		err    error
 		want   int
 	}{
-		{"tool-free answer", map[string]bool{}, "OK", 2},
-		{"empty answer, no calls", map[string]bool{}, "  \n", 0},
-		{"watched call, empty answer", map[string]bool{"c1": true}, "", 2},
-		{"watched call and answer", map[string]bool{"c1": true}, "done", 2},
+		{"tool-free answer", map[string]bool{}, "OK", wire.StatusOK, nil, 2},
+		{"failed tool-free answer", map[string]bool{}, "Partial response before failure", wire.StatusError, nil, 0},
+		{"stream error with answer", map[string]bool{}, "partial", wire.StatusOK, errors.New("stream failed"), 0},
+		{"watched call with failure", map[string]bool{"c1": true}, "partial", wire.StatusError, errors.New("stream failed"), 2},
+		{"empty answer, no calls", map[string]bool{}, "  \n", "", nil, 0},
+		{"watched call, empty answer", map[string]bool{"c1": true}, "", "", nil, 2},
+		{"watched call and answer", map[string]bool{"c1": true}, "done", "", nil, 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h, ran := afterHost(tc.seen)
-			h.after(wire.Result{Answer: tc.answer})
+			h.after(wire.Result{Answer: tc.answer, Status: tc.status}, tc.err)
 			if len(*ran) != tc.want {
 				t.Errorf("hooks run = %v, want %d", *ran, tc.want)
 			}
@@ -160,6 +166,6 @@ func TestAfterRunsMemoryUpdateOnlyWhenThereIsSomethingToSave(t *testing.T) {
 func BenchmarkAfterToolFree(b *testing.B) {
 	h, _ := afterHost(map[string]bool{})
 	for b.Loop() {
-		h.after(wire.Result{Answer: "OK"})
+		h.after(wire.Result{Answer: "OK"}, nil)
 	}
 }
