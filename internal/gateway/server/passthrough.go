@@ -324,6 +324,9 @@ func geminiTools(raw json.RawMessage) (json.RawMessage, bool) {
 
 // dropNonFunctionTools removes tools[] entries with no function object (custom, web_search): chat endpoints 400.
 func dropNonFunctionTools(body []byte) []byte {
+	if !mayHoldKey(body, "tools") {
+		return body
+	}
 	var top map[string]json.RawMessage
 	if json.Unmarshal(body, &top) != nil {
 		return body
@@ -377,6 +380,11 @@ func fixGeminiChat(body []byte) []byte {
 	return marshalOr(top, body)
 }
 
+// mayHoldKey is false only when no key containing stem can be in body: no plain stem and no \u00xx escape.
+func mayHoldKey(body []byte, stem string) bool {
+	return bytes.Contains(body, []byte(stem)) || bytes.Contains(body, []byte("u00"))
+}
+
 // marshalOr marshals v, or returns body when v cannot be encoded.
 func marshalOr(v any, body []byte) []byte {
 	if out, err := json.Marshal(v); err == nil {
@@ -392,6 +400,9 @@ var outputTokenKeys = [...]string{"max_tokens", "max_completion_tokens", "max_ou
 func clampOutputTokens(body []byte, model string) []byte {
 	limits, ok := models.Limits(model)
 	if !ok || limits.Output <= 0 {
+		return body
+	}
+	if !mayHoldKey(body, "tokens") {
 		return body
 	}
 	var top map[string]json.RawMessage

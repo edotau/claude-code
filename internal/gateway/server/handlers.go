@@ -68,9 +68,19 @@ func loginText(ctx context.Context, p *providers.Provider, v providers.AuthVerdi
 	return fmt.Sprintf("authentication failed (%s); run `%s`; %s", v, login, fallback)
 }
 
+// bodyPresize is the initial read buffer: the declared length plus one byte for EOF, capped; 512 when unknown.
+func bodyPresize(declared int64) int {
+	if declared <= 0 {
+		return 512
+	}
+	return int(min(declared, 1<<20)) + 1
+}
+
 // readBody reads the request body up to maxBody; a read error or an oversize body is written out and returns false.
 func readBody(w http.ResponseWriter, in *http.Request) ([]byte, bool) {
-	body, err := io.ReadAll(io.LimitReader(in.Body, maxBody+1))
+	buf := bytes.NewBuffer(make([]byte, 0, bodyPresize(in.ContentLength)))
+	_, err := buf.ReadFrom(io.LimitReader(in.Body, maxBody+1))
+	body := buf.Bytes()
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "proxy: read body: "+err.Error())
 		return nil, false

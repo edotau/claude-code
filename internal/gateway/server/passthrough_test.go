@@ -870,3 +870,85 @@ func BenchmarkScrapeUsage(b *testing.B) {
 		scrapeUsage(tail)
 	}
 }
+
+func oracleDropNonFunctionTools(body []byte) []byte {
+	var top map[string]json.RawMessage
+	if json.Unmarshal(body, &top) != nil {
+		return body
+	}
+	var tools []map[string]json.RawMessage
+	if json.Unmarshal(top["tools"], &tools) != nil {
+		return body
+	}
+	kept := make([]map[string]json.RawMessage, 0, len(tools))
+	for _, t := range tools {
+		if fn := bytes.TrimSpace(t["function"]); len(fn) > 0 && fn[0] == '{' {
+			kept = append(kept, t)
+		}
+	}
+	if len(kept) == len(tools) {
+		return body
+	}
+	if len(kept) == 0 {
+		delete(top, "tools")
+		delete(top, "tool_choice")
+		delete(top, "parallel_tool_calls")
+	} else {
+		top["tools"], _ = json.Marshal(kept)
+	}
+	return marshalOr(top, body)
+}
+
+func oracleClampOutputTokens(body []byte, model string) []byte {
+	limits, ok := models.Limits(model)
+	if !ok || limits.Output <= 0 {
+		return body
+	}
+	var top map[string]json.RawMessage
+	if json.Unmarshal(body, &top) != nil {
+		return body
+	}
+	if !clampCaps(top, limits.Output) {
+		return body
+	}
+	return marshalOr(top, body)
+}
+
+func TestRequestFixGatesMatchTheFullDecode(t *testing.T) {
+	const model = "claude-sonnet-5-5"
+	limit, ok := models.Limits(model)
+	if !ok || limit.Output <= 0 {
+		t.Skip("catalog has no output limit for the model")
+	}
+	over, under := limit.Output+1000, limit.Output-1
+	fn := `{"type":"function","function":{"name":"a"}}`
+	bodies := []string{
+		`{"model":"m","messages":[]}`,
+		fmt.Sprintf(`{"max_tokens":%d}`, under),
+		fmt.Sprintf(`{"max_tokens":%d,"max_output_tokens":%d}`, over, under),
+		fmt.Sprintf(`{"max_completion_tokens":%d}`, over),
+		fmt.Sprintf(`{"messages":[{"role":"user","content":"max_tokens: %d tools"}]}`, over),
+		fmt.Sprintf(`{"messages":[{"content":"\"max_tokens\":%d"}],"max_tokens":%d}`, over, over),
+		fmt.Sprintf("{ \"max_tokens\" :\n  %d }", over),
+		fmt.Sprintf("{\"max\\u005ftokens\":%d}", over),
+		fmt.Sprintf("{\"\\u006dax_output_tokens\":%d,\"z\":1}", over),
+		`{"tools":[` + fn + `,` + fn + `]}`,
+		`{"tools":[` + fn + `,{"type":"custom","name":"w"}],"tool_choice":"auto"}`,
+		`{"tools":[{"type":"custom"}],"tool_choice":"auto","parallel_tool_calls":true}`,
+		`{"tools":[]}`,
+		`{"messages":[{"content":"tools"}]}`,
+		"{ \"to\\u006fls\" : [{\"type\":\"custom\"}], \"k\":1 }",
+		"{\"too\\u006cs\":[{\"type\":\"custom\"}]}",
+		`not json max_tokens tools`,
+		``,
+	}
+	for _, b := range bodies {
+		in := []byte(b)
+		if got, want := clampOutputTokens(in, model), oracleClampOutputTokens(in, model); !bytes.Equal(got, want) {
+			t.Errorf("clamp(%q) = %q, want %q", b, got, want)
+		}
+		if got, want := dropNonFunctionTools(in), oracleDropNonFunctionTools(in); !bytes.Equal(got, want) {
+			t.Errorf("drop(%q) = %q, want %q", b, got, want)
+		}
+	}
+}

@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
@@ -716,5 +717,39 @@ func TestLastHopStripsMarker(t *testing.T) {
 				t.Fatalf("status=%d calls=%d; want %d/1", w.Code, len(up.got()), c.status)
 			}
 		})
+	}
+}
+
+func TestReadBodyKeepsItsLimitsWhateverContentLengthSays(t *testing.T) {
+	cases := []struct {
+		name   string
+		length int64
+		body   io.Reader
+		want   int
+		code   int
+	}{
+		{"exact", 5, strings.NewReader("hello"), 5, 0},
+		{"unknown", -1, strings.NewReader("hello"), 5, 0},
+		{"declared longer than sent", 1 << 30, strings.NewReader("hello"), 5, 0},
+		{"declared shorter than sent", 2, strings.NewReader("hello"), 5, 0},
+		{"empty", 0, strings.NewReader(""), 0, 0},
+		{"oversize", 10, io.LimitReader(zeroReader{}, maxBody+1), 0, http.StatusRequestEntityTooLarge},
+		{"read error", 10, io.MultiReader(strings.NewReader("ab"), iotest.ErrReader(io.ErrUnexpectedEOF)), 0,
+			http.StatusBadRequest},
+	}
+	for _, c := range cases {
+		in := httptest.NewRequest(http.MethodPost, "/", c.body)
+		in.ContentLength = c.length
+		rec := httptest.NewRecorder()
+		body, ok := readBody(rec, in)
+		if c.code != 0 {
+			if ok || rec.Code != c.code {
+				t.Errorf("%s: ok=%v code=%d, want code %d", c.name, ok, rec.Code, c.code)
+			}
+			continue
+		}
+		if !ok || len(body) != c.want {
+			t.Errorf("%s: ok=%v len=%d, want %d", c.name, ok, len(body), c.want)
+		}
 	}
 }
