@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"runtime/debug"
 	"sync"
 	"time"
@@ -70,6 +71,7 @@ func All(n int, fn func(int) error) []error {
 func Rethrow(errs ...error) {
 	for _, err := range errs {
 		if pe, ok := errors.AsType[*PanicError](err); ok {
+			fmt.Fprintf(os.Stderr, "panic in parallel goroutine: %v\n%s", pe.Value, pe.Stack)
 			panic(pe.Value)
 		}
 	}

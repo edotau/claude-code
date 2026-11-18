@@ -12,6 +12,7 @@ import (
 	"testing/synctest"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
@@ -257,4 +258,19 @@ func TestRethrow(t *testing.T) {
 	}()
 	Rethrow(errors.New("plain"), fmt.Errorf("item 1: %w", &PanicError{Value: "boom"}))
 	t.Fatal("contained panic was not re-raised")
+}
+
+func TestRethrowWritesOriginStackToStderr(t *testing.T) {
+	var got any
+	_, _, stderr := hosttest.CaptureOutput(t, func() int {
+		defer func() { got = recover() }()
+		Rethrow(&PanicError{Value: "boom", Stack: []byte("origin-frame-xyz\n")})
+		return 0
+	})
+	if got != "boom" {
+		t.Fatalf("re-panicked %v, want the original value", got)
+	}
+	if strings.Count(stderr, "origin-frame-xyz") != 1 || !strings.Contains(stderr, "boom") {
+		t.Fatalf("stderr = %q, want the panic value and origin stack once", stderr)
+	}
 }
