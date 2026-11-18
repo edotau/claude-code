@@ -49,6 +49,9 @@ type step struct {
 	listsFiles bool     // the tool exits 0 and prints the files that need work (gofmt -l)
 	optional   bool     // a missing tool skips even under --gates, as the Makefile always did for it
 	parse      parseFn
+	fix        []string // the command `agents fix` runs on {files}, the one `make fmt` runs for this kind; nil: no fixer
+	dry        []string // what lists the files fix would rewrite, when cmd is not that (golangci-lint fmt -d)
+	dryParse   parseFn  // reads dry's output; parse when nil
 }
 
 const (
@@ -60,15 +63,18 @@ const (
 // steps is the per-kind check table; `make lint` and `agents diff --check` both run exactly these commands.
 var steps = []step{
 	{kind: "go", gate: "gofmt", globs: []string{goGlob}, cmd: []string{"gofmt", "-l", "{files}"}, listsFiles: true,
-		parse: parseGofmt},
+		parse: parseGofmt, fix: []string{"gofmt", "-w", "{files}"}},
 	{kind: "go", gate: "vet", globs: []string{goGlob}, cmd: []string{"go", "vet", "{pkgs}"}, parse: parseGoOutput("vet")},
 	{kind: "go", gate: "golangci-lint", globs: []string{goGlob}, install: installDev, parse: parseGolangci,
-		cmd: []string{"golangci-lint", "run", "--max-issues-per-linter=0", "--max-same-issues=0", "{pkgs}"}},
+		fix: []string{"golangci-lint", "fmt", "{files}"}, dry: []string{"golangci-lint", "fmt", "-d", "{files}"},
+		dryParse: parseFmtDiff,
+		cmd:      []string{"golangci-lint", "run", "--max-issues-per-linter=0", "--max-same-issues=0", "{pkgs}"}},
 	{kind: "markdown", gate: "docs", globs: []string{mdGlob}, install: "make mdsmith", parse: parseDocs,
-		cmd: []string{"mdsmith", "check", "--no-color", "--", "{files}"}, wholeCmd: []string{"mdsmith", "check", "--no-color"}},
+		cmd: []string{"mdsmith", "check", "--no-color", "--", "{files}"}, fix: []string{"mdsmith", "fix", "--no-color", "--", "{files}"},
+		wholeCmd: []string{"mdsmith", "check", "--no-color"}},
 	{kind: "yaml", gate: "yaml", globs: []string{"**/*.yml", "**/*.yaml"}, install: "make install", optional: true,
 		parse: parseYamlfmt,
-		cmd:   []string{"yamlfmt", "-lint", "{files}"}},
+		cmd:   []string{"yamlfmt", "-lint", "{files}"}, fix: []string{"yamlfmt", "{files}"}},
 	{kind: "shell", gate: "shell", globs: []string{"scripts/*.sh", "scripts/lib/*.sh", "skills/*/scripts/*.sh"},
 		install: "install shellcheck; make does not", optional: true, parse: parseShellcheck,
 		cmd: []string{"shellcheck", "-S", "error", "-f", "gcc", "{files}"}},
@@ -137,6 +143,7 @@ var (
 	reMdsmith   = regexp.MustCompile(`^(.+?):(\d+):\d+ (MDS\d+) (.*)$`)
 	reMemory    = regexp.MustCompile(`^(.+?\.md): memory fmt --check: (.*)$`)
 	reMdChrome  = regexp.MustCompile(`^(\s*\d+ \| ?.*|[·\s]*\^|stats: .*)$`)
+	reFmtDiff   = regexp.MustCompile(`^diff (.+)\.orig .+$`)
 	reYamlHead  = regexp.MustCompile(`^(.+?\.ya?ml):$`)
 	reYamlChrom = regexp.MustCompile(`^(The following formatting differences.*|- .*|\s.*)$`)
 	reShell     = regexp.MustCompile(`^(.+?):(\d+):\d+: \w+: (.*) \[(SC\d+)\]$`)
@@ -187,6 +194,11 @@ func parseGolangci(out string) []Finding {
 var parseDocs = parseLines("docs", reMdChrome,
 	lineRule{reMdsmith, func(m []string) Finding { return Finding{m[1], atoi(m[2]), "mdsmith", m[3], m[4]} }},
 	lineRule{reMemory, func(m []string) Finding { return Finding{Path: m[1], Tool: "memory-fmt", Message: m[2]} }})
+
+// parseFmtDiff reads `golangci-lint fmt -d`: one `diff a.go.orig a.go` header per file it would rewrite.
+var parseFmtDiff = parseLines("golangci-lint", nil, lineRule{reFmtDiff, func(m []string) Finding {
+	return Finding{Path: m[1], Tool: "golangci-lint", Message: "needs formatting"}
+}})
 
 var parseYamlfmt = parseLines("yamlfmt", reYamlChrom, lineRule{reYamlHead, func(m []string) Finding {
 	return Finding{Path: m[1], Tool: "yamlfmt", Message: "needs formatting"}

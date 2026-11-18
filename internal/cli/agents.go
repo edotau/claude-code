@@ -42,6 +42,7 @@ func agentsSpec() *helptext.Node {
 			boolFlag("i"), boolFlag("w"), boolFlag("l"), flag("path"), flag("max"), formatFlag()}},
 		"diff": {Flags: []helptext.Flag{flag("base"), flag("path"), flag("verify"), boolFlag("check"), valuedFlag("gates", inspect.GateNames),
 			boolFlag("all"), formatFlag()}},
+		"fix":  {Flags: []helptext.Flag{flag("path"), boolFlag("dry-run")}},
 		"list": {Flags: []helptext.Flag{flag("host"), formatFlag()}},
 		"ask":  {Flags: ask.CompletionFlags()},
 		"dispatch": {Flags: []helptext.Flag{flag("timeout"), formatFlag(), boolFlag("background"),
@@ -98,6 +99,7 @@ var agentsPage = helptext.Page{
 		{"label", "print a leaf's dispatch description prefix"},
 		{"find", "search repo content, paths, Go declarations or callers"},
 		{"diff", "changed files, --path scope, Go gates; --check, --verify"},
+		{"fix", "run the make fmt fixers on --path files only; --dry-run"},
 		{"status", "dispatch state: status [<id>] [--agent A] [--all]"},
 		{"result", "a dispatch's answer: result [<id>] [--agent A] [-f]"},
 		{"cancel", "interrupt a running dispatch, or --lost: mark dead ones as error"},
@@ -132,6 +134,10 @@ var agentsSubPages = map[string][3]string{
 		"findings the change introduced), findings as `path:line: tool/rule: message` rows. --gates picks gates (lint: " +
 		"gofmt, vet, golangci-lint, docs, yaml, shell, quality; a missing golangci-lint or mdsmith then fails); --all checks the whole " +
 		"tree. --verify <id> adds a dispatch's routing proof. Exit 1 gate failed or MISMATCH, 3 outside --path, 2 usage."},
+	"fix": {"fix --path <p> [flags]", "Run the fixers make fmt runs (gofmt, golangci-lint fmt, mdsmith fix, yamlfmt) on " +
+		"the tracked files under each --path, and nothing else. Refuses no --path, an untracked or symlinked file, and a " +
+		"file a live session or leaf holds. --dry-run lists what would change.",
+		"Exit 0 fixed or clean, 1 skipped file, missing tool or failed fixer, 2 usage."},
 	"send": {"send <id> <task | -> [flags]", "Send one user turn to a live claude or gemini session (ask --agent <a> " +
 		"--live), or resume a finished dispatch's session on any agent as a new child dispatch; exits on its result. One turn at a time per live session. " +
 		"send parent <note> files the note (200 characters, one line) as a note in the calling leaf's dispatcher inbox, shown on its next prompt; " +
@@ -202,6 +208,7 @@ var agentsVerbs = map[string]func([]string) int{
 	"list": cmdAgentsList, "ask": cmdAgentsAsk, "dispatch": cmdAgentsDispatch, "sync": cmdAgentsSync,
 	"tree": cmdAgentsTree, "send": cmdAgentsSend, "label": cmdAgentsLabel,
 	"diff":   cmdAgentsDiff,
+	"fix":    cmdAgentsFix,
 	"find":   cmdAgentsFind,
 	"status": cmdAgentsStatus,
 	"result": cmdAgentsResult,
@@ -430,6 +437,29 @@ func cmdAgentsDiff(args []string) int {
 	}
 	return inspect.Diff(inspect.DiffOptions{Dir: cwd, Base: *base, Paths: sel, Verify: *verify, Check: *check, Gates: gates, All: *all, JSON: *format == helptext.JSON,
 		Out: os.Stdout, Err: os.Stderr})
+}
+
+// cmdAgentsFix is `agents fix`: the make fmt fixers, scoped to the --path files.
+func cmdAgentsFix(args []string) int {
+	fs := agentsFlags("fix")
+	var sel []string
+	fs.Func("path", "a file or directory to fix; repeat per path (required)", func(v string) error {
+		sel = append(sel, v)
+		return nil
+	})
+	dry := fs.Bool("dry-run", false, "list the files each fixer would rewrite; change nothing")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	if fs.NArg() > 0 {
+		fs.Usage()
+		return 2
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("agents fix: %v", err)
+	}
+	return inspect.Fix(inspect.FixOptions{Dir: cwd, Paths: sel, DryRun: *dry, Source: callerClaims(), Out: os.Stdout, Err: os.Stderr})
 }
 
 func cmdAgentsFind(args []string) int {
