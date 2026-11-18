@@ -952,3 +952,135 @@ func TestRequestFixGatesMatchTheFullDecode(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkPassthroughNo429(b *testing.B) {
+	vaulttest.Use(b)
+	b.Setenv("PT_KEY", "fake-credential")
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		_, _ = io.Copy(io.Discard, req.Body)
+		_, _ = io.WriteString(w, `{"ok":true}`)
+	}))
+	b.Cleanup(up.Close)
+	vaulttest.Put(b, vault.Overlay, "providers", ptOverlay(up.URL))
+	r := newRouter(secret)
+	r.log = io.Discard
+	b.Cleanup(r.bg.Wait)
+	b.ReportAllocs()
+	for b.Loop() {
+		req := httptest.NewRequest(http.MethodPost, "/p/pt/openai/chat/completions", strings.NewReader(`{"model":"m","messages":[]}`))
+		rec := httptest.NewRecorder()
+		r.passthrough(rec, req, "pt", "openai", "chat/completions")
+		if rec.Code != 200 {
+			b.Fatal(rec.Code)
+		}
+	}
+}
+
+func TestPassthroughWorkspaceFallback(t *testing.T) {
+	for _, dialect := range []string{"openai", "responses", "gemini"} {
+		t.Run(dialect, func(t *testing.T) {
+			first := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+				w.WriteHeader(429)
+				_, _ = io.WriteString(w, "first limited")
+			})
+			second := newRawUp(t, okRaw)
+			t.Setenv("PT_FIRST", "fake-first")
+			t.Setenv("PT_SECOND", "fake-second")
+			overlay := ptWorkspaceOverlay(first.URL, second.URL)
+			var log bytes.Buffer
+			srv := setupRouter(t, overlay, func(r *Router) { r.log = &log })
+			rest := "chat/completions"
+			if dialect == "responses" {
+				rest = "responses"
+			}
+			if dialect == "gemini" {
+				rest = "v1beta/models/databricks-test-model:generateContent"
+			}
+			const body = `{"model":"databricks-test-model","messages":[],"stream_options":{"include_usage":true}}`
+			resp := ptDo(t, http.MethodPost, srv.URL+"/p/first/"+dialect+"/"+rest, body, nil)
+			got, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if resp.StatusCode != 200 || string(got) != `{"ok":true}` {
+				t.Fatalf("status=%d body=%s", resp.StatusCode, got)
+			}
+			if !strings.Contains(log.String(), " second databricks-test-model 200 2 ") {
+				t.Fatalf("missing answering workspace in log: %s", log.String())
+			}
+			a, b := first.got(), second.got()
+			if len(a) != 1 || len(b) != 1 {
+				t.Fatalf("calls=%d,%d", len(a), len(b))
+			}
+			if b[0].body != body {
+				t.Fatalf("fallback body changed: %s", b[0].body)
+			}
+			if b[0].hdr.Get("Authorization") != "Bearer fake-second" {
+				t.Fatal("fallback credential mismatch")
+			}
+			if !strings.HasPrefix(b[0].uri, "/serving-endpoints/") {
+				t.Fatal("wrong fallback route")
+			}
+		})
+	}
+}
+
+func ptWorkspaceOverlay(first, second string) string {
+	row := func(host, key string) string {
+		return `{"preset":"databricks","host":"https://workspace.example.test","base_url":"` + host + `/serving-endpoints/anthropic","routes":{"openai":"` + host + `/serving-endpoints","responses":"` + host + `/serving-endpoints"},"auth":{"type":"key","env":"` + key + `"},"models":{"opus":"databricks-test-model"}}`
+	}
+	if second == "" {
+		return `{"default":"first","fallback":[],"providers":{"databricks":{"first":` + row(first, "PT_FIRST") + `}}}`
+	}
+	return `{"default":"first","fallback":["second"],"providers":{"databricks":{"first":` + row(first, "PT_FIRST") + `,"second":` + row(second, "PT_SECOND") + `}}}`
+}
+
+func TestPassthroughWorkspaceFallbackStops(t *testing.T) {
+	for _, c := range []struct {
+		name                       string
+		first, second, want, calls int
+		alone                      bool
+	}{
+		{"both limited", 429, 429, 429, 2, false},
+		{"second failed", 429, 500, 500, 2, false},
+		{"server error", 500, 200, 500, 1, false},
+		{"one workspace", 429, 200, 429, 1, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			first := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+				w.WriteHeader(c.first)
+				_, _ = io.WriteString(w, "first response")
+			})
+			second := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+				w.Header().Set("X-Request-Id", "second-request")
+				w.WriteHeader(c.second)
+				_, _ = io.WriteString(w, "second response")
+			})
+			t.Setenv("PT_FIRST", "fake-first")
+			t.Setenv("PT_SECOND", "fake-second")
+			overlay := ptWorkspaceOverlay(first.URL, second.URL)
+			if c.alone {
+				overlay = ptWorkspaceOverlay(first.URL, "")
+			}
+			srv := setup(t, overlay)
+			resp := ptDo(t, http.MethodPost, srv.URL+"/p/first/openai/chat/completions", `{"model":"databricks-test-model"}`, nil)
+			got, err := io.ReadAll(resp.Body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantBody := "first response"
+			if c.calls == 2 {
+				wantBody = "second response"
+			}
+			if resp.StatusCode != c.want || string(got) != wantBody {
+				t.Fatalf("status=%d body=%s", resp.StatusCode, got)
+			}
+			if len(first.got())+len(second.got()) != c.calls {
+				t.Fatal("wrong upstream call count")
+			}
+			if c.calls == 2 && resp.Header.Get("X-Request-Id") != "second-request" {
+				t.Fatal("wrong request id")
+			}
+		})
+	}
+}
