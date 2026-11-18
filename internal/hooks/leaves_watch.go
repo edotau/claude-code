@@ -53,8 +53,8 @@ func watchMode() string {
 // busyWatched is worktree-busy plus the watchdog check (UserPromptSubmit).
 func busyWatched(in *core.Input) core.Result { return watched(wthook.Busy, in) }
 
-// reminderWatched is the Stop slot of docs-plan-reminder: the unpushed-commits line plus the watchdog check.
-func reminderWatched(in *core.Input) core.Result { return watched(wthook.Unpushed, in) }
+// reminderWatched is the Stop slot of docs-plan-reminder, which now only hosts the watchdog check.
+func reminderWatched(in *core.Input) core.Result { return watchTick(in) }
 
 // watched runs r, then the watchdog check, joining their notes.
 func watched(r core.Runner, in *core.Input) core.Result {
