@@ -261,7 +261,7 @@ test('resolveToken: uses `vault get JIRA_TOKEN` via execFileImpl, argv exact, no
   const token = await resolveToken({ binary: 'claude-code', env: {}, execFileImpl });
   assert.equal(token, 'secret-tok');
   assert.equal(calls[0].binary, 'claude-code');
-  assert.deepEqual(calls[0].args, ['vault', 'get', '--reveal', 'JIRA_TOKEN']);
+  assert.deepEqual(calls[0].args, ['vault', 'get', '--secret', 'JIRA_TOKEN']);
 });
 
 test('resolveToken: falls back to env.JIRA_TOKEN when the binary fails', async () => {

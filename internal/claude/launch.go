@@ -345,7 +345,7 @@ func configureRouting(ctx context.Context, sel providers.Selection, p *providers
 	if proxied {
 		return configureClaudeProxy(ctx, sel, p, passthrough, self, plan, extra...)
 	}
-	helper = textutil.QuoteSH(helperBin(self)) + " resolve --profile " + textutil.QuoteSH(p.Name)
+	helper = textutil.QuoteSH(helperBin(self)) + " resolve --secret --profile " + textutil.QuoteSH(p.Name)
 	name := "overlay-" + p.Name
 	if id := providers.IdentityFrom(ctx); id != "" {
 		helper += " --as " + textutil.QuoteSH(id)
@@ -392,7 +392,7 @@ func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *provi
 		hdrs = append(hdrs, gateway.ClientHeader+": "+tok)
 	}
 	plan.Set[proc.EnvAnthropicCustomHeaders] = strings.Join(hdrs, "\n")
-	return textutil.QuoteSH(helperBin(self)) + " resolve --proxy", filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json"), nil
+	return textutil.QuoteSH(helperBin(self)) + " resolve --secret --proxy", filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json"), nil
 }
 
 // refuseCLIAliases refuses an alias on a cli login unless the session profile is a cli-login one too.

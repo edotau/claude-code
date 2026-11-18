@@ -21,6 +21,6 @@ A row is deleted only when the tool makes the prose redundant.
 | R10 File-blocked | `worktree-git.md`; 2+ tasks wait on a file: propose a lane | prose (plan worktree-lanes) |
 | R11 make | `quality.md`; leaves: `make lint`, `agents diff --check`; no fmt, audit, install | `safety-scan` |
 | R12 Dispatch timeout | Tools dispatch gets 15 minutes; a longer job passes `--timeout` | `DefaultToolsTimeout` |
-| R13 Guard walls | `vault get --key`, production exec/delete, `oc rsh`: `hooks.md` main-session rules | `safety-scan` |
+| R13 Guard walls | `--secret`, `vault get --key --secret`, production exec/delete, `oc rsh`: `hooks.md` main-session rules | `safety-scan` |
 | R13 New walls | A new guard wall needs the owner's yes; permission additions shown as a table first | prose |
-| R14 Transcripts | Never print a secret value into a session, report or brief; byte counts only | `vault get` redacts |
+| R14 Transcripts | Never print a secret value into a session, report or brief; byte counts only; `--secret` main session only, leaves get credentials at launch | credential verbs redact |

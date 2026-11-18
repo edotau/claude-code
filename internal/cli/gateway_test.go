@@ -203,6 +203,21 @@ func TestProxyStartReportsWriteError(t *testing.T) {
 	}
 }
 
+// --client-token mints only with --secret: without it nothing is minted, so an existing token is never replaced.
+func TestProxyClientTokenNeedsSecret(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdGateway([]string{"proxy", "--client-token", "ed"}) })
+	if _, _, had := vault.Get("HARNESS_PROXY_CLIENT_ED"); code != 2 || out != "" || had {
+		t.Fatalf("without --secret: exit %d stdout %q minted=%v; want 2, nothing printed or minted", code, out, had)
+	}
+	code, out, _ = hosttest.CaptureOutput(t, func() int {
+		return cmdGateway([]string{"proxy", "--client-token", "ed", "--secret"})
+	})
+	if _, _, had := vault.Get("HARNESS_PROXY_CLIENT_ED"); code != 0 || !strings.HasPrefix(out, "cck_") || !had {
+		t.Fatalf("with --secret: exit %d minted=%v", code, had)
+	}
+}
+
 // TestSpecProxyCompletesRestart: the completion node lists every real proxy lifecycle flag.
 func TestSpecProxyCompletesRestart(t *testing.T) {
 	fs, _ := proxyFlags()
@@ -662,39 +677,6 @@ func tokenDaemon(t *testing.T, mint func(http.ResponseWriter, gateway.SessionReq
 	t.Cleanup(cleanup)
 }
 
-func TestGatewayTokenPrintsOnlyDaemonBoundSessionToken(t *testing.T) {
-	var gotProfile string
-	var gotPID int
-	tokenDaemon(t, func(w http.ResponseWriter, req gateway.SessionRequest) {
-		gotProfile, gotPID = strings.Join(req.Profiles, ","), req.PID
-		json.NewEncoder(w).Encode(gateway.SessionResponse{Token: "cct_abc"})
-	})
-	code, stdout, stderr := hosttest.CaptureOutput(t,
-		func() int { return cmdGateway([]string{"token", "--profile", "dev"}) })
-	if code != 0 || stdout != "cct_abc\n" || stderr != "" || gotProfile != "dev" || gotPID != os.Getpid() {
-		t.Fatalf("exit %d stdout %q stderr %q profile %q pid %d", code, stdout, stderr, gotProfile, gotPID)
-	}
-}
-
-func TestGatewayTokenRejectsBadArgsAndMintFailure(t *testing.T) {
-	tokenDaemon(t,
-		func(w http.ResponseWriter, _ gateway.SessionRequest) { w.WriteHeader(http.StatusInternalServerError) })
-	for _, args := range [][]string{{"token"}, {"token", "extra"}, {"token", "--profile", "dev"}} {
-		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return cmdGateway(args) })
-		if code == 0 || stdout != "" || !strings.Contains(stderr, "gateway token:") {
-			t.Fatalf("%v: exit %d stdout %q stderr %q", args, code, stdout, stderr)
-		}
-	}
-}
-
-// TestPrintTokenWriteFailureNamesCause: a failed stdout write exits 1 with a stderr message.
-func TestPrintTokenWriteFailureNamesCause(t *testing.T) {
-	code, msg := hosttest.CaptureClosedStdout(t, func() int { return printToken("cct_abc") })
-	if code != 1 || !strings.Contains(msg, "gateway token: write stdout") {
-		t.Fatalf("want exit 1 with a 'gateway token: write stdout' message, got %d %q", code, msg)
-	}
-}
-
 // TestProxyLifecycleRejectsFailedStdout: a failed stdout write exits nonzero, and restart still attempts the start.
 func TestProxyLifecycleRejectsFailedStdout(t *testing.T) {
 	for _, tc := range []struct {
@@ -732,36 +714,6 @@ func closedFile(t *testing.T) *os.File {
 		t.Fatal(err)
 	}
 	return f
-}
-
-func TestTokenHelpFitsEightyColumns(t *testing.T) {
-	for _, args := range [][]string{{"gateway", "token", "--help"}} {
-		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run(append([]string{"claude-code"}, args...)) })
-		if code != 0 || stdout != "" {
-			t.Fatalf("%v: exit %d stdout %q stderr %q", args, code, stdout, stderr)
-		}
-		for line := range strings.SplitSeq(stderr, "\n") {
-			if termWidth(line) > 80 {
-				t.Errorf("%v: line exceeds 80 columns: %s", args, line)
-			}
-		}
-	}
-}
-
-func TestMintProxyTokenRejectsInvalidConfigDir(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	var token string
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
-		var code int
-		token, code = mintProxyToken("dev", "invalid\x00dir")
-		return code
-	})
-	if code != 1 || token != "" || stdout != "" || !strings.Contains(stderr, "gateway token:") {
-		t.Fatalf("exit %d token %q stdout %q stderr %q", code, token, stdout, stderr)
-	}
-	if strings.ContainsRune(os.Getenv("CLAUDE_CONFIG_DIR"), '\x00') {
-		t.Fatal("invalid config dir was applied")
-	}
 }
 
 // TestGatewayRouteRefusesModelNoEndpointServes: a model no endpoint serves exits non-zero naming it.

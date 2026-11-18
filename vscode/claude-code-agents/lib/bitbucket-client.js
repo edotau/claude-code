@@ -270,13 +270,13 @@ function tokenFromFiles(env, readFileImpl) {
 
 const VAULT_TIMEOUT_MS = 15000; // a hung vault must not block the env/file fallback
 
-/** Resolves BITBUCKET_TOKEN: `<binary> vault get --reveal` (NAME=value), then env, then the token files. The caller caches/invalidates it. */
+/** Resolves BITBUCKET_TOKEN: `<binary> vault get --secret` (NAME=value), then env, then the token files. The caller caches/invalidates it. */
 function resolveToken(opts) {
   const { binary, env, execFileImpl, readFileImpl } = opts || {};
   const runExecFile = execFileImpl || require('node:child_process').execFile;
   const environment = env || process.env;
   return new Promise((resolve, reject) => {
-    runExecFile(binary, ['vault', 'get', '--reveal', 'BITBUCKET_TOKEN'], { timeout: VAULT_TIMEOUT_MS }, (err, stdout) => {
+    runExecFile(binary, ['vault', 'get', '--secret', 'BITBUCKET_TOKEN'], { timeout: VAULT_TIMEOUT_MS }, (err, stdout) => {
       const fromBinary = err ? null : stdout.toString().trim().replace(/^BITBUCKET_TOKEN=/, '');
       if (fromBinary) return resolve(fromBinary);
       if (environment.BITBUCKET_TOKEN) return resolve(environment.BITBUCKET_TOKEN);

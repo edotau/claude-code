@@ -36,7 +36,7 @@ func TestClaudeServingHarness(t *testing.T) {
 	if err := json.Unmarshal([]byte(r.Text), &d); err != nil {
 		t.Fatal(err)
 	}
-	if d.APIKeyHelper != "/bin/cc resolve --profile databricks-dev" {
+	if d.APIKeyHelper != "/bin/cc resolve --secret --profile databricks-dev" {
 		t.Errorf("helper %q", d.APIKeyHelper)
 	}
 	checkServingEnv(t, d.Env)
@@ -85,7 +85,7 @@ func TestCodex(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, w := range []string{`base_url = "https://x.example.com/serving-endpoints"`, `model = "databricks-gpt-6-1-sol"`,
-		`command = "/bin/cc"`, `args = ["resolve", "--profile", "databricks-dev"]`, `model_reasoning_effort = "high"`, "timeout_ms = 5000"} {
+		`command = "/bin/cc"`, `args = ["resolve", "--secret", "--profile", "databricks-dev"]`, `model_reasoning_effort = "high"`, "timeout_ms = 5000"} {
 		if !strings.Contains(r.Text, w) {
 			t.Errorf("missing %q in\n%s", w, r.Text)
 		}
@@ -231,7 +231,7 @@ func checkMatrixCommon(t *testing.T, name, text string) {
 
 func checkMatrixClaude(t *testing.T, name, text, auth string) {
 	t.Helper()
-	helper := "/bin/cc resolve --profile databricks-dev"
+	helper := "/bin/cc resolve --secret --profile databricks-dev"
 	if auth == authCLI {
 		helper = "databricks auth token --host " + matrixHost + " --output json | jq -r '.access_token'"
 	}

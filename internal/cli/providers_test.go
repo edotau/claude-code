@@ -691,6 +691,17 @@ func useTLSTransport(t *testing.T, srv *httptest.Server) {
 	t.Cleanup(func() { http.DefaultClient.Transport = old; srv.Close() })
 }
 
+// Without --secret, resolve prints the token redacted and, to a pipe, exits 1 so no helper takes it as a key.
+func TestResolveRedactsWithoutSecret(t *testing.T) {
+	cliScratch(t)
+	const tok = "cct_ARM_REDACT_TEST"
+	t.Setenv(claude.ProxyKeyEnv, tok)
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--proxy"}) })
+	if code != 1 || out != fmt.Sprintf("<redacted: %d bytes>\n", len(tok)) || strings.Contains(out+stderr, tok) {
+		t.Fatalf("exit %d stdout %q", code, out)
+	}
+}
+
 // resolve --proxy prints an armed launch's token, else one scoped to the parent pid; it never prints the secret.
 func TestResolveProxyNeverPrintsSecret(t *testing.T) {
 	cliScratch(t)
@@ -706,18 +717,18 @@ func TestResolveProxyNeverPrintsSecret(t *testing.T) {
 		return "cct_SCOPED", nil
 	}
 	t.Setenv(claude.ProxyKeyEnv, "")
-	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--proxy"}) })
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--secret", "--proxy"}) })
 	if got := strings.TrimSpace(out); code != 0 || got != "cct_SCOPED" || got == secret || gotPID != os.Getppid() {
 		t.Errorf("unarmed: exit %d, minted token printed = %v, ppid bound = %v", code, got == "cct_SCOPED", gotPID == os.Getppid())
 	}
 	resolveProxyToken = func(context.Context, []string, int) (string, error) { return "", errors.New("daemon down") }
-	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--proxy"}) })
+	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--secret", "--proxy"}) })
 	if code == 0 || strings.Contains(out, secret) || strings.TrimSpace(out) != "" {
 		t.Errorf("mint failure: exit %d, stdout %q; want non-zero and empty", code, out)
 	}
 	const tok = "cct_ARM_TEST"
 	t.Setenv(claude.ProxyKeyEnv, tok)
-	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--proxy"}) })
+	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdResolve([]string{"--secret", "--proxy"}) })
 	if got := strings.TrimSpace(out); code != 0 || got != tok {
 		t.Errorf("armed: exit %d, printed the token = %v", code, got == tok)
 	}

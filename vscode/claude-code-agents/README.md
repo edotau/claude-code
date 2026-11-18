@@ -91,7 +91,7 @@ lives. VS Code decides the floating window's size and remembers the last size yo
 gets (board columns stretch to the width). Tasks is live in one place at a time: the Panel/sidebar copy
 closes while the tab or window owns it and shows "Bring back here", and closing the tab/window returns it. No Go: the
 harness only supplies the Bitbucket and Jira
-credentials (`<binary> vault get --reveal BITBUCKET_TOKEN` / `JIRA_TOKEN` via `execFile`, then the `BITBUCKET_TOKEN` /
+credentials (`<binary> vault get --secret BITBUCKET_TOKEN` / `JIRA_TOKEN` via `execFile`, then the `BITBUCKET_TOKEN` /
 `JIRA_TOKEN` (or `ATLASSIAN_TOKEN`) env vars, then the token files), cached for the session and re-resolved once on a
 401/403.
 

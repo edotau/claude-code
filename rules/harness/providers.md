@@ -14,13 +14,18 @@ paths:
 | Check binaries, providers, credentials, proxy | `claude-code doctor` · leaked credentials: `doctor --scan\|--git\|--secrets` |
 | See providers and credential state | `claude-code configure provider --list [<name>]` |
 | Set a credential | `claude-code vault set [NAME]` (bare on a terminal = guided dialog), or a provider's `auth.command` |
-| Inspect or edit the vault | `claude-code vault [ls]\|get\|delete\|import\|export\|rotate-secret` (`get` redacts; `--reveal` prints); env and overlays: `claude-code configure` |
+| Inspect or edit the vault | `claude-code vault [ls]\|get\|delete\|import\|export\|rotate-secret` (`get` redacts; `--secret` prints, main session only); env and overlays: `claude-code configure` |
 | Switch the session profile | `claude-code switch <profile> [--dry-run]` · one launch: `claude-code --profile <p>` |
 | Set claude's models | `claude-code models --pin opus=<id>` · `--pin all=<id>` · `--unpin` (`--dry-run` previews) |
 | List what a provider serves | `claude-code models --live [--profile <p>]` |
 | Run the model proxy | `claude-code gateway proxy --start\|--stop\|--status\|--restart` · foreground: `--serve --port N` |
 
-- Secrets: CLAUDE.md hard rule 2; `configure provider --list` shows the source, never the value. Built-in providers are
+- Transcript cleanup: `claude-code doctor --secrets --fix` masks idle Claude and harness transcript stores in place at
+  the same byte length; optional paths restrict the pass. Codex and Copilot session stores are not enabled yet.
+- Secrets: CLAUDE.md hard rule 2; `configure provider --list` shows the source, never the value. Credential verbs
+  (`vault get`, `resolve`, `gateway proxy --client-token`, `network tailscale --key`) print `<redacted: N bytes>`
+  (to a pipe also exit 1) unless `--secret`, which only the main session may run; a leaf gets credentials at launch
+  (vault env `@secret`, or a dispatch overlay `set` of `@secret:<NAME>`). Built-in providers are
   `internal/providers/defaults.json`; a vault overlay row replaces one by name.
 - Agent settings live in the vault, one record per agent (`vault` AGENT table); an external agent's shell
   `<AGENT>_MODEL` outranks the record's `model`, and `--model` beats both; `switch` and `<agent> profile` write the
@@ -112,8 +117,9 @@ static menu: routing never touches the network.
   quota): the note carries the pool's percent left, under 15% warns, and a model at 0% is held until its reset.
 - VS Code chat: `claude-code theme vscode` merges one `Databricks <profile>` group per signed-in serving profile into
   `chatLanguageModels.json`, routed through `/p/<profile>/`; other groups stay byte-for-byte. The file holds only
-  `${input:harnessProxyToken}`: mint it with `gateway proxy --client-token <name>` (printed once; the vault keeps its
-  SHA-256), revoke with `--revoke-client-token <name>`. The proxy accepts it only on Databricks serving `/p/` routes.
+  `${input:harnessProxyToken}`: mint it with `gateway proxy --client-token <name> --secret` (printed once; the vault
+  keeps its SHA-256), revoke with `--revoke-client-token <name>`. The proxy accepts it only on Databricks serving `/p/`
+  routes.
 
 ## Databricks service-principal identity
 

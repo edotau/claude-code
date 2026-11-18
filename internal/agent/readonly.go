@@ -392,14 +392,14 @@ var readOnlyClaudeVerbs = map[string][]string{
 	"vault":   {"get", "ls"},
 }
 
-// readOnlyClaudeCode is a listed `claude-code <group> <verb>` with no write-looking flag; `agents diff --check` is out.
+// readOnlyClaudeCode is a listed `claude-code <group> <verb>` with no write-looking flag or --secret.
 func readOnlyClaudeCode(args []string) bool {
 	if len(args) >= 2 && args[0] == "agents" && args[1] == "sync" { // only its --check and --dry-run forms write nothing
 		return slices.ContainsFunc(args[2:], func(a string) bool { return a == "--check" || a == "--dry-run" }) &&
 			detectorArgsOK(args[2:], []string{"--check", "--dry-run"}, map[string]func(string) bool{
 				"--agent": helpWord().MatchString, "--format": func(v string) bool { return v == "text" || v == "json" }})
 	}
-	if len(args) < 2 || !slices.Contains(readOnlyClaudeVerbs[args[0]], args[1]) {
+	if len(args) < 2 || !slices.Contains(readOnlyClaudeVerbs[args[0]], args[1]) || !noFlag(args[2:], "--secret") {
 		return false
 	}
 	switch args[0] + " " + args[1] {
@@ -409,8 +409,6 @@ func readOnlyClaudeCode(args []string) bool {
 		return scopeArgsOK(args[2:])
 	case "models preflight":
 		return noFlag(args[2:], "--refresh", "--discover", "--live", "--profile")
-	case "vault get":
-		return noFlag(args[2:], append(slices.Clone(writeFlags), "--key", "--reveal")...)
 	case "agents diff":
 		return noFlag(args[2:], append(slices.Clone(writeFlags), "--check")...)
 	}

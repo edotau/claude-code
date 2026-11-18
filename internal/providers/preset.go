@@ -90,7 +90,7 @@ func expandDatabricks(p *Provider) {
 		p.Auth.TTL = 1800
 	}
 	if p.TokenCommand == nil && (p.Auth.Type == AuthOAuth || p.Auth.Type == AuthM2M || p.Auth.Type == AuthKey && (p.Auth.Command != "" || p.CLIProfile != "")) {
-		p.TokenCommand = []string{"{self}", "resolve", "--profile", "{profile}", "{identity}", "{proxy}"}
+		p.TokenCommand = []string{"{self}", "resolve", "--secret", "--profile", "{profile}", "{identity}", "{proxy}"}
 	}
 	fillDatabricksModelsEnv(p)
 	applyCLIProfile(p)

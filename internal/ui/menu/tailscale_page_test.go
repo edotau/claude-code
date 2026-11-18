@@ -134,7 +134,7 @@ func TestTailscalePageSignInRunsLogin(t *testing.T) {
 	}
 }
 
-// Auth key mints with the answered options (90d default) and seals the key once shown as TAILSCALE_AUTHKEY.
+// Auth key mints with the answered options (90d default) and seals the key as TAILSCALE_AUTHKEY, never printing it.
 func TestTailscalePageAuthKeyMintsAndSeals(t *testing.T) {
 	d, out := tsPage(t, "4\ny\n\ntag:ci\n", true)
 	tsConnected("box.tail1234.ts.net.", false, false)
@@ -148,8 +148,8 @@ func TestTailscalePageAuthKeyMintsAndSeals(t *testing.T) {
 	if len(got) != 1 || got[0] != want {
 		t.Fatalf("mint options = %+v, want one call with %+v", got, want)
 	}
-	if n := strings.Count(out.String(), "tskey-auth-PAGE0123456789"); n != 1 {
-		t.Errorf("key printed %d times, want once:\n%s", n, out)
+	if n := strings.Count(out.String(), "tskey-auth-PAGE0123456789"); n != 0 {
+		t.Errorf("key printed %d times, want never:\n%s", n, out)
 	}
 	if v, ok, err := vault.ReadSecret("TAILSCALE_AUTHKEY"); err != nil || !ok || v != "tskey-auth-PAGE0123456789" {
 		t.Errorf("vault TAILSCALE_AUTHKEY = %q, %v, %v; want the minted key", v, ok, err)

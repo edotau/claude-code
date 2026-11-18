@@ -129,16 +129,17 @@ func TestReadOnlyRenamedVerbs(t *testing.T) {
 		{"claude-code vault set X", false},
 		{"claude-code vault rm X", false},
 		{"claude-code vault delete X", false},
-		{"claude-code vault get --key", false},
-		{"claude-code vault get --key | cat", false},
-		{"rtk claude-code vault get --key", false},
-		{"claude-code vault get -key", false},
-		{"claude-code vault get --key=true", false},
+		{"claude-code vault get --key", true},
+		{"claude-code vault get --key | cat", true},
+		{"rtk claude-code vault get --key --secret", false},
+		{"claude-code vault get -key -secret", false},
+		{"claude-code vault get --key --secret=true", false},
 		{"claude-code vault get NAME | wc -c", true},
 		{"claude-code vault get NAME 2>/dev/null", true},
 		{"claude-code vault get X > out.txt", false},
 		{"claude-code vault get GH_TOKEN", true},
-		{"claude-code vault get GH_TOKEN --reveal", false},
+		{"claude-code vault get GH_TOKEN --secret", false},
+		{"claude-code gateway resolve codex --secret", false},
 	})
 }
 
@@ -200,7 +201,7 @@ func TestReadOnlyRtkPrefix(t *testing.T) {
 		{"rtk run ls", false}, {"rtk rtk git status", false}, {"rtk git -C /abs/repo stash", false},
 		{"rtk git diff --stat", true}, {"rtk git diff --ext-diff", false}, {"rtk git -C /abs/repo show --textconv", false},
 		{"rtk git diff --output=/tmp/x", false}, {"rtk git -c core.pager=x log", false}, {"rtk rg --pre cat x", false},
-		{"rtk claude-code vault get --key", false}, {"rtk claude-code vault set X", false},
+		{"rtk claude-code vault get --key --secret", false}, {"rtk claude-code vault set X", false},
 		{"rtk read /abs/file > /tmp/x", false}, {"rtk git -C /etc diff -- passwd hosts", false}, {"rtk", false}, {"rtk --help", true}, {"rtk -h", true}, {"git --help", true}, {"claude-code vault --help", true},
 		{"rtk git --help", true}, {"rtk claude-code vault --help", true}, {"rtk git --help x", false},
 	})

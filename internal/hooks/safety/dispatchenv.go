@@ -235,10 +235,10 @@ type mainOnly struct{ what, hint string }
 // noAskRoute names where an ask still asks, for a main session on an agent with no ask decision.
 const noAskRoute = " This agent has no ask: run it from a Claude session, where it asks, or from your own terminal."
 
-// mainOnlyVerdict asks (main) or blocks (leaf) a vault key read, a production exec/delete or a leaf's reserved make.
+// mainOnlyVerdict asks (main) or blocks (leaf) each main-session-only command mainOnlyHit finds.
 func mainOnlyVerdict(in *core.Input) (core.Decision, string, string) {
 	cmd := in.ToolCommand()
-	if !slices.ContainsFunc([]string{"vault", "kubectl", "oc", "make"}, func(w string) bool { return strings.Contains(cmd, w) }) {
+	if !slices.ContainsFunc([]string{"secret", "kubectl", "oc", "make"}, func(w string) bool { return strings.Contains(cmd, w) }) {
 		return core.Allow, "", "" // the walk runs on every Bash call; most name none of these
 	}
 	hit := mainOnlyHit(in, cmd)
@@ -261,6 +261,9 @@ func mainOnlyHit(in *core.Input, cmd string) *mainOnly {
 		switch name := filepath.Base(w[0]); {
 		case name == "claude-code" && vaultKey(shell.HarnessArgs(w)):
 			hit = &mainOnly{"prints the vault master key", "Only the main session reads it, after the owner approves."}
+		case name == "claude-code" && isLeaf(in) && secretFlag(shell.HarnessArgs(w)):
+			hit = &mainOnly{"prints a credential's value (--secret)",
+				"A leaf gets credentials at launch: report the vault entry name you need to the main session."}
 		case (name == "kubectl" || name == "oc") && prodChange(w, cmd):
 			hit = &mainOnly{"runs exec/delete against a production cluster",
 				"The main session runs production changes after the owner approves."}
@@ -273,12 +276,28 @@ func mainOnlyHit(in *core.Input, cmd string) *mainOnly {
 	return hit
 }
 
-// vaultKey reports `vault get` given --key (or -key, --key=true), in a claude-code command's HarnessArgs.
+// vaultKey reports `vault get --key --secret`, the master key's value, in a claude-code command's HarnessArgs.
 func vaultKey(h []string) bool {
-	return len(h) > 1 && h[0] == "vault" && h[1] == "get" && slices.ContainsFunc(h[2:], func(a string) bool {
+	return len(h) > 1 && h[0] == "vault" && h[1] == "get" && boolFlagOn(h[2:], "key") && boolFlagOn(h[2:], "secret")
+}
+
+// secretFlag reports --secret on a claude-code verb; an agents brief is data, so that group never counts.
+func secretFlag(h []string) bool {
+	return len(h) > 0 && h[0] != "agents" && boolFlagOn(h[1:], "secret")
+}
+
+// boolFlagOn reports -name, --name or --name=<not false|0> before any `--`.
+func boolFlagOn(args []string, name string) bool {
+	for _, a := range args {
+		if a == "--" {
+			return false
+		}
 		k, v, has := strings.Cut(strings.TrimLeft(a, "-"), "=")
-		return strings.HasPrefix(a, "-") && k == "key" && (!has || v != "false" && v != "0")
-	})
+		if strings.HasPrefix(a, "-") && k == name && (!has || v != "false" && v != "0") {
+			return true
+		}
+	}
+	return false
 }
 
 // kubeValueFlags take a value (next word, `=`, or attached to a short flag); kubeProdFlags' values name the target.

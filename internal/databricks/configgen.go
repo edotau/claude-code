@@ -220,7 +220,7 @@ func renderClaude(o renderOptions) (renderResult, error) {
 	}
 	doc["apiKeyHelper"] = cliTokenCmd(o.Host)
 	if o.Auth == authHarness {
-		doc["apiKeyHelper"] = textutil.QuoteSH(o.Self) + " resolve --profile " + textutil.QuoteSH(o.P.Name)
+		doc["apiKeyHelper"] = textutil.QuoteSH(o.Self) + " resolve --secret --profile " + textutil.QuoteSH(o.P.Name)
 	}
 	for _, kv := range o.Set {
 		k, v, _ := strings.Cut(kv, "=")
@@ -315,7 +315,7 @@ func renderCodex(o renderOptions) (renderResult, error) {
 	head = replaceLine(head, "model", p.WireModel(cmp.Or(o.Model, router.FamilyModel(targetCodex, "sol", p, nil, time.Now()))))
 	auth := fmt.Sprintf("command = \"sh\"\nargs = [\"-c\", %s]\n", agentconfig.TOMLQuoteRaw(cliTokenCmd(o.Host)))
 	if o.Auth == authHarness {
-		auth = fmt.Sprintf("command = %s\nargs = [\"resolve\", \"--profile\", %s]\n", agentconfig.TOMLQuoteRaw(o.Self), agentconfig.TOMLQuoteRaw(p.Name))
+		auth = fmt.Sprintf("command = %s\nargs = [\"resolve\", \"--secret\", \"--profile\", %s]\n", agentconfig.TOMLQuoteRaw(o.Self), agentconfig.TOMLQuoteRaw(p.Name))
 	}
 	auth += "timeout_ms = 5000\nrefresh_interval_ms = 1800000\n"
 	text := editTopLevel(head, o) + authHeader + "\n" + auth

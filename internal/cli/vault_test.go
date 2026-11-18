@@ -33,7 +33,7 @@ const vaultLeakSecret = "tvly-dev-secret-leak-me-not"
 var vaultGetModes = []struct {
 	name  string
 	flags []string
-}{{"plain", []string{"--reveal"}}, {"export", []string{"--reveal", "--export"}}}
+}{{"plain", []string{"--secret"}}, {"export", []string{"--secret", "--export"}}}
 
 func vaultRun(t *testing.T, args ...string) (code int, stdout, stderr string) {
 	t.Helper()
@@ -381,9 +381,9 @@ func TestVaultStorageHelpPrintsUsage(t *testing.T) {
 
 func TestCmdVaultGetKeyNonTTYDecodesToMasterKey(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	code, stdout, stderr := vaultRun(t, "get", "--key")
+	code, stdout, stderr := vaultRun(t, "get", "--key", "--secret")
 	if code != 0 {
-		t.Fatalf("vault get --key = %d, want 0; stderr empty=%v", code, stderr == "")
+		t.Fatalf("vault get --key --secret = %d, want 0; stderr empty=%v", code, stderr == "")
 	}
 	got, err := base64.StdEncoding.DecodeString(strings.TrimSpace(stdout))
 	if err != nil {
@@ -545,18 +545,20 @@ func maskGetOutput(stdout string, names, values []string, export bool) (got, wan
 	return stdout, wantSb.String()
 }
 
-func TestVaultGetRedactsUnlessRevealed(t *testing.T) {
+// Without --secret, get prints the redacted line and, to a pipe, exits 1; --export alone is a usage error.
+func TestVaultGetRedactsWithoutSecret(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	vaultStore(t, "ALPHA", vaultLeakSecret)
-	for _, flags := range [][]string{nil, {"--export"}} {
-		code, stdout, stderr := vaultRun(t, append([]string{"get", "ALPHA"}, flags...)...)
-		want := fmt.Sprintf("ALPHA=<redacted: %d bytes>\n", len(vaultLeakSecret))
-		if code != 0 || stdout != want || strings.Contains(stdout+stderr, vaultLeakSecret) {
-			t.Fatalf("get %v: exit %d, stdout=%q", flags, code, stdout)
-		}
+	code, stdout, stderr := vaultRun(t, "get", "ALPHA")
+	want := fmt.Sprintf("ALPHA=<redacted: %d bytes>\n", len(vaultLeakSecret))
+	if code != 1 || stdout != want || !strings.Contains(stderr, "--secret") || strings.Contains(stdout+stderr, vaultLeakSecret) {
+		t.Fatalf("get: exit %d, stdout=%q", code, stdout)
 	}
-	if _, stdout, _ := vaultRun(t, "get", "--reveal", "ALPHA"); stdout != "ALPHA="+vaultLeakSecret+"\n" {
-		t.Fatal("get --reveal did not print the value")
+	if code, stdout, _ := vaultRun(t, "get", "--export", "ALPHA"); code != 2 || stdout != "" {
+		t.Fatalf("get --export: exit %d, stdout=%q; want 2 and nothing printed", code, stdout)
+	}
+	if _, stdout, _ := vaultRun(t, "get", "--secret", "ALPHA"); stdout != "ALPHA="+vaultLeakSecret+"\n" {
+		t.Fatal("get --secret did not print the value")
 	}
 }
 
@@ -1020,7 +1022,7 @@ func TestVaultGetFailsOnUnwritableStdout(t *testing.T) {
 	}
 }
 
-// `vault get --key` with a pty slave as stdout is refused: the master key never goes to a terminal.
+// `vault get --key --secret` with a pty slave as stdout is refused: the master key never goes to a terminal.
 func TestVaultGetKeyRefusesTTY(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	_, slave := hosttest.PTY(t)
@@ -1028,9 +1030,19 @@ func TestVaultGetKeyRefusesTTY(t *testing.T) {
 		old := os.Stdout
 		os.Stdout = slave
 		defer func() { os.Stdout = old }()
-		return cmdVault([]string{"get", "--key"})
+		return cmdVault([]string{"get", "--key", "--secret"})
 	})
 	if code != 2 || stdout != "" || !strings.Contains(stderr, "refusing") {
 		t.Fatalf("get --key on TTY: exit %d, stdout empty=%v, refusal=%v", code, stdout == "", strings.Contains(stderr, "refusing"))
+	}
+}
+
+// Plain `vault get --key` prints the master key redacted: to a pipe it exits 1, never the key.
+func TestVaultGetKeyRedactsWithoutSecret(t *testing.T) {
+	vaulttest.UseFreshKey(t)
+	code, stdout, _ := vaultRun(t, "get", "--key")
+	key := os.Getenv("HARNESS_VAULT_KEY")
+	if code != 1 || stdout != fmt.Sprintf("<redacted: %d bytes>\n", len(key)) || strings.Contains(stdout, key) {
+		t.Fatalf("get --key: exit %d, stdout=%q", code, stdout)
 	}
 }

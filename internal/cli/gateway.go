@@ -37,11 +37,9 @@ func cmdGateway(args []string) int {
 			return cmdGatewayProxy(args[1:])
 		case "resolve":
 			return cmdGatewayResolve(args[1:])
-		case "token":
-			return cmdGatewayToken(args[1:])
 		}
 		if !strings.HasPrefix(args[0], "-") {
-			return helptext.Fail("gateway: unknown command %q (proxy, resolve, token)", args[0])
+			return helptext.Fail("gateway: unknown command %q (proxy, resolve)", args[0])
 		}
 	}
 	return gatewayRoute(args)
@@ -70,6 +68,7 @@ type proxyOpts struct {
 	port                                int
 	format                              *string
 	clientToken, revokeClientToken      string
+	secret                              *bool
 }
 
 func proxyFlags() (*flag.FlagSet, *proxyOpts) {
@@ -97,8 +96,9 @@ func proxyFlags() (*flag.FlagSet, *proxyOpts) {
 			"of the default port moves to a free one, recorded in proxy.json; other busy ports are an error)",
 	)
 	o.format = fs.String("format", helptext.Text, "output: text|json (json: --status only)")
-	fs.StringVar(&o.clientToken, "client-token", "", "mint a named editor token; print it once")
+	fs.StringVar(&o.clientToken, "client-token", "", "with --secret: mint a named editor token; print it once")
 	fs.StringVar(&o.revokeClientToken, "revoke-client-token", "", "delete the named editor token")
+	o.secret = helptext.SecretFlag(fs)
 	return fs, o
 }
 
@@ -137,6 +137,12 @@ func (o *proxyOpts) checkCombos(fs *flag.FlagSet) (code int, ok bool) {
 	if o.modeCount() > 1 {
 		return helptext.Fail("gateway proxy: at most one of --start, --stop, --restart, --status, --serve, " +
 			"--client-token, --revoke-client-token"), false
+	}
+	if o.clientToken != "" && !*o.secret {
+		return helptext.FailUsage("gateway proxy: --client-token needs --secret; the token prints once"), false
+	}
+	if *o.secret && o.clientToken == "" {
+		return helptext.FailUsage("gateway proxy: --secret applies to --client-token only"), false
 	}
 	if flagSet(fs, "port") && !o.serve {
 		return helptext.Fail("gateway proxy: --port needs --serve"), false
@@ -192,17 +198,14 @@ func proxyStart(ctx context.Context) int {
 	return 0
 }
 
-// proxyClientToken mints name's client token and prints it once to stdout; the instruction goes to stderr.
+// proxyClientToken mints name's client token and prints it once (check required --secret); the hint goes to stderr.
 func proxyClientToken(name string) int {
 	tok, err := server.MintClientToken(name)
 	if err != nil {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
 	fmt.Fprintln(os.Stderr, "claude-code: paste this once into VS Code's harnessProxyToken prompt; it is not shown again")
-	if _, err := fmt.Println(tok); err != nil {
-		return helptext.Fail("gateway proxy: %v", err)
-	}
-	return 0
+	return helptext.PrintSecrets("gateway proxy", true, helptext.Secret{Value: tok})
 }
 
 // proxyRevokeClientToken deletes name's client token; an unknown name exits 1.
@@ -255,8 +258,7 @@ var gatewayPage = helptext.Page{
 		"profile and quota, then ordered by ladder rung, then account state, then weighted score; " +
 		"then the loopback proxy's status.",
 	Commands: [][2]string{{"proxy", "start, stop, restart or serve the loopback proxy"},
-		{"resolve", "print the overlay and wire id a model string runs as"},
-		{"token", "print a profile-scoped proxy token for a helper"}},
+		{"resolve", "print the overlay and wire id a model string runs as"}},
 }
 
 // gatewayRoute runs the router pick, then the proxy status (text footer or the JSON "proxy" key).
@@ -525,65 +527,13 @@ func printEnds(w io.Writer, res router.PickResult) {
 func gatewaySpec() *helptext.Node {
 	fs, _, _, _ := gatewayFlags()
 	proxy, _ := proxyFlags()
-	token, _, _ := tokenFlags()
 	return &helptext.Node{Flags: helptext.FlagsOf(fs, map[string]func() []string{
 		"model":    func() []string { return router.Aliases },
 		"agent":    func() []string { return router.TableAgents },
 		"fallback": func() []string { return router.FallbackModes },
 	}), Sub: map[string]*helptext.Node{"proxy": {Flags: helptext.FlagsOf(proxy, nil)},
 		"resolve": {Args: []func() []string{agent.RosterNames}, Flags: []helptext.Flag{helptext.Plain("model"), helptext.Plain("profile"),
-			helptext.Plain("overlay"), helptext.Plain("task"), helptext.ValuedFlag("fallback", func() []string { return router.FallbackModes }), helptext.BoolFlag("tools"), helptext.BoolFlag("all-profiles"), helptext.BoolFlag("live"), helptext.CompletionFormatFlag()}},
-		"token": {Flags: helptext.FlagsOf(token, nil)}}}
-}
-
-func tokenFlags() (fs *flag.FlagSet, profile, cfg *string) {
-	fs = helptext.NewFlagSet("gateway token", helptext.Page{
-		Usage: "claude-code gateway token --profile p",
-		About: "Print a proxy session token for a credential helper (stdout only).\n" +
-			"The token is bound to the proxy daemon and scoped to one profile.",
-	})
-	profile = fs.String("profile", "", "profile the token is scoped to (required)")
-	cfg = fs.String("config-dir", "", "CLAUDE_CONFIG_DIR to use (native Windows helper)")
-	return fs, profile, cfg
-}
-
-func cmdGatewayToken(args []string) int {
-	fs, profile, cfg := tokenFlags()
-	if code, done := helptext.Parse(fs, args); done {
-		return code
-	}
-	if fs.NArg() != 0 || *profile == "" {
-		return helptext.Fail("gateway token: want --profile <name> and no other arguments")
-	}
-	token, code := mintProxyToken(*profile, *cfg)
-	if code != 0 {
-		return code
-	}
-	return printToken(token)
-}
-
-// mintProxyToken ensures the proxy is up and mints a token for profile; a nonzero code is the exit status.
-func mintProxyToken(profile, cfgDir string) (string, int) {
-	if cfgDir != "" {
-		if err := proc.Setenv("CLAUDE_CONFIG_DIR", cfgDir); err != nil {
-			return "", helptext.Fail("gateway token: %v", err)
-		}
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	defer cancel()
-	token, err := gateway.Token(ctx, profile)
-	if err != nil {
-		return "", helptext.Fail("gateway token: %v", err)
-	}
-	return token, 0
-}
-
-func printToken(token string) int {
-	if err := stdoutf("gateway token: write stdout", "%s\n", token); err != nil {
-		fmt.Fprintln(os.Stderr, err)
-		return 1
-	}
-	return 0
+			helptext.Plain("overlay"), helptext.Plain("task"), helptext.ValuedFlag("fallback", func() []string { return router.FallbackModes }), helptext.BoolFlag("tools"), helptext.BoolFlag("all-profiles"), helptext.BoolFlag("live"), helptext.CompletionFormatFlag()}}}}
 }
 
 // gatewayStop is gateway.Stop; tests stub it so no live pid is signalled.

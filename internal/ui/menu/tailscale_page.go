@@ -3,7 +3,6 @@ package menu
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net"
 	"strings"
 	"sync"
@@ -174,7 +173,7 @@ func tsAdminKey(d *dialog, s *shell) {
 	tsAdminVerdict.Unlock()
 }
 
-// tsAuthKey asks the key's options, mints it, prints it once and seals it as TAILSCALE_AUTHKEY.
+// tsAuthKey asks the key's options, mints it and seals it as TAILSCALE_AUTHKEY; the value is never printed.
 func tsAuthKey(d *dialog, s *shell) {
 	if !configure.HasAdminCredential() {
 		d.println("auth key: needs an admin credential; set one with the admin key row")
@@ -192,7 +191,6 @@ func tsAuthKey(d *dialog, s *shell) {
 		d.printf("auth key: %v\n", err)
 		return
 	}
-	fmt.Fprintln(d.out, key.Key)
 	if err := tailscale.SaveAuthKey(key.Key); err != nil {
 		d.printf("auth key: not saved: %v\n", err)
 		return

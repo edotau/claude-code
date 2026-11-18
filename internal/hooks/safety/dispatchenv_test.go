@@ -201,14 +201,23 @@ type roleCase struct {
 const devKube = "apiVersion: v1\ncurrent-context: dev-cluster\n"
 
 var roleCases = []roleCase{
-	{"claude-code vault get --key", "", devKube, core.Ask, core.Block},
-	{"rtk claude-code vault get --key", "", devKube, core.Ask, core.Block},
-	{"env X=1 claude-code vault get --key | age -e", "", devKube, core.Ask, core.Block},
-	{"sh -c 'claude-code vault get -key > k'", "", devKube, core.Ask, core.Block},
-	{"K=$(claude-code vault get --key)", "", devKube, core.Ask, core.Block},
-	{"go run ./cmd/claude-code vault get --key", "", devKube, core.Ask, core.Block},
+	{"claude-code vault get --key --secret", "", devKube, core.Ask, core.Block},
+	{"rtk claude-code vault get --secret --key", "", devKube, core.Ask, core.Block},
+	{"env X=1 claude-code vault get --key --secret | age -e", "", devKube, core.Ask, core.Block},
+	{"sh -c 'claude-code vault get -key -secret > k'", "", devKube, core.Ask, core.Block},
+	{"K=$(claude-code vault get --key --secret=true)", "", devKube, core.Ask, core.Block},
+	{"go run ./cmd/claude-code vault get --key --secret", "", devKube, core.Ask, core.Block},
+	{"claude-code vault get --key", "", devKube, core.Allow, core.Allow},
+	{"claude-code vault get --key --secret=false", "", devKube, core.Allow, core.Allow},
 	{"claude-code vault get GITHUB_TOKEN", "", devKube, core.Allow, core.Allow},
-	{"claude-code vault get --export A B", "", devKube, core.Allow, core.Allow},
+	{"claude-code vault get --secret GITHUB_TOKEN", "", devKube, core.Allow, core.Block},
+	{"T=$(claude-code resolve --profile dev --secret)", "", devKube, core.Allow, core.Block},
+	{"claude-code gateway proxy --client-token ed --secret", "", devKube, core.Allow, core.Block},
+	{"claude-code network tailscale --key --secret", "", devKube, core.Allow, core.Block},
+	{"claude-code vault get --secret --export A B", "", devKube, core.Allow, core.Block},
+	{"claude-code vault get A -- --secret", "", devKube, core.Allow, core.Allow},
+	{`claude-code agents ask --agent codex review the --secret flag`, "", devKube, core.Allow, core.Allow},
+	{`grep -- "--secret" rules/`, "", devKube, core.Allow, core.Allow},
 	{`grep "vault get --key" rules/`, "", devKube, core.Allow, core.Allow},
 	{`git commit -m "feat: claude-code vault get --key"`, "", devKube, core.Allow, core.Allow},
 	{"kubectl -n prod exec pod -- ls", "", devKube, core.Ask, core.Block},
@@ -282,9 +291,10 @@ var roleCases = []roleCase{
 	{"kubectl delete namespace staging", "", devKube, core.Allow, core.Allow},
 	{"KUBECONFIG=/kube/config kubectl delete pod x", "", devKube, core.Allow, core.Allow},
 	{"KUBECONFIG=/kube/other kubectl delete pod x", "", devKube, core.Ask, core.Block},
-	{"claude-code --remote h vault get --key", "", devKube, core.Ask, core.Block},
-	{"claude-code --host h vault get --key", "", devKube, core.Ask, core.Block},
-	{"claude-code --host=h vault get --key", "", devKube, core.Ask, core.Block},
+	{"claude-code --remote h vault get --key --secret", "", devKube, core.Ask, core.Block},
+	{"claude-code --host h vault get --key --secret", "", devKube, core.Ask, core.Block},
+	{"claude-code --host=h vault get --key --secret", "", devKube, core.Ask, core.Block},
+	{"claude-code --host h vault get --secret NAME", "", devKube, core.Allow, core.Block},
 	{"claude-code --host h vault get NAME", "", devKube, core.Allow, core.Allow},
 }
 
@@ -327,7 +337,7 @@ func TestMainOnlyRouteWithoutAsk(t *testing.T) {
 	t.Setenv("HARNESS_DISPATCH_ID", "")
 	t.Setenv("HARNESS_DISPATCH_DEPTH", "")
 	payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": "/tmp",
-		"tool_input": map[string]string{"command": "claude-code vault get --key"}})
+		"tool_input": map[string]string{"command": "claude-code vault get --key --secret"}})
 	r := Scan(core.ParseInputFor(bytes.NewReader(payload), "copilot"))
 	if r.Decision != core.Block || !strings.Contains(r.Reason, "from a Claude session") || !strings.Contains(r.Reason, "terminal") {
 		t.Errorf("copilot main session: decision %v, want a block naming the Claude and terminal routes: %s", r.Decision, r.Reason)

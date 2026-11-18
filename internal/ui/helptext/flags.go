@@ -9,6 +9,8 @@ import (
 	"os"
 	"strconv"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // WantsHelp reports a -h/-help/--help token before any "--", so callers can send help to stdout themselves.
@@ -96,6 +98,36 @@ func Fail(format string, a ...any) int {
 func FailUsage(format string, a ...any) int {
 	Fail(format, a...)
 	return 2
+}
+
+// SecretFlag registers --secret, the one flag that prints a credential's actual value.
+func SecretFlag(fs *flag.FlagSet) *bool {
+	return fs.Bool("secret", false, "print the actual value (default: <redacted: N bytes>)")
+}
+
+// Secret is one output line: Prefix, then Value, or its redacted stand-in without --secret.
+type Secret struct{ Prefix, Value string }
+
+// stdoutTerminal is the seam for whether stdout is a terminal.
+var stdoutTerminal = func() bool { return proc.IsTerminal(os.Stdout) }
+
+// PrintSecrets prints lines; a redacted print to a pipe exits 1, so $(…) never passes it on as a credential.
+func PrintSecrets(verb string, secret bool, lines ...Secret) int {
+	var b strings.Builder
+	for _, l := range lines {
+		v := l.Value
+		if !secret {
+			v = fmt.Sprintf("<redacted: %d bytes>", len(v))
+		}
+		b.WriteString(l.Prefix + v + "\n")
+	}
+	if _, err := io.WriteString(os.Stdout, b.String()); err != nil {
+		return Fail("%s: %v", verb, err)
+	}
+	if secret || stdoutTerminal() {
+		return 0
+	}
+	return Fail("%s: printed redacted to a pipe; --secret prints the value (main session only)", verb)
 }
 
 // WriteJSONOrFail writes v as indented JSON to stdout; a write error is reported under label and returns 1.

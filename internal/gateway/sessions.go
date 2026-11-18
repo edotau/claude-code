@@ -139,36 +139,6 @@ const (
 	SessionRevokePath = "/internal/session/revoke"
 )
 
-var (
-	tokenEnsure = Ensure
-	tokenState  = readLiveState
-	tokenMint   = mintWithState
-)
-
-// Token ensures the daemon is running and mints a profile-scoped token bound to its PID in two health probes.
-func Token(ctx context.Context, profile string) (string, error) {
-	if _, err := tokenEnsure(ctx); err != nil {
-		// keep the cause: vault, spawn, loopback
-		return "", fmt.Errorf("proxy unavailable (%v); run gateway proxy --start", err)
-	}
-	st, err := tokenState()
-	if errors.Is(err, ErrNotRunning) {
-		return "", errors.New("proxy not running")
-	}
-	if err != nil {
-		return "", err
-	}
-	return tokenMint(ctx, st, profile)
-}
-
-func mintWithState(ctx context.Context, st State, profile string) (string, error) {
-	var out SessionResponse
-	if err := postWithState(ctx, st, SessionPath, SessionRequest{Profiles: []string{profile}, PID: st.PID}, &out); err != nil {
-		return "", err
-	}
-	return out.Token, nil
-}
-
 // proxyTokenMaxAge re-mints inside the router's 7-day idle lifetime, as agent.SessionToken does.
 const proxyTokenMaxAge = time.Hour
 

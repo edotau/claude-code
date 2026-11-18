@@ -31,7 +31,7 @@ func vaultSpec() *helptext.Node {
 		"ls": {Args: []func() []string{vaultSections}, Flags: []helptext.Flag{boolFlag("tailscale"), formatFlag()}},
 		"set": {Args: []func() []string{secretNames}, Flags: []helptext.Flag{boolFlag("tailscale"), boolFlag("api-key"),
 			boolFlag("dry-run")}},
-		"get":           {Args: []func() []string{secretNames}, Flags: []helptext.Flag{boolFlag("export"), boolFlag("key"), boolFlag("reveal")}},
+		"get":           {Args: []func() []string{secretNames}, Flags: []helptext.Flag{boolFlag("export"), boolFlag("key"), boolFlag("secret")}},
 		"delete":        {Args: []func() []string{secretNames}},
 		"env":           {Sub: map[string]*helptext.Node{"set": {Flags: []helptext.Flag{boolFlag("dry-run")}}, "unset": {Flags: []helptext.Flag{boolFlag("dry-run")}}}},
 		"import":        {Flags: []helptext.Flag{boolFlag("yes")}},
@@ -47,7 +47,7 @@ var vaultPage = helptext.Page{
 	Commands: [][2]string{
 		{"ls", "everything stored, secrets first (masked); bare vault runs it"},
 		{"set", "store a secret; bare opens a guided dialog; --tailscale"},
-		{"get", "print secret values; --export for shell, --key for master"},
+		{"get", "print secrets redacted; --secret for values, --key for master"},
 		{"delete", "remove a secret"},
 		{"env", "set or unset one env value (not sealed); ls env lists"},
 		{"import", "seal every NAME=value line of a .env file"},
@@ -274,7 +274,7 @@ func vaultSetSecret(name string, dryRun bool) int {
 	if err := configure.StoreSecret(name, value); err != nil {
 		return helptext.Fail("vault set: %v", err)
 	}
-	fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s); `claude-code vault get --reveal %s` prints it\n", name, vault.Redact(value), name)
+	fmt.Fprintf(os.Stderr, "wrote %s to the vault (%s); `claude-code vault get --secret %s` prints it\n", name, vault.Redact(value), name)
 	if login != nil {
 		printLoginVerdict(login)
 	}
@@ -316,81 +316,62 @@ func readSecretValue(name string) (string, error) {
 	return strings.TrimSpace(string(raw)), nil
 }
 
-// cmdVaultGet prints NAME=<redacted: N bytes> per name, the value with --reveal, or the master key with --key.
+// cmdVaultGet prints NAME=<redacted: N bytes> per name, the value with --secret; --key selects the master key.
 func cmdVaultGet(args []string) int {
 	fs := helptext.NewFlagSet("vault get", helptext.Page{
 		Usage: "claude-code vault get NAME... [flags]",
-		About: "Print each secret as NAME=<redacted: N bytes>; --reveal prints NAME=value (vault, then env).",
+		About: "Print each secret as NAME=<redacted: N bytes>; --secret prints NAME=value (vault, then env).",
 	})
-	export := fs.Bool("export", false, "print export NAME='value' lines for a shell")
-	reveal := fs.Bool("reveal", false, "print the real values; the default redacts them")
-	key := fs.Bool("key", false, "print the master key (base64) instead; refused on a terminal")
+	export := fs.Bool("export", false, "with --secret: print export NAME='value' lines for a shell")
+	secret := helptext.SecretFlag(fs)
+	key := fs.Bool("key", false, "select the master key (base64); with --secret refused on a terminal")
 	names, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
 	if *key {
 		if len(names) > 0 || *export {
-			fmt.Fprintln(os.Stderr, "vault get: --key takes no NAME and no --export")
-			return 2
+			return helptext.FailUsage("vault get: --key takes no NAME and no --export")
 		}
-		return vaultGetKey()
+		return vaultGetKey(*secret)
 	}
 	if len(names) == 0 {
 		fs.Usage()
 		return 2
 	}
+	if *export && !*secret {
+		return helptext.FailUsage("vault get: --export needs --secret")
+	}
 	if slices.Contains(names, "HARNESS_VAULT_KEY") {
-		return helptext.Fail("vault get: HARNESS_VAULT_KEY is the master key; use vault get --key (refused on a terminal)")
+		return helptext.Fail("vault get: HARNESS_VAULT_KEY is the master key; use vault get --key")
 	}
 	values, err := vault.LookupAll(names)
 	if err != nil {
 		return helptext.Fail("vault get: %v", err)
 	}
-	if *export && !*reveal {
-		fmt.Fprintln(os.Stderr, "vault get: --export prints redacted lines; add --reveal to print values")
-	}
-	if err := printVaultValues(names, values, *export, *reveal); err != nil {
-		return helptext.Fail("vault get: %v", err)
-	}
-	return 0
-}
-
-// printVaultValues prints redacted lines, or with reveal values or export lines; the first write error is returned.
-func printVaultValues(names, values []string, export, reveal bool) error {
+	lines := make([]helptext.Secret, len(names))
 	for i, name := range names {
-		var err error
-		if !reveal {
-			_, err = fmt.Printf("%s=<redacted: %d bytes>\n", name, len(values[i]))
-		} else if export {
-			_, err = fmt.Printf("export %s=%s\n", name, textutil.ShellQuote(values[i]))
-		} else {
-			_, err = fmt.Printf("%s=%s\n", name, values[i])
-		}
-		if err != nil {
-			return err
+		lines[i] = helptext.Secret{Prefix: name + "=", Value: values[i]}
+		if *export {
+			lines[i] = helptext.Secret{Prefix: "export " + name + "=", Value: textutil.ShellQuote(values[i])}
 		}
 	}
-	return nil
+	return helptext.PrintSecrets("vault get", *secret, lines...)
 }
 
-// vaultGetKey prints the master key only to a pipe, never a terminal, so it never lands in scrollback.
-func vaultGetKey() int {
-	if tui.StdoutIsTerminal() {
-		fmt.Fprintln(os.Stderr, "vault get --key: refusing to print the master key to a terminal; pipe it")
-		return 2
+// vaultGetKey prints the master key redacted; with --secret only to a pipe, so it never lands in scrollback.
+func vaultGetKey(secret bool) int {
+	if secret && tui.StdoutIsTerminal() {
+		return helptext.FailUsage("vault get --key --secret: refusing to print the master key to a terminal; pipe it")
 	}
 	k, _, err := vault.MasterKey()
 	if err != nil {
-		fmt.Fprintln(os.Stderr, "vault get --key:", err)
-		return 1
+		return helptext.Fail("vault get --key: %v", err)
 	}
-	audit.Log(audit.KeyReveal, k.Kid, "")
-	if _, err := fmt.Println(k.Raw()); err != nil {
-		fmt.Fprintln(os.Stderr, "vault get --key:", err)
-		return 1
+	if secret {
+		audit.Log(audit.KeyReveal, k.Kid, "")
 	}
-	return 0
+	return helptext.PrintSecrets("vault get --key", secret, helptext.Secret{Value: k.Raw()})
 }
 
 // cmdVaultDelete removes NAME from the vault.

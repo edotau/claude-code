@@ -225,46 +225,49 @@ func switchUsage() {
 
 var resolvePage = helptext.Page{
 	Usage: "claude-code resolve [flags]",
-	About: "Resolves and prints the session profile's credential: the apiKeyHelper Claude Code calls. " +
-		"--proxy prints a scoped proxy session token, never the client secret: " +
-		"the launch's HARNESS_PROXY_API_KEY, else one minted for the calling process and cached.",
+	About: "Resolves the session profile's credential and prints it redacted; --secret prints the value " +
+		"(the apiKeyHelper Claude Code calls). --proxy selects a scoped proxy session token, never the " +
+		"client secret: the launch's HARNESS_PROXY_API_KEY, else one minted for the calling process and cached.",
 }
 
-// cmdResolve is the apiKeyHelper: --proxy prints the armed session token, else a token scoped to the parent process.
+// cmdResolve is the apiKeyHelper: --proxy selects the armed session token, else a token scoped to the parent process.
 func cmdResolve(args []string) int {
 	fs := helptext.NewFlagSet("resolve", resolvePage)
 	profile := fs.String("profile", "", "profile name")
-	viaRouter := fs.Bool("proxy", false, "print a scoped proxy session token")
+	viaRouter := fs.Bool("proxy", false, "select a scoped proxy session token")
 	as := fs.String("as", "", "Databricks identity the launch carries: auto|user|sp|headless")
+	secret := helptext.SecretFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	if *viaRouter {
+	tok, err := resolveToken(*viaRouter, *profile, *as)
+	if err != nil {
+		return helptext.Fail("%v", err)
+	}
+	return helptext.PrintSecrets("resolve", *secret, helptext.Secret{Value: tok})
+}
+
+// resolveToken is the armed or scoped proxy token with proxy, else the profile's credential.
+func resolveToken(proxy bool, profile, as string) (string, error) {
+	if proxy {
 		if tok := os.Getenv(claude.ProxyKeyEnv); tok != "" { // an armed launch's session token, confined to its profile
-			fmt.Println(tok)
-			return 0
+			return tok, nil
 		}
-		tok, err := scopedProxyToken(*profile)
+		tok, err := scopedProxyToken(profile)
 		if err != nil {
-			return helptext.Fail("resolve --proxy: %v", err) // never falls back to the router secret
+			return "", fmt.Errorf("resolve --proxy: %w", err) // never falls back to the router secret
 		}
-		fmt.Println(tok)
-		return 0
+		return tok, nil
 	}
 	reg, err := providers.Load()
 	if err != nil {
-		return helptext.Fail("%v", err)
+		return "", err
 	}
-	sel, err := providers.Select(reg, *profile)
+	sel, err := providers.Select(reg, profile)
 	if err != nil {
-		return helptext.Fail("%v", err)
+		return "", err
 	}
-	tok, err := providers.Credential(providers.WithIdentity(context.Background(), *as), sel.Provider)
-	if err != nil {
-		return helptext.Fail("%v", err)
-	}
-	fmt.Fprintln(os.Stdout, tok)
-	return 0
+	return providers.Credential(providers.WithIdentity(context.Background(), as), sel.Provider)
 }
 
 // resolveProxyToken is the mint+cache seam of resolve --proxy.
@@ -523,5 +526,5 @@ func switchSpec() *helptext.Node {
 func resolveSpec() *helptext.Node {
 	identities := func() []string { return []string{"auto", "user", "sp", "headless"} }
 	return &helptext.Node{Flags: []helptext.Flag{helptext.ValuedFlag("profile", providers.ProfileNames), helptext.BoolFlag("proxy"),
-		helptext.ValuedFlag("as", identities)}}
+		helptext.ValuedFlag("as", identities), helptext.BoolFlag("secret")}}
 }

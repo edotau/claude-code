@@ -28,9 +28,10 @@ claude-code network websearch --extract https://go.dev/doc/   # markdown, one `#
 tvly search 'Go 1.26 release date' --depth advanced --time-range year --include-domains go.dev --max-results 5
 ```
 
-- Every rung needs `TAVILY_API_KEY`: the harness verb reads it from the vault; for `tvly` run
-  `eval "$(claude-code vault get --reveal --export TAVILY_API_KEY)"` in the same shell command. Never print the key or
-  store it with `tvly login`.
+- Every rung needs `TAVILY_API_KEY`: the harness verb reads it from the vault. `tvly` needs it in the environment at
+  launch: a dispatch passes `--overlay '{"set":{"TAVILY_API_KEY":"@secret:TAVILY_API_KEY"}}'`. Only the main session
+  may run `eval "$(claude-code vault get --secret --export TAVILY_API_KEY)"` in the same shell command; a leaf without
+  the key reports the name to the main session. Never print the key or store it with `tvly login`.
 - The harness verb takes only a query or URLs. `tvly search` adds `--time-range`, `--start-date`, `--topic news`,
   `--include-domains`, `--depth`; `tvly extract` adds `--extract-depth advanced`, `--format text`, `-o`.
 - `tvly` missing: `uv tool install tavily-cli` (no `uv`: `brew install uv`, else `pipx install tavily-cli`); rungs

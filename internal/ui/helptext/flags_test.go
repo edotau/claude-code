@@ -56,6 +56,26 @@ func TestFailExitCodes(t *testing.T) {
 	}
 }
 
+// PrintSecrets redacts without --secret; to a pipe that exits 1, on a terminal or with --secret it exits 0.
+func TestPrintSecrets(t *testing.T) {
+	const v = "fake-credential-value"
+	lines := []Secret{{Prefix: "A=", Value: v}, {Value: v + "x"}}
+	redacted := fmt.Sprintf("A=<redacted: %d bytes>\n<redacted: %d bytes>\n", len(v), len(v)+1)
+	orig := stdoutTerminal
+	t.Cleanup(func() { stdoutTerminal = orig })
+	for _, c := range []struct {
+		secret, term bool
+		code         int
+		out          string
+	}{{false, false, 1, redacted}, {false, true, 0, redacted}, {true, false, 0, "A=" + v + "\n" + v + "x\n"}} {
+		stdoutTerminal = func() bool { return c.term }
+		code, out, stderr := hosttest.CaptureOutput(t, func() int { return PrintSecrets("verb", c.secret, lines...) })
+		if code != c.code || out != c.out || !c.secret && strings.Contains(out+stderr, v) {
+			t.Errorf("secret=%v term=%v: exit %d stdout %q stderr %q", c.secret, c.term, code, out, stderr)
+		}
+	}
+}
+
 // ParseArgs must honor a flag after positionals and stop flag parsing at "--".
 func TestParseInterspersed(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)

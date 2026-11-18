@@ -97,8 +97,9 @@ subagent. Per-hook matrix: [`rules/harness/hooks.md`](rules/harness/hooks.md).
 | `git add` or `commit` of a file another live session or agent has uncommitted edits in | Ask, or block for a leaf under `~/.claude` | main and leaves |
 | `claude-code worktree commit` | Commits only the files you name (none: your own claimed files) and rolls the index back on failure; a leaf must name its files | main and leaves |
 | AI-attribution footer in a commit message | Blocked; `worktree commit` also strips them | main and leaves |
-| A command that prints a token piped to `curl`, `nc` or `wget` | Blocked | main and leaves |
-| `claude-code vault get --key` (the vault master key) | Ask in main; blocked in a leaf | main, leaves |
+| A command that prints a token (`claude-code … --secret`, `gh auth token`) piped to `curl`, `nc` or `wget` | Blocked | main and leaves |
+| `claude-code` verbs that print a credential (`vault get`, `resolve`, `gateway proxy --client-token`, `network tailscale --key`) | Redacted (`<redacted: N bytes>`; to a pipe also exit 1) unless `--secret`; `--secret` runs in the main session only, leaves get credentials at launch | main, leaves |
+| `claude-code vault get --key --secret` (the vault master key) | Ask in main; blocked in a leaf | main, leaves |
 | `kubectl` or `oc` `exec`, `delete`, `oc rsh` on a production or unknown context | Ask in main; blocked in a leaf | main, leaves |
 | `make audit`, `make install`, `make fmt` inside this repository | Blocked for a leaf; `make lint` stays open to all | leaves |
 | `agents ask` without `--tools` | Tools off: claude and opencode launch none, copilot rejects every request, codex keeps a read-only sandbox shell; gemini is only told not to use tools | dispatched agents |

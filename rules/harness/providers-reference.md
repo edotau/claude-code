@@ -91,13 +91,14 @@ First non-empty source wins, name by name: the canonical secret name (`ANTHROPIC
 Sealed `oauth`/`m2m`/`pat` credentials come from the vault only; `cli` profiles use the CLI's own login.
 
 Example: `"auth": {"type": "key", "command": "op read op://Private/example/credential", "ttl": 3600}`.
-`claude-code resolve --profile <p>` is the `apiKeyHelper` Claude Code calls, so no key lands in `settings.json`.
+`claude-code resolve --secret --profile <p>` is the `apiKeyHelper` Claude Code calls, so no key lands in
+`settings.json`; without `--secret` it prints `<redacted: N bytes>` and, to a pipe, exits 1.
 
 ```bash
 claude-code vault set [KEY]            # bare on a terminal = guided dialog
-claude-code vault get KEY... [--reveal [--export]]   # redacted without --reveal
+claude-code vault get KEY... [--secret [--export]]   # redacted without --secret (main session only)
 claude-code vault import keys.env      # then delete the plaintext file
-claude-code vault get --reveal KEY... | ssh box claude-code vault import - --yes
+claude-code vault get --secret KEY... | ssh box claude-code vault import - --yes
 claude-code doctor --scan|--git|--secrets   # leak audits; never print values
 ```
 
@@ -180,8 +181,8 @@ opencode's go/zen accounts stay outside the tree for now (`OPENCODE_API_KEY`).
 `claude` launches **direct** when the provider speaks `anthropic`, every model alias stays on it, and no `fallback` is
 set. Otherwise it goes through the **loopback proxy** (`127.0.0.1:18765`, started on demand), which:
 
-1. requires a per-install client secret (vault `CLAUDE_CODE_ROUTER_SECRET`; `resolve --proxy` prints a scoped session
-   token, never the secret) and a loopback `Host`;
+1. requires a per-install client secret (vault `CLAUDE_CODE_ROUTER_SECRET`; `resolve --secret --proxy` prints a scoped
+   session token, never the secret) and a loopback `Host`;
 2. resolves `model` (`id` or `provider:model`) and strips `[1m]`;
 3. passes `anthropic` routes through; translates Messages ⇄ chat-completions for `openai` routes (streaming, tools);
 4. refreshes the credential and replays once on 401/403 (the error names the remedy for the row's auth type);

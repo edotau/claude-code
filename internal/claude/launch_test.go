@@ -87,7 +87,7 @@ func TestClaudeDirectLaunchPlan(t *testing.T) {
 	if !slices.Contains(p.Unset, oauthKey) || !slices.Equal(p.Argv, []string{"--settings", overlayFile(p).Path, "-p", "hi"}) {
 		t.Errorf("unset %q argv %q", p.Unset, p.Argv)
 	}
-	if !strings.Contains(string(overlayFile(p).Data), `"/opt/bin/claude-code resolve --profile gw"`) {
+	if !strings.Contains(string(overlayFile(p).Data), `"/opt/bin/claude-code resolve --secret --profile gw"`) {
 		t.Errorf("overlay %s", overlayFile(p).Data)
 	}
 	var buf bytes.Buffer
@@ -128,7 +128,7 @@ func TestClaudeRoutedLaunchPlan(t *testing.T) {
 	if m, ok := p.Set["ANTHROPIC_MODEL"]; ok {
 		t.Errorf("no --model asked, yet ANTHROPIC_MODEL = %q", m)
 	}
-	if !strings.Contains(string(overlayFile(p).Data), "claude-code resolve --proxy") || !strings.HasSuffix(overlayFile(p).Path, "overlay-ollama-proxy.json") {
+	if !strings.Contains(string(overlayFile(p).Data), "claude-code resolve --secret --proxy") || !strings.HasSuffix(overlayFile(p).Path, "overlay-ollama-proxy.json") {
 		t.Errorf("overlay %s at %s", overlayFile(p).Data, overlayFile(p).Path)
 	}
 }
@@ -602,8 +602,8 @@ func assertProxiedNoSecret(t *testing.T, name string, p agent.Plan) {
 		t.Fatal(err)
 	}
 	helper := string(overlayFile(p).Data)
-	if base := p.Set["ANTHROPIC_BASE_URL"]; base != "http://127.0.0.1:4000/p/dev" || !strings.Contains(helper, "resolve --proxy") {
-		t.Errorf("%s: base = %q, overlay %s; want /p/dev and the resolve --proxy helper", name, base, helper)
+	if base := p.Set["ANTHROPIC_BASE_URL"]; base != "http://127.0.0.1:4000/p/dev" || !strings.Contains(helper, "resolve --secret --proxy") {
+		t.Errorf("%s: base = %q, overlay %s; want /p/dev and the resolve --secret --proxy helper", name, base, helper)
 	}
 	for k, v := range p.Set {
 		if strings.Contains(v, secret) {
@@ -742,8 +742,8 @@ func TestClaudeArmHeadlessAlwaysProxied(t *testing.T) {
 	if p.Set["ANTHROPIC_BASE_URL"] != proxied || p.Set[ProxyKeyEnv] != "cct_ARM_dev" {
 		t.Errorf("armed headless: base %q, session token set %v; want /p/dev and the token", p.Set["ANTHROPIC_BASE_URL"], p.Set[ProxyKeyEnv] != "")
 	}
-	if !strings.Contains(string(overlayFile(p).Data), "resolve --proxy") {
-		t.Errorf("armed headless helper %s, want resolve --proxy", overlayFile(p).Data)
+	if !strings.Contains(string(overlayFile(p).Data), "resolve --secret --proxy") {
+		t.Errorf("armed headless helper %s, want resolve --secret --proxy", overlayFile(p).Data)
 	}
 	if p := launch(); p.Set["ANTHROPIC_BASE_URL"] != proxied || p.Set[ProxyKeyEnv] != "cct_ARM_dev" {
 		t.Errorf("armed interactive base = %q, session token set %v; want %s and the token", p.Set["ANTHROPIC_BASE_URL"], p.Set[ProxyKeyEnv] != "", proxied)

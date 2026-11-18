@@ -205,7 +205,7 @@ func TestTailscaleKeySaveKeepsStdoutPipeable(t *testing.T) {
 			ts := tailscaleAuthKeyServer(t, key)
 			defer ts.Close()
 			routeDefaultClientTo(t, ts)
-			args := []string{"--key"}
+			args := []string{"--key", "--secret"}
 			if save {
 				args = append(args, "--save")
 			}
@@ -218,6 +218,26 @@ func TestTailscaleKeySaveKeepsStdoutPipeable(t *testing.T) {
 			}
 			checkTailscaleSavedKey(t, save, key, stderr)
 		})
+	}
+}
+
+// Without --secret, --key mints only with --save and prints the key redacted; with neither it mints nothing.
+func TestTailscaleKeyRedactsWithoutSecret(t *testing.T) {
+	hermeticTailscaleSecrets(t)
+	t.Setenv("TAILSCALE_API_KEY", "test-api-key")
+	const key = "tskey-auth-redact-me"
+	ts := tailscaleAuthKeyServer(t, key)
+	defer ts.Close()
+	routeDefaultClientTo(t, ts)
+	if code, out, _ := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--key"}) }); code != 2 || out != "" {
+		t.Fatalf("--key alone: exit %d stdout %q; want 2 and nothing minted", code, out)
+	}
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--key", "--save"}) })
+	if code != 1 || out != fmt.Sprintf("<redacted: %d bytes>\n", len(key)) || strings.Contains(out+stderr, key) {
+		t.Fatalf("--key --save: exit %d stdout %q", code, out)
+	}
+	if stored, _, ok := vault.Get("TAILSCALE_AUTHKEY"); !ok || stored != key {
+		t.Error("--key --save did not seal the minted key")
 	}
 }
 
@@ -277,7 +297,7 @@ func TestTailscaleKeyTrimsTags(t *testing.T) {
 	defer ts.Close()
 	routeDefaultClientTo(t, ts)
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		return Cmd([]string{"--key", "--tags", "tag:a, tag:b,"})
+		return Cmd([]string{"--key", "--secret", "--tags", "tag:a, tag:b,"})
 	})
 	if code != 0 {
 		t.Fatalf("key exit %d, want 0; stderr=%q", code, stderr)
@@ -290,7 +310,7 @@ func TestTailscaleKeyTrimsTags(t *testing.T) {
 func TestTailscaleKeyWithoutCredentialFails(t *testing.T) {
 	hermeticTailscaleSecrets(t)
 	fakeTailscale(t, "Running", "")
-	code, out, stderr := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--key"}) })
+	code, out, stderr := hosttest.CaptureOutput(t, func() int { return Cmd([]string{"--key", "--secret"}) })
 	if code == 0 {
 		t.Fatalf("key with no admin credential: exit 0, want nonzero; stdout=%q", out)
 	}
@@ -482,8 +502,8 @@ func TestTailscaleKeyReportsStdoutFailure(t *testing.T) {
 	srv := tailscaleAuthKeyServer(t, "tskey-auth-test-output")
 	defer srv.Close()
 	routeDefaultClientTo(t, srv)
-	code, stderr := hosttest.CaptureClosedStdout(t, func() int { return Cmd([]string{"--key"}) })
-	if code != 1 || !strings.Contains(stderr, "writing key to stdout") {
+	code, stderr := hosttest.CaptureClosedStdout(t, func() int { return Cmd([]string{"--key", "--secret"}) })
+	if code != 1 || !strings.Contains(stderr, "network tailscale key: write") {
 		t.Fatalf("undelivered auth key: exit=%d stderr=%q", code, stderr)
 	}
 	if strings.Contains(stderr, "tskey-auth-test-output") {
