@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 )
 
 func scopeWave(agents ...string) []Spec {
@@ -195,7 +195,7 @@ func TestLaunchAllContainsPanic(t *testing.T) {
 		if len(results) != len(wave) {
 			t.Fatalf("results: %+v", results)
 		}
-		var pe *par.PanicError
+		var pe *parallel.PanicError
 		if !errors.As(results[1].err, &pe) || pe.Value != "batch exploded" || len(pe.Stack) == 0 {
 			t.Fatalf("panic slot: %+v", results[1])
 		}

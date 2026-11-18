@@ -15,7 +15,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -326,7 +326,7 @@ func TestReaderPanicEndsKeyStream(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("reader panic left the key stream open")
 	}
-	var pe *par.PanicError
+	var pe *parallel.PanicError
 	if err := term.Err(); !errors.As(err, &pe) || pe.Value != "reader exploded" {
 		t.Fatalf("Err = %v; want the contained panic", err)
 	}

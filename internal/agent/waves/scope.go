@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 )
 
 // scopeEnforcers hold a path-scoped Edit/Write deny; codex's OS sandbox reads no harness rule.
@@ -174,7 +174,7 @@ func launchAll(ctx context.Context, executable string, specs []Spec, o LaunchOpt
 		}
 		return res.err
 	}
-	for slot, err := range par.All(len(together), func(i int) error { return run(i, together[i]) }) {
+	for slot, err := range parallel.All(len(together), func(i int) error { return run(i, together[i]) }) {
 		results[slot].err = err
 	}
 	for j, b := range alone {
@@ -185,7 +185,7 @@ func launchAll(ctx context.Context, executable string, specs []Spec, o LaunchOpt
 			}
 		}
 		slot := len(together) + j
-		results[slot].err = par.All(1, func(int) error { return run(slot, b) })[0]
+		results[slot].err = parallel.All(1, func(int) error { return run(slot, b) })[0]
 	}
 	return results
 }

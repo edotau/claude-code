@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -86,7 +86,7 @@ func homeSections(d *dialog) ([]tui.Section, []func(*dialog)) {
 	var wg sync.WaitGroup
 	if d.o.Agent == "" {
 		wg.Add(1)
-		par.Go(func() { extra, acts = extraSections(d); wg.Done() }, func(err error) {
+		parallel.Go(func() { extra, acts = extraSections(d); wg.Done() }, func(err error) {
 			extra, acts = sections([]block{{Title: "tools", Rows: []row{{Name: "error", State: panicLine(err), Run: func(*dialog) {}}}}})
 			wg.Done()
 		})

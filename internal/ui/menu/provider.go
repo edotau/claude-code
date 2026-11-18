@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -75,12 +75,12 @@ func allCheckOne(ctx context.Context, p *providers.Provider) allRowStatus {
 	}
 	// resolved before the worker: a timed-out check must not read the seam later
 	si := allSigninFor(p)
-	r, err := par.Within(ctx, allCheckTimeout, func(ctx context.Context) (res, error) {
+	r, err := parallel.Within(ctx, allCheckTimeout, func(ctx context.Context) (res, error) {
 		v, d := si.Check(ctx)
 		// a verdict that lands after the deadline is the timeout, not a rejection
 		return res{v, d}, context.Cause(ctx)
 	})
-	var pe *par.PanicError
+	var pe *parallel.PanicError
 	switch {
 	case errors.As(err, &pe):
 		st.Status, st.Detail = allError, panicLine(pe)

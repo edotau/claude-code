@@ -18,7 +18,7 @@ import (
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/opencode"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -341,11 +341,11 @@ func pinWorkspace(d *dialog, agent, ws string) (changed bool) {
 // dbxTokenCheck mints ws's token the way a headless ask does and prints one line; the token is never shown.
 func dbxTokenCheck(d *dialog, ws string) {
 	ctx := providers.WithNotes(providers.WithIdentity(context.Background(), providers.IdentityHeadless), func(string) {})
-	auth, err := par.Within(ctx, dbxCheckTimeout, func(ctx context.Context) (string, error) {
+	auth, err := parallel.Within(ctx, dbxCheckTimeout, func(ctx context.Context) (string, error) {
 		res, _, err := dbxMint(ctx, ws)
 		return res.AuthType, err
 	})
-	if _, isPanic := errors.AsType[*par.PanicError](err); isPanic {
+	if _, isPanic := errors.AsType[*parallel.PanicError](err); isPanic {
 		err = errors.New("token check failed unexpectedly")
 	} else if errors.Is(err, context.DeadlineExceeded) {
 		err = fmt.Errorf("timed out after %s", dbxCheckTimeout)

@@ -21,7 +21,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/gateway"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -370,7 +370,7 @@ func embedQuery(parent context.Context, query string) (*Semantic, error) {
 		}
 	}
 	done := make(chan semanticResult, 1)
-	par.Go(func() { done <- querySemantic(ctx, profile, query, cache) }, func(err error) { done <- semanticResult{err: err} })
+	parallel.Go(func() { done <- querySemantic(ctx, profile, query, cache) }, func(err error) { done <- semanticResult{err: err} })
 	select {
 	case r := <-done:
 		if r.err != nil {
@@ -658,7 +658,7 @@ func claudeRecordProfile(ctx context.Context) string {
 		return ""
 	}
 	done := make(chan string, 1)
-	par.Go(func() { done <- claudeRecord() }, func(error) { done <- "" })
+	parallel.Go(func() { done <- claudeRecord() }, func(error) { done <- "" })
 	select {
 	case p := <-done:
 		return p
@@ -697,7 +697,7 @@ func readCacheWithin(ctx context.Context) (vectorRecord, error) {
 		err error
 	}
 	done := make(chan read, 1)
-	par.Go(func() {
+	parallel.Go(func() {
 		c, err := readEmbedCache()
 		done <- read{c, err}
 	}, func(err error) { done <- read{err: err} })
@@ -783,7 +783,7 @@ type linkFuture struct {
 
 func (f *linkFuture) start(ctx context.Context) {
 	f.once.Do(func() {
-		par.Go(func() {
+		parallel.Go(func() {
 			f.base, f.secret, f.ok = routerLink(ctx)
 			close(f.done)
 		}, func(error) { close(f.done) })

@@ -11,7 +11,7 @@ import (
 	"syscall"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -268,7 +268,7 @@ func (t *terminal) Size() (w, h int) {
 
 // startReader runs readKeys; a panic there ends the key stream with the panic as Err, so Close still restores the tty.
 func (t *terminal) startReader() {
-	par.Go(t.readKeys, func(err error) { t.readErr = err; close(t.keys) })
+	parallel.Go(t.readKeys, func(err error) { t.readErr = err; close(t.keys) })
 }
 
 // readKeys pumps stdin through drain; a held Esc waits one pollTick before it counts as the Esc key.

@@ -18,7 +18,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 )
 
 // Spec supplies one package's brief and batch routing, with ID expressed as W.k.
@@ -98,7 +98,7 @@ func Launch(ctx context.Context, executable string, specs []Spec, options Launch
 
 // containPanic keeps a panic's value and stack, which the run's persisted reason must not carry, on stderr.
 func containPanic(res batchResult, specs []Spec) error {
-	if _, ok := errors.AsType[*par.PanicError](res.err); !ok {
+	if _, ok := errors.AsType[*parallel.PanicError](res.err); !ok {
 		return res.err
 	}
 	fmt.Fprintln(os.Stderr, res.err)

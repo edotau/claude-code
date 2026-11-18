@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -68,7 +68,7 @@ type semanticReady struct {
 func startSemantic(ctx context.Context, query string, enabled bool) <-chan semanticReady {
 	ready := make(chan semanticReady, 1)
 	if enabled {
-		par.Go(func() {
+		parallel.Go(func() {
 			sem, err := embedQuery(ctx, query)
 			ready <- semanticReady{sem, err}
 		}, func(err error) { ready <- semanticReady{err: err} })

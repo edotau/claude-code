@@ -6,7 +6,7 @@ import (
 	"io"
 
 	"github.com/edotau/claude-code/internal/gemini"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 )
 
 // googleLimits is the agy /usage seam; tests stub it so no run reaches the binary.
@@ -27,7 +27,7 @@ func startGoogleFetch(enabled bool) <-chan googleResult {
 		ch <- googleResult{}
 		return ch
 	}
-	par.Go(func() {
+	parallel.Go(func() {
 		rows, err := googleLimits(context.Background())
 		ch <- googleResult{rows, err}
 	}, func(err error) { ch <- googleResult{err: err} })

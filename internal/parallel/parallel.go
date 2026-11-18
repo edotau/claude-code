@@ -1,5 +1,5 @@
-// Package par runs bounded work with panic containment.
-package par
+// Package parallel runs bounded work with panic containment.
+package parallel
 
 import (
 	"context"
@@ -44,7 +44,7 @@ func call[T any](fn func() (T, error), deliver func(T, error)) {
 // Go launches fn and reports a panic or Goexit to report, which must be non-nil and must not panic.
 func Go(fn func(), report func(error)) {
 	if report == nil {
-		panic("par.Go: nil panic reporter")
+		panic("parallel.Go: nil panic reporter")
 	}
 	go call(func() (struct{}, error) { fn(); return struct{}{}, nil }, func(_ struct{}, err error) {
 		if err != nil {

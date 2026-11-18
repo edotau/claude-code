@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -139,11 +139,11 @@ func checkSignin(ctx context.Context, s agent.Signin) (v providers.AuthVerdict, 
 		v      providers.AuthVerdict
 		detail string
 	}
-	r, err := par.Within(ctx, credCheckTimeout, func(ctx context.Context) (res, error) {
+	r, err := parallel.Within(ctx, credCheckTimeout, func(ctx context.Context) (res, error) {
 		v, d := s.Check(ctx)
 		return res{v, d}, nil
 	})
-	if pe, isPanic := errors.AsType[*par.PanicError](err); isPanic {
+	if pe, isPanic := errors.AsType[*parallel.PanicError](err); isPanic {
 		fmt.Fprintln(loginOut, "sign-in check:", pe) // a panicking check warns and launches, like a timeout
 	}
 	return r.v, r.detail, err == nil

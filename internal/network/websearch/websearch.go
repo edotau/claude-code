@@ -19,7 +19,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/network/httpx"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
@@ -292,7 +292,7 @@ func admitRequest(ctx context.Context, slots chan struct{}) bool {
 func (s *server) launch(ctx context.Context, req rpcRequest, send func(map[string]any), slots chan struct{}, wg *sync.WaitGroup) {
 	wg.Add(1)
 	finish := func() { <-slots; wg.Done() }
-	par.Go(func() {
+	parallel.Go(func() {
 		if resp := s.handle(ctx, req); resp != nil {
 			send(resp)
 		}

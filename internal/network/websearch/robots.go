@@ -13,7 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/network/httpx"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 )
 
 // robotsAgent is the user-agent group robots.txt rules are read for.
@@ -155,7 +155,7 @@ func warmRobots(ctx context.Context, urls []string) map[string]bool {
 	if len(origins) < 2 {
 		return dead
 	}
-	readable, err := par.Map(ctx, origins, robotsFanout, func(ctx context.Context, o string) (bool, error) {
+	readable, err := parallel.Map(ctx, origins, robotsFanout, func(ctx context.Context, o string) (bool, error) {
 		_, ok := cachedRobotsRules(ctx, o)
 		return ok, nil
 	})

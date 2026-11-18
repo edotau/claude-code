@@ -22,7 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/remote"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -187,7 +187,7 @@ var reapLost = func() { tree.Reap(false, io.Discard, io.Discard) }
 // cmdAgentsAsk joins cleanup so short dispatches cannot interrupt a reap.
 func cmdAgentsAsk(args []string) int {
 	done := make(chan struct{})
-	par.Go(func() {
+	parallel.Go(func() {
 		reapLost()
 		close(done)
 	}, func(err error) { fmt.Fprintln(os.Stderr, "agents reap:", err); close(done) })

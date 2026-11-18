@@ -22,7 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/docs"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/inflight"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 )
 
 const (
@@ -60,7 +60,7 @@ func reminderWatched(in *core.Input) core.Result { return watched(docs.Reminder,
 // watched runs r, then the watchdog check, joining their notes.
 func watched(r core.Runner, in *core.Input) core.Result {
 	var res, w core.Result
-	for _, err := range par.All(2, func(i int) error { // the runner and the tick touch different state
+	for _, err := range parallel.All(2, func(i int) error { // the runner and the tick touch different state
 		if i == 0 {
 			res = r(in)
 		} else {

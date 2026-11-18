@@ -14,7 +14,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/table"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -670,7 +670,7 @@ func TestPanicLineKeepsTheValueOffTheRow(t *testing.T) {
 	}
 	stderr := os.Stderr
 	os.Stderr = w
-	row := panicLine(par.All(1, func(int) error { panic("token-abc") })[0])
+	row := panicLine(parallel.All(1, func(int) error { panic("token-abc") })[0])
 	os.Stderr = stderr
 	w.Close()
 	logged, _ := io.ReadAll(r)

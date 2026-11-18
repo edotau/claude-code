@@ -11,7 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/network/tailscale"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -91,7 +91,7 @@ func LocalArgs(flag string, args []string) ([]string, bool) {
 
 // answering probes every peer at once and keeps, in order, the ones that answer.
 func answering(peers []string) []string {
-	ok, err := par.Map(context.Background(), peers, len(peers), func(_ context.Context, h string) (bool, error) {
+	ok, err := parallel.Map(context.Background(), peers, len(peers), func(_ context.Context, h string) (bool, error) {
 		return autoAnswers(h), nil
 	})
 	if err != nil {

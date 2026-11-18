@@ -11,7 +11,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
@@ -29,7 +29,7 @@ const panicRow = "error: internal panic (stack on stderr)"
 
 // panicLine is err's one-line row text; a contained panic prints once to stderr, before the menu opens.
 func panicLine(err error) string {
-	var pe *par.PanicError
+	var pe *parallel.PanicError
 	if !errors.As(err, &pe) {
 		return err.Error()
 	}
@@ -39,7 +39,7 @@ func panicLine(err error) string {
 
 // fanOut keeps a panicking builder from hiding its row or its siblings.
 func fanOut(n int, fn func(i int), fail func(i int, err error)) {
-	for i, err := range par.All(n, func(i int) error { fn(i); return nil }) {
+	for i, err := range parallel.All(n, func(i int) error { fn(i); return nil }) {
 		if err != nil {
 			fail(i, err)
 		}

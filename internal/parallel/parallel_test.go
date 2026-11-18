@@ -1,4 +1,4 @@
-package par
+package parallel
 
 import (
 	"context"
@@ -82,7 +82,7 @@ func TestMapPanicAndEdges(t *testing.T) {
 func checkPanic(t *testing.T, err error) {
 	t.Helper()
 	var p *PanicError
-	if !errors.As(err, &p) || !strings.Contains(err.Error(), "exploded") || !strings.Contains(string(p.Stack), "par_test.go") {
+	if !errors.As(err, &p) || !strings.Contains(err.Error(), "exploded") || !strings.Contains(string(p.Stack), "parallel_test.go") {
 		t.Fatalf("panic missing value or stack: %v", err)
 	}
 }
@@ -239,7 +239,7 @@ func checkExit(t *testing.T, err error) {
 func TestPanicStackIsThePanickingGoroutines(t *testing.T) {
 	err := All(1, func(int) error { return explode() })[0]
 	var p *PanicError
-	if !errors.As(err, &p) || !strings.Contains(string(p.Stack), "par.explode") {
+	if !errors.As(err, &p) || !strings.Contains(string(p.Stack), "parallel.explode") {
 		t.Fatalf("stack lacks the panicking frame:\n%v", err)
 	}
 }

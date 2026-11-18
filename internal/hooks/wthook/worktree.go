@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -217,7 +217,7 @@ func CheckoutOf(ctx context.Context, cwd string) (top, branch string, nested []s
 	}
 	top = paths.Canon(top)
 	var list string
-	for _, err := range par.All(2, func(i int) error { // the two git calls are independent
+	for _, err := range parallel.All(2, func(i int) error { // the two git calls are independent
 		if i == 0 {
 			branch = git("rev-parse", "--abbrev-ref", "HEAD")
 		} else {

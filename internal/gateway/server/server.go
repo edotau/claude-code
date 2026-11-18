@@ -17,7 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/gateway/translate"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/par"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 )
@@ -546,7 +546,7 @@ func goStateWrite(r *Router, fn func()) {
 	r.bg.Add(1)
 	r.inflight.Add(1)
 	finish := func() { r.inflight.Add(-1); r.bg.Done() }
-	par.Go(func() { fn(); finish() }, func(error) {
+	parallel.Go(func() { fn(); finish() }, func(error) {
 		defer finish()
 		fmt.Fprintln(r.log, "proxy: state write panicked")
 	})
