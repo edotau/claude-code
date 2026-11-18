@@ -52,6 +52,25 @@ func TestTokensPinnedOutput(t *testing.T) {
 	}
 }
 
+// TestCommandWords: words end at the command's end; substitutions stay one intact, unevaluated word.
+func TestCommandWords(t *testing.T) {
+	cases := []struct {
+		in   string
+		want [][]string
+	}{
+		{"ask x && echo done", [][]string{{"ask", "x"}, {"echo", "done"}}},
+		{"(ask x) | cat", [][]string{{"ask", "x"}, {"cat"}}},
+		{"ask $(a; b) \"$(echo \"c d\")\" <(p) pre`q`post", [][]string{{"ask", "$(a; b)", `$(echo "c d")`, "<(p)", "pre`q`post"}}},
+		{"ask \\\nx", [][]string{{"ask", "x"}}},
+		{"ask \x00 $(y)", [][]string{{"ask", "\x00", "$(y"}}}, // a NUL in the text: no masking, plain Tokens
+	}
+	for _, c := range cases {
+		if got := CommandWords(c.in); !reflect.DeepEqual(got, c.want) {
+			t.Errorf("CommandWords(%q) = %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestUnwrapNewWrappers(t *testing.T) {
 	rest, _ := Unwrap([]string{"setsid", "stdbuf", "-oL", "ionice", "-c", "3", "chrt", "-f", "10", "git", "x"}, "/w")
 	if !reflect.DeepEqual(rest, []string{"git", "x"}) {

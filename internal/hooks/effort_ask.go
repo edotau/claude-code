@@ -6,7 +6,6 @@ import (
 	"errors"
 	"flag"
 	"io"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -26,25 +25,13 @@ import (
 func openingAskWords(task string) []string {
 	line, _, _ := strings.Cut(strings.TrimSpace(task), "\n")
 	command, ok := strings.CutPrefix(line, "Run:")
-	if !ok {
-		return nil
+	if f := strings.Fields(command); !ok || len(f) > 0 && strings.Trim(f[0], "({") == "" {
+		return nil // a lone group opener never opened an ask: matching one now would make new relays and refusals
 	}
-	match := askCmdRe().FindStringSubmatchIndex(command)
-	if match == nil || match[0] != 0 {
-		return nil
+	if words := unwrapRelay(shell.CommandWords(command)[0]); askVerb(words) == "ask" {
+		return words
 	}
-	words := shellFields(command[match[2]:])
-	if len(words) < 3 {
-		return nil
-	}
-	verb := 1
-	if words[1] == "--remote" {
-		verb = 3
-	}
-	if len(words) <= verb+1 || words[verb+1] != "ask" {
-		return nil
-	}
-	return words
+	return nil
 }
 
 // reviewLine is a leading `Run: claude-code <agent> review …` line's --model/--profile; ok only when it types one.
@@ -308,32 +295,4 @@ func isFlag(w string) bool { return w != "--" && len(w) >= 2 && w[0] == '-' }
 // takesValue is words[i] being the previous flag's value: a word or "-" (stdin); a flag means that one was boolean.
 func takesValue(words []string, i int) bool {
 	return i < len(words) && (words[i] == "-" || !strings.HasPrefix(words[i], "-"))
-}
-
-// shellWordRe matches one shell word, shellPieceRe a quoted or escaped piece of it, shellEscRe an escape in "…".
-var (
-	shellWordRe = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`(?:[^\s'"\\]+|\\.?|'[^']*'?|"(?:[^"\\]|\\.)*"?)+`)
-	})
-	shellPieceRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\\.?|'[^']*'?|"(?:[^"\\]|\\.)*"?`) })
-	shellEscRe   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile("\\\\([\"\\\\$`])") })
-)
-
-// shellFields splits a command line into the words a POSIX shell passes: quotes group and are removed, \ escapes.
-func shellFields(line string) []string {
-	words := shellWordRe().FindAllString(line, -1)
-	for i, w := range words {
-		words[i] = shellPieceRe().ReplaceAllStringFunc(w, unquotePiece)
-	}
-	return words
-}
-
-func unquotePiece(p string) string {
-	switch p[0] {
-	case '\\':
-		return p[1:]
-	case '\'':
-		return strings.TrimSuffix(p[1:], "'")
-	}
-	return shellEscRe().ReplaceAllString(strings.TrimSuffix(p[1:], `"`), "$1")
 }

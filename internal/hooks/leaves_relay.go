@@ -204,8 +204,9 @@ func relayFlagValue(sub, name, flag, val string) string {
 }
 
 // relayWords shares wrapper handling without changing the safety scanner's Unwrap behavior.
-func relayWords(seg string) []string {
-	words := shell.Tokens(seg)
+func relayWords(seg string) []string { return unwrapRelay(shell.Tokens(seg)) }
+
+func unwrapRelay(words []string) []string {
 	for {
 		words, _ = shell.Unwrap(words, "/")
 		if len(words) == 0 || filepath.Base(words[0]) != "rtk" {
@@ -286,37 +287,6 @@ func relayInput(seg string) (words []string, input string, err error) {
 		return nil, "", errors.New("redirect is not a literal `< file`")
 	}
 	return shell.Tokens(seg[:redirect]), files[0], nil
-}
-
-// askCmdRe retains the opening-line match API while checking command position with the shared parser.
-func askCmdRe() askMatcher { return askMatcher{} }
-
-type askMatcher struct{}
-
-func (askMatcher) MatchString(cmd string) bool {
-	for _, words := range relayCommands(cmd) {
-		if askVerb(words) != "" {
-			return true
-		}
-	}
-	return false
-}
-
-func (askMatcher) FindStringSubmatchIndex(cmd string) []int {
-	offset := 0
-	for _, seg := range shell.Segments(cmd) {
-		words := relayWords(seg)
-		if askVerb(words) != "" {
-			all := shell.Tokens(seg)
-			skip := len(all) - len(words)
-			spans := shellWordRe().FindAllStringIndex(seg, -1)
-			if skip >= 0 && skip < len(spans) {
-				return []int{offset, offset + len(seg), offset + spans[skip][0], offset + len(seg)}
-			}
-		}
-		offset += len(seg) + 1
-	}
-	return nil
 }
 
 func relayQuotesClosed(seg string) bool {

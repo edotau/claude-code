@@ -352,6 +352,43 @@ func ExtractSubstitutions(s string) (string, []string) { return extractSubstitut
 // subMask replaces a substitution where a caller must tell "a word was here" from nothing (git's verb position).
 const subMask = "\x00"
 
+// CommandWords is each simple command's Tokens, every `$(…)`, backtick or `<(…)` kept unevaluated in its word.
+func CommandWords(cmd string) [][]string {
+	masked, subs := extractSubstitutions(cmd, subMask)
+	if strings.Count(masked, subMask) != len(subs) { // a NUL already in cmd: the masks cannot be told apart
+		masked, subs = cmd, nil
+	}
+	texts := subTexts(cmd, masked, subs)
+	segs := Segments(masked)
+	out := make([][]string, len(segs))
+	for i, seg := range segs {
+		out[i] = Tokens(seg)
+		for j, w := range out[i] {
+			for len(texts) > 0 && strings.Contains(w, subMask) {
+				w, texts = strings.Replace(w, subMask, texts[0], 1), texts[1:]
+			}
+			out[i][j] = w
+		}
+	}
+	return out
+}
+
+// subTexts is each substitution's source text in cmd, found where masked holds one subMask byte in its place.
+func subTexts(cmd, masked string, subs []string) []string {
+	texts := make([]string, len(subs))
+	shift, from := 0, 0
+	for k, body := range subs {
+		at := from + strings.Index(masked[from:], subMask)
+		n := len(body) + len("$()")
+		if cmd[at+shift] == '`' {
+			n = len(body) + len("``")
+		}
+		texts[k] = cmd[at+shift : at+shift+n]
+		shift, from = shift+n-1, at+1
+	}
+	return texts
+}
+
 func extractSubstitutions(s, mask string) (string, []string) {
 	var out strings.Builder
 	var subs []string
