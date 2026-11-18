@@ -120,24 +120,30 @@ var (
 	sessionParent  = proc.Parent
 )
 
-// SessionOwner is the Claude Code process behind this one: settings.json runs commands via `sh -c`, so skip shells.
+// passThrough names the shells and command wrappers that sit between an agent CLI and a process it runs.
+var passThrough = map[string]bool{
+	"sh": true, "dash": true, "bash": true, "zsh": true, "fish": true, "ksh": true, "csh": true, "tcsh": true,
+	"rtk": true, "timeout": true, "gtimeout": true, "env": true, "sudo": true, "doas": true, "nohup": true,
+	"time": true, "nice": true, "stdbuf": true, "xargs": true, "make": true, "go": true,
+}
+
+// SessionOwner is the agent CLI behind this process (first non-shell, non-wrapper ancestor), so hook and reader agree.
 func SessionOwner() int {
 	pid := sessionGetppid()
 	for depth := 0; ; depth++ {
 		if pid <= 1 {
 			return 0
 		}
-		switch sessionComm(pid) {
-		case "": // unreadable or already exited: pid may be a dead sh wrapper, so the owner is unknown
+		name := strings.TrimPrefix(sessionComm(pid), "-")
+		switch {
+		case name == "": // unreadable or already exited: pid may be a dead wrapper, so the owner is unknown
 			return 0
-		case "sh", "dash", "bash", "zsh":
-			if depth == 8 {
-				return 0
-			}
-			pid = sessionParent(pid)
-		default:
+		case !passThrough[name]:
 			return pid
+		case depth == 8:
+			return 0
 		}
+		pid = sessionParent(pid)
 	}
 }
 
