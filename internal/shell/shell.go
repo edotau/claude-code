@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Segments splits on unquoted command separators (`&&`, `||`, `;`, `|`, `&`, newline).
@@ -289,12 +290,25 @@ func trimGroupOpen(out []string) []string {
 	return out
 }
 
-func isShellKeyword(s string) bool {
-	switch s {
-	case "if", "then", "else", "elif", "do", "while", "until", "!", "{", "(":
-		return true
+func isShellKeyword(s string) bool { walkerOnce.Do(loadWalker); return walker.keywords[s] }
+
+// walker holds the walker's per-call word sets; its accessors inline where a sync.OnceValue call does not.
+var (
+	walkerOnce sync.Once
+	walker     walkerSets
+)
+
+type walkerSets struct {
+	keywords, shells, wrappers, operands, gitValueOpts, gitBuiltins map[string]bool
+	wrapperValueFlags                                               map[string]map[string]bool
+}
+
+func loadWalker() {
+	walker = walkerSets{
+		keywords: GuardSet("shell_keywords"), shells: GuardSet("shell_names"), wrappers: GuardSet("wrapper_names"),
+		operands: GuardSet("wrapper_operand_commands"), gitValueOpts: GuardSet("git_global_value_flags"),
+		gitBuiltins: GuardSet("git_alias_proof_verbs"), wrapperValueFlags: GuardToolSets("wrapper_value_flags"),
 	}
-	return false
 }
 
 // quotedStep advances over s[i] inside quote: a double-quote escape consumes the next byte, the closing quote ends it.
@@ -445,7 +459,7 @@ func matchBacktick(s string, start int) int {
 }
 
 // shellWrapperNames launch a nested command STRING (not further argv tokens) that needs its own check.
-var shellWrapperNames = map[string]bool{"bash": true, "sh": true, "zsh": true, "dash": true, "ksh": true}
+func shellWrapperNames() map[string]bool { walkerOnce.Do(loadWalker); return walker.shells }
 
 // isEnvAssign reports a leading `NAME=value` token (e.g. `BASH_ENV=x`) prefixed to a command.
 func isEnvAssign(t string) bool {
@@ -476,36 +490,28 @@ func skipEnvAssignments(toks []string) []string {
 }
 
 // wrapperValueFlags are a prefix wrapper's flags that take the next token (long forms also as --opt=val).
-var wrapperValueFlags = map[string]map[string]bool{
-	"sudo": {"-u": true, "-g": true, "-h": true, "-p": true, "-C": true, "-D": true, "-R": true, "-T": true, "-U": true,
-		"-r": true, "-t": true, "--user": true, "--group": true, "--host": true, "--prompt": true, "--close-from": true,
-		"--chdir": true, "--role": true, "--type": true, "--other-user": true},
-	"env":     {"-u": true, "-C": true, "-S": true, "--unset": true, "--chdir": true, "--split-string": true},
-	"nice":    {"-n": true, "--adjustment": true},
-	"timeout": {"-s": true, "--signal": true, "-k": true, "--kill-after": true},
-	"exec":    {"-a": true},
-	"stdbuf":  {"-i": true, "-o": true, "-e": true, "--input": true, "--output": true, "--error": true},
-	"ionice":  {"-c": true, "-n": true, "-p": true, "-P": true, "-u": true},
+func wrapperValueFlags() map[string]map[string]bool {
+	walkerOnce.Do(loadWalker)
+	return walker.wrapperValueFlags
 }
 
 // wrapperOperands are the positional operands a wrapper takes before its command (timeout's duration, chrt's priority).
-var wrapperOperands = map[string]bool{"timeout": true, "chrt": true}
+func wrapperOperands() map[string]bool { walkerOnce.Do(loadWalker); return walker.operands }
 
 // wrapperNames are the prefix wrappers Unwrap sees through.
-var wrapperNames = map[string]bool{"env": true, "sudo": true, "nice": true, "nohup": true, "command": true,
-	"exec": true, "time": true, "timeout": true, "setsid": true, "stdbuf": true, "ionice": true, "chrt": true}
+func wrapperNames() map[string]bool { walkerOnce.Do(loadWalker); return walker.wrappers }
 
 // Unwrap drops leading NAME=val and wrappers (env -S split); dir is cwd moved by `env -C` or `sudo -D`.
 func Unwrap(toks []string, cwd string) (rest []string, dir string) {
 	dir = cwd
 	for {
 		toks = skipEnvAssignments(toks)
-		if len(toks) == 0 || !wrapperNames[filepath.Base(toks[0])] {
+		if len(toks) == 0 || !wrapperNames()[filepath.Base(toks[0])] {
 			return toks, dir
 		}
 		name := filepath.Base(toks[0])
 		toks, dir = skipWrapperOpts(name, toks[1:], dir)
-		if wrapperOperands[name] && len(toks) > 0 { // the duration or priority operand
+		if wrapperOperands()[name] && len(toks) > 0 { // the duration or priority operand
 			toks = toks[1:]
 		}
 	}
@@ -520,7 +526,7 @@ func skipWrapperOpts(name string, toks []string, dir string) ([]string, string) 
 			break
 		}
 		flag, val, hasVal := splitWrapperOpt(name, opt)
-		if !wrapperValueFlags[name][flag] {
+		if !wrapperValueFlags()[name][flag] {
 			continue
 		}
 		if !hasVal {
@@ -539,7 +545,7 @@ func splitWrapperOpt(name, opt string) (flag, val string, hasVal bool) {
 	if strings.HasPrefix(opt, "--") {
 		return strings.Cut(opt, "=")
 	}
-	flags := wrapperValueFlags[name]
+	flags := wrapperValueFlags()[name]
 	var key [2]byte
 	key[0] = '-'
 	for i := 1; i < len(opt); i++ {
@@ -578,7 +584,7 @@ func nestedOf(toks []string) (string, bool) {
 	if toks[0] == "eval" && len(toks) > 1 {
 		return strings.Join(toks[1:], " "), true
 	}
-	if shellWrapperNames[filepath.Base(toks[0])] {
+	if shellWrapperNames()[filepath.Base(toks[0])] {
 		for i := 1; i < len(toks)-1; i++ {
 			if isCFlag(toks[i]) {
 				return toks[i+1], true

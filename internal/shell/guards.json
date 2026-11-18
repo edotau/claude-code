@@ -1,4 +1,77 @@
 {
+  "shell_keywords": {
+    "purpose": "shell words before a command word that are not the command",
+    "words": ["if", "then", "else", "elif", "do", "while", "until", "!", "{", "("]
+  },
+  "shell_names": {
+    "purpose": "shells that run a -c STRING, a nested command line that needs its own check (drift X3)",
+    "words": ["bash", "sh", "zsh", "dash", "ksh"]
+  },
+  "wrapper_names": {
+    "purpose": "prefix wrappers Unwrap sees through to the command they run (drift X1: no gtimeout)",
+    "words": ["env", "sudo", "nice", "nohup", "command", "exec", "time", "timeout", "setsid", "stdbuf", "ionice",
+      "chrt"]
+  },
+  "wrapper_value_flags": {
+    "purpose": "wrapper -> flags that take the next word as their value (long forms also as --opt=val)",
+    "tools": {
+      "sudo": ["-u", "-g", "-h", "-p", "-C", "-D", "-R", "-T", "-U", "-r", "-t", "--user", "--group", "--host",
+        "--prompt", "--close-from", "--chdir", "--role", "--type", "--other-user"],
+      "env": ["-u", "-C", "-S", "--unset", "--chdir", "--split-string"],
+      "nice": ["-n", "--adjustment"],
+      "timeout": ["-s", "--signal", "-k", "--kill-after"],
+      "exec": ["-a"],
+      "stdbuf": ["-i", "-o", "-e", "--input", "--output", "--error"],
+      "ionice": ["-c", "-n", "-p", "-P", "-u"]
+    }
+  },
+  "wrapper_operand_commands": {
+    "purpose": "wrappers that take one positional operand before their command (a duration, a priority)",
+    "words": ["timeout", "chrt"]
+  },
+  "git_global_value_flags": {
+    "purpose": "git global options whose value is the next word when not spelled with =",
+    "words": ["-C", "-c", "--git-dir", "--work-tree", "--namespace", "--exec-path", "--super-prefix", "--config-env"]
+  },
+  "git_alias_proof_verbs": {
+    "purpose": "git verbs no alias can shadow; any other alias's first word is its real verb",
+    "words": ["checkout", "stash", "reset", "restore", "clean", "switch", "commit", "rebase", "status", "log", "add",
+      "diff"]
+  },
+  "conventional_commit_types": {
+    "purpose": "the Conventional Commits types a subject may open with",
+    "words": ["feat", "fix", "docs", "style", "refactor", "perf", "test", "chore", "ci", "build", "revert"]
+  },
+  "git_sdk_read_only_verbs": {
+    "purpose": "git verbs the Copilot SDK read-only gate allows (drift X6: the agent list has 14)",
+    "words": ["status", "diff", "log", "show", "blame", "rev-parse", "branch", "grep"]
+  },
+  "git_sdk_banned_flags": {
+    "purpose": "flags, abbreviations too, the SDK gate refuses: a program, config or driver, or --no-index (X6)",
+    "words": ["--output", "--exec", "--ext-diff", "--config", "--open-files-in-pager", "--textconv", "--remerge-diff",
+      "--diff-merges", "--submodule", "--no-index"]
+  },
+  "git_sdk_leading_flags": {
+    "purpose": "verb -> flags that must open its args: later, a value option or -- swallows them",
+    "tools": {
+      "diff": ["--no-ext-diff", "--no-textconv"],
+      "log": ["--no-ext-diff", "--no-textconv"],
+      "show": ["--no-ext-diff", "--no-textconv"],
+      "blame": ["--no-textconv"]
+    }
+  },
+  "git_sdk_verb_flags": {
+    "purpose": "verb -> its only dash args: branch must list, and git status -v runs textconv",
+    "tools": {
+      "branch": ["--list", "-l", "-a", "--all", "-r", "--remotes", "-v", "-vv"],
+      "status": ["--short", "-s", "--branch", "-b", "--long", "--porcelain", "--porcelain=v2", "-z", "--ignored",
+        "-uno", "-uall", "--"]
+    }
+  },
+  "git_path_flags": {
+    "purpose": "git flags, abbreviations too, whose value is a file git reads",
+    "words": ["--contents", "--ignore-revs-file"]
+  },
   "rebase_resume_flags": {
     "purpose": "git rebase flags that act on a rebase already started, so its start was already checked",
     "words": ["--continue", "--skip", "--abort", "--quit", "--edit-todo", "--show-current-patch"]

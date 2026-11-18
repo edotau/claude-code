@@ -11,11 +11,10 @@ import (
 )
 
 // gitValueOpts are git GLOBAL options whose value is the next token when not spelled with `=`.
-var gitValueOpts = map[string]bool{"-C": true, "-c": true, "--git-dir": true, "--work-tree": true,
-	"--namespace": true, "--exec-path": true, "--super-prefix": true, "--config-env": true}
+func gitValueOpts() map[string]bool { walkerOnce.Do(loadWalker); return walker.gitValueOpts }
 
 // GitValueOpt reports whether a git global option takes the next token as its value (`git -C /repo status`).
-func GitValueOpt(name string) bool { return gitValueOpts[name] }
+func GitValueOpt(name string) bool { return gitValueOpts()[name] }
 
 // GitInvocation parses git's global options up to the verb: the target tree, the verb, the verb's words.
 func GitInvocation(toks []string, cwd string) (target, verb string, args []string) {
@@ -74,8 +73,7 @@ func recordAlias(aliases *map[string]string, kv string) {
 }
 
 // gitBuiltins are verbs git never lets an alias shadow; the rest of an alias's first word is its real verb.
-var gitBuiltins = map[string]bool{"checkout": true, "stash": true, "reset": true, "restore": true, "clean": true,
-	"switch": true, "commit": true, "rebase": true, "status": true, "log": true, "add": true, "diff": true}
+func gitBuiltins() map[string]bool { walkerOnce.Do(loadWalker); return walker.gitBuiltins }
 
 // expandVerb resolves `-c alias.*`; a `!` alias or a verb the shell expands (`$v`, `{a,b}`) is Uninspectable.
 func expandVerb(verb string, args []string, aliases map[string]string) (string, []string) {
@@ -83,7 +81,7 @@ func expandVerb(verb string, args []string, aliases map[string]string) (string, 
 		if strings.ContainsAny(verb, "$`{"+subMask) {
 			return Uninspectable, nil
 		}
-		if len(aliases) == 0 || gitBuiltins[verb] {
+		if len(aliases) == 0 || gitBuiltins()[verb] {
 			return verb, args
 		}
 		val, ok := aliases[strings.ToLower(verb)] // git matches alias names case-insensitively
@@ -106,7 +104,7 @@ func gitGlobalOpt(toks []string, i int) (name, val string, next int, ok bool) {
 	if n, v, found := strings.Cut(t, "="); found {
 		return n, v, i, true
 	}
-	if gitValueOpts[t] {
+	if gitValueOpts()[t] {
 		if i < len(toks) {
 			return t, toks[i], i + 1, true
 		}
@@ -164,7 +162,7 @@ const SubjectWarnLen = 150
 func SubjectLen(subject string) int { return utf8.RuneCountInString(subject) }
 
 var conventionalSubject = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?!?: \S`)
+	return regexp.MustCompile(`^(` + strings.Join(GuardWords("conventional_commit_types"), "|") + `)(\(.+\))?!?: \S`)
 })
 
 // ConventionalSubject reports a `<type>[(scope)][!]: <description>` subject.
@@ -270,27 +268,16 @@ func AttributionFooterCommit(cmd, cwd string) bool {
 }
 
 // readOnlyGit are the git subcommands a read-only run may shell out to.
-var readOnlyGit = map[string]bool{"status": true, "diff": true, "log": true, "show": true, "blame": true, "rev-parse": true, "branch": true, "grep": true}
+var readOnlyGit = sync.OnceValue(func() map[string]bool { return GuardSet("git_sdk_read_only_verbs") })
 
 // gitBannedFlags also match any abbreviation git would accept (--out=x is --output=x).
-var gitBannedFlags = []string{
-	"--output", "--exec", "--ext-diff", "--config", "--open-files-in-pager",
-	"--textconv", "--remerge-diff", "--diff-merges", "--submodule", // each still reaches a textconv or merge driver
-	"--no-index", // diffs and greps paths outside the repository
-}
+var gitBannedFlags = sync.OnceValue(func() []string { return GuardWords("git_sdk_banned_flags") })
 
 // gitLeadingFlags must open the verb's args: later, a value option or -- swallows them (git diff -- --no-textconv).
-var gitLeadingFlags = map[string][]string{
-	"diff": {"--no-ext-diff", "--no-textconv"}, "log": {"--no-ext-diff", "--no-textconv"},
-	"show": {"--no-ext-diff", "--no-textconv"}, "blame": {"--no-textconv"},
-}
+var gitLeadingFlags = sync.OnceValue(func() map[string][]string { return GuardTools("git_sdk_leading_flags") })
 
 // gitVerbFlags are those verbs' only dash args: branch must carry --list or -l, and `git status -v` runs textconv.
-var gitVerbFlags = map[string]map[string]bool{
-	"branch": {"--list": true, "-l": true, "-a": true, "--all": true, "-r": true, "--remotes": true, "-v": true, "-vv": true},
-	"status": {"--short": true, "-s": true, "--branch": true, "-b": true, "--long": true, "--porcelain": true, "--porcelain=v2": true,
-		"-z": true, "--ignored": true, "-uno": true, "-uall": true, "--": true},
-}
+var gitVerbFlags = sync.OnceValue(func() map[string]map[string]bool { return GuardToolSets("git_sdk_verb_flags") })
 
 // ReadOnlyGit reports whether cmd is a single allowlisted read-only git invocation (fail closed).
 func ReadOnlyGit(cmd string) bool {
@@ -301,10 +288,10 @@ func ReadOnlyGit(cmd string) bool {
 	if len(f) > 2 && f[0] == "git" && f[1] == "--no-pager" { // exactly one, which copilot adds itself
 		f = append([]string{"git"}, f[2:]...)
 	}
-	if len(f) < 2 || f[0] != "git" || !readOnlyGit[f[1]] {
+	if len(f) < 2 || f[0] != "git" || !readOnlyGit()[f[1]] {
 		return false
 	}
-	args, lead := f[2:], gitLeadingFlags[f[1]]
+	args, lead := f[2:], gitLeadingFlags()[f[1]]
 	if len(args) < len(lead) || !slices.Equal(args[:len(lead)], lead) {
 		return false
 	}
@@ -318,7 +305,7 @@ func unsafeGitRune(r rune) bool {
 
 // readOnlyGitArgs checks verb's args against the banned and per-verb allowed flags; branch must list.
 func readOnlyGitArgs(verb string, args []string) bool {
-	allowed, list := gitVerbFlags[verb], false
+	allowed, list := gitVerbFlags()[verb], false
 	for _, a := range args {
 		if badGitArg(a, allowed) || escapesArg(a) { // outside paths make diff an implicit --no-index
 			return false
@@ -340,13 +327,13 @@ func escapesArg(a string) bool {
 }
 
 // gitPathFlags take a file whose content git reads; abbreviations count, like gitBannedFlags.
-var gitPathFlags = []string{"--contents", "--ignore-revs-file"}
+var gitPathFlags = sync.OnceValue(func() []string { return GuardWords("git_path_flags") })
 
 // pathFlagEscapes is a `--contents=/x`-style arg whose file value leaves the checkout.
 func pathFlagEscapes(arg string) bool {
 	name, val, found := strings.Cut(arg, "=")
 	return found && len(name) > 3 && escapesPath(val) &&
-		slices.ContainsFunc(gitPathFlags, func(f string) bool { return strings.HasPrefix(f, name) })
+		slices.ContainsFunc(gitPathFlags(), func(f string) bool { return strings.HasPrefix(f, name) })
 }
 
 // badGitArg is -c, a ~ path, a banned or outside-file flag, or a dash arg outside the verb's allowed set.
@@ -416,5 +403,5 @@ func bannedGitFlag(arg string) bool {
 	if !strings.HasPrefix(name, "--") || len(name) < 3 {
 		return false
 	}
-	return slices.ContainsFunc(gitBannedFlags, func(b string) bool { return strings.HasPrefix(b, name) })
+	return slices.ContainsFunc(gitBannedFlags(), func(b string) bool { return strings.HasPrefix(b, name) })
 }

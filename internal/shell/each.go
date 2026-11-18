@@ -334,7 +334,7 @@ var interpreterName = regexp.MustCompile(`^(?:python|pypy|perl|ruby|node|nodejs|
 // evaluator reports a command word that reads text as code, or a dynamic one (`$CMD`, `$(…)`) whose text is unknown.
 func evaluator(word string) bool {
 	name := filepath.Base(word)
-	return evaluators[name] || shellWrapperNames[name] || interpreterName.MatchString(name) ||
+	return evaluators[name] || shellWrapperNames()[name] || interpreterName.MatchString(name) ||
 		strings.HasPrefix(word, "$") || strings.HasPrefix(word, "`")
 }
 
@@ -419,7 +419,7 @@ var runArgs = map[string]bool{"eval": true, "source": true, ".": true, "xargs": 
 	"script": true, "flock": true}
 
 func runner(name string) bool {
-	return runArgs[filepath.Base(name)] || shellWrapperNames[filepath.Base(name)]
+	return runArgs[filepath.Base(name)] || shellWrapperNames()[filepath.Base(name)]
 }
 
 // executedSubs marks each substitution whose output runs: a command word, a runner's argument, or a var it expands.
@@ -780,7 +780,7 @@ func (s *segScan) word(toks []string, i int) bool {
 	}
 	switch {
 	case i == 0:
-	case shellWrapperNames[filepath.Base(t)]: // `find -exec sh -c 'STR'`, `setsid sh -c 'STR'`
+	case shellWrapperNames()[filepath.Base(t)]: // `find -exec sh -c 'STR'`, `setsid sh -c 'STR'`
 		if nested, ok := nestedOf(toks[i:]); ok {
 			s.done = nested
 			return s.nest(nested)
@@ -855,9 +855,9 @@ func afterPrefix(toks []string) []string {
 	switch name := filepath.Base(toks[0]); {
 	case name == "rtk":
 		return dropRtk(toks)
-	case wrapperNames[name]:
+	case wrapperNames()[name]:
 		rest, _ := skipWrapperOpts(name, toks[1:], "")
-		if wrapperOperands[name] && len(rest) > 0 {
+		if wrapperOperands()[name] && len(rest) > 0 {
 			rest = rest[1:]
 		}
 		if name == "env" && len(rest) > 0 && rest[0] == "-" {
@@ -911,7 +911,7 @@ func commandText(t string) bool {
 		return false
 	}
 	name := filepath.Base(f[0])
-	return name == "git" || shellWrapperNames[name] || name == "claude-code" && f[1] == "worktree"
+	return name == "git" || shellWrapperNames()[name] || name == "claude-code" && f[1] == "worktree"
 }
 
 // hereString returns the string a bare shell reads from `<<< STR` (also attached `<<<STR`).
@@ -933,7 +933,7 @@ func hereString(toks []string) (string, bool) {
 // bareShell reports a shell with no -c string and no script file: it reads its commands from stdin.
 func bareShell(toks []string) bool {
 	rest, _ := Unwrap(toks, "")
-	if len(rest) == 0 || !shellWrapperNames[filepath.Base(rest[0])] {
+	if len(rest) == 0 || !shellWrapperNames()[filepath.Base(rest[0])] {
 		return false
 	}
 	if _, ok := nestedOf(rest); ok {
@@ -1067,7 +1067,7 @@ func scriptKey(t, dir string) string {
 func scriptRun(toks []string) (string, bool) {
 	name := filepath.Base(toks[0])
 	switch {
-	case shellWrapperNames[name]:
+	case shellWrapperNames()[name]:
 		if _, ok := nestedOf(toks); ok {
 			return "", false
 		}
