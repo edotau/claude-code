@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -130,13 +131,13 @@ func emitResult(prefix string, rec agent.Record, log, format string) int {
 		env := struct {
 			wire.Envelope
 			Observed *agent.Observed `json:"observed,omitempty"`
-		}{rec.ResultEnvelope(os.Stderr), agent.ObservedOf(rec)}
+		}{maskEnvelope(rec.ResultEnvelope(os.Stderr)), agent.ObservedOf(rec)}
 		if err := helptext.WriteJSON(os.Stdout, env); err != nil {
 			return helptext.Fail("%s: %v", prefix, err)
 		}
 		return resultExit(rec)
 	}
-	if _, err := os.Stdout.WriteString(resultText(rec, log)); err != nil {
+	if _, err := os.Stdout.WriteString(redact.Text(resultText(rec, log))); err != nil {
 		return helptext.Fail("%s: write output: %v", prefix, err)
 	}
 	return resultExit(rec)
@@ -174,7 +175,7 @@ func resultExit(rec agent.Record) int {
 	if rec.Status != "error" {
 		return 0
 	}
-	fmt.Fprintf(os.Stderr, "error: %s\n", textutil.RedactSecrets(rec.Error)) // the stderr tail in it may carry a key
+	fmt.Fprintf(os.Stderr, "error: %s\n", redact.Text(textutil.RedactSecrets(rec.Error))) // the stderr tail in it may carry a key
 	return 1
 }
 
@@ -251,7 +252,7 @@ func checkResumable(rec agent.Record) error {
 // printLiveEnvelope writes the turn's envelope (one JSON line) or closing newline (text), returning any write failure.
 func printLiveEnvelope(env wire.Envelope, format string) error {
 	if format == helptext.JSON {
-		return agent.WriteJSONLine(os.Stdout, env)
+		return writeEnvelope(os.Stdout, env)
 	}
 	if format == helptext.Text && env.Answer != "" && !strings.HasSuffix(env.Answer, "\n") {
 		_, err := fmt.Println()

@@ -909,25 +909,32 @@ func TestCancelNeverOverwritesConcurrentFinish(t *testing.T) {
 	if err := rec.Save(); err != nil {
 		t.Fatal(err)
 	}
-	started, cancelled := make(chan struct{}), make(chan error, 1)
-	mine := rec
-	_, finished, err := UpdateRunning(rec.ID, func(r Record) Record {
-		// Start cancellation while the finisher holds the record lock.
-		go func() {
-			close(started)
-			_, err := failIfRunning(&mine, "cancelled", false)
-			cancelled <- err
-		}()
-		<-started
-		r.Finish(wire.Result{Usage: wire.Usage{InputTokens: 5}}, nil, time.Second)
-		return r
+	synctest.Test(t, func(t *testing.T) {
+		type outcome struct {
+			applied bool
+			err     error
+		}
+		cancelled := make(chan outcome, 1)
+		mine := rec
+		_, finished, err := UpdateRunning(rec.ID, func(r Record) Record {
+			go func() {
+				applied, err := failIfRunning(&mine, "cancelled", false)
+				cancelled <- outcome{applied, err}
+			}()
+			synctest.Wait() // the canceller is now blocked on the lock, or (lock removed) has already saved
+			if cur, err := LoadRecord(rec.ID); err != nil || cur.Status != "running" {
+				t.Errorf("cancel saved while the finisher held the lock: %q, %v", cur.Status, err)
+			}
+			r.Finish(wire.Result{Usage: wire.Usage{InputTokens: 5}}, nil, time.Second)
+			return r
+		})
+		if !finished || err != nil {
+			t.Fatalf("finish applied=%t, err=%v", finished, err)
+		}
+		if got := <-cancelled; got.applied || got.err != nil {
+			t.Errorf("cancel after finish: applied=%t, err=%v", got.applied, got.err)
+		}
 	})
-	if !finished || err != nil {
-		t.Fatalf("finish applied=%t, err=%v", finished, err)
-	}
-	if err := <-cancelled; err != nil {
-		t.Fatal(err)
-	}
 	got, err := LoadRecord(rec.ID)
 	if err != nil {
 		t.Fatal(err)

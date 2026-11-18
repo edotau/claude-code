@@ -3,6 +3,7 @@ package ask
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -50,6 +51,9 @@ func memoryRunOptions(ctx context.Context, prompt, workdir string) agent.RunOpti
 		Fallback: router.FallbackNone, Gate: true, DataPrompt: true, Permissions: p}
 }
 
+// memorySink prints a memory job's text events masked; the job reads the files it wrote, not this text.
+func memorySink(w io.Writer) wire.Sink { return maskedEvents{wire.NewTextSink(w)} }
+
 // MemoryRunner runs background memory jobs on Claude as the logged-in user, on their pin (medium effort).
 func MemoryRunner() memory.AgentFunc {
 	return func(ctx context.Context, prompt, workdir string) (string, error) {
@@ -58,7 +62,7 @@ func MemoryRunner() memory.AgentFunc {
 		c.Notify = func(m string) { fmt.Fprintln(os.Stderr, m) }
 		opts := memoryRunOptions(ctx, prompt, workdir)
 		opts.Env = memory.ChildEnv(ctx)
-		res, err := c.Run(ctx, opts, wire.NewTextSink(os.Stdout))
+		res, err := c.Run(ctx, opts, memorySink(os.Stdout))
 		who := res.Agent
 		if res.Fallback != "" {
 			who += "<-" + res.Fallback

@@ -753,7 +753,7 @@ func printAskFailure(format, agentName string, err error) {
 	var werr error
 	switch format {
 	case helptext.JSON:
-		werr = agent.WriteJSONLine(os.Stdout, maskEnvelope(wire.FailureEnvelope(agentName, err)))
+		werr = writeEnvelope(os.Stdout, wire.FailureEnvelope(agentName, err))
 	case agent.FormatStreamJSON:
 		werr = stdoutSink(format, "").Emit(wire.ResultEvent(wire.FailureEnvelope(agentName, err)))
 	}

@@ -142,7 +142,7 @@ func runTasks(ctx context.Context, tasks []batchTask, o poolOptions) bool {
 	allOK := true
 	emit := func(env wire.Envelope, ok bool) {
 		env.BatchID = o.ID
-		if o.Out != nil && agent.WriteJSONLine(o.Out, maskEnvelope(env)) != nil {
+		if o.Out != nil && writeEnvelope(o.Out, env) != nil {
 			cancel() // nobody reads stdout any more: stop spending tokens
 			ok = false
 		}

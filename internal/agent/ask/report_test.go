@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -175,5 +176,44 @@ func TestAskFinalFlushFailure(t *testing.T) {
 	const line = "claude-code: ask: flush output: fake write failure\n"
 	if code != 1 || strings.Count(stderr, line) != 1 {
 		t.Errorf("exit = %d, flush diagnostics = %d; want 1 and 1", code, strings.Count(stderr, line))
+	}
+}
+
+// Live send, stored result and the memory sink all mask a vault value.
+func TestPrintedEnvelopesMaskSecrets(t *testing.T) {
+	const fake = "fake-vault-value-ask-13c"
+	redact.StubValues(t, []string{fake})
+	env := wire.Envelope{Answer: "a " + fake}
+	_, out, _ := hosttest.CaptureOutput(t, func() int {
+		if err := printLiveEnvelope(env, helptext.JSON); err != nil {
+			t.Error(err)
+		}
+		return 0
+	})
+	if strings.Contains(out, fake) || !strings.Contains(out, "[redacted]") {
+		t.Errorf("printLiveEnvelope = %q, want the value masked", out)
+	}
+
+	jobsEnv(t)
+	rec := seedJob(t, time.Minute, "error", "log "+fake+"\n", 0)
+	rec.Error = "boom " + fake
+	for _, format := range []string{helptext.JSON, helptext.Text} {
+		_, out, stderr := hosttest.CaptureOutput(t, func() int { return emitResult("agents result", rec, "log "+fake+"\n", format) })
+		if strings.Contains(out, fake) || strings.Contains(stderr, fake) {
+			t.Errorf("emitResult %s printed the value: %q", format, out)
+		}
+	}
+
+	var b bytes.Buffer
+	if err := memorySink(&b).Emit(wire.Event{Type: wire.EventText, Text: "x " + fake}); err != nil || strings.Contains(b.String(), fake) {
+		t.Errorf("memory sink = %q, %v, want the value masked", b.String(), err)
+	}
+}
+
+// A structured payload with no secret passes through byte for byte, key order and number formatting included.
+func TestMaskStructuredKeepsCleanBytes(t *testing.T) {
+	raw := json.RawMessage(`{"z":1.50,"a":[1e3,"x"]}`)
+	if got := maskStructured(raw); string(got) != string(raw) {
+		t.Errorf("maskStructured = %s, want %s unchanged", got, raw)
 	}
 }
