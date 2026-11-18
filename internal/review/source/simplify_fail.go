@@ -187,12 +187,11 @@ func changedSpans(path, old, base string) (lineSpans, error) {
 	return parseHunkSpans(diff), nil
 }
 
-// goFuncEnds maps each declared function's start line to its end line.
-func goFuncEnds(path, text string) (map[int]int, error) {
+func goFileDetails(path, text string, spans lineSpans) (map[int]int, []namingAdvisory, error) {
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, path, text, parser.SkipObjectResolution)
+	file, err := parser.ParseFile(fset, path, text, 0)
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", errGoSyntax, err)
+		return nil, nil, fmt.Errorf("%w: %w", errGoSyntax, err)
 	}
 	ends := map[int]int{}
 	for _, d := range file.Decls {
@@ -200,7 +199,7 @@ func goFuncEnds(path, text string) (map[int]int, error) {
 			ends[fset.Position(fn.Pos()).Line] = fset.Position(fn.End()).Line
 		}
 	}
-	return ends, nil
+	return ends, retiredNames(fset, file, spans), nil
 }
 
 // wasStacked reports whether base has a block with b's first or last prose line and at least as many prose lines.
@@ -240,14 +239,9 @@ func commentViolations(text, base string, spans lineSpans) []string {
 	return out
 }
 
-// sizeViolations: length/nesting of functions with a changed line, plus file-level findings new vs base.
-func sizeViolations(path, text, base string, spans lineSpans) ([]string, error) {
+func sizeViolations(path, text, base string, spans lineSpans, ends map[int]int) ([]string, error) {
 	th := complexityThresholds["medium"]
 	res, err := complexityContent(path, text, "go", th)
-	if err != nil {
-		return nil, err
-	}
-	ends, err := goFuncEnds(path, text)
 	if err != nil {
 		return nil, err
 	}
@@ -373,11 +367,10 @@ func testLayoutViolations(path, text, base string, renamed bool) []string {
 	return out
 }
 
-// newGoViolations lists the rules path breaks on lines changed since base, as "path:line: message".
-func newGoViolations(path, base string, g *gitBatch) ([]string, error) {
+func newGoFindings(path, base string, g *gitBatch) ([]string, []namingAdvisory, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	old := g.renames[path]
 	if old == "" {
@@ -385,13 +378,17 @@ func newGoViolations(path, base string, g *gitBatch) ([]string, error) {
 	}
 	spans, err := g.changed(path, old, base)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	baseText := g.bases[baseSpec(base, old)]
 	text := string(data)
-	out, err := sizeViolations(path, text, baseText, spans)
+	ends, advisories, err := goFileDetails(path, text, spans)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
+	}
+	out, err := sizeViolations(path, text, baseText, spans, ends)
+	if err != nil {
+		return nil, nil, err
 	}
 	out = append(out, commentViolations(text, baseText, spans)...)
 	out = append(out, testLayoutViolations(path, text, baseText, old != path)...)
@@ -399,12 +396,12 @@ func newGoViolations(path, base string, g *gitBatch) ([]string, error) {
 	for i, v := range out {
 		out[i] = path + ":" + v
 	}
-	return out, nil
+	return out, advisories, nil
 }
 
-// failOnNewViolations prints new comment and size violations in the changed Go files; exit 1 when any.
 func failOnNewViolations(files []string, base string, stdout, stderr io.Writer) int {
 	var found, goFiles []string
+	var advice []string
 	for _, f := range files {
 		if strings.HasSuffix(f, ".go") {
 			goFiles = append(goFiles, f)
@@ -415,15 +412,21 @@ func failOnNewViolations(files []string, base string, stdout, stderr io.Writer) 
 		g = loadGitBatch(goFiles, base)
 	}
 	for _, f := range goFiles {
-		v, err := newGoViolations(f, base, g)
+		v, advisories, err := newGoFindings(f, base, g)
 		if err != nil {
 			fmt.Fprintf(stderr, "review simplify: %s: %v\n", f, err)
 			return 1
 		}
 		found = append(found, v...)
+		for _, a := range advisories {
+			advice = append(advice, a.message(f))
+		}
 	}
 	for _, v := range found {
 		fmt.Fprintln(stdout, v)
+	}
+	for _, a := range advice {
+		fmt.Fprintln(stdout, a)
 	}
 	if len(found) > 0 {
 		fmt.Fprintf(stdout, "%d new violation(s) vs %s (rules/standards/quality.md)\n", len(found), base)

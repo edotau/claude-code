@@ -1,0 +1,14 @@
+{
+  "words": {
+    "runner": "agent",
+    "vendor": "agent",
+    "slot": "model alias",
+    "tier": "model alias",
+    "leg": "dispatch",
+    "family": "provider"
+  },
+  "exceptions": {
+    "tier": ["tier_bucket"],
+    "pin": ["pin"]
+  }
+}

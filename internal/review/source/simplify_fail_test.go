@@ -22,6 +22,43 @@ func BenchmarkCommentViolations(b *testing.B) {
 	}
 }
 
+func TestRunSimplifyFailRetiredNames(t *testing.T) {
+	dir := gitFixture(t)
+	base := "package fx\n\nimport \"github.com/edotau/claude-code/internal/ui/helptext\"\n\n" +
+		"type Old struct { Name string `json:\"old_family\"` }\n"
+	hosttest.WriteRel(t, dir, "fx.go", base)
+	hosttest.In(t, dir, "add", "fx.go")
+	hosttest.In(t, dir, "commit", "-qm", "naming baseline")
+	for _, tc := range []struct {
+		name, added, advice string
+	}{
+		{
+			"added tag",
+			"type New struct { Name string `json:\"modelTier,omitempty\"` }\n",
+			"fx.go:6: advisory: retired word \"tier\" in json tag \"modelTier\" (use model alias)\n",
+		},
+		{
+			"added flag",
+			"func flags() {\n fs := helptext.NewFlagSet(\"test\", helptext.Page{})\n fs.String(\"runner-name\", \"\", \"\")\n}\n",
+			"fx.go:8: advisory: retired word \"runner\" in flag \"runner-name\" (use agent)\n",
+		},
+		{
+			"nonsegment and exception",
+			"type New struct { A string `json:\"frontier\"`; B string `json:\"tier_bucket\"` }\n",
+			"",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			hosttest.WriteRel(t, dir, "fx.go", base+tc.added)
+			code, out := runSimplifyFail(t)
+			want := tc.advice + "no new comment or size violations vs HEAD\n"
+			if code != 0 || out != want {
+				t.Fatalf("exit %d, output %q; want exit 0, output %q", code, out, want)
+			}
+		})
+	}
+}
+
 func TestTestLayoutViolations(t *testing.T) {
 	dir := t.TempDir()
 	for _, f := range []string{"ok.go", "bad.go", "plat_unix.go", "other_windows.go", "bar_x.go", "lin_linux.go", "win_windows_amd64.go", "uni_unix.go", "oth_other.go"} {

@@ -15,7 +15,8 @@ Language specifics: `rules/software/<lang>/` (Go: `rules/harness/go.md`).
 
 Functions ≤ 50 lines, files ≤ 1200 (test files ≤ 1500), ≤ 25 imports per file, nesting ≤ 4 (early returns); no
 hardcoded values, secrets or leftover debug prints. Enforced on new Go lines by `make lint` (`claude-code review
-simplify --fail`); trim comments first.
+simplify --fail`), which also advises on retired words in added Go JSON tags and flag names without failing;
+trim comments first.
 
 ## Comments
 

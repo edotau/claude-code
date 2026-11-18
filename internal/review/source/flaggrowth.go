@@ -52,23 +52,46 @@ func bump(delta map[string][2]int, key string, side, n int) {
 	delta[verb] = d
 }
 
+// flagCall is one flag declaration: its verb, name ("?" when not a literal) and the name literal, nil for a fixed name.
+type flagCall struct {
+	verb, name string
+	lit        ast.Expr
+}
+
+// eachFlagDecl calls visit for every flag declaration made through a tracked flag set in f's functions.
+func eachFlagDecl(f *ast.File, visit func(flagCall)) {
+	for _, d := range f.Decls {
+		fd, ok := d.(*ast.FuncDecl)
+		if !ok || fd.Body == nil {
+			continue
+		}
+		sets := flagSets(fd)
+		ast.Inspect(fd.Body, func(n ast.Node) bool {
+			if call, ok := n.(*ast.CallExpr); ok {
+				if fc, ok := flagDecl(call, sets); ok {
+					visit(fc)
+				}
+			}
+			return true
+		})
+	}
+}
+
 // declaredFlags counts flag declarations per verb NUL flag name; a nil file has none.
 func declaredFlags(f *ast.File) map[string]int {
 	counts := map[string]int{}
-	if f == nil {
-		return counts
-	}
-	for _, d := range f.Decls {
-		if fd, ok := d.(*ast.FuncDecl); ok && fd.Body != nil {
-			countFuncFlags(fd, counts)
-		}
+	if f != nil {
+		eachFlagDecl(f, func(fc flagCall) { counts[fc.verb+"\x00"+fc.name]++ })
 	}
 	return counts
 }
 
+// commandLine keys the package-level flag.CommandLine set in flagSets, attributed to the enclosing func.
+const commandLine = "flag.CommandLine"
+
 // flagSets maps each flag set variable to its verb: the NewFlagSet literal, or the func name for a parameter.
 func flagSets(fd *ast.FuncDecl) map[string]string {
-	sets := map[string]string{}
+	sets := map[string]string{commandLine: fd.Name.Name}
 	for _, f := range fd.Type.Params.List {
 		for _, n := range f.Names {
 			if isFlagSetType(f.Type) {
@@ -77,29 +100,24 @@ func flagSets(fd *ast.FuncDecl) map[string]string {
 		}
 	}
 	ast.Inspect(fd.Body, func(n ast.Node) bool {
-		as, ok := n.(*ast.AssignStmt)
-		if !ok || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
-			return true
+		var lhs, rhs ast.Expr
+		switch d := n.(type) {
+		case *ast.AssignStmt:
+			if len(d.Lhs) == 1 && len(d.Rhs) == 1 {
+				lhs, rhs = d.Lhs[0], d.Rhs[0]
+			}
+		case *ast.ValueSpec:
+			if len(d.Names) == 1 && len(d.Values) == 1 {
+				lhs, rhs = d.Names[0], d.Values[0]
+			}
 		}
-		id, isID := as.Lhs[0].(*ast.Ident)
-		if name, named := newFlagSetName(as.Rhs[0]); isID && named {
+		id, isID := lhs.(*ast.Ident)
+		if name, named := newFlagSetName(rhs); isID && named {
 			sets[id.Name] = name
 		}
 		return true
 	})
 	return sets
-}
-
-func countFuncFlags(fd *ast.FuncDecl, counts map[string]int) {
-	sets := flagSets(fd)
-	ast.Inspect(fd.Body, func(n ast.Node) bool {
-		if call, ok := n.(*ast.CallExpr); ok {
-			if verb, name, ok := flagDecl(call, sets); ok {
-				counts[verb+"\x00"+name]++
-			}
-		}
-		return true
-	})
 }
 
 func isFlagSetType(t ast.Expr) bool {
@@ -131,36 +149,44 @@ func stringLit(e ast.Expr) (string, bool) {
 	return s, err == nil
 }
 
-// flagDecl reports the flag set and flag name of a declaring call on a tracked flag set.
-func flagDecl(call *ast.CallExpr, sets map[string]string) (verb, name string, ok bool) {
-	sel, isSel := call.Fun.(*ast.SelectorExpr)
-	if !isSel {
-		return
-	}
-	if id, isID := sel.X.(*ast.Ident); isID {
-		if idx, known := flagNameArg[sel.Sel.Name]; known && sets[id.Name] != "" {
-			return sets[id.Name], argName(call, idx), true
+// setKey names a flag set expression: an identifier, or flag.CommandLine.
+func setKey(e ast.Expr) string {
+	switch v := e.(type) {
+	case *ast.Ident:
+		return v.Name
+	case *ast.SelectorExpr:
+		if id, ok := v.X.(*ast.Ident); ok && id.Name == "flag" && v.Sel.Name == "CommandLine" {
+			return commandLine
 		}
 	}
-	idx, helper := helperFlagArg[sel.Sel.Name]
-	if !helper || len(call.Args) == 0 {
-		return
-	}
-	id, isID := call.Args[0].(*ast.Ident)
-	if !isID || sets[id.Name] == "" {
-		return
-	}
-	if idx < 0 {
-		return sets[id.Name], strings.ToLower(strings.TrimSuffix(sel.Sel.Name, "Flag")), true
-	}
-	return sets[id.Name], argName(call, idx), true
+	return ""
 }
 
-func argName(call *ast.CallExpr, idx int) string {
+// flagDecl reports the declaration of a call on a tracked flag set.
+func flagDecl(call *ast.CallExpr, sets map[string]string) (flagCall, bool) {
+	sel, isSel := call.Fun.(*ast.SelectorExpr)
+	if !isSel {
+		return flagCall{}, false
+	}
+	if idx, known := flagNameArg[sel.Sel.Name]; known && sets[setKey(sel.X)] != "" {
+		return nameAt(sets[setKey(sel.X)], call, idx), true
+	}
+	idx, helper := helperFlagArg[sel.Sel.Name]
+	if !helper || len(call.Args) == 0 || sets[setKey(call.Args[0])] == "" {
+		return flagCall{}, false
+	}
+	verb := sets[setKey(call.Args[0])]
+	if idx < 0 {
+		return flagCall{verb: verb, name: strings.ToLower(strings.TrimSuffix(sel.Sel.Name, "Flag"))}, true
+	}
+	return nameAt(verb, call, idx), true
+}
+
+func nameAt(verb string, call *ast.CallExpr, idx int) flagCall {
 	if idx < len(call.Args) {
 		if s, ok := stringLit(call.Args[idx]); ok {
-			return s
+			return flagCall{verb: verb, name: s, lit: call.Args[idx]}
 		}
 	}
-	return "?"
+	return flagCall{verb: verb, name: "?"}
 }
