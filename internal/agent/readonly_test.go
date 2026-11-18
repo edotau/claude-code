@@ -139,6 +139,8 @@ func TestReadOnlyRenamedVerbs(t *testing.T) {
 		{"claude-code vault get X > out.txt", false},
 		{"claude-code vault get GH_TOKEN", true},
 		{"claude-code vault get GH_TOKEN --secret", false},
+		{"claude-code vault get GH_TOKEN -secret", false},
+		{"claude-code vault get GH_TOKEN --secret=false", true},
 		{"claude-code gateway resolve codex --secret", false},
 	})
 }

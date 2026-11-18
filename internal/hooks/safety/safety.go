@@ -94,10 +94,10 @@ const credRead = `(cat|tail|head|base64)\s+.*(\.claude/settings\.json|\.credenti
 // exfilPatterns match credential-exfiltration shapes.
 var exfilPatterns = []*core.Gated{
 	core.Gate(`(^|[\s;&|({/\x60'"\\])(env|printenv)['"]?\s*>\s*/tmp/`, "/tmp/"),
-	core.Gate(credRead+`.*\|.*(^|[^[:alnum:]_])(`+strings.Join(networkSinks, "|")+`)([^[:alnum:]_]|$)`,
+	core.Gate(credRead+`.*(\|.*(^|[^[:alnum:]_])|>\(([^)]*[^[:alnum:]_])?)(`+strings.Join(networkSinks, "|")+`|openssl\s+s_client)([^[:alnum:]_]|$)`,
 		".claude/settings.json", ".credentials.json", "secrets.env", ".ssh/", ".aws/credentials", ".netrc"),
 	core.Gate(`base64\s+.*(\.ssh/id_|\.aws/credentials|\.credentials\.json|secrets\.env)`, "base64"),
-	core.Gate(`(scp|rsync)\s+.*\.ssh/id_`, ".ssh/id_"),
+	core.Gate(`(scp|rsync)\s+.*(\.ssh/id_|\.aws/credentials)`, ".ssh/id_", ".aws/credentials"),
 }
 
 // toolEnv is a tool's own `env` subcommand (`go env`): it prints the tool's settings, not the environment.

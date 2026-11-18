@@ -399,7 +399,7 @@ func readOnlyClaudeCode(args []string) bool {
 			detectorArgsOK(args[2:], []string{"--check", "--dry-run"}, map[string]func(string) bool{
 				"--agent": helpWord().MatchString, "--format": func(v string) bool { return v == "text" || v == "json" }})
 	}
-	if len(args) < 2 || !slices.Contains(readOnlyClaudeVerbs[args[0]], args[1]) || !noFlag(args[2:], "--secret") {
+	if len(args) < 2 || !slices.Contains(readOnlyClaudeVerbs[args[0]], args[1]) || shell.SecretFlag(args) {
 		return false
 	}
 	switch args[0] + " " + args[1] {

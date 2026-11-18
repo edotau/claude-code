@@ -9,10 +9,10 @@ import (
 	"github.com/edotau/claude-code/internal/shell"
 )
 
-// credentialCmds print a credential: per tool, its subcommand words in order; flags and their values may sit between.
+// credentialCmds print a credential: per tool, its subcommand words in order (claude-code's is shell.SecretFlag).
 var credentialCmds = map[string][][]string{
-	"claude-code": {{"--secret"}}, "databricks": {{"auth", "token"}}, // only --secret prints a harness credential
-	"gh": {{"auth", "token"}, {"auth", "status", "-t"}, {"auth", "status", "--show-token"}},
+	"databricks": {{"auth", "token"}},
+	"gh":         {{"auth", "token"}, {"auth", "status", "-t"}, {"auth", "status", "--show-token"}},
 	"gcloud": {{"auth", "print-access-token"}, {"auth", "print-identity-token"}, // application-default sits between
 		{"auth", "print-refresh-token"}},
 	"az": {{"account", "get-access-token"}},
@@ -40,7 +40,7 @@ const maxSecretNest = 4
 func secretPiped(cmd string) bool { return pipesSecret(cmd, 0) }
 
 func pipesSecret(cmd string, depth int) bool {
-	if depth > maxSecretNest || !strings.Contains(cmd, "|") && !strings.Contains(cmd, "/dev/") {
+	if depth > maxSecretNest || !strings.ContainsAny(cmd, "|(`") && !strings.Contains(cmd, "/dev/") {
 		return false
 	}
 	cmd = markSubs(cmd, depth)
@@ -54,7 +54,7 @@ func pipesSecret(cmd string, depth int) bool {
 		}
 		prints, env := printsSecret(toks, depth)
 		src := carry || strings.Contains(seg, secretMark) || prints
-		if src && socket {
+		if src && (socket || subSends(seg, depth, whole || env)) || fedMark(seg) && sends(seg, depth, false) {
 			return true
 		}
 		src, inGroup, open = grouped(seg, src, inGroup, open)
@@ -124,7 +124,8 @@ func printsSecret(toks []string, depth int) (prints, env bool) {
 		switch {
 		case len(w) == 0 && len(st) > 0 && filepath.Base(st[0]) == "env", len(w) > 0 && filepath.Base(w[0]) == "printenv":
 			return true, true // env with no command prints the environment
-		case len(w) > 0 && slices.ContainsFunc(credentialCmds[filepath.Base(w[0])], func(words []string) bool { return inOrder(w[1:], words) }):
+		case len(w) > 0 && slices.ContainsFunc(credentialCmds[filepath.Base(w[0])], func(words []string) bool { return inOrder(w[1:], words) }),
+			shell.SecretFlag(shell.HarnessArgs(w)):
 			return true, false
 		}
 	}
@@ -152,11 +153,8 @@ func sends(seg string, depth int, whole bool) bool {
 	if nested, ok := shell.NestedCommand(toks); ok {
 		return sendsAny(nested, depth, whole)
 	}
-	if strings.Contains(seg, ">(") { // `tee >(curl …)` and `> >(nc …)` feed the input to the substitution
-		_, subs := shell.ExtractSubstitutions(seg)
-		if slices.ContainsFunc(subs, func(s string) bool { return strings.Contains(seg, ">("+s+")") && sendsAny(s, depth, whole) }) {
-			return true
-		}
+	if subSends(seg, depth, whole) {
+		return true
 	}
 	replaced := false
 	for _, st := range shell.CommandStarts(toks) {
@@ -179,6 +177,24 @@ func sends(seg string, depth int, whole bool) bool {
 		}
 	}
 	return false
+}
+
+// subSends reports a `>(…)` of seg sending its input on: `tee >(curl …)` and `> >(nc …)`, not a `2> >(…)` stderr feed.
+func subSends(seg string, depth int, whole bool) bool {
+	if !strings.Contains(seg, ">(") {
+		return false
+	}
+	_, subs := shell.ExtractSubstitutions(seg)
+	return slices.ContainsFunc(subs, func(s string) bool {
+		i := strings.Index(seg, ">("+s+")")
+		pre := strings.TrimRight(seg[:max(i, 0)], " \t")
+		return i >= 0 && !strings.HasSuffix(pre, "2>") && !strings.HasSuffix(pre, "2>>") && sendsAny(s, depth, whole)
+	})
+}
+
+// fedMark reports a credential substitution fed to seg's stdin: `<<< "$(gh auth token)"` or `< <(gh auth token)`.
+func fedMark(seg string) bool {
+	return strings.Contains(seg, secretMark) && strings.Contains(strings.NewReplacer(" ", "", "\t", "", `"`, "").Replace(seg), "<"+secretMark)
 }
 
 // shellPipesOn reports an xargs -I `sh -c` text sending the token on: a piped segment, or any one for an env dump.
