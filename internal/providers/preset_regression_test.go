@@ -2,9 +2,7 @@ package providers
 
 import (
 	"fmt"
-	"os"
 	"os/exec"
-	"path/filepath"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -22,23 +20,23 @@ func TestConfigFixRejectsRoutingEnvOverrides(t *testing.T) {
 	}
 }
 
+// Shell functions stand in for the CLIs: a freshly written script costs 60-400 ms on its first macOS exec.
+const fakeCLIs = `databricks() { printf '%s' '{"access_token":"fixture-token"}'; return "$DATABRICKS_TEST_STATUS"; }
+jq() {
+	[ "$*" = '-r .access_token' ] || return 2
+	IFS= read -r input
+	[ "$input" = '{"access_token":"fixture-token"}' ] || return 3
+	printf '%s\n' 'fixture-token'
+}
+`
+
 func TestConfigFixDatabricksCommandsPreserveExitStatus(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
-	dir := t.TempDir()
-	writeTestFile(t, filepath.Join(dir, "databricks"), "#!/bin/sh\nprintf '%s' '{\"access_token\":\"fixture-token\"}'\nexit \"$DATABRICKS_TEST_STATUS\"\n", 0o700)
-	// This jq stand-in succeeds on the fixture even if databricks printed it before failing.
-	writeTestFile(t, filepath.Join(dir, "jq"), `#!/bin/sh
-[ "$*" = '-r .access_token' ] || exit 2
-IFS= read -r input
-[ "$input" = '{"access_token":"fixture-token"}' ] || exit 3
-printf '%s\n' 'fixture-token'
-`, 0o700)
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	command, refresh := DatabricksCLICommands("work")
 	for _, tc := range []struct{ name, command string }{{"normal", command}, {"refresh", refresh}} {
 		t.Run(tc.name, func(t *testing.T) {
-			checkConfigFixCLIStatus(t, tc.command, "23", true)
-			checkConfigFixCLIStatus(t, tc.command, "0", false)
+			checkConfigFixCLIStatus(t, fakeCLIs+tc.command, "23", true)
+			checkConfigFixCLIStatus(t, fakeCLIs+tc.command, "0", false)
 		})
 	}
 }
@@ -56,12 +54,5 @@ func checkConfigFixCLIStatus(t *testing.T, command, status string, wantFailure b
 	}
 	if err != nil || string(out) != "fixture-token\n" {
 		t.Errorf("successful token extraction: output = %q, err = %v", out, err)
-	}
-}
-
-func writeTestFile(t *testing.T, path, content string, perm os.FileMode) {
-	t.Helper()
-	if err := os.WriteFile(path, []byte(content), perm); err != nil {
-		t.Fatal(err)
 	}
 }

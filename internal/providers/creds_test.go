@@ -758,7 +758,7 @@ func TestCommandCredentialSingleFlight(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			cmd, counter := countingCmd(t, "sf", "0.2", c.tail)
+			cmd, counter := countingCmd(t, "sf", "0.1", c.tail)
 			p := freshProvider(t, &Provider{Name: "sf-" + c.name, Auth: Auth{Type: AuthKey, Command: cmd}})
 			vals, errs := herd(p, 20)
 			for i := range vals {
@@ -777,7 +777,7 @@ func TestCommandCredentialSingleFlight(t *testing.T) {
 }
 
 func TestRefreshDuringInflightMintRunsForcedMint(t *testing.T) {
-	cmd, counter := countingCmd(t, "rf", "0.5", "echo stale-token")
+	cmd, counter := countingCmd(t, "rf", "0.2", "echo stale-token")
 	forced := counter + ".forced"
 	refresh := fmt.Sprintf("echo forced >> %q; echo fresh-token", forced)
 	p := freshProvider(t, &Provider{Name: "sf-refresh",
