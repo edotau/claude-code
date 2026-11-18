@@ -95,6 +95,17 @@ func TestPlanTickRelativeDashCAfterCD(t *testing.T) {
 	}
 }
 
+// The worktree commit verb ticks like git commit, alone, behind rtk, and after a cd && chain.
+func TestPlanTickWorktreeCommitVerb(t *testing.T) {
+	planPath, sha, tick := tickFixture(t)
+	cmd := "cd " + filepath.Join(os.Getenv("HOME"), "widgets") + " && rtk claude-code worktree commit -m x a/one.go"
+	tick(cmd, "[main "+sha+"] x\n 2 files changed\n")
+	got, _ := os.ReadFile(planPath)
+	if !strings.Contains(string(got), "- [x] 1.1 Full task owns: a/one.go, b/two file.go ("+sha+")") {
+		t.Fatalf("worktree commit verb did not tick the plan:\n%s", got)
+	}
+}
+
 // One Bash call with two commits (one detached, one with a quoted filename) ticks both; a fenced checkbox is untouched.
 func TestPlanTickMultiCommitDetachedQuoted(t *testing.T) {
 	_, home := planGroupEnv(t, false)

@@ -283,15 +283,18 @@ func TestActive(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	got, ok := Active(dir, "", nil)
+	got, parsed, ok := Active(dir, "", nil)
 	if !ok || !strings.HasSuffix(got, "2026-10-03-new.md") {
 		t.Fatalf("Active=%q,%v", got, ok)
+	}
+	if len(parsed.Tasks) != 1 || !strings.Contains(parsed.Tasks[0].Title, "Open task") {
+		t.Fatalf("Active returned plan %+v, want the winner's parsed tasks", parsed.Tasks)
 	}
 
 	empty := t.TempDir()
 	writeFile(t, filepath.Join(empty, "2026-10-02-done.md"), done)
 	writeFile(t, filepath.Join(empty, "scratch.md"), open)
-	if got, ok := Active(empty, "", nil); ok || got != "" {
+	if got, _, ok := Active(empty, "", nil); ok || got != "" {
 		t.Fatalf("Active on done-only dir=%q,%v", got, ok)
 	}
 }
@@ -329,10 +332,10 @@ func TestActiveSkipsDraft(t *testing.T) {
 	dir := t.TempDir()
 	draft := filepath.Join(dir, "2026-10-29-draft.md")
 	writeFile(t, draft, "# Plan: d\n\n- [ ] 1.1 T owns: a\n")
-	if got, ok := Active(dir, "", []string{draft}); ok {
+	if got, _, ok := Active(dir, "", []string{draft}); ok {
 		t.Fatalf("Active picked skipped draft %s", got)
 	}
-	if got, ok := Active(dir, "", nil); !ok || got != draft {
+	if got, _, ok := Active(dir, "", nil); !ok || got != draft {
 		t.Fatalf("Active without skip = %q, %v", got, ok)
 	}
 }
@@ -347,10 +350,10 @@ func TestActivePrefersWorktreeClaim(t *testing.T) {
 	now := time.Now()
 	_ = os.Chtimes(claimed, now.Add(-time.Hour), now.Add(-time.Hour))
 	_ = os.Chtimes(newer, now, now)
-	if got, _ := Active(dir, "fx-1", nil); got != claimed {
+	if got, _, _ := Active(dir, "fx-1", nil); got != claimed {
 		t.Fatalf("Active(fx-1) = %q, want the claimed plan", got)
 	}
-	if got, _ := Active(dir, "other", nil); got != newer {
+	if got, _, _ := Active(dir, "other", nil); got != newer {
 		t.Fatalf("Active(other) = %q, want the newest plan", got)
 	}
 }

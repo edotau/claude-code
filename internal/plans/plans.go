@@ -200,14 +200,14 @@ func WorktreeName(top string) string {
 	return ""
 }
 
-// Active picks home's tick target: a dated plan with an open owned task, never a skipped draft.
-func Active(home, worktree string, skip []string) (string, bool) {
+// Active picks home's tick target and its parsed plan: a dated plan with an open owned task, never a skipped draft.
+func Active(home, worktree string, skip []string) (string, Plan, bool) {
 	entries, err := os.ReadDir(home)
 	if err != nil {
-		return "", false
+		return "", Plan{}, false
 	}
 	all, _ := loadDatedPlans(entries, home, skip)
-	best, bestMod, bestClaimed := "", time.Time{}, false
+	best, bestPlan, bestMod, bestClaimed := "", Plan{}, time.Time{}, false
 	for _, d := range all {
 		info, err := os.Stat(d.path)
 		if err != nil || !hasOpenOwnedTask(d.plan) {
@@ -217,9 +217,9 @@ func Active(home, worktree string, skip []string) (string, bool) {
 		if best != "" && !beatsActive(claimed, info.ModTime(), bestClaimed, bestMod) {
 			continue
 		}
-		best, bestMod, bestClaimed = d.path, info.ModTime(), claimed
+		best, bestPlan, bestMod, bestClaimed = d.path, d.plan, info.ModTime(), claimed
 	}
-	return best, best != ""
+	return best, bestPlan, best != ""
 }
 
 // beatsActive reports whether a candidate outranks the current best: a worktree claim first, then a newer mtime.

@@ -35,10 +35,13 @@ var leadingCD = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`^\s*cd\s+("[^"]+"|'[^']+'|[^\s&;]+)\s*&&`)
 })
 
-// Tick is the PostToolUse(Bash) plan-tick hook: a landed `git commit` ticks the active plan's covered tasks.
+// tickMatch matches a `git commit` or the `claude-code worktree commit` verb, alone or behind rtk or a && chain.
+var tickMatch = core.Gate(`\bgit\b[^;&|\n]*\bcommit\b|\bclaude-code\s+worktree\s+commit\b`, "commit")
+
+// Tick is the PostToolUse(Bash) plan-tick hook: a landed commit ticks the active plan's covered tasks.
 func Tick(in *core.Input) core.Result {
 	cmd := in.ToolCommand()
-	if in.ToolName != "Bash" || !core.GitCommitCmd().MatchString(cmd) {
+	if in.ToolName != "Bash" || !tickMatch.MatchString(cmd) {
 		return core.Result{}
 	}
 	out := in.Nested("tool_response", "stdout")
@@ -186,13 +189,9 @@ func ClaimPlanTask(in *core.Input, id string) error {
 	if !core.SpawnTools[in.ToolName] || id == "" {
 		return nil
 	}
-	plan, worktreeName, ok := activePlan(in.CWD)
+	plan, parsed, worktreeName, ok := activePlan(in.CWD)
 	if !ok {
 		return nil
-	}
-	parsed, err := plans.Parse(plan)
-	if err != nil {
-		return fmt.Errorf("plan-claim: %w", err)
 	}
 	task, ok := matchBriefTask(parsed, in.Nested("tool_input", "prompt"), in.Nested("tool_input", "description"))
 	if !ok || task.Claim != "" { // the locked ClaimFree below re-checks
@@ -217,13 +216,9 @@ func ClearPlanClaim(cwd, id string) error {
 	if id == "" {
 		return nil
 	}
-	plan, _, ok := activePlan(cwd)
+	plan, parsed, _, ok := activePlan(cwd)
 	if !ok {
 		return nil
-	}
-	parsed, err := plans.Parse(plan)
-	if err != nil {
-		return fmt.Errorf("plan-claim: %w", err)
 	}
 	var errs []error
 	for _, t := range parsed.Tasks {
@@ -237,15 +232,15 @@ func ClearPlanClaim(cwd, id string) error {
 	return nil
 }
 
-// activePlan is cwd's repo plan with an open owned task, plus the linked worktree's name ("" in the main checkout).
-func activePlan(cwd string) (plan, worktreeName string, ok bool) {
+// activePlan is cwd's repo plan with an open owned task, parsed, plus its linked worktree's name ("" in main).
+func activePlan(cwd string) (plan string, parsed plans.Plan, worktreeName string, ok bool) {
 	top := memory.GitToplevel(cwd)
 	if top == "" {
-		return "", "", false
+		return "", plans.Plan{}, "", false
 	}
 	worktreeName = plans.WorktreeName(top)
-	plan, ok = plans.Active(plans.Home(top), worktreeName, plans.MirrorDests())
-	return plan, worktreeName, ok
+	plan, parsed, ok = plans.Active(plans.Home(top), worktreeName, plans.MirrorDests())
+	return plan, parsed, worktreeName, ok
 }
 
 func taskKey(t plans.Task) string { return cmp.Or(t.ID, t.Title) }
