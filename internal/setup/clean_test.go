@@ -1036,3 +1036,65 @@ func TestCleanOverlaysKeepsFreshAndNonRegular(t *testing.T) {
 		t.Errorf("stale=%v fresh=%v dir=%v link=%v, want only stale gone", exists(t, stale), exists(t, fresh), exists(t, sub), exists(t, link))
 	}
 }
+
+// settings-backups: aged mirrors of temp-dir files go; an aged mirror of a real path and a fresh temp mirror stay.
+func TestCleanSettingsBackupsSweepsTempMirrors(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	old := time.Now().Add(-90 * 24 * time.Hour)
+	staleTmp := paths.BackupPath(filepath.Join(os.TempDir(), "TestX1", "settings.json"), old)
+	freshTmp := paths.BackupPath(filepath.Join(os.TempDir(), "TestX2", "settings.json"), time.Now())
+	ramdisk := statePath("backups", "Volumes", "claude-code-test-7", "tmp", "TestY", "hooks.json.bak-1")
+	real := statePath("backups", "settings.json.bak-20200101-000000")
+	for _, p := range []string{staleTmp, freshTmp, ramdisk, real} {
+		write(t, p, "x")
+	}
+	for _, p := range []string{staleTmp, ramdisk, real} {
+		for d := p; d != statePath("backups"); d = filepath.Dir(d) {
+			_ = os.Chtimes(d, old, old)
+		}
+	}
+	if code := Clean([]string{"--target", "settings-backups"}, io.Discard, io.Discard); code != 0 {
+		t.Fatalf("clean = %d", code)
+	}
+	if exists(t, filepath.Dir(staleTmp)) || exists(t, ramdisk) || !exists(t, freshTmp) || !exists(t, real) {
+		t.Errorf("stale tmp=%v ramdisk=%v, fresh tmp=%v real=%v; want only the stale temp mirrors gone",
+			exists(t, filepath.Dir(staleTmp)), exists(t, ramdisk), exists(t, freshTmp), exists(t, real))
+	}
+}
+
+// codex-homes: an aged home holding only codex's .tmp clone goes; one that also holds auth stays.
+func TestCleanCodexHomesSweepsTmpOnlyHome(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	tmpOnly, withAuth := statePath("codex", "home-1"), statePath("codex", "home-2")
+	write(t, filepath.Join(tmpOnly, ".tmp", "plugins-clone", "a.png"), "x")
+	write(t, filepath.Join(withAuth, ".tmp", "a"), "x")
+	write(t, filepath.Join(withAuth, "auth.json"), "x")
+	old := time.Now().Add(-48 * time.Hour)
+	for _, d := range []string{tmpOnly, withAuth} {
+		_ = os.Chtimes(d, old, old)
+	}
+	if code := Clean([]string{"--target", "codex-homes"}, io.Discard, io.Discard); code != 0 {
+		t.Fatalf("clean = %d", code)
+	}
+	if exists(t, tmpOnly) || !exists(t, withAuth) {
+		t.Errorf("tmp-only home present=%v, auth home present=%v; want only the tmp-only one gone", exists(t, tmpOnly), exists(t, withAuth))
+	}
+}
+
+// A swept file takes its flock sidecar along; a fresh file keeps its own.
+func TestCleanRemovesSidecarLockWithItsFile(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	staleLog, freshLog := statePath("codex", "routing-a.jsonl"), statePath("codex", "routing-b.jsonl")
+	for _, p := range []string{staleLog, freshLog} {
+		write(t, p, "{}")
+		write(t, p+".lock", "")
+	}
+	old := time.Now().Add(-90 * 24 * time.Hour)
+	_ = os.Chtimes(staleLog, old, old)
+	if code := Clean([]string{"--target", "codex-audit"}, io.Discard, io.Discard); code != 0 {
+		t.Fatalf("clean = %d", code)
+	}
+	if exists(t, staleLog) || exists(t, staleLog+".lock") || !exists(t, freshLog) || !exists(t, freshLog+".lock") {
+		t.Errorf("stale=%v+lock=%v fresh=%v+lock=%v", exists(t, staleLog), exists(t, staleLog+".lock"), exists(t, freshLog), exists(t, freshLog+".lock"))
+	}
+}

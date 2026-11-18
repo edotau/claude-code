@@ -55,6 +55,9 @@ func HistoryDir() string { return filepath.Join(paths.StateDir(), "history") }
 // plane is the store's one subdirectory and the commit-subject prefix Log/Diff filter on.
 const plane = "config"
 
+// historyGCAuto is git's loose-object threshold: ~50 KiB per snapshot would otherwise stay unpacked forever.
+const historyGCAuto = "200"
+
 // configFiles are the contested config files; the vault's secrets bucket is never read here.
 func configFiles() []HistoryFile {
 	cfg := paths.ConfigDir()
@@ -205,6 +208,7 @@ func (s *HistoryStore) git(args ...string) (string, error) {
 	full := append([]string{"-C", s.Dir}, proc.Values{
 		"user.name": "claude-code", "user.email": "claude-code@localhost",
 		"commit.gpgsign": "false", "core.hooksPath": "/dev/null",
+		"gc.auto": historyGCAuto, "gc.autoDetach": "false",
 	}.Args("-c")...)
 	full = append(full, args...)
 	// A tree walk this size is seconds at most; a hung index.lock or filesystem must not hold a hook.
@@ -266,6 +270,7 @@ func (s *HistoryStore) commit(subject, body string) (string, error) {
 	if _, err := s.git(args...); err != nil {
 		return "", err
 	}
+	_, _ = s.git("gc", "--auto", "--quiet") // best-effort: git commit's own maintenance skips gc here
 	return s.git("rev-parse", "--short", "HEAD")
 }
 

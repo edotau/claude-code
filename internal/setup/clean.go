@@ -87,7 +87,7 @@ func stateTargets() []target {
 			globs: func() []string { return []string{s("codex", "routing-*.jsonl")} },
 		},
 		{
-			name: "codex-homes", doc: "empty per-dispatch CODEX_HOME dirs (home-*); homes holding a sessions link or auth stay",
+			name: "codex-homes", doc: "empty or .tmp-only CODEX_HOME dirs (home-*); sessions/auth stay",
 			globs:   func() []string { return []string{s("codex", "home-*")} },
 			ageless: true, keep: keepCodexHome,
 		},
@@ -147,9 +147,9 @@ func daemonTargets() []target {
 			ageless: true, keep: keepFreshOverlay,
 		},
 		{
-			name: "settings-backups", doc: "state/harness/backups/setup/* and .claude.json.backups",
+			name: "settings-backups", doc: "state/harness/backups: setup, temp-dir copies, CLI backups",
 			globs: func() []string {
-				return []string{statePath("backups", "setup", "*"), cfgPath("backups", ".claude.json.backup.*")}
+				return append([]string{statePath("backups", "setup", "*"), cfgPath("backups", ".claude.json.backup.*")}, tempBackupGlobs()...)
 			}, // the rest of state/harness/backups is the only agent-config history (configure --revert)
 		},
 		{
@@ -523,6 +523,7 @@ func pruneMatch(m string, cutoff time.Time, apply bool, keep func(string) bool) 
 		if err := os.RemoveAll(m); err != nil {
 			return 0, false, err
 		}
+		_ = os.Remove(m + ".lock") // a flock sidecar means nothing once its file is gone
 	}
 	return sz, true, nil
 }
@@ -751,9 +752,18 @@ func readJSON(path string) map[string]any {
 	return m
 }
 
-// keepCodexHome protects a codex home that has contents or is under a day old.
+// keepCodexHome protects a codex home holding anything but codex's .tmp plugin clone, or under a day old.
 func keepCodexHome(p string) bool {
 	entries, err := os.ReadDir(p)
 	fi, serr := os.Stat(p)
-	return err != nil || serr != nil || len(entries) > 0 || time.Since(fi.ModTime()) < 24*time.Hour
+	if err != nil || serr != nil || time.Since(fi.ModTime()) < 24*time.Hour {
+		return true
+	}
+	return slices.ContainsFunc(entries, func(e os.DirEntry) bool { return e.Name() != ".tmp" })
+}
+
+// tempBackupGlobs match mirrored backups of files that lived in a temp dir (test runs): their source is long gone.
+func tempBackupGlobs() []string {
+	tmp := filepath.Dir(paths.BackupPath(filepath.Join(os.TempDir(), "x"), time.Time{}))
+	return []string{filepath.Join(tmp, "*"), statePath("backups", "*", "claude-code-test-*")}
 }

@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -341,5 +342,30 @@ func TestAgentConfigsWatchGeminiUnderHome(t *testing.T) {
 		if strings.HasPrefix(f.Label, "gemini-") && !strings.HasPrefix(f.Path, filepath.Join(home, ".gemini")) {
 			t.Errorf("%s watched at %s, want under %s", f.Label, f.Path, home)
 		}
+	}
+}
+
+func TestCommitPacksLooseObjects(t *testing.T) {
+	s := &HistoryStore{Dir: filepath.Join(t.TempDir(), "history")}
+	if err := s.ensureRepo(); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(s.Dir, plane)
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	for i := range 400 { // fixed contents: the same hashes every run, so git's sampled loose count is not luck
+		name := strconv.Itoa(i)
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(name), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.commit("config: bulk", ""); err != nil {
+		t.Fatal(err)
+	}
+	out, err := s.git("count-objects")
+	var loose int
+	if _, serr := fmt.Sscan(out, &loose); err != nil || serr != nil || loose != 0 {
+		t.Fatalf("count-objects = %q, %v; want 0 loose after commit's gc --auto", out, err)
 	}
 }
