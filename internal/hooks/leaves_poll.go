@@ -164,7 +164,7 @@ func relayGoGate(seg string) (rule string, isGo bool) {
 	if len(toks) > 0 && toks[0] == "rtk" {
 		toks = toks[1:]
 	}
-	if len(toks) < 2 || strings.ContainsAny(seg, "$`<>") {
+	if len(toks) < 2 || strings.ContainsAny(seg, "<>") || relayExpands(seg) {
 		return "", false
 	}
 	if toks[0] == "gofmt" {
@@ -177,6 +177,34 @@ func relayGoGate(seg string) (rule string, isGo bool) {
 		return rule, true
 	}
 	return relayGoArgs(toks[1], toks[2:]), true
+}
+
+// relayExpands reports a backtick, `$(`, `${` or `$NAME` outside single quotes; a trailing `$` is literal.
+func relayExpands(seg string) bool {
+	var q byte
+	for i := 0; i < len(seg); i++ {
+		c := seg[i]
+		switch {
+		case q == '\'':
+			if c == '\'' {
+				q = 0
+			}
+		case c == '\\':
+			i++
+		case c == '`':
+			return true
+		case c == '$':
+			if i+1 == len(seg) || seg[i+1] == ' ' || seg[i+1] == '\t' || seg[i+1] == '\n' || (q == '"' && seg[i+1] == '"') {
+				continue
+			}
+			return true
+		case q == 0 && (c == '\'' || c == '"'):
+			q = c
+		case q == '"' && c == '"':
+			q = 0
+		}
+	}
+	return false
 }
 
 // relayGofmtArgs is "" for `gofmt -l` with relative paths inside the repository only.
