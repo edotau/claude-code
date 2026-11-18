@@ -40,16 +40,16 @@ The apply-gate (assumption before each cut, never-cut list, reuse first, thresho
 
 | # | Step | When |
 | --- | --- | --- |
-| 1 | Parse/compile + **lint** (`ruff`, `go vet`, `make lint`) **and the IDE's diagnostics** (`mcp__ide__getDiagnostics` on each file touched) | Every edit, unprompted |
+| 1 | Parse/compile + **lint** (`ruff`, `go vet`, `claude-code agents diff --check --path <files>`) **and the IDE's diagnostics** (`mcp__ide__getDiagnostics` on each file touched) | Every edit, unprompted |
 | 2 | **Live check** — run the verb, endpoint or flow on real input | Every change with a runnable surface, before any new test |
 | 3 | The one thing changed — targeted assertion, negative control | Every edit |
 | 4 | Scoped tests for the packages you touched, named explicitly | Once the direction settles, or before commit |
 | 5 | **Simplify** — `Skill(simplify)` over the (merged) diff; re-run step 4 if it changed code | Every code change, before review, merge or commit |
 | 6 | Full suite + gate chain (format → lint → test → security) | **Once** at wrap-up, **only with the user's approval**, never a subagent |
 
-`make lint` only checks (any agent runs it and fixes its own files from the output, or runs the fixers on them
-with `claude-code agents fix --path <file>`); `make fmt` fixes, `make audit` and
-`make install` ship: the main session's, from a clean tree.
+`make lint` and `agents diff --check` only check (a leaf runs `claude-code agents diff --check --path <files>` and
+fixes its own files from the output, or with `claude-code agents fix --path <files>`); `make fmt` fixes, `make audit`
+and `make install` ship: the main session's, from a clean tree.
 
 Lint gates the rest: a syntax error makes test output meaningless. Untouched packages are noise during development.
 The IDE's diagnostics are a second gate, not a duplicate: the editor runs analyzers the repo's CLI lint does not

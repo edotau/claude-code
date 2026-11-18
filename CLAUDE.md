@@ -92,4 +92,4 @@ auto-loads while you work in that code). Anything unlisted: `claude-code -h`.
 | Memory | `claude-code memory recall <terms>` | `rules/workflows/memory-bank.md` |
 | Git and worktrees | `claude-code worktree create\|merge <name>` | `rules/standards/worktree-git.md` |
 | Network, web, MCP, cleanup | `claude-code doctor --mcp` · `claude-code network websearch --query "<q>"` | `rules/harness/network.md` |
-| Test, lint, review | `go test ./internal/<pkg>` · `make lint` · `/code-review` | `rules/standards/quality.md` |
+| Test, lint, review | `go test ./internal/<pkg>` · `claude-code agents diff --check` · `/code-review` | `rules/standards/quality.md` |

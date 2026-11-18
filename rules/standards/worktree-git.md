@@ -23,7 +23,7 @@
    uncommitted edits in asks first (`worktree-claim-check` blocks a leaf under `~/.claude`, asks elsewhere).
 4. Atomic commits, one logical change each; never force-push a shared branch; never skip gates.
 5. Read scoped checks' exit codes before `git push`; chain with `&&`, never `;`; a docs
-   commit gates on a clean `make lint`.
+   commit gates on a clean `claude-code agents diff --check`.
 
 Executor mechanics: `agents/copilot.md` → LAST-MILE.
 

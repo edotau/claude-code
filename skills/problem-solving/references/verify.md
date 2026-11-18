@@ -29,8 +29,9 @@ Gate 6: DIFF REVIEW   — diff matches intent, no unrelated changes?        — 
 Before Gate 2 on any runnable surface: the live check (quality.md step 2) and the IDE diagnostics of each touched file
 (step 1).
 
-This harness: `make lint` (checks only; any agent fixes its own files from the output; `make fmt`, `audit` and `install`
-are the main session's) → scoped `go test ./internal/<pkg>` per iteration; `make audit` only in Gate 3.
+This harness: `claude-code agents diff --check --path <files>` (checks only; `agents fix --path <files>` fixes
+yours; `make fmt`, `audit` and `install` are the main session's) → scoped `go test ./internal/<pkg>` per iteration;
+`make audit` only in Gate 3.
 
 ## Gate Loop (max 5 iterations per change set)
 

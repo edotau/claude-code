@@ -93,7 +93,8 @@ asks, or your own terminal.
 - `kubectl|oc exec|delete` (`oc rsh`) on production (`prod`/`prd`/`production` in a flag, `ENV=`, `KUBECONFIG=`,
   `use-context`, a deleted namespace or `current-context`; none found counts): asked in main, refused in a leaf.
 - `make|gmake audit|install|fmt|build|verify|bootstrap|adopt` and a fixing `lint-<kind>` in the harness tree (install
-  targets also in its linked worktrees): refused in a leaf (run `make lint`, fix your files); `make lint` passes.
+  targets also in its linked worktrees): refused in a leaf (run `claude-code agents diff --check --path <files>` or
+  `claude-code agents fix --path <files>`); `make lint` passes.
 - A leaf's `HARNESS_DISPATCH_*` unset, `env -u` or assignment in text that reaches a shell, `eval`, `source`, an
   interpreter or `ssh` (its string, a here-string, a heredoc no pure reader takes, a pipe into it, a script it runs).
 
