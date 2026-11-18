@@ -102,7 +102,7 @@ func parseAskArgs(fs *flag.FlagSet, args []string) (pos []string, code int, done
 }
 
 // runCtx is runTo under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
-func runCtx(ctx context.Context, args []string, verb string, out io.Writer) int {
+func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exit int) {
 	fs, f := askFlagSet()
 	if verb != "" {
 		retargetPage(fs, verb)
@@ -121,9 +121,12 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) int 
 	if remote.IsSelf(f.host) { // --host naming this machine runs here
 		f.host = ""
 	}
-	masked := maskedOut(out)
-	defer masked.Close()
-	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: masked}
+	if f.format == helptext.Text {
+		masked := maskedOut(out)
+		defer func() { exit = closeAskOutput(masked, exit) }()
+		out = masked
+	}
+	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out}
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
 		if code, done := phase(); done {
 			return code
@@ -700,7 +703,7 @@ func sinkTo(out io.Writer, format, dispatchID string) wire.Sink {
 	case helptext.JSON:
 		return wire.Discard
 	case agent.FormatStreamJSON:
-		return wire.NewJSONLSink(out, dispatchID)
+		return maskedEvents{wire.NewJSONLSink(out, dispatchID)}
 	}
 	return wire.NewTextSink(out)
 }
@@ -750,7 +753,7 @@ func printAskFailure(format, agentName string, err error) {
 	var werr error
 	switch format {
 	case helptext.JSON:
-		werr = agent.WriteJSONLine(os.Stdout, wire.FailureEnvelope(agentName, err))
+		werr = agent.WriteJSONLine(os.Stdout, maskEnvelope(wire.FailureEnvelope(agentName, err)))
 	case agent.FormatStreamJSON:
 		werr = stdoutSink(format, "").Emit(wire.ResultEvent(wire.FailureEnvelope(agentName, err)))
 	}

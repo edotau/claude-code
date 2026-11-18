@@ -1,11 +1,14 @@
 package ask
 
 import (
+	"bytes"
 	"cmp"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -23,8 +26,100 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 	return reportAsk(out, format, save, p, res, err)
 }
 
-// maskedOut masks vault values on every answer path (text, envelope, a job's log); the caller closes it.
 func maskedOut(out io.Writer) io.WriteCloser { return redact.Writer(out) }
+
+func closeAskOutput(out io.Closer, exit int) int {
+	if err := out.Close(); err != nil {
+		msg := strings.NewReplacer("\r", " ", "\n", " ").Replace(redact.Text(err.Error()))
+		return cmp.Or(exit, helptext.Fail("ask: flush output: %s", msg))
+	}
+	return exit
+}
+
+type maskedEvents struct{ sink wire.Sink }
+
+func (s maskedEvents) Emit(ev wire.Event) error {
+	ev.Text = redact.Text(ev.Text)
+	if ev.Envelope != nil {
+		env := maskEnvelope(*ev.Envelope)
+		ev.Envelope = &env
+	}
+	return s.sink.Emit(ev)
+}
+
+func maskEnvelope(env wire.Envelope) wire.Envelope {
+	env.Answer = redact.Text(env.Answer)
+	env.FallbackReason = redact.Text(env.FallbackReason)
+	env.RequestedWhy = redact.Text(env.RequestedWhy)
+	env.Handoff = redact.Text(env.Handoff)
+	if env.Error != nil {
+		e := *env.Error
+		e.Message = redact.Text(e.Message)
+		env.Error = &e
+	}
+	env.Hops = slices.Clone(env.Hops)
+	for i := range env.Hops {
+		errs := slices.Clone(env.Hops[i].Errors)
+		for j := range errs {
+			errs[j].Message = redact.Text(errs[j].Message)
+		}
+		env.Hops[i].Errors = errs
+	}
+	if env.Denials != nil {
+		d := *env.Denials
+		d.Commands = slices.Clone(d.Commands)
+		for i, command := range d.Commands {
+			d.Commands[i] = redact.Text(command)
+		}
+		env.Denials = &d
+	}
+	env.Structured = maskStructured(env.Structured)
+	return env
+}
+
+func maskStructured(raw json.RawMessage) json.RawMessage {
+	if len(raw) == 0 {
+		return raw
+	}
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	dec.UseNumber()
+	var value any
+	if dec.Decode(&value) != nil {
+		return nil
+	}
+	changed := false
+	masked, err := json.Marshal(maskJSONValue(value, &changed))
+	if !changed {
+		return raw // re-encoding would reorder keys for no reason
+	}
+	if err != nil {
+		return nil
+	}
+	return masked
+}
+
+func maskJSONValue(value any, changed *bool) any {
+	mask := func(s string) string {
+		m := redact.Text(s)
+		*changed = *changed || m != s
+		return m
+	}
+	switch v := value.(type) {
+	case string:
+		return mask(v)
+	case []any:
+		for i, item := range v {
+			v[i] = maskJSONValue(item, changed)
+		}
+	case map[string]any:
+		masked := make(map[string]any, len(v))
+		for key, item := range v {
+			masked[mask(key)] = maskJSONValue(item, changed)
+		}
+		return masked
+	}
+	return value
+}
 
 // denialSummaryCells is the widest the sandbox summary line prints, in terminal columns.
 const denialSummaryCells = 80
@@ -45,16 +140,17 @@ func saveAnswer(path string, res wire.Result) error {
 	if path == "" || res.Answer == "" {
 		return nil
 	}
-	if err := paths.AtomicWrite(path, []byte(res.Answer), 0o600); err != nil {
+	answer := redact.Text(res.Answer)
+	if err := paths.AtomicWrite(path, []byte(answer), 0o600); err != nil {
 		return fmt.Errorf("save %s: %w", path, err)
 	}
-	fmt.Fprintf(os.Stderr, "ask: saved %d B -> %s\n", len(res.Answer), path)
+	fmt.Fprintf(os.Stderr, "ask: saved %d B -> %s\n", len(answer), path)
 	return nil
 }
 
 // printHead is the text answer's first saveHead lines, which the silenced sink left unprinted.
 func printHead(out io.Writer, res wire.Result) error {
-	head := firstLines(res.Answer, saveHead)
+	head := firstLines(redact.Text(res.Answer), saveHead)
 	if head != "" && !strings.HasSuffix(head, "\n") {
 		head += "\n"
 	}
@@ -128,7 +224,7 @@ func reportAskResult(out io.Writer, format string, res wire.Result, err error) e
 	if format == helptext.JSON {
 		env := wire.NewEnvelope(res, err, res.DispatchID)
 		env.RanOn = ranOn(res)
-		return agent.WriteJSONLine(out, env)
+		return agent.WriteJSONLine(out, maskEnvelope(env))
 	}
 	if format == agent.FormatStreamJSON {
 		return nil // the result event already carried the envelope

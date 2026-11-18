@@ -2,13 +2,18 @@ package ask
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -110,5 +115,65 @@ func TestCmdAskJobLogMasksVaultValueInAnswer(t *testing.T) {
 	got := runAskJobIntoLog(t)
 	if strings.Contains(got, "answer-alpha") || !strings.Contains(got, "[redacted]") {
 		t.Errorf("log must mask the vault value in every line:\n%s", got)
+	}
+}
+
+func fakeAskOutput(t *testing.T, answer string) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv(paths.AgentBinDirEnv, paths.BinDir())
+	body, err := json.Marshal(answer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pathstest.FakeVendor(t, "claude", "cat > /dev/null\n"+
+		`printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":`+string(body)+`}]}}'`+"\n"+
+		`printf '%s\n' '{"type":"result","subtype":"success","result":`+string(body)+`}'`)
+}
+
+func TestAskSaveMasksAnswer(t *testing.T) {
+	skipWithoutSh(t)
+	const fake = `fake"ask\value-123`
+	fakeAskOutput(t, "answer: "+fake)
+	redact.StubValues(t, []string{fake})
+	path := filepath.Join(t.TempDir(), "answer.txt")
+	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
+		return Cmd([]string{"--agent", "claude", "--fallback", "none", "--format", "json", "--save", path, "test"})
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; %s", code, strings.ReplaceAll(stderr, fake, "[redacted]"))
+	}
+	want := redact.Text("answer: " + fake)
+	if got := pathstest.ReadFile(t, path); got != want {
+		t.Error("saved answer was not masked")
+	}
+	var env wire.Envelope
+	if err := json.Unmarshal([]byte(stdout), &env); err != nil || env.Answer != want {
+		t.Error("stdout did not contain a valid JSON envelope with a masked answer")
+	}
+}
+
+type askFlushFailure struct{ writes int }
+
+func (w *askFlushFailure) Write([]byte) (int, error) {
+	w.writes++
+	return 0, errors.New("fake write failure")
+}
+
+func TestAskFinalFlushFailure(t *testing.T) {
+	skipWithoutSh(t)
+	fakeAskOutput(t, "ok")
+	redact.StubValues(t, []string{"fake-unrelated-value-123"})
+	var out askFlushFailure
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
+		return cmdTo([]string{"--agent", "claude", "--fallback", "none", "test"}, &out)
+	})
+	if out.writes != 1 {
+		t.Fatalf("destination writes = %d, want one final flush; %s", out.writes, stderr)
+	}
+	const line = "claude-code: ask: flush output: fake write failure\n"
+	if code != 1 || strings.Count(stderr, line) != 1 {
+		t.Errorf("exit = %d, flush diagnostics = %d; want 1 and 1", code, strings.Count(stderr, line))
 	}
 }
