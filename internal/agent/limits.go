@@ -71,13 +71,13 @@ func claimLimitedRecord(ctx context.Context, name string, rec Record) (Record, e
 }
 
 func liveDispatchChildren(dir, parent string) int {
-	names, _ := recordNames(dir) // Unreadable records fail open, like dispatch history.
 	count := 0
-	for _, name := range names {
-		if rec, err := readRecord(filepath.Join(dir, name)); err == nil && rec.Parent == parent && rec.Alive() {
+	_ = eachRecent(dir, jsonToken(parent), func(rec Record) bool { // Unreadable records fail open, like dispatch history.
+		if rec.Parent == parent && rec.Alive() {
 			count++
 		}
-	}
+		return true
+	})
 	return count
 }
 
@@ -111,18 +111,10 @@ func dispatchTreeUsage(parent string) (string, int, int) {
 }
 
 func dispatchTreeRecords(root string) []Record {
-	dir := paths.DispatchDir()
-	names, _ := recordNames(dir) // Missing history cannot supply usage.
 	var records []Record
-	for _, name := range slices.Backward(names) {
-		rec, err := readRecord(filepath.Join(dir, name))
-		if err != nil {
-			continue
-		}
+	_ = eachRecent(paths.DispatchDir(), "", func(rec Record) bool { // Missing history cannot supply usage.
 		records = append(records, rec)
-		if rec.ID == root {
-			break
-		}
-	}
+		return rec.ID != root
+	})
 	return records
 }

@@ -29,7 +29,8 @@ const lostError = "lost: process gone"
 // runningDispatches lists live dispatch jobs machine-wide (every repo, any age), newest first.
 func runningDispatches(now time.Time) []Dispatch {
 	var dispatches []Dispatch
-	for _, rec := range agent.RecentRecords(agent.AllRecords) {
+	recs, _ := agent.RunningRecent(agent.AllRecords)
+	for _, rec := range recs {
 		if !rec.Alive() {
 			continue
 		}
@@ -86,7 +87,7 @@ func Reap(dryRun bool, out, errw io.Writer) int {
 	if dryRun {
 		verb = "would reap"
 	}
-	snapshot, err := agent.ReadRecent(agent.AllRecords)
+	snapshot, err := agent.RunningRecent(agent.AllRecords)
 	if err != nil {
 		fmt.Fprintln(errw, "agents cancel --lost:", err)
 		return 1

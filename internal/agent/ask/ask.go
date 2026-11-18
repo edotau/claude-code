@@ -383,7 +383,9 @@ func (r *askRun) resolveRecord() (int, bool) {
 		return rc, true
 	}
 	var err error
-	f.model = cmp.Or(f.model, agent.SessionModel(f.session)) // a resumed session keeps its model; a typed --model wins
+	if f.model == "" { // a resumed session keeps its model; a typed --model wins
+		f.model = agent.SessionModel(f.session)
+	}
 	if err := recordTools(f); err != nil {
 		return r.fail(err, 2)
 	}

@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bufio"
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -370,11 +371,16 @@ func activeRecord(path string) bool {
 
 // readRecord reads and unmarshals one record file by its full path.
 func readRecord(path string) (Record, error) {
-	var r Record
 	b, err := os.ReadFile(path)
-	if err == nil {
-		_, err = schemas.Decode(dispatchFormat, b, &r)
+	if err != nil {
+		return Record{}, err
 	}
+	return decodeRecord(b)
+}
+
+func decodeRecord(b []byte) (Record, error) {
+	var r Record
+	_, err := schemas.Decode(dispatchFormat, b, &r)
 	return r, err
 }
 
@@ -463,10 +469,10 @@ func SessionModel(session string) string {
 	if session == "" {
 		return ""
 	}
-	recs, _ := ReadRecent(AllRecords)
-	for _, r := range recs {
+	model := ""
+	_ = eachRecent(paths.DispatchDir(), jsonToken(session), func(r Record) bool {
 		if r.SessionID != session {
-			continue
+			return true
 		}
 		profile, invoked, pinned := strings.Cut(r.Invoked, ":")
 		if !pinned || r.Model == r.Invoked { // served as typed: a local tag such as qwen3:30b, no profile prefix
@@ -477,14 +483,15 @@ func SessionModel(session string) string {
 			m = invoked
 		}
 		if m == "" || strings.HasPrefix(m, "<") {
-			continue
+			return true
 		}
+		model = m
 		if profile != "" && r.RanAs == "" {
-			return profile + ":" + m
+			model = profile + ":" + m
 		}
-		return m
-	}
-	return ""
+		return false
+	})
+	return model
 }
 
 // AllRecords is RecentRecords' n for "every record": the log itself is capped by the dispatch keep.
@@ -497,16 +504,47 @@ func RecentRecords(n int) []Record {
 }
 
 // ReadRecent is RecentRecords that also returns an unreadable dispatch dir's error.
-func ReadRecent(n int) ([]Record, error) {
-	dir := paths.DispatchDir()
-	names, err := recordNames(dir)
+func ReadRecent(n int) ([]Record, error) { return ReadRecentWith(n, "") }
+
+// ReadRecentWith is ReadRecent over the records whose file bytes hold needle (see eachRecent).
+func ReadRecentWith(n int, needle string) ([]Record, error) {
+	if n < 1 {
+		return nil, nil
+	}
 	var out []Record
-	for i := len(names) - 1; i >= 0 && len(out) < n; i-- {
-		if r, err := readRecord(filepath.Join(dir, names[i])); err == nil {
-			out = append(out, r)
+	err := eachRecent(paths.DispatchDir(), needle, func(r Record) bool {
+		out = append(out, r)
+		return len(out) < n
+	})
+	return out, err
+}
+
+// RunningRecent is ReadRecentWith over the records whose bytes mention a running status; callers still check Status.
+func RunningRecent(n int) ([]Record, error) { return ReadRecentWith(n, inflight.RunningToken) }
+
+// jsonToken is s as the record writer encodes it, the bytes any record holding s as a field value must contain.
+func jsonToken(s string) string {
+	if s == "" {
+		return ""
+	}
+	b, _ := json.Marshal(s) // a string always marshals
+	return string(b)
+}
+
+// eachRecent calls fn newest first on each decodable record in dir holding needle (jsonToken, RunningToken, "" = all).
+func eachRecent(dir, needle string, fn func(Record) bool) error {
+	names, err := recordNames(dir)
+	probe := []byte(needle)
+	for i := len(names) - 1; i >= 0; i-- {
+		b, rerr := os.ReadFile(filepath.Join(dir, names[i]))
+		if rerr != nil || !bytes.Contains(b, probe) {
+			continue
+		}
+		if r, derr := decodeRecord(b); derr == nil && !fn(r) {
+			break
 		}
 	}
-	return out, err
+	return err
 }
 
 // RunRecordedOpts tunes runRecorded for the caller's stdout contract.

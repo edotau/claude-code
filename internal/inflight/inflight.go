@@ -3,6 +3,7 @@
 package inflight
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -91,6 +92,9 @@ func liveness(now time.Time) func(name string) bool {
 	}
 }
 
+// RunningToken is the status a dispatch record's bytes must hold to be alive; a prefilter, not a check.
+const RunningToken = `"running"`
+
 // DispatchAlive is the shared liveness rule for a dispatch record (status, pid, start time)
 func DispatchAlive(status string, pid int, t time.Time) bool {
 	if status != "running" {
@@ -174,7 +178,7 @@ func liveRecords(fn func(owner int, route string)) {
 			continue
 		}
 		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil {
+		if err != nil || !bytes.Contains(b, []byte(RunningToken)) {
 			continue
 		}
 		var r struct {

@@ -92,17 +92,17 @@ func TestListFiltersByAgentAndRepo(t *testing.T) {
 	mk("codex", "/repoB", time.Minute)
 	mk("gemini", "/repoA", 2*time.Minute)
 
-	got := list("codex", "/repoA", false)
+	got := list(context.Background(), "codex", "/repoA", "", false)
 	if len(got) != 1 || got[0].Repo != "/repoA" {
 		t.Fatalf("List(codex, /repoA, false) = %+v, want 1 record from /repoA", got)
 	}
 
-	gotAll := list("codex", "/repoA", true)
+	gotAll := list(context.Background(), "codex", "/repoA", "", true)
 	if len(gotAll) != 2 {
 		t.Fatalf("List(codex, /repoA, true) = %d records, want 2 (repo filter lifted)", len(gotAll))
 	}
 
-	gotOther := list("gemini", "/repoA", false)
+	gotOther := list(context.Background(), "gemini", "/repoA", "", false)
 	if len(gotOther) != 1 {
 		t.Fatalf("List(gemini, /repoA, false) = %d records, want 1", len(gotOther))
 	}
@@ -796,4 +796,30 @@ func TestCancelDetachedSplitReview(t *testing.T) {
 		t.Fatalf("cancelled review = %+v, want stopped and recorded cancellation", got)
 	}
 	assertSavedCancellation(t, rec.ID)
+}
+
+// Status with a ref decodes only the files it prefixes yet answers like the full-history resolution did.
+func TestStatusRefMatchesFullHistoryResolution(t *testing.T) {
+	setConfigDir(t)
+	base := time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)
+	for i, name := range []string{"codex", "codex", "claude"} {
+		fixtureRecord(t, NewRecord(name, RunOptions{Prompt: "p"}, base.Add(time.Duration(i)*time.Second)))
+	}
+	cwd := t.TempDir()
+	for _, ref := range []string{"20261024T120000.000-codex", "20261024T1200", "20261024T120002", "2026102", "nope"} {
+		var want []Record
+		for _, r := range RecentRecords(AllRecords) {
+			if r.Agent == "codex" {
+				want = append(want, r)
+			}
+		}
+		oracle, oerr := resolveRecord(want, ref, nil)
+		rows, err := Status(context.Background(), "codex", cwd, ref, false)
+		if (err == nil) != (oerr == nil) || err != nil && err.Error() != oerr.Error() {
+			t.Fatalf("ref %q: err = %v, want %v", ref, err, oerr)
+		}
+		if err == nil && (len(rows) != 1 || rows[0].ID != oracle.ID) {
+			t.Errorf("ref %q: rows = %v, want %s", ref, rows, oracle.ID)
+		}
+	}
 }

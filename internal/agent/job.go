@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"syscall"
@@ -73,17 +74,21 @@ func SpawnArgvContext(ctx context.Context, rec *Record, argv, env []string) erro
 	return nil
 }
 
-// list returns dispatch records for agentName, newest first; all=false keeps only Repo==repo.
-func list(agentName, repo string, all bool) []Record {
+// list is name's dispatch records, newest first; a ref decodes only the files it prefixes, else !all keeps Repo.
+func list(ctx context.Context, name, cwd, ref string, all bool) []Record {
+	repo := ""
+	if ref == "" && !all {
+		repo = RepoRoot(ctx, cwd)
+	}
 	var out []Record
-	for _, r := range RecentRecords(AllRecords) {
-		if r.Agent != agentName {
+	names, _ := recordNames(paths.DispatchDir())
+	for i := len(names) - 1; i >= 0; i-- {
+		if !strings.HasPrefix(names[i], ref) {
 			continue
 		}
-		if !all && r.Repo != repo {
-			continue
+		if r, err := readRecord(filepath.Join(paths.DispatchDir(), names[i])); err == nil && r.Agent == name && (ref != "" || all || r.Repo == repo) {
+			out = append(out, r)
 		}
-		out = append(out, r)
 	}
 	return out
 }
@@ -362,7 +367,7 @@ func Status(ctx context.Context, name, cwd, ref string, all bool) ([]Row, error)
 	if err := checkAgent(name); err != nil {
 		return nil, err
 	}
-	recs := list(name, RepoRoot(ctx, cwd), all || ref != "")
+	recs := list(ctx, name, cwd, ref, all)
 	if ref != "" {
 		rec, err := resolveRecord(recs, ref, nil)
 		if err != nil {
@@ -382,7 +387,7 @@ func resolveJob(ctx context.Context, name, cwd, ref string, pred func(Record) bo
 	if err := checkAgent(name); err != nil {
 		return Record{}, err
 	}
-	return resolveRecord(list(name, RepoRoot(ctx, cwd), ref != ""), ref, pred)
+	return resolveRecord(list(ctx, name, cwd, ref, false), ref, pred)
 }
 
 // ResolveJob is name's job ref (default: its newest job in cwd's repo), running or finished.
