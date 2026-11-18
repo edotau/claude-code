@@ -143,7 +143,9 @@ vendor CLI untouched.
   refused, `2>&1` is not; Read is denied on `state/vault.db`, `.credentials.json`, `.env` and `*.pem`, which also binds
   read-only Bash: a path spliced in by a substitution is denied, a comment cannot hide a command from the check, and
   `cd` and `echo` are not caught by it; no policy, binary or policy env refuses the launch. A dream whose gate refused
-  calls and edited nothing fails and retries in 6 h instead of stamping success.
+  calls and edited nothing fails and retries in 6 h instead of stamping success. Dream may also run
+  `claude-code plan task * --done --sha * --plan <plans>/*` and `… --strike * --plan <plans>/*` (`<plans>` the
+  checkout's plans home); `plan task *-reopen*`, `plan tick*` and Edit/Write under `plans/**` (update too) are denied.
 
 ## Codex child routing
 

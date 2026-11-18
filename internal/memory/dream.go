@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/transcript"
 )
 
@@ -201,6 +203,9 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 	if err != nil {
 		return err, archiveErr
 	}
+	plan := startPlanPhase(o.CWD)
+	prompt += plan.promptBlock()
+	defer plan.finish(o.Out)
 	ctx, cancel := context.WithTimeout(context.Background(), updateTimeout)
 	defer cancel()
 	// UpdateChildEnv keeps a fallback dispatch from re-triggering hooks; dreamChildEnv lets `memory promote` through
@@ -218,6 +223,75 @@ func dreamLocked(o dreamOptions) (runErr, archiveErr error) {
 		fmt.Fprintf(o.Out, "memory dream: the agent edited no bank file (%d changed since the last dream); see its reply\n", len(changed))
 	}
 	return err, archiveErr
+}
+
+// dreamPlans is the plan phase: the session checkout and its plans and citable evidence from before the run.
+type dreamPlans struct {
+	root   string
+	before plans.Snapshot
+	cite   plans.Cite
+}
+
+// startPlanPhase snapshots the checkout's plans; nil when cwd is no checkout or has no plans home.
+func startPlanPhase(cwd string) *dreamPlans {
+	top := GitToplevel(cwd)
+	if top == "" {
+		return nil
+	}
+	if _, err := os.Stat(plans.Home(top)); err != nil {
+		return nil
+	}
+	return &dreamPlans{root: top, before: plans.TakeSnapshot(top), cite: storeCites()}
+}
+
+// promptBlock is the open tasks the plan phase judges, as compact JSON; empty when no recent plan has one.
+func (d *dreamPlans) promptBlock() string {
+	if d == nil {
+		return ""
+	}
+	open := plans.OpenTasks(d.root)
+	b, err := json.Marshal(open)
+	if len(open) == 0 || err != nil {
+		return ""
+	}
+	return "\n\nOpen plan tasks: " + string(b) + "\n"
+}
+
+// finish re-checks every plan change made during the run and prints one line; it never fails the dream.
+func (d *dreamPlans) finish(out io.Writer) {
+	if d == nil {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), gitTimeout)
+	defer cancel()
+	rep, err := plans.RecheckJob(ctx, d.root, JobDream, d.before, d.cite)
+	if err == nil && len(rep.Kept)+len(rep.Reverted)+len(rep.Flagged) == 0 && !rep.TextChanged {
+		return
+	}
+	line := rep.Line()
+	if err != nil {
+		line += "; re-check stopped: " + strings.Join(strings.Fields(err.Error()), " ")
+	}
+	fmt.Fprintln(out, "memory dream:", line)
+}
+
+// storeCites is the evidence a strike may cite, read before the run so the job cannot cite what it wrote.
+func storeCites() plans.Cite {
+	ids := map[string]bool{}
+	logs := append([]string{Path("decisionLog.md")}, transcript.GlobIn(filepath.Join(StoreDir(), "archive"), "decisionLog*.md")...)
+	for _, f := range logs {
+		b, _ := os.ReadFile(f) // a missing log cites nothing
+		for _, m := range idMarker().FindAllStringSubmatch(string(b), -1) {
+			ids[m[1]] = true
+		}
+	}
+	notes := map[string]bool{}
+	for _, dir := range []string{"feedback", "notes"} {
+		for _, f := range transcript.GlobIn(filepath.Join(StoreDir(), dir), "*.md") {
+			notes[dir+"/"+filepath.Base(f)] = true
+		}
+	}
+	return func(kind, ref string) bool { return kind == "decision" && ids[ref] || kind == "note" && notes[ref] }
 }
 
 func stampDream(at time.Time, failed bool) error {

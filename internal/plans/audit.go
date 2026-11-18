@@ -7,11 +7,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"maps"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -23,6 +26,8 @@ const (
 	auditWriteCap = 20
 	auditLogKeep  = 1000
 	auditIDCells  = 48
+	// JobChangeCap is how many plan changes one judged job run may keep; later ones are reverted.
+	JobChangeCap = 10
 )
 
 // processPrefixes open the template's fixed closing steps (docs/templates/plan.md).
@@ -37,6 +42,8 @@ type Change struct {
 	Rule     string    `json:"rule"`
 	Evidence string    `json:"evidence"`
 	Reopen   string    `json:"reopen"`
+	Job      string    `json:"job,omitempty"`
+	Verdict  string    `json:"verdict,omitempty"`
 }
 
 // Finding is something the audit reports and never fixes.
@@ -413,3 +420,278 @@ func (r AuditReport) WriteText(w io.Writer) error {
 	_, err := fmt.Fprintf(w, "plans: audit %d plans: %s %d, %s %d, reported %d%s\n", r.Plans, verb["tick"], ticks, verb["strike"], strikes, len(r.Reported), tail)
 	return err
 }
+
+// OpenTask is one open task a judged job may close: its plan, id (else title), owns: and the plan's age in days.
+type OpenTask struct {
+	Plan  string   `json:"plan"`
+	ID    string   `json:"id"`
+	Title string   `json:"title,omitempty"`
+	Owns  []string `json:"owns,omitempty"`
+	Age   int      `json:"age"`
+}
+
+// OpenTasks lists the open tasks of root's recent plans that a judged job may close; Go owns the rest.
+func OpenTasks(root string) []OpenTask {
+	dated, _ := recentPlans(root)
+	var out []OpenTask
+	for _, d := range dated {
+		day, _ := time.ParseInLocation(time.DateOnly, filepath.Base(d.path)[:10], time.Local)
+		age := int(now().Sub(day).Hours() / 24)
+		for _, t := range d.plan.Tasks {
+			if !open(t) || !judgeable(t) {
+				continue
+			}
+			o := OpenTask{Plan: d.path, ID: cmp.Or(t.ID, t.Title), Owns: t.Owns, Age: age}
+			if t.ID != "" {
+				o.Title = t.Title
+				if loc := ownsKey().FindStringIndex(t.Title); loc != nil { // owns: rides in its own field
+					o.Title = strings.TrimRight(t.Title[:loc[0]], " —-")
+				}
+			}
+			out = append(out, o)
+		}
+	}
+	return out
+}
+
+// judgeable is a task a judged job may close: not the owner's, not claimed, not a template process step.
+func judgeable(t Task) bool {
+	return !strings.HasPrefix(t.Title, "**you**") && t.Claim == "" && !isProcessStep(t)
+}
+
+// Snapshot is every dated plan file in a plans home, by path.
+type Snapshot map[string][]byte
+
+// TakeSnapshot reads root's plans home; a file that cannot be read is left out.
+func TakeSnapshot(root string) Snapshot {
+	home := Home(root)
+	entries, _ := os.ReadDir(home) // no plans home is no plans
+	s := Snapshot{}
+	for _, e := range entries {
+		if !e.Type().IsRegular() || !datedName().MatchString(e.Name()) {
+			continue
+		}
+		if b, err := os.ReadFile(filepath.Join(home, e.Name())); err == nil {
+			s[filepath.Join(home, e.Name())] = b
+		}
+	}
+	return s
+}
+
+// Cite reports whether a strike's cited evidence exists: kind is "decision" (an id8) or "note" (a store path).
+type Cite func(kind, ref string) bool
+
+// JobReport is what RecheckJob kept, reverted and flagged; TextChanged means bytes outside task lines moved.
+type JobReport struct {
+	Kept, Reverted, Flagged []Change
+	TextChanged             bool
+}
+
+// taskEdit is one task whose lines a run changed: its states, the plan's lines before and its lines after.
+type taskEdit struct {
+	plan          string
+	before, after Task
+	lines, span   []string
+}
+
+func (e taskEdit) action() string {
+	switch {
+	case e.after.Done && !e.after.Dropped:
+		return "tick"
+	case e.after.Dropped && !e.after.Done:
+		return "strike"
+	}
+	return "edit"
+}
+
+// RecheckJob verifies every task a judged job closed since before; a failure is reopened, every verdict logged.
+func RecheckJob(ctx context.Context, root, job string, before Snapshot, cite Cite) (JobReport, error) {
+	var rep JobReport
+	edits, clean := planEdits(before, TakeSnapshot(root))
+	rep.TextChanged = !clean
+	trunk, _, _, terr := trunkBranch(ctx, root)
+	v := &verifier{ctx: ctx, root: root, trunk: "refs/heads/" + trunk, noTrunk: terr != nil, cite: cite}
+	for i, e := range edits {
+		var why string
+		switch {
+		case !clean:
+			why = "plan text outside task lines changed"
+		case i >= JobChangeCap:
+			why = fmt.Sprintf("over the cap of %d changes", JobChangeCap)
+		default:
+			why = v.verify(e)
+		}
+		if err := rep.settle(e, job, why); err != nil {
+			return rep, err
+		}
+	}
+	return rep, nil
+}
+
+// settle keeps, reopens or flags one edit and logs it with its verdict.
+func (r *JobReport) settle(e taskEdit, job, why string) error {
+	c := Change{Time: now().UTC(), Plan: e.plan, ID: cmp.Or(e.before.ID, e.before.Title), Action: e.action(), Rule: job, Job: job}
+	c.Evidence = e.after.Sha
+	if c.Action == "strike" {
+		c.Evidence = strikeReason(e.span)
+	}
+	switch {
+	case why == "":
+		c.Verdict, c.Reopen = "kept", reopenCmd(c.Plan, c.ID)
+		r.Kept = append(r.Kept, c)
+	case open(e.before):
+		c.Verdict = "reverted: " + why
+		if err := Reopen(e.plan, c.ID); err != nil {
+			return err
+		}
+		r.Reverted = append(r.Reverted, c)
+	default: // a closed task changed: no verb restores it, so the owner decides
+		c.Verdict = "flagged: " + why
+		r.Flagged = append(r.Flagged, c)
+	}
+	return appendAuditLog(c)
+}
+
+// Line is the job's one-line plan outcome.
+func (r JobReport) Line() string {
+	s := fmt.Sprintf("plans: kept %d, reverted %d, flagged %d", len(r.Kept), len(r.Reverted), len(r.Flagged))
+	if len(r.Reverted) > 0 {
+		s += fmt.Sprintf(" (first: %s: %s)", textutil.CapRunes(r.Reverted[0].ID, auditIDCells, "…"), r.Reverted[0].Verdict)
+	}
+	if r.TextChanged {
+		s += "; plan text outside task lines changed"
+	}
+	return s
+}
+
+// planEdits pairs each plan's tasks before and after a run; clean is false when bytes outside task lines changed.
+func planEdits(before, after Snapshot) (edits []taskEdit, clean bool) {
+	clean = true
+	for _, p := range slices.Sorted(maps.Keys(before)) {
+		a, ok := after[p]
+		if !ok || bytes.Equal(before[p], a) { // a verb never deletes a plan
+			continue
+		}
+		e, same := fileEdits(p, before[p], a)
+		edits, clean = append(edits, e...), clean && same
+	}
+	return edits, clean
+}
+
+// fileEdits lists the tasks whose box state changed or that were closed before; same reports untouched other text.
+func fileEdits(p string, b, a []byte) (edits []taskEdit, same bool) {
+	pb, pa := parseBytes(p, b), parseBytes(p, a)
+	lb, la := strings.Split(string(b), "\n"), strings.Split(string(a), "\n")
+	paired := len(pb.Tasks) == len(pa.Tasks)
+	same = paired
+	gb, ga := 0, 0
+	for i, tb := range pb.Tasks {
+		ta, ok := Task{}, false
+		if paired {
+			ta, ok = pa.Tasks[i], true
+			same = same && slices.Equal(lb[gb:tb.Start], la[ga:ta.Start])
+			gb, ga = tb.End+1, ta.End+1
+		} else {
+			ta, ok = findTask(pa, cmp.Or(tb.ID, tb.Title))
+		}
+		span := la[ta.Start : ta.End+1]
+		if !ok || slices.Equal(lb[tb.Start:tb.End+1], span) || open(tb) && open(ta) { // a claim is no box change
+			continue
+		}
+		edits = append(edits, taskEdit{p, tb, ta, lb, span})
+	}
+	return edits, same && slices.Equal(lb[gb:], la[ga:])
+}
+
+type verifier struct {
+	ctx         context.Context
+	root, trunk string
+	noTrunk     bool
+	cite        Cite
+}
+
+// verify is why edit e fails, "" when it stands.
+func (v *verifier) verify(e taskEdit) string {
+	b := e.before
+	switch {
+	case !open(b):
+		return "the task was already closed"
+	case strings.HasPrefix(b.Title, "**you**"):
+		return "an owner step"
+	case b.Claim != "":
+		return "a claimed task"
+	case isProcessStep(b):
+		return "a process step"
+	}
+	switch e.action() {
+	case "tick":
+		return v.tick(e)
+	case "strike":
+		return v.strike(e)
+	}
+	return "not a tick or a strike"
+}
+
+// tick holds when only the box and a sha changed, and the sha is on trunk touching one of the task's owns:.
+func (v *verifier) tick(e taskEdit) string {
+	sha := e.after.Sha
+	want := markDone(slices.Clone(e.lines), e.before, sha)[e.before.Start : e.before.End+1]
+	switch {
+	case sha == "":
+		return "no --sha"
+	case !slices.Equal(want, e.span):
+		return "the task text changed beyond its box"
+	case len(e.before.Owns) == 0:
+		return "the task has no owns: to prove"
+	case !v.onTrunk(sha):
+		return "sha is not on the trunk branch"
+	}
+	c, err := readCommit(v.ctx, v.root, sha)
+	if _, touches := covers(v.root, e.before.Owns, c.Files); err != nil || !touches {
+		return "sha touches none of the task's owns:"
+	}
+	return ""
+}
+
+var citeRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`\b(decision|commit|note):([^\s|,;]+)`) })
+
+// strike holds when only the strike changed the task and every evidence cite exists.
+func (v *verifier) strike(e taskEdit) string {
+	reason := strikeReason(e.span)
+	want := struckLines(removeNotes(slices.Clone(e.lines), e.before)[e.before.Start:e.before.End+1], reason)
+	if reason == "" || !slices.Equal(want, e.span) {
+		return "the task text changed beyond its strike"
+	}
+	_, ev, found := strings.Cut(reason, "evidence:")
+	cites := citeRe().FindAllStringSubmatch(ev, -1)
+	if !found || len(cites) == 0 {
+		return "no evidence: decision:|commit:|note: cite"
+	}
+	for _, c := range cites {
+		if c[1] == "commit" && !v.onTrunk(c[2]) || c[1] != "commit" && (v.cite == nil || !v.cite(c[1], c[2])) {
+			return "evidence " + c[0] + " not found"
+		}
+	}
+	return ""
+}
+
+// strikeReason is the reason Strike appended to a struck task's lines.
+func strikeReason(span []string) string {
+	var words []string
+	for _, l := range span {
+		words = append(words, strings.Fields(l)...)
+	}
+	_, reason, _ := strings.Cut(strings.Join(words, " "), "~~ — superseded: ")
+	return reason
+}
+
+// onTrunk reports whether sha (hex only, so never a flag) is in the trunk branch's history.
+func (v *verifier) onTrunk(sha string) bool {
+	if v.noTrunk || !shaHex().MatchString(sha) {
+		return false
+	}
+	_, err := proc.RunGitInherit(v.ctx, v.root, "merge-base", "--is-ancestor", sha, v.trunk)
+	return err == nil
+}
+
+var shaHex = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9a-f]{7,40}$`) })

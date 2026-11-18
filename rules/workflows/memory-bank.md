@@ -171,7 +171,10 @@ The loader reads the whole generated file. Past a `fileCaps` limit `memory dream
   If the permission gate refused writes and no bank file changed it reruns once; a second miss records status
   `blocked` (no retry, no Stop block) with one quiet line.
 - `memory dream` — consolidates (on Claude, the logged-in user): baseline → audit → recent sessions → prune native
-  memory → refresh bank → cross-pollinate → report; archives durable-file overflow. It never edits `rules/**`; its only
+  memory → refresh bank → plans audit → cross-pollinate → report; archives durable-file overflow. The plans audit
+  ticks or strikes at most 10 open tasks of week-old plans through `plan task`; Go re-checks each after the run
+  (sha on trunk touching an `owns:` file, cited evidence in the store), reopens what fails and logs every verdict to
+  `state/harness/memory/plans-audit.jsonl`. It never edits `rules/**`; its only
   `CLAUDE.md` edit is a block `promote --to claude-md` printed in its own run. Native memory edits never touch a
   `<!-- RULES:BEGIN -->`…`<!-- RULES:END -->` region without human approval (guard in `internal/memory/bank_fmt.go`).
   Its input is the top-level, `feedback/` and `notes/` files changed since the last dream. It also rewrites

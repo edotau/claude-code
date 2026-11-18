@@ -2,6 +2,7 @@ package plans
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -97,5 +98,55 @@ func TestAuditStrikesProcessStepsOfAStruckPlan(t *testing.T) {
 	got, err := Audit(context.Background(), repo, false)
 	if err != nil || len(got.Changed) != 2 || strings.Count(readFile(t, plan), "~~ — superseded: plan closed: every build task struck") != 2 {
 		t.Fatalf("closing steps strike with the reason: %+v %v\n%s", got.Changed, err, readFile(t, plan))
+	}
+}
+
+// A judged run's strike with no found cite or of a claimed task is reopened; a prose edit reverts every change.
+func TestRecheckJobRevertsUnprovenStrikes(t *testing.T) {
+	hermetic(t)
+	repo := gitRepo(t, "main")
+	plan := filepath.Join(Home(repo), "2026-10-05-j.md")
+	writeFile(t, plan, "# J\n\n- [ ] 1.1 One\n- [ ] 1.2 Two <!-- working: x -->\n- [ ] 1.3 Three\n")
+	cite := func(kind, ref string) bool { return kind == "decision" && ref == "ab12cd34" }
+	strike := func(id, why string) {
+		if err := Strike(plan, id, why); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before := TakeSnapshot(repo)
+	strike("1.1", "x — evidence: decision:deadbeef")
+	strike("1.2", "x — evidence: decision:ab12cd34")
+	strike("1.3", "x — evidence: decision:ab12cd34")
+	rep, err := RecheckJob(context.Background(), repo, "dream", before, cite)
+	if got := readFile(t, plan); err != nil || len(rep.Reverted) != 2 || len(rep.Kept) != 1 || strings.Count(got, "~~") != 2 {
+		t.Fatalf("kept %d reverted %d err %v:\n%s", len(rep.Kept), len(rep.Reverted), err, got)
+	}
+	before = TakeSnapshot(repo)
+	writeFile(t, plan, strings.Replace(readFile(t, plan), "# J", "# J edited", 1))
+	strike("1.1", "x — evidence: decision:ab12cd34")
+	if rep, _ = RecheckJob(context.Background(), repo, "dream", before, cite); !rep.TextChanged || len(rep.Reverted) != 1 {
+		t.Fatalf("a prose edit must revert the run's changes: %+v", rep)
+	}
+}
+
+// A judged run keeps at most JobChangeCap changes, in plan order; the rest are reopened.
+func TestRecheckJobCapsChanges(t *testing.T) {
+	hermetic(t)
+	repo := gitRepo(t, "main")
+	plan := filepath.Join(Home(repo), "2026-10-05-k.md")
+	var body strings.Builder
+	for i := range JobChangeCap + 1 {
+		fmt.Fprintf(&body, "- [ ] 1.%d Task\n", i+1)
+	}
+	writeFile(t, plan, body.String())
+	before := TakeSnapshot(repo)
+	for i := range JobChangeCap + 1 {
+		if err := Strike(plan, fmt.Sprintf("1.%d", i+1), "x — evidence: note:notes/a.md"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	rep, err := RecheckJob(context.Background(), repo, "dream", before, func(string, string) bool { return true })
+	if err != nil || len(rep.Kept) != JobChangeCap || len(rep.Reverted) != 1 || rep.Reverted[0].ID != fmt.Sprintf("1.%d", JobChangeCap+1) {
+		t.Fatalf("kept %d reverted %+v err %v", len(rep.Kept), rep.Reverted, err)
 	}
 }
