@@ -68,9 +68,86 @@
         "-uno", "-uall", "--"]
     }
   },
+  "pure_readers": {
+    "purpose": "commands that read, filter or copy their input and never run it (not awk, mysql or sed without -n)",
+    "words": ["cat", "tee", "wc", "grep", "egrep", "fgrep", "rg", "head", "tail", "sort", "uniq", "jq", "tr", "base64",
+      "pbcopy", "diff", "gh"]
+  },
+  "evaluators": {
+    "purpose": "commands that read text as code: a string, a file or stdin, besides shells and interpreters (X4)",
+    "words": ["eval", "source", ".", "su", "script", "flock", "ssh"]
+  },
+  "run_arg_commands": {
+    "purpose": "commands that run an argument as a command line or script, besides shells (X8: no parallel)",
+    "words": ["eval", "source", ".", "xargs", "watch", "su", "script", "flock"]
+  },
+  "inert_commands": {
+    "purpose": "commands that print or search their arguments: a git-looking string there is text (X7)",
+    "words": ["echo", "printf", "grep", "egrep", "fgrep", "rg", "ag", "cat", "tee", "head", "tail", "sed", "awk", "jq",
+      "gh"]
+  },
+  "inert_harness_verbs": {
+    "purpose": "claude-code verbs whose arguments are search terms, facts or PR text, never run",
+    "words": ["memory recall", "memory search", "memory remember", "network websearch", "scm pr", "scm comment"]
+  },
+  "runner_value_flags": {
+    "purpose": "xargs, parallel and watch options whose value is the next word",
+    "words": ["-n", "-I", "-L", "-P", "-s", "-d", "-E", "-a", "-j"]
+  },
+  "go_run_value_flags": {
+    "purpose": "go run options whose value is the next word",
+    "words": ["-C", "-exec", "-gcflags", "-ldflags", "-mod", "-o", "-p", "-tags"]
+  },
+  "rtk_runner_subcommands": {
+    "purpose": "rtk subcommands that run the command after them; the others are the command",
+    "words": ["err", "test", "summary", "bypass", "proxy", "run"]
+  },
+  "c_string_commands": {
+    "purpose": "commands that run the string after their -c flag through a shell",
+    "words": ["su", "script", "flock"]
+  },
   "git_path_flags": {
     "purpose": "git flags, abbreviations too, whose value is a file git reads",
     "words": ["--contents", "--ignore-revs-file"]
+  },
+  "agent_launchers": {
+    "purpose": "agent launcher binaries a dispatch-variable tamper check follows into",
+    "words": ["claude-code", "claude", "codex", "copilot", "gemini", "agy", "opencode"]
+  },
+  "shell_declarers": {
+    "purpose": "builtins that declare or export a variable (drift X9: the mktemp rule names three)",
+    "words": ["export", "declare", "typeset", "readonly", "local"]
+  },
+  "kube_value_flags": {
+    "purpose": "kubectl and oc flags that take a value: the next word, =value, or attached to a short flag",
+    "words": ["-n", "--namespace", "--context", "--cluster", "--kubeconfig", "-s", "--server", "--user", "--token",
+      "--as", "--as-group", "--as-uid", "--cache-dir", "--certificate-authority", "--client-certificate",
+      "--client-key", "--request-timeout", "--tls-server-name", "-v", "--v", "--vmodule", "--username", "--password",
+      "-c", "--container", "-l", "--selector", "-f", "--filename", "-o", "--output"]
+  },
+  "kube_prod_flags": {
+    "purpose": "kubectl and oc flags whose value names the target cluster or namespace",
+    "words": ["-n", "--namespace", "--context", "--cluster", "--kubeconfig", "-s", "--server"]
+  },
+  "kube_namespace_kinds": {
+    "purpose": "resource kinds that name a namespace or an OpenShift project",
+    "words": ["namespace", "namespaces", "ns", "project", "projects"]
+  },
+  "reserved_make_targets": {
+    "purpose": "make targets that write or ship the harness tree (build runs install, fmt and audit)",
+    "words": ["audit", "install", "fmt", "build", "verify", "bootstrap", "adopt"]
+  },
+  "install_make_targets": {
+    "purpose": "make targets that replace the live install, refused from a harness worktree too",
+    "words": ["install", "build", "bootstrap", "adopt"]
+  },
+  "git_push_value_flags": {
+    "purpose": "git push options whose value is the next word, neither the remote nor a refspec",
+    "words": ["-o", "--push-option", "--repo", "--receive-pack", "--exec"]
+  },
+  "pipe_filters": {
+    "purpose": "commands that only read stdin and print it: none runs, writes or forwards its input",
+    "words": ["head", "tail", "wc", "cut", "tr", "grep", "rg", "jq"]
   },
   "data_commands": {
     "purpose": "commands that only print, search, store or hand on their words as text; none runs them",

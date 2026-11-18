@@ -299,8 +299,10 @@ var (
 )
 
 type walkerSets struct {
-	keywords, shells, wrappers, operands, gitValueOpts, gitBuiltins map[string]bool
-	wrapperValueFlags                                               map[string]map[string]bool
+	keywords, shells, wrappers, operands, gitValueOpts, gitBuiltins            map[string]bool
+	pureReaders, evaluators, runArgs, inert, inertHarness, rtkRunners, cString map[string]bool
+	wrapperValueFlags                                                          map[string]map[string]bool
+	execFlags, runnerValueFlags, goRunValueFlags                               []string
 }
 
 func loadWalker() {
@@ -308,6 +310,11 @@ func loadWalker() {
 		keywords: GuardSet("shell_keywords"), shells: GuardSet("shell_names"), wrappers: GuardSet("wrapper_names"),
 		operands: GuardSet("wrapper_operand_commands"), gitValueOpts: GuardSet("git_global_value_flags"),
 		gitBuiltins: GuardSet("git_alias_proof_verbs"), wrapperValueFlags: GuardToolSets("wrapper_value_flags"),
+		pureReaders: GuardSet("pure_readers"), evaluators: GuardSet("evaluators"), runArgs: GuardSet("run_arg_commands"),
+		inert: GuardSet("inert_commands"), inertHarness: GuardSet("inert_harness_verbs"),
+		rtkRunners: GuardSet("rtk_runner_subcommands"), cString: GuardSet("c_string_commands"),
+		execFlags: GuardWords("find_exec_flags"), runnerValueFlags: GuardWords("runner_value_flags"),
+		goRunValueFlags: GuardWords("go_run_value_flags"),
 	}
 }
 

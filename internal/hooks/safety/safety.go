@@ -272,7 +272,7 @@ func askPatternVerdict(in *core.Input, cmd string) (core.Decision, string, strin
 }
 
 // bannedGitVerbs are the tree-writing verbs hard rule 4 bans inside the shared config checkout.
-var bannedGitVerbs = map[string]bool{"stash": true, "checkout": true, "reset": true, "restore": true, "clean": true, "switch": true}
+var bannedGitVerbs = sync.OnceValue(func() map[string]bool { return shell.GuardSet("git_shared_tree_banned_verbs") })
 
 // harnessGitVerb is the first banned verb, or shell.Uninspectable, whose target tree is under the config dir.
 func harnessGitVerb(cmd, cwd string) string {
@@ -395,7 +395,7 @@ func runsGit(text string) bool {
 func bannedGit(verb string, args []string) bool {
 	readOnly := verb == "stash" && len(args) > 0 && (args[0] == "list" || args[0] == "show") ||
 		verb == "clean" && cleanDryRun(args) || harmlessGit(verb, args)
-	return (bannedGitVerbs[verb] || verb == shell.Uninspectable) && !readOnly
+	return (bannedGitVerbs()[verb] || verb == shell.Uninspectable) && !readOnly
 }
 
 // cleanDryRun reports a git clean given -n/--dry-run, which removes nothing, and not -i, which prompts to delete.
@@ -522,7 +522,7 @@ func shellFeed(segs, seps []string, i int) (end int, texts []string, ok bool) {
 		switch {
 		case stdinShell(rest):
 			return k + 1, texts, true
-		case len(rest) == 0 || !pipeFilters[rest[0]] && rest[0] != "cat" || !inertEcho(rest):
+		case len(rest) == 0 || !pipeFilters()[rest[0]] && rest[0] != "cat" || !inertEcho(rest):
 			return 0, nil, false
 		}
 	}
@@ -531,7 +531,7 @@ func shellFeed(segs, seps []string, i int) (end int, texts []string, ok bool) {
 
 // stdinShell reports sh/bash/zsh/dash/ksh given only flags and no -c string: it runs the commands on its stdin.
 func stdinShell(toks []string) bool {
-	if len(toks) == 0 || !slices.Contains([]string{"sh", "bash", "zsh", "dash", "ksh"}, filepath.Base(toks[0])) {
+	if len(toks) == 0 || !shellNames()[filepath.Base(toks[0])] {
 		return false
 	}
 	return !slices.ContainsFunc(toks[1:], func(t string) bool {
@@ -710,14 +710,14 @@ func forcesPush(args []string) bool {
 }
 
 // pushValueFlags take their value as the next word, which is neither the remote nor a refspec.
-var pushValueFlags = []string{"-o", "--push-option", "--repo", "--receive-pack", "--exec"}
+var pushValueFlags = sync.OnceValue(func() []string { return shell.GuardWords("git_push_value_flags") })
 
 // impliedRefspec reports a push whose words are at most a remote and HEAD, so it updates the checked-out branch.
 func impliedRefspec(args []string) bool {
 	var words []string
 	for i := 0; i < len(args); i++ {
 		switch {
-		case slices.Contains(pushValueFlags, args[i]):
+		case slices.Contains(pushValueFlags(), args[i]):
 			i++
 		case !strings.HasPrefix(args[i], "-"):
 			words = append(words, args[i])
@@ -795,14 +795,13 @@ func blankInert(cmd string) string {
 }
 
 // pipeFilters only read stdin and print it: none runs, writes or forwards its input.
-var pipeFilters = map[string]bool{"head": true, "tail": true, "wc": true, "cut": true, "tr": true, "grep": true,
-	"rg": true, "jq": true}
+var pipeFilters = sync.OnceValue(func() map[string]bool { return shell.GuardSet("pipe_filters") })
 
 // filtersOnly reports a pipeline from segs[from] on made only of pipeFilters with no redirect, ending at the terminal.
 func filtersOnly(segs, seps []string, from int) bool {
 	for k := from; k < len(segs); k++ {
 		toks := shell.Tokens(segs[k])
-		if len(toks) == 0 || !pipeFilters[toks[0]] || !inertEcho(toks) || !inertGrep(toks) {
+		if len(toks) == 0 || !pipeFilters()[toks[0]] || !inertEcho(toks) || !inertGrep(toks) {
 			return false
 		}
 		if seps[k] != "|" && seps[k] != "|&" {

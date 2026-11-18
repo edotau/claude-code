@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
@@ -18,14 +19,22 @@ const wipeName = "every variable (env -i)"
 var (
 	dispatchVarName = regexp.MustCompile(`^HARNESS_DISPATCH_[A-Z_]+$`)
 	dispatchName    = regexp.MustCompile(`HARNESS_DISPATCH_\w*`)
-	launchers       = []string{"claude-code", "claude", "codex", "copilot", "gemini", "agy", "opencode"}
-	declarers       = []string{"export", "declare", "typeset", "readonly", "local"}
 	dispatchAlias   = regexp.MustCompile(`(?:^|[\s;&|(])([A-Za-z_]\w*)=["']?(HARNESS_DISPATCH\w*)`)
 )
 
 // tamperPhrase is an unset, declare or `env -u` of a dispatch variable, or an assignment to one, in unquoted text.
-var tamperPhrase = regexp.MustCompile(`(?:^|[^\w./-])(?:(?:unset|export|declare|typeset|readonly|local)\s(?:[^;&|\n]*?[\s=,{])?` +
-	`|env\s(?:[^;&|\n]*?\s)?(?:-u\s*|--unset[=\s]?))HARNESS_DISPATCH_\w*|(?:^|[^\w$.{/-])HARNESS_DISPATCH_\w*=`)
+var tamperPhrase = sync.OnceValue(func() *regexp.Regexp {
+	unsetters := strings.Join(append([]string{"unset"}, declarers()...), "|")
+	return regexp.MustCompile(`(?:^|[^\w./-])(?:(?:` + unsetters + `)\s(?:[^;&|\n]*?[\s=,{])?` +
+		`|env\s(?:[^;&|\n]*?\s)?(?:-u\s*|--unset[=\s]?))HARNESS_DISPATCH_\w*|(?:^|[^\w$.{/-])HARNESS_DISPATCH_\w*=`)
+})
+
+var (
+	launchers  = sync.OnceValue(func() []string { return shell.GuardWords("agent_launchers") })
+	declarers  = sync.OnceValue(func() []string { return shell.GuardWords("shell_declarers") })
+	kubeCLIs   = sync.OnceValue(func() map[string]bool { return shell.GuardSet("kube_clis") })
+	shellNames = sync.OnceValue(func() map[string]bool { return shell.GuardSet("shell_names") })
+)
 
 // unquoted drops shell quoting and backslashes, so `HARNESS\_DISPATCH_"ID"` reads as the name it is.
 var unquoted = strings.NewReplacer(`\n`, " ", `\t`, " ", `\`, "", `'`, "", `"`, "")
@@ -45,7 +54,7 @@ func dispatchTamper(in *core.Input) string {
 	aliases := dispatchAliases(cmd)
 	for _, text := range shell.EvaluatedText(cmd, in.CWD) { // text an evaluator runs, however it reaches it
 		text = os.Expand(text, func(k string) string { return cmp.Or(aliases[k], "$"+k) })
-		if m := tamperPhrase.FindString(unquoted.Replace(text)); m != "" {
+		if m := tamperPhrase().FindString(unquoted.Replace(text)); m != "" {
 			return dispatchName.FindString(m)
 		}
 	}
@@ -109,7 +118,7 @@ func startTamper(words []string) string {
 		if n := envTamper(cmd[1:]); n != "" {
 			return n
 		}
-	case slices.Contains(declarers, name):
+	case slices.Contains(declarers(), name):
 		return declareTamper(cmd[1:])
 	}
 	return ""
@@ -201,7 +210,7 @@ func runsLauncher(args []string, depth int) bool {
 	if len(rest) > 0 && rest[0] == "-" {
 		rest = rest[1:]
 	}
-	if len(rest) > 0 && slices.Contains(launchers, filepath.Base(rest[0])) {
+	if len(rest) > 0 && slices.Contains(launchers(), filepath.Base(rest[0])) {
 		return true
 	}
 	text, ok := shell.NestedCommand(rest)
@@ -211,7 +220,7 @@ func runsLauncher(args []string, depth int) bool {
 	segs, _ := shell.SegmentsSep(text)
 	for _, seg := range segs {
 		for _, st := range shell.CommandStarts(shell.Tokens(seg)) {
-			if w := skipAssign(st); len(w) > 0 && (slices.Contains(launchers, filepath.Base(w[0])) || runsLauncher(w, depth+1)) {
+			if w := skipAssign(st); len(w) > 0 && (slices.Contains(launchers(), filepath.Base(w[0])) || runsLauncher(w, depth+1)) {
 				return true
 			}
 		}
@@ -264,7 +273,7 @@ func mainOnlyHit(in *core.Input, cmd string) *mainOnly {
 		case name == "claude-code" && isLeaf(in) && shell.SecretFlag(shell.HarnessArgs(w)):
 			hit = &mainOnly{"prints a credential's value (--secret)",
 				"A leaf gets credentials at launch: report the vault entry name you need to the main session."}
-		case (name == "kubectl" || name == "oc") && prodChange(w, cmd):
+		case kubeCLIs()[name] && prodChange(w, cmd):
 			hit = &mainOnly{"runs exec/delete against a production cluster",
 				"The main session runs production changes after the owner approves."}
 		case (name == "make" || name == "gmake") && isLeaf(in) && reservedMake(w, dir):
@@ -283,12 +292,9 @@ func vaultKey(h []string) bool {
 
 // kubeValueFlags take a value (next word, `=`, or attached to a short flag); kubeProdFlags' values name the target.
 var (
-	kubeValueFlags = []string{"-n", "--namespace", "--context", "--cluster", "--kubeconfig", "-s", "--server", "--user",
-		"--token", "--as", "--as-group", "--as-uid", "--cache-dir", "--certificate-authority", "--client-certificate",
-		"--client-key", "--request-timeout", "--tls-server-name", "-v", "--v", "--vmodule", "--username", "--password",
-		"-c", "--container", "-l", "--selector", "-f", "--filename", "-o", "--output"}
-	kubeProdFlags      = []string{"-n", "--namespace", "--context", "--cluster", "--kubeconfig", "-s", "--server"}
-	kubeNamespaceKinds = []string{"namespace", "namespaces", "ns", "project", "projects"}
+	kubeValueFlags     = sync.OnceValue(func() []string { return shell.GuardWords("kube_value_flags") })
+	kubeProdFlags      = sync.OnceValue(func() []string { return shell.GuardWords("kube_prod_flags") })
+	kubeNamespaceKinds = sync.OnceValue(func() []string { return shell.GuardWords("kube_namespace_kinds") })
 	envWord            = regexp.MustCompile(`(?:^|\s)ENV=(\S+)`)
 	kubeconfigWord     = regexp.MustCompile(`(?:^|[\s;&|(])KUBECONFIG=(\S+)`)
 	useContext         = regexp.MustCompile(`\b(?:config\s+use-context|oc\s+project)\s+(\S+)`)
@@ -317,7 +323,7 @@ func prodChange(w []string, cmd string) bool {
 // prodValues are the names a kubectl/oc command targets: flags, ENV=, KUBECONFIG=, use-context, a namespace.
 func prodValues(w []string, cmd string, flags map[string][]string, args []string) []string {
 	var values, remote []string
-	for _, f := range kubeProdFlags {
+	for _, f := range kubeProdFlags() {
 		values = append(values, flags[f]...)
 	}
 	if i := slices.Index(w, "--"); i >= 0 {
@@ -335,7 +341,7 @@ func prodValues(w []string, cmd string, flags map[string][]string, args []string
 	}
 	kind, name, slash := strings.Cut(args[0], "/")
 	switch {
-	case !slices.Contains(kubeNamespaceKinds, kind):
+	case !slices.Contains(kubeNamespaceKinds(), kind):
 	case slash:
 		values = append(values, name)
 	default:
@@ -349,7 +355,7 @@ func kubeArgs(w []string) (verb string, flags map[string][]string, args []string
 	flags = map[string][]string{}
 	for i := 1; i < len(w) && w[i] != "--"; i++ {
 		flag, val, has := strings.Cut(w[i], "=")
-		if len(flag) > 2 && flag[0] == '-' && flag[1] != '-' && slices.Contains(kubeValueFlags, flag[:2]) {
+		if len(flag) > 2 && flag[0] == '-' && flag[1] != '-' && slices.Contains(kubeValueFlags(), flag[:2]) {
 			flag, val, has = flag[:2], w[i][2:], true // -nprod
 		}
 		switch {
@@ -357,7 +363,7 @@ func kubeArgs(w []string) (verb string, flags map[string][]string, args []string
 			verb = w[i]
 		case !strings.HasPrefix(flag, "-"):
 			args = append(args, w[i])
-		case !slices.Contains(kubeValueFlags, flag):
+		case !slices.Contains(kubeValueFlags(), flag):
 		case !has && i+1 < len(w):
 			i, val = i+1, w[i+1]
 			fallthrough
@@ -392,10 +398,10 @@ func currentContext(path string) string {
 }
 
 // reservedMakeTargets write or ship the tree (Makefile: build runs install+fmt+audit, verify audit, bootstrap install).
-var reservedMakeTargets = []string{"audit", "install", "fmt", "build", "verify", "bootstrap", "adopt"}
+var reservedMakeTargets = sync.OnceValue(func() []string { return shell.GuardWords("reserved_make_targets") })
 
 // installTargets replace the live install, so a leaf may not run them from a linked worktree of the harness either.
-var installTargets = []string{"install", "build", "bootstrap", "adopt"}
+var installTargets = sync.OnceValue(func() []string { return shell.GuardWords("install_make_targets") })
 
 // reservedMake reports a reserved target (or a fixing `lint-<kind>`) whose make dir is the harness tree.
 func reservedMake(w []string, dir string) bool {
@@ -403,8 +409,8 @@ func reservedMake(w []string, dir string) bool {
 	harness := shell.UnknownDir(dir) || paths.InsideDir(dir, paths.ConfigDir())
 	for _, t := range targets {
 		lintFix := strings.HasPrefix(t, "lint-") && !check // lint-<kind> fixes files unless CHECK=1
-		if harness && (slices.Contains(reservedMakeTargets, t) || lintFix) ||
-			slices.Contains(installTargets, t) && harnessWorktree(dir) {
+		if harness && (slices.Contains(reservedMakeTargets(), t) || lintFix) ||
+			slices.Contains(installTargets(), t) && harnessWorktree(dir) {
 			return true
 		}
 	}

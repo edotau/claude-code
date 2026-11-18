@@ -245,9 +245,7 @@ func heredocDelim(toks []string) (string, bool) {
 }
 
 // pureReaders read, filter or copy their input and never run it (not awk, mysql, sed without -n); readOnly checks tee.
-var pureReaders = map[string]bool{"cat": true, "tee": true, "wc": true, "grep": true, "egrep": true, "fgrep": true,
-	"rg": true, "head": true, "tail": true, "sort": true, "uniq": true, "jq": true, "tr": true, "base64": true,
-	"pbcopy": true, "diff": true, "gh": true}
+func pureReaders() map[string]bool { walkerOnce.Do(loadWalker); return walker.pureReaders }
 
 // pureReader reports a pureReaders command, `sed -n` with no `e` in its script, or `git commit|tag -F -`.
 func pureReader(toks []string) bool {
@@ -264,7 +262,7 @@ func pureReader(toks []string) bool {
 		}
 		return false
 	}
-	return pureReaders[filepath.Base(toks[0])]
+	return pureReaders()[filepath.Base(toks[0])]
 }
 
 // readOnly reports segment j's pipeline as pure readers, and no file they write run by a later segment.
@@ -324,8 +322,7 @@ func pathPieces(t string) []string {
 }
 
 // evaluators read text as code: a string, a file or stdin; shells and interpreterName count too.
-var evaluators = map[string]bool{"eval": true, "source": true, ".": true, "su": true, "script": true, "flock": true,
-	"ssh": true}
+func evaluators() map[string]bool { walkerOnce.Do(loadWalker); return walker.evaluators }
 
 // interpreterName is an interpreter's base name with an optional version: python3.12, pypy3, node, bun, deno, php5.
 var interpreterName = regexp.MustCompile(`^(?:python|pypy|perl|ruby|node|nodejs|bun|deno|php|lua|luajit|fish|tclsh|` +
@@ -334,7 +331,7 @@ var interpreterName = regexp.MustCompile(`^(?:python|pypy|perl|ruby|node|nodejs|
 // evaluator reports a command word that reads text as code, or a dynamic one (`$CMD`, `$(…)`) whose text is unknown.
 func evaluator(word string) bool {
 	name := filepath.Base(word)
-	return evaluators[name] || shellWrapperNames()[name] || interpreterName.MatchString(name) ||
+	return evaluators()[name] || shellWrapperNames()[name] || interpreterName.MatchString(name) ||
 		strings.HasPrefix(word, "$") || strings.HasPrefix(word, "`")
 }
 
@@ -415,11 +412,10 @@ func (w *segWalk) writesThenRuns(i int) bool {
 }
 
 // runArgs run an argument as a command line or script; shellWrapperNames do too.
-var runArgs = map[string]bool{"eval": true, "source": true, ".": true, "xargs": true, "watch": true, "su": true,
-	"script": true, "flock": true}
+func runArgs() map[string]bool { walkerOnce.Do(loadWalker); return walker.runArgs }
 
 func runner(name string) bool {
-	return runArgs[filepath.Base(name)] || shellWrapperNames()[filepath.Base(name)]
+	return runArgs()[filepath.Base(name)] || shellWrapperNames()[filepath.Base(name)]
 }
 
 // executedSubs marks each substitution whose output runs: a command word, a runner's argument, or a var it expands.
@@ -716,19 +712,17 @@ func commandWords(seg string) []string {
 }
 
 // inertCommands print or search their arguments: a git-looking string there is text, not a command.
-var inertCommands = map[string]bool{"echo": true, "printf": true, "grep": true, "egrep": true, "fgrep": true, "rg": true,
-	"ag": true, "cat": true, "tee": true, "head": true, "tail": true, "sed": true, "awk": true, "jq": true, "gh": true}
+func inertCommands() map[string]bool { walkerOnce.Do(loadWalker); return walker.inert }
 
 // inertHarnessVerbs are the claude-code verbs whose arguments are search terms, facts or PR text, never run.
-var inertHarnessVerbs = map[string]bool{"memory recall": true, "memory search": true, "memory remember": true,
-	"network websearch": true, "scm pr": true, "scm comment": true}
+func inertHarnessVerbs() map[string]bool { walkerOnce.Do(loadWalker); return walker.inertHarness }
 
 // inertCommand reports a command whose arguments are text: an inertCommands name or an inertHarnessVerbs verb.
 func inertCommand(toks []string) bool {
 	if filepath.Base(toks[0]) == "claude-code" {
-		return len(toks) > 2 && inertHarnessVerbs[toks[1]+" "+toks[2]]
+		return len(toks) > 2 && inertHarnessVerbs()[toks[1]+" "+toks[2]]
 	}
-	return inertCommands[filepath.Base(toks[0])]
+	return inertCommands()[filepath.Base(toks[0])]
 }
 
 // segmentGit visits the nested command and each git word of one segment whose wrappers are already dropped.
@@ -785,7 +779,7 @@ func (s *segScan) word(toks []string, i int) bool {
 			s.done = nested
 			return s.nest(nested)
 		}
-	case cStringCommands[filepath.Base(toks[0])] && isCFlag(toks[i-1]): // `su -c 'STR'`, `script -qc 'STR'`
+	case cStringCommands()[filepath.Base(toks[0])] && isCFlag(toks[i-1]): // `su -c 'STR'`, `script -qc 'STR'`
 		s.done = t
 		return s.nest(t)
 	case s.textArg(t, toks[0]): // `watch 'git x'`
@@ -817,7 +811,7 @@ func commandStarts(toks []string, n int) [][]string {
 		return append(out, commandStarts(afterPrefix(skipEnvAssignments(toks)), n-1)...)
 	}
 	for i, t := range toks { // every -exec runs its own command
-		if slices.Contains(execFlags, t) {
+		if slices.Contains(execFlags(), t) {
 			out = append(out, commandStarts(toks[i+1:], n-1)...)
 		}
 	}
@@ -825,13 +819,13 @@ func commandStarts(toks []string, n int) [][]string {
 }
 
 // execFlags are find's flags that run the words after them as a command.
-var execFlags = []string{"-exec", "-execdir", "-ok", "-okdir"}
+func execFlags() []string { walkerOnce.Do(loadWalker); return walker.execFlags }
 
 // runnerValueFlags take the next word as their value in xargs, parallel and watch.
-var runnerValueFlags = []string{"-n", "-I", "-L", "-P", "-s", "-d", "-E", "-a", "-j"}
+func runnerValueFlags() []string { walkerOnce.Do(loadWalker); return walker.runnerValueFlags }
 
 // goRunValueFlags take the next word as their value in `go run`.
-var goRunValueFlags = []string{"-C", "-exec", "-gcflags", "-ldflags", "-mod", "-o", "-p", "-tags"}
+func goRunValueFlags() []string { walkerOnce.Do(loadWalker); return walker.goRunValueFlags }
 
 // optionsDropped drops leading options, the value of each one in values, and a `--` that ends them.
 func optionsDropped(rest, values []string) []string {
@@ -865,9 +859,9 @@ func afterPrefix(toks []string) []string {
 		}
 		return rest
 	case name == "xargs" || name == "parallel" || name == "watch":
-		return optionsDropped(toks[1:], runnerValueFlags)
+		return optionsDropped(toks[1:], runnerValueFlags())
 	case name == "go" && len(toks) > 1 && toks[1] == "run":
-		return optionsDropped(toks[2:], goRunValueFlags)
+		return optionsDropped(toks[2:], goRunValueFlags())
 	case name == "caffeinate" || name == "nsenter": // nsenter runs the command in this env, in other namespaces
 		return optionsDropped(toks[1:], []string{"-t", "-w", "-S", "-G"})
 	case name == "busybox": // the applet name is the command
@@ -877,7 +871,7 @@ func afterPrefix(toks []string) []string {
 }
 
 // rtkRunners are the rtk subcommands that run the command after them; the others (git, grep, read) are the command.
-var rtkRunners = map[string]bool{"err": true, "test": true, "summary": true, "bypass": true, "proxy": true, "run": true}
+func rtkRunners() map[string]bool { walkerOnce.Do(loadWalker); return walker.rtkRunners }
 
 // dropRtk drops a leading `rtk`, its flags and a runner subcommand, so `rtk grep` reads as `grep`, `rtk err x` as `x`.
 func dropRtk(toks []string) []string {
@@ -891,14 +885,14 @@ func dropRtk(toks []string) []string {
 		return t
 	}
 	toks = flagsDropped(toks[1:])
-	if len(toks) > 0 && rtkRunners[toks[0]] {
+	if len(toks) > 0 && rtkRunners()[toks[0]] {
 		toks = flagsDropped(toks[1:])
 	}
 	return toks
 }
 
 // cStringCommands run the string after their -c flag through a shell.
-var cStringCommands = map[string]bool{"su": true, "script": true, "flock": true}
+func cStringCommands() map[string]bool { walkerOnce.Do(loadWalker); return walker.cString }
 
 func isCFlag(t string) bool {
 	return len(t) > 1 && t[0] == '-' && t[1] != '-' && strings.ContainsRune(t[1:], 'c')

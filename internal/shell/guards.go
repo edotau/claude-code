@@ -33,6 +33,8 @@ var guardExclusive = [][2]string{
 	{"writer_operand_commands", "writer_destination_commands"},
 	{"find_exec_flags", "find_write_flags"},
 	{"data_commands", "runner_names"},
+	{"inert_commands", "evaluators"},
+	{"pipe_filters", "evaluators"},
 }
 
 // parsedGuards is guards.json decoded and validated once per process; a malformed file panics at first use.
