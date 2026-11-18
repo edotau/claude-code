@@ -1284,6 +1284,9 @@ func stubTwoJobs(t *testing.T, in *core.Input) (reads *int, hold *bool) {
 
 // Two jobs, one ending in the wait, with or without a ran-on line: both answers ride along in order, the waited on top.
 func TestHandbackKeepsEveryFinishedAnswer(t *testing.T) {
+	poll := handbackPoll
+	t.Cleanup(func() { handbackPoll = poll })
+	handbackPoll = time.Millisecond
 	for _, ranOn := range []bool{false, true} {
 		in := handbackOf(leafTx(t, "codex", "Objective: x\nAgent: codex\n", "ls output"), "relay report")
 		reads, _ := stubTwoJobs(t, in)

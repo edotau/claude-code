@@ -11,6 +11,8 @@ import (
 )
 
 func TestDispatchRunReceiptGrammar(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	writeDispatch(t, leafJob, record(leafJob, "ok", 0))
 	stubResolve(t, func(q agentpkg.ModelQuery) string { return q.Model }) // grammar under test, not the route of "pinned"
 	for _, prefix := range []string{"", "FLAG=1 ", "timeout 30 ", "nohup ", "env FLAG=1 ", "time command ", "env FLAG=1 timeout 30 "} {
 		for _, cli := range []string{"claude-code", "/opt/bin/claude-code"} {
@@ -58,8 +60,6 @@ func checkReceiptCommand(t *testing.T, command, verb string, local bool) {
 // checkReceiptEarned expects a run of command to leave a receipt and the label rule to hold for brief.
 func checkReceiptEarned(t *testing.T, command, brief string) {
 	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	writeDispatch(t, leafJob, record(leafJob, "ok", 0))
 	var scan leafScan
 	content, err := json.Marshal([]map[string]any{{"type": "tool_use", "id": "call", "name": "Bash", "input": map[string]string{"command": command}}})
 	if err != nil {

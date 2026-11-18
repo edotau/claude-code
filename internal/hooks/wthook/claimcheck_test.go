@@ -153,6 +153,7 @@ func TestClaimCheckOwnPidNewSlug(t *testing.T) {
 
 // TestClaimCheckLeafBlocksOnSiblingClaim: a leaf staging a sibling leaf's claim asks; under ~/.claude it is blocked.
 func TestClaimCheckLeafBlocksOnSiblingClaim(t *testing.T) {
+	base := claimFixture(t)
 	for _, tc := range []struct {
 		name  string
 		inCfg bool
@@ -163,16 +164,18 @@ func TestClaimCheckLeafBlocksOnSiblingClaim(t *testing.T) {
 		{"linked worktree of the config tree", false, true, false, core.Block},
 		{"subdirectory of a linked worktree", false, true, true, core.Block}} {
 		t.Run(tc.name, func(t *testing.T) {
-			repo := claimFixture(t)
+			repo := base
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			if tc.inCfg {
 				t.Setenv("CLAUDE_CONFIG_DIR", filepath.Dir(repo))
 			}
 			if tc.link {
 				t.Setenv("CLAUDE_CONFIG_DIR", repo)
 				wt := filepath.Join(paths.Real(t.TempDir()), "wt")
-				hosttest.In(t, repo, "worktree", "add", "-q", "-b", "linked", wt)
+				hosttest.In(t, repo, "worktree", "add", "-q", "-b", fmt.Sprintf("linked-%t", tc.sub), wt)
 				repo = wt
 			}
+			resetClaimCase(t)
 			useClaimOwner(t, liveOwner)
 			tr := filepath.Join(t.TempDir(), "S.jsonl")
 			hosttest.WriteRel(t, filepath.Dir(tr), "S/subagents/agent-leafone1.jsonl", "{}\n")
@@ -330,6 +333,9 @@ func TestClaimCheckCommitIncludeRetainsStaged(t *testing.T) {
 }
 
 func TestClaimCheckAddPathspecFromFile(t *testing.T) {
+	repo := claimFixture(t)
+	claimEdit(t, repo, liveOwner, "A", "a.txt")
+	hosttest.WriteRel(t, repo, "b.txt", "B's own edit\n")
 	for _, tc := range []struct {
 		name    string
 		option  string
@@ -344,9 +350,6 @@ func TestClaimCheckAddPathspecFromFile(t *testing.T) {
 		{"empty", "--pathspec-from-file paths.txt", "", core.Allow},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			repo := claimFixture(t)
-			claimEdit(t, repo, liveOwner, "A", "a.txt")
-			hosttest.WriteRel(t, repo, "b.txt", "B's own edit\n")
 			hosttest.WriteRel(t, repo, "paths.txt", tc.content)
 			r := ClaimCheck(claimInput(t, map[string]any{"session_id": "B", "agent_id": "leafB", "cwd": repo,
 				"tool_name": "Bash", "tool_input": map[string]any{"command": "git add " + tc.option}}))
@@ -361,6 +364,8 @@ func TestClaimCheckAddPathspecFromFile(t *testing.T) {
 }
 
 func TestClaimCheckCommitPathspecFromFile(t *testing.T) {
+	repo := claimFixture(t)
+	claimEdit(t, repo, liveOwner, "A", "a.txt")
 	for _, tc := range []struct {
 		name    string
 		option  string
@@ -372,8 +377,6 @@ func TestClaimCheckCommitPathspecFromFile(t *testing.T) {
 		{"nul", "--pathspec-from-file paths.txt --pathspec-file-nul", "a.txt\x00"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			repo := claimFixture(t)
-			claimEdit(t, repo, liveOwner, "A", "a.txt")
 			hosttest.WriteRel(t, repo, "paths.txt", tc.content)
 			r := ClaimCheck(claimInput(t, map[string]any{"session_id": "B", "agent_id": "leafB", "cwd": repo,
 				"tool_name": "Bash", "tool_input": map[string]any{"command": "git commit -m x " + tc.option}}))
@@ -833,6 +836,7 @@ func verbParity(t *testing.T, check func(string) core.Result) {
 
 // TestClaimCheckVerbCommitJudgedLikeGitCommit: the verb text gets the verdict of `git commit -- file`.
 func TestClaimCheckVerbCommitJudgedLikeGitCommit(t *testing.T) {
+	repo := claimFixture(t)
 	for _, tc := range []struct {
 		name, claimSession, claimAgent, caller, agent string
 		want                                          core.Decision
@@ -845,7 +849,7 @@ func TestClaimCheckVerbCommitJudgedLikeGitCommit(t *testing.T) {
 		{"own file, caller leaf", "S", "leaftwo2", "S", "leaftwo2", core.Allow},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			repo := claimFixture(t)
+			resetClaimCase(t)
 			tr := filepath.Join(t.TempDir(), "S.jsonl")
 			for _, id := range []string{"leafone1", "leaftwo2"} {
 				hosttest.WriteRel(t, filepath.Dir(tr), "S/subagents/agent-"+id+".jsonl", "{}\n")
