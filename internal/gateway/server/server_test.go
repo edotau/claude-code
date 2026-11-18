@@ -213,6 +213,49 @@ func failoverOverlay(up1, up2 string) string {
 		"up2":` + anthropicProvider(up2, "UP2_KEY", `{"opus":"m2-opus","haiku":"m2-haiku"}`) + `}}}`
 }
 
+func TestDatabricksFailoverRanksSiblings(t *testing.T) {
+	const model = "databricks-claude-opus-5"
+	order := make(chan string, 4)
+	var hits atomic.Int32
+	var rows []string
+	t.Setenv("DBX_TEST_KEY", "test-key")
+	for _, name := range []string{"dev", "qa", "prod", "up1"} {
+		up := newUpstream(t, func(w http.ResponseWriter, req *http.Request, n int) {
+			order <- name
+			switch hits.Add(1) {
+			case 1:
+				w.Header().Set("Retry-After", "1")
+				w.WriteHeader(http.StatusTooManyRequests)
+			case 4:
+				ok(w, req, n)
+			default:
+				w.WriteHeader(http.StatusServiceUnavailable)
+			}
+		})
+		row := fmt.Sprintf(`{"preset":"databricks","host":"https://example.cloud.databricks.com","base_url":%q,`+
+			`"auth":{"type":"key","env":"DBX_TEST_KEY"},"models":{"opus":%q}}`, up.URL+"/serving-endpoints/anthropic", model)
+		rows = append(rows, fmt.Sprintf("%q:%s", name, row))
+	}
+	srv := setup(t, `{"default":"dev","fallback":["qa","prod","up1"],"providers":{"databricks":{`+
+		strings.Join(rows, ",")+`}}}`)
+	seedDatabricksLoad(t)
+	resp := post(t, srv.URL+"/p/dev/v1/messages", `{"model":"`+model+`"}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d, want 200", resp.StatusCode)
+	}
+	var got []string
+	for len(order) > 0 {
+		got = append(got, <-order)
+	}
+	t.Logf("attempt order: %v", got)
+	if want := "dev up1 prod qa"; strings.Join(got, " ") != want {
+		t.Errorf("attempt order = %v, want [%s]", got, want)
+	}
+	if _, err := os.Stat(routeStampFile()); !os.IsNotExist(err) {
+		t.Errorf("expected no route stamp file, stat error = %v", err)
+	}
+}
+
 func TestNoFailoverAfterStreamStarted(t *testing.T) {
 	up1 := newUpstream(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
 		w.Header().Set("Content-Type", "text/event-stream")

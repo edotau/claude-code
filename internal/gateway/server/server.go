@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"cmp"
 	"errors"
 	"fmt"
@@ -225,17 +226,23 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 		return target.Provider.Name, target.Model, 0
 	}
 	clientModel := models.Strip1M(model)
-	ladder := r.attempts(reg, target, clientAuth)
-	ladder = confineLadder(in, ladder)
+	ladder := r.attempts(in, reg, target, clientAuth)
 	return r.walkAttempts(w, in, decoded, ladder, clientModel, count)
 }
 
-func (r *Router) walkAttempts(w *statusWriter, in *http.Request, body proxyBody, ladder []providers.Target,
+type attemptLadder struct {
+	rows        []providers.Target
+	primary     providers.Target
+	coolingFrom int
+	ranked      bool
+}
+
+func (r *Router) walkAttempts(w *statusWriter, in *http.Request, body proxyBody, ladder attemptLadder,
 	clientModel string, count bool) (string, string, int) {
 	var lastErr error
-	for i := 0; i < len(ladder); i++ { // indexed: a hard-quota failure inserts the demoted model right after t
-		t := ladder[i]
-		last := i == len(ladder)-1
+	for i := 0; i < len(ladder.rows); i++ { // indexed: a hard-quota failure inserts the demoted model right after t
+		t := ladder.rows[i]
+		last := i == len(ladder.rows)-1
 		done, err := r.try(w, in, body, t, clientModel, count, last)
 		if done {
 			r.clearOnSuccess(t.Provider, w.status)
@@ -245,9 +252,65 @@ func (r *Router) walkAttempts(w *statusWriter, in *http.Request, body proxyBody,
 		if in.Context().Err() != nil {
 			return t.Provider.Name, t.Model, i + 1
 		}
-		ladder = r.noteFailure(ladder, i, err)
+		r.advanceLadder(&ladder, i, err)
 	}
-	return exhausted(w, ladder, lastErr)
+	return exhausted(w, ladder.rows, lastErr)
+}
+
+func (r *Router) advanceLadder(l *attemptLadder, i int, err error) {
+	n := len(l.rows)
+	l.rows = r.noteFailure(l.rows, i, err)
+	if len(l.rows) != n {
+		if i < l.coolingFrom {
+			l.coolingFrom++
+		}
+		return
+	}
+	if l.ranked || i+2 >= n || l.primary.Provider.Preset != providers.PresetDatabricks ||
+		l.rows[i].Provider.Preset != providers.PresetDatabricks || !retryableStatus(err) {
+		return
+	}
+	l.rankSiblings(i+1, r.now())
+	l.ranked = true
+}
+
+func retryableStatus(err error) bool {
+	var failure *fallbackError
+	return errors.As(err, &failure) && retryable[failure.status]
+}
+
+func (l attemptLadder) rankSiblings(start int, now time.Time) {
+	reg := providers.Registry{Providers: make(map[string]*providers.Provider)}
+	slots := make(map[string]int)
+	var positions []int
+	for i, t := range l.rows[start:] {
+		p := t.Provider
+		if p == l.primary.Provider || p.Preset != providers.PresetDatabricks || !models.SameModel(t.Model, l.primary.Model) {
+			continue
+		}
+		slot := start + i
+		reg.Providers[p.Name], slots[p.Name] = p, slot
+		positions = append(positions, slot)
+	}
+	if len(positions) < 2 {
+		return
+	}
+	// Eligibility is already fixed by the ladder; the ranker must only order these rows.
+	q := router.WorkspaceQuery[struct{}]{
+		Findings: func(*providers.Provider, string, string, time.Time) []struct{} { return nil },
+		Cooling:  func(p *providers.Provider, _ time.Time) bool { return slots[p.Name] >= l.coolingFrom },
+	}
+	names, _, err := router.RankWorkspaces(&reg, q, now)
+	if err != nil {
+		return
+	}
+	ranked := make([]providers.Target, len(names))
+	for i, name := range names {
+		ranked[i] = l.rows[slots[name]]
+	}
+	for i, slot := range positions {
+		l.rows[slot] = ranked[i]
+	}
 }
 
 // noteFailure logs attempt i's failure; a hard-quota one returns the ladder with a demoted model inserted after i.
@@ -277,7 +340,7 @@ func (r *Router) noteFailure(ladder []providers.Target, i int, err error) []prov
 }
 
 // attempts is the target then each usable fallback provider; cooling-down providers sink to the end.
-func (r *Router) attempts(reg *providers.Registry, target providers.Target, clientAuth bool) []providers.Target {
+func (r *Router) attempts(in *http.Request, reg *providers.Registry, target providers.Target, clientAuth bool) attemptLadder {
 	out := r.failoverLadder(reg, target, clientAuth)
 	// A model this key cannot use at all is replaced by its provider's next slot up front.
 	for i, t := range out {
@@ -287,7 +350,7 @@ func (r *Router) attempts(reg *providers.Registry, target providers.Target, clie
 			}
 		}
 	}
-	out = r.withoutAuthMarked(out)
+	out = confineLadder(in, r.withoutAuthMarked(out))
 	state, now := r.routeState(), r.now()
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -295,7 +358,11 @@ func (r *Router) attempts(reg *providers.Registry, target providers.Target, clie
 		return now.Before(r.cool[t.Provider.Name]) || now.Before(state.CoolingUntil(router.AccountOf(t.Provider)))
 	}
 	sort.SliceStable(out, func(i, j int) bool { return !cooling(out[i]) && cooling(out[j]) })
-	return out
+	first := len(out)
+	if target.Provider.Preset == providers.PresetDatabricks && first > 2 {
+		first = sort.Search(first, func(i int) bool { return cooling(out[i]) })
+	}
+	return attemptLadder{rows: out, primary: target, coolingFrom: first}
 }
 
 // failoverLadder is the target followed by one failover target per usable fallback provider, in registry order.
@@ -440,15 +507,18 @@ func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body prox
 	if in.URL.RawQuery != "" {
 		url += "?" + in.URL.RawQuery
 	}
-	out, err := r.rewriteFiles(in, p, route, body, count).withModel(t.Model)
+	out, err := r.anthropicBody(in, t, route, body, count)
 	if err != nil {
 		return false, err
 	}
-	resp, err := r.send(in, p, url, out.raw, func(h http.Header) {
+	headers := func(h http.Header) {
 		copyRequestHeaders(h, in.Header)
 		if p.Auth.Method() == providers.AuthCLI {
 			r.passthroughAuth(h, in, route)
 		}
+	}
+	resp, err := r.sendWithAuth(in, p, func(credential string) (*http.Response, error) {
+		return r.sendRequestBody(in, http.MethodPost, p, url, out, headers, credential)
 	})
 	if err != nil {
 		return false, err
@@ -471,6 +541,15 @@ func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body prox
 	}
 	relay(w, resp)
 	return true, nil
+}
+
+func (r *Router) anthropicBody(in *http.Request, t providers.Target, route string, body proxyBody, count bool) (proxyBody, error) {
+	out := r.rewriteFiles(in, t.Provider, route, body, count)
+	if models.Has1M(out.model) && out.model != t.Model && !bytes.Equal(out.raw, body.raw) {
+		// A file rewrite sorts the keys, so the exact key that withModel ensures will win.
+		out.model = t.Model
+	}
+	return out.withModel(t.Model)
 }
 
 func (r *Router) tryOpenAI(w *statusWriter, in *http.Request, body []byte, t providers.Target, clientModel string,
@@ -511,11 +590,15 @@ func (r *Router) send(in *http.Request, p *providers.Provider, url string, body 
 // sendMethod is send with an explicit HTTP method (GET passthrough carries no body).
 func (r *Router) sendMethod(in *http.Request, method string, p *providers.Provider, url string, body []byte,
 	hdr func(http.Header)) (*http.Response, error) {
+	return r.sendWithAuth(in, p, func(credential string) (*http.Response, error) {
+		return r.sendRequest(in, method, p, url, body, hdr, credential)
+	})
+}
+
+func (r *Router) sendWithAuth(in *http.Request, p *providers.Provider,
+	do func(string) (*http.Response, error)) (*http.Response, error) {
 	ctx := in.Context()
 	r.touch(ctx, p.Name)
-	do := func(credential string) (*http.Response, error) {
-		return r.sendRequest(in, method, p, url, body, hdr, credential)
-	}
 	resp, err := do("")
 	if err != nil {
 		return nil, r.authFailure(ctx, p, err)

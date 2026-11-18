@@ -7,12 +7,19 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -156,6 +163,31 @@ func TestPassthroughBodyByteIdentity(t *testing.T) {
 	}
 }
 
+func TestAnthropicRouteDoesNotRescanModel(t *testing.T) {
+	up := newRawUp(t, okMsg)
+	t.Setenv("AN_KEY", "test-key")
+	srv := setup(t, `{"default":"an","providers":{"anthropic":{"an":`+
+		anthropicProvider(up.URL, "AN_KEY", `{"opus":"m"}`)+`}}}`)
+	decode := passthroughModel
+	var rescans atomic.Int32
+	passthroughModel = func(body []byte) string {
+		rescans.Add(1)
+		return decode(body)
+	}
+	t.Cleanup(func() { passthroughModel = decode })
+
+	resp := post(t, srv.URL+"/p/an/v1/messages", `{"model":"m[1m]"}`, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status %d, want 200", resp.StatusCode)
+	}
+	if got := rescans.Load(); got != 0 {
+		t.Errorf("extra body decodes = %d, want 0", got)
+	}
+	if got := up.got(); len(got) != 1 || got[0].body != `{"model":"m"}` {
+		t.Error("upstream request did not use the stripped model")
+	}
+}
+
 func BenchmarkRouteBody(b *testing.B) {
 	vaulttest.Use(b)
 	b.Setenv("AN_KEY", "test-key")
@@ -185,6 +217,41 @@ func BenchmarkRouteBody(b *testing.B) {
 				}
 			}
 		})
+	}
+}
+
+func routeStampFile() string { return filepath.Join(paths.StateDir(), "router", "route-auto.json") }
+
+func seedDatabricksLoad(t testing.TB) {
+	t.Helper()
+	for i, name := range []string{"qa", "prod", "up1"} {
+		account := router.AccountOf(&providers.Provider{Name: name, Preset: providers.PresetDatabricks})
+		want := 3 - i
+		ok, _ := inflight.TryClaim(inflight.Claim{Owner: os.Getpid(), ID: name, Account: account, N: want},
+			inflight.Limits{Total: 20, Override: map[string]int{account: want}})
+		if got := inflight.Count().Per[account]; !ok || got != want {
+			t.Fatalf("in-flight count for %s = %d, want %d", name, got, want)
+		}
+	}
+}
+
+func BenchmarkDatabricksFailoverRank(b *testing.B) {
+	vaulttest.Use(b)
+	seedDatabricksLoad(b)
+	now := time.Now()
+	picks := map[string]any{"schema": 1, "picked": map[string]time.Time{"qa": now}}
+	if err := paths.WriteJSON(routeStampFile(), picks); err != nil {
+		b.Fatal(err)
+	}
+	var rows []providers.Target
+	for _, name := range []string{"dev", "qa", "prod", "up1"} {
+		p := &providers.Provider{Name: name, Preset: providers.PresetDatabricks}
+		rows = append(rows, providers.Target{Provider: p, Model: "databricks-claude-opus-5"})
+	}
+	ladder := attemptLadder{primary: rows[0], rows: slices.Clone(rows), coolingFrom: len(rows)}
+	for b.Loop() {
+		copy(ladder.rows, rows)
+		ladder.rankSiblings(1, now)
 	}
 }
 

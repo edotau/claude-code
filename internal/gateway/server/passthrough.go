@@ -456,7 +456,7 @@ func scrapeUsage(body []byte) ledgerUsage {
 type attemptsKey struct{}
 
 // passthroughModel is the request body's "model", or "" when absent or not JSON.
-func passthroughModel(body []byte) string {
+var passthroughModel = func(body []byte) string {
 	var head struct {
 		Model string `json:"model"`
 	}

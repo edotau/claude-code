@@ -172,8 +172,20 @@ func (b proxyBody) withModel(model string) (proxyBody, error) {
 	top := maps.Clone(b.top)
 	top["model"], _ = json.Marshal(model)
 	raw, err := textutil.MarshalNoEscape(top)
-	b.top, b.raw = top, raw
+	b.top, b.raw, b.model = top, raw, model
 	return b, err
+}
+
+func (b proxyBody) stripWireMarker() ([]byte, error) {
+	if !models.Has1M(b.model) {
+		return b.raw, nil
+	}
+	model := models.Strip1M(b.model)
+	if b.top == nil {
+		return withModel(b.raw, model)
+	}
+	out, err := b.withModel(model)
+	return out.raw, err
 }
 
 // copyRequestHeaders forwards only wire-relevant headers; client auth is added back for passthrough providers only.
