@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -9,8 +10,10 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -116,5 +119,36 @@ func TestScanClaimsSkipsATornLastLine(t *testing.T) {
 	err = ScanClaims(func(int) bool { return true }, func(_ int, _ string, c Claim) { got = append(got, c.Path) })
 	if err != nil || !reflect.DeepEqual(got, []string{"/r/whole.go"}) {
 		t.Errorf("ScanClaims = %v, %v; want only the whole line and no error", got, err)
+	}
+}
+
+func TestReadHoldingsKeepsARunningDispatchOlderThanTheNewestHundred(t *testing.T) {
+	hosttest.SkipOnWindows(t, "git repo and pid liveness")
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := hosttest.Repo(t)
+	for _, f := range []string{"old.go", "free.go"} {
+		hosttest.WriteRel(t, repo, f, "package x\n")
+	}
+	if err := os.MkdirAll(paths.DispatchDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	write := func(i int, status string, wrote []string) {
+		r := agent.Record{ID: fmt.Sprintf("20260101T%06d.000-codex", i), Time: time.Now(), Agent: "codex", Status: status,
+			PID: os.Getpid(), Wrote: &wrote}
+		b, _ := json.Marshal(r)
+		if err := os.WriteFile(filepath.Join(paths.DispatchDir(), r.ID+".json"), b, 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write(0, "running", []string{filepath.Join(repo, "old.go")})
+	for i := 1; i <= 105; i++ {
+		write(i, "ok", nil)
+	}
+	h, err := ReadHoldings(repo, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{"free.go"}; !reflect.DeepEqual(h.Free, want) {
+		t.Errorf("free = %v, want %v (old.go is held by a live dispatch older than the newest %d)", h.Free, want, 100)
 	}
 }

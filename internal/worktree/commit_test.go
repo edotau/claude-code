@@ -323,6 +323,24 @@ func TestCommitCLIDispatchRefusesSessionClaims(t *testing.T) {
 	}
 }
 
+func TestCommitCLIDispatchCommitsFileItClaimedItself(t *testing.T) {
+	dir := commitRepo(t)
+	t.Setenv(proc.DispatchIDEnv, "d1")
+	hosttest.WriteRel(t, dir, "a.txt", "mine\n")
+	hosttest.WriteRel(t, dir, "b.txt", "another dispatch's\n")
+	claimAs(t, "codex-session", "d1", filepath.Join(dir, "a.txt"))
+	claimAs(t, "codex-session", "d2", filepath.Join(dir, "b.txt"))
+	if _, err := commitRun(commitReq(dir, "fix: mine", "b.txt")); err == nil || !strings.Contains(err.Error(), "b.txt is claimed by") {
+		t.Fatalf("another dispatch's claim: err = %v, want a refusal naming b.txt", err)
+	}
+	if _, err := commitRun(commitReq(dir, "fix: mine", "a.txt")); err != nil {
+		t.Fatalf("own dispatch's claim refused: %v", err)
+	}
+	if got := strings.TrimSpace(commitFiles(t, dir)); got != "M\ta.txt" {
+		t.Fatalf("commit holds %q", got)
+	}
+}
+
 func TestCommitCLIDispatchCommitsUnclaimedFile(t *testing.T) {
 	dir := commitRepo(t)
 	t.Setenv(proc.DispatchDepthEnv, "1")
@@ -461,6 +479,7 @@ func TestUndoAddRestoresUnderLockAndLeavesNoLock(t *testing.T) {
 func TestUndoAddWithForeignLockUnstagesOurFilesOnly(t *testing.T) {
 	dir := commitRepo(t)
 	idx, before, after := failingCommitIndex(t, dir)
+	shortUnstageWait(t, 50*time.Millisecond)
 	if err := os.WriteFile(idx+".lock", []byte("theirs"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -489,5 +508,108 @@ func TestUndoAddKeepsPeerStagedEntry(t *testing.T) {
 	}
 	if _, err := os.Stat(idx + ".lock"); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("index.lock left behind: %v", err)
+	}
+}
+
+// shortUnstageWait shrinks the unstage retry bound for one test.
+func shortUnstageWait(t *testing.T, wait time.Duration) {
+	t.Helper()
+	oldWait, oldStep := unstageWait, unstageStep
+	unstageWait, unstageStep = wait, wait/20+time.Millisecond
+	t.Cleanup(func() { unstageWait, unstageStep = oldWait, oldStep })
+}
+
+func TestUndoAddRetriesUnstageUntilForeignLockReleases(t *testing.T) {
+	dir := commitRepo(t)
+	idx, before, after := failingCommitIndex(t, dir)
+	shortUnstageWait(t, 3*time.Second)
+	if err := os.WriteFile(idx+".lock", []byte("theirs"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		_ = os.Remove(idx + ".lock")
+	}()
+	err := undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"})
+	if err == nil || strings.Contains(err.Error(), "remain staged") {
+		t.Fatalf("err = %v, want the unstage to succeed after the lock cleared", err)
+	}
+	if st := hosttest.In(t, dir, "status", "--porcelain"); strings.Contains(st, "A  new.txt") {
+		t.Fatalf("status = %q, new.txt still staged", st)
+	}
+}
+
+func TestUndoAddStuckLockNamesStagedFilesAndCommand(t *testing.T) {
+	dir := commitRepo(t)
+	idx, before, after := failingCommitIndex(t, dir)
+	shortUnstageWait(t, 100*time.Millisecond)
+	if err := os.WriteFile(idx+".lock", []byte("theirs"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	err := undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"})
+	if err == nil || !strings.Contains(err.Error(), "remain staged: new.txt") ||
+		!strings.Contains(err.Error(), "git rm --cached -- new.txt") || strings.Contains(err.Error(), "unstaged only") {
+		t.Fatalf("err = %v, want the staged file and the unstage command, no claim of an unstage", err)
+	}
+	if st := hosttest.In(t, dir, "status", "--porcelain"); !strings.Contains(st, "A  new.txt") {
+		t.Fatalf("status = %q, new.txt should still be staged", st)
+	}
+}
+
+func TestUndoAddKeepsIndexMode(t *testing.T) {
+	hosttest.SkipOnWindows(t, "unix permission bits")
+	dir := commitRepo(t)
+	idx, before, after := failingCommitIndex(t, dir)
+	if err := os.Chmod(idx, 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"}); err != nil {
+		t.Fatal(err)
+	}
+	if fi, err := os.Stat(idx); err != nil || fi.Mode().Perm() != 0o640 {
+		t.Fatalf("index mode = %v (%v), want 0640", fi.Mode().Perm(), err)
+	}
+}
+
+func TestUndoAddPanicBetweenCreateAndRenameLeavesNoLock(t *testing.T) {
+	dir := commitRepo(t)
+	idx, before, after := failingCommitIndex(t, dir)
+	old := renameIndex
+	renameIndex = func(string, string) error { panic("injected") }
+	t.Cleanup(func() { renameIndex = old })
+	func() {
+		defer func() { _ = recover() }()
+		_ = undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"})
+	}()
+	if _, err := os.Stat(idx + ".lock"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("index.lock left behind after a panic: %v", err)
+	}
+}
+
+func TestUndoAddRenameFailureLeavesNoLockAndUnstages(t *testing.T) {
+	dir := commitRepo(t)
+	idx, before, after := failingCommitIndex(t, dir)
+	old := renameIndex
+	renameIndex = func(string, string) error { return errors.New("injected") }
+	t.Cleanup(func() { renameIndex = old })
+	_ = undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"})
+	if _, err := os.Stat(idx + ".lock"); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("index.lock left behind: %v", err)
+	}
+	if st := hosttest.In(t, dir, "status", "--porcelain"); strings.Contains(st, "A  new.txt") {
+		t.Fatalf("status = %q, new.txt still staged", st)
+	}
+}
+
+func TestUndoAddNeverUnstagesAFileStagedBeforeTheRun(t *testing.T) {
+	dir := commitRepo(t)
+	hosttest.WriteRel(t, dir, "pre.txt", "mine\n")
+	hosttest.In(t, dir, "add", "pre.txt")
+	idx, before, after := failingCommitIndex(t, dir)
+	hosttest.WriteRel(t, dir, "c.txt", "peer\n")
+	hosttest.In(t, dir, "add", "c.txt") // forces the fallback
+	_ = undoAdd(context.Background(), dir, idx, before, after, []string{"new.txt"})
+	if st := hosttest.In(t, dir, "status", "--porcelain"); !strings.Contains(st, "A  pre.txt") || strings.Contains(st, "A  new.txt") {
+		t.Fatalf("status = %q, want pre.txt still staged and new.txt not", st)
 	}
 }

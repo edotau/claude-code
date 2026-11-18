@@ -10,6 +10,7 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 
@@ -145,5 +146,46 @@ func TestScanClaimsDropsReusedOwnerPid(t *testing.T) {
 				t.Errorf("claims file removed = %v, want %v", os.IsNotExist(err), tc.removed)
 			}
 		})
+	}
+}
+
+// writeOwnedClaims files lines (path, token) under pid's claims file for session slug with no dispatch stamp.
+func writeOwnedClaims(t *testing.T, pid int, slug string, lines [][2]string) {
+	t.Helper()
+	if err := os.MkdirAll(ClaimsDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	var b strings.Builder
+	for _, l := range lines {
+		fmt.Fprintf(&b, `{"path":%q,"ts":%d,"owner_start":%q}`+"\n", l[0], time.Now().Unix(), l[1])
+	}
+	if err := os.WriteFile(filepath.Join(ClaimsDir(), fmt.Sprintf("%d-%s.jsonl", pid, slug)), []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// TestCommitCLIDispatchOwnProcessClaims: an unstamped claim filed by the caller's own CLI process is its own to commit.
+func TestCommitCLIDispatchOwnProcessClaims(t *testing.T) {
+	dir := commitRepo(t)
+	t.Setenv(proc.DispatchIDEnv, "d1")
+	orig := claimStart
+	claimStart = func(int) (string, error) { return "T2", nil }
+	t.Cleanup(func() { claimStart = orig })
+	hosttest.WriteRel(t, dir, "a.txt", "mine\n")
+	hosttest.WriteRel(t, dir, "b.txt", "an earlier process at this pid\n")
+	writeOwnedClaims(t, peerPid, "codex-sess", [][2]string{{filepath.Join(dir, "b.txt"), "T1"}, {filepath.Join(dir, "a.txt"), "T2"}})
+	req := func(file string, owner int) CommitRequest {
+		r := commitReq(dir, "fix: mine", file)
+		r.Source.Owner = func() int { return owner }
+		return r
+	}
+	if _, err := commitRun(req("a.txt", peerPid+1)); err == nil || !strings.Contains(err.Error(), "a.txt is claimed by") {
+		t.Fatalf("non-owner process: err = %v, want a refusal naming a.txt", err)
+	}
+	if _, err := commitRun(req("b.txt", peerPid)); err == nil || !strings.Contains(err.Error(), "b.txt is claimed by") {
+		t.Fatalf("reused pid (token T1, now T2): err = %v, want a refusal naming b.txt", err)
+	}
+	if _, err := commitRun(req("a.txt", peerPid)); err != nil {
+		t.Fatalf("own process's claim refused: %v", err)
 	}
 }

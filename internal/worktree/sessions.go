@@ -171,6 +171,8 @@ type ClaimSource struct {
 	Owner func() int
 	Leaf  func(Claim) string
 	Label func(pid int) string
+	// Dispatch is a dispatched CLI leaf's id: a claim stamped with it, or filed by its own CLI process, is its own.
+	Dispatch string
 }
 
 // LiveClaims maps each path other live parties claim to its claimants; a dead owner pid's file is removed.
@@ -179,7 +181,7 @@ func LiveClaims(src ClaimSource) (map[string][]ClaimHit, error) {
 	labels := map[int]string{}
 	byPath := map[string]map[string]int64{}
 	err := ScanClaims(src.Alive, func(pid int, slug string, c Claim) {
-		if c.Path == "" {
+		if c.Path == "" || src.Dispatch != "" && (c.Agent == src.Dispatch || ownLine(pid, c, own)) {
 			return
 		}
 		w := src.Leaf(c) // own session: only a sibling leaf's claim counts
@@ -199,6 +201,11 @@ func LiveClaims(src ClaimSource) (map[string][]ClaimHit, error) {
 		byPath[c.Path][w] = max(byPath[c.Path][w], c.TS)
 	})
 	return flattenClaims(byPath), err
+}
+
+// ownLine: the CLI process this caller runs under filed c, and still holds that pid (a reused pid is not own).
+func ownLine(pid int, c Claim, own func() int) bool {
+	return pid == own() && (c.OwnerStart == "" || !reused(pid, c.OwnerStart))
 }
 
 func flattenClaims(byPath map[string]map[string]int64) map[string][]ClaimHit {

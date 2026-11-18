@@ -27,8 +27,6 @@ type Holdings struct {
 	files map[string][]string // "<session slug>/<agent id>" → absolute claimed paths
 }
 
-const holderLiveRecords = 100
-
 // ReadHoldings reads claims, markers and records and runs one git status of top ("" skips it); err joins failures.
 func ReadHoldings(top string, now time.Time) (Holdings, error) {
 	h := Holdings{top: top, files: map[string][]string{}}
@@ -46,7 +44,8 @@ func ReadHoldings(top string, now time.Time) (Holdings, error) {
 			held[f] = true
 		}
 	}
-	for _, r := range agent.RecentRecords(holderLiveRecords) {
+	running, _ := agent.RunningRecent(agent.AllRecords) // every running dispatch holds its files, however old
+	for _, r := range running {
 		if r.Alive() && r.Wrote != nil {
 			for _, f := range *r.Wrote {
 				held[f] = true

@@ -200,6 +200,7 @@ func checkHolders(ctx context.Context, req CommitRequest, t commitTree, set []st
 	src.Leaf = func(Claim) string { return "" } // outside a dispatch the worktree-claim-check hook judges this session
 	if dispatched {
 		src.Leaf = sessionHolder
+		src.Dispatch = proc.Value(ctx, proc.DispatchIDEnv) // a claim this dispatch stamped is its own, whatever the session
 	}
 	claims, err := LiveClaims(src)
 	if err != nil && len(claims) == 0 {
@@ -273,8 +274,8 @@ func trimBody(body []string) ([]string, bool) {
 // dropTrailers removes attribution lines from the message's last paragraph only; body text elsewhere stays.
 func dropTrailers(body []string) ([]string, int) {
 	start := 0
-	for i := len(body) - 1; i >= 0; i-- {
-		if body[i] == "" {
+	for i, l := range slices.Backward(body) {
+		if l == "" {
 			start = i + 1
 			break
 		}
@@ -333,10 +334,10 @@ func printSet(ctx context.Context, out io.Writer, t commitTree, set []string) []
 
 // countText renders "+a −d", "binary" for a numstat dash, "+? −?" when git gave no count.
 func countText(c [2]string) string {
-	switch {
-	case c[0] == "-":
+	switch c[0] {
+	case "-":
 		return "binary"
-	case c[0] == "":
+	case "":
 		return "+? −?"
 	}
 	return "+" + c[0] + " −" + c[1]
@@ -420,6 +421,13 @@ func indexSnapshot(ctx context.Context, top string) (string, []byte, error) {
 	return idx, before, nil
 }
 
+// Bounds for the unstage fallback: git's own lock holders are done in milliseconds.
+var (
+	unstageWait = 2 * time.Second
+	unstageStep = 50 * time.Millisecond
+	renameIndex = os.Rename
+)
+
 // undoAdd restores the index under git's own index.lock; with the lock held or the index changed, it unstages ours.
 func undoAdd(ctx context.Context, top, idx string, before, after []byte, untracked []string) error {
 	lock := idx + ".lock"
@@ -427,20 +435,28 @@ func undoAdd(ctx context.Context, top, idx string, before, after []byte, untrack
 	if err != nil {
 		return unstage(ctx, top, untracked, "held by another process")
 	}
+	held := true // this run created the lock; only then may it remove it
+	release := func() {
+		if held {
+			held = false
+			_ = f.Close()
+			_ = os.Remove(lock)
+		}
+	}
+	defer release()
 	if cur, _ := os.ReadFile(idx); !bytes.Equal(cur, after) {
-		_ = f.Close()
-		_ = os.Remove(lock)
+		release()
 		return unstage(ctx, top, untracked, "index changed since our add")
 	}
 	if err := restoreIndex(f, lock, idx, before); err != nil {
-		_ = f.Close()
-		_ = os.Remove(lock)
+		release()
 		return unstage(ctx, top, untracked, err.Error())
 	}
+	held = false // renamed over the index (or removed with it): nothing of ours is left to remove
 	return nil
 }
 
-// restoreIndex writes before into the held lock file and renames it over idx, which releases the lock.
+// restoreIndex writes before into the held lock file, gives it the index's mode and renames it over idx.
 func restoreIndex(f *os.File, lock, idx string, before []byte) error {
 	if len(before) == 0 { // the index did not exist before our add
 		_ = f.Close()
@@ -448,6 +464,11 @@ func restoreIndex(f *os.File, lock, idx string, before []byte) error {
 			return err
 		}
 		return os.Remove(lock)
+	}
+	if fi, err := os.Stat(idx); err == nil {
+		if err := f.Chmod(fi.Mode().Perm()); err != nil {
+			return err
+		}
 	}
 	if _, err := f.Write(before); err != nil {
 		return err
@@ -458,14 +479,31 @@ func restoreIndex(f *os.File, lock, idx string, before []byte) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	return os.Rename(lock, idx)
+	return renameIndex(lock, idx)
 }
 
-// unstage drops only our added files from the index (git locks it) and names why the byte restore did not run.
+// unstage drops only our added files, retrying while git cannot take the lock; it never claims a missed unstage.
 func unstage(ctx context.Context, top string, untracked []string, why string) error {
-	_, err := proc.RunGit(ctx, top, append([]string{"rm", "--cached", "-q", "--"}, literal(untracked)...)...)
-	note := fmt.Errorf("index not restored byte for byte (%s): unstaged only the files this run added with git rm --cached", why)
-	return errors.Join(note, err)
+	args := append([]string{"rm", "--cached", "-q", "--"}, literal(untracked)...)
+	deadline := time.Now().Add(unstageWait)
+	var err error
+	for {
+		if _, err = proc.RunGit(ctx, top, args...); err == nil {
+			return fmt.Errorf("index not restored byte for byte (%s): unstaged only the files this run added with git rm --cached", why)
+		}
+		if !time.Now().Add(unstageStep).Before(deadline) {
+			break
+		}
+		select {
+		case <-ctx.Done():
+		case <-time.After(unstageStep):
+			continue
+		}
+		break
+	}
+	list := strings.Join(untracked, " ")
+	return errors.Join(fmt.Errorf("index not restored byte for byte (%s); files this run added remain staged: %s; "+
+		"unstage them with: git rm --cached -- %s", why, list, list), err)
 }
 
 // printAhead prints how far HEAD is ahead of its upstream; nothing when there is none.
