@@ -195,6 +195,19 @@
     "purpose": "git branch options whose value is the next word",
     "words": ["-u", "--set-upstream-to"]
   },
+  "rtk_rewrite_words": {
+    "purpose": "words rtk rewrite may act on: its --help commands plus raw aliases; a command with none skips the exec",
+    "words": ["ast-grep", "aws", "bun", "bunx", "bypass", "cargo", "cat", "cc-economics", "config", "ctest", "curl",
+      "deno", "deps", "df", "diff", "discover", "docker", "dotnet", "du", "ecs", "env", "err", "eslint", "find",
+      "format", "gain", "gcc", "gcloud", "gh", "git", "glab", "go", "golangci-lint", "gradle", "gradlew", "grep", "gt",
+      "head", "helm", "help", "hook", "hook-audit", "init", "jest", "jq", "json", "kubectl", "learn", "lint",
+      "llm-proxy", "log", "ls", "make", "methods", "mvn", "mvnd", "mypy", "next", "ng", "npm", "npx", "oc", "paratest",
+      "pest", "php", "phpstan", "phpt", "phpunit", "ping", "pint", "pip", "pip3", "pipe", "pipeline", "playwright",
+      "plugins", "pnpm", "prettier", "prisma", "ps", "psql", "pytest", "python", "python3", "rails", "rake", "read",
+      "recall", "rewrite", "rg", "rspec", "rsync", "rubocop", "ruff", "run", "sbt", "session", "smart", "sqlfluff",
+      "ssh", "stat", "summary", "swift", "systemctl", "tail", "tasks", "telemetry", "terraform", "test", "tree",
+      "trust", "tsc", "untrust", "uv", "verify", "vitest", "wc", "wget", "xcodebuild"]
+  },
   "rtk_machine_readable_flags": {
     "purpose": "flags asking for exact, parseable output: such a command bypasses rtk",
     "words": ["--porcelain", "--json", "--format", "--pretty", "--name-only", "--name-status", "--numstat", "--shortstat",

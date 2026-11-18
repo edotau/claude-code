@@ -37,7 +37,7 @@ func RTKRewrite(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	cmd := in.ToolCommand()
-	if rtkVetoed(cmd, in.CWD, bin) {
+	if !rtkMayRewrite(cmd) || rtkVetoed(cmd, in.CWD, bin) {
 		return core.Result{}
 	}
 	rewritten := rtkRewritten(bin, cmd)
@@ -62,6 +62,20 @@ func RTKRewrite(in *core.Input) core.Result {
 	updated["command"] = pinned
 
 	return core.Result{Context: rtkNotes(in.SessionID, word, found, bin, onPath), UpdatedInput: updated}
+}
+
+// rtkRewriteWords are the words rtk rewrite acts on; TestRTKRewriteWordsMatchRTK fails when rtk outgrows them.
+var rtkRewriteWords = sync.OnceValue(func() map[string]bool { return shell.GuardSet("rtk_rewrite_words") })
+
+// rtkWordRun is one word of a command, and rtkVersioned a versioned spelling of one (gcc-13, python3.12).
+var rtkWordRun = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[\w.+-]+`) })
+var rtkVersioned = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[-.]?[0-9][0-9.]*$`) })
+
+// rtkMayRewrite is false only when no word of cmd is one rtk rewrites, so skipping the ~10 ms exec loses nothing.
+func rtkMayRewrite(cmd string) bool {
+	return slices.ContainsFunc(rtkWordRun().FindAllString(cmd, -1), func(w string) bool {
+		return rtkRewriteWords()[w] || rtkRewriteWords()[rtkVersioned().ReplaceAllString(w, "")]
+	})
 }
 
 // rtkNotes is the once-per-session context: the bypass hint, plus the shadow notice when PATH lacks the pinned rtk.

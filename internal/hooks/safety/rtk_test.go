@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -564,7 +565,7 @@ func TestRTKPinnedPathWhenCommandAltersPathOrHome(t *testing.T) {
 		}
 	}
 	t.Setenv("PATH", filepath.Dir(bin))
-	for _, cmd := range []string{"ls internal", "echo $PATH", "ls $HOME/x", "grep MYPATH=1 f"} {
+	for _, cmd := range []string{"ls internal", "ls $PATH", "ls $HOME/x", "grep MYPATH=1 f"} {
 		if got, ok := rtkOut(t, hosttest.RTKBashIn(cmd)); !ok || got != "rtk "+cmd {
 			t.Errorf("%q = %q (emitted=%v), want bare rtk", cmd, got, ok)
 		}
@@ -581,6 +582,40 @@ func TestRTKArrayAssignmentPinsBinary(t *testing.T) {
 			if want := textutil.QuoteSH(bin) + " " + cmd; !ok || got != want {
 				t.Errorf("%q: rewritten %q (emitted=%v), want absolute pin %q", cmd, got, ok, want)
 			}
+		}
+	}
+}
+
+// rtkSample holds commands rtk rewrites today and common ones it leaves alone; a drift on either side fails below.
+const rtkSample = "git status; cat x; head x; tail -n 5 f; ls; grep x f; rg x; find . -name x; go test; cargo test; " +
+	"make; gcc-13 x; python3 -m pytest; pip3 list; npm x; docker run x; kubectl get pods; gh run x; ./gradlew build; " +
+	"echo hi; printf x; sed -n 1p f; awk 1 f; sort f; uniq f; tee f; cp a b; mv a b; mkdir d; touch f; chmod +x f; " +
+	"which x; node x; yarn test; podman ps; black --check .; poetry run x; tar tf x; less f; xargs echo; cd d; " +
+	"export X=1; sleep 1; date; pwd; true"
+
+// installedRTK is read at package init, before TestMain's hermetic host hides the real PATH.
+var installedRTK = paths.RTKBinary()
+
+// TestRTKRewriteWordsMatchRTK fails when the installed rtk rewrites a command rtkMayRewrite would skip.
+func TestRTKRewriteWordsMatchRTK(t *testing.T) {
+	bin := installedRTK
+	if bin == "" {
+		t.Skip("rtk is not installed")
+	}
+	help, _ := exec.Command(bin, "--help").Output()
+	for _, m := range regexp.MustCompile(`(?m)^  ([a-z][\w-]*)\s{2,}`).FindAllStringSubmatch(string(help), -1) {
+		if !rtkRewriteWords()[m[1]] {
+			t.Errorf("rtk command %q is missing from rtk_rewrite_words", m[1])
+		}
+	}
+	out, _ := exec.Command(bin, "rewrite", rtkSample).Output()
+	got, want := strings.Split(strings.TrimSpace(string(out)), "; "), strings.Split(rtkSample, "; ")
+	if len(got) != len(want) {
+		t.Fatalf("rtk rewrite split %d segments into %d: %q", len(want), len(got), out)
+	}
+	for i, seg := range want {
+		if got[i] != seg && !rtkMayRewrite(seg) {
+			t.Errorf("rtk rewrites %q to %q, but rtkMayRewrite skips it", seg, got[i])
 		}
 	}
 }
