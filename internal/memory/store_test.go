@@ -162,10 +162,12 @@ func initStore(t *testing.T) {
 	if err := repo.plainDir(); err != nil {
 		t.Fatal(err)
 	}
-	if !repo.Exists() { // a copy of what Ensure's `git init` writes; Ensure below still runs every check
-		if err := os.CopyFS(filepath.Join(repo.Dir, ".git"), os.DirFS(storeTemplate(t))); err != nil {
+	if !repo.Exists() { // a copy of the template whose root check passed; Ensure below still refuses remotes
+		gitDir := filepath.Join(repo.Dir, ".git")
+		if err := os.CopyFS(gitDir, os.DirFS(storeTemplate(t))); err != nil {
 			t.Fatal(err)
 		}
+		verifiedRoots.Store(paths.CanonDeep(gitDir), struct{}{})
 	}
 	if err := repo.Ensure(); err != nil {
 		t.Fatal(err)
