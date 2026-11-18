@@ -137,22 +137,39 @@ func (w *segWalk) run(i int) bool {
 	return false
 }
 
-// heredocText reports segment i as the body of a heredoc that only an inert command (cat, tee) reads.
+// heredocText reports segment i as the body of a heredoc that only an inert command (cat, tee) reads and nothing runs.
 func (w *segWalk) heredocText(i int) bool {
 	if w.inertBody == nil {
-		w.inertBody = make([]bool, len(w.segs))
-		for j := range w.segs {
-			delim, ok := heredocDelim(w.cmdWords(j))
-			rest, _ := Unwrap(w.cmdWords(j), "")
-			if rest = dropRtk(rest); !ok || len(rest) == 0 || !inertCommand(rest) {
-				continue
-			}
-			for k := j + 1; k < len(w.segs) && strings.TrimSpace(w.segs[k]) != delim; k++ {
-				w.inertBody[k] = true
-			}
-		}
+		w.inertBody = w.heredocBodies(inertCommand)
 	}
 	return w.inertBody[i]
+}
+
+// HeredocBodies marks the segments that are a heredoc body fed to a non-runner and never run as written.
+func HeredocBodies(segs, seps []string) []bool {
+	w := &segWalk{segs: segs, seps: seps, words: make([][]string, len(segs)), wordsSet: make([]bool, len(segs))}
+	return w.heredocBodies(func(toks []string) bool { return !runner(toks[0]) })
+}
+
+// heredocBodies marks each heredoc body fed to a command feeds accepts, unless piped into a runner or written then run.
+func (w *segWalk) heredocBodies(feeds func([]string) bool) []bool {
+	out := make([]bool, len(w.segs))
+	for j := range w.segs {
+		delim, ok := heredocDelim(w.cmdWords(j))
+		rest, _ := Unwrap(w.cmdWords(j), "")
+		if rest = dropRtk(rest); !ok || len(rest) == 0 || !feeds(rest) ||
+			w.pipesIntoRunner(j) || w.pipesIntoShell(j) || w.writesThenRuns(j) {
+			continue
+		}
+		k := j + 1
+		for k < len(w.segs) && w.seps[k-1] != "\n" { // the body starts after the line's pipeline
+			k++
+		}
+		for ; k < len(w.segs) && strings.TrimSpace(w.segs[k]) != delim; k++ {
+			out[k] = true
+		}
+	}
+	return out
 }
 
 // heredocDelim is the delimiter word of a `<<DELIM` or `<<- DELIM` in toks.
@@ -522,7 +539,11 @@ func segmentGit(toks []string, dir string, fn gitFn, depth int, runs bool) bool 
 	if text, ok := hereString(toks); ok {
 		return eachGit(text, dir, fn, depth+1, runs)
 	}
-	s := &segScan{dir: dir, fn: fn, depth: depth, runs: runs, inert: !runs && inertCommand(toks)}
+	head := toks
+	if filepath.Base(toks[0]) == "xargs" { // the command xargs runs decides whether its arguments are text
+		head = dropRtk(afterPrefix(toks))
+	}
+	s := &segScan{dir: dir, fn: fn, depth: depth, runs: runs, inert: !runs && len(head) > 0 && inertCommand(head)}
 	for i := range toks { // any word: xargs/watch/find -exec need no modelling
 		if s.word(toks, i) {
 			return true
@@ -637,14 +658,23 @@ func afterPrefix(toks []string) []string {
 	return nil
 }
 
-// dropRtk drops a leading `rtk` and its flags, so `rtk grep` reads as `grep`.
+// rtkRunners are the rtk subcommands that run the command after them; the others (git, grep, read) are the command.
+var rtkRunners = map[string]bool{"err": true, "test": true, "summary": true, "bypass": true, "proxy": true, "run": true}
+
+// dropRtk drops a leading `rtk`, its flags and a runner subcommand, so `rtk grep` reads as `grep`, `rtk err x` as `x`.
 func dropRtk(toks []string) []string {
 	if len(toks) == 0 || filepath.Base(toks[0]) != "rtk" {
 		return toks
 	}
-	toks = toks[1:]
-	for len(toks) > 0 && strings.HasPrefix(toks[0], "-") {
-		toks = toks[1:]
+	flagsDropped := func(t []string) []string {
+		for len(t) > 0 && strings.HasPrefix(t[0], "-") {
+			t = t[1:]
+		}
+		return t
+	}
+	toks = flagsDropped(toks[1:])
+	if len(toks) > 0 && rtkRunners[toks[0]] {
+		toks = flagsDropped(toks[1:])
 	}
 	return toks
 }
@@ -679,6 +709,19 @@ func optionsOnly(words []string) bool {
 
 // cStringCommands run the string after their -c flag through a shell.
 var cStringCommands = map[string]bool{"su": true, "script": true, "flock": true}
+
+// CString is the shell string a su, script or flock command runs through its -c flag.
+func CString(toks []string) (string, bool) {
+	if len(toks) == 0 || !cStringCommands[filepath.Base(toks[0])] {
+		return "", false
+	}
+	for i := 1; i < len(toks)-1; i++ {
+		if isCFlag(toks[i]) {
+			return toks[i+1], true
+		}
+	}
+	return "", false
+}
 
 func isCFlag(t string) bool {
 	return len(t) > 1 && t[0] == '-' && t[1] != '-' && strings.ContainsRune(t[1:], 'c')

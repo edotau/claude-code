@@ -2,6 +2,7 @@ package safety
 
 import (
 	"cmp"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -12,7 +13,7 @@ import (
 )
 
 // cmdStart anchors a pattern at a command word; secretpipe.go builds on it.
-const cmdStart = "(?:^|[;&|({`])\\s*(?:rtk\\s+)?(?:(?:exec|nohup|time|command|nice|stdbuf\\S*)\\s+(?:-\\S+\\s+)*)*"
+const cmdStart = "(?:^|[;&|({`])\\s*(?:rtk\\s+)?(?:(?:exec|nohup|time|command|builtin|nice|stdbuf\\S*)\\s+(?:-\\S+\\s+)*)*"
 
 const wipeName = "every variable (env -i)"
 
@@ -21,14 +22,15 @@ var (
 	shellString     = regexp.MustCompile(`(?:^|[\s;&|(])(?:(?:ba|z|da|k)?sh\s+(?:-\w+\s+)*-\w*c|eval)\s+(?:'([^']*)'|"([^"]*)")`)
 	launchers       = []string{"claude-code", "claude", "codex", "copilot", "gemini", "agy", "opencode"}
 	declarers       = []string{"export", "declare", "typeset", "readonly", "local"}
+	dispatchAlias   = regexp.MustCompile(`(?:^|[\s;&|(])([A-Za-z_]\w*)=["']?(HARNESS_DISPATCH\w*)`)
 )
 
 // dispatchTamper is the variable a leaf's command, or a shell string inside it, clears or overrides, else "".
-func dispatchTamper(in *core.Input, scan string) string {
+func dispatchTamper(in *core.Input, _ string) string { // reads the raw command: the scan blanks a heredoc's owner line
 	if !isLeaf(in) {
 		return ""
 	}
-	queue := []string{scan}
+	queue := []string{in.ToolCommand()}
 	for i := 0; i < len(queue) && i < 8; i++ {
 		if name := tamperName(queue[i]); name != "" {
 			return name
@@ -45,14 +47,21 @@ func tamperName(text string) string {
 	if !strings.Contains(text, "HARNESS_DISPATCH_") && !strings.Contains(text, "env") {
 		return ""
 	}
-	segs, _ := shell.SegmentsSep(text)
-	for _, seg := range segs {
+	segs, seps := shell.SegmentsSep(text)
+	body, aliases := shell.HeredocBodies(segs, seps), map[string]string{}
+	for _, m := range dispatchAlias.FindAllStringSubmatch(text, -1) {
+		aliases[m[1]] = m[2]
+	}
+	for i, seg := range segs {
+		if body[i] {
+			continue
+		}
 		toks := shell.Tokens(seg)
 		if len(toks) > 0 {
 			toks[0] = strings.TrimLeft(toks[0], "({`")
 		}
 		for _, start := range shell.CommandStarts(toks) {
-			if name := startTamper(start); name != "" {
+			if name := startTamper(operands(start, aliases)); name != "" {
 				return name
 			}
 		}
@@ -71,6 +80,9 @@ func startTamper(words []string) string {
 		}
 	}
 	cmd := skipAssign(words)
+	for len(cmd) > 0 && (cmd[0] == "builtin" || cmd[0] == "command") {
+		cmd = cmd[1:]
+	}
 	if len(cmd) == 0 {
 		return ""
 	}
@@ -78,11 +90,38 @@ func startTamper(words []string) string {
 	case name == "unset":
 		return firstDispatchName(cmd[1:])
 	case name == "env":
-		return envTamper(cmd[1:])
+		if n := envTamper(cmd[1:]); n != "" {
+			return n
+		}
 	case slices.Contains(declarers, name):
 		return declareTamper(cmd[1:])
 	}
+	text, ok := shell.NestedCommand(cmd)
+	if !ok {
+		text, ok = shell.CString(cmd)
+	}
+	if ok {
+		return tamperName(text)
+	}
 	return ""
+}
+
+// operands expands a {a,b} list and a $VAR that a name=HARNESS_DISPATCH* assignment on the line binds, in each word.
+func operands(words []string, aliases map[string]string) []string {
+	var out []string
+	for _, w := range words {
+		w = os.Expand(w, func(k string) string { return cmp.Or(aliases[k], "$"+k) })
+		list, suffix, _ := strings.Cut(w, "}") // Tokens drops a word's closing brace
+		open := strings.IndexByte(list, '{')
+		if open < 0 || !strings.Contains(list, ",") {
+			out = append(out, w)
+			continue
+		}
+		for item := range strings.SplitSeq(list[open+1:], ",") {
+			out = append(out, list[:open]+item+suffix)
+		}
+	}
+	return out
 }
 
 func isAssignment(w string) bool {

@@ -3,6 +3,7 @@ package shell
 import (
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 )
 
@@ -238,6 +239,8 @@ func TestEachGitWorktreeCommitNeedsCommandWord(t *testing.T) {
 		"rtk read '" + ph + "'", "rtk find . -name '" + ph + "'", "rtk ls '" + ph + "'", "echo " + ph, "printf '%s' '" + ph + "'",
 		"git log --grep='" + ph + "'", "rtk git log --grep=\"" + ph + "\"", "git commit -m \"fix: " + ph + " verb\"",
 		"cat <<'EOF'\n" + ph + " -m x\nEOF", "ls # " + ph, "ls '" + ph + "' dir", "xargs grep " + ph,
+		"git log --grep '" + ph + "'", "xargs grep \"" + ph + "\"", "rtk err grep '" + ph + "' rules",
+		"cat > s.sh <<E\n" + ph + " -m x a.go\nE\nls", "cat <<E | wc -l\n" + ph + " -m x\nE",
 	}
 	for _, cmd := range text {
 		for _, c := range collectGit(cmd, "/w") {
@@ -251,10 +254,48 @@ func TestEachGitWorktreeCommitNeedsCommandWord(t *testing.T) {
 		"command " + ph, "go run ./cmd/" + ph, "bash -c '" + ph + "'", "sh -c \"" + ph + "\"", "eval '" + ph + "'",
 		"(" + ph + ")", "echo $(" + ph + ")", "xargs -n 1 " + ph, "watch '" + ph + "'", "watch -n1 " + ph,
 		"find . -exec " + ph + " {} \\;", "ls && " + ph,
+		"rtk proxy " + ph + " -m x a.go", "rtk err " + ph + " -m x", "rtk -v summary " + ph, "xargs -I{} sh -c '" + ph + " -m x'",
+		"cat > s.sh <<E\n" + ph + " -m x a.go\nE\nbash s.sh", "cat > s.sh <<E\n" + ph + " -m x a.go\nE; bash s.sh",
+		"cat > s.sh <<E\n" + ph + " -m x a.go\nE\nchmod +x s.sh && ./s.sh", "cat <<E | xargs -I{} sh -c {}\n" + ph + " -m x\nE",
+		"cat <<E | sh\n" + ph + " -m x\nE", "cat <<E | xargs " + ph + " -m x\nbody\nE",
 	}
 	for _, cmd := range real {
 		if !slices.ContainsFunc(collectGit(cmd, "/w"), func(c gitCall) bool { return c.verb == WorktreeCommit }) {
 			t.Errorf("EachGit(%q) lost the worktree commit verb", cmd)
+		}
+	}
+}
+
+func TestHeredocBodies(t *testing.T) {
+	cases := []struct {
+		cmd  string
+		want bool
+	}{
+		{"git commit -F - <<'EOF'\nbody\nEOF", true},
+		{"cat <<EOF\nbody\nEOF", true},
+		{"cat > f <<EOF\nbody\nEOF", true},
+		{"rtk err cat <<EOF\nbody\nEOF", true},
+		{"bash <<EOF\nbody\nEOF", false},
+		{"sh -s <<EOF\nbody\nEOF", false},
+		{"sudo bash <<EOF\nbody\nEOF", false},
+		{"cat <<EOF | sh\nbody\nEOF", false},
+		{"cat <<EOF | xargs -I{} sh -c {}\nbody\nEOF", false},
+		{"cat > f <<EOF\nbody\nEOF\nbash f", false},
+		{"cat > f <<EOF\nbody\nEOF\nchmod +x f && ./f", false},
+	}
+	for _, c := range cases {
+		segs, seps := SegmentsSep(c.cmd)
+		if got := HeredocBodies(segs, seps); !slices.Contains(got, true) == c.want {
+			t.Errorf("HeredocBodies(%q) = %v, want a marked body: %v", c.cmd, got, c.want)
+		}
+	}
+}
+
+func TestCString(t *testing.T) {
+	for toks, want := range map[string]string{"su -c STR": "STR", "su root -c STR": "STR", "script -qc STR /dev/null": "STR",
+		"su - other": "", "script -q /dev/null ls": "", "ls -c x": ""} {
+		if got, ok := CString(strings.Fields(toks)); got != want || ok != (want != "") {
+			t.Errorf("CString(%q) = %q, %v", toks, got, ok)
 		}
 	}
 }
