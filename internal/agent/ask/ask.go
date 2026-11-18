@@ -36,7 +36,7 @@ var askPage = helptext.Page{
 	Usage: "claude-code agents ask [flags] <task | ->",
 	About: "Run one task headlessly on an agent and stream its answer; an agent that " +
 		"fails falls back per --fallback. With no task, or \"-\", the task is read from stdin.",
-	Hint: "Every dispatch is logged: `agents status` lists them, --retry <id> replays one.",
+	Hint: "A task starting with - must follow `--`. Dispatches log: `agents status`.",
 }
 
 // Cmd is `agents ask` with no session id and the `agents ask` page.
@@ -62,6 +62,7 @@ type askRun struct {
 	f           *askFlags
 	fs          *flag.FlagSet
 	args        []string
+	pos         []string  // the task words: what is left once every flag, before or after them, is parsed
 	out         io.Writer // where the answer and envelope go: stdout, or a review part's buffer
 	ref         string    // the raw selector Prepare resolves; f.name becomes the agent so envelopes publish it
 	ag          string
@@ -87,13 +88,26 @@ func runTo(args []string, verb string, out io.Writer) int {
 	return runCtx(context.Background(), args, verb, out)
 }
 
+// parseAskArgs parses flags in any position; an unknown flag-looking word exits 2, and "--" ends the flags.
+func parseAskArgs(fs *flag.FlagSet, args []string) (pos []string, code int, done bool) {
+	pos, err := helptext.ParseArgs(fs, args)
+	if err == nil {
+		return pos, 0, false
+	}
+	if strings.Contains(err.Error(), "not defined") {
+		fmt.Fprintln(os.Stderr, "claude-code: a task that starts with - must follow `--`, e.g. agents ask -- \"-1 is wrong\"")
+	}
+	return nil, helptext.ExitCode(err), true
+}
+
 // runCtx is runTo under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
 func runCtx(ctx context.Context, args []string, verb string, out io.Writer) int {
 	fs, f := askFlagSet()
 	if verb != "" {
 		retargetPage(fs, verb)
 	}
-	if code, done := helptext.Parse(fs, args); done {
+	pos, code, done := parseAskArgs(fs, args)
+	if done {
 		return code
 	}
 	if !helptext.Explicit(fs, "fallback") {
@@ -106,7 +120,7 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) int 
 	if remote.IsSelf(f.host) { // --host naming this machine runs here
 		f.host = ""
 	}
-	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, out: out}
+	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out}
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
 		if code, done := phase(); done {
 			return code
@@ -178,7 +192,7 @@ func (r *askRun) export() (int, bool) {
 // stdinTaken reports the task, a batch or a framed prompt already reading stdin.
 func (r *askRun) stdinTaken() bool {
 	f := r.f
-	return f.stdinFramed || f.batchSrc == "-" || (taskFromStdin(r.fs.Args()) && f.retry == "" && f.job == "" && !f.live)
+	return f.stdinFramed || f.batchSrc == "-" || (taskFromStdin(r.pos) && f.retry == "" && f.job == "" && !f.live)
 }
 
 // taskFromStdin reports no task positional, or a lone "-".
@@ -363,7 +377,7 @@ func (r *askRun) batchBase() agent.RunOptions {
 // resolveRecord reads the task and applies a --job or --retry record over the flags.
 func (r *askRun) resolveRecord() (int, bool) {
 	f := r.f
-	r.prompt = strings.Join(r.fs.Args(), " ")
+	r.prompt = strings.Join(r.pos, " ")
 	r.state = r.askState()
 	if rc, done := r.applyRecord(); done {
 		return rc, true

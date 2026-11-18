@@ -450,7 +450,7 @@ func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, f
 	s.Apply(rec, os.Stderr)
 	*s.lead = rec.Request.Lead // the routed lead is not a flag: the replay leads with the profile the run used
 	clearTyped(fs, s)
-	if err := fs.Parse(args); err != nil { // re-apply explicit flags over the record
+	if _, err := helptext.ParseArgs(fs, args); err != nil { // re-apply explicit flags over the record
 		return failAskCode(format, *s.Name, err, 2), true
 	}
 	*prompt, *s.rubric = cmp.Or(*prompt, rec.Request.Prompt), "" // a typed task replaces the logged one

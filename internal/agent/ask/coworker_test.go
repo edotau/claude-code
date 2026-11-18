@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/network/egress"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -293,16 +295,57 @@ var armDevHop = map[string]struct{ bin, key, route string }{
 }
 
 // armChildEnvFixture: dev/qa rows, planted env, a stubbed mint, fakes that dump argv+env to <dir>/<seq>-<bin> and 402.
-func armChildEnvFixture(t *testing.T) string {
+func armChildEnvFixture(t *testing.T) string { return armFixture(t, false) }
+
+// armVendorBody is a fake vendor that dumps argv+env to the dir dumpAt names and answers 402.
+func armVendorBody(dumpAt, bin string) string {
+	return `case "$1 $2" in login*) echo "Logged in using ChatGPT"; exit 0;; ` +
+		`--version*|*--help*|debug*) echo 1.0.0; exit 0;; esac` + "\n" + `dump=` + dumpAt + "\n" +
+		`n=$(ls "$dump" | wc -l | tr -d ' ')` + "\n" + `{ echo "ARGV $*"; env; } > "$dump/$n-` + bin + `"` + "\n" +
+		`echo '402 Payment Required: monthly quota exceeded' >&2; exit 1`
+}
+
+var armSharedBin struct {
+	once sync.Once
+	dir  string
+}
+
+// armSharedFakes writes each fake once per test binary, since a fresh script's first exec costs 60-400 ms on macOS.
+func armSharedFakes(t *testing.T) string {
+	t.Helper()
+	armSharedBin.once.Do(func() {
+		dir, err := os.MkdirTemp("", "arm-fakes")
+		if err != nil {
+			t.Fatal(err)
+		}
+		armSharedBin.dir = dir
+		for _, h := range armDevHop {
+			body := "#!/bin/sh\n" + armVendorBody(`"$(cat "$(dirname "$0")/dump-path")"`, h.bin) + "\n"
+			file, _ := paths.AgentName(h.bin)
+			if err := os.WriteFile(filepath.Join(dir, file), []byte(body), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
+	})
+	return armSharedBin.dir
+}
+
+// armFixture is armChildEnvFixture; shared points the fakes at one per-binary copy that reads this test's dump dir.
+func armFixture(t *testing.T, shared bool) string {
 	t.Helper()
 	skipWithoutSh(t)
 	cliEnv(t)
 	dump := t.TempDir()
-	for _, h := range armDevHop {
-		pathstest.FakeVendor(t, h.bin, `case "$1 $2" in login*) echo "Logged in using ChatGPT"; exit 0;; `+
-			`--version*|*--help*|debug*) echo 1.0.0; exit 0;; esac`+"\n"+`n=$(ls `+dump+` | wc -l | tr -d ' ')`+"\n"+
-			`{ echo "ARGV $*"; env; } > `+dump+`/$n-`+h.bin+"\n"+
-			`echo '402 Payment Required: monthly quota exceeded' >&2; exit 1`)
+	if shared {
+		dir := armSharedFakes(t)
+		if err := os.WriteFile(filepath.Join(dir, "dump-path"), []byte(dump), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv(paths.AgentBinDirEnv, dir)
+	} else {
+		for _, h := range armDevHop {
+			pathstest.FakeVendor(t, h.bin, armVendorBody(`"`+dump+`"`, h.bin))
+		}
 	}
 	row := func(name string) string {
 		return `"` + name + `":{"preset":"databricks","host":"https://` + name + `.cloud.databricks.com",` +
@@ -499,7 +542,7 @@ func TestArmChildEnvPerAgent(t *testing.T) {
 // checkArmChildEnv runs one agent's databricks:dev ask with copilot's OS pinned to goos and checks every hop's env.
 func checkArmChildEnv(t *testing.T, name, goos string) {
 	t.Helper()
-	dump := armChildEnvFixture(t)
+	dump := armFixture(t, true)
 	t.Cleanup(copilot.StubGOOS(goos))
 	t.Cleanup(copilot.StubRegistry("cct_ARM_dev", "databricks-claude-sonnet-5-5", "databricks-gpt-6-1-sol")) // no live discovery
 	code, _, stderr := runCLI(t, "ask", "--agent", name, "--overlay", `{"provider":"databricks","profile":"dev"}`, "--fallback", "all", "go")

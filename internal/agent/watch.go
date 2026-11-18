@@ -243,7 +243,7 @@ func ResumeArgs(r Record, session string) []string {
 	if r.Request.WorkDir != "" {
 		args = append(args, "--workdir", r.Request.WorkDir)
 	}
-	return append(args, strings.Fields(ResumePrompt)...) // ask joins its positionals with spaces
+	return append(append(args, "--"), strings.Fields(ResumePrompt)...) // after "--" no prompt word is read as a flag
 }
 
 // staleFrom fills the fields every stale entry shows.

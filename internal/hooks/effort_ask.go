@@ -4,6 +4,8 @@ import (
 	"cmp"
 	"context"
 	"errors"
+	"flag"
+	"io"
 	"regexp"
 	"slices"
 	"strings"
@@ -17,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // openingAskWords uses the receipt grammar for a leading Run command, retaining its flags and quoted prompt.
@@ -107,12 +110,16 @@ func parseAskLine(ctx context.Context, task string) askLine {
 	}
 	agent := strings.TrimPrefix(words[verb], "agents")
 	words = words[verb+2:]
-	agent = cmp.Or(flagValue(words, "agent"), agent)
-	l := askLine{agent: agent, model: flagValue(words, "model"),
-		profile: flagValue(words, "profile"), fallback: flagValue(words, "fallback"), local: verb == 1 && !hasFlag(words, offRoute),
-		tools: hasFlag(words, []string{"tools", "read-only"}) || packsToFile(agent, words)}
-	l.prompt = askPrompt(words)
-	value := flagValue(words, "overlay")
+	a, ok := ParseAskWords(words)
+	if !ok { // ask exits 2 on this line: nothing to predict
+		return askLine{agent: agent}
+	}
+	agent = cmp.Or(a.Value("agent"), agent)
+	l := askLine{agent: agent, model: a.Value("model"),
+		profile: a.Value("profile"), fallback: a.Value("fallback"), local: verb == 1 && !a.Has(offRoute...),
+		tools: a.Has("tools", "read-only") || packsToFile(agent, a)}
+	l.prompt = a.Prompt()
+	value := a.Value("overlay")
 	if value == "" || value == "-" { // "" would read $COWORKER_OVERLAY, "-" the hook's stdin: no prediction
 		return l
 	}
@@ -122,39 +129,63 @@ func parseAskLine(ctx context.Context, task string) askLine {
 	return l
 }
 
-// askPrompt follows Go flag parsing; a lone dash asks for stdin rather than supplying task text.
-func askPrompt(words []string) string {
-	for i := 0; i < len(words); i++ {
-		w := words[i]
-		if w == "--" {
-			words = words[i+1:]
-			break
-		}
-		if !isFlag(w) {
-			words = words[i:]
-			break
-		}
-		name, _, inline := strings.Cut(strings.TrimLeft(w, "-"), "=")
-		if !inline && slices.Contains(askValueFlags, name) {
-			i++
-		}
-		if i >= len(words)-1 {
-			return ""
-		}
+// AskWords is an ask command line parsed by helptext.ParseArgs, the parser `agents ask` itself runs.
+type AskWords struct {
+	fs  *flag.FlagSet
+	Pos []string // the task words
+}
+
+// askBoolFlags are ask's boolean flags; every other registered flag takes a value (a test pins both lists to ask's).
+var askBoolFlags = strings.Fields("native tools read-only no-tools no-persist safe-mode direct autonomous fleet " +
+	"enable-memory stdin-framed live background fail-fast diff index")
+
+// ParseAskWords parses words as ask does (flags anywhere, none after "--"); ok is false where ask would exit 2.
+func ParseAskWords(words []string) (AskWords, bool) {
+	fs := helptext.NewFlagSet("ask", helptext.Page{})
+	fs.SetOutput(io.Discard)
+	for _, n := range askBoolFlags {
+		fs.Bool(n, false, "")
 	}
-	if len(words) > 0 && (len(words) != 1 || words[0] != "-") {
-		return strings.Join(words, " ")
+	for _, n := range askValueFlags {
+		fs.String(n, "", "")
 	}
-	return ""
+	pos, err := helptext.ParseArgs(fs, words)
+	return AskWords{fs, pos}, err == nil
+}
+
+// Value is the last typed value of flag name, "" when untyped.
+func (a AskWords) Value(name string) string {
+	v := ""
+	a.fs.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			v = f.Value.String()
+		}
+	})
+	return v
+}
+
+// Has reports whether any of names was typed.
+func (a AskWords) Has(names ...string) bool {
+	found := false
+	a.fs.Visit(func(f *flag.Flag) { found = found || slices.Contains(names, f.Name) })
+	return found
+}
+
+// Prompt is the task words; a lone dash asks for stdin rather than supplying task text.
+func (a AskWords) Prompt() string {
+	if len(a.Pos) == 0 || len(a.Pos) == 1 && a.Pos[0] == "-" {
+		return ""
+	}
+	return strings.Join(a.Pos, " ")
 }
 
 var askValueFlags = strings.Fields("agent agents fallback profile provider as model effort workdir session debug-file " +
 	"attach keep-env env allow ask deny mode overlay system-prompt append-system-prompt output-schema timeout host " +
-	"format dirs files max-files max-file-bytes rubric retry job batch jobs")
+	"format dirs files max-files max-file-bytes rubric retry job batch jobs save")
 
 // packsToFile is a --dirs/--files/--diff pack the agent reads from a staged file, which turns tools on (packPrompt).
-func packsToFile(agent string, words []string) bool {
-	return hasFlag(words, []string{"dirs", "files", "diff"}) && agentpkg.SchemaFor(agent).CLI.PackVia == agentpkg.PackFile
+func packsToFile(agent string, a AskWords) bool {
+	return a.Has("dirs", "files", "diff") && agentpkg.SchemaFor(agent).CLI.PackVia == agentpkg.PackFile
 }
 
 // preflightBlock denies a Run: line `agents ask` refuses on local cached state alone; every doubt lets it through.
@@ -257,7 +288,7 @@ func (l askLine) workAgent(st, task string) string {
 	return ""
 }
 
-// flagValue is the last -name/--name value before the first positional word or "--", as Go's flag package parses.
+// flagValue is a `<agent> review` flag: its parser stops at the first positional word, which ask's does not.
 func flagValue(words []string, name string) string {
 	v := ""
 	for i := 0; i < len(words) && isFlag(words[i]); i++ {
@@ -270,19 +301,6 @@ func flagValue(words []string, name string) string {
 		}
 	}
 	return v
-}
-
-func hasFlag(words, names []string) bool {
-	for i := 0; i < len(words) && isFlag(words[i]); i++ {
-		n, _, hasVal := strings.Cut(strings.TrimPrefix(words[i][1:], "-"), "=")
-		if slices.Contains(names, n) {
-			return true
-		}
-		if !hasVal && takesValue(words, i+1) {
-			i++
-		}
-	}
-	return false
 }
 
 func isFlag(w string) bool { return w != "--" && len(w) >= 2 && w[0] == '-' }

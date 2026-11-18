@@ -678,11 +678,11 @@ func markRunner(name string, mark func()) agent.Engine {
 	})
 }
 
-// rateOnceRunner fails its first run with a 300ms rate limit, then answers.
-func rateOnceRunner(name string, n *atomic.Int32) agent.Engine {
+// rateOnceRunner fails its first run with a rate limit of after, then answers.
+func rateOnceRunner(name string, n *atomic.Int32, after time.Duration) agent.Engine {
 	return runner(name, func(context.Context, wire.Sink) (wire.Result, error) {
 		if n.Add(1) == 1 {
-			return wire.Result{}, &retry.Error{Kind: retry.KindRateLimit, Agent: name, RetryAfter: 300 * time.Millisecond, Err: errors.New("HTTP 429")}
+			return wire.Result{}, &retry.Error{Kind: retry.KindRateLimit, Agent: name, RetryAfter: after, Err: errors.New("HTTP 429")}
 		}
 		return okResult, nil
 	})
@@ -894,6 +894,7 @@ func TestBatchFailFastStopsQueuedTask(t *testing.T) {
 // A task waiting out a cooldown or rate-limit backoff holds no permit: a task on another account finishes first.
 func TestBatchWaitingAccountDoesNotBlockOthers(t *testing.T) {
 	var rateRuns atomic.Int32
+	const unit = 30 * time.Millisecond // waits keep the 250:300:200 ratio at 3/5 of the length
 	cases := []struct {
 		name  string
 		jobs  int
@@ -902,9 +903,9 @@ func TestBatchWaitingAccountDoesNotBlockOthers(t *testing.T) {
 		slow  agent.Engine
 		acct  string
 	}{
-		{"cooling account", 2, func(*testing.T) { retry.CoolDown("cool·A", 250*time.Millisecond) }, "cooling", okRunner("cooling"), "cool·A"},
-		{"backoff after 429", 1, func(*testing.T) {}, "limited", rateOnceRunner("limited", &rateRuns), "rate·A"},
-		{"cooldown before first attempt", 1, func(t *testing.T) { coolOnFirstLoad(t, "late·A", 200*time.Millisecond) }, "late", okRunner("late"), "late·A"},
+		{"cooling account", 2, func(*testing.T) { retry.CoolDown("cool·A", 5*unit) }, "cooling", okRunner("cooling"), "cool·A"},
+		{"backoff after 429", 1, func(*testing.T) {}, "limited", rateOnceRunner("limited", &rateRuns, 6*unit), "rate·A"},
+		{"cooldown before first attempt", 1, func(t *testing.T) { coolOnFirstLoad(t, "late·A", 4*unit) }, "late", okRunner("late"), "late·A"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -974,7 +975,7 @@ func TestQueuedDispatchSkipsAccountMarkedAuthDead(t *testing.T) {
 func TestRetryRechecksAccountAfterBackoff(t *testing.T) {
 	var n atomic.Int32
 	out, _ := runPool(t, poolOptions{Jobs: 1},
-		acctTask(t, "limited", "rate·A", rateOnceRunner("limited", &n)),
+		acctTask(t, "limited", "rate·A", rateOnceRunner("limited", &n, 300*time.Millisecond)),
 		acctTask(t, "marker", "free·B", markRunner("marker", markAuth("rate·A"))))
 	if n.Load() != 1 {
 		t.Errorf("the rate-limited dispatch ran %d times, want 1: its retry must not run on an auth-dead account", n.Load())

@@ -3,6 +3,7 @@ package ask
 import (
 	"context"
 	"errors"
+	"flag"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -311,4 +313,57 @@ func TestOverlayLocalRefusalNamesKeys(t *testing.T) {
 			t.Errorf("%s: err %v, want %q", c.name, err, c.want)
 		}
 	}
+}
+
+// Flags parse in any position and the dispatch hooks predict the same route; "--" ends flags, an unknown one exits 2.
+func TestParseAskArgsFlagPositions(t *testing.T) {
+	rows := []struct {
+		name    string
+		args    []string
+		pos     []string
+		tools   bool
+		profile string
+		code    int
+	}{
+		{"flag after prompt", []string{"do x", "--tools"}, []string{"do x"}, true, "", 0},
+		{"flag before prompt", []string{"--tools", "do x"}, []string{"do x"}, true, "", 0},
+		{"value flag after prompt", []string{"do x", "--profile", "qa"}, []string{"do x"}, false, "qa", 0},
+		{"value flag before prompt", []string{"--profile", "qa", "do x"}, []string{"do x"}, false, "qa", 0},
+		{"flag=value after prompt", []string{"do x", "--profile=qa"}, []string{"do x"}, false, "qa", 0},
+		{"flag=value before prompt", []string{"--profile=qa", "do x"}, []string{"do x"}, false, "qa", 0},
+		{"after -- is verbatim", []string{"--tools", "--", "a", "--tools", "--profile", "qa"}, []string{"a", "--tools", "--profile", "qa"}, true, "", 0},
+		{"dash prompt after --", []string{"--", "-1 is wrong"}, []string{"-1 is wrong"}, false, "", 0},
+		{"dash prompt without --", []string{"-1 is wrong"}, nil, false, "", 2},
+		{"unknown trailing flag", []string{"do x", "--foo"}, nil, false, "", 2},
+		{"quoted prompt with a flag word", []string{"explain --tools please"}, []string{"explain --tools please"}, false, "", 0},
+		{"stdin dash", []string{"-", "--tools"}, []string{"-"}, true, "", 0},
+	}
+	for _, r := range rows {
+		fs, f := askFlagSet()
+		fs.SetOutput(io.Discard)
+		pos, code, _ := parseAskArgs(fs, r.args)
+		if code != r.code || !slices.Equal(pos, r.pos) || f.tools != r.tools || f.provider != r.profile {
+			t.Errorf("%s: got pos %q code %d tools %v profile %q, want %q %d %v %q", r.name, pos, code, f.tools, f.provider, r.pos, r.code, r.tools, r.profile)
+		}
+		w, ok := hooks.ParseAskWords(r.args)
+		if ok != (r.code == 0) || ok && (!slices.Equal(w.Pos, r.pos) || w.Has("tools") != r.tools || w.Value("profile") != r.profile) {
+			t.Errorf("%s: hook predicts pos %q ok %v tools %v profile %q, ask ran %q %d %v %q",
+				r.name, w.Pos, ok, w.Has("tools"), w.Value("profile"), r.pos, r.code, r.tools, r.profile)
+		}
+	}
+}
+
+// Every flag ask registers parses the same in the hooks' grammar: a bool takes no value, any other takes the next word.
+func TestHookGrammarCoversEveryAskFlag(t *testing.T) {
+	fs, _ := askFlagSet()
+	fs.VisitAll(func(f *flag.Flag) {
+		args := []string{"--" + f.Name, "v", "task"}
+		if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+			args = []string{"--" + f.Name, "task"}
+		}
+		w, ok := hooks.ParseAskWords(args)
+		if !ok || !w.Has(f.Name) || !slices.Equal(w.Pos, []string{"task"}) {
+			t.Errorf("--%s: hooks parse %q ok %v pos %q", f.Name, args, ok, w.Pos)
+		}
+	})
 }

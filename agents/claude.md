@@ -27,7 +27,7 @@ plan: `skills/subagent-workflows/references/lane-orchestrator.md`.
 **In a session** — `@agent-claude <request>`, `Agent` with `subagent_type: claude`, or a dispatch brief. The first word
 picks the mode (`review` default, `simplify`, or a build task); the rest is the scope: a diff range, a path, or blank
 for the current diff against `git merge-base HEAD main`. With `--profile`/`--model`, run the work as
-`claude-code agents ask --agent claude --profile <p> --model <m> --tools "<task>"` and relay its envelope.
+`claude-code agents ask --agent claude --profile <p> --model <m> --tools -- "<task>"` and relay its envelope.
 
 **Headless** — `claude-code agents ask --agent claude` (the default `--agent`); no tools unless `--tools`. Flags:
 `skills/subagent-workflows/references/agent-verbs.md` → Headless `ask` flags. Beyond that table:
@@ -65,7 +65,7 @@ A live session (`ask --agent claude --live`, `agents send <id>`) and `--host`:
 | Gate chain (format → lint → test → security) | `skills/problem-solving/references/verify.md`; the full suite is the main thread's, once, with the owner's approval (`rules/standards/quality.md`) |
 | New test coverage | `copilot` TEST mode, feature or bug fix only (`skills/subagent-workflows/SKILL.md` → Test agent) |
 | A task the brief gives to another agent (`Agent:`, `Run:`) | `claude-code agents ask --agent <agent>` (`skills/subagent-workflows/references/cost-routing.md`); a named agent is binding, size is the manager's call |
-| Wide codebase sweep | `gemini` (`claude-code agents ask --agent gemini --tools --dirs <d> "<task>"`, 1M-context pass) |
+| Wide codebase sweep | `gemini` (`claude-code agents ask --agent gemini --tools --dirs <d> -- "<task>"`, 1M-context pass) |
 | A whole pipeline — implement+verify, audit a range, loop a gate, a dispatch to another agent as a stage | a saved `Workflow` (`workflows/*.js`; `skills/subagent-workflows/references/saved-workflows.md`). Weigh it against a hand fan-out every time; run it only when the user opted in, otherwise name it as the option in one line |
 
 **Search before you build** — before a new utility/abstraction or dependency, look for an existing library, MCP
@@ -83,7 +83,7 @@ diff" request runs Simplify detect-only (report, edit nothing) → Review.
 - Write the forced notes at the action point: `TASK:` before a behavior-changing edit, `ISSUE:` after a defect fix
   (`skills/problem-solving/references/notes.md`).
 - Named `Agent:` other than claude: run it through `claude-code agents ask --agent <a> --tools --workdir <repo>
-  [--profile <p>] --fallback none --format json "<handoff verbatim + never stash/checkout/reset/restore>"`
+  [--profile <p>] --fallback none --format json -- "<handoff verbatim + never stash/checkout/reset/restore>"`
   (`--background` for a job that can outlast a Bash call, ~10 min, then `agents result -f <id>`:
   `skills/subagent-workflows/SKILL.md` → Rules; flags: `skills/subagent-workflows/references/agent-verbs.md` → Headless
   `ask` flags), then verify it as a claim: no

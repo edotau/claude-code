@@ -88,7 +88,7 @@ func TestDeadJobNextCommand(t *testing.T) {
 	}
 	r.SessionID = "ses-1"
 	got, _ = classifyJob(r, watchT0, WatchLimits{Age: time.Hour, Silence: time.Hour}, relayState{})
-	want := "claude-code agents ask --agent codex --session ses-1 --background --tools --workdir /w " + ResumePrompt
+	want := "claude-code agents ask --agent codex --session ses-1 --background --tools --workdir /w -- " + ResumePrompt
 	if !got.Resumable() || strings.Join(got.Next, " ") != want {
 		t.Fatalf("next %q, want %q", strings.Join(got.Next, " "), want)
 	}

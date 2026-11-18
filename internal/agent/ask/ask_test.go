@@ -809,6 +809,7 @@ func TestMain(m *testing.M) {
 	worktree.StubProcessScanForTest()
 	code := m.Run()
 	cleanup()
+	_ = os.RemoveAll(armSharedBin.dir)
 	os.Exit(code)
 }
 
@@ -996,7 +997,7 @@ func cliEnv(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("OPENCODE_API_KEY", "test-key") // an own-login route for opencode
 	for name, profile := range map[string]string{"codex": "chatgpt", "gemini": "antigravity", "opencode": "nvidia"} {
-		if err := vault.SetAgentRecord(name, vault.AgentRecord{Profile: profile}); err != nil { // an external agent with no profile is off
+		if err := vault.SetAgentRecord(name, vault.AgentRecord{Profile: profile}); err != nil {
 			t.Fatal(err)
 		}
 	}

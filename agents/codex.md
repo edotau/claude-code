@@ -26,12 +26,12 @@ brief, then redirect it with `- < PATH`.
 ## Owns
 
 - **Cross-family diff review** — `claude-code codex review [--adversarial] [scope]` (verdicts: Procedure → Review).
-- **Task-brief vetting before implementation** — `claude-code codex ask "<task-review.md checklist + request>"`.
+- **Task-brief vetting before implementation** — `claude-code codex ask -- "<task-review.md checklist + request>"`.
 - **The scoped gate run** — `claude-code codex ask --tools` briefed with the gate chain of
   `skills/problem-solving/references/verify.md`, scoped to the touched packages.
 - **Skill or plugin audits** — `claude-code codex ask` briefed with
   `skills/evaluate-code/references/codex-skill-plugin-review.md`.
-- **Any delegated task ("rescue")** — `claude-code codex ask --tools [--background] "<brief>"`.
+- **Any delegated task ("rescue")** — `claude-code codex ask --tools [--background] -- "<brief>"`.
 - **Handing a Claude session over** — `claude-code codex transfer`.
 
 ## Account and model

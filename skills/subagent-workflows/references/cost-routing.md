@@ -16,7 +16,8 @@ run may write outside its intended workdir: verify the actual tree and owned fil
 
 ## Ask flags and lifecycle
 
-A flag an agent can't honor is named in the envelope's `dropped`, never silent. `ask --format stream-json` emits NDJSON
+`ask` takes flags before or after the task; a task starting with `-` must follow `--` (`ask [flags] -- "<task>"`), as
+must any task text built from variable data. A flag an agent can't honor is named in the envelope's `dropped`, never silent. `ask --format stream-json` emits NDJSON
 events (`result` holds the envelope; each dispatch also writes `state/harness/dispatch/<id>.events.jsonl`); `--env
 NAME=VALUE` reaches every agent (credential-looking names refused); `--host <h>` runs the ask on that host over ssh
 (`rules/harness/network.md`); `--agent claude|gemini --live` holds one session open and `agents send <id> "<task>"`

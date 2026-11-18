@@ -34,7 +34,7 @@ brief, then redirect it with `- < PATH`.
   then the web through `skills/web-explorer/SKILL.md`: Tavily first, your own `WebSearch`/`WebFetch` optional).
 - **Diff review** — `claude-code opencode review [--adversarial]`; **continuing a session** —
   `claude-code opencode ask --session <id> <task>`.
-- **Any delegated task** — `claude-code opencode ask --tools [--background] "<brief>"`.
+- **Any delegated task** — `claude-code opencode ask --tools [--background] -- "<brief>"`.
 
 ## Usage
 
