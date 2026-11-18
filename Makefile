@@ -84,7 +84,6 @@ install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 	@if $(BIN) gateway proxy --restart --if-changed --force --dry-run | grep -q 'would restart'; then \
 		echo -e "$(C_NOTE)the running proxy is an older build; restart it when idle: claude-code gateway proxy --restart"; fi
 
-
 # A stale copy earlier on PATH (e.g. ~/.local/bin) shadows the fresh GOBIN build; after a toolchain bump it
 # fails typecheck with "export data version N is greater than maximum supported" — overwrite it in place.
 # A shim that resolves to another binary (mise) already runs the GOBIN build: never copy over it.
@@ -108,10 +107,6 @@ clean:  ## Remove bin/claude-code
 cover:  ## Per-package test coverage (opt-in; cached when unchanged)
 	@set -o pipefail; $(GO) test -cover $(PKGS) | awk '/coverage:/ {print $$2, $$(NF-2)}' | sort -t' ' -k2 -n
 
-.PHONY: vet
-vet:  # (dev recipe, hidden from help) go vet
-	$(GO) vet $(PKGS)
-
 ##@ Setup
 .PHONY: help-svg
 help-svg: BIN := bin/.lint/$(BINARY)
@@ -124,7 +119,6 @@ bootstrap:  ## Set up a fresh box: toolchain, install, configure
 	@$(MAKE) toolchain
 	@$(MAKE) install
 	@$(if $(filter 1,$(CHECK)),$(BIN) configure --check,$(BIN) configure)
-
 
 INTO ?= $(HOME)/.claude
 .PHONY: adopt
@@ -177,7 +171,7 @@ setup-env:  ## Print the PATH line (APPLY=1 writes shell rc)
 
 ##@ Quality
 # Umbrella gate on the working-tree build (bin/.lint, never the live binary): lint, test and the read-only checks run in
-# parallel with one log per stage; the writers (lint-docs, agents sync) run alone afterwards. Compile + vet cover the build.
+# parallel with one log per stage; the writer (agents sync) runs alone afterwards. Compile + vet cover the build.
 # Each worker runs under `set -m` (own process group) so a cancel signals `-pid` and reaches its grandchildren.
 # AUDIT_INNER=1 drops the audit-* targets' `compile` prerequisite: audit compiles once, standalone runs compile themselves.
 AUDIT_LINT   ?= $(MAKE) lint SKIP=docs
@@ -252,98 +246,56 @@ audit-git:  # (folded into `audit`) doctor --git over the unpushed commits; a to
 LINT_WHAT := go quality shell yaml help docs js
 
 WHAT    ?= all
-AGENT   ?= $(or $(HARNESS_LINT_AGENT),on)
-MAX     ?= 3
-LINT_AGENT := $(patsubst on,copilot,$(filter-out off,$(AGENT)))
 SKIP    ?=
 C_COMMA := ,
 LINT_KINDS := $(filter-out $(subst $(C_COMMA), ,$(SKIP)),$(or $(if $(filter go,$(WHAT)),go quality),$(if $(filter md,$(WHAT)),docs),$(if $(filter js,$(WHAT)),js),$(LINT_WHAT)))
 .PHONY: fmt
-fmt:  ## Format + auto-fix go, md, js; agent fixes rest (AGENT=off)
+fmt:  ## Fix go, yaml, md, memory banks; then show what lint finds
 	@case "$(WHAT)" in go|md|js|all) ;; *) echo "WHAT must be go|md|js|all"; exit 1 ;; esac
 	$(GO) fmt $(PKGS) >/dev/null
 	@if command -v golangci-lint >/dev/null; then golangci-lint fmt $(GO_FMT_DIRS); fi
-	@$(MAKE) --no-print-directory $(if $(LINT_AGENT),-k) $(addprefix lint-,$(LINT_KINDS)) CHECK= \
-		$(if $(LINT_AGENT),|| $(MAKE) --no-print-directory lint-agent)
-	@echo -e "$(C_OK)fmt applied"
+	@$(if $(filter go yaml docs,$(LINT_KINDS)),$(MAKE) --no-print-directory -k $(addprefix lint-,$(filter go yaml docs,$(LINT_KINDS))) CHECK= || :)
+	@echo -e "$(C_OK)fmt applied; what lint still reports needs a hand fix"
+	@$(MAKE) --no-print-directory lint
 
 .PHONY: lint
-lint:  ## Check go, shell, yaml, md, js; auto-wraps own memory banks
+lint:  ## Check only, never writes: go, shell, yaml, md, js, memory
 	@case "$(WHAT)" in go|md|js|all) ;; *) echo "WHAT must be go|md|js|all"; exit 1 ;; esac
 	@$(if $(SKIP),echo -e "$(C_NOTE)lint skipping: $(SKIP)")
-	@$(MAKE) --no-print-directory $(addprefix lint-,$(LINT_KINDS)) CHECK=1
+	@$(MAKE) --no-print-directory -k $(addprefix lint-,$(LINT_KINDS)) CHECK=1
 	@echo -e "$(C_OK)lint passed"
 
 lint-%: BIN := bin/.lint/$(BINARY)
-lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 only reports
+lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 reports, else fixes
 	@case "$*" in \
-	go) if [ "$(CHECK)" = 1 ]; then \
-			out="$$(gofmt -l $(GO_FMT_DIRS))"; \
-			if [ -n "$$out" ]; then echo "unformatted:"; echo "$$out"; echo "run make fmt"; exit 1; fi; \
+	go) rc=0; \
+		if [ "$(CHECK)" = 1 ]; then \
+			out="$$(gofmt -l -d $(GO_FMT_DIRS))"; \
+			if [ -n "$$out" ]; then echo "unformatted (make fmt fixes):"; echo "$$out"; rc=1; fi; \
+			$(GO) vet $(PKGS) || rc=1; \
+			if [ $$rc = 0 ]; then echo -e "$(C_OK)gofmt + vet clean"; fi; \
 		else gofmt -w $(GO_FMT_DIRS); fi; \
-		$(GO) vet $(PKGS) && echo -e "$(C_OK)gofmt + vet clean" || exit 1; \
-		if ! command -v golangci-lint >/dev/null; then echo -e "$(C_NOTE)golangci-lint skipped: not installed (make install DEV_TOOLS=1)"; exit 0; fi; \
-		golangci-lint run $(if $(filter 1,$(CHECK)),,--fix --disable gocognit) --max-issues-per-linter=0 --max-same-issues=0 ./... \
-			$(if $(or $(filter 1,$(CHECK)),$(LINT_AGENT)),, || echo -e "$(C_NOTE)golangci-lint: warning only (make lint fails): what is left has no auto-fix; AGENT=on hands it to copilot") ;; \
-	quality) $(BIN) review simplify --fail$(if $(filter 1,$(CHECK)),, || true) ;; \
+		if ! command -v golangci-lint >/dev/null; then echo -e "$(C_NOTE)golangci-lint skipped: not installed (make install DEV_TOOLS=1)"; exit $$rc; fi; \
+		golangci-lint run $(if $(filter 1,$(CHECK)),,--fix --disable gocognit) --max-issues-per-linter=0 --max-same-issues=0 ./... || { [ "$(CHECK)" = 1 ] && rc=1; }; \
+		exit $$rc ;; \
+	quality) $(BIN) review simplify --fail ;; \
 	shell) if [ -z "$(GO_SH_SRC)" ]; then echo -e "$(C_NOTE)no shell scripts to lint"; \
 		elif command -v shellcheck >/dev/null 2>&1; then shellcheck -S error $(GO_SH_SRC) && echo -e "$(C_OK)shellcheck clean"; \
 		else echo -e "$(C_NOTE)shellcheck not on PATH — skipped"; fi ;; \
 	yaml) if ! command -v yamlfmt >/dev/null 2>&1; then echo -e "$(C_NOTE)yamlfmt not installed — skipped (make install)"; \
-		elif [ -n "$(YAML_FILES)" ]; then yamlfmt -lint $(YAML_FILES); fi ;; \
+		elif [ -n "$(YAML_FILES)" ]; then yamlfmt $(if $(filter 1,$(CHECK)),-lint) $(YAML_FILES); fi ;; \
 	help) set -o pipefail; out="$$($(MAKE) --no-print-directory help | sed 's/\x1b\[[0-9;]*m//g' | awk \
 			'length>80 && substr($$0,20) ~ / / {print "over 80: " $$0} /^   / && !/^                   [^ ]/ {print "misaligned continuation: " $$0}')" || { echo "make help failed"; exit 1; }; \
 		if [ -n "$$out" ]; then echo "help rows break the wrap rule:"; echo "$$out"; exit 1; fi ;; \
 	docs) rc=0; $(MDSMITH) $(if $(filter 1,$(CHECK)),check,fix) || rc=1; \
 		live="$${CLAUDE_CONFIG_DIR:-$$HOME/.claude}"; \
 		if [ "$$(realpath "$(CURDIR)" 2>/dev/null)" = "$$(realpath "$$live" 2>/dev/null)" ]; then \
-			$(BIN) memory fmt $(if $(filter 1,$(CHECK)),--own) || rc=1; \
+			$(BIN) memory fmt $(if $(filter 1,$(CHECK)),--check) || rc=1; \
 		else echo -e "$(C_NOTE)memory fmt skipped: $(CURDIR) is not the live config dir ($$live) — a worktree must not write the shared memory store"; fi; \
 		exit $$rc ;; \
 	js) $(BIN) workflow lint ;; \
 	*) printf "Unknown lint '%s' (use %s)\n" "$*" "$(subst $(C_SP),|,$(LINT_WHAT))"; exit 1 ;; \
 	esac
-
-.PHONY: lint-agent
-lint-agent: BIN := bin/.lint/$(BINARY)
-lint-agent: compile mdsmith  # (folded into `fmt`) AGENT fixes what auto-fix left, at most MAX passes
-	@go=0; md=0; js=0; gl=0; case "$(WHAT)" in go) go=1;; md) md=1;; js) js=1;; *) go=1; md=1; js=1;; esac; \
-	if [ $$go = 1 ]; then if command -v golangci-lint >/dev/null; then gl=1; \
-		else echo -e "$(C_NOTE)golangci-lint not installed — skipped (make install DEV_TOOLS=1)"; fi; fi; \
-	o=$$(mktemp); b=$$(mktemp); t=$$(mktemp); e=$$(mktemp); trap 'rm -f "$$o" "$$b" "$$t" "$$e"' EXIT; \
-	pat='^[^ ]+\.(go|md|js):|\.go$$'; \
-	run() { n=$$1; shift; "$$@" > "$$t" 2>&1; rc=$$?; cat "$$t" >> "$$o"; \
-		if [ $$rc != 0 ] && ! grep -qE "$$pat" "$$t"; then echo "$$n (exit $$rc)" >> "$$e"; fi; }; \
-	chk() { : > "$$o"; : > "$$e"; \
-		if [ $$go = 1 ]; then run gofmt gofmt -l $(GO_FMT_DIRS); run "go vet" $(GO) vet $(PKGS); \
-			if [ $$gl = 1 ]; then run golangci-lint golangci-lint run --max-issues-per-linter=0 --max-same-issues=0 ./...; fi; fi; \
-		if [ $$md = 1 ]; then run mdsmith $(MDSMITH) check; fi; \
-		if [ $$js = 1 ]; then run "workflow lint" $(BIN) workflow lint; fi; \
-		grep -E "$$pat" "$$o" | grep -vc '(gocognit)$$' || true; }; \
-	fp() { grep -oE '^[^ :]+\.(go|md|js)' "$$o" | sort -u | xargs cat 2>/dev/null | cksum; }; \
-	opfail() { if [ -s "$$e" ]; then echo "lint: $$(paste -sd, "$$e") failed:"; head -n 50 "$$o"; exit 1; fi; }; \
-	left=$$(chk); opfail; \
-	if [ "$$left" = 0 ]; then echo -e "$(C_OK)lint: clean after auto-fix"; exit 0; fi; \
-	echo "lint: $$left issue(s) left after auto-fix"; \
-	pass=1; while [ "$$left" -gt 0 ] && [ $$pass -le $(MAX) ]; do \
-		{ echo "Fix the lint issues below in $(CURDIR). Rules:"; \
-		echo "- Prefer real fixes over //nolint; use //nolint only with a reason comment."; \
-		echo "- Never edit a file with a '// Code generated' header."; \
-		echo "- Reuse existing constants before adding one."; \
-		echo "- Edit only the files named in the lint output."; \
-		echo "- Leave gocognit findings alone; they need a human refactor."; \
-		echo "- After editing, run go build ./... and go test on each package you touched; keep them green."; \
-		echo "- After editing a workflow .js, re-run $(BIN) workflow lint; keep it clean."; \
-		echo "- Do not run git commands."; echo; echo "Lint output (truncated):"; \
-		awk 'NR<=150{print substr($$0,1,300)}' "$$o" | head -c 12000 || [ $$? = 141 ]; } > "$$b"; \
-		echo "lint: pass $$pass/$(MAX): dispatching $(LINT_AGENT)"; snap=$$(fp); \
-		$(BIN) agents ask --agent $(LINT_AGENT) $(if $(filter claude,$(LINT_AGENT)),--model sonnet --effort medium)$(if $(filter copilot,$(LINT_AGENT)), --direct) --tools --fallback none --workdir $(CURDIR) - < "$$b" || echo -e "$(C_NOTE)$(LINT_AGENT) dispatch failed"; \
-		if [ "$$(fp)" = "$$snap" ]; then \
-			echo -e "$(C_NOTE)lint: $(LINT_AGENT) changed no file (a denied Edit in its reply means it could not write here)"; break; fi; \
-		prev=$$left; left=$$(chk); opfail; echo "lint: $$left issue(s) left"; \
-		[ "$$left" -lt "$$prev" ] || break; pass=$$((pass+1)); done; \
-	if [ "$$left" = 0 ]; then echo -e "$(C_OK)lint: clean"; exit 0; fi; \
-	head -n 150 "$$o"; exit 1
 
 .PHONY: mdsmith
 mdsmith:  # (folded into `install`) pinned mdsmith binary in bin/
