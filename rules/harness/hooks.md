@@ -77,6 +77,15 @@ Rows marked ¶ have full behavior text in `skills/subagent-workflows/references/
 | `worktree-claim` | PostToolUse (Write\|Edit\|MultiEdit; Bash async) | Appends written and staged paths still dirty after the call to `state/harness/hooks/claims/<pid>-<session>.jsonl` (codex `apply_patch` headers, Copilot `toolArgs.path` and OpenCode `args.filePath` included; a move claims both names, a delete its path); each line records the owner's start token, so a file whose pid was reused is dropped, and a non-Claude agent's line inside a dispatch carries the dispatch id as `agent_id`, (read from the running dispatch record when the hook lacks the env), and `worktree commit` there treats a claim stamped with it, or filed by its own CLI process, as that leaf's own; an edit the vendor reports failed claims nothing; never blocks. Write\|Edit\|MultiEdit stays synchronous; Bash runs in the async entry, so a `settings.json` without it keeps Bash synchronous and a headless `claude -p` that exits first kills the run; Codex, Copilot and Gemini have no async entry, so it is synchronous there (about 10 ms per Bash or edit call) |
 | `worktree-claim-check` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | Notes before an edit that a dirty file is claimed by another live session or sibling leaf; asks on a staging or commit command that includes one (`-p`, a dry run and `-N` pass), blocks in a leaf under `~/.claude`; infra errors allow with a warning |
 
+`safety-scan` main-session rules (a leaf is a subagent or a dispatched agent; found as commands, never as text):
+
+- `claude-code vault get --key`: asked in the main session, refused in a leaf.
+- `kubectl|oc exec|delete` (`oc rsh`) on production (`prod`/`prd`/`production` in a flag, `ENV=` or `current-context`;
+  none found counts): asked in the main session, refused in a leaf.
+- `make audit|install|fmt` in the harness tree: refused in a leaf (run `make lint`, fix your files); `make lint` passes.
+- A leaf's `HARNESS_DISPATCH_*` unset, `env -u` or assignment anywhere in a command that also runs a shell, `eval`,
+  `source`, an interpreter or `ssh` is refused, however the text reaches it.
+
 ## Authoring a gate
 
 Prose is the instruction; the hook is the guarantee. Every gate:
@@ -93,3 +102,20 @@ Test the block path, the evidence-release path and the fail-open cap. Probe a li
 payloads from a data file (quoted payloads in the probe command trip the guard itself) and tally allow, ask and block
 separately. Permission guardrails live in `settings.json`'s `permissions` block (`internal/settings/template.json`;
 `ask` beats `allow`).
+
+## Group summary
+
+| Group | Does |
+| --- | --- |
+| `safety` | Bash safety gate (block / ask / warn tiers) |
+| `permission` | Agent-only gate (codex, gemini, opencode): judges each call against the dispatch's permissions |
+| `rtk` | Routes noisy command output through rtk |
+| `docs` | Markdown placement gate; plan template, dated plan copies, plan-task ticks |
+| `dispatch` | Concurrency cap (24 per account, ≤ 4 × CPUs), subagent model fill, memory pointers on spawn |
+| `paths` | Resolves Windows ⇄ `/mnt/…` paths in prompts |
+| `memory` | Injects the catalog and recall at start/prompt; context checkpoint and memory update at Stop/SessionEnd/PreCompact |
+| `format` | Formats files this session edited that are still dirty |
+| `worktree` | Creates/removes under `~/worktrees/<repo>/`, keeps the ledger |
+| `codex` | Codex only: child-agent routing and its log |
+
+The `review` group adds an advisory `review-simplicity` finding after each edit.

@@ -96,7 +96,7 @@ var exfilPatterns = []*core.Gated{
 	core.Gate(`(^|[\s;&|({/\x60'"\\])(env|printenv)['"]?\s*>\s*/tmp/`, "/tmp/"),
 	core.Gate(`(`+credRead+`.*\|.*(^|[^[:alnum:]_])`+exfilSink+`)|(`+secretPipe+`)`,
 		".claude/settings.json", ".credentials.json", "secrets.env", ".ssh/", ".aws/credentials", ".netrc",
-		"vault", "find-", "env", "auth", "whoami"),
+		"vault", "find-", "env", "auth", "whoami", "get-", "--raw"), // every secretCmd printer holds one
 	core.Gate(`base64\s+.*(\.ssh/id_|\.aws/credentials|\.credentials\.json|secrets\.env)`, "base64"),
 	core.Gate(`(scp|rsync)\s+.*\.ssh/id_`, ".ssh/id_"),
 }
@@ -258,6 +258,9 @@ func askPatternVerdict(in *core.Input, cmd string) (core.Decision, string, strin
 		what := "AI-attribution footer in a commit message (CLAUDE.md hard rule 3)"
 		hint := "Remove the Co-Authored-By / Generated-with lines and commit again; that needs no approval." + ownerRoute
 		return core.Block, core.SafetyMessage(in, core.Block, what, "", hint), "attribution footer"
+	}
+	if d, msg, detail := mainOnlyVerdict(in); d != core.Allow {
+		return d, msg, detail
 	}
 	if sqlDestructive().MatchString(strings.ToLower(cmd)) {
 		hint := "Approve only if you asked for it; back up first or run it against a scratch database."
@@ -434,7 +437,7 @@ func gitBannedUnder(target, verb string, args []string) bool {
 
 // hardBlockVerdict blocks a protected write or a hard shape outside inert text; one only in inert text is data.
 func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string) {
-	if name := dispatchTamper(in, scan); name != "" {
+	if name := dispatchTamper(in); name != "" {
 		what := "changes " + name + "; a nested dispatch inherits its ancestors' limits and deny rules"
 		return core.Block, core.SafetyMessage(in, core.Block, what, "", "Leave the HARNESS_DISPATCH_* variables as the "+
 			"dispatch set them."+ownerRoute), "dispatch env tamper"

@@ -44,6 +44,9 @@ func TestEachGit(t *testing.T) {
 		{"ssh host git stash", nil},
 		{"git --super-prefix x/ stash", []gitCall{{"/w", "stash"}}},
 		{"git --config-env core.x=HOME stash", []gitCall{{"/w", "stash"}}},
+		{"parallel git commit f", []gitCall{{"/w", "commit"}}},
+		{"xargs -- grep 'git stash'", nil},
+		{"xargs -- git stash", []gitCall{{"/w", "stash"}}},
 	}
 	for _, c := range cases {
 		if got := collectGit(c.cmd, "/w"); !reflect.DeepEqual(got, c.want) {
@@ -241,6 +244,10 @@ func TestEachGitWorktreeCommitNeedsCommandWord(t *testing.T) {
 		"cat <<'EOF'\n" + ph + " -m x\nEOF", "ls # " + ph, "ls '" + ph + "' dir", "xargs grep " + ph,
 		"git log --grep '" + ph + "'", "xargs grep \"" + ph + "\"", "rtk err grep '" + ph + "' rules",
 		"cat > s.sh <<E\n" + ph + " -m x a.go\nE\nls", "cat <<E | wc -l\n" + ph + " -m x\nE",
+		"git commit -F - <<'EOF'\n" + ph + " -m 'fix: x' f\nEOF", "git tag -F - v1 <<'EOF'\n" + ph + "\nEOF",
+		"xargs -- grep '" + ph + "'", "xargs -0 grep '" + ph + "'", "parallel grep '" + ph + "' ::: a",
+		"tee notes.md <<'EOF'\n" + ph + " -m x\nEOF", "tee notes.md <<'EOF'\n" + ph + " -m x\nEOF\ngit add notes.md",
+		"cat > notes.md <<'EOF'\n" + ph + "\nEOF\ncat notes.md", "claude-code memory recall '" + ph + "'",
 	}
 	for _, cmd := range text {
 		for _, c := range collectGit(cmd, "/w") {
@@ -258,6 +265,12 @@ func TestEachGitWorktreeCommitNeedsCommandWord(t *testing.T) {
 		"cat > s.sh <<E\n" + ph + " -m x a.go\nE\nbash s.sh", "cat > s.sh <<E\n" + ph + " -m x a.go\nE; bash s.sh",
 		"cat > s.sh <<E\n" + ph + " -m x a.go\nE\nchmod +x s.sh && ./s.sh", "cat <<E | xargs -I{} sh -c {}\n" + ph + " -m x\nE",
 		"cat <<E | sh\n" + ph + " -m x\nE", "cat <<E | xargs " + ph + " -m x\nbody\nE",
+		"parallel " + ph + " f", "parallel -j4 " + ph + " ::: f", "xargs -- " + ph + " f", "xargs -0 -n1 -P4 " + ph,
+		"xargs -I{} " + ph + " {}", "timeout 5 " + ph, "exec " + ph, "env X=1 " + ph, "watch -n 1 " + ph,
+		"find . -exec grep x {} \\; -exec " + ph + " {} \\;", "go run -race ./cmd/" + ph,
+	}
+	for _, run := range []string{"source s", ". s", "sh s", "bash < s", "env bash s", "sh <s", "cat s | bash", "chmod +x s; ./s"} {
+		real = append(real, "tee s <<'EOF'\n"+ph+" -m 'fix: x' f\nEOF\n"+run, "cat <<E | tee -a s\n"+ph+"\nE\n"+run)
 	}
 	for _, cmd := range real {
 		if !slices.ContainsFunc(collectGit(cmd, "/w"), func(c gitCall) bool { return c.verb == WorktreeCommit }) {
@@ -282,6 +295,15 @@ func TestHeredocBodies(t *testing.T) {
 		{"cat <<EOF | xargs -I{} sh -c {}\nbody\nEOF", false},
 		{"cat > f <<EOF\nbody\nEOF\nbash f", false},
 		{"cat > f <<EOF\nbody\nEOF\nchmod +x f && ./f", false},
+		{"git tag -F - v1 <<EOF\nbody\nEOF", true},
+		{"cat <<EOF | wc -l\nbody\nEOF", true},
+		{"tee notes.md <<EOF\nbody\nEOF\ngit add notes.md", true},
+		{"cat <<EOF > f\nbody\nEOF\ncat f", true},
+		{"tee s <<EOF\nbody\nEOF\nsource s", false},
+		{"tee s <<EOF\nbody\nEOF\nbash < s", false},
+		{"cat <<EOF >> s\nbody\nEOF\nenv bash s", false},
+		{"python3 <<EOF\nbody\nEOF", false},
+		{"cat <<EOF | sort\nbody\nEOF", false},
 	}
 	for _, c := range cases {
 		segs, seps := SegmentsSep(c.cmd)

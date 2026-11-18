@@ -28,9 +28,23 @@ func TooDeep(args []string) bool { return len(args) == 1 && args[0] == tooDeepAr
 // gitFn receives one git invocation: its target tree, verb and the verb's words; true stops the walk.
 type gitFn func(target, verb string, args []string) bool
 
+// commandVerb is eachGit's internal verb for a command start; its args are the command's words.
+const commandVerb = "\x00command"
+
 // EachGit calls fn per git invocation in cmd and its target tree, through nesting, wrappers and cd, until fn is true.
 func EachGit(cmd, cwd string, fn gitFn) bool {
-	return eachGit(cmd, cwd, fn, 0, false)
+	return eachGit(cmd, cwd, func(target, verb string, args []string) bool {
+		if verb != commandVerb {
+			return fn(target, verb, args)
+		}
+		harness := len(args) > 2 && filepath.Base(args[0]) == "claude-code" && args[1] == "worktree" && args[2] == "commit"
+		return harness && fn(target, WorktreeCommit, args[3:])
+	}, 0, false)
+}
+
+// EachCommand calls fn with each command's words and dir, found as EachGit finds git, until fn is true.
+func EachCommand(cmd, cwd string, fn func(dir string, words []string) bool) bool {
+	return eachGit(cmd, cwd, func(target, verb string, args []string) bool { return verb == commandVerb && fn(target, args) }, 0, false)
 }
 
 // eachGit is EachGit at a nesting depth; runs marks text whose output is itself run, so no command in it is inert.
@@ -57,7 +71,9 @@ func eachGit(cmd, cwd string, fn gitFn, depth int, runs bool) bool {
 	if len(scripts) > 0 {
 		seen = map[[2]string]bool{}
 		walk = func(target, verb string, args []string) bool {
-			seen[[2]string{target, verb}] = seen[[2]string{target, verb}] || writing
+			if verb != commandVerb {
+				seen[[2]string{target, verb}] = seen[[2]string{target, verb}] || writing
+			}
 			return fn(target, verb, args)
 		}
 	}
@@ -77,7 +93,7 @@ func eachGit(cmd, cwd string, fn gitFn, depth int, runs bool) bool {
 // nestScripts walks each written-then-run script's text, `printf 'git x\n' > f && sh f`, skipping calls already seen.
 func nestScripts(scripts []Script, seen map[[2]string]bool, fn gitFn, depth int, runs bool) bool {
 	fresh := func(target, verb string, args []string) bool {
-		return !seen[[2]string{target, verb}] && fn(target, verb, args)
+		return (verb == commandVerb || !seen[[2]string{target, verb}]) && fn(target, verb, args)
 	}
 	for _, s := range scripts {
 		if eachGit(s.Text, s.Dir, fresh, depth+1, runs) {
@@ -96,7 +112,11 @@ type segWalk struct {
 	fn         gitFn
 	depth      int
 	runs       bool
-	inertBody  []bool // segments that are the body of a heredoc fed to an inert command
+	inertBody  []bool // segments that are the body of a heredoc only pure readers consume
+}
+
+func newSegWalk(segs, seps []string) *segWalk {
+	return &segWalk{segs: segs, seps: seps, words: make([][]string, len(segs)), wordsSet: make([]bool, len(segs))}
 }
 
 func (w *segWalk) cmdWords(i int) []string {
@@ -125,7 +145,7 @@ func (w *segWalk) run(i int) bool {
 	fn := w.fn
 	if w.heredocText(i) {
 		fn = func(target, verb string, args []string) bool {
-			return verb != WorktreeCommit && w.fn(target, verb, args)
+			return verb != commandVerb && w.fn(target, verb, args)
 		}
 	}
 	if segmentGit(rest, dir, fn, w.depth, w.runs || w.pipesIntoRunner(i) || w.writesThenRuns(i)) {
@@ -137,28 +157,23 @@ func (w *segWalk) run(i int) bool {
 	return false
 }
 
-// heredocText reports segment i as the body of a heredoc that only an inert command (cat, tee) reads and nothing runs.
+// heredocText reports segment i as the body of a heredoc that only pure readers consume and nothing runs.
 func (w *segWalk) heredocText(i int) bool {
 	if w.inertBody == nil {
-		w.inertBody = w.heredocBodies(inertCommand)
+		w.inertBody = w.heredocBodies()
 	}
 	return w.inertBody[i]
 }
 
-// HeredocBodies marks the segments that are a heredoc body fed to a non-runner and never run as written.
-func HeredocBodies(segs, seps []string) []bool {
-	w := &segWalk{segs: segs, seps: seps, words: make([][]string, len(segs)), wordsSet: make([]bool, len(segs))}
-	return w.heredocBodies(func(toks []string) bool { return !runner(toks[0]) })
-}
+// HeredocBodies marks the heredoc bodies that are text: only pure readers consume them and no file they write runs.
+func HeredocBodies(segs, seps []string) []bool { return newSegWalk(segs, seps).heredocBodies() }
 
-// heredocBodies marks each heredoc body fed to a command feeds accepts, unless piped into a runner or written then run.
-func (w *segWalk) heredocBodies(feeds func([]string) bool) []bool {
+// heredocBodies marks each heredoc body readOnly consumes; any other body is scanned as commands.
+func (w *segWalk) heredocBodies() []bool {
 	out := make([]bool, len(w.segs))
 	for j := range w.segs {
 		delim, ok := heredocDelim(w.cmdWords(j))
-		rest, _ := Unwrap(w.cmdWords(j), "")
-		if rest = dropRtk(rest); !ok || len(rest) == 0 || !feeds(rest) ||
-			w.pipesIntoRunner(j) || w.pipesIntoShell(j) || w.writesThenRuns(j) {
+		if !ok || !w.readOnly(j) {
 			continue
 		}
 		k := j + 1
@@ -185,6 +200,115 @@ func heredocDelim(toks []string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+// pureReaders read or count their input; tee and cat may also write it to a file, which readOnly checks.
+var pureReaders = map[string]bool{"cat": true, "tee": true, "wc": true, "grep": true, "egrep": true, "fgrep": true,
+	"rg": true, "head": true, "tail": true}
+
+// pureReader reports a pureReaders command, `sed -n`, or `git commit|tag -F -` (a message read from stdin).
+func pureReader(toks []string) bool {
+	switch filepath.Base(toks[0]) {
+	case "sed":
+		return slices.ContainsFunc(toks[1:], func(t string) bool { return t == "-n" || t == "--quiet" || t == "--silent" })
+	case "git":
+		_, verb, args := resolvedGit(toks[1:], "")
+		for i, a := range args {
+			if a == "-F-" || a == "--file=-" || (a == "-F" || a == "--file") && i+1 < len(args) && args[i+1] == "-" {
+				return verb == "commit" || verb == "tag"
+			}
+		}
+		return false
+	}
+	return pureReaders[filepath.Base(toks[0])]
+}
+
+// readOnly reports segment j's pipeline as pure readers, and no file they write run by a later segment.
+func (w *segWalk) readOnly(j int) bool {
+	var files []string
+	for k := j; ; k++ {
+		words, targets := Redirects(w.segs[k])
+		for len(words) > 0 && isShellKeyword(words[0]) {
+			words = words[1:]
+		}
+		rest, _ := Unwrap(words, "")
+		if rest = dropRtk(rest); len(rest) == 0 || !pureReader(rest) {
+			return false
+		}
+		if filepath.Base(rest[0]) == "tee" {
+			targets = append(targets, operandWords(rest[1:])...)
+		}
+		files = append(files, targets...)
+		if k+1 >= len(w.segs) || w.seps[k] != "|" && w.seps[k] != "|&" {
+			return len(files) == 0 || !w.runsFile(files, k+1)
+		}
+	}
+}
+
+// runsFile reports a segment from index from on that runs one of files: by path, or an evaluator naming it.
+func (w *segWalk) runsFile(files []string, from int) bool {
+	names := map[string]bool{}
+	for _, f := range files {
+		for _, p := range pathPieces(f) {
+			names[filepath.Base(p)] = true
+		}
+	}
+	for k := from; k < len(w.segs); k++ {
+		toks := w.cmdWords(k)
+		rest, _ := Unwrap(toks, "")
+		if rest = dropRtk(rest); len(rest) > 0 && strings.Contains(rest[0], "/") && names[filepath.Base(rest[0])] {
+			return true
+		}
+		piped := (w.seps[k] == "|" || w.seps[k] == "|&") && k+1 < len(w.segs) && evaluates(w.cmdWords(k+1))
+		if !piped && !evaluates(toks) {
+			continue
+		}
+		for _, t := range toks {
+			if slices.ContainsFunc(pathPieces(t), func(p string) bool { return names[filepath.Base(p)] }) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// pathPieces splits a word into its path-like runs: `<s`, `$(cat ./s)` and `"$F"` hold s, ./s and F.
+func pathPieces(t string) []string {
+	return strings.FieldsFunc(t, func(r rune) bool {
+		return (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && !strings.ContainsRune("._-/~", r)
+	})
+}
+
+// evaluators read text as code: a string, a file or stdin; shells count too, pass-through runners by their command.
+var evaluators = map[string]bool{"eval": true, "source": true, ".": true, "su": true, "script": true, "flock": true,
+	"ssh": true, "python": true, "python3": true, "perl": true, "ruby": true, "node": true}
+
+// evaluates reports a command start in toks that is an evaluator or a shell.
+func evaluates(toks []string) bool {
+	return slices.ContainsFunc(CommandStarts(toks), func(st []string) bool {
+		st = skipEnvAssignments(st)
+		return len(st) > 0 && (evaluators[filepath.Base(st[0])] || shellWrapperNames[filepath.Base(st[0])])
+	})
+}
+
+// Evaluates reports a command in cmd, outside a heredoc body that is text, that reads text as code.
+func Evaluates(cmd string) bool {
+	masked, subs := extractSubstitutions(cmd, subMask)
+	if slices.ContainsFunc(subs, Evaluates) {
+		return true
+	}
+	segs, seps := SegmentsSep(masked)
+	body := HeredocBodies(segs, seps)
+	for i, seg := range segs {
+		toks := Tokens(seg) // not commandWords: an ssh command evaluates its string remotely
+		if len(toks) > 0 {
+			toks[0] = strings.TrimLeft(toks[0], "({`")
+		}
+		if !body[i] && evaluates(toks) {
+			return true
+		}
+	}
+	return false
 }
 
 // pipesIntoRunner reports that segment i feeds a runner (xargs, eval, a shell with a script) its words to run.
@@ -540,10 +664,15 @@ func segmentGit(toks []string, dir string, fn gitFn, depth int, runs bool) bool 
 		return eachGit(text, dir, fn, depth+1, runs)
 	}
 	head := toks
-	if filepath.Base(toks[0]) == "xargs" { // the command xargs runs decides whether its arguments are text
+	if name := filepath.Base(toks[0]); name == "xargs" || name == "parallel" { // the command they run decides
 		head = dropRtk(afterPrefix(toks))
 	}
 	s := &segScan{dir: dir, fn: fn, depth: depth, runs: runs, inert: !runs && len(head) > 0 && inertCommand(head)}
+	for _, st := range CommandStarts(toks) { // each command word, through xargs, parallel, watch, find -exec, go run
+		if st = dropRtk(skipEnvAssignments(st)); !s.inert && len(st) > 0 && fn(dir, commandVerb, st) {
+			return true
+		}
+	}
 	for i := range toks { // any word: xargs/watch/find -exec need no modelling
 		if s.word(toks, i) {
 			return true
@@ -570,9 +699,6 @@ func (s *segScan) word(toks []string, i int) bool {
 		s.afterGit = true
 		return s.fn(resolvedGit(toks[i+1:], s.dir))
 	}
-	if !s.inert && i+2 < len(toks) && toks[i+1] == "worktree" && toks[i+2] == "commit" && harnessCommandWord(toks, i) {
-		return s.fn(s.dir, WorktreeCommit, toks[i+3:])
-	}
 	switch {
 	case i == 0:
 	case shellWrapperNames[filepath.Base(t)]: // `find -exec sh -c 'STR'`, `setsid sh -c 'STR'`
@@ -597,19 +723,23 @@ func (s *segScan) textArg(t, head string) bool {
 	return !strings.HasPrefix(strings.TrimSpace(t), "claude-code ") || runner(head) // claude-code text runs only under a runner
 }
 
-// CommandStarts lists the words from each command word of a segment, through keywords, wrappers, xargs and find -exec.
-func CommandStarts(toks []string) [][]string {
-	var out [][]string
-	for range maxNest * 2 {
-		for len(toks) > 0 && isShellKeyword(toks[0]) {
-			toks = toks[1:]
-		}
-		if len(toks) == 0 {
-			break
-		}
-		out = append(out, toks)
-		if toks = afterPrefix(skipEnvAssignments(toks)); toks == nil {
-			break
+// CommandStarts lists the words from each command word of a segment, through keywords, wrappers, runners, find -exec.
+func CommandStarts(toks []string) [][]string { return commandStarts(toks, maxNest*2) }
+
+func commandStarts(toks []string, n int) [][]string {
+	for len(toks) > 0 && isShellKeyword(toks[0]) {
+		toks = toks[1:]
+	}
+	if len(toks) == 0 || n == 0 {
+		return nil
+	}
+	out := [][]string{toks}
+	if filepath.Base(toks[0]) != "find" {
+		return append(out, commandStarts(afterPrefix(skipEnvAssignments(toks)), n-1)...)
+	}
+	for i, t := range toks { // every -exec runs its own command
+		if slices.Contains(execFlags, t) {
+			out = append(out, commandStarts(toks[i+1:], n-1)...)
 		}
 	}
 	return out
@@ -618,10 +748,27 @@ func CommandStarts(toks []string) [][]string {
 // execFlags are find's flags that run the words after them as a command.
 var execFlags = []string{"-exec", "-execdir", "-ok", "-okdir"}
 
-// xargsValueFlags take the next word as their value.
-var xargsValueFlags = []string{"-n", "-I", "-L", "-P", "-s", "-d", "-E", "-a"}
+// runnerValueFlags take the next word as their value in xargs, parallel and watch.
+var runnerValueFlags = []string{"-n", "-I", "-L", "-P", "-s", "-d", "-E", "-a", "-j"}
 
-// afterPrefix is the words after a leading wrapper (rtk, env, sudo, xargs, find -exec) and its options, else nil.
+// goRunValueFlags take the next word as their value in `go run`.
+var goRunValueFlags = []string{"-C", "-exec", "-gcflags", "-ldflags", "-mod", "-o", "-p", "-tags"}
+
+// optionsDropped drops leading options, the value of each one in values, and a `--` that ends them.
+func optionsDropped(rest, values []string) []string {
+	for len(rest) > 0 && strings.HasPrefix(rest[0], "-") {
+		opt := rest[0]
+		if rest = rest[1:]; opt == "--" {
+			break
+		}
+		if slices.Contains(values, opt) && len(rest) > 0 {
+			rest = rest[1:]
+		}
+	}
+	return rest
+}
+
+// afterPrefix is the words after a leading wrapper (rtk, env, sudo), runner (xargs, parallel, watch) or `go run`.
 func afterPrefix(toks []string) []string {
 	if len(toks) == 0 {
 		return nil
@@ -638,22 +785,10 @@ func afterPrefix(toks []string) []string {
 			rest = rest[1:]
 		}
 		return rest
-	case name == "xargs":
-		rest := toks[1:]
-		for len(rest) > 0 && strings.HasPrefix(rest[0], "-") && rest[0] != "--" {
-			n := 1
-			if slices.Contains(xargsValueFlags, rest[0]) {
-				n = 2
-			}
-			rest = rest[min(n, len(rest)):]
-		}
-		return rest
-	case name == "find":
-		for i, t := range toks {
-			if slices.Contains(execFlags, t) {
-				return toks[i+1:]
-			}
-		}
+	case name == "xargs" || name == "parallel" || name == "watch":
+		return optionsDropped(toks[1:], runnerValueFlags)
+	case name == "go" && len(toks) > 1 && toks[1] == "run":
+		return optionsDropped(toks[2:], goRunValueFlags)
 	}
 	return nil
 }
@@ -677,34 +812,6 @@ func dropRtk(toks []string) []string {
 		toks = flagsDropped(toks[1:])
 	}
 	return toks
-}
-
-// harnessCommandWord reports toks[i] as claude-code in command position: first, after `go run`, or under a runner.
-func harnessCommandWord(toks []string, i int) bool {
-	if filepath.Base(toks[i]) != "claude-code" {
-		return false
-	}
-	switch name := filepath.Base(toks[0]); {
-	case i == 0:
-		return true
-	case name == "go":
-		return toks[1] == "run" && optionsOnly(toks[2:i])
-	case name == "find":
-		return slices.Contains(execFlags, toks[i-1])
-	case name == "xargs" || name == "watch":
-		return optionsOnly(toks[1:i])
-	}
-	return false
-}
-
-// optionsOnly reports words that are all flags or a flag's value (`-n 1`), never a command of their own.
-func optionsOnly(words []string) bool {
-	for i, w := range words {
-		if !strings.HasPrefix(w, "-") && (i == 0 || !strings.HasPrefix(words[i-1], "-")) {
-			return false
-		}
-	}
-	return true
 }
 
 // cStringCommands run the string after their -c flag through a shell.

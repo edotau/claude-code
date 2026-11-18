@@ -2,7 +2,10 @@ package safety
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
+	"os"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -94,6 +97,34 @@ var tamperCases = []tamperCase{
 	{"echo unset", `echo unset HARNESS_DISPATCH_ID`, "a1", "", core.Allow},
 	{"command -v unset", `command -v unset`, "a1", "", core.Allow},
 	{"main session sets depth", `HARNESS_DISPATCH_MAX_DEPTH=5 claude-code agents ask --agent codex x`, "", "", core.Allow},
+	{"tee then source", "tee s <<'EOF'\nunset HARNESS_DISPATCH_ID\nEOF\nsource s", "a1", "", core.Block},
+	{"tee then dot", "tee s <<'EOF'\nunset HARNESS_DISPATCH_ID\nEOF\n. s", "a1", "", core.Block},
+	{"tee then sh", "tee s <<'EOF'\nunset HARNESS_DISPATCH_ID\nEOF\nsh s", "a1", "", core.Block},
+	{"tee then bash <", "tee s <<'EOF'\nunset HARNESS_DISPATCH_ID\nEOF\nbash < s", "a1", "", core.Block},
+	{"tee then env bash", "tee s <<'EOF'\nunset HARNESS_DISPATCH_ID\nEOF\nenv bash s", "a1", "", core.Block},
+	{"tee then sh <s", "tee s <<'EOF'\nunset HARNESS_DISPATCH_ID\nEOF\nsh <s", "a1", "", core.Block},
+	{"here-string to bash", `bash <<< "unset HARNESS_DISPATCH_ID"`, "a1", "", core.Block},
+	{"eval of printf", `eval "$(printf 'unset HARNESS_DISPATCH_ID')"`, "a1", "", core.Block},
+	{"escaped name", `unset HARNESS\_DISPATCH_ID`, "a1", "", core.Block},
+	{"split-quoted name", `unset HARNESS_DISPATCH_"ID"`, "a1", "", core.Block},
+	{"quoted name", `unset 'HARNESS_DISPATCH_ID'`, "a1", "", core.Block},
+	{"printf piped to bash", `printf 'unset HARNESS_DISPATCH_ID\n' | bash`, "a1", "", core.Block},
+	{"parallel env -u", `parallel env -u HARNESS_DISPATCH_ID true`, "a1", "", core.Block},
+	{"xargs sh -c from printf", `printf '%s\n' 'unset HARNESS_DISPATCH_ID' | xargs -I CMD sh -c CMD`, "a1", "", core.Block},
+	{"python heredoc", "python3 - <<'PY'\nimport os; os.system('unset HARNESS_DISPATCH_ID')\nPY", "a1", "", core.Block},
+	{"ssh env -u", `ssh h 'env -u HARNESS_DISPATCH_ID x'`, "a1", "", core.Block},
+	{"evaluator anywhere with phrase", `sh build.sh && echo "unset HARNESS_DISPATCH_ID"`, "a1", "", core.Block},
+	{"tee note never run", "tee notes.md <<'EOF'\nunset HARNESS_DISPATCH_ID\nEOF", "a1", "", core.Allow},
+	{"cat note then git add", "cat > notes.md <<'EOF'\nunset HARNESS_DISPATCH_ID\nEOF\ngit add notes.md", "a1", "", core.Allow},
+	{"heredoc to wc", "cat <<EOF | wc -l\nunset HARNESS_DISPATCH_ID\nEOF", "a1", "", core.Allow},
+	{"commit -F env -u", "git commit -F - <<'EOF'\nfix: env -u HARNESS_DISPATCH_ID\nEOF", "a1", "", core.Allow},
+	{"xargs grep phrase", `xargs grep "unset HARNESS_DISPATCH_ID"`, "a1", "", core.Allow},
+	{"xargs -- grep phrase", `xargs -- grep 'unset HARNESS_DISPATCH_ID'`, "a1", "", core.Allow},
+	{"find exec grep", `find . -name '*.go' -exec grep -l HARNESS_DISPATCH {} \;`, "a1", "", core.Allow},
+	{"bash -c echo", `bash -c 'echo hi'`, "a1", "", core.Allow},
+	{"sh script", `sh build.sh`, "a1", "", core.Allow},
+	{"bash reads the id", `bash -c 'echo $HARNESS_DISPATCH_ID'`, "a1", "", core.Allow},
+	{"parallel grep", `parallel grep HARNESS_DISPATCH_ID ::: a b`, "a1", "", core.Allow},
 }
 
 // A leaf may not assign, export, unset or clear a HARNESS_DISPATCH_* variable; the main session may.
@@ -116,4 +147,99 @@ func TestTamperNameIgnoresPlainSudo(t *testing.T) {
 	if name := tamperName("sudo ls"); name != "" {
 		t.Errorf("tamperName(sudo ls) = %q, want none", name)
 	}
+}
+
+type roleCase struct {
+	cmd, cwd, kube string // CFG in cmd and cwd is the config dir; kube "" leaves the kubeconfig unreadable
+	main, leaf     core.Decision
+}
+
+const devKube = "apiVersion: v1\ncurrent-context: dev-cluster\n"
+
+var roleCases = []roleCase{
+	{"claude-code vault get --key", "", devKube, core.Ask, core.Block},
+	{"rtk claude-code vault get --key", "", devKube, core.Ask, core.Block},
+	{"env X=1 claude-code vault get --key | age -e", "", devKube, core.Ask, core.Block},
+	{"sh -c 'claude-code vault get -key > k'", "", devKube, core.Ask, core.Block},
+	{"K=$(claude-code vault get --key)", "", devKube, core.Ask, core.Block},
+	{"go run ./cmd/claude-code vault get --key", "", devKube, core.Ask, core.Block},
+	{"claude-code vault get GITHUB_TOKEN", "", devKube, core.Allow, core.Allow},
+	{"claude-code vault get --export A B", "", devKube, core.Allow, core.Allow},
+	{`grep "vault get --key" rules/`, "", devKube, core.Allow, core.Allow},
+	{`git commit -m "feat: claude-code vault get --key"`, "", devKube, core.Allow, core.Allow},
+	{"kubectl -n prod exec pod -- ls", "", devKube, core.Ask, core.Block},
+	{"kubectl exec -n prod pod -- ls", "", devKube, core.Ask, core.Block},
+	{"kubectl --context=prod delete pod x", "", devKube, core.Ask, core.Block},
+	{"kubectl --context prod-east delete pod x", "", devKube, core.Ask, core.Block},
+	{"oc rsh --namespace=ns-production pod", "", devKube, core.Ask, core.Block},
+	{"rtk kubectl exec -n my-prod-cluster pod -- ls", "", devKube, core.Ask, core.Block},
+	{"env A=1 oc delete pod x -n prd", "", devKube, core.Ask, core.Block},
+	{"sh -c 'kubectl delete pod x --context prod'", "", devKube, core.Ask, core.Block},
+	{"make login ENV=prod && oc exec pod -- ls", "/tmp", devKube, core.Ask, core.Block},
+	{"kubectl --kubeconfig ~/.kube/prod.yaml exec pod -- ls", "", devKube, core.Ask, core.Block},
+	{"kubectl exec pod -- ls", "", "current-context: cluster-prod\n", core.Ask, core.Block},
+	{"oc delete pod x", "", "", core.Ask, core.Block},
+	{"kubectl delete pod x", "", devKube, core.Allow, core.Allow},
+	{"kubectl exec -n product-catalog pod -- ls", "", devKube, core.Allow, core.Allow},
+	{"kubectl delete pod x -n reproduce", "", devKube, core.Allow, core.Allow},
+	{"kubectl --context dev delete pod x", "", "current-context: prod\n", core.Allow, core.Allow},
+	{"kubectl get pods -n prod", "", devKube, core.Allow, core.Allow},
+	{"oc logs -n prod pod", "", "", core.Allow, core.Allow},
+	{`grep "kubectl delete" docs/`, "", "", core.Allow, core.Allow},
+	{`git commit -m "fix: kubectl exec -n prod"`, "", "", core.Allow, core.Allow},
+	{"make audit", "", devKube, core.Allow, core.Block},
+	{"make install", "", devKube, core.Allow, core.Block},
+	{"make fmt", "", devKube, core.Allow, core.Block},
+	{"make fmt WHAT=md AGENT=off", "", devKube, core.Allow, core.Block},
+	{"make -C CFG audit FORCE=1", "/tmp", devKube, core.Allow, core.Block},
+	{"rtk make install", "", devKube, core.Allow, core.Block},
+	{"env FORCE=1 make audit", "", devKube, core.Allow, core.Block},
+	{"sh -c 'make -j4 install'", "", devKube, core.Allow, core.Block},
+	{"make lint", "", devKube, core.Allow, core.Allow},
+	{"make lint WHAT=go", "", devKube, core.Allow, core.Allow},
+	{"make test", "", devKube, core.Allow, core.Allow},
+	{"make build", "", devKube, core.Allow, core.Allow},
+	{"make auditx", "", devKube, core.Allow, core.Allow},
+	{"make fmtx", "", devKube, core.Allow, core.Allow},
+	{"make install-tools", "", devKube, core.Allow, core.Allow},
+	{`grep -n "make install" README.md`, "", devKube, core.Allow, core.Allow},
+	{`grep -n "make fmt" Makefile`, "", devKube, core.Allow, core.Allow},
+	{"make audit", "/tmp", devKube, core.Allow, core.Allow},
+	{"make -C /tmp audit", "", devKube, core.Allow, core.Allow},
+}
+
+// The main session is asked (or keeps its verdict); a subagent and a CLI-dispatched agent are refused.
+func TestRoleRules(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("HARNESS_DISPATCH_DEPTH", "")
+	t.Setenv("KUBECONFIG", "/kube/config:/other")
+	for _, c := range roleCases {
+		kube := c.kube
+		swapKubeconfig(t, func(p string) ([]byte, error) {
+			if kube == "" || p != "/kube/config" {
+				return nil, os.ErrNotExist
+			}
+			return []byte(kube), nil
+		})
+		cmd, cwd := strings.ReplaceAll(c.cmd, "CFG", cfg), cmp.Or(c.cwd, cfg)
+		for _, role := range []struct{ agentID, dispatchID string }{{"", ""}, {"a1", ""}, {"", "d1"}} {
+			t.Setenv("HARNESS_DISPATCH_ID", role.dispatchID)
+			payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": cwd, "agent_id": role.agentID,
+				"tool_input": map[string]string{"command": cmd}})
+			want := c.leaf
+			if role.agentID == "" && role.dispatchID == "" {
+				want = c.main
+			}
+			if r := Scan(core.ParseInput(bytes.NewReader(payload))); r.Decision != want {
+				t.Errorf("%q as %+v: decision %v, want %v: %s", cmd, role, r.Decision, want, r.Reason)
+			}
+		}
+	}
+}
+
+func swapKubeconfig(t *testing.T, fn func(string) ([]byte, error)) {
+	old := readKubeconfig
+	readKubeconfig = fn
+	t.Cleanup(func() { readKubeconfig = old })
 }

@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/shell"
 )
 
@@ -19,32 +20,38 @@ const wipeName = "every variable (env -i)"
 
 var (
 	dispatchVarName = regexp.MustCompile(`^HARNESS_DISPATCH_[A-Z_]+$`)
-	shellString     = regexp.MustCompile(`(?:^|[\s;&|(])(?:(?:ba|z|da|k)?sh\s+(?:-\w+\s+)*-\w*c|eval)\s+(?:'([^']*)'|"([^"]*)")`)
+	dispatchName    = regexp.MustCompile(`HARNESS_DISPATCH_\w*`)
 	launchers       = []string{"claude-code", "claude", "codex", "copilot", "gemini", "agy", "opencode"}
 	declarers       = []string{"export", "declare", "typeset", "readonly", "local"}
 	dispatchAlias   = regexp.MustCompile(`(?:^|[\s;&|(])([A-Za-z_]\w*)=["']?(HARNESS_DISPATCH\w*)`)
 )
 
-// dispatchTamper is the variable a leaf's command, or a shell string inside it, clears or overrides, else "".
-func dispatchTamper(in *core.Input, _ string) string { // reads the raw command: the scan blanks a heredoc's owner line
+// tamperPhrase is an unset, declare, `env -u`, assignment or alias of a dispatch variable, in unquoted text.
+var tamperPhrase = regexp.MustCompile(`(?:^|[^\w./-])(?:(?:unset|export|declare|typeset|readonly|local)\s(?:[^;&|\n]*?[\s=,{])?` +
+	`|env\s(?:[^;&|\n]*?\s)?(?:-u\s*|--unset[=\s]?)|[A-Za-z_]\w*=)HARNESS_DISPATCH_\w*|(?:^|[^\w$.{/-])HARNESS_DISPATCH_\w*=`)
+
+// unquoted drops shell quoting and backslashes, so `HARNESS\_DISPATCH_"ID"` reads as the name it is.
+var unquoted = strings.NewReplacer(`\n`, " ", `\t`, " ", `\`, "", `'`, "", `"`, "")
+
+// dispatchTamper is the dispatch variable a leaf's raw command clears or overrides, else "".
+func dispatchTamper(in *core.Input) string {
 	if !isLeaf(in) {
 		return ""
 	}
-	queue := []string{in.ToolCommand()}
-	for i := 0; i < len(queue) && i < 8; i++ {
-		if name := tamperName(queue[i]); name != "" {
-			return name
-		}
-		for _, m := range shellString.FindAllStringSubmatch(queue[i], -1) {
-			queue = append(queue, cmp.Or(m[1], m[2]))
-		}
+	cmd := in.ToolCommand()
+	if name := tamperName(cmd); name != "" {
+		return name
+	}
+	// An evaluator may run any text on the line however it gets there, so a tamper phrase anywhere counts.
+	if m := tamperPhrase.FindString(unquoted.Replace(cmd)); m != "" && shell.Evaluates(cmd) {
+		return dispatchName.FindString(m)
 	}
 	return ""
 }
 
 // tamperName is the dispatch variable one command text changes (wipeName for an env wipe), else "".
 func tamperName(text string) string {
-	if !strings.Contains(text, "HARNESS_DISPATCH_") && !strings.Contains(text, "env") {
+	if !strings.Contains(unquoted.Replace(text), "HARNESS_DISPATCH_") && !strings.Contains(text, "env") {
 		return ""
 	}
 	segs, seps := shell.SegmentsSep(text)
@@ -95,13 +102,6 @@ func startTamper(words []string) string {
 		}
 	case slices.Contains(declarers, name):
 		return declareTamper(cmd[1:])
-	}
-	text, ok := shell.NestedCommand(cmd)
-	if !ok {
-		text, ok = shell.CString(cmd)
-	}
-	if ok {
-		return tamperName(text)
 	}
 	return ""
 }
@@ -215,4 +215,154 @@ func skipAssign(w []string) []string {
 		w = w[1:]
 	}
 	return w
+}
+
+// readKubeconfig is the seam for reading a kubeconfig as text.
+var readKubeconfig = os.ReadFile
+
+// mainOnly is a main-session-only command: asked in the main session, refused in a leaf.
+type mainOnly struct{ what, hint string }
+
+// mainOnlyVerdict asks (main) or blocks (leaf) a vault key read, a production exec/delete or a leaf's reserved make.
+func mainOnlyVerdict(in *core.Input) (core.Decision, string, string) {
+	cmd := in.ToolCommand()
+	if !slices.ContainsFunc([]string{"vault", "kubectl", "oc", "make"}, func(w string) bool { return strings.Contains(cmd, w) }) {
+		return core.Allow, "", "" // the walk runs on every Bash call; most name none of these
+	}
+	hit := mainOnlyHit(in, cmd)
+	if hit == nil {
+		return core.Allow, "", ""
+	}
+	d := core.Ask
+	if isLeaf(in) {
+		d = core.Block
+	}
+	return d, core.SafetyMessage(in, d, hit.what, "", hit.hint), "main session only: " + hit.what
+}
+
+// mainOnlyHit is the first main-session-only command in cmd, else nil.
+func mainOnlyHit(in *core.Input, cmd string) *mainOnly {
+	var hit *mainOnly
+	shell.EachCommand(cmd, in.CWD, func(dir string, w []string) bool {
+		switch name := filepath.Base(w[0]); {
+		case name == "claude-code" && vaultKey(w):
+			hit = &mainOnly{"prints the vault master key", "Only the main session reads it, after the owner approves."}
+		case (name == "kubectl" || name == "oc") && prodChange(w, cmd):
+			hit = &mainOnly{"runs exec/delete against a production cluster",
+				"The main session runs production changes after the owner approves."}
+		case name == "make" && isLeaf(in) && reservedMake(w, dir):
+			hit = &mainOnly{"runs make audit, install or fmt in the harness tree", "Run `make lint` and fix the files " +
+				"it names that are yours; the main session runs audit, install and fmt from a clean tree."}
+		}
+		return hit != nil
+	})
+	return hit
+}
+
+// vaultKey reports `claude-code vault get` given --key (or -key, --key=true).
+func vaultKey(w []string) bool {
+	return len(w) > 2 && w[1] == "vault" && w[2] == "get" && slices.ContainsFunc(w[3:], func(a string) bool {
+		k, v, has := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		return strings.HasPrefix(a, "-") && k == "key" && (!has || v != "false" && v != "0")
+	})
+}
+
+// kubeValueFlags take the next word as their value; kubeProdFlags' values name the cluster or namespace.
+var (
+	kubeValueFlags = []string{"-n", "--namespace", "--context", "--cluster", "--kubeconfig", "-s", "--server", "--user",
+		"--token", "--as", "-c", "--container", "-l", "--selector", "-f", "--filename", "-o", "--output"}
+	kubeProdFlags = []string{"-n", "--namespace", "--context", "--cluster", "--kubeconfig"}
+	envWord       = regexp.MustCompile(`(?:^|\s)ENV=(\S+)`)
+)
+
+// prodChange reports kubectl/oc exec, delete or oc rsh whose flags, an ENV= word or the kubeconfig name production.
+func prodChange(w []string, cmd string) bool {
+	verb, flags := kubeArgs(w)
+	if verb != "exec" && verb != "delete" && (verb != "rsh" || filepath.Base(w[0]) != "oc") {
+		return false
+	}
+	var values []string
+	for _, f := range kubeProdFlags {
+		values = append(values, flags[f]...)
+	}
+	for _, m := range envWord.FindAllStringSubmatch(cmd, -1) {
+		values = append(values, m[1])
+	}
+	if slices.ContainsFunc(values, prodName) {
+		return true
+	}
+	if len(flags["--context"])+len(flags["--cluster"]) > 0 { // an explicit cluster that is not production
+		return false
+	}
+	current := currentContext(strings.Join(flags["--kubeconfig"], ""))
+	return current == "" || prodName(current) // an unknown context is treated as production
+}
+
+// kubeArgs is a kubectl/oc command's verb (its first operand) and each kubeValueFlags flag's values.
+func kubeArgs(w []string) (verb string, flags map[string][]string) {
+	flags = map[string][]string{}
+	for i := 1; i < len(w) && w[i] != "--"; i++ {
+		flag, val, has := strings.Cut(w[i], "=")
+		switch {
+		case !strings.HasPrefix(flag, "-"):
+			verb = cmp.Or(verb, w[i])
+		case !slices.Contains(kubeValueFlags, flag):
+		case !has && i+1 < len(w):
+			i, val = i+1, w[i+1]
+			fallthrough
+		default:
+			flags[flag] = append(flags[flag], val)
+		}
+	}
+	return verb, flags
+}
+
+// prodName reports prod, prd or production as one segment of v, split at - _ . / :.
+func prodName(v string) bool {
+	return slices.ContainsFunc(strings.FieldsFunc(strings.ToLower(v), func(r rune) bool { return strings.ContainsRune("-_./:", r) }),
+		func(s string) bool { return s == "prod" || s == "prd" || s == "production" })
+}
+
+// currentContext is the kubeconfig's current-context: path, else $KUBECONFIG's first entry, else ~/.kube/config.
+func currentContext(path string) string {
+	if first, _, _ := strings.Cut(os.Getenv("KUBECONFIG"), string(os.PathListSeparator)); path == "" {
+		path = cmp.Or(first, filepath.Join("~", ".kube", "config"))
+	}
+	text, err := readKubeconfig(paths.ExpandHome(path))
+	if err != nil {
+		return ""
+	}
+	for line := range strings.Lines(string(text)) {
+		if v, ok := strings.CutPrefix(strings.TrimSpace(line), "current-context:"); ok {
+			return strings.Trim(strings.TrimSpace(v), `"'`)
+		}
+	}
+	return ""
+}
+
+// reservedMakeTargets rewrite or ship the whole tree; `make lint` is a check a leaf may run.
+var reservedMakeTargets = []string{"audit", "install", "fmt"}
+
+// reservedMake reports a make of a reservedMakeTargets target whose directory (cwd or -C) is in the harness tree.
+func reservedMake(w []string, dir string) bool {
+	reserved := false
+	for i := 1; i < len(w); i++ {
+		a := w[i]
+		switch {
+		case a == "-C" || a == "--directory" || strings.HasPrefix(a, "--directory=") || len(a) > 2 && a[:2] == "-C":
+			v := strings.TrimPrefix(strings.TrimPrefix(strings.TrimPrefix(a, "--directory="), "--directory"), "-C")
+			if v == "" && i+1 < len(w) {
+				i, v = i+1, w[i+1]
+			}
+			if v = paths.ExpandHome(v); !filepath.IsAbs(v) {
+				v = filepath.Join(dir, v)
+			}
+			dir = v
+		case a == "-f" || a == "--file" || a == "-I" || a == "-o" || a == "-W":
+			i++
+		case !strings.HasPrefix(a, "-") && !strings.Contains(a, "="):
+			reserved = reserved || slices.Contains(reservedMakeTargets, a)
+		}
+	}
+	return reserved && (shell.UnknownDir(dir) || paths.InsideDir(dir, paths.ConfigDir()))
 }
