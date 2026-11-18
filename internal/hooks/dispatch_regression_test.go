@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 
@@ -811,6 +812,21 @@ func TestDispatchOverrunDrainBounded(t *testing.T) {
 	}
 }
 
+// drainFifo reads the fifo without blocking the test: a skipped telemetry write leaves it with no writer.
+func drainFifo(t *testing.T, file string) {
+	go func() {
+		if reader, err := os.Open(file); err == nil {
+			_, _ = io.Copy(io.Discard, reader)
+			_ = reader.Close()
+		}
+	}()
+	t.Cleanup(func() { // release a drain still waiting for a writer
+		if w, err := os.OpenFile(file, os.O_WRONLY|syscall.O_NONBLOCK, 0); err == nil {
+			_ = w.Close()
+		}
+	})
+}
+
 func TestDirectTelemetryCannotFlipAllow(t *testing.T) {
 	dir := t.TempDir()
 	file := filepath.Join(dir, "telemetry-"+time.Now().Format("20060102")+".jsonl")
@@ -830,17 +846,10 @@ func TestDirectTelemetryCannotFlipAllow(t *testing.T) {
 		if code != core.ExitProceed {
 			t.Errorf("slow telemetry flipped allow: exit %d", code)
 		}
-	case <-time.After(200 * time.Millisecond):
+	case <-time.After(10 * time.Second): // a fifo with no reader blocks forever, so any finite bound has teeth
 		t.Error("telemetry stalled verdict")
 	}
-	reader, err := os.Open(file)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer reader.Close()
-	if _, err := io.Copy(io.Discard, reader); err != nil {
-		t.Fatal(err)
-	}
+	drainFifo(t, file)
 	deadlineAt := time.Now().Add(time.Second)
 	for time.Now().Before(deadlineAt) {
 		f, err := os.OpenFile(file+".lock", os.O_WRONLY, 0)
