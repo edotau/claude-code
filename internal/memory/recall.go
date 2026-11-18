@@ -2,6 +2,7 @@ package memory
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"fmt"
 	"hash/fnv"
@@ -51,7 +52,7 @@ func recallPicks(ctx context.Context, session, query string, semantic, explain b
 		return nil, trace
 	}
 	counts := returnCounts([]string{accessDir()}, time.Now())
-	picks := selectRecall(seen, terms, ranked, sem, semSeen, counts, tr)
+	picks := selectRecall(seen, terms, ranked, sem, semSeen, counts, tr, recallWeights())
 	trace.Silent = len(picks) == 0
 	return picks, trace
 }
@@ -164,7 +165,7 @@ func PromptRecall(ctx context.Context, sessionID, prompt string, warn io.Writer)
 	if context == "" {
 		return ""
 	}
-	logHits(hits, accessRecall, time.Now())
+	logHits(hits, accessRecall, time.Now(), sessionID)
 	markSeen(sessionID, hits, expand) // bodies mark the key, pointers "p:"+key
 	return context
 }
@@ -305,7 +306,7 @@ func distinctCount(tokens []string, minLen int) int {
 }
 
 // selectRecall consults archives only when no current entry passes the relevance gates.
-func selectRecall(seen map[string]bool, terms []string, ranked []SearchHit, sem *Semantic, semSeen bool, counts map[string]int, trace *recallTrace) []recallPick {
+func selectRecall(seen map[string]bool, terms []string, ranked []SearchHit, sem *Semantic, semSeen bool, counts map[string]int, trace *recallTrace, weights map[string]float64) []recallPick {
 	need := recallNeed(terms)
 	if trace != nil {
 		trace.candidates(ranked, need, sem)
@@ -315,7 +316,7 @@ func selectRecall(seen map[string]bool, terms []string, ranked []SearchHit, sem 
 		if archived {
 			tierSem = nil
 		}
-		picks, passed := pickTier(ranked, archived, need, seen, tierSem, counts, trace)
+		picks, passed := pickTier(ranked, archived, need, seen, tierSem, counts, trace, weights)
 		if len(picks) > 0 {
 			trace.selected(picks, !seen[expandKey]) // the header the real run prints for this session
 			return picks
@@ -328,7 +329,7 @@ func selectRecall(seen map[string]bool, terms []string, ranked []SearchHit, sem 
 }
 
 // pickTier applies the gates before access boosts, then chooses the best final scores.
-func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool, sem *Semantic, counts map[string]int, trace *recallTrace) ([]recallPick, bool) {
+func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool, sem *Semantic, counts map[string]int, trace *recallTrace, weights ...map[string]float64) ([]recallPick, bool) {
 	cands, top := recallTier(ranked, archived, need)
 	pool := recallPool(cands, top, need, sem, trace)
 	orderRecall(pool)
@@ -341,7 +342,7 @@ func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool,
 			}
 			continue
 		}
-		boost := recallAccessBoost * float64(min(counts[c.Entry.ID], recallAccessCap)) / recallAccessCap
+		boost := accessBoost(c.Entry.ID, counts[c.Entry.ID], weights)
 		trace.scores(c, boost)
 		c.Score += boost
 		survivors = append(survivors, c)
@@ -358,6 +359,18 @@ func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool,
 		}
 	}
 	return out, passed
+}
+
+func boostFactor(weights map[string]float64, id string) float64 {
+	return cmp.Or(weights[id], 1)
+}
+
+func accessBoost(id string, count int, weights []map[string]float64) float64 {
+	boost := recallAccessBoost * float64(min(count, recallAccessCap)) / recallAccessCap
+	if boost != 0 && len(weights) > 0 {
+		boost *= boostFactor(weights[0], id)
+	}
+	return boost
 }
 
 func recallTier(ranked []SearchHit, archived bool, need int) ([]SearchHit, float64) {

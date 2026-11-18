@@ -316,6 +316,7 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 		fmt.Fprintf(out, "no store at %s; run `claude-code memory init` in the repo to create one\n", SubDir(""))
 	}
 	refreshBankNotice(errw, "memory index", root)
+	learnRecallForIndex(errw)
 	embedIndex(ctx, out, errw, root, profile, o.Reembed)
 	return nil
 }

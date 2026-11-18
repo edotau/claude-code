@@ -17,7 +17,9 @@ func (r *askRun) withRecall(prompt string) string {
 	if r.jobRec != nil || r.f.retry != "" || r.f.safeMode {
 		return prompt
 	}
-	block, _ := memory.AgentRecall(r.ctx, "", prompt)
+	session := os.Getenv(memory.SessionIDEnv)
+	block, _ := memory.AgentRecall(r.ctx, session, prompt)
+	memory.LogBriefRecall(session, block)
 	return prompt + block
 }
 

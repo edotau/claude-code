@@ -30,6 +30,7 @@ internal/memory/recall.go:markSeen	unversioned: log: seen-ids list, text lines
 internal/memory/recall.go:resetSeen	unversioned: log: seen-ids list rewrite
 internal/memory/recall_accesslog.go:appendAccessLines	unversioned: log: memory access log, text lines
 internal/memory/recall_index.go:writeRecallIndex	unversioned: text: recall index, rebuilt on a miss
+internal/memory/recall_learn.go:learnRecallLocked	unversioned: cache: rolling recall tallies and access log checkpoints
 internal/memory/sandbox.go:UpdateSandboxRegistry	unversioned: text: sandbox dir list, one path per line
 internal/memory/sandbox.go:placeStoreRels	unversioned: memory-bank: disposable flat sandbox copy
 internal/memory/sandbox.go:recordSandbox	unversioned: marker: sandbox owner pid and start

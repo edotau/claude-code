@@ -139,11 +139,13 @@ func briefRecall(ctx context.Context, session, task string, asNote bool) (suffix
 		return "", ""
 	}
 	if !asNote {
+		memory.LogBriefRecall(session, recallBlock)
 		return recallBlock, ""
 	}
 	if recallBlock = freshPointers(session, recallBlock); recallBlock == "" {
 		return "", ""
 	}
+	memory.LogBriefRecall(session, recallBlock)
 	return "", "memory-recall for this dispatch (paste into the brief if relevant):" + recallBlock
 }
 

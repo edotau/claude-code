@@ -152,6 +152,7 @@ The loader reads the whole generated file. Past a `fileCaps` limit `memory dream
   days (`catchupWindow`), skipping live ones, with one quiet line next start. Replays run `memory update --historical`
   (history and decisions only).
 - `memory-recall` (UserPromptSubmit) — injects a few matching blocks; recall searches the whole store.
+  `memory index` learns a bounded access boost from 30 days of same-session follow-ups.
 - `memory update` — the session-close writer: summary → sessionHistory, rewrite activeContext + progress, decisions →
   decisionLog, patterns → conventions. `memory-update` / `memory-end` (Stop / SessionEnd) run it headless after enough
   edits; the first dispatch claims a detached `memory watch` that updates after 10 quiet minutes (a crash fires no
