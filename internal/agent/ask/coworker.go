@@ -6,24 +6,19 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/network/remote"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/schemas"
 )
 
 // ApplyCoworker is ctx with the confinement as the minimal $COWORKER_OVERLAY, databricks:<p> also as CLAUDE_PROFILE.
@@ -209,7 +204,7 @@ func autoWorkspace(ctx context.Context, agentName, model, fallback string) (stri
 	if err != nil {
 		return "", fmt.Errorf("overlay databricks:auto: %w", err)
 	}
-	q := armQuery{agentName: agentName, model: model, strict: fallback == router.FallbackNone && typedModel(model)}
+	q := armQuery{AgentName: agentName, Model: model, Strict: fallback == router.FallbackNone && typedModel(model)}
 	return reportPick(pickWith(reg, q, time.Now()))
 }
 
@@ -259,7 +254,7 @@ var (
 	armCooling  = func(p *providers.Provider, now time.Time) bool {
 		return router.LoadState().CoolingUntil(router.AccountOf(p)).After(now)
 	}
-	armLive = liveByWorkspace
+	armLive func([]*providers.Provider) map[string]int
 )
 
 // localArmFindings is p's local preflight (no network): its workspace, then model for agentName when both are known.
@@ -275,121 +270,16 @@ func localArmFindings(p *providers.Provider, agentName, model string, now time.T
 	return fs
 }
 
-// liveByWorkspace is each workspace's live load: in-flight markers on its account plus alive records routed to it.
-func liveByWorkspace(ps []*providers.Provider) map[string]int {
-	snap, routed := inflight.Count(), inflight.LiveRoutes()
-	out := map[string]int{}
-	for _, p := range ps {
-		out[p.Name] = snap.Per[router.AccountOf(p)] + routed[router.JoinCoworker(router.RouteDatabricks, p.Name)]
-	}
-	return out
+type armQuery = router.WorkspaceQuery[agent.Finding]
+
+func workspaceQuery(q armQuery) armQuery {
+	q.Findings, q.Unserved, q.Cooling, q.Live = armFindings, errUnserved, armCooling, armLive
+	return q
 }
 
-// armPicks is state/harness/ask/route-auto.json: when databricks:auto last picked each workspace (the tie-break).
-type armPicks struct {
-	Schema int                  `json:"schema"`
-	Picked map[string]time.Time `json:"picked"`
+func pickWith(reg *providers.Registry, q armQuery, now time.Time) (string, int, []agent.Finding, error) {
+	return router.PickWorkspaceAndStamp(reg, workspaceQuery(q), now)
 }
-
-const armPicksSchema = 1
-
-var armPicksFormat = schemas.Register(schemas.Format{
-	Name: "route-auto", Owner: "internal/agent/ask", Kind: schemas.Cache, Version: armPicksSchema,
-	Glob: armPicksFile,
-	New:  func() any { return new(armPicks) },
-	Keep: "rebuildable cache: it only breaks ties between equally loaded workspaces",
-})
-
-func armPicksFile() string { return filepath.Join(paths.StateDir(), "ask", "route-auto.json") }
-
-// usableArms is the workspaces outside tried passing the preflight; a model none serves is dropped with a finding.
-func usableArms(reg *providers.Registry, agentName, model string, strict bool, now time.Time, tried []string) ([]*providers.Provider, []agent.Finding) {
-	usable, skipped := armCandidates(reg, agentName, model, now, tried)
-	if len(usable) == 0 && model != "" && !strict {
-		usable, skipped = armCandidates(reg, agentName, "", now, tried)
-	}
-	return usable, skipped
-}
-
-// pickArm picks a workspace outside tried passing the preflight; skipped: one finding per drop.
-func pickArm(reg *providers.Registry, agentName, model string, now time.Time, tried ...string) (name string, live int, skipped []agent.Finding, err error) {
-	return pickWith(reg, armQuery{agentName: agentName, model: model, tried: tried}, now)
-}
-
-// armQuery is one pick: strict refuses a typed model no workspace serves; pending counts this batch's earlier picks.
-type armQuery struct {
-	agentName, model string
-	strict           bool
-	tried            []string
-	pending          map[string]int
-}
-
-// pickWith is pickArm for q: not cooling, fewest live (markers, routed records and q.pending), least recent, name.
-func pickWith(reg *providers.Registry, q armQuery, now time.Time) (name string, live int, skipped []agent.Finding, err error) {
-	usable, skipped := armCandidates(reg, q.agentName, q.model, now, q.tried)
-	if len(usable) == 0 && q.model != "" {
-		others, othersSkipped := armCandidates(reg, q.agentName, "", now, q.tried)
-		if q.strict && len(others) > 0 {
-			return "", 0, skipped, errUnserved(q.model, skipped)
-		}
-		usable, skipped = others, othersSkipped
-	}
-	if len(usable) == 0 {
-		return "", 0, skipped, errors.New("overlay databricks:auto: no Databricks workspace passes the preflight (claude-code doctor)")
-	}
-	cooling := map[string]bool{}
-	for _, p := range usable {
-		cooling[p.Name] = armCooling(p, now)
-	}
-	pick := func() error {
-		picks := readArmPicks()
-		counts := map[string]int{}
-		maps.Copy(counts, armLive(usable))
-		for n, c := range q.pending {
-			counts[n] += c
-		}
-		best := slices.MinFunc(usable, func(a, b *providers.Provider) int {
-			return cmp.Or(cmp.Compare(rank(cooling[a.Name]), rank(cooling[b.Name])), cmp.Compare(counts[a.Name], counts[b.Name]),
-				picks.Picked[a.Name].Compare(picks.Picked[b.Name]), cmp.Compare(a.Name, b.Name))
-		})
-		name, live = best.Name, counts[best.Name]
-		stamp := now // never behind another pick's stamp: concurrent picks take the lock out of order of their own now
-		for _, at := range picks.Picked {
-			if !stamp.After(at) {
-				stamp = at.Add(time.Nanosecond)
-			}
-		}
-		picks.Picked[name] = stamp
-		return writeArmPicks(picks)
-	}
-	if err := paths.WithFileLock(armPicksFile(), pick); name == "" && err != nil { // the stamp is best-effort, the pick is not
-		_ = pick()
-	}
-	if q.pending != nil {
-		q.pending[name]++
-	}
-	return name, live, skipped, nil
-}
-
-// rank orders false before true.
-func rank(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
-
-// readArmPicks is the stored stamps; a missing, unreadable or other-version file is an empty table.
-func readArmPicks() armPicks {
-	picks := armPicks{}
-	if raw, err := os.ReadFile(armPicksFile()); err != nil || !schemas.DecodeOK(armPicksFormat, raw, &picks) || picks.Picked == nil {
-		picks = armPicks{Picked: map[string]time.Time{}}
-	}
-	picks.Schema = armPicksSchema
-	return picks
-}
-
-func writeArmPicks(picks armPicks) error { return paths.WriteJSON(armPicksFile(), picks) }
 
 // errLeave refuses an overlay provider/profile that differs from the inherited confinement provider[:profile].
 func errLeave(provider, profile string) error {

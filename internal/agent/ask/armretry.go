@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -173,7 +172,7 @@ func (a *armRetry) next(ctx context.Context, res wire.Result, err error, req age
 func (a *armRetry) move(retryAfter time.Duration) bool {
 	cur := a.current()
 	coolArm(cur, retryAfter)
-	name, _, err := nextArm(a.agentName, a.model, a.strict, a.tried)
+	name, err := nextArm(a.agentName, a.model, a.strict, a.tried)
 	if err != nil {
 		return false
 	}
@@ -194,19 +193,13 @@ func coolArm(name string, retryAfter time.Duration) {
 	}
 }
 
-// nextArm is pickArm outside tried, printed like the first pick; more: another workspace is left behind it.
-func nextArm(agentName, model string, strict bool, tried []string) (name string, more bool, err error) {
+// nextArm picks outside tried and prints the same receipt as the first dispatch.
+func nextArm(agentName, model string, strict bool, tried []string) (string, error) {
 	reg, err := providers.Load()
 	if err != nil {
-		return "", false, fmt.Errorf("overlay databricks:auto: %w", err)
+		return "", fmt.Errorf("overlay databricks:auto: %w", err)
 	}
-	now := time.Now()
-	p, live, skipped, err := pickWith(reg, armQuery{agentName: agentName, model: model, strict: strict, tried: tried}, now)
-	if name, err = reportPick(p, live, skipped, err); err != nil {
-		return "", false, err
-	}
-	rest, _ := usableArms(reg, agentName, model, strict, now, append(slices.Clone(tried), name))
-	return name, len(rest) > 0, nil
+	return reportPick(pickWith(reg, armQuery{AgentName: agentName, Model: model, Strict: strict, Tried: tried}, time.Now()))
 }
 
 // armsLeft reports a workspace outside tried that passes the preflight.
@@ -215,24 +208,8 @@ func armsLeft(agentName, model string, strict bool, tried []string) bool {
 	if err != nil {
 		return false
 	}
-	usable, _ := usableArms(reg, agentName, model, strict, time.Now(), tried)
+	usable, _, _ := router.RankWorkspaces(reg, workspaceQuery(armQuery{AgentName: agentName, Model: model, Strict: strict, Tried: tried}), time.Now())
 	return len(usable) > 0
-}
-
-// armCandidates splits reg's Databricks workspaces (none in tried) by armFindings: usable, skipped.
-func armCandidates(reg *providers.Registry, agentName, model string, now time.Time, tried []string) (usable []*providers.Provider, skipped []agent.Finding) {
-	for _, n := range slices.Sorted(maps.Keys(reg.Providers)) {
-		p := reg.Providers[n]
-		if p.Preset != providers.PresetDatabricks || slices.Contains(tried, n) {
-			continue
-		}
-		if fs := armFindings(p, agentName, model, now); len(fs) > 0 {
-			skipped = append(skipped, fs[0])
-			continue
-		}
-		usable = append(usable, p)
-	}
-	return usable, skipped
 }
 
 // current is the workspace this run is on.

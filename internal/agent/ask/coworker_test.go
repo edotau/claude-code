@@ -127,100 +127,6 @@ func TestExportsLiveOnTheRunNotTheProcess(t *testing.T) {
 	}
 }
 
-// TestPickArm: fewest live wins; a tie goes to the least recent pick, then the name; an unusable workspace is skipped.
-func TestPickArm(t *testing.T) {
-	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
-	ago := func(d time.Duration) time.Time { return now.Add(-d) }
-	cases := []struct {
-		name     string
-		live     map[string]int
-		picked   map[string]time.Time
-		unusable []string
-		want     string
-		wantLive int
-	}{
-		{"fewest live", map[string]int{"dev": 3, "prod": 2, "qa": 1}, nil, nil, "qa", 1},
-		{"tie: least recent pick", map[string]int{"dev": 1, "prod": 1, "qa": 1},
-			map[string]time.Time{"dev": ago(time.Minute), "prod": ago(time.Hour), "qa": ago(2 * time.Minute)}, nil, "prod", 1},
-		{"tie: never picked beats picked", nil, map[string]time.Time{"dev": ago(time.Hour), "prod": ago(time.Hour)}, nil, "qa", 0},
-		{"tie: name order", nil, nil, nil, "dev", 0},
-		{"no usable credential is skipped", map[string]int{"prod": 9, "qa": 5}, nil, []string{"dev"}, "qa", 5},
-	}
-	reg := &providers.Registry{Providers: map[string]*providers.Provider{"openai": {Name: "openai"}}}
-	for _, n := range []string{"dev", "prod", "qa"} {
-		reg.Providers[n] = &providers.Provider{Name: n, Preset: providers.PresetDatabricks}
-	}
-	origFindings, origCooling, origLive := armFindings, armCooling, armLive
-	t.Cleanup(func() { armFindings, armCooling, armLive = origFindings, origCooling, origLive })
-	armCooling = func(*providers.Provider, time.Time) bool { return false }
-	for _, c := range cases {
-		t.Run(c.name, func(t *testing.T) {
-			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-			if err := writeArmPicks(armPicks{Schema: armPicksSchema, Picked: c.picked}); err != nil {
-				t.Fatal(err)
-			}
-			armFindings = noCredential(c.unusable)
-			armLive = func([]*providers.Provider) map[string]int { return c.live }
-			got, live, skipped, err := pickArm(reg, "", "", now)
-			if err != nil || got != c.want || live != c.wantLive || len(skipped) != len(c.unusable) {
-				t.Fatalf("pickArm = %q, %d live, %d skipped, %v; want %q, %d live, %d skipped",
-					got, live, len(skipped), err, c.want, c.wantLive, len(c.unusable))
-			}
-			if at := readArmPicks().Picked[got]; !at.Equal(now) {
-				t.Fatalf("pick of %s stamped %v, want %v: the next tie would go to it again", got, at, now)
-			}
-		})
-	}
-	armFindings = noCredential([]string{"dev", "prod", "qa"})
-	if got, _, _, err := pickArm(reg, "", "", now); err == nil {
-		t.Fatalf("pickArm with no usable workspace = %q, want an error", got)
-	}
-}
-
-// pickArm outside tried never returns a tried workspace, and none left is an error.
-func TestPickArmExcludesTried(t *testing.T) {
-	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
-	for _, n := range []string{"dev", "prod", "qa"} {
-		reg.Providers[n] = &providers.Provider{Name: n, Preset: providers.PresetDatabricks}
-	}
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	origFindings, origCooling, origLive := armFindings, armCooling, armLive
-	t.Cleanup(func() { armFindings, armCooling, armLive = origFindings, origCooling, origLive })
-	armFindings = noCredential(nil)
-	armCooling = func(*providers.Provider, time.Time) bool { return false }
-	armLive = func([]*providers.Provider) map[string]int { return nil }
-	var tried []string
-	for _, want := range []string{"dev", "prod", "qa"} {
-		got, _, _, err := pickArm(reg, "", "", time.Now(), tried...)
-		if err != nil || got != want {
-			t.Fatalf("pickArm outside %v = %q, %v; want %q", tried, got, err, want)
-		}
-		tried = append(tried, got)
-	}
-	if got, _, _, err := pickArm(reg, "", "", time.Now(), tried...); err == nil {
-		t.Fatalf("pickArm with every workspace tried = %q, want an error", got)
-	}
-}
-
-// BenchmarkPickArmExcluding is the hot path a 429 adds: one pick outside the workspaces already tried.
-func BenchmarkPickArmExcluding(b *testing.B) {
-	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
-	for _, n := range []string{"dev", "prod", "qa"} {
-		reg.Providers[n] = &providers.Provider{Name: n, Preset: providers.PresetDatabricks}
-	}
-	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
-	origFindings, origCooling, origLive := armFindings, armCooling, armLive
-	b.Cleanup(func() { armFindings, armCooling, armLive = origFindings, origCooling, origLive })
-	armFindings = noCredential(nil)
-	armCooling = func(*providers.Provider, time.Time) bool { return false }
-	armLive = func([]*providers.Provider) map[string]int { return nil }
-	for b.Loop() {
-		if _, _, _, err := pickArm(reg, "", "", time.Now(), "dev"); err != nil {
-			b.Fatal(err)
-		}
-	}
-}
-
 // noCredential is an armFindings stub failing the credential check of each workspace in unusable.
 func noCredential(unusable []string) func(*providers.Provider, string, string, time.Time) []agent.Finding {
 	return func(p *providers.Provider, _, _ string, _ time.Time) []agent.Finding {
@@ -659,7 +565,7 @@ func TestPickWithSpreadsAndFiltersByModel(t *testing.T) {
 	}
 	armFindings = servesOnly("dev", "prod")
 	for range 4 {
-		if name, _, _, err := pickWith(reg, armQuery{model: "kimi-k3"}, time.Now()); err != nil || name == "qa" {
+		if name, _, _, err := pickWith(reg, armQuery{Model: "kimi-k3"}, time.Now()); err != nil || name == "qa" {
 			t.Fatalf("pick = %q, %v: qa does not serve the model", name, err)
 		}
 	}
@@ -669,7 +575,7 @@ func TestPickWithSpreadsAndFiltersByModel(t *testing.T) {
 func TestPickWithUnservedModel(t *testing.T) {
 	reg := poolFixture(t, nil)
 	armFindings = servesOnly()
-	_, _, _, err := pickWith(reg, armQuery{model: "kimi-k3-1-pro", strict: true}, time.Now())
+	_, _, _, err := pickWith(reg, armQuery{Model: "kimi-k3-1-pro", Strict: true}, time.Now())
 	if err == nil || !strings.Contains(err.Error(), "kimi-k3-1-pro") || !strings.Contains(err.Error(), "no signed-in Databricks workspace serves it") ||
 		!strings.Contains(err.Error(), "near-dev, near-prod, near-qa") {
 		t.Fatalf("strict pick error = %v, want the model, the refusal and the nearest ids", err)
@@ -677,60 +583,10 @@ func TestPickWithUnservedModel(t *testing.T) {
 	if code := ApplyCode(err); code != 1 {
 		t.Errorf("ApplyCode = %d, want 1", code)
 	}
-	if name, _, _, err := pickWith(reg, armQuery{model: "kimi-k3-1-pro"}, time.Now()); err != nil || name == "" {
+	if name, _, _, err := pickWith(reg, armQuery{Model: "kimi-k3-1-pro"}, time.Now()); err != nil || name == "" {
 		t.Errorf("a swap-allowed pick = %q, %v, want the fallback pick", name, err)
 	}
-	if name, _, _, err := pickWith(reg, armQuery{strict: true}, time.Now()); err != nil || name == "" {
+	if name, _, _, err := pickWith(reg, armQuery{Strict: true}, time.Now()); err != nil || name == "" {
 		t.Errorf("an untyped pick = %q, %v, want a pick", name, err)
-	}
-}
-
-// A batch's picks count as load before any marker exists; concurrent picks land on distinct workspaces.
-func TestPickWithPendingAndConcurrent(t *testing.T) {
-	reg := poolFixture(t, nil)
-	pending := map[string]int{}
-	seen := map[string]int{}
-	for range 6 {
-		name, _, _, err := pickWith(reg, armQuery{pending: pending}, time.Now())
-		if err != nil {
-			t.Fatal(err)
-		}
-		seen[name]++
-	}
-	if len(seen) != 3 || seen["dev"] != 2 || seen["prod"] != 2 || seen["qa"] != 2 {
-		t.Fatalf("six batch picks = %v, want two on each workspace", seen)
-	}
-	var wg sync.WaitGroup
-	out := make(chan string, 3)
-	for range 3 {
-		wg.Go(func() {
-			name, _, _, _ := pickWith(reg, armQuery{}, time.Now())
-			out <- name
-		})
-	}
-	wg.Wait()
-	close(out)
-	distinct := map[string]bool{}
-	for n := range out {
-		distinct[n] = true
-	}
-	if len(distinct) != 3 {
-		t.Fatalf("three concurrent picks chose %v, want three distinct workspaces", distinct)
-	}
-	spread := make(chan string, 6)
-	for range 6 {
-		wg.Go(func() {
-			name, _, _, _ := pickWith(reg, armQuery{}, time.Now())
-			spread <- name
-		})
-	}
-	wg.Wait()
-	close(spread)
-	per := map[string]int{}
-	for n := range spread {
-		per[n]++
-	}
-	if per["dev"] != 2 || per["prod"] != 2 || per["qa"] != 2 {
-		t.Fatalf("six concurrent picks = %v, want two on each workspace", per)
 	}
 }

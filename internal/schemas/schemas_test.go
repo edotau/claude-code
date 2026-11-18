@@ -130,7 +130,7 @@ var writers = map[string]string{
 	"internal/network/tailscale/host.go:WriteMachinesCache":     "tailscale-machines",
 	"internal/network/remote/auto.go:ResolveAuto":               "remote-auto-host",
 	"internal/agent/ask/report.go:saveAnswer":                   unversioned("text: ask --save answer file, the run's final answer"),
-	"internal/agent/ask/coworker.go:writeArmPicks":              "route-auto",
+	"internal/router/arm.go:writeArmPicks":                      "route-auto",
 	"internal/cli/menu.go:cmdMenuSVG":                           unversioned("foreign: -o output"),
 	"internal/ui/theme/look.go:setGradientLocked":               unversioned("foreign: theme file in a vendor home"),
 	"internal/clipboard/clipboard.go:grabMac":                   unversioned("foreign: clipboard PNG in the temp dir"),

@@ -82,7 +82,7 @@ func linePick(agentName, model string, o batchOpts) (string, error) {
 	if o.Pending == nil || o.Reg == nil {
 		return o.Auto, nil
 	}
-	q := armQuery{agentName: agentName, model: model, strict: !o.Swap && typedModel(model), pending: o.Pending}
+	q := armQuery{AgentName: agentName, Model: model, Strict: !o.Swap && typedModel(model), Pending: o.Pending}
 	return reportPick(pickWith(o.Reg, q, time.Now()))
 }
 
