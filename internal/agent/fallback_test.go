@@ -1126,3 +1126,14 @@ func TestQuotaOverflowKeepsBatchAlive(t *testing.T) {
 		})
 	}
 }
+
+// A kept caller model that is a family word reaches the engine as the concrete id the dispatch resolved.
+func TestDispatchRequestKeepCallerFamilyIsConcrete(t *testing.T) {
+	d := Dispatch{Model: "gpt-6-2-sol", keepCaller: true}
+	if got := dispatchRequest(RunOptions{Model: "sol"}, d, true).Model; got != "gpt-6-2-sol" {
+		t.Errorf("typed sol sent %q to the engine, want gpt-6-2-sol", got)
+	}
+	if got := dispatchRequest(RunOptions{Model: "gpt-6.1-sol"}, d, true).Model; got != "gpt-6.1-sol" {
+		t.Errorf("typed concrete id became %q, want it kept", got)
+	}
+}

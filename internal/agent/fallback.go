@@ -708,6 +708,9 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 	if !first {
 		out.Provider, out.SessionID = "", ""
 	}
+	if disp.keepCaller && disp.Model != "" && providers.FamilyName(req.Model) != "" { // the family word never reaches the engine
+		out.Model = disp.Model
+	}
 	if !disp.keepCaller {
 		out.Model, out.CellModel = disp.Model, !strings.Contains(disp.Model, ":")
 		if !out.CellModel && (out.AutoModel || req.Model == "" && pinsAuto(out.Values, cmp.Or(req.Agent, engineName(disp)))) {

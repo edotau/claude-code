@@ -45,6 +45,8 @@ paths:
   Compatibility, relaunch and `--env` rules: `dispatch-policy-details.md` → Overlay.
 
   `--profile` names a registry row (or `session`); `auto` is only an overlay `profile`, and `ask` and `label` refuse it.
+  `ask --provider databricks` without `--profile` resolves to the overlay `auto` pick (least busy workspace serving the
+  model); a typed `--profile` or a pin that serves the typed model is unchanged, a pin that lacks it joins the pool.
 
   | Key | Values | Overrides |
   | --- | --- | --- |

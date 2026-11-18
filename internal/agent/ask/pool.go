@@ -33,6 +33,9 @@ type batchOpts struct {
 	Native          bool
 	Auto            string // the workspace databricks:auto picked for the batch; "" when the confinement was not an auto pick
 	Identity        string
+	Swap            bool // --fallback was typed and allows another model
+	Reg             *providers.Registry
+	Pending         map[string]int // lines already given a workspace: the load the in-flight markers do not show yet
 }
 
 // buildTask validates one line like the ask flags and attaches the routing step; routing waits for Prepare.
@@ -48,8 +51,12 @@ func buildTask(ctx context.Context, l parsedLine, o batchOpts, base agent.RunOpt
 		return t, fmt.Errorf("line %d: %w", l.N, err)
 	}
 	if o.Auto != "" && l.Task.Profile == "" && base.Provider == "" {
+		pick, err := linePick(t.Agent, req.Model, o)
+		if err != nil {
+			return t, fmt.Errorf("line %d: %w", l.N, err)
+		}
 		req.AutoArm, req.Lead, req.Provider = true, "", ""
-		t.arm = &armRetry{agentName: t.Agent, model: req.Model, fallback: o.Fallback, tried: []string{o.Auto}}
+		t.arm = &armRetry{agentName: t.Agent, model: req.Model, fallback: o.Fallback, tried: []string{pick}}
 		req = t.arm.probe(req)
 	}
 	t.Req = req
@@ -68,6 +75,15 @@ func buildTask(ctx context.Context, l parsedLine, o batchOpts, base agent.RunOpt
 		return p, nil
 	}
 	return t, nil
+}
+
+// linePick is the workspace for one batch line: the shared pick when the batch has no counter, else its own.
+func linePick(agentName, model string, o batchOpts) (string, error) {
+	if o.Pending == nil || o.Reg == nil {
+		return o.Auto, nil
+	}
+	q := armQuery{agentName: agentName, model: model, strict: !o.Swap && typedModel(model), pending: o.Pending}
+	return reportPick(pickWith(o.Reg, q, time.Now()))
 }
 
 // runBatch builds a task per line (a bad line fails alone, logged to stderr), runs them on the pool; true if all ok.

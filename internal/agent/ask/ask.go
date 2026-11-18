@@ -77,6 +77,7 @@ type askRun struct {
 	state       *askState
 	perms       agent.Permissions
 	lead        string // profile a routed run leads with (--profile session, --provider, or --profile with --fallback)
+	swap        bool   // --fallback was typed and allows another model: a typed model may then be swapped
 	auto        string // the workspace databricks:auto picked for this run; "" when the confinement was not an auto pick
 }
 
@@ -257,10 +258,15 @@ func (r *askRun) checkArm() (int, bool) {
 	if err != nil {
 		return r.fail(err, 2)
 	}
+	value = r.poolValue(value)
 	agentName, batchLines := confineAgent(r.ov, f, r.ag)
 	picks := armAutoPick(r.ctx, value)
+	fallback := f.fallback
+	if picks && !r.swap { // an env default never licenses swapping a typed model
+		fallback = router.FallbackNone
+	}
 	// applied here, not in export: CheckArm, ConfineLead and resolveLead read the confinement from the run's values
-	ctx, err := ApplyCoworker(r.ctx, value, f.provider, agentName, f.model, f.fallback)
+	ctx, err := ApplyCoworker(r.ctx, value, f.provider, agentName, f.model, fallback)
 	if err != nil {
 		return r.fail(err, ApplyCode(err))
 	}
@@ -277,6 +283,22 @@ func (r *askRun) checkArm() (int, bool) {
 	return 0, false
 }
 
+// poolValue is value, or databricks:auto for --provider databricks with no profile and for a typed model the pin lacks.
+func (r *askRun) poolValue(value string) string {
+	f := r.f
+	r.swap = helptext.Explicit(r.fs, "fallback") && f.fallback != router.FallbackNone
+	auto := router.JoinCoworker(router.RouteDatabricks, router.AutoArm)
+	switch {
+	case value != "" || f.provider != "" || f.host != "" || r.jobRec != nil:
+	case f.leadProvider == router.RouteDatabricks:
+		f.leadProvider = ""
+		return auto
+	case f.leadProvider == "" && f.batchSrc == "" && !r.swap && typedModel(f.model) && r.pinLacks(f.model):
+		return auto
+	}
+	return value
+}
+
 // confineAgent is the agent the confinement is applied for ("" when each batch line confines its own), and that flag.
 func confineAgent(ov agentconfig.Overlay, f *askFlags, ag string) (string, bool) {
 	if f.batchSrc != "" && ov.Provider != router.RouteDatabricks { // confineLine does each line's agent
@@ -288,6 +310,9 @@ func confineAgent(ov agentconfig.Overlay, f *askFlags, ag string) (string, bool)
 // ApplyCode is the exit code for an ApplyCoworker error: a preflight refusal is 1, the rest usage errors.
 func ApplyCode(err error) int {
 	if _, ok := errors.AsType[*agent.PreflightError](err); ok {
+		return 1
+	}
+	if _, ok := errors.AsType[*unservedError](err); ok {
 		return 1
 	}
 	return 2
@@ -344,7 +369,10 @@ func (r *askRun) runBatch() (int, bool) {
 	if code, done := r.resolveLead(); done { // validates --provider/--profile and sets r.lead for batchBase
 		return code, true
 	}
-	o := batchOpts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native, Auto: r.auto, Identity: f.as}
+	o := batchOpts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native, Auto: r.auto, Identity: f.as, Swap: r.swap, Pending: map[string]int{}}
+	if r.auto != "" {
+		o.Reg, _ = providers.Load() // a failed load keeps the batch's shared pick
+	}
 	ov, err := resolveOverlay(r.ov, f.env, f.keepEnv, false)
 	if err != nil {
 		return r.fail(err, 2)

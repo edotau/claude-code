@@ -32,6 +32,9 @@ paths:
   mark, model served to that agent; no token is requested, so a revoked login is found on the first request), the
   workspace not cooling from a rate limit with the fewest live dispatches; a tie goes to the least recently picked
   (`state/harness/ask/route-auto.json`), then name order. Never name a profile `auto`: it cannot be addressed.
+  `ask --provider databricks` with no `--profile` is the same pick; a `--batch` picks per line, each line counted as
+  load for the next. A typed model no workspace serves fails before launch naming up to five served ids, unless
+  `--fallback` was typed as `pin`, `agents` or `all` (an env default never allows the swap).
 - On a 429 before any answer, the pick is cooled and the agent retries on the next workspace until one answers or none
   is left; only then `--fallback` applies (`none` still fails, naming every workspace tried). A named profile, a
   `--batch` line that names its own `profile`, `--session`, `--live`, a `--background` launch and `--host` never move;

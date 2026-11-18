@@ -181,15 +181,15 @@ func (t *RouteTable) pick(
 		res.Candidates = append(res.Candidates, u.cs...)
 	}
 	res.Candidates = append(res.Candidates, slices.Concat(lastG...)...)
-	res.Candidates = deadLast(dedupeCandidates(res.Candidates), st, now, &res)
+	res.Candidates = deadLast(dedupeCandidates(res.Candidates), st, reg, now, &res)
 	return res
 }
 
 // deadLast moves candidates whose model carries a live quota-dead mark behind the rest, in order, noting each.
-func deadLast(cs []Candidate, st State, now time.Time, res *PickResult) []Candidate {
+func deadLast(cs []Candidate, st State, reg *providers.Registry, now time.Time, res *PickResult) []Candidate {
 	var live, dead []Candidate
 	for _, c := range cs {
-		if !st.accountModelDead(c.Account, c.Model, now) {
+		if !st.candidateDead(reg, c, now) {
 			live = append(live, c)
 			continue
 		}

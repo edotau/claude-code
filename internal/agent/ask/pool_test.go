@@ -1080,3 +1080,22 @@ func TestBatchRateLimitUsesWorkspaceRetry(t *testing.T) {
 		}
 	})
 }
+
+// A ten-line batch spreads over the workspaces: each line's pick counts as load for the next, with no marker yet.
+func TestLinePickSpreadsABatch(t *testing.T) {
+	o := batchOpts{Auto: "dev", Reg: poolFixture(t, nil), Pending: map[string]int{}}
+	seen := map[string]int{}
+	for range 10 {
+		name, err := linePick("codex", "", o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen[name]++
+	}
+	if len(seen) != 3 || seen["dev"] < 3 || seen["prod"] < 3 || seen["qa"] < 3 {
+		t.Fatalf("ten lines landed %v, want every workspace taking 3 or 4", seen)
+	}
+	if name, _ := linePick("codex", "", batchOpts{Auto: "dev", Reg: o.Reg}); name != "dev" {
+		t.Errorf("a batch with no counter picked %q, want the shared pick dev", name)
+	}
+}

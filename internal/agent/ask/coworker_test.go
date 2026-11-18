@@ -615,3 +615,106 @@ func TestArmFlagsPoolInsideConfinement(t *testing.T) {
 		}
 	}
 }
+
+// servesOnly is an armFindings stub: a workspace outside serving fails a typed model with its nearest served ids.
+func servesOnly(serving ...string) func(*providers.Provider, string, string, time.Time) []agent.Finding {
+	return func(p *providers.Provider, _, model string, _ time.Time) []agent.Finding {
+		if model == "" || slices.Contains(serving, p.Name) {
+			return nil
+		}
+		return []agent.Finding{{Check: "served", Profile: p.Name, Model: model, Detail: "no " + model, Served: []string{"near-" + p.Name}}}
+	}
+}
+
+func poolFixture(t *testing.T, live map[string]int) *providers.Registry {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	origFindings, origCooling, origLive := armFindings, armCooling, armLive
+	t.Cleanup(func() { armFindings, armCooling, armLive = origFindings, origCooling, origLive })
+	armFindings = noCredential(nil)
+	armCooling = func(*providers.Provider, time.Time) bool { return false }
+	armLive = func([]*providers.Provider) map[string]int { return live }
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
+	for _, n := range []string{"dev", "prod", "qa"} {
+		reg.Providers[n] = &providers.Provider{Name: n, Preset: providers.PresetDatabricks}
+	}
+	return reg
+}
+
+// Three picks in a row spread over three workspaces, least busy first; a workspace without the model is never picked.
+func TestPickWithSpreadsAndFiltersByModel(t *testing.T) {
+	live := map[string]int{"dev": 3, "prod": 0, "qa": 1}
+	reg := poolFixture(t, live)
+	var got []string
+	for range 3 {
+		name, _, _, err := pickWith(reg, armQuery{}, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = append(got, name)
+		live[name] += 3 // the launched run's marker: each next pick sees it
+	}
+	if want := []string{"prod", "qa", "dev"}; !slices.Equal(got, want) {
+		t.Fatalf("three sequential picks = %v, want %v", got, want)
+	}
+	armFindings = servesOnly("dev", "prod")
+	for range 4 {
+		if name, _, _, err := pickWith(reg, armQuery{model: "kimi-k3"}, time.Now()); err != nil || name == "qa" {
+			t.Fatalf("pick = %q, %v: qa does not serve the model", name, err)
+		}
+	}
+}
+
+// A typed model no workspace serves fails naming it and the nearest ids; untyped or allowed swaps fall back as before.
+func TestPickWithUnservedModel(t *testing.T) {
+	reg := poolFixture(t, nil)
+	armFindings = servesOnly()
+	_, _, _, err := pickWith(reg, armQuery{model: "kimi-k3-1-pro", strict: true}, time.Now())
+	if err == nil || !strings.Contains(err.Error(), "kimi-k3-1-pro") || !strings.Contains(err.Error(), "no signed-in Databricks workspace serves it") ||
+		!strings.Contains(err.Error(), "near-dev, near-prod, near-qa") {
+		t.Fatalf("strict pick error = %v, want the model, the refusal and the nearest ids", err)
+	}
+	if code := ApplyCode(err); code != 1 {
+		t.Errorf("ApplyCode = %d, want 1", code)
+	}
+	if name, _, _, err := pickWith(reg, armQuery{model: "kimi-k3-1-pro"}, time.Now()); err != nil || name == "" {
+		t.Errorf("a swap-allowed pick = %q, %v, want the fallback pick", name, err)
+	}
+	if name, _, _, err := pickWith(reg, armQuery{strict: true}, time.Now()); err != nil || name == "" {
+		t.Errorf("an untyped pick = %q, %v, want a pick", name, err)
+	}
+}
+
+// A batch's picks count as load before any marker exists; concurrent picks land on distinct workspaces.
+func TestPickWithPendingAndConcurrent(t *testing.T) {
+	reg := poolFixture(t, nil)
+	pending := map[string]int{}
+	seen := map[string]int{}
+	for range 6 {
+		name, _, _, err := pickWith(reg, armQuery{pending: pending}, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen[name]++
+	}
+	if len(seen) != 3 || seen["dev"] != 2 || seen["prod"] != 2 || seen["qa"] != 2 {
+		t.Fatalf("six batch picks = %v, want two on each workspace", seen)
+	}
+	var wg sync.WaitGroup
+	out := make(chan string, 3)
+	for range 3 {
+		wg.Go(func() {
+			name, _, _, _ := pickWith(reg, armQuery{}, time.Now())
+			out <- name
+		})
+	}
+	wg.Wait()
+	close(out)
+	distinct := map[string]bool{}
+	for n := range out {
+		distinct[n] = true
+	}
+	if len(distinct) != 3 {
+		t.Fatalf("three concurrent picks chose %v, want three distinct workspaces", distinct)
+	}
+}

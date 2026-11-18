@@ -1,10 +1,12 @@
 package router
 
 import (
+	"slices"
 	"testing"
 	"time"
 
 	_ "github.com/edotau/claude-code/internal/nonet"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 func TestModelKeySharesOneMarker(t *testing.T) {
@@ -52,5 +54,54 @@ func TestMarkModelDead(t *testing.T) {
 	}
 	if s := LoadState(); !s.ModelDead(acct, "m-b", now) || s.ModelDead("other", "m-b", now) {
 		t.Error("ModelDead must be scoped to its account")
+	}
+}
+
+func familyDeadFixture(t *testing.T, reads *int) *providers.Registry {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	old := GithubCatalogIDs
+	GithubCatalogIDs = func(*providers.Provider) []string {
+		*reads++
+		return []string{"gpt-6.1-sol", "gpt-6.2-sol", "gpt-6-astra"}
+	}
+	t.Cleanup(func() { GithubCatalogIDs = old })
+	return &providers.Registry{Providers: map[string]*providers.Provider{"octo": {Name: "octo", Provider: "github"}}}
+}
+
+// A family rung is judged by the id it resolves to: a mark on that id demotes it, a mark on another version does not.
+func TestDeadLastResolvesFamilyRung(t *testing.T) {
+	var reads int
+	reg := familyDeadFixture(t, &reads)
+	now := time.Now()
+	const acct = "github·octo"
+	cs := []Candidate{{Agent: "copilot", Account: acct, Model: "sol"}, {Agent: "copilot", Account: acct, Model: "astra"}}
+	order := func(st State) string {
+		var res PickResult
+		out := deadLast(slices.Clone(cs), st, reg, now, &res)
+		return out[0].Model
+	}
+	if got := order(State{}); got != "sol" || reads != 0 {
+		t.Fatalf("clean state: first %q after %d list reads, want sol and 0", got, reads)
+	}
+	for model, want := range map[string]string{"gpt-6.2-sol": "astra", "gpt-6.1-sol": "sol"} {
+		if _, err := MarkModelDead(acct, model, now.Add(time.Hour), now); err != nil {
+			t.Fatal(err)
+		}
+		if got := order(LoadState()); got != want {
+			t.Errorf("mark on %s: first %q, want %q", model, got, want)
+		}
+		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	}
+}
+
+func TestMarkModelDeadIgnoresFamilyWord(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now()
+	if ran, err := MarkModelDead("github·octo", "sol", now.Add(time.Hour), now); ran || err != nil {
+		t.Fatalf("MarkModelDead(sol) = %v, %v, want false, nil", ran, err)
+	}
+	if LoadState().ModelDead("github·octo", "sol", now) {
+		t.Error("a family word was recorded as dead")
 	}
 }

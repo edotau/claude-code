@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/providers"
 )
 
 // ModelKey is the canonical model id, so marked ([1m]) and unmarked spellings of one model share a key.
@@ -13,6 +14,9 @@ func ModelKey(model string) string { return models.ModelKey(model) }
 
 // MarkModelDead remembers account cannot use model until until; the longer hold wins and expired keys are pruned.
 func MarkModelDead(account, model string, until, now time.Time) (bool, error) {
+	if providers.IsFamily(model) { // a family word names no endpoint: only the concrete id that failed is recorded
+		return false, nil
+	}
 	return tryUpdate(authMarkWait, func(s State) {
 		e := s[account]
 		e.ModelDead = extendHold(e.ModelDead, ModelKey(model), until, now)
@@ -28,12 +32,7 @@ func (s State) ModelDead(account, model string, now time.Time) bool {
 	return s[account].ModelDead[ModelKey(model)].After(now)
 }
 
-// accountModelDead checks the account's own mark, then the gateway's mark on its profile ("<provider>·<p>" → p).
-func (s State) accountModelDead(account, model string, now time.Time) bool {
-	return s.modelDeadOn(deadAccounts(account), model, now)
-}
-
-// deadAccounts is what accountModelDead reads for account: the account, then its profile's gateway account.
+// deadAccounts is what candidateDead reads for account: the account, then its profile's gateway account.
 func deadAccounts(account string) []string {
 	out := []string{account}
 	if _, p, ok := strings.Cut(account, "·"); ok && p != "" && p != "own" {
@@ -45,4 +44,22 @@ func deadAccounts(account string) []string {
 // modelDeadOn reports a live quota-dead mark on model under any of accounts.
 func (s State) modelDeadOn(accounts []string, model string, now time.Time) bool {
 	return slices.ContainsFunc(accounts, func(a string) bool { return s.ModelDead(a, model, now) })
+}
+
+// candidateDead reports a live mark on c's model (a family rung: resolved on its row, only when its family is marked).
+func (s State) candidateDead(reg *providers.Registry, c Candidate, now time.Time) bool {
+	accounts := deadAccounts(c.Account)
+	if !providers.IsFamily(c.Model) {
+		return s.modelDeadOn(accounts, c.Model, now)
+	}
+	family := strings.ToLower(strings.TrimSpace(c.Model))
+	marked := slices.ContainsFunc(accounts, func(a string) bool {
+		for key, until := range s[a].ModelDead {
+			if f, _, ok := providers.FamilyVersion(key); ok && f == family && until.After(now) {
+				return true
+			}
+		}
+		return false
+	})
+	return marked && s.modelDeadOn(accounts, providers.ConcreteModel(c.Agent, CandidateRow(reg, c), c.Model), now)
 }

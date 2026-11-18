@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
@@ -147,7 +149,7 @@ func armValues(p string) proc.Values {
 
 // applyArm resolves databricks profile <p> (bare: from profile, else CLAUDE_PROFILE), checks it, sets it on ctx.
 func applyArm(ctx context.Context, p, profile, agentName, model, fallback string) (context.Context, error) {
-	p, explicit, err := armWorkspace(ctx, p, profile, agentName, model)
+	p, explicit, err := armWorkspace(ctx, p, profile, agentName, model, fallback)
 	if err != nil {
 		return ctx, err
 	}
@@ -158,7 +160,7 @@ func applyArm(ctx context.Context, p, profile, agentName, model, fallback string
 }
 
 // armWorkspace is the workspace databricks:<p> names (bare: bareArm, auto: autoWorkspace); explicit: neither auto.
-func armWorkspace(ctx context.Context, p, profile, agentName, model string) (string, bool, error) {
+func armWorkspace(ctx context.Context, p, profile, agentName, model, fallback string) (string, bool, error) {
 	if p == "" {
 		if p = bareArm(ctx, profile); p == "" {
 			return "", false, errors.New("overlay provider databricks needs a profile: a workspace or auto")
@@ -167,7 +169,7 @@ func armWorkspace(ctx context.Context, p, profile, agentName, model string) (str
 	if p != router.AutoArm {
 		return p, true, nil
 	}
-	p, err := autoWorkspace(ctx, agentName, model)
+	p, err := autoWorkspace(ctx, agentName, model, fallback)
 	return p, false, err
 }
 
@@ -199,7 +201,7 @@ func workspaceRefusal(name string) error {
 }
 
 // autoWorkspace resolves databricks:auto: the inherited confinement's workspace inside one, else pickArm's.
-func autoWorkspace(ctx context.Context, agentName, model string) (string, error) {
+func autoWorkspace(ctx context.Context, agentName, model, fallback string) (string, error) {
 	if arm := router.ArmProfileContext(ctx); arm != "" {
 		return arm, nil
 	}
@@ -207,7 +209,33 @@ func autoWorkspace(ctx context.Context, agentName, model string) (string, error)
 	if err != nil {
 		return "", fmt.Errorf("overlay databricks:auto: %w", err)
 	}
-	return reportPick(pickArm(reg, agentName, model, time.Now()))
+	q := armQuery{agentName: agentName, model: model, strict: fallback == router.FallbackNone && typedModel(model)}
+	return reportPick(pickWith(reg, q, time.Now()))
+}
+
+// typedModel reports a concrete id or family word: not empty, an alias, auto or a row-qualified spelling.
+func typedModel(model string) bool {
+	_, auto := agent.SplitAuto(model)
+	return model != "" && !auto && !strings.Contains(model, ":") && !slices.Contains(router.Aliases, models.Strip1M(model))
+}
+
+// unservedError is the refusal of a typed model no signed-in workspace serves; it exits 1 like a preflight.
+type unservedError struct{ msg string }
+
+func (e *unservedError) Error() string { return e.msg }
+
+// errUnserved names model and up to five served ids the workspaces' findings offer instead.
+func errUnserved(model string, skipped []agent.Finding) error {
+	var near []string
+	for _, f := range skipped {
+		for _, id := range f.Served {
+			if len(near) < 5 && !slices.Contains(near, id) {
+				near = append(near, id)
+			}
+		}
+	}
+	return &unservedError{fmt.Sprintf("model %s: no signed-in Databricks workspace serves it (nearest served: %s)", model,
+		cmp.Or(strings.Join(near, ", "), "none listed"))}
 }
 
 // reportPick prints pickArm's pick and the workspaces it skipped on stderr and returns the pick.
@@ -240,7 +268,8 @@ func localArmFindings(p *providers.Provider, agentName, model string, now time.T
 	if agentName == "" {
 		return fs
 	}
-	if _, failed := agent.CheckModelNoted(agentName, p, strings.TrimPrefix(model, p.Name+":"), now, nil); failed != nil {
+	model = providers.ConcreteModel(agentName, p, strings.TrimPrefix(model, p.Name+":")) // a family word: p's own member
+	if _, failed := agent.CheckModelNoted(agentName, p, model, now, nil); failed != nil {
 		fs = append(fs, *failed)
 	}
 	return fs
@@ -284,7 +313,27 @@ func usableArms(reg *providers.Registry, agentName, model string, now time.Time,
 
 // pickArm picks a workspace outside tried passing the preflight; skipped: one finding per drop.
 func pickArm(reg *providers.Registry, agentName, model string, now time.Time, tried ...string) (name string, live int, skipped []agent.Finding, err error) {
-	usable, skipped := usableArms(reg, agentName, model, now, tried)
+	return pickWith(reg, armQuery{agentName: agentName, model: model, tried: tried}, now)
+}
+
+// armQuery is one pick: strict refuses a typed model no workspace serves; pending counts this batch's earlier picks.
+type armQuery struct {
+	agentName, model string
+	strict           bool
+	tried            []string
+	pending          map[string]int
+}
+
+// pickWith is pickArm for q: not cooling, fewest live (markers, routed records and q.pending), least recent, name.
+func pickWith(reg *providers.Registry, q armQuery, now time.Time) (name string, live int, skipped []agent.Finding, err error) {
+	usable, skipped := armCandidates(reg, q.agentName, q.model, now, q.tried)
+	if len(usable) == 0 && q.model != "" {
+		any, anySkipped := armCandidates(reg, q.agentName, "", now, q.tried)
+		if q.strict && len(q.tried) == 0 && len(any) > 0 {
+			return "", 0, skipped, errUnserved(q.model, skipped)
+		}
+		usable, skipped = any, anySkipped
+	}
 	if len(usable) == 0 {
 		return "", 0, skipped, errors.New("overlay databricks:auto: no Databricks workspace passes the preflight (claude-code doctor)")
 	}
@@ -294,8 +343,12 @@ func pickArm(reg *providers.Registry, agentName, model string, now time.Time, tr
 	}
 	pick := func() error {
 		picks := readArmPicks()
-		counts := armLive(usable)
-		best := slices.MinFunc(usable, func(a, b *providers.Provider) int { // not cooling, fewest live, least recent, name
+		counts := map[string]int{}
+		maps.Copy(counts, armLive(usable))
+		for n, c := range q.pending {
+			counts[n] += c
+		}
+		best := slices.MinFunc(usable, func(a, b *providers.Provider) int {
 			return cmp.Or(cmp.Compare(rank(cooling[a.Name]), rank(cooling[b.Name])), cmp.Compare(counts[a.Name], counts[b.Name]),
 				picks.Picked[a.Name].Compare(picks.Picked[b.Name]), cmp.Compare(a.Name, b.Name))
 		})
@@ -305,6 +358,9 @@ func pickArm(reg *providers.Registry, agentName, model string, now time.Time, tr
 	}
 	if err := paths.WithFileLock(armPicksFile(), pick); name == "" && err != nil { // the stamp is best-effort, the pick is not
 		_ = pick()
+	}
+	if q.pending != nil {
+		q.pending[name]++
 	}
 	return name, live, skipped, nil
 }
@@ -485,4 +541,15 @@ func carryOverlay(ctx context.Context, ov agentconfig.Overlay) (context.Context,
 		return ctx, err
 	}
 	return withValues(ctx, proc.Values{agentconfig.OverlayVar: string(doc)}), nil
+}
+
+// pinLacks reports the agent's Databricks pin with a fresh listing that does not serve model.
+func (r *askRun) pinLacks(model string) bool {
+	pin, err := agent.PinnedProfile(r.ctx, r.ag)
+	reg, rerr := providers.Load()
+	if err != nil || rerr != nil || pin == "" || reg.Providers[pin].Preset != providers.PresetDatabricks {
+		return false
+	}
+	p := reg.Providers[pin]
+	return agent.FreshModelFinding(r.ag, p, providers.ConcreteModel(r.ag, p, model), time.Now()) != nil
 }

@@ -1317,3 +1317,38 @@ func TestReportBackgroundStartReturnsWriteError(t *testing.T) {
 		}
 	}
 }
+
+// poolValue sends --provider databricks and a typed model the pin lacks to the pool; the rest stays.
+func TestPoolValue(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
+		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
+	vaulttest.SetRecord(t, "opencode", "profile", "dev")
+	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+		{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil {
+		t.Fatal(err)
+	}
+	auto := router.JoinCoworker(router.RouteDatabricks, router.AutoArm)
+	cases := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"provider databricks", []string{"--provider", "databricks"}, auto},
+		{"typed profile", []string{"--provider", "databricks", "--profile", "dev"}, ""},
+		{"pin serves the model", []string{"--model", "claude-sonnet-5-5"}, ""},
+		{"pin lacks the model", []string{"--model", "kimi-k3"}, auto},
+		{"fallback typed allows the swap", []string{"--model", "kimi-k3", "--fallback", "all"}, ""},
+		{"untyped model", nil, ""},
+	}
+	for _, c := range cases {
+		fs, f := askFlagSet()
+		if err := fs.Parse(c.args); err != nil {
+			t.Fatal(err)
+		}
+		r := &askRun{ctx: t.Context(), f: f, fs: fs, ag: "opencode"}
+		if got := r.poolValue(""); got != c.want {
+			t.Errorf("%s: poolValue = %q, want %q", c.name, got, c.want)
+		}
+	}
+}
