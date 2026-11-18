@@ -46,7 +46,7 @@ func slowSecretTool(t *testing.T) {
 // hermetic points PATH at an empty dir so no real `security`/`secret-tool` is ever reachable.
 func hermetic(t *testing.T) {
 	t.Helper()
-	t.Setenv("HARNESS_KEYRING", "") // the audit pass forces it off; these tests fake the tool
+	t.Setenv("HARNESS_KEYRING", "") // a stray off must not hide the faked tool
 	t.Setenv("PATH", t.TempDir())
 	down.Store(false)
 	t.Cleanup(func() { down.Store(false) })
@@ -259,6 +259,26 @@ func TestLookupNoToolIsUnavailable(t *testing.T) {
 	value, found, err := KeyringLookup("PHASE1B")
 	if value != "" || found || !errors.Is(err, ErrKeyringUnavailable) {
 		t.Fatalf("Lookup without tool = (%q, %t, %v), want empty, false, ErrKeyringUnavailable", value, found, err)
+	}
+}
+
+// HARNESS_KEYRING=off must make the plane unavailable and never run a keyring tool that is on PATH.
+func TestKeyringOffNeverRunsTool(t *testing.T) {
+	hermetic(t)
+	marker := filepath.Join(t.TempDir(), "ran")
+	fakeKeyringTool(t, "linux", `echo ran >> "`+marker+`"`)
+	if !KeyringAvailable() {
+		t.Fatal("control: a tool on PATH must read as available before HARNESS_KEYRING=off")
+	}
+	t.Setenv("HARNESS_KEYRING", "off")
+	if KeyringAvailable() {
+		t.Fatal("KeyringAvailable() = true with HARNESS_KEYRING=off")
+	}
+	if _, found, err := KeyringLookup("OFF"); found || !errors.Is(err, ErrKeyringUnavailable) {
+		t.Fatalf("Lookup = (found %t, %v), want not found, ErrKeyringUnavailable", found, err)
+	}
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the keyring tool ran despite HARNESS_KEYRING=off")
 	}
 }
 

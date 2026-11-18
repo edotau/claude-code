@@ -197,7 +197,7 @@ func fakeRetiredKeyTool(t *testing.T, kid string) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("HARNESS_KEYRING", "") // the audit pass forces it off; this test fakes the tool
+	t.Setenv("HARNESS_KEYRING", "") // a caller's off value would hide the faked tool
 	dir := t.TempDir()
 	tool := "secret-tool"
 	miss := "1"

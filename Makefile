@@ -81,7 +81,8 @@ install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 		$(GO) install github.com/google/yamlfmt/cmd/yamlfmt@$(YAMLFMT_VERSION) && \
 		$(MAKE) --no-print-directory tools-sync; fi
 	@$(BIN) theme apply --only opencode-themes >/dev/null || echo -e "$(C_NOTE)opencode theme not applied (install itself succeeded)"
-	@$(BIN) gateway proxy --restart --if-changed || echo -e "$(C_NOTE)daemon restart failed (install itself succeeded)"
+	@if $(BIN) gateway proxy --restart --if-changed --force --dry-run | grep -q 'would restart'; then \
+		echo -e "$(C_NOTE)the running proxy is an older build; restart it when idle: claude-code gateway proxy --restart"; fi
 
 
 # A stale copy earlier on PATH (e.g. ~/.local/bin) shadows the fresh GOBIN build; after a toolchain bump it
@@ -113,6 +114,7 @@ vet:  # (dev recipe, hidden from help) go vet
 
 ##@ Setup
 .PHONY: help-svg
+help-svg: BIN := bin/.lint/$(BINARY)
 help-svg: compile  ## Redraw the README menu image
 	$(BIN) help-svg --out docs/images/cli-menu.svg
 	@echo -e "$(C_OK)menu image regenerated; review git diff docs/"
@@ -174,28 +176,44 @@ setup-env:  ## Print the PATH line (APPLY=1 writes shell rc)
 	fi
 
 ##@ Quality
-# Umbrella gate: lint, doctor --git over unpushed commits, one go test run, no-keyring tests, go build, govulncheck
-# (skipped offline), doctor --prompts, agents sync --dry-run, cli-menu.svg freshness.
+# Umbrella gate on the working-tree build (bin/.lint, never the live binary): lint, test and the read-only checks run in
+# parallel with one log per stage; the writers (lint-docs, agents sync) run alone afterwards. Compile + vet cover the build.
 .PHONY: audit
-audit: check-clean  ## Local gate: lint, git secrets, test, build, vuln, docs
-	@$(MAKE) compile
-	@$(MAKE) --no-print-directory lint
-	@$(MAKE) --no-print-directory audit-git
-	@if [ "$(SKIP_TESTS)" = 1 ]; then echo -e "$(C_NOTE)tests skipped (SKIP_TESTS=1)"; else \
-		$(BIN) test ramdisk -- $(MAKE) audit-test && \
-		$(MAKE) --no-print-directory audit-nokeyring; fi
-	$(GO) build $(PKGS)
-	@echo -e "$(C_OK)go check passed (lint + build$(if $(filter 1,$(SKIP_TESTS)),, + test))"
+audit: BIN := bin/.lint/$(BINARY)
+audit: check-clean compile  ## Local gate: lint, git secrets, test, build, vuln, docs
+	@d=$$(mktemp -d); trap 'rm -r -f -- "$$d"' EXIT; trap 'trap - INT TERM; rm -r -f -- "$$d"; kill 0' INT TERM; \
+	names=(lint test checks); pids=(); \
+	$(MAKE) lint SKIP=docs >"$$d/lint" 2>&1 & pids+=($$!); \
+	( if [ "$(SKIP_TESTS)" = 1 ]; then echo -e "$(C_NOTE)tests skipped (SKIP_TESTS=1)"; \
+		else $(BIN) test ramdisk -- $(MAKE) audit-test; fi ) >"$$d/test" 2>&1 & pids+=($$!); \
+	$(MAKE) -k audit-git audit-vuln audit-prompts audit-svg BIN=$(BIN) >"$$d/checks" 2>&1 & pids+=($$!); \
+	rc=0; for i in 0 1 2; do if wait $${pids[$$i]}; then s=ok; else s=FAILED; rc=1; fi; \
+		echo "== $${names[$$i]}: $$s =="; cat "$$d/$${names[$$i]}"; done; \
+	[ $$rc = 0 ] || { echo "audit failed: see the FAILED stages above" >&2; exit 1; }
+	@$(MAKE) lint-docs CHECK=1
+	@$(MAKE) audit-sync BIN=$(BIN)
+	@echo -e "$(C_OK)audit passed (lint/test/build + sync smoke + generated docs; vuln when installed and online)"
+
+.PHONY: audit-vuln
+audit-vuln:  # (folded into `audit`) govulncheck when installed and vuln.go.dev answers
 	@if ! command -v govulncheck >/dev/null 2>&1; then echo -e "$(C_NOTE)govulncheck not installed — skipped (make install)"; \
 		elif ! curl -fsS -m 5 -o /dev/null https://vuln.go.dev/index/db.json 2>/dev/null; then \
 			echo -e "$(C_NOTE)govulncheck skipped (vuln.go.dev unreachable)"; \
 		else govulncheck $(PKGS); fi
+
+.PHONY: audit-prompts
+audit-prompts:  # (folded into `audit`) doctor --prompts
 	@$(BIN) doctor --prompts
+
+.PHONY: audit-sync
+audit-sync:  # (folded into `audit`) agents sync --dry-run; drift runs the real sync
 	@out="$$(CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync --dry-run 2>&1)" || { echo "$$out"; echo -e "$(C_NOTE)sync drift: running agents sync"; \
 		CLAUDE_CONFIG_DIR=$(CURDIR) $(BIN) agents sync || exit 1; }
+
+.PHONY: audit-svg
+audit-svg:  # (folded into `audit`) docs/images/cli-menu.svg matches the help-svg render
 	@t=$$(mktemp); rc=0; $(BIN) help-svg --out $$t && cmp -s $$t docs/images/cli-menu.svg || rc=1; rm -f $$t; \
 		if [ $$rc -ne 0 ]; then echo "docs/images/cli-menu.svg is stale: run make help-svg"; exit 1; fi
-	@echo -e "$(C_OK)audit passed (lint/test/build + sync smoke + generated docs; vuln when installed and online)"
 
 # Fast tier: skips the pre-ship tests (`testing.Short`); `audit` still runs everything.
 .PHONY: test
@@ -212,18 +230,11 @@ audit-test:  # (folded into `audit`) go test TEST_PKGS in one invocation
 # Commits being pushed: AUDIT_GIT_RANGE, else @{u}..HEAD, else the last AUDIT_GIT_FALLBACK commits.
 AUDIT_GIT_FALLBACK ?= 20
 .PHONY: audit-git
-audit-git: compile  # (folded into `audit`) doctor --git over the unpushed commits; a token-shaped addition fails
+audit-git:  # (folded into `audit`) doctor --git over the unpushed commits; a token-shaped addition fails
 	@if [ -n "$(AUDIT_GIT_RANGE)" ]; then exec $(BIN) doctor --git --range '$(AUDIT_GIT_RANGE)'; fi; \
 		if ! n=$$(git rev-list --count '@{u}..HEAD' 2>/dev/null); then exec $(BIN) doctor --git --since $(AUDIT_GIT_FALLBACK); fi; \
 		if [ "$$n" = 0 ]; then echo -e "$(C_NOTE)doctor --git skipped (no unpushed commits)"; exit 0; fi; \
 		$(BIN) doctor --git --range '@{u}..HEAD'
-
-.PHONY: audit-nokeyring
-audit-nokeyring:  # (folded into `audit`) re-test vault importers with no keyring, as a headless host runs them
-	@pkgs=$$($(GO) list -f '{{.ImportPath}} {{join .Imports " "}} {{join .TestImports " "}} {{join .XTestImports " "}}' $(PKGS) \
-		| awk '/internal\/vault( |$$)/ {print $$1}'); \
-		env -u HARNESS_VAULT_KEY -u DBUS_SESSION_BUS_ADDRESS HARNESS_KEYRING=off \
-		$(BIN) test ramdisk -- $(MAKE) audit-test TEST_PKGS="$$(echo $$pkgs)"
 
 # One lint per kind, each a branch of lint-% below; `make lint-<kind>` runs one.
 LINT_WHAT := go quality shell yaml help docs js
@@ -363,6 +374,7 @@ image-shell:  ## Open a shell in the built image (no rebuild)
 
 ##@ Diagnostics
 .PHONY: statusline
+statusline: BIN := bin/.lint/$(BINARY)
 statusline: compile  ## Render a sample statusline (COLS=…)
 	@echo '{"model":{"id":"claude-sonnet-5","display_name":"Sonnet 5"},"workspace":{"current_dir":"'$(CURDIR)'"},"transcript_path":"/tmp/x","context_window":{"context_window_size":1000000,"used_percentage":42}}' \
 		| COLUMNS=$${COLS:-120} $(BIN) theme statusline
