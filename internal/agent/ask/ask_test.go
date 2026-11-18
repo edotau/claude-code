@@ -49,7 +49,7 @@ func askRetryCases() []askRetryCase {
 		{name: "retry typed timeout wins", retry: true, flags: []string{"--timeout", "2m"},
 			wantTimeout: 2 * time.Minute, wantAttach: []string{"a.txt"}},
 		{name: "fresh tools default", flags: []string{"--tools"},
-			wantTimeout: 45 * time.Minute},
+			wantTimeout: agent.DefaultToolsTimeout},
 		{name: "fresh tools typed timeout wins", flags: []string{"--tools", "--timeout", "5m"},
 			wantTimeout: 5 * time.Minute},
 		{name: "fresh without tools default", wantTimeout: 10 * time.Minute},
