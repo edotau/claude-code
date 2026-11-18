@@ -719,19 +719,22 @@ func TestCodexFileWriteRunsDocGates(t *testing.T) {
 	}
 }
 
-// A Blocks module that outlasts its in-process deadline blocks with a retry reason; others never time out.
-func TestRunDirectGateOverrunBlocksNonGateWaits(t *testing.T) {
+// A gate timeout preserves both the retry reason and the host-specific refusal.
+func TestRunDirectGateOverrunBlocks(t *testing.T) {
 	dir := t.TempDir()
 	defer core.TelemetryDirForTest(dir)()
 	flagHarness(t)
 	orig := gateDeadline
 	gateDeadline = func(settings.EventSpec) time.Duration { return 50 * time.Millisecond }
 	t.Cleanup(func() { gateDeadline = orig })
-	for _, name := range []string{"safety-scan", "memory-start"} {
-		o := native[name]
-		native[name] = func(*core.Input) core.Result { time.Sleep(150 * time.Millisecond); return core.Result{} }
-		t.Cleanup(func() { native[name] = o })
+	release, finished := make(chan struct{}), make(chan struct{}, 2)
+	o := native["safety-scan"]
+	native["safety-scan"] = func(*core.Input) core.Result {
+		defer func() { finished <- struct{}{} }()
+		<-release
+		return core.Result{}
 	}
+	t.Cleanup(func() { close(release); <-finished; <-finished; native["safety-scan"] = o })
 	var out, errb bytes.Buffer
 	if code := runDirect("safety-scan", hosttest.BashPayload("ls"), &out, &errb); code != core.ExitBlock ||
 		!strings.Contains(errb.String(), "safety-scan timed out; blocked, retry") {
@@ -743,11 +746,69 @@ func TestRunDirectGateOverrunBlocksNonGateWaits(t *testing.T) {
 		!strings.Contains(out.String(), `"deny"`) {
 		t.Errorf("agy gate overrun: exit %d stdout %q; want the JSON deny", code, out.String())
 	}
-	errb.Reset()
-	if code := runDirect("memory-start", strings.NewReader(`{"session_id":"s"}`), io.Discard, &errb); code != core.ExitProceed {
-		t.Errorf("non-gate slower than the gate deadline: exit %d stderr %q; want proceed", code, errb.String())
-	}
 	assertDirectTelemetry(t, dir, core.OutcomeOverrun, 2)
+}
+
+func TestRunDirectAdvisoryOverrunProceeds(t *testing.T) {
+	t.Setenv("HARNESS_HOOK_TELEMETRY", "off")
+	orig := gateDeadline
+	gateDeadline = func(settings.EventSpec) time.Duration { return 10 * time.Millisecond }
+	t.Cleanup(func() { gateDeadline = orig })
+	release, finished := make(chan struct{}), make(chan struct{})
+	run := func(*core.Input) core.Result {
+		defer close(finished)
+		<-release
+		return core.Result{Decision: core.Block, Reason: "late refusal"}
+	}
+	var out, errb bytes.Buffer
+	done := make(chan int, 1)
+	exited := make(chan struct{})
+	t.Cleanup(func() { close(release); <-finished; <-exited })
+	go func() {
+		defer close(exited)
+		done <- runModuleDirect("memory-start", run, strings.NewReader(`{}`), &out, &errb)
+	}()
+	select {
+	case code := <-done:
+		want := "hook memory-start: overran its 10ms budget (skipped)\n"
+		if code != core.ExitProceed || out.Len() != 0 || errb.String() != want {
+			t.Errorf("exit=%d stdout=%q stderr=%q; want proceed, empty stdout, %q", code, out.String(), errb.String(), want)
+		}
+	case <-time.After(300 * time.Millisecond):
+		t.Error("direct advisory module did not return within its budget")
+	}
+}
+
+func TestDispatchOverrunDrainBounded(t *testing.T) {
+	t.Setenv("HARNESS_HOOK_TELEMETRY", "off")
+	orig := drainBudget
+	drainBudget = 10 * time.Millisecond
+	t.Cleanup(func() { drainBudget = orig })
+	release, finished := make(chan struct{}), make(chan struct{})
+	slow := bound("slow", "Bash", 10*time.Millisecond, func(*core.Input) core.Result {
+		defer close(finished)
+		<-release
+		return core.Result{}
+	})
+	fast := bound("fast", "Bash", 15*time.Second, func(*core.Input) core.Result { return core.Result{} })
+	var log bytes.Buffer
+	done := make(chan struct{})
+	t.Cleanup(func() { close(release); <-finished; <-done })
+	go func() {
+		defer close(done)
+		res, _, err := dispatch([]Bound{slow, fast}, "PreToolUse", bashInput(), &log)
+		if err != nil || res.Decision != core.Allow {
+			t.Errorf("dispatch result=%+v error=%v", res, err)
+		}
+	}()
+	select {
+	case <-done:
+		if !strings.Contains(log.String(), "an overrun handler is still running at exit") {
+			t.Errorf("missing abandoned-handler diagnostic: %q", log.String())
+		}
+	case <-time.After(300 * time.Millisecond):
+		t.Error("drain inherited the completed handler's 15s budget")
+	}
 }
 
 func TestDirectTelemetryCannotFlipAllow(t *testing.T) {

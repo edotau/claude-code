@@ -72,11 +72,13 @@ type runError struct{ msg, outcome string }
 
 func (e *runError) Error() string { return e.msg }
 
-// budgetOf is the deadline a handler gets: the spec Budget (default 5s), less half HookMargin for a gate.
+var defaultHandlerBudget = 5 * time.Second
+
+// Leave gates time to render their refusal before the host deadline.
 func budgetOf(s settings.EventSpec) time.Duration {
 	budget := s.Budget
 	if budget <= 0 {
-		budget = 5 * time.Second
+		budget = defaultHandlerBudget
 	}
 	if s.Blocks {
 		budget -= min(core.HookMargin/2, budget/2)
@@ -84,7 +86,7 @@ func budgetOf(s settings.EventSpec) time.Duration {
 	return budget
 }
 
-// gateDeadline is the single-module path's deadline; a test seam, same numbers as budgetOf.
+// Keep direct calls and dispatched handlers on the same budget policy.
 var gateDeadline = budgetOf
 
 // runBudgeted runs f with panic recovery; wait yields its value or a panic/overrun error. budget <= 0 never expires.
@@ -218,7 +220,7 @@ type step struct {
 }
 
 // plan starts every runnable handler for event at once and lists the steps in declaration order.
-func plan(bound []Bound, event string, in *core.Input, wg *sync.WaitGroup) (steps []step, longest time.Duration) {
+func plan(bound []Bound, event string, in *core.Input, wg *sync.WaitGroup) (steps []step) {
 	match, tool, problem := matchers{}, in.CanonicalTool(), payloadProblem(in)
 	for _, b := range bound {
 		if b.Spec.Event != event {
@@ -231,11 +233,10 @@ func plan(bound []Bound, event string, in *core.Input, wg *sync.WaitGroup) (step
 		case problem != "" && b.Spec.Blocks: // tool unknown: every gate fails closed
 			steps = append(steps, step{b: b, block: unreadable(b.Spec.Name, problem)})
 		case hit:
-			longest = max(longest, b.Spec.Budget)
 			steps = append(steps, step{b: b, wait: runBudgeted(func() core.Result { return b.Run(in) }, budgetOf(b.Spec), wg)})
 		}
 	}
-	return steps, longest
+	return steps
 }
 
 // apply folds one step into the merge in declaration order; it reports whether a gate failed closed.
@@ -266,13 +267,13 @@ func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.
 func dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.Result, []core.TelemetryRow, error) {
 	m := &dispatchMerge{log: log}
 	var wg sync.WaitGroup
-	steps, longest := plan(bound, event, in, &wg)
+	steps := plan(bound, event, in, &wg)
 	var gateFailed bool
 	for _, s := range steps {
 		gateFailed = m.apply(s, event) || gateFailed
 	}
 	if !gateFailed {
-		drain(&wg, longest, log)
+		drain(&wg, log)
 	}
 	m.merged.Context = core.CapContext(core.JoinContext(m.ctx...))
 	m.merged.SystemMessage = core.JoinNonEmpty("; ", m.sys...)
@@ -366,16 +367,17 @@ func asyncOnly(bound []Bound) []Bound {
 	return out
 }
 
-// drain waits up to one longest-budget period for overrun handlers; any still running is logged and abandoned.
-func drain(wg *sync.WaitGroup, longest time.Duration, log io.Writer) {
-	if longest <= 0 {
-		longest = 5 * time.Second
-	}
+const overrunDrainGrace = 200 * time.Millisecond
+
+var drainBudget = overrunDrainGrace
+
+// Let late side effects finish briefly; an expired handler does not get another full budget.
+func drain(wg *sync.WaitGroup, log io.Writer) {
 	done := make(chan struct{})
 	go func() { wg.Wait(); close(done) }()
 	select {
 	case <-done:
-	case <-time.After(longest):
+	case <-time.After(drainBudget):
 		fmt.Fprintln(log, "hook dispatch: an overrun handler is still running at exit")
 	}
 }
@@ -434,10 +436,7 @@ type directOutcome struct {
 
 func invokeDirect(name string, run core.Runner, stdin io.Reader, spec settings.EventSpec) directOutcome {
 	var parsed atomic.Pointer[core.Input]
-	var budget time.Duration
-	if spec.Blocks {
-		budget = gateDeadline(spec)
-	}
+	budget := gateDeadline(spec)
 	var wg sync.WaitGroup
 	o, _, err := runBudgeted(func() directOutcome {
 		in := core.ParseInput(stdin)
@@ -451,7 +450,7 @@ func invokeDirect(name string, run core.Runner, stdin io.Reader, spec settings.E
 	switch {
 	case !errors.As(err, &re):
 		return o
-	case re.outcome == core.OutcomeOverrun:
+	case spec.Blocks && re.outcome == core.OutcomeOverrun:
 		return directOutcome{res: core.Result{Decision: core.Block, Reason: name + " timed out; blocked, retry the command"}, err: err}
 	case spec.Blocks:
 		return directOutcome{parsed.Load(), core.Result{Decision: core.Block, Reason: fmt.Sprintf("%s did not complete (%v); blocked", name, err)}, err}
