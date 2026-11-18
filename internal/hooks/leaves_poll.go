@@ -139,22 +139,24 @@ func relayRefusal(seg string) string {
 
 // relayGoEnvFlags write files or run other programs; a GOFLAGS carrying one is refused (leading dashes dropped).
 var relayGoEnvFlags = []string{"o", "c", "exec", "toolexec", "vettool", "overlay", "coverprofile", "cpuprofile", "memprofile",
-	"blockprofile", "mutexprofile", "trace", "outputdir", "fuzz", "json", "modfile", "args"}
+	"blockprofile", "mutexprofile", "trace", "outputdir", "fuzz", "modfile", "args"}
 
 // relayGoEnvRe is an inline assignment of a Go variable that can redirect what the toolchain runs or writes.
 var relayGoEnvRe = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`^(GOFLAGS|GOENV|GOWORK|GOBIN|GOCACHE|GOTOOLCHAIN)=`)
 })
 
-// relayGoValue and relayGoBool are the flags a relay's go gate allows, by subcommand; a value flag takes the next word.
-var relayGoValue = map[string][]string{"build": {"tags"}, "vet": {"tags"},
-	"test": {"run", "count", "timeout", "shuffle", "list", "tags"}}
+// relayGoValue and relayGoBool are the flags a relay's go gate allows, by subcommand; a value flag takes one word.
+var relayGoValue = map[string][]string{"build": {"tags", "p", "o"}, "vet": {"tags", "p"},
+	"test": {"run", "count", "timeout", "shuffle", "list", "tags", "bench", "benchtime", "parallel", "cpu", "p",
+		"covermode", "coverpkg", "vet", "skip"}}
 var relayGoBool = map[string][]string{"build": {"race", "v"}, "vet": {"race", "v"},
-	"test": {"v", "race", "short", "failfast", "cover"}}
+	"test": {"v", "race", "short", "failfast", "cover", "benchmem", "json"}}
 
 // relayGoShapes names the allowed go shapes in one line for the refusal message.
-const relayGoShapes = "go build|vet <packages> [-tags -race -v], go test <packages> [-run -count -v -race -short -timeout " +
-	"-failfast -shuffle -list -tags -cover], go build ./... or -o /dev/null, gofmt -l <paths>"
+const relayGoShapes = "go vet|test <./packages> [-tags -p -race -v], go test also [-run -skip -count -timeout -shuffle -list " +
+	"-short -failfast -cover -covermode -coverpkg -bench -benchmem -benchtime -parallel -cpu -vet -json], " +
+	"go build ./... or go build <./packages> -o /dev/null, gofmt -l <./paths>"
 
 // relayGoGate judges `[rtk] go build|vet|test` and `gofmt -l`: !isGo for others, else rule is "" or why not.
 func relayGoGate(seg string) (rule string, isGo bool) {
@@ -166,10 +168,7 @@ func relayGoGate(seg string) (rule string, isGo bool) {
 		return "", false
 	}
 	if toks[0] == "gofmt" {
-		if slices.Contains(toks[1:], "-l") && !slices.ContainsFunc(toks[1:], func(a string) bool { return strings.HasPrefix(a, "-") && a != "-l" }) {
-			return "", true
-		}
-		return "gofmt is allowed only as `gofmt -l <paths>`", true
+		return relayGofmtArgs(toks[1:]), true
 	}
 	if toks[0] != "go" || !slices.Contains([]string{"build", "vet", "test"}, toks[1]) {
 		return "", false
@@ -180,9 +179,34 @@ func relayGoGate(seg string) (rule string, isGo bool) {
 	return relayGoArgs(toks[1], toks[2:]), true
 }
 
+// relayGofmtArgs is "" for `gofmt -l` with relative paths inside the repository only.
+func relayGofmtArgs(args []string) string {
+	const bad = "gofmt is allowed only as `gofmt -l <relative paths inside the repository>`"
+	if !slices.Contains(args, "-l") || len(args) < 2 {
+		return bad
+	}
+	for _, a := range args {
+		if a != "-l" && (strings.HasPrefix(a, "-") || !relayPathOK(a)) {
+			return bad
+		}
+	}
+	return ""
+}
+
+// relayPathOK is true for a relative path with no `..` element and no `~` or flag lead.
+func relayPathOK(p string) bool {
+	if p == "" || filepath.IsAbs(p) || strings.HasPrefix(p, "/") || strings.HasPrefix(p, "~") || strings.HasPrefix(p, "-") {
+		return false
+	}
+	return !slices.Contains(strings.Split(filepath.ToSlash(p), "/"), "..")
+}
+
+// relayPkgOK is true for a `./` package pattern inside the repository.
+func relayPkgOK(p string) bool { return strings.HasPrefix(p, "./") && relayPathOK(p) }
+
 // relayGoEnvRule refuses a GOFLAGS this process sees with a refused flag; the relay shell's env is invisible.
 func relayGoEnvRule() string {
-	for _, f := range strings.Fields(os.Getenv("GOFLAGS")) {
+	for f := range strings.FieldsSeq(os.Getenv("GOFLAGS")) {
 		name, _, _ := strings.Cut(strings.TrimLeft(f, "-"), "=")
 		if slices.Contains(relayGoEnvFlags, name) {
 			return "the inherited GOFLAGS carries -" + name
@@ -191,32 +215,54 @@ func relayGoEnvRule() string {
 	return ""
 }
 
-// relayGoArgs is "" when args are package patterns and allowed flags only, and a build cannot drop a binary.
+// relayGoArgs is "" when args are in-repo package patterns and allowed flags only, and a build cannot drop a binary.
 func relayGoArgs(sub string, args []string) string {
 	var pkgs []string
 	devNull := false
 	for i := 0; i < len(args); i++ {
 		a := args[i]
 		if !strings.HasPrefix(a, "-") {
+			if !relayPkgOK(a) {
+				return "package " + a + " must be a ./ pattern inside the repository"
+			}
 			pkgs = append(pkgs, a)
 			continue
 		}
-		name, _, hasVal := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(a, "-"), "-"), "=")
-		switch {
-		case sub == "build" && name == "o" && !hasVal && i+1 < len(args) && args[i+1] == "/dev/null":
-			devNull = true
-			i++
-		case slices.Contains(relayGoValue[sub], name):
-			if !hasVal {
-				i++
-			}
-		case slices.Contains(relayGoBool[sub], name):
-		default:
+		name, val, hasVal := strings.Cut(strings.TrimPrefix(strings.TrimPrefix(a, "-"), "-"), "=")
+		if slices.Contains(relayGoBool[sub], name) {
+			continue
+		}
+		if !slices.Contains(relayGoValue[sub], name) {
 			return "flag " + a + " is not allowed (or it writes files or runs another program)"
 		}
+		if !hasVal && i+1 < len(args) {
+			i++
+			val = args[i]
+		} else if !hasVal {
+			return "flag " + a + " needs a value"
+		}
+		if rule := relayFlagValue(sub, name, a, val); rule != "" {
+			return rule
+		}
+		devNull = devNull || name == "o"
 	}
-	if sub == "build" && !devNull && (len(pkgs) == 0 || len(pkgs) == 1 && !strings.Contains(pkgs[0], "...")) {
-		return "a go build of one package may drop a binary; build ./... or add -o /dev/null"
+	if sub == "build" && !devNull && !slices.Equal(pkgs, []string{"./..."}) {
+		return "go build is allowed only as `go build ./...` or with `-o /dev/null`"
+	}
+	return ""
+}
+
+// relayFlagValue judges one flag's value: no leading dash, `-o` only /dev/null, `-coverpkg` in-repo patterns.
+func relayFlagValue(sub, name, flag, val string) string {
+	switch {
+	case strings.HasPrefix(val, "-"):
+		return "flag " + flag + " needs a value that does not begin with -"
+	case sub == "build" && name == "o" && val != "/dev/null":
+		return "go build -o is allowed only as `-o /dev/null`"
+	case name == "coverpkg" && !slices.ContainsFunc(strings.Split(val, ","), func(p string) bool { return !relayPkgOK(p) }):
+		return ""
+	case name == "coverpkg":
+		return "-coverpkg must list ./ package patterns inside the repository"
 	}
 	return ""
 }

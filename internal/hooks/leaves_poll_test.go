@@ -175,21 +175,7 @@ func TestRelayReadOnlyAndGates(t *testing.T) {
 
 // A relay's go gate is an explicit shape: packages and a short flag list, nothing that writes or runs a program.
 func TestRelayGoGateShapes(t *testing.T) {
-	cases := map[string]bool{
-		"go test ./internal/x/ -run TestY -count=1": true, "go test -race -short -timeout 2m -failfast -shuffle on ./...": true,
-		"go test -v -tags integration -cover -list . ./internal/x": true, "go vet ./...": true, "go vet -tags x ./a ./b": true,
-		"go build ./...": true, "go build ./a ./b": true, "go build -o /dev/null ./cmd/claude-code": true, "gofmt -l file.go": true,
-		"ls internal": true, "go doc fmt": true,
-		"go test ./x -args -test.cpuprofile=/outside/file": false, "go test ./x -args": false, "GOFLAGS=-toolexec=x go test ./...": false,
-		"GOENV=/x go vet ./...": false, "GOCACHE=/x go build ./...": false, "env GOFLAGS=-exec=x go test ./...": false,
-		"go build ./cmd/claude-code": false, "go build": false, "go build -o /tmp/x ./...": false, "go test -c ./x": false,
-		"go test -exec ./x ./...": false, "go test -toolexec=x ./...": false, "go test -overlay=o.json ./...": false,
-		"go vet -vettool=./x ./...": false, "go test -o /tmp/x ./x": false, "go test -coverprofile=c.out ./x": false,
-		"go test -cpuprofile cpu.out ./x": false, "go test -memprofile=m ./x": false, "go test -trace=t ./x": false,
-		"go test -json ./x": false, "go test -modfile=x.mod ./x": false, "go test --exec=x ./x": false,
-		"gofmt -w f.go": false, "gofmt -d f.go": false, "gofmt -l -w f.go": false, "gofmt f.go": false,
-	}
-	for cmd, want := range cases {
+	for cmd, want := range relayGoCases {
 		r := Handback(bashHook("PreToolUse", relayTx(t), "a1", "t2", cmd, ""))
 		if got := r.Decision != core.Block; got != want {
 			t.Errorf("%q allowed=%v, want %v: %s", cmd, got, want, r.Reason)
@@ -197,13 +183,51 @@ func TestRelayGoGateShapes(t *testing.T) {
 	}
 	t.Setenv("GOFLAGS", "-mod=readonly -toolexec=/x/y")
 	r := Handback(bashHook("PreToolUse", relayTx(t), "a1", "t2", "go test ./...", ""))
-	if r.Decision != core.Block || !strings.Contains(r.Reason, "inherited GOFLAGS") || !strings.Contains(r.Reason, "go test <packages>") {
+	if r.Decision != core.Block || !strings.Contains(r.Reason, "inherited GOFLAGS") || !strings.Contains(r.Reason, "go build ./...") {
 		t.Errorf("inherited GOFLAGS: %+v, want a block naming it and the allowed shapes", r)
 	}
 	t.Setenv("GOFLAGS", "-mod=readonly")
 	if r := Handback(bashHook("PreToolUse", relayTx(t), "a1", "t2", "go test ./...", "")); r.Decision == core.Block {
 		t.Errorf("harmless GOFLAGS: %+v, want allowed", r)
 	}
+}
+
+// relayGoCases maps a relay Bash command to whether the go gate allows it.
+var relayGoCases = map[string]bool{
+	"go test ./internal/x/ -run TestY -count=1": true, "go test -race -short -timeout 2m -failfast -shuffle on ./...": true,
+	"go test -v -tags integration -cover -list . ./internal/x": true, "go vet ./...": true, "go vet -tags x ./a ./b": true,
+	"go build ./...": true, "go build -o /dev/null ./cmd/claude-code": true, "gofmt -l file.go": true,
+	"ls internal": true, "go doc fmt": true,
+	"go test ./x -args -test.cpuprofile=/outside/file": false, "go test ./x -args": false, "GOFLAGS=-toolexec=x go test ./...": false,
+	"GOENV=/x go vet ./...": false, "GOCACHE=/x go build ./...": false, "env GOFLAGS=-exec=x go test ./...": false,
+	"go build ./cmd/claude-code": false, "go build": false, "go build -o /tmp/x ./...": false, "go test -c ./x": false,
+	"go test -exec ./x ./...": false, "go test -toolexec=x ./...": false, "go test -overlay=o.json ./...": false,
+	"go vet -vettool=./x ./...": false, "go test -o /tmp/x ./x": false, "go test -coverprofile=c.out ./x": false,
+	"go test -cpuprofile cpu.out ./x": false, "go test -memprofile=m ./x": false, "go test -trace=t ./x": false,
+	"go test -modfile=x.mod ./x": false, "go test --exec=x ./x": false,
+	"go build ./cmd/...": false, "go build ./cmd/claude-code ./cmd/claude-code": false, "go build ./a ./b": false,
+	"go build ./... ./...": false, "go build -tags o ./cmd/x": false, "go build -o=/dev/null ./cmd/claude-code": true,
+	"go build -p 4 ./...": true, "go build -o /dev/null": true, "go build -o /dev/nullx ./...": false,
+	"go test /tmp/evil": false, "go vet ../other/...": false, "go vet ./../x": false, "go test ./a/../../b": false,
+	"go test ...": false, "go test fmt": false, "go vet github.com/x/y": false, "go build /abs/...": false,
+	"go test ./internal/x/ ./internal/x/... ./cmd/claude-code": true, "go vet -p 2 ./...": true,
+	"go test -bench . -benchmem -benchtime=1s ./x": true, "go test -parallel 2 -cpu 1,2 -p=1 ./x": true,
+	"go test -covermode=atomic -coverpkg=./a/...,./b ./x": true, "go test -coverpkg ./... ./x": true,
+	"go test -vet off ./x": true, "go test -vet=atomic,bool ./x": true, "go test -json -skip 'A|B' ./x": true,
+	"go test --run=X --count 1 ./x": true, "go test -coverpkg=/tmp/x ./x": false, "go test -coverpkg=./a,../b ./x": false,
+	"go test -bench": false, "go test -run -v ./x": false, "go test -run=-v ./x": false, "go test -bench -benchmem ./x": false,
+	"go test -mod=mod ./x": false, "go test -mod mod ./x": false, "go test -test.run=X ./x": false,
+	"go test -test.cpuprofile=c ./x": false, "go test -blockprofile=b ./x": false, "go test -mutexprofile=m ./x": false,
+	"go test -outputdir=/x ./x": false, "go test -vettool=x ./x": false, "go test -fuzz=F ./x": false, "go test -p": false,
+	"go vet -vet=off ./x": false, "go vet -bench . ./x": false, "go build -p ./...": false, "go test ./x -args -v": false,
+	"go test ./x; touch y": false, "go test ./x && touch y": false, "go test ./x || touch y": false, "go test ./x | tee y": false,
+	"touch y; go test ./x": false,
+	"go test ./x > out":    false, "go test ./x $(id)": false, "go test ./x `id`": false,
+	"command go test ./...": false, "/usr/local/go/bin/go test ./...": false, "gotip test ./...": false,
+	"GOWORK=/x go vet ./...": false, "GOBIN=/x go build ./...": false, "GOTOOLCHAIN=x go test ./...": false,
+	"gofmt -l ./internal/hooks": true, "gofmt -l a.go b.go": true, "gofmt -l /etc": false, "gofmt -l ../x": false,
+	"gofmt -l ./a/../..": false, "gofmt -l ~/x": false, "gofmt -l": false,
+	"gofmt -w f.go": false, "gofmt -d f.go": false, "gofmt -l -w f.go": false, "gofmt f.go": false,
 }
 
 // A relay's own successful `agents result|wait <id>` after a backgrounded ask binds an id whose record is its ask's.
