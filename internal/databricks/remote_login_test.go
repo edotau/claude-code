@@ -159,8 +159,6 @@ func TestRemoteForwardFailureWithPasteContinuesWithoutOpening(t *testing.T) {
 	w := newRemoteWorld(t)
 	w.forwardErr = errors.New("ssh to " + remoteHost + ": Connection refused")
 	opts := headless{paste: true, via: remoteHost}.remoteOptions()
-	var buf strings.Builder
-	opts.Out = &buf
 	port, stop, err := opts.Forward(context.Background(), 8031)
 	if err != nil || port != 8031 || stop == nil {
 		t.Fatalf("port %d err %v, want the local port and no error", port, err)

@@ -3,14 +3,11 @@ package ask
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -48,13 +45,10 @@ func recvWithin[T any](t *testing.T, ch <-chan T, d time.Duration, msg string) T
 func vendorHost(t *testing.T) {
 	t.Helper()
 	skipWithoutSh(t)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Use(t)
 	t.Setenv("HOME", t.TempDir())
-	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(make([]byte, 32)))
 	doc := `{"providers":{"openai":{"acme":{"protocol":"openai","base_url":"https://acme.example/v1","auth":{"type":"none"}}}}}`
-	if err := vault.Update(func(tx *vault.Tx) error { return tx.Put(vault.Overlay, "providers", doc) }); err != nil {
-		t.Fatal(err)
-	}
+	vaulttest.Put(t, vault.Overlay, "providers", doc)
 	pathstest.FakeVendor(t, "opencode", "p=$(cat); case \"$p $*\" in *FAILME*) echo boom >&2; exit 1;; esac\n"+
 		`printf '%s\n' '{"type":"text","sessionID":"s","part":{"text":"hi"}}'`+"\n")
 }
@@ -140,21 +134,18 @@ func checkPrepareEnvelopes(t *testing.T, envs []wire.Envelope, want map[string]s
 	}
 }
 
-func decodePoolEnvelopes(t *testing.T, r io.Reader) []wire.Envelope {
+func decodePoolEnvelopes(t *testing.T, r *bytes.Buffer) []wire.Envelope {
 	t.Helper()
 	var envs []wire.Envelope
 	dec := json.NewDecoder(r)
-	for {
+	for dec.More() {
 		var env wire.Envelope
-		err := dec.Decode(&env)
-		if errors.Is(err, io.EOF) {
-			return envs
-		}
-		if err != nil {
+		if err := dec.Decode(&env); err != nil {
 			t.Fatalf("decode envelope: %v", err)
 		}
 		envs = append(envs, env)
 	}
+	return envs
 }
 
 // A task that reaches run leaves a record carrying its task id, the shared batch id and its plan_task.
@@ -574,9 +565,7 @@ func TestBatchChildDropsOtherProfilesCustomCredentialVar(t *testing.T) {
 
 // A batch whose stdout reader is gone stops spending: it cancels, exits non-zero, and its children die.
 func TestBatchClosedStdoutCancelsAndReapsChildren(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("needs unix signals and pipes")
-	}
+	hosttest.SkipOnWindows(t, "signals and pipes")
 	cliEnv(t)
 	pidfile := filepath.Join(t.TempDir(), "child.pid")
 	pathstest.FakeVendor(t, "claude", `p=$(cat); case "$p" in *SLOW*) echo $$ > `+pidfile+`; sleep 60;; esac`+"\n"+
