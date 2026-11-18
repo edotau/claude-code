@@ -9,7 +9,11 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
 func TestDetectBitbucketContextPath(t *testing.T) {
 	r, err := Detect("https://bb.example.com/bitbucket/scm/proj/repo.git")

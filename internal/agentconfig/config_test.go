@@ -13,10 +13,13 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
 func writeOverlay(t *testing.T, body string) {
 	t.Helper()

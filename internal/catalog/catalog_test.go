@@ -3,13 +3,17 @@ package catalog
 import (
 	"context"
 	"maps"
+	"os"
 	"slices"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
 // fixtureServing is a serving workspace's listing: Claude, a Responses-only GPT, open chat models and non-candidates.
 var fixtureServing = map[string]providers.ModelInfo{

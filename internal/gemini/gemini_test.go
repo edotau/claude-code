@@ -26,6 +26,8 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
+func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
 // A tools run skips agy's permission prompts; agy's account-gated "--mode auto" is never passed.
 func TestAgyArgvToolsPermissions(t *testing.T) {
 	for _, tools := range []bool{false, true} {

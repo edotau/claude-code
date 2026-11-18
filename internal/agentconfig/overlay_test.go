@@ -50,7 +50,8 @@ func TestLoadOverlayRefusesWritableOrTrickedFiles(t *testing.T) {
 	if runtime.GOOS != "windows" {
 		cases[write("loose.json", `{"host":"evil"}`, 0o666)] = "group- or world-writable"
 		fifo := filepath.Join(dir, "fifo")
-		if err := exec.Command("mkfifo", fifo).Run(); err != nil {
+		// hosttest's PATH allowlist leaves mkfifo out; coreutils and macOS both ship it here
+		if err := exec.Command("/usr/bin/mkfifo", fifo).Run(); err != nil {
 			t.Fatal(err)
 		}
 		cases[fifo] = "not a regular file"
