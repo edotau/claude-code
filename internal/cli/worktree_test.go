@@ -698,3 +698,25 @@ func gitRepoCLI(t *testing.T) string {
 	scrubGitEnv(t)
 	return hosttest.Repo(t)
 }
+
+// worktree commit --dry-run lists the set and changes nothing (exit 0); a missing message is a usage error (2).
+func TestCmdWorktreeCommitDryRunAndUsage(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo := gitRepoCLI(t)
+	hosttest.WriteRel(t, repo, "a.txt", "one\ntwo\n")
+	hosttest.In(t, repo, "add", "a.txt")
+	hosttest.In(t, repo, "commit", "-qm", "chore: base")
+	hosttest.WriteRel(t, repo, "a.txt", "one\ntwo\nthree\n")
+	t.Chdir(repo)
+	head := hosttest.In(t, repo, "rev-parse", "HEAD")
+	code, out, errb := hosttest.CaptureOutput(t, func() int {
+		return cmdWorktree([]string{"commit", "-m", "fix: a", "a.txt", "--dry-run"})
+	})
+	if code != 0 || !strings.Contains(out, "a.txt  +1 −0") || hosttest.In(t, repo, "rev-parse", "HEAD") != head {
+		t.Fatalf("dry run: exit %d, out %q, stderr %q", code, out, errb)
+	}
+	code, _, errb = hosttest.CaptureOutput(t, func() int { return cmdWorktree([]string{"commit", "a.txt"}) })
+	if code != 2 || !strings.Contains(errb, "-m") {
+		t.Fatalf("no message: exit %d, stderr %q; want 2 naming -m", code, errb)
+	}
+}

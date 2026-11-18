@@ -2,6 +2,7 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -9,7 +10,11 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/edotau/claude-code/internal/hooks/wthook"
+	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -26,6 +31,7 @@ var worktreePage = helptext.Page{
 		{"clean", "remove one merged worktree (--force, --dry-run)"},
 		{"clean-all", "remove every eligible worktree (--dry-run|--yes)"},
 		{"gate", "print the verify gate for --dir (--scope, --lint-check)"},
+		{"commit", "commit named or claimed files only (-m msg, --dry-run)"},
 	},
 	Hint: worktreeVerifyNote + "\n\nclaude-code worktree <command> -h lists that command's flags.",
 }
@@ -49,6 +55,9 @@ func cmdWorktree(args []string) int {
 	sub, rest := args[0], args[1:]
 	if sub == "gate" { // reads a toolchain file only, so it runs outside a git repo
 		return cmdWorktreeGate(rest)
+	}
+	if sub == "commit" { // acts on the cwd's checkout, main or linked
+		return cmdWorktreeCommit(cwd, rest)
 	}
 	repo, err := worktree.ResolveRepo(cwd)
 	// a leading -h returns from the sub-verb's flag parse before repo is touched, so help works outside a repo
@@ -143,6 +152,33 @@ func cmdWorktreeGate(args []string) int {
 		return helptext.Fail("worktree gate: %v", err)
 	}
 	return 0
+}
+
+// cmdWorktreeCommit commits the named files (else this session's claimed ones); 1 refused, 2 usage.
+func cmdWorktreeCommit(cwd string, args []string) int {
+	fs := helptext.NewFlagSet("worktree commit", helptext.Page{Usage: "claude-code worktree commit -m <message> [flags] [<file>...]",
+		About: "One pathspec commit of the named files, else this session's own claimed dirty ones.\n" +
+			"Refuses another live session's file or a non-Conventional subject; never pushes."})
+	msg := fs.String("m", "", "commit message; the subject must be a Conventional Commit")
+	dryRun := fs.Bool("dry-run", false, "print the files and message notes without committing")
+	files, err := helptext.ParseArgs(fs, args) // files come first in the usual call, so flags may follow them
+	if err != nil {
+		return helptext.ExitCode(err)
+	}
+	session := os.Getenv(memory.SessionIDEnv)
+	err = worktree.Commit(context.Background(), worktree.CommitRequest{
+		Dir: cwd, Message: *msg, Paths: files, DryRun: *dryRun, Out: os.Stdout,
+		Source: worktree.ClaimSource{Alive: proc.Alive, Self: worktree.SessionSlug(session), Owner: inflight.SessionOwner,
+			Label: func(pid int) string { return wthook.SessionLabel(worktree.Proc{PID: pid, Comm: "claude"}) }},
+	})
+	var ce *worktree.CommitError
+	switch {
+	case err == nil:
+		return 0
+	case errors.As(err, &ce) && ce.Code == 2:
+		return helptext.FailUsage("worktree commit: %v", err)
+	}
+	return helptext.Fail("worktree commit: %v", err)
 }
 
 func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
@@ -389,6 +425,7 @@ func worktreeSpec() *helptext.Node {
 	return &helptext.Node{Sub: map[string]*helptext.Node{
 		"list":   {Flags: []helptext.Flag{helptext.CompletionFormatFlag()}},
 		"create": {Flags: []helptext.Flag{helptext.Plain("branch")}},
+		"commit": {Flags: []helptext.Flag{helptext.Plain("m"), helptext.BoolFlag("dry-run")}},
 		"merge": {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.Plain("target"),
 			helptext.BoolFlag("no-clean"), {Name: "resolve-agent", Values: worktree.ResolveAgents}, helptext.BoolFlag("resume"), helptext.Plain("verify"), helptext.BoolFlag("no-verify"), helptext.BoolFlag("full-verify")}},
 		"clean":     {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("force")}},

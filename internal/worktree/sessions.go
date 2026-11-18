@@ -5,6 +5,7 @@ package worktree
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,8 +15,10 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -153,6 +156,108 @@ func scanFile(file string, fn func(Claim)) error {
 		}
 	}
 	return sc.Err()
+}
+
+// ClaimHit is one live claim on a path by someone other than the caller: who, and their newest edit's time.
+type ClaimHit struct {
+	Who string
+	TS  int64
+}
+
+// ClaimSource is LiveClaims's caller-specific inputs: liveness probe, own session slug and pid, leaf and label namers.
+type ClaimSource struct {
+	Alive func(int) bool
+	Self  string
+	Owner func() int
+	Leaf  func(Claim) string
+	Label func(pid int) string
+}
+
+// LiveClaims maps each path other live parties claim to its claimants; a dead owner pid's file is removed.
+func LiveClaims(src ClaimSource) (map[string][]ClaimHit, error) {
+	own := sync.OnceValue(src.Owner) // looked up once, and only when another session's file is seen
+	labels := map[int]string{}
+	byPath := map[string]map[string]int64{}
+	err := ScanClaims(src.Alive, func(pid int, slug string, c Claim) {
+		if c.Path == "" {
+			return
+		}
+		w := src.Leaf(c) // own session: only a sibling leaf's claim counts
+		// our own pid under another slug is /clear or a resume, not a peer
+		if slug != src.Self && pid != own() {
+			if labels[pid] == "" {
+				labels[pid] = src.Label(pid)
+			}
+			w = labels[pid] // another session: every claim counts while its owner lives
+		}
+		if w == "" {
+			return
+		}
+		if byPath[c.Path] == nil {
+			byPath[c.Path] = map[string]int64{}
+		}
+		byPath[c.Path][w] = max(byPath[c.Path][w], c.TS)
+	})
+	return flattenClaims(byPath), err
+}
+
+func flattenClaims(byPath map[string]map[string]int64) map[string][]ClaimHit {
+	out := make(map[string][]ClaimHit, len(byPath))
+	for p, whos := range byPath {
+		for w, ts := range whos {
+			out[p] = append(out[p], ClaimHit{Who: w, TS: ts})
+		}
+		slices.SortFunc(out[p], func(a, b ClaimHit) int { return strings.Compare(a.Who, b.Who) })
+	}
+	return out
+}
+
+// ReadDirty is top's dirty paths (absolute, untracked included; a rename source too), limited to scope when given.
+func ReadDirty(ctx context.Context, top string, scope ...string) (string, map[string]bool, error) {
+	entries, err := gitStatus(ctx, top, scope...)
+	if err != nil {
+		return "", nil, err
+	}
+	return top, DirtyMap(top, entries), nil
+}
+
+// DirtyMap is the entries' absolute paths; a rename or copy source is dirty too.
+func DirtyMap(top string, entries []proc.StatusEntry) map[string]bool {
+	dirty := map[string]bool{}
+	for _, e := range entries {
+		dirty[filepath.Join(top, e.Path)] = true
+		if e.From != "" {
+			dirty[filepath.Join(top, e.From)] = true
+		}
+	}
+	return dirty
+}
+
+// gitStatus is top's `git status` entries, untracked files listed one by one.
+func gitStatus(ctx context.Context, top string, scope ...string) ([]proc.StatusEntry, error) {
+	args := append([]string{"status", "--porcelain", "-z", "--untracked-files=all"}, scope...)
+	raw, err := proc.RunGit(ctx, top, args...)
+	if err != nil {
+		return nil, fmt.Errorf("git status in %s: %w", top, err)
+	}
+	return proc.StatusEntries(raw), nil
+}
+
+// FreshHits keeps p's claims when p is dirty, dropping those older than p's last commit or the clean mark cleanAt.
+func FreshHits(ctx context.Context, top, p string, dirty map[string]bool, claims []ClaimHit, cleanAt int64) ([]ClaimHit, error) {
+	if top == "" || !dirty[p] {
+		return nil, nil
+	}
+	out, _, err := core.Git(ctx, top, "log", "-1", "--format=%ct", "--", p)
+	if err != nil {
+		return nil, err
+	}
+	var landed int64
+	if len(out) > 0 {
+		landed, _ = strconv.ParseInt(out[0], 10, 64)
+	}
+	landed = max(landed, cleanAt)
+	return slices.DeleteFunc(slices.Clone(claims), func(h ClaimHit) bool { return h.TS < landed }), nil
 }
 
 // holders maps each claimed path to its session or leaf label; on a scan error it still returns what it read.

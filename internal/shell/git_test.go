@@ -165,3 +165,23 @@ func TestAttributionFooterMessageFileUsesPayloadCwd(t *testing.T) {
 		t.Error("relative -F must not resolve outside the payload cwd")
 	}
 }
+
+func TestAttributionTrailerAnchoredAtLineStart(t *testing.T) {
+	for line, want := range map[string]bool{
+		"Co-Authored-By: Claude <noreply@anthropic.com>":                  true,
+		"Generated with [Claude Code](https://claude.com/claude-code)":    true,
+		"Explain why Co-authored-by: Claude is forbidden.":                false,
+		"the footer \"Generated with Claude\" is blocked by safety-scan.": false,
+		"Co-Authored-By: Jane <jane@example.com>":                         false,
+	} {
+		if got := AttributionTrailer(line); got != want {
+			t.Errorf("AttributionTrailer(%q) = %v, want %v", line, got, want)
+		}
+	}
+}
+
+func TestSubjectLenCountsCharacters(t *testing.T) {
+	if got := SubjectLen("fix: éé"); got != 7 {
+		t.Fatalf("SubjectLen = %d, want 7 characters (9 bytes)", got)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"unicode/utf8"
 )
 
 // gitValueOpts are git GLOBAL options whose value is the next token when not spelled with `=`.
@@ -152,6 +153,22 @@ var footerPatterns = sync.OnceValue(func() []*regexp.Regexp {
 var footerMention = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?i)co-authored-by|generated (with|by)`)
 })
+
+// AttributionTrailer reports a line opening with an attribution footer, the shape safety-scan blocks.
+func AttributionTrailer(line string) bool { return footerLine(line) }
+
+// SubjectWarnLen is the commit subject length, in characters, above which a message warns (it is never refused).
+const SubjectWarnLen = 150
+
+// SubjectLen is a subject's length in characters, not bytes.
+func SubjectLen(subject string) int { return utf8.RuneCountInString(subject) }
+
+var conventionalSubject = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert)(\(.+\))?!?: \S`)
+})
+
+// ConventionalSubject reports a `<type>[(scope)][!]: <description>` subject.
+func ConventionalSubject(subject string) bool { return conventionalSubject().MatchString(subject) }
 
 func hasFooter(text string) bool {
 	return slices.ContainsFunc(footerPatterns(), func(re *regexp.Regexp) bool { return re.MatchString(text) })

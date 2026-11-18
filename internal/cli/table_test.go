@@ -473,7 +473,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"agents":   {"sync", "tree", "list", "ask", "dispatch", "label", "diff", "find", "send", "status", "result", "cancel", "wait", "brief"},
 		"workflow": {"skeleton", "lint", "sync"},
 		"theme":    {"apply", "statusline", "vscode"},
-		"worktree": {"list", "create", "merge", "clean", "clean-all", "gate"},
+		"worktree": {"list", "create", "merge", "clean", "clean-all", "gate", "commit"},
 		"gemini":   vendorSubwords(),
 		"review":   reviewToolNames(),
 	} {

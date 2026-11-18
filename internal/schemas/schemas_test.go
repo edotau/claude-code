@@ -288,6 +288,7 @@ var writers = map[string]string{
 	"internal/opencode/plugin.go:writePlugin":                   unversioned("foreign: generated opencode JS plugin, opencode-owned shape"),
 	"internal/opencode/auth.go:updateOpencodeDiskCache":         "opencode-auth-cache",
 	"internal/ui/vscode/vscode.go:writeGuarded":                 unversioned("foreign: VS Code settings.json, keybindings.json, chatLanguageModels.json and backup"),
+	"internal/worktree/commit.go:undoAdd":                       unversioned("git index: its saved bytes restored after a failed commit"),
 	"internal/worktree/ledger.go:editLedger":                    unversioned("memory-bank: worktree ledger log line and task fill"),
 	"internal/worktree/ledger.go:CloseLedger":                   unversioned("memory-bank: worktree ledger close"),
 	"internal/worktree/ledger.go:openLedger":                    unversioned("memory-bank: worktree ledger open"),

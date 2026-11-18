@@ -21,7 +21,6 @@ Low: 1
 
 --- COMMIT MESSAGE ISSUES ---
   fecefd6: Does not follow conventional commit format
-  fecefd6: Commit message exceeds 72 characters
   46ce642: Does not follow conventional commit format
 
 --- SUGGESTED REVIEW ORDER ---

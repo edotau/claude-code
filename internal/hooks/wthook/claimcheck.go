@@ -34,40 +34,10 @@ const claimShown = 5
 // gitStageCmd pre-screens a Bash command for a git add/commit before any claims file is read.
 var gitStageCmd = core.Gate(`\bgit\b[^;&|\n]*\b(?:add|commit)\b`, "git")
 
-// claimHit is one live claim on a path by someone other than the caller: who, and their newest edit's time.
-type claimHit struct {
-	Who string
-	TS  int64
-}
-
 // liveClaims maps each path other live parties claim to its claimants; a dead owner pid's file is removed.
-func liveClaims(in *core.Input) (map[string][]claimHit, error) {
-	self := sessionSlug(in.SessionID)
-	leaf := siblingLeaf(in)
-	own := sync.OnceValue(claimOwner) // looked up once, and only when another session's file is seen
-	labels := map[int]string{}
-	byPath := map[string]map[string]int64{}
-	err := worktree.ScanClaims(claimAlive, func(pid int, slug string, c worktree.Claim) {
-		if c.Path == "" {
-			return
-		}
-		w := leaf(c) // own session: only a sibling leaf's claim counts
-		// our own pid under another slug is /clear or a resume, not a peer
-		if slug != self && pid != own() {
-			if labels[pid] == "" {
-				labels[pid] = SessionLabel(worktree.Proc{PID: pid, Comm: "claude"})
-			}
-			w = labels[pid] // another session: every claim counts while its owner lives
-		}
-		if w == "" {
-			return
-		}
-		if byPath[c.Path] == nil {
-			byPath[c.Path] = map[string]int64{}
-		}
-		byPath[c.Path][w] = max(byPath[c.Path][w], c.TS)
-	})
-	return flattenClaims(byPath), err
+func liveClaims(in *core.Input) (map[string][]worktree.ClaimHit, error) {
+	return worktree.LiveClaims(worktree.ClaimSource{Alive: claimAlive, Self: sessionSlug(in.SessionID), Owner: claimOwner,
+		Leaf: siblingLeaf(in), Label: func(pid int) string { return SessionLabel(worktree.Proc{PID: pid, Comm: "claude"}) }})
 }
 
 // siblingLeaf names another leaf's claim in this session's file while its transcript is fresh; own and main's yield "".
@@ -199,22 +169,12 @@ func (c leafContent) interrupted() bool {
 // leafTail bounds how much of a leaf transcript leafEnded reads from its end.
 const leafTail = 256 << 10
 
-func flattenClaims(byPath map[string]map[string]int64) map[string][]claimHit {
-	out := make(map[string][]claimHit, len(byPath))
-	for p, whos := range byPath {
-		for w, ts := range whos {
-			out[p] = append(out[p], claimHit{Who: w, TS: ts})
-		}
-		slices.SortFunc(out[p], func(a, b claimHit) int { return strings.Compare(a.Who, b.Who) })
-	}
-	return out
-}
-
 // claimView is one check's inputs: the hook payload, its deadline, the live claims and this session's clean marks.
 type claimView struct {
 	ctx    context.Context
 	in     *core.Input
-	claims map[string][]claimHit
+	cmd    string // the Bash command, a worktree-commit call written as its git commit
+	claims map[string][]worktree.ClaimHit
 	clean  func() map[string]int64
 	scopes map[string][]string
 	status map[string]dirtyState // dirtySet per toplevel: the tree is unchanged until the checked command runs
@@ -256,7 +216,7 @@ func (v claimView) dirtyPath(p string) (string, map[string]bool, error) {
 		scope = []string{":(literal)" + rel}
 	}
 	var st dirtyState
-	st.top, st.dirty, st.err = readDirty(v.ctx, paths.Real(top), append([]string{"--"}, scope...)...)
+	st.top, st.dirty, st.err = worktree.ReadDirty(v.ctx, paths.Real(top), append([]string{"--"}, scope...)...)
 	v.status[top] = st
 	return st.top, st.dirty, st.err
 }
@@ -273,7 +233,19 @@ func (v *claimView) scopePaths(edits []string) {
 
 // ClaimCheck notes a dirty claimed file before an edit and asks (a leaf blocks) when git stages one.
 func ClaimCheck(in *core.Input) core.Result {
-	cmd := in.ToolCommand()
+	cmd, bare := in.ToolCommand(), false
+	if in.ToolName == "Bash" {
+		cmd, bare = verbCommits(cmd)
+	}
+	res := checkClaims(in, cmd)
+	if bare && in.AgentID != "" && in.SessionID != "" && res.Decision == core.Allow {
+		return bareVerbResult(in, res)
+	}
+	return res
+}
+
+// checkClaims is ClaimCheck over cmd, the command with each worktree-commit call written as the git commit it makes.
+func checkClaims(in *core.Input, cmd string) core.Result {
 	bash := in.ToolName == "Bash"
 	git := gitAnyCmd().MatchString(cmd)
 	if in.SessionID == "" || bash && !git && !core.MayWrite(cmd) {
@@ -283,11 +255,11 @@ func ClaimCheck(in *core.Input) core.Result {
 	ctx, cancel := core.HookContext("worktree-claim-check")
 	defer cancel()
 	if !bash {
-		return claimResult(ctx, in, edits)
+		return claimResult(ctx, in, cmd, edits)
 	}
 	res := core.Result{}
 	if gitStageCmd.MatchString(cmd) || len(edits) > 0 {
-		res = claimResult(ctx, in, edits)
+		res = claimResult(ctx, in, cmd, edits)
 	}
 	if !git {
 		return res
@@ -299,14 +271,14 @@ func ClaimCheck(in *core.Input) core.Result {
 }
 
 // claimResult runs the edit check on each edited path and, for Bash, the stage check, against the live claims.
-func claimResult(ctx context.Context, in *core.Input, edits []string) core.Result {
+func claimResult(ctx context.Context, in *core.Input, cmd string, edits []string) core.Result {
 	claims, err := liveClaims(in) // on error, the claims from the readable files still come back
 	res := core.Result{}
 	if len(claims) > 0 {
-		v := claimView{ctx: ctx, in: in, claims: claims, status: map[string]dirtyState{},
+		v := claimView{ctx: ctx, in: in, cmd: cmd, claims: claims, status: map[string]dirtyState{},
 			clean: sync.OnceValue(func() map[string]int64 { return cleanMarks(in.SessionID) })}
 		v.scopePaths(edits)
-		if in.ToolName == "Bash" && gitStageCmd.MatchString(in.ToolCommand()) {
+		if in.ToolName == "Bash" && gitStageCmd.MatchString(cmd) {
 			res = v.stageCheck()
 		}
 		for _, p := range edits {
@@ -351,7 +323,7 @@ func (v claimView) editCheck(p string) core.Result {
 		return claimWarn(err)
 	}
 	// only a claim the last mark left unretired needs a new one: one line per peer edit, not per own edit
-	if top != "" && !dirty[p] && slices.ContainsFunc(v.claims[p], func(h claimHit) bool { return h.TS >= v.cleanAt(p) }) {
+	if top != "" && !dirty[p] && slices.ContainsFunc(v.claims[p], func(h worktree.ClaimHit) bool { return h.TS >= v.cleanAt(p) }) {
 		markClean(v.in.SessionID, p) // nobody's hunks are left in p: claims made before now are retired
 	}
 	hits, err := v.freshHits(top, p, dirty)
@@ -406,40 +378,12 @@ func dirtySet(ctx context.Context, dir string) (string, map[string]bool, error) 
 		return "", nil, nil
 	}
 	top = paths.Real(top)
-	return readDirty(ctx, top)
-}
-
-func readDirty(ctx context.Context, top string, scope ...string) (string, map[string]bool, error) {
-	args := append([]string{"status", "--porcelain", "-z", "--untracked-files=all"}, scope...)
-	raw, err := proc.RunGit(ctx, top, args...)
-	if err != nil {
-		return "", nil, fmt.Errorf("git status in %s: %w", top, err)
-	}
-	dirty := map[string]bool{}
-	for _, e := range proc.StatusEntries(raw) {
-		dirty[filepath.Join(top, e.Path)] = true
-		if e.From != "" {
-			dirty[filepath.Join(top, e.From)] = true // a rename or copy source is dirty too
-		}
-	}
-	return top, dirty, nil
+	return worktree.ReadDirty(ctx, top)
 }
 
 // freshHits keeps p's claims when p is dirty, dropping those older than p's last commit or this session's clean mark.
-func (v claimView) freshHits(top, p string, dirty map[string]bool) ([]claimHit, error) {
-	if top == "" || !dirty[p] {
-		return nil, nil
-	}
-	out, _, err := core.Git(v.ctx, top, "log", "-1", "--format=%ct", "--", p)
-	if err != nil {
-		return nil, err
-	}
-	var landed int64
-	if len(out) > 0 {
-		landed, _ = strconv.ParseInt(out[0], 10, 64)
-	}
-	landed = max(landed, v.cleanAt(p))
-	return slices.DeleteFunc(slices.Clone(v.claims[p]), func(h claimHit) bool { return h.TS < landed }), nil
+func (v claimView) freshHits(top, p string, dirty map[string]bool) ([]worktree.ClaimHit, error) {
+	return worktree.FreshHits(v.ctx, top, p, dirty, v.claims[p], v.cleanAt(p))
 }
 
 // cleanAt is this session's latest clean mark on p; 0 when none.
@@ -471,7 +415,7 @@ func (v claimView) stageCheck() core.Result {
 	var res core.Result
 	var warns []string // a fail-open warning must not hide a later invocation in the chain
 	// A data heredoc body (file sink, script interpreter) stages nothing.
-	cmd := dropScriptHeredocs(core.DropDataHeredocs(v.in.ToolCommand()))
+	cmd := dropScriptHeredocs(core.DropDataHeredocs(v.cmd))
 	shell.EachGit(cmd, v.in.CWD, func(target, verb string, args []string) bool {
 		res = v.stageVerdict(target, verb, args)
 		if verb == shell.Uninspectable {
@@ -489,6 +433,79 @@ func (v claimView) stageCheck() core.Result {
 	if len(warns) > 0 {
 		res.Stderr = strings.TrimSpace(strings.Join(warns, "\n") + "\n" + res.Stderr)
 	}
+	return res
+}
+
+// verbCommits writes each worktree-commit call as its `git commit -- <files>`; bare: a call naming no file.
+func verbCommits(cmd string) (string, bool) {
+	if !strings.Contains(cmd, "worktree") || !strings.Contains(cmd, "commit") {
+		return cmd, false
+	}
+	segs, seps := shell.SegmentsSep(cmd)
+	var b strings.Builder
+	bare := false
+	for i, seg := range segs {
+		files, dry, ok := verbFiles(seg)
+		switch {
+		case !ok:
+		case len(files) == 0:
+			seg, bare = " true ", true
+		default:
+			seg = " git commit " + dry + "-- " + strings.Join(files, " ") + " "
+		}
+		b.WriteString(seg + seps[i])
+	}
+	return b.String(), bare
+}
+
+// verbFiles reads a segment as a worktree-commit call (behind env, rtk, a path or go run): its quoted files.
+func verbFiles(seg string) (files []string, dry string, ok bool) {
+	rest, _ := shell.Unwrap(shell.Tokens(seg), "")
+	for len(rest) > 0 && filepath.Base(rest[0]) == "rtk" {
+		rest = rest[1:]
+	}
+	if len(rest) > 2 && filepath.Base(rest[0]) == "go" && rest[1] == "run" {
+		rest = rest[2:]
+		for len(rest) > 0 && strings.HasPrefix(rest[0], "-") {
+			rest = rest[1:]
+		}
+		if len(rest) == 0 {
+			return nil, "", false
+		}
+	}
+	if len(rest) < 3 || filepath.Base(rest[0]) != "claude-code" || rest[1] != "worktree" || rest[2] != "commit" {
+		return nil, "", false
+	}
+	args, onlyFiles := rest[3:], false
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		switch {
+		case onlyFiles || !strings.HasPrefix(a, "-") || a == "-":
+			files = append(files, shellQuote(a))
+		case a == "--":
+			onlyFiles = true
+		case strings.TrimLeft(a, "-") == "m":
+			i++ // the message is the next word
+		case strings.TrimLeft(a, "-") == "dry-run":
+			dry = "--dry-run "
+		}
+	}
+	return files, dry, true
+}
+
+// shellQuote is s as one single-quoted shell word.
+func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
+
+// bareVerbResult asks (a leaf under ~/.claude: blocks) a subagent's file-less worktree commit to name its files.
+func bareVerbResult(in *core.Input, res core.Result) core.Result {
+	top, _ := paths.CheckoutOf(in.CWD)
+	d := core.Ask
+	if leafInConfig(in, top) {
+		d = core.Block
+	}
+	what := "worktree commit with no files takes this session's claimed edits, which cannot be told from other agents' here"
+	hint := "commit only your own files: claude-code worktree commit -m <msg> <files> (or git commit -- <your files>)"
+	res.Decision, res.Reason = d, core.SafetyMessage(in, d, what, "", hint)
 	return res
 }
 
@@ -640,7 +657,7 @@ func stageResult(in *core.Input, top, verb string, taken []string, n stageCount)
 		max(n.total, n.claimed), n.claimed, strings.Join(taken, "; "), more)
 	hint := "stage only your hunks: " + ownHunks + "; or leave the file and tell its owner"
 	if verb == "commit" {
-		hint = "commit only your own files: git commit -- <your files> (a bare commit takes everything staged)"
+		hint = "commit only your own files: claude-code worktree commit -m <msg> <files> (or git commit -- <your files>; a bare commit takes everything staged)"
 	}
 	return core.Result{Decision: d, Reason: core.SafetyMessage(in, d, what, "", hint)}
 }

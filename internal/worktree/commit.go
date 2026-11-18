@@ -1,0 +1,425 @@
+// The commit verb: one pathspec commit of named or claimed files, refused when a peer holds one.
+
+package worktree
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
+
+	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/shell"
+)
+
+// CommitRequest is one `worktree commit` call; Source carries the caller's session, liveness probe and peer labels.
+type CommitRequest struct {
+	Dir, Message string
+	Paths        []string
+	DryRun       bool
+	Source       ClaimSource
+	Out          io.Writer
+}
+
+// CommitError is a refusal (Code 1) or a usage error (Code 2); nothing was changed.
+type CommitError struct {
+	Code int
+	Msg  string
+}
+
+func (e *CommitError) Error() string { return e.Msg }
+
+func refuse(format string, a ...any) error { return &CommitError{1, fmt.Sprintf(format, a...)} }
+func usage(format string, a ...any) error  { return &CommitError{2, fmt.Sprintf(format, a...)} }
+
+// commitTree is one read of the checkout: root, status entries and dirty paths (absolute, a rename source included).
+type commitTree struct {
+	top     string
+	entries []proc.StatusEntry
+	dirty   map[string]bool
+}
+
+func (t commitTree) abs(rel string) string { return filepath.Join(t.top, rel) }
+
+// Commit commits the named files (else the caller's claimed dirty ones) in one pathspec commit and reports it.
+func Commit(ctx context.Context, req CommitRequest) error {
+	top, _ := paths.CheckoutOf(req.Dir)
+	if top == "" {
+		return usage("not inside a git work tree: %s", req.Dir)
+	}
+	entries, err := gitStatus(ctx, paths.Real(top))
+	if err != nil {
+		return err
+	}
+	tree := commitTree{top: paths.Real(top), entries: entries, dirty: DirtyMap(paths.Real(top), entries)}
+	if strings.TrimSpace(req.Message) == "" {
+		return usage("give the message with -m")
+	}
+	set, err := commitSet(req, tree)
+	if err != nil {
+		return err
+	}
+	msg, err := cleanMessage(req.Message, req.Out)
+	if err != nil {
+		return err
+	}
+	if err := checkHolders(ctx, req, tree, set); err != nil {
+		return err
+	}
+	untracked := printSet(ctx, req.Out, tree, set)
+	if req.DryRun {
+		return nil
+	}
+	res, err := runCommit(ctx, tree.top, msg, set, untracked)
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(req.Out, res)
+	printAhead(ctx, req.Out, tree.top)
+	return nil
+}
+
+// commitSet is the repo-relative dirty paths to commit: named ones, else the caller's own claimed ones.
+func commitSet(req CommitRequest, t commitTree) ([]string, error) {
+	var want []string
+	var err error
+	if len(req.Paths) > 0 {
+		if want, err = namedPaths(req.Dir, t.top, req.Paths); err != nil {
+			return nil, err
+		}
+	} else if want, err = ownClaimed(req, t); err != nil {
+		return nil, err
+	}
+	set := dirtyAmong(t.entries, want)
+	if len(set) == 0 {
+		return nil, refuse("nothing to commit: none of %s differs from HEAD", strings.Join(want, ", "))
+	}
+	return set, nil
+}
+
+// dirtyAmong is the sorted dirty paths among want, each rename's two paths together (git needs both).
+func dirtyAmong(entries []proc.StatusEntry, want []string) []string {
+	for _, e := range entries {
+		if e.From != "" && (slices.Contains(want, e.Path) || slices.Contains(want, e.From)) {
+			want = append(want, e.Path, e.From)
+		}
+	}
+	var set []string
+	for _, e := range entries {
+		for _, p := range []string{e.Path, e.From} {
+			if p != "" && slices.Contains(want, p) && !slices.Contains(set, p) {
+				set = append(set, p)
+			}
+		}
+	}
+	slices.Sort(set)
+	return set
+}
+
+// namedPaths resolves the arguments to repo-relative files; a directory, `.` or a glob matching one is a usage error.
+func namedPaths(dir, top string, args []string) ([]string, error) {
+	var out []string
+	for _, a := range args {
+		p := core.AnchorPath(a, paths.Real(dir))
+		matches := []string{p}
+		if _, err := os.Lstat(p); err != nil && strings.ContainsAny(a, "*?[") {
+			if g, _ := filepath.Glob(p); len(g) > 0 {
+				matches = g
+			}
+		}
+		for _, m := range matches {
+			if st, err := os.Lstat(m); err == nil && st.IsDir() {
+				return nil, usage("%s is a directory: name files, not directories", a)
+			}
+			rel, ok := inCheckout(top, m)
+			if !ok {
+				return nil, usage("%s is outside the checkout %s", a, top)
+			}
+			out = append(out, rel)
+		}
+	}
+	return out, nil
+}
+
+// inCheckout is p relative to top, resolving a symlinked parent directory.
+func inCheckout(top, p string) (string, bool) {
+	if rel, ok := core.RelWithin(top, p); ok {
+		return filepath.ToSlash(rel), true
+	}
+	rel, ok := core.RelWithin(top, filepath.Join(paths.Real(filepath.Dir(p)), filepath.Base(p)))
+	return filepath.ToSlash(rel), ok
+}
+
+// ownClaimed is the dirty paths this session claimed under top; claims of several agents are ambiguous.
+func ownClaimed(req CommitRequest, t commitTree) ([]string, error) {
+	var out []string
+	agents := map[string]bool{}
+	own := req.Source.Owner
+	_ = ScanClaims(req.Source.Alive, func(pid int, slug string, c Claim) {
+		if slug != req.Source.Self && pid != own() {
+			return
+		}
+		rel, ok := core.RelWithin(t.top, c.Path)
+		if !ok || !t.dirty[c.Path] {
+			return
+		}
+		agents[c.Agent] = true
+		if rel = filepath.ToSlash(rel); !slices.Contains(out, rel) {
+			out = append(out, rel)
+		}
+	})
+	switch {
+	case len(agents) > 1:
+		return nil, usage("this session's claims belong to several agents: name your files " +
+			"(claude-code worktree commit -m <msg> <files>)")
+	case len(out) == 0:
+		return nil, usage("no files to commit: name your files (claude-code worktree commit -m <msg> <files>)")
+	}
+	return out, nil
+}
+
+// checkHolders refuses when another live session claims a dirty path of the set, naming it like the claim check.
+func checkHolders(ctx context.Context, req CommitRequest, t commitTree, set []string) error {
+	src := req.Source
+	src.Leaf = func(Claim) string { return "" } // sibling leaves of this session are not told apart from the caller
+	claims, err := LiveClaims(src)
+	if err != nil && len(claims) == 0 {
+		return fmt.Errorf("could not read file claims: %w", err)
+	}
+	var held []string
+	for _, rel := range set {
+		hits, err := FreshHits(ctx, t.top, t.abs(rel), t.dirty, claims[t.abs(rel)], 0)
+		if err != nil {
+			return err
+		}
+		for _, h := range hits {
+			held = append(held, fmt.Sprintf("%s is claimed by %s (since %s)", rel, h.Who, time.Unix(h.TS, 0).Format("15:04")))
+		}
+	}
+	if len(held) > 0 {
+		return refuse("another live session or leaf has uncommitted edits in the set: %s; leave those files out or "+
+			"hand them to their owner", strings.Join(held, "; "))
+	}
+	return nil
+}
+
+// cleanMessage refuses a non-Conventional subject, drops attribution trailers and trailing blanks, reporting each.
+func cleanMessage(msg string, out io.Writer) (string, error) {
+	lines := strings.Split(strings.ReplaceAll(msg, "\r\n", "\n"), "\n")
+	subject := lines[0]
+	if !shell.ConventionalSubject(subject) {
+		return "", refuse("subject %q is not a Conventional Commit: expected <type>[(scope)][!]: <description> with "+
+			"type feat|fix|docs|style|refactor|perf|test|chore|ci|build|revert", subject)
+	}
+	body, trimmed := trimBody(lines[1:])
+	body, dropped := dropTrailers(body)
+	body, _ = trimBody(body)
+	if dropped > 0 {
+		fmt.Fprintf(out, "message: dropped %d AI-attribution footer line(s)\n", dropped)
+	}
+	if trimmed {
+		fmt.Fprintln(out, "message: trimmed trailing whitespace")
+	}
+	if n := shell.SubjectLen(subject); n > shell.SubjectWarnLen {
+		fmt.Fprintf(out, "warning: subject is %d characters (over %d)\n", n, shell.SubjectWarnLen)
+	}
+	if n := proseLines(body); n > 2 {
+		fmt.Fprintf(out, "warning: message has %d lines besides BREAKING CHANGE:/Fixes # lines (the rule is 2)\n", n)
+	}
+	return strings.Join(append([]string{subject}, body...), "\n"), nil
+}
+
+// trimBody strips trailing blanks from each line and from the end; it reports whether anything changed.
+func trimBody(body []string) ([]string, bool) {
+	body, changed := slices.Clone(body), false
+	for i, l := range body {
+		if t := strings.TrimRight(l, " \t"); t != l {
+			body[i], changed = t, true
+		}
+	}
+	for len(body) > 0 && body[len(body)-1] == "" {
+		body, changed = body[:len(body)-1], true
+	}
+	return body, changed
+}
+
+// dropTrailers removes attribution lines from the message's last paragraph only; body text elsewhere stays.
+func dropTrailers(body []string) ([]string, int) {
+	start := 0
+	for i := len(body) - 1; i >= 0; i-- {
+		if body[i] == "" {
+			start = i + 1
+			break
+		}
+	}
+	kept := slices.DeleteFunc(slices.Clone(body[start:]), shell.AttributionTrailer)
+	return append(slices.Clone(body[:start]), kept...), len(body) - start - len(kept)
+}
+
+// proseLines counts the non-blank message lines that are not BREAKING CHANGE: or Fixes # lines.
+func proseLines(body []string) int {
+	n := 1
+	for _, l := range body {
+		if l != "" && !strings.HasPrefix(l, "BREAKING CHANGE:") && !strings.HasPrefix(l, "Fixes #") {
+			n++
+		}
+	}
+	return n
+}
+
+// printSet lists the set with +/- counts and what stays out or staged; it returns the set's untracked paths.
+func printSet(ctx context.Context, out io.Writer, t commitTree, set []string) []string {
+	counts := numstat(ctx, t.top, set)
+	var untracked []string
+	staged, left := 0, 0
+	var partial []string
+	for _, e := range t.entries {
+		switch {
+		case slices.Contains(set, e.Path):
+			if e.Code != "??" && e.Code[0] != ' ' && e.Code[1] != ' ' {
+				partial = append(partial, e.Path)
+			}
+			if e.Code == "??" {
+				untracked = append(untracked, e.Path)
+				counts[e.Path] = fileLines(t.abs(e.Path))
+			}
+		case e.Code != "??" && e.Code[0] != ' ':
+			staged++
+		default:
+			left++
+		}
+	}
+	for _, p := range set {
+		fmt.Fprintf(out, "  %s  %s\n", p, countText(counts[p]))
+	}
+	if len(partial) > 0 {
+		fmt.Fprintf(out, "note: %s is partly staged; the commit takes its whole working-tree content\n", strings.Join(partial, ", "))
+	}
+	if left > 0 {
+		fmt.Fprintf(out, "left out: %d dirty files not in this commit\n", left)
+	}
+	if staged > 0 {
+		fmt.Fprintf(out, "left staged: %d\n", staged)
+	}
+	return untracked
+}
+
+// countText renders "+a −d", "binary" for a numstat dash, "+? −?" when git gave no count.
+func countText(c [2]string) string {
+	switch {
+	case c[0] == "-":
+		return "binary"
+	case c[0] == "":
+		return "+? −?"
+	}
+	return "+" + c[0] + " −" + c[1]
+}
+
+// numstat is each set path's added and deleted line counts against HEAD; an unreadable diff leaves them empty.
+func numstat(ctx context.Context, top string, set []string) map[string][2]string {
+	out := map[string][2]string{}
+	args := append([]string{"diff", "HEAD", "--numstat", "-z", "--no-renames", "--"}, literal(set)...)
+	raw, err := proc.RunGit(ctx, top, args...)
+	if err != nil {
+		return out
+	}
+	for rec := range strings.SplitSeq(raw, "\x00") {
+		f := strings.SplitN(rec, "\t", 3)
+		if len(f) == 3 {
+			out[strings.TrimLeft(f[2], "\n")] = [2]string{f[0], f[1]}
+		}
+	}
+	return out
+}
+
+// fileLines is an untracked file's added-line count; unreadable or binary content counts as binary.
+func fileLines(path string) [2]string {
+	b, err := os.ReadFile(path)
+	if err != nil || bytes.IndexByte(b, 0) >= 0 {
+		return [2]string{"-", "-"}
+	}
+	n := bytes.Count(b, []byte("\n"))
+	if len(b) > 0 && b[len(b)-1] != '\n' {
+		n++
+	}
+	return [2]string{strconv.Itoa(n), "0"}
+}
+
+func literal(set []string) []string {
+	out := make([]string, len(set))
+	for i, p := range set {
+		out[i] = ":(literal)" + p
+	}
+	return out
+}
+
+// runCommit adds only the set's untracked files and makes one pathspec commit; a failed commit restores the index.
+func runCommit(ctx context.Context, top, msg string, set, untracked []string) (string, error) {
+	var idx string
+	var before, after []byte
+	if len(untracked) > 0 {
+		var err error
+		if idx, before, err = indexSnapshot(ctx, top); err != nil {
+			return "", err
+		}
+		if _, err = proc.RunGit(ctx, top, append([]string{"add", "--"}, literal(untracked)...)...); err != nil {
+			return "", err
+		}
+		after, _ = os.ReadFile(idx)
+	}
+	res, err := proc.RunGit(ctx, top, append([]string{"commit", "-m", msg, "--"}, literal(set)...)...)
+	if err != nil && len(untracked) > 0 {
+		err = errors.Join(err, undoAdd(ctx, top, idx, before, after, untracked))
+	}
+	return res, err
+}
+
+// indexSnapshot is the index file's path and bytes (nil when absent); a held index.lock refuses before any change.
+func indexSnapshot(ctx context.Context, top string) (string, []byte, error) {
+	idx, err := proc.RunGit(ctx, top, "rev-parse", "--git-path", "index")
+	if err != nil {
+		return "", nil, err
+	}
+	if idx = strings.TrimSpace(idx); !filepath.IsAbs(idx) {
+		idx = filepath.Join(top, idx)
+	}
+	if _, err := os.Lstat(idx + ".lock"); err == nil {
+		return "", nil, refuse("%s.lock exists: another git process is writing the index", idx)
+	}
+	before, err := os.ReadFile(idx)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return "", nil, err
+	}
+	return idx, before, nil
+}
+
+// undoAdd puts the index back byte for byte; when something else changed it since our add, it unstages only our files.
+func undoAdd(ctx context.Context, top, idx string, before, after []byte, untracked []string) error {
+	if cur, _ := os.ReadFile(idx); bytes.Equal(cur, after) {
+		if len(before) == 0 {
+			return os.Remove(idx)
+		}
+		if paths.AtomicWrite(idx, before, 0o644) == nil {
+			return nil
+		}
+	}
+	_, err := proc.RunGit(ctx, top, append([]string{"rm", "--cached", "-q", "--"}, literal(untracked)...)...)
+	return err
+}
+
+// printAhead prints how far HEAD is ahead of its upstream; nothing when there is none.
+func printAhead(ctx context.Context, out io.Writer, top string) {
+	if up, err := proc.RunGit(ctx, top, "rev-parse", "--abbrev-ref", "@{upstream}"); err == nil {
+		n, _ := proc.RunGit(ctx, top, "rev-list", "--count", "@{upstream}..HEAD")
+		fmt.Fprintf(out, "%s ahead of %s\n", n, up)
+	}
+}

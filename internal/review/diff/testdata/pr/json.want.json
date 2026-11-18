@@ -102,10 +102,6 @@
       "issue": "Does not follow conventional commit format"
     },
     {
-      "commit": "fecefd6",
-      "issue": "Commit message exceeds 72 characters"
-    },
-    {
       "commit": "46ce642",
       "issue": "Does not follow conventional commit format"
     }

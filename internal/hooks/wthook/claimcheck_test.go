@@ -266,14 +266,14 @@ func TestClaimCheckCommitAskCountsWholeStage(t *testing.T) {
 	}
 }
 
-// TestClaimCheckCommitAskNamesSafeForm: add-then-bare-commit over a peer's staged file asks, naming `git commit --`.
+// TestClaimCheckCommitAskNamesSafeForm: add-then-bare-commit over a peer's staged file asks, naming the safe forms.
 func TestClaimCheckCommitAskNamesSafeForm(t *testing.T) {
 	repo := claimFixture(t)
 	claimEdit(t, repo, liveOwner, "A", "a.txt")
 	hosttest.In(t, repo, "add", "a.txt")
 	hosttest.WriteRel(t, repo, "b.txt", "B's own\n")
 	r := claimCheckOn(t, repo, "B", "Bash", map[string]any{"command": "git add b.txt && git commit -q -m x"})
-	safe := strings.Contains(r.Reason, "git commit -- <your files>")
+	safe := strings.Contains(r.Reason, "git commit -- <your files>") && strings.Contains(r.Reason, "claude-code worktree commit")
 	if r.Decision != core.Ask || !strings.Contains(r.Reason, "a.txt takes") || !safe {
 		t.Fatalf("add && bare commit: %v %q; want an ask naming a.txt and git commit --", r.Decision, r.Reason)
 	}
@@ -528,6 +528,8 @@ func TestFirstSightingFailsOpenOnHeldLock(t *testing.T) {
 	if !paths.TryLock(held) {
 		t.Skip("file locking unsupported")
 	}
+	const wait = 50 * time.Millisecond
+	t.Cleanup(core.SwapSeenWait(wait))
 	start := time.Now()
 	if !firstSighting("sess", "k1") || time.Since(start) > 5*time.Second {
 		t.Fatalf("held lock: want fail-open true within the bounded wait, took %v", time.Since(start))
@@ -765,5 +767,89 @@ func TestGitGatesMatchUngated(t *testing.T) {
 	}
 	if n < 100 {
 		t.Fatalf("only %d test strings read, want the packages' corpus", n)
+	}
+}
+
+// verbForms are one commit of a.txt written as the verb: plain, behind rtk, by absolute path, go run, in a chain.
+var verbForms = []string{
+	"claude-code worktree commit -m x a.txt",
+	"rtk claude-code worktree commit -m x a.txt",
+	"/usr/local/bin/claude-code worktree commit a.txt -m 'x y'",
+	"cd . && go run ./cmd/claude-code worktree commit -m x a.txt && echo done",
+}
+
+// withoutCommandLine drops the verdict's echo of the checked command, the one line that differs by spelling.
+func withoutCommandLine(reason string) string {
+	var keep []string
+	for l := range strings.Lines(reason) {
+		if !strings.HasPrefix(l, "  command:") {
+			keep = append(keep, l)
+		}
+	}
+	return strings.Join(keep, "")
+}
+
+// TestClaimCheckVerbCommitJudgedLikeGitCommit: the verb text gets the verdict of `git commit -- file`.
+func TestClaimCheckVerbCommitJudgedLikeGitCommit(t *testing.T) {
+	for _, tc := range []struct {
+		name, claimSession, claimAgent, caller, agent string
+		want                                          core.Decision
+	}{
+		{"peer session's file", "A", "", "B", "", core.Ask},
+		{"sibling leaf's file, caller main", "S", "leafone1", "S", "", core.Ask},
+		{"sibling leaf's file, caller leaf", "S", "leafone1", "S", "leaftwo2", core.Ask},
+		{"main's file, caller leaf", "S", "", "S", "leaftwo2", core.Allow},
+		{"own file, caller main", "S", "", "S", "", core.Allow},
+		{"own file, caller leaf", "S", "leaftwo2", "S", "leaftwo2", core.Allow},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			repo := claimFixture(t)
+			tr := filepath.Join(t.TempDir(), "S.jsonl")
+			for _, id := range []string{"leafone1", "leaftwo2"} {
+				hosttest.WriteRel(t, filepath.Dir(tr), "S/subagents/agent-"+id+".jsonl", "{}\n")
+			}
+			useClaimOwner(t, liveOwner)
+			hosttest.WriteRel(t, repo, "a.txt", "edited\n")
+			claimIn := map[string]any{"session_id": tc.claimSession, "cwd": repo, "transcript_path": tr, "tool_name": "Edit",
+				"tool_input": map[string]any{"file_path": "a.txt"}}
+			if tc.claimAgent != "" {
+				claimIn["agent_id"] = tc.claimAgent
+			}
+			Claim(claimInput(t, claimIn))
+			useClaimOwner(t, checkerOwner)
+			check := func(cmd string) core.Result {
+				in := map[string]any{"session_id": tc.caller, "cwd": repo, "transcript_path": tr, "tool_name": "Bash",
+					"tool_input": map[string]any{"command": cmd}}
+				if tc.agent != "" {
+					in["agent_id"] = tc.agent
+				}
+				return ClaimCheck(claimInput(t, in))
+			}
+			git := check("git commit -m x -- a.txt")
+			if git.Decision != tc.want {
+				t.Fatalf("git commit -- a.txt: %v %q; want %v", git.Decision, git.Reason, tc.want)
+			}
+			for _, form := range verbForms {
+				if r := check(form); r.Decision != git.Decision || withoutCommandLine(r.Reason) != withoutCommandLine(git.Reason) {
+					t.Errorf("%q: %v %q; want the git verdict %v %q", form, r.Decision, r.Reason, git.Decision, git.Reason)
+				}
+			}
+		})
+	}
+}
+
+// TestClaimCheckVerbCommitWithoutFiles: the main session passes; a subagent is told to name its files.
+func TestClaimCheckVerbCommitWithoutFiles(t *testing.T) {
+	repo := claimFixture(t)
+	for _, form := range []string{"claude-code worktree commit -m x", "rtk claude-code worktree commit --dry-run -m 'x y'"} {
+		main := claimCheckOn(t, repo, "S", "Bash", map[string]any{"command": form})
+		if main.Decision != core.Allow {
+			t.Fatalf("main %q: %v %q; want allow", form, main.Decision, main.Reason)
+		}
+		r := ClaimCheck(claimInput(t, map[string]any{"session_id": "S", "agent_id": "leaftwo2", "cwd": repo,
+			"tool_name": "Bash", "tool_input": map[string]any{"command": form}}))
+		if r.Decision != core.Ask || !strings.Contains(r.Reason, "claude-code worktree commit -m <msg> <files>") {
+			t.Fatalf("subagent %q: %v %q; want an ask to name its files", form, r.Decision, r.Reason)
+		}
 	}
 }

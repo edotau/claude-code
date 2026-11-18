@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
+	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -65,10 +66,6 @@ var riskPatterns = sync.OnceValue(func() []riskPattern {
 		{"any_type", regexp.MustCompile(`(?i):\s*any\b`), "medium", "TypeScript 'any' type used"},
 		{"sql_concatenation", regexp.MustCompile(`(?i)['"\x60]\s*(SELECT\s.*\sFROM\s|INSERT\s+INTO\s|UPDATE\s.*\sSET\s|DELETE\s+FROM\s).*\+.*['"]`), "critical", "Potential SQL injection (string concatenation in query)"},
 	}
-})
-
-var commitPrefixRe = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?:`)
 })
 
 // PRRisk is a single risky-pattern hit found in the diff for a file.
@@ -338,11 +335,11 @@ func analyzeCommitMessages(repo, base, head string) (int, []CommitIssue, error) 
 		if !found || message == "" {
 			continue
 		}
-		if !commitPrefixRe().MatchString(message) {
+		if !shell.ConventionalSubject(message) {
 			issues = append(issues, CommitIssue{Commit: sha, Issue: "Does not follow conventional commit format"})
 		}
-		if len(message) > 72 {
-			issues = append(issues, CommitIssue{Commit: sha, Issue: "Commit message exceeds 72 characters"})
+		if shell.SubjectLen(message) > shell.SubjectWarnLen {
+			issues = append(issues, CommitIssue{Commit: sha, Issue: fmt.Sprintf("Commit message exceeds %d characters", shell.SubjectWarnLen)})
 		}
 	}
 	return len(commits), issues, nil
