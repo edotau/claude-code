@@ -51,6 +51,7 @@ dispatch of any agent, `agents send <id> "<task>"` resumes its session and recor
   ranked on the row; `gateway resolve <a> --model auto --task F [--tools]` prints the pick
   and why; `--profile` is one dispatch that pins with `--fallback none` and leads (still falling back) with any
   other explicit `--fallback`.
+  `--profile` takes a registry row or `session`, never `auto`, which is valid only as overlay `profile`.
   Without a fresh listing an untyped Databricks run takes the row's tier model and says so; with one it takes
   the ranked pick, so the model can change after a listing refresh.
 - A `<agent>: session profile … cannot serve …; using <x>` line is the credential route, not a fallback: report

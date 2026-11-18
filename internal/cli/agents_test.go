@@ -588,6 +588,20 @@ func TestAgentsLabelRefusedType(t *testing.T) {
 	}
 }
 
+// The label refuses the --profile values ask refuses, with ask's message.
+func TestAgentsLabelRefusesProfileAskRefuses(t *testing.T) {
+	labelConfig(t)
+	for profile, want := range map[string]string{"auto": "profile auto is not in the registry; auto is an overlay value",
+		"nosuch": "profile nosuch is not in the registry"} {
+		code, out, stderr := hosttest.CaptureOutput(t, func() int {
+			return cmdAgentsLabel([]string{"Plan", "--profile", profile, "--session-model", "s"})
+		})
+		if code != 1 || out != "" || !strings.Contains(stderr, want) {
+			t.Errorf("--profile %s: exit = %d, stdout = %q, stderr = %q, want exit 1 and %q", profile, code, out, stderr, want)
+		}
+	}
+}
+
 func TestAgentsLabelStdoutFailure(t *testing.T) {
 	labelConfig(t)
 	hosttest.ClosedStdout(t)

@@ -6,9 +6,11 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strings"
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -35,6 +37,26 @@ var ErrUnknownProfile = errors.New("not in the registry")
 func checkProfile(reg *providers.Registry, agent, p string) error {
 	if p != "" && !ownsProfile(agent, p) && reg.Providers[p] == nil {
 		return fmt.Errorf("agent %s: profile %s is %w", agent, p, ErrUnknownProfile)
+	}
+	return nil
+}
+
+// unknownProfile is the refusal for a typed profile no row has; auto names the overlay form.
+func unknownProfile(profile string) error {
+	if profile == router.AutoArm {
+		return fmt.Errorf(`profile auto is %w; auto is an overlay value: --overlay '{"provider":"databricks","profile":"auto"}'`,
+			ErrUnknownProfile)
+	}
+	return fmt.Errorf("profile %s is %w", profile, ErrUnknownProfile)
+}
+
+// CheckTypedProfile refuses a typed --profile that is no row; auto is valid only in an overlay.
+func CheckTypedProfile(reg *providers.Registry, agent, profile string) error {
+	if profile == "" || profile == vaultSession || strings.HasPrefix(profile, router.RouteDatabricks+":") || ownsProfile(agent, profile) {
+		return nil
+	}
+	if _, err := reg.Get(profile); err != nil {
+		return unknownProfile(profile)
 	}
 	return nil
 }
@@ -129,7 +151,7 @@ func resolveLead(ctx context.Context, reg *providers.Registry, agent string, l L
 		}
 	}
 	if profile != "" && reg.Providers[profile] == nil && l.Routed {
-		return "", fmt.Errorf("profile %s is not in the registry", profile)
+		return "", unknownProfile(profile)
 	}
 	if l.Provider == "" {
 		return profile, nil

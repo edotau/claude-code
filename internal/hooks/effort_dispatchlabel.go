@@ -10,6 +10,8 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/models"
@@ -74,6 +76,14 @@ func dispatchLabelNote(ctx context.Context, in LabelInput) (label, model, blocke
 	}
 	if in.Brief != "" { // the hook classifies the brief; the stand-in description is not one
 		pinModel(run, ci, updated, task)
+	}
+	if line := run.labelLine(ctx, in.Type, task); cmp.Or(line.profile, in.Profile) != "" {
+		if reg, err := run.registry(); err == nil {
+			agent := cmp.Or(line.workAgent(in.Type, task), agentid.Claude)
+			if err := agentconfig.CheckTypedProfile(reg, agent, cmp.Or(line.profile, in.Profile)); err != nil {
+				return "", "", err.Error(), ""
+			}
+		}
 	}
 	label, note = labelModel(ctx, run, updated, in.Type, task) // applyLabel's prefix, whatever the description
 	model, _ = updated["model"].(string)

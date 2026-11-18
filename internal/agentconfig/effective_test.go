@@ -127,6 +127,35 @@ func TestForUnknownProfileWithProviderWrapsSentinel(t *testing.T) {
 	}
 }
 
+// An overlay profile (auto included) never reaches CheckTypedProfile; only the typed flag does.
+func TestCheckTypedProfileMatchesLaunch(t *testing.T) {
+	setup(t)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cases := []struct{ name, flag, provider, hint string }{
+		{"flag auto", "auto", "", `"profile":"auto"`},
+		{"overlay auto with --profile auto", "auto", "databricks", `"profile":"auto"`},
+		{"overlay auto alone", "", "databricks", ""},
+		{"overlay auto with a real --profile", "dev", "databricks", ""},
+		{"unknown flag", "nosuch", "", "profile nosuch is not in the registry"},
+	}
+	for _, c := range cases {
+		got := CheckTypedProfile(reg, "codex", c.flag)
+		_, launch := ForContext(t.Context(), "codex", Launch{Profile: c.flag, Provider: c.provider, Routed: true, CanServe: databricksOnly})
+		if c.hint == "" {
+			if got != nil || launch != nil {
+				t.Errorf("%s: CheckTypedProfile = %v, launch = %v, want nil", c.name, got, launch)
+			}
+			continue
+		}
+		if got == nil || !strings.Contains(got.Error(), c.hint) || !errors.Is(got, ErrUnknownProfile) || launch == nil {
+			t.Errorf("%s: CheckTypedProfile = %v, launch = %v, want a refusal with %q", c.name, got, launch, c.hint)
+		}
+	}
+}
+
 func TestForRouted(t *testing.T) {
 	setup(t)
 	pin(t, "codex", "dev2", "")

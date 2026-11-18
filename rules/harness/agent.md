@@ -44,6 +44,8 @@ paths:
   non-empty env layer; endpoint, proxy, TLS, agent-config and credential env names are refused (use `--profile`).
   Compatibility, relaunch and `--env` rules: `dispatch-policy-details.md` → Overlay.
 
+  `--profile` names a registry row (or `session`); `auto` is only an overlay `profile`, and `ask` and `label` refuse it.
+
   | Key | Values | Overrides |
   | --- | --- | --- |
   | `provider` / `profile` | provider key / profile name (`profile` needs `provider`) | `--profile`, provider prefix |
