@@ -6,12 +6,14 @@ Verbatim cells moved from `rules/harness/hooks.md` → Event → hook matrix (th
 
 **Block** destructive shapes (`rm -rf /`, a system dir or `$HOME` as the shell reads it: quoted, escaped, `//`, `..`;
 fork bomb; `curl \| sh` also by absolute shell path; `eval "$(curl …)"`; `base64 -d \| sh`) a Bash write (`sed -i`,
-redirect, `tee`, `cp`/`mv`) to, or `rm`/`mv`-away/`truncate` of, a file the template's `Edit(...)` deny rules protect
+redirect, `tee`, `cp`/`mv`) to, or `rm`/`mv`-away/`truncate` of, a file the live `settings.json`'s `Edit(...)` deny
+rules protect (the template's when it is unreadable)
 (an `rm`/`unlink`/`mv`-away of a literal path under a temp folder passes, never one inside the config dir or home,
 through a symlink, `..` or glob, beside `ln`/`truncate`; an interpreter script — `python`, `node`, `perl`, `ruby`,
 `deno`, `bun` — naming one beside a write call **asks**; reads pass), and a `commit --amend`/`rebase`/`reset <commit>`
 in a shared checkout (`~/.claude`, a tree a peer session works in, a main tree where this session has live leaves or the
-caller is a leaf; own linked worktree exempt; an infra error allows with a warning); **block** on every agent, naming
+caller is a leaf under `~/.claude`; own linked worktree exempt; an infra error allows with a warning); **block** on
+every agent, naming
 the allowed route and that the owner can run it with `!`: `sudo`/`doas` in command position (also inside `bash -c`,
 `eval`, `ssh`, `xargs`, `find -exec`, a wrapper, a substitution, a printf fed to a shell or a script an interpreter
 runs), `git stash/checkout/switch/reset/restore/clean` under `~/.claude` (nested repos too; linked worktrees exempt;
@@ -133,10 +135,10 @@ fail open. A stop it isn't blocking kills the leaf's leftover background shells 
 
 Once per file, notes before an edit (Bash: its write targets) that a dirty file is claimed by another live session
 (owner pid alive) or sibling leaf (transcript fresh) and not committed or seen clean since; asks on a `git add`/`commit`
-that stages one (`-p`, `-n`/`--dry-run`, `-N` pass), blocks in a leaf; a sibling leaf counts until it ends, is
-interrupted or stops on max_tokens; an infra error allows with a warning. Dead owners' files are removed; a file
-under this process's own pid (a new session slug after `/clear` or a resume) is ours, not a peer's. Any `git` command
-also gets the drained notices and divergence line
+that stages one (`-p`, `-n`/`--dry-run`, `-N` pass), blocks in a leaf under `~/.claude`; a sibling leaf counts until it
+ends, is interrupted or stops on max_tokens; an infra error allows with a warning. Dead owners' files are removed; a
+file under this process's own pid (a new session slug after `/clear` or a resume) is ours, not a peer's. Any `git`
+command also gets the drained notices and divergence line
 
 ## docs-plan-tick / docs-plan-reminder
 

@@ -30,7 +30,7 @@ paths:
   instructed not to use them, codex keeps a read-only sandbox shell. `--no-tools` is claude only (others exit 2).
   `--read-only` (implies `--tools`) runs reads, URL fetches and a vetted read-only shell list; other Bash and all
   Write/Edit stay denied, and `--allow` never reopens a deny. codex and gemini refuse `--tools` with `--mode plan`;
-  claude `--tools` off Anthropic is a gated allow list. Grants and gates:
+  claude `--tools` off Anthropic gates only explicit rules. Grants and gates:
   `skills/subagent-workflows/references/dispatch-policy-details.md` → Read-only and tools.
 - `agents ask --agents <json|file>` defines agents inline (`name`, `description`, `prompt`, `tools`, `model`,
   `max_turns`, `agent`, `profile`, `effort`); `--agent` also takes an `--agents` key. With `--batch`, a line's `agent`
@@ -52,7 +52,7 @@ paths:
   | `host` / `remote` | ssh host (not both, unless `host` names this machine) | `--host`, remote run |
   | `account` | copilot GitHub account (its login) | the credit gate's account pick |
   | `identity` | `auto\|user\|sp` (Databricks) | `--as`, the profile's identity |
-  | `codexNetwork` | `true`: codex `--tools` workspace-write sandbox gets network (top-level ask only) | sealed network |
+  | `codexNetwork` | `true`: codex `--tools` `workspace-write` sandbox gets network (inert under `danger-full-access`; top-level ask only) | sealed network |
   | `cloud` | `true`: diff or repo goes to the vendor's cloud (`claude review`, `codex cloud exec`); own login | local |
   | `maxChildren` | Concurrent children per parent; env > overlay > default; 0 = no cap, invalid = default | 8 |
   | `maxTreeTokens` | Known subtree tokens; env > overlay > default; 0 = no cap, invalid = default | 0 |
@@ -123,9 +123,8 @@ vendor CLI untouched.
 - **Deny and Ask.** Deny is the hard boundary; Ask goes to the agent's own judge where it has one (opencode `--auto`,
   claude on Anthropic). Elsewhere gemini renders Ask as Allow, copilot's SDK approves it, claude off Anthropic denies
   it. A Deny an agent cannot enforce refuses the dispatch (`retry.KindFatal`) naming the rule. `--tools` approves and
-  `--workdir` is no write boundary: only claude `--tools` off Anthropic denies an Edit outside it (`--allow
-  'Edit(<path>)'` reopens one); scope the others with `--deny`. opencode `--read-only` runs without `--auto`;
-  opencode `--safe-mode` refuses any bound tool gate.
+  `--workdir` is no write boundary for any agent; scope writes with `--deny`. opencode `--read-only` runs without
+  `--auto`; opencode `--safe-mode` refuses any bound tool gate.
 - **Bash deny via `permission-gate`.** opencode's native matcher is bypassed by `bash -c "..."`, so the dispatch's
   rules ride `HARNESS_DISPATCH_PERMISSIONS` to the `permission-gate` PreToolUse module (`Decide` per segment): opencode
   runs it from the plugin's `tool.execute.before` (refused under `--safe-mode`, which loads no plugin), codex and agy
