@@ -125,6 +125,17 @@ func screenCheckouts(ctx context.Context, repo *Repo, plan *MergePlan, target st
 	if stop, err := screenTargetBranch(ctx, repo, plan, target); err != nil || stop {
 		return stop, err
 	}
+	// the caller's own process tree may sit in the lane; any other live process there refuses the rebase
+	if in := liveLister(); in != nil {
+		busy, err := foreignProc(in, plan.WorktreePath, ancestry(os.Getpid()))
+		if err != nil {
+			return false, err
+		}
+		if busy != nil {
+			plan.Issues = append(plan.Issues, Issue{Code: issueInProgress, Detail: fmt.Sprintf("lane in use by pid %d (%s)", busy.PID, busy.Comm)})
+			return true, nil
+		}
+	}
 	if plan.TargetOID, err = headOfContext(ctx, repo.Main); err != nil {
 		return false, err
 	}

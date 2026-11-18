@@ -497,22 +497,18 @@ func mergeFixtureFakeExitState(code int) *os.ProcessState {
 	return cmd.ProcessState
 }
 
-// TestPlanOrResolveConflictNotifiesLedgerOwner: a blocked merge queues one conflict notice for the owning session.
-func TestPlanOrResolveConflictNotifiesLedgerOwner(t *testing.T) {
+func TestPlanOrResolveConflictProceedsToRebase(t *testing.T) {
 	repo := conflictedOwnedWorktree(t, "owner-S")
-	req := MergeRequest{Name: "feat", Err: io.Discard, ShowPlan: func(*MergePlan) {}}
-	if plan, err := PlanOrResolve(context.Background(), repo, req, true); plan != nil || err != nil {
-		t.Fatalf("dry run = %v, %v; want blocked", plan, err)
-	}
-	if got, err := DrainErr("owner-S"); err != nil || len(got) != 0 {
-		t.Fatalf("dry run queued %+v, want nothing", got)
-	}
-	if plan, err := PlanOrResolve(context.Background(), repo, req, false); plan != nil || err != nil {
-		t.Fatalf("merge = %v, %v; want blocked", plan, err)
+	req := laneRequest("feat", io.Discard)
+	for _, dry := range []bool{true, false} {
+		plan, err := PlanOrResolve(t.Context(), repo, req, dry)
+		if err != nil || plan == nil || !onlyConflictIssue(plan.Issues) {
+			t.Fatalf("plan = %+v, %v; want predicted conflict for rebase", plan, err)
+		}
 	}
 	got, err := DrainErr("owner-S")
-	if err != nil || len(got) != 1 || got[0].Kind != "conflict" || !strings.Contains(got[0].Text, "conflict in f.txt") {
-		t.Fatalf("owner notices = %+v, want one conflict notice naming f.txt", got)
+	if err != nil || len(got) != 0 {
+		t.Fatalf("planning wrote notices: %+v %v", got, err)
 	}
 }
 
@@ -564,5 +560,24 @@ func TestPreflightDirtyTargetNamesClaimHolder(t *testing.T) {
 	want := fmt.Sprintf("f.txt (held by session peer-ses (pid %d))", os.Getpid())
 	if !strings.Contains(plan.Issues[0].Detail, want) {
 		t.Fatalf("detail = %q, want %q", plan.Issues[0].Detail, want)
+	}
+}
+
+// A live process other than the caller inside the lane refuses the merge; the caller's own process does not.
+func TestPreflightRefusesLaneInUseByAnotherProcess(t *testing.T) {
+	repo := conflictedOwnedWorktree(t, "owner-S")
+	for _, tc := range []struct {
+		pid  int
+		busy bool
+	}{{os.Getpid(), false}, {os.Getpid() + 100000, true}} {
+		stubProcesses(t, func(string) ([]Proc, error) { return []Proc{{PID: tc.pid, Comm: "vim"}}, nil })
+		plan, err := Preflight(t.Context(), repo, "feat", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		inUse := slices.ContainsFunc(plan.Issues, func(iss Issue) bool { return strings.Contains(iss.Detail, "lane in use by pid") })
+		if inUse != tc.busy {
+			t.Fatalf("pid %d: issues %+v, want lane-in-use %v", tc.pid, plan.Issues, tc.busy)
+		}
 	}
 }

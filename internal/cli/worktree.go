@@ -26,7 +26,7 @@ import (
 var worktreePage = helptext.Page{
 	Usage: "claude-code worktree <command> [flags] [<name>]",
 	About: "Linked worktrees of the current repo under ~/worktrees/<repo>/: create one\n" +
-		"per task, then merge it back with a verified fast-forward and clean it up.",
+		"per lane, then rebase it onto main, verify it and fast-forward main.",
 	Commands: [][2]string{
 		{"list", "every worktree with status, reopen and cleanup commands"},
 		{"create", "new worktree on branch worktree-<name> (--branch)"},
@@ -40,7 +40,8 @@ var worktreePage = helptext.Page{
 }
 
 // worktreeVerifyNote explains merge's verification gate; it trails both the verb and the merge page.
-const worktreeVerifyNote = `Verify inside the worktree after integration, before promotion.
+const worktreeVerifyNote = `Rebase in the lane; a conflict aborts it, keeps the lane as it was, exits 3.
+Verify in the lane on the rebased tree, before promotion.
 Set --verify or detect a gate from Makefile's test target, go.mod, pyproject,
 package.json, or Cargo.toml. Without a gate, promotion is refused.
 Makefile + go.mod: build+vet all, test changed, importing and registry pkgs;
@@ -228,14 +229,14 @@ func cmdWorktreeCreate(repo *worktree.Repo, args []string) int {
 // cmdWorktreeMerge previews (--dry-run) or applies Preflight's two-phase merge under one worktree lease.
 func cmdWorktreeMerge(repo *worktree.Repo, args []string) int {
 	fs := helptext.NewFlagSet("worktree merge", helptext.Page{Usage: "claude-code worktree merge [flags] <name>\nclaude-code worktree merge --resume [flags] <name>",
-		About: "Fast-forward <name> into main after a verify gate, tick the plan, clean up.", Hint: worktreeVerifyNote})
+		About: "Rebase <name> onto main, verify, fast-forward, tick plans, notify lanes.", Hint: worktreeVerifyNote})
 	dryRun := fs.Bool("dry-run", false, "preview the plan and predicted conflicts without merging")
 	target := fs.String("target", "", "require this main branch (default: current branch)")
 	noClean := fs.Bool("no-clean", false, "leave the worktree on disk after a successful promote")
 	verify := fs.String("verify", "", "run this worktree gate after integration; failure blocks promotion")
 	noVerify := fs.Bool("no-verify", false, "promote without any verification gate — the only way to skip one")
 	fullVerify := fs.Bool("full-verify", false, "run the full Makefile gate instead of the scoped one")
-	resolveAgent := fs.String("resolve-agent", "", "resolve predicted conflicts with a tools-capable agent")
+	resolveAgent := fs.String("resolve-agent", "", "resolve a conflict in the lane with a tools-capable agent")
 	resume := fs.Bool("resume", false, "resume --resolve-agent for <name> without restarting the agent")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -295,7 +296,11 @@ func mergeDryRun(ctx context.Context, repo *worktree.Repo, req worktree.MergeReq
 func mergeLocked(ctx context.Context, repo *worktree.Repo, req worktree.MergeRequest) int {
 	out, err := worktree.Merge(ctx, repo, req)
 	if err != nil {
-		return helptext.Fail("worktree merge: %v", err)
+		helptext.Fail("worktree merge: %v", err)
+		if errors.Is(err, worktree.ErrRebaseConflict) {
+			return 3 // the rebase was aborted; resolve in the lane and re-run
+		}
+		return 1
 	}
 	switch {
 	case out.Blocked:

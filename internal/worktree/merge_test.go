@@ -1,55 +1,45 @@
 package worktree
 
 import (
+	"bytes"
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/plans"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// A failing pre-merge-commit hook aborts the worktree merge mid-way and promote never touches main.
-func TestIntegrateTargetHookFailureStopsBeforePromote(t *testing.T) {
-	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
-	mergeFixtureLockEnv(t)
-	repo, main, wt := preflightFixtureSetup(t)
+func TestIntegrateTargetRebaseFailureStopsBeforePromote(t *testing.T) {
+	repo, main, wt := laneMergeFixture(t)
 	mergeFixtureWrite(t, wt, "g.txt", "feature file\n", "feature adds g")
 	mergeFixtureWrite(t, main, "h.txt", "main file\n", "main adds h")
-	mainBefore := headOf(main)
-	wtBefore := headOf(wt)
-
-	_, commonDir, err := gitDirsOf(context.Background(), main)
+	mainBefore, wtBefore := headOf(main), headOf(wt)
+	plan, err := Preflight(t.Context(), repo, "a", "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	hooksDir := filepath.Join(commonDir, "hooks")
-	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
-		t.Fatal(err)
+	original := runGit
+	t.Cleanup(func() { runGit = original })
+	runGit = func(ctx context.Context, dir string, env []string, args ...string) ([]byte, error) {
+		if slices.Contains(args, "rebase") {
+			return nil, errors.New("pre-rebase rejected")
+		}
+		return original(ctx, dir, env, args...)
 	}
-	hook := filepath.Join(hooksDir, "pre-merge-commit")
-	if err := os.WriteFile(hook, []byte("#!/bin/sh\nexit 1\n"), 0o755); err != nil {
-		t.Fatal(err)
+	if _, err := integrateTarget(t.Context(), repo, plan); err == nil {
+		t.Fatal("want rejected rebase")
 	}
-
-	plan, err := Preflight(context.Background(), repo, "feature", "")
-	if err != nil {
-		t.Fatalf("Preflight: %v", err)
+	if headOf(wt) != wtBefore || headOf(main) != mainBefore {
+		t.Fatal("refs moved after rejected rebase")
 	}
-	if len(plan.Issues) != 0 {
-		t.Fatalf("Issues = %v, want none (hook failure happens inside git merge, not merge-tree)", plan.Issues)
-	}
-
-	if _, err := integrateTarget(context.Background(), repo, plan); err == nil {
-		t.Fatal("integrateTarget: want error when the pre-merge-commit hook rejects")
-	}
-	if headOf(wt) != wtBefore {
-		t.Fatalf("worktree HEAD advanced to %s despite the rejected merge commit (want %s)", headOf(wt), wtBefore)
-	}
-	mergeFixtureAssertMainUntouched(t, main, mainBefore)
 }
 
 func TestPromoteFastForwardSkipsSimulation(t *testing.T) {
@@ -320,6 +310,7 @@ func TestPromoteRechecksDirtyTargetOverlap(t *testing.T) {
 func mergeFixtureLockEnv(t *testing.T) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
 }
 
 func TestAcquireRunsFnAndReleases(t *testing.T) {
@@ -331,13 +322,8 @@ func TestAcquireRunsFnAndReleases(t *testing.T) {
 	if !ran {
 		t.Fatal("fn did not run")
 	}
-	// The lock must be released: a second acquire must succeed promptly, not wait out mergeLockWait.
-	start := time.Now()
-	if err := acquire(time.Second, func() error { return nil }); err != nil {
-		t.Fatalf("second acquire: %v", err)
-	}
-	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
-		t.Fatalf("second acquire took %v, want near-instant (lock should have been released)", elapsed)
+	if err := acquire(time.Nanosecond, func() error { return nil }); err != nil {
+		t.Fatalf("second immediate acquire: %v; lock was not released", err)
 	}
 }
 
@@ -432,5 +418,212 @@ func TestAcquireZeroWaitDefaultsToMergeLockWait(t *testing.T) {
 	// wait<=0 must fall back to the default wait, not return immediately as a zero wait would imply.
 	if elapsed < short-20*time.Millisecond {
 		t.Fatalf("acquire(0, ...) returned after %v, want it to have used the default wait (%v)", elapsed, short)
+	}
+}
+
+func laneMergeFixture(t *testing.T) (*Repo, string, string) {
+	t.Helper()
+	mergeFixtureLockEnv(t)
+	main := paths.Canon(t.TempDir())
+	mergeFixtureRun(t, main, "init", "-q", "-b", "main")
+	mergeFixtureRun(t, main, "config", "user.name", "test")
+	mergeFixtureRun(t, main, "config", "user.email", "test@example.invalid")
+	mergeFixtureWrite(t, main, "f.txt", "base\n", "base")
+	repo, err := ResolveRepo(main)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wt, err := Create(repo, "a", CreateOptions{Session: "session-a", Log: io.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(main)
+	return repo, main, wt
+}
+
+func laneRequest(name string, out io.Writer) MergeRequest {
+	return MergeRequest{Name: name, NoVerify: true, Out: out, Err: out,
+		ShowPlan: func(*MergePlan) {}, ShowResolved: func(*MergeResult) {}}
+}
+
+// The gate sees trunk's file only on the rebased tree; the trailer ticks; lane b hears of the shared file.
+func TestLaneMergeRebasesGatesTicksAndNotifies(t *testing.T) {
+	repo, main, wt := laneMergeFixture(t)
+	b, err := Create(repo, "b", CreateOptions{Session: "session-b", Log: io.Discard})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mergeFixtureWrite(t, wt, "f.txt", "A\n", "feat: a\n\nTask: 2026-11-18-probe 1.1")
+	mergeFixtureWrite(t, b, "f.txt", "B\n", "feat: b")
+	mergeFixtureWrite(t, main, "trunk.txt", "trunk\n", "trunk moves")
+	trunk := headOf(main)
+	home := plans.Home(main)
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	plan := filepath.Join(home, "2026-11-18-probe.md")
+	if err := os.WriteFile(plan, []byte("- [ ] 1.1 Probe owns: f.txt\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	req := laneRequest("a", &out)
+	req.NoVerify, req.Verify = false, "test -f trunk.txt"
+	req.AfterPromote = func(ctx context.Context, rng string) error {
+		return plans.TickRange(ctx, main, "a", rng, "", nil, false, &out)
+	}
+	outcome, err := Merge(t.Context(), repo, req)
+	if err != nil {
+		t.Fatalf("%v\n%s", err, out.String())
+	}
+	requireContains(t, "output", out.String(), "rebased:", "verify: passed (flag)", "promoted:")
+	parent, err := runGit(t.Context(), main, nil, "rev-parse", "HEAD~1")
+	if err != nil || strings.TrimSpace(string(parent)) != trunk || outcome.Clean == nil || !outcome.Clean.Removed {
+		t.Fatalf("want the lane commit fast-forwarded on top of trunk and the lane removed: %s %v %+v", parent, err, outcome.Clean)
+	}
+	if data, err := os.ReadFile(plan); err != nil || !strings.Contains(string(data), "[x] 1.1") {
+		t.Fatalf("plan: %s, %v", data, err)
+	}
+	notices, err := DrainErr("session-b")
+	if err != nil || len(notices) != 1 {
+		t.Fatalf("notices: %+v %v", notices, err)
+	}
+	requireContains(t, "notice", notices[0].Text, "main moved to "+ShortOID(headOf(main)), "lane a merged", "overlaps yours in f.txt")
+}
+
+// A real conflict aborts the rebase: the lane keeps its HEAD and a clean tree, trunk stays, the session hears.
+func TestLaneMergeConflictAbortsRebase(t *testing.T) {
+	repo, main, wt := laneMergeFixture(t)
+	mergeFixtureWrite(t, wt, "f.txt", "lane\n", "lane change")
+	mergeFixtureWrite(t, main, "f.txt", "trunk\n", "trunk change")
+	mainBefore, laneBefore := headOf(main), headOf(wt)
+	_, err := Merge(t.Context(), repo, laneRequest("a", io.Discard))
+	if !errors.Is(err, ErrRebaseConflict) {
+		t.Fatalf("want rebase conflict, got %v", err)
+	}
+	requireContains(t, "conflict", err.Error(), "f.txt", "rebase aborted")
+	if op, found, probeErr := inProgressOp(t.Context(), wt, ""); probeErr != nil || found {
+		t.Fatalf("lane operation left: %s %v", op, probeErr)
+	}
+	if dirty, derr := isDirty(t.Context(), wt); derr != nil || dirty || headOf(wt) != laneBefore {
+		t.Fatalf("lane changed: dirty=%v head %s want %s (%v)", dirty, headOf(wt), laneBefore, derr)
+	}
+	mergeFixtureAssertMainUntouched(t, main, mainBefore)
+	notices, err := DrainErr("session-a")
+	if err != nil || len(notices) != 1 || notices[0].Kind != "conflict" || !strings.Contains(notices[0].Text, "f.txt") {
+		t.Fatalf("lane session notices = %+v %v, want one conflict notice naming f.txt", notices, err)
+	}
+}
+
+func TestLaneMergeDryRunPreservesEveryRef(t *testing.T) {
+	repo, main, wt := laneMergeFixture(t)
+	mergeFixtureWrite(t, wt, "f.txt", "lane\n", "lane change")
+	mergeFixtureWrite(t, main, "trunk.txt", "trunk\n", "trunk change")
+	before, err := runGit(t.Context(), main, nil, "show-ref")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	if _, err := PlanOrResolve(t.Context(), repo, laneRequest("a", &out), true); err != nil {
+		t.Fatal(err)
+	}
+	after, err := runGit(t.Context(), main, nil, "show-ref")
+	if err != nil || !bytes.Equal(before, after) || headOf(wt) == headOf(main) {
+		t.Fatalf("refs changed: %s -> %s (%v)", before, after, err)
+	}
+	requireContains(t, "preview", out.String(), "would: rebase", "fast-forward main only", "remove the lane", "changed files: f.txt")
+}
+
+func TestLaneMergeDirtyOverlapRefusesBeforeRebase(t *testing.T) {
+	repo, main, wt := laneMergeFixture(t)
+	mergeFixtureWrite(t, wt, "f.txt", "lane\n", "lane change")
+	before := headOf(wt)
+	mainBefore := headOf(main)
+	if err := os.WriteFile(filepath.Join(main, "f.txt"), []byte("dirty\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var plan *MergePlan
+	req := laneRequest("a", io.Discard)
+	req.ShowPlan = func(p *MergePlan) { plan = p }
+	outcome, err := Merge(t.Context(), repo, req)
+	if err != nil || outcome == nil || !outcome.Blocked {
+		t.Fatalf("want refusal: %+v %v", outcome, err)
+	}
+	assertDirtyTargetIssue(t, plan, "f.txt")
+	if headOf(wt) != before || headOf(main) != mainBefore {
+		t.Fatal("ref moved before dirty-target refusal")
+	}
+	data, err := os.ReadFile(filepath.Join(main, "f.txt"))
+	if err != nil || string(data) != "dirty\n" {
+		t.Fatalf("edit lost: %s %v", data, err)
+	}
+}
+
+// Trunk moving while the gate runs refuses the fast-forward and says re-run; the lane stays.
+func TestLaneMergeTrunkMovedDuringGateRefuses(t *testing.T) {
+	repo, main, wt := laneMergeFixture(t)
+	mergeFixtureWrite(t, wt, "lane.txt", "lane\n", "lane change")
+	var out bytes.Buffer
+	req := laneRequest("a", &out)
+	req.NoVerify, req.Verify = false, "git -C "+textutil.ShellQuote(main)+" commit -q --allow-empty -m moved"
+	_, err := Merge(t.Context(), repo, req)
+	if err == nil || !strings.Contains(err.Error(), "target moved") || !strings.Contains(out.String(), "re-run worktree merge") {
+		t.Fatalf("want a target-moved refusal naming re-run: %v\n%s", err, out.String())
+	}
+	if headOf(main) == headOf(wt) {
+		t.Fatal("trunk was fast-forwarded after it moved")
+	}
+	if _, statErr := os.Stat(wt); statErr != nil {
+		t.Fatalf("lane removed after a refused promote: %v", statErr)
+	}
+}
+
+// Lanes up to date, without a session, or the merged one hear nothing; a behind lane gets one plain line.
+func TestLaneMergeNonOverlappingNotice(t *testing.T) {
+	repo, _, wt := laneMergeFixture(t)
+	if _, err := Create(repo, "b", CreateOptions{Session: "session-b", Log: io.Discard}); err != nil {
+		t.Fatal(err)
+	}
+	mergeFixtureWrite(t, wt, "lane.txt", "lane\n", "lane change")
+	req := laneRequest("a", io.Discard)
+	req.NoClean = true
+	if _, err := Merge(t.Context(), repo, req); err != nil {
+		t.Fatal(err)
+	}
+	notices, err := DrainErr("session-b")
+	if err != nil || len(notices) != 1 {
+		t.Fatalf("notices: %+v %v", notices, err)
+	}
+	requireContains(t, "notice", notices[0].Text, "main moved to", "lane a merged")
+	if strings.Contains(notices[0].Text, "overlap") || strings.Contains(notices[0].Text, "\n") {
+		t.Fatal("want one-line trunk moved notice")
+	}
+	if own, err := DrainErr("session-a"); err != nil || len(own) != 0 {
+		t.Fatalf("merged lane notified: %+v %v", own, err)
+	}
+}
+
+// --resolve-agent resolves an aborted rebase's conflict in the lane, then the merge lands.
+func TestLaneMergeResolveAgentResolvesInLane(t *testing.T) {
+	repo, main, wt := laneMergeFixture(t)
+	mergeFixtureWrite(t, wt, "f.txt", "lane\n", "lane change")
+	mergeFixtureWrite(t, main, "f.txt", "trunk\n", "trunk change")
+	original := runResolveAgent
+	t.Cleanup(func() { runResolveAgent = original })
+	calls := 0
+	runResolveAgent = func(ctx context.Context, name, prompt, dir string, timeout time.Duration) (askEnvelope, error) {
+		calls++
+		if name != "codex" || dir != wt || !strings.Contains(prompt, "f.txt") {
+			t.Fatalf("dispatch: %s %s %s", name, dir, prompt)
+		}
+		return askEnvelope{}, os.WriteFile(filepath.Join(wt, "f.txt"), []byte("resolved\n"), 0o600)
+	}
+	req := laneRequest("a", io.Discard)
+	req.ResolveAgent = "codex"
+	if _, err := Merge(t.Context(), repo, req); err != nil {
+		t.Fatal(err)
+	}
+	data, err := os.ReadFile(filepath.Join(main, "f.txt"))
+	if calls != 1 || err != nil || string(data) != "resolved\n" {
+		t.Fatalf("calls %d; main f.txt = %q %v", calls, data, err)
 	}
 }
