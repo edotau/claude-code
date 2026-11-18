@@ -144,14 +144,18 @@ func Scan(in *core.Input) core.Result {
 	if decision == core.Allow { // an allowed verdict's message is a warning (the rewrite guard failing open)
 		return core.Result{Stderr: strings.TrimSpace(msg + warn.String())}
 	}
+	rule := detail // the pattern or bucket the audit records, minus a force push's branch name (command text)
+	if strings.HasPrefix(rule, "force push of ") {
+		rule = "force push"
+	}
 	if decision == core.Ask {
 		detail = "ask: " + detail
 	}
 	audit.LogSession(audit.HookBlocked, in.SessionID, "safety", detail)
 	if decision == core.Ask && core.SupportsAsk(in.Agent()) {
-		return core.Result{Decision: core.Ask, Reason: strings.TrimSpace(msg), Stderr: strings.TrimSpace(warn.String())}
+		return core.Result{Decision: core.Ask, Reason: strings.TrimSpace(msg), Stderr: strings.TrimSpace(warn.String()), Rule: rule}
 	}
-	return core.Result{Decision: core.Block, Reason: strings.TrimSpace(warn.String() + msg)}
+	return core.Result{Decision: core.Block, Reason: strings.TrimSpace(warn.String() + msg), Rule: rule}
 }
 
 // Verdict is safety-scan's decision for in with no audit entry or warning, for the doctor permissions report.
