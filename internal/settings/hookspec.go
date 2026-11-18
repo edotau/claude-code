@@ -167,9 +167,9 @@ var Registry = []Group{
 		// Ask-about-a-worktree notes (silent when HARNESS_WORKTREE=off); the busy check runs every prompt.
 		{Name: "worktree-busy", Raw: true, Event: EventUserPromptSubmit, Budget: 5 * sec},
 		// Each Write/Edit path (and each `git add`-staged path) appends to this session's claims ledger; never blocks.
-		{Name: "worktree-claim", Raw: true, Event: EventPostToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Async: "Bash", Budget: 5 * sec, Agents: []string{"codex", "copilot", "gemini"}, Plugin: []string{"opencode"}},
+		{Name: "worktree-claim", Event: EventPostToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Async: "Bash", Budget: 5 * sec, Agents: []string{"codex", "copilot", "gemini"}, Plugin: []string{"opencode"}},
 		// Before an edit, notes a dirty file another live session/leaf claims; before git add/commit, asks on one.
-		{Name: "worktree-claim-check", Raw: true, Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Agents: []string{"codex", "copilot", "gemini"}, Plugin: []string{"opencode"}},
+		{Name: "worktree-claim-check", Event: EventPreToolUse, Matcher: "Write|Edit|MultiEdit|Bash", Budget: 5 * sec, Agents: []string{"codex", "copilot", "gemini"}, Plugin: []string{"opencode"}},
 	}},
 	{Name: "secrets", Events: []EventSpec{
 		// A Bash result holding a vault value is replaced before the model and the transcript keep it (Claude only).

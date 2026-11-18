@@ -18,6 +18,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -130,13 +131,8 @@ func installCopilot(ctx context.Context, w io.Writer, dir string, dryRun bool) e
 	return runInstallScript(ctx, w, dryRun, copilotInstallScriptURL, nil, []string{"PREFIX=" + filepath.Dir(dir)})
 }
 
-// opencodeMaxMajor caps the opencode major linked into bin/ (2.x broke the route, id:ocnodry); bump once verified.
-const opencodeMaxMajor = 1
-
-// opencodeAllowMajorEnv, set non-empty, lifts the opencodeMaxMajor refusal for one install.
 const opencodeAllowMajorEnv = "HARNESS_ALLOW_OPENCODE_2X"
 
-// installOpencode runs upstream's installer, refuses a major above opencodeMaxMajor, then copies into dir.
 func installOpencode(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -151,6 +147,12 @@ func installOpencode(ctx context.Context, w io.Writer, dir string, dryRun bool) 
 
 // installOpencodeLocked is installOpencode's body, run holding the cross-process lock on src.
 func installOpencodeLocked(ctx context.Context, w io.Writer, dir, src string, dryRun bool) error {
+	row, _ := agent.LookupSchema("opencode")
+	bound, wild := boundParts(row.CLI.MaxVersion)
+	maxMajor, err := strconv.Atoi(bound)
+	if !wild || err != nil || maxMajor < 1 {
+		return fmt.Errorf("opencode: invalid roster major cap %q", row.CLI.MaxVersion)
+	}
 	aside := src + ".prev"
 
 	if !dryRun {
@@ -166,10 +168,10 @@ func installOpencodeLocked(ctx context.Context, w io.Writer, dir, src string, dr
 	}
 	if dryRun {
 		fmt.Fprintf(w, "  (dry-run: would copy ~/.opencode/bin/opencode into %s, refusing major > %d unless %s is set)\n",
-			dir, opencodeMaxMajor, opencodeAllowMajorEnv)
+			dir, maxMajor, opencodeAllowMajorEnv)
 		return nil
 	}
-	if err := refuseOpencodeMajor(ctx, w, src); err != nil {
+	if err := refuseOpencodeMajor(ctx, w, src, maxMajor); err != nil {
 		return restoreOpencodeAside(src, aside, err)
 	}
 	data, err := os.ReadFile(src)
@@ -194,8 +196,7 @@ func restoreOpencodeAside(src, aside string, cause error) error {
 	return cause
 }
 
-// refuseOpencodeMajor blocks linking bin when its major exceeds opencodeMaxMajor; an unparsable probe is refused too.
-func refuseOpencodeMajor(ctx context.Context, w io.Writer, bin string) error {
+func refuseOpencodeMajor(ctx context.Context, w io.Writer, bin string, maxMajor int) error {
 	if os.Getenv(opencodeAllowMajorEnv) != "" {
 		return nil
 	}
@@ -205,12 +206,12 @@ func refuseOpencodeMajor(ctx context.Context, w io.Writer, bin string) error {
 		fmt.Fprintf(w, "  refuse   opencode %q (version unknown)\n", version)
 		return fmt.Errorf("opencode version probe of %s failed or unparsable; refusing (set %s=1 to accept)", bin, opencodeAllowMajorEnv)
 	}
-	if major <= opencodeMaxMajor {
+	if major <= maxMajor {
 		return nil
 	}
-	fmt.Fprintf(w, "  refuse   opencode %s (major %d > %d)\n", version, major, opencodeMaxMajor)
+	fmt.Fprintf(w, "  refuse   opencode %s (major %d > %d)\n", version, major, maxMajor)
 	return fmt.Errorf("opencode installer fetched %s; harness supports <%d.0 (set %s=1 to accept)",
-		version, opencodeMaxMajor+1, opencodeAllowMajorEnv)
+		version, maxMajor+1, opencodeAllowMajorEnv)
 }
 
 // runSelfUpdate prints and runs `<bin> update`, skipping the exec on dry-run.

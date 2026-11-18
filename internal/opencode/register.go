@@ -26,7 +26,6 @@ var row = agent.Schema{Name: "opencode", CLI: agent.CLI{
 	Binary:   "opencode", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolGemini, providers.ProtocolOpenAI},
 	RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolGemini: "/" + providers.ProtocolGemini,
 		providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI, providers.ProtocolResponses: "/" + providers.ProtocolResponses},
-	// keep in step with opencodeMaxMajor in internal/agent/tools/install.go
 	MaxVersion: "1.x", MaxReason: "2.x broke the harness opencode route",
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, ReadOnly: agent.Emulated, Autonomous: agent.Native, SafeMode: agent.Native, Direct: agent.Native, Env: agent.Native,

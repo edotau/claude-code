@@ -33,9 +33,23 @@ func tokenDue(tok, record string) bool {
 	return !ok || time.Until(exp) < keepaliveMargin
 }
 
+func keepaliveFresh(record string) bool {
+	exp, ok := TokenExpiry(record)
+	return ok && time.Until(exp) > keepaliveMargin
+}
+
 // keepaliveUser refreshes a stored user login that is due; a dead mark waits out its window, or lasts under an SP.
 func keepaliveUser(ctx context.Context, p *Provider) (bool, error) {
-	if p.Identity == IdentitySP || !hasUserLogin(p) {
+	if p.Identity == IdentitySP {
+		return false, nil
+	}
+	if keepaliveFresh(p.Name) {
+		// A dead login can be due for a probe independently of its cached expiry.
+		if _, marked := readLoginMark(p.Name); !marked {
+			return false, nil
+		}
+	}
+	if !hasUserLogin(p) {
 		return false, nil
 	}
 	if rec, dead := liveLoginMark(p); dead {
@@ -62,7 +76,7 @@ func keepaliveUser(ctx context.Context, p *Provider) (bool, error) {
 
 // keepaliveSP refreshes the paired SP's token when it is due.
 func keepaliveSP(ctx context.Context, p *Provider) (bool, error) {
-	if !SPPresent(p) {
+	if p.Auth.SPClientID == "" || keepaliveFresh(p.Name+spExpirySuffix) || !SPPresent(p) {
 		return false, nil
 	}
 	_, secret, access, err := spSecrets(p)
@@ -78,6 +92,9 @@ func keepaliveSP(ctx context.Context, p *Provider) (bool, error) {
 
 // keepaliveM2M refreshes an m2m row's token when it is due, re-checking the sealed slot under the refresh lock.
 func keepaliveM2M(ctx context.Context, p *Provider) (bool, error) {
+	if keepaliveFresh(p.Name) {
+		return false, nil
+	}
 	name := AuthSecretName(p)
 	secret, access, err := clientSecrets(name)
 	if err != nil {

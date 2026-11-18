@@ -30,7 +30,7 @@ func TestOpencodeRefusalReportsRemovalFailure(t *testing.T) {
 	dir := t.TempDir()
 	src := filepath.Join(dir, "opencode")
 	writeToolsFixture(t, src, "#!/bin/sh\nprintf 'opencode 2.0.0\\n'\n", 0o755)
-	cause := refuseOpencodeMajor(context.Background(), io.Discard, src)
+	cause := refuseOpencodeMajor(context.Background(), io.Discard, src, 1)
 	if cause == nil {
 		t.Fatal("opencode 2.0.0 was not refused")
 	}

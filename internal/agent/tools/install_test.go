@@ -171,7 +171,7 @@ func TestInstallOpencodeRefusesMajorV2(t *testing.T) {
 	if err == nil {
 		t.Fatal("installOpencode: want refusal for opencode 2.0.0, got nil error")
 	}
-	wantSubstr := fmt.Sprintf("harness supports <%d.0", opencodeMaxMajor+1)
+	const wantSubstr = "harness supports <2.0"
 	if !strings.Contains(err.Error(), wantSubstr) {
 		t.Errorf("error = %q, want it to contain %q", err, wantSubstr)
 	}

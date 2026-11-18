@@ -46,9 +46,6 @@ var vendorRows = []agent.Schema{
 }
 
 func TestVersionProblemUsesRegisteredRowBounds(t *testing.T) {
-	for _, row := range vendorRows {
-		agent.RegisterRowForTest(row)
-	}
 	for _, tc := range []struct {
 		agent, version, wantPrefix string
 	}{

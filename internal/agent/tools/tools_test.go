@@ -14,13 +14,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
-func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+func TestMain(m *testing.M) {
+	for _, row := range vendorRows {
+		agent.RegisterRowForTest(row)
+	}
+	os.Exit(hosttest.Main(m))
+}
 
 type toolsTestEnv struct {
 	home   string
