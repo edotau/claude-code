@@ -126,7 +126,7 @@ func jobArgvSettled(rec *Record) ([]string, error) {
 			return argv, err
 		}
 		if i < 4 {
-			time.Sleep(100 * time.Millisecond)
+			time.Sleep(pollStep)
 		}
 	}
 	return argv, nil
@@ -216,6 +216,9 @@ var cancelGrace = 5 * time.Second
 // killWait is how long escalate waits after SIGKILL before reporting the pid as stuck; tests shorten it.
 var killWait = 2 * time.Second
 
+// pollStep paces waitGone and jobArgvSettled; a var so tests can shorten it.
+var pollStep = 100 * time.Millisecond
+
 // escalate sends SIGINT, waits cancelGrace, then SIGKILL and waits killWait more; errors if pid outlives both.
 func escalate(pid int, id string) error {
 	if err := interrupt(pid); err != nil {
@@ -240,7 +243,7 @@ func waitGone(pid int, d time.Duration) bool {
 		if !proc.Alive(pid) {
 			return true
 		}
-		time.Sleep(100 * time.Millisecond)
+		time.Sleep(pollStep)
 	}
 	return !proc.Alive(pid)
 }

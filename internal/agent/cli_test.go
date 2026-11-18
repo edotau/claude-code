@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -153,10 +154,13 @@ func TestRunEventStreamParseErrorKillsChild(t *testing.T) {
 // A parse error after stdout reached EOF must not kill the child: its own exit status is the real failure.
 func TestRunEventStreamParseErrorAfterEOFKeepsExitStatus(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh")
-	cmd, tail := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "echo '{}'; exec >&-; sleep 0.5; exit 7"}, nil, "", "", nil, true)
+	release := filepath.Join(t.TempDir(), "release")
+	script := "echo '{}'; exec >&-; while [ ! -e \"$1\" ]; do sleep 0.01; done; exit 7"
+	cmd, tail := ChildCmd(context.Background(), "/bin/sh", []string{"-c", script, "sh", release}, nil, "", "", nil, true)
 	bad := errors.New("turn failed")
 	parse := func(br *bufio.Reader, _ wire.Sink, _ func(), _ ...wire.StreamLog) (wire.Result, error) {
 		_, _ = io.Copy(io.Discard, br)
+		_ = os.WriteFile(release, nil, 0o600) // the child exits only after parse saw EOF
 		return wire.Result{}, bad
 	}
 	_, err := RunEventStream(context.Background(), "x", cmd, tail, wire.Discard, parse, StreamOpts{})

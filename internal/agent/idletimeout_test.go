@@ -9,7 +9,7 @@ import (
 // Given beats keep arriving, Then the watch re-arms its one timer (no new timer per beat) and trips once when quiet.
 func TestIdleTimeoutBeatReusesTimer(t *testing.T) {
 	var kills atomic.Int32
-	const window = 200 * time.Millisecond
+	const window = 40 * time.Millisecond
 	w := NewIdleTimeout("x", window, func() { kills.Add(1) })
 	defer w.Stop()
 	first := w.timer
@@ -24,7 +24,7 @@ func TestIdleTimeoutBeatReusesTimer(t *testing.T) {
 	}
 	w.Beat("user") // the tool answered: re-armed
 	for deadline := time.Now().Add(5 * time.Second); kills.Load() == 0 && time.Now().Before(deadline); {
-		time.Sleep(5 * time.Millisecond)
+		time.Sleep(window / 40)
 	}
 	if w.timer != first || kills.Load() != 1 {
 		t.Fatalf("same timer = %v, kills = %d; want the one timer re-armed and one trip", w.timer == first, kills.Load())

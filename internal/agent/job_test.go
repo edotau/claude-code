@@ -207,10 +207,19 @@ func TestSpawnDoesNotSaveAfterFastChildFinishes(t *testing.T) {
 	}
 }
 
+// shortenPoll makes Cancel's argv-settle and exit polls tick every 10 ms for the test.
+func shortenPoll(t *testing.T) {
+	t.Helper()
+	old := pollStep
+	pollStep = 10 * time.Millisecond
+	t.Cleanup(func() { pollStep = old })
+}
+
 // Cancel verifies the PID still belongs to the job; a reused PID (an unrelated live process) is not signalled.
 func TestCancelDetectsPIDReuse(t *testing.T) {
 	hosttest.SkipOnWindows(t, "unix tools")
 	setConfigDir(t)
+	shortenPoll(t)
 	unrelated := exec.Command("sleep", "30")
 	if err := unrelated.Start(); err != nil {
 		t.Fatalf("start unrelated process: %v", err)
@@ -243,6 +252,7 @@ func TestCancelEscalatesToSIGKILL(t *testing.T) {
 	oldGrace, oldKillWait := cancelGrace, killWait
 	cancelGrace, killWait = 100*time.Millisecond, 100*time.Millisecond
 	t.Cleanup(func() { cancelGrace, killWait = oldGrace, oldKillWait })
+	shortenPoll(t)
 	prevConfigDir, hadConfigDir := os.LookupEnv("CLAUDE_CONFIG_DIR")
 	_ = os.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	defer func() {
@@ -321,6 +331,7 @@ func TestCancelDeadPIDReturnsNilAndMarksRecord(t *testing.T) {
 // A foreground record (Log=="") whose pid is live but not `ask --job` is never signalled or rewritten.
 func TestCancelForegroundRunErrorsWithoutWriting(t *testing.T) {
 	setConfigDir(t)
+	shortenPoll(t)
 	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
 	rec.PID = os.Getpid() // the test process: alive, not a job
 	if err := rec.Save(); err != nil {
