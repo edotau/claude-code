@@ -224,7 +224,10 @@ var killWait = 2 * time.Second
 // pollStep paces waitGone and jobArgvSettled; a var so tests can shorten it.
 var pollStep = 100 * time.Millisecond
 
-// escalate sends SIGINT, waits cancelGrace, then SIGKILL and waits killWait more; errors if pid outlives both.
+// procTable is the process table escalate reads to see group members outlive their leader; tests swap it.
+var procTable = proc.List
+
+// escalate sends SIGINT, waits cancelGrace, then SIGKILL and waits killWait more; errors if pid's group outlives both.
 func escalate(pid int, id string) error {
 	if err := interrupt(pid); err != nil {
 		return err
@@ -241,16 +244,28 @@ func escalate(pid int, id string) error {
 	return nil
 }
 
-// waitGone polls up to d for pid to stop being alive.
+// waitGone polls up to d for pid and every other member of its process group to be gone.
 func waitGone(pid int, d time.Duration) bool {
 	deadline := time.Now().Add(d)
 	for time.Now().Before(deadline) {
-		if !proc.Alive(pid) {
+		if groupGone(pid) {
 			return true
 		}
 		time.Sleep(pollStep)
 	}
-	return !proc.Alive(pid)
+	return groupGone(pid)
+}
+
+// groupGone reports pid dead with no process left in group pid; an unreadable table counts as not gone.
+func groupGone(pid int) bool {
+	if proc.Alive(pid) {
+		return false
+	}
+	procs, err := procTable(proc.DispatchIDEnv)
+	if err != nil {
+		return false
+	}
+	return !slices.ContainsFunc(procs, func(p proc.Info) bool { return p.PGID == pid })
 }
 
 // wavesJobAgent is the job-only agent name of a detached `dispatch --waves` runner; it is not a launchable agent.

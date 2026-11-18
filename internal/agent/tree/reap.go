@@ -260,16 +260,25 @@ func orphanDeadline(id string) (time.Duration, bool) {
 	return retry.DefaultPolicy().AttemptTimeout, true
 }
 
-// stopGroup sends pid's process group SIGTERM, then SIGKILL after orphanGrace if its leader is still there.
+// stopGroup sends pid's process group SIGTERM, then SIGKILL after orphanGrace if the leader or a member is still there.
 func stopGroup(pid int) error {
+	if pid == os.Getpid() { // never our own group
+		return fmt.Errorf("refusing to signal our own group %d", pid)
+	}
 	if err := signalGroup(pid, syscall.SIGTERM); err != nil {
 		return err
 	}
 	reapSleep(orphanGrace)
-	if !pidAlive(pid) {
+	if !pidAlive(pid) && !groupHasMembers(pid) {
 		return nil
 	}
 	return signalGroup(pid, syscall.SIGKILL)
+}
+
+// groupHasMembers reports a live process in group pgid; an unreadable table says yes, so the group is still killed.
+func groupHasMembers(pgid int) bool {
+	procs, err := listProcs(proc.DispatchIDEnv)
+	return err != nil || slices.ContainsFunc(procs, func(p proc.Info) bool { return p.PGID == pgid })
 }
 
 // socketHolderAlive reads id's record at call time, so a session started during the reap keeps its socket.

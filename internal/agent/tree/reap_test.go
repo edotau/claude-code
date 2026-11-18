@@ -275,6 +275,29 @@ func TestReapStopsOnlyOrphanedDispatchChildren(t *testing.T) {
 	}
 }
 
+// Given a leader that exits on SIGTERM while a member of its group stays, Then the group still gets SIGKILL.
+func TestReapKillsGroupMembersAfterLeaderExits(t *testing.T) {
+	now := time.Date(2026, 11, 11, 12, 0, 0, 0, time.UTC)
+	old := now.Add(-26 * time.Hour)
+	mark := "20261110T100000.000-opencode"
+	leader := proc.Info{PID: 1001, PPID: 1, PGID: 1001, Start: old, Exe: "opencode", Mark: mark}
+	member := proc.Info{PID: 1011, PPID: 1001, PGID: 1001, Start: old, Exe: "sleep"}
+	sent := orphanFixture(t, now, leader, member)
+	stubPidAlive(t, func(int) bool { return false })
+	rec := agent.NewRecord("opencode", agent.RunOptions{Tools: true}, old)
+	rec.ID, rec.Status, rec.PID = mark, "error", deadPID
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	var out, errw bytes.Buffer
+	if code := Reap(false, &out, &errw); code != 0 {
+		t.Fatalf("Reap = %d: %s", code, errw.String())
+	}
+	if got := strings.Join(*sent, ","); got != "TERM 1001,KILL 1001" {
+		t.Errorf("signals = %q, want SIGKILL to the group while member 1011 outlives its leader", got)
+	}
+}
+
 // Given an orphan whose dispatch record is still alive, or younger than its record's own timeout, Then it stays.
 func TestOrphanDeadlineFollowsTheDispatchRecord(t *testing.T) {
 	now := time.Now()
