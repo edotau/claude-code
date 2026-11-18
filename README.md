@@ -1,472 +1,153 @@
 # claude-code
 
-A minimal harness for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). This repo **is** `~/.claude`:
-one Go binary, `claude-code`, plus the agents, commands, rules, skills and Workflow scripts every session loads.
+A harness for [Claude Code](https://docs.anthropic.com/en/docs/claude-code). This repository **is** `~/.claude`: one
+Go binary, `claude-code`, plus the agents, commands, rules, skills and Workflow scripts every Claude Code session
+loads.
 
-What it adds to a stock install:
+What you get on top of a stock install:
 
-- **Provider registry** — Anthropic (Claude login or API key), Databricks, OpenAI (ChatGPT login or API key),
-  GitHub Copilot, Google (Antigravity) or any custom endpoint; model aliases (opus/sonnet/haiku/fable) map to
-  model ids per profile.
-- **Loopback proxy** — OpenAI-dialect translation, per-model-alias provider mixing, failover on 429/5xx.
-- **Agents** — one-shot tasks on Claude, Codex, Gemini, OpenCode or Copilot (`ask`), or their interactive CLIs
-  (`claude-code <agent>`).
-- **Hooks, memory, status line** — a Bash safety gate, one memory bank for every workspace, format-on-stop,
-  context checkpoint.
+- **Providers and a model proxy**: Anthropic, Databricks, OpenAI, GitHub Copilot, Google or a custom endpoint, with
+  model aliases per profile and a loopback proxy that translates dialects and fails over on 429/5xx.
+- **Agents**: run one-shot tasks on Claude, Codex, Gemini, OpenCode or Copilot (`claude-code agents ask`), or start
+  their interactive CLIs through the same registry (`claude-code codex`).
+- **Guards**: hooks that stop or ask about destructive commands, leaked secrets and edits to files another agent
+  holds (see [Safety](#safety)).
+- **Memory and status line**: one memory bank shared by every workspace, and a status line showing provider, model,
+  context use and git state.
 
-Every verb takes `--help`; `claude-code -h` lists the menu verbs (hidden ones such as `agents` and `models` are
-below). Agent-facing commands and gotchas live per area under `rules/harness/` and `rules/workflows/` (index:
-`CLAUDE.md` → How-to).
+![claude-code help menu](docs/images/cli-menu.svg)
 
 ## Install
+
+Requires macOS or Linux (Windows through WSL), git, make, curl and Go (`make bootstrap` installs Go on a fresh box).
 
 ```bash
 git clone https://github.com/edotau/claude-code ~/.claude
 cd ~/.claude
-make install                  # build, link agent CLIs into bin/, seed settings.json if missing (never overwritten)
-                              # and add linters (DEV_TOOLS=0 skips)
-claude-code doctor            # check binaries, providers, credentials, proxy
+make install        # builds bin/claude-code, links agent CLIs into bin/, seeds settings.json if it is missing
+claude-code doctor  # checks binaries, providers, credentials and the proxy
 ```
 
-- `make bootstrap` — fresh box: Go toolchain (no sudo), install, bash completion, then `claude-code configure`
-  (`CHECK=1` runs `configure --check` instead).
-- `claude-code install --dry-run` previews, listing the host tools it would install; an existing `settings.json` is
-  kept as yours and only checked for validity.
-- `make install` installs any missing agent CLI and Tailscale, never updating one already present
-  (`claude-code install --tools --missing`). `TOOLS=1` installs or updates them all and runs `claude-code doctor`
-  (`TOOLS=copilot,codex` picks); `claude-code install --tools=<name>` is the same without the check. Each vendor
-  installer runs with credentials scrubbed and puts its binary in `~/.local/bin` (on `PATH`); install links it as
-  `bin/<agent>`. Confirm with `<agent> --version`, the doctor
-  `<agent> route:` line, or `claude-code agents ask --agent <agent> "Reply with exactly: ok"`.
-- The same step installs missing host tools (shfmt, ruff, node, prettier, gh, tmux, shellcheck) through `go install`,
-  `npm --prefix ~/.local`, uv/pipx or, as the fallback, brew, and runs no root command; git, go, make, curl and the
-  `DEV_TOOLS` linters are report-only. `claude-code doctor` prints a `dep <name>` row per tool with the command that
-  installs it, and a failed install never fails `make install`.
-- `bin/<agent>` is the real, unrouted CLI. Routed launches go through `claude-code <agent>`.
+`make install` never overwrites an existing `settings.json`; it only checks it is valid. It installs agent CLIs and
+host tools that are missing and never updates one already present, and it runs no root command.
+`claude-code install --dry-run` previews all of it. To undo: `claude-code configure --restore` resets `settings.json`
+to the template (a backup is written first), and deleting the clone removes the rest. Fresh machine, existing
+`~/.claude` and every install option: [`rules/harness/commands.md`](rules/harness/commands.md).
 
-![claude-code help menu](docs/images/cli-menu.svg)
+## Five-minute tour
 
 ```bash
-claude-code anthropic --model opus   # Claude Code on Anthropic (also sonnet | haiku | fable; --profile X; science)
-claude-code codex       # an agent CLI through the registry (also gemini | opencode | copilot)
-claude-code qa          # Claude Code on that registry profile
-claude-code --resume    # a leading flag passes to claude, on the session provider
-claude-code --host <h> doctor       # any verb on a tailnet host over ssh (a login's browser opens there)
-claude-code --remote <h> databricks # runs here; only Databricks workspace requests leave through <h> (ssh SOCKS5)
+claude-code configure                 # guided setup; reuses existing logins and prompts only for what is missing
+claude-code vault set                 # store a credential in the encrypted vault (guided on a terminal)
+claude-code anthropic --model opus    # Claude Code on Anthropic; also sonnet, haiku, fable
+claude-code agents list               # which agent CLIs are installed
+claude-code agents ask --agent codex "Review this branch."   # one-shot task, read-only unless you add --tools
+claude-code memory recall <terms>     # search the memory bank
 ```
 
-## Setup
+Every verb takes `-h`; `claude-code -h` lists the menu.
 
-```bash
-claude-code configure                 # interactive menu: agents, tools (databricks, tailscale, web search), settings
-                                      # (secrets, routing, environment, seed agents); Submit seals keys
-claude-code configure models          # one page (provider|models|agents|github|remote|codex|routing|databricks)
-claude-code configure codex           # codex effort and verbosity (vault)
-claude-code configure --check         # report only; exit 1 if anything is unset
-claude-code configure --restore [--agents|--agent a]   # reset settings.json to the template (backup first) + agent configs
-claude-code configure --revert [--agent a,b]        # restore agent CLI configs from backup
-```
+## How the pieces fit
 
-- `configure` reuses what already exists (env, vault, agent CLI logins) and prompts only for what is missing.
-- **Claude subscription** keeps Remote Control; **API key** pays per token. For headless runs on a Max plan,
-  `configure` mints `claude setup-token` into the vault as `CLAUDE_CODE_OAUTH_TOKEN`.
-- Agent CLI configs are merged, never replaced, with 5 backups per file; details: `rules/harness/agent.md`.
-- From a worktree, reset only that checkout:
-  `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --restore --out "$PWD/settings.json"`
-  (`--out` never renders agent CLI configs, and `--out` with `--agents` is refused).
-
-- `~/.claude` already exists: clone into `~/.claude.stage`, then `make -C ~/.claude.stage adopt` (backs up
-  collisions, then bootstraps). `install --setup nuke [--apply] [--keep-memory]` archives untracked content and
-  removes it, leaving credential-shaped untracked or ignored files (`.env`, `*.pem`, `*.key`) in place;
-  `install --setup workspace init|link|status` scopes a project's own `.claude/`.
-
-## Providers
-
-Built-ins live in `internal/providers/defaults.json`. The vault's provider overlay (rows added by `configure github`
-and `configure databricks`) overlays them **by name** (an entry replaces the built-in; `null` removes it). Each
-entry is a **profile** (an account on a provider: `qa`, `ultra`, `chatgpt`); see [Naming](#naming).
-
-```jsonc
-"providers": {
-  "default": "example",
-  "fallback": ["example", "anthropic"],         // 429/5xx ladder (implies the proxy)
-  "providers": {
-    "example": {
-      "protocol": "anthropic",                       // anthropic · openai · responses · gemini
-      "base_url": "https://llm.example.com",
-      "routes": {"openai": "/v1"},               // extra protocols on the same endpoint
-      "auth": {"type": "key", "env": "EXAMPLE_API_KEY"},   // oauth · m2m · pat · key · cli · none; optional header
-      "models": {"opus": "claude-opus-5", "sonnet": "claude-sonnet-5", "haiku": "gpt-5-nano"},
-      "headers": {}                                  // sent on every upstream request
-    },
-    "ollama": null
-  }
-}
-```
-
-```bash
-claude-code configure provider --list [name]        # providers, credential state, fallback ladder
-claude-code configure provider --all [<profile>]    # check every sign-in (or one); --check exits 1 if any not ok
-claude-code switch example                          # pin the session profile
-claude-code models --pin haiku=openai:gpt-5-nano    # pin a model alias; provider:model crosses providers
-claude-code models --unpin | --live --profile p     # clear pins | list what upstream serves
-claude-code models discover                         # live preview across all registry profiles
-claude-code models discover --profile p --apply     # append profile-scoped runtime choices
-# /discover-models [--profile p] [--dry-run]         # slash launcher applies by default
-claude-code --profile example --model sonnet         # this launch only
-```
-
-Precedence: `--profile` → the claude agent record's `profile` → registry `default`. Model: `--model` → the record's
-`aliases` (`models --pin`) → the profile's `models`. Settings live in one vault record per agent; an exported
-`CLAUDE_PROFILE` marks the session, it is not a setting.
-
-`models discover` uses authenticated live listing only, with bounded pagination/timeouts and
-per-profile errors/skips; it never saves fallback catalogs. CLI preview is the default;
-`--apply` saves append-only choices in sealed, versioned vault records scoped by profile,
-routes, spelling and account/auth configuration. A second unchanged apply adds nothing.
-Configured aliases, selections, pins, routes and the legacy global Databricks menu are
-not rewritten. Except for Copilot, saved choices feed configure/agent model pickers and harness-generated
-OpenCode catalogs on the next routed launch; Databricks Codex catalogs include only
-Responses entries for which Codex supplies bundled metadata. Native vendor catalogs
-and OpenCode hub-native launches are not rewritten. Vendor CLI-only catalogs without
-a supported adapter are explicit skips. Copilot requires an explicit profile login and
-uses that account's `gh` token without changing the global account pin. Copilot additions
-are saved history only: its native picker continues to use the live enabled catalog. Gemini-native
-API profiles list generation-capable models, not embeddings. Saved choices remain even
-when absent from later listings: **discovery is not inference proof or current availability**.
-Changing route/account configuration selects a separate additions scope; changing only
-a credential in the same configuration retains history.
-
-### Vault
-
-`state/vault.db` holds custom launch env, provider/agent overlays and `key_command` as one JSON document, plus
-sealed secrets. `configure` edits the env (settings → environment), agent records and provider rows. `vault ls`
-shows secrets as `<prefix>***  N chars` and marks failing entries ✗ first (`--format json` keeps empty sections).
-
-```jsonc
-{
-  "agents": {"records": {"claude": {"profile": "ultra", "aliases": {"haiku": "openai:gpt-5-nano"}},
-                         "codex": {"profile": "chatgpt", "model": "databricks-gpt-6-astra", "effort": "medium"}}},
-  "env": {"MY_PROJECT_ROOT": "/home/me/work", "SOME_API_TOKEN": "@secret"},   // @secret = vault secret of that name
-  "providers": {"default": "example"}, "vault": {"key_command": ""}
-}
-```
-
-## Credentials
-
-First non-empty source wins, name by name: the canonical secret name (`ANTHROPIC_KEY`) as **process env**, then in the
-**vault** (`claude-code vault set <KEY>`, AES-256-GCM); then `auth.env` (`ANTHROPIC_API_KEY`) the same way; then
-**`auth.file`** → **`auth.command`** (prints the credential; cached `auth.ttl` seconds, default 300, re-run on 401).
-Sealed `oauth`/`m2m`/`pat` credentials come from the vault only; `cli` profiles use the CLI's own login.
-
-Example: `"auth": {"type": "key", "command": "op read op://Private/example/credential", "ttl": 3600}`.
-`claude-code resolve --profile <p>` is the `apiKeyHelper` Claude Code calls, so no key lands in `settings.json`.
-
-```bash
-claude-code vault set [KEY]            # bare on a terminal = guided dialog
-claude-code vault get KEY... [--export]
-claude-code vault import keys.env      # then delete the plaintext file
-claude-code vault get KEY... | ssh box claude-code vault import - --yes
-claude-code doctor --scan|--git|--secrets   # leak audits; never print values
-```
-
-**Databricks:** an `oauth` profile seals refresh + access tokens together (`DATABRICKS_<PROFILE>_OAUTH`); `pat` is
-sealed too; `m2m` tokens are minted per use, the service-principal secret stays sealed (`DATABRICKS_<PROFILE>_M2M`).
-`claude-code databricks token [--profile <id>] [--auth oauth|m2m|pat] [--copy] [--clear-after 30s]` prints type,
-length and expiry, never the token; `--copy` clears the clipboard after 30s (kept out of Win+V history on WSL; macOS
-clipboard managers and a killed clear process can still keep it). `configure` → databricks offers Set up (OAuth
-sign-in, verify, apply) / Login / Paste PAT / Token / Copy token / Apply to agents / Identity.
-
-**The vault key** — 32 random bytes from `HARNESS_VAULT_KEY` → OS keyring (service `claude-code`) → `key_command` (a
-JSON argv, no shell). No key file is written; headless boxes set one of the first or last; `HARNESS_KEYRING=off`
-skips the keyring. `HARNESS_VAULT_KEY` is scrubbed from agent CLI children. `vault rotate-secret` re-seals and keeps
-old keys.
-
-### Environment overrides
-
-Process env read directly by the harness (not pins; set them in the shell or the vault's `env`):
-
-| Variable | Effect |
+| Path | Holds |
 | --- | --- |
-| `HARNESS_KEEP_ENV` | comma-separated names an agent CLI child keeps; codex, copilot, gemini and opencode otherwise drop every inherited `*_KEY`, `*_TOKEN`, `*_SECRET`, `*_PASSWORD` and `*_CREDENTIALS` name except their own login (launch values are added after the scrub) |
-| `COWORKER_OVERLAY` | the whole `--overlay` dispatch document (routing keys plus the env layer; `rules/harness/agent.md`): a file path (regular, yours, not group/world-writable, <=64 KiB), inline JSON `'{...}'` or `-` (stdin), applied to the launched child only (one hop: a nested dispatch inherits it cut to `provider`/`profile`, its confinement); `set` secrets only as `@secret:<NAME>`; refused env names: see `rules/harness/agent.md` |
-| `HARNESS_KEYRING=off` | skip the OS keyring when finding the vault key |
-| `CLAUDE_RECALL_SEMANTIC=0` | memory recall ranks by keyword only (no embeddings) |
-| `OPENCODE_DB` | opencode's database: a file name under its data dir, an absolute path, or `:memory:` |
-| `DATABRICKS_CONFIG_FILE` | Databricks CLI config file (default `~/.databrickscfg`) |
-| `CLAUDE_WL_PASTE_PROXY` | `wl-paste` proxy mode: `0` off, `1` intercept, `reject`; unset = automatic |
-| `AGENT_ERROR_FALLBACK` | one of none, pin, agents, all (`1`/`true`/`yes` = all): how a failed dispatch falls back; unset = `none` (exit on the error); process env beats the vault env |
-| `HARNESS_EGRESS_HOST` | set by `--remote <h>`: Databricks workspace requests leave through that ssh host |
-| `HARNESS_REMOTE_BIN` | the remote `claude-code` binary for `--host` runs |
-| `CLAUDE_REMOTE_HOST` | the machine `--host auto` and `--remote auto` name (`rules/harness/network.md`) |
-| `HARNESS_ALLOW_OPENCODE_2X` | any value lets one install link an opencode newer than 1.x |
-| `HARNESS_MODEL_CACHE_TTL` | Go duration a saved discovery snapshot stays fresh for launches and copilot (default `24h`) |
-| `HARNESS_USAGE_CACHE_TTL` | seconds a usage fetch stays fresh (default 60; 0 = always refetch) |
-| `HARNESS_USAGE_WARN_PCT` | quota warning threshold in percent, `(0,100]` (default 80) |
+| `cmd/claude-code/`, `internal/` | The binary; `internal/cli` is the command table, logic lives in each package |
+| `internal/settings/hookspec.go`, `internal/hooks/` | Hook declarations and their handlers |
+| `agents/`, `commands/`, `workflows/` | Subagents, slash commands, Workflow scripts |
+| `rules/`, `skills/` | Standards and gotchas Claude loads; on-demand how-to references |
+| `state/vault.db` | The encrypted vault (untracked): secrets, pins, provider and agent overlays |
+| `memory/` | The memory bank, a local-only git repo that is never pushed |
+| `settings.json` | Yours: hand-edited and untracked |
 
-## Naming
+The full map is `CLAUDE.md` → Where things live. State formats, backups, `container/` and `mods/`:
+[`rules/harness/commands.md`](rules/harness/commands.md) → Layout.
 
-| Term | Means | Values |
+## Agents and dispatch
+
+`claude-code agents ask --agent <name> "<task>"` runs a task on another agent CLI and prints an envelope; without
+`--tools` the agent is read-only. Batches, retries, remote hosts and reviews: `claude-code agents ask -h` and
+[`rules/harness/agent.md`](rules/harness/agent.md). Examples:
+[`rules/harness/commands.md`](rules/harness/commands.md) → Agents. In-session fan-out:
+[`rules/workflows/master-workflow.md`](rules/workflows/master-workflow.md).
+
+## Providers and credentials
+
+A **provider** hosts an endpoint, a **profile** is an account on it, and a model alias (`opus`, `sonnet`) maps to a
+model id per profile. Built-ins are in `internal/providers/defaults.json`; `claude-code switch <profile>` pins the
+session profile and `claude-code configure provider --list` shows credential state. **Secrets live only in the
+encrypted vault (`claude-code vault set`) or a provider's `auth.command`**, never in a plain file or `settings.json`.
+The vault key comes from the OS keyring, `HARNESS_VAULT_KEY` or `key_command`. Commands:
+[`rules/harness/providers.md`](rules/harness/providers.md). File shape, credential order, naming, routing and the
+Databricks menu sync: [`rules/harness/providers-reference.md`](rules/harness/providers-reference.md).
+
+## Safety
+
+The guards are Claude Code hooks (`internal/hooks/safety/`, `internal/hooks/wthook/`) and a permission layer for the
+other agent CLIs (`internal/agent/`). "Main" is the interactive session you drive; a "leaf" is a dispatched agent or
+subagent. Per-hook matrix: [`rules/harness/hooks.md`](rules/harness/hooks.md).
+
+| Situation | What happens | Applies to |
 | --- | --- | --- |
-| agent | the CLI doing the work | `claude` `codex` `copilot` `opencode` `gemini` |
-| provider | the platform hosting the endpoint | `anthropic` `databricks` `github` `openai` `google` |
-| profile | an account on a provider; carries billing | unique across all providers, `[A-Za-z0-9_-]`, opaque to code |
-| auth | how a profile proves who it is | `oauth` (user login) `m2m` (service principal) `pat` `key` `cli` (agent's own login) `none` |
-| model | what `--model` takes | an alias (`opus`, follows the table), a version (`opus-5-5`, pinned), a full wire id or a bare served endpoint name (`gpt-6-1-terra`) |
-| proxy · router | the loopback daemon · the agent + model pick | `gateway proxy` · `gateway` |
-| wire | the protocol a model rides (`providers.WireFor`): Claude → `anthropic`, Responses-only → `responses`, else `openai` | `anthropic` `openai` `responses` |
-| default · agent record | what the harness picks when nothing is set · the user's own choice, saved in the vault | flag beats session profile beats agent record beats default; no profile = off, claude always on |
+| `git stash`, `checkout`, `switch`, `reset`, `restore`, `clean` in `~/.claude` | Blocked; make a new commit or use a linked worktree | main and leaves |
+| `git commit --amend`, `rebase`, `reset <commit>` that rewrite commits in a shared checkout | Blocked | main and leaves |
+| Force push to `main` or `master` | Blocked; push a branch and open a PR | main and leaves |
+| `git add` or `commit` of a file another live session or agent has uncommitted edits in | Ask, or block for a leaf under `~/.claude` | main and leaves |
+| `claude-code worktree commit` | Commits only the files you name and rolls the index back on failure; a leaf must name its files | main and leaves |
+| AI-attribution footer in a commit message | Blocked; `worktree commit` also strips them | main and leaves |
+| A command that prints a token piped to `curl`, `nc` or `wget` | Blocked | main and leaves |
+| `claude-code vault get --key` (the vault master key) | Ask in main; blocked in a leaf | main, leaves |
+| `kubectl` or `oc` `exec`, `delete`, `oc rsh` on a production context | Ask in main; blocked in a leaf | main, leaves |
+| `make audit`, `make install`, `make fmt` inside this repository | Blocked for a leaf; `make lint` stays open to all | leaves |
+| Read-only agent (no `--tools`) | Only an allow list of read commands runs; writes and redirects are denied | dispatched agents |
+| Unsetting or overriding the `HARNESS_DISPATCH_*` variables | Blocked, so a nested dispatch keeps its limits | leaves |
+| A relay (an agent that only forwards a task) | May run `claude-code` verbs, read-only commands and `go build\|vet\|test` in listed shapes, never `worktree commit` | relay leaves |
+| A leaf writing `settings.json` | Blocked | leaves |
 
-Retired words: runner and vendor (→ agent), router for the daemon (→ proxy), slot and tier (→ model alias; "tier
-bucket" is the exception: an alias's ordered Databricks list in `internal/router/table.json`), leg (→ dispatch),
-family (→ provider), pin, preference and saved override (→ agent record; the `models --pin` flag keeps its name),
-first-party (→ Anthropic, or the agent's own login). `gateway` names the verb namespace only; the Databricks wire is
-`serving` (`ai-gateway` is refused).
+Agent CLIs started through `claude-code <agent>` also lose inherited `*_KEY`, `*_TOKEN` and `*_SECRET` variables.
+`claude-code doctor --scan`, `--git` and `--secrets` audit configs and history for leaked credentials.
 
-| Surface | Form | Example |
-| --- | --- | --- |
-| Label (display) | `<agent> → <provider>·<profile>/<model>` | `copilot → databricks·dev/databricks-claude-opus-5-5` |
-| Agent record (vault) | one per agent: profile, model, effort, context, account, aliases | `vault ls` AGENT table, `configure` agent pages |
-| Vault secret | the tree path flattened, stopping at auth; a profile named after its provider is written once | `DATABRICKS_PROD_OAUTH`, `ANTHROPIC_KEY` |
+**What the guards are not.** They read command text, so they catch mistakes and obvious misuse, not a determined
+program that hides what it runs. For real isolation use the container image (`container/`) and the vendor sandboxes.
 
-Agent records are read from the vault, never inherited env; vendor-read env (`ANTHROPIC_*`, `CLAUDE_CODE_*`,
-`COPILOT_*`) is only exported at launch, never renamed; model ids are built per provider from the canonical
-form (`opus-5-5` → `claude-opus-5-5`, `databricks-claude-opus-5-5`, `system.ai.claude-opus-5-5`); code never
-parses a profile name.
+## Design decisions
 
-| Provider | Profile | Auth | Vault entry |
-| --- | --- | --- | --- |
-| anthropic | `ultra` · `anthropic` | `cli` · `key` | `CLAUDE_CODE_OAUTH_TOKEN` (optional, headless Max) · `ANTHROPIC_KEY` |
-| databricks | `dev`, `qa`, `prod` · service principals | `oauth` · `m2m` | `DATABRICKS_<PROFILE>_OAUTH` · `DATABRICKS_<PROFILE>_M2M` |
-| github | `copilot` (own login), one row per GitHub username | `cli` (gh / `copilot login`) | `COPILOT_GITHUB_TOKEN` (optional; beats gh's active account) |
-| openai | `chatgpt` · `openai` | `cli` · `key` | none · `OPENAI_KEY` |
-| google | `antigravity` | `cli` | none |
-
-opencode's go/zen accounts stay outside the tree for now (`OPENCODE_API_KEY`).
-
-## Routing
-
-`claude` launches **direct** when the provider speaks `anthropic`, every model alias stays on it, and no `fallback` is
-set. Otherwise it goes through the **loopback proxy** (`127.0.0.1:18765`, started on demand), which:
-
-1. requires a per-install client secret (vault `CLAUDE_CODE_ROUTER_SECRET`; `resolve --proxy` prints a scoped session
-   token, never the secret) and a loopback `Host`;
-2. resolves `model` (`id` or `provider:model`) and strips `[1m]`;
-3. passes `anthropic` routes through; translates Messages ⇄ chat-completions for `openai` routes (streaming, tools);
-4. refreshes the credential and replays once on 401/403 (the error names the remedy for the row's auth type);
-5. fails over along `fallback` on 429/5xx/connect error before the first byte;
-6. on a hard-quota 429 demotes opus → sonnet → haiku and skips the dead model for 30 minutes;
-7. returns an upstream 400 `prompt is too long` as a clean `invalid_request_error`, never retried.
-
-Provider hostnames resolving into the local network are refused (a literal IP or `localhost` is allowed). The proxy
-disables Remote Control, so a subscription session stays direct under a `fallback` ladder. Upstream requests carry
-`User-Agent: claude-code/<version> <agent>`; `HARNESS_HEADERS` (one `Name: value` per line, ≤ 4 KiB)
-adds upstream headers; invalid lines are dropped, and auth, attribution and framing headers cannot be overridden.
-
-```bash
-claude-code gateway proxy [--start|--stop|--restart|--status]   # bare = --status
-claude-code gateway proxy --serve --port 18765        # foreground
-claude-code gateway [--model M] [--task "<text>"]   # agent + model pick
-```
-
-## Agents
-
-```bash
-claude-code agents list                                # agents and availability
-claude-code agents ask --agent codex "Review this branch."    # one-shot; --format json, --tools, --effort
-claude-code agents ask --agents <json|file> --agent <name> "<task>"   # inline agent definitions
-claude-code agents status | ask --retry <id>                   # recent dispatches; replay one
-claude-code agents ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many tasks on a pool; one envelope per line
-claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- forces passthrough
-claude-code opencode catalog [list|add|remove|import|reset|check|sync]   # shared Databricks model menu
-claude-code codex review --adversarial --base main     # per-agent verbs; claude-code codex -h lists them
-claude-code claude review --base main --overlay '{"cloud":true}'   # cloud ultrareview; sends the diff to Anthropic
-claude-code codex cloud exec "<task>" --env <id> --overlay '{"cloud":true}'   # Codex Cloud; status|list|diff|apply
-claude-code agents ask --agent gemini --tools --dirs internal "<task>"  # one 1M-context sweep via agy
-claude-code agents ask --agent codex --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools "<task>"
-                                                       # per-call config
-claude-code usage --days 7                             # subagent token usage
-claude-code usage --context                          # where one session's context went, by source
-```
-
-Without `--tools`, agents are read-only. `agents sync` renders under `state/projections/<agent>/`, installs into
-`~/.codex`, `~/.copilot`, `~/.gemini`, `~/.config/opencode`, and links `skills/` into `~/.agents/skills` (plus gemini's
-and copilot's own skills dirs); no AGENTS.md lives at this root (Claude Code would load it as a second CLAUDE.md).
-claude.ai `skills/synced/**` is linked for no agent; opencode reads it from `~/.claude/skills` natively. Envelope
-fields, instruction sources and per-agent behavior: `rules/harness/agent.md`; in-session fan-out:
-`rules/workflows/master-workflow.md`.
-
-### Sync the Databricks model menu
-
-Menu sync is explicit and repeatable, never a launch-time network call. Select a **serving** profile; sync uses
-its existing authentication and **Serving Endpoints only**, rejecting non-serving and non-Databricks profiles
-before requests. `--profile` is required (no pin fallback), and positional arguments are not accepted.
-
-A copilot registry launch does touch the network: it validates identity on every launch, then uses the sealed
-snapshot for 24h. It lists live on a miss, a stale snapshot, or a model the snapshot doesn't have.
-
-```bash
-claude-code opencode catalog sync --profile dev             # authenticated cache reuse, or discover on miss
-claude-code opencode catalog sync --profile dev --dry-run   # explicit preview; no discovery/menu writes
-claude-code opencode catalog sync --profile dev --refresh   # force discovery; no stale fallback on failure
-claude-code opencode catalog sync --profile dev --verify    # probe eligible endpoints before previewing additions
-claude-code opencode catalog sync --profile dev --verify --apply  # seal snapshot/results and add non-failures
-claude-code opencode catalog check --profile dev --all      # existing tiny inference/tool probes
-```
-
-Every sync first validates the current credential via the workspace's SCIM `Me` endpoint (HTTP 200, nonempty
-identity ID, not explicitly inactive). Token presence or expiry alone is not accepted as proof. This establishes
-**valid identity, not endpoint permissions**. A refreshed token for the same identity can reuse discovery.
-
-Discovery and sanitized probe outcomes are **encrypted vault secrets**, separate from the plaintext menu overlay.
-The `model-discovery/v1/<sha256 JSON scope>` key covers the resolved profile name, CLI profile, normalized workspace
-host, serving spelling rule, resolved Anthropic/chat/Responses route URLs and authenticated subject ID.
-Changed route URLs cannot reuse old discovery/probe snapshots. No token, token fingerprint, raw probe error or secret
-prefix is stored in the snapshot. `catalog sync` has **no TTL**: use `--refresh` when the serving catalog
-changes. An unlocked vault key is required; vault/decryption and authentication errors fail closed, even with
-`--refresh`. Refresh can
-replace invalid snapshot JSON/schema only after successful decryption. It cannot overwrite inaccessible ciphertext.
-A successful refresh retains readable historical probe results until
-`--verify` replaces them.
-
-Preview/`--dry-run` never saves discovery, verification results or menu changes; normal authentication may refresh
-its own credentials. `--apply` (exclusive with `--dry-run`) seals a new/refreshed or freshly verified snapshot even
-with zero menu additions. An unchanged cache hit is not rewritten. Launches consume the existing saved menu;
-they do not perform discovery or identity validation for this cache.
-
-Sync selects non-gateway `READY` endpoints with task `llm/v1/chat` and a `databricks-` name whose canonical menu ID
-round-trips to the exact serving name. It deduplicates and sorts eligible IDs, then appends only absent entries.
-Existing entries retain their order, labels and explicit Responses flags, even when absent from discovery;
-new entries use the catalog's inferred Responses flag. Chat-only ids never use Responses, and a flag that matches
-the catalog is not stored. Nothing is removed. Failed probe outcomes block new
-additions, including cached outcomes explicitly labeled **historical**, not live. Listing-only models without a
-known failed check may be added as **discovered/unverified**. Empty discovery and no-change runs do not write the
-menu. Discovery/authentication failures do not save a snapshot or change the menu.
-
-`--verify` uses existing menu Responses flags and catalog inference for new models, following the clients' resolved
-routes: Responses entries use `/responses`, otherwise Claude uses the native Anthropic route's `/v1/messages` when
-present, and other models use the chat route's `/chat/completions`. No route is replaced with a hardcoded base.
-Resolved routes must stay under the same workspace's HTTPS `/serving-endpoints` path; redirects are rejected.
-Verification uses four workers, 30-second request timeouts, a five-minute overall bound and token allowances of
-256 for chat, 128 for Responses and 32 for Anthropic. HTTP rejection retries without tools. Success means
-HTTP/tool-definition acceptance, **not an actual tool call or a validated generated answer**. A failed probe can
-reflect token budget or API-selection limitations rather than an unusable endpoint; no model-specific exceptions are
-applied.
-After separate successful manual verification, `catalog add --responses` can explicitly select Responses.
-Sync seals only status, HTTP code, tool-definition acceptance and latency per model, never raw error text;
-the existing `catalog check` command keeps its legacy routes, 8/16-token budgets and result storage.
-
-The vault menu overlay is **shared across profiles**, not scoped to `dev`: OpenCode uses all entries, while Codex
-only includes Responses entries with matching bundled model metadata. Relaunch `claude-code opencode` and/or
-`claude-code codex` after applying. Listing an endpoint is **not proof of inference access or tool support**;
-use `check --all` for verification. Gateway listings are not used as evidence of Serving Endpoints availability.
-
-### Clipboard over SSH
-
-Image paste in an SSH session reads the client's clipboard, never the WSL host's: the `wl-paste` shim
-(`claude-code clip paste`) and `claude-code clip` go through a forwarded socket (`/tmp/claude-clip-<user>.sock`) to a
-Mac-side bridge. Two one-time owner steps:
-
-```text
-# Mac ~/.ssh/config
-Host <wsl-host>
-    RemoteForward /tmp/claude-clip-%r.sock %d/.claude/run/clip.sock
-
-# WSL /etc/ssh/sshd_config (then: sudo systemctl restart ssh)
-StreamLocalBindUnlink yes
-```
-
-`make install` on the Mac installs an on-demand launchd agent (`clip --serve` on `~/.claude/run/clip.sock`); nothing
-runs per session. The Mac serves files only from `~/Desktop`, `~/Downloads`, `~/Documents`, `~/Pictures`, `~/Movies`,
-`~/Music` and the temp roots (anything else: `not shareable: outside <roots>`). Diagnose from the SSH session with
-`claude-code clip` (saves the image, prints its path). Failures:
-`no clipboard bridge from the SSH client (<sock>: …)` (forward missing, not a
-socket, or "is not owned by you" — a socket another user pre-bound is refused), and `no image in the SSH client's
-clipboard — copy one there first (or its bridge is down)`.
-
-## Hooks
-
-Declared as **groups** in `internal/settings/hookspec.go`, implemented in `internal/hooks/`; add one by
-registering it in a group and running `make install`. Settings carry one dispatcher entry per event
-(`claude-code hook <Event>`). The `safety` group (`safety-scan`: blocks destructive Bash, asks on
-intent-dependent commands) keeps its own process. `HARNESS_HOOK_SKIP=<module>[,…]|all` skips modules for dev
-(`rules/harness/hooks.md`).
-
-| Group | Does |
-| --- | --- |
-| `safety` | Bash safety gate (block / ask / warn tiers) |
-| `permission` | Agent-only gate (codex, gemini, opencode): judges each call against the dispatch's permissions |
-| `rtk` | Routes noisy command output through rtk |
-| `docs` | Markdown placement gate; plan template, dated plan copies, plan-task ticks |
-| `dispatch` | Concurrency cap (24 per account, ≤ 4 × CPUs), subagent model fill, memory pointers on spawn |
-| `paths` | Resolves Windows ⇄ `/mnt/…` paths in prompts |
-| `memory` | Injects the catalog and recall at start/prompt; context checkpoint and memory update at Stop/SessionEnd/PreCompact |
-| `format` | Formats files this session edited that are still dirty |
-| `worktree` | Creates/removes under `~/worktrees/<repo>/`, keeps the ledger |
-| `codex` | Codex only: child-agent routing and its log |
-
-The `review` group adds an advisory `review-simplicity` finding after each edit.
-Per-hook matrix and which agent runs what (block, detect-only or advisory):
-[`rules/harness/hooks.md`](rules/harness/hooks.md).
-
-## Memory bank
-
-One store, `~/.claude/memory/`: a local-only git repo, never pushed. Every workspace shares that one directory (no repo
-keys); a session gets the catalog plus the active context from any cwd, the rest loads on demand, and `memory dream`
-consolidates daily in the background. Store layout, file contracts, caps, precedence, every `memory` verb and the
-promotion ladder: `rules/workflows/memory-bank.md`.
-
-## Status line
-
-`claude-code theme statusline [--style <name>]` (`gradient`, `powerline`, `capsule`, `minimal`, `dashboard`,
-`twoline`) shows `<provider>·<profile> · <model>`, context % and git state, plus the weekly limit (`7d:N%`) or a
-minted token's time left (`m2m:42m`; labels `u2m`, `m2m`, `pat`). Segments are on unless `config.json` sets
-`"segments": {"<key>": false}`; off by default: `proxy`, `duration`, `session`. Others: `path`, `model`, `provider`,
-`context`, `limits`, `total` (`1.23M`, `+` while dispatches run), `git`, `velocity`. Config:
-`~/.claude/state/statusline/config.json`.
-
-## Layout
-
-`CLAUDE.md` → Where things live. State: `state/vault.db` (untracked), `state/harness/<owner>/` (versioned per the
-`internal/schemas` registry; formats migrate on read, `doctor` reports `formats`),
-`state/harness/backups/` (every plaintext backup, via `paths.Backup`);
-`docs/templates/` indexes every embedded (`//go:embed`) template.
-`container/` holds the Ubuntu harness image, built and run with podman (`make image|image-audit|image-shell`); with no
-root or `sudo`, Linux installs Tailscale's static binaries into `~/.local/bin` and does not start the daemon.
-`mods/slash-usage/` is a TypeScript plugin, built with `tsc -p mods/<name>`. `mods/agents-band/` is kept in the
-tree but not loaded; add its path to `CLAUDE_CODE_PLUGIN_DIRS` (then `/reload-plugins`) to try it: a band of live
-leaves, each expandable to the files it holds and its latest note, plus the free dirty files (`agents tree --files`;
-plain rows on an older binary).
-
-## Command reference
-
-| To… | Run |
-| --- | --- |
-| Adopt, wipe or scope a `.claude/` | `claude-code install --setup adopt\|nuke\|workspace` |
-| Bash tab completion | `claude-code completion --install` |
-| OpenCode reasoning effort | TUI `ctrl+t` · `opencode run --variant high` · `claude-code agents ask --effort high` |
-| Worktrees under `~/worktrees/<repo>/` | `claude-code worktree list\|create <n>\|merge <n>\|clean <n>\|clean-all` |
-| Subagent status and dispatches | `claude-code agents tree [--watch\|--detail]` · `agents cancel --lost [--dry-run]` |
-| What an agent changed, in its files, passing the gates, routed right | `claude-code agents diff [--path <p>]... [--check] [--verify <id>]` |
-| Search repo code deterministically (tracked and new files, never ignored ones) | `claude-code agents find <pattern> [--name\|--func\|--def\|--callers] [-i] [-w] [-l] [--path <p>]... [--max 200] [--format text\|json]` |
-| Merge another machine's memory, try on a copy | `claude-code memory import --host <h>` · `memory sandbox` |
-| Run an agent on another tailnet box | `claude-code agents ask --host <h> --agent <a> "<task>"` · `network remote --host <h> --list --status` |
-| Browsers, web search | `claude-code network browser [--setup --browser <b>]` · `network websearch --query q` |
-| Tailnet | `claude-code network tailscale [--machines\|--connect\|--key\|--exit-node …\|--subnet <cidr> …]` (`TAILSCALE_OAUTH_CLIENT_ID`/`_SECRET` or `TAILSCALE_API_KEY` in the vault; `make install` adds it when missing) |
-| Lint a workflow script | `claude-code workflow lint` · `workflow skeleton <pattern>` |
-| Housekeeping | `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `history snapshot\|log\|diff` · `doctor --mcp` |
-| Theme, VS Code | `claude-code theme [--palettes\|--reset] [<palette>]` · `theme apply` · `theme vscode [--check\|--dry-run]` |
+- **One Go binary on the standard library, no CLI framework**: a framework or per-tool scripts would add install
+  steps and dependencies; the command table in `internal/cli` is small enough to read.
+- **Hooks declared once in `internal/settings/hookspec.go`**: each agent CLI would otherwise get its own hand-kept
+  hook set; one table is rendered into every native format, so all agents get the same guards.
+- **Guards are compiled-in code and data, not settings**: a guard stored in `settings.json` could be edited away by
+  the agent it limits.
+- **One shared checkout with file claims**: a worktree per agent would split state and merges; claims stop two
+  writers on one file, and worktrees stay opt-in.
+- **`worktree commit` takes named files and restores the index on failure**: `git add -A` and a bare commit sweep up
+  peers' edits and can leave a half-staged index.
+- **Secrets only in the encrypted vault, injected into the environment at launch**: dotenv files and
+  `settings.json` env are plain text that leaks into git and logs.
+- **One memory store for every workspace**: a bank per repository fragments what you learned. An index goes into
+  the prompt and recall loads the rest on demand.
+- **Models by alias, plus GPT family names**: ids go stale. `opus` follows the table, a family name such as `sol`
+  resolves to the newest version a provider row serves, and a concrete id pins one.
+- **`make fmt` fixes and `make lint` only checks**: a checker that edits files races with parallel agents, so only
+  the main session fixes and any agent can lint.
+- **Gates fix what is deterministic and fail only when code cannot decide**: a hook that rewrites a known-bad call
+  keeps unattended runs moving; a block is for choices that need a person.
+- **Tests check behavior through seams and never reach the network** (`internal/nonet`): live calls make tests slow,
+  flaky and dependent on credentials.
+- **CI is off; `make audit` on a clean tree is the gate before a push**: it runs the same checks locally at no cost.
 
 ## Development
 
 ```bash
-go test ./internal/<pkg>   # while developing — only what you touched
-make fmt                   # format + auto-fix go, md, js; copilot fixes the rest (AGENT=off skips it)
-make lint                  # check go, shell, yaml, make help, md, workflows; auto-wraps own memory banks
-make audit                 # full gate on the working-tree build (live binary untouched), once before pushing
+go test ./internal/<pkg>   # while developing: only the package you touched
+make lint                  # checks only, writes nothing; any agent may run it
+make fmt                   # fixes go, yaml, markdown and memory banks; main session only
+make test                  # the full test suite
+make audit                 # full local gate on a clean tree; run before every push (main session)
 ```
 
-- `git push` runs no gate (`.githooks/pre-push` is disabled) and CI is manual-only: run `make audit` locally before
-  pushing.
-- `settings.json` is yours (hand-edited, untracked); install never writes an existing one:
-  `rules/harness/settings-management.md`.
+`git push` runs no gate and CI is off. `settings.json` is yours; see
+[`rules/harness/settings-management.md`](rules/harness/settings-management.md). `make help` lists every target.
+
+## License
+
+MIT, see [`LICENSE`](LICENSE).

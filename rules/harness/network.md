@@ -1,6 +1,7 @@
 ---
 paths:
   - "internal/network/**"
+  - "internal/clipboard/**"
   - "internal/setup/**"
 ---
 # Network, Web, MCP, Cleanup
@@ -40,3 +41,26 @@ paths:
 - `doctor --mcp` is read-only: propose the fix (`claude mcp remove <name> -s <scope>`, or move a token to `${ENV}` via
   `vault set`); never remove or rotate without the user's confirmation.
 - `clean` applies by default (`--dry-run` previews) and never sweeps credentials or settings.
+
+## Clipboard over SSH
+
+Image paste in an SSH session reads the client's clipboard, never the WSL host's: the `wl-paste` shim
+(`claude-code clip paste`) and `claude-code clip` go through a forwarded socket (`/tmp/claude-clip-<user>.sock`) to a
+Mac-side bridge. Two one-time owner steps:
+
+```text
+# Mac ~/.ssh/config
+Host <wsl-host>
+    RemoteForward /tmp/claude-clip-%r.sock %d/.claude/run/clip.sock
+
+# WSL /etc/ssh/sshd_config (then: sudo systemctl restart ssh)
+StreamLocalBindUnlink yes
+```
+
+`make install` on the Mac installs an on-demand launchd agent (`clip --serve` on `~/.claude/run/clip.sock`); nothing
+runs per session. The Mac serves files only from `~/Desktop`, `~/Downloads`, `~/Documents`, `~/Pictures`, `~/Movies`,
+`~/Music` and the temp roots (anything else: `not shareable: outside <roots>`). Diagnose from the SSH session with
+`claude-code clip` (saves the image, prints its path). Failures:
+`no clipboard bridge from the SSH client (<sock>: …)` (forward missing, not a
+socket, or "is not owned by you" — a socket another user pre-bound is refused), and `no image in the SSH client's
+clipboard — copy one there first (or its bridge is down)`.
