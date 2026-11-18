@@ -1,6 +1,9 @@
 package source
 
 import (
+	"bufio"
+	"bytes"
+	"context"
 	"fmt"
 	"go/ast"
 	"go/build/constraint"
@@ -8,12 +11,14 @@ import (
 	"go/token"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 )
 
 // lineSpans are inclusive 1-based line ranges of the added or changed lines of one file.
@@ -50,18 +55,124 @@ func parseHunkSpans(diff string) lineSpans {
 	return spans
 }
 
-// renamedFrom is the path a file had at base when git pairs it as a rename ("" otherwise).
-func renamedFrom(path, base string) string {
-	out, err := GitInherit(".", "diff", "-M", "--relative", "--name-status", base)
+// gitBatch holds the git answers for a whole run, asked once instead of once per file.
+type gitBatch struct {
+	renames   map[string]string
+	untracked map[string]bool
+	spans     map[string]lineSpans // nil when the batched diff failed
+	bases     map[string]string
+}
+
+// renameMap maps each path git pairs as a rename against base to the path it had there.
+func renameMap(base string) map[string]string {
+	out := map[string]string{}
+	text, err := GitInherit(".", "diff", "-M", "--relative", "--name-status", base)
 	if err != nil {
-		return ""
+		return out
 	}
-	for l := range strings.SplitSeq(out, "\n") {
-		if f := strings.Split(l, "\t"); len(f) == 3 && f[0][0] == 'R' && f[2] == path {
-			return f[1]
+	for l := range strings.SplitSeq(text, "\n") {
+		if f := strings.Split(l, "\t"); len(f) == 3 && f[0][0] == 'R' {
+			out[f[2]] = f[1]
 		}
 	}
-	return ""
+	return out
+}
+
+// diffHeaderPath is the path of a `diff --git a/P b/P` header (same path both sides, as with --no-renames).
+func diffHeaderPath(head string) string {
+	if q, err := strconv.QuotedPrefix(head); err == nil {
+		p, _ := strconv.Unquote(q)
+		return strings.TrimPrefix(p, "a/")
+	}
+	if len(head) < 5 {
+		return ""
+	}
+	return head[2 : 2+(len(head)-5)/2]
+}
+
+// batchSpans parses one repo-wide `git diff -U0` into each .go file's changed spans (nil when git fails).
+func batchSpans(base string) map[string]lineSpans {
+	text, err := GitInherit(".", "-c", "core.quotepath=false", "diff", "--no-renames", "-U0", "--relative",
+		"--src-prefix=a/", "--dst-prefix=b/", base, "--", "*.go")
+	if err != nil {
+		return nil
+	}
+	out := map[string]lineSpans{}
+	for _, sec := range strings.Split("\n"+text, "\ndiff --git ")[1:] {
+		head, body, _ := strings.Cut(sec, "\n")
+		out[diffHeaderPath(head)] = parseHunkSpans(body)
+	}
+	return out
+}
+
+// catBlobs reads each `<rev>:<path>` spec through one `git cat-file --batch`; missing blobs are absent.
+func catBlobs(specs []string) map[string]string {
+	out := map[string]string{}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "git", "cat-file", "--batch")
+	cmd.Stdin = strings.NewReader(strings.Join(specs, "\n") + "\n")
+	raw, err := cmd.Output()
+	if err != nil {
+		return out
+	}
+	r := bufio.NewReader(bytes.NewReader(raw))
+	for _, spec := range specs {
+		hdr, err := r.ReadString('\n')
+		if err != nil {
+			break
+		}
+		f := strings.Fields(hdr)
+		if len(f) != 3 {
+			continue
+		}
+		size, convErr := strconv.Atoi(f[2])
+		if convErr != nil {
+			continue
+		}
+		body := make([]byte, size+1)
+		if _, err := io.ReadFull(r, body); err != nil {
+			break
+		}
+		if f[1] == "blob" {
+			out[spec] = strings.TrimRight(string(body), "\n")
+		}
+	}
+	return out
+}
+
+func baseSpec(base, old string) string { return base + ":./" + old }
+
+// loadGitBatch asks git once for the renames, untracked files, changed spans and base texts of files.
+func loadGitBatch(files []string, base string) *gitBatch {
+	g := &gitBatch{renames: renameMap(base), untracked: map[string]bool{}, spans: batchSpans(base)}
+	if l, err := gitLines(".", "ls-files", "--others", "--exclude-standard", "--", "*.go"); err == nil {
+		for _, f := range l {
+			g.untracked[f] = true
+		}
+	}
+	specs := make([]string, len(files))
+	for i, f := range files {
+		old := g.renames[f]
+		if old == "" {
+			old = f
+		}
+		specs[i] = baseSpec(base, old)
+	}
+	g.bases = catBlobs(specs)
+	return g
+}
+
+// changed is changedSpans answered from the batch; renamed, non-local and unbatched paths ask git per file.
+func (g *gitBatch) changed(path, old, base string) (lineSpans, error) {
+	key := filepath.ToSlash(filepath.Clean(path))
+	if g.spans == nil || old != path || !filepath.IsLocal(path) {
+		return changedSpans(path, old, base)
+	}
+	if g.untracked[key] {
+		return lineSpans{{1, 1 << 30}}, nil
+	}
+	return g.spans[key], nil
 }
 
 // changedSpans is the added or changed lines of path against base (old: its path there); untracked is all changed.
@@ -221,20 +332,20 @@ func testLayoutViolations(path, text, base string) []string {
 }
 
 // newGoViolations lists the rules path breaks on lines changed since base, as "path:line: message".
-func newGoViolations(path, base string) ([]string, error) {
+func newGoViolations(path, base string, g *gitBatch) ([]string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
-	old := renamedFrom(path, base)
+	old := g.renames[path]
 	if old == "" {
 		old = path
 	}
-	spans, err := changedSpans(path, old, base)
+	spans, err := g.changed(path, old, base)
 	if err != nil {
 		return nil, err
 	}
-	baseText, _ := GitInherit(".", "show", base+":./"+old)
+	baseText := g.bases[baseSpec(base, old)]
 	text := string(data)
 	out, err := sizeViolations(path, text, baseText, spans)
 	if err != nil {
@@ -251,12 +362,18 @@ func newGoViolations(path, base string) ([]string, error) {
 
 // failOnNewViolations prints new comment and size violations in the changed Go files; exit 1 when any.
 func failOnNewViolations(files []string, base string, stdout, stderr io.Writer) int {
-	var found []string
+	var found, goFiles []string
 	for _, f := range files {
-		if !strings.HasSuffix(f, ".go") {
-			continue
+		if strings.HasSuffix(f, ".go") {
+			goFiles = append(goFiles, f)
 		}
-		v, err := newGoViolations(f, base)
+	}
+	g := &gitBatch{}
+	if len(goFiles) > 0 {
+		g = loadGitBatch(goFiles, base)
+	}
+	for _, f := range goFiles {
+		v, err := newGoViolations(f, base, g)
 		if err != nil {
 			fmt.Fprintf(stderr, "review simplify: %s: %v\n", f, err)
 			return 1

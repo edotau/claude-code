@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func BenchmarkCommentViolations(b *testing.B) {
@@ -50,5 +52,29 @@ func TestTestLayoutViolations(t *testing.T) {
 		if got := testLayoutViolations(path, c.text, c.base); len(got) != c.want {
 			t.Errorf("%s: %v, want %d finding(s)", c.name, got, c.want)
 		}
+	}
+}
+
+func TestRunSimplifyFailBatchedGitAnswers(t *testing.T) {
+	dir := gitFixture(t)
+	stack := "\n// one\n// two\nfunc A() {}\n"
+	for _, f := range []string{"old.go", "gone.go", "sp ace.go", "far.go"} {
+		hosttest.WriteRel(t, dir, f, longGo())
+	}
+	hosttest.In(t, dir, "add", ".")
+	hosttest.In(t, dir, "commit", "-qm", "base")
+	hosttest.In(t, dir, "mv", "old.go", "new.go")
+	hosttest.In(t, dir, "rm", "-q", "gone.go")
+	hosttest.WriteRel(t, dir, "new.go", longGo()+stack)
+	hosttest.WriteRel(t, dir, "sp ace.go", longGo()+stack)
+	hosttest.WriteRel(t, dir, "fresh.go", "package fx\n"+stack)
+	code, out := runSimplifyFail(t)
+	want := "fresh.go:3: Comment block has 2 lines (max: 1)\nnew.go:74: Comment block has 2 lines (max: 1)\nsp ace.go:74: Comment block has 2 lines (max: 1)\n"
+	if code != 1 || !strings.HasPrefix(out, want) || !strings.Contains(out, "3 new violation(s)") {
+		t.Fatalf("code=%d, want only the added blocks of the renamed, spaced and untracked files:\n%s", code, out)
+	}
+	hosttest.WriteRel(t, dir, "bin.go", "package fx\n\x00\x01\n")
+	if code, out = runSimplifyFail(t); code != 1 || !strings.Contains(out, "bin.go: go syntax error") {
+		t.Fatalf("a binary .go file must fail the run (code %d):\n%s", code, out)
 	}
 }
