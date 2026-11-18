@@ -21,10 +21,11 @@ Sessions and leaves sharing one tree (always `~/.claude`; any repo where you dec
 
 Every Write/Edit, and every path a `git add` stages, is recorded per session and leaf; a claim lasts while the file is
 dirty (staged counts), its owner is live and the file has no newer commit. Before you edit a claimed file the hook
-says who holds it; staging or committing it (`git add`, `git commit`, `-a`, paths) asks, and blocks in a leaf;
-`git add -p` passes. Inspect: `tail -n 20 ~/.claude/state/harness/hooks/claims/*.jsonl`. Not covered until staged:
-edits by Bash (`sed -i`, formatters) and external agents (codex/copilot/opencode) — check `git diff <file>` first.
-Commit with explicit paths, `git commit -m "<msg>" -- <your files>`: a bare `git commit` takes whatever a peer staged.
+says who holds it; staging or committing it (`git add`, `git commit`, `-a`, paths) asks, and blocks in a leaf under
+`~/.claude`; `git add -p` passes. Inspect: `tail -n 20 ~/.claude/state/harness/hooks/claims/*.jsonl`. Not covered
+until staged: edits by Bash (`sed -i`, formatters) and external agents (codex/copilot/opencode) — check
+`git diff <file>` first. Commit with explicit paths, `git commit -m "<msg>" -- <your files>`: a bare `git commit`
+takes whatever a peer staged.
 
 ## Notices: what reaches you without a message
 
@@ -52,8 +53,9 @@ must compile against a new entry first gets its own linked worktree (`claude-cod
 ## Never rewrite shared history
 
 Rule: `CLAUDE.md` hard rule 4 and `rules/standards/worktree-git.md` → Worktrees. `safety-scan` applies it in a shared
-tree: `~/.claude`, a tree a peer works in, or a main tree where your session has live leaves (a leaf there is always
-blocked). Rewrite history only in your own linked worktree (`claude-code worktree create <slug>`). Path resets
+tree: `~/.claude`, a tree a peer works in, or a main tree where your session has live leaves (a leaf under
+`~/.claude` is always blocked; elsewhere it is held to the main session's rules). Rewrite history only in your own
+linked worktree (`claude-code worktree create <slug>`). Path resets
 (`git reset -- <file>`), `rebase --continue`/`--abort` and an infra error (with a warning) pass.
 
 ## Incident (2026-11-04)

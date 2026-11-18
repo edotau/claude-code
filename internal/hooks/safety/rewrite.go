@@ -198,7 +198,8 @@ func shareReasons(ctx context.Context, in *core.Input, top string, linked bool, 
 		return reasons, err
 	}
 	if in.AgentID != "" {
-		if tempRemovable(top) { // a leaf's own throwaway repo in a temp folder, outside every live root, is no main tree
+		// a leaf's temp repo, or any repo outside the config tree, is no main tree
+		if tempRemovable(top) || !paths.InsideDir(top, paths.ConfigDir()) {
 			return reasons, err
 		}
 		return append(reasons, "you are a leaf in the main tree"), err

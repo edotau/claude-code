@@ -466,7 +466,7 @@ func firstSighting(session, key string) bool {
 
 func clock(ts int64) string { return time.Unix(ts, 0).Format("15:04") }
 
-// stageCheck asks (a leaf: blocks) when a git add/commit in the command would stage a dirty claimed file.
+// stageCheck asks (a leaf under ~/.claude: blocks) when a git add/commit would stage a dirty claimed file.
 func (v claimView) stageCheck() core.Result {
 	var res core.Result
 	var warns []string // a fail-open warning must not hide a later invocation in the chain
@@ -475,7 +475,7 @@ func (v claimView) stageCheck() core.Result {
 	shell.EachGit(cmd, v.in.CWD, func(target, verb string, args []string) bool {
 		res = v.stageVerdict(target, verb, args)
 		if verb == shell.Uninspectable {
-			res = v.uninspectableVerdict()
+			res = v.uninspectableVerdict(target, shell.TooDeep(args) && cdWord.MatchString(cmd))
 			if shell.TooDeep(args) && !stageWord.MatchString(cmd) {
 				res = core.Result{}
 			}
@@ -531,10 +531,23 @@ func scriptHeredoc(line string) bool {
 	return false
 }
 
-// uninspectableVerdict asks (a leaf: blocks) on a command nested too deep to see what it stages.
-func (v claimView) uninspectableVerdict() core.Result {
+// leafInConfig reports a leaf working under the live config tree, the only place a leaf is blocked rather than asked.
+func leafInConfig(in *core.Input, dir string) bool {
+	cfg := paths.ConfigDir()
+	if in.AgentID == "" {
+		return false
+	}
+	_, main := paths.CheckoutOf(dir)
+	return paths.InsideDir(dir, cfg) || main != "" && paths.InsideDir(main, cfg)
+}
+
+// cdWord matches a directory change, which text too deep to inspect may hide.
+var cdWord = regexp.MustCompile(`\b(?:cd|pushd)\b`)
+
+// uninspectableVerdict asks (a leaf under ~/.claude: blocks) on a command nested too deep to see what it stages.
+func (v claimView) uninspectableVerdict(target string, hiddenCd bool) core.Result {
 	d := core.Ask
-	if v.in.AgentID != "" {
+	if leafInConfig(v.in, target) || v.in.AgentID != "" && hiddenCd {
 		d = core.Block
 	}
 	return core.Result{Decision: d, Reason: core.SafetyMessage(v.in, d, "command nests too deep to check what it stages", "",
@@ -567,7 +580,7 @@ func (v claimView) stageVerdict(target, verb string, args []string) core.Result 
 	if err != nil {
 		return claimWarn(err)
 	}
-	return stageResult(v.in, verb, taken, stageCount{total: countUnder(dirty, scopes), claimed: claimed})
+	return stageResult(v.in, top, verb, taken, stageCount{total: countUnder(dirty, scopes), claimed: claimed})
 }
 
 // stageCount sizes a stage: files the git call takes, and how many of them another owner claims.
@@ -608,8 +621,8 @@ func (v claimView) takenPaths(top string, dirty map[string]bool, scopes []string
 	return taken, claimed, nil
 }
 
-// stageResult renders the ask (main) or block (leaf) for the claimed paths, capped at claimShown.
-func stageResult(in *core.Input, verb string, taken []string, n stageCount) core.Result {
+// stageResult renders the ask (a leaf under ~/.claude: block) for the claimed paths, capped at claimShown.
+func stageResult(in *core.Input, top, verb string, taken []string, n stageCount) core.Result {
 	if len(taken) == 0 {
 		return core.Result{}
 	}
@@ -620,7 +633,7 @@ func stageResult(in *core.Input, verb string, taken []string, n stageCount) core
 		taken = taken[:claimShown]
 	}
 	d := core.Ask
-	if in.AgentID != "" {
+	if leafInConfig(in, top) {
 		d = core.Block
 	}
 	what := fmt.Sprintf("git %s takes %d file(s), %d of them edited by another live session or leaf: %s%s", verb,
