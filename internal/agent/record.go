@@ -247,6 +247,30 @@ func claimRecord(rec Record) Record {
 	}
 }
 
+// ErrJobNotFresh marks a --job record that is finished or already claimed by a live runner.
+var ErrJobNotFresh = errors.New("not a fresh background job")
+
+// ClaimJob marks a fresh running job record as this process's under the record's lock; a loser gets ErrJobNotFresh.
+func ClaimJob(id string) (Record, error) {
+	r, err := LoadRecord(id)
+	if err != nil {
+		return r, err
+	}
+	path := filepath.Join(paths.DispatchDir(), r.ID+".json")
+	err = paths.WithFileLock(path, func() error {
+		var lerr error
+		if r, lerr = readRecord(path); lerr != nil {
+			return lerr
+		}
+		if r.Status != "running" || (r.PID != 0 && r.Alive()) { // a dead pid is a runner that died mid-claim
+			return fmt.Errorf("--job %s: record is %s (pid %d), %w", r.ID, r.Status, r.PID, ErrJobNotFresh)
+		}
+		r.PID, r.PIDStart = os.Getpid(), ""
+		return r.Save()
+	})
+	return r, err
+}
+
 // recordID is the id NewRecord stamps for agent at now.
 func recordID(now time.Time, agent string) string {
 	return now.UTC().Format("20060102T150405.000") + "-" + agent
@@ -354,6 +378,7 @@ func pruneDispatches(dir string) {
 			continue
 		}
 		_ = os.Remove(filepath.Join(dir, name))
+		_ = os.Remove(filepath.Join(dir, name+".lock"))
 		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+".log"))
 		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+paths.DispatchEventsSuffix))
 		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+wire.LiveSockSuffix))

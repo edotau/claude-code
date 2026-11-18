@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -57,11 +56,14 @@ func runJob(ctx context.Context, o Options, id string, run func(context.Context,
 		fmt.Fprintln(o.Err, "not a running wave job for this plan")
 		return 2
 	}
-	rec.PID, rec.PIDStart, rec.Log = os.Getpid(), "", rec.LogPath()
-	if err = rec.Save(); err != nil {
+	if rec, err = agent.ClaimJob(rec.ID); err != nil {
 		fmt.Fprintln(o.Err, err)
+		if errors.Is(err, agent.ErrJobNotFresh) {
+			return 2
+		}
 		return 1
 	}
+	rec.Log = rec.LogPath()
 	start := time.Now()
 	code := run(ctx, o)
 	if ctx.Err() != nil {

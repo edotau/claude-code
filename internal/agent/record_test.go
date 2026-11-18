@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 	"unicode/utf8"
@@ -992,5 +993,45 @@ func TestReadRecentWithMatchesFullDecode(t *testing.T) {
 		if want := prefilterOracle(tc.keep); !slices.Equal(ids, want) || len(want) == 0 && name != "absent" {
 			t.Errorf("%s: prefiltered = %v, full decode = %v", name, ids, want)
 		}
+	}
+}
+
+func TestClaimJobExactlyOneWinner(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := ClaimRecord("codex", RunOptions{Prompt: "p"}, time.Now())
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	const n = 16
+	var wins atomic.Int32
+	start := make(chan struct{})
+	var wg sync.WaitGroup
+	for range n {
+		wg.Go(func() {
+			<-start
+			if _, err := ClaimJob(rec.ID); err == nil {
+				wins.Add(1)
+			} else if !errors.Is(err, ErrJobNotFresh) {
+				t.Error(err)
+			}
+		})
+	}
+	close(start)
+	wg.Wait()
+	if wins.Load() != 1 {
+		t.Fatalf("%d runners claimed the job, want 1", wins.Load())
+	}
+}
+
+func TestClaimJobReclaimsDeadRunner(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := ClaimRecord("codex", RunOptions{Prompt: "p"}, time.Now())
+	rec.PID = 1 << 30 // no such process
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := ClaimJob(rec.ID)
+	if err != nil || got.PID != os.Getpid() {
+		t.Fatalf("pid %d err %v, want a reclaim by this process", got.PID, err)
 	}
 }

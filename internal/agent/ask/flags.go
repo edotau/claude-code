@@ -425,7 +425,7 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Rec
 		return nil, 0, false
 	}
 	r, err := loadJobRecord(job)
-	if errors.Is(err, errJobNotFresh) {
+	if errors.Is(err, agent.ErrJobNotFresh) {
 		return nil, failAskCode(format, *s.Name, err, 2), true
 	}
 	if err != nil {
@@ -480,21 +480,8 @@ func clearTyped(fs *flag.FlagSet, s *askState) {
 	})
 }
 
-// errJobNotFresh marks a --job record that is not a fresh background job.
-var errJobNotFresh = errors.New("not a fresh background job")
-
 // loadJobRecord loads a --job record for a background run continuation and claims it for this process.
-func loadJobRecord(id string) (agent.Record, error) {
-	r, err := agent.LoadRecord(id)
-	if err != nil {
-		return r, err
-	}
-	if r.Status != "running" || r.PID != 0 {
-		return r, fmt.Errorf("--job %s: record is %s (pid %d), %w", id, r.Status, r.PID, errJobNotFresh)
-	}
-	r.PID = os.Getpid()
-	return r, nil
-}
+func loadJobRecord(id string) (agent.Record, error) { return agent.ClaimJob(id) }
 
 // resolveOverlay resolves the overlay's vault refs, failing closed; --background leaves that to its --job child.
 func resolveOverlay(ov agentconfig.Overlay, env, keep []string, background bool) (agentconfig.Resolved, error) {
