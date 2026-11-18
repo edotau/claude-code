@@ -279,7 +279,7 @@ func liveDispatchVerdict(in *core.Input, lr *leafRead, agentID string) (expired 
 			waited[i] = true
 			continue
 		}
-		res, block := leafStopVerdict(agentID, rec)
+		res, block := leafStopVerdict(agentID, rec, lr.scan.heldJobs)
 		if block { // keep the finished answers: the hold saves them and the later pass attaches them
 			lr.recs, lr.held = recs, endedReceipts(recs, waited)
 			return res, true
@@ -344,11 +344,37 @@ func pidReused(rec agent.Record) bool {
 }
 
 // leafStopVerdict blocks until the wait limit, then allows the stop with a visible note.
-func leafStopVerdict(agentID string, rec agent.Record) (core.Result, bool) {
+func leafStopVerdict(agentID string, rec agent.Record, held []string) (core.Result, bool) {
 	if time.Since(rec.Time) >= leafStopMaxWait {
 		return core.Result{SystemMessage: fmt.Sprintf("leaf %s stopped with dispatch %s still running (%s limit reached)", agentID, rec.ID, leafStopMaxWait)}, false
 	}
+	if slices.Contains(held, rec.ID) {
+		return core.Result{Decision: core.Block, Reason: repeatHold(rec.ID)}, true
+	}
 	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("Dispatch %s you started is still running. %s", rec.ID, pollOnce(rec.ID))}, true
+}
+
+// heldAgain marks a repeat hold: the job's full rule was already sent, so only its id and the command follow.
+const heldAgain = "(held again)"
+
+// repeatHold is a later hold: id, state and the full command, enough for a relay whose context was compacted.
+func repeatHold(id string) string {
+	return fmt.Sprintf("Dispatch %s is still running %s. Run `claude-code agents result -f %s` once in the foreground "+
+		"(600000ms timeout), then hand back its result.", id, heldAgain, id)
+}
+
+// heldJobRe matches the poll command either hold form sends, naming the job it held.
+var heldJobRe = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile("Run `claude-code agents result -f ([^`\\s]+)` once")
+})
+
+// addHolds records the jobs an earlier hold of this hook named, so a repeat hold can be short.
+func (s *leafScan) addHolds(text string) {
+	for _, m := range heldJobRe().FindAllStringSubmatch(text, -1) {
+		if !slices.Contains(s.heldJobs, m[1]) {
+			s.heldJobs = append(s.heldJobs, m[1])
+		}
+	}
 }
 
 // pollOnce is the relay contract's wait rule, quoted in every hold on a running job.
@@ -472,6 +498,7 @@ type leafScan struct {
 	bgAsks            []string
 	polls             map[string]pollCall // tool_use id → each `agents result <id>` call
 	reported          []string            // ids already known at the last delivered hand-back
+	heldJobs          []string            // jobs an earlier hold of this hook named in the transcript
 }
 
 // leafToolResult is one tool_result item of a user message.
@@ -593,7 +620,10 @@ func (s *leafScan) addCalls(content json.RawMessage, at time.Time) {
 func (s *leafScan) addResults(content json.RawMessage) {
 	var items []leafToolResult
 	if json.Unmarshal(content, &items) != nil {
-		if s.handedBack && !strings.Contains(transcript.ContentText(content), "hook feedback:") {
+		text := transcript.ContentText(content)
+		if strings.Contains(text, "hook feedback:") {
+			s.addHolds(text)
+		} else if s.handedBack {
 			s.resumed = true
 		}
 		return
@@ -610,6 +640,9 @@ func (s *leafScan) scanResult(it leafToolResult) {
 	raw := transcript.ContentText(it.Content)
 	text := resultText(raw)
 	denied := hookDenyRe().MatchString(text)
+	if it.IsError && denied { // a hold reaches the leaf as a denied hand-back call; a quoting tool result is no hold
+		s.addHolds(raw)
+	}
 	success := !it.IsError && !denied
 	if success && s.pendingEdits[it.ToolUseID] {
 		s.edited = true
@@ -956,11 +989,16 @@ func (s *leafScan) addPollID(job string) {
 	if err != nil || slices.Contains(s.ids, job) || rec.Owner == 0 || rec.Owner != watchOwner() {
 		return
 	}
-	if slices.ContainsFunc(s.asks, func(a askCall) bool {
-		return !a.at.IsZero() && !rec.Time.Before(a.at) && rec.Time.Sub(a.at) < askLaunchWindow && askTied(a.cmd, rec)
-	}) {
+	if askBound(s.asks, rec) {
 		s.ids = append(s.ids, job)
 	}
+}
+
+// askBound: rec was launched inside the launch window of one of asks and askTied ties it to that ask.
+func askBound(asks []askCall, rec agent.Record) bool {
+	return slices.ContainsFunc(asks, func(a askCall) bool {
+		return !a.at.IsZero() && !rec.Time.Before(a.at) && rec.Time.Sub(a.at) < askLaunchWindow && askTied(a.cmd, rec)
+	})
 }
 
 // askTied: rec has the ask's agent and a prompt holding its brief file (else its last word); no prompt ties nothing.

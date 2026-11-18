@@ -246,8 +246,8 @@ func (c pollRow) runPollRow(t *testing.T, id, good string, at time.Time, owner i
 		return // with no ask at all the hand-back passes as relay work, not by this binding
 	}
 	r := Handback(handbackOf(leafInput(tx), "relay report"))
-	if blocked := r.Decision == core.Block && strings.Contains(r.Reason, "exact dispatch id"); blocked == c.want {
-		t.Errorf("hand-back %+v, want accepted=%v", r, c.want)
+	if r.Decision == core.Block {
+		t.Errorf("hand-back %+v, want it accepted (bound=%v)", r, c.want)
 	}
 }
 

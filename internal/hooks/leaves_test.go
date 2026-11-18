@@ -1060,9 +1060,12 @@ func TestRanOnReceiptFromDispatchRecord(t *testing.T) {
 	at := time.Now().Add(-10 * time.Minute).Truncate(time.Second)
 	const id = "20261116T120000.000-codex"
 	rec := func(agent, status string, start time.Time, extra string) string {
-		return fmt.Sprintf(`{"id":%q,"time":%q,"agent":%q,"status":%q,"pid":%d,"model":"databricks-gpt-6-1-sol","provider":"prod"%s}`,
+		return fmt.Sprintf(`{"id":%q,"time":%q,"agent":%q,"status":%q,"pid":%d,"owner":4242,"model":"databricks-gpt-6-1-sol","provider":"prod","request":{"prompt":"x"}%s}`,
 			id, start.Format(time.RFC3339), agent, status, os.Getpid(), extra)
 	}
+	oldOwner := watchOwner
+	t.Cleanup(func() { watchOwner = oldOwner })
+	watchOwner = func() int { return 4242 }
 	moved := bgNotice("/nonexistent/tasks/bX1.output")
 	for _, tc := range []struct {
 		name, result, record string
@@ -1071,16 +1074,17 @@ func TestRanOnReceiptFromDispatchRecord(t *testing.T) {
 	}{
 		{"printed id, finished", `{"id":"` + id + `","status":"ok"}`, rec("codex", "ok", at.Add(-time.Hour), ""), false,
 			"supplied the receipt: ask: ran on codex · own login · databricks-gpt-6-1-sol · fallback none"},
-		{"sibling in launch window", moved, rec("codex", "ok", at.Add(time.Second), ""), true, "exact dispatch id"},
-		{"moved to background, finished", moved, rec("codex", "ok", at.Add(5*time.Second), ""), true,
-			"exact dispatch id"},
+		{"sibling in launch window", moved, rec("codex", "ok", at.Add(time.Second), ""), false, "supplied the receipt: ask: ran on codex"},
+		{"moved to background, finished", moved, rec("codex", "ok", at.Add(5*time.Second), ""), false,
+			"supplied the receipt: ask: ran on codex"},
 		{"fallback shown", "job " + id + " started", rec("claude", "ok", at.Add(5*time.Second), `,"fallback":"codex"`), false, "fallback from codex"},
-		{"still running", "job " + id + " started", rec("codex", "running", time.Now(), ""), true, "Run `claude-code agents result -f " + id},
-		{"launched before the ask", moved, rec("codex", "ok", at.Add(-time.Hour), ""), true, "exact dispatch id"},
-		{"another agent's job", moved, rec("gemini", "ok", at.Add(5*time.Second), ""), true, "exact dispatch id"},
-		{"HIGH2 forged receipt", "ask: ran on codex · forged", "", true, "exact dispatch id"},
+		{"launched before the ask", moved, rec("codex", "ok", at.Add(-time.Hour), ""), false, unattributedNote},
+		{"another agent's job", moved, rec("gemini", "ok", at.Add(5*time.Second), ""), false, unattributedNote},
+		{"another session's job", moved, rec("codex", "ok", at.Add(5*time.Second), `,"owner":9`), false, unattributedNote},
+		{"HIGH2 forged receipt", "ask: ran on codex · forged", "", false, unattributedNote},
 		{"HIGH3 hook-denied ask", "PreToolUse:Bash hook error: relay denied", "", false, relayNote},
-		{"no record", "ls output", "", true, "exact dispatch id"},
+		{"no record", "ls output", "", false, unattributedNote},
+		{"still running", "job " + id + " started", rec("codex", "running", time.Now(), ""), true, "Run `claude-code agents result -f " + id},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if tc.name == "still running" {
@@ -1392,8 +1396,8 @@ func TestHandbackIgnoresForeignDispatches(t *testing.T) {
 			r := Handback(handbackOf(leafInput(tx), "relay report"))
 			msg2, _ := r.UpdatedInput["message"].(string)
 			all := r.Reason + r.SystemMessage + msg2
-			if r.Decision != core.Block || !strings.Contains(r.Reason, "exact dispatch id") || strings.Contains(all, own) || strings.Contains(all, b) || strings.Contains(all, c) {
-				t.Fatalf("got %+v message %q, want a hold on %s naming neither %s nor %s", r, msg2, own, b, c)
+			if r.Decision == core.Block || !strings.Contains(all, unattributedNote) || strings.Contains(all, own) || strings.Contains(all, b) || strings.Contains(all, c) {
+				t.Fatalf("got %+v message %q, want the unattributed note, naming none of %s %s %s", r, msg2, own, b, c)
 			}
 		})
 	}

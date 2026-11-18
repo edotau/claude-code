@@ -244,7 +244,7 @@ func receiptFix(in *core.Input, agentID string, lr *leafRead) (core.Result, bool
 	m, hookRan := loadRelayRun(agentID)
 	if hookRan {
 		if rec, ok := hookJob(*lr, m.Output); ok {
-			return hookJobReceipt(in, rec, m.Output, lr.until)
+			return hookJobReceipt(in, rec, m.Output, *lr)
 		}
 	}
 	if recs, how, ok := leafDispatch(*lr, st); ok {
@@ -254,12 +254,7 @@ func receiptFix(in *core.Input, agentID string, lr *leafRead) (core.Result, bool
 		return relayRunPending(in, *lr, m)
 	}
 	if len(lr.scan.askTimes) > 0 || len(lr.ids) > 0 {
-		if missingIDExpired(in, lr.scan.askTimes) {
-			return missingIDLimit(in)
-		}
-		return core.Result{Decision: core.Block, Reason: "No exact dispatch id is available for your ask call. " +
-			"Recover the id from that call's saved output, then run `claude-code agents result -f <id>` " +
-			"once and hand back again; sibling dispatch records cannot supply your receipt."}, true
+		return missingIDReceipt(in, lr, st)
 	}
 	if _, _, err := relayInput(lr.scan.runLine); lr.scan.runLine != "" && (err != nil || len(shell.Segments(lr.scan.runLine)) != 1) {
 		return attach(in, "NOTE: the hook refused unsupported shell syntax in the brief's `Run:` line; this is the relay report.", jobOut{}), false
@@ -277,7 +272,7 @@ func dispatchReceipts(in *core.Input, lr *leafRead, recs []agent.Record, how str
 	var got []receipt
 	var held *core.Result
 	for _, rec := range recs {
-		r, hold := dispatchReceipt(rec, how, "", lr.until)
+		r, hold := dispatchReceipt(rec, how, "", *lr)
 		if hold != nil {
 			held = cmp.Or(held, hold)
 			continue
@@ -306,14 +301,58 @@ func briefWords(s leafScan) []string {
 	return words
 }
 
-func missingIDExpired(in *core.Input, times []time.Time) bool {
-	for _, at := range times {
-		if !at.IsZero() {
-			return time.Since(at) >= leafStopMaxWait
+// unattributedNote tops a report whose ask no dispatch record could be tied to.
+const unattributedNote = "NOTE: the relay's ask could not be attributed to a dispatch record, so the work may have been done by the relay model."
+
+// missingIDReceipt binds the one record askBound proves is this relay's; any other case is noted, never held.
+func missingIDReceipt(in *core.Input, lr *leafRead, st string) (core.Result, bool) {
+	recs := askRecords(lr.scan.askTimes, st)
+	tied := slices.DeleteFunc(slices.Clone(recs), func(r agent.Record) bool { return !askBound(lr.scan.asks, r) })
+	if len(tied) == 1 {
+		return dispatchReceipts(in, lr, tied, "looked up by session, agent, brief and launch time")
+	}
+	note := unattributedNote
+	if len(recs) > 0 {
+		ids := make([]string, len(recs))
+		for i, r := range recs {
+			ids[i] = r.ID
+		}
+		note += " Candidates (`claude-code agents result <id>`): " + strings.Join(ids, ", ") + "."
+	}
+	res := attach(in, note, jobOut{})
+	if msg, ok := res.UpdatedInput["message"].(string); ok {
+		res.UpdatedInput["message"] = labelUnverified(msg)
+	}
+	return res, false
+}
+
+// labelUnverified prefixes each relay-written `ask: ran on` line, keeping the text.
+func labelUnverified(msg string) string {
+	lines := strings.Split(msg, "\n")
+	for i, l := range lines {
+		if strings.Contains(l, "ask: ran on ") && !strings.HasPrefix(l, unverifiedLabel) {
+			lines[i] = unverifiedLabel + l
 		}
 	}
-	fi, err := os.Stat(in.AgentTranscriptPath)
-	return err == nil && time.Since(fi.ModTime()) >= leafStopMaxWait
+	return strings.Join(lines, "\n")
+}
+
+const unverifiedLabel = "unverified (written by the relay): "
+
+// askRecords is this session's records of agentName launched at or after the earliest ask, newest first.
+func askRecords(times []time.Time, agentName string) []agent.Record {
+	var first time.Time
+	for _, at := range times {
+		if !at.IsZero() && (first.IsZero() || at.Before(first)) {
+			first = at
+		}
+	}
+	if first.IsZero() {
+		return nil
+	}
+	return slices.DeleteFunc(agent.RecentRecords(agent.AllRecords), func(r agent.Record) bool {
+		return r.Owner == 0 || r.Owner != watchOwner() || r.Agent != agentName || r.Time.Before(first)
+	})
 }
 
 func missingIDLimit(in *core.Input) (core.Result, bool) {
@@ -332,8 +371,8 @@ type receipt struct {
 }
 
 // dispatchReceipt waits for rec; a job still running holds (up to the cap), a finished one gives its receipt.
-func dispatchReceipt(rec agent.Record, how, output string, until time.Time) (receipt, *core.Result) {
-	rec, err := awaitDispatch(rec, until)
+func dispatchReceipt(rec agent.Record, how, output string, lr leafRead) (receipt, *core.Result) {
+	rec, err := awaitDispatch(rec, lr.until)
 	switch {
 	case err != nil:
 		return receipt{note: fmt.Sprintf("NOTE: dispatch %s (%s) became unreadable while the hand-back waited (%v); its result "+
@@ -343,6 +382,9 @@ func dispatchReceipt(rec agent.Record, how, output string, until time.Time) (rec
 	case time.Since(rec.Time) >= leafStopMaxWait:
 		return receipt{note: fmt.Sprintf("NOTE: dispatch %s (%s) still running at the %s limit; its result is not in this report "+
 			"(`claude-code agents result %s`).", rec.ID, how, leafStopMaxWait, rec.ID)}, nil
+	}
+	if slices.Contains(lr.scan.heldJobs, rec.ID) {
+		return receipt{}, &core.Result{Decision: core.Block, Reason: repeatHold(rec.ID)}
 	}
 	return receipt{}, &core.Result{Decision: core.Block, Reason: fmt.Sprintf("Dispatch %s (%s) is still running, so your hand-back is held, "+
 		"not refused. %s", rec.ID, how, pollOnce(rec.ID))}
@@ -383,7 +425,7 @@ func relayRunPending(in *core.Input, lr leafRead, m relayRun) (core.Result, bool
 		return attach(in, "NOTE: the hook ran the brief's `Run:` line itself; it ran no agent.", body), false
 	case time.Since(m.Started) < askLaunchWindow:
 		if rec, ok := hookJob(lr, m.Output); ok {
-			return hookJobReceipt(in, rec, m.Output, lr.until)
+			return hookJobReceipt(in, rec, m.Output, lr)
 		}
 		return core.Result{Decision: core.Block, Reason: fmt.Sprintf("The hook is running your brief's `Run:` line (`%s`, output %s), "+
 			"so your hand-back is held, not refused. %s", m.Line, m.Output, handBackForID)}, true
@@ -421,8 +463,8 @@ func hookJob(lr leafRead, output string) (agent.Record, bool) {
 }
 
 // hookJobReceipt is the hook launch's job receipt once it ended, else the hold naming its id.
-func hookJobReceipt(in *core.Input, rec agent.Record, output string, until time.Time) (core.Result, bool) {
-	r, hold := dispatchReceipt(rec, "the hook ran the brief's `Run:` line itself", output, until)
+func hookJobReceipt(in *core.Input, rec agent.Record, output string, lr leafRead) (core.Result, bool) {
+	r, hold := dispatchReceipt(rec, "the hook ran the brief's `Run:` line itself", output, lr)
 	if hold != nil {
 		return *hold, true
 	}
@@ -474,7 +516,7 @@ func runBriefLine(in *core.Input, lr leafRead, agentID string, words []string) (
 		return fail(err)
 	}
 	if rec, ok := hookJob(lr, m.Output); ok {
-		return hookJobReceipt(in, rec, m.Output, lr.until)
+		return hookJobReceipt(in, rec, m.Output, lr)
 	}
 	return core.Result{Decision: core.Block, Reason: fmt.Sprintf("Your brief's `Run:` line was never run, so the hook started it "+
 		"with your brief as its task: `%s` (output %s). Your hand-back is held, not refused. %s", line, m.Output, handBackForID)}, true
@@ -628,6 +670,8 @@ func preserveReport(in *core.Input, agentID string, lr leafRead, res core.Result
 	if os.MkdirAll(filepath.Dir(path), 0o700) != nil || paths.AtomicWrite(path, []byte(text), 0o600) != nil {
 		return res
 	}
-	res.Reason += " The report you tried to hand back is saved at " + path + "."
+	if !strings.Contains(res.Reason, heldAgain) {
+		res.Reason += " The report you tried to hand back is saved at " + path + "."
+	}
 	return res
 }
