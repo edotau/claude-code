@@ -36,16 +36,15 @@ the description column. Arrow-key menu rows (`internal/ui/menu`) stay single-lin
 
 - **One test file per source file:** tests for `foo.go` live in `foo_test.go` beside it (benchmarks, fuzz, examples
   too), ordered as their subjects appear. Regression tests go in `foo_regression_test.go` only once there are 2 or
-  more. Every `*_test.go` strips (drop `_test`, then `_regression`) to an existing `.go` in its directory: no
-  `export_test.go`, `helpers_test.go` or `<topic>_test.go`; `TestMain` goes in the main source's test file. A source
-  file with 0–1 tests and no distinct role merges into the sibling it serves.
-- **Internal tests:** always `package foo`, never `package foo_test` (examples included); the one exception is
-  `internal/memory/jobscope_test.go` (`package memory_test`: `internal/agent` imports `memory`, a real cycle).
-  Fix an import cycle in
-  production code (export a `SwapX`/`StubX` seam, or move what the importer needs into its own package). A package
-  whose tests need registry rows from importers registers fixture rows in `TestMain` and fails when one is missing.
-- **Portability:** seams, mocks and speed are in `rules/standards/testing-guidelines.md` → A test must guard. No
-  `//go:build` test files and no `integration` tag: skip at runtime (`runtime.GOOS == "windows"` → `t.Skip`) and use
+  more. Layout (every `*_test.go` strips to an existing `.go`, internal `package foo` only, no build tags) is enforced
+  by `claude-code review simplify --fail`; the one exception is `internal/memory/jobscope_test.go` (import cycle).
+  `TestMain` goes in the main source's test file. A source file with 0–1 tests and no distinct role merges into the
+  sibling it serves.
+- **Internal tests:** fix an import cycle in production code (export a `SwapX`/`StubX` seam, or move what the importer
+  needs into its own package). A package whose tests need registry rows from importers registers fixture rows in
+  `TestMain` and fails when one is missing.
+- **Portability:** seams, mocks and speed are in `rules/standards/testing-guidelines.md` → A test must guard. Skip
+  at runtime (`runtime.GOOS == "windows"` → `t.Skip`) and use
   calls that compile everywhere, so `GOOS=windows go vet ./...` stays green. A test that waits out a production
   timeout makes it a package `var` and shrinks it, with bounds that scale with it.
 

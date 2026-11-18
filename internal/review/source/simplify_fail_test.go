@@ -1,6 +1,8 @@
 package source
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -15,5 +17,38 @@ func BenchmarkCommentViolations(b *testing.B) {
 				commentViolations(content, content, spans)
 			}
 		})
+	}
+}
+
+func TestTestLayoutViolations(t *testing.T) {
+	dir := t.TempDir()
+	for _, f := range []string{"ok.go", "bad.go"} {
+		if err := os.WriteFile(filepath.Join(dir, f), []byte("package x\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cases := []struct {
+		name, text, base string
+		want             int
+	}{
+		{"ok_test.go", "package x\n", "", 0},
+		{"ok_regression_test.go", "package x\n", "", 0},
+		{"helpers_test.go", "package x\n", "", 1},
+		{"bad_test.go", "package x_test\n", "", 1},
+		{"bad_regression_test.go", "//go:build linux\n\npackage x\n", "", 1},
+		{"old_test.go", "package x_test\n", "package x_test\n", 0},
+		{"bad_test.go", "package bar_test\n", "package foo_test\n", 0},
+		{"ok_test.go", "package foo_test\n", "package x\n", 1},
+		{"ok_test.go", "//go:building examples\n\npackage x\n", "", 0},
+		{"ok_test.go", "// +buildx\n\npackage x\n", "", 0},
+		{"ok_test.go", "//go:build linux\n\npackage x\n", "", 1},
+		{"ok_test.go", "// +build linux\n\npackage x\n", "", 1},
+		{"internal/memory/jobscope_test.go", "package x_test\n", "", 0},
+	}
+	for _, c := range cases {
+		path := filepath.Join(dir, c.name)
+		if got := testLayoutViolations(path, c.text, c.base); len(got) != c.want {
+			t.Errorf("%s: %v, want %d finding(s)", c.name, got, c.want)
+		}
 	}
 }
