@@ -297,6 +297,11 @@ func TickRange(ctx context.Context, dir, worktree, rng, plan string, drafts []st
 // pickPlans resolves the plans to tick and their allowed tasks; done is true when none was chosen and printed why.
 func pickPlans(dir, worktree, plan string, drafts []string, commits []Commit, w io.Writer) ([]string, map[string]func(Task) bool, bool, error) {
 	if plan != "" {
+		var err error
+		plan, err = ResolvePlan(dir, plan)
+		if err != nil {
+			return nil, nil, false, err
+		}
 		if abs, err := filepath.Abs(plan); err == nil && slices.Contains(drafts, abs) {
 			return nil, nil, false, fmt.Errorf("%s mirrors an unapproved draft; approve it before ticking", plan)
 		}
@@ -628,21 +633,39 @@ func trailerBlock(message string) []string {
 	if last < 1 || len(block) == 0 {
 		return nil
 	}
-	for i, l := range block {
-		if continuation := i > 0 && (l[0] == ' ' || l[0] == '\t'); !continuation && !trailerRe().MatchString(l) {
+	var unfolded []string
+	for i, line := range block {
+		if i > 0 && (line[0] == ' ' || line[0] == '\t') {
+			unfolded[len(unfolded)-1] += " " + strings.TrimSpace(line)
+		} else if trailerRe().MatchString(line) {
+			unfolded = append(unfolded, strings.TrimSpace(line))
+		} else {
 			return nil
 		}
 	}
-	return block
+	return unfolded
 }
 
-// namesTask reports whether message carries the trailer `Task: <plan-slug> <id>`; quoted or prose lines never count.
+func taskTrailerValues(message string) []string {
+	var values []string
+	for _, line := range trailerBlock(message) {
+		key, value, _ := strings.Cut(line, ":")
+		if strings.EqualFold(strings.TrimSpace(key), "Task") {
+			values = append(values, strings.TrimSpace(value))
+		}
+	}
+	return values
+}
+
+// namesTask compares the complete unfolded value so continuation text cannot name a shorter task.
 func namesTask(message, plan, id string) bool {
 	if id == "" {
 		return false
 	}
-	want := "Task: " + strings.TrimSuffix(filepath.Base(plan), ".md") + " " + id
-	return slices.ContainsFunc(trailerBlock(message), func(l string) bool { return strings.TrimRight(l, " \t") == want })
+	want := strings.Join(strings.Fields(strings.TrimSuffix(filepath.Base(plan), ".md")+" "+id), " ")
+	return slices.ContainsFunc(taskTrailerValues(message), func(value string) bool {
+		return strings.Join(strings.Fields(value), " ") == want
+	})
 }
 
 // candidates lists open unnamed tasks c covers, once per task: a repeat would nag on every later commit.
@@ -686,6 +709,27 @@ func announce(plan, id string, dryRun bool) bool {
 		writeMemo(keys[max(0, len(keys)-memoCap):])
 	}
 	return true
+}
+
+// ClaimLanding records a reflog move in the bounded memo before processing it.
+func ClaimLanding(root, before, after string) (fresh bool, err error) {
+	err = paths.WithFileLock(plansLock(), func() error {
+		key := "landing\t" + root + "\t" + before + "\t" + after
+		keys := readMemo()
+		if slices.Contains(keys, key) {
+			return nil
+		}
+		keys = append(keys, key)
+		if err := os.MkdirAll(ScratchDir(), 0o700); err != nil {
+			return err
+		}
+		if err := paths.AtomicWrite(memoFile(), []byte(strings.Join(keys[max(0, len(keys)-memoCap):], "\n")+"\n"), 0o600); err != nil {
+			return err
+		}
+		fresh = true
+		return nil
+	})
+	return fresh, err
 }
 
 // forget clears a task's candidate memo, so a reopened task can be announced again.
@@ -739,7 +783,7 @@ func TaskTrailers(root, plan string, ids []string) (string, error) {
 	}
 	all := loadDatedPlans(entries, home, MirrorDests())
 	if plan != "" {
-		plan, err = filepath.Abs(plan)
+		plan, err = ResolvePlan(root, plan)
 		if err != nil {
 			return "", err
 		}

@@ -321,8 +321,15 @@ func tickFastForward(in *core.Input, cmd string) core.Result {
 	if dir == "" {
 		return core.Result{}
 	}
+	fresh, err := plans.ClaimLanding(memory.GitToplevel(dir), before, after)
+	if err != nil {
+		return core.Result{Stderr: fmt.Sprintf("plan-tick: %v\n", err)}
+	}
+	if !fresh {
+		return core.Result{}
+	}
 	var notes bytes.Buffer
-	err := plans.TickRange(ctx, memory.GitToplevel(dir), "", before+".."+after, "", plans.MirrorDests(), false, &notes)
+	err = plans.TickRange(ctx, memory.GitToplevel(dir), "", before+".."+after, "", plans.MirrorDests(), false, &notes)
 	res := core.Result{Context: notes.String()}
 	if err != nil && !errors.Is(err, plans.ErrNotOnTrunk) { // a lane or a feature branch ticks nothing, by design
 		res.Stderr = fmt.Sprintf("plan-tick: %v\n", err)

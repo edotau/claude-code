@@ -80,3 +80,41 @@ func TestPlanSpecOffersTask(t *testing.T) {
 		t.Fatal("completion spec has no plan task")
 	}
 }
+
+func TestPlanExplicitBoundary(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	repo := planRepo(t, map[string]string{"2026-11-18-safe.md": "- [ ] 1.1 Safe\n", "draft.md": "- [ ] 1.1 Draft\n"})
+	home := plans.Home(repo)
+	outside := filepath.Join(t.TempDir(), "2026-11-18-outside.md")
+	hosttest.WriteRel(t, filepath.Dir(outside), filepath.Base(outside), "- [ ] 1.1 Outside\n")
+	link := filepath.Join(home, "2026-11-18-link.md")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	insideLink := filepath.Join(home, "2026-11-18-inside-link.md")
+	if err := os.Symlink(filepath.Join(home, "2026-11-18-safe.md"), insideLink); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{outside, link, insideLink, filepath.Join(home, "draft.md"), home, filepath.Join(home, "..", filepath.Base(outside))} {
+		if _, err := plans.TaskTrailers(repo, path, []string{"1.1"}); err == nil {
+			t.Errorf("commit accepted %s", path)
+		}
+		code, _, stderr := runCLI(t, "plan", "tick", "--range", "HEAD..HEAD", "--plan", path)
+		if code != 2 || !strings.Contains(stderr, home) {
+			t.Errorf("tick %s: exit=%d stderr=%q", path, code, stderr)
+		}
+		code, _, stderr = runCLI(t, "plan", "task", "1.1", "--done", "--plan", path)
+		if code != 2 || !strings.Contains(stderr, home) || strings.Count(strings.TrimSpace(stderr), "\n") != 0 {
+			t.Errorf("%s: exit=%d stderr=%q", path, code, stderr)
+		}
+	}
+	for _, name := range []string{"2026-11-18-safe.md", "2026-11-18-safe"} {
+		code, _, stderr := runCLI(t, "plan", "task", "1.1", "--done", "--plan", name)
+		if code != 0 {
+			t.Errorf("%s: exit=%d %s", name, code, stderr)
+		}
+	}
+	if got, err := os.ReadFile(outside); err != nil || string(got) != "- [ ] 1.1 Outside\n" {
+		t.Fatalf("outside changed: %s %v", got, err)
+	}
+}

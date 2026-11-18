@@ -202,6 +202,31 @@ func Home(repoRoot string) string {
 	return filepath.Join(paths.ConfigDir(), "plans", paths.RepoSlug(repoRoot))
 }
 
+// ResolvePlan confines explicit writes to dated regular plans in this repository's home.
+func ResolvePlan(root, plan string) (string, error) {
+	home := Home(root)
+	refusal := fmt.Errorf("plans: --plan is not a dated plan in %s (regular non-symlink required)", home)
+	if filepath.Base(plan) == plan {
+		if !strings.HasSuffix(plan, ".md") {
+			plan += ".md"
+		}
+		plan = filepath.Join(home, plan)
+	}
+	info, err := os.Lstat(plan)
+	if err != nil || !info.Mode().IsRegular() || !datedName().MatchString(filepath.Base(plan)) {
+		return "", refusal
+	}
+	real, err := filepath.EvalSymlinks(plan)
+	if err != nil {
+		return "", refusal
+	}
+	canonicalHome, err := filepath.EvalSymlinks(home)
+	if err != nil || !paths.SamePath(filepath.Dir(real), canonicalHome) {
+		return "", refusal
+	}
+	return filepath.Abs(plan)
+}
+
 // WorktreeName is a linked worktree's name (matched against task claims), or "" for the main checkout.
 func WorktreeName(top string) string {
 	if paths.MainCheckout(top) != top {

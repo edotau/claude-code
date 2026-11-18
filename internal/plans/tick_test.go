@@ -6,7 +6,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -376,4 +378,61 @@ func TestCandidateAnnouncedOnce(t *testing.T) {
 	if len(got) != 1 || !strings.Contains(got[0].Candidate[0], "plan task '1.1' --done --sha abc1234 --plan ") {
 		t.Fatalf("one announcement for the whole range, with a copy-paste command: %+v", got)
 	}
+}
+
+func TestTaskTrailerGitDifferential(t *testing.T) {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		t.Skip("git unavailable")
+	}
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	cases := []struct {
+		body   string
+		strict bool
+	}{
+		{"Task: p 1\n continuation prose\n", false},
+		{"Task:  p 1\n", false}, {"Task \t: p   1\n", false},
+		{"Task: p\n 1\n", false}, {"Task: p 1\r\nSigned-off-by: A <a@b>\r\n", false},
+		{"Signed-off-by: A <a@b>\nTask: p 1", false},
+		{"Task: p 1\nTask: p 2\n", false},
+		{"prose\nSigned-off-by: A <a@b>\nTask: p 1\n", true},
+		{"> Task: p 1\nSigned-off-by: A <a@b>\n", true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.body, func(t *testing.T) {
+			message := "subject\n\n" + tc.body
+			values := gitTaskValues(t, git, message)
+			if got := taskTrailerValues(message); !tc.strict && !slices.Equal(got, values) {
+				t.Errorf("Go values=%q git=%q", got, values)
+			}
+			for i, value := range values {
+				values[i] = strings.Join(strings.Fields(value), " ")
+			}
+			for _, id := range []string{"1", "2", "1 continuation prose"} {
+				want := !tc.strict && slices.Contains(values, "p "+id)
+				if got := namesTask(message, "p.md", id); got != want {
+					t.Errorf("id=%q Go=%v git=%q strict=%v", id, got, values, tc.strict)
+				}
+			}
+		})
+	}
+}
+
+func gitTaskValues(t *testing.T, git, message string) []string {
+	t.Helper()
+	cmd := exec.Command(git, "-c", "trailer.separators=:", "interpret-trailers", "--parse")
+	cmd.Stdin = strings.NewReader(message)
+	raw, err := cmd.Output()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var values []string
+	for line := range strings.SplitSeq(string(raw), "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if ok && strings.EqualFold(strings.TrimSpace(key), "Task") {
+			values = append(values, strings.TrimSpace(value))
+		}
+	}
+	return values
 }

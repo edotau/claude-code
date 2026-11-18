@@ -118,6 +118,13 @@ func cmdPlanTick(args []string) int {
 	if top == "" {
 		return helptext.Fail("plan tick: %s is not in a git checkout", cwd)
 	}
+	if *plan != "" {
+		resolved, err := plans.ResolvePlan(top, *plan)
+		if err != nil {
+			return helptext.FailUsage("plan tick: %v", err)
+		}
+		*plan = resolved
+	}
 	if err := plans.TickRange(context.Background(), top, plans.WorktreeName(top), *rng, *plan, plans.MirrorDests(), *dryRun, os.Stdout); err != nil {
 		return helptext.Fail("plan tick: %v", err)
 	}
@@ -154,6 +161,9 @@ func cmdPlanTask(args []string) int {
 	}
 	path, err := taskPlan(id, *plan, *reopen)
 	if err != nil {
+		if *plan != "" {
+			return helptext.FailUsage("plan task: %v", err)
+		}
 		return helptext.Fail("plan task: %v", err)
 	}
 	switch {
@@ -171,16 +181,16 @@ func cmdPlanTask(args []string) int {
 	return 0
 }
 
-// taskPlan is the plan file holding id: --plan as given, else the one repo plan with a matching task.
+// taskPlan resolves an explicit plan or the one repo plan with a matching task.
 func taskPlan(id, plan string, ticked bool) (string, error) {
-	if plan != "" {
-		return plan, nil
-	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return "", err
 	}
 	top, _ := paths.CheckoutOf(cwd)
+	if plan != "" {
+		return plans.ResolvePlan(top, plan)
+	}
 	if top == "" {
 		return "", fmt.Errorf("%s is not in a git checkout; pass --plan", cwd)
 	}

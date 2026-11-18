@@ -349,3 +349,38 @@ func testLaneLanding(t *testing.T, quiet, failed, mergeCommit bool) {
 		t.Fatalf("landing: %s, %s", got, note)
 	}
 }
+
+func TestPlanNoopLandingReplay(t *testing.T) {
+	plan, _, tick := tickFixture(t)
+	repo := filepath.Join(os.Getenv("HOME"), "widgets")
+	hosttest.In(t, repo, "switch", "-c", "landing")
+	hosttest.WriteRel(t, repo, "a/one.go", "package a\n// landing\n")
+	hosttest.In(t, repo, "add", "a/one.go")
+	slug := strings.TrimSuffix(filepath.Base(plan), ".md")
+	hosttest.In(t, repo, "commit", "-qm", "landing\n\nTask: "+slug+" 1.1")
+	hosttest.In(t, repo, "switch", "main")
+	hosttest.In(t, repo, "merge", "--ff-only", "landing")
+	command := "git -C " + fmt.Sprintf("%q", repo) + " pull --ff-only . main"
+	if out := tick("git -C "+fmt.Sprintf("%q", repo)+" merge --ff-only landing", ""); !strings.Contains(out, "ticked") {
+		t.Fatalf("initial landing: %s", out)
+	}
+	if err := plans.Reopen(plan, "1.1"); err != nil {
+		t.Fatal(err)
+	}
+	hosttest.In(t, repo, "pull", "--ff-only", ".", "main")
+	if out := tick(command, "Already up to date."); strings.Contains(out, "ticked") {
+		t.Errorf("no-op replay: %s", out)
+	}
+	if b, err := os.ReadFile(plan); err != nil || strings.Contains(string(b), "[x] 1.1") {
+		t.Errorf("reopened task reticked: %s %v", b, err)
+	}
+	hosttest.In(t, repo, "reset", "--hard", "HEAD~1")
+	if out := tick(command, ""); strings.Contains(out, "ticked") {
+		t.Errorf("reset: %s", out)
+	}
+	hosttest.In(t, repo, "merge", "--no-ff", "-m", "merge landing", "landing")
+	hosttest.In(t, repo, "commit", "--amend", "--no-edit")
+	if out := tick(command, ""); strings.Contains(out, "ticked") || strings.Contains(out, "candidate") {
+		t.Errorf("amended merge: %s", out)
+	}
+}
