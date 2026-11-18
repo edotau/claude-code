@@ -434,7 +434,8 @@ minted token's time left (`m2m:42m`; labels `u2m`, `m2m`, `pat`). Segments are o
 `container/` holds the Ubuntu harness image, built and run with podman (`make image|image-audit|image-shell`); with no
 root or `sudo`, Linux installs Tailscale's static binaries into `~/.local/bin` and does not start the daemon.
 `mods/slash-usage/` is a TypeScript plugin, built with `tsc -p mods/<name>`. `mods/agents-band/` is kept in the
-tree but not loaded; add its path to `CLAUDE_CODE_PLUGIN_DIRS` to try it.
+tree but not loaded; add its path to `CLAUDE_CODE_PLUGIN_DIRS` (then `/reload-plugins`) to try it: a band of live leaves, each
+expandable to the files it holds and its latest note, plus the free dirty files (`agents tree --files`; plain rows on an older binary).
 
 ## Command reference
 
