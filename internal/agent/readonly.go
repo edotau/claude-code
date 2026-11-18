@@ -246,6 +246,7 @@ var readOnlyClaudeVerbs = map[string][]string{
 	"models":  {"preflight"},
 	"network": {"websearch"},
 	"gateway": {"resolve"},
+	"vault":   {"get", "ls"},
 }
 
 // readOnlyClaudeCode is a listed `claude-code <group> <verb>` with no write-looking flag; `agents diff --check` is out.
@@ -260,6 +261,8 @@ func readOnlyClaudeCode(args []string) bool {
 		return scopeArgsOK(args[2:])
 	case "models preflight":
 		return noFlag(args[2:], "--refresh", "--discover", "--live", "--profile")
+	case "vault get":
+		return noFlag(args[2:], append(slices.Clone(writeFlags), "--key")...)
 	case "agents diff":
 		return noFlag(args[2:], append(slices.Clone(writeFlags), "--check")...)
 	}

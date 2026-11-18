@@ -29,7 +29,7 @@ func isSpaceByte(c byte) bool {
 	return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f'
 }
 
-// FileRedirect reports an unquoted output redirection that may write a file; `2>&1`, `>&2`, `2>&-` are not one.
+// FileRedirect reports an unquoted output redirection that may write a file; `2>&1`, `>&2`, `>/dev/null` are not one.
 func FileRedirect(seg string) bool {
 	if !strings.Contains(seg, ">") { // only a `>` byte can return true below
 		return false
@@ -39,11 +39,23 @@ func FileRedirect(seg string) bool {
 		if at[i] != 0 || seg[i] != '>' {
 			continue
 		}
-		if i > 0 && (seg[i-1] == '&' || seg[i-1] == '<' || seg[i-1] == '>') || !isFdDup(seg[i:]) {
+		if (i > 0 && (seg[i-1] == '&' || seg[i-1] == '<' || seg[i-1] == '>') || !isFdDup(seg[i:])) && !toDevNull(seg, at, i) {
 			return true
 		}
 	}
 	return false
+}
+
+// toDevNull reports that the redirect operator whose `>` is at seg[i] has exactly `/dev/null` as its operand.
+func toDevNull(seg string, at []byte, i int) bool {
+	from := i
+	for from < len(seg) && strings.IndexByte(">|&", seg[from]) >= 0 {
+		from++
+	}
+	for from < len(seg) && (seg[from] == ' ' || seg[from] == '\t') {
+		from++
+	}
+	return seg[from:operandEnd(seg, at, from)] == "/dev/null"
 }
 
 // redirectOps are the operators Redirects reads, longest first; out marks the ones that open a file for writing.

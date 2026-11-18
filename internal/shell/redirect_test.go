@@ -11,6 +11,9 @@ func TestFileRedirect(t *testing.T) {
 		"go test > f": true, "go test >> f": true, "go test >| f": true, "go test &> f": true, "go test 2> f": true,
 		"go test >&f": true, "go test >&": true, "go test 2>&1 > f": true, "go test >&2f": true, "go test <> f": true,
 		"tee >(cat)": true, `echo "x" > f`: true, `echo "$(x)" >f`: true,
+		"go test >/dev/null": false, "go test > /dev/null 2>&1": false, "go test 2>/dev/null": false, "go test &>/dev/null": false,
+		"go test >>/dev/null": false, "go test >|/dev/null": false, "(go test >/dev/null)": false, "go test >/dev/null;ls": false,
+		"go test >/dev/null > f": true, "go test >/dev/nullx": true, "go test >/dev/null/x": true, `go test >"/dev/null"`: true,
 		"go test 2>&1\t": false, "echo $((3>2))": false, "echo >": true, "go test 2>&1>": true, `echo \\>f`: true,
 	}
 	for seg, want := range cases {
