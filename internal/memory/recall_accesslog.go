@@ -35,23 +35,34 @@ const (
 
 // logAccess appends one read to dir's log, failing open and redacting credential-shaped reasons.
 func logAccess(dir string, now time.Time, entry, reason string) {
-	logAccessBatch(dir, now, []string{entry}, reason)
+	logAccessBatch(dir, now, []string{entry}, reason, "")
 }
 
 // accessLines renders one log line per entry, sharing the timestamp and sanitized reason.
-func accessLines(now time.Time, entries []string, reason, session string) string {
+func accessLines(now time.Time, entries []string, reason string) string {
 	var lines strings.Builder
 	prefix := now.UTC().Format(time.RFC3339) + " -- "
-	suffix := " -- " + sanitizeField(reason, accessReasonMax)
-	if session != "" {
-		prefix = now.UTC().Format(time.RFC3339Nano) + " -- "
-		suffix += " -- " + session
-	}
+	suffix := " -- " + sanitizeField(reason, accessReasonMax) + "\n"
 	for _, entry := range entries {
 		lines.WriteString(prefix)
 		lines.WriteString(sanitizeField(entry, accessEntryMax))
 		lines.WriteString(suffix)
-		lines.WriteByte('\n')
+	}
+	return lines.String()
+}
+
+// sessionTag opens a session record; an older reader cannot parse it as a timestamp and skips the whole line.
+const sessionTag = "session"
+
+// sessionLines renders "session -- <id> -- <ts> -- <entry> -- <reason>" records, which only the learner reads.
+func sessionLines(now time.Time, entries []string, reason, session string) string {
+	var lines strings.Builder
+	prefix := sessionTag + " -- " + session + " -- " + now.UTC().Format(time.RFC3339) + " -- "
+	suffix := " -- " + sanitizeField(reason, accessReasonMax) + "\n"
+	for _, entry := range entries {
+		lines.WriteString(prefix)
+		lines.WriteString(sanitizeField(entry, accessEntryMax))
+		lines.WriteString(suffix)
 	}
 	return lines.String()
 }
@@ -66,7 +77,7 @@ func accessLogWritable(path string) bool {
 }
 
 // logAccessBatch appends a recall batch with one open and write per bank.
-func logAccessBatch(dir string, now time.Time, entries []string, reason string, sessions ...string) {
+func logAccessBatch(dir string, now time.Time, entries []string, reason, session string) {
 	if dir == "" || len(entries) == 0 {
 		return
 	}
@@ -77,28 +88,25 @@ func logAccessBatch(dir string, now time.Time, entries []string, reason string, 
 	if !accessLogWritable(path) {
 		return
 	}
-	session := accessSession(sessions)
-	lines := accessLines(now, entries, reason, session)
-	write := func() error {
-		return rotateAndAppend(path, now, entries, reason, session, lines)
-	}
+	lines := accessLines(now, entries, reason)
+	write := func() error { return rotateAndAppend(path, now, entries, reason, session, lines) }
 	if ran, err := paths.TryFileLock(path+".lock", accessLockWait, write); !ran && err != nil {
 		_ = appendAccessLines(path, lines) // lock file unopenable: O_APPEND only, never rotate unlocked; a timeout drops it
 	}
 }
 
-func accessSession(sessions []string) string {
-	if len(sessions) > 0 && looksLikeSessionID(sessions[0]) {
-		return strings.ToLower(sessions[0])
-	}
-	return ""
-}
-
 // rotateAndAppend rotates and appends under one lock so concurrent hooks and verbs never interleave renames.
 func rotateAndAppend(path string, now time.Time, entries []string, reason, session, lines string) error {
 	maybeRotateAccessLog(path, now)
-	if reason == accessRecall && session == "" {
-		lines = accessLines(now, newToday(path, now, entries), accessRecall, "")
+	if reason == accessRecall { // hot/cold count distinct days, so a repeat inject adds nothing
+		lines = accessLines(now, newToday(path, now, entries, ""), accessRecall)
+	}
+	if looksLikeSessionID(session) {
+		fresh := entries
+		if reason == accessRecall { // one record per session, id and day is all the learner needs
+			fresh = newToday(path, now, entries, strings.ToLower(session))
+		}
+		lines += sessionLines(now, fresh, reason, strings.ToLower(session))
 	}
 	if lines == "" {
 		return nil
@@ -107,11 +115,11 @@ func rotateAndAppend(path string, now time.Time, entries []string, reason, sessi
 }
 
 // newToday drops entries (and repeats within entries) that path already holds as a recall inject on now's UTC day.
-func newToday(path string, now time.Time, entries []string) []string {
+func newToday(path string, now time.Time, entries []string, session string) []string {
 	day := now.UTC().Format("2006-01-02")
 	seen := map[string]bool{}
-	eachLineIn(path, func(ts time.Time, entry, reason string) {
-		if reason == accessRecall && ts.UTC().Format("2006-01-02") == day {
+	eachParsedLine(path, func(ts time.Time, entry, reason, s string) {
+		if reason == accessRecall && s == session && ts.UTC().Format("2006-01-02") == day {
 			seen[entry] = true
 		}
 	})
@@ -226,10 +234,13 @@ func parseAccessLine(line string) (ts time.Time, entry, reason, session string) 
 	if !ok {
 		return
 	}
+	if stamp == sessionTag {
+		session, fields, _ = strings.Cut(fields, " -- ")
+		stamp, fields, _ = strings.Cut(fields, " -- ")
+	}
 	ts, _ = time.Parse(time.RFC3339, stamp)
-	entry, fields, _ = strings.Cut(fields, " -- ")
-	reason, session, _ = strings.Cut(fields, " -- ")
-	return ts, entry, strings.TrimSpace(reason), strings.TrimSpace(session)
+	entry, reason, _ = strings.Cut(fields, " -- ")
+	return ts, entry, strings.TrimSpace(reason), session
 }
 
 // LogBriefRecall credits only the pointers that survived dispatch filtering.
@@ -249,15 +260,23 @@ func LogBriefRecall(session, block string) {
 	logAccessBatch(accessDir(), time.Now(), ids, accessRecall, session)
 }
 
-// eachLineIn calls fn per parsed line of the single log file p.
+// eachLineIn calls fn per plain line of the single log file p; session records are the learner's alone.
 func eachLineIn(p string, fn func(ts time.Time, entry, reason string)) {
+	eachParsedLine(p, func(ts time.Time, entry, reason, session string) {
+		if session == "" {
+			fn(ts, entry, reason)
+		}
+	})
+}
+
+func eachParsedLine(p string, fn func(ts time.Time, entry, reason, session string)) {
 	data, err := os.ReadFile(p)
 	if err != nil {
 		return
 	}
 	for line := range strings.SplitSeq(string(data), "\n") {
-		if ts, entry, reason, _ := parseAccessLine(line); !ts.IsZero() {
-			fn(ts, entry, reason)
+		if ts, entry, reason, session := parseAccessLine(line); !ts.IsZero() {
+			fn(ts, entry, reason, session)
 		}
 	}
 }
@@ -283,7 +302,7 @@ func returnCounts(dirs []string, now time.Time) map[string]int {
 }
 
 // logHits logs access for the hits that carry an entry id, all in the one bank's log.
-func logHits(hits []SearchHit, reason string, now time.Time, sessions ...string) {
+func logHits(hits []SearchHit, reason string, now time.Time, session string) {
 	var ids []string
 	for _, h := range hits {
 		if id := cmp.Or(h.ID, entryFromHit(h).ID); id != "" {
@@ -291,7 +310,7 @@ func logHits(hits []SearchHit, reason string, now time.Time, sessions ...string)
 		}
 	}
 	if len(ids) > 0 {
-		logAccessBatch(accessDir(), now, ids, reason, sessions...)
+		logAccessBatch(accessDir(), now, ids, reason, session)
 	}
 }
 
@@ -310,12 +329,6 @@ func accessDir() string {
 
 // AccessLogPath puts store traces in state/harness/memory/access, otherwise beside the bank.
 func AccessLogPath(dir string) string {
-	if dir == accessDir() {
-		info, err := os.Lstat(dir)
-		if os.IsNotExist(err) || err == nil && info.Mode()&os.ModeSymlink == 0 {
-			return filepath.Join(AccessStateDir(), stateKey()+".log")
-		}
-	}
 	if rel, ok := insideStore(dir); ok {
 		key := strings.ReplaceAll(rel, "/", "_")
 		if key == "" || key == "." {

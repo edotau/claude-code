@@ -329,7 +329,7 @@ func selectRecall(seen map[string]bool, terms []string, ranked []SearchHit, sem 
 }
 
 // pickTier applies the gates before access boosts, then chooses the best final scores.
-func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool, sem *Semantic, counts map[string]int, trace *recallTrace, weights ...map[string]float64) ([]recallPick, bool) {
+func pickTier(ranked []SearchHit, archived bool, need int, seen map[string]bool, sem *Semantic, counts map[string]int, trace *recallTrace, weights map[string]float64) ([]recallPick, bool) {
 	cands, top := recallTier(ranked, archived, need)
 	pool := recallPool(cands, top, need, sem, trace)
 	orderRecall(pool)
@@ -365,10 +365,10 @@ func boostFactor(weights map[string]float64, id string) float64 {
 	return cmp.Or(weights[id], 1)
 }
 
-func accessBoost(id string, count int, weights []map[string]float64) float64 {
+func accessBoost(id string, count int, weights map[string]float64) float64 {
 	boost := recallAccessBoost * float64(min(count, recallAccessCap)) / recallAccessCap
-	if boost != 0 && len(weights) > 0 {
-		boost *= boostFactor(weights[0], id)
+	if boost != 0 {
+		boost *= boostFactor(weights, id)
 	}
 	return boost
 }

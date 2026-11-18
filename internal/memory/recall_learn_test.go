@@ -15,7 +15,6 @@ import (
 func TestLearnRecall(t *testing.T) {
 	tempConfig(t)
 	now := time.Now().UTC()
-	const here = "11111111-1111-1111-1111-111111111111"
 	const elsewhere = "22222222-2222-2222-2222-222222222222"
 	write(t, Path("conventions.md"), `# Conventions
 
@@ -23,12 +22,16 @@ func TestLearnRecall(t *testing.T) {
 - Unused <!-- id:aaaa0002 -->
 `)
 	dir := accessDir()
-	for range recallMinInjections {
-		logAccessBatch(dir, now.Add(-time.Minute), []string{"aaaa0001", "aaaa0002"}, accessRecall, here)
+	sessions := make([]string, recallMinInjections)
+	for i := range sessions {
+		sessions[i] = fmt.Sprintf("11111111-1111-1111-1111-%012d", i)
+		logAccessBatch(dir, now.Add(-time.Minute), []string{"aaaa0001", "aaaa0002"}, accessRecall, sessions[i])
 	}
-	logAccessBatch(dir, now.Add(-time.Minute), []string{"aaaa0003"}, accessRecall, here)
-	t.Setenv(SessionIDEnv, here)
-	showRecallFixture(t, "aaaa0001")
+	logAccessBatch(dir, now.Add(-time.Minute), []string{"aaaa0003"}, accessRecall, sessions[0])
+	for _, s := range sessions {
+		t.Setenv(SessionIDEnv, s)
+		showRecallFixture(t, "aaaa0001")
+	}
 	t.Setenv(SessionIDEnv, elsewhere)
 	showRecallFixture(t, "aaaa0002")
 	if err := LearnRecall(now); err != nil {

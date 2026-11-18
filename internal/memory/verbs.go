@@ -45,7 +45,7 @@ func Search(o SearchOptions) searchResult {
 		}
 	}
 	hits := SearchBank(o.Query, o.K)
-	logHits(hits, AccessSearch, now)
+	logHits(hits, AccessSearch, now, "")
 	return searchResult{Hits: hits}
 }
 

@@ -87,7 +87,7 @@ func TestLogHitsCreditsTheOneBank(t *testing.T) {
 	write(t, Sub("archive", "old.md"), "# A\n\n## 2026-01-01 — zebra archived quota <!-- id:bbbb0001 -->\n\nzebra quota\n")
 	write(t, Path("decisionLog.md"), "# D\n\n## 2026-01-01 — zebra live quota <!-- id:bbbb0003 -->\n\nzebra quota\n")
 	now := time.Now()
-	logHits(searchAll("zebra quota", 0), AccessSearch, now)
+	logHits(searchAll("zebra quota", 0), AccessSearch, now, "")
 	got := returnCounts([]string{accessDir()}, now)
 	for _, id := range []string{"bbbb0001", "bbbb0003"} {
 		if got[id] == 0 {
@@ -141,7 +141,7 @@ func TestLogAccessRecallInjectOncePerEntryPerDay(t *testing.T) {
 	tempConfig(t)
 	dir := t.TempDir()
 	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
-	logAccessBatch(dir, now, []string{"aa000001", "aa000001", "bb000002"}, accessRecall)
+	logAccessBatch(dir, now, []string{"aa000001", "aa000001", "bb000002"}, accessRecall, "")
 	logAccess(dir, now.Add(time.Hour), "aa000001", accessRecall)
 	logAccess(dir, now.Add(time.Hour), "aa000001", AccessSearch)
 	logAccess(dir, now.AddDate(0, 0, 1), "aa000001", accessRecall)
@@ -186,5 +186,58 @@ func TestLogAccessLockUnopenableAppendsOnly(t *testing.T) {
 	data, _ := os.ReadFile(path)
 	if !strings.Contains(string(data), "aa000001") || !strings.Contains(string(data), "bb000002") {
 		t.Errorf("fallback must append to the existing log, got %q", data)
+	}
+}
+
+// Main-format lines parse as before, plain readers skip session records, and an old log still counts.
+func TestAccessLineShapesAndOldLogCounted(t *testing.T) {
+	tempConfig(t)
+	const sid = "11111111-1111-1111-1111-111111111111"
+	for _, c := range []struct{ line, entry, reason, session string }{
+		{"2026-11-10T10:00:00Z -- aa000001 -- memory show", "aa000001", "memory show", ""},
+		{"2026-11-10T10:00:00Z -- aa000001 -- odd -- tail", "aa000001", "odd -- tail", ""},
+		{"2026-11-10T10:00:00Z -- aa000001", "aa000001", "", ""},
+		{"session -- " + sid + " -- 2026-11-10T10:00:00Z -- aa000001 -- memory show", "aa000001", "memory show", sid},
+		{"garbage", "", "", ""},
+	} {
+		ts, entry, reason, session := parseAccessLine(c.line)
+		if entry != c.entry || reason != c.reason || session != c.session || (c.entry != "" && ts.IsZero()) {
+			t.Errorf("%q = %v %q %q %q", c.line, ts, entry, reason, session)
+		}
+	}
+	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
+	path := AccessLogPath(accessDir())
+	write(t, path, "2026-11-10T10:00:00Z -- aa000001 -- prompt-recall inject\n2026-11-11T10:00:00Z -- aa000001 -- memory show\n")
+	logAccessBatch(accessDir(), now, []string{"aa000001"}, AccessShow, sid)
+	stats, _ := accessStatsAt(path, now, 30)
+	if got := returnCounts([]string{accessDir()}, now)["aa000001"]; stats["aa000001"].Days != 3 || got != 2 {
+		t.Errorf("days = %d, returns = %d, want 3 and 2 (the session record must not count twice)", stats["aa000001"].Days, got)
+	}
+}
+
+// A session's repeat inject of one id writes one session record a day; the plain lines stay one per id and day.
+func TestAccessSessionRecordOncePerSessionIDDay(t *testing.T) {
+	tempConfig(t)
+	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
+	for range 5 {
+		logAccessBatch(accessDir(), now, []string{"aa000001", "bb000002"}, accessRecall, "11111111-1111-1111-1111-111111111111")
+	}
+	logAccessBatch(accessDir(), now, []string{"aa000001"}, accessRecall, "22222222-2222-2222-2222-222222222222")
+	data, _ := os.ReadFile(AccessLogPath(accessDir()))
+	if got, want := strings.Count(string(data), "\n"), 2+3; got != want {
+		t.Errorf("lines = %d, want %d (2 plain + 3 session records):\n%s", got, want, data)
+	}
+}
+
+// One dispatch's block may reach LogBriefRecall from both the hook and ask; it still credits each id once.
+func TestLogBriefRecallTwiceCreditsOnce(t *testing.T) {
+	tempConfig(t)
+	const block = "\n\n<memory-recall>\n- aa000001 one\n- bb000002 two\n</memory-recall>"
+	for range 2 {
+		LogBriefRecall("11111111-1111-1111-1111-111111111111", block)
+	}
+	data, _ := os.ReadFile(AccessLogPath(accessDir()))
+	if got := strings.Count(string(data), "session -- "); got != 2 {
+		t.Errorf("session records = %d, want 2:\n%s", got, data)
 	}
 }
