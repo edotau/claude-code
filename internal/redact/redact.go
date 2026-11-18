@@ -284,19 +284,18 @@ func (m *Matcher) String(s string) string {
 	return string(b)
 }
 
-// File masks path in place; every directory from the volume root down must be a real one, checked as it is opened.
-func File(path string, m *Matcher, idle time.Duration) (int, error) {
-	abs, err := filepath.Abs(path)
+// File masks path in place; links leading to root are the owner's layout, any link below root is refused.
+func File(root, path string, m *Matcher, idle time.Duration) (int, error) {
+	rel, err := filepath.Rel(root, path)
 	if err != nil {
-		return 0, errors.New("redact: file path unresolvable")
+		return 0, errors.New("redact: path outside root")
 	}
-	vol := filepath.VolumeName(abs) + string(filepath.Separator)
-	root, err := os.OpenRoot(vol)
+	dir, err := os.OpenRoot(root)
 	if err != nil {
-		return 0, errors.New("redact: volume root open failed")
+		return 0, errors.New("redact: root open failed")
 	}
-	defer root.Close()
-	return FileAt(root, abs[len(vol):], m, idle)
+	defer dir.Close()
+	return FileAt(dir, rel, m, idle)
 }
 
 // FileAt is File for name under root; a root opened before a wait keeps a later directory swap from moving the write.

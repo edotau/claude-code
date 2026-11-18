@@ -147,13 +147,7 @@ func transcriptSelected(path string, targets []string) bool {
 	if len(targets) == 0 {
 		return true
 	}
-	for _, target := range targets {
-		absolute, err := filepath.Abs(target)
-		if err == nil && path == absolute {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(targets, path)
 }
 
 func scanTranscriptStore(s transcriptStore, counter *secretredact.Counter, fix bool, targets []string, cutoff time.Time, slots chan struct{}) transcriptCounts {
@@ -168,6 +162,8 @@ func scanTranscriptStore(s transcriptStore, counter *secretredact.Counter, fix b
 		transcriptFailure(&c, err)
 		return c
 	}
+	root = resolvedPath(root) // a link leading to the store is the owner's layout; the walk and the fix stay below it
+	s.root = root
 	err = filepath.WalkDir(root, func(path string, d fs.DirEntry, walkErr error) error {
 		if !transcriptWalkEntry(&c, s, root, path, d, walkErr, targets) {
 			return nil
@@ -224,7 +220,7 @@ func scanTranscriptEntry(c *transcriptCounts, s transcriptStore, path string, d 
 	}
 	c.scanned++
 	c.bytes += info.Size()
-	hits, err := transcriptCountFile(path, counter, fix)
+	hits, err := transcriptCountFile(s.root, path, counter, fix)
 	if err != nil {
 		transcriptFailure(c, err)
 		return
@@ -270,7 +266,8 @@ func transcriptFailure(c *transcriptCounts, err error) {
 
 var errTranscriptInvalid = errors.New("transcript would not stay valid")
 
-func transcriptFile(path string, m *secretredact.Matcher, fix bool) (int, error) {
+// transcriptFile masks path under the store root; a one-file store is opened from its directory.
+func transcriptFile(root, path string, m *secretredact.Matcher, fix bool) (int, error) {
 	if !fix || filepath.Ext(path) == ".json" {
 		b, err := os.ReadFile(path)
 		if err != nil {
@@ -284,7 +281,10 @@ func transcriptFile(path string, m *secretredact.Matcher, fix bool) (int, error)
 			return 0, errTranscriptInvalid
 		}
 	}
-	return secretredact.File(path, m, transcriptIdle)
+	if path == root {
+		root = filepath.Dir(root)
+	}
+	return secretredact.File(root, path, m, transcriptIdle)
 }
 
 type transcriptResult struct {
@@ -299,6 +299,12 @@ func transcriptResults(m *secretredact.Matcher, fix bool, targets []string, days
 	if days > 0 {
 		cutoff = time.Now().AddDate(0, 0, -days)
 	}
+	resolved := make([]string, 0, len(targets))
+	for _, target := range targets {
+		if absolute, err := filepath.Abs(target); err == nil {
+			resolved = append(resolved, resolvedPath(absolute))
+		}
+	}
 	workers := max(1, min(4, runtime.GOMAXPROCS(0)/2))
 	if fix {
 		workers = 1
@@ -309,7 +315,7 @@ func transcriptResults(m *secretredact.Matcher, fix bool, targets []string, days
 		wg.Go(func() {
 			counter := secretredact.NewCounter(m)
 			counter.Tally = secretredact.NewTally()
-			results <- transcriptResult{store, scanTranscriptStore(store, counter, fix, targets, cutoff, slots), counter.Tally}
+			results <- transcriptResult{store, scanTranscriptStore(store, counter, fix, resolved, cutoff, slots), counter.Tally}
 		})
 	}
 	go func() { wg.Wait(); close(results) }()
@@ -341,9 +347,9 @@ func mergeTranscriptCounts(c *transcriptCounts, entry transcriptCounts) {
 	}
 }
 
-func transcriptCountFile(path string, counter *secretredact.Counter, fix bool) (int, error) {
+func transcriptCountFile(root, path string, counter *secretredact.Counter, fix bool) (int, error) {
 	if fix {
-		return transcriptFile(path, counter.Matcher(), true)
+		return transcriptFile(root, path, counter.Matcher(), true)
 	}
 	return counter.File(path)
 }

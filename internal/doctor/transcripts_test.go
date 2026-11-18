@@ -26,7 +26,7 @@ func TestTranscriptFix(t *testing.T) {
 	}
 	transcriptUnchanged(t, append(files, young, outside), original)
 	fixed := transcriptRun(t, 0, "--secrets", "--fix", "--since", "1")
-	for _, want := range []string{"masked files 3, matches masked 9", "skipped: not idle 1", "skipped: symlink or outside root 1", "skipped: not yet enabled 1"} {
+	for _, want := range []string{"masked files 3, matches masked 9", "temporary task outputs: scanned 1, with matches 1, matches 3, masked files 1", "skipped: not idle 1", "skipped: symlink or outside root 1", "skipped: not yet enabled 1"} {
 		if !strings.Contains(fixed, want) {
 			t.Fatalf("missing count: %s", want)
 		}
@@ -53,7 +53,9 @@ func transcriptFixture(t *testing.T) ([]string, []byte, string, string) {
 	cfg := resolvedPath(vaulttest.UseFreshKey(t))
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	t.Setenv("TMPDIR", resolvedPath(t.TempDir()))
+	tmp := t.TempDir() // unresolved: macOS /var is a link, and the store under it must still be fixed
+	t.Setenv("TMPDIR", tmp)
+	t.Setenv("TMP", tmp)
 	t.Chdir(doctorGitFixture(t, false))
 	escaped := "FAKE-SECRET-0123456789ab\"cd\\ef"
 	for name, value := range map[string]string{"FAKE_TOKEN": transcriptFake, "FAKE_ESCAPED": escaped} {
@@ -72,6 +74,9 @@ func transcriptFixture(t *testing.T) ([]string, []byte, string, string) {
 		transcriptWrite(t, path, b, 20*time.Minute)
 		files = append(files, path)
 	}
+	task := filepath.Join(tmp, fmt.Sprintf("claude-%d", os.Getuid()), "p", "tasks", "a.output")
+	transcriptWrite(t, task, b, 20*time.Minute)
+	files = append(files, task)
 	young := filepath.Join(cfg, "projects/p/young.jsonl")
 	transcriptWrite(t, young, b, time.Minute)
 	outside := filepath.Join(t.TempDir(), "outside.jsonl")
@@ -296,7 +301,7 @@ func benchmarkTranscriptStore(b *testing.B, count int, streaming bool) {
 			if streaming {
 				_, err = counter.File(path)
 			} else {
-				_, err = transcriptFile(path, m, false)
+				_, err = transcriptFile(filepath.Dir(path), path, m, false)
 			}
 			if err != nil {
 				b.Fatal(err)
