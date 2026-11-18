@@ -169,11 +169,8 @@ var gitBannedLong = []string{"--output", "--exec-path", "--open-files-in-pager",
 
 // readOnlyGit is plain git: configured drivers are the owner's; the caller picks no program, config, repo or output.
 func readOnlyGit(toks []string) bool {
-	rest := toks[1:]
-	for len(rest) > 0 && (rest[0] == "--no-pager" || rest[0] == "--no-optional-locks") {
-		rest = rest[1:]
-	}
-	if len(rest) == 0 || !slices.Contains(gitPlainVerbs, rest[0]) || !gitArgsOK(rest[1:]) {
+	rest, dirs := gitGlobalOpts(toks[1:])
+	if len(rest) == 0 || !slices.Contains(gitPlainVerbs, rest[0]) || !gitArgsOK(rest[1:]) || len(dirs) > 0 && noIndexDiff(rest) {
 		return false
 	}
 	switch rest[0] {
@@ -183,6 +180,39 @@ func readOnlyGit(toks []string) bool {
 		return branchArgs(rest[1:])
 	}
 	return true
+}
+
+// gitGlobalOpts strips leading --no-pager, --no-optional-locks and `-C <dir>`, returning the dirs.
+func gitGlobalOpts(rest []string) ([]string, []string) {
+	var dirs []string
+	for len(rest) > 0 {
+		switch {
+		case rest[0] == "--no-pager" || rest[0] == "--no-optional-locks":
+			rest = rest[1:]
+		case rest[0] == "-C" && len(rest) > 2 && !strings.HasPrefix(rest[1], "-"):
+			dirs, rest = append(dirs, rest[1]), rest[2:]
+		default:
+			return rest, dirs
+		}
+	}
+	return rest, dirs
+}
+
+// noIndexDiff is a -C command that is, or outside a repo becomes, a --no-index read of files in that directory.
+func noIndexDiff(rest []string) bool {
+	n, ops := 0, false
+	for _, a := range rest[1:] {
+		name, _, _ := strings.Cut(a, "=")
+		switch {
+		case !ops && a == "--":
+			ops = true
+		case !ops && len(name) >= 4 && strings.HasPrefix("--no-index", name):
+			return true
+		case ops || !strings.HasPrefix(a, "-"):
+			n++
+		}
+	}
+	return rest[0] == "diff" && n >= 2
 }
 
 func gitArgsOK(args []string) bool {
@@ -503,6 +533,7 @@ func recursiveGrep(a string) bool {
 
 // gitReadOperands: status, rev-parse, ls-files, branch and a patch-less log show no contents; others cannot be mapped.
 func gitReadOperands(args []string) ([]string, bool) {
+	args, dirs := gitGlobalOpts(args)
 	for len(args) > 0 && strings.HasPrefix(args[0], "--no-") {
 		args = args[1:]
 	}
@@ -511,9 +542,9 @@ func gitReadOperands(args []string) ([]string, bool) {
 	}
 	switch args[0] {
 	case "status", "rev-parse", "ls-files", "branch":
-		return nil, true
+		return dirs, true
 	case "log":
-		return nil, !slices.ContainsFunc(args[1:], func(a string) bool {
+		return dirs, !slices.ContainsFunc(args[1:], func(a string) bool {
 			return slices.Contains(patchFlags, a) || strings.HasPrefix(a, "-L") || strings.HasPrefix(a, "--patch")
 		})
 	}
