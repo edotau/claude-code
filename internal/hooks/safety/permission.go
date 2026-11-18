@@ -31,6 +31,9 @@ func PermissionGate(in *core.Input) core.Result {
 		return core.Result{Decision: core.Block, Reason: fmt.Sprintf(
 			"permission-gate: BLOCKED — %s is unreadable (%v); every tool call is refused", agent.DispatchPermissionsEnv, err)}
 	}
+	if r := protectedEdit(in); r.Decision == core.Block {
+		return r
+	}
 	if !set {
 		return core.Result{}
 	}
@@ -42,6 +45,20 @@ func PermissionGate(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	return judgeCall(p, in.CWD, tool, gateArgs(in, tool))
+}
+
+// protectedEdit blocks a file-edit call (apply_patch included) on a path the live Edit deny list protects, as Bash is.
+func protectedEdit(in *core.Input) core.Result {
+	if gateTools[strings.ToLower(in.CanonicalTool())] != "Edit" {
+		return core.Result{}
+	}
+	for _, f := range gateArgs(in, "Edit") {
+		if f = paths.ExpandHome(f); filepath.IsAbs(f) && protectedPath(f) && !tempWriteAllowed("", f) {
+			return core.Result{Decision: core.Block, Reason: core.SafetyMessage(in, core.Block,
+				"writes a file Edit/Write may never touch", f, "Edit it by hand, or run it yourself in a terminal.")}
+		}
+	}
+	return core.Result{}
 }
 
 // judgeCall refuses the first of args the policy denies as tool, or whose unknown target a scoped deny may cover.

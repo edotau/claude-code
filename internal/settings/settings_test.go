@@ -230,3 +230,27 @@ func TestWriteBackupNeverTruncatesExisting(t *testing.T) {
 		t.Errorf("backup = %q, want first", got)
 	}
 }
+
+func TestLivePermissionsReadsListsAndRejectsBadFiles(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if _, err := LivePermissions(); err == nil {
+		t.Error("missing file: want an error")
+	}
+	file := filepath.Join(cfg, "settings.json")
+	wantDeny := map[string]int{ // -1 means an error is expected
+		`{"permissions":{"deny":["a"],"ask":["b"],"allow":["c"]}}`: 1, `{"permissions":{"deny":[]}}`: 0, `{bad`: -1,
+		`null`: -1, `{}`: -1, `{"permissions":null}`: -1, `{"permissions":{}}`: -1,
+		`{"permissions":{"deny":null}}`: -1, `{"permissions":"x"}`: -1, `{"permissions":{"deny":"x"}}`: -1,
+		`{"permissions":{"deny":[1]}}`: -1,
+	}
+	for body, want := range wantDeny {
+		if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := LivePermissions()
+		if (want < 0) != (err != nil) || (err == nil && len(got.Deny) != want) {
+			t.Errorf("%s: deny = %v, err = %v, want %d", body, got.Deny, err, want)
+		}
+	}
+}

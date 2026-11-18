@@ -1,7 +1,7 @@
 // Package agentconfig is each agent CLI's spec; this header indexes every agent's allow/deny policy source.
 //
 //   - Claude Code: internal/settings/template.json `permissions` (ask/deny), seeded into a missing settings.json.
-//   - gemini: Claude's deny list carried over as GuardRules (templateGuardRules), on by default unless the
+//   - gemini: Claude's live deny list (template fallback) carried over as GuardRules, on by default unless the
 //     agent's `useGuardRules` extra is "false"; converted in internal/gemini (agyGuardRules).
 //   - codex, copilot, opencode launch knobs: agents.json (approvalPolicy, sandboxMode, launch args).
 //   - safety-scan hook: internal/hooks/safety/ guards destructive shapes for every agent, on top of all of the above.
@@ -38,6 +38,8 @@ type Config struct {
 	GuardRules guardRules `json:"guardRules"`
 	// records are the built-in records with legacy overlay entries merged; Settings reads them.
 	records map[string]vault.AgentRecord
+	// guardOverlaid marks GuardRules as set by the overlay, so Guard prefers it over the live deny list.
+	guardOverlaid bool
 }
 
 // configOverlay is the vault overlay/agents document (an entry replaces the built-in whole); fs.ErrNotExist if absent.
@@ -83,7 +85,7 @@ func (c *Config) Clone() *Config {
 	if c == nil {
 		return nil
 	}
-	out := &Config{GuardRules: guardRules{Deny: slices.Clone(c.GuardRules.Deny)}}
+	out := &Config{GuardRules: guardRules{Deny: slices.Clone(c.GuardRules.Deny)}, guardOverlaid: c.guardOverlaid}
 	if c.records != nil {
 		out.records = make(map[string]vault.AgentRecord, len(c.records))
 		for name, r := range c.records {
@@ -128,7 +130,7 @@ func applyOverlay(cfg *Config, overlay []byte) error {
 		return fmt.Errorf("vault overlay/agents: %w", err)
 	}
 	if o.GuardRules != nil { // presence replaces wholesale, even an empty {"deny":[]}
-		cfg.GuardRules = *o.GuardRules
+		cfg.GuardRules, cfg.guardOverlaid = *o.GuardRules, true
 	}
 	if cfg.records == nil {
 		cfg.records = map[string]vault.AgentRecord{}
@@ -247,10 +249,16 @@ func templateGuardRules() (guardRules, error) {
 	return guardRules{Deny: tpl.Permissions.Deny}, nil
 }
 
-// Guard returns the guard rules, or the zero value when Config is nil.
+// Guard returns overlay rules, else live denies, else the configured defaults; a nil Config returns zero.
 func (c *Config) Guard() guardRules {
 	if c == nil {
 		return guardRules{}
+	}
+	if c.guardOverlaid {
+		return c.GuardRules
+	}
+	if live, err := settings.LivePermissions(); err == nil {
+		return guardRules{Deny: live.Deny}
 	}
 	return c.GuardRules
 }

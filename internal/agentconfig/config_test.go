@@ -5,6 +5,8 @@ import (
 	"errors"
 	"io/fs"
 	"maps"
+	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -119,27 +121,44 @@ func TestOverlayOmittedGuardRulesKeepsDefaults(t *testing.T) {
 	}
 }
 
-// TestDefaultGuardsMirrorSettingsTemplate
-func TestDefaultGuardsMirrorSettingsTemplate(t *testing.T) {
-	rendered, err := settings.Render()
-	if err != nil {
+func TestDefaultGuardsFollowLiveSettings(t *testing.T) {
+	var doc struct{ Permissions settings.PermissionLists }
+	if err := json.Unmarshal(settings.Template(), &doc); err != nil {
 		t.Fatal(err)
 	}
-	var doc struct {
-		Permissions struct {
-			Deny []string `json:"deny"`
-		} `json:"permissions"`
-	}
-	if err := json.Unmarshal(rendered, &doc); err != nil {
-		t.Fatal(err)
-	}
-	cfg, err := ParseConfig(nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	g := cfg.Guard()
-	if !reflect.DeepEqual(g.Deny, doc.Permissions.Deny) {
-		t.Errorf("Guard().Deny = %v, want (from settings template) %v", g.Deny, doc.Permissions.Deny)
+	for _, c := range []struct {
+		name, body, overlay string
+		want                []string
+	}{
+		{"live deny honored", `{"permissions":{"deny":["Bash(owner-command)"]}}`, "", []string{"Bash(owner-command)"}},
+		{"template rules omitted", `{"permissions":{"deny":[]}}`, "", []string{}},
+		{"missing file", "", "", doc.Permissions.Deny},
+		{"invalid file", "{", "", doc.Permissions.Deny},
+		{"no deny list", "{}", "", doc.Permissions.Deny},
+		{"unreadable file", "directory", "", doc.Permissions.Deny},
+		{"overlay beats live", `{"permissions":{"deny":["Bash(live)"]}}`, `{"guardRules":{"deny":["Bash(overlay)"]}}`,
+			[]string{"Bash(overlay)"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			cfg, err := ParseConfig([]byte(c.overlay))
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "settings.json")
+			if c.body == "directory" {
+				if err := os.Mkdir(path, 0o700); err != nil {
+					t.Fatal(err)
+				}
+			} else if c.body != "" {
+				if err := os.WriteFile(path, []byte(c.body), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got := cfg.Guard().Deny; !slices.Equal(got, c.want) {
+				t.Errorf("Guard().Deny = %v, want %v", got, c.want)
+			}
+		})
 	}
 }
 

@@ -1085,6 +1085,33 @@ func TestSafetyBlocksShellWritesToProtectedFiles(t *testing.T) {
 	}
 }
 
+func TestProtectedWritesFollowLiveSettingsDeny(t *testing.T) {
+	for _, c := range []struct {
+		name, live, cmd string
+		want            core.Decision
+	}{
+		{"live deny honored", `{"permissions":{"deny":["Edit(~/.ssh/**)"]}}`, "echo x > ~/.ssh/probe", core.Block},
+		{"rule the live file dropped", `{"permissions":{"deny":["Edit(~/.ssh/**)"]}}`, "echo x >> ~/.claude/settings.json", core.Allow},
+		{"live adds a rule", `{"permissions":{"deny":["Edit(~/secret/**)"]}}`, "echo x > ~/secret/a", core.Block},
+		{"no live file", "", "echo x >> ~/.claude/settings.json", core.Block},
+		{"invalid live file", `{not json`, "echo x >> ~/.claude/settings.json", core.Block},
+		{"live file without a deny list", `{}`, "echo x >> ~/.claude/settings.json", core.Block},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			cfg := t.TempDir()
+			t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+			if c.live != "" {
+				if err := os.WriteFile(filepath.Join(cfg, "settings.json"), []byte(c.live), 0o600); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if got, msg := safetyScanDecision(t, hosttest.BashPayload(c.cmd)); got != c.want {
+				t.Errorf("%q: %v, want %v (%s)", c.cmd, got, c.want, msg)
+			}
+		})
+	}
+}
+
 // Hard rule 4 never blocks on text a heredoc only writes to a file; a body the same command runs still blocks.
 func TestHarnessGitIgnoresDataHeredocBodies(t *testing.T) {
 	home := t.TempDir()
