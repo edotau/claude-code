@@ -186,7 +186,7 @@ func oracle(ids []string, tier string, needTools bool, tools map[string]string) 
 			cands = append(cands, catalog.Candidate{Model: id, Tools: tools[id]})
 		}
 	}
-	if r := catalog.Choose(cands, tier, needTools).Ranked; len(r) > 0 {
+	if r := catalog.Choose(cands, "opencode", tier, needTools).Ranked; len(r) > 0 {
 		return r[0].Model
 	}
 	return ""
@@ -217,7 +217,7 @@ func autoFixture(t *testing.T) (*providers.Registry, []string, []string) {
 		t.Fatal(err)
 	}
 	weak := []string{"databricks-gemini-3-8-flash", "databricks-gpt-5-4-nano"}
-	need := catalog.Choose(nil, "deep", false).Need
+	need := catalog.Choose(nil, "", "deep", false).Need
 	for _, id := range weak {
 		if catalog.RankOf(id).Capability >= need {
 			t.Fatalf("fixture: %s is deep-capable; qa must list only weaker models", id)

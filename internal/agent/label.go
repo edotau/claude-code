@@ -340,8 +340,9 @@ type AutoChoice struct {
 	Model      string           `json:"model"`
 	Candidates int              `json:"candidates"` // served models the agent can run on the row
 	Stepped    bool             `json:"stepped,omitempty"`
-	Fallback   string           `json:"fallback,omitempty"` // why no ranking decided
-	Ranked     []catalog.Ranked `json:"ranked"`             // eligible candidates in pick order
+	FitShadow  bool             `json:"fit_shadow,omitempty"` // the ranked fit scores are shown, not applied
+	Fallback   string           `json:"fallback,omitempty"`   // why no ranking decided
+	Ranked     []catalog.Ranked `json:"ranked"`               // eligible candidates in pick order
 }
 
 // Reason is the one-line why, e.g. `auto: deep (accuracy: safety) -> M; 3 candidates at or above`.
@@ -351,9 +352,17 @@ func (c AutoChoice) Reason() string {
 	case c.Fallback != "":
 		return head + "; " + c.Fallback
 	case c.Stepped:
-		return fmt.Sprintf("%s; none of %d at or above %s, stepped down to the strongest served", head, c.Candidates, c.Tier)
+		return fmt.Sprintf("%s; none of %d at or above %s, stepped down to the strongest served", head, c.Candidates, c.Tier) + c.fitNote()
 	}
-	return fmt.Sprintf("%s; %d %s at or above", head, len(c.Ranked), textutil.PluralWord(len(c.Ranked), "candidate", "candidates"))
+	return fmt.Sprintf("%s; %d %s at or above", head, len(c.Ranked), textutil.PluralWord(len(c.Ranked), "candidate", "candidates")) + c.fitNote()
+}
+
+// fitNote is the picked candidate's learned fit, "; fit 0.85 avg 42s (shadow)", or "" when it has none.
+func (c AutoChoice) fitNote() string {
+	if len(c.Ranked) == 0 || c.Ranked[0].FitNote() == "" {
+		return ""
+	}
+	return "; " + c.Ranked[0].FitNote()
 }
 
 // complexityRe: deep signals that are about the size of the judgment, not the cost of a mistake.
@@ -378,8 +387,8 @@ func autoPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need autoN
 	c := newAutoChoice(need)
 	cands, why := autoCandidates(reg, q.Agent, reg.Row(base.Profile), q.Tools, now)
 	c.Candidates = len(cands)
-	ch := catalog.Choose(cands, need.tier, q.Tools)
-	c.Ranked, c.Stepped = ch.Ranked, ch.Stepped
+	ch := catalog.Choose(cands, q.Agent, need.tier, q.Tools)
+	c.Ranked, c.Stepped, c.FitShadow = ch.Ranked, ch.Stepped, ch.Shadow
 	if len(c.Ranked) == 0 {
 		if why == "" && need.mode == autoAsked && !need.noTier { // a fresh listing, nothing to rank: run the untyped pick
 			if d, err := rowDefault(reg, q, need, base.Profile, now); err == nil {

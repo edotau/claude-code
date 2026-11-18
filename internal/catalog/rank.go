@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"time"
 )
 
 //go:embed ranks.json
@@ -69,8 +70,13 @@ type Candidate struct {
 }
 
 type Ranked struct {
-	Model string `json:"model"`
+	Model string  `json:"model"`
+	Fit   float64 `json:"fit,omitempty"`  // learned success score; 0 when the cell has none
+	Secs  float64 `json:"secs,omitempty"` // mean seconds of its successful runs
 	Rank
+	shadow bool
+	lift   int     // set only once the fit is live and the cell has evidence
+	speed  float64 // mean seconds, fitNoSpeed when unknown; set with lift
 }
 
 // Choice is the eligible candidates in pick order; Need is the tier's capability, Stepped is true below it.
@@ -78,22 +84,33 @@ type Choice struct {
 	Tier    string   `json:"tier"`
 	Need    int      `json:"need"`
 	Stepped bool     `json:"stepped,omitempty"`
+	Shadow  bool     `json:"fit_shadow,omitempty"` // the fit scores are shown, not applied
 	Ranked  []Ranked `json:"ranked"`
 }
 
-// Choose ranks cands for tier: those at or above its capability, else the strongest below; tools drops "no" probes.
-func Choose(cands []Candidate, tier string, tools bool) Choice {
+// Choose ranks cands for agent on tier: those at or above its capability, else the strongest below; tools drops "no".
+func Choose(cands []Candidate, agent, tier string, tools bool) Choice {
 	c := Choice{Tier: tier, Need: loadRanks().Tiers[tier]}
+	fit, alias, now, live := LoadFit(), tierAlias[tier], time.Time{}, false
+	if fit != nil {
+		now = fitNow()
+		live = fit.Live(now)
+		c.Shadow = !live
+	}
 	var above, below []Ranked
 	for _, cand := range cands {
 		r := RankOf(cand.Model)
 		if !eligible(r, cand, tier, tools) {
 			continue
 		}
+		ranked := Ranked{Model: cand.Model, Rank: r}
+		if cell, ok := fit.cell(alias, agent, r.Match); ok && r.Known {
+			ranked.attach(cell, c.Need, now, live)
+		}
 		if r.Capability >= c.Need || !r.Known {
-			above = append(above, Ranked{cand.Model, r})
+			above = append(above, ranked)
 		} else {
-			below = append(below, Ranked{cand.Model, r})
+			below = append(below, ranked)
 		}
 	}
 	c.Ranked = above
@@ -113,7 +130,7 @@ func eligible(r Rank, cand Candidate, tier string, tools bool) bool {
 	return r.Known || tier == "fast" && (!tools || cand.Tools == "yes")
 }
 
-// pickOrder is known before unknown, then fast: speed then cost, else cost then speed; then data order, then name.
+// pickOrder: known first, then (live fit only) fit lift, then the faster cell within a lift band; then as before.
 func pickOrder(tier string) func(a, b Ranked) int {
 	return func(a, b Ranked) int {
 		first, second := cmp.Compare(a.Cost, b.Cost), cmp.Compare(b.Speed, a.Speed)
@@ -121,7 +138,8 @@ func pickOrder(tier string) func(a, b Ranked) int {
 			first, second = second, first
 		}
 		known := cmp.Compare(boolRank(b.Known), boolRank(a.Known))
-		return cmp.Or(known, first, second, cmp.Compare(a.order, b.order), strings.Compare(a.Model, b.Model))
+		lift, speed := cmp.Compare(b.lift, a.lift), cmp.Compare(cmp.Or(a.speed, fitNoSpeed), cmp.Or(b.speed, fitNoSpeed))
+		return cmp.Or(known, lift, speed, first, second, cmp.Compare(a.order, b.order), strings.Compare(a.Model, b.Model))
 	}
 }
 

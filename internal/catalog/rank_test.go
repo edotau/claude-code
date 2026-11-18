@@ -2,8 +2,12 @@ package catalog
 
 import (
 	"path"
+	"slices"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/edotau/claude-code/internal/models"
 )
 
 // The shipped ranks parse, every fact is ordinal 1..5, every pattern is valid and the tiers climb.
@@ -87,6 +91,21 @@ func stubRanks(t *testing.T) {
 	loadRanks = func() rankTable { return tbl }
 }
 
+// saveShadowFit writes a fresh table whose failing cells would reorder every stub family once live.
+func saveShadowFit(t *testing.T) {
+	t.Helper()
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	f := Fit{Schema: fitSchema, Created: time.Now()}
+	for _, a := range []string{models.Haiku, models.Sonnet, models.Opus} {
+		for _, m := range []string{"big*", "mid-a*", "mid-b*", "quick*", "tiny*", "twin*"} {
+			f.Cells = append(f.Cells, FitCell{Alias: a, Agent: "claude", Match: m, B: 9, At: time.Now()})
+		}
+	}
+	if err := SaveFit(f); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func cands(ids ...string) []Candidate {
 	out := make([]Candidate, len(ids))
 	for i, id := range ids {
@@ -120,11 +139,17 @@ func TestChoose(t *testing.T) {
 		{"unknown fast needs a tool probe", "fast", cands("zz"), true, "", false},
 		{"unknown fast with a tool probe", "fast", []Candidate{{Model: "zz", Tools: "yes"}}, true, "zz", false},
 	} {
-		c := Choose(tc.in, tc.tier, tc.tools)
+		c := Choose(tc.in, "claude", tc.tier, tc.tools)
 		got := ""
 		if len(c.Ranked) > 0 {
 			got = c.Ranked[0].Model
 		}
+		saveShadowFit(t)
+		sh := Choose(tc.in, "claude", tc.tier, tc.tools)
+		if !slices.EqualFunc(sh.Ranked, c.Ranked, func(a, b Ranked) bool { return a.Model == b.Model }) {
+			t.Errorf("%s: shadow fit changed the order %v -> %v", tc.name, c.Ranked, sh.Ranked)
+		}
+		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		if got != tc.want || c.Stepped != tc.stepped {
 			t.Errorf("%s: picked %q stepped %v, want %q stepped %v", tc.name, got, c.Stepped, tc.want, tc.stepped)
 		}
@@ -166,6 +191,6 @@ func BenchmarkChoose(b *testing.B) {
 	}
 	b.ReportAllocs()
 	for b.Loop() {
-		Choose(cands, "standard", true)
+		Choose(cands, "claude", "standard", true)
 	}
 }

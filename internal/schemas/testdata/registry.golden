@@ -17,6 +17,7 @@
 # legacy-layout: picker-additions
 # legacy-layout: projections
 # legacy-layout: quota
+# legacy-layout: route-fit
 # legacy-layout: router-runtime
 # legacy-layout: router-sessions
 # legacy-layout: served-models
@@ -53,6 +54,7 @@ projections | derived | 1 | state/projections/* | internal/agentconfig/project |
 quota | derived | 0 | state/harness/quota.json | internal/router | keep
 remote-auto-host | cache | 1 | state/harness/remote/auto-host.json | internal/network/remote | keep
 route-auto | cache | 1 | state/harness/router/route-auto.json | internal/router | keep
+route-fit | record | 1 | state/harness/router/fit.json | internal/catalog | keep
 router-runtime | record | 1 | state/harness/proxy.json | internal/gateway | keep
 router-sessions | record | 2 | state/harness/proxy/sessions.json | internal/gateway | keep
 served-models | cache | 1 | state/harness/preflight/*.json | internal/router | keep

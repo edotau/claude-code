@@ -85,7 +85,7 @@ func reviewModel(model, author string, ids []string) (string, error) {
 			originals[key] = id
 		}
 	}
-	choice := catalog.Choose(candidates, "deep", false)
+	choice := catalog.Choose(candidates, "copilot", "deep", false)
 	if len(choice.Ranked) > 0 {
 		return originals[choice.Ranked[0].Model], nil
 	}

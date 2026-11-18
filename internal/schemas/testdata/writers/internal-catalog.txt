@@ -1,3 +1,4 @@
 internal/catalog/check.go:SaveCheckCache	opencode-models-check
 internal/catalog/discover.go:ClaimNamed	unversioned: marker: detached refresh attempt stamp
 internal/catalog/discover.go:SpawnDiscover	unversioned: foreign: /dev/null opened for a detached refresh
+internal/catalog/fit.go:SaveFit	route-fit

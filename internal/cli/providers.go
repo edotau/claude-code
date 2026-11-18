@@ -50,7 +50,8 @@ var modelsPage = helptext.Page{
 		"the session profile. --pin and --unpin write claude's agent record; --live\n" +
 		"lists the profile's catalog.",
 	Commands: [][2]string{{"discover", "live-list models per profile; --apply saves them"},
-		{"preflight", "each agent's pin check; --live runs the pong round"}},
+		{"preflight", "each agent's pin check; --live runs the pong round"},
+		{"learn", "fold the dispatch records into the routing fit table"}},
 	Hint: "An alias pin on claude's agent record beats the profile's own model.\n" +
 		"claude-code models discover -h lists its flags.",
 }
@@ -63,6 +64,8 @@ func cmdModels(args []string) int {
 			return modelsDiscover(args[1:])
 		case "preflight":
 			return cmdPreflight(args[1:])
+		case "learn":
+			return modelsLearn(args[1:])
 		}
 	}
 	fs := helptext.NewFlagSet("models", modelsPage)

@@ -42,6 +42,7 @@ claude-code switch example                          # pin the session profile
 claude-code models --pin haiku=openai:gpt-5-nano    # pin a model alias; provider:model crosses providers
 claude-code models --unpin | --live --profile p     # clear pins | list what upstream serves
 claude-code models discover                         # live preview across all registry profiles
+claude-code models learn                            # fold dispatch records into router/fit.json (shadow 14 days, then --model auto reorders by it)
 claude-code models discover --profile p --apply     # append profile-scoped runtime choices
 # /discover-models [--profile p] [--dry-run]         # slash launcher applies by default
 claude-code --profile example --model sonnet         # this launch only
