@@ -585,3 +585,36 @@ func TestRecallExpandHeaderOncePerSessionAndNativeLabel(t *testing.T) {
 		t.Errorf("a restarted seen set must show the expand header again: %q", got)
 	}
 }
+
+func TestRecallTraceSelectedUsesTheRealHeader(t *testing.T) {
+	picksFor := func(titleLen int) []recallPick {
+		body := strings.Repeat("alpha ", 60)
+		mk := func(id uint64, title string) recallPick {
+			return recallPick{Entry: Entry{ID: fmt.Sprintf("id%d", id), File: "f.md", Type: "convention", Body: body, Title: title},
+				Hit: SearchHit{sum: id}}
+		}
+		return []recallPick{mk(1, "t"), mk(2, "t"), mk(3, strings.Repeat("p", titleLen))}
+	}
+	titleLen := -1 // a pointer that fits under the short header but not under the expand header
+	for n := 1; n < 400 && titleLen < 0; n++ {
+		short, _ := recallContext(picksFor(n), false)
+		long, _ := recallContext(picksFor(n), true)
+		if strings.Contains(short, "\n- "+picksFor(n)[2].Entry.pointer()) && !strings.Contains(long, "\n- "+picksFor(n)[2].Entry.pointer()) {
+			titleLen = n
+		}
+	}
+	if titleLen < 0 {
+		t.Fatal("no pointer length separates the two headers")
+	}
+	picks := picksFor(titleLen)
+	for _, tc := range []struct {
+		expand bool
+		want   string
+	}{{false, "pointer"}, {true, "over cap"}} {
+		tr := &recallTrace{Rows: []recallCandidate{{key: picks[2].Hit.key()}}}
+		tr.selected(picks, tc.expand)
+		if got := tr.Rows[0].Outcome; got != tc.want {
+			t.Errorf("expand=%v: outcome %q, want %q", tc.expand, got, tc.want)
+		}
+	}
+}

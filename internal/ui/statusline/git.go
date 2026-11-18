@@ -217,7 +217,25 @@ func originHeadFast(cwd string) (string, bool) {
 			return "", false
 		}
 	}
+	if packedMentions(common, short) {
+		return "", false
+	}
 	return short, true
+}
+
+// packedMentions reports whether packed-refs holds a branch or tag named short; an unreadable file counts as yes.
+func packedMentions(common, short string) bool {
+	data, err := os.ReadFile(filepath.Join(common, "packed-refs"))
+	if err != nil {
+		return !os.IsNotExist(err)
+	}
+	for line := range strings.Lines(string(data)) {
+		line = strings.TrimRight(line, "\r\n")
+		if strings.HasSuffix(line, " refs/heads/"+short) || strings.HasSuffix(line, " refs/tags/"+short) {
+			return true
+		}
+	}
+	return false
 }
 
 // commonDir is where a linked worktree's gitdir keeps shared refs (its commondir file), else gitDir itself.

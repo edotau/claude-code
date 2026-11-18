@@ -135,7 +135,10 @@ func TestTreeDiffStatCountsBranchSinceBase(t *testing.T) {
 
 // originHeadFast equals `git symbolic-ref --short refs/remotes/origin/HEAD` wherever it answers.
 func TestOriginHeadFastMatchesGit(t *testing.T) {
-	t.Setenv("GIT_DIR", "")
+	t.Setenv("GIT_DIR", "") // registers the restore; an empty GIT_DIR breaks git, so unset it for the spawn
+	if err := os.Unsetenv("GIT_DIR"); err != nil {
+		t.Fatal(err)
+	}
 	spawn := func(cwd string) string {
 		return gitLine(t.Context(), cwd, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD")
 	}
@@ -163,6 +166,14 @@ func TestOriginHeadFastMatchesGit(t *testing.T) {
 	wt := filepath.Join(t.TempDir(), "wt")
 	hosttest.In(t, repo, "worktree", "add", "-q", "-b", "side", wt)
 	check("linked worktree", wt, true)
-	hosttest.In(t, repo, "branch", "origin/"+strings.TrimPrefix(spawn(repo), "origin/"))
+	amb := "origin/" + strings.TrimPrefix(spawn(repo), "origin/")
+	hosttest.In(t, repo, "branch", amb)
 	check("ambiguous short name", repo, false)
+	hosttest.In(t, repo, "pack-refs", "--all")
+	check("ambiguous branch only in packed-refs", repo, false)
+	hosttest.In(t, repo, "branch", "-D", amb)
+	check("branch deleted", repo, true)
+	hosttest.In(t, repo, "tag", amb)
+	hosttest.In(t, repo, "pack-refs", "--all")
+	check("ambiguous tag only in packed-refs", repo, false)
 }

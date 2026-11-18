@@ -69,7 +69,10 @@ func watched(r core.Runner, in *core.Input) core.Result {
 		return nil
 	}) {
 		if err != nil {
-			panic(err) // par contains a panic; keep it the dispatcher's to recover
+			if pe, ok := errors.AsType[*parallel.PanicError](err); ok {
+				panic(pe.Value) // the dispatcher recovers the runner's own value, as before
+			}
+			panic(err)
 		}
 	}
 	res.Context = core.JoinContext(res.Context, w.Context)

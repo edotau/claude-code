@@ -1,8 +1,10 @@
 package statusline
 
 import (
+	"context"
 	"errors"
 	"testing"
+	"time"
 )
 
 func TestClipCountsWideCells(t *testing.T) {
@@ -26,7 +28,7 @@ func TestWalkAncestors(t *testing.T) {
 		8:  {ppid: 7, tty: "ttys002"},
 		7:  {ppid: 1, tty: "-"},
 	}
-	lookup := func(pid int) (int, string, error) {
+	lookup := func(_ context.Context, pid int) (int, string, error) {
 		r, ok := table[pid]
 		if !ok {
 			return 0, "", errors.New("gone")
@@ -46,16 +48,36 @@ func TestWalkAncestors(t *testing.T) {
 		{"no tty anywhere", 7, 0},
 		{"lookup error mid-walk", 11, 0},
 	} {
-		if got := walkAncestors(tc.pid, lookup, cols); got != tc.want {
+		if got := walkAncestors(tc.pid, time.Second, lookup, cols); got != tc.want {
 			t.Errorf("%s: walkAncestors(%d) = %d, want %d", tc.name, tc.pid, got, tc.want)
 		}
 	}
 	table[9] = row{ppid: 8, tty: "ttys009"} // a tty that reports no width is passed over
-	if got := walkAncestors(10, lookup, cols); got != 200 {
+	if got := walkAncestors(10, time.Second, lookup, cols); got != 200 {
 		t.Errorf("unreadable tty: got %d, want the next ancestor's 200", got)
 	}
 	table[8] = row{err: errors.New("denied")}
-	if got := walkAncestors(10, lookup, cols); got != 0 {
+	if got := walkAncestors(10, time.Second, lookup, cols); got != 0 {
 		t.Errorf("error after a skipped tty: got %d, want 0", got)
+	}
+}
+
+func TestWalkAncestorsSharesOneBudget(t *testing.T) {
+	hops := 0
+	lookup := func(ctx context.Context, pid int) (int, string, error) {
+		hops++
+		select {
+		case <-time.After(20 * time.Millisecond): // each hop is slow; only the shared budget can end the walk early
+			return pid + 1, "?", nil
+		case <-ctx.Done():
+			return 0, "", ctx.Err()
+		}
+	}
+	start := time.Now()
+	if got := walkAncestors(10, 50*time.Millisecond, lookup, func(string) int { return 99 }); got != 0 {
+		t.Errorf("walk past its budget = %d, want 0 (unknown width)", got)
+	}
+	if took := time.Since(start); took > 120*time.Millisecond || hops >= 8 {
+		t.Errorf("walk took %v over %d hops; want it cut by the 50ms total budget", took, hops)
 	}
 }

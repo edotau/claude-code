@@ -14,13 +14,14 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 )
 
+// psBudget caps the whole ancestor walk, as the single ps call was capped before.
+const psBudget = time.Second
+
 // ancestorTTYWidth is the column count of the first ancestor process attached to a terminal (0 if none).
-func ancestorTTYWidth() int { return walkAncestors(os.Getppid(), psParentTTY, ttyCols) }
+func ancestorTTYWidth() int { return walkAncestors(os.Getppid(), psBudget, psParentTTY, ttyCols) }
 
 // psParentTTY asks ps for pid's parent and controlling tty; a missing pid is an error.
-func psParentTTY(pid int) (ppid int, tty string, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
+func psParentTTY(ctx context.Context, pid int) (ppid int, tty string, err error) {
 	out, err := exec.CommandContext(ctx, "ps", "-o", "ppid=,tty=", "-p", strconv.Itoa(pid)).Output()
 	if err != nil {
 		return 0, "", err

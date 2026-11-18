@@ -317,7 +317,7 @@ func selectRecall(seen map[string]bool, terms []string, ranked []SearchHit, sem 
 		}
 		picks, passed := pickTier(ranked, archived, need, seen, tierSem, counts, trace)
 		if len(picks) > 0 {
-			trace.selected(picks)
+			trace.selected(picks, !seen[expandKey]) // the header the real run prints for this session
 			return picks
 		}
 		if passed || (semSeen && !archived) {
@@ -655,11 +655,11 @@ func recallCacheInfo(t *recallTrace) {
 	}
 }
 
-func (t *recallTrace) selected(picks []recallPick) {
+func (t *recallTrace) selected(picks []recallPick, expand bool) {
 	if t == nil {
 		return
 	}
-	context, _ := recallContext(picks, true)
+	context, _ := recallContext(picks, expand)
 	for i, p := range picks {
 		outcome := "over cap"
 		line := "- " + p.Entry.pointer()

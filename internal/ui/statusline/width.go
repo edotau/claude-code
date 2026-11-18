@@ -1,6 +1,7 @@
 package statusline
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"strings"
@@ -170,10 +171,13 @@ func longestLine(s string) int {
 	return w
 }
 
-// walkAncestors climbs at most 8 hops from pid to the first tty whose width cols reports; a failed lookup ends it.
-func walkAncestors(pid int, lookup func(int) (int, string, error), cols func(dev string) int) int {
+// walkAncestors climbs at most 8 hops from pid to the first tty whose width cols reports, all within one budget.
+func walkAncestors(pid int, budget time.Duration, lookup func(context.Context, int) (int, string, error),
+	cols func(dev string) int) int {
+	ctx, cancel := context.WithTimeout(context.Background(), budget)
+	defer cancel()
 	for hop := 0; hop < 8 && pid > 1; hop++ {
-		ppid, tty, err := lookup(pid)
+		ppid, tty, err := lookup(ctx, pid)
 		if err != nil {
 			return 0
 		}

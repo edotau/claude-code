@@ -75,6 +75,17 @@ func TestWatchedJoinsRunnerThenTick(t *testing.T) {
 	}
 }
 
+func TestWatchedRaisesARunnerPanicUnchanged(t *testing.T) {
+	watchStubs(t)
+	defer func() {
+		if got := recover(); got != "runner boom" {
+			t.Fatalf("recovered %#v, want the runner's own panic value", got)
+		}
+	}()
+	watched(func(*core.Input) core.Result { panic("runner boom") }, promptIn("s1"))
+	t.Fatal("watched returned after a runner panic")
+}
+
 func TestWatchTickResumesADeadJobOnce(t *testing.T) {
 	now, _, resumes := watchStubs(t, deadStale())
 	got := watchTick(promptIn("s1"))
