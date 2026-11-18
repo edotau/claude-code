@@ -255,7 +255,8 @@ func askPatternVerdict(in *core.Input, cmd string) (core.Decision, string, strin
 		return core.Block, core.SafetyMessage(in, core.Block, what, "", hint), "shared config git mutation"
 	}
 	// A footer lives in the message body, so commit text stays; other data does not.
-	if shell.AttributionFooterCommit(intentView(withPyLaunches(dropPyScripts(dropPatchBodies(in.ToolCommand()))), true), in.CWD) {
+	if shell.AttributionFooterCommit(intentView(withPyLaunches(dropPyScripts(dropPatchBodies(in.ToolCommand()))), true), in.CWD) ||
+		shell.FooterFileWritten(in.ToolCommand(), in.CWD) { // a -F file written earlier in the command, read unblanked
 		what := "AI-attribution footer in a commit message (CLAUDE.md hard rule 3)"
 		hint := "Remove the Co-Authored-By / Generated-with lines and commit again; that needs no approval." + ownerRoute
 		return core.Block, core.SafetyMessage(in, core.Block, what, "", hint), "attribution footer"

@@ -194,6 +194,20 @@ const maxMessageFile = 64 << 10
 
 // messageFileFooter reports a footer line in an existing file named by -F/--file/-t/--template.
 func messageFileFooter(target string, args []string) bool {
+	for _, path := range messageFiles(target, args) {
+		if fi, err := os.Lstat(path); err != nil || !fi.Mode().IsRegular() || fi.Size() > maxMessageFile {
+			continue
+		}
+		if b, err := os.ReadFile(path); err == nil && footerLine(string(b)) {
+			return true
+		}
+	}
+	return false
+}
+
+// messageFiles are the absolute paths of a commit's -F/--file/-t/--template files; stdin (-) is not a file.
+func messageFiles(target string, args []string) []string {
+	var out []string
 	for i, a := range args {
 		path := ""
 		switch {
@@ -204,20 +218,72 @@ func messageFileFooter(target string, args []string) bool {
 		case len(a) > 2 && (strings.HasPrefix(a, "-F") || strings.HasPrefix(a, "-t")):
 			path = a[2:]
 		}
-		if path == "" || path == "-" {
-			continue
-		}
-		if !filepath.IsAbs(path) {
-			path = filepath.Join(target, path)
-		}
-		if fi, err := os.Lstat(path); err != nil || !fi.Mode().IsRegular() || fi.Size() > maxMessageFile {
-			continue
-		}
-		if b, err := os.ReadFile(path); err == nil && footerLine(string(b)) {
-			return true
+		if path != "" && path != "-" {
+			out = append(out, resolveIn(target, path))
 		}
 	}
-	return false
+	return out
+}
+
+func isFlag(w string) bool { return strings.HasPrefix(w, "-") }
+
+func resolveIn(dir, path string) string {
+	if filepath.IsAbs(path) {
+		return filepath.Clean(path)
+	}
+	return filepath.Join(dir, path)
+}
+
+// FooterFileWritten reports a commit message file that the same command writes a footer line into first.
+func FooterFileWritten(cmd, cwd string) bool {
+	if !strings.Contains(cmd, "commit") || !strings.Contains(cmd, ">") && !strings.Contains(cmd, "tee") ||
+		!strings.Contains(cmd, "-F") && !strings.Contains(cmd, "--file") && !strings.Contains(cmd, "-t") {
+		return false
+	}
+	files := map[string]bool{}
+	EachGit(cmd, cwd, func(target, verb string, args []string) bool {
+		for _, p := range messageFiles(target, args) {
+			files[p] = files[p] || verb == "commit"
+		}
+		return false
+	})
+	segs, seps := SegmentsSep(cmd)
+	hit := false
+	eachSegment(segs, seps, cwd, func(i int, _ []string, dir string, _ bool) {
+		hit = hit || slices.ContainsFunc(writtenText(segs, seps, i, dir, files), footerLine)
+	})
+	return hit
+}
+
+// writtenText is what segment i writes into a commit message file: its words, a piped-in source's, its heredoc.
+func writtenText(segs, seps []string, i int, dir string, files map[string]bool) []string {
+	words, targets := Redirects(segs[i])
+	tee := len(words) > 0 && filepath.Base(words[0]) == "tee"
+	if tee {
+		targets = append(targets, slices.DeleteFunc(slices.Clone(words[1:]), isFlag)...)
+	}
+	if !slices.ContainsFunc(targets, func(t string) bool { return files[resolveIn(dir, t)] }) || len(words) == 0 {
+		return nil
+	}
+	var text []string
+	if !tee {
+		text = words[1:]
+	}
+	for k := i - 1; k >= 0 && (seps[k] == "|" || seps[k] == "|&"); k-- {
+		if w, _ := Redirects(segs[k]); len(w) > 1 {
+			text = append(text, w[1:]...)
+		}
+	}
+	if delim, ok := heredocDelim(Tokens(segs[i])); ok {
+		k := i + 1
+		for k < len(segs) && seps[k-1] != "\n" {
+			k++
+		}
+		for ; k < len(segs) && strings.TrimSpace(segs[k]) != delim; k++ {
+			text = append(text, segs[k])
+		}
+	}
+	return text
 }
 
 // AttributionFooterCommit reports a commit footer at an argument's line start, in raw text past a subject, or built.

