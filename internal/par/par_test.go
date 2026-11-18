@@ -10,6 +10,8 @@ import (
 	"testing"
 	"testing/synctest"
 	"time"
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 func TestMapOrderAndLimit(t *testing.T) {
