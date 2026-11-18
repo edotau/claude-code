@@ -1,0 +1,2 @@
+internal/transcript/summary_cache.go:Save	transcript-summary
+internal/transcript/usage.go:RecordWindow	unversioned: text: one integer, the session's context window

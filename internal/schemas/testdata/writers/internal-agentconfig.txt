@@ -1,0 +1,7 @@
+internal/agentconfig/opencode.go:WriteOpencodeOverlay	opencode-overlay
+internal/agentconfig/overlay_debug.go:appendOverlayDebug	unversioned: debug: COWORKER_OVERLAY_DEBUG env names + HMAC fingerprints, no values
+internal/agentconfig/vendorfile.go:CommitOverlayFile	unversioned: foreign: generated vendor overlay, vendor-owned shape
+internal/agentconfig/vendorfile.go:RevertOne	unversioned: foreign: vendor config revert
+internal/agentconfig/vendorfile.go:backupAndWrite	unversioned: foreign: vendor config plus its backup
+internal/agentconfig/vendorfile.go:restoreFile	unversioned: foreign: agent config restored after a failed staged render
+internal/agentconfig/vendorfile.go:writeBaseline	vendor-baseline

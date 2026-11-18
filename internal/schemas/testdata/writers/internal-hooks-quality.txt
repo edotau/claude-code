@@ -1,0 +1,1 @@
+internal/hooks/quality/stop_format.go:StopFormat	stop-format

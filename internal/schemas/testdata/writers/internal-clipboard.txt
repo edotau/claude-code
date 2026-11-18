@@ -1,0 +1,7 @@
+internal/clipboard/clipboard.go:grabMac	unversioned: foreign: clipboard PNG in the temp dir
+internal/clipboard/clipboard.go:savePNG	unversioned: foreign: clipboard PNG in the temp dir
+internal/clipboard/ssh_bridge.go:claimDropPath	unversioned: claim: empty O_EXCL placeholder in /tmp/claude-drop, filled by fetchFrom
+internal/clipboard/ssh_bridge.go:fetchFrom	unversioned: cache: a Mac file fetched over the clip bridge into /tmp/claude-drop
+internal/clipboard/ssh_bridge.go:installLaunchAgentAt	unversioned: foreign: launchd plist (Apple format)
+internal/clipboard/ssh_bridge.go:logServed	unversioned: log: one line per Mac file served over the clip bridge (path, never bytes)
+internal/clipboard/wlproxy.go:installProxyAt	unversioned: foreign: wl-paste shim binary

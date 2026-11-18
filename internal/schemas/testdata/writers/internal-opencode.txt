@@ -1,0 +1,4 @@
+internal/opencode/auth.go:updateOpencodeDiskCache	opencode-auth-cache
+internal/opencode/hooks.go:Write	unversioned: log: opencode hook log, text lines
+internal/opencode/hooks.go:trimLog	unversioned: log: opencode hook log trim to newest lines
+internal/opencode/plugin.go:writePlugin	unversioned: foreign: generated opencode JS plugin, opencode-owned shape

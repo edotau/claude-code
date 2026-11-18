@@ -1,0 +1,3 @@
+internal/hosttest/capture.go:ClosedStdout	unversioned: test helper: an empty temp file standing in for a closed stdout
+internal/hosttest/git.go:WriteRel	unversioned: test fixture: a file in a test's temp repo
+internal/hosttest/hosttest.go:goTelemetryOff	unversioned: test helper: go telemetry mode file under a test's temp HOME

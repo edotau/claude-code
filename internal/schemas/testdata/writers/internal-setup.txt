@@ -1,0 +1,8 @@
+internal/setup/adopt.go:Record	setup-state
+internal/setup/adopt.go:copyFile	unversioned: foreign: setup backup copy of user files
+internal/setup/install_steps.go:installBinaryTarget	unversioned: foreign: installed binary
+internal/setup/install_steps.go:seedTmuxConf	unversioned: foreign: user tmux.conf
+internal/setup/nuke.go:createBackupFile	unversioned: foreign: nuke backup archive
+internal/setup/workspace.go:workspaceDirAction	unversioned: foreign: workspace repo files
+internal/setup/workspace.go:workspaceFileAction	unversioned: foreign: workspace repo files
+internal/setup/workspace.go:workspaceIgnoreAction	unversioned: foreign: workspace repo .gitignore

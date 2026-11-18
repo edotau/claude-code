@@ -1,0 +1,2 @@
+internal/copilot/copilot.go:createExclusive	unversioned: foreign: handoff markdown in the repo
+internal/copilot/home.go:copySettings	unversioned: foreign: copilot private home settings copy

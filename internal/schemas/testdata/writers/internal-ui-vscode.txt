@@ -1,0 +1,1 @@
+internal/ui/vscode/vscode.go:writeGuarded	unversioned: foreign: VS Code settings.json, keybindings.json, chatLanguageModels.json and backup

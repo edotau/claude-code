@@ -1,0 +1,1 @@
+internal/ui/statusline/cache.go:writeStamp	unversioned: text: statusline pipe-separated stamp

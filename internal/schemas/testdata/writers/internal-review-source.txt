@@ -1,0 +1,1 @@
+internal/review/source/quality_cli.go:emitQualityJSON	unversioned: foreign: -o output

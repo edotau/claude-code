@@ -1,0 +1,2 @@
+internal/agent/wire/event.go:NewEventLog	dispatch-events
+internal/agent/wire/log.go:openLocked	unversioned: log: per-job dispatch log, humans only

@@ -8,6 +8,7 @@ import (
 	"go/token"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -110,198 +111,6 @@ func TestDecodeNullIsErrorNotPanic(t *testing.T) {
 	if _, err := SameShape(0, []byte("null")); err == nil {
 		t.Fatal("SameShape(0, null) returned nil error")
 	}
-}
-
-func unversioned(reason string) string { return "unversioned: " + reason }
-
-var writers = map[string]string{
-	"internal/codex/codex.go:codexSchemaFile":                   unversioned("foreign: codex --output-schema temp file"),
-	"internal/agent/record.go:Save":                             "dispatch-record",
-	"internal/agentconfig/overlay_debug.go:appendOverlayDebug":  unversioned("debug: COWORKER_OVERLAY_DEBUG env names + HMAC fingerprints, no values"),
-	"internal/agent/run.go:write":                               unversioned("foreign: the packed context file an agy run reads, removed after the run"),
-	"internal/agent/record.go:claimRecord":                      unversioned("claim: the running record, linked in whole"),
-	"internal/agent/record.go:ClaimDispatchID":                  unversioned("marker: exclusive hook-launch claim containing the dispatch ID"),
-	"internal/agent/brief.go:reserveBrief":                      unversioned("marker: empty relay brief file reserved by exclusive create; the relay fills it"),
-	"internal/agent/wire/log.go:openLocked":                     unversioned("log: per-job dispatch log, humans only"),
-	"internal/agent/wire/event.go:NewEventLog":                  "dispatch-events",
-	"internal/agent/live.go:acquireLiveSlot":                    unversioned("lock: live-session slot file, flock only, no content"),
-	"internal/copilot/copilot.go:createExclusive":               unversioned("foreign: handoff markdown in the repo"),
-	"internal/audit/audit.go:LogSession":                        "audit",
-	"internal/network/tailscale/host.go:WriteMachinesCache":     "tailscale-machines",
-	"internal/network/remote/auto.go:ResolveAuto":               "remote-auto-host",
-	"internal/agent/ask/report.go:saveAnswer":                   unversioned("text: ask --save answer file, the run's final answer"),
-	"internal/router/arm.go:writeArmPicks":                      "route-auto",
-	"internal/cli/menu.go:cmdMenuSVG":                           unversioned("foreign: -o output"),
-	"internal/ui/theme/look.go:setGradientLocked":               unversioned("foreign: theme file in a vendor home"),
-	"internal/clipboard/clipboard.go:grabMac":                   unversioned("foreign: clipboard PNG in the temp dir"),
-	"internal/clipboard/clipboard.go:savePNG":                   unversioned("foreign: clipboard PNG in the temp dir"),
-	"internal/clipboard/ssh_bridge.go:installLaunchAgentAt":     unversioned("foreign: launchd plist (Apple format)"),
-	"internal/clipboard/wlproxy.go:installProxyAt":              unversioned("foreign: wl-paste shim binary"),
-	"internal/ui/helptext/completion.go:Install":                unversioned("foreign: shell completion script in the user's shell dirs"),
-	"internal/configure/home.go:registerCodexMCPLocked":         unversioned("foreign: codex config.toml in the vendor home"),
-	"internal/agentconfig/project/fresh.go:writeScratch":        "projections",
-	"internal/databricks/config.go:writeScratch":                unversioned("foreign: temp rescue config"),
-	"internal/databricks/export.go:mergeInto":                   unversioned("foreign: export --merge into ~/.databrickscfg"),
-	"internal/databricks/export.go:writeFile0600":               unversioned("foreign: -o export output"),
-	"internal/codex/permissions.go:writeRetargetedConfig":       unversioned("foreign: per-dispatch CODEX_HOME config.toml retargeted from the user's, removed after the run"),
-	"internal/codex/permissions.go:saveRefreshedAuth":           unversioned("foreign: codex auth.json refreshed during a dispatch, copied back to the real CODEX_HOME"),
-	"internal/clipboard/ssh_bridge.go:logServed":                unversioned("log: one line per Mac file served over the clip bridge (path, never bytes)"),
-	"internal/clipboard/ssh_bridge.go:fetchFrom":                unversioned("cache: a Mac file fetched over the clip bridge into /tmp/claude-drop"),
-	"internal/clipboard/ssh_bridge.go:claimDropPath":            unversioned("claim: empty O_EXCL placeholder in /tmp/claude-drop, filled by fetchFrom"),
-	"internal/codex/permissions.go:writeRulesDir":               unversioned("foreign: per-dispatch CODEX_HOME rules dir and execpolicy file, removed after the run"),
-	"internal/codex/settings.go:applyCodexRestore":              unversioned("foreign: codex config.toml revert in the vendor home"),
-	"internal/codex/settings.go:writeCodexConfigLocked":         unversioned("foreign: codex config.toml in the vendor home"),
-	"internal/agentconfig/vendorfile.go:CommitOverlayFile":      unversioned("foreign: generated vendor overlay, vendor-owned shape"),
-	"internal/agentconfig/vendorfile.go:backupAndWrite":         unversioned("foreign: vendor config plus its backup"),
-	"internal/agentconfig/vendorfile.go:RevertOne":              unversioned("foreign: vendor config revert"),
-	"internal/agentconfig/vendorfile.go:writeBaseline":          "vendor-baseline",
-	"internal/configure/history.go:stageFile":                   unversioned("text: session history snapshot of a transcript"),
-	"internal/hosttest/capture.go:ClosedStdout":                 unversioned("test helper: an empty temp file standing in for a closed stdout"),
-	"internal/hosttest/hosttest.go:goTelemetryOff":              unversioned("test helper: go telemetry mode file under a test's temp HOME"),
-	"internal/hosttest/git.go:WriteRel":                         unversioned("test fixture: a file in a test's temp repo"),
-	"internal/hooks/memhook/checkpoint.go:createFlag":           unversioned("marker: context-checkpoint flag file"),
-	"internal/hooks/secretsend.go:runSecretsJob":                unversioned("log: secrets-end counts line; lock: one masking pass at a time"),
-	"internal/hooks/leaves_watch.go:writeWatch":                 unversioned("marker: stuck-leaf watchdog tick, seen, resumed and collected files"),
-	"internal/memory/session_start.go:WriteCompactRecord":       unversioned("marker: per-session PreCompact record (trigger, pct, at) read once by SessionStart"),
-	"internal/gemini/quota.go:diskCached":                       unversioned("cache: agy /usage output, 60 s, state/harness/agy-usage.json"),
-	"internal/memory/compact_handoff.go:WriteCompactHandoff":    unversioned("text: PreCompact's fact-only handoff markdown in memory/handoffs"),
-	"internal/hooks/codex_route.go:appendCodexRoute":            "codex-routing",
-	"internal/hooks/wthook/claims.go:appendClaims":              "claims",
-	"internal/worktree/sessions.go:Append":                      "notices",
-	"internal/hooks/core/telemetry.go:recordTelemetry":          unversioned("log: hook telemetry, one JSON line per module run (names, ms, outcome)"),
-	"internal/hooks/core/telemetry.go:appendTelemetry":          unversioned("log: hook telemetry row append with short-write rollback"),
-	"internal/hooks/core/telemetry.go:telemetryDropMarker":      unversioned("log: hook telemetry .dropped marker, once per full day file"),
-	"internal/hooks/core/telemetry.go:pruneTelemetry":           unversioned("log: hook telemetry retention, removes files past 14 days"),
-	"internal/hooks/core/shared.go:appendIfNew":                 unversioned("marker: per-session once-only notice keys (worktree, rtk, format-stop, dispatch recall)"),
-	"internal/hooks/wthook/worktree.go:divergedCheckDue":        unversioned("marker: empty per-session stamp, its mtime gates the divergence check"),
-	"internal/inflight/limiter.go:writeMarker":                  unversioned("marker: in-flight dispatch marker (account key)"),
-	"internal/memory/session_start.go:writeSessionRoot":         unversioned("text: per-session launch repository root"),
-	"internal/memory/session_start.go:writeChain":               unversioned("text: last-session chain stamp"),
-	"internal/memory/agent_input.go:writeSynthTranscript":       unversioned("text: Claude-shaped transcript synthesized from an agent session"),
-	"internal/memory/update_gate.go:writeCountState":            unversioned("text: edit count stamp"),
-	"internal/memory/update_gate.go:writeSidecar":               unversioned("text: update sidecar text"),
-	"internal/memory/update_gate.go:writeStampAttempts":         unversioned("text: update stamp"),
-	"internal/plans/tick.go:writeMemo":                          unversioned("text: plan task ids already announced as candidates"),
-	"internal/plans/tick.go:RecordDest":                         unversioned("text: plan draft destination pointer"),
-	"internal/hooks/docs/plan.go:claimPlanFile":                 unversioned("marker: reserved dated plan file, replaced by the plan"),
-	"internal/hooks/docs/plan.go:dropRecord":                    unversioned("marker: plan mirror record emptied when it cannot be removed"),
-	"internal/plans/tick.go:writePlan":                          unversioned("foreign: plan markdown in plans/"),
-	"internal/hooks/quality/stop_format.go:StopFormat":          "stop-format",
-	"internal/memory/watch.go:claimWatcher":                     unversioned("marker: idle watcher claim file"),
-	"internal/memory/watch.go:IdleUpdateWatch":                  unversioned("marker: idle watcher claim file, restamped with the watcher pid"),
-	"internal/setup/install_steps.go:installBinaryTarget":       unversioned("foreign: installed binary"),
-	"internal/agent/launch.go:WriteFiles":                       unversioned("per-launch 0600 files: settings-overlay row; copilot's foreign registry"),
-	"internal/setup/install_steps.go:seedTmuxConf":              unversioned("foreign: user tmux.conf"),
-	"internal/doctor/mcphealth.go:mcpList":                      unversioned("foreign: temp output of claude mcp list"),
-	"internal/memory/recall_accesslog.go:appendAccessLines":     unversioned("log: memory access log, text lines"),
-	"internal/memory/bank_fmt.go:formatFiles":                   unversioned("memory-bank: bank markdown format"),
-	"internal/memory/bank_blocks.go:appendBlocks":               unversioned("memory-bank: bank blocks"),
-	"internal/memory/doctor.go:cacheDoctorNotice":               unversioned("text: per-store doctor notice line"),
-	"internal/memory/dream.go:stampDream":                       unversioned("text: per-store dream timestamp stamp"),
-	"internal/memory/embed_store.go:refreshEmbeddings":          unversioned("marker: embedding refresh spawn stamp"),
-	"internal/memory/embed.go:embedQuery":                       unversioned("marker: semantic-recall backoff stamp"),
-	"internal/memory/spawn.go:spawnSelf":                        unversioned("log: detached worker log, humans only"),
-	"internal/memory/update.go:writeUpdateResult":               unversioned("text: update result text"),
-	"internal/memory/verbs.go:markHandoff":                      unversioned("marker: steward handoff request holding the session handoff path and id"),
-	"internal/memory/verbs.go:completeHandoff":                  unversioned("marker: steward handoff completion receipt"),
-	"internal/memory/queue.go:queueAdd":                         unversioned("marker: memory worker job queue file, one JSON job per kind and key"),
-	"internal/memory/bank_blocks.go:assignFileIDs":              unversioned("memory-bank: bank id comments"),
-	"internal/memory/bank_supersede.go:writeDirtyDocs":          unversioned("memory-bank: replaced-entry pointers"),
-	"internal/memory/promote.go:archiveFile":                    unversioned("memory-bank: bank overflow archive"),
-	"internal/memory/catchup.go:runSweep":                       unversioned("text: catch-up sweep done count"),
-	"internal/memory/catchup.go:noteBlocked":                    unversioned("text: one quiet blocked-update note line"),
-	"internal/memory/recall_index.go:writeRecallIndex":          unversioned("text: recall index, rebuilt on a miss"),
-	"internal/memory/bank_region.go:stageFile":                  unversioned("memory-bank: generated MEMORY.md staged in a temp file beside it"),
-	"internal/memory/bank_region.go:createExclusive":            unversioned("memory-bank: MEMORY.md by O_EXCL create where hard links fail"),
-	"internal/memory/bank_region.go:refreshNativeIndex":         unversioned("memory-bank: .archive-MEMORY.md.gen, the last MEMORY.md installed"),
-	"internal/memory/bank_region.go:appendToCatalog":            unversioned("memory-bank: memory/index.md entry records, append-only"),
-	"internal/memory/bank_settle.go:writeCatalog":               unversioned("memory-bank: memory/catalog.md router"),
-	"internal/memory/doctor.go:recordIndexProblem":              unversioned("text: last failed settle's cause, read by memory review"),
-	"internal/memory/bank_remember.go:writeRememberFact":        unversioned("memory-bank: bank remember"),
-	"internal/memory/recall.go:markSeen":                        unversioned("log: seen-ids list, text lines"),
-	"internal/memory/recall.go:resetSeen":                       unversioned("log: seen-ids list rewrite"),
-	"internal/hooks/effort_dispatchlabel.go:dispatchLabelsLine": unversioned("cache: last session model the label line was shown for"),
-	"internal/hooks/leaves_receipt.go:runBriefLine":             unversioned("marker: hook-run Run: line start, command and output path, plus its raw output"),
-	"internal/hooks/leaves_receipt.go:claimRelayRun":            unversioned("marker: exclusive claim of the hook-run Run: line launch"),
-	"internal/hooks/leaves_receipt.go:markHeld":                 unversioned("marker: a held leaf, so its later stop attaches finished jobs"),
-	"internal/hooks/leaves_receipt.go:preserveReport":           unversioned("text: a held leaf hand-back report, saved verbatim to the reports home"),
-	"internal/memory/bank_settle.go:rotateSessionHistory":       unversioned("memory-bank: sessionHistory rotation"),
-	"internal/memory/sandbox.go:sandboxFlat":                    unversioned("marker: flat layout stamp in a disposable sandbox"),
-	"internal/memory/sandbox.go:placeStoreRels":                 unversioned("memory-bank: disposable flat sandbox copy"),
-	"internal/memory/bank.go:requireFlat":                       unversioned("marker: flat-layout stamp of a fresh store"),
-	"internal/memory/migrate.go:apply":                          unversioned("foreign: merged bank files, MEMORY.md and .layout written by memory migrate"),
-	"internal/memory/sandbox.go:recordSandbox":                  unversioned("marker: sandbox owner pid and start"),
-	"internal/memory/sandbox.go:UpdateSandboxRegistry":          unversioned("text: sandbox dir list, one path per line"),
-	"internal/memory/store.go:seedFile":                         unversioned("memory-bank: bank seed files"),
-	"internal/memory/store.go:createExcl":                       unversioned("memory-bank: bank and memory repo seed files"),
-	"internal/memory/bank_remember.go:appendText":               unversioned("memory-bank: report and decisions append"),
-	"internal/memory/bank_settle.go:restore":                    unversioned("memory-bank: previous report restored after a failed decisions append"),
-	"internal/memory/bank_commit.go:apply":                      unversioned("memory-bank: txn applied bank file"),
-	"internal/memory/bank_commit.go:save":                       "memory-journal",
-	"internal/catalog/discover.go:ClaimNamed":                   unversioned("marker: detached refresh attempt stamp"),
-	"internal/catalog/discover.go:SpawnDiscover":                unversioned("foreign: /dev/null opened for a detached refresh"),
-	"internal/gateway/restart.go:claimRestartLocked":            unversioned("marker: watchdog proxy restart stamp"),
-	"internal/gateway/restart.go:Hold":                          unversioned("marker: deliberate proxy stop, watchdog stays off"),
-	"internal/network/egress/tunnel.go:writeRecord":             unversioned("runtime: --remote ssh tunnel port and pid"),
-	"internal/router/served.go:SaveServed":                      "served-models",
-	"internal/catalog/check.go:SaveCheckCache":                  "opencode-models-check",
-	"internal/providers/tokenexpiry.go:recordTokenExpiry":       "token-expiry",
-	"internal/providers/loginstate.go:markLoginDead":            "login-state",
-	"internal/gateway/sessions.go:ResolveProxyToken":            unversioned("runtime: scoped proxy token cache per claude pid, pruned when the pid dies"),
-	"internal/gateway/daemon.go:WriteState":                     "router-runtime",
-	"internal/gateway/server/sessions.go:saveLocked":            "router-sessions",
-	"internal/review/diff/pranalyzer.go:writeOutput":            unversioned("foreign: -o output"),
-	"internal/review/diff/gate.go:runStagedComplexity":          unversioned("foreign: staged-blob scratch copy, removed after the gate"),
-	"internal/agent/inspect/baseline.go:writeBaseline":          unversioned("foreign: base-blob scratch copy, removed after the gate"),
-	"internal/agent/ask/resultsave.go:SaveResult":               unversioned("export: a dispatch's answer text at the caller's --save path"),
-	"internal/review/source/quality_cli.go:emitQualityJSON":     unversioned("foreign: -o output"),
-	"internal/router/state.go:writeState":                       "quota",
-	"internal/router/state.go:backupCorruptState":               unversioned("backup: the corrupt quota.json copied aside before it is replaced"),
-	"internal/settings/settings.go:ResetSettings":               unversioned("foreign: owner-run settings.json reset and its .bak copy"),
-	"internal/settings/settings.go:SeedSettings":                unversioned("foreign: first-setup settings.json seed, only when missing"),
-	"internal/settings/settings.go:writeBackup":                 unversioned("foreign: ResetSettings' .bak copy, created exclusively"),
-	"internal/setup/adopt.go:copyFile":                          unversioned("foreign: setup backup copy of user files"),
-	"internal/setup/nuke.go:createBackupFile":                   unversioned("foreign: nuke backup archive"),
-	"internal/setup/adopt.go:Record":                            "setup-state",
-	"internal/setup/workspace.go:workspaceDirAction":            unversioned("foreign: workspace repo files"),
-	"internal/setup/workspace.go:workspaceFileAction":           unversioned("foreign: workspace repo files"),
-	"internal/setup/workspace.go:workspaceIgnoreAction":         unversioned("foreign: workspace repo .gitignore"),
-	"internal/ui/statusline/cache.go:writeStamp":                unversioned("text: statusline pipe-separated stamp"),
-	"internal/usage/claude.go:writeClaudeOwnerSidecar":          unversioned("text: claude login owner fingerprint"),
-	"internal/network/tailscale/cli.go:writeAuthKeyFile":        unversioned("foreign: temp auth key file"),
-	"internal/agentconfig/vendorfile.go:restoreFile":            unversioned("foreign: agent config restored after a failed staged render"),
-	"internal/ui/theme/theme.go:replaceIfUnchanged":             unversioned("foreign: theme file and backup in a vendor home"),
-	"internal/agent/tools/version.go:writeVersionCache":         "agentversion",
-	"internal/agent/tree/cache.go:saveScanCache":                "agents-tree-scan",
-	"internal/agent/tools/install.go:runInstallScript":          unversioned("foreign: temp installer script"),
-	"internal/agent/tools/tools.go:installBinary":               unversioned("foreign: installed binary"),
-	"internal/agent/tools/science.go:installScienceApp":         unversioned("foreign: downloaded DMG temp file"),
-	"internal/transcript/summary_cache.go:Save":                 "transcript-summary",
-	"internal/transcript/usage.go:RecordWindow":                 unversioned("text: one integer, the session's context window"),
-	"internal/usage/claude.go:writeClaudeUsageCache":            "oauth-usage-cache",
-	"internal/vault/vault.go:create":                            "vault",
-	"internal/agent/job.go:SpawnArgvContext":                    unversioned("log: vendor job log, humans only"),
-	"internal/agent/ask/reviewdiff.go:reviewArgs":               unversioned("foreign: temp diff handed to a vendor CLI"),
-	"internal/codex/catalog.go:validateCodexCatalog":            "codex-catalog",
-	"internal/codex/catalog.go:storeCodexCatalog":               "codex-catalog",
-	"internal/codex/cloud.go:moveVendorLog":                     unversioned("foreign: vendor `codex cloud` debug log moved out of the cwd"),
-	"internal/codex/hooks.go:writeCodexHooks":                   unversioned("foreign: codex hooks.json in the vendor home"),
-	"internal/copilot/home.go:copySettings":                     unversioned("foreign: copilot private home settings copy"),
-	"internal/agentconfig/opencode.go:WriteOpencodeOverlay":     "opencode-overlay",
-	"internal/opencode/hooks.go:Write":                          unversioned("log: opencode hook log, text lines"),
-	"internal/opencode/hooks.go:trimLog":                        unversioned("log: opencode hook log trim to newest lines"),
-	"internal/opencode/plugin.go:writePlugin":                   unversioned("foreign: generated opencode JS plugin, opencode-owned shape"),
-	"internal/opencode/auth.go:updateOpencodeDiskCache":         "opencode-auth-cache",
-	"internal/ui/vscode/vscode.go:writeGuarded":                 unversioned("foreign: VS Code settings.json, keybindings.json, chatLanguageModels.json and backup"),
-	"internal/worktree/commit.go:undoAdd":                       unversioned("git index: saved bytes renamed over it from a held index.lock, git's own protocol"),
-	"internal/worktree/ledger.go:editLedger":                    unversioned("memory-bank: worktree ledger log line and task fill"),
-	"internal/worktree/ledger.go:CloseLedger":                   unversioned("memory-bank: worktree ledger close"),
-	"internal/worktree/ledger.go:openLedger":                    unversioned("memory-bank: worktree ledger open"),
-	"internal/worktree/operation.go:SaveOperation":              "worktree-merge-op",
-	"internal/agent/waves/state.go:Save":                        unversioned("runtime: the waves verb's per-run state.json, private to one run"),
-	"internal/agent/waves/verify.go:GateRun":                    unversioned("log: one gate's saved output, humans only"),
-	"internal/workflows/workflowsync.go:syncWorkflowFile":       unversioned("foreign: workflow script rewritten in place"),
-	"internal/worktree/seed.go:copyEnvFile":                     unversioned("text: .env copied into a new worktree"),
 }
 
 var writeCalls = map[string]bool{
@@ -417,9 +226,60 @@ func goldenNames(t *testing.T) map[string]bool {
 	return names
 }
 
+const writersDir = "testdata/writers"
+
+// Rows are `<file.go>:<func>` TAB `<format>|unversioned: <why>`, sorted, in testdata/writers/<pkg path, - for />.txt.
+func writerFile(key string) string {
+	file, _, _ := strings.Cut(key, ":")
+	return strings.ReplaceAll(path.Dir(file), "/", "-") + ".txt"
+}
+
+func loadWriters(dir string) (map[string]string, error) {
+	files, err := filepath.Glob(filepath.Join(dir, "*"))
+	if err != nil {
+		return nil, err
+	}
+	rows := map[string]string{}
+	for _, f := range files {
+		if err := loadWriterFile(f, rows); err != nil {
+			return nil, err
+		}
+	}
+	return rows, nil
+}
+
+func loadWriterFile(f string, rows map[string]string) error {
+	b, err := os.ReadFile(f)
+	if err != nil {
+		return err
+	}
+	base := filepath.Base(f)
+	prev := ""
+	for i, l := range strings.Split(strings.TrimSuffix(string(b), "\n"), "\n") {
+		key, val, ok := strings.Cut(l, "\t")
+		switch {
+		case !ok || key == "" || val == "":
+			return fmt.Errorf("%s:%d: want <key><TAB><schema or unversioned: reason>", base, i+1)
+		case writerFile(key) != base:
+			return fmt.Errorf("%s:%d: row %s belongs in %s", base, i+1, key, writerFile(key))
+		case key <= prev:
+			return fmt.Errorf("%s:%d: row %s is duplicate or unsorted", base, i+1, key)
+		}
+		if _, dup := rows[key]; dup {
+			return fmt.Errorf("%s:%d: duplicate row %s", base, i+1, key)
+		}
+		prev, rows[key] = key, val
+	}
+	return nil
+}
+
 func TestWriters(t *testing.T) {
 	if testing.Short() {
 		t.Skip("pre-ship tier: whole-repo AST walk")
+	}
+	writers, err := loadWriters(writersDir)
+	if err != nil {
+		t.Fatal(err)
 	}
 	found := scanWriters(t)
 	names := goldenNames(t)
@@ -441,11 +301,11 @@ func registeredWriterIssues(found map[string]bool, registry map[string]string, n
 	for _, k := range keys {
 		v, ok := registry[k]
 		if !ok {
-			issues = append(issues, k+" writes a file: register it in internal/schemas or classify it in schemas_test.go")
+			issues = append(issues, fmt.Sprintf("%s writes a file: add this row to internal/schemas/%s/%s", k, writersDir, writerFile(k)))
 			continue
 		}
 		if !names[v] && !strings.HasPrefix(v, "unversioned: ") {
-			issues = append(issues, fmt.Sprintf("%s maps to %q: not a registered format name nor unversioned(...)", k, v))
+			issues = append(issues, fmt.Sprintf("%s maps to %q: not a registered format name nor unversioned: <reason> (%s)", k, v, writerFile(k)))
 		}
 	}
 	return issues
@@ -455,9 +315,10 @@ func staleWriterIssues(found map[string]bool, registry map[string]string) []stri
 	var issues []string
 	for k := range registry {
 		if !found[k] {
-			issues = append(issues, fmt.Sprintf("writers entry %s no longer has a write site: remove it", k))
+			issues = append(issues, fmt.Sprintf("internal/schemas/%s/%s: row %s no longer has a write site: remove it", writersDir, writerFile(k), k))
 		}
 	}
+	sort.Strings(issues)
 	return issues
 }
 
@@ -475,17 +336,17 @@ func TestWriterRegistryRejectsUnregisteredAndStale(t *testing.T) {
 	t.Run("unregistered", func(t *testing.T) {
 		issues := registeredWriterIssues(found, map[string]string{}, map[string]bool{})
 		want := []string{
-			"fixture.go:appendFile writes a file: register it in internal/schemas or classify it in schemas_test.go",
-			"fixture.go:write writes a file: register it in internal/schemas or classify it in schemas_test.go",
+			"fixture.go:appendFile writes a file: add this row to internal/schemas/testdata/writers/..txt",
+			"fixture.go:write writes a file: add this row to internal/schemas/testdata/writers/..txt",
 		}
 		if strings.Join(issues, "\n") != strings.Join(want, "\n") {
 			t.Fatalf("unregistered writer issues = %v, want %v", issues, want)
 		}
 	})
 	t.Run("stale", func(t *testing.T) {
-		registry := map[string]string{"fixture.go:read": unversioned("foreign: fixture")}
+		registry := map[string]string{"fixture.go:read": "unversioned: foreign: fixture"}
 		issues := staleWriterIssues(found, registry)
-		if len(issues) != 1 || issues[0] != "writers entry fixture.go:read no longer has a write site: remove it" {
+		if len(issues) != 1 || issues[0] != "internal/schemas/testdata/writers/..txt: row fixture.go:read no longer has a write site: remove it" {
 			t.Fatalf("stale writer issues = %v", issues)
 		}
 	})

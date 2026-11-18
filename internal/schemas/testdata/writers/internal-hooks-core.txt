@@ -1,0 +1,5 @@
+internal/hooks/core/shared.go:appendIfNew	unversioned: marker: per-session once-only notice keys (worktree, rtk, format-stop, dispatch recall)
+internal/hooks/core/telemetry.go:appendTelemetry	unversioned: log: hook telemetry row append with short-write rollback
+internal/hooks/core/telemetry.go:pruneTelemetry	unversioned: log: hook telemetry retention, removes files past 14 days
+internal/hooks/core/telemetry.go:recordTelemetry	unversioned: log: hook telemetry, one JSON line per module run (names, ms, outcome)
+internal/hooks/core/telemetry.go:telemetryDropMarker	unversioned: log: hook telemetry .dropped marker, once per full day file

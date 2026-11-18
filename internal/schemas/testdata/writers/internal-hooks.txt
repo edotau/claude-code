@@ -1,0 +1,8 @@
+internal/hooks/codex_route.go:appendCodexRoute	codex-routing
+internal/hooks/effort_dispatchlabel.go:dispatchLabelsLine	unversioned: cache: last session model the label line was shown for
+internal/hooks/leaves_receipt.go:claimRelayRun	unversioned: marker: exclusive claim of the hook-run Run: line launch
+internal/hooks/leaves_receipt.go:markHeld	unversioned: marker: a held leaf, so its later stop attaches finished jobs
+internal/hooks/leaves_receipt.go:preserveReport	unversioned: text: a held leaf hand-back report, saved verbatim to the reports home
+internal/hooks/leaves_receipt.go:runBriefLine	unversioned: marker: hook-run Run: line start, command and output path, plus its raw output
+internal/hooks/leaves_watch.go:writeWatch	unversioned: marker: stuck-leaf watchdog tick, seen, resumed and collected files
+internal/hooks/secretsend.go:runSecretsJob	unversioned: log: secrets-end counts line; lock: one masking pass at a time

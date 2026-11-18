@@ -1,0 +1,2 @@
+internal/hooks/wthook/claims.go:appendClaims	claims
+internal/hooks/wthook/worktree.go:divergedCheckDue	unversioned: marker: empty per-session stamp, its mtime gates the divergence check

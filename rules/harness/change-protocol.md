@@ -27,8 +27,9 @@ rule or agent change that never reaches the sessions and agents that load it.
    references (overlay "extends" links, the `CLAUDE.md` index, skills, commands) are fixed in the same commit.
 4. **Skill, `CLAUDE.md` or the agent roster changed** — `claude-code agents sync`, then `agents sync --check`; if
    projection roots are not writable, report that boundary and the exact pending command.
-5. **New file writer or on-disk format** — register or classify it in `internal/schemas` (writers map, registry
-   golden); a hook or settings change regenerates its golden files and examples in the same commit.
+5. **New file writer or on-disk format** — register or classify it in `internal/schemas`
+   (one row in `testdata/writers/<pkg>.txt`, registry golden);
+   a hook or settings change regenerates its golden files and examples in the same commit.
 6. **Record it** — the commit message says what was rebuilt and what was left for later.
 7. **New or changed component (agent/skill/hook/plugin)** — write the manifest first (exact files, action on each) and
    get approval before writing.

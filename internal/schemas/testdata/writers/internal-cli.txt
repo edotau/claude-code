@@ -1,0 +1,1 @@
+internal/cli/menu.go:cmdMenuSVG	unversioned: foreign: -o output

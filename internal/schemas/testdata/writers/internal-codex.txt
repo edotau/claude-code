@@ -1,0 +1,10 @@
+internal/codex/catalog.go:storeCodexCatalog	codex-catalog
+internal/codex/catalog.go:validateCodexCatalog	codex-catalog
+internal/codex/cloud.go:moveVendorLog	unversioned: foreign: vendor `codex cloud` debug log moved out of the cwd
+internal/codex/codex.go:codexSchemaFile	unversioned: foreign: codex --output-schema temp file
+internal/codex/hooks.go:writeCodexHooks	unversioned: foreign: codex hooks.json in the vendor home
+internal/codex/permissions.go:saveRefreshedAuth	unversioned: foreign: codex auth.json refreshed during a dispatch, copied back to the real CODEX_HOME
+internal/codex/permissions.go:writeRetargetedConfig	unversioned: foreign: per-dispatch CODEX_HOME config.toml retargeted from the user's, removed after the run
+internal/codex/permissions.go:writeRulesDir	unversioned: foreign: per-dispatch CODEX_HOME rules dir and execpolicy file, removed after the run
+internal/codex/settings.go:applyCodexRestore	unversioned: foreign: codex config.toml revert in the vendor home
+internal/codex/settings.go:writeCodexConfigLocked	unversioned: foreign: codex config.toml in the vendor home

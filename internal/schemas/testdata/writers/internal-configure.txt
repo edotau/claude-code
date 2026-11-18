@@ -1,0 +1,2 @@
+internal/configure/history.go:stageFile	unversioned: text: session history snapshot of a transcript
+internal/configure/home.go:registerCodexMCPLocked	unversioned: foreign: codex config.toml in the vendor home

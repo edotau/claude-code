@@ -1,0 +1,3 @@
+internal/agent/ask/report.go:saveAnswer	unversioned: text: ask --save answer file, the run's final answer
+internal/agent/ask/resultsave.go:SaveResult	unversioned: export: a dispatch's answer text at the caller's --save path
+internal/agent/ask/reviewdiff.go:reviewArgs	unversioned: foreign: temp diff handed to a vendor CLI

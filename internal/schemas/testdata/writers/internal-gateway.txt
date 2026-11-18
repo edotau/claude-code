@@ -1,0 +1,4 @@
+internal/gateway/daemon.go:WriteState	router-runtime
+internal/gateway/restart.go:Hold	unversioned: marker: deliberate proxy stop, watchdog stays off
+internal/gateway/restart.go:claimRestartLocked	unversioned: marker: watchdog proxy restart stamp
+internal/gateway/sessions.go:ResolveProxyToken	unversioned: runtime: scoped proxy token cache per claude pid, pruned when the pid dies

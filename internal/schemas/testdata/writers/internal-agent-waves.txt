@@ -1,0 +1,2 @@
+internal/agent/waves/state.go:Save	unversioned: runtime: the waves verb's per-run state.json, private to one run
+internal/agent/waves/verify.go:GateRun	unversioned: log: one gate's saved output, humans only
