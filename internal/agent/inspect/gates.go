@@ -365,15 +365,15 @@ func docsGate(ctx context.Context, in gateInput) (string, string, error) {
 		return "", "no markdown files", nil
 	}
 	out, skip, err := stepGate(stepFor("docs"))(ctx, in)
-	memOut, memRan, memErr := memoryFmtGate(in)
-	if skip != "" && memRan {
+	memOut, memErr := memoryFmtGate(in)
+	if memErr != nil { // runGate lets skip win over an error, which would hide the memory failure
 		skip = ""
 	}
 	return out + memOut, skip, errors.Join(err, memErr)
 }
 
 // memoryFmtGate runs the `memory fmt --check` package function and fails on the changed memory-store files it lists.
-func memoryFmtGate(in gateInput) (out string, ran bool, err error) {
+func memoryFmtGate(in gateInput) (string, error) {
 	store := paths.CanonDeep(memory.StoreDir())
 	changed := map[string]bool{}
 	for _, p := range match(in.files, []string{mdGlob}) {
@@ -383,11 +383,11 @@ func memoryFmtGate(in gateInput) (out string, ran bool, err error) {
 		}
 	}
 	if len(changed) == 0 {
-		return "", false, nil
+		return "", nil
 	}
 	var report bytes.Buffer
 	if _, err := memory.FormatReport(&report, true); err != nil {
-		return "", true, fmt.Errorf("memory fmt --check: %w", err)
+		return "", fmt.Errorf("memory fmt --check: %w", err)
 	}
 	var dirty []string
 	for line := range strings.Lines(report.String()) {
@@ -396,9 +396,9 @@ func memoryFmtGate(in gateInput) (out string, ran bool, err error) {
 		}
 	}
 	if len(dirty) == 0 {
-		return "", true, nil
+		return "", nil
 	}
-	return strings.Join(dirty, ""), true, errors.New("memory fmt")
+	return strings.Join(dirty, ""), errors.New("memory fmt")
 }
 
 // complexityGate runs the `review simplify` engine in-process; only MEDIUM+ findings the change introduced fail it.

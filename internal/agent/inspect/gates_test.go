@@ -196,6 +196,9 @@ func TestDocsGateChecksChangedMemoryBankFiles(t *testing.T) {
 		if r := last(clean); r.Status == "FAIL" {
 			t.Errorf("lint=%t clean changed bank file failed on another bank file: %+v", lint, r)
 		}
+		if r := last(clean); !lint && r.Status != "skip" {
+			t.Errorf("mdsmith missing, memory check clean: %+v, want skip, not ok", r)
+		}
 	}
 }
 

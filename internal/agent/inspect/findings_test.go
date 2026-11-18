@@ -45,6 +45,21 @@ func TestParsersTurnToolOutputIntoRows(t *testing.T) {
 			[]string{"pkg/p.go:12: quality: comment over 120 chars"}},
 		{"test", parseTest, "--- FAIL: TestX (0.00s)\n    p_test.go:9: got 1\nFAIL\nFAIL\tx/p\t0.2s\n",
 			[]string{"test: --- FAIL: TestX (0.00s)", "p_test.go:9: test: got 1", "x/p: test: FAIL"}},
+		{"gofmt spaced", parseGofmt, "internal/a b/y.go\ninternal/ab/bad file.go:2:8: expected ')', found '{'\n",
+			[]string{"internal/a b/y.go: gofmt: needs formatting", "internal/ab/bad file.go:2: gofmt: expected ')', found '{'"}},
+		{"vet spaced", parseGoOutput("vet"), "# x/internal/ab\nvet: internal/ab/bad file.go:2:8: expected ')', found '{'\n",
+			[]string{"internal/ab/bad file.go:2: vet: expected ')', found '{'"}},
+		{"vet windows", parseGoOutput("vet"), "C:\\x\\y.go:12:3: bad: a: b\n", []string{"C:\\x\\y.go:12: vet: bad: a: b"}},
+		{"golangci spaced", parseGolangci, "internal/ab/p q.go:7:2: declared and not used: x (typecheck)\npackage ab\n1 issues:\n* typecheck: 1\n",
+			[]string{"internal/ab/p q.go:7: golangci-lint/typecheck: declared and not used: x"}},
+		{"mdsmith spaced", parseDocs, "docs/my notes.md:3:1 MDS008 multiple consecutive blank lines\n1 | # T\n····^\n" +
+			"docs/my notes.md: memory fmt --check: would change\n",
+			[]string{"docs/my notes.md: memory-fmt: would change", "docs/my notes.md:3: mdsmith/MDS008: multiple consecutive blank lines"}},
+		{"yamlfmt spaced", parseYamlfmt, "The following formatting differences were found:\n\ndocs/c d.yml:\n- a:   1  a: 1\n", []string{"docs/c d.yml: yamlfmt: needs formatting"}},
+		{"shellcheck spaced", parseShellcheck, "scripts/my script.sh:2:4: error: Couldn't parse: a: b. [SC1073]\n",
+			[]string{"scripts/my script.sh:2: shellcheck/SC1073: Couldn't parse: a: b."}},
+		{"quality spaced", parseQuality, "docs/my notes.go:12: comment: over 120 chars\n", []string{"docs/my notes.go:12: quality: comment: over 120 chars"}},
+		{"test spaced", parseTest, "    my file_test.go:9: got 1: want 2\n", []string{"my file_test.go:9: test: got 1: want 2"}},
 	}
 	for _, c := range cases {
 		if got := rowStrings(c.parse(c.out)); !slices.Equal(got, c.want) {
