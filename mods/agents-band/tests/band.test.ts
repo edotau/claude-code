@@ -1,6 +1,8 @@
 import { describe, expect, mock, test } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+import { plain } from '../hooks/text'
+
 const leg = { id: 'a1', type: 'claude', description: 'sonnet: fix the parser', status: 'running', files: ['internal/a/x.go', 'internal/b/x.go', 'c.go', 'd.go', 'e.go', 'f.go', 'g.go'] }
 const disp = { id: 'd1', agent: 'codex', route: 'databricks:dev', duration: '1m', status: 'running', lastSignal: '2026-11-18T10:00:00Z', task: 'review', note: 'halfway\nthere' }
 const tree = (extra: object = {}) => JSON.stringify({ sessions: [{ subagents: [{ ...leg, dispatches: [disp] }] }], ...extra })
@@ -138,6 +140,12 @@ describe('agents-band', () => {
     expect(all).not.toMatch(/[\u0000-\u0009\u000b-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/)
     expect(all).not.toContain('pwned')
     expect(Math.max(...drawn.map((l: string) => l.length))).toBeLessThanOrEqual(80)
+  })
+
+  test('the cap never splits a surrogate pair', () => {
+    const cut = plain(`${'a'.repeat(9)}😀tail`, 10)
+    expect(cut).not.toMatch(/[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/)
+    expect(cut).toBe(`${'a'.repeat(9)}😀`)
   })
 
   test('a row that disappears drops its expanded key', async ($, on) => {

@@ -7,8 +7,12 @@ const ESCAPES = /\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)?|\u001b\[[0-?]*[ -/
 const CONTROLS = /[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/g
 
 // plain makes untrusted JSON text safe to store and draw: no escapes or controls, one line, capped.
-export const plain = (v: unknown, max = CAP): string =>
-  typeof v === 'string' ? v.replace(ESCAPES, '').replace(/\s+/g, ' ').replace(CONTROLS, '').trim().slice(0, max) : ''
+export const plain = (v: unknown, max = CAP): string => {
+  if (typeof v !== 'string') return ''
+  const s = v.replace(ESCAPES, '').replace(/\s+/g, ' ').replace(CONTROLS, '').trim()
+
+  return s.length <= max ? s : Array.from(s).slice(0, max).join('')
+}
 
 export const strings = (v: unknown): string[] => (Array.isArray(v) ? v.map(x => plain(x)).filter(x => x !== '') : [])
 
