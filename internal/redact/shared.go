@@ -59,7 +59,7 @@ func vaultValues() ([]string, error) {
 	if testing.Testing() {
 		return nil, nil
 	}
-	names, err := vault.NamesErr()
+	names, err := credentialNames()
 	if err != nil || len(names) == 0 {
 		return nil, err
 	}
@@ -72,6 +72,24 @@ func vaultValues() ([]string, error) {
 		vals = append(vals, v)
 	}
 	return vals, nil
+}
+
+// credentialNames omits labeled records (model listings, catalogs): derived caches, not credentials.
+func credentialNames() ([]string, error) {
+	var names []string
+	err := vault.View(func(tx *vault.Tx) error {
+		recs, err := tx.Records()
+		if err != nil {
+			return err
+		}
+		for name, r := range recs {
+			if r.Label == "" {
+				names = append(names, name)
+			}
+		}
+		return nil
+	})
+	return names, err
 }
 
 // StubValues makes the shared matcher read vals for this test and rebuilds it after.

@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/textutil"
@@ -82,7 +83,9 @@ func leaves(val string) []string {
 	visit = func(v any) {
 		switch x := v.(type) {
 		case string:
-			out = append(out, x)
+			if !strings.Contains(x, "://") { // a URL leaf is an address, never the credential
+				out = append(out, x)
+			}
 		case []any:
 			for _, item := range x {
 				visit(item)
