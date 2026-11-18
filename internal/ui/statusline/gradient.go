@@ -7,7 +7,6 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/theme"
 )
@@ -170,14 +169,10 @@ func (b *cellBuf) pushContextBlock(v values, sepMajor string, lead bool) bool {
 	b.push(bar[len(filled):], "empty")
 	b.push(fmt.Sprintf(" %d%%", clampPct(int(math.Round(d.ctxPct)))), "g")
 	b.pushBreakable(twoSep, "g")
-	b.push(textutil.CompactCount(int64(d.tokens))+"/"+textutil.CompactCount(int64(d.size)), "g")
+	b.push(tokenCount(d.tokens)+"/"+tokenCount(d.size), "g")
 	if v.limits != "" {
 		b.pushBreakable(" ", "g")
 		b.push(v.limits, "g")
-	}
-	if v.auth != "" {
-		b.pushBreakable(twoSep, "g")
-		b.push(v.auth, "g")
 	}
 	return true
 }
@@ -221,10 +216,10 @@ func (b *cellBuf) pushMetrics(v values, cfg config) {
 	}
 }
 
-// gradientTexts is a segment's text; the model carries the profile, and the countdown when no context block shows.
+// gradientTexts is a segment's text; the model carries the profile.
 func gradientTexts(v values, key string) []string {
 	if key == "model" && !v.two.hasCtx {
-		return []string{v.model, v.profile, v.auth}
+		return []string{v.model, v.profile}
 	}
 	if key == "model" {
 		return []string{v.model, v.profile}

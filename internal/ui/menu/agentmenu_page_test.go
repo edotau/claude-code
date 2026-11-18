@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/gemini"
@@ -266,6 +268,7 @@ func TestAgentStateLabelAndCheck(t *testing.T) {
 
 // Each codex Login pick runs its own sign-in, then the status probe: browser, device code, or (cancelled) nothing.
 func TestCodexLoginPicksMethod(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	for _, tc := range []struct{ in, want string }{{"1\n", "login\nlogin status\n"},
 		{"2\n", "login --device-auth\nlogin status\n"}, {"\n", ""}} {
 		cfg := t.TempDir()
@@ -283,6 +286,7 @@ func TestCodexLoginPicksMethod(t *testing.T) {
 
 // The API key pick pipes the vault's OPENAI_API_KEY to `codex login --with-api-key`, and only once ensureKey succeeds.
 func TestCodexLoginAPIKeyPipesVaultKey(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	for _, tc := range []struct {
 		ensure bool
 		want   string
@@ -443,7 +447,7 @@ func runRealRoute(t *testing.T, in string, readOnlyVault bool) string {
 
 // A pin write that fails must end Set up with "stopped at route", not read as a dismissed picker.
 func TestSetUpRouteFailedPinWriteIsReported(t *testing.T) {
-	if os.Geteuid() == 0 {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("root ignores file modes")
 	}
 	got := runRealRoute(t, "1\n", true)

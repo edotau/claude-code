@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -298,7 +299,7 @@ func TestCleanRefusesPendingAutostash(t *testing.T) {
 // TestIsLockedPropagatesNonNotExistStatError: a permission-denied stat must propagate, never read as unlocked.
 func TestIsLockedPropagatesNonNotExistStatError(t *testing.T) {
 	t.Parallel()
-	if os.Geteuid() == 0 {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("permission checks don't apply when running as root")
 	}
 	repo := testRepo(t)

@@ -9,6 +9,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // xword is a fixed-width filler token so first-line/continuation capacity is hand-computable.
@@ -537,6 +539,7 @@ func TestFormatBankCheckReturnsDiscoveryErrors(t *testing.T) {
 }
 
 func fmtDiscoveryFailure(t *testing.T, sub string) error {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	if sub == "stat" {
 		file := filepath.Join(StoreDir(), "decisionLog.md")

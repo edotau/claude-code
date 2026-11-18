@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestGitBranchFast(t *testing.T) {
@@ -102,6 +104,7 @@ func TestCheckoutOf(t *testing.T) {
 }
 
 func TestTreeDiffDeadlineFallsBack(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	orig := gitDiffTimeout
 	gitDiffTimeout = 50 * time.Millisecond
 	t.Cleanup(func() { gitDiffTimeout = orig })
@@ -114,5 +117,18 @@ func TestTreeDiffDeadlineFallsBack(t *testing.T) {
 	adds, dels, ok := treeDiffStat(dir)
 	if ok || adds != 0 || dels != 0 {
 		t.Fatalf("deadline expired: treeDiffStat = (%d, %d, %v), want (0, 0, false)", adds, dels, ok)
+	}
+}
+
+// The velocity counts the branch's committed and uncommitted lines since the default branch, not just uncommitted.
+func TestTreeDiffStatCountsBranchSinceBase(t *testing.T) {
+	repo := hosttest.Repo(t)
+	hosttest.In(t, repo, "checkout", "-q", "-b", "feature")
+	hosttest.WriteRel(t, repo, "a.txt", "1\n2\n3\n")
+	hosttest.In(t, repo, "add", "a.txt")
+	hosttest.In(t, repo, "commit", "-q", "-m", "committed")
+	hosttest.WriteRel(t, repo, "a.txt", "1\n2\n3\n4\n5\n")
+	if adds, dels, ok := treeDiffStat(repo); !ok || adds != 5 || dels != 0 {
+		t.Fatalf("treeDiffStat = (%d, %d, %v), want (5, 0, true)", adds, dels, ok)
 	}
 }

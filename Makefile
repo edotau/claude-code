@@ -197,6 +197,11 @@ audit: check-clean  ## Local gate: lint, git secrets, test, build, vuln, docs
 		if [ $$rc -ne 0 ]; then echo "docs/images/cli-menu.svg is stale: run make help-svg"; exit 1; fi
 	@echo -e "$(C_OK)audit passed (lint/test/build + sync smoke + generated docs; vuln when installed and online)"
 
+# Fast tier: skips the pre-ship tests (`testing.Short`); `audit` still runs everything.
+.PHONY: test
+test:
+	@$(GO) test -short -timeout $(GO_TEST_TIMEOUT) $(PKGS)
+
 # One `go test` at a time: it already spreads packages over the cores; seven at once oversubscribed them and made
 # wall-clock tests flake. Measured the same (31s vs 33s sharded); strictly serial (-p 1) took 168s.
 TEST_PKGS ?= $(PKGS)

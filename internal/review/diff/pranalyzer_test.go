@@ -18,6 +18,7 @@ import (
 // hashes every time) so the test never reads this checkout's own live git history.
 
 func buildPRFixtureRepo(t *testing.T) string {
+	hosttest.SkipOnWindows(t, "sh")
 	t.Helper()
 	dest := filepath.Join(t.TempDir(), "repo")
 	script, err := filepath.Abs(filepath.Join("testdata", "pr", "build_repo.sh"))
@@ -243,6 +244,7 @@ func TestChangedFilesNonASCIIPath(t *testing.T) {
 }
 
 func failPatchGit(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	git, err := exec.LookPath("git")
 	if err != nil {

@@ -1,6 +1,7 @@
 package codex
 
 import (
+	"runtime"
 	"slices"
 	"strconv"
 	"time"
@@ -232,7 +233,7 @@ func TestCodexRulesHomeResumeKeepsRolloutPaths(t *testing.T) {
 }
 
 func TestLinkHomeSurfacesReadDirError(t *testing.T) {
-	if os.Geteuid() == 0 {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("root reads any directory")
 	}
 	real := t.TempDir()

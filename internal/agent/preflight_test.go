@@ -347,13 +347,21 @@ func (tc mintRow) seed(t *testing.T) (*providers.Provider, func(name string, lif
 			t.Fatal(err)
 		}
 	}
+	writes := 0
 	record := func(name string, life time.Duration) {
+		writes++
 		dir := filepath.Join(paths.StateDir(), "cache", "token-expiry")
 		raw := fmt.Sprintf(`{"schema":2,"exp":%d}`, time.Now().Add(life).Unix())
 		if err := os.MkdirAll(dir, 0o700); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(dir, name+".json"), []byte(raw), 0o600); err != nil {
+		file := filepath.Join(dir, name+".json")
+		if err := os.WriteFile(file, []byte(raw), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// Coarse fs clocks give back-to-back writes one mtime; the newer-record pick needs strict order.
+		at := time.Now().Add(time.Duration(writes) * time.Second)
+		if err := os.Chtimes(file, at, at); err != nil {
 			t.Fatal(err)
 		}
 	}

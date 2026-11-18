@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -186,6 +188,7 @@ func TestDoctorRetiredKeys(t *testing.T) {
 
 // fakeRetiredKeyTool puts a fake keyring tool first on PATH that answers for the retired key kid per RETIRED_MODE.
 func fakeRetiredKeyTool(t *testing.T, kid string) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	var id string
 	if err := vault.View(func(tx *vault.Tx) error {

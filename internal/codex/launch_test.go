@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/proc"
@@ -16,6 +18,7 @@ import (
 )
 
 func TestCodexStatusScrubsVaultKey(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Setenv("HARNESS_VAULT_KEY", "probe-secret")
 	bin := filepath.Join(t.TempDir(), "codex")
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\necho \"key=$HARNESS_VAULT_KEY\"\n"), 0o755); err != nil {

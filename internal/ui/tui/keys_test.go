@@ -292,6 +292,9 @@ func checkPollsWithPselect6(t *testing.T, want string) {
 }
 
 func TestLinuxARM64TestPackageCompiles(t *testing.T) {
+	if testing.Short() {
+		t.Skip("pre-ship tier: cross-compiles")
+	}
 	if want, ok := pselect6Number[runtime.GOARCH]; ok && runtime.GOOS == "linux" {
 		checkPollsWithPselect6(t, want)
 	}

@@ -183,6 +183,7 @@ func TestSimplicityFindings(t *testing.T) {
 
 // An unreadable file must be reported with a non-zero exit, never dropped as clean.
 func TestRunSimplifyReportsUnreadableFile(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	dir := t.TempDir()
 	if err := os.Symlink(filepath.Join(dir, "gone.go"), filepath.Join(dir, "b.go")); err != nil {
 		t.Fatal(err)

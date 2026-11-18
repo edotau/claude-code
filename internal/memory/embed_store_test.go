@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"go.etcd.io/bbolt"
 )
 
@@ -500,6 +502,7 @@ func TestReleaseReturnsUpdateFailure(t *testing.T) {
 }
 
 func TestEmbedCorpusReadFailureReleasesClaim(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	root := leaseFixture(t)
 	bankFile := filepath.Join(StoreDir(), "decisionLog.md")
 	backup := bankFile + ".saved"

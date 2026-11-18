@@ -2,6 +2,7 @@ package statusline
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"io"
 	"os"
@@ -133,7 +134,7 @@ const (
 	untrackedByteCap = 2 << 20
 )
 
-// treeDiffStat counts uncommitted lines (tracked vs HEAD + untracked); ok=false means "no repo".
+// treeDiffStat counts the branch's lines (committed + uncommitted vs its base, + untracked); ok=false means "no repo".
 func treeDiffStat(cwd string) (adds, dels int, ok bool) {
 	if cwd == "" {
 		cwd = "."
@@ -142,7 +143,7 @@ func treeDiffStat(cwd string) (adds, dels int, ok bool) {
 	defer cancel()
 	untrackedDone := make(chan int, 1)
 	go func() { untrackedDone <- untrackedLines(ctx, cwd) }()
-	out, err := numstat(ctx, cwd, "HEAD")
+	out, err := numstat(ctx, cwd, cmp.Or(branchBase(ctx, cwd), "HEAD"))
 	if err != nil && ctx.Err() == nil && inWorkTree(ctx, cwd) { // a fresh repo has no HEAD: diff against the empty tree
 		out, err = numstat(ctx, cwd, emptyTree)
 	}
@@ -158,6 +159,40 @@ func treeDiffStat(cwd string) (adds, dels int, ok bool) {
 		return 0, 0, false
 	}
 	return adds + untracked, dels, true
+}
+
+// branchBase is where this branch forked from the default branch, or its upstream when on the default; "" if unknown.
+func branchBase(ctx context.Context, cwd string) string {
+	def := defaultBranch(ctx, cwd)
+	if def == "" {
+		return ""
+	}
+	if strings.TrimPrefix(def, "origin/") == gitBranch(cwd) {
+		return gitLine(ctx, cwd, "rev-parse", "--verify", "--quiet", "@{upstream}")
+	}
+	return gitLine(ctx, cwd, "merge-base", "HEAD", def)
+}
+
+// defaultBranch is origin/HEAD's target (e.g. "origin/main"), else a local main or master; "" if none.
+func defaultBranch(ctx context.Context, cwd string) string {
+	if ref := gitLine(ctx, cwd, "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD"); ref != "" {
+		return ref
+	}
+	for _, name := range []string{"main", "master"} {
+		if gitLine(ctx, cwd, "rev-parse", "--verify", "--quiet", "refs/heads/"+name) != "" {
+			return name
+		}
+	}
+	return ""
+}
+
+// gitLine is the trimmed stdout of a read-only git call; "" on any failure.
+func gitLine(ctx context.Context, cwd string, args ...string) string {
+	out, err := proc.RunGitInherit(ctx, cwd, append([]string{"--no-optional-locks"}, args...)...)
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(out)
 }
 
 // sumNumstat totals the added and deleted lines of `git diff --numstat` output, skipping binary files.

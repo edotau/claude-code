@@ -7,6 +7,8 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestVendorBinCases(t *testing.T) {
@@ -46,6 +48,7 @@ func binDirReady(t *testing.T) string {
 }
 
 func linkCodex(t *testing.T, target string) string {
+	hosttest.SkipOnWindows(t, "symlinks")
 	t.Helper()
 	link := filepath.Join(binDirReady(t), "codex")
 	if err := os.Symlink(target, link); err != nil {
@@ -55,6 +58,7 @@ func linkCodex(t *testing.T, target string) string {
 }
 
 func writeScript(t *testing.T, path string) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
 		t.Fatal(err)
@@ -170,6 +174,7 @@ func vendorSymlinkOwnPath(t *testing.T) {
 }
 
 func TestLookPathRealSkipsBinDirSymlink(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vendorDir := t.TempDir()
 	vendor := filepath.Join(vendorDir, "codex")

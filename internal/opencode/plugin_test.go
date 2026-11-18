@@ -6,12 +6,14 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // TestOpencodeApplyPluginRendersGuards writes the plugin into a hermetic config dir and wires it into the config.
@@ -24,7 +26,7 @@ func TestOpencodeApplyPluginRendersGuards(t *testing.T) {
 	}
 	file := strings.TrimPrefix(cfg.Plugin[1], "file://")
 	info, err := os.Stat(file)
-	if err != nil || info.Mode().Perm() != 0o600 {
+	if err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0o600) {
 		t.Fatalf("plugin file %s: %v, mode %v; want 0600", file, err, info)
 	}
 	body, _ := os.ReadFile(file)
@@ -139,6 +141,7 @@ func runPluginNode(t *testing.T, dir string, body []byte, driver string, env []s
 
 // idleHookExecs drives three session.idle events around a slow first exec and returns the exec count.
 func idleHookExecs(t *testing.T, env []string) int {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	dir := t.TempDir()
 	logf, endf := filepath.Join(dir, "execs.log"), filepath.Join(dir, "ends.log")
@@ -173,6 +176,7 @@ if (!hosted) await waitEnds(2)
 
 // TestPluginAskDecisionBlocksTool: an "ask" from a guard blocks the call, since the plugin cannot obtain approval.
 func TestPluginAskDecisionBlocksTool(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "fakecc")
 	ask := `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask"}}`
@@ -200,6 +204,7 @@ try {
 
 // A fail-closed hook that exits 0 without reading stdin (EPIPE) keeps its verdict.
 func TestPluginHookAnsweringBeforeStdinIsNotEPIPEBlocked(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	for name, c := range map[string]struct{ echo, want string }{
 		"silent allow": {"", "RAN"},
 		"ask":          {`{"hookSpecificOutput":{"permissionDecision":"ask"}}`, "BLOCKED approval required; blocked"},
@@ -251,6 +256,7 @@ func TestHostedDispatchSilencesPluginMemoryHooks(t *testing.T) {
 }
 
 func regressionPluginTool(t *testing.T, tool, stdout string, mods []pluginModule) string {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	dir := t.TempDir()
 	bin := filepath.Join(dir, "fakecc")
@@ -276,6 +282,7 @@ try {
 
 // TestPluginPayloadCwdIsBashWorkdir: gates judge bash in its project-relative workdir, other tools in the project.
 func TestPluginPayloadCwdIsBashWorkdir(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	dir := t.TempDir()
 	bin, seen := filepath.Join(dir, "fakecc"), filepath.Join(dir, "seen.json")
 	if err := os.WriteFile(bin, []byte("#!/bin/sh\ncat > "+seen+"\n"), 0o700); err != nil {

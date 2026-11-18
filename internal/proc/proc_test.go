@@ -14,6 +14,7 @@ import (
 )
 
 func TestArgvPreservesTrailingEmptyArguments(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	if runtime.GOOS != "linux" {
 		t.Skip("requires Linux /proc argv")
 	}

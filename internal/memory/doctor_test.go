@@ -17,6 +17,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -172,6 +174,7 @@ const e2eFact = "rotate the zebrafish kestrel gearbox calibration before every d
 
 // TestE2EMemoryLifecycle drives init, session-start, remember, recall, promote and index through the real binary.
 func TestE2EMemoryLifecycle(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	if testing.Short() {
 		t.Skip("builds the claude-code binary")
 	}
@@ -304,6 +307,7 @@ func (x *e2eRun) updateTranscript(t *testing.T) {
 }
 
 func (x *e2eRun) fakeTranscriptUpdate(t *testing.T, marker string) (string, string, string) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	argvLog, stdinLog := filepath.Join(t.TempDir(), "argv.log"), filepath.Join(t.TempDir(), "stdin.log")
 	script := "#!/bin/sh\n" +

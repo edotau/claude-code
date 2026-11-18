@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -35,6 +36,7 @@ func TestInsideStore(t *testing.T) {
 
 // A symlink escaping the store is outside it even though its lexical path is inside.
 func TestInsideStoreRejectsEscapingSymlink(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	tempConfig(t)
 	if err := os.MkdirAll(StoreDir(), 0o755); err != nil {
 		t.Fatal(err)
@@ -114,7 +116,7 @@ func TestMemoryRootIgnoresNonRepoProjectDir(t *testing.T) {
 
 func denyBankAccess(t *testing.T, path string) {
 	t.Helper()
-	if os.Geteuid() == 0 {
+	if os.Geteuid() == 0 || runtime.GOOS == "windows" {
 		t.Skip("permission denial is ineffective as root")
 	}
 	info, err := os.Stat(path)
@@ -359,6 +361,7 @@ func TestLinkNativeForNoopWithoutStore(t *testing.T) {
 }
 
 func TestEnsureLinkPreservesCorrectRelativeTarget(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Parallel()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "store")
@@ -416,6 +419,7 @@ func TestInitSeedsTheBank(t *testing.T) {
 }
 
 func TestNativeLinksShareTheStoreRoot(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	runRoot(t, func(t *testing.T, root string) {
 		if _, err := Init(); err != nil {
 			t.Fatal(err)

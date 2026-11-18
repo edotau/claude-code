@@ -16,6 +16,7 @@ import (
 
 // fakeWlPaste installs a wl-paste script as the only PATH entry; body runs with $1 = first arg.
 func fakeWlPaste(t *testing.T, body string) string {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	dir := t.TempDir()
 	script := "#!/bin/sh\n" + body + "\n"
@@ -116,6 +117,7 @@ func pngBytes(t *testing.T) []byte {
 }
 
 func fakeOsascript(t *testing.T, body string) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "osascript"), []byte("#!/bin/sh\n"+body+"\n"), 0o755); err != nil {

@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestConfigFixRejectsRoutingEnvOverrides(t *testing.T) {
@@ -21,6 +23,7 @@ func TestConfigFixRejectsRoutingEnvOverrides(t *testing.T) {
 }
 
 func TestConfigFixDatabricksCommandsPreserveExitStatus(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	dir := t.TempDir()
 	writeTestFile(t, filepath.Join(dir, "databricks"), "#!/bin/sh\nprintf '%s' '{\"access_token\":\"fixture-token\"}'\nexit \"$DATABRICKS_TEST_STATUS\"\n", 0o700)
 	// This jq stand-in succeeds on the fixture even if databricks printed it before failing.

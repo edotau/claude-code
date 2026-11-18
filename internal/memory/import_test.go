@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // importTar builds a tar of name->body entries; a body starting "->" is a symlink to the rest.
@@ -76,6 +78,7 @@ func TestImportRefusesSourceWithDifferentLayout(t *testing.T) {
 }
 
 func flatImportFixture(t *testing.T) string {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	isolatedConfig(t)
 	initStore(t)

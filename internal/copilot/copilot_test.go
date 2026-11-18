@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -128,6 +129,7 @@ const runGHToken = "plainRunToken123456"
 
 // runScratch routes copilot to gh user "work" (fake gh/copilot, free credits), stubs the SDK; returns the hand-off dir.
 func runScratch(t *testing.T, ask func(context.Context, sdkOptions, string, []string) (sdkResult, error)) string {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	hosttest.PinScratch(t)
 	vaulttest.UseKeyring(t)
@@ -278,7 +280,7 @@ func TestQuotaHandoffWriteFailureKeepsPartialAnswer(t *testing.T) {
 	if res.Answer != "partial answer" || res.SessionID != "partial-session" || res.Handoff != "" {
 		t.Fatalf("result = %+v; want partial answer and session without handoff", res)
 	}
-	if !errors.Is(err, cause) || !errors.Is(err, syscall.ENOTDIR) || !strings.Contains(err.Error(), "handoff not written") {
+	if !errors.Is(err, cause) || (runtime.GOOS != "windows" && !errors.Is(err, syscall.ENOTDIR)) || !strings.Contains(err.Error(), "handoff not written") {
 		t.Fatalf("err = %v; want quota and handoff write errors", err)
 	}
 }

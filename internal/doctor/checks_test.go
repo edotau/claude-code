@@ -28,6 +28,7 @@ import (
 )
 
 func TestToolPATHCopiesAndExtras(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	scratch := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", scratch)
 	bin := paths.BinDir()
@@ -75,6 +76,7 @@ func TestToolPATHCopiesAndExtras(t *testing.T) {
 }
 
 func doctorVendorLink(t *testing.T, kind, source, dst string) string {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	if err := os.Remove(dst); err != nil {
 		t.Fatal(err)
@@ -148,6 +150,7 @@ func TestDoctorAgentVersionRows(t *testing.T) {
 }
 
 func TestToolPATHVersionProbesUnchangedBinaryOnce(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	hermetic(t)
 	dir := t.TempDir()
 	counter := filepath.Join(dir, "count")
@@ -496,6 +499,7 @@ func TestRTKDoctorStatusNamesShadow(t *testing.T) {
 }
 
 func TestToolDoctorRejectsLstatFailure(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	hosttest.SymlinkLoop(t, paths.BinDir())
 	entry := filepath.Join(paths.BinDir(), "opencode")

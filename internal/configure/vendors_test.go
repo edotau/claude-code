@@ -23,6 +23,7 @@ import (
 
 // An agy that ignores SIGINT and SIGTERM is SIGKILLed after the grace, so stopAgy returns instead of hanging.
 func TestStopAgyEscalatesToKill(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	orig := AgyStopGrace
 	AgyStopGrace = 100 * time.Millisecond
 	t.Cleanup(func() { AgyStopGrace = orig })
@@ -51,6 +52,7 @@ func TestStopAgyEscalatesToKill(t *testing.T) {
 
 // A descendant that ignores SIGINT and SIGTERM and outlives its parent shell is killed too.
 func TestStopAgyKillsStubbornDescendant(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	orig := AgyStopGrace
 	AgyStopGrace = 100 * time.Millisecond
 	t.Cleanup(func() { AgyStopGrace = orig })

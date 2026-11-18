@@ -4,9 +4,12 @@ import (
 	"errors"
 	"os/exec"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestRunAttachedExitError(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	needSh(t)
 	cancelled, err := RunAttached([]string{"sh", "-c", "exit 3"})
 	var ee *exec.ExitError
@@ -24,6 +27,7 @@ func TestRunAttachedExitError(t *testing.T) {
 // The child interrupts this test process and then itself: the parent survives (signal swallowed) and the child's
 // own SIGINT reads as cancelled.
 func TestRunAttachedSignalCancels(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	needSh(t)
 	cancelled, err := RunAttached([]string{"sh", "-c", "kill -INT $PPID; sleep 0.2; kill -INT $$; sleep 5"})
 	if !cancelled || err != nil {

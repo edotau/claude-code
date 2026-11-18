@@ -96,6 +96,9 @@ func hopProfiles(env map[string]any) []string {
 
 // A 429 on the auto-picked workspace cools it and re-runs the same agent on the next one; both are listed, in order.
 func TestAutoRateLimitMovesToNextWorkspace(t *testing.T) {
+	if testing.Short() {
+		t.Skip("pre-ship tier: fake vendor spawns")
+	}
 	dump := armRateFixture(t, []string{"dev"}, nil)
 	code, env, stderr := askAuto(t, "auto", "none")
 	if code != 0 || env["status"] != "ok" || env["agent"] != "codex" {
@@ -127,6 +130,9 @@ func checkMovedReport(t *testing.T, env map[string]any) {
 
 // Every workspace limited: --fallback none still fails, naming each workspace tried and keeping the rate_limit kind.
 func TestAutoRateLimitEveryWorkspaceFails(t *testing.T) {
+	if testing.Short() {
+		t.Skip("pre-ship tier: fake vendor spawns")
+	}
 	dump := armRateFixture(t, []string{"dev", "qa"}, nil)
 	code, env, stderr := askAuto(t, "auto", "none")
 	msg, _ := env["error"].(map[string]any)["message"].(string)
@@ -168,6 +174,9 @@ func TestAutoNonRateLimitFailureDoesNotMove(t *testing.T) {
 
 // With the default fallback the 429 still moves workspaces first: codex answers on qa, no other agent runs.
 func TestAutoRateLimitMovesBeforeAgentFallback(t *testing.T) {
+	if testing.Short() {
+		t.Skip("pre-ship tier: fake vendor spawns")
+	}
 	dump := armRateFixture(t, []string{"dev"}, nil)
 	code, env, stderr := askAuto(t, "auto", "all")
 	bins, _ := armDumps(t, dump)
@@ -224,6 +233,9 @@ func TestAutoProbeFailureAppliesFallbackPolicyOnSameWorkspace(t *testing.T) {
 
 // With stream JSON a moved ask emits ONE result event, the final success, never a failed attempt's.
 func TestAutoRateLimitStreamJSONEmitsOneResult(t *testing.T) {
+	if testing.Short() {
+		t.Skip("pre-ship tier: fake vendor spawns")
+	}
 	armRateFixture(t, []string{"dev"}, nil)
 	ov := `{"provider":"databricks","profile":"auto","fallback":"none"}`
 	_, out, stderr := runCLI(t, "ask", "--agent", "codex", "--overlay", ov, "--format", "stream-json", "go")

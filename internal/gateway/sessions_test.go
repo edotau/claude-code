@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -120,7 +121,7 @@ func TestResolveProxyTokenCachesPerPidAndPrunesDead(t *testing.T) {
 	if _, err := os.Stat(dead); !os.IsNotExist(err) {
 		t.Errorf("dead pid cache not pruned: %v", err)
 	}
-	if fi, err := os.Stat(filepath.Join(proxyTokenDir(), "4242.json")); err != nil || fi.Mode().Perm() != 0o600 {
+	if fi, err := os.Stat(filepath.Join(proxyTokenDir(), "4242.json")); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600) {
 		t.Errorf("cache file mode: %v %v", fi, err)
 	}
 	mintScoped = func(context.Context, []string, int) (string, error) { return "", errors.New("boom") }

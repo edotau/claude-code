@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -471,7 +472,7 @@ func assertProbeCache(t *testing.T, dir string) {
 		t.Fatalf("cache %s escaped temp dir %s", cache, dir)
 	}
 	st, err := os.Stat(cache)
-	if err != nil || st.Mode().Perm() != 0o600 {
+	if err != nil || (runtime.GOOS != "windows" && st.Mode().Perm() != 0o600) {
 		t.Fatalf("cache stat %v %v", st, err)
 	}
 	raw, _ := os.ReadFile(cache)

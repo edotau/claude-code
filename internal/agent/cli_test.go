@@ -16,6 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -75,6 +76,7 @@ func TestHeartbeatLogsWhenQuiet(t *testing.T) {
 
 // A parser that panics still stops the heartbeat goroutine.
 func TestRunEventStreamPanicStopsHeartbeat(t *testing.T) {
+	hosttest.SkipOnWindows(t, "unix tools")
 	ctx := wire.WithLog(context.Background(), wire.NewLogSink(filepath.Join(t.TempDir(), "d.log")))
 	parse := func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error) { panic("parse boom") }
 	running := func() bool {
@@ -134,6 +136,7 @@ func TestVendorTargetBaseDiffersFromResolveTargetOnTier(t *testing.T) {
 
 // A parser failure kills the child at once: a child (or grandchild) holding stdout open never runs to --timeout.
 func TestRunEventStreamParseErrorKillsChild(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	cmd, tail := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "echo '{}'; sleep 30 & sleep 30"}, nil, "", "", nil, true)
 	bad := errors.New("bad event")
 	parse := func(br *bufio.Reader, _ wire.Sink, _ func(), _ ...wire.StreamLog) (wire.Result, error) {
@@ -149,6 +152,7 @@ func TestRunEventStreamParseErrorKillsChild(t *testing.T) {
 
 // A parse error after stdout reached EOF must not kill the child: its own exit status is the real failure.
 func TestRunEventStreamParseErrorAfterEOFKeepsExitStatus(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	cmd, tail := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "echo '{}'; exec >&-; sleep 0.5; exit 7"}, nil, "", "", nil, true)
 	bad := errors.New("turn failed")
 	parse := func(br *bufio.Reader, _ wire.Sink, _ func(), _ ...wire.StreamLog) (wire.Result, error) {
@@ -164,6 +168,7 @@ func TestRunEventStreamParseErrorAfterEOFKeepsExitStatus(t *testing.T) {
 
 // RunStream carries a structured-only answer: no text is not an empty answer when the schema output arrived.
 func TestRunStreamKeepsStructured(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	cmd, tail := ChildCmd(context.Background(), "/bin/sh", []string{"-c", "true"}, nil, "", "", nil, true)
 	parse := func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error) {
 		return wire.Result{Structured: json.RawMessage(`{"ok":true}`)}, nil

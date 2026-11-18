@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 const secret = "dapi-SeCrEt-value-123"
@@ -21,6 +23,7 @@ type call struct {
 
 // env fakes the platform: PATH holds only the named stub binaries; run records calls and serves reads.
 func env(t *testing.T, wsl bool, wayland, display string, bins ...string) *[]call {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	dir := t.TempDir()
 	for _, b := range bins {
@@ -225,6 +228,7 @@ func TestErrorsNeverContainValue(t *testing.T) {
 
 // The real runner must scrub stderr/stdin echoes from its error strings.
 func TestRealRunErrorOmitsValue(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	dir := t.TempDir()
 	sh := filepath.Join(dir, "echoer")
 	if err := os.WriteFile(sh, []byte("#!/bin/sh\ncat >&2\nexit 3\n"), 0o755); err != nil {
@@ -267,6 +271,7 @@ func TestClearIfMatchBoundsContext(t *testing.T) {
 }
 
 func TestClearIfMatchRejectsTruncatedRead(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	orig := pipeGrace
 	pipeGrace = 200 * time.Millisecond
 	t.Cleanup(func() { pipeGrace = orig })

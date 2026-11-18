@@ -294,6 +294,7 @@ func TestCompleteDispatch(t *testing.T) {
 
 // TestCompletionScriptBash checks syntax, registers only claude-code, and drives completion against an argv stub.
 func TestCompletionScriptBash(t *testing.T) {
+	hosttest.SkipOnWindows(t, "bash")
 	bash, err := exec.LookPath("bash")
 	if err != nil {
 		t.Skip("bash not on PATH")
@@ -304,9 +305,7 @@ func TestCompletionScriptBash(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("completion bash exit %d", code)
 	}
-	if err := os.WriteFile(script, []byte(out), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	hosttest.WriteRel(t, dir, "completion.bash", out)
 	if out, err := exec.Command(bash, "-n", script).CombinedOutput(); err != nil {
 		t.Fatalf("bash -n: %v\n%s", err, out)
 	}
@@ -322,7 +321,7 @@ func TestCompletionScriptBash(t *testing.T) {
 		`_claude_code` + "\n" +
 		`printf '%s\n' "${COMPREPLY[@]}"`
 	cmd := exec.Command(bash, "-c", drive)
-	cmd.Env = append(cmd.Environ(), "PATH="+dir+":"+os.Getenv("PATH"))
+	cmd.Env = append(cmd.Environ(), "PATH="+dir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	var stderr strings.Builder
 	cmd.Stderr = &stderr
 	outb, err := cmd.Output()

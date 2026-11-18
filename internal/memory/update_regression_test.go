@@ -9,6 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -75,6 +77,7 @@ func TestUpdateSettlementHoldsWriterLock(t *testing.T) {
 }
 
 func installSettlementBarrier(t *testing.T) (ready, release string) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	realGit, err := exec.LookPath("git")
 	if err != nil {

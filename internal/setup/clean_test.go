@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
@@ -829,6 +831,7 @@ type sandboxFixture struct {
 }
 
 func newSandboxFixture(t *testing.T) sandboxFixture {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	stubPidAlive(t, func(int) bool { return false })
 	fx := sandboxFixture{cfg: vaulttest.Use(t)}

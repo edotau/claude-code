@@ -37,6 +37,7 @@ func TestIdleUpdateHoldsSessionDispatchLock(t *testing.T) {
 }
 
 func statErrorTranscript(t *testing.T) string {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	if err := os.Symlink(tr, tr); err != nil {

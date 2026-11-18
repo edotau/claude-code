@@ -203,6 +203,7 @@ func TestRTKSkipsAlreadyWrappedAndEmpty(t *testing.T) {
 
 // Anything but exit 0/3 with changed stdout leaves the command alone.
 func TestRTKRewriteExitCodesAndFailures(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	hosttest.FakeRTK(t)
 	for _, tc := range []struct{ name, exit, out string }{
 		{"exit 1", "1", "rtk ls"}, {"exit 2", "2", "rtk ls"}, {"exit 9", "9", "rtk ls"},
@@ -250,6 +251,7 @@ func TestRTKAbsoluteAtEveryCommandPosition(t *testing.T) {
 }
 
 func TestRTKPinnedBinaryShellMetacharacters(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	for _, name := range []string{"rtk;other", "rtk(other)", "rtk\nother", "rtk space", "rtk'quote", "rtk$dollar"} {
 		t.Run(name, func(t *testing.T) {
 			bin := filepath.Join(t.TempDir(), name)
@@ -409,6 +411,7 @@ func homeRTK(t *testing.T) string {
 
 // End to end: the rewrite and the bypass note carry the $HOME spelling, the shell runs it, and it is never re-wrapped.
 func TestRTKRewriteUsesHomeSpelling(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	word := homeRTK(t)
 	in := core.ParseInput(strings.NewReader(hosttest.RTKBashIn("ls internal")))
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -442,6 +445,7 @@ func TestRTKHomeSpellingPassesSafetyScan(t *testing.T) {
 
 // Bare rtk only when PATH resolves to the pinned file itself (symlinks followed); a different rtk first keeps $HOME.
 func TestRTKWordBareOnlyWhenPathFindsPin(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	word := homeRTK(t)
 	bin := os.Getenv(paths.RTKBinaryEnv)
 	link := filepath.Join(t.TempDir(), "rtk")
@@ -469,6 +473,7 @@ func TestRTKWordBareOnlyWhenPathFindsPin(t *testing.T) {
 
 // fakeRTKDir writes a second, distinct rtk executable and returns its directory.
 func fakeRTKDir(t *testing.T) string {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "rtk"), []byte("#!/bin/sh\necho 'rtk 0.0.1'\n"), 0o755); err != nil {
@@ -517,6 +522,7 @@ func TestRTKShadowNoticeOncePerSession(t *testing.T) {
 
 // The shadowing rtk is untrusted: the notice names its path and never runs it.
 func TestRTKShadowNoticeNeverRunsShadow(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	hosttest.FakeRTK(t)
 	dir := t.TempDir()

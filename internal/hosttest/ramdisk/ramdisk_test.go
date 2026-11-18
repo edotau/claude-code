@@ -139,6 +139,7 @@ fi
 }
 
 func writeDiskTool(t *testing.T, dir, name, script string) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+script), 0o700); err != nil {
 		t.Fatal(err)

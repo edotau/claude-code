@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/par"
 )
 
@@ -76,6 +77,7 @@ func TestLaunchBatchesRunUnscopedOnesAlone(t *testing.T) {
 }
 
 func scopeExecutable(t *testing.T) string {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	self, err := os.Executable()
 	if err != nil {

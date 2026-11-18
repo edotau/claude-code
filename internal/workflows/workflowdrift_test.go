@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 const driftDocRel = "skills/subagent-workflows/references/saved-workflows.md"
@@ -149,6 +151,7 @@ func TestWorkflowHelperDriftSkillScripts(t *testing.T) {
 
 // An unreadable script is lintScript's to report; workflowHelperDrift must skip it, not add a second line.
 func TestHelperDriftSkipsUnreadableScript(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	root := t.TempDir()
 	wf := filepath.Join(root, "workflows")
 	if err := os.Mkdir(wf, 0o755); err != nil {

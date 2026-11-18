@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -97,6 +98,7 @@ func TestSSHArgvReuse(t *testing.T) {
 
 // TestDefaultControlDirShortAndPrivate: a short state dir hosts the sockets (0700); a long one falls back to ~/.ssh/cc.
 func TestDefaultControlDirShortAndPrivate(t *testing.T) {
+	hosttest.SkipOnWindows(t, "/tmp socket dir")
 	short, err := os.MkdirTemp("/tmp", "cc")
 	if err != nil {
 		t.Fatal(err)
@@ -111,7 +113,7 @@ func TestDefaultControlDirShortAndPrivate(t *testing.T) {
 		t.Setenv("CLAUDE_CONFIG_DIR", tc.config)
 		dir := defaultControlDir()
 		fi, err := os.Stat(dir)
-		if dir != tc.want || err != nil || fi.Mode().Perm() != 0o700 {
+		if dir != tc.want || err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != 0o700) {
 			t.Errorf("config %q: control dir %q (want %q), err %v", tc.config, dir, tc.want, err)
 		}
 	}

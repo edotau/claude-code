@@ -153,6 +153,9 @@ func TestCheckReportsSyntaxLocationAndSchemaErrors(t *testing.T) {
 
 // TestRenderHasOnlySeedAndResetCallers: any production Render reference beyond the seed and the reset is a new writer.
 func TestRenderHasOnlySeedAndResetCallers(t *testing.T) {
+	if testing.Short() {
+		t.Skip("pre-ship tier: whole-repo AST walk")
+	}
 	root := filepath.Join("..", "..")
 	var got []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {

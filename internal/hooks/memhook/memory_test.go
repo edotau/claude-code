@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"runtime"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -155,7 +156,7 @@ func TestPreCompactRecordRoundTripsIntoSessionStart(t *testing.T) {
 	pre := fmt.Sprintf(`{"session_id":"s1","cwd":%q,"transcript_path":%q,"trigger":"auto"}`, cwd, tr)
 	Compact(core.ParseInput(strings.NewReader(pre)))
 	rec := filepath.Join(paths.StateDir(), "compact", "s1.json")
-	if fi, err := os.Stat(rec); err != nil || fi.Mode().Perm() != 0o600 {
+	if fi, err := os.Stat(rec); err != nil || runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Fatalf("compact record missing or not 0600: %v", err)
 	}
 	r := Start(startInput(cwd, "compact"))
@@ -385,6 +386,7 @@ func TestEndAndCompactDispatchOnce(t *testing.T) {
 			tr, payload := hookSession(t)
 			hosttest.WriteEdits(t, tr, 3)
 			spawns := memory.StubSpawn(t, true)
+			swap(t, &stewardWait, 50*time.Millisecond)
 			for range 2 {
 				if r := hook(payload()); !reflect.DeepEqual(r, core.Result{}) {
 					t.Fatalf("%s = %+v, want an empty result", name, r)

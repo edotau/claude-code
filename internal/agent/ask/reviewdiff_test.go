@@ -437,6 +437,7 @@ func TestDiffOptionShapedRefIsNotAFlag(t *testing.T) {
 }
 
 func TestUntrackedBlockMarkers(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	dir := initRepo(t)
 	outside := filepath.Join(t.TempDir(), "secret.txt")
 	if err := os.WriteFile(outside, []byte("TOPSECRET"), 0o644); err != nil {

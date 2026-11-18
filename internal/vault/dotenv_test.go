@@ -2,6 +2,7 @@ package vault
 
 import (
 	"fmt"
+	"runtime"
 
 	"bytes"
 	"encoding/base64"
@@ -179,7 +180,7 @@ func TestAppendDotenvCreatesAppendsSkipsAndTightens(t *testing.T) {
 	if !strings.HasPrefix(got, "# ") || !strings.HasSuffix(got, "\nA=1\nB=old\nC=3\n") {
 		t.Errorf("file = %q", got)
 	}
-	if fi, _ := os.Stat(path); fi.Mode().Perm() != 0o600 {
+	if fi, _ := os.Stat(path); runtime.GOOS != "windows" && fi.Mode().Perm() != 0o600 {
 		t.Errorf("perm = %o, want 600", fi.Mode().Perm())
 	}
 }
@@ -245,6 +246,7 @@ func TestAppendDotenvParseDotenvRoundTripsTrickyValues(t *testing.T) {
 
 // AppendDotenv must refuse to write through a symlink rather than follow it to an arbitrary target.
 func TestAppendDotenvRefusesSymlink(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	dir := t.TempDir()
 	target := filepath.Join(dir, "real.env")
 	if err := os.WriteFile(target, []byte("EXISTING=1\n"), 0o600); err != nil {

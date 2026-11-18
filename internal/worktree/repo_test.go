@@ -155,6 +155,7 @@ func TestResolveWorktreeForeignRepoCollision(t *testing.T) {
 }
 
 func TestResolveWorktreeSymlinkAtDestination(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Parallel()
 	repo := testRepo(t)
 	if err := os.MkdirAll(repo.Root, 0o755); err != nil {
@@ -171,6 +172,7 @@ func TestResolveWorktreeSymlinkAtDestination(t *testing.T) {
 }
 
 func TestCleanAtRefusesSymlinkedDest(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Parallel()
 	repo := testRepo(t)
 	if err := os.MkdirAll(repo.Root, 0o755); err != nil {

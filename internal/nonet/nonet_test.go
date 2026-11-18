@@ -27,6 +27,9 @@ func TestBlockRefusesRealDNS(t *testing.T) {
 
 // Every package's test binary links nonet, so no test anywhere can reach a real API.
 func TestEveryTestBinaryBlocksNetwork(t *testing.T) {
+	if testing.Short() {
+		t.Skip("pre-ship tier: go list over tree")
+	}
 	out, err := exec.Command("go", "list", "-test", "-f", `{{.ImportPath}}|{{join .Deps " "}}`, "../../...").Output()
 	if err != nil {
 		t.Fatalf("go list: %v", err)

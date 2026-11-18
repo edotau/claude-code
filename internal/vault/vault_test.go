@@ -507,6 +507,9 @@ func nestedOpen(t *testing.T, operation string) (elapsed time.Duration, nested e
 
 // Readers and the writer each open their own vault handle, so the file lock arbitrates them as it does processes.
 func TestMultiProcessProgress(t *testing.T) {
+	if testing.Short() {
+		t.Skip("pre-ship tier: concurrent reader latency")
+	}
 	phase1bRing(t)
 	if err := Update(func(tx *Tx) error { return tx.Put(Pins, "progress", "initial") }); err != nil {
 		t.Fatal(err)

@@ -17,6 +17,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
+
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -252,6 +254,7 @@ func TestHostContextPinBeatsRun(t *testing.T) {
 
 // fakeSSH starts a bash whose argv[0] is "ssh" and whose argv holds addr, as `ssh -N -D addr` would look.
 func fakeSSH(t *testing.T, addr string) int {
+	hosttest.SkipOnWindows(t, "bash")
 	t.Helper()
 	bash, err := exec.LookPath("bash")
 	if err != nil {

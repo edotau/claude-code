@@ -10,11 +10,13 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // fakeTailscaleScript counts lookups, failing the first and succeeding thereafter.
 func fakeTailscaleScript(t *testing.T) (counter string) {
+	hosttest.SkipOnWindows(t, "sh script")
 	t.Helper()
 	dir := t.TempDir()
 	counter = filepath.Join(dir, "calls")
@@ -119,6 +121,7 @@ func TestIsLocalHost_ObviousNamesSkipTailscale(t *testing.T) {
 }
 
 func TestIsLocalHost_SlowLookupDoesNotBlock(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
 	resetSelfCache(t)
 	dir := t.TempDir()
 	started := filepath.Join(dir, "started")

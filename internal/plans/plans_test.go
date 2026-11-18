@@ -311,6 +311,7 @@ func TestRepoPlanTemplate(t *testing.T) {
 
 // A symlinked .md (pointing outside plans/) is never summarized.
 func TestStatusSkipsSymlink(t *testing.T) {
+	hosttest.SkipOnWindows(t, "symlinks")
 	dir, outside := t.TempDir(), t.TempDir()
 	writeFile(t, filepath.Join(outside, "real.md"), "- [ ] 1.1 T owns: a\n")
 	writeFile(t, filepath.Join(dir, "own.md"), "- [ ] 1.1 T owns: a\n")

@@ -166,6 +166,7 @@ func TestCodexHomeUnresolvableNeverReadsCwdAuth(t *testing.T) {
 
 // The codex status line may arrive on stderr; only its first line, cut at " - ", becomes the detail.
 func TestCodexDetailFromCombinedOutput(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	vaulttest.UseKeyring(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", t.TempDir())

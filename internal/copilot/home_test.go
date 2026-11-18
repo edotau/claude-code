@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -224,7 +225,7 @@ func seedSourceHome(t *testing.T) {
 
 func assertPerm(t *testing.T, path string, want os.FileMode) {
 	t.Helper()
-	if fi, err := os.Stat(path); err != nil || fi.Mode().Perm() != want {
+	if fi, err := os.Stat(path); err != nil || (runtime.GOOS != "windows" && fi.Mode().Perm() != want) {
 		t.Errorf("%s: err %v, want mode %o", path, err, want)
 	}
 }

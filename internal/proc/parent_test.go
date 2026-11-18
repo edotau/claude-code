@@ -7,6 +7,8 @@ import (
 	"slices"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 func TestParseStatPPID(t *testing.T) {
@@ -29,6 +31,7 @@ func TestWalkChildrenWalksDescendants(t *testing.T) {
 
 // Descendants reads the live process table: /proc on linux, ps on darwin.
 func TestDescendants(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh")
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("Descendants reads /proc or ps")
 	}

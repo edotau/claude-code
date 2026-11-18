@@ -9,6 +9,8 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // A native topic file in StoreDir() belongs to a repo's native corpus.
@@ -97,6 +99,7 @@ func fileExists(path string) bool { _, err := os.Stat(path); return err == nil }
 
 // readIfExists returns a file's bytes, nil for an absent file, and every other read error.
 func TestReadIfExists(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	dir := t.TempDir()
 	if b, err := readIfExists(dir); !errors.Is(err, syscall.EISDIR) || len(b) != 0 {
 		t.Errorf("directory: %q, %v; want the EISDIR read error", b, err)

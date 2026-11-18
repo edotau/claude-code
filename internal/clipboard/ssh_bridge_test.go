@@ -11,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/hosttest"
 )
 
 // serveOnce answers one connection on sock with payload, then closes (the bridge protocol).
@@ -89,6 +91,7 @@ func TestServePNG(t *testing.T) {
 
 // A symlink or a plain file at the bridge path is refused before dialing, even if it leads to a live socket.
 func TestReadSSHRefusesForeignPath(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	dir := t.TempDir()
 	real := filepath.Join(dir, "real.sock")
 	serveOnce(t, real, pngBytes(t))
@@ -109,6 +112,7 @@ func TestReadSSHRefusesForeignPath(t *testing.T) {
 
 // The plist lands under a temp HOME, launchctl (mocked) boots out then bootstraps once, and a rerun is idempotent.
 func TestLaunchAgentInstall(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	home := t.TempDir()
 	bindir := t.TempDir()
 	log := filepath.Join(home, "launchctl.log")
@@ -258,6 +262,7 @@ func TestFetchFromServesFile(t *testing.T) {
 
 // Secret directories, relative paths and symlinks into them are refused, and no file lands.
 func TestFetchFromRefusals(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	home := t.TempDir()
 	if err := os.Mkdir(filepath.Join(home, ".ssh"), 0o700); err != nil {
 		t.Fatal(err)
@@ -336,6 +341,7 @@ func writeBridgeFixture(t *testing.T, path, content string) {
 }
 
 func TestAllowedServePathRejectsSymlinkedSecrets(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	home := t.TempDir()
 	for _, root := range []string{".ssh", ".gnupg", "Library/Keychains", ".claude/state"} {
 		t.Run(root, func(t *testing.T) {
@@ -359,6 +365,7 @@ func TestAllowedServePathRejectsSymlinkedSecrets(t *testing.T) {
 
 // TestAllowedServePathRoots verifies only allow-listed roots (home, temp) are served and escaping symlinks fail.
 func TestAllowedServePathRoots(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	home := t.TempDir()
 	tmpFile := filepath.Join(t.TempDir(), "shot.png")
 	writeBridgeFixture(t, tmpFile, "png bytes")
@@ -414,6 +421,7 @@ func TestAllowedServePathCaseInsensitiveSecretDir(t *testing.T) {
 
 // A denied root reached through a differently spelled path is matched by file identity on any filesystem.
 func TestUnderSecretRootByIdentity(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	dir := t.TempDir()
 	denied := filepath.Join(dir, "denied")
 	writeBridgeFixture(t, filepath.Join(denied, "key"), "private bytes")
