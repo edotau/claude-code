@@ -133,10 +133,17 @@ func bashPrefixTokens(r agent.Rule, decision string) (toks []string, wild bool, 
 	return toks, wild, nil
 }
 
-// codexSwapSandbox swaps `--sandbox workspace-write` for --approve-for-me (they conflict; it implies that sandbox).
+// codexSwapSandbox swaps `--sandbox workspace-write` for --approve-for-me (they conflict); full access keeps its own.
 func codexSwapSandbox(argv []string) []string {
 	i := slices.Index(argv, "--sandbox")
-	if i < 0 || i+1 >= len(argv) || argv[i+1] != "workspace-write" {
+	if i < 0 || i+1 >= len(argv) {
+		return argv
+	}
+	switch argv[i+1] {
+	case "danger-full-access":
+		return slices.Insert(argv, i+2, "-c", "approval_policy=on-request", "-c", "approvals_reviewer=auto_review")
+	case "workspace-write":
+	default:
 		return argv
 	}
 	return slices.Concat(argv[:i], []string{"--approve-for-me"}, argv[i+2:])
@@ -379,7 +386,7 @@ func codexDenial(p agent.Permissions, command, output string, tools bool, sandbo
 		case !tools:
 			return denial("os-sandbox", "read-only sandbox", "relaunch with --tools; the read-only sandbox cannot write")
 		case sandbox == "workspace-write":
-			return denial("os-sandbox", "workspace-write sandbox", "set "+codexSandboxEnv+"=danger-full-access (writes anywhere) only if the write is intended")
+			return denial("os-sandbox", "workspace-write sandbox", "this run is confined to workspace-write; set the codex record sandboxMode to danger-full-access (writes anywhere) only if the write is intended")
 		}
 		return denial("os-sandbox", sandbox+" sandbox", "the OS refused beyond the sandbox; no harness control repairs it")
 	}

@@ -289,7 +289,7 @@ func TestCodexPermissionDenialNamesRealControl(t *testing.T) {
 	}{
 		{name: "read-only sandbox write", out: "touch: x: Operation not permitted", sandbox: "read-only", layer: "os-sandbox", remedy: "--tools"},
 		{name: "workspace write outside", out: "open /etc/x: read-only file system", sandbox: "workspace-write", tools: true,
-			layer: "os-sandbox", remedy: codexSandboxEnv + "=danger-full-access"},
+			layer: "os-sandbox", remedy: "sandboxMode"},
 		{name: "sealed network", out: "Network access was denied by the Codex sandbox network proxy.", sandbox: "workspace-write", tools: true,
 			layer: "os-sandbox", remedy: "codexNetwork"},
 		{name: "deny rule", out: "command was blocked by policy", p: deny, tools: true, layer: "codex-rules", remedy: "narrow the deciding deny rule"},
@@ -464,5 +464,12 @@ func TestDenialSinkIgnoresNonCommandRefusals(t *testing.T) {
 	}
 	if clean.denials != nil {
 		t.Fatalf("non-command refusals counted: %+v", clean.denials)
+	}
+}
+
+func TestCodexSwapSandboxFullAccessKeepsSandbox(t *testing.T) {
+	got := strings.Join(codexSwapSandbox([]string{"exec", "--sandbox", "danger-full-access", "-"}), " ")
+	if want := "exec --sandbox danger-full-access -c approval_policy=on-request -c approvals_reviewer=auto_review -"; got != want {
+		t.Errorf("got %q, want %q", got, want)
 	}
 }

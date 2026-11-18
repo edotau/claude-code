@@ -63,7 +63,7 @@ func (e codexEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpt
 	argv = codexExecArgs(codexImageArgs(argv, req.Attach), extra...)
 	cmd, tail := agent.ChildCmd(ctx, bin, argv, env, req.WorkDir, prompt, req.KeepEnv, true)
 	if codexJSON {
-		sandbox, _ := codexSandbox(ctx, req.Tools) // RenderSettings refused a bad value; read-only here is the strictest reading
+		sandbox, _ := codexSandbox(req.Tools) // RenderSettings refused a bad value; read-only here is the strictest reading
 		denials := &denialSink{next: sink, p: req.Permissions, tools: req.Tools, sandbox: sandbox, commands: map[string]string{}}
 		return denials.runStream(ctx, e.Name(), cmd, tail, res)
 	}
@@ -93,7 +93,7 @@ func (e codexEngine) RenderSettings(ctx context.Context, s agent.Settings, env, 
 	if emulated = append(emulated, base...); err != nil || !s.Headless {
 		return env, argv, emulated, cleanup, err
 	}
-	sandbox, err := codexSandbox(ctx, s.Tools)
+	sandbox, err := codexSandbox(s.Tools)
 	if err != nil {
 		return env, argv, emulated, cleanup, err
 	}
@@ -397,7 +397,7 @@ func codexHeadless(ctx context.Context, argv []string, h *agent.Headless) []stri
 	if h == nil {
 		return argv
 	}
-	sandbox, _ := codexSandbox(ctx, h.Tools) // RenderSettings refuses a bad value; the error path here is read-only
+	sandbox, _ := codexSandbox(h.Tools) // RenderSettings refuses a bad value; the error path here is read-only
 	argv = append(append([]string{"exec"}, argv...), "--skip-git-repo-check", "--sandbox", sandbox)
 	if network, _ := codexNetwork(ctx, h.Tools, sandbox); network { // RenderSettings refuses a nested grant; codex has no loopback-only switch
 		argv = append(argv, "-c", "sandbox_workspace_write.network_access=true")

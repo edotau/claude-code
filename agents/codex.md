@@ -110,12 +110,13 @@ Brief: the gate chain of `skills/problem-solving/references/verify.md`, scoped g
 is the main thread's, run once with the owner's approval (`rules/standards/quality.md`). Never report a gate you
 did not run.
 
-- `--tools` runs in the `workspace-write` sandbox, which blocks binding sockets and running `ps`; no `--allow` changes
-  that. Tests that need them: set `HARNESS_CODEX_SANDBOX=danger-full-access` for that one dispatch. It widens what the
-  agent can touch to the whole machine, so use it only for a named package that fails under the default, and the
-  launch note records it. Any other value is refused before launch (exit 1, nothing runs). The overlay
-  `{"codexNetwork":true}` opens only network (all egress, noted at launch; refused inside a dispatch).
-- Under the default sandbox the launch points `GOCACHE`, `GOMODCACHE` and `GOLANGCI_LINT_CACHE` at the dispatch's temp
+- `--tools` runs in the codex record's `sandboxMode` (built-in `danger-full-access`: the whole machine, vault
+  readable; empty means `workspace-write`, which blocks sockets, `ps` and the vault; no `--allow` changes that). An
+  invalid value is refused before launch; a nested `--tools` Codex dispatch inherits the record's `sandboxMode`.
+  With `--mode auto` or `--ask` under `danger-full-access` the sandbox stays and auto-review handles approvals
+  (`workspace-write` uses `--approve-for-me`). Under `workspace-write` the overlay `{"codexNetwork":true}` opens only
+  network (all egress, noted at launch; refused inside a dispatch).
+- Under `workspace-write` the launch points `GOCACHE`, `GOMODCACHE` and `GOLANGCI_LINT_CACHE` at the dispatch's temp
   dir unless you set them.
 - Same lint error recurs after 2 fix attempts → skip it, note in the report.
 - A fix introduces MORE errors than it resolves → revert the fix, skip.

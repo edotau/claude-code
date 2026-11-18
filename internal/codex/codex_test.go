@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -240,37 +239,6 @@ func renderCodexHeadless(t *testing.T, tg providers.Target, req agent.RunOptions
 	return env, argv, emulated
 }
 
-// A bad HARNESS_CODEX_SANDBOX is refused by RenderSettings before the rules CODEX_HOME or the Go cache dir exists.
-func TestCodexRenderSettingsRefusesBadSandboxFirst(t *testing.T) {
-	cfg, tmp := t.TempDir(), t.TempDir()
-	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	t.Setenv("CODEX_HOME", t.TempDir())
-	t.Setenv("TMPDIR", tmp)
-	s := agent.Settings{Agent: "codex", Headless: true, Tools: true,
-		Permissions: agent.Permissions{Allow: []agent.Rule{{Tool: "Bash", Arg: "git status:*"}}}}
-	env := []string{codexKeyEnv + "=k"}
-	scratch := func() int { // rules homes under the state dir plus Go cache dirs under TMPDIR
-		homes, _ := filepath.Glob(filepath.Join(paths.StateDir(), "codex", "home-*"))
-		caches, _ := filepath.Glob(filepath.Join(tmp, "codex-go-*"))
-		return len(homes) + len(caches)
-	}
-	render := func() error {
-		_, _, _, cleanup, err := agent.SchemaFor("codex").Eng().RenderSettings(context.Background(), s, env, []string{"exec"})
-		t.Cleanup(cleanup)
-		return err
-	}
-	t.Setenv(codexSandboxEnv, "")
-	if err := render(); err != nil || scratch() == 0 {
-		t.Fatalf("control: err %v, scratch dirs %d; want a launch that creates its dirs", err, scratch())
-	}
-	before := scratch()
-	t.Setenv(codexSandboxEnv, "read-only")
-	var usage *agent.UsageError
-	if err := render(); !errors.As(err, &usage) || scratch() != before {
-		t.Errorf("bad sandbox: err %v, scratch dirs %d -> %d; want a usage error and no new dir", err, before, scratch())
-	}
-}
-
 func putCodexRecord(t *testing.T, rec vault.AgentRecord) {
 	t.Helper()
 	err := vault.Update(func(tx *vault.Tx) error {
@@ -285,12 +253,10 @@ func putCodexRecord(t *testing.T, rec vault.AgentRecord) {
 func TestCodexRenderSettingsFromRecord(t *testing.T) {
 	effort := func(v string) string { return `model_reasoning_effort="` + v + `"` }
 	cases := []struct {
-		name         string
-		rec          vault.AgentRecord
-		req          agent.RunOptions
-		want, absent []string // argv entries, then env entries via wantEnv
-		wantEnv      string
-		wantEmulated []string
+		name, wantEnv              string // wantEnv is one env entry
+		rec                        vault.AgentRecord
+		req                        agent.RunOptions
+		want, absent, wantEmulated []string // argv entries, then emulated notes
 	}{
 		{name: "no record", absent: []string{"-c model_reasoning_effort"}},
 		{name: "record effort", rec: vault.AgentRecord{Effort: "high"}, want: []string{effort("high")}},
@@ -298,8 +264,8 @@ func TestCodexRenderSettingsFromRecord(t *testing.T) {
 			wantEmulated: []string{"effort max→xhigh"}},
 		{name: "flag over record", rec: vault.AgentRecord{Effort: "high"}, req: agent.RunOptions{Effort: "low"},
 			want: []string{effort("low")}, absent: []string{effort("high")}},
-		{name: "permissions block", rec: vault.AgentRecord{Permissions: &vault.AgentPolicy{Mode: "auto"}},
-			req: agent.RunOptions{Tools: true}, want: []string{"--approve-for-me"}, absent: []string{"--sandbox"}},
+		{name: "permissions block", rec: vault.AgentRecord{Permissions: &vault.AgentPolicy{Mode: "auto"},
+			Extras: map[string]string{extraSandboxMode: "workspace-write"}}, req: agent.RunOptions{Tools: true}, want: []string{"--approve-for-me"}, absent: []string{"--sandbox"}},
 		{name: "launch env, no args headless", rec: vault.AgentRecord{Launch: &vault.AgentLaunch{Env: []string{"X_TEAM=1"},
 			Args: []string{"--search"}}}, wantEnv: "X_TEAM=1", absent: []string{"--search"}},
 	}
@@ -526,14 +492,14 @@ func TestRenderSettingsSandboxNotices(t *testing.T) {
 	original := agent.NoticeOut
 	agent.NoticeOut = &notices
 	t.Cleanup(func() { agent.NoticeOut = original })
-	for _, tc := range []struct{ overlay, sandbox, note string }{
-		{"{}", "", ""},
-		{`{"schema":1,"codexNetwork":true}`, "", "codex: sandbox network open, all egress (overlay codexNetwork)"},
-		{"{}", "danger-full-access", "codex: sandbox danger-full-access (HARNESS_CODEX_SANDBOX)"},
+	putCodexRecord(t, vault.AgentRecord{Extras: map[string]string{extraSandboxMode: "workspace-write"}})
+	for _, tc := range []struct{ overlay, note string }{
+		{"{}", ""},
+		{`{"schema":1,"codexNetwork":true}`, "codex: sandbox network open, all egress (overlay codexNetwork)"},
 	} {
 		notices.Reset()
 		ctx := proc.WithValues(t.Context(), proc.Values{
-			agentconfig.OverlayVar: tc.overlay, codexSandboxEnv: tc.sandbox,
+			agentconfig.OverlayVar: tc.overlay,
 		})
 		_, _, emulated, cleanup, err := (codexEngine{}).RenderSettings(ctx, agent.Settings{Headless: true, Tools: true}, nil, nil)
 		cleanup()
