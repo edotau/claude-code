@@ -224,7 +224,7 @@ func (p *importPlan) readPointers(root *os.Root) {
 		case err != nil:
 			p.skipFile(rel, err.Error()+"; its entries were not imported")
 		case i == 0:
-			p.pointers = append(p.pointers, decodeCatalog(string(data))...)
+			p.pointers = append(p.pointers, slices.DeleteFunc(decodeCatalog(string(data)), generatedCounter)...)
 		default:
 			in, _ := inputEntries(string(data), string(gen))
 			p.pointers = append(p.pointers, in...)

@@ -645,6 +645,20 @@ func TestEditedBlockKeepsEveryLineItDidNotGenerate(t *testing.T) {
 	})
 }
 
+func TestChangedGeneratedCounterIsNeitherInputNorUnresolved(t *testing.T) {
+	runBank(t, func(t *testing.T) {
+		seedNotes(t, 25)
+		_, cur := refreshIndex(t)
+		i := strings.Index(cur, " more: see ")
+		j := strings.LastIndex(cur[:i], "\n- ") + len("\n- ")
+		write(t, NativeIndex(), cur[:j]+"999"+cur[i:])
+		_, next := refreshIndex(t)
+		if s := stored(t); len(s) != 0 || strings.Contains(next, "## "+titleUnresolved) {
+			t.Errorf("stored %q, unresolved shown %v: a generator counter is not an entry", s, strings.Contains(next, titleUnresolved))
+		}
+	})
+}
+
 func TestPromotedEntryDeletedFromIndexAndKeptCopyStaysGone(t *testing.T) {
 	runBank(t, func(t *testing.T) {
 		writeNote(t, "notes", "a.md", "---\nname: a\ndescription: d\n---\n")
