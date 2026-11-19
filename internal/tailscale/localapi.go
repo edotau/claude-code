@@ -110,21 +110,27 @@ func localAPI(ctx context.Context, method, path string, body []byte) ([]byte, er
 	return nil, errNoLocalAPI
 }
 
-// do runs one request on a fresh connection to ep (no proxy); a non-2xx answer carries tailscaled's text.
-func (ep endpoint) do(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+// prep builds /localapi/v0/<path> with ep's token, and a client on a fresh connection to ep (no proxy).
+func (ep endpoint) prep(ctx context.Context, method, path string, body io.Reader) (*http.Client, *http.Request, error) {
 	tr := &http.Transport{DisableKeepAlives: true, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
 		var d net.Dialer
 		return d.DialContext(ctx, ep.network, ep.addr)
 	}}
-	defer tr.CloseIdleConnections()
-	req, err := http.NewRequestWithContext(ctx, method, "http://"+localAPIHost+"/localapi/v0/"+path, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, method, "http://"+localAPIHost+"/localapi/v0/"+path, body)
+	if err == nil && ep.token != "" {
+		req.SetBasicAuth("", ep.token)
+	}
+	return &http.Client{Transport: tr}, req, err
+}
+
+// do runs one request on a fresh connection to ep (no proxy); a non-2xx answer carries tailscaled's text.
+func (ep endpoint) do(ctx context.Context, method, path string, body []byte) ([]byte, error) {
+	c, req, err := ep.prep(ctx, method, path, bytes.NewReader(body))
+	defer c.CloseIdleConnections()
 	if err != nil {
 		return nil, err
 	}
-	if ep.token != "" {
-		req.SetBasicAuth("", ep.token)
-	}
-	resp, err := (&http.Client{Transport: tr}).Do(req)
+	resp, err := c.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("tailscale localapi %s: %w", path, err)
 	}
@@ -206,18 +212,11 @@ type notify struct {
 // localAPIStream opens a streaming GET (watch-ipn-bus) bounded only by ctx; the caller closes it.
 func localAPIStream(ctx context.Context, path string) (io.ReadCloser, error) {
 	for _, ep := range endpoints() {
-		tr := &http.Transport{DisableKeepAlives: true, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-			var d net.Dialer
-			return d.DialContext(ctx, ep.network, ep.addr)
-		}}
-		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+localAPIHost+"/localapi/v0/"+path, nil)
+		c, req, err := ep.prep(ctx, http.MethodGet, path, nil)
 		if err != nil {
 			return nil, err
 		}
-		if ep.token != "" {
-			req.SetBasicAuth("", ep.token)
-		}
-		resp, err := (&http.Client{Transport: tr}).Do(req)
+		resp, err := c.Do(req)
 		if isDial(err) {
 			continue
 		}

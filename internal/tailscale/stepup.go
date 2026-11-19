@@ -42,7 +42,8 @@ func stepUp(ctx context.Context, out io.Writer) error {
 	}
 	before, err := Status(ctx)
 	if err != nil || before.LoginName == "" {
-		return fmt.Errorf("cannot read the signed-in tailscale user before re-auth: %w", cmpErr(err))
+		return fmt.Errorf("cannot read the signed-in tailscale user before re-auth: %w",
+			cmp.Or(err, errors.New("status names no user")))
 	}
 	fmt.Fprintln(out, "tailscale: re-authenticating rotates this node's key and drops its connections for a few seconds")
 	if err := reauthRun(ctx, out); err != nil {
@@ -53,13 +54,6 @@ func stepUp(ctx context.Context, out io.Writer) error {
 		return errors.New("re-auth signed in a different user (or status is unreadable); no key minted")
 	}
 	return nil
-}
-
-func cmpErr(err error) error {
-	if err == nil {
-		return errors.New("status names no user")
-	}
-	return err
 }
 
 // inTailscaleSSH is true when SSH_CONNECTION's client address is a tailnet address.
@@ -104,14 +98,21 @@ func reauthLocal(ctx context.Context, out io.Writer) error {
 		return err
 	}
 	defer func() { _ = bus.Close() }()
+	before, err := Status(ctx)
+	if err != nil {
+		return err
+	}
 	if _, err := localAPI(ctx, http.MethodPost, "login-interactive", nil); err != nil {
 		return err
 	}
-	return awaitReauth(bus, out)
+	return awaitReauth(bus, out, func() bool {
+		st, err := Status(ctx)
+		return err == nil && st.running() && st.NodeKey != "" && st.NodeKey != before.NodeKey
+	})
 }
 
-// awaitReauth prints the first fresh sign-in URL, then returns at the next Running; the initial notify is stale.
-func awaitReauth(bus io.Reader, out io.Writer) error {
+// awaitReauth prints the first fresh sign-in URL, then returns at Running or a rotated node key.
+func awaitReauth(bus io.Reader, out io.Writer, rotated func() bool) error {
 	sc := bufio.NewScanner(bus)
 	sc.Buffer(nil, maxNotify)
 	for first, shown := true, false; sc.Scan(); first = false {
@@ -126,7 +127,7 @@ func awaitReauth(bus io.Reader, out io.Writer) error {
 			fmt.Fprintf(out, "\nTo re-authenticate, visit:\n\n\t%s\n\n", u)
 			shown = true
 		}
-		if shown && n.State != nil && *n.State == ipnRunning {
+		if done, _ := n.outcome(); shown && (done || rotated()) {
 			return nil
 		}
 	}

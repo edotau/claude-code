@@ -77,6 +77,7 @@ type Local struct {
 	SubnetRoutes []string
 	Peers        []peer
 	LoginName    string `json:"-"` // the signed-in user, empty when status names none
+	NodeKey      string `json:"-"` // this node's public key; a browser re-auth rotates it
 	Via          string `json:"-"` // "localapi", "cli" or "tsnet": which path answered
 }
 
@@ -91,6 +92,7 @@ type rawStatus struct {
 
 type rawNode struct {
 	ID             string
+	PublicKey      string
 	UserID         int64
 	DNSName        string
 	TailscaleIPs   []string
@@ -333,6 +335,7 @@ func parseStatus(out []byte, via string) (Local, error) {
 	local := Local{
 		Version:          raw.Version,
 		ID:               raw.Self.ID,
+		NodeKey:          raw.Self.PublicKey,
 		LoginName:        raw.User[strconv.FormatInt(raw.Self.UserID, 10)].LoginName,
 		BackendState:     raw.BackendState,
 		DNSName:          raw.Self.DNSName,
@@ -341,6 +344,9 @@ func parseStatus(out []byte, via string) (Local, error) {
 		ExitNodeApproved: hasDefaultRoutes(raw.Self.AllowedIPs),
 		SubnetRoutes:     subnetRoutesOf(raw.Self),
 		Via:              via,
+	}
+	if len(raw.Peer) > 0 { // nil stays nil when there are no peers, so JSON keeps null
+		local.Peers = make([]peer, 0, len(raw.Peer))
 	}
 	for _, p := range raw.Peer {
 		local.Peers = append(local.Peers, peer{
