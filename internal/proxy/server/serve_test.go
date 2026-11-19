@@ -55,11 +55,11 @@ func TestNewerSchemaProxyJSONStaysRunning(t *testing.T) {
 
 	st, err := proxy.ReadState()
 	if err != nil || st.PID != os.Getpid() || st.Port != port {
-		t.Fatalf("gateway.ReadState = %+v, %v; want the schema-2 pid/port", st, err)
+		t.Fatalf("proxy.ReadState = %+v, %v; want the schema-2 pid/port", st, err)
 	}
 	// Stop's only gate is proxy.Running; calling Stop itself would SIGTERM this test process.
 	if _, ok := proxy.Running(context.Background()); !ok {
-		t.Fatal("gateway.Running = false for a live pid with a healthy port; Stop would return ErrNotRunning")
+		t.Fatal("proxy.Running = false for a live pid with a healthy port; Stop would return ErrNotRunning")
 	}
 
 	serveAndStop(t)
@@ -219,7 +219,7 @@ func TestServeStateAndEnsure(t *testing.T) {
 	st := waitRouterHealthy(t)
 	base, err := proxy.Ensure(context.Background())
 	if err != nil || base != proxy.Base(st.Port) {
-		t.Fatalf("gateway.Ensure = %q, %v", base, err)
+		t.Fatalf("proxy.Ensure = %q, %v", base, err)
 	}
 	checkVaultSealedSecret(t)
 	cancel()
