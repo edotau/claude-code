@@ -4,10 +4,13 @@
     "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slash-usage"
   },
   "permissions": {
+    "allow": [
+      "Edit",
+      "Read",
+      "Write",
+      "WebFetch(*)"
+    ],
     "deny": [
-      "Bash(rm -rf /)",
-      "Bash(rm -rf /*)",
-      "Bash(rm -rf ~)",
       "Read(~/.ssh/**)",
       "Read(**/state/vault.db)",
       "Edit(~/.ssh/**)",
@@ -18,9 +21,7 @@
     "ask": [
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
-      "Bash(git reset --hard:*)",
-      "Read(~/.ssh/**)",
-      "Edit(~/.claude/internal/agentconfig/agents.json)"
+      "Bash(git reset --hard:*)"
     ],
     "defaultMode": "auto"
   },
