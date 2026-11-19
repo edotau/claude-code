@@ -713,10 +713,17 @@ func CdRule(dir string) Rule { return Rule{Tool: "Bash", Arg: cdPrefix + dir} }
 // cdMatches is a bare `cd <abs>` whose expansion-free target is dir or below it, cleaned or symlink-resolved.
 func cdMatches(dir, cmd string) bool {
 	toks := shell.Tokens(cmd)
-	if len(toks) != 2 || toks[0] != "cd" || !path.IsAbs(toks[1]) || strings.ContainsAny(toks[1], "$`*?[{~\\") {
+	if len(toks) != 2 || toks[0] != "cd" {
 		return false
 	}
-	target, clean := path.Clean(toks[1]), path.Clean(dir)
+	operand := toks[1]
+	if home, err := os.UserHomeDir(); err == nil && strings.HasPrefix(operand, "~/") { // commandWords spells $HOME as ~
+		operand = filepath.ToSlash(home) + operand[1:]
+	}
+	if !path.IsAbs(operand) || strings.ContainsAny(operand, "$`*?[{~\\") {
+		return false
+	}
+	target, clean := path.Clean(operand), path.Clean(dir)
 	if target == clean || strings.HasPrefix(target, strings.TrimSuffix(clean, "/")+"/") {
 		return true
 	}
