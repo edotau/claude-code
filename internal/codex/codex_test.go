@@ -17,11 +17,11 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -439,7 +439,7 @@ func TestCodexCommandAuthOmitsLaunchToken(t *testing.T) {
 	for _, auth := range []providers.Auth{
 		{Type: providers.AuthOAuth}, {Type: providers.AuthM2M}, {Command: "mint-token"},
 	} {
-		p := &providers.Provider{Name: "refreshable", Headers: map[string]string{gateway.AgentHeader: "codex"}, Auth: auth, TokenCommand: []string{"{self}", "resolve", "--profile", "{profile}", "{identity}", "{proxy}"}}
+		p := &providers.Provider{Name: "refreshable", Headers: map[string]string{proxy.AgentHeader: "codex"}, Auth: auth, TokenCommand: []string{"{self}", "resolve", "--profile", "{profile}", "{identity}", "{proxy}"}}
 		ctx := providers.WithIdentity(context.Background(), providers.IdentityHeadless)
 		env, argv, err := codex(ctx, p, "https://example.test/v1", "gpt-x", "launch-token-fixture", nil)
 		if err != nil {

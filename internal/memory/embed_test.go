@@ -15,10 +15,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"go.etcd.io/bbolt"
@@ -318,7 +318,7 @@ var trustAll = &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: 
 func vecServer(t *testing.T, hits *[]string, status int) *httptest.Server {
 	t.Helper()
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		*hits = append(*hits, r.URL.Path+"|"+r.Header.Get(gateway.ClientHeader))
+		*hits = append(*hits, r.URL.Path+"|"+r.Header.Get(proxy.ClientHeader))
 		if status != 200 {
 			http.Error(w, "boom", status)
 			return

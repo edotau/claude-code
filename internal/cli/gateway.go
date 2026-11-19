@@ -18,10 +18,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/gateway"
-	"github.com/edotau/claude-code/internal/gateway/server"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/proxy/server"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -46,7 +46,7 @@ func cmdGateway(args []string) int {
 }
 
 // printProxyState renders the proxy status block and writes it once; a write error is returned.
-func printProxyState(ps gateway.Status) error {
+func printProxyState(ps proxy.Status) error {
 	var buf bytes.Buffer
 	if ps.Running {
 		fmt.Fprintf(&buf, "proxy     running  pid %d  %s  since %s\n", ps.PID, ps.URL, ps.Started)
@@ -91,7 +91,7 @@ func proxyFlags() (*flag.FlagSet, *proxyOpts) {
 	fs.IntVar(
 		&o.port,
 		"port",
-		gateway.DefaultPort,
+		proxy.DefaultPort,
 		"with --serve: loopback port (a busy port held by an older proxy is reclaimed; a foreign holder "+
 			"of the default port moves to a free one, recorded in proxy.json; other busy ports are an error)",
 	)
@@ -188,7 +188,7 @@ func cmdGatewayProxy(args []string) int {
 func proxyStart(ctx context.Context) int {
 	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
 	defer cancel()
-	base, err := gateway.Ensure(ctx)
+	base, err := proxy.Ensure(ctx)
 	if err != nil {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
@@ -233,7 +233,7 @@ func proxyServe(ctx context.Context, port int) int {
 }
 
 func proxyStatus(ctx context.Context, format string) int {
-	ps, err := gateway.LoadStatus(ctx)
+	ps, err := proxy.LoadStatus(ctx)
 	if err != nil {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
@@ -360,7 +360,7 @@ func renderGatewayRoute(ctx context.Context, name string, res router.PickResult,
 		return helptext.Fail(name+": %v", err)
 	}
 	rj := newRouteJSON(res, src, pins)
-	ps, err := gateway.LoadStatus(ctx)
+	ps, err := proxy.LoadStatus(ctx)
 	if err != nil {
 		return helptext.Fail(name+": %v", err)
 	}
@@ -381,7 +381,7 @@ func renderGatewayRoute(ctx context.Context, name string, res router.PickResult,
 // routePayload is `gateway --format json`: the route fields at the top level plus the proxy status.
 type routePayload struct {
 	routeJSON
-	Proxy gateway.Status `json:"proxy"`
+	Proxy proxy.Status `json:"proxy"`
 }
 
 // routeSources names where each routing knob printed by `gateway` came from.
@@ -536,8 +536,8 @@ func gatewaySpec() *helptext.Node {
 			helptext.Plain("overlay"), helptext.Plain("task"), helptext.ValuedFlag("fallback", func() []string { return router.FallbackModes }), helptext.BoolFlag("tools"), helptext.BoolFlag("all-profiles"), helptext.BoolFlag("live"), helptext.CompletionFormatFlag()}}}}
 }
 
-// gatewayStop is gateway.Stop; tests stub it so no live pid is signalled.
-var gatewayStop = gateway.Stop
+// gatewayStop is proxy.Stop; tests stub it so no live pid is signalled.
+var gatewayStop = proxy.Stop
 
 // proxyRestart stops the proxy if running, starts it, and prints its base URL.
 func proxyRestart(ctx context.Context) int {
@@ -546,10 +546,10 @@ func proxyRestart(ctx context.Context) int {
 	stoppedCode := 0
 	if st, err := gatewayStop(ctx); err == nil {
 		stoppedCode = sayCode("proxy: stopped pid %d\n", st.PID)
-	} else if !errors.Is(err, gateway.ErrNotRunning) {
+	} else if !errors.Is(err, proxy.ErrNotRunning) {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
-	base, err := gateway.Ensure(ctx)
+	base, err := proxy.Ensure(ctx)
 	if err != nil {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
@@ -569,11 +569,11 @@ func sayCode(format string, a ...any) int {
 
 // proxyStopHold stops the proxy and holds off watchdog restarts until the next start.
 func proxyStopHold(ctx context.Context) int {
-	if err := gateway.Hold(); err != nil {
+	if err := proxy.Hold(); err != nil {
 		return helptext.Fail("gateway proxy: hold: %v", err)
 	}
 	st, err := gatewayStop(ctx)
-	if errors.Is(err, gateway.ErrNotRunning) {
+	if errors.Is(err, proxy.ErrNotRunning) {
 		return sayCode("proxy: not running\n")
 	}
 	if err != nil {

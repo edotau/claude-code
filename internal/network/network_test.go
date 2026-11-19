@@ -8,8 +8,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/worktree"
 )
 
@@ -20,7 +20,7 @@ func TestMain(m *testing.M) {
 	agentconfig.SetCatalogWarn(io.Discard)
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
-	gateway.HolderComm = func(int) string { return "claude-code" }
+	proxy.HolderComm = func(int) string { return "claude-code" }
 	code := m.Run()
 	cleanup()
 	hosttest.Cleanup()

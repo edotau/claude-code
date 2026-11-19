@@ -78,7 +78,7 @@ wiring + diff verify into 2.17 (`cli/agents.go`, wave 2); permissions P12's `rul
 - [ ] Phase 2.13 — I CLI entry — leaf: opencode, Agent: opencode — owns: internal/cli/table.go, gateway.go
 - [ ] Phase 2.14 — U menu, status line — leaf: opencode, Agent: opencode — owns: internal/ui/menu/configure_page.go,
   models_pick_page.go, internal/ui/statusline/statusline.go
-- [ ] Phase 2.15 — G gateway — leaf: codex, Agent: codex — owns: internal/gateway/daemon.go
+- [ ] Phase 2.15 — G gateway — leaf: codex, Agent: codex — owns: internal/proxy/daemon.go
 - [ ] Phase 2.16 — PF preflight — leaf: opencode, Agent: opencode — owns: internal/preflight/pins.go
 - [ ] Phase 2.17 — T3 brief verb, owned verify — leaf: opencode, Agent: opencode — owns: internal/agent/diff.go,
   internal/cli/agents.go

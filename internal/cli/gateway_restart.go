@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/egress"
-	"github.com/edotau/claude-code/internal/gateway"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -15,8 +15,8 @@ import (
 func proxyRestartReport(o *proxyOpts, format string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
-	row := gateway.RestartReport(ctx, o.dry, o.force, o.ifChanged)
-	rows := []gateway.RestartRow{row}
+	row := proxy.RestartReport(ctx, o.dry, o.force, o.ifChanged)
+	rows := []proxy.RestartRow{row}
 	if row.Status == "restarted" || row.Status == "would restart" || row.Status == "failed" {
 		rows = append(rows, stopTunnels(o.dry)...)
 	}
@@ -38,10 +38,10 @@ func proxyRestartReport(o *proxyOpts, format string) int {
 }
 
 // stopTunnels ends every recorded --remote ssh tunnel (dry: reports them), one row per egress host.
-func stopTunnels(dry bool) []gateway.RestartRow {
-	var rows []gateway.RestartRow
+func stopTunnels(dry bool) []proxy.RestartRow {
+	var rows []proxy.RestartRow
 	for _, t := range egress.Tunnels() {
-		row := gateway.RestartRow{Daemon: "egress", Status: "stopped", OldPID: t.PID, Note: t.Host}
+		row := proxy.RestartRow{Daemon: "egress", Status: "stopped", OldPID: t.PID, Note: t.Host}
 		if dry {
 			row.Status = "would stop"
 		} else if err := egress.Stop(t.Host); err != nil {
@@ -52,7 +52,7 @@ func stopTunnels(dry bool) []gateway.RestartRow {
 	return rows
 }
 
-func printRestartRow(r gateway.RestartRow) {
+func printRestartRow(r proxy.RestartRow) {
 	switch r.Status {
 	case "restarted":
 		fmt.Printf("%-8s restarted  pid %d → %d\n", r.Daemon, r.OldPID, r.NewPID)

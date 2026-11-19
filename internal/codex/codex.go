@@ -19,11 +19,11 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -285,7 +285,7 @@ func codexAuthFields(ctx context.Context, p *providers.Provider, cred string) ([
 }
 
 func codexCommandAuth(ctx context.Context, p *providers.Provider) (string, error) {
-	args, err := p.CredentialCommand(ctx, p.Headers[gateway.AgentHeader] != "")
+	args, err := p.CredentialCommand(ctx, p.Headers[proxy.AgentHeader] != "")
 	if err != nil {
 		return "", err
 	}

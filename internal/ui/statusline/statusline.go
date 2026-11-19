@@ -17,11 +17,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -410,18 +410,18 @@ const proxyTTL = 5 * time.Second
 
 // proxySegment shows "proxy:<port>" while the daemon answers, "proxy:down" when this session needs it.
 func proxySegment(routed bool) string {
-	st, err := gateway.ReadState()
+	st, err := proxy.ReadState()
 	if err == nil && st.Port > 0 && proxyUp(st) {
 		return "proxy:" + strconv.Itoa(st.Port)
 	}
 	if routed {
-		gateway.SpawnStart()
+		proxy.SpawnStart()
 		return "proxy:down"
 	}
 	return ""
 }
 
-func proxyUp(st gateway.State) bool {
+func proxyUp(st proxy.State) bool {
 	stamp := stampFile("proxy", paths.StateDir()+"\x00"+strconv.Itoa(st.PID)+"\x00"+strconv.Itoa(st.Port))
 	if f := freshStamp(stamp, proxyTTL, 1); f != nil {
 		return f[0] == "up"
@@ -429,7 +429,7 @@ func proxyUp(st gateway.State) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
 	defer cancel()
 	state := "down"
-	if gateway.Health(ctx, st.Port) == nil {
+	if proxy.Health(ctx, st.Port) == nil {
 		state = "up"
 	}
 	writeTimedStamp(stamp, state)

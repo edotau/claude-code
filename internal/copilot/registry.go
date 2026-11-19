@@ -16,19 +16,19 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/databricks/serving"
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 )
 
 // Seams for tests: model discovery, the running router and the router's session tokens.
 var (
 	discoverModels = discoverCopilotEndpoints
-	mintSession    = gateway.MintScopedToken
-	revokeSession  = gateway.RevokeSessionToken
-	runningRouter  = gateway.Running
+	mintSession    = proxy.MintScopedToken
+	revokeSession  = proxy.RevokeSessionToken
+	runningRouter  = proxy.Running
 )
 
 // StubRegistry makes registry launches discover ids and mint tok offline, for tests in other packages.
@@ -512,9 +512,9 @@ func copilotRouterBase(ctx context.Context, dry bool) (string, error) {
 		return agent.EnsureRouter(ctx)
 	}
 	if st, ok := runningRouter(ctx); ok {
-		return gateway.ViaBaseContext(ctx, gateway.Base(st.Port)), nil
+		return proxy.ViaBaseContext(ctx, proxy.Base(st.Port)), nil
 	}
-	return gateway.ViaBaseContext(ctx, gateway.Base(gateway.DefaultPort)), nil
+	return proxy.ViaBaseContext(ctx, proxy.Base(proxy.DefaultPort)), nil
 }
 
 // prepareRegistry mints the token and renders the registry as a launch file in the verified runtime dir (Exec writes).
@@ -576,9 +576,9 @@ func copilotSelect(ctx context.Context, reg *providers.Registry, p *providers.Pr
 ) (copilotRegistry, string, error) {
 	routed := *p
 	// the router adds the provider's own headers upstream
-	routed.Headers = map[string]string{gateway.AgentHeader: "copilot"}
+	routed.Headers = map[string]string{proxy.AgentHeader: "copilot"}
 	if id := providers.IdentityFrom(ctx); id != "" {
-		routed.Headers[gateway.IdentityHeader] = id
+		routed.Headers[proxy.IdentityHeader] = id
 	}
 	r := copilotBuildRegistry(p.Name, &routed, eps, base)
 	ref, err := r.Select(c)

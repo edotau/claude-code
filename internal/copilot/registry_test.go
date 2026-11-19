@@ -13,10 +13,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/egress"
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 )
 
 // buildDevRegistry runs the real builder over eps on a non-Databricks row, where every endpoint rides anthropic.
@@ -160,10 +160,10 @@ func TestRouterBaseUsesRunEgressHost(t *testing.T) {
 	t.Setenv(egress.EnvHost, "")
 	old := runningRouter
 	t.Cleanup(func() { runningRouter = old })
-	runningRouter = func(context.Context) (gateway.State, bool) { return gateway.State{Port: 4321}, true }
+	runningRouter = func(context.Context) (proxy.State, bool) { return proxy.State{Port: 4321}, true }
 	ctx := proc.WithValues(t.Context(), proc.Values{egress.EnvHost: "edge.example"})
 	got, err := copilotRouterBase(ctx, true)
-	if want := gateway.Base(4321) + gateway.ViaPrefix + "edge.example"; err != nil || got != want {
+	if want := proxy.Base(4321) + proxy.ViaPrefix + "edge.example"; err != nil || got != want {
 		t.Fatalf("router base = %q, %v; want %q", got, err, want)
 	}
 }

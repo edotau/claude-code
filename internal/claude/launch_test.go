@@ -14,13 +14,13 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -459,7 +459,7 @@ func TestKeepShellEndpointSessionProxyBaseToFirstParty(t *testing.T) {
 	t.Setenv("CLAUDE_PROFILE", "prod")
 	t.Setenv("ANTHROPIC_BASE_URL", "http://127.0.0.1:18765/p/prod")
 	orig := readProxyState
-	readProxyState = func() (gateway.State, error) { return gateway.State{Port: 18765}, nil }
+	readProxyState = func() (proxy.State, error) { return proxy.State{Port: 18765}, nil }
 	t.Cleanup(func() { readProxyState = orig })
 	plan := agent.Plan{Set: map[string]string{}, Files: []agent.LaunchFile{{Path: "/tmp/ov.json"}}, Argv: []string{"--settings", "/tmp/ov.json"}}
 	keepShellEndpoint(context.Background(), &plan, agent.LaunchOptions{})
@@ -597,7 +597,7 @@ func TestClaudeProxyCarriesSessionToken(t *testing.T) {
 // assertProxiedNoSecret: p routes /p/dev through the resolve --proxy helper and no env value holds the router secret.
 func assertProxiedNoSecret(t *testing.T, name string, p agent.Plan) {
 	t.Helper()
-	secret, err := gateway.ClientSecret()
+	secret, err := proxy.ClientSecret()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -765,7 +765,7 @@ func TestClaudeArmPassthroughHeaderIsSessionToken(t *testing.T) {
 	if _, _, err := configureClaudeProxy(context.Background(), providers.Selection{Provider: ultra}, ultra, true, "/opt/bin/claude-code", &plan); err != nil {
 		t.Fatal(err)
 	}
-	if hdrs := plan.Set["ANTHROPIC_CUSTOM_HEADERS"]; !strings.Contains(hdrs, gateway.ClientHeader+": "+tok) {
+	if hdrs := plan.Set["ANTHROPIC_CUSTOM_HEADERS"]; !strings.Contains(hdrs, proxy.ClientHeader+": "+tok) {
 		t.Errorf("armed passthrough: the client header carries the session token = false (headers len %d)", len(hdrs))
 	}
 }

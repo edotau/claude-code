@@ -23,11 +23,11 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -278,7 +278,7 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 		list, lite = agyGatewayModels(p, base, time.Now())
 	}
 	env := proc.Values{
-		"AGY_LLM_GATEWAY_URL":     gateway.SessionBase(rb, p.Name) + "/" + route,
+		"AGY_LLM_GATEWAY_URL":     proxy.SessionBase(rb, p.Name) + "/" + route,
 		"AGY_LLM_GATEWAY_API_KEY": tok, "AGY_LLM_GATEWAY_WIRE_PROTOCOL": wireProto, "AGY_LLM_GATEWAY_MODELS": list,
 		// agy's side calls (titles) use the flash-lite tier, kept off the main model's rate limit when served
 		"AGY_LLM_GATEWAY_TIER_FLASH": base, "AGY_LLM_GATEWAY_TIER_PRO": base, "AGY_LLM_GATEWAY_TIER_FLASH_LITE": lite,

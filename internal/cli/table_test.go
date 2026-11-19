@@ -15,10 +15,10 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -860,7 +860,7 @@ func TestMain(m *testing.M) {
 	agentconfig.SetCatalogWarn(io.Discard)
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
-	gateway.HolderComm = func(int) string { return "claude-code" } // router-state tests record this test binary's pid as the proxy
+	proxy.HolderComm = func(int) string { return "claude-code" } // router-state tests record this test binary's pid as the proxy
 	code := m.Run()
 	cleanup()
 	hosttest.Cleanup()

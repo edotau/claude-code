@@ -16,11 +16,11 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/egress"
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -169,12 +169,12 @@ func (s Schema) firstRoute(p *providers.Provider) (string, string) {
 // Router seams (tests stub these so no daemon is spawned); EnsureRouter starts or finds the loopback router.
 var (
 	EnsureRouter = ensureRouter
-	MintSession  = gateway.MintScopedToken // mints a router session token for a profile set and pid
+	MintSession  = proxy.MintScopedToken // mints a router session token for a profile set and pid
 )
 
-// ensureRouter is gateway.Ensure; --remote adds the /via/<host> tunnel base, a dispatch its /d/<id> tag.
+// ensureRouter is proxy.Ensure; --remote adds the /via/<host> tunnel base, a dispatch its /d/<id> tag.
 func ensureRouter(ctx context.Context) (string, error) {
-	base, err := gateway.Ensure(ctx)
+	base, err := proxy.Ensure(ctx)
 	if err != nil {
 		return base, err
 	}
@@ -182,13 +182,13 @@ func ensureRouter(ctx context.Context) (string, error) {
 		if _, err := egress.Ensure(ctx, host); err != nil {
 			return "", err
 		}
-		base = gateway.ViaBaseContext(ctx, base)
+		base = proxy.ViaBaseContext(ctx, base)
 	}
 	id, _ := ctx.Value(dispatchIDKey{}).(string)
 	if id == "" {
 		return base, nil
 	}
-	return gateway.TaggedBase(ctx, base, id), nil
+	return proxy.TaggedBase(ctx, base, id), nil
 }
 
 // refuseDirectContext rejects --direct under --remote: a direct agent calls the provider itself, around the tunnel.
@@ -216,11 +216,11 @@ func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect s
 	if err != nil {
 		return nil, "", "", fmt.Errorf("%s: router: %w", s.Name, err)
 	}
-	base := gateway.SessionBase(rb, p.Name) + s.CLI.RouterSuffix[dialect]
+	base := proxy.SessionBase(rb, p.Name) + s.CLI.RouterSuffix[dialect]
 	rp := *p
-	rp.Headers = map[string]string{gateway.AgentHeader: s.Name} // the router adds the provider's own headers upstream
+	rp.Headers = map[string]string{proxy.AgentHeader: s.Name} // the router adds the provider's own headers upstream
 	if id := providers.IdentityFrom(ctx); id != "" {
-		rp.Headers[gateway.IdentityHeader] = id
+		rp.Headers[proxy.IdentityHeader] = id
 	}
 	return &rp, base, key, nil
 }
@@ -228,11 +228,11 @@ func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect s
 // launchRouter previews routing without starting a daemon or minting a credential.
 func launchRouter(ctx context.Context, profile string) (string, string, error) {
 	if dry, _ := ctx.Value(launchDryKey{}).(bool); dry {
-		base := gateway.Base(gateway.DefaultPort)
-		if st, ok := gateway.Running(ctx); ok {
-			base = gateway.Base(st.Port)
+		base := proxy.Base(proxy.DefaultPort)
+		if st, ok := proxy.Running(ctx); ok {
+			base = proxy.Base(st.Port)
 		}
-		return gateway.ViaBaseContext(ctx, base), "<redacted>", nil
+		return proxy.ViaBaseContext(ctx, base), "<redacted>", nil
 	}
 	base, err := EnsureRouter(ctx)
 	if err != nil {
@@ -290,7 +290,7 @@ var (
 
 // SessionToken mints the token for profiles (a TokenScope set) once per router, so batch hops never fill the cap.
 func SessionToken(ctx context.Context, routerBase string, profiles ...string) (string, error) {
-	routerBase, _, _ = strings.Cut(routerBase, gateway.DispatchPrefix) // one slot per router, not per dispatch
+	routerBase, _, _ = strings.Cut(routerBase, proxy.DispatchPrefix) // one slot per router, not per dispatch
 	key := routerBase + "|" + strings.Join(profiles, ",")
 	sessionMu.Lock()
 	e := sessionTokens[key]

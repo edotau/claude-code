@@ -16,11 +16,11 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -168,7 +168,7 @@ func keepShellEndpoint(ctx context.Context, plan *agent.Plan, o agent.LaunchOpti
 	if own == "" {
 		own = defaultAnthropicBase // an unset plan base means the default route
 	}
-	base := gateway.UntaggedBase(strings.TrimSpace(proc.Value(ctx, proc.EnvAnthropicBaseURL))) // a parent dispatch's /d/<id> tag
+	base := proxy.UntaggedBase(strings.TrimSpace(proc.Value(ctx, proc.EnvAnthropicBaseURL))) // a parent dispatch's /d/<id> tag
 	inherited := inheritedBase(ctx, base, own)
 	if base != "" && !inherited && !sameEndpoint(base, own) {
 		plan.ForeignBase = true
@@ -226,7 +226,7 @@ func sessionRouteBase(ctx context.Context, raw string) bool {
 }
 
 // readProxyState is the live proxy's state; tests swap it so no real daemon is read.
-var readProxyState = gateway.ReadState
+var readProxyState = proxy.ReadState
 
 // isProxySessionBase reports whether raw is a loopback proxy session base (http://127.0.0.1:<port>/p/<profile>).
 func isProxySessionBase(raw string) bool {
@@ -485,10 +485,10 @@ func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *provi
 	if err != nil {
 		return "", "", fmt.Errorf("proxy: %w", err)
 	}
-	plan.Set[proc.EnvAnthropicBaseURL] = gateway.SessionBase(base, p.Name)
-	hdrs := []string{gateway.AgentHeader + ": claude"} // Claude Code adds the session id itself.
+	plan.Set[proc.EnvAnthropicBaseURL] = proxy.SessionBase(base, p.Name)
+	hdrs := []string{proxy.AgentHeader + ": claude"} // Claude Code adds the session id itself.
 	if id := providers.IdentityFrom(ctx); id != "" {
-		hdrs = append(hdrs, gateway.IdentityHeader+": "+id)
+		hdrs = append(hdrs, proxy.IdentityHeader+": "+id)
 	}
 	tok, err := proxyToken(ctx, base, sel, extra...)
 	if err != nil {
@@ -496,7 +496,7 @@ func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *provi
 	}
 	plan.Set[ProxyKeyEnv] = tok
 	if passthrough { // Authorization holds the login, so the token rides the client header
-		hdrs = append(hdrs, gateway.ClientHeader+": "+tok)
+		hdrs = append(hdrs, proxy.ClientHeader+": "+tok)
 	}
 	plan.Set[proc.EnvAnthropicCustomHeaders] = strings.Join(hdrs, "\n")
 	return textutil.QuoteSH(helperBin(self)) + " resolve --secret --proxy", filepath.Join(paths.StateDir(), "overlay-"+p.Name+"-proxy.json"), nil

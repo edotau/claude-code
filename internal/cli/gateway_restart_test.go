@@ -10,12 +10,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proxy"
 )
 
-func restartRows(t *testing.T, args ...string) (int, []gateway.RestartRow) {
+func restartRows(t *testing.T, args ...string) (int, []proxy.RestartRow) {
 	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	if err := os.MkdirAll(paths.StateDir(), 0o755); err != nil {
@@ -25,7 +25,7 @@ func restartRows(t *testing.T, args ...string) (int, []gateway.RestartRow) {
 		return cmdGatewayProxy(append([]string{"--restart", "--format", "json"}, args...))
 	})
 	var doc struct {
-		Daemons []gateway.RestartRow `json:"daemons"`
+		Daemons []proxy.RestartRow `json:"daemons"`
 	}
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
 		t.Fatalf("json = %q (%v)", out, err)
@@ -56,14 +56,14 @@ func TestRestartReportUnchangedKeepsTunnels(t *testing.T) {
 	http.DefaultClient = &http.Client{Transport: restartTransport(func(*http.Request) (*http.Response, error) {
 		return &http.Response{
 			StatusCode: http.StatusOK,
-			Header:     http.Header{gateway.PIDHeader: {strconv.Itoa(os.Getpid())}, gateway.HeaderInflight: {"1"}},
+			Header:     http.Header{proxy.PIDHeader: {strconv.Itoa(os.Getpid())}, proxy.HeaderInflight: {"1"}},
 			Body:       io.NopCloser(strings.NewReader("ok")),
 		}, nil
 	})}
 	if err := os.MkdirAll(paths.StateDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	cleanup, err := gateway.WriteState(gateway.State{PID: os.Getpid(), Port: 23456, Exe: gateway.ExeHash()})
+	cleanup, err := proxy.WriteState(proxy.State{PID: os.Getpid(), Port: 23456, Exe: proxy.ExeHash()})
 	if err != nil {
 		t.Fatal(err)
 	}

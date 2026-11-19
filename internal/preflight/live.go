@@ -17,9 +17,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/catalog"
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -370,7 +370,7 @@ func staticProblems(ps []Pin, dbx bool) string {
 }
 
 func proxyUp() bool {
-	st, err := gateway.ReadState()
+	st, err := proxy.ReadState()
 	return err == nil && st.PID > 0 && proc.Alive(st.PID)
 }
 

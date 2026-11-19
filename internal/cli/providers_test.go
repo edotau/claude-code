@@ -16,9 +16,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/copilot"
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
@@ -705,7 +705,7 @@ func TestResolveRedactsWithoutSecret(t *testing.T) {
 // resolve --proxy prints an armed launch's token, else one scoped to the parent pid; it never prints the secret.
 func TestResolveProxyNeverPrintsSecret(t *testing.T) {
 	cliScratch(t)
-	secret, err := gateway.ClientSecret()
+	secret, err := proxy.ClientSecret()
 	if err != nil {
 		t.Fatal(err)
 	}

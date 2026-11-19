@@ -13,10 +13,10 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -486,7 +486,7 @@ func databricksDispatch(reg *providers.Registry, d Dispatch) bool {
 
 // proxyNote is the note for a proxy that is not running; the launch starts it, so it is never a failure.
 func proxyNote() string {
-	if st, err := gateway.ReadState(); err == nil && st.PID > 0 && proc.Alive(st.PID) {
+	if st, err := proxy.ReadState(); err == nil && st.PID > 0 && proc.Alive(st.PID) {
 		return ""
 	}
 	return "proxy not running: the launch starts it (claude-code gateway proxy --status)"

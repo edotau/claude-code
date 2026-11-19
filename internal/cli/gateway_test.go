@@ -16,10 +16,10 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/copilot"
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -171,7 +171,7 @@ func TestPrintProxyStateReportsWriteError(t *testing.T) {
 	orig := os.Stdout
 	os.Stdout = full
 	t.Cleanup(func() { os.Stdout = orig })
-	if err := printProxyState(gateway.Status{Log: "x.log"}); err == nil {
+	if err := printProxyState(proxy.Status{Log: "x.log"}); err == nil {
 		t.Fatal("printProxyState returned nil despite a failed stdout write")
 	}
 }
@@ -196,7 +196,7 @@ func TestGatewayHelpListsProxyRestart(t *testing.T) {
 
 // TestProxyStartReportsWriteError: a failed stdout write of the base URL is an exit 1, not a silent 0.
 func TestProxyStartReportsWriteError(t *testing.T) {
-	tokenDaemon(t, func(http.ResponseWriter, gateway.SessionRequest) {})
+	tokenDaemon(t, func(http.ResponseWriter, proxy.SessionRequest) {})
 	code, msg := hosttest.CaptureClosedStdout(t, func() int { return proxyStart(context.Background()) })
 	if code != 1 || !strings.Contains(msg, "gateway proxy:") {
 		t.Fatalf("want exit 1 with a 'gateway proxy:' message, got %d %q", code, msg)
@@ -406,7 +406,7 @@ func TestRouterStartHelpDoesNotStart(t *testing.T) {
 			t.Errorf("gateway %v: want usage + exit 0, got exit %d stderr %q", args, code, stderr)
 		}
 	}
-	if _, ok := gateway.Running(context.Background()); ok {
+	if _, ok := proxy.Running(context.Background()); ok {
 		t.Fatal("router was started by a help request")
 	}
 }
@@ -647,21 +647,21 @@ func TestGatewayRouteUnknownProfileIsAUsageError(t *testing.T) {
 }
 
 // tokenDaemon answers only health probes and token requests, without starting a daemon.
-func tokenDaemon(t *testing.T, mint func(http.ResponseWriter, gateway.SessionRequest)) {
+func tokenDaemon(t *testing.T, mint func(http.ResponseWriter, proxy.SessionRequest)) {
 	t.Helper()
 	vaulttest.Use(t)
 	vaulttest.Secret(t, "CLAUDE_CODE_ROUTER_SECRET", "long-lived-router-secret")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/healthz" {
-			w.Header().Set(gateway.PIDHeader, strconv.Itoa(os.Getpid()))
+			w.Header().Set(proxy.PIDHeader, strconv.Itoa(os.Getpid()))
 			return
 		}
-		if r.URL.Path != gateway.SessionPath || r.Header.Get("X-Api-Key") != "long-lived-router-secret" {
+		if r.URL.Path != proxy.SessionPath || r.Header.Get("X-Api-Key") != "long-lived-router-secret" {
 			t.Errorf("unexpected request: %s", r.URL.Path)
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		var req gateway.SessionRequest
+		var req proxy.SessionRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			t.Error(err)
 			w.WriteHeader(http.StatusBadRequest)
@@ -670,7 +670,7 @@ func tokenDaemon(t *testing.T, mint func(http.ResponseWriter, gateway.SessionReq
 		mint(w, req)
 	}))
 	t.Cleanup(srv.Close)
-	cleanup, err := gateway.WriteState(gateway.State{PID: os.Getpid(), Port: srv.Listener.Addr().(*net.TCPAddr).Port})
+	cleanup, err := proxy.WriteState(proxy.State{PID: os.Getpid(), Port: srv.Listener.Addr().(*net.TCPAddr).Port})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -690,13 +690,13 @@ func TestProxyLifecycleRejectsFailedStdout(t *testing.T) {
 				t.Fatal(err)
 			}
 			orig := gatewayStop
-			gatewayStop = func(context.Context) (gateway.State, error) { return gateway.State{PID: 4242}, nil }
+			gatewayStop = func(context.Context) (proxy.State, error) { return proxy.State{PID: 4242}, nil }
 			t.Cleanup(func() { gatewayStop = orig })
 			code, msg := hosttest.CaptureClosedStdout(t, func() int { return tc.run(context.Background()) })
 			if code == 0 || !strings.Contains(msg, "gateway proxy: write output:") {
 				t.Fatalf("exit %d stderr %q; want nonzero with a write-output error", code, msg)
 			}
-			if tc.name == "restart" && !strings.Contains(msg, gateway.ErrTestBinary.Error()) {
+			if tc.name == "restart" && !strings.Contains(msg, proxy.ErrTestBinary.Error()) {
 				t.Fatalf("restart did not attempt the start after the failed write: %q", msg)
 			}
 		})

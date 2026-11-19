@@ -20,10 +20,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -831,12 +831,12 @@ func querySemantic(ctx context.Context, profile, query string, cache vectorRecor
 
 // routerLink reads the running loopback router address and client secret without starting it.
 var routerLink = func(ctx context.Context) (base, secret string, ok bool) {
-	st, up := gateway.Running(ctx)
+	st, up := proxy.Running(ctx)
 	if !up {
 		return "", "", false
 	}
-	secret, err := gateway.ClientSecret()
-	return gateway.ViaBaseContext(ctx, gateway.Base(st.Port)), secret, err == nil
+	secret, err := proxy.ClientSecret()
+	return proxy.ViaBaseContext(ctx, proxy.Base(st.Port)), secret, err == nil
 }
 
 type linkKey struct{}
@@ -914,7 +914,7 @@ func embedDatabricks(ctx context.Context, p *providers.Provider, model string, t
 	url := strings.TrimRight(p.Host, "/") + "/serving-endpoints/" + model + "/invocations"
 	if base, secret, ok := routerLinkFor(ctx); ok { // the daemon holds the warm credential and upstream connections
 		via := base + "/p/" + p.Name + "/" + providers.ProtocolOpenAI + "/" + model + "/invocations"
-		vecs, err := postEmbeddings(ctx, via, texts, func(h http.Header) error { h.Set(gateway.ClientHeader, secret); return nil })
+		vecs, err := postEmbeddings(ctx, via, texts, func(h http.Header) error { h.Set(proxy.ClientHeader, secret); return nil })
 		if err == nil || ctx.Err() != nil {
 			return vecs, err
 		}

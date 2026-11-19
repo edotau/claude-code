@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/serving"
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -70,11 +70,11 @@ var routerBase = runningRouterBase
 func runningRouterBase(ctx context.Context) string {
 	probe, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	port := gateway.DefaultPort
-	if st, ok := gateway.Running(probe); ok {
+	port := proxy.DefaultPort
+	if st, ok := proxy.Running(probe); ok {
 		port = st.Port
 	}
-	return gateway.ViaBaseContext(ctx, gateway.Base(port))
+	return proxy.ViaBaseContext(ctx, proxy.Base(port))
 }
 
 // buildDatabricksGroups lists every signed-in Databricks serving profile's cached READY chat endpoints, no network.
@@ -104,7 +104,7 @@ func buildDatabricksGroups(ctx context.Context) (modelGroups, error) {
 		if base == "" {
 			base = routerBase(ctx)
 		}
-		out.Groups = append(out.Groups, profileGroup(p, snap.Models, gateway.SessionBase(base, name)))
+		out.Groups = append(out.Groups, profileGroup(p, snap.Models, proxy.SessionBase(base, name)))
 	}
 	return out, nil
 }
@@ -136,7 +136,7 @@ func endpointEntry(p *providers.Provider, info providers.ModelInfo, wire, sessio
 	claude := models.FamilyKind(info.ID) == models.FamilyClaude
 	m := endpointModel{ID: info.ID, Name: info.ID, URL: session + api.path, APIType: api.apiType, ToolCalling: true,
 		Vision: claude || strings.Contains(info.Capabilities, "vision"), ContextWindow: window, MaxOutputTokens: output,
-		RequestHeaders: map[string]string{gateway.AgentHeader: "vscode"}}
+		RequestHeaders: map[string]string{proxy.AgentHeader: "vscode"}}
 	if wire == providers.ProtocolResponses {
 		stateless := false // Databricks keeps no prior responses: send full history every turn
 		m.StatefulResponses = &stateless

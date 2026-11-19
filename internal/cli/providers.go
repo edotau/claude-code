@@ -15,10 +15,10 @@ import (
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
-	"github.com/edotau/claude-code/internal/gateway"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -274,7 +274,7 @@ func resolveToken(proxy bool, profile, as string) (string, error) {
 }
 
 // resolveProxyToken is the mint+cache seam of resolve --proxy.
-var resolveProxyToken = gateway.ResolveProxyToken
+var resolveProxyToken = proxy.ResolveProxyToken
 
 // scopedProxyToken mints (or reuses) the session token the launcher would arm for the calling claude process.
 func scopedProxyToken(profile string) (string, error) {
