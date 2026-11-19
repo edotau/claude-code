@@ -28,7 +28,7 @@ func printCheckLines(w io.Writer, checks []check) {
 			mark = ansi.Style(color, ansi.Red, "✗")
 		}
 		detail := c.Detail
-		if term > 0 {
+		if term > 0 && c.OK { // a warning or failure keeps its whole text: the fix is usually at the end
 			detail = textutil.TruncateCells(detail, min(term, 80)-textutil.DisplayWidth("✓ "+c.Name+": "), "...")
 		}
 		fmt.Fprintf(w, "%s %s: %s\n", mark, c.Name, ansi.Status(color, detail))
