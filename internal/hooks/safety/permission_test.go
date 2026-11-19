@@ -30,7 +30,7 @@ func TestPermissionGate(t *testing.T) {
 			`{"tool_name":"Bash","tool_input":{"command":"git log && rm -rf x"}}`, true, "deny Bash(git log && rm -rf x)"},
 		{"malformed env blocks", `{deny`, `{"tool_name":"Bash","tool_input":{"command":"ls"}}`, true, "is unreadable"},
 		{"a read-only miss names the segment and the rewrite", `{"deny":[{"Tool":"Bash","Arg":"not a read-only shell command"}]}`,
-			`{"tool_name":"Bash","tool_input":{"command":"cd /tmp && git status"}}`, true, "denied segment: cd /tmp\n"},
+			`{"tool_name":"Bash","tool_input":{"command":"git status && rm /tmp/f"}}`, true, "denied segment: rm /tmp/f\n"},
 		{"a relative plan allow meets the absolute path", `{"mode":"plan","allow":[{"Tool":"Edit","Arg":"sub/**"},{"Tool":"Write","Arg":"sub/**"}]}`,
 			`{"tool_name":"Edit","cwd":"/repo","tool_input":{"file_path":"sub/a.txt"}}`, false, ""},
 		{"a relative cd is judged from the hook cwd", `{"mode":"plan","allow":[{"Tool":"Bash","Arg":"cd:/repo"}]}`,
@@ -204,6 +204,45 @@ func TestPermissionGateTruncatedInputFailsClosed(t *testing.T) {
 		res := PermissionGate(core.ParseInput(strings.NewReader(payload)))
 		if res.Decision != tc.want {
 			t.Errorf("policy %q: decision %v reason %q, want %v", tc.policy, res.Decision, res.Reason, tc.want)
+		}
+	}
+}
+
+func TestPermissionGateReadOnlyCD(t *testing.T) {
+	p := agent.Permissions{Mode: "plan", Allow: []agent.Rule{agent.ReadOnlyAllow, agent.CdRule("/memory")},
+		Deny: append([]agent.Rule{{Tool: "Read", Arg: "**/.env"}, {Tool: "Bash", Arg: "cd:/private"}}, agent.ReadOnlyDeny...)}
+	setGatePermissions(t, p)
+	for cmd, block := range map[string]bool{
+		"cd /memory && wc -l progress.md && head -30 sessionHistory.md":     false,
+		"cd /memory && rtk read sessionHistory.md | head -40":               false,
+		"cd /memory && rtk wc -l progress.md":                               false,
+		"cd /memory && rtk head -30 progress.md && rtk tail -5 progress.md": false,
+		"cd /memory && cat .env":                                            true,
+		"cd /memory && rtk read .env":                                       true,
+		"cd /memory && rtk head -f progress.md":                             true,
+		"cd /memory && cat progress.md > out.md":                            true,
+		"cd /memory && rm progress.md":                                      true,
+		"cd /memory && sed -i s/a/b/ progress.md":                           true,
+		"cd /memory && cd /private && cat f":                                true,
+		"cd /memory-evil && cat f":                                          true,
+	} {
+		payload := fmt.Sprintf(`{"tool_name":"Bash","cwd":"/","tool_input":{"command":%q}}`, cmd)
+		r := PermissionGate(core.ParseInput(strings.NewReader(payload)))
+		if (r.Decision == core.Block) != block {
+			t.Errorf("%s: decision %v reason %q, want block=%v", cmd, r.Decision, r.Reason, block)
+		}
+	}
+}
+
+func TestPermissionGateMissingToolReason(t *testing.T) {
+	t.Setenv(agent.DispatchPermissionsEnv, `{"mode":"plan"}`)
+	for payload, want := range map[string]string{
+		"": "empty hook payload", "{": "unexpected end of JSON input",
+		"{}": "missing tool_name in hook payload", "null": "payload is not a JSON object",
+	} {
+		r := PermissionGate(core.ParseInput(strings.NewReader(payload)))
+		if r.Decision != core.Block || !strings.Contains(r.Reason, want) {
+			t.Errorf("payload %q: decision %v reason %q, want %q", payload, r.Decision, r.Reason, want)
 		}
 	}
 }

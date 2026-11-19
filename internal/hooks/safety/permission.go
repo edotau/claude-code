@@ -38,7 +38,7 @@ func PermissionGate(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	if in.ToolName == "" && (len(p.Deny) > 0 || p.Mode == "plan") { // unparseable or truncated stdin: cannot be judged
-		return noToolResult(p)
+		return noToolResult(p, in)
 	}
 	tool, ok := gateTools[strings.ToLower(in.CanonicalTool())]
 	if !ok {
@@ -63,6 +63,9 @@ func protectedEdit(in *core.Input) core.Result {
 
 // judgeCall refuses the first of args the policy denies as tool, or whose unknown target a scoped deny may cover.
 func judgeCall(p agent.Permissions, cwd, tool string, args []string) core.Result {
+	if tool == "Bash" {
+		p = readOnlyCDPolicy(p, args[0])
+	}
 	judge := anchorAllow(p, cwd)
 	if tool != "Bash" && tool != "Edit" {
 		judge = agent.Permissions{Deny: p.Deny} // plan mode reads through: only a Deny rule refuses a read
@@ -82,6 +85,20 @@ func judgeCall(p agent.Permissions, cwd, tool string, args []string) core.Result
 		}
 	}
 	return core.Result{}
+}
+
+func readOnlyCDPolicy(p agent.Permissions, cmd string) agent.Permissions {
+	if !slices.Contains(p.Deny, agent.ReadOnlyDeny[0]) {
+		return p
+	}
+	cd := agent.Permissions{Mode: "plan", Allow: []agent.Rule{agent.CdRule("/")}}
+	for _, seg := range shell.Segments(cmd) {
+		if !agent.ReadOnlyShell(seg) && cd.Decide("Bash", seg) != agent.Allow {
+			return p
+		}
+	}
+	p.Deny = slices.DeleteFunc(slices.Clone(p.Deny), func(r agent.Rule) bool { return r == agent.ReadOnlyDeny[0] })
+	return p
 }
 
 // GateBlocks reports whether the permission-gate refuses tool(arg) under p, for the doctor permissions report.
@@ -127,9 +144,13 @@ func dispatchPolicy() (p agent.Permissions, set bool, err error) {
 }
 
 // noToolResult refuses a call whose hook input named no tool, under a policy with Deny rules or plan mode.
-func noToolResult(p agent.Permissions) core.Result {
-	return core.Result{Decision: core.Block, Reason: "permission-gate: BLOCKED — the hook input names no tool (unreadable " +
-		"or truncated payload), so the call cannot be judged\n  deny: " + strings.Join(agent.RuleStrings(p.Deny), ", ") +
+func noToolResult(p agent.Permissions, in *core.Input) core.Result {
+	why := cmp.Or(in.Invalid, "missing tool_name in hook payload")
+	if in.Invalid == "" && len(strings.TrimSpace(string(in.Raw))) == 0 {
+		why = "empty hook payload"
+	}
+	return core.Result{Decision: core.Block, Reason: "permission-gate: BLOCKED — the hook input names no tool (" + why +
+		"), so the call cannot be judged\n  deny: " + strings.Join(agent.RuleStrings(p.Deny), ", ") +
 		modeNote(p) + "\nReport it instead of retrying another way."}
 }
 
@@ -194,7 +215,7 @@ func denyResult(p agent.Permissions, cwd string, call agent.Rule) core.Result {
 		}
 	case call.Tool == "Bash" && d.Rule == agent.ReadOnlyDeny[0]: // read-only is an allow list spelled as a deny
 		next = "\nOnly read-only commands run here: drop the denied segment or rewrite it with an allowed command " +
-			"(absolute paths, no cd)."
+			"(static absolute paths for cd)."
 	}
 	if d.Source != "" {
 		rules += "\n  layer: " + d.Layer + " source: " + d.Source

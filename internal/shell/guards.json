@@ -333,7 +333,7 @@
   },
   "read_only_rtk_plain_subcommands": {
     "purpose": "rtk subcommands that stand for the plain command after them in the read-only check",
-    "words": ["git", "ls", "grep", "rg", "find", "claude-code"]
+    "words": ["git", "ls", "grep", "rg", "find", "claude-code", "wc", "head", "tail"]
   },
   "read_only_plain_commands": {
     "purpose": "commands the read-only check allows whatever their arguments",
