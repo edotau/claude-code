@@ -136,6 +136,9 @@ func reserveBrief(dir, prefix string) (string, error) {
 	}
 }
 
+// briefMaxAge is how old a brief file gets before the sweep removes it.
+const briefMaxAge = 7 * 24 * time.Hour
+
 func pruneBriefs(dir string, now time.Time) error {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
@@ -152,7 +155,7 @@ func pruneBriefs(dir string, now time.Time) error {
 		if err != nil {
 			return fmt.Errorf("stat brief: %w", err)
 		}
-		if !info.ModTime().Before(now.Add(-7 * 24 * time.Hour)) {
+		if !info.ModTime().Before(now.Add(-briefMaxAge)) {
 			continue
 		}
 		if err := os.Remove(filepath.Join(dir, entry.Name())); err != nil && !os.IsNotExist(err) {

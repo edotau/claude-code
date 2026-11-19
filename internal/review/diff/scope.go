@@ -27,11 +27,11 @@ import (
 // scopeBytesPerLine is the size estimate per changed line for the --range listing.
 const scopeBytesPerLine = 80
 
-// Size caps from rules/standards/quality.md: lines per file (test files get the larger one) and imports per Go file.
+// Size caps come from source: lines per file (test files get the larger one) and imports per Go file.
 const (
-	capLines     = 1200
-	capTestLines = 1500
-	capImports   = 25
+	capLines     = source.CapFileLines
+	capTestLines = source.CapTestFileLines
+	capImports   = source.CapImports
 )
 
 // scopeExts are the source extensions the --paths listing keeps.

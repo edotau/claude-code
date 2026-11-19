@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"maps"
 	"math/rand/v2"
+	"slices"
 	"strings"
 	"testing"
 
@@ -57,5 +58,17 @@ func TestCounterTally(t *testing.T) {
 	}
 	if c.Tally.Kinds["vault"] != 2 || c.Tally.Kinds["prefix:AKIA"] != 1 || c.Tally.Masks[13] != 1 {
 		t.Errorf("kinds %v masks %v", c.Tally.Kinds, c.Tally.Masks)
+	}
+}
+
+func TestShapeFamiliesFromCredentialTable(t *testing.T) {
+	want := []string{"github_pat_", "nvapi-", "tskey-", "tvly-", "AIza", "AKIA", "ASIA", "dapi", "gsk_", "xox", "sk-", "gh"}
+	for _, p := range want {
+		if !slices.Contains(shapeFamilies, p) {
+			t.Errorf("shapeFamilies lacks %q", p)
+		}
+	}
+	if len(shapeFamilies) != len(want) {
+		t.Errorf("shapeFamilies = %v, want the %d CredentialRE families", shapeFamilies, len(want))
 	}
 }

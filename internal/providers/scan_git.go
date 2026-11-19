@@ -78,7 +78,7 @@ func knownSecretShape(val string) bool {
 var secretPattern = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(
 		`(` + textutil.GitHubPattern(20) + `|` +
-			`xox[baprs]-[A-Za-z0-9-]{10,}|AKIA[0-9A-Z]{16}|sk-[A-Za-z0-9_-]{20,}|` +
+			textutil.SlackPattern + `|` + textutil.AWSKeyPattern + `|` + textutil.OpenAIKeyPattern + `|` +
 			`eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,})`)
 })
 

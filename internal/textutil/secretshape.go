@@ -26,24 +26,51 @@ var pemPrivateKey = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----(?:.*?-----END [A-Z ]*PRIVATE KEY-----|(?:[A-Za-z0-9+/=\s]|\\[nrt])*)`)
 })
 
+// Shared pattern bodies: CredentialRE adds \b, the git-history scanner reuses them bare.
+const (
+	SlackPattern     = `xox[abprs]-[A-Za-z0-9-]{10,}`
+	OpenAIKeyPattern = `sk-[A-Za-z0-9_-]{20,}`
+	AWSKeyPattern    = `(?:AKIA|ASIA)[0-9A-Z]{16}`
+)
+
+// credentialShapes is the one credential table: the prefix families each pattern starts with, and the pattern.
+var credentialShapes = []struct {
+	families []string
+	pattern  string
+}{
+	{[]string{"sk-"}, `\b` + OpenAIKeyPattern},                             // OpenAI/Anthropic, incl. sk-proj-/sk-ant- segments
+	{[]string{"dapi"}, `\bdapi[0-9a-f]{32}`},                               // Databricks PAT
+	{nil, `\beyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}`},                   // JWT (header.payload)
+	{[]string{"nvapi-"}, `\bnvapi-[A-Za-z0-9_-]{24,}`},                     // NVIDIA
+	{[]string{"gh"}, `\bgh[pousr]_[A-Za-z0-9]{28,}`},                       // GitHub
+	{[]string{"github_pat_"}, `\bgithub_pat_[A-Za-z0-9_]{22,}`},            // GitHub fine-grained PAT
+	{[]string{"AIza"}, `\bAIza[0-9A-Za-z_-]{35}`},                          // Google API key
+	{[]string{"tvly-"}, `\btvly-[A-Za-z0-9_-]{16,}`},                       // Tavily
+	{[]string{"gsk_"}, `\bgsk_[A-Za-z0-9]{24,}`},                           // Groq
+	{[]string{"AKIA", "ASIA"}, `\b` + AWSKeyPattern + `\b`},                // AWS access key id (long-term, STS)
+	{[]string{"xox"}, `\b` + SlackPattern},                                 // Slack
+	{[]string{"tskey-"}, `\btskey-(?:auth|client|api)-[A-Za-z0-9_-]{16,}`}, // Tailscale
+	{nil, `-----BEGIN [A-Z ]*PRIVATE KEY`},                                 // private keys, never certificates
+}
+
 // CredentialRE is the credential shape the memory commit gate and config history refuse; \b keeps sk- off kebab prose.
 var CredentialRE = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(strings.Join([]string{
-		`\bsk-[A-Za-z0-9_-]{20,}`,                        // OpenAI/Anthropic, incl. sk-proj-/sk-ant- segments
-		`\bdapi[0-9a-f]{32}`,                             // Databricks PAT
-		`\beyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}`,    // JWT (header.payload)
-		`\bnvapi-[A-Za-z0-9_-]{24,}`,                     // NVIDIA
-		`\bgh[pousr]_[A-Za-z0-9]{28,}`,                   // GitHub
-		`\bgithub_pat_[A-Za-z0-9_]{22,}`,                 // GitHub fine-grained PAT
-		`\bAIza[0-9A-Za-z_-]{35}`,                        // Google API key
-		`\btvly-[A-Za-z0-9_-]{16,}`,                      // Tavily
-		`\bgsk_[A-Za-z0-9]{24,}`,                         // Groq
-		`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`,                  // AWS access key id (long-term, STS)
-		`\bxox[abprs]-[A-Za-z0-9-]{10,}`,                 // Slack
-		`\btskey-(?:auth|client|api)-[A-Za-z0-9_-]{16,}`, // Tailscale
-		`-----BEGIN [A-Z ]*PRIVATE KEY`,                  // private keys only, never certificates or public keys
-	}, "|"))
+	pats := make([]string, len(credentialShapes))
+	for i, c := range credentialShapes {
+		pats[i] = c.pattern
+	}
+	return regexp.MustCompile(strings.Join(pats, "|"))
 })
+
+// CredentialFamilies are the CredentialRE prefix families, longest first so github_pat_ beats gh.
+func CredentialFamilies() []string {
+	var out []string
+	for _, c := range credentialShapes {
+		out = append(out, c.families...)
+	}
+	slices.SortStableFunc(out, func(a, b string) int { return len(b) - len(a) })
+	return out
+}
 
 // LooksSecret reports a credential-shaped value
 func LooksSecret(val string) bool {

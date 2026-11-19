@@ -286,7 +286,7 @@ func fastTask(text string) string {
 }
 
 // AutoModel is the model value that has the resolver pick per task: typed, in an overlay, <row>:auto or a record pin.
-const AutoModel = "auto"
+const AutoModel = router.AutoArm
 
 // SplitAuto reports whether model asks for auto ("auto" or "<prefix>:auto"); prefix is "" for the bare form.
 func SplitAuto(model string) (prefix string, ok bool) {

@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strings"
 	"sync"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 const CountWindow = 1 << 20
@@ -75,7 +77,7 @@ func (m *Matcher) note(log *[]hit, span []byte, matched bool) {
 }
 
 // shapeFamilies are the credential prefixes SecretSpans recognises, longest first so github_pat_ beats gh.
-var shapeFamilies = []string{"github_pat_", "nvapi-", "tskey-", "tvly-", "AIza", "AKIA", "ASIA", "dapi", "gsk_", "xox", "sk-", "gh"}
+var shapeFamilies = textutil.CredentialFamilies()
 
 // shapeKind names the shape that produced span in text: pem, jwt, bearer, or prefix:<family>.
 func shapeKind(text string, span [2]int) string {

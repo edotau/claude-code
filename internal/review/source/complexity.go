@@ -17,6 +17,15 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
+// Size caps from rules/standards/quality.md, shared with the diff scope gate.
+const (
+	CapFileLines     = 1200
+	CapTestFileLines = 1500
+	CapFunctionLines = 50
+	CapImports       = 25
+	CapNesting       = 4
+)
+
 // ComplexityThresholds mirrors complexity_checker.THRESHOLDS.
 type ComplexityThresholds struct {
 	MaxCyclomatic         int
@@ -29,8 +38,8 @@ type ComplexityThresholds struct {
 
 var complexityThresholds = map[string]ComplexityThresholds{
 	"strict":  {8, 3, 40, 12, 2.0, 400},
-	"medium":  {10, 4, 50, 25, 3.0, 1200},
-	"relaxed": {15, 5, 80, 30, 5.0, 1500},
+	"medium":  {10, CapNesting, CapFunctionLines, CapImports, 3.0, CapFileLines},
+	"relaxed": {15, 5, 80, 30, 5.0, CapTestFileLines},
 }
 
 // Finding is one complexity_checker finding; Line is 0 (omitted) for file-level findings.
@@ -149,7 +158,7 @@ func analyzeFileComplexity(path string, th ComplexityThresholds) (*FileResult, e
 // testFileLines is the file-length cap of a Go test file (rules/standards/quality.md); 0 for any other path.
 func testFileLines(path string) int {
 	if strings.HasSuffix(path, "_test.go") {
-		return 1500
+		return CapTestFileLines
 	}
 	return 0
 }

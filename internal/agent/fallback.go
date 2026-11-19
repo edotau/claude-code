@@ -637,6 +637,9 @@ func accountRefused(disp Dispatch, model string) *retry.Error {
 // rateLimitHold is how long a plain 429 on a subscription account (no parsed reset) keeps it out of the picks.
 const rateLimitHold = 10 * time.Minute
 
+// stallHold is how long a stalled dispatch (no output within its window) keeps its account out of the picks.
+const stallHold = 15 * time.Minute
+
 // noteQuota holds a KindQuota failure until its reset (a subscription KindRateLimit: 10m); per-model: that model only.
 func noteQuota(disp Dispatch, model string, err error) {
 	if rotationRateLimit(disp, model, err) {
@@ -729,7 +732,7 @@ func noteStall(disp Dispatch, err error) {
 		limit, _, _ = strings.Cut(rest, " (")
 	}
 	reason := fmt.Sprintf("dispatch stalled (no output in %s)", limit)
-	warnHold(disp.Account, markExhausted(disp.Account, now.Add(15*time.Minute), now, reason))
+	warnHold(disp.Account, markExhausted(disp.Account, now.Add(stallHold), now, reason))
 }
 
 // condemnAuth tags a KindAuth whose Recover failed, or any error that itself condemns (an initial invalid_grant).

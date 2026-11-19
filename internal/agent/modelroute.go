@@ -85,7 +85,7 @@ func (q ModelQuery) menuIn() []providers.OpencodeModel {
 var ErrModelRoute = errors.New("model route")
 
 // poolName is the provider prefix and overlay profile that mean "the shared Databricks pool".
-const poolName = "auto"
+const poolName = AutoModel
 
 // codexSwap is the record-model swap codex applies; internal/codex sets it through SetCodexSwap.
 var codexSwap = func(p *providers.Provider, wire string) string { return wire }

@@ -565,7 +565,7 @@ func aliasTarget(sel providers.Selection, model string) (providers.Target, bool)
 		return providers.Target{}, false
 	}
 	t, ok := sel.Aliases[models.AliasOf(canonical)]
-	if ok && t.Model == "auto" { // a router alias names no model: the typed id stays exact
+	if ok && t.Model == AutoModel { // a router alias names no model: the typed id stays exact
 		return providers.Target{}, false
 	}
 	if ok && oneM {
