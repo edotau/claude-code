@@ -17,7 +17,8 @@
    a column-zero trailer; quoted or prose lines never do); a named task ticks once the commit is on main (a lane
    commit when it lands), even if it left some `owns:` files out. Main is the primary checkout on the trunk: origin/HEAD
    when it names an existing local branch, else `init.defaultBranch`, `main`, `master`; none exists, nothing ticks.
-   Coverage alone ticks only a trailerless commit's one task no other shares, else prints one candidate. Manual
+   Only the main session's `worktree commit --task`, after it verifies a hand-back, ticks (leaves hand back
+   uncommitted); coverage never ticks, it prints one candidate. Manual
    `plan task <id> --done --sha <sha> --plan <file>` needs no trailer.
    A file another live session or leaf has
    uncommitted edits in asks first (`worktree-claim-check` blocks a leaf under `~/.claude`, asks elsewhere).

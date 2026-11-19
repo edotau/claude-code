@@ -238,6 +238,7 @@ live check. Loop: `rules/standards/testing-guidelines.md`. A leaf that fails one
 Treat every report as a claim, verified by a review leaf (diff, deleted blocks via callers and `git log -S`, edits
 outside the leaf's files, a new test that can fail); the manager reads its verdict, re-runs the scoped check and
 rebuilds before trusting a binary ([Wave loop](#wave-loop)).
+Leaves hand back uncommitted unless the brief says to commit; main verifies, then `worktree commit --task` ticks.
 
 - Parallel leaves that built both sides of a seam (flag/argv builder ↔ consumer, JSON shape ↔ reader, hook key ↔
   brief writer): read both together; `rtk go build ./...` misses a broken consumer.
@@ -302,7 +303,8 @@ files only.
   (`worktree commit --task <id>`; repeat for multiple ids).
   Use `--plan <file>` when ids collide. The trailer `Task: <plan-slug> <id>` survives rebase and cherry-pick;
   a named task ticks once its commit is on main, however many `owns:` files it covers; name it on its last commit.
-  Coverage alone prints one candidate without changing plans; `plan task <id> --done --sha <sha> --plan <file>`
+  Only main ticks, after verifying a hand-back; leaves hand back uncommitted unless the brief says to commit.
+  Coverage never ticks, it prints one candidate; `plan task <id> --done --sha <sha> --plan <file>`
   is the manual route.
 - **Error**: a leaf fails `Verify:` twice (second time with failure output and a changed brief); the others land, the
   report names the gap, nothing is silently redone in-context.

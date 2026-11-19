@@ -97,7 +97,7 @@ A phase is a group of tasks, not a unit of work: each `### Phase` section lists 
 (`skills/subagent-workflows/SKILL.md` -> Leaf types). A commit names its task with `worktree commit --task <id>`
 (repeatable; `--plan <file>` selects a plan; quote an id with spaces). A commit that names a task ticks it once it is
 on main, even when it touches only some `owns:` files (the note lists the rest; name a task only on its last commit);
-coverage alone prints one candidate and changes nothing (`docs-plan-tick`). Start with a repo path; later entries may
+coverage never ticks, it prints one candidate (`docs-plan-tick`). Start with a repo path; later entries may
 abbreviate against the previous one: a bare name sits in its directory, `<dir>/<file>` drops the shared leading
 part (`internal/configure/a.go, b.go, ui/c.go`). E.g.:
 `- [ ] Phase 2.1 — Add --attach — leaf: opencode, Agent: opencode — owns: internal/agent/cli.go`

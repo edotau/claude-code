@@ -116,8 +116,8 @@ Every phase is:
   choice, `NEXT:` deferred work, `BUG:` a defect found while reading, `NOTE:` a fact to keep.
 - **Explicit on dependencies** — parallel-safe phases are marked; disjoint packages run in parallel.
 - **Leaf-sized tasks** — see the template's `## Tasks` leaf-size definition.
-- **Tickable** — every task line carries `owns:` paths (a repo path first; later ones may abbreviate against it): a
-  commit touching all of them ticks it (`docs-plan-tick`).
+- **Tickable** — every task line carries `owns:` paths (a repo path first; later ones may abbreviate against it): the
+  main session's `worktree commit --task` ticks it after verifying (`docs-plan-tick`).
 - **Wave-readable** — `Phase W.k` = wave W package k, `W.V` the manual verifier; `verify:` and `findings: <path>#<key>`
   go before `owns:`; the first `bash` fence under `## Phases` is the wave gate, free of git write verbs;
   `claude-code agents dispatch --waves <plan>` runs it (template `## Tasks`).
