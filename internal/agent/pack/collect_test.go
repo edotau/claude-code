@@ -318,6 +318,16 @@ func TestCollectBoundedRead(t *testing.T) {
 	}
 }
 
+// The stat size is only a hint: a size-0 (e.g. /proc) or grown file still reads up to the cap plus one.
+func TestReadCappedIgnoresStatSize(t *testing.T) {
+	for _, size := range []int64{0, 3, 1 << 20} {
+		got, err := readCapped(strings.NewReader(strings.Repeat("x", 100)), size, 10)
+		if err != nil || len(got) != 11 {
+			t.Errorf("size %d: len = %d, err %v; want 11", size, len(got), err)
+		}
+	}
+}
+
 // Many files over testBudget are capped at the byte budget (not the file cap); overflow is "budget-exceeded".
 func TestCollectByteBudget(t *testing.T) {
 	dir := t.TempDir()

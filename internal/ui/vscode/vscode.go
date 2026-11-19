@@ -85,7 +85,7 @@ func merge(dest string, overlay map[string]any, check bool) (mergeResult, error)
 	if err != nil {
 		return mergeResult{}, err
 	}
-	merged := theme.DeepMerge(base, overlay)
+	merged := theme.DeepMerge(base, keepUserWrapper(base, overlay))
 	if reflect.DeepEqual(base, merged) {
 		return mergeResult{}, nil
 	}
@@ -98,6 +98,19 @@ func merge(dest string, overlay map[string]any, check bool) (mergeResult, error)
 	}
 	body = append(body, '\n')
 	return writeGuarded(dest, "settings", rawBase, body)
+}
+
+const wrapperKey = "claudeCode.claudeProcessWrapper"
+
+// keepUserWrapper returns overlay without the process wrapper when base sets a different one (the user's own).
+func keepUserWrapper(base, overlay map[string]any) map[string]any {
+	cur, _ := base[wrapperKey].(string)
+	if cur == "" || cur == overlay[wrapperKey] {
+		return overlay
+	}
+	out := maps.Clone(overlay)
+	delete(out, wrapperKey)
+	return out
 }
 
 // goPinKey pins the Go extension's go binary; the template's ~/.local/go exists only where make installed it.

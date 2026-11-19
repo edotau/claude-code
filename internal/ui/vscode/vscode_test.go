@@ -548,3 +548,26 @@ func TestSyncPinsGoOnlyWhenPresent(t *testing.T) {
 }
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+
+func TestSyncKeepsCustomProcessWrapper(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	dir := t.TempDir()
+	dest := filepath.Join(dir, "settings.json")
+	if err := os.WriteFile(dest, []byte(`{"`+wrapperKey+`": "/opt/mine/claude"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := syncSettings("", dest, dir, filepath.Join(dir, "bin"), false); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var settings map[string]any
+	if err := json.Unmarshal(body, &settings); err != nil {
+		t.Fatal(err)
+	}
+	if got := settings[wrapperKey]; got != "/opt/mine/claude" {
+		t.Errorf("custom claudeProcessWrapper = %v, want kept", got)
+	}
+}

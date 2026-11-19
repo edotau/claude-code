@@ -128,12 +128,13 @@ func dispatch(name string, args []string) int {
 	if msg := checkArgs(name, pos, o); msg != "" {
 		return helptext.FailUsage("worktree %s: %s", name, msg)
 	}
+	label := "worktree " + scmVerbs[name].path
 	h, err := scm.Open(ctx)
 	if err != nil {
-		return helptext.Fail("worktree %s: %v", name, err)
+		return helptext.Fail("%s: %v", label, err)
 	}
 	if err := runVerb(ctx, h, name, pos, o); err != nil {
-		return helptext.Fail("worktree %s: %v", name, err)
+		return helptext.Fail("%s: %v", label, err)
 	}
 	return 0
 }

@@ -280,9 +280,16 @@ func Run(argv []string) int {
 	if _, ok := reg.Providers[name]; ok {
 		return cmdClaude(append([]string{"--profile", name}, args...))
 	}
+	if home, ok := retiredVerbs[name]; ok {
+		fmt.Fprintf(os.Stderr, "claude-code: %q is retired; use `claude-code %s`\n", name, home)
+		return 2
+	}
 	fmt.Fprintf(os.Stderr, "claude-code: unknown command %q (see `claude-code help`)\n", name)
 	return 2
 }
+
+// retiredVerbs maps a removed verb to its new home for the unknown-command message.
+var retiredVerbs = map[string]string{"scm": "worktree -h", "history": "configure --history"}
 
 // runRouted handles --host (verb over ssh on a tailnet host) and --remote (egress via an ssh host).
 func runRouted(argv []string, name string) (code int, ok bool) {
