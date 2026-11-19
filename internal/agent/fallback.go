@@ -631,6 +631,9 @@ const rateLimitHold = 10 * time.Minute
 
 // noteQuota holds a KindQuota failure until its reset (a subscription KindRateLimit: 10m); per-model: that model only.
 func noteQuota(disp Dispatch, model string, err error) {
+	if rotationRateLimit(disp, model, err) {
+		return
+	}
 	e, ok := holdable(disp, err)
 	if !ok {
 		return
@@ -656,6 +659,26 @@ func markModelDead(account, model string, until, now time.Time) error {
 		err = errors.New("route state lock busy")
 	}
 	return err
+}
+
+// rotationRateLimit holds a discovery pin's pool model on its 429 for rateLimitHold, leaving the account usable.
+func rotationRateLimit(disp Dispatch, model string, err error) bool {
+	var e *retry.Error
+	if !errors.As(err, &e) || e.Kind != retry.KindRateLimit || model == "" || disp.Agent == nil || disp.Account == "" ||
+		agentModelPinContext(context.Background(), disp.Agent.Name()) != router.DiscoveryModel {
+		return false
+	}
+	_, row, _ := strings.Cut(disp.Account, "·")
+	if !router.IsPoolModel(disp.Agent.Name(), loadRegistryWarn().Row(row), model) {
+		return false
+	}
+	now := time.Now()
+	until := now.Add(rateLimitHold)
+	if t, ok := router.ParseReset(err.Error(), now); ok {
+		until = t
+	}
+	warnHold(disp.Account, markModelDead(disp.Account, model, until, now))
+	return true
 }
 
 // warnHold reports a failed route-state write; the run's own error still reports the failure, so it never aborts.
