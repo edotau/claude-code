@@ -34,6 +34,9 @@ func Doctor(ctx context.Context) (ok bool, detail string) {
 	case st.ExitNodeOption:
 		exit = "exit-node advertised, not approved"
 	}
+	if st.Via == "cli" {
+		exit += " (cli fallback)"
+	}
 	return credOK, fmt.Sprintf("%s, node %s, %s%s", st.BackendState, st.DNSName, exit, note)
 }
 

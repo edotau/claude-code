@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"os/exec"
 	"runtime"
@@ -69,6 +70,7 @@ type Local struct {
 	// SubnetRoutes are the approved subnet routes in Self.AllowedIPs (own addresses and defaults excluded).
 	SubnetRoutes []string
 	Peers        []peer
+	Via          string `json:"-"` // "localapi" or "cli": which path answered
 }
 
 // rawStatus mirrors the subset of `tailscale status --json` this package reads.
@@ -135,9 +137,20 @@ func set(ctx context.Context, flags ...string) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, defaultExecTimeout)
 	defer cancel()
-	cmd := execCommandContext(ctx, bin, append([]string{"set"}, flags...)...)
+	cmd := execCommandContext(ctx, bin, cliArgs(append([]string{"set"}, flags...)...)...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return execErr(ctx, "set", cmd.Run())
+}
+
+// cliArgs adds --socket when only the harness's rootless tailscaled (install --tools) is listening.
+func cliArgs(args ...string) []string {
+	if _, err := os.Stat("/var/run/tailscale/tailscaled.sock"); err == nil {
+		return args
+	}
+	if _, err := os.Stat(harnessSocket()); err != nil {
+		return args
+	}
+	return append([]string{"--socket=" + harnessSocket()}, args...)
 }
 
 // execErr wraps a failed CLI run with its verb, a timeout note and the CLI's captured stderr; nil stays nil.
@@ -168,23 +181,44 @@ func tailscaleBin() (string, error) {
 	return "", errNoCLI
 }
 
-// Status parses `tailscale status --json`: errNoCLI without the CLI; errNotRunning (Local still set) when stopped.
+// Status reads tailscaled over the LocalAPI, else `tailscale status --json`; errNotRunning keeps Local set.
 func Status(ctx context.Context) (Local, error) {
-	bin, err := tailscaleBin()
+	out, err := localAPI(ctx, http.MethodGet, "status", nil)
+	via := "localapi"
+	if err != nil {
+		cliOut, cliErr := statusCLI(ctx)
+		if cliErr == nil || errors.Is(err, errNoLocalAPI) || !errors.Is(cliErr, errNoCLI) {
+			out, err, via = cliOut, cliErr, "cli"
+		}
+	}
 	if err != nil {
 		return Local{}, err
 	}
+	return parseStatus(out, via)
+}
+
+// statusCLI is `tailscale status --json`'s raw output; errNoCLI without the CLI.
+func statusCLI(ctx context.Context) ([]byte, error) {
+	bin, err := tailscaleBin()
+	if err != nil {
+		return nil, err
+	}
 	ctx, cancel := context.WithTimeout(ctx, defaultExecTimeout)
 	defer cancel()
-	cmd := execCommandContext(ctx, bin, "status", "--json")
+	cmd := execCommandContext(ctx, bin, cliArgs("status", "--json")...)
 	cmd.WaitDelay = proc.ExecWaitDelay // a wrapper's child holding the pipes must not outlive the timeout
 	out, err := proc.OutputCapped(cmd)
 	if err != nil {
-		return Local{}, execErr(ctx, "status --json", err)
+		return nil, execErr(ctx, "status --json", err)
 	}
+	return out, nil
+}
+
+// parseStatus decodes status JSON from either path; errNotRunning (Local still set) when stopped.
+func parseStatus(out []byte, via string) (Local, error) {
 	var raw rawStatus
 	if err := json.Unmarshal(out, &raw); err != nil {
-		return Local{}, fmt.Errorf("tailscale status --json: %w", err)
+		return Local{}, fmt.Errorf("tailscale status: %w", err)
 	}
 	local := Local{
 		ID:               raw.Self.ID,
@@ -194,6 +228,7 @@ func Status(ctx context.Context) (Local, error) {
 		ExitNodeOption:   raw.Self.ExitNodeOption,
 		ExitNodeApproved: hasDefaultRoutes(raw.Self.AllowedIPs),
 		SubnetRoutes:     subnetRoutesOf(raw.Self),
+		Via:              via,
 	}
 	for _, p := range raw.Peer {
 		local.Peers = append(local.Peers, peer{
@@ -228,7 +263,7 @@ func connect(ctx context.Context, authKey string, exitNode bool) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, connectTimeout)
 	defer cancel()
-	cmd := execCommandContext(ctx, bin, args...)
+	cmd := execCommandContext(ctx, bin, cliArgs(args...)...)
 	cmd.Stdout, cmd.Stderr = os.Stdout, os.Stderr
 	return execErr(ctx, "up", cmd.Run())
 }
@@ -244,7 +279,7 @@ func Login(ctx context.Context, in io.Reader, out, errOut io.Writer) error {
 	}
 	ctx, cancel := context.WithTimeout(ctx, loginTimeout)
 	defer cancel()
-	cmd := execCommandContext(ctx, bin, "login")
+	cmd := execCommandContext(ctx, bin, cliArgs("login")...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = in, out, errOut
 	if err := execErr(ctx, "login", cmd.Run()); err != nil {
 		return err
