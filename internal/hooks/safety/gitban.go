@@ -96,8 +96,8 @@ func bannedVerb(cmd, cwd string) string {
 	return hit
 }
 
-// helpOnly reports a verb whose single argument asks for its usage text, which writes nothing.
-func helpOnly(args []string) bool { return len(args) == 1 && (args[0] == "--help" || args[0] == "-h") }
+// helpOnly reports a verb asked only for its short usage; --help is excluded because it can run a configured viewer.
+func helpOnly(args []string) bool { return len(args) == 1 && args[0] == "-h" }
 
 // mktempCd: a cd/pushd's target word, a shell assignment, and a target that is a fresh `$(mktemp …)` dir or a var.
 var mktempCd = []*core.Gated{
