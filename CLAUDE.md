@@ -77,7 +77,8 @@ Claude Code reads these source files directly; external CLI projections refresh 
    detail when asked; never trade correctness for brevity.
 
 6. **Write each call in its final form** so hooks rewrite nothing (a rewrite stalls auto mode): Bash starts `rtk` for
-   git/go/ls/grep/rg/find/make/docker… (`cat f` → `rtk read f`); Agent `description` is `<model>: lower-case task`.
+   git/go/ls/grep/rg/find/make/docker… (`cat f` → `rtk read f`; the form `rtk rewrite '<cmd>'` prints; exact output
+   and program code stay bare: `rules/standards/rtk.md`); Agent `description` is `<model>: lower-case task`.
 
 Simplicity, comments, verification order and testing: `rules/standards/` (always loaded).
 
