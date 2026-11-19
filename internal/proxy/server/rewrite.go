@@ -234,6 +234,27 @@ func copyRequestHeaders(dst, src http.Header) {
 	}
 }
 
+// dropDatabricksBetas removes the anthropic-beta values Databricks' Anthropic endpoint rejects with a 400.
+func dropDatabricksBetas(p *providers.Provider, h http.Header) {
+	vals := h.Values("Anthropic-Beta")
+	if p.Preset != providers.PresetDatabricks || len(vals) == 0 {
+		return
+	}
+	var kept []string
+	for _, v := range vals {
+		for _, b := range textutil.SplitCSV(v) {
+			if b != "advanced-tool-use-2025-11-20" {
+				kept = append(kept, b)
+			}
+		}
+	}
+	if len(kept) == 0 {
+		h.Del("Anthropic-Beta")
+		return
+	}
+	h.Set("Anthropic-Beta", strings.Join(kept, ","))
+}
+
 var hopHeaders = map[string]bool{
 	"Connection": true, "Proxy-Connection": true, "Keep-Alive": true,
 	"Proxy-Authenticate": true, "Proxy-Authorization": true,

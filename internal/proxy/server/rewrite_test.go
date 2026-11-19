@@ -138,6 +138,20 @@ func checkUpstreamUserAgent(t *testing.T, ua []string, agent string) {
 	}
 }
 
+func TestDropDatabricksBetas(t *testing.T) {
+	for _, c := range []struct{ in, want string }{
+		{"advanced-tool-use-2025-11-20", ""},
+		{"context-1m-2025-08-07,advanced-tool-use-2025-11-20", "context-1m-2025-08-07"},
+		{"context-1m-2025-08-07", "context-1m-2025-08-07"},
+	} {
+		h := http.Header{"Anthropic-Beta": {c.in}}
+		dropDatabricksBetas(&providers.Provider{Preset: providers.PresetDatabricks}, h)
+		if got := h.Get("Anthropic-Beta"); got != c.want {
+			t.Errorf("%q -> %q, want %q", c.in, got, c.want)
+		}
+	}
+}
+
 func TestWithModelRejectsNonObject(t *testing.T) {
 	for _, body := range []string{"null", "[]", "3"} {
 		if _, err := withModel([]byte(body), "m"); err == nil {

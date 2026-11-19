@@ -513,6 +513,7 @@ func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body prox
 	}
 	headers := func(h http.Header) {
 		copyRequestHeaders(h, in.Header)
+		dropDatabricksBetas(p, h)
 		if p.Auth.Method() == providers.AuthCLI {
 			r.passthroughAuth(h, in, route)
 		}
