@@ -695,12 +695,10 @@ func OpenPlans(repoRoot string, limit int) []OpenPlan {
 	home := Home(repoRoot)
 	entries, _ := os.ReadDir(home) // no plans home is no plans
 	cutoff := now().AddDate(0, 0, -recentDays).Format(time.DateOnly)
+	entries = slices.DeleteFunc(entries, func(e os.DirEntry) bool { return len(e.Name()) < 10 || e.Name()[:10] < cutoff })
 	var out []OpenPlan
 	for _, d := range slices.Backward(loadDatedPlans(entries, home, nil)) {
 		base := filepath.Base(d.path)
-		if base[:10] < cutoff {
-			continue
-		}
 		s, op := summarize(d.plan), OpenPlan{Slug: strings.TrimSuffix(base, ".md")}
 		op.Ticked, op.Total = s.Ticked, s.Total
 		if i := slices.IndexFunc(d.plan.Tasks, open); i >= 0 {

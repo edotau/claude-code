@@ -741,3 +741,22 @@ func TestResolvePlanOutsideCheckout(t *testing.T) {
 		t.Error("a plan outside the plans home must be refused")
 	}
 }
+
+func BenchmarkOpenPlans(b *testing.B) {
+	dir := b.TempDir()
+	b.Setenv("CLAUDE_CONFIG_DIR", dir)
+	home := Home("")
+	if err := os.MkdirAll(home, 0o755); err != nil {
+		b.Fatal(err)
+	}
+	for i := range 80 {
+		name := now().AddDate(0, 0, -i).Format(time.DateOnly) + "-p.md"
+		if err := os.WriteFile(filepath.Join(home, name), benchPlan(), 0o644); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		OpenPlans("", 50)
+	}
+}
