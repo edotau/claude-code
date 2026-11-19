@@ -258,9 +258,26 @@ func assertConcurrentVersionWrites(t *testing.T) {
 	}
 }
 
+func killPidFileChild(t *testing.T, pidFile string) {
+	t.Helper()
+	b, err := os.ReadFile(pidFile)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return
+	}
+	if p, err := os.FindProcess(pid); err == nil {
+		_ = p.Kill()
+	}
+}
+
 // FirstVersionLine honours the caller's timeout: a hung --version is "" well before versionProbeTimeout.
 func TestFirstVersionLineHonoursTimeout(t *testing.T) {
-	bin, _ := probeFixture(t, "sleep 3\necho 'fake 1.0.0'")
+	pidFile := filepath.Join(t.TempDir(), "child.pid")
+	t.Cleanup(func() { killPidFileChild(t, pidFile) })
+	bin, _ := probeFixture(t, "sleep 3 & echo $! > '"+pidFile+"'\nwait\necho 'fake 1.0.0'")
 	// the script prints after 3s, so a timeout other than the caller's 100ms would yield "fake 1.0.0"
 	if got := FirstVersionLine(t.Context(), bin, 100*time.Millisecond); got != "" {
 		t.Fatalf("hung probe = %q, want \"\"", got)

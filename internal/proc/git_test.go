@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -155,7 +156,9 @@ func TestRunGitDeadlineWithInheritedOutput(t *testing.T) {
 	defer cancel()
 	// The bounded child retains captured stdout after the context kills git.
 	start := time.Now()
-	_, err := RunGit(ctx, dir, "-c", "alias.hold=!sleep 6 & echo ready > ready; wait", "hold")
+	pidFile := dir + "/child.pid"
+	t.Cleanup(func() { killPidFileChild(t, pidFile) })
+	_, err := RunGit(ctx, dir, "-c", "alias.hold=!sleep 6 & echo $! > child.pid; echo ready > ready; wait", "hold")
 	elapsed := time.Since(start)
 	if err == nil {
 		t.Fatal("RunGit succeeded despite the context deadline")
@@ -166,6 +169,21 @@ func TestRunGitDeadlineWithInheritedOutput(t *testing.T) {
 	if elapsed < ExecWaitDelay || elapsed > deadline+ExecWaitDelay+2*time.Second {
 		t.Fatalf("RunGit with inherited stdout returned after %v; want %v–%v (WaitDelay must bound descendant output)",
 			elapsed, ExecWaitDelay, deadline+ExecWaitDelay+2*time.Second)
+	}
+}
+
+func killPidFileChild(t *testing.T, pidFile string) {
+	t.Helper()
+	b, err := os.ReadFile(pidFile)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return
+	}
+	if p, err := os.FindProcess(pid); err == nil {
+		_ = p.Kill()
 	}
 }
 

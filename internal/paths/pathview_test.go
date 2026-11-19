@@ -3,6 +3,8 @@ package paths
 import (
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -286,10 +288,27 @@ func TestDotDotFollowsSymlinksInEveryForm(t *testing.T) {
 	}
 }
 
+func killPidFileChild(t *testing.T, pidFile string) {
+	t.Helper()
+	b, err := os.ReadFile(pidFile)
+	if err != nil {
+		return
+	}
+	pid, err := strconv.Atoi(strings.TrimSpace(string(b)))
+	if err != nil {
+		return
+	}
+	if p, err := os.FindProcess(pid); err == nil {
+		_ = p.Kill()
+	}
+}
+
 func TestLearnDistroSurvivesStdoutHoldingChild(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh script")
 	dir := t.TempDir()
-	script := "#!/bin/sh\nsleep 5 &\nprintf '\\\\\\\\wsl.localhost\\\\Ubuntu\\\\'\n"
+	pidFile := filepath.Join(t.TempDir(), "child.pid")
+	t.Cleanup(func() { killPidFileChild(t, pidFile) })
+	script := "#!/bin/sh\nsleep 5 &\necho $! > '" + pidFile + "'\nprintf '\\\\\\\\wsl.localhost\\\\Ubuntu\\\\'\n"
 	if err := os.WriteFile(filepath.Join(dir, "wslpath"), []byte(script), 0o700); err != nil {
 		t.Skip(err)
 	}

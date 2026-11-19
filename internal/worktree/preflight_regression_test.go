@@ -51,7 +51,7 @@ func TestRunGitCancellationBoundsInheritedPipes(t *testing.T) {
 	t.Cleanup(func() { gitWaitDelay = orig })
 	pidFile := filepath.Join(t.TempDir(), "child.pid")
 	expired := filepath.Join(t.TempDir(), "expired")
-	regressionFakeGit(t, fmt.Sprintf("(/bin/sleep 30; touch %q) &\necho $! > %q\nwait\n", expired, pidFile))
+	regressionFakeGit(t, fmt.Sprintf("(/bin/sleep 30 & echo $! > %q; wait; touch %q) &\nwait\n", pidFile, expired))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	// cancel only once the fake git has recorded its child, so the pid file always exists

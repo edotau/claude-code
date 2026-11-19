@@ -188,7 +188,7 @@ func TestRunHealthKillsHungListOnTimeout(t *testing.T) {
 	defer func() { listTimeout = orig }()
 
 	dir := t.TempDir()
-	claude := fakeBin(t, dir, "claude", "sleep 5")
+	claude := fakeBin(t, dir, "claude", "exec sleep 5")
 
 	done := make(chan healthResult, 1)
 	go func() { done <- runHealth(claude) }()
