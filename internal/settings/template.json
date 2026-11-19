@@ -11,6 +11,12 @@
   "permissions": {
     "allow": [
       "Bash",
+      "Bash(claude-code *)",
+      "Bash(git grep:*)",
+      "Bash(go *)",
+      "Bash(gofmt -l *)",
+      "Bash(make *)",
+      "Bash(rtk *)",
       "Edit",
       "Read",
       "WebFetch(*)",
