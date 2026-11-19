@@ -296,6 +296,9 @@ func (r *askRun) poolValue(value string) string {
 	f.native = ownLoginNative(r.ag, f, value)
 	switch {
 	case value != "" || f.provider != "" || f.host != "" || r.jobRec != nil || f.native:
+	case f.model == auto: // names the arm and its auto workspace, not a profile, so foldAuto sees plain auto
+		f.leadProvider, f.model = "", router.AutoArm
+		return auto
 	case f.leadProvider == router.RouteDatabricks:
 		f.leadProvider = ""
 		return auto
