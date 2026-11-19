@@ -17,19 +17,19 @@ import (
 var tailscalePage = helptext.Page{
 	Usage: "claude-code network tailscale [<mode flag>] [flags]",
 	About: "Bare prints this box's tailnet status; one mode flag (--machines, --connect,\n" +
-		"--key, --exit-node on|off|approve, --subnet <cidr>[,…]|approve|off,\n" +
+		"--token, --exit-node on|off|approve, --subnet <cidr>[,…]|approve|off,\n" +
 		"--route <peer>|off) picks another action.",
 	Hint: "--connect takes --auth-key k|-, --key-env NAME and --advertise-exit.\n" +
-		"--key takes --secret (print) or --save (seal), --expiry, --tags, --reusable,\n" +
-		"--ephemeral, --preauthorized and --description.\n" +
+		"--token takes --secret (print), --save (seal), --expiry, --tags, --reusable,\n" +
+		"--ephemeral, --preauthorized and --description (all need --token).\n" +
 		"Status and --machines take --format text|json.",
 }
 
 // tsFlagMode maps each mode-specific flag to the mode flag that owns it ("" = status or machines).
 var tsFlagMode = map[string]string{
 	"auth-key": "connect", "key-env": "connect", "advertise-exit": "connect",
-	"expiry": "key", "tags": "key", "save": "key", "reusable": "key", "ephemeral": "key",
-	"preauthorized": "key", "description": "key", "secret": "key",
+	"expiry": "token", "tags": "token", "save": "token", "reusable": "token", "ephemeral": "token",
+	"preauthorized": "token", "description": "token", "secret": "token",
 }
 
 // tsFlags are the values of `network tailscale`'s flags.
@@ -46,7 +46,7 @@ func tailscaleFlags() (*flag.FlagSet, *tsFlags) {
 	t := &tsFlags{}
 	fs.BoolVar(&t.machines, "machines", false, "list tailnet machines")
 	fs.BoolVar(&t.connect, "connect", false, "join the tailnet")
-	fs.BoolVar(&t.mint, "key", false, "mint a Tailscale auth key")
+	fs.BoolVar(&t.mint, "token", false, "mint a Tailscale auth key")
 	fs.StringVar(&t.exitNode, "exit-node", "", "on|off|approve: advertise, stop or approve this box as an exit node")
 	fs.StringVar(&t.subnet, "subnet", "", "<cidr>[,…]|approve|off: advertise, approve or withdraw LAN routes")
 	fs.StringVar(&t.route, "route", "", "<peer>|off: send this box's traffic through a peer exit node")
@@ -81,7 +81,7 @@ func tsMode(fs *flag.FlagSet, t *tsFlags) (string, error) {
 	set := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { set[f.Name] = true })
 	var modes []string
-	given := map[string]bool{"machines": t.machines, "connect": t.connect, "key": t.mint,
+	given := map[string]bool{"machines": t.machines, "connect": t.connect, "token": t.mint,
 		"exit-node": set["exit-node"], "subnet": set["subnet"], "route": set["route"]}
 	for name, on := range given {
 		if on {
@@ -138,7 +138,7 @@ func tailscaleMode(ctx context.Context, mode string, t *tsFlags) int {
 		return tailscaleMachines(ctx, *t.format)
 	case "connect":
 		return tailscaleConnect(ctx, t.o)
-	case "key":
+	case "token":
 		return tailscaleKey(ctx, t.o, *t.secret)
 	case "exit-node":
 		return tailscaleExitNode(ctx, t.exitNode)
@@ -252,7 +252,7 @@ func tailscaleConnectKeyless(ctx context.Context, advertise bool) int {
 	st, ok := connected(ctx)
 	if !ok {
 		return helptext.FailUsage("network tailscale connect: not connected; " +
-			"pass --auth-key or run `network tailscale --key --save`")
+			"pass --auth-key or run `network tailscale --token --save`")
 	}
 	fmt.Printf("tailscale: already connected (%s)\n", st.DNSName)
 	if !advertise {
@@ -267,22 +267,19 @@ func tailscaleConnectKeyless(ctx context.Context, advertise bool) int {
 
 // tailscaleKey mints a key; --secret prints it, --save seals it, and with neither nothing is minted to lose.
 func tailscaleKey(ctx context.Context, o tsOpts, secret bool) int {
-	if !secret && !o.save {
-		return helptext.FailUsage("network tailscale key: add --secret to print the key or --save to seal it")
-	}
 	key, err := MintKey(ctx, KeyOptions{Expiry: o.expiry, Tags: o.tags, Description: o.desc,
 		Reusable: o.reusable, Ephemeral: o.ephemeral, Preauthorized: o.preauth})
 	if err != nil {
-		return helptext.Fail("network tailscale key: %v", err)
+		return helptext.Fail("network tailscale token: %v", err)
 	}
 	if o.save {
 		if err := SaveAuthKey(key.Key); err != nil {
-			return helptext.Fail("network tailscale key: --save: %v", err)
+			return helptext.Fail("network tailscale token: --save: %v", err)
 		}
 		fmt.Fprintf(os.Stderr, "saved TAILSCALE_AUTHKEY to the vault (%s)\n", vault.Redact(key.Key))
 	}
 	// the only thing on stdout, so it can be piped
-	return helptext.PrintSecrets("network tailscale key", secret, helptext.Secret{Value: key.Key})
+	return helptext.PrintSecrets("network tailscale token", secret, helptext.Secret{Value: key.Key})
 }
 
 func tailscaleExitNode(ctx context.Context, action string) int {

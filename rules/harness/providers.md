@@ -25,7 +25,7 @@ paths:
   `--secrets` scans transcripts modified within seven days (`--days N` changes the window, `--days 0` covers all
   ages) and prints each store's counts and older-file skips; `--since N` limits git commits only.
 - Secrets: CLAUDE.md hard rule 2; `configure provider --list` shows the source, never the value. Credential verbs
-  (`vault get`, `resolve`, `gateway proxy --client-token`, `network tailscale --key`) print `<redacted: N bytes>`
+  (`vault get`, `resolve`, `gateway proxy --client-token`, `network tailscale --token`) print `<redacted: N bytes>`
   (to a pipe also exit 1) unless `--secret`, which only the main session may run; a leaf gets credentials at launch
   (vault env `@secret`, or a dispatch overlay `set` of `@secret:<NAME>`). Built-in providers are
   `internal/providers/defaults.json`; a vault overlay row replaces one by name.
