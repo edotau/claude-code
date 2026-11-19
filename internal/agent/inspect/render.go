@@ -95,8 +95,11 @@ func renderOutsidePath(w io.Writer, rep DiffReport, p string) {
 }
 
 func renderGates(o DiffOptions, gates []GateResult) {
-	codes, color := map[string]string{"ok": ansi.Green, "FAIL": ansi.Red, "skip": ansi.Dim}, ansi.Enabled(o.Out)
+	codes, color := map[string]string{"FAIL": ansi.Red, "skip": ansi.Dim}, ansi.Enabled(o.Out)
 	for _, g := range gates {
+		if g.Status == "ok" {
+			continue
+		}
 		status := ansi.Style(color, codes[g.Status], g.Status)
 		if g.Status == "skip" {
 			fmt.Fprintf(o.Out, "%s %s (%s)\n", status, g.Name, g.Reason)

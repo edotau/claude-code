@@ -91,6 +91,9 @@ func TestCommitExplicitPaths(t *testing.T) {
 	if err != nil || !strings.Contains(out, "a.txt  +2 −1") || !strings.Contains(out, "] fix: a") || !strings.Contains(out, "left out: 1") {
 		t.Fatalf("out = %q, err = %v", out, err)
 	}
+	if strings.Contains(out, "1 file changed") {
+		t.Errorf("shortstat repeats the per-file counts: %q", out)
+	}
 	if got := commitFiles(t, dir); strings.TrimSpace(got) != "M\ta.txt" {
 		t.Fatalf("commit holds %q, want only a.txt", got)
 	}
@@ -157,7 +160,7 @@ func TestCommitNewUntrackedFile(t *testing.T) {
 	dir := commitRepo(t)
 	hosttest.WriteRel(t, dir, "new.txt", "x\ny\n")
 	out, err := commitRun(commitReq(dir, "feat: new", "new.txt"))
-	if err != nil || !strings.Contains(out, "new.txt  +2 −0") {
+	if err != nil || !strings.Contains(out, "new.txt  +2 −0") || !strings.Contains(out, "create mode 100644 new.txt") {
 		t.Fatalf("out = %q, err = %v", out, err)
 	}
 	if got := strings.TrimSpace(commitFiles(t, dir)); got != "A\tnew.txt" {

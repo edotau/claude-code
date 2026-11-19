@@ -53,6 +53,20 @@ func runDiff(t *testing.T, o DiffOptions) (code int, out, errOut string) {
 	return Diff(o), so.String(), se.String()
 }
 
+func TestDiffGateRowsKeepOnlyFailuresAndSkips(t *testing.T) {
+	var out bytes.Buffer
+	renderDiff(DiffOptions{Out: &out}, DiffReport{Gates: []GateResult{
+		{Name: "gofmt", Status: "ok", Seconds: 0.1},
+		{Name: "build", Status: "FAIL", Seconds: 0.2, Findings: []Finding{{Tool: "go build", Message: "build failed"}}},
+		{Name: "vet", Status: "skip", Reason: "build failed"},
+	}}, false)
+	got := out.String()
+	wantInOutput(t, got, "FAIL build (0.2s)", "go build: build failed", "skip vet (build failed)", "gates 1 ok, 1 FAIL, 1 skip")
+	if strings.Contains(got, "ok gofmt") {
+		t.Errorf("passing gate row repeated the summary: %s", got)
+	}
+}
+
 // squeeze collapses runs of spaces so assertions do not depend on column padding.
 func squeeze(s string) string {
 	lines := strings.Split(s, "\n")

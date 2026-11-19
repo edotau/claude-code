@@ -117,11 +117,27 @@ const expandKey = "expand-shown"
 
 // recallBodyLine is a body hit's line; a native topic whose body opens with its file stem skips the repeated label.
 func recallBodyLine(e Entry) string {
-	flat := textutil.CapRunes(recallFlat(e), recallBodyCapRunes, "…")
+	flat := capRecallPreview(recallFlat(e), recallBodyCapRunes)
 	if e.Type == "topic" && strings.HasPrefix(strings.TrimLeft(e.Body, "#- "), strings.TrimSuffix(e.File, ".md")) {
 		return "- " + flat
 	}
 	return fmt.Sprintf("- [%s] %s", e.File, flat)
+}
+
+func recallPointerLine(e Entry) string {
+	return "- " + capRecallPreview(e.pointer(), recallPointerCapRunes)
+}
+
+func capRecallPreview(s string, limit int) string {
+	r := []rune(s)
+	if len(r) <= limit {
+		return s
+	}
+	end := limit - 1 // reserve one rune for the ellipsis
+	for end > 0 && r[end] != ' ' {
+		end--
+	}
+	return string(r[:end]) + "…"
 }
 
 // recallContext renders the prompt recall and returns only the hits whose line survived the char cap.
@@ -140,7 +156,7 @@ func recallContext(picks []recallPick, expand bool) (string, []SearchHit) {
 		if i < recallBodies {
 			lines[i] = "\n" + recallBodyLine(p.Entry)
 		} else {
-			lines[i] = "\n- " + p.Entry.pointer()
+			lines[i] = "\n" + recallPointerLine(p.Entry)
 		}
 		b.WriteString(lines[i])
 	}
@@ -230,14 +246,15 @@ func capRecallLines(lines []string) (string, int) {
 
 // Recall caps: under 4 distinct terms BM25 ranks noise; the total bounds the per-turn context cost.
 const (
-	recallMinTerms      = 4
-	recallQueryCapRunes = 2000
-	recallBodies        = 2 // entries injected whole; the rest ride as one-line pointers
-	recallPointers      = 3
-	recallK             = 3 // AgentRecall's pointer count
-	recallBodyCapRunes  = 240
-	recallTotalCapChars = 900
-	recallScoreFloor    = 0.5 // keep hits within half of the top score: BM25 is unnormalised
+	recallMinTerms        = 4
+	recallQueryCapRunes   = 2000
+	recallBodies          = 2 // entries injected whole; the rest ride as one-line pointers
+	recallPointers        = 3
+	recallK               = 3 // AgentRecall's pointer count
+	recallBodyCapRunes    = 160
+	recallPointerCapRunes = 100
+	recallTotalCapChars   = 900
+	recallScoreFloor      = 0.5 // keep hits within half of the top score: BM25 is unnormalised
 	// Require several content terms to exclude coincidental overlap.
 	recallMinMatched = 2
 	recallMaxMatched = 3
@@ -679,7 +696,7 @@ func (t *recallTrace) selected(picks []recallPick, expand bool) {
 	context, _ := recallContext(picks, expand)
 	for i, p := range picks {
 		outcome := "over cap"
-		line := "- " + p.Entry.pointer()
+		line := recallPointerLine(p.Entry)
 		if i < recallBodies {
 			line = recallBodyLine(p.Entry)
 		}

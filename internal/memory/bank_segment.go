@@ -823,13 +823,16 @@ func entryFromHit(h SearchHit) Entry {
 	}
 }
 
-// pointer is the one-line reference `memory search <id>` expands: id · date · title.
+// pointer is the one-line reference `memory search <id>` expands.
 func (e Entry) pointer() string {
-	date := e.Date
-	if date == "" {
-		date = "undated"
+	line := e.ID
+	if e.Date != "" && !strings.Contains(e.Title, e.Date) {
+		line += " · " + e.Date
 	}
-	return e.ID + " · " + date + " · " + e.Title
+	if title := strings.Join(strings.Fields(e.Title), " "); title != "" {
+		line += " · " + title
+	}
+	return line
 }
 
 // typeRank orders entry types for recall: decisions and conventions first, session narrative last.

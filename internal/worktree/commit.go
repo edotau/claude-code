@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -93,10 +94,15 @@ func Commit(ctx context.Context, req CommitRequest) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintln(req.Out, res)
+	fmt.Fprintln(req.Out, withoutShortstat(res))
 	tickPlans(ctx, req.Out, tree.top, set)
-	printAhead(ctx, req.Out, tree.top)
 	return nil
+}
+
+var commitShortstat = regexp.MustCompile(`^ [0-9]+ files? changed(?:, [0-9]+ (?:insertions?\(\+\)|deletions?\(-\)))*$`)
+
+func withoutShortstat(out string) string {
+	return strings.Join(slices.DeleteFunc(strings.Split(out, "\n"), commitShortstat.MatchString), "\n")
 }
 
 // tickPlans ticks the plans the new HEAD advances for every agent; a failure never fails the commit.
@@ -550,12 +556,4 @@ func unstage(ctx context.Context, top string, untracked []string, why string) er
 	list := strings.Join(untracked, " ")
 	return errors.Join(fmt.Errorf("index not restored byte for byte (%s); files this run added remain staged: %s; "+
 		"unstage them with: git rm --cached -f -- %s", why, list, list), err)
-}
-
-// printAhead prints how far HEAD is ahead of its upstream; nothing when there is none.
-func printAhead(ctx context.Context, out io.Writer, top string) {
-	if up, err := proc.RunGit(ctx, top, "rev-parse", "--abbrev-ref", "@{upstream}"); err == nil {
-		n, _ := proc.RunGit(ctx, top, "rev-list", "--count", "@{upstream}..HEAD")
-		fmt.Fprintf(out, "%s ahead of %s\n", n, up)
-	}
 }

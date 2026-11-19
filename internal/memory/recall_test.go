@@ -56,14 +56,14 @@ func wantRecallBodies(t *testing.T, got string, lines []string) {
 	}
 }
 
-// wantRecallPointers requires every line to be an expandable `id · date · title` pointer, newest decision first.
+// wantRecallPointers requires expandable pointers with one date, newest decision first.
 func wantRecallPointers(t *testing.T, got string, pointers []string) {
 	t.Helper()
-	pointer := regexp.MustCompile(`^- (\S+) · (\d{4}-\d{2}-\d{2}|undated) · \S`)
+	pointer := regexp.MustCompile(`^- (\S+) · \d{4}-\d{2}-\d{2} — Zebra`)
 	for _, l := range pointers {
 		m := pointer.FindStringSubmatch(l)
 		if m == nil {
-			t.Fatalf("not an `id · date · title` pointer: %q", l)
+			t.Fatalf("not a pointer with one date: %q", l)
 		}
 		if _, _, err := ShowBlock(m[1]); err != nil {
 			t.Errorf("pointer id %s does not expand: %v", m[1], err)
@@ -587,26 +587,11 @@ func TestRecallExpandHeaderOncePerSessionAndNativeLabel(t *testing.T) {
 }
 
 func TestRecallTraceSelectedUsesTheRealHeader(t *testing.T) {
-	picksFor := func(titleLen int) []recallPick {
-		body := strings.Repeat("alpha ", 60)
-		mk := func(id uint64, title string) recallPick {
-			return recallPick{Entry: Entry{ID: fmt.Sprintf("id%d", id), File: "f.md", Type: "convention", Body: body, Title: title},
-				Hit: SearchHit{sum: id}}
-		}
-		return []recallPick{mk(1, "t"), mk(2, "t"), mk(3, strings.Repeat("p", titleLen))}
+	mk := func(id uint64, title string) recallPick {
+		return recallPick{Entry: Entry{ID: fmt.Sprintf("id%d", id), File: strings.Repeat("f", 216) + ".md",
+			Type: "convention", Body: strings.Repeat("alpha ", 60), Title: title}, Hit: SearchHit{sum: id}}
 	}
-	titleLen := -1 // a pointer that fits under the short header but not under the expand header
-	for n := 1; n < 400 && titleLen < 0; n++ {
-		short, _ := recallContext(picksFor(n), false)
-		long, _ := recallContext(picksFor(n), true)
-		if strings.Contains(short, "\n- "+picksFor(n)[2].Entry.pointer()) && !strings.Contains(long, "\n- "+picksFor(n)[2].Entry.pointer()) {
-			titleLen = n
-		}
-	}
-	if titleLen < 0 {
-		t.Fatal("no pointer length separates the two headers")
-	}
-	picks := picksFor(titleLen)
+	picks := []recallPick{mk(1, "t"), mk(2, "t"), mk(3, strings.Repeat("p", 80))}
 	for _, tc := range []struct {
 		expand bool
 		want   string
@@ -616,5 +601,23 @@ func TestRecallTraceSelectedUsesTheRealHeader(t *testing.T) {
 		if got := tr.Rows[0].Outcome; got != tc.want {
 			t.Errorf("expand=%v: outcome %q, want %q", tc.expand, got, tc.want)
 		}
+	}
+}
+
+func TestRecallPreviewCapsAtWordBoundaries(t *testing.T) {
+	const id = "abcd1234"
+	body := strings.Repeat("éclair ", 21)
+	title := strings.Repeat("éclair ", 12)
+	pick := recallPick{Entry: Entry{ID: id, File: "f.md", Body: body + "boundary tail", Title: title + "boundary tail"}}
+	got, hits := recallContext([]recallPick{pick, pick, pick}, true)
+	lines := strings.Split(got, "\n")
+	if len(hits) != 3 || len(lines) != 4 {
+		t.Fatalf("want two bodies and a pointer: %q", got)
+	}
+	if want := "- [f.md] " + id + " · " + strings.TrimSpace(body) + "…"; lines[1] != want {
+		t.Errorf("body = %q, want %q", lines[1], want)
+	}
+	if want := "- " + id + " · " + strings.TrimSpace(title) + "…"; lines[3] != want {
+		t.Errorf("undated pointer = %q, want %q", lines[3], want)
 	}
 }
