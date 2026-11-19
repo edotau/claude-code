@@ -368,28 +368,52 @@ func oneShot(ctx context.Context, query string, maxResults int, search searcher,
 
 // tavilySearch is the default backend; requestTimeout is layered on the caller's ctx, not replacing it.
 func tavilySearch(ctx context.Context, query string, maxResults int) (string, error) {
-	apiKey, err := resolveKey()
+	answer, results, err := fetchResults(ctx, query, maxResults, nil, nil)
 	if err != nil {
 		return "", err
 	}
-	body, _ := json.Marshal(map[string]any{
-		"api_key":      apiKey,
-		"query":        query,
-		"max_results":  maxResults,
-		"search_depth": "basic",
-	})
+	return formatResults(answer, results), nil
+}
+
+// Hit is one search result for a caller outside the MCP server.
+type Hit struct{ Title, URL, Snippet string }
+
+// Search runs one Tavily search, limited to the allowed domains and away from the blocked ones.
+func Search(ctx context.Context, query string, maxResults int, allowed, blocked []string) ([]Hit, error) {
+	_, results, err := fetchResults(ctx, query, maxResults, allowed, blocked)
+	hits := make([]Hit, 0, len(results))
+	for _, r := range results {
+		hits = append(hits, Hit{Title: r.Title, URL: r.URL, Snippet: r.Content})
+	}
+	return hits, err
+}
+
+// fetchResults posts one Tavily search and decodes the answer and results.
+func fetchResults(ctx context.Context, query string, maxResults int, allowed, blocked []string) (string, []tavilyResult, error) {
+	apiKey, err := resolveKey()
+	if err != nil {
+		return "", nil, err
+	}
+	req := map[string]any{"api_key": apiKey, "query": query, "max_results": maxResults, "search_depth": "basic"}
+	if len(allowed) > 0 {
+		req["include_domains"] = allowed
+	}
+	if len(blocked) > 0 {
+		req["exclude_domains"] = blocked
+	}
+	body, _ := json.Marshal(req)
 	raw, err := postTavilySearch(ctx, body)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	var payload struct {
 		Answer  string         `json:"answer"`
 		Results []tavilyResult `json:"results"`
 	}
 	if err := json.Unmarshal(raw, &payload); err != nil {
-		return "", fmt.Errorf("search with Tavily returned non-JSON payload (%v)", err)
+		return "", nil, fmt.Errorf("search with Tavily returned non-JSON payload (%v)", err)
 	}
-	return formatResults(payload.Answer, payload.Results), nil
+	return payload.Answer, payload.Results, nil
 }
 
 // postTavilySearch POSTs body to the search endpoint under requestTimeout and returns the size-capped reply.

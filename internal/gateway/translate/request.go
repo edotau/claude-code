@@ -39,6 +39,10 @@ type inTool struct {
 	Name        string          `json:"name"`
 	Description string          `json:"description"`
 	InputSchema json.RawMessage `json:"input_schema"`
+
+	MaxUses        int      `json:"max_uses"`
+	AllowedDomains []string `json:"allowed_domains"`
+	BlockedDomains []string `json:"blocked_domains"`
 }
 
 type chatRequest struct {
@@ -263,6 +267,10 @@ func chatMessages(in messagesRequest, wireModel string) ([]chatMessage, error) {
 func chatTools(tools []inTool, wireModel string) []chatTool {
 	var out []chatTool
 	for _, t := range tools {
+		if isWebSearch(t) {
+			out = append(out, webSearchFunction())
+			continue
+		}
 		if len(t.InputSchema) == 0 && t.Type != "" && t.Type != "custom" {
 			continue // Anthropic server tools (web_search, …) have no function equivalent
 		}

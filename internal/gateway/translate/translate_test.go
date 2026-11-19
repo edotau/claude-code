@@ -104,12 +104,13 @@ var toChatMessageCases = []toChatCase{
 // toChatToolCases cover tool definitions and tool_choice mapping.
 var toChatToolCases = []toChatCase{
 	{
-		name:  "tools, server tools skipped, tool_choice any",
+		name:  "tools, web_search becomes a function, tool_choice any",
 		model: "m",
 		in: `{"messages":[],"tools":[{"name":"f","description":"d","input_schema":{"type":"object","properties":{"a":{"type":"string"}}}},
 			{"type":"web_search_20250305","name":"web_search"},{"name":"g"}],"tool_choice":{"type":"any","disable_parallel_tool_use":true}}`,
 		want: `{"model":"m","messages":null,"tool_choice":"required","parallel_tool_calls":false,"tools":[
 			{"type":"function","function":{"name":"f","description":"d","parameters":{"type":"object","properties":{"a":{"type":"string"}}}}},
+			{"type":"function","function":{"name":"web_search","description":"Search the web for current information; returns result titles, urls and snippets.","parameters":{"type":"object","properties":{"query":{"type":"string","description":"the search query"}},"required":["query"]}}},
 			{"type":"function","function":{"name":"g","parameters":{"type":"object","properties":{}}}}]}`,
 	},
 	{

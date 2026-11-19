@@ -474,7 +474,7 @@ func (r *Router) try(w *statusWriter, in *http.Request, body proxyBody, t provid
 	count, last bool) (bool, error) {
 	// Databricks serving endpoints have no count_tokens path (400 BAD_REQUEST), so the estimate is answered here.
 	route, ok := providers.AnthropicRoute(t.Provider, t.Model)
-	if ok && (!count || t.Provider.Preset != providers.PresetDatabricks) {
+	if ok && (!count || t.Provider.Preset != providers.PresetDatabricks) && !searchOverChat(t.Provider, body.raw) {
 		return r.tryAnthropic(w, in, body, t, route, clientModel, count, last)
 	}
 	if count {
@@ -559,6 +559,9 @@ func (r *Router) tryOpenAI(w *statusWriter, in *http.Request, body []byte, t pro
 	out, stream, err := translate.ToChatRequest(body, t.Model)
 	if err != nil {
 		return false, err
+	}
+	if ws := translate.WebSearchOf(body); ws != nil {
+		return r.tryWebSearch(w, in, out, ws, t, clientModel, stream, last)
 	}
 	resp, err := r.send(in, p, route+"/chat/completions", out, func(h http.Header) {
 		h.Set("Content-Type", "application/json")
