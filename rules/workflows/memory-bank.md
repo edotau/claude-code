@@ -71,6 +71,12 @@ update`; the rest print none.
   | changed | changed, or never seen | both keep their own; counted as `differ` |
   | same | same, but unequal | standing difference; counted, quiet |
 
+  Logs never take this rule: they merge by block and are sent until the peer holds every local entry. A deletion is
+  not propagated: the next pull copies a locally deleted file back; a file the peer deleted stays gone there until
+  this side edits it. A file edited while an import runs is kept and counted as a conflict. A busy or cut-off peer is
+  retried at the next pass; credential-shaped content and a `.layout` or flag mismatch are held for 24 hours or until
+  the source changes.
+
 ## Promotion ladder
 
 The one copy; each step costs more context. Each step prints the block, target and procedure and the agent edits by
