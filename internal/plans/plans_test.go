@@ -760,3 +760,16 @@ func BenchmarkOpenPlans(b *testing.B) {
 		OpenPlans("", 50)
 	}
 }
+
+func TestDecisionItemIsAnOwnerTask(t *testing.T) {
+	hermetic(t)
+	p := filepath.Join(t.TempDir(), "2026-10-05-d.md")
+	writeFile(t, p, "## Decisions\n\n- [ ] D2 — Pick\n  a) x  b) y\n  Answer: —\n\n## Tasks\n\n- [ ] Phase 1.1 — A — owns: a.go\n")
+	pl, err := Parse(p)
+	if err != nil || len(pl.Tasks) != 2 || pl.Tasks[0].ID != "D2" || !ownerStep(pl.Tasks[0]) || judgeable(pl.Tasks[0]) {
+		t.Fatalf("D2 must parse as an owner item: %+v %v", pl.Tasks, err)
+	}
+	if err := MarkDone(p, "D2", ""); err != nil || !strings.Contains(readFile(t, p), "- [x] D2 — Pick") {
+		t.Fatalf("MarkDone D2: %v", err)
+	}
+}

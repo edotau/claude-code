@@ -457,7 +457,12 @@ func OpenTasks(root string) []OpenTask {
 
 // judgeable is a task a judged job may close: not the owner's, not claimed, not a template process step.
 func judgeable(t Task) bool {
-	return !strings.HasPrefix(t.Title, "**you**") && t.Claim == "" && !isProcessStep(t)
+	return !ownerStep(t) && t.Claim == "" && !isProcessStep(t)
+}
+
+// ownerStep is an item only the owner closes: a "**you**" line or a "D<n> — ..." decision.
+func ownerStep(t Task) bool {
+	return strings.HasPrefix(t.Title, "**you**") || idDecision().MatchString(t.ID)
 }
 
 // Snapshot is every dated plan file in a plans home, by path.
@@ -629,7 +634,7 @@ func (v *verifier) verify(e taskEdit) string {
 	switch {
 	case !open(b):
 		return "the task was already closed"
-	case strings.HasPrefix(b.Title, "**you**"):
+	case ownerStep(b):
 		return "an owner step"
 	case b.Claim != "":
 		return "a claimed task"

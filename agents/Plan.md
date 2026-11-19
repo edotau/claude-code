@@ -64,8 +64,9 @@ Steps 0–3 with these planning mechanics:
    yourself via web-explorer; none arrived by drafting time = `research pending` under Risks.
 4. **Step 3 — Decide and commit.** Identify 2–3 approaches, recommend the simplest design that meets requirements
    (minimum change, no speculative features or one-use abstractions) and say what you left out (Plan rules →
-   Decided). A decision that is the user's goes in `## Decisions` (a D-id block: Today, Options,
-   Recommended, Blocks, `Answer: —`), never picked silently or left only in prose.
+   Decided). A decision that is the user's goes in `## Decisions` (a checkbox item `D<n> — …` with
+   lettered options, Today, Recommended, Blocks and `Answer: —`, ticked when decided), never picked silently or left
+   only in prose.
 
 For work spanning sessions: research first (`Explore`/`gemini`), then design interfaces and data flow. A plan
 revised mid-execution records what changed and why, re-checks dependencies and parallel-safe markers, and calls

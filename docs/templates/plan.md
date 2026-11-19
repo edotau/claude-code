@@ -90,16 +90,14 @@ One message dispatches a whole wave; owned files are disjoint within it; a read-
 
 ## Decisions
 
-Every owner choice in the plan lives here, nowhere else; phases and tasks reference it by ID. Fill `Answer:` in place;
-a decided block stays (history in one place).
+Every owner choice in the plan lives here, nowhere else; phases and tasks cite it by D-id. Each is a checkbox item:
+`- [ ]` open, ticked `- [x]` with `Answer: <pick> — <date>, <who>` when decided (`claude-code plan task D1 --done`);
+the item stays (history in one place), and an open one keeps the plan waiting on the owner.
 
-### D1 — <question>
-
-Today: <what happens now>
-Options: a) <option> — effect, pros, cons, numbers; b) <option> — …
-Recommended: <letter> — <why>
-Blocks: <phases or waves that wait on it>
-Answer: —
+- [ ] D1 — <what the decision is>
+  a) <option: effect, pros, cons, numbers>  b) <option> — …
+  Today: <what happens now> · Recommended: <letter> — <why> · Blocks: <phases or waves that wait on it>
+  Answer: —
 
 ## Tasks
 
@@ -130,13 +128,13 @@ reruns whole and skips packages whose verification already passed. Launch it in 
 `claude-code agents wait <id> --timeout 10m`.
 
 Tick `[x]` with the commit id as each item lands (`- [x] Phase 2.1 — … (abc1234)`); this list is the recovery
-point if a session, agent or worktree is lost. Mark an item **you** when only the user can do it. For a
-multi-lane split, see `skills/subagent-workflows/references/lane-orchestrator.md`.
+point if a session, agent or worktree is lost. Mark an item **you** when only the user can do it (a choice is a
+`## Decisions` item, not a **you** line). For a multi-lane split, see
+`skills/subagent-workflows/references/lane-orchestrator.md`.
 
 - [ ] Phase 0.1 — Capture the baseline — leaf: claude, Agent: in-context — owns: /tmp/<slug>
 - [ ] Phase 1.1 — <name> — leaf: <subagent_type>, Agent: <agent> — owns: <files>
 - [ ] Phase 2.1 — <name> — leaf: <subagent_type>, Agent: <agent> — owns: <files>
-- [ ] **you** — Answer D1-D3 (## Decisions) before Wave 1
 - [ ] Live check on the real surface
 - [ ] Basic tests that the feature works (a couple of seconds to run at most; more cases: proposals)
 - [ ] Review (`claude-code codex review --adversarial --base <branch>`)

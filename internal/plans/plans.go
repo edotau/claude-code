@@ -56,6 +56,7 @@ var (
 	shaParen   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\s*\(([0-9a-f]{7,40})\)\s*$`) })
 	shaDash    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\s+(?:—|--|-)\s+([0-9a-f]{7,40})\s*$`) })
 	idPhase    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)^Phase\s+\d+(?:\.\d+)*[a-z]?\b`) })
+	idDecision = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^D\d+\b`) })
 	idLane     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\d+(?:\.\d+)*[a-z]?\b`) })
 	datedName  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-.*\.md$`) })
 	claimRe    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)<!--\s*(?:working|finished):.*?-->`) })
@@ -187,6 +188,9 @@ func parseTaskText(text string) (id, title string, owns []string, sha, claim str
 	title = cleaned
 	if id = idPhase().FindString(cleaned); id == "" {
 		id = idLane().FindString(cleaned)
+	}
+	if id == "" {
+		id = idDecision().FindString(cleaned) // an owner decision item, "D2 — ..."
 	}
 	if locs := ownsKey().FindAllStringIndex(cleaned, -1); len(locs) > 0 { // regexp offsets index cleaned itself; ToLower can change byte length
 		masked := ownParen().ReplaceAllStringFunc(cleaned[locs[len(locs)-1][1]:], func(n string) string { return strings.ReplaceAll(n, ",", "\x00") })
