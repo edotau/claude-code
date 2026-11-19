@@ -18,6 +18,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -145,10 +146,11 @@ func start(ctx context.Context, host, logPath string) (Tunnel, error) {
 
 // sshArgs is the tunnel's ssh argv after "ssh": no prompt, no shared master, dead within 30s of a lost link.
 func sshArgs(host string, port int, logPath string) []string {
-	return []string{"-N", "-D", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), "-E", logPath,
+	argv := []string{"-N", "-D", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), "-E", logPath,
 		"-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
 		"-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2",
-		"-o", "ControlMaster=no", "-o", "ControlPath=none", "--", host}
+		"-o", "ControlMaster=no", "-o", "ControlPath=none"}
+	return append(append(argv, tailscale.ProxyOpts(host)...), "--", host)
 }
 
 // spawnSSH starts the detached tunnel; exited closes when ssh ends, and ssh writes its own errors to logPath.

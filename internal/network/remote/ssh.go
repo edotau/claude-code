@@ -95,6 +95,7 @@ func sshArgv(host string, tty, batch bool, script string) ([]string, error) {
 	if tty {
 		argv = append(argv, "-t")
 	}
+	argv = append(argv, tailscale.ProxyOpts(host)...)
 	return append(argv, "--", host, encodeScript(script)), nil
 }
 
