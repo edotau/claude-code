@@ -429,13 +429,19 @@ func ranRoute(res wire.Result) string {
 	return ""
 }
 
-// RecordRefusal saves the failed, never-launched record of a well-formed ask refused at the route check.
-func RecordRefusal(req RunOptions, err error) {
-	rec := ClaimRecord(req.Agent, req, time.Now())
-	hop := wire.Hop{Agent: req.Agent, Model: req.Model, ErrorKind: wire.ErrorKind(err), NotStarted: true}
-	rec.Finish(wire.Result{Agent: req.Agent, Invoked: req.Model, Hops: []wire.Hop{hop}}, err, 0)
-	rec.Attempts = []wire.Hop{hop} // Finish keeps attempts only past one hop
-	_ = rec.Save()                 // a failed save must not mask the refusal
+// RecordRefusal fails a never-launched ask refused at the route check: its job's record, else one new record.
+func RecordRefusal(name string, req RunOptions, job *Record, err error) {
+	hop := wire.Hop{Agent: name, Model: req.Model, ErrorKind: wire.ErrorKind(err), NotStarted: true}
+	res := wire.Result{Agent: name, Invoked: req.Model, Hops: []wire.Hop{hop}}
+	if job != nil {
+		_ = job.Conclude(res, err, RunRecordedOpts{}) // a failed save must not mask the refusal
+		return
+	}
+	rec := NewRecord(name, req, time.Now())
+	rec.FallbackPolicy = req.Fallback
+	rec.Finish(res, err, 0)
+	rec.Attempts = res.Hops // Finish keeps attempts only past one hop
+	claimRecord(rec)        // the one write is already concluded; a failed claim leaves nothing behind
 }
 
 // failKind: availability when no model could answer (limits, auth, routing, transport, timeout, cancel), else quality.

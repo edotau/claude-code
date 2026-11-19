@@ -1317,6 +1317,40 @@ func TestReportBackgroundStartReturnsWriteError(t *testing.T) {
 	}
 }
 
+// A route refusal concludes a job's own record, records a prompted task once with its request, and none without a task.
+func TestRefuseRecords(t *testing.T) {
+	cases := []struct {
+		name, prompt, batch string
+		job                 bool
+		want                int
+	}{
+		{"prompted task", "fix the parser", "", false, 1},
+		{"blank prompt", "  ", "", false, 0},
+		{"batch base", "fix the parser", "tasks.jsonl", false, 0},
+		{"background job", "job task", "", true, 1},
+	}
+	for _, c := range cases {
+		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+		fs, f := askFlagSet()
+		f.tools, f.batchSrc = true, c.batch
+		r := &askRun{ctx: t.Context(), f: f, fs: fs, ag: "codex", prompt: c.prompt}
+		if c.job { // a running job record: the refusal must conclude it, never add a second
+			rec := agent.ClaimRecord("codex", agent.RunOptions{Prompt: c.prompt, Tools: true}, time.Now())
+			r.jobRec = &rec
+		}
+		if code, _ := refuse(r, &agent.PreflightError{}, router.FallbackNone); code != 1 {
+			t.Fatalf("%s: exit %d, want 1", c.name, code)
+		}
+		recs, err := agent.ReadRecent(5)
+		if err != nil || len(recs) != c.want {
+			t.Fatalf("%s: records = %d, %v, want %d", c.name, len(recs), err, c.want)
+		}
+		if c.want == 1 && (recs[0].Status != "error" || recs[0].Request.Prompt != c.prompt || !recs[0].Request.Tools) {
+			t.Errorf("%s: record status %q prompt %q tools %v, want this ask's failed record", c.name, recs[0].Status, recs[0].Request.Prompt, recs[0].Request.Tools)
+		}
+	}
+}
+
 // poolValue sends --provider databricks and a typed model the pin lacks to the pool; the rest stays.
 func TestPoolValue(t *testing.T) {
 	vaulttest.Use(t)

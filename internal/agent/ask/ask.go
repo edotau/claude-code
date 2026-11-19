@@ -297,9 +297,29 @@ func (r *askRun) checkArm() (int, bool) {
 func refuse(r *askRun, err error, fallback string) (int, bool) {
 	code := ApplyCode(err)
 	if code == 1 && !r.f.dryRun {
-		agent.RecordRefusal(agent.RunOptions{Agent: r.ag, Model: r.f.model, Fallback: fallback}, err)
+		recordRefusal(r, err, fallback)
 	}
 	return r.fail(err, code)
+}
+
+// recordRefusal concludes a job's record, else records a single task with a prompt; a --batch base refusal has none.
+func recordRefusal(r *askRun, err error, fallback string) {
+	f := r.f
+	if r.jobRec != nil {
+		agent.RecordRefusal(r.ag, r.jobRec.Request, r.jobRec, err)
+		return
+	}
+	if f.batchSrc != "" || f.live {
+		return
+	}
+	_, prompt, perr := r.readPrompt()
+	if perr != nil || strings.TrimSpace(prompt) == "" {
+		return
+	}
+	f.timeout = askTimeout(r.fs, f.timeout, f.retry, f.job, f.tools)
+	req := r.request(prompt)
+	req.Fallback = fallback
+	agent.RecordRefusal(r.ag, req, nil, err)
 }
 
 // poolValue is value, or databricks:auto for --provider databricks with no profile, a pool pin, or a model the pin lacks.

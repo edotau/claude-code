@@ -1097,7 +1097,7 @@ func TestFinishRecordsRanRoute(t *testing.T) {
 // A refused-before-launch ask leaves one failed record whose only attempt never started.
 func TestRecordRefusalSavesNotStartedAttempt(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	RecordRefusal(RunOptions{Agent: "opencode", Model: "typed-model"}, errors.New("not served"))
+	RecordRefusal("opencode", RunOptions{Model: "typed-model"}, nil, errors.New("not served"))
 	recs, err := ReadRecent(5)
 	if err != nil || len(recs) != 1 {
 		t.Fatalf("records = %d, %v, want 1", len(recs), err)
