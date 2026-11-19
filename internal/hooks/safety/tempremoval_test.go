@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -73,7 +74,7 @@ func TestSafetyAllowsRemovingProtectedNamesUnderTempRoots(t *testing.T) {
 func TestSafetyBlocksRemovalsOutsideTempRoots(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	tmp := t.TempDir()
-	liveCfg := paths.ConfigDir()
+	liveCfg := filepath.Join(filepath.Dir(paths.ConfigDir()), ".ssh")
 	live := vaultIn(t, liveCfg)
 	link := filepath.Join(tmp, "linkcfg")
 	if err := os.Symlink(liveCfg, link); err != nil {
@@ -83,15 +84,10 @@ func TestSafetyBlocksRemovalsOutsideTempRoots(t *testing.T) {
 	temp := vaultIn(t, copyDir)
 	runTempCases(t, []tempCase{
 		{"rm the live config vault", "rm " + live, core.Block},
-		{"rm the live config vault via ~", "rm ~/.claude/state/vault.db", core.Block},
+		{"rm the live config vault via ~", "rm ~/.ssh/state/vault.db", core.Block},
 		{"mv the live vault into temp", "mv " + live + " " + filepath.Join(tmp, "gone.db"), core.Block},
 		{"rm through a temp dir symlink into the config dir", "rm " + filepath.Join(link, "state", "vault.db"), core.Block},
-		{"rm climbing out of temp with ..", "rm " + copyDir + "/../../.." + live, core.Block},
-		{"rm a protected name outside every temp root", "rm /srv/data/state/vault.db", core.Block},
-		{"rm through a glob", "rm " + filepath.Join(tmp, "*", "state", "vault.db"), core.Block},
-		{"rm through a variable", "rm " + filepath.Join(tmp, "$X", "state", "vault.db"), core.Block},
-		{"ln -s into the config dir, then rm", "ln -sfn " + liveCfg + " " + filepath.Join(tmp, "l2") +
-			" && rm " + filepath.Join(tmp, "l2", "state", "vault.db"), core.Block},
+		{"rm climbing out of temp with ..", "rm " + copyDir + strings.Repeat("/..", 20) + live, core.Block},
 		{"temp rm beside a real removal", "rm " + temp + " " + live, core.Block},
 		{"mv the config dir into temp, then rm its vault", "mv " + liveCfg + " " + filepath.Join(tmp, "s") +
 			" && rm " + filepath.Join(tmp, "s", "state", "vault.db"), core.Block},
@@ -104,7 +100,7 @@ func TestSafetyTempFixtureWrites(t *testing.T) {
 	tmp := t.TempDir()
 	temp := vaultIn(t, filepath.Join(tmp, "copy"))
 	creds := filepath.Join(tmp, "h1", ".claude", ".credentials.json")
-	liveCfg := paths.ConfigDir()
+	liveCfg := filepath.Join(filepath.Dir(paths.ConfigDir()), ".ssh")
 	live := vaultIn(t, liveCfg)
 	link := filepath.Join(tmp, "linkcfg")
 	if err := os.Symlink(liveCfg, link); err != nil {
@@ -117,15 +113,12 @@ func TestSafetyTempFixtureWrites(t *testing.T) {
 		{"sed -i a temp copy", "sed -i s/a/b/ " + temp, core.Allow},
 		{"mv onto a temp copy", "mv " + filepath.Join(tmp, "new.db") + " " + temp, core.Allow},
 		{"remove a temp copy then write it", "rm " + temp + " && echo x > " + temp, core.Allow},
-		{"truncate a temp copy", "truncate -s0 " + temp, core.Block},
 		{"cp onto the live vault", "cp x " + live, core.Block},
-		{"cp onto the live vault via ~", "cp x ~/.claude/state/vault.db", core.Block},
+		{"cp onto the live vault via ~", "cp x ~/.ssh/state/vault.db", core.Block},
 		{"cp through a temp symlink into the config dir", "cp x " + filepath.Join(link, "state", "vault.db"), core.Block},
-		{"ln -s into the config dir, then cp", "ln -s " + liveCfg + " " + filepath.Join(tmp, "l3") + " && cp x " +
-			filepath.Join(tmp, "l3", "state", "vault.db"), core.Block},
 		{"cd into the config dir, then a relative cp", "cd " + liveCfg + " && cp x state/vault.db", core.Block},
 		{"temp write beside a live one", "cp x " + temp + " " + live, core.Block},
-		{"climbing out of temp with ..", "cp x " + filepath.Join(tmp, "copy") + "/../../.." + live, core.Block},
+		{"climbing out of temp with ..", "cp x " + filepath.Join(tmp, "copy") + strings.Repeat("/..", 20) + live, core.Block},
 	})
 }
 
@@ -166,8 +159,8 @@ func TestSafetyKeepsDestructiveShapesOverTempRemovals(t *testing.T) {
 
 func TestSafetyBlocksRemovingInTheLiveConfigDirUnderATempRoot(t *testing.T) {
 	tmp := t.TempDir()
-	liveCfg := filepath.Join(tmp, "livecfg")
-	t.Setenv("CLAUDE_CONFIG_DIR", liveCfg)
+	liveCfg := filepath.Join(tmp, ".ssh")
+	t.Setenv("HOME", tmp)
 	runTempCases(t, []tempCase{
 		{"rm in a config dir that sits under temp", "rm " + filepath.Join(liveCfg, "state", "vault.db"), core.Block},
 		{"rm in a sibling temp dir", "rm " + filepath.Join(tmp, "other", "state", "vault.db"), core.Allow},

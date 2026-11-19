@@ -211,8 +211,8 @@ func TestDefaults(t *testing.T) {
 	t.Run("gemini", func(t *testing.T) { checkGeminiDefaults(t, cfg.records["gemini"]) })
 	t.Run("guard", func(t *testing.T) {
 		g := cfg.Guard()
-		if !slices.Contains(g.Deny, "Bash(rm -rf /)") {
-			t.Errorf("Guard().Deny = %v, want to contain Bash(rm -rf /)", g.Deny)
+		if !slices.Contains(g.Deny, "Bash(rm -rf ~)") {
+			t.Errorf("Guard().Deny = %v, want to contain Bash(rm -rf ~)", g.Deny)
 		}
 	})
 }
