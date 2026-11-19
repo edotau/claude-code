@@ -116,7 +116,9 @@ not data. Blocks name the allowed route and the owner's `!`; `claude-code doctor
 ### safety-scan main-session rules
 
 A leaf is a subagent or a dispatched agent; rules match commands, never text, and are stated before `agentBashAllow`
-turns a leaf's block or ask into allow. On codex, copilot, gemini and opencode an ask follows the dispatch's
+turns a leaf's block or ask into allow. So a Claude subagent that runs one of the rows below is allowed with a note
+(replayed 2026-11-19: `make install|audit|fmt` and `vault get --secret` pass); only the code floor and settings deny
+rows stop a leaf. On codex, copilot, gemini and opencode an ask follows the dispatch's
 `--allow`/`--deny` or blocks, naming the routes (a Claude session or your own terminal). A main-thread settings allow
 match turns these rules off.
 
