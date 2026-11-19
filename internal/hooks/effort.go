@@ -132,9 +132,40 @@ func (e *effortPlan) recall(ctx context.Context, in *core.Input, promptField, ta
 	return note
 }
 
+type recallKey struct{}
+
+type recallPrefetch struct {
+	task string
+	done chan struct{}
+	text string
+}
+
+// prefetchRecall starts the read-only recall search for a spawn's task so it overlaps the cap check.
+func prefetchRecall(ctx context.Context, in *core.Input) context.Context {
+	if !core.SpawnTools[in.ToolName] {
+		return ctx
+	}
+	_, task := spawnTask(in)
+	p := &recallPrefetch{task: task, done: make(chan struct{})}
+	go func() {
+		defer close(p.done)
+		p.text, _ = memory.AgentRecall(ctx, in.SessionID, task)
+	}()
+	return context.WithValue(ctx, recallKey{}, p)
+}
+
+func recallSearch(ctx context.Context, session, task string) string {
+	if p, ok := ctx.Value(recallKey{}).(*recallPrefetch); ok && p.task == task {
+		<-p.done
+		return p.text
+	}
+	text, _ := memory.AgentRecall(ctx, session, task)
+	return text
+}
+
 // briefRecall is a dispatch's memory-recall block, as text to append to its brief or, with asNote, a context note.
 func briefRecall(ctx context.Context, session, task string, asNote bool) (suffix, note string) {
-	recallBlock, _ := memory.AgentRecall(ctx, session, task)
+	recallBlock := recallSearch(ctx, session, task)
 	if recallBlock == "" {
 		return "", ""
 	}

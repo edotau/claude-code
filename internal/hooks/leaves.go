@@ -56,7 +56,7 @@ func Effort(in *core.Input) core.Result {
 	if !core.SpawnTools[in.ToolName] && in.ToolName != "Workflow" {
 		return core.Result{}
 	}
-	ctx := context.Background() // the hook entry: no caller context
+	ctx := prefetchRecall(context.Background(), in) // the hook entry: no caller context
 	owner := inflight.SessionOwner()
 	if owner == 0 {
 		return agentEffortResult(ctx, in) // an unidentifiable owner claims nothing: fail open
