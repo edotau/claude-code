@@ -258,6 +258,9 @@ func shellCode(cmd string) string {
 	if !s.scan() {
 		return cmd
 	}
+	if len(s.docs) == 0 {
+		return without(cmd, s.cuts)
+	}
 	cuts := slices.Clone(s.cuts)
 	if all := append(slices.Clone(s.cuts), spansOf(s.docs, false)...); !runsBody(without(cmd, all)) {
 		cuts = append(cuts, spansOf(s.docs, true)...)
@@ -585,7 +588,7 @@ func commandWords(toks []string) []string {
 
 func tildeWord(t, home string) string {
 	for _, h := range []string{"${HOME}", "$HOME", home} {
-		if h != "" && (t == h || strings.HasPrefix(t, h+"/")) {
+		if h != "" && (t == h || len(t) > len(h) && strings.HasPrefix(t, h) && t[len(h)] == '/') {
 			return "~" + t[len(h):]
 		}
 	}
