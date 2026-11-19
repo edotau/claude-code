@@ -80,16 +80,22 @@ paths:
   does not serve falls back to the untiered pick with a note. The ranks are seeded estimates: edit
   `internal/catalog/ranks.json`.
   `--model auto` or `configure agents <agent> model=auto` picks the least-recent eligible model on a rotation row
-  (Databricks workspace or copilot GitHub login). Each agent has one history per provider group across dev, qa and
-  prod; holds stay per workspace. The served listing is the only pool input; there is no built-in seed pool.
+  (Databricks workspace or copilot GitHub login). Claude never rotates: its typed or pinned `auto` runs the brief's
+  tier model (haiku fast, sonnet standard or untiered, opus deep), and label, `gateway resolve`, `ask --dry-run` and
+  the run all show it. Each agent has one history per provider group across dev, qa and prod; holds stay per
+  workspace: a pool-pinned pick skips a model where that workspace skips or holds it, and keeps it
+  while another workspace serves it. The served listing is the only pool input; there is no built-in seed pool.
   The pool admits only models the agent can run within the tier's `rotation` capability floor and cost cap in
   `internal/catalog/ranks.json` (unranked models skip both where the tier admits them). The vault's
   `discovery-models` allowlist only narrows it; held models and, under `--tools`, models probed tools `no` are skipped.
   Outside a rotation row, auto uses the ranked pick. A cold (missing or stale) listing runs the row's tier model
-  with a note; a fresh listing with nothing eligible exits naming held ids, without launching; unwritable pick
+  with a note; a fresh listing with nothing runnable in the brief's tier and nothing held there steps to the standard
+  tier, and only nothing eligible then exits naming held ids, without launching; unwritable pick
   state errors. An untyped, unpinned model keeps the ranked pick.
   Refused auto picks share at most 3 re-picks per ask, including workspace retries; no re-pick follows streamed
-  text or tool execution. `--model databricks:auto` equals `--provider databricks --model auto`.
+  text or tool execution. Under `--fallback none` an auto-picked workspace whose pool is exhausted moves to another
+  workspace of the same provider, never past a typed or inherited `--profile`.
+  `--model databricks:auto` equals `--provider databricks --model auto`.
   Own-login `<login>/auto` is refused before launch, naming that login's typed ids.
   Labels, `gateway resolve`, and `ask --dry-run` only peek; `agents label <agent> --run` records and freezes the pick
   as `--model` in the `Run:` line.
@@ -97,7 +103,8 @@ paths:
   or `?` for a missing/stale listing.
   `claude-code doctor` auto-pin rows end with 7-day final-route counts when records have `ran_route`.
   A dispatch record includes `attempts` when more than one hop ran (account, profile, model and errors per hop);
-  a one-hop run omits it. `ran_route` names the final launched hop, including an own-login account like `opencode-go`.
+  a one-hop run omits it. A foreground ask that moves workspace keeps one record listing every hop.
+  `ran_route` names the final launched hop, including an own-login account like `opencode-go`.
   `doctor`'s 7-day rotation summary counts final routes from records with `ran_route`. OpenCode's text catalog
   shows `SERVED` in dev/qa/prod order: `y` READY, `n` not READY, `?` missing/stale cache; login-prefixed ids are blank.
 - **opencode** on a Databricks row runs three providers: `<row>` (chat), `<row>-gpt` (Responses), `<row>-claude`

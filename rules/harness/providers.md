@@ -80,7 +80,8 @@ the vault overlay map each alias per provider.
 - Any endpoint the workspace serves runs by its bare name (`gpt-6-1-terra` → `databricks-gpt-6-1-terra`); an unlisted
   name is refused at preflight (with `--fallback` it falls back instead).
 - `opus` architecture and max-reasoning research; `sonnet` planning, review, orchestration, exploration (an untyped
-  `claude` leaf gets sonnet for a standard-tier brief, haiku for fast, opus for deep); `haiku` high-frequency cheap
+  `claude` leaf, or one asked `auto`, gets sonnet for a standard-tier brief, haiku for fast, opus for deep); `haiku`
+  high-frequency cheap
   leaves; `gemini` sweeps beyond a session window (1M tokens).
 
 ## Served-aware Databricks routing
