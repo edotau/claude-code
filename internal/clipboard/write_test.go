@@ -330,8 +330,10 @@ func TestRunReturnsWhenForkedChildHoldsStdout(t *testing.T) {
 	orig := pipeGrace
 	pipeGrace = 200 * time.Millisecond
 	t.Cleanup(func() { pipeGrace = orig })
+	pidFile := filepath.Join(t.TempDir(), "child.pid")
+	t.Cleanup(func() { stopClipboardChild(t, pidFile) })
 	start := time.Now()
-	_, err := run(context.Background(), nil, "sh", "-c", "sleep 30 & exit 0")
+	_, err := run(context.Background(), nil, "sh", "-c", "sleep 30 & echo $! > '"+pidFile+"'; exit 0")
 	if err != nil {
 		t.Fatalf("run: %v", err)
 	}
