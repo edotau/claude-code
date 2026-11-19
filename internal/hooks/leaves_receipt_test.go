@@ -602,3 +602,24 @@ func TestPreserveReportMasksVaultValue(t *testing.T) {
 		t.Fatalf("saved report = %q, want the value masked at its own length", saved)
 	}
 }
+
+func TestHeldHoldMessageTaskAndJobForms(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	repo, _ := planRepo(t)
+	rec := agent.Record{ID: "j1", Agent: "codex", Time: time.Now(), PlanTask: "1.2"}
+	lead, _ := heldInfo(repo, leafRead{}, rec)
+	if !strings.HasPrefix(lead, "Info: Task 1.2 running (codex, ") || !strings.HasSuffix(lead, "): claude-code agents ask --agent codex; hand-back waits.") {
+		t.Errorf("task form: %q", lead)
+	}
+	rec.PlanTask = ""
+	lead, prefix := heldInfo(t.TempDir(), leafRead{}, rec)
+	res, _ := leafStopVerdict("a1", rec, nil, time.Time{}, lead, prefix)
+	if !strings.HasPrefix(lead, "Info: Job j1 running (codex, ") || res.Decision != core.Block || res.Verdict != core.VerdictHeld {
+		t.Fatalf("job form: lead %q, result %+v, want a held Job lead", lead, res)
+	}
+	for _, bad := range []string{"Error", "refused", "the brief's Run:"} {
+		if strings.Contains(res.Reason, bad) {
+			t.Errorf("hold %q contains %q", res.Reason, bad)
+		}
+	}
+}
