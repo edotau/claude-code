@@ -10,12 +10,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
 )
@@ -183,19 +183,30 @@ func ChangedSince(local, seen map[string]string) []string {
 	return out
 }
 
-// LocalToken is the store's HEAD and its dirty-line count ("<head> <n>"), as the peer probe reports them.
+// LocalToken is "<HEAD> <digest>"; the digest covers the dirty paths and their bytes, "" when git status fails.
 func LocalToken() string {
 	repo := StoreRepo()
 	head, err := repo.run("rev-parse", "HEAD")
 	if err != nil {
 		head = ""
 	}
-	dirty := 0
-	if out, err := repo.run("status", "--porcelain"); err == nil && out != "" {
-		dirty = strings.Count(out, "\n") + 1
+	out, err := repo.run("status", "--porcelain=v1", "-z", "--untracked-files=all")
+	if err != nil {
+		return ""
 	}
-	return head + " " + strconv.Itoa(dirty)
+	h := sha256.New()
+	_, _ = io.WriteString(h, out)
+	for _, e := range proc.StatusEntries(out) {
+		if b, err := os.ReadFile(filepath.Join(repo.Dir, filepath.FromSlash(e.Path))); err == nil {
+			sum := sha256.Sum256(b)
+			_, _ = h.Write(sum[:])
+		}
+	}
+	return head + " " + hex.EncodeToString(h.Sum(nil))
 }
+
+// MergesOnImport reports a log the import merges by block, which never takes the whole-file replace rule.
+func MergesOnImport(rel string) bool { return idFiles[rel] != "" || monthlyArchive(rel) }
 
 // SyncRow is one peer's line for the doctor: the last passes, or why there were none.
 type SyncRow struct {

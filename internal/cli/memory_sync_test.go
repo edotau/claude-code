@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -50,10 +51,10 @@ func stubSyncSeams(t *testing.T, st *syncStub) {
 		}
 		st.calls = append(st.calls, call)
 		_, _ = io.Copy(io.Discard, in)
+		_, _ = io.WriteString(out, "sync-pre x\nimported: 0 merged, 1 copied, 0 kept local, 0 conflict(s), 0 skipped\nsync-post x\n")
 		if st.pushExit != nil {
 			return "", st.pushExit(script), nil
 		}
-		_, _ = io.WriteString(out, "imported: 0 merged, 1 copied, 0 kept local, 0 conflict(s), 0 skipped\n")
 		return "", 0, nil
 	}
 	fetchRoot = func(host string) (string, error) {
@@ -96,7 +97,7 @@ func TestSyncPassOrder(t *testing.T) {
 			calls: []string{probe, "probe down.peer.example", "pull peer.example", "push peer.example"}},
 		{name: "held refusal", layout: "flat 3", code: 1, calls: []string{probe}, state: func() *memory.PeerSync {
 			return &memory.PeerSync{Pull: memory.SyncDir{Refusal: "credential-shaped content: x.md", Since: time.Now(), Token: tok},
-				Push: memory.SyncDir{Refusal: "busy", Since: time.Now(), Token: memory.LocalToken()}}
+				Push: memory.SyncDir{Refusal: "exit 1: credential-shaped content: y.md", Since: time.Now(), Token: memory.LocalToken()}}
 		}},
 		{name: "unequal layout", layout: "flat 2", code: 1, calls: []string{probe}},
 		{name: "replace refused by an older peer", layout: "flat 3", calls: []string{probe, "push peer.example --replace", "push peer.example"},
@@ -250,4 +251,238 @@ func memFileEqual(a, b string) bool {
 	x, _ := os.ReadFile(a)
 	y, _ := os.ReadFile(b)
 	return bytes.Equal(x, y)
+}
+
+// twoStores is an in-process peer: a second config dir served through syncSSH and fetchRoot, no shell, no network.
+type twoStores struct {
+	t           *testing.T
+	local, peer string              // config dirs
+	mangle      func(string) string // rewrites the peer's push answer
+	edit        func()              // runs in the second peer's fetch: a local edit between the pull and the push
+}
+
+func newTwoStores(t *testing.T) *twoStores {
+	syncStore(t)
+	ts := &twoStores{t: t, local: paths.ConfigDir(), peer: t.TempDir()}
+	ts.asPeer(func() { memInit(t); memMust(t, memory.StoreRepo().Ensure()) })
+	for _, cfg := range []string{ts.local, ts.peer} {
+		git := []string{"-C", filepath.Join(cfg, "memory"), "-c", "user.name=t", "-c", "user.email=t@peer.example"}
+		for _, args := range [][]string{{"add", "-A"}, {"commit", "-qm", "seed"}} {
+			if b, err := exec.Command("git", append(git, args...)...).CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %v %s", args, err, b)
+			}
+		}
+	}
+	oldSSH, oldFetch := syncSSH, fetchRoot
+	t.Cleanup(func() { syncSSH, fetchRoot = oldSSH, oldFetch })
+	syncSSH, fetchRoot = ts.ssh, ts.fetch
+	return ts
+}
+
+func (ts *twoStores) asPeer(fn func()) {
+	_ = os.Setenv("CLAUDE_CONFIG_DIR", ts.peer)
+	defer func() { _ = os.Setenv("CLAUDE_CONFIG_DIR", ts.local) }()
+	fn()
+}
+
+// ssh answers the probe and the push for peer.example; any other host answers its probe, then is cut off.
+func (ts *twoStores) ssh(_ context.Context, host, script string, in io.Reader, out io.Writer) (string, int, error) {
+	if host != "peer.example" {
+		_, _ = io.WriteString(out, map[bool]string{true: "flat 3\n" + syncTestHead + "\nother\n"}[script == syncProbeScript])
+		return "", map[bool]int{false: sshFailExit}[script == syncProbeScript], nil
+	}
+	code := 0
+	ts.asPeer(func() {
+		if script == syncProbeScript {
+			layout, _ := os.ReadFile(filepath.Join(memory.StoreDir(), ".layout"))
+			head, digest, _ := strings.Cut(memory.LocalToken(), " ")
+			_, _ = fmt.Fprintf(out, "%s\n%s\n%s\n", strings.TrimSpace(string(layout)), head, digest)
+			return
+		}
+		code = ts.peerImport(script, in, out)
+	})
+	return "", code, nil
+}
+
+// peerImport is the push script in Go: unpack, import with the .replace list, bracket the answer with tokens.
+func (ts *twoStores) peerImport(script string, in io.Reader, out io.Writer) int {
+	dir := ts.t.TempDir()
+	if _, err := memory.ExtractStoreTar(in, dir); err != nil {
+		return 1
+	}
+	var replace map[string]string
+	if strings.Contains(script, "--replace") {
+		replace, _ = readReplaceList(filepath.Join(dir, ".replace"))
+	}
+	answer, code := "sync-pre "+memory.LocalToken()+"\n", 0
+	res, err := memory.ImportBank(memory.ImportOptions{From: dir, Label: "driver", Topics: true, Replace: replace,
+		DryRun: strings.Contains(script, "--dry-run")})
+	if err != nil {
+		code = 1
+	} else {
+		answer += strings.Join(append(res.Lines, res.Summary), "\n") + "\n"
+	}
+	answer += "sync-post " + memory.LocalToken() + "\n"
+	if ts.mangle != nil {
+		answer = ts.mangle(answer)
+	}
+	_, _ = io.WriteString(out, answer)
+	return code
+}
+
+func (ts *twoStores) fetch(host string) (string, error) {
+	dir := ts.t.TempDir()
+	if host != "peer.example" {
+		if ts.edit != nil {
+			ts.edit()
+		}
+		return dir, errors.New("cut off")
+	}
+	var buf bytes.Buffer
+	var err error
+	ts.asPeer(func() {
+		var rels []string
+		for rel := range memory.HashStore() {
+			rels = append(rels, rel)
+		}
+		err = memory.WriteStoreTar(&buf, rels)
+	})
+	if err == nil {
+		_, err = memory.ExtractStoreTar(&buf, dir)
+	}
+	return dir, err
+}
+
+// put writes rel on the local side (peer false) or the peer's.
+func (ts *twoStores) put(peer bool, rel, body string) {
+	write := func() {
+		p := filepath.Join(memory.StoreDir(), filepath.FromSlash(rel))
+		memMust(ts.t, os.MkdirAll(filepath.Dir(p), 0o700))
+		memMust(ts.t, os.WriteFile(p, []byte(body), 0o600))
+	}
+	if peer {
+		ts.asPeer(write)
+		return
+	}
+	write()
+}
+
+func (ts *twoStores) get(rel string) (local, peer string) {
+	read := func() string {
+		b, _ := os.ReadFile(filepath.Join(memory.StoreDir(), filepath.FromSlash(rel)))
+		return string(b)
+	}
+	local = read()
+	ts.asPeer(func() { peer = read() })
+	return local, peer
+}
+
+func syncSum(s string) string {
+	sum := sha256.Sum256([]byte(s))
+	return hex.EncodeToString(sum[:])
+}
+
+// step runs one pass and asserts rel's bytes on both sides and its seen entry (one hash, or "local peer").
+func (ts *twoStores) step(name, rel, wantLocal, wantPeer string, peers ...string) {
+	ts.t.Helper()
+	var out bytes.Buffer
+	runSync(append([]string{"peer.example"}, peers...), false, &out)
+	local, peer := ts.get(rel)
+	seen := memory.LoadSync().Peers["peer.example"].Seen[rel]
+	want := syncSum(wantLocal)
+	if wantLocal != wantPeer {
+		want += " " + syncSum(wantPeer)
+	}
+	if local != wantLocal || peer != wantPeer || seen != want {
+		ts.t.Fatalf("%s: local %q peer %q seen %q; want %q %q %q\n%s", name, local, peer, seen, wantLocal, wantPeer, want, out.String())
+	}
+}
+
+func TestSyncTwoStoresConverge(t *testing.T) {
+	ts := newTwoStores(t)
+	x, y, logRel := "notes/x.md", "notes/y.md", "decisionLog.md"
+	ts.put(false, logRel, "# Log\n\n## 2026-11-01 — local <!-- id:11111111 -->\nLocal body.\n")
+	ts.put(true, logRel, "# Log\n\n## 2026-11-02 — peer <!-- id:22222222 -->\nPeer body.\n")
+	ts.put(false, x, "a0\n")
+	ts.step("seed", x, "a0\n", "a0\n")
+	if local, peer := ts.get(logRel); !strings.Contains(peer, "11111111") || !strings.Contains(local, "22222222") {
+		t.Fatalf("first sync: logs did not merge both ways:\nlocal %q\npeer %q", local, peer)
+	}
+	ts.put(false, x, "a1\n")
+	ts.step("one-sided local", x, "a1\n", "a1\n")
+	ts.put(true, x, "b1\n")
+	ts.step("one-sided peer", x, "b1\n", "b1\n")
+	ts.put(false, x, "a2\n")
+	ts.put(true, x, "b2\n")
+	ts.step("both changed", x, "a2\n", "b2\n")
+	ts.put(false, x, "a3\n")
+	ts.step("local edits again", x, "a3\n", "a3\n")
+	ts.put(false, x, "a4\n")
+	ts.put(true, x, "b4\n")
+	ts.step("both changed again", x, "a4\n", "b4\n")
+	ts.put(true, x, "b5\n")
+	ts.step("peer edits again", x, "b5\n", "b5\n")
+	ts.put(false, x, "a6\n")
+	ts.put(true, y, "py\n")
+	ts.step("local edit while the peer moved another file", x, "a6\n", "a6\n")
+	ts.put(true, x, "b7\n")
+	ts.edit = func() { ts.put(false, x, "a7\n") }
+	ts.step("local edit between the pull and the push", x, "a7\n", "a7\n", "other.example")
+	ts.edit = nil
+	ts.put(false, x, "a8\n")
+	ts.mangle = func(a string) string { return strings.SplitN(a, "\n", 2)[0] + "\n" + strings.Repeat("x", 1<<17) + "\n" }
+	runSync([]string{"peer.example"}, false, io.Discard)
+	if seen := memory.LoadSync().Peers["peer.example"].Seen[x]; seen != syncSum("a7\n") {
+		t.Fatalf("a truncated answer advanced seen to %q", seen)
+	}
+	ts.mangle = nil
+	ts.step("the next pass records the delivery", x, "a8\n", "a8\n")
+}
+
+func TestSyncDryRunWritesNoState(t *testing.T) {
+	ts := newTwoStores(t)
+	ts.put(false, "notes/x.md", "a\n")
+	ts.put(true, "notes/y.md", "p\n")
+	var out bytes.Buffer
+	runSync([]string{"peer.example"}, true, &out)
+	_, peerX := ts.get("notes/x.md")
+	localY, _ := ts.get("notes/y.md")
+	if _, err := os.Stat(filepath.Join(memory.StateDir(), "sync.json")); err == nil || peerX != "" || localY != "" {
+		t.Fatalf("dry run wrote: state err %v, peer x %q, local y %q\n%s", err, peerX, localY, out.String())
+	}
+}
+
+func TestSyncBusyIsRetriedNotHeld(t *testing.T) {
+	syncStore(t)
+	st := &syncStub{probe: map[string]string{"peer.example": probeOut("flat 3")}, pushExit: func(string) int { return importBusyExit }}
+	stubSyncSeams(t, st)
+	for range 2 {
+		runSync([]string{"peer.example"}, false, io.Discard)
+	}
+	if p := memory.LoadSync().Peers["peer.example"]; p.Push.Refusal != "" || countPrefix(st.calls, "push ") != 2 {
+		t.Fatalf("busy peer: refusal %q, calls %v; want no hold and a push each pass", p.Push.Refusal, st.calls)
+	}
+}
+
+// TestSyncProbeDigestTracksContent runs the probe as the peer would: an edit to a dirty file must move its token.
+func TestSyncProbeDigestTracksContent(t *testing.T) {
+	sh, err := exec.LookPath("sh")
+	if err != nil {
+		t.Skip("no sh: the probe runs on a POSIX peer")
+	}
+	newTwoStores(t)
+	probe := func() string {
+		cmd := exec.Command(sh, "-c", syncProbeScript)
+		cmd.Env = append(os.Environ(), "CLAUDE_CONFIG_DIR="+paths.ConfigDir())
+		b, err := cmd.Output()
+		memMust(t, err)
+		return string(b)
+	}
+	note := filepath.Join(memory.StoreDir(), "notes", "local.md")
+	memMust(t, os.WriteFile(note, []byte("one\n"), 0o600))
+	a := probe()
+	memMust(t, os.WriteFile(note, []byte("two\n"), 0o600))
+	if b := probe(); a == b || b != probe() || strings.Count(b, "\n") != 3 {
+		t.Fatalf("probe %q then %q: want three lines that move with the bytes and nothing else", a, b)
+	}
 }

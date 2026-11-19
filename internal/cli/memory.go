@@ -16,7 +16,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -629,7 +628,7 @@ const memoryFetchScript = `cd "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/memory" && CO
 
 // fetchMemoryRoot streams host's memory root as a tar into a fresh private temp dir; the caller removes it.
 func fetchMemoryRoot(host string) (string, error) {
-	argv, err := remote.StreamArgs(host, memoryFetchScript)
+	argv, err := syncArgv(host, memoryFetchScript)
 	if err != nil {
 		return "", err
 	}
@@ -658,10 +657,10 @@ func fetchMemoryRoot(host string) (string, error) {
 	for _, s := range skipped {
 		fmt.Println("fetch " + s)
 	}
-	if werr != nil {
-		return dir, werr
+	if xerr != nil { // ssh was killed for it, so its own error would only say "killed"
+		return dir, xerr
 	}
-	return dir, xerr
+	return dir, werr
 }
 
 // memoryRecallExplain prints the hook's recall selection; --explain refuses the flags that need real hits.

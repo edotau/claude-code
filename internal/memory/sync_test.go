@@ -117,3 +117,14 @@ func TestSyncStateAndChangedSince(t *testing.T) {
 		t.Fatalf("ChangedSince = %v, want [notes/b.md]", got)
 	}
 }
+
+func TestSyncLocalTokenTracksContent(t *testing.T) {
+	isolatedConfig(t)
+	initStore(t)
+	write(t, Path("topic.md"), "one\n")
+	before := LocalToken()
+	write(t, Path("topic.md"), "two\n") // the same dirty-line count, other bytes
+	if after := LocalToken(); after == before || after == "" {
+		t.Fatalf("LocalToken did not move with the content: %q -> %q", before, after)
+	}
+}

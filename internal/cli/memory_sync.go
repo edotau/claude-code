@@ -2,8 +2,8 @@ package cli
 
 import (
 	"archive/tar"
-	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -27,8 +27,13 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// syncProbeScript prints the peer's .layout, store HEAD and dirty-line count, one per line.
-const syncProbeScript = `cd "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/memory" && cat .layout && git rev-parse HEAD && git status --porcelain | wc -l`
+// syncDigestScript hashes the dirty paths and each changed file's blob id, with git alone and writing nothing.
+const syncDigestScript = `{ git --no-optional-locks status --porcelain; ` +
+	`{ git -c core.quotePath=false diff --name-only --diff-filter=d HEAD; git -c core.quotePath=false ls-files -o --exclude-standard; } | ` +
+	`git hash-object --stdin-paths; } | git hash-object --stdin`
+
+// syncProbeScript prints the peer's .layout, store HEAD and dirty-state digest, one per line.
+const syncProbeScript = `cd "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/memory" && cat .layout && git rev-parse HEAD && ` + syncDigestScript
 
 const (
 	syncOffMsg       = "memory sync is off on this machine: claude-code vault env set NETWORK_MEMORY on"
@@ -38,15 +43,15 @@ const (
 	importBusyExit   = 75  // sysexits EX_TEMPFAIL: the store is busy, retry later; distinct from 1, 2 and ssh's 255
 	sshFailExit      = 255 // ssh's own failure: no connection, no login
 	sshTailMax       = 2048
+	credentialMark   = "credential-shaped content" // the import's refusal, which repeats until the file changes
 )
 
 // syncSSH runs script on host with a 5 s connect timeout; tail is ssh's stderr, exit 255 means ssh itself failed.
 var syncSSH = func(ctx context.Context, host, script string, in io.Reader, out io.Writer) (string, int, error) {
-	argv, err := remote.StreamArgs(host, script)
+	argv, err := syncArgv(host, script)
 	if err != nil {
 		return "", 0, err
 	}
-	argv = slices.Insert(argv, 1, "-o", "ConnectTimeout=5")
 	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
 	proc.OwnGroup(cmd)
 	cmd.WaitDelay = proc.ExecWaitDelay
@@ -59,6 +64,15 @@ var syncSSH = func(ctx context.Context, host, script string, in io.Reader, out i
 		return tail, exit.ExitCode(), nil
 	}
 	return tail, 0, err
+}
+
+// syncArgv is the streaming ssh argv with a 5 s connect timeout, so a host that drops packets fails fast.
+func syncArgv(host, script string) ([]string, error) {
+	argv, err := remote.StreamArgs(host, script)
+	if err != nil {
+		return nil, err
+	}
+	return slices.Insert(argv, 1, "-o", "ConnectTimeout=5"), nil
 }
 
 var fetchRoot = fetchMemoryRoot
@@ -173,7 +187,7 @@ func (s *syncPass) refuse(d *memory.SyncDir, dir, peer, why, token string) {
 	s.say(dir, peer, "refused: "+why)
 }
 
-// probe returns the peer's token ("<HEAD> <dirty lines>", as memory.LocalToken), or false when it cannot sync now.
+// probe returns the peer's token ("<HEAD> <dirty-state digest>"), or false when it cannot sync now.
 func (s *syncPass) probe(name string, p *memory.PeerSync) (string, bool) {
 	if p.Pull.Refusal == syncNoLogin && s.held(p.Pull, "") {
 		s.down++
@@ -242,47 +256,73 @@ func (s *syncPass) pull(name string, p *memory.PeerSync, tok string) bool {
 	dir, err := fetchRoot(name)
 	defer func() { _ = os.RemoveAll(dir) }()
 	if err != nil {
-		s.say("pull", name, "fetch failed: "+err.Error())
+		s.say("pull", name, "fetch failed: "+err.Error()+"; retried at the next pass")
 		return false
 	}
-	local, theirs := memory.HashStore(), hashTree(dir)
+	theirs := hashTree(dir)
 	res, err := memory.ImportBank(memory.ImportOptions{From: dir, Label: name, DryRun: s.dryRun, Topics: true,
-		Replace: takePeer(p.Seen, local, theirs)})
+		Replace: takePeer(p.Seen, memory.HashStore(), theirs)})
 	if err != nil {
-		s.refuse(&p.Pull, "pull", name, refusalReason(err), tok)
+		_, input := errors.AsType[*memory.ImportInputError](err)
+		s.fail(&p.Pull, "pull", name, refusalReason(err), input || strings.Contains(err.Error(), credentialMark), tok)
 		return false
-	}
-	if !s.dryRun {
-		local = memory.HashStore()
-	}
-	for rel, h := range theirs {
-		if l, ok := local[rel]; ok {
-			p.Seen[rel] = seenPair(l, h)
-		}
 	}
 	n := countPrefix(res.Lines, "conflict ")
-	p.Pulled, p.Pull = tok, memory.SyncDir{OK: s.now, Summary: res.Summary, Differ: n}
 	s.say("pull", name, fmt.Sprintf("%s; differ %d", res.Summary, n))
+	if !s.dryRun {
+		settleSeen(p.Seen, memory.HashStore(), theirs, wroteFiles(res.Lines))
+		p.Pulled, p.Pull = tok, memory.SyncDir{OK: s.now, Summary: res.Summary, Differ: n}
+	}
 	return true
+}
+
+// fail files a failed direction: a lasting refusal is held, anything else (busy, cut off) is retried at the next pass.
+func (s *syncPass) fail(d *memory.SyncDir, dir, peer, why string, lasting bool, token string) {
+	if lasting {
+		s.refuse(d, dir, peer, why, token)
+		return
+	}
+	s.say(dir, peer, why+"; retried at the next pass")
 }
 
 // takePeer is the pull's replace list: the files only the peer changed since the last sync, keyed to the local hash.
 func takePeer(seen, local, theirs map[string]string) map[string]string {
 	replace := map[string]string{}
 	for rel, h := range theirs {
-		if l, ok := local[rel]; ok && memory.DecideSync(seen[rel], l, h) == memory.SyncTakePeer {
+		if l, ok := local[rel]; ok && !memory.MergesOnImport(rel) && memory.DecideSync(seen[rel], l, h) == memory.SyncTakePeer {
 			replace[rel] = l
 		}
 	}
 	return replace
 }
 
-// seenPair is the stored "local peer" hash pair, one hash when the sides are equal.
-func seenPair(local, peer string) string {
-	if local == peer {
-		return local
+// settleSeen records only what the pull proved; a local-only change or an unequal log keeps its pair for the push.
+func settleSeen(seen, local, theirs map[string]string, wrote map[string]bool) {
+	for rel, h := range theirs {
+		l, ok := local[rel]
+		switch {
+		case wrote[rel]:
+			seen[rel] = h // the import wrote the peer's bytes: an edit since is a local change
+		case !ok, memory.MergesOnImport(rel) && l != h:
+		case l == h:
+			seen[rel] = l
+		case memory.DecideSync(seen[rel], l, h) == memory.SyncDiffer:
+			seen[rel] = l + " " + h // both keep their own; the next one-sided change wins
+		}
 	}
-	return local + " " + peer
+}
+
+// wroteFiles lists the files an import's lines say it copied or replaced.
+func wroteFiles(lines []string) map[string]bool {
+	out := map[string]bool{}
+	for _, l := range lines {
+		if rest, ok := strings.CutPrefix(l, "copy "); ok {
+			out[rest] = true
+		} else if rest, ok := strings.CutPrefix(l, "replace "); ok {
+			out[rest] = true
+		}
+	}
+	return out
 }
 
 func refusalReason(err error) string {
@@ -328,7 +368,7 @@ func hashTree(dir string) map[string]string {
 // push sends the files whose local hash moved since the peer last saw them; skipped when the local token did not move.
 func (s *syncPass) push(name string, p *memory.PeerSync, peerTok string) bool {
 	tok := memory.LocalToken()
-	if tok == p.Pushed {
+	if tok != "" && tok == p.Pushed {
 		s.say("push", name, "unchanged")
 		return true
 	}
@@ -339,23 +379,27 @@ func (s *syncPass) push(name string, p *memory.PeerSync, peerTok string) bool {
 	local := memory.HashStore()
 	rels := memory.ChangedSince(local, p.Seen)
 	if len(rels) == 0 {
-		p.Pushed = tok
+		if !s.dryRun {
+			p.Pushed = tok
+		}
 		s.say("push", name, "nothing changed")
 		return true
 	}
-	lines, tail, exit, err := s.send(name, rels, pushReplace(p.Seen, local, rels))
+	a, tail, exit, err := s.send(name, rels, pushReplace(p.Seen, local, rels))
 	switch {
 	case err != nil || exit == sshFailExit || exit < 0:
-		s.say("push", name, "connection lost: "+cmpErr(err, tail))
-		return false
-	case exit == importBusyExit:
-		s.refuse(&p.Push, "push", name, "busy", tok)
+		s.say("push", name, "connection lost: "+cmpErr(err, tail)+"; retried at the next pass")
 		return false
 	case exit != 0:
-		s.refuse(&p.Push, "push", name, fmt.Sprintf("exit %d: %s", exit, lastLine(tail)), tok)
+		why := map[bool]string{true: "busy"}[exit == importBusyExit]
+		s.fail(&p.Push, "push", name, cmp.Or(why, fmt.Sprintf("exit %d: %s", exit, lastLine(tail))),
+			exit == 2 || strings.Contains(tail, credentialMark), tok)
+		return false
+	case !a.complete:
+		s.say("push", name, "the peer's answer ended before its summary; nothing marked as sent, retried at the next pass")
 		return false
 	}
-	s.pushed(name, p, pushResult{tok: tok, peerTok: peerTok, rels: rels, local: local, lines: lines})
+	s.pushed(name, p, pushResult{tok: tok, peerTok: peerTok, rels: rels, local: local, a: a})
 	return true
 }
 
@@ -371,7 +415,7 @@ func pushReplace(seen, local map[string]string, rels []string) string {
 	var b strings.Builder
 	for _, rel := range rels {
 		f := strings.Fields(seen[rel])
-		if len(f) > 0 && memory.DecideSync(seen[rel], local[rel], f[len(f)-1]) == memory.SyncSendLocal {
+		if len(f) > 0 && !memory.MergesOnImport(rel) && memory.DecideSync(seen[rel], local[rel], f[len(f)-1]) == memory.SyncSendLocal {
 			fmt.Fprintf(&b, "%s  %s\n", f[len(f)-1], rel)
 		}
 	}
@@ -382,73 +426,83 @@ type pushResult struct {
 	tok, peerTok string
 	rels         []string
 	local        map[string]string
-	lines        []string
+	a            pushAnswer
 }
 
-// pushed records a push: seen is equal for each sent file the peer did not keep, and the peer's new token is adopted.
+// pushed records a push: each sent file the peer did not name as kept or skipped is equal; a dry run records nothing.
 func (s *syncPass) pushed(name string, p *memory.PeerSync, r pushResult) {
-	a := readPushAnswer(r.lines)
+	n := len(r.a.kept)
+	s.say("push", name, fmt.Sprintf("sent %d file(s): %s; differ %d", len(r.rels), r.a.summary, n))
+	if s.dryRun {
+		return
+	}
 	for _, rel := range r.rels {
-		if !a.kept[rel] {
+		if !r.a.kept[rel] {
 			p.Seen[rel] = r.local[rel]
 		}
 	}
-	if a.pre == r.peerTok && p.Pulled == r.peerTok && a.post != "" { // nothing else moved the peer: the next pull skips
-		p.Pulled = a.post
+	if r.a.pre == r.peerTok && p.Pulled == r.peerTok && r.a.post != "" { // nothing else moved the peer: the next pull skips
+		p.Pulled = r.a.post
 	}
-	n := countPrefix(r.lines, "conflict ")
-	p.Pushed, p.Push = r.tok, memory.SyncDir{OK: s.now, Summary: a.summary, Differ: n}
-	s.say("push", name, fmt.Sprintf("sent %d file(s): %s; differ %d", len(r.rels), a.summary, n))
+	p.Pushed, p.Push = r.tok, memory.SyncDir{OK: s.now, Summary: r.a.summary, Differ: n}
 }
 
-// pushAnswer is what the driver reads from the peer's import: kept files, the summary and the bracketing tokens.
+// pushAnswer is what the driver reads from the peer's import; complete means the summary came right before sync-post.
 type pushAnswer struct {
 	kept               map[string]bool
 	summary, pre, post string
+	complete           bool
 }
 
-func readPushAnswer(lines []string) pushAnswer {
+// readPushAnswer parses the whole answer, any line length; a file named in a conflict, kept or skipped line was kept.
+func readPushAnswer(out string) pushAnswer {
 	a := pushAnswer{kept: map[string]bool{}}
-	for _, l := range lines {
-		if rest, ok := strings.CutPrefix(l, "conflict "); ok {
-			a.kept[strings.SplitN(rest, ": ", 2)[0]] = true
-		} else if rest, ok := strings.CutPrefix(l, "kept local "); ok {
-			a.kept[rest] = true
-		} else if rest, ok := strings.CutPrefix(l, "sync-pre "); ok {
+	for l := range strings.SplitSeq(out, "\n") {
+		l = strings.TrimRight(l, "\r")
+		if rest, ok := strings.CutPrefix(l, "sync-pre "); ok {
 			a.pre = rest
 		} else if rest, ok := strings.CutPrefix(l, "sync-post "); ok {
-			a.post = rest
-		} else if l != "" {
+			a.post, a.complete = rest, importSummary(a.summary)
+		} else if rel, ok := keptFile(l); ok {
+			a.kept[rel] = true
+		}
+		if l != "" && !strings.HasPrefix(l, "sync-") {
 			a.summary = l
 		}
 	}
 	return a
 }
 
+// keptFile is the file a "conflict ", "kept local " or "skipped " line names.
+func keptFile(l string) (string, bool) {
+	for _, prefix := range []string{"conflict ", "skipped "} {
+		if rest, ok := strings.CutPrefix(l, prefix); ok {
+			return strings.SplitN(rest, ": ", 2)[0], true
+		}
+	}
+	return strings.CutPrefix(l, "kept local ")
+}
+
+func importSummary(l string) bool {
+	return strings.HasPrefix(l, "imported: ") || strings.HasPrefix(l, "would import: ") || strings.HasPrefix(l, "nothing to import")
+}
+
 // send streams the tar to the push script; a peer answering 2 to --replace (an older binary) gets it once without.
-func (s *syncPass) send(name string, rels []string, replace string) (lines []string, tail string, exit int, err error) {
+func (s *syncPass) send(name string, rels []string, replace string) (a pushAnswer, tail string, exit int, err error) {
 	for {
 		var in, out bytes.Buffer
 		if err := writePushTar(&in, replace, rels); err != nil {
-			return nil, "", 0, err
+			return pushAnswer{}, "", 0, err
 		}
 		ctx, cancel := context.WithTimeout(context.Background(), memoryFetchTimeout)
 		tail, exit, err = syncSSH(ctx, name, pushScript(replace != "", s.dryRun), &in, &out)
 		cancel()
 		if exit != 2 || replace == "" || err != nil {
-			return readLines(&out), tail, exit, err
+			return readPushAnswer(out.String()), tail, exit, err
 		}
 		s.say("push", name, "peer refused --replace (exit 2); sending once more without it")
 		replace = ""
 	}
-}
-
-func readLines(r io.Reader) []string {
-	var lines []string
-	for sc := bufio.NewScanner(r); sc.Scan(); {
-		lines = append(lines, sc.Text())
-	}
-	return lines
 }
 
 // writePushTar writes .replace (when non-empty) then the store files as one archive: Flush pads without a trailer.
@@ -477,7 +531,7 @@ func pushScript(replace, dryRun bool) string {
 	if dryRun {
 		imp += " --dry-run"
 	}
-	tok := `tok() { printf '%s %s %s\n' "$1" "$(git -C "$m" rev-parse HEAD)" "$(git -C "$m" status --porcelain | wc -l | tr -d ' ')"; }; `
+	tok := `tok() { printf '%s %s %s\n' "$1" "$(git -C "$m" rev-parse HEAD)" "$(cd "$m" && ` + syncDigestScript + `)"; }; `
 	return `m="${CLAUDE_CONFIG_DIR:-$HOME/.claude}/memory"; ` + tok + `d=$(mktemp -d) || exit 1; trap 'rm -rf "$d"' EXIT; ` +
 		`tar -xf - -C "$d" || exit 1; tok sync-pre; ` + remote.PathPrefix + " " + imp + `; rc=$?; tok sync-post; exit $rc`
 }
