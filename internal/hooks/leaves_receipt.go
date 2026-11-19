@@ -256,8 +256,7 @@ func receiptFix(in *core.Input, agentID string, lr *leafRead) (core.Result, bool
 	words := briefWords(lr.scan)
 	if lr.scan.edited || len(words) == 0 {
 		model, _ := transcript.LastUsage(in.AgentTranscriptPath)
-		return attach(in, fmt.Sprintf("NOTE: the work was done on the relay model (%s), not on %s; re-run the brief's `Run:` "+
-			"line if %s must do it.", cmp.Or(model.Model, "the leaf's own model"), st, st), jobOut{}), false
+		return attach(in, fmt.Sprintf("NOTE: ran on the relay model (%s), not %s; re-run `Run:` if %s must do it.", cmp.Or(model.Model, "the leaf's own model"), st, st), jobOut{}), false
 	}
 	return runBriefLine(in, *lr, agentID, words)
 }

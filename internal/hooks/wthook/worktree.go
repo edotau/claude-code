@@ -297,7 +297,11 @@ func noticeContext(ctx context.Context, in *core.Input, run *hookRun) (text, war
 	var lines []string
 	notices, drainErr := worktree.DrainFor(in.SessionID, func() string { return run.checkout().top })
 	for _, n := range notices {
-		lines = append(lines, fmt.Sprintf("notice (%s, from %s): %s", n.Kind, n.From, n.Text))
+		who := n.Kind + ", from " + n.From
+		if n.Kind == n.From {
+			who = n.Kind
+		}
+		lines = append(lines, fmt.Sprintf("notice (%s): %s", who, n.Text))
 	}
 	if drainErr != nil {
 		warn = fmt.Sprintf("notices: WARNING — could not drain this session's inbox (%v); notices may be missing or repeat", drainErr)

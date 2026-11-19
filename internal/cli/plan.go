@@ -202,18 +202,32 @@ func reportChecks(session, sha string, tasks []plans.Task, checks map[string][]w
 	green := map[string]bool{}
 	for _, t := range tasks {
 		cs := checks[t.ID]
+		if waves.AllOK(cs) {
+			green[t.ID] = true
+			tickNotice(session, "plans: "+t.ID+" verified on "+short+greenSummary(cs))
+			continue
+		}
 		lines := make([]string, 0, len(cs))
 		for _, c := range cs {
 			lines = append(lines, c.Line())
 		}
-		if waves.AllOK(cs) {
-			green[t.ID] = true
-			tickNotice(session, "plans: "+t.ID+" verified on "+short+": "+strings.Join(lines, "; "))
-			continue
-		}
 		tickNotice(session, "plans: "+t.ID+" not ticked on "+short+":\n"+strings.Join(lines, "\n"))
 	}
 	return green
+}
+
+// greenSummary is " (N s)" over the passed checks, plus the line of each skipped one.
+func greenSummary(cs []waves.TaskCheck) string {
+	var took time.Duration
+	var skips []string
+	for _, c := range cs {
+		if c.Skip != "" {
+			skips = append(skips, c.Line())
+			continue
+		}
+		took += c.Took
+	}
+	return fmt.Sprintf(" (%.1f s)", took.Seconds()) + strings.Join(append([]string{""}, skips...), "; ")
 }
 
 // tickNotice prints line to the verifier log (stdout) and queues it for session's next prompt.

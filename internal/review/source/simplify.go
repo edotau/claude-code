@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -375,6 +376,9 @@ func simplicityKeyed(path, content, lang string) []keyedFinding {
 	out := complexityKeyed(path, content)
 	if q, err := QualityContent(path, content, lang); err == nil {
 		for _, s := range q.Smells {
+			if smellReported(s, out) {
+				continue
+			}
 			text := s.Type + ": " + s.Message
 			if s.Location != "" {
 				text = s.Location + ": " + text
@@ -384,4 +388,12 @@ func simplicityKeyed(path, content, lang string) []keyedFinding {
 		}
 	}
 	return out
+}
+
+// smellReported is a long_function or high_complexity smell whose function the complexity check already flagged.
+func smellReported(s Smell, found []keyedFinding) bool {
+	rule := map[string]string{"long_function": "c|function-length|", "high_complexity": "c|cyclomatic-complexity|"}[s.Type]
+	return rule != "" && slices.ContainsFunc(found, func(f keyedFinding) bool {
+		return strings.HasPrefix(f.key, rule+"'"+s.Location+"'")
+	})
 }

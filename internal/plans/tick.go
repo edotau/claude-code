@@ -346,7 +346,11 @@ type PlanTick struct {
 func (r PlanTick) Lines(sha string) []string {
 	var out []string
 	if len(r.Ticked) > 0 {
-		out = append(out, "plans: ticked "+strings.Join(r.Ticked, "; ")+" ("+sha[:min(len(sha), 7)]+") in "+strings.TrimSuffix(filepath.Base(r.Plan), ".md"))
+		names := r.IDs
+		if len(names) == 0 {
+			names = r.Ticked
+		}
+		out = append(out, "plans: ticked "+strings.Join(names, ", ")+" ("+sha[:min(len(sha), 7)]+") in "+strings.TrimSuffix(filepath.Base(r.Plan), ".md"))
 	}
 	return append(append(out, r.Notes...), r.Candidate...)
 }

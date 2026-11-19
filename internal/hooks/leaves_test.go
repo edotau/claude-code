@@ -568,7 +568,7 @@ func TestRanOnReceiptFromResultFollow(t *testing.T) {
 }
 
 // relayNote is the note a gated leaf that did the work itself passes with.
-const relayNote = "NOTE: the work was done on the relay model"
+const relayNote = "NOTE: ran on the relay model"
 
 // The ran-on gate covers every leaf type that can request an agent and spares claude; it notes, never blocks.
 func TestRanOnGateTypes(t *testing.T) {
@@ -714,7 +714,7 @@ func TestRanOnRelayDidTheWork(t *testing.T) {
 	in = handbackOf(in, "fixed it")
 	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
 	msg, _ := r.UpdatedInput["message"].(string)
-	if blocked || len(*spawned) != 0 || !strings.HasPrefix(msg, relayNote) || !strings.Contains(msg, "not on codex") || !strings.HasSuffix(msg, "fixed it") {
+	if blocked || len(*spawned) != 0 || !strings.HasPrefix(msg, relayNote) || !strings.Contains(msg, "not codex") || !strings.HasSuffix(msg, "fixed it") {
 		t.Fatalf("got %+v blocked=%v spawns %v, want the hand-back through with the relay note, no launch", r, blocked, *spawned)
 	}
 }

@@ -20,7 +20,7 @@ func agentBashAllow(in *core.Input, r core.Result) core.Result {
 	if r.Floor {
 		return r
 	}
-	r.Context = core.JoinContext(r.Context, "allowed for an agent (owner order); was: "+strings.TrimSpace(r.Reason))
+	r.Context = core.JoinContext(r.Context, "allowed for an agent (owner order): "+allowedRule(r))
 	r.Decision, r.Reason, r.Verdict = core.Allow, "", core.VerdictPassed
 	return r
 }
@@ -35,4 +35,16 @@ func agentAllowTool(tool string) bool {
 		return json.Unmarshal([]byte(os.Getenv(agent.DispatchPermissionsEnv)), &p) == nil && p.Mode == agent.PermAllow
 	}
 	return false
+}
+
+// allowedRule names the rule that was overridden, else the reason's first 60 runes.
+func allowedRule(r core.Result) string {
+	if r.Rule != "" {
+		return r.Rule
+	}
+	s := []rune(strings.TrimSpace(r.Reason))
+	if len(s) > 60 {
+		s = s[:60]
+	}
+	return string(s)
 }
