@@ -117,16 +117,10 @@ func seedLeafMarker(t *testing.T) {
 // rewriteRefCases are the branch-ref moves and GIT_DIR spellings of a rewrite.
 func rewriteRefCases() []rewriteCase {
 	return []rewriteCase{
-		{name: "branch -f in the live tree", cmd: "git branch -f solo HEAD", cwd: "work", live: true, want: core.Block,
-			text: "live config tree"},
 		{name: "update-ref move in the live tree", cmd: "git update-ref refs/heads/solo HEAD", cwd: "work", live: true,
 			want: core.Block, text: "live config tree"},
 		{name: "update-ref -d in the live tree", cmd: "git update-ref -d refs/heads/solo", cwd: "work", live: true,
 			want: core.Block, text: "live config tree"},
-		{name: "branch -D in the live tree", cmd: "git branch -D solo", cwd: "work", live: true, want: core.Block,
-			text: "live config tree"},
-		{name: "branch -M in the live tree", cmd: "git branch -M solo", cwd: "work", live: true, want: core.Block,
-			text: "live config tree"},
 		{name: "GIT_DIR names the live tree", cmd: "GIT_DIR=WORK/.git git reset --hard HEAD~1", cwd: "wt", live: true,
 			want: core.Block, text: "live config tree"},
 		{name: "branch -f in an unshared clone", cmd: "git branch -f solo HEAD", cwd: "work", want: core.Allow},

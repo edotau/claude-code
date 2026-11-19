@@ -52,7 +52,7 @@ func rewriteScan(in *core.Input, cmd, cwd string) (rewriteRisk, bool) {
 	var warn string
 	risky := shell.EachGit(withGitEnv(dropRemoteHeredocs(cmd)), cwd, func(target, verb string, args []string) bool {
 		rng, ok := rewriteRange(verb, args)
-		if !ok {
+		if !ok || verb == "branch" && in.AgentID == "" { // the owner deletes or moves branches from the main session
 			return false
 		}
 		r, hit := assessRewrite(in, target, verb, rng)
@@ -195,6 +195,9 @@ func assessRewrite(in *core.Input, target, verb string, rng []string) (rewriteRi
 		if ref != "HEAD" {
 			branch = ref
 		}
+	}
+	if ref, ok := strings.CutPrefix(rng[0], "refs/heads/"); ok { // branch and update-ref name the ref they strand
+		branch = ref
 	}
 	reasons, err := shareReasons(ctx, in, top, linked, nested)
 	r := rewriteRisk{verb: verb, branch: branch, commits: n, reasons: reasons}
