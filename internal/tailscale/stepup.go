@@ -98,16 +98,13 @@ func reauthLocal(ctx context.Context, out io.Writer) error {
 		return err
 	}
 	defer func() { _ = bus.Close() }()
-	before, err := Status(ctx)
-	if err != nil {
-		return err
-	}
+	before, _ := Status(ctx) // unreadable: the key check stays off and only a Running notify ends the watch
 	if _, err := localAPI(ctx, http.MethodPost, "login-interactive", nil); err != nil {
 		return err
 	}
 	return awaitReauth(bus, out, func() bool {
 		st, err := Status(ctx)
-		return err == nil && st.running() && st.NodeKey != "" && st.NodeKey != before.NodeKey
+		return err == nil && before.NodeKey != "" && st.running() && st.NodeKey != "" && st.NodeKey != before.NodeKey
 	})
 }
 
