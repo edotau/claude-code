@@ -362,7 +362,7 @@ func FilterObject(raw []byte, keep func(key string, val json.RawMessage) (json.R
 
 // CheckFile is the read-only audit: it reports why file would make Claude Code throw, nil when it is valid.
 func CheckFile(file string) error {
-	data, err := os.ReadFile(file)
+	data, err := readCapped(file, maxSettingsBytes)
 	if err != nil {
 		return err
 	}
@@ -863,7 +863,10 @@ func LivePermissions() (PermissionLists, error) {
 
 const maxSettingsBytes = 4 << 20
 
-// readCapped reads file, failing when it holds more than max bytes.
+// ErrTooLarge marks a settings file over the read cap.
+var ErrTooLarge = errors.New("settings.json over 4 MiB")
+
+// readCapped reads file, failing with ErrTooLarge when it holds more than max bytes.
 func readCapped(file string, max int64) ([]byte, error) {
 	f, err := os.Open(file)
 	if err != nil {
@@ -875,7 +878,7 @@ func readCapped(file string, max int64) ([]byte, error) {
 		return nil, err
 	}
 	if int64(len(data)) > max {
-		return nil, fmt.Errorf("%s: larger than %d bytes", filepath.Base(file), max)
+		return nil, fmt.Errorf("%w (%s): trim it below 4 MiB or safety-scan keeps using template permissions", ErrTooLarge, filepath.Base(file))
 	}
 	return data, nil
 }

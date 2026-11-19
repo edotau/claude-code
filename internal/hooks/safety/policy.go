@@ -2,6 +2,10 @@ package safety
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -37,9 +41,26 @@ func livePolicy() policy {
 		return parsePolicy(live), err
 	})
 	if err != nil {
+		noteFallback(err)
 		return templatePolicy()
 	}
 	return p
+}
+
+var fallbackOnce sync.Once
+
+// noteFallback says once per process why the template permissions apply; a missing file is a normal install.
+func noteFallback(err error) {
+	if errors.Is(err, fs.ErrNotExist) {
+		return
+	}
+	fallbackOnce.Do(func() {
+		cause := "settings.json unreadable or invalid (" + err.Error() + ")"
+		if errors.Is(err, settings.ErrTooLarge) {
+			cause = "settings.json over 4 MiB"
+		}
+		fmt.Fprintln(os.Stderr, "safety-scan: "+cause+": using template permissions; custom deny rows not applied")
+	})
 }
 
 // parsePolicy keeps Bash rules and Edit/Write path args; an unparseable rule is skipped, as Claude Code skips it.
