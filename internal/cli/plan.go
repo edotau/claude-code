@@ -5,13 +5,17 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
+	"time"
 
+	"github.com/edotau/claude-code/internal/agent/waves"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/review/planlint"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 var planPage = helptext.Page{
@@ -105,9 +109,17 @@ func cmdPlanTick(args []string) int {
 	plan := fs.String("plan", "", "plan file (default: matching recent or claimed plans)")
 	dryRun := fs.Bool("dry-run", false, "print what would tick without writing the plan")
 	audit := fs.Bool("audit", false, "audit this week's plans: tick, strike or report what git proves")
+	verify := fs.Bool("verify", false, "internal: verify --task ids on --sha, tick the green")
+	sha := fs.String("sha", "", "with --verify: the landed commit")
+	session := fs.String("session", "", "with --verify: the session that gets the result notice")
+	var tasks []string
+	fs.Func("task", "with --verify: a task id (repeatable)", func(v string) error { tasks = append(tasks, v); return nil })
 	format := helptext.FormatFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
+	}
+	if *verify {
+		return runTickVerify(*plan, *sha, tasks, *session)
 	}
 	if *audit && (*rng != "" || *plan != "") {
 		return helptext.FailUsage("plan tick: --audit takes neither --range nor --plan")
@@ -129,17 +141,87 @@ func cmdPlanTick(args []string) int {
 	if *audit {
 		return cmdPlanAudit(top, *dryRun, *format)
 	}
-	if *plan != "" {
-		resolved, err := plans.ResolvePlan(top, *plan)
+	return tickRange(top, *rng, *plan, *dryRun)
+}
+
+func tickRange(top, rng, plan string, dryRun bool) int {
+	if plan != "" {
+		resolved, err := plans.ResolvePlan(top, plan)
 		if err != nil {
 			return helptext.FailUsage("plan tick: %v", err)
 		}
-		*plan = resolved
+		plan = resolved
 	}
-	if err := plans.TickRange(context.Background(), top, plans.WorktreeName(top), *rng, *plan, plans.MirrorDests(), *dryRun, os.Stdout); err != nil {
+	if err := plans.TickRange(context.Background(), top, plans.WorktreeName(top), rng, plan, plans.MirrorDests(), dryRun, os.Stdout); err != nil {
 		return helptext.Fail("plan tick: %v", err)
 	}
 	return 0
+}
+
+// tickVerifyTimeout caps one detached verifier run.
+const tickVerifyTimeout = 20 * time.Minute
+
+// runTickVerify ticks each green task with sha and posts one notice per task; red leaves it open with the tail.
+func runTickVerify(plan, sha string, ids []string, session string) int {
+	if plan == "" || sha == "" || len(ids) == 0 {
+		return helptext.FailUsage("plan tick: --verify needs --plan, --sha and --task")
+	}
+	top, err := os.Getwd()
+	if err != nil {
+		return helptext.Fail("plan tick: %v", err)
+	}
+	p, err := plans.Parse(plan)
+	if err != nil {
+		return helptext.Fail("plan tick: %v", err)
+	}
+	tasks := slices.DeleteFunc(slices.Clone(p.Tasks), func(t plans.Task) bool { return !slices.Contains(ids, t.ID) })
+	ctx, cancel := context.WithTimeout(context.Background(), tickVerifyTimeout)
+	defer cancel()
+	checks, err := waves.VerifyCommit(ctx, top, sha, tasks)
+	if err != nil {
+		tickNotice(session, "plans: "+strings.Join(ids, ", ")+" not ticked: verifier failed: "+err.Error())
+		return 1
+	}
+	green := reportChecks(session, sha, tasks, checks)
+	results, _, err := plans.TickCommit(top, sha, nil, func(t plans.Task) bool { return green[t.ID] })
+	for _, r := range results {
+		for _, l := range r.Lines(sha) {
+			tickNotice(session, l)
+		}
+	}
+	if err != nil {
+		tickNotice(session, "plans: not ticked: "+err.Error())
+		return 1
+	}
+	return 0
+}
+
+// reportChecks posts one notice per task and returns the ids whose checks are all green.
+func reportChecks(session, sha string, tasks []plans.Task, checks map[string][]waves.TaskCheck) map[string]bool {
+	short := sha[:min(7, len(sha))]
+	green := map[string]bool{}
+	for _, t := range tasks {
+		cs := checks[t.ID]
+		lines := make([]string, 0, len(cs))
+		for _, c := range cs {
+			lines = append(lines, c.Line())
+		}
+		if waves.AllOK(cs) {
+			green[t.ID] = true
+			tickNotice(session, "plans: "+t.ID+" verified on "+short+": "+strings.Join(lines, "; "))
+			continue
+		}
+		tickNotice(session, "plans: "+t.ID+" not ticked on "+short+":\n"+strings.Join(lines, "\n"))
+	}
+	return green
+}
+
+// tickNotice prints line to the verifier log (stdout) and queues it for session's next prompt.
+func tickNotice(session, line string) {
+	fmt.Println(line)
+	if session != "" {
+		_ = worktree.Append(session, worktree.Notice{Schema: 1, TS: time.Now().Unix(), From: "plan-tick", Kind: "plan-tick", Text: line})
+	}
 }
 
 // cmdPlanAudit runs plans.Audit and prints its report as text or one JSON object.
@@ -242,7 +324,7 @@ func planSpec() *helptext.Node {
 			helptext.CompletionFormatFlag()}},
 		"assumptions": {Flags: []helptext.Flag{helptext.BoolFlag("json")}}, "goals": {Flags: []helptext.Flag{helptext.BoolFlag("json")}},
 		"tick": {Flags: []helptext.Flag{{Name: "range"}, {Name: "plan"}, {Name: "dry-run", IsBool: true}, {Name: "audit", IsBool: true},
-			helptext.CompletionFormatFlag()}},
+			{Name: "verify", IsBool: true}, {Name: "sha"}, {Name: "task"}, {Name: "session"}, helptext.CompletionFormatFlag()}},
 		"task": {Flags: []helptext.Flag{helptext.BoolFlag("done"), helptext.BoolFlag("reopen"), {Name: "strike"}, {Name: "sha"}, {Name: "plan"}}},
 	}}
 }
