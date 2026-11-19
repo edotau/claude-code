@@ -175,6 +175,16 @@ func TestPermissionWrapperNormalizationGrants(t *testing.T) {
 	})
 }
 
+// Given a curl deny, Then the command xargs runs is judged, past its options and their values; a plain grep stays allowed.
+func TestPermissionXargsUnwrapped(t *testing.T) {
+	p := Permissions{Mode: "plan", Allow: []Rule{{"Bash", "echo *"}, {"Bash", "xargs *"}, {"Bash", "grep *"}}, Deny: []Rule{{"Bash", "curl *"}}}
+	checkBash(t, p, map[string]Decision{
+		"echo u | xargs curl x": Deny, "echo u | xargs -n 1 curl x": Deny, "echo u | xargs -I {} curl {}": Deny,
+		"echo u | xargs --max-args 1 curl x": Deny, "echo u | xargs -P4 -0 curl x": Deny, "echo u | xargs nice curl x": Deny,
+		"echo u | xargs -- curl x": Deny, "echo u | xargs grep x": Allow, "echo u | xargs -n 1 grep curl": Allow,
+	})
+}
+
 // A segment that only assigns or only prints the environment is judged like any command; an empty one is skipped.
 func TestPermissionWordlessSegmentJudged(t *testing.T) {
 	p := Permissions{Mode: "plan", Allow: []Rule{{"Bash", "grep *"}, {"Bash", "wc *"}}}

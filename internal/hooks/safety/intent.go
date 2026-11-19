@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/shell"
 )
@@ -341,10 +342,7 @@ func sudoLeads(toks []string, depth int) bool {
 			}) {
 				return true // `nice -n 5 sudo x`, env -S 'sudo x', flock f -c 'sudo x', watch 'sudo x'
 			}
-			toks = toks[1:]
-			for len(toks) > 0 && (strings.HasPrefix(toks[0], "-") || len(toks) > 1 && name == "timeout") {
-				toks = toks[1:] // options, and timeout's duration; a value option's value is checked next round
-			}
+			toks = skipPrefixOpts(name, toks)
 		case name == "ssh":
 			return slices.ContainsFunc(toks[1:], func(t string) bool { return sudoRuns(t, depth+1) })
 		case name == "find":
@@ -361,6 +359,18 @@ func sudoLeads(toks []string, depth int) bool {
 		}
 	}
 	return false
+}
+
+// skipPrefixOpts drops a prefix command's options, and timeout's duration; a value option's value is checked next round.
+func skipPrefixOpts(name string, toks []string) []string {
+	if name == "xargs" {
+		return agent.SkipXargs(toks)
+	}
+	toks = toks[1:]
+	for len(toks) > 0 && (strings.HasPrefix(toks[0], "-") || len(toks) > 1 && name == "timeout") {
+		toks = toks[1:]
+	}
+	return toks
 }
 
 // shellSkipAssign drops leading NAME=value words.

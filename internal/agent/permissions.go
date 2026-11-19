@@ -601,8 +601,7 @@ func (p Permissions) decideSeg(seg, cdTo string, at opDir, depth int) (Decision,
 	if len(rawToks) == 0 { // a blank line, a trailing `;` or a masked substitution; `env` or `x=1` alone is judged
 		return Allow, false
 	}
-	toks, _ := shell.Unwrap(rawToks, "")
-	toks = commandWords(toks)
+	toks := commandWords(UnwrapXargs(rawToks))
 	d := p.decideSegment(strings.TrimSpace(seg), rawToks, toks)
 	judged := seg
 	if cdTo != "" {
@@ -619,6 +618,39 @@ func (p Permissions) decideSeg(seg, cdTo string, at opDir, depth int) (Decision,
 		d = Deny
 	}
 	return d, true
+}
+
+var xargsLongValueFlags = map[string]bool{
+	"--max-args": true, "--replace": true, "--max-procs": true, "--max-lines": true, "--delimiter": true,
+	"--eof": true, "--max-chars": true, "--arg-file": true, "--process-slot-var": true,
+}
+
+// UnwrapXargs is toks past wrappers and any xargs, so the word left is the command run.
+func UnwrapXargs(toks []string) []string {
+	for {
+		toks, _ = shell.Unwrap(toks, "")
+		if len(toks) == 0 || filepath.Base(toks[0]) != "xargs" {
+			return toks
+		}
+		toks = SkipXargs(toks)
+	}
+}
+
+// SkipXargs is the words after a leading xargs and its options (values and `--` included).
+func SkipXargs(toks []string) []string {
+	values := shell.GuardWords("runner_value_flags")
+	toks = toks[1:]
+	for len(toks) > 0 && strings.HasPrefix(toks[0], "-") && toks[0] != "-" {
+		opt := toks[0]
+		toks = toks[1:]
+		if opt == "--" {
+			break
+		}
+		if (slices.Contains(values, opt) || xargsLongValueFlags[opt]) && len(toks) > 0 {
+			toks = toks[1:]
+		}
+	}
+	return toks
 }
 
 // mayMoveCwd reports a segment that may change the shell's cwd: any cd, pushd or popd word, or eval and source.
