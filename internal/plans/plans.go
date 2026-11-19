@@ -682,3 +682,34 @@ func Dirs(all bool) []string {
 	}
 	return dirs
 }
+
+// OpenPlan is a recent dated plan that still has open tasks: its slug, progress and first open task.
+type OpenPlan struct {
+	Slug          string
+	Ticked, Total int
+	Next          string
+}
+
+// OpenPlans lists repoRoot's recent dated plans with open tasks, newest first, at most limit.
+func OpenPlans(repoRoot string, limit int) []OpenPlan {
+	home := Home(repoRoot)
+	entries, _ := os.ReadDir(home) // no plans home is no plans
+	cutoff := now().AddDate(0, 0, -recentDays).Format(time.DateOnly)
+	var out []OpenPlan
+	for _, d := range slices.Backward(loadDatedPlans(entries, home, nil)) {
+		base := filepath.Base(d.path)
+		if base[:10] < cutoff {
+			continue
+		}
+		s, op := summarize(d.plan), OpenPlan{Slug: strings.TrimSuffix(base, ".md")}
+		op.Ticked, op.Total = s.Ticked, s.Total
+		if i := slices.IndexFunc(d.plan.Tasks, open); i >= 0 {
+			op.Next = cmp.Or(d.plan.Tasks[i].ID, d.plan.Tasks[i].Title)
+			out = append(out, op)
+		}
+		if len(out) == limit {
+			break
+		}
+	}
+	return out
+}

@@ -443,3 +443,26 @@ func TestStopBelowUpdateThresholdRefreshesOnce(t *testing.T) {
 		t.Fatalf("updates=%d refreshes=%d; want 0 and 1", updates, refreshes)
 	}
 }
+
+func TestOpenPlansLineNamesOnlyOpenPlans(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	if err := os.MkdirAll(filepath.Join(cfg, ".git"), 0o755); err != nil || os.WriteFile(filepath.Join(cfg, ".git", "HEAD"), []byte("ref: refs/heads/main\n"), 0o644) != nil {
+		t.Fatal(err)
+	}
+	if err := os.Mkdir(filepath.Join(cfg, "plans"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	day := time.Now().Format(time.DateOnly)
+	plan := func(slug, body string) {
+		if err := os.WriteFile(filepath.Join(cfg, "plans", day+"-"+slug+".md"), []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan("open", "- [x] Phase 1.1 one\n- [ ] Phase 1.2 two\n")
+	plan("closed", "- [x] Phase 1.1 one\n")
+	got := openPlansLine(cfg)
+	if want := "plans open: " + day + "-open 1/2 → Phase 1.2"; got != want {
+		t.Fatalf("openPlansLine = %q, want %q", got, want)
+	}
+}

@@ -4,10 +4,13 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -24,7 +27,7 @@ func Start(in *core.Input) core.Result {
 	reg := loadRegistry() // one registry load serves the served refresh and the pin check
 	pins := pinsOf(hctx, reg, now)
 	refreshServed(reg, pins, cwd, now)
-	res := core.Result{Context: core.JoinContext(ctx, preflightNotice(reg, pins))}
+	res := core.Result{Context: core.JoinContext(ctx, preflightNotice(reg, pins), openPlansLine(cwd))}
 	if !memory.IsUpdateChild() {
 		res.SystemMessage = memory.ConsumeCatchupNote()
 	}
@@ -209,4 +212,20 @@ func sessionRootInput(in *core.Input) *core.Input {
 	copy := *in
 	copy.CWD = sessionRoot(in.SessionID, in.CWD)
 	return &copy
+}
+
+// openPlansLine is one line naming cwd's repo's open recent plans and their next task, "" when none.
+func openPlansLine(cwd string) string {
+	top, _ := paths.CheckoutOf(cwd)
+	if top == "" {
+		return ""
+	}
+	var parts []string
+	for _, p := range plans.OpenPlans(top, 5) {
+		parts = append(parts, fmt.Sprintf("%s %d/%d → %s", p.Slug, p.Ticked, p.Total, p.Next))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "plans open: " + strings.Join(parts, "; ")
 }
