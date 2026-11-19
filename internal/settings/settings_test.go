@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -255,6 +256,34 @@ func TestLivePermissionsReadsListsAndRejectsBadFiles(t *testing.T) {
 		if (want < 0) != (err != nil) || (err == nil && len(got.Deny) != want) {
 			t.Errorf("%s: deny = %v, err = %v, want %d", body, got.Deny, err, want)
 		}
+	}
+}
+
+func TestLivePermissionsDecodesAllowAndAsk(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	file := filepath.Join(cfg, "settings.json")
+	for _, tc := range []struct {
+		body       string
+		allow, ask []string
+	}{
+		{`{"permissions":{"deny":[],"allow":["a"],"ask":["b","c"]}}`, []string{"a"}, []string{"b", "c"}},
+		{`{"permissions":{"deny":[]}}`, nil, nil},
+	} {
+		if err := os.WriteFile(file, []byte(tc.body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		got, err := LivePermissions()
+		want := PermissionLists{Allow: tc.allow, Ask: tc.ask, Deny: []string{}}
+		if err != nil || !reflect.DeepEqual(got, want) {
+			t.Errorf("%s: got %+v, err %v, want %+v", tc.body, got, err, want)
+		}
+	}
+	if err := os.WriteFile(file, []byte(`{"permissions":{"allow":["a"],"ask":["b"]}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := LivePermissions(); err == nil {
+		t.Error("allow and ask without deny: want an error")
 	}
 }
 

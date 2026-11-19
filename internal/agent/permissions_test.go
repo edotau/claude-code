@@ -145,6 +145,19 @@ func TestPermissionCdInsideWorkdir(t *testing.T) {
 	})
 	// an empty workdir must allow no cd at all, not every absolute one
 	checkBash(t, Permissions{Mode: "plan", Allow: []Rule{CdRule("")}}, map[string]Decision{"cd /": Deny, "cd /etc": Deny})
+	// a home-normalized store path still matches its cd rule (commandWords spells $HOME as ~)
+	home, _ := os.UserHomeDir()
+	store := Permissions{Mode: "plan", Allow: []Rule{CdRule(filepath.ToSlash(home) + "/.claude/memory")}}
+	checkBash(t, store, map[string]Decision{"cd ~/.claude/memory": Allow, "cd ~/.claude/memory/x": Allow,"cd ~/.claude": Deny, "cd ~": Deny})
+}
+
+// Given a Bash deny, Then rtk, path-named and $HOME spellings meet it; `rtk read` stays unstripped.
+func TestPermissionCommandWordsNormalize(t *testing.T) {
+	p := Permissions{Mode: "plan", Allow: []Rule{{"Bash", "*"}}, Deny: []Rule{{"Bash", "rm -rf ~"}}}
+	checkBash(t, p, map[string]Decision{
+		"rm -rf ~": Deny, "rtk rm -rf ~": Deny, "/bin/rm -rf $HOME": Deny, "rtk rm -rf ${HOME}": Deny,
+		"rm -rf /tmp/x": Allow, "rtk read f": Allow,
+	})
 }
 
 // Given go test allowed, Then a bare env or time prefix is granted by the normalized form; unsafe prefixes are not.
