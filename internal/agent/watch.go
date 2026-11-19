@@ -101,6 +101,7 @@ func (s StaleJob) Resumable() bool { return s.Reason == WatchDead && s.SessionID
 type WatchReport struct {
 	Stale   []StaleJob `json:"stale"`
 	Pending int        `json:"pending"`
+	Running []Record   `json:"-"` // the healthy pending jobs, for the hook's heartbeat
 }
 
 // watchAlive is the liveness probe; tests replace it.
@@ -183,6 +184,9 @@ func classifyJobs(recs []Record, now time.Time, lim WatchLimits, relays func([]R
 		}
 		if pending {
 			rep.Pending++
+			if r.Status == "running" {
+				rep.Running = append(rep.Running, r)
+			}
 		}
 	}
 	rep.Stale = stale

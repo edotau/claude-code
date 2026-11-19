@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,6 +27,8 @@ import (
 
 const (
 	watchEvery     = time.Minute        // at most one check per session per this
+	watchBeatMax   = 4                  // healthy jobs named in the heartbeat line
+	watchBeatLen   = 200                // the heartbeat line's length cap
 	watchLinesMax  = 5                  // context lines per check; the rest wait for the next one
 	watchKeep      = 7 * 24 * time.Hour // markers older than this are swept on a check
 	resumeLaunchIn = 3 * time.Second    // the launcher prints its job id well inside the hook budget
@@ -94,7 +97,39 @@ func watchTick(in *core.Input) core.Result {
 		res.Context = strings.Join(lines, "\n")
 		res.SystemMessage = fmt.Sprintf("watch: %d stale job line(s); claude-code agents watch --once", len(lines))
 	}
+	if hb := runningLine(rep.Running, rep.Stale, now); hb != "" {
+		res.Context = core.JoinNonEmpty("\n", res.Context, hb)
+	}
 	return res
+}
+
+// runningLine names up to watchBeatMax healthy running jobs so a long healthy job is not silence; "" when none.
+func runningLine(running []agent.Record, stale []agent.StaleJob, now time.Time) string {
+	var parts []string
+	for _, r := range running {
+		if slices.ContainsFunc(stale, func(s agent.StaleJob) bool { return s.ID == r.ID }) {
+			continue
+		}
+		what := "Job " + r.ID
+		if t := recordPlanTask([]agent.Record{r}); t != "" {
+			what = "Task " + t
+		}
+		parts = append(parts, fmt.Sprintf("%s (%s, %s)", what, r.Agent, agent.ShortDur(now.Sub(r.Time))))
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	n, line := min(len(parts), watchBeatMax), ""
+	for ; n > 0; n-- { // drop entries until the line fits
+		shown := parts[:n]
+		if n < len(parts) {
+			shown = append(slices.Clone(shown), fmt.Sprintf("+%d more", len(parts)-n))
+		}
+		if line = "running: " + strings.Join(shown, "; "); len(line) <= watchBeatLen {
+			break
+		}
+	}
+	return line
 }
 
 func errText(prefix string, err error) string {

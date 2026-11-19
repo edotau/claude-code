@@ -131,3 +131,27 @@ func TestMarkCollectedOnlyEndedJobs(t *testing.T) {
 		}
 	}
 }
+
+func TestRunningLine(t *testing.T) {
+	now := time.Date(2026, 11, 19, 20, 10, 0, 0, time.UTC)
+	rec := func(id, ag, task string, age time.Duration) agent.Record {
+		return agent.Record{ID: id, Agent: ag, PlanTask: task, Time: now.Add(-age)}
+	}
+	r1, r2 := rec("j1", "codex", "Phase 2.2", 6*time.Minute), rec("j2", "opencode", "", 40*time.Second)
+	many := []agent.Record{r1, r2, rec("j3", "a", "", time.Minute), rec("j4", "a", "", time.Minute), rec("j5", "a", "", time.Minute)}
+	for _, c := range []struct {
+		name    string
+		running []agent.Record
+		stale   []agent.StaleJob
+		want    string
+	}{
+		{"none", nil, nil, ""},
+		{"entries", []agent.Record{r1, r2}, nil, "running: Task Phase 2.2 (codex, 6m); Job j2 (opencode, 40s)"},
+		{"cap", many, nil, "running: Task Phase 2.2 (codex, 6m); Job j2 (opencode, 40s); Job j3 (a, 1m); Job j4 (a, 1m); +1 more"},
+		{"stale excluded", []agent.Record{r1, r2}, []agent.StaleJob{{ID: "j1"}}, "running: Job j2 (opencode, 40s)"},
+	} {
+		if got := runningLine(c.running, c.stale, now); got != c.want {
+			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
+		}
+	}
+}
