@@ -844,3 +844,22 @@ func TestSemanticCacheSkipsRouterLinkWithoutCacheFile(t *testing.T) {
 	}
 	time.Sleep(20 * time.Millisecond)
 }
+
+func TestHedgedEmbedSecondWinsFirstCancelled(t *testing.T) {
+	cancelled := make(chan struct{})
+	slow := func(ctx context.Context, _ []string) ([][]float32, error) {
+		<-ctx.Done()
+		close(cancelled)
+		return nil, ctx.Err()
+	}
+	fast := func(context.Context, []string) ([][]float32, error) { return [][]float32{{1}}, nil }
+	v, err := hedgedEmbed(context.Background(), 5*time.Millisecond, []string{"q"}, slow, fast)
+	if err != nil || len(v) != 1 || v[0][0] != 1 {
+		t.Fatalf("got %v, %v", v, err)
+	}
+	select {
+	case <-cancelled:
+	case <-time.After(time.Second):
+		t.Fatal("first request was not cancelled")
+	}
+}

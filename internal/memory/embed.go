@@ -740,6 +740,74 @@ type semanticResult struct {
 	err error
 }
 
+// embedHedgeDelay is how long the first workspace may stay silent before a second one gets the same request.
+var embedHedgeDelay = 300 * time.Millisecond
+
+type embedFn = func(ctx context.Context, texts []string) ([][]float32, error)
+
+// hedgeFunc embeds with the next Databricks workspace after profile, or is nil when there is none.
+func hedgeFunc(profile, model string) embedFn {
+	for _, name := range databricksProfiles() {
+		if name == profile || !safeProfile().MatchString(name) {
+			continue
+		}
+		return func(ctx context.Context, texts []string) ([][]float32, error) {
+			c, err := openEmbedClient(ctx, name, model)
+			if err != nil {
+				return nil, err
+			}
+			if c.Model != model {
+				return nil, fmt.Errorf("%w: built with another model", errEmbedMismatch)
+			}
+			return c.EmbedFunc(ctx, texts)
+		}
+	}
+	return nil
+}
+
+// hedgedEmbed runs primary, starts secondary after delay or on primary's failure; first success wins, the loser is cancelled.
+func hedgedEmbed(ctx context.Context, delay time.Duration, texts []string, primary, secondary embedFn) ([][]float32, error) {
+	if secondary == nil {
+		return primary(ctx, texts)
+	}
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	type result struct {
+		vecs [][]float32
+		err  error
+	}
+	ch := make(chan result, 2)
+	launch := func(f embedFn) {
+		parallel.Go(func() { v, err := f(ctx, texts); ch <- result{v, err} }, func(err error) { ch <- result{err: err} })
+	}
+	launch(primary)
+	pending := 1
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	tick := timer.C
+	var firstErr error
+	for pending > 0 {
+		select {
+		case <-tick:
+			tick = nil
+			launch(secondary)
+			pending++
+		case r := <-ch:
+			pending--
+			if r.err == nil {
+				return r.vecs, nil
+			}
+			firstErr = cmp.Or(firstErr, r.err)
+			if tick != nil { // primary failed early: hedge now
+				tick = nil
+				launch(secondary)
+				pending++
+			}
+		}
+	}
+	return nil, firstErr
+}
+
 func querySemantic(ctx context.Context, profile, query string, cache vectorRecord) semanticResult {
 	c, err := openEmbedClient(ctx, profile, cache.Model)
 	if err != nil {
@@ -748,7 +816,7 @@ func querySemantic(ctx context.Context, profile, query string, cache vectorRecor
 	if cache.Model == "" || c.Model != cache.Model { // checked first: no prompt text leaves on a mismatch
 		return semanticResult{err: fmt.Errorf("%w: built with another model", errEmbedMismatch)}
 	}
-	vecs, err := c.EmbedFunc(ctx, []string{query})
+	vecs, err := hedgedEmbed(ctx, embedHedgeDelay, []string{query}, c.EmbedFunc, hedgeFunc(profile, cache.Model))
 	if err == nil && len(vecs) != 1 {
 		err = errors.New("embedding endpoint returned no query vector")
 	}
