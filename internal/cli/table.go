@@ -254,6 +254,7 @@ func lookup(name string) *command {
 // Run dispatches argv and returns the exit code.
 func Run(argv []string) int {
 	paths.ExportConfigDir()
+	proc.FillCAEnv()
 	egress.Install()
 	if len(argv) < 2 {
 		return printUsage()
