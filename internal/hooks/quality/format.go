@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -108,7 +109,7 @@ func makeFormat(path string) bool {
 		return false
 	}
 	for _, candidate := range candidates {
-		if runMakeTarget(root, candidate.target, candidate.variable+"="+abs, abs) {
+		if runMakeTarget(root, candidate.target, candidate.variable, abs) {
 			return true
 		}
 	}
@@ -179,9 +180,37 @@ func recipeReads(recipe, name string) bool {
 	return strings.Contains(recipe, "$("+name+")") || strings.Contains(recipe, "${"+name+"}")
 }
 
-// runMakeTarget dry-runs the target and runs it only if every planned command names this file.
-func runMakeTarget(root, target, assignment, abs string) bool {
-	plan, ok := runMake(root, makeProbeTimeout, "-n", "-s", target, assignment)
+// makeProbe is one dry-run result with the probed file's path replaced by makeProbePathMark.
+type makeProbe struct {
+	plan string
+	ok   bool
+}
+
+const makeProbePathMark = "\x00"
+
+// makeProbes keeps dry-run plans per Makefile while its stamp holds; the value is a fresh map per stamp.
+var makeProbes paths.StampCache[*sync.Map]
+
+// runMakeTarget dry-runs the target and runs it only if every planned command names this file; a plan probed for
+// another file of the same extension is reused while the Makefile is unchanged.
+func runMakeTarget(root, target, variable, abs string) bool {
+	assignment := variable + "=" + abs
+	probes, err := makeProbes.Get(filepath.Join(root, "Makefile"), func() (*sync.Map, error) { return &sync.Map{}, nil })
+	if err != nil {
+		probes = &sync.Map{}
+	}
+	key := target + "\x00" + variable + "\x00" + filepath.Ext(abs)
+	var plan string
+	var ok bool
+	if v, hit := probes.Load(key); hit {
+		probe := v.(makeProbe)
+		plan, ok = strings.ReplaceAll(probe.plan, makeProbePathMark, abs), probe.ok
+	} else {
+		plan, ok = runMake(root, makeProbeTimeout, "-n", "-s", target, assignment)
+		if !strings.Contains(plan, makeProbePathMark) {
+			probes.Store(key, makeProbe{strings.ReplaceAll(plan, abs, makeProbePathMark), ok})
+		}
+	}
 	if !ok || makeProvisioning().MatchString(plan) || !everyLineNames(root, plan, abs) {
 		return false
 	}
