@@ -25,7 +25,7 @@ func StartSession(sessionID, cwd string, now time.Time) string {
 		linkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
 	}
 	chain := filepath.Join(StateDir(), "last-session")
-	out := sessionSurfaceText(cwd, prefix, chain, sessionID, now)
+	out := sessionSurfaceText(cwd, prefix, chain, sessionID, now, doctorNoticeAt)
 	if !IsUpdateChild() {
 		startWorkers(cwd, sessionID, now, banked)
 		// Every SessionStart (startup, resume, clear, compact) restarts what recall treats as already in context.
@@ -40,14 +40,14 @@ func StartSession(sessionID, cwd string, now time.Time) string {
 
 // SessionText is StartSession's text for an audit: no scaffold, link, workers, seen reset or chain write.
 func SessionText(sessionID, cwd string, now time.Time) string {
-	return sessionSurfaceText(cwd, "", filepath.Join(StateDir(), "last-session"), sessionID, now)
+	return sessionSurfaceText(cwd, "", filepath.Join(StateDir(), "last-session"), sessionID, now, func(time.Time) string { return doctorNotice() })
 }
 
 // sessionSurfaceText renders the start-of-session note and (when a bank exists) its surface.
-func sessionSurfaceText(cwd, prefix, chain, sessionID string, now time.Time) string {
+func sessionSurfaceText(cwd, prefix, chain, sessionID string, now time.Time, notice func(time.Time) string) string {
 	if surface := sessionSurface(cwd); surface != "" {
-		note := bankLoadNote(prefix) + chainNote(chain, sessionID, now) + doctorNotice()
-		return strings.TrimSpace(note) + "\n\n" + surface
+		text := bankLoadNote(prefix) + chainNote(chain, sessionID, now) + notice(now)
+		return strings.TrimSpace(text) + "\n\n" + surface
 	}
 	// a fresh scaffold has no surface yet; still say where the bank went
 	return strings.TrimSpace(prefix)

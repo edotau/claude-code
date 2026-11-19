@@ -348,7 +348,7 @@ func (x *e2eRun) updateProcedure(t *testing.T) {
 }
 
 func (x *e2eRun) updateTranscript(t *testing.T) {
-	// copilot and the other agent dispatches are absent from <cfg>/bin, so the chain lands on the fake claude there
+	// copilot and the other agent dispatches are absent from PATH, so the chain lands on the fake claude there
 	const marker = "e2e-update-marker-7731"
 	const session = "e2e-update-session"
 	transcript, argvLog, stdinLog := x.fakeTranscriptUpdate(t, marker)
@@ -370,9 +370,11 @@ func (x *e2eRun) fakeTranscriptUpdate(t *testing.T, marker string) (string, stri
 		"printf '\\n- " + marker + "\\n' >> '" + x.file("sessionHistory.md") + "'\n" +
 		"echo '{\"type\":\"assistant\",\"message\":{\"content\":[{\"type\":\"text\",\"text\":\"updated\"}]}}'\n" +
 		"echo '{\"type\":\"result\",\"subtype\":\"success\",\"result\":\"updated\"}'\n"
-	write(t, filepath.Join(x.cfg, "bin", "claude"), script)
-	if err := os.Chmod(filepath.Join(x.cfg, "bin", "claude"), 0o755); err != nil {
-		t.Fatal(err)
+	for _, dir := range []string{x.e.pathDir, filepath.Join(x.cfg, "bin")} { // the native lookup skips <cfg>/bin once bin/claude is the launcher
+		write(t, filepath.Join(dir, "claude"), script)
+		if err := os.Chmod(filepath.Join(dir, "claude"), 0o755); err != nil {
+			t.Fatal(err)
+		}
 	}
 	transcript := filepath.Join(t.TempDir(), "session.jsonl")
 	write(t, transcript, `{"type":"user","timestamp":"2026-01-01T00:00:00Z","message":{"role":"user","content":"hello"}}`+"\n"+
@@ -668,6 +670,38 @@ func TestDoctorNoticeTruncationPreservesUTF8(t *testing.T) {
 	}
 	if len(truncated) > 300 {
 		t.Errorf("truncation did not work: result is %d bytes", len(truncated))
+	}
+}
+
+func TestDoctorNoticeDailyStamp(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	today := time.Date(2026, 11, 19, 23, 59, 0, 0, time.Local)
+	tomorrow := today.Add(time.Minute)
+	const first = "home progress.md: over 60 lines"
+	const want = " memory review: " + first + " (+1 more)."
+	if got := doctorNoticeAt(today); got != "" {
+		t.Fatalf("no cached findings: got %q", got)
+	}
+	check := func(at time.Time, want string) {
+		t.Helper()
+		if got := doctorNoticeAt(at); got != want {
+			t.Errorf("doctorNoticeAt(%s) = %q, want %q", at, got, want)
+		}
+	}
+	for _, secondary := range []string{"home activeContext.md: over 80 lines", "home conventions.md: over 80 lines"} {
+		if err := cacheDoctorNotice([]string{first, secondary}); err != nil {
+			t.Fatal(err)
+		}
+		if got := doctorNotice(); got != want {
+			t.Errorf("read-only preview = %q, want %q", got, want)
+		}
+		check(today, want)
+		check(today, "")
+	}
+	check(tomorrow, want)
+	check(tomorrow, "")
+	if got := doctorNotice(); got != want {
+		t.Errorf("read-only preview after stamping = %q, want %q", got, want)
 	}
 }
 

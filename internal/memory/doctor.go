@@ -2,6 +2,7 @@
 package memory
 
 import (
+	"crypto/sha256"
 	"encoding/json"
 	"encoding/json/jsontext"
 	"errors"
@@ -67,20 +68,68 @@ func doctorNoticePath() string {
 	return filepath.Join(StateDir(), "doctor-notice-"+stateKey())
 }
 
-// doctorNotice is the cached review line for SessionStart, "" with none; a full Doctor pass is too slow for launch.
+const doctorFindingsSeparator = "\nfindings-sha256:"
+
+// doctorNotice is the read-only preview; prompt audits must not consume the notice.
 func doctorNotice() string {
-	data, err := os.ReadFile(doctorNoticePath())
+	notice, _ := readDoctorNotice(doctorNoticePath())
+	return notice
+}
+
+func readDoctorNotice(cachePath string) (string, []byte) {
+	data, err := os.ReadFile(cachePath)
 	if err != nil {
-		return ""
+		return "", nil
 	}
-	notice := strings.TrimSpace(string(data))
+	line, _, _ := strings.Cut(string(data), doctorFindingsSeparator)
+	notice := strings.TrimSpace(line)
 	if notice == "" {
-		return ""
+		return "", nil
 	}
 	if !isLostPinProblem(notice) {
 		notice = textutil.TruncateRunes(notice, 200)
 	}
-	return " memory review: " + notice + "."
+	return " memory review: " + notice + ".", data
+}
+
+func doctorNoticeAt(now time.Time) string {
+	cachePath := doctorNoticePath()
+	notice, data := readDoctorNotice(cachePath)
+	if notice == "" {
+		return ""
+	}
+	stampPath := filepath.Join(filepath.Dir(cachePath), "doctor-notice-shown")
+	stamp := fmt.Sprintf("%s %x\n", now.Local().Format(time.DateOnly), sha256.Sum256(data))
+	if !markDoctorNoticeShown(stampPath, stamp) {
+		return ""
+	}
+	return notice
+}
+
+func markDoctorNoticeShown(path, stamp string) bool {
+	if data, err := os.ReadFile(path); err == nil && string(data) == stamp {
+		return false
+	}
+	shown := false
+	// Parallel hooks may race on the same notice; only one claims it, without waiting.
+	_, err := paths.TryFileLock(path+".lock", 0, func() error {
+		data, err := os.ReadFile(path)
+		switch {
+		case err == nil && string(data) == stamp:
+			return nil
+		case err != nil && !errors.Is(err, os.ErrNotExist):
+			return err
+		}
+		if err := paths.AtomicWriteNoSync(path, []byte(stamp), 0o600); err != nil {
+			return err
+		}
+		shown = true
+		return nil
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, "memory review: notice stamp:", err)
+	}
+	return shown
 }
 
 // writeDoctorNotice runs the doctor and caches its notice for root.
@@ -105,7 +154,15 @@ func cacheDoctorNotice(problems []string) error {
 			line += " (+" + strconv.Itoa(len(problems)-1) + " more)"
 		}
 	}
-	return paths.AtomicWrite(filepath.Join(StateDir(), "doctor-notice-"+stateKey()), []byte(line), 0o600)
+	if len(problems) > 0 {
+		// The summary hides all but the first finding, so include a digest of the full list.
+		findings, err := json.Marshal(problems)
+		if err != nil {
+			return err
+		}
+		line += fmt.Sprintf("%s%x", doctorFindingsSeparator, sha256.Sum256(findings))
+	}
+	return paths.AtomicWrite(doctorNoticePath(), []byte(line), 0o600)
 }
 
 // refreshNotice re-caches root's session-start notice once its bank is settled; a failure is a note on w, never fatal.
