@@ -30,11 +30,13 @@ func auditDir() string { return filepath.Join(paths.StateDir(), "worktree", "aud
 
 func auditBase(sha string) string { return filepath.Join(auditDir(), ShortOID(sha)) }
 
-// auditScript runs $2 in $1 and records "<exit code> <seconds>" in $3 when it ends.
-const auditScript = `s=$(date +%s); cd "$1" || exit 1; bash -c "$2"; rc=$?; ` +
+// auditScript runs $2 in a clean detached worktree of commit $4 of repo $1 and records "<exit code> <seconds>" in $3.
+const auditScript = `s=$(date +%s); t=$(mktemp -d) || exit 1; rc=1; ` +
+	`if git -C "$1" worktree add --detach "$t/src" "$4" >&2; then (cd "$t/src" && bash -c "$2"); rc=$?; ` +
+	`git -C "$1" worktree remove --force "$t/src" >&2; fi; rm -rf "$t"; ` +
 	`echo "$rc $(( $(date +%s) - s ))" >"$3.tmp" && mv "$3.tmp" "$3"`
 
-// StartAudit starts the detached audit of sha in the primary checkout main and returns the line to print ("" = none).
+// StartAudit starts the detached audit of a clean snapshot of sha (taken from the repo at main) and returns the line to print ("" = none).
 func StartAudit(main, sha string) string {
 	if auditCommand == "" {
 		return ""
@@ -61,7 +63,7 @@ func StartAudit(main, sha string) string {
 	if err != nil {
 		return "audit: not started: " + err.Error()
 	}
-	if !proc.SpawnDetached("bash", []string{"-c", auditScript, "audit", main, auditCommand, base + ".exit"}, main, logFile) {
+	if !proc.SpawnDetached("bash", []string{"-c", auditScript, "audit", main, auditCommand, base + ".exit", sha}, main, logFile) {
 		return "audit: not started: cannot spawn bash"
 	}
 	return "audit: started on " + ShortOID(sha) + " (log " + base + ".log)"

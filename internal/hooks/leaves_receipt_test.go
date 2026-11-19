@@ -227,13 +227,10 @@ func TestLeafSuccessfulEvidence(t *testing.T) {
 
 func TestScratchContainment(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
+	root := filepath.VolumeName(os.TempDir()) + string(filepath.Separator)
 	dir := t.TempDir()
 	link := filepath.Join(dir, "outside")
-	if err := os.Symlink(cwd, link); err != nil {
+	if err := os.Symlink(root, link); err != nil {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
@@ -241,7 +238,7 @@ func TestScratchContainment(t *testing.T) {
 		want bool
 	}{
 		{"/private/tmp/../../Users/edotau/.claude/internal/hooks/leaves.go", false},
-		{filepath.Join(link, "leaves.go"), false},
+		{filepath.Join(link, "etc", "leaves.go"), false},
 		{filepath.Join(link, "nonexistent.go"), false},
 		{filepath.Join(dir, "new.md"), true},
 	} {
@@ -261,12 +258,10 @@ func TestEditEvidence(t *testing.T) {
 		{"memory/reports/x.md", false, false},
 	} {
 		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-		cwd, err := os.Getwd()
-		if err != nil {
-			t.Fatal(err)
-		}
+		cwd := filepath.VolumeName(os.TempDir()) + string(filepath.Separator)
 		path := tc.path
 		if strings.HasPrefix(path, "memory/") {
+			var err error
 			path, err = filepath.Rel(cwd, memory.Sub("reports", "x.md"))
 			if err != nil {
 				t.Fatal(err)
