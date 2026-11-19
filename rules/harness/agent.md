@@ -103,7 +103,8 @@ paths:
   `--model databricks:auto` equals `--provider databricks --model auto`.
   Own-login `<login>/auto` is refused before launch, naming that login's typed ids.
   Labels, `gateway resolve`, and `ask --dry-run` only peek; `agents label <agent> --run` records and freezes the pick
-  as `--model` in the `Run:` line.
+  as `--model` in the `Run:` line. A label for a run that picks itself (`--model auto`, `<row>:auto`, or no model over
+  an auto pin) reads `auto (next: <id>)`, since the ask may pick another id; a frozen or typed model keeps the bare id.
   `opencode catalog` text shows `SERVED` for Databricks models: dev/qa/prod marks `y` READY, `n` not READY,
   or `?` for a missing/stale listing.
   `claude-code doctor` auto-pin rows end with 7-day final-route counts when records have `ran_route`.

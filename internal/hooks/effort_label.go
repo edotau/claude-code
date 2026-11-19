@@ -37,7 +37,7 @@ func applyLabel(ctx context.Context, run *dispatchRun, updated map[string]any, t
 	}
 	out := lowerFirst(tail)
 	if label != "" {
-		if head, _, _ := strings.Cut(orig, ":"); sameLabel(head, label) && labelShaped(strings.TrimSpace(head), label) { // else it stacks
+		if head, _, _ := cutHead(orig); sameLabel(head, label) && labelShaped(strings.TrimSpace(head), label) { // else it stacks
 			label = head // an equivalent label is kept as typed, so no rewrite is asked of auto mode
 		}
 		out = label + ": " + lowerFirst(tail)
@@ -53,6 +53,9 @@ func applyLabel(ctx context.Context, run *dispatchRun, updated map[string]any, t
 // sameLabel: head names label's model (models.SameModel), and claims `databricks-` only when label does too.
 func sameLabel(head, label string) bool {
 	head = strings.TrimSpace(head)
+	if agentpkg.IsNextLabel(head) || agentpkg.IsNextLabel(label) { // a peek says only itself; a bare id or `auto` never equals it
+		return head == label
+	}
 	claimsDBX := strings.HasPrefix(strings.ToLower(head), models.DatabricksPrefix)
 	if strings.Contains(head, "/") { // a provider-qualified head matches only the identical label
 		return head == label
@@ -63,7 +66,7 @@ func sameLabel(head, label string) bool {
 // stripLabels cuts every leading label-shaped `<head>:` so a doubled or wrong prefix is replaced, never stacked.
 func stripLabels(desc, st, label string) string {
 	for {
-		head, rest, ok := strings.Cut(desc, ":")
+		head, rest, ok := cutHead(desc)
 		head = strings.TrimSpace(head)
 		if !ok || head == "" || (head != st && (label == "" || !labelShaped(head, label))) {
 			return strings.TrimSpace(desc)
@@ -72,12 +75,25 @@ func stripLabels(desc, st, label string) string {
 	}
 }
 
+// cutHead is strings.Cut at the first colon, except that an `auto (next: <id>)` head is one head.
+func cutHead(desc string) (head, rest string, ok bool) {
+	if t := strings.TrimLeft(desc, " "); strings.HasPrefix(t, "auto (next:") {
+		if i := strings.Index(t, ")"); i >= 0 {
+			if after, found := strings.CutPrefix(strings.TrimLeft(t[i+1:], " "), ":"); found {
+				return t[:i+1], after, true
+			}
+		}
+	}
+	return strings.Cut(desc, ":")
+}
+
 // modelIDRe matches a model id: no spaces, a letter, a digit and a `-` or `/` ("gpt-6.1-sol", "opencode-go/kimi-k3").
 var modelIDRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z][\w.]*[-/][\w./-]*$`) })
 
 func labelShaped(head, label string) bool {
 	switch {
-	case head == label || slices.Contains(models.AliasNames, head) || agentid.Known(head):
+	case head == label || head == agentpkg.AutoModel || agentpkg.IsNextLabel(head) ||
+		slices.Contains(models.AliasNames, head) || agentid.Known(head):
 		return true
 	}
 	return modelIDRe().MatchString(head) && strings.ContainsAny(head, "0123456789")
@@ -219,7 +235,11 @@ func agentPinsModel(run *dispatchRun, name string) bool {
 
 // labelModel is the model the dispatch's ask runs (the resolver's wire id, else the own model) and the route's note.
 func labelModel(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) (label, note string) {
-	r, ok, err := labelRoute(ctx, run, updated, st, task)
+	r, ok, auto, err := labelRoute(ctx, run, updated, st, task)
+	label = r.Label()
+	if auto {
+		label = agentpkg.NextLabel(label)
+	}
 	switch {
 	case err != nil:
 		return "", fmt.Sprintf("dispatch-effort: no description label: the %s route does not resolve offline (%v); "+
@@ -227,9 +247,9 @@ func labelModel(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	case !ok:
 		return "", ""
 	case r.Note != "":
-		note = fmt.Sprintf("dispatch-effort: label %s: %s.", r.Label(), r.Note)
+		note = fmt.Sprintf("dispatch-effort: label %s: %s.", label, r.Note)
 	}
-	return r.Label(), strings.TrimSpace(note + "\n" + googleQuotaNote(ctx, r))
+	return label, strings.TrimSpace(note + "\n" + googleQuotaNote(ctx, r))
 }
 
 // googleQuotaCheck is the agy /usage seam, cache-only so a label never waits on an agy spawn; tests stub it.
@@ -280,26 +300,27 @@ func labelQuery(ctx context.Context, run *dispatchRun, updated map[string]any, s
 }
 
 // labelRoute resolves labelQuery the way the run does; ok is false when the label is the leaf's own model.
-func labelRoute(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) (agentpkg.ModelRoute, bool, error) {
+// auto is true when the run picks its own model, so the label is only a peek of the next pick.
+func labelRoute(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) (r agentpkg.ModelRoute, ok, auto bool, err error) {
 	q, ok := labelQuery(ctx, run, updated, st, task)
 	if !ok {
-		return agentpkg.ModelRoute{Model: ownModel(ctx, run, updated, st)}, true, nil
+		return agentpkg.ModelRoute{Model: ownModel(ctx, run, updated, st)}, true, false, nil
 	}
 	reg, err := run.registry()
 	if err != nil {
-		return agentpkg.ModelRoute{Agent: q.Agent}, false, err
+		return agentpkg.ModelRoute{Agent: q.Agent}, false, false, err
 	}
 	hint := router.RuleClassifier{}.Alias(cmp.Or(run.opening(ctx, task).prompt, task)) // ask classifies its prompt
 	hop, note, err := runQuery(ctx, reg, q, hint)
 	if err != nil { // %v: an offline ladder miss is no ErrModelRoute, so preflight never denies on it
-		return agentpkg.ModelRoute{Agent: q.Agent}, false, fmt.Errorf("%v", err)
+		return agentpkg.ModelRoute{Agent: q.Agent}, false, false, fmt.Errorf("%v", err)
 	}
-	r, err := resolveModel(reg, agentpkg.QueryFor(agentpkg.PeekContext(ctx), hop), time.Now())
+	r, err = resolveModel(reg, agentpkg.QueryFor(agentpkg.PeekContext(ctx), hop), time.Now())
 	if err != nil {
-		return agentpkg.ModelRoute{Agent: hop.Agent}, false, err
+		return agentpkg.ModelRoute{Agent: hop.Agent}, false, false, err
 	}
 	r.Note = strings.Join(slices.DeleteFunc([]string{note, r.Note}, func(s string) bool { return s == "" }), "; ")
-	return r, true, nil
+	return r, true, agentpkg.AutoRun(ctx, hop), nil
 }
 
 // resolveModel and runQuery are seams: tests stub them so a label never reads the live vault or route table.

@@ -175,16 +175,37 @@ func TestLabelModelAutoRunLine(t *testing.T) {
 		"tool_input": map[string]any{"subagent_type": "general-purpose", "prompt": brief, "description": "audit"}})
 	r := agentEffortResult(context.Background(), core.ParseInput(bytes.NewReader(raw)))
 	d, _ := r.UpdatedInput["description"].(string)
-	if r.Decision == core.Block || strings.HasPrefix(d, "auto:") || !strings.HasPrefix(d, "databricks-claude-") ||
+	if r.Decision == core.Block || !strings.HasPrefix(d, "auto (next: databricks-claude-") ||
 		r.UpdatedInput["prompt"] != brief {
-		t.Errorf("auto-mode dispatch = %+v (%s), want a concrete model label and the prompt byte-identical", r.UpdatedInput, r.Reason)
+		t.Errorf("auto-mode dispatch = %+v (%s), want an auto (next: <id>) label and the prompt byte-identical", r.UpdatedInput, r.Reason)
+	}
+}
+
+// An auto Run: line is labelled a peek; a typed or frozen model keeps the bare id; a bare id or `auto` head is rewritten.
+func TestAutoRunLineLabelsNext(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	stubLabelModels(t, "m-1")
+	run := func(model, desc string) string {
+		u := map[string]any{"subagent_type": "claude", "description": desc}
+		applyLabel(context.Background(), newDispatchRun(nil), u, "Run: claude-code agents ask --agent opencode --model "+model+" 'x'")
+		d, _ := u["description"].(string)
+		return d
+	}
+	for _, c := range []struct{ model, desc, want string }{
+		{"auto", "do x", "auto (next: m-1): do x"}, {"auto", "m-1: do x", "auto (next: m-1): do x"},
+		{"auto", "auto: do x", "auto (next: m-1): do x"}, {"auto", "auto (next: m-1): do x", "auto (next: m-1): do x"},
+		{"dev:auto", "do x", "auto (next: m-1): do x"}, {"m-2", "auto (next: m-1): do x", "m-1: do x"},
+	} {
+		if got := run(c.model, c.desc); got != c.want {
+			t.Errorf("--model %s, %q -> %q, want %q", c.model, c.desc, got, c.want)
+		}
 	}
 }
 
 // Bug 2 (2026-11-19): the rewrite note quotes the full old head and new label, never a shared-suffix rune slice.
 func TestApplyLabelNoteQuotesHeadsExactly(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	task := "Run: claude-code agents ask --agent opencode --model auto 'do x'"
+	task := "Run: claude-code agents ask --agent opencode --model fixed-1 'do x'"
 	for _, label := range []string{"databricks-claude-opus-5-5", "databricks-claude-opus-5", "gpt-6.1-sol", "gemini-4-hydrogen"} {
 		stubLabelModels(t, label)
 		updated := map[string]any{"subagent_type": "general-purpose", "description": "databricks-claude-opus-5-5: audit"}

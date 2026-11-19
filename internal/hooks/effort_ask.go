@@ -206,7 +206,7 @@ func preflightBlock(ctx context.Context, run *dispatchRun, task string) *core.Re
 	if err := cmp.Or(agentconfig.CheckTypedProfile(reg, agent, l.profile), l.refusal(reg, agent)); err != nil {
 		return preflightDeny(agent, err)
 	}
-	if _, _, err := labelRoute(ctx, run, map[string]any{}, "", task); errors.Is(err, agentpkg.ErrModelRoute) {
+	if _, _, _, err := labelRoute(ctx, run, map[string]any{}, "", task); errors.Is(err, agentpkg.ErrModelRoute) {
 		return preflightDeny(agent, err)
 	}
 	return nil

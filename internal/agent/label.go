@@ -58,6 +58,20 @@ func runQueryRoute(ctx context.Context, reg *providers.Registry, q ModelQuery, a
 	return labelHop(reg, q, pin, chain.Dispatches[0])
 }
 
+// NextLabel is the label of an auto the run picks itself: the peeked id, said to be only the next pick.
+func NextLabel(id string) string { return "auto (next: " + id + ")" }
+
+// IsNextLabel reports a NextLabel-shaped head.
+func IsNextLabel(head string) bool {
+	return strings.HasPrefix(head, "auto (next:") && strings.HasSuffix(head, ")")
+}
+
+// AutoRun reports a query whose run picks its own model: a typed or pinned auto, not a concrete model.
+func AutoRun(ctx context.Context, q ModelQuery) bool {
+	_, auto := SplitAuto(cmp.Or(q.Model, agentModelPinContext(ctx, q.Agent)))
+	return auto
+}
+
 // namesRoute reports a query that runs as typed: claude, a typed model, or a named profile, provider or account.
 func namesRoute(q ModelQuery) bool {
 	prefix, auto := SplitAuto(q.Model)

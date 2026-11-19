@@ -177,7 +177,7 @@ func dispatchLabelsLine(in *core.Input) string {
 }
 
 // labelRuleLine is the one extra session-start line: how a Run line's flags change the label.
-const labelRuleLine = "A Run line's --model/--profile makes the label that ask's model (databricks- id if routed); equivalents pass."
+const labelRuleLine = "A Run line's --model/--profile sets the label to that ask's model (databricks- id if routed); auto: auto (next: <id>)."
 
 // dispatchLabelEntry is the type's accepted prefixes: its pin's label, else one per tier; "" when blocked.
 func dispatchLabelEntry(run *dispatchRun, t, model string) string {
