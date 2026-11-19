@@ -3,9 +3,12 @@ package waves
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -79,7 +82,11 @@ func VerifyTask(ctx context.Context, in TaskVerifyInput) []TaskCheck {
 
 func runCheck(ctx context.Context, in TaskVerifyInput, id, step, cmd string) TaskCheck {
 	start := time.Now()
-	r, err := GateRun(ctx, CheckEnv{}, GateInput{Dir: in.Dir, Cmd: cmd,
+	env := CheckEnv{}
+	if step == "verify" {
+		env.Exec = verifyArgv // plan-written, untrusted: argv only, never bash
+	}
+	r, err := GateRun(ctx, env, GateInput{Dir: in.Dir, Cmd: cmd,
 		OutPath: filepath.Join(in.OutDir, paths.Slug(id, "", 40, "task")+"-"+step+".txt")})
 	c := TaskCheck{Task: id, Cmd: cmd, Exit: r.Exit, Took: time.Since(start), Tail: r.Tail, Saved: r.Saved}
 	switch {
@@ -101,14 +108,20 @@ func dirsOf(files []string) []string {
 	return slices.Compact(dirs)
 }
 
-// VerifyCommit checks each task on a detached scratch checkout of sha (diff check vs sha^) and removes it after.
+// VerifyCommit checks each task on a scratch checkout of sha (diff check vs sha^), private to this process.
 func VerifyCommit(ctx context.Context, top, sha string, tasks []plans.Task) (map[string][]TaskCheck, error) {
-	short := sha[:min(12, len(sha))]
-	dir := filepath.Join(paths.StateDir(), "verify", "tree-"+short)
+	if !plans.ValidSHA(sha) {
+		return nil, fmt.Errorf("not a commit sha: %q", sha)
+	}
+	root := filepath.Join(paths.StateDir(), "verify")
+	pruneTrees(ctx, top, root)
+	own := sha[:min(12, len(sha))] + "-" + strconv.Itoa(os.Getpid())
+	dir := filepath.Join(root, "tree-"+own)
+	removeTree(ctx, top, dir) // a reused pid's leftover is ours
 	if _, err := proc.RunGit(ctx, top, "worktree", "add", "--detach", dir, sha); err != nil {
 		return nil, err
 	}
-	defer func() { _, _ = proc.RunGit(context.Background(), top, "worktree", "remove", "--force", dir) }()
+	defer removeTree(context.Background(), top, dir)
 	raw, err := proc.RunGit(ctx, top, "diff-tree", "--no-commit-id", "--name-only", "-r", sha)
 	if err != nil {
 		return nil, err
@@ -117,7 +130,25 @@ func VerifyCommit(ctx context.Context, top, sha string, tasks []plans.Task) (map
 	out := map[string][]TaskCheck{}
 	for _, t := range tasks {
 		out[cmp.Or(t.ID, t.Title)] = VerifyTask(ctx, TaskVerifyInput{Dir: dir, Base: sha + "^", Task: t, Files: files,
-			OutDir: filepath.Join(paths.StateDir(), "verify", "out-"+short)})
+			OutDir: filepath.Join(root, "out-"+own)})
 	}
 	return out, nil
+}
+
+// pruneTrees removes scratch trees whose verifier pid is gone (killed or crashed) and outputs past their keep.
+func pruneTrees(ctx context.Context, top, root string) {
+	trees, _ := filepath.Glob(filepath.Join(root, "tree-*"))
+	for _, t := range trees {
+		pid, err := strconv.Atoi(t[strings.LastIndexByte(t, '-')+1:])
+		if _, serr := proc.StartTime(pid); err != nil || errors.Is(serr, proc.ErrNoProcess) {
+			removeTree(ctx, top, t)
+		}
+	}
+	plans.PruneVerify(root, "out-*")
+}
+
+func removeTree(ctx context.Context, top, dir string) {
+	_, _ = proc.RunGit(ctx, top, "worktree", "remove", "--force", dir)
+	_ = os.RemoveAll(dir)
+	_, _ = proc.RunGit(ctx, top, "worktree", "prune")
 }

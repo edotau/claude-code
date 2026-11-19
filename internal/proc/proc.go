@@ -23,8 +23,13 @@ var ErrNoProcess = errors.New("proc: no such process")
 
 // SpawnDetached starts bin+args in its own session, output on out (nil = discarded), reaped in a goroutine.
 func SpawnDetached(bin string, args []string, dir string, out *os.File, extraEnv ...string) bool {
+	return SpawnDetachedPID(bin, args, dir, out, extraEnv...) > 0
+}
+
+// SpawnDetachedPID is SpawnDetached returning the child's pid, 0 when it did not start.
+func SpawnDetachedPID(bin string, args []string, dir string, out *os.File, extraEnv ...string) int {
 	if IsSelfUnderTest(bin) {
-		return false
+		return 0
 	}
 	cmd := exec.CommandContext(context.Background(), bin, args...)
 	cmd.Dir = dir
@@ -36,10 +41,10 @@ func SpawnDetached(bin string, args []string, dir string, out *os.File, extraEnv
 	}
 	Detach(cmd)
 	if cmd.Start() != nil {
-		return false
+		return 0
 	}
 	go func() { _ = cmd.Wait() }() // reap so a long-lived parent never keeps a zombie
-	return true
+	return cmd.Process.Pid
 }
 
 // errExecUnderTest: under `go test`, Exec would replace the test binary and end the run with the child's status.

@@ -443,6 +443,29 @@ func GateRun(ctx context.Context, env CheckEnv, in GateInput) (GateResult, error
 func gateBash(ctx context.Context, dir, script string, env []string, out io.Writer) (int, error) {
 	cmd := exec.CommandContext(ctx, "bash", "-c", paths.RTKRewrite(ctx, script))
 	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, append(os.Environ(), env...), out, out
+	return runGroup(ctx, cmd)
+}
+
+// verifyArgv runs a task's verify line as argv steps (plans.VerifyArgv), never through a shell; a failure ends it.
+func verifyArgv(ctx context.Context, dir, script string, env []string, out io.Writer) (int, error) {
+	steps, err := plans.VerifyArgv(script)
+	if err != nil {
+		return -1, err
+	}
+	for _, s := range steps {
+		cmd := exec.CommandContext(ctx, s.Argv[0], s.Argv[1:]...)
+		cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, slices.Concat(os.Environ(), env, s.Env), out, out
+		if code, err := runGroup(ctx, cmd); code != 0 || err != nil {
+			return code, err
+		}
+	}
+	return 0, nil
+}
+
+// runGroup runs cmd in its own process group, killed whole on cancel, so a child holding the pipes cannot outlive ctx.
+func runGroup(ctx context.Context, cmd *exec.Cmd) (int, error) {
+	proc.OwnGroup(cmd)
+	cmd.WaitDelay = proc.ExecWaitDelay
 	err := cmd.Run()
 	var ee *exec.ExitError
 	if errors.As(err, &ee) && ctx.Err() == nil {
