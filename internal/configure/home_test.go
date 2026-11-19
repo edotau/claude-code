@@ -215,7 +215,7 @@ func fakeNativeClaude(t *testing.T, body string) string {
 	return bin
 }
 
-const mcpBin ="/custom path/claude-code"
+const mcpBin = "/custom path/claude-code"
 
 var (
 	mcpRemoveArgv = []string{"mcp", "remove", "-s", "user", "web_search"}
