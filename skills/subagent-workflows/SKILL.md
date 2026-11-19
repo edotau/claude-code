@@ -180,9 +180,8 @@ leaves that hand back a short verdict, so its context stays small. Run it withou
    frees, and again after every hand-back, until none remain or what is left needs the owner.
 2. **Per hand-back:** a review leaf returns PASS/FAIL, ranked findings and the exact files to stage (it measures and
    reads the diff, not the manager) → a fix leaf for each finding → the manager re-runs the scoped gate and commits
-   named files (`rules/standards/worktree-git.md`) → dispatch what that unblocked. One `rtk make audit`, `rtk make install`
-   and
-   push per green wave (`CLAUDE.md` hard rule 5).
+   named files (`rules/standards/worktree-git.md`) → dispatch what that unblocked. One `rtk make audit`,
+   `rtk make install` and push per green wave (`CLAUDE.md` hard rule 5).
 3. **Bugs:** any bug or issue a leaf or review reports gets a fix leaf at once, without asking.
 4. **Open items:** pick the recommended option, apply it and tag `DECISION:`; ask only for frozen hook code,
    `settings.json`, secrets or an irreversible outward action.
@@ -208,8 +207,7 @@ Write it before the first dispatch of a multi-part request, re-check it on every
   the lane's length, and past 2 queued items start a second leaf on a different file instead of appending a third.
 - **Know what leaves hold:** ask, never assume the brief: every brief has the leaf list the files actually changed in
   its report; while it runs, `rtk git status --short` and the `worktree-claim` files (`rules/harness/hooks.md`)
-  show what is
-  dirty, and `claude-code agents tree` / `agents status` show who is live.
+  show what is dirty, and `claude-code agents tree` / `agents status` show who is live.
 - **Review per finished file or package** as each implementer hands back, not after all of them.
 - **Gates lock the tree, not the dispatcher:** during a timed `make audit`, an install or a live check, keep
   dispatching read-only work and work outside the tree (scratch dirs, a linked worktree); queue only the commits.

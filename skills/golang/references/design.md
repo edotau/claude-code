@@ -109,8 +109,7 @@ Moving the producer's concrete type into the consumer usually relocates the cycl
 - **Then grep for what the compiler can't see**: struct tags, `text/template` fields, `reflect` lookups, JSON string
   names, docs and help text.
 - Verify each step: `rtk go build ./... && rtk go vet ./...`, touched packages' tests, `-race` for concurrency,
-  `benchstat`
-  for hot paths (anything but `~` is a behavior change). Red step → back to the last green commit.
+  `benchstat` for hot paths (anything but `~` is a behavior change). Red step → back to the last green commit.
 
 ### Internal clean break vs published deprecation
 
