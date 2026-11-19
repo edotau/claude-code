@@ -101,6 +101,20 @@ func parseAskArgs(fs *flag.FlagSet, args []string) (pos []string, code int, done
 	return nil, helptext.ExitCode(err), true
 }
 
+// refuseAgentWord rejects a first task word that is exactly an agent name when --agent was not given; "--" opts out.
+func refuseAgentWord(fs *flag.FlagSet, verb string, args, pos []string) error {
+	if verb != "" || len(pos) == 0 || helptext.Explicit(fs, "agent") {
+		return nil
+	}
+	if i := slices.Index(args, "--"); i >= 0 && len(pos) <= len(args)-i-1 {
+		return nil
+	}
+	if !slices.Contains(agent.RosterNames(), pos[0]) {
+		return nil
+	}
+	return fmt.Errorf("agents ask: %q is an agent name; use --agent %s (or -- before a prompt that starts with it)", pos[0], pos[0])
+}
+
 // runCtx is runTo under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
 func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exit int) {
 	fs, f := askFlagSet()
@@ -110,6 +124,9 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	pos, code, done := parseAskArgs(fs, args)
 	if done {
 		return code
+	}
+	if err := refuseAgentWord(fs, verb, args, pos); err != nil {
+		return failAskCode(f.format, f.name, err, 2)
 	}
 	if !helptext.Explicit(fs, "fallback") {
 		f.fallback = router.DefaultFallback()

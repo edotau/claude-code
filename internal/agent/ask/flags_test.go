@@ -367,3 +367,24 @@ func TestHookGrammarCoversEveryAskFlag(t *testing.T) {
 		}
 	})
 }
+
+func TestRefuseAgentWord(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		bad  bool
+	}{
+		{[]string{"copilot", "reply OK"}, true},
+		{[]string{"--agent", "copilot", "copilot", "x"}, false},
+		{[]string{"--", "copilot", "is", "great"}, false},
+		{[]string{"codexes", "go"}, false},
+	} {
+		fs, _ := askFlagSet()
+		pos, code, done := parseAskArgs(fs, tc.args)
+		if done {
+			t.Fatalf("%v: parse exit %d", tc.args, code)
+		}
+		if err := refuseAgentWord(fs, "", tc.args, pos); (err != nil) != tc.bad {
+			t.Errorf("%v: err=%v, want refusal=%v", tc.args, err, tc.bad)
+		}
+	}
+}
