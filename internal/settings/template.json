@@ -13,7 +13,7 @@
       "Bash",
       "Edit",
       "Read",
-      "Read(**/state/vault.db)",
+      "Read(~/.claude/state/vault.db)",
       "Write",
       "WebFetch(*)"
     ],
@@ -24,7 +24,7 @@
     ],
     "ask": [
       "Edit(**/.credentials.json)",
-      "Edit(**/state/vault.db)",
+      "Edit(~/.claude/state/vault.db)",
       "Edit(~/.claude/settings.json)",
       "Read(~/.ssh/id_*)"
     ],
