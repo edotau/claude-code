@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -143,6 +144,8 @@ func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)
 	check(!proxyBad, false, "proxy", proxyDetail)
 	rtkOK, rtkDetail := rtkDoctorStatus()
 	check(rtkOK, false, "rtk compressor", rtkDetail)
+	ccOK, ccDetail := pathBinaryStatus()
+	check(ccOK, false, "claude-code on PATH", ccDetail)
 	tsOK, tsDetail := tailscale.Doctor(ctx)
 	check(tsOK, false, "tailscale", tsDetail)
 	for _, r := range upstreamRows(ctx) {
@@ -244,6 +247,24 @@ func rtkDoctorStatus() (bool, string) {
 		return false, bin + " is not on PATH — run make install (links ~/.local/bin/rtk)"
 	}
 	return false, "PATH rtk " + found + " shadows " + bin + " — run make install, or put ~/.local/bin first on PATH"
+}
+
+// pathBinaryStatus fails when PATH's claude-code is not the installed ~/.claude/bin one; a shadow is never executed.
+func pathBinaryStatus() (bool, string) {
+	want := filepath.Join(paths.BinDir(), "claude-code")
+	if _, err := os.Stat(want); err != nil {
+		return true, want + " not installed — run make install"
+	}
+	found, err := exec.LookPath("claude-code")
+	if err != nil {
+		return false, want + " is not on PATH — put " + paths.BinDir() + " first on PATH"
+	}
+	got, gerr := filepath.EvalSymlinks(found)
+	real, werr := filepath.EvalSymlinks(want)
+	if gerr == nil && werr == nil && got == real {
+		return true, found + " (PATH claude-code is the installed binary)"
+	}
+	return false, "PATH claude-code " + found + " shadows " + want + " — remove the stale copy, or put " + paths.BinDir() + " first on PATH"
 }
 
 // setupDoctorDetail reports the last `setup adopt`; a missing record is a fresh clone, an unreadable one fails.
