@@ -143,7 +143,7 @@ func (t *RouteTable) gateRow(
 	scratch := &PickResult{Alias: res.Alias, Want: res.Want}
 	// a sibling row is not dispatched to: resolve its pool model without stamping
 	if quiet && model == DiscoveryModel {
-		model = pg.peekDiscovery(agent, pg.reg.Providers[prof], now)
+		model = pg.peekDiscovery(agent, alias, pg.reg.Providers[prof], now)
 	}
 	g := t.gateProfile(ctx, pg.reg, alias, agent, prof, model, "", st, o, now, configured, scratch)
 	for _, sk := range scratch.Skipped {
@@ -163,15 +163,15 @@ func (t *RouteTable) gateRow(
 }
 
 // peekDiscovery is pickPool's choice for p without recording it; "" when pickPool would fall back to the alias.
-func (pg *pickGate) peekDiscovery(agent string, p *providers.Provider, now time.Time) string {
-	if !agentid.Routing(agent).Discovery || p == nil || p.Preset != providers.PresetDatabricks {
+func (pg *pickGate) peekDiscovery(agent, alias string, p *providers.Provider, now time.Time) string {
+	if !agentid.Routing(agent).Discovery || !RotationRow(p) {
 		return ""
 	}
 	st, err := loadState()
 	if err != nil {
 		return ""
 	}
-	return leastRecent(st[pg.providerAccount(p.Name)], agent, p, servedPool(p, DiscoveryPool(), now), now)
+	return leastRecent(st[pg.providerAccount(p.Name)], agent, p, servedPool(p, poolFor(agent, alias, p, now), now), now)
 }
 
 // gateLead prepends lead, sibling workspaces and logins as fallback permits; gemini requires Google or Databricks rows.

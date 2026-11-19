@@ -115,10 +115,10 @@ func discoveryPinnedModel(agent, alias string, cell Cell, p *providers.Provider,
 	switch {
 	case !agentid.Routing(agent).Discovery:
 		why = "discovery requires copilot or opencode; using alias"
-	case p == nil || p.Preset != providers.PresetDatabricks:
-		why = "discovery requires Databricks; using alias"
+	case !RotationRow(p):
+		why = "discovery requires a Databricks or GitHub row; using alias"
 	default:
-		model, err := pickPool(agent, p, DiscoveryPool(), now)
+		model, err := pickPool(agent, p, poolFor(agent, alias, p, now), now)
 		switch {
 		case err != nil:
 			why = "discovery state unavailable (" + stateErrClass(err) + "); using alias"
@@ -153,15 +153,34 @@ func selectPinnedModel(agent, alias string, cell Cell, p *providers.Provider, mo
 }
 
 // DiscoveryModel requests the least-recently-picked model in the shared Databricks pool.
-const DiscoveryModel = "discovery"
+const DiscoveryModel = "rotate"
 
-// IsPoolModel reports whether model is a member of the Discovery pool as p serves it.
-func IsPoolModel(p *providers.Provider, model string) bool {
-	if p == nil || p.Preset != providers.PresetDatabricks {
+// RotationPool is the served pool agent rotates through on p at alias ("" = every tier); the agent package sets it.
+var RotationPool func(agent, alias string, p *providers.Provider, now time.Time) []string
+
+// RotationRow reports a row a rotation pin runs on: a Databricks workspace or a GitHub Copilot login.
+func RotationRow(p *providers.Provider) bool {
+	return p != nil && (p.Preset == providers.PresetDatabricks || p.Provider == "github")
+}
+
+// poolFor is RotationPool's pool for agent on p at alias, else the vault overlay or seed list.
+func poolFor(agent, alias string, p *providers.Provider, now time.Time) []string {
+	if RotationPool != nil {
+		return RotationPool(agent, alias, p, now)
+	}
+	return DiscoveryPool()
+}
+
+// PoolOverlay is the vault's discovery-models list when set and valid: the rotation's allowlist.
+func PoolOverlay() ([]string, bool) { return vaultDiscoveryPool() }
+
+// IsPoolModel reports whether model is in agent's rotation pool as p serves it, at any tier.
+func IsPoolModel(agent string, p *providers.Provider, model string) bool {
+	if !RotationRow(p) {
 		return false
 	}
 	wire := strings.TrimPrefix(model, p.Name+":")
-	return slices.ContainsFunc(DiscoveryPool(), func(entry string) bool {
+	return slices.ContainsFunc(poolFor(agent, "", p, time.Now()), func(entry string) bool {
 		return providers.SpellPin(p, entry) == wire
 	})
 }
@@ -184,30 +203,49 @@ func stateErrClass(err error) string {
 	return "file error"
 }
 
-// pickPool selects and records under the same lock, so simultaneous picks see each other's timestamps.
+// pickPool is PickRotation on p's own account.
 func pickPool(agent string, p *providers.Provider, pool []string, now time.Time) (string, error) {
-	pool = servedPool(p, pool, now)
+	return PickRotation(agent, ProviderAccount(p.Name), p, pool, now)
+}
+
+// PickRotation selects and records agent's least-recent pool entry on account under one lock; nil p skips the listing.
+func PickRotation(agent, account string, p *providers.Provider, pool []string, now time.Time) (string, error) {
+	if p != nil {
+		pool = servedPool(p, pool, now)
+	}
 	var model string
 	err := update(func(s State) {
-		account := ProviderAccount(p.Name)
 		e := s[account]
 		selected := leastRecent(e, agent, p, pool, now)
-		model = providers.SpellPin(p, selected)
 		if selected == "" {
 			return
 		}
-		e.Discovery = withTime(e.Discovery, selected, now)
+		model = providers.SpellPin(p, selected)
+		e.Discovery = withTime(e.Discovery, discoverySkipKey(agent, selected), now)
 		s[account] = e
 	})
 	return model, err
 }
 
-// leastRecent is the spellable, unskipped pool entry picked longest ago; "" when none qualifies.
+// PeekRotation is the entry PickRotation would select now, recording nothing; "" when none qualifies.
+func PeekRotation(agent, account string, p *providers.Provider, pool []string, now time.Time) string {
+	if p != nil {
+		pool = servedPool(p, pool, now)
+	}
+	if sel := leastRecent(LoadState()[account], agent, p, pool, now); sel != "" {
+		return providers.SpellPin(p, sel)
+	}
+	return ""
+}
+
+// leastRecent is agent's spellable pool entry picked longest ago, past skips and live model holds; "" when none.
 func leastRecent(e Entry, agent string, p *providers.Provider, pool []string, now time.Time) string {
 	var selected string
 	for _, entry := range pool {
-		if providers.SpellPin(p, entry) != "" && !discoverySkipped(e, agent, entry, now) &&
-			(selected == "" || e.Discovery[entry].Before(e.Discovery[selected])) {
+		if providers.SpellPin(p, entry) == "" || discoverySkipped(e, agent, entry, now) || e.ModelDead[ModelKey(entry)].After(now) {
+			continue
+		}
+		if selected == "" || e.Discovery[discoverySkipKey(agent, entry)].Before(e.Discovery[discoverySkipKey(agent, selected)]) {
 			selected = entry
 		}
 	}
@@ -249,7 +287,7 @@ func discoverySkipped(e Entry, agent, entry string, now time.Time) bool {
 func SkipDiscovery(agent string, p *providers.Provider, wire string) string {
 	var hit string
 	err := update(func(s State) {
-		for _, entry := range DiscoveryPool() {
+		for _, entry := range poolFor(agent, "", p, time.Now()) {
 			if providers.SpellPin(p, entry) != wire {
 				continue
 			}

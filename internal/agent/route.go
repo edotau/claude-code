@@ -399,7 +399,16 @@ func Resolve(ctx context.Context, q RouteReq) (Chain, router.PickResult, error) 
 	if err := ctx.Err(); err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
-	return chainFor(ctx, q, q.AliasHint, lead)
+	return chainFor(ctx, q, rotationHint(ctx, q), lead)
+}
+
+// rotationHint is TaskTier(q.Task) for a rotating agent's run, so its tier floor reads the brief's Tier: line.
+func rotationHint(ctx context.Context, q RouteReq) string {
+	if q.Task == "" || cmp.Or(q.Model, agentModelPinContext(ctx, q.Agent)) != router.DiscoveryModel {
+		return q.AliasHint
+	}
+	alias, _ := TaskTier(q.Task)
+	return cmp.Or(alias, q.AliasHint)
 }
 
 // LeadError is a --profile/--provider (or pin) that cannot lead; callers map it to a usage exit.
@@ -795,10 +804,10 @@ func discoveryDispatch(disp Dispatch, alias string, reg *providers.Registry, pro
 	}
 	cell, _ := tb.Cell(disp.Agent.Name(), alias)
 	p, prefix := discoveryProvider(disp, reg, profile)
-	if p != nil && p.Preset == providers.PresetDatabricks {
+	if router.RotationRow(p) {
 		disp.repick = router.DiscoveryRepick(disp.Agent.Name(), alias, cell, p, prefix)
 	}
-	if picked && router.IsPoolModel(p, disp.Model) {
+	if picked && router.IsPoolModel(disp.Agent.Name(), p, disp.Model) {
 		return disp
 	}
 	model, note := router.PinnedModel(disp.Agent.Name(), alias, cell, p, router.DiscoveryModel)

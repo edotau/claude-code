@@ -467,7 +467,7 @@ func TestPickDiscoveryPinDoesNotStampSiblingWorkspaces(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, c := range r.Candidates {
-		if c.Agent == "copilot" && c.Account == "databricks·qa" && !IsPoolModel(reg.Providers["qa"], c.Model) {
+		if c.Agent == "copilot" && c.Account == "databricks·qa" && !IsPoolModel("copilot", reg.Providers["qa"], c.Model) {
 			t.Errorf("sibling qa model = %q, want a pool model", c.Model)
 		}
 	}
