@@ -49,7 +49,8 @@ paths:
   the served alternatives named, and `--fallback none` exits non-zero instead; with no fresh listing it says
   `unverified`.
 - **Pool table:** `claude-code gateway resolve all --model auto --all-profiles [--task <brief>] [--format json]` peeks
-  every rotation row x agent x tier (pool, next, held, last pick) without moving any rotation history.
+  every rotation row x agent x tier (pool, next, held, last pick) without moving any rotation history; claude lists
+  its rotated rows, the subscription row included, with the next ask's row and each row's last pick.
 - **Profile order:** a `<profile>:` or unique provider-type model prefix > `--profile` or overlay `profile` > overlay
   `provider`, then `account` > the session profile (with its model for the agent) > the agent record's profile or
   account (the pin) > the registry default > the agent's own sign-in row. `databricks:<m>` or profile `auto` picks the

@@ -419,12 +419,17 @@ func cmdPoolTable(ctx context.Context, usable bool, task string, tools bool, fal
 // poolRows resolves every rotation row x agent x tier through the single-agent path, sorted agent, row, tier.
 func poolRows(ctx context.Context, reg *providers.Registry, tiers []string, tools bool, fallback string, now time.Time) []poolRow {
 	var out []poolRow
+	for _, name := range poolAgents {
+		if agent.VaultAgentIsClaude(name) {
+			out = append(out, claudePoolRows(ctx, reg, name, tiers, tools, fallback, now)...)
+		}
+	}
 	for _, p := range allRows(reg) {
 		if !router.RotationRow(p) {
 			continue
 		}
 		for _, name := range poolAgents {
-			if !agent.VaultAgentIsClaude(name) && !agent.CanServe(name, p) {
+			if agent.VaultAgentIsClaude(name) || !agent.CanServe(name, p) {
 				continue
 			}
 			for _, tier := range tiers {
@@ -437,6 +442,27 @@ func poolRows(ctx context.Context, reg *providers.Registry, tiers []string, tool
 	slices.SortStableFunc(out, func(a, b poolRow) int {
 		return cmp.Or(strings.Compare(a.Agent, b.Agent), strings.Compare(a.Row, b.Row), tierRank(a.Tier)-tierRank(b.Tier))
 	})
+	return out
+}
+
+// claudePoolRows is claude's rotated rows per tier (the subscription row included): which row is next, and its LAST.
+func claudePoolRows(ctx context.Context, reg *providers.Registry, name string, tiers []string, tools bool, fallback string,
+	now time.Time) []poolRow {
+	var out []poolRow
+	picks := router.RowPicks(name)
+	for _, tier := range tiers {
+		for _, pk := range agent.PeekClaudeRows(reg, name, poolTiers[tierRank(tier)].alias, now) {
+			row, ok := poolCell(ctx, reg, name, reg.Row(pk.Row), tier, tools, fallback, now)
+			if !ok {
+				continue
+			}
+			if at, ok := picks[pk.Row]; ok {
+				row.LastPicked = &at
+			}
+			row.Note = cmp.Or(pk.Skip, map[bool]string{true: "next row", false: "row " + strconv.Itoa(pk.Rank)}[pk.Rank == 1])
+			out = append(out, row)
+		}
+	}
 	return out
 }
 

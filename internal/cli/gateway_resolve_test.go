@@ -273,8 +273,8 @@ func TestPoolTable(t *testing.T) {
 			slices.Collect(maps.Keys(seen)))
 	}
 	claude := seen["claude databricks·dev deep"]
-	if got := [3]any{claude.Size, claude.Next != "", claude.Note}; got != [3]any{0, true, "tier model"} {
-		t.Errorf("claude on dev = %+v; want its tier model and \"tier model\"", claude)
+	if got := [3]any{claude.Size, claude.Next != "", strings.HasPrefix(claude.Note, "credential:")}; got != [3]any{0, true, true} {
+		t.Errorf("claude on dev = %+v; want its tier model and the credential skip as its note", claude)
 	}
 	var out bytes.Buffer
 	renderPoolTable(&out, rows, 80, time.Now())

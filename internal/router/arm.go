@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/inflight"
@@ -48,6 +49,18 @@ type WorkspaceQuery[F any] struct {
 
 // RowRotationKey is the route-auto.json namespace of agent's own row rotation, apart from databricks:auto's stamps.
 func RowRotationKey(agentName string) string { return agentName + "·rows" }
+
+// RowPicks is when agent's row rotation last picked each row, keyed by row name.
+func RowPicks(agentName string) map[string]time.Time {
+	out := map[string]time.Time{}
+	prefix := RowRotationKey(agentName) + "/"
+	for k, at := range readArmPicks().Picked {
+		if row, ok := strings.CutPrefix(k, prefix); ok {
+			out[row] = at
+		}
+	}
+	return out
+}
 
 func (q WorkspaceQuery[F]) stampKey(name string) string {
 	if q.Key == "" {

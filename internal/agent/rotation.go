@@ -114,14 +114,7 @@ func claudeRows(ctx context.Context, q RouteReq, stamp bool) []string {
 		return nil
 	}
 	alias, _ := TaskTier(q.Task)
-	alias = cmp.Or(alias, untieredAuto(q.Agent))
-	wq := router.WorkspaceQuery[Finding]{AgentName: q.Agent, Model: alias, Strict: true, Key: router.RowRotationKey(q.Agent),
-		Extra:    subscriptionRows(reg, q.Agent),
-		Findings: rowFindings(router.LoadState()),
-		Unserved: func(string, []Finding) error { return ErrPoolExhausted },
-		Cooling:  func(*providers.Provider, time.Time) bool { return false },
-		Live:     func([]*providers.Provider) map[string]int { return nil }, // least-recent alone orders the rows
-	}
+	wq := claudeRowQuery(reg, q.Agent, cmp.Or(alias, untieredAuto(q.Agent)))
 	pick := router.RankWorkspaces[Finding]
 	if stamp {
 		pick = router.PickRowsAndStamp[Finding]
@@ -137,6 +130,38 @@ func claudeRows(ctx context.Context, q RouteReq, stamp bool) []string {
 		}
 	}
 	return rows
+}
+
+func claudeRowQuery(reg *providers.Registry, agentName, alias string) router.WorkspaceQuery[Finding] {
+	return router.WorkspaceQuery[Finding]{AgentName: agentName, Model: alias, Strict: true, Key: router.RowRotationKey(agentName),
+		Extra:    subscriptionRows(reg, agentName),
+		Findings: rowFindings(router.LoadState()),
+		Unserved: func(string, []Finding) error { return ErrPoolExhausted },
+		Cooling:  func(*providers.Provider, time.Time) bool { return false },
+		Live:     func([]*providers.Provider) map[string]int { return nil }, // least-recent alone orders the rows
+	}
+}
+
+// RowPeek is one of claude's rotated rows: Rank 1 is the next ask's row, 0 a skipped row with Skip saying why.
+type RowPeek struct {
+	Row  string
+	Rank int
+	Skip string
+}
+
+// PeekClaudeRows ranks claude's rotation rows at tier alias without stamping: usable rows in order, then skipped ones.
+func PeekClaudeRows(reg *providers.Registry, agentName, alias string, now time.Time) []RowPeek {
+	rows, skipped, _ := router.RankWorkspaces(reg, claudeRowQuery(reg, agentName, alias), now)
+	out := make([]RowPeek, 0, len(rows)+len(skipped))
+	for i, r := range rows {
+		out = append(out, RowPeek{Row: r, Rank: i + 1})
+	}
+	for _, f := range skipped {
+		if !slices.ContainsFunc(out, func(r RowPeek) bool { return r.Row == f.Profile }) { // first finding per row
+			out = append(out, RowPeek{Row: f.Profile, Skip: f.String()})
+		}
+	}
+	return out
 }
 
 // rowRotates is an asked auto on claude with no route typed, inherited or pinned by an overlay.
