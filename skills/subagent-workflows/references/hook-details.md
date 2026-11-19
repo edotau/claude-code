@@ -102,7 +102,8 @@ verdict on a hook-changed input, so the call would bounce for a verbatim resend
 Besides Write/Edit targets it checks `apply_patch` headers and Bash write targets. A new `*plan*.md` at a repo root or
 in `docs/` is rewritten to the dated plans home (denied with the fix where the host cannot rewrite). A Claude first
 write to a native plan draft that lacks only `# Plan:` or `## Tasks` is rewritten with a note; any other first write
-lacking the `docs/templates/plan.md` headings is denied, listing them. `HARNESS_HOOK_SKIP=docs-placement` skips both
+lacking the `docs/templates/plan.md` headings is denied, listing them. A leaf's Bash block becomes allow + note
+(Write/Edit stay blocked unless `--permissions allow`). `HARNESS_HOOK_SKIP=docs-placement` skips both
 the placement block and the plan checks.
 
 ## dispatch-effort
@@ -185,7 +186,8 @@ shell's own env is invisible to the hook).
 
 Once per file, notes before an edit (Bash: its write targets) that a dirty file is claimed by another live session
 (owner pid alive) or sibling leaf (transcript fresh) and not committed or seen clean since; asks on a `git add`/`commit`
-that stages one (`-p`, `-n`/`--dry-run`, `-N` pass), blocks in a leaf under `~/.claude`; a sibling leaf counts until it
+that stages one (`-p`, `-n`/`--dry-run`, `-N` pass), blocks in a leaf under `~/.claude` (a leaf's Bash block becomes
+allow + note; Write/Edit stay blocked unless `--permissions allow`); a sibling leaf counts until it
 ends, is interrupted or stops on max_tokens; an infra error allows with a warning. Dead owners' files are removed; a
 file under this process's own pid (a new session slug after `/clear` or a resume) is ours, not a peer's. Any `git`
 command also gets the drained notices and divergence line. Under vault env `HARNESS_WORKTREE=lanes` it also asks (a
