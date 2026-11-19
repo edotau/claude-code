@@ -46,7 +46,7 @@ func servedView(p *providers.Provider, now time.Time) (ready func(model string) 
 	if !ok {
 		return nil, false
 	}
-	e := LoadState()[ProviderAccount(p.Name)]
+	e := sharedState()[ProviderAccount(p.Name)]
 	return func(model string) bool {
 		_, ready := s.Has(p, model)
 		return ready && !unservedMarked(e, p, model, now)

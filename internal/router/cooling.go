@@ -29,10 +29,10 @@ func (s State) CoolingUntil(account string) time.Time {
 }
 
 // accountCooling checks the account's own hold, then the gateway's hold on its profile ("<provider>·<p>" → p).
-func (s State) accountCooling(account string, now time.Time) bool {
+func (s State) accountCooling(acct accountFn, account string, now time.Time) bool {
 	if s.CoolingUntil(account).After(now) {
 		return true
 	}
 	_, p, ok := strings.Cut(account, "·")
-	return ok && p != "" && p != "own" && s.CoolingUntil(ProviderAccount(p)).After(now)
+	return ok && p != "" && p != "own" && s.CoolingUntil(acct(p)).After(now)
 }

@@ -65,7 +65,7 @@ func (t *RouteTable) gateProfile(
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, pm + " is not served on " + p.Name})
 		return nil
 	}
-	c := Cell{Model: pm, Effort: cmp.Or(effort, cell.Effort), Account: ProviderAccount(pin), Price: cell.Price}
+	c := Cell{Model: pm, Effort: cmp.Or(effort, cell.Effort), Account: accountFrom(ctx)(pin), Price: cell.Price}
 	if err := configured(agent, c); err != nil {
 		skipNotConfigured(res, agent, err)
 		return nil
@@ -199,7 +199,7 @@ func PeekRotation(agent, account string, p *providers.Provider, pool []string, n
 	if p != nil {
 		pool = ServedPool(p, pool, now)
 	}
-	if sel := leastRecent(LoadState()[account], agent, p, pool, now); sel != "" {
+	if sel := leastRecent(sharedState()[account], agent, p, pool, now); sel != "" {
 		return providers.SpellPin(p, sel)
 	}
 	return ""

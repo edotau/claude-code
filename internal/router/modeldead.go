@@ -33,10 +33,10 @@ func (s State) ModelDead(account, model string, now time.Time) bool {
 }
 
 // deadAccounts is what candidateDead reads for account: the account, then its profile's gateway account.
-func deadAccounts(account string) []string {
+func deadAccounts(acct accountFn, account string) []string {
 	out := []string{account}
 	if _, p, ok := strings.Cut(account, "·"); ok && p != "" && p != "own" {
-		out = append(out, ProviderAccount(p))
+		out = append(out, acct(p))
 	}
 	return out
 }
@@ -48,7 +48,7 @@ func (s State) modelDeadOn(accounts []string, model string, now time.Time) bool 
 
 // candidateDead reports a live mark on c's model (a family rung: resolved on its row, only when its family is marked).
 func (s State) candidateDead(reg *providers.Registry, c Candidate, now time.Time) bool {
-	accounts := deadAccounts(c.Account)
+	accounts := deadAccounts(accountIn(reg), c.Account)
 	if !providers.IsFamily(c.Model) {
 		return s.modelDeadOn(accounts, c.Model, now)
 	}

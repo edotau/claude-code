@@ -109,7 +109,7 @@ func (t *RouteTable) ladderFor(ctx context.Context) pickLadder {
 	}
 	if name == providers.LadderDatabricks {
 		l.arm = ArmProfileContext(ctx)
-		l.armAccount = ProviderAccount(l.arm)
+		l.armAccount = accountFrom(ctx)(l.arm)
 	}
 	l.claudeRungs = slices.ContainsFunc(l.rungs, func(g providers.Rung) bool { return g.Agent == "claude" })
 	l.anywhere = t.ClaudeAnywhere && !l.claudeRungs && len(l.rungs) > 0
@@ -414,6 +414,26 @@ func sortUnits(us []rungGroup) {
 
 // CoworkerContext is the provider and profile an inline $COWORKER_OVERLAY names; a path or bare databricks gives none.
 func CoworkerContext(ctx context.Context) (provider, profile string, err error) {
+	if r, ok := ctx.Value(overlayKey{}).(overlayResult); ok {
+		return r.provider, r.profile, r.err
+	}
+	return parseCoworker(ctx)
+}
+
+// overlayKey carries one pick's resolved overlay in its context, so the env is parsed once per pick.
+type overlayKey struct{}
+
+type overlayResult struct {
+	provider, profile string
+	err               error
+}
+
+func withCoworker(ctx context.Context) context.Context {
+	provider, profile, err := parseCoworker(ctx)
+	return context.WithValue(ctx, overlayKey{}, overlayResult{provider, profile, err})
+}
+
+func parseCoworker(ctx context.Context) (provider, profile string, err error) {
 	v := strings.TrimSpace(proc.Value(ctx, overlayEnv))
 	var doc struct{ Provider, Profile string }
 	switch {

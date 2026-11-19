@@ -44,6 +44,12 @@ type pickGate struct {
 	credentials map[string]bool
 }
 
+// codexRoute is codexHop's result, computed once per pick gate and shared by its two consumers.
+type codexRoute struct {
+	profile, model, effort string
+	ok                     bool
+}
+
 // codexHop is codex's Databricks model and effort at alias: pin, else tier, else cell; non-Responses → first Responses.
 func (t *RouteTable) codexHop(ctx context.Context, pg *pickGate, alias string, o PickOpts, now time.Time) (profile, model, effort string, ok bool) {
 	reg := pg.reg
@@ -53,7 +59,7 @@ func (t *RouteTable) codexHop(ctx context.Context, pg *pickGate, alias string, o
 	}
 	cell, _ := t.Cell("codex", alias)
 	p := reg.Providers[profile]
-	tier := cmp.Or(DatabricksModel("codex", alias, p), cell.Model)
+	tier := cmp.Or(databricksModel(pg.providerAccount, "codex", alias, p), cell.Model)
 	cell.Model = o.codexModel(providers.Target{Provider: p, Model: tier}).Model
 	if wire := p.WireModel(cell.Model); cell.Model != "" && providers.ServesResponses(p, wire) {
 		if ready, fresh := ServedReady(p, wire, now); fresh && !ready {
@@ -66,20 +72,17 @@ func (t *RouteTable) codexHop(ctx context.Context, pg *pickGate, alias string, o
 
 // gateDatabricksCodex gates codex on Databricks; disabled or unusable Databricks returns false without a Skip.
 func (t *RouteTable) gateDatabricksCodex(
-	ctx context.Context, pg *pickGate, alias string, st State, o PickOpts, now time.Time, configured func(agent string, c Cell) error, res *PickResult,
+	pg *pickGate, hop codexRoute, st State, now time.Time, configured func(agent string, c Cell) error, res *PickResult,
 ) (Candidate, bool) {
 	reg := pg.reg
-	profile, model, effort, ok := t.codexHop(ctx, pg, alias, o, now)
-	if !ok {
-		return Candidate{}, false
-	}
+	profile, model, effort := hop.profile, hop.model, hop.effort
 	c := Cell{Model: model, Effort: effort, Account: pg.providerAccount(profile)}
 	name := "codex·" + c.Account
 	if err := configured("codex", c); err != nil {
 		skipNotConfigured(res, name, err)
 		return Candidate{}, false
 	}
-	if reason, marked := st.accountAuthMarked(c.Account, now); marked {
+	if reason, marked := st.authMarkedVia(pg.providerAccount, c.Account, now); marked {
 		res.Skipped = append(res.Skipped, Skip{name, GateAuth, authSkipReason(reason, c.Account)})
 		return Candidate{}, false
 	}
@@ -293,18 +296,22 @@ func (t *RouteTable) gateCodexExtras(
 	configured func(agent string, c Cell) error, res *PickResult,
 ) []Candidate {
 	var extra []Candidate
-	if d, ok := t.gateDatabricksCodex(ctx, pg, alias, st, o, now, configured, res); ok && !slices.ContainsFunc(group, func(c Candidate) bool { return c.Account == d.Account }) {
-		extra = append(extra, d)
+	var hop codexRoute
+	hop.profile, hop.model, hop.effort, hop.ok = t.codexHop(ctx, pg, alias, o, now)
+	if hop.ok {
+		if d, ok := t.gateDatabricksCodex(pg, hop, st, now, configured, res); ok && !slices.ContainsFunc(group, func(c Candidate) bool { return c.Account == d.Account }) {
+			extra = append(extra, d)
+		}
 	}
 	if res.Want != "codex" {
 		return extra
 	}
-	if _, model, effort, ok := t.codexHop(ctx, pg, alias, o, now); ok {
-		hop := t.gateSessionCopilot(ctx, pg, alias, model, effort, copilotSpec, nil, st, o, now, configured, res)
-		for _, c := range hop {
+	if hop.ok {
+		rows := t.gateSessionCopilot(ctx, pg, alias, hop.model, hop.effort, copilotSpec, nil, st, o, now, configured, res)
+		for _, c := range rows {
 			pg.held[c.Account] = true
 		}
-		extra = append(extra, hop...)
+		extra = append(extra, rows...)
 	}
 	return extra
 }
@@ -442,7 +449,7 @@ func (pg *pickGate) providerAccount(profile string) string {
 	if pg.accounts == nil {
 		pg.accounts = make(map[string]string)
 	}
-	account := ProviderAccount(profile)
+	account := accountIn(pg.reg)(profile)
 	pg.accounts[profile] = account
 	return account
 }

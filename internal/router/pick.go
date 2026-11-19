@@ -136,13 +136,15 @@ func (t *RouteTable) Pick(ctx context.Context, alias, want string, st State, o P
 func (t *RouteTable) pick(
 	ctx context.Context, alias, want string, st State, o PickOpts, now time.Time, configured func(agent string, c Cell) error,
 ) PickResult {
+	ctx = withCoworker(ctx)
 	res := PickResult{Alias: alias, Want: want, Weights: t.Weights}
 	pins := o.Pins
-	reg, err := providers.Load()
+	reg, err := providers.LoadShared()
 	if err != nil {
 		res.Skipped = append(res.Skipped, Skip{"registry", gateRow, "provider registry did not load, profile pins unchecked: " + err.Error()})
 	}
 	pg := &pickGate{reg: reg, held: map[string]bool{}}
+	ctx = context.WithValue(ctx, accountKey{}, accountFn(pg.providerAccount))
 	gate := func(agent string) []Candidate {
 		return t.gateCandidate(ctx, pg, alias, agent, pins, st, o, now, configured, &res)
 	}
@@ -158,7 +160,7 @@ func (t *RouteTable) pick(
 		restG[i] = u.cs
 	}
 	flatFirst, flatRest, flatLast := slices.Concat(firstG...), slices.Concat(restG...), slices.Concat(lastG...)
-	all := t.score(slices.Concat(flatFirst, flatRest, flatLast), st, now)
+	all := t.scoreVia(pg.providerAccount, slices.Concat(flatFirst, flatRest, flatLast), st, now)
 	nf, nr := len(flatFirst), len(flatRest)
 	firstG = regroup(firstG, all[:nf])
 	for i, g := range regroup(restG, all[nf:nf+nr]) {
@@ -207,7 +209,7 @@ func (t *RouteTable) refreshStale(
 		}
 		return false
 	}
-	t.pick(ctx, alias, want, st.clone(), o, now, configured)
+	t.pick(ctx, alias, want, st, o, now, configured)
 	_, err := parallel.Map(context.Background(), stale, refreshConcurrency, func(_ context.Context, account string) (struct{}, error) {
 		refresh(ctx, account)
 		return struct{}{}, nil
@@ -350,7 +352,7 @@ func (t *RouteTable) gateAccount(
 		res.Skipped = append(res.Skipped, Skip{name, gateAccount, "no pinned Copilot account (claude-code configure github)"})
 		return Candidate{}, false
 	}
-	if reason, marked := st.accountAuthMarked(c.Account, now); marked {
+	if reason, marked := st.authMarkedVia(accountFrom(ctx), c.Account, now); marked {
 		res.Skipped = append(res.Skipped, Skip{name, GateAuth, authSkipReason(reason, c.Account)})
 		return Candidate{}, false
 	}
@@ -497,6 +499,10 @@ func claudeLast(o PickOpts, gate func(string) []Candidate) [][]Candidate {
 
 // score fills each candidate's per-dimension scores and weighted total, less coolingPenalty on a cooling account.
 func (t *RouteTable) score(cs []Candidate, st State, now time.Time) []Candidate {
+	return t.scoreVia(ProviderAccount, cs, st, now)
+}
+
+func (t *RouteTable) scoreVia(acct accountFn, cs []Candidate, st State, now time.Time) []Candidate {
 	sc := pickScope{State: st, Candidates: cs}
 	out := make([]Candidate, len(cs))
 	for i, c := range cs {
@@ -506,7 +512,7 @@ func (t *RouteTable) score(cs []Candidate, st State, now time.Time) []Candidate 
 			c.Scores[d.Name()] = v
 			c.Total += t.Weights[d.Name()] * v
 		}
-		if st.accountCooling(c.Account, now) {
+		if st.accountCooling(acct, c.Account, now) {
 			c.Total -= coolingPenalty
 		}
 		out[i] = c

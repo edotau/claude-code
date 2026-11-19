@@ -141,6 +141,12 @@ func LoadState() State {
 	return s.clone()
 }
 
+// sharedState is the cached state itself: read-only, never indexed into for writes or handed out.
+func sharedState() State {
+	s, _ := stateCache.Get(StatePath(), loadState)
+	return s
+}
+
 // clone returns a deep copy of s: each entry's discovery maps are fresh.
 func (s State) clone() State {
 	out := make(State, len(s))
@@ -294,6 +300,32 @@ func ProviderAccount(profile string) string {
 	return "databricks·" + profile
 }
 
+// accountFn resolves a profile to its account key.
+type accountFn func(profile string) string
+
+// accountIn is ProviderAccount over reg, the registry one pick already holds; nil reg loads per call.
+func accountIn(reg *providers.Registry) accountFn {
+	if reg == nil {
+		return ProviderAccount
+	}
+	return func(profile string) string {
+		if p := reg.Providers[profile]; p != nil {
+			return AccountOf(p)
+		}
+		return "databricks·" + profile
+	}
+}
+
+// accountKey carries one pick's account resolver in its context, so gates reuse the pick's registry.
+type accountKey struct{}
+
+func accountFrom(ctx context.Context) accountFn {
+	if f, ok := ctx.Value(accountKey{}).(accountFn); ok {
+		return f
+	}
+	return ProviderAccount
+}
+
 // AccountOf is ProviderAccount for a profile already in hand: no registry load.
 func AccountOf(p *providers.Provider) string {
 	return cmp.Or(p.Provider, "databricks") + "·" + p.Name
@@ -333,7 +365,7 @@ func markAuth(account, reason string) func(State) {
 
 // ClearAuth drops account's auth mark within authMarkWait; nothing is written when none exists.
 func ClearAuth(account string) error {
-	if e, ok := LoadState()[account]; !ok || e.AuthAt.IsZero() {
+	if e, ok := sharedState()[account]; !ok || e.AuthAt.IsZero() {
 		return nil
 	}
 	ran, err := tryUpdate(authMarkWait, clearAuth(account))
@@ -360,7 +392,7 @@ func ClearProviderAuth(provider string) error {
 		return (!e.AuthAt.IsZero() || len(e.ModelDead) > 0 || len(e.Verified) > 0) && strings.HasSuffix(account, "·"+provider)
 	}
 	marked := false
-	for account, e := range LoadState() {
+	for account, e := range sharedState() {
 		marked = marked || hit(account, e)
 	}
 	if !marked {
@@ -379,11 +411,15 @@ func ClearProviderAuth(provider string) error {
 
 // accountAuthMarked checks the account's own mark, then the router's mark on its profile ("<provider>·<p>" → p).
 func (s State) accountAuthMarked(account string, now time.Time) (string, bool) {
+	return s.authMarkedVia(ProviderAccount, account, now)
+}
+
+func (s State) authMarkedVia(acct accountFn, account string, now time.Time) (string, bool) {
 	if reason, ok := s.AuthMarked(account, now); ok {
 		return reason, ok
 	}
 	if _, p, ok := strings.Cut(account, "·"); ok && p != "" {
-		return s.AuthMarked(ProviderAccount(p), now)
+		return s.AuthMarked(acct(p), now)
 	}
 	return "", false
 }
@@ -630,7 +666,7 @@ func CurrentLimits() inflight.Limits {
 	if err != nil {
 		return inflight.ComputeLimits(nil, nil, cpus)
 	}
-	state, now := LoadState(), time.Now()
+	state, now := sharedState(), time.Now()
 	var available []string
 	override := map[string]int{}
 	for _, p := range reg.Providers {

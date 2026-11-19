@@ -60,12 +60,16 @@ func databricksTiers() map[string][]string {
 
 // DatabricksModel is the first member of alias's bucket agent runs and nothing marks unusable, for p; "" if none.
 func DatabricksModel(agent, alias string, p *providers.Provider) string {
+	return databricksModel(ProviderAccount, agent, alias, p)
+}
+
+func databricksModel(acct accountFn, agent, alias string, p *providers.Provider) string {
 	if p == nil || p.Preset != providers.PresetDatabricks {
 		return ""
 	}
-	now, st := time.Now(), LoadState()
+	now, st := time.Now(), sharedState()
 	// dead[0] is p's own account, where MarkUnserved writes
-	dead := deadAccounts(ProviderAccount(p.Name))
+	dead := deadAccounts(acct, acct(p.Name))
 	for _, id := range databricksTiers()[alias] {
 		var wire string
 		if providers.IsFamily(id) {
@@ -175,7 +179,7 @@ const copilotUnpinned = "github·unpinned"
 // Load parses the embedded table, applies the registry's route overlay cell by cell and resolves account keys.
 func Load() (*RouteTable, error) {
 	// a broken registry still routes on the embedded table
-	reg, _ := providers.Load()
+	reg, _ := providers.LoadShared()
 	return LoadFrom(reg, copilotUserFrom(reg))
 }
 
@@ -307,7 +311,7 @@ func (t *RouteTable) applyRouteOverlayCell(agent, key string, o providers.RouteC
 
 // CopilotUser is the pinned github profile billed as github·<name>; the router never picks another account.
 func CopilotUser() string {
-	reg, _ := providers.Load()
+	reg, _ := providers.LoadShared()
 	return copilotUserFrom(reg)
 }
 

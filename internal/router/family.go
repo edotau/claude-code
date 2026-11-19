@@ -57,7 +57,7 @@ func FamilyModel(agent, family string, p *providers.Provider, ids []string, now 
 		ids = firstPartyIDs(p)
 	}
 	if dbx {
-		dead, st := deadAccounts(ProviderAccount(p.Name)), LoadState()
+		dead, st := deadAccounts(ProviderAccount, ProviderAccount(p.Name)), sharedState()
 		ids = slices.DeleteFunc(slices.Clone(ids), func(id string) bool {
 			return !bucketRunnable(agent, p, id) || tierUnusable(st, dead, p, id, now)
 		})
