@@ -494,6 +494,7 @@ var didNotRunRe = sync.OnceValue(func() *regexp.Regexp {
 // leafScan is what the gates read from a leaf transcript: ask calls and their results, the hand-back, prior blocks.
 type leafScan struct {
 	cwd               string
+	brief             string // the leaf's first user message
 	pendingAsks       map[string]time.Time
 	pendingEdits      map[string]bool
 	seenBrief         bool
@@ -556,6 +557,7 @@ func (s *leafScan) addLine(b []byte) {
 	case m.Type != "user":
 	case !s.seenBrief && !bytes.Contains(b, toolResultKey): // the first user message is the brief
 		s.seenBrief = true
+		s.brief = transcript.ContentText(m.Message.Content)
 		if first, rest, _ := strings.Cut(strings.TrimSpace(transcript.ContentText(m.Message.Content)), "\n"); strings.HasPrefix(first, "Run:") {
 			s.runLine, s.task = strings.TrimSpace(strings.TrimPrefix(first, "Run:")), strings.TrimSpace(rest)
 		}
@@ -814,9 +816,13 @@ func Handback(in *core.Input) core.Result {
 	leaf := *in
 	leaf.AgentTranscriptPath = leafTranscript(in, id)
 	lr := readLeaf(leaf.AgentTranscriptPath, leafWants(&leaf), leaf.CWD)
-	lr.until = time.Now().Add(handbackWait)
-	res, _ := leafGate(&leaf, id, lr)
-	return res
+	start := time.Now()
+	lr.until = start.Add(handbackWait)
+	res, held := leafGate(&leaf, id, lr)
+	if held || res.Decision == core.Block {
+		return res
+	}
+	return withVerify(in, res, handbackVerify(&leaf, lr, start.Add(handbackWait)))
 }
 
 // The leaf-stop reaper: after a stop the gate lets through, kill the leaf's own leftover background shells.
