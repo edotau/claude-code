@@ -327,7 +327,16 @@ func liveVerdict(ctx context.Context, in *core.Input, cmd string, edits []string
 	what := fmt.Sprintf("lanes mode: %d tracked file(s) of the live checkout (%s) would change; it only fast-forwards",
 		len(hits), strings.Join(names, ", "))
 	hint := "work in a lane: claude-code worktree create <slug>, then edit under its ~/worktrees/<repo>/<slug> path"
+	if d == core.Ask && autoMode(in) {
+		return core.Result{Context: what + "; " + hint}
+	}
 	return core.Result{Decision: d, Reason: core.SafetyMessage(in, d, what, "", hint)}
+}
+
+// autoMode is a session the owner runs without prompts: a lanes ask becomes a note there.
+func autoMode(in *core.Input) bool {
+	m := in.Nested("permission_mode")
+	return m == "auto" || m == "bypassPermissions"
 }
 
 // laneSeenKind is the seen store of repos already asked about in lanes mode, per session.
@@ -346,7 +355,7 @@ func otherVerdict(ctx context.Context, in *core.Input, cmd string, edits []strin
 		}
 		what := fmt.Sprintf("lanes mode: %d tracked file(s) of %s would change in its main checkout; "+
 			"approve to edit in place, or work in a lane: claude-code worktree create <slug>", len(hits), root)
-		if !core.SupportsAsk(in.Agent()) {
+		if !core.SupportsAsk(in.Agent()) || in.AgentID != "" || autoMode(in) { // a leaf's ask can stall a run: note
 			return core.Result{Context: what}
 		}
 		if seen, err := core.SeenHas(laneSeenKind, in.SessionID, root); err != nil || seen {

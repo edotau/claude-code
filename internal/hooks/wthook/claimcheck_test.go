@@ -1125,7 +1125,7 @@ func TestClaimCheckLanesOtherRepoAsksOnce(t *testing.T) {
 	useClaimOwner(t, checkerOwner)
 	check := func(root, session, agent string) core.Result {
 		in := map[string]any{"session_id": session, "cwd": root, "tool_name": "Edit",
-			"tool_input": map[string]any{"file_path": filepath.Join(root, "a.txt")}}
+			"tool_input": map[string]any{"file_path": filepath.Join(root, "a.txt")}, "agent_id": map[string]string{"LEAF": "a1"}[session]}
 		b, err := json.Marshal(in)
 		if err != nil {
 			t.Fatal(err)
@@ -1145,7 +1145,9 @@ func TestClaimCheckLanesOtherRepoAsksOnce(t *testing.T) {
 			t.Errorf("%s: %v %q; want allow", name, r.Decision, r.Reason)
 		}
 	}
-	if r := check(other, "S3", "codex"); r.Decision != core.Allow || r.Context == "" {
-		t.Errorf("codex: %v, context %q; want allow with a note", r.Decision, r.Context)
+	for name, r := range map[string]core.Result{"claude leaf": check(other, "LEAF", core.AgentClaude), "codex": check(other, "S3", "codex")} {
+		if r.Decision != core.Allow || r.Context == "" {
+			t.Errorf("%s: %v, context %q; want allow with a note", name, r.Decision, r.Context)
+		}
 	}
 }
