@@ -59,10 +59,26 @@ func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now ti
 		})
 	}
 	for _, g := range staleGithubRows(reg, now, force) {
-		catalog.SpawnDiscover(g.Name, false) // the copilot package cannot be imported here (test cycle)
+		wg.Go(func() { discoverGithub(ctx, g.Name) })
 	}
 	wg.Wait()
 	return errs
+}
+
+// discoverGithub re-lists row in a waited child (copilot import is a test cycle), so a failure reaches our stderr.
+func discoverGithub(ctx context.Context, row string) {
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "preflight: %s: GitHub listing refresh not run: %v\n", row, err)
+		return
+	}
+	lctx, cancel := context.WithTimeout(ctx, profileTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(lctx, self, "models", "preflight", "--discover", row)
+	cmd.Stderr = os.Stderr
+	if err := cmd.Run(); err != nil && lctx.Err() != nil {
+		fmt.Fprintf(os.Stderr, "preflight: %s: GitHub listing refresh timed out\n", row)
+	}
 }
 
 // staleGithubRows are the github login rows whose Copilot catalog snapshot is missing or expired (all when force).

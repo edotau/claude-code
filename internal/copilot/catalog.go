@@ -70,8 +70,11 @@ func copilotCapabilities(m SDKModel) string {
 	return strings.Join(parts, " · ")
 }
 
-// catalogRecord is the sealed vault record holding the GitHub Copilot catalog snapshot.
+// catalogRecord is the sealed vault record holding the latest GitHub Copilot catalog snapshot, any account.
 const catalogRecord = "copilot-catalog"
+
+// accountRecord is account's own snapshot record, so two GitHub login rows never evict each other's listing.
+func accountRecord(account string) string { return catalogRecord + "/" + account }
 
 // catalogSnapshot is the sealed catalog of one GitHub auth (account, credential source and token digest).
 type catalogSnapshot struct {
@@ -86,7 +89,7 @@ type catalogSnapshot struct {
 
 // readCatalogSnapshot is the sealed snapshot for auth and tok; ok false on a miss, another account or a vault error.
 func readCatalogSnapshot(auth copilotAuth, tok string) (catalogSnapshot, bool) {
-	raw, found, err := vault.ReadSecret(catalogRecord)
+	raw, found, err := vault.ReadSecret(accountRecord(auth.Account))
 	if err != nil || !found {
 		return catalogSnapshot{}, false
 	}
@@ -116,13 +119,16 @@ func catalogAuth(login string) (auth copilotAuth, tok string, ok bool, err error
 	return auth, tok, true, err
 }
 
-// saveCatalogSnapshot seals the snapshot under catalogRecord.
+// saveCatalogSnapshot seals the snapshot under its account's record and catalogRecord.
 func saveCatalogSnapshot(s catalogSnapshot) error {
 	data, err := json.Marshal(s)
 	if err != nil {
 		return errors.New("cannot encode catalog snapshot")
 	}
 	return vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
+		if err := tx.PutSealed(key, accountRecord(s.Account), string(data), "github/copilot", s.DiscoveredAt); err != nil {
+			return err
+		}
 		return tx.PutSealed(key, catalogRecord, string(data), "github/copilot", s.DiscoveredAt)
 	})
 }

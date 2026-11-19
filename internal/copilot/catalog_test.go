@@ -73,4 +73,12 @@ func TestSnapshotIDsFollowTheSelectedRow(t *testing.T) {
 	if got := snapshotIDs(reg.Providers["account-a"]); got != nil {
 		t.Errorf("pinned account-a ids = %v, want none: the snapshot is account-b's", got)
 	}
+	if err := saveCatalogSnapshot(catalogSnapshot{Schema: 1, Account: "account-a", Source: srcPinned, DiscoveredAt: time.Now(),
+		TokenHash: textutil.SHA256Hex([]byte("tok-account-a")), Models: []SDKModel{{ID: "kimi-k3", Enabled: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	snapshotMap = map[string]catalogIDs{}
+	if got := snapshotIDs(reg.Providers["account-b"]); !slices.Equal(got, []string{"gpt-6.2-sol"}) {
+		t.Errorf("account-b ids after account-a's listing = %v, want its own snapshot kept", got)
+	}
 }
