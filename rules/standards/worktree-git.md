@@ -14,8 +14,9 @@
    Repeat `--task` for multiple tasks; `--plan <file>` selects the plan when ids collide. Each id must name one open
    task (a recent or claimed plan, or a dated `--plan` file in the repo's plans home) before staging; quote an id with
    spaces. The commit carries `Task: <plan-slug> <id>` trailers: only a real trailer counts (last paragraph, every line
-   a column-zero trailer; quoted or prose lines never do); a named task ticks once the commit is on main (a lane
-   commit when it lands), even if it left some `owns:` files out. Main is the primary checkout on the trunk: origin/HEAD
+   a column-zero trailer; quoted or prose lines never do); a named task ticks once the commit is on main and its
+   `verify:` plus the scoped gate pass on that commit (detached; the result is a notice) (a lane commit when it lands),
+   even if it left some `owns:` files out. Main is the primary checkout on the trunk: origin/HEAD
    when it names an existing local branch, else `init.defaultBranch`, `main`, `master`; none exists, nothing ticks.
    Only the main session's `worktree commit --task`, after it verifies a hand-back, ticks (leaves hand back
    uncommitted); coverage never ticks, it prints one candidate. Manual

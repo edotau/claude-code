@@ -46,8 +46,9 @@ Shell `agents ask` belongs only inside an external relay or a requested script. 
 | `claude-code-guide` | Host built-in: questions about Claude Code, the Agent SDK and the Claude API | The answer |
 | `statusline-setup` | Host built-in: configures the status line setting | The settings edit |
 
-`claude-code agents label <type> --task FILE` prints the label (`--model` previews a model, `--session-model` supplies
-the parent's). Pass the Agent tool's `model` to raise one call (`fable` only for two large designs at once). Wrapper
+Build every `Run:` line with `claude-code agents label <type> --run [--model m] [--profile p | --spec FILE] --task
+FILE`: it prints the exact `Run:` line, then the label (`--session-model` supplies the parent's). Pass the Agent
+tool's `model` to raise one call (`fable` only for two large designs at once). Wrapper
 frontmatter controls the relay, not the vendor model. `dispatch-effort` sets model and effort only for an agent with no
 `model:` line and a call naming none (`Explore`, `general-purpose`, untyped). The root machine's pins and per-call flags
 select external execution; never overwrite another machine's pins.
@@ -129,7 +130,9 @@ Give each leaf named files it owns, never shared between parallel leaves. Fan ou
 - `Run:` optional exact CLI command, preferred for explicit routing. `Model:` is not parsed by the hook: put `--model`
   on the command. `Mode:`, `Owns:`, `Method:`, `Verify:`, `Acceptance:` are conventions, not routing hooks. `Task:`
   identifies a plan task for the hook's slot claim. `Tier: fast|standard|deep` (own line) sets the task tier that
-  picks an unpinned run's model (`agent.TaskTier`); without it the wording decides.
+  picks an unpinned run's model (`agent.TaskTier`); without it the wording decides. Never hand-type the line: take it
+  from `agents label --run`; `dispatch-effort` fixes a typo it can decide and notes the rest. Name the plan task
+  (`Task: Phase W.k`): the hand-back then carries its `verify:` result.
 - `Owns:` absolute paths and forbidden files. `Method:` the skill. `Context:` evidence, decisions, plan path.
   `Constraints:` applicable rules and the [Shared tree](#shared-tree) line. `Verify:` a scoped command;
   `Acceptance:` its observable outcome. `Workflow:` a saved Workflow, only when the owner requested it.

@@ -124,8 +124,12 @@ passes. The label is the model the run resolves: a typed `--model`/`--profile` r
 `--model` runs its pin, else the model of the brief's task tier: a `Tier:` line, else the classifier, opus when the
 brief has no text; `auto` ranks the row's served models; claude runs the brief's alias), an untyped external dispatch
 takes the route ladder's first hop; a route that does not resolve offline leaves the description unlabelled with a
-note; print it with `claude-code agents label <type> [--profile p] [--model m] --task FILE`. Every fix (type, label,
-pin) rides one `updatedInput`, one note line each. Brief routing:
+note; print it with `claude-code agents label <type> --run [--profile p] [--model m | --spec S] --task FILE`. Every fix
+(type, label, pin, Run: line) rides one `updatedInput`,
+one note line each. A `Run:` line fix is made only when one
+fix is certain (nearest flag within distance 2, a tie means none): an unknown flag renamed, a bad value corrected, a
+positional agent name moved to `--agent`, `--task-file -` dropped; anything else is a note, never a denial.
+Brief routing:
 `skills/subagent-workflows/SKILL.md` → Handoff contract. Implementation: `internal/hooks/effort.go`; workflow
 validation: `internal/workflows/workflowlint.go`. In auto mode a rewritten call costs one mechanical resend of the
 exact corrected input (the classifier refuses a hook-modified input once)
@@ -161,6 +165,12 @@ fail open. A stop it isn't blocking kills the leaf's leftover background shells 
 On Bash, `dispatch-workflow` (the synchronous entry, so the line reaches the model) gives a relay whose own `agents
 result` poll returned on an ended job the context line `job <id> ended: hand back now with this result`, and marks
 that job collected for the stuck-leaf watchdog.
+
+On a hand-back naming a plan task (dispatch `plan_task` or the brief's `Task:`), `dispatch-handback` runs the task's
+`verify:` and the scoped gate on the leaf's owned dirty files within the budget and puts `verify <id>: …` lines on
+top of the message; it never holds. The `verify:` allowlist is `go build|vet|test` on `./` packages, `claude-code
+agents diff --check`, `claude-code doctor …` and `rtk` forms of these, joined by `&&` only; any other shape prints
+`verify not run: shape` and the task rests on the gate alone.
 
 `dispatch-handback` prepends the note and receipt and appends the job result to the hand-back `message`. When a leaf
 started several jobs, every finished job's answer is attached in dispatch order, each under its own receipt line,
@@ -206,14 +216,16 @@ Bash runs in the async entry (`rules/harness/hooks.md` → Groups and the dispat
 
 ## docs-plan-tick / docs-plan-reminder
 
-A commit on the trunk of the primary checkout ticks, at once, the open plan tasks its `Task: <plan-slug> <id>`
-trailers name (`claude-code plan status`), in any plan; with no trunk, nothing ticks and one line says so. Only the
-main session's verified `worktree commit --task` ticks; coverage prints one candidate per task (recent or claimed
-plans) and writes nothing; draft mirrors and struck tasks never tick. A lane, a feature branch or a detached HEAD
-ticks nothing; a lane commit ticks when it lands (`worktree merge` promotes it, or the hook sees in the HEAD reflog a
-fast-forward or merge commit land on main, whatever the call printed or a later command did; `plan tick --range`
-otherwise). The Stop reminder's partials record (one shared lock) is no longer written. `claude-code clean` sweeps
-obsolete `*.partial.lock` files older than one day
+A commit on the trunk of the primary checkout starts one detached `plan tick --verify` per plan for the open tasks its
+`Task: <plan-slug> <id>` trailers name (`claude-code plan status`), in any plan. It runs each task's `verify:` (the
+allowlist is under dispatch-handback) plus the scoped gate on that sha in a scratch checkout and ticks the green ones; a
+shape-refused `verify:` ticks on the gate with a note, red stays open with the failing command and tail; with no trunk,
+nothing ticks and one line says so. Only the main session's verified `worktree commit --task` ticks; coverage prints one
+candidate per task (recent or claimed plans) and writes nothing; draft mirrors and struck tasks never tick. A lane, a
+feature branch or a detached HEAD ticks nothing; a lane commit ticks when it lands (`worktree merge` promotes it, or the
+hook sees in the HEAD reflog a fast-forward or merge commit land on main, whatever the call printed or a later command
+did; `plan tick --range` otherwise). The Stop reminder's partials record (one shared lock) is no longer written.
+`claude-code clean` sweeps obsolete `*.partial.lock` files older than one day
 
 ## memory-update
 

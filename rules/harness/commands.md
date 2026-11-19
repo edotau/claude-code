@@ -59,6 +59,7 @@ claude-code configure --revert [--agent a,b]        # restore agent CLI configs 
 claude-code agents list                                # agents and availability
 claude-code agents ask --agent codex "Review this branch."    # one-shot; --format json, --tools, --effort
 claude-code agents ask --agents <json|file> --agent <name> "<task>"   # inline agent definitions
+claude-code agents ask --spec task.json --dry-run   # resolved route and argv; no model call
 claude-code agents status | ask --retry <id>                   # recent dispatches; replay one
 claude-code agents ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many tasks on a pool; one envelope per line
 claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- forces passthrough

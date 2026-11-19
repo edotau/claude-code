@@ -106,7 +106,9 @@ part (`internal/configure/a.go, b.go, ui/c.go`). E.g.:
 `W.V` is the wave's manual verifier (never launched). Optional attributes go **before** `owns:`, which takes
 everything after the last `owns:`:
 `... Agent: codex — verify: go test ./internal/claude — findings: reports/x.md#key — owns: internal/claude/gate.go`.
-`verify:` defaults to `claude-code agents diff --check` on the owned files. The wave gate is the first `bash` fence
+`verify:` defaults to `claude-code agents diff --check` on the owned files.
+A tick runs `verify:` on the landed commit first; only `go build|vet|test ./…`, `claude-code agents diff --check` and
+`claude-code doctor …` (and their `rtk` forms) run there. The wave gate is the first `bash` fence
 under `## Phases` unless `--gate CMD` overrides it; a gate or `verify:` with a git write verb (add, commit, stash,
 reset, checkout, switch, restore, clean, push, rebase, merge, rm, mv, cherry-pick, am, tag, pull, revert, update-ref,
 apply --index/--cached) is refused. Exit: 0 every requested wave passed; 1 a leaf, gate or verifier
