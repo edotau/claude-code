@@ -24,7 +24,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/codex"
-	"github.com/edotau/claude-code/internal/network/httpx"
+	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"

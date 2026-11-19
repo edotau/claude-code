@@ -19,7 +19,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/httpx"
+	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"

@@ -18,7 +18,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/httpx"
+	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
