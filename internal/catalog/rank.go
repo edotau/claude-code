@@ -21,6 +21,7 @@ type Rank struct {
 	Speed      int    `json:"speed"`
 	Cost       int    `json:"cost"`
 	Known      bool   `json:"known"`
+	Rotate     *bool  `json:"rotate,omitempty"` // false keeps the row out of auto rotation; a typed id still runs
 	order      int
 	prefix     string // Match's literal stem when it is "stem*", else ""; set at load
 }
@@ -136,7 +137,7 @@ func eligible(r Rank, cand Candidate, tier string, tools bool) bool {
 	return r.Known || tier == "fast" && (!tools || cand.Tools == "yes")
 }
 
-// RotationPool is cands a rotation may run at tier, in input order: eligible, at the floor, within the cost cap.
+// RotationPool is cands a rotation may run at tier, in input order: eligible, rotating, at the floor, under the cap.
 func RotationPool(cands []Candidate, tier string, tools bool) []string {
 	rule, ok := loadRanks().Rotation[tier]
 	if !ok {
@@ -145,7 +146,8 @@ func RotationPool(cands []Candidate, tier string, tools bool) []string {
 	var out []string
 	for _, c := range cands {
 		r := RankOf(c.Model)
-		if !eligible(r, c, tier, tools) || r.Known && (r.Capability < rule.Min || r.Cost > rule.MaxCost) {
+		if !eligible(r, c, tier, tools) || r.Rotate != nil && !*r.Rotate ||
+			r.Known && (r.Capability < rule.Min || r.Cost > rule.MaxCost) {
 			continue
 		}
 		out = append(out, c.Model)

@@ -85,6 +85,7 @@ paths:
   the run all show it. Each agent has one history per provider group across dev, qa and prod; holds stay per
   workspace: a pool-pinned pick skips a model where that workspace skips or holds it, and keeps it
   while another workspace serves it. The served listing is the only pool input; there is no built-in seed pool.
+  Rotation admits only rows not marked `"rotate": false` in `internal/catalog/ranks.json`; typed, those still run.
   The pool admits only models the agent can run within the tier's `rotation` capability floor and cost cap in
   `internal/catalog/ranks.json` (unranked models skip both where the tier admits them). The vault's
   `discovery-models` allowlist only narrows it; held models and, under `--tools`, models probed tools `no` are skipped.

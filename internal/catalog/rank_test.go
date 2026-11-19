@@ -119,14 +119,14 @@ func TestRotationPool(t *testing.T) {
 		{Model: "gpt-5-4-nano"}, {Model: "gpt-6-2-luna"},
 		{Model: "claude-sonnet-5-5"}, {Model: "claude-opus-5-5"},
 		{Model: "fake-model-a", Tools: "yes"}, {Model: "fake-model-b"},
-		{Model: "gpt-5-4-mini", Tools: "no"},
+		{Model: "gpt-6-luna", Tools: "no"},
 	}
 	for _, tc := range []struct {
 		name, tier string
 		tools      bool
 		want       []string
 	}{
-		{"fast", "fast", false, []string{"gpt-6-2-luna", "fake-model-a", "fake-model-b", "gpt-5-4-mini"}},
+		{"fast", "fast", false, []string{"gpt-6-2-luna", "fake-model-a", "fake-model-b", "gpt-6-luna"}},
 		{"fast with tools", "fast", true, []string{"gpt-6-2-luna", "fake-model-a"}},
 		{"standard", "standard", false, []string{"claude-sonnet-5-5", "claude-opus-5-5"}},
 		{"deep", "deep", false, []string{"claude-opus-5-5"}},
@@ -137,6 +137,31 @@ func TestRotationPool(t *testing.T) {
 				t.Errorf("RotationPool = %v, want %v", got, tc.want)
 			}
 		})
+	}
+}
+
+// A row marked rotate false leaves every rotation pool in both spellings yet stays ranked and pickable when typed.
+func TestRotationPoolOutOfRotation(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	off := false
+	tbl := rankTable{Tiers: map[string]int{"standard": 4, "deep": 5}, Rotation: map[string]rotationRule{
+		"standard": {Min: 4, MaxCost: 5}, "deep": {Min: 5, MaxCost: 5},
+	}, Families: []Rank{{Match: "old-5-5*", Capability: 5, Cost: 4, Rotate: &off}, {Match: "new-6-1*", Capability: 5, Cost: 4}}}
+	for i := range tbl.Families {
+		tbl.Families[i].Known, tbl.Families[i].order = true, i
+	}
+	old := loadRanks
+	t.Cleanup(func() { loadRanks = old })
+	loadRanks = func() rankTable { return tbl }
+	for _, id := range []string{"databricks-old-5-5", "old-5.5"} {
+		for _, tier := range []string{"standard", "deep"} {
+			if got := RotationPool(cands(id, "new-6-1"), tier, false); !slices.Equal(got, []string{"new-6-1"}) {
+				t.Errorf("RotationPool(%s, %s) = %v, want only new-6-1", id, tier, got)
+			}
+			if c := Choose(cands(id), "claude", tier, false); !RankOf(id).Known || len(c.Ranked) != 1 {
+				t.Errorf("typed %s at %s: known %v, ranked %+v; want it ranked and picked", id, tier, RankOf(id).Known, c.Ranked)
+			}
+		}
 	}
 }
 
