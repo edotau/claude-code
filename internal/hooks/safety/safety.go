@@ -159,7 +159,7 @@ func scanCommand(in *core.Input) core.Result {
 	cmd := dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))
 	dropped := dropInertHeredocs(cmd)
 	scan := blankInert(dropped)
-	decision, msg, detail := commandVerdict(in, cmd, scan)
+	decision, msg, detail, floor := commandVerdict(in, cmd, scan)
 	var warn strings.Builder
 	if decision != core.Block && detail != settingsAllowDetail && (in.ToolName == "" || strings.EqualFold(in.CanonicalTool(), "Bash")) {
 		warn.WriteString(softWarnings(cmd, scan, dropped != cmd))
@@ -176,16 +176,16 @@ func scanCommand(in *core.Input) core.Result {
 	}
 	audit.LogSession(audit.HookBlocked, in.SessionID, "safety", detail)
 	if decision == core.Ask && core.SupportsAsk(in.Agent()) {
-		return core.Result{Decision: core.Ask, Reason: strings.TrimSpace(msg), Stderr: strings.TrimSpace(warn.String()), Rule: rule}
+		return core.Result{Decision: core.Ask, Reason: strings.TrimSpace(msg), Stderr: strings.TrimSpace(warn.String()), Rule: rule, Floor: floor}
 	}
-	return core.Result{Decision: core.Block, Reason: strings.TrimSpace(warn.String() + msg), Rule: rule}
+	return core.Result{Decision: core.Block, Reason: strings.TrimSpace(warn.String() + msg), Rule: rule, Floor: floor}
 }
 
 // Verdict is safety-scan's decision for in with no audit entry or warning, for the doctor permissions report.
-func Verdict(in *core.Input) core.Decision { d, _, _ := safetyVerdict(in); return d }
+func Verdict(in *core.Input) core.Decision { d, _, _, _ := safetyVerdict(in); return d }
 
 // safetyVerdict checks all block patterns before considering any ask pattern.
-func safetyVerdict(in *core.Input) (core.Decision, string, string) {
+func safetyVerdict(in *core.Input) (core.Decision, string, string, bool) {
 	cmd := dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))
 	return commandVerdict(in, cmd, inertStripped(cmd))
 }
@@ -193,10 +193,10 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 // settingsAllowDetail marks a main-thread command a settings allow rule covers: past the floor, built-ins are off (D8).
 const settingsAllowDetail = "settings allow"
 
-// commandVerdict judges cmd floor → settings deny → settings ask → settings allow (main) → built-ins.
-func commandVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string) {
+// commandVerdict judges cmd floor → deny → ask → allow (main) → built-ins; true marks a floor or deny block.
+func commandVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string, bool) {
 	if in.ToolName != "" && !strings.EqualFold(in.CanonicalTool(), "Bash") || cmd == "" {
-		return core.Allow, "", ""
+		return core.Allow, "", "", false
 	}
 	// A plain Python stdin script's body is Python and data text is no invocation; interpreterWrite judges its paths.
 	py := withPyLaunches(dropPyScripts(cmd))
@@ -207,13 +207,13 @@ func commandVerdict(in *core.Input, cmd, scan string) (core.Decision, string, st
 	}
 	d, warn, detail := floorVerdict(in, cmd, scan, asked) // an Allow's message is the rewrite guard's warning
 	if d != core.Allow {
-		return d, warn, detail
+		return d, warn, detail, true
 	}
-	if d, msg, detail := settingsVerdict(in, cmd, asked, plain); d != core.Allow || detail == settingsAllowDetail {
-		return d, warn + msg, detail
+	if d, msg, detail, deny := settingsVerdict(in, cmd, asked, plain); d != core.Allow || detail == settingsAllowDetail {
+		return d, warn + msg, detail, deny
 	}
 	d, msg, detail := builtinVerdict(in, cmd, asked, plain)
-	return d, warn + msg, detail
+	return d, warn + msg, detail, false
 }
 
 // floorVerdict is the code-only floor: every agent, never loosened by a settings allow or a dispatch policy.
@@ -281,29 +281,29 @@ func floorGitVerdict(in *core.Input, asked string) (core.Decision, string, strin
 	return core.Allow, "", ""
 }
 
-// settingsVerdict applies the settings tiers: deny blocks, ask asks (dispatch decides without ask), allow ends main.
-func settingsVerdict(in *core.Input, cmd, asked, plain string) (core.Decision, string, string) {
+// settingsVerdict applies deny, ask (dispatch decides without ask) and allow (ends main); true marks a deny block.
+func settingsVerdict(in *core.Input, cmd, asked, plain string) (core.Decision, string, string, bool) {
 	p, cwd := livePolicy(), in.CWD
 	switch rule, f := settingsRuleHit(dropInertHeredocs(cmd), cwd, p.bashDeny), protectedWrite(cmd, cwd, p.editDeny, false); {
 	case rule != "":
 		return core.Block, core.SafetyMessage(in, core.Block, "matches a settings.json deny rule", rule,
-			"Change permissions.deny in ~/.claude/settings.json if this is wrong."+ownerRoute), "settings deny"
+			"Change permissions.deny in ~/.claude/settings.json if this is wrong."+ownerRoute), "settings deny", true
 	case sudoDenied() && sudoInvoked(asked, cwd):
-		return core.Block, core.SafetyMessage(in, core.Block, "sudo command", "", sudoHint), "sudo"
+		return core.Block, core.SafetyMessage(in, core.Block, "sudo command", "", sudoHint), "sudo", true
 	case f != "":
 		return core.Block, core.SafetyMessage(in, core.Block, "writes a file Edit/Write may never touch", f,
-			"Edit it by hand, or run it yourself in a terminal."), "protected write"
+			"Edit it by hand, or run it yourself in a terminal."), "protected write", true
 	}
 	if needle, _ := interpreterWrite(plain, p.editDeny, false); needle != "" { // fuzzy: asks; Scan blocks without ask
-		return core.Ask, core.SafetyMessage(in, core.Ask, interpreterWhat, needle, interpreterHint), "interpreter protected write"
+		return core.Ask, core.SafetyMessage(in, core.Ask, interpreterWhat, needle, interpreterHint), "interpreter protected write", false
 	}
 	if d, msg, detail := settingsAskVerdict(in, cmd, asked, plain, p); d != core.Allow {
-		return d, msg, detail
+		return d, msg, detail, false
 	}
 	if !isLeaf(in) && settingsAllowed(cmd, cwd, p.bashAllow) { // D8: allow never loosens a leaf
-		return core.Allow, "", settingsAllowDetail
+		return core.Allow, "", settingsAllowDetail, false
 	}
-	return core.Allow, "", ""
+	return core.Allow, "", "", false
 }
 
 // settingsAskVerdict asks on Claude for each settings ask hit; elsewhere dispatchAsk decides (D1).

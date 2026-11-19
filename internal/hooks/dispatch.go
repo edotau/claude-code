@@ -177,6 +177,7 @@ func (m *dispatchMerge) add(b Bound, event string, r core.Result) {
 	} else if r.Decision == merged.Decision && merged.Reason == "" {
 		merged.Reason = r.Reason
 	}
+	merged.Floor = merged.Floor || r.Floor
 	if r.ExitCode != 0 {
 		r.Stderr = fmt.Sprintf("%s\n(hook exit %d)", r.Stderr, r.ExitCode)
 	}

@@ -9,7 +9,7 @@ strict deny for everyone), settings deny (`~/.claude/settings.json` or the templ
 settings ask (Claude asks; an agent without ask follows the dispatch's `--allow`/`--deny`, neither matching blocks
 naming `--allow '<rule>'`), settings allow (main thread only; never loosens a leaf), built-ins; then
 `agentBashAllow` turns a leaf's block or ask into allow (a leaf: payload `agent_id` or `HARNESS_DISPATCH_PERMISSIONS`),
-except the AI-attribution footer. `Edit(...)` globs use
+except floor and settings-deny blocks (`Result.Floor`). `Edit(...)` globs use
 anchors `//`, `~/`, `/` = `~/.claude/`, `**/`; relative = cwd. Copilot's edit tools are checked too.
 
 **Block** destructive shapes (`rm -rf /`, a system dir or `$HOME` as the shell reads it: quoted, escaped, `//`, `..`;

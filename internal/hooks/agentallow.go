@@ -9,7 +9,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 )
 
-// agentBashAllow allows an agent's blocked or asked call with a note; only the AI-footer check still stops it.
+// agentBashAllow allows an agent's blocked or asked call with a note; floor and settings-deny blocks stay.
 func agentBashAllow(in *core.Input, r core.Result) core.Result {
 	if in == nil || r.Decision == core.Allow || !agentAllowTool(in.CanonicalTool()) {
 		return r
@@ -17,7 +17,7 @@ func agentBashAllow(in *core.Input, r core.Result) core.Result {
 	if in.AgentID == "" && os.Getenv(agent.DispatchPermissionsEnv) == "" {
 		return r
 	}
-	if strings.Contains(r.Reason, "AI-attribution footer") {
+	if r.Floor {
 		return r
 	}
 	r.Context = core.JoinContext(r.Context, "allowed for an agent (owner order); was: "+strings.TrimSpace(r.Reason))
