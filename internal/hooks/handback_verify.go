@@ -20,24 +20,48 @@ import (
 
 // handbackVerify runs the leaf's plan task verify: and the scoped gate on its owned dirty files, before deadline.
 func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
-	task, ok := docs.BriefTask(in.CWD, lr.scan.brief, recordPlanTask(loadRecords(lr.ids)))
-	if !ok {
+	top := memory.GitToplevel(in.CWD)
+	if top == "" {
 		return nil
 	}
+	dirty := dirtyPaths(top)
+	planPath, active, _ := plans.Active(plans.Home(top), plans.WorktreeName(top), plans.MirrorDests())
+	task, ok := docs.BriefTask(in.CWD, lr.scan.brief, recordPlanTask(loadRecords(lr.ids)))
+	if !ok {
+		if task, ok = untiedTask(active, dirty); !ok {
+			return nil
+		}
+	}
 	id := cmp.Or(task.ID, task.Title)
+	files := dirtyOwned(dirty, plans.OwnedPaths(task))
+	commit := "commit+tick: claude-code worktree commit --task '" + id + "' --plan " + planPath +
+		` -m "<type>: <subject>"` + strings.Join(append([]string{""}, files...), " ")
 	if time.Until(deadline) < 2*time.Second {
-		return []string{"verify " + id + ": no time left in the hand-back budget; the commit-time verify still runs"}
+		return []string{"verify " + id + ": no time left in the hand-back budget; the commit-time verify still runs", commit}
 	}
 	ctx, cancel := context.WithDeadline(context.Background(), deadline)
 	defer cancel()
-	top := memory.GitToplevel(in.CWD)
-	checks := waves.VerifyTask(ctx, waves.TaskVerifyInput{Dir: top, Task: task, Files: dirtyOwned(ctx, top, plans.OwnedPaths(task)),
+	checks := waves.VerifyTask(ctx, waves.TaskVerifyInput{Dir: top, Task: task, Files: files,
 		OutDir: filepath.Join(paths.StateDir(), "verify", "handback")})
-	lines := make([]string, 0, len(checks))
+	lines := make([]string, 0, len(checks)+1)
 	for _, c := range checks {
 		lines = append(lines, c.Line())
 	}
-	return lines
+	return append(lines, commit)
+}
+
+// untiedTask is the one open task of the plan whose owns: covers a dirty path; several or none is no guess.
+func untiedTask(plan plans.Plan, dirty []string) (plans.Task, bool) {
+	var hit []plans.Task
+	for _, t := range plan.Tasks {
+		if !t.Done && !t.Dropped && len(dirtyOwned(dirty, plans.OwnedPaths(t))) > 0 {
+			hit = append(hit, t)
+		}
+	}
+	if len(hit) != 1 {
+		return plans.Task{}, false
+	}
+	return hit[0], true
 }
 
 func recordPlanTask(recs []agent.Record) string {
@@ -49,16 +73,25 @@ func recordPlanTask(recs []agent.Record) string {
 	return ""
 }
 
-// dirtyOwned is the uncommitted paths under top that one of owned names or lies under.
-func dirtyOwned(ctx context.Context, top string, owned []string) []string {
-	raw, err := proc.RunGit(ctx, top, "--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all")
+// dirtyPaths is every uncommitted path under top.
+func dirtyPaths(top string) []string {
+	raw, err := proc.RunGit(context.Background(), top, "--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all")
 	if err != nil {
 		return nil
 	}
 	var out []string
 	for _, e := range proc.StatusEntries(raw) {
-		if slices.ContainsFunc(owned, func(o string) bool { return e.Path == o || strings.HasPrefix(e.Path, strings.TrimSuffix(o, "/")+"/") }) {
-			out = append(out, e.Path)
+		out = append(out, e.Path)
+	}
+	return out
+}
+
+// dirtyOwned is the dirty paths that one of owned names or lies under.
+func dirtyOwned(dirty, owned []string) []string {
+	var out []string
+	for _, p := range dirty {
+		if slices.ContainsFunc(owned, func(o string) bool { return p == o || strings.HasPrefix(p, strings.TrimSuffix(o, "/")+"/") }) {
+			out = append(out, p)
 		}
 	}
 	return out
