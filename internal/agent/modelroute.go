@@ -557,7 +557,7 @@ func resolvePool(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec
 		cmp.Or(spec.Model, q.Default, models.Opus), q.Agent, strings.Join(skipped, "; "))
 }
 
-// rotatePin is q's pin, or under the rotate pin the stamped rotation pick; an empty pool is "" (never "rotate") plus a note.
+// rotatePin is q's pin, or under the rotate pin the stamped pick; an empty pool is "" (never "rotate") plus a note.
 func rotatePin(reg *providers.Registry, q ModelQuery, now time.Time) (string, string) {
 	if q.Model != "" || q.PinModel != router.DiscoveryModel {
 		return q.PinModel, ""

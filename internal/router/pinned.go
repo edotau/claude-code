@@ -190,7 +190,7 @@ func IsPoolModel(agent string, p *providers.Provider, model string) bool {
 	})
 }
 
-// PinnedModel resolves a pin and reports why a Discovery request fell back to the alias; stamp records the rotation pick.
+// PinnedModel resolves a pin and reports why a Discovery request fell back to the alias; stamp records the pick.
 func PinnedModel(agent, alias string, cell Cell, p *providers.Provider, pin string, stamp bool) (string, string) {
 	return pinnedModel(agent, alias, cell, p, pin, stamp, time.Now())
 }

@@ -73,7 +73,7 @@ func namesRoute(q ModelQuery) bool {
 	return VaultAgentIsClaude(q.Agent) || typed || q.Profile != "" || q.Provider != "" || q.Account != ""
 }
 
-// PoolPicks reports a run whose pool pin takes the least-busy workspace: no typed provider prefix, not live or detached.
+// PoolPicks reports a run whose pool pin takes the least-busy workspace: no provider prefix, not live or detached.
 func PoolPicks(ag, model string, held bool) bool {
 	return !held && !strings.Contains(model, ":") && PinsPool(ag)
 }
