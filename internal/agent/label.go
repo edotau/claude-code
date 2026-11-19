@@ -317,10 +317,7 @@ type autoNeed struct {
 
 // autoQuery sizes q's tier and folds auto out of it: the auto word becomes the tier alias on its row, the pin drops.
 func autoQuery(q ModelQuery) (ModelQuery, autoNeed) {
-	alias, signal := q.Default, "tier "+q.Default
-	if q.Task != "" {
-		alias, signal = TaskTier(q.Task)
-	}
+	alias, signal := briefTier(q)
 	q.Default = alias
 	need := autoNeed{tier: tierOf(alias), signal: signal}
 	prefix, typed := SplitAuto(q.Model)
@@ -345,6 +342,14 @@ func autoQuery(q ModelQuery) (ModelQuery, autoNeed) {
 		q.Model = prefix + ":" + q.Default
 	}
 	return q, need
+}
+
+// briefTier is the task's tier alias and signal, else q's default tier.
+func briefTier(q ModelQuery) (string, string) {
+	if q.Task == "" {
+		return q.Default, "tier " + q.Default
+	}
+	return TaskTier(q.Task)
 }
 
 // tierOf is the tier word whose alias is alias; "" for none.

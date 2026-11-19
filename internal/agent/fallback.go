@@ -587,6 +587,11 @@ func overflowFollows(c Chain, i int, req RunOptions, err error) bool {
 	return i < last && c.Dispatches[last].quotaOverflow && quotaFailure(err) && !explicitBackend(req)
 }
 
+// lastHop reports that no dispatch can follow hop i.
+func lastHop(c Chain, i int, req RunOptions) bool {
+	return i+1 >= len(c.Dispatches) || (i == 0 && explicitBackend(req))
+}
+
 // tripFailFast cancels the batch when err ends the task (no fallback follows), before the permit is released.
 func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res wire.Result, err error) {
 	trip := retry.FailFastStop(ctx)
@@ -599,7 +604,7 @@ func tripFailFast(ctx context.Context, c Chain, i int, req RunOptions, res wire.
 	if overflowFollows(c, i, req, err) {
 		return
 	}
-	if i+1 >= len(c.Dispatches) || (i == 0 && explicitBackend(req)) {
+	if lastHop(c, i, req) {
 		trip()
 		return
 	}
@@ -803,6 +808,18 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 	if !first {
 		out.Provider, out.SessionID = "", ""
 	}
+	out = cellRequest(out, req, disp)
+	if disp.Agent != nil {
+		out = autoRunEffort(out, disp.Agent.Name(), "")
+	}
+	if out.Effort == "" {
+		out.Effort = disp.Effort
+	}
+	return armClaudeProfile(leadProfile(out, disp), disp)
+}
+
+// cellRequest sets out's model from disp's cell, or keeps the caller's model for a keepCaller dispatch.
+func cellRequest(out, req RunOptions, disp Dispatch) RunOptions {
 	if disp.keepCaller && disp.Model != "" && providers.FamilyName(req.Model) != "" { // the family word never reaches the engine
 		out.Model = disp.Model
 	}
@@ -812,13 +829,7 @@ func dispatchRequest(req RunOptions, disp Dispatch, first bool) RunOptions {
 			out.Model = AutoCell(disp.Model) // typed or pinned auto beats the cell's model, on the cell's row (RunQuery)
 		}
 	}
-	if disp.Agent != nil {
-		out = autoRunEffort(out, disp.Agent.Name(), "")
-	}
-	if out.Effort == "" {
-		out.Effort = disp.Effort
-	}
-	return armClaudeProfile(leadProfile(out, disp), disp)
+	return out
 }
 
 // claudeTier gives an untyped local claude dispatch its task tier unless a concrete claude pin decides.

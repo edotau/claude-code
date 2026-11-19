@@ -173,12 +173,9 @@ func splitQuery(reg *providers.Registry, q ModelQuery) (providers.ModelSpec, boo
 
 // routeRow walks the profile precedence: typed sources must serve the agent, implicit ones fall through.
 func routeRow(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec) (*providers.Provider, string, string, error) {
-	note := ""
-	if spec.Row != "" && q.Profile != "" && spec.Row != q.Profile {
-		if q.Interactive {
-			return nil, "", "", fmt.Errorf("%w: --profile %s and --model %s name different profiles", ErrModelRoute, q.Profile, q.Model)
-		}
-		note = fmt.Sprintf("--model prefix %s overrides profile %s", spec.Row, q.Profile)
+	note, err := profileClash(q, spec)
+	if err != nil {
+		return nil, "", "", err
 	}
 	typed, err := typedRow(reg, q, spec)
 	if err != nil {
@@ -201,6 +198,17 @@ func routeRow(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec) (
 	return p, src, note, err
 }
 
+// profileClash is the note (or interactive error) for a --model prefix naming a different row than --profile.
+func profileClash(q ModelQuery, spec providers.ModelSpec) (string, error) {
+	if spec.Row == "" || q.Profile == "" || spec.Row == q.Profile {
+		return "", nil
+	}
+	if q.Interactive {
+		return "", fmt.Errorf("%w: --profile %s and --model %s name different profiles", ErrModelRoute, q.Profile, q.Model)
+	}
+	return fmt.Sprintf("--model prefix %s overrides profile %s", spec.Row, q.Profile), nil
+}
+
 // geminiModelRow is the row a typed model picks for gemini with no --profile: databricks- the gateway, Gemini Google.
 func geminiModelRow(reg *providers.Registry, q ModelQuery) (*providers.Provider, string, error) {
 	name := strings.ToLower(q.Model)
@@ -208,15 +216,7 @@ func geminiModelRow(reg *providers.Registry, q ModelQuery) (*providers.Provider,
 		return nil, "", nil
 	}
 	if strings.HasPrefix(name, models.DatabricksPrefix) {
-		for _, c := range []struct {
-			p   *providers.Provider
-			src string
-		}{{reg.Row(q.Session), "session"}, {reg.Row(q.PinProfile), "pin"}, {reg.Row(reg.Default), "default"}} {
-			if GeminiGatewayRow(c.p) {
-				return c.p, c.src, nil
-			}
-		}
-		return nil, "", fmt.Errorf("%w: %s needs a Databricks row and no session, pin or default is one; pass --profile", ErrModelRoute, q.Model)
+		return geminiGatewayPick(reg, q)
 	}
 	if models.FamilyKind(name) != models.FamilyGemini || GeminiGatewayRow(reg.Row(q.PinProfile)) {
 		return nil, "", nil
@@ -227,6 +227,19 @@ func geminiModelRow(reg *providers.Registry, q ModelQuery) (*providers.Provider,
 		}
 	}
 	return nil, "", nil
+}
+
+// geminiGatewayPick is the first of session, pin and default that is a Databricks gateway row.
+func geminiGatewayPick(reg *providers.Registry, q ModelQuery) (*providers.Provider, string, error) {
+	for _, c := range []struct {
+		p   *providers.Provider
+		src string
+	}{{reg.Row(q.Session), "session"}, {reg.Row(q.PinProfile), "pin"}, {reg.Row(reg.Default), "default"}} {
+		if GeminiGatewayRow(c.p) {
+			return c.p, c.src, nil
+		}
+	}
+	return nil, "", fmt.Errorf("%w: %s needs a Databricks row and no session, pin or default is one; pass --profile", ErrModelRoute, q.Model)
 }
 
 type namedSource struct{ name, src string }
@@ -394,6 +407,19 @@ func codexTierPin(r *ModelRoute, p *providers.Provider, q ModelQuery, typed stri
 	return w, true
 }
 
+// spellAlias spells the tier alias name on p, setting r.Alias and r.OneM.
+func spellAlias(r *ModelRoute, p *providers.Provider, agent, typed, name string) (string, error) {
+	r.Alias = name
+	canonical, _ := models.Alias(name)
+	m := cmp.Or(router.DatabricksModel(agent, name, p), p.Models[name], canonical)
+	if m == "" {
+		return "", fmt.Errorf("%w: profile %s has no %s model", ErrModelRoute, p.Name, name)
+	}
+	wire := models.Strip1M(p.WireModel(m))
+	r.OneM = models.Has1M(typed) && models.Keeps1M(wire+"[1m]") && p.Serves1M()
+	return wire, nil
+}
+
 // spellModel spells typed on p: alias through the row (Databricks bucket, Models), then the catalog by rule.
 func spellModel(r *ModelRoute, p *providers.Provider, agent, typed string, now time.Time) (string, error) {
 	name := strings.ToLower(models.Strip1M(typed))
@@ -401,14 +427,7 @@ func spellModel(r *ModelRoute, p *providers.Provider, agent, typed string, now t
 		return providers.ConcreteModel(agent, p, name), nil
 	}
 	if slices.Contains(models.AliasNames, name) {
-		r.Alias = name
-		canonical, _ := models.Alias(name)
-		if m := cmp.Or(router.DatabricksModel(agent, name, p), p.Models[name], canonical); m != "" {
-			wire := models.Strip1M(p.WireModel(m))
-			r.OneM = models.Has1M(typed) && models.Keeps1M(wire+"[1m]") && p.Serves1M()
-			return wire, nil
-		}
-		return "", fmt.Errorf("%w: profile %s has no %s model", ErrModelRoute, p.Name, name)
+		return spellAlias(r, p, agent, typed, name)
 	}
 	if p.Preset != providers.PresetDatabricks && strings.HasPrefix(name, models.DatabricksPrefix) {
 		return "", fmt.Errorf("%w: %s is a Databricks endpoint; profile %s is not Databricks", ErrModelRoute, typed, p.Name)
@@ -433,11 +452,7 @@ func routeServes(r *ModelRoute, p *providers.Provider, menu []providers.Opencode
 		return nil
 	}
 	if p.Auth.Login == r.Agent {
-		r.Dialect = "own-login"
-		if err := agyEffort(r); err != nil {
-			return err
-		}
-		return agentFamily(r, p)
+		return ownLoginServes(r, p)
 	}
 	if agentid.Routing(r.Agent).AnthropicRoute {
 		if err := providers.ClaudeCodeError(p, r.Model); err != nil {
@@ -445,7 +460,7 @@ func routeServes(r *ModelRoute, p *providers.Provider, menu []providers.Opencode
 		}
 	}
 	wire, ok, why := providers.WireForIn(menu, p, r.Model)
-	if _, has := p.Route(providers.ProtocolAnthropic); !ok && has && agentid.Routing(r.Agent).AnthropicRoute && !slices.Contains([]models.Family{models.FamilyClaude, models.FamilyGPT, models.FamilyGemini}, models.FamilyKind(r.Model)) {
+	if !ok && unlistedAnthropic(r, p) {
 		wire, ok = providers.ProtocolAnthropic, true // an unlisted id goes out as typed on the anthropic wire
 	}
 	if !ok {
@@ -455,13 +470,35 @@ func routeServes(r *ModelRoute, p *providers.Provider, menu []providers.Opencode
 	if agentid.Routing(r.Agent).GoogleOrDatabricks && GeminiGatewayRow(p) {
 		return geminiGatewayServes(r, p, wire)
 	}
-	if agentid.Routing(r.Agent).AnthropicRoute {
-		return agentFamily(r, p)
-	}
-	if ok, why := servesIn(menu, r.Agent, p, r.Model); !ok {
-		return fmt.Errorf("%w: %s", ErrModelRoute, why)
+	return menuServes(r, p, menu)
+}
+
+// ownLoginServes is routeServes for a row the agent signs in to itself.
+func ownLoginServes(r *ModelRoute, p *providers.Provider) error {
+	r.Dialect = "own-login"
+	if err := agyEffort(r); err != nil {
+		return err
 	}
 	return agentFamily(r, p)
+}
+
+// menuServes is routeServes' tail: non-anthropic agents must find r.Model on the menu.
+func menuServes(r *ModelRoute, p *providers.Provider, menu []providers.OpencodeModel) error {
+	if !agentid.Routing(r.Agent).AnthropicRoute {
+		if ok, why := servesIn(menu, r.Agent, p, r.Model); !ok {
+			return fmt.Errorf("%w: %s", ErrModelRoute, why)
+		}
+	}
+	return agentFamily(r, p)
+}
+
+// unlistedAnthropic reports an anthropic-route agent on a row with an anthropic wire and a non-claude/gpt/gemini model.
+func unlistedAnthropic(r *ModelRoute, p *providers.Provider) bool {
+	_, has := p.Route(providers.ProtocolAnthropic)
+	if !has || !agentid.Routing(r.Agent).AnthropicRoute {
+		return false
+	}
+	return !slices.Contains([]models.Family{models.FamilyClaude, models.FamilyGPT, models.FamilyGemini}, models.FamilyKind(r.Model))
 }
 
 // geminiGatewayServes is routeServes for agy on a Databricks gateway row, where wire is the model's own wire.
@@ -485,14 +522,21 @@ func agyEffort(r *ModelRoute) error {
 	return fmt.Errorf("%w: %s on %s takes effort %s, not %q", ErrModelRoute, r.Model, r.Agent, strings.Join(accepted, ", "), r.Effort)
 }
 
+// geminiFamilyBad: a tier alias keeps agy's Gemini default; its own Claude and GPT-OSS run on its own sign-in only.
+func geminiFamilyBad(r *ModelRoute, p *providers.Provider, fam models.Family) bool {
+	if fam == models.FamilyGemini {
+		return false
+	}
+	return r.Alias != "" || !GeminiGatewayRow(p) && len(models.AcceptedEfforts(r.Agent, r.Model)) == 0
+}
+
 // agentFamily refuses a model the agent's binary cannot run; gemini runs a named non-Gemini id on Databricks.
 func agentFamily(r *ModelRoute, p *providers.Provider) error {
 	fam := models.FamilyKind(r.Model)
 	bad := false
 	switch facts := agentid.Routing(r.Agent); {
 	case facts.ModelFamily == string(models.FamilyGemini):
-		// a tier alias keeps agy's Gemini default; agy's own Claude and GPT-OSS run on its own sign-in only
-		bad = fam != models.FamilyGemini && (r.Alias != "" || !GeminiGatewayRow(p) && len(models.AcceptedEfforts(r.Agent, r.Model)) == 0)
+		bad = geminiFamilyBad(r, p, fam)
 	case facts.ModelFamily == string(models.FamilyClaude):
 		bad = (fam == models.FamilyGPT || fam == models.FamilyGemini) && p.Provider == "anthropic"
 	case facts.ResponsesRoute:

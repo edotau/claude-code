@@ -495,10 +495,7 @@ func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, pr
 	if t, ok, err := agyOwnTarget(req, sel.Provider); ok || err != nil {
 		return reg, t, err
 	}
-	if t, ok := sel.Aliases[req.Model]; ok {
-		return reg, t, nil
-	}
-	if t, ok := aliasTarget(sel, req.Model); ok && !namesProvider(reg, req.Model) {
+	if t, ok := aliasedTarget(reg, sel, req.Model); ok {
 		return reg, t, nil
 	}
 	if t, ok := familyTarget(reg, req, sel.Provider); ok {
@@ -519,15 +516,32 @@ func familyTarget(reg *providers.Registry, req RunOptions, row *providers.Provid
 	return providers.Target{Provider: row, Model: providers.ConcreteModel(req.Agent, row, name)}, true
 }
 
+// aliasedTarget is the alias row or canonical-id target for model; else ok is false.
+func aliasedTarget(reg *providers.Registry, sel providers.Selection, model string) (providers.Target, bool) {
+	if t, ok := sel.Aliases[model]; ok {
+		return t, true
+	}
+	if t, ok := aliasTarget(sel, model); ok && !namesProvider(reg, model) {
+		return t, true
+	}
+	return providers.Target{}, false
+}
+
+// splitAgyEffort lowercases model and splits a trailing native effort suffix off it.
+func splitAgyEffort(model string) (base, effort string) {
+	base = strings.ToLower(model)
+	if i := strings.LastIndex(base, "-"); i > 0 && slices.Contains(agentid.NativeEfforts(agentid.Gemini), base[i+1:]) {
+		return base[:i], base[i+1:]
+	}
+	return base, ""
+}
+
 // agyOwnTarget is agy's own model typed on its Google row, spelled as agy takes it; an effort it lacks errors.
 func agyOwnTarget(req RunOptions, p *providers.Provider) (t providers.Target, ok bool, err error) {
 	if !agentid.Routing(req.Agent).EffortSuffix || p.Auth.Login != agentid.Gemini {
 		return t, false, nil
 	}
-	base, effort := strings.ToLower(req.Model), ""
-	if i := strings.LastIndex(base, "-"); i > 0 && slices.Contains(agentid.NativeEfforts(agentid.Gemini), base[i+1:]) {
-		base, effort = base[:i], base[i+1:]
-	}
+	base, effort := splitAgyEffort(req.Model)
 	accepted := models.AcceptedEfforts(agentid.Gemini, base)
 	if len(accepted) == 0 || effort == "" && models.FamilyKind(base) == models.FamilyGemini {
 		return t, false, nil
