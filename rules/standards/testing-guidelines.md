@@ -51,6 +51,12 @@ it, never raise the limit.
 - **An agent's or workflow's test stage writes only** repairs of tests its edits broke, plus one new test per major
   feature. Every other test is proposed in the final report (the case, what it guards, its runtime) for the owner to
   decide; judge proposals by speed first, then teeth, then no overlap. The implementer writes its feature's basic tests.
+- **Fake credentials and hosts look nothing like real ones** — a token, key or secret fixture never starts with a
+  vendor prefix (`dapi`, `dose`, `ghp_`, `github_pat_`, `sk-`, `tskey-`, `AKIA`, `xox`, `eyJ` …) or matches its length
+  and alphabet: scanners such as GitHub's flag a fake as an exposed secret. Use `fake-token-1`, `test-secret`; when
+  the code under test checks the prefix, use one short obviously fake value (`dapi-FAKE`) and keep auth tests few and
+  shallow. Hosts are made-up names (`devhost`) on documentation addresses (192.0.2.0/24, 198.51.100.0/24,
+  203.0.113.0/24, 2001:db8::/32), never a real host name, login, tailnet name or address.
 - **At a boundary, error paths first**, asserting shape (required fields present, sensitive ones absent); a crash or
   500 on bad input is a finding.
 - **Stop and ask** rather than encode a guess when behavior isn't determinable, or the change touches an API/DB
