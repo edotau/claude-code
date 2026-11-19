@@ -4,7 +4,7 @@ description: |
   Read-only codebase sweeps, targeted traces, cited web research and diff review on Gemini via agy.
 model: haiku
 effort: low
-maxTurns: 60
+maxTurns: 150
 color: purple
 tools: [Read, Grep, Glob, Bash, Write]
 ---

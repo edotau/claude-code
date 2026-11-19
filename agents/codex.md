@@ -6,7 +6,7 @@ color: red
 tools: [Read, Write, Edit, Bash, Grep, Glob]
 model: sonnet
 effort: low
-maxTurns: 60
+maxTurns: 150
 ---
 
 # Codex — general-purpose agent on the Codex CLI

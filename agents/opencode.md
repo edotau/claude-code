@@ -6,7 +6,7 @@ tools: [Read, Write, Edit, Bash, Grep, Glob, WebSearch, WebFetch, mcp__web_searc
 model: sonnet
 effort: low
 color: yellow
-maxTurns: 60
+maxTurns: 150
 ---
 
 # Opencode — General Coding Agent on the OpenCode CLI
