@@ -371,6 +371,7 @@ func cmdAgentsLabel(args []string) int {
 	if err != nil {
 		return helptext.Fail("agents label: %v", err)
 	}
+	freezeLabelRotation(*run, *spec, pos[0], task, model)
 	runText, err := labelRun(*run, *spec, pos[0], model, profile)
 	if err != nil {
 		return helptext.FailUsage("agents label: %v", err)
@@ -405,6 +406,16 @@ func emitLabel(row hooks.LabelRow, runText, model, profile, task string) int {
 		fmt.Println(runText)
 	}
 	return printLabel(row.Label)
+}
+
+func freezeLabelRotation(run bool, spec, typ, task string, model *string) {
+	if !run || *model != "" || spec != "" {
+		return
+	}
+	if m, note := agent.RotationFreeze(context.Background(), typ, task); m != "" {
+		*model = m // The Run: line carries the pick so the label and run agree.
+		fmt.Fprintln(os.Stderr, "agents label: "+note)
+	}
 }
 
 // labelRun is --run's Run: line, and clears model/profile, which the line now carries.
