@@ -829,14 +829,20 @@ func compactStr(raw json.RawMessage) (string, error) {
 // SettingsFile is the live Claude Code settings.json under the config dir.
 func SettingsFile() string { return filepath.Join(paths.ConfigDir(), "settings.json") }
 
-// PermissionLists is the part of a settings.json `permissions` block the guards read: the deny rules.
-type PermissionLists struct{ Deny []string }
+// PermissionLists is the part of a settings.json `permissions` block the guards read.
+type PermissionLists struct {
+	Allow []string `json:"allow"`
+	Ask   []string `json:"ask"`
+	Deny  []string `json:"deny"`
+}
 
-// LivePermissions reads the live settings.json's permissions deny list; a missing or invalid file is an error.
+// LivePermissions reads the live settings.json's permissions lists; a missing or invalid file is an error.
 func LivePermissions() (PermissionLists, error) {
 	var doc struct {
 		Permissions *struct {
-			Deny *[]string `json:"deny"`
+			Allow []string  `json:"allow"`
+			Ask   []string  `json:"ask"`
+			Deny  *[]string `json:"deny"`
 		} `json:"permissions"`
 	}
 	data, err := os.ReadFile(SettingsFile())
@@ -850,7 +856,8 @@ func LivePermissions() (PermissionLists, error) {
 	if doc.Permissions == nil || doc.Permissions.Deny == nil {
 		return PermissionLists{}, errors.New("settings.json: permissions.deny is missing")
 	}
-	return PermissionLists{Deny: *doc.Permissions.Deny}, nil
+	p := doc.Permissions
+	return PermissionLists{Allow: p.Allow, Ask: p.Ask, Deny: *p.Deny}, nil
 }
 
 // SeedSettings writes Render (via transform when non-nil) only when file is absent; an existing file is untouched.

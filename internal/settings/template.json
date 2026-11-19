@@ -23,6 +23,7 @@
       "Write"
     ],
     "deny": [
+      "Bash(rm -rf /)",
       "Bash(rm -rf ~)",
       "Bash(sudo:*)",
       "Edit(~/.ssh/**)"

@@ -432,7 +432,7 @@ func geminiSettingsPath(home string) string {
 }
 
 // templateDeny is the settings template's bare-command deny list as rendered for gemini (17ff29d5).
-var templateDeny = []any{"command(rm -rf ~)"}
+var templateDeny = []any{"command(rm -rf /)", "command(rm -rf ~)"}
 
 // renderGeminiSettings merges the guard denies into agy's settings.json, keeping other keys; a rerun is byte-identical.
 func TestGeminiSettingsMergesDenyGuardsKeepingOtherKeys(t *testing.T) {
