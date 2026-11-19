@@ -86,6 +86,21 @@ var toChatMessageCases = []toChatCase{
 		want:  `{"model":"m","messages":[{"role":"assistant","content":null,"tool_calls":[{"id":"t1","type":"function","function":{"name":"f","arguments":"{}"}}]}]}`,
 	},
 	{
+		name:  "server search and client tool history",
+		model: "m",
+		in: `{"messages":[{"role":"assistant","content":[
+			{"type":"server_tool_use","id":"srvtoolu_1","name":"web_search","input":{"query":"example"}},
+			{"type":"web_search_tool_result","tool_use_id":"srvtoolu_1","content":[{"type":"web_search_result","url":"https://example.com/","title":"Example","encrypted_content":"Example evidence"}]},
+			{"type":"text","text":"Checking evidence"},
+			{"type":"tool_use","id":"t1","name":"fetch","input":{"url":"https://example.com/"}}]},
+			{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"Example page"}]}]}`,
+		want: `{"model":"m","messages":[{"role":"assistant","content":"Checking evidence","tool_calls":[
+			{"id":"srvtoolu_1","type":"function","function":{"name":"web_search","arguments":"{\"query\":\"example\"}"}},
+			{"id":"t1","type":"function","function":{"name":"fetch","arguments":"{\"url\":\"https://example.com/\"}"}}]},
+			{"role":"tool","tool_call_id":"srvtoolu_1","content":"[{\"type\":\"web_search_result\",\"url\":\"https://example.com/\",\"title\":\"Example\",\"encrypted_content\":\"Example evidence\"}]"},
+			{"role":"tool","tool_call_id":"t1","content":"Example page"}]}`,
+	},
+	{
 		name:  "images base64 and url, tool_result image rides the user turn",
 		model: "m",
 		in: `{"messages":[{"role":"user","content":[

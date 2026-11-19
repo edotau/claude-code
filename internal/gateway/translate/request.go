@@ -425,13 +425,19 @@ func appendUser(msgs []chatMessage, blocks []block) ([]chatMessage, error) {
 
 func appendAssistant(msgs []chatMessage, blocks []block, wireModel string) []chatMessage {
 	var calls []chatToolCall
+	var results []chatMessage
 	for _, b := range blocks {
-		if b.Type != "tool_use" {
+		switch b.Type {
+		case "web_search_tool_result":
+			results = append(results, chatMessage{Role: "tool", ToolCallID: b.ToolUseID, Content: string(b.Content)})
+			continue
+		case "tool_use", "server_tool_use":
+		default:
 			continue
 		}
 		args := "{}"
 		var buf bytes.Buffer
-		if len(b.Input) > 0 && string(b.Input) != "null" && json.Compact(&buf, b.Input) == nil {
+		if string(b.Input) != "null" && json.Compact(&buf, b.Input) == nil {
 			args = buf.String()
 		}
 		call := chatToolCall{ID: b.ID, Type: "function", Function: chatFunction{Name: b.Name, Arguments: args}}
@@ -448,7 +454,7 @@ func appendAssistant(msgs []chatMessage, blocks []block, wireModel string) []cha
 	if text != "" {
 		m.Content = text
 	}
-	return append(msgs, m)
+	return append(append(msgs, m), results...)
 }
 
 // joinText concatenates the text blocks, skipping thinking and every non-text block.
