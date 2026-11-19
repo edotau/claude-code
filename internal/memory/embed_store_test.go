@@ -441,11 +441,48 @@ func TestNewSemanticReadErrorIsReported(t *testing.T) {
 	isolatedConfig1(t)
 	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
 	t.Setenv("CLAUDE_PROFILE", "dev")
-	prevRead := readEmbedCache
-	t.Cleanup(func() { readEmbedCache = prevRead })
+	if err := saveEmbedCache(vectorRecord{Model: "gte", Rows: map[string]vectorRow{"aaaa0001": {Hash: "h"}}}); err != nil {
+		t.Fatal(err)
+	}
+	prevRead, prevOpen := readEmbedCache, openEmbedClient
+	t.Cleanup(func() { readEmbedCache, openEmbedClient = prevRead, prevOpen })
 	readEmbedCache = func() (vectorRecord, error) { return vectorRecord{}, errors.New("timeout") }
+	openEmbedClient = func(_ context.Context, _, model string) (*EmbedClient, error) {
+		return &EmbedClient{Model: model, EmbedFunc: func(context.Context, []string) ([][]float32, error) { return [][]float32{{1}}, nil }}, nil
+	}
 	if _, err := embedQuery(context.Background(), "q"); err == nil || !strings.Contains(err.Error(), "unreadable") {
 		t.Fatalf("unreadable cache: err %v, want 'unreadable'", err)
+	}
+}
+
+// Given a rows load that waits for the query request, When embedQuery runs, Then the request left before the rows came.
+func TestEmbedQueryRequestLeavesBeforeRowsLoad(t *testing.T) {
+	isolatedConfig1(t)
+	t.Setenv("CLAUDE_RECALL_SEMANTIC", "")
+	t.Setenv("CLAUDE_PROFILE", "fake")
+	rows := map[string]vectorRow{"aaaa0001": {Hash: "h", Vec: encodeVec([]float32{1, 0, 0})}}
+	if err := saveEmbedCache(vectorRecord{Model: "gte", Rows: rows}); err != nil {
+		t.Fatal(err)
+	}
+	sent := make(chan struct{})
+	prevOpen, prevRead := openEmbedClient, readEmbedCache
+	t.Cleanup(func() { openEmbedClient, readEmbedCache = prevOpen, prevRead })
+	openEmbedClient = func(_ context.Context, _, model string) (*EmbedClient, error) {
+		return &EmbedClient{Model: model, EmbedFunc: func(context.Context, []string) ([][]float32, error) {
+			close(sent)
+			return [][]float32{{1, 0, 0}}, nil
+		}}, nil
+	}
+	readEmbedCache = func() (vectorRecord, error) {
+		select {
+		case <-sent:
+			return vectorRecord{Model: "gte", Rows: rows}, nil
+		case <-time.After(300 * time.Millisecond):
+			return vectorRecord{}, errors.New("the query request had not left before the rows load")
+		}
+	}
+	if _, err := embedQuery(context.Background(), "q"); err != nil {
+		t.Fatal(err)
 	}
 }
 

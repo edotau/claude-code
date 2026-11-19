@@ -18,6 +18,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/parallel"
@@ -358,7 +359,7 @@ func embedQuery(parent context.Context, query string) (*Semantic, error) {
 	ctx, cancel := context.WithTimeout(parent, embedRecallWait)
 	defer cancel()
 	ctx = context.WithValue(ctx, linkKey{}, &linkFuture{done: make(chan struct{})})
-	profile, cache, err := semanticCache(ctx)
+	profile, head, rows, err := semanticCache(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -370,11 +371,12 @@ func embedQuery(parent context.Context, query string) (*Semantic, error) {
 		}
 	}
 	done := make(chan semanticResult, 1)
-	parallel.Go(func() { done <- querySemantic(ctx, profile, query, cache) }, func(err error) { done <- semanticResult{err: err} })
+	var answered atomic.Bool
+	parallel.Go(func() { done <- querySemantic(ctx, profile, query, head.Model, rows, &answered) }, func(err error) { done <- semanticResult{err: err} })
 	select {
 	case r := <-done:
 		if r.err != nil {
-			if !errors.Is(r.err, errEmbedMismatch) { // a local config mismatch says nothing about the endpoint
+			if r.endpointFault() {
 				pause()
 			}
 			if ctx.Err() != nil {
@@ -383,9 +385,11 @@ func embedQuery(parent context.Context, query string) (*Semantic, error) {
 			return nil, r.err
 		}
 		clearOldBackoff(backoff, attempt)
-		return newSemantic(r.vec, cache.Rows), nil
+		return newSemantic(r.vec, r.rows), nil
 	case <-ctx.Done():
-		pause() // a slow endpoint costs one prompt the full wait, not every prompt
+		if !answered.Load() { // an answered endpoint with a slow cache read is not a slow endpoint
+			pause() // a slow endpoint costs one prompt the full wait, not every prompt
+		}
 		return nil, fmt.Errorf("query embedding exceeded %s", embedRecallWait)
 	}
 }
@@ -690,54 +694,65 @@ func embedEndpoint(ctx context.Context) (string, error) {
 	return "", cmp.Or(paused, errors.New("no embedding profile"))
 }
 
-// readCacheWithin is readEmbedCache bounded by ctx; the abandoned read ends on its own lock timeout.
-func readCacheWithin(ctx context.Context) (vectorRecord, error) {
-	type read struct {
-		c   vectorRecord
+// within starts f now; the join waits for it or ctx, and an abandoned run ends on its own lock timeout.
+func within[T any](ctx context.Context, f func() (T, error)) func() (T, error) {
+	type result struct {
+		v   T
 		err error
 	}
-	done := make(chan read, 1)
+	done := make(chan result, 1)
 	parallel.Go(func() {
-		c, err := readEmbedCache()
-		done <- read{c, err}
-	}, func(err error) { done <- read{err: err} })
-	select {
-	case r := <-done:
-		return r.c, r.err
-	case <-ctx.Done():
-		return vectorRecord{}, ctx.Err()
+		v, err := f()
+		done <- result{v, err}
+	}, func(err error) { done <- result{err: err} })
+	return func() (T, error) {
+		select {
+		case r := <-done:
+			return r.v, r.err
+		case <-ctx.Done():
+			var zero T
+			return zero, ctx.Err()
+		}
 	}
 }
 
-// semanticCache pairs the endpoint profile that will embed the query with the shared cache it is scored against.
-func semanticCache(ctx context.Context) (string, vectorRecord, error) {
+// semanticCache pairs the endpoint profile that will embed the query with the cache's header; the rows load meanwhile.
+func semanticCache(ctx context.Context) (string, vectorHead, func() (vectorRecord, error), error) {
 	profile, err := embedEndpoint(ctx)
 	if err != nil {
-		return "", vectorRecord{}, err
+		return "", vectorHead{}, nil, err
 	}
 	if _, err := os.Stat(embedDBPath()); err == nil { // no cache file means no semantic query, so no probe
 		if f, _ := ctx.Value(linkKey{}).(*linkFuture); f != nil {
 			f.start(ctx) // the secret read (a keyring exec) runs while the cache loads
 		}
 	}
-	c, err := readCacheWithin(ctx)
+	rows := within(ctx, readEmbedCache)
+	head, err := within(ctx, vectorStore.Head)()
 	switch {
 	case ctx.Err() != nil:
-		return "", vectorRecord{}, fmt.Errorf("query embedding exceeded %s", embedRecallWait)
+		return "", vectorHead{}, nil, fmt.Errorf("query embedding exceeded %s", embedRecallWait)
 	case err != nil:
-		return "", vectorRecord{}, fmt.Errorf("embedding cache unreadable: %w", err)
-	case c.Model == "" || len(c.Rows) == 0:
-		return "", vectorRecord{}, errors.New("no embedding cache")
+		return "", vectorHead{}, nil, fmt.Errorf("embedding cache unreadable: %w", err)
+	case head.Model == "" || !head.Rows:
+		return "", vectorHead{}, nil, errors.New("no embedding cache")
 	}
-	return profile, c, nil
+	return profile, head, rows, nil
 }
 
 // errEmbedMismatch marks a query that cannot use the cache (model or dimension): local config, not an endpoint failure.
 var errEmbedMismatch = errors.New("embedding cache mismatch")
 
 type semanticResult struct {
-	vec []float32
-	err error
+	vec   []float32
+	rows  map[string]vectorRow
+	err   error
+	local bool // the failure is the cache's, not the endpoint's
+}
+
+// endpointFault is false for a local config or cache fault, which says nothing about the endpoint.
+func (r semanticResult) endpointFault() bool {
+	return r.err != nil && !r.local && !errors.Is(r.err, errEmbedMismatch)
 }
 
 // embedHedgeDelay is how long the first workspace may stay silent before a second one gets the same request.
@@ -808,25 +823,44 @@ func hedgedEmbed(ctx context.Context, delay time.Duration, texts []string, prima
 	return nil, firstErr
 }
 
-func querySemantic(ctx context.Context, profile, query string, cache vectorRecord) semanticResult {
-	c, err := openEmbedClient(ctx, profile, cache.Model)
+// querySemantic embeds query with the cache's model, then joins the rows load and checks them against the answer.
+func querySemantic(ctx context.Context, profile, query, model string, rows func() (vectorRecord, error), answered *atomic.Bool) semanticResult {
+	c, err := openEmbedClient(ctx, profile, model)
 	if err != nil {
 		return semanticResult{err: err}
 	}
-	if cache.Model == "" || c.Model != cache.Model { // checked first: no prompt text leaves on a mismatch
+	if model == "" || c.Model != model { // checked first: no prompt text leaves on a mismatch
 		return semanticResult{err: fmt.Errorf("%w: built with another model", errEmbedMismatch)}
 	}
-	vecs, err := hedgedEmbed(ctx, embedHedgeDelay, []string{query}, c.EmbedFunc, hedgeFunc(profile, cache.Model))
+	vecs, err := hedgedEmbed(ctx, embedHedgeDelay, []string{query}, c.EmbedFunc, hedgeFunc(profile, model))
 	if err == nil && len(vecs) != 1 {
 		err = errors.New("embedding endpoint returned no query vector")
 	}
 	if err != nil {
 		return semanticResult{err: err}
 	}
-	if !cacheDimMatches(cache, len(vecs[0])) {
-		return semanticResult{err: fmt.Errorf("%w: dimension differs", errEmbedMismatch)}
+	answered.Store(true)
+	cacheRows, bad := joinRows(model, len(vecs[0]), rows)
+	if bad.err != nil {
+		return bad
 	}
-	return semanticResult{vec: normalize(vecs[0])}
+	return semanticResult{vec: normalize(vecs[0]), rows: cacheRows}
+}
+
+// joinRows waits for the rows load and checks it still matches the model and the query's dimension.
+func joinRows(model string, dim int, rows func() (vectorRecord, error)) (map[string]vectorRow, semanticResult) {
+	cache, err := rows()
+	switch {
+	case err != nil:
+		return nil, semanticResult{err: fmt.Errorf("embedding cache unreadable: %w", err), local: true}
+	case cache.Model == "" || len(cache.Rows) == 0:
+		return nil, semanticResult{err: errors.New("no embedding cache"), local: true}
+	case cache.Model != model: // a re-mint between the header and rows reads
+		return nil, semanticResult{err: fmt.Errorf("%w: cache re-minted with another model", errEmbedMismatch)}
+	case !cacheDimMatches(cache, dim):
+		return nil, semanticResult{err: fmt.Errorf("%w: dimension differs", errEmbedMismatch)}
+	}
+	return cache.Rows, semanticResult{}
 }
 
 // routerLink reads the running loopback router address and client secret without starting it.

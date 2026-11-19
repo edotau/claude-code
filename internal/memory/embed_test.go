@@ -697,13 +697,13 @@ func TestSemanticCachePausedProfileFallsThrough(t *testing.T) {
 		t.Fatal(err)
 	}
 	pauseProfile(t, "pa")
-	name, cache, err := semanticCache(context.Background())
-	if err != nil || name != "pb" || cache.Model != "gte" {
-		t.Fatalf("got %q %q err %v, want pb through the shared cache", name, cache.Model, err)
+	name, head, _, err := semanticCache(context.Background())
+	if err != nil || name != "pb" || head.Model != "gte" {
+		t.Fatalf("got %q %q err %v, want pb through the shared cache", name, head.Model, err)
 	}
 	pauseProfile(t, "pb")
 	vaulttest.SetRecord(t, "claude", "profile", "pb") // every candidate paused: the pause error must beat "no embedding cache"
-	if _, _, err := semanticCache(context.Background()); err == nil || !strings.Contains(err.Error(), "paused") {
+	if _, _, _, err := semanticCache(context.Background()); err == nil || !strings.Contains(err.Error(), "paused") {
 		t.Errorf("pa and pb paused: err %v, want the pause error", err)
 	}
 }
@@ -724,7 +724,7 @@ func TestSemanticCacheVaultReadBoundedByDeadline(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), embedRecallWait)
 	defer cancel()
 	start := time.Now()
-	_, _, err := semanticCache(ctx)
+	_, _, _, err := semanticCache(ctx)
 	if el := time.Since(start); el > time.Second {
 		t.Errorf("semanticCache took %s with the vault blocked, want about the 50ms deadline", el)
 	}
@@ -810,7 +810,7 @@ func TestSemanticCacheStartsRouterLinkBeforeCacheRead(t *testing.T) {
 	isolatedConfig1(t)
 	t.Setenv("CLAUDE_PROFILE", "pa")
 	started := make(chan struct{})
-	if err := paths.AtomicWrite(embedDBPath(), nil, 0o600); err != nil {
+	if err := saveEmbedCache(vectorRecord{Model: "gte", Rows: map[string]vectorRow{"aaaa0001": {Hash: "h"}}}); err != nil {
 		t.Fatal(err)
 	}
 	prevLink, prevRead := routerLink, readEmbedCache
@@ -825,7 +825,11 @@ func TestSemanticCacheStartsRouterLinkBeforeCacheRead(t *testing.T) {
 		return vectorRecord{Model: "gte", Rows: map[string]vectorRow{"aaaa0001": {Hash: "h"}}}, nil
 	}
 	ctx := context.WithValue(context.Background(), linkKey{}, &linkFuture{done: make(chan struct{})})
-	if _, _, err := semanticCache(ctx); err != nil {
+	_, _, rows, err := semanticCache(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := rows(); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -839,7 +843,7 @@ func TestSemanticCacheSkipsRouterLinkWithoutCacheFile(t *testing.T) {
 	routerLink = func(context.Context) (string, string, bool) { t.Error("router link probed"); return "", "", false }
 	f := &linkFuture{done: make(chan struct{})}
 	ctx := context.WithValue(context.Background(), linkKey{}, f)
-	if _, _, err := semanticCache(ctx); err == nil {
+	if _, _, _, err := semanticCache(ctx); err == nil {
 		t.Fatal("want no embedding cache")
 	}
 	time.Sleep(20 * time.Millisecond)

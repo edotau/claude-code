@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -150,6 +151,25 @@ func (s *boltVectorStore) Vectors() (vectorRecord, error) {
 	return f, err
 }
 
+// Head reads the shared record's metadata only; a missing file or record is empty.
+func (s *boltVectorStore) Head() (vectorHead, error) {
+	db, err := openEmbedDB(&bbolt.Options{ReadOnly: true, Timeout: embedReadTimeout})
+	if errors.Is(err, os.ErrNotExist) {
+		return vectorHead{}, nil
+	}
+	if err != nil {
+		return vectorHead{}, err
+	}
+	defer db.Close()
+	var h vectorHead
+	err = db.View(func(tx *bbolt.Tx) error {
+		h = decodeVectorHead(tx.Bucket(embedVectorBucket), embedFormat)
+		h.Rows = h.Rows && tx.Bucket(embedVectorBucket).Bucket(embedRowsBucket) != nil
+		return nil
+	})
+	return h, err
+}
+
 func decodeEmbedRecord(tx *bbolt.Tx) vectorRecord {
 	return decodeVectorBucket(tx.Bucket(embedVectorBucket), embedFormat)
 }
@@ -161,6 +181,64 @@ func decodeVectorMeta(b *bbolt.Bucket, f schemas.Format) vectorRecord {
 		return vectorRecord{}
 	}
 	return rec
+}
+
+// vectorHead is a record's metadata without its rows; Rows says some are recorded.
+type vectorHead struct {
+	Model    string
+	MintedAt int64
+	Rows     bool
+}
+
+// decodeVectorHead reads the leading metadata fields of the current schema without decoding the row map; else falls back.
+func decodeVectorHead(b *bbolt.Bucket, f schemas.Format) vectorHead {
+	if b == nil {
+		return vectorHead{}
+	}
+	raw := b.Get(embedMetadataKey)
+	if h, ok := scanVectorHead(raw, f.Version); ok && json.Valid(raw) {
+		return h
+	}
+	rec := decodeVectorMeta(b, f)
+	return vectorHead{Model: rec.Model, MintedAt: rec.MintedAt, Rows: len(rec.Rows) > 0}
+}
+
+// scanVectorHead streams raw's fields up to "rows"; false when the schema is not version or anything is unexpected.
+func scanVectorHead(raw []byte, version int) (h vectorHead, ok bool) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if t, err := dec.Token(); err != nil || t != json.Delim('{') {
+		return h, false
+	}
+	schema := -1
+	for dec.More() {
+		t, err := dec.Token()
+		key, isKey := t.(string)
+		if err != nil || !isKey {
+			return h, false
+		}
+		if key == "rows" {
+			t, err := dec.Token()
+			h.Rows = t == json.Delim('{') && dec.More()
+			return h, err == nil && schema == version
+		}
+		if dec.Decode(headField(key, &h, &schema)) != nil {
+			return h, false
+		}
+	}
+	return h, schema == version
+}
+
+// headField is where the decoder puts key's value; fields the head does not keep are discarded.
+func headField(key string, h *vectorHead, schema *int) any {
+	switch key {
+	case "schema":
+		return schema
+	case "model":
+		return &h.Model
+	case "minted_at":
+		return &h.MintedAt
+	}
+	return new(json.RawMessage)
 }
 
 // decodeVectorBucket is decodeVectorMeta plus the binary rows; a row that is missing or not whole float32s is dropped.
@@ -388,7 +466,8 @@ func (s *boltVectorStore) RefreshDue(now time.Time) bool {
 	defer db.Close()
 	due := false
 	err = db.View(func(tx *bbolt.Tx) error {
-		due = !embedValid(decodeVectorMeta(tx.Bucket(embedVectorBucket), embedFormat), now) && !embedClaimLive(tx, now)
+		head := decodeVectorHead(tx.Bucket(embedVectorBucket), embedFormat)
+		due = !embedValid(vectorRecord{MintedAt: head.MintedAt}, now) && !embedClaimLive(tx, now)
 		return nil
 	})
 	return err == nil && due
