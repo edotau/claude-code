@@ -128,7 +128,7 @@ func TestRotationPool(t *testing.T) {
 	}{
 		{"fast", "fast", false, []string{"gpt-6-2-luna", "fake-model-a", "fake-model-b", "gpt-5-4-mini"}},
 		{"fast with tools", "fast", true, []string{"gpt-6-2-luna", "fake-model-a"}},
-		{"standard", "standard", false, []string{"claude-sonnet-5-5"}},
+		{"standard", "standard", false, []string{"claude-sonnet-5-5", "claude-opus-5-5"}},
 		{"deep", "deep", false, []string{"claude-opus-5-5"}},
 		{"unknown tier", "unknown", false, nil},
 	} {
@@ -218,5 +218,11 @@ func BenchmarkChoose(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		Choose(cands, "claude", "standard", true)
+	}
+}
+
+func TestRankOfDottedSpelling(t *testing.T) {
+	if dot, dash := RankOf("grok-4.7"), RankOf("grok-4-7"); dot.Capability != dash.Capability || dash.Capability == 0 {
+		t.Errorf("grok-4.7 ranks capability %d, grok-4-7 %d; want the same spelling-independent rank", dot.Capability, dash.Capability)
 	}
 }

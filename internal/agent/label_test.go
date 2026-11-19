@@ -382,6 +382,11 @@ func TestAutoLabelIsRunModel(t *testing.T) {
 			{"pinned auto x alias cell", "auto", "opus", false},
 		} {
 			vaulttest.SetRecord(t, agentName, "model", tc.pin)
+			for range 12 { // stamp the cell as just picked so the rotation's next pick is another model
+				if m, _, _ := RotationModel(reg, agentName, "", true, time.Now()); m == cell {
+					break
+				}
+			}
 			d := Dispatch{Agent: labelEngine{stubEngine{name: agentName}}, Model: tc.cell, Account: "databricks·dev"}
 			q := ModelQuery{Agent: agentName, Task: standardBrief}
 			if tc.typed {
