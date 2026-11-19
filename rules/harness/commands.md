@@ -26,7 +26,9 @@ Moved from the README: install options, setup, agent and utility commands, the s
   report-only, and `DEV_TOOLS=1` (default) also `go install`s three pinned linters (`DEV_TOOLS=0` skips). `claude-code
   doctor` prints a `dep <name>` row per tool with the command that installs it, and a failed install never fails `make
   install`.
-- `bin/<agent>` is the real, unrouted CLI. Routed launches go through `claude-code <agent>`.
+- `bin/<agent>` is the real, unrouted CLI, except `bin/claude`: the harness launcher (`claude-code claude --launcher`),
+  which applies the session profile's overlay and the embedded autoMode rules; native claude is `~/.local/bin/claude`.
+  Routed launches go through `claude-code <agent>`.
 
 ## Setup
 

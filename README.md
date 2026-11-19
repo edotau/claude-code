@@ -24,7 +24,7 @@ Requires macOS or Linux (Windows through WSL), git, make, curl and Go (`make boo
 ```bash
 git clone https://github.com/edotau/claude-code ~/.claude
 cd ~/.claude
-make install        # builds bin/claude-code, links agent CLIs into bin/, seeds settings.json if it is missing
+make install        # builds bin/claude-code, links agent CLIs into bin/ (bin/claude is the harness launcher), seeds settings.json if it is missing
 claude-code doctor  # checks binaries, providers, credentials and the proxy
 ```
 

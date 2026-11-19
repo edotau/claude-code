@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -88,9 +89,32 @@ func collect(run func(ctx context.Context, check func(bool, bool, string, string
 func checkBinaryHealth(_ context.Context, check func(bool, bool, string, string)) {
 	bin, err := claude.ClaudeBinary()
 	check(err == nil, true, "claude binary", orErr(bin, err))
+	launcherOK, launcherDetail := claudeLauncherDetail(bin)
+	check(launcherOK, false, "claude launcher", launcherDetail)
 	for _, c := range codex.CodexConfigChecks() {
 		check(c.State == "ok", false, c.Name, c.Detail)
 	}
+}
+
+// claudeLauncherDetail reports whether bin/claude is the launcher script that execs `claude --launcher`.
+func claudeLauncherDetail(native string) (bool, string) {
+	path := filepath.Join(paths.BinDir(), "claude")
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return false, path + " is missing (make install writes the launcher)"
+	}
+	body, err := os.ReadFile(path)
+	if !fi.Mode().IsRegular() || err != nil || !bytes.Contains(body, []byte("claude --launcher")) {
+		return false, path + " is not the harness launcher (make install writes it); real claude: " + orDash(native)
+	}
+	return true, path + " (real claude: " + orDash(native) + ")"
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "not found"
+	}
+	return s
 }
 
 func checkProviderHealth(ctx context.Context, check func(bool, bool, string, string)) {

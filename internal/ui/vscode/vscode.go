@@ -52,12 +52,12 @@ func syncSettings(template, dest, claudeHome, claudeBin string, check bool) (mer
 
 	if check {
 		// Read-only: --check/--dry-run must not drop a lock file beside the user's settings.
-		return merge(dest, overlay, claudeBin+"/claude", true)
+		return merge(dest, overlay, true)
 	}
 	// Read, backup and write are one critical section; the lock lives in harness state, not beside VS Code's file.
 	var result mergeResult
 	err := withLock("vscode.lock", dest, func() (mergeErr error) {
-		result, mergeErr = merge(dest, overlay, claudeBin+"/claude", false)
+		result, mergeErr = merge(dest, overlay, false)
 		return mergeErr
 	})
 	return result, err
@@ -79,17 +79,13 @@ func withLock(name, dest string, fn func() error) error {
 	return err
 }
 
-func merge(dest string, overlay map[string]any, claudeWrapper string, check bool) (mergeResult, error) {
+func merge(dest string, overlay map[string]any, check bool) (mergeResult, error) {
 	base := map[string]any{}
 	rawBase, err := readBase(dest, "settings", &base)
 	if err != nil {
 		return mergeResult{}, err
 	}
-	stripped := maps.Clone(base)
-	if base["claudeCode.claudeProcessWrapper"] == claudeWrapper {
-		delete(stripped, "claudeCode.claudeProcessWrapper")
-	}
-	merged := theme.DeepMerge(stripped, overlay)
+	merged := theme.DeepMerge(base, overlay)
 	if reflect.DeepEqual(base, merged) {
 		return mergeResult{}, nil
 	}

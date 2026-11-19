@@ -194,7 +194,7 @@ func TestTemplateIsFirstPartyOnly(t *testing.T) {
 			t.Errorf("template missing %q", want)
 		}
 	}
-	for _, unwanted := range []string{`"claudeCode.claudeProcessWrapper"`, `"python.`, `"[python]"`, "databricks", "Databricks"} {
+	for _, unwanted := range []string{`"python.`, `"[python]"`, "databricks", "Databricks"} {
 		if strings.Contains(body, unwanted) {
 			t.Errorf("template retained unwanted key %q", unwanted)
 		}

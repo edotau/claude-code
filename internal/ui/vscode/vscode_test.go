@@ -449,8 +449,8 @@ func TestSyncDefaultTemplateRoutesTerminalProfiles(t *testing.T) {
 	if err := json.Unmarshal(body, &settings); err != nil {
 		t.Fatal(err)
 	}
-	if value, exists := settings["claudeCode.claudeProcessWrapper"]; exists {
-		t.Errorf("rendered template has claudeProcessWrapper = %v", value)
+	if got, want := settings["claudeCode.claudeProcessWrapper"], claudeBin+"/claude"; got != want {
+		t.Errorf("claudeProcessWrapper = %v, want %q", got, want)
 	}
 	if got, want := settings["chatgpt.cliExecutable"], claudeBin+"/codex"; got != want {
 		t.Errorf("chatgpt.cliExecutable = %v, want %q", got, want)
@@ -491,126 +491,6 @@ func checkTerminalProfiles(t *testing.T, settings map[string]any, key, claudeBin
 		if !reflect.DeepEqual(profile["args"], want) {
 			t.Errorf("%s args = %v, want %v", vendor.profile, profile["args"], want)
 		}
-	}
-}
-
-const wrapperKey = "claudeCode.claudeProcessWrapper"
-
-type wrapperMigration struct {
-	dir, tmpl, dest string
-	original        []byte
-	claudeBin       string
-	wrapper         string
-	remove          bool
-}
-
-// checkNoRewrite runs --check and asserts it reports the drift but leaves dest untouched.
-func (m wrapperMigration) checkNoRewrite(t *testing.T) {
-	t.Helper()
-	result, err := syncSettings(m.tmpl, m.dest, m.dir, m.claudeBin, true)
-	if err != nil || result.Changed != m.remove || result.Backup != "" {
-		t.Fatalf("check = %+v, err %v; want Changed=%v and no backup", result, err, m.remove)
-	}
-	body, err := os.ReadFile(m.dest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(body) != string(m.original) {
-		t.Fatal("--check rewrote settings")
-	}
-}
-
-// checkBackup asserts a migration backs up the original settings and an untouched wrapper makes no backup.
-func (m wrapperMigration) checkBackup(t *testing.T, result mergeResult) {
-	t.Helper()
-	if !m.remove {
-		if result.Backup != "" {
-			t.Errorf("unchanged user wrapper produced backup %q", result.Backup)
-		}
-		return
-	}
-	saved, err := os.ReadFile(result.Backup)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if string(saved) != string(m.original) {
-		t.Fatal("backup did not preserve the original settings")
-	}
-}
-
-// checkMigrated asserts the wrapper key was removed (harness) or kept (user) and local.only survived.
-func (m wrapperMigration) checkMigrated(t *testing.T) {
-	t.Helper()
-	body, err := os.ReadFile(m.dest)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var settings map[string]any
-	if err := json.Unmarshal(body, &settings); err != nil {
-		t.Fatal(err)
-	}
-	value, exists := settings[wrapperKey]
-	if m.remove {
-		if exists {
-			t.Errorf("harness wrapper survived migration: %v", value)
-		}
-	} else if !exists || value != m.wrapper {
-		t.Errorf("user wrapper = %v (exists %v), want %q", value, exists, m.wrapper)
-	}
-	if settings["local.only"] != true {
-		t.Error("migration did not preserve the unrelated setting")
-	}
-}
-
-func newWrapperMigration(t *testing.T, claudeBin, wrapper string, remove bool) wrapperMigration {
-	t.Helper()
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	dir := t.TempDir()
-	m := wrapperMigration{
-		dir: dir, tmpl: filepath.Join(dir, "template.json"), dest: filepath.Join(dir, "settings.json"),
-		claudeBin: claudeBin, wrapper: wrapper, remove: remove,
-	}
-	writeFile(t, m.tmpl, `{}`)
-	original, err := json.Marshal(map[string]any{
-		wrapperKey:   wrapper,
-		"local.only": true,
-	})
-	if err != nil {
-		t.Fatal(err)
-	}
-	m.original = original
-	writeFile(t, m.dest, string(original))
-	return m
-}
-
-func TestSyncMigratesOnlyHarnessClaudeProcessWrapper(t *testing.T) {
-	const claudeBin = "/opt/harness/bin"
-	for _, tc := range []struct {
-		name    string
-		wrapper string
-		remove  bool
-	}{
-		{"harness", claudeBin + "/claude", true},
-		{"user", "/usr/local/bin/my-claude-wrapper", false},
-		{"different-bin", "/opt/another-harness/bin/claude", false},
-		{"with-arguments", claudeBin + "/claude --custom", false},
-		{"empty", "", false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m := newWrapperMigration(t, claudeBin, tc.wrapper, tc.remove)
-			m.checkNoRewrite(t)
-
-			result, err := syncSettings(m.tmpl, m.dest, m.dir, claudeBin, false)
-			if err != nil || result.Changed != tc.remove {
-				t.Fatalf("sync = %+v, err %v; want Changed=%v", result, err, tc.remove)
-			}
-			m.checkBackup(t, result)
-			m.checkMigrated(t)
-			result, err = syncSettings(m.tmpl, m.dest, m.dir, claudeBin, false)
-			if err != nil || result.Changed || result.Backup != "" {
-				t.Fatalf("idempotent sync = %+v, err %v", result, err)
-			}
-		})
 	}
 }
 

@@ -1,5 +1,6 @@
 {
   "claudeCode.useTerminal": true,
+  "claudeCode.claudeProcessWrapper": "__CLAUDE_BIN__/claude",
   "claudeCode.disableLoginPrompt": true,
   "claudeCode.hideOnboarding": true,
   "claudeCode.attachOpenFile": false,
