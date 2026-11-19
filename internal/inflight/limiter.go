@@ -98,7 +98,7 @@ func claimWithoutLock(dir string, c Claim, lim Limits) (bool, Snapshot) {
 	snap := scan(dir, time.Now(), true)
 	snap.Total -= c.n()
 	if c.Account != "" {
-		snap.Per = cloneCounts(snap.Per)
+		snap.Per = maps.Clone(snap.Per)
 		snap.Per[c.Account] -= c.n()
 	}
 	if !c.fits(snap, lim) {
@@ -194,12 +194,6 @@ func writeMarker(dir, name, body string) bool {
 		return false
 	}
 	return true
-}
-
-func cloneCounts(m map[string]int) map[string]int {
-	out := make(map[string]int, len(m)+1)
-	maps.Copy(out, m)
-	return out
 }
 
 // readMarker splits a marker file into its account and session transcript; ok=false when it cannot be read.

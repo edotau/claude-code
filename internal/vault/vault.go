@@ -349,17 +349,11 @@ func probeSchema() (int, error) {
 	n := 0
 	err = db.View(func(tx *bbolt.Tx) error {
 		if b := tx.Bucket([]byte(Meta)); b != nil {
-			n = parseSchema(string(b.Get([]byte("schema"))))
+			n, _ = strconv.Atoi(string(b.Get([]byte("schema"))))
 		}
 		return nil
 	})
 	return n, err
-}
-
-// parseSchema reads a stamped layout number; unset or malformed is 0.
-func parseSchema(s string) int {
-	n, _ := strconv.Atoi(s)
-	return n
 }
 
 // openReadOnly opens the bbolt file at path read-only, bounded by readLockTimeout.

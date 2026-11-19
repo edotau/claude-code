@@ -278,7 +278,7 @@ func interpreterNamesFile(words []string, files map[string]bool) bool {
 	}
 	return slices.ContainsFunc(rest[1:], func(w string) bool {
 		for f, ok := range files {
-			if ok && strings.Contains(w, f) && writeCall.MatchString(w) {
+			if ok && strings.Contains(w, f) && writeCall().MatchString(w) {
 				return true
 			}
 		}
@@ -287,7 +287,9 @@ func interpreterNamesFile(words []string, files map[string]bool) bool {
 }
 
 // writeCall is a file-write call shape in interpreter code; naming the path alone does not write it.
-var writeCall = regexp.MustCompile(`open\([^)]*['"](?:[wax][+bt]*|\+?>>?)['"]|write_text|write_bytes|writeFile|appendFile|createWriteStream|File\.(?:write|open)|file_put_contents|fopen`)
+var writeCall = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`open\([^)]*['"](?:[wax][+bt]*|\+?>>?)['"]|write_text|write_bytes|writeFile|appendFile|createWriteStream|File\.(?:write|open)|file_put_contents|fopen`)
+})
 
 // pipedAndHeredoc is the text segment i is fed: piped-in sources' words and its heredoc body.
 func pipedAndHeredoc(segs, seps []string, i int) []string {

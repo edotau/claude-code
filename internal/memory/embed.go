@@ -626,7 +626,7 @@ func embedProfiles(ctx context.Context) iter.Seq[string] {
 
 // embedCapable is false only for a profile the registry knows as a non-Databricks provider, which cannot embed.
 func embedCapable(name string) bool {
-	reg, err := providers.Load()
+	reg, err := providers.LoadShared()
 	if err != nil || reg.Providers[name] == nil {
 		return true
 	}
@@ -635,7 +635,7 @@ func embedCapable(name string) bool {
 
 // databricksProfiles lists the registry's Databricks workspaces in name order, so candidate order is deterministic.
 func databricksProfiles() []string {
-	reg, err := providers.Load()
+	reg, err := providers.LoadShared()
 	if err != nil {
 		return nil
 	}

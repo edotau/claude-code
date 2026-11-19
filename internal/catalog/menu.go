@@ -227,7 +227,7 @@ func providerResponses(pid, npm string) bool {
 
 // databricksProfileNames are the registry's databricks profiles; a registry that does not load has none.
 func databricksProfileNames() []string {
-	reg, _ := providers.Load()
+	reg, _ := providers.LoadShared()
 	if reg == nil {
 		return nil
 	}

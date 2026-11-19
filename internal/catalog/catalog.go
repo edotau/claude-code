@@ -33,11 +33,7 @@ func Profile(ctx context.Context, agent, flag string) (*providers.Provider, erro
 	if err != nil {
 		return nil, err
 	}
-	p, err := reg.Get(name)
-	if err != nil {
-		return nil, err
-	}
-	return p, nil
+	return reg.Get(name)
 }
 
 // Served lists p's endpoints: the sealed snapshot when remembered (hit, with its time), else a live listing under ctx.

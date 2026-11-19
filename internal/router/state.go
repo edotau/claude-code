@@ -648,7 +648,7 @@ func decodeState(raw []byte) (State, error) {
 
 // ClearSecretAuth drops the auth marks of every provider whose sealed secret or auth.env is name; best-effort.
 func ClearSecretAuth(name string) {
-	reg, err := providers.Load()
+	reg, err := providers.LoadShared()
 	if err != nil {
 		return
 	}

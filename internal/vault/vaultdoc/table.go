@@ -287,7 +287,7 @@ func vaultShownRows(rows [][]string) [][]string {
 
 // credOK reports whether provider name's credential resolves in the merged registry (a seam for tests).
 var credOK = func(name string) bool {
-	reg, err := providers.Load()
+	reg, err := providers.LoadShared()
 	if err != nil {
 		return false
 	}

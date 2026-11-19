@@ -71,7 +71,7 @@ func ownLoginAccount(agentName, account string) bool {
 	if !ok {
 		return false
 	}
-	reg, err := providers.Load()
+	reg, err := providers.LoadShared()
 	if err != nil {
 		return false
 	}
