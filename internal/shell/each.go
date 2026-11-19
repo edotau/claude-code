@@ -742,8 +742,8 @@ func runScripts(segs, seps []string, cwd string) []Script {
 	written := map[string][]string{}
 	var piped, out []string
 	var scripts []Script
-	eachSegment(segs, seps, cwd, func(i int, _ []string, dir string, lost bool) {
-		words, targets := Redirects(segs[i])
+	eachSegment(segs, seps, cwd, func(i int, words []string, dir string, lost bool) {
+		words, targets := redirectsTokens(segs[i], words)
 		for len(words) > 0 && isShellKeyword(words[0]) {
 			words = words[1:]
 		}

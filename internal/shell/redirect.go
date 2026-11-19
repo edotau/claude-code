@@ -117,6 +117,13 @@ func Redirects(seg string) (words, targets []string) {
 	return Tokens(string(buf)), targets
 }
 
+func redirectsTokens(seg string, tokens []string) (words, targets []string) {
+	if !strings.ContainsAny(seg, "<>&") {
+		return tokens, nil
+	}
+	return Redirects(seg)
+}
+
 // redirectQuotes is QuoteAt with each `${…}`/`$((…))` byte marked quoted: `$((3>2))` redirects nothing.
 func redirectQuotes(seg string) []byte {
 	at := QuoteAt(seg)
