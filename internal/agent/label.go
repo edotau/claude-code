@@ -480,7 +480,7 @@ func routeNote(note string) string {
 func autoFallback(reg *providers.Registry, q ModelQuery, base ModelRoute, need autoNeed, c *AutoChoice, why string,
 	now time.Time) ModelRoute {
 	alias := cmp.Or(base.Alias, tierAliases[need.tier])
-	c.Fallback = fmt.Sprintf("%s, ran the row's %s model", why, alias)
+	c.Fallback = fmt.Sprintf("%s, ran %s", why, coldRanModel(reg.Row(base.Profile), base.Model, alias))
 	if need.noTier {
 		c.Fallback = fmt.Sprintf("%s, ran %s's default model on %s", why, q.Agent, base.Profile)
 	}
@@ -493,6 +493,14 @@ func autoFallback(reg *providers.Registry, q ModelQuery, base ModelRoute, need a
 	}
 	base.Effort = autoEffort(base.Effort, q.Agent, need)
 	return base
+}
+
+// coldRanModel names what a cold fallback runs: a github row's own model id, else the row's alias model.
+func coldRanModel(p *providers.Provider, model, alias string) string {
+	if p != nil && p.Provider == "github" && model != "" && model != AutoModel {
+		return model
+	}
+	return "the row's " + alias + " model"
 }
 
 // registryAuto swaps a row's model named auto (its provider's own router) for a stand-in the row runs.

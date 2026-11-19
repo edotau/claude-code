@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -57,8 +58,23 @@ func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now ti
 			}
 		})
 	}
+	for _, g := range staleGithubRows(reg, now, force) {
+		catalog.SpawnDiscover(g.Name, false) // the copilot package cannot be imported here (test cycle)
+	}
 	wg.Wait()
 	return errs
+}
+
+// staleGithubRows are the github login rows whose Copilot catalog snapshot is missing or expired (all when force).
+func staleGithubRows(reg *providers.Registry, now time.Time, force bool) []*providers.Provider {
+	var out []*providers.Provider
+	for _, name := range reg.ProfilesOf("github") {
+		p := reg.Providers[name]
+		if p.Login != "" && router.GithubCatalogTime != nil && (force || now.Sub(router.GithubCatalogTime(p)) >= serving.CacheTTL()) {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 // Pong is one agent's live round trip on its pinned profile.
@@ -285,11 +301,11 @@ func RunProfilePongs(ctx context.Context, w io.Writer, reg *providers.Registry, 
 	return all
 }
 
-// Stale reports whether a Databricks profile in use has no fresh listing.
+// Stale reports whether a Databricks profile in use has no fresh listing, or a github row no fresh snapshot.
 func Stale(reg *providers.Registry, ps []Pin, now time.Time) bool {
 	return slices.ContainsFunc(profiles(reg, ps), func(p *providers.Provider) bool {
 		return !listingFresh(p.Name, now)
-	})
+	}) || len(staleGithubRows(reg, now, false)) > 0
 }
 
 // Warm re-lists stale profiles and prints each pin needing a fix when served routing is on; never fails the caller.

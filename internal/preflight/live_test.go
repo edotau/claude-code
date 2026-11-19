@@ -385,3 +385,19 @@ func TestCachePongStoresFailureKind(t *testing.T) {
 		}
 	}
 }
+
+func TestStaleGithubRows(t *testing.T) {
+	old, now := router.GithubCatalogTime, time.Now()
+	t.Cleanup(func() { router.GithubCatalogTime = old })
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{
+		"gh": {Name: "gh", Provider: "github", Login: "me"}, "nologin": {Name: "nologin", Provider: "github"}}}
+	for _, c := range []struct {
+		at   time.Time
+		want int
+	}{{time.Time{}, 1}, {now.Add(-48 * time.Hour), 1}, {now.Add(-time.Minute), 0}} {
+		router.GithubCatalogTime = func(*providers.Provider) time.Time { return c.at }
+		if got := len(staleGithubRows(reg, now, false)); got != c.want {
+			t.Errorf("snapshot at %v: %d stale rows, want %d", c.at, got, c.want)
+		}
+	}
+}
