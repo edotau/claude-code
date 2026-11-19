@@ -161,6 +161,11 @@ type catalogIDs struct {
 func init() {
 	router.GithubCatalogIDs = snapshotIDs
 	router.GithubCatalogTime = func(p *providers.Provider) time.Time { return snapshotFor(p).at }
+	router.ResetGithubCatalog = func() {
+		snapshotMu.Lock()
+		defer snapshotMu.Unlock()
+		clear(snapshotMap)
+	}
 }
 
 // snapshotIDs is readSnapshotIDs for p's login, memoized per login.

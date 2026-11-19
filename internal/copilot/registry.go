@@ -189,7 +189,8 @@ func copilotBuildRegistry(profile string, p *providers.Provider, eps []CopilotEn
 		window, output := copilotCaps(providers.Window(p, ep.ID), ep.ID)
 		r.Models = append(r.Models, copilotRegistryModel{
 			// the full endpoint name, so the picker shows it is Databricks
-			ID: canonical, Provider: name, WireModel: ep.ID, ModelID: wellKnownModel(canonical), Name: ep.ID,
+			ID: canonical, Provider: name, WireModel: ep.ID, Name: ep.ID,
+			ModelID:         runtimeModelID(wellKnownModel(canonical), ep.ID),
 			MaxPromptTokens: models.PromptTokens(window, output), MaxContextWindowTokens: window, MaxOutputTokens: output,
 		})
 	}

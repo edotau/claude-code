@@ -312,7 +312,7 @@ func copilotEndpoint(p *providers.Provider, dialect, base, model string, routed 
 		return "anthropic", base, "", "", nil
 	// the router's openai|responses passthrough
 	case routed:
-		return "openai", base + "/" + w, w, canonical, nil
+		return "openai", base + "/" + w, w, runtimeModelID(canonical, model), nil
 	}
 	// --direct: the profile's own endpoint for that wire
 	if b, ok = p.Route(w); !ok {
@@ -500,38 +500,94 @@ func modelEffort(s agent.Settings) (string, string) {
 	if s.Effort == "" {
 		return "", ""
 	}
-	if models.Strip1M(s.Target.Model) == agent.AutoModel {
+	id := models.Strip1M(s.Target.Model)
+	if id == "" { // the CLI's own default model: the effort is the caller's knob for it
+		return s.Effort, ""
+	}
+	if id == agent.AutoModel {
 		return "", "copilot: auto takes no reasoning effort; not sent"
 	}
+	accepted := catalogEfforts(id)
+	// a gateway-served (BYOK) row; a nil, github or own-login row reads the Copilot catalog
+	if p := s.Target.Provider; p != nil && !isGithubProfile(p) && p.Auth.Login == "" {
+		accepted = servedEfforts(id)
+	}
+	native := nearestEffort(accepted, s.Effort)
+	switch {
+	case native == "":
+		return "", "copilot: " + s.Target.Model + " takes no reasoning effort; not sent"
+	case native != s.Effort:
+		return native, "effort " + s.Effort + "→" + native
+	}
+	return native, ""
+}
+
+// runtimeModelID is known unless wire takes no effort: the runtime sends its default effort to any model it knows.
+func runtimeModelID(known, wire string) string {
+	if servedEfforts(wire) == nil {
+		return wire
+	}
+	return known
+}
+
+// trioEfforts is what a reasoning model accepts when its source lists no levels.
+var trioEfforts = []string{"low", "medium", "high"}
+
+// catalogEfforts is id's accepted efforts on the harness scale from the Copilot catalog snapshot; nil: none or unknown.
+func catalogEfforts(id string) []string {
+	dotted := models.WireOrOriginal("dotted", id)
 	for _, m := range effortModels() {
-		if m.ID != models.Strip1M(s.Target.Model) {
+		if m.ID != id && m.ID != dotted {
 			continue
 		}
-		if m.Efforts == nil && !m.ReasoningEffort {
-			return "", "copilot: " + s.Target.Model + " takes no reasoning effort; not sent"
+		if m.Efforts == nil && m.ReasoningEffort {
+			return trioEfforts
 		}
-		if m.Efforts == nil {
-			continue
-		}
-		supported := make([]string, 0, len(m.Efforts))
+		var out []string
 		for _, level := range agentid.EffortNames() {
 			if slices.Contains(m.Efforts, level) {
-				supported = append(supported, level)
+				out = append(out, level)
 			}
 		}
-		native, clamped := agentid.ClampEffort(supported, agentid.Effort(s.Effort))
-		if len(m.Efforts) == 0 {
-			return native, "copilot: " + s.Target.Model + " takes no reasoning effort; not sent"
-		}
-		if clamped {
-			return native, "effort " + s.Effort + "→" + native
-		}
-		if native == "" {
-			return "", "copilot: " + m.ID + " does not support effort " + s.Effort + "; not sent"
-		}
-		return native, ""
+		return out
 	}
-	return s.Effort, ""
+	return nil
+}
+
+// servedEfforts is what a gateway-served id accepts: Databricks Gemini and open models reject reasoning_effort.
+func servedEfforts(id string) []string {
+	if listed := models.AcceptedEfforts("copilot", id); listed != nil {
+		return listed
+	}
+	switch {
+	case models.FamilyKind(id) == models.FamilyClaude:
+		return agentid.NativeEfforts(agentid.Claude)
+	case models.IsOpenAIReasoning(id):
+		return []string{"low", "medium", "high", "xhigh"}
+	case models.FamilyKind(id) == models.FamilyGPT:
+		return trioEfforts
+	}
+	return nil
+}
+
+// nearestEffort is effort when accepted lists it, else the closest accepted level (weaker on a tie); "" when none.
+func nearestEffort(accepted []string, effort string) string {
+	if slices.Contains(accepted, effort) {
+		return effort
+	}
+	scale := agentid.EffortNames()
+	want := slices.Index(scale, effort)
+	if want < 0 {
+		return ""
+	}
+	best, bestDist := "", len(scale)
+	for _, level := range accepted {
+		i := slices.Index(scale, level)
+		if d := max(want-i, i-want); i >= 0 && (d < bestDist || d == bestDist && i < want) {
+			best, bestDist = level, d
+		}
+	}
+	return best
 }
 
 var effortModels = cachedEffortModels

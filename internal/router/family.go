@@ -49,6 +49,9 @@ var GithubCatalogIDs func(p *providers.Provider) []string
 // GithubCatalogTime is the same cached snapshot's timestamp, zero on a miss.
 var GithubCatalogTime func(p *providers.Provider) time.Time
 
+// ResetGithubCatalog drops the process's memo of those snapshots, so a re-list in a child process is read again.
+var ResetGithubCatalog func()
+
 // FamilyModel is the highest READY runnable version of family on p, else today's id; ids overrides a first-party list.
 func FamilyModel(agent, family string, p *providers.Provider, ids []string, now time.Time) string {
 	family = strings.ToLower(strings.TrimSpace(family))

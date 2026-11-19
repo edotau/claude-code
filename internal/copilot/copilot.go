@@ -57,6 +57,9 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 	}
 	opts, env, done, err := e.options(ctx, cs, req, t)
 	res.Emulated = opts.EffortNotes
+	for _, note := range opts.EffortNotes {
+		fmt.Fprintln(os.Stderr, note)
+	}
 	// done is never nil, so an error path still releases a registry route
 	defer done()
 	if err != nil {

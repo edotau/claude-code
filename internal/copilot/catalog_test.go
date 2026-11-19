@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -77,7 +78,10 @@ func TestSnapshotIDsFollowTheSelectedRow(t *testing.T) {
 		TokenHash: textutil.SHA256Hex([]byte("tok-account-a")), Models: []SDKModel{{ID: "kimi-k3", Enabled: true}}}); err != nil {
 		t.Fatal(err)
 	}
-	snapshotMap = map[string]catalogIDs{}
+	router.ResetGithubCatalog()
+	if got := snapshotIDs(reg.Providers["account-a"]); !slices.Equal(got, []string{"kimi-k3"}) {
+		t.Errorf("account-a ids after the reset = %v, want its new listing", got)
+	}
 	if got := snapshotIDs(reg.Providers["account-b"]); !slices.Equal(got, []string{"gpt-6.2-sol"}) {
 		t.Errorf("account-b ids after account-a's listing = %v, want its own snapshot kept", got)
 	}

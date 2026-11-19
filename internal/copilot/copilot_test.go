@@ -363,6 +363,9 @@ func copilotSettings(t *testing.T, rec *vault.AgentRecord, flag string, headless
 
 // A run's SDK options take --effort over the stored effort and the stored context tier.
 func TestRunSDKOptionsReadSettings(t *testing.T) {
+	old := effortModels
+	t.Cleanup(func() { effortModels = old })
+	effortModels = func() []SDKModel { return []SDKModel{{ID: "claude-sonnet-5.5", ReasoningEffort: true}} }
 	for _, c := range settingsCases {
 		t.Run(c.name, func(t *testing.T) {
 			var got sdkOptions

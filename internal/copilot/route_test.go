@@ -332,18 +332,25 @@ func TestModelEffort(t *testing.T) {
 		return []SDKModel{{ID: "supported", Efforts: []string{"high", "low"}}, {ID: "gpt-4.1", Efforts: []string{}}, {ID: "nil", ReasoningEffort: true},
 			{ID: "plain"}}
 	}
-	for _, c := range []struct{ model, effort, want, note, argv string }{
-		{"supported", "high", "high", "", "--reasoning-effort high"},
-		{"supported", "medium", "low", "effort medium→low", "--reasoning-effort low"},
-		{"gpt-4.1", "medium", "", "copilot: gpt-4.1 takes no reasoning effort; not sent", ""},
-		{"gpt-4.1[1m]", "medium", "", "copilot: gpt-4.1[1m] takes no reasoning effort; not sent", ""},
-		{"unknown", "medium", "medium", "", "--reasoning-effort medium"},
-		{"auto", "medium", "", "copilot: auto takes no reasoning effort; not sent", ""},
-		{"plain", "medium", "", "copilot: plain takes no reasoning effort; not sent", ""},
-		{"nil", "medium", "medium", "", "--reasoning-effort medium"},
+	served := &providers.Provider{Name: "dev", Preset: providers.PresetDatabricks}
+	for _, c := range []struct {
+		model, effort, want, note, argv string
+		p                               *providers.Provider
+	}{
+		{"supported", "high", "high", "", "--reasoning-effort high", nil},
+		{"supported", "medium", "low", "effort medium→low", "--reasoning-effort low", nil},
+		{"gpt-4.1", "medium", "", "copilot: gpt-4.1 takes no reasoning effort; not sent", "", nil},
+		{"gpt-4.1[1m]", "medium", "", "copilot: gpt-4.1[1m] takes no reasoning effort; not sent", "", nil},
+		{"unknown", "medium", "", "copilot: unknown takes no reasoning effort; not sent", "", nil},
+		{"auto", "medium", "", "copilot: auto takes no reasoning effort; not sent", "", nil},
+		{"plain", "medium", "", "copilot: plain takes no reasoning effort; not sent", "", nil},
+		{"nil", "medium", "medium", "", "--reasoning-effort medium", nil},
+		{"databricks-gemini-4-argon", "medium", "", "copilot: databricks-gemini-4-argon takes no reasoning effort; not sent", "", served},
+		{"databricks-gpt-6-2-sol", "xhigh", "xhigh", "", "--reasoning-effort xhigh", served},
+		{"databricks-gpt-oss-120b", "max", "high", "effort max→high", "--reasoning-effort high", served},
 	} {
 		t.Run(c.model+"/"+c.effort, func(t *testing.T) {
-			s := agent.Settings{Effort: c.effort, Target: providers.Target{Model: c.model}}
+			s := agent.Settings{Effort: c.effort, Target: providers.Target{Provider: c.p, Model: c.model}}
 			_, argv, notes, cleanup, err := copilotAgent.RenderSettings(t.Context(), s, nil, nil)
 			cleanup()
 			if err != nil || strings.Join(argv, " ") != c.argv {
@@ -358,6 +365,10 @@ func TestModelEffort(t *testing.T) {
 			}
 			if err != nil || opts.ReasoningEffort != c.want {
 				t.Errorf("SDK effort = %q, err = %v; want %q", opts.ReasoningEffort, err, c.want)
+			}
+			// a model id the runtime knows makes it send its own default effort
+			if id := runtimeModelID("known", c.model); c.p != nil && (id == "known") != (c.want != "") {
+				t.Errorf("runtime model id = %q with effort %q", id, c.want)
 			}
 		})
 	}

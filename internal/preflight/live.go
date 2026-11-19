@@ -63,6 +63,9 @@ func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now ti
 			for _, g := range rows {
 				discoverGithub(ctx, g.Name)
 			}
+			if router.ResetGithubCatalog != nil {
+				router.ResetGithubCatalog()
+			}
 		})
 	}
 	wg.Wait()
