@@ -206,7 +206,7 @@ func launchLineFor(i int, id string, spec Spec, options LaunchOptions) (launchLi
 	report := filepath.Join(options.ReportsDir, dateFirst(id, options.Day)+".md")
 	verify := spec.Verify
 	if verify == "" {
-		verify = defaultVerify(spec.Owns)
+		verify = DefaultVerify(spec.Owns)
 	}
 	prompt, err := agent.RenderBrief(agent.BriefInput{Task: spec.Task, Owned: spec.Owns, Verify: verify, Report: report})
 	if err != nil {
@@ -290,7 +290,8 @@ func launchCheckEnvelope(envelope Envelope) error {
 	return nil
 }
 
-func defaultVerify(owns []string) string {
+// DefaultVerify is the diff check over the owned paths.
+func DefaultVerify(owns []string) string {
 	var cmd strings.Builder
 	cmd.WriteString("claude-code agents diff --check")
 	for _, path := range owns {
