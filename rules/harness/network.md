@@ -29,6 +29,10 @@ paths:
   `state/harness/remote/auto-host.json`). None or several is an error listing them.
 - `--host <h>` or `--remote <h>` naming this machine (tailnet DNS name, OS hostname, or either one's first label) runs
   the verb here with no ssh hop or tunnel.
+- Memory sync is off unless this machine's vault env has `NETWORK_MEMORY=on`. When on, every 4 hours and only while
+  the machine is in use, it connects over ssh to each host in `CLAUDE_REMOTE_HOST` and sends and fetches only the
+  memory store's files. A machine that is only a peer never connects for sync. `claude-code doctor` shows the state
+  on the `memory sync` rows.
 - Overlay `profile: auto` picks, among Databricks serving rows passing the local checks (stored credential, no auth
   mark, model served to that agent; no token is requested, so a revoked login is found on the first request), the
   workspace not cooling from a rate limit with the fewest live dispatches; a tie goes to the least recently picked

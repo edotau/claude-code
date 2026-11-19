@@ -91,6 +91,7 @@ subagent. Per-hook matrix: [`rules/harness/hooks.md`](rules/harness/hooks.md).
 
 | Situation | What happens | Applies to |
 | --- | --- | --- |
+| Memory sync between your own machines | Off by default; opting in sends the memory store over ssh only to the hosts you listed | opted-in machines |
 | `git stash`, `checkout`, `switch`, `reset`, `restore`, `clean` in `~/.claude` | Blocked (read-only and new-branch forms pass); make a new commit or use a linked worktree | main and leaves |
 | `git commit --amend`, `rebase`, `reset <commit>` that rewrite commits in a shared checkout | Blocked | main and leaves |
 | Force push to `main` or `master` | Blocked; push a branch and open a PR | main and leaves |

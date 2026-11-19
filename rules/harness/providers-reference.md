@@ -132,6 +132,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | `HARNESS_EGRESS_HOST` | set by `--remote <h>`: Databricks workspace requests leave through that ssh host |
 | `HARNESS_REMOTE_BIN` | the remote `claude-code` binary for `--host` runs |
 | `CLAUDE_REMOTE_HOST` | a comma-separated list; the first entry is the machine `--host auto` and `--remote auto` name (`rules/harness/network.md`) |
+| `NETWORK_MEMORY` | off by default: unset or any value other than `on` means no sync or connection; `on` (case-insensitive) opts this machine in to memory sync with the hosts in `CLAUDE_REMOTE_HOST` |
 | `HARNESS_ALLOW_OPENCODE_2X` | any value lets one install link an opencode newer than 1.x |
 | `HARNESS_MODEL_CACHE_TTL` | Go duration a saved discovery snapshot stays fresh for launches and copilot (default `24h`) |
 | `HARNESS_USAGE_CACHE_TTL` | seconds a usage fetch stays fresh (default 60; 0 = always refetch) |

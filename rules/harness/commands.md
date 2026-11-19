@@ -114,7 +114,8 @@ plain rows on an older binary).
 | Subagent status and dispatches | `claude-code agents tree [--watch\|--detail]` · `agents cancel --lost [--dry-run]` |
 | What an agent changed, including pre-dirty files touched outside --path with --verify, passing the gates, routed right | `claude-code agents diff [--path <p>]... [--check] [--verify <id>]` |
 | Search repo code deterministically (tracked and new files, never ignored ones) | `claude-code agents find <pattern> [--name\|--func\|--def\|--callers] [-i] [-w] [-l] [--path <p>]... [--max 200] [--format text\|json]` |
-| Merge another machine's memory, try on a copy | `claude-code memory import --host <h>` · `memory sandbox` |
+| Merge another machine's memory, try on a copy | `claude-code memory import --host <peer>` · `memory sandbox` |
+| Sync memory with peers (off by default) | `claude-code vault env set NETWORK_MEMORY on` to opt in · `claude-code memory import --sync [--host <peer>]` |
 | Run an agent on another tailnet box | `claude-code agents ask --host <h> --agent <a> "<task>"` · `network remote --host <h> --list --status` |
 | Browsers, web search | `claude-code network browser [--setup --browser <b>]` · `network websearch --query q` |
 | Tailnet | `claude-code network tailscale [--machines\|--connect\|--key --secret\|--save\|--exit-node …\|--subnet <cidr> …]` (`TAILSCALE_OAUTH_CLIENT_ID`/`_SECRET` or `TAILSCALE_API_KEY` in the vault; `make install` adds it when missing) |

@@ -46,15 +46,30 @@ update`; the rest print none.
 - Settle: `index` (rotate and archive over caps, refresh the embedding cache), `dream [--force|--dry-run]`
   (consolidation; `--dry-run` is a deterministic audit, no model).
 - Move: `promote <id> --to <target>` (ladder below), `import --from <dir> | --host <h>` (refuses a source not yet
-  migrated: run `claude-code memory migrate` on it), `migrate`, `sandbox [--empty]` (disposable config with a copied
-  bank, origin-only vault).
+  migrated: run `claude-code memory migrate` on it), `import --sync [--host <peer>]` (off by default; only an
+  opted-in machine pulls from every reachable peer, then pushes to each; without `--host`, peers come from
+  `CLAUDE_REMOTE_HOST`), `migrate`, `sandbox [--empty]` (disposable config with a copied bank, origin-only vault).
 - Hook-spawned: `watch`; SessionStart spawns `update --catchup`, which also runs the daily learn steps.
 - `import` is additive and idempotent (`--dry-run` previews; `git -C ~/.claude/memory log` is the undo): logs merge
   (missing blocks only); `--topics` copies files only the source has, appends the source's `index.md` records and
-  pending `MEMORY.md` entries to `index.md` after the local ones, settles, and keeps local state files and any
-  differing file (reported as a conflict); `migrate` appends each entry it repoints and never rewrites either file.
+  pending `MEMORY.md` entries to `index.md` after the local ones, and settles. Without `--sync`, import keeps local
+  state files and any differing file (reported as a conflict); `migrate` appends each entry it repoints and never
+  rewrites either file.
   Never imported as files: `index.md`, `catalog.md`, locks, `.git/`, symlinks, files over 4 MiB, stores with no
   local counterpart.
+  A write waits for the job lock that `update` and `dream` hold, then takes the bank lock. Before applying changes,
+  import writes a backup bundle in `state/harness/backups/` at most once per 24 hours; it keeps the newest 3.
+
+  `--sync` implies `--topics` and refuses a peer on a different `.layout`. For non-log files present on both sides,
+  the side that changed since the last sync wins. The first pass only records both sides' hashes (`seen`) for these
+  comparisons, leaving existing differences in place.
+
+  | Local vs seen | Peer vs seen | Result |
+  | --- | --- | --- |
+  | same | changed | the peer's replaces the local file |
+  | changed | same | the local file replaces the peer's (the peer checks its hash first) |
+  | changed | changed, or never seen | both keep their own; counted as `differ` |
+  | same | same, but unequal | standing difference; counted, quiet |
 
 ## Promotion ladder
 
@@ -157,6 +172,8 @@ The loader reads the whole generated file. Past a `fileCaps` limit `memory dream
   (history and decisions only).
 - `memory-recall` (UserPromptSubmit) — injects a few matching blocks; recall searches the whole store.
   `memory index` learns a bounded access boost from 30 days of same-session follow-ups.
+- Detached `memory import --sync` — imports memory and pushes to peers every 4 hours while an opted-in machine is
+  in use; writes `state/harness/memory/sync.json` and `state/harness/memory/sync-<stamp>.log`.
 - `memory update` — the session-close writer: summary → sessionHistory, rewrite activeContext + progress, decisions →
   decisionLog, patterns → conventions. `memory-update` / `memory-end` (Stop / SessionEnd) run it headless after enough
   edits; the first dispatch claims a detached `memory watch` that updates after 10 quiet minutes (a crash fires no
