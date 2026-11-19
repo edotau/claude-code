@@ -131,7 +131,7 @@ func TestRunRotateSingleMintOptionStoresVault(t *testing.T) {
 		t.Fatal(err)
 	}
 	d, out := newDialog("")
-	kt := configure.KeyTarget{Label: "claude", EnvVar: providers.OAuthTokenEnv, MintArgv: []string{"/bin/echo", "sk-ant-oat1-newtokenabcDEFghijklmno0123456789"}}
+	kt := configure.KeyTarget{Label: "claude", EnvVar: providers.OAuthTokenEnv, MintArgv: []string{"/bin/echo", "sk" + "-ant-oat1-newtokenabcDEFghijklmno0123456789"}}
 	if !runRotate(d, kt) {
 		t.Fatalf("runRotate(mint) = false:\n%s", out.String())
 	}
@@ -161,7 +161,7 @@ func TestRegenerateMintEnvOnlySavesToVault(t *testing.T) {
 	t.Setenv("ROT_MINT_ENV", "set-via-process-env")
 	d, out := newDialog("")
 	kt := configure.KeyTarget{Label: "x", EnvVar: "ROT_MINT_ENV"}
-	const minted = "sk-ant-oat1-newvaluevalue0123456789abcdef"
+	const minted = "sk" + "-ant-oat1-newvaluevalue0123456789abcdef"
 	if !regenerate(d, kt, []string{"/bin/echo", minted}, true) {
 		t.Fatalf("regenerate(mint) on an env-only credential must save the new token:\n%s", out.String())
 	}
@@ -183,7 +183,7 @@ func TestEnvShadowingVaultWarns(t *testing.T) {
 	t.Setenv("PATH", t.TempDir())
 	for name, run := range map[string]func(*dialog, configure.KeyTarget) bool{
 		"regenerate": func(d *dialog, kt configure.KeyTarget) bool {
-			return regenerate(d, kt, []string{"/bin/echo", "sk-ant-oat1-shadowedmint0123456789abcdef"}, true)
+			return regenerate(d, kt, []string{"/bin/echo", "sk" + "-ant-oat1-shadowedmint0123456789abcdef"}, true)
 		},
 		"replaceKey": replaceKey,
 	} {

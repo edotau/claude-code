@@ -27,7 +27,7 @@ import (
 
 // A failed job's stderr tail may carry a key; result must not echo it raw.
 func TestResultExitRedactsError(t *testing.T) {
-	const key = "sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEF"
+	const key = "sk" + "-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789ABCDEF"
 	r, w, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)

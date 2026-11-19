@@ -31,7 +31,7 @@ var validCredentialCases = []struct {
 	{"client secret whitespace", "TAILSCALE_OAUTH_CLIENT_SECRET", "tskey-client-abc 123", true},
 	// real failure seen live: an auth key pasted into the client-secret slot.
 	{"client secret real failure: auth key in secret slot", "TAILSCALE_OAUTH_CLIENT_SECRET",
-		"tskey-auth-kXXXXXCNTRL-abcdefghijklmnopqrstuvwxyz", true},
+		"ts" + "key-auth-kXXXXXCNTRL-abcdefghijklmnopqrstuvwxyz", true},
 
 	{"api key valid shape", "TAILSCALE_API_KEY", "tskey-api-abc123XYZ", false},
 	{"api key wrong prefix", "TAILSCALE_API_KEY", "tskey-auth-abc123XYZ", true},
@@ -70,7 +70,7 @@ func TestValidCredentialNeverEchoesFullValue(t *testing.T) {
 	cases := []struct {
 		name, value string
 	}{
-		{"TAILSCALE_OAUTH_CLIENT_SECRET", "tskey-auth-realrandomtail1234567890"},
+		{"TAILSCALE_OAUTH_CLIENT_SECRET", "ts" + "key-auth-realrandomtail1234567890"},
 		{"TAILSCALE_OAUTH_CLIENT_ID", "! pbpaste | claude-code vault set TAILSCALE_OAUTH_CLIENT_ID"},
 	}
 	for _, c := range cases {

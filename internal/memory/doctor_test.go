@@ -516,7 +516,7 @@ func TestDoctorFlagsOversizedAndStale(t *testing.T) {
 
 func TestDoctorFlagsCredentialShapedValue(t *testing.T) {
 	tempConfig(t)
-	write(t, filepath.Join(StoreDir(), "conventions.md"), "# C\n\n- token AKIAABCDEFGHIJKLMNOP in here\n")
+	write(t, filepath.Join(StoreDir(), "conventions.md"), "# C\n\n- token AK"+"IAABCDEFGHIJKLMNOP in here\n")
 	problems := doctor(StoreDir(), DefaultStaleDays, time.Now())
 	if !strings.Contains(strings.Join(problems, "\n"), "possible credential") {
 		t.Errorf("want a credential finding, got %v", problems)

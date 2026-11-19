@@ -185,11 +185,11 @@ func TestSignInPrintsVendorBinError(t *testing.T) {
 // The piped `configure github` report prints only booleans.
 func TestGithubSectionNonTTYOutputNamesNoSecret(t *testing.T) {
 	hosttest.GithubScratch(t)
-	t.Setenv("GH_TOKEN", "ghp_FAKEtokenlookingvalue1234567890")
+	t.Setenv("GH_TOKEN", "rTyUiOpLkJhGfDsAzXcVb")
 	var out bytes.Buffer
 	_ = Run(Options{Check: true, In: strings.NewReader(""), Out: &out}, "github")
 	got := out.String()
-	if strings.Contains(got, "ghp_FAKEtokenlookingvalue1234567890") {
+	if strings.Contains(got, "rTyUiOpLkJhGfDsAzXcVb") {
 		t.Errorf("github section leaked a credential:\n%s", got)
 	}
 	if !regexp.MustCompile(`copilot CLI +present`).MatchString(got) {

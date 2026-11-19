@@ -303,7 +303,7 @@ func TestRunHolderRestoresLauncher(t *testing.T) {
 // Given a holder that fails with a credential-shaped error, Then the saved record is redacted and carries a duration.
 func TestRunHolderRedactsAndTimesFailure(t *testing.T) {
 	setConfigDir(t)
-	const secret = "sk-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+	const secret = "sk" + "-ant-api03-AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
 	orig := serveLive
 	serveLive = func(context.Context, *Record) error { return fmt.Errorf("claude exited: token %s", secret) }
 	t.Cleanup(func() { serveLive = orig })

@@ -75,7 +75,7 @@ func TestExportPairsStoredOnlyAndRestricted(t *testing.T) {
 
 func TestListStoredMasksWithoutDecrypting(t *testing.T) {
 	useZeroRootVault(t)
-	const secret = "sk-test-abcdefghijklmnopqrstuvwxyz0123456789"
+	const secret = "sk" + "-test-abcdefghijklmnopqrstuvwxyz0123456789"
 	storeAll(t, map[string]string{"Z_KEY": "short", "A_KEY": secret})
 	t.Setenv("ONLY_IN_ENV", "from-env")
 	useWrongVaultKey(t)

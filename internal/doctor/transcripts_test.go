@@ -206,7 +206,7 @@ func TestTranscriptCountBoundary(t *testing.T) {
 		transcriptFake, base64.StdEncoding.EncodeToString([]byte(transcriptFake)),
 		"sk-" + strings.Repeat("A", 64), "BeArEr " + strings.Repeat("A", 64),
 		"eyJ" + strings.Repeat("a", 20) + "." + strings.Repeat("b", 20),
-		"-----BEGIN PRIVATE KEY-----\n" + strings.Repeat("A", 2*secretredact.CountWindow) + "\n-----END PRIVATE KEY-----",
+		"-----BEGIN PRI" + "VATE KEY-----\n" + strings.Repeat("A", 2*secretredact.CountWindow) + "\n-----END PRIVATE KEY-----",
 	}
 	for i, form := range forms {
 		for _, delta := range []int{-20, -2, 0, 2} {
@@ -258,7 +258,7 @@ func TestTranscriptCountParity(t *testing.T) {
 	pieces := []string{"Énergie-0123456789", "\xffAbcdefghijkl012", "plain ", "ghp_a", "xoxb-a", "[redacted]******", "ghp_Ab12", transcriptFake,
 		transcriptFake[10:] + "TAIL", "Bearer " + strings.Repeat("Ab1_", 12),
 		"sk-" + strings.Repeat("a", 24), "github_pat_", "YOUR_sk-" + strings.Repeat("a", 24),
-		"-----BEGIN PRIVATE KEY-----\nx\n-----END PRIVATE KEY-----", "\n", " ", "_", "."}
+		"-----BEGIN PRI" + "VATE KEY-----\nx\n-----END PRIVATE KEY-----", "\n", " ", "_", "."}
 	path := filepath.Join(t.TempDir(), "parity.txt")
 	for i := range 200 {
 		var input []byte

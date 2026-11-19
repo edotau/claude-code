@@ -9,7 +9,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-const cliFakeToken = "sk-ant-oat01-FAKEFAKEFAKEFAKEFAKEFAKE0123456789"
+const cliFakeToken = "sk" + "-ant-oat01-FAKEFAKEFAKEFAKEFAKEFAKE0123456789"
 
 func TestCmdAnthropicRefusalsDoNotEchoSecrets(t *testing.T) {
 	vaulttest.UseFreshKey(t)

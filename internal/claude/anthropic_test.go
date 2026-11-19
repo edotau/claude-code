@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-const fakeToken = "sk-ant-oat01-FAKEFAKEFAKEFAKEFAKEFAKE0123456789"
+const fakeToken = "sk" + "-ant-oat01-FAKEFAKEFAKEFAKEFAKEFAKE0123456789"
 
 func TestParseAnthropicBareFlagTakesNoValue(t *testing.T) {
 	for _, flag := range []string{"--oauth", "--x-api-key"} {

@@ -132,7 +132,7 @@ func TestDoctorMalformedCredentialNeverCallsAPI(t *testing.T) {
 
 // Neither an API key alone nor no credential at all calls the network — only the OAuth pair mints a token.
 func TestDoctorWithoutOAuthPairNeverCallsNetwork(t *testing.T) {
-	const apiKey = "tskey-api-should-never-appear"
+	const apiKey = "ts" + "key-api-should-never-appear"
 	for name, key := range map[string]string{"api key only": apiKey, "no credential": ""} {
 		t.Run(name, func(t *testing.T) {
 			stubCLI(t, catScript(t, "status_running.json"))

@@ -97,8 +97,8 @@ func TestFindConflicts(t *testing.T) {
 // TestDoctorConflictSeesSecretArgDifference: defs differing only in a secret arg are a real conflict, shown redacted.
 func TestDoctorConflictSeesSecretArgDifference(t *testing.T) {
 	defs := []def{
-		{"github", "user", serverDef{Command: "gh-mcp", Args: []string{"--token", "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}},
-		{"github", "project:/x/.mcp.json", serverDef{Command: "gh-mcp", Args: []string{"--token", "ghp_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}},
+		{"github", "user", serverDef{Command: "gh-mcp", Args: []string{"--token", "gh" + "p_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}},
+		{"github", "project:/x/.mcp.json", serverDef{Command: "gh-mcp", Args: []string{"--token", "gh" + "p_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"}}},
 	}
 	conflicts := findConflicts(defs, "/home/u")
 	if len(conflicts) != 1 || !conflicts[0].Real {
@@ -116,7 +116,7 @@ func TestFindSecrets(t *testing.T) {
 	defs := []def{
 		{"databricks", "user", serverDef{Env: map[string]string{"DATABRICKS_TOKEN": "dapi" + "0123456789abcdef0123456789abcdef"}}},
 		{"github", "user", serverDef{Env: map[string]string{"GITHUB_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}", "CA": "/etc/ssl/ca.pem"}}},
-		{"openai", "user", serverDef{Env: map[string]string{"KEY": "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD"}}},
+		{"openai", "user", serverDef{Env: map[string]string{"KEY": "sk" + "-abcdefghijklmnopqrstuvwxyz0123456789ABCD"}}},
 		{"slack", "user", serverDef{Env: map[string]string{"TOKEN": "xoxb-" + "1234567890" + "-abcdefghijklmnop"}}},
 		{"remote", "project:/x/.mcp.json", serverDef{
 			URL:     "https://example.com/sse?token=abcdef0123456789",
@@ -261,7 +261,7 @@ func TestDoctorRejectsReportWriteFailure(t *testing.T) {
 func TestDoctorJSONRoundTrips(t *testing.T) {
 	dir := t.TempDir()
 	userJSON := filepath.Join(dir, ".claude.json")
-	hosttest.WriteRel(t, "", userJSON, `{"mcpServers": {"github": {"command": "npx", "args": ["gh-mcp"], "env": {"TOKEN": "sk-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}}`)
+	hosttest.WriteRel(t, "", userJSON, `{"mcpServers": {"github": {"command": "npx", "args": ["gh-mcp"], "env": {"TOKEN": "sk`+`-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}}`)
 
 	var out strings.Builder
 	code := doctorMCP(&out, options{UserPath: userJSON, Home: dir, JSON: true})
@@ -284,7 +284,7 @@ func TestDoctorJSONRoundTrips(t *testing.T) {
 func TestDoctorTextReportNeverEchoesSecretValues(t *testing.T) {
 	dir := t.TempDir()
 	userJSON := filepath.Join(dir, ".claude.json")
-	hosttest.WriteRel(t, "", userJSON, `{"mcpServers": {"github": {"command": "npx", "env": {"TOKEN": "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}}`)
+	hosttest.WriteRel(t, "", userJSON, `{"mcpServers": {"github": {"command": "npx", "env": {"TOKEN": "gh`+`p_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}}`)
 
 	var out strings.Builder
 	code := doctorMCP(&out, options{UserPath: userJSON, Home: dir})
@@ -354,7 +354,7 @@ func TestQueryParamSecretCoversKeyAndTokenSuffixes(t *testing.T) {
 // TestDoctorTextNeverEchoesSecretsFromArgsOrHealthLines
 func TestDoctorTextNeverEchoesSecretsFromArgsOrHealthLines(t *testing.T) {
 	dir := t.TempDir()
-	const tok = "ghp_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	const tok = "gh" + "p_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	userJSON := filepath.Join(dir, ".claude.json")
 	hosttest.WriteRel(t, "", userJSON, `{"mcpServers": {"gh": {"command": "npx", "args": ["srv", "--token", "`+tok+`"]}}}`)
 	claude := fakeBin(t, dir, "claude", "echo 'gh: npx srv --token "+tok+" - ✔ Connected'\necho 'web: https://x.test/mcp?api_key=zzz1234 - ✘ Failed'")

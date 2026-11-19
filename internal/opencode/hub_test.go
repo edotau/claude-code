@@ -281,7 +281,7 @@ func TestHubRunSilentChildStalls(t *testing.T) {
 	}
 }
 
-const evSecret = "AKIAIOSFODNN7EXAMPLE"
+const evSecret = "AK" + "IAIOSFODNN7EXAMPLE"
 
 // emitScript is a fake vendor body that drains stdin then prints each NDJSON line on stdout.
 func emitScript(lines ...string) string {

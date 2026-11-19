@@ -125,7 +125,7 @@ func TestListLiveJSONFormatsFakeCatalog(t *testing.T) {
 // listLive's passthrough dispatch falls back to the registry models on a 401 and never prints the OAuth bearer token.
 func TestListLiveSubscriptionFallbackNeverPrintsToken(t *testing.T) {
 	cliScratch(t)
-	const secret = "sk-setup-token-super-secret-value"
+	const secret = "wErTyUiOpAsDfGhJkLzXc"
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", secret)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)

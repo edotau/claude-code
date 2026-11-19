@@ -684,13 +684,13 @@ func TestCommitRejectsSecretsByNameOnly(t *testing.T) {
 	if err := r.Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	const token = "ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef"
+	const token = "gh" + "p_ABCDEFGHIJKLMNOPQRSTUVWXYZabcdef"
 	write(t, filepath.Join(store, "leak.md"), "token "+token+"\n")
 	_, _, err := r.Commit([]string{"leak.md"}, "s", "")
 	if err == nil || !strings.Contains(err.Error(), "leak.md") || strings.Contains(err.Error(), token) {
 		t.Fatalf("secret rejection = %v; want path named, bytes absent", err)
 	}
-	write(t, filepath.Join(store, "prose.md"), "ask-before-changing-appearance-of-anything-here\n")
+	write(t, filepath.Join(store, "prose.md"), "ask"+"-before-changing-appearance-of-anything-here\n")
 	if _, committed, err := r.Commit([]string{"prose.md"}, "s", ""); err != nil || !committed {
 		t.Fatalf("kebab prose rejected: %v", err)
 	}

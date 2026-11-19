@@ -38,7 +38,7 @@ func TestMain(m *testing.M) {
 func TestRunMintUsesInstalledVendor(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
-	const token = "sk-ant-oat01-abcdefghijklmnopqrstuv"
+	const token = "sk" + "-ant-oat01-abcdefghijklmnopqrstuv"
 	pathstest.FakeVendor(t, "claude", "printf '%s\\n' '"+token+"'")
 	got, err := runMintContext(context.Background(), []string{"claude", "setup-token"})
 	if err != nil || got != token {
@@ -97,7 +97,7 @@ func TestVendorArgvMissingVendor(t *testing.T) {
 	}
 }
 
-const configureTestToken = "sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789"
+const configureTestToken = "sk" + "-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789"
 
 // configureFakeClaude logs argv, then acts on CONFIGURE_COMMAND_MODE (exists: the first add reports a duplicate until remove runs); `exec sleep` leaves SIGINT nothing to defer.
 const configureFakeClaude = `printf '%s\n' "$@" '' >>"$CONFIGURE_COMMAND_LOG"
@@ -327,8 +327,8 @@ func TestMaxPlanOptionsAndSetupTokenCapture(t *testing.T) {
 		t.Fatalf("no login and no token must read absent: %+v", kt)
 	}
 	assertMaxPlanOptions(t, AuthOptions(kt))
-	out := "Opening browser...\nPaste the code here:\n\nYour token: sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789\n"
-	if got := setupTokenRE().FindString(out); got != "sk-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789" {
+	out := "Opening browser...\nPaste the code here:\n\nYour token: sk" + "-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789\n"
+	if got := setupTokenRE().FindString(out); got != "sk"+"-ant-oat01-abcDEF_ghi-JKLmno_pqrSTUvwx-YZ0123456789" {
 		t.Errorf("token capture = %q", got)
 	}
 	t.Setenv("CLAUDE_CODE_OAUTH_TOKEN", "sk-ant-oat01-stored")

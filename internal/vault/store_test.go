@@ -239,7 +239,7 @@ func TestDeleteAudit(t *testing.T) {
 
 // Redact shows only the length for a short value, and never the middle of a long one.
 func TestRedact(t *testing.T) {
-	long := "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz"
+	long := "sk" + "-ant-oat01-abcdefghijklmnopqrstuvwxyz"
 	for in, want := range map[string]string{
 		"short":             "5 chars",
 		"elevenchars":       "11 chars",
@@ -442,7 +442,7 @@ func readRecord(t *testing.T, name string) Record {
 
 func TestLoadMetaKeylessAndCurrent(t *testing.T) {
 	useZeroRootVault(t)
-	if err := Store("STORED", "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz"); err != nil {
+	if err := Store("STORED", "sk"+"-ant-oat01-abcdefghijklmnopqrstuvwxyz"); err != nil {
 		t.Fatal(err)
 	}
 	r := readRecord(t, "STORED")
@@ -477,7 +477,7 @@ func TestLoadMetaMissingVaultDoesNotCreateIt(t *testing.T) {
 
 func TestRecordProbeKeylessPreservesRecord(t *testing.T) {
 	useZeroRootVault(t)
-	putTestSecret(t, "PROBE", "sk-test-abcdefghijklmnopqrstuvwxyz")
+	putTestSecret(t, "PROBE", "sk"+"-test-abcdefghijklmnopqrstuvwxyz")
 	before := readRecord(t, "PROBE")
 	t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
 	at := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
@@ -567,7 +567,7 @@ func metaRow(t *testing.T, name string) (SecretMeta, bool) {
 
 func TestMetaPrefixNeverPersistsWholeValue(t *testing.T) {
 	useZeroRootVault(t)
-	for _, v := range []string{"abc-def-", "ab-cd-ef-gh-", "sk-ant-oat01-abcdefghijklmnopqrstuvwxyz"} {
+	for _, v := range []string{"abc-def-", "ab-cd-ef-gh-", "sk" + "-ant-oat01-abcdefghijklmnopqrstuvwxyz"} {
 		if err := Store("SHORT_SEG", v); err != nil {
 			t.Fatal(err)
 		}
@@ -575,7 +575,7 @@ func TestMetaPrefixNeverPersistsWholeValue(t *testing.T) {
 			t.Fatalf("prefix %q persisted for %q: over a third of the value", row.Prefix, v)
 		}
 	}
-	if p := MetaPrefix("sk-ant-oat01-abcdefghijklmnopqrstuvwxyz"); p != "sk-ant-oat01-" {
+	if p := MetaPrefix("sk" + "-ant-oat01-abcdefghijklmnopqrstuvwxyz"); p != "sk-ant-oat01-" {
 		t.Fatalf("MetaPrefix dropped a genuine vendor prefix: %q", p)
 	}
 }

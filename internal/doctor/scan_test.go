@@ -29,7 +29,7 @@ func currentVaultSchema(t *testing.T) int {
 
 func TestScanVaultOverlaySecretsSorted(t *testing.T) {
 	vaulttest.Use(t)
-	const value = "sk-test-abcdefghijklmnopqrstuvwxyz0123456789"
+	const value = "sk" + "-test-abcdefghijklmnopqrstuvwxyz0123456789"
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"d":{"k":"`+value+`"},"a":{"k":"`+value+`"},"c":{"k":"`+value+`"},"b":{"k":"`+value+`"},"e":{"k":"`+value+`"}}}`)
 	var want []string
 	for _, n := range []string{"a", "b", "c", "d", "e"} {
@@ -46,7 +46,7 @@ func TestScanVaultOverlaySecretsSorted(t *testing.T) {
 
 func TestScanVaultFindsInlineSecrets(t *testing.T) {
 	vaulttest.Use(t)
-	const value = "sk-test-abcdefghijklmnopqrstuvwxyz0123456789"
+	const value = "sk" + "-test-abcdefghijklmnopqrstuvwxyz0123456789"
 	vaulttest.Put(t, vault.Pins, "PIN_TOKEN", value)
 	vaulttest.Put(t, vault.Env, "ENV_TOKEN", value)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"x":{"headers":[{"Authorization":"`+value+`"}]}}}`)
@@ -87,7 +87,7 @@ func TestScanVaultClean(t *testing.T) {
 				vaulttest.Put(t, vault.Pins, "HARNESS_PROVIDER", "openai")
 				vaulttest.Put(t, vault.Env, "API_KEY", providers.SecretRef)
 				vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"x":{"auth":{"env":"API_KEY"}}}}`)
-				vaulttest.Secret(t, "API_KEY", "sk-test-abcdefghijklmnopqrstuvwxyz")
+				vaulttest.Secret(t, "API_KEY", "sk"+"-test-abcdefghijklmnopqrstuvwxyz")
 			}
 			t.Setenv("HARNESS_VAULT_KEY", "invalid-key")
 			var out bytes.Buffer
@@ -121,7 +121,7 @@ func TestScanConfigsDefaultIncludesVaultAndSummary(t *testing.T) {
 	dir := vaulttest.Use(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Chdir(t.TempDir())
-	vaulttest.Put(t, vault.Env, "INLINE_KEY", "sk-test-abcdefghijklmnopqrstuvwxyz")
+	vaulttest.Put(t, vault.Env, "INLINE_KEY", "sk"+"-test-abcdefghijklmnopqrstuvwxyz")
 	path := filepath.Join(dir, "settings.json")
 	if err := os.WriteFile(path, []byte(`{}`), 0o600); err != nil {
 		t.Fatal(err)

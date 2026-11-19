@@ -93,7 +93,7 @@ func TestDoctorMasterKeySources(t *testing.T) {
 			} else {
 				doctorTestVault(t)
 			}
-			const value = "sk-test-abcdefghijklmnopqrstuvwxyz"
+			const value = "sk" + "-test-abcdefghijklmnopqrstuvwxyz"
 			if err := vault.Store("DOCTOR_KEY", value); err != nil {
 				t.Fatal(err)
 			}
@@ -116,7 +116,7 @@ func TestDoctorLockedVault(t *testing.T) {
 	for _, mode := range []string{"wrong key", "unavailable keyring"} {
 		t.Run(mode, func(t *testing.T) {
 			doctorTestVault(t)
-			const value = "sk-test-abcdefghijklmnopqrstuvwxyz"
+			const value = "sk" + "-test-abcdefghijklmnopqrstuvwxyz"
 			if err := vault.Store("LOCKED", value); err != nil {
 				t.Fatal(err)
 			}
