@@ -117,7 +117,8 @@ func readRow(path, dir string) pointerRow {
 		} else if fences == 0 {
 			return row
 		}
-		head.WriteString(line + "\n")
+		head.WriteString(line)
+		head.WriteByte('\n')
 		if fences == 2 {
 			fm, _ := textutil.ParseFrontmatter(head.String())
 			meta, _ := fm["metadata"].(map[string]any)
@@ -362,7 +363,9 @@ func undoCRLF(lines []string, crlf bool) string {
 func encodeRecord(e string) string {
 	var b strings.Builder
 	for l := range strings.SplitSeq(e, "\n") {
-		b.WriteString(recordPrefix + l + "\n")
+		b.WriteString(recordPrefix)
+		b.WriteString(l)
+		b.WriteByte('\n')
 	}
 	return b.String() + recordEnd + "\n"
 }

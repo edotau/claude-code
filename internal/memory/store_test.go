@@ -174,20 +174,32 @@ func initStore(t *testing.T) {
 	}
 }
 
-// storeTmpl is the .git of one store built by Ensure, made once per test binary and removed by TestMain.
+// storeTmpl is the dir whose .git one real Ensure built in TestMain; TestMain removes it.
 var storeTmpl struct {
-	once sync.Once
-	dir  string
-	err  error
+	dir string
+	err error
+}
+
+// realInitDirs holds store dirs whose test needs the real `git init` path of Ensure.
+var realInitDirs sync.Map
+
+// copyInit is gitInit for tests: a copy of the template .git, marked root-verified like initStore does.
+func copyInit(real func(Repo) error) func(Repo) error {
+	return func(r Repo) error {
+		if _, ok := realInitDirs.Load(r.Dir); ok || r.Dir == storeTmpl.dir {
+			return real(r)
+		}
+		gitDir := filepath.Join(r.Dir, ".git")
+		if err := os.CopyFS(gitDir, os.DirFS(filepath.Join(storeTmpl.dir, ".git"))); err != nil {
+			return err
+		}
+		verifiedRoots.Store(paths.CanonDeep(gitDir), struct{}{})
+		return nil
+	}
 }
 
 func storeTemplate(t *testing.T) string {
 	t.Helper()
-	storeTmpl.once.Do(func() {
-		if storeTmpl.dir, storeTmpl.err = os.MkdirTemp("", "memstore-"); storeTmpl.err == nil {
-			storeTmpl.err = Repo{Dir: storeTmpl.dir}.Ensure()
-		}
-	})
 	if storeTmpl.err != nil {
 		t.Fatal(storeTmpl.err)
 	}
@@ -204,6 +216,10 @@ func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	tb := &hosttest.MainTB{}
 	StubSpawn(tb, true) // no memory test may launch a real detached worker
+	if storeTmpl.dir, storeTmpl.err = os.MkdirTemp("", "memstore-"); storeTmpl.err == nil {
+		storeTmpl.err = Repo{Dir: storeTmpl.dir}.Ensure()
+	}
+	gitInit = copyInit(gitInit)
 	code := m.Run()
 	for _, f := range tb.Cleanups {
 		f()

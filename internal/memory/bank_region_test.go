@@ -183,7 +183,7 @@ func randomEntry(r *rand.Rand, i int) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s[r%d](%s) — s%d %s", marks[r.IntN(len(marks))], i, targets[r.IntN(len(targets))], i, bits[r.IntN(len(bits))])
 	for range r.IntN(3) {
-		b.WriteString("\n" + []string{"  cont ", "\n  para ", "# h ", "    code "}[r.IntN(4)] + bits[r.IntN(len(bits))])
+		fmt.Fprintf(&b, "\n%s%s", []string{"  cont ", "\n  para ", "# h ", "    code "}[r.IntN(4)], bits[r.IntN(len(bits))])
 	}
 	return b.String()
 }
@@ -196,10 +196,10 @@ func appendModelText(r *rand.Rand, cur, lead string, entries []string) string {
 		b.WriteString("\n")
 	}
 	if lead != "" {
-		b.WriteString(lead + "\n")
+		fmt.Fprintf(&b, "%s\n", lead)
 	}
 	for _, e := range entries {
-		b.WriteString(strings.Repeat("\n", r.IntN(3)) + e + "\n")
+		fmt.Fprintf(&b, "%s%s\n", strings.Repeat("\n", r.IntN(3)), e)
 	}
 	return b.String()
 }
@@ -283,7 +283,7 @@ func importSource(t *testing.T, rt *roundTrip, local string) []string {
 	var cat strings.Builder
 	cat.WriteString("# old router\n- [x](notes/x.md) — not a record\n\n")
 	for _, e := range []string{rec, local} {
-		cat.WriteString("    " + strings.ReplaceAll(e, "\n", "\n    ") + "\n<!-- end of entry -->\n")
+		fmt.Fprintf(&cat, "    %s\n<!-- end of entry -->\n", strings.ReplaceAll(e, "\n", "\n    "))
 	}
 	write(t, filepath.Join(src, catalogFile), cat.String())
 	write(t, filepath.Join(src, "MEMORY.md"), pend+"\n")

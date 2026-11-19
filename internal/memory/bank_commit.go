@@ -467,6 +467,11 @@ func (r Repo) initIfAbsent(gitDir string) error {
 	if _, err := os.Lstat(gitDir); err == nil {
 		return fmt.Errorf("memory repo: %s exists but is not a directory (foreign worktree?)", gitDir)
 	}
+	return gitInit(r)
+}
+
+// gitInit creates r's repository, a var so tests copy a prebuilt one instead of spawning git.
+var gitInit = func(r Repo) error {
 	_, err := r.run("init", "--quiet", "--initial-branch=main")
 	return err
 }
