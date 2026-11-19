@@ -13,8 +13,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
+	"sync/atomic"
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -113,8 +116,11 @@ func findReport(o FindOptions) (FindReport, error) {
 		return rep, err
 	}
 	defer r.Close()
-	for _, p := range files {
-		matches, err := findFile(r, p, o, re)
+	results, stop := findFiles(r, files, o, re)
+	defer stop()
+	for i, p := range files {
+		<-results[i].ready
+		matches, err := results[i].matches, results[i].err
 		if skip, ok := errors.AsType[*findSkip](err); ok {
 			fmt.Fprintf(o.Err, "find: skipped %s: %v\n", p, skip.error)
 			continue
@@ -131,6 +137,36 @@ func findReport(o FindOptions) (FindReport, error) {
 		}
 	}
 	return rep, nil
+}
+
+type findResult struct {
+	matches []FindMatch
+	err     error
+	ready   chan struct{}
+}
+
+// findFiles scans on a worker pool, results read in input order as a serial scan; stop ends it and waits.
+func findFiles(r *os.Root, files []string, o FindOptions, re *regexp.Regexp) ([]findResult, func()) {
+	out := make([]findResult, len(files))
+	for i := range out {
+		out[i].ready = make(chan struct{})
+	}
+	var next atomic.Int64
+	var stopped atomic.Bool
+	var wg sync.WaitGroup
+	for range min(runtime.GOMAXPROCS(0), len(files)) {
+		wg.Go(func() {
+			for !stopped.Load() {
+				i := int(next.Add(1)) - 1
+				if i >= len(files) {
+					return
+				}
+				out[i].matches, out[i].err = findFile(r, files[i], o, re)
+				close(out[i].ready)
+			}
+		})
+	}
+	return out, func() { stopped.Store(true); wg.Wait() }
 }
 
 func findTracked(root string, o FindOptions) ([]string, error) {
