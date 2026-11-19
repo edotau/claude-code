@@ -3,6 +3,7 @@ package docs
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -787,4 +788,26 @@ func TestPlanGatePatchKeys(t *testing.T) {
 			t.Errorf("%s: code = %d, want block (%s)", key, code, &stderr)
 		}
 	}
+}
+
+func BenchmarkMirrorUnchangedDraft(b *testing.B) {
+	cfg := b.TempDir()
+	b.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	repo := b.TempDir()
+	if err := os.MkdirAll(filepath.Join(cfg, "plans"), 0o700); err != nil {
+		b.Fatal(err)
+	}
+	draft := filepath.Join(cfg, "plans", "widget-draft.md")
+	if err := os.WriteFile(draft, []byte(planTemplate), 0o600); err != nil {
+		b.Fatal(err)
+	}
+	payload := mirrorPayloadJSON(draft, repo)
+	b.ReportAllocs()
+	for b.Loop() {
+		Mirror(core.ParseInput(strings.NewReader(payload)), &bytes.Buffer{})
+	}
+}
+
+func mirrorPayloadJSON(path, cwd string) string {
+	return fmt.Sprintf(`{"hook_event_name":"PostToolUse","tool_name":"Write","cwd":%q,"tool_input":{"file_path":%q}}`, cwd, path)
 }

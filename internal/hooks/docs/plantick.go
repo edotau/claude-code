@@ -125,7 +125,12 @@ func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
 	if dir == "" {
 		return nil
 	}
-	top := memory.GitToplevel(dir)
+	top, _ := paths.CheckoutOf(dir)
+	if top == "" {
+		top = memory.GitToplevel(dir) // a bare gitdir layout the stat walk cannot see
+	} else {
+		top = paths.Real(top) // git prints the symlink-resolved toplevel
+	}
 	results, tied, err := plans.TickCommit(top, sha, nil)
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)

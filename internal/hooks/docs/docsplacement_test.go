@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -560,6 +561,30 @@ func TestStoreNameRedirect(t *testing.T) {
 			}
 			if got != c.want {
 				t.Errorf("got %q, want %q", got, c.want)
+			}
+		})
+	}
+}
+
+func BenchmarkPlacementWrite(b *testing.B) {
+	cfg := b.TempDir()
+	b.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	repo := b.TempDir()
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		b.Fatalf("git init: %v (%s)", err, out)
+	}
+	for name, path := range map[string]string{
+		"anchor":  filepath.Join(repo, "README.md"),
+		"subdir":  filepath.Join(repo, "pkg", "a.md"),
+		"blocked": filepath.Join(repo, "NOTES.md"),
+		"report":  filepath.Join(repo, "REPORT-findings.md"),
+	} {
+		payload := fmt.Sprintf(`{"tool_name":"Write","cwd":%q,"tool_input":{"file_path":%q}}`, repo, path)
+		b.Run(name, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				Placement(core.ParseInput(strings.NewReader(payload)))
+				placeFiles(core.ParseInput(strings.NewReader(payload)), io.Discard)
 			}
 		})
 	}

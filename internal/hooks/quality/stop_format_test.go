@@ -123,3 +123,22 @@ func BenchmarkAllowSet(b *testing.B) {
 		allowSet("/tmp/repo", edited)
 	}
 }
+
+func BenchmarkStopFormatSteady(b *testing.B) {
+	b.Setenv("CLAUDE_CONFIG_DIR", b.TempDir())
+	repo := b.TempDir()
+	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
+		b.Fatalf("git init: %v (%s)", err, out)
+	}
+	mine := filepath.Join(repo, "mine.go")
+	_ = os.WriteFile(mine, []byte("package x\n\nfunc F() {}\n"), 0o644)
+	tr := filepath.Join(b.TempDir(), "t.jsonl")
+	rec := fmt.Sprintf(`{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Write","input":{"file_path":%q}}]}}`+"\n", mine)
+	_ = os.WriteFile(tr, []byte(rec), 0o600)
+	payload := fmt.Sprintf(`{"cwd":%q,"transcript_path":%q}`, repo, tr)
+	StopFormat(core.ParseInput(strings.NewReader(payload)))
+	b.ReportAllocs()
+	for b.Loop() {
+		StopFormat(core.ParseInput(strings.NewReader(payload)))
+	}
+}

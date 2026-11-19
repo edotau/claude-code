@@ -86,16 +86,19 @@ func storeNameRedirect(in *core.Input) (core.Result, bool) {
 	}
 	abs := core.AnchorPath(from, in.CWD)
 	dir, base := filepath.Dir(abs), filepath.Base(abs)
+	name := memory.DatedName(base, time.Now())
+	if name == base { // pure string check first: most writes are already dated or exempt
+		return core.Result{}, false
+	}
 	if _, err := os.Stat(abs); err == nil {
 		return core.Result{}, false
 	}
-	hit := false
+	hit, realDir, store := false, paths.FoldCase(paths.Real(dir)), memory.StoreDir()
 	for _, f := range []string{"handoffs", "reports", "worktrees"} {
-		hit = hit || paths.SameFile(dir, filepath.Join(memory.StoreDir(), f))
+		hit = hit || realDir == paths.FoldCase(paths.Real(filepath.Join(store, f)))
 	}
-	name := memory.DatedName(base, time.Now())
 	updated := in.CloneToolInput()
-	if !hit || name == base || updated == nil {
+	if !hit || updated == nil {
 		return core.Result{}, false
 	}
 	dest := freeName(filepath.Join(dir, name))
@@ -164,7 +167,7 @@ func docsPlacementPath(ctx context.Context, in *core.Input, path string, stderr 
 	dir, base := filepath.Dir(abs), filepath.Base(abs)
 	// The harness's own docs/ holds only images and templates; anything else there is a retired home.
 	config := paths.Real(paths.ConfigDir())
-	if harnessDocs := paths.Real(filepath.Join(config, "docs")); paths.Within(abs, harnessDocs) {
+	if harnessDocs := filepath.Join(config, "docs"); paths.Within(abs, harnessDocs) {
 		return harnessDocsPlacement(ctx, stderr, config, harnessDocs, abs, base)
 	}
 	if paths.SameFile(dir, memory.StoreDir()) { // the store is its own git repo; notes at its root are the point
@@ -238,10 +241,12 @@ func stranded(ctx context.Context, root, rel, abs string, inDocs bool) bool {
 
 // blockPlacement prints where a stranded markdown write belongs: the one exact path when its name picks a kind.
 func blockPlacement(stderr io.Writer, base, where, root string) int {
-	fix := fmt.Sprintf("Plans belong in %s, reports in %s, handoffs in %s; re-issue the write there.",
-		plans.Home(planRepoRoot(root)), memory.Sub("reports", "YYYY-MM-DD-<name>.md"), memory.Sub("handoffs", "YYYY-MM-DD-<topic>.md"))
+	var fix string
 	if dest := exactDest(base, root); dest != "" {
 		fix = "Re-issue the write to " + dest + "."
+	} else {
+		fix = fmt.Sprintf("Plans belong in %s, reports in %s, handoffs in %s; re-issue the write there.",
+			plans.Home(planRepoRoot(root)), memory.Sub("reports", "YYYY-MM-DD-<name>.md"), memory.Sub("handoffs", "YYYY-MM-DD-<topic>.md"))
 	}
 	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
 		"%s A genuine repo doc the user\n"+

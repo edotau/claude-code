@@ -545,6 +545,9 @@ func Mirror(in *core.Input, stderr io.Writer) int {
 				return err
 			}
 		}
+		if cur, rerr := os.ReadFile(dest); rerr == nil && bytes.Equal(cur, content) {
+			return nil
+		}
 		err := os.MkdirAll(filepath.Dir(dest), 0o700)
 		if err == nil {
 			err = plans.WriteFile(dest, content)

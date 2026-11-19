@@ -72,11 +72,26 @@ func StopFormat(in *core.Input) core.Result {
 	}
 	if scan.Offset > 0 { // persist the scan offset even when nothing was edited, so the next Stop skips the old bytes
 		out := stampFile{Schema: stopFormatSchema, Stamps: carry, Transcript: in.TranscriptPath, Offset: scan.Offset, Sum: scan.Sum, Edited: edited}
-		if data, err := json.Marshal(out); err == nil {
-			_ = paths.AtomicWrite(stampPath, data, 0o600)
+		if stampChanged(prev, out) {
+			if data, err := json.Marshal(out); err == nil {
+				_ = paths.AtomicWrite(stampPath, data, 0o600)
+			}
 		}
 	}
 	return core.Result{SystemMessage: missingNotes(in.SessionID, missing)}
+}
+
+// stampRescanSlack is how far the scan offset may lag unwritten; a rescan costs ~0.6 ms/MB, a write ~3.7 ms.
+const stampRescanSlack = 4 << 20
+
+// stampChanged reports whether next differs from prev beyond a small scan-offset advance, which a rescan absorbs.
+func stampChanged(prev, next stampFile) bool {
+	if prev.Schema != next.Schema || prev.Transcript != next.Transcript || !slices.Equal(prev.Edited, next.Edited) ||
+		!maps.Equal(prev.Stamps, next.Stamps) {
+		return true
+	}
+	adv := next.Offset - prev.Offset
+	return adv < 0 || adv >= stampRescanSlack || adv == 0 && prev.Sum != next.Sum
 }
 
 // allowSet is the edited files as the real absolute paths selectForFormat matches against.
