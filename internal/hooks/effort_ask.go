@@ -105,7 +105,7 @@ func parseAskLine(ctx context.Context, task string) askLine {
 	agent = cmp.Or(a.Value("agent"), agent)
 	l := askLine{agent: agent, model: a.Value("model"),
 		profile: a.Value("profile"), fallback: a.Value("fallback"), local: verb == 1 && !a.Has(offRoute...),
-		held:  a.Has("live", "background", "session", "host", "job", "batch"),
+		held:  a.On("live", "background", "session", "host", "job", "batch"),
 		tools: a.Has("tools", "read-only") || packsToFile(agent, a)}
 	l.prompt = a.Prompt()
 	value := a.Value("overlay")
@@ -158,6 +158,16 @@ func (a AskWords) Has(names ...string) bool {
 	found := false
 	a.fs.Visit(func(f *flag.Flag) { found = found || slices.Contains(names, f.Name) })
 	return found
+}
+
+// On reports whether any named flag is set to a value ask treats as on: not empty and not "false".
+func (a AskWords) On(names ...string) bool {
+	on := false
+	a.fs.Visit(func(f *flag.Flag) {
+		v := f.Value.String()
+		on = on || slices.Contains(names, f.Name) && v != "" && v != "false"
+	})
+	return on
 }
 
 // Prompt is the task words; a lone dash asks for stdin rather than supplying task text.
