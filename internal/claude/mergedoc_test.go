@@ -31,7 +31,8 @@ func TestMergeDocUserOverHarness(t *testing.T) {
 
 func TestNormalizeDocCollapses(t *testing.T) {
 	doc := map[string]any{"permissions": map[string]any{"allow": []any{"a", "a", "b"}}}
-	got, changed, err := normalizeDoc(doc)
+	var changed []string
+	got, err := normalizeDoc(doc, &changed)
 	if err != nil || len(changed) != 1 {
 		t.Fatalf("changed = %v, err = %v", changed, err)
 	}
@@ -39,7 +40,8 @@ func TestNormalizeDocCollapses(t *testing.T) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %v", got)
 	}
-	if _, none, _ := normalizeDoc(want); len(none) != 0 {
+	var none []string
+	if _, _ = normalizeDoc(want, &none); len(none) != 0 {
 		t.Fatalf("clean doc reported %v", none)
 	}
 }

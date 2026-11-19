@@ -296,18 +296,23 @@ func SecretSpans(s string) [][2]int {
 	from := len(spans)
 	bearerTokens(shadow, add)
 	hide(from)
+	credentialSpans(shadow, add)
+	return mergeSecretSpans(spans)
+}
+
+// credentialSpans calls add with each token-shaped run in s that fullCredential accepts.
+func credentialSpans(s string, add func(start, end int)) {
 	starts := credentialStarts()
-	for i := 0; i < len(shadow); {
+	for i := 0; i < len(s); {
 		j := i
-		for j < len(shadow) && tokenByte(shadow[j]) {
+		for j < len(s) && tokenByte(s[j]) {
 			j++
 		}
-		if j-i >= minCredentialLen && starts[shadow[i]] && fullCredential(shadow[i:j]) {
+		if j-i >= minCredentialLen && starts[s[i]] && fullCredential(s[i:j]) {
 			add(i, j)
 		}
 		i = max(j, i+1)
 	}
-	return mergeSecretSpans(spans)
 }
 
 // jwtTokens calls add with each dotted JWT (header.payload, optional signature) in s, as jwtToken matches it.
