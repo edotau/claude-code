@@ -34,7 +34,7 @@ func TestScopeFlagsDenyOtherPackagesFilesOnly(t *testing.T) {
 	}
 	got := strings.Join(flags, " ")
 	for _, want := range []string{"--deny Edit(/r/b.go)", "--deny Write(/r/b.go)", "--deny Edit(/r/b_test.go)", "--deny Write(/r/b.go/**)",
-		"--mode auto"} {
+		"--permissions auto"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("flags %q lack %q", got, want)
 		}
@@ -42,8 +42,8 @@ func TestScopeFlagsDenyOtherPackagesFilesOnly(t *testing.T) {
 	if strings.Contains(got, "/r/a.go") || strings.Contains(got, "/r/a_test.go") {
 		t.Errorf("flags %q deny the package's own file", got)
 	}
-	if flags, _ = scopeFlags(wave[0], LaunchOptions{Wave: wave, Route: []string{"--mode", "plan"}}); slices.Contains(flags, "auto") {
-		t.Errorf("a caller's --mode must stand: %v", flags)
+	if flags, _ = scopeFlags(wave[0], LaunchOptions{Wave: wave, Route: []string{"--permissions", "plan"}}); slices.Contains(flags, "auto") {
+		t.Errorf("a caller's --permissions must stand: %v", flags)
 	}
 }
 

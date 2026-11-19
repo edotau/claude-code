@@ -79,6 +79,24 @@ func agyFixture(t *testing.T, rec *vault.AgentRecord) {
 	}
 }
 
+// agyWant expands PACKDIR and ROOTS (the harness checkout and workDir's repo, writable from any workspace).
+func agyWant(in []string, workDir string) []string {
+	var out []string
+	for _, a := range in {
+		switch a {
+		case "PACKDIR":
+			out = append(out, paths.PackDir())
+		case "ROOTS":
+			for _, d := range agent.WritableRoots(workDir) {
+				out = append(out, "--add-dir", d)
+			}
+		default:
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
 // Effort and --settings ride just before -p=; a flag beats the record; a suffixed model's effort is emulated.
 func TestAgyArgvSettings(t *testing.T) {
 	stream := []string{"--input-format", "stream-json", "--output-format", "stream-json"}
@@ -101,16 +119,12 @@ func TestAgyArgvSettings(t *testing.T) {
 			[]string{"effort high: model " + agyDefaultModel + " carries its own"}},
 		{"settings before -p=", high, agent.RunOptions{Model: "gemini-3.8-flash", Tools: true, WorkDir: "/w", Permissions: deny},
 			slices.Concat([]string{"--model", "gemini-3.8-flash"}, stream,
-				[]string{"--dangerously-skip-permissions", "--add-dir", "PACKDIR", "--effort", "high", "--settings", settings, "-p="}), nil},
+				[]string{"--dangerously-skip-permissions", "--add-dir", "PACKDIR", "ROOTS", "--effort", "high", "--settings", settings,
+					"-p="}), nil},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			agyFixture(t, c.rec)
-			c.want = slices.Clone(c.want)
-			for i, a := range c.want {
-				if a == "PACKDIR" {
-					c.want[i] = paths.PackDir()
-				}
-			}
+			c.want = agyWant(c.want, c.req.WorkDir)
 			c.req.Prompt = "hi"
 			p, err := agent.PrepareCLI(context.Background(), "gemini", c.req)
 			if err != nil {

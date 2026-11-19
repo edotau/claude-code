@@ -281,7 +281,7 @@ func TestLaunchForwardsRouteFlags(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("WAVES_LAUNCH_STDIN", filepath.Join(dir, "stdin.jsonl"))
 	t.Setenv("WAVES_LAUNCH_JOBS", "1")
-	route := []string{"--overlay", `{"fallback":"none"}`, "--mode", "plan", "--allow", "Bash(ls:*)", "--deny", "Edit"}
+	route := []string{"--overlay", `{"fallback":"none"}`, "--permissions", "plan", "--allow", "Bash(ls:*)", "--deny", "Edit"}
 	t.Setenv("WAVES_LAUNCH_ROUTE", strings.Join(route, "\x1f"))
 	options := LaunchOptions{Slug: "toy", ReportsDir: dir, Route: route}
 	envelopes, err := Launch(t.Context(), executable, []Spec{{ID: "1.1", Agent: "codex", Task: "only"}}, options)

@@ -212,7 +212,7 @@ func TestRemoteScriptRelaysEachPermissionRule(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{" --mode 'auto'", " --allow 'Bash(git log:*)'", " --allow 'Read'", " --deny 'Bash(rm:*)'"} {
+	for _, want := range []string{" --permissions 'auto'", " --allow 'Bash(git log:*)'", " --allow 'Read'", " --deny 'Bash(rm:*)'"} {
 		if !strings.Contains(script, want) {
 			t.Errorf("script lacks %q: %s", want, script)
 		}

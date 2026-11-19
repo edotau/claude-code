@@ -47,7 +47,7 @@ func agentsSpec() *helptext.Node {
 		"ask":  {Flags: ask.CompletionFlags()},
 		"dispatch": {Flags: []helptext.Flag{flag("timeout"), formatFlag(), boolFlag("background"),
 			flag("waves"), flag("wave"), boolFlag("dry-run"), boolFlag("status"), boolFlag("fresh"), flag("gate"),
-			flag("provider"), flag("profile"), flag("profiles"), flag("job"), flag("overlay"), flag("allow"), flag("ask"), flag("deny"), flag("mode"), flag("fallback")}},
+			flag("provider"), flag("profile"), flag("profiles"), flag("job"), flag("overlay"), flag("allow"), flag("ask"), flag("deny"), flag("permissions"), flag("fallback")}},
 		"send":   {Flags: []helptext.Flag{flag("format"), flag("timeout")}},
 		"status": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("all"), formatFlag()}},
 		"result": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("f"), boolFlag("events"), flag("save"),

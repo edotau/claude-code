@@ -295,7 +295,7 @@ func laneVerdict(ctx context.Context, in *core.Input, cmd string, edits []string
 		return core.Result{}
 	}
 	live := paths.Real(paths.ConfigDir())
-	if r := liveVerdict(ctx, in, cmd, edits, live); r.Decision != core.Allow || r.Stderr != "" {
+	if r := liveVerdict(ctx, in, cmd, edits, live); r.Decision != core.Allow || r.Stderr != "" || r.Context != "" {
 		return r
 	}
 	return otherVerdict(ctx, in, cmd, edits, live)

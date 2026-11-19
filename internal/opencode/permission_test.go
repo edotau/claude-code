@@ -62,17 +62,38 @@ func TestOpencodePermissionGolden(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			got, err := opencodePermission(c.p, false)
-			if err != nil || string(got) != c.want {
-				t.Errorf("got %s, %v\nwant %s", got, err, c.want)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if rest := withoutRoots(t, got, c.p.Mode != "plan"); rest != c.want {
+				t.Errorf("got %s\nwant %s", rest, c.want)
 			}
 		})
 	}
 }
 
+// withoutRoots checks the harness-checkout external_directory allow is present outside plan, then drops it.
+func withoutRoots(t *testing.T, perm json.RawMessage, want bool) string {
+	t.Helper()
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(perm, &m); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := m["external_directory"]; ok != want {
+		t.Errorf("external_directory present %v, want %v: %s", ok, want, perm)
+	}
+	delete(m, "external_directory")
+	b, err := json.Marshal(m)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(b)
+}
+
 // A Bash Deny renders natively again (the plugin's permission-gate covers `bash -c`); only --safe-mode refuses it.
 func TestOpencodePermissionBashDeny(t *testing.T) {
 	got, err := opencodePermission(agent.Permissions{Mode: "auto", Deny: rules(t, "Bash(rm *)")}, false)
-	if want := `{"*":"allow","bash":{"rm *":"deny"}}`; err != nil || string(got) != want {
+	if want := `{"*":"allow","bash":{"rm *":"deny"}}`; err != nil || withoutRoots(t, got, true) != want {
 		t.Errorf("got %s, %v; want %s", got, err, want)
 	}
 	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: agent.Permissions{Deny: rules(t, "Bash(rm *)")}}
@@ -133,7 +154,11 @@ func TestOpencodeApplyPermissions(t *testing.T) {
 	}
 	req := agent.RunOptions{Tools: true, Permissions: agent.Permissions{Mode: "auto", Deny: rules(t, "Read(.env)")}}
 	got, err = opencodeApplyPermissions([]string{opencodeConfigEnv + `={"model":"m"}`}, req, false)
-	perm := `{"*":"allow","read":{".env":"deny","*/.env":"deny"}}`
+	raw, perr := opencodePermission(req.Permissions, false) // the env carries exactly what the renderer produces
+	if perr != nil || withoutRoots(t, raw, true) != `{"*":"allow","read":{".env":"deny","*/.env":"deny"}}` {
+		t.Fatalf("render: %s, %v", raw, perr)
+	}
+	perm := string(raw)
 	if err != nil || got[0] != opencodeConfigEnv+`={"model":"m","permission":`+perm+`}` || got[1] != opencodePermissionEnv+"="+perm {
 		t.Errorf("got %v, %v", got, err)
 	}

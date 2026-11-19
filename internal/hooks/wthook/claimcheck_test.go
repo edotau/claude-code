@@ -1014,36 +1014,36 @@ func TestClaimCheckLabelsPeerByItsCommandName(t *testing.T) {
 	}
 }
 
-// lanesCases are the lanes-mode claim check's rows: mode, file, command, in a lane, agent id and the verdict.
+// lanesCases are the lanes-mode claim check's rows: mode, file, command, in a lane, agent id and whether it notes.
 var lanesCases = []struct {
 	name, mode, file, cmd string
 	lane                  bool
 	agent                 string
-	want                  core.Decision
+	note                  bool
 }{
-	{"live checkout edit asks main", "lanes", "a.txt", "", false, "", core.Ask},
-	{"live checkout edit blocks a leaf", "lanes", "a.txt", "", false, "leaftwo2", core.Block},
-	{"live checkout stage asks main", "lanes", "a.txt", "git add a.txt", false, "", core.Ask},
-	{"untracked file is free", "lanes", "new.txt", "", false, "", core.Allow},
-	{"same path in a lane is free", "lanes", "a.txt", "", true, "leaftwo2", core.Allow},
-	{"stage in a lane is free", "lanes", "a.txt", "git add a.txt", true, "", core.Allow},
-	{"not lanes mode", "", "a.txt", "", false, "leaftwo2", core.Allow},
-	{"apply asks main", "lanes", "a.txt", "git apply p.patch", false, "", core.Ask},
-	{"apply --index blocks a leaf", "lanes", "a.txt", "git apply --index p.patch", false, "leaftwo2", core.Block},
-	{"am blocks a leaf", "lanes", "a.txt", "git am p.mbox", false, "leaftwo2", core.Block},
-	{"mv of a tracked file asks main", "lanes", "a.txt", "git mv a.txt c.txt", false, "", core.Ask},
-	{"mv of a tracked file blocks a leaf", "lanes", "a.txt", "git mv a.txt c.txt", false, "leaftwo2", core.Block},
-	{"add -p asks main", "lanes", "a.txt", "git add -p a.txt", false, "", core.Ask},
-	{"add --patch blocks a leaf", "lanes", "a.txt", "git add --patch a.txt", false, "leaftwo2", core.Block},
-	{"apply --check passes", "lanes", "a.txt", "git apply --check p.patch", false, "leaftwo2", core.Allow},
-	{"apply --stat passes", "lanes", "a.txt", "git apply --stat p.patch", false, "leaftwo2", core.Allow},
-	{"apply --numstat passes", "lanes", "a.txt", "git apply --numstat p.patch", false, "leaftwo2", core.Allow},
-	{"mv -n passes", "lanes", "a.txt", "git mv -n a.txt c.txt", false, "leaftwo2", core.Allow},
-	{"add -n passes", "lanes", "a.txt", "git add -n a.txt", false, "leaftwo2", core.Allow},
-	{"apply in a lane is free", "lanes", "a.txt", "git apply p.patch", true, "leaftwo2", core.Allow},
-	{"not lanes apply", "", "a.txt", "git apply p.patch", false, "leaftwo2", core.Allow},
-	{"not lanes mv", "", "a.txt", "git mv a.txt c.txt", false, "leaftwo2", core.Allow},
-	{"not lanes add -p", "", "a.txt", "git add -p a.txt", false, "leaftwo2", core.Allow},
+	{"live checkout edit notes main", "lanes", "a.txt", "", false, "", true},
+	{"live checkout edit notes a leaf", "lanes", "a.txt", "", false, "leaftwo2", true},
+	{"live checkout stage notes main", "lanes", "a.txt", "git add a.txt", false, "", true},
+	{"untracked file is free", "lanes", "new.txt", "", false, "", false},
+	{"same path in a lane is free", "lanes", "a.txt", "", true, "leaftwo2", false},
+	{"stage in a lane is free", "lanes", "a.txt", "git add a.txt", true, "", false},
+	{"not lanes mode", "", "a.txt", "", false, "leaftwo2", false},
+	{"apply notes main", "lanes", "a.txt", "git apply p.patch", false, "", true},
+	{"apply --index notes a leaf", "lanes", "a.txt", "git apply --index p.patch", false, "leaftwo2", true},
+	{"am notes a leaf", "lanes", "a.txt", "git am p.mbox", false, "leaftwo2", true},
+	{"mv of a tracked file notes main", "lanes", "a.txt", "git mv a.txt c.txt", false, "", true},
+	{"mv of a tracked file notes a leaf", "lanes", "a.txt", "git mv a.txt c.txt", false, "leaftwo2", true},
+	{"add -p notes main", "lanes", "a.txt", "git add -p a.txt", false, "", true},
+	{"add --patch notes a leaf", "lanes", "a.txt", "git add --patch a.txt", false, "leaftwo2", true},
+	{"apply --check passes", "lanes", "a.txt", "git apply --check p.patch", false, "leaftwo2", false},
+	{"apply --stat passes", "lanes", "a.txt", "git apply --stat p.patch", false, "leaftwo2", false},
+	{"apply --numstat passes", "lanes", "a.txt", "git apply --numstat p.patch", false, "leaftwo2", false},
+	{"mv -n passes", "lanes", "a.txt", "git mv -n a.txt c.txt", false, "leaftwo2", false},
+	{"add -n passes", "lanes", "a.txt", "git add -n a.txt", false, "leaftwo2", false},
+	{"apply in a lane is free", "lanes", "a.txt", "git apply p.patch", true, "leaftwo2", false},
+	{"not lanes apply", "", "a.txt", "git apply p.patch", false, "leaftwo2", false},
+	{"not lanes mv", "", "a.txt", "git mv a.txt c.txt", false, "leaftwo2", false},
+	{"not lanes add -p", "", "a.txt", "git add -p a.txt", false, "leaftwo2", false},
 }
 
 // TestClaimCheckLanesMode: lanes mode refuses tracked edits and stages in the live checkout only; a lane stays open.
@@ -1066,11 +1066,11 @@ func TestClaimCheckLanesMode(t *testing.T) {
 			}
 			useClaimOwner(t, checkerOwner)
 			r := ClaimCheck(claimInput(t, in))
-			if r.Decision != tc.want {
-				t.Fatalf("%v %q; want %v", r.Decision, r.Reason, tc.want)
+			if r.Decision != core.Allow {
+				t.Fatalf("%v %q; lanes mode never asks or blocks", r.Decision, r.Reason)
 			}
-			if tc.want != core.Allow && !strings.Contains(r.Reason, "claude-code worktree create <slug>") {
-				t.Errorf("reason %q must name the lane command", r.Reason)
+			if noted := strings.Contains(r.Context, "claude-code worktree create <slug>"); noted != tc.note {
+				t.Errorf("context %q: lane note %v, want %v", r.Context, noted, tc.note)
 			}
 		})
 	}
@@ -1115,7 +1115,7 @@ func TestClaimCheckLanesGitFailureWarns(t *testing.T) {
 	}
 }
 
-// Another repo asks until an edit lands (Claim), never in a lane or for a non-Claude agent.
+// Another repo notes until an edit lands (Claim), never in a lane; it never asks, for any agent.
 func TestClaimCheckLanesOtherRepoAsksOnce(t *testing.T) {
 	other := claimFixture(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -1132,11 +1132,10 @@ func TestClaimCheckLanesOtherRepoAsksOnce(t *testing.T) {
 		}
 		return ClaimCheck(core.ParseInputFor(strings.NewReader(string(b)), agent))
 	}
-	if r := check(other, "S1", core.AgentClaude); r.Decision != core.Ask || !strings.Contains(r.Reason, "of "+other+" would change in its main checkout") {
-		t.Fatalf("first edit: %v %q; want ask", r.Decision, r.Reason)
-	}
-	if r := check(other, "S1", core.AgentClaude); r.Decision != core.Ask {
-		t.Fatalf("declined edit asked again? %v; want ask until an edit lands", r.Decision)
+	for i := range 2 { // the note repeats until an edit lands
+		if r := check(other, "S1", core.AgentClaude); r.Decision != core.Allow || !strings.Contains(r.Context, "of "+other+" change in its main checkout") {
+			t.Fatalf("edit %d before Claim: %v %q; want allow with a note", i+1, r.Decision, r.Context)
+		}
 	}
 	Claim(claimInput(t, map[string]any{"session_id": "S1", "cwd": other, "tool_name": "Edit",
 		"tool_input": map[string]any{"file_path": filepath.Join(other, "a.txt")}}))
