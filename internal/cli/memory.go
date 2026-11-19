@@ -566,7 +566,7 @@ func cmdMemoryImport(args []string) int {
 	dryRun := fs.Bool("dry-run", false, "print the plan; write nothing")
 	topics := fs.Bool("topics", false, "also topic files, backups and MEMORY.md pointers")
 	sync := fs.Bool("sync", false, "pull, then push; all peers when no --host")
-	replaceFile := fs.String("replace", "", "replace files listed in `FILE` whose sha256 matches")
+	replaceFile := fs.String("replace", "", "file of sha256 lines: replace those files on a match")
 	if code, done := memoryParseNoArgs(fs, "import", args); done {
 		return code
 	}
