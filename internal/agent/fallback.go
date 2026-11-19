@@ -214,7 +214,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 		}
 		first := err
 		lreq.Model = next
-		pctx, _ := freezeCopilot(ctx, disp, lreq) // copilot's frozen target would re-run the refused pick
+		pctx, _ := freezeCopilot(withTriedPicks(ctx, tried), disp, lreq) // copilot's frozen target would re-run the refused pick
 		res, err = Run(pctx, disp.Agent, lreq, sink, notify)
 		if auto && !res.NotStarted {
 			lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
@@ -852,7 +852,12 @@ func noteAuth(disp Dispatch, err error) {
 
 // capabilityErr is a model refusing the request itself: an output cap, JSON-schema tool keys, or agy model options.
 var capabilityErr = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`invalid model selection|max_new_tokens|max_output_tokens|max_tokens|context length|maximum context|Invalid JSON payload received\. Unknown name|(?i)endpoint\b[^\n]*\bis deprecated`)
+	return regexp.MustCompile(`invalid model selection|max_new_tokens|max_output_tokens|max_tokens|Invalid JSON payload received\. Unknown name|(?i)endpoint\b[^\n]*\bis deprecated`)
+})
+
+// requestSizeErr is the prompt exceeding a model's context: this ask re-picks, nothing is held; checked before capabilityErr.
+var requestSizeErr = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)context length|maximum context|exceed context limit|prompt is too long|input length`)
 })
 
 // pickGoneErr is an endpoint or CLI saying the picked model does not exist there.
@@ -869,31 +874,44 @@ func retryModel(disp Dispatch, lreq RunOptions, ran string, err error) string {
 		return "" // text or tools already ran: a re-run on the next model would repeat them
 	}
 	_, auto := SplitAuto(lreq.Model)
-	switch msg := err.Error(); {
-	case capabilityErr().MatchString(msg) && skipAutoModel(disp, lreq.Model, ran):
-		return lreq.Model // the same auto request re-picks, the skip excluding the failed model
+	msg := err.Error()
+	switch {
+	case autoRefusal(disp, lreq.Model, ran, msg):
+		return lreq.Model // the same auto request re-picks, the failed model excluded
 	case !auto && disp.servedRepick != nil && strings.Contains(msg, "ENDPOINT_NOT_FOUND"): // auto re-picks from its pool below
 		return disp.servedRepick(lreq.Model)
-	case pickGoneErr().MatchString(msg) && skipAutoModel(disp, lreq.Model, ran):
-		return lreq.Model
 	}
 	return ""
 }
 
-// skipAutoModel benches ran in the auto pool of disp's row; false when the request is not an auto or nothing matched.
-func skipAutoModel(disp Dispatch, requested, ran string) bool {
-	if disp.Agent == nil || !rotatesUnderAuto(disp.Agent.Name()) {
-		return false
+// autoRefusal is a pick refusal an auto ask re-picks past: a size refusal holds nothing, a model one skips ran for 7 days.
+func autoRefusal(disp Dispatch, requested, ran, msg string) bool {
+	if requestSizeErr().MatchString(msg) {
+		return autoRetryable(disp, requested, ran) != nil
 	}
-	if _, auto := SplitAuto(requested); !auto || ran == "" || ran == requested || disp.Agent == nil {
-		return false
+	return (capabilityErr().MatchString(msg) || pickGoneErr().MatchString(msg)) && skipAutoModel(disp, requested, ran)
+}
+
+// autoRetryable is disp's fresh rotation row when an auto ask may re-pick past ran, else nil.
+func autoRetryable(disp Dispatch, requested, ran string) *providers.Provider {
+	if disp.Agent == nil || !rotatesUnderAuto(disp.Agent.Name()) {
+		return nil
+	}
+	if _, auto := SplitAuto(requested); !auto || ran == "" || ran == requested {
+		return nil
 	}
 	_, row, _ := strings.Cut(disp.Account, "·")
 	p := loadRegistryWarn().Row(row)
 	if !freshRotation(p, time.Now()) {
-		return false
+		return nil
 	}
-	return router.SkipDiscovery(disp.Agent.Name(), p, strings.TrimPrefix(ran, p.Name+":")) != ""
+	return p
+}
+
+// skipAutoModel benches ran in the auto pool of disp's row; false when the request is not an auto or nothing matched.
+func skipAutoModel(disp Dispatch, requested, ran string) bool {
+	p := autoRetryable(disp, requested, ran)
+	return p != nil && router.SkipDiscovery(disp.Agent.Name(), p, strings.TrimPrefix(ran, p.Name+":")) != ""
 }
 
 // dispatchRequest is req for disp: a later dispatch drops provider and session and runs its cell; --effort wins.

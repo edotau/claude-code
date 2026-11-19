@@ -1289,6 +1289,7 @@ type pickRefuser struct {
 	pool   []string
 	refuse int
 	after  error
+	msg    string
 }
 
 func (*pickRefuser) Name() string { return "opencode" }
@@ -1297,6 +1298,9 @@ func (p *pickRefuser) Run(_ context.Context, req RunOptions, _ wire.Sink) (wire.
 	p.seen = append(p.seen, req)
 	n := len(p.seen) - 1
 	if n < p.refuse {
+		if p.msg != "" {
+			return wire.Result{Model: p.pool[n]}, errors.New(p.msg)
+		}
 		return wire.Result{Model: p.pool[n]}, errors.New("ProviderModelNotFoundError: Model not found: " + p.pool[n])
 	}
 	if p.after != nil {
@@ -1414,6 +1418,27 @@ func TestRunDispatchCopilotRepickLeavesFrozenPick(t *testing.T) {
 	key := router.DiscoverySkipKey("copilot", strings.TrimPrefix(eng.ran[0], "dev:"))
 	if router.LoadState()[row.Account()].DiscoverySkip[key].IsZero() {
 		t.Fatalf("no skip written for %s", key)
+	}
+}
+
+// A context-length refusal under auto re-picks another model for this ask and writes no 7-day skip.
+func TestRunDispatchRequestSizeRepickWritesNoSkip(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	row := reg.Row("dev")
+	var pool []string
+	for _, m := range rotationPool("opencode", "", row, false, time.Now()) {
+		pool = append(pool, providers.SpellPin(row, m))
+	}
+	eng := &pickRefuser{pool: pool, refuse: 1, msg: "This model's maximum context length is 8192 tokens"}
+	opts := RunOptions{Agent: "opencode", Model: AutoModel, AutoModel: true, Prompt: standardBrief}
+	p := &Prepared{Opts: opts, Record: ClaimRecord(opts.Agent, opts, time.Now()),
+		Chain: Chain{Want: opts.Agent, Dispatches: []Dispatch{{Agent: eng, Account: row.Account(), Model: "dev:auto"}}}}
+	res, err := (&Client{}).Exec(context.Background(), p, wire.Discard, RunRecordedOpts{})
+	if err != nil || len(eng.seen) != 2 || res.Answer != "ok" {
+		t.Fatalf("err=%v runs=%d; want one re-pick that answers", err, len(eng.seen))
+	}
+	if held := router.LoadState()[row.Account()].DiscoverySkip[router.DiscoverySkipKey("opencode", pool[0])]; !held.IsZero() {
+		t.Fatalf("request-size refusal wrote a skip for %s", pool[0])
 	}
 }
 

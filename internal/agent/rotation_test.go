@@ -50,7 +50,7 @@ func TestRotationPoolPinSkips(t *testing.T) {
 	picks := func() []string { // stamped picks cycle the whole pool
 		var out []string
 		for range rotationPool("opencode", models.Sonnet, rows[0], false, time.Now()) {
-			m, _, err := rotationModelOn(rows, "opencode", models.Sonnet, true, false, time.Now())
+			m, _, err := rotationModelOn(rows, "opencode", models.Sonnet, true, false, nil, time.Now())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -77,7 +77,7 @@ func TestRotationLeastRecentCycle(t *testing.T) {
 	}
 	var seen []string
 	for range n + 1 {
-		m, _, err := rotationModelOn(rows, "opencode", models.Sonnet, true, false, now)
+		m, _, err := rotationModelOn(rows, "opencode", models.Sonnet, true, false, nil, now)
 		if err != nil {
 			t.Fatal(err)
 		}

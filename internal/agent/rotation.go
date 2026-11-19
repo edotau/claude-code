@@ -254,18 +254,18 @@ func rotationRows(reg *providers.Registry, agentName string) []*providers.Provid
 
 // RotationModel is agent's next rotation model at alias across its rows; stamp records the pick, else it only peeks.
 func RotationModel(reg *providers.Registry, agentName, alias string, stamp bool, now time.Time) (string, string, error) {
-	return rotationModelOn(rotationRows(reg, agentName), agentName, alias, stamp, false, now)
+	return rotationModelOn(rotationRows(reg, agentName), agentName, alias, stamp, false, nil, now)
 }
 
 // rotationModelOn is RotationModel over the given rows.
-func rotationModelOn(rows []*providers.Provider, agentName, alias string, stamp, tools bool, now time.Time) (string, string, error) {
+func rotationModelOn(rows []*providers.Provider, agentName, alias string, stamp, tools bool, tried []string, now time.Time) (string, string, error) {
 	if len(rows) == 0 {
 		return "", "", nil
 	}
 	st := router.LoadState()
 	var pool []string
 	for _, p := range rows {
-		for _, m := range rotationPool(agentName, alias, p, tools, now) {
+		for _, m := range withoutTried(rotationPool(agentName, alias, p, tools, now), tried, p) {
 			// skips and holds live on the workspace's account, not the pool account the pick below reads
 			held, _ := heldUntil(st[router.AccountOf(p)], router.DiscoverySkipKey(agentName, m), m, now)
 			if !slices.Contains(pool, m) && (len(rows) == 1 || !held) {
@@ -288,6 +288,12 @@ func rotationModelOn(rows []*providers.Provider, agentName, alias string, stamp,
 	}
 	m, err := router.PickRotation(agentName, account, hist, p, pool, now)
 	return m, rotationNote(m, alias, n, "picked"), err
+}
+
+func withoutTried(pool, tried []string, p *providers.Provider) []string {
+	return slices.DeleteFunc(slices.Clone(pool), func(m string) bool {
+		return slices.ContainsFunc(tried, func(t string) bool { return strings.TrimPrefix(t, p.Name+":") == strings.TrimPrefix(m, p.Name+":") })
+	})
 }
 
 // takeable counts pool entries a pick could take: served and not on a capability skip.
@@ -426,10 +432,10 @@ func rotationPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need a
 // tierRotation is the pick at alias on p, stepping to standard when the row serves nothing in alias's tier.
 func tierRotation(q ModelQuery, alias string, p *providers.Provider, now time.Time) (string, string, string, error) {
 	stamp := q.ctx == nil || !Peeking(q.ctx)
-	m, note, err := rotationModelOn([]*providers.Provider{p}, q.Agent, alias, stamp, q.Tools, now)
+	m, note, err := rotationModelOn([]*providers.Provider{p}, q.Agent, alias, stamp, q.Tools, askTriedPicks(q.ctx), now)
 	if err == nil && m == "" && alias != models.Sonnet && len(heldIn(q.Agent, alias, p, q.Tools, now)) == 0 {
 		alias = models.Sonnet // the row serves nothing in this tier: step to standard, as the tier ladder does
-		m, note, err = rotationModelOn([]*providers.Provider{p}, q.Agent, alias, stamp, q.Tools, now)
+		m, note, err = rotationModelOn([]*providers.Provider{p}, q.Agent, alias, stamp, q.Tools, askTriedPicks(q.ctx), now)
 	}
 	return m, note, alias, err
 }

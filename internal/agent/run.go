@@ -523,6 +523,21 @@ func repickSpent(ctx context.Context, count int) int {
 	return count
 }
 
+type triedPicksKey struct{}
+
+// withTriedPicks marks models this ask's re-pick must not choose again; no hold is written for them.
+func withTriedPicks(ctx context.Context, tried []string) context.Context {
+	return context.WithValue(ctx, triedPicksKey{}, slices.Clone(tried))
+}
+
+func askTriedPicks(ctx context.Context) []string {
+	if ctx == nil {
+		return nil
+	}
+	tried, _ := ctx.Value(triedPicksKey{}).([]string)
+	return tried
+}
+
 type RunOptions struct {
 	Repicks                                             int         `json:"-"`
 	BudgetUSD                                           *float64    `json:"-"`
