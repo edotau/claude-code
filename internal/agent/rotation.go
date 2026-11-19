@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -61,6 +63,9 @@ func rotationCandidates(reg *providers.Registry, agentName string, p *providers.
 	if p.Preset == providers.PresetDatabricks {
 		menu := providers.OpencodeMenu()
 		cands, _ := autoCandidates(reg, ModelQuery{Agent: agentName, menu: &menu}, p, now)
+		if agentName == agentid.OpenCode {
+			return opencodeRunnable(p, cands)
+		}
 		return cands
 	}
 	if router.GithubCatalogIDs == nil {
@@ -73,6 +78,19 @@ func rotationCandidates(reg *providers.Registry, agentName string, p *providers.
 		}
 	}
 	return out
+}
+
+// opencodeRunnable keeps candidates opencode lists on p (base menu or a family id) with a route for the wire.
+func opencodeRunnable(p *providers.Provider, cands []catalog.Candidate) []catalog.Candidate {
+	listed := map[string]bool{}
+	for _, m := range providers.OpencodeMenu() {
+		listed[agentconfig.MenuWire(p, m.ID)] = true
+	}
+	return slices.DeleteFunc(cands, func(c catalog.Candidate) bool {
+		_, _, member := providers.FamilyVersion(c.Model)
+		_, routed, _ := providers.WireFor(p, c.Model)
+		return !listed[c.Model] && !member || !routed
+	})
 }
 
 // rotationRows are the rows agent rotates on: every serving workspace under the pool pin, else its pinned row.
