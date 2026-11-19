@@ -14,18 +14,18 @@
       "Edit",
       "Read",
       "Read(~/.claude/state/vault.db)",
-      "Write",
-      "WebFetch(*)"
+      "WebFetch(*)",
+      "Write"
     ],
     "deny": [
-      "Bash(sudo:*)",
       "Bash(rm -rf ~)",
+      "Bash(sudo:*)",
       "Edit(~/.ssh/**)"
     ],
     "ask": [
       "Edit(**/.credentials.json)",
-      "Edit(~/.claude/state/vault.db)",
       "Edit(~/.claude/settings.json)",
+      "Edit(~/.claude/state/vault.db)",
       "Read(~/.ssh/id_*)"
     ],
     "defaultMode": "auto"
