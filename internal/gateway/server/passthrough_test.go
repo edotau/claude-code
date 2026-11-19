@@ -1084,3 +1084,20 @@ func TestPassthroughWorkspaceFallbackStops(t *testing.T) {
 		})
 	}
 }
+
+func TestThinkingLevelReplacesBudget(t *testing.T) {
+	for budget, want := range map[string]string{"0": `"low"`, "8192": `"medium"`, "32768": `"high"`} {
+		in := []byte(`{"generationConfig":{"thinkingConfig":{"includeThoughts":true,"thinkingBudget":` + budget + `}}}`)
+		var raw struct {
+			G struct {
+				T map[string]json.RawMessage `json:"thinkingConfig"`
+			} `json:"generationConfig"`
+		}
+		if err := json.Unmarshal(decodeProxyBody(in).thinkingLevel(), &raw); err != nil {
+			t.Fatal(err)
+		}
+		if _, ok := raw.G.T["thinkingBudget"]; ok || string(raw.G.T["thinkingLevel"]) != want {
+			t.Errorf("budget %s: got %v, want level %s", budget, raw.G.T, want)
+		}
+	}
+}

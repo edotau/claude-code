@@ -164,7 +164,7 @@ func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect
 		model = wire
 	}
 	if dbxGemini {
-		decoded.raw = decoded.dropOffThoughts()
+		decoded.raw = decoded.geminiThinking(model)
 	}
 	if isChatCompletion(dialect, path) {
 		if translate.IsGeminiModel(model) {
@@ -659,6 +659,38 @@ func geminiGatewayCall(p *providers.Provider, rest string, q url.Values) (path, 
 		query = "alt=sse"
 	}
 	return "v1beta/models/" + model + ":" + m[2], query, model, nil
+}
+
+// geminiThinking fits thinkingConfig to the model; the gemini-4 family rejects thinkingBudget and takes thinkingLevel.
+func (b proxyBody) geminiThinking(model string) []byte {
+	if strings.Contains(model, "gemini-4-") {
+		return b.thinkingLevel()
+	}
+	return b.dropOffThoughts()
+}
+
+// thinkingLevel swaps thinkingBudget for thinkingLevel (<=2048 low, <=16384 medium, else high; -1 = model default).
+func (b proxyBody) thinkingLevel() []byte {
+	var gen map[string]json.RawMessage
+	var think map[string]json.RawMessage
+	var budget float64
+	if json.Unmarshal(b.top["generationConfig"], &gen) != nil || json.Unmarshal(gen["thinkingConfig"], &think) != nil ||
+		json.Unmarshal(think["thinkingBudget"], &budget) != nil {
+		return b.raw
+	}
+	delete(think, "thinkingBudget")
+	if budget >= 0 {
+		level := "high"
+		if budget <= 2048 {
+			level = "low"
+		} else if budget <= 16384 {
+			level = "medium"
+		}
+		think["thinkingLevel"], _ = json.Marshal(level)
+	}
+	gen["thinkingConfig"], _ = json.Marshal(think)
+	b.top["generationConfig"], _ = json.Marshal(gen)
+	return marshalOr(b.top, b.raw)
 }
 
 // dropOffThoughts removes includeThoughts when thinkingBudget is 0: Vertex rejects thoughts with thinking off.
