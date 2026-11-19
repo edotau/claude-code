@@ -195,10 +195,17 @@ func (m *Matcher) mask(b []byte, log *[]hit) (hits int, open bool) {
 		}
 		fill(b[span[0]:span[1]])
 		hits++
+		open = open || openBlock(text, span)
 	}
 	tail := strings.TrimRight(text, "\t\n\f\r ")
 	bearer := len(tail) >= len("bearer") && strings.EqualFold(tail[len(tail)-len("bearer"):], "bearer")
-	return hits, bearer || len(spans) > 0 && spans[len(spans)-1][1] == len(b)
+	return hits, open || bearer || len(spans) > 0 && spans[len(spans)-1][1] == len(b)
+}
+
+// openBlock reports a span that is a PEM block cut short of its footer: one more byte could stretch it to an END line.
+func openBlock(text string, span [2]int) bool {
+	s := text[span[0]:span[1]]
+	return strings.HasPrefix(s, "-----BEGIN ") && !strings.Contains(s, "-----END ")
 }
 
 // MaskValues masks only exact vault values and their encodings, for text whose structure a shape span could cut.
@@ -321,8 +328,9 @@ func FileAt(root *os.Root, name string, m *Matcher, idle time.Duration) (hits in
 	if hits == 0 {
 		return 0, nil
 	}
-	if filepath.Ext(name) == ".jsonl" && !validLines(before, after) {
-		return 0, errors.New("redact: invalid changed JSON line")
+	skipped := keepValidLines(name, before, after)
+	if skipped != nil && bytes.Equal(before, after) {
+		return 0, skipped
 	}
 	current, err := f.Stat()
 	if err != nil || current.Size() != info.Size() || !current.ModTime().Equal(info.ModTime()) {
@@ -331,7 +339,7 @@ func FileAt(root *os.Root, name string, m *Matcher, idle time.Duration) (hits in
 	if err := writeChanges(f, before, after); err != nil {
 		return 0, err
 	}
-	return hits, nil
+	return hits, skipped
 }
 
 // openNoLinks opens name under root read-write; a link, or an object swapped between check and open, fails it.
@@ -412,7 +420,17 @@ func snapshot(f *os.File, size int64, overlap int) ([]byte, error) {
 	return b, nil
 }
 
-func validLines(before, after []byte) bool {
+// keepValidLines reverts the changed lines of a .jsonl after that are no longer valid JSON, and reports any it did.
+func keepValidLines(name string, before, after []byte) error {
+	if filepath.Ext(name) != ".jsonl" || restoreInvalidLines(before, after) {
+		return nil
+	}
+	return errors.New("redact: invalid changed JSON line left unmasked")
+}
+
+// restoreInvalidLines puts back each changed line of after that is no longer valid JSON; false when any was put back.
+func restoreInvalidLines(before, after []byte) bool {
+	ok := true
 	for len(after) > 0 {
 		end := bytes.IndexByte(after, '\n')
 		if end < 0 {
@@ -421,11 +439,12 @@ func validLines(before, after []byte) bool {
 			end++
 		}
 		if !bytes.Equal(before[:end], after[:end]) && !json.Valid(after[:end]) {
-			return false
+			copy(after[:end], before[:end])
+			ok = false
 		}
 		before, after = before[end:], after[end:]
 	}
-	return true
+	return ok
 }
 
 func writeChanges(f *os.File, before, after []byte) error {

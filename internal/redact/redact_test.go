@@ -103,7 +103,7 @@ func TestMaskCorners(t *testing.T) {
 func TestMaskBearerInJSON(t *testing.T) {
 	m := FromValues(nil)
 	tok := strings.Repeat("Xy9", 20)
-	for _, line := range []string{`{"h":"Authorization: Bearer ` + tok + `","n":1}`, `{"h":["Bearer ` + tok + `"],"n":{"a":"Bearer ` + tok + `"}}`, `{"h":"Bearer ` + tok + `\n"}`} {
+	for _, line := range []string{`{"h":"Authorization: Bearer ` + tok + `","n":1}`, `{"h":["Bearer ` + tok + `"],"n":{"a":"Bearer ` + tok + `"}}`, `{"h":"Bearer ` + tok + `\n"}`, `{"h":"Bearer=` + tok + `"}`, `{"h":"Bearer \"` + tok + `\""}`} {
 		buf := []byte(line)
 		if m.Mask(buf) == 0 || len(buf) != len(line) || bytes.Contains(buf, []byte(tok)) || !json.Valid(buf) {
 			t.Fatalf("bearer in JSON: %q masked to %q, want same length, token gone, valid JSON", line, buf)
@@ -136,6 +136,24 @@ func TestLoadAndFileGuards(t *testing.T) {
 	}
 	if _, err := File(filepath.Dir(dir), dir, m, 0); err == nil {
 		t.Fatal("directory accepted")
+	}
+}
+
+// A truncated PEM line is masked to its body end; a line that would turn invalid stays, and the rest is still masked.
+func TestFileTruncatedPEM(t *testing.T) {
+	m := FromValues([]string{"FAKE-SECRET-0123456789abcdef"})
+	dir := t.TempDir()
+	path := filepath.Join(dir, "t.jsonl")
+	pem := "-----BEGIN PRI" + "VATE KEY-----\\n" + strings.Repeat("MIIEvQIBADANBgkq", 8)
+	mixed := []byte("{\"k\":\"" + pem + "\"}\n{\"FAKE-SECRET-0123456789abcdef\": broken}\n")
+	if os.WriteFile(path, mixed, 0600) != nil {
+		t.Fatal("fixture write")
+	}
+	if _, err := File(dir, path, m, 0); err == nil {
+		t.Fatal("invalid line skip not reported")
+	}
+	if got, _ := os.ReadFile(path); bytes.Contains(got, []byte("MIIEvQIBADANBgkq")) || !bytes.HasSuffix(got, mixed[bytes.LastIndexByte(mixed[:len(mixed)-1], '\n')+1:]) {
+		t.Fatal("truncated PEM line not masked, or invalid line changed")
 	}
 }
 

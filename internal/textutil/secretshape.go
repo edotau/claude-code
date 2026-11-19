@@ -21,9 +21,9 @@ var jwtToken = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}(?:\.[A-Za-z0-9_-]*)?`)
 })
 
-// pemPrivateKey matches a private-key block through its END line, or to end of input when truncated.
+// pemPrivateKey matches a private-key block through its END line, or a truncated one to the end of its base64 body.
 var pemPrivateKey = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----.*?(?:-----END [A-Z ]*PRIVATE KEY-----|\z)`)
+	return regexp.MustCompile(`(?s)-----BEGIN [A-Z ]*PRIVATE KEY-----(?:.*?-----END [A-Z ]*PRIVATE KEY-----|(?:[A-Za-z0-9+/=\s]|\\[nrt])*)`)
 })
 
 // CredentialRE is the credential shape the memory commit gate and config history refuse; \b keeps sk- off kebab prose.
@@ -332,10 +332,7 @@ func bearerRun(s string, at int) (start, end int) {
 	if at+len(word) > len(s) || !strings.EqualFold(s[at:at+len(word)], word) {
 		return 0, 0
 	}
-	start = at + len(word)
-	for start < len(s) && isSpaceByte(s[start]) {
-		start++
-	}
+	start = tokenStart(s, at+len(word))
 	end = start
 	for end < len(s) && bearerByte(s[end]) {
 		end++
@@ -344,6 +341,25 @@ func bearerRun(s string, at int) (start, end int) {
 		return 0, 0
 	}
 	return start, end
+}
+
+// tokenStart skips the "=" or spaces, and an opening quote after them, that follow a bearer word ending at from.
+func tokenStart(s string, from int) int {
+	start := from
+	if start < len(s) && s[start] == '=' {
+		start++
+	}
+	for start < len(s) && isSpaceByte(s[start]) {
+		start++
+	}
+	switch {
+	case start == from:
+	case strings.HasPrefix(s[start:], `\"`):
+		start += 2
+	case start < len(s) && s[start] == '"':
+		start++
+	}
+	return start
 }
 
 // bearerByte reports a byte that can sit in a bearer token: not a space, control byte or JSON structure byte.
