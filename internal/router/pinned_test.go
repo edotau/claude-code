@@ -1,8 +1,11 @@
 package router
 
 import (
+	"bytes"
+	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -17,6 +20,84 @@ import (
 func poolProvider() *providers.Provider {
 	return &providers.Provider{Name: "dbx", Provider: providers.GroupDatabricks, Preset: providers.PresetDatabricks,
 		Auth: providers.Auth{Type: providers.AuthKey, Env: "X"}}
+}
+
+func TestRotationPickAndPeek(t *testing.T) {
+	pool := []string{"fake-model-a", "fake-model-b"}
+	for _, tc := range []struct {
+		name, held, first, second string
+	}{
+		{"least recent", "", pool[1], pool[0]},
+		{"skip held model", pool[1], pool[0], pool[0]},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			p, agent := poolProvider(), "opencode"
+			account := ProviderAccount(p.Name)
+			now := time.Now().UTC()
+			a, b := DiscoverySkipKey(agent, pool[0]), DiscoverySkipKey(agent, pool[1])
+			if err := update(func(s State) {
+				s[account] = Entry{Discovery: map[string]time.Time{a: now.Add(-time.Hour), b: now.Add(-2 * time.Hour)}}
+			}); err != nil {
+				t.Fatal(err)
+			}
+			oldPool := RotationPool
+			RotationPool = func(string, string, *providers.Provider, time.Time) []string { return pool }
+			t.Cleanup(func() { RotationPool = oldPool })
+			if tc.held != "" && SkipDiscovery(agent, p, tc.held) != tc.held {
+				t.Fatal("SkipDiscovery did not hold the model")
+			}
+			checkRotationPeek(t, p, pool, now, tc.first)
+			checkRotationPicks(t, p, pool, now, []string{tc.first, tc.second})
+		})
+	}
+}
+
+func checkRotationPeek(t *testing.T, p *providers.Provider, pool []string, now time.Time, want string) {
+	t.Helper()
+	before := LoadState()
+	raw, err := os.ReadFile(StatePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := os.Stat(StatePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := PeekRotation("opencode", ProviderAccount(p.Name), p, pool, now); got != want {
+		t.Errorf("PeekRotation = %q, want %q", got, want)
+	}
+	after, err := os.ReadFile(StatePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	afterInfo, err := os.Stat(StatePath())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(raw, after) || !info.ModTime().Equal(afterInfo.ModTime()) || !reflect.DeepEqual(before, LoadState()) {
+		t.Fatal("PeekRotation changed state")
+	}
+}
+
+func checkRotationPicks(t *testing.T, p *providers.Provider, pool []string, now time.Time, wants []string) {
+	t.Helper()
+	const agent = "opencode"
+	account, before := ProviderAccount(p.Name), LoadState()
+	for i, want := range wants {
+		at := now.Add(time.Duration(i+1) * time.Second)
+		got, err := PickRotation(agent, account, p, pool, at)
+		if err != nil || got != want {
+			t.Fatalf("PickRotation = %q, %v; want %q", got, err, want)
+		}
+		e := before[account]
+		e.Discovery = maps.Clone(e.Discovery)
+		e.Discovery[DiscoverySkipKey(agent, want)] = at
+		before[account] = e
+		if got := LoadState(); !reflect.DeepEqual(got, before) {
+			t.Fatalf("state after pick = %+v, want %+v", got, before)
+		}
+	}
 }
 
 func TestPickPoolRotatesHonorsSkipAndExpiry(t *testing.T) {

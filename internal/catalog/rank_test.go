@@ -114,6 +114,32 @@ func cands(ids ...string) []Candidate {
 	return out
 }
 
+func TestRotationPool(t *testing.T) {
+	in := []Candidate{
+		{Model: "gpt-5-4-nano"}, {Model: "gpt-6-2-luna"},
+		{Model: "claude-sonnet-5-5"}, {Model: "claude-opus-5-5"},
+		{Model: "fake-model-a", Tools: "yes"}, {Model: "fake-model-b"},
+		{Model: "gpt-5-4-mini", Tools: "no"},
+	}
+	for _, tc := range []struct {
+		name, tier string
+		tools      bool
+		want       []string
+	}{
+		{"fast", "fast", false, []string{"gpt-6-2-luna", "fake-model-a", "fake-model-b", "gpt-5-4-mini"}},
+		{"fast with tools", "fast", true, []string{"gpt-6-2-luna", "fake-model-a"}},
+		{"standard", "standard", false, []string{"claude-sonnet-5-5"}},
+		{"deep", "deep", false, []string{"claude-opus-5-5"}},
+		{"unknown tier", "unknown", false, nil},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := RotationPool(in, tc.tier, tc.tools); !slices.Equal(got, tc.want) {
+				t.Errorf("RotationPool = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}
+
 // Choose: at or above the tier, cheapest then fastest; fast is fastest then cheapest; ties by data order then name.
 func TestChoose(t *testing.T) {
 	stubRanks(t)
