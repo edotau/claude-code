@@ -224,11 +224,22 @@ func dryRun(ctx context.Context, req agent.RunOptions, base dryDoc, format strin
 	doc.Agent, doc.Model, doc.Hops, doc.Permissions = o.Agent, o.Model, ch.Hops(), permLine(o.Permissions)
 	if r, ok := dryRoute(ctx, o, req); ok {
 		doc.Model, doc.Route = cmp.Or(o.Model, r.Model), r.Line()
+		doc.Hops = firstHopOnRoute(ch, r.Model)
 	}
 	if ch.Preflight != nil {
 		doc.Preflight = ch.Preflight.Lines()
 	}
 	return doc.print(format, out)
+}
+
+// firstHopOnRoute is ch's hops with the first one's model replaced by the peeked route's when it does not contain it.
+func firstHopOnRoute(ch agent.Chain, model string) []string {
+	if len(ch.Dispatches) == 0 || model == "" || strings.Contains(ch.Dispatches[0].Model, model) {
+		return ch.Hops()
+	}
+	ch.Dispatches = slices.Clone(ch.Dispatches)
+	ch.Dispatches[0].Model = model
+	return ch.Hops()
 }
 
 // dryRoute is the first hop's route, from the calls `gateway resolve` makes; ok is false when it cannot resolve.
