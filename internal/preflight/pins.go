@@ -36,6 +36,8 @@ type Pin struct {
 	Fix           string
 	Detail        string
 	Also          []string // other profiles this row's alias pins use, warmed with Profile
+
+	rotationDetail func() string
 }
 
 // Line is the one-line row: agent, profile, model, served, status and the fix.
@@ -43,6 +45,8 @@ func (p Pin) Line() string {
 	s := fmt.Sprintf("profile=%s (%s) model=%s served=%s", cmp.Or(p.Profile, "-"), p.ProfileSource, cmp.Or(p.Model, "(none)"), p.Served)
 	if p.Detail != "" {
 		s += " · " + p.Detail
+	} else if p.rotationDetail != nil {
+		s += " · " + p.rotationDetail()
 	}
 	if p.Fix != "" {
 		s += " · fix: " + p.Fix
@@ -86,7 +90,7 @@ func loginRow(a, profile, model string, now time.Time) Pin {
 	src := map[bool]string{true: "pool", false: "own login"}[strings.TrimSpace(profile) == agent.PoolPin]
 	row := Pin{Agent: a, Profile: profile, ProfileSource: src, Model: model, Served: "n/a", Status: StatusOK}
 	if model == agent.AutoModel {
-		row.Detail = agent.RotationSummary(a, now)
+		row.rotationDetail = func() string { return agent.RotationSummary(a, now) }
 	}
 	return row
 }
@@ -153,7 +157,8 @@ func checkProfile(reg *providers.Registry, p Pin, name string, now time.Time) Pi
 		checkServed(&p, prov, name, now)
 	}
 	if p.Model == agent.AutoModel {
-		p.Served, p.Detail = "n/a", agent.RotationSummary(name, now)
+		p.Served = "n/a"
+		p.rotationDetail = func() string { return agent.RotationSummary(name, now) }
 	}
 	return p
 }
