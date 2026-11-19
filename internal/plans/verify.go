@@ -1,6 +1,7 @@
 package plans
 
 import (
+	"context"
 	"errors"
 	"io/fs"
 	"os"
@@ -225,6 +226,9 @@ func ValidSHA(sha string) bool { return shaPattern.MatchString(sha) }
 
 // DeferTick reports what sha would tick and starts one detached verifier per plan; it ticks the green ones later.
 func DeferTick(top, sha string, files []string, session string) ([]PlanTick, []string, error) {
+	if full, err := proc.RunGit(context.Background(), top, "rev-parse", "--verify", sha+"^{commit}"); err == nil && ValidSHA(strings.TrimSpace(full)) {
+		sha = strings.TrimSpace(full)
+	}
 	pending, tied, err := PendingCommit(top, sha, files)
 	var errs []error
 	for i, r := range pending {

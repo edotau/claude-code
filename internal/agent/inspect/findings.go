@@ -69,7 +69,7 @@ var steps = []step{
 	{kind: "go", gate: "golangci-lint", globs: []string{goGlob}, install: installDev, parse: parseGolangci,
 		fix: []string{"golangci-lint", "fmt", "{files}"}, dry: []string{"golangci-lint", "fmt", "-d", "{files}"},
 		dryParse: parseFmtDiff,
-		cmd:      []string{"golangci-lint", "run", "--max-issues-per-linter=0", "--max-same-issues=0", "{pkgs}"}},
+		cmd:      []string{"golangci-lint", "run", "--allow-parallel-runners", "--max-issues-per-linter=0", "--max-same-issues=0", "{pkgs}"}},
 	{kind: "markdown", gate: "docs", globs: []string{mdGlob}, install: "make mdsmith", parse: parseDocs,
 		cmd: []string{"mdsmith", "check", "--no-color", "--", "{files}"}, fix: []string{"mdsmith", "fix", "--no-color", "--", "{files}"},
 		wholeCmd: []string{"mdsmith", "check", "--no-color"}},

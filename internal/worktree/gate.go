@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"maps"
 	"os"
 	"os/exec"
@@ -276,6 +277,11 @@ func hasNPMTestScript(pkgJSON string) bool {
 // ScopedVerifyGate renders the gate for dir's toolchain, limited to scope dirs; source "none" when nothing fits.
 func ScopedVerifyGate(dir string, scope []string, lintCheck bool) (gate, source string) {
 	dirs := normalizeScope(dir, scope)
+	if len(dirs) > 0 && paths.FileExists(filepath.Join(dir, "go.mod")) {
+		if dirs = slices.DeleteFunc(dirs, func(d string) bool { return noGo(filepath.Join(dir, d)) }); len(dirs) == 0 {
+			return "", "none"
+		}
+	}
 	gate, source = toolchainGate(dir, dirs)
 	if source == "" {
 		return "", "none"
@@ -285,6 +291,22 @@ func ScopedVerifyGate(dir string, scope []string, lintCheck bool) (gate, source 
 		gate = lintVerb(dirs) + " && " + gate
 	}
 	return gate, source
+}
+
+// noGo reports whether d exists with no .go file at or under it; go vet and test fail on such a pattern.
+func noGo(d string) bool {
+	if _, err := os.Stat(d); err != nil {
+		return false
+	}
+	found := false
+	_ = filepath.WalkDir(d, func(p string, e fs.DirEntry, err error) error {
+		if err == nil && !e.IsDir() && strings.HasSuffix(p, ".go") {
+			found = true
+			return filepath.SkipAll
+		}
+		return nil
+	})
+	return !found
 }
 
 // mergeBaseEnv carries the merge's pinned target OID into the gate; unset, the lint compares against HEAD.
