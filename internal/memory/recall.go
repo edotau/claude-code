@@ -39,6 +39,7 @@ func recallPicks(ctx context.Context, session, query string, semantic, explain b
 	}
 	ready := startSemantic(ctx, q, semantic)
 	seen := seenBlocks(session)
+	trace.seen = seen
 	ranked, files, segs := searchBankTerms(terms, 0)
 	ranked = followReplaced(ranked, files, segs)
 	var sem *Semantic
@@ -160,7 +161,7 @@ func PromptRecall(ctx context.Context, sessionID, prompt string, warn io.Writer)
 	if trace.Degraded != nil && os.Getenv("CLAUDE_RECALL_SEMANTIC") != "0" { // the deliberate opt-out is not a degradation
 		fmt.Fprintf(warn, "memory-recall: keyword-only (%s)\n", textutil.CapRunes(trace.Degraded.Error(), 120, "…"))
 	}
-	expand := !seenBlocks(sessionID)[expandKey]
+	expand := !trace.seen[expandKey]
 	context, hits := recallContext(picks, expand)
 	if context == "" {
 		return ""
@@ -486,7 +487,8 @@ func resetSeen(sessionID, surface string) {
 	if p == "" {
 		return
 	}
-	pruneSeen(filepath.Dir(p))
+	pruned := make(chan struct{})
+	parallel.Go(func() { defer close(pruned); pruneSeen(filepath.Dir(p)) }, func(error) {})
 	flat := appendFields(nil, surface)
 	var norm []byte
 	var b strings.Builder
@@ -506,6 +508,7 @@ func resetSeen(sessionID, surface string) {
 			}
 		}
 	}
+	<-pruned
 	_ = os.MkdirAll(filepath.Dir(p), 0o700)
 	_ = paths.AtomicWrite(p, []byte(b.String()), 0o600)
 }
@@ -592,7 +595,8 @@ type recallTrace struct {
 	Embeddings, CacheAge string
 	CacheRows            int
 	Silent               bool
-	Degraded             error // why semantic recall fell back to keyword-only, nil when it did not
+	Degraded             error           // why semantic recall fell back to keyword-only, nil when it did not
+	seen                 map[string]bool // the session's seen set as recallPicks read it
 	Rows                 []recallCandidate
 }
 

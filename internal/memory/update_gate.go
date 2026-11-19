@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -406,12 +408,12 @@ func subagentEdits(transcriptPath string, cachedBytes int64, cachedEdits int, wr
 	return cachedEdits, cachedBytes
 }
 
+const recountWorkers = 8
+
 // recountSubagents sums edits past each cached offset; write=false never persists a stale sidecar (unlocked path).
 func recountSubagents(matches []string, sizes map[string]int64, sidecar string, write bool) int {
 	prevState := readSidecar(sidecar)
-	next := make(map[string]subFileState, len(matches))
-	sum := 0
-	for _, m := range matches {
+	states, err := parallel.Map(context.Background(), matches, recountWorkers, func(_ context.Context, m string) (subFileState, error) {
 		st := prevState[m] // nil map read: zero value, no rescan skipped
 		if sizes[m] < st.Offset {
 			st = subFileState{} // shrank or rotated: rescan from 0
@@ -421,8 +423,14 @@ func recountSubagents(matches []string, sizes map[string]int64, sidecar string, 
 			st.Edits += delta
 			st.Offset = off
 		}
-		sum += st.Edits
-		next[m] = st
+		return st, nil
+	})
+	parallel.Rethrow(err)
+	next := make(map[string]subFileState, len(matches))
+	sum := 0
+	for i, m := range matches {
+		sum += states[i].Edits
+		next[m] = states[i]
 	}
 	if write {
 		writeSidecar(sidecar, next)
