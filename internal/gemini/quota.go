@@ -297,16 +297,33 @@ func Check(ctx context.Context, model string, now time.Time) (ModelQuota, error)
 
 // releaseResetHolds drops each live hold whose model the limits now show above 0%: the limit reset early.
 func releaseResetHolds(rows []QuotaRow, now time.Time) error {
+	if !usageNewerThanState() { // a hold written after this usage read (a fresh 429) must stand
+		return nil
+	}
 	var errs []error
 	for key, held := range router.LoadState()[googleAccount].ModelDead {
-		if !held.After(now) || len(rowsFor(rows, key)) == 0 || !statusFor(rows, key, now).HeldUntil.IsZero() {
+		if q := statusFor(rows, key, now); !held.After(now) || q.Pool == "" || q.Left <= 0 || !q.HeldUntil.IsZero() {
 			continue
 		}
-		if _, err := router.ClearModelDead(googleAccount, key); err != nil {
+		ran, err := router.ClearModelDead(googleAccount, key, held)
+		if err == nil && !ran {
+			err = errors.New("route state lock busy")
+		}
+		if err != nil {
 			errs = append(errs, fmt.Errorf("release %s: %w", key, err))
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// usageNewerThanState reports the cached /usage read postdating every route-state write, so no hold is newer than it.
+func usageNewerThanState() bool {
+	usage, err := os.Stat(filepath.Join(paths.StateDir(), "agy-usage.json"))
+	if err != nil {
+		return false
+	}
+	state, err := os.Stat(router.StatePath())
+	return err != nil || usage.ModTime().After(state.ModTime())
 }
 
 // holdZeroLimits marks quota-dead each model whose limits are at 0% with a reset time ahead, a pool's models all.

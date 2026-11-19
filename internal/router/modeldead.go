@@ -25,14 +25,17 @@ func MarkModelDead(account, model string, until, now time.Time) (bool, error) {
 	})
 }
 
-// ClearModelDead drops account's quota-dead mark on model; nothing is written when none exists.
-func ClearModelDead(account, model string) (bool, error) {
+// ClearModelDead drops account's quota-dead mark on model while it still reads held; a newer or longer mark stays.
+func ClearModelDead(account, model string, held time.Time) (bool, error) {
 	key := ModelKey(model)
-	if _, ok := sharedState()[account].ModelDead[key]; !ok {
+	if !sharedState()[account].ModelDead[key].Equal(held) {
 		return true, nil
 	}
 	return tryUpdate(authMarkWait, func(s State) {
 		e := s[account]
+		if !e.ModelDead[key].Equal(held) { // extended while this caller waited for the lock
+			return
+		}
 		e.ModelDead = maps.Clone(e.ModelDead)
 		delete(e.ModelDead, key)
 		s[account] = e
