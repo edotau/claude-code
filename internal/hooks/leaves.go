@@ -294,7 +294,7 @@ func liveDispatchVerdict(in *core.Input, lr *leafRead, agentID string) (expired 
 			waited[i] = true
 			continue
 		}
-		res, block := leafStopVerdict(agentID, rec, lr.scan.heldJobs, lr.holdUntil)
+		res, block := leafStopVerdict(agentID, rec, lr.scan.heldJobs, lr.holdUntil, heldInfo(in.CWD, *lr, rec))
 		if block { // keep the finished answers: the hold saves them and the later pass attaches them
 			lr.recs, lr.held = recs, endedReceipts(recs, waited)
 			return res, true
@@ -359,26 +359,79 @@ func pidReused(rec agent.Record) bool {
 }
 
 // leafStopVerdict blocks until the wait limit, then allows the stop with a visible note.
-func leafStopVerdict(agentID string, rec agent.Record, held []string, holdUntil time.Time) (core.Result, bool) {
+func leafStopVerdict(agentID string, rec agent.Record, held []string, holdUntil time.Time, info string) (core.Result, bool) {
 	if time.Since(rec.Time) >= leafStopMaxWait || holdExpired(holdUntil) {
 		return core.Result{SystemMessage: fmt.Sprintf("leaf %s stopped with dispatch %s still running (%s limit reached)", agentID, rec.ID, leafStopMaxWait)}, false
 	}
 	if slices.Contains(held, rec.ID) {
-		return core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: repeatHold(rec.ID)}, true
+		return core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: repeatHold(info, rec.ID)}, true
 	}
-	return core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s Dispatch %s you started is still running. %s", heldLead, rec.ID, pollOnce(rec.ID))}, true
+	return core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s Dispatch %s you started. %s", info, rec.ID, pollOnce(rec.ID))}, true
 }
 
 // heldAgain marks a repeat hold: the job's full rule was already sent, so only its id and the command follow.
 const heldAgain = "(held again)"
 
-// heldLead opens every held reason so the owner reads the wait as normal, not as a failure.
-const heldLead = "Not a failure, just waiting: this hand-back is held until the job ends."
+// heldRunInfo opens a held reason for the hook's own `Run:` launch.
+func heldRunInfo(line string) string {
+	return "Info: the brief's Run: line is running" + heldCommand(line) + "; this hand-back waits for it."
+}
+
+// heldCommand is ": <line>" cut at the prompt, without env or overlay values, to ~100 chars; "" for an empty line.
+func heldCommand(line string) string {
+	line, _, _ = strings.Cut(line, " -- ")
+	var out []string
+	skip := false
+	for w := range strings.FieldsSeq(line) {
+		if !skip && !heldSecretArg(w) {
+			out = append(out, w)
+		}
+		skip = !skip && (w == "--env" || w == "--set")
+	}
+	cmd := strings.Join(out, " ")
+	if r := []rune(cmd); len(r) > 100 {
+		cmd = string(r[:100]) + "…"
+	}
+	if cmd == "" {
+		return ""
+	}
+	return ": " + cmd
+}
+
+func heldSecretArg(w string) bool {
+	return w == "--env" || w == "--set" || strings.HasPrefix(w, "--env=") || strings.HasPrefix(w, "--set=") || heldEnvRe.MatchString(w)
+}
+
+var heldEnvRe = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*=`)
+
+// heldInfo opens a held reason: the plan task (else the dispatch id) that is still running, its agent and age.
+func heldInfo(cwd string, lr leafRead, rec agent.Record) string {
+	what := "dispatch " + rec.ID
+	if t, ok := docs.BriefTask(cwd, lr.scan.brief, recordPlanTask(append([]agent.Record{rec}, lr.recs...))); ok {
+		what = t.ID
+	}
+	who := rec.Agent
+	if who != "" {
+		who += ", "
+	}
+	cmd := ""
+	if rec.Agent != "" {
+		parts := []string{"claude-code agents ask --agent", rec.Agent}
+		if rec.Request.Provider != "" {
+			parts = append(parts, "--provider", rec.Request.Provider)
+		}
+		if rec.Request.Model != "" {
+			parts = append(parts, "--model", rec.Request.Model)
+		}
+		cmd = strings.Join(parts, " ")
+	}
+	return fmt.Sprintf("Info: %s is still running (%s%s)%s; this hand-back waits for it.", what, who, time.Since(rec.Time).Round(time.Second), heldCommand(cmd))
+}
 
 // repeatHold is a later hold: id, state and the full command, enough for a relay whose context was compacted.
-func repeatHold(id string) string {
-	return fmt.Sprintf(heldLead+" Dispatch %s is still running %s. Run `claude-code agents result -f %s` once in the foreground "+
-		"(600000ms timeout), then hand back its result.", id, heldAgain, id)
+func repeatHold(info, id string) string {
+	return fmt.Sprintf("%s Dispatch %s %s. Run `claude-code agents result -f %s` once in the foreground "+
+		"(600000ms timeout), then hand back its result.", info, id, heldAgain, id)
 }
 
 // heldJobRe matches the poll command either hold form sends, naming the job it held.

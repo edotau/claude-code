@@ -1414,7 +1414,7 @@ func TestRanOnHookLaunchPendingHolds(t *testing.T) {
 	leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in))) // the hook launches; its output stays empty
 	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
 	if !blocked || len(*spawned) != 1 || r.UpdatedInput != nil ||
-		!strings.Contains(r.Reason, "The hook is running your brief's `Run:` line") || !strings.Contains(r.Reason, "Not a failure, just waiting") {
+		!strings.Contains(r.Reason, "The hook is running your brief's `Run:` line") || !strings.Contains(r.Reason, "this hand-back waits for it") {
 		t.Fatalf("got %+v blocked=%v spawns %v, want a hold on the pending launch and no new launch", r, blocked, *spawned)
 	}
 }

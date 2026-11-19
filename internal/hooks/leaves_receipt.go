@@ -265,7 +265,7 @@ func dispatchReceipts(in *core.Input, lr *leafRead, recs []agent.Record, how str
 	var got []receipt
 	var held *core.Result
 	for _, rec := range recs {
-		r, hold := dispatchReceipt(rec, how, "", *lr)
+		r, hold := dispatchReceipt(in.CWD, rec, how, "", *lr)
 		if hold != nil {
 			held = cmp.Or(held, hold)
 			continue
@@ -384,7 +384,7 @@ type receipt struct {
 }
 
 // dispatchReceipt waits for rec; a job still running holds (up to the cap), a finished one gives its receipt.
-func dispatchReceipt(rec agent.Record, how, output string, lr leafRead) (receipt, *core.Result) {
+func dispatchReceipt(cwd string, rec agent.Record, how, output string, lr leafRead) (receipt, *core.Result) {
 	rec, err := awaitDispatch(rec, lr.until)
 	switch {
 	case err != nil:
@@ -396,10 +396,11 @@ func dispatchReceipt(rec agent.Record, how, output string, lr leafRead) (receipt
 		return receipt{note: fmt.Sprintf("NOTE: dispatch %s (%s) still running at the %s limit; its result is not in this report "+
 			"(`claude-code agents result %s`).", rec.ID, how, leafStopMaxWait, rec.ID)}, nil
 	}
+	info := heldInfo(cwd, lr, rec)
 	if slices.Contains(lr.scan.heldJobs, rec.ID) {
-		return receipt{}, &core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: repeatHold(rec.ID)}
+		return receipt{}, &core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: repeatHold(info, rec.ID)}
 	}
-	return receipt{}, &core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s Dispatch %s (%s) is still running. %s", heldLead, rec.ID, how, pollOnce(rec.ID))}
+	return receipt{}, &core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s Dispatch %s (%s). %s", info, rec.ID, how, pollOnce(rec.ID))}
 }
 
 // endedNote is a finished job's ran-on line and result.
@@ -440,7 +441,7 @@ func relayRunPending(in *core.Input, lr leafRead, m relayRun) (core.Result, bool
 		if rec, ok := hookJob(lr, m.Output); ok {
 			return hookJobReceipt(in, rec, m.Output, lr)
 		}
-		return core.Result{Decision: core.Block, Rule: "run-line-pending", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s The hook is running your brief's `Run:` line (`%s`, output %s). %s", heldLead, m.Line, m.Output, handBackForID)}, true
+		return core.Result{Decision: core.Block, Rule: "run-line-pending", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s The hook is running your brief's `Run:` line (`%s`, output %s). %s", heldRunInfo(m.Line), m.Line, m.Output, handBackForID)}, true
 	}
 	return core.Result{Decision: core.Block, Rule: "no-dispatch-id", Verdict: core.VerdictRefused, Reason: fmt.Sprintf("No exact dispatch id appeared within %s. "+
 		"Recover the id from the hook launch output %s, run `claude-code agents result -f <id>` once, "+
@@ -476,7 +477,7 @@ func hookJob(lr leafRead, output string) (agent.Record, bool) {
 
 // hookJobReceipt is the hook launch's job receipt once it ended, else the hold naming its id.
 func hookJobReceipt(in *core.Input, rec agent.Record, output string, lr leafRead) (core.Result, bool) {
-	r, hold := dispatchReceipt(rec, "the hook ran the brief's `Run:` line itself", output, lr)
+	r, hold := dispatchReceipt(in.CWD, rec, "the hook ran the brief's `Run:` line itself", output, lr)
 	if hold != nil {
 		return *hold, true
 	}
@@ -532,7 +533,7 @@ func runBriefLine(in *core.Input, lr leafRead, agentID string, words []string) (
 		return hookJobReceipt(in, rec, m.Output, lr)
 	}
 	return core.Result{Decision: core.Block, Rule: "run-line-started", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s Your brief's `Run:` line was never run, so the hook started it "+
-		"with your brief as its task: `%s` (output %s). %s", heldLead, line, m.Output, handBackForID)}, true
+		"with your brief as its task: `%s` (output %s). %s", heldRunInfo(line), line, m.Output, handBackForID)}, true
 }
 
 // jobOut is the job result a hand-back carries: one summary line and the job's final answer.
