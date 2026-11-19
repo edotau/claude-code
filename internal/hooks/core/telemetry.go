@@ -90,7 +90,7 @@ const telemetryDateLayout = "20060102"
 const telemetryRetentionDays = 14
 
 // telemetryWait bounds the disk write a hook waits for; tests widen it.
-var telemetryWait = 10 * time.Millisecond
+var telemetryWait = 50 * time.Millisecond
 
 var telemetryBusy atomic.Bool
 
@@ -119,14 +119,14 @@ func recordTelemetry(dir string, rows []TelemetryRow, now, deadline time.Time) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return
 	}
-	lock, err := os.OpenFile(file+".lock", os.O_CREATE|os.O_WRONLY, 0o600)
-	if err != nil {
-		return
-	}
-	defer func() { _ = lock.Close() }()
-	if !paths.TryLock(lock) {
-		return
-	}
+	// A contended lock waits out the budget instead of dropping the row: the process exits right after.
+	_, _ = paths.TryFileLock(file+".lock", time.Until(deadline), func() error {
+		appendRows(dir, file, rows, now, deadline)
+		return nil
+	})
+}
+
+func appendRows(dir, file string, rows []TelemetryRow, now, deadline time.Time) {
 	day, err := openTelemetry(file)
 	if err != nil {
 		return
