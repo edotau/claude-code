@@ -112,3 +112,28 @@ func TestAdvertiseExitNodeKeepsSubnets(t *testing.T) {
 		t.Errorf("PATCH body = %s, want routes %v with AdvertiseRoutesSet", patch, want)
 	}
 }
+
+func TestLoginLocalShowsURLThenRunning(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("unix sockets")
+	}
+	sock := serveUnix(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != localAPIHost || !strings.HasPrefix(r.URL.String(), "/localapi/v0/watch-ipn-bus") {
+			w.WriteHeader(http.StatusForbidden)
+			return
+		}
+		for _, m := range []string{`{"State":1}`, `{"BrowseToURL":"https://login.example/x"}`, `{"State":6}`} {
+			io.WriteString(w, m+"\n")
+			w.(http.Flusher).Flush()
+		}
+	}))
+	t.Cleanup(StubLocalAPI(sock))
+
+	var out strings.Builder
+	if err := loginLocal(context.Background(), func(context.Context) error { return nil }, &out); err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(out.String(), "https://login.example/x"); n != 1 {
+		t.Errorf("sign-in URL printed %d times, want once; out = %q", n, out.String())
+	}
+}
