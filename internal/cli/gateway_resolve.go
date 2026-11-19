@@ -465,7 +465,7 @@ func poolCell(ctx context.Context, reg *providers.Registry, name string, p *prov
 	case choice != nil:
 		row.Next, row.Pool = r.Model, poolMembers(r, choice)
 		if choice.Criterion == "rotation" && len(row.Pool) == 0 { // tierRotation stepped: the row serves nothing here
-			row.Note, row.Pool = "stepped to standard", agent.RotationMembers(name, p.Name, "standard", now)
+			row.Note, row.Pool = "→ standard", agent.RotationMembers(name, p.Name, "standard", now)
 		}
 	default:
 		row.Next = r.Model
@@ -485,7 +485,7 @@ func tallyPool(row poolRow, claude bool) poolRow {
 	}
 	row.Size = len(row.Pool)
 	if row.Size == 0 && row.Note == "" {
-		row.Note = map[bool]string{true: "does not rotate", false: "no fresh listing"}[claude]
+		row.Note = map[bool]string{true: "tier model", false: "no listing"}[claude]
 	}
 	return row
 }
@@ -499,7 +499,11 @@ func renderPoolTable(w io.Writer, rows []poolRow, width int, now time.Time) {
 		if r.LastPicked != nil {
 			last = agent.ShortDur(now.Sub(*r.LastPicked))
 		}
-		cells = append(cells, [8]string{r.Row, r.Agent, r.Tier, strconv.Itoa(r.Size), r.Next, strconv.Itoa(r.Held), last, r.Note})
+		next := r.Next
+		if strings.HasPrefix(r.Row, router.RouteDatabricks) { // ROW already says it: the prefix only costs the NOTE its room
+			next = strings.TrimPrefix(next, "databricks-")
+		}
+		cells = append(cells, [8]string{r.Row, r.Agent, r.Tier, strconv.Itoa(r.Size), next, strconv.Itoa(r.Held), last, r.Note})
 	}
 	var widths [8]int
 	for _, c := range cells {
