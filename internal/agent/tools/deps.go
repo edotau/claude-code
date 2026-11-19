@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -123,17 +122,13 @@ func pickRoute(rs []route) (route, string, bool) {
 	return route{}, "", false
 }
 
-// depPath is d's executable on PATH, else in ~/go/bin for a Go tool (the Makefile adds that dir to its PATH), or "".
+// depPath is d's executable on PATH, or "".
 func depPath(d dep) string {
-	if p, err := depLookPath(d.Name); err == nil {
-		return p
+	p, err := depLookPath(d.Name)
+	if err != nil {
+		return ""
 	}
-	if home, err := os.UserHomeDir(); err == nil && d.Go != "" {
-		if p := filepath.Join(home, "go", "bin", d.Name); paths.FileExists(p) {
-			return p
-		}
-	}
-	return ""
+	return p
 }
 
 // depFix is the one command that installs d here: a runnable route, else the platform's printed hint.

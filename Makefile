@@ -92,7 +92,9 @@ install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 tools-sync:  ## Refresh stale PATH copies of the pinned tools from GOBIN
 	@gobin="$$($(GO) env GOBIN)"; [ -n "$$gobin" ] || gobin="$$($(GO) env GOPATH)/bin"; \
 	for t in govulncheck golangci-lint yamlfmt; do \
-		found="$$(command -v "$$t" 2>/dev/null)" || continue; \
+		found="$$(PATH="$${PATH%:$(HOME)/go/bin}" command -v "$$t" 2>/dev/null)" || { \
+			[ -x "$$gobin/$$t" ] && [ -d "$(HOME)/.local/bin" ] && cp -f "$$gobin/$$t" "$(HOME)/.local/bin/$$t" && \
+			echo -e "$(C_OK)tools-sync: $$t was off the login PATH; copied to ~/.local/bin"; continue; }; \
 		{ [ -x "$$gobin/$$t" ] && [ "$$found" != "$$gobin/$$t" ]; } || continue; \
 		[ "$$(basename "$$(realpath "$$found")")" = "$$t" ] || continue; \
 		cmp -s "$$found" "$$gobin/$$t" && continue; \
