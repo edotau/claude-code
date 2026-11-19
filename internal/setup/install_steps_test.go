@@ -216,7 +216,7 @@ func assertNoRetiredShims(t *testing.T, target string) {
 	}
 }
 
-// Install's wl-paste proxy row follows the real box's WSL-ness; it must never touch the real HOME.
+// Install writes the wl-paste proxy into the harness BinDir on WSL; it must never touch the real HOME.
 func TestInstallEnsuresClipboardProxy(t *testing.T) {
 	hermetic(t)
 	installTestBinary(t)
@@ -226,7 +226,7 @@ func TestInstallEnsuresClipboardProxy(t *testing.T) {
 	}
 	scratchHome := t.TempDir()
 	t.Setenv("HOME", scratchHome)
-	proxyPath := filepath.Join(scratchHome, ".local", "bin", "wl-paste")
+	proxyPath := filepath.Join(paths.BinDir(), "wl-paste")
 	var out bytes.Buffer
 	if err := install(&out, false, true); err != nil {
 		t.Fatal(err)
