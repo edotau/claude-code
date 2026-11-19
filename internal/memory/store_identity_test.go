@@ -64,11 +64,8 @@ func mainCheckoutCases(t *testing.T) []mainCheckoutCase {
 	link := filepath.Join(base, "link")
 	idFatal(t, os.Symlink(repo, link))
 	idFatal(t, os.Symlink(wt, wt+"-link"))
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatal(err)
-	}
-	rel, err := filepath.Rel(cwd, repo)
+	t.Chdir(base) // a cwd-relative path stays short wherever TMPDIR lives (ramdisk, other volume)
+	rel, err := filepath.Rel(base, repo)
 	if err != nil {
 		t.Fatal(err)
 	}
