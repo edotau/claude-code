@@ -95,6 +95,21 @@ func TestNamedSubsetCommitTicksAndNotes(t *testing.T) {
 	}
 }
 
+// A trailer commit ticks only its named task even when it covers every file of two others.
+func TestTrailerCommitIgnoresCoverage(t *testing.T) {
+	hermetic(t)
+	repo, cs := landRepo(t, "a.go")
+	plan := filepath.Join(t.TempDir(), "2026-10-05-p.md")
+	writeFile(t, plan, "- [ ] 1.1 One owns: a.go\n- [ ] 1.2 Two owns: a.go\n- [ ] 1.3 Three owns: a.go\n")
+	c := Commit{Sha: cs[0].Sha, Files: cs[0].Files, Message: "feat: a\n\nTask: 2026-10-05-p 1.1\n"}
+	if _, err := tickCommits(repo, plan, []Commit{c}, false, nil); err != nil {
+		t.Fatal(err)
+	}
+	if got := readFile(t, plan); strings.Count(got, "[x]") != 1 || !strings.Contains(got, "[x] 1.1") {
+		t.Fatalf("only 1.1 may tick:\n%s", got)
+	}
+}
+
 // A task with no owns: ticks, reopens and strikes by hand; a two-line task keeps every line within 120 columns.
 func TestPlanTaskOps(t *testing.T) {
 	hermetic(t)

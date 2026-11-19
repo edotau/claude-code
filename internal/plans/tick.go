@@ -66,14 +66,15 @@ func tickCommits(root, planPath string, commits []Commit, dryRun bool, ok func(T
 	return results, err
 }
 
-// tickText ticks every open task c's trailers name or whose owns: c covers in full, noting owned files c did not touch.
+// tickText ticks every open task c's trailers name, or the one task a trailerless c alone covers in full, noting owned files c did not touch.
 func tickText(root, planPath, text string, c Commit, dryRun bool, ok func(Task) bool) (out string, ticked, notes []string) {
 	lines := strings.Split(text, "\n")
+	byCover := coverTicks(root, planPath, text, c, ok)
 	for _, t := range parseBytes(planPath, []byte(text)).Tasks {
 		if !open(t) {
 			continue
 		}
-		if full := coversAll(root, t, c, ok); !full && !namesTask(c.Message, planPath, t.ID) {
+		if full := byCover[t.Start]; !full && !namesTask(c.Message, planPath, t.ID) {
 			continue
 		} else if full && !namesTask(c.Message, planPath, t.ID) {
 			lines = markDone(lines, t, c.Sha)
@@ -684,14 +685,41 @@ func coversAll(root string, t Task, c Commit, ok func(Task) bool) bool {
 	return all && (ok == nil || ok(t))
 }
 
+// coverTicks keys by Start the one open task a trailerless c covers in full while no other open task shares its files.
+func coverTicks(root, plan, text string, c Commit, ok func(Task) bool) map[int]bool {
+	out := map[int]bool{}
+	if len(taskTrailerValues(c.Message)) > 0 {
+		return out
+	}
+	tasks := parseBytes(plan, []byte(text)).Tasks
+	var full []Task
+	for _, t := range tasks {
+		if open(t) && coversAll(root, t, c, ok) {
+			full = append(full, t)
+		}
+	}
+	if len(full) != 1 {
+		return out
+	}
+	mine := ownEntries(full[0].Owns, nil)
+	for _, o := range tasks {
+		if _, shared := covers(root, o.Owns, mine); open(o) && o.Start != full[0].Start && shared {
+			return out
+		}
+	}
+	out[full[0].Start] = true
+	return out
+}
+
 // candidates lists open unnamed tasks c covers, once per task: a repeat would nag on every later commit.
 func candidates(root, plan, text string, c Commit, ok func(Task) bool, dryRun bool) []string {
 	var out []string
+	byCover := coverTicks(root, plan, text, c, ok)
 	for _, t := range parseBytes(plan, []byte(text)).Tasks {
-		if !open(t) || (ok != nil && !ok(t)) || namesTask(c.Message, plan, t.ID) {
+		if !open(t) || (ok != nil && !ok(t)) || namesTask(c.Message, plan, t.ID) || byCover[t.Start] {
 			continue
 		}
-		if all, any := covers(root, t.Owns, c.Files); any && !all && announce(plan, t.ID, dryRun) {
+		if _, any := covers(root, t.Owns, c.Files); any && announce(plan, t.ID, dryRun) {
 			out = append(out, fmt.Sprintf("plans: candidate %s %s in %s (not ticked); tick with claude-code plan task %s --done --sha %s --plan %s", t.ID, strings.TrimSpace(strings.TrimPrefix(t.Title, t.ID)), filepath.Base(plan), textutil.ShellQuote(t.ID), c.Sha, textutil.ShellQuote(plan)))
 		}
 	}
