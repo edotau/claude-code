@@ -30,21 +30,24 @@ func applyLabel(ctx context.Context, run *dispatchRun, updated map[string]any, t
 		return false, ""
 	}
 	label, note := labelModel(ctx, run, updated, st, task)
-	out := lowerFirst(stripLabels(orig, st, label))
+	tail := stripLabels(orig, st, label) // the task text, orig minus its leading labels and surrounding space
+	oldHead := orig
+	if i := strings.LastIndex(orig, tail); tail != "" && i >= 0 {
+		oldHead = orig[:i] // the leading labels replaced; "" when none was stripped
+	}
+	out := lowerFirst(tail)
 	if label != "" {
 		if head, _, _ := strings.Cut(orig, ":"); sameLabel(head, label) && labelShaped(strings.TrimSpace(head), label) { // else it stacks
 			label = head // an equivalent label is kept as typed, so no rewrite is asked of auto mode
 		}
-		out = label + ": " + out
+		out = label + ": " + lowerFirst(tail)
 	}
 	if out == orig {
 		return false, note
 	}
 	updated["description"] = out
-	a, b := []rune(orig), []rune(out) // only the differing head is quoted, never the shared task text
-	for ; len(a) > 0 && len(b) > 0 && a[len(a)-1] == b[len(b)-1]; a, b = a[:len(a)-1], b[:len(b)-1] {
-	}
-	return true, strings.TrimSpace(note + "\n" + fmt.Sprintf("dispatch-effort: description head %q rewritten to %q.", string(a), string(b)))
+	newHead := strings.TrimSuffix(out, lowerFirst(tail)) // the whole new prefix; both heads quoted exactly, no rune slice
+	return true, strings.TrimSpace(note + "\n" + fmt.Sprintf("dispatch-effort: description head %q rewritten to %q.", oldHead, newHead))
 }
 
 // sameLabel: head names label's model (models.SameModel), and claims `databricks-` only when label does too.
@@ -258,7 +261,7 @@ func labelQuery(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	line := run.labelLine(ctx, st, task)
 	agent := line.workAgent(st, task)
 	q := agentpkg.ModelQuery{Agent: cmp.Or(agent, agentid.Claude), Model: cmp.Or(line.model, line.cfg.Model),
-		Profile: cmp.Or(line.profile, line.cfg.Profile, run.profile), Provider: line.cfg.Provider, Account: line.cfg.Account,
+		Profile: cmp.Or(line.profile, line.cfg.Profile, run.profile), Provider: cmp.Or(line.provider, line.cfg.Provider), Account: line.cfg.Account,
 		Effort: line.cfg.Effort, Identity: line.cfg.Identity, Fallback: cmp.Or(line.fallback, line.cfg.Fallback), Held: line.held}
 	if m, _ := updated["model"].(string); q.Model == "" && !line.review && m != "" && !slices.Contains(models.AliasNames, models.Strip1M(m)) && m != "inherit" {
 		q.Model = m // an exact dispatch model, spelled as a --model ask runs it

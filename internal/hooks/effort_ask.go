@@ -49,7 +49,8 @@ func reviewLine(task string) (l askLine, ok bool) {
 	if len(words) < 2 || !externalTypes[words[0]] || words[1] != "review" {
 		return askLine{}, false
 	}
-	l = askLine{agent: words[0], model: flagValue(words[2:], "model"), profile: flagValue(words[2:], "profile"), review: true}
+	l = askLine{agent: words[0], model: flagValue(words[2:], "model"), profile: flagValue(words[2:], "profile"),
+		provider: flagValue(words[2:], "provider"), review: true}
 	return l, l.model != "" || l.profile != ""
 }
 
@@ -68,6 +69,7 @@ func opensWithAsk(task string) bool { return len(openingAskWords(task)) > 0 }
 type askLine struct {
 	agent, model, prompt string
 	profile, fallback    string // --profile and --fallback as typed
+	provider             string // --provider as typed: the route the label must resolve on
 	held                 bool   // --live, --background, --session, --host, --job or --batch: the pool pin never picks
 	local                bool   // no flag runs it off this machine or off the line's own route: preflight predictable
 	tools                bool   // --tools, or --read-only, which ask folds into tools
@@ -104,7 +106,7 @@ func parseAskLine(ctx context.Context, task string) askLine {
 	}
 	agent = cmp.Or(a.Value("agent"), agent)
 	l := askLine{agent: agent, model: a.Value("model"),
-		profile: a.Value("profile"), fallback: a.Value("fallback"), local: verb == 1 && !a.Has(offRoute...),
+		profile: a.Value("profile"), provider: a.Value("provider"), fallback: a.Value("fallback"), local: verb == 1 && !a.Has(offRoute...),
 		held:  a.On("live", "background", "session", "host", "job", "batch"),
 		tools: a.Has("tools", "read-only") || packsToFile(agent, a)}
 	l.prompt = a.Prompt()

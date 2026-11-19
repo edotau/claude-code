@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -66,6 +67,21 @@ func TestLabelModelQueryCarriesAskLine(t *testing.T) {
 		}
 		if seen.Agent != tc.agent || seen.Model != tc.model || seen.Profile != tc.profile || seen.Default != tc.df || hint != tc.hint {
 			t.Errorf("%s: query = %+v hint %q, want %s/%q/%q default %q hint %q", tc.flags, seen, hint, tc.agent, tc.model, tc.profile, tc.df, tc.hint)
+		}
+	}
+}
+
+// Bug 1 (2026-11-19): a Run: line's --provider reaches the query, so the label resolves on the job's route.
+func TestLabelQueryCarriesProvider(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	for _, tc := range []struct{ flags, provider, profile string }{
+		{"--agent opencode --provider databricks --model auto --tools", "databricks", ""},
+		{"--agent opencode --provider=databricks --profile qa", "databricks", "qa"},
+		{"--agent opencode 'x' -- --provider databricks", "", ""}, // after --: prompt, never a flag
+	} {
+		q, _ := labelQuery(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", "Run: claude-code agents ask "+tc.flags+" 'do x'")
+		if q.Provider != tc.provider || q.Profile != tc.profile {
+			t.Errorf("%s: query provider %q profile %q, want %q/%q", tc.flags, q.Provider, q.Profile, tc.provider, tc.profile)
 		}
 	}
 }
@@ -162,6 +178,27 @@ func TestLabelModelAutoRunLine(t *testing.T) {
 	if r.Decision == core.Block || strings.HasPrefix(d, "auto:") || !strings.HasPrefix(d, "databricks-claude-") ||
 		r.UpdatedInput["prompt"] != brief {
 		t.Errorf("auto-mode dispatch = %+v (%s), want a concrete model label and the prompt byte-identical", r.UpdatedInput, r.Reason)
+	}
+}
+
+// Bug 2 (2026-11-19): the rewrite note quotes the full old head and new label, never a shared-suffix rune slice.
+func TestApplyLabelNoteQuotesHeadsExactly(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	task := "Run: claude-code agents ask --agent opencode --model auto 'do x'"
+	for _, label := range []string{"databricks-claude-opus-5-5", "databricks-claude-opus-5", "gpt-6.1-sol", "gemini-4-hydrogen"} {
+		stubLabelModels(t, label)
+		updated := map[string]any{"subagent_type": "general-purpose", "description": "databricks-claude-opus-5-5: audit"}
+		changed, note := applyLabel(context.Background(), newDispatchRun(nil), updated, task)
+		if label == "databricks-claude-opus-5-5" { // the equivalent label is kept: no rewrite, no head note
+			if changed || strings.Contains(note, "rewritten to") {
+				t.Errorf("equivalent label: changed=%v note %q, want no rewrite", changed, note)
+			}
+			continue
+		}
+		want := fmt.Sprintf("description head %q rewritten to %q.", "databricks-claude-opus-5-5: ", label+": ")
+		if !changed || updated["description"] != label+": audit" || !strings.Contains(note, want) {
+			t.Errorf("label %q: changed=%v desc=%q note %q, want %q", label, changed, updated["description"], note, want)
+		}
 	}
 }
 
