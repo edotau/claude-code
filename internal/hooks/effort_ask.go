@@ -124,7 +124,7 @@ type AskWords struct {
 
 // askBoolFlags are ask's boolean flags; every other registered flag takes a value (a test pins both lists to ask's).
 var askBoolFlags = strings.Fields("native tools read-only no-tools no-persist safe-mode direct autonomous fleet " +
-	"enable-memory stdin-framed live background fail-fast diff index")
+	"enable-memory stdin-framed live background fail-fast diff index dry-run")
 
 // ParseAskWords parses words as ask does (flags anywhere, none after "--"); ok is false where ask would exit 2.
 func ParseAskWords(words []string) (AskWords, bool) {
@@ -168,7 +168,7 @@ func (a AskWords) Prompt() string {
 
 var askValueFlags = strings.Fields("agent agents fallback profile provider as model effort workdir session debug-file " +
 	"attach keep-env env allow ask deny permissions overlay system-prompt append-system-prompt output-schema timeout host " +
-	"format dirs files max-files max-file-bytes rubric retry job batch jobs save")
+	"format dirs files max-files max-file-bytes rubric retry job batch jobs save spec")
 
 // packsToFile is a --dirs/--files/--diff pack the agent reads from a staged file, which turns tools on (packPrompt).
 func packsToFile(agent string, a AskWords) bool {

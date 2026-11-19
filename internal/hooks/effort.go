@@ -83,10 +83,11 @@ func agentEffortResult(ctx context.Context, in *core.Input) core.Result {
 
 	promptField, task := spawnTask(in)
 
-	// a direct ask run's prompt stays byte-identical: its recall rides additionalContext
+	// a direct ask run's prompt changes only by a Run: line fix; its recall rides additionalContext
 	direct := opensWithAsk(task)
 	session := func() string { u, _ := transcript.LastUsage(in.TranscriptPath); return u.Model }
 	e := &effortPlan{updated: updated, run: newDispatchRun(session)}
+	task = e.fixRunLine(promptField, task)
 	if deny := preflightBlock(ctx, e.run, task); deny != nil {
 		return *deny
 	}
