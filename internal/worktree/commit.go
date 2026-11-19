@@ -130,7 +130,7 @@ func tickPlans(ctx context.Context, out io.Writer, top string, set []string) {
 	}
 }
 
-// readOnlyStatus is ReadDirty's status without git's opportunistic index refresh, which would rewrite the index as 0644.
+// readOnlyStatus is ReadDirty's status without git's opportunistic index refresh, which rewrites the index as 0644.
 func readOnlyStatus(ctx context.Context, top string) ([]proc.StatusEntry, error) {
 	raw, err := proc.RunGit(ctx, top, "--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all")
 	if err != nil {
