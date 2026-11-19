@@ -3,6 +3,7 @@ package wthook
 import (
 	"bytes"
 	"context"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -214,6 +215,111 @@ func notePeers(session, ids string) (bool, error) {
 
 // CheckoutOf returns cwd's toplevel, its branch, and the repo's worktrees nested inside top; "" top when not a repo.
 func CheckoutOf(ctx context.Context, cwd string) (top, branch string, nested []string) {
+	top, _ = paths.CheckoutOf(cwd)
+	if top == "" {
+		return "", "", nil
+	}
+	top = paths.Canon(top)
+	gitDir := filepath.Join(top, ".git")
+	if st, err := os.Stat(gitDir); err == nil && st.IsDir() && ctx.Err() == nil {
+		if _, err := os.Lstat(filepath.Join(gitDir, "commondir")); !os.IsNotExist(err) {
+			return checkoutGit(ctx, cwd, top)
+		}
+		if branch, ok := checkoutBranch(gitDir); ok {
+			if nested, ok := checkoutNested(top, gitDir); ok {
+				return top, branch, nested
+			}
+		}
+	}
+	return checkoutGit(ctx, cwd, top)
+}
+
+func checkoutBranch(gitDir string) (string, bool) {
+	if st, err := os.Lstat(filepath.Join(gitDir, "HEAD")); err != nil || !st.Mode().IsRegular() {
+		return "", false
+	}
+	head, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	if err != nil {
+		return "", false
+	}
+	ref, symbolic := strings.CutPrefix(strings.TrimSpace(string(head)), "ref: ")
+	if !symbolic {
+		return "HEAD", checkoutOID(ref)
+	}
+	branch, ok := strings.CutPrefix(ref, "refs/heads/")
+	if !ok || !filepath.IsLocal(ref) {
+		return "", false
+	}
+	return branch, checkoutRef(gitDir, ref, branch)
+}
+
+func checkoutRef(gitDir, ref, branch string) bool {
+	packed, err := os.ReadFile(filepath.Join(gitDir, "packed-refs"))
+	if err != nil && !os.IsNotExist(err) {
+		return false
+	}
+	// Ambiguous short names and symbolic branch refs still need Git's ref resolution.
+	for _, candidate := range []string{branch, "refs/" + branch, "refs/tags/" + branch,
+		"refs/remotes/" + branch, "refs/remotes/" + branch + "/HEAD"} {
+		if _, err := os.Lstat(filepath.Join(gitDir, candidate)); !os.IsNotExist(err) ||
+			strings.Contains(string(packed), " "+candidate+"\n") {
+			return false
+		}
+	}
+	value, err := os.ReadFile(filepath.Join(gitDir, ref))
+	if os.IsNotExist(err) {
+		return strings.Contains(string(packed), " "+ref+"\n")
+	}
+	if err != nil {
+		return false
+	}
+	return checkoutOID(strings.TrimSpace(string(value)))
+}
+
+func checkoutOID(oid string) bool {
+	if len(oid) != 40 && len(oid) != 64 {
+		return false
+	}
+	_, err := hex.DecodeString(oid)
+	return err == nil
+}
+
+func checkoutNested(top, gitDir string) ([]string, bool) {
+	root := filepath.Join(gitDir, "worktrees")
+	entries, err := os.ReadDir(root)
+	if os.IsNotExist(err) {
+		return nil, true
+	}
+	if err != nil {
+		return nil, false
+	}
+	var others []string
+	for _, entry := range entries {
+		dir := filepath.Join(root, entry.Name())
+		data, err := os.ReadFile(filepath.Join(dir, "gitdir"))
+		if err != nil {
+			return nil, false
+		}
+		path := strings.TrimRight(string(data), "\r\n")
+		if path == "" || strings.Contains(path, "\n") {
+			return nil, false
+		}
+		if !filepath.IsAbs(path) {
+			path = filepath.Join(dir, path)
+		}
+		others = append(others, filepath.Dir(path))
+	}
+	sort.Strings(others)
+	var nested []string
+	for _, path := range others {
+		if real, err := filepath.EvalSymlinks(path); err == nil {
+			nested = append(nested, real)
+		}
+	}
+	return core.NestedIn(top, nested), true
+}
+
+func checkoutGit(ctx context.Context, cwd, top string) (string, string, []string) {
 	git := func(args ...string) string {
 		out, err := proc.RunGit(ctx, cwd, args...)
 		if err != nil {
@@ -221,12 +327,7 @@ func CheckoutOf(ctx context.Context, cwd string) (top, branch string, nested []s
 		}
 		return strings.TrimSpace(out)
 	}
-	top, _ = paths.CheckoutOf(cwd)
-	if top == "" {
-		return "", "", nil
-	}
-	top = paths.Canon(top)
-	var list string
+	var branch, list string
 	parallel.Rethrow(parallel.All(2, func(i int) error { // the two git calls are independent
 		if i == 0 {
 			branch = git("rev-parse", "--abbrev-ref", "HEAD")

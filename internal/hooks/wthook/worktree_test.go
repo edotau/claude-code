@@ -321,6 +321,34 @@ func TestCheckoutOfPassesOnlyNestedWorktrees(t *testing.T) {
 	}
 }
 
+func TestCheckoutOfReadsMetadataWithoutGit(t *testing.T) {
+	repo := paths.Real(hosttest.Repo(t))
+	nested := filepath.Join(repo, "nested")
+	hosttest.In(t, repo, "worktree", "add", "-q", "-b", "topic", nested)
+	head := strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "HEAD"))
+	hosttest.In(t, repo, "pack-refs", "--all", "--prune")
+	t.Setenv("PATH", t.TempDir())
+	for _, tc := range []struct {
+		name, head, branch string
+	}{
+		{"packed", "ref: refs/heads/main\n", "main"},
+		{"loose", "ref: refs/heads/main\n", "main"},
+		{"detached", head + "\n", "HEAD"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.name == "loose" {
+				hosttest.WriteRel(t, repo, ".git/refs/heads/main", head+"\n")
+			}
+			hosttest.WriteRel(t, repo, ".git/HEAD", tc.head)
+			top, branch, skip := CheckoutOf(context.Background(), repo)
+			if top != repo || branch != tc.branch || len(skip) != 1 || skip[0] != nested {
+				t.Fatalf("top %q, branch %q, skip %v; want %q, %q, [%s] without Git", top, branch, skip,
+					repo, tc.branch, nested)
+			}
+		})
+	}
+}
+
 // TestCheckoutOfKeepsTopWhenGitFails: both git calls failing leaves the top and yields no branch and no nested dirs.
 func TestCheckoutOfKeepsTopWhenGitFails(t *testing.T) {
 	dir := paths.Real(t.TempDir())
