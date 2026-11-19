@@ -199,12 +199,43 @@ var briefTaskRe = sync.OnceValue(func() *regexp.Regexp {
 
 var nonWordRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[^\p{L}\p{N}.]+`) })
 
+// PlanLookup is activePlan's result for a spawn, read ahead on its own goroutine; nil means nothing to claim.
+type PlanLookup struct {
+	done         chan struct{}
+	plan         string
+	parsed       plans.Plan
+	worktreeName string
+	ok           bool
+}
+
+// PrefetchPlan starts the read-only plan lookup ClaimPlanTask needs, so it overlaps the caller's other reads.
+func PrefetchPlan(in *core.Input) *PlanLookup {
+	if !core.SpawnTools[in.ToolName] || in.Nested("tool_use_id") == "" {
+		return nil
+	}
+	l := &PlanLookup{done: make(chan struct{})}
+	go func() {
+		defer close(l.done)
+		l.plan, l.parsed, l.worktreeName, l.ok = activePlan(in.CWD)
+	}()
+	return l
+}
+
+// wait is the prefetched lookup, or a direct one when nothing was prefetched.
+func (l *PlanLookup) wait(cwd string) (string, plans.Plan, string, bool) {
+	if l == nil {
+		return activePlan(cwd)
+	}
+	<-l.done
+	return l.plan, l.parsed, l.worktreeName, l.ok
+}
+
 // ClaimPlanTask claims the active plan's task a spawn names (`Task:` line or unique title match), else nothing.
-func ClaimPlanTask(in *core.Input, id string) error {
+func ClaimPlanTask(in *core.Input, id string, pre *PlanLookup) error {
 	if !core.SpawnTools[in.ToolName] || id == "" {
 		return nil
 	}
-	plan, parsed, worktreeName, ok := activePlan(in.CWD)
+	plan, parsed, worktreeName, ok := pre.wait(in.CWD)
 	if !ok {
 		return nil
 	}

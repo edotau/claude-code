@@ -61,7 +61,8 @@ func Effort(in *core.Input) core.Result {
 	if owner == 0 {
 		return agentEffortResult(ctx, in) // an unidentifiable owner claims nothing: fail open
 	}
-	account, lim := router.SessionAccountContext(ctx), router.CurrentLimits()
+	plan := docs.PrefetchPlan(in) // read-only, so it overlaps the recall; the claim write stays after the cap check
+	account, lim := sessionCap(ctx)
 	claim := inflight.Claim{Owner: owner, ID: in.Nested("tool_use_id"), Account: account, N: 1, Transcript: in.TranscriptPath}
 	if ok, snap := inflight.Fits(claim, lim); !ok {
 		return blockAtCap(snap, account, lim)
@@ -76,7 +77,20 @@ func Effort(in *core.Input) core.Result {
 	if ok, snap := inflight.TryClaim(claim, lim); !ok {
 		return blockAtCap(snap, account, lim)
 	}
-	return core.WithStderr(res, docs.ClaimPlanTask(in, claim.ID))
+	return core.WithStderr(res, docs.ClaimPlanTask(in, claim.ID, plan))
+}
+
+// sessionCap reads the billing account and limits on two goroutines; both only read caches, and recall's session id is "".
+func sessionCap(ctx context.Context) (string, inflight.Limits) {
+	var account string
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		account = router.SessionAccountContext(ctx)
+	}()
+	lim := router.CurrentLimits()
+	<-done
+	return account, lim
 }
 
 func blockAtCap(snap inflight.Snapshot, account string, lim inflight.Limits) core.Result {

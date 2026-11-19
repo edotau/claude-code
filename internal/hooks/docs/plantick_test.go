@@ -260,7 +260,7 @@ func claimSpawn(t *testing.T, repo, id, prompt, desc string) {
 	t.Helper()
 	b, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Agent", "tool_use_id": id, "cwd": repo,
 		"tool_input": map[string]any{"prompt": prompt, "description": desc, "model": "sonnet"}})
-	if err := ClaimPlanTask(core.ParseInput(bytes.NewReader(b)), id); err != nil {
+	if err := ClaimPlanTask(core.ParseInput(bytes.NewReader(b)), id, nil); err != nil {
 		t.Fatalf("ClaimPlanTask(%s): %v", id, err)
 	}
 }
@@ -473,5 +473,19 @@ func BenchmarkPlanTickShell(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		realCommit(cmd)
+	}
+}
+
+// ClaimPlanTask consumes the lookup read ahead of the cap check: a plan rewritten after it still gets the stale-task write.
+func TestClaimPlanTaskUsesPrefetchedLookup(t *testing.T) {
+	repo, plan := claimPlanRepo(t)
+	b, _ := json.Marshal(map[string]any{"hook_event_name": "PreToolUse", "tool_name": "Agent", "tool_use_id": "toolu_p1", "cwd": repo,
+		"tool_input": map[string]any{"prompt": "Task: 1.2"}})
+	in := core.ParseInput(bytes.NewReader(b))
+	pre := PrefetchPlan(in)
+	<-pre.done
+	hosttest.WriteRel(t, filepath.Dir(plan), filepath.Base(plan), "# P\n\n- [ ] 1.3 delete dead recall helper owns: b.go\n")
+	if err := ClaimPlanTask(in, "toolu_p1", pre); err == nil {
+		t.Fatal("claim re-read the plan instead of using the prefetched lookup")
 	}
 }
