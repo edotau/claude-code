@@ -24,11 +24,15 @@ import (
 	"time"
 
 	"tailscale.com/envknob"
+	"tailscale.com/ipn"
+	"tailscale.com/ipn/ipnstate"
 	"tailscale.com/tsnet"
 )
 
 const (
 	upTimeout   = 60 * time.Second
+	peerWait    = 5 * time.Second
+	peerPoll    = 100 * time.Millisecond
 	maxKeyBytes = 512
 	maxPort     = 65535
 	usage       = "usage: claude-code-tsnet init (auth key on stdin) | dial <host> <port> | status --json | logout"
@@ -193,7 +197,7 @@ func newServer(dir string, verbose bool) *tsnet.Server {
 		Hostname:  hostname(),
 		Ephemeral: false,
 		Logf:      keyLogf(backend),
-		UserLogf:  keyLogf(os.Stderr),
+		UserLogf:  keyLogf(backend),
 	}
 }
 
@@ -218,15 +222,26 @@ func withNode(verbose bool, fn func(context.Context, *tsnet.Server) error) error
 	if _, err := srv.Up(ctx); err != nil {
 		return fmt.Errorf("bring up tsnet node: %w", err)
 	}
+	if err := shieldsUp(ctx, srv); err != nil {
+		return err
+	}
 	return fn(context.Background(), srv)
 }
 
-func printStatus(ctx context.Context, srv *tsnet.Server) error {
+// shieldsUp makes the node refuse every inbound connection, whatever the tailnet policy grants; it is persisted.
+func shieldsUp(ctx context.Context, srv *tsnet.Server) error {
 	lc, err := srv.LocalClient()
 	if err != nil {
 		return err
 	}
-	st, err := lc.Status(ctx)
+	if _, err := lc.EditPrefs(ctx, &ipn.MaskedPrefs{Prefs: ipn.Prefs{ShieldsUp: true}, ShieldsUpSet: true}); err != nil {
+		return fmt.Errorf("shields up: %w", err)
+	}
+	return nil
+}
+
+func printStatus(ctx context.Context, srv *tsnet.Server) error {
+	st, err := netStatus(ctx, srv)
 	if err != nil {
 		return err
 	}
@@ -235,8 +250,25 @@ func printStatus(ctx context.Context, srv *tsnet.Server) error {
 	return enc.Encode(st)
 }
 
+// netStatus waits briefly for a fresh node's netmap, which lands just after Up, so peers are known.
+func netStatus(ctx context.Context, srv *tsnet.Server) (*ipnstate.Status, error) {
+	lc, err := srv.LocalClient()
+	if err != nil {
+		return nil, err
+	}
+	st, err := lc.Status(ctx)
+	for deadline := time.Now().Add(peerWait); err == nil && len(st.Peer) == 0 && time.Now().Before(deadline); {
+		time.Sleep(peerPoll)
+		st, err = lc.Status(ctx)
+	}
+	return st, err
+}
+
 // bridge copies stdin to the tailnet connection and the connection to stdout until either side ends.
 func bridge(ctx context.Context, srv *tsnet.Server, addr string) error {
+	if _, err := netStatus(ctx, srv); err != nil {
+		return err
+	}
 	conn, err := srv.Dial(ctx, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("dial %s: %w", addr, err)
@@ -266,7 +298,7 @@ func readKey() ([]byte, error) {
 	if !bytes.HasPrefix(key, []byte("tskey-")) {
 		return buf, errors.New("stdin holds no tskey- auth key")
 	}
-	return buf, nil
+	return buf[:n], nil
 }
 
 // provision registers the node once with the stdin key; the string copy tsnet needs is unavoidable.
@@ -298,6 +330,9 @@ func provision() error {
 	srv.AuthKey = ""
 	if err != nil {
 		return fmt.Errorf("provision tsnet node: %w", err)
+	}
+	if err := shieldsUp(ctx, srv); err != nil {
+		return err
 	}
 	fmt.Printf("provisioned %s %v\n", hostname(), st.TailscaleIPs)
 	return nil
