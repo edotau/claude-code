@@ -526,11 +526,15 @@ func (s *fallbackState) nextPrompt(midRun bool) string {
 	return midRunPrompt(hopLabel(s.prevDispatch), s.res.Answer, s.startHead, edit, s.task)
 }
 
+// movesOn: the previous dispatch was unavailable, or failed on a row that next's row hop can fix.
+func (s *fallbackState) movesOn(ctx context.Context, next Dispatch) bool {
+	return dispatchUnavailableContext(ctx, s.prevDispatch.Agent, s.res, s.err) || next.rowHop && HopFailed(s.res, s.err)
+}
+
 func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) (bool, error) {
 	// An answer or final failure ends the chain before any cancel check.
 	midRun := i > 0 && cutOffMidRunContext(ctx, s.prevDispatch.Agent, s.err) // D1 = B: every external hop falls through
-	if i > 0 && (c.yieldsFallback(s.req, s.res, s.err) ||
-		(!midRun && !dispatchUnavailableContext(ctx, s.prevDispatch.Agent, s.res, s.err))) {
+	if i > 0 && (c.yieldsFallback(s.req, s.res, s.err) || (!midRun && !s.movesOn(ctx, c.Dispatches[i]))) {
 		s.stopped = true
 		return true, nil
 	}
@@ -878,6 +882,9 @@ func retryModel(disp Dispatch, lreq RunOptions, ran string, err error) string {
 
 // skipAutoModel benches ran in the auto pool of disp's row; false when the request is not an auto or nothing matched.
 func skipAutoModel(disp Dispatch, requested, ran string) bool {
+	if disp.Agent == nil || !rotatesUnderAuto(disp.Agent.Name()) {
+		return false
+	}
 	if _, auto := SplitAuto(requested); !auto || ran == "" || ran == requested || disp.Agent == nil {
 		return false
 	}
@@ -1037,6 +1044,7 @@ func (c Chain) retryYield(ctx context.Context, i int, req RunOptions) func(wire.
 	return func(res wire.Result, err error) bool {
 		return c.yieldsFallback(req, res, err) ||
 			(i+1 < len(c.Dispatches) && (i != 0 || !explicitBackend(req)) &&
-				dispatchUnavailableContext(ctx, c.Dispatches[i].Agent, res, err))
+				(dispatchUnavailableContext(ctx, c.Dispatches[i].Agent, res, err) ||
+					c.Dispatches[i+1].rowHop && HopFailed(res, err)))
 	}
 }

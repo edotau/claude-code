@@ -1416,3 +1416,16 @@ func TestRunDispatchCopilotRepickLeavesFrozenPick(t *testing.T) {
 		t.Fatalf("no skip written for %s", key)
 	}
 }
+
+func TestRunWithFallbackClaudeRowHopAfter429(t *testing.T) {
+	fallbackConfigDir(t)
+	dev := &fakeRunner{name: "claude", errs: []error{&retry.Error{Kind: retry.KindRateLimit, Err: errors.New("429")}}, emptyAnswer: true}
+	prod := &fakeRunner{name: "claude", errs: []error{nil}}
+	c := chainOf([]Engine{dev, prod})
+	c.Dispatches[0].Account, c.Dispatches[1].Account = "databricks·dev", "databricks·prod"
+	c.Dispatches[1].rowHop = true
+	res, _ := runWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
+	if len(prod.seen) != 1 || res.Answer != "a" {
+		t.Fatalf("prod ran %d times, res=%+v; want the next row after a 429", len(prod.seen), res)
+	}
+}
