@@ -283,6 +283,7 @@ func setHome(t *testing.T) string {
 	t.Helper()
 	home := t.TempDir()
 	t.Setenv("HOME", home)
+	t.Setenv("CLAUDE_CONFIG_DIR", filepath.Join(home, ".claude"))
 	return home
 }
 
@@ -399,7 +400,7 @@ func TestInstallProxyAtDryRunDoesNotWrite(t *testing.T) {
 
 func TestInstallProxyWSLGate(t *testing.T) {
 	home := setHome(t)
-	dest := filepath.Join(home, ".local", "bin", "wl-paste")
+	dest := filepath.Join(home, ".claude", "bin", "wl-paste")
 
 	withWSL(t, false)
 	var offWSL bytes.Buffer
@@ -439,6 +440,28 @@ func TestInstallProxyWSLGate(t *testing.T) {
 	}
 }
 
+func TestRemoveLegacyProxy(t *testing.T) {
+	dir := t.TempDir()
+	ours, foreign := filepath.Join(dir, "ours"), filepath.Join(dir, "foreign")
+	if err := os.WriteFile(ours, ProxyScript, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(foreign, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []string{ours, foreign} {
+		if err := removeLegacyProxy(&bytes.Buffer{}, p, false); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := os.Stat(ours); !os.IsNotExist(err) {
+		t.Errorf("our legacy proxy survived (err %v)", err)
+	}
+	if _, err := os.Stat(foreign); err != nil {
+		t.Errorf("foreign wl-paste removed: %v", err)
+	}
+}
+
 func TestDoctorDetailOffWSL(t *testing.T) {
 	setHome(t)
 	withWSL(t, false)
@@ -466,7 +489,7 @@ func TestDoctorDetailMissingOnWSL(t *testing.T) {
 func TestDoctorDetailCurrentOnWSL(t *testing.T) {
 	home := setHome(t)
 	withWSL(t, true)
-	dest := filepath.Join(home, ".local", "bin", "wl-paste")
+	dest := filepath.Join(home, ".claude", "bin", "wl-paste")
 	if err := os.MkdirAll(filepath.Dir(dest), 0o755); err != nil {
 		t.Fatal(err)
 	}

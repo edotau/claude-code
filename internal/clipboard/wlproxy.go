@@ -1,4 +1,4 @@
-// Claude-aware wl-paste proxy (WSL2): the routing behind ~/.local/bin/wl-paste, run as `claude-code clip paste`.
+// Claude-aware wl-paste proxy (WSL2): the routing behind ~/.claude/bin/wl-paste, run as `claude-code clip paste`.
 //
 // WSLg bridges a Windows clipboard image to Wayland as image/bmp ONLY, in 32bpp BI_BITFIELDS, which Claude's
 // BMP decoder rejects (anthropics/claude-code#50552). The CLI's save chain (2.1.241) is:
@@ -260,14 +260,8 @@ const proxyMarker = "Claude-aware `wl-paste` proxy for WSL2"
 // doctorGOOS is the OS DoctorDetail branches on; tests swap it to exercise the Linux/WSL paths on any host.
 var doctorGOOS = runtime.GOOS
 
-// proxyPath is where the proxy lives: ~/.local/bin/wl-paste, ahead of /usr/bin on a normal PATH.
-func proxyPath() (string, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("wl-paste proxy path: %w", err)
-	}
-	return filepath.Join(home, ".local", "bin", "wl-paste"), nil
-}
+// proxyPath is BinDir/wl-paste: every PATH that reaches claude-code has BinDir ahead of /usr/bin, login shell or not.
+func proxyPath() string { return filepath.Join(paths.BinDir(), "wl-paste") }
 
 type proxyFileState int
 
@@ -299,11 +293,30 @@ func InstallProxy(w io.Writer, dryRun bool) error {
 	if !onWSL() {
 		return nil
 	}
-	dest, err := proxyPath()
-	if err != nil {
+	if err := installProxyAt(w, proxyPath(), dryRun); err != nil {
 		return err
 	}
-	return installProxyAt(w, dest, dryRun)
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("wl-paste proxy path: %w", err)
+	}
+	return removeLegacyProxy(w, filepath.Join(home, ".local", "bin", "wl-paste"), dryRun)
+}
+
+// removeLegacyProxy deletes our proxy from its pre-BinDir home; a foreign wl-paste there is never touched.
+func removeLegacyProxy(w io.Writer, legacy string, dryRun bool) error {
+	if st := proxyState(legacy); st != proxyCurrent && st != proxyStale {
+		return nil
+	}
+	if dryRun {
+		fmt.Fprintf(w, "  %-17s %s\n", "would remove", legacy)
+		return nil
+	}
+	if err := os.Remove(legacy); err != nil {
+		return fmt.Errorf("remove old wl-paste proxy: %w", err)
+	}
+	fmt.Fprintf(w, "  %-17s %s\n", "removed", legacy)
+	return nil
 }
 
 func installProxyAt(w io.Writer, dest string, dryRun bool) error {
@@ -334,10 +347,7 @@ func DoctorDetail() (ok bool, detail string) {
 	if !onWSL() {
 		return true, "not WSL (proxy not needed)"
 	}
-	dest, err := proxyPath()
-	if err != nil {
-		return false, err.Error()
-	}
+	dest := proxyPath()
 	var base string
 	switch proxyState(dest) {
 	case proxyAbsent:
@@ -350,7 +360,7 @@ func DoctorDetail() (ok bool, detail string) {
 		base = "proxy at " + dest + "; if paste fails, try claude-code clip"
 	}
 	if got, err := exec.LookPath("wl-paste"); err == nil && !sameFile(got, dest) {
-		return false, base + "; PATH resolves wl-paste to " + got + " first"
+		return false, base + "; PATH resolves wl-paste to " + got + " first (put " + filepath.Dir(dest) + " ahead)"
 	}
 	return true, base
 }
