@@ -1021,16 +1021,16 @@ func TestRemoteLoginPinsHostRefusedPairPinsNothing(t *testing.T) {
 	vaulttest.Use(t)
 	t.Setenv("HARNESS_LOGIN_REMOTE", "")
 	t.Setenv("HARNESS_EGRESS_HOST", "") // restored when the test ends, whatever runVia pinned
-	login := []string{"claude-code", "--remote", "wks-test", "databricks", "login", "--profile", "no-such-profile", "--dry-run"}
+	login := []string{"claude-code", "--remote", "devhost-test", "databricks", "login", "--profile", "no-such-profile", "--dry-run"}
 	for _, c := range []struct {
 		argv     []string
 		wantCode int
 		pinned   string
 		stderr   string
 	}{
-		{login, 1, "wks-test", ""},
+		{login, 1, "devhost-test", ""},
 		{append(slices.Clone(login[:3]), "--host", "other", "databricks", "login"), 2, "", "--remote with --host"},
-		{[]string{"claude-code", "--remote", "wks-test", "version"}, 0, "", ""},
+		{[]string{"claude-code", "--remote", "devhost-test", "version"}, 0, "", ""},
 	} {
 		t.Setenv("HARNESS_LOGIN_REMOTE", "")
 		code, _, stderr := hosttest.CaptureOutput(t, func() int { rc, _ := runRouted(c.argv, c.argv[1]); return rc })

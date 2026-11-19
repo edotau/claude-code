@@ -32,11 +32,11 @@ func TestRemoteArgvSurvivesHostileValues(t *testing.T) {
 	req := RunOptions{Model: hostile[0], Provider: hostile[1], Effort: hostile[2], SessionID: hostile[3], SystemPrompt: hostile[4],
 		AppendSystemPrompt: hostile[5], OutputSchema: hostile[6], WorkDir: "/w/" + hostile[7], Env: []string{"K=" + hostile[0] + hostile[5]},
 		Timeout: time.Minute, Tools: true}
-	argv, err := remoteArgv("wks", stub, "codex", "", req)
+	argv, err := remoteArgv("devhost", stub, "codex", "", req)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := argv[len(argv)-3:]; got[0] != "--" || got[1] != "wks" {
+	if got := argv[len(argv)-3:]; got[0] != "--" || got[1] != "devhost" {
 		t.Fatalf("host must follow --, got %q", got)
 	}
 	out, err := exec.Command("sh", "-c", argv[len(argv)-1]).Output()

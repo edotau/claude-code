@@ -229,11 +229,11 @@ func harnessGitNestedCases(cfg, outside string) []harnessGitCase {
 		{"nohup cd does not move the shell", "nohup cd " + outside + "; git stash", cfg, true},
 		{"command cd moves the shell", "command cd " + outside + "; git stash", cfg, false},
 		{"bash -c string then a positional", "bash -c 'git stash' -n", cfg, true},
-		{"ssh command runs remotely", "ssh wks git reset --hard", cfg, false},
-		{"ssh heredoc runs remotely", "ssh wks 'bash -s' > log 2>&1 <<'EOF'\ngit checkout -q HEAD\nEOF", cfg, false},
-		{"local git after ssh heredoc", "ssh wks <<'EOF'\nuptime\nEOF\ngit reset --hard", cfg, true},
+		{"ssh command runs remotely", "ssh devhost git reset --hard", cfg, false},
+		{"ssh heredoc runs remotely", "ssh devhost 'bash -s' > log 2>&1 <<'EOF'\ngit checkout -q HEAD\nEOF", cfg, false},
+		{"local git after ssh heredoc", "ssh devhost <<'EOF'\nuptime\nEOF\ngit reset --hard", cfg, true},
 		{"bash heredoc stays local", "bash -s <<'EOF'\ngit reset --hard\nEOF", cfg, true},
-		{"ssh then a local bash heredoc", "ssh wks true; bash <<'EOF'\ngit checkout .\nEOF", cfg, true},
+		{"ssh then a local bash heredoc", "ssh devhost true; bash <<'EOF'\ngit checkout .\nEOF", cfg, true},
 		{"subshell cd does not leak", "(cd " + outside + "); git restore .", cfg, true},
 		{"cd to a missing dir keeps cwd", "cd " + outside + "/missing_zz 2>/dev/null; git restore .", cfg, true},
 		{"|| after a cd keeps cwd", "cd " + outside + " || git restore .", cfg, true},
@@ -250,7 +250,7 @@ func harnessGitNestedCases(cfg, outside string) []harnessGitCase {
 		{"env -C attached", "env -C" + cfg + " git restore .", outside, true},
 		{"echo text is inert", "echo 'git restore .'", cfg, false},
 		{"real cd away is allowed", "cd " + outside + " && git restore .", cfg, false},
-		{"ssh heredoc piped to a local shell", "ssh wks <<'EOF' | bash\ngit reset --hard\nEOF", cfg, true},
+		{"ssh heredoc piped to a local shell", "ssh devhost <<'EOF' | bash\ngit reset --hard\nEOF", cfg, true},
 	}
 }
 

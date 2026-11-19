@@ -27,14 +27,14 @@ func decodedScript(t *testing.T, argv []string) string {
 }
 
 func TestHostArgvPlainVerb(t *testing.T) {
-	argv, err := hostArgv("wks", []string{"vault", "ls", "it's"}, true)
+	argv, err := hostArgv("devhost", []string{"vault", "ls", "it's"}, true)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !slices.Contains(argv, "-t") || slices.ContainsFunc(argv, func(a string) bool { return a == "-L" }) {
 		t.Errorf("want -t and no tunnel: %q", argv)
 	}
-	if i := slices.Index(argv, "--"); i < 0 || argv[i+1] != "wks" {
+	if i := slices.Index(argv, "--"); i < 0 || argv[i+1] != "devhost" {
 		t.Errorf("host must follow --: %q", argv)
 	}
 	script := decodedScript(t, argv)
@@ -56,15 +56,15 @@ func TestBinEnv(t *testing.T) {
 }
 
 func TestSplitHostErrors(t *testing.T) {
-	for _, args := range [][]string{nil, {"--host"}, {"--host", "-oProxyCommand=x", "version"}, {"--host", "wks"},
+	for _, args := range [][]string{nil, {"--host"}, {"--host", "-oProxyCommand=x", "version"}, {"--host", "devhost"},
 		{"--host="}} {
 		if _, _, err := SplitHost(Flag, args); err == nil {
 			t.Errorf("splitHost(%q) accepted", args)
 		}
 	}
-	for _, args := range [][]string{{"--host=wks", "doctor", "--prompts"}, {"--host", "wks", "doctor", "--prompts"}} {
+	for _, args := range [][]string{{"--host=devhost", "doctor", "--prompts"}, {"--host", "devhost", "doctor", "--prompts"}} {
 		host, rest, err := SplitHost(Flag, args)
-		if err != nil || host != "wks" || !slices.Equal(rest, []string{"doctor", "--prompts"}) {
+		if err != nil || host != "devhost" || !slices.Equal(rest, []string{"doctor", "--prompts"}) {
 			t.Errorf("%q: %q %q %v", args, host, rest, err)
 		}
 	}
@@ -81,7 +81,7 @@ func TestSSHArgvReuse(t *testing.T) {
 		want bool
 	}{{"", true}, {"1", true}, {"0", false}, {"OFF", false}} {
 		t.Setenv(reuseEnv, tc.env)
-		argv, err := hostArgv("wks", []string{"version"}, true)
+		argv, err := hostArgv("devhost", []string{"version"}, true)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -146,7 +146,7 @@ func TestLoginForward(t *testing.T) {
 			t.Errorf("loginForward(%q) = %q, %d; want %q, %d", c.in, got, port, c.want, c.port)
 		}
 	}
-	argv := withForward([]string{"ssh", "-o", "ControlMaster=auto", "--", "wks", "x"}, 8030)
+	argv := withForward([]string{"ssh", "-o", "ControlMaster=auto", "--", "devhost", "x"}, 8030)
 	i, m := slices.Index(argv, "-L"), slices.Index(argv, "ControlMaster=no")
 	if i < 0 || argv[i+1] != "8030:localhost:8030" || m < 0 || m > slices.Index(argv, "ControlMaster=auto") {
 		t.Errorf("forward must precede the reuse options and \"--\": %q", argv)

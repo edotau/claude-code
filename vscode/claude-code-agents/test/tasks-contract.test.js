@@ -111,12 +111,12 @@ test('renderElsewhereHtml: a pointer page with Bring back here / Show it, scoped
 
 test('renderLauncherHtml: the left-nav view lists sources with status dots and opens Tasks in a window, never the page', () => {
   const { renderLauncherHtml } = require('../lib/tasks-view');
-  const html = renderLauncherHtml({ sources: [{ id: 'jira' }, { id: 'github' }], source: 'jira', openWhere: 'window', settings: { jira: { status: { ok: true, login: 'e' } }, github: { status: { ok: false, message: 'No token' } }, tailscale: { status: { ok: true, exitNode: { hostName: 'wks' } } } } }, { nonce: 'n' });
+  const html = renderLauncherHtml({ sources: [{ id: 'jira' }, { id: 'github' }], source: 'jira', openWhere: 'window', settings: { jira: { status: { ok: true, login: 'e' } }, github: { status: { ok: false, message: 'No token' } }, tailscale: { status: { ok: true, exitNode: { hostName: 'devhost' } } } } }, { nonce: 'n' });
   assert.match(html, /data-open-source="jira"/);
   assert.match(html, /dot-emerald/);
   assert.match(html, /dot-danger/);
   assert.match(html, /data-act="openWindow"/);
-  assert.match(html, /Exit node: wks/);
+  assert.match(html, /Exit node: devhost/);
   assert.match(html, /open in a separate window/);
   assert.doesNotMatch(html, /class="row head"|id="query"/);
   assert.doesNotMatch(html, /data-act="doctor"/); // Re-check is the view-title refresh icon

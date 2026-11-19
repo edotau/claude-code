@@ -19,7 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-const remoteHost = "wks.example.ts.net"
+const remoteHost = "devhost.example.ts.net"
 
 // remoteWorld is a Databricks profile with a paired service principal on a fake token endpoint, ssh calls and opener.
 type remoteWorld struct {

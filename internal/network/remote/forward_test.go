@@ -39,7 +39,7 @@ func swapStartSSH(t *testing.T, script func(call int, argv []string) (*sshConn, 
 func TestReverseForwardUp(t *testing.T) {
 	var stopped atomic.Int32
 	argvs := swapStartSSH(t, func(int, []string) (*sshConn, error) { return fakeConn(forwardReady+"\n", "", &stopped), nil })
-	port, stop, err := ReverseForward(context.Background(), "wks", 8030, 8050, 8031)
+	port, stop, err := ReverseForward(context.Background(), "devhost", 8030, 8050, 8031)
 	if err != nil || port != 8030 {
 		t.Fatalf("port %d err %v, want 8030 and none", port, err)
 	}
@@ -52,7 +52,7 @@ func TestReverseForwardUp(t *testing.T) {
 			t.Errorf("argv lacks %s: %q", want, argv)
 		}
 	}
-	if i := slices.Index(argv, "--"); i < 0 || argv[i+1] != "wks" {
+	if i := slices.Index(argv, "--"); i < 0 || argv[i+1] != "devhost" {
 		t.Errorf("host must follow --: %q", argv)
 	}
 	if stopped.Load() != 0 {
@@ -74,7 +74,7 @@ func TestReverseForwardTakenPortMovesOn(t *testing.T) {
 		}
 		return fakeConn(forwardReady+"\n", "", &stopped), nil
 	})
-	port, _, err := ReverseForward(context.Background(), "wks", 8030, 8050, 8030)
+	port, _, err := ReverseForward(context.Background(), "devhost", 8030, 8050, 8030)
 	if err != nil || port != 8031 {
 		t.Fatalf("port %d err %v, want 8031 after 8030 was taken", port, err)
 	}
@@ -86,22 +86,22 @@ func TestReverseForwardTakenPortMovesOn(t *testing.T) {
 func TestReverseForwardExactPortTakenNamesPortAndHost(t *testing.T) {
 	var stopped atomic.Int32
 	swapStartSSH(t, func(int, []string) (*sshConn, error) { return fakeConn("", busyMsg, &stopped), nil })
-	_, _, err := ReverseForward(context.Background(), "wks", 8040, 8040, 8040)
+	_, _, err := ReverseForward(context.Background(), "devhost", 8040, 8040, 8040)
 	taken, ok := errors.AsType[*PortTakenError](err)
-	if !ok || !strings.Contains(err.Error(), "port 8040 on wks") || taken.Host != "wks" {
-		t.Errorf("err = %v, want a PortTakenError naming port 8040 and wks", err)
+	if !ok || !strings.Contains(err.Error(), "port 8040 on devhost") || taken.Host != "devhost" {
+		t.Errorf("err = %v, want a PortTakenError naming port 8040 and devhost", err)
 	}
 }
 
 func TestReverseForwardSSHFailureIsNotAPortError(t *testing.T) {
 	var stopped atomic.Int32
 	calls := swapStartSSH(t, func(int, []string) (*sshConn, error) {
-		return fakeConn("", "\nssh: connect to host wks port 22: Connection refused\n", &stopped), nil
+		return fakeConn("", "\nssh: connect to host devhost port 22: Connection refused\n", &stopped), nil
 	})
-	_, _, err := ReverseForward(context.Background(), "wks", 8030, 8050, 8030)
+	_, _, err := ReverseForward(context.Background(), "devhost", 8030, 8050, 8030)
 	if _, busy := errors.AsType[*PortTakenError](err); busy || err == nil ||
-		!strings.Contains(err.Error(), "ssh to wks: ssh: connect to host wks port 22: Connection refused") {
-		t.Errorf("err = %v, want an ssh error naming wks", err)
+		!strings.Contains(err.Error(), "ssh to devhost: ssh: connect to host devhost port 22: Connection refused") {
+		t.Errorf("err = %v, want an ssh error naming devhost", err)
 	}
 	if len(*calls) != 1 {
 		t.Errorf("%d ssh calls, want 1: an ssh failure never walks the ports", len(*calls))
@@ -121,7 +121,7 @@ func TestOpenURLOnSendsURLAsOneQuotedArgument(t *testing.T) {
 	runCommand = func(c *exec.Cmd) error { got = c; return nil }
 	t.Cleanup(func() { runCommand = old })
 	const authURL = "https://x.cloud.databricks.com/oidc/v1/authorize?a=1&b=$(touch /tmp/p);'x"
-	if err := OpenURLOn(context.Background(), "wks", authURL); err != nil {
+	if err := OpenURLOn(context.Background(), "devhost", authURL); err != nil {
 		t.Fatal(err)
 	}
 	script := decodedScript(t, got.Args)
@@ -159,11 +159,11 @@ func TestCheckLogin(t *testing.T) {
 
 func TestPinLoginOnlyForLogin(t *testing.T) {
 	t.Setenv(LoginRemoteEnv, "")
-	if err := PinLogin("wks", []string{"doctor"}); err != nil || os.Getenv(LoginRemoteEnv) != "" {
+	if err := PinLogin("devhost", []string{"doctor"}); err != nil || os.Getenv(LoginRemoteEnv) != "" {
 		t.Errorf("a non-login verb pinned %q (err %v)", os.Getenv(LoginRemoteEnv), err)
 	}
-	if err := PinLogin("wks", []string{"databricks", "login"}); err != nil || os.Getenv(LoginRemoteEnv) != "wks" {
-		t.Errorf("login pinned %q (err %v), want wks", os.Getenv(LoginRemoteEnv), err)
+	if err := PinLogin("devhost", []string{"databricks", "login"}); err != nil || os.Getenv(LoginRemoteEnv) != "devhost" {
+		t.Errorf("login pinned %q (err %v), want devhost", os.Getenv(LoginRemoteEnv), err)
 	}
 }
 
