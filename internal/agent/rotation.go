@@ -116,12 +116,95 @@ func rotationModelOn(rows []*providers.Provider, agentName, alias string, stamp 
 	if len(rows) > 1 { // the pool pin: one history for every workspace, entries already wire ids
 		account, p = router.ProviderAccount(PoolPin), nil
 	}
+	n := takeable(router.LoadState()[account], agentName, p, pool, now)
 	if !stamp {
 		m := router.PeekRotation(agentName, account, p, pool, now)
-		return m, rotationNote(m, alias, len(pool), "next"), nil
+		return m, rotationNote(m, alias, n, "next"), nil
 	}
 	m, err := router.PickRotation(agentName, account, p, pool, now)
-	return m, rotationNote(m, alias, len(pool), "picked"), err
+	return m, rotationNote(m, alias, n, "picked"), err
+}
+
+// takeable counts pool entries a pick could take: served and not on a capability skip.
+func takeable(e router.Entry, agentName string, p *providers.Provider, pool []string, now time.Time) int {
+	if p != nil {
+		pool = router.ServedPool(p, pool, now)
+	}
+	return len(pool) - len(slices.DeleteFunc(slices.Clone(pool), func(m string) bool {
+		at, ok := e.DiscoverySkip[router.DiscoverySkipKey(agentName, m)]
+		return !ok || now.Sub(at) >= router.DiscoverySkipTTL
+	}))
+}
+
+// PoolMember is one rotation-pool model: the next pick, a live hold, and when it was last picked.
+type PoolMember struct {
+	Model      string     `json:"model"`
+	Next       bool       `json:"next"`
+	Held       bool       `json:"held"`
+	HeldUntil  *time.Time `json:"held_until,omitempty"`
+	LastPicked *time.Time `json:"last_picked,omitempty"`
+}
+
+// RotationMembers is the tier's pool on profile's row in pick order (least recent first, held last); read-only.
+func RotationMembers(agentName, profile, tier string, now time.Time) []PoolMember {
+	reg, err := providers.LoadShared()
+	if err != nil {
+		return nil
+	}
+	p := reg.Row(profile)
+	if !router.RotationRow(p) {
+		return nil
+	}
+	entries := router.ServedPool(p, rotationPool(agentName, cmp.Or(tierAliases[tier], models.Sonnet), p, now), now)
+	e := router.LoadState()[router.AccountOf(p)]
+	var live []string
+	var out []PoolMember
+	for _, entry := range entries {
+		m := PoolMember{Model: providers.SpellPin(p, entry)}
+		key := router.DiscoverySkipKey(agentName, entry)
+		if at := e.Discovery[key]; !at.IsZero() {
+			m.LastPicked = &at
+		}
+		m.Held, m.HeldUntil = heldUntil(e, key, entry, now)
+		if !m.Held {
+			live = append(live, entry)
+		}
+		out = append(out, m)
+	}
+	next := router.PeekRotation(agentName, router.AccountOf(p), p, live, now)
+	for i := range out {
+		out[i].Next = out[i].Model == next && next != ""
+	}
+	slices.SortStableFunc(out, func(a, b PoolMember) int {
+		return cmp.Or(heldRank(a)-heldRank(b), timeOf(a.LastPicked).Compare(timeOf(b.LastPicked)))
+	})
+	return out
+}
+
+func heldRank(m PoolMember) int {
+	if m.Held {
+		return 1
+	}
+	return 0
+}
+
+// heldUntil is when a quota hold or a capability skip on entry ends; false when none is live.
+func heldUntil(e router.Entry, key, entry string, now time.Time) (bool, *time.Time) {
+	if until := e.ModelDead[router.ModelKey(entry)]; until.After(now) {
+		return true, &until
+	}
+	if at, ok := e.DiscoverySkip[key]; ok && now.Sub(at) < router.DiscoverySkipTTL {
+		until := at.Add(router.DiscoverySkipTTL)
+		return true, &until
+	}
+	return false, nil
+}
+
+func timeOf(t *time.Time) time.Time {
+	if t == nil {
+		return time.Time{}
+	}
+	return *t
 }
 
 // rotationPick is an asked auto's tier-pool pick on base's row; false (no pool, error) keeps the ranked pick.

@@ -182,7 +182,13 @@ func printRoute(r agent.ModelRoute, choice *agent.AutoChoice, format string) int
 		if choice != nil {
 			c := *choice
 			c.Ranked = c.Ranked[:min(len(c.Ranked), autoTop)]
-			doc["auto"] = c
+			auto := map[string]any{}
+			b, _ := json.Marshal(c)
+			_ = json.Unmarshal(b, &auto)
+			if pool := poolMembers(r, choice); pool != nil {
+				auto["pool"] = pool
+			}
+			doc["auto"] = auto
 		}
 		b, _ := json.MarshalIndent(doc, "", "  ")
 		fmt.Println(string(b))
@@ -198,7 +204,37 @@ func printRoute(r agent.ModelRoute, choice *agent.AutoChoice, format string) int
 		func(s string) bool { return s == "" }), "; ")
 	fmt.Println(r.Line())
 	fmt.Println(reason)
+	for _, m := range poolMembers(r, choice) {
+		fmt.Println(poolLine(m))
+	}
 	return 0
+}
+
+// poolMembers is the rotation pool a rotation pick drew from; nil for any other pick.
+func poolMembers(r agent.ModelRoute, choice *agent.AutoChoice) []agent.PoolMember {
+	if choice.Criterion != "rotation" {
+		return nil
+	}
+	return agent.RotationMembers(r.Agent, r.Profile, choice.Tier, time.Now())
+}
+
+// poolLine is one pool member: a marker, the model, then its hold or last pick; at most 80 columns.
+func poolLine(m agent.PoolMember) string {
+	mark, note := " ", "never picked"
+	switch {
+	case m.Held:
+		mark, note = "x", "held until "+m.HeldUntil.Local().Format("Jan 2 15:04")
+	case m.Next:
+		mark = ">"
+	}
+	if !m.Held && m.LastPicked != nil {
+		note = "picked " + m.LastPicked.Local().Format("Jan 2 15:04")
+	}
+	line := fmt.Sprintf("  %s %s  %s", mark, m.Model, note)
+	if len(line) > 80 {
+		line = line[:79] + "…"
+	}
+	return line
 }
 
 // resolveAll resolves q on every profile, optionally live-checking each that resolved.

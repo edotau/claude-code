@@ -52,7 +52,7 @@ func TestPickPoolRotatesHonorsSkipAndExpiry(t *testing.T) {
 	if m, _ := pickPool("opencode", p, only, now.Add(time.Hour)); m != "" {
 		t.Errorf("live skip: pick = %q, want none", m)
 	}
-	if m, _ := pickPool("opencode", p, only, now.Add(discoverySkipTTL+time.Hour)); m != "databricks-kimi-k3" {
+	if m, _ := pickPool("opencode", p, only, now.Add(DiscoverySkipTTL+time.Hour)); m != "databricks-kimi-k3" {
 		t.Errorf("after the 7-day TTL pick = %q, want kimi-k3 back in rotation", m)
 	}
 }

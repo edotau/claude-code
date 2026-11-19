@@ -178,7 +178,7 @@ func pickPool(agent string, p *providers.Provider, pool []string, now time.Time)
 // PickRotation selects and records agent's least-recent pool entry on account under one lock; nil p skips the listing.
 func PickRotation(agent, account string, p *providers.Provider, pool []string, now time.Time) (string, error) {
 	if p != nil {
-		pool = servedPool(p, pool, now)
+		pool = ServedPool(p, pool, now)
 	}
 	var model string
 	err := update(func(s State) {
@@ -188,7 +188,7 @@ func PickRotation(agent, account string, p *providers.Provider, pool []string, n
 			return
 		}
 		model = providers.SpellPin(p, selected)
-		e.Discovery = withTime(e.Discovery, discoverySkipKey(agent, selected), now)
+		e.Discovery = withTime(e.Discovery, DiscoverySkipKey(agent, selected), now)
 		s[account] = e
 	})
 	return model, err
@@ -197,7 +197,7 @@ func PickRotation(agent, account string, p *providers.Provider, pool []string, n
 // PeekRotation is the entry PickRotation would select now, recording nothing; "" when none qualifies.
 func PeekRotation(agent, account string, p *providers.Provider, pool []string, now time.Time) string {
 	if p != nil {
-		pool = servedPool(p, pool, now)
+		pool = ServedPool(p, pool, now)
 	}
 	if sel := leastRecent(LoadState()[account], agent, p, pool, now); sel != "" {
 		return providers.SpellPin(p, sel)
@@ -212,15 +212,15 @@ func leastRecent(e Entry, agent string, p *providers.Provider, pool []string, no
 		if providers.SpellPin(p, entry) == "" || discoverySkipped(e, agent, entry, now) || e.ModelDead[ModelKey(entry)].After(now) {
 			continue
 		}
-		if selected == "" || e.Discovery[discoverySkipKey(agent, entry)].Before(e.Discovery[discoverySkipKey(agent, selected)]) {
+		if selected == "" || e.Discovery[DiscoverySkipKey(agent, entry)].Before(e.Discovery[DiscoverySkipKey(agent, selected)]) {
 			selected = entry
 		}
 	}
 	return selected
 }
 
-// servedPool drops entries a fresh listing marks not READY; unchanged when the switch is off or the cache cold.
-func servedPool(p *providers.Provider, pool []string, now time.Time) []string {
+// ServedPool drops entries a fresh listing marks not READY; unchanged when the switch is off or the cache cold.
+func ServedPool(p *providers.Provider, pool []string, now time.Time) []string {
 	ready, fresh := servedView(p, now)
 	if !fresh {
 		return pool
@@ -230,8 +230,8 @@ func servedPool(p *providers.Provider, pool []string, now time.Time) []string {
 	})
 }
 
-// discoverySkipTTL is how long a model that failed for an agent stays out of that agent's rotation.
-const discoverySkipTTL = 7 * 24 * time.Hour
+// DiscoverySkipTTL is how long a model that failed for an agent stays out of that agent's rotation.
+const DiscoverySkipTTL = 7 * 24 * time.Hour
 
 // withTime returns a copy of m with k set to t, so a shared cached map is never mutated.
 func withTime(m map[string]time.Time, k string, t time.Time) map[string]time.Time {
@@ -243,11 +243,12 @@ func withTime(m map[string]time.Time, k string, t time.Time) map[string]time.Tim
 	return m
 }
 
-func discoverySkipKey(agent, entry string) string { return agent + "|" + entry }
+// DiscoverySkipKey is the Discovery and DiscoverySkip map key for agent and entry.
+func DiscoverySkipKey(agent, entry string) string { return agent + "|" + entry }
 
 func discoverySkipped(e Entry, agent, entry string, now time.Time) bool {
-	at, ok := e.DiscoverySkip[discoverySkipKey(agent, entry)]
-	return ok && now.Sub(at) < discoverySkipTTL
+	at, ok := e.DiscoverySkip[DiscoverySkipKey(agent, entry)]
+	return ok && now.Sub(at) < DiscoverySkipTTL
 }
 
 // SkipDiscovery marks a pool entry unusable; returns "" for no match or a persistence error, reported on stderr.
@@ -260,7 +261,7 @@ func SkipDiscovery(agent string, p *providers.Provider, wire string) string {
 			}
 			account := ProviderAccount(p.Name)
 			e := s[account]
-			e.DiscoverySkip = withTime(e.DiscoverySkip, discoverySkipKey(agent, entry), time.Now())
+			e.DiscoverySkip = withTime(e.DiscoverySkip, DiscoverySkipKey(agent, entry), time.Now())
 			s[account] = e
 			hit = entry
 			return
