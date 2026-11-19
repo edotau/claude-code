@@ -148,7 +148,8 @@ func phaseDetails(lines []string) (string, map[string]string) {
 			s.fence(ch, n, rest)
 		} else if s.open.n > 0 {
 			if s.capture {
-				s.gate.WriteString(line + "\n")
+				s.gate.WriteString(line)
+				s.gate.WriteByte('\n')
 			}
 		} else {
 			s.text(line)

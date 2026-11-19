@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/preflight"
@@ -23,11 +24,22 @@ func Start(in *core.Input) core.Result {
 	defer cancel()
 	cwd := cwdOf(in)
 	now := time.Now()
-	ctx := memory.StartSession(in.SessionID, cwd, now)
-	reg := loadRegistry() // one registry load serves the served refresh and the pin check
-	pins := pinsOf(hctx, reg, now)
-	refreshServed(reg, pins, cwd, now)
-	res := core.Result{Context: core.JoinContext(ctx, preflightNotice(reg, pins), openPlansLine(cwd))}
+	var ctx, notice, plansLine string
+	parallel.Rethrow(parallel.All(3, func(i int) error {
+		switch i {
+		case 0:
+			ctx = memory.StartSession(in.SessionID, cwd, now)
+		case 1:
+			reg := loadRegistry() // one registry load serves the served refresh and the pin check
+			pins := pinsOf(hctx, reg, now)
+			refreshServed(reg, pins, cwd, now)
+			notice = preflightNotice(reg, pins)
+		default:
+			plansLine = openPlansLine(cwd)
+		}
+		return nil
+	})...)
+	res := core.Result{Context: core.JoinContext(ctx, notice, plansLine)}
 	if !memory.IsUpdateChild() {
 		res.SystemMessage = memory.ConsumeCatchupNote()
 	}
