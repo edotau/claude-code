@@ -49,6 +49,11 @@ func TestAttributionFooterCommit(t *testing.T) {
 		{"footer in an ANSI-C string", `git commit -m $'fix: x\n\nCo-Authored-By: Claude'`, true},
 		{"footer in a variable", `T="Co-Authored-By: Claude"; git commit -m x -m "$T"`, true},
 		{"footer written to a -F file", `echo "Co-Authored-By: Claude" >> m.txt; git commit -F m.txt`, true},
+		{"footer in a merge -m", `git merge feat -m "x" -m "Co-Authored-By: Claude"`, true},
+		{"footer in a merge -F file", `echo "Co-Authored-By: Claude" >> m.txt; git merge feat -F m.txt`, true},
+		{"footer in an amend -m", `git commit --amend -m "x" -m "Co-Authored-By: Claude"`, true},
+		{"footer in a tag -m", `git tag v1 -m "Co-Authored-By: Claude"`, true},
+		{"plain merge -m", `git merge feat -m "merge feat"`, false},
 		{"subject names it, a body line carries it", "git commit -m \"docs: forbid Co-Authored-By: Claude\" -m \"Co-Authored-By: Claude\"", true},
 	}
 	for _, c := range cases {

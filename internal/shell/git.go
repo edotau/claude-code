@@ -236,14 +236,14 @@ func resolveIn(dir, path string) string {
 
 // FooterFileWritten reports a commit message file that the same command writes a footer line into first.
 func FooterFileWritten(cmd, cwd string) bool {
-	if !strings.Contains(cmd, "commit") || !strings.Contains(cmd, ">") && !strings.Contains(cmd, "tee") ||
-		!strings.Contains(cmd, "-F") && !strings.Contains(cmd, "--file") && !strings.Contains(cmd, "-t") {
+	if !containsAny(cmd, "commit", "merge", "tag") || !containsAny(cmd, ">", "tee") ||
+		!containsAny(cmd, "-F", "--file", "-t") {
 		return false
 	}
 	files := map[string]bool{}
 	EachGit(cmd, cwd, func(target, verb string, args []string) bool {
 		for _, p := range messageFiles(target, args) {
-			files[p] = files[p] || verb == "commit"
+			files[p] = files[p] || messageVerb(verb)
 		}
 		return false
 	})
@@ -286,6 +286,12 @@ func writtenText(segs, seps []string, i int, dir string, files map[string]bool) 
 	return text
 }
 
+func containsAny(s string, subs ...string) bool {
+	return slices.ContainsFunc(subs, func(sub string) bool { return strings.Contains(s, sub) })
+}
+
+func messageVerb(verb string) bool { return verb == "commit" || verb == "merge" || verb == "tag" }
+
 // AttributionFooterCommit reports a commit footer at an argument's line start, in raw text past a subject, or built.
 func AttributionFooterCommit(cmd, cwd string) bool {
 	_, subs := ExtractSubstitutions(cmd)
@@ -293,10 +299,10 @@ func AttributionFooterCommit(cmd, cwd string) bool {
 	var subjects []string
 	sawCommit := false
 	if EachGit(cmd, cwd, func(target, verb string, args []string) bool {
-		if verb == "commit" || verb == Uninspectable {
+		if messageVerb(verb) || verb == Uninspectable {
 			sawCommit = true
 		}
-		if verb != "commit" {
+		if !messageVerb(verb) {
 			return false
 		}
 		if messageFileFooter(target, args) {
