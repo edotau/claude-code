@@ -53,7 +53,7 @@ func tickCommits(root, planPath string, commits []Commit, dryRun bool, ok func(T
 			c.Message = message
 			r := tickResult{Sha: strings.TrimSpace(c.Sha)}
 			r.Candidate = candidates(root, planPath, text, c, ok, dryRun)
-			text, r.Ticked, r.Notes = tickText(root, planPath, text, c, dryRun)
+			text, r.Ticked, r.Notes = tickText(root, planPath, text, c, dryRun, ok)
 			if len(r.Ticked)+len(r.Notes)+len(r.Candidate) > 0 {
 				results = append(results, r)
 			}
@@ -66,11 +66,21 @@ func tickCommits(root, planPath string, commits []Commit, dryRun bool, ok func(T
 	return results, err
 }
 
-// tickText ticks every open task c's trailers name, noting the owned files c did not touch.
-func tickText(root, planPath, text string, c Commit, dryRun bool) (out string, ticked, notes []string) {
+// tickText ticks every open task c's trailers name or whose owns: c covers in full, noting owned files c did not touch.
+func tickText(root, planPath, text string, c Commit, dryRun bool, ok func(Task) bool) (out string, ticked, notes []string) {
 	lines := strings.Split(text, "\n")
 	for _, t := range parseBytes(planPath, []byte(text)).Tasks {
-		if !open(t) || !namesTask(c.Message, planPath, t.ID) {
+		if !open(t) {
+			continue
+		}
+		if full := coversAll(root, t, c, ok); !full && !namesTask(c.Message, planPath, t.ID) {
+			continue
+		} else if full && !namesTask(c.Message, planPath, t.ID) {
+			lines = markDone(lines, t, c.Sha)
+			notes = append(notes, fmt.Sprintf("plans: ticked %s in %s (commit covers all owned files)", t.ID, filepath.Base(planPath)))
+			if !dryRun {
+				forget(planPath, t.ID)
+			}
 			continue
 		}
 		lines = markDone(lines, t, c.Sha)
@@ -668,6 +678,12 @@ func namesTask(message, plan, id string) bool {
 	})
 }
 
+// coversAll reports whether c touches every file t owns and the task is eligible.
+func coversAll(root string, t Task, c Commit, ok func(Task) bool) bool {
+	all, _ := covers(root, t.Owns, c.Files)
+	return all && (ok == nil || ok(t))
+}
+
 // candidates lists open unnamed tasks c covers, once per task: a repeat would nag on every later commit.
 func candidates(root, plan, text string, c Commit, ok func(Task) bool, dryRun bool) []string {
 	var out []string
@@ -675,7 +691,7 @@ func candidates(root, plan, text string, c Commit, ok func(Task) bool, dryRun bo
 		if !open(t) || (ok != nil && !ok(t)) || namesTask(c.Message, plan, t.ID) {
 			continue
 		}
-		if _, any := covers(root, t.Owns, c.Files); any && announce(plan, t.ID, dryRun) {
+		if all, any := covers(root, t.Owns, c.Files); any && !all && announce(plan, t.ID, dryRun) {
 			out = append(out, fmt.Sprintf("plans: candidate %s %s in %s (not ticked); tick with claude-code plan task %s --done --sha %s --plan %s", t.ID, strings.TrimSpace(strings.TrimPrefix(t.Title, t.ID)), filepath.Base(plan), textutil.ShellQuote(t.ID), c.Sha, textutil.ShellQuote(plan)))
 		}
 	}

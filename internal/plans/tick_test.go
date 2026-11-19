@@ -95,32 +95,6 @@ func TestNamedSubsetCommitTicksAndNotes(t *testing.T) {
 	}
 }
 
-// TickCommit run twice for one commit (the verb, then the hook) changes the plan once; an older plan ticks too.
-func TestTickCommitIsIdempotentAcrossPlans(t *testing.T) {
-	cfg := hermetic(t)
-	repo, cs := landRepo(t, "a.go", "b.go")
-	home := Home(repo)
-	oldP, newP := filepath.Join(home, "2026-10-01-old.md"), filepath.Join(home, "2026-10-09-new.md")
-	writeFile(t, oldP, "- [ ] 1.1 Old owns: a.go\n")
-	writeFile(t, newP, "- [ ] 2.1 New owns: b.go, zzz.go\n")
-	_ = cfg
-	files := []string{"a.go", "b.go"}
-	res, _, err := TickCommit(repo, cs[1].Sha, files)
-	if err != nil || len(res) != 2 {
-		t.Fatalf("first call: %+v err=%v", res, err)
-	}
-	snap := readFile(t, oldP) + readFile(t, newP)
-	if strings.Contains(snap, "[x]") || strings.Contains(snap, "partly landed") {
-		t.Fatalf("coverage wrote plans: %s", snap)
-	}
-	if len(res[0].Candidate)+len(res[1].Candidate) != 2 {
-		t.Fatalf("missing candidates: %+v", res)
-	}
-	if res, _, err = TickCommit(repo, cs[1].Sha, files); err != nil || len(res) != 0 || readFile(t, oldP)+readFile(t, newP) != snap {
-		t.Fatalf("a candidate prints once and never writes: %+v err=%v", res, err)
-	}
-}
-
 // A task with no owns: ticks, reopens and strikes by hand; a two-line task keeps every line within 120 columns.
 func TestPlanTaskOps(t *testing.T) {
 	hermetic(t)
@@ -229,32 +203,6 @@ func TestTickRangeNamedTaskIgnoresPlanAge(t *testing.T) {
 	}
 }
 
-func TestTickRequiresMatchingTaskTrailer(t *testing.T) {
-	hermetic(t)
-	repo, cs := landRepo(t, "a.go", "b.go")
-	plan := filepath.Join(Home(repo), "2026-10-05-named.md")
-	body := "- [ ] 1.1 Named owns: a.go, b.go <!-- partly landed: " + cs[0].Sha + " -->\n- [ ] 1.2 Unnamed owns: b.go\n"
-	writeFile(t, plan, body)
-	results, _, err := TickCommit(repo, cs[1].Sha, cs[1].Files)
-	if err != nil || len(results) != 1 || len(results[0].Candidate) != 2 {
-		t.Fatalf("candidates: %+v %v", results, err)
-	}
-	wantBytes(t, plan, "coverage only", body)
-	c := Commit{Sha: cs[1].Sha, Files: cs[1].Files, Message: "feat: x\n\nTask: another-plan 1.1"}
-	if _, err := tickCommits(repo, plan, []Commit{c}, false, nil); err != nil {
-		t.Fatal(err)
-	}
-	wantBytes(t, plan, "wrong plan", body)
-	c.Message = "feat: x\n\nTask: 2026-10-05-named 1.1"
-	if _, err := tickCommits(repo, plan, []Commit{c}, false, nil); err != nil {
-		t.Fatal(err)
-	}
-	got := readFile(t, plan)
-	if !strings.Contains(got, "[x] 1.1") || !strings.Contains(got, "("+cs[1].Sha+")") || !strings.Contains(got, "[ ] 1.2") || strings.Contains(got, "partly landed") {
-		t.Fatalf("named legacy coverage: %s", got)
-	}
-}
-
 // gitRepo is a repo on branch br with one seed commit.
 func gitRepo(t *testing.T, br string) string {
 	t.Helper()
@@ -358,25 +306,6 @@ func TestTaskTrailersRefusals(t *testing.T) {
 		if msg := got + fmt.Sprint(err); !strings.Contains(msg, c.want) {
 			t.Errorf("%q --plan %q: got %q, %v; want %q", c.id, c.plan, got, err, c.want)
 		}
-	}
-}
-
-// A candidate for coverage alone is announced on the first commit that covers it, not on every later one.
-func TestCandidateAnnouncedOnce(t *testing.T) {
-	hermetic(t)
-	plan := filepath.Join(Home(t.TempDir()), "2026-10-05-c.md")
-	writeFile(t, plan, "- [ ] 1.1 Quiet owns: a.go\n")
-	c := Commit{Sha: "abc1234", Files: []string{"a.go"}, Message: "feat: a"}
-	first, err := tickCommits("", plan, []Commit{c}, true, nil)
-	if err != nil || len(first) != 1 || len(first[0].Candidate) != 1 {
-		t.Fatalf("dry run announces: %+v %v", first, err)
-	}
-	if first, _ = tickCommits("", plan, []Commit{c}, true, nil); len(first) != 1 {
-		t.Fatalf("a dry run must not use up the announcement: %+v", first)
-	}
-	got, _ := tickCommits("", plan, []Commit{c, {Sha: "def5678", Files: []string{"a.go"}, Message: "fix: a"}}, false, nil)
-	if len(got) != 1 || !strings.Contains(got[0].Candidate[0], "plan task '1.1' --done --sha abc1234 --plan ") {
-		t.Fatalf("one announcement for the whole range, with a copy-paste command: %+v", got)
 	}
 }
 

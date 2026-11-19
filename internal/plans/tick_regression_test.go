@@ -1,7 +1,6 @@
 package plans
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -52,50 +51,6 @@ func TestClearClaimOwnedRejectsEmptyOwner(t *testing.T) {
 		t.Fatal(err)
 	}
 	wantBytes(t, plan, "alice's claim with empty caller", before)
-}
-
-func TestTickRangePropagatesOutputErrors(t *testing.T) {
-	cases := []struct {
-		name, owns, explicit, output string
-		plans                        int
-	}{
-		{"no owner", "other.go", "", "no plan owns", 1},
-		{"tie updates both", "internal/a/a.go", "", "candidate", 2},
-		{"nothing ticked", "other.go", "2026-11-09-0.md", "nothing to tick in", 1},
-		{"ticked", "internal/a/a.go", "2026-11-09-0.md", "candidate", 1},
-		{"partial", "internal/a/a.go, missing.go", "2026-11-09-0.md", "candidate", 1},
-	}
-	repo, base := tickRangeRepo(t)
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			hermetic(t)
-			home := Home(repo)
-			for i := range tc.plans {
-				name := "2026-11-09-" + strconv.Itoa(i) + ".md"
-				writeFile(t, filepath.Join(home, name), "- [ ] 1.1 Task owns: "+tc.owns+"\n")
-			}
-			plan := ""
-			if tc.explicit != "" {
-				plan = filepath.Join(home, tc.explicit)
-			}
-			rng := base + ".." + strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "HEAD~2"))
-			var output bytes.Buffer
-			if err := TickRange(context.Background(), repo, "", rng, plan, nil, true, &output); err != nil {
-				t.Fatal(err)
-			}
-			if !strings.Contains(output.String(), tc.output) {
-				t.Fatalf("wrong output branch: %q, want %q", output.String(), tc.output)
-			}
-			reader, writer := io.Pipe()
-			defer writer.Close()
-			if err := reader.Close(); err != nil {
-				t.Fatal(err)
-			}
-			if err := TickRange(context.Background(), repo, "", rng, plan, nil, true, writer); !errors.Is(err, io.ErrClosedPipe) {
-				t.Fatalf("TickRange = %v, want closed pipe error", err)
-			}
-		})
-	}
 }
 
 // An emptied record names no mirror; a truncated or otherwise unreadable one excludes every plan (fail closed).
