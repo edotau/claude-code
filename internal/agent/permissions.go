@@ -621,9 +621,11 @@ func (p Permissions) decideSeg(seg, cdTo string, at opDir, depth int) (Decision,
 }
 
 var xargsLongValueFlags = map[string]bool{
-	"--max-args": true, "--replace": true, "--max-procs": true, "--max-lines": true, "--delimiter": true,
-	"--eof": true, "--max-chars": true, "--arg-file": true, "--process-slot-var": true,
+	"--max-args": true, "--max-procs": true, "--delimiter": true, "--max-chars": true, "--arg-file": true, "--process-slot-var": true,
 }
+
+// xargsOptionalShort are short options whose value is only ever attached (-i[R] -l[N] -e[E]).
+const xargsOptionalShort = "ile"
 
 // UnwrapXargs is toks past wrappers and any xargs, so the word left is the command run.
 func UnwrapXargs(toks []string) []string {
@@ -646,11 +648,27 @@ func SkipXargs(toks []string) []string {
 		if opt == "--" {
 			break
 		}
-		if (slices.Contains(values, opt) || xargsLongValueFlags[opt]) && len(toks) > 0 {
+		if xargsTakesNext(opt, values) && len(toks) > 0 {
 			toks = toks[1:]
 		}
 	}
 	return toks
+}
+
+// xargsTakesNext reports an option whose value is the next word, reading a short cluster like getopt.
+func xargsTakesNext(opt string, values []string) bool {
+	if strings.HasPrefix(opt, "--") {
+		return xargsLongValueFlags[opt]
+	}
+	for i := 1; i < len(opt); i++ {
+		if strings.IndexByte(xargsOptionalShort, opt[i]) >= 0 {
+			return false
+		}
+		if slices.Contains(values, "-"+opt[i:i+1]) {
+			return i == len(opt)-1
+		}
+	}
+	return false
 }
 
 // mayMoveCwd reports a segment that may change the shell's cwd: any cd, pushd or popd word, or eval and source.

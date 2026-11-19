@@ -182,6 +182,9 @@ func TestPermissionXargsUnwrapped(t *testing.T) {
 		"echo u | xargs curl x": Deny, "echo u | xargs -n 1 curl x": Deny, "echo u | xargs -I {} curl {}": Deny,
 		"echo u | xargs --max-args 1 curl x": Deny, "echo u | xargs -P4 -0 curl x": Deny, "echo u | xargs nice curl x": Deny,
 		"echo u | xargs -- curl x": Deny, "echo u | xargs grep x": Allow, "echo u | xargs -n 1 grep curl": Allow,
+		"echo u | xargs -rn 1 curl x": Deny, "echo u | xargs -rn 1 grep needle": Allow, "echo u | xargs -rn1 curl x": Deny,
+		"echo u | xargs --replace curl x": Deny, "echo u | xargs --replace=R curl R": Deny, "echo u | xargs -i curl x": Deny,
+		"echo u | xargs --eof curl x": Deny, "echo u | xargs -I{} grep {}": Allow, "echo u | xargs -tI R curl R": Deny,
 	})
 }
 
