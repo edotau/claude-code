@@ -14,10 +14,13 @@ import (
 // warnRowRE matches the "warn" word a soft row leads its degraded detail with (agent version, dead user login).
 var warnRowRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^warn |· warn `) })
 
+// termWidth is a var so tests can fake a terminal width.
+var termWidth = helptext.TermWidth
+
 // printCheckLines writes checks as ✓/⚠/✗ lines (⚠ = soft row worded "warn"), so all doctor checks print one format.
 func printCheckLines(w io.Writer, checks []check) {
 	color := ansi.Enabled(w)
-	term := helptext.TermWidth(w)
+	term := termWidth(w)
 	for _, c := range checks {
 		mark := ansi.Style(color, ansi.Green, "✓")
 		switch {

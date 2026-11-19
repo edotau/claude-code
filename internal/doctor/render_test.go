@@ -2,7 +2,11 @@ package doctor
 
 import (
 	"bytes"
+	"io"
+	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // TestPrintChecksGoldenBytes pins printChecks' byte format (color off, the case for every test and any non-tty run)
@@ -33,5 +37,41 @@ func TestPrintCheckLinesWarnMark(t *testing.T) {
 		"✗ hard: warn x\n✗ path: /opt/warn /bin\n"
 	if got := buf.String(); got != want {
 		t.Errorf("printCheckLines =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestPrintCheckLinesClipsPassingRowsOnATerminal(t *testing.T) {
+	long := strings.Repeat("detail-", 20)
+	cases := []struct {
+		name  string
+		width int
+		c     check
+		whole bool
+		max   int
+	}{
+		{"piped passing row whole", 0, check{Name: "row", OK: true, Detail: long}, true, 0},
+		{"tty passing row clipped to 80", 200, check{Name: "row", OK: true, Detail: long}, false, 80},
+		{"tty warning row whole", 200, check{Name: "row", Detail: "warn " + long}, true, 0},
+		{"tty failing row whole", 200, check{Name: "row", Hard: true, Detail: long}, true, 0},
+		{"narrow tty passing row fits 40", 40, check{Name: "row", OK: true, Detail: long}, false, 40},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			old := termWidth
+			termWidth = func(io.Writer) int { return tc.width }
+			t.Cleanup(func() { termWidth = old })
+			var buf bytes.Buffer
+			printCheckLines(&buf, []check{tc.c})
+			line := strings.TrimSuffix(buf.String(), "\n")
+			if tc.whole {
+				if !strings.HasSuffix(line, tc.c.Detail) {
+					t.Errorf("row clipped: %q", line)
+				}
+				return
+			}
+			if w := textutil.DisplayWidth(line); w > tc.max || !strings.HasSuffix(line, "...") {
+				t.Errorf("width %d (max %d), line %q", w, tc.max, line)
+			}
+		})
 	}
 }
