@@ -112,7 +112,7 @@ func refuseAgentWord(fs *flag.FlagSet, verb string, args, pos []string) error {
 	if !slices.Contains(agent.RosterNames(), pos[0]) {
 		return nil
 	}
-	return fmt.Errorf("agents ask: %q is an agent name; use --agent %s (or -- before a prompt that starts with it)", pos[0], pos[0])
+	return fmt.Errorf("%q is an agent name; use --agent %s (or -- before a prompt that starts with it)", pos[0], pos[0])
 }
 
 // runCtx is runTo under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
