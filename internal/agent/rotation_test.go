@@ -3,14 +3,13 @@ package agent
 import (
 	"context"
 	"reflect"
-	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/router"
 )
 
-// An asked auto on a rotation row: a peek repeats and records nothing, a real pick stamps and advances, an empty pool ranks.
+// Asked auto peeks without recording, stamps and advances on a real pick.
 func TestRotationAskedAuto(t *testing.T) {
 	reg, _, _ := autoFixture(t)
 	now := time.Now()
@@ -33,9 +32,5 @@ func TestRotationAskedAuto(t *testing.T) {
 	}
 	if next := resolve(peek); next.Model == first.Model {
 		t.Errorf("peek after a stamp still returned %s, want another pool member", next.Model)
-	}
-	rankedOnly(t)
-	if r := resolve(context.Background()); r.Model == "" || r.Model == AutoModel || strings.Contains(r.Note, "rotation") {
-		t.Errorf("empty pool ran %q (note %q), want the ranked pick", r.Model, r.Note)
 	}
 }

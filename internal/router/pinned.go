@@ -132,7 +132,7 @@ func selectPinnedModel(agent, alias string, cell Cell, p *providers.Provider, mo
 }
 
 // RotationPool is the served pool agent rotates through on p at alias ("" = every tier); the agent package sets it.
-var RotationPool func(agent, alias string, p *providers.Provider, now time.Time) []string
+var RotationPool func(agent, alias string, p *providers.Provider, tools bool, now time.Time) []string
 
 // RotationRow reports a row a rotation pin runs on: a Databricks workspace or a GitHub Copilot login.
 func RotationRow(p *providers.Provider) bool {
@@ -142,7 +142,7 @@ func RotationRow(p *providers.Provider) bool {
 // poolFor is empty until the agent package supplies the served pool.
 func poolFor(agent, alias string, p *providers.Provider, now time.Time) []string {
 	if RotationPool != nil {
-		return RotationPool(agent, alias, p, now)
+		return RotationPool(agent, alias, p, false, now)
 	}
 	return nil
 }

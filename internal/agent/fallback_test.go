@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
 	"strconv"
 	"strings"
@@ -1287,43 +1288,74 @@ type pickRefuser struct {
 	fakeRunner
 	pool   []string
 	refuse int
+	after  error
 }
 
 func (*pickRefuser) Name() string { return "opencode" }
 
 func (p *pickRefuser) Run(_ context.Context, req RunOptions, _ wire.Sink) (wire.Result, error) {
 	p.seen = append(p.seen, req)
-	n := len(p.seen)
-	if n <= p.refuse {
+	n := len(p.seen) - 1
+	if n < p.refuse {
 		return wire.Result{Model: p.pool[n]}, errors.New("ProviderModelNotFoundError: Model not found: " + p.pool[n])
+	}
+	if p.after != nil {
+		return wire.Result{Model: p.pool[n]}, p.after
 	}
 	return wire.Result{Model: p.pool[n], Answer: "ok"}, nil
 }
 
-// repickRun is one repick over a fresh fixture whose engine refuses its first `refuse` picks.
-func repickRun(t *testing.T, refuse int) (res wire.Result, runs int, notes []string, held time.Time, err error) {
+// repickRun exercises execution's shared budget and a subsequent preparation without launching a vendor.
+func repickRun(t *testing.T, refuse, spent int) (res wire.Result, runs int, notes []string, held time.Time, err error) {
 	reg, _, _ := autoFixture(t)
 	row := reg.Row("dev")
 	var pool []string
-	for _, m := range rotationPool("opencode", "", row, time.Now()) {
+	for _, m := range rotationPool("opencode", "", row, false, time.Now()) {
 		pool = append(pool, providers.SpellPin(row, m))
 	}
 	eng := &pickRefuser{pool: pool, refuse: refuse}
-	first := errors.New("ProviderModelNotFoundError: Model not found: " + pool[0])
-	res, _, _, err = repick(context.Background(), Dispatch{Agent: eng, Account: row.Account()}, RunOptions{Model: "dev:auto"},
-		wire.Result{Model: pool[0]}, first, wire.Discard, func(s string) { notes = append(notes, s) })
+	wantBackstops := 0
+	if refuse < 0 {
+		eng.refuse, eng.after = -refuse, errors.New("vendor binary missing")
+		wantBackstops = 1
+	}
+	backstop := &fakeRunner{name: "gemini", errs: []error{nil}}
+	opts := RunOptions{Agent: "opencode", Model: AutoModel, AutoModel: true, Prompt: standardBrief, Repicks: spent}
+	p := &Prepared{Opts: opts, Record: ClaimRecord(opts.Agent, opts, time.Now()), Chain: Chain{Want: opts.Agent,
+		Dispatches: []Dispatch{{Agent: eng, Account: row.Account(), Model: "dev:auto"}, {Agent: backstop}}}}
+	cl := &Client{}
+	res, err = cl.Exec(context.Background(), p, wire.Discard, RunRecordedOpts{Notify: func(s string) { notes = append(notes, s) }})
+	if len(backstop.seen) != wantBackstops || p.Opts.Repicks != spent+len(eng.seen)+len(backstop.seen)-1 {
+		t.Fatalf("budget: spent=%d launches=%d backstops=%d", p.Opts.Repicks, len(eng.seen), len(backstop.seen))
+	}
+	next := p.Opts
+	next.Provider, next.Host = "", "box"
+	np, perr := cl.Prepare(context.Background(), next, &p.Record)
+	if perr != nil || np.Opts.Repicks != p.Opts.Repicks {
+		t.Fatalf("next preparation lost budget: prepared=%+v err=%v", np, perr)
+	}
 	held = router.LoadState()[row.Account()].DiscoverySkip[router.DiscoverySkipKey("opencode", pool[0])]
-	return res, len(eng.seen), notes, held, err
+	return res, len(eng.seen) + len(backstop.seen), notes, held, err
 }
 
-// An auto pick refused before any output is held and re-picked within the ask, up to maxAutoRepicks.
+// A refused auto pick shares its remaining allowance across execution, dispatches and the next preparation.
 func TestRunDispatchRepicksRefusedAutoPick(t *testing.T) {
-	res, runs, notes, held, err := repickRun(t, 2) // refused three times, the fourth run answers
-	if err != nil || res.Answer != "ok" || runs != 3 || len(notes) != 3 || held.IsZero() {
-		t.Fatalf("answered run: err=%v answer=%q runs=%d notes=%v held=%v", err, res.Answer, runs, notes, held)
+	t.Run("answered", func(t *testing.T) {
+		res, runs, notes, held, err := repickRun(t, 3, 0)
+		if !reflect.DeepEqual([]any{err, res.Answer, runs, len(notes), held.IsZero()}, []any{nil, "ok", 4, 3, false}) {
+			t.Fatalf("answered run: err=%v answer=%q runs=%d notes=%v held=%v", err, res.Answer, runs, notes, held)
+		}
+	})
+	for _, spent := range []int{0, 1, MaxAutoRepicks} {
+		_, runs, _, _, err := repickRun(t, 99, spent)
+		if err == nil || runs != 1+MaxAutoRepicks-spent {
+			t.Fatalf("bound: err=%v runs=%d, spent=%d", err, runs, spent)
+		}
 	}
-	_, runs, _, _, err = repickRun(t, 99) // every pick refused: the bound
-	if err == nil || runs != maxAutoRepicks || !strings.Contains(err.Error(), "auto picks tried") {
-		t.Fatalf("bound: err=%v runs=%d, want %d runs and the tried picks named", err, runs, maxAutoRepicks)
-	}
+	t.Run("dispatch transition", func(t *testing.T) {
+		res, runs, _, _, err := repickRun(t, -1, 0)
+		if err != nil || res.Answer != "a" || runs != 3 {
+			t.Fatalf("dispatch transition: err=%v answer=%q runs=%d", err, res.Answer, runs)
+		}
+	})
 }

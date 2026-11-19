@@ -61,8 +61,8 @@ func TestSnapshotIDsFollowTheSelectedRow(t *testing.T) {
 		TokenHash: textutil.SHA256Hex([]byte("tok-account-b")), Models: []SDKModel{{ID: "gpt-6.2-sol", Enabled: true}}}); err != nil {
 		t.Fatal(err)
 	}
-	snapshotMap = map[string][]string{}
-	t.Cleanup(func() { snapshotMap = map[string][]string{} })
+	snapshotMap = map[string]catalogIDs{}
+	t.Cleanup(func() { snapshotMap = map[string]catalogIDs{} })
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)

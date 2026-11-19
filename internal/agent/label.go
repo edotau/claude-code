@@ -143,9 +143,9 @@ func ExplainRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRout
 	if err != nil {
 		return r, nil, err
 	}
-	var choice *AutoChoice
-	if need.mode != autoOff {
-		r, choice = autoPick(reg, q, r, need, now)
+	r, choice, err := autoPick(reg, q, r, need, now)
+	if err != nil {
+		return r, choice, err
 	}
 	r, err = checkRouteServed(reg, r, q.Fallback == router.FallbackNone && need.mode == autoOff, now)
 	return r, choice, err
@@ -426,11 +426,14 @@ func newAutoChoice(need autoNeed) *AutoChoice {
 }
 
 // autoPick ranks the served models of base's row for need and resolves the winner; no ranking keeps base.
-func autoPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need autoNeed, now time.Time) (ModelRoute, *AutoChoice) {
+func autoPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need autoNeed, now time.Time) (ModelRoute, *AutoChoice, error) {
+	if need.mode == autoOff {
+		return base, nil, nil
+	}
 	c := newAutoChoice(need)
 	if need.mode == autoAsked {
-		if r, ok := rotationPick(reg, q, base, need, c, now); ok {
-			return r, c
+		if r, ok, err := rotationPick(reg, q, base, need, c, now); ok {
+			return r, c, err
 		}
 	}
 	cands, why := autoCandidates(reg, q, reg.Row(base.Profile), now)
@@ -444,18 +447,18 @@ func autoPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need autoN
 			}
 		}
 		need.unlisted = why != ""
-		return autoFallback(reg, q, base, need, c, cmp.Or(why, "no served model fits"), now), c
+		return autoFallback(reg, q, base, need, c, cmp.Or(why, "no served model fits"), now), c, nil
 	}
 	pq := q
 	pq.Model, pq.Profile, pq.Default = base.Profile+":"+c.Ranked[0].Model, "", ""
 	r, err := ResolveModel(reg, pq, now)
 	if err != nil {
-		return autoFallback(reg, q, base, need, c, strings.TrimPrefix(err.Error(), ErrModelRoute.Error()+": "), now), c
+		return autoFallback(reg, q, base, need, c, strings.TrimPrefix(err.Error(), ErrModelRoute.Error()+": "), now), c, nil
 	}
 	r.Source, c.Model = base.Source, r.Model
 	r.Note = joinNotes(routeNote(base.Note), c.note(need.mode))
 	r.Effort = autoEffort(r.Effort, q.Agent, need)
-	return r, c
+	return r, c, nil
 }
 
 // note is the reason a route carries: always for an asked auto, for an implicit one only when it stepped down.

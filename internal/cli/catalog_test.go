@@ -23,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -1097,4 +1098,29 @@ func TestOpencodeMenuSyncVerifySealsSafeChecksAndPreservesExisting(t *testing.T)
 	assertNoProbeLeak(t, preview+out)
 	assertNoLegacyCheckCache(t, "verification touched legacy plaintext cache")
 	assertVerifiedHitIsQuiet(t, f, chat, responses)
+}
+
+func TestServedMark(t *testing.T) {
+	now := time.Now()
+	fresh := router.Served{FetchedAt: now, Models: []router.ServedModel{
+		{ID: "databricks-gpt-6-1-sol", Ready: "READY"},
+		{ID: "databricks-deepseek-v4-pro-0813", Ready: "NOT_READY"},
+	}}
+	stale := fresh
+	stale.FetchedAt = now.Add(-24 * time.Hour)
+	for _, tc := range []struct {
+		id       string
+		listings [3]router.Served
+		want     string
+	}{
+		{"gpt-6-1-sol", [3]router.Served{fresh, fresh, fresh}, "yyy"},
+		{"deepseek-v4-pro-0813", [3]router.Served{fresh, fresh, fresh}, "nnn"},
+		{"absent", [3]router.Served{fresh, fresh, fresh}, "nnn"},
+		{"gpt-6-1-sol", [3]router.Served{fresh, stale, {}}, "y??"},
+		{"opencode-go/kimi-k3.1-pro", [3]router.Served{fresh, fresh, fresh}, ""},
+	} {
+		if got := servedMark(tc.id, tc.listings, now); got != tc.want {
+			t.Errorf("servedMark(%q) = %q, want %q", tc.id, got, tc.want)
+		}
+	}
 }

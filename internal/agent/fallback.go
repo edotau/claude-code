@@ -141,7 +141,7 @@ func announceFallback(sink wire.Sink, notify func(string), prev, disp Dispatch, 
 }
 
 // runDispatch is one dispatch's scope: fail-fast is decided and a panic caught before the permit is released.
-func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req RunOptions, key string, sink wire.Sink, notify func(string)) (res wire.Result, hops []wire.Hop, panicked bool, err error) {
+func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req RunOptions, key string, replacement bool, sink wire.Sink, notify func(string)) (res wire.Result, hops []wire.Hop, panicked bool, err error) {
 	release, aerr := retry.AcquireDispatch(ctx, key) // per billed account, whichever key the task was queued under
 	if aerr != nil {
 		ce := &retry.Error{Kind: retry.KindFatal, Agent: disp.Agent.Name(), Err: aerr}
@@ -176,6 +176,9 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	}
 	runCtx := retry.WithPermit(withCoolKey(ctx, key), held)
 	res, err = Run(runCtx, disp.Agent, lreq, sink, notify)
+	if replacement && !res.NotStarted {
+		lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
+	}
 	res.Invoked = lreq.Model
 	var more []wire.Hop
 	res, lreq, more, err = repick(runCtx, disp, lreq, res, err, sink, notify)
@@ -185,16 +188,18 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	return res, hops, false, err
 }
 
-// maxAutoRepicks bounds how many times one auto ask re-picks after its pick is refused before any work.
-const maxAutoRepicks = 3
+// MaxAutoRepicks bounds how many times one auto ask re-picks after its pick is refused before any work.
+const MaxAutoRepicks = 3
 
 // repick re-runs the same agent on the next pool model while the pick fails for a reason that belongs to the pick.
 func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result, err error, sink wire.Sink, notify func(string)) (wire.Result, RunOptions, []wire.Hop, error) {
 	var hops []wire.Hop
 	var tried []string
+	lreq = repickRequest(ctx, lreq)
+	_, auto := SplitAuto(lreq.Model)
 	limit := 1 // a served-endpoint repick of a concrete model stays once
-	if _, auto := SplitAuto(lreq.Model); auto {
-		limit = maxAutoRepicks
+	if auto {
+		limit = max(0, MaxAutoRepicks-lreq.Repicks)
 	}
 	for len(tried) < limit {
 		ran := ranModel(lreq.Model, res)
@@ -210,19 +215,41 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 		first := err
 		lreq.Model = next
 		res, err = Run(ctx, disp.Agent, lreq, sink, notify)
+		if auto && !res.NotStarted {
+			lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
+		}
 		res.Invoked = next
 		if err != nil && wire.ErrorKind(err) != wire.ErrorKind(first) { // a repick that answered clears the account
 			noteFailure(disp, ran, first)
 		}
 	}
-	if err != nil && len(tried) > 0 && limit == maxAutoRepicks {
-		err = triedPicks(append(tried, ranModel(lreq.Model, res)), err)
+	if auto {
+		err = finishRepicks(append(tried, ranModel(lreq.Model, res)), err)
 	}
 	return res, lreq, hops, err
 }
 
+func repickRequest(ctx context.Context, req RunOptions) RunOptions {
+	req.Repicks = repickSpent(ctx, req.Repicks)
+	if req.AutoModel && req.Model == "" {
+		req.Model = AutoModel
+	}
+	return req
+}
+
+func finishRepicks(picks []string, err error) error {
+	err = triedPicks(picks, err)
+	if modelRefusal(err) {
+		return autoStopError{err}
+	}
+	return err
+}
+
 // triedPicks names every pick an auto ask tried on err, keeping its Kind.
 func triedPicks(picks []string, err error) error {
+	if err == nil || len(picks) < 2 {
+		return err
+	}
 	e, ok := errors.AsType[*retry.Error](err)
 	if !ok {
 		return fmt.Errorf("auto picks tried: %s: %w", strings.Join(picks, ", "), err)
@@ -355,9 +382,19 @@ func FallbackReason(err error) string {
 	return textutil.CapRunes(textutil.RedactSecrets(s), 200, "")
 }
 
+func autoStopped(err error) bool {
+	_, ok := errors.AsType[autoStopError](err)
+	return ok
+}
+
+func modelRefusal(err error) bool {
+	return err != nil && !retry.Progressed(err) &&
+		(capabilityErr().MatchString(err.Error()) || pickGoneErr().MatchString(err.Error()))
+}
+
 // dispatchUnavailableContext: a pre-answer auth failure or state refusal, or a failed hop that falls through.
 func dispatchUnavailableContext(ctx context.Context, r Engine, res wire.Result, err error) bool {
-	if requestFault(err) {
+	if requestFault(err) || autoStopped(err) || errors.Is(err, ErrPoolExhausted) {
 		return false
 	}
 	var ae *retry.Error
@@ -374,7 +411,7 @@ func fallsThroughContext(ctx context.Context, r Engine) bool {
 
 // HopFailed is true when a dispatch failed before giving any answer for a reason a later hop could fix.
 func HopFailed(res wire.Result, err error) bool {
-	if err == nil || res.Answer != "" || requestFault(err) {
+	if err == nil || res.Answer != "" || requestFault(err) || autoStopped(err) {
 		return false
 	}
 	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
@@ -601,7 +638,17 @@ func (s *fallbackState) cancelled(i int, disp Dispatch, cerr error) error {
 	return nil
 }
 
+func rateLimitOnly(err error) bool {
+	e, ok := errors.AsType[*retry.Error](err)
+	return ok && e.Kind == retry.KindRateLimit
+}
+
 func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) bool {
+	s.req.Repicks = repickSpent(ctx, s.req.Repicks)
+	replacement := i > 0 && s.req.Repicks > 0 && !rateLimitOnly(s.err)
+	if replacement && s.req.Repicks >= MaxAutoRepicks {
+		return true
+	}
 	lreq := dispatchRequest(s.req, disp, i == 0 && disp.Agent.Name() == c.Want)
 	ctx, disp = freezeCopilot(ctx, disp, lreq) // The gate's actual target precedes the permit and cooldown key.
 	disp = ownLoginActual(disp, lreq)
@@ -610,7 +657,7 @@ func (s *fallbackState) dispatch(ctx context.Context, c Chain, i int, disp Dispa
 	var dhops []wire.Hop
 	var panicked bool
 	lreq.YieldFallback = c.retryYield(ctx, i, s.req)
-	s.res, dhops, panicked, s.err = runDispatch(ctx, c, i, disp, lreq, s.req, key, sink, notify)
+	s.res, dhops, panicked, s.err = runDispatch(ctx, c, i, disp, lreq, s.req, key, replacement, sink, notify)
 	s.hops = append(s.hops, dhops...)
 	if s.res.Handoff != s.handoff {
 		s.task = promptFromHandoff(s.res.Handoff, s.task, disp.Agent.Name())
@@ -834,7 +881,7 @@ func skipAutoModel(disp Dispatch, requested, ran string) bool {
 	}
 	_, row, _ := strings.Cut(disp.Account, "·")
 	p := loadRegistryWarn().Row(row)
-	if p == nil {
+	if !freshRotation(p, time.Now()) {
 		return false
 	}
 	return router.SkipDiscovery(disp.Agent.Name(), p, strings.TrimPrefix(ran, p.Name+":")) != ""

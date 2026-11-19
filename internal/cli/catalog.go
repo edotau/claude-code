@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,7 +19,9 @@ import (
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
+	"github.com/edotau/claude-code/internal/ui/table"
 )
 
 // catalogVerbs run for every agent; menuVerbs edit opencode's model menu and exist only there.
@@ -289,21 +292,47 @@ func listOpencodeMenu(w io.Writer, live bool, provider, format string) error {
 	if format == helptext.JSON {
 		return helptext.WriteJSON(w, rows)
 	}
-	labW := catalog.ColWidth("LABEL", len(rows), func(i int) string { return rows[i].Label })
-	idW := catalog.ColWidth("ID", len(rows), func(i int) string { return rows[i].ID })
-	head := fmt.Sprintf("%-*s  %-*s  %-9s  %s", idW, "ID", labW, "LABEL", "RESPONSES", "SOURCE")
-	if live {
-		head += "  LIVE                  CHECK"
+	var listings [3]router.Served
+	for i, profile := range []string{"dev", "qa", "prod"} {
+		listings[i], _ = router.LoadServed(profile)
 	}
-	fmt.Fprintln(w, head)
+	now := time.Now()
+	cells := [][]string{{"ID", "LABEL", "RESPONSES", "SOURCE", "SERVED"}}
+	if live {
+		cells[0] = append(cells[0], "LIVE", "CHECK")
+	}
 	for _, r := range rows {
-		line := fmt.Sprintf("%-*s  %-*s  %-9v  %s", idW, r.ID, labW, r.Label, r.Responses, r.Source)
+		row := []string{r.ID, r.Label, strconv.FormatBool(r.Responses), r.Source, servedMark(r.ID, listings, now)}
 		if live {
-			line += fmt.Sprintf("  %-20s  %s", strings.TrimSpace(r.Live+" "+r.Ready), r.Check)
+			row = append(row, strings.TrimSpace(r.Live+" "+r.Ready), r.Check)
 		}
+		cells = append(cells, row)
+	}
+	fmt.Fprintln(w, "SERVED: dev/qa/prod; y=yes, n=no, ?=unknown (missing/stale cache)")
+	for _, line := range table.Justify(cells, 80, nil) {
 		fmt.Fprintln(w, line)
 	}
 	return nil
+}
+
+func servedMark(id string, listings [3]router.Served, now time.Time) string {
+	if strings.ContainsAny(id, "/:") {
+		return ""
+	}
+	mark := []byte("???")
+	for i, listing := range listings {
+		if !listing.Fresh(now) {
+			continue
+		}
+		mark[i] = 'n'
+		for _, m := range listing.Models {
+			if catalog.ID(m.ID) == catalog.ID(id) && m.IsReady() {
+				mark[i] = 'y'
+				break
+			}
+		}
+	}
+	return string(mark)
 }
 
 func addOpencodeMenu(w io.Writer, arg string, responses, responsesSet, force bool, provider string) error {

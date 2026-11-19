@@ -90,6 +90,8 @@ func (s Schema) routedModel(ctx context.Context, req RunOptions, t providers.Tar
 	q := s.routedQuery(req, t)
 	r, err := ResolveRun(reg, QueryFor(ctx, q), time.Now())
 	switch {
+	case errors.Is(err, ErrPoolExhausted):
+		return t, "", err // a pinned auto with every pool model held stops like a typed one
 	case errors.Is(err, ErrModelRoute) && q.Model == "":
 		return t, "", nil // a record model the row cannot serve keeps the row's own tier model
 	case errors.Is(err, ErrModelRoute):

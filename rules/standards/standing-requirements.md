@@ -14,7 +14,7 @@ A row is deleted only when the tool makes the prose redundant.
 | R4 Boilerplate | Plan before today: tick process steps if built on `origin/main`, strike if all build tasks struck, else report | `plan tick --audit` |
 | R5 Verify returns | CLAUDE.md guideline 3, plus re-run one claim and the whole suite before a commit | prose |
 | R5 Cheap authors | Haiku, Kimi, fell-back relay: full read plus higher-tier, other-family review | prose |
-| R6 Model mix | Sonnet authors; a wave of 3+ puts a third on other families; reviewer is another family | prose |
+| R6 Model mix | Sonnet authors; a wave of 3+ puts a third on other families; reviewer is another family; count the resolved model's family, not the CLI: a rotated leaf counts as the other-family third only when its model is not Claude; R5 review still applies | prose |
 | R7 Databricks | Prefer `--provider databricks` over a fixed `--profile`; if named, rotate | `agents ask --provider` |
 | R8 Typed model | No silent swap; unserved fails with nearest ids; report names model | `unservedError`; retry prose |
 | R9 Memory recall | `hooks.md` → `dispatch-effort`: every dispatched brief carries the recall block | `withRecall` in `agents ask`; `--safe-mode` off |

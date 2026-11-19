@@ -46,6 +46,9 @@ func FamilyLatest(family string, ids []string) string {
 // GithubCatalogIDs lists the ids of the Copilot catalog snapshot kept for row p's account; the copilot package sets it.
 var GithubCatalogIDs func(p *providers.Provider) []string
 
+// GithubCatalogTime is the same cached snapshot's timestamp, zero on a miss.
+var GithubCatalogTime func(p *providers.Provider) time.Time
+
 // FamilyModel is the highest READY runnable version of family on p, else today's id; ids overrides a first-party list.
 func FamilyModel(agent, family string, p *providers.Provider, ids []string, now time.Time) string {
 	family = strings.ToLower(strings.TrimSpace(family))

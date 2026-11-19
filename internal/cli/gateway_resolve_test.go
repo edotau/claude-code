@@ -108,12 +108,11 @@ func TestGatewayResolveTaskTier(t *testing.T) {
 	}
 }
 
-// --model auto prints the concrete pick and one reason line; json carries at most five ranked candidates.
+// An untyped tier pick prints the concrete model and one reason line; json carries at most five ranked candidates.
 func TestGatewayResolveAuto(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
-	vaulttest.Put(t, vault.Overlay, "discovery-models", `["databricks-glm-5-3"]`) // empties the rotation pool: ranked path
 	s := router.Served{Profile: "dev", FetchedAt: time.Now()}
 	for _, id := range []string{"opus-5-5", "sonnet-5-5", "haiku-5-5", "opus-5", "sonnet-5", "sonnet-4-6", "opus-4-8"} {
 		s.Models = append(s.Models, router.ServedModel{ID: "databricks-claude-" + id, Task: "llm/v1/chat", Ready: "READY"})
@@ -125,7 +124,7 @@ func TestGatewayResolveAuto(t *testing.T) {
 	if err := os.WriteFile(f, []byte("Add a --json flag to agents status in a.go and b.go."), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	args := []string{"claude", "--profile", "dev", "--model", "auto", "--task", f}
+	args := []string{"claude", "--profile", "dev", "--task", f}
 	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdGatewayResolve(args) })
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if code != 0 || len(lines) != 2 || strings.Contains(lines[0], " auto ") || !strings.HasPrefix(lines[1], "auto: standard (") {

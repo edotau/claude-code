@@ -42,7 +42,7 @@ func TestRotationPickAndPeek(t *testing.T) {
 				t.Fatal(err)
 			}
 			oldPool := RotationPool
-			RotationPool = func(string, string, *providers.Provider, time.Time) []string { return pool }
+			RotationPool = func(string, string, *providers.Provider, bool, time.Time) []string { return pool }
 			t.Cleanup(func() { RotationPool = oldPool })
 			if tc.held != "" && SkipDiscovery(agent, p, tc.held) != tc.held {
 				t.Fatal("SkipDiscovery did not hold the model")
@@ -104,7 +104,7 @@ func TestPickPoolRotatesHonorsSkipAndExpiry(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	p, pool := poolProvider(), []string{"databricks-kimi-k3", "databricks-grok-4-6", "databricks-glm-5-3"}
 	oldPool := RotationPool
-	RotationPool = func(string, string, *providers.Provider, time.Time) []string { return pool }
+	RotationPool = func(string, string, *providers.Provider, bool, time.Time) []string { return pool }
 	t.Cleanup(func() { RotationPool = oldPool })
 	if err := vault.Update(func(tx *vault.Tx) error {
 		return tx.Put(vault.Overlay, vault.PoolKey, `["databricks-kimi-k3","databricks-grok-4-6","databricks-glm-5-3"]`)

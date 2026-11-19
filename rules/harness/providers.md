@@ -53,6 +53,8 @@ paths:
   account (the pin) > the registry default > the agent's own sign-in row. `databricks:<m>` or profile `auto` picks the
   pool before these (first valid workspace in vault order dev, prod, qa; least-busy under `auto`); a pin on the
   agent's own sign-in row (copilot's GitHub row, gemini's Google row) skips the session.
+- `agents ask --model databricks:auto` equals `--provider databricks --model auto`; `<login>/auto` is refused
+  before launch with that login's typed ids named.
 - **`--profile` vs a prefix:** an interactive launch errors naming both; `agents ask` and dispatches let the prefix win
   with a note, but an overlay confinement refuses a prefix outside it.
 - **Spelling:** Databricks rows `databricks-<canonical>` (a bare id gains the prefix only when the workspace lists it);
@@ -88,7 +90,9 @@ cached endpoint listing (`state/harness/preflight/served-<profile>.json`, 24h TT
 Preflight reuses credential-bound successes in router state for 15 minutes (failures and unknowns expire after
 30 seconds and never block a launch); a token must cover the run timeout plus 2 minutes after keepalive or a
 service-principal mint, unless one of those just renewed it (then a note, not a refusal).
-Off, cold or stale reads as the static menu: routing never touches the network.
+Off, cold or stale reads as the static menu for ordinary picks; routing never touches the network.
+Asked auto uses the served listing alone for its pool: cold or stale runs the row's tier model with a note;
+a fresh empty pool or unwritable pick state errors without launching (details: `agent.md` → Model precedence).
 
 - **Refresh:** `make install`, `doctor --refresh`, `models preflight --live`; switched on, also `switch`,
   `<agent> profile`, `configure` exit and a detached `models preflight --refresh`
@@ -99,8 +103,10 @@ Off, cold or stale reads as the static menu: routing never touches the network.
   order is the control. A pinned or explicit model that is not READY is never swapped: its candidate is skipped
   (`<m> is not served on <p>` in `gateway` skips).
 - **Live rescue:** a codex `ENDPOINT_NOT_FOUND` marks the model unserved for 1h and retries once on the next READY
-  Responses model; an exact `--model` never retries. copilot and opencode have none: preflight refuses an unlisted name
+  Responses model; an exact `--model` never retries. Auto picks also recover from model or capability refusals,
+  sharing at most 3 re-picks per ask, never after streamed text or tools. Preflight refuses an unlisted name
   (a cold listing skips the check with a note).
+- An OpenCode own-plan usage limit fails in seconds as `quota`, holding `opencode·go` until its reported reset.
 
 ## Databricks routes (key rule)
 

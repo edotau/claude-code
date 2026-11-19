@@ -397,6 +397,7 @@ type RouteReq struct {
 	Profile, Provider, Lead       string // --profile (a name or LeadSession), --provider, an already-resolved lead
 	Fallback, WorkDir             string
 	Native, Preview               bool
+	AutoModel, Tools              bool
 	Pinned                        bool   // Profile is an explicit backend whatever the fallback (a dispatch's pin)
 	Host                          bool   // Engine runs remotely as one unrouted dispatch (--host)
 	Engine                        Engine // the resolved engine an explicit or --host chain runs on
@@ -533,17 +534,24 @@ func explicitRouteErr(ctx context.Context, q RouteReq) error {
 	if err != nil || q.Agent == "" || q.Profile == "" && !namesProvider(reg, q.Model) {
 		return nil
 	}
-	mq := ModelQuery{Agent: q.Agent, Model: q.Model, Profile: q.Profile}
-	if _, auto := SplitAuto(q.Model); auto || q.Model == "" { // an auto picks what the profile serves, not the opus alias
-		mq.ctx, mq.Model = PeekContext(ctx), cmp.Or(q.Model, AutoModel)
-		_, err = ResolveRun(reg, mq, time.Now())
-	} else {
-		_, err = ResolveModel(reg, mq, time.Now())
+	mq := QueryFor(PeekContext(ctx), ModelQuery{Agent: q.Agent, Model: q.Model, Profile: q.Profile,
+		Task: q.Task, Default: q.AliasHint, Tools: q.Tools})
+	_, asked := SplitAuto(q.Model)
+	asked = asked || q.AutoModel
+	if mq.Model == "" { // an untyped ask is checked against what the profile serves, not the opus alias
+		mq.Model = AutoModel
+	}
+	_, err = ResolveRun(reg, mq, time.Now())
+	if errors.Is(err, ErrPoolExhausted) {
+		if !asked { // only an asked auto stops on an exhausted pool; an untyped ask keeps its tier pick
+			return nil
+		}
+		return err
 	}
 	if errors.Is(err, ErrModelRoute) {
 		return clientUsageError{err}
 	}
-	return nil
+	return err
 }
 
 // explicitEngine is q's engine after its explicit backend passes preflight; a hub agent on a hub profile is its ladder.

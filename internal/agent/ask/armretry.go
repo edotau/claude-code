@@ -24,9 +24,6 @@ const (
 	armCoolMax  = 5 * time.Minute
 )
 
-// askRunner runs the prepared foreground dispatch p (built from req) and reports it; the exit code.
-type askRunner func(ctx context.Context, cl *agent.Client, p *agent.Prepared, req agent.RunOptions) int
-
 // armAutoPick reports whether applying the confinement value makes this process pick the workspace (databricks:auto).
 func armAutoPick(ctx context.Context, value string) bool {
 	provider, p, err := router.ParseCoworker(value)
@@ -40,6 +37,8 @@ type armRetry struct {
 	out                                      io.Writer // where the answer and envelope go
 	job                                      bool      // a --job child: the answer also lands on stdout, the log
 	tried                                    []string  // the workspaces asked so far, in order
+	hops                                     []wire.Hop
+	record                                   *agent.Record
 }
 
 // jobAutoArm reports a --job record whose workspace was an auto pick: its route names the pick, not the intent.
@@ -55,11 +54,11 @@ func (r *askRun) armRun() *armRetry {
 		strict: !r.swap && typedModel(f.model), tried: []string{r.auto}}
 }
 
-// probe keeps the requested chain, yielding only a pre-progress 429 to another usable workspace.
+// probe yields pre-progress workspace failures without widening the requested provider group.
 func (a *armRetry) probe(req agent.RunOptions) agent.RunOptions {
 	req.YieldFallback = func(res wire.Result, err error) bool {
 		e, ok := errors.AsType[*retry.Error](err)
-		return ok && e.Kind == retry.KindRateLimit && agent.HopFailed(res, err) &&
+		return (errors.Is(err, agent.ErrPoolExhausted) || ok && e.Kind == retry.KindRateLimit) && agent.HopFailed(res, err) &&
 			armsLeft(a.agentName, a.model, a.strict, a.tried)
 	}
 	return req
@@ -67,9 +66,10 @@ func (a *armRetry) probe(req agent.RunOptions) agent.RunOptions {
 
 // run executes p, and while its failure is a 429 with another workspace left, re-runs req on the next pick.
 func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared, req agent.RunOptions) int {
+	a.record = &p.Record
 	opts := jobOpts(a.job, a.format, a.out)
 	attempt := opts
-	attempt.Hold = a.job // a job keeps one record: only the last attempt concludes it
+	attempt.Hold = true
 	var held *resultHold
 	p, res, err := a.attempts(ctx, cl, p, req, func(ctx context.Context, p *agent.Prepared) (wire.Result, error) {
 		sink := sinkTo(sinkOut(a.out, a.format, a.save), a.format, p.Record.ID)
@@ -79,17 +79,16 @@ func (a *armRetry) run(ctx context.Context, cl *agent.Client, p *agent.Prepared,
 		}
 		return cl.Exec(ctx, p, sink, attempt)
 	})
-	if a.job {
-		opts.Notify = cl.Notify
-		err = p.Record.Conclude(res, err, opts)
-	}
-	if prep, ok := errors.AsType[*prepareFailure](err); ok {
-		return failAskCode(a.format, a.agentName, prep.err, prepareExitCode(prep.err))
-	}
+	opts.Notify = cl.Notify
+	err = p.Record.Conclude(res, err, opts)
 	if held != nil {
 		a.emitFinal(held, p, res, err)
 	}
-	return reportAsk(a.out, a.format, a.save, p, res, err)
+	code := reportAsk(a.out, a.format, a.save, p, res, err)
+	if prep, ok := errors.AsType[*prepareFailure](err); ok {
+		return prepareExitCode(prep.err)
+	}
+	return code
 }
 
 // resultHold keeps an attempt's result event back so only the last attempt's reaches the stream.
@@ -129,11 +128,14 @@ func (e *prepareFailure) Unwrap() error { return e.err }
 // attempts is the askRun-free workspace retry: exec runs one attempt, a 429 re-prepares req on the next pick.
 func (a *armRetry) attempts(ctx context.Context, cl *agent.Client, p *agent.Prepared, req agent.RunOptions,
 	exec func(context.Context, *agent.Prepared) (wire.Result, error)) (*agent.Prepared, wire.Result, error) {
-	var hops []wire.Hop
+	reserved := false
 	for {
 		res, err := exec(ctx, p)
-		hops = append(hops, res.Hops...)
-		res.Hops = slices.Clone(hops)
+		req.Repicks = p.Opts.Repicks
+		if reserved && !launched(res) {
+			req.Repicks--
+		}
+		res = a.collect(res, err)
 		next, again := a.next(ctx, res, err, req)
 		if !again {
 			if len(a.tried) > 1 && err != nil {
@@ -141,9 +143,11 @@ func (a *armRetry) attempts(ctx context.Context, cl *agent.Client, p *agent.Prep
 			}
 			return p, res, err
 		}
+		reserved = next.Repicks > req.Repicks
 		req = next
-		np, perr := a.prepare(ctx, cl, req, a.claimOf(p))
+		np, perr := a.prepare(ctx, cl, req, a.record)
 		if perr != nil {
+			res.Hops = slices.Clone(a.hops)
 			return p, res, &prepareFailure{perr}
 		}
 		p = np
@@ -151,18 +155,38 @@ func (a *armRetry) attempts(ctx context.Context, cl *agent.Client, p *agent.Prep
 	}
 }
 
-// claimOf is the record the next attempt continues: a --job run keeps its one published record, the rest start anew.
-func (a *armRetry) claimOf(p *agent.Prepared) *agent.Record {
-	if !a.job {
-		return nil
+func (a *armRetry) collect(res wire.Result, err error) wire.Result {
+	if err != nil && len(res.Hops) == 0 {
+		res.Hops = []wire.Hop{{Agent: a.agentName, Account: "databricks·" + a.current(),
+			Profile: a.current(), ErrorKind: wire.ErrorKind(err), NotStarted: true}}
 	}
-	return &p.Record
+	for _, h := range res.Hops {
+		if profile, ok := strings.CutPrefix(h.Account, "databricks·"); ok && h.Profile == "" {
+			h.Profile = profile
+		}
+		a.hops = append(a.hops, h)
+	}
+	res.Hops = slices.Clone(a.hops)
+	return res
 }
 
-// next moves a pre-progress 429 to another workspace; all other outcomes finish the requested chain.
+func launched(res wire.Result) bool {
+	return slices.ContainsFunc(res.Hops, func(h wire.Hop) bool { return !h.NotStarted })
+}
+
+// next moves a pre-progress 429 or exhausted pool within the auto-picked provider group.
 func (a *armRetry) next(ctx context.Context, res wire.Result, err error, req agent.RunOptions) (agent.RunOptions, bool) {
 	if ctx.Err() != nil || !agent.HopFailed(res, err) {
 		return req, false
+	}
+	if errors.Is(err, agent.ErrPoolExhausted) {
+		if req.Repicks >= agent.MaxAutoRepicks || !a.moveExhausted() {
+			return req, false
+		}
+		if launched(res) {
+			req.Repicks++
+		}
+		return req, true
 	}
 	e, ok := errors.AsType[*retry.Error](err)
 	return req, ok && e.Kind == retry.KindRateLimit && a.move(e.RetryAfter)
@@ -177,6 +201,16 @@ func (a *armRetry) move(retryAfter time.Duration) bool {
 		return false
 	}
 	fmt.Fprintf(os.Stderr, "overlay: databricks:auto: %s rate limited, trying %s\n", cur, name)
+	a.tried = append(a.tried, name)
+	return true
+}
+
+func (a *armRetry) moveExhausted() bool {
+	name, err := nextArm(a.agentName, a.model, a.strict, a.tried)
+	if err != nil {
+		return false
+	}
+	fmt.Fprintf(os.Stderr, "overlay: databricks:auto: %s pool exhausted, trying %s\n", a.current(), name)
 	a.tried = append(a.tried, name)
 	return true
 }
@@ -221,11 +255,24 @@ var armPrepare = (*agent.Client).Prepare
 // prepare is cl.Prepare of req on this run's current workspace: its own values, so no other run sees the move.
 func (a *armRetry) prepare(ctx context.Context, cl *agent.Client, req agent.RunOptions,
 	claim *agent.Record) (*agent.Prepared, error) {
+	if a == nil {
+		return cl.Prepare(ctx, req, claim)
+	}
 	if req.Values == nil {
 		_, req.Values = agent.RunValues(ctx, nil)
 	}
-	req.Values = req.Values.Merge(armValues(a.current()))
-	return armPrepare(cl, ctx, req, claim)
+	for {
+		req.Values = req.Values.Merge(armValues(a.current()))
+		p, err := armPrepare(cl, ctx, req, claim)
+		if err == nil {
+			return p, nil
+		}
+		a.hops = append(a.hops, wire.Hop{Agent: a.agentName, Account: "databricks·" + a.current(),
+			Profile: a.current(), ErrorKind: wire.ErrorKind(err), NotStarted: true})
+		if ctx.Err() != nil || !errors.Is(err, agent.ErrPoolExhausted) || !a.moveExhausted() {
+			return nil, err
+		}
+	}
 }
 
 // ranOn is wire.RanOn plus " · tried a → b" when a run moved across Databricks workspaces.

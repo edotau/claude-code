@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -34,19 +35,19 @@ func Peeking(ctx context.Context) bool { v, _ := ctx.Value(peekKey{}).(bool); re
 var rotationTiers = map[string]string{models.Haiku: "fast", models.Sonnet: "standard", models.Opus: "deep"}
 
 // rotationPool is the served models agent runs on p that meet alias's rotation rule; "" alias is every tier's union.
-func rotationPool(agentName, alias string, p *providers.Provider, now time.Time) []string {
+func rotationPool(agentName, alias string, p *providers.Provider, tools bool, now time.Time) []string {
 	reg, err := providers.LoadShared()
 	if err != nil || !router.RotationRow(p) {
 		return nil
 	}
-	cands := rotationCandidates(reg, agentName, p, now)
+	cands := rotationCandidates(reg, agentName, p, tools, now)
 	tiers := []string{"fast", "standard", "deep"}
 	if t := rotationTiers[alias]; t != "" {
 		tiers = []string{t}
 	}
 	var out []string
 	for _, t := range tiers {
-		for _, m := range catalog.RotationPool(cands, t, false) {
+		for _, m := range catalog.RotationPool(cands, t, tools) {
 			if !slices.Contains(out, m) {
 				out = append(out, m)
 			}
@@ -61,10 +62,10 @@ func rotationPool(agentName, alias string, p *providers.Provider, now time.Time)
 }
 
 // rotationCandidates is p's served chat models agent runs: a Databricks listing, else the Copilot catalog snapshot.
-func rotationCandidates(reg *providers.Registry, agentName string, p *providers.Provider, now time.Time) []catalog.Candidate {
+func rotationCandidates(reg *providers.Registry, agentName string, p *providers.Provider, tools bool, now time.Time) []catalog.Candidate {
 	if p.Preset == providers.PresetDatabricks {
 		menu := providers.OpencodeMenu()
-		cands, _ := autoCandidates(reg, ModelQuery{Agent: agentName, menu: &menu}, p, now)
+		cands, _ := autoCandidates(reg, ModelQuery{Agent: agentName, Tools: tools, menu: &menu}, p, now)
 		if agentName == agentid.OpenCode {
 			return opencodeRunnable(p, cands)
 		}
@@ -74,9 +75,13 @@ func rotationCandidates(reg *providers.Registry, agentName string, p *providers.
 		return nil
 	}
 	var out []catalog.Candidate
+	var probes map[string]serving.CheckResult
+	if tools {
+		probes, _ = catalog.LoadCheckCache(p.Name)
+	}
 	for _, id := range router.GithubCatalogIDs(p) {
 		if catalog.ID(id) != AutoModel { // Copilot's own auto router is no model to rotate onto
-			out = append(out, catalog.Candidate{Model: id})
+			out = append(out, catalog.Candidate{Model: id, Tools: probes[catalog.ID(id)].Tools})
 		}
 	}
 	return out
@@ -115,19 +120,19 @@ func rotationRows(reg *providers.Registry, agentName string) []*providers.Provid
 
 // RotationModel is agent's next rotation model at alias across its rows; stamp records the pick, else it only peeks.
 func RotationModel(reg *providers.Registry, agentName, alias string, stamp bool, now time.Time) (string, string, error) {
-	return rotationModelOn(rotationRows(reg, agentName), agentName, alias, stamp, now)
+	return rotationModelOn(rotationRows(reg, agentName), agentName, alias, stamp, false, now)
 }
 
 // rotationModelOn is RotationModel over the given rows.
-func rotationModelOn(rows []*providers.Provider, agentName, alias string, stamp bool, now time.Time) (string, string, error) {
+func rotationModelOn(rows []*providers.Provider, agentName, alias string, stamp, tools bool, now time.Time) (string, string, error) {
 	if len(rows) == 0 {
 		return "", "", nil
 	}
 	st := router.LoadState()
 	var pool []string
 	for _, p := range rows {
-		for _, m := range rotationPool(agentName, alias, p, now) {
-			if !slices.Contains(pool, m) && !st.ModelDead(router.AccountOf(p), m, now) {
+		for _, m := range rotationPool(agentName, alias, p, tools, now) {
+			if !slices.Contains(pool, m) && (len(rows) == 1 || !st.ModelDead(router.AccountOf(p), m, now)) {
 				pool = append(pool, m)
 			}
 		}
@@ -155,8 +160,8 @@ func takeable(e router.Entry, agentName string, p *providers.Provider, pool []st
 		pool = router.ServedPool(p, pool, now)
 	}
 	return len(pool) - len(slices.DeleteFunc(slices.Clone(pool), func(m string) bool {
-		at, ok := e.DiscoverySkip[router.DiscoverySkipKey(agentName, m)]
-		return !ok || now.Sub(at) >= router.DiscoverySkipTTL
+		held, _ := heldUntil(e, router.DiscoverySkipKey(agentName, m), m, now)
+		return !held
 	}))
 }
 
@@ -179,7 +184,7 @@ func RotationMembers(agentName, profile, tier string, now time.Time) []PoolMembe
 	if !router.RotationRow(p) {
 		return nil
 	}
-	entries := router.ServedPool(p, rotationPool(agentName, cmp.Or(tierAliases[tier], models.Sonnet), p, now), now)
+	entries := router.ServedPool(p, rotationPool(agentName, cmp.Or(tierAliases[tier], models.Sonnet), p, false, now), now)
 	st := router.LoadState()
 	account, hist := router.AccountOf(p), router.AccountOf(p)
 	if p.Preset == providers.PresetDatabricks {
@@ -236,28 +241,72 @@ func timeOf(t *time.Time) time.Time {
 	return *t
 }
 
-// rotationPick is an asked auto's tier-pool pick on base's row; false (no pool, error) keeps the ranked pick.
-func rotationPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need autoNeed, c *AutoChoice, now time.Time) (ModelRoute, bool) {
-	p := reg.Row(base.Profile)
+// ErrPoolExhausted marks a fresh rotation pool with no eligible model.
+var ErrPoolExhausted = fmt.Errorf("%w: auto pool exhausted", ErrModelRoute)
+
+type autoStopError struct{ error }
+
+func (e autoStopError) Unwrap() error { return e.error }
+
+func freshRotation(p *providers.Provider, now time.Time) bool {
 	if !router.RotationRow(p) {
-		return base, false
+		return false
+	}
+	if p.Preset == providers.PresetDatabricks {
+		listing, _ := router.LoadServed(p.Name)
+		return listing.Fresh(now)
+	}
+	return router.GithubCatalogTime != nil && now.Sub(router.GithubCatalogTime(p)) < serving.CacheTTL()
+}
+
+// rotationPick keeps a cold listing on the tier fallback and refuses an exhausted fresh pool.
+func rotationPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need autoNeed, c *AutoChoice, now time.Time) (ModelRoute, bool, error) {
+	p := reg.Row(base.Profile)
+	if !freshRotation(p, now) {
+		return base, false, nil
 	}
 	alias := cmp.Or(tierAliases[need.tier], models.Sonnet)
 	stamp := q.ctx == nil || !Peeking(q.ctx)
-	m, note, err := rotationModelOn([]*providers.Provider{p}, q.Agent, alias, stamp, now)
-	if err != nil || m == "" {
-		return base, false
+	m, note, err := rotationModelOn([]*providers.Provider{p}, q.Agent, alias, stamp, q.Tools, now)
+	if err != nil {
+		return base, true, autoStopError{fmt.Errorf("auto pick state: %w", err)}
+	}
+	if m == "" && alias != models.Sonnet && len(heldIn(q.Agent, alias, p, q.Tools, now)) == 0 {
+		alias = models.Sonnet // the row serves nothing in this tier: step to standard, as the tier ladder does
+		if m, note, err = rotationModelOn([]*providers.Provider{p}, q.Agent, alias, stamp, q.Tools, now); err != nil {
+			return base, true, autoStopError{fmt.Errorf("auto pick state: %w", err)}
+		}
+	}
+	if m == "" {
+		return base, true, exhaustedPool(q.Agent, alias, p, q.Tools, now)
 	}
 	pq := q
 	pq.Model, pq.Profile, pq.Default = base.Profile+":"+m, "", ""
 	r, err := ResolveModel(reg, pq, now)
 	if err != nil {
-		return base, false
+		return base, true, err
 	}
 	r.Source, c.Model, c.Criterion = base.Source, r.Model, "rotation"
 	r.Note = joinNotes(routeNote(base.Note), r.Note, note)
 	r.Effort = autoEffort(r.Effort, q.Agent, need)
-	return r, true
+	return r, true, nil
+}
+
+func exhaustedPool(agentName, alias string, p *providers.Provider, tools bool, now time.Time) error {
+	held := heldIn(agentName, alias, p, tools, now)
+	return fmt.Errorf("%w on %s; held ids: %s", ErrPoolExhausted, p.Name, cmp.Or(strings.Join(held, ", "), "none"))
+}
+
+// heldIn is the pool ids of alias's tier on p that a skip or hold keeps out of the pick.
+func heldIn(agentName, alias string, p *providers.Provider, tools bool, now time.Time) []string {
+	e := router.LoadState()[router.AccountOf(p)]
+	var held []string
+	for _, id := range rotationPool(agentName, alias, p, tools, now) {
+		if yes, _ := heldUntil(e, router.DiscoverySkipKey(agentName, id), id, now); yes {
+			held = append(held, id)
+		}
+	}
+	return held
 }
 
 // rotationNote names the pick, its tier and pool size, plus R5's review rule for a cheap or new-family author.
@@ -301,7 +350,7 @@ func RotationSummary(agentName string, now time.Time) string {
 	for _, alias := range []string{models.Haiku, models.Sonnet, models.Opus} {
 		n := 0
 		for _, p := range rows {
-			n = max(n, len(rotationPool(agentName, alias, p, now)))
+			n = max(n, len(rotationPool(agentName, alias, p, false, now)))
 		}
 		sizes = append(sizes, fmt.Sprintf("%s %d", rotationTiers[alias], n))
 	}
@@ -311,9 +360,16 @@ func RotationSummary(agentName string, now time.Time) string {
 // recentPicks is agent's last 7 days of runs counted by model, top four: "kimi-k3 3, gpt-6-2-sol 2".
 func recentPicks(agentName string, now time.Time) string {
 	counts := map[string]int{}
+	routes := map[string]int{}
 	_ = eachRecent(paths.DispatchDir(), jsonToken(agentName), func(r Record) bool { // an unreadable dir lists none
 		m := cmp.Or(r.Invoked, r.Model)
-		if r.Agent != agentName || m == "" || now.Sub(r.Time) >= 7*24*time.Hour {
+		if r.Agent != agentName || now.Sub(r.Time) >= 7*24*time.Hour {
+			return true
+		}
+		if r.RanRoute != "" {
+			routes[strings.TrimPrefix(r.RanRoute, "databricks:")]++
+		}
+		if m == "" {
 			return true
 		}
 		if _, after, ok := strings.Cut(m, ":"); ok {
@@ -327,5 +383,13 @@ func recentPicks(agentName string, now time.Time) string {
 	for _, k := range keys[:min(len(keys), 4)] {
 		out = append(out, fmt.Sprintf("%s %d", k, counts[k]))
 	}
-	return cmp.Or(strings.Join(out, ", "), "no runs")
+	summary := cmp.Or(strings.Join(out, ", "), "no runs")
+	var routeCounts []string
+	for _, route := range slices.Sorted(maps.Keys(routes)) {
+		routeCounts = append(routeCounts, fmt.Sprintf("%s %d", route, routes[route]))
+	}
+	if len(routeCounts) > 0 {
+		summary += "; routes " + strings.Join(routeCounts, ", ")
+	}
+	return summary
 }

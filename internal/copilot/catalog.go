@@ -91,7 +91,7 @@ func readCatalogSnapshot(auth copilotAuth, tok string) (catalogSnapshot, bool) {
 		return catalogSnapshot{}, false
 	}
 	var s catalogSnapshot
-	if json.Unmarshal([]byte(raw), &s) != nil || s.Schema != 1 || s.DiscoveredAt.IsZero() || len(s.Models) == 0 ||
+	if json.Unmarshal([]byte(raw), &s) != nil || s.Schema != 1 || s.DiscoveredAt.IsZero() ||
 		s.Account != auth.Account || s.Source != auth.Source || s.TokenHash != textutil.SHA256Hex([]byte(tok)) {
 		return catalogSnapshot{}, false
 	}
@@ -144,13 +144,23 @@ func Catalog(ctx context.Context) ([]SDKModel, error) {
 
 var (
 	snapshotMu  sync.Mutex
-	snapshotMap = map[string][]string{} // per row login, read once per process on its first family name
+	snapshotMap = map[string]catalogIDs{} // per row login, read once per process on its first family name
 )
 
-func init() { router.GithubCatalogIDs = snapshotIDs }
+type catalogIDs struct {
+	ids []string
+	at  time.Time
+}
+
+func init() {
+	router.GithubCatalogIDs = snapshotIDs
+	router.GithubCatalogTime = func(p *providers.Provider) time.Time { return snapshotFor(p).at }
+}
 
 // snapshotIDs is readSnapshotIDs for p's login, memoized per login.
-func snapshotIDs(p *providers.Provider) []string {
+func snapshotIDs(p *providers.Provider) []string { return snapshotFor(p).ids }
+
+func snapshotFor(p *providers.Provider) catalogIDs {
 	login := ""
 	if p != nil {
 		login = p.Login
@@ -165,15 +175,15 @@ func snapshotIDs(p *providers.Provider) []string {
 	return ids
 }
 
-// readSnapshotIDs is the enabled ids of the sealed snapshot of the account a launch on login uses; nil on a miss.
-func readSnapshotIDs(login string) []string {
+// readSnapshotIDs preserves the sealed snapshot timestamp even when no model is enabled.
+func readSnapshotIDs(login string) catalogIDs {
 	auth, tok, ok, err := catalogAuth(login)
 	if !ok || err != nil {
-		return nil
+		return catalogIDs{}
 	}
 	s, hit := readCatalogSnapshot(auth, tok)
 	if !hit {
-		return nil
+		return catalogIDs{}
 	}
 	var ids []string
 	for _, m := range s.Models {
@@ -181,7 +191,7 @@ func readSnapshotIDs(login string) []string {
 			ids = append(ids, m.ID)
 		}
 	}
-	return ids
+	return catalogIDs{ids: ids, at: s.DiscoveredAt}
 }
 
 // spawnCatalogRefresh starts a detached discovery for copilot's own GitHub profile, when the registry names one.

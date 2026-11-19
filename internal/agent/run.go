@@ -219,7 +219,7 @@ func (clientUsageError) ExitCode() int { return 2 }
 func (c *Client) route(ctx context.Context, r Engine, o RunOptions) (Chain, error) {
 	chain, _, err := Resolve(ctx, RouteReq{Agent: o.Agent, Model: o.Model, AliasHint: c.alias(o.Prompt), Task: o.Prompt,
 		Profile: o.Provider, Lead: o.Lead, Fallback: o.Fallback, WorkDir: o.WorkDir, Native: o.Native, Pinned: true,
-		Host: o.Host != "", Engine: r, Refresh: c.Refresh})
+		Host: o.Host != "", Engine: r, Refresh: c.Refresh, AutoModel: o.AutoModel, Tools: o.Tools})
 	return chain, err
 }
 
@@ -259,6 +259,7 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 	}
 	ctx, _ = RunValues(ctx, p.Opts.Values)
 	ctx = withUnsetEnv(ctx, p.Opts.Unset)
+	ctx = context.WithValue(ctx, repickBudgetKey{}, &p.Opts.Repicks)
 	if p.pack != nil {
 		if err := p.pack.write(); err != nil {
 			res := wire.Result{Agent: p.Chain.Want, Status: wire.StatusError, DispatchID: p.Record.ID}
@@ -512,7 +513,18 @@ func runPolicy(ctx context.Context, req RunOptions, notify func(string)) retry.P
 const DefaultToolsTimeout = 15 * time.Minute
 
 // RunOptions is one task. Model may be a model alias, a model id, or provider:model.
+type repickBudgetKey struct{}
+
+func repickSpent(ctx context.Context, count int) int {
+	if spent, ok := ctx.Value(repickBudgetKey{}).(*int); ok {
+		*spent = max(*spent, count)
+		return *spent
+	}
+	return count
+}
+
 type RunOptions struct {
+	Repicks                                             int         `json:"-"`
 	BudgetUSD                                           *float64    `json:"-"`
 	BudgetCredits                                       *int        `json:"-"`
 	Values                                              proc.Values `json:"-"`

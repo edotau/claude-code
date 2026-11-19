@@ -546,9 +546,9 @@ func (r *askRun) execute() int {
 	warnAskMemory(r.ag, f.enableMemory)
 	f.debugFile = absDebugFile(f.debugFile)
 	prompt = join()
-	req, run := r.request(prompt), askRunner(nil)
-	if a := r.armRun(); a != nil {
-		req, run = a.probe(req), a.run
+	req, run := r.request(prompt), r.armRun()
+	if run != nil {
+		req = run.probe(req)
 	}
 	return askPrepareAndRun(r.dryCtx(ctx, prompt), r.fs, req, r.jobRec, r.ov, f.env, f.keepEnv, f.as, f.format, f.save, f.name, f.background, f.native, run, r.out)
 }
@@ -574,7 +574,7 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 
 // askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches or runs it and reports.
 func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, doc agentconfig.Overlay,
-	env, keepEnv []string, as, format, save, name string, background, native bool, run askRunner, out io.Writer) int {
+	env, keepEnv []string, as, format, save, name string, background, native bool, run *armRetry, out io.Writer) int {
 	ov, err := resolveOverlay(doc, env, keepEnv, background)
 	if err != nil {
 		return failAskCode(format, name, err, 2)
@@ -589,7 +589,7 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 		return dryRun(ctx, req, dry, format, out)
 	}
 	go warmMask() // resolve the vault key while Prepare runs
-	prepared, err := cl.Prepare(ctx, req, jobRec)
+	prepared, err := run.prepare(ctx, cl, req, jobRec)
 	if err != nil {
 		return failAskCode(format, name, err, prepareExitCode(err))
 	}
@@ -604,7 +604,7 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 		return askSpawn(ctx, fs, prepared, native, format, name)
 	}
 	if run != nil {
-		return run(ctx, cl, prepared, req)
+		return run.run(ctx, cl, prepared, req)
 	}
 	return runAskAndReport(ctx, cl, prepared, jobRec != nil, format, save, out)
 }

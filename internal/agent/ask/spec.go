@@ -225,7 +225,11 @@ func dryRun(ctx context.Context, req agent.RunOptions, base dryDoc, format strin
 	}
 	doc := base
 	doc.Agent, doc.Model, doc.Hops, doc.Permissions = o.Agent, o.Model, ch.Hops(), permLine(o.Permissions)
-	if r, ok := dryRoute(ctx, o, req); ok {
+	r, ok, err := dryRoute(ctx, o, req)
+	if err != nil {
+		return failAskCode(format, req.Agent, err, prepareExitCode(err))
+	}
+	if ok {
 		doc.Model, doc.Route = cmp.Or(o.Model, r.Model), r.Line()
 		doc.Hops = firstHopOnRoute(ch, r.Model)
 	}
@@ -246,25 +250,25 @@ func firstHopOnRoute(ch agent.Chain, model string) []string {
 }
 
 // dryRoute is the first hop's route, from the calls `gateway resolve` makes; ok is false when it cannot resolve.
-func dryRoute(ctx context.Context, o, req agent.RunOptions) (agent.ModelRoute, bool) {
+func dryRoute(ctx context.Context, o, req agent.RunOptions) (agent.ModelRoute, bool, error) {
 	ctx = agent.PeekContext(ctx)
 	reg, err := providers.Load()
 	if err != nil {
-		return agent.ModelRoute{}, false
+		return agent.ModelRoute{}, false, err
 	}
 	q := agent.QueryFor(ctx, agent.ModelQuery{Agent: o.Agent, Model: req.Model, Profile: cmp.Or(req.Provider, req.Lead), Account: req.Account,
 		Effort: req.Effort, Fallback: o.Fallback, Task: o.Prompt, Tools: o.Tools,
 		Held: req.Background || req.SessionID != "" || req.Host != ""})
 	hop, note, err := agent.RunQuery(ctx, reg, q, router.RuleClassifier{}.Alias(o.Prompt))
 	if err != nil {
-		return agent.ModelRoute{}, false
+		return agent.ModelRoute{}, false, err
 	}
 	r, _, err := agent.ExplainRun(reg, agent.QueryFor(ctx, hop), time.Now())
 	if err != nil {
-		return agent.ModelRoute{}, false
+		return agent.ModelRoute{}, false, err
 	}
 	r.Note = strings.Join(slices.DeleteFunc([]string{note, r.Note}, func(s string) bool { return s == "" }), "; ")
-	return r, true
+	return r, true, nil
 }
 
 func (d dryDoc) print(format string, out io.Writer) int {

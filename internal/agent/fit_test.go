@@ -21,21 +21,20 @@ func TestFitOutcomes(t *testing.T) {
 	}
 }
 
-// In shadow a failing cell changes no pick; the label only gains the score.
+// In shadow a failing cell changes no pick; the choice only gains the score (an implicit auto's route note stays empty).
 func TestAutoLabelFitShadow(t *testing.T) {
 	reg, _, _ := autoFixture(t)
-	rankedOnly(t)
-	q := ModelQuery{Agent: "opencode", Model: "dev:auto", Profile: "dev", Task: standardBrief}
-	before, err := ResolveRun(reg, q, time.Now())
-	if err != nil {
+	q := ModelQuery{Agent: "opencode", Profile: "dev", Task: standardBrief}
+	before, bc, err := ExplainRun(reg, q, time.Now())
+	if err != nil || bc == nil {
 		t.Fatal(err)
 	}
 	cell := catalog.FitCell{Alias: "sonnet", Agent: "opencode", Match: catalog.RankOf(before.Model).Match, B: 9, At: time.Now()}
 	if err := catalog.SaveFit(catalog.Fit{Schema: 1, Created: time.Now(), Cells: []catalog.FitCell{cell}}); err != nil {
 		t.Fatal(err)
 	}
-	after, err := ResolveRun(reg, q, time.Now())
-	if err != nil || after.Model != before.Model || !strings.HasPrefix(after.Note, before.Note) || !strings.Contains(after.Note, "fit 0.") || !strings.HasSuffix(after.Note, "(shadow)") {
-		t.Errorf("shadow label: %q (%v), want %q unchanged plus the fit score", after.Note, err, before.Note)
+	after, ac, err := ExplainRun(reg, q, time.Now())
+	if err != nil || ac == nil || after.Model != before.Model || !strings.HasPrefix(ac.Reason(), bc.Reason()) || !strings.Contains(ac.Reason(), "fit 0.") || !strings.HasSuffix(ac.Reason(), "(shadow)") {
+		t.Errorf("shadow choice: %v (%v), want %q unchanged plus the fit score", ac, err, bc.Reason())
 	}
 }
