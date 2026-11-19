@@ -143,7 +143,7 @@ func (c *SummaryCache) Save() error {
 		if err != nil {
 			return err
 		}
-		return paths.AtomicWrite(c.path, raw, 0o600)
+		return paths.AtomicWriteNoSync(c.path, raw, 0o600)
 	})
 }
 

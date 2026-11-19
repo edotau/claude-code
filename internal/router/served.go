@@ -277,7 +277,7 @@ func SaveServed(s Served, keep ...func(cur Served) bool) error {
 				return nil
 			}
 		}
-		return paths.WriteJSON(path, s)
+		return paths.WriteJSONNoSync(path, s)
 	})
 }
 

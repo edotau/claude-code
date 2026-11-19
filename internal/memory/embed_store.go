@@ -418,7 +418,7 @@ func refreshEmbeddings(root, profile string, now time.Time) bool {
 		if refreshStampFresh(stamp, now) || !vectorStore.RefreshDue(now) {
 			return nil
 		}
-		if err := paths.AtomicWrite(stamp, nil, 0o600); err != nil {
+		if err := paths.AtomicWriteNoSync(stamp, nil, 0o600); err != nil {
 			return err
 		}
 		spawned = spawn.refresh(root, profile)

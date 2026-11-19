@@ -136,7 +136,7 @@ type machinesCache struct {
 
 // WriteMachinesCache records a successful --machines listing; best-effort, errors are dropped.
 func WriteMachinesCache(names []string) {
-	_ = paths.WriteJSON(machinesCachePath(), machinesCache{Schema: machinesCacheSchema, At: time.Now(), Names: names})
+	_ = paths.WriteJSONNoSync(machinesCachePath(), machinesCache{Schema: machinesCacheSchema, At: time.Now(), Names: names})
 }
 
 // CachedMachineNames reads the --machines cache when fresh, else nil: Tab completion has no budget for calls.

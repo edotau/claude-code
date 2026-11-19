@@ -79,7 +79,7 @@ func upstreamLatest(ctx context.Context, key, path, accept string, parse func([]
 	}
 	c.Schema = upstreamSchema
 	c.Entries[key] = upstreamEntry{At: time.Now(), Value: val}
-	_ = paths.WriteJSON(upstreamPath(), c) // best effort: a failed write only costs the next call
+	_ = paths.WriteJSONNoSync(upstreamPath(), c) // best effort: a failed write only costs the next call
 	return val, nil
 }
 

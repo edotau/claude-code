@@ -222,7 +222,7 @@ func readClaudeOwnerSidecar() string {
 
 // writeClaudeOwnerSidecar records creds' owner after a live credential read; best-effort, a miss only hides the cache.
 func writeClaudeOwnerSidecar(creds claudeOAuthCreds) {
-	_ = paths.AtomicWrite(claudeOwnerSidecarPath(), []byte(claudeOwner(creds)+"\n"), 0o600)
+	_ = paths.AtomicWriteNoSync(claudeOwnerSidecarPath(), []byte(claudeOwner(creds)+"\n"), 0o600)
 }
 
 // claudeCacheDir overrides the usage cache dir (tests); empty resolves state/harness/cache at call time.

@@ -226,7 +226,7 @@ func writeVersionCache(path, key, line string) {
 		if err != nil {
 			return err
 		}
-		return paths.AtomicWrite(versionCacheFile(), data, 0o600)
+		return paths.AtomicWriteNoSync(versionCacheFile(), data, 0o600)
 	})
 }
 

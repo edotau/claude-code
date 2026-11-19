@@ -366,7 +366,7 @@ func embedQuery(parent context.Context, query string) (*Semantic, error) {
 	backoff := embedBackoffPath(profile)
 	pause := func() { // the caller's cancel or deadline says nothing about the endpoint
 		if parent.Err() == nil {
-			_ = paths.AtomicWrite(backoff, nil, 0o600)
+			_ = paths.AtomicWriteNoSync(backoff, nil, 0o600)
 		}
 	}
 	done := make(chan semanticResult, 1)

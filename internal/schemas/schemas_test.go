@@ -115,7 +115,7 @@ func TestDecodeNullIsErrorNotPanic(t *testing.T) {
 
 var writeCalls = map[string]bool{
 	"os.WriteFile": true, "os.Create": true, "os.CreateTemp": true, "os.OpenFile": true,
-	"paths.AtomicWrite": true, "paths.AtomicWriteNoSync": true, "paths.AppendLine": true, "paths.WriteIfChanged": true, "paths.WriteJSON": true, "paths.Backup": true,
+	"paths.AtomicWrite": true, "paths.AtomicWriteNoSync": true, "paths.AppendLine": true, "paths.WriteIfChanged": true, "paths.WriteJSON": true, "paths.WriteJSONNoSync": true, "paths.Backup": true,
 	"paths.WriteIfUnchanged": true,
 }
 

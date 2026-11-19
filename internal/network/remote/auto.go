@@ -62,7 +62,7 @@ func ResolveAuto(host string) (string, error) {
 	}
 	switch up := answering(peers); len(up) {
 	case 1:
-		_ = paths.WriteJSON(autoHostFile(), autoHost{Schema: autoHostSchema, At: time.Now(), Host: up[0]})
+		_ = paths.WriteJSONNoSync(autoHostFile(), autoHost{Schema: autoHostSchema, At: time.Now(), Host: up[0]})
 		return up[0], nil
 	case 0:
 		return "", fmt.Errorf("auto: no other online machine answers `claude-code version` over ssh (tried: %s); %s",

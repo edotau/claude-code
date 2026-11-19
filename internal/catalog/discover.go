@@ -98,7 +98,7 @@ func ClaimEvery(name string, every time.Duration, now time.Time) bool {
 			claimed = false
 			return nil
 		}
-		return paths.AtomicWrite(path, nil, 0o600)
+		return paths.AtomicWriteNoSync(path, nil, 0o600)
 	})
 	_ = err // best effort: an unwritable stamp or lock must not stop the refresh
 	return claimed

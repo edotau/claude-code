@@ -214,7 +214,7 @@ func CheckCachePath() string { return filepath.Join(paths.StateDir(), "opencode-
 // SaveCheckCache writes c (no secrets) with mode 0600.
 func SaveCheckCache(c CheckCache) error {
 	c.Schema = checkCacheSchema
-	return paths.WriteJSON(CheckCachePath(), c)
+	return paths.WriteJSONNoSync(CheckCachePath(), c)
 }
 
 // LoadCheckCache returns the cached results by id when the cache exists and belongs to provider.

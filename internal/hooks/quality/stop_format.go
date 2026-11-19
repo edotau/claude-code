@@ -74,7 +74,7 @@ func StopFormat(in *core.Input) core.Result {
 		out := stampFile{Schema: stopFormatSchema, Stamps: carry, Transcript: in.TranscriptPath, Offset: scan.Offset, Sum: scan.Sum, Edited: edited}
 		if stampChanged(prev, out) {
 			if data, err := json.Marshal(out); err == nil {
-				_ = paths.AtomicWrite(stampPath, data, 0o600)
+				_ = paths.AtomicWriteNoSync(stampPath, data, 0o600)
 			}
 		}
 	}

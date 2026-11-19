@@ -527,7 +527,7 @@ func resetSeen(sessionID, surface string) {
 	}
 	<-pruned
 	_ = os.MkdirAll(filepath.Dir(p), 0o700)
-	_ = paths.AtomicWrite(p, []byte(b.String()), 0o600)
+	_ = paths.AtomicWriteNoSync(p, []byte(b.String()), 0o600)
 }
 
 // seenBlocks returns sessionID's seen set: blocks already in the conversation's context.
