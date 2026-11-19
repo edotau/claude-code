@@ -174,8 +174,8 @@ func TestResolveHost_RejectsOptionShapedHost(t *testing.T) {
 }
 
 func TestMatchMachine(t *testing.T) {
-	names := []string{"", "devhost.tail.ts.net", "WKS.other.ts.net", "bare"}
-	for host, want := range map[string]string{"devhost": "devhost.tail.ts.net", "WKS.OTHER.TS.NET": "WKS.other.ts.net",
+	names := []string{"", "devhost.tail.ts.net", "HOST2.other.ts.net", "bare"}
+	for host, want := range map[string]string{"devhost": "devhost.tail.ts.net", "HOST2.OTHER.TS.NET": "HOST2.other.ts.net",
 		"Bare": "bare"} {
 		if got, ok := matchMachine(names, host); !ok || got != want {
 			t.Errorf("MatchMachine(%q) = %q, %v; want %q", host, got, ok, want)
