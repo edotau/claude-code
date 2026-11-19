@@ -408,12 +408,12 @@ func emitLabel(row hooks.LabelRow, runText, model, profile, task string) int {
 	return printLabel(row.Label)
 }
 
-// freezeLabelRotation stamps a rotate pick into --run's model; a typed model, spec or profile (pinned) never freezes.
+// freezeLabelRotation makes the Run: line carry the same rotation pick as the label.
 func freezeLabelRotation(run bool, pinned, typ, task string, model *string) {
-	if !run || *model != "" || pinned != "" {
+	if !run || pinned != "" || (*model != "" && *model != agent.AutoModel) {
 		return
 	}
-	if m, note := agent.RotationFreeze(context.Background(), typ, task); m != "" {
+	if m, note := agent.RotationFreeze(context.Background(), typ, task, *model); m != "" {
 		*model = m // The Run: line carries the pick so the label and run agree.
 		fmt.Fprintln(os.Stderr, "agents label: "+note)
 	}

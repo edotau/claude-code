@@ -233,6 +233,7 @@ func dryRun(ctx context.Context, req agent.RunOptions, base dryDoc, format strin
 
 // dryRoute is the first hop's route, from the calls `gateway resolve` makes; ok is false when it cannot resolve.
 func dryRoute(ctx context.Context, o, req agent.RunOptions) (agent.ModelRoute, bool) {
+	ctx = agent.PeekContext(ctx)
 	reg, err := providers.Load()
 	if err != nil {
 		return agent.ModelRoute{}, false

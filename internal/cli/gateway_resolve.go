@@ -142,6 +142,7 @@ var resolveRunQuery = agent.RunQuery
 // resolveFirstHop resolves q as the run's first hop does: an untyped external agent takes the ladder, like the label.
 func resolveFirstHop(ctx context.Context, reg *providers.Registry, q agent.ModelQuery, task string,
 ) (agent.ModelRoute, *agent.AutoChoice, error) {
+	ctx = agent.PeekContext(ctx)
 	hop, note, err := resolveRunQuery(ctx, reg, q, router.RuleClassifier{}.Alias(task))
 	if err != nil {
 		return agent.ModelRoute{}, nil, err
@@ -202,6 +203,7 @@ func printRoute(r agent.ModelRoute, choice *agent.AutoChoice, format string) int
 
 // resolveAll resolves q on every profile, optionally live-checking each that resolved.
 func resolveAll(ctx context.Context, reg *providers.Registry, q agent.ModelQuery, live bool) []resolveRow {
+	q = agent.QueryFor(agent.PeekContext(ctx), q)
 	spec, err := providers.SplitModelSpec(reg, q.Model)
 	if err == nil {
 		q.Model = spec.Model

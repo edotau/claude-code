@@ -162,9 +162,8 @@ func rotationNote(m, alias string, n int, verb string) string {
 }
 
 // RotationFreeze records agent's next pick for brief's task tier: the --model a Run: line freezes so label == run.
-func RotationFreeze(ctx context.Context, agentName, brief string) (string, string) {
-	pin := agentModelPinContext(ctx, agentName)
-	if prefix, auto := SplitAuto(pin); pin != router.DiscoveryModel && (!auto || prefix != "") {
+func RotationFreeze(ctx context.Context, agentName, brief, model string) (string, string) {
+	if prefix, auto := SplitAuto(cmp.Or(model, agentModelPinContext(ctx, agentName))); !auto || prefix != "" {
 		return "", ""
 	}
 	reg, err := providers.LoadShared()

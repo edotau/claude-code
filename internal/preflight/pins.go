@@ -85,7 +85,7 @@ func Check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
 func loginRow(a, profile, model string, now time.Time) Pin {
 	src := map[bool]string{true: "pool", false: "own login"}[strings.TrimSpace(profile) == agent.PoolPin]
 	row := Pin{Agent: a, Profile: profile, ProfileSource: src, Model: model, Served: "n/a", Status: StatusOK}
-	if model == router.DiscoveryModel {
+	if model == agent.AutoModel {
 		row.Detail = agent.RotationSummary(a, now)
 	}
 	return row
@@ -149,10 +149,10 @@ func checkProfile(reg *providers.Registry, p Pin, name string, now time.Time) Pi
 		p.Fix = "claude-code configure provider --list " + p.Profile
 		return p
 	}
-	if prov.Preset == providers.PresetDatabricks && p.Model != router.DiscoveryModel {
+	if prov.Preset == providers.PresetDatabricks && p.Model != agent.AutoModel {
 		checkServed(&p, prov, name, now)
 	}
-	if p.Model == router.DiscoveryModel {
+	if p.Model == agent.AutoModel {
 		p.Served, p.Detail = "n/a", agent.RotationSummary(name, now)
 	}
 	return p

@@ -113,6 +113,7 @@ func TestGatewayResolveAuto(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
+	vaulttest.Put(t, vault.Overlay, "discovery-models", `["databricks-glm-5-3"]`) // empties the rotation pool: ranked path
 	s := router.Served{Profile: "dev", FetchedAt: time.Now()}
 	for _, id := range []string{"opus-5-5", "sonnet-5-5", "haiku-5-5", "opus-5", "sonnet-5", "sonnet-4-6", "opus-4-8"} {
 		s.Models = append(s.Models, router.ServedModel{ID: "databricks-claude-" + id, Task: "llm/v1/chat", Ready: "READY"})
