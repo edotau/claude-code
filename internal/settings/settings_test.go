@@ -257,3 +257,62 @@ func TestLivePermissionsReadsListsAndRejectsBadFiles(t *testing.T) {
 		}
 	}
 }
+
+func TestFormatOrdersAndKeepsHookOrder(t *testing.T) {
+	in := `{"permissions":{"allow":["b","$defaults","A"]},"env":{"Z":"1","A":"2"},"$schema":"x",
+"hooks":{"Stop":[{"hooks":[{"timeout":5,"command":"z & y","type":"command"}]},{"matcher":"b"}]}}`
+	got, err := Format([]byte(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(got)
+	for _, want := range []string{"\"$defaults\",\n      \"A\",\n      \"b\"", "\"A\": \"2\",\n    \"Z\": \"1\"", `"command": "z & y"`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("missing %q in\n%s", want, s)
+		}
+	}
+	if strings.Index(s, `"$schema"`) > strings.Index(s, `"permissions"`) || strings.Index(s, `"z & y"`) > strings.Index(s, `"matcher"`) {
+		t.Errorf("order wrong:\n%s", s)
+	}
+	if p, err := Unformatted(got); err != nil || p != "" {
+		t.Errorf("Format output not stable: %q %v", p, err)
+	}
+	if _, err := Format([]byte("{\n\"a\": }")); err == nil || !strings.Contains(err.Error(), "line 2") {
+		t.Errorf("want located error, got %v", err)
+	}
+}
+
+func TestFormatPreservesRawValues(t *testing.T) {
+	for _, tc := range []struct {
+		name, input, path string
+		want              []string
+	}{
+		{"numbers", `{"x":[9007199254740993,1e1000,1.00,1E+09,-0]}`, "(whitespace)",
+			[]string{"9007199254740993", "1e1000", "1.00", "1E+09", "-0"}},
+		{"mixed", `{"x":["b",null,"a"]}`, "(whitespace)", []string{"\"b\",\n    null,\n    \"a\""}},
+		{"empty", `{"x":[{},[],null]}`, "(whitespace)", []string{"{}", "[]", "null"}},
+		{"unicode", `{"x":["\u00e9 <>&"]}`, "(whitespace)", []string{`"\u00e9 <>&"`}},
+		{"defaults", `{"permissions":{"allow":["!","$defaults"]}}`, "permissions.allow[0]",
+			[]string{"\"$defaults\",\n      \"!\""}},
+		{"refs", `{"hooks":{"Stop":[{"hooks":[{"timeout":5,"command":"x","type":"command"}]}]}}`,
+			"hooks.Stop[0].hooks[0].timeout", []string{"\"type\": \"command\",\n            \"command\": \"x\",\n            \"timeout\": 5"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			out, err := Format([]byte(tc.input))
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(string(out), want) {
+					t.Errorf("missing %q in %s", want, out)
+				}
+			}
+			if path, err := Unformatted([]byte(tc.input)); err != nil || path != tc.path {
+				t.Errorf("path = %q, err = %v; want %q", path, err, tc.path)
+			}
+			if path, err := Unformatted(out); err != nil || path != "" {
+				t.Errorf("unstable output: %q, %v", path, err)
+			}
+		})
+	}
+}

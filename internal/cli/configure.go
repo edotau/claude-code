@@ -44,13 +44,15 @@ func cmdHook(args []string) int {
 var configurePage = helptext.Page{
 	Usage: "claude-code configure [<page>] [flags]\n" +
 		"claude-code configure --restore|--revert [flags]\n" +
+		"claude-code configure --fmt [--check] [--out FILE]\n" +
 		"claude-code configure agents <agent> key=value... [--dry-run]\n" +
 		"claude-code configure provider --all [<profile>] [--check]",
 	About: "Guided setup for the profile, model pins and each agent CLI; bare opens a menu on a terminal " +
 		"(agents, tools, settings), else walks every page in order. " +
 		"--restore resets settings.json to the template (backup first), then re-renders the agent configs; " +
 		"with --agents or --agent it renders only the agent configs and leaves settings.json alone. " +
-		"--revert puts agent configs back from their backups. --format json applies to provider --list " +
+		"--revert puts agent configs back from their backups. --fmt reorders settings.json (or --out) to schemastore " +
+		"order and sorts env and string lists; --fmt --check writes nothing and exits 1 at the first misplaced path. --format json applies to provider --list " +
 		"and --all only. With --restore or --revert, --agent is a comma list without claude.",
 	Commands: [][2]string{
 		{"provider", "pick the session profile; --list shows credential state"},
@@ -69,6 +71,7 @@ type configureOpts struct {
 	provider, agent, out, auth             string
 	authSet                                bool
 	dryRun, check, restore, revert, agents bool
+	fmtSettings                            bool
 	list, all                              bool
 	format                                 *string
 }
@@ -83,7 +86,8 @@ func configureFlags() (*flag.FlagSet, *configureOpts) {
 	fs.BoolVar(&o.check, "check", false, "report only; exit 1 if any unset (no --restore/--revert)")
 	fs.BoolVar(&o.restore, "restore", false, "reset settings.json to the template (backup first)")
 	fs.BoolVar(&o.revert, "revert", false, "put agent configs back from their timestamped backups")
-	fs.StringVar(&o.out, "out", "", "with --restore: reset this file instead of settings.json; agent configs are not rendered")
+	fs.BoolVar(&o.fmtSettings, "fmt", false, "reorder settings.json to schemastore order (--check: report)")
+	fs.StringVar(&o.out, "out", "", "with --restore|--fmt: act on this file, not settings.json")
 	fs.BoolVar(&o.agents, "agents", false, "with --restore: agent configs only, even off ~/.claude")
 	fs.BoolVar(&o.list, "list", false, "with provider: list profiles and credential state")
 	fs.BoolVar(&o.all, "all", false, "with provider: check every profile's sign-in and log in where needed")
@@ -105,6 +109,9 @@ func cmdConfigure(args []string) int {
 	}
 	if section == "" && len(pos) > 0 {
 		section, pos = pos[0], pos[1:]
+	}
+	if o.fmtSettings {
+		return configureFmt(fs, o, section)
 	}
 	if err := checkAuthFlag(fs, o, section); err != nil {
 		return helptext.Fail("configure: %v", err)
@@ -216,6 +223,49 @@ func init() {
 		}
 		return changed
 	}
+}
+
+// configureFmt is the owner-run `configure --fmt [--check]`: nothing else rewrites settings.json's order.
+func configureFmt(fs *flag.FlagSet, o *configureOpts, section string) int {
+	invalid := section != ""
+	fs.Visit(func(f *flag.Flag) {
+		if !slices.Contains([]string{"fmt", "check", "out"}, f.Name) {
+			invalid = true
+		}
+	})
+	if invalid {
+		return helptext.Fail("configure: --fmt takes only --check and --out")
+	}
+	file := o.out
+	if file == "" {
+		file = settings.SettingsFile()
+	}
+	if o.check {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return helptext.Fail("configure --fmt: %v", err)
+		}
+		path, err := settings.Unformatted(data)
+		if err != nil {
+			return helptext.Fail("configure --fmt: %s: %v", file, err)
+		}
+		if path != "" {
+			fmt.Fprintf(os.Stderr, "%s: out of order at %s\n", file, path)
+			return 1
+		}
+		fmt.Fprintf(os.Stdout, "%s: already formatted\n", file)
+		return 0
+	}
+	changed, err := settings.FormatFile(file)
+	if err != nil {
+		return helptext.Fail("configure --fmt: %v", err)
+	}
+	if changed {
+		fmt.Fprintf(os.Stdout, "%s: formatted\n", file)
+	} else {
+		fmt.Fprintf(os.Stdout, "%s: already formatted\n", file)
+	}
+	return 0
 }
 
 // configureRender runs --restore / --revert; the agent flag is a comma list there.

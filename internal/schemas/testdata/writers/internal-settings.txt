@@ -1,3 +1,4 @@
+internal/settings/settings.go:FormatFile	unversioned: foreign: owner-run configure --fmt rewrite of settings.json
 internal/settings/settings.go:ResetSettings	unversioned: foreign: owner-run settings.json reset and its .bak copy
 internal/settings/settings.go:SeedSettings	unversioned: foreign: first-setup settings.json seed, only when missing
 internal/settings/settings.go:writeBackup	unversioned: foreign: ResetSettings' .bak copy, created exclusively

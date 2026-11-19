@@ -248,24 +248,25 @@ audit-git:  # (folded into `audit`) doctor --git over the unpushed commits; a to
 		$(BIN) doctor --git --range '@{u}..HEAD'
 
 # One lint per kind, each a branch of lint-% below; `make lint-<kind>` runs one.
-LINT_WHAT := go quality shell yaml help docs js
+LINT_WHAT := go quality shell yaml help docs js settings
 
 WHAT    ?= all
 SKIP    ?=
 C_COMMA := ,
-LINT_KINDS := $(filter-out $(subst $(C_COMMA), ,$(SKIP)),$(or $(if $(filter go,$(WHAT)),go quality),$(if $(filter md,$(WHAT)),docs),$(if $(filter js,$(WHAT)),js),$(LINT_WHAT)))
+LINT_KINDS := $(filter-out $(subst $(C_COMMA), ,$(SKIP)),$(or $(if $(filter go,$(WHAT)),go quality),$(if $(filter md,$(WHAT)),docs),$(filter $(WHAT),js settings),$(LINT_WHAT)))
+FMT_KINDS := $(filter go yaml docs $(filter settings,$(WHAT)),$(LINT_KINDS))
 .PHONY: fmt
 fmt:  ## Fix go, yaml, md, memory banks; then show what lint finds
-	@case "$(WHAT)" in go|md|js|all) ;; *) echo "WHAT must be go|md|js|all"; exit 1 ;; esac
+	@case "$(WHAT)" in go|md|js|settings|all) ;; *) echo "WHAT must be go|md|js|settings|all"; exit 1 ;; esac
 	$(GO) fmt $(PKGS) >/dev/null
 	@if command -v golangci-lint >/dev/null; then golangci-lint fmt $(GO_FMT_DIRS); fi
-	@$(if $(filter go yaml docs,$(LINT_KINDS)),$(MAKE) --no-print-directory -k $(addprefix lint-,$(filter go yaml docs,$(LINT_KINDS))) CHECK= || :)
+	@$(if $(FMT_KINDS),$(MAKE) --no-print-directory -k $(addprefix lint-,$(FMT_KINDS)) CHECK= || :)
 	@echo -e "$(C_OK)fmt applied; what lint still reports needs a hand fix"
 	@$(MAKE) --no-print-directory lint
 
 .PHONY: lint
 lint:  ## Check only, never writes: go, shell, yaml, md, js, memory
-	@case "$(WHAT)" in go|md|js|all) ;; *) echo "WHAT must be go|md|js|all"; exit 1 ;; esac
+	@case "$(WHAT)" in go|md|js|settings|all) ;; *) echo "WHAT must be go|md|js|settings|all"; exit 1 ;; esac
 	@$(if $(SKIP),echo -e "$(C_NOTE)lint skipping: $(SKIP)")
 	@$(MAKE) --no-print-directory -k $(addprefix lint-,$(LINT_KINDS)) CHECK=1
 	@echo -e "$(C_OK)lint passed"
@@ -294,6 +295,7 @@ lint-%: compile mdsmith  # (helper) one lint kind: $(LINT_WHAT); CHECK=1 reports
 		else echo -e "$(C_NOTE)memory fmt skipped: $(CURDIR) is not the live config dir ($$live) — a worktree must not write the shared memory store"; fi; \
 		exit $$rc; fi ;; \
 	js) $(BIN) workflow lint ;; \
+	settings) $(BIN) configure --fmt $(if $(filter 1,$(CHECK)),--check) ;; \
 	*) printf "Unknown lint '%s' (use %s)\n" "$*" "$(subst $(C_SP),|,$(LINT_WHAT))"; exit 1 ;; \
 	esac
 	@$(if $(filter help,$*),$(MAKE) --no-print-directory help-check)

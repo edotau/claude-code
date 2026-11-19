@@ -58,16 +58,206 @@ func Render() ([]byte, error) {
 	return o.marshal()
 }
 
+// Format reorders data to schemastore order: schema keys first, env keys and string lists sorted, hook lists kept.
+func Format(data []byte) ([]byte, error) {
+	out, _, err := format(data)
+	return out, err
+}
+
+func format(data []byte) ([]byte, string, error) {
+	var raw json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, "", located(data, err)
+	}
+	if _, err := parseObject(raw); err != nil {
+		return nil, "", err
+	}
+	path := ""
+	out, err := formatValue(raw, schemaJSON, "", &path)
+	if path == "" && !bytes.Equal(data, out) {
+		path = "(whitespace)"
+	}
+	return out, path, err
+}
+
+// FormatFile rewrites file with Format when its bytes differ and reports whether it did.
+func FormatFile(file string) (changed bool, err error) {
+	file, err = filepath.EvalSymlinks(file)
+	if err != nil {
+		return false, err
+	}
+	err = paths.WithFileLock(file, func() error {
+		data, err := os.ReadFile(file)
+		if err != nil {
+			return err
+		}
+		out, err := Format(data)
+		if err != nil {
+			return fmt.Errorf("%s: %w", file, err)
+		}
+		if bytes.Equal(data, out) {
+			return nil
+		}
+		fi, err := os.Stat(file)
+		if err != nil {
+			return err
+		}
+		changed = true
+		return paths.AtomicWrite(file, out, fi.Mode().Perm())
+	})
+	return changed && err == nil, err
+}
+
+// Unformatted names the first path where data differs from its Format, "" when it is already formatted.
+func Unformatted(data []byte) (string, error) {
+	_, path, err := format(data)
+	return path, err
+}
+
+// resolveRef follows local JSON pointers; non-local references stay unchanged.
+func resolveRef(node json.RawMessage) json.RawMessage {
+	for range 8 {
+		var ref struct {
+			Ref string `json:"$ref"`
+		}
+		if json.Unmarshal(node, &ref) != nil || !strings.HasPrefix(ref.Ref, "#/") {
+			return node
+		}
+		node = schemaJSON
+		for seg := range strings.SplitSeq(ref.Ref[2:], "/") {
+			var props map[string]json.RawMessage
+			if json.Unmarshal(node, &props) != nil {
+				return nil
+			}
+			node = props[strings.ReplaceAll(strings.ReplaceAll(seg, "~1", "/"), "~0", "~")]
+		}
+	}
+	return node
+}
+
+func formatValue(raw, node json.RawMessage, path string, first *string) (json.RawMessage, error) {
+	var schema map[string]json.RawMessage
+	node = resolveRef(node)
+	_ = json.Unmarshal(node, &schema)
+	switch bytes.TrimSpace(raw)[0] {
+	case '{':
+		return formatObject(raw, node, schema["additionalProperties"], path, first)
+	case '[':
+		return formatArray(raw, schema["items"], path, first)
+	}
+	return raw, nil
+}
+
+func formatObject(raw, node, additional json.RawMessage, path string, first *string) (json.RawMessage, error) {
+	o, err := parseObject(raw)
+	if err != nil {
+		return nil, err
+	}
+	props, err := schemaProps(node)
+	if err != nil {
+		props = &object{}
+	}
+	keys := slices.Clone(o.keys)
+	o.orderBy(props.keys)
+	if path == "env" {
+		slices.Sort(o.keys)
+	}
+	for i, k := range keys {
+		sub := strings.TrimPrefix(path+"."+k, ".")
+		if *first == "" && k != o.keys[i] {
+			*first = sub
+		}
+		child := props.vals[k]
+		if child == nil {
+			child = additional
+		}
+		if o.vals[k], err = formatValue(o.vals[k], child, sub, first); err != nil {
+			return nil, fmt.Errorf("%s: %w", k, err)
+		}
+	}
+	return o.marshal()
+}
+
+func formatArray(raw, node json.RawMessage, path string, first *string) (json.RawMessage, error) {
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, err
+	}
+	values := make(map[string]string, len(items))
+	allStrings := true
+	for _, item := range items {
+		if bytes.TrimSpace(item)[0] != '"' {
+			allStrings = false
+			break
+		}
+		var value string
+		_ = json.Unmarshal(item, &value)
+		values[string(item)] = value
+	}
+	original := slices.Clone(items)
+	if allStrings {
+		slices.SortStableFunc(items, func(a, b json.RawMessage) int {
+			x, y := values[string(a)], values[string(b)]
+			return compareStrings(x, y)
+		})
+	}
+	for i, item := range items {
+		sub := fmt.Sprintf("%s[%d]", path, i)
+		if allStrings && *first == "" && !bytes.Equal(item, original[i]) {
+			*first = sub
+		}
+		var err error
+		if items[i], err = formatValue(item, node, sub, first); err != nil {
+			return nil, fmt.Errorf("[%d]: %w", i, err)
+		}
+	}
+	return textutil.MarshalNoEscape(items)
+}
+
+func compareStrings(x, y string) int {
+	if (x == "$defaults") != (y == "$defaults") {
+		if x == "$defaults" {
+			return -1
+		}
+		return 1
+	}
+	if c := strings.Compare(strings.ToLower(x), strings.ToLower(y)); c != 0 {
+		return c
+	}
+	return strings.Compare(x, y)
+}
+
 // schemaProps is a schema node's "properties" object, in schemastore's key order.
 func schemaProps(node json.RawMessage) (*object, error) {
 	n, err := parseObject(node)
-	if err == nil {
-		n, err = parseObject(n.vals["properties"])
-	}
 	if err != nil {
 		return nil, fmt.Errorf("settings schema: %w", err)
 	}
-	return n, nil
+	if n.vals["properties"] != nil {
+		props, err := parseObject(n.vals["properties"])
+		if err != nil {
+			return nil, fmt.Errorf("settings schema: %w", err)
+		}
+		return props, nil
+	}
+	var branches []json.RawMessage
+	_ = json.Unmarshal(n.vals["anyOf"], &branches)
+	if len(branches) == 0 {
+		_ = json.Unmarshal(n.vals["oneOf"], &branches)
+	}
+	props := &object{vals: map[string]json.RawMessage{}}
+	for _, branch := range branches {
+		child, err := schemaProps(resolveRef(branch))
+		if err != nil {
+			continue
+		}
+		for _, k := range child.keys {
+			if props.vals[k] == nil {
+				props.set(k, child.vals[k])
+			}
+		}
+	}
+	return props, nil
 }
 
 // orderBy moves the keys ref lists to ref's order ahead of the rest, which keep their order.
