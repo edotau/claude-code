@@ -1028,7 +1028,7 @@ func collapseArray(raw json.RawMessage, path string, changed *[]string) (json.Ra
 	return textutil.MarshalNoEscape(out)
 }
 
-// dedupHookEntry drops handlers identical (all options) to one seen under the same matcher; keep is false when none remain.
+// dedupHookEntry drops handlers equal to one seen under the same matcher; keep is false when none remain.
 func dedupHookEntry(entry json.RawMessage, seen map[string]bool, path string, changed *[]string) (json.RawMessage, bool) {
 	var e map[string]json.RawMessage
 	var hs []map[string]json.RawMessage

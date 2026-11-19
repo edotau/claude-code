@@ -70,7 +70,7 @@ func planLaunch(native string, args []string) (agent.LaunchOptions, agent.Plan, 
 	return opts, plan, err
 }
 
-// dedupInputs drops repeated `--settings <v>` pairs and duplicate PATH dirs; changed names what it removed, never inline JSON.
+// dedupInputs drops repeated `--settings <v>` pairs and duplicate PATH dirs; changed names what it removed.
 func dedupInputs(args []string) ([]string, []string) {
 	var out, changed []string
 	seen := map[string]bool{}
