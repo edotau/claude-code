@@ -21,10 +21,10 @@ import (
 )
 
 const (
-	quotaTTL     = 60 * time.Second
+	quotaTTL     = 10 * time.Minute // each read spawns agy, which signs in through the keychain
 	quotaTimeout = 20 * time.Second
 	// quotaStaleMax bounds how old a disk-cached /usage read CheckCached still serves.
-	quotaStaleMax = 10 * time.Minute
+	quotaStaleMax = 20 * time.Minute
 	// LowQuotaPct is the remaining percent under which a pool or model limit draws a warning.
 	LowQuotaPct   = 15.0
 	googleAccount = "google·antigravity"
@@ -41,7 +41,7 @@ type QuotaRow struct {
 	Reset     time.Time `json:"reset,omitzero"`
 }
 
-// quotaRun reads agy's /usage (spends no quota) through a per-minute file cache; a var so tests never reach agy.
+// quotaRun reads agy's /usage (spends no quota) through a quotaTTL file cache; a var so tests never reach agy.
 var quotaRun = func(ctx context.Context) ([]byte, error) { return diskCached(ctx, runAgyUsage) }
 
 func runAgyUsage(ctx context.Context) ([]byte, error) {
@@ -101,7 +101,7 @@ var (
 	quotaRunE  error
 )
 
-// Quotas reads agy's /usage once per minute (failures included, so a dead binary costs one timeout, not one per call).
+// Quotas reads agy's /usage once per quotaTTL (failures included, so a dead binary costs one timeout, not one per call).
 func Quotas(ctx context.Context) ([]QuotaRow, error) {
 	quotaMu.Lock()
 	defer quotaMu.Unlock()
