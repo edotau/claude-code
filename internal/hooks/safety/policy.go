@@ -90,8 +90,13 @@ func settingsAllowed(cmd, cwd string, rules []agent.Rule) bool {
 	return len(rules) > 0 && agent.Permissions{Mode: agent.PermPlan, Allow: rules}.DecideAt(cwd, "Bash", cmd) == agent.Allow
 }
 
-// sudoDenied reports a settings deny rule `sudo true` meets (D2); without one the built-in sudo guard is off.
-func sudoDenied() bool { return settingsRuleHit("sudo true", "", livePolicy().bashDeny) != "" }
+// sudoDenied reports a settings deny row aimed at sudo (D2); read raw, since DecideAt unwraps sudo as a wrapper.
+func sudoDenied() bool {
+	return slices.ContainsFunc(livePolicy().bashDeny, func(r agent.Rule) bool {
+		a := strings.TrimSpace(r.Arg)
+		return r.Tool == "Bash" && strings.HasPrefix(a, "sudo") && (len(a) == 4 || strings.ContainsRune(": *", rune(a[4])))
+	})
+}
 
 // askHit is one settings ask match: the rule tool and target the dispatch judges, and the rule its --allow names.
 type askHit struct{ what, tool, arg, rule string }
