@@ -137,7 +137,8 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink wire.Si
 	if w != nil {
 		onStep = func() { w.Beat("step_start") }
 	}
-	opts := agent.StreamOpts{Idle: w, OnMeaningful: w.Stop, Cause: watchLimit(cmd)}
+	lw := watchLimit(cmd)
+	opts := agent.StreamOpts{Idle: w, OnMeaningful: func() { w.Stop(); lw.markSpoke() }, Cause: lw.Err}
 	out, runErr := agent.RunEventStream(ctx, l.agent, cmd, tail, sink, host.parser(onStep), opts)
 	defer func() { host.after(out, runErr) }()
 	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport

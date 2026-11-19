@@ -23,3 +23,19 @@ func TestLimitCauseRootStreamOnly(t *testing.T) {
 		}
 	}
 }
+
+// A quota line ends the child before any output and is ignored once the root run has produced output.
+func TestLimitWatchEndsOnlyBeforeOutput(t *testing.T) {
+	const line = `level=ERROR message="stream error" small=false mode=primary error.error="usage limit reached (monthly, resets in 5d)"` + "\n"
+	for _, spoke := range []bool{false, true} {
+		killed := 0
+		w := &limitWatch{kill: func() error { killed++; return nil }}
+		if spoke {
+			w.markSpoke()
+		}
+		_, _ = w.Write([]byte(line))
+		if got := killed == 1 && w.Err() != nil; got == spoke {
+			t.Errorf("spoke=%v: killed=%d err=%v", spoke, killed, w.Err())
+		}
+	}
+}

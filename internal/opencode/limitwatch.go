@@ -21,21 +21,29 @@ const maxLogLine = 64 << 10
 
 // limitWatch scans opencode's stderr log lines: a quota or auth "stream error" is the run's cause and ends the child.
 type limitWatch struct {
-	kill func() error
-	mu   sync.Mutex
-	buf  []byte
-	err  error
+	kill  func() error
+	mu    sync.Mutex
+	buf   []byte
+	err   error
+	spoke bool
 }
 
 // watchLimit tees cmd's stderr into a limitWatch whose Err feeds StreamOpts.Cause.
-func watchLimit(cmd *exec.Cmd) func() error {
+func watchLimit(cmd *exec.Cmd) *limitWatch {
 	w := &limitWatch{kill: func() error { return cmd.Cancel() }}
 	if cmd.Stderr != nil {
 		cmd.Stderr = io.MultiWriter(cmd.Stderr, w)
 	} else {
 		cmd.Stderr = w
 	}
-	return w.Err
+	return w
+}
+
+// markSpoke marks the root run's first output: a later log line no longer ends the child.
+func (w *limitWatch) markSpoke() {
+	w.mu.Lock()
+	w.spoke = true
+	w.mu.Unlock()
 }
 
 func (w *limitWatch) Err() error {
@@ -59,7 +67,7 @@ func (w *limitWatch) Write(p []byte) (int, error) {
 	if len(w.buf) > maxLogLine {
 		w.buf = nil
 	}
-	first := hit != nil && w.err == nil
+	first := hit != nil && w.err == nil && !w.spoke
 	if first {
 		w.err = hit
 	}
