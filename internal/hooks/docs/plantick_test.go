@@ -58,6 +58,24 @@ func tickFixture(t *testing.T) (planPath, sha string, tick func(command, out str
 	return planPath, sha, tick
 }
 
+// wantDeferred: ticking is deferred to the detached verifier (which cannot start under go test), so the plan stays
+// open while PendingCommit still names the tasks the commit would tick.
+func wantDeferred(t *testing.T, planPath, repo, sha string, ids ...string) {
+	t.Helper()
+	got, _ := os.ReadFile(planPath)
+	if strings.Contains(string(got), "[x]") {
+		t.Fatalf("the hook ticked before the verifier ran:\n%s", got)
+	}
+	pending, _, err := plans.PendingCommit(repo, sha, nil)
+	var have []string
+	for _, r := range pending {
+		have = append(have, r.IDs...)
+	}
+	if err != nil || !slices.Equal(have, ids) {
+		t.Fatalf("pending ticks for %s = %v (err %v), want %v", sha, have, err, ids)
+	}
+}
+
 const tickCmd = "git -C ~/widgets commit -m x"
 
 // Tick spanning: a real commit naming two tasks ticks both and notes the owned file the second missed.
@@ -74,16 +92,9 @@ func TestPlanTickSpanning(t *testing.T) {
 	}
 
 	out := tick(cmd, "[main "+sha+"] x\n 2 files changed\n")
-	got, _ := os.ReadFile(planPath)
-	text := string(got)
-	if !strings.Contains(text, "- [x] 1.1 Full task owns: a/one.go, b/two file.go ("+sha+")") {
-		t.Fatalf("task 1.1 not ticked (space filename should match):\n%s", text)
-	}
-	if !strings.Contains(text, "- [x] 1.2 Partial task owns: a/one.go, c/never.go ("+sha+")") {
-		t.Fatalf("a named task ticks even with an owned file missing:\n%s", text)
-	}
-	if !strings.Contains(out, "1.1") || !strings.Contains(out, "owns: c/never.go") {
-		t.Fatalf("additionalContext = %q, want the tick and the missing owned file", out)
+	wantDeferred(t, planPath, filepath.Join(os.Getenv("HOME"), "widgets"), sha, "1.1", "1.2")
+	if !strings.Contains(out, "owns: c/never.go") {
+		t.Fatalf("additionalContext = %q, want the missing owned file", out)
 	}
 
 }
@@ -98,18 +109,14 @@ func TestPlanTickQuietCommitFallsBackToHead(t *testing.T) {
 		t.Fatalf("a non-commit command ticked:\n%s", after)
 	}
 	tick("git -C ~/widgets commit -q -m x", "")
-	if got, _ := os.ReadFile(planPath); !strings.Contains(string(got), "- [x] 1.1 Full task owns: a/one.go, b/two file.go ("+sha+")") {
-		t.Fatalf("quiet commit did not tick:\n%s", got)
-	}
+	wantDeferred(t, planPath, filepath.Join(os.Getenv("HOME"), "widgets"), sha, "1.1", "1.2")
 }
 
 // A quiet commit followed by a command that prints output still ticks its HEAD.
 func TestPlanTickQuietCommitWithOtherOutput(t *testing.T) {
 	planPath, sha, tick := tickFixture(t)
 	tick("git -C ~/widgets commit -q -m x && echo done", "done\n")
-	if got, _ := os.ReadFile(planPath); !strings.Contains(string(got), "- [x] 1.1 Full task owns: a/one.go, b/two file.go ("+sha+")") {
-		t.Fatalf("quiet commit with other output did not tick:\n%s", got)
-	}
+	wantDeferred(t, planPath, filepath.Join(os.Getenv("HOME"), "widgets"), sha, "1.1", "1.2")
 }
 
 // Two quiet commits inside the two-minute window: each ticks its own sha, the second is not skipped.
@@ -124,10 +131,8 @@ func TestPlanTickTwoQuietCommitsTickOwnShas(t *testing.T) {
 	hosttest.In(t, repo, "commit", "-q", "-m", "y\n\nTask: "+time.Now().Format(time.DateOnly)+"-widgets 1.3", "--no-gpg-sign")
 	sha2 := strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "--short=7", "HEAD"))
 	tick("git -C ~/widgets commit -q -m y", "")
-	got, _ := os.ReadFile(planPath)
-	if !strings.Contains(string(got), "("+sha1+")") || !strings.Contains(string(got), "- [x] 1.3 Late owns: c/never.go ("+sha2+")") {
-		t.Fatalf("each quiet commit must tick its own sha:\n%s", got)
-	}
+	wantDeferred(t, planPath, repo, sha1, "1.1", "1.2")
+	wantDeferred(t, planPath, repo, sha2, "1.3")
 }
 
 // The verb ticks first, the hook then sees the same commit: the plan does not change again.
@@ -147,17 +152,8 @@ func TestPlanTickAfterVerbChangesNothing(t *testing.T) {
 func TestPlanTickRelativeDashCAfterCD(t *testing.T) {
 	planPath, sha, tick := tickFixture(t)
 	cmd := "cd " + os.Getenv("HOME") + " && git -C widgets commit -m x"
-	out := tick(cmd, "[main "+sha+"] x\n 2 files changed\n")
-	got, err := os.ReadFile(planPath)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(string(got), "- [x] 1.1 Full task owns: a/one.go, b/two file.go ("+sha+")") {
-		t.Fatalf("relative -C after cd did not tick the committed task:\n%s", got)
-	}
-	if !strings.Contains(out, "1.1") {
-		t.Fatalf("additionalContext = %q, want the ticked task", out)
-	}
+	tick(cmd, "[main "+sha+"] x\n 2 files changed\n")
+	wantDeferred(t, planPath, filepath.Join(os.Getenv("HOME"), "widgets"), sha, "1.1", "1.2")
 }
 
 // The worktree commit verb ticks like git commit, alone, behind rtk, and after a cd && chain.
@@ -165,10 +161,7 @@ func TestPlanTickWorktreeCommitVerb(t *testing.T) {
 	planPath, sha, tick := tickFixture(t)
 	cmd := "cd " + filepath.Join(os.Getenv("HOME"), "widgets") + " && rtk claude-code worktree commit -m x a/one.go"
 	tick(cmd, "[main "+sha+"] x\n 2 files changed\n")
-	got, _ := os.ReadFile(planPath)
-	if !strings.Contains(string(got), "- [x] 1.1 Full task owns: a/one.go, b/two file.go ("+sha+")") {
-		t.Fatalf("worktree commit verb did not tick the plan:\n%s", got)
-	}
+	wantDeferred(t, planPath, filepath.Join(os.Getenv("HOME"), "widgets"), sha, "1.1", "1.2")
 }
 
 // One Bash call with two commits (one detached, one with a quoted filename) ticks both; a fenced checkbox is untouched.
@@ -199,13 +192,10 @@ func TestPlanTickMultiCommitDetachedQuoted(t *testing.T) {
 		"tool_input":    map[string]string{"command": "git commit -m a && git commit -m b"},
 		"tool_response": map[string]string{"stdout": "[main " + s1 + "] a\n 1 file changed\n[detached HEAD " + s2 + "] b\n 1 file changed\n"},
 	})
-	got, _ := os.ReadFile(planPath)
-	text := string(got)
-	for _, want := range []string{"- [x] 1.1 First owns: a/one.go (" + s1 + ")",
-		"- [x] 1.2 Second owns: b/café two.go (" + s2 + ")", "\n- [ ] 1.3 Fenced owns: a/one.go\n"} {
-		if !strings.Contains(text, want) {
-			t.Fatalf("missing %q in:\n%s", want, text)
-		}
+	wantDeferred(t, planPath, repo, s1, "1.1")
+	wantDeferred(t, planPath, repo, s2, "1.2")
+	if got, _ := os.ReadFile(planPath); !strings.Contains(string(got), "\n- [ ] 1.3 Fenced owns: a/one.go\n") {
+		t.Fatalf("the fenced task changed:\n%s", got)
 	}
 }
 
