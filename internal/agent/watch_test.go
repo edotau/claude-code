@@ -47,6 +47,55 @@ func marker(t *testing.T, kind, id, body string) {
 	}
 }
 
+func TestWatchRunningExcludesStaleAndFinished(t *testing.T) {
+	lim := WatchLimits{Age: 10 * time.Minute, Silence: 5 * time.Minute}
+	cases := []struct {
+		name, status            string
+		age, silence            time.Duration
+		alive, resumed, running bool
+		rel                     relayState
+		stale                   string
+	}{
+		{"healthy", "running", time.Minute, 0, true, false, true, relayState{}, ""},
+		{"dead", "running", time.Minute, 0, false, false, false, relayState{}, WatchDead},
+		{"silent", "running", 2 * lim.Age, 2 * lim.Silence, true, false, false, relayState{}, WatchSilent},
+		{"relay finished", "running", time.Minute, 0, true, false, false, relayState{finished: true}, WatchRelayGone},
+		{"uncollected", "ok", 2 * uncollectedAfter, 0, true, false, false, relayState{}, WatchUncollected},
+		{"just finished", "ok", time.Minute, 0, true, false, false, relayState{}, ""},
+		{"already resumed", "running", time.Minute, 0, false, true, false, relayState{}, ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			stubAlive(t, c.alive)
+			r := watchRec(t, c.status, "TASK ID: "+c.name, c.age, c.silence)
+			if c.resumed {
+				marker(t, "resumed", r.ID, "replacement\n")
+			}
+			got := classifyJobs([]Record{r}, watchT0, lim, func([]Record) map[string]relayState {
+				return map[string]relayState{r.ID: c.rel}
+			})
+			var want, ids []string
+			if c.running {
+				want = []string{r.ID}
+			}
+			for _, running := range got.Running {
+				ids = append(ids, running.ID)
+				if slices.ContainsFunc(got.Stale, func(s StaleJob) bool { return s.ID == running.ID }) {
+					t.Errorf("job %q is both running and stale", running.ID)
+				}
+			}
+			if !slices.Equal(ids, want) {
+				t.Errorf("running IDs %v, want %v", ids, want)
+			}
+			stale := slices.ContainsFunc(got.Stale, func(s StaleJob) bool { return s.ID == r.ID && s.Reason == c.stale })
+			if stale != (c.stale != "") {
+				t.Errorf("stale %+v, want reason %q for %q", got.Stale, c.stale, r.ID)
+			}
+		})
+	}
+}
+
 func TestClassifyRunningJobs(t *testing.T) {
 	lim := WatchLimits{Age: 10 * time.Minute, Silence: 5 * time.Minute}
 	cases := []struct {
