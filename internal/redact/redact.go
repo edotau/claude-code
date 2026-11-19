@@ -3,6 +3,7 @@ package redact
 import (
 	"bytes"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -26,6 +27,7 @@ const windowSize = 4 << 20
 // Matcher keeps the value index reusable across independent text buffers.
 type Matcher struct {
 	needles [256][]string
+	pairs   [1 << 10]uint64 // bit b0<<8|b1 set when some needle starts with those two bytes
 	origins map[string]Origin
 	Skipped int
 	longest int
@@ -89,6 +91,8 @@ func (m *Matcher) add(record, field, text, rawForm string) {
 	for i, v := range variants(text) {
 		if _, dup := m.origins[v]; !dup {
 			m.needles[v[0]] = append(m.needles[v[0]], v)
+			p := int(v[0])<<8 | int(v[1])
+			m.pairs[p>>6] |= 1 << (p & 63)
 			form := variantForms[i]
 			if i == 0 {
 				form = rawForm
@@ -185,7 +189,7 @@ func eligible(v string) bool {
 	return bits.OnesCount(classes) >= 2
 }
 
-var variantForms = []string{"raw", "json", "query", "bearer", "base64", "base64-raw", "base64url", "base64url-raw"}
+var variantForms = []string{"raw", "json", "query", "bearer", "base64", "base64-raw", "base64url", "base64url-raw", "hex", "path", "percent-lower"}
 
 func variants(v string) []string {
 	encoded, _ := json.Marshal(v)
@@ -193,7 +197,21 @@ func variants(v string) []string {
 	for _, enc := range []*base64.Encoding{base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding} {
 		out = append(out, enc.EncodeToString([]byte(v)))
 	}
+	// hex, PathEscape and lower-case %XX forms cover the other common command-line encoders
+	out = append(out, hex.EncodeToString([]byte(v)), url.PathEscape(v), percentLower(url.QueryEscape(v)))
 	return out
+}
+
+// percentLower lower-cases only the hex digits of each %XX escape, keeping the value's own letters.
+func percentLower(q string) string {
+	b := []byte(q)
+	for i := 0; i+2 < len(b); i++ {
+		if b[i] == '%' {
+			b[i+1], b[i+2] = b[i+1]|0x20, b[i+2]|0x20 // QueryEscape writes 0-9A-F; 0x20 lower-cases A-F, digits keep it
+			i += 2
+		}
+	}
+	return string(b)
 }
 
 func fill(b []byte) {
@@ -295,6 +313,11 @@ func (m *Matcher) step(b []byte, final bool) (width int, hit, ok bool) {
 
 // matchAt is the longest value at b[0]; not ok while b is a proper prefix of a longer value that could still complete.
 func (m *Matcher) matchAt(b []byte, final bool) (int, bool) {
+	if len(b) > 1 { // every needle has 2+ bytes, so an unmarked first pair rules all out, prefix-pending ones too
+		if p := int(b[0])<<8 | int(b[1]); m.pairs[p>>6]&(1<<(p&63)) == 0 {
+			return 0, true
+		}
+	}
 	for _, needle := range m.needles[b[0]] {
 		if len(needle) > len(b) {
 			if !final && needle[:len(b)] == string(b) {

@@ -658,7 +658,8 @@ func attach(in *core.Input, note string, bodies ...jobOut) core.Result {
 		for _, b := range bodies {
 			text.WriteString(b.render(msg))
 		}
-		updated["message"] = text.String()
+		m, _, _ := redact.SharedWithin(vaultWait())  // bounded as secrets-out: a stuck keyring must not stall the hand-back
+		updated["message"] = m.String(text.String()) // the attached message leaves the process, so mask it
 		res.UpdatedInput = updated
 	}
 	return res

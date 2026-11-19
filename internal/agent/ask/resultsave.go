@@ -95,12 +95,15 @@ func Verdict(rec agent.Record, n int, format string) int {
 		return helptext.Fail("agents result: %v", err)
 	}
 	tail := lastLines(log, n)
+	for i, l := range tail {
+		tail[i] = redact.Text(l) // once here, so the JSON and text branches both emit masked lines
+	}
 	if format == helptext.JSON {
 		env := struct {
 			wire.Envelope
 			Verdict  []string        `json:"verdict"`
 			Observed *agent.Observed `json:"observed,omitempty"`
-		}{rec.ResultEnvelope(os.Stderr), tail, agent.ObservedOf(rec)}
+		}{maskEnvelope(rec.ResultEnvelope(os.Stderr)), tail, agent.ObservedOf(rec)}
 		if code := helptext.WriteJSONOrFail("agents result", env); code != 0 {
 			return code
 		}

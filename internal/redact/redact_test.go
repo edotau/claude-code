@@ -230,6 +230,25 @@ func TestEncodedForms(t *testing.T) {
 	}
 }
 
+func TestHexPathPercentVariants(t *testing.T) {
+	value := "Qwzrtplk mnbv+Hjgf/Ytre="
+	m := FromValues([]string{value})
+	for name, form := range map[string]string{
+		"hex":           "51777a7274706c6b206d6e62762b486a67662f597472653d",
+		"path":          "Qwzrtplk%20mnbv+Hjgf%2FYtre=",
+		"percent-lower": "Qwzrtplk+mnbv%2bHjgf%2fYtre%3d",
+	} {
+		if b := []byte(form); m.Mask(b) != 1 || !bytes.HasPrefix(b, []byte(marker)) {
+			t.Errorf("%s: form not masked", name)
+		}
+	}
+	for _, o := range FromValues([]string{"Plmokn7Ijbuh8Ygv"}).origins { // nothing to escape: no case-folded needle
+		if o.Form == "percent-lower" {
+			t.Errorf("unescaped value got a percent-lower needle of length %d", o.Len)
+		}
+	}
+}
+
 func TestFileWindowBoundary(t *testing.T) {
 	value := "FAKE-SECRET-0123456789abcdef"
 	input := append([]byte("{\"content\":\""), bytes.Repeat([]byte(" "), windowSize-20)...)

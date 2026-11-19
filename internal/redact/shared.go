@@ -1,6 +1,8 @@
 package redact
 
 import (
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"maps"
@@ -153,11 +155,19 @@ func ValueBytes(b []byte) int {
 // WithEnvKey makes m mask the env master key as set, trimmed and unpadded, whatever its length or character mix.
 func WithEnvKey(m *Matcher) *Matcher {
 	if raw := vault.EnvKey(); raw != "" {
-		trimmed := strings.TrimSpace(raw)
-		unpadded := strings.TrimRight(trimmed, "=")
-		m.AddForced("HARNESS_VAULT_KEY", raw, trimmed, unpadded, strings.ReplaceAll(trimmed, "/", `\/`)) // last: PHP-style JSON
+		m.AddKey(raw)
 	}
 	return m
+}
+
+// AddKey masks a master key in every form, whichever source (env or keyring) supplied it.
+func (m *Matcher) AddKey(raw string) {
+	trimmed := strings.TrimSpace(raw)
+	unpadded := strings.TrimRight(trimmed, "=")
+	m.AddForced("HARNESS_VAULT_KEY", raw, trimmed, unpadded, strings.ReplaceAll(trimmed, "/", `\/`)) // last: PHP-style JSON
+	if b, err := base64.StdEncoding.DecodeString(trimmed); err == nil {                              // hex of the key itself is in variants; add decoded-bytes hex
+		m.AddForced("HARNESS_VAULT_KEY", hex.EncodeToString(b))
+	}
 }
 
 // vaultValues reads no vault inside a test binary, so a test never opens a real one.

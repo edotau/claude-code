@@ -69,7 +69,11 @@ func transcriptMatcher() (*secretredact.Matcher, error) {
 	if err != nil {
 		return nil, err
 	}
-	return secretredact.WithEnvKey(secretredact.FromRecords(records)), nil
+	m := secretredact.WithEnvKey(secretredact.FromRecords(records))
+	if k, _, kerr := vault.MasterKey(); kerr == nil && k.Raw() != "" { // EnvKey alone misses a keyring-only key; --secrets pays the spawn
+		m.AddKey(k.Raw())
+	}
+	return m, nil
 }
 
 func transcriptAudit(w io.Writer, fix bool, targets []string, days int) int {

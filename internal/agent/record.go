@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -408,7 +409,7 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	}
 	r.DurationMs = took.Milliseconds()
 	if err != nil {
-		r.Status, r.Error, r.FailKind = "error", textutil.RedactSecrets(err.Error()), failKind(err)
+		r.Status, r.Error, r.FailKind = "error", redact.Text(textutil.RedactSecrets(err.Error())), failKind(err) // redact.Text: stderrTails can hold the env master key
 	}
 }
 
