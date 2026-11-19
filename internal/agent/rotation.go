@@ -136,12 +136,16 @@ func rotationModelOn(rows []*providers.Provider, agentName, alias string, stamp 
 	if len(rows) > 1 { // the pool pin: one history for every workspace, entries already wire ids
 		account, p = router.ProviderAccount(PoolPin), nil
 	}
-	n := takeable(router.LoadState()[account], agentName, p, pool, now)
+	hist := account
+	if rows[0].Preset == providers.PresetDatabricks {
+		hist = router.ProviderAccount(PoolPin)
+	}
+	n := takeable(st[account], agentName, p, pool, now)
 	if !stamp {
-		m := router.PeekRotation(agentName, account, p, pool, now)
+		m := router.PeekRotation(agentName, account, hist, p, pool, now)
 		return m, rotationNote(m, alias, n, "next"), nil
 	}
-	m, err := router.PickRotation(agentName, account, p, pool, now)
+	m, err := router.PickRotation(agentName, account, hist, p, pool, now)
 	return m, rotationNote(m, alias, n, "picked"), err
 }
 
@@ -176,13 +180,18 @@ func RotationMembers(agentName, profile, tier string, now time.Time) []PoolMembe
 		return nil
 	}
 	entries := router.ServedPool(p, rotationPool(agentName, cmp.Or(tierAliases[tier], models.Sonnet), p, now), now)
-	e := router.LoadState()[router.AccountOf(p)]
+	st := router.LoadState()
+	account, hist := router.AccountOf(p), router.AccountOf(p)
+	if p.Preset == providers.PresetDatabricks {
+		hist = router.ProviderAccount(PoolPin)
+	}
+	e, history := st[account], st[hist]
 	var live []string
 	var out []PoolMember
 	for _, entry := range entries {
 		m := PoolMember{Model: providers.SpellPin(p, entry)}
 		key := router.DiscoverySkipKey(agentName, entry)
-		if at := e.Discovery[key]; !at.IsZero() {
+		if at := history.Discovery[key]; !at.IsZero() {
 			m.LastPicked = &at
 		}
 		m.Held, m.HeldUntil = heldUntil(e, key, entry, now)
@@ -191,7 +200,7 @@ func RotationMembers(agentName, profile, tier string, now time.Time) []PoolMembe
 		}
 		out = append(out, m)
 	}
-	next := router.PeekRotation(agentName, router.AccountOf(p), p, live, now)
+	next := router.PeekRotation(agentName, account, hist, p, live, now)
 	for i := range out {
 		out[i].Next = out[i].Model == next && next != ""
 	}

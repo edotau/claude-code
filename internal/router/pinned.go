@@ -139,12 +139,12 @@ func RotationRow(p *providers.Provider) bool {
 	return p != nil && (p.Preset == providers.PresetDatabricks || p.Provider == "github")
 }
 
-// poolFor is RotationPool's pool for agent on p at alias, else the vault overlay or seed list.
+// poolFor is empty until the agent package supplies the served pool.
 func poolFor(agent, alias string, p *providers.Provider, now time.Time) []string {
 	if RotationPool != nil {
 		return RotationPool(agent, alias, p, now)
 	}
-	return DiscoveryPool()
+	return nil
 }
 
 // PoolOverlay is the vault's discovery-models list when set and valid: the rotation's allowlist.
@@ -176,47 +176,56 @@ func stateErrClass(err error) string {
 
 // pickPool is PickRotation on p's own account.
 func pickPool(agent string, p *providers.Provider, pool []string, now time.Time) (string, error) {
-	return PickRotation(agent, ProviderAccount(p.Name), p, pool, now)
+	return PickRotation(agent, ProviderAccount(p.Name), ProviderAccount(p.Name), p, pool, now)
 }
 
-// PickRotation selects and records agent's least-recent pool entry on account under one lock; nil p skips the listing.
-func PickRotation(agent, account string, p *providers.Provider, pool []string, now time.Time) (string, error) {
+// PickRotation orders by hist under one lock, keeping holds on account; nil p skips the listing.
+func PickRotation(agent, account, hist string, p *providers.Provider, pool []string, now time.Time) (string, error) {
 	if p != nil {
 		pool = ServedPool(p, pool, now)
 	}
 	var model string
 	err := update(func(s State) {
-		e := s[account]
-		selected := leastRecent(e, agent, p, pool, now)
+		e := s[hist]
+		selected := leastRecent(s[account], e, agent, p, pool, now)
 		if selected == "" {
 			return
 		}
 		model = providers.SpellPin(p, selected)
-		e.Discovery = withTime(e.Discovery, DiscoverySkipKey(agent, selected), now)
-		s[account] = e
+		stamp := now // Lock acquisition can differ from caller timestamp order.
+		for _, entry := range s {
+			for _, at := range entry.Discovery {
+				if !stamp.After(at) {
+					stamp = at.Add(time.Nanosecond)
+				}
+			}
+		}
+		e.Discovery = withTime(e.Discovery, DiscoverySkipKey(agent, selected), stamp)
+		s[hist] = e
 	})
 	return model, err
 }
 
 // PeekRotation is the entry PickRotation would select now, recording nothing; "" when none qualifies.
-func PeekRotation(agent, account string, p *providers.Provider, pool []string, now time.Time) string {
+func PeekRotation(agent, account, hist string, p *providers.Provider, pool []string, now time.Time) string {
 	if p != nil {
 		pool = ServedPool(p, pool, now)
 	}
-	if sel := leastRecent(sharedState()[account], agent, p, pool, now); sel != "" {
+	s := sharedState()
+	if sel := leastRecent(s[account], s[hist], agent, p, pool, now); sel != "" {
 		return providers.SpellPin(p, sel)
 	}
 	return ""
 }
 
 // leastRecent is agent's spellable pool entry picked longest ago, past skips and live model holds; "" when none.
-func leastRecent(e Entry, agent string, p *providers.Provider, pool []string, now time.Time) string {
+func leastRecent(e, history Entry, agent string, p *providers.Provider, pool []string, now time.Time) string {
 	var selected string
 	for _, entry := range pool {
 		if providers.SpellPin(p, entry) == "" || discoverySkipped(e, agent, entry, now) || e.ModelDead[ModelKey(entry)].After(now) {
 			continue
 		}
-		if selected == "" || e.Discovery[DiscoverySkipKey(agent, entry)].Before(e.Discovery[DiscoverySkipKey(agent, selected)]) {
+		if selected == "" || history.Discovery[DiscoverySkipKey(agent, entry)].Before(history.Discovery[DiscoverySkipKey(agent, selected)]) {
 			selected = entry
 		}
 	}
@@ -278,24 +287,6 @@ func SkipDiscovery(agent string, p *providers.Provider, wire string) string {
 	return hit
 }
 
-// databricksDiscoveryPool is the seeded Discovery pool of wire ids, used when the vault overlay is unset or invalid.
-var databricksDiscoveryPool = []string{
-	"databricks-grok-4-7",
-	"databricks-glm-5-3",
-	"databricks-gpt-oss-120b",
-	"databricks-gpt-6-astra",
-	"databricks-gemini-3-8-flash",
-	"databricks-gpt-6-1-sol",
-}
-
-// DiscoveryPool is the Discovery model pool: the vault overlay if set and valid, else the databricksDiscoveryPool seed.
-func DiscoveryPool() []string {
-	if p, ok := vaultDiscoveryPool(); ok {
-		return p
-	}
-	return slices.Clone(databricksDiscoveryPool)
-}
-
 // poolCache holds the vault's Discovery pool overlay per vault.db stamp.
 var poolCache paths.StampCache[[]string]
 
@@ -314,7 +305,7 @@ func vaultDiscoveryPool() ([]string, bool) {
 }
 
 func warnPool(err error) {
-	warnedPool.Do(func() { fmt.Fprintf(os.Stderr, "warning: %v; using the built-in discovery pool\n", err) })
+	warnedPool.Do(func() { fmt.Fprintf(os.Stderr, "warning: %v; ignoring the discovery allowlist\n", err) })
 }
 
 // readPoolOverlay decodes the vault's Discovery pool overlay; nil when unset or invalid, an error on a failed read.

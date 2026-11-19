@@ -64,7 +64,7 @@ func checkRotationPeek(t *testing.T, p *providers.Provider, pool []string, now t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := PeekRotation("opencode", ProviderAccount(p.Name), p, pool, now); got != want {
+	if got := PeekRotation("opencode", ProviderAccount(p.Name), ProviderAccount(p.Name), p, pool, now); got != want {
 		t.Errorf("PeekRotation = %q, want %q", got, want)
 	}
 	after, err := os.ReadFile(StatePath())
@@ -86,7 +86,7 @@ func checkRotationPicks(t *testing.T, p *providers.Provider, pool []string, now 
 	account, before := ProviderAccount(p.Name), LoadState()
 	for i, want := range wants {
 		at := now.Add(time.Duration(i+1) * time.Second)
-		got, err := PickRotation(agent, account, p, pool, at)
+		got, err := PickRotation(agent, account, account, p, pool, at)
 		if err != nil || got != want {
 			t.Fatalf("PickRotation = %q, %v; want %q", got, err, want)
 		}
@@ -103,6 +103,9 @@ func checkRotationPicks(t *testing.T, p *providers.Provider, pool []string, now 
 func TestPickPoolRotatesHonorsSkipAndExpiry(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	p, pool := poolProvider(), []string{"databricks-kimi-k3", "databricks-grok-4-6", "databricks-glm-5-3"}
+	oldPool := RotationPool
+	RotationPool = func(string, string, *providers.Provider, time.Time) []string { return pool }
+	t.Cleanup(func() { RotationPool = oldPool })
 	if err := vault.Update(func(tx *vault.Tx) error {
 		return tx.Put(vault.Overlay, vault.PoolKey, `["databricks-kimi-k3","databricks-grok-4-6","databricks-glm-5-3"]`)
 	}); err != nil {
@@ -138,15 +141,10 @@ func TestPickPoolRotatesHonorsSkipAndExpiry(t *testing.T) {
 	}
 }
 
-func TestDiscoveryPoolOverlayOverridesSeedAndSeedIsCloned(t *testing.T) {
+func TestDiscoveryPoolOverlay(t *testing.T) {
 	vaulttest.UseKeyring(t)
-	got := DiscoveryPool()
-	if !slices.Equal(got, databricksDiscoveryPool) {
-		t.Fatalf("unset overlay: pool = %v, want the seed %v", got, databricksDiscoveryPool)
-	}
-	got[0] = "mutated"
-	if databricksDiscoveryPool[0] == "mutated" {
-		t.Fatal("DiscoveryPool aliases the seed slice")
+	if got, ok := PoolOverlay(); ok || len(got) != 0 {
+		t.Fatalf("unset overlay: pool = %v, valid = %v", got, ok)
 	}
 	put := func(raw string) {
 		t.Helper()
@@ -155,13 +153,13 @@ func TestDiscoveryPoolOverlayOverridesSeedAndSeedIsCloned(t *testing.T) {
 		}
 	}
 	put(`["databricks-kimi-k3","databricks-not-a-model","databricks-grok-4-6"]`)
-	if got := DiscoveryPool(); !slices.Equal(got, []string{"databricks-kimi-k3", "databricks-grok-4-6"}) {
+	if got, ok := PoolOverlay(); !ok || !slices.Equal(got, []string{"databricks-kimi-k3", "databricks-grok-4-6"}) {
 		t.Errorf("overlay pool = %v, want catalog ids only", got)
 	}
 	for _, bad := range []string{`not json`, `[]`, `["databricks-not-a-model"]`} {
 		put(bad)
-		if got := DiscoveryPool(); !slices.Equal(got, databricksDiscoveryPool) {
-			t.Errorf("overlay %q: pool = %v, want the seed", bad, got)
+		if got, ok := PoolOverlay(); ok || len(got) != 0 {
+			t.Errorf("overlay %q: pool = %v, valid = %v", bad, got, ok)
 		}
 	}
 }
