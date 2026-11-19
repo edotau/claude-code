@@ -1,8 +1,8 @@
 package tailscale
 
 import (
-	"cmp"
 	"bufio"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
