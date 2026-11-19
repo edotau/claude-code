@@ -22,8 +22,12 @@ func relayBash(in *core.Input) (core.Result, bool) {
 	if _, relay := relayLeaf(in); !relay || cmd == "" {
 		return core.Result{}, false
 	}
-	for _, seg := range shell.Segments(cmd) {
+	segs := shell.Segments(cmd)
+	for i, seg := range segs {
 		if rule := relayRefusal(seg); rule != "" {
+			if res, ok := relayDropEchoes(in, cmd, segs, i); ok {
+				return res, true
+			}
 			shown := textutil.Truncate(strings.Join(strings.Fields(textutil.RedactSecrets(seg)), " "), 60)
 			return core.Result{Decision: core.Block, Rule: "relay-shell", Verdict: core.VerdictRefused, Reason: fmt.Sprintf("relay: refused `%s`: %s; "+
 				"run the ask alone in the foreground (no `; echo`, no `run_in_background`) and hand back after it exits; "+
@@ -33,6 +37,33 @@ func relayBash(in *core.Input) (core.Result, bool) {
 		}
 	}
 	return core.Result{}, false
+}
+
+// relayDropEchoes allows a claude-code segment followed only by status echoes, rewriting the command without them.
+func relayDropEchoes(in *core.Input, cmd string, segs []string, i int) (core.Result, bool) {
+	if i == 0 || slices.ContainsFunc(segs[i:], func(s string) bool { return !relayStatusEcho(s) }) {
+		return core.Result{}, false
+	}
+	prev := strings.TrimSpace(segs[i-1])
+	at := strings.Index(cmd, prev)
+	if w := relayWords(prev); at < 0 || len(w) == 0 || filepath.Base(w[0]) != "claude-code" {
+		return core.Result{}, false
+	}
+	updated := in.CloneToolInput()
+	if updated == nil {
+		return core.Result{}, false
+	}
+	updated["command"] = cmd[:at+len(prev)]
+	return core.Result{UpdatedInput: updated, SystemMessage: "relay-shell: dropped the trailing status echo; the ask's own exit code reports"}, true
+}
+
+// relayStatusEcho is an `echo` whose only expansion is `$?`, with no redirect or substitution.
+func relayStatusEcho(seg string) bool {
+	seg = strings.TrimSpace(seg)
+	if !strings.HasPrefix(seg, "echo ") || strings.ContainsAny(seg, "<>`") {
+		return false
+	}
+	return !shell.Expands(strings.ReplaceAll(seg, "$?", ""))
 }
 
 // relayRefusal names the rule a relay's Bash segment breaks; "" when it is allowed.

@@ -68,3 +68,17 @@ func TestRelayGoGateShapes(t *testing.T) {
 		t.Errorf("harmless GOFLAGS: %+v, want allowed", r)
 	}
 }
+
+// A status echo after a relay's ask is dropped by a rewrite, not refused; an echo of anything else stays refused.
+func TestRelayDropsStatusEcho(t *testing.T) {
+	ask := "claude-code agents ask --agent codex x - < /tmp/brief.md"
+	for echo, want := range map[string]bool{`echo "exit=$?"`: true, "echo $?": true, `echo "rc=$?"`: true,
+		`echo "$(id)"`: false, `echo $? > /tmp/f`: false, `echo $HOME`: false} {
+		r := Handback(bashHook("PreToolUse", relayTx(t), "a1", "t2", ask+"; "+echo, ""))
+		if got := r.Decision != core.Block && r.UpdatedInput != nil; got != want {
+			t.Errorf("%q rewritten=%v, want %v: %+v", echo, got, want, r)
+		} else if want && r.UpdatedInput["command"] != ask {
+			t.Errorf("%q command %q, want %q", echo, r.UpdatedInput["command"], ask)
+		}
+	}
+}
