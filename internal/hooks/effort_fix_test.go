@@ -33,3 +33,17 @@ func TestFixRunLine(t *testing.T) {
 		t.Fatalf("multi-line command changed: %q, note %q", got, note)
 	}
 }
+
+func TestToolsNote(t *testing.T) {
+	brief := "Run: claude-code agents ask --agent opencode -\nYou OWN pkg/a.go; gate: rtk go test ./pkg"
+	if !strings.Contains(toolsNote(brief), "--tools") {
+		t.Fatalf("tool-needing brief without --tools: no note")
+	}
+	withTools := "Run: claude-code agents ask --agent opencode --tools -\nYou OWN pkg/a.go"
+	readOnly := "Run: claude-code agents ask --agent opencode -\nSummarize the design in five lines."
+	for _, b := range []string{withTools, readOnly, "no run line\nrtk go test"} {
+		if n := toolsNote(b); n != "" {
+			t.Fatalf("toolsNote(%q) = %q, want none", b, n)
+		}
+	}
+}

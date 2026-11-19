@@ -77,10 +77,31 @@ func plainCommand(command string, words []string) bool {
 func (e *effortPlan) fixRunLine(field, task string) string {
 	fixed, note := fixRunLine(task)
 	e.fix(note)
+	e.fix(toolsNote(fixed))
 	if fixed != task {
 		e.updated[field], e.changed = fixed, true
 	}
 	return fixed
+}
+
+// toolMarkers in a brief's body mean the agent must run commands or edit files.
+var toolMarkers = []string{"go test", "go build", "rtk ", "gofmt", "you own", "owns:", "pytest", "npm test", "make "}
+
+// toolsNote advises when a brief that runs commands or edits files has an ask Run: line without --tools.
+func toolsNote(task string) string {
+	words := openingAskWords(task)
+	if words == nil || slices.ContainsFunc(words, func(w string) bool {
+		return strings.HasPrefix(w, "--tools") || strings.HasPrefix(w, "--permissions")
+	}) {
+		return ""
+	}
+	_, body, _ := strings.Cut(strings.TrimSpace(task), "\n")
+	body = strings.ToLower(body)
+	if !slices.ContainsFunc(toolMarkers, func(m string) bool { return strings.Contains(body, m) }) {
+		return ""
+	}
+	return "dispatch-effort: Run: line has no --tools, so the agent gets no shell or edits; " +
+		"add --tools --workdir <dir> if the brief needs them"
 }
 
 // RunLine is the brief's `Run:` line for ask argv, each word quoted for a shell.
