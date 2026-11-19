@@ -2,6 +2,7 @@ package memory
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"io/fs"
@@ -9,12 +10,15 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"sort"
 	"strconv"
 	"strings"
 	"sync"
+	"unsafe"
 
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -215,6 +219,12 @@ func (s segView) Doc(i int) (text string, dl uint32) {
 	return string(raw), dl
 }
 
+// docView is Doc without the copy; segments are never written after they are built or read, so the string is stable.
+func (s segView) docView(i int) (text string, dl uint32) {
+	raw, dl := s.docRaw(i)
+	return unsafe.String(unsafe.SliceData(raw), len(raw)), dl
+}
+
 // DocRef is document i's blockSum and blockRef(text, ""), read from the row instead of rehashing the text.
 func (s segView) DocRef(i int) (sum uint64, ref string) {
 	off := segHeader + i*docStride
@@ -401,6 +411,15 @@ func (s segView) containing(term string) []string {
 	return out
 }
 
+// forEachIndex runs fn for every index in idx on a bounded pool; fn writes only to slots its own index owns.
+func forEachIndex(idx []int, fn func(int)) {
+	_, err := parallel.Map(context.Background(), idx, min(runtime.GOMAXPROCS(0), 8), func(_ context.Context, i int) (struct{}, error) {
+		fn(i)
+		return struct{}{}, nil
+	})
+	parallel.Rethrow(err)
+}
+
 // uniqTermIndex maps each distinct query term to a stable 0-based index.
 func uniqTermIndex(qTerms []string) map[string]int {
 	uniq := map[string]int{}
@@ -420,16 +439,19 @@ func indexSegments(uniq map[string]int, segs []segView) (
 	weighted = make([]map[int][]float64, len(segs)) // seg index -> doc -> per-term weighted tf
 	var sumdl uint64
 	for i, seg := range segs {
-		if seg == nil {
-			continue
+		if seg != nil {
+			usable = append(usable, i)
+			ndocs += seg.Docs()
+			sumdl += seg.sumDL()
 		}
-		usable = append(usable, i)
-		ndocs += seg.Docs()
-		sumdl += seg.sumDL()
+	}
+	segDF := make([][]int, len(segs))
+	forEachIndex(usable, func(i int) {
 		wt := map[int][]float64{}
+		d := make([]int, len(uniq))
 		for term, j := range uniq {
-			docs := seg.lookupWeighted(term)
-			df[j] += len(docs)
+			docs := segs[i].lookupWeighted(term)
+			d[j] = len(docs)
 			for doc, tf := range docs {
 				if wt[doc] == nil {
 					wt[doc] = make([]float64, len(uniq))
@@ -437,7 +459,12 @@ func indexSegments(uniq map[string]int, segs []segView) (
 				wt[doc][j] = tf
 			}
 		}
-		weighted[i] = wt
+		weighted[i], segDF[i] = wt, d
+	})
+	for _, i := range usable {
+		for j, n := range segDF[i] {
+			df[j] += n
+		}
 	}
 	if ndocs > 0 {
 		avgdl = float64(sumdl) / float64(ndocs)
@@ -458,7 +485,7 @@ func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl f
 		if freqs == nil {
 			continue
 		}
-		block, length := seg.Doc(doc)
+		block, length := seg.docView(doc)
 		sum, id := seg.DocRef(doc)
 		dl := float64(length)
 		var score float64
@@ -521,8 +548,12 @@ func rankFiles(qTerms []string, k int, files []corpusFile, segs []segView) []Sea
 	n := float64(ndocs)
 	var hits []SearchHit
 	dir := accessDir()
+	perSeg := make([][]SearchHit, len(segs))
+	forEachIndex(usable, func(i int) {
+		perSeg[i] = scoreSegmentDocs(qTerms, uniq, df, n, avgdl, segs[i], weighted[i], files[i], dir)
+	})
 	for _, i := range usable {
-		hits = append(hits, scoreSegmentDocs(qTerms, uniq, df, n, avgdl, segs[i], weighted[i], files[i], dir)...)
+		hits = append(hits, perSeg[i]...)
 	}
 	hits = sortByScore(hits)
 	if k > 0 && len(hits) > k {
