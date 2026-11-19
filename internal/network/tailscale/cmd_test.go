@@ -506,7 +506,7 @@ func TestTailscaleKeyReportsStdoutFailure(t *testing.T) {
 	defer srv.Close()
 	routeDefaultClientTo(t, srv)
 	code, stderr := hosttest.CaptureClosedStdout(t, func() int { return Cmd([]string{"--token", "--secret"}) })
-	if code != 1 || !strings.Contains(stderr, "network tailscale token: write") {
+	if code != 1 || !strings.Contains(stderr, "tailscale token: write") {
 		t.Fatalf("undelivered auth key: exit=%d stderr=%q", code, stderr)
 	}
 	if strings.Contains(stderr, "tskey-auth-test-output") {

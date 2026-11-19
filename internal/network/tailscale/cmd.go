@@ -32,7 +32,7 @@ var tsFlagMode = map[string]string{
 	"preauthorized": "token", "description": "token", "secret": "token",
 }
 
-// tsFlags are the values of `network tailscale`'s flags.
+// tsFlags are the values of `tailscale`'s flags.
 type tsFlags struct {
 	machines, connect, mint bool
 	secret                  *bool
@@ -42,7 +42,7 @@ type tsFlags struct {
 }
 
 func tailscaleFlags() (*flag.FlagSet, *tsFlags) {
-	fs := helptext.NewFlagSet("network tailscale", tailscalePage)
+	fs := helptext.NewFlagSet("tailscale", tailscalePage)
 	t := &tsFlags{}
 	fs.BoolVar(&t.machines, "machines", false, "list tailnet machines")
 	fs.BoolVar(&t.connect, "connect", false, "join the tailnet")
@@ -69,7 +69,7 @@ func tailscaleFlags() (*flag.FlagSet, *tsFlags) {
 // Spec is the completion node for the tailscale verb.
 func Spec() *helptext.Node { return &helptext.Node{Flags: Flags()} }
 
-// Flags are the completion flags of `network tailscale`, derived from its FlagSet.
+// Flags are the completion flags of `tailscale`, derived from its FlagSet.
 func Flags() []helptext.Flag {
 	fs, _ := tailscaleFlags()
 	return helptext.FlagsOf(fs, map[string]func() []string{
@@ -123,14 +123,14 @@ func Cmd(args []string) int {
 		return code
 	}
 	if fs.NArg() > 0 {
-		return helptext.FailUsage("network tailscale: unexpected argument %q", fs.Arg(0))
+		return helptext.FailUsage("tailscale: unexpected argument %q", fs.Arg(0))
 	}
 	mode, err := tsMode(fs, t)
 	if err == nil {
 		err = tsWrongFlag(fs, mode)
 	}
 	if err != nil {
-		return helptext.FailUsage("network tailscale: %v", err)
+		return helptext.FailUsage("tailscale: %v", err)
 	}
 	return tailscaleMode(context.Background(), mode, t)
 }
@@ -156,18 +156,18 @@ func tailscaleMode(ctx context.Context, mode string, t *tsFlags) int {
 // tailscaleRoute sends this box's traffic through peer as its exit node; "off" clears it.
 func tailscaleRoute(ctx context.Context, peer string) int {
 	if peer == "" || strings.HasPrefix(peer, "-") {
-		return helptext.FailUsage("network tailscale: --route requires a peer name or 'off'")
+		return helptext.FailUsage("tailscale: --route requires a peer name or 'off'")
 	}
 	if peer == "off" {
 		if err := useExitNode(ctx, ""); err != nil {
-			return helptext.Fail("network tailscale route: %v", err)
+			return helptext.Fail("tailscale route: %v", err)
 		}
 		audit.Log(audit.TailscaleExitNode, "self", "clear")
 		fmt.Println("tailscale: exit node cleared")
 		return 0
 	}
 	if err := useExitNode(ctx, peer); err != nil {
-		return helptext.Fail("network tailscale route: %v", err)
+		return helptext.Fail("tailscale route: %v", err)
 	}
 	audit.Log(audit.TailscaleExitNode, peer, "use")
 	fmt.Println("tailscale: routing via " + peer + " (LAN stays local)")
@@ -183,15 +183,15 @@ type tsOpts struct {
 
 func tailscaleStatus(ctx context.Context, format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
-		return helptext.BadFormat("network tailscale status", err)
+		return helptext.BadFormat("tailscale status", err)
 	}
 	st, err := Status(ctx)
 	if err != nil && !errors.Is(err, errNotRunning) {
-		return helptext.Fail("network tailscale status: %v", err)
+		return helptext.Fail("tailscale status: %v", err)
 	}
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, st); err != nil {
-			return helptext.Fail("network tailscale status: %v", err)
+			return helptext.Fail("tailscale status: %v", err)
 		}
 		return 0
 	}
@@ -210,15 +210,15 @@ func tailscaleStatus(ctx context.Context, format string) int {
 
 func tailscaleMachines(ctx context.Context, format string) int {
 	if err := helptext.CheckFormat(format); err != nil {
-		return helptext.BadFormat("network tailscale machines", err)
+		return helptext.BadFormat("tailscale machines", err)
 	}
 	machines, err := Machines(ctx)
 	if err != nil {
-		return helptext.Fail("network tailscale machines: %v", err)
+		return helptext.Fail("tailscale machines: %v", err)
 	}
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, machines); err != nil {
-			return helptext.Fail("network tailscale machines: %v", err)
+			return helptext.Fail("tailscale machines: %v", err)
 		}
 		return 0
 	}
@@ -230,21 +230,21 @@ func tailscaleMachines(ctx context.Context, format string) int {
 
 func tailscaleConnect(ctx context.Context, o tsOpts) int {
 	if o.authKey != "" && o.authKey != "-" {
-		fmt.Fprintln(os.Stderr, "claude-code: network tailscale connect: a literal --auth-key is visible in shell "+
+		fmt.Fprintln(os.Stderr, "claude-code: tailscale connect: a literal --auth-key is visible in shell "+
 			"history and `ps`; prefer --auth-key - (stdin) or --key-env")
 	}
 	key, err := resolveAuthKey(o.authKey, o.keyEnv, os.Stdin)
 	if errors.Is(err, errKeyEnvEmpty) {
-		return helptext.FailUsage("network tailscale connect: %v", err)
+		return helptext.FailUsage("tailscale connect: %v", err)
 	}
 	if err != nil {
-		return helptext.Fail("network tailscale connect: %v", err)
+		return helptext.Fail("tailscale connect: %v", err)
 	}
 	if key == "" {
 		return tailscaleConnectKeyless(ctx, o.advertise)
 	}
 	if err := connectAudited(ctx, key, o.advertise); err != nil {
-		return helptext.Fail("network tailscale connect: %v", err)
+		return helptext.Fail("tailscale connect: %v", err)
 	}
 	fmt.Println("tailscale: connected")
 	return 0
@@ -254,15 +254,15 @@ func tailscaleConnect(ctx context.Context, o tsOpts) int {
 func tailscaleConnectKeyless(ctx context.Context, advertise bool) int {
 	st, ok := connected(ctx)
 	if !ok {
-		return helptext.FailUsage("network tailscale connect: not connected; " +
-			"pass --auth-key or run `network tailscale --token --save`")
+		return helptext.FailUsage("tailscale connect: not connected; " +
+			"pass --auth-key or run `claude-code tailscale --token --save`")
 	}
 	fmt.Printf("tailscale: already connected (%s)\n", st.DNSName)
 	if !advertise {
 		return 0
 	}
 	if err := advertiseConnected(ctx, st.DNSName); err != nil {
-		return helptext.Fail("network tailscale connect: --advertise-exit: %v", err)
+		return helptext.Fail("tailscale connect: --advertise-exit: %v", err)
 	}
 	fmt.Println("tailscale: advertising as an exit node")
 	return 0
@@ -271,33 +271,33 @@ func tailscaleConnectKeyless(ctx context.Context, advertise bool) int {
 // tailscaleKey mints a key; --secret prints it, --save seals it, and with neither nothing is minted to lose.
 func tailscaleKey(ctx context.Context, o tsOpts, secret bool) int {
 	if err := stepUpGate(ctx, os.Stderr); err != nil {
-		return helptext.Fail("network tailscale token: %v", err)
+		return helptext.Fail("tailscale token: %v", err)
 	}
 	key, err := MintKey(ctx, KeyOptions{Expiry: o.expiry, Tags: o.tags, Description: o.desc,
 		Reusable: o.reusable, Ephemeral: o.ephemeral, Preauthorized: o.preauth})
 	if err != nil {
-		return helptext.Fail("network tailscale token: %v", err)
+		return helptext.Fail("tailscale token: %v", err)
 	}
 	if o.save {
 		if err := SaveAuthKey(key.Key); err != nil {
-			return helptext.Fail("network tailscale token: --save: %v", err)
+			return helptext.Fail("tailscale token: --save: %v", err)
 		}
 		fmt.Fprintf(os.Stderr, "saved TAILSCALE_AUTHKEY to the vault (%s)\n", vault.Redact(key.Key))
 	}
 	// the only thing on stdout, so it can be piped
-	return helptext.PrintSecrets("network tailscale token", secret, helptext.Secret{Value: key.Key})
+	return helptext.PrintSecrets("tailscale token", secret, helptext.Secret{Value: key.Key})
 }
 
 func tailscaleExitNode(ctx context.Context, action string) int {
 	if !slices.Contains([]string{"on", "off", "approve"}, action) {
-		return helptext.FailUsage("network tailscale: --exit-node must be on, off or approve, got %q", action)
+		return helptext.FailUsage("tailscale: --exit-node must be on, off or approve, got %q", action)
 	}
 	msg, err := ExitNode(ctx, action)
 	if err != nil && action == "approve" {
 		return failSelfDevice("exit-node", err)
 	}
 	if err != nil {
-		return helptext.Fail("network tailscale exit-node: %v", err)
+		return helptext.Fail("tailscale exit-node: %v", err)
 	}
 	fmt.Println(msg)
 	return 0
@@ -309,7 +309,7 @@ func failSelfDevice(mode string, err error) int {
 		fmt.Println("tailscale: no admin credential; approve at https://login.tailscale.com/admin/machines")
 		return 2
 	}
-	return helptext.Fail("network tailscale %s: %v", mode, err)
+	return helptext.Fail("tailscale %s: %v", mode, err)
 }
 
 // tailscaleSubnet dispatches --subnet: "off" withdraws, "approve" approves, anything else is a CIDR list.
@@ -325,7 +325,7 @@ func tailscaleSubnet(ctx context.Context, value string) int {
 
 func tailscaleSubnetWithdraw(ctx context.Context) int {
 	if err := advertiseRoutes(ctx, nil); err != nil {
-		return helptext.Fail("network tailscale subnet: %v", err)
+		return helptext.Fail("tailscale subnet: %v", err)
 	}
 	audit.Log(audit.TailscaleSubnet, "self", "withdraw")
 	fmt.Println("tailscale: subnet routes withdrawn")
@@ -346,10 +346,10 @@ func tailscaleSubnetApprove(ctx context.Context) int {
 func tailscaleSubnetAdvertise(ctx context.Context, value string) int {
 	routes, ok := parseSubnets(value)
 	if !ok {
-		return helptext.FailUsage("network tailscale: --subnet must be a CIDR list, approve or off, got %q", value)
+		return helptext.FailUsage("tailscale: --subnet must be a CIDR list, approve or off, got %q", value)
 	}
 	if err := advertiseRoutes(ctx, routes); err != nil {
-		return helptext.Fail("network tailscale subnet: %v", err)
+		return helptext.Fail("tailscale subnet: %v", err)
 	}
 	audit.Log(audit.TailscaleSubnet, "self", "advertise:"+value)
 	fmt.Printf("tailscale: advertising %s; approve with --subnet approve\n", strings.Join(routes, ", "))

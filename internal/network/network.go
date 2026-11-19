@@ -6,7 +6,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/network/remote"
-	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/network/websearch"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -30,7 +29,6 @@ func Run(args []string) int {
 		return 0
 	}
 	handlers := map[string]func([]string) int{
-		"tailscale": tailscale.Cmd, // NEXT: delete after one VS Code extension release
 		"browser":   browser.Cmd,
 		"websearch": websearch.Cmd,
 		"remote":    remote.Cmd,
