@@ -28,6 +28,8 @@ func runAskAndReport(ctx context.Context, client *agent.Client, p *agent.Prepare
 
 func maskedOut(out io.Writer) io.WriteCloser { return redact.Writer(out) }
 
+func warmMask() { redact.Shared() }
+
 func closeAskOutput(out io.Closer, exit int) int {
 	if err := out.Close(); err != nil {
 		msg := strings.NewReplacer("\r", " ", "\n", " ").Replace(redact.Text(err.Error()))

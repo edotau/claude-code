@@ -2,7 +2,7 @@ package ask
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -91,7 +91,7 @@ func groupedUnits(diff []byte) ([]string, map[string][]unit) {
 		}
 		byGroup[u.group] = append(byGroup[u.group], u)
 	}
-	sort.Strings(groups)
+	slices.Sort(groups)
 	return groups, byGroup
 }
 

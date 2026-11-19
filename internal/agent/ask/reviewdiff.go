@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -199,12 +198,7 @@ func skippedSpecialNote(rel string, info fs.FileInfo) string {
 
 // readCapped reads at most untrackedCap bytes of path without loading a larger file whole.
 func readCapped(path string) ([]byte, error) {
-	f, err := os.Open(path)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, untrackedCap+1))
+	data, err := readPrefix(path, untrackedCap+1)
 	if err != nil {
 		return nil, err
 	}

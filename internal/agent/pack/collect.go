@@ -506,7 +506,7 @@ func readInclude(abs, rel string, maxFileBytes int) (IncludedFile, string, error
 	truncated := info.Size() > int64(maxFileBytes)
 	content := data
 	if truncated && len(content) > maxFileBytes {
-		content = trimPartialRune(content[:maxFileBytes])
+		content = TrimPartialRune(content[:maxFileBytes])
 	}
 	return IncludedFile{
 		Path: rel, MediaType: mediaType(abs), Bytes: int(info.Size()),
@@ -514,8 +514,8 @@ func readInclude(abs, rel string, maxFileBytes int) (IncludedFile, string, error
 	}, "", nil
 }
 
-// trimPartialRune drops a multi-byte rune cut off at the end of b.
-func trimPartialRune(b []byte) []byte {
+// TrimPartialRune drops a multi-byte rune cut off at the end of b.
+func TrimPartialRune(b []byte) []byte {
 	for i := 1; i < utf8.UTFMax && i <= len(b); i++ {
 		if utf8.RuneStart(b[len(b)-i]) {
 			if utf8.FullRune(b[len(b)-i:]) {

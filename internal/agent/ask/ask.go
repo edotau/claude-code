@@ -43,7 +43,7 @@ var askPage = helptext.Page{
 func Cmd(args []string) int { return Run(args, "") }
 
 // cmdTo is Cmd with the answer and envelope written to out instead of the process stdout.
-func cmdTo(args []string, out io.Writer) int { return runTo(args, "", out) }
+func cmdTo(args []string, out io.Writer) int { return runCtx(context.Background(), args, "", out) }
 
 // retargetPage points fs's -h at `<agent> ask`: its own usage line, with --agent defaulting to the agent.
 func retargetPage(fs *flag.FlagSet, name string) {
@@ -82,11 +82,8 @@ type askRun struct {
 }
 
 // Run is `agents ask`; verb names the `<verb> ask` page -h prints.
-func Run(args []string, verb string) int { return runTo(args, verb, os.Stdout) }
-
-// runTo is Run writing the answer and envelope to out.
-func runTo(args []string, verb string, out io.Writer) int {
-	return runCtx(context.Background(), args, verb, out)
+func Run(args []string, verb string) int {
+	return runCtx(context.Background(), args, verb, os.Stdout)
 }
 
 // parseAskArgs parses flags in any position; an unknown flag-looking word exits 2, and "--" ends the flags.
@@ -101,7 +98,7 @@ func parseAskArgs(fs *flag.FlagSet, args []string) (pos []string, code int, done
 	return nil, helptext.ExitCode(err), true
 }
 
-// runCtx is runTo under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
+// runCtx is Run under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
 func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exit int) {
 	fs, f, args, pos, code, done := parseAsk(verb, args)
 	if done {
@@ -583,6 +580,7 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	if dry, ok := ctx.Value(dryKey{}).(dryDoc); ok {
 		return dryRun(ctx, req, dry, format, out)
 	}
+	go warmMask() // resolve the vault key while Prepare runs
 	prepared, err := cl.Prepare(ctx, req, jobRec)
 	if err != nil {
 		return failAskCode(format, name, err, prepareExitCode(err))

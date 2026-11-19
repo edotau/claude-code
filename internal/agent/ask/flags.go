@@ -14,7 +14,6 @@ import (
 	"slices"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/pack"
@@ -231,9 +230,15 @@ func (a *attachFlag) Set(s string) error {
 		return fmt.Errorf("--attach %q: not a regular file", s)
 	}
 	// reject non-image binary up front: it fails the same way on every agent, so it must never reach the fallback chain
-	if data, err := readPrefix(abs, sniffBytes); err != nil {
+	data, err := readPrefix(abs, sniffBytes)
+	if err != nil {
 		return fmt.Errorf("--attach %q: %w", s, err)
-	} else if !agent.IsText(trimPartialRune(data, info.Size() > sniffBytes)) && !agent.IsImage(data) {
+	}
+	text := data
+	if info.Size() > sniffBytes {
+		text = pack.TrimPartialRune(data)
+	}
+	if !agent.IsText(text) && !agent.IsImage(data) {
 		return fmt.Errorf("--attach %q: binary file; attach text only", s)
 	}
 	*a = append(*a, abs)
@@ -254,22 +259,6 @@ func readPrefix(path string, n int) ([]byte, error) {
 	}
 	defer f.Close()
 	return io.ReadAll(io.LimitReader(f, int64(n)))
-}
-
-// trimPartialRune drops a multi-byte rune that a prefix cut in half, so IsText judges only whole runes.
-func trimPartialRune(data []byte, cut bool) []byte {
-	if !cut {
-		return data
-	}
-	for i := len(data) - 1; i >= 0 && i > len(data)-utf8.UTFMax; i-- {
-		if utf8.RuneStart(data[i]) {
-			if utf8.FullRune(data[i:]) {
-				return data
-			}
-			return data[:i]
-		}
-	}
-	return data
 }
 
 // agentsFlag is the --agents value: inline JSON or a file of agent definitions.
