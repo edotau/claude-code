@@ -1115,7 +1115,7 @@ func TestClaimCheckLanesGitFailureWarns(t *testing.T) {
 	}
 }
 
-// TestClaimCheckLanesOtherRepoAsksOnce: another repo asks until an edit lands (Claim), never in a lane or for non-Claude.
+// Another repo asks until an edit lands (Claim), never in a lane or for a non-Claude agent.
 func TestClaimCheckLanesOtherRepoAsksOnce(t *testing.T) {
 	other := claimFixture(t)
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())

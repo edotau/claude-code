@@ -289,8 +289,7 @@ func checkRest(ctx context.Context, in *core.Input, cmd string, edits []string, 
 	return res
 }
 
-// laneVerdict, in lanes mode, asks (a leaf: blocks) on an edit or stage of a tracked file in the live checkout,
-// and asks once per session per repo for any other repo's primary checkout.
+// laneVerdict, in lanes mode, guards the live checkout (a leaf: blocks) and asks once in other repos' main checkouts.
 func laneVerdict(ctx context.Context, in *core.Input, cmd string, edits []string) core.Result {
 	if !worktreeLanes() {
 		return core.Result{}
@@ -334,7 +333,7 @@ func liveVerdict(ctx context.Context, in *core.Input, cmd string, edits []string
 // laneSeenKind is the seen store of repos already asked about in lanes mode, per session.
 const laneSeenKind = "worktree-lanes"
 
-// otherVerdict asks on a tracked-file change in another repo's primary checkout until Claim marks it seen; never blocks.
+// otherVerdict asks on a tracked change in another repo's main checkout until Claim marks it seen; never blocks.
 func otherVerdict(ctx context.Context, in *core.Input, cmd string, edits []string, live string) core.Result {
 	for _, root := range otherRoots(in, cmd, edits, live) {
 		hits, _ := liveTracked(ctx, root, edits) // a git error fails open
