@@ -59,9 +59,9 @@ type exportMemo struct {
 
 // MemoizeExport shares one successful opencode export per (session, cwd) until release; a failed one is retried.
 func MemoizeExport(sessionID, cwd string) (release func()) {
-	k := exportKey{sessionID, cwd}
-	exportMemos.Store(k, &exportMemo{})
-	return func() { exportMemos.Delete(k) }
+	k, m := exportKey{sessionID, cwd}, &exportMemo{}
+	exportMemos.Store(k, m)
+	return func() { exportMemos.CompareAndDelete(k, m) } // an overlapping run's newer scope stays
 }
 
 func exportFor(sessionID, cwd string) ([]byte, error) {
