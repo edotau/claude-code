@@ -3,26 +3,28 @@
   "env": {
     "CLAUDE_CODE_PLUGIN_DIRS": "~/.claude/mods/slash-usage"
   },
+  "attribution": {
+    "commit": "",
+    "pr": "",
+    "sessionUrl": false
+  },
   "permissions": {
     "allow": [
+      "Bash",
       "Edit",
       "Read",
       "Write",
       "WebFetch(*)"
     ],
     "deny": [
+      "Bash(sudo:*)",
       "Bash(rm -rf ~)",
-      "Edit(~/.ssh/**)",
-      "Bash(sudo:*)"
+      "Edit(~/.ssh/**)"
     ],
     "ask": [
-      "Read(~/.ssh/id_*)",
-      "Edit(**/state/vault.db)",
       "Edit(**/.credentials.json)",
       "Edit(~/.claude/settings.json)",
-      "Bash(git push --force:*)",
-      "Bash(git push -f:*)",
-      "Bash(git reset --hard:*)"
+      "Read(~/.ssh/id_*)"
     ],
     "defaultMode": "auto"
   },
