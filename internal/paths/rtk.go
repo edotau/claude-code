@@ -1,9 +1,14 @@
 package paths
 
 import (
+	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
+	"sync"
+	"time"
 )
 
 // RTKBinaryEnv overrides the rtk binary: tests cannot rely on rtk being installed, and a wrapper path also works.
@@ -41,4 +46,29 @@ func RTKOnPath(bin string) (found string, same bool) {
 	}
 	want, err := filepath.EvalSymlinks(bin)
 	return found, err == nil && got == want
+}
+
+var rtkRewrites sync.Map // binary+command -> rewritten command
+
+// RTKRewrite returns cmd in its rtk form, or cmd itself when rtk is absent, declines, fails or already prefixes it.
+func RTKRewrite(ctx context.Context, cmd string) string {
+	bin := RTKBinary()
+	key := bin + "\x00" + cmd
+	if got, ok := rtkRewrites.Load(key); ok {
+		return got.(string)
+	}
+	out := cmd
+	if bin != "" && strings.TrimSpace(cmd) != "" && !strings.HasPrefix(strings.TrimSpace(cmd), "rtk ") {
+		ctx, cancel := context.WithTimeout(ctx, time.Second)
+		defer cancel()
+		c := exec.CommandContext(ctx, bin, "rewrite", cmd)
+		c.WaitDelay = 200 * time.Millisecond
+		b, err := c.Output()
+		var ee *exec.ExitError
+		if got := strings.TrimSpace(string(b)); got != "" && (err == nil || errors.As(err, &ee) && ee.ExitCode() == 3) {
+			out = got // exit 3 is rtk's "rewritten, ask first", which a gate has no one to ask
+		}
+	}
+	rtkRewrites.Store(key, out)
+	return out
 }

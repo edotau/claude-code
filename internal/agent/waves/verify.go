@@ -19,6 +19,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/inspect"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -415,7 +416,7 @@ type GateResult struct {
 	Saved string
 }
 
-// GateRun runs the command as `bash -c` after GateRefusal and saves the full output to in.OutPath.
+// GateRun runs the command (in its rtk form) as `bash -c` after GateRefusal and saves the full output to in.OutPath.
 func GateRun(ctx context.Context, env CheckEnv, in GateInput) (GateResult, error) {
 	if err := GateRefusal(in.Cmd); err != nil {
 		return GateResult{}, err
@@ -440,7 +441,7 @@ func GateRun(ctx context.Context, env CheckEnv, in GateInput) (GateResult, error
 }
 
 func gateBash(ctx context.Context, dir, script string, env []string, out io.Writer) (int, error) {
-	cmd := exec.CommandContext(ctx, "bash", "-c", script)
+	cmd := exec.CommandContext(ctx, "bash", "-c", paths.RTKRewrite(ctx, script))
 	cmd.Dir, cmd.Env, cmd.Stdout, cmd.Stderr = dir, append(os.Environ(), env...), out, out
 	err := cmd.Run()
 	var ee *exec.ExitError
