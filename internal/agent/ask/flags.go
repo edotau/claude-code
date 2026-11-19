@@ -48,7 +48,7 @@ type askFlags struct {
 func CompletionFlags() []helptext.Flag {
 	fs, _ := askFlagSet()
 	return helptext.FlagsOf(fs, map[string]func() []string{"agent": engineNames, "profile": providers.ProfileNames,
-		"mode": func() []string { return []string{"default", "auto", "plan"} }, "format": nil,
+		"permissions": func() []string { return []string{"allow", "default", "auto", "plan"} }, "format": nil,
 		"fallback": func() []string { return router.FallbackModes }, "as": func() []string { return []string{"user", "sp"} }})
 }
 
@@ -98,7 +98,7 @@ func registerPermFlags(fs *flag.FlagSet, f *askFlags) {
 	helptext.ListVar(fs, &f.permAllow, "allow", "RULE", "allow a tool call, e.g. 'Bash(ls:*)' (repeatable)", false)
 	helptext.ListVar(fs, &f.permAsk, "ask", "RULE", "ask before a tool call matching the rule (repeatable)", false)
 	helptext.ListVar(fs, &f.permDeny, "deny", "RULE", "deny a tool call matching the rule (repeatable)", false)
-	fs.StringVar(&f.permMode, "mode", "", "permission mode for unmatched calls: default|auto|plan")
+	fs.StringVar(&f.permMode, "permissions", "", "allow (dev: runs every call; --deny holds)|default|auto|plan")
 }
 
 func registerOverlayFlag(fs *flag.FlagSet, f *askFlags) {

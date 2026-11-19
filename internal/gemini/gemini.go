@@ -369,6 +369,9 @@ func agyArgv(r agyRequest) []string {
 		// agy fails every command when an --add-dir is missing
 		_ = os.MkdirAll(paths.PackDir(), 0o700)
 		argv = append(argv, "--dangerously-skip-permissions", "--add-dir", paths.PackDir()) // packs live outside the workspace
+		for _, d := range agent.WritableRoots(r.Cwd) {
+			argv = append(argv, "--add-dir", d)
+		}
 	}
 	if r.DebugFile != "" {
 		argv = append(argv, "--log-file", r.DebugFile)

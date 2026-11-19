@@ -219,7 +219,7 @@ func agyPlanRefusal(p agent.Permissions, tools bool, cwd string) error {
 	case p.Mode != "plan":
 		return nil
 	case tools:
-		return retry.Fatal("gemini", errors.New("permission mode plan denies unmatched calls, which agy cannot enforce with --tools; drop --tools or --mode plan"))
+		return retry.Fatal("gemini", errors.New("permission mode plan denies unmatched calls, which agy cannot enforce with --tools; drop --tools or --permissions plan"))
 	case !agyGateCovers(cwd, "read_file"):
 		home, _ := agentconfig.HomeOr("")
 		return retry.Fatal("gemini", fmt.Errorf("permission mode plan needs the permission-gate hook on read_file in %s, which agy otherwise runs; run `claude-code configure --restore --agents --agent gemini`", agyHooksPath(home)))

@@ -50,7 +50,7 @@ Opencode deltas:
 
 - `claude-code opencode -- <native verb>` forces passthrough.
 - `--tools` edits and runs shell; `--read-only` keeps reads and a vetted read-only shell list and denies other Bash,
-  Write and Edit; `--mode plan` denies Bash. `--deny` rides the
+  Write and Edit; `--permissions plan` denies Bash. `--deny` rides the
   `permission-gate` plugin; `--ask` maps to opencode `--auto`. `--model` off the menu is refused.
 - `--system-prompt` only (see Verbs) · `--safe-mode` (no hooks/plugins; refuses any bound tool gate or Bash deny) ·
   `--native` (skip the hub ladder, own login) · `--timeout` · `--autonomous`.

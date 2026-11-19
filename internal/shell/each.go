@@ -373,8 +373,9 @@ type cwdTracker struct {
 	before   string // the dir the previous segment's cd left, for a following `||`
 	start    string // the dir the command started in, set by the first step
 	moved    bool
-	subshell []cwdState // the state to restore at each open `(`'s close
-	dirs     []string   // pushd stack
+	subshell []cwdState      // the state to restore at each open `(`'s close
+	dirs     []string        // pushd stack
+	made     map[string]bool // dirs an earlier mkdir in this command creates, so a cd into one moves the cwd
 }
 
 // cwdState is what a subshell's close restores.
@@ -449,6 +450,7 @@ func (c *cwdTracker) step(toks []string, prev, sep string) (at string, isCd bool
 		c.start = c.cwd
 	}
 	cmd := c.dashResolved(builtinPrefixDropped(toks))
+	c.noteMkdir(cmd)
 	next, exact, ok := c.cdTarget(cmd, !subshellSide(prev, sep))
 	if ok && !subshellSide(prev, sep) {
 		abs, dynamic, _ := cdResolve(cmd, "")
@@ -490,13 +492,35 @@ func (c *cwdTracker) cdTarget(cmd []string, live bool) (next, exact string, ok b
 	if dynamic {
 		exact = unknownDir
 	}
-	if missingDir(next, c.cwd) {
+	if missingDir(next, c.cwd) && !c.made[next] {
 		next = c.cwd
 	}
 	if live && next != c.cwd && cmd[0] == "pushd" {
 		c.dirs = append(c.dirs, c.cwd)
 	}
 	return next, exact, true
+}
+
+// noteMkdir records each static dir a mkdir creates, with its parents.
+func (c *cwdTracker) noteMkdir(cmd []string) {
+	if len(cmd) == 0 || cmd[0] != "mkdir" {
+		return
+	}
+	for _, a := range cmd[1:] {
+		if strings.HasPrefix(a, "-") || strings.ContainsAny(a, "$`*?~") {
+			continue
+		}
+		d := a
+		if !filepath.IsAbs(d) {
+			d = filepath.Join(c.here(), d)
+		}
+		if c.made == nil {
+			c.made = map[string]bool{}
+		}
+		for d = filepath.Clean(d); filepath.IsAbs(d) && d != filepath.Dir(d); d = filepath.Dir(d) {
+			c.made[d] = true
+		}
+	}
 }
 
 // missingDir reports a cd target that is absolute, differs from cwd and does not exist.

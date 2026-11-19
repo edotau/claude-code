@@ -27,6 +27,18 @@ func RepoRoot(ctx context.Context, cwd string) string {
 	return repo
 }
 
+// WritableRoots is where a tools dispatch may write besides its cwd: the harness checkout and cwd's repo.
+func WritableRoots(cwd string) []string {
+	roots := []string{paths.Real(paths.ConfigDir())}
+	if cwd == "" {
+		return roots
+	}
+	if repo := paths.Real(RepoRoot(context.Background(), cwd)); repo != "" && repo != roots[0] {
+		roots = append(roots, repo)
+	}
+	return roots
+}
+
 // treeAndRepo is cwd's git top (the working tree) and its main checkout root; "" and cwd when git fails.
 func treeAndRepo(ctx context.Context, cwd string) (tree, repo string) {
 	top := paths.GitTop(ctx, cwd)

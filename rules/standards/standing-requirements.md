@@ -27,3 +27,7 @@ A row is deleted only when the tool makes the prose redundant.
 | R15 Plan tests | Default, not absolute: new feature: basic tests that it works, a couple of seconds to run at most; no long tests before it has been used a while; more tests are suggestions `dream` lists | plan template, `brief.tmpl`, dream Phase 5c |
 | R16 Test time | Keep cutting test run time, never by running tests in parallel; a leaf runs its package or exact test functions (`go test -run '^TestX$' ./internal/<pkg>`), never `./...`; the whole suite runs once before a push; aim as work continues: each package under 20 s solo | prose |
 | R17 Security reviews | A review of secrets, guard, ssh, sync or exfiltration code goes to Gemini first: GPT's vendor filter refuses such briefs mid-run; a brief sent to GPT asks for robustness and data loss, not attacks | prose |
+| R18 Plan first | Multi-part work starts as a dated plan (`docs/templates/plan.md`) before any lane or dispatch | prose |
+| R19 WSL first | A harness change is built and live-checked on WSL first, then pulled and installed on the Mac | prose |
+| R20 Databricks arm | Subagents and dispatches run on the Databricks arm (`--provider databricks`) unless the owner names another route | prose |
+| R21 Live before tests | After code is written, no test is written or run until development is live-checked from several workspaces (main in `~/.claude`, another repo, `/tmp`; a subagent; each external agent); tests then wait for the owner's yes | prose |

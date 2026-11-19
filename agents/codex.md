@@ -59,7 +59,7 @@ For codex and copilot, `databricks -p dev` (also `--profile dev` or `--profile=d
 - Interactive: `--profile <p>` is the harness profile (codex's own is `-p`); `-f <config.toml>` (keys ride as `-c`
   overrides); `claude-code codex -- <native verb>` forces passthrough (`-- review`, `-- resume --last`).
 - `--tools` edits and runs shell; no `--tools` keeps a read-only sandbox shell. `--deny` is enforced by the
-  `permission-gate` hook; `--mode auto|plan` (`plan` is refused with `--tools`).
+  `permission-gate` hook; `--permissions allow|auto|plan` (`plan` is refused with `--tools`).
 - `--profile <p>` leads on that profile; `--fallback agents|none` (`none` pins that dispatch); `--provider <x>`
   leads · `--no-persist` keeps no session · `--safe-mode` skips hooks/plugins · `--output-schema <json>` adds
   `.structured` to the envelope.
@@ -120,7 +120,7 @@ did not run.
 - `--tools` runs in the codex record's `sandboxMode` (built-in `danger-full-access`: the whole machine, vault
   readable; empty means `workspace-write`, which blocks sockets, `ps` and the vault; no `--allow` changes that). An
   invalid value is refused before launch; a nested `--tools` Codex dispatch inherits the record's `sandboxMode`.
-  With `--mode auto` or `--ask` under `danger-full-access` the sandbox stays and auto-review handles approvals
+  With `--permissions auto` or `--ask` under `danger-full-access` the sandbox stays and auto-review handles approvals
   (`workspace-write` uses `--approve-for-me`). Under `workspace-write` the overlay `{"codexNetwork":true}` opens only
   network (all egress, noted at launch; refused inside a dispatch).
 - Under `workspace-write` the launch points `GOCACHE`, `GOMODCACHE` and `GOLANGCI_LINT_CACHE` at the dispatch's temp

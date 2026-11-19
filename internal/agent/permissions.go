@@ -32,7 +32,7 @@ const (
 // Rule is one Claude Code style rule: Tool alone matches every call, Tool(Arg) narrows by command, path or domain.
 type Rule struct{ Tool, Arg string }
 
-// Permissions is a dispatch's rule set; Mode ("", "default", "auto", "plan") decides what no rule matched.
+// Permissions is a dispatch's rule set; Mode ("", allow, default, auto, plan) decides what no rule matched.
 type Permissions struct {
 	Mode  string `json:"mode,omitempty"`
 	Allow []Rule `json:"allow,omitempty"`
@@ -137,12 +137,20 @@ func expandHome(tool, arg string) string {
 	return filepath.Join(home, rest)
 }
 
+// Permission modes for --permissions: allow is the development override (every call runs unless a rule denies it).
+const (
+	PermAllow   = "allow"
+	PermDefault = "default"
+	PermAuto    = "auto"
+	PermPlan    = "plan"
+)
+
 // ParsePermissions builds a validated Permissions from a mode and rule strings.
 func ParsePermissions(mode string, allow, ask, deny []string) (Permissions, error) {
 	switch mode {
-	case "", "default", "auto", "plan":
+	case "", PermAllow, PermDefault, PermAuto, PermPlan:
 	default:
-		return Permissions{}, fmt.Errorf("unknown permission mode %q (want default, auto or plan)", mode)
+		return Permissions{}, fmt.Errorf("unknown permission mode %q (want allow, default, auto or plan)", mode)
 	}
 	p := Permissions{Mode: mode}
 	for _, set := range []struct {
@@ -639,7 +647,16 @@ func (p Permissions) decideSegment(raw string, rawToks, toks []string) Decision 
 		return Ask
 	case hit(p.Allow):
 		return Allow
-	case p.Mode == "plan":
+	}
+	return p.fallback()
+}
+
+// fallback is the mode's verdict on a call no rule matched: allow allows, plan denies, the rest ask.
+func (p Permissions) fallback() Decision {
+	switch p.Mode {
+	case PermAllow:
+		return Allow
+	case PermPlan:
 		return Deny
 	}
 	return Ask
@@ -720,10 +737,8 @@ func (p Permissions) decideForm(tool, arg string, norm bool) Decision {
 		return Ask
 	case anyRule(p.Allow, tool, arg, norm):
 		return Allow
-	case p.Mode == "plan":
-		return Deny
 	}
-	return Ask
+	return p.fallback()
 }
 
 // anyRule reports a matching rule; the file-redirect rule reads quotes, so it skips a normalized spelling.
@@ -848,7 +863,7 @@ func refusePermissions(c Caps, agentName string, p Permissions) error {
 	}
 	what := "permission deny rules"
 	if len(p.Deny) == 0 {
-		what = "--mode plan"
+		what = "--permissions plan"
 	}
 	return errors.New(agentName + " cannot enforce " + what + " yet; dispatch refused")
 }

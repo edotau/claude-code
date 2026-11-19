@@ -29,8 +29,8 @@ paths:
 - Without `--tools`, claude and opencode launch no tools, copilot's SDK rejects every request, gemini is only
   instructed not to use them, codex keeps a read-only sandbox shell. `--no-tools` is claude only (others exit 2).
   `--read-only` (implies `--tools`) runs reads, URL fetches and a vetted read-only shell list; other Bash and all
-  Write/Edit stay denied, and `--allow` never reopens a deny. codex and gemini refuse `--tools` with `--mode plan`;
-  claude `--tools` off Anthropic gates only explicit rules. Grants and gates:
+  Write/Edit stay denied, and `--allow` never reopens a deny. codex and gemini refuse `--tools` with
+  `--permissions plan`; claude `--tools` off Anthropic gates only explicit rules. Grants and gates:
   `skills/subagent-workflows/references/dispatch-policy-details.md` → Read-only and tools.
 - `agents ask --agents <json|file>` defines agents inline (`name`, `description`, `prompt`, `tools`, `model`,
   `max_turns`, `agent`, `profile`, `effort`); `--agent` also takes an `--agents` key. With `--batch`, a line's `agent`

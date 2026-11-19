@@ -32,7 +32,7 @@ func (r *RouteFlags) Args() ([]string, error) {
 		return nil, errors.New("--overlay - reads stdin, which a batch child needs; pass a file or inline JSON")
 	}
 	var out []string
-	for _, kv := range [][2]string{{"overlay", f.overlay}, {"fallback", f.fallback}, {"mode", f.permMode}} {
+	for _, kv := range [][2]string{{"overlay", f.overlay}, {"fallback", f.fallback}, {"permissions", f.permMode}} {
 		if kv[1] != "" {
 			out = append(out, "--"+kv[0], kv[1])
 		}

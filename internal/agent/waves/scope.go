@@ -58,8 +58,8 @@ func scopeFlags(spec Spec, o LaunchOptions) (flags []string, enforced bool) {
 	for _, rule := range rules {
 		flags = append(flags, "--deny", rule)
 	}
-	if !slices.Contains(o.Route, "--mode") { // a denied launch with no mode asks for the rest: opencode's judge would
-		flags = append(flags, "--mode", "auto")
+	if !slices.Contains(o.Route, "--permissions") { // a denied launch with no mode asks for the rest: opencode's judge would
+		flags = append(flags, "--permissions", "auto")
 	}
 	return flags, clean
 }

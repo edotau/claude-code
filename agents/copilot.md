@@ -73,8 +73,8 @@ Copilot deltas:
 For codex and copilot, `databricks -p dev` (also `--profile dev` or `--profile=dev`) selects the profile.
 
 - `copilot --docs` prints copilot's own help; `copilot -- <native args>` forces passthrough.
-- `ask` has no tools unless `--tools`; `--read-only` implies `--tools`. `--mode auto|plan`. A write is judged as both
-  `Write(...)` and `Edit(...)`; a deny on either wins, an allow on either grants.
+- `ask` has no tools unless `--tools`; `--read-only` implies `--tools`. `--permissions allow|auto|plan`. A write is
+  judged as both `Write(...)` and `Edit(...)`; a deny on either wins, an allow on either grants.
 - `--fleet` (parallel subagents; verify with the diff stat) · `--enable-memory` (session memory) ·
   `--fallback all|agents|none` · `--profile <p>` leads on that profile;
   `--fallback none` pins that dispatch; `--provider <x>` leads.

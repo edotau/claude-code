@@ -31,7 +31,7 @@ type opencodeEntry struct{ pattern, action string }
 
 // opencodePermission keeps rule precedence; gated (plugin judges every bash call) leaves read-only bash to the gate.
 func opencodePermission(p agent.Permissions, gated bool) (json.RawMessage, error) {
-	base := cmp.Or(map[string]string{"auto": "allow", "plan": "deny"}[p.Mode], "ask")
+	base := cmp.Or(map[string]string{"allow": "allow", "auto": "allow", "plan": "deny"}[p.Mode], "ask")
 	byKey := planEntries(p.Mode)
 	readOnly := opencodeReadOnly(agent.RunOptions{Permissions: p})
 	sets := []struct {
@@ -75,7 +75,10 @@ var planDenied = map[string]bool{"edit": true, "bash": true, "task": true}
 // planEntries seeds plan mode's read-only policy: read tools allow, write tools deny, other tools fall to "*".
 func planEntries(mode string) map[string][]opencodeEntry {
 	byKey := map[string][]opencodeEntry{}
-	if mode != "plan" {
+	if mode != "plan" { // the harness checkout is writable from any workspace; a deny rule added later still wins
+		for _, d := range agent.WritableRoots("") {
+			byKey["external_directory"] = append(byKey["external_directory"], opencodeEntry{d + "/**", "allow"})
+		}
 		return byKey
 	}
 	for _, k := range []string{"read", "glob", "grep", "list", "webfetch", "websearch"} {

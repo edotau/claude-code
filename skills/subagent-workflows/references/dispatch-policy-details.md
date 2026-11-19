@@ -44,13 +44,13 @@ behavior stay in the rule):
   also blocks a listed command that may reach that path. copilot enforces it in its SDK handler; gemini (agy hook),
   opencode (plugin) and claude (gated launch on every route, tools `Read,Glob,Grep,Bash`) use the `permission-gate`;
   opencode and claude refuse `--safe-mode`, gemini refuses a missing hook; codex drops its tools and keeps its read-only
-  sandbox shell. codex and gemini refuse `--tools` with `--mode plan`. An `--allow` adds but can never reopen a matching
-  deny. copilot file rules are judged as both Edit and Write, in absolute and workdir-relative form. copilot `--tools`
-  approves every request like the other agents' `--tools`, still subject to the dispatch's permission rules (a Deny
-  returns feedback and the run continues) and the native hooks. claude `--tools` off Anthropic has no implicit
+  sandbox shell. codex and gemini refuse `--tools` with `--permissions plan`. An `--allow` adds but can never reopen a
+  matching deny. copilot file rules are judged as both Edit and Write, in absolute and workdir-relative form. copilot
+  `--tools` approves every request like the other agents' `--tools`, still subject to the dispatch's permission rules
+  (a Deny returns feedback and the run continues) and the native hooks. claude `--tools` off Anthropic has no implicit
   policy: no plan mode, Bash allow list, Edit/Write `--workdir` limit or redirect deny. With no explicit rule it runs
   under `bypassPermissions` and the `safety-scan` hook still applies; bare `--autonomous` is the same launch. Explicit
-  `--allow`/`--ask`/`--deny`/`--mode` rules gate with only those rules and no judge, so `--ask` becomes a deny; that
-  gate runs like a memory job (`bypassPermissions`, because `dontAsk` hard-denies `.claude/` writes; tools
-  `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, no MCP/Agent/WebFetch). `--mode plan` and `--safe-mode` keep their own
-  launch, and `--safe-mode` with bare `--autonomous` is refused.
+  `--allow`/`--ask`/`--deny`/`--permissions` rules gate with only those rules and no judge, so `--ask` becomes a deny;
+  that gate runs like a memory job (`bypassPermissions`, because `dontAsk` hard-denies `.claude/` writes; tools
+  `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, no MCP/Agent/WebFetch). `--permissions plan` and `--safe-mode` keep their
+  own launch, and `--safe-mode` with bare `--autonomous` is refused.
