@@ -244,7 +244,7 @@ func TestTailscaleKeyRedactsWithoutSecret(t *testing.T) {
 	}
 }
 
-// Reuse the CreateAuthKey response pattern from internal/network/tailscale/api_test.go.
+// Reuse the CreateAuthKey response pattern from internal/tailscale/api_test.go.
 func tailscaleAuthKeyServer(t *testing.T, key string) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

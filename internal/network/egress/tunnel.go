@@ -18,9 +18,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/tailscale"
 )
 
 // Tunnel is one recorded ssh SOCKS5 tunnel.

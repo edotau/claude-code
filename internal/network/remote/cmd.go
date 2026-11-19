@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 

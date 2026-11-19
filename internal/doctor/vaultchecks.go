@@ -8,8 +8,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/vault"
 )
 

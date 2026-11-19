@@ -16,8 +16,8 @@ import (
 	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"

@@ -13,9 +13,9 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/ui/table"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"

@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/tailscale"
 )
 
 // resetTailscaleStatus empties the home page's Status cache for this test and restores its seams after.

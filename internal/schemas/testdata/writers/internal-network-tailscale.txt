@@ -1,2 +1,0 @@
-internal/network/tailscale/cli.go:writeAuthKeyFile	unversioned: foreign: temp auth key file
-internal/network/tailscale/host.go:WriteMachinesCache	tailscale-machines

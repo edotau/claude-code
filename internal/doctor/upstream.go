@@ -13,9 +13,9 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/network/httpx"
-	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/tailscale"
 )
 
 const upstreamSchema = 1

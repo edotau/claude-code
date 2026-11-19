@@ -20,7 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/clipboard"
 	"github.com/edotau/claude-code/internal/codex"
-	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
@@ -28,6 +27,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/setup"
+	"github.com/edotau/claude-code/internal/tailscale"
 )
 
 // check is one doctor line: Hard failures make the run fail; soft ones only report.

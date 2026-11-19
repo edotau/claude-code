@@ -116,7 +116,7 @@ func matchMachine(names []string, host string) (string, bool) {
 const machinesCacheSchema = 1
 
 var machinesCacheFormat = schemas.Register(schemas.Format{
-	Name: "tailscale-machines", Owner: "internal/network/tailscale", Kind: schemas.Cache,
+	Name: "tailscale-machines", Owner: "internal/tailscale", Kind: schemas.Cache,
 	Glob:    func() string { return machinesCachePath() },
 	New:     func() any { return &machinesCache{} },
 	Version: machinesCacheSchema, Keep: "rebuildable cache; a version mismatch is a miss",

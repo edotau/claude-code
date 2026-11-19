@@ -10,11 +10,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 

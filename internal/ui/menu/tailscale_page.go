@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/network/tailscale"
+	"github.com/edotau/claude-code/internal/tailscale"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/tui"
 	"github.com/edotau/claude-code/internal/vault"
