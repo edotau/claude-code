@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -97,20 +98,25 @@ func match(files, globs []string) []string {
 }
 
 // lineRule maps one line shape to a row; the regexp's groups feed build.
+// lazyRE compiles its pattern on first use, so a process that never parses tool output pays nothing.
+func lazyRE(expr string) func() *regexp.Regexp {
+	return sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(expr) })
+}
+
 type lineRule struct {
-	re    *regexp.Regexp
+	re    func() *regexp.Regexp
 	build func(m []string) Finding
 }
 
 func atoi(s string) int { n, _ := strconv.Atoi(s); return n }
 
 // parseLines applies the first matching rule per line; skip lines are tool chrome, any other line is kept as a row.
-func parseLines(tool string, skip *regexp.Regexp, rules ...lineRule) parseFn {
+func parseLines(tool string, skip func() *regexp.Regexp, rules ...lineRule) parseFn {
 	return func(out string) []Finding {
 		var rows []Finding
 		for l := range strings.Lines(out) {
 			l = strings.TrimRight(l, " \t\r\n")
-			if strings.TrimSpace(l) == "" || (skip != nil && skip.MatchString(l)) {
+			if strings.TrimSpace(l) == "" || (skip != nil && skip().MatchString(l)) {
 				continue
 			}
 			rows = append(rows, parseLine(tool, l, rules))
@@ -121,7 +127,7 @@ func parseLines(tool string, skip *regexp.Regexp, rules ...lineRule) parseFn {
 
 func parseLine(tool, l string, rules []lineRule) Finding {
 	for _, r := range rules {
-		if m := r.re.FindStringSubmatch(l); m != nil {
+		if m := r.re().FindStringSubmatch(l); m != nil {
 			return r.build(m)
 		}
 	}
@@ -135,25 +141,25 @@ func sortRows(rows []Finding) []Finding {
 }
 
 var (
-	reCompile   = regexp.MustCompile(`^(?:vet: )?(.+?\.go):(\d+):\d+: (.*)$`)
-	reGofmtName = regexp.MustCompile(`^.+\.go$`)
-	reGolangci  = regexp.MustCompile(`^(.+?):(\d+):\d+: (.*) \(([\w-]+)\)$`)
-	reCaret     = regexp.MustCompile(`^\s*\^\s*$`)
-	reLintTail  = regexp.MustCompile(`^(\d+ issues?:|\* [\w-]+: \d+)$`)
-	reMdsmith   = regexp.MustCompile(`^(.+?):(\d+):\d+ (MDS\d+) (.*)$`)
-	reMemory    = regexp.MustCompile(`^(.+?\.md): memory fmt --check: (.*)$`)
-	reMdChrome  = regexp.MustCompile(`^(\s*\d+ \| ?.*|[·\s]*\^|stats: .*)$`)
-	reFmtDiff   = regexp.MustCompile(`^diff (.+)\.orig .+$`)
-	reYamlHead  = regexp.MustCompile(`^(.+?\.ya?ml):$`)
-	reYamlChrom = regexp.MustCompile(`^(The following formatting differences.*|- .*|\s.*)$`)
-	reShell     = regexp.MustCompile(`^(.+?):(\d+):\d+: \w+: (.*) \[(SC\d+)\]$`)
-	reComplex   = regexp.MustCompile(`^(.+?) line (\d+) \[(\w+)\] (\S+): (.*)$`)
-	reSmell     = regexp.MustCompile(`^(\S+) (\S+) \[(\w+)\] (\S+): (.*)$`)
-	reQuality   = regexp.MustCompile(`^(.+?):(\d+): (.*)$`)
-	reQualEnd   = regexp.MustCompile(`^(\d+ new violation|no new )`)
-	reTestPkg   = regexp.MustCompile(`^FAIL\t(\S+)\t`)
-	reTestLine  = regexp.MustCompile(`^\s+(.+?\.go):(\d+): (.*)$`)
-	reTestChrom = regexp.MustCompile(`^(ok\s|\?\s|FAIL$|=== |--- PASS|PASS$)`)
+	reCompile   = lazyRE(`^(?:vet: )?(.+?\.go):(\d+):\d+: (.*)$`)
+	reGofmtName = lazyRE(`^.+\.go$`)
+	reGolangci  = lazyRE(`^(.+?):(\d+):\d+: (.*) \(([\w-]+)\)$`)
+	reCaret     = lazyRE(`^\s*\^\s*$`)
+	reLintTail  = lazyRE(`^(\d+ issues?:|\* [\w-]+: \d+)$`)
+	reMdsmith   = lazyRE(`^(.+?):(\d+):\d+ (MDS\d+) (.*)$`)
+	reMemory    = lazyRE(`^(.+?\.md): memory fmt --check: (.*)$`)
+	reMdChrome  = lazyRE(`^(\s*\d+ \| ?.*|[·\s]*\^|stats: .*)$`)
+	reFmtDiff   = lazyRE(`^diff (.+)\.orig .+$`)
+	reYamlHead  = lazyRE(`^(.+?\.ya?ml):$`)
+	reYamlChrom = lazyRE(`^(The following formatting differences.*|- .*|\s.*)$`)
+	reShell     = lazyRE(`^(.+?):(\d+):\d+: \w+: (.*) \[(SC\d+)\]$`)
+	reComplex   = lazyRE(`^(.+?) line (\d+) \[(\w+)\] (\S+): (.*)$`)
+	reSmell     = lazyRE(`^(\S+) (\S+) \[(\w+)\] (\S+): (.*)$`)
+	reQuality   = lazyRE(`^(.+?):(\d+): (.*)$`)
+	reQualEnd   = lazyRE(`^(\d+ new violation|no new )`)
+	reTestPkg   = lazyRE(`^FAIL\t(\S+)\t`)
+	reTestLine  = lazyRE(`^\s+(.+?\.go):(\d+): (.*)$`)
+	reTestChrom = lazyRE(`^(ok\s|\?\s|FAIL$|=== |--- PASS|PASS$)`)
 )
 
 func compileRule(tool string) lineRule {
@@ -162,7 +168,7 @@ func compileRule(tool string) lineRule {
 
 // parseGoOutput reads `go build|vet` output: `# pkg` headers are chrome, `path:line:col: msg` rows.
 func parseGoOutput(tool string) parseFn {
-	return parseLines(tool, regexp.MustCompile(`^# `), compileRule(tool))
+	return parseLines(tool, lazyRE(`^# `), compileRule(tool))
 }
 
 func parseGofmt(out string) []Finding {
@@ -177,12 +183,12 @@ func parseGolangci(out string) []Finding {
 	afterIssue := false
 	for l := range strings.Lines(out) {
 		l = strings.TrimRight(l, " \t\r\n")
-		switch m := reGolangci.FindStringSubmatch(l); {
-		case strings.TrimSpace(l) == "" || reLintTail.MatchString(l) || reCaret.MatchString(l):
+		switch m := reGolangci().FindStringSubmatch(l); {
+		case strings.TrimSpace(l) == "" || reLintTail().MatchString(l) || reCaret().MatchString(l):
 			afterIssue = false
 		case m != nil:
 			rows, afterIssue = append(rows, Finding{m[1], atoi(m[2]), "golangci-lint", m[4], m[3]}), true
-		case afterIssue && !reQuality.MatchString(l):
+		case afterIssue && !reQuality().MatchString(l):
 			afterIssue = false // the source line printed under an issue
 		default:
 			rows, afterIssue = append(rows, Finding{Tool: "golangci-lint", Message: l}), false

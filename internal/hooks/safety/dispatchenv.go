@@ -17,9 +17,11 @@ import (
 const wipeName = "every variable (env -i)"
 
 var (
-	dispatchVarName = regexp.MustCompile(`^HARNESS_DISPATCH_[A-Z_]+$`)
-	dispatchName    = regexp.MustCompile(`HARNESS_DISPATCH_\w*`)
-	dispatchAlias   = regexp.MustCompile(`(?:^|[\s;&|(])([A-Za-z_]\w*)=["']?(HARNESS_DISPATCH\w*)`)
+	dispatchVarName = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^HARNESS_DISPATCH_[A-Z_]+$`) })
+	dispatchName    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`HARNESS_DISPATCH_\w*`) })
+	dispatchAlias   = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`(?:^|[\s;&|(])([A-Za-z_]\w*)=["']?(HARNESS_DISPATCH\w*)`)
+	})
 )
 
 // tamperPhrase is an unset, declare or `env -u` of a dispatch variable, or an assignment to one, in unquoted text.
@@ -55,7 +57,7 @@ func dispatchTamper(in *core.Input) string {
 	for _, text := range shell.EvaluatedText(cmd, in.CWD) { // text an evaluator runs, however it reaches it
 		text = os.Expand(text, func(k string) string { return cmp.Or(aliases[k], "$"+k) })
 		if m := tamperPhrase().FindString(unquoted.Replace(text)); m != "" {
-			return dispatchName.FindString(m)
+			return dispatchName().FindString(m)
 		}
 	}
 	return ""
@@ -64,7 +66,7 @@ func dispatchTamper(in *core.Input) string {
 // dispatchAliases maps each NAME the text binds to a dispatch variable's name.
 func dispatchAliases(text string) map[string]string {
 	aliases := map[string]string{}
-	for _, m := range dispatchAlias.FindAllStringSubmatch(text, -1) {
+	for _, m := range dispatchAlias().FindAllStringSubmatch(text, -1) {
 		aliases[m[1]] = m[2]
 	}
 	return aliases
@@ -149,7 +151,7 @@ func isAssignment(w string) bool {
 
 // assignsDispatch is the dispatch variable a NAME=value word sets, else "".
 func assignsDispatch(w string) string {
-	if name, _, ok := strings.Cut(w, "="); ok && dispatchVarName.MatchString(name) {
+	if name, _, ok := strings.Cut(w, "="); ok && dispatchVarName().MatchString(name) {
 		return name
 	}
 	return ""
@@ -157,7 +159,7 @@ func assignsDispatch(w string) string {
 
 func firstDispatchName(words []string) string {
 	for _, w := range words {
-		if dispatchVarName.MatchString(w) {
+		if dispatchVarName().MatchString(w) {
 			return w
 		}
 	}
@@ -171,7 +173,7 @@ func declareTamper(args []string) string {
 		if name := assignsDispatch(a); name != "" {
 			return name
 		}
-		if drops && dispatchVarName.MatchString(a) {
+		if drops && dispatchVarName().MatchString(a) {
 			return a
 		}
 	}
@@ -187,11 +189,11 @@ func envTamper(args []string) string {
 		case a == "-" || a == "--ignore-environment" || strings.HasPrefix(a, "-") && !strings.HasPrefix(a, "--") && strings.Contains(a, "i"):
 			wipe = true
 		case a == "-u" || a == "--unset":
-			if i++; i < len(args) && dispatchVarName.MatchString(args[i]) {
+			if i++; i < len(args) && dispatchVarName().MatchString(args[i]) {
 				return args[i]
 			}
 		case strings.HasPrefix(a, "--unset="), strings.HasPrefix(a, "-u") && !strings.HasPrefix(a, "--"):
-			if v := strings.TrimPrefix(strings.TrimPrefix(a, "--unset="), "-u"); dispatchVarName.MatchString(v) {
+			if v := strings.TrimPrefix(strings.TrimPrefix(a, "--unset="), "-u"); dispatchVarName().MatchString(v) {
 				return v
 			}
 		case assignsDispatch(a) != "":
@@ -296,9 +298,11 @@ var (
 	kubeValueFlags     = sync.OnceValue(func() []string { return shell.GuardWords("kube_value_flags") })
 	kubeProdFlags      = sync.OnceValue(func() []string { return shell.GuardWords("kube_prod_flags") })
 	kubeNamespaceKinds = sync.OnceValue(func() []string { return shell.GuardWords("kube_namespace_kinds") })
-	envWord            = regexp.MustCompile(`(?:^|\s)ENV=(\S+)`)
-	kubeconfigWord     = regexp.MustCompile(`(?:^|[\s;&|(])KUBECONFIG=(\S+)`)
-	useContext         = regexp.MustCompile(`\b(?:config\s+use-context|oc\s+project)\s+(\S+)`)
+	envWord            = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?:^|\s)ENV=(\S+)`) })
+	kubeconfigWord     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?:^|[\s;&|(])KUBECONFIG=(\S+)`) })
+	useContext         = sync.OnceValue(func() *regexp.Regexp {
+		return regexp.MustCompile(`\b(?:config\s+use-context|oc\s+project)\s+(\S+)`)
+	})
 )
 
 // prodChange reports kubectl/oc exec, delete or oc rsh whose target names production, or whose context is unknown.
@@ -310,11 +314,11 @@ func prodChange(w []string, cmd string) bool {
 	if slices.ContainsFunc(prodValues(w, cmd, flags, args), prodName) {
 		return true
 	}
-	if len(flags["--context"])+len(flags["--cluster"]) > 0 || useContext.MatchString(cmd) { // an explicit cluster
+	if len(flags["--context"])+len(flags["--cluster"]) > 0 || useContext().MatchString(cmd) { // an explicit cluster
 		return false
 	}
 	kubeconfig := strings.Join(flags["--kubeconfig"], "")
-	if m := kubeconfigWord.FindStringSubmatch(cmd); kubeconfig == "" && m != nil {
+	if m := kubeconfigWord().FindStringSubmatch(cmd); kubeconfig == "" && m != nil {
 		kubeconfig = m[1]
 	}
 	current := currentContext(kubeconfig)
@@ -330,7 +334,7 @@ func prodValues(w []string, cmd string, flags map[string][]string, args []string
 	if i := slices.Index(w, "--"); i >= 0 {
 		remote = w[i+1:] // the command run in the pod, not kubectl's
 	}
-	for _, re := range []*regexp.Regexp{envWord, kubeconfigWord, useContext} {
+	for _, re := range []*regexp.Regexp{envWord(), kubeconfigWord(), useContext()} {
 		for _, m := range re.FindAllStringSubmatch(cmd, -1) {
 			if !slices.Contains(remote, "ENV="+m[1]) {
 				values = append(values, m[1])

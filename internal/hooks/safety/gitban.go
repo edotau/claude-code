@@ -31,9 +31,13 @@ func harnessGitVerb(cmd, cwd string) string {
 	return ""
 }
 
-var gitDirOpt = regexp.MustCompile(`(--git-dir(=|\s+)|GIT_DIR=)("[^"]*"|'[^']*'|[^\s;&|)]+)`)
+var gitDirOpt = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(--git-dir(=|\s+)|GIT_DIR=)("[^"]*"|'[^']*'|[^\s;&|)]+)`)
+})
 
-var workTreeOpt = regexp.MustCompile(`(--work-tree(=|\s+)|GIT_WORK_TREE=)("[^"]*"|'[^']*'|[^\s;&|)]+)`)
+var workTreeOpt = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(--work-tree(=|\s+)|GIT_WORK_TREE=)("[^"]*"|'[^']*'|[^\s;&|)]+)`)
+})
 
 // treeVerb is bannedVerb judged on the git dir and the work tree: with none given git's work tree is cwd.
 func treeVerb(cmd, cwd string) string {
@@ -41,10 +45,10 @@ func treeVerb(cmd, cwd string) string {
 		return bannedVerb(cmd, cwd)
 	}
 	variants := []string{withGitEnv(cmd)}
-	if !workTreeOpt.MatchString(cmd) {
-		variants = append(variants, gitDirOpt.ReplaceAllString(cmd, ""))
-	} else if m := gitDirOpt.FindStringSubmatch(cmd); m != nil && path.Base(strings.Trim(m[3], `"'`)) == ".git" {
-		variants = append(variants, withGitEnv(workTreeOpt.ReplaceAllString(cmd, "")))
+	if !workTreeOpt().MatchString(cmd) {
+		variants = append(variants, gitDirOpt().ReplaceAllString(cmd, ""))
+	} else if m := gitDirOpt().FindStringSubmatch(cmd); m != nil && path.Base(strings.Trim(m[3], `"'`)) == ".git" {
+		variants = append(variants, withGitEnv(workTreeOpt().ReplaceAllString(cmd, "")))
 	}
 	for _, v := range variants {
 		if hit := bannedVerb(v, cwd); hit != "" {
@@ -56,7 +60,7 @@ func treeVerb(cmd, cwd string) string {
 
 var gitEnvAssign = core.Gate(`(?:^|[\s;&|(])(GIT_DIR|GIT_WORK_TREE)=("[^"]*"|'[^']*'|[^\s;&|)]+)`, "GIT_DIR=", "GIT_WORK_TREE=")
 
-var gitWord = regexp.MustCompile(`(^|[\s;&|('"])((?:\S*/)?git)(\s)`)
+var gitWord = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(^|[\s;&|('"])((?:\S*/)?git)(\s)`) })
 
 // withGitEnv spells GIT_DIR=/GIT_WORK_TREE= as --git-dir/--work-tree on each git word, so one resolver reads both.
 func withGitEnv(cmd string) string {
@@ -72,7 +76,7 @@ func withGitEnv(cmd string) string {
 		opts.WriteString(flag)
 		opts.WriteString(m[2])
 	}
-	return gitWord.ReplaceAllString(cmd, "${1}${2}"+strings.ReplaceAll(opts.String(), "$", "$$")+"${3}")
+	return gitWord().ReplaceAllString(cmd, "${1}${2}"+strings.ReplaceAll(opts.String(), "$", "$$")+"${3}")
 }
 
 // bannedVerb is harnessGitVerb's first hit in cmd, with no feed decoding.

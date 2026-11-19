@@ -749,14 +749,16 @@ func dropInertHeredocs(cmd string) string {
 func isLeaf(in *core.Input) bool { return in.AgentID != "" || proc.InDispatch(context.Background()) }
 
 // leafSettings spells settings.json from $HOME, ~, a HOME concatenation or CLAUDE_CONFIG_DIR; a leaf may not write it.
-var leafSettings = regexp.MustCompile(`(?i)(?:\$\{?home\}?|~|\bhome\b[^/\n]{0,12}|homedir\(\)[^/\n]{0,12}|expanduser\([^/\n]{0,4}~)` +
-	`/\.claude/settings(?:\.local)?\.json|claude_config_dir[^\n]{0,40}/settings(?:\.local)?\.json`)
+var leafSettings = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)(?:\$\{?home\}?|~|\bhome\b[^/\n]{0,12}|homedir\(\)[^/\n]{0,12}|expanduser\([^/\n]{0,4}~)` +
+		`/\.claude/settings(?:\.local)?\.json|claude_config_dir[^\n]{0,40}/settings(?:\.local)?\.json`)
+})
 
 // protectedWrite is the first path a command writes or removes under the raw globs ("" if none); temp folders pass.
 func protectedWrite(cmd, cwd string, raw []string, leaf bool) string {
 	globs := sync.OnceValue(func() []string { return foldedGlobs(raw, cwd) })
 	for _, p := range core.WrittenPaths(cmd, cwd) {
-		if (protectedPath(p, globs()) || leaf && leafSettings.MatchString(p)) && !tempWriteAllowed(cmd, p) {
+		if (protectedPath(p, globs()) || leaf && leafSettings().MatchString(p)) && !tempWriteAllowed(cmd, p) {
 			return p
 		}
 	}
@@ -844,7 +846,7 @@ func mentionedGlob(raw []string, used string, leaf bool) (needle, glob string) {
 			return n, g
 		}
 	}
-	if m := leafSettings.FindString(used); leaf && m != "" {
+	if m := leafSettings().FindString(used); leaf && m != "" {
 		return m, ""
 	}
 	return "", ""

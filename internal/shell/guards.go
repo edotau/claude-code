@@ -3,9 +3,10 @@ package shell
 import (
 	"bytes"
 	_ "embed"
-	"encoding/json"
+	"encoding/json/jsontext"
 	"errors"
 	"fmt"
+	"io"
 	"maps"
 	"slices"
 	"sync"
@@ -47,11 +48,13 @@ var parsedGuards = sync.OnceValue(func() map[string]guardSection {
 })
 
 func decodeGuards(raw []byte) (map[string]guardSection, error) {
-	dec := json.NewDecoder(bytes.NewReader(raw))
-	dec.DisallowUnknownFields()
-	var secs map[string]guardSection
-	if err := dec.Decode(&secs); err != nil {
+	dec := jsontext.NewDecoder(bytes.NewReader(raw), jsontext.AllowDuplicateNames(true))
+	secs, err := decodeSections(dec)
+	if err != nil {
 		return nil, err
+	}
+	if _, err := dec.ReadToken(); err != io.EOF {
+		return nil, errors.New("trailing data after the top-level object")
 	}
 	for _, name := range slices.Sorted(maps.Keys(secs)) {
 		if err := secs[name].validate(); err != nil {
@@ -60,13 +63,94 @@ func decodeGuards(raw []byte) (map[string]guardSection, error) {
 	}
 	for _, pair := range guardExclusive {
 		a, b := secs[pair[0]], secs[pair[1]]
+		inB := b.names()
 		for w := range a.names() {
-			if _, both := b.names()[w]; both {
+			if _, both := inB[w]; both {
 				return nil, fmt.Errorf("%q is in %s and %s, which are exclusive", w, pair[0], pair[1])
 			}
 		}
 	}
 	return secs, nil
+}
+
+func expectKind(dec *jsontext.Decoder, want jsontext.Kind) (jsontext.Token, error) {
+	tok, err := dec.ReadToken()
+	if err != nil {
+		return tok, err
+	}
+	if tok.Kind() != want {
+		return tok, fmt.Errorf("want %q, got %q", want, tok.Kind())
+	}
+	return tok, nil
+}
+
+// objectKeys calls each with every key of the object at the decoder; each must consume that key's value.
+func objectKeys(dec *jsontext.Decoder, each func(key string) error) error {
+	if _, err := expectKind(dec, '{'); err != nil {
+		return err
+	}
+	for dec.PeekKind() != '}' {
+		key, err := expectKind(dec, '"')
+		if err != nil {
+			return err
+		}
+		if err := each(key.String()); err != nil {
+			return err
+		}
+	}
+	_, err := expectKind(dec, '}')
+	return err
+}
+
+func decodeSections(dec *jsontext.Decoder) (map[string]guardSection, error) {
+	secs := map[string]guardSection{}
+	err := objectKeys(dec, func(name string) error {
+		sec, err := decodeSection(dec)
+		secs[name] = sec
+		return err
+	})
+	return secs, err
+}
+
+func decodeSection(dec *jsontext.Decoder) (guardSection, error) {
+	var s guardSection
+	err := objectKeys(dec, func(key string) (err error) {
+		switch key {
+		case "purpose":
+			var tok jsontext.Token
+			if tok, err = expectKind(dec, '"'); err == nil {
+				s.Purpose = tok.String()
+			}
+		case "words":
+			s.Words, err = decodeWords(dec)
+		case "tools":
+			s.Tools = map[string][]string{}
+			err = objectKeys(dec, func(tool string) (err error) {
+				s.Tools[tool], err = decodeWords(dec)
+				return err
+			})
+		default:
+			err = fmt.Errorf("json: unknown field %q", key)
+		}
+		return err
+	})
+	return s, err
+}
+
+func decodeWords(dec *jsontext.Decoder) ([]string, error) {
+	if _, err := expectKind(dec, '['); err != nil {
+		return nil, err
+	}
+	words := []string{}
+	for dec.PeekKind() != ']' {
+		tok, err := expectKind(dec, '"')
+		if err != nil {
+			return nil, err
+		}
+		words = append(words, tok.String())
+	}
+	_, err := expectKind(dec, ']')
+	return words, err
 }
 
 func (s guardSection) validate() error {
