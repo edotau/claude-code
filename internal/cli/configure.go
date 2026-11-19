@@ -34,8 +34,10 @@ func hookPage() helptext.Page {
 
 // cmdHook runs one lifecycle hook.
 func cmdHook(args []string) int {
-	if code, ok := helpOrBare(hookPage(), args); ok {
-		return code
+	if len(args) == 0 || isHelpVerb(args[0]) {
+		if code, ok := helpOrBare(hookPage(), args); ok {
+			return code
+		}
 	}
 	return hooks.RunArgs(args[0], args[1:], os.Stdin, os.Stdout, os.Stderr)
 }

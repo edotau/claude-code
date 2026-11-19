@@ -114,7 +114,7 @@ type segView []byte
 const (
 	segHeader = 12
 	refWidth  = 9 // an 8-hex id, or "z" and 8 hex; the 8-hex form is NUL-padded
-	docStride = 20 + refWidth
+	docStride = 21 + refWidth // the last byte flags a superseded block
 )
 
 type segDoc struct {
@@ -190,6 +190,9 @@ func encodeSegment(blocks []string) segView {
 		binary.LittleEndian.PutUint32(s[off+8:], uint32(len(d.text)))
 		binary.LittleEndian.PutUint64(s[off+12:], blockSum(d.text))
 		copy(s[off+20:off+20+refWidth], blockRef(d.text, ""))
+		if isSupersededBlock(d.text) {
+			s[off+20+refWidth] = 1
+		}
 		s = append(s, d.text...)
 	}
 	return s
@@ -233,6 +236,11 @@ func (s segView) DocRef(i int) (sum uint64, ref string) {
 		r = r[:refWidth-1]
 	}
 	return binary.LittleEndian.Uint64(s[off+12:]), string(r)
+}
+
+// DocSuperseded is isSupersededBlock of document i's text, read from the row.
+func (s segView) DocSuperseded(i int) bool {
+	return s[segHeader+i*docStride+20+refWidth] == 1
 }
 
 // Posting offsets are byte offsets relative to the posting table; text and term offsets are blob-relative.
@@ -508,7 +516,7 @@ func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl f
 		}
 		hits = append(hits, SearchHit{
 			Score: score, Matched: matched, Bank: file.Bank,
-			File: filepath.Base(file.Path), Block: block, ID: id, Dir: dir, sum: sum,
+			File: filepath.Base(file.Path), Block: block, ID: id, Dir: dir, sum: sum, replaced: replacedFlag(seg.DocSuperseded(doc)),
 		})
 	}
 	return hits
@@ -666,6 +674,22 @@ type SearchHit struct {
 	ID                    string  `json:"id,omitempty"` // persisted block ID (`memory show <id>`)
 	Dir                   string  `json:"-"`
 	sum                   uint64  // blockSum(Block) when the segment supplied it, else 0; reset when Block changes
+	replaced              uint8   // 0 unknown, 1 live, 2 superseded: the segment's flag for Block
+}
+
+func replacedFlag(superseded bool) uint8 {
+	if superseded {
+		return 2
+	}
+	return 1
+}
+
+// isSuperseded is isSupersededBlock(h.Block), taken from the segment's flag when it supplied one.
+func (h SearchHit) isSuperseded() bool {
+	if h.replaced != 0 {
+		return h.replaced == 2
+	}
+	return isSupersededBlock(h.Block)
 }
 
 // key is blockKey(h.Block), taken from the segment's stored sum when there is one.

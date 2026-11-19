@@ -594,7 +594,7 @@ func blockFinder(files []corpusFile, segs []segView) func(id string) (SearchHit,
 
 // followReplaced drops struck or replaced hits; each replaced one hands its score to the live end of its chain, once.
 func followReplaced(ranked []SearchHit, files []corpusFile, segs []segView) []SearchHit {
-	if !slices.ContainsFunc(ranked, func(h SearchHit) bool { return isSupersededBlock(h.Block) }) {
+	if !slices.ContainsFunc(ranked, SearchHit.isSuperseded) {
 		return ranked // the common case: nothing replaced, nothing allocated
 	}
 	out := make([]SearchHit, 0, len(ranked))
@@ -613,7 +613,7 @@ func followReplaced(ranked []SearchHit, files []corpusFile, segs []segView) []Se
 		out = append(out, h)
 	}
 	for _, h := range ranked {
-		if !isSupersededBlock(h.Block) {
+		if !h.isSuperseded() {
 			add(h)
 		} else if replacedBy(h.Block) != "" {
 			if live, ok := chainEnd(h, find); ok {

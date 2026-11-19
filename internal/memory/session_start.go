@@ -416,8 +416,12 @@ func LiveTranscript(cwd, sessionID string) string {
 	if p := filepath.Join(projects, paths.ProjectSlug(cwd), id); paths.IsFile(p) {
 		return p
 	}
-	if m := transcript.GlobIn(projects, "*/"+transcript.GlobLiteral(id)); len(m) > 0 {
-		return m[0]
+	entries, _ := os.ReadDir(projects) // sorted by name, as Glob's matches are
+	for _, e := range entries {
+		p := filepath.Join(projects, e.Name(), id)
+		if _, err := os.Lstat(p); err == nil {
+			return p
+		}
 	}
 	return ""
 }

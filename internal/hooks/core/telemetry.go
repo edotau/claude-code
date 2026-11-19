@@ -127,6 +127,11 @@ func recordTelemetry(dir string, rows []TelemetryRow, now, deadline time.Time) {
 	if !paths.TryLock(lock) {
 		return
 	}
+	day, err := openTelemetry(file)
+	if err != nil {
+		return
+	}
+	defer func() { _ = day.f.Close() }()
 	for _, r := range rows {
 		if time.Now().After(deadline) {
 			return
@@ -136,7 +141,7 @@ func recordTelemetry(dir string, rows []TelemetryRow, now, deadline time.Time) {
 		if err != nil {
 			return
 		}
-		if err := appendTelemetry(file, append(line, '\n')); err != nil {
+		if err := appendTelemetry(day, append(line, '\n')); err != nil {
 			return
 		}
 	}
@@ -214,8 +219,15 @@ func telemetryDropMarker(file string) []byte {
 	return append(line, '\n')
 }
 
-// appendTelemetry holds the daily lock across its size check, append and short-write rollback.
-func appendTelemetry(file string, buf []byte) error {
+// telemetryFile is one day file held open for a process's rows, with its tracked size.
+type telemetryFile struct {
+	f    *os.File
+	name string
+	size int64
+	skip bool // not a regular file, or full: later rows are dropped silently
+}
+
+func openTelemetry(file string) (*telemetryFile, error) {
 	f, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o600)
 	if errors.Is(err, os.ErrNotExist) {
 		if err = os.MkdirAll(filepath.Dir(file), 0o700); err == nil {
@@ -223,23 +235,30 @@ func appendTelemetry(file string, buf []byte) error {
 		}
 	}
 	if err != nil {
-		return err
+		return nil, err
 	}
 	st, err := f.Stat()
 	if err != nil {
-		return errors.Join(err, f.Close())
+		return nil, errors.Join(err, f.Close())
 	}
-	if !st.Mode().IsRegular() {
-		return f.Close()
+	return &telemetryFile{f: f, name: file, size: st.Size(), skip: !st.Mode().IsRegular()}, nil
+}
+
+// appendTelemetry holds the daily lock across its size check, write and short-write rollback.
+func appendTelemetry(t *telemetryFile, buf []byte) error {
+	if t.skip {
+		return nil
 	}
-	if st.Size()+int64(len(buf)) > telemetryDailyBytes-telemetryMarkerReserve {
-		if buf = telemetryDropMarker(file); buf == nil || st.Size()+int64(len(buf)) > telemetryDailyBytes {
-			return f.Close()
+	if t.size+int64(len(buf)) > telemetryDailyBytes-telemetryMarkerReserve {
+		if buf = telemetryDropMarker(t.name); buf == nil || t.size+int64(len(buf)) > telemetryDailyBytes {
+			t.skip = true
+			return nil
 		}
 	}
-	n, werr := f.Write(buf)
+	n, err := t.f.Write(buf)
 	if n != len(buf) {
-		werr = errors.Join(werr, io.ErrShortWrite, f.Truncate(st.Size()))
+		return errors.Join(err, io.ErrShortWrite, t.f.Truncate(t.size))
 	}
-	return errors.Join(werr, f.Close())
+	t.size += int64(n)
+	return err
 }
