@@ -74,6 +74,9 @@ func SwapLoadState(wrap func(prev func() router.State) func() router.State) func
 
 // RouteChainFor routes a caller's --model: an alias or Claude id picks that row's cell; a non-Claude id is exact.
 func RouteChainFor(ctx context.Context, want, model, aliasHint, mode string, native bool, o router.PickOpts) (Chain, router.PickResult, error) {
+	if err := refuseOwnAuto(want, model); err != nil {
+		return Chain{}, router.PickResult{}, err
+	}
 	if ownConnectorModel(want, model) {
 		r, bare, err := hubDispatchFor(loadRegistryWarn(), model)
 		if err != nil {
@@ -88,6 +91,26 @@ func RouteChainFor(ctx context.Context, want, model, aliasHint, mode string, nat
 // ownConnectorQuery is an own-plan model with no explicit backend: an explicit one routes (and is refused) as before.
 func ownConnectorQuery(q ModelQuery) bool {
 	return q.Profile == "" && q.Provider == "" && ownConnectorModel(q.Agent, q.Model)
+}
+
+// refuseOwnAuto refuses `<login>/auto` on an own plan: the vendor has no such id, so it names the login's typed ids.
+func refuseOwnAuto(agent, model string) error {
+	id, bare, _ := strings.Cut(model, "/")
+	if bare != "auto" || !ownConnectorModel(agent, model) {
+		return nil
+	}
+	tb, err := router.Load()
+	if err != nil {
+		return err
+	}
+	var ids []string
+	for _, cell := range tb.OpencodeSub[id] {
+		if !slices.Contains(ids, cell.Model) {
+			ids = append(ids, cell.Model)
+		}
+	}
+	slices.Sort(ids)
+	return clientUsageError{fmt.Errorf("--model %s: auto is no %s model; use one of %s", model, id, strings.Join(ids, ", "))}
 }
 
 // ownConnectorRoute is the route a run on opencode's own plan reports: no registry row, the plan id as its account.

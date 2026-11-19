@@ -27,6 +27,9 @@ func RunQuery(ctx context.Context, reg *providers.Registry, q ModelQuery, aliasH
 }
 
 func runQueryRoute(ctx context.Context, reg *providers.Registry, q ModelQuery, aliasHint string) (ModelQuery, string, error) {
+	if err := refuseOwnAuto(q.Agent, q.Model); err != nil {
+		return q, "", err
+	}
 	if ownConnectorQuery(q) {
 		return q, "", nil
 	}
@@ -121,6 +124,9 @@ func ResolveRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRout
 
 // ExplainRun is ResolveRun plus its auto choice; an unlisted Databricks model is marked; none refuses it unless auto.
 func ExplainRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRoute, *AutoChoice, error) {
+	if err := refuseOwnAuto(q.Agent, q.Model); err != nil {
+		return ModelRoute{}, nil, err
+	}
 	if ownConnectorQuery(q) {
 		return ownConnectorRoute(q), nil, nil
 	}
