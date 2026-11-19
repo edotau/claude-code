@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 
@@ -379,8 +381,8 @@ func startClient(ctx context.Context, o sdkOptions, errp *error) (*copilot.Clien
 	if err != nil {
 		return nil, nil, err
 	}
-	client := copilot.NewClient(clientOpts)
-	if err := client.Start(ctx); err != nil {
+	client, err := startRuntime(ctx, clientOpts)
+	if err != nil {
 		return nil, nil, fmt.Errorf("start copilot runtime: %w", err)
 	}
 	// SDK starts the CLI outside childCmd: ForceStop on ctx cancel kills it (direct child only, no process group)
@@ -392,6 +394,102 @@ func startClient(ctx context.Context, o sdkOptions, errp *error) (*copilot.Clien
 		}
 		stop()
 	}, nil
+}
+
+// startRuntimeFn is the seam tests stub to fake a runtime handshake.
+var startRuntimeFn = func(ctx context.Context, opts *copilot.ClientOptions) (*copilot.Client, error) {
+	client := copilot.NewClient(opts)
+	return client, client.Start(ctx)
+}
+
+// lastProtocol3CLI is the newest Copilot CLI release whose runtime speaks SDK protocol 3; bump it with the SDK.
+const lastProtocol3CLI = "1.0.112"
+
+// startRuntime retries a protocol mismatch once on the newest cached runtime the SDK speaks (the CLI self-updates).
+func startRuntime(ctx context.Context, opts *copilot.ClientOptions) (*copilot.Client, error) {
+	client, err := startRuntimeFn(ctx, opts)
+	if err == nil || !strings.Contains(err.Error(), "SDK protocol version mismatch") {
+		return client, err
+	}
+	conn, ok := opts.Connection.(copilot.StdioConnection)
+	if !ok {
+		return nil, err
+	}
+	version := cachedRuntime(conn.Env)
+	if version == "" {
+		return nil, fmt.Errorf("%w; Copilot CLI %s at %s needs SDK protocol %d and none is cached; fix: "+
+			"curl -fsSL https://gh.io/copilot-install | VERSION=%s PREFIX=%s bash", err, cliVersion(ctx, conn.Path),
+			conn.Path, copilot.SDKProtocolVersion, lastProtocol3CLI, filepath.Dir(filepath.Dir(conn.Path)))
+	}
+	fmt.Fprintf(os.Stderr, "copilot: installed runtime speaks another SDK protocol; using cached %s (protocol %d)\n",
+		version, copilot.SDKProtocolVersion)
+	conn.Args = append(slices.Clone(conn.Args), "--prefer-version", version)
+	retry := *opts
+	retry.Connection = conn
+	return startRuntimeFn(ctx, &retry)
+}
+
+// cachedRuntime is the newest runtime in the CLI's package cache (its own search roots) on the SDK's protocol.
+func cachedRuntime(env []string) string {
+	best := ""
+	for _, root := range runtimeCacheRoots(env) {
+		files, _ := filepath.Glob(filepath.Join(root, "pkg", "*", "*", "copilot-sdk", "sdkProtocolVersion.d.ts"))
+		for _, f := range files {
+			v := compatibleRuntime(f)
+			if c, ok := textutil.CompareVersions(v, best); v != "" && (best == "" || ok && c > 0) {
+				best = v
+			}
+		}
+	}
+	return best
+}
+
+// runtimeCacheRoots mirrors the CLI loader's search roots; relative ones (an unset name) are dropped.
+func runtimeCacheRoots(env []string) []string {
+	get := func(k string) string {
+		v := ""
+		for _, kv := range env {
+			if name, val, ok := strings.Cut(kv, "="); ok && name == k {
+				v = val
+			}
+		}
+		return v
+	}
+	home, _ := os.UserHomeDir()
+	cache, _ := os.UserCacheDir()
+	roots := []string{get("COPILOT_PKG_CACHE_HOME"), get("COPILOT_CACHE_HOME"), filepath.Join(cache, "copilot"),
+		get("COPILOT_HOME"), filepath.Join(home, ".copilot")}
+	return slices.DeleteFunc(roots, func(r string) bool { return !filepath.IsAbs(r) })
+}
+
+// compatibleRuntime is the version dir holding f when it is a complete runtime on the SDK's protocol, else "".
+func compatibleRuntime(f string) string {
+	dir := filepath.Dir(filepath.Dir(f))
+	if _, err := os.Stat(filepath.Join(dir, "index.js")); err != nil {
+		return ""
+	}
+	b, err := os.ReadFile(f)
+	if err != nil {
+		return ""
+	}
+	_, rest, _ := strings.Cut(string(b), "SDK_PROTOCOL_VERSION = ")
+	num, _, _ := strings.Cut(rest, ";")
+	if n, err := strconv.Atoi(strings.TrimSpace(num)); err != nil || n != copilot.SDKProtocolVersion {
+		return ""
+	}
+	return filepath.Base(dir)
+}
+
+// cliVersion is the installed CLI's own version, read within a second; "unknown" otherwise.
+func cliVersion(ctx context.Context, path string) string {
+	ctx, cancel := context.WithTimeout(ctx, time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, path, "--version").Output()
+	fields := strings.Fields(strings.SplitN(string(out), "\n", 2)[0])
+	if err != nil || len(fields) == 0 {
+		return "unknown"
+	}
+	return strings.TrimSuffix(fields[len(fields)-1], ".")
 }
 
 // sdkAsk runs one prompt to completion; assistant events arrive on the SDK goroutine, hence the mutex.

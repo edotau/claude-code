@@ -635,6 +635,44 @@ func TestBuildClientOptionsInjectedCredentialBeatsInherited(t *testing.T) {
 	}
 }
 
+// A protocol mismatch retries once on the newest cached runtime on the SDK's protocol, else fails naming the fix.
+func TestStartRuntimeProtocolMismatch(t *testing.T) {
+	home, cache := t.TempDir(), t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("XDG_CACHE_HOME", home)
+	t.Setenv("LOCALAPPDATA", home)
+	var calls [][]string
+	old := startRuntimeFn
+	t.Cleanup(func() { startRuntimeFn = old })
+	startRuntimeFn = func(_ context.Context, opts *copilot.ClientOptions) (*copilot.Client, error) {
+		args := opts.Connection.(copilot.StdioConnection).Args
+		calls = append(calls, args)
+		if len(args) == 0 {
+			return nil, errors.New("SDK protocol version mismatch: SDK supports versions 3-3, but server reports version 9")
+		}
+		return nil, nil
+	}
+	conn := copilot.StdioConnection{Path: filepath.Join(home, "missing"), Env: []string{"COPILOT_PKG_CACHE_HOME=" + cache}}
+	if _, err := startRuntime(context.Background(), &copilot.ClientOptions{Connection: conn}); err == nil ||
+		!strings.Contains(err.Error(), "none is cached") || len(calls) != 1 {
+		t.Fatalf("empty cache: err %v after %d starts, want one start and the fix", err, len(calls))
+	}
+	for v, p := range map[string]int{"9.0.1": copilot.SDKProtocolVersion, "9.0.2": copilot.SDKProtocolVersion + 1} {
+		dir := filepath.Join(cache, "pkg", "test-arch", v)
+		decl := fmt.Sprintf("export declare const SDK_PROTOCOL_VERSION = %d;\n", p)
+		if err := errors.Join(os.MkdirAll(filepath.Join(dir, "copilot-sdk"), 0o700),
+			os.WriteFile(filepath.Join(dir, "index.js"), nil, 0o600),
+			os.WriteFile(filepath.Join(dir, "copilot-sdk", "sdkProtocolVersion.d.ts"), []byte(decl), 0o600)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	calls = nil
+	_, err := startRuntime(context.Background(), &copilot.ClientOptions{Connection: conn})
+	if got := fmt.Sprint(err, calls); got != "<nil> [[] [--prefer-version 9.0.1]]" {
+		t.Fatalf("cached: got %s, want one retry on 9.0.1", got)
+	}
+}
+
 // A pick outside the registry is refused with errUnregisteredPick, before any process or when the CLI rejects it.
 func TestRegistryUnregisteredPick(t *testing.T) {
 	o := registryOpts(t, "1.0.104", t.TempDir()+"/log")
