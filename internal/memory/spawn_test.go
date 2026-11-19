@@ -65,7 +65,7 @@ func TestDefaultSpawnersBuildTodaysArgvAndLogs(t *testing.T) {
 		env        []string
 	}{
 		{[]string{"memory", "update", "--transcript", "/t.jsonl", "--cwd", "/c", "--session", "s1"}, "/c", "update-" + stamp + `\.log`, []string{DetachedEnv + "=1"}},
-		{[]string{"memory", "watch", "--session", "s1", "--transcript", "/t.jsonl"}, "/c", `watch-s1\.log`, nil},
+		{[]string{"memory", "watch", "--session", "s1", "--transcript", "/t.jsonl"}, StateDir(), `watch-s1\.log`, nil},
 		{[]string{"memory", "dream", "--cwd", "/c"}, "/c", "dream-" + stamp + `\.log`, nil},
 		{[]string{"memory", "update", "--catchup", "--skip", "s1"}, "/c", "catchup-" + stamp + `\.log`, []string{DetachedEnv + "=1"}},
 		{[]string{"memory", "index", "--mint-only"}, "/r", "",
