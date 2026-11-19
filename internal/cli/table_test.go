@@ -569,7 +569,7 @@ func TestRunHelpReportsWriteFailure(t *testing.T) {
 
 func TestHiddenClaudeVerbDispatchesButIsAbsentFromUsage(t *testing.T) {
 	cliScratch(t)
-	bin := pathstest.FakeVendor(t, "claude", "exit 99")
+	bin := pathstest.FakeNativeClaude(t, "exit 99")
 	c := lookup("claude")
 	if c == nil || !c.hidden {
 		t.Fatal("claude must be a registered hidden command")

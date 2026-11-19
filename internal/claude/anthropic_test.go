@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -292,7 +293,7 @@ func TestRunSetupTokenScrubsVaultKey(t *testing.T) {
 	t.Setenv("HARNESS_VAULT_KEY", "setup-secret")
 	t.Setenv("DISPLAY", ":7")
 	out := filepath.Join(t.TempDir(), "env")
-	fakeClaude(t, `echo "key=$HARNESS_VAULT_KEY display=$DISPLAY" > `+out)
+	pathstest.FakeNativeClaude(t, `echo "key=$HARNESS_VAULT_KEY display=$DISPLAY" > `+out)
 	runSetupToken()
 	got, err := os.ReadFile(out)
 	if err != nil || strings.Contains(string(got), "setup-secret") || !strings.Contains(string(got), "display=:7") {

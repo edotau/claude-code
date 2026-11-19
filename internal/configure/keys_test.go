@@ -133,7 +133,7 @@ func configureCommandEnv(t *testing.T, mode string) (bin, log, ready string) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	dir := t.TempDir()
-	bin = fakeNativeClaude(t, configureFakeClaude)
+	bin = pathstest.FakeNativeClaude(t, configureFakeClaude)
 	sleep, err := exec.LookPath("sleep")
 	if err != nil {
 		t.Fatal(err)

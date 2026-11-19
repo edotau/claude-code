@@ -128,7 +128,7 @@ func fakeAskOutput(t *testing.T, answer string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	pathstest.FakeVendor(t, "claude", "cat > /dev/null\n"+
+	pathstest.FakeNativeClaude(t, "cat > /dev/null\n"+
 		`printf '%s\n' '{"type":"assistant","message":{"content":[{"type":"text","text":`+string(body)+`}]}}'`+"\n"+
 		`printf '%s\n' '{"type":"result","subtype":"success","result":`+string(body)+`}'`)
 }

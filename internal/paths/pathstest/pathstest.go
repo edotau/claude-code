@@ -41,6 +41,14 @@ func FakeVendor(t testing.TB, name, body string) string {
 	return p
 }
 
+// FakeNativeClaude is FakeVendor("claude") that paths.NativeClaude resolves, via the bin-dir override.
+func FakeNativeClaude(t testing.TB, body string) string {
+	t.Helper()
+	bin := FakeVendor(t, "claude", body)
+	t.Setenv(paths.AgentBinDirEnv, filepath.Dir(bin))
+	return bin
+}
+
 // FakeVendorOutsideConfig writes the fake under a throwaway config dir, so it is not in the test's own bin dir.
 func FakeVendorOutsideConfig(t testing.TB, name, body string) string {
 	t.Helper()

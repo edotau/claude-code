@@ -682,7 +682,7 @@ func TestAskStreamJSONSpansEventsAndLog(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	secret := "ghp_" + strings.Repeat("a", 36)
-	pathstest.FakeVendor(t, "claude", "cat > /dev/null\n"+
+	pathstest.FakeNativeClaude(t, "cat > /dev/null\n"+
 		`printf '%s\n' '{"type":"assistant","session_id":"s1","message":{"model":"m","content":[{"type":"text","text":"hello "},{"type":"tool_use","id":"tu1","name":"Read"}]}}'`+"\n"+
 		`printf '%s\n' '{"type":"assistant","parent_tool_use_id":"tu1","message":{"model":"m","content":[{"type":"text","text":"SUBAGENT"}]}}'`+"\n"+
 		`printf '%s\n' '{"type":"assistant","session_id":"s1","message":{"model":"m","content":[{"type":"text","text":"token `+secret+`"}]}}'`+"\n"+
@@ -757,7 +757,7 @@ func TestAskStdinFramedCancelsOnEOF(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	ready := filepath.Join(t.TempDir(), "ready")
-	pathstest.FakeVendor(t, "claude", "cat > /dev/null\ntouch "+ready+"\nexec sleep 60\n")
+	pathstest.FakeNativeClaude(t, "cat > /dev/null\ntouch "+ready+"\nexec sleep 60\n")
 	pr, pw, err := os.Pipe()
 	if err != nil {
 		t.Fatal(err)
@@ -1010,7 +1010,7 @@ func cliEnv(t *testing.T) {
 func cliFakes(t *testing.T) {
 	t.Helper()
 	skipWithoutSh(t)
-	pathstest.FakeVendor(t, "claude", "cat > /dev/null; sleep 0.05\n"+
+	pathstest.FakeNativeClaude(t, "cat > /dev/null; sleep 0.05\n"+
 		`printf '%s\n' '{"type":"system","subtype":"init","session_id":"sc","model":"fake-claude"}'`+"\n"+
 		`printf '%s\n' '{"type":"assistant","message":{"model":"fake-claude","content":[{"type":"text","text":"hello"}]}}'`+"\n"+
 		`printf '%s\n' '{"type":"result","result":"hello","usage":{"input_tokens":3,"output_tokens":2}}'`)
@@ -1028,8 +1028,11 @@ func cliMarker(t *testing.T, vendor, body string) string {
 	t.Helper()
 	skipWithoutSh(t)
 	marker := filepath.Join(t.TempDir(), vendor+".ran")
-	pathstest.FakeVendor(t, vendor, `[ "$1" = login ] && { echo "Logged in using ChatGPT"; exit 0; }`+"\n"+
+	bin := pathstest.FakeVendor(t, vendor, `[ "$1" = login ] && { echo "Logged in using ChatGPT"; exit 0; }`+"\n"+
 		"touch "+marker+"\n"+body)
+	if vendor == "claude" {
+		t.Setenv(paths.AgentBinDirEnv, filepath.Dir(bin))
+	}
 	return marker
 }
 

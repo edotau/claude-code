@@ -325,7 +325,7 @@ func errKind(e map[string]any) string {
 func TestBatchMixedStreamsEnvelopesAndExitsNonZero(t *testing.T) {
 	cliEnv(t)
 	cliFakes(t)
-	pathstest.FakeVendor(t, "claude", `p=$(cat); case "$p" in *SLOW*) sleep 0.3;; esac`+"\n"+
+	pathstest.FakeNativeClaude(t, `p=$(cat); case "$p" in *SLOW*) sleep 0.3;; esac`+"\n"+
 		`printf '%s\n' '{"type":"system","subtype":"init","session_id":"sc","model":"fake-claude"}'`+"\n"+
 		`printf '%s\n' '{"type":"result","result":"hello","usage":{"input_tokens":3,"output_tokens":2}}'`)
 	file := batchFile(t, cliTask(t, "slow", "SLOW task"), cliTask(t, "fast", "quick task"),
@@ -400,7 +400,7 @@ func indexBatchEnvelopes(t *testing.T, envs []map[string]any) map[string]map[str
 func TestBatchFailFastNeverSpawnsQueuedTask(t *testing.T) {
 	cliEnv(t)
 	cliFakes(t)
-	pathstest.FakeVendor(t, "claude", "cat > /dev/null; echo boom >&2; exit 1")
+	pathstest.FakeNativeClaude(t, "cat > /dev/null; echo boom >&2; exit 1")
 	marker := cliMarker(t, "opencode", `printf '%s\n' '{"type":"text","sessionID":"so","part":{"text":"hello"}}'`)
 	file := batchFile(t, cliTask(t, "first", "fail"), cliTask(t, "queued", "never", "agent", "opencode"))
 	code, out, stderr := runCLI(t, "ask", "--batch", file, "--jobs", "1", "--fail-fast")
@@ -447,7 +447,7 @@ func TestBatchConcurrentProfilesKeepEnvsApart(t *testing.T) {
 	t.Setenv("PB_BATCH_KEY", "TOKEN-BBBB-2222")
 	dump := t.TempDir()
 	// each child announces itself, then waits until both are running: proof the two really overlap
-	pathstest.FakeVendor(t, "claude", "cat > /dev/null\n"+
+	pathstest.FakeNativeClaude(t, "cat > /dev/null\n"+
 		"env > "+dump+"/$$.env\ntouch "+dump+"/$$.up\n"+
 		"for i in $(seq 1 100); do [ $(ls "+dump+"/*.up 2>/dev/null | wc -l) -ge 2 ] && break; sleep 0.05; done\n"+
 		`printf '%s\n' '{"type":"result","result":"hello"}'`)
@@ -546,7 +546,7 @@ func TestBatchChildDropsOtherProfilesCustomCredentialVar(t *testing.T) {
 		}
 	}
 	dump := filepath.Join(t.TempDir(), "child.env")
-	pathstest.FakeVendor(t, "claude", "cat > /dev/null\nenv > "+dump+"\n"+`printf '%s\n' '{"type":"result","result":"hello"}'`)
+	pathstest.FakeNativeClaude(t, "cat > /dev/null\nenv > "+dump+"\n"+`printf '%s\n' '{"type":"result","result":"hello"}'`)
 	if code, out, stderr := runCLI(t, "ask", "--batch", batchFile(t, cliTask(t, "a", "x", "profile", "pa"))); code != 0 {
 		t.Fatalf("exit %d\nstdout: %s\nstderr: %s", code, out, stderr)
 	}
@@ -568,7 +568,7 @@ func TestBatchClosedStdoutCancelsAndReapsChildren(t *testing.T) {
 	hosttest.SkipOnWindows(t, "signals and pipes")
 	cliEnv(t)
 	pidfile := filepath.Join(t.TempDir(), "child.pid")
-	pathstest.FakeVendor(t, "claude", `p=$(cat); case "$p" in *SLOW*) echo $$ > `+pidfile+`; sleep 60;; esac`+"\n"+
+	pathstest.FakeNativeClaude(t, `p=$(cat); case "$p" in *SLOW*) echo $$ > `+pidfile+`; sleep 60;; esac`+"\n"+
 		"for i in $(seq 1 100); do [ -s "+pidfile+" ] && break; sleep 0.05; done\n"+
 		`printf '%s\n' '{"type":"result","result":"hello"}'`)
 	args := []string{"--batch", batchFile(t, cliTask(t, "slow", "SLOW"), cliTask(t, "fast", "quick")), "--jobs", "2"}

@@ -239,7 +239,7 @@ func TestSingleReviewChildParentUsageSummed(t *testing.T) {
 func TestReviewLaneCloudGate(t *testing.T) {
 	vaulttest.Use(t)
 	log := filepath.Join(t.TempDir(), "argv")
-	pathstest.FakeVendor(t, "claude", `echo "$*" >> `+log)
+	pathstest.FakeNativeClaude(t, `echo "$*" >> `+log)
 	open := `{"cloud":true}`
 	tests := []struct {
 		name, agent, flag, env string

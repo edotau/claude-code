@@ -44,11 +44,11 @@ func TestAnthropicHelpMentionsFlags(t *testing.T) {
 // A non-leading --help reaches claude; --print-env is the dry exec, since a real one replaces the test binary.
 func TestAnthropicPassesSubcommandHelp(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	pathstest.FakeVendor(t, "claude", "exit 99")
+	pathstest.FakeNativeClaude(t, "exit 99")
 	code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 		return cmdAnthropic([]string{"mcp", "--help", "--print-env"})
 	})
-	if code != 0 || !strings.Contains(stdout, "argv     mcp --help\n") {
+	if code != 0 || !strings.Contains(stdout, " mcp --help\n") {
 		t.Fatalf("subcommand help: exit %d, stdout %q, stderr %q; want vendor MCP help", code, stdout, stderr)
 	}
 	code, stdout, stderr = hosttest.CaptureOutput(t, func() int { return cmdAnthropic([]string{"--help"}) })

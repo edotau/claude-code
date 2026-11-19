@@ -68,7 +68,7 @@ func TestRegisterCodexMCPPreservesOtherTables(t *testing.T) {
 func TestRegisterClaudeMCPWrapsExitError(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	log := filepath.Join(t.TempDir(), "calls")
-	fakeNativeClaude(t, `printf '%s|' "$@" >> `+log+`; echo >> `+log+`; printf 'registration failed\n'; exit 7`)
+	pathstest.FakeNativeClaude(t, `printf '%s|' "$@" >> `+log+`; echo >> `+log+`; printf 'registration failed\n'; exit 7`)
 	err := registerClaudeMCPContext(context.Background(), "/custom path/claude-code")
 	var exitErr *exec.ExitError
 	if !errors.As(err, &exitErr) || exitErr.ExitCode() != 7 || !strings.Contains(err.Error(), "registration failed") ||
@@ -86,7 +86,7 @@ func TestRegisterClaudeMCPAddFailureKeepsExisting(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	log := filepath.Join(dir, "calls")
-	fakeNativeClaude(t, `echo "$2" >> `+log+`; [ "$2" = add ] && { echo locked; exit 3; }; exit 0`)
+	pathstest.FakeNativeClaude(t, `echo "$2" >> `+log+`; [ "$2" = add ] && { echo locked; exit 3; }; exit 0`)
 	if err := registerClaudeMCPContext(context.Background(), "/bin/claude-code"); err == nil {
 		t.Fatal("want add error")
 	}
@@ -133,7 +133,7 @@ func TestRegisterClaudeMCPRestoresAfterReaddFailure(t *testing.T) {
 			if err := os.WriteFile(paths.ClaudeJSON(), []byte(original), 0o600); err != nil {
 				t.Fatal(err)
 			}
-			fakeNativeClaude(t, mcpReaddFailureScript)
+			pathstest.FakeNativeClaude(t, mcpReaddFailureScript)
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 			defer cancel()
 			err := registerClaudeMCPContext(ctx, "/bin/claude-code")
@@ -205,14 +205,6 @@ func assertMCPRestored(t *testing.T, original string) {
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("restored registration = %s, want %s", raw, original)
 	}
-}
-
-// fakeNativeClaude installs a fake claude and points NativeClaude (which never reads BinDir) at its directory.
-func fakeNativeClaude(t *testing.T, body string) string {
-	t.Helper()
-	bin := pathstest.FakeVendor(t, "claude", body)
-	t.Setenv(paths.AgentBinDirEnv, filepath.Dir(bin))
-	return bin
 }
 
 const mcpBin = "/custom path/claude-code"
