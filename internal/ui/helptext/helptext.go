@@ -208,6 +208,9 @@ func ListVar(fs *flag.FlagSet, v *[]string, name, placeholder, usage string, spl
 	fs.Var(&listFlag{v: v, placeholder: placeholder, split: split}, name, usage)
 }
 
+// IsRepeatable marks a flag that collects one value per use (askspec lists).
+func (l *listFlag) IsRepeatable() bool { return true }
+
 // shorthandPrefix marks a one-letter alias; its row folds into the long flag's as "-p, --profile NAME".
 const shorthandPrefix = "shorthand for --"
 
