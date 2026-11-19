@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/parallel"
@@ -403,10 +404,55 @@ func (s *scanner) answered(transcript, id string) bool {
 	}
 	ids, ok := s.answers[transcript]
 	if !ok {
-		ids = answeredIDs(transcript)
+		ids = memoAnswered(transcript)
 		s.answers[transcript] = ids
 	}
 	return ids[id]
+}
+
+type answerStamp struct {
+	size  int64
+	mtime int64
+}
+
+// answerMemo keeps the last few transcripts' ids so the hook's scans re-read a file only when it grew.
+var answerMemo struct {
+	sync.Mutex
+	m map[string]memoEntry
+}
+
+type memoEntry struct {
+	stamp answerStamp
+	ids   map[string]bool
+}
+
+// memoAnswered is answeredIDs reused while the append-only transcript keeps its size and mtime.
+func memoAnswered(path string) map[string]bool {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return answeredIDs(path)
+	}
+	st := answerStamp{fi.Size(), fi.ModTime().UnixNano()}
+	answerMemo.Lock()
+	e, ok := answerMemo.m[path]
+	answerMemo.Unlock()
+	if ok && e.stamp == st {
+		return e.ids
+	}
+	ids := answeredIDs(path)
+	if ids == nil {
+		return nil
+	}
+	answerMemo.Lock()
+	if len(answerMemo.m) >= 8 {
+		clear(answerMemo.m)
+	}
+	if answerMemo.m == nil {
+		answerMemo.m = map[string]memoEntry{}
+	}
+	answerMemo.m[path] = memoEntry{st, ids}
+	answerMemo.Unlock()
+	return ids
 }
 
 // answeredIDs is every tool_use_id value in the file at path, read in bounded chunks; nil when it cannot be opened.

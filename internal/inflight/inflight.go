@@ -4,13 +4,16 @@ package inflight
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"io"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -172,32 +175,72 @@ func LiveRoutes() map[string]int {
 	return out
 }
 
-// liveRecords calls fn with the owner and route of every dispatch record whose job is alive.
+// recordReaders bounds the concurrent dispatch-record reads; the cost is per-file syscalls, not bytes.
+const recordReaders = 8
+
+type liveRecord struct {
+	owner int
+	route string
+	alive bool
+}
+
+// liveRecords calls fn with the owner and route of every dispatch record whose job is alive, in name order.
 func liveRecords(fn func(owner int, route string)) {
 	dir := paths.DispatchDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
+	var names []string
 	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".json") {
-			continue
-		}
-		b, err := os.ReadFile(filepath.Join(dir, e.Name()))
-		if err != nil || !bytes.Contains(b, []byte(RunningToken)) {
-			continue
-		}
-		var r struct {
-			Status string    `json:"status"`
-			PID    int       `json:"pid"`
-			Time   time.Time `json:"time"`
-			Owner  int       `json:"owner"`
-			Route  string    `json:"route"`
-		}
-		if json.Unmarshal(b, &r) == nil && DispatchAlive(r.Status, r.PID, r.Time) {
-			fn(r.Owner, r.Route)
+		if strings.HasSuffix(e.Name(), ".json") {
+			names = append(names, e.Name())
 		}
 	}
+	recs, _ := parallel.Map(context.Background(), names, recordReaders, func(_ context.Context, n string) (liveRecord, error) {
+		return readLiveRecord(filepath.Join(dir, n)), nil
+	})
+	for _, r := range recs {
+		if r.alive {
+			fn(r.owner, r.route)
+		}
+	}
+}
+
+func readLiveRecord(path string) liveRecord {
+	b, err := readSized(path)
+	if err != nil || !bytes.Contains(b, []byte(RunningToken)) {
+		return liveRecord{}
+	}
+	var r struct {
+		Status string    `json:"status"`
+		PID    int       `json:"pid"`
+		Time   time.Time `json:"time"`
+		Owner  int       `json:"owner"`
+		Route  string    `json:"route"`
+	}
+	if json.Unmarshal(b, &r) != nil || !DispatchAlive(r.Status, r.PID, r.Time) {
+		return liveRecord{}
+	}
+	return liveRecord{owner: r.Owner, route: r.Route, alive: true}
+}
+
+// readSized is os.ReadFile with one read syscall for a file that keeps its stat size (records land by rename).
+func readSized(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	fi, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	b := make([]byte, fi.Size())
+	if _, err := io.ReadFull(f, b); err != nil {
+		return nil, err
+	}
+	return b, nil
 }
 
 // Leaf is one live Agent-tool spawn marker: its session's owner pid and transcript, and its agent once named.

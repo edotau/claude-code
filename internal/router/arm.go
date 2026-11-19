@@ -90,9 +90,10 @@ func pickAndStamp[F any](reg *providers.Registry, q WorkspaceQuery[F], now time.
 		return nil, 0, skipped, err
 	}
 	cooling := workspaceCooling(usable, q, now)
+	load := workspaceLoad(usable, q) // the marker and record scans stay out of the stamp lock
 	pick := func() error {
 		picks := readArmPicks()
-		counts := rankWorkspaces(usable, q, cooling, picks)
+		counts := rankWorkspaces(usable, q, cooling, load, picks)
 		order, live = names(usable), counts[usable[0].Name]
 		stamp := now // Concurrent callers can acquire the lock out of timestamp order.
 		for _, at := range picks.Picked {
@@ -126,7 +127,7 @@ func RankWorkspaces[F any](reg *providers.Registry, q WorkspaceQuery[F], now tim
 	if err != nil {
 		return nil, skipped, err
 	}
-	rankWorkspaces(usable, q, workspaceCooling(usable, q, now), readArmPicks())
+	rankWorkspaces(usable, q, workspaceCooling(usable, q, now), workspaceLoad(usable, q), readArmPicks())
 	return names(usable), skipped, nil
 }
 
@@ -138,7 +139,7 @@ func workspaceCooling[F any](ps []*providers.Provider, q WorkspaceQuery[F], now 
 	return cooling
 }
 
-func rankWorkspaces[F any](ps []*providers.Provider, q WorkspaceQuery[F], cooling map[string]bool, picks armPicks) map[string]int {
+func workspaceLoad[F any](ps []*providers.Provider, q WorkspaceQuery[F]) map[string]int {
 	counts := map[string]int{}
 	load := q.Live
 	if load == nil {
@@ -148,6 +149,10 @@ func rankWorkspaces[F any](ps []*providers.Provider, q WorkspaceQuery[F], coolin
 	for n, c := range q.Pending {
 		counts[n] += c
 	}
+	return counts
+}
+
+func rankWorkspaces[F any](ps []*providers.Provider, q WorkspaceQuery[F], cooling map[string]bool, counts map[string]int, picks armPicks) map[string]int {
 	slices.SortFunc(ps, func(a, b *providers.Provider) int {
 		return cmp.Or(cmp.Compare(rank(cooling[a.Name]), rank(cooling[b.Name])), cmp.Compare(counts[a.Name], counts[b.Name]),
 			picks.Picked[q.stampKey(a.Name)].Compare(picks.Picked[q.stampKey(b.Name)]), cmp.Compare(a.Name, b.Name))
@@ -214,7 +219,14 @@ func armCandidates[F any](reg *providers.Registry, q WorkspaceQuery[F], model st
 
 // liveByWorkspace is each workspace's live load: in-flight markers on its account plus alive records routed to it.
 func liveByWorkspace(ps []*providers.Provider) map[string]int {
-	snap, routed := inflight.Count(), inflight.LiveRoutes()
+	var routed map[string]int
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		routed = inflight.LiveRoutes()
+	}()
+	snap := inflight.Count()
+	<-done
 	out := map[string]int{}
 	for _, p := range ps {
 		out[p.Name] = snap.Per[AccountOf(p)] + routed[JoinCoworker(RouteDatabricks, p.Name)]

@@ -468,3 +468,25 @@ func TestAnsweredReadsEachTranscriptOnce(t *testing.T) {
 		t.Errorf("opened %d times for 5 markers on one transcript and one missing, want 2", opens)
 	}
 }
+
+// A second scan of an unchanged transcript reuses the first scan's read; an appended answer is still seen.
+func TestAnsweredReusesUnchangedTranscript(t *testing.T) {
+	transcript := filepath.Join(t.TempDir(), "sess.jsonl")
+	writeFile(t, transcript, `{"tool_use_id":"toolu_a"}`+"\n")
+	opens := 0
+	orig := openTranscript
+	openTranscript = func(p string) (*os.File, error) { opens++; return orig(p) }
+	t.Cleanup(func() { openTranscript = orig })
+	for range 2 {
+		if !newScanner(time.Now()).answered(transcript, "toolu_a") {
+			t.Fatal("toolu_a not answered")
+		}
+	}
+	if opens != 1 {
+		t.Errorf("opened %d times for two scans of an unchanged transcript, want 1", opens)
+	}
+	writeFile(t, transcript, `{"tool_use_id":"toolu_a"}`+"\n"+`{"tool_use_id":"toolu_b"}`+"\n")
+	if !newScanner(time.Now()).answered(transcript, "toolu_b") {
+		t.Error("an answer appended after the first scan was missed")
+	}
+}
