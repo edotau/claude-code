@@ -752,7 +752,7 @@ func noteAuth(disp Dispatch, err error) {
 
 // capabilityErr is a model refusing the request itself: an output cap, or Google rejecting JSON-schema tool keys.
 var capabilityErr = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`max_new_tokens|max_output_tokens|max_tokens|context length|maximum context|Invalid JSON payload received\. Unknown name`)
+	return regexp.MustCompile(`max_new_tokens|max_output_tokens|max_tokens|context length|maximum context|Invalid JSON payload received\. Unknown name|(?i)endpoint\b[^\n]*\bis deprecated`)
 })
 
 // retryModel is the next model after a capability (auto: ran is skipped) or endpoint-gone (served) failure, else "".
