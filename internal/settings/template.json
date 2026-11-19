@@ -29,7 +29,6 @@
     ],
     "ask": [
       "Edit(**/.credentials.json)",
-      "Edit(~/.claude/settings.json)",
       "Edit(~/.claude/state/vault.db)",
       "Read(~/.ssh/id_*)"
     ],
