@@ -1084,3 +1084,12 @@ func TestOldRecordLoadsWithoutOutcomeFields(t *testing.T) {
 		t.Fatal("bad gates value accepted")
 	}
 }
+
+func TestFinishRecordsRanRoute(t *testing.T) {
+	hops := []wire.Hop{{Agent: "opencode", Account: "databricks·qa", Profile: "qa", NotStarted: true}, {Agent: "opencode", Account: "databricks·dev", Profile: "dev"}}
+	rec := Record{Route: "databricks"} // --provider typed without a profile: the confinement stays, replay reads it
+	rec.Finish(wire.Result{Hops: hops}, nil, 0)
+	if rec.RanRoute != "databricks:dev" || rec.Route != "databricks" {
+		t.Errorf("ran_route %q route %q, want the final started hop's databricks:dev and the typed route kept", rec.RanRoute, rec.Route)
+	}
+}

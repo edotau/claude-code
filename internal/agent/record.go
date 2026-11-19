@@ -64,6 +64,7 @@ type Record struct {
 	FallbackReason string     `json:"fallback_reason,omitempty"`
 	RanAs          string     `json:"ran_as,omitempty"`          // the agent that answered, when a fallback dispatch did
 	Repo           string     `json:"repo,omitempty"`            // main checkout root the job belongs to
+	RanRoute       string     `json:"ran_route,omitempty"`       // provider:profile of the row that answered, as the ran-on line names it
 	Route          string     `json:"route,omitempty"`           // overlay confinement at launch (databricks:qa), so a running job shows where it is going
 	PID            int        `json:"pid,omitempty"`             // pid of the detached `claude-code agents ask --job` child
 	PIDStart       string     `json:"pid_start,omitempty"`       // proc.StartTime of PID at spawn: tells a reused pid apart
@@ -390,6 +391,7 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 		usage := res.Usage
 		r.Usage = &usage
 	}
+	r.RanRoute = ranRoute(res)
 	r.Fallback, r.FallbackReason = res.Fallback, textutil.RedactSecrets(res.FallbackReason)
 	if res.Fallback != "" {
 		r.RanAs = res.Agent
@@ -403,6 +405,21 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	if err != nil {
 		r.Status, r.Error, r.FailKind = "error", textutil.RedactSecrets(err.Error()), failKind(err)
 	}
+}
+
+// ranRoute is the final hop's row as provider:profile, the value the ran-on line prints; empty when no row ran.
+func ranRoute(res wire.Result) string {
+	for _, h := range slices.Backward(res.Hops) {
+		if h.NotStarted {
+			continue
+		}
+		provider, profile, ok := strings.Cut(h.Account, "·")
+		if !ok {
+			return ""
+		}
+		return router.JoinCoworker(provider, cmp.Or(h.Profile, profile))
+	}
+	return ""
 }
 
 // failKind: availability when no model could answer (limits, auth, routing, transport, timeout, cancel), else quality.
