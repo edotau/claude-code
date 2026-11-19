@@ -24,14 +24,41 @@ func Title(s string) string {
 
 // Truncate cuts s to at most n runes, ending in "…" when it does not fit, so the result never exceeds n.
 func Truncate(s string, n int) string {
-	r := []rune(s)
-	if len(r) <= n {
-		return s
-	}
 	if n <= 0 {
 		return ""
 	}
-	return string(r[:n-1]) + "…"
+	if len(s) <= n {
+		return s
+	}
+	j, more := runeCut(s, n-1)
+	if !more {
+		return s
+	}
+	if _, size := utf8.DecodeRuneInString(s[j:]); j+size >= len(s) {
+		return s
+	}
+	return validPrefix(s[:j]) + "…"
+}
+
+// runeCut is the byte offset after the first n runes of s and whether s has more than n runes.
+func runeCut(s string, n int) (int, bool) {
+	if n < 0 {
+		return 0, true
+	}
+	i := 0
+	for ; n > 0 && i < len(s); n-- {
+		_, size := utf8.DecodeRuneInString(s[i:])
+		i += size
+	}
+	return i, i < len(s)
+}
+
+// validPrefix is p, with each invalid byte replaced by U+FFFD as a []rune conversion does.
+func validPrefix(p string) string {
+	if utf8.ValidString(p) {
+		return p
+	}
+	return string([]rune(p))
 }
 
 // CutBytes is the longest prefix of s of at most n bytes that ends on a rune boundary.
@@ -53,10 +80,11 @@ func CapRunes(s string, n int, suffix string) string {
 	if len(s) <= n {
 		return s
 	}
-	if r := []rune(s); len(r) > n {
-		return string(r[:max(n, 0)]) + suffix
+	i, more := runeCut(s, n)
+	if !more {
+		return s
 	}
-	return s
+	return validPrefix(s[:i]) + suffix
 }
 
 // RuneLen is the rune count of s.

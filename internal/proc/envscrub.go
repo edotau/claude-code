@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 )
 
 // Shared launch environment names keep overlay wiring and inherited-env scrubbing aligned.
@@ -83,12 +84,12 @@ var scrubAgentOnlyDeny = []string{"HARNESS_VAULT_KEY"}
 
 // Scrub splits environ (KEY=VALUE entries) into kept and dropped (names only) against ScrubDeny, honoring keep.
 func Scrub(environ []string, keep map[string]bool) (kept, dropped []string) {
-	return scrub(environ, keep, ScrubDeny)
+	return scrub(environ, keep, scrubGlobs())
 }
 
 // ScrubAgent is Scrub plus scrubAgentOnlyDeny: use for codex/gemini/opencode/copilot child launches.
 func ScrubAgent(environ []string, keep map[string]bool) (kept, dropped []string) {
-	return scrub(environ, keep, append(slices.Clone(ScrubDeny), scrubAgentOnlyDeny...))
+	return scrub(environ, keep, scrubAgentGlobs())
 }
 
 // ScrubAgentCredentials is ScrubAgent plus every credential-shaped name except keep and agent's OwnLoginEnv.
@@ -101,18 +102,23 @@ func ScrubAgentCredentials(environ []string, keep map[string]bool, agent string)
 	for _, n := range OwnLoginEnv[agent] {
 		spared[n] = true
 	}
-	kept, more := scrub(kept, spared, ScrubDenyCredentials)
+	kept, more := scrub(kept, spared, scrubCredentialGlobs())
 	return kept, append(dropped, more...)
 }
 
 // Drop returns environ without the names matching a deny glob, except those in keep.
 func Drop(environ []string, keep map[string]bool, deny []string) []string {
-	kept, _ := scrub(environ, keep, deny)
+	kept, _ := scrub(environ, keep, compileDeny(deny))
 	return kept
 }
 
-func scrub(environ []string, keep map[string]bool, deny []string) (kept, dropped []string) {
-	globs := compileDeny(deny)
+var (
+	scrubGlobs           = sync.OnceValue(func() []glob { return compileDeny(ScrubDeny) })
+	scrubAgentGlobs      = sync.OnceValue(func() []glob { return compileDeny(slices.Concat(ScrubDeny, scrubAgentOnlyDeny)) })
+	scrubCredentialGlobs = sync.OnceValue(func() []glob { return compileDeny(ScrubDenyCredentials) })
+)
+
+func scrub(environ []string, keep map[string]bool, globs []glob) (kept, dropped []string) {
 	for _, kv := range environ {
 		name, _, _ := strings.Cut(kv, "=")
 		if keep[name] || !slices.ContainsFunc(globs, func(g glob) bool { return g.match(name) }) {
@@ -126,7 +132,7 @@ func scrub(environ []string, keep map[string]bool, deny []string) (kept, dropped
 
 // EnvBlocked reports whether a launch never passes name through (ScrubDeny, scrubAgentOnlyDeny, HARNESS_*).
 func EnvBlocked(name string) bool {
-	return strings.HasPrefix(name, "HARNESS_") || denied(name, ScrubDeny) || denied(name, scrubAgentOnlyDeny)
+	return strings.HasPrefix(name, "HARNESS_") || slices.ContainsFunc(scrubAgentGlobs(), func(g glob) bool { return g.match(name) })
 }
 
 // EnvKeepSet unions explicit names with HARNESS_KEEP_ENV, comma-separated.
@@ -141,10 +147,6 @@ func EnvKeepSet(names []string) map[string]bool {
 		}
 	}
 	return keep
-}
-
-func denied(name string, deny []string) bool {
-	return slices.ContainsFunc(compileDeny(deny), func(g glob) bool { return g.match(name) })
 }
 
 // glob is one deny pattern classified once: a literal, prefix*, *suffix, or anything else (filepath.Match).

@@ -32,22 +32,11 @@ func ShellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// shellSafe holds the bytes a POSIX shell word needs no quoting for.
-const shellSafe = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_./:=,@%+"
-
-// ShellWord is s bare when every byte is shell-safe, else ShellQuote(s).
-func ShellWord(s string) string {
-	if s != "" && strings.Trim(s, shellSafe) == "" {
-		return s
-	}
-	return ShellQuote(s)
-}
-
 // ShellJoin is the words as one shell command line.
 func ShellJoin(words []string) string {
 	out := make([]string, len(words))
 	for i, w := range words {
-		out[i] = ShellWord(w)
+		out[i] = QuoteSH(w)
 	}
 	return strings.Join(out, " ")
 }

@@ -31,6 +31,10 @@ func TestTruncate(t *testing.T) {
 		{"multi-byte runes", "日本語abcdef", 5, "日本語a…"},
 		{"n=1 always ellipsis when truncated", "abc", 1, "…"},
 		{"empty string", "", 5, ""},
+		{"invalid byte in prefix", "a\xffbcdef", 4, "a\uFFFDb…"},
+		{"invalid byte past cut", "abcdef\xff", 4, "abc…"},
+		{"rune at the cut", "ab日本語", 4, "ab日…"},
+		{"n negative", "abc", -1, ""},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -79,6 +83,9 @@ func TestCapRunes(t *testing.T) {
 		{"n=0", "abc", 0, "!"},
 		{"n negative", "abc", -2, "!"},
 		{"empty", "", 0, ""},
+		{"invalid byte in prefix", "a\xffbcd", 3, "a\uFFFDb!"},
+		{"invalid bytes within n", "a\xff", 3, "a\xff"},
+		{"rune at the cut", "日本語abc", 3, "日本語!"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
