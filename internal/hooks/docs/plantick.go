@@ -131,7 +131,7 @@ func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
 	} else {
 		top = paths.Real(top) // git prints the symlink-resolved toplevel
 	}
-	results, tied, err := plans.TickCommit(top, sha, nil)
+	results, tied, err := plans.TickCommit(top, sha, nil, nil)
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
 	}

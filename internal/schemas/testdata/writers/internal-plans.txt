@@ -3,3 +3,4 @@ internal/plans/tick.go:ClaimLanding	unversioned: text: plan landing keys already
 internal/plans/tick.go:RecordDest	unversioned: text: plan draft destination pointer
 internal/plans/tick.go:writeMemo	unversioned: text: plan task ids already announced as candidates
 internal/plans/tick.go:writePlan	unversioned: foreign: plan markdown in plans/
+internal/plans/verify.go:spawnVerify	unversioned: text: pending verify-then-tick marker, one per task and commit

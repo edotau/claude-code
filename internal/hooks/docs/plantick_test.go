@@ -134,7 +134,7 @@ func TestPlanTickTwoQuietCommitsTickOwnShas(t *testing.T) {
 func TestPlanTickAfterVerbChangesNothing(t *testing.T) {
 	planPath, sha, tick := tickFixture(t)
 	repo := filepath.Join(os.Getenv("HOME"), "widgets")
-	if _, _, err := plans.TickCommit(repo, sha, []string{"a/one.go", "b/two file.go"}); err != nil {
+	if _, _, err := plans.TickCommit(repo, sha, []string{"a/one.go", "b/two file.go"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	once, _ := os.ReadFile(planPath)
@@ -331,7 +331,7 @@ func testLaneLanding(t *testing.T, quiet, failed, mergeCommit bool) {
 	if err != nil || string(before) != body {
 		t.Fatalf("lane ticked: %s, %v", before, err)
 	}
-	if _, _, err := plans.TickCommit(repo, sha, []string{"a/one.go"}); err != nil {
+	if _, _, err := plans.TickCommit(repo, sha, []string{"a/one.go"}, nil); err != nil {
 		t.Fatal(err)
 	}
 	before, _ = os.ReadFile(plan)

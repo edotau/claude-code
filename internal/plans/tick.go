@@ -36,13 +36,19 @@ type Commit struct {
 type tickResult struct {
 	Sha                      string
 	Ticked, Notes, Candidate []string
+	IDs                      []string
 }
 
 // ErrNotOnTrunk is TickRange's refusal when the commits are not on the primary checkout's trunk branch.
 var ErrNotOnTrunk = errors.New("plans: nothing ticked: commits tick only once they are on the trunk branch of the primary checkout")
 
 // tickCommits ticks per commit under one lock the tasks its trailers name; ok narrows only the candidate lines.
-func tickCommits(root, planPath string, commits []Commit, dryRun bool, ok func(Task) bool) (results []tickResult, err error) {
+func tickCommits(root, planPath string, commits []Commit, dryRun bool, ok func(Task) bool) ([]tickResult, error) {
+	return tickCommitsOnly(root, planPath, commits, dryRun, ok, nil)
+}
+
+// tickCommitsOnly is tickCommits that also ticks only the named tasks only allows (nil: all).
+func tickCommitsOnly(root, planPath string, commits []Commit, dryRun bool, ok, only func(Task) bool) (results []tickResult, err error) {
 	err = editPlan(planPath, func(text string) (string, error) {
 		orig := text
 		for _, c := range commits {
@@ -53,7 +59,7 @@ func tickCommits(root, planPath string, commits []Commit, dryRun bool, ok func(T
 			c.Message = message
 			r := tickResult{Sha: strings.TrimSpace(c.Sha)}
 			r.Candidate = candidates(root, planPath, text, c, ok, dryRun)
-			text, r.Ticked, r.Notes = tickText(root, planPath, text, c, dryRun, ok)
+			text, r.Ticked, r.Notes, r.IDs = tickText(root, planPath, text, c, dryRun, only)
 			if len(r.Ticked)+len(r.Notes)+len(r.Candidate) > 0 {
 				results = append(results, r)
 			}
@@ -67,17 +73,18 @@ func tickCommits(root, planPath string, commits []Commit, dryRun bool, ok func(T
 }
 
 // tickText ticks every open task c's trailers name, noting owned files c did not touch.
-func tickText(root, planPath, text string, c Commit, dryRun bool, ok func(Task) bool) (out string, ticked, notes []string) {
+func tickText(root, planPath, text string, c Commit, dryRun bool, only func(Task) bool) (out string, ticked, notes, ids []string) {
 	lines := strings.Split(text, "\n")
 	for _, t := range parseBytes(planPath, []byte(text)).Tasks {
 		if !open(t) {
 			continue
 		}
-		if !namesTask(c.Message, planPath, t.ID) {
+		if !namesTask(c.Message, planPath, t.ID) || (only != nil && !only(t)) {
 			continue
 		}
 		lines = markDone(lines, t, c.Sha)
 		ticked = append(ticked, t.Title)
+		ids = append(ids, t.ID)
 		if !dryRun {
 			forget(planPath, t.ID)
 		}
@@ -85,7 +92,7 @@ func tickText(root, planPath, text string, c Commit, dryRun bool, ok func(Task) 
 			notes = append(notes, fmt.Sprintf("plans: %s ticked without owns: %s; `%s` if it is unfinished", t.ID, strings.Join(missing, ", "), reopenCmd(planPath, t.ID)))
 		}
 	}
-	return strings.Join(lines, "\n"), ticked, notes
+	return strings.Join(lines, "\n"), ticked, notes, ids
 }
 
 // reopenCmd is the by-hand reopen of task id in plan, naming the plan so a shared id is not ambiguous.
@@ -332,6 +339,7 @@ func printTie(w io.Writer, tied []string) error {
 type PlanTick struct {
 	Plan                     string
 	Ticked, Notes, Candidate []string
+	IDs                      []string
 }
 
 // Lines are the report lines for sha: what ticked, then the notes and candidates of this plan.
@@ -351,8 +359,17 @@ func TieNote(tied []string) string {
 	return "plans: open tasks of " + baseNames(tied) + " own the same file; all updated"
 }
 
-// TickCommit advances named tasks and reports unnamed coverage without writing it.
-func TickCommit(top, sha string, files []string) (out []PlanTick, tied []string, err error) {
+// TickCommit advances the named tasks only allows (nil: all) and reports unnamed coverage without writing it.
+func TickCommit(top, sha string, files []string, only func(Task) bool) ([]PlanTick, []string, error) {
+	return tickCommitMode(top, sha, files, false, only)
+}
+
+// PendingCommit is TickCommit without writing: the tasks sha would tick (IDs filled), its notes and candidates.
+func PendingCommit(top, sha string, files []string) ([]PlanTick, []string, error) {
+	return tickCommitMode(top, sha, files, true, nil)
+}
+
+func tickCommitMode(top, sha string, files []string, dryRun bool, only func(Task) bool) (out []PlanTick, tied []string, err error) {
 	if WorktreeName(top) != "" {
 		return nil, nil, nil
 	}
@@ -374,10 +391,10 @@ func TickCommit(top, sha string, files []string) (out []PlanTick, tied []string,
 	}
 	var errs []error
 	for _, p := range targets {
-		results, terr := tickCommits(top, p, []Commit{c}, false, allow[p])
+		results, terr := tickCommitsOnly(top, p, []Commit{c}, dryRun, allow[p], only)
 		errs = append(errs, terr)
 		for _, r := range results {
-			out = append(out, PlanTick{p, r.Ticked, r.Notes, r.Candidate})
+			out = append(out, PlanTick{p, r.Ticked, r.Notes, r.Candidate, r.IDs})
 		}
 	}
 	return out, tied, errors.Join(errs...)

@@ -183,7 +183,7 @@ func TestEligibilityWindowAndClaim(t *testing.T) {
 	for _, n := range names {
 		writeFile(t, filepath.Join(home, n), "- [ ] 1.1 Task owns: a.go, zzz.go\n")
 	}
-	res, _, err := TickCommit(repo, cs[0].Sha, cs[0].Files)
+	res, _, err := TickCommit(repo, cs[0].Sha, cs[0].Files, nil)
 	if err != nil || len(res) != 2 {
 		t.Fatalf("eligible candidates: %+v, %v", res, err)
 	}
@@ -194,7 +194,7 @@ func TestEligibilityWindowAndClaim(t *testing.T) {
 	}
 	claimed := filepath.Join(home, names["old"])
 	writeFile(t, claimed, "- [ ] 1.1 Task owns: a.go, zzz.go <!-- working: x · worktree main -->\n")
-	res, _, err = TickCommit(repo, cs[0].Sha, cs[0].Files)
+	res, _, err = TickCommit(repo, cs[0].Sha, cs[0].Files, nil)
 	if err != nil || len(res) != 1 || res[0].Plan != claimed {
 		t.Fatalf("only the newly claimed plan is a new candidate: %+v, %v", res, err)
 	}
@@ -275,7 +275,7 @@ func TestNamedTaskTicksWhenItsCommitLands(t *testing.T) {
 		hosttest.In(t, lane, "commit", "-q", "-m", "feat: "+f+"\n\nTask: 2026-10-05-p 1."+string(rune('1'+i)))
 	}
 	laneHead := strings.TrimSpace(hosttest.In(t, lane, "rev-parse", "HEAD"))
-	if res, _, err := TickCommit(lane, laneHead, nil); err != nil || len(res) != 0 || strings.Contains(readFile(t, plan), "[x]") {
+	if res, _, err := TickCommit(lane, laneHead, nil, nil); err != nil || len(res) != 0 || strings.Contains(readFile(t, plan), "[x]") {
 		t.Fatalf("a lane commit must tick nothing: %+v %v", res, err)
 	}
 	hosttest.In(t, repo, "cherry-pick", "lane~2")
@@ -283,7 +283,7 @@ func TestNamedTaskTicksWhenItsCommitLands(t *testing.T) {
 	hosttest.In(t, repo, "commit", "-q", "-m", "feat: squash\n\nTask: 2026-10-05-p 1.2")
 	got := ""
 	for sha := range strings.FieldsSeq(hosttest.In(t, repo, "rev-list", "--reverse", "-2", "HEAD")) {
-		if _, _, err := TickCommit(repo, sha, nil); err != nil {
+		if _, _, err := TickCommit(repo, sha, nil, nil); err != nil {
 			t.Fatal(err)
 		}
 		got = readFile(t, plan)

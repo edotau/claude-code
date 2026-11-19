@@ -131,13 +131,13 @@ func TestTickRangeCountsMergeCommitTrailer(t *testing.T) {
 func TestTickCommitWithoutTrunkTicksNothing(t *testing.T) {
 	hermetic(t)
 	repo := gitRepo(t, "trunk")
-	if _, _, err := TickCommit(repo, "HEAD", nil); err != nil {
+	if _, _, err := TickCommit(repo, "HEAD", nil, nil); err != nil {
 		t.Fatalf("no plans, no complaint: %v", err)
 	}
 	plan := filepath.Join(Home(repo), "2026-11-18-p.md")
 	writeFile(t, plan, "- [ ] 1.1 One\n")
 	hosttest.In(t, repo, "commit", "-q", "--allow-empty", "-m", "feat: a\n\nTask: 2026-11-18-p 1.1")
-	if _, _, err := TickCommit(repo, "HEAD", nil); !errors.Is(err, ErrNoTrunk) {
+	if _, _, err := TickCommit(repo, "HEAD", nil, nil); !errors.Is(err, ErrNoTrunk) {
 		t.Fatalf("err = %v, want ErrNoTrunk", err)
 	}
 	wantBytes(t, plan, "no trunk", "- [ ] 1.1 One\n")
