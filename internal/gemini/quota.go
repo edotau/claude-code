@@ -291,8 +291,22 @@ func Check(ctx context.Context, model string, now time.Time) (ModelQuota, error)
 		return ModelQuota{}, err
 	}
 	q := statusFor(rows, model, now)
-	q.HoldErr = holdZeroLimits(rows, model, now)
+	q.HoldErr = errors.Join(releaseResetHolds(rows, now), holdZeroLimits(rows, model, now))
 	return q, nil
+}
+
+// releaseResetHolds drops each live hold whose model the limits now show above 0%: the limit reset early.
+func releaseResetHolds(rows []QuotaRow, now time.Time) error {
+	var errs []error
+	for key, held := range router.LoadState()[googleAccount].ModelDead {
+		if !held.After(now) || len(rowsFor(rows, key)) == 0 || !statusFor(rows, key, now).HeldUntil.IsZero() {
+			continue
+		}
+		if _, err := router.ClearModelDead(googleAccount, key); err != nil {
+			errs = append(errs, fmt.Errorf("release %s: %w", key, err))
+		}
+	}
+	return errors.Join(errs...)
 }
 
 // holdZeroLimits marks quota-dead each model whose limits are at 0% with a reset time ahead, a pool's models all.

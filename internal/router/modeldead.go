@@ -1,6 +1,7 @@
 package router
 
 import (
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -20,6 +21,20 @@ func MarkModelDead(account, model string, until, now time.Time) (bool, error) {
 	return tryUpdate(authMarkWait, func(s State) {
 		e := s[account]
 		e.ModelDead = extendHold(e.ModelDead, ModelKey(model), until, now)
+		s[account] = e
+	})
+}
+
+// ClearModelDead drops account's quota-dead mark on model; nothing is written when none exists.
+func ClearModelDead(account, model string) (bool, error) {
+	key := ModelKey(model)
+	if _, ok := sharedState()[account].ModelDead[key]; !ok {
+		return true, nil
+	}
+	return tryUpdate(authMarkWait, func(s State) {
+		e := s[account]
+		e.ModelDead = maps.Clone(e.ModelDead)
+		delete(e.ModelDead, key)
 		s[account] = e
 	})
 }
