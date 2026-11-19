@@ -9,14 +9,18 @@ import (
 	"io"
 	"os"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/gemini"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -32,7 +36,8 @@ type resolveRow struct {
 var gatewayResolvePage = helptext.Page{
 	Usage: "claude-code gateway resolve <agent> [flags]",
 	About: "Print the overlay and wire id <agent> runs a model string as (read-only). " +
-		"--all-profiles resolves on every profile; --live also checks credential, listing and READY.",
+		"--all-profiles resolves on every profile; --live also checks credential, listing and READY. " +
+		"all --model auto --all-profiles prints every rotation row x agent x tier pool.",
 	Hint: "Exit 0, 1 no profile passed, 2 usage or a model the agent cannot run.",
 }
 
@@ -52,7 +57,7 @@ func cmdGatewayResolve(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if len(words) != 1 || helptext.CheckFormat(*format) != nil || *live && !*all {
+	if !resolveArgsOK(words, *format, *live, *all) {
 		fs.Usage()
 		return 2
 	}
@@ -63,6 +68,9 @@ func cmdGatewayResolve(args []string) int {
 	task, err := agent.ReadBrief(*taskFile)
 	if err != nil {
 		return helptext.Fail("gateway resolve: %v", err)
+	}
+	if words[0] == poolAll {
+		return cmdPoolTable(ctx, poolUsable(*all, *live, *model, *profile, *overlay), task, *tools, *fallback, *format)
 	}
 	q, err := resolveQuery(ctx, words[0], *model, *profile, *overlay)
 	if err != nil {
@@ -77,6 +85,11 @@ func cmdGatewayResolve(args []string) int {
 		return printRows(resolveAll(ctx, reg, q, *live), *format)
 	}
 	return resolveOne(ctx, reg, q, task, *format)
+}
+
+// resolveArgsOK is the verb's shape: one agent word, a known format, --live only with --all-profiles.
+func resolveArgsOK(words []string, format string, live, all bool) bool {
+	return len(words) == 1 && helptext.CheckFormat(format) == nil && (!live || all)
 }
 
 // resolveOne prints the first hop's route; an unrunnable model is a usage error.
@@ -349,4 +362,161 @@ func printRows(rows []resolveRow, format string) int {
 		}
 	}
 	return 1
+}
+
+// poolAll is the agent word for `gateway resolve all`: every rotation row x agent x tier, read-only.
+const poolAll = "all"
+
+// poolAgents are the five agents the pool table walks.
+var poolAgents = append([]string{agentid.Claude}, agent.DefaultAgents...)
+
+// poolTiers are the auto tiers in print order, keyed by the alias TaskTier returns.
+var poolTiers = []struct{ name, alias string }{{"fast", models.Haiku}, {"standard", models.Sonnet}, {"deep", models.Opus}}
+
+// poolRow is one table row; json reuses the auto block's pool member fields.
+type poolRow struct {
+	Row        string             `json:"row"`
+	Agent      string             `json:"agent"`
+	Tier       string             `json:"tier"`
+	Size       int                `json:"size"`
+	Next       string             `json:"next"`
+	Held       int                `json:"held"`
+	LastPicked *time.Time         `json:"last_picked,omitempty"`
+	Note       string             `json:"note,omitempty"`
+	Pool       []agent.PoolMember `json:"pool"`
+}
+
+func poolUsable(all, live bool, model, profile, overlay string) bool {
+	return all && !live && model == agent.AutoModel && profile == "" && overlay == ""
+}
+
+// cmdPoolTable prints the pool table; it only peeks, so no rotation history moves.
+func cmdPoolTable(ctx context.Context, usable bool, task string, tools bool, fallback, format string) int {
+	if !usable {
+		return helptext.FailUsage("gateway resolve: all takes --model auto --all-profiles; no --live, --profile, --overlay")
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		return helptext.Fail("gateway resolve: %v", err)
+	}
+	alias, _ := agent.TaskTier(task) // "" for no brief: every tier
+	var tiers []string
+	for _, t := range poolTiers {
+		if alias == "" || t.alias == alias {
+			tiers = append(tiers, t.name)
+		}
+	}
+	rows := poolRows(ctx, reg, tiers, tools, fallback, time.Now())
+	if format == helptext.JSON {
+		b, _ := json.MarshalIndent(rows, "", "  ")
+		fmt.Println(string(b))
+		return 0
+	}
+	renderPoolTable(os.Stdout, rows, helptext.TermWidth(os.Stdout), time.Now())
+	return 0
+}
+
+// poolRows resolves every rotation row x agent x tier through the single-agent path, sorted agent, row, tier.
+func poolRows(ctx context.Context, reg *providers.Registry, tiers []string, tools bool, fallback string, now time.Time) []poolRow {
+	var out []poolRow
+	for _, p := range allRows(reg) {
+		if !router.RotationRow(p) {
+			continue
+		}
+		for _, name := range poolAgents {
+			if !agent.VaultAgentIsClaude(name) && !agent.CanServe(name, p) {
+				continue
+			}
+			for _, tier := range tiers {
+				if row, ok := poolCell(ctx, reg, name, p, tier, tools, fallback, now); ok {
+					out = append(out, row)
+				}
+			}
+		}
+	}
+	slices.SortStableFunc(out, func(a, b poolRow) int {
+		return cmp.Or(strings.Compare(a.Agent, b.Agent), strings.Compare(a.Row, b.Row), tierRank(a.Tier)-tierRank(b.Tier))
+	})
+	return out
+}
+
+func tierRank(tier string) int {
+	return slices.IndexFunc(poolTiers, func(t struct{ name, alias string }) bool { return t.name == tier })
+}
+
+// poolCell is name's auto pick on p at tier; false when p cannot run name at all (claude on a login row).
+func poolCell(ctx context.Context, reg *providers.Registry, name string, p *providers.Provider, tier string,
+	tools bool, fallback string, now time.Time) (poolRow, bool) {
+	row := poolRow{Row: router.AccountOf(p), Agent: name, Tier: tier}
+	q, err := resolveQuery(ctx, name, agent.AutoModel, p.Name, "")
+	if err != nil {
+		row.Note = "cannot run"
+		return row, true
+	}
+	q.Task, q.Tools, q.Fallback = "Tier: "+tier, tools, cmp.Or(fallback, q.Fallback)
+	r, choice, err := resolveFirstHop(ctx, reg, q, q.Task)
+	switch {
+	case errors.Is(err, agent.ErrPoolExhausted):
+		row.Note, row.Pool = "exhausted", agent.RotationMembers(name, p.Name, tier, now)
+	case err != nil && agent.VaultAgentIsClaude(name) && errors.Is(err, agent.ErrModelRoute):
+		return row, false
+	case err != nil:
+		row.Note = "cannot run"
+	case choice != nil:
+		row.Next, row.Pool = r.Model, poolMembers(r, choice)
+		if choice.Criterion == "rotation" && len(row.Pool) == 0 { // tierRotation stepped: the row serves nothing here
+			row.Note, row.Pool = "stepped to standard", agent.RotationMembers(name, p.Name, "standard", now)
+		}
+	default:
+		row.Next = r.Model
+	}
+	return tallyPool(row, agent.VaultAgentIsClaude(name)), true
+}
+
+// tallyPool fills the held count, newest pick and size from the pool, and why an empty pool is empty.
+func tallyPool(row poolRow, claude bool) poolRow {
+	for _, m := range row.Pool {
+		if m.Held {
+			row.Held++
+		}
+		if m.LastPicked != nil && (row.LastPicked == nil || m.LastPicked.After(*row.LastPicked)) {
+			row.LastPicked = m.LastPicked
+		}
+	}
+	row.Size = len(row.Pool)
+	if row.Size == 0 && row.Note == "" {
+		row.Note = map[bool]string{true: "does not rotate", false: "no fresh listing"}[claude]
+	}
+	return row
+}
+
+// renderPoolTable prints the table; width > 0 (a terminal) clips NOTE first, then NEXT, so no line passes width.
+func renderPoolTable(w io.Writer, rows []poolRow, width int, now time.Time) {
+	head := [8]string{"ROW", "AGENT", "TIER", "POOL", "NEXT", "HELD", "LAST", "NOTE"}
+	cells := [][8]string{head}
+	for _, r := range rows {
+		last := "-"
+		if r.LastPicked != nil {
+			last = agent.ShortDur(now.Sub(*r.LastPicked))
+		}
+		cells = append(cells, [8]string{r.Row, r.Agent, r.Tier, strconv.Itoa(r.Size), r.Next, strconv.Itoa(r.Held), last, r.Note})
+	}
+	var widths [8]int
+	for _, c := range cells {
+		for i, s := range c {
+			widths[i] = max(widths[i], textutil.DisplayWidth(s))
+		}
+	}
+	if width > 0 {
+		fixed := 7 + widths[0] + widths[1] + widths[2] + widths[3] + widths[5] + widths[6] // 7 column gaps
+		widths[7] = max(min(widths[7], width-fixed-widths[4]), 0)
+		widths[4] = max(min(widths[4], width-fixed-widths[7]), 0)
+	}
+	for _, c := range cells {
+		var line [8]string
+		for i, s := range c {
+			line[i] = textutil.PadCells(textutil.TruncateCells(s, widths[i], "…"), widths[i], i == 3 || i == 5)
+		}
+		fmt.Fprintln(w, strings.TrimRight(strings.Join(line[:], " "), " "))
+	}
 }

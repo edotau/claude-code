@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -16,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -242,5 +245,46 @@ func TestWithGoogleQuotaFailureNeverFailsResolve(t *testing.T) {
 	r := withGoogleQuota(context.Background(), agent.ModelRoute{Account: "google·antigravity", Model: "gemini-4-hydrogen"}, &warn)
 	if r.Note != "usage unavailable" || warn.Len() != 0 || r.Model != "gemini-4-hydrogen" {
 		t.Errorf("route = %+v warn %q, want the route intact and the note %q", r, warn.String(), "usage unavailable")
+	}
+}
+
+// The pool table sorts agent, row, tier, omits a pair the row cannot run and fits 80 columns on a terminal.
+func TestPoolTable(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	rows := poolRows(context.Background(), reg, []string{"fast", "deep"}, false, "", time.Now())
+	seen := map[string]poolRow{}
+	var keys []string
+	for _, r := range rows {
+		seen[r.Agent+" "+r.Row+" "+r.Tier] = r
+		keys = append(keys, r.Agent+" "+r.Row+" "+map[string]string{"fast": "0", "deep": "1"}[r.Tier])
+	}
+	if !slices.IsSorted(keys) {
+		t.Errorf("rows not sorted by agent, row, tier: %q", keys)
+	}
+	_, copilot := seen["copilot github·copilot fast"]
+	if _, codex := seen["codex github·copilot fast"]; !copilot || codex {
+		t.Errorf("copilot row %v, codex row %v on the copilot login; want only copilot: %v", copilot, codex,
+			slices.Collect(maps.Keys(seen)))
+	}
+	claude := seen["claude databricks·dev deep"]
+	if got := [3]any{claude.Size, claude.Next != "", claude.Note}; got != [3]any{0, true, "does not rotate"} {
+		t.Errorf("claude on dev = %+v; want its tier model and \"does not rotate\"", claude)
+	}
+	var out bytes.Buffer
+	renderPoolTable(&out, rows, 80, time.Now())
+	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
+	if len(lines) != len(rows)+1 {
+		t.Errorf("%d lines for %d rows; want a header plus one per row", len(lines), len(rows))
+	}
+	for _, l := range lines {
+		if n := textutil.DisplayWidth(l); n > 80 {
+			t.Errorf("line is %d columns, want at most 80: %q", n, l)
+		}
 	}
 }
