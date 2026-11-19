@@ -21,6 +21,9 @@ var codexCloud = codex.Cloud
 
 // cmdClaude is `claude-code claude`: Claude Code on the selected profile.
 func cmdClaude(args []string) int {
+	if len(args) > 0 && args[0] == "--launcher" { // bin/claude's entry; hidden: not in the help text
+		return claude.LaunchWrapped(args[1:])
+	}
 	if len(args) > 0 && args[0] == "review" { // claude has no review verb of its own; --overlay '{"cloud":true}' = ultrareview
 		return agentSub("claude", args)
 	}
