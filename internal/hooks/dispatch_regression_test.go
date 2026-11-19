@@ -203,13 +203,6 @@ func copilotJSON(cmd string) []byte {
 	return b
 }
 
-type failedDenyWriter struct{ attempted string }
-
-func (w *failedDenyWriter) Write(p []byte) (int, error) {
-	w.attempted = string(p)
-	return 0, io.ErrClosedPipe
-}
-
 // A worktree create or remove that panics or overruns exits 1: exit 0 would report a worktree made or removed.
 func TestWorktreeDispatchFailureExitsNonzero(t *testing.T) {
 	for _, tc := range []struct{ module, failure string }{
