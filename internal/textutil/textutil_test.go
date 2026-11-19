@@ -201,7 +201,7 @@ func TestScanRawLines(t *testing.T) {
 }
 
 func TestIsNonPublicIPCGNATFlag(t *testing.T) {
-	cgnat := net.ParseIP("100.100.100.100")
+	cgnat := net.ParseIP("100.64.0.1")
 	if IsNonPublicIP(cgnat, false) || !IsNonPublicIP(cgnat, true) {
 		t.Errorf("CGNAT must follow blockCGNAT: false=%v true=%v", IsNonPublicIP(cgnat, false), IsNonPublicIP(cgnat, true))
 	}

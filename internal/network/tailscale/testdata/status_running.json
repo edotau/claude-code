@@ -5,22 +5,22 @@
   "HaveNodeKey": true,
   "AuthURL": "",
   "TailscaleIPs": [
-    "100.107.35.117",
-    "fd7a:115c:a1e0::a339:2376"
+    "100.64.0.1",
+    "fd7a:115c:a1e0::1"
   ],
   "Self": {
-    "ID": "n64qJ2CXZg11CNTRL",
+    "ID": "nFAKE0001CNTRL",
     "PublicKey": "nodekey:redacted0000000000000000000000000000000000000000000000000000",
     "HostName": "test-mac",
     "DNSName": "test-mac.tailxxxxx.ts.net.",
     "OS": "macOS",
     "TailscaleIPs": [
-      "100.107.35.117",
-      "fd7a:115c:a1e0::a339:2376"
+      "100.64.0.1",
+      "fd7a:115c:a1e0::1"
     ],
     "AllowedIPs": [
-      "100.107.35.117/32",
-      "fd7a:115c:a1e0::a339:2376/128",
+      "100.64.0.1/32",
+      "fd7a:115c:a1e0::1/128",
       "0.0.0.0/0",
       "::/0"
     ],
@@ -34,24 +34,24 @@
   "MagicDNSSuffix": "tailxxxxx.ts.net",
   "CurrentTailnet": {
     "Name": "user@example.com",
-    "StableID": "Tkp9x6ZhkC11CNTRL",
+    "StableID": "tFAKE0001CNTRL",
     "MagicDNSSuffix": "tailxxxxx.ts.net",
     "MagicDNSEnabled": true
   },
   "Peer": {
     "nodekey:redacted1111111111111111111111111111111111111111111111111111": {
-      "ID": "n8xH7JvZkA21CNTRL",
+      "ID": "nFAKE0002CNTRL",
       "PublicKey": "nodekey:redacted1111111111111111111111111111111111111111111111111111",
       "HostName": "localhost",
       "DNSName": "test-phone.tailxxxxx.ts.net.",
       "OS": "iOS",
       "TailscaleIPs": [
-        "100.105.201.90",
-        "fd7a:115c:a1e0::b139:c95b"
+        "100.64.0.2",
+        "fd7a:115c:a1e0::2"
       ],
       "AllowedIPs": [
-        "100.105.201.90/32",
-        "fd7a:115c:a1e0::b139:c95b/128"
+        "100.64.0.2/32",
+        "fd7a:115c:a1e0::2/128"
       ],
       "Online": true,
       "ExitNode": false,
@@ -61,8 +61,8 @@
     }
   },
   "User": {
-    "2569984949708623": {
-      "ID": 2569984949708623,
+    "1000000000000001": {
+      "ID": 1000000000000001,
       "LoginName": "user@example.com",
       "DisplayName": "Test User"
     }

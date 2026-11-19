@@ -295,21 +295,21 @@ func TestConnectUpOutlivesDefaultExecTimeout(t *testing.T) {
 // peersByAddr indexes every peer address, and this node's own addresses carry its Running state.
 func TestPeersByAddrIndexesPeersAndSelf(t *testing.T) {
 	st := Local{
-		BackendState: "Running", IPs: []string{"100.0.0.1"}, ExitNodeOption: true,
-		Peers: []peer{{IPs: []string{"100.0.0.2", "fd7a::2"}, Online: true, ExitNode: true}},
+		BackendState: "Running", IPs: []string{"192.0.2.1"}, ExitNodeOption: true,
+		Peers: []peer{{IPs: []string{"192.0.2.2", "2001:db8::2"}, Online: true, ExitNode: true}},
 	}
 	got := peersByAddr(st)
 	if len(got) != 3 {
 		t.Fatalf("peersByAddr = %+v, want 3 addresses", got)
 	}
-	if p := got["fd7a::2"]; !p.Online || !p.ExitNode {
+	if p := got["2001:db8::2"]; !p.Online || !p.ExitNode {
 		t.Errorf("peer address = %+v, want the online exit-node peer", p)
 	}
-	if self := got["100.0.0.1"]; !self.Online || self.ExitNode || !self.ExitNodeOption {
+	if self := got["192.0.2.1"]; !self.Online || self.ExitNode || !self.ExitNodeOption {
 		t.Errorf("self address = %+v, want Online (Running), ExitNodeOption and not ExitNode", self)
 	}
 	st.BackendState = "Stopped"
-	if got := peersByAddr(st)["100.0.0.1"]; got.Online {
+	if got := peersByAddr(st)["192.0.2.1"]; got.Online {
 		t.Errorf("stopped self = %+v, want offline", got)
 	}
 }
@@ -365,7 +365,7 @@ func TestMachinesFetchesDevicesAndStatusConcurrently(t *testing.T) {
 				break
 			}
 		}
-		_, _ = w.Write([]byte(`{"devices":[{"name":"test-phone.tailxxxxx.ts.net","addresses":["100.105.201.90"]}]}`))
+		_, _ = w.Write([]byte(`{"devices":[{"name":"test-phone.tailxxxxx.ts.net","addresses":["100.64.0.2"]}]}`))
 	}))
 	t.Cleanup(srv.Close)
 	prev := apiBaseURL

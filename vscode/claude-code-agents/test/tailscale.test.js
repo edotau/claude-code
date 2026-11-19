@@ -6,11 +6,11 @@ const ts = require('../lib/tailscale');
 const HARNESS = {
   BackendState: 'Running',
   DNSName: 'erics-macbook-pro.tail0example.ts.net.',
-  IPs: ['100.107.35.117'],
+  IPs: ['100.64.0.1'],
   Peers: [
     { DNSName: 'devhost0001.tail0example.ts.net.', IPs: ['100.64.0.10'], OS: 'linux', Online: true, ExitNode: true, ExitNodeOption: true },
-    { DNSName: 'relay.tail0example.ts.net.', IPs: ['100.1.1.1'], OS: 'linux', Online: false, ExitNode: false, ExitNodeOption: true },
-    { DNSName: 'iphone181.tail0example.ts.net.', IPs: ['100.105.201.90'], OS: 'iOS', Online: true, ExitNode: false, ExitNodeOption: false },
+    { DNSName: 'relay.tail0example.ts.net.', IPs: ['192.0.2.1'], OS: 'linux', Online: false, ExitNode: false, ExitNodeOption: true },
+    { DNSName: 'iphone181.tail0example.ts.net.', IPs: ['100.64.0.2'], OS: 'iOS', Online: true, ExitNode: false, ExitNodeOption: false },
   ],
 };
 const CLI = {
@@ -18,7 +18,7 @@ const CLI = {
   ExitNodeStatus: { ID: 'n1', Online: true, TailscaleIPs: ['100.64.0.10/32'] },
   Peer: {
     a: { ID: 'n1', HostName: 'DEVHOST0001', DNSName: 'devhost0001.tail0example.ts.net.', TailscaleIPs: ['100.64.0.10'], Online: true, ExitNodeOption: true, ExitNode: true },
-    b: { ID: 'n2', HostName: 'relay', DNSName: 'relay.tail0example.ts.net.', TailscaleIPs: ['100.1.1.1'], Online: false, ExitNodeOption: true },
+    b: { ID: 'n2', HostName: 'relay', DNSName: 'relay.tail0example.ts.net.', TailscaleIPs: ['192.0.2.1'], Online: false, ExitNodeOption: true },
   },
 };
 
@@ -46,7 +46,7 @@ test('argv: harness list, CLI status, set --exit-node keeps LAN access, empty cl
 test('parseHarnessStatus: advertised (ExitNodeOption) and in-use peers, trailing dot stripped, hostName = first label', () => {
   const s = ts.parseHarnessStatus(JSON.stringify(HARNESS));
   assert.equal(s.self, 'erics-macbook-pro.tail0example.ts.net');
-  assert.deepEqual(s.options.map((o) => [o.hostName, o.ip, o.online, o.selected]), [['devhost0001', '100.64.0.10', true, true], ['relay', '100.1.1.1', false, false]]);
+  assert.deepEqual(s.options.map((o) => [o.hostName, o.ip, o.online, o.selected]), [['devhost0001', '100.64.0.10', true, true], ['relay', '192.0.2.1', false, false]]);
 });
 
 test('parseCliStatus: active exit node IP without the /32, advertised peers with selection', () => {

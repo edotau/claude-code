@@ -80,7 +80,7 @@ func TestDevicesParsesList(t *testing.T) {
 		if r.URL.Path != "/tailnet/-/devices" {
 			t.Errorf("path = %q", r.URL.Path)
 		}
-		d := device{ID: "d1", Name: "box.tailnet.ts.net", OS: "linux", Addresses: []string{"100.1.2.3"}}
+		d := device{ID: "d1", Name: "box.tailnet.ts.net", OS: "linux", Addresses: []string{"192.0.2.3"}}
 		if r.URL.Query().Get("fields") == "all" { // like the real API: routes only in the full listing
 			d.EnabledRoutes = defaultRoutes
 		}

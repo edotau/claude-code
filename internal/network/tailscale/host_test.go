@@ -205,7 +205,7 @@ func TestResolveHost_SkipsLookupAndPrefersCache(t *testing.T) {
 	calls := countingCLI(t)
 	ctx := context.Background()
 	WriteMachinesCache([]string{"box.tailxxxxx.ts.net"})
-	for host, want := range map[string]string{"other.example.com": "other.example.com", "100.64.1.2": "100.64.1.2",
+	for host, want := range map[string]string{"other.example.com": "other.example.com", "100.64.0.1": "100.64.0.1",
 		"fd7a::1": "fd7a::1", "BOX": "box.tailxxxxx.ts.net"} {
 		if got, err := ResolveHost(ctx, host); err != nil || got != want {
 			t.Errorf("ResolveHost(%q) = %q, %v; want %q", host, got, err, want)

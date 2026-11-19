@@ -72,7 +72,7 @@ func fakeTailscaleOnPATH(t *testing.T, dnsName string) {
 	}
 	dir := t.TempDir()
 	script := "#!/bin/sh\nif [ \"$1\" = status ]; then /bin/cat <<EOF\n" +
-		`{"BackendState":"Running","Self":{"DNSName":"` + dnsName + `","TailscaleIPs":["100.64.1.2"],"AllowedIPs":[]},"Peer":{}}` +
+		`{"BackendState":"Running","Self":{"DNSName":"` + dnsName + `","TailscaleIPs":["100.64.0.1"],"AllowedIPs":[]},"Peer":{}}` +
 		"\nEOF\nfi\n"
 	if err := os.WriteFile(filepath.Join(dir, "tailscale"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
