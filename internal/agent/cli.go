@@ -325,6 +325,7 @@ func withParsed(res, out wire.Result) wire.Result {
 type StreamOpts struct {
 	Idle         *IdleTimeout
 	OnMeaningful func()
+	Cause        func() error // a failure the child's stderr reported; it beats the idle and exit errors
 }
 
 // meaningful is the callback the parser fires on its first model event: OnMeaningful, then it marks Idle as spoken.
@@ -338,6 +339,13 @@ func (o StreamOpts) meaningful() func() {
 		}
 		o.Idle.Spoke()
 	}
+}
+
+func (o StreamOpts) cause() error {
+	if o.Cause == nil {
+		return nil
+	}
+	return o.Cause()
 }
 
 // RunEventStream runs cmd, decoding stdout via parse while streaming live; a tripped Idle beats the exit error.
@@ -363,12 +371,16 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry
 	opts.Idle.Stop()
 	werr := reapChild(cmd, &idle.src, perr)
 	res = withParsed(res, out)
-	return streamResult(ctx, name, res, perr, werr, opts.Idle, tail)
+	return streamResult(ctx, name, res, perr, werr, opts, tail)
 }
 
 // streamResult picks RunEventStream's outcome: an idle kill, a delivered result, a child failure, an empty answer.
-func streamResult(ctx context.Context, name string, res wire.Result, perr, werr error, idle *IdleTimeout,
+func streamResult(ctx context.Context, name string, res wire.Result, perr, werr error, opts StreamOpts,
 	tail *retry.TailBuffer) (wire.Result, error) {
+	idle := opts.Idle
+	if cerr := opts.cause(); cerr != nil {
+		return res, cerr
+	}
 	if serr := idle.Err(); serr != nil {
 		return res, serr
 	}

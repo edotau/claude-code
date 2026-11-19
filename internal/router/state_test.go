@@ -418,6 +418,20 @@ func TestParseResetHugeNClampsToFuture(t *testing.T) {
 	}
 }
 
+func TestParseResetDurationForms(t *testing.T) {
+	now := time.Date(2026, 11, 5, 12, 0, 0, 0, time.UTC)
+	for text, want := range map[string]time.Duration{
+		"usage limit (monthly, resets in 5d 7h). To keep": 127 * time.Hour,
+		"resets in 2d":         48 * time.Hour,
+		"resets in 1h 30m":     90 * time.Minute,
+		"resets in 151h45m36s": 151*time.Hour + 45*time.Minute + 36*time.Second,
+	} {
+		if got, ok := ParseReset(text, now); !ok || !got.Equal(now.Add(want)) {
+			t.Errorf("ParseReset(%q) = %v, %v; want now+%v", text, got, ok, want)
+		}
+	}
+}
+
 func TestParseClockResetAcrossDST(t *testing.T) {
 	ny, err := time.LoadLocation("America/New_York")
 	if err != nil {

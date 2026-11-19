@@ -472,7 +472,7 @@ var (
 		return regexp.MustCompile(`try again in (\d+)\s*(s|sec|seconds?|m|min|minutes?|h|hours?|d|days?)\b`)
 	})
 	durRE = sync.OnceValue(func() *regexp.Regexp {
-		return regexp.MustCompile(`resets in ((?:\d+h)?(?:\d+m)?(?:\d+(?:\.\d+)?s)?)(?:\W|$)`)
+		return regexp.MustCompile(`resets in ((?:\d+d ?)?(?:\d+h ?)?(?:\d+m ?)?(?:\d+(?:\.\d+)?s)?)(?:\W|$)`)
 	})
 	dateRE = sync.OnceValue(func() *regexp.Regexp {
 		return regexp.MustCompile(`(?:until|resets?(?: on)?|try again (?:on|after)) (\d{4}-\d{2}-\d{2})(?:[t ](\d{2}:\d{2}(?::\d{2})?)(z|[+-]\d{2}:?\d{2})?)?`)
@@ -543,8 +543,19 @@ func parseDurationReset(low string, now time.Time) (time.Time, bool) {
 	if m == nil || m[1] == "" {
 		return time.Time{}, false
 	}
-	d, err := time.ParseDuration(m[1])
-	if err != nil || d <= 0 {
+	days, rest, hasDays := strings.Cut(strings.ReplaceAll(strings.TrimSpace(m[1]), " ", ""), "d")
+	if !hasDays {
+		days, rest = "0", days
+	}
+	n, err := strconv.Atoi(days)
+	d := time.Duration(n) * 24 * time.Hour
+	if rest != "" {
+		var r time.Duration
+		if r, err = time.ParseDuration(rest); err == nil {
+			d += r
+		}
+	}
+	if err != nil || d <= 0 || n > 365 {
 		return time.Time{}, false
 	}
 	return now.Add(min(d, 365*24*time.Hour)), true

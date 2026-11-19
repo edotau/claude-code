@@ -82,7 +82,9 @@ func RouteChainFor(ctx context.Context, want, model, aliasHint, mode string, nat
 		if err != nil {
 			return Chain{}, router.PickResult{}, err
 		}
-		return Chain{Want: want, Dispatches: []Dispatch{{Agent: watchFirstOutput(r), Model: bare, keepCaller: true}}}, router.PickResult{}, nil
+		acct, bill := explicitAccount(r, RunOptions{}) // the account lets a quota refusal hold the own plan
+		d := Dispatch{Agent: watchFirstOutput(r), Model: bare, Account: acct, Billing: bill, keepCaller: true}
+		return Chain{Want: want, Dispatches: []Dispatch{d}}, router.PickResult{}, nil
 	}
 	alias, row, exact := router.ModelRow(model)
 	return routeChain(ctx, want, cmp.Or(alias, aliasHint), row, exact, strings.TrimSpace(model), mode, strings.TrimSpace(model) != "", native, o)

@@ -221,7 +221,8 @@ func opencodeRun(model string, h agent.Headless) (env, argv []string) {
 
 // opencodeArgv is the `opencode run` argv for h; model "" leaves -m to opencode's own config.
 func opencodeArgv(model string, h agent.Headless) []string {
-	argv := []string{"run", "--format", "json"}
+	// ERROR-level logs on stderr carry the vendor's quota reason, which opencode retries silently
+	argv := []string{"run", "--format", "json", "--print-logs", "--log-level", "ERROR"}
 	if model != "" {
 		argv = append(argv, "-m", model)
 	}

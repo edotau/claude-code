@@ -292,7 +292,8 @@ func TestOpencodePolicyArgvKeepsPromptLast(t *testing.T) {
 	h := agent.Headless{Prompt: "-draft", Attach: []string{"notes.txt"}, Tools: true}
 	argv := opencodeArgv("p/m", h)
 	got := opencodePolicyArgv(argv, pol)
-	want := []string{"run", "--auto", "--format", "json", "-m", "p/m", "--title", "opencode: -draft",
+	want := []string{"run", "--auto", "--format", "json", "--print-logs", "--log-level", "ERROR", "-m", "p/m", "--title",
+		"opencode: -draft",
 		"-f", "notes.txt", "--", "-draft"}
 	if !slices.Equal(got, want) {
 		t.Fatalf("policy argv = %v, want %v with the prompt last", got, want)
