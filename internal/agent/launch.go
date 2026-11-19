@@ -378,6 +378,7 @@ type LaunchOptions struct {
 	File     string   // codex only: a config.toml whose keys ride as -c overrides after the harness's, from -f
 	Overlay  string   // --overlay <value>; empty reads $COWORKER_OVERLAY
 	Dispatch bool
+	Binary   string // launcher only: the native claude to exec (VS Code wrapper's bundled path)
 }
 
 func (o *LaunchOptions) launchFlagSetter(name string, claude bool) func(string) {

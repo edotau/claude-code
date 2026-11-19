@@ -79,6 +79,25 @@ func checkVendorExec(bin, p string) error {
 	return nil
 }
 
+// NativeClaude is vendor claude, never BinDir's launcher: the bin-dir override, else PATH, else ~/.local/bin/claude.
+func NativeClaude() (string, error) {
+	if os.Getenv(AgentBinDirEnv) != "" {
+		return AgentBin("claude")
+	}
+	if p, err := LookPathReal("claude"); err == nil {
+		return p, nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", err
+	}
+	p := filepath.Join(home, ".local", "bin", "claude")
+	if err := checkVendorExec("claude", p); err != nil {
+		return "", err
+	}
+	return p, nil
+}
+
 // LookPathReal finds name on PATH skipping BinDir and symlinks to this executable, so a shim never re-execs itself.
 func LookPathReal(name string) (string, error) {
 	self, _ := SelfBinary()

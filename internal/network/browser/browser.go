@@ -251,7 +251,7 @@ func runCommand(timeout time.Duration, name string, args ...string) (string, err
 
 // realClaude resolves the agent claude binary, or "" on error.
 func realClaude() string {
-	p, _ := paths.AgentBin("claude")
+	p, _ := paths.NativeClaude()
 	return p
 }
 

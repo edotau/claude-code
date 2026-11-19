@@ -8,7 +8,6 @@ import (
 	"io"
 	"net/url"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -190,10 +189,7 @@ func configUsage() {
 }
 
 func findClaude() (string, error) {
-	if p, err := paths.AgentBin("claude"); err == nil {
-		return p, nil
-	}
-	return exec.LookPath("claude")
+	return paths.NativeClaude()
 }
 
 // rescueDeny is what rescue drops beyond proc.ScrubDeny, so only the scratch settings steer claude.
