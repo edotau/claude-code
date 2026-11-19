@@ -287,6 +287,7 @@ func (h *hookHost) after(res wire.Result, runErr error) {
 	h.mu.Lock()
 	acted := len(h.seen) > 0
 	h.mu.Unlock()
+	defer memory.MemoizeExport(h.session, h.cwd)() // Stop, format-stop and SessionEnd share one export
 	// Tool-free write-back requires a successful answer; watched calls retain their existing policy.
 	if !acted && (runErr != nil || res.Status != "" && res.Status != wire.StatusOK || strings.TrimSpace(res.Answer) == "") {
 		return

@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -46,6 +47,41 @@ var opencodeExport = func(sessionID, cwd string) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
+type exportKey struct{ sessionID, cwd string }
+
+// exportMemos holds the live MemoizeExport scopes; each lives for one finished run, never across runs.
+var exportMemos sync.Map
+
+type exportMemo struct {
+	mu   sync.Mutex
+	data []byte
+}
+
+// MemoizeExport shares one successful opencode export per (session, cwd) until release; a failed one is retried.
+func MemoizeExport(sessionID, cwd string) (release func()) {
+	k := exportKey{sessionID, cwd}
+	exportMemos.Store(k, &exportMemo{})
+	return func() { exportMemos.Delete(k) }
+}
+
+func exportFor(sessionID, cwd string) ([]byte, error) {
+	v, ok := exportMemos.Load(exportKey{sessionID, cwd})
+	if !ok {
+		return opencodeExport(sessionID, cwd)
+	}
+	m := v.(*exportMemo)
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.data != nil {
+		return m.data, nil
+	}
+	data, err := opencodeExport(sessionID, cwd)
+	if err == nil {
+		m.data = data
+	}
+	return data, err
+}
+
 // capWriter fails a write that would grow buf past max, so the child is cut off before memory grows unbounded.
 type capWriter struct {
 	buf *bytes.Buffer
@@ -68,7 +104,7 @@ func SynthAgentTranscript(source, sessionID, cwd, transcriptPath string) (path s
 		return "", false
 	case source == SourceOpencode:
 		var data []byte
-		if data, err = opencodeExport(sessionID, cwd); err == nil {
+		if data, err = exportFor(sessionID, cwd); err == nil {
 			at, err = loadOpencodeExport(data)
 		}
 	case source == SourceCopilot:
