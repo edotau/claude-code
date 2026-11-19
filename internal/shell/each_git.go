@@ -153,7 +153,7 @@ func inertCommand(toks []string) bool {
 
 // segmentGit visits the nested command and each git word of one segment whose wrappers are already dropped.
 func segmentGit(toks []string, dir string, fn gitFn, depth int, runs bool) bool {
-	if toks = dropRtk(toks); len(toks) == 0 {
+	if toks = DropRtk(toks); len(toks) == 0 {
 		return false
 	}
 	if nested, ok := nestedOf(toks); ok { // its words are the nested command's, visited once there
@@ -164,11 +164,11 @@ func segmentGit(toks []string, dir string, fn gitFn, depth int, runs bool) bool 
 	}
 	head := toks
 	if name := filepath.Base(toks[0]); name == "xargs" || name == "parallel" { // the command they run decides
-		head = dropRtk(afterPrefix(toks))
+		head = DropRtk(afterPrefix(toks))
 	}
 	s := &segScan{dir: dir, fn: fn, depth: depth, runs: runs, inert: !runs && len(head) > 0 && inertCommand(head)}
 	for _, st := range CommandStarts(toks) { // each command word, through xargs, parallel, watch, find -exec, go run
-		if st = dropRtk(skipEnvAssignments(st)); !s.inert && len(st) > 0 && fn(dir, commandVerb, st) {
+		if st = DropRtk(skipEnvAssignments(st)); !s.inert && len(st) > 0 && fn(dir, commandVerb, st) {
 			return true
 		}
 	}

@@ -564,6 +564,34 @@ func (p Permissions) spliceReadDenied(cmd string) bool {
 	})
 }
 
+// commandWords reads `rtk x` as x, a path-named program by its basename and $HOME/${HOME}/home as ~.
+func commandWords(toks []string) []string {
+	if len(toks) > 0 && filepath.Base(toks[0]) == "rtk" {
+		// `rtk read` and flag-only `rtk -h` are rtk's own words, not a program: left as typed for the read-only check
+		if rest, _ := shell.Unwrap(shell.DropRtk(toks), ""); len(rest) > 0 && rest[0] != "read" {
+			toks = rest
+		}
+	}
+	out := slices.Clone(toks)
+	if len(out) > 0 && strings.Contains(out[0], "/") {
+		out[0] = filepath.Base(out[0])
+	}
+	home, _ := os.UserHomeDir()
+	for i, t := range out {
+		out[i] = tildeWord(t, home)
+	}
+	return out
+}
+
+func tildeWord(t, home string) string {
+	for _, h := range []string{"${HOME}", "$HOME", home} {
+		if h != "" && (t == h || strings.HasPrefix(t, h+"/")) {
+			return "~" + t[len(h):]
+		}
+	}
+	return t
+}
+
 // decideSeg is one segment's verdict, cdTo a relative cd's absolute target; heredocs and file redirects never Allow.
 func (p Permissions) decideSeg(seg, cdTo string, at opDir, depth int) (Decision, bool) {
 	rawToks := shell.Tokens(seg)
@@ -571,6 +599,7 @@ func (p Permissions) decideSeg(seg, cdTo string, at opDir, depth int) (Decision,
 		return Allow, false
 	}
 	toks, _ := shell.Unwrap(rawToks, "")
+	toks = commandWords(toks)
 	d := p.decideSegment(strings.TrimSpace(seg), rawToks, toks)
 	judged := seg
 	if cdTo != "" {

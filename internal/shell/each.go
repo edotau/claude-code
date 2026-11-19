@@ -143,7 +143,7 @@ func (w *segWalk) readOnly(j int) bool {
 			words = words[1:]
 		}
 		rest, _ := Unwrap(words, "")
-		if rest = dropRtk(rest); len(rest) == 0 || !pureReader(rest) {
+		if rest = DropRtk(rest); len(rest) == 0 || !pureReader(rest) {
 			return false
 		}
 		if filepath.Base(rest[0]) == "tee" {
@@ -167,7 +167,7 @@ func (w *segWalk) runsFile(files []string, from int) bool {
 	for k := from; k < len(w.segs); k++ {
 		toks := w.cmdWords(k)
 		rest, _ := Unwrap(toks, "")
-		if rest = dropRtk(rest); len(rest) > 0 && strings.Contains(rest[0], "/") && names[filepath.Base(rest[0])] {
+		if rest = DropRtk(rest); len(rest) > 0 && strings.Contains(rest[0], "/") && names[filepath.Base(rest[0])] {
 			return true
 		}
 		piped := (w.seps[k] == "|" || w.seps[k] == "|&") && k+1 < len(w.segs) && evaluates(w.cmdWords(k+1))
@@ -656,7 +656,7 @@ func afterPrefix(toks []string) []string {
 	}
 	switch name := filepath.Base(toks[0]); {
 	case name == "rtk":
-		return dropRtk(toks)
+		return DropRtk(toks)
 	case wrapperNames()[name]:
 		rest, _ := skipWrapperOpts(name, toks[1:], "")
 		if wrapperOperands()[name] && len(rest) > 0 {
@@ -681,8 +681,8 @@ func afterPrefix(toks []string) []string {
 // rtkRunners are the rtk subcommands that run the command after them; the others (git, grep, read) are the command.
 func rtkRunners() map[string]bool { walkerOnce.Do(loadWalker); return walker.rtkRunners }
 
-// dropRtk drops a leading `rtk`, its flags and a runner subcommand, so `rtk grep` reads as `grep`, `rtk err x` as `x`.
-func dropRtk(toks []string) []string {
+// DropRtk drops a leading `rtk`, its flags and a runner subcommand, so `rtk grep` reads as `grep`, `rtk err x` as `x`.
+func DropRtk(toks []string) []string {
 	if len(toks) == 0 || filepath.Base(toks[0]) != "rtk" {
 		return toks
 	}
