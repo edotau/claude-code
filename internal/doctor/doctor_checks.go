@@ -41,6 +41,36 @@ func strayClaudeJSON() (ok bool, detail string) {
 	return false, "stray " + stub + "; move it aside (mv " + stub + "{,.bak})"
 }
 
+var leftoverPatterns = []string{"*.test", "*.prof", "*.pprof", "cpu.out", "mem.out", "*.cpuprofile", "*.memprofile"}
+
+// repoRootCheck warns about go test binaries and profiles in root itself (one directory read, never deletes).
+func repoRootCheck(root string) check {
+	row := check{Name: "repo root", OK: true, Detail: "no test binaries or profiles"}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		return check{Name: row.Name, Detail: "warn cannot read " + root + ": " + err.Error()}
+	}
+	var found []string
+	for _, e := range entries {
+		if e.Type().IsRegular() && slices.ContainsFunc(leftoverPatterns, func(p string) bool {
+			ok, _ := filepath.Match(p, e.Name())
+			return ok
+		}) {
+			found = append(found, e.Name())
+		}
+	}
+	if len(found) == 0 {
+		return row
+	}
+	shown := strings.Join(found[:min(3, len(found))], ", ")
+	if len(found) > 3 {
+		shown += ", …"
+	}
+	row.OK = false
+	row.Detail = fmt.Sprintf("warn %d leftover file(s): %s; delete them (go test -o <scratch>)", len(found), shown)
+	return row
+}
+
 // inflightDoctorDetail is the live agent count against the machine cap, then each busy account against its own.
 func inflightDoctorDetail() string {
 	lim := router.CurrentLimits()

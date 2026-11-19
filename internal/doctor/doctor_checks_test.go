@@ -29,6 +29,33 @@ func TestStrayClaudeJSONRejectsNonENOENTStatFailure(t *testing.T) {
 	}
 }
 
+func TestRepoRootCheck(t *testing.T) {
+	const pass = "no test binaries or profiles"
+	cases := []struct {
+		name, want string
+		make       []string
+	}{
+		{"empty", pass, nil},
+		{"leftovers", "warn 2 leftover file(s): cpu.prof, memory.test; delete them (go test -o <scratch>)",
+			[]string{"memory.test", "cpu.prof", "go.mod"}},
+		{"dirs ignored", pass, []string{"x.test/", "sub/", "sub/y.test"}},
+	}
+	for _, tc := range cases {
+		root := t.TempDir()
+		for _, f := range tc.make {
+			p := filepath.Join(root, f)
+			if strings.HasSuffix(f, "/") {
+				_ = os.MkdirAll(p, 0o755)
+			} else if err := os.WriteFile(p, nil, 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if c := repoRootCheck(root); c.Detail != tc.want || c.Hard || c.OK != (tc.want == pass) {
+			t.Errorf("%s: row = %+v, want %q", tc.name, c, tc.want)
+		}
+	}
+}
+
 func TestFormatsCheckFailsOnUnreadableStore(t *testing.T) {
 	hermetic(t)
 	if err := os.MkdirAll(filepath.Dir(vault.Path()), 0o755); err != nil {
