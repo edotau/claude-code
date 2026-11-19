@@ -42,15 +42,20 @@ type askFlags struct {
 	permMode                                                                                                                                                                      string
 	leadProvider                                                                                                                                                                  string
 	env                                                                                                                                                                           []string
+	spec                                                                                                                                                                          string
+	dryRun                                                                                                                                                                        bool
 }
 
 // CompletionFlags lists ask's flags for tab completion; --format stays free text, as text|json would drop stream-json.
 func CompletionFlags() []helptext.Flag {
 	fs, _ := askFlagSet()
 	return helptext.FlagsOf(fs, map[string]func() []string{"agent": engineNames, "profile": providers.ProfileNames,
-		"permissions": func() []string { return []string{"allow", "default", "auto", "plan"} }, "format": nil,
+		"permissions": func() []string { return permModes }, "format": nil,
 		"fallback": func() []string { return router.FallbackModes }, "as": func() []string { return []string{"user", "sp"} }})
 }
+
+// permModes are the --permissions values.
+var permModes = []string{agent.PermAllow, agent.PermDefault, agent.PermAuto, agent.PermPlan}
 
 // engineNames lists the `ask --agent` agent names; agent.Engines() only builds the roster, it never dials an agent.
 func engineNames() []string {
@@ -133,6 +138,8 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.IntVar(&f.jobs, "jobs", defaultJobs(), "batch: tasks run at once")
 	fs.BoolVar(&f.failFast, "fail-fast", false, "batch: the first failed task cancels the rest")
 	registerOverlayFlag(fs, f)
+	fs.StringVar(&f.spec, "spec", "", "the whole ask as JSON: file, inline {...} or -")
+	fs.BoolVar(&f.dryRun, "dry-run", false, "print route, permissions and argv; no model call")
 }
 
 // askCheckFlags runs the flag checks needing no resolved agent; every failure is a usage error (exit 2).
@@ -207,6 +214,9 @@ func (a *attachFlag) String() string { return strings.Join(*a, ",") }
 
 // Placeholder names the FLAGS placeholder for attachFlag (helptext.Placeholder).
 func (a *attachFlag) Placeholder() string { return "PATH" }
+
+// IsRepeatable marks --attach as a list for the spec schema.
+func (a *attachFlag) IsRepeatable() bool { return true }
 
 func (a *attachFlag) Set(s string) error {
 	abs, err := filepath.Abs(s)

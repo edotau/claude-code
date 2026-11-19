@@ -101,32 +101,11 @@ func parseAskArgs(fs *flag.FlagSet, args []string) (pos []string, code int, done
 	return nil, helptext.ExitCode(err), true
 }
 
-// refuseAgentWord rejects a first task word that is exactly an agent name when --agent was not given; "--" opts out.
-func refuseAgentWord(fs *flag.FlagSet, verb string, args, pos []string) error {
-	if verb != "" || len(pos) == 0 || helptext.Explicit(fs, "agent") {
-		return nil
-	}
-	if i := slices.Index(args, "--"); i >= 0 && len(pos) <= len(args)-i-1 {
-		return nil
-	}
-	if !slices.Contains(agent.RosterNames(), pos[0]) {
-		return nil
-	}
-	return fmt.Errorf("%q is an agent name; use --agent %s (or -- before a prompt that starts with it)", pos[0], pos[0])
-}
-
 // runCtx is runTo under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
 func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exit int) {
-	fs, f := askFlagSet()
-	if verb != "" {
-		retargetPage(fs, verb)
-	}
-	pos, code, done := parseAskArgs(fs, args)
+	fs, f, args, pos, code, done := parseAsk(verb, args)
 	if done {
 		return code
-	}
-	if err := refuseAgentWord(fs, verb, args, pos); err != nil {
-		return failAskCode(f.format, f.name, err, 2)
 	}
 	if !helptext.Explicit(fs, "fallback") {
 		f.fallback = router.DefaultFallback()
@@ -215,7 +194,7 @@ func (r *askRun) export() (int, bool) {
 // stdinTaken reports the task, a batch or a framed prompt already reading stdin.
 func (r *askRun) stdinTaken() bool {
 	f := r.f
-	return f.stdinFramed || f.batchSrc == "-" || (taskFromStdin(r.pos) && f.retry == "" && f.job == "" && !f.live)
+	return f.stdinFramed || f.batchSrc == "-" || f.spec == "-" || (taskFromStdin(r.pos) && f.retry == "" && f.job == "" && !f.live)
 }
 
 // taskFromStdin reports no task positional, or a lone "-".
@@ -231,7 +210,7 @@ func (r *askRun) prelude() (int, bool) {
 		return r.fail(err, 2)
 	}
 	f.tools = f.tools || f.readOnly // read-only tools are still tools
-	if err := askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools); err != nil {
+	if err := cmp.Or(dryCombos(f), askCheckFlags(f.env, f.keepEnv, f.format, f.fallback, f.background, f.job, f.tools, f.noTools)); err != nil {
 		return r.fail(err, 2)
 	}
 	if f.save != "" && (f.background || f.live || f.batchSrc != "") {
@@ -537,7 +516,7 @@ func (r *askRun) execute() int {
 		printAskFailure(f.format, f.name, errors.New("no task: give a prompt, or \"-\" to read stdin"))
 		return 2
 	}
-	if framed == nil {
+	if framed == nil && !f.dryRun {
 		prompt = r.withRecall(prompt)
 	}
 	ctx, stop := signal.NotifyContext(r.ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP) // a kill finalizes the record
@@ -552,7 +531,7 @@ func (r *askRun) execute() int {
 	if a := r.armRun(); a != nil {
 		req, run = a.probe(req), a.run
 	}
-	return askPrepareAndRun(ctx, r.fs, req, r.jobRec, r.ov, f.env, f.keepEnv, f.as, f.format, f.save, f.name, f.background, f.native, run, r.out)
+	return askPrepareAndRun(r.dryCtx(ctx, prompt), r.fs, req, r.jobRec, r.ov, f.env, f.keepEnv, f.as, f.format, f.save, f.name, f.background, f.native, run, r.out)
 }
 
 // readPrompt reads the task; framed (stdin) is set only for the remote end of `ask --host`.
@@ -587,18 +566,15 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	}
 	cl := newClient()
 	ctx = providers.WithIdentity(ctx, cmp.Or(as, providers.IdentityHeadless)) // headless: a paired row tries its SP first
+	if dry, ok := ctx.Value(dryKey{}).(dryDoc); ok {
+		return dryRun(ctx, req, dry, format, out)
+	}
 	prepared, err := cl.Prepare(ctx, req, jobRec)
 	if err != nil {
 		return failAskCode(format, name, err, prepareExitCode(err))
 	}
-	claim := os.Getenv(agent.DispatchClaimEnv)
-	if err := proc.Unsetenv(agent.DispatchClaimEnv); err != nil {
+	if err := takeClaim(jobRec, prepared.Record.ID); err != nil {
 		return failAsk(format, name, err)
-	}
-	if jobRec == nil {
-		if err := agent.ClaimDispatchID(claim, prepared.Record.ID); err != nil {
-			return failAsk(format, name, err)
-		}
 	}
 	saveErr := startPrepared(cl, prepared, background)
 	if background {
@@ -611,6 +587,18 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 		return run(ctx, cl, prepared, req)
 	}
 	return runAskAndReport(ctx, cl, prepared, jobRec != nil, format, save, out)
+}
+
+// takeClaim clears the inherited dispatch claim and, unless this is a --job, claims it for id.
+func takeClaim(jobRec *agent.Record, id string) error {
+	claim := os.Getenv(agent.DispatchClaimEnv)
+	if err := proc.Unsetenv(agent.DispatchClaimEnv); err != nil {
+		return err
+	}
+	if jobRec != nil {
+		return nil
+	}
+	return agent.ClaimDispatchID(claim, id)
 }
 
 // startPrepared prints p's preflight lines and saves its record; a failed save is warned about unless background.
