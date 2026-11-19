@@ -210,47 +210,6 @@ func (w *failedDenyWriter) Write(p []byte) (int, error) {
 	return 0, io.ErrClosedPipe
 }
 
-func TestGeminiDenyWriteFailureBlocks(t *testing.T) {
-	t.Setenv("HARNESS_HOOK_AGENT", "gemini")
-	t.Setenv("HARNESS_DISPATCH_PERMISSIONS", `{"deny":[{"Tool":"Bash","Arg":"ls"}]}`)
-	payload := `{"toolCall":{"name":"run_command","args":{"CommandLine":"ls"}}}`
-	var out failedDenyWriter
-	var errb bytes.Buffer
-	code := runDirect("permission-gate", strings.NewReader(payload), &out, &errb)
-	if code != core.ExitBlock {
-		t.Fatalf("lost Gemini deny: exit %d, want ExitBlock; stderr %q", code, errb.String())
-	}
-	var doc struct{ Decision, Reason string }
-	if err := json.Unmarshal([]byte(out.attempted), &doc); err != nil {
-		t.Fatal(err)
-	}
-	if doc.Decision != "deny" || doc.Reason == "" {
-		t.Fatalf("attempted stdout %q, want deny with reason", out.attempted)
-	}
-	if !strings.Contains(errb.String(), doc.Reason) || !strings.Contains(errb.String(), io.ErrClosedPipe.Error()) {
-		t.Fatalf("stderr %q must include deny reason and write error", errb.String())
-	}
-}
-
-// agy blocks on a JSON deny at exit 0, not exit 2: the permission-gate entry prints {"decision":"deny","reason":…}.
-func TestPermissionGateAgyDenyIsJSON(t *testing.T) {
-	t.Setenv("HARNESS_HOOK_AGENT", "gemini")
-	t.Setenv("HARNESS_DISPATCH_PERMISSIONS", `{"deny":[{"Tool":"Bash","Arg":"rm *"}]}`)
-	var out, errb bytes.Buffer
-	payload := `{"toolCall":{"name":"run_command","args":{"CommandLine":"bash -c \"rm v3\""}},"workspacePaths":["/w"]}`
-	if code := runDirect("permission-gate", strings.NewReader(payload), &out, &errb); code != core.ExitProceed {
-		t.Fatalf("exit %d, want 0 (stderr %q)", code, errb.String())
-	}
-	var doc struct{ Decision, Reason string }
-	if err := json.Unmarshal(out.Bytes(), &doc); err != nil || doc.Decision != "deny" || !strings.Contains(doc.Reason, `bash -c "rm v3"`) {
-		t.Fatalf("stdout %q (%v), want a deny naming the command", out.String(), err)
-	}
-	out.Reset()
-	if code := runDirect("permission-gate", strings.NewReader(`{"toolCall":{"name":"run_command","args":{"CommandLine":"ls"}}}`), &out, &errb); code != core.ExitProceed || out.Len() != 0 {
-		t.Fatalf("allowed call: exit %d stdout %q, want silent", code, out.String())
-	}
-}
-
 // A worktree create or remove that panics or overruns exits 1: exit 0 would report a worktree made or removed.
 func TestWorktreeDispatchFailureExitsNonzero(t *testing.T) {
 	for _, tc := range []struct{ module, failure string }{

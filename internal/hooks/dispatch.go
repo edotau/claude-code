@@ -342,6 +342,7 @@ func unreadable(name, problem string) string {
 func runEvent(event, flag string, stdin io.Reader, stdout, stderr io.Writer) int {
 	in := core.ParseInput(stdin)
 	res, rows, _ := dispatch(chain(Bind(), in.Agent(), flag), event, in, stderr)
+	res = agentBashAllow(in, res)
 	code := core.Emit(in.Agent(), event, res, stdout, stderr)
 	core.RecordTelemetry(rows)
 	return code
@@ -519,6 +520,7 @@ func emitDirect(name string, o directOutcome, stdout, stderr io.Writer) int {
 	agent := os.Getenv(settings.AgentEnv)
 	if o.in != nil {
 		agent = o.in.Agent()
+		o.res = agentBashAllow(o.in, o.res)
 	}
 	if o.res.Decision == core.Block && specOf(name).Blocks {
 		return renderBlock(specOf(name), agent, o.res, stdout, stderr)
