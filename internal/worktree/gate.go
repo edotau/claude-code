@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -13,15 +14,13 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 )
-
-// registryPkgs iterate the hook, setting, verb and schema registries, so any change can break them.
-var registryPkgs = []string{"internal/hooks", "internal/settings", "internal/agent", "internal/cli", "internal/schemas"}
 
 // goPkg is the slice of `go list -json` the gate reads.
 type goPkg struct {
@@ -31,15 +30,15 @@ type goPkg struct {
 	TestGoFiles, XTestGoFiles                   []string
 }
 
-// scopedGoGate builds the merge gate: build and vet all, test changed packages and their importers; full = whole suite.
-func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []string, full bool, err error) {
+// scopedGoGate builds the merge gate: build and vet all, test the nChanged changed packages and their direct importers.
+func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []string, nChanged int, full bool, err error) {
 	out, err := runGit(ctx, dir, nil, "diff", "--name-only", "-z", "--no-renames", base+"...HEAD")
 	if err != nil {
-		return "", nil, false, fmt.Errorf("git diff %s...HEAD: %w (%s)", base, err, gitErrorDetail(err))
+		return "", nil, 0, false, fmt.Errorf("git diff %s...HEAD: %w (%s)", base, err, gitErrorDetail(err))
 	}
 	list, err := listPackages(ctx, dir)
 	if err != nil {
-		return "", nil, false, err
+		return "", nil, 0, false, err
 	}
 	// go list reports absolute package dirs
 	abs, err := filepath.Abs(dir)
@@ -48,21 +47,20 @@ func scopedGoGate(ctx context.Context, dir, base string) (cmd string, pkgs []str
 		abs, err = filepath.EvalSymlinks(abs)
 	}
 	if err != nil {
-		return "", nil, false, err
+		return "", nil, 0, false, err
 	}
 	changed, full := changedPackages(list, abs, string(out))
 	if full {
-		return fullGoGate, nil, true, nil
+		return fullGoGate, nil, 0, true, nil
 	}
 	set := reverseDeps(list, abs, changed)
-	for _, p := range registryPkgs {
-		// a repo without the harness registries skips them
-		if goPkgOf(dir, p) == p {
-			set[p] = true
+	pkgs = slices.Sorted(maps.Keys(set))
+	for p := range changed {
+		if set[p] {
+			nChanged++
 		}
 	}
-	pkgs = slices.Sorted(maps.Keys(set))
-	return scopedGateCommand(pkgs), pkgs, false, nil
+	return scopedGateCommand(pkgs), pkgs, nChanged, false, nil
 }
 
 // changedPackages maps NUL-separated changed files to their package dirs; full is true when the whole suite must run.
@@ -178,7 +176,7 @@ func listPackages(ctx context.Context, dir string) ([]goPkg, error) {
 	}
 }
 
-// reverseDeps returns changed plus every package importing one transitively, plus those whose tests import any.
+// reverseDeps returns the changed packages that exist plus those importing one directly (non-test or test imports).
 func reverseDeps(list []goPkg, dir string, changed map[string]bool) map[string]bool {
 	// import path -> repo-relative dir
 	rel := map[string]string{}
@@ -187,36 +185,16 @@ func reverseDeps(list []goPkg, dir string, changed map[string]bool) map[string]b
 			rel[p.ImportPath] = filepath.ToSlash(r)
 		}
 	}
-	hit := func(imps []string, in map[string]bool) bool {
-		return slices.ContainsFunc(imps, func(i string) bool { return in[rel[i]] })
+	hit := func(imps []string) bool {
+		return slices.ContainsFunc(imps, func(i string) bool { return changed[rel[i]] })
 	}
-	affected := propagateImports(list, rel, changed, hit)
 	out := map[string]bool{}
 	for _, p := range list {
-		if r := rel[p.ImportPath]; affected[r] || hit(p.TestImports, affected) || hit(p.XTestImports, affected) {
+		if r := rel[p.ImportPath]; changed[r] || hit(p.Imports) || hit(p.TestImports) || hit(p.XTestImports) {
 			out[r] = true
 		}
 	}
 	return out
-}
-
-// propagateImports grows changed with every package whose non-test imports reach it, until a fixed point.
-func propagateImports(list []goPkg, rel map[string]string, changed map[string]bool,
-	hit func([]string, map[string]bool) bool) map[string]bool {
-	affected := map[string]bool{}
-	for p := range changed {
-		affected[p] = true
-	}
-	// non-test imports propagate; a test import only selects its own package
-	for grew := true; grew; {
-		grew = false
-		for _, p := range list {
-			if r := rel[p.ImportPath]; !affected[r] && hit(p.Imports, affected) {
-				affected[r], grew = true, true
-			}
-		}
-	}
-	return affected
 }
 
 // goPkgOf returns the nearest existing directory at or above rel under dir that holds .go files, or "".
@@ -465,4 +443,43 @@ func gateEnv() []string {
 		}
 	}
 	return append(env, "GOFLAGS=-buildvcs=false")
+}
+
+// scopedGateSource prefixes the source of a gate scopeGate built from independent steps.
+const scopedGateSource = "scoped go gate"
+
+// gateSteps splits a scoped go gate into its independent steps; any other gate is one step.
+func gateSteps(gate, source string) []string {
+	if strings.HasPrefix(source, scopedGateSource) {
+		return strings.Split(gate, " && ")
+	}
+	return []string{gate}
+}
+
+// runSteps runs steps concurrently, each with its own output buffer; the first failure cancels the rest.
+func runSteps(ctx context.Context, dir string, steps []string, base string, stdout, stderr io.Writer) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	outs, errs, fails := make([]bytes.Buffer, len(steps)), make([]bytes.Buffer, len(steps)), make([]error, len(steps))
+	var wg sync.WaitGroup
+	var once sync.Once
+	var first error
+	for i, s := range steps {
+		wg.Go(func() {
+			if fails[i] = runVerify(ctx, dir, s, base, &outs[i], &errs[i]); fails[i] != nil {
+				// the first to fail is the cause; the rest die from its cancel
+				once.Do(func() { first = fmt.Errorf("%s: %w", s, fails[i]) })
+				cancel()
+			}
+		})
+	}
+	wg.Wait()
+	for i, s := range steps {
+		if len(steps) > 1 {
+			fmt.Fprintf(stdout, "--- %s\n", s)
+		}
+		_, _ = outs[i].WriteTo(stdout)
+		_, _ = errs[i].WriteTo(stderr)
+	}
+	return first
 }

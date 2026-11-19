@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -264,7 +263,7 @@ func scopeGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gat
 	if gateSource != "Makefile" || req.FullVerify || !paths.FileExists(filepath.Join(plan.WorktreePath, "go.mod")) {
 		return gate, gateSource, nil
 	}
-	scoped, pkgs, full, err := scopedGoGate(ctx, plan.WorktreePath, plan.TargetOID)
+	scoped, pkgs, nChanged, full, err := scopedGoGate(ctx, plan.WorktreePath, plan.TargetOID)
 	if err != nil {
 		return "", "", fmt.Errorf("scoped gate: %w", err)
 	}
@@ -272,7 +271,8 @@ func scopeGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gat
 		// the whole suite is the Makefile gate itself, not a hard-coded go test
 		return gate, gateSource, nil
 	}
-	return scoped, "scoped go gate, " + strconv.Itoa(len(pkgs)) + " test pkgs", nil
+	return scoped, fmt.Sprintf("%s, tests: %d changed + %d direct importers (full suite runs in the post-merge audit)",
+		scopedGateSource, nChanged, len(pkgs)-nChanged), nil
 }
 
 // afterPromote reports the promotion, ticks the plan, then cleans unless NoClean; clean closes the ledger once.
@@ -284,6 +284,9 @@ func afterPromote(ctx context.Context, repo *Repo, plan *MergePlan, req MergeReq
 		}
 	}
 	notifyLanes(ctx, repo, req, plan, promoted)
+	if line := StartAudit(repo.Main, promoted.AfterOID); line != "" {
+		fmt.Fprintln(req.Out, line)
+	}
 	if req.NoClean {
 		// the lane stays in use by design: its ledger stays open so it keeps getting notices until clean
 		return &mergeOutcome{}, nil
@@ -313,8 +316,12 @@ func runGate(ctx context.Context, plan *MergePlan, req MergeRequest, gate, gateS
 		fmt.Fprintln(req.Out, "verify: skipped (--no-verify) — promoting unverified")
 		return nil
 	}
+	steps := gateSteps(gate, gateSource)
 	fmt.Fprintf(req.Out, "verify: %s\n", gate)
-	if err := runVerify(ctx, plan.WorktreePath, gate, plan.TargetOID, req.Out, req.Err); err != nil {
+	if len(steps) > 1 {
+		fmt.Fprintln(req.Out, "verify: build, vet and tests run concurrently")
+	}
+	if err := runSteps(ctx, plan.WorktreePath, steps, plan.TargetOID, req.Out, req.Err); err != nil {
 		fmt.Fprintf(req.Err, "worktree left on disk at %s for inspection\n", plan.WorktreePath)
 		return fmt.Errorf("verify failed, not promoting: %w", err)
 	}

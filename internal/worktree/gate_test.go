@@ -1,6 +1,7 @@
 package worktree
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -58,27 +59,27 @@ func TestScopedGoGate(t *testing.T) {
 	run("add", "-A")
 	run("commit", "-q", "-m", "change")
 
-	cmd, pkgs, full, err := scopedGoGate(context.Background(), dir, base)
+	cmd, pkgs, _, full, err := scopedGoGate(context.Background(), dir, base)
 	if err != nil || full {
 		t.Fatalf("err=%v full=%v", err, full)
 	}
-	if want := []string{"internal/foo", "internal/hooks"}; !slices.Equal(pkgs, want) {
+	if want := []string{"internal/foo"}; !slices.Equal(pkgs, want) {
 		t.Errorf("pkgs=%v want %v", pkgs, want)
 	}
-	if cmd != "go build ./... && go vet ./... && go test ./internal/foo ./internal/hooks" {
+	if cmd != "go build ./... && go vet ./... && go test ./internal/foo" {
 		t.Errorf("cmd=%s", cmd)
 	}
 
 	write("go.mod", "module example.com/m\n\ngo 1.23\n")
 	run("add", "-A")
 	run("commit", "-q", "-m", "mod")
-	cmd, _, full, err = scopedGoGate(context.Background(), dir, base)
+	cmd, _, _, full, err = scopedGoGate(context.Background(), dir, base)
 	if err != nil || !full || !strings.HasSuffix(cmd, "go test ./...") {
 		t.Fatalf("go.mod change: cmd=%s full=%v err=%v", cmd, full, err)
 	}
 }
 
-// TestScopedGoGateReverseDeps is the regression test: importers of a changed package, transitive and via tests, run.
+// TestScopedGoGateReverseDeps: a changed package and its direct importers run; transitive importers do not.
 func TestScopedGoGateReverseDeps(t *testing.T) {
 	dir, run, write := gateRepo(t)
 	write("a/a.go", "package a\n")
@@ -94,12 +95,15 @@ func TestScopedGoGateReverseDeps(t *testing.T) {
 	write("a/a.go", "package a\n\nconst X = 1\n")
 	run("commit", "-q", "-am", "change a")
 
-	_, pkgs, _, err := scopedGoGate(context.Background(), dir, base)
+	_, pkgs, nChanged, _, err := scopedGoGate(context.Background(), dir, base)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if want := []string{"a", "b", "c", "d"}; !slices.Equal(pkgs, want) {
+	if want := []string{"a", "b"}; !slices.Equal(pkgs, want) {
 		t.Errorf("pkgs=%v want %v", pkgs, want)
+	}
+	if nChanged != 1 {
+		t.Errorf("nChanged=%d want 1", nChanged)
 	}
 }
 
@@ -122,7 +126,7 @@ func TestScopedGoGateNonGoFiles(t *testing.T) {
 	run("add", "-A")
 	run("commit", "-q", "-m", "data")
 
-	_, pkgs, full, err := scopedGoGate(context.Background(), dir, base)
+	_, pkgs, _, full, err := scopedGoGate(context.Background(), dir, base)
 	if err != nil || full {
 		t.Fatalf("err=%v full=%v", err, full)
 	}
@@ -133,7 +137,7 @@ func TestScopedGoGateNonGoFiles(t *testing.T) {
 	write("tools/run.sh", "#!/bin/sh\n")
 	run("add", "-A")
 	run("commit", "-q", "-m", "script")
-	if cmd, _, full, err := scopedGoGate(context.Background(), dir, base); err != nil || !full || cmd != fullGoGate {
+	if cmd, _, _, full, err := scopedGoGate(context.Background(), dir, base); err != nil || !full || cmd != fullGoGate {
 		t.Fatalf("unowned non-markdown file: cmd=%s full=%v err=%v", cmd, full, err)
 	}
 }
@@ -323,7 +327,7 @@ func TestScopedGoGateNoPackagesOmitsGoTest(t *testing.T) {
 	run("add", "-A")
 	run("commit", "-q", "-m", "docs")
 
-	cmd, pkgs, full, err := scopedGoGate(context.Background(), dir, base)
+	cmd, pkgs, _, full, err := scopedGoGate(context.Background(), dir, base)
 	if err != nil || full || len(pkgs) != 0 {
 		t.Fatalf("err=%v full=%v pkgs=%v", err, full, pkgs)
 	}
@@ -361,7 +365,7 @@ func TestScopedGoGateRootPackageAndGlobPath(t *testing.T) {
 	run("add", "-A")
 	run("commit", "-q", "-m", "change")
 
-	cmd, pkgs, _, err := scopedGoGate(context.Background(), dir, base)
+	cmd, pkgs, _, _, err := scopedGoGate(context.Background(), dir, base)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -390,5 +394,27 @@ func TestRunVerifyDropsVaultKey(t *testing.T) {
 	}
 	if got := strings.TrimSpace(out.String()); got != "key=[]" {
 		t.Errorf("gate saw %q, want the vault key stripped", got)
+	}
+}
+
+// A failing step cancels its siblings, and every step's output still reaches the writers.
+func TestRunStepsFirstFailureCancelsRest(t *testing.T) {
+	var out, errOut bytes.Buffer
+	start := time.Now()
+	err := runSteps(context.Background(), t.TempDir(), []string{"sleep 30", "echo hi; exit 3"}, "", &out, &errOut)
+	if err == nil || !strings.Contains(err.Error(), "exit 3") {
+		t.Fatalf("err = %v, want the failing step's exit 3", err)
+	}
+	if time.Since(start) > 10*time.Second || !strings.Contains(out.String(), "hi") {
+		t.Fatalf("slept %v, out=%q; want the sibling cancelled and output kept", time.Since(start), out.String())
+	}
+}
+
+func TestGateStepsSplitsOnlyScopedGate(t *testing.T) {
+	if got := gateSteps("a && b && c", scopedGateSource+", x"); len(got) != 3 {
+		t.Errorf("scoped steps = %v", got)
+	}
+	if got := gateSteps("a && b", "flag"); len(got) != 1 {
+		t.Errorf("--verify gate split: %v", got)
 	}
 }

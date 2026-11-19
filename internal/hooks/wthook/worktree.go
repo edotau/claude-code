@@ -131,7 +131,8 @@ func Busy(in *core.Input) core.Result {
 		}
 	}
 	notes, warn := noticeContext(ctx, in, run)
-	return core.Result{Context: core.JoinContext(busy, notes), Stderr: core.JoinContext(busyWarn, warn)}
+	audits := strings.Join(worktree.AuditReports(), "\n")
+	return core.Result{Context: core.JoinContext(busy, audits, notes), Stderr: core.JoinContext(busyWarn, warn)}
 }
 
 // checkoutInfo is CheckoutOf's result.

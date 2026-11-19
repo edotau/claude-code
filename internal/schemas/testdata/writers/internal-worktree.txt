@@ -1,3 +1,5 @@
+internal/worktree/audit.go:StartAudit	unversioned: json: post-merge audit start record, ended by a shell-written exit file
+internal/worktree/audit.go:claimAuditReport	unversioned: empty marker: exclusive create says the audit result was reported
 internal/worktree/commit.go:undoAdd	unversioned: git index: saved bytes renamed over it from a held index.lock, git's own protocol
 internal/worktree/ledger.go:CloseLedger	unversioned: memory-bank: worktree ledger close
 internal/worktree/ledger.go:editLedger	unversioned: memory-bank: worktree ledger log line and task fill

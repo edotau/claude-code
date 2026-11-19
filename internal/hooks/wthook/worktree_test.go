@@ -539,3 +539,26 @@ func TestDivergedCheckDueRateLimitsPerSession(t *testing.T) {
 		t.Fatal("a stamp older than busyScanTTL must be due again")
 	}
 }
+
+// A finished audit shows as one context line on the next prompt, then never again.
+func TestBusyReportsFinishedAuditOnce(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(worktreeModeEnv, "off")
+	dir := filepath.Join(paths.StateDir(), "worktree", "audit")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rec := `{"sha":"abcdef0123456789","log":"/x/abcdef01.log","started":1}`
+	for name, body := range map[string]string{"abcdef01.json": rec, "abcdef01.exit": "1 42\n"} {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	in := &core.Input{SessionID: "s1", CWD: t.TempDir()}
+	if got := Busy(in).Context; !strings.Contains(got, "audit of abcdef01 FAILED (exit 1): /x/abcdef01.log") {
+		t.Fatalf("first prompt: %q", got)
+	}
+	if got := Busy(in).Context; got != "" {
+		t.Fatalf("second prompt must be silent, got %q", got)
+	}
+}

@@ -382,6 +382,7 @@ func TestCleanAtWarnsWhenBranchNotDetected(t *testing.T) {
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	StubProcessScanForTest()
+	auditCommand = ""
 	code := m.Run()
 	cleanup()
 	if fixture.dir != "" {
