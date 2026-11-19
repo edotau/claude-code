@@ -320,6 +320,7 @@ func withParsed(res, out wire.Result) wire.Result {
 	res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
 	res.SessionID = cmp.Or(out.SessionID, res.SessionID)
 	res.Model = cmp.Or(out.Model, res.Model)
+	res.Reported = strings.TrimSpace(out.Model) // never res.Model: that may be the launch default
 	return res
 }
 

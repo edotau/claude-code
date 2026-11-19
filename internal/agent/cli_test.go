@@ -187,6 +187,18 @@ func TestRunStreamKeepsStructured(t *testing.T) {
 	}
 }
 
+// The record's reported_model is only the vendor stream's id: the requested launch model never fills it.
+func TestWithParsedReportedModelOnlyFromVendor(t *testing.T) {
+	for _, c := range []struct{ streamed, want string }{{" served-x ", "served-x"}, {"", ""}} {
+		res := withParsed(wire.Result{Model: "requested-y"}, wire.Result{Model: c.streamed})
+		var rec Record
+		rec.Finish(res, nil, 0)
+		if rec.Reported != c.want {
+			t.Errorf("streamed %q: reported_model = %q, want %q", c.streamed, rec.Reported, c.want)
+		}
+	}
+}
+
 // A run on an agent's own login reports the registry profile naming that login, never the retired "own-login".
 func TestOwnProfileNamesTheLoginRow(t *testing.T) {
 	setConfigDir(t)

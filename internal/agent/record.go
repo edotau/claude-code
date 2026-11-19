@@ -57,8 +57,9 @@ type Record struct {
 	FailKind       string     `json:"fail_kind,omitempty"` // availability | quality; empty when the run succeeded
 	Gates          string     `json:"gates,omitempty"`     // pass | fail | none (empty reads as none): set by SetGates
 	Provider       string     `json:"provider,omitempty"`
-	Model          string     `json:"model,omitempty"`         // as the agent reported it; may be empty
-	Invoked        string     `json:"invoked_model,omitempty"` // the model the last hop was asked to run; RunOptions keeps the original
+	Model          string     `json:"model,omitempty"`          // as the agent reported it; may be empty
+	Invoked        string     `json:"invoked_model,omitempty"`  // the model the last hop was asked to run; RunOptions keeps the original
+	Reported       string     `json:"reported_model,omitempty"` // the id the final attempt's vendor stream named; "" when none
 	SessionID      string     `json:"session_id,omitempty"`
 	DurationMs     int64      `json:"duration_ms,omitempty"`
 	Fallback       string     `json:"fallback,omitempty"` // the original agent's name, when it ran instead
@@ -387,7 +388,7 @@ func (r Record) LogLine() string {
 func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	r.FailKind = ""
 	r.Status, r.Provider, r.Model, r.SessionID = "ok", res.Provider, res.Model, res.SessionID
-	r.Invoked = res.Invoked
+	r.Invoked, r.Reported = res.Invoked, res.Reported
 	r.Usage = nil
 	if res.Usage != (wire.Usage{}) {
 		usage := res.Usage

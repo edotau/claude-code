@@ -75,6 +75,7 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 			// tokens the exhausted run spent still count
 			res.Usage = out.Usage
 			res.Model = cmp.Or(out.Model, res.Model)
+			res.Reported = strings.TrimSpace(out.Model)
 			return copilotQuotaHandoff(req, res, out.SessionID, out.Text, err, runCredentials(opts, env, req))
 		}
 		return copilotPartial(res, out, err, sink)
@@ -82,6 +83,7 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 	// the SDK returns the whole text, so one line per run
 	lg.Emit("assistant", out.Text)
 	res.Model = cmp.Or(out.Model, res.Model)
+	res.Reported = strings.TrimSpace(out.Model)
 	res.SessionID, res.Answer, res.Usage = out.SessionID, out.Text, out.Usage
 	if strings.TrimSpace(out.Text) == "" {
 		return res, agent.EmptyAnswer("copilot")
@@ -280,6 +282,7 @@ func markToolRan(out sdkResult, sink wire.Sink, err error) error {
 func copilotPartial(res wire.Result, out sdkResult, err error, sink wire.Sink) (wire.Result, error) {
 	res.SessionID, res.Answer, res.Usage = cmp.Or(out.SessionID, res.SessionID), out.Text, out.Usage
 	res.Model = cmp.Or(out.Model, res.Model)
+	res.Reported = strings.TrimSpace(out.Model)
 	if strings.TrimSpace(out.Text) != "" {
 		if serr := sink.Emit(wire.Event{Type: wire.EventText, Text: out.Text}); serr != nil {
 			err = errors.Join(err, serr)

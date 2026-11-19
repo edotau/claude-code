@@ -69,7 +69,7 @@ func claudeOneShot(ctx context.Context, req agent.RunOptions, sink wire.Sink) (r
 		usage, model, err = chatStream(ctx, base, p, t.Model, prompt, effort, w)
 	}
 	if model != "" {
-		res.Model = model
+		res.Model, res.Reported = model, strings.TrimSpace(model)
 	}
 	res.Answer, res.Usage = answer.String(), usage
 	logAPIRun(ctx, res, err)

@@ -252,6 +252,7 @@ type Result struct {
 	Provider        string          `json:"provider,omitempty"`
 	Model           string          `json:"model,omitempty"`
 	Invoked         string          `json:"invoked_model,omitempty"` // the model (<profile>:<model> when pinned) the run was asked for; not upstream-confirmed
+	Reported        string          `json:"-"`                       // the model id the vendor's own stream named; "" when it named none
 	SessionID       string          `json:"session_id,omitempty"`
 	Denials         *Denials        `json:"denials,omitempty"`
 	Answer          string          `json:"answer"`
@@ -279,6 +280,7 @@ type Hop struct {
 	Account   string `json:"account,omitempty"`
 	Profile   string `json:"profile,omitempty"`
 	Model     string `json:"model,omitempty"`
+	Reported  string `json:"reported_model,omitempty"` // Result.Reported of this hop
 	ErrorKind string `json:"error_kind,omitempty"`
 	// NotStarted marks a dispatch refused before it started (target, permit or account): it never ran.
 	NotStarted bool `json:"not_started,omitempty"`
