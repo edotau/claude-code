@@ -73,13 +73,22 @@ func Check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
 		switch spec := pins[a]; {
 		case a == "claude" || spec.Off:
 		case spec.Profile == "" && recs[a].Profile != "": // AgentPins clears an own-login record profile
-			src := map[bool]string{true: "pool", false: "own login"}[strings.TrimSpace(recs[a].Profile) == agent.PoolPin]
-			out = append(out, Pin{Agent: a, Profile: recs[a].Profile, ProfileSource: src, Model: spec.Model, Served: "n/a", Status: StatusOK})
+			out = append(out, loginRow(a, recs[a].Profile, spec.Model, now))
 		default:
 			out = append(out, checkAgent(reg, a, spec, session, now))
 		}
 	}
 	return out
+}
+
+// loginRow is the row of an agent on its own login or the pool pin; a rotation pin carries the rotation summary.
+func loginRow(a, profile, model string, now time.Time) Pin {
+	src := map[bool]string{true: "pool", false: "own login"}[strings.TrimSpace(profile) == agent.PoolPin]
+	row := Pin{Agent: a, Profile: profile, ProfileSource: src, Model: model, Served: "n/a", Status: StatusOK}
+	if model == router.DiscoveryModel {
+		row.Detail = agent.RotationSummary(a, now)
+	}
+	return row
 }
 
 // checkClaude reports the session row, carrying the first failing alias pin's status; every alias profile is warmed.
@@ -140,8 +149,11 @@ func checkProfile(reg *providers.Registry, p Pin, name string, now time.Time) Pi
 		p.Fix = "claude-code configure provider --list " + p.Profile
 		return p
 	}
-	if prov.Preset == providers.PresetDatabricks {
+	if prov.Preset == providers.PresetDatabricks && p.Model != router.DiscoveryModel {
 		checkServed(&p, prov, name, now)
+	}
+	if p.Model == router.DiscoveryModel {
+		p.Served, p.Detail = "n/a", agent.RotationSummary(name, now)
 	}
 	return p
 }
