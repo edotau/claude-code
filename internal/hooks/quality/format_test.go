@@ -261,3 +261,24 @@ func TestMissingFormatterNotedOncePerSession(t *testing.T) {
 		t.Errorf("nothing skipped must print no note, got %q", got)
 	}
 }
+
+func TestFormatGoInProcessFormatsAndSkipsBadSyntax(t *testing.T) {
+	dir := t.TempDir()
+	good, bad := filepath.Join(dir, "a.go"), filepath.Join(dir, "b.go")
+	const broken = "package a\nfunc ( {\n"
+	if err := os.WriteFile(good, []byte("package a\nfunc  F( ){}\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(bad, []byte(broken), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if !formatGoInProcess(good) || formatGoInProcess(bad) {
+		t.Fatal("good must format, bad must report failure")
+	}
+	if got, _ := os.ReadFile(good); string(got) != "package a\n\nfunc F() {}\n" {
+		t.Fatalf("not formatted: %q", got)
+	}
+	if got, _ := os.ReadFile(bad); string(got) != broken {
+		t.Fatalf("parse error must leave the file untouched: %q", got)
+	}
+}

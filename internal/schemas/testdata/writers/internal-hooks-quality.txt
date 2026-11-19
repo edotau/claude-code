@@ -1,1 +1,2 @@
+internal/hooks/quality/format.go:formatGoInProcess	unversioned: foreign: gofmt rewrite of the user's Go source
 internal/hooks/quality/stop_format.go:StopFormat	stop-format

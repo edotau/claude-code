@@ -2,12 +2,16 @@
 package quality
 
 import (
+	"bytes"
 	"context"
+	"debug/buildinfo"
 	"encoding/json"
+	"go/format"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -28,6 +32,9 @@ func formatFile(path string) (ok bool, missing string) {
 	}
 	switch strings.ToLower(strings.TrimPrefix(filepath.Ext(path), ".")) {
 	case "go":
+		if gofmtMatchesRuntime() {
+			return formatGoInProcess(path), ""
+		}
 		return runTool("", "gofmt", "-w", path)
 	case "py":
 		return formatPython(path)
@@ -39,6 +46,36 @@ func formatFile(path string) (ok bool, missing string) {
 		return runTool("", "shfmt", "-w", path)
 	}
 	return false, ""
+}
+
+// gofmtMatchesRuntime reports whether the gofmt on PATH was built by this binary's Go version, checked once.
+var gofmtMatchesRuntime = sync.OnceValue(func() bool {
+	p, err := exec.LookPath("gofmt")
+	if err != nil {
+		return false
+	}
+	info, err := buildinfo.ReadFile(p)
+	return err == nil && info.GoVersion == runtime.Version()
+})
+
+// formatGoInProcess is gofmt -w without the spawn: unchanged bytes are not written, a parse error leaves the file alone.
+func formatGoInProcess(path string) bool {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return false
+	}
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	out, err := format.Source(src)
+	if err != nil {
+		return false
+	}
+	if bytes.Equal(src, out) {
+		return true
+	}
+	return os.WriteFile(path, out, fi.Mode().Perm()) == nil
 }
 
 // Probe order for the Makefile target name and the per-file variable its recipe may honor.
