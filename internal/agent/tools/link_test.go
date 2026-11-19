@@ -160,8 +160,8 @@ func TestReplaceLinkKeepsRegularFileWithoutReplacing(t *testing.T) {
 func TestLinkVendorsReportsMissingTool(t *testing.T) {
 	setupToolsTestEnv(t)
 	var out bytes.Buffer
-	Link(&out, []string{"claude"}, false)
-	if !strings.Contains(out.String(), "missing  claude not installed (claude-code install --tools=claude)") {
+	Link(&out, []string{"codex"}, false)
+	if !strings.Contains(out.String(), "missing  codex not installed (claude-code install --tools=codex)") {
 		t.Errorf("output = %q, want missing-tool report", out.String())
 	}
 }
@@ -169,14 +169,14 @@ func TestLinkVendorsReportsMissingTool(t *testing.T) {
 func TestLinkVendorsUsesLocalBinFallback(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh script")
 	env := setupToolsTestEnv(t)
-	candidate := filepath.Join(env.home, ".local", "bin", "claude")
+	candidate := filepath.Join(env.home, ".local", "bin", "codex")
 	writeToolsFixture(t, candidate, "#!/bin/sh\nexit 0\n", 0o755)
 
 	var out bytes.Buffer
-	Link(&out, []string{"claude"}, false)
-	dst := filepath.Join(paths.BinDir(), "claude")
+	Link(&out, []string{"codex"}, false)
+	dst := filepath.Join(paths.BinDir(), "codex")
 	if got := readlink(dst); got != candidate {
-		t.Fatalf("claude link target = %q, want local-bin candidate %q", got, candidate)
+		t.Fatalf("codex link target = %q, want local-bin candidate %q", got, candidate)
 	}
 	if !strings.Contains(out.String(), "link     "+dst+" → "+candidate) {
 		t.Errorf("output = %q, want local-bin link", out.String())

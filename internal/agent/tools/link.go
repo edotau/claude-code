@@ -26,6 +26,9 @@ type LinkResult struct {
 func LinkResults(names []string, dryRun bool) []LinkResult {
 	var out []LinkResult
 	for _, t := range tools {
+		if t.Name == "claude" {
+			continue // bin/claude is the harness launcher (setup.writeClaudeLauncher)
+		}
 		bin, ok := paths.AgentName(t.Name)
 		if !ok || (len(names) > 0 && !slices.Contains(names, t.Name)) {
 			continue

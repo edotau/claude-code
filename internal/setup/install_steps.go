@@ -25,6 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -146,7 +147,7 @@ func installBinaryAndLinks(w io.Writer, dryRun bool) (string, error) {
 	return target, nil
 }
 
-// installBinaryTarget copies claude-code into BinDir (printing a "copy" line to w) without linking agents
+// installBinaryTarget copies claude-code into BinDir (printing a "copy" line to w), writes the claude launcher, links nothing
 func installBinaryTarget(w io.Writer, dryRun bool) (string, error) {
 	self, err := selfBinary()
 	if err != nil {
@@ -165,7 +166,37 @@ func installBinaryTarget(w io.Writer, dryRun bool) (string, error) {
 			}
 		}
 	}
+	if err := writeClaudeLauncher(w, target, dryRun); err != nil {
+		return "", err
+	}
 	return target, nil
+}
+
+// claudeLauncherScript is bin/claude: the harness launch, or native claude when claude-code is gone.
+const claudeLauncherScript = `#!/bin/sh
+# Written by claude-code install (edits are overwritten); native claude is ~/.local/bin/claude.
+cc=%s
+[ -x "$cc" ] && exec "$cc" claude --launcher "$@"
+echo "claude: $cc is missing; running native claude without the harness overlay" >&2
+case "$1" in /*/claude) n=$1; shift; exec "$n" "$@" ;; esac
+exec "$HOME/.local/bin/claude" "$@"
+`
+
+// writeClaudeLauncher replaces BinDir/claude (the old native link or a stale script) with the launcher script.
+func writeClaudeLauncher(w io.Writer, target string, dryRun bool) error {
+	dst := filepath.Join(paths.BinDir(), "claude")
+	body := []byte(fmt.Sprintf(claudeLauncherScript, textutil.QuoteSH(target)))
+	// The size check keeps install from reading the native binary through the old symlink.
+	if fi, err := os.Lstat(dst); err == nil && fi.Mode().IsRegular() && fi.Size() == int64(len(body)) {
+		if cur, err := os.ReadFile(dst); err == nil && bytes.Equal(cur, body) {
+			return nil
+		}
+	}
+	fmt.Fprintf(w, "launcher %s → %s claude --launcher\n", dst, target)
+	if dryRun {
+		return nil
+	}
+	return paths.AtomicWrite(dst, body, 0o755)
 }
 
 // agentsCompactLine prints one "tools" line (kept) and one "links" line (linked); any other status prints in full.

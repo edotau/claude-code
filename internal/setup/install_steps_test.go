@@ -163,6 +163,10 @@ func assertReplacedVendorLinks(t *testing.T, sources map[string]string, output s
 	t.Helper()
 	for name, source := range sources {
 		dst := filepath.Join(paths.BinDir(), name)
+		if name == "claude" {
+			assertClaudeLauncher(t, dst, output)
+			continue
+		}
 		link, err := os.Readlink(dst)
 		if err != nil || link != source {
 			t.Errorf("%s -> %q, %v; want %q", name, link, err, source)
@@ -174,6 +178,20 @@ func assertReplacedVendorLinks(t *testing.T, sources map[string]string, output s
 		if !strings.Contains(output, want) {
 			t.Errorf("missing %q in output:\n%s", want, output)
 		}
+	}
+}
+
+func assertClaudeLauncher(t *testing.T, dst, output string) {
+	t.Helper()
+	body, err := os.ReadFile(dst)
+	if fi, lerr := os.Lstat(dst); lerr != nil || !fi.Mode().IsRegular() || err != nil {
+		t.Fatalf("bin/claude = %v, %v; want a regular launcher script", lerr, err)
+	}
+	if !strings.Contains(string(body), "claude --launcher") {
+		t.Errorf("bin/claude is not the launcher:\n%s", body)
+	}
+	if !strings.Contains(output, "launcher "+dst) {
+		t.Errorf("missing launcher line in output:\n%s", output)
 	}
 }
 
