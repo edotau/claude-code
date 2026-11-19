@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -350,6 +351,30 @@ func TestRunPlanRefusesCloudSubmission(t *testing.T) {
 	for _, tc := range tests {
 		if rc := RunPlan(tc.agent, Plan{Binary: "vendor", Argv: tc.argv}, LaunchOptions{PrintEnv: true}, nil); rc != tc.want {
 			t.Errorf("%s %v: rc=%d, want %d", tc.agent, tc.argv, rc, tc.want)
+		}
+	}
+}
+
+func TestLaunchRefusesOwnLoginAuto(t *testing.T) {
+	setConfigDir(t)
+	tb, err := router.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var id string
+	for _, c := range tb.OpencodeSub["opencode-go"] {
+		id = c.Model
+	}
+	if id == "" {
+		t.Fatalf("no opencode-go cell in %v", tb.OpencodeSub)
+	}
+	_, _, err = routeLaunch(t.Context(), "opencode", LaunchOptions{Model: "opencode-go/auto"})
+	if err == nil || !strings.Contains(err.Error(), "auto is no opencode-go model; use one of ") || !strings.Contains(err.Error(), id) {
+		t.Fatalf("opencode-go/auto = %v, want a refusal naming %s", err, id)
+	}
+	for _, m := range []string{"opencode-go/" + id, "auto"} {
+		if _, _, err := routeLaunch(t.Context(), "opencode", LaunchOptions{Model: m}); err != nil && strings.Contains(err.Error(), "auto is no") {
+			t.Errorf("%s refused as own-login auto: %v", m, err)
 		}
 	}
 }
