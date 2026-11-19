@@ -3,7 +3,8 @@
     "$defaults",
     "Harness Development: Edits, test runs and checks under ~/.claude or ~/worktrees/claude/* that the user's request asks for, including permission, hook, guard and settings changes, are routine project work, not Self-Modification.",
     "Local Development: In any repository the session works in, editing files, running builds, tests, linters, formatters, local git (commit, branch, merge, worktree; pushes to the repo's own remote), the claude-code harness verbs and dispatching agents are pre-approved by the user; only the soft_deny and hard_deny rules apply.",
-    "Post-Change Checks: After a requested settings or permission change, the main session may run read-only checks (claude auto-mode config, claude-code doctor, go test, reads of settings.json); these verify the change and are not Self-Modification."
+    "Post-Change Checks: After a requested settings or permission change, the main session may run read-only checks (claude auto-mode config, claude-code doctor, go test, reads of settings.json); these verify the change and are not Self-Modification.",
+    "Owner Hosts: On the owner's personal machines that this machine's local settings name under Environment, installing or updating the claude-code harness and its files under ~/.claude, its boot link or systemd unit, and running harness verbs over ssh are pre-approved routine work when the user's request asks for it; deleting outside ~/.claude still follows the soft_deny rules."
   ],
   "environment": [
     "$defaults",
