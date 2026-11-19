@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -34,7 +33,11 @@ type Bound struct {
 
 // Bind pairs every hookspec handler with its native Runner.
 func Bind() []Bound {
-	var out []Bound
+	n := 0
+	for _, g := range settings.Registry {
+		n += len(g.Events)
+	}
+	out := make([]Bound, 0, n)
 	for _, g := range settings.Registry {
 		for _, s := range g.Events {
 			out = append(out, Bound{Group: g.Name, Gate: g.Gate, Spec: s, Run: native[s.Name]})
@@ -50,22 +53,6 @@ func viaStderr(f func(*core.Input, io.Writer) int) core.Runner {
 		code := f(in, &b)
 		return core.ExitResult(code, b.String())
 	}
-}
-
-// matchers caches each handler matcher compiled once per Dispatch; a matcher that does not compile is nil.
-type matchers map[string]*regexp.Regexp
-
-// matches applies a handler matcher to a tool name; empty matches everything, anchored and case-insensitive.
-func (c matchers) matches(matcher, tool string) bool {
-	if matcher == "" {
-		return true
-	}
-	re, seen := c[matcher]
-	if !seen {
-		re, _ = regexp.Compile(`(?i)^(?:` + matcher + `)$`)
-		c[matcher] = re
-	}
-	return re != nil && tool != "" && re.MatchString(tool)
 }
 
 // runError is a handler that panicked or overran; Outcome is the telemetry word for it.
@@ -248,12 +235,12 @@ type step struct {
 
 // plan starts every runnable handler for event at once and lists the steps in declaration order.
 func plan(bound []Bound, event string, in *core.Input, wg *sync.WaitGroup) (steps []step) {
-	match, tool, problem := matchers{}, in.CanonicalTool(), payloadProblem(in)
+	tool, problem := in.CanonicalTool(), payloadProblem(in)
 	for _, b := range bound {
 		if b.Spec.Event != event {
 			continue
 		}
-		hit := match.matches(b.Spec.Matcher, tool)
+		hit := matchTool(b.Spec.Matcher, tool)
 		switch note := skipNote(b.Spec.Name); {
 		case note != "" && hit:
 			steps = append(steps, step{b: b, note: note})
@@ -351,7 +338,7 @@ func runEvent(event, flag string, stdin io.Reader, stdout, stderr io.Writer) int
 // chain is the bound modules one `hook <Event> [flag]` call runs for agent.
 func chain(all []Bound, agent, flag string) []Bound {
 	applies := settings.SpecsFor(agent, "native")
-	var bound []Bound
+	bound := make([]Bound, 0, len(all))
 	for _, b := range all {
 		if (flag == settings.AllFlag || !b.Gate) && slices.ContainsFunc(applies, func(s settings.EventSpec) bool {
 			return s.Name == b.Spec.Name && s.Event == b.Spec.Event && s.Matcher == b.Spec.Matcher

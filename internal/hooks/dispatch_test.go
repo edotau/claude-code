@@ -972,3 +972,24 @@ func TestDispatchTelemetryTagsRuleAndVerdict(t *testing.T) {
 		t.Errorf("rule/verdict = %v, want %v", got, want)
 	}
 }
+
+func BenchmarkDispatch(b *testing.B) {
+	noop := func(*core.Input) core.Result { return core.Result{} }
+	payloads := map[string]string{
+		"PreToolUse":  `{"session_id":"s1","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"ls"}}`,
+		"PostToolUse": `{"session_id":"s1","hook_event_name":"PostToolUse","tool_name":"Edit","tool_input":{"file_path":"/tmp/x"}}`,
+	}
+	for event, payload := range payloads {
+		b.Run(event, func(b *testing.B) {
+			b.ReportAllocs()
+			for b.Loop() {
+				all := Bind()
+				for i := range all {
+					all[i].Run = noop
+				}
+				in := core.ParseInputFor(strings.NewReader(payload), core.AgentClaude)
+				dispatch(chain(all, core.AgentClaude, settings.AllFlag), event, in, io.Discard)
+			}
+		})
+	}
+}
