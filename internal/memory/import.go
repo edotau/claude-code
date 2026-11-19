@@ -3,6 +3,8 @@ package memory
 import (
 	"archive/tar"
 	"bytes"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -17,10 +19,11 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// replaceFiles keep the target and archive the source verbatim; idFiles merge by block.
+// replaceFiles keep the target and drop the source (nothing is archived); idFiles merge by block.
 var (
 	replaceFiles = map[string]bool{"activeContext.md": true, "progress.md": true, "projectContext.md": true}
 	headingDate  = sync.OnceValue(func() *regexp.Regexp {
@@ -39,6 +42,7 @@ type ImportOptions struct {
 	From, Label    string
 	DryRun, Topics bool // Topics also imports non-log files: topic files, backups, MEMORY.md pointers
 	Now            time.Time
+	Replace        map[string]string // store-relative file -> sha256 hex of the local bytes the caller saw; a match lets the source replace it
 }
 
 // ImportResult is the plan (dry run) or the outcome: one line per action, then the summary line.
@@ -54,7 +58,7 @@ func (e *ImportInputError) Error() string { return e.Msg }
 
 func importInput(format string, a ...any) error { return &ImportInputError{fmt.Sprintf(format, a...)} }
 
-// ImportBank merges another bank into the local one, additively and under the bank lock; nothing local is overwritten.
+// ImportBank merges another bank into the local one under the job and bank locks; Replace lets a source file win.
 func ImportBank(opt ImportOptions) (ImportResult, error) {
 	if opt.Now.IsZero() {
 		opt.Now = time.Now()
@@ -64,14 +68,19 @@ func ImportBank(opt ImportOptions) (ImportResult, error) {
 		return p.result(opt), err
 	}
 	var res ImportResult
-	err := withFlatLock(BankLockWait, func() error {
-		p, err := planImport(opt)
-		if err != nil {
-			return err
-		}
-		res = p.result(opt)
-		return p.apply(opt)
+	ran, err := paths.TryFileLock(lockPathOf()+".lock", lockWait(), func() error { // the job lock memory update and dream hold
+		return withFlatLock(BankLockWait, func() error {
+			p, err := planImport(opt)
+			if err != nil {
+				return err
+			}
+			res = p.result(opt)
+			return p.apply(opt)
+		})
 	})
+	if err == nil && !ran {
+		err = ErrBankBusy
+	}
 	if err == nil || errors.Is(err, errIndexProblem) {
 		refreshBankNotice(os.Stderr, "memory import", ResolveBank())
 	}
@@ -86,13 +95,14 @@ type importPlan struct {
 	lines    []string
 	st       importStats
 	topics   bool
+	replace  map[string]string
 	pointers []string // the source's entries, folded into the destination catalog after its own
 	newPtrs  int      // how many of them the destination does not hold yet
 }
 
 // planImport reads both sides and builds the changes without writing.
 func planImport(opt ImportOptions) (*importPlan, error) {
-	p := &importPlan{topics: opt.Topics}
+	p := &importPlan{topics: opt.Topics, replace: opt.Replace}
 	if err := checkImportLayout(opt.From); err != nil {
 		return p, err
 	}
@@ -149,6 +159,9 @@ func (p *importPlan) countNewPointers() {
 func (p *importPlan) apply(opt ImportOptions) error {
 	if len(p.changes) == 0 && p.newPtrs == 0 {
 		return nil
+	}
+	if err := backupStoreBundle(opt.Now); err != nil {
+		return fmt.Errorf("backup before import: %w (nothing was imported)", err)
 	}
 	label := strings.Join(strings.Fields(opt.Label), " ")
 	if len(p.changes) > 0 {
@@ -272,7 +285,7 @@ func (p *importPlan) importFile(root *os.Root, rel string) {
 		p.record(rel, importAction{kind: impConflict, line: "conflict " + rel + ": kept local (" + err.Error() + ")"})
 		return
 	}
-	p.record(rel, decideImport(rel, cur, data, err == nil))
+	p.record(rel, decideImport(rel, cur, data, err == nil, p.replace[rel]))
 }
 
 // unarchived drops the source blocks the target's archives already hold, so a rotated entry is not imported again.
@@ -334,8 +347,8 @@ func (p *importPlan) record(rel string, a importAction) {
 	p.changes = append(p.changes, Change{Rel: filepath.FromSlash(rel), Data: a.data})
 }
 
-// decideImport applies the import rules: logs merge, replace files keep local, new files copy.
-func decideImport(rel string, cur, data []byte, exists bool) importAction {
+// decideImport applies the import rules: logs merge, new files copy, a file whose replace hash matches is replaced.
+func decideImport(rel string, cur, data []byte, exists bool, replaceHash string) importAction {
 	switch {
 	case !exists:
 		return importAction{kind: impCopy, data: data, line: "copy " + rel}
@@ -344,6 +357,8 @@ func decideImport(rel string, cur, data []byte, exists bool) importAction {
 		return mergedAction(rel, "merge %d entr(ies)", merged, n)
 	case bytes.Equal(cur, data):
 		return importAction{}
+	case replaceHash != "" && replaceHash == sha256Hex(cur):
+		return importAction{kind: impCopy, data: data, line: "replace " + rel} // counted under "copied"
 	case replaceFiles[rel]:
 		return importAction{kind: impKept, line: "kept local " + rel}
 	}
@@ -491,4 +506,117 @@ func sortNewestFirst(all []string) []string {
 		sorted[i] = all[j]
 	}
 	return sorted
+}
+
+func sha256Hex(b []byte) string {
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:])
+}
+
+const (
+	bundlePrefix, bundleSuffix = "memory-import-", ".bundle"
+	bundleStampLayout          = "20060102-150405"
+	bundleMinAge               = 24 * time.Hour
+	bundleKeep                 = 3
+)
+
+// backupStoreBundle bundles the store repo before an import changes it; skipped when the newest is under a day old.
+func backupStoreBundle(now time.Time) error {
+	repo := StoreRepo()
+	sha, err := repo.head()
+	if err != nil || sha == "" { // no commit yet: git refuses an empty bundle and there is nothing to lose
+		return err
+	}
+	dir := filepath.Join(paths.StateDir(), "backups")
+	old, _ := filepath.Glob(filepath.Join(dir, bundlePrefix+"*"+bundleSuffix))
+	sort.Strings(old) // the UTC stamp in the name sorts by time
+	if len(old) > 0 && bundleAge(old[len(old)-1], now) < bundleMinAge {
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	out := filepath.Join(dir, bundlePrefix+now.UTC().Format(bundleStampLayout)+bundleSuffix)
+	if _, err := repo.run("bundle", "create", out, "--all"); err != nil {
+		_ = os.Remove(out)
+		return err
+	}
+	if all := append(old, out); len(all) > bundleKeep {
+		for _, f := range all[:len(all)-bundleKeep] {
+			_ = os.Remove(f)
+		}
+	}
+	return nil
+}
+
+// bundleAge reads a bundle's age from its name; an unreadable name counts as old.
+func bundleAge(file string, now time.Time) time.Duration {
+	stamp := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(file), bundlePrefix), bundleSuffix)
+	t, err := time.Parse(bundleStampLayout, stamp)
+	if err != nil {
+		return bundleMinAge
+	}
+	return now.Sub(t)
+}
+
+// storeTarName reports whether a store file may travel: what ExtractStoreTar and planStore would accept as a file.
+func storeTarName(rel string) bool {
+	if !filepath.IsLocal(filepath.FromSlash(rel)) || foldSkips(rel) || strings.HasPrefix(path.Base(rel), ".") {
+		return false
+	}
+	parts := strings.Split(rel, "/")
+	if len(parts) > 1 && !slices.Contains(flatSubs, parts[0]) {
+		return false
+	}
+	return !slices.ContainsFunc(parts[:len(parts)-1], func(d string) bool { return d == ".git" || d == "locks" || d == ".locks" })
+}
+
+// WriteStoreTar writes the named store files, plus .layout, as a tar ExtractStoreTar reads; skipped names are dropped.
+func WriteStoreTar(w io.Writer, rels []string) error {
+	root, err := os.OpenRoot(StoreDir())
+	if err != nil {
+		return err
+	}
+	defer root.Close()
+	tw := tar.NewWriter(w)
+	seen := map[string]bool{layoutFile: true}
+	if err := addStoreTarFile(tw, root, layoutFile); err != nil {
+		return err
+	}
+	for _, rel := range rels {
+		rel = path.Clean(filepath.ToSlash(rel))
+		if seen[rel] || !storeTarName(rel) {
+			continue
+		}
+		seen[rel] = true
+		if err := addStoreTarFile(tw, root, rel); err != nil {
+			return err
+		}
+	}
+	return tw.Close()
+}
+
+// addStoreTarFile adds one regular file within the size cap; anything else is left out.
+func addStoreTarFile(tw *tar.Writer, root *os.Root, rel string) error {
+	name := filepath.FromSlash(rel)
+	if fi, err := root.Lstat(name); err != nil || !fi.Mode().IsRegular() || fi.Size() > importMaxFile {
+		if rel == layoutFile {
+			return fmt.Errorf("store %s is missing or not a regular file", layoutFile)
+		}
+		return nil
+	}
+	f, err := root.Open(name)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	fi, err := f.Stat()
+	if err != nil {
+		return err
+	}
+	if err := tw.WriteHeader(&tar.Header{Name: rel, Mode: 0o600, Size: fi.Size(), Typeflag: tar.TypeReg}); err != nil {
+		return err
+	}
+	_, err = io.CopyN(tw, f, fi.Size())
+	return err
 }

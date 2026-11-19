@@ -4,14 +4,17 @@ import (
 	"archive/tar"
 	"bytes"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // importTar builds a tar of name->body entries; a body starting "->" is a symlink to the rest.
@@ -326,5 +329,131 @@ func TestImportPinOverflowFailsButStoresThePointers(t *testing.T) {
 	}
 	if !slices.Contains(stored(t), line) {
 		t.Error("the merged pointer line must be durable in index.md")
+	}
+}
+
+// replaceFixture is a store holding topic.md as "local\n" and a source whose topic.md differs.
+func replaceFixture(t *testing.T) string {
+	t.Helper()
+	isolatedConfig(t)
+	initStore(t)
+	write(t, Path("topic.md"), "local\n")
+	if _, _, err := StoreRepo().Commit([]string{"topic.md"}, "seed", ""); err != nil { // a bundle needs a commit
+		t.Fatal(err)
+	}
+	src := t.TempDir()
+	write(t, filepath.Join(src, layoutFile), layoutFlat+"\n")
+	write(t, filepath.Join(src, "topic.md"), "remote\n")
+	return src
+}
+
+func TestImportReplaceNeedsMatchingHash(t *testing.T) {
+	src := replaceFixture(t)
+	o := ImportOptions{From: src, Topics: true}
+	if res, err := ImportBank(o); err != nil || !slices.Contains(res.Lines, "conflict topic.md: kept local") {
+		t.Fatalf("no Replace: %v, %v; want a conflict", res.Lines, err)
+	}
+	o.Replace = map[string]string{"topic.md": sha256Hex([]byte("stale\n"))}
+	if res, err := ImportBank(o); err != nil || !slices.Contains(res.Lines, "conflict topic.md: kept local") {
+		t.Fatalf("wrong hash: %v, %v; want a conflict", res.Lines, err)
+	}
+	wantFile(t, Path("topic.md"), "local\n")
+	o.Replace = map[string]string{"topic.md": sha256Hex([]byte("local\n"))}
+	res, err := ImportBank(o)
+	if err != nil || !slices.Contains(res.Lines, "replace topic.md") || !strings.Contains(res.Summary, "1 copied, 0 kept local, 0 conflict(s)") {
+		t.Fatalf("matching hash: %v %q, %v; want a replace counted as copied", res.Lines, res.Summary, err)
+	}
+	wantFile(t, Sub("notes", "topic.md"), "remote\n") // the settle step files the loose note
+}
+
+func TestWriteStoreTarRoundTrip(t *testing.T) {
+	isolatedConfig(t)
+	initStore(t)
+	write(t, filepath.Join(StoreDir(), layoutFile), layoutFlat+"\n")
+	write(t, Path("topic.md"), "topic\n")
+	write(t, Path("notes/deep.md"), "deep\n")
+	write(t, Path("writer.lock"), "lock\n")
+	write(t, Path("locks/x.md"), "lock metadata\n")
+	write(t, Path(".git/hook.md"), "git\n")
+	rels := []string{"topic.md", "notes/deep.md", "writer.lock", "locks/x.md", ".git/config", ".git/hook.md", "../escape.md", "nope.md"}
+	if err := os.Symlink("topic.md", Path("link.md")); err == nil {
+		rels = append(rels, "link.md")
+	}
+	var buf bytes.Buffer
+	if err := WriteStoreTar(&buf, rels); err != nil {
+		t.Fatal(err)
+	}
+	dst := t.TempDir()
+	if skipped, err := ExtractStoreTar(&buf, dst); err != nil || len(skipped) != 0 {
+		t.Fatalf("extract: skipped %v, err %v", skipped, err)
+	}
+	var got []string
+	_ = filepath.WalkDir(dst, func(p string, d fs.DirEntry, _ error) error {
+		if rel, _ := filepath.Rel(dst, p); !d.IsDir() {
+			got = append(got, filepath.ToSlash(rel))
+		}
+		return nil
+	})
+	slices.Sort(got)
+	if want := []string{layoutFile, "notes/deep.md", "topic.md"}; !slices.Equal(got, want) {
+		t.Fatalf("round trip carried %v, want %v", got, want)
+	}
+	wantFile(t, filepath.Join(dst, "notes", "deep.md"), "deep\n")
+}
+
+func bundleNames(t *testing.T) []string {
+	t.Helper()
+	names, _ := filepath.Glob(filepath.Join(paths.StateDir(), "backups", "memory-import-*.bundle"))
+	return names
+}
+
+func TestImportBundleOncePerDayKeepsThree(t *testing.T) {
+	src := replaceFixture(t)
+	day := time.Date(2026, 11, 1, 8, 0, 0, 0, time.UTC)
+	step := func(name string, at time.Time) {
+		t.Helper()
+		write(t, filepath.Join(src, name), name+"\n")
+		if _, err := ImportBank(ImportOptions{From: src, Topics: true, Now: at}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	step("a.md", day)
+	step("b.md", day.Add(time.Hour))      // inside 24 h: no second bundle
+	if n := len(bundleNames(t)); n != 1 { // the b.md import is inside 24 h of a.md's
+		t.Fatalf("%d bundles after two imports in one day, want 1", n)
+	}
+	for i := 1; i <= 4; i++ {
+		step(fmt.Sprintf("c%d.md", i), day.Add(time.Duration(i)*25*time.Hour))
+	}
+	names := bundleNames(t)
+	if len(names) != 3 || !strings.Contains(names[2], "20261105") {
+		t.Fatalf("bundles %v, want the newest 3 ending 20261105", names)
+	}
+}
+
+func TestImportAbortsWhenBundleFails(t *testing.T) {
+	src := replaceFixture(t)
+	write(t, filepath.Join(paths.StateDir(), "backups"), "a file where the folder belongs\n")
+	write(t, filepath.Join(src, "new.md"), "new\n")
+	if _, err := ImportBank(ImportOptions{From: src, Topics: true}); err == nil || !strings.Contains(err.Error(), "nothing was imported") {
+		t.Fatalf("err = %v, want the backup refusal", err)
+	}
+	if pathExists(Path("new.md")) {
+		t.Fatal("new.md was written although the backup failed")
+	}
+}
+
+func TestImportWaitsForJobLockThenBusy(t *testing.T) {
+	src := replaceFixture(t)
+	t.Setenv(DetachedEnv, "")
+	old := updateLockWait
+	updateLockWait = 50 * time.Millisecond
+	t.Cleanup(func() { updateLockWait = old })
+	ran, err := paths.TryFileLock(lockPathOf()+".lock", time.Second, func() error {
+		_, ierr := ImportBank(ImportOptions{From: src, Topics: true})
+		return ierr
+	})
+	if !ran || !errors.Is(err, ErrBankBusy) {
+		t.Fatalf("ran=%v err=%v, want ErrBankBusy under a held job lock", ran, err)
 	}
 }
