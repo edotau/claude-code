@@ -224,8 +224,16 @@ func (s *segScan) textArg(t, head string) bool {
 
 // commandText reports a multi-word token that reads as a command line: its first word is git or a shell wrapper.
 func commandText(t string) bool {
-	f := strings.Fields(t)
-	if len(f) < 2 {
+	var f [2]string
+	n := 0
+	for word := range strings.FieldsSeq(t) {
+		f[n] = word
+		n++
+		if n == len(f) {
+			break
+		}
+	}
+	if n < 2 {
 		return false
 	}
 	name := filepath.Base(f[0])
