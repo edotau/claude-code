@@ -455,7 +455,14 @@ func runVerify(ctx context.Context, workDir, cmdStr, base string, stdout, stderr
 
 var gateWaitDelay = 5 * time.Second
 
-// gateEnv is gitEnv (so a caller's GIT_* hook state cannot redirect the gate's git) minus the vault master key.
+// gateEnv is gitEnv minus the vault master key, with -buildvcs=false added to GOFLAGS (no VCS stamping).
 func gateEnv() []string {
-	return slices.DeleteFunc(gitEnv(), func(kv string) bool { return strings.HasPrefix(kv, "HARNESS_VAULT_KEY=") })
+	env := slices.DeleteFunc(gitEnv(), func(kv string) bool { return strings.HasPrefix(kv, "HARNESS_VAULT_KEY=") })
+	for i, kv := range env {
+		if v, ok := strings.CutPrefix(kv, "GOFLAGS="); ok {
+			env[i] = strings.TrimSpace("GOFLAGS=" + v + " -buildvcs=false")
+			return env
+		}
+	}
+	return append(env, "GOFLAGS=-buildvcs=false")
 }

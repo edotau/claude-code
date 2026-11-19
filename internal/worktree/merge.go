@@ -208,6 +208,7 @@ func ShortOID(oid string) string {
 
 // Merge runs the lifecycle under the caller's lease: plan or resume, gate, rebase, verify, promote, notify, clean.
 func Merge(ctx context.Context, repo *Repo, req MergeRequest) (*mergeOutcome, error) {
+	defer BeginScanMemo()()
 	var plan *MergePlan
 	var err error
 	if req.Resume {
