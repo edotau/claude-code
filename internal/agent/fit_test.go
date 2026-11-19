@@ -24,6 +24,7 @@ func TestFitOutcomes(t *testing.T) {
 // In shadow a failing cell changes no pick; the label only gains the score.
 func TestAutoLabelFitShadow(t *testing.T) {
 	reg, _, _ := autoFixture(t)
+	rankedOnly(t)
 	q := ModelQuery{Agent: "opencode", Model: "dev:auto", Profile: "dev", Task: standardBrief}
 	before, err := ResolveRun(reg, q, time.Now())
 	if err != nil {

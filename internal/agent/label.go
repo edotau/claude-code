@@ -23,23 +23,7 @@ import (
 
 // RunQuery is q as the run's first hop resolves it; a routed external dispatch takes the ladder's first hop.
 func RunQuery(ctx context.Context, reg *providers.Registry, q ModelQuery, aliasHint string) (ModelQuery, string, error) {
-	q, note := rotationLabel(ctx, reg, q, aliasHint)
-	hop, n, err := runQueryRoute(ctx, reg, q, aliasHint)
-	return hop, joinNotes(note, n), err
-}
-
-// rotationLabel types a rotate pin's next model into an untyped query, peeked: a label records nothing.
-func rotationLabel(ctx context.Context, reg *providers.Registry, q ModelQuery, aliasHint string) (ModelQuery, string) {
-	if q.Model != "" || q.Profile != "" || q.Provider != "" || q.Account != "" ||
-		agentModelPinContext(ctx, q.Agent) != router.DiscoveryModel {
-		return q, ""
-	}
-	m, note, err := RotationModel(reg, q.Agent, cmp.Or(aliasHint, models.Sonnet), false, time.Now())
-	if err != nil || m == "" {
-		return q, ""
-	}
-	q.Model = m
-	return q, note + "; freeze it with `claude-code agents label " + q.Agent + " --run`"
+	return runQueryRoute(ctx, reg, q, aliasHint)
 }
 
 func runQueryRoute(ctx context.Context, reg *providers.Registry, q ModelQuery, aliasHint string) (ModelQuery, string, error) {
@@ -397,6 +381,8 @@ func (c AutoChoice) Reason() string {
 	switch {
 	case c.Fallback != "":
 		return head + "; " + c.Fallback
+	case c.Criterion == "rotation":
+		return head + "; least-recently-picked of the tier's rotation pool"
 	case c.Stepped:
 		return fmt.Sprintf("%s; none of %d at or above %s, stepped down to the strongest served", head, c.Candidates, c.Tier) + c.fitNote()
 	}
@@ -431,6 +417,11 @@ func newAutoChoice(need autoNeed) *AutoChoice {
 // autoPick ranks the served models of base's row for need and resolves the winner; no ranking keeps base.
 func autoPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need autoNeed, now time.Time) (ModelRoute, *AutoChoice) {
 	c := newAutoChoice(need)
+	if need.mode == autoAsked {
+		if r, ok := rotationPick(reg, q, base, need, c, now); ok {
+			return r, c
+		}
+	}
 	cands, why := autoCandidates(reg, q, reg.Row(base.Profile), now)
 	c.Candidates = len(cands)
 	ch := catalog.Choose(cands, q.Agent, need.tier, q.Tools)

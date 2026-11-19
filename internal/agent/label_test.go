@@ -231,9 +231,16 @@ func autoFixture(t testing.TB) (*providers.Registry, []string, []string) {
 	return reg, weak, []string{claude, other}
 }
 
+// rankedOnly empties the rotation pool (an allowlist naming a model dev does not serve) so an asked auto keeps its ranked pick.
+func rankedOnly(t testing.TB) {
+	t.Helper()
+	vaulttest.Put(t, vault.Overlay, "discovery-models", `["databricks-glm-5-3"]`)
+}
+
 // One table through the resolver: precedence, tier sizing, stepping, fallbacks, families and tools.
 func TestResolveRunAuto(t *testing.T) {
 	reg, weak, pair := autoFixture(t)
+	rankedOnly(t)
 	fast, std, deep := oracle(devListing, "fast", false, nil), oracle(devListing, "standard", false, nil), oracle(devListing, "deep", false, nil)
 	pin, alias := "databricks-claude-haiku-5-5", "databricks-claude-sonnet-5-5"
 	if deep == pin || std == alias || fast == deep || std == deep {
@@ -321,6 +328,7 @@ func TestDispatchRequestAutoCell(t *testing.T) {
 // The run's routedModel ranks under a typed auto even with a pin, and a pinned auto ranks too; a concrete pin runs.
 func TestRoutedModelAuto(t *testing.T) {
 	reg, _, _ := autoFixture(t)
+	rankedOnly(t)
 	deep := oracle(devListing, "deep", false, nil)
 	run := func(req RunOptions) string {
 		t.Helper()
@@ -358,7 +366,7 @@ func TestClaudeTierPinnedAuto(t *testing.T) {
 	}
 }
 
-// The label is the model that runs: a typed or pinned auto ranks over a concrete ladder cell, on the cell's row.
+// The label is the model that runs: a typed or pinned auto rotates over a concrete ladder cell, on the cell's row.
 func TestAutoLabelIsRunModel(t *testing.T) {
 	reg, _, _ := autoFixture(t)
 	ctx := context.Background()
@@ -380,14 +388,14 @@ func TestAutoLabelIsRunModel(t *testing.T) {
 				q.Model = AutoModel
 			}
 			hop, _, err := labelHop(reg, q, agentModelPinContext(ctx, agentName), d)
-			label, lerr := ResolveRun(reg, QueryFor(ctx, hop), time.Now())
+			label, lerr := ResolveRun(reg, QueryFor(PeekContext(ctx), hop), time.Now())
 			lreq := dispatchRequest(RunOptions{Agent: agentName, Prompt: standardBrief, AutoModel: tc.typed}, d, true)
 			run, _, _, rerr := SchemaFor(agentName).targetNote(lreq)
 			if err = cmp.Or(err, lerr, rerr); err != nil {
 				t.Fatalf("%s %s: %v", agentName, tc.name, err)
 			}
 			if label.Model != run.Model || run.Model == cell {
-				t.Errorf("%s %s: label %s, run %s; want the same ranked model, not the cell's", agentName, tc.name, label.Model, run.Model)
+				t.Errorf("%s %s: label %s, run %s; want the same rotation pick, not the cell's", agentName, tc.name, label.Model, run.Model)
 			}
 		}
 	}
@@ -475,6 +483,7 @@ func BenchmarkResolveRunAuto(b *testing.B) {
 // A menu edit between two resolutions reaches the second: the menu is read once per resolution, never kept.
 func TestResolveRunSeesMenuChangeBetweenRuns(t *testing.T) {
 	reg, _, _ := autoFixture(t)
+	rankedOnly(t)
 	q := ModelQuery{Agent: "codex", Model: "dev:auto", Task: deepBrief}
 	if err := providers.SetOpencodeMenu([]providers.OpencodeModel{{ID: "gpt-6-1-sol", Label: "GPT-6.1 Sol"}}); err != nil {
 		t.Fatal(err)

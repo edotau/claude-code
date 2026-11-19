@@ -95,7 +95,11 @@ func rotationRows(reg *providers.Registry, agentName string) []*providers.Provid
 
 // RotationModel is agent's next rotation model at alias across its rows; stamp records the pick, else it only peeks.
 func RotationModel(reg *providers.Registry, agentName, alias string, stamp bool, now time.Time) (string, string, error) {
-	rows := rotationRows(reg, agentName)
+	return rotationModelOn(rotationRows(reg, agentName), agentName, alias, stamp, now)
+}
+
+// rotationModelOn is RotationModel over the given rows.
+func rotationModelOn(rows []*providers.Provider, agentName, alias string, stamp bool, now time.Time) (string, string, error) {
 	if len(rows) == 0 {
 		return "", "", nil
 	}
@@ -120,6 +124,30 @@ func RotationModel(reg *providers.Registry, agentName, alias string, stamp bool,
 	return m, rotationNote(m, alias, len(pool), "picked"), err
 }
 
+// rotationPick is an asked auto's tier-pool pick on base's row; false (no pool, error) keeps the ranked pick.
+func rotationPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need autoNeed, c *AutoChoice, now time.Time) (ModelRoute, bool) {
+	p := reg.Row(base.Profile)
+	if !router.RotationRow(p) {
+		return base, false
+	}
+	alias := cmp.Or(tierAliases[need.tier], models.Sonnet)
+	stamp := q.ctx == nil || !peekingRotation(q.ctx)
+	m, note, err := rotationModelOn([]*providers.Provider{p}, q.Agent, alias, stamp, now)
+	if err != nil || m == "" {
+		return base, false
+	}
+	pq := q
+	pq.Model, pq.Profile, pq.Default = base.Profile+":"+m, "", ""
+	r, err := ResolveModel(reg, pq, now)
+	if err != nil {
+		return base, false
+	}
+	r.Source, c.Model, c.Criterion = base.Source, r.Model, "rotation"
+	r.Note = joinNotes(routeNote(base.Note), r.Note, note)
+	r.Effort = autoEffort(r.Effort, q.Agent, need)
+	return r, true
+}
+
 // rotationNote names the pick, its tier and pool size, plus R5's review rule for a cheap or new-family author.
 func rotationNote(m, alias string, n int, verb string) string {
 	if m == "" {
@@ -135,7 +163,8 @@ func rotationNote(m, alias string, n int, verb string) string {
 
 // RotationFreeze records agent's next pick for brief's task tier: the --model a Run: line freezes so label == run.
 func RotationFreeze(ctx context.Context, agentName, brief string) (string, string) {
-	if agentModelPinContext(ctx, agentName) != router.DiscoveryModel {
+	pin := agentModelPinContext(ctx, agentName)
+	if prefix, auto := SplitAuto(pin); pin != router.DiscoveryModel && (!auto || prefix != "") {
 		return "", ""
 	}
 	reg, err := providers.LoadShared()
