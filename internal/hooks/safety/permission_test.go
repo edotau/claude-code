@@ -391,3 +391,37 @@ func TestPermissionGateLeafSettingsPatch(t *testing.T) {
 		}
 	}
 }
+
+// dispatchAsk: the dispatch's own --allow/--deny rules decide a settings ask; with neither, the block names the flag.
+func TestDispatchAsk(t *testing.T) {
+	hit := askHit{what: "settings ask", tool: "Bash", arg: "go build ./...", rule: "Bash(go build *)"}
+	rules := func(specs ...string) []agent.Rule {
+		var out []agent.Rule
+		for _, s := range specs {
+			out = append(out, mustParseRule(t, s))
+		}
+		return out
+	}
+	for _, c := range []struct {
+		name   string
+		policy *agent.Permissions
+		want   core.Decision
+		reason string
+	}{
+		{"allow", &agent.Permissions{Allow: rules("Bash(go build:*)")}, core.Allow, ""},
+		{"deny", &agent.Permissions{Deny: rules("Bash(go build:*)"), Allow: rules("Bash")}, core.Block, "--deny"},
+		{"neither with the hint", &agent.Permissions{Allow: rules("Bash(ls:*)")}, core.Block, "--allow 'Bash(go build *)'"},
+		{"no policy with the hint", nil, core.Block, "--allow 'Bash(go build *)'"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			t.Setenv(agent.DispatchPermissionsEnv, "")
+			if c.policy != nil {
+				setGatePermissions(t, *c.policy)
+			}
+			got, reason := dispatchAsk(&core.Input{CWD: "/tmp"}, hit)
+			if got != c.want || !strings.Contains(reason, c.reason) {
+				t.Errorf("dispatchAsk = %v %q, want %v containing %q", got, reason, c.want, c.reason)
+			}
+		})
+	}
+}

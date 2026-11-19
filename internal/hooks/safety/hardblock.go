@@ -25,17 +25,8 @@ var hardBlocks = []*core.Gated{
 	core.Gate(`python3?\s+.*-c\s+.*exec\(.*base64`, "base64"),
 }
 
-// hardBlockVerdict blocks a protected write or a hard shape outside inert text; one only in inert text is data.
+// hardBlockVerdict blocks a hard shape outside inert text; one only in inert text is data.
 func hardBlockVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string) {
-	if name := dispatchTamper(in); name != "" {
-		what := "changes " + name + "; a nested dispatch inherits its ancestors' limits and deny rules"
-		return core.Block, core.SafetyMessage(in, core.Block, what, "", "Leave the HARNESS_DISPATCH_* variables as the "+
-			"dispatch set them."+ownerRoute), "dispatch env tamper"
-	}
-	if p := protectedWrite(cmd, in.CWD, isLeaf(in)); p != "" {
-		return core.Block, core.SafetyMessage(in, core.Block, "writes a file Edit/Write may never touch", p,
-			"Edit it by hand, or run it yourself in a terminal."), "protected write"
-	}
 	if strings.Contains(cmd, "<<") { // heredoc bodies stay in the scan
 		scan = cmd
 	}

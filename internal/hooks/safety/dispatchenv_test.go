@@ -305,6 +305,7 @@ func TestRoleRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	narrowConfig(t, cfg)
 	t.Setenv("HARNESS_DISPATCH_DEPTH", "")
 	t.Setenv("KUBECONFIG", "/kube/config:/other")
 	for _, c := range roleCases {
@@ -334,6 +335,7 @@ func TestRoleRules(t *testing.T) {
 
 // On an agent with no ask decision the main session is blocked, and the message names the routes that ask.
 func TestMainOnlyRouteWithoutAsk(t *testing.T) {
+	narrowTemp(t)
 	t.Setenv("HARNESS_DISPATCH_ID", "")
 	t.Setenv("HARNESS_DISPATCH_DEPTH", "")
 	payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": "/tmp",

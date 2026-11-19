@@ -158,25 +158,37 @@ var dataHarnessVerbs = sync.OnceValue(func() map[string]bool { return shell.Guar
 
 // dataSegment reports a segment whose words are text; a redirect counts only when no file runs in the same line.
 func dataSegment(seg string, runs, keepCommit bool) bool {
-	toks := shell.Tokens(seg)
-	for len(toks) > 0 && envAssign().MatchString(toks[0]) {
-		toks = toks[1:]
-	}
+	toks := dropEnvAssigns(shell.Tokens(seg))
 	if len(toks) == 0 || runs && slices.ContainsFunc(toks, func(t string) bool { return strings.Contains(t, ">") }) {
 		return false
 	}
 	name := filepath.Base(toks[0])
+	if name == "claude-code" {
+		return claudeCodeData(toks, keepCommit)
+	}
 	if judge, ok := dataJudges[name]; ok {
 		return judge(toks)
 	}
 	return dataCommands()[name] || name == "git" && !keepCommit && inertGit(toks)
 }
 
+// dropEnvAssigns removes the leading NAME=value words.
+func dropEnvAssigns(toks []string) []string {
+	for len(toks) > 0 && envAssign().MatchString(toks[0]) {
+		toks = toks[1:]
+	}
+	return toks
+}
+
+// claudeCodeData reports a claude-code segment of text: a data verb, or a worktree commit message unless keepCommit.
+func claudeCodeData(toks []string, keepCommit bool) bool {
+	return len(toks) > 1 && dataHarnessVerbs()[toks[1]] || !keepCommit && inertWorktreeCommit(toks)
+}
+
 // dataJudges decide per command whether its words are text: grep without a --pre, sed without `e`, PR text, briefs.
 var dataJudges = map[string]func(toks []string) bool{"grep": inertGrep, "egrep": inertGrep, "fgrep": inertGrep,
 	"rg": inertGrep, "ag": inertGrep, "gh": inertGh,
-	"sed":         func(toks []string) bool { return !slices.ContainsFunc(toks[1:], sedExec().MatchString) },
-	"claude-code": func(toks []string) bool { return len(toks) > 1 && dataHarnessVerbs()[toks[1]] },
+	"sed": func(toks []string) bool { return !slices.ContainsFunc(toks[1:], sedExec().MatchString) },
 }
 
 // envAssign matches a leading NAME=value word.

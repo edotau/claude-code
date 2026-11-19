@@ -440,13 +440,10 @@ func toolPayload(agent string, s settings.EventSpec) *strings.Reader {
 }
 
 // nativeRuns reports whether agent's own hook file runs module name as `hook <Event> --<name>`.
-func nativeRuns(agent, name string) bool {
-	for _, s := range settings.SpecsFor(agent, "native") {
-		if s.Name == name {
-			return true
-		}
-	}
-	return false
+func nativeRuns(agent string, s settings.EventSpec) bool {
+	return slices.ContainsFunc(settings.SpecsFor(agent, "native"), func(n settings.EventSpec) bool {
+		return n.Name == s.Name && n.Matcher == s.Matcher
+	})
 }
 
 // `hook <Event> --all` runs, per agent and module, exactly what that agent's hook file runs one module at a time.
@@ -457,7 +454,7 @@ func TestEventFormAgreesWithModuleForm(t *testing.T) {
 		for _, s := range settings.Specs() {
 			clear(ran)
 			RunArgs(s.Event, []string{settings.AllFlag}, toolPayload(agent, s), io.Discard, io.Discard)
-			if want := nativeRuns(agent, s.Name); ran[s.Name] != want {
+			if want := nativeRuns(agent, s); ran[s.Name] != want {
 				t.Errorf("%s · %s --%s: event form ran=%v, module form runs=%v", agent, s.Event, s.Name, ran[s.Name], want)
 			}
 			checkRealTools(t, ran, agent, s)
@@ -473,7 +470,11 @@ func checkRealTools(t *testing.T, ran map[string]bool, agent string, s settings.
 		}
 		clear(ran)
 		RunArgs(s.Event, []string{settings.AllFlag}, realPayload(agent, s.Event, tool), io.Discard, io.Discard)
-		if want := nativeRuns(agent, s.Name) && renderedMatch(t, agent, s, tool); ran[s.Name] != want {
+		// ran is keyed by module name, so a name shared by two groups counts when either spec runs.
+		want := slices.ContainsFunc(settings.Specs(), func(o settings.EventSpec) bool {
+			return o.Name == s.Name && o.Event == s.Event && nativeRuns(agent, o) && renderedMatch(t, agent, o, tool)
+		})
+		if ran[s.Name] != want {
 			t.Errorf("%s · %s %s --%s: event form ran=%v, module form runs=%v", agent, s.Event, tool, s.Name, ran[s.Name], want)
 		}
 	}
@@ -522,6 +523,7 @@ func renderedMatcher(t *testing.T, render func() ([]byte, error), name string) s
 	if err != nil {
 		t.Fatal(err)
 	}
+	var ms []string
 	var doc struct {
 		Hooks map[string][]struct {
 			Matcher string
@@ -540,13 +542,18 @@ func renderedMatcher(t *testing.T, render func() ([]byte, error), name string) s
 			}
 			for _, c := range cmds {
 				if slices.Contains(strings.Fields(c), "--"+name) {
-					return e.Matcher
+					ms = append(ms, e.Matcher)
 				}
 			}
 		}
 	}
-	t.Fatalf("module %s is not in the rendered hooks", name)
-	return ""
+	if len(ms) == 0 {
+		t.Fatalf("module %s is not in the rendered hooks", name)
+	}
+	if slices.Contains(ms, "") {
+		return ""
+	}
+	return strings.Join(ms, "|")
 }
 
 // consumerDeny is the stdout document agent's hook consumer refuses a call on, at exit 0, for decision d.
@@ -588,7 +595,7 @@ func TestBlockRendersAsConsumerDeny(t *testing.T) {
 func checkConsumerDeny(t *testing.T, agent string, s settings.EventSpec, d core.Decision, reason string) {
 	t.Setenv(settings.AgentEnv, agent)
 	forms := [][]string{{"--" + s.Name}}
-	if nativeRuns(agent, s.Name) {
+	if nativeRuns(agent, s) {
 		forms = append(forms, []string{settings.AllFlag})
 	}
 	for _, f := range forms {

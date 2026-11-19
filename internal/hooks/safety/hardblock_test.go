@@ -35,7 +35,7 @@ var heredocMustAsk = []string{
 }
 
 func TestSafetyScanChecksExecutedHeredocBodies(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	narrowTemp(t)
 	for want, commands := range map[core.Decision][]string{core.Block: heredocMustBlock, core.Ask: heredocMustAsk} {
 		for _, cmd := range commands {
 			if got, stderr := safetyScanDecision(t, hosttest.BashPayload(cmd)); got != want {
@@ -47,7 +47,7 @@ func TestSafetyScanChecksExecutedHeredocBodies(t *testing.T) {
 
 // Same bodies through the Copilot payload shape (toolArgs, no hook_event_name).
 func TestSafetyScanChecksExecutedHeredocBodiesCopilot(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	narrowTemp(t)
 	for _, cmd := range append(append([]string{}, heredocMustBlock...), heredocMustAsk...) {
 		payload, _ := json.Marshal(map[string]any{
 			"sessionId": "x", "toolName": "Bash", "toolArgs": map[string]string{"command": cmd},
@@ -78,6 +78,8 @@ func shellFeedCases(harness string) []safetyTierCase {
 		safetyTierCase{`printf 'go test ./...\n' | sh`, harness, core.Allow},
 		safetyTierCase{`echo -e 'make lint\n' | sh`, harness, core.Allow},
 		safetyTierCase{`printf 'claude-code worktree commit -m x a.txt\n' | sh`, harness, core.Allow},
+		safetyTierCase{`claude-code worktree commit -m "x rm -rf / y" f`, harness, core.Allow},
+		safetyTierCase{`rm -rf /`, harness, core.Block},
 		safetyTierCase{`printf "rm -rf $D\n" | bash`, harness, core.Block},
 		safetyTierCase{`printf "$(cat cmd)\n" | bash`, harness, core.Block},
 		safetyTierCase{`printf 'git stash\n' | sh`, harness, core.Block},

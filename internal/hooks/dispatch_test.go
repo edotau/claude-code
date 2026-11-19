@@ -360,6 +360,23 @@ func flagHarness(t *testing.T) string {
 	return harness
 }
 
+// narrowAllow writes the template permissions minus every Bash allow row, so a main payload reaches the built-ins.
+func narrowAllow(t *testing.T, cfg string) {
+	t.Helper()
+	var doc struct {
+		Permissions settings.PermissionLists `json:"permissions"`
+	}
+	if err := json.Unmarshal(settings.Template(), &doc); err != nil {
+		t.Fatal(err)
+	}
+	p := doc.Permissions
+	p.Allow = slices.DeleteFunc(slices.Clone(p.Allow), func(s string) bool { return strings.HasPrefix(s, "Bash") })
+	b, _ := json.Marshal(map[string]any{"permissions": p})
+	if err := os.WriteFile(filepath.Join(cfg, "settings.json"), b, 0o600); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // runFlags is `claude-code hook <event> <flags...>` on payload.
 func runFlags(event string, payload io.Reader, flags ...string) (code int, stdout, stderr string) {
 	var out, errb bytes.Buffer
@@ -435,7 +452,7 @@ func TestHookDocsPlacementBlocksThroughDispatcher(t *testing.T) {
 
 // TestSafetyAskDocumentExactShape pins the Claude ask document: exactly one top-level key, three inner keys.
 func TestSafetyAskDocumentExactShape(t *testing.T) {
-	hosttest.TierHarness(t)
+	narrowAllow(t, hosttest.TierHarness(t))
 	var out, errb bytes.Buffer
 	if code := runDirect("safety-scan", hosttest.BashPayload("psql -c 'DROP TABLE t'"), &out, &errb); code != core.ExitProceed {
 		t.Fatalf("exit = %d, want 0 (stderr %s)", code, errb.String())
@@ -485,7 +502,7 @@ func keys(m map[string]json.RawMessage) []string {
 
 // TestSafetyDispatcherGateVsBare: `--all` carries the gate's ask, the bare dispatcher must not.
 func TestSafetyDispatcherGateVsBare(t *testing.T) {
-	flagHarness(t)
+	narrowAllow(t, flagHarness(t))
 	payload, _ := json.Marshal(map[string]any{
 		"tool_name": "Bash", "cwd": t.TempDir(),
 		"tool_input": map[string]string{"command": "psql -c 'DROP TABLE t'"},

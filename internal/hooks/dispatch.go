@@ -353,7 +353,9 @@ func chain(all []Bound, agent, flag string) []Bound {
 	applies := settings.SpecsFor(agent, "native")
 	var bound []Bound
 	for _, b := range all {
-		if (flag == settings.AllFlag || !b.Gate) && slices.ContainsFunc(applies, func(s settings.EventSpec) bool { return s.Name == b.Spec.Name }) {
+		if (flag == settings.AllFlag || !b.Gate) && slices.ContainsFunc(applies, func(s settings.EventSpec) bool {
+			return s.Name == b.Spec.Name && s.Event == b.Spec.Event && s.Matcher == b.Spec.Matcher
+		}) {
 			bound = append(bound, b)
 		}
 	}

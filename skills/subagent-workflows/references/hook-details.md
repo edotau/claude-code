@@ -4,6 +4,14 @@ Verbatim cells moved from `rules/harness/hooks.md` → Event → hook matrix (th
 
 ## safety-scan
 
+Order per call: floor (every agent, never loosened; incl. the AI-attribution footer in commit, merge and tag messages, a
+strict deny for everyone), settings deny (`~/.claude/settings.json` or the template; `sudo` follows `Bash(sudo:*)`),
+settings ask (Claude asks; an agent without ask follows the dispatch's `--allow`/`--deny`, neither matching blocks
+naming `--allow '<rule>'`), settings allow (main thread only; never loosens a leaf), built-ins; then
+`agentBashAllow` turns a leaf's block or ask into allow (a leaf: payload `agent_id` or `HARNESS_DISPATCH_PERMISSIONS`),
+except the AI-attribution footer. `Edit(...)` globs use
+anchors `//`, `~/`, `/` = `~/.claude/`, `**/`; relative = cwd. Copilot's edit tools are checked too.
+
 **Block** destructive shapes (`rm -rf /`, a system dir or `$HOME` as the shell reads it: quoted, escaped, `//`, `..`;
 fork bomb; `curl \| sh` also by absolute shell path; `eval "$(curl …)"`; `base64 -d \| sh`) a Bash write (`sed -i`,
 redirect, `tee`, `cp`/`mv`) to, or `rm`/`mv`-away/`truncate` of, a file the live `settings.json`'s `Edit(...)` deny

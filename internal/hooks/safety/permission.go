@@ -47,17 +47,30 @@ func PermissionGate(in *core.Input) core.Result {
 	return judgeCall(p, in.CWD, tool, gateArgs(in, tool))
 }
 
-// protectedEdit blocks a file-edit call (apply_patch included) on a path the live Edit deny list protects, as Bash is.
+// protectedEdit enforces settings deny and dispatch-decided ask globs on file edits, including apply_patch.
 func protectedEdit(in *core.Input) core.Result {
 	if gateTools[strings.ToLower(in.CanonicalTool())] != "Edit" {
 		return core.Result{}
 	}
-	globs := foldedGlobs(isLeaf(in))
+	p := livePolicy()
+	globs := foldedGlobs(append(extraGlobs(isLeaf(in)), p.editDeny...), in.CWD)
+	asks := foldedGlobs(p.editAsk, in.CWD)
 	for _, form := range gateArgs(in, "Edit") { // pathForms already hold the symlink-resolved spelling
 		f := paths.ExpandHome(form)
-		if filepath.IsAbs(f) && (matchesProtected(f, globs) || f != form && protectedPath(f, globs)) && !tempWriteAllowed("", f) {
+		if !filepath.IsAbs(f) {
+			continue
+		}
+		if (matchesProtected(f, globs) || f != form && protectedPath(f, globs)) && !tempWriteAllowed("", f) {
 			return core.Result{Decision: core.Block, Reason: core.SafetyMessage(in, core.Block,
 				"writes a file Edit/Write may never touch", f, "Edit it by hand, or run it yourself in a terminal.")}
+		}
+		if matchesProtected(f, asks) {
+			d, msg := dispatchAsk(in, askHit{
+				"edits a file settings.json asks before editing", "Edit", f, "Edit(" + f + ")",
+			})
+			if d != core.Allow {
+				return core.Result{Decision: d, Reason: msg}
+			}
 		}
 	}
 	return core.Result{}

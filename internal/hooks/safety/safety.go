@@ -3,7 +3,6 @@ package safety
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -17,7 +16,6 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/shell"
 )
 
@@ -129,23 +127,42 @@ var softWarn = []*core.Gated{
 	core.Gate(`git\s+clean\s+-[a-z]*f`, "clean"),
 }
 
+// softWarnings names each softWarn shape cmd holds, judging cmd's own inert view when a heredoc was dropped.
+func softWarnings(cmd, scan string, heredocDropped bool) string {
+	view := scan
+	if heredocDropped {
+		view = blankInert(cmd)
+	}
+	var warn strings.Builder
+	for _, re := range softWarn {
+		if re.MatchString(view) {
+			fmt.Fprintf(&warn, "safety: WARNING — %s (not blocked; review carefully)\n", re)
+		}
+	}
+	return warn.String()
+}
+
+// isAskLessEdit marks a non-Bash tool on an agent with no permission-gate ask path (Copilot's edit tools).
+func isAskLessEdit(in *core.Input) bool {
+	return in.ToolName != "" && !strings.EqualFold(in.CanonicalTool(), "Bash") && !core.SupportsAsk(in.Agent())
+}
+
 // Scan checks command safety: a block or non-Claude ask rejects, a Claude ask prompts, soft warnings ride stderr.
 func Scan(in *core.Input) core.Result {
+	if isAskLessEdit(in) {
+		return protectedEdit(in)
+	}
+	return scanCommand(in)
+}
+
+func scanCommand(in *core.Input) core.Result {
 	cmd := dropMessageHeredocs(dropPatchBodies(in.ToolCommand()))
 	dropped := dropInertHeredocs(cmd)
 	scan := blankInert(dropped)
 	decision, msg, detail := commandVerdict(in, cmd, scan)
 	var warn strings.Builder
-	if decision != core.Block && (in.ToolName == "" || strings.EqualFold(in.CanonicalTool(), "Bash")) {
-		view := scan // a message only names the shape; with no inert heredoc dropped, scan is cmd's inert view
-		if dropped != cmd {
-			view = blankInert(cmd)
-		}
-		for _, re := range softWarn {
-			if re.MatchString(view) {
-				fmt.Fprintf(&warn, "safety: WARNING — %s (not blocked; review carefully)\n", re)
-			}
-		}
+	if decision != core.Block && detail != settingsAllowDetail && (in.ToolName == "" || strings.EqualFold(in.CanonicalTool(), "Bash")) {
+		warn.WriteString(softWarnings(cmd, scan, dropped != cmd))
 	}
 	if decision == core.Allow { // an allowed verdict's message is a warning (the rewrite guard failing open)
 		return core.Result{Stderr: strings.TrimSpace(msg + warn.String())}
@@ -173,14 +190,34 @@ func safetyVerdict(in *core.Input) (core.Decision, string, string) {
 	return commandVerdict(in, cmd, inertStripped(cmd))
 }
 
-// commandVerdict judges cmd; scan is inertStripped(cmd), computed once by the caller.
+// settingsAllowDetail marks a main-thread command a settings allow rule covers: past the floor, built-ins are off (D8).
+const settingsAllowDetail = "settings allow"
+
+// commandVerdict judges cmd floor → settings deny → settings ask → settings allow (main) → built-ins.
 func commandVerdict(in *core.Input, cmd, scan string) (core.Decision, string, string) {
-	if in.ToolName != "" && !strings.EqualFold(in.CanonicalTool(), "Bash") {
+	if in.ToolName != "" && !strings.EqualFold(in.CanonicalTool(), "Bash") || cmd == "" {
 		return core.Allow, "", ""
 	}
-	if cmd == "" {
-		return core.Allow, "", ""
+	// A plain Python stdin script's body is Python and data text is no invocation; interpreterWrite judges its paths.
+	py := withPyLaunches(dropPyScripts(cmd))
+	asked := intentView(py, false)
+	plain := asked // intentView(cmd, false), the same view when no Python script was dropped
+	if py != cmd {
+		plain = intentView(cmd, false)
 	}
+	d, warn, detail := floorVerdict(in, cmd, scan, asked) // an Allow's message is the rewrite guard's warning
+	if d != core.Allow {
+		return d, warn, detail
+	}
+	if d, msg, detail := settingsVerdict(in, cmd, asked, plain); d != core.Allow || detail == settingsAllowDetail {
+		return d, warn + msg, detail
+	}
+	d, msg, detail := builtinVerdict(in, cmd, asked, plain)
+	return d, warn + msg, detail
+}
+
+// floorVerdict is the code-only floor: every agent, never loosened by a settings allow or a dispatch policy.
+func floorVerdict(in *core.Input, cmd, scan, asked string) (core.Decision, string, string) {
 	for _, re := range pipeBlocks {
 		if re.MatchString(scan) {
 			return core.Block, core.SafetyMessage(in, core.Block, "destructive command", re.String(), terminalHint), re.String()
@@ -194,59 +231,38 @@ func commandVerdict(in *core.Input, cmd, scan string) (core.Decision, string, st
 			return core.Block, core.SafetyMessage(in, core.Block, "looks like credential exfiltration", re.String(), terminalHint), re.String()
 		}
 	}
-	return safetyAskVerdict(in, cmd)
-}
-
-// safetyAskVerdict judges the intent rules on real invocations only: most block, destructive SQL and script writes ask.
-func safetyAskVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
 	// The rewrite block runs first: an ask shape (`sudo git reset --hard`) must not turn a block into an ask.
 	d, msg, detail, warn := rewriteVerdict(in, cmd)
 	if d != core.Allow {
 		return d, warn + msg, detail
 	}
-	// A plain Python stdin script's body is Python and data text is no invocation; interpreterWrite judges its paths.
-	py := withPyLaunches(dropPyScripts(cmd))
-	asked := intentView(py, false)
-	if sudoInvoked(asked, in.CWD) {
-		return core.Block, warn + core.SafetyMessage(in, core.Block, "sudo command", "", sudoHint), "sudo"
+	if d, msg, detail := floorIntentVerdict(in, asked); d != core.Allow {
+		return d, warn + msg, detail
 	}
+	return core.Allow, warn, ""
+}
+
+// floorIntentVerdict blocks the intent rules and a bare force-push, then the git floor.
+func floorIntentVerdict(in *core.Input, asked string) (core.Decision, string, string) {
 	// Rules match inside ONE shell segment: `git push origin main; readlink -f x` is no force-push.
 	for _, seg := range shell.Segments(asked) {
 		for _, rule := range askRules {
 			for _, re := range rule.pats {
 				if re.MatchString(seg) && (rule.exempt == nil || !rule.exempt(seg, asked, in.CWD)) {
-					return core.Block, warn + core.SafetyMessage(in, core.Block, rule.what, re.String(), rule.hint), re.String()
+					return core.Block, core.SafetyMessage(in, core.Block, rule.what, re.String(), rule.hint), re.String()
 				}
 			}
 		}
 	}
-	plain := asked // intentView(cmd, false), the same view when no Python script was dropped
-	if py != cmd {
-		plain = intentView(cmd, false)
-	}
-	if d, msg, detail = pushOrScriptVerdict(in, plain, asked); d != core.Allow {
-		return d, warn + msg, detail
-	}
-	d, msg, detail = askPatternVerdict(in, asked)
-	return d, warn + msg, detail
-}
-
-// pushOrScriptVerdict blocks a force-push with no refspec and asks on an interpreter that may write a protected file.
-func pushOrScriptVerdict(in *core.Input, plain, asked string) (core.Decision, string, string) {
 	if branch := bareForcePush(asked, in.CWD); branch != "" {
 		return core.Block, core.SafetyMessage(in, core.Block, forcePushWhat, "", forcePushHint), "force push of " + branch
 	}
-	if p := interpreterWrite(plain, isLeaf(in)); p != "" {
-		hint := "Approve only if you asked for it; otherwise edit it by hand or run it yourself in a terminal."
-		what := "an interpreter script that may write a file Edit/Write may never touch"
-		return core.Ask, core.SafetyMessage(in, core.Ask, what, p, hint), "interpreter protected write"
-	}
-	return core.Allow, "", ""
+	return floorGitVerdict(in, asked)
 }
 
-// askPatternVerdict blocks hard rule 4 git verbs and hard rule 3 footers, and asks on destructive SQL.
-func askPatternVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
-	if verb := harnessGitVerb(cmd, in.CWD); verb != "" {
+// floorGitVerdict blocks hard rule 4 git verbs under the config tree and hard rule 3 footers.
+func floorGitVerdict(in *core.Input, asked string) (core.Decision, string, string) {
+	if verb := harnessGitVerb(asked, in.CWD); verb != "" {
 		what := "git stash/checkout/switch/reset/restore/clean inside the shared config tree (CLAUDE.md hard rule 4)"
 		if verb == shell.Uninspectable {
 			what = "command nests too deep to check, inside the shared config tree (CLAUDE.md hard rule 4)"
@@ -255,17 +271,88 @@ func askPatternVerdict(in *core.Input, cmd string) (core.Decision, string, strin
 			"(`claude-code worktree create <name>`)." + ownerRoute
 		return core.Block, core.SafetyMessage(in, core.Block, what, "", hint), "shared config git mutation"
 	}
-	// A footer lives in the message body, so commit text stays; other data does not.
+	// strict deny for everyone; nothing loosens it (D5). A footer lives in the message body, so commit text stays.
 	if shell.AttributionFooterCommit(intentView(withPyLaunches(dropPyScripts(dropPatchBodies(in.ToolCommand()))), true), in.CWD) ||
 		shell.FooterFileWritten(in.ToolCommand(), in.CWD) { // a -F file written earlier in the command, read unblanked
 		what := "AI-attribution footer in a commit message (CLAUDE.md hard rule 3)"
 		hint := "Remove the Co-Authored-By / Generated-with lines and commit again; that needs no approval." + ownerRoute
 		return core.Block, core.SafetyMessage(in, core.Block, what, "", hint), "attribution footer"
 	}
+	return core.Allow, "", ""
+}
+
+// settingsVerdict applies the settings tiers: deny blocks, ask asks (dispatch decides without ask), allow ends main.
+func settingsVerdict(in *core.Input, cmd, asked, plain string) (core.Decision, string, string) {
+	p, cwd := livePolicy(), in.CWD
+	switch rule, f := settingsRuleHit(dropInertHeredocs(cmd), cwd, p.bashDeny), protectedWrite(cmd, cwd, p.editDeny, false); {
+	case rule != "":
+		return core.Block, core.SafetyMessage(in, core.Block, "matches a settings.json deny rule", rule,
+			"Change permissions.deny in ~/.claude/settings.json if this is wrong."+ownerRoute), "settings deny"
+	case sudoDenied() && sudoInvoked(asked, cwd):
+		return core.Block, core.SafetyMessage(in, core.Block, "sudo command", "", sudoHint), "sudo"
+	case f != "":
+		return core.Block, core.SafetyMessage(in, core.Block, "writes a file Edit/Write may never touch", f,
+			"Edit it by hand, or run it yourself in a terminal."), "protected write"
+	}
+	if needle, _ := interpreterWrite(plain, p.editDeny, false); needle != "" { // fuzzy: asks; Scan blocks without ask
+		return core.Ask, core.SafetyMessage(in, core.Ask, interpreterWhat, needle, interpreterHint), "interpreter protected write"
+	}
+	if d, msg, detail := settingsAskVerdict(in, cmd, asked, plain, p); d != core.Allow {
+		return d, msg, detail
+	}
+	if !isLeaf(in) && settingsAllowed(cmd, cwd, p.bashAllow) { // D8: allow never loosens a leaf
+		return core.Allow, "", settingsAllowDetail
+	}
+	return core.Allow, "", ""
+}
+
+// settingsAskVerdict asks on Claude for each settings ask hit; elsewhere dispatchAsk decides (D1).
+func settingsAskVerdict(in *core.Input, cmd, asked, plain string, p policy) (core.Decision, string, string) {
+	path := protectedWrite(cmd, in.CWD, p.editAsk, false)
+	_, glob := interpreterWrite(plain, p.editAsk, false)
+	for _, h := range []askHit{
+		{"matches a settings.json ask rule", "Bash", cmd, settingsRuleHit(asked, in.CWD, p.bashAsk)},
+		{"writes a file settings.json asks before editing", "Edit", path, "Edit(" + path + ")"},
+		{"an interpreter script that may write a file settings.json asks before editing", "Edit", glob, "Edit(" + glob + ")"},
+	} {
+		switch {
+		case h.arg == "" || h.rule == "" || h.rule == "Edit()":
+		case core.SupportsAsk(in.Agent()):
+			return core.Ask, core.SafetyMessage(in, core.Ask, h.what, h.rule, "Approve only if you asked for it."), "settings ask"
+		default:
+			if d, msg := dispatchAsk(in, h); d != core.Allow {
+				return d, msg, "settings ask (dispatch)"
+			}
+		}
+	}
+	return core.Allow, "", ""
+}
+
+const (
+	interpreterWhat = "an interpreter script that may write a file Edit/Write may never touch"
+	interpreterHint = "Approve only if you asked for it; otherwise edit it by hand or run it yourself in a terminal."
+)
+
+// builtinVerdict is the rest: dispatch tamper, settings.local.json and leaf settings.json writes, main-only rules, SQL.
+func builtinVerdict(in *core.Input, cmd, asked, plain string) (core.Decision, string, string) {
+	if name := dispatchTamper(in); name != "" {
+		what := "changes " + name + "; a nested dispatch inherits its ancestors' limits and deny rules"
+		return core.Block, core.SafetyMessage(in, core.Block, what, "", "Leave the HARNESS_DISPATCH_* variables as the "+
+			"dispatch set them."+ownerRoute), "dispatch env tamper"
+	}
+	leaf := isLeaf(in)
+	globs := extraGlobs(leaf)
+	if p := protectedWrite(cmd, in.CWD, globs, leaf); p != "" {
+		return core.Block, core.SafetyMessage(in, core.Block, "writes a file Edit/Write may never touch", p,
+			"Edit it by hand, or run it yourself in a terminal."), "protected write"
+	}
+	if needle, _ := interpreterWrite(plain, globs, leaf); needle != "" {
+		return core.Ask, core.SafetyMessage(in, core.Ask, interpreterWhat, needle, interpreterHint), "interpreter protected write"
+	}
 	if d, msg, detail := mainOnlyVerdict(in); d != core.Allow {
 		return d, msg, detail
 	}
-	if sqlDestructive().MatchString(strings.ToLower(cmd)) {
+	if sqlDestructive().MatchString(strings.ToLower(asked)) {
 		hint := "Approve only if you asked for it; back up first or run it against a scratch database."
 		return core.Ask, core.SafetyMessage(in, core.Ask, "destructive SQL (DROP/TRUNCATE)", "", hint), "destructive SQL"
 	}
@@ -440,7 +527,13 @@ func inertSegment(seg string) bool {
 // inertCommands judge, per command name, whether a segment's words are only data.
 var inertCommands = map[string]func(toks []string) bool{
 	"echo": inertEcho, "printf": inertEcho, "grep": inertGrep, "rg": inertGrep, "git": inertGit, "gh": inertGh,
-	"claude-code": inertScm,
+	"claude-code": func(toks []string) bool { return inertScm(toks) || inertWorktreeCommit(toks) },
+}
+
+// inertWorktreeCommit: the -m text of `claude-code worktree commit` is data; the footer scan keeps it (keepCommit).
+func inertWorktreeCommit(toks []string) bool {
+	args := shell.HarnessArgs(toks)
+	return len(args) > 1 && args[0] == "worktree" && args[1] == "commit" && inertEcho(toks)
 }
 
 // inertEcho: a redirect can plant the text in a file that later runs (~/.bashrc).
@@ -576,57 +669,9 @@ func isLeaf(in *core.Input) bool { return in.AgentID != "" || proc.InDispatch(co
 var leafSettings = regexp.MustCompile(`(?i)(?:\$\{?home\}?|~|\bhome\b[^/\n]{0,12}|homedir\(\)[^/\n]{0,12}|expanduser\([^/\n]{0,4}~)` +
 	`/\.claude/settings(?:\.local)?\.json|claude_config_dir[^\n]{0,40}/settings(?:\.local)?\.json`)
 
-// protectedGlobs are the live settings.json `Edit(...)` deny globs (template's if unreadable) plus the local settings.
-func protectedGlobs(leaf bool) []string {
-	globs := []string{filepath.Join(paths.ConfigDir(), "settings.local.json")}
-	if leaf { // a leaf never writes the harness settings, whatever the live deny list names
-		globs = append(globs, filepath.Join(paths.ConfigDir(), "settings.json"))
-	}
-	for _, rule := range liveDeny() {
-		if g, ok := strings.CutPrefix(rule, "Edit("); ok && strings.HasSuffix(g, ")") {
-			globs = append(globs, strings.TrimSuffix(g, ")"))
-		}
-	}
-	return globs
-}
-
-// foldedGlobs are protectedGlobs home-expanded and case-folded, ready for matchesProtected.
-func foldedGlobs(leaf bool) []string {
-	globs := protectedGlobs(leaf)
-	for i, g := range globs {
-		globs[i] = paths.FoldCase(paths.ExpandHome(g))
-	}
-	return globs
-}
-
-var (
-	liveDenyCache paths.StampCache[[]string]
-	templateDeny  = sync.OnceValue(func() []string {
-		var doc struct {
-			Permissions settings.PermissionLists `json:"permissions"`
-		}
-		if json.Unmarshal(settings.Template(), &doc) != nil {
-			return nil // the embedded template is tested; the local settings still guard
-		}
-		return doc.Permissions.Deny
-	})
-)
-
-// liveDeny is the live deny list; a missing or broken settings.json falls back to the template's so the guard stays on.
-func liveDeny() []string {
-	deny, err := liveDenyCache.Get(settings.SettingsFile(), func() ([]string, error) {
-		live, err := settings.LivePermissions()
-		return live.Deny, err
-	})
-	if err != nil {
-		return templateDeny()
-	}
-	return deny
-}
-
-// protectedWrite is the first Edit-denied path a command writes or removes ("" if none); temp folders are allowed.
-func protectedWrite(cmd, cwd string, leaf bool) string {
-	globs := sync.OnceValue(func() []string { return foldedGlobs(leaf) })
+// protectedWrite is the first path a command writes or removes under the raw globs ("" if none); temp folders pass.
+func protectedWrite(cmd, cwd string, raw []string, leaf bool) string {
+	globs := sync.OnceValue(func() []string { return foldedGlobs(raw, cwd) })
 	for _, p := range core.WrittenPaths(cmd, cwd) {
 		if (protectedPath(p, globs()) || leaf && leafSettings.MatchString(p)) && !tempWriteAllowed(cmd, p) {
 			return p
@@ -680,11 +725,10 @@ func homePrefix() string {
 	return ""
 }
 
-// interpreterWrite is the protected file an interpreter command's text mentions beside a write indicator, else "".
-func interpreterWrite(cmd string, leaf bool) string {
+// interpreterWrite is the raw glob's needle (and glob) an interpreter command's text mentions beside a write indicator.
+func interpreterWrite(cmd string, raw []string, leaf bool) (needle, glob string) {
 	cmd = core.DropDataHeredocs(cmd)
 	used := paths.FoldCase(pyUsedText(cmd)) // a Python comment or prose string only mentions a path
-	globs := sync.OnceValue(func() []string { return protectedGlobs(leaf) })
 	for _, seg := range shell.Segments(cmd) {
 		rest := runnerUnwrap(shell.Tokens(seg))
 		if len(rest) == 0 {
@@ -695,18 +739,16 @@ func interpreterWrite(cmd string, leaf bool) string {
 			continue
 		}
 		home := homePrefix()
-		for _, g := range globs() {
-			needle := strings.TrimPrefix(strings.TrimSuffix(strings.TrimPrefix(g, "**/"), "**"), "~/")
-			needle = strings.TrimPrefix(needle, home) // the absolute config-dir spelling reads as ~/.claude/...
-			if needle != "" && strings.Contains(used, paths.FoldCase(needle)) {
-				return needle
+		for _, g := range raw {
+			if n := globNeedle(g, home); n != "" && strings.Contains(used, paths.FoldCase(n)) {
+				return n, g
 			}
 		}
 		if m := leafSettings.FindString(used); leaf && m != "" {
-			return m
+			return m, ""
 		}
 	}
-	return ""
+	return "", ""
 }
 
 // pyIndirectModule spots os/shutil reached by another name (`as`, `fs = os`, `(os)`, `modules['os']`) or dynamically.
@@ -783,20 +825,8 @@ func pyArgCount(cmd string, from int) (n int, ok bool) {
 
 // matchesProtected reports whether abs falls under a deny glob: `**/x` by suffix, `dir/**` by prefix, else exact.
 func matchesProtected(abs string, globs []string) bool {
-	abs = paths.FoldCase(abs)
-	for _, g := range globs {
-		switch {
-		case strings.HasPrefix(g, "**/"):
-			if strings.HasSuffix(abs, string(filepath.Separator)+g[3:]) {
-				return true
-			}
-		case strings.HasSuffix(g, "/**"):
-			if paths.Within(abs, strings.TrimSuffix(g, "/**")) {
-				return true
-			}
-		case abs == g:
-			return true
-		}
-	}
-	return false
+	abs = paths.FoldCase(paths.CleanGlob(abs))
+	return slices.ContainsFunc(globs, func(g string) bool {
+		return paths.GlobMatch(g, abs) || strings.HasSuffix(g, "/**") && abs == strings.TrimSuffix(g, "/**")
+	})
 }
