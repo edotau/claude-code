@@ -118,10 +118,16 @@ func cmdMemoryUpdate(args []string) int {
 		return helptext.FailUsage("memory update: unexpected argument %q; name a session with --session <id>", fs.Arg(0))
 	}
 	if *catchup {
-		if !*dryRun {
-			dailyLearn(time.Now(), os.Stderr)
+		if *dryRun {
+			return memory.CatchUpSweep(memory.SweepOptions{DryRun: true, Skip: *skip, Stdout: os.Stdout, Stderr: os.Stderr})
 		}
-		return memory.CatchUpSweep(memory.SweepOptions{DryRun: *dryRun, Skip: *skip, Stdout: os.Stdout, Stderr: os.Stderr})
+		now := time.Now()
+		dailyLearn(now, os.Stderr)
+		code := memory.CatchUpSweep(memory.SweepOptions{Skip: *skip, Stdout: os.Stdout, Stderr: os.Stderr})
+		if memory.SyncIfDue(now, now, *cwd) {
+			fmt.Fprintln(os.Stderr, "memory sync: started")
+		}
+		return code
 	}
 	err := memory.UpdateSession(memory.UpdateSessionOptions{Transcript: *transcript, CWD: *cwd, Session: *session,
 		DryRun: *dryRun, Historical: *historical, Run: ask.MemoryRunner(), Out: os.Stdout})
@@ -224,7 +230,7 @@ func memorySpec() *helptext.Node {
 		"sandbox": {Flags: []helptext.Flag{helptext.BoolFlag("empty"), helptext.Plain("format")}},
 		"migrate": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run")}},
 		"import": {Flags: []helptext.Flag{helptext.Plain("from"), helptext.Plain("host"),
-			helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics")}},
+			helptext.BoolFlag("dry-run"), helptext.BoolFlag("topics"), helptext.BoolFlag("sync"), helptext.Plain("replace")}},
 	}}
 }
 
@@ -559,11 +565,23 @@ func cmdMemoryImport(args []string) int {
 	host := fs.String("host", "", "tailnet host whose memory root to fetch over ssh")
 	dryRun := fs.Bool("dry-run", false, "print the plan; write nothing")
 	topics := fs.Bool("topics", false, "also topic files, backups and MEMORY.md pointers")
+	sync := fs.Bool("sync", false, "pull, then push; all peers when no --host")
+	replaceFile := fs.String("replace", "", "replace files listed in `FILE` whose sha256 matches")
 	if code, done := memoryParseNoArgs(fs, "import", args); done {
 		return code
 	}
+	if *sync {
+		if *from != "" || *replaceFile != "" {
+			return helptext.FailUsage("memory import: --sync takes neither --from nor --replace (usage: %s)", memoryImportPage.Usage)
+		}
+		return memorySync(*host, *dryRun)
+	}
 	if (*from == "") == (*host == "") {
 		return helptext.FailUsage("memory import: give exactly one of --from or --host (usage: %s)", memoryImportPage.Usage)
+	}
+	replace, err := readReplaceList(*replaceFile)
+	if err != nil {
+		return helptext.FailUsage("memory import: --replace: %v", err)
 	}
 	dir, label, err := memoryImportSource(*from, *host)
 	if err != nil {
@@ -572,7 +590,7 @@ func cmdMemoryImport(args []string) int {
 	if *host != "" {
 		defer func() { _ = os.RemoveAll(dir) }()
 	}
-	res, err := memory.ImportBank(memory.ImportOptions{From: dir, Label: label, DryRun: *dryRun, Topics: *topics})
+	res, err := memory.ImportBank(memory.ImportOptions{From: dir, Label: label, DryRun: *dryRun, Topics: *topics, Replace: replace})
 	if err != nil {
 		return memoryImportFail(err)
 	}
@@ -580,8 +598,12 @@ func cmdMemoryImport(args []string) int {
 	return 0
 }
 
-// memoryImportFail is exit 2 for a bad --from or flag combination, else exit 1.
+// memoryImportFail is exit 2 for a bad --from or flag combination, 75 for a busy store, else exit 1.
 func memoryImportFail(err error) int {
+	if errors.Is(err, memory.ErrBankBusy) {
+		helptext.Fail("memory import: %v", err)
+		return importBusyExit
+	}
 	if _, bad := errors.AsType[*memory.ImportInputError](err); bad {
 		return helptext.FailUsage("memory import: %v", err)
 	}
@@ -593,7 +615,7 @@ func memoryImportSource(from, host string) (dir, label string, err error) {
 	if host == "" {
 		return from, from, nil
 	}
-	if dir, err = fetchMemoryRoot(host); err != nil {
+	if dir, err = fetchRoot(host); err != nil {
 		_ = os.RemoveAll(dir)
 		err = fmt.Errorf("fetch from %s: %w", host, err)
 	}
@@ -603,10 +625,11 @@ func memoryImportSource(from, host string) (dir, label string, err error) {
 // memoryFetchTimeout bounds the whole `memory import --host` transfer; a store is tens of MB, so this is generous.
 const memoryFetchTimeout = 10 * time.Minute
 
+const memoryFetchScript = `cd "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/memory" && COPYFILE_DISABLE=1 tar -cf - --exclude=.git --exclude='*.lock' --exclude=.postupdate .`
+
 // fetchMemoryRoot streams host's memory root as a tar into a fresh private temp dir; the caller removes it.
 func fetchMemoryRoot(host string) (string, error) {
-	script := `cd "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/memory" && COPYFILE_DISABLE=1 tar -cf - --exclude=.git --exclude='*.lock' --exclude=.postupdate .`
-	argv, err := remote.StreamArgs(host, script)
+	argv, err := remote.StreamArgs(host, memoryFetchScript)
 	if err != nil {
 		return "", err
 	}
