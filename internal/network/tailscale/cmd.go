@@ -15,7 +15,7 @@ import (
 )
 
 var tailscalePage = helptext.Page{
-	Usage: "claude-code network tailscale [<mode flag>] [flags]",
+	Usage: "claude-code tailscale [<mode flag>] [flags]",
 	About: "Bare prints this box's tailnet status; one mode flag (--machines, --connect,\n" +
 		"--token, --exit-node on|off|approve, --subnet <cidr>[,…]|approve|off,\n" +
 		"--route <peer>|off) picks another action.",
@@ -65,6 +65,9 @@ func tailscaleFlags() (*flag.FlagSet, *tsFlags) {
 	t.secret = helptext.SecretFlag(fs)
 	return fs, t
 }
+
+// Spec is the completion node for the tailscale verb.
+func Spec() *helptext.Node { return &helptext.Node{Flags: Flags()} }
 
 // Flags are the completion flags of `network tailscale`, derived from its FlagSet.
 func Flags() []helptext.Flag {

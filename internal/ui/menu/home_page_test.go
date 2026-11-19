@@ -114,7 +114,7 @@ func TestRunRemoteNotConnectedNeverFails(t *testing.T) {
 	t.Cleanup(tailscale.StubMacAppCLI(""))
 
 	got := runRemoteOut(t)
-	if !strings.Contains(got, "tailscale   not connected → claude-code network tailscale --connect") {
+	if !strings.Contains(got, "tailscale   not connected → claude-code tailscale --connect") {
 		t.Errorf("output missing the not-connected line:\n%s", got)
 	}
 	if !strings.Contains(got, "dispatch    could not list tailnet machines:") {

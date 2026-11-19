@@ -34,7 +34,7 @@ var tailnetNets = []netip.Prefix{netip.MustParsePrefix("100.64.0.0/10"), netip.M
 func stepUp(ctx context.Context, out io.Writer) error {
 	if proc.InDispatch(ctx) || !stdioIsTTY() {
 		return errors.New("minting a key needs your own terminal (stdin and stdout a TTY, not inside an agent " +
-			"dispatch): run `claude-code network tailscale --token` there yourself")
+			"dispatch): run `claude-code tailscale --token` there yourself")
 	}
 	if inTailscaleSSH(os.Getenv("SSH_CONNECTION")) {
 		return errors.New("this shell is a Tailscale SSH session to this machine and re-auth would drop it: " +

@@ -375,7 +375,7 @@ func runRemote(d *dialog) {
 	case nil:
 		d.printf("tailscale   running (%s)\n", strings.TrimSuffix(st.DNSName, "."))
 	default:
-		d.printf("tailscale   not connected → claude-code network tailscale --connect\n")
+		d.printf("tailscale   not connected → claude-code tailscale --connect\n")
 	}
 	switch {
 	case configure.HasAdminCredential():

@@ -33,7 +33,7 @@ func TestNetworkBareAndHelpPrintUsageExitZero(t *testing.T) {
 		if code != 0 {
 			t.Errorf("network %v: exit %d, want 0", args, code)
 		}
-		for _, sub := range []string{"tailscale", "browser", "websearch", "remote"} {
+		for _, sub := range []string{"browser", "websearch", "remote"} {
 			if !strings.Contains(stderr, sub) {
 				t.Errorf("network %v: help lacks %q: %q", args, sub, stderr)
 			}
@@ -47,7 +47,7 @@ func TestNetworkUnknownSubverb(t *testing.T) {
 		t.Errorf("exit %d, want 1", code)
 	}
 	if !strings.Contains(stderr, `unknown subcommand "bogus"`) || !strings.Contains(stderr,
-		"tailscale|browser|websearch|remote") {
+		"browser|websearch|remote") {
 		t.Errorf("stderr = %q", stderr)
 	}
 }
