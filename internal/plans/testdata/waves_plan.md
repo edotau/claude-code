@@ -14,9 +14,9 @@ claude-code agents diff --base "$BASE" $(printf -- '--path %s ' $OWNED) --check 
 
 
 - **1.1 F-open, keyed readers.** Owns `internal/proc/keyed.go`, `internal/providers/*.go`, `internal/agentconfig/*.go`,
-  `internal/router/*.go`, `internal/network/egress/*.go`. Dep D0. codex. Adds the `Context` readers of the Interface;
+  `internal/router/*.go`, `internal/egress/*.go`. Dep D0. codex. Adds the `Context` readers of the Interface;
   old exports untouched. Verify `verify ./internal/proc ./internal/providers ./internal/agentconfig ./internal/router
-  ./internal/network/egress` → two contexts pick distinct confined routes; an empty value suppresses ambient env; a
+  ./internal/egress` → two contexts pick distinct confined routes; an empty value suppresses ambient env; a
   request-pinned egress host (also explicit direct `""`) beats the run value.
 
 ## Waves

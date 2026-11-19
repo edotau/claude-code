@@ -7,7 +7,7 @@ import (
 	"slices"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/egress"
+	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/providers"
 )
 

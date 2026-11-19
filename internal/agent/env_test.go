@@ -26,8 +26,8 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
+	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/memory"
-	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/proc"
 )
 

@@ -14,7 +14,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/edotau/claude-code/internal/network/egress"
+	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"

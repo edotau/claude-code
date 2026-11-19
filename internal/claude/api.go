@@ -21,7 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 
-	"github.com/edotau/claude-code/internal/network/egress"
+	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 )

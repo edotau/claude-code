@@ -11,8 +11,8 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/gateway"
-	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 

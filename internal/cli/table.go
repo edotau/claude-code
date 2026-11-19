@@ -9,9 +9,9 @@ import (
 
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/doctor"
+	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/hosttest/ramdisk"
 	"github.com/edotau/claude-code/internal/network"
-	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
