@@ -366,15 +366,18 @@ func leafStopVerdict(agentID string, rec agent.Record, held []string, holdUntil 
 	if slices.Contains(held, rec.ID) {
 		return core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: repeatHold(rec.ID)}, true
 	}
-	return core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("Dispatch %s you started is still running. %s", rec.ID, pollOnce(rec.ID))}, true
+	return core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s Dispatch %s you started is still running. %s", heldLead, rec.ID, pollOnce(rec.ID))}, true
 }
 
 // heldAgain marks a repeat hold: the job's full rule was already sent, so only its id and the command follow.
 const heldAgain = "(held again)"
 
+// heldLead opens every held reason so the owner reads the wait as normal, not as a failure.
+const heldLead = "Not a failure, just waiting: this hand-back is held until the job ends."
+
 // repeatHold is a later hold: id, state and the full command, enough for a relay whose context was compacted.
 func repeatHold(id string) string {
-	return fmt.Sprintf("Dispatch %s is still running %s. Run `claude-code agents result -f %s` once in the foreground "+
+	return fmt.Sprintf(heldLead+" Dispatch %s is still running %s. Run `claude-code agents result -f %s` once in the foreground "+
 		"(600000ms timeout), then hand back its result.", id, heldAgain, id)
 }
 

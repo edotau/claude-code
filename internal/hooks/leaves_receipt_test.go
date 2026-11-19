@@ -134,7 +134,7 @@ func TestRanOnHookRunsTheLine(t *testing.T) {
 		in := leafTx(t, c.st, "Run: "+c.line+"\n\n"+c.body, "ls output")
 		in = handbackOf(in, "my report")
 		r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
-		if !blocked || !strings.Contains(r.Reason, "held, not refused") || len(*spawned) != 1 || fmt.Sprint((*spawned)[0]) != fmt.Sprint(c.want) {
+		if !blocked || !strings.Contains(r.Reason, "Not a failure, just waiting") || len(*spawned) != 1 || fmt.Sprint((*spawned)[0]) != fmt.Sprint(c.want) {
 			t.Fatalf("%s first hand-back = %+v blocked=%v spawns %v, want one held launch of %v", c.st, r, blocked, *spawned, c.want)
 		}
 		m, _ := loadRelayRun("a1")
