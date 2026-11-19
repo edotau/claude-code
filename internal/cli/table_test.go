@@ -459,6 +459,12 @@ func TestVendorCompletionOffersEverySubverb(t *testing.T) {
 	}
 }
 
+func TestClaudeCompletionOffersCatalog(t *testing.T) {
+	if got := candidates("claude", "cat"); !slices.Contains(got, "catalog") {
+		t.Errorf("Candidates([claude cat]) = %v, want catalog", got)
+	}
+}
+
 // TestSpecTreeSubwordsMatchDispatch: a word added to a verb's dispatch switch must get a specTree entry.
 func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	vaulttest.UseFreshKey(t)
