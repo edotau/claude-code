@@ -84,15 +84,16 @@ paths:
   tier model (haiku fast, sonnet standard or untiered, opus deep), and label, `gateway resolve`, `ask --dry-run` and
   the run all show it. Each agent has one history per provider group across dev, qa and prod; holds stay per
   workspace: a pool-pinned pick skips a model where that workspace skips or holds it, and keeps it
-  while another workspace serves it. The served listing is the only pool input; there is no built-in seed pool.
+  while another workspace serves it. The pool input is the served listing (a GitHub login: its Copilot catalog
+  snapshot) alone; there is no built-in seed pool.
   Rotation admits only rows not marked `"rotate": false` in `internal/catalog/ranks.json`; typed, those still run.
   The pool admits only models the agent can run within the tier's `rotation` capability floor and cost cap in
   `internal/catalog/ranks.json` (unranked models skip both where the tier admits them). The vault's
   `discovery-models` allowlist only narrows it; held models and, under `--tools`, models probed tools `no` are skipped.
-  Outside a rotation row, auto uses the ranked pick. A cold (missing or stale) listing runs the row's tier model
-  with a note; a fresh listing with nothing runnable in the brief's tier and nothing held there steps to the standard
-  tier, and only nothing eligible then exits naming held ids, without launching; unwritable pick
-  state errors. An untyped, unpinned model keeps the ranked pick.
+  Outside a rotation row, auto runs the row's tier model (no listing to rank). A cold (missing or stale)
+  listing runs the row's tier model with a note; a fresh listing with nothing runnable in the brief's tier and
+  nothing held there steps to the standard tier, and only nothing eligible then exits naming held ids, without
+  launching; unwritable pick state errors. An untyped, unpinned model keeps the ranked pick.
   Refused auto picks share at most 3 re-picks per ask, including a move after an exhausted pool (a 429 move is
   free); no re-pick follows streamed text or tool execution. Under `--fallback none` an auto-picked workspace
   whose pool is exhausted moves to another workspace of the same provider, never past a typed or inherited
