@@ -23,6 +23,26 @@ import (
 
 // RunQuery is q as the run's first hop resolves it; a routed external dispatch takes the ladder's first hop.
 func RunQuery(ctx context.Context, reg *providers.Registry, q ModelQuery, aliasHint string) (ModelQuery, string, error) {
+	q, note := rotationLabel(ctx, reg, q, aliasHint)
+	hop, n, err := runQueryRoute(ctx, reg, q, aliasHint)
+	return hop, joinNotes(note, n), err
+}
+
+// rotationLabel types a rotate pin's next model into an untyped query, peeked: a label records nothing.
+func rotationLabel(ctx context.Context, reg *providers.Registry, q ModelQuery, aliasHint string) (ModelQuery, string) {
+	if q.Model != "" || q.Profile != "" || q.Provider != "" || q.Account != "" ||
+		agentModelPinContext(ctx, q.Agent) != router.DiscoveryModel {
+		return q, ""
+	}
+	m, note, err := RotationModel(reg, q.Agent, cmp.Or(aliasHint, models.Sonnet), false, time.Now())
+	if err != nil || m == "" {
+		return q, ""
+	}
+	q.Model = m
+	return q, note + "; freeze it with `claude-code agents label " + q.Agent + " --run`"
+}
+
+func runQueryRoute(ctx context.Context, reg *providers.Registry, q ModelQuery, aliasHint string) (ModelQuery, string, error) {
 	if ownConnectorQuery(q) {
 		return q, "", nil
 	}
@@ -36,9 +56,6 @@ func RunQuery(ctx context.Context, reg *providers.Registry, q ModelQuery, aliasH
 		return q, "", nil
 	}
 	pin := agentModelPinContext(ctx, q.Agent)
-	if pin == router.DiscoveryModel { // the ladder would advance the rotation; a label must not
-		return q, "a discovery pin picks its model at run time", nil
-	}
 	chain, _, err := Resolve(ctx, RouteReq{Agent: q.Agent, AliasHint: aliasHint, Fallback: q.Fallback, Pinned: true})
 	if err != nil {
 		return q, "", err

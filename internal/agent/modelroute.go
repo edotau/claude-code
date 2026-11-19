@@ -519,6 +519,7 @@ func (r ModelRoute) Label() string { return r.Model }
 
 // resolvePool is the pool's first usable workspace serving the model; databricks:<m> walks vault order, auto ranks.
 func resolvePool(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec, now time.Time) (ModelRoute, error) {
+	q.PinModel = rotatePin(reg, q, now)
 	st, skipped := router.LoadState(), []string(nil)
 	names := reg.ProfilesOf(providers.GroupDatabricks)
 	if !spec.Pool {
@@ -552,6 +553,18 @@ func resolvePool(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec
 	}
 	return ModelRoute{}, fmt.Errorf("%w: no Databricks profile can serve %s for %s (%s)", ErrModelRoute,
 		cmp.Or(spec.Model, q.Default, models.Opus), q.Agent, strings.Join(skipped, "; "))
+}
+
+// rotatePin is q's pin, or under the rotate pin the stamped rotation pick the pool then walks to a workspace serving.
+func rotatePin(reg *providers.Registry, q ModelQuery, now time.Time) string {
+	if q.Model != "" || q.PinModel != router.DiscoveryModel {
+		return q.PinModel
+	}
+	m, _, err := RotationModel(reg, q.Agent, cmp.Or(q.Default, models.Sonnet), true, now)
+	if err != nil {
+		return q.PinModel
+	}
+	return cmp.Or(m, q.PinModel)
 }
 
 // autoOrder is names in databricks:auto's order (cooling last, fewest live, least recent pick), stamping nothing.
