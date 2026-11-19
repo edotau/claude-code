@@ -24,7 +24,8 @@ module's agent applicability.
 - `safety` keeps its own process (`hook PreToolUse --safety-scan`) so a hung group can never delay or skip a block.
 - No per-group switch: every group declared for an event runs. Dev override: launch with
   `HARNESS_HOOK_SKIP=<module>[,…]` or `all` (spares `safety-scan`/`permission-gate` unless named) in the hook's own
-  env or the vault; output notes each skip. `make lint SKIP=<kind>[,…]` drops lint kinds (`LINT_WHAT`).
+  env for that launch; a module unwanted for good is deleted (spec and handler), never skipped from the vault; output
+  notes each skip. `make lint SKIP=<kind>[,…]` drops lint kinds (`LINT_WHAT`).
 
 Each module run appends one row to `state/harness/hooks/telemetry-YYYYMMDD.jsonl` (14 days, capped): event, module,
 outcome, ms, 8-char session id, tool, and when a decision fired a `rule` and a `verdict` (`block`, `ask`, `rewrite`,
