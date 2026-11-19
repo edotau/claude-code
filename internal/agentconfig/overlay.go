@@ -142,9 +142,22 @@ var (
 // readCapped reads r one byte past overlayMaxBytes: LoadOverlayContext's cap sees an oversized document, unread.
 func readCapped(r io.Reader) ([]byte, error) { return io.ReadAll(io.LimitReader(r, overlayMaxBytes+1)) }
 
+// ReadJSONSource reads value as stdin for -, inline JSON for {...}, else a private regular file; label names errors.
+func ReadJSONSource(label, value string, stdin io.Reader) ([]byte, error) {
+	where, raw, err := readJSONSource(label, value, stdin)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", where, err)
+	}
+	return raw, nil
+}
+
 // readOverlaySource returns value's error label and bytes: stdin for -, inline JSON, else the file it names.
 func readOverlaySource(value string, stdin io.Reader) (string, []byte, error) {
-	where, raw := "overlay", []byte(strings.TrimSpace(value))
+	return readJSONSource("overlay", value, stdin)
+}
+
+func readJSONSource(where, value string, stdin io.Reader) (string, []byte, error) {
+	raw := []byte(strings.TrimSpace(value))
 	switch {
 	case value == "-":
 		raw, err := readCapped(stdin)
