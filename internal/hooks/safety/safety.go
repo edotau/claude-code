@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -568,9 +569,6 @@ func dropInertHeredocs(cmd string) string {
 	})
 }
 
-// extraProtected are Edit-protected files the settings template does not list.
-var extraProtected = []string{"~/.claude/settings.local.json"}
-
 // isLeaf reports an Agent-tool subagent (agent_id) or a dispatched CLI leaf (dispatch id or depth in the env).
 func isLeaf(in *core.Input) bool { return in.AgentID != "" || proc.InDispatch(context.Background()) }
 
@@ -578,11 +576,11 @@ func isLeaf(in *core.Input) bool { return in.AgentID != "" || proc.InDispatch(co
 var leafSettings = regexp.MustCompile(`(?i)(?:\$\{?home\}?|~|\bhome\b[^/\n]{0,12}|homedir\(\)[^/\n]{0,12}|expanduser\([^/\n]{0,4}~)` +
 	`/\.claude/settings(?:\.local)?\.json|claude_config_dir[^\n]{0,40}/settings(?:\.local)?\.json`)
 
-// protectedGlobs are the live settings.json `Edit(...)` deny globs (template's if unreadable) plus extraProtected.
+// protectedGlobs are the live settings.json `Edit(...)` deny globs (template's if unreadable) plus the local settings.
 func protectedGlobs(leaf bool) []string {
-	globs := append([]string(nil), extraProtected...)
+	globs := []string{filepath.Join(paths.ConfigDir(), "settings.local.json")}
 	if leaf { // a leaf never writes the harness settings, whatever the live deny list names
-		globs = append(globs, filepath.Join(paths.ConfigDir(), "settings.json"), filepath.Join(paths.ConfigDir(), "settings.local.json"))
+		globs = append(globs, filepath.Join(paths.ConfigDir(), "settings.json"))
 	}
 	for _, rule := range liveDeny() {
 		if g, ok := strings.CutPrefix(rule, "Edit("); ok && strings.HasSuffix(g, ")") {
@@ -592,38 +590,61 @@ func protectedGlobs(leaf bool) []string {
 	return globs
 }
 
+// foldedGlobs are protectedGlobs home-expanded and case-folded, ready for matchesProtected.
+func foldedGlobs(leaf bool) []string {
+	globs := protectedGlobs(leaf)
+	for i, g := range globs {
+		globs[i] = paths.FoldCase(paths.ExpandHome(g))
+	}
+	return globs
+}
+
+var (
+	liveDenyCache paths.StampCache[[]string]
+	templateDeny  = sync.OnceValue(func() []string {
+		var doc struct {
+			Permissions settings.PermissionLists `json:"permissions"`
+		}
+		if json.Unmarshal(settings.Template(), &doc) != nil {
+			return nil // the embedded template is tested; the local settings still guard
+		}
+		return doc.Permissions.Deny
+	})
+)
+
 // liveDeny is the live deny list; a missing or broken settings.json falls back to the template's so the guard stays on.
 func liveDeny() []string {
-	if live, err := settings.LivePermissions(); err == nil {
-		return live.Deny
+	deny, err := liveDenyCache.Get(settings.SettingsFile(), func() ([]string, error) {
+		live, err := settings.LivePermissions()
+		return live.Deny, err
+	})
+	if err != nil {
+		return templateDeny()
 	}
-	var doc struct {
-		Permissions settings.PermissionLists `json:"permissions"`
-	}
-	if json.Unmarshal(settings.Template(), &doc) != nil {
-		return nil // the embedded template is tested; the extras still guard
-	}
-	return doc.Permissions.Deny
+	return deny
 }
 
 // protectedWrite is the first Edit-denied path a command writes or removes ("" if none); temp folders are allowed.
 func protectedWrite(cmd, cwd string, leaf bool) string {
+	globs := sync.OnceValue(func() []string { return foldedGlobs(leaf) })
 	for _, p := range core.WrittenPaths(cmd, cwd) {
-		if (protectedPath(p, leaf) || leaf && leafSettings.MatchString(p)) && !tempWriteAllowed(cmd, p) {
+		if (protectedPath(p, globs()) || leaf && leafSettings.MatchString(p)) && !tempWriteAllowed(cmd, p) {
 			return p
 		}
 	}
-	for _, p := range core.RemovedPaths(cmd, cwd) {
-		if protectedPath(p, leaf) && !removalAllowed(cmd, cwd) {
+	removed := core.RemovedPaths(cmd, cwd)
+	allowed := sync.OnceValue(func() bool { return removalAllowed(cmd, removed) })
+	for _, p := range removed {
+		if protectedPath(p, globs()) && !allowed() {
 			return p
 		}
 	}
 	return ""
 }
 
-// protectedPath reports whether p, or its symlink-resolved form, falls under an Edit deny glob.
-func protectedPath(p string, leaf bool) bool {
-	return slices.ContainsFunc([]string{p, paths.Real(p)}, func(q string) bool { return matchesProtected(q, leaf) })
+// protectedPath reports whether p, or its symlink-resolved form, falls under a folded Edit deny glob.
+func protectedPath(p string, globs []string) bool {
+	return matchesProtected(p, globs) || matchesProtected(paths.Real(p), globs)
 }
 
 // interpreterWrites are the per-language write indicators; reads (open(p), readFile) match none.
@@ -651,10 +672,19 @@ func interpreterLang(base string) string {
 	return ""
 }
 
+// homePrefix is the home directory with a trailing slash, "" when unknown.
+func homePrefix() string {
+	if home, _ := os.UserHomeDir(); home != "" {
+		return home + "/"
+	}
+	return ""
+}
+
 // interpreterWrite is the protected file an interpreter command's text mentions beside a write indicator, else "".
 func interpreterWrite(cmd string, leaf bool) string {
 	cmd = core.DropDataHeredocs(cmd)
 	used := paths.FoldCase(pyUsedText(cmd)) // a Python comment or prose string only mentions a path
+	globs := sync.OnceValue(func() []string { return protectedGlobs(leaf) })
 	for _, seg := range shell.Segments(cmd) {
 		rest := runnerUnwrap(shell.Tokens(seg))
 		if len(rest) == 0 {
@@ -664,8 +694,10 @@ func interpreterWrite(cmd string, leaf bool) string {
 		if re := interpreterWrites()[lang]; re == nil || !scriptWrites(lang, re, cmd) {
 			continue
 		}
-		for _, g := range protectedGlobs(leaf) {
+		home := homePrefix()
+		for _, g := range globs() {
 			needle := strings.TrimPrefix(strings.TrimSuffix(strings.TrimPrefix(g, "**/"), "**"), "~/")
+			needle = strings.TrimPrefix(needle, home) // the absolute config-dir spelling reads as ~/.claude/...
 			if needle != "" && strings.Contains(used, paths.FoldCase(needle)) {
 				return needle
 			}
@@ -750,10 +782,9 @@ func pyArgCount(cmd string, from int) (n int, ok bool) {
 }
 
 // matchesProtected reports whether abs falls under a deny glob: `**/x` by suffix, `dir/**` by prefix, else exact.
-func matchesProtected(abs string, leaf bool) bool {
+func matchesProtected(abs string, globs []string) bool {
 	abs = paths.FoldCase(abs)
-	for _, g := range protectedGlobs(leaf) {
-		g = paths.FoldCase(paths.ExpandHome(g))
+	for _, g := range globs {
 		switch {
 		case strings.HasPrefix(g, "**/"):
 			if strings.HasSuffix(abs, string(filepath.Separator)+g[3:]) {

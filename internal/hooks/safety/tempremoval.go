@@ -24,11 +24,11 @@ var darwinUserTemp = sync.OnceValue(func() *regexp.Regexp {
 
 // removalAllowed reports whether every path cmd removes is a literal temp path outside the live config dir and home;
 // truncate follows a final symlink and ln can aim a temp path at the real tree, so either one voids the allowance.
-func removalAllowed(cmd, cwd string) bool {
+func removalAllowed(cmd string, removed []string) bool {
 	if strings.Contains(cmd, "truncate") || symlinkMaker().MatchString(cmd) {
 		return false
 	}
-	return !slices.ContainsFunc(core.RemovedPaths(cmd, cwd), func(p string) bool { return !tempRemovable(p) })
+	return !slices.ContainsFunc(removed, func(p string) bool { return !tempRemovable(p) })
 }
 
 // movesCwd spots a cd, pushd/popd or chdir option, after which a relative path may no longer mean what it says.
@@ -46,7 +46,7 @@ func tempWriteAllowed(cmd, p string) bool {
 func tempGitRemoval(seg, cmd, cwd string) bool {
 	seg, cmd = expandWith(seg, varPaths(cmd)), expandVars(cmd) // `T=/tmp/x && rm -rf $T/.git` removes a temp copy
 	toks := shell.Tokens(seg)
-	if len(toks) == 0 || toks[0] != "rm" || !removalAllowed(cmd, cwd) {
+	if len(toks) == 0 || toks[0] != "rm" || !removalAllowed(cmd, core.RemovedPaths(cmd, cwd)) {
 		return false
 	}
 	removed := core.RemovedPaths(seg, cwd)

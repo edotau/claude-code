@@ -52,8 +52,10 @@ func protectedEdit(in *core.Input) core.Result {
 	if gateTools[strings.ToLower(in.CanonicalTool())] != "Edit" {
 		return core.Result{}
 	}
-	for _, f := range gateArgs(in, "Edit") {
-		if f = paths.ExpandHome(f); filepath.IsAbs(f) && protectedPath(f, isLeaf(in)) && !tempWriteAllowed("", f) {
+	globs := foldedGlobs(isLeaf(in))
+	for _, form := range gateArgs(in, "Edit") { // pathForms already hold the symlink-resolved spelling
+		f := paths.ExpandHome(form)
+		if filepath.IsAbs(f) && (matchesProtected(f, globs) || f != form && protectedPath(f, globs)) && !tempWriteAllowed("", f) {
 			return core.Result{Decision: core.Block, Reason: core.SafetyMessage(in, core.Block,
 				"writes a file Edit/Write may never touch", f, "Edit it by hand, or run it yourself in a terminal.")}
 		}
