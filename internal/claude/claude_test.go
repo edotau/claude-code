@@ -550,7 +550,7 @@ func TestClaudeLoginProbeLoggedIn(t *testing.T) {
 	resetClaudeProbe()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("PATH", t.TempDir())
-	pathstest.FakeVendor(t, "claude", `[ "$#" -eq 2 ] && [ "$1" = auth ] && [ "$2" = status ] || exit 1
+	fakeClaude(t, `[ "$#" -eq 2 ] && [ "$1" = auth ] && [ "$2" = status ] || exit 1
 echo '{"loggedIn":true,"subscriptionType":"max"}'`)
 	loggedIn, plan, _ := claudeLoginProbe()
 	if !loggedIn || plan != " (max)" {
@@ -569,7 +569,7 @@ func TestClaudeLoginProbeScrubsParentEnv(t *testing.T) {
 	t.Setenv("PROBE_CONTROL", "preserved")
 	envFile := filepath.Join(dir, "probe-env")
 	t.Setenv("PROBE_ENV_FILE", envFile)
-	pathstest.FakeVendor(t, "claude", `printf 'CLAUDE_PROFILE=%s\nPROBE_CONTROL=%s\n' "${CLAUDE_PROFILE-unset}" "$PROBE_CONTROL" > "$PROBE_ENV_FILE"
+	fakeClaude(t, `printf 'CLAUDE_PROFILE=%s\nPROBE_CONTROL=%s\n' "${CLAUDE_PROFILE-unset}" "$PROBE_CONTROL" > "$PROBE_ENV_FILE"
 echo '{"loggedIn":true,"subscriptionType":"max"}'`)
 	loggedIn, plan, err := claudeLoginProbe()
 	if err != nil || !loggedIn || plan != " (max)" {
@@ -606,7 +606,7 @@ func TestClaudeLoginProbeTriState(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			t.Setenv("PATH", t.TempDir())
 			if !c.noBin {
-				pathstest.FakeVendor(t, "claude", c.body)
+				fakeClaude(t, c.body)
 			}
 			in, plan, err := claudeLoginProbe()
 			if in != c.wantIn || plan != c.wantPlan || (err != nil) != c.wantErr {
@@ -655,7 +655,7 @@ func TestClaudeLoginProbeScrubsCredentials(t *testing.T) {
 		t.Setenv(k, "SENTINEL")
 	}
 	dump := filepath.Join(t.TempDir(), "env")
-	pathstest.FakeVendor(t, "claude", "/usr/bin/env > "+dump+"\necho '{\"loggedIn\":true,\"subscriptionType\":\"max\"}'")
+	fakeClaude(t, "/usr/bin/env > "+dump+"\necho '{\"loggedIn\":true,\"subscriptionType\":\"max\"}'")
 	if in, plan, err := claudeLoginProbe(); !in || plan != " (max)" || err != nil {
 		t.Fatalf("probe = %v %q %v; want logged in (max)", in, plan, err)
 	}
@@ -703,9 +703,18 @@ func liveEnv(t *testing.T) {
 func liveEnvScript(t *testing.T, script string) {
 	t.Helper()
 	pathstest.ShortConfigDir(t)
+	t.Setenv(paths.AgentBinDirEnv, paths.BinDir())
 	if err := os.WriteFile(filepath.Join(paths.BinDir(), "claude"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// fakeClaude writes a fake native claude into the test bin dir and points the native lookup at it.
+func fakeClaude(t *testing.T, body string) string {
+	t.Helper()
+	p := pathstest.FakeVendor(t, "claude", body)
+	t.Setenv(paths.AgentBinDirEnv, filepath.Dir(p))
+	return p
 }
 
 // startHolder claims a live record and runs ServeLive on it; the returned func waits for the holder and its error.

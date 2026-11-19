@@ -323,6 +323,19 @@ func gateArgs(req agent.RunOptions) []string {
 	return []string{"--strict-mcp-config", "--tools", gateTools}
 }
 
+// readSettings is a --settings value: inline JSON when it starts with "{", else a file path.
+func readSettings(v string) (map[string]any, error) {
+	raw := []byte(v)
+	if !strings.HasPrefix(strings.TrimSpace(v), "{") {
+		var err error
+		if raw, err = os.ReadFile(v); err != nil {
+			return nil, err
+		}
+	}
+	doc := map[string]any{}
+	return doc, json.Unmarshal(raw, &doc)
+}
+
 // injectGate merges the permission-gate hook into the launch's one --settings (a second flag would replace it).
 func injectGate(argv []string, req agent.RunOptions) ([]string, error) {
 	// the hook exits 2 on any failure, so a gate that cannot run blocks the call; no policy or binary refuses the launch
@@ -342,13 +355,7 @@ func injectGate(argv []string, req agent.RunOptions) ([]string, error) {
 	doc := map[string]any{}
 	at := slices.Index(argv, "--settings")
 	if at >= 0 && at+1 < len(argv) {
-		raw := []byte(argv[at+1])
-		if !strings.HasPrefix(strings.TrimSpace(argv[at+1]), "{") {
-			if raw, err = os.ReadFile(argv[at+1]); err != nil {
-				return refuse(fmt.Errorf("launch settings: %w", err))
-			}
-		}
-		if err = json.Unmarshal(raw, &doc); err != nil {
+		if doc, err = readSettings(argv[at+1]); err != nil {
 			return refuse(fmt.Errorf("launch settings: %w", err))
 		}
 	}

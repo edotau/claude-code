@@ -189,7 +189,7 @@ func TestClaudePassthrough(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(p.Files) != 0 || slices.Contains(p.Argv, "--settings") {
+	if hasKeyHelper(p) {
 		t.Errorf("passthrough must not set an apiKeyHelper: %q %s", p.Argv, overlayFile(p).Data)
 	}
 	// Interactive: the setup-token is withheld so Remote Control sees the /login credential.
@@ -343,7 +343,7 @@ func TestClaudeShellEndpointGetsNoProfileCredential(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(p.Files) != 0 || slices.Contains(p.Argv, "--settings") {
+	if hasKeyHelper(p) {
 		t.Errorf("foreign ANTHROPIC_BASE_URL still gets the profile apiKeyHelper: argv %q overlay %s", p.Argv, overlayFile(p).Data)
 	}
 	if _, ok := p.Set["ANTHROPIC_CUSTOM_HEADERS"]; ok {
@@ -770,7 +770,7 @@ func TestClaudeArmPassthroughHeaderIsSessionToken(t *testing.T) {
 	}
 }
 
-func TestClaudeBinaryPrefersBinDirOverVersions(t *testing.T) {
+func TestClaudeBinaryPrefersPATHOverVersions(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -784,7 +784,8 @@ func TestClaudeBinaryPrefersBinDirOverVersions(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	bin := pathstest.FakeVendor(t, "claude", "")
+	bin := pathstest.FakeVendorOutsideConfig(t, "claude", "")
+	t.Setenv("PATH", filepath.Dir(bin))
 	got, err := ClaudeBinary()
 	if err != nil || got != bin {
 		t.Fatalf("ClaudeBinary = %q, %v; want %q", got, err, bin)
@@ -795,17 +796,17 @@ func TestClaudeBinaryPrefersBinDirOverVersions(t *testing.T) {
 	want := filepath.Join(versions, "2.0.14")
 	got, err = ClaudeBinary()
 	if err != nil || got != want {
-		t.Fatalf("without bin/claude = %q, %v; want %q", got, err, want)
+		t.Fatalf("without a PATH claude = %q, %v; want %q", got, err, want)
 	}
 }
 
-func TestClaudeBinaryDoesNotSearchPATH(t *testing.T) {
+func TestClaudeBinarySkipsBinDirLauncher(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	source := pathstest.FakeVendorOutsideConfig(t, "claude", "")
-	t.Setenv("PATH", filepath.Dir(source))
-	if bin, err := ClaudeBinary(); err == nil || !strings.Contains(err.Error(), "not found in") || bin != "" {
-		t.Fatalf("ClaudeBinary = %q, %v; want not found despite PATH vendor", bin, err)
+	launcher := pathstest.FakeVendor(t, "claude", "")
+	t.Setenv("PATH", filepath.Dir(launcher))
+	if bin, err := ClaudeBinary(); err == nil || !strings.Contains(err.Error(), "not found on PATH") || bin != "" {
+		t.Fatalf("ClaudeBinary = %q, %v; want not found despite the bin/claude launcher", bin, err)
 	}
 }
 
@@ -850,7 +851,7 @@ func TestTakeAsBeatsProfileIdentity(t *testing.T) {
 // `<alias> --help` runs claude's own help; a profile with no model for the alias must not refuse it.
 func TestLaunchClaudeHelpSkipsModelLookup(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	pathstest.FakeVendor(t, "claude", `[ "$1" = --help ] && echo FAKE-CLAUDE-HELP`)
+	fakeClaude(t, `[ "$1" = --help ] && echo FAKE-CLAUDE-HELP`)
 	code, out, errOut := hosttest.CaptureOutput(t, func() int { return Launch("nosuchalias", []string{"--help"}) })
 	if code != 0 || !strings.Contains(out, "FAKE-CLAUDE-HELP") {
 		t.Fatalf("Launch(--help) = %d, stdout %q, stderr %q; want 0 and claude's help", code, out, errOut)
@@ -958,8 +959,8 @@ func TestClaudePickerRows(t *testing.T) {
 				}
 			}
 			checkPickerDescriptions(t, c.session, p, rows)
-			if c.session == "ultra" && (p.Set["ANTHROPIC_BASE_URL"] != "" || len(p.Files) != 0) {
-				t.Errorf("login session proxied: base %q files %d", p.Set["ANTHROPIC_BASE_URL"], len(p.Files))
+			if c.session == "ultra" && (p.Set["ANTHROPIC_BASE_URL"] != "" || hasKeyHelper(p)) {
+				t.Errorf("login session proxied: base %q keyHelper %v", p.Set["ANTHROPIC_BASE_URL"], hasKeyHelper(p))
 			}
 			if !slices.Equal(order, c.peers) {
 				t.Errorf("row profiles %v, want %v", order, c.peers)
@@ -1018,4 +1019,10 @@ func TestClaudeArgvFlagsAreDeclared(t *testing.T) {
 	if got := row.CLI.Undeclared(p.Argv); len(got) > 0 {
 		t.Errorf("interactive: undeclared %v", got)
 	}
+}
+
+// hasKeyHelper reports an apiKeyHelper in the plan's --settings layer (the autoMode layer alone is not one).
+func hasKeyHelper(p agent.Plan) bool {
+	return strings.Contains(string(overlayFile(p).Data), "apiKeyHelper") ||
+		slices.ContainsFunc(p.Argv, func(a string) bool { return strings.Contains(a, "apiKeyHelper") })
 }

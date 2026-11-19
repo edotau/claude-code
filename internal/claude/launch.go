@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -21,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
@@ -49,7 +51,7 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 	if err != nil {
 		return agent.Plan{}, err
 	}
-	bin, self, err := claudeLaunchBinaries()
+	bin, self, err := claudeLaunchBinaries(o)
 	if err != nil {
 		return agent.Plan{}, err
 	}
@@ -65,7 +67,7 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 	offerLogin(ctx, o, args, sessionProviders(sel), &plan)
 	rows, extra := modelPickerRows(reg, p, args)
 	proxied := len(rows) > 0 || sel.NeedsRouter(reg) || armedHop(ctx, p, args)
-	helper, settings, err := configureRouting(ctx, sel, p, passthrough, proxied, self, &plan, extra...)
+	helper, overlayPath, err := configureRouting(ctx, sel, p, passthrough, proxied, self, &plan, extra...)
 	if err != nil {
 		return agent.Plan{}, err
 	}
@@ -77,7 +79,7 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 	for i := range rows {
 		rows[i].Description = clip80(rows[i].route + routeSuffix(addr))
 	}
-	if err := applyOverlay(ctx, &plan, passthrough, args, helper, settings, p.Env, rows); err != nil {
+	if err := applyOverlay(ctx, &plan, passthrough, args, helper, overlayPath, p, rows); err != nil {
 		return agent.Plan{}, err
 	}
 	if !agent.IsHeadless(args) { // a headless launch renders in claudeCmd, where the request is known
@@ -88,7 +90,7 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 	plan.Argv = append(plan.Argv, args...)
 	plan.Keep = o.KeepEnv
 	keepShellEndpoint(ctx, &plan, o)
-	return plan, nil
+	return plan, mergeUserSettings(&plan)
 }
 
 // newClaudePlan is the plan before routing: the wiped keys, the model and thinking knobs, and the session profile.
@@ -253,13 +255,118 @@ func sameEndpoint(a, b string) bool {
 		strings.TrimRight(ua.Path, "/") == strings.TrimRight(ub.Path, "/")
 }
 
-// dropKeyHelper removes the apiKeyHelper overlay: its TTL var, the --settings pair and the overlay file.
-func dropKeyHelper(plan *agent.Plan) {
-	if len(plan.Files) > 0 && len(plan.Argv) >= 2 && plan.Argv[0] == "--settings" && plan.Argv[1] == plan.Files[0].Path {
-		plan.Argv = slices.Clone(plan.Argv[2:])
+// launchDoc is the plan's --settings layer and its file path ("" when inline); nil when the plan has none.
+func launchDoc(plan agent.Plan) (map[string]any, string, error) {
+	if len(plan.Argv) < 2 || plan.Argv[0] != "--settings" {
+		return nil, "", nil
 	}
-	plan.Files = nil
+	v, raw := plan.Argv[1], []byte(plan.Argv[1])
+	path := ""
+	if len(plan.Files) > 0 && plan.Files[0].Path == v {
+		path, raw = v, plan.Files[0].Data
+	}
+	doc := map[string]any{}
+	return doc, path, json.Unmarshal(raw, &doc)
+}
+
+// putLaunchDoc stores doc as the overlay file at path, or inline in the --settings value when path is "".
+func putLaunchDoc(plan *agent.Plan, path string, doc map[string]any) error {
+	data, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return fmt.Errorf("marshal settings overlay: %w", err)
+	}
+	plan.Argv = slices.Clone(plan.Argv)
+	if path == "" {
+		plan.Files, plan.Argv[1] = nil, string(data)
+		return nil
+	}
+	plan.Files = []agent.LaunchFile{{Path: path, Data: data}}
+	return nil
+}
+
+// dropKeyHelper removes the apiKeyHelper and its TTL var; the rest of the --settings layer stays.
+func dropKeyHelper(plan *agent.Plan) {
 	delete(plan.Set, "CLAUDE_CODE_API_KEY_HELPER_TTL_MS")
+	doc, path, err := launchDoc(*plan)
+	if doc == nil {
+		return
+	}
+	if err == nil {
+		delete(doc, "apiKeyHelper")
+		err = putLaunchDoc(plan, path, doc)
+	}
+	if err != nil { // never ship a helper we meant to drop: lose the whole layer instead
+		plan.Argv, plan.Files = slices.Clone(plan.Argv[2:]), nil
+	}
+}
+
+// mergeUserSettings folds each --settings the user typed into the launch's one layer (a second flag replaces it).
+func mergeUserSettings(plan *agent.Plan) error {
+	doc, _, err := launchDoc(*plan)
+	if err != nil || doc == nil {
+		return err
+	}
+	var rest []string
+	found, argv := false, plan.Argv[2:]
+	for i := 0; i < len(argv); i++ {
+		v, ok := strings.CutPrefix(argv[i], "--settings=")
+		switch {
+		case argv[i] == "--":
+			rest, i = append(rest, argv[i:]...), len(argv)
+			continue
+		case argv[i] == "--settings" && i+1 < len(argv):
+			v, ok, i = argv[i+1], true, i+1
+		}
+		if !ok {
+			rest = append(rest, argv[i])
+			continue
+		}
+		user, err := readSettings(v)
+		if err != nil {
+			return fmt.Errorf("--settings %s: %w", v, err)
+		}
+		doc, found = mergeDoc(doc, user), true
+	}
+	if !found {
+		return nil
+	}
+	plan.Argv = append([]string{"--settings", ""}, rest...)
+	return putLaunchDoc(plan, "", doc) // inline: a per-launch doc must not rewrite the profile's shared file
+}
+
+// mergeDoc lays user over base; autoMode and permissions lists append, like Claude Code's own merge.
+func mergeDoc(base, user map[string]any) map[string]any {
+	out := maps.Clone(base)
+	for k, v := range user {
+		b, bok := out[k].(map[string]any)
+		u, uok := v.(map[string]any)
+		if (k != "autoMode" && k != "permissions") || !bok || !uok {
+			out[k] = v
+			continue
+		}
+		m := maps.Clone(b)
+		for lk, lv := range u {
+			m[lk] = appendNew(m[lk], lv)
+		}
+		out[k] = m
+	}
+	return out
+}
+
+// appendNew appends ul's entries missing from bl when both are lists, else returns ul.
+func appendNew(bl, ul any) any {
+	b, ok1 := bl.([]any)
+	u, ok2 := ul.([]any)
+	if !ok1 || !ok2 {
+		return ul
+	}
+	out := slices.Clone(b)
+	for _, x := range u {
+		if !slices.Contains(out, x) {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 // dropHarnessCredential strips the apiKeyHelper, headers and setup-token so a foreign endpoint never gets them.
@@ -425,48 +532,53 @@ func proxyToken(ctx context.Context, routerBase string, sel providers.Selection,
 	return tok, nil
 }
 
-func claudeLaunchBinaries() (string, string, error) {
-	bin, err := findClaude()
-	if err != nil {
-		return "", "", err
+func claudeLaunchBinaries(o agent.LaunchOptions) (string, string, error) {
+	bin := o.Binary
+	if bin == "" {
+		var err error
+		if bin, err = findClaude(); err != nil {
+			return "", "", err
+		}
 	}
 	self, err := selfBinary()
 	return bin, self, err
 }
 
-// applyOverlay sets the passthrough OAuth/unset handling, or the apiKeyHelper overlay + --settings argv.
-func applyOverlay(ctx context.Context, plan *agent.Plan, passthrough bool, args []string, helper, settings string, env map[string]string, rows []pickerRow) error {
+// applyOverlay sets the passthrough OAuth handling or the apiKeyHelper, and writes the launch's one --settings layer.
+func applyOverlay(ctx context.Context, plan *agent.Plan, passthrough bool, args []string, helper, path string, p *providers.Provider, rows []pickerRow) error {
 	// Provider env (non-secret by Validate) rides the child's process env: Claude Code reads it before settings load.
-	for k, v := range providerEnv(ctx, env) {
+	for k, v := range providerEnv(ctx, p.Env) {
 		if _, set := plan.Set[k]; !set { // the harness-resolved key wins
 			plan.Set[k] = v
 		}
 	}
-	if passthrough { // no overlay: Claude Code disables subscription OAuth whenever an apiKeyHelper is set
-		if !agent.IsHeadless(args) {
-			// Remote Control refuses the inference-only setup-token; the interactive /login credential must win.
-			plan.Unset = append(plan.Unset, oauthKey)
-		} else if proc.Value(ctx, oauthKey) == "" {
-			// A long-lived setup-token from the env or the vault outlives the /login session in .credentials.json.
-			if tok := providers.HeadlessOAuthToken(); tok != "" {
-				plan.Set[oauthKey] = tok
-			}
-		}
-		return nil
+	doc, err := settings.LaunchSettings(p.Preset == providers.PresetDatabricks)
+	if err != nil {
+		return err
 	}
-	plan.Set["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = "300000"
-	doc := map[string]any{"apiKeyHelper": helper}
+	if passthrough { // no apiKeyHelper: Claude Code disables subscription OAuth whenever one is set
+		passthroughOAuth(ctx, plan, args)
+	} else {
+		plan.Set["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = "300000"
+		doc["apiKeyHelper"] = helper
+	}
 	if len(rows) > 0 { // own file: a headless launch rewriting the shared overlay would drop a live session's rows
 		doc["modelPicker"] = modelPicker{Options: rows}
-		settings = strings.TrimSuffix(settings, ".json") + "-picker.json"
+		path = strings.TrimSuffix(path, ".json") + "-picker.json"
 	}
-	overlay, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshal settings overlay: %w", err)
+	plan.Argv = []string{"--settings", path}
+	return putLaunchDoc(plan, path, doc)
+}
+
+// passthroughOAuth: Remote Control refuses the setup-token interactively; headless prefers the long-lived token.
+func passthroughOAuth(ctx context.Context, plan *agent.Plan, args []string) {
+	if !agent.IsHeadless(args) {
+		plan.Unset = append(plan.Unset, oauthKey)
+	} else if proc.Value(ctx, oauthKey) == "" {
+		if tok := providers.HeadlessOAuthToken(); tok != "" {
+			plan.Set[oauthKey] = tok
+		}
 	}
-	plan.Files = []agent.LaunchFile{{Path: settings, Data: overlay}}
-	plan.Argv = []string{"--settings", settings}
-	return nil
 }
 
 // modelPicker is Claude Code's modelPicker setting; rows append to the built-in /model lineup.
@@ -608,20 +720,17 @@ func providerEnv(ctx context.Context, env map[string]string) map[string]string {
 	return out
 }
 
-// ClaudeBinary finds claude: BinDir/claude, else the native installer's newest (not under the bin-dir override).
+// ClaudeBinary finds native claude, never bin/claude (the launcher): PATH outside BinDir, else the newest install.
 func ClaudeBinary() (string, error) {
-	bin, err := paths.AgentBin("claude")
-	if err == nil {
-		return bin, nil
-	}
-	if os.Getenv(paths.AgentBinDirEnv) != "" {
-		return "", err // the override is hermetic: never fall back to the real install
+	bin, err := paths.NativeClaude()
+	if err == nil || os.Getenv(paths.AgentBinDirEnv) != "" {
+		return bin, err // the override is hermetic: never fall back to the real install
 	}
 	if bin := newestInstalledClaude(); bin != "" {
 		return bin, nil
 	}
-	return "", errors.New("claude: not found in " + paths.BinDir() +
-		" or ~/.local/share/claude/versions (claude-code install --tools=claude)")
+	return "", errors.New("claude: not found on PATH outside " + paths.BinDir() +
+		" or in ~/.local/share/claude/versions (claude-code install --tools=claude)")
 }
 
 func newestInstalledClaude() string {

@@ -11,7 +11,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -141,7 +140,7 @@ func TestAnthropicOAuthLaunchPlan(t *testing.T) {
 	if p.Set[oauthKey] != fakeToken || p.Set[providers.EnvSessionProfile] != "ultra" {
 		t.Errorf("set %d", len(p.Set))
 	}
-	if len(p.Files) != 0 || slices.Contains(p.Argv, "--settings") {
+	if hasKeyHelper(p) {
 		t.Errorf("a login profile must not set an apiKeyHelper: %q", p.Argv)
 	}
 	out := printed(p)
@@ -161,7 +160,7 @@ func TestAnthropicNamedAPIKeyLaunchPlan(t *testing.T) {
 	if p.Set["ANTHROPIC_API_KEY"] != fakeToken || p.Set[providers.EnvSessionProfile] != "anthropic" {
 		t.Errorf("set %d", len(p.Set))
 	}
-	if len(p.Files) != 0 || slices.Contains(p.Argv, "--settings") {
+	if hasKeyHelper(p) {
 		t.Errorf("a named key drops the apiKeyHelper overlay: %q %s", p.Argv, overlayFile(p).Data)
 	}
 	if _, ok := p.Set["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"]; ok {
@@ -293,7 +292,7 @@ func TestRunSetupTokenScrubsVaultKey(t *testing.T) {
 	t.Setenv("HARNESS_VAULT_KEY", "setup-secret")
 	t.Setenv("DISPLAY", ":7")
 	out := filepath.Join(t.TempDir(), "env")
-	pathstest.FakeVendor(t, "claude", `echo "key=$HARNESS_VAULT_KEY display=$DISPLAY" > `+out)
+	fakeClaude(t, `echo "key=$HARNESS_VAULT_KEY display=$DISPLAY" > `+out)
 	runSetupToken()
 	got, err := os.ReadFile(out)
 	if err != nil || strings.Contains(string(got), "setup-secret") || !strings.Contains(string(got), "display=:7") {
