@@ -26,12 +26,13 @@ func RunQuery(ctx context.Context, reg *providers.Registry, q ModelQuery, aliasH
 	if ownConnectorQuery(q) {
 		return q, "", nil
 	}
-	prefix, auto := SplitAuto(q.Model)
-	typed := q.Model != "" && (!auto || prefix != "") // a bare auto routes like an untyped run
 	if hop, ok := agyAliasQuery(q); ok {
 		return hop, "", nil
 	}
-	if VaultAgentIsClaude(q.Agent) || typed || q.Profile != "" || q.Provider != "" || q.Account != "" {
+	if pq, ok := poolQuery(ctx, q); ok {
+		return pq, "", nil
+	}
+	if namesRoute(q) {
 		return q, "", nil
 	}
 	pin := agentModelPinContext(ctx, q.Agent)
@@ -46,6 +47,25 @@ func RunQuery(ctx context.Context, reg *providers.Registry, q ModelQuery, aliasH
 		return q, "", fmt.Errorf("no route runs %s (%s)", q.Agent, strings.Join(chain.Skipped, "; "))
 	}
 	return labelHop(reg, q, pin, chain.Dispatches[0])
+}
+
+// namesRoute reports a query that runs as typed: claude, a typed model, or a named profile, provider or account.
+func namesRoute(q ModelQuery) bool {
+	prefix, auto := SplitAuto(q.Model)
+	typed := q.Model != "" && (!auto || prefix != "") // a bare auto routes like an untyped run
+	return VaultAgentIsClaude(q.Agent) || typed || q.Profile != "" || q.Provider != "" || q.Account != ""
+}
+
+// poolQuery is q on the Databricks pool when nothing names a route and the agent's record pins the pool.
+func poolQuery(ctx context.Context, q ModelQuery) (ModelQuery, bool) {
+	if q.Profile != "" || q.Provider != "" || q.Account != "" || strings.Contains(q.Model, ":") || !PinsPool(q.Agent) {
+		return q, false
+	}
+	q.Provider = providers.GroupDatabricks // as --provider databricks: the auto pick
+	if arm := router.ArmProfileContext(ctx); arm != "" {
+		q.Profile, q.Provider = arm, "" // ask already picked this run's workspace
+	}
+	return q, true
 }
 
 // labelHop is ladderHop under auto: a typed or pinned auto beats the hop's cell model, as dispatchRequest runs it.

@@ -516,10 +516,14 @@ func (r ModelRoute) Overlay() agentconfig.Overlay {
 // Label is the "<model>" of a dispatch description: the wire id the ran-on line prints.
 func (r ModelRoute) Label() string { return r.Model }
 
-// resolvePool is the shared Databricks pool: the first workspace in vault order that is usable and serves the model.
+// resolvePool is the pool's first usable workspace serving the model; databricks:<m> walks vault order, auto ranks.
 func resolvePool(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec, now time.Time) (ModelRoute, error) {
 	st, skipped := router.LoadState(), []string(nil)
-	for _, name := range reg.ProfilesOf(providers.GroupDatabricks) {
+	names := reg.ProfilesOf(providers.GroupDatabricks)
+	if !spec.Pool {
+		names = autoOrder(reg, names, st, now)
+	}
+	for _, name := range names {
 		p, err := agentconfig.CommandProvider(q.ctx, reg.Providers[name])
 		if err != nil {
 			return ModelRoute{}, err
@@ -547,6 +551,27 @@ func resolvePool(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec
 	}
 	return ModelRoute{}, fmt.Errorf("%w: no Databricks profile can serve %s for %s (%s)", ErrModelRoute,
 		cmp.Or(spec.Model, q.Default, models.Opus), q.Agent, strings.Join(skipped, "; "))
+}
+
+// autoOrder is names in databricks:auto's order (cooling last, fewest live, least recent pick), stamping nothing.
+func autoOrder(reg *providers.Registry, names []string, st router.State, now time.Time) []string {
+	q := router.WorkspaceQuery[struct{}]{
+		Findings: func(*providers.Provider, string, string, time.Time) []struct{} { return nil },
+		Unserved: func(string, []struct{}) error { return nil },
+		Cooling: func(p *providers.Provider, now time.Time) bool {
+			return st.CoolingUntil(router.AccountOf(p)).After(now)
+		},
+	}
+	ranked, _, err := router.RankWorkspaces(reg, q, now)
+	if err != nil {
+		return names
+	}
+	for _, n := range names { // a row the ranking skips (no preset) follows in vault order
+		if !slices.Contains(ranked, n) {
+			ranked = append(ranked, n)
+		}
+	}
+	return ranked
 }
 
 // poolListed refuses a model p's fresh listing shows unlisted or not READY.

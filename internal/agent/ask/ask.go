@@ -287,7 +287,7 @@ func (r *askRun) checkArm() (int, bool) {
 	return 0, false
 }
 
-// poolValue is value, or databricks:auto for --provider databricks with no profile and for a typed model the pin lacks.
+// poolValue is value, or databricks:auto for --provider databricks with no profile, a pool pin, or a model the pin lacks.
 func (r *askRun) poolValue(value string) string {
 	f := r.f
 	r.swap = helptext.Explicit(r.fs, "fallback") && f.fallback != router.FallbackNone
@@ -297,10 +297,22 @@ func (r *askRun) poolValue(value string) string {
 	case f.leadProvider == router.RouteDatabricks:
 		f.leadProvider = ""
 		return auto
-	case f.leadProvider == "" && f.batchSrc == "" && !r.swap && typedModel(f.model) && r.pinLacks(f.model):
+	case pinMoves(r):
 		return auto
 	}
 	return value
+}
+
+// pinMoves reports an unled, unbatched run off its pin: a typed model the pin lacks, or a pool pin (not live or resumed).
+func pinMoves(r *askRun) bool {
+	f := r.f
+	if f.leadProvider != "" || f.batchSrc != "" {
+		return false
+	}
+	if !r.swap && typedModel(f.model) && r.pinLacks(f.model) {
+		return true
+	}
+	return !f.live && !f.background && f.session == "" && !strings.Contains(f.model, ":") && agent.PinsPool(r.ag)
 }
 
 // confineAgent is the agent the confinement is applied for ("" when each batch line confines its own), and that flag.

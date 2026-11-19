@@ -467,8 +467,8 @@ func AgentPinsContext(ctx context.Context) (map[string]router.PinSpec, error) {
 	for _, k := range rs {
 		r := recs[k.Name]
 		spec := router.PinSpec{Profile: r.Profile, Off: k.External() && r.Profile == ""}
-		if ownLogin(reg, k.Name, r.Profile) {
-			spec.Profile = "" // the agent's own login profile routes as the old unset pin did
+		if ownLogin(reg, k.Name, r.Profile) || k.External() && strings.TrimSpace(r.Profile) == PoolPin {
+			spec.Profile = "" // own login, or the pool (no fixed workspace): routes as the old unset pin did
 		}
 		spec.Model, spec.Fallback = r.Model, r.Fallback
 		if !k.External() {
@@ -498,13 +498,31 @@ func ownLogin(loadReg func() *providers.Registry, agent, profile string) bool {
 	return p != nil && p.Auth.Login == agent
 }
 
-// ValidAgentPin checks v as agent's profile pin: a registry profile, or its schema's own-login id or extra pin ids.
+// PoolPin is the record profile pinning an agent to the Databricks pool: the auto pick, no fixed workspace.
+const PoolPin = providers.GroupDatabricks
+
+// PinsPool reports an external agent whose record profile is PoolPin.
+func PinsPool(agent string) bool {
+	s, ok := lookupRow(agent)
+	return ok && s.External() && strings.TrimSpace(vault.GetAgentRecord(agent).Profile) == PoolPin
+}
+
+// servesPool reports whether agent can run on any Databricks row of reg.
+func servesPool(reg *providers.Registry, agent string) bool {
+	return reg != nil && slices.ContainsFunc(reg.ProfilesOf(providers.GroupDatabricks),
+		func(n string) bool { return CanServe(agent, reg.Providers[n]) })
+}
+
+// ValidAgentPin checks v as agent's profile pin: a registry profile, PoolPin, or its schema's own-login or pin ids.
 func ValidAgentPin(reg *providers.Registry, agent, v string) error {
 	s, ok := lookupRow(agent)
 	if !ok {
 		return errUnknownAgent(agent)
 	}
 	if v != "" && v == s.CLI.OwnLoginProfile || slices.Contains(s.CLI.PinIDs, v) {
+		return nil
+	}
+	if v == PoolPin && s.External() && servesPool(reg, agent) {
 		return nil
 	}
 	if reg == nil || reg.Providers[v] == nil {

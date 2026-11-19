@@ -29,7 +29,7 @@ const (
 type Pin struct {
 	Agent         string
 	Profile       string
-	ProfileSource string // pin | own login | none
+	ProfileSource string // pin | own login | pool | none
 	Model         string
 	Served        string // yes | no | unknown | n/a
 	Status        string
@@ -73,7 +73,8 @@ func Check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
 		switch spec := pins[a]; {
 		case a == "claude" || spec.Off:
 		case spec.Profile == "" && recs[a].Profile != "": // AgentPins clears an own-login record profile
-			out = append(out, Pin{Agent: a, Profile: recs[a].Profile, ProfileSource: "own login", Model: spec.Model, Served: "n/a", Status: StatusOK})
+			src := map[bool]string{true: "pool", false: "own login"}[strings.TrimSpace(recs[a].Profile) == agent.PoolPin]
+			out = append(out, Pin{Agent: a, Profile: recs[a].Profile, ProfileSource: src, Model: spec.Model, Served: "n/a", Status: StatusOK})
 		default:
 			out = append(out, checkAgent(reg, a, spec, session, now))
 		}
