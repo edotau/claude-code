@@ -36,24 +36,66 @@ func LaunchWrapped(args []string) int {
 	if len(args) > 0 && slices.Contains(nativeSubcommands, args[0]) {
 		return execNative(native, args, nil)
 	}
+	opts, plan, err := planLaunch(native, args)
+	if err != nil {
+		if refuse := refuseFallback(opts, err); refuse != nil {
+			deduped, changed := dedupInputs(args)
+			if len(changed) == 0 {
+				return helptext.Fail("%v", refuse)
+			}
+			if opts, plan, err = planLaunch(native, deduped); err != nil {
+				return helptext.Fail("%v; a retry after deduping %s also failed: %v", refuse, strings.Join(changed, ", "), err)
+			}
+			fmt.Fprintf(os.Stderr, "claude: launch planned after deduping %s\n", strings.Join(changed, ", "))
+		} else {
+			return execNative(native, args, err)
+		}
+	}
+	plan.Set[launcherEnv] = strconv.Itoa(os.Getpid())
+	return agent.RunPlan("claude", plan, opts, nil)
+}
+
+// planLaunch parses args and builds the session-profile plan for native.
+func planLaunch(native string, args []string) (agent.LaunchOptions, agent.Plan, error) {
 	as, rest, err := providers.TakeAs(args)
 	var opts agent.LaunchOptions
 	if err == nil {
 		opts, rest, err = agent.ParseLaunchArgs(rest, true)
 	}
-	var plan agent.Plan
-	if err == nil {
-		opts.Binary = native
-		plan, err = claudePlan(providers.WithIdentity(context.Background(), as), opts, rest)
-	}
 	if err != nil {
-		if refuse := refuseFallback(opts, err); refuse != nil {
-			return helptext.Fail("%v", refuse)
-		}
-		return execNative(native, args, err)
+		return opts, agent.Plan{}, err
 	}
-	plan.Set[launcherEnv] = strconv.Itoa(os.Getpid())
-	return agent.RunPlan("claude", plan, opts, nil)
+	opts.Binary = native
+	plan, err := claudePlan(providers.WithIdentity(context.Background(), as), opts, rest)
+	return opts, plan, err
+}
+
+// dedupInputs drops repeated `--settings <v>` pairs and duplicate PATH dirs (and bin/); changed names what it removed.
+func dedupInputs(args []string) ([]string, []string) {
+	var out, changed []string
+	seen := map[string]bool{}
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--settings" && i+1 < len(args) {
+			if seen[args[i+1]] {
+				changed, i = append(changed, "--settings "+args[i+1]), i+1
+				continue
+			}
+			seen[args[i+1]] = true
+		}
+		out = append(out, args[i])
+	}
+	var dirs []string
+	bin := filepath.Clean(paths.BinDir())
+	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
+		if c := filepath.Clean(d); c != bin && !slices.Contains(dirs, c) {
+			dirs = append(dirs, c)
+		}
+	}
+	if joined := strings.Join(dirs, string(os.PathListSeparator)); joined != os.Getenv("PATH") {
+		changed = append(changed, "PATH")
+		_ = proc.Setenv("PATH", joined)
+	}
+	return out, changed
 }
 
 // takeNative strips a leading absolute path to a claude executable: the VS Code wrapper's bundled binary.

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestTakeNative(t *testing.T) {
@@ -37,5 +38,20 @@ func TestRefuseFallback(t *testing.T) {
 		if err := refuseFallback(agent.LaunchOptions{Provider: name}, cause); err == nil {
 			t.Errorf("profile %s must be refused", name)
 		}
+	}
+}
+
+func TestDedupInputs(t *testing.T) {
+	bin := paths.BinDir()
+	t.Setenv("PATH", "/usr/bin"+string(os.PathListSeparator)+bin+string(os.PathListSeparator)+"/usr/bin")
+	got, changed := dedupInputs([]string{"--settings", "a.json", "-p", "x", "--settings", "a.json", "--settings", "b.json"})
+	if want := []string{"--settings", "a.json", "-p", "x", "--settings", "b.json"}; !slices.Equal(got, want) {
+		t.Errorf("args = %v, want %v", got, want)
+	}
+	if !slices.Equal(changed, []string{"--settings a.json", "PATH"}) || os.Getenv("PATH") != "/usr/bin" {
+		t.Errorf("changed = %v, PATH = %q", changed, os.Getenv("PATH"))
+	}
+	if _, none := dedupInputs([]string{"-p", "x"}); len(none) != 0 {
+		t.Errorf("clean input changed %v", none)
 	}
 }
