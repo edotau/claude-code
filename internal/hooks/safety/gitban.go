@@ -87,7 +87,7 @@ func bannedVerb(cmd, cwd string) string {
 		if shell.UnknownDir(target) && !fresh { // a dynamic cd may land back in the shared tree
 			target = cwd
 		}
-		if !gitBannedUnder(target, verb, args) || tooDeepNoVerb(verb, args, cmd) {
+		if !gitBannedUnder(target, verb, args) || tooDeepNoVerb(verb, args, cmd) || helpOnly(args) {
 			return false
 		}
 		hit = verb
@@ -95,6 +95,9 @@ func bannedVerb(cmd, cwd string) string {
 	})
 	return hit
 }
+
+// helpOnly reports a verb whose single argument asks for its usage text, which writes nothing.
+func helpOnly(args []string) bool { return len(args) == 1 && (args[0] == "--help" || args[0] == "-h") }
 
 // mktempCd: a cd/pushd's target word, a shell assignment, and a target that is a fresh `$(mktemp …)` dir or a var.
 var mktempCd = []*core.Gated{
