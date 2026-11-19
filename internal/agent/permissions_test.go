@@ -148,7 +148,7 @@ func TestPermissionCdInsideWorkdir(t *testing.T) {
 	// a home-normalized store path still matches its cd rule (commandWords spells $HOME as ~)
 	home, _ := os.UserHomeDir()
 	store := Permissions{Mode: "plan", Allow: []Rule{CdRule(filepath.ToSlash(home) + "/.claude/memory")}}
-	checkBash(t, store, map[string]Decision{"cd ~/.claude/memory": Allow, "cd ~/.claude/memory/x": Allow,"cd ~/.claude": Deny, "cd ~": Deny})
+	checkBash(t, store, map[string]Decision{"cd ~/.claude/memory": Allow, "cd ~/.claude/memory/x": Allow, "cd ~/.claude": Deny, "cd ~": Deny})
 }
 
 // Given a Bash deny, Then rtk, path-named and $HOME spellings meet it; `rtk read` stays unstripped.
