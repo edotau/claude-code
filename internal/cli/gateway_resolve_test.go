@@ -22,7 +22,7 @@ import (
 
 func TestRouteLine(t *testing.T) {
 	r := agent.ModelRoute{Agent: "copilot", Account: "github·business", Model: "gpt-6-astra", Source: "prefix"}
-	if got := routeLine(r); got != "copilot · github·business · gpt-6-astra (prefix)" {
+	if got := r.Line(); got != "copilot · github·business · gpt-6-astra (prefix)" {
 		t.Errorf("routeLine = %q", got)
 	}
 }

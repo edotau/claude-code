@@ -188,32 +188,16 @@ func printRoute(r agent.ModelRoute, choice *agent.AutoChoice, format string) int
 		return 0
 	}
 	if choice == nil {
-		fmt.Println(routeLine(r))
+		fmt.Println(r.Line())
 		return 0
 	}
 	reason := choice.Reason()
 	before, after, _ := strings.Cut(r.Note, reason)
 	r.Note = strings.Join(slices.DeleteFunc([]string{strings.TrimSuffix(before, "; "), strings.TrimPrefix(after, "; ")},
 		func(s string) bool { return s == "" }), "; ")
-	fmt.Println(routeLine(r))
+	fmt.Println(r.Line())
 	fmt.Println(reason)
 	return 0
-}
-
-// routeLine is the one-line summary: agent · account · model, the effort, the source and any note.
-func routeLine(r agent.ModelRoute) string {
-	line := fmt.Sprintf("%s · %s · %s", r.Agent, r.Account, r.Model)
-	if r.Effort != "" {
-		line += " effort " + r.Effort
-	}
-	line += " (" + r.Source + ")"
-	if r.Served != "" {
-		line += " served: " + r.Served
-	}
-	if r.Note != "" {
-		line += " note: " + r.Note
-	}
-	return line
 }
 
 // resolveAll resolves q on every profile, optionally live-checking each that resolved.
@@ -239,7 +223,7 @@ func resolveAll(ctx context.Context, reg *providers.Registry, q agent.ModelQuery
 			}
 		} else if r.Served == agent.ServedNo {
 			row.Pass, row.Reason = false, r.Model+" is not listed"
-		} // an unverified route says so on its own line: routeLine prints served: unverified
+		} // an unverified route says so on its own line: Line prints served: unverified
 		rows = append(rows, row)
 	}
 	return rows
@@ -312,7 +296,7 @@ func printRows(rows []resolveRow, format string) int {
 	} else {
 		for _, r := range rows {
 			if r.Route != nil {
-				fmt.Printf("%-4s %-12s %s\n", map[bool]string{true: "PASS", false: "FAIL"}[r.Pass], r.Profile, routeLine(*r.Route))
+				fmt.Printf("%-4s %-12s %s\n", map[bool]string{true: "PASS", false: "FAIL"}[r.Pass], r.Profile, r.Route.Line())
 			} else {
 				fmt.Printf("FAIL %-12s %s\n", r.Profile, r.Reason)
 			}

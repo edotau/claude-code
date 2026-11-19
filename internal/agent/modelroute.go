@@ -36,6 +36,22 @@ type ModelRoute struct {
 	Note     string `json:"note,omitempty"`     // a substitution or skip said aloud
 }
 
+// Line is the one-line summary: agent · account · model, the effort, the source and any note.
+func (r ModelRoute) Line() string {
+	line := fmt.Sprintf("%s · %s · %s", r.Agent, r.Account, r.Model)
+	if r.Effort != "" {
+		line += " effort " + r.Effort
+	}
+	line += " (" + r.Source + ")"
+	if r.Served != "" {
+		line += " served: " + r.Served
+	}
+	if r.Note != "" {
+		line += " note: " + r.Note
+	}
+	return line
+}
+
 // Served values: the row's fresh listing lacks the model, or no fresh listing exists to judge by.
 const (
 	ServedNo         = "no"

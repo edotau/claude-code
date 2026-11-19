@@ -45,6 +45,15 @@ type Chain struct {
 	requested  string     // the requested target's <profile>:<model> when it is a dispatch of this chain
 }
 
+// Hops names each dispatch in run order, "codex (openai·chatgpt, gpt-6.1-sol)".
+func (c Chain) Hops() []string {
+	out := make([]string, 0, len(c.Dispatches))
+	for _, d := range c.Dispatches {
+		out = append(out, hopTarget(d))
+	}
+	return out
+}
+
 // Single is a one-dispatch chain on r with the caller's request untouched (an explicit backend, or a test).
 func Single(r Engine) Chain {
 	return Chain{Want: r.Name(), Dispatches: []Dispatch{{Agent: r, keepCaller: true, unroutedDispatch: true}}}

@@ -51,36 +51,15 @@ type Prepared struct {
 
 // Prepare routes the raw task before applying its rubric and claiming a dispatch record.
 func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Prepared, error) {
-	ctx, o.Values = RunValues(ctx, o.Values)
+	o, r, ch, err := c.Plan(ctx, o)
+	if err != nil {
+		return nil, err
+	}
+	ctx, _ = RunValues(ctx, o.Values)
 	ctx = context.WithValue(ctx, runTimeoutKey{}, o.Timeout)
-	o, err := c.withDefaults(o)
-	if err != nil {
-		return nil, err
-	}
-	if o.Host == "" { // a remote host resolves the word itself
-		if o.Model, err = resolveRunModel(ctx, o); err != nil {
-			return nil, clientUsageError{fmt.Errorf("%w: %w", ErrModelRoute, err)}
-		}
-	}
-	if err := refuseDirectContext(ctx, o.Direct); err != nil {
-		return nil, clientUsageError{err}
-	}
-	r, err := Lookup(o.Agent)
-	if err != nil {
-		return nil, err
-	}
-	p := &Prepared{}
+	p := &Prepared{Chain: ch}
 	if o.Host != "" {
-		if r, err = hostEngine(o); err != nil {
-			return nil, err
-		}
 		p.remote = r
-	}
-	if p.Chain, err = c.route(ctx, r, o); err != nil {
-		return nil, err
-	}
-	if err := refusePersona(r.Caps(), r.Name(), o.Persona); err != nil {
-		return nil, clientUsageError{err}
 	}
 	if o, err = withRubric(o); err != nil {
 		return nil, err
@@ -89,6 +68,40 @@ func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Pre
 		return nil, err
 	}
 	return p, nil
+}
+
+// Plan is Prepare's routing half: defaults, model word, direct refusal, engine and chain; it claims nothing.
+func (c *Client) Plan(ctx context.Context, o RunOptions) (RunOptions, Engine, Chain, error) {
+	ctx, o.Values = RunValues(ctx, o.Values)
+	ctx = context.WithValue(ctx, runTimeoutKey{}, o.Timeout)
+	o, err := c.withDefaults(o)
+	if err != nil {
+		return o, nil, Chain{}, err
+	}
+	if o.Host == "" { // a remote host resolves the word itself
+		if o.Model, err = resolveRunModel(ctx, o); err != nil {
+			return o, nil, Chain{}, clientUsageError{fmt.Errorf("%w: %w", ErrModelRoute, err)}
+		}
+	}
+	if err := refuseDirectContext(ctx, o.Direct); err != nil {
+		return o, nil, Chain{}, clientUsageError{err}
+	}
+	r, err := Lookup(o.Agent)
+	if err != nil {
+		return o, nil, Chain{}, err
+	}
+	if o.Host != "" {
+		if r, err = hostEngine(o); err != nil {
+			return o, nil, Chain{}, err
+		}
+	}
+	ch, err := c.route(ctx, r, o)
+	if err == nil {
+		if perr := refusePersona(r.Caps(), r.Name(), o.Persona); perr != nil {
+			err = clientUsageError{perr}
+		}
+	}
+	return o, r, ch, err
 }
 
 // finishPrepare sets p's options and dispatch record, then packs o's workspace context into the prompt.
