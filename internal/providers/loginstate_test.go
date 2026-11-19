@@ -192,7 +192,7 @@ func TestRemoteHosts(t *testing.T) {
 	if got := RemoteHosts(); !slices.Equal(got, []string{"v.example"}) {
 		t.Errorf("vault value = %q", got)
 	}
-	t.Setenv(RemoteHostEnv, "a.example, b.example,")
+	t.Setenv(RemoteHostEnv, "a.example, b.example,a.example")
 	if got := RemoteHosts(); !slices.Equal(got, []string{"a.example", "b.example"}) {
 		t.Errorf("process env = %q, want it to beat the vault", got)
 	}

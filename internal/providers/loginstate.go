@@ -31,9 +31,11 @@ const RemoteHostEnv = "CLAUDE_REMOTE_HOST"
 // RemoteHosts is CLAUDE_REMOTE_HOST as a list: process env, else the vault's; the first entry is what `auto` names.
 func RemoteHosts() []string {
 	raw := cmp.Or(strings.TrimSpace(os.Getenv(RemoteHostEnv)), strings.TrimSpace(CustomEnv()[RemoteHostEnv]))
-	hosts := slices.DeleteFunc(strings.Split(raw, ","), func(h string) bool { return strings.TrimSpace(h) == "" })
-	for i, h := range hosts {
-		hosts[i] = strings.TrimSpace(h)
+	var hosts []string
+	for h := range strings.SplitSeq(raw, ",") {
+		if h = strings.TrimSpace(h); h != "" && !slices.Contains(hosts, h) {
+			hosts = append(hosts, h)
+		}
 	}
 	return hosts
 }
