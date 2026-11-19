@@ -37,8 +37,58 @@ func Render() ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	top, err := schemaProps(schemaJSON)
+	if err != nil {
+		return nil, err
+	}
+	events, err := schemaProps(top.vals["hooks"])
+	if err != nil {
+		return nil, err
+	}
+	h, err := parseObject(hooks)
+	if err != nil {
+		return nil, err
+	}
+	h.orderBy(events.keys)
+	if hooks, err = h.marshal(); err != nil {
+		return nil, err
+	}
 	o.set("hooks", hooks)
+	o.orderBy(top.keys)
 	return o.marshal()
+}
+
+// schemaProps is a schema node's "properties" object, in schemastore's key order.
+func schemaProps(node json.RawMessage) (*object, error) {
+	n, err := parseObject(node)
+	if err == nil {
+		n, err = parseObject(n.vals["properties"])
+	}
+	if err != nil {
+		return nil, fmt.Errorf("settings schema: %w", err)
+	}
+	return n, nil
+}
+
+// orderBy moves the keys ref lists to ref's order ahead of the rest, which keep their order.
+func (o *object) orderBy(ref []string) {
+	rank := make(map[string]int, len(ref))
+	for i, k := range ref {
+		rank[k] = i
+	}
+	slices.SortStableFunc(o.keys, func(a, b string) int {
+		ra, okA := rank[a]
+		rb, okB := rank[b]
+		switch {
+		case okA && okB:
+			return ra - rb
+		case okA:
+			return -1
+		case okB:
+			return 1
+		}
+		return 0
+	})
 }
 
 // object is a JSON object that remembers key order, so the render keeps the template's layout.
