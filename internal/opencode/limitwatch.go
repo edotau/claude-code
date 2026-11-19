@@ -75,6 +75,10 @@ func limitCause(line string) *retry.Error {
 	if !strings.Contains(line, "level=ERROR") || !strings.Contains(line, `message="stream error"`) {
 		return nil
 	}
+	// only the root run's own model stream decides: opencode tolerates a failed title or small-model call
+	if !strings.Contains(line, " small=false ") || !strings.Contains(line, " mode=primary ") {
+		return nil
+	}
 	m := limitErrRE.FindStringSubmatch(line)
 	if m == nil {
 		return nil

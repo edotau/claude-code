@@ -1359,3 +1359,16 @@ func TestRunDispatchRepicksRefusedAutoPick(t *testing.T) {
 		}
 	})
 }
+
+// An auto pick's gone endpoint re-picks from the auto pool, never through the concrete served rescue.
+func TestRetryModelAutoEndpointGoneRepicksPool(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	row := reg.Row("dev")
+	ran := providers.SpellPin(row, rotationPool("opencode", "", row, false, time.Now())[0])
+	rescued := false
+	disp := Dispatch{Agent: &pickRefuser{}, Account: row.Account(), servedRepick: func(string) string { rescued = true; return "dev:m-b" }}
+	got := retryModel(disp, RunOptions{Model: "dev:auto"}, ran, errors.New("ENDPOINT_NOT_FOUND: no endpoint "+ran))
+	if got != "dev:auto" || rescued {
+		t.Fatalf("retry = %q, rescued = %v; want the auto re-pick and no concrete rescue", got, rescued)
+	}
+}

@@ -301,6 +301,7 @@ func (r *askRun) poolValue(value string) string {
 	f.native = ownLoginNative(r.ag, f, value)
 	switch {
 	case value != "" || f.provider != "" || f.host != "" || r.jobRec != nil || f.native:
+		leadAuto(f, auto)
 	case f.model == auto: // names the arm and its auto workspace, not a profile, so foldAuto sees plain auto
 		f.leadProvider, f.model = "", router.AutoArm
 		return auto
@@ -311,6 +312,13 @@ func (r *askRun) poolValue(value string) string {
 		return auto
 	}
 	return value
+}
+
+// leadAuto spells a kept route's databricks:auto as --provider databricks --model auto, which a typed profile confines.
+func leadAuto(f *askFlags, auto string) {
+	if f.model == auto && f.host == "" && f.leadProvider == "" {
+		f.leadProvider, f.model = router.RouteDatabricks, router.AutoArm
+	}
 }
 
 // pinMoves reports an unled, unbatched run off its pin: a typed model the pin lacks, or a pool pin (not live or resumed).

@@ -289,7 +289,7 @@ func promptFromHandoff(path, prompt, agentName string) string {
 // hopOf records one tried dispatch: who ran, on which account and profile, and the error token if it failed.
 func hopOf(disp Dispatch, req RunOptions, res wire.Result, err error) wire.Hop {
 	h := wire.Hop{Agent: cmp.Or(res.Agent, disp.Agent.Name()), Account: ranAccount(disp.Account, res.Provider), Profile: cmp.Or(res.Provider, req.Provider),
-		Model: cmp.Or(res.Model, req.Model), NotStarted: res.NotStarted}
+		Model: cmp.Or(res.Model, req.Model), Reported: res.Reported, NotStarted: res.NotStarted}
 	if err != nil {
 		h.ErrorKind = wire.ErrorKind(err)
 		if e, ok := errors.AsType[*retry.Error](err); ok && len(e.Earlier) > 0 {
@@ -863,10 +863,11 @@ func retryModel(disp Dispatch, lreq RunOptions, ran string, err error) string {
 	if retry.Progressed(err) {
 		return "" // text or tools already ran: a re-run on the next model would repeat them
 	}
+	_, auto := SplitAuto(lreq.Model)
 	switch msg := err.Error(); {
 	case capabilityErr().MatchString(msg) && skipAutoModel(disp, lreq.Model, ran):
 		return lreq.Model // the same auto request re-picks, the skip excluding the failed model
-	case disp.servedRepick != nil && strings.Contains(msg, "ENDPOINT_NOT_FOUND"): // a Databricks workspace's missing endpoint
+	case !auto && disp.servedRepick != nil && strings.Contains(msg, "ENDPOINT_NOT_FOUND"): // auto re-picks from its pool below
 		return disp.servedRepick(lreq.Model)
 	case pickGoneErr().MatchString(msg) && skipAutoModel(disp, lreq.Model, ran):
 		return lreq.Model

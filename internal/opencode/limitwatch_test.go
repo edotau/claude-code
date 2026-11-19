@@ -1,0 +1,25 @@
+package opencode
+
+import (
+	"testing"
+
+	"github.com/edotau/claude-code/internal/agent/retry"
+)
+
+// Only a quota on the root run's primary stream is a cause; opencode's own title or small-model call is not.
+func TestLimitCauseRootStreamOnly(t *testing.T) {
+	const head = `timestamp=2026-11-19T19:34:58.878Z level=ERROR run=r1 message="stream error" providerID=opencode-go modelID=kimi-k3 session.id=ses_x `
+	const quota = `error.error="AI_APICallError: OpenCode Go usage limit reached (monthly, resets in 5d 7h). To keep going now, see https://example.invalid/go."`
+	for _, c := range []struct {
+		fields string
+		want   bool
+	}{
+		{"small=false agent=build mode=primary ", true},
+		{"small=true agent=title mode=primary ", false},
+	} {
+		got := limitCause(head + c.fields + quota)
+		if (got != nil) != c.want || got != nil && got.Kind != retry.KindQuota {
+			t.Errorf("%s: cause = %v, want quota %v", c.fields, got, c.want)
+		}
+	}
+}

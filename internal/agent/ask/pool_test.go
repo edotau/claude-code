@@ -1039,7 +1039,7 @@ func authEnv(t *testing.T, row string) {
 
 func TestBatchRateLimitUsesWorkspaceRetry(t *testing.T) {
 	retryUnit(t, func(t *testing.T) {
-		calls := 0
+		calls, claimed := 0, []bool{}
 		req := agent.RunOptions{Agent: "codex", Prompt: "go", Fallback: "none"}
 		engine := retryStub{name: "batch-stub", run: func(_ agent.RunOptions, _ wire.Sink) (wire.Result, error) {
 			calls++
@@ -1048,7 +1048,8 @@ func TestBatchRateLimitUsesWorkspaceRetry(t *testing.T) {
 			}
 			return wire.Result{Answer: "done"}, nil
 		}}
-		prepare := func(_ *agent.Client, _ context.Context, req agent.RunOptions, _ *agent.Record) (*agent.Prepared, error) {
+		prepare := func(_ *agent.Client, _ context.Context, req agent.RunOptions, claim *agent.Record) (*agent.Prepared, error) {
+			claimed = append(claimed, claim != nil)
 			return &agent.Prepared{Opts: req, Chain: agent.Single(engine), Record: agent.NewRecord(req.Agent, req, time.Now())}, nil
 		}
 		old := armPrepare
@@ -1079,6 +1080,9 @@ func TestBatchRateLimitUsesWorkspaceRetry(t *testing.T) {
 		}
 		if got := fmt.Sprintf("%s/%d/%s", strings.Join(a.tried, ","), len(env.Hops), env.TaskID); got != "dev,qa/2/item" {
 			t.Fatalf("workspaces/hops/task = %s; want dev,qa/2/item", got)
+		}
+		if fmt.Sprint(claimed) != "[false true]" { // the move re-prepares on the task's one record
+			t.Fatalf("prepare claims = %v, want the retry to reuse the first record", claimed)
 		}
 	})
 }

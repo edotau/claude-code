@@ -284,13 +284,16 @@ func (b *batchRun) run(ctx context.Context, t batchTask, p *agent.Prepared) (env
 // runTask shares the workspace retry with foreground asks while keeping fail-fast at the task boundary.
 func (b *batchRun) runTask(ctx context.Context, t batchTask, p *agent.Prepared) (*agent.Prepared, wire.Result, error) {
 	cl := taskClient(p, func(s string) { b.logf(t.ID, "%s", s) })
+	arm := t.arm != nil && p.Opts.Agent == t.Agent
 	exec := func(ctx context.Context, p *agent.Prepared) (wire.Result, error) {
 		p.Record.TaskID, p.Record.BatchID, p.Record.PlanTask = t.ID, b.o.ID, t.Plan
-		return cl.Exec(ctx, p, wire.Discard, agent.RunRecordedOpts{})
+		return cl.Exec(ctx, p, wire.Discard, agent.RunRecordedOpts{Hold: arm})
 	}
-	if t.arm != nil && p.Opts.Agent == t.Agent {
+	if arm { // like a foreground ask: every workspace attempt shares one record, concluded once with all hops
 		ctx = retry.WithFailFast(ctx, func() {})
-		return t.arm.attempts(ctx, cl, p, p.Opts, exec)
+		t.arm.record = &p.Record
+		p, res, err := t.arm.attempts(ctx, cl, p, p.Opts, exec)
+		return p, res, p.Record.Conclude(res, err, agent.RunRecordedOpts{Notify: cl.Notify})
 	}
 	res, err := exec(ctx, p)
 	return p, res, err
