@@ -46,6 +46,8 @@ the description column. Arrow-key menu rows (`internal/ui/menu`) stay single-lin
 - **Internal tests:** fix an import cycle in production code (export a `SwapX`/`StubX` seam, or move what the importer
   needs into its own package). A package whose tests need registry rows from importers registers fixture rows in
   `TestMain` and fails when one is missing.
+- **No binaries in the tree:** `go test -c`, `-cpuprofile` and `-memprofile` write `<pkg>.test` and the profile into
+  the current directory; pass `-o` and the profile paths under the scratch directory, never the repo.
 - **Portability:** seams, mocks and speed are in `rules/standards/testing-guidelines.md` → A test must guard. Skip
   at runtime (`runtime.GOOS == "windows"` → `t.Skip`) and use
   calls that compile everywhere, so `GOOS=windows go vet ./...` stays green. A test that waits out a production
