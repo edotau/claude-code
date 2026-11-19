@@ -449,8 +449,13 @@ func leadForContext(ctx context.Context, q RouteReq) (lead string, explicit bool
 		_, err := reg.Get(q.Profile) // an unknown pin errs with explicit set: dispatch reports it, a lead check skips it
 		return "", true, err
 	}
-	cfg, err := agentconfig.ForContext(ctx, q.Agent, agentconfig.Launch{Profile: q.Profile, Provider: q.Provider, Routed: true, CanServe: CanServe})
+	cfg, err := agentconfig.ForContext(ctx, q.Agent, agentconfig.Launch{Profile: q.Profile, Provider: q.Provider, Routed: true, CanServe: canLead})
 	return cfg.Profile, false, err
+}
+
+// canLead is CanServe plus claude, which runs on any Databricks row through the proxy.
+func canLead(name string, p *providers.Provider) bool {
+	return VaultAgentIsClaude(name) || CanServe(name, p)
 }
 
 func accountOrSessionLead(ctx context.Context, agent string) string {
@@ -479,7 +484,7 @@ func sessionLead(ctx context.Context, agent string) string {
 
 // resolveExplicit builds a named backend's chain (unknown errs); a hub agent on a hub profile runs a hub dispatch.
 func resolveExplicit(ctx context.Context, q RouteReq) (Chain, error) {
-	if err := explicitRouteErr(q); err != nil {
+	if err := explicitRouteErr(ctx, q); err != nil {
 		return Chain{}, err
 	}
 	pf := &Preflight{}
@@ -498,12 +503,18 @@ func resolveExplicit(ctx context.Context, q RouteReq) (Chain, error) {
 }
 
 // explicitRouteErr refuses a typed profile or prefix the agent cannot run as written, a usage error (exit 2).
-func explicitRouteErr(q RouteReq) error {
+func explicitRouteErr(ctx context.Context, q RouteReq) error {
 	reg, err := providers.Load()
 	if err != nil || q.Agent == "" || q.Profile == "" && !namesProvider(reg, q.Model) {
 		return nil
 	}
-	_, err = ResolveModel(reg, ModelQuery{Agent: q.Agent, Model: q.Model, Profile: q.Profile}, time.Now())
+	mq := ModelQuery{Agent: q.Agent, Model: q.Model, Profile: q.Profile}
+	if _, auto := SplitAuto(q.Model); auto || q.Model == "" { // an auto picks what the profile serves, not the opus alias
+		mq.ctx, mq.Model = PeekContext(ctx), cmp.Or(q.Model, AutoModel)
+		_, err = ResolveRun(reg, mq, time.Now())
+	} else {
+		_, err = ResolveModel(reg, mq, time.Now())
+	}
 	if errors.Is(err, ErrModelRoute) {
 		return clientUsageError{err}
 	}

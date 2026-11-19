@@ -838,3 +838,20 @@ func TestRoutedConcreteReadsNoFamilyList(t *testing.T) {
 		}
 	}
 }
+
+// A profile-scoped auto (or no model) for gemini is not refused by the opus alias it never runs.
+func TestExplicitRouteErrAutoOnProfile(t *testing.T) {
+	autoFixture(t)
+	for _, q := range []RouteReq{{Agent: "gemini", Profile: "dev"}, {Agent: "gemini", Profile: "dev", Model: "dev:auto"}} {
+		if err := explicitRouteErr(t.Context(), q); err != nil {
+			t.Errorf("explicitRouteErr(%+v) = %v, want nil", q, err)
+		}
+	}
+}
+
+func TestCanLeadClaudeOnDatabricks(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	if !canLead("claude", reg.Row("dev")) {
+		t.Error("claude cannot lead on a Databricks row; gateway --provider databricks says none serves it")
+	}
+}
