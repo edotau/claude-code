@@ -22,6 +22,7 @@ paths:
 
 - A fresh install (file missing) seeds it from `internal/settings/template.json` plus the hook chain in
   `internal/settings/hookspec.go`. `make install` never writes an existing file; its only audit is validity.
+- The launch overlay (`--settings`) fills template `env` keys missing from `settings.json`; a key you set always wins.
 - Host tools live in `internal/agent/tools/deps.go`; `install --tools --missing` (run by `make install`) installs
   only absent ones through `go install`, npm, uv/pipx or, as the fallback, brew and prints ok / installed / skipped
   per tool; a bare `install --dry-run` lists them. A skip or failed install never fails `make install`, no root

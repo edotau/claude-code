@@ -24,3 +24,25 @@ func TestLaunchSettingsOverlay(t *testing.T) {
 		})
 	}
 }
+
+func TestMissingTemplateEnv(t *testing.T) {
+	tmpl := []byte(`{"env":{"A":"1","B":"2"}}`)
+	for _, tc := range []struct{ name, user, want string }{
+		{"missing", `{}`, "A,B"},
+		{"user set", `{"env":{"A":"x"}}`, "B"},
+	} {
+		got := missingTemplateEnv(tmpl, []byte(tc.user))
+		keys := ""
+		for _, k := range []string{"A", "B"} {
+			if _, ok := got[k]; ok {
+				if keys != "" {
+					keys += ","
+				}
+				keys += k
+			}
+		}
+		if keys != tc.want || (tc.name == "missing" && got["A"] != "1") {
+			t.Fatalf("%s: got %v, want keys %s", tc.name, got, tc.want)
+		}
+	}
+}
