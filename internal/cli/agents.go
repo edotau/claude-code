@@ -193,53 +193,18 @@ func cmdAgents(args []string) int {
 // reapLost is the silent reap before an ask (tests swap it).
 var reapLost = func() { tree.Reap(false, io.Discard, io.Discard) }
 
-// cmdAgentsAsk joins cleanup so short dispatches cannot interrupt a reap.
-func cmdAgentsAsk(args []string) int {
-	if askDryRun(args) { // a dry run stamps nothing, so it must not reap records, sockets, markers or orphans either
-		return ask.Cmd(args)
-	}
-	done := make(chan struct{})
-	parallel.Go(func() {
-		reapLost()
-		close(done)
-	}, func(err error) { fmt.Fprintln(os.Stderr, "agents reap:", err); close(done) })
-	defer func() { <-done }()
-	return ask.Cmd(args)
-}
+// cmdAgentsAsk is `agents ask`; ask calls the reap hook for a real run and joins it at exit.
+func cmdAgentsAsk(args []string) int { return ask.Cmd(args) }
 
-// askDryRun reports a --dry-run ask: typed, or a --spec's key, which a typed flag then overrides as ask merges them.
-func askDryRun(args []string) bool {
-	fs, ok := parseAskFlags(args)
-	if !ok {
-		return false
+func init() {
+	ask.Reap = func() func() {
+		done := make(chan struct{})
+		parallel.Go(func() {
+			reapLost()
+			close(done)
+		}, func(err error) { fmt.Fprintln(os.Stderr, "agents reap:", err); close(done) })
+		return func() { <-done }
 	}
-	if spec := fs.Lookup("spec").Value.String(); spec != "" && spec != "-" { // --spec - is ask's own stdin read
-		argv, _, err := ask.SpecArgv(spec, nil)
-		if err != nil {
-			return false
-		}
-		if fs, ok = parseAskFlags(append(argv, args...)); !ok {
-			return false
-		}
-	}
-	return fs.Lookup("dry-run").Value.String() == "true"
-}
-
-// parseAskFlags parses argv with ask's own flag names and grammar; ok is false when ask will reject it and reap as before.
-func parseAskFlags(argv []string) (*flag.FlagSet, bool) {
-	fs := flag.NewFlagSet("agents ask", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	for _, f := range ask.CompletionFlags() {
-		if f.IsBool {
-			fs.Bool(f.Name, false, "")
-			continue
-		}
-		fs.String(f.Name, "", "")
-	}
-	if _, err := helptext.ParseArgs(fs, argv); err != nil {
-		return nil, false
-	}
-	return fs, true
 }
 
 // agentsVerbs routes `agents <verb>` to its handler.

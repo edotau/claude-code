@@ -99,6 +99,9 @@ func parseAskArgs(fs *flag.FlagSet, args []string) (pos []string, code int, done
 	return nil, helptext.ExitCode(err), true
 }
 
+// Reap starts the silent cleanup of a real ask and returns its join; the cli sets it.
+var Reap = func() func() { return func() {} }
+
 // runCtx is Run under ctx, whose run values (a parent dispatch id) the new dispatch inherits.
 func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exit int) {
 	fs, f, args, pos, code, done := parseAsk(verb, args)
@@ -122,6 +125,8 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	}
 	if f.dryRun { // one peek mark for every pick a dry-run makes, the workspace's included
 		ctx = agent.PeekContext(ctx)
+	} else {
+		defer Reap()() // flags and any spec, stdin included, are parsed, so dryness is final; a dry run reaps nothing
 	}
 	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out}
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
