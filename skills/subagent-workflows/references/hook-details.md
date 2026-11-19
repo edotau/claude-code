@@ -1,16 +1,17 @@
 # Hook details — full matrix cells
 
-Verbatim cells moved from `rules/harness/hooks.md` → Event → hook matrix (the matrix keeps a synopsis of each).
+Mechanism detail for the ¶ rows of `rules/harness/hooks.md` → Event → hook matrix (the matrix keeps a synopsis of
+each, and the guardrails an agent needs before acting).
 
 ## safety-scan
 
-Order per call: floor (every agent, never loosened; incl. the AI-attribution footer in commit, merge and tag messages, a
-strict deny for everyone), settings deny (`~/.claude/settings.json` or the template; `sudo` follows `Bash(sudo:*)`),
-settings ask (Claude asks; an agent without ask follows the dispatch's `--allow`/`--deny`, neither matching blocks
-naming `--allow '<rule>'`), settings allow (main thread only; never loosens a leaf), built-ins; then
-`agentBashAllow` turns a leaf's block or ask into allow (a leaf: payload `agent_id` or `HARNESS_DISPATCH_PERMISSIONS`),
-except floor and settings-deny blocks (`Result.Floor`). `Edit(...)` globs use
-anchors `//`, `~/`, `/` = `~/.claude/`, `**/`; relative = cwd. Copilot's edit tools are checked too.
+The pass order, footer deny, `Edit(...)` anchors and main-session rules live in `rules/harness/hooks.md`. The leaf
+filter `agentBashAllow` recognizes a leaf by payload `agent_id` or `HARNESS_DISPATCH_PERMISSIONS`, and turns a
+Write/Edit block only under `--permissions allow`; undispatched non-Claude sessions and `HARNESS_DISPATCH_ID`-only
+dispatches are not turned. Production for the `kubectl|oc exec|delete` rule means `prod`/`prd`/`production` in a
+flag, `ENV=`, `KUBECONFIG=`, `use-context`, a deleted namespace or `current-context`; none found counts. A leaf's
+edit-tool write to a protected file is refused by `permission-gate` on codex, agy,
+opencode and gated Claude launches, and by `safety-scan` itself on Copilot.
 
 **Block** destructive shapes (`rm -rf /`, a system dir or `$HOME` as the shell reads it: quoted, escaped, `//`, `..`;
 fork bomb; `curl \| sh` also by absolute shell path; `eval "$(curl …)"`; `base64 -d \| sh`) a Bash write (`sed -i`,
@@ -20,13 +21,17 @@ rules protect (the template's when it is unreadable)
 through a symlink, `..` or glob, beside `ln`/`truncate`; an interpreter script — `python`, `node`, `perl`, `ruby`,
 `deno`, `bun` — naming one beside a write call **asks**; reads pass), and a `commit --amend`/`rebase`/`reset <commit>`
 in a shared checkout (`~/.claude`, a tree a peer session works in, a main tree where this session has live leaves or the
-caller is a leaf under `~/.claude`; own linked worktree exempt; an infra error allows with a warning); **block** on
+caller is a leaf under `~/.claude`; a leaf counts as shared and the live-leaves trigger applies only under
+`~/.claude`; own linked worktree exempt; an infra error allows with a warning), a branch-ref move or deletion that loses
+commits there (`branch -f|-D|-M` from a leaf only, `update-ref`), and a secret-reading command (`claude-code …
+--secret`, `gh auth token`, `env`) piped into `curl`/`nc`/`wget`; **block** on
 every agent, naming
 the allowed route and that the owner can run it with `!`: `sudo`/`doas` in command position (also inside `bash -c`,
 `eval`, `ssh`, `xargs`, `find -exec`, a wrapper, a substitution, a printf fed to a shell or a script an interpreter
 runs), `git stash/checkout/switch/reset/restore/clean` under `~/.claude` (nested repos too; linked worktrees exempt;
 passing: `checkout -b`/`switch -c` with no force, `restore --staged`, a `git reset` of HEAD or paths only, `stash
-list|show`, `clean -n`), an AI-attribution footer (safety-scan never rewrites or strips a command), `rm -rf .git` and a
+list|show`, `clean -n`), an AI-attribution footer (in `-m`, stdin, or a `-F`/`-t` file on disk or written earlier in
+the command; safety-scan never rewrites or strips a command), `rm -rf .git` and a
 force-push of main/master (spelled out, after git global flags, or with no refspec while main/master is checked out);
 **ask** on Claude (block on codex/copilot/agy) only for `DROP TABLE`-style SQL and the interpreter write; **warn** only
 prints. Those intent rules fire only on a real invocation: words in data never do (a `claude-code
@@ -71,7 +76,7 @@ blocks only on a footer at a line start, not one named mid-subject. The write-pa
 docs-placement) read glued and fd redirects (`a>f`, `cp a f 2>&1`, `>|f`), keep a subshell's `cd` inside it, and take
 `mv -t DIR`'s sources, not `DIR`, as moved away. The permission gate places a read-only command's relative operand
 (`..` included) in the session cwd under a Read deny, refusing a climbing one only after a cd to an unknown dir.
-Blocks log to `claude-code doctor --audit` by reason and pattern, never the command
+Blocks log to `claude-code doctor --audit` by reason, pattern and session id, never the command
 
 A plain Python script fed on stdin (`python3 [-I…] - <<'EOF'`, `uv run python -`; quoted delimiter or a body with no
 `$(…)`, not piped on, outside any other heredoc or quote, no later shell or interpreter run, and no `exec`/`eval`,
@@ -92,13 +97,24 @@ PATH resolves another rtk); `HARNESS_RTK_BIN` overrides. A bare `rtk hook claude
 removed by hand or explicit `configure --restore`. Auto permission mode skips the rewrite: its classifier gives no
 verdict on a hook-changed input, so the call would bounce for a verbatim resend
 
+## docs-placement
+
+Besides Write/Edit targets it checks `apply_patch` headers and Bash write targets. A new `*plan*.md` at a repo root or
+in `docs/` is rewritten to the dated plans home (denied with the fix where the host cannot rewrite). A Claude first
+write to a native plan draft that lacks only `# Plan:` or `## Tasks` is rewritten with a note; any other first write
+lacking the `docs/templates/plan.md` headings is denied, listing them. `HARNESS_HOOK_SKIP=docs-placement` skips both
+the placement block and the plan checks.
+
 ## dispatch-effort
 
 Gates type (a `coworker:<agent>` naming one roster agent is rewritten to it, any brief); for a type with no `model:`
 line (built-ins such as `Explore`, `general-purpose`) and no explicit model, pins model and effort from the task's
 tier (effort only when neither the call nor the agent file sets one), never for a `Run: claude-code agents ask` brief;
-claims slots, recalls context and labels the row. Recall is a context note in auto mode for every brief, otherwise
-only on a `Run:` brief; any other brief gets it appended. A `Run:` line `agents ask` would refuse on cached state
+claims slots, recalls context and labels the row, for Codex-spawned children too (`ee4a67ce`). Recall is a context
+note in auto mode for every brief, otherwise only on a `Run:` brief; any other brief gets it appended, and a `Run:`
+prompt stays byte-identical. A dispatched `agents ask` carries the same block for every agent (`withRecall`,
+`internal/agent/ask/memory.go`), except on `--retry`, `--job`, `--safe-mode` or `--host`.
+A `Run:` line `agents ask` would refuse on cached state
 alone is denied with its own preflight text plus the fix (code cannot pick the workspace or model): an overlay
 `databricks:<p>` whose row is missing or does not serve; with `--fallback none` (or the env default none), a
 `--profile`/`<row>:<model>` row the registry lacks or a model that row's fresh cached listing does not serve; or a
@@ -107,7 +123,8 @@ passes. The label is the model the run resolves: a typed `--model`/`--profile` r
 `--model` runs its pin, else the model of the brief's task tier: a `Tier:` line, else the classifier, opus when the
 brief has no text; `auto` ranks the row's served models; claude runs the brief's alias), an untyped external dispatch
 takes the route ladder's first hop; a route that does not resolve offline leaves the description unlabelled with a
-note. Every fix (type, label, pin) rides one `updatedInput`, one note line each. Brief routing:
+note; print it with `claude-code agents label <type> [--profile p] [--model m] --task FILE`. Every fix (type, label,
+pin) rides one `updatedInput`, one note line each. Brief routing:
 `skills/subagent-workflows/SKILL.md` → Handoff contract. Implementation: `internal/hooks/effort.go`; workflow
 validation: `internal/workflows/workflowlint.go`. In auto mode a rewritten call costs one mechanical resend of the
 exact corrected input (the classifier refuses a hook-modified input once)
@@ -130,7 +147,8 @@ top-line note quoting the record's `ran on` line (fallback included) and, on a h
 `message`: one summary line and its last message in full; an answer the report already quotes is replaced by `(final
 answer already in the report above)`. (2) No job, the brief opens with a `Run:` ask line and the leaf made no
 Edit/Write/MultiEdit/NotebookEdit call and no file-changing Bash call (redirect, `sed -i`, `tee`, `cp`, `mv`, `rm`,
-`git apply`, a formatter; temp-dir scratch excluded): the hook starts that line detached with its flags unchanged
+`git apply`, a formatter; temp-dir scratch, memory reports, handoffs and notes excluded): the hook starts that line
+detached with its flags unchanged
 (marker and output under `state/harness/dispatch-relay/`), holds the leaf (one foreground
 `claude-code agents result -f <id>` on the job it launched, then hand back) and
 attaches the output and receipt with a note saying the hook ran it. (3) The leaf edited files, or the brief has no
@@ -139,6 +157,30 @@ not run. (4) Every hold saves the report it carried (`message`, else the last as
 names the path. A stop has no input to rewrite, so it gets the note as a system message only. Unreadable transcripts
 fail open. A stop it isn't blocking kills the leaf's leftover background shells (its own task ids only)
 
+On Bash, `dispatch-workflow` (the synchronous entry, so the line reaches the model) gives a relay whose own `agents
+result` poll returned on an ended job the context line `job <id> ended: hand back now with this result`, and marks
+that job collected for the stuck-leaf watchdog.
+
+`dispatch-handback` prepends the note and receipt and appends the job result to the hand-back `message`. When a leaf
+started several jobs, every finished job's answer is attached in dispatch order, each under its own receipt line,
+including jobs that finished before the wait. Attribution: only ids the leaf's own `agents ask|dispatch|result` call
+printed count, never ids from listings, logs, files or the answer body, except one its own successful `agents
+result|wait <id>` named whose record is this session's, started within 2 min after the leaf's ask, with that ask's
+agent and a prompt holding its brief. With no such id it binds a record only when exactly one of this session's
+records of the ask's agent has a prompt equal to the ask's whole task (parsed by `ask`'s own grammar, flags anywhere,
+`--` ends them; a stdin task ties nothing) and launched within 2 min after it; otherwise the report passes with an
+unattributed note naming the candidate ids, never held or refused. The hook's `Run:` launch is claimed with an
+exclusive create, so overlapping hand-backs start it once. Every hold names `claude-code agents result -f <id>` to run
+once (never a sleep).
+
+On Bash it refuses a relay's poll of a finished job it already handed back (`already reported: stop`) and a second
+follow poll of one job while the first is in flight or backgrounded with a live writer (`one poller only`). A relay's
+Bash is limited to `claude-code` asks, commands the shared read-only judge allows, `gofmt -l`, and `go build|vet|test`
+(behind `rtk`, a bare `env`, `time [-p]`, `nice [-n N]` or `timeout [opts] N[smh]`) with `./` package patterns inside
+the repo and a short flag list: `-args`, writing or program-running flags, any `go build` but `./...` or `-o
+/dev/null`, and an inline or process `GOFLAGS`/`GOENV`/`GOWORK`/`GOBIN`/`GOCACHE`/`GOTOOLCHAIN` are refused (the relay
+shell's own env is invisible to the hook).
+
 ## worktree-claim-check
 
 Once per file, notes before an edit (Bash: its write targets) that a dirty file is claimed by another live session
@@ -146,13 +188,28 @@ Once per file, notes before an edit (Bash: its write targets) that a dirty file 
 that stages one (`-p`, `-n`/`--dry-run`, `-N` pass), blocks in a leaf under `~/.claude`; a sibling leaf counts until it
 ends, is interrupted or stops on max_tokens; an infra error allows with a warning. Dead owners' files are removed; a
 file under this process's own pid (a new session slug after `/clear` or a resume) is ours, not a peer's. Any `git`
-command also gets the drained notices and divergence line
+command also gets the drained notices and divergence line. Under vault env `HARNESS_WORKTREE=lanes` it also asks (a
+leaf: blocks) on an edit, stage (`add -p` included), `git apply`/`am` or `git mv` of a tracked file in the live
+checkout (dry runs pass), naming `claude-code worktree create <slug>`, and leaves a lane alone; in any other repo's
+primary checkout it only asks, once per session per repo (other agents get a note)
+
+## worktree-claim
+
+Claims cover codex `apply_patch` headers, Copilot `toolArgs.path` and OpenCode `args.filePath`; a move claims both
+names, a delete its path; an edit the vendor reports failed claims nothing. Each line records the owner's start token,
+so a file whose pid was reused is dropped. A non-Claude agent's line inside a dispatch carries the dispatch id as
+`agent_id` (read from the running dispatch record when the hook lacks the env), and `worktree commit` there treats a
+claim stamped with it, or filed by its own CLI process, as that leaf's own. Write|Edit|MultiEdit stays synchronous;
+Bash runs in the async entry (`rules/harness/hooks.md` → Groups and the dispatcher)
 
 ## docs-plan-tick / docs-plan-reminder
 
-A commit on the trunk of the primary checkout ticks the plan tasks its `Task: <plan-slug> <id>` trailers name
-(`claude-code plan status`), in any plan; coverage alone only prints one candidate per task; a lane commit ticks when
-it lands (`worktree merge`, or a fast-forward or merge commit the hook sees; `plan tick --range` otherwise).
+A commit on the trunk of the primary checkout ticks, at once, the open plan tasks its `Task: <plan-slug> <id>`
+trailers name (`claude-code plan status`), in any plan; with no trunk, nothing ticks and one line says so. Coverage
+alone only prints one candidate per task (recent or claimed plans only) and writes nothing; draft mirrors and struck
+tasks never tick. A lane, a feature branch or a detached HEAD ticks nothing; a lane commit ticks when it lands
+(`worktree merge` promotes it, or the hook sees in the HEAD reflog a fast-forward or merge commit land on main,
+whatever the call printed or a later command did; `plan tick --range` otherwise).
 The Stop reminder's partials record (one shared lock) is no longer written.
 `claude-code clean` sweeps obsolete `*.partial.lock` files older than one day
 
@@ -160,11 +217,50 @@ The Stop reminder's partials record (one shared lock) is no longer written.
 
 Context steward first: at ≥`HARNESS_CONTEXT_STEWARD_PCT` context (default 75; `0` mutes only the handoff) it spawns a
 detached `claude-code memory update` that also writes `handoffs/<date>-session-<id8>.md`
-(the hook-chosen path), silently, once per crossing and only with no
-background task, subagent marker or live dispatch (a dip below the threshold re-arms; never blocks Stop). Then the
-memory update, weighing edits and user turns (2 turns = 1 edit); it never blocks Stop; a failed spawn prints
-a NOT-saved note naming `claude-code memory update` (SessionEnd/PreCompact retry). PreCompact starts the handoff job
-when none is fresh and waits up to 10 s for it; SessionStart(compact) injects that file's body
+(the hook-chosen path, kept in the marker), silently, once per crossing and only with no background task, subagent
+marker or live dispatch; pending or running jobs are rechecked under the stamp lock and count as covered (a dip below
+the threshold re-arms). No prompt and no continuation: compaction is `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`. Then the
+memory update, weighing edits and user turns (2 turns = 1 edit); it never blocks Stop. A failed spawn prints a
+NOT-saved note naming `claude-code memory update` at once; each of the next two Stops retries the spawn once (3 spawns
+in all), a Stop whose retry succeeds is silent, and the note shows once more at the cap (SessionEnd/PreCompact retry
+too)
+
+## memory-start
+
+The focus is the bank's Current Focus, Blockers, Next Steps and In Progress; the `memory search` pointer appears when
+`memory/index.md` exists; the `plans open:` line gives each plan's slug, ticked/total and next task id. The repaired
+`projects/<slug>/memory` links to the store root. On `clear` it reports the compaction record, the newest
+model-written handoff under 24 h, then the session's generated one; on `compact` it injects this session's own
+steward handoff body first (budgeted within the 9,500-character context cap, with its path and a truncation notice),
+then the record and the pointers (`rules/workflows/memory-bank.md` → Who writes what)
+
+## memory-compact
+
+Runs concurrently: dispatches the background update for uncovered edits (plus a record under `state/harness/compact/`)
+and starts the steward handoff job when this session has none fresh, bounding steward stamp-lock acquisition by the
+hook context; it waits up to 75 s for a completed, full-session-verified handoff (a timeout or failure is a stderr
+line). The fact-only handoff holds git state, this session's dispatches, the newest rulings and pointers.
+SessionStart(compact) then injects the steward handoff's body
+
+## secrets-out
+
+Matches exact and encoded forms of vault values, with no shape pass; no match returns nothing. A vault read not done
+within 3/4 of the 2 s budget masks credential shapes instead, with a stderr note and a user-visible message naming the
+cause (at most once a minute); a failed read leaves `state/harness/hooks/secrets-down`, and for the next minute calls
+skip the vault read
+
+## secrets-end
+
+The job is `hook SessionEnd --secrets-end-job`; a path outside `projects/` or through a link is refused; one pass runs
+at a time (`state/harness/hooks/secrets-end.lock`), and counts are logged to `secrets-end.log`
+
+## stuck-leaf watchdog
+
+The age limit scales by the job's `Tier:` (`fast` 0.5x, `deep` 2x). Runs `agents watch`'s classifier over this
+session's jobs and adds each line once per job and reason. "Uncollected"
+means no Bash call has read the finished job (`dispatch-workflow` marks it). The resume is `agents ask --session <id>
+--background` with a fixed continuation prompt; a silent live job is only reported. Markers live in
+`state/harness/watch/`
 
 ## worktree-busy
 
