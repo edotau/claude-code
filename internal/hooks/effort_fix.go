@@ -32,14 +32,40 @@ func fixRunLine(task string) (string, string) {
 	note := "dispatch-effort: Run: line: " + strings.Join(notes, "; ")
 	lead := len(task) - len(strings.TrimLeft(task, " \t\r\n"))
 	line, rest, hasRest := strings.Cut(task[lead:], "\n")
-	if !changed || !plainCommand(strings.TrimPrefix(line, "Run:"), words) {
-		return task, note
+	if !changed || openQuote(line) || !plainCommand(strings.TrimPrefix(line, "Run:"), words) {
+		return task, note + spanNote(line, changed)
 	}
 	out := task[:lead] + "Run: " + textutil.ShellJoin(append(slices.Clone(head), fixed...))
 	if hasRest {
 		out += "\n" + rest
 	}
 	return out, "dispatch-effort: fixed the brief's Run: line (" + strings.Join(notes, "; ") + ")"
+}
+
+func spanNote(line string, changed bool) string {
+	if changed && openQuote(line) {
+		return " (the command spans lines: left unchanged)"
+	}
+	return ""
+}
+
+// openQuote reports an unbalanced quote in line, so its command continues on the next line.
+func openQuote(line string) bool {
+	var q rune
+	esc := false
+	for _, r := range line {
+		switch {
+		case esc:
+			esc = false
+		case r == '\\' && q != '\'':
+			esc = true
+		case q == 0 && (r == '\'' || r == '"'):
+			q = r
+		case q == r:
+			q = 0
+		}
+	}
+	return q != 0
 }
 
 // plainCommand is one shell segment, no relay wrapper, no redirect or pipe: re-quoting it keeps its meaning.

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"maps"
 	"slices"
 	"strconv"
@@ -121,7 +122,7 @@ func (s Schema) Argv(raw []byte) ([]string, string, error) {
 	if doc == nil {
 		return nil, "", errors.New("spec: not a JSON object")
 	}
-	if dec.More() {
+	if err := dec.Decode(&json.RawMessage{}); err != io.EOF {
 		return nil, "", errors.New("spec: trailing data after the JSON object")
 	}
 	prompt := ""

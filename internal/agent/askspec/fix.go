@@ -19,6 +19,10 @@ func LeadingAgentWord(args, pos, roster []string, agentTyped bool) (string, bool
 	return pos[0], true
 }
 
+// widening flags grant tools, permissions, routes or env; Fix never guesses them in or rewrites their values.
+var widening = []string{"tools", "permissions", "allow", "ask", "autonomous", "host", "env", "keep-env",
+	"overlay", "agents", "direct", "native", "safe-mode"}
+
 // fixer is one Fix pass; firstPos and unresolved are word indexes, -1 for none.
 type fixer struct {
 	s                    Schema
@@ -54,6 +58,8 @@ func (x *fixer) flag(i int) int {
 		if !ok {
 			x.unresolved = at
 		}
+		fixed, _, _ := strings.Cut(strings.TrimLeft(x.out[at], "-"), "=")
+		x.agentTyped = x.agentTyped || fixed == "agent"
 		x.notes = append(x.notes, note)
 		return i
 	}
@@ -91,6 +97,9 @@ func (s Schema) fixUnknown(out []string, i int, name, val string, hasVal bool) (
 	if !ok {
 		return out, i, "unknown --" + name + ": no single near flag (left unchanged)", false
 	}
+	if slices.Contains(widening, n) {
+		return out, i, "--" + name + " is near the permission flag --" + n + " (left unchanged; fix by hand)", false
+	}
 	out[i] = "--" + n
 	if hasVal {
 		out[i] += "=" + val
@@ -118,6 +127,9 @@ func fixTaskFile(out []string, i int, val string, hasVal bool) ([]string, int, s
 func fixChoice(f Field, word, val string, inline bool, notes []string) (string, []string) {
 	if f.CheckChoice(val) == nil {
 		return word, notes
+	}
+	if slices.Contains(widening, f.Name) {
+		return word, append(notes, fmt.Sprintf("--%s %q is not valid (left unchanged; fix by hand)", f.Name, val))
 	}
 	n, ok := textutil.Nearest(val, f.Choices)
 	if !ok {

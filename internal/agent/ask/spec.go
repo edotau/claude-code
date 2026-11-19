@@ -53,7 +53,7 @@ func withSpec(f *askFlags, args, pos []string) ([]string, error) {
 	}
 	out := append(argv, dropSpec(args)...)
 	if prompt != "" && len(pos) == 0 {
-		if !slices.Contains(out, "--") {
+		if _, term := walkArgs(args); term < 0 {
 			out = append(out, "--")
 		}
 		out = append(out, prompt)
@@ -106,17 +106,48 @@ func refuseAgentWord(fs *flag.FlagSet, verb string, args, pos []string) error {
 	return nil
 }
 
+// walkArgs finds each --spec word (and its value) and the real "--" terminator, skipping other flags' values.
+func walkArgs(args []string) (drop map[int]bool, term int) {
+	fs, _ := askFlagSet()
+	drop, term = map[int]bool{}, -1
+	for i := 0; i < len(args); i++ {
+		a := args[i]
+		if a == "--" {
+			return drop, i
+		}
+		if len(a) < 2 || a[0] != '-' {
+			continue
+		}
+		name, _, hasVal := strings.Cut(strings.TrimLeft(a, "-"), "=")
+		if name == "spec" {
+			drop[i] = true
+			if !hasVal && i+1 < len(args) {
+				i++
+				drop[i] = true
+			}
+			continue
+		}
+		if takesValue(fs.Lookup(name)) && !hasVal {
+			i++
+		}
+	}
+	return drop, term
+}
+
+func takesValue(f *flag.Flag) bool {
+	if f == nil {
+		return false
+	}
+	b, ok := f.Value.(interface{ IsBoolFlag() bool })
+	return !ok || !b.IsBoolFlag()
+}
+
 // dropSpec removes --spec V and --spec=V so the re-parse does not read the spec twice.
 func dropSpec(args []string) []string {
+	drop, _ := walkArgs(args)
 	var out []string
-	for i := 0; i < len(args); i++ {
-		switch a := args[i]; {
-		case a == "--":
-			return append(out, args[i:]...)
-		case a == "--spec" || a == "-spec":
-			i++
-		case strings.HasPrefix(a, "--spec=") || strings.HasPrefix(a, "-spec="):
-		default:
+	for i, a := range args {
+		if !drop[i] {
 			out = append(out, a)
 		}
 	}

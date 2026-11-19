@@ -144,7 +144,15 @@ func readCapped(r io.Reader) ([]byte, error) { return io.ReadAll(io.LimitReader(
 
 // ReadJSONSource reads value as stdin for -, inline JSON for {...}, else a private regular file; label names errors.
 func ReadJSONSource(label, value string, stdin io.Reader) ([]byte, error) {
+	if value != "-" && !strings.HasPrefix(strings.TrimSpace(value), "{") {
+		if fi, err := os.Lstat(value); err == nil && fi.Mode()&fs.ModeSymlink != 0 {
+			return nil, fmt.Errorf("%s %s: symlink refused", label, value)
+		}
+	}
 	where, raw, err := readJSONSource(label, value, stdin)
+	if err == nil && len(raw) > overlayMaxBytes {
+		err = fmt.Errorf("over %d bytes", overlayMaxBytes)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", where, err)
 	}

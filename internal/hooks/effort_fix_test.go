@@ -27,4 +27,9 @@ func TestFixRunLine(t *testing.T) {
 	if got, note := fixRunLine(ok); got != ok || note != "" {
 		t.Fatalf("correct line changed: %q, note %q", got, note)
 	}
+
+	multi := "Run: claude-code agents ask --modle gpt-5 'line one\nline two'"
+	if got, note := fixRunLine(multi); got != multi || !strings.Contains(note, "spans lines") {
+		t.Fatalf("multi-line command changed: %q, note %q", got, note)
+	}
 }
