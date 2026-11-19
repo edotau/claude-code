@@ -290,9 +290,35 @@ func Check(ctx context.Context, model string, now time.Time) (ModelQuota, error)
 	if err != nil {
 		return ModelQuota{}, err
 	}
+	if len(resetHolds(rows, now)) > 0 && !usageNewerThanState() {
+		// A cached read cannot release a hold that may be newer than it: read usage again, once.
+		if fresh, ferr := freshQuotas(ctx); ferr == nil {
+			rows = fresh
+		}
+	}
 	q := statusFor(rows, model, now)
 	q.HoldErr = errors.Join(releaseResetHolds(rows, now), holdZeroLimits(rows, model, now))
 	return q, nil
+}
+
+// freshQuotas drops the process and disk caches and reads agy's /usage again.
+func freshQuotas(ctx context.Context) ([]QuotaRow, error) {
+	quotaMu.Lock()
+	quotaAt = time.Time{}
+	quotaMu.Unlock()
+	_ = os.Remove(filepath.Join(paths.StateDir(), "agy-usage.json"))
+	return Quotas(ctx)
+}
+
+// resetHolds are the live holds whose model the limits now show above 0% with no reset pending.
+func resetHolds(rows []QuotaRow, now time.Time) map[string]time.Time {
+	out := map[string]time.Time{}
+	for key, held := range router.LoadState()[googleAccount].ModelDead {
+		if q := statusFor(rows, key, now); held.After(now) && q.Pool != "" && q.Left > 0 && q.HeldUntil.IsZero() {
+			out[key] = held
+		}
+	}
+	return out
 }
 
 // releaseResetHolds drops each live hold whose model the limits now show above 0%: the limit reset early.
@@ -301,10 +327,7 @@ func releaseResetHolds(rows []QuotaRow, now time.Time) error {
 		return nil
 	}
 	var errs []error
-	for key, held := range router.LoadState()[googleAccount].ModelDead {
-		if q := statusFor(rows, key, now); !held.After(now) || q.Pool == "" || q.Left <= 0 || !q.HeldUntil.IsZero() {
-			continue
-		}
+	for key, held := range resetHolds(rows, now) {
 		ran, err := router.ClearModelDead(googleAccount, key, held)
 		if err == nil && !ran {
 			err = errors.New("route state lock busy")
