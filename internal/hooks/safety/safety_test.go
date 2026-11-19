@@ -795,6 +795,8 @@ func TestSafetyBlocksShellWritesToProtectedFiles(t *testing.T) {
 		{"node -e \"console.log(require('fs').readFileSync('/Users/me/.ssh/config','utf8'))\"", core.Allow},
 		{"python3 x.py", core.Allow},
 		{"python3 -c \"open('/tmp/x', 'w').write('x')\"", core.Allow},
+		{"python3 -c \"open('/tmp/x', 'w')\" && ls ~/.ssh/config", core.Allow},
+		{"f=~/.ssh/config; python3 -c \"open(f, 'w')\"", core.Ask},
 		{"python3 -c \"s=open('/Users/me/.claude/settings.json').read(); print(s.replace('a','b'))\"", core.Allow},
 		{"python3 -c \"x=['.credentials.json']; x.remove('.credentials.json'); print(x)\"", core.Allow},
 		{"python3 -c \"import os; os.replace('/tmp/x', '/Users/me/.ssh/config')\"", core.Ask},
@@ -814,6 +816,16 @@ func TestSafetyBlocksShellWritesToProtectedFiles(t *testing.T) {
 		if got, msg := safetyScanDecision(t, hosttest.BashPayload(c.cmd)); got != c.want {
 			t.Errorf("%q: %v, want %v (%s)", c.cmd, got, c.want, msg)
 		}
+	}
+}
+
+// A deny-glob interpreter write is a Floor result, so a leaf's agentBashAllow cannot turn it into allow.
+func TestInterpreterWriteToDeniedPathIsFloor(t *testing.T) {
+	narrowHarness(t)
+	res := Scan(core.ParseInput(strings.NewReader(
+		`{"tool_name":"Bash","cwd":"/tmp","agent_id":"a1","tool_input":{"command":"python3 -c \"open('/Users/me/.ssh/x','w')\""}}`)))
+	if res.Decision == core.Allow || !res.Floor {
+		t.Errorf("decision %v floor %v, want a floor ask/block", res.Decision, res.Floor)
 	}
 }
 

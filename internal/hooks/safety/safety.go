@@ -12,6 +12,7 @@ import (
 	"sync"
 	"unicode"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
@@ -223,6 +224,9 @@ func floorVerdict(in *core.Input, cmd, scan, asked string) (core.Decision, strin
 			return core.Block, core.SafetyMessage(in, core.Block, "destructive command", re.String(), terminalHint), re.String()
 		}
 	}
+	if fetchToShell(scan) {
+		return core.Block, core.SafetyMessage(in, core.Block, "destructive command", "fetch piped into a shell", terminalHint), "fetch piped into shell"
+	}
 	if d, msg, detail := hardBlockVerdict(in, cmd, scan); d == core.Block {
 		return d, msg, detail
 	}
@@ -239,7 +243,58 @@ func floorVerdict(in *core.Input, cmd, scan, asked string) (core.Decision, strin
 	if d, msg, detail := floorIntentVerdict(in, asked); d != core.Allow {
 		return d, warn + msg, detail
 	}
-	return core.Allow, warn, ""
+	d, msg, detail = fedIntentVerdict(in, cmd)
+	return d, warn + msg, detail
+}
+
+// fedIntentVerdict is floorIntentVerdict on the text a printf/echo piped into a shell runs.
+func fedIntentVerdict(in *core.Input, cmd string) (core.Decision, string, string) {
+	_, fed := shellFeeds(cmd)
+	for _, text := range fed {
+		if d, msg, detail := floorIntentVerdict(in, intentView(text, false)); d != core.Allow {
+			return d, msg, detail
+		}
+	}
+	return core.Allow, "", ""
+}
+
+// programName is the basename of the command a segment runs, past rtk, wrappers and assignments.
+func programName(seg string) string {
+	rest, _ := shell.Unwrap(shell.DropRtk(shell.Tokens(seg)), "")
+	if len(rest) == 0 {
+		return ""
+	}
+	return filepath.Base(rest[0])
+}
+
+func pipedOn(sep string) bool { return sep == "|" || sep == "|&" }
+
+// fetchToShell reports a curl/wget piped, through wrappers and pure filters only, into a shell.
+func fetchToShell(scan string) bool {
+	if !strings.Contains(scan, "curl") && !strings.Contains(scan, "wget") {
+		return false
+	}
+	segs, seps := shell.SegmentsSep(scan)
+	for i := 0; i+1 < len(segs); i++ {
+		if name := programName(segs[i]); pipedOn(seps[i]) && (name == "curl" || name == "wget") && feedsShell(segs, seps, i+1) {
+			return true
+		}
+	}
+	return false
+}
+
+// feedsShell reports a shell at segs[from:], reached through filters only.
+func feedsShell(segs, seps []string, from int) bool {
+	for k := from; k < len(segs); k++ {
+		name := programName(segs[k])
+		if shellNames()[name] {
+			return true
+		}
+		if !pipedOn(seps[k]) || !pipeFilters()[name] && name != "cat" && name != "tee" {
+			return false
+		}
+	}
+	return false
 }
 
 // floorIntentVerdict blocks the intent rules and a bare force-push, then the git floor.
@@ -284,7 +339,7 @@ func floorGitVerdict(in *core.Input, asked string) (core.Decision, string, strin
 // settingsVerdict applies deny, ask (dispatch decides without ask) and allow (ends main); true marks a deny block.
 func settingsVerdict(in *core.Input, cmd, asked, plain string) (core.Decision, string, string, bool) {
 	p, cwd := livePolicy(), in.CWD
-	switch rule, f := settingsRuleHit(dropInertHeredocs(cmd), cwd, p.bashDeny), protectedWrite(cmd, cwd, p.editDeny, false); {
+	switch rule, f := fedRuleHit(cmd, cwd, p.bashDeny), protectedWrite(cmd, cwd, p.editDeny, false); {
 	case rule != "":
 		return core.Block, core.SafetyMessage(in, core.Block, "matches a settings.json deny rule", rule,
 			"Change permissions.deny in ~/.claude/settings.json if this is wrong."+ownerRoute), "settings deny", true
@@ -295,7 +350,7 @@ func settingsVerdict(in *core.Input, cmd, asked, plain string) (core.Decision, s
 			"Edit it by hand, or run it yourself in a terminal."), "protected write", true
 	}
 	if needle, _ := interpreterWrite(plain, p.editDeny, false); needle != "" { // fuzzy: asks; Scan blocks without ask
-		return core.Ask, core.SafetyMessage(in, core.Ask, interpreterWhat, needle, interpreterHint), "interpreter protected write", false
+		return core.Ask, core.SafetyMessage(in, core.Ask, interpreterWhat, needle, interpreterHint), "interpreter protected write", true
 	}
 	if d, msg, detail := settingsAskVerdict(in, cmd, asked, plain, p); d != core.Allow {
 		return d, msg, detail, false
@@ -304,6 +359,20 @@ func settingsVerdict(in *core.Input, cmd, asked, plain string) (core.Decision, s
 		return core.Allow, "", settingsAllowDetail, false
 	}
 	return core.Allow, "", "", false
+}
+
+// fedRuleHit is the deny rule cmd hits, else the one a printf/echo piped into a shell prints.
+func fedRuleHit(cmd, cwd string, rules []agent.Rule) string {
+	if rule := settingsRuleHit(dropInertHeredocs(cmd), cwd, rules); rule != "" {
+		return rule
+	}
+	_, fed := shellFeeds(cmd)
+	for _, text := range fed {
+		if rule := settingsRuleHit(text, cwd, rules); rule != "" {
+			return rule
+		}
+	}
+	return ""
 }
 
 // settingsAskVerdict asks on Claude for each settings ask hit; elsewhere dispatchAsk decides (D1).
@@ -728,27 +797,54 @@ func homePrefix() string {
 // interpreterWrite is the raw glob's needle (and glob) an interpreter command's text mentions beside a write indicator.
 func interpreterWrite(cmd string, raw []string, leaf bool) (needle, glob string) {
 	cmd = core.DropDataHeredocs(cmd)
-	used := paths.FoldCase(pyUsedText(cmd)) // a Python comment or prose string only mentions a path
-	for _, seg := range shell.Segments(cmd) {
+	heredoc := strings.Contains(cmd, "<<")   // a script body sits on lines after its interpreter's segment
+	whole := paths.FoldCase(pyUsedText(cmd)) // a Python comment or prose string only mentions a path
+	segs := shell.Segments(cmd)
+	assigns := assignSegments(segs)
+	for _, seg := range segs {
 		rest := runnerUnwrap(shell.Tokens(seg))
 		if len(rest) == 0 {
 			continue
 		}
+		text, used := cmd, whole
+		if !heredoc { // judge this segment: a path another segment merely names is no write
+			text = strings.Join(append([]string{seg}, assigns...), "\n")
+			used = paths.FoldCase(text)
+		}
 		lang := interpreterLang(filepath.Base(rest[0]))
-		if re := interpreterWrites()[lang]; re == nil || !scriptWrites(lang, re, cmd) {
+		if re := interpreterWrites()[lang]; re == nil || !scriptWrites(lang, re, text) {
 			continue
 		}
-		home := homePrefix()
-		for _, g := range raw {
-			if n := globNeedle(g, home); n != "" && strings.Contains(used, paths.FoldCase(n)) {
-				return n, g
-			}
-		}
-		if m := leafSettings.FindString(used); leaf && m != "" {
-			return m, ""
+		if n, g := mentionedGlob(raw, used, leaf); n != "" {
+			return n, g
 		}
 	}
 	return "", ""
+}
+
+// mentionedGlob is the raw glob's needle (and glob) the folded text names; a leaf's settings.json counts too.
+func mentionedGlob(raw []string, used string, leaf bool) (needle, glob string) {
+	home := homePrefix()
+	for _, g := range raw {
+		if n := globNeedle(g, home); n != "" && strings.Contains(used, paths.FoldCase(n)) {
+			return n, g
+		}
+	}
+	if m := leafSettings.FindString(used); leaf && m != "" {
+		return m, ""
+	}
+	return "", ""
+}
+
+// assignSegments are the segments made only of NAME=value words: `f=~/.ssh/k; python3 -c ...` carries the path.
+func assignSegments(segs []string) []string {
+	var out []string
+	for _, seg := range segs {
+		if toks := shell.Tokens(seg); len(toks) > 0 && !slices.ContainsFunc(toks, func(t string) bool { return !isAssignment(t) }) {
+			out = append(out, seg)
+		}
+	}
+	return out
 }
 
 // pyIndirectModule spots os/shutil reached by another name (`as`, `fs = os`, `(os)`, `modules['os']`) or dynamically.

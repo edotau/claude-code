@@ -22,7 +22,7 @@ var hardBlocks = []*core.Gated{
 	core.Gate(`mkfs\.`, "mkfs."),
 	core.Gate(`dd\s+(.*\s)?of=/dev/r?(sd|disk|nvme|hd)`, "of=/dev/"),
 	core.Gate(`chmod\s+-R\s+0?777\s+/(\s|$)`, "chmod"),
-	core.Gate(`python3?\s+.*-c\s+.*exec\(.*base64`, "base64"),
+	core.Gate(`python[0-9.]*\s+.*-c\s+.*exec\(.*base64`, "base64"),
 }
 
 // hardBlockVerdict blocks a hard shape outside inert text; one only in inert text is data.
@@ -53,6 +53,44 @@ func firstHardBlock(text string) (string, bool) {
 				return re.String(), true
 			}
 		}
+		if inner, ok := shell.NestedCommand(shell.Tokens(seg)); ok { // `sh -c "'rm' -rf /"` runs its string
+			if pattern, hit := firstHardBlock(blankHardData(inner)); hit {
+				return pattern, true
+			}
+		}
+	}
+	return "", false
+}
+
+// xargsHardBlock is the hard-block pattern an `echo/printf TEXT | xargs rm …` runs once xargs appends TEXT's words.
+func xargsHardBlock(cmd string) (string, bool) {
+	if !strings.Contains(cmd, "xargs") {
+		return "", false
+	}
+	segs, seps := shell.SegmentsSep(cmd)
+	for k := 0; k+1 < len(segs); k++ {
+		texts, ok := printedText(shell.Tokens(segs[k]))
+		rest, _ := shell.Unwrap(shell.DropRtk(shell.Tokens(segs[k+1])), "")
+		if !ok || !pipedOn(seps[k]) || len(rest) == 0 || filepath.Base(rest[0]) != "xargs" {
+			continue
+		}
+		if run := slices.IndexFunc(rest, func(t string) bool { return filepath.Base(t) == "rm" }); run >= 0 {
+			if pattern, hit := appendedHardBlock(strings.Join(rest[run:], " "), texts); hit {
+				return pattern, true
+			}
+		}
+	}
+	return "", false
+}
+
+// appendedHardBlock is the hard-block pattern run, with one word of texts appended, matches.
+func appendedHardBlock(run string, texts []string) (string, bool) {
+	for _, text := range texts {
+		for word := range strings.FieldsSeq(text) {
+			if pattern, hit := firstHardBlock(run + " " + word); hit {
+				return pattern, true
+			}
+		}
 	}
 	return "", false
 }
@@ -65,7 +103,7 @@ func feedHardBlock(cmd string) (string, bool) {
 			return pattern, true
 		}
 	}
-	return "", false
+	return xargsHardBlock(cmd)
 }
 
 // shellFeeds is cmd with each decodable printf/echo-into-a-shell pipeline replaced by `:`, and the texts it runs.
