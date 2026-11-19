@@ -79,14 +79,12 @@ paths:
   run. A tier the row
   does not serve falls back to the untiered pick with a note. The ranks are seeded estimates: edit
   `internal/catalog/ranks.json`.
-  A record `model` of `rotate` (copilot, opencode) picks the least-recently-picked eligible model for an untyped run.
-  The pool includes only models served by the agent's row (any serving workspace under the `databricks` pool pin)
-  that the agent can run and that meet the tier's `rotation` capability floor and cost cap in
-  `internal/catalog/ranks.json` (an unranked model skips both where the tier admits it). The vault's
-  `discovery-models` list is an optional allowlist only; rotation skips
-  models held after a recent 429 or capability refusal. `claude-code agents label <agent> --run --task <brief>`
-  records the pick and freezes it as the Run: line's `--model`, so the label equals the run.
-  `claude-code configure agents <agent> model=<id>` pins one model again.
+  `--model auto` or `configure agents <agent> model=auto` picks the least-recently-picked model on a rotation row.
+  The pool is limited to models the row serves, the agent can run, and the tier's `rotation` capability floor and
+  cost cap in `internal/catalog/ranks.json` allow (unranked models skip both where the tier admits them). The vault's
+  `discovery-models` list only narrows the pool; models held after a 429 or capability refusal are skipped.
+  Labels, `gateway resolve`, and `ask --dry-run` only peek; `agents label <agent> --run` records and freezes the pick
+  as `--model` in the `Run:` line. With no model named or pinned, or no rotation pick, auto keeps the ranked pick.
 - **opencode** on a Databricks row runs three providers: `<row>` (chat), `<row>-gpt` (Responses), `<row>-claude`
   (Anthropic); an unlisted `--model` is refused at preflight; a model with no openai route is left out of the chat
   list with a note.
