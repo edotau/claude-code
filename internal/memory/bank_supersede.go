@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -566,30 +567,28 @@ func chainEnd(h SearchHit, find func(string) (SearchHit, bool)) (SearchHit, bool
 	return SearchHit{}, false
 }
 
-// blockFinder returns the lookup of a corpus block by persisted id; the first block per id wins, built on first use.
+// blockFinder returns the lookup of a corpus block by persisted id; the first block per id wins.
 func blockFinder(files []corpusFile, segs []segView) func(id string) (SearchHit, bool) {
-	var byID map[string]SearchHit
 	return func(id string) (SearchHit, bool) {
-		if byID == nil {
-			byID = map[string]SearchHit{}
-			dir := accessDir()
-			for i, seg := range segs {
-				if seg == nil { // a missing or unreadable file has no segment
+		needle := []byte("<!-- id:" + id + " -->")
+		for i, seg := range segs {
+			if seg == nil { // a missing or unreadable file has no segment
+				continue
+			}
+			for d := range seg.Docs() {
+				raw, _ := seg.docRaw(d)
+				if !bytes.Contains(raw, needle) {
 					continue
 				}
-				for d := range seg.Docs() {
-					block, _ := seg.Doc(d)
-					owner := ownerID(block)
-					if _, seen := byID[owner]; seen || !strings.Contains(block, "<!-- id:"+owner+" -->") {
-						continue
-					}
-					f := files[i]
-					byID[owner] = SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: owner, Dir: dir}
+				block := string(raw)
+				if ownerID(block) != id {
+					continue
 				}
+				f := files[i]
+				return SearchHit{Bank: f.Bank, File: filepath.Base(f.Path), Block: block, ID: id, Dir: accessDir()}, true
 			}
 		}
-		h, ok := byID[id]
-		return h, ok
+		return SearchHit{}, false
 	}
 }
 

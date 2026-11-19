@@ -199,14 +199,20 @@ func (s segView) sumDL() uint64 {
 	return binary.LittleEndian.Uint64(s[4:])
 }
 
-func (s segView) Doc(i int) (text string, dl uint32) {
+// docRaw is document i's text as a view into the segment (do not keep or modify) and its length.
+func (s segView) docRaw(i int) (text []byte, dl uint32) {
 	termStart := segHeader + s.Docs()*docStride
 	postStart := termStart + 4 + int(binary.LittleEndian.Uint32(s[termStart:]))*16
 	blobStart := postStart + 4 + int(binary.LittleEndian.Uint32(s[postStart:]))*8
 	off := segHeader + i*docStride
 	start := blobStart + int(binary.LittleEndian.Uint32(s[off+4:]))
 	end := start + int(binary.LittleEndian.Uint32(s[off+8:]))
-	return string(s[start:end]), binary.LittleEndian.Uint32(s[off:])
+	return s[start:end], binary.LittleEndian.Uint32(s[off:])
+}
+
+func (s segView) Doc(i int) (text string, dl uint32) {
+	raw, dl := s.docRaw(i)
+	return string(raw), dl
 }
 
 // DocRef is document i's blockSum and blockRef(text, ""), read from the row instead of rehashing the text.
@@ -442,6 +448,10 @@ func indexSegments(uniq map[string]int, segs []segView) (
 // scoreSegmentDocs returns the BM25F-scored hits for every matched doc in one segment.
 func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl float64,
 	seg segView, wt map[int][]float64, file corpusFile, dir string) []SearchHit {
+	idfs := make([]float64, len(df))
+	for j, d := range df {
+		idfs[j] = math.Log((n-float64(d)+0.5)/(float64(d)+0.5) + 1)
+	}
 	var hits []SearchHit
 	for doc := 0; doc < seg.Docs(); doc++ {
 		freqs := wt[doc]
@@ -458,8 +468,7 @@ func scoreSegmentDocs(qTerms []string, uniq map[string]int, df []int, n, avgdl f
 			if tf == 0 {
 				continue
 			}
-			idf := math.Log((n-float64(df[j])+0.5)/(float64(df[j])+0.5) + 1)
-			score += idf * tf * (searchK1 + 1) / (tf + searchK1*(1-searchB+searchB*dl/avgdl))
+			score += idfs[j] * tf * (searchK1 + 1) / (tf + searchK1*(1-searchB+searchB*dl/avgdl))
 		}
 		if score <= 0 {
 			continue

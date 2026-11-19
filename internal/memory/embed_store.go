@@ -3,10 +3,13 @@ package memory
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"math"
 	"os"
@@ -16,7 +19,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/textutil"
 	"go.etcd.io/bbolt"
 	bolterrors "go.etcd.io/bbolt/errors"
 )
@@ -454,7 +456,16 @@ func RefreshStaleEmbeddings(cwd string) {
 	}
 }
 
-func hitHash(h SearchHit) string { return textutil.SHA256Hex([]byte(h.File + "\x00" + h.Block)) }
+func hitHash(h SearchHit) string {
+	d := sha256.New()
+	_, _ = io.WriteString(d, h.File)
+	_, _ = d.Write([]byte{0})
+	_, _ = io.WriteString(d, h.Block)
+	var sum [sha256.Size]byte
+	var out [2 * sha256.Size]byte
+	hex.Encode(out[:], d.Sum(sum[:0]))
+	return string(out[:])
+}
 
 func newSemantic(query []float32, rows map[string]vectorRow) *Semantic {
 	s := &Semantic{query: query, rows: rows, blocks: make(map[string]string, len(rows))}
