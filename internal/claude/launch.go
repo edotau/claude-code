@@ -326,7 +326,7 @@ func mergeUserSettings(plan *agent.Plan) error {
 		}
 		user, err := readSettings(v)
 		if err != nil {
-			return fmt.Errorf("--settings %s: %w", v, err)
+			return fmt.Errorf("%s: %w", settingsLabel(v), err)
 		}
 		doc, found = mergeDoc(doc, user), true
 	}

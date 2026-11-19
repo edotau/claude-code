@@ -70,27 +70,14 @@ func planLaunch(native string, args []string) (agent.LaunchOptions, agent.Plan, 
 	return opts, plan, err
 }
 
-// takeCollapsed removes and returns the settings-collapse warnings so the retry note carries them once.
-func takeCollapsed(plan *agent.Plan) []string {
-	var got []string
-	plan.Warnings = slices.DeleteFunc(slices.Clone(plan.Warnings), func(w string) bool {
-		rest, ok := strings.CutPrefix(w, collapsedPrefix)
-		if ok {
-			got = append(got, rest)
-		}
-		return ok
-	})
-	return got
-}
-
-// dedupInputs drops repeated `--settings <v>` pairs and duplicate PATH dirs (and bin/); changed names what it removed.
+// dedupInputs drops repeated `--settings <v>` pairs and duplicate PATH dirs; changed names what it removed, never inline JSON.
 func dedupInputs(args []string) ([]string, []string) {
 	var out, changed []string
 	seen := map[string]bool{}
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--settings" && i+1 < len(args) {
 			if seen[args[i+1]] {
-				changed, i = append(changed, "--settings "+args[i+1]), i+1
+				changed, i = append(changed, settingsLabel(args[i+1])), i+1
 				continue
 			}
 			seen[args[i+1]] = true
@@ -98,9 +85,8 @@ func dedupInputs(args []string) ([]string, []string) {
 		out = append(out, args[i])
 	}
 	var dirs []string
-	bin := filepath.Clean(paths.BinDir())
 	for _, d := range filepath.SplitList(os.Getenv("PATH")) {
-		if c := filepath.Clean(d); c != bin && !slices.Contains(dirs, c) {
+		if c := filepath.Clean(d); !slices.Contains(dirs, c) {
 			dirs = append(dirs, c)
 		}
 	}
@@ -109,6 +95,14 @@ func dedupInputs(args []string) ([]string, []string) {
 		_ = proc.Setenv("PATH", joined)
 	}
 	return out, changed
+}
+
+// settingsLabel names a --settings value: a file path as is, inline JSON by size only (it may hold credentials).
+func settingsLabel(v string) string {
+	if strings.HasPrefix(strings.TrimSpace(v), "{") {
+		return fmt.Sprintf("--settings <inline JSON, %d bytes>", len(v))
+	}
+	return "--settings " + v
 }
 
 // takeNative strips a leading absolute path to a claude executable: the VS Code wrapper's bundled binary.

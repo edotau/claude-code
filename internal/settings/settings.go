@@ -1028,7 +1028,7 @@ func collapseArray(raw json.RawMessage, path string, changed *[]string) (json.Ra
 	return textutil.MarshalNoEscape(out)
 }
 
-// dedupHookEntry drops handlers whose matcher+command was seen; keep is false when none remain.
+// dedupHookEntry drops handlers identical (all options) to one seen under the same matcher; keep is false when none remain.
 func dedupHookEntry(entry json.RawMessage, seen map[string]bool, path string, changed *[]string) (json.RawMessage, bool) {
 	var e map[string]json.RawMessage
 	var hs []map[string]json.RawMessage
@@ -1037,7 +1037,8 @@ func dedupHookEntry(entry json.RawMessage, seen map[string]bool, path string, ch
 	}
 	kept := hs[:0:0]
 	for _, h := range hs {
-		id := string(e["matcher"]) + "\x00" + string(h["command"])
+		raw, _ := textutil.MarshalNoEscape(h) // map keys marshal sorted, so equal handlers give equal bytes
+		id := string(e["matcher"]) + "\x00" + string(raw)
 		if string(h["command"]) != "" && seen[id] {
 			*changed = append(*changed, "duplicate hook "+path+" "+string(h["command"]))
 			continue

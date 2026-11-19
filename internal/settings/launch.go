@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -19,7 +20,7 @@ func LaunchSettings(databricks bool) (map[string]any, error) {
 		return nil, fmt.Errorf("embedded automode.json: %w", err)
 	}
 	doc := map[string]any{"autoMode": auto}
-	if env := missingTemplateEnv(Template(), userSettings()); len(env) > 0 {
+	if env := missingTemplateEnv(Template(), userSettings()...); len(env) > 0 {
 		doc["env"] = env
 	}
 	if databricks {
@@ -28,21 +29,36 @@ func LaunchSettings(databricks bool) (map[string]any, error) {
 	return doc, nil
 }
 
-func userSettings() []byte {
-	b, _ := os.ReadFile(SettingsFile()) // a missing file means every template key is missing
-	return b
+// userSettings reads the user and cwd project settings files; a key any of them sets is never filled.
+func userSettings() [][]byte {
+	var out [][]byte
+	for _, f := range []string{SettingsFile(), filepath.Join(".claude", "settings.json"),
+		filepath.Join(".claude", "settings.local.json")} {
+		if b, err := os.ReadFile(f); err == nil { // a missing file sets no key
+			out = append(out, b)
+		}
+	}
+	return out
 }
 
-// missingTemplateEnv returns the template env keys absent from the user's settings.json env, never secret-named ones.
-func missingTemplateEnv(tmpl, user []byte) map[string]any {
-	var t, u struct {
+// missingTemplateEnv returns the template env keys no settings file sets, never secret-named ones.
+func missingTemplateEnv(tmpl []byte, files ...[]byte) map[string]any {
+	type doc struct {
 		Env map[string]any `json:"env"`
 	}
+	var t doc
 	_ = json.Unmarshal(tmpl, &t)
-	_ = json.Unmarshal(user, &u)
+	set := map[string]bool{}
+	for _, f := range files {
+		var u doc
+		_ = json.Unmarshal(f, &u)
+		for k := range u.Env {
+			set[k] = true
+		}
+	}
 	out := map[string]any{}
 	for k, v := range t.Env {
-		if _, set := u.Env[k]; !set && !providers.IsSecretName(k) {
+		if !set[k] && !providers.IsSecretName(k) {
 			out[k] = v
 		}
 	}
