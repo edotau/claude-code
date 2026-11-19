@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -75,6 +76,7 @@ type Local struct {
 	// SubnetRoutes are the approved subnet routes in Self.AllowedIPs (own addresses and defaults excluded).
 	SubnetRoutes []string
 	Peers        []peer
+	LoginName    string `json:"-"` // the signed-in user, empty when status names none
 	Via          string `json:"-"` // "localapi", "cli" or "tsnet": which path answered
 }
 
@@ -84,10 +86,12 @@ type rawStatus struct {
 	BackendState string
 	Self         rawNode
 	Peer         map[string]rawNode
+	User         map[string]struct{ LoginName string }
 }
 
 type rawNode struct {
 	ID             string
+	UserID         int64
 	DNSName        string
 	TailscaleIPs   []string
 	OS             string
@@ -327,6 +331,7 @@ func parseStatus(out []byte, via string) (Local, error) {
 	local := Local{
 		Version:          raw.Version,
 		ID:               raw.Self.ID,
+		LoginName:        raw.User[strconv.FormatInt(raw.Self.UserID, 10)].LoginName,
 		BackendState:     raw.BackendState,
 		DNSName:          raw.Self.DNSName,
 		IPs:              raw.Self.TailscaleIPs,

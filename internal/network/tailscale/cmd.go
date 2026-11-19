@@ -46,7 +46,7 @@ func tailscaleFlags() (*flag.FlagSet, *tsFlags) {
 	t := &tsFlags{}
 	fs.BoolVar(&t.machines, "machines", false, "list tailnet machines")
 	fs.BoolVar(&t.connect, "connect", false, "join the tailnet")
-	fs.BoolVar(&t.mint, "token", false, "mint a Tailscale auth key")
+	fs.BoolVar(&t.mint, "token", false, "mint an auth key after a browser re-auth (own terminal)")
 	fs.StringVar(&t.exitNode, "exit-node", "", "on|off|approve: advertise, stop or approve this box as an exit node")
 	fs.StringVar(&t.subnet, "subnet", "", "<cidr>[,…]|approve|off: advertise, approve or withdraw LAN routes")
 	fs.StringVar(&t.route, "route", "", "<peer>|off: send this box's traffic through a peer exit node")
@@ -267,6 +267,9 @@ func tailscaleConnectKeyless(ctx context.Context, advertise bool) int {
 
 // tailscaleKey mints a key; --secret prints it, --save seals it, and with neither nothing is minted to lose.
 func tailscaleKey(ctx context.Context, o tsOpts, secret bool) int {
+	if err := stepUpGate(ctx, os.Stderr); err != nil {
+		return helptext.Fail("network tailscale token: %v", err)
+	}
 	key, err := MintKey(ctx, KeyOptions{Expiry: o.expiry, Tags: o.tags, Description: o.desc,
 		Reusable: o.reusable, Ephemeral: o.ephemeral, Preauthorized: o.preauth})
 	if err != nil {

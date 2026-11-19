@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -332,7 +333,10 @@ func TestRequestErrorBodyIsCapped(t *testing.T) {
 	}
 }
 
-func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
+func TestMain(m *testing.M) {
+	stepUpGate = func(context.Context, io.Writer) error { return nil }
+	os.Exit(hosttest.Main(m))
+}
 
 // TestOAuthTokenMintsAndCachesUntilNearExpiry: one form-encoded mint per 2s token, reused within it.
 func TestOAuthTokenMintsAndCachesUntilNearExpiry(t *testing.T) {
