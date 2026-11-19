@@ -25,9 +25,15 @@ type Rank struct {
 	prefix     string // Match's literal stem when it is "stem*", else ""; set at load
 }
 
+type rotationRule struct {
+	Min     int `json:"min"`      // least capability a rotation member needs
+	MaxCost int `json:"max_cost"` // dearest cost a rotation member may have
+}
+
 type rankTable struct {
-	Tiers    map[string]int `json:"tiers"` // tier -> the least capability it needs
-	Families []Rank         `json:"families"`
+	Tiers    map[string]int          `json:"tiers"` // tier -> the least capability it needs
+	Rotation map[string]rotationRule `json:"rotation"`
+	Families []Rank                  `json:"families"`
 }
 
 // loadRanks parses the embedded ranks once; a malformed embed is a build defect, so it panics (tests cover it).
@@ -128,6 +134,23 @@ func eligible(r Rank, cand Candidate, tier string, tools bool) bool {
 		return false
 	}
 	return r.Known || tier == "fast" && (!tools || cand.Tools == "yes")
+}
+
+// RotationPool is cands a rotation may run at tier, in input order: eligible, at the floor, within the cost cap.
+func RotationPool(cands []Candidate, tier string, tools bool) []string {
+	rule, ok := loadRanks().Rotation[tier]
+	if !ok {
+		return nil
+	}
+	var out []string
+	for _, c := range cands {
+		r := RankOf(c.Model)
+		if !eligible(r, c, tier, tools) || r.Known && (r.Capability < rule.Min || r.Cost > rule.MaxCost) {
+			continue
+		}
+		out = append(out, c.Model)
+	}
+	return out
 }
 
 // pickOrder: known first, then (live fit only) fit lift, then the faster cell within a lift band; then as before.
