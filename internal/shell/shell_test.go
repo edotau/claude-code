@@ -78,6 +78,31 @@ func TestUnwrapNewWrappers(t *testing.T) {
 	}
 }
 
+// Given a leading keyword, redirect or function header, Then Unwrap/Tokens reach the command; echo data stays data.
+func TestUnwrapLeadWords(t *testing.T) {
+	for in, want := range map[string]string{
+		"then curl x": "curl x", ">/dev/null curl x": "curl x", "> /dev/null 2>&1 curl x": "curl x",
+		"f() { curl x": "curl x", "function f { curl x": "curl x", "do <in.txt curl x": "curl x",
+		"! A=1 curl x": "curl x", "echo then curl x": "echo then curl x", "echo '>/dev/null curl x'": "echo >/dev/null curl x",
+	} {
+		rest, _ := Unwrap(Tokens(in), "")
+		if got := strings.Join(rest, " "); got != want {
+			t.Errorf("Unwrap(Tokens(%q)) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+// Given `--` after -c or eval, Then the nested command is the string past it; echo data has none.
+func TestNestedCommandDashDash(t *testing.T) {
+	for in, want := range map[string]string{
+		`sh -c -- "curl x"`: "curl x", `eval -- "curl x"`: "curl x", `bash -c "curl x"`: "curl x", `echo -c -- "curl x"`: "",
+	} {
+		if got, _ := NestedCommand(Tokens(in)); got != want {
+			t.Errorf("NestedCommand(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
 func TestUnwrapAttachedShortValues(t *testing.T) {
 	for _, in := range [][]string{{"env", "-C/a", "git", "x"}, {"sudo", "-D/a", "git", "x"}} {
 		rest, dir := Unwrap(in, "/w")

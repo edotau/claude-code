@@ -282,10 +282,15 @@ func trimGroupOpen(out []string) []string {
 				continue
 			}
 		}
-		if !isShellKeyword(out[i]) {
+		if isShellKeyword(out[i]) {
+			i++
+			continue
+		}
+		rest := skipLeadRedirect(skipFuncHeader(out[i:]), true)
+		if len(rest) == len(out)-i {
 			break
 		}
-		i++
+		out = append(out[:i], rest...)
 	}
 	return out
 }
@@ -533,6 +538,53 @@ func skipEnvAssignments(toks []string) []string {
 	return toks[i:]
 }
 
+// skipLeadWords drops what precedes the command word: NAME=val, control keywords, redirects and a function header.
+func skipLeadWords(toks []string) []string {
+	for {
+		n := len(toks)
+		toks = skipEnvAssignments(toks)
+		for len(toks) > 0 && isShellKeyword(toks[0]) {
+			toks = toks[1:]
+		}
+		toks = skipLeadRedirect(skipFuncHeader(toks), false)
+		if len(toks) == n {
+			return toks
+		}
+	}
+}
+
+// skipFuncHeader drops `name()` / `function name` and the `{`/`(` after it, so the body's first word is the command.
+func skipFuncHeader(toks []string) []string {
+	switch {
+	case len(toks) > 1 && toks[0] == "function":
+		toks = toks[2:]
+	case len(toks) > 0 && len(toks[0]) > 1 && strings.HasSuffix(toks[0], "(") && isEnvAssign(toks[0][:len(toks[0])-1]+"="):
+		toks = toks[1:]
+	default:
+		return toks
+	}
+	for len(toks) > 0 && (toks[0] == "{" || toks[0] == "(") {
+		toks = toks[1:]
+	}
+	return toks
+}
+
+// skipLeadRedirect drops one leading redirect word (`>/dev/null`, `2>&1`) and, when bare (`>`), its target; heredocs may stay.
+func skipLeadRedirect(toks []string, keepHeredoc bool) []string {
+	if len(toks) == 0 {
+		return toks
+	}
+	op := strings.TrimLeft(toks[0], "0123456789")
+	if !strings.HasPrefix(op, "<") && !strings.HasPrefix(op, ">") && !strings.HasPrefix(op, "&>") ||
+		keepHeredoc && strings.HasPrefix(op, "<<") {
+		return toks
+	}
+	if strings.Trim(op, "<>&") == "" && len(toks) > 1 {
+		return toks[2:]
+	}
+	return toks[1:]
+}
+
 // wrapperValueFlags are a prefix wrapper's flags that take the next token (long forms also as --opt=val).
 func wrapperValueFlags() map[string]map[string]bool {
 	walkerOnce.Do(loadWalker)
@@ -549,7 +601,7 @@ func wrapperNames() map[string]bool { walkerOnce.Do(loadWalker); return walker.w
 func Unwrap(toks []string, cwd string) (rest []string, dir string) {
 	dir = cwd
 	for {
-		toks = skipEnvAssignments(toks)
+		toks = skipLeadWords(toks)
 		if len(toks) == 0 || !wrapperNames()[filepath.Base(toks[0])] {
 			return toks, dir
 		}
@@ -626,11 +678,18 @@ func nestedOf(toks []string) (string, bool) {
 		return "", false
 	}
 	if toks[0] == "eval" && len(toks) > 1 {
-		return strings.Join(toks[1:], " "), true
+		args := toks[1:]
+		if args[0] == "--" {
+			args = args[1:]
+		}
+		return strings.Join(args, " "), true
 	}
 	if shellWrapperNames()[filepath.Base(toks[0])] {
 		for i := 1; i < len(toks)-1; i++ {
 			if isCFlag(toks[i]) {
+				if toks[i+1] == "--" && i+2 < len(toks) {
+					return toks[i+2], true
+				}
 				return toks[i+1], true
 			}
 		}

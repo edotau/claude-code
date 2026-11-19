@@ -230,7 +230,7 @@ func resolveIn(dir, path string) string {
 
 // FooterFileWritten reports a commit message file that the same command writes a footer line into first.
 func FooterFileWritten(cmd, cwd string) bool {
-	if !containsAny(cmd, "commit", "merge", "tag") || !containsAny(cmd, ">", "tee") ||
+	if !containsAny(cmd, "commit", "merge", "tag") || !containsAny(cmd, ">", "tee", "python", "node", "perl", "ruby", "php") ||
 		!containsAny(cmd, "-F", "--file", "-t") {
 		return false
 	}
@@ -256,13 +256,39 @@ func writtenText(segs, seps []string, i int, dir string, files map[string]bool) 
 	if tee {
 		targets = append(targets, slices.DeleteFunc(slices.Clone(words[1:]), isFlag)...)
 	}
-	if !slices.ContainsFunc(targets, func(t string) bool { return files[resolveIn(dir, t)] }) || len(words) == 0 {
+	script := interpreterNamesFile(words, files)
+	if len(words) == 0 || !script && !slices.ContainsFunc(targets, func(t string) bool { return files[resolveIn(dir, t)] }) {
 		return nil
 	}
 	var text []string
 	if !tee {
 		text = words[1:]
 	}
+	text = append(text, stringLiterals(script, words[1:])...)
+	text = append(text, pipedAndHeredoc(segs, seps, i)...)
+	return text
+}
+
+// interpreterNamesFile reports an interpreter command whose code names a message file, so it may write a footer there.
+func interpreterNamesFile(words []string, files map[string]bool) bool {
+	rest, _ := Unwrap(words, "")
+	if len(rest) < 2 || !slices.ContainsFunc([]string{"python", "node", "perl", "ruby", "php"},
+		func(n string) bool { return strings.HasPrefix(filepath.Base(rest[0]), n) }) {
+		return false
+	}
+	return slices.ContainsFunc(rest[1:], func(w string) bool {
+		for f, ok := range files {
+			if ok && strings.Contains(w, f) {
+				return true
+			}
+		}
+		return false
+	})
+}
+
+// pipedAndHeredoc is the text segment i is fed: piped-in sources' words and its heredoc body.
+func pipedAndHeredoc(segs, seps []string, i int) []string {
+	var text []string
 	for k := i - 1; k >= 0 && (seps[k] == "|" || seps[k] == "|&"); k-- {
 		if w, _ := Redirects(segs[k]); len(w) > 1 {
 			text = append(text, w[1:]...)
@@ -278,6 +304,18 @@ func writtenText(segs, seps []string, i int, dir string, files map[string]bool) 
 		}
 	}
 	return text
+}
+
+// stringLiterals splits code words at quotes so a footer inside a string literal reads as a line.
+func stringLiterals(on bool, words []string) []string {
+	var out []string
+	if !on {
+		return out
+	}
+	for _, w := range words {
+		out = append(out, strings.FieldsFunc(w, func(r rune) bool { return r == '"' || r == '\'' || r == '`' })...)
+	}
+	return out
 }
 
 func containsAny(s string, subs ...string) bool {
