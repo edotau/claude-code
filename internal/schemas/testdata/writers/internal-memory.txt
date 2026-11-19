@@ -42,6 +42,7 @@ internal/memory/session_start.go:writeSessionRoot	unversioned: text: per-session
 internal/memory/spawn.go:spawnSelf	unversioned: log: detached worker log, humans only
 internal/memory/store.go:createExcl	unversioned: memory-bank: bank and memory repo seed files
 internal/memory/store.go:seedFile	unversioned: memory-bank: bank seed files
+internal/memory/sync.go:SaveSync	memory-sync
 internal/memory/update.go:writeUpdateResult	unversioned: text: update result text
 internal/memory/update_gate.go:writeCountState	unversioned: text: edit count stamp
 internal/memory/update_gate.go:writeSidecar	unversioned: text: update sidecar text

@@ -125,7 +125,7 @@ func IdleUpdateWatch(o WatchOptions) int {
 		_ = os.Remove(watchClaimPath(o.Session)) // an empty claim would never be retaken; the stamp dedupes a rival
 	}
 	defer func() { _ = os.Remove(watchClaimPath(o.Session)) }()
-	w := &watchLoop{tr: o.Transcript, cwd: o.CWD, session: o.Session, idle: o.Idle, owner: o.Owner, stderr: stderr}
+	w := &watchLoop{tr: o.Transcript, cwd: o.CWD, session: o.Session, idle: o.Idle, owner: o.Owner, stderr: stderr, sync: SyncOn()}
 	deadline := time.Now().Add(updateWatchLife)
 	for time.Now().Before(deadline) {
 		time.Sleep(updateWatchPoll)
@@ -143,6 +143,7 @@ type watchLoop struct {
 	owner            int
 	seen             time.Time // mtime last evaluated: the transcript is append-only, so unchanged ⇒ same edit count
 	stderr           io.Writer
+	sync             bool // the machine's memory-sync opt-in, read once at start
 }
 
 // poll runs one watch iteration and reports whether the watcher should exit.
@@ -154,6 +155,9 @@ func (w *watchLoop) poll() (exit bool) {
 	fi, err := os.Stat(w.tr)
 	if err != nil {
 		return os.IsNotExist(err) // transcript gone ends the watcher; any other error retries next poll
+	}
+	if w.sync {
+		syncIfDue(time.Now(), fi.ModTime(), w.cwd)
 	}
 	if time.Since(fi.ModTime()) < w.idle {
 		return false // main transcript alone is still active: skip the subagent globs entirely
