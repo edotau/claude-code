@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
@@ -106,7 +107,7 @@ func tickPlans(ctx context.Context, out io.Writer, top string, set []string) {
 		return
 	}
 	sha = strings.TrimSpace(sha)
-	results, tied, err := plans.TickCommit(top, sha, set, nil)
+	results, tied, err := plans.DeferTick(top, sha, set, os.Getenv(memory.SessionIDEnv))
 	for _, r := range results {
 		for _, n := range r.Lines(sha) {
 			fmt.Fprintln(out, n)

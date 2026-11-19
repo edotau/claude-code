@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -689,6 +690,18 @@ func TestUndoAddNeverUnstagesAFileStagedBeforeTheRun(t *testing.T) {
 }
 
 // The verb ticks a named task at once, notes the owned file it left out, and refuses to name the ticked task again.
+func wantPending(t *testing.T, dir, sha string, ids ...string) {
+	t.Helper()
+	pending, _, err := plans.PendingCommit(dir, sha, nil)
+	var have []string
+	for _, r := range pending {
+		have = append(have, r.IDs...)
+	}
+	if err != nil || !slices.Equal(have, ids) {
+		t.Fatalf("pending ticks for %s = %v (err %v), want %v", sha, have, err, ids)
+	}
+}
+
 func TestCommitTicksPlansItself(t *testing.T) {
 	dir := commitRepo(t)
 	planPath := filepath.Join(plans.Home(dir), time.Now().Format(time.DateOnly)+"-p.md")
@@ -697,13 +710,17 @@ func TestCommitTicksPlansItself(t *testing.T) {
 	req := commitReq(dir, "feat: a.txt", "a.txt")
 	req.Tasks = []string{"1.1"}
 	out, err := commitRun(req)
-	if err != nil || !strings.Contains(out, "plans: ticked 1.1") || !strings.Contains(out, "owns: b.txt") {
-		t.Fatalf("want a tick line and the missing owned file (err=%v):\n%s", err, out)
+	if err != nil || !strings.Contains(out, "owns: b.txt") || !strings.Contains(out, "the verifier did not start") {
+		t.Fatalf("want the missing owned file and the verifier-not-started line (err=%v):\n%s", err, out)
 	}
 	sha := strings.TrimSpace(hosttest.In(t, dir, "rev-parse", "--short=7", "HEAD"))
 	got, err := os.ReadFile(planPath)
-	if err != nil || string(got) != "- [x] 1.1 Pair owns: a.txt, b.txt ("+sha+")\n" {
-		t.Fatalf("plan after the named commit: %q err=%v", got, err)
+	if err != nil || string(got) != "- [ ] 1.1 Pair owns: a.txt, b.txt\n" {
+		t.Fatalf("the verifier cannot start under go test, so the plan stays open: %q err=%v", got, err)
+	}
+	wantPending(t, dir, sha, "1.1")
+	if _, _, err := plans.TickCommit(dir, sha, nil, nil); err != nil { // what the detached verifier does when green
+		t.Fatal(err)
 	}
 	hosttest.WriteRel(t, dir, "b.txt", "changed\n")
 	req = commitReq(dir, "feat: b.txt", "b.txt")
