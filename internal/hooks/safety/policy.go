@@ -55,14 +55,29 @@ func parsePolicy(l settings.PermissionLists) policy {
 				*set.bash = append(*set.bash, r)
 				continue
 			}
-			for _, tool := range []string{"Edit(", "Write("} { // raw arg: ParseRule's ~ expansion loses the anchor
-				if g, ok := strings.CutPrefix(s, tool); ok && set.edit != nil && strings.HasSuffix(g, ")") && len(g) > 1 {
-					*set.edit = append(*set.edit, strings.TrimSuffix(g, ")"))
-				}
+			if set.edit != nil {
+				*set.edit = append(*set.edit, editGlobs(s)...)
 			}
 		}
 	}
 	return p
+}
+
+// editGlobs is the raw path glob of an Edit/Write row (raw arg: ParseRule's ~ expansion loses the anchor).
+func editGlobs(row string) []string {
+	if row == "Edit" || row == "Write" { // a bare tool row covers every path
+		return []string{"**/*"}
+	}
+	for _, tool := range []string{"Edit(", "Write("} {
+		g, ok := strings.CutPrefix(row, tool)
+		if !ok || !strings.HasSuffix(g, ")") {
+			continue
+		}
+		if g = strings.TrimSpace(strings.TrimSuffix(g, ")")); g != "" {
+			return []string{g}
+		}
+	}
+	return nil
 }
 
 // settingsRuleHit is the first of rules a segment of cmd runs (wrappers, sh -c, substitutions seen through), else "".
@@ -94,7 +109,7 @@ func settingsAllowed(cmd, cwd string, rules []agent.Rule) bool {
 func sudoDenied() bool {
 	return slices.ContainsFunc(livePolicy().bashDeny, func(r agent.Rule) bool {
 		a := strings.TrimSpace(r.Arg)
-		return r.Tool == "Bash" && strings.HasPrefix(a, "sudo") && (len(a) == 4 || strings.ContainsRune(": *", rune(a[4])))
+		return r.Tool == "Bash" && (a == "sudo" || a == "sudo:*" || a == "sudo *")
 	})
 }
 
@@ -151,7 +166,11 @@ func foldedGlobs(raw []string, cwd string) []string {
 // globNeedle is the longest wildcard-free run of an anchored glob, home-relative, that a script must mention.
 func globNeedle(g, home string) string {
 	var best string
-	for _, part := range strings.FieldsFunc(strings.TrimPrefix(anchorGlob(g, ""), paths.FoldCase(home)), func(r rune) bool {
+	a := anchorGlob(g, "")
+	if a == "" { // a cwd-relative glob has no anchor yet; its own text is the needle
+		a = paths.FoldCase(paths.CleanGlob(strings.TrimPrefix(g, "./")))
+	}
+	for _, part := range strings.FieldsFunc(strings.TrimPrefix(a, paths.FoldCase(home)), func(r rune) bool {
 		return r == '*' || r == '?'
 	}) {
 		if part = strings.TrimLeft(part, "/"); len(part) > len(best) {

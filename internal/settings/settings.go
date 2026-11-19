@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -845,7 +846,7 @@ func LivePermissions() (PermissionLists, error) {
 			Deny  *[]string `json:"deny"`
 		} `json:"permissions"`
 	}
-	data, err := os.ReadFile(SettingsFile())
+	data, err := readCapped(SettingsFile(), maxSettingsBytes)
 	if err != nil {
 		return PermissionLists{}, err
 	}
@@ -858,6 +859,25 @@ func LivePermissions() (PermissionLists, error) {
 	}
 	p := doc.Permissions
 	return PermissionLists{Allow: p.Allow, Ask: p.Ask, Deny: *p.Deny}, nil
+}
+
+const maxSettingsBytes = 4 << 20
+
+// readCapped reads file, failing when it holds more than max bytes.
+func readCapped(file string, max int64) ([]byte, error) {
+	f, err := os.Open(file)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > max {
+		return nil, fmt.Errorf("%s: larger than %d bytes", filepath.Base(file), max)
+	}
+	return data, nil
 }
 
 // SeedSettings writes Render (via transform when non-nil) only when file is absent; an existing file is untouched.

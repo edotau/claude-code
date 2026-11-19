@@ -345,3 +345,20 @@ func TestFormatPreservesRawValues(t *testing.T) {
 		})
 	}
 }
+
+func TestLivePermissionsRejectsOversizedFile(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	file := filepath.Join(cfg, "settings.json")
+	pad := strings.Repeat(" ", maxSettingsBytes)
+	for body, wantErr := range map[string]bool{
+		`{"permissions":{"deny":[]}}` + pad: true, `{"permissions":{"deny":[]}}`: false,
+	} {
+		if err := os.WriteFile(file, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := LivePermissions(); (err != nil) != wantErr {
+			t.Errorf("len %d: err = %v, want error %v", len(body), err, wantErr)
+		}
+	}
+}

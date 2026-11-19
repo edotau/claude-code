@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 )
@@ -139,5 +140,28 @@ func TestStampCacheFreshFile(t *testing.T) {
 	// Then every request reloads instead of trusting the fresh stamp.
 	if calls != 2 {
 		t.Fatalf("load calls = %d, want 2", calls)
+	}
+}
+
+func TestStampCacheUnreadableFileInvalidates(t *testing.T) {
+	if runtime.GOOS == "windows" || os.Geteuid() == 0 {
+		t.Skip("chmod 000 does not block reads here")
+	}
+	advanceStampClock(t)
+	path := stampCacheFixture(t, time.Now().Add(-time.Hour))
+	var cache StampCache[int]
+	load := func() (int, error) {
+		_, err := os.ReadFile(path)
+		return 7, err
+	}
+	if got, err := cache.Get(path, load); err != nil || got != 7 {
+		t.Fatalf("first Get = %d, %v", got, err)
+	}
+	if err := os.Chmod(path, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(path, 0o600) })
+	if _, err := cache.Get(path, load); err == nil {
+		t.Error("unreadable file still served the cached value")
 	}
 }
