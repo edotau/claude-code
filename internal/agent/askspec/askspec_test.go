@@ -4,6 +4,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 func testSchema() Schema {
