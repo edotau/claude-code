@@ -4,7 +4,7 @@ A skeptical, read-only pass that refines a request into clear orders; never impl
 `Plan`, or `claude-code codex ask`: `rules/workflows/master-workflow.md` Phase 1 (request), Phase 4 (plan, below).
 Verdict **READY | NEEDS CLARIFICATION** (`../SKILL.md` → Verdicts).
 
-Input: the request and CLAUDE.md, with `git status --short` and `git diff --stat` for scope.
+Input: the request and CLAUDE.md, with `rtk git status --short` and `rtk git diff --stat` for scope.
 
 ## Evaluation checklist
 

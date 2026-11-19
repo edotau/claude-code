@@ -60,6 +60,7 @@ the description column. Arrow-key menu rows (`internal/ui/menu`) stay single-lin
   (`proc.WithValues`, `agent.RunValues`).
 - `make lint` and `agents diff --check` do not run gopls checks such as `writestring` (golang skill →
   `references/style.md` → Strings); only the editor shows those.
-- Verify per `quality.md` → Verification Order (`go test ./internal/<pkg>/...` scoped,
-  `agents diff --check --path <files>`, `make audit` at wrap-up); prove other platforms with `GOOS=linux go build ./...`
+- Verify per `quality.md` → Verification Order (`rtk go test ./internal/<pkg>/...` scoped,
+  `agents diff --check --path <files>`, `rtk make audit` at wrap-up); prove other platforms with
+  `GOOS=linux rtk go build ./...`
   / `GOOS=windows go vet ./...`.

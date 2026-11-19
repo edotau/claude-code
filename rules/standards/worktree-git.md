@@ -41,7 +41,7 @@ primary checkout only asks, once per session.
 - **Lane protocol:** one lane per stream; edit and `worktree commit` in the lane; `worktree merge <lane>` rebases the
   lane onto `main` inside the lane, gates it (build and vet everywhere; tests of changed packages and their direct
   importers; all concurrent) and fast-forwards `main` (a moved `main` is refused: re-run), then starts the full
-  `make audit` detached on main, reported on your next prompt.
+  `rtk make audit` detached on a clean snapshot of the merged commit, reported on your next prompt.
   A conflict exits 3, the lane stays as it was and the files are named: fix it in the lane, then re-run the merge.
   Never rebase or reset `main`. The full audit runs on clean `main`, main session only.
 

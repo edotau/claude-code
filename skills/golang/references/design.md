@@ -108,7 +108,8 @@ Moving the producer's concrete type into the consumer usually relocates the cycl
   a `go/analysis` fixer for repeated rewrites. Call hierarchy first: [tooling.md](tooling.md).
 - **Then grep for what the compiler can't see**: struct tags, `text/template` fields, `reflect` lookups, JSON string
   names, docs and help text.
-- Verify each step: `go build ./... && go vet ./...`, touched packages' tests, `-race` for concurrency, `benchstat`
+- Verify each step: `rtk go build ./... && rtk go vet ./...`, touched packages' tests, `-race` for concurrency,
+  `benchstat`
   for hot paths (anything but `~` is a behavior change). Red step → back to the last green commit.
 
 ### Internal clean break vs published deprecation

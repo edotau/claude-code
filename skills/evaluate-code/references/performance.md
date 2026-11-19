@@ -10,7 +10,7 @@ re-measure → stop at the SLA. Never micro-optimize a cold path or trade readab
 
 ```bash
 python -m cProfile -s cumtime script.py | head -30   # where does wall-time actually go?
-go test -bench . -cpuprofile cpu.out && go tool pprof cpu.out
+rtk go test -bench . -cpuprofile cpu.out && go tool pprof cpu.out
 # Web apps: a per-request SQL + timing profiler (django-silk, the debug toolbar)
 # Spark: the engine UI's stages/SQL tab — skew, shuffle and spill are the usual culprits
 ```

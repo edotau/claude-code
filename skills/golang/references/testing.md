@@ -14,7 +14,7 @@ Stdlib test mechanics, fuzzing, golden files, HTTP, races and benchmarks.
 
 | Form | Name | Run one |
 | --- | --- | --- |
-| Test | `TestParse`, `TestStore_Get` | `go test -run '^TestStore_Get$' ./internal/store` |
+| Test | `TestParse`, `TestStore_Get` | `rtk go test -run '^TestStore_Get$' ./internal/store` |
 | Subtest | `t.Run("empty input", …)` → `TestParse/empty_input` | `-run 'TestParse/empty_input'` |
 | Fuzz | `FuzzParse` | `-run '^$' -fuzz '^FuzzParse$' -fuzztime 30s` |
 | Benchmark | `BenchmarkParse/size=4k` | `-run '^$' -bench 'Parse/size=4k' -benchmem` |
@@ -78,7 +78,7 @@ func TestRetryBacksOff(t *testing.T) {
 
 - Fixtures in `testdata/` (the toolchain ignores it); goldens are `testdata/<name>.golden`.
 - One package-level `var update = flag.Bool("update", false, "rewrite golden files")` in the test file of the source
-  that owns the output. Regenerate with `go test ./pkg -run TestName -update`, then review the diff.
+  that owns the output. Regenerate with `rtk go test ./pkg -run TestName -update`, then review the diff.
 - On mismatch print a diff and the regenerate command; never auto-update on failure.
 - Normalize before compare: sort map-derived output, replace temp paths and timestamps with fixed tokens, `\r\n` to
   `\n`.

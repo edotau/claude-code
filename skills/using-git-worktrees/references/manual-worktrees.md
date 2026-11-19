@@ -81,8 +81,8 @@ Plain `git worktree` mechanics for repos without the harness verbs.
 
 ```bash
 ls -d ~/worktrees/"$(basename "$PWD")" 2>/dev/null   # harness default (outside the repo)
-ls -d .worktrees 2>/dev/null          # common hidden alternative
-grep -i "worktree.*director" CLAUDE.md 2>/dev/null   # explicit project preference
+rtk ls -d .worktrees 2>/dev/null          # common hidden alternative
+rtk grep -i "worktree.*director" CLAUDE.md 2>/dev/null   # explicit project preference
 ```
 
 Use the first that exists; if none and no CLAUDE.md preference, ask the user. Never put worktrees inside the main
@@ -101,7 +101,7 @@ If not ignored, add it to `.gitignore` and commit **before** creating the worktr
 
 ```bash
 slug=add-auth-endpoint; repo=$(basename "$PWD"); parent=$PWD
-git worktree add ~/worktrees/$repo/$slug -b wt/$slug HEAD
+rtk git worktree add ~/worktrees/$repo/$slug -b wt/$slug HEAD
 cd ~/worktrees/$repo/$slug
 ```
 
@@ -118,7 +118,7 @@ Run a real install (`make create-venv`, `uv sync`) only if the branch changes de
 
 ### 5. Verify a clean baseline
 
-Run the touched area's scoped tests (e.g. `go test ./internal/<pkg>`, `pytest <path>`) so new failures are
+Run the touched area's scoped tests (e.g. `rtk go test ./internal/<pkg>`, `pytest <path>`) so new failures are
 distinguishable. A red baseline: report it and ask before proceeding.
 
 ## Port allocation for parallel dev servers
@@ -147,11 +147,11 @@ these **local-dev-only** — never in a production deploy config.
 Removal with unmerged or uncommitted work loses it. Gate every removal:
 
 ```bash
-git -C ~/worktrees/$repo/$slug status --porcelain   # must be empty
-git branch --merged main | grep -q "wt/$slug" && echo "merged — safe to remove"
-git worktree remove ~/worktrees/$repo/$slug          # refuses if dirty (good)
-git branch -d wt/$slug                                # -d refuses if unmerged (good)
-git worktree prune                                    # clear stale metadata
+rtk git -C ~/worktrees/$repo/$slug status --porcelain   # must be empty
+rtk git branch --merged main | grep -q "wt/$slug" && echo "merged — safe to remove"
+rtk git worktree remove ~/worktrees/$repo/$slug          # refuses if dirty (good)
+rtk git branch -d wt/$slug                                # -d refuses if unmerged (good)
+rtk git worktree prune                                    # clear stale metadata
 ```
 
 - `git worktree remove --force` / `git branch -D` **only** for intentionally discarded work, after user confirmation.

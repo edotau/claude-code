@@ -5,7 +5,7 @@ Sessions and leaves sharing one tree (always `~/.claude`; any repo where you dec
 
 ## Before planning
 
-- List what else is live: `git status --short` (uncommitted files you didn't write), other sessions'
+- List what else is live: `rtk git status --short` (uncommitted files you didn't write), other sessions'
   `plans/*.md`, and `claude-code agents tree` for peers in the same checkout.
 - Check each task's `owns:` files against that list. Registry-shaped files (see Registry files below) are edited by
   every lane that adds an entry; assume they overlap.
@@ -48,10 +48,10 @@ writer is the exception: one row in `internal/schemas/testdata/writers/<pkg>.txt
 
 ## Before committing
 
-- `git diff <file>` on every file you commit: commit by path takes the WHOLE file, including a peer's hunks.
+- `rtk git diff <file>` on every file you commit: commit by path takes the WHOLE file, including a peer's hunks.
 - A peer's hunk in your file: commit without that file and tell the peer.
 - Check the commit stands alone: `git archive HEAD | tar -x -C "$(mktemp -d)"`, then in that dir
-  `go test -count=1` for the touched packages; a pass in the live tree can lean on uncommitted files.
+  `rtk go test -count=1` for the touched packages; a pass in the live tree can lean on uncommitted files.
 
 ## Never rewrite shared history
 

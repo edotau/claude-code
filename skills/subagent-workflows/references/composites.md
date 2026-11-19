@@ -104,7 +104,7 @@ launch(A|B) -> wait (never poll) -> read result -> verify diffs -> scoped gate -
 
 | Step | Check | Source |
 | --- | --- | --- |
-| Verify diff | `git diff --stat`; only the run's packages; revert out-of-scope hunks | `../SKILL.md` → Fan-in |
+| Verify diff | `rtk git diff --stat`; only the run's packages; revert out-of-scope hunks | `../SKILL.md` → Fan-in |
 | Re-run red gates | a red package or `fixed` with status not done is re-dispatched by hand | `07f86477` |
 | Full suite | `CLAUDE.md` hard rule 5 at the authorized release boundary | `16d36662` |
 | Commit | `git commit -- <paths>`, named files, no AI footer; merge, `make install` from a clean tree, push | CLAUDE.md rules 3, 5 |

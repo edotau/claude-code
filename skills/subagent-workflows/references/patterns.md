@@ -30,7 +30,8 @@ package p:  find(2 lenses) -> merge(file +-10 | symbol) -> rederive(blind) -> fi
 ```
 
 - Code: `~/.claude/workflows/code-workers.js` (`review`, `repair`). Gate is package-scoped:
-  `go build ./... && go vet <pkg> && go test <pkg>` from `claude-code worktree gate --scope`, or `args.gate`.
+  `rtk go build ./... && rtk go vet <pkg> && rtk go test <pkg>` from `claude-code worktree gate --scope`, or
+  `args.gate`.
 - Evidence: R9 26 agents / 2.0M tokens, yield 7.5 findings per 1M; R10 60 / 4.8M (7.1); R11 114 / 8.8M (7.0).
 
 ### Fan-out / fan-in

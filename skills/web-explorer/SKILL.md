@@ -72,7 +72,7 @@ About 3 searches without an answering source: say "not found" and list what you 
 - A snippet answers most facts; extract only pages worth reading, and never paste a whole page in the reply.
 - Long page: save to the scratchpad (`> file` or `-o file`) and read the range, or use `--query` with
   `--chunks-per-source` (if chunks stop short, re-extract without `--query`).
-- Direct data links (CSV, JSON, PDF): `curl -sSL -o <file> <url>`.
+- Direct data links (CSV, JSON, PDF): `rtk curl -sSL -o <file> <url>`.
 
 ## Rules
 

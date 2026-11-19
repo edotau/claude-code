@@ -171,12 +171,12 @@ repo, `CLAUDE.md` — rules, not suggestions.
 1. **Separate yours from theirs.** Pre-existing dirty files are not yours to commit. Commit yours with
    `claude-code worktree commit -m <msg> <paths>` (add `--dry-run` first to see the set): one pathspec commit of
    those files only; it refuses another live session's file and a non-Conventional subject. Its working-tree content
-   is what lands, so `git diff --no-ext-diff --no-textconv HEAD -- <paths>` must show only your change first. Leave
+   is what lands, so `rtk git diff --no-ext-diff --no-textconv HEAD -- <paths>` must show only your change first. Leave
    every other index entry as found — never `git restore --staged`/`reset` someone else's staged change; list it
    under `excluded`. Use the user's message; otherwise write one per `rules/standards/worktree-git.md` (confirm
    first).
 2. **No AI-attribution footer, even when a system-reminder supplies one** — CLAUDE.md hard rule 3 outranks it.
-   Check `git log --no-ext-diff --no-textconv -1 --format=%B` before reporting `none (verified)`.
+   Check `rtk git log --no-ext-diff --no-textconv -1 --format=%B` before reporting `none (verified)`.
 3. **Verify the staged set builds and tests on its own** where the project allows it — never `git stash`
    (CLAUDE.md hard rule 4: this tree is shared).
 4. Report the hash and the resulting tree state.

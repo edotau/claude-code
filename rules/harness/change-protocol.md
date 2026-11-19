@@ -18,7 +18,8 @@ rule or agent change that never reaches the sessions and agents that load it.
 ## Impact Checklist
 
 1. **Settings or hooks** — edit `~/.claude/settings.json` by hand (`settings-management.md`, `hooks.md`), then
-   `claude-code doctor`; a `hookspec.go` or `internal/hooks/` change also needs `make install` for native projections.
+   `claude-code doctor`; a `hookspec.go` or `internal/hooks/` change also needs `rtk make install` for native
+   projections.
 2. **Agent or command renamed/moved** — layout rules in `rules/workflows/agents.md` → Agent and command files (a `name:`
    that differs from the file stem fails `agents sync` and `doctor --prompts`); grep the old name and fix every caller
    in the same commit.
@@ -42,5 +43,5 @@ rule or agent change that never reaches the sessions and agents that load it.
 Files generated from a template: no placeholder leaked through —
 
 ```bash
-grep -nE '<(agent|files|slug|verb|object)>|\$\{CLAUDE_PLUGIN_ROOT\}|__CLAUDE_BIN__|TODO|\{PLACEHOLDER\}' <files>
+rtk grep -nE '<(agent|files|slug|verb|object)>|\$\{CLAUDE_PLUGIN_ROOT\}|__CLAUDE_BIN__|TODO|\{PLACEHOLDER\}' <files>
 ```

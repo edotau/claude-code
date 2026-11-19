@@ -12,11 +12,11 @@ paths:
 | --- | --- |
 | Change permissions / env / statusLine / hooks | edit `~/.claude/settings.json` by hand, then `claude-code doctor` (`settings.json: valid`) |
 | Set or remove a vault env value (injected into launches; not a secret) | `claude-code vault env set NAME VALUE` / `vault env unset NAME` (`vault ls env` lists) |
-| Build and install (clean tracked tree required; `FORCE=1` overrides) | `make install` (`claude-code install --dry-run` previews); prints `kept (yours) · valid` or the validity error |
+| Build and install (clean tracked tree required; `FORCE=1` overrides) | `rtk make install` (`claude-code install --dry-run` previews); prints `kept (yours) · valid` or the validity error |
 | Reset settings.json to the clean template | `claude-code configure --restore` (owner-run; `settings.json.bak.<timestamp>` first) |
 | Re-render agent configs only | `claude-code configure --restore --agents` (or `--agent X`); never touches settings.json |
 | Add or retime a hook | handler in `internal/hooks/`, register in a `settings/hookspec.go` group (`hooks.md`) |
-| Lint and auto-fix | `make fmt [WHAT=go\|md\|js\|all]` fixes and then prints what lint still finds (main session only), `make lint [SKIP=<kind>,…]` only checks and writes nothing (a leaf runs `claude-code agents diff --check --path <files>` and `agents fix --path <files>` on its own files from the output) |
+| Lint and auto-fix | `rtk make fmt [WHAT=go\|md\|js\|all]` fixes and then prints what lint still finds (main session only), `rtk make lint [SKIP=<kind>,…]` only checks and writes nothing (a leaf runs `claude-code agents diff --check --path <files>` and `agents fix --path <files>` on its own files from the output) |
 
 ## Where settings come from
 

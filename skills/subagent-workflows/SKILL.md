@@ -180,7 +180,8 @@ leaves that hand back a short verdict, so its context stays small. Run it withou
    frees, and again after every hand-back, until none remain or what is left needs the owner.
 2. **Per hand-back:** a review leaf returns PASS/FAIL, ranked findings and the exact files to stage (it measures and
    reads the diff, not the manager) → a fix leaf for each finding → the manager re-runs the scoped gate and commits
-   named files (`rules/standards/worktree-git.md`) → dispatch what that unblocked. One `make audit`, `make install` and
+   named files (`rules/standards/worktree-git.md`) → dispatch what that unblocked. One `rtk make audit`, `rtk make install`
+   and
    push per green wave (`CLAUDE.md` hard rule 5).
 3. **Bugs:** any bug or issue a leaf or review reports gets a fix leaf at once, without asking.
 4. **Open items:** pick the recommended option, apply it and tag `DECISION:`; ask only for frozen hook code,
@@ -206,7 +207,8 @@ Write it before the first dispatch of a multi-part request, re-check it on every
 - **Lane:** `SendMessage` / `claude-code agents send <id> <task>` is for work in files that leaf already owns; show
   the lane's length, and past 2 queued items start a second leaf on a different file instead of appending a third.
 - **Know what leaves hold:** ask, never assume the brief: every brief has the leaf list the files actually changed in
-  its report; while it runs, `git status --short` and the `worktree-claim` files (`rules/harness/hooks.md`) show what is
+  its report; while it runs, `rtk git status --short` and the `worktree-claim` files (`rules/harness/hooks.md`)
+  show what is
   dirty, and `claude-code agents tree` / `agents status` show who is live.
 - **Review per finished file or package** as each implementer hands back, not after all of them.
 - **Gates lock the tree, not the dispatcher:** during a timed `make audit`, an install or a live check, keep
@@ -240,7 +242,7 @@ outside the leaf's files, a new test that can fail); the manager reads its verdi
 rebuilds before trusting a binary ([Wave loop](#wave-loop)).
 
 - Parallel leaves that built both sides of a seam (flag/argv builder ↔ consumer, JSON shape ↔ reader, hook key ↔
-  brief writer): read both together; `go build ./...` misses a broken consumer.
+  brief writer): read both together; `rtk go build ./...` misses a broken consumer.
 - Disagreeing reviewers: keep both findings with sources. Simplify once over the merged diff, then review.
 - **Saved workflow output** is a claim too, and a workflow's run has its own rules:
   [saved-workflows.md](references/saved-workflows.md)
@@ -265,7 +267,7 @@ The main shell stays at the repo root (use absolute paths, never a bare `cd`). E
 `checkout` / `reset` / `restore`; gate on a scoped target (a repo-wide red is
 a sibling's half-finished edit); run `claude-code agents diff --check --path <files>`, fix your own files
 (`agents fix --path <files>`), never `make fmt`, `audit` or `install`; edit files with Edit or Write, never a
-`python3 -` script (`safety-scan` asks on interpreter writes); check writes with `git diff --stat`; stage named
+`python3 -` script (`safety-scan` asks on interpreter writes); check writes with `rtk git diff --stat`; stage named
 files only.
 
 ## Rules

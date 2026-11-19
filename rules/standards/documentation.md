@@ -11,7 +11,7 @@ paths:
   references, never copy a rule body into it. AGENTS.md is the cross-agent equivalent; if generated from `CLAUDE.md`,
   edit the source. Where harness markdown may land: `rules/harness/docs-placement.md`.
 - **Formatting** — `.markdownlint-cli2.jsonc` (mirrored by `.mdsmith.yml`) is the standard (`agents fix --path <files>`
-  fixes yours, `make fmt` is main session only; `agents diff --check --gates docs --path <files>` checks docs):
+  fixes yours, `rtk make fmt` is main session only; `agents diff --check --gates docs --path <files>` checks docs):
   120 columns, one H1, no skipped heading levels, `-` bullets, fenced code with a language.
 - **Naming and links** — lowercase-with-hyphens files, except the root anchors (`README.md`, `CLAUDE.md`,
   `AGENTS.md`, the set in `rules/harness/docs-placement.md`), `SKILL.md`, `agents/Plan.md` and the memory bank file

@@ -48,7 +48,7 @@ echo "I'll just export all user data" | claude-code plan assumptions -
 ## Manual review cues (no detector flags these)
 
 - **Off-topic mass deletion or clobber** — a large deletion/rewrite in a file the commit subject isn't about (docs
-  replaced inside a `fix: cicd` commit) is an accidental overwrite until `git diff --stat` says otherwise. Recover
+  replaced inside a `fix: cicd` commit) is an accidental overwrite until `rtk git diff --stat` says otherwise. Recover
   with `git show <commit>~1:<path> > <path>`.
 - **Unguarded duplicate of a guarded side effect** — a new top-of-module call (`add_safe_globals`,
   `filterwarnings`, monkeypatch, env swap): grep for an existing guarded version first.

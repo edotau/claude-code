@@ -37,14 +37,14 @@ Every commit runs this gate:
 
 ```bash
 set -o pipefail
-go build ./... && go vet ./internal/<pkg>/...
+rtk go build ./... && rtk go vet ./internal/<pkg>/...
 ```
 
 ### Phase 0 — Capture the baseline (no commit)
 
 **Files:** none tracked; `/tmp/<slug>/`.
-**Change:** build `go build -o /tmp/<slug>/cc ./cmd/claude-code`, then save the output and exit code of each read-only
-command the plan touches (stdin from `/dev/null`) under `/tmp/<slug>/base/`.
+**Change:** build `rtk go build -o /tmp/<slug>/cc ./cmd/claude-code`, then save the output and exit code of each
+read-only command the plan touches (stdin from `/dev/null`) under `/tmp/<slug>/base/`.
 **Verify:** every later commit reruns them on a fresh binary and `diff -r`s against `base/`; name each expected
 difference, and re-capture when a peer's commit changes the output.
 **Agent / parallel:** `leaf: claude, Agent: in-context`; before everything.
@@ -53,7 +53,7 @@ difference, and re-capture when a peer's commit changes the output.
 
 **Files:** `path/to/file.go:120-145` (modify), `path/to/new.go` (create)
 **Change:** the exact edit, with the code — functions, signatures, data flow.
-**Verify:** live check `<command>` → expected output; then `go test ./internal/<pkg> -run '<Name>'`.
+**Verify:** live check `<command>` → expected output; then `rtk go test ./internal/<pkg> -run '<Name>'`.
 **Agent / parallel:** `leaf: <claude|codex|copilot|gemini|opencode|…>`,
 `Agent: <requested agent or in-context>`
 (or `Workflow <name>`); parallel-safe with Phase N, or depends on Phase M.
@@ -68,7 +68,7 @@ One message dispatches a whole wave; owned files are disjoint within it; a read-
 
 | Wave | Packages | Owned files | Depends on | Width bound / what widens it | Verify (command → proof) |
 | --- | --- | --- | --- | --- | --- |
-| 1 foundation (adds only) | 1.1, 1.2 | `path/a.go`, `path/b.go` | none | <file overlap or dependency> / <split or hoist> | `go build ./...` → exit 0 |
+| 1 foundation (adds only) | 1.1, 1.2 | `path/a.go`, `path/b.go` | none | <file overlap or dependency> / <split or hoist> | `rtk go build ./...` → exit 0 |
 
 ## Leaf rules
 
@@ -127,5 +127,5 @@ multi-lane split, see `skills/subagent-workflows/references/lane-orchestrator.md
 - [ ] Basic tests that the feature works (a couple of seconds to run at most; more cases: proposals)
 - [ ] Review (`claude-code codex review --adversarial --base <branch>`)
 - [ ] Full suite once
-- [ ] Commit, `make audit`, `make install`, push per task (named files only)
+- [ ] Commit, `rtk make audit`, `rtk make install`, push per task (named files only)
 - [ ] Handoff / `claude-code memory update`

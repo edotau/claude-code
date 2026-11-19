@@ -16,7 +16,7 @@ code exists; Workflow `code-analyzer {fix: false}` finds new defects, this refut
 
 1. **Collect the claims.** List what was supposedly done, verified ("tests pass", "build green", "renders
    correctly") and left untouched. Each is a row to prove or refute.
-2. **Establish what changed.** `git diff` + `git status` (or a diff against a pristine copy with no repo). **The
+2. **Establish what changed.** `rtk git diff` + `rtk git status` (or a diff against a pristine copy with no repo). **The
    diff is ground truth; the report is not.** Compare touched files to the ask's blast radius and declared scope.
 3. **Re-run every claimed verification yourself** — tests, build, command, page; capture the output. A claim that
    can't be re-run (missing environment, credentials, human-eyes-only) is **UNVERIFIABLE**, never assumed true.

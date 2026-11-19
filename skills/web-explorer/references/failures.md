@@ -15,6 +15,6 @@
 | Internal address refused | `localhost`, `192.168.x.x` | Use curl for a server you own |
 | `tvly` exit code | 2 bad input, 3 auth, 4 API error | Fix the input; code 3 means the key |
 
-- Chrome needs remote debugging: `curl -s http://127.0.0.1:9222/json/version` answers when it is available.
-- Direct data links (CSV, JSON, PDF): `curl -sSL -o <file> <url>`. Never retry a block with spoofing, proxy rotation
+- Chrome needs remote debugging: `rtk curl -s http://127.0.0.1:9222/json/version` answers when it is available.
+- Direct data links (CSV, JSON, PDF): `rtk curl -sSL -o <file> <url>`. Never retry a block with spoofing, proxy rotation
   or CAPTCHA solving.

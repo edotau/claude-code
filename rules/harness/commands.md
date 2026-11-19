@@ -11,11 +11,11 @@ Moved from the README: install options, setup, agent and utility commands, the s
 
 ## Install options
 
-- `make bootstrap` — fresh box: Go toolchain (no sudo), install, bash completion, then `claude-code configure`
+- `rtk make bootstrap` — fresh box: Go toolchain (no sudo), install, bash completion, then `claude-code configure`
   (`CHECK=1` runs `configure --check` instead).
 - `claude-code install --dry-run` previews, listing the host tools it would install; an existing `settings.json` is
   kept as yours and only checked for validity.
-- `make install` installs any missing agent CLI and Tailscale, never updating one already present
+- `rtk make install` installs any missing agent CLI and Tailscale, never updating one already present
   (`claude-code install --tools --missing`). `TOOLS=1` installs or updates them all and runs `claude-code doctor`
   (`TOOLS=copilot,codex` picks); `claude-code install --tools=<name>` is the same without the check. Each vendor
   installer runs with credentials scrubbed and puts its binary in `~/.local/bin` (on `PATH`); install links it as
@@ -48,7 +48,7 @@ claude-code configure --revert [--agent a,b]        # restore agent CLI configs 
   `CLAUDE_CONFIG_DIR="$PWD" claude-code configure --restore --out "$PWD/settings.json"`
   (`--out` never renders agent CLI configs, and `--out` with `--agents` is refused).
 
-- `~/.claude` already exists: clone into `~/.claude.stage`, then `make -C ~/.claude.stage adopt` (backs up
+- `~/.claude` already exists: clone into `~/.claude.stage`, then `rtk make -C ~/.claude.stage adopt` (backs up
   collisions, then bootstraps). `install --setup nuke [--apply] [--keep-memory]` archives untracked content and
   removes it, leaving credential-shaped untracked or ignored files (`.env`, `*.pem`, `*.key`) in place;
   `install --setup workspace init|link|status` scopes a project's own `.claude/`.
@@ -120,5 +120,5 @@ plain rows on an older binary).
 | Browsers, web search | `claude-code network browser [--setup --browser <b>]` · `network websearch --query q` |
 | Tailnet | `claude-code network tailscale [--machines\|--connect\|--key --secret\|--save\|--exit-node …\|--subnet <cidr> …]` (`TAILSCALE_OAUTH_CLIENT_ID`/`_SECRET` or `TAILSCALE_API_KEY` in the vault; `make install` adds it when missing) |
 | Lint a workflow script | `claude-code workflow lint` · `workflow skeleton <pattern>` |
-| Housekeeping | `make sweep [APPLY=1] [AGE=7d] [ONLY=<targets>]` (previews unless `APPLY=1`) · `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `history snapshot\|log\|diff` · `doctor --mcp` |
+| Housekeeping | `rtk make sweep [APPLY=1] [AGE=7d] [ONLY=<targets>]` (previews unless `APPLY=1`) · `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `history snapshot\|log\|diff` · `doctor --mcp` |
 | Theme, VS Code | `claude-code theme [--palettes\|--reset] [<palette>]` · `theme apply` · `theme vscode [--check\|--dry-run]` |

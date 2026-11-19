@@ -9,9 +9,9 @@ paths:
 > with Python specific content.
 
 - Run scoped: `.venv/bin/python -m pytest <path> -x -v` (`-k '<name>'`), or a marked tier (`-m unit`; markers live
-  in the repo's `pytest.ini`); repo tiers via `make test-smoke|test-unit|test-all`, else the repo's test target
-  (e.g. `make test`, `pytest`).
-- Import rule: `grep -nE '^(import|from)' <test> | grep <module>`; no hit, no guard.
+  in the repo's `pytest.ini`); repo tiers via `rtk make test-smoke|test-unit|test-all`, else the repo's test target
+  (e.g. `rtk make test`, `pytest`).
+- Import rule: `rtk grep -nE '^(import|from)' <test> | grep <module>`; no hit, no guard.
 - Patch where a name is used, not defined: `@patch("consumer.module.func", autospec=True)`.
 - A unit test must not leave the box: a cloud client on its default credential chain can reach the network, so pass
   a stub session (`session=MagicMock()`) or inject the client.

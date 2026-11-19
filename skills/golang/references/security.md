@@ -127,9 +127,9 @@ func allocSize(count, elem uint64) (int, error) {
 ## Tooling
 
 ```bash
-go test -race ./...                                  # races are correctness and authz bugs
+rtk go test -race ./...                                  # races are correctness and authz bugs
 go run github.com/securego/gosec/v2/cmd/gosec@latest ./...
-go test -fuzz=FuzzParse -fuzztime=60s ./internal/parse   # every parser of untrusted bytes
+rtk go test -fuzz=FuzzParse -fuzztime=60s ./internal/parse   # every parser of untrusted bytes
 ```
 
 - `govulncheck` (reachability, binary mode, pinning as a `tool`): [tooling.md](tooling.md) → govulncheck.

@@ -25,6 +25,6 @@ where a reference disagrees.
 
 1. Read the reference for the task (two at most); skip the rest.
 2. Check `go.mod`'s `go` line before using a version-gated API the reference names.
-3. Verify with `go build ./... && go vet ./...`, then the touched package's tests.
+3. Verify with `rtk go build ./... && rtk go vet ./...`, then the touched package's tests.
 
 Sources and license: [attribution.md](attribution.md).
