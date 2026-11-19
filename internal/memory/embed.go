@@ -42,7 +42,7 @@ const (
 )
 
 // embedRecallWait is the hard budget for the per-prompt embedding, credential included; tests shorten it.
-var embedRecallWait = 1200 * time.Millisecond
+var embedRecallWait = 500 * time.Millisecond
 
 var embedFormat = schemas.Register(schemas.Format{
 	Name: "memory-embeddings", Owner: "internal/memory", Kind: schemas.Store, Version: embedCacheSchema,
