@@ -21,7 +21,7 @@ behavior: [builtin-behavior.md](references/builtin-behavior.md)); its apply-gate
 ## Phase 2 - Review
 
 - **Reuse**: new code duplicating an existing helper, util or stdlib call.
-- **Simplification**: needless nesting, dead branches, over-abstraction, functions over 50 lines.
+- **Simplification**: needless nesting, dead branches, over-abstraction and oversized functions (see thresholds below).
 - **Efficiency**: avoidable O(n²), repeated work, redundant allocation or I/O.
 - **Altitude**: root-cause fix, or one more special case on top of the real problem?
 
@@ -56,6 +56,6 @@ State which gate steps ran (lint, scoped tests, live check) and which did not.
 4. **Reuse first**: grep the call sequence, sibling files and `git log -S`; compare a near-duplicate with its original
    for behavior the copy lost (isolation, error handling), then consolidate at the source (say so).
 5. **Altitude**: fix the root cause, not one more special case.
-6. **Thresholds**: `quality.md` checklist (functions ≤ 50 lines, nesting ≤ 4) and `review-simplicity` complexity > 10;
-   input `claude-code review simplify`. Under ~100 changed lines one in-context pass replaces the fan-out.
+6. **Thresholds**: use `rules/standards/quality.md` and the findings from `claude-code review simplify`.
+   Under ~100 changed lines one in-context pass replaces the fan-out.
 7. **Report numbers**: Δ lines and Δ complexity per touched function, plus what was skipped and why.

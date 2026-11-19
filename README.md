@@ -88,16 +88,15 @@ Databricks menu sync: [`rules/harness/providers-reference.md`](rules/harness/pro
 The guards are Claude Code hooks (`internal/hooks/safety/`, `internal/hooks/wthook/`) and a permission layer for the
 other agent CLIs (`internal/agent/`). "Main" is the interactive session you drive; a "leaf" is a dispatched agent or
 subagent. Per-hook matrix: [`rules/harness/hooks.md`](rules/harness/hooks.md).
+For shared-checkout guards, see `CLAUDE.md` hard rule 4; for Git and commit-message rules, see
+[`rules/standards/worktree-git.md`](rules/standards/worktree-git.md).
 
 | Situation | What happens | Applies to |
 | --- | --- | --- |
 | Memory sync between your own machines | Off by default; opting in sends the memory store over ssh only to the hosts you listed | opted-in machines |
-| `git stash`, `checkout`, `switch`, `reset`, `restore`, `clean` in `~/.claude` | Blocked (read-only and new-branch forms pass); make a new commit or use a linked worktree | main and leaves |
-| `git commit --amend`, `rebase`, `reset <commit>` that rewrite commits in a shared checkout | Blocked | main and leaves |
 | Force push to `main` or `master` | Blocked; push a branch and open a PR | main and leaves |
 | `git add` or `commit` of a file another live session or agent has uncommitted edits in | Ask, or block for a leaf under `~/.claude` | main and leaves |
 | `claude-code worktree commit` | Commits only the files you name (none: your own claimed files) and rolls the index back on failure; a leaf must name its files | main and leaves |
-| AI-attribution footer in a commit message | Blocked; `worktree commit` also strips them | main and leaves |
 | A command that prints a token (`claude-code … --secret`, `gh auth token`) piped to `curl`, `nc` or `wget` | Blocked | main and leaves |
 | `claude-code` verbs that print a credential (`vault get`, `resolve`, `gateway proxy --client-token`, `tailscale --token`) | Redacted (`<redacted: N bytes>`; to a pipe also exit 1) unless `--secret`; `--secret` runs in the main session only, leaves get credentials at launch | main, leaves |
 | `claude-code vault get --key --secret` (the vault master key) | Ask in main; blocked in a leaf | main, leaves |

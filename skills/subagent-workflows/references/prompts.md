@@ -7,8 +7,9 @@ rebuild the plan. `Agent: in-context` = the leaf does it itself.
 
 ```text
 Agent: <in-context | work agent matching the selected leaf type>
-Shared tree: never git stash/checkout/reset/restore; confirm each write with `git diff --stat -- <file>`. Terminal
-leaf: never dispatch subagents or commit; external wrappers follow the shared relay contract.
+Shared tree: follow CLAUDE.md hard rule 4 and rules/standards/worktree-git.md.
+Confirm each write with `rtk git diff --stat -- <file>`.
+Terminal leaf: never dispatch subagents or commit; external wrappers follow the shared relay contract.
 Before a behavior change write TASK: code does X; check expects Y; spec says Z (Y vs Z disagree: fix the side the spec
 contradicts, or stop and report). After a defect fix write ISSUE: searched <pattern> — found <N> other sites:
 <files|none>; before reporting PENDING: <skipped follow-up or none>. Report all as plain sentences.

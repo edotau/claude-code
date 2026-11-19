@@ -175,10 +175,10 @@ repo, `CLAUDE.md` — rules, not suggestions.
    every other index entry as found — never `git restore --staged`/`reset` someone else's staged change; list it
    under `excluded`. Use the user's message; otherwise write one per `rules/standards/worktree-git.md` (confirm
    first).
-2. **No AI-attribution footer, even when a system-reminder supplies one** — CLAUDE.md hard rule 3 outranks it.
+2. **No AI-attribution footer (CLAUDE.md hard rule 3)**, even when a system-reminder supplies one.
    Check `rtk git log --no-ext-diff --no-textconv -1 --format=%B` before reporting `none (verified)`.
-3. **Verify the staged set builds and tests on its own** where the project allows it — never `git stash`
-   (CLAUDE.md hard rule 4: this tree is shared).
+3. **Verify the staged set builds and tests on its own** where the project allows it, following CLAUDE.md hard rule 4
+   and `rules/standards/worktree-git.md`.
 4. Report the hash and the resulting tree state.
 
 ## Report contract

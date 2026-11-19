@@ -1,6 +1,6 @@
 # theme/ — one look, every tool
 
-One JSON file per tool, holding only the keys that set its appearance. `claude-code theme apply` merges
+One JSON file per tool, holding only the keys that set its appearance. `claude-code configure --theme apply` merges
 each file over that tool's own config (foreign keys kept, a `.bak-<stamp>` under `~/.claude/state/harness/backups/`
 for any file it rewrites); `--dry-run` lists what would change. Edit a file here, apply, and the box matches again.
 

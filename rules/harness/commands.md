@@ -88,7 +88,7 @@ fields, instruction sources and per-agent behavior: `rules/harness/agent.md`; in
 
 ## Status line
 
-`claude-code theme statusline [--style <name>]` (`gradient`, `powerline`, `capsule`, `minimal`, `dashboard`,
+`claude-code configure --theme statusline [--style <name>]` (`gradient`, `powerline`, `capsule`, `minimal`, `dashboard`,
 `twoline`) shows `<provider>·<profile> · <model>`, context % and git state, plus the weekly limit (`7d:N%`) or a
 minted token's time left (`m2m:42m`; labels `u2m`, `m2m`, `pat`). Segments are on unless `config.json` sets
 `"segments": {"<key>": false}`; off by default: `proxy`, `duration`, `session`. Others: `path`, `model`, `provider`,
@@ -123,7 +123,12 @@ plain rows on an older binary).
 | Sync memory with peers (off by default) | `claude-code vault env set NETWORK_MEMORY on` to opt in · `claude-code memory import --sync [--host <peer>]` |
 | Run an agent on another tailnet box | `claude-code agents ask --host <h> --agent <a> "<task>"` · `network remote --host <h> --list --status` |
 | Browsers, web search | `claude-code network browser [--setup --browser <b>]` · `network websearch --query q` |
-| Tailnet | `claude-code tailscale [--machines\|--connect\|--token [--secret\|--save]\|--exit-node …\|--subnet <cidr> …]` (`--token` needs your own terminal and a browser re-auth first; `TAILSCALE_OAUTH_CLIENT_ID`/`_SECRET` or `TAILSCALE_API_KEY` in the vault; `make install` adds it when missing) |
+| Tailnet status | `claude-code tailscale` (modes below) |
 | Lint a workflow script | `claude-code workflow lint` · `workflow skeleton <pattern>` |
 | Housekeeping | `rtk make sweep [APPLY=1] [AGE=7d] [ONLY=<targets>]` (previews unless `APPLY=1`) · `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `configure --history snapshot\|log\|diff` · `doctor --mcp` |
 | Theme, VS Code | `claude-code configure --theme [--palettes\|--reset] [<palette>]` · `configure --theme apply` · `configure --vscode [--check\|--dry-run]` |
+
+`claude-code tailscale` accepts one mode at a time: `--machines`, `--connect`, `--token [--secret|--save]`,
+`--exit-node on|off|approve`, `--subnet <cidr>[,…]|approve|off`, or `--route <peer>|off`.
+`--token` needs your own terminal, browser re-auth, and vault credentials (`TAILSCALE_OAUTH_CLIENT_ID` and
+`TAILSCALE_OAUTH_CLIENT_SECRET`, or `TAILSCALE_API_KEY`). `make install` adds Tailscale if missing.

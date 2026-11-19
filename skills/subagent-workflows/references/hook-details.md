@@ -28,10 +28,8 @@ commits there (`branch -f|-D|-M` from a leaf only, `update-ref`), and a secret-r
 every agent, naming
 the allowed route and that the owner can run it with `!`: `sudo`/`doas` in command position (also inside `bash -c`,
 `eval`, `ssh`, `xargs`, `find -exec`, a wrapper, a substitution, a printf fed to a shell or a script an interpreter
-runs), `git stash/checkout/switch/reset/restore/clean` under `~/.claude` (nested repos too; linked worktrees exempt;
-passing: `checkout -b`/`switch -c` with no force, `restore --staged`, a `git reset` of HEAD or paths only, `stash
-list|show`, `clean -n`), an AI-attribution footer (in `-m`, stdin, or a `-F`/`-t` file on disk or written earlier in
-the command; safety-scan never rewrites or strips a command), `rm -rf .git` and a
+runs), violations of the Git guards in `CLAUDE.md` hard rule 4 and `rules/standards/worktree-git.md`,
+`rm -rf .git` and a
 force-push of main/master (spelled out, after git global flags, or with no refspec while main/master is checked out);
 **ask** on Claude (block on codex/copilot/agy) only for `DROP TABLE`-style SQL and the interpreter write; **warn** only
 prints. Those intent rules fire only on a real invocation: words in data never do (a `claude-code
@@ -168,9 +166,8 @@ that job collected for the stuck-leaf watchdog.
 
 On a hand-back naming a plan task (dispatch `plan_task` or the brief's `Task:`), `dispatch-handback` runs the task's
 `verify:` and the scoped gate on the leaf's owned dirty files within the budget and puts `verify <id>: …` lines on
-top of the message; it never holds. The `verify:` allowlist is `go build|vet|test` on `./` packages, `claude-code
-agents diff --check`, `claude-code doctor …` and `rtk` forms of these, joined by `&&` only; any other shape prints
-`verify not run: shape` and the task rests on the gate alone.
+top of the message; it never holds. A rejected shape prints `verify not run: shape` and leaves only the scoped gate.
+For the `verify:` allowlist, see `VerifyShape` in `internal/plans/verify.go`.
 
 `dispatch-handback` prepends the note and receipt and appends the job result to the hand-back `message`. When a leaf
 started several jobs, every finished job's answer is attached in dispatch order, each under its own receipt line,

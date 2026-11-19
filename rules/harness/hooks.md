@@ -68,9 +68,24 @@ reaches it, and the gated Claude launches: `agent.md` → Bash deny via `permiss
 
 Rows marked ¶ have full behavior in `skills/subagent-workflows/references/hook-details.md` under the hook's heading.
 
+`safety-scan` enforces the Git guards in `CLAUDE.md` hard rule 4 and `rules/standards/worktree-git.md`.
+It checks each call in order:
+
+1. The code floor blocks every agent: the block shapes (except `sudo` and settings-rule writes) and attribution
+   footers in commits, merges and tags.
+2. Deny rows come from `~/.claude/settings.json` (template fallback, no other file); `sudo` follows `Bash(sudo:*)`.
+3. For ask rows, Claude asks. An agent without ask follows the dispatch's `--allow`/`--deny`; if neither matches,
+   it blocks and names `--allow '<rule>'`.
+4. Allow rows apply only to main. A match skips the main-session rules, SQL ask and softWarn.
+5. After built-ins, `agentBashAllow` allows a leaf's block or ask except `Result.Floor` (code floor and settings deny).
+
+`Edit(...)` deny/ask globs also guard Bash and interpreter writes (`//` absolute, `~/`, `/` = `~/.claude/`, `**/`,
+relative = cwd). A leaf cannot write `settings.json` or `settings.local.json` via Bash. Intent rules match invocations,
+not data. Blocks name the allowed route and the owner's `!`; `claude-code doctor --audit` logs no command text.
+
 | Hook | Event | What it does |
 | --- | --- | --- |
-| `safety-scan` ¶ | PreToolUse (Bash) | **Block/ask**, one settings-driven pass per call: (1) code floor, every agent, never loosened: the block shapes (except `sudo` and settings-rule writes) and the AI-attribution footer (commit, merge, tag), a strict deny for everyone; (2) `~/.claude/settings.json` deny rows (template fallback, no other file), `sudo` following `Bash(sudo:*)`; (3) ask rows: Claude asks, an agent without ask follows the dispatch's `--allow`/`--deny`, neither matching blocks naming `--allow '<rule>'`; (4) allow rows, main thread only (never loosens a leaf; a match skips the main-session rules, SQL ask and softWarn); (5) built-ins; then `agentBashAllow` turns a leaf's block or ask into allow, except `Result.Floor` (floor and settings deny, `sudo` and footer included). `Edit(...)` deny/ask globs guard Bash and interpreter writes too (anchors `//` absolute, `~/`, `/` = `~/.claude/`, `**/`, relative = cwd): a leaf never writes `settings.json`/`settings.local.json` by Bash. Blocks name the allowed route and the owner's `!`; intent rules fire on real invocations, never words in data; blocks log to `claude-code doctor --audit` (never the command) |
+| `safety-scan` ¶ | PreToolUse (Bash) | Block or ask in the order above |
 | `permission-gate` | PreToolUse (Bash\|Write\|Edit\|Read\|WebFetch\|Glob\|Grep) | **Block** a call outside the dispatch's `Permissions` (5s); `apply_patch` is judged as an Edit per file; agent-only |
 | `rtk-rewrite` ¶ | PreToolUse (Bash) | `rtk rewrite`s a command, never setting a permission decision; Claude only, not in auto mode; exact bytes: `rtk bypass <cmd>` |
 | `docs-placement` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | **Block** a new `.md` at a repo root or in a gitignored `docs/`, naming the home (`docs-placement.md`); a leaf's Bash block becomes allow + note (Write/Edit stay blocked unless `--permissions allow`); redirects a new `*plan*.md` to the dated plans home; a first plan write needs the `docs/templates/plan.md` headings |

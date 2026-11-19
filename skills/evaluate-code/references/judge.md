@@ -42,10 +42,8 @@ code exists; Workflow `code-analyzer {fix: false}` finds new defects, this refut
      not the hand edit.
    - **A secret outside the vault** — API key, token or profile key in a plain file, `settings.json`, a commit or a
      log line instead of `claude-code vault set` or a provider's `auth.command` (hard rule 2).
-   - **AI-attribution footers in commit messages** — `Co-Authored-By: Claude`, `🤖 …`, `Claude-Session:` (hard
-     rule 3).
-   - **`git stash`/`checkout`/`reset`/`restore` in the live `~/.claude` checkout** — shared by every session; only
-     a linked worktree may be moved (hard rule 4).
+   - **Commit-message or shared-checkout violations** — see `CLAUDE.md` hard rules 3 and 4 and
+     `rules/standards/worktree-git.md`.
    - **Harness markdown at a repo root or in a gitignored `docs/`** — fixed homes: `rules/harness/docs-placement.md`.
    - **A hook, settings or roster change with no Impact Checklist run** — `rules/harness/change-protocol.md`
      (template not edited, `make install` not run, agent projections stale).
