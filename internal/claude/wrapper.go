@@ -2,7 +2,6 @@ package claude
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -15,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -49,6 +47,9 @@ func LaunchWrapped(args []string) int {
 		plan, err = claudePlan(providers.WithIdentity(context.Background(), as), opts, rest)
 	}
 	if err != nil {
+		if refuse := refuseFallback(opts, err); refuse != nil {
+			return helptext.Fail("%v", refuse)
+		}
 		return execNative(native, args, err)
 	}
 	plan.Set[launcherEnv] = strconv.Itoa(os.Getpid())
@@ -66,7 +67,20 @@ func takeNative(args []string) (string, []string) {
 	return args[0], args[1:]
 }
 
-// execNative runs native claude; cause, when set, is why the overlay is skipped, and the autoMode layer still rides.
+// refuseFallback is non-nil when a pinned provider route must not fall back to native claude's Anthropic login.
+func refuseFallback(o agent.LaunchOptions, cause error) error {
+	reg, err := providers.Load()
+	if err == nil {
+		var sel providers.Selection
+		if sel, err = providers.Select(reg, o.Provider); err == nil && sel.Provider.Auth.Method() == providers.AuthCLI {
+			return nil
+		}
+	}
+	return fmt.Errorf("claude: harness launch failed on a pinned provider route (%v); not falling back to native claude; "+
+		"run `claude-code doctor`, or `claude --profile anthropic` / unpin the profile", cause)
+}
+
+// execNative runs native claude; cause, when set, is why the overlay is skipped, with no harness settings added.
 func execNative(native string, args []string, cause error) int {
 	if native == "" {
 		var err error
@@ -81,24 +95,7 @@ func execNative(native string, args []string, cause error) int {
 	}
 	if cause != nil {
 		fmt.Fprintf(os.Stderr, "claude: harness launch failed (%v); running native claude\n", cause)
-		args = withAutoMode(args)
 	}
 	env := append(os.Environ(), launcherEnv+"="+strconv.Itoa(os.Getpid()))
 	return helptext.Fail("exec %s: %v", native, proc.Exec(native, args, env))
-}
-
-// withAutoMode prepends the embedded --settings layer unless the caller passed its own.
-func withAutoMode(args []string) []string {
-	if slices.ContainsFunc(args, func(a string) bool { return a == "--settings" || strings.HasPrefix(a, "--settings=") }) {
-		return args
-	}
-	doc, err := settings.LaunchSettings(false)
-	if err != nil {
-		return args
-	}
-	raw, err := json.Marshal(doc)
-	if err != nil {
-		return args
-	}
-	return append([]string{"--settings", string(raw)}, args...)
 }

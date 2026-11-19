@@ -1,10 +1,13 @@
 package claude
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 func TestTakeNative(t *testing.T) {
@@ -21,5 +24,18 @@ func TestTakeNative(t *testing.T) {
 	}
 	if got, _ := takeNative([]string{filepath.Join(dir, "missing", "claude")}); got != "" {
 		t.Errorf("missing file taken: %q", got)
+	}
+}
+
+func TestRefuseFallback(t *testing.T) {
+	hermetic(t, gwProviders)
+	cause := errors.New("plan broke")
+	if err := refuseFallback(agent.LaunchOptions{}, cause); err != nil {
+		t.Errorf("passthrough must fall back to native: %v", err)
+	}
+	for _, name := range []string{"gw", "nonexistent"} {
+		if err := refuseFallback(agent.LaunchOptions{Provider: name}, cause); err == nil {
+			t.Errorf("profile %s must be refused", name)
+		}
 	}
 }

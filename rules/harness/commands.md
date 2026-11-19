@@ -28,6 +28,8 @@ Moved from the README: install options, setup, agent and utility commands, the s
   install`.
 - `bin/<agent>` is the real, unrouted CLI, except `bin/claude`: the harness launcher (`claude-code claude --launcher`),
   which applies the session profile's overlay and the embedded autoMode rules; native claude is `~/.local/bin/claude`.
+  A failed plan on a pinned provider route exits non-zero (fail closed); only the plain Anthropic passthrough falls back
+  to native claude, without the harness settings.
   Routed launches go through `claude-code <agent>`.
 
 ## Setup
@@ -86,7 +88,7 @@ fields, instruction sources and per-agent behavior: `rules/harness/agent.md`; in
 
 ## Status line
 
-`claude-code configure theme statusline [--style <name>]` (`gradient`, `powerline`, `capsule`, `minimal`, `dashboard`,
+`claude-code theme statusline [--style <name>]` (`gradient`, `powerline`, `capsule`, `minimal`, `dashboard`,
 `twoline`) shows `<provider>·<profile> · <model>`, context % and git state, plus the weekly limit (`7d:N%`) or a
 minted token's time left (`m2m:42m`; labels `u2m`, `m2m`, `pat`). Segments are on unless `config.json` sets
 `"segments": {"<key>": false}`; off by default: `proxy`, `duration`, `session`. Others: `path`, `model`, `provider`,
@@ -124,4 +126,4 @@ plain rows on an older binary).
 | Tailnet | `claude-code tailscale [--machines\|--connect\|--token [--secret\|--save]\|--exit-node …\|--subnet <cidr> …]` (`--token` needs your own terminal and a browser re-auth first; `TAILSCALE_OAUTH_CLIENT_ID`/`_SECRET` or `TAILSCALE_API_KEY` in the vault; `make install` adds it when missing) |
 | Lint a workflow script | `claude-code workflow lint` · `workflow skeleton <pattern>` |
 | Housekeeping | `rtk make sweep [APPLY=1] [AGE=7d] [ONLY=<targets>]` (previews unless `APPLY=1`) · `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `configure --history snapshot\|log\|diff` · `doctor --mcp` |
-| Theme, VS Code | `claude-code configure theme [--palettes\|--reset] [<palette>]` · `configure theme apply` · `configure theme vscode [--check\|--dry-run]` |
+| Theme, VS Code | `claude-code configure --theme [--palettes\|--reset] [<palette>]` · `configure --theme apply` · `configure --vscode [--check\|--dry-run]` |
