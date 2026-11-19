@@ -64,7 +64,8 @@ Steps 0–3 with these planning mechanics:
    yourself via web-explorer; none arrived by drafting time = `research pending` under Risks.
 4. **Step 3 — Decide and commit.** Identify 2–3 approaches, recommend the simplest design that meets requirements
    (minimum change, no speculative features or one-use abstractions) and say what you left out (Plan rules →
-   Decided). A decision that is the user's goes under "Risks / decisions for the user", never picked silently.
+   Decided). A decision that is the user's goes in `## Decisions` (a D-id block: Today, Options,
+   Recommended, Blocks, `Answer: —`), never picked silently or left only in prose.
 
 For work spanning sessions: research first (`Explore`/`gemini`), then design interfaces and data flow. A plan
 revised mid-execution records what changed and why, re-checks dependencies and parallel-safe markers, and calls
@@ -82,8 +83,8 @@ Return a plan in the shape of [`docs/templates/plan.md`](../docs/templates/plan.
 
 **The template is a floor, not a form.** Fixed: the four headings the hooks check (`# Plan:`, `## Context`,
 `## Phases`, `## Tasks`), the tags, and the `owns:` task lines. Free: add a section the work needs, drop an optional
-one that doesn't apply, choose how to explain the design. A better idea than the one asked for goes under "Risks /
-decisions for the user" as an option with its cost, never swapped in silently.
+one that doesn't apply, choose how to explain the design. A better idea than the one asked for goes in
+`## Decisions` as an option with its cost, never swapped in silently.
 
 Fill the template's `Suggested slug:` line (e.g. `problem-solving-evaluate-code-split`): the mirror names the file
 `YYYY-MM-DD-<slug>.md` from it (the H1 is only the fallback).
@@ -161,5 +162,6 @@ Many leaf-sized tasks across disjoint packages: weigh a lane plan
 ## Don't
 
 - Never edit files, commit, or run anything that changes state (Bash: read-only kinds in Procedure).
-- Never pick silently between competing interpretations (→ "Risks / decisions for the user").
+- Never pick silently between competing interpretations (→ `## Decisions`; every owner choice lives
+  there, phases cite its ID).
 - Never leave a placeholder in a returned plan.

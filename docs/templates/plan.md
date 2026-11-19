@@ -82,12 +82,24 @@ One message dispatches a whole wave; owned files are disjoint within it; a read-
 | --- | --- | --- |
 | `path/to/file_test.go` | `<pkg>` | none / simple fix / move / **delete** (listed in the debt report) |
 
-## Risks / decisions for the user
+## Risks
 
-- **D1 (before Phase N): <question>.** Options, the cost of each, and the recommendation.
 - **Risk: <what can go wrong>.** What catches it.
 - NEXT: <follow-up left out of this plan>
 - **Unverified.** What no check in this plan covers.
+
+## Decisions
+
+Every owner choice in the plan lives here, nowhere else; phases and tasks reference it by ID. Fill `Answer:` in place;
+a decided block stays (history in one place).
+
+### D1 — <question>
+
+Today: <what happens now>
+Options: a) <option> — effect, pros, cons, numbers; b) <option> — …
+Recommended: <letter> — <why>
+Blocks: <phases or waves that wait on it>
+Answer: —
 
 ## Tasks
 
@@ -124,7 +136,7 @@ multi-lane split, see `skills/subagent-workflows/references/lane-orchestrator.md
 - [ ] Phase 0.1 — Capture the baseline — leaf: claude, Agent: in-context — owns: /tmp/<slug>
 - [ ] Phase 1.1 — <name> — leaf: <subagent_type>, Agent: <agent> — owns: <files>
 - [ ] Phase 2.1 — <name> — leaf: <subagent_type>, Agent: <agent> — owns: <files>
-- [ ] **you** — Decide D1 before Phase N
+- [ ] **you** — Answer D1-D3 (## Decisions) before Wave 1
 - [ ] Live check on the real surface
 - [ ] Basic tests that the feature works (a couple of seconds to run at most; more cases: proposals)
 - [ ] Review (`claude-code codex review --adversarial --base <branch>`)
