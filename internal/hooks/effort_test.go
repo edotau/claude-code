@@ -547,7 +547,7 @@ func TestLabelWritesNoQuotaState(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
 	vaulttest.SetRecord(t, "copilot", "profile", "dev")
-	vaulttest.SetRecord(t, "copilot", "model", router.DiscoveryModel)
+	vaulttest.SetRecord(t, "copilot", "model", "auto")
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "test-value") // with copilot installed, the pick reaches the rotation
 	pathstest.FakeVendor(t, "copilot", "exit 0")
 	before, _ := os.ReadFile(router.StatePath())

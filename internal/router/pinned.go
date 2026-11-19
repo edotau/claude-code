@@ -60,8 +60,8 @@ func (t *RouteTable) gateProfile(
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "pinned profile " + pin + " cannot serve " + agent + " (no route or credential)"})
 		return nil
 	}
-	pm, _ := pinnedModel(agent, alias, cell, p, o.modelPin(model), false, now)
-	if pin := o.modelPin(model); pin != "" && pin != DiscoveryModel && unserved(p, pm, now) {
+	pm := pinnedModel(agent, alias, cell, p, model, now)
+	if model != "" && unserved(p, pm, now) {
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, pm + " is not served on " + p.Name})
 		return nil
 	}
@@ -97,44 +97,14 @@ func unserved(p *providers.Provider, m string, now time.Time) bool {
 }
 
 // pinnedModel resolves pins, swaps an unready alias pick for a READY model (never an explicit pin).
-func pinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin string, stamp bool, now time.Time) (string, string) {
-	if modelPin == DiscoveryModel {
-		return discoveryPinnedModel(agent, alias, cell, p, stamp, now)
-	}
+func pinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin string, now time.Time) string {
 	m := selectPinnedModel(agent, alias, cell, p, modelPin)
 	if modelPin == "" && unserved(p, m, now) {
 		if alt, _ := ServedFirst(p, agentid.Routing(agent).ResponsesRoute, now); alt != "" {
-			return alt, ""
+			return alt
 		}
 	}
-	return m, ""
-}
-
-func discoveryPinnedModel(agent, alias string, cell Cell, p *providers.Provider, stamp bool, now time.Time) (string, string) {
-	why := ""
-	switch {
-	case !agentid.Routing(agent).Discovery:
-		why = "discovery requires copilot or opencode; using alias"
-	case !RotationRow(p):
-		why = "discovery requires a Databricks or GitHub row; using alias"
-	default:
-		pool, model, err := poolFor(agent, alias, p, now), "", error(nil)
-		if stamp {
-			model, err = pickPool(agent, p, pool, now)
-		} else {
-			model = PeekRotation(agent, ProviderAccount(p.Name), p, pool, now)
-		}
-		switch {
-		case err != nil:
-			why = "discovery state unavailable (" + stateErrClass(err) + "); using alias"
-		case model == "":
-			why = "discovery pool has no served model; using alias"
-		default:
-			return model, ""
-		}
-	}
-	model, _ := pinnedModel(agent, alias, cell, p, "", stamp, now)
-	return model, why
+	return m
 }
 
 // selectPinnedModel: model pin, else own-account cell, else Databricks tier, else alias; codex gets a Responses model.
@@ -156,9 +126,6 @@ func selectPinnedModel(agent, alias string, cell Cell, p *providers.Provider, mo
 	}
 	return m
 }
-
-// DiscoveryModel requests the least-recently-picked model in the shared Databricks pool.
-const DiscoveryModel = "rotate"
 
 // RotationPool is the served pool agent rotates through on p at alias ("" = every tier); the agent package sets it.
 var RotationPool func(agent, alias string, p *providers.Provider, now time.Time) []string
@@ -188,11 +155,6 @@ func IsPoolModel(agent string, p *providers.Provider, model string) bool {
 	return slices.ContainsFunc(poolFor(agent, "", p, time.Now()), func(entry string) bool {
 		return providers.SpellPin(p, entry) == wire
 	})
-}
-
-// PinnedModel resolves a pin and reports why a Discovery request fell back to the alias; stamp records the pick.
-func PinnedModel(agent, alias string, cell Cell, p *providers.Provider, pin string, stamp bool) (string, string) {
-	return pinnedModel(agent, alias, cell, p, pin, stamp, time.Now())
 }
 
 // stateErrClass names why update failed, for a note; the raw error carries paths, so it stays out.
@@ -387,20 +349,4 @@ func catalogPool(pool []string) []string {
 		})
 	}
 	return kept
-}
-
-// DiscoveryRepick skips the failed model for agent, then returns the next pool pick ("" if unchanged).
-func DiscoveryRepick(agent, alias string, cell Cell, p *providers.Provider, prefix string) func(string) string {
-	return func(failed string) string {
-		wire := strings.TrimPrefix(failed, prefix)
-		if SkipDiscovery(agent, p, wire) == "" {
-			return ""
-		}
-		next, _ := PinnedModel(agent, alias, cell, p, DiscoveryModel, true)
-		if next == "" || next == wire {
-			return ""
-		}
-		fmt.Fprintf(os.Stderr, "discovery: %s skipped for %s (model capability)\n", wire, agent)
-		return prefix + next
-	}
 }

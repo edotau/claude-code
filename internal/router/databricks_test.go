@@ -2,7 +2,6 @@ package router
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"slices"
 	"strings"
@@ -430,46 +429,6 @@ func TestPickLeadFallbackNoneSkipsSiblingWorkspaces(t *testing.T) {
 	got := workspacePick(t, "codex", "prod", "prod", FallbackNone)
 	if want := []string{"databricks·prod", "openai·chatgpt"}; !slices.Equal(got, want) {
 		t.Fatalf("codex accounts = %v, want %v", got, want)
-	}
-}
-
-// A discovery pin in Pick stamps no workspace: the chosen hop's dispatch records the one pick.
-func TestPickDiscoveryPinDoesNotStampSiblingWorkspaces(t *testing.T) {
-	tb := testTable(t)
-	vaulttest.Use(t)
-	t.Setenv("CLAUDE_PROFILE", "")
-	vaulttest.Put(t, vault.Overlay, "providers", routeDbx3Rows)
-	for _, n := range []string{"DEV", "QA", "PROD"} {
-		vaulttest.Secret(t, "DATABRICKS_"+n+"_PAT", "dapi-test")
-	}
-	seed := now0.Add(-time.Hour)
-	if err := update(func(s State) { s["databricks·qa"] = Entry{Discovery: map[string]time.Time{"m-seed": seed}} }); err != nil {
-		t.Fatal(err)
-	}
-	sibling := func() string {
-		b, err := json.Marshal([]Entry{LoadState()["databricks·qa"], LoadState()["databricks·prod"]})
-		if err != nil {
-			t.Fatal(err)
-		}
-		return string(b)
-	}
-	before := sibling()
-	r := tb.Pick(context.Background(), "sonnet", "copilot", State{}, PickOpts{Configured: allConfigured,
-		Now: func() time.Time { return now0 }, Pins: map[string]PinSpec{"copilot": {Profile: "dev", Model: DiscoveryModel}}})
-	if after := sibling(); after != before {
-		t.Fatalf("sibling state changed:\nbefore %s\nafter  %s", before, after)
-	}
-	if len(LoadState()["databricks·dev"].Discovery) != 0 {
-		t.Fatal("Pick stamped the dispatched workspace; only the dispatch records its pick")
-	}
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, c := range r.Candidates {
-		if c.Agent == "copilot" && c.Account == "databricks·qa" && !IsPoolModel("copilot", reg.Providers["qa"], c.Model) {
-			t.Errorf("sibling qa model = %q, want a pool model", c.Model)
-		}
 	}
 }
 

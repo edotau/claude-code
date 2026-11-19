@@ -401,7 +401,7 @@ func (t *RouteTable) registryAliasOf(bare string) string {
 
 // ModelRow is a --model's row alias and canonical Claude id; exact a non-Claude id as asked, never a family name.
 func ModelRow(model string) (alias, row, exact string) {
-	if model == DiscoveryModel || providers.FamilyName(model) != "" {
+	if model == "auto" || providers.FamilyName(model) != "" {
 		return "", "", ""
 	}
 	canonical, _, ok := models.Resolve(model)

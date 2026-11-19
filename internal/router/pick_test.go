@@ -397,16 +397,6 @@ func TestPickRefreshesEachAccountOnce(t *testing.T) {
 	}
 }
 
-// The collecting pass must not advance the Discovery rotation; the real pick keeps the pin.
-func TestDryPickDropsDiscoveryPin(t *testing.T) {
-	if got := (PickOpts{dry: true}).modelPin(DiscoveryModel); got != "" {
-		t.Errorf("dry modelPin(discovery) = %q, want \"\"", got)
-	}
-	if got := (PickOpts{}).modelPin(DiscoveryModel); got != DiscoveryModel {
-		t.Errorf("real modelPin(discovery) = %q, want the pin", got)
-	}
-}
-
 func TestPickSkipTextForDeactivatedAgent(t *testing.T) {
 	tb := testTable(t)
 	r := tb.Pick(context.Background(), "sonnet", "codex", State{}, PickOpts{Fallback: FallbackAll, Configured: allConfigured,

@@ -477,8 +477,8 @@ func routedModels(ctx context.Context, reg *providers.Registry, p *providers.Pro
 		if spec.Row != "" && spec.Row != p.Name {
 			continue
 		}
-		q := agent.QueryFor(ctx, agent.ModelQuery{Agent: "copilot", Model: spec.Model, Profile: p.Name, Interactive: true})
-		r, err := agent.ResolveModel(reg, q, time.Now())
+		q := agent.QueryFor(agent.PeekContext(ctx), agent.ModelQuery{Agent: "copilot", Model: spec.Model, Profile: p.Name, Interactive: true}) // a menu listing only peeks
+		r, err := agent.ResolveRun(reg, q, time.Now())
 		if err != nil {
 			return nil, fmt.Errorf("copilot: %w", err)
 		}

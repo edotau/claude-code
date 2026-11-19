@@ -1,4 +1,4 @@
-// rotation.go: the rotate pin's pool, served models on the agent's rows that meet the tier's ranks.json rule.
+// rotation.go: auto's rotation pool, served models on the agent's rows that meet the tier's ranks.json rule.
 package agent
 
 import (

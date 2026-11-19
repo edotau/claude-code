@@ -359,7 +359,10 @@ func overlayAccount(ctx context.Context, reg *providers.Registry, t providers.Ta
 		return t, nil
 	}
 	q := agent.QueryFor(ctx, agent.ModelQuery{Agent: "copilot", Model: model, Account: account})
-	r, err := agent.ResolveModel(reg, q, time.Now())
+	if _, auto := agent.SplitAuto(cmp.Or(q.Model, q.PinModel)); auto {
+		q.Model = t.Model // the first hop already picked: spell that pick, no second stamp
+	}
+	r, err := agent.ResolveRun(reg, q, time.Now())
 	if err != nil {
 		return t, copilotFatal(err)
 	}

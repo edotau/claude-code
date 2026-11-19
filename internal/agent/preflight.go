@@ -281,7 +281,7 @@ func checkModel(agentName string, p *providers.Provider, model string, now time.
 
 // checkServed is checkModel for a model with no effort suffix.
 func checkServed(agentName string, p *providers.Provider, model string, now time.Time) (wire string, failed *Finding, note string) {
-	if model == "" || model == router.DiscoveryModel || slices.Contains(router.Aliases, models.Strip1M(model)) {
+	if model == "" || model == AutoModel || slices.Contains(router.Aliases, models.Strip1M(model)) {
 		return model, nil, ""
 	}
 	fail := func(check, detail string) (string, *Finding, string) {
@@ -510,14 +510,14 @@ func explicitFinding(ctx context.Context, q RouteReq, p *providers.Provider, pf 
 	return failed
 }
 
-// routedWire is q.Model as ResolveModel spells it on p, so preflight judges the wire id that runs, not the typed one.
+// routedWire is q.Model as ResolveRun spells it on p (auto peeks), so preflight judges the wire id that runs.
 func routedWire(q RouteReq, p *providers.Provider, now time.Time) string {
 	typed := strings.TrimPrefix(q.Model, p.Name+":")
 	reg, err := providers.Load()
 	if q.Model == "" || err != nil {
 		return typed
 	}
-	r, err := ResolveModel(reg, ModelQuery{Agent: q.Agent, Model: q.Model, Profile: p.Name}, now)
+	r, err := ResolveRun(reg, ModelQuery{Agent: q.Agent, Model: q.Model, Profile: p.Name, ctx: PeekContext(context.Background())}, now)
 	if err != nil {
 		return typed
 	}
@@ -539,7 +539,7 @@ func modelFinding(ctx context.Context, q RouteReq, pf *Preflight) *Finding {
 
 // previewServes refuses an explicit --model that is no alias, no catalog id and no READY endpoint of profiles.
 func previewServes(tb *router.RouteTable, model string, profiles []*providers.Provider) error {
-	if model == "" || model == router.DiscoveryModel || tb.AliasOf(model) != "" || providers.FamilyName(model) != "" {
+	if model == "" || model == AutoModel || tb.AliasOf(model) != "" || providers.FamilyName(model) != "" {
 		return nil // a family is resolved per candidate row, like an alias
 	}
 	if id, _, ok := models.Resolve(model); ok {

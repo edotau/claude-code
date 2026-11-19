@@ -94,14 +94,6 @@ func (o PickOpts) codexModel(t providers.Target) providers.Target {
 	return o.CodexModel(t)
 }
 
-// modelPin is model, except a dry pass drops a Discovery pin: only the real pick advances the rotation.
-func (o PickOpts) modelPin(model string) string {
-	if o.dry && model == DiscoveryModel {
-		return ""
-	}
-	return model
-}
-
 // PinSpec is one agent's routing pins: its profile, its model pin, its record fallback, and whether it is switched off.
 type PinSpec struct {
 	Profile, Model, Fallback string

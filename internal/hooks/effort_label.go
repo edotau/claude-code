@@ -291,7 +291,7 @@ func labelRoute(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	if err != nil { // %v: an offline ladder miss is no ErrModelRoute, so preflight never denies on it
 		return agentpkg.ModelRoute{Agent: q.Agent}, false, fmt.Errorf("%v", err)
 	}
-	r, err := resolveModel(reg, agentpkg.QueryFor(ctx, hop), time.Now())
+	r, err := resolveModel(reg, agentpkg.QueryFor(agentpkg.PeekContext(ctx), hop), time.Now())
 	if err != nil {
 		return agentpkg.ModelRoute{Agent: hop.Agent}, false, err
 	}

@@ -151,18 +151,18 @@ func TestPinnedModelNeverSwapsExplicitPin(t *testing.T) {
 	stubServed(t, []providers.OpencodeModel{chatX, respA},
 		listing("dev", map[string]string{"m-x": "READY", "m-a": "READY"}))
 	cell := Cell{Model: "m-pin", Account: "databricks·dev"}
-	if got, _ := pinnedModel("copilot", "sonnet", cell, p, "m-pin", true, time.Now()); got != "m-pin" {
+	if got := pinnedModel("copilot", "sonnet", cell, p, "m-pin", time.Now()); got != "m-pin" {
 		t.Errorf("explicit pin = %q, want m-pin kept", got)
 	}
-	if got, _ := pinnedModel("copilot", "sonnet", cell, p, "", true, time.Now()); got != "m-x" {
+	if got := pinnedModel("copilot", "sonnet", cell, p, "", time.Now()); got != "m-x" {
 		t.Errorf("copilot alias swap = %q, want m-x (any READY)", got)
 	}
-	if got, _ := pinnedModel("codex", "sonnet", cell, p, "", true, time.Now()); got != "m-a" {
+	if got := pinnedModel("codex", "sonnet", cell, p, "", time.Now()); got != "m-a" {
 		t.Errorf("codex alias swap = %q, want m-a (Responses only)", got)
 	}
 }
 
-// an explicit unserved pin is refused with a Skip; an empty or discovery pin never is.
+// an explicit unserved pin is refused with a Skip; an empty pin never is.
 func TestGateProfileRefusesExplicitUnservedPin(t *testing.T) {
 	// first: it resets CLAUDE_CONFIG_DIR, which would orphan the vault below
 	tb := testTable(t)
@@ -181,8 +181,8 @@ func TestGateProfileRefusesExplicitUnservedPin(t *testing.T) {
 	if !skips("m-pin") {
 		t.Error("an explicit unserved pin must surface a Skip")
 	}
-	if skips("") || skips(DiscoveryModel) {
-		t.Error("an empty or discovery pin must not surface a Skip")
+	if skips("") {
+		t.Error("an empty pin must not surface a Skip")
 	}
 }
 
