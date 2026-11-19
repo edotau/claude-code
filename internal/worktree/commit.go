@@ -14,6 +14,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -129,7 +130,7 @@ func tickPlans(ctx context.Context, out io.Writer, top string, set []string) {
 	}
 }
 
-// readOnlyStatus is gitStatus without git's opportunistic index refresh, which would rewrite the index as 0644.
+// readOnlyStatus is ReadDirty's status without git's opportunistic index refresh, which would rewrite the index as 0644.
 func readOnlyStatus(ctx context.Context, top string) ([]proc.StatusEntry, error) {
 	raw, err := proc.RunGit(ctx, top, "--no-optional-locks", "status", "--porcelain", "-z", "--untracked-files=all")
 	if err != nil {
@@ -255,16 +256,19 @@ func checkHolders(ctx context.Context, req CommitRequest, t commitTree, set []st
 	if err != nil && len(claims) == 0 {
 		return fmt.Errorf("could not read file claims: %w", err)
 	}
-	var held []string
+	var claimed []string
 	for _, rel := range set {
-		if len(claims[t.abs(rel)]) == 0 {
-			continue
+		if len(claims[t.abs(rel)]) > 0 {
+			claimed = append(claimed, rel)
 		}
-		hits, err := FreshHits(ctx, t.top, t.abs(rel), t.dirty, claims[t.abs(rel)], 0)
-		if err != nil {
-			return err
+	}
+	res, errs := freshHitsAll(ctx, t, claimed, claims)
+	var held []string
+	for i, rel := range claimed {
+		if errs[i] != nil {
+			return errs[i]
 		}
-		for _, h := range hits {
+		for _, h := range res[i] {
 			held = append(held, fmt.Sprintf("%s is claimed by %s (since %s)", rel, h.Who, time.Unix(h.TS, 0).Format("15:04")))
 		}
 	}
@@ -273,6 +277,37 @@ func checkHolders(ctx context.Context, req CommitRequest, t commitTree, set []st
 			"hand them to their owner", strings.Join(held, "; "))
 	}
 	return nil
+}
+
+// freshHitsAll runs FreshHits per path on up to 4 workers, fully joined; results are indexed like paths.
+func freshHitsAll(ctx context.Context, t commitTree, paths []string, claims map[string][]ClaimHit) ([][]ClaimHit, []error) {
+	res := make([][]ClaimHit, len(paths))
+	errs := make([]error, len(paths))
+	query := func(i int) {
+		p := t.abs(paths[i])
+		res[i], errs[i] = FreshHits(ctx, t.top, p, t.dirty, claims[p], 0)
+	}
+	if len(paths) < 2 {
+		for i := range paths {
+			query(i)
+		}
+		return res, errs
+	}
+	var wg sync.WaitGroup
+	next := make(chan int)
+	for range min(4, len(paths)) {
+		wg.Go(func() {
+			for i := range next {
+				query(i)
+			}
+		})
+	}
+	for i := range paths {
+		next <- i
+	}
+	close(next)
+	wg.Wait()
+	return res, errs
 }
 
 // sessionHolder labels a claim of the caller's own session, which a CLI leaf may not commit.

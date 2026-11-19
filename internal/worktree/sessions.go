@@ -223,11 +223,12 @@ func flattenClaims(byPath map[string]map[string]int64) map[string][]ClaimHit {
 
 // ReadDirty is top's dirty paths (absolute, untracked included; a rename source too), limited to scope when given.
 func ReadDirty(ctx context.Context, top string, scope ...string) (string, map[string]bool, error) {
-	entries, err := gitStatus(ctx, top, scope...)
+	args := append([]string{"status", "--porcelain", "-z", "--untracked-files=all"}, scope...)
+	raw, err := proc.RunGit(ctx, top, args...)
 	if err != nil {
-		return "", nil, err
+		return "", nil, fmt.Errorf("git status in %s: %w", top, err)
 	}
-	return top, DirtyMap(top, entries), nil
+	return top, DirtyMap(top, proc.StatusEntries(raw)), nil
 }
 
 // DirtyMap is the entries' absolute paths; a rename or copy source is dirty too.
@@ -240,16 +241,6 @@ func DirtyMap(top string, entries []proc.StatusEntry) map[string]bool {
 		}
 	}
 	return dirty
-}
-
-// gitStatus is top's `git status` entries, untracked files listed one by one.
-func gitStatus(ctx context.Context, top string, scope ...string) ([]proc.StatusEntry, error) {
-	args := append([]string{"status", "--porcelain", "-z", "--untracked-files=all"}, scope...)
-	raw, err := proc.RunGit(ctx, top, args...)
-	if err != nil {
-		return nil, fmt.Errorf("git status in %s: %w", top, err)
-	}
-	return proc.StatusEntries(raw), nil
 }
 
 // FreshHits keeps p's claims when p is dirty, dropping those older than p's last commit or the clean mark cleanAt.
