@@ -118,7 +118,7 @@ func TestThemeNoArgsPrintsHelpWithoutPalettes(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("theme (no args) exit %d", code)
 	}
-	if !strings.Contains(out, "usage: claude-code configure theme") || strings.Contains(out, "PALETTES") {
+	if !strings.Contains(out, "usage: claude-code configure --theme") || strings.Contains(out, "PALETTES") {
 		t.Errorf("bare theme must print usage only; palettes belong to --palettes:\n%s", out)
 	}
 	if _, err := os.Stat(configPath(dir)); !os.IsNotExist(err) {
@@ -150,7 +150,7 @@ func TestThemeHelpExitsZeroWithoutRunning(t *testing.T) {
 		if code != 0 {
 			t.Errorf("theme %s exit %d, want 0 — asking for help is not an error", flagArg, code)
 		}
-		for _, want := range []string{"apply", "statusline", "vscode"} {
+		for _, want := range []string{"apply", "statusline"} {
 			if !strings.Contains(stderr, "\n  "+want+" ") {
 				t.Errorf("theme %s lacks %q: %q", flagArg, want, stderr)
 			}

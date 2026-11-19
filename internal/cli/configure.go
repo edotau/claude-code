@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/menu"
 	"github.com/edotau/claude-code/internal/ui/tui"
+	"github.com/edotau/claude-code/internal/ui/vscode"
 )
 
 // hookSpec is the completion node for the hook verb.
@@ -65,7 +66,8 @@ var configurePage = helptext.Page{
 		{"codex", "Codex preferences with encrypted config history"},
 		{"routing", "price weight, served-aware switch, opencode sub-pick knobs"},
 		{"databricks", "browser sign-in and token mint per Databricks profile"},
-		{"theme", "status line palette, tool themes, VS Code settings"},
+		{"--theme", "status line palette, tool themes (see --theme -h)"},
+		{"--vscode", "merge VS Code settings, keybindings, chat models"},
 		{"--history", "config snapshots: snapshot, log, diff (see --history -h)"},
 	},
 }
@@ -126,13 +128,16 @@ func cmdConfigure(args []string) int {
 	return configureRun(o, section, pos)
 }
 
-// configureRoute sends `--history ...` to cmdHistory and `theme ...` to cmdTheme; ok is false for every other form.
+// configureRoute sends `--history|--theme|--vscode ...` to their handlers; ok is false for every other form.
 func configureRoute(args []string) (code int, ok bool) {
 	if i := slices.Index(args, "--history"); i >= 0 {
 		return cmdHistory(slices.Concat(args[:i], args[i+1:])), true
 	}
-	if len(args) > 0 && args[0] == "theme" {
-		return cmdTheme(args[1:]), true
+	if i := slices.Index(args, "--theme"); i >= 0 {
+		return cmdTheme(slices.Concat(args[:i], args[i+1:])), true
+	}
+	if i := slices.Index(args, "--vscode"); i >= 0 {
+		return vscode.Run(slices.Concat(args[:i], args[i+1:])), true
 	}
 	return 0, false
 }
@@ -379,5 +384,6 @@ func configureSpec() *helptext.Node {
 	fs, _ := configureFlags()
 	return &helptext.Node{Args: []func() []string{sections, providers.ProfileNames}, Flags: helptext.FlagsOf(fs,
 		map[string]func() []string{"profile": providers.ProfileNames, "agent": agentNames, "auth": authNames}),
-		Sub: map[string]*helptext.Node{"--history": historySpec()}}
+		Sub: map[string]*helptext.Node{"--history": historySpec(), "--theme": configureThemeSpec(),
+			"--vscode": vscode.Spec()}}
 }
