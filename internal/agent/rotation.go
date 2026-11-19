@@ -19,6 +19,13 @@ import (
 
 func init() { router.RotationPool = rotationPool }
 
+type peekKey struct{}
+
+// PeekContext marks ctx's route resolution as a label: a rotation pick is peeked, never recorded.
+func PeekContext(ctx context.Context) context.Context { return context.WithValue(ctx, peekKey{}, true) }
+
+func peekingRotation(ctx context.Context) bool { v, _ := ctx.Value(peekKey{}).(bool); return v }
+
 // rotationTiers maps a route alias to the ranks.json rotation tier whose floor and cost cap it takes.
 var rotationTiers = map[string]string{models.Haiku: "fast", models.Sonnet: "standard", models.Opus: "deep"}
 

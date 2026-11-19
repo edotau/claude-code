@@ -470,7 +470,7 @@ func AgentPinsContext(ctx context.Context) (map[string]router.PinSpec, error) {
 		if ownLogin(reg, k.Name, r.Profile) || k.External() && strings.TrimSpace(r.Profile) == PoolPin {
 			spec.Profile = "" // own login, or the pool (no fixed workspace): routes as the old unset pin did
 		}
-		spec.Model, spec.Fallback = r.Model, r.Fallback
+		spec.Model, spec.Fallback = agentModelPinContext(ctx, k.Name), r.Fallback
 		if !k.External() {
 			spec.Profile = cmp.Or(providers.SessionLeadContext(ctx, nil, false), spec.Profile)
 		}

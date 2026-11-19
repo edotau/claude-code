@@ -519,7 +519,8 @@ func (r ModelRoute) Label() string { return r.Model }
 
 // resolvePool is the pool's first usable workspace serving the model; databricks:<m> walks vault order, auto ranks.
 func resolvePool(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec, now time.Time) (ModelRoute, error) {
-	q.PinModel = rotatePin(reg, q, now)
+	pin, rnote := rotatePin(reg, q, now)
+	q.PinModel = pin
 	st, skipped := router.LoadState(), []string(nil)
 	names := reg.ProfilesOf(providers.GroupDatabricks)
 	if !spec.Pool {
@@ -549,22 +550,23 @@ func resolvePool(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec
 		if len(skipped) > 0 {
 			r.Note = strings.TrimSpace("skipped " + strings.Join(skipped, "; ") + ". " + r.Note)
 		}
+		r.Note = joinNotes(rnote, r.Note)
 		return r, nil
 	}
 	return ModelRoute{}, fmt.Errorf("%w: no Databricks profile can serve %s for %s (%s)", ErrModelRoute,
 		cmp.Or(spec.Model, q.Default, models.Opus), q.Agent, strings.Join(skipped, "; "))
 }
 
-// rotatePin is q's pin, or under the rotate pin the stamped rotation pick the pool then walks to a workspace serving.
-func rotatePin(reg *providers.Registry, q ModelQuery, now time.Time) string {
+// rotatePin is q's pin, or under the rotate pin the stamped rotation pick; an empty pool is "" (never "rotate") plus a note.
+func rotatePin(reg *providers.Registry, q ModelQuery, now time.Time) (string, string) {
 	if q.Model != "" || q.PinModel != router.DiscoveryModel {
-		return q.PinModel
+		return q.PinModel, ""
 	}
-	m, _, err := RotationModel(reg, q.Agent, cmp.Or(q.Default, models.Sonnet), true, now)
-	if err != nil {
-		return q.PinModel
+	m, note, err := RotationModel(reg, q.Agent, cmp.Or(q.Default, models.Sonnet), true, now)
+	if err != nil || m == "" {
+		return "", "rotation pool is empty; using the tier pick"
 	}
-	return cmp.Or(m, q.PinModel)
+	return m, note
 }
 
 // autoOrder is names in databricks:auto's order (cooling last, fewest live, least recent pick), stamping nothing.

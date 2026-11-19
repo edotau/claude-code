@@ -56,7 +56,7 @@ func runQueryRoute(ctx context.Context, reg *providers.Registry, q ModelQuery, a
 		return q, "", nil
 	}
 	pin := agentModelPinContext(ctx, q.Agent)
-	chain, _, err := Resolve(ctx, RouteReq{Agent: q.Agent, AliasHint: aliasHint, Fallback: q.Fallback, Pinned: true})
+	chain, _, err := Resolve(PeekContext(ctx), RouteReq{Agent: q.Agent, AliasHint: aliasHint, Fallback: q.Fallback, Pinned: true})
 	if err != nil {
 		return q, "", err
 	}

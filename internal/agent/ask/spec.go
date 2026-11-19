@@ -216,7 +216,7 @@ type dryDoc struct {
 
 // dryRun fills base (overlay, argv) with what the run would do; it stops before any record, claim, spawn or model call.
 func dryRun(ctx context.Context, req agent.RunOptions, base dryDoc, format string, out io.Writer) int {
-	o, _, ch, err := newClient().Plan(ctx, req)
+	o, _, ch, err := newClient().Plan(agent.PeekContext(ctx), req)
 	if err != nil {
 		return failAskCode(format, req.Agent, err, prepareExitCode(err))
 	}

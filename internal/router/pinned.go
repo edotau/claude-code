@@ -60,7 +60,7 @@ func (t *RouteTable) gateProfile(
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, "pinned profile " + pin + " cannot serve " + agent + " (no route or credential)"})
 		return nil
 	}
-	pm, _ := pinnedModel(agent, alias, cell, p, o.modelPin(model), now)
+	pm, _ := pinnedModel(agent, alias, cell, p, o.modelPin(model), false, now)
 	if pin := o.modelPin(model); pin != "" && pin != DiscoveryModel && unserved(p, pm, now) {
 		res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, pm + " is not served on " + p.Name})
 		return nil
@@ -97,9 +97,9 @@ func unserved(p *providers.Provider, m string, now time.Time) bool {
 }
 
 // pinnedModel resolves pins, swaps an unready alias pick for a READY model (never an explicit pin).
-func pinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin string, now time.Time) (string, string) {
+func pinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin string, stamp bool, now time.Time) (string, string) {
 	if modelPin == DiscoveryModel {
-		return discoveryPinnedModel(agent, alias, cell, p, now)
+		return discoveryPinnedModel(agent, alias, cell, p, stamp, now)
 	}
 	m := selectPinnedModel(agent, alias, cell, p, modelPin)
 	if modelPin == "" && unserved(p, m, now) {
@@ -110,7 +110,7 @@ func pinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin
 	return m, ""
 }
 
-func discoveryPinnedModel(agent, alias string, cell Cell, p *providers.Provider, now time.Time) (string, string) {
+func discoveryPinnedModel(agent, alias string, cell Cell, p *providers.Provider, stamp bool, now time.Time) (string, string) {
 	why := ""
 	switch {
 	case !agentid.Routing(agent).Discovery:
@@ -118,7 +118,12 @@ func discoveryPinnedModel(agent, alias string, cell Cell, p *providers.Provider,
 	case !RotationRow(p):
 		why = "discovery requires a Databricks or GitHub row; using alias"
 	default:
-		model, err := pickPool(agent, p, poolFor(agent, alias, p, now), now)
+		pool, model, err := poolFor(agent, alias, p, now), "", error(nil)
+		if stamp {
+			model, err = pickPool(agent, p, pool, now)
+		} else {
+			model = PeekRotation(agent, ProviderAccount(p.Name), p, pool, now)
+		}
 		switch {
 		case err != nil:
 			why = "discovery state unavailable (" + stateErrClass(err) + "); using alias"
@@ -128,7 +133,7 @@ func discoveryPinnedModel(agent, alias string, cell Cell, p *providers.Provider,
 			return model, ""
 		}
 	}
-	model, _ := pinnedModel(agent, alias, cell, p, "", now)
+	model, _ := pinnedModel(agent, alias, cell, p, "", stamp, now)
 	return model, why
 }
 
@@ -185,9 +190,9 @@ func IsPoolModel(agent string, p *providers.Provider, model string) bool {
 	})
 }
 
-// PinnedModel resolves a pin and reports why a Discovery request fell back to the alias.
-func PinnedModel(agent, alias string, cell Cell, p *providers.Provider, pin string) (string, string) {
-	return pinnedModel(agent, alias, cell, p, pin, time.Now())
+// PinnedModel resolves a pin and reports why a Discovery request fell back to the alias; stamp records the rotation pick.
+func PinnedModel(agent, alias string, cell Cell, p *providers.Provider, pin string, stamp bool) (string, string) {
+	return pinnedModel(agent, alias, cell, p, pin, stamp, time.Now())
 }
 
 // stateErrClass names why update failed, for a note; the raw error carries paths, so it stays out.
@@ -391,7 +396,7 @@ func DiscoveryRepick(agent, alias string, cell Cell, p *providers.Provider, pref
 		if SkipDiscovery(agent, p, wire) == "" {
 			return ""
 		}
-		next, _ := PinnedModel(agent, alias, cell, p, DiscoveryModel)
+		next, _ := PinnedModel(agent, alias, cell, p, DiscoveryModel, true)
 		if next == "" || next == wire {
 			return ""
 		}

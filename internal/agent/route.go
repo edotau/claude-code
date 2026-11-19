@@ -791,11 +791,11 @@ func (rc routeCtx) discoveryCandidate(disp Dispatch, cand router.Candidate, alia
 		return disp
 	}
 	picked := cand.Profile != "" && pin.Profile == cand.Profile && pin.Model == router.DiscoveryModel
-	return discoveryDispatch(disp, alias, rc.reg, cand.Profile, picked)
+	return discoveryDispatch(disp, alias, rc.reg, cand.Profile, picked, !peekingRotation(rc.ctx))
 }
 
 // discoveryDispatch freezes a pool choice before an agent or agent resolver sees the request.
-func discoveryDispatch(disp Dispatch, alias string, reg *providers.Registry, profile string, picked bool) Dispatch {
+func discoveryDispatch(disp Dispatch, alias string, reg *providers.Registry, profile string, picked, stamp bool) Dispatch {
 	tb, err := router.Load()
 	if err != nil {
 		disp.Model, disp.keepCaller, disp.unroutedDispatch = alias, false, false
@@ -810,7 +810,7 @@ func discoveryDispatch(disp Dispatch, alias string, reg *providers.Registry, pro
 	if picked && router.IsPoolModel(disp.Agent.Name(), p, disp.Model) {
 		return disp
 	}
-	model, note := router.PinnedModel(disp.Agent.Name(), alias, cell, p, router.DiscoveryModel)
+	model, note := router.PinnedModel(disp.Agent.Name(), alias, cell, p, router.DiscoveryModel, stamp)
 	disp.Model, disp.note, disp.keepCaller, disp.unroutedDispatch = prefix+model, note, false, false
 	return disp
 }

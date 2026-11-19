@@ -562,7 +562,7 @@ func TestDiscoveryRetryModelSkipsFailedAndStaysOnPool(t *testing.T) {
 	saveListing(t, "dbx", []string{"databricks-kimi-k3", "databricks-gpt-6-2-sol", "databricks-claude-sonnet-5-5"})
 	p := &providers.Provider{Name: "dbx", Provider: providers.GroupDatabricks, Preset: providers.PresetDatabricks,
 		Auth: providers.Auth{Type: providers.AuthKey, Env: "X"}}
-	first, note := router.PinnedModel("opencode", router.Aliases[1], router.Cell{}, p, router.DiscoveryModel)
+	first, note := router.PinnedModel("opencode", router.Aliases[1], router.Cell{}, p, router.DiscoveryModel, true)
 	if first != "databricks-kimi-k3" || note != "" {
 		t.Fatalf("first pick = %q (%q), want databricks-kimi-k3", first, note)
 	}

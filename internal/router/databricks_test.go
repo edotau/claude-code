@@ -433,7 +433,7 @@ func TestPickLeadFallbackNoneSkipsSiblingWorkspaces(t *testing.T) {
 	}
 }
 
-// A discovery pin stamps the dispatched workspace only; sibling rows resolve a pool model but write nothing.
+// A discovery pin in Pick stamps no workspace: the chosen hop's dispatch records the one pick.
 func TestPickDiscoveryPinDoesNotStampSiblingWorkspaces(t *testing.T) {
 	tb := testTable(t)
 	vaulttest.Use(t)
@@ -459,8 +459,8 @@ func TestPickDiscoveryPinDoesNotStampSiblingWorkspaces(t *testing.T) {
 	if after := sibling(); after != before {
 		t.Fatalf("sibling state changed:\nbefore %s\nafter  %s", before, after)
 	}
-	if len(LoadState()["databricks·dev"].Discovery) == 0 {
-		t.Fatal("dispatched workspace was not stamped (positive control)")
+	if len(LoadState()["databricks·dev"].Discovery) != 0 {
+		t.Fatal("Pick stamped the dispatched workspace; only the dispatch records its pick")
 	}
 	reg, err := providers.Load()
 	if err != nil {
