@@ -192,7 +192,7 @@ quoted phrases and unknown tokens pass through as free text.
   note.
 
 The **Task sources** section at the bottom of the page shows one card per source, plus a **Tailscale** card (exit-node
-pill; "Exit node…" lists the tailnet's exit nodes from `<binary> network tailscale --format json` in a QuickPick and
+pill; "Exit node…" lists the tailnet's exit nodes from `<binary> tailscale --format json` in a QuickPick and
 switches with `tailscale set --exit-node=<ip> --exit-node-allow-lan-access=true`; "Direct" clears it — VPN-style routing
 without any API key; `claudeCodeAgents.tailscaleBinary` names the CLI). It shows one card per source — a Connected /
 Disconnected pill (`gh api user` / the DC doctor / Jira `/myself`; the login is in its tooltip), "Show in Tasks" (the

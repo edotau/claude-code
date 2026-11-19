@@ -13,8 +13,8 @@
 | Status line default config + palettes | [`internal/ui/theme/default_config.json`](../../internal/ui/theme/default_config.json), [`default_palettes.json`](../../internal/ui/theme/default_palettes.json) | `claude-code theme statusline` (invoked by `settings.json`'s `statusLine.command`) | — |
 | Agent config defaults | [`internal/agentconfig/agents.json`](../../internal/agentconfig/agents.json) | `claude-code agents sync`, `claude-code configure --restore --agents` | — |
 | tmux.conf | [`internal/setup/tmux.conf`](../../internal/setup/tmux.conf) | `claude-code install` (`seedTmuxConf`; only when no tmux config exists) | — |
-| VS Code machine-settings template | [`internal/ui/vscode/machine-settings.template.json`](../../internal/ui/vscode/machine-settings.template.json) | `claude-code theme vscode` | — |
-| VS Code keybindings template | [`internal/ui/vscode/keybindings.template.json`](../../internal/ui/vscode/keybindings.template.json) | `claude-code theme vscode` (keybindings step) | — |
+| VS Code machine-settings template | [`internal/ui/vscode/machine-settings.template.json`](../../internal/ui/vscode/machine-settings.template.json) | `claude-code configure theme vscode` | — |
+| VS Code keybindings template | [`internal/ui/vscode/keybindings.template.json`](../../internal/ui/vscode/keybindings.template.json) | `claude-code configure theme vscode` (keybindings step) | — |
 | claude-science config | [`internal/claude/science.toml`](../../internal/claude/science.toml) | `claude-code anthropic science` (`--print-env`) | — |
 | `clip paste` WSL clipboard shim | [`internal/clipboard/wl-paste-claude.sh`](../../internal/clipboard/wl-paste-claude.sh) | `claude-code install` (`InstallProxy`, WSL only) | — |
 | Leaf brief template | [`internal/agent/brief.tmpl`](../../internal/agent/brief.tmpl) | `claude-code agents brief`, `agents dispatch --waves` (`RenderBrief`) | — |

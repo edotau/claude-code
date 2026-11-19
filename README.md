@@ -99,7 +99,7 @@ subagent. Per-hook matrix: [`rules/harness/hooks.md`](rules/harness/hooks.md).
 | `claude-code worktree commit` | Commits only the files you name (none: your own claimed files) and rolls the index back on failure; a leaf must name its files | main and leaves |
 | AI-attribution footer in a commit message | Blocked; `worktree commit` also strips them | main and leaves |
 | A command that prints a token (`claude-code … --secret`, `gh auth token`) piped to `curl`, `nc` or `wget` | Blocked | main and leaves |
-| `claude-code` verbs that print a credential (`vault get`, `resolve`, `gateway proxy --client-token`, `network tailscale --token`) | Redacted (`<redacted: N bytes>`; to a pipe also exit 1) unless `--secret`; `--secret` runs in the main session only, leaves get credentials at launch | main, leaves |
+| `claude-code` verbs that print a credential (`vault get`, `resolve`, `gateway proxy --client-token`, `tailscale --token`) | Redacted (`<redacted: N bytes>`; to a pipe also exit 1) unless `--secret`; `--secret` runs in the main session only, leaves get credentials at launch | main, leaves |
 | `claude-code vault get --key --secret` (the vault master key) | Ask in main; blocked in a leaf | main, leaves |
 | `kubectl` or `oc` `exec`, `delete`, `oc rsh` on a production or unknown context | Ask in main; blocked in a leaf | main, leaves |
 | `make audit`, `make install`, `make fmt` inside this repository | Blocked for a leaf; `make lint` stays open to all | leaves |

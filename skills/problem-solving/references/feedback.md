@@ -18,4 +18,4 @@ thanks ("Fixed. Extracted PROGRESS_INTERVAL constant."). Wrong after pushing bac
 right — I checked X and it does Y. Fixing now."` — factual, no apology.
 
 Reply in the GitHub comment **thread**
-(`claude-code scm comment <pr> --body-file F --reply-to <id>`), not as a top-level PR comment.
+(`claude-code worktree comment <pr> --body-file F --reply-to <id>`), not as a top-level PR comment.

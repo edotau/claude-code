@@ -25,7 +25,7 @@ paths:
   `--secrets` scans transcripts modified within seven days (`--days N` changes the window, `--days 0` covers all
   ages) and prints each store's counts and older-file skips; `--since N` limits git commits only.
 - Secrets: CLAUDE.md hard rule 2; `configure provider --list` shows the source, never the value. Credential verbs
-  (`vault get`, `resolve`, `gateway proxy --client-token`, `network tailscale --token`) print `<redacted: N bytes>`
+  (`vault get`, `resolve`, `gateway proxy --client-token`, `tailscale --token`) print `<redacted: N bytes>`
   (to a pipe also exit 1) unless `--secret`, which only the main session may run; a leaf gets credentials at launch
   (vault env `@secret`, or a dispatch overlay `set` of `@secret:<NAME>`). Built-in providers are
   `internal/providers/defaults.json`; a vault overlay row replaces one by name.
@@ -121,9 +121,10 @@ Off, cold or stale reads as the static menu: routing never touches the network.
   `gpt-oss-120b` follows the profile in force. agy signs in by running `agy` (there is no `agy auth login`).
 - On the Google route `gateway resolve`, `agents label` and `usage` read `agy -p /usage` (cached 60 s, spends no
   quota): the note carries the pool's percent left, under 15% warns, and a model at 0% is held until its reset.
-- VS Code chat: `claude-code theme vscode` merges one `Databricks <profile>` group per signed-in serving profile into
-  `chatLanguageModels.json`, routed through `/p/<profile>/`; other groups stay byte-for-byte. The file holds only
-  `${input:harnessProxyToken}`: mint it with `gateway proxy --client-token <name> --secret` (printed once; the vault
+- VS Code chat: `claude-code configure theme vscode` merges one `Databricks <profile>` group per signed-in serving
+  profile into `chatLanguageModels.json`, routed through `/p/<profile>/`; other groups stay byte-for-byte.
+  The file holds only `${input:harnessProxyToken}`: mint it with
+  `gateway proxy --client-token <name> --secret` (printed once; the vault
   keeps its SHA-256), revoke with `--revoke-client-token <name>`. The proxy accepts it only on Databricks serving `/p/`
   routes.
 

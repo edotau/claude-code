@@ -2,7 +2,7 @@
 
 Two judgment passes detectors can't make: **what else could this break** (blast radius) and **does it break a
 published contract** (breaking changes). Examples are Django/DRF, a data warehouse and React; substitute your stack.
-GitHub PRs: `claude-code scm pr diff <id>`. Full treatment for a PR over ~200 lines or touching a shared module,
+GitHub PRs: `claude-code worktree pr diff <id>`. Full treatment for a PR over ~200 lines or touching a shared module,
 serializer, migration or shared table; scope first:
 
 ```bash
