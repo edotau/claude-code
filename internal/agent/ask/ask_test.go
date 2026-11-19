@@ -1339,6 +1339,7 @@ func TestPoolValue(t *testing.T) {
 		{"pin lacks the model", []string{"--model", "kimi-k3"}, auto},
 		{"fallback typed allows the swap", []string{"--model", "kimi-k3", "--fallback", "all"}, ""},
 		{"untyped model", nil, ""},
+		{"own-login model over the pin", []string{"--model", "opencode-go/kimi-k3.1-pro"}, ""},
 	}
 	for _, c := range cases {
 		fs, f := askFlagSet()
@@ -1348,6 +1349,9 @@ func TestPoolValue(t *testing.T) {
 		r := &askRun{ctx: t.Context(), f: f, fs: fs, ag: "opencode"}
 		if got := r.poolValue(""); got != c.want {
 			t.Errorf("%s: poolValue = %q, want %q", c.name, got, c.want)
+		}
+		if own := strings.Contains(c.name, "own-login"); f.native != own {
+			t.Errorf("%s: native = %v, want %v", c.name, f.native, own)
 		}
 	}
 }

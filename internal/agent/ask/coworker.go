@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network/remote"
@@ -448,4 +449,10 @@ func (r *askRun) pinLacks(model string) bool {
 	}
 	p := reg.Providers[pin]
 	return agent.FreshModelFinding(r.ag, p, providers.ConcreteModel(r.ag, p, model), time.Now()) != nil
+}
+
+// ownLoginNative is f.native, or true for a typed opencode own-login model with no confinement: it wins over a pin.
+func ownLoginNative(agentName string, f *askFlags, value string) bool {
+	return f.native || value == "" && agentName == agentid.OpenCode && f.provider == "" && f.leadProvider == "" && f.host == "" &&
+		providers.OpencodeOwnModel(f.model)
 }

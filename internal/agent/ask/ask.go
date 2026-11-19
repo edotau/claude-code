@@ -289,8 +289,9 @@ func (r *askRun) poolValue(value string) string {
 	f := r.f
 	r.swap = helptext.Explicit(r.fs, "fallback") && f.fallback != router.FallbackNone
 	auto := router.JoinCoworker(router.RouteDatabricks, router.AutoArm)
+	f.native = ownLoginNative(r.ag, f, value)
 	switch {
-	case value != "" || f.provider != "" || f.host != "" || r.jobRec != nil:
+	case value != "" || f.provider != "" || f.host != "" || r.jobRec != nil || f.native:
 	case f.leadProvider == router.RouteDatabricks:
 		f.leadProvider = ""
 		return auto

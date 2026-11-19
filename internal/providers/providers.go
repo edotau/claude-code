@@ -211,6 +211,11 @@ var routeBillingKeys = append(slices.Clone(OwnLoginAccountKeys), "github·copilo
 // routeOpencodeModelPrefixes are the prefixes an opencode override cell may carry.
 var routeOpencodeModelPrefixes = []string{"opencode-go", "opencode", "github-copilot", "openai", "nvidia"}
 
+// OpencodeOwnModel reports a `<sub>/<model>` id opencode runs on its own login, not on a workspace.
+func OpencodeOwnModel(model string) bool {
+	return slices.Contains(routeOpencodeModelPrefixes, routeModelPrefix(model))
+}
+
 // RouteOpencodeSubIDs are the ids routing.opencode.ladder may name; kept in sync with router's opencode_sub keys.
 var RouteOpencodeSubIDs = []string{"opencode-go", "github-copilot", "openai", "nvidia"}
 
