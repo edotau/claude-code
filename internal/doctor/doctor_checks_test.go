@@ -4,11 +4,14 @@ import (
 	"bytes"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	_ "github.com/edotau/claude-code/internal/gemini" // registers the gemini route engine the prod binary links
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -157,5 +160,38 @@ func TestFormatsDoctorRowIgnoresBareMapCaches(t *testing.T) {
 	formats := findCheck([]check{formatsCheck()}, "formats")
 	if formats == nil || !formats.OK || strings.Contains(formats.Detail, "stale") { // quota stays a bare map: an old daemon reads it
 		t.Fatalf("formats row = %+v, want current", formats)
+	}
+}
+
+func TestMemorySyncRows(t *testing.T) {
+	at := time.Date(2026, 11, 18, 9, 30, 0, 0, time.Local)
+	st := &memory.SyncState{Peers: map[string]*memory.PeerSync{
+		"ok.example":    {Pull: memory.SyncDir{OK: at, Summary: "3 files", Differ: 2}, Push: memory.SyncDir{OK: at}},
+		"sleep.example": {Pull: memory.SyncDir{OK: at}, Unreachable: at},
+		"bad.example":   {Pull: memory.SyncDir{Refusal: "layout differs"}},
+	}}
+	cases := []struct {
+		name, on, hosts string
+		want            []check
+	}{
+		{"off", "", "ok.example", []check{{Name: "memory sync", OK: true, Detail: "off: not opted in (vault env NETWORK_MEMORY)"}}},
+		{"no peer", "on", "", []check{{Name: "memory sync", OK: true, Detail: "on; CLAUDE_REMOTE_HOST names no peer"}}},
+		{"healthy", "on", "ok.example", []check{{Name: "memory sync ok.example", OK: true, Detail: "pulled 2026-11-18 09:30; pushed 2026-11-18 09:30; differ 2; 3 files"}}},
+		{"unreachable", "on", "sleep.example", []check{{Name: "memory sync sleep.example", OK: true, Detail: "unreachable since 2026-11-18 09:30; pulled 2026-11-18 09:30"}}},
+		{"refused", "on", "bad.example", []check{{Name: "memory sync bad.example", OK: false, Detail: "refused: layout differs; never synced"}}},
+		{"never", "on", "new.example", []check{{Name: "memory sync new.example", OK: true, Detail: "never synced"}}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			hermetic(t)
+			t.Setenv("NETWORK_MEMORY", tc.on)
+			t.Setenv("CLAUDE_REMOTE_HOST", tc.hosts)
+			if err := memory.SaveSync(st); err != nil {
+				t.Fatal(err)
+			}
+			if got := memorySyncRows(); !slices.Equal(got, tc.want) {
+				t.Fatalf("rows = %+v, want %+v", got, tc.want)
+			}
+		})
 	}
 }

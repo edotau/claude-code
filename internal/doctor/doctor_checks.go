@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/browser"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -71,6 +72,52 @@ func fitDoctorDetail() string {
 		ran = "daily job ran " + fi.ModTime().Local().Format("2006-01-02 15:04")
 	}
 	return fmt.Sprintf("%s; folded through %s, %d cells", ran, f.Folded.Local().Format("2006-01-02 15:04"), len(f.Cells))
+}
+
+// memorySyncRows reads only the opt-in and sync.json (via SyncReport); the off row costs one env or vault read.
+func memorySyncRows() []check {
+	if !memory.SyncOn() {
+		return []check{{Name: "memory sync", OK: true, Detail: "off: not opted in (vault env NETWORK_MEMORY)"}}
+	}
+	report := memory.SyncReport()
+	if len(report) == 0 {
+		return []check{{Name: "memory sync", OK: true, Detail: "on; CLAUDE_REMOTE_HOST names no peer"}}
+	}
+	rows := make([]check, 0, len(report))
+	for _, r := range report {
+		rows = append(rows, memorySyncPeerRow(r))
+	}
+	return rows
+}
+
+func memorySyncPeerRow(r memory.SyncRow) check {
+	row := check{Name: "memory sync " + r.Peer, OK: r.Refusal == ""}
+	at := func(t time.Time) string { return t.Local().Format("2006-01-02 15:04") }
+	var parts []string
+	switch {
+	case r.Refusal != "":
+		parts = append(parts, "refused: "+r.Refusal)
+	case !r.Unreachable.IsZero():
+		parts = append(parts, "unreachable since "+at(r.Unreachable))
+	}
+	if r.Pulled.IsZero() && r.Pushed.IsZero() {
+		parts = append(parts, "never synced")
+	} else {
+		if !r.Pulled.IsZero() {
+			parts = append(parts, "pulled "+at(r.Pulled))
+		}
+		if !r.Pushed.IsZero() {
+			parts = append(parts, "pushed "+at(r.Pushed))
+		}
+	}
+	if r.Differ > 0 {
+		parts = append(parts, fmt.Sprintf("differ %d", r.Differ))
+	}
+	if r.Summary != "" {
+		parts = append(parts, r.Summary)
+	}
+	row.Detail = strings.Join(parts, "; ")
+	return row
 }
 
 // quotaDoctorRows is one row per exhausted or low account in route's quota.json, with its reset and the manual fix.

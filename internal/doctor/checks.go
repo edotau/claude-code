@@ -136,6 +136,9 @@ func checkToolHealth(ctx context.Context, check func(bool, bool, string, string)
 func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)) {
 	check(true, false, "in-flight", inflightDoctorDetail())
 	check(true, false, "routing fit", fitDoctorDetail())
+	for _, r := range memorySyncRows() {
+		check(r.OK, false, r.Name, r.Detail)
+	}
 	proxyDetail, proxyBad := proxyStatus(ctx)
 	check(!proxyBad, false, "proxy", proxyDetail)
 	rtkOK, rtkDetail := rtkDoctorStatus()
