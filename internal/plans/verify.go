@@ -226,8 +226,10 @@ func ValidSHA(sha string) bool { return shaPattern.MatchString(sha) }
 
 // DeferTick reports what sha would tick and starts one detached verifier per plan; it ticks the green ones later.
 func DeferTick(top, sha string, files []string, session string) ([]PlanTick, []string, error) {
-	if full, err := proc.RunGit(context.Background(), top, "rev-parse", "--verify", sha+"^{commit}"); err == nil && ValidSHA(strings.TrimSpace(full)) {
-		sha = strings.TrimSpace(full)
+	if len(sha) != 40 { // a full sha needs no resolving; a short one does
+		if full, err := proc.RunGit(context.Background(), top, "rev-parse", "--verify", sha+"^{commit}"); err == nil && ValidSHA(strings.TrimSpace(full)) {
+			sha = strings.TrimSpace(full)
+		}
 	}
 	pending, tied, err := PendingCommit(top, sha, files)
 	var errs []error

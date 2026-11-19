@@ -14,6 +14,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/pack"
@@ -122,12 +123,15 @@ func runDefaultGates(ctx context.Context, in gateInput) []GateResult {
 		return appendDocs(ctx, out, in)
 	}
 	res := make([]GateResult, len(defs))
+	var wg sync.WaitGroup
+	for i, d := range defs {
+		wg.Go(func() { res[i] = runGate(ctx, d, in) })
+	}
+	wg.Wait()
 	for i, d := range defs {
 		if d.needsBuild && res[buildIdx].Status == "FAIL" {
 			res[i] = GateResult{Name: d.name, Status: "skip", Reason: "build failed"}
-			continue
 		}
-		res[i] = runGate(ctx, d, in)
 	}
 	return appendDocs(ctx, res, in)
 }
@@ -145,12 +149,12 @@ const (
 	complexityIdx = 4
 )
 
-// gateDefs lists the default gates in report order, run one after another: concurrent ones were not faster.
+// gateDefs lists the default gates in report order; they run concurrently and build failure marks needsBuild ones skipped.
 func gateDefs() []gateDef {
 	return []gateDef{
 		stepDef("gofmt", false),
 		{"build", false, func(ctx context.Context, in gateInput) (string, string, error) {
-			out, err := gateRun(ctx, in.root, "go", "build", "./...")
+			out, err := gateRun(ctx, in.root, "go", "build", "-buildvcs=false", "./...")
 			return out, "", err
 		}, parseGoOutput("build")},
 		stepDef("vet", true),

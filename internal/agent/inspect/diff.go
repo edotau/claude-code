@@ -111,6 +111,7 @@ func Diff(o DiffOptions) int {
 		Gates: []GateResult{}, Verify: in.verify, fromBrief: in.fromBrief, noScope: in.noScope, all: o.All,
 		PreDirtyOutside: in.preDirtyOutside, dispatch: in.dispatch}
 	rep.Outside = mergeOutside(rep.Outside, rep.PreDirtyOutside)
+	decls := startDeclRows(o, in)
 	if o.Check && (len(in.files) > 0 || o.All) {
 		gi, err := gatesInput(ctx, o, in, filesInPaths(in.files, rep.Outside), len(want) > 0)
 		if err != nil {
@@ -125,10 +126,20 @@ func Diff(o DiffOptions) int {
 			return DiffExitGate
 		}
 	} else {
-		rep.newDecls = newDeclRows(in)
+		rep.newDecls = <-decls
 		renderDiff(o, rep, len(in.sel) > 0)
 	}
 	return diffExit(rep)
+}
+
+// startDeclRows reads the new-declaration rows while the gates run; JSON output has none.
+func startDeclRows(o DiffOptions, in diffIn) <-chan []string {
+	if o.JSON {
+		return nil
+	}
+	ch := make(chan []string, 1)
+	go func() { ch <- newDeclRows(in) }()
+	return ch
 }
 
 // newDeclRows lists the new tests and helpers of the changed Go files inside the scope, read from the worktree.

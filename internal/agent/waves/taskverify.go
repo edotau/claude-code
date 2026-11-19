@@ -3,6 +3,7 @@ package waves
 import (
 	"cmp"
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
 	"os"
@@ -116,7 +117,7 @@ func dirsOf(files []string) []string {
 	return slices.Compact(dirs)
 }
 
-// VerifyCommit checks each task on a scratch checkout of sha (diff check vs sha^), private to this process.
+// VerifyCommit checks each task on a locked scratch checkout of sha (diff check vs sha^), private to this process.
 func VerifyCommit(ctx context.Context, top, sha string, tasks []plans.Task) (map[string][]TaskCheck, error) {
 	if !plans.ValidSHA(sha) {
 		return nil, fmt.Errorf("not a commit sha: %q", sha)
@@ -124,12 +125,11 @@ func VerifyCommit(ctx context.Context, top, sha string, tasks []plans.Task) (map
 	root := filepath.Join(paths.StateDir(), "verify")
 	pruneTrees(ctx, top, root)
 	own := sha[:min(12, len(sha))] + "-" + strconv.Itoa(os.Getpid())
-	dir := filepath.Join(root, "tree-"+own)
-	removeTree(ctx, top, dir) // a reused pid's leftover is ours
-	if _, err := proc.RunGit(ctx, top, "worktree", "add", "--detach", dir, sha); err != nil {
+	dir, release, err := acquireTree(ctx, top, root, sha, own)
+	if err != nil {
 		return nil, err
 	}
-	defer removeTree(context.Background(), top, dir)
+	defer release()
 	// diff against the first parent so a merge lists its files; -z keeps spaces and quotes intact
 	raw, err := proc.RunGit(ctx, top, "diff-tree", "--no-commit-id", "--name-only", "-r", "-z", "--root", "-m", "--first-parent", sha)
 	if err != nil {
@@ -154,6 +154,53 @@ func pruneTrees(ctx context.Context, top, root string) {
 		}
 	}
 	plans.PruneVerify(root, "out-*")
+}
+
+const verifySlots = 4
+
+// acquireTree checks sha out in a per-repo slot held by a lock file, so the build cache sees one stable path.
+// A dead holder's flock is released by the OS; with every slot busy it falls back to a private tree.
+func acquireTree(ctx context.Context, top, root, sha, own string) (string, func(), error) {
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		return "", nil, err
+	}
+	key := fmt.Sprintf("%x", sha256.Sum256([]byte(top)))[:8]
+	for i := range verifySlots {
+		base := filepath.Join(root, fmt.Sprintf("slot-%s-%d", key, i))
+		f, err := os.OpenFile(base+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			return "", nil, err
+		}
+		if !paths.TryLock(f) {
+			_ = f.Close()
+			continue
+		}
+		if err := resetSlot(ctx, top, base, sha); err != nil {
+			_ = f.Close()
+			return "", nil, err
+		}
+		return base, func() { _ = f.Close() }, nil
+	}
+	dir := filepath.Join(root, "tree-"+own)
+	removeTree(ctx, top, dir) // a reused pid's leftover is ours
+	if _, err := proc.RunGit(ctx, top, "worktree", "add", "--detach", dir, sha); err != nil {
+		return "", nil, err
+	}
+	return dir, func() { removeTree(context.Background(), top, dir) }, nil
+}
+
+// resetSlot moves the slot's worktree to sha and drops untracked files, recreating it when it is missing or broken.
+func resetSlot(ctx context.Context, top, dir, sha string) error {
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+		if _, err = proc.RunGit(ctx, dir, "checkout", "--force", "--detach", sha); err == nil {
+			if _, err = proc.RunGit(ctx, dir, "clean", "-fdq"); err == nil {
+				return nil
+			}
+		}
+	}
+	removeTree(ctx, top, dir)
+	_, err := proc.RunGit(ctx, top, "worktree", "add", "--detach", dir, sha)
+	return err
 }
 
 func removeTree(ctx context.Context, top, dir string) {

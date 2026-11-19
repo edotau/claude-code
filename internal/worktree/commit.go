@@ -257,6 +257,9 @@ func checkHolders(ctx context.Context, req CommitRequest, t commitTree, set []st
 	}
 	var held []string
 	for _, rel := range set {
+		if len(claims[t.abs(rel)]) == 0 {
+			continue
+		}
 		hits, err := FreshHits(ctx, t.top, t.abs(rel), t.dirty, claims[t.abs(rel)], 0)
 		if err != nil {
 			return err

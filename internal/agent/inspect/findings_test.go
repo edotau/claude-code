@@ -8,6 +8,7 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -79,7 +80,10 @@ func scopeRepo(t *testing.T) (dir string, calls *[][]string) {
 	writeRepoFile(t, dir, "pkg/p.go", "package pkg\n\nfunc P() int { return 3 }\n")
 	(&fakeGates{lint: true}).install(t)
 	rec := &[][]string{}
+	var mu sync.Mutex
 	gateRun = func(_ context.Context, _, name string, args ...string) (string, error) {
+		mu.Lock()
+		defer mu.Unlock()
 		*rec = append(*rec, append([]string{name}, args...))
 		return "", nil
 	}
