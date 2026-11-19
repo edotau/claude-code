@@ -233,3 +233,19 @@ func TestCheckClaudeAliasPinResponsesOnly(t *testing.T) {
 		t.Fatalf("Also = %v, want the alias pin's profile", c.Also)
 	}
 }
+
+func TestPinRotationDetailIsLazy(t *testing.T) {
+	hermeticVault(t)
+	row := loginRow("codex", "", agent.AutoModel, time.Now())
+	if row.Detail != "" || row.rotationDetail == nil {
+		t.Fatalf("auto row = detail %q, rotationDetail nil %v; want the summary deferred", row.Detail, row.rotationDetail == nil)
+	}
+	calls := 0
+	row.rotationDetail = func() string { calls++; return "rot-detail" }
+	if calls != 0 {
+		t.Fatalf("detail called %d times before Line, want 0", calls)
+	}
+	if line := row.Line(); !strings.Contains(line, "· rot-detail") || calls != 1 {
+		t.Fatalf("Line = %q after %d calls, want the detail once", line, calls)
+	}
+}
