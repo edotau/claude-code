@@ -11,14 +11,18 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"path/filepath"
+	"reflect"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/askspec"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -66,9 +70,43 @@ func readTaskLines(r io.Reader) ([]parsedLine, error) {
 	}
 }
 
+// perLineKeys are batchLine's JSON keys: the spec keys a line may set itself.
+var perLineKeys = sync.OnceValue(func() []string {
+	var out []string
+	for f := range reflect.TypeFor[batchLine]().Fields() {
+		out = append(out, strings.Split(f.Tag.Get("json"), ",")[0])
+	}
+	return out
+})
+
+// checkLineKeys names the nearest valid key for a mistyped one and refuses a batch-wide spec key on the line.
+func checkLineKeys(line []byte) error {
+	s, ok := askspec.Current()
+	var doc map[string]json.RawMessage
+	if !ok || json.Unmarshal(line, &doc) != nil {
+		return nil // the strict decode reports what is wrong
+	}
+	if err := s.CheckKeys(doc, perLineKeys()...); err != nil {
+		return err
+	}
+	for _, k := range slices.Sorted(maps.Keys(doc)) {
+		if _, inSchema := s.Lookup(k); inSchema && !slices.Contains(perLineKeys(), k) {
+			return fmt.Errorf("%q is batch-wide: put --%s on the --batch command", k, k)
+		}
+	}
+	return nil
+}
+
 // decodeTaskLine decodes one JSONL line that is physical line n; a bad line keeps n in its Err.
 func decodeTaskLine(line []byte, n int) parsedLine {
 	pl := parsedLine{N: n}
+	if err := checkLineKeys(line); err != nil {
+		_ = json.Unmarshal(line, &struct {
+			ID *string `json:"id"`
+		}{&pl.Task.ID}) // the failure envelope keeps the line's id
+		pl.Err = fmt.Errorf("line %d: %w", n, err)
+		return pl
+	}
 	dec := json.NewDecoder(bytes.NewReader(line))
 	dec.DisallowUnknownFields()
 	if derr := dec.Decode(&pl.Task); derr != nil {
