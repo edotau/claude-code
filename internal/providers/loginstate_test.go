@@ -282,7 +282,7 @@ func assertSPServedWithoutUserAttempt(t *testing.T, p *Provider, m2m, refresh *i
 // assertFallbackNotedOnce requires the SP-fallback note exactly once and no secret in the notes.
 func assertFallbackNotedOnce(t *testing.T, p *Provider, notes string) {
 	t.Helper()
-	fallback := p.Name + ": on the service principal; your own login is not signed in (to sign in: " + LoginCommand(p.Name) + ")"
+	fallback := p.Name + ": on the service principal; your own login is not signed in (to sign in: " + SignInHint(p.Name) + ")"
 	if n := strings.Count(notes, fallback); n != 1 {
 		t.Errorf("fallback reported %d times in %q; want once per window", n, notes)
 	}

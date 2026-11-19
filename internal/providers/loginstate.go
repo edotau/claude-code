@@ -49,6 +49,12 @@ func LoginCommand(profile string) string {
 	return "claude-code --remote " + host + " databricks login --profile " + profile
 }
 
+// SignInHint names both user sign-in routes: here (over ssh with --no-browser), or through another host.
+func SignInHint(profile string) string {
+	return "claude-code databricks login --as user --profile " + profile + " (over ssh add --no-browser --port 8020), or " +
+		LoginCommand(profile)
+}
+
 // loginSuppress is how long an uncovered dead login is not retried; one a paired SP covers is never retried on a timer.
 const loginSuppress = 10 * time.Minute
 
@@ -175,7 +181,7 @@ func fallbackToSP(ctx context.Context, p *Provider, force bool) (string, error) 
 	if rec, dead := readLoginMark(p.Name); err == nil && dead {
 		if prev, seen := loginNoted.Swap(p.Name, rec.Since); !seen || !prev.(time.Time).Equal(rec.Since) {
 			note(ctx, fmt.Sprintf("%s: on the service principal; your own login is not signed in (to sign in: %s)", p.Name,
-				LoginCommand(p.Name)))
+				SignInHint(p.Name)))
 		}
 	}
 	return v, err

@@ -353,7 +353,7 @@ func TestIdentityAutoFallsBackToSPOnRejection(t *testing.T) {
 		t.Fatalf("Credential = %q, %v (m2m %d)", got, err, *m2m)
 	}
 	n := note.String()
-	if !strings.Contains(n, p.Name+": on the service principal; your own login is not signed in (to sign in: "+LoginCommand(p.Name)+")") ||
+	if !strings.Contains(n, p.Name+": on the service principal; your own login is not signed in (to sign in: "+SignInHint(p.Name)+")") ||
 		strings.Contains(n, "sp-secret") || strings.Count(n, "\n") != 2 {
 		t.Errorf("note = %q", n)
 	}

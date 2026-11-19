@@ -221,7 +221,7 @@ func TestCredentialRowReportsUserLoginFromRecords(t *testing.T) {
 func assertDeadLoginRow(t *testing.T, dead check) {
 	t.Helper()
 	for _, want := range []string{"verified", "warn on the service principal; your own login is not signed in (needs_login; to sign in: " +
-		providers.LoginCommand("dbx") + ")"} {
+		providers.SignInHint("dbx") + ")"} {
 		if !strings.Contains(dead.Detail, want) {
 			t.Errorf("dead login row %q lacks %q", dead.Detail, want)
 		}

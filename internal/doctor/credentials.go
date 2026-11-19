@@ -128,7 +128,8 @@ func userLoginLabel(p *providers.Provider) (label string, dead bool) {
 	}
 	cmd := providers.LoginCommand(p.Name)
 	if p.Identity != providers.IdentityUser && providers.SPPresent(p) {
-		return fmt.Sprintf(" · warn on the service principal; your own login is not signed in (%s; to sign in: %s)", st.State, cmd), true
+		return fmt.Sprintf(" · warn on the service principal; your own login is not signed in (%s; to sign in: %s)", st.State,
+			providers.SignInHint(p.Name)), true
 	}
 	return fmt.Sprintf(" · warn user login dead (%s): run %s", st.State, cmd), true
 }
