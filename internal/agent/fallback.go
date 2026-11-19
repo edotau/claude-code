@@ -938,7 +938,8 @@ func claudeTier(out RunOptions, disp Dispatch) RunOptions {
 		alias, _ = TaskTier(out.Prompt)
 		out.Model = alias
 		if auto {
-			out.Model = cmp.Or(alias, models.Opus)
+			alias = cmp.Or(alias, untieredAuto(agentid.Claude))
+			out.Model = alias
 		}
 	}
 	return autoRunEffort(out, agentid.Claude, alias)

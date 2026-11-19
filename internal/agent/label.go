@@ -341,7 +341,8 @@ func autoQuery(q ModelQuery) (ModelQuery, autoNeed) {
 		return q, need
 	}
 	if need.tier == "" {
-		q.Default, need.tier, need.signal = models.Opus, "deep", "no brief"
+		q.Default = untieredAuto(q.Agent)
+		need.tier, need.signal = tierOf(q.Default), "no brief"
 	}
 	q.Model, q.PinModel = "", ""
 	if prefix != "" {

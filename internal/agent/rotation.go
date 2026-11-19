@@ -100,8 +100,22 @@ func opencodeRunnable(p *providers.Provider, cands []catalog.Candidate) []catalo
 	})
 }
 
+// rotatesUnderAuto is false for claude: an asked auto keeps the brief's tier model (D7 b), so label and run agree.
+func rotatesUnderAuto(agentName string) bool { return !VaultAgentIsClaude(agentName) }
+
+// untieredAuto is an asked auto's alias for a brief with no tier: opus for a rotating agent, else sonnet.
+func untieredAuto(agentName string) string {
+	if rotatesUnderAuto(agentName) {
+		return models.Opus
+	}
+	return models.Sonnet
+}
+
 // rotationRows are the rows agent rotates on: every serving workspace under the pool pin, else its pinned row.
 func rotationRows(reg *providers.Registry, agentName string) []*providers.Provider {
+	if !rotatesUnderAuto(agentName) {
+		return nil
+	}
 	profile := strings.TrimSpace(vault.GetAgentRecord(agentName).Profile)
 	if profile != PoolPin {
 		if p := reg.Row(profile); router.RotationRow(p) {
@@ -132,7 +146,9 @@ func rotationModelOn(rows []*providers.Provider, agentName, alias string, stamp,
 	var pool []string
 	for _, p := range rows {
 		for _, m := range rotationPool(agentName, alias, p, tools, now) {
-			if !slices.Contains(pool, m) && (len(rows) == 1 || !st.ModelDead(router.AccountOf(p), m, now)) {
+			// skips and holds live on the workspace's account, not the pool account the pick below reads
+			held, _ := heldUntil(st[router.AccountOf(p)], router.DiscoverySkipKey(agentName, m), m, now)
+			if !slices.Contains(pool, m) && (len(rows) == 1 || !held) {
 				pool = append(pool, m)
 			}
 		}
@@ -265,17 +281,12 @@ func rotationPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need a
 	if !freshRotation(p, now) {
 		return base, false, nil
 	}
-	alias := cmp.Or(tierAliases[need.tier], models.Sonnet)
-	stamp := q.ctx == nil || !Peeking(q.ctx)
-	m, note, err := rotationModelOn([]*providers.Provider{p}, q.Agent, alias, stamp, q.Tools, now)
+	if !rotatesUnderAuto(q.Agent) {
+		return autoFallback(reg, q, base, need, c, q.Agent+" keeps its tier model under auto", now), true, nil
+	}
+	m, note, alias, err := tierRotation(q, cmp.Or(tierAliases[need.tier], models.Sonnet), p, now)
 	if err != nil {
 		return base, true, autoStopError{fmt.Errorf("auto pick state: %w", err)}
-	}
-	if m == "" && alias != models.Sonnet && len(heldIn(q.Agent, alias, p, q.Tools, now)) == 0 {
-		alias = models.Sonnet // the row serves nothing in this tier: step to standard, as the tier ladder does
-		if m, note, err = rotationModelOn([]*providers.Provider{p}, q.Agent, alias, stamp, q.Tools, now); err != nil {
-			return base, true, autoStopError{fmt.Errorf("auto pick state: %w", err)}
-		}
 	}
 	if m == "" {
 		return base, true, exhaustedPool(q.Agent, alias, p, q.Tools, now)
@@ -290,6 +301,17 @@ func rotationPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need a
 	r.Note = joinNotes(routeNote(base.Note), r.Note, note)
 	r.Effort = autoEffort(r.Effort, q.Agent, need)
 	return r, true, nil
+}
+
+// tierRotation is the pick at alias on p, stepping to standard when the row serves nothing in alias's tier.
+func tierRotation(q ModelQuery, alias string, p *providers.Provider, now time.Time) (string, string, string, error) {
+	stamp := q.ctx == nil || !Peeking(q.ctx)
+	m, note, err := rotationModelOn([]*providers.Provider{p}, q.Agent, alias, stamp, q.Tools, now)
+	if err == nil && m == "" && alias != models.Sonnet && len(heldIn(q.Agent, alias, p, q.Tools, now)) == 0 {
+		alias = models.Sonnet // the row serves nothing in this tier: step to standard, as the tier ladder does
+		m, note, err = rotationModelOn([]*providers.Provider{p}, q.Agent, alias, stamp, q.Tools, now)
+	}
+	return m, note, alias, err
 }
 
 func exhaustedPool(agentName, alias string, p *providers.Provider, tools bool, now time.Time) error {

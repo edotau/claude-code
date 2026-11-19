@@ -439,17 +439,18 @@ func TestAutoLabelIsRunModel(t *testing.T) {
 	}
 }
 
-// Asked auto returns ErrPoolExhausted for a fresh listing with nothing runnable, even under fallback none.
+// Asked auto on a fresh listing with nothing runnable is ErrPoolExhausted; claude has no pool and runs its tier model.
 func TestAutoNoCandidateIsRefused(t *testing.T) {
 	reg, _, _ := autoFixture(t)
 	saveListing(t, "dev", []string{"databricks-gpt-6-1-sol"}) // Responses-only: neither gemini nor claude ranks it
-	for _, agentName := range []string{"gemini", "claude"} {
-		for _, fb := range []string{"", router.FallbackNone} {
-			q := ModelQuery{Agent: agentName, Model: "dev:auto", Task: fastBrief, Fallback: fb}
-			r, err := ResolveRun(reg, q, time.Now())
-			if !errors.Is(err, ErrPoolExhausted) {
-				t.Errorf("%s auto, fallback %q: %s %q %v; want ErrPoolExhausted", agentName, fb, r.Model, r.Note, err)
-			}
+	for _, fb := range []string{"", router.FallbackNone} {
+		q := ModelQuery{Agent: "gemini", Model: "dev:auto", Task: fastBrief, Fallback: fb}
+		if r, err := ResolveRun(reg, q, time.Now()); !errors.Is(err, ErrPoolExhausted) {
+			t.Errorf("gemini auto, fallback %q: %s %q %v; want ErrPoolExhausted", fb, r.Model, r.Note, err)
+		}
+		q.Agent = "claude"
+		if r, err := ResolveRun(reg, q, time.Now()); err != nil || r.Model != "databricks-claude-haiku-5-5" {
+			t.Errorf("claude auto, fallback %q: %s %v; want its fast tier model", fb, r.Model, err)
 		}
 	}
 	q := ModelQuery{Agent: "claude", Model: "dev:claude-opus-5-5", Fallback: router.FallbackNone}
