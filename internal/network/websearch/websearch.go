@@ -4,6 +4,7 @@ package websearch
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -314,11 +315,11 @@ func readRequestLine(r *bufio.Reader) (raw []byte, tooLong bool, err error) {
 
 // parseRequest decodes one line; ok is false for a blank line (skipped) or bad JSON (answered via send).
 func parseRequest(raw []byte, send func(map[string]any)) (req rpcRequest, ok bool) {
-	line := strings.TrimSpace(string(raw))
-	if line == "" {
+	line := bytes.TrimSpace(raw)
+	if len(line) == 0 {
 		return req, false
 	}
-	if err := json.Unmarshal([]byte(line), &req); err != nil {
+	if err := json.Unmarshal(line, &req); err != nil {
 		send(rpcError(nil, -32700, "Parse error"))
 		return req, false
 	}
@@ -509,8 +510,9 @@ func fetchPages(ctx context.Context, apiKey string, urls []string, content, fail
 		}
 		urls = nil
 		for _, r := range res.Results {
-			content[normURL(r.URL)] = r.RawContent
-			delete(failed, normURL(r.URL))
+			k := normURL(r.URL)
+			content[k] = r.RawContent
+			delete(failed, k)
 		}
 		for _, f := range res.Failed {
 			k := normURL(f.URL)

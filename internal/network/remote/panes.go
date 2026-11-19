@@ -246,9 +246,8 @@ func capturePanes(ctx context.Context, host string, local bool, run paneRunner) 
 
 // parseCaptureBlob splits captureCommand's framed output into records, skipping malformed ones.
 func parseCaptureBlob(host, blob string) []paneCapture {
-	parts := strings.Split(blob, paneRecordStart)
-	caps := make([]paneCapture, 0, len(parts))
-	for _, rec := range parts {
+	var caps []paneCapture
+	for rec := range strings.SplitSeq(blob, paneRecordStart) {
 		if rec == "" {
 			continue
 		}
