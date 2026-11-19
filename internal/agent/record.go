@@ -65,6 +65,7 @@ type Record struct {
 	RanAs          string     `json:"ran_as,omitempty"`          // the agent that answered, when a fallback dispatch did
 	Repo           string     `json:"repo,omitempty"`            // main checkout root the job belongs to
 	RanRoute       string     `json:"ran_route,omitempty"`       // provider:profile of the row that answered, as the ran-on line names it
+	Attempts       []wire.Hop `json:"attempts,omitempty"`        // every hop of a re-picked or moved run; absent for a one-hop run
 	Route          string     `json:"route,omitempty"`           // overlay confinement at launch (databricks:qa), so a running job shows where it is going
 	PID            int        `json:"pid,omitempty"`             // pid of the detached `claude-code agents ask --job` child
 	PIDStart       string     `json:"pid_start,omitempty"`       // proc.StartTime of PID at spawn: tells a reused pid apart
@@ -392,6 +393,10 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 		r.Usage = &usage
 	}
 	r.RanRoute = ranRoute(res)
+	r.Attempts = nil
+	if len(res.Hops) > 1 {
+		r.Attempts = slices.Clone(res.Hops) // hop errors are redacted where hopOf builds them
+	}
 	r.Fallback, r.FallbackReason = res.Fallback, textutil.RedactSecrets(res.FallbackReason)
 	if res.Fallback != "" {
 		r.RanAs = res.Agent
@@ -415,7 +420,7 @@ func ranRoute(res wire.Result) string {
 		}
 		provider, profile, ok := strings.Cut(h.Account, "·")
 		if !ok {
-			return ""
+			return provider // an own-login account has no "·", e.g. opencode-go
 		}
 		return router.JoinCoworker(provider, cmp.Or(h.Profile, profile))
 	}
