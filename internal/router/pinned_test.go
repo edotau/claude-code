@@ -53,6 +53,43 @@ func TestRotationPickAndPeek(t *testing.T) {
 	}
 }
 
+func TestPickRotationAcrossWorkspaces(t *testing.T) {
+	pool := []string{"fake-model-a", "fake-model-b", "fake-model-c"}
+	workspaces := []string{"dev", "qa", "prod"}
+	now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name string
+		pool []string
+		held string
+		want []string
+	}{
+		{"group history", pool, "", pool},
+		{"workspace hold", pool, pool[0], []string{pool[1], pool[0], pool[2]}},
+		{"single model", pool[:1], "", []string{pool[0], pool[0], pool[0]}},
+		{"empty pool", pool[:0], "", make([]string, len(workspaces))},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			hist := ProviderAccount("pool")
+			if tc.held != "" {
+				if err := update(func(s State) {
+					s[ProviderAccount(workspaces[0])] = Entry{
+						ModelDead: map[string]time.Time{ModelKey(tc.held): now.Add(time.Hour)},
+					}
+				}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			for i, workspace := range workspaces {
+				got, err := PickRotation("opencode", ProviderAccount(workspace), hist, nil, tc.pool, now)
+				if err != nil || got != tc.want[i] {
+					t.Fatalf("%s pick = %q, %v; want %q", workspace, got, err, tc.want[i])
+				}
+			}
+		})
+	}
+}
+
 func checkRotationPeek(t *testing.T, p *providers.Provider, pool []string, now time.Time, want string) {
 	t.Helper()
 	before := LoadState()

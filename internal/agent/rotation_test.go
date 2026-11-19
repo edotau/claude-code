@@ -2,8 +2,11 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"os"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -59,6 +62,93 @@ func TestRotationPoolPinSkips(t *testing.T) {
 		router.SkipDiscovery("opencode", rows[i], providers.SpellPin(rows[i], first))
 		if got := picks(); slices.Contains(got, first) != want {
 			t.Errorf("after skipping on %d row(s): picks %v, want %s in them %v", i+1, got, first, want)
+		}
+	}
+}
+
+// Stamped picks walk the pool least-recent first: each differs, and the pool's turn after a full cycle is the first pick.
+func TestRotationLeastRecentCycle(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	rows, now := []*providers.Provider{reg.Providers["dev"]}, time.Now()
+	n := len(rotationPool("opencode", models.Sonnet, rows[0], false, now))
+	if n < 2 {
+		t.Fatalf("fixture: standard pool has %d members, want 2+", n)
+	}
+	var seen []string
+	for range n + 1 {
+		m, _, err := rotationModelOn(rows, "opencode", models.Sonnet, true, false, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		seen = append(seen, m)
+	}
+	if len(slices.Compact(slices.Sorted(slices.Values(seen[:n])))) != n || seen[n] != seen[0] {
+		t.Errorf("picks %v, want %d distinct then the first again", seen, n)
+	}
+}
+
+func rotationRan(oneOf []string, note string) func(ModelRoute, error) bool {
+	return func(r ModelRoute, err error) bool {
+		return err == nil && slices.Contains(oneOf, r.Model) && strings.Contains(r.Note, note)
+	}
+}
+
+// A cold listing runs the tier model, a tier with nothing steps to standard, a fully held tier or unwritable state refuses.
+func TestRotationPickOutcomes(t *testing.T) {
+	reg, _, pair := autoFixture(t)
+	now, dev := time.Now(), reg.Providers["dev"]
+	prodOpus, _ := ResolveModel(reg, ModelQuery{Agent: "opencode", Model: "prod:opus"}, now)
+	if len(band(pair, "deep", false, nil)) != 0 || len(band(pair, "standard", false, nil)) == 0 {
+		t.Fatalf("fixture: xf must serve standard but not deep, got %v", pair)
+	}
+	for _, tc := range []struct {
+		name, model, task string
+		setup             func()
+		ok                func(ModelRoute, error) bool
+		writes            bool
+	}{
+		{"cold listing", "prod:auto", deepBrief, func() {}, rotationRan([]string{prodOpus.Model}, "no fresh model listing"), false},
+		{"empty tier steps to standard", "xf:auto", deepBrief, func() {}, rotationRan(band(pair, "standard", false, nil), "(standard tier,"), true},
+		{"every tier member held", "dev:auto", deepBrief, func() {
+			for _, id := range rotationPool("opencode", models.Opus, dev, false, now) {
+				router.SkipDiscovery("opencode", dev, providers.SpellPin(dev, id))
+			}
+		}, func(_ ModelRoute, err error) bool { return errors.Is(err, ErrPoolExhausted) }, true},
+		{"state unwritable", "dev:auto", standardBrief, func() {
+			_ = os.Remove(router.StatePath()) // a directory in quota.json's place makes every state write fail
+			if err := os.MkdirAll(router.StatePath(), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}, func(_ ModelRoute, err error) bool {
+			return err != nil && strings.Contains(err.Error(), "auto pick state")
+		}, false},
+	} {
+		tc.setup()
+		before := router.LoadState()
+		r, err := ResolveRun(reg, ModelQuery{Agent: "opencode", Model: tc.model, Task: tc.task}, now)
+		if !tc.ok(r, err) {
+			t.Errorf("%s: ran %q note %q (%v)", tc.name, r.Model, r.Note, err)
+		}
+		if !tc.writes && !reflect.DeepEqual(router.LoadState(), before) {
+			t.Errorf("%s: rotation state changed", tc.name)
+		}
+	}
+}
+
+// Claude never rotates: auto runs the brief's tier model, sonnet for a brief with no tier.
+func TestRotationClaudeKeepsTier(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	now := time.Now()
+	for _, tc := range []struct{ task, alias string }{
+		{fastBrief, models.Haiku}, {standardBrief, models.Sonnet}, {deepBrief, models.Opus}, {"", models.Sonnet},
+	} {
+		want, err := ResolveModel(reg, ModelQuery{Agent: "claude", Model: "dev:" + tc.alias}, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got, err := ResolveRun(reg, ModelQuery{Agent: "claude", Model: "dev:auto", Task: tc.task}, now)
+		if err != nil || got.Model != want.Model {
+			t.Errorf("claude auto, brief %q: ran %s (%v), want %s", tc.task, got.Model, err, want.Model)
 		}
 	}
 }
