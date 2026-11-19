@@ -146,17 +146,36 @@ func inventoryLine(f IncludedFile) string {
 }
 
 func promptBlock(f IncludedFile) string {
-	return fmt.Sprintf("<file path=%q media_type=%q truncated=%q>%s</file>",
-		f.Path, f.MediaType, strconv.FormatBool(f.Truncated), f.Content)
+	var b strings.Builder
+	b.Grow(blockSize(f))
+	writeBlock(&b, f)
+	return b.String()
+}
+
+// blockSize is promptBlock's length less quoting overhead; Grow's hint, not a bound.
+func blockSize(f IncludedFile) int { return len(f.Content) + len(f.Path) + len(f.MediaType) + 64 }
+
+func writeBlock(b *strings.Builder, f IncludedFile) {
+	b.WriteString("<file path=")
+	b.WriteString(strconv.Quote(f.Path))
+	b.WriteString(" media_type=")
+	b.WriteString(strconv.Quote(f.MediaType))
+	b.WriteString(" truncated=")
+	b.WriteString(strconv.Quote(strconv.FormatBool(f.Truncated)))
+	b.WriteByte('>')
+	b.WriteString(f.Content)
+	b.WriteString("</file>")
 }
 
 // prompt renders the context inventory + inline files + task into the prompt template.
 func prompt(task string, ctx Context) string {
-	inv, blocks := inventoryText(ctx), fileBlocks(ctx)
-
+	inv := inventoryText(ctx)
+	var b strings.Builder
+	b.Grow(len(task) + len(inv) + blocksSize(ctx) + 512)
 	// Task and constraints lead: agy caps its input and cuts the tail, which must never be the question.
-	return fmt.Sprintf(`<task>
-%s
+	b.WriteString("<task>\n")
+	b.WriteString(task)
+	b.WriteString(`
 </task>
 
 <constraints>
@@ -167,11 +186,19 @@ func prompt(task string, ctx Context) string {
 </constraints>
 
 <context_inventory>
-%s</context_inventory>
+`)
+	b.WriteString(inv)
+	b.WriteString("</context_inventory>\n\n<context_files>\n")
+	writeBlocks(&b, ctx)
+	b.WriteString("\n</context_files>")
+	return b.String()
+}
 
-<context_files>
-%s
-</context_files>`, task, inv, blocks)
+func blocksSize(ctx Context) (n int) {
+	for _, f := range ctx.Included {
+		n += blockSize(f) + 2
+	}
+	return n
 }
 
 // inventoryText lists the included and skipped files, one line each.
@@ -194,16 +221,18 @@ func inventoryText(ctx Context) string {
 	return inv.String()
 }
 
-// fileBlocks joins the included files' payload blocks.
-func fileBlocks(ctx Context) string {
+// writeBlocks joins the included files' payload blocks.
+func writeBlocks(b *strings.Builder, ctx Context) {
 	if len(ctx.Included) == 0 {
-		return "No inline file payloads were collected."
+		b.WriteString("No inline file payloads were collected.")
+		return
 	}
-	blocks := make([]string, len(ctx.Included))
 	for i, f := range ctx.Included {
-		blocks[i] = promptBlock(f)
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		writeBlock(b, f)
 	}
-	return strings.Join(blocks, "\n\n")
 }
 
 // Structured path index: a nested JSON tree names every matched path at a fraction of inlining's tokens.

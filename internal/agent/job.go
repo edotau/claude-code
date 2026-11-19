@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
@@ -46,6 +47,22 @@ func treeAndRepo(ctx context.Context, cwd string) (tree, repo string) {
 		return "", cwd
 	}
 	return top, paths.MainCheckout(top)
+}
+
+type treeKey struct{}
+
+// startTreeAndRepo runs treeAndRepo for workdir ("" is the process cwd) in the background; the func joins it.
+func startTreeAndRepo(ctx context.Context, workdir string) func() (string, string) {
+	done := make(chan [2]string, 1)
+	go func() {
+		cwd := workdir
+		if cwd == "" {
+			cwd, _ = os.Getwd()
+		}
+		t, r := treeAndRepo(ctx, cwd)
+		done <- [2]string{t, r}
+	}()
+	return sync.OnceValues(func() (string, string) { p := <-done; return p[0], p[1] })
 }
 
 // executable is swapped by tests.

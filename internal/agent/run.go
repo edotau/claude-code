@@ -51,6 +51,9 @@ type Prepared struct {
 
 // Prepare routes the raw task before applying its rubric and claiming a dispatch record.
 func (c *Client) Prepare(ctx context.Context, o RunOptions, claim *Record) (*Prepared, error) {
+	if claim == nil && o.Host == "" { // the record's git lookup overlaps Plan's routing
+		ctx = context.WithValue(ctx, treeKey{}, startTreeAndRepo(ctx, o.WorkDir))
+	}
 	o, r, ch, err := c.Plan(ctx, o)
 	if err != nil {
 		return nil, err

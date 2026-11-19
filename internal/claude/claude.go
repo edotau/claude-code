@@ -382,7 +382,7 @@ type claudeEvent struct {
 	TotalCostUSD    float64         `json:"total_cost_usd"`
 	Structured      json.RawMessage `json:"structured_output"`
 
-	Event anthropic.MessageStreamEventUnion `json:"event"`
+	Event streamEventLean `json:"event"`
 
 	Usage struct {
 		InputTokens              int `json:"input_tokens"`
@@ -390,6 +390,39 @@ type claudeEvent struct {
 		CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
 		CacheReadInputTokens     int `json:"cache_read_input_tokens"`
 	} `json:"usage"`
+}
+
+// streamEventLean is the few stream_event fields usage needs; a mistyped field is skipped, as the SDK union did.
+type streamEventLean struct {
+	Type    string `json:"type"`
+	Message struct {
+		ID    string      `json:"id"`
+		Usage usageTokens `json:"usage"`
+	} `json:"message"`
+	Usage usageTokens `json:"usage"`
+}
+
+func (e *streamEventLean) UnmarshalJSON(b []byte) error {
+	type plain streamEventLean
+	_ = json.Unmarshal(b, (*plain)(e))
+	return nil
+}
+
+type usageTokens struct {
+	InputTokens              int `json:"input_tokens"`
+	OutputTokens             int `json:"output_tokens"`
+	CacheCreationInputTokens int `json:"cache_creation_input_tokens"`
+	CacheReadInputTokens     int `json:"cache_read_input_tokens"`
+}
+
+func (u usageTokens) wire() wire.Usage {
+	return wire.Usage{InputTokens: u.InputTokens, OutputTokens: u.OutputTokens,
+		CacheReadTokens: u.CacheReadInputTokens, CacheCreationTokens: u.CacheCreationInputTokens}
+}
+
+func (u usageTokens) delta() anthropic.MessageDeltaUsage {
+	return anthropic.MessageDeltaUsage{InputTokens: int64(u.InputTokens), OutputTokens: int64(u.OutputTokens),
+		CacheCreationInputTokens: int64(u.CacheCreationInputTokens), CacheReadInputTokens: int64(u.CacheReadInputTokens)}
 }
 
 // decodeMessage decodes a raw message as an anthropic.Message (string or absent = zero); a var so tests count calls.
@@ -489,11 +522,11 @@ func (c *claudeUsage) observe(ev claudeEvent, msg anthropic.Message) wire.Usage 
 	if ev.Type == "stream_event" {
 		switch ev.Event.Type {
 		case "message_start":
-			id, u = ev.Event.Message.ID, messageUsage(ev.Event.Message)
+			id, u = ev.Event.Message.ID, ev.Event.Message.Usage.wire()
 			c.current = id
 		case "message_delta":
 			id, u = c.current, c.messages[c.current]
-			foldDeltaUsage(&u, ev.Event.Usage)
+			foldDeltaUsage(&u, ev.Event.Usage.delta())
 		}
 	}
 	if id == "" {

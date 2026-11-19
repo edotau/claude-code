@@ -12,15 +12,20 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-// withRecall appends the memory-recall block once; a replay, --safe-mode or a held block sends the brief as is.
-func (r *askRun) withRecall(prompt string) string {
+// startRecall begins the memory-recall lookup and returns a join that gives the brief with its block appended once;
+// a replay, --safe-mode or a held block sends the brief as is.
+func (r *askRun) startRecall(prompt string) func() string {
 	if r.jobRec != nil || r.f.retry != "" || r.f.safeMode {
-		return prompt
+		return func() string { return prompt }
 	}
-	session := os.Getenv(memory.SessionIDEnv)
-	block, _ := memory.AgentRecall(r.ctx, session, prompt)
-	memory.LogBriefRecall(session, block)
-	return prompt + block
+	done := make(chan string, 1)
+	go func() {
+		session := os.Getenv(memory.SessionIDEnv)
+		block, _ := memory.AgentRecall(r.ctx, session, prompt)
+		memory.LogBriefRecall(session, block)
+		done <- block
+	}()
+	return func() string { return prompt + <-done }
 }
 
 // memoryRunOptions pins the memory job to claude: it holds write tools, so it never falls back to another vendor.

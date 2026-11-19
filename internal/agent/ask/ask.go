@@ -528,8 +528,9 @@ func (r *askRun) execute() int {
 		printAskFailure(f.format, f.name, errors.New("no task: give a prompt, or \"-\" to read stdin"))
 		return 2
 	}
+	join := func() string { return prompt }
 	if framed == nil && !f.dryRun {
-		prompt = r.withRecall(prompt)
+		join = r.startRecall(prompt) // overlaps the setup below; joined before request reads the brief
 	}
 	ctx, stop := signal.NotifyContext(r.ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP) // a kill finalizes the record
 	defer stop()
@@ -539,6 +540,7 @@ func (r *askRun) execute() int {
 	f.timeout = askTimeout(r.fs, f.timeout, f.retry, f.job, f.tools)
 	warnAskMemory(r.ag, f.enableMemory)
 	f.debugFile = absDebugFile(f.debugFile)
+	prompt = join()
 	req, run := r.request(prompt), askRunner(nil)
 	if a := r.armRun(); a != nil {
 		req, run = a.probe(req), a.run

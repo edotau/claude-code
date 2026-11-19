@@ -14,9 +14,10 @@ import (
 func DecodeEvents[E any](br *bufio.Reader, lg StreamLog, label string, tick bool, onBad func(error),
 	handle func(E, *TransportTracker) (stop bool, err error)) (*Transport, error) {
 	ts := TransportTracker{Start: Clock()}
+	ev := new(E) // one scratch value for the stream; decodeLine zeroes it per line
 	for {
 		raw, readErr := br.ReadBytes('\n')
-		if stop, err := decodeLine(bytes.TrimSpace(raw), &ts, lg, label, tick, onBad, handle); err != nil || stop {
+		if stop, err := decodeLine(bytes.TrimSpace(raw), ev, &ts, lg, label, tick, onBad, handle); err != nil || stop {
 			return ts.Result(), err
 		}
 		if readErr != nil {
@@ -29,13 +30,14 @@ func DecodeEvents[E any](br *bufio.Reader, lg StreamLog, label string, tick bool
 }
 
 // decodeLine handles one trimmed line for DecodeEvents; stop ends the stream cleanly, err aborts it.
-func decodeLine[E any](raw []byte, ts *TransportTracker, lg StreamLog, label string, tick bool, onBad func(error),
+func decodeLine[E any](raw []byte, ev *E, ts *TransportTracker, lg StreamLog, label string, tick bool, onBad func(error),
 	handle func(E, *TransportTracker) (bool, error)) (stop bool, err error) {
 	if len(raw) == 0 {
 		return false, nil
 	}
-	var ev E
-	if err := json.Unmarshal(raw, &ev); err != nil {
+	var zero E
+	*ev = zero
+	if err := json.Unmarshal(raw, ev); err != nil {
 		if _, ok := errors.AsType[*json.SyntaxError](err); ok {
 			lg.Emit("raw", string(raw))
 			return false, nil
@@ -49,7 +51,7 @@ func decodeLine[E any](raw []byte, ts *TransportTracker, lg StreamLog, label str
 	if tick {
 		ts.Event(Clock())
 	}
-	return handle(ev, ts)
+	return handle(*ev, ts)
 }
 
 var Clock = time.Now

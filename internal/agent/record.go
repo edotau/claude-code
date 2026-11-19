@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -338,10 +337,14 @@ func (r Record) Save() error {
 	if err != nil {
 		return err
 	}
-	if err := paths.AtomicWrite(filepath.Join(dir, r.ID+".json"), b, 0o600); err != nil {
+	path := filepath.Join(dir, r.ID+".json")
+	_, statErr := os.Lstat(path)
+	if err := paths.AtomicWrite(path, b, 0o600); err != nil {
 		return err
 	}
-	pruneDispatches(dir)
+	if errors.Is(statErr, fs.ErrNotExist) { // only a new record can push the dir over the cap
+		pruneDispatches(dir)
+	}
 	return nil
 }
 
@@ -499,8 +502,7 @@ func recordNames(dir string) ([]string, error) {
 			names = append(names, e.Name())
 		}
 	}
-	sort.Strings(names)
-	return names, nil
+	return names, nil // ReadDir already sorts by filename
 }
 
 // LoadRecord reads one record by exact id or unique id prefix.
@@ -638,8 +640,11 @@ func jsonToken(s string) string {
 func eachRecent(dir, needle string, fn func(Record) bool) error {
 	names, err := recordNames(dir)
 	probe := []byte(needle)
+	var buf []byte // one read buffer for every record
 	for _, n := range slices.Backward(names) {
-		b, rerr := os.ReadFile(filepath.Join(dir, n))
+		var rerr error
+		var b []byte
+		b, buf, rerr = readInto(filepath.Join(dir, n), buf)
 		if rerr != nil || !bytes.Contains(b, probe) {
 			continue
 		}
@@ -648,6 +653,29 @@ func eachRecent(dir, needle string, fn func(Record) bool) error {
 		}
 	}
 	return err
+}
+
+// readInto reads path into buf's storage (grown as needed) and returns the bytes and the buffer to reuse.
+func readInto(path string, buf []byte) ([]byte, []byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, buf, err
+	}
+	defer f.Close()
+	buf = buf[:0]
+	for {
+		if len(buf) == cap(buf) {
+			buf = slices.Grow(buf, 4096)
+		}
+		n, err := f.Read(buf[len(buf):cap(buf)])
+		buf = buf[:len(buf)+n]
+		if err == io.EOF {
+			return buf, buf, nil
+		}
+		if err != nil {
+			return nil, buf, err
+		}
+	}
 }
 
 // RunRecordedOpts tunes runRecorded for the caller's stdout contract.
@@ -785,15 +813,23 @@ func buildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Re
 	if err != nil {
 		return Record{}, err
 	}
-	cwd := workdir
-	if cwd == "" {
-		cwd, _ = os.Getwd()
-	}
-	rec.Tree, rec.Repo = treeAndRepo(ctx, cwd)
+	rec.Tree, rec.Repo = recordTree(ctx, workdir, req.WorkDir)
 	rec.Owner = inflight.SessionOwner()
 	rec.Log = rec.LogPath()
 	if !background {
 		rec.PID = os.Getpid() // foreground run: alive while this process runs, lost only if it dies
 	}
 	return rec, nil
+}
+
+// recordTree is the git tree and repo for workdir, joining Prepare's prefetch when it ran for the same directory.
+func recordTree(ctx context.Context, workdir, reqWorkdir string) (tree, repo string) {
+	if join, ok := ctx.Value(treeKey{}).(func() (string, string)); ok && workdir == reqWorkdir {
+		return join()
+	}
+	cwd := workdir
+	if cwd == "" {
+		cwd, _ = os.Getwd()
+	}
+	return treeAndRepo(ctx, cwd)
 }

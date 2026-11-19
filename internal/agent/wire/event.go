@@ -110,11 +110,15 @@ type JSONLSink struct {
 	mu         sync.Mutex
 	w          io.Writer
 	dispatchID string
+	buf        bytes.Buffer
+	enc        *json.Encoder
 }
 
 // NewJSONLSink is a JSONLSink over w for dispatchID.
 func NewJSONLSink(w io.Writer, dispatchID string) *JSONLSink {
-	return &JSONLSink{Stamper: NewStamper(), w: w, dispatchID: dispatchID}
+	s := &JSONLSink{Stamper: NewStamper(), w: w, dispatchID: dispatchID}
+	s.enc = json.NewEncoder(&s.buf)
+	return s
 }
 
 // Emit stamps ev and writes it as one line.
@@ -125,11 +129,11 @@ func (s *JSONLSink) Emit(ev Event) error {
 	if ev.DispatchID == "" {
 		ev.DispatchID = s.dispatchID
 	}
-	b, err := json.Marshal(ev)
-	if err != nil {
+	s.buf.Reset()
+	if err := s.enc.Encode(ev); err != nil { // Encode ends the line
 		return err
 	}
-	_, err = s.w.Write(append(b, '\n'))
+	_, err := s.w.Write(s.buf.Bytes())
 	return err
 }
 
@@ -271,20 +275,20 @@ func (l *EventLog) Emit(ev Event) error {
 		l.pendEv, l.pendSep = ev, ev.Sep
 	}
 	l.pend.WriteString(ev.Text)
-	l.drainLinesLocked()
+	l.drainLinesLocked(ev.Text)
 	return nil
 }
 
 // drainLinesLocked writes the complete lines held in pend and keeps the unfinished tail.
-func (l *EventLog) drainLinesLocked() {
-	held := l.pend.String()
-	i := strings.LastIndexByte(held, '\n')
-	if i < 0 {
-		if len(held) >= logLineCap {
+func (l *EventLog) drainLinesLocked(newText string) {
+	if !strings.Contains(newText, "\n") { // pend holds no newline before newText, so only newText can end a line
+		if l.pend.Len() >= logLineCap {
 			l.flushLocked() // a newline-free run is redacted and written as its own chunk, like LogSink
 		}
 		return
 	}
+	held := l.pend.String()
+	i := strings.LastIndexByte(held, '\n')
 	l.pend.Reset()
 	l.pend.WriteString(held[i+1:])
 	l.writeText(held[:i+1])

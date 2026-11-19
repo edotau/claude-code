@@ -52,7 +52,7 @@ func LooksSecret(val string) bool {
 
 // looksSecretToken is LooksSecret's prefix checks without the bearer regex, which cannot match a whitespace-free run.
 func looksSecretToken(val string) bool {
-	if val == "" || notCredentialShaped(val) {
+	if val == "" || !credentialStarts()[val[0]] || notCredentialShaped(val) { // every prefix begins with a start byte
 		return false
 	}
 	return HasGitHubPrefix(val) || IsSlackToken(val) || startsCredential(val)
@@ -60,6 +60,9 @@ func looksSecretToken(val string) bool {
 
 // startsCredential reports a value that begins with a full CredentialRE shape (Databricks, Tavily, Groq, JWT, ...).
 func startsCredential(val string) bool {
+	if len(val) < minCredentialLen || !credentialStarts()[val[0]] { // no pattern starts here or fits
+		return false
+	}
 	loc := CredentialRE().FindStringIndex(val)
 	return loc != nil && loc[0] == 0
 }
@@ -120,30 +123,59 @@ func RedactSecretMap(m map[string]string) map[string]string {
 	return out
 }
 
+// redactBlocks masks PEM blocks, JWTs and bearer tokens, each regex run only when its marker text is present.
+func redactBlocks(s string) string {
+	if strings.Contains(s, "-----BEGIN ") {
+		s = pemPrivateKey().ReplaceAllString(s, "REDACTED")
+	}
+	if strings.Contains(s, "eyJ") {
+		s = jwtToken().ReplaceAllString(s, "REDACTED")
+	}
+	if hasBearerWord(s) {
+		s = bearerAuth().ReplaceAllString(s, "${1}REDACTED") // before the run pass, which would shorten the token
+	}
+	return s
+}
+
 // RedactSecrets replaces each credential-shaped run, bearer token, JWT and PEM key block in s with REDACTED.
 func RedactSecrets(s string) string {
-	s = pemPrivateKey().ReplaceAllString(s, "REDACTED")
-	s = jwtToken().ReplaceAllString(s, "REDACTED")
-	s = bearerAuth().ReplaceAllString(s, "${1}REDACTED") // before the run pass, which would shorten the token
+	s = redactBlocks(s)
 	var b strings.Builder
+	last := 0 // s[:last] is already in b; runs that stay are copied lazily
 	for i := 0; i < len(s); {
-		j := i
-		for j < len(s) && tokenByte(s[j]) {
-			j++
-		}
-		if j == i {
-			b.WriteByte(s[i])
+		if !tokenByte(s[i]) {
 			i++
 			continue
 		}
-		if run := s[i:j]; looksSecretToken(run) {
+		j := i + 1
+		for j < len(s) && tokenByte(s[j]) {
+			j++
+		}
+		if looksSecretToken(s[i:j]) {
+			if last == 0 {
+				b.Grow(len(s))
+			}
+			b.WriteString(s[last:i])
 			b.WriteString("REDACTED")
-		} else {
-			b.WriteString(run)
+			last = j
 		}
 		i = j
 	}
+	if last == 0 {
+		return s
+	}
+	b.WriteString(s[last:])
 	return b.String()
+}
+
+// hasBearerWord reports a case-insensitive "bearer" in s: the only text bearerAuth can match.
+func hasBearerWord(s string) bool {
+	for i := 0; i+len("bearer") <= len(s); i++ {
+		if s[i]|0x20 == 'b' && strings.EqualFold(s[i:i+len("bearer")], "bearer") {
+			return true
+		}
+	}
+	return false
 }
 
 // tokenByte reports a byte in the token alphabet every known prefix uses.
@@ -400,7 +432,7 @@ func mergeSecretSpans(spans [][2]int) [][2]int {
 }
 
 // Derive the cheap rejection filter from the shared pattern so the prefix list cannot drift.
-var credentialStarts = sync.OnceValue(func() [256]bool {
+var credentialStarts = sync.OnceValue(func() *[256]bool {
 	re, err := syntax.Parse(CredentialRE().String(), syntax.Perl)
 	if err != nil {
 		panic("invalid credential pattern")
@@ -444,5 +476,5 @@ var credentialStarts = sync.OnceValue(func() [256]bool {
 		}
 	}
 	visit(re)
-	return starts
+	return &starts
 })

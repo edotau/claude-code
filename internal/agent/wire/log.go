@@ -22,6 +22,7 @@ type LogSink struct {
 	f       *os.File
 	failed  bool
 	streams []*logLineWriter
+	out     []byte // redacted lines awaiting one write
 }
 
 // NewLogSink makes a sink for path; the file is created when the first child starts.
@@ -115,6 +116,7 @@ func (s *LogSink) writeEvent(kind, text string) {
 	defer s.mu.Unlock()
 	s.openLocked()
 	s.writeLocked([]byte(line))
+	s.flushLocked()
 }
 
 // Stream opens the log (first call) and returns a line-buffering writer for one child stream.
@@ -145,6 +147,7 @@ func (s *LogSink) Close() {
 		s.writeLocked(w.buf)
 		w.buf = nil
 	}
+	s.flushLocked()
 	if s.f != nil {
 		_ = s.f.Close()
 		s.f = nil
@@ -157,10 +160,18 @@ func (s *LogSink) writeLocked(b []byte) {
 		return
 	}
 	line := redact.Text(textutil.RedactSecrets(string(b))) // vault values and their encodings, after the shape pass
+	s.out = append(s.out, line...)
 	if !strings.HasSuffix(line, "\n") {
-		line += "\n"
+		s.out = append(s.out, '\n')
 	}
-	_, _ = s.f.WriteString(line)
+}
+
+// flushLocked writes the lines queued since the last flush in one call.
+func (s *LogSink) flushLocked() {
+	if len(s.out) > 0 && s.f != nil {
+		_, _ = s.f.Write(s.out)
+	}
+	s.out = s.out[:0]
 }
 
 // logLineWriter buffers to newlines so a secret split across Writes is redacted whole.
@@ -173,17 +184,20 @@ func (w *logLineWriter) Write(p []byte) (int, error) {
 	w.sink.mu.Lock()
 	defer w.sink.mu.Unlock()
 	w.buf = append(w.buf, p...)
+	off := 0
 	for {
-		i := bytes.IndexByte(w.buf, '\n')
+		i := bytes.IndexByte(w.buf[off:], '\n')
 		if i < 0 {
 			break
 		}
-		w.sink.writeLocked(w.buf[:i+1])
-		w.buf = w.buf[i+1:]
+		w.sink.writeLocked(w.buf[off : off+i+1])
+		off += i + 1
 	}
+	w.buf = append(w.buf[:0], w.buf[off:]...) // the unfinished tail moves to the front; capacity is reused
 	if len(w.buf) >= logLineCap {
 		w.sink.writeLocked(w.buf)
 		w.buf = nil
 	}
+	w.sink.flushLocked()
 	return len(p), nil // never an error: a log failure must not abort the child's copy
 }

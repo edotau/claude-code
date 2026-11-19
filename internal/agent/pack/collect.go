@@ -470,6 +470,16 @@ func gitEntryAbove(dir string) bool {
 }
 
 // readInclude bounded-reads abs; returns the IncludedFile or a skip reason (stat/open/read failures → read-error).
+// readCapped reads up to maxBytes+1 bytes (one past the cap proves truncation) in a single exact-size allocation.
+func readCapped(f io.Reader, size int64, maxBytes int) ([]byte, error) {
+	data := make([]byte, min(size, int64(maxBytes))+1)
+	n, err := io.ReadFull(f, data)
+	if err != nil && err != io.ErrUnexpectedEOF && err != io.EOF {
+		return nil, err
+	}
+	return data[:n], nil
+}
+
 func readInclude(abs, rel string, maxFileBytes int) (IncludedFile, string, error) {
 	info, err := os.Stat(abs)
 	if err != nil {
@@ -486,7 +496,7 @@ func readInclude(abs, rel string, maxFileBytes int) (IncludedFile, string, error
 		return IncludedFile{}, "read-error: " + err.Error(), nil
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, int64(maxFileBytes)+1))
+	data, err := readCapped(f, info.Size(), maxFileBytes)
 	if err != nil {
 		return IncludedFile{}, "read-error: " + err.Error(), nil
 	}
