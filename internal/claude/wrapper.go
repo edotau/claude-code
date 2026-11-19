@@ -70,6 +70,19 @@ func planLaunch(native string, args []string) (agent.LaunchOptions, agent.Plan, 
 	return opts, plan, err
 }
 
+// takeCollapsed removes and returns the settings-collapse warnings so the retry note carries them once.
+func takeCollapsed(plan *agent.Plan) []string {
+	var got []string
+	plan.Warnings = slices.DeleteFunc(slices.Clone(plan.Warnings), func(w string) bool {
+		rest, ok := strings.CutPrefix(w, collapsedPrefix)
+		if ok {
+			got = append(got, rest)
+		}
+		return ok
+	})
+	return got
+}
+
 // dedupInputs drops repeated `--settings <v>` pairs and duplicate PATH dirs (and bin/); changed names what it removed.
 func dedupInputs(args []string) ([]string, []string) {
 	var out, changed []string

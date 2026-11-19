@@ -300,6 +300,9 @@ func dropKeyHelper(plan *agent.Plan) {
 	}
 }
 
+// collapsedPrefix starts the plan warning that names what Normalize dropped from the merged settings.
+const collapsedPrefix = "settings collapsed: "
+
 // mergeUserSettings folds each --settings the user typed into the launch's one layer (a second flag replaces it).
 func mergeUserSettings(plan *agent.Plan) error {
 	doc, _, err := launchDoc(*plan)
@@ -329,6 +332,13 @@ func mergeUserSettings(plan *agent.Plan) error {
 	}
 	if !found {
 		return nil
+	}
+	doc, changed, err := normalizeDoc(doc)
+	if err != nil {
+		return err
+	}
+	if len(changed) > 0 {
+		plan.Warnings = append(plan.Warnings, collapsedPrefix+strings.Join(changed, "; "))
 	}
 	plan.Argv = append([]string{"--settings", ""}, rest...)
 	return putLaunchDoc(plan, "", doc) // inline: a per-launch doc must not rewrite the profile's shared file

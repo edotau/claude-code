@@ -940,3 +940,120 @@ func writeBackup(name string, data []byte, mode os.FileMode) error {
 	}
 	return f.Close()
 }
+
+// Normalize collapses duplicate keys, string-list entries and hook handlers in data, then applies Format's order.
+func Normalize(data []byte) ([]byte, []string, error) {
+	var raw json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, nil, located(data, err)
+	}
+	var changed []string
+	collapsed, err := collapseValue(raw, "", &changed)
+	if err != nil {
+		return nil, nil, err
+	}
+	out, err := Format(collapsed)
+	return out, changed, err
+}
+
+func collapseValue(raw json.RawMessage, path string, changed *[]string) (json.RawMessage, error) {
+	switch bytes.TrimSpace(raw)[0] {
+	case '{':
+		return collapseObject(raw, path, changed)
+	case '[':
+		return collapseArray(raw, path, changed)
+	}
+	return raw, nil
+}
+
+func collapseObject(raw json.RawMessage, path string, changed *[]string) (json.RawMessage, error) {
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if _, err := dec.Token(); err != nil {
+		return nil, err
+	}
+	o := &object{vals: map[string]json.RawMessage{}}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return nil, err
+		}
+		k, _ := tok.(string)
+		var val json.RawMessage
+		if err := dec.Decode(&val); err != nil {
+			return nil, err
+		}
+		if _, dup := o.vals[k]; dup {
+			*changed = append(*changed, "duplicate key "+join(path, k))
+		}
+		o.set(k, val)
+	}
+	for _, k := range o.keys {
+		v, err := collapseValue(o.vals[k], join(path, k), changed)
+		if err != nil {
+			return nil, err
+		}
+		o.vals[k] = v
+	}
+	return o.marshal()
+}
+
+func collapseArray(raw json.RawMessage, path string, changed *[]string) (json.RawMessage, error) {
+	var items []json.RawMessage
+	if err := json.Unmarshal(raw, &items); err != nil {
+		return nil, err
+	}
+	hookList := strings.HasPrefix(path, "hooks.") && strings.Count(path, ".") == 1
+	seen := map[string]bool{}
+	out := make([]json.RawMessage, 0, len(items))
+	for _, item := range items {
+		if bytes.TrimSpace(item)[0] == '"' {
+			if seen[string(item)] {
+				*changed = append(*changed, "duplicate entry "+path+" "+string(item))
+				continue
+			}
+			seen[string(item)] = true
+		}
+		v, err := collapseValue(item, path+"[]", changed)
+		if err != nil {
+			return nil, err
+		}
+		if hookList {
+			var keep bool
+			if v, keep = dedupHookEntry(v, seen, path, changed); !keep {
+				continue
+			}
+		}
+		out = append(out, v)
+	}
+	return textutil.MarshalNoEscape(out)
+}
+
+// dedupHookEntry drops handlers whose matcher+command was seen; keep is false when none remain.
+func dedupHookEntry(entry json.RawMessage, seen map[string]bool, path string, changed *[]string) (json.RawMessage, bool) {
+	var e map[string]json.RawMessage
+	var hs []map[string]json.RawMessage
+	if json.Unmarshal(entry, &e) != nil || json.Unmarshal(e["hooks"], &hs) != nil || len(hs) == 0 {
+		return entry, true
+	}
+	kept := hs[:0:0]
+	for _, h := range hs {
+		id := string(e["matcher"]) + "\x00" + string(h["command"])
+		if string(h["command"]) != "" && seen[id] {
+			*changed = append(*changed, "duplicate hook "+path+" "+string(h["command"]))
+			continue
+		}
+		seen[id] = true
+		kept = append(kept, h)
+	}
+	if len(kept) == len(hs) {
+		return entry, true
+	}
+	if len(kept) == 0 {
+		return nil, false
+	}
+	e["hooks"], _ = textutil.MarshalNoEscape(kept)
+	out, _ := textutil.MarshalNoEscape(e)
+	return out, true
+}
+
+func join(path, k string) string { return strings.TrimPrefix(path+"."+k, ".") }

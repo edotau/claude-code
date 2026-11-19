@@ -362,3 +362,31 @@ func TestLivePermissionsRejectsOversizedFile(t *testing.T) {
 		}
 	}
 }
+
+func TestNormalize(t *testing.T) {
+	tests := []struct {
+		name, in string
+		want     []string
+		wantDoc  string
+	}{
+		{"dup key", `{"model":"a","model":"b"}`, []string{"duplicate key model"}, `"model": "b"`},
+		{"dup list", `{"permissions":{"allow":["Bash","Bash","Read"]}}`, []string{`duplicate entry permissions.allow "Bash"`}, `"Read"`},
+		{"dup hook", `{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"x"}]},{"hooks":[{"type":"command","command":"x"}]}]}}`,
+			[]string{`duplicate hook hooks.Stop "x"`}, `"command": "x"`},
+		{"clean", `{"model":"a","permissions":{"allow":["Bash","Read"]}}`, nil, `"model": "a"`},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			out, got, err := Normalize([]byte(tc.in))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !slices.Equal(got, tc.want) {
+				t.Errorf("changed = %q, want %q", got, tc.want)
+			}
+			if !strings.Contains(string(out), tc.wantDoc) || strings.Count(string(out), `"command": "x"`) > 1 {
+				t.Errorf("doc = %s", out)
+			}
+		})
+	}
+}
