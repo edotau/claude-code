@@ -374,7 +374,7 @@ func Run(ctx context.Context, r Engine, req RunOptions, sink wire.Sink, notify f
 // recoveryTarget is the provider a run bills: an external CLI's own pick (pin, session, gate), else the flags'.
 func recoveryTarget(r Engine, req RunOptions) (providers.Target, bool) {
 	if s, ok := LookupSchema(r.Name()); ok && s.External() {
-		t, own, _, err := s.targetNote(req)
+		t, own, _, err := s.targetPeek(req)
 		return t, err == nil && !own && t.Provider != nil
 	}
 	_, t, err := ResolveRequestTarget(req)
@@ -672,7 +672,7 @@ func packBudget(d Dispatch, req RunOptions, viaFile bool) (budget int, note stri
 	s := SchemaFor(d.Agent.Name())
 	model := d.Model
 	var prov *providers.Provider
-	if t, _, _, err := s.targetNote(req); err == nil { // quiet: the dispatch already printed its note
+	if t, _, _, err := s.targetPeek(req); err == nil { // quiet: the dispatch already printed its note
 		prov = t.Provider
 		model = cmp.Or(model, t.Model)
 	}

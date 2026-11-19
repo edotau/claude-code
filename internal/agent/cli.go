@@ -46,7 +46,15 @@ func (s Schema) Target(req RunOptions) (providers.Target, bool, error) {
 
 // targetNote is target without printing: the router resolves every candidate's backend through it.
 func (s Schema) targetNote(req RunOptions) (t providers.Target, own bool, note string, err error) {
-	ctx := valuesContext(context.Background(), req.Values)
+	return s.targetNoteCtx(valuesContext(context.Background(), req.Values), req)
+}
+
+// targetPeek is targetNote for a caller that only reads the target: an auto rotation pick is peeked, not stamped.
+func (s Schema) targetPeek(req RunOptions) (t providers.Target, own bool, note string, err error) {
+	return s.targetNoteCtx(PeekContext(valuesContext(context.Background(), req.Values)), req)
+}
+
+func (s Schema) targetNoteCtx(ctx context.Context, req RunOptions) (t providers.Target, own bool, note string, err error) {
 	req.Account = cmp.Or(req.Account, overlayAccount(ctx))
 	t, own, note, applied, err := s.targetBase(req)
 	if err != nil {

@@ -71,7 +71,7 @@ func ownLoginActual(disp Dispatch, req RunOptions) Dispatch {
 	if name == "copilot" || name == "claude" || name == "opencode" || !ownLoginAccount(name, disp.Account) {
 		return disp
 	}
-	t, own, _, err := SchemaFor(name).targetNote(req)
+	t, own, _, err := SchemaFor(name).targetPeek(req)
 	if err != nil || own || t.Provider == nil || t.Provider.Auth.Login == name {
 		return disp
 	}
@@ -119,7 +119,7 @@ func guardProvider(r Engine, req RunOptions) (*providers.Provider, error) {
 	s, known := LookupSchema(r.Name())
 	if known && s.External() {
 		// the same target the agent picks: --provider, a provider:model prefix, the session, the copilot gate
-		t, own, _, err := s.targetNote(req)
+		t, own, _, err := s.targetPeek(req)
 		if err != nil {
 			if req.Provider != "" {
 				return nil, err
