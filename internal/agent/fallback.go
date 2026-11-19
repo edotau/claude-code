@@ -177,19 +177,27 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	runCtx := retry.WithPermit(withCoolKey(ctx, key), held)
 	res, err = Run(runCtx, disp.Agent, lreq, sink, notify)
 	res.Invoked = lreq.Model
-	if next := retryModel(disp, lreq, err); next != "" { // once: the same agent on the next pool model
+	if next := retryModel(disp, lreq, ranModel(lreq.Model, res), err); next != "" { // once: the same agent on the next pool model
 		hops = append(hops, hopOf(disp, lreq, res, err))
-		first, firstModel := err, lreq.Model
+		first, firstRan := err, ranModel(lreq.Model, res)
 		lreq.Model = next
 		res, err = Run(runCtx, disp.Agent, lreq, sink, notify)
-		res.Invoked = lreq.Model
+		res.Invoked = next
 		if err != nil && wire.ErrorKind(err) != wire.ErrorKind(first) { // a repick that answered clears the account
-			noteFailure(disp, firstModel, first)
+			noteFailure(disp, firstRan, first)
 		}
 	}
 	hops = append(hops, hopOf(disp, lreq, res, err))
-	noteFailure(disp, lreq.Model, err)
+	noteFailure(disp, ranModel(lreq.Model, res), err)
 	return res, hops, false, err
+}
+
+// ranModel is the model that served an auto request (the envelope's), else the requested one.
+func ranModel(requested string, res wire.Result) string {
+	if _, auto := SplitAuto(requested); auto && res.Model != "" {
+		return res.Model
+	}
+	return requested
 }
 
 func noteFailure(disp Dispatch, model string, err error) {
@@ -665,7 +673,7 @@ func markModelDead(account, model string, until, now time.Time) error {
 func rotationRateLimit(disp Dispatch, model string, err error) bool {
 	var e *retry.Error
 	if !errors.As(err, &e) || e.Kind != retry.KindRateLimit || model == "" || disp.Agent == nil || disp.Account == "" ||
-		agentModelPinContext(context.Background(), disp.Agent.Name()) != router.DiscoveryModel {
+		!pinsAuto(nil, disp.Agent.Name()) {
 		return false
 	}
 	_, row, _ := strings.Cut(disp.Account, "·")
@@ -747,8 +755,8 @@ var capabilityErr = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`max_new_tokens|max_output_tokens|max_tokens|context length|maximum context|Invalid JSON payload received\. Unknown name`)
 })
 
-// retryModel is the next model after a model-capability (discovery) or endpoint-gone (served) failure, else "".
-func retryModel(disp Dispatch, lreq RunOptions, err error) string {
+// retryModel is the next model after a capability (auto: ran is skipped) or endpoint-gone (served) failure, else "".
+func retryModel(disp Dispatch, lreq RunOptions, ran string, err error) string {
 	if err == nil {
 		return ""
 	}
@@ -756,12 +764,25 @@ func retryModel(disp Dispatch, lreq RunOptions, err error) string {
 		return "" // text or tools already ran: a re-run on the next model would repeat them
 	}
 	switch msg := err.Error(); {
-	case disp.repick != nil && capabilityErr().MatchString(msg):
-		return disp.repick(lreq.Model)
+	case capabilityErr().MatchString(msg) && skipAutoModel(disp, lreq.Model, ran):
+		return lreq.Model // the same auto request re-picks, the skip excluding the failed model
 	case disp.servedRepick != nil && strings.Contains(msg, "ENDPOINT_NOT_FOUND"): // a Databricks workspace's missing endpoint
 		return disp.servedRepick(lreq.Model)
 	}
 	return ""
+}
+
+// skipAutoModel benches ran in the auto pool of disp's row; false when the request is not an auto or nothing matched.
+func skipAutoModel(disp Dispatch, requested, ran string) bool {
+	if _, auto := SplitAuto(requested); !auto || ran == "" || ran == requested || disp.Agent == nil {
+		return false
+	}
+	_, row, _ := strings.Cut(disp.Account, "·")
+	p := loadRegistryWarn().Row(row)
+	if p == nil {
+		return false
+	}
+	return router.SkipDiscovery(disp.Agent.Name(), p, strings.TrimPrefix(ran, p.Name+":")) != ""
 }
 
 // dispatchRequest is req for disp: a later dispatch drops provider and session and runs its cell; --effort wins.

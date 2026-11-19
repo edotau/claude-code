@@ -26,7 +26,6 @@ type Dispatch struct {
 	Model, Effort                string
 	Account, Billing             string
 	note                         string
-	repick                       func(failed string) string // discovery: skip the failed model, return the next pool model or ""
 	servedRepick                 func(failed string) string // codex on Databricks: mark the endpoint gone, return the next
 	keepCaller, unroutedDispatch bool                       // keepCaller: the wanted dispatch keeps the caller's own --model
 	otherRoute                   bool                       // not the wanted agent's own login or pinned profile
@@ -309,7 +308,7 @@ func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead boo
 	steps, req := rc.steps(pick.Candidates, alias, nativeLead)
 	armFailed := rc.armFinding()
 	for _, s := range steps {
-		disp, skip, ok, err := rc.stepDispatch(pick.Candidates[s.i], s, req, armFailed, alias)
+		disp, skip, ok, err := rc.stepDispatch(pick.Candidates[s.i], s, req, armFailed)
 		switch {
 		case err != nil:
 			return Chain{}, err
@@ -328,7 +327,7 @@ func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead boo
 }
 
 // stepDispatch is the dispatch for step s on cand, or the reason it is skipped; !ok drops a pin that is the request.
-func (rc routeCtx) stepDispatch(cand router.Candidate, s step, req int, armFailed *Finding, alias string) (disp Dispatch, skip string, ok bool, err error) {
+func (rc routeCtx) stepDispatch(cand router.Candidate, s step, req int, armFailed *Finding) (disp Dispatch, skip string, ok bool, err error) {
 	if armFailed != nil && s.i == req { // the overlay workspace failed its local check, like a failed model check
 		return Dispatch{}, cand.Agent + " (" + cmp.Or(cand.Account, cand.Profile) + "): preflight " + armFailed.String(), false, nil
 	}
@@ -343,7 +342,6 @@ func (rc routeCtx) stepDispatch(cand router.Candidate, s step, req int, armFaile
 	if disp, skip, err = s.rc.buildDispatch(cand, cell); err != nil || skip != "" {
 		return Dispatch{}, skip, false, err
 	}
-	disp = s.rc.discoveryCandidate(disp, cand, alias)
 	disp.servedRepick = s.rc.servedRepickFor(cand)
 	disp.otherRoute, disp.rung, disp.swap = s.rc.otherRoute(cand), s.i+1, s.pin
 	disp.routerChose = routerChose(s.rc)
@@ -399,16 +397,7 @@ func Resolve(ctx context.Context, q RouteReq) (Chain, router.PickResult, error) 
 	if err := ctx.Err(); err != nil {
 		return Chain{}, router.PickResult{}, err
 	}
-	return chainFor(ctx, q, rotationHint(ctx, q), lead)
-}
-
-// rotationHint is TaskTier(q.Task) for a rotating agent's run, so its tier floor reads the brief's Tier: line.
-func rotationHint(ctx context.Context, q RouteReq) string {
-	if q.Task == "" || cmp.Or(q.Model, agentModelPinContext(ctx, q.Agent)) != router.DiscoveryModel {
-		return q.AliasHint
-	}
-	alias, _ := TaskTier(q.Task)
-	return cmp.Or(alias, q.AliasHint)
+	return chainFor(ctx, q, q.AliasHint, lead)
 }
 
 // LeadError is a --profile/--provider (or pin) that cannot lead; callers map it to a usage exit.
@@ -610,7 +599,7 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 // pinnedCaller reports the wanted agent on its pinned profile running the caller's own non-row model.
 func (rc routeCtx) pinnedCaller(cand router.Candidate) bool {
 	pinned := cand.Profile != "" && rc.pins[cand.Agent].Profile == cand.Profile
-	return pinned && cand.Agent == rc.want && rc.explicitModel && rc.callerModel != router.DiscoveryModel &&
+	return pinned && cand.Agent == rc.want && rc.explicitModel && !rc.callerAuto() &&
 		(rc.row == "" || slices.Contains(models.AliasNames, rc.callerModel)) && cmp.Or(rc.exact, rc.callerModel) != ""
 }
 
@@ -707,7 +696,7 @@ func (rc routeCtx) profileCell(cand router.Candidate, cell router.Cell) (router.
 }
 
 func (rc routeCtx) buildDispatch(cand router.Candidate, cell router.Cell) (disp Dispatch, skip string, err error) {
-	keepCaller := cand.Agent == rc.want && rc.explicitModel && cand.Profile == "" && rc.callerModel != router.DiscoveryModel
+	keepCaller := cand.Agent == rc.want && rc.explicitModel && cand.Profile == "" && !rc.callerAuto()
 	if !keepCaller || rc.exact == "" { // a ladder rung's family resolves here, for a step the chain may run
 		cell.Model = providers.ConcreteModel(cand.Agent, router.CandidateRow(rc.reg, cand), cell.Model)
 	}
@@ -779,55 +768,7 @@ func (rc routeCtx) lookupDispatch(cand router.Candidate, cell router.Cell, disp 
 	return disp, nil
 }
 
-func (rc routeCtx) discoveryCandidate(disp Dispatch, cand router.Candidate, alias string) Dispatch {
-	if cand.Agent != rc.want {
-		return disp
-	}
-	pin := rc.pins[rc.want]
-	if rc.callerModel != "" && rc.callerModel != router.DiscoveryModel {
-		return disp
-	}
-	if rc.callerModel == "" && pin.Model != router.DiscoveryModel {
-		return disp
-	}
-	picked := cand.Profile != "" && pin.Profile == cand.Profile && pin.Model == router.DiscoveryModel
-	return discoveryDispatch(disp, alias, rc.reg, cand.Profile, picked, !peekingRotation(rc.ctx))
-}
-
-// discoveryDispatch freezes a pool choice before an agent or agent resolver sees the request.
-func discoveryDispatch(disp Dispatch, alias string, reg *providers.Registry, profile string, picked, stamp bool) Dispatch {
-	tb, err := router.Load()
-	if err != nil {
-		disp.Model, disp.keepCaller, disp.unroutedDispatch = alias, false, false
-		disp.note = "discovery routing table unavailable; using alias"
-		return disp
-	}
-	cell, _ := tb.Cell(disp.Agent.Name(), alias)
-	p, prefix := discoveryProvider(disp, reg, profile)
-	if router.RotationRow(p) {
-		disp.repick = router.DiscoveryRepick(disp.Agent.Name(), alias, cell, p, prefix)
-	}
-	if picked && router.IsPoolModel(disp.Agent.Name(), p, disp.Model) {
-		return disp
-	}
-	model, note := router.PinnedModel(disp.Agent.Name(), alias, cell, p, router.DiscoveryModel, stamp)
-	disp.Model, disp.note, disp.keepCaller, disp.unroutedDispatch = prefix+model, note, false, false
-	return disp
-}
-
-func discoveryProvider(disp Dispatch, reg *providers.Registry, profile string) (*providers.Provider, string) {
-	if h, ok := disp.Agent.(HubEngine); ok {
-		return h.HubProvider(), ""
-	}
-	if profile == "" {
-		_, profile, _ = strings.Cut(disp.Account, "·")
-	}
-	p := reg.Row(profile)
-	if p == nil {
-		return nil, ""
-	}
-	return p, p.Name + ":"
-}
+func (rc routeCtx) callerAuto() bool { _, ok := SplitAuto(rc.callerModel); return ok }
 
 // servedRepickFor is a codex Databricks dispatch's repick when the switch is on and the caller named no exact model.
 func (rc routeCtx) servedRepickFor(cand router.Candidate) func(string) string {

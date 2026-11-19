@@ -122,10 +122,6 @@ func explicitChain(r Engine, req RunOptions) Chain {
 	c := Single(r)
 	acct, billing := explicitAccount(r, req)
 	c.Dispatches[0].Account, c.Dispatches[0].Billing = acct, billing
-	if req.Model == router.DiscoveryModel {
-		reg := loadRegistryWarn()
-		c.Dispatches[0] = discoveryDispatch(c.Dispatches[0], router.Aliases[1], reg, req.Provider, false, true)
-	}
 	if e := accountRefused(c.Dispatches[0], req.Model); e != nil && e.Kind == retry.KindQuota {
 		return Chain{Want: r.Name(), Skipped: []string{r.Name() + ": " + e.Err.Error()}}
 	}

@@ -77,7 +77,7 @@ func (m *modelRunner) Run(_ context.Context, req RunOptions, _ wire.Sink) (wire.
 // A model-specific 429 that also triggers the repick benches the account only when the repick fails too.
 func TestRepickedRateLimitStillMarksAccount(t *testing.T) {
 	// Terminal skips Run's in-run 429 backoff (three attempts, ~10s); the repick path is the same either way
-	rl := &retry.Error{Kind: retry.KindRateLimit, Agent: "fake", Terminal: true, Err: errors.New("429 rate limit: max_tokens per minute exceeded")}
+	rl := &retry.Error{Kind: retry.KindRateLimit, Agent: "fake", Terminal: true, Err: errors.New("429 rate limit: ENDPOINT_NOT_FOUND")}
 	for name, repickErr := range map[string]error{"repick answers": nil, "repick fails": errors.New("boom: unrelated failure")} {
 		t.Run(name, func(t *testing.T) {
 			fastDefaultBackoff(t)
@@ -85,7 +85,7 @@ func TestRepickedRateLimitStillMarksAccount(t *testing.T) {
 			r := &modelRunner{name: "fake", caps: Caps{Model: Native}, errs: map[string]error{"dev:m-a": rl, "dev:m-b": repickErr}}
 			c := chainOf([]Engine{r}, "dev:m-a")
 			c.Dispatches[0].keepCaller, c.Dispatches[0].Account, c.Dispatches[0].Billing = false, "openai·chatgpt", router.BillSubscription
-			c.Dispatches[0].repick = func(string) string { return "dev:m-b" }
+			c.Dispatches[0].servedRepick = func(string) string { return "dev:m-b" }
 			_, err := runWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
 			if len(r.seen) != 2 || (err == nil) != (repickErr == nil) {
 				t.Fatalf("err=%v runs=%d; want the repick to run and return its own outcome", err, len(r.seen))

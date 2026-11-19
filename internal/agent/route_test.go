@@ -550,52 +550,6 @@ func TestCallerExactIDServedOnLeadProfile(t *testing.T) {
 
 func isCopilotDevSkip(s string) bool { return strings.HasPrefix(s, "copilot (databricks·dev):") }
 
-func TestDiscoveryRetryModelSkipsFailedAndStaysOnPool(t *testing.T) {
-	setConfigDir(t)
-	if err := vault.Update(func(tx *vault.Tx) error {
-		return tx.Put(vault.Overlay, "discovery-models", `["databricks-kimi-k3","databricks-gpt-6-2-sol"]`)
-	}); err != nil {
-		t.Fatal(err)
-	}
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dbx":{"preset":"databricks",`+
-		`"host":"https://dbx.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
-	saveListing(t, "dbx", []string{"databricks-kimi-k3", "databricks-gpt-6-2-sol", "databricks-claude-sonnet-5-5"})
-	p := &providers.Provider{Name: "dbx", Provider: providers.GroupDatabricks, Preset: providers.PresetDatabricks,
-		Auth: providers.Auth{Type: providers.AuthKey, Env: "X"}}
-	first, note := router.PinnedModel("opencode", router.Aliases[1], router.Cell{}, p, router.DiscoveryModel, true)
-	if first != "databricks-kimi-k3" || note != "" {
-		t.Fatalf("first pick = %q (%q), want databricks-kimi-k3", first, note)
-	}
-	disp := Dispatch{repick: router.DiscoveryRepick("opencode", router.Aliases[1], router.Cell{}, p, "dbx:")}
-	capErr := errors.New("400: max_new_tokens exceeds the model limit")
-	if got := retryModel(disp, RunOptions{Model: "dbx:databricks-kimi-k3"}, errors.New("connection reset")); got != "" {
-		t.Errorf("non-capability error retried on %q", got)
-	}
-	if got := retryModel(disp, RunOptions{Model: "dbx:databricks-kimi-k3"}, capErr); got != "dbx:databricks-gpt-6-2-sol" {
-		t.Errorf("capability retry = %q, want dbx:databricks-gpt-6-2-sol", got)
-	}
-	schemaErr := errors.New(`Bad Request: Invalid JSON payload received. Unknown name "$schema" at 'tools[0].function_declarations[0].parameters'`)
-	tier := "dbx:" + router.DatabricksModel("opencode", router.Aliases[1], p) // an exhausted pool falls back to the tier
-	if got := retryModel(disp, RunOptions{Model: "dbx:databricks-gpt-6-2-sol"}, schemaErr); got != tier {
-		t.Errorf("tool-schema retry with the pool exhausted = %q, want the tier model %q", got, tier)
-	}
-	assertDiscoverySkippedModels(t, p.Name)
-	if got := retryModel(Dispatch{}, RunOptions{Model: "x"}, capErr); got != "" {
-		t.Errorf("dispatch without a discovery repick retried on %q", got)
-	}
-}
-
-func assertDiscoverySkippedModels(t *testing.T, provider string) {
-	t.Helper()
-	if router.LoadState()[router.ProviderAccount(provider)].DiscoverySkip["opencode|databricks-gpt-6-2-sol"].IsZero() {
-		t.Error("tool-schema rejection did not mark databricks-gpt-6-2-sol skipped for opencode")
-	}
-	at := router.LoadState()[router.ProviderAccount(provider)].DiscoverySkip["opencode|databricks-kimi-k3"]
-	if time.Since(at) > time.Minute || at.IsZero() {
-		t.Errorf("databricks-kimi-k3 not marked skipped for opencode: %v", at)
-	}
-}
-
 // ENDPOINT_NOT_FOUND marks the model gone and returns the next READY Responses model.
 func TestServedRepickOnEndpointNotFound(t *testing.T) {
 	quietStderr(t)
@@ -605,13 +559,13 @@ func TestServedRepickOnEndpointNotFound(t *testing.T) {
 		t.Fatal("codex on a Databricks profile with the switch on must get a repick")
 	}
 	err := errors.New("RESOURCE_DOES_NOT_EXIST: ENDPOINT_NOT_FOUND: no endpoint m-a")
-	if got := retryModel(disp, RunOptions{Model: "dev:m-a"}, err); got != "dev:m-b" {
+	if got := retryModel(disp, RunOptions{Model: "dev:m-a"}, "", err); got != "dev:m-b" {
 		t.Fatalf("repick = %q, want dev:m-b", got)
 	}
 	if at := router.LoadState()[router.ProviderAccount("dev")].Unserved["m-a"]; at.IsZero() {
 		t.Error("m-a was not marked unserved")
 	}
-	if got := retryModel(disp, RunOptions{Model: "dev:m-b"}, err); got != "" {
+	if got := retryModel(disp, RunOptions{Model: "dev:m-b"}, "", err); got != "" {
 		t.Errorf("second failure repicked %q, want none left", got)
 	}
 }
@@ -620,7 +574,7 @@ func TestServedRepickOnEndpointNotFound(t *testing.T) {
 func TestServedRepickIgnoresUnrelatedError(t *testing.T) {
 	reg := servedEnv(t, "true", map[string]string{"m-a": "READY", "m-b": "READY"})
 	disp := Dispatch{servedRepick: routeCtx{reg: reg}.servedRepickFor(servedCand)}
-	if got := retryModel(disp, RunOptions{Model: "dev:m-a"}, errors.New("connection reset")); got != "" {
+	if got := retryModel(disp, RunOptions{Model: "dev:m-a"}, "", errors.New("connection reset")); got != "" {
 		t.Errorf("unrelated error repicked %q", got)
 	}
 	if at := router.LoadState()[router.ProviderAccount("dev")].Unserved["m-a"]; !at.IsZero() {
@@ -645,25 +599,14 @@ func TestServedRepickNotOfferedWhereItWouldMislead(t *testing.T) {
 	}
 }
 
-// with both repicks set, a capability error still takes the discovery pool path.
-func TestDiscoveryRetryModelKeepsCapabilityPathWithServedRepick(t *testing.T) {
-	disp := Dispatch{
-		repick:       func(string) string { return "dev:pool-next" },
-		servedRepick: func(string) string { return "dev:served-next" },
-	}
-	if got := retryModel(disp, RunOptions{Model: "dev:m"}, errors.New("400: max_new_tokens too large")); got != "dev:pool-next" {
-		t.Errorf("capability error = %q, want the discovery pick", got)
-	}
-}
-
 // A Progressed failure never repicks: the next model would re-run the prompt and repeat its tools.
 func TestRetryModelSkipsProgressedError(t *testing.T) {
-	disp := Dispatch{repick: func(string) string { return "dbx:m-b" }}
-	capMsg := errors.New("400: max_new_tokens exceeds the model limit")
-	if got := retryModel(disp, RunOptions{Model: "dbx:m-a"}, &retry.Error{Kind: retry.KindFatal, Agent: "x", Progressed: true, Err: capMsg}); got != "" {
+	disp := Dispatch{servedRepick: func(string) string { return "dbx:m-b" }}
+	capMsg := errors.New("ENDPOINT_NOT_FOUND: no endpoint m-a")
+	if got := retryModel(disp, RunOptions{Model: "dbx:m-a"}, "", &retry.Error{Kind: retry.KindFatal, Agent: "x", Progressed: true, Err: capMsg}); got != "" {
 		t.Errorf("progressed capability error repicked %q, want none", got)
 	}
-	if got := retryModel(disp, RunOptions{Model: "dbx:m-a"}, &retry.Error{Kind: retry.KindFatal, Agent: "x", Err: capMsg}); got != "dbx:m-b" {
+	if got := retryModel(disp, RunOptions{Model: "dbx:m-a"}, "", &retry.Error{Kind: retry.KindFatal, Agent: "x", Err: capMsg}); got != "dbx:m-b" {
 		t.Errorf("unprogressed capability error = %q, want dbx:m-b", got)
 	}
 }
