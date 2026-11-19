@@ -25,6 +25,7 @@ func LaunchSettings(databricks bool) (map[string]any, error) {
 	}
 	if databricks {
 		doc["remoteControlAtStartup"] = false // Remote Control needs the claude.ai login; Databricks has none
+		doc["disableRemoteControl"] = true
 	}
 	return doc, nil
 }

@@ -21,6 +21,9 @@ func TestLaunchSettingsOverlay(t *testing.T) {
 			if has != tc.wantRC || (has && rc != false) {
 				t.Fatalf("remoteControlAtStartup = %v (set %v), want set %v and false", rc, has, tc.wantRC)
 			}
+			if off, _ := doc["disableRemoteControl"].(bool); off != tc.databricks {
+				t.Fatalf("disableRemoteControl = %v, want %v", off, tc.databricks)
+			}
 		})
 	}
 }

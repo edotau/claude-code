@@ -71,7 +71,7 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 	if err != nil {
 		return agent.Plan{}, err
 	}
-	if proxied && !agent.IsHeadless(args) {
+	if proxied && passthrough && !agent.IsHeadless(args) { // only a login session had Remote Control to lose
 		plan.Warnings = append(plan.Warnings, "Remote Control is unavailable through the proxy; launch a direct login session to keep it")
 	}
 	addr := proxyAddr(&plan, proxied)

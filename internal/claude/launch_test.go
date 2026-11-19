@@ -658,14 +658,14 @@ func TestClaudeProxyMintFailureAbortsLaunch(t *testing.T) {
 	}
 }
 
-// An interactive proxied launch warns that Remote Control is lost; a headless one stays quiet.
-func TestClaudeProxiedInteractiveWarnsRemoteControl(t *testing.T) {
+// A Databricks launch never had Remote Control, so it does not warn about losing it, interactive or headless.
+func TestClaudeDatabricksLaunchSkipsRemoteControlWarning(t *testing.T) {
 	hermetic(t, armDBX)
 	const warn = "Remote Control is unavailable through the proxy; launch a direct login session to keep it"
 	for _, tc := range []struct {
 		args []string
 		want bool
-	}{{nil, true}, {[]string{"-p", "hi"}, false}} {
+	}{{nil, false}, {[]string{"-p", "hi"}, false}} {
 		p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "dev"}, tc.args)
 		if err != nil {
 			t.Fatal(err)
