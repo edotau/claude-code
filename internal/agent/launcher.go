@@ -100,6 +100,9 @@ func SessionSelection(o LaunchOptions, session bool) (*providers.Registry, provi
 func launchRoute(ctx context.Context, reg *providers.Registry, name string, o LaunchOptions) (ModelRoute, error) {
 	q := QueryFor(valuesContext(ctx, o.Values), ModelQuery{Agent: name, Model: o.Model, Profile: o.Provider, Interactive: !o.Dispatch})
 	q.Session = "" // a launch has no session lead: the pin decides
+	if err := refuseOwnAuto(q.Agent, q.Model); err != nil {
+		return ModelRoute{}, err
+	}
 	resolve := ResolveRun
 	if ownConnectorQuery(q) {
 		resolve = ResolveModel // a launch checks an own-plan model against the row; only a run reports it unrouted
