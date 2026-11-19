@@ -1,17 +1,26 @@
 package paths
 
-import (
-	"context"
-	"os/exec"
-	"time"
-)
+import "golang.org/x/sys/unix"
 
 func readMounts() []Mount {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "mount").Output()
+	n, err := unix.Getfsstat(nil, unix.MNT_NOWAIT)
+	if err != nil || n <= 0 {
+		return nil
+	}
+	buf := make([]unix.Statfs_t, n+8)
+	n, err = unix.Getfsstat(buf, unix.MNT_NOWAIT)
 	if err != nil {
 		return nil
 	}
-	return parseDarwinMount(string(out))
+	var out []Mount
+	for i := range buf[:min(n, len(buf))] {
+		s := &buf[i]
+		point, src := unix.ByteSliceToString(s.Mntonname[:]), unix.ByteSliceToString(s.Mntfromname[:])
+		m, ok := classify(point, src, unix.ByteSliceToString(s.Fstypename[:]))
+		if !ok {
+			m = Mount{Point: point, Kind: kindOpaque}
+		}
+		out = append(out, m)
+	}
+	return out
 }

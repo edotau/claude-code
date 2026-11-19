@@ -367,9 +367,9 @@ func holdLock(t *testing.T, path string) (release func()) {
 }
 
 // signalPoll is a lockPoll that returns d and signals the channel on its first call: a waiter found the lock held.
-func signalPoll(d time.Duration) (func() time.Duration, <-chan struct{}) {
+func signalPoll(d time.Duration) (func(int) time.Duration, <-chan struct{}) {
 	sig := make(chan struct{}, 1)
-	return func() time.Duration {
+	return func(int) time.Duration {
 		select {
 		case sig <- struct{}{}:
 		default:
@@ -402,7 +402,7 @@ func TestWithFileLockWaitsForHolder(t *testing.T) {
 
 	t.Run("held past the wait", func(t *testing.T) {
 		wait := 10 * time.Millisecond
-		lockTimeout, lockPoll = wait, func() time.Duration { return wait / 10 }
+		lockTimeout, lockPoll = wait, func(int) time.Duration { return wait / 10 }
 		release, ran, start := holdLock(t, path), false, time.Now()
 		err := WithFileLock(path, func() error { ran = true; return nil })
 		elapsed := time.Since(start)
@@ -420,7 +420,7 @@ func TestWithFileLockWaitsForHolder(t *testing.T) {
 func TestWithFileLockWithinUsesItsOwnWait(t *testing.T) {
 	oldWait, oldPoll := lockTimeout, lockPoll
 	t.Cleanup(func() { lockTimeout, lockPoll = oldWait, oldPoll })
-	lockTimeout, lockPoll = time.Hour, func() time.Duration { return time.Millisecond }
+	lockTimeout, lockPoll = time.Hour, func(int) time.Duration { return time.Millisecond }
 	path := filepath.Join(t.TempDir(), "f")
 	ran := false
 	if err := WithFileLockWithin(path, time.Second, func() error { ran = true; return nil }); err != nil || !ran {

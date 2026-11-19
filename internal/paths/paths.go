@@ -193,7 +193,12 @@ func atomicWrite(dest string, data []byte, mode os.FileMode, syncData bool) erro
 }
 
 // WriteJSON writes v as JSON to path atomically with mode 0600, creating its parent dir 0700.
-func WriteJSON(path string, v any) error {
+func WriteJSON(path string, v any) error { return writeJSON(path, v, AtomicWrite) }
+
+// WriteJSONNoSync is WriteJSON without the fsync, for derived caches that rebuild when a crash tears them.
+func WriteJSONNoSync(path string, v any) error { return writeJSON(path, v, AtomicWriteNoSync) }
+
+func writeJSON(path string, v any, write func(string, []byte, os.FileMode) error) error {
 	data, err := json.Marshal(v)
 	if err != nil {
 		return err
@@ -201,7 +206,7 @@ func WriteJSON(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	return AtomicWrite(path, data, 0o600)
+	return write(path, data, 0o600)
 }
 
 // Stale reports whether a cache stamped at is ttl or older at now, or stamped more than skew in the future.
@@ -285,8 +290,14 @@ var lockTimeout = 2 * time.Minute
 // TryLock takes the exclusive lock on f without blocking; false means another holder has it or locking is unsupported.
 func TryLock(f *os.File) bool { ok, _ := tryLock(f); return ok }
 
-// lockPoll is a jittered 1-50ms wait: a fixed period keeps contenders in lockstep, one winner per period.
-var lockPoll = func() time.Duration { return time.Duration(1+rand.IntN(50)) * time.Millisecond }
+// lockPoll is a jittered doubling wait from 100us to 50ms: holders are short, and jitter keeps contenders apart.
+var lockPoll = func(attempt int) time.Duration {
+	d := 50 * time.Millisecond
+	if attempt < 9 {
+		d = 100 * time.Microsecond << attempt
+	}
+	return d/2 + time.Duration(rand.Int64N(int64(d/2)+1))
+}
 
 // TryFileLock runs fn under an exclusive lock on path only if granted within wait; ran=false means fn did not run.
 func TryFileLock(path string, wait time.Duration, fn func() error) (ran bool, err error) {
@@ -295,7 +306,10 @@ func TryFileLock(path string, wait time.Duration, fn func() error) (ran bool, er
 		return false, err
 	}
 	defer f.Close()
-	for deadline := time.Now().Add(wait); ; time.Sleep(lockPoll()) {
+	for deadline, attempt := time.Now().Add(wait), 0; ; attempt++ {
+		if attempt > 0 {
+			time.Sleep(lockPoll(attempt - 1))
+		}
 		ok, lerr := tryLock(f)
 		if lerr != nil {
 			return false, lerr
