@@ -99,6 +99,10 @@ func unserved(p *providers.Provider, m string, now time.Time) bool {
 // pinnedModel resolves pins, swaps an unready alias pick for a READY model (never an explicit pin).
 func pinnedModel(agent, alias string, cell Cell, p *providers.Provider, modelPin string, now time.Time) string {
 	m := selectPinnedModel(agent, alias, cell, p, modelPin)
+	if modelPin != "" && agentid.Routing(agent).GoogleOrDatabricks && PinMisfit(p, m, now) {
+		// a pin this row does not serve: the route's own default
+		modelPin, m = "", selectPinnedModel(agent, alias, cell, p, "")
+	}
 	if modelPin == "" && unserved(p, m, now) {
 		if alt, _ := ServedFirst(p, agentid.Routing(agent).ResponsesRoute, now); alt != "" {
 			return alt

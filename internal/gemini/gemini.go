@@ -709,6 +709,9 @@ func agyModelEffort(req agent.RunOptions, t providers.Target) (model, effort str
 	gt := t
 	if req.Model == "" {
 		gt = agent.PinnedTarget(ctx, "gemini", t)
+		if router.PinMisfit(t.Provider, gt.Model, time.Now()) {
+			gt = t // a pin this Databricks row does not serve (a Google id): the route's own default runs
+		}
 	}
 	if agyForeign(gt.Model) && req.CellModel {
 		gt.Model = "" // a ladder cell's row slot (a Claude id) is not agy's pick: the pin or default runs

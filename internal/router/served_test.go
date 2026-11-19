@@ -264,6 +264,21 @@ func TestWarmServedNewerWins(t *testing.T) {
 	}
 }
 
+// PinMisfit: a fresh listing without the pin flags it; a listed READY pin or a cold cache never does.
+func TestPinMisfitNeedsAFreshListingWithoutThePin(t *testing.T) {
+	vaulttest.Use(t)
+	p, now := dbxProv("dev"), time.Now()
+	if PinMisfit(p, "databricks-gemini-4-hydrogen", now) {
+		t.Error("a cold cache must not flag the pin")
+	}
+	if err := WarmServed("dev", []providers.ModelInfo{{ID: "databricks-gemini-4-argon", Task: "llm/v1/chat", Ready: "READY"}}, now); err != nil {
+		t.Fatal(err)
+	}
+	if !PinMisfit(p, "databricks-gemini-4-hydrogen", now) || PinMisfit(p, "databricks-gemini-4-argon", now) {
+		t.Error("want the unlisted pin flagged and the listed one kept")
+	}
+}
+
 // TestSpellServedPrefixesOnlyAReadyListedBareName: a bare unlisted id takes databricks- only where listed READY.
 func TestSpellServedPrefixesOnlyAReadyListedBareName(t *testing.T) {
 	// not in the catalog

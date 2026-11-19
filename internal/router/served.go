@@ -108,6 +108,11 @@ func ListedNotReady(p *providers.Provider, wire string, now time.Time) bool {
 	return fresh && !ready
 }
 
+// PinMisfit reports a pin that a Databricks row's fresh listing lacks as READY: another provider's id, not this row's.
+func PinMisfit(p *providers.Provider, wire string, now time.Time) bool {
+	return p != nil && p.Preset == providers.PresetDatabricks && wire != "" && ListedNotReady(p, wire, now)
+}
+
 // ServedFirst is the first READY menu entry respelled for p, Responses-only for codex; "" with fresh=true is none.
 func ServedFirst(p *providers.Provider, responsesOnly bool, now time.Time) (model string, fresh bool) {
 	isReady, fresh := servedView(p, now)
