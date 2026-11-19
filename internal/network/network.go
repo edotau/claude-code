@@ -12,8 +12,8 @@ import (
 
 var networkPage = helptext.Page{
 	Usage: "claude-code network <command> [flags]",
-	About: "Everything that reaches past this machine: the tailnet, browsers to automate,\n" +
-		"web search and agents on tailnet hosts.",
+	About: "Everything that reaches past this machine: browsers to automate, web search\n" +
+		"and agents on tailnet hosts.",
 	Commands: [][2]string{
 		{"browser", "list automatable browsers; --setup wires one up"},
 		{"websearch", "stdio MCP web-search server; --query runs one search"},
@@ -22,7 +22,7 @@ var networkPage = helptext.Page{
 	Hint: "claude-code network <command> -h lists that command's flags.",
 }
 
-// Run is the one connectivity verb: tailnet, browsers, web search and remote agents.
+// Run is the one connectivity verb: browsers, web search and remote agents.
 func Run(args []string) int {
 	if len(args) == 0 || args[0] == "-h" || args[0] == "--help" || args[0] == "help" {
 		networkPage.Fprint(os.Stderr)
