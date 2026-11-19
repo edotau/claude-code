@@ -177,6 +177,15 @@ func SeenAdd(kind, session, key string) (bool, error) {
 	return first, err
 }
 
+// SeenHas reports whether key is in session's kind store, without recording anything.
+func SeenHas(kind, session, key string) (bool, error) {
+	prev, err := os.ReadFile(SeenFile(kind, session))
+	if errors.Is(err, os.ErrNotExist) {
+		return false, nil
+	}
+	return slices.Contains(strings.Split(string(prev), "\n"), key), err
+}
+
 // PruneSeen removes files in dir untouched for seenMaxAge; their sessions are long gone.
 func PruneSeen(dir string) {
 	ents, _ := os.ReadDir(dir)

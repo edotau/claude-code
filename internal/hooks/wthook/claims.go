@@ -98,6 +98,7 @@ func Claim(in *core.Input) core.Result {
 		return core.Result{} // a failed edit changed nothing
 	}
 	edits := editPaths(in)
+	markLaneRepos(in, edits)
 	staged := isBash(in) && gitStageCmd.MatchString(in.ToolCommand())
 	if len(edits) == 0 && !staged {
 		return core.Result{} // records nothing: skip the owner lookup, which spawns ps on macOS

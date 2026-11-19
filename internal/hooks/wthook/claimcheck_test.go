@@ -1,6 +1,7 @@
 package wthook
 
 import (
+	"encoding/json"
 	"fmt"
 	"go/ast"
 	"go/parser"
@@ -1111,5 +1112,40 @@ func TestClaimCheckLanesGitFailureWarns(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestClaimCheckLanesOtherRepoAsksOnce: another repo asks until an edit lands (Claim), never in a lane or for non-Claude.
+func TestClaimCheckLanesOtherRepoAsksOnce(t *testing.T) {
+	other := claimFixture(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(worktreeModeEnv, "lanes")
+	lane := filepath.Join(paths.Real(t.TempDir()), "lane")
+	hosttest.In(t, other, "worktree", "add", "-q", "-b", "lane", lane)
+	useClaimOwner(t, checkerOwner)
+	check := func(root, session, agent string) core.Result {
+		in := map[string]any{"session_id": session, "cwd": root, "tool_name": "Edit",
+			"tool_input": map[string]any{"file_path": filepath.Join(root, "a.txt")}}
+		b, err := json.Marshal(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return ClaimCheck(core.ParseInputFor(strings.NewReader(string(b)), agent))
+	}
+	if r := check(other, "S1", core.AgentClaude); r.Decision != core.Ask || !strings.Contains(r.Reason, "of "+other+" would change in its main checkout") {
+		t.Fatalf("first edit: %v %q; want ask", r.Decision, r.Reason)
+	}
+	if r := check(other, "S1", core.AgentClaude); r.Decision != core.Ask {
+		t.Fatalf("declined edit asked again? %v; want ask until an edit lands", r.Decision)
+	}
+	Claim(claimInput(t, map[string]any{"session_id": "S1", "cwd": other, "tool_name": "Edit",
+		"tool_input": map[string]any{"file_path": filepath.Join(other, "a.txt")}}))
+	for name, r := range map[string]core.Result{"second edit": check(other, "S1", core.AgentClaude), "linked worktree": check(lane, "S2", core.AgentClaude)} {
+		if r.Decision != core.Allow {
+			t.Errorf("%s: %v %q; want allow", name, r.Decision, r.Reason)
+		}
+	}
+	if r := check(other, "S3", "codex"); r.Decision != core.Allow || r.Context == "" {
+		t.Errorf("codex: %v, context %q; want allow with a note", r.Decision, r.Context)
 	}
 }

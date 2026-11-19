@@ -35,7 +35,8 @@ whether to use a linked worktree, and again when another session joins the check
 user's yes; no answer means keep working in place.
 
 `HARNESS_WORKTREE=lanes` asks nothing: the claim check refuses (a leaf) or asks (main) an edit or stage of a tracked
-file in the live checkout and names `claude-code worktree create <slug>`; a lane is never refused.
+file in the live checkout and names `claude-code worktree create <slug>`; a lane is never refused; another repo's
+primary checkout only asks, once per session.
 
 - **Lane protocol:** one lane per stream; edit and `worktree commit` in the lane; `worktree merge <lane>` rebases the
   lane onto `main` inside the lane, gates the rebased tree and fast-forwards `main` (a moved `main` is refused: re-run).

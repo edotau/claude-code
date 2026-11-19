@@ -267,6 +267,7 @@ func checkClaims(in *core.Input, cmd string) core.Result {
 	}
 	res := checkRest(ctx, in, cmd, edits, git)
 	res.Stderr = strings.TrimSpace(lane.Stderr + "\n" + res.Stderr)
+	res.Context = core.JoinContext(lane.Context, res.Context)
 	return res
 }
 
@@ -288,12 +289,21 @@ func checkRest(ctx context.Context, in *core.Input, cmd string, edits []string, 
 	return res
 }
 
-// laneVerdict, in lanes mode, asks (a leaf: blocks) on an edit or stage of a tracked file in the live checkout.
+// laneVerdict, in lanes mode, asks (a leaf: blocks) on an edit or stage of a tracked file in the live checkout,
+// and asks once per session per repo for any other repo's primary checkout.
 func laneVerdict(ctx context.Context, in *core.Input, cmd string, edits []string) core.Result {
 	if !worktreeLanes() {
 		return core.Result{}
 	}
 	live := paths.Real(paths.ConfigDir())
+	if r := liveVerdict(ctx, in, cmd, edits, live); r.Decision != core.Allow || r.Stderr != "" {
+		return r
+	}
+	return otherVerdict(ctx, in, cmd, edits, live)
+}
+
+// liveVerdict is laneVerdict's harness-checkout half.
+func liveVerdict(ctx context.Context, in *core.Input, cmd string, edits []string, live string) core.Result {
 	hits, err := liveTracked(ctx, live, edits)
 	if isBash(in) && laneText(cmd) {
 		staged, serr := liveStaged(ctx, in, cmd, live)
@@ -319,6 +329,63 @@ func laneVerdict(ctx context.Context, in *core.Input, cmd string, edits []string
 		len(hits), strings.Join(names, ", "))
 	hint := "work in a lane: claude-code worktree create <slug>, then edit under its ~/worktrees/<repo>/<slug> path"
 	return core.Result{Decision: d, Reason: core.SafetyMessage(in, d, what, "", hint)}
+}
+
+// laneSeenKind is the seen store of repos already asked about in lanes mode, per session.
+const laneSeenKind = "worktree-lanes"
+
+// otherVerdict asks on a tracked-file change in another repo's primary checkout until Claim marks it seen; never blocks.
+func otherVerdict(ctx context.Context, in *core.Input, cmd string, edits []string, live string) core.Result {
+	for _, root := range otherRoots(in, cmd, edits, live) {
+		hits, _ := liveTracked(ctx, root, edits) // a git error fails open
+		if isBash(in) && laneText(cmd) {
+			staged, _ := liveStaged(ctx, in, cmd, root)
+			hits = append(hits, staged...)
+		}
+		if len(hits) == 0 {
+			continue
+		}
+		what := fmt.Sprintf("lanes mode: %d tracked file(s) of %s would change in its main checkout; "+
+			"approve to edit in place, or work in a lane: claude-code worktree create <slug>", len(hits), root)
+		if !core.SupportsAsk(in.Agent()) {
+			return core.Result{Context: what}
+		}
+		if seen, err := core.SeenHas(laneSeenKind, in.SessionID, root); err != nil || seen {
+			continue
+		}
+		return core.Result{Decision: core.Ask, Reason: core.SafetyMessage(in, core.Ask, what, "", "")}
+	}
+	return core.Result{}
+}
+
+// markLaneRepos records, after a landed edit, the other repos whose ask is then answered for this session.
+func markLaneRepos(in *core.Input, edits []string) {
+	if !worktreeLanes() {
+		return
+	}
+	for _, root := range otherRoots(in, in.ToolCommand(), edits, paths.Real(paths.ConfigDir())) {
+		_, _ = core.SeenAdd(laneSeenKind, in.SessionID, root)
+	}
+}
+
+// otherRoots is the sorted primary checkouts, besides live, that the edits or git calls of cmd touch.
+func otherRoots(in *core.Input, cmd string, edits []string, live string) []string {
+	set := map[string]bool{}
+	add := func(dir string) {
+		if top, main := paths.CheckoutOf(dir); top != "" && paths.Real(top) != live && paths.Real(top) == paths.Real(main) {
+			set[paths.Real(top)] = true
+		}
+	}
+	for _, p := range edits {
+		add(filepath.Dir(p))
+	}
+	if isBash(in) && laneText(cmd) {
+		shell.EachGit(dropScriptHeredocs(core.DropDataHeredocs(cmd)), in.CWD, func(target, _ string, _ []string) bool {
+			add(target)
+			return false
+		})
+	}
+	return slices.Sorted(maps.Keys(set))
 }
 
 // liveTracked is the edited paths that are tracked files of the live checkout, with any git error (fail open).
