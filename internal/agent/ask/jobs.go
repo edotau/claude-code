@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -197,7 +198,7 @@ func sendParent(task string) int {
 }
 
 // Send is `agents send`: a note to the dispatcher (id "parent"), a live turn, or a resume; exit 1 unless ok.
-func Send(id, task, format string) int {
+func Send(id, task, format string, timeout time.Duration) int {
 	if id == ParentTarget {
 		return sendParent(task)
 	}
@@ -210,6 +211,10 @@ func Send(id, task, format string) int {
 	if rec, ferr := agent.LoadRecord(id); ferr == nil {
 		id = rec.ID
 		if !rec.Live {
+			rec, err = awaitSend(ctx, rec, timeout)
+			if err != nil {
+				return helptext.Fail("agents send: %v", err)
+			}
 			return resumeSend(ctx, rec, prompt, format)
 		}
 	}
@@ -224,6 +229,25 @@ func Send(id, task, format string) int {
 		return 1
 	}
 	return 0
+}
+
+func awaitSend(ctx context.Context, rec agent.Record, timeout time.Duration) (agent.Record, error) {
+	if !rec.Alive() {
+		return rec, nil
+	}
+	fmt.Fprintf(os.Stderr, "job %s running; note queued, resumes when it ends\n", rec.ID)
+	rows, err := agent.Wait(ctx, []string{rec.ID}, timeout, time.Second)
+	if err != nil {
+		return rec, fmt.Errorf("wait for %s: %w", rec.ID, err)
+	}
+	if rows[0].State == agent.WaitTimeout || rows[0].State == agent.WaitLost {
+		return rec, fmt.Errorf("job %s %s before the note could resume", rec.ID, rows[0].State)
+	}
+	rec, err = agent.LoadRecord(rec.ID)
+	if err != nil {
+		return rec, fmt.Errorf("reload %s: %w", rows[0].ID, err)
+	}
+	return rec, nil
 }
 
 // resumeSend answers a finished dispatch's session through the --retry path; the new dispatch is rec's child.

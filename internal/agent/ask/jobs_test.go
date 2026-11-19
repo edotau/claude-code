@@ -391,7 +391,7 @@ func TestDispatchLogTextAndJSON(t *testing.T) {
 	}
 }
 
-// send resumes a finished dispatch as a child with its posture; a running or session-less one launches nothing.
+// send resumes a finished dispatch as a child with its posture; an expired wait or session-less one launches nothing.
 func TestSendResumesFinishedDispatch(t *testing.T) {
 	jobsEnv(t)
 	t.Setenv("PATH", t.TempDir()) // no agent binary: the resume is recorded, then fails to start
@@ -414,13 +414,9 @@ func TestSendResumesFinishedDispatch(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for _, tc := range []struct{ id, want string }{{busy.ID, "still running"}, {bare.ID, "no session id"}} {
-		code, _, stderr := hosttest.CaptureOutput(t, func() int { return Send(tc.id, "again", "text") })
-		if code != 1 || !strings.Contains(stderr, tc.want) || len(agent.RecentRecords(10)) != 3 {
-			t.Fatalf("send %s: exit %d, stderr %q, %d records; want exit 1 naming %q and nothing launched", tc.id, code, stderr, len(agent.RecentRecords(10)), tc.want)
-		}
-	}
-	hosttest.CaptureOutput(t, func() int { return Send(fin.ID, "follow up", "json") })
+	assertSendRefused(t, busy.ID, "timeout", 20*time.Millisecond, 3)
+	assertSendRefused(t, bare.ID, "no session id", 0, 3)
+	hosttest.CaptureOutput(t, func() int { return Send(fin.ID, "follow up", "json", 0) })
 	recs := agent.RecentRecords(10)
 	if len(recs) != 4 {
 		t.Fatalf("%d records, want 4 (the resume is the only new one)", len(recs))
@@ -429,10 +425,57 @@ func TestSendResumesFinishedDispatch(t *testing.T) {
 	if got.ID == fin.ID || got.Parent != fin.ID || got.Agent != "claude" || got.Depth != fin.Depth+1 {
 		t.Errorf("resume record = id %s agent %s parent %q depth %d; want a new claude child of %s", got.ID, got.Agent, got.Parent, got.Depth, fin.ID)
 	}
-	r := got.Request
+	assertResumedPosture(t, got.Request, cwd)
+}
+
+func assertSendRefused(t *testing.T, id, want string, timeout time.Duration, count int) {
+	t.Helper()
+	code, _, stderr := hosttest.CaptureOutput(t, func() int { return Send(id, "again", "text", timeout) })
+	if code != 1 || !strings.Contains(stderr, want) || len(agent.RecentRecords(10)) != count {
+		t.Fatalf("send %s: exit %d, stderr %q, %d records; want exit 1 naming %q and nothing launched",
+			id, code, stderr, len(agent.RecentRecords(10)), want)
+	}
+}
+
+func assertResumedPosture(t *testing.T, r agent.RunOptions, cwd string) {
+	t.Helper()
 	if r.Prompt != "follow up" || r.SessionID != "sess-1" || !r.ReadOnly || !r.Tools || r.Effort != "low" || r.WorkDir != cwd ||
 		!reflect.DeepEqual(agent.RuleStrings(r.Permissions.Allow), []string{"Read"}) {
 		t.Errorf("resume request = %+v; want the record's session, tools, read-only, effort, workdir and permissions with the new prompt", r)
+	}
+}
+
+func TestSendQueuesNoteUntilJobEnds(t *testing.T) {
+	jobsEnv(t)
+	t.Setenv("PATH", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "first"}, time.Now())
+	rec.PID = os.Getpid()
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	finished := make(chan error, 1)
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		rec.Finish(wire.Result{SessionID: "sess-1"}, errors.New("original job failed"), time.Second)
+		finished <- rec.Save()
+	}()
+	code, _, stderr := hosttest.CaptureOutput(t, func() int {
+		return Send(rec.ID, "queued note", "json", 2*time.Second)
+	})
+	if err := <-finished; err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(stderr, "job "+rec.ID+" running; note queued, resumes when it ends\n") {
+		t.Errorf("stderr = %q, want queued notice first", stderr)
+	}
+	recs := agent.RecentRecords(2)
+	if len(recs) != 2 || recs[0].Parent != rec.ID || recs[0].Request.Prompt != "queued note" ||
+		recs[0].Request.SessionID != "sess-1" {
+		t.Fatalf("resume records = %+v, want a child with the queued note and session", recs)
+	}
+	if code != 1 {
+		t.Errorf("exit = %d, want child dispatch failure (no agent binary)", code)
 	}
 }
 
@@ -446,7 +489,7 @@ func TestSendParentFilesTheLiteralNoteOrSaysNoDispatcher(t *testing.T) {
 		t.Fatal("register session", err)
 	}
 	for _, note := range []string{"done with x.go", "-", "@notes.txt"} {
-		if code := Send(ParentTarget, note, "text"); code != 0 {
+		if code := Send(ParentTarget, note, "text", 0); code != 0 {
 			t.Fatalf("Send parent %q = %d, want 0", note, code)
 		}
 	}
@@ -456,7 +499,7 @@ func TestSendParentFilesTheLiteralNoteOrSaysNoDispatcher(t *testing.T) {
 	}
 
 	t.Setenv(memory.SessionIDEnv, "")
-	if code := Send(ParentTarget, "nobody", "text"); code != 0 {
+	if code := Send(ParentTarget, "nobody", "text", 0); code != 0 {
 		t.Errorf("no parent: code %d, want 0", code)
 	}
 }

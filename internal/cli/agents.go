@@ -48,7 +48,7 @@ func agentsSpec() *helptext.Node {
 		"dispatch": {Flags: []helptext.Flag{flag("timeout"), formatFlag(), boolFlag("background"),
 			flag("waves"), flag("wave"), boolFlag("dry-run"), boolFlag("status"), boolFlag("fresh"), flag("gate"),
 			flag("provider"), flag("profile"), flag("profiles"), flag("job"), flag("overlay"), flag("allow"), flag("ask"), flag("deny"), flag("mode"), flag("fallback")}},
-		"send":   {Flags: []helptext.Flag{flag("format")}},
+		"send":   {Flags: []helptext.Flag{flag("format"), flag("timeout")}},
 		"status": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("all"), formatFlag()}},
 		"result": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("f"), boolFlag("events"), flag("save"),
 			flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
@@ -106,7 +106,7 @@ var agentsPage = helptext.Page{
 		{"wait", "block until dispatches finish: wait <id>... [--timeout 10m]"},
 		{"watch", "report this session's stale dispatches: watch [--once]"},
 		{"brief", "render a leaf brief or reserve its file with --path"},
-		{"send", "message a live one, resume a finished one, or send <parent> <note>"},
+		{"send", "message a live session, queue on a job, or notify parent"},
 	},
 	Hint: "claude-code agents <command> -h lists that command's flags.",
 }
@@ -139,7 +139,7 @@ var agentsSubPages = map[string][3]string{
 		"file a live session or leaf holds. --dry-run lists what would change.",
 		"Exit 0 fixed or clean, 1 skipped file, missing tool or failed fixer, 2 usage."},
 	"send": {"send <id> <task | -> [flags]", "Send one user turn to a live claude or gemini session (ask --agent <a> " +
-		"--live), or resume a finished dispatch's session on any agent as a new child dispatch; exits on its result. One turn at a time per live session. " +
+		"--live), or wait for a running dispatch then resume its session on any agent as a new child dispatch; exits on its result. One turn at a time per live session. " +
 		"send parent <note> files the note (200 characters, one line) as a note in the calling leaf's dispatcher inbox, shown on its next prompt; " +
 		"the note is literal text; it exits 0 with \"no dispatcher to notify\" on stderr when no live one exists, skips a repeat, refuses a sixth unread note."},
 	"dispatch": {"dispatch --waves <plan> [flags]", "Run a plan’s waves with observed verification and no commits; " +
@@ -613,6 +613,7 @@ func printBriefPath(name string) int {
 func cmdAgentsSend(args []string) int {
 	fs := agentsFlags("send")
 	format := fs.String("format", helptext.Text, "stream text, print the JSON envelope, or stream-json NDJSON events")
+	timeout := fs.Duration("timeout", 10*time.Minute, "give up waiting for a running dispatch after this long")
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
@@ -621,7 +622,7 @@ func cmdAgentsSend(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	return ask.Send(pos[0], strings.Join(pos[1:], " "), *format)
+	return ask.Send(pos[0], strings.Join(pos[1:], " "), *format, *timeout)
 }
 
 // agentAbout expands each agent's one-line menu summary for its help page.
