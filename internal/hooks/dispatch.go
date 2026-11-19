@@ -249,7 +249,8 @@ func plan(bound []Bound, event string, in *core.Input, wg *sync.WaitGroup) (step
 		case problem != "" && b.Spec.Blocks: // tool unknown: every gate fails closed
 			steps = append(steps, step{b: b, block: unreadable(b.Spec.Name, problem)})
 		case hit:
-			steps = append(steps, step{b: b, wait: runBudgeted(func() core.Result { return b.Run(in) }, budgetOf(b.Spec), wg)})
+			run := b.Run // Capture only the runner so the full Bound stays on the stack.
+			steps = append(steps, step{b: b, wait: runBudgeted(func() core.Result { return run(in) }, budgetOf(b.Spec), wg)})
 		}
 	}
 	return steps

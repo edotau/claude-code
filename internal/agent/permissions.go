@@ -487,8 +487,16 @@ func spansOf(docs []heredoc, dataOnly bool) []span {
 
 // without is s minus the non-overlapping spans.
 func without(s string, cuts []span) string {
+	if len(cuts) == 0 {
+		return s
+	}
 	slices.SortFunc(cuts, func(a, b span) int { return a.from - b.from })
+	size := len(s)
+	for _, c := range cuts {
+		size -= c.to - c.from
+	}
 	var b strings.Builder
+	b.Grow(size)
 	at := 0
 	for _, c := range cuts {
 		b.WriteString(s[at:c.from])

@@ -358,9 +358,9 @@ const compoundMinLen = 4
 // compoundWeight discounts a term matched only inside a longer token (agent -> subagent), so exact hits outrank.
 const compoundWeight = 0.4
 
-// lookupWeighted merges exact postings (weight 1) with compound ones (compoundWeight), deduped per doc by the stronger.
-func (s segView) lookupWeighted(term string) map[int]float64 {
-	out := map[int]float64{}
+// lookupWeighted fills out (cleared first) with exact and compound postings, deduped per doc by the stronger.
+func (s segView) lookupWeighted(term string, out map[int]float64) {
+	clear(out)
 	add := func(t string, weight float64) {
 		posts, n := s.lookup(t)
 		for p := range n {
@@ -377,7 +377,6 @@ func (s segView) lookupWeighted(term string) map[int]float64 {
 			add(other, compoundWeight)
 		}
 	}
-	return out
 }
 
 // containing returns the indexed terms longer than term that contain it, in stored (sorted) order.
@@ -457,8 +456,9 @@ func indexSegments(uniq map[string]int, segs []segView) (
 	forEachIndex(usable, func(i int) {
 		wt := map[int][]float64{}
 		d := make([]int, len(uniq))
+		docs := map[int]float64{} // reuse the term accumulator within this segment's worker
 		for term, j := range uniq {
-			docs := segs[i].lookupWeighted(term)
+			segs[i].lookupWeighted(term, docs)
 			d[j] = len(docs)
 			for doc, tf := range docs {
 				if wt[doc] == nil {
