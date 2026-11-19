@@ -2,7 +2,7 @@
 paths:
   - "internal/providers/**"
   - "internal/vault/**"
-  - "internal/gateway/**"
+  - "internal/proxy/**"
   - "internal/databricks/**"
   - "internal/catalog/**"
 ---

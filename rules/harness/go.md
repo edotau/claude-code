@@ -19,6 +19,9 @@ This repo's Go conventions (module `github.com/edotau/claude-code`). They win ov
 - Placement by importer count: a package more than one area imports stays top-level (`internal/router`,
   `internal/tokenledger`); one area's helper nests under it (`internal/agent/pack`); a provider's code stays under
   that provider (`internal/databricks/oauth`). External SDKs are boxed one package each.
+- A verb's package path mirrors the verb path: `internal/<verb>/<command>` exists only when `claude-code <verb>
+  <command>` does (`internal/network/remote`). A helper other areas import is top-level, never under a verb's package
+  (`internal/httpx`, `internal/egress`).
 - No DI container, cobra or viper: wiring stays explicit in `Run`; config parsing lives in the area's package.
 
 ## CLI and TUI text

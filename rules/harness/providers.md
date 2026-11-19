@@ -3,7 +3,7 @@ paths:
   - "internal/providers/**"
   - "internal/vault/**"
   - "internal/models/**"
-  - "internal/gateway/**"
+  - "internal/proxy/**"
   - "internal/router/**"
   - "internal/agent/route*.go"
 ---
