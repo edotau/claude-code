@@ -13,7 +13,6 @@
       "Bash",
       "Edit",
       "Read",
-      "Read(~/.claude/state/vault.db)",
       "WebFetch(*)",
       "Write"
     ],
