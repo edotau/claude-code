@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/netip"
 	"os"
 	"os/exec"
 	"runtime"
@@ -124,8 +125,17 @@ func subnetRoutesOf(self rawNode) []string {
 	return out
 }
 
-// advertiseRoutes sets this box's advertised subnet routes (`set --advertise-routes=<csv>`); empty withdraws them.
+// advertiseRoutes sets this box's subnet routes (LocalAPI prefs, else `set --advertise-routes`); empty withdraws.
 func advertiseRoutes(ctx context.Context, routes []string) error {
+	if cur, err := currentRoutes(ctx); err == nil {
+		next := slices.Clone(routes)
+		if hasDefaultRoutes(cur) {
+			next = append(next, defaultRoutes...)
+		}
+		if patchPrefs(ctx, prefsMask{AdvertiseRoutes: next, AdvertiseRoutesSet: true}) == nil {
+			return nil
+		}
+	}
 	return set(ctx, "--advertise-routes="+strings.Join(routes, ","))
 }
 
@@ -314,8 +324,17 @@ func writeAuthKeyFile(authKey string) (string, error) {
 	return f.Name(), nil
 }
 
-// advertiseExitNode toggles exit-node advertisement via `tailscale set --advertise-exit-node[=false]`.
+// advertiseExitNode toggles exit-node advertisement (LocalAPI prefs, else `set --advertise-exit-node[=false]`).
 func advertiseExitNode(ctx context.Context, on bool) error {
+	if cur, err := currentRoutes(ctx); err == nil {
+		next := subnetRoutes(cur)
+		if on {
+			next = append(next, defaultRoutes...)
+		}
+		if patchPrefs(ctx, prefsMask{AdvertiseRoutes: next, AdvertiseRoutesSet: true}) == nil {
+			return nil
+		}
+	}
 	flag := "--advertise-exit-node"
 	if !on {
 		flag += "=false"
@@ -323,13 +342,40 @@ func advertiseExitNode(ctx context.Context, on bool) error {
 	return set(ctx, flag)
 }
 
-// useExitNode routes this box's traffic through a peer exit node via `tailscale set --exit-node=<peer>`.
+// useExitNode routes this box's traffic through a peer exit node (LocalAPI prefs, else `set --exit-node=<peer>`).
 func useExitNode(ctx context.Context, peer string) error {
+	if ip, ok := exitNodeIP(ctx, peer); ok {
+		m := prefsMask{ExitNodeIP: ip, ExitNodeIPSet: true, ExitNodeIDSet: true,
+			ExitNodeAllowLANAccess: peer != "", ExitNodeAllowLANAccessSet: peer != ""}
+		if patchPrefs(ctx, m) == nil {
+			return nil
+		}
+	}
 	flags := []string{"--exit-node=" + peer}
 	if peer != "" {
 		flags = append(flags, "--exit-node-allow-lan-access=true")
 	}
 	return set(ctx, flags...)
+}
+
+// exitNodeIP is peer's first tailnet IP ("" clears) from LocalAPI status; ok false leaves resolving to the CLI.
+func exitNodeIP(ctx context.Context, peer string) (string, bool) {
+	if peer == "" {
+		return "", true
+	}
+	if ip, err := netip.ParseAddr(peer); err == nil {
+		return ip.String(), true
+	}
+	st, err := Status(ctx)
+	if err != nil || st.Via != "localapi" {
+		return "", false
+	}
+	for _, p := range st.Peers {
+		if _, ok := matchMachine([]string{strings.TrimSuffix(p.DNSName, ".")}, peer); ok && len(p.IPs) > 0 {
+			return p.IPs[0], true
+		}
+	}
+	return "", false
 }
 
 // running reports whether the backend is Running.

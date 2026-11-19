@@ -3,6 +3,7 @@ package tailscale
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -131,4 +132,39 @@ func (ep endpoint) do(ctx context.Context, method, path string, body []byte) ([]
 		return nil, fmt.Errorf("tailscale localapi %s: HTTP %d: %s", path, resp.StatusCode, strings.TrimSpace(string(data)))
 	}
 	return data, nil
+}
+
+// prefsMask is the PATCH /localapi/v0/prefs body (ipn.MaskedPrefs): a field applies only with its <Field>Set.
+type prefsMask struct {
+	AdvertiseRoutes           []string
+	AdvertiseRoutesSet        bool   `json:",omitempty"`
+	ExitNodeIP                string `json:",omitempty"`
+	ExitNodeIPSet             bool   `json:",omitempty"`
+	ExitNodeID                string `json:",omitempty"`
+	ExitNodeIDSet             bool   `json:",omitempty"`
+	ExitNodeAllowLANAccess    bool   `json:",omitempty"`
+	ExitNodeAllowLANAccessSet bool   `json:",omitempty"`
+}
+
+// patchPrefs applies m over the LocalAPI.
+func patchPrefs(ctx context.Context, m prefsMask) error {
+	body, err := json.Marshal(m)
+	if err != nil {
+		return err
+	}
+	_, err = localAPI(ctx, http.MethodPatch, "prefs", body)
+	return err
+}
+
+// currentRoutes is the AdvertiseRoutes pref: subnets, plus both default routes while an exit node.
+func currentRoutes(ctx context.Context) ([]string, error) {
+	out, err := localAPI(ctx, http.MethodGet, "prefs", nil)
+	if err != nil {
+		return nil, err
+	}
+	var p struct{ AdvertiseRoutes []string }
+	if err := json.Unmarshal(out, &p); err != nil {
+		return nil, fmt.Errorf("tailscale localapi prefs: %w", err)
+	}
+	return p.AdvertiseRoutes, nil
 }
