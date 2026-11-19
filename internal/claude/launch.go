@@ -90,7 +90,19 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 	plan.Argv = append(plan.Argv, args...)
 	plan.Keep = o.KeepEnv
 	keepShellEndpoint(ctx, &plan, o)
+	injectVaultKey(ctx, &plan)
 	return plan, mergeUserSettings(&plan)
+}
+
+// injectVaultKey hands the session its master key in env so its hooks skip the keyring; an unresolved key adds nothing.
+func injectVaultKey(ctx context.Context, plan *agent.Plan) {
+	const name = "HARNESS_VAULT_KEY"
+	if proc.Value(ctx, name) != "" || plan.Set[name] != "" {
+		return
+	}
+	if k, _, err := vault.MasterKey(); err == nil {
+		plan.Set[name] = k.Raw()
+	}
 }
 
 // newClaudePlan is the plan before routing: the wiped keys, the model and thinking knobs, and the session profile.

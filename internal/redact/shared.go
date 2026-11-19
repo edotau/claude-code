@@ -3,8 +3,10 @@ package redact
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,7 +37,7 @@ func Shared() *Matcher { return loadShared().m }
 func SharedWithin(d time.Duration) (m *Matcher, cause string, announce bool) {
 	word, age, found := readLatch()
 	if found && age >= 0 && age < latchTTL {
-		return FromValues(nil), downPhrase(word), false
+		return WithEnvKey(FromValues(nil)), downPhrase(word), false
 	}
 	st := loadSharedWithin(d)
 	if st.ok {
@@ -55,7 +57,7 @@ func loadSharedWithin(d time.Duration) *sharedState {
 	case st := <-done:
 		return st
 	case <-time.After(d):
-		return &sharedState{FromValues(nil), false, vault.ErrKeyringNoAnswer}
+		return &sharedState{WithEnvKey(FromValues(nil)), false, vault.ErrKeyringNoAnswer}
 	}
 }
 
@@ -64,7 +66,7 @@ func loadShared() *sharedState {
 	defer sharedMu.Unlock()
 	if current == nil {
 		vals, err := source()
-		current = &sharedState{FromValues(vals), err == nil, err}
+		current = &sharedState{WithEnvKey(FromValues(vals)), err == nil, err}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, "claude-code: redact: vault values unavailable; masking credential shapes only")
 		}
@@ -148,7 +150,17 @@ func ValueBytes(b []byte) int {
 	return hits
 }
 
-// vaultValues is empty inside a test binary, so a test never opens a real vault.
+// WithEnvKey makes m mask the env master key as set, trimmed and unpadded, whatever its length or character mix.
+func WithEnvKey(m *Matcher) *Matcher {
+	if raw := vault.EnvKey(); raw != "" {
+		trimmed := strings.TrimSpace(raw)
+		unpadded := strings.TrimRight(trimmed, "=")
+		m.AddForced("HARNESS_VAULT_KEY", raw, trimmed, unpadded, strings.ReplaceAll(trimmed, "/", `\/`)) // last: PHP-style JSON
+	}
+	return m
+}
+
+// vaultValues reads no vault inside a test binary, so a test never opens a real one.
 func vaultValues() ([]string, error) {
 	if testing.Testing() {
 		return nil, nil
@@ -157,11 +169,7 @@ func vaultValues() ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	vals := make([]string, 0, len(secrets))
-	for _, v := range secrets {
-		vals = append(vals, v)
-	}
-	return vals, nil
+	return slices.Collect(maps.Values(secrets)), nil
 }
 
 // VaultRecords reads the credential records by name, the set Shared masks and doctor --secrets counts.

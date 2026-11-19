@@ -2,6 +2,7 @@ package redact
 
 import (
 	"bytes"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -120,5 +121,31 @@ func TestSharedWithinLatchSkipsRead(t *testing.T) {
 	}
 	if _, _, found := readLatch(); found {
 		t.Error("a successful read left the latch")
+	}
+}
+
+func TestSharedMasksEnvMasterKey(t *testing.T) {
+	key := base64.StdEncoding.EncodeToString(bytes.Repeat([]byte("kq"), 16))
+	t.Setenv("HARNESS_VAULT_KEY", key)
+	StubSource(t, vaultValues)
+	in := "A=1\nHARNESS_VAULT_KEY=" + key + "\nB=2\n"
+	out := Shared().String(in)
+	if strings.Contains(out, key) || len(out) != len(in) {
+		t.Fatalf("master key unmasked or length changed: %d vs %d", len(out), len(in))
+	}
+}
+
+// The env master key is masked in every form the hook can see, even a value the eligibility filter would skip.
+func TestSharedMasksEnvMasterKeyIneligibleForms(t *testing.T) {
+	for _, bare := range []string{"abcdefghijklmnopqrstuvwx", "abcdefghijklmnop/qrstuvwx"} { // 1 class; slash JSON-escaped
+		t.Setenv("HARNESS_VAULT_KEY", bare+"\n")
+		StubSource(t, vaultValues)
+		esc := strings.ReplaceAll(bare, "/", `\/`)
+		for _, in := range []string{"K=" + bare + "\n", `{"env":"K=` + bare + `\n"}`, `"` + bare + `"`, "A=" + bare + "==", `{"k":"` + esc + `"}`} {
+			out := Shared().String(in)
+			if strings.Contains(out, "abcdefghijklmnop") || len(out) != len(in) {
+				t.Errorf("unmasked or resized: %q -> %q", in, out)
+			}
+		}
 	}
 }

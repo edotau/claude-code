@@ -1026,3 +1026,27 @@ func hasKeyHelper(p agent.Plan) bool {
 	return strings.Contains(string(overlayFile(p).Data), "apiKeyHelper") ||
 		slices.ContainsFunc(p.Argv, func(a string) bool { return strings.Contains(a, "apiKeyHelper") })
 }
+
+// A launch hands Claude the vault key in env for its hooks; a vendor CLI child built from that env never gets it.
+func TestLaunchVaultKeyReachesClaudeNotAgentCLI(t *testing.T) {
+	hermetic(t, "")
+	t.Setenv("HARNESS_VAULT_KEY", "")
+	vaulttest.Keyring(t)
+	k, err := vault.EnsureKey()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "anthropic"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "HARNESS_VAULT_KEY=" + k.Raw()
+	env := p.Env(nil)
+	if !slices.Contains(env, want) {
+		t.Fatal("claude child env lacks the vault key")
+	}
+	vendor := agent.EnvSpec{Mode: agent.EnvAgent, Base: env}.Environ(context.Background())
+	if slices.Contains(vendor, want) {
+		t.Fatal("vendor CLI child env kept the vault key")
+	}
+}

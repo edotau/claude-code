@@ -20,6 +20,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -86,6 +87,27 @@ func keyMetaTx(t *Tx) (id, kid, command string) {
 	return
 }
 
+const envKeyName = "HARNESS_VAULT_KEY"
+
+// adoptedKey is HARNESS_VAULT_KEY as the process started with it; set once in main, before any goroutine.
+var adoptedKey string
+
+// AdoptEnvKey moves HARNESS_VAULT_KEY from the process env into memory so no child process inherits it.
+func AdoptEnvKey() {
+	if v := os.Getenv(envKeyName); v != "" {
+		adoptedKey = v
+		_ = proc.Unsetenv(envKeyName)
+	}
+}
+
+// EnvKey is the env-supplied master key: the live variable, else the one AdoptEnvKey took at startup.
+func EnvKey() string {
+	if v := os.Getenv(envKeyName); v != "" {
+		return v
+	}
+	return adoptedKey
+}
+
 func MasterKey() (*Key, string, error) {
 	id, kid, command, err := keyMeta()
 	if err != nil {
@@ -96,7 +118,7 @@ func MasterKey() (*Key, string, error) {
 
 // resolveKey finds the key for kid: env, cache, keyring, then key_command, which also runs when the keyring is dark.
 func resolveKey(id, kid, command string) (*Key, string, error) {
-	if v := os.Getenv("HARNESS_VAULT_KEY"); v != "" {
+	if v := EnvKey(); v != "" {
 		k, err := parseKey(v, id)
 		if err != nil {
 			return nil, "env", err
@@ -518,7 +540,7 @@ func rotateGuard(force bool, command string) error {
 	switch {
 	case force:
 		return nil
-	case os.Getenv("HARNESS_VAULT_KEY") != "":
+	case EnvKey() != "":
 		return errors.New("vault: HARNESS_VAULT_KEY is set; rotating would silently break it — " +
 			"update the env var with the new key right after, or pass --force")
 	case command != "":

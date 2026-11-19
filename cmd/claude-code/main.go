@@ -5,6 +5,10 @@ import (
 	"os"
 
 	"github.com/edotau/claude-code/internal/cli"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
-func main() { os.Exit(cli.Run(os.Args)) }
+func main() {
+	vault.AdoptEnvKey() // before any child can inherit the master key; hooks keep it in memory, not in env
+	os.Exit(cli.Run(os.Args))
+}

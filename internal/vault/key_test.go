@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"slices"
@@ -665,5 +666,19 @@ func corruptHealthSecret(t *testing.T, malformed bool) {
 		return tx.PutRecord("Z_BAD", r)
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A child process never inherits the master key the launch handed this one; this process still resolves it.
+func TestAdoptEnvKeyHidesKeyFromChildren(t *testing.T) {
+	const fake = "fake-key-material-not-a-real-credential"
+	t.Setenv(envKeyName, fake)
+	t.Cleanup(func() { adoptedKey = "" })
+	AdoptEnvKey()
+	if slices.ContainsFunc(exec.Command("x").Environ(), func(kv string) bool { return strings.HasPrefix(kv, envKeyName+"=") }) {
+		t.Fatal("a child would inherit HARNESS_VAULT_KEY")
+	}
+	if EnvKey() != fake {
+		t.Fatal("EnvKey lost the adopted value")
 	}
 }

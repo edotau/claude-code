@@ -112,8 +112,9 @@ sign-in, verify, apply) / Login / Paste PAT / Token / Copy token / Apply to agen
 
 **The vault key** — 32 random bytes from `HARNESS_VAULT_KEY` → OS keyring (service `claude-code`) → `key_command` (a
 JSON argv, no shell). No key file is written; headless boxes set one of the first or last; `HARNESS_KEYRING=off`
-skips the keyring. `HARNESS_VAULT_KEY` is scrubbed from agent CLI children. `vault rotate-secret` re-seals and keeps
-old keys.
+skips the keyring. `HARNESS_VAULT_KEY` is moved out of every `claude-code` process's env at start
+(`vault.AdoptEnvKey`), so no child inherits it; only the launched Claude Code session gets it.
+`vault rotate-secret` re-seals and keeps old keys.
 
 ### Environment overrides
 

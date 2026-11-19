@@ -78,20 +78,46 @@ func fromRecords(recs [][2]string) *Matcher {
 				m.Skipped++
 				continue
 			}
-			for i, v := range variants(leaf.text) {
-				if _, dup := m.origins[v]; !dup {
-					m.needles[v[0]] = append(m.needles[v[0]], v)
-					m.origins[v] = Origin{rec[0], leaf.field, variantForms[i], len(v)}
-					m.longest = max(m.longest, len(v))
-					m.breaks = m.breaks || strings.Contains(v, "\n")
-				}
-			}
+			m.add(rec[0], leaf.field, leaf.text, variantForms[0])
 		}
 	}
+	m.sortNeedles()
+	return m
+}
+
+func (m *Matcher) add(record, field, text, rawForm string) {
+	for i, v := range variants(text) {
+		if _, dup := m.origins[v]; !dup {
+			m.needles[v[0]] = append(m.needles[v[0]], v)
+			form := variantForms[i]
+			if i == 0 {
+				form = rawForm
+			}
+			m.origins[v] = Origin{record, field, form, len(v)}
+			m.longest = max(m.longest, len(v))
+			m.breaks = m.breaks || strings.Contains(v, "\n")
+		}
+	}
+}
+
+func (m *Matcher) sortNeedles() {
 	for i := range m.needles {
 		sort.Slice(m.needles[i], func(a, b int) bool { return len(m.needles[i][a]) > len(m.needles[i][b]) })
 	}
-	return m
+}
+
+// AddForced masks each text in every encoded form, skipping the eligibility filter; a value under 2 bytes is ignored.
+func (m *Matcher) AddForced(record string, texts ...string) {
+	for i, t := range texts {
+		if len(t) >= 2 {
+			form := "forced" // Values counts "raw" forms: only the first text is a value of its own
+			if i == 0 {
+				form = variantForms[0]
+			}
+			m.add(record, "", t, form)
+		}
+	}
+	m.sortNeedles()
 }
 
 // Values is how many distinct values the matcher masks, each in all its encoded forms.

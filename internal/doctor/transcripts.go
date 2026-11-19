@@ -69,7 +69,7 @@ func transcriptMatcher() (*secretredact.Matcher, error) {
 	if err != nil {
 		return nil, err
 	}
-	return secretredact.FromRecords(records), nil
+	return secretredact.WithEnvKey(secretredact.FromRecords(records)), nil
 }
 
 func transcriptAudit(w io.Writer, fix bool, targets []string, days int) int {
@@ -78,7 +78,7 @@ func transcriptAudit(w io.Writer, fix bool, targets []string, days int) int {
 	m, err := transcriptMatcher()
 	rc := 0
 	if err != nil {
-		m = secretredact.FromValues(nil)
+		m = secretredact.WithEnvKey(secretredact.FromValues(nil))
 		fmt.Fprintln(ew, "  ⚠ vault unavailable: shapes only")
 		if !errors.Is(err, vault.ErrLocked) {
 			rc = 1
