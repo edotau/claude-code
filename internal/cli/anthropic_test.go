@@ -56,3 +56,11 @@ func TestAnthropicPassesSubcommandHelp(t *testing.T) {
 		t.Fatalf("wrapper help control: exit %d, stdout %q, stderr %q", code, stdout, stderr)
 	}
 }
+
+func TestClaudeCatalogHelpStaysInHarness(t *testing.T) {
+	t.Setenv("HARNESS_AGENT_BIN_DIR", t.TempDir()) // no claude binary there: a pass-through would fail
+	code, out, errOut := hosttest.CaptureOutput(t, func() int { return cmdClaude([]string{"catalog", "-h"}) })
+	if got := out + errOut; code != 0 || !strings.Contains(got, "usage: claude-code claude catalog") {
+		t.Fatalf("code %d, output %q", code, got)
+	}
+}

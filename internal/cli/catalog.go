@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/databricks/serving"
@@ -73,7 +74,7 @@ func catalogPage(name string) helptext.Page {
 			{"reset", "fall back to the built-in menu"},
 			{"check", "probe the menu; --all: every chat endpoint; or name ids"},
 			{"sync", "discover endpoints; --apply seals, adds to the menu"}}
-	case len(s.CLI.Dialects) == 0:
+	case len(s.CLI.Dialects) == 0 && name != agentid.Claude:
 		page.About = name + " has no Databricks route: bare catalog is " + name + "'s own list; list, check and " +
 			"sync only print a note."
 		page.Commands = [][2]string{{"list", "print a note: no Databricks route"}, {"check", "print a note: no Databricks route"},
@@ -147,7 +148,7 @@ func catalogVerbGate(name, verb string, args []string) (code int, done bool) {
 // run resolves the profile and runs the verb on Databricks, else bare catalog's own listing.
 func (o *catalogOpts) run(ctx context.Context, ids, args []string) int {
 	s, _ := agent.LookupSchema(o.name)
-	dialects := s.CLI.Dialects
+	dialects := catalogDialects(s)
 	if len(dialects) == 0 {
 		return o.runOwnLogin()
 	}
@@ -158,7 +159,7 @@ func (o *catalogOpts) run(ctx context.Context, ids, args []string) int {
 	dbx := p != nil && p.Preset == providers.PresetDatabricks
 	switch {
 	case !dbx && o.verb == "":
-		return ask.Catalog(o.name, o.format, o.profile, cmdModels)
+		return o.ownCatalog()
 	case !dbx:
 		return helptext.Fail("%s catalog %s: needs a Databricks profile; pass --profile", o.name, o.verb)
 	case o.verb == "check":
@@ -174,11 +175,31 @@ func (o *catalogOpts) run(ctx context.Context, ids, args []string) int {
 // runOwnLogin is the catalog of an agent with no Databricks route: its own listing, or a no-op verb.
 func (o *catalogOpts) runOwnLogin() int {
 	if o.verb == "" {
-		return ask.Catalog(o.name, o.format, o.profile, cmdModels)
+		return o.ownCatalog()
 	}
 	fmt.Printf("%s catalog %s: %s has no Databricks route (it runs on its own login); nothing to %s\n",
 		o.name, o.verb, o.name, o.verb)
 	return 0
+}
+
+// ownCatalog is bare catalog off Databricks: claude's alias rows, else the agent's own listing.
+func (o *catalogOpts) ownCatalog() int {
+	if o.name != agentid.Claude {
+		return ask.Catalog(o.name, o.format, o.profile, cmdModels)
+	}
+	args := []string{"--format", o.format}
+	if o.profile != "" {
+		args = append(args, "--profile", o.profile)
+	}
+	return cmdModels(args)
+}
+
+// catalogDialects is the row's wires; claude's row leaves them empty but it speaks the Anthropic wire.
+func catalogDialects(s agent.Schema) []string {
+	if s.Name == agentid.Claude {
+		return []string{providers.ProtocolAnthropic}
+	}
+	return s.CLI.Dialects
 }
 
 func (o *catalogOpts) done(err error) int {
@@ -198,7 +219,34 @@ func syncMode(refresh bool) configure.ModelMode {
 
 // discover runs the unified model discovery for name on profile.
 func discover(name, profile string, mode configure.ModelMode) (configure.ModelResult, error) {
+	if name == agentid.Claude {
+		return discoverClaude(profile, mode)
+	}
 	return configure.DiscoverModels(context.Background(), configure.ModelQuery{Agent: name, Profile: profile, Mode: mode})
+}
+
+// discoverClaude is configure.DiscoverModels for claude, which that roster-keyed entry does not know.
+func discoverClaude(profile string, mode configure.ModelMode) (configure.ModelResult, error) {
+	ctx := context.Background()
+	p, err := catalog.Profile(ctx, agentid.Claude, profile)
+	if err != nil || p == nil {
+		return configure.ModelResult{}, cmp.Or(err, errors.New("no profile pinned for claude; pass --profile"))
+	}
+	res := configure.ModelResult{Agent: agentid.Claude, Profile: p.Name, Provider: p}
+	infos := []providers.ModelInfo(nil)
+	if mode == configure.RecallModels {
+		infos, _, _, err = catalog.Served(ctx, p)
+		res.Raw = infos
+	} else {
+		var snap serving.Snapshot
+		if snap, err = serving.Discover(ctx, p, mode == configure.RefreshModels); err == nil {
+			res.Snapshot, res.Raw = &snap, snap.Models
+		}
+	}
+	for _, m := range catalog.UsableIn(p, res.Raw, []string{providers.ProtocolAnthropic}) {
+		res.Models = append(res.Models, configure.DiscoveredModel{ID: m.ID})
+	}
+	return res, err
 }
 
 func listCatalog(name string, p *providers.Provider, format string) error {

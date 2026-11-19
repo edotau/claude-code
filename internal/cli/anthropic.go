@@ -27,13 +27,22 @@ func cmdClaude(args []string) int {
 	if len(args) > 0 && args[0] == "review" { // claude has no review verb of its own; --overlay '{"cloud":true}' = ultrareview
 		return agentSub("claude", args)
 	}
+	if len(args) > 0 && args[0] == "catalog" { // `claude -- catalog` still reaches the vendor
+		return agentSub("claude", args)
+	}
 	code := claude.Launch("", args)
 	if code == 0 && len(args) == 1 && helptext.WantsHelp(args) { // claude's own help is relayed; say what the harness takes first
 		fmt.Println("\nclaude-code claude takes --profile P --model M --as user|sp --overlay F\n" +
 			"--keep-env NAMES --print-env; everything else goes to claude.\n" +
+			"claude-code claude catalog [list|check|sync] = Databricks endpoints claude can use.\n" +
 			"claude-code claude review [scope] --overlay '{\"cloud\":true}' = cloud ultrareview.")
 	}
 	return code
+}
+
+// claudeSpec is the completion node for the claude verb: only the subverb the harness owns.
+func claudeSpec() *helptext.Node {
+	return &helptext.Node{Sub: map[string]*helptext.Node{"catalog": catalogSpec("claude")}}
 }
 
 var anthropicPage = helptext.Page{

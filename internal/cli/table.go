@@ -95,7 +95,7 @@ func buildCommands() []command {
 func hiddenCommands() []command {
 	return []command{
 		// Hidden: dispatchable, off the menu (documented in README.md and rules/).
-		{name: "claude", hidden: true, summary: "launch Claude Code on the selected profile", run: cmdClaude, sideEffectHelp: true},
+		{name: "claude", hidden: true, summary: "launch Claude Code on the selected profile", run: cmdClaude, spec: claudeSpec, sideEffectHelp: true},
 		{name: "help-svg", hidden: true, summary: "render this menu as the README SVG (--out f)", run: cmdMenuSVG, spec: menuSVGSpec},
 		{name: "agents", hidden: true, summary: "ask, dispatch, list, sync, tree, status: run and track agents", run: cmdAgents, spec: agentsSpec},
 		{name: "models", hidden: true, summary: "model aliases; --pin alias=model, --live, preflight", run: cmdModels, spec: modelsSpec},
