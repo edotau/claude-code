@@ -456,4 +456,32 @@ func TestImportWaitsForJobLockThenBusy(t *testing.T) {
 	if !ran || !errors.Is(err, ErrBankBusy) {
 		t.Fatalf("ran=%v err=%v, want ErrBankBusy under a held job lock", ran, err)
 	}
+	err = paths.WithFileLock(lockPathOf(), func() error { // as dream holds it: WithFileLock adds the ".lock"
+		_, ierr := ImportBank(ImportOptions{From: src, Topics: true})
+		return ierr
+	})
+	if !errors.Is(err, ErrBankBusy) {
+		t.Fatalf("err=%v, want ErrBankBusy under the lock dream holds", err)
+	}
+}
+
+func TestImportReplaceRechecksBeforeWrite(t *testing.T) {
+	src := replaceFixture(t)
+	opt := ImportOptions{From: src, Topics: true, Now: time.Now(), Replace: map[string]string{"topic.md": sha256Hex([]byte("local\n"))}}
+	p, err := planImport(opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	write(t, Path("topic.md"), "edited\n") // lands after the plan, before the commit journal
+	if err := p.apply(opt); err != nil {
+		t.Fatal(err)
+	}
+	at := Path("topic.md")
+	if !pathExists(at) {
+		at = Sub("notes", "topic.md") // settle files the loose note
+	}
+	got := aliasRead(t, at)
+	if res := p.result(opt); got != "edited\n" || !slices.Contains(res.Lines, "conflict topic.md: kept local (changed during the import)") {
+		t.Fatalf("the late edit holds %q, lines %v; want it kept and reported", got, res.Lines)
+	}
 }

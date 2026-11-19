@@ -31,6 +31,9 @@ type Change struct {
 	Rel    string // store-relative, validated like Commit
 	Data   []byte // new bytes; ignored when Delete
 	Delete bool
+	// Planned makes PreSHA256 ("" = absent) the preimage, so bytes edited since the caller read them diverge.
+	Planned   bool
+	PreSHA256 string
 }
 
 // Receipt records one applied batch; it is returned to the caller and never written.
@@ -144,13 +147,16 @@ func newJournal(repo Repo, subject string, changes []Change) (*journal, error) {
 	}
 	j := &journal{ID: time.Now().UTC().Format("20060102-150405.000") + "-" + hex.EncodeToString(rnd[:]), Subject: subject, Schema: journalSchema}
 	for _, c := range changes {
-		pre, err := os.ReadFile(filepath.Join(repo.Dir, c.Rel))
-		if err != nil && !os.IsNotExist(err) {
-			return nil, err
-		}
-		jc := journalChange{Rel: c.Rel, Delete: c.Delete, HasPreimage: pre != nil}
-		if pre != nil {
-			jc.PreimageSHA256 = textutil.SHA256Hex(pre)
+		jc := journalChange{Rel: c.Rel, Delete: c.Delete, HasPreimage: c.PreSHA256 != "", PreimageSHA256: c.PreSHA256}
+		if !c.Planned {
+			pre, err := os.ReadFile(filepath.Join(repo.Dir, c.Rel))
+			if err != nil && !os.IsNotExist(err) {
+				return nil, err
+			}
+			jc.HasPreimage, jc.PreimageSHA256 = pre != nil, ""
+			if pre != nil {
+				jc.PreimageSHA256 = textutil.SHA256Hex(pre)
+			}
 		}
 		if !c.Delete {
 			jc.Data = c.Data

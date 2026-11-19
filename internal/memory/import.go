@@ -71,11 +71,11 @@ func ImportBank(opt ImportOptions) (ImportResult, error) {
 	ran, err := paths.TryFileLock(lockPathOf()+".lock", lockWait(), func() error { // the job lock memory update and dream hold
 		return withFlatLock(BankLockWait, func() error {
 			p, err := planImport(opt)
-			if err != nil {
-				return err
+			if err == nil {
+				err = p.apply(opt)
 			}
 			res = p.result(opt)
-			return p.apply(opt)
+			return err
 		})
 	})
 	if err == nil && !ran {
@@ -91,7 +91,8 @@ type importStats struct{ merged, copied, kept, conflicts, skipped, left int }
 
 type importPlan struct {
 	changes  []Change
-	leaks    []string // planned writes the store commit would refuse as credential-shaped
+	acts     []importAction // parallel to changes: what each one was counted as
+	leaks    []string       // planned writes the store commit would refuse as credential-shaped
 	lines    []string
 	st       importStats
 	topics   bool
@@ -165,12 +166,36 @@ func (p *importPlan) apply(opt ImportOptions) error {
 	}
 	label := strings.Join(strings.Fields(opt.Label), " ")
 	if len(p.changes) > 0 {
-		if _, err := commitChangesLocked("memory: import "+label, p.changes); err != nil {
+		rec, err := commitChangesLocked("memory: import "+label, p.changes)
+		if errors.Is(err, errDivergent) {
+			p.diverged(rec.Divergent)
+			err = nil
+		}
+		if err != nil {
 			return err
 		}
 	}
 	_, err := settleBankWith(opt.Now, p.pointers, "settle: import "+label)
 	return err
+}
+
+// diverged recounts the changes whose target was edited after the plan as conflicts: the edit stays, unwritten.
+func (p *importPlan) diverged(rels []string) {
+	for i, c := range p.changes {
+		if !slices.Contains(rels, c.Rel) {
+			continue
+		}
+		switch a := p.acts[i]; a.kind {
+		case impMerge:
+			p.st.merged -= a.n
+		case impCopy:
+			p.st.copied--
+		}
+		p.st.conflicts++
+		if j := slices.Index(p.lines, p.acts[i].line); j >= 0 {
+			p.lines[j] = "conflict " + filepath.ToSlash(c.Rel) + ": kept local (changed during the import)"
+		}
+	}
 }
 
 // Mixed layouts cannot share file attribution safely; read-only, as the apply path's withFlatLock already stamped.
@@ -285,7 +310,11 @@ func (p *importPlan) importFile(root *os.Root, rel string) {
 		p.record(rel, importAction{kind: impConflict, line: "conflict " + rel + ": kept local (" + err.Error() + ")"})
 		return
 	}
-	p.record(rel, decideImport(rel, cur, data, err == nil, p.replace[rel]))
+	a := decideImport(rel, cur, data, err == nil, p.replace[rel])
+	if err == nil && dst == filepath.Join(StoreDir(), filepath.FromSlash(rel)) {
+		a.pre = sha256Hex(cur) // else rel itself was absent at the plan
+	}
+	p.record(rel, a)
 }
 
 // unarchived drops the source blocks the target's archives already hold, so a rotated entry is not imported again.
@@ -321,6 +350,7 @@ type importAction struct {
 	n    int
 	data []byte
 	line string
+	pre  string // sha256 of the target the plan read, "" when absent
 }
 
 func (p *importPlan) record(rel string, a importAction) {
@@ -344,7 +374,8 @@ func (p *importPlan) record(rel string, a importAction) {
 	if textutil.CredentialRE().Match(a.data) {
 		p.leaks = append(p.leaks, rel)
 	}
-	p.changes = append(p.changes, Change{Rel: filepath.FromSlash(rel), Data: a.data})
+	p.changes = append(p.changes, Change{Rel: filepath.FromSlash(rel), Data: a.data, Planned: true, PreSHA256: a.pre})
+	p.acts = append(p.acts, a)
 }
 
 // decideImport applies the import rules: logs merge, new files copy, a file whose replace hash matches is replaced.
