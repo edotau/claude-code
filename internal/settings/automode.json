@@ -1,0 +1,11 @@
+{
+  "allow": [
+    "$defaults",
+    "Harness Development: Edits, test runs and checks under ~/.claude or ~/worktrees/claude/* that the user's request asks for, including permission, hook, guard and settings changes, are routine project work, not Self-Modification.",
+    "Post-Change Checks: After a requested settings or permission change, the main session may run read-only checks (claude auto-mode config, claude-code doctor, go test, reads of settings.json); these verify the change and are not Self-Modification."
+  ],
+  "environment": [
+    "$defaults",
+    "Trusted repo: ~/.claude and ~/worktrees/claude/* are the owner's own harness source repo (the claude-code binary, hooks, rules, skills, agents and settings); developing it is the user's normal project work."
+  ]
+}
