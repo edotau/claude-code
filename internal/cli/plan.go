@@ -183,7 +183,7 @@ func runTickVerify(plan, sha string, ids []string, session string) int {
 		return 1
 	}
 	green := reportChecks(session, sha, tasks, checks)
-	results, _, err := plans.TickCommit(top, sha, nil, func(t plans.Task) bool { return green[t.ID] })
+	results, _, err := plans.TickCommit(top, sha, nil, verifiedOnly(tasks, green))
 	for _, r := range results {
 		for _, l := range r.Lines(sha) {
 			tickNotice(session, l)
@@ -194,6 +194,15 @@ func runTickVerify(plan, sha string, ids []string, session string) int {
 		return 1
 	}
 	return 0
+}
+
+// verifiedOnly admits green tasks of this plan; a same-id task in another plan differs in title or position.
+func verifiedOnly(tasks []plans.Task, green map[string]bool) func(plans.Task) bool {
+	return func(t plans.Task) bool {
+		return green[t.ID] && slices.ContainsFunc(tasks, func(v plans.Task) bool {
+			return v.ID == t.ID && v.Title == t.Title && v.Start == t.Start
+		})
+	}
 }
 
 // reportChecks posts one notice per task and returns the ids whose checks are all green.

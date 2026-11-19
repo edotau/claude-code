@@ -58,6 +58,14 @@ type TaskVerifyInput struct {
 
 // VerifyTask runs the task's allowlisted verify:, then the scoped gate and diff check on Files; ctx bounds all.
 func VerifyTask(ctx context.Context, in TaskVerifyInput) []TaskCheck {
+	out := verifySteps(ctx, in)
+	if slices.ContainsFunc(out, func(c TaskCheck) bool { return c.Skip == "" }) {
+		return out
+	}
+	return append(out, TaskCheck{Task: cmp.Or(in.Task.ID, in.Task.Title), Cmd: "-", Skip: "no checks ran"})
+}
+
+func verifySteps(ctx context.Context, in TaskVerifyInput) []TaskCheck {
 	id := cmp.Or(in.Task.ID, in.Task.Title)
 	var out []TaskCheck
 	if cmd := plans.TaskVerify(in.Task); cmd != "" {
@@ -122,11 +130,12 @@ func VerifyCommit(ctx context.Context, top, sha string, tasks []plans.Task) (map
 		return nil, err
 	}
 	defer removeTree(context.Background(), top, dir)
-	raw, err := proc.RunGit(ctx, top, "diff-tree", "--no-commit-id", "--name-only", "-r", sha)
+	// diff against the first parent so a merge lists its files; -z keeps spaces and quotes intact
+	raw, err := proc.RunGit(ctx, top, "diff-tree", "--no-commit-id", "--name-only", "-r", "-z", "--root", "-m", "--first-parent", sha)
 	if err != nil {
 		return nil, err
 	}
-	files := strings.Fields(raw)
+	files := slices.DeleteFunc(strings.Split(raw, "\x00"), func(f string) bool { return strings.TrimSpace(f) == "" })
 	out := map[string][]TaskCheck{}
 	for _, t := range tasks {
 		out[cmp.Or(t.ID, t.Title)] = VerifyTask(ctx, TaskVerifyInput{Dir: dir, Base: sha + "^", Task: t, Files: files,
