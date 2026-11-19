@@ -1372,3 +1372,47 @@ func TestRetryModelAutoEndpointGoneRepicksPool(t *testing.T) {
 		t.Fatalf("retry = %q, rescued = %v; want the auto re-pick and no concrete rescue", got, rescued)
 	}
 }
+
+// copilotRefuser runs the target copilot's engine would (the frozen one) and refuses its first pick with a 400.
+type copilotRefuser struct {
+	fakeRunner
+	ran []string
+}
+
+func (*copilotRefuser) Name() string { return "copilot" }
+
+func (c *copilotRefuser) Run(ctx context.Context, req RunOptions, _ wire.Sink) (wire.Result, error) {
+	tg, _, err := SchemaFor("copilot").TargetCtx(ctx, req)
+	if err != nil {
+		return wire.Result{}, err
+	}
+	if c.ran = append(c.ran, tg.Model); len(c.ran) == 1 {
+		return wire.Result{Model: tg.Model}, errors.New(`Bad Request: Invalid JSON payload received. ` +
+			`Unknown name "reasoning_effort" at 'generation_config': Cannot find field.`)
+	}
+	return wire.Result{Model: tg.Model, Answer: "ok"}, nil
+}
+
+// A copilot auto pick a model refuses re-picks another model, not the frozen first target, and skips the refused one.
+func TestRunDispatchCopilotRepickLeavesFrozenPick(t *testing.T) {
+	autoFixture(t)
+	vaulttest.Put(t, vault.Overlay, "providers", strings.Replace(autoOverlay, `"dev":{"auth":{"type":"oauth"}`,
+		`"dev":{"auth":{"type":"key","command":"echo qzvxplk"}`, 1))
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	row := reg.Row("dev")
+	eng := &copilotRefuser{}
+	opts := RunOptions{Agent: "copilot", Model: AutoModel, AutoModel: true, Provider: "dev", Prompt: standardBrief}
+	p := &Prepared{Opts: opts, Record: ClaimRecord(opts.Agent, opts, time.Now()),
+		Chain: Chain{Want: opts.Agent, Dispatches: []Dispatch{{Agent: eng, Account: row.Account(), Model: "dev:auto"}}}}
+	res, err := (&Client{}).Exec(context.Background(), p, wire.Discard, RunRecordedOpts{})
+	if err != nil || len(eng.ran) != 2 || eng.ran[0] == eng.ran[1] || res.Answer != "ok" {
+		t.Fatalf("err=%v ran=%v; want two runs on two different models", err, eng.ran)
+	}
+	key := router.DiscoverySkipKey("copilot", strings.TrimPrefix(eng.ran[0], "dev:"))
+	if router.LoadState()[row.Account()].DiscoverySkip[key].IsZero() {
+		t.Fatalf("no skip written for %s", key)
+	}
+}

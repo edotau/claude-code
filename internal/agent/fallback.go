@@ -214,7 +214,8 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 		}
 		first := err
 		lreq.Model = next
-		res, err = Run(ctx, disp.Agent, lreq, sink, notify)
+		pctx, _ := freezeCopilot(ctx, disp, lreq) // copilot's frozen target would re-run the refused pick
+		res, err = Run(pctx, disp.Agent, lreq, sink, notify)
 		if auto && !res.NotStarted {
 			lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
 		}
