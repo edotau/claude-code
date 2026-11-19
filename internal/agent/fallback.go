@@ -177,19 +177,59 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	runCtx := retry.WithPermit(withCoolKey(ctx, key), held)
 	res, err = Run(runCtx, disp.Agent, lreq, sink, notify)
 	res.Invoked = lreq.Model
-	if next := retryModel(disp, lreq, ranModel(lreq.Model, res), err); next != "" { // once: the same agent on the next pool model
-		hops = append(hops, hopOf(disp, lreq, res, err))
-		first, firstRan := err, ranModel(lreq.Model, res)
-		lreq.Model = next
-		res, err = Run(runCtx, disp.Agent, lreq, sink, notify)
-		res.Invoked = next
-		if err != nil && wire.ErrorKind(err) != wire.ErrorKind(first) { // a repick that answered clears the account
-			noteFailure(disp, firstRan, first)
-		}
-	}
+	var more []wire.Hop
+	res, lreq, more, err = repick(runCtx, disp, lreq, res, err, sink, notify)
+	hops = append(hops, more...)
 	hops = append(hops, hopOf(disp, lreq, res, err))
 	noteFailure(disp, ranModel(lreq.Model, res), err)
 	return res, hops, false, err
+}
+
+// maxAutoRepicks bounds how many times one auto ask re-picks after its pick is refused before any work.
+const maxAutoRepicks = 3
+
+// repick re-runs the same agent on the next pool model while the pick fails for a reason that belongs to the pick.
+func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result, err error, sink wire.Sink, notify func(string)) (wire.Result, RunOptions, []wire.Hop, error) {
+	var hops []wire.Hop
+	var tried []string
+	limit := 1 // a served-endpoint repick of a concrete model stays once
+	if _, auto := SplitAuto(lreq.Model); auto {
+		limit = maxAutoRepicks
+	}
+	for len(tried) < limit {
+		ran := ranModel(lreq.Model, res)
+		next := retryModel(disp, lreq, ran, err)
+		if next == "" {
+			break
+		}
+		hops = append(hops, hopOf(disp, lreq, res, err))
+		tried = append(tried, ran)
+		if notify != nil {
+			notify(fmt.Sprintf("auto skipped %s: %s; picking the next model", ran, FallbackReason(err)))
+		}
+		first := err
+		lreq.Model = next
+		res, err = Run(ctx, disp.Agent, lreq, sink, notify)
+		res.Invoked = next
+		if err != nil && wire.ErrorKind(err) != wire.ErrorKind(first) { // a repick that answered clears the account
+			noteFailure(disp, ran, first)
+		}
+	}
+	if err != nil && len(tried) > 0 && limit == maxAutoRepicks {
+		err = triedPicks(append(tried, ranModel(lreq.Model, res)), err)
+	}
+	return res, lreq, hops, err
+}
+
+// triedPicks names every pick an auto ask tried on err, keeping its Kind.
+func triedPicks(picks []string, err error) error {
+	e, ok := errors.AsType[*retry.Error](err)
+	if !ok {
+		return fmt.Errorf("auto picks tried: %s: %w", strings.Join(picks, ", "), err)
+	}
+	out := *e
+	out.Err = fmt.Errorf("auto picks tried: %s: %w", strings.Join(picks, ", "), cmp.Or(e.Err, error(e)))
+	return &out
 }
 
 // ranModel is the model that served an auto request (the envelope's), else the requested one.
@@ -763,6 +803,11 @@ var capabilityErr = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`invalid model selection|max_new_tokens|max_output_tokens|max_tokens|context length|maximum context|Invalid JSON payload received\. Unknown name|(?i)endpoint\b[^\n]*\bis deprecated`)
 })
 
+// pickGoneErr is an endpoint or CLI saying the picked model does not exist there.
+var pickGoneErr = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`ENDPOINT_NOT_FOUND|ProviderModelNotFoundError`)
+})
+
 // retryModel is the next model after a capability (auto: ran is skipped) or endpoint-gone (served) failure, else "".
 func retryModel(disp Dispatch, lreq RunOptions, ran string, err error) string {
 	if err == nil {
@@ -776,6 +821,8 @@ func retryModel(disp Dispatch, lreq RunOptions, ran string, err error) string {
 		return lreq.Model // the same auto request re-picks, the skip excluding the failed model
 	case disp.servedRepick != nil && strings.Contains(msg, "ENDPOINT_NOT_FOUND"): // a Databricks workspace's missing endpoint
 		return disp.servedRepick(lreq.Model)
+	case pickGoneErr().MatchString(msg) && skipAutoModel(disp, lreq.Model, ran):
+		return lreq.Model
 	}
 	return ""
 }

@@ -1281,3 +1281,49 @@ func TestFallbackSiblingSkippedPin(t *testing.T) {
 		t.Fatalf("receipt=%+v err=%v", res, err)
 	}
 }
+
+// pickRefuser fails its first `refuse` runs with a CLI model rejection, each naming a distinct pool model.
+type pickRefuser struct {
+	fakeRunner
+	pool   []string
+	refuse int
+}
+
+func (*pickRefuser) Name() string { return "opencode" }
+
+func (p *pickRefuser) Run(_ context.Context, req RunOptions, _ wire.Sink) (wire.Result, error) {
+	p.seen = append(p.seen, req)
+	n := len(p.seen)
+	if n <= p.refuse {
+		return wire.Result{Model: p.pool[n]}, errors.New("ProviderModelNotFoundError: Model not found: " + p.pool[n])
+	}
+	return wire.Result{Model: p.pool[n], Answer: "ok"}, nil
+}
+
+// repickRun is one repick over a fresh fixture whose engine refuses its first `refuse` picks.
+func repickRun(t *testing.T, refuse int) (res wire.Result, runs int, notes []string, held time.Time, err error) {
+	reg, _, _ := autoFixture(t)
+	row := reg.Row("dev")
+	var pool []string
+	for _, m := range rotationPool("opencode", "", row, time.Now()) {
+		pool = append(pool, providers.SpellPin(row, m))
+	}
+	eng := &pickRefuser{pool: pool, refuse: refuse}
+	first := errors.New("ProviderModelNotFoundError: Model not found: " + pool[0])
+	res, _, _, err = repick(context.Background(), Dispatch{Agent: eng, Account: row.Account()}, RunOptions{Model: "dev:auto"},
+		wire.Result{Model: pool[0]}, first, wire.Discard, func(s string) { notes = append(notes, s) })
+	held = router.LoadState()[row.Account()].DiscoverySkip[router.DiscoverySkipKey("opencode", pool[0])]
+	return res, len(eng.seen), notes, held, err
+}
+
+// An auto pick refused before any output is held and re-picked within the ask, up to maxAutoRepicks.
+func TestRunDispatchRepicksRefusedAutoPick(t *testing.T) {
+	res, runs, notes, held, err := repickRun(t, 2) // refused three times, the fourth run answers
+	if err != nil || res.Answer != "ok" || runs != 3 || len(notes) != 3 || held.IsZero() {
+		t.Fatalf("answered run: err=%v answer=%q runs=%d notes=%v held=%v", err, res.Answer, runs, notes, held)
+	}
+	_, runs, _, _, err = repickRun(t, 99) // every pick refused: the bound
+	if err == nil || runs != maxAutoRepicks || !strings.Contains(err.Error(), "auto picks tried") {
+		t.Fatalf("bound: err=%v runs=%d, want %d runs and the tried picks named", err, runs, maxAutoRepicks)
+	}
+}
