@@ -56,9 +56,14 @@ func namesRoute(q ModelQuery) bool {
 	return VaultAgentIsClaude(q.Agent) || typed || q.Profile != "" || q.Provider != "" || q.Account != ""
 }
 
+// PoolPicks reports a run whose pool pin takes the least-busy workspace: no typed provider prefix, not live or detached.
+func PoolPicks(ag, model string, held bool) bool {
+	return !held && !strings.Contains(model, ":") && PinsPool(ag)
+}
+
 // poolQuery is q on the Databricks pool when nothing names a route and the agent's record pins the pool.
 func poolQuery(ctx context.Context, q ModelQuery) (ModelQuery, bool) {
-	if q.Profile != "" || q.Provider != "" || q.Account != "" || strings.Contains(q.Model, ":") || !PinsPool(q.Agent) {
+	if q.Profile != "" || q.Provider != "" || q.Account != "" || !PoolPicks(q.Agent, q.Model, q.Held) {
 		return q, false
 	}
 	q.Provider = providers.GroupDatabricks // as --provider databricks: the auto pick

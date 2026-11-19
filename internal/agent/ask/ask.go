@@ -312,7 +312,7 @@ func pinMoves(r *askRun) bool {
 	if !r.swap && typedModel(f.model) && r.pinLacks(f.model) {
 		return true
 	}
-	return !f.live && !f.background && f.session == "" && !strings.Contains(f.model, ":") && agent.PinsPool(r.ag)
+	return agent.PoolPicks(r.ag, f.model, f.live || f.background || f.session != "")
 }
 
 // confineAgent is the agent the confinement is applied for ("" when each batch line confines its own), and that flag.

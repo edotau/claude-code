@@ -65,6 +65,7 @@ type ModelQuery struct {
 	Provider, Account, Effort      string // overlay keys: a provider type, a GitHub account, an effort
 	Identity, Fallback             string // overlay keys echoed into the route
 	Session, PinProfile, PinModel  string
+	Held                           bool // live, detached, resumed, hosted, job or batch: the pool pin never picks
 	PinAccount                     string
 	Interactive                    bool                       // a prefix and Profile naming different rows is an error, not an override
 	Task                           string                     // the brief: ResolveRun sizes its tier when auto picks the model

@@ -259,7 +259,7 @@ func labelQuery(ctx context.Context, run *dispatchRun, updated map[string]any, s
 	agent := line.workAgent(st, task)
 	q := agentpkg.ModelQuery{Agent: cmp.Or(agent, agentid.Claude), Model: cmp.Or(line.model, line.cfg.Model),
 		Profile: cmp.Or(line.profile, line.cfg.Profile, run.profile), Provider: line.cfg.Provider, Account: line.cfg.Account,
-		Effort: line.cfg.Effort, Identity: line.cfg.Identity, Fallback: cmp.Or(line.fallback, line.cfg.Fallback)}
+		Effort: line.cfg.Effort, Identity: line.cfg.Identity, Fallback: cmp.Or(line.fallback, line.cfg.Fallback), Held: line.held}
 	if m, _ := updated["model"].(string); q.Model == "" && !line.review && m != "" && !slices.Contains(models.AliasNames, models.Strip1M(m)) && m != "inherit" {
 		q.Model = m // an exact dispatch model, spelled as a --model ask runs it
 	}

@@ -68,6 +68,7 @@ func opensWithAsk(task string) bool { return len(openingAskWords(task)) > 0 }
 type askLine struct {
 	agent, model, prompt string
 	profile, fallback    string // --profile and --fallback as typed
+	held                 bool   // --live, --background, --session, --host, --job or --batch: the pool pin never picks
 	local                bool   // no flag runs it off this machine or off the line's own route: preflight predictable
 	tools                bool   // --tools, or --read-only, which ask folds into tools
 	review               bool   // a `<agent> review` line: the Agent call's own model is the relay's, not the vendor's
@@ -104,6 +105,7 @@ func parseAskLine(ctx context.Context, task string) askLine {
 	agent = cmp.Or(a.Value("agent"), agent)
 	l := askLine{agent: agent, model: a.Value("model"),
 		profile: a.Value("profile"), fallback: a.Value("fallback"), local: verb == 1 && !a.Has(offRoute...),
+		held:  a.Has("live", "background", "session", "host", "job", "batch"),
 		tools: a.Has("tools", "read-only") || packsToFile(agent, a)}
 	l.prompt = a.Prompt()
 	value := a.Value("overlay")
