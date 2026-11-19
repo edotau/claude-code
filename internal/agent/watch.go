@@ -254,10 +254,11 @@ func ResumeArgs(r Record, session string) []string {
 
 // staleFrom fills the fields every stale entry shows.
 func staleFrom(r Record, now time.Time, reason string) StaleJob {
+	lastAt, _ := LastSignal(r)
 	return StaleJob{ID: r.ID, Task: taskOf(r), Agent: cmp.Or(r.RanAs, r.Agent), Reason: reason,
 		Parent: r.Parent, Depth: r.Depth,
 		Model: cmp.Or(r.Model, r.Invoked, r.Request.Model, "?"), Age: now.Sub(r.Time),
-		Silence: now.Sub(lastSignal(r)), LastLine: lastLogLine(r.LogPath())}
+		Silence: now.Sub(lastAt), LastLine: lastLogLine(r.LogPath())}
 }
 
 var taskIDRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?m)^[ \t]*TASK ID:[ \t]*(\S[^\r\n]*)`) })
@@ -281,15 +282,15 @@ func collected(id string) bool {
 	return err == nil
 }
 
-// lastSignal is the newest mtime of the job's events file or log, else its start.
-func lastSignal(r Record) time.Time {
-	at := r.Time
-	for _, p := range []string{r.EventsPath(), r.LogPath()} {
-		if info, err := os.Stat(p); err == nil && info.ModTime().After(at) {
-			at = info.ModTime()
+// LastSignal is the newest mtime of the dispatch's events file or log, else its start, and which one it was.
+func LastSignal(r Record) (time.Time, string) {
+	at, source := r.Time, "record"
+	for _, c := range []struct{ path, name string }{{r.EventsPath(), "events"}, {r.LogPath(), "log"}} {
+		if info, err := os.Stat(c.path); err == nil && info.ModTime().After(at) {
+			at, source = info.ModTime(), c.name
 		}
 	}
-	return at
+	return at, source
 }
 
 // logTailBytes bounds the log read for the last line.

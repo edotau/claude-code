@@ -118,23 +118,20 @@ func capPaths(list []string) *[]string {
 
 // sharesTree reports whether another dispatch in rec's git tree overlapped rec's run, which ended at end.
 func sharesTree(rec Record, end time.Time) bool {
-	dir := paths.DispatchDir()
-	names, err := recordNames(dir)
-	if rec.Tree == "" || err != nil {
+	if rec.Tree == "" {
 		return false
 	}
-	for _, n := range names {
-		o, err := readRecord(filepath.Join(dir, n))
-		if err != nil || o.ID == rec.ID || o.Tree != rec.Tree {
-			continue
+	shared := false
+	err := eachRecent(paths.DispatchDir(), jsonToken(rec.Tree), func(o Record) bool {
+		if o.ID == rec.ID || o.Tree != rec.Tree {
+			return true
 		}
 		oEnd := o.Time.Add(time.Duration(o.DurationMs) * time.Millisecond)
 		if o.Alive() {
 			oEnd = end
 		}
-		if o.Time.Before(end) && oEnd.After(rec.Time) {
-			return true
-		}
-	}
-	return false
+		shared = o.Time.Before(end) && oEnd.After(rec.Time)
+		return !shared
+	})
+	return err == nil && shared
 }

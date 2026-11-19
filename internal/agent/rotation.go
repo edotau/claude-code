@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -300,16 +301,17 @@ func RotationSummary(agentName string, now time.Time) string {
 // recentPicks is agent's last 7 days of runs counted by model, top four: "kimi-k3 3, gpt-6-2-sol 2".
 func recentPicks(agentName string, now time.Time) string {
 	counts := map[string]int{}
-	for _, r := range RecentRecords(AllRecords) {
+	_ = eachRecent(paths.DispatchDir(), jsonToken(agentName), func(r Record) bool { // an unreadable dir lists none
 		m := cmp.Or(r.Invoked, r.Model)
 		if r.Agent != agentName || m == "" || now.Sub(r.Time) >= 7*24*time.Hour {
-			continue
+			return true
 		}
 		if _, after, ok := strings.Cut(m, ":"); ok {
 			m = after
 		}
 		counts[catalog.ID(m)]++
-	}
+		return true
+	})
 	keys := slices.SortedFunc(maps.Keys(counts), func(a, b string) int { return cmp.Or(counts[b]-counts[a], strings.Compare(a, b)) })
 	var out []string
 	for _, k := range keys[:min(len(keys), 4)] {

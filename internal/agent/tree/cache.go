@@ -96,7 +96,9 @@ func saveScanCache(c *scanCache) {
 		}
 	}
 	if c.dirty {
-		_ = paths.WriteJSON(scanCachePath(), c)
+		if data, err := json.Marshal(c); err == nil && os.MkdirAll(filepath.Dir(scanCachePath()), 0o700) == nil {
+			_ = paths.AtomicWriteNoSync(scanCachePath(), data, 0o600) // rebuilt on the next scan if torn
+		}
 		c.dirty = false
 	}
 }
