@@ -82,7 +82,8 @@ paths:
   A record `model` of `rotate` (copilot, opencode) picks the least-recently-picked eligible model for an untyped run.
   The pool includes only models served by the agent's row (any serving workspace under the `databricks` pool pin)
   that the agent can run and that meet the tier's `rotation` capability floor and cost cap in
-  `internal/catalog/ranks.json`. The vault's `discovery-models` list is an optional allowlist only; rotation skips
+  `internal/catalog/ranks.json` (an unranked model skips both where the tier admits it). The vault's
+  `discovery-models` list is an optional allowlist only; rotation skips
   models held after a recent 429 or capability refusal. `claude-code agents label <agent> --run --task <brief>`
   records the pick and freezes it as the Run: line's `--model`, so the label equals the run.
   `claude-code configure agents <agent> model=<id>` pins one model again.

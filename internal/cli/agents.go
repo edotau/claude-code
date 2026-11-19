@@ -371,7 +371,7 @@ func cmdAgentsLabel(args []string) int {
 	if err != nil {
 		return helptext.Fail("agents label: %v", err)
 	}
-	freezeLabelRotation(*run, *spec, pos[0], task, model)
+	freezeLabelRotation(*run, *spec+*profile, pos[0], task, model)
 	runText, err := labelRun(*run, *spec, pos[0], model, profile)
 	if err != nil {
 		return helptext.FailUsage("agents label: %v", err)
@@ -408,8 +408,9 @@ func emitLabel(row hooks.LabelRow, runText, model, profile, task string) int {
 	return printLabel(row.Label)
 }
 
-func freezeLabelRotation(run bool, spec, typ, task string, model *string) {
-	if !run || *model != "" || spec != "" {
+// freezeLabelRotation stamps a rotate pick into --run's model; a typed model, spec or profile (pinned) never freezes.
+func freezeLabelRotation(run bool, pinned, typ, task string, model *string) {
+	if !run || *model != "" || pinned != "" {
 		return
 	}
 	if m, note := agent.RotationFreeze(context.Background(), typ, task); m != "" {
