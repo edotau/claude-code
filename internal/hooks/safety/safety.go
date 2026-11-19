@@ -22,7 +22,7 @@ import (
 
 // pipeBlocks match the whole command minus inert data: pipes, a fork bomb and encoded Python heredocs span segments.
 var pipeBlocks = []*core.Gated{
-	core.Gate(`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(sudo\s+)?(\S*/)?(ba|z)?sh([^[:alnum:]_]|$)`, "curl", "wget"),
+	core.Gate(`(^|[^[:alnum:]_])(curl|wget)\s[^|]*\|\s*(sudo\s+)?(\S*/)?(ba|z)?sh(\s+-[a-mo-zA-Z]*(\s|$)|\s+[^-\s]|[^[:alnum:]_\s-]|\s*$)`, "curl", "wget"),
 	core.Gate(`(^|[\s;&|({/\x60])eval\s+["']?(\$\(|\x60)\s*(\S*/)?(curl|wget)\s`, "eval"),
 	core.Gate(`(^|[^[:alnum:]_])base64\s+(-d|-D|--decode)[^|]*\|\s*(sudo\s+)?(\S*/)?(ba|z|da|k)?sh([^[:alnum:]_]|$)`, "base64"),
 	core.Gate(`:\(\)\s*\{[^}]*\}\s*;\s*:`, ":()"),
@@ -288,10 +288,24 @@ func feedsShell(segs, seps []string, from int) bool {
 	for k := from; k < len(segs); k++ {
 		name := programName(segs[k])
 		if shellNames()[name] {
-			return true
+			return !noExecShell(segs[k])
 		}
 		if !pipedOn(seps[k]) || !pipeFilters()[name] && name != "cat" && name != "tee" {
 			return false
+		}
+	}
+	return false
+}
+
+// noExecShell reports a shell invoked only to syntax-check or print its version (`-n`, `--version`, `--help`).
+func noExecShell(seg string) bool {
+	rest, _ := shell.Unwrap(shell.DropRtk(shell.Tokens(seg)), "")
+	for _, t := range rest[min(1, len(rest)):] {
+		if !strings.HasPrefix(t, "-") {
+			return false
+		}
+		if t == "--version" || t == "--help" || t == "--noexec" || !strings.HasPrefix(t, "--") && strings.Contains(t, "n") {
+			return true
 		}
 	}
 	return false

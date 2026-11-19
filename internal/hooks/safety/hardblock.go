@@ -74,13 +74,26 @@ func xargsHardBlock(cmd string) (string, bool) {
 		if !ok || !pipedOn(seps[k]) || len(rest) == 0 || filepath.Base(rest[0]) != "xargs" {
 			continue
 		}
-		if run := slices.IndexFunc(rest, func(t string) bool { return filepath.Base(t) == "rm" }); run >= 0 {
+		if run := xargsRun(rest); run >= 0 && filepath.Base(rest[run]) == "rm" {
 			if pattern, hit := appendedHardBlock(strings.Join(rest[run:], " "), texts); hit {
 				return pattern, true
 			}
 		}
 	}
 	return "", false
+}
+
+// xargsRun is the index in rest (`xargs [opts] cmd …`) of the command xargs runs, or -1.
+func xargsRun(rest []string) int {
+	for i := 1; i < len(rest); i++ {
+		if !strings.HasPrefix(rest[i], "-") {
+			return i
+		}
+		if len(rest[i]) == 2 && strings.Contains("IEnLPsad", rest[i][1:]) && i+1 < len(rest) {
+			i++ // a separate-argument option such as `-n 1`
+		}
+	}
+	return -1
 }
 
 // appendedHardBlock is the hard-block pattern run, with one word of texts appended, matches.
