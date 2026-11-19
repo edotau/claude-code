@@ -76,6 +76,7 @@ type askRun struct {
 	prompt      string
 	state       *askState
 	perms       agent.Permissions
+	typed       string // --profile as typed, kept for the --dry-run argv: resolveLead clears f.provider
 	lead        string // profile a routed run leads with (--profile session, --provider, or --profile with --fallback)
 	swap        bool   // --fallback was typed and allows another model: a typed model may then be swapped
 	auto        string // the workspace databricks:auto picked for this run; "" when the confinement was not an auto pick
@@ -118,6 +119,9 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 		masked := maskedOut(out)
 		defer func() { exit = closeAskOutput(masked, exit) }()
 		out = masked
+	}
+	if f.dryRun { // one peek mark for every pick a dry-run makes, the workspace's included
+		ctx = agent.PeekContext(ctx)
 	}
 	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out}
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
@@ -661,6 +665,7 @@ func (r *askRun) routesItself() bool {
 
 // resolveLead turns route flags typed on this command line into a routed lead (agent.LeadFor); a pin keeps --profile.
 func (r *askRun) resolveLead() (int, bool) {
+	r.typed = r.f.provider
 	lead, err := narrowLead(r.ag, r.f, !r.routesItself())
 	if err != nil {
 		return r.fail(err, 2)

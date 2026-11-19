@@ -206,6 +206,13 @@ func autoWorkspace(ctx context.Context, agentName, model, fallback string) (stri
 		return "", fmt.Errorf("overlay databricks:auto: %w", err)
 	}
 	q := armQuery{AgentName: agentName, Model: model, Strict: fallback == router.FallbackNone && typedModel(model)}
+	if agent.Peeking(ctx) {
+		names, skipped, err := router.RankWorkspaces(reg, workspaceQuery(q), time.Now())
+		if err != nil {
+			return reportPick("", 0, skipped, err)
+		}
+		return reportPick(names[0], -1, skipped, nil)
+	}
 	return reportPick(pickWith(reg, q, time.Now()))
 }
 
@@ -237,11 +244,18 @@ func errUnserved(model string, skipped []agent.Finding) error {
 // reportPick prints pickArm's pick and the workspaces it skipped on stderr and returns the pick.
 func reportPick(p string, live int, skipped []agent.Finding, err error) (string, error) {
 	if err == nil {
-		note := ""
-		if len(skipped) > 0 {
-			note = fmt.Sprintf(", %d skipped", len(skipped))
+		parts := []string{}
+		if live >= 0 { // a peek ranks without counting load
+			parts = append(parts, fmt.Sprintf("%d live", live))
 		}
-		fmt.Fprintf(os.Stderr, "overlay: databricks:auto picked %s (%d live%s)\n", p, live, note)
+		if len(skipped) > 0 {
+			parts = append(parts, fmt.Sprintf("%d skipped", len(skipped)))
+		}
+		count := ""
+		if len(parts) > 0 {
+			count = " (" + strings.Join(parts, ", ") + ")"
+		}
+		fmt.Fprintf(os.Stderr, "overlay: databricks:auto picked %s%s\n", p, count)
 	}
 	for _, f := range skipped {
 		fmt.Fprintf(os.Stderr, "preflight: %s failed %s\n", f.Profile, f)

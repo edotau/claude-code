@@ -27,7 +27,8 @@ type peekKey struct{}
 // PeekContext marks ctx's route resolution as a label: a rotation pick is peeked, never recorded.
 func PeekContext(ctx context.Context) context.Context { return context.WithValue(ctx, peekKey{}, true) }
 
-func peekingRotation(ctx context.Context) bool { v, _ := ctx.Value(peekKey{}).(bool); return v }
+// Peeking reports whether ctx carries PeekContext's mark.
+func Peeking(ctx context.Context) bool { v, _ := ctx.Value(peekKey{}).(bool); return v }
 
 // rotationTiers maps a route alias to the ranks.json rotation tier whose floor and cost cap it takes.
 var rotationTiers = map[string]string{models.Haiku: "fast", models.Sonnet: "standard", models.Opus: "deep"}
@@ -233,7 +234,7 @@ func rotationPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need a
 		return base, false
 	}
 	alias := cmp.Or(tierAliases[need.tier], models.Sonnet)
-	stamp := q.ctx == nil || !peekingRotation(q.ctx)
+	stamp := q.ctx == nil || !Peeking(q.ctx)
 	m, note, err := rotationModelOn([]*providers.Provider{p}, q.Agent, alias, stamp, now)
 	if err != nil || m == "" {
 		return base, false

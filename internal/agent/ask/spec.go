@@ -196,6 +196,9 @@ func (r *askRun) dryCtx(ctx context.Context, prompt string) context.Context {
 	if !r.f.dryRun {
 		return ctx
 	}
+	if r.f.provider == "" && r.typed != "" { // resolveLead moved the typed profile into the lead; the re-run types it
+		_ = r.fs.Set("profile", r.typed)
+	}
 	return context.WithValue(ctx, dryKey{}, dryDoc{Overlay: r.ov, Argv: textutil.ShellJoin(canonicalArgv(r.fs, prompt, taskFromStdin(r.pos)))})
 }
 
@@ -249,7 +252,7 @@ func dryRoute(ctx context.Context, o, req agent.RunOptions) (agent.ModelRoute, b
 	if err != nil {
 		return agent.ModelRoute{}, false
 	}
-	q := agent.QueryFor(ctx, agent.ModelQuery{Agent: o.Agent, Model: req.Model, Profile: req.Provider, Account: req.Account,
+	q := agent.QueryFor(ctx, agent.ModelQuery{Agent: o.Agent, Model: req.Model, Profile: cmp.Or(req.Provider, req.Lead), Account: req.Account,
 		Effort: req.Effort, Fallback: o.Fallback, Task: o.Prompt, Tools: o.Tools,
 		Held: req.Background || req.SessionID != "" || req.Host != ""})
 	hop, note, err := agent.RunQuery(ctx, reg, q, router.RuleClassifier{}.Alias(o.Prompt))
