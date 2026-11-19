@@ -72,6 +72,8 @@ check-clean:
 .PHONY: install
 install: check-clean  ## Build, install, add missing CLIs (TOOLS=1 updates all)
 	@$(MAKE) compile mdsmith rtk
+	@[ "$$($(GO) env GOOS)" = windows ] || { $(GO) -C cmd/claude-code-tsnet build -trimpath -ldflags='-s -w' \
+		-o $(CURDIR)/$(BIN)-tsnet.new . && mv -f $(BIN)-tsnet.new $(BIN)-tsnet; }
 	@$(BIN) install$(if $(filter 1,$(V)), --verbose,)
 	@$(if $(TOOLS),$(BIN) install --tools$(if $(filter-out 1,$(TOOLS)),=$(TOOLS)) && $(BIN) doctor,\
 		$(BIN) install --tools --missing || echo -e "$(C_NOTE)a missing CLI failed to install (install itself succeeded)")
@@ -210,7 +212,7 @@ audit-vuln:  # (folded into `audit`) govulncheck when installed and vuln.go.dev 
 	@if ! command -v govulncheck >/dev/null 2>&1; then echo -e "$(C_NOTE)govulncheck not installed — skipped (make install)"; \
 		elif ! curl -fsS -m 5 -o /dev/null https://vuln.go.dev/index/db.json 2>/dev/null; then \
 			echo -e "$(C_NOTE)govulncheck skipped (vuln.go.dev unreachable)"; \
-		else govulncheck $(PKGS); fi
+		else govulncheck $(PKGS) && govulncheck -C cmd/claude-code-tsnet ./...; fi
 
 .PHONY: audit-prompts
 audit-prompts:  # (folded into `audit`) doctor --prompts
