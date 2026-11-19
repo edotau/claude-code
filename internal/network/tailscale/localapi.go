@@ -1,7 +1,9 @@
 package tailscale
 
 import (
+	"bufio"
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -9,11 +11,14 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
+	"unicode"
 
 	"github.com/edotau/claude-code/internal/paths"
 )
@@ -144,6 +149,10 @@ type prefsMask struct {
 	ExitNodeIDSet             bool   `json:",omitempty"`
 	ExitNodeAllowLANAccess    bool   `json:",omitempty"`
 	ExitNodeAllowLANAccessSet bool   `json:",omitempty"`
+	WantRunning               bool   `json:",omitempty"`
+	WantRunningSet            bool   `json:",omitempty"`
+	LoggedOut                 bool   `json:",omitempty"`
+	LoggedOutSet              bool   `json:",omitempty"`
 }
 
 // patchPrefs applies m over the LocalAPI.
@@ -167,4 +176,180 @@ func currentRoutes(ctx context.Context) ([]string, error) {
 		return nil, fmt.Errorf("tailscale localapi prefs: %w", err)
 	}
 	return p.AdvertiseRoutes, nil
+}
+
+// Values from ipn/backend.go (checked in Phase 5.0).
+const (
+	ipnRunning         = 6
+	notifyInitialState = 2
+)
+
+// maxNotify caps one watch-ipn-bus message (a JSON line); 1.104 notifies carry no netmap.
+const maxNotify = 1 << 20
+
+// signInWait bounds a watch that is neither Running nor showing a sign-in URL; a shown URL gets the full timeout.
+const signInWait = 30 * time.Second
+
+// errNoSignIn: tailscaled neither reached Running nor offered a sign-in URL within signInWait.
+var errNoSignIn = errors.New("tailscale: not Running and no sign-in URL after 30s")
+
+// errKeyNotAccepted: a connect (no one to open a browser) was offered a sign-in URL, so the auth key did not apply.
+var errKeyNotAccepted = errors.New("tailscale: the auth key was not accepted (tailscaled asked for a browser sign-in)")
+
+// notify is the subset of ipn.Notify a login watch reads.
+type notify struct {
+	State       *int
+	BrowseToURL *string
+	ErrMessage  *string
+}
+
+// localAPIStream opens a streaming GET (watch-ipn-bus) bounded only by ctx; the caller closes it.
+func localAPIStream(ctx context.Context, path string) (io.ReadCloser, error) {
+	for _, ep := range endpoints() {
+		tr := &http.Transport{DisableKeepAlives: true, DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
+			var d net.Dialer
+			return d.DialContext(ctx, ep.network, ep.addr)
+		}}
+		req, err := http.NewRequestWithContext(ctx, http.MethodGet, "http://"+localAPIHost+"/localapi/v0/"+path, nil)
+		if err != nil {
+			return nil, err
+		}
+		if ep.token != "" {
+			req.SetBasicAuth("", ep.token)
+		}
+		resp, err := (&http.Client{Transport: tr}).Do(req)
+		if isDial(err) {
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("tailscale localapi %s: %w", path, err)
+		}
+		if resp.StatusCode/100 != 2 {
+			_ = resp.Body.Close()
+			return nil, fmt.Errorf("tailscale localapi %s: HTTP %d", path, resp.StatusCode)
+		}
+		return resp.Body, nil
+	}
+	return nil, errNoLocalAPI
+}
+
+// loginLocal watches the IPN bus, runs start, prints the sign-in URL once and waits for Running.
+func loginLocal(ctx context.Context, start func(context.Context) error, out io.Writer) error {
+	ctx, cancel := context.WithCancelCause(ctx)
+	defer cancel(nil)
+	bus, err := localAPIStream(ctx, "watch-ipn-bus?mask="+strconv.Itoa(notifyInitialState))
+	if err != nil {
+		return err
+	}
+	defer func() { _ = bus.Close() }()
+	if err := start(ctx); err != nil {
+		return err
+	}
+	wait := time.AfterFunc(signInWait, func() { cancel(errNoSignIn) })
+	defer wait.Stop()
+	if err := awaitRunning(bus, out, func() { wait.Stop() }); err != nil {
+		if cause := context.Cause(ctx); errors.Is(cause, errNoSignIn) {
+			return cause
+		}
+		return err
+	}
+	return nil
+}
+
+// awaitRunning reads notifies until Running or an error; the first fresh sign-in URL goes to out, then onURL runs.
+func awaitRunning(bus io.Reader, out io.Writer, onURL func()) error {
+	sc := bufio.NewScanner(bus)
+	sc.Buffer(nil, maxNotify)
+	for first, shown := true, false; sc.Scan(); first = false {
+		var n notify
+		if err := json.Unmarshal(sc.Bytes(), &n); err != nil {
+			return fmt.Errorf("tailscale localapi watch-ipn-bus: %w", err)
+		}
+		if done, err := n.outcome(); done || err != nil {
+			return err
+		}
+		u, ok := signInURL(n.BrowseToURL)
+		switch {
+		case !ok || first || shown: // the initial notify may hold a stale URL from an earlier login
+		case out == nil:
+			return errKeyNotAccepted
+		default:
+			fmt.Fprintf(out, "\nTo authenticate, visit:\n\n\t%s\n\n", u)
+			shown = true
+			onURL()
+		}
+	}
+	return fmt.Errorf("tailscale localapi watch-ipn-bus: %w", cmp.Or(sc.Err(), io.ErrUnexpectedEOF))
+}
+
+// outcome ends the watch: done at Running, or tailscaled's error message.
+func (n notify) outcome() (done bool, err error) {
+	if n.ErrMessage != nil && *n.ErrMessage != "" {
+		return true, fmt.Errorf("tailscale: %s", printable(*n.ErrMessage))
+	}
+	return n.State != nil && *n.State == ipnRunning, nil
+}
+
+// signInURL is a notify's BrowseToURL when it is an https URL, control characters stripped.
+func signInURL(s *string) (string, bool) {
+	if s == nil {
+		return "", false
+	}
+	u, err := url.Parse(printable(*s))
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return "", false
+	}
+	return u.String(), true
+}
+
+// printable drops control and format runes, so daemon text cannot drive the terminal.
+func printable(s string) string {
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
+// startWithKey sets WantRunning (and exit routes) by masked PATCH, posts start with only the AuthKey (D6), then
+// login-interactive when no node key exists or no key is given (`tailscale login`; start also drops a stale key).
+func startWithKey(ctx context.Context, authKey string, exitNode bool) error {
+	m := prefsMask{WantRunning: true, WantRunningSet: true, LoggedOutSet: true}
+	if exitNode {
+		cur, err := currentRoutes(ctx)
+		if err != nil {
+			return err
+		}
+		m.AdvertiseRoutes, m.AdvertiseRoutesSet = append(subnetRoutes(cur), defaultRoutes...), true
+	}
+	hadKey, err := haveNodeKey(ctx)
+	if err != nil {
+		return err
+	}
+	if err := patchPrefs(ctx, m); err != nil {
+		return err
+	}
+	body, err := json.Marshal(struct{ AuthKey string }{authKey}) // no UpdatePrefs: Start keeps current prefs
+	if err != nil {
+		return err
+	}
+	if _, err = localAPI(ctx, http.MethodPost, "start", body); err != nil || (hadKey && authKey != "") {
+		return err
+	}
+	_, err = localAPI(ctx, http.MethodPost, "login-interactive", nil) // as `tailscale up`: start alone never logs in
+	return err
+}
+
+// haveNodeKey reports status's HaveNodeKey, read before start as `tailscale up` does.
+func haveNodeKey(ctx context.Context) (bool, error) {
+	out, err := localAPI(ctx, http.MethodGet, "status?peers=false", nil)
+	if err != nil {
+		return false, err
+	}
+	var st struct{ HaveNodeKey bool }
+	if err := json.Unmarshal(out, &st); err != nil {
+		return false, fmt.Errorf("tailscale localapi status: %w", err)
+	}
+	return st.HaveNodeKey, nil
 }

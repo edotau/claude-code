@@ -350,12 +350,18 @@ func parseStatus(out []byte, via string) (Local, error) {
 
 // connect runs `tailscale up --auth-key=file:<0600 temp>` (never argv, which `ps` shows) unless already up.
 func connect(ctx context.Context, authKey string, exitNode bool) error {
+	if st, ok := connected(ctx); ok && (!exitNode || st.ExitNodeApproved) {
+		return nil
+	}
+	lctx, lcancel := context.WithTimeout(ctx, connectTimeout)
+	err := loginLocal(lctx, func(c context.Context) error { return startWithKey(c, authKey, exitNode) }, nil)
+	lcancel()
+	if !errors.Is(err, errNoLocalAPI) {
+		return err // past the first request the key may be spent; never re-send it through the CLI
+	}
 	bin, err := tailscaleBin()
 	if err != nil {
 		return err
-	}
-	if st, ok := connected(ctx); ok && (!exitNode || st.ExitNodeApproved) {
-		return nil
 	}
 	keyFile, err := writeAuthKeyFile(authKey)
 	if err != nil {
@@ -378,6 +384,20 @@ var loginTimeout = 10 * time.Minute
 
 // Login runs `tailscale login` on in/out/errOut, so the user sees the sign-in URL, then audits the connect.
 func Login(ctx context.Context, in io.Reader, out, errOut io.Writer) error {
+	if st, err := Status(ctx); err == nil || errors.Is(err, errNotRunning) {
+		if st.Via == "localapi" && !st.running() {
+			lctx, lcancel := context.WithTimeout(ctx, loginTimeout)
+			err := loginLocal(lctx, func(c context.Context) error { return startWithKey(c, "", false) }, out)
+			lcancel()
+			if err == nil {
+				auditConnect(ctx)
+				return nil
+			}
+			if !errors.Is(err, errNoLocalAPI) {
+				return err
+			}
+		}
+	}
 	bin, err := tailscaleBin()
 	if err != nil {
 		return err
