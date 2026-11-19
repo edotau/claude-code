@@ -332,7 +332,7 @@ func jobRunning(rec agent.Record) bool { return rec.Alive() && !pidReused(rec) }
 
 // Handback's wait seams: the poll interval and the budget, its spec's less two HookMargins for the read and render.
 var (
-	handbackPoll = 250 * time.Millisecond
+	handbackPoll = 25 * time.Millisecond
 	handbackWait = func() time.Duration { s, _ := core.SpecOf("dispatch-handback"); return s.Budget - 2*core.HookMargin }()
 )
 

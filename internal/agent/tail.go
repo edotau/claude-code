@@ -15,7 +15,7 @@ import (
 // tailBeat is the silence before a follow prints its heartbeat; tailPoll is the log re-read interval. Tests swap both.
 var (
 	tailBeat = 15 * time.Second
-	tailPoll = 250 * time.Millisecond
+	tailPoll = 25 * time.Millisecond
 )
 
 // SwapTailPoll sets the log re-read interval and returns the func that restores it; a test seam for other packages.
