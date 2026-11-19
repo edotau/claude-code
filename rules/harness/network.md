@@ -24,8 +24,9 @@ paths:
   connection. `--direct` is refused under `--remote`; a credential minted by a provider's `auth.command` is not
   tunnelled.
 - `--host auto` and `--remote auto` resolve to a host name here, before any ssh call: `CLAUDE_REMOTE_HOST` (process
-  env, else the vault's), else the one other online tailnet machine that answers `claude-code version` over ssh within
-  5 s (cached 10 minutes in `state/harness/remote/auto-host.json`). None or several is an error listing them.
+  env, else the vault's; a comma-separated list, the first entry is the machine named), else the one other online
+  tailnet machine that answers `claude-code version` over ssh within 5 s (cached 10 minutes in
+  `state/harness/remote/auto-host.json`). None or several is an error listing them.
 - `--host <h>` or `--remote <h>` naming this machine (tailnet DNS name, OS hostname, or either one's first label) runs
   the verb here with no ssh hop or tunnel.
 - Overlay `profile: auto` picks, among Databricks serving rows passing the local checks (stored credential, no auth

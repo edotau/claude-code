@@ -9,6 +9,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -27,9 +28,22 @@ type LoginState struct {
 // RemoteHostEnv names the machine whose browser signs the user in (process env, then the vault's custom env).
 const RemoteHostEnv = "CLAUDE_REMOTE_HOST"
 
+// RemoteHosts is CLAUDE_REMOTE_HOST as a list: process env, else the vault's; the first entry is what `auto` names.
+func RemoteHosts() []string {
+	raw := cmp.Or(strings.TrimSpace(os.Getenv(RemoteHostEnv)), strings.TrimSpace(CustomEnv()[RemoteHostEnv]))
+	hosts := slices.DeleteFunc(strings.Split(raw, ","), func(h string) bool { return strings.TrimSpace(h) == "" })
+	for i, h := range hosts {
+		hosts[i] = strings.TrimSpace(h)
+	}
+	return hosts
+}
+
 // LoginCommand renews profile's own login on the --remote host (a plain login mints the SP); <host> if unset.
 func LoginCommand(profile string) string {
-	host := cmp.Or(strings.TrimSpace(os.Getenv(RemoteHostEnv)), strings.TrimSpace(CustomEnv()[RemoteHostEnv]), "<host>")
+	host := "<host>"
+	if hs := RemoteHosts(); len(hs) > 0 {
+		host = strings.TrimSpace(hs[0])
+	}
 	return "claude-code --remote " + host + " databricks login --profile " + profile
 }
 

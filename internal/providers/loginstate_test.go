@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -172,6 +173,28 @@ func TestLoginStatusReadsNoVaultAndTreatsBadFilesAsMiss(t *testing.T) {
 	t.Setenv(RemoteHostEnv, "wsl.example")
 	if got := LoginCommand("dev"); got != "claude-code --remote wsl.example databricks login --profile dev" {
 		t.Errorf("LoginCommand with a host = %q", got)
+	}
+	t.Setenv(RemoteHostEnv, " , a.example , b.example")
+	if got := LoginCommand("dev"); got != "claude-code --remote a.example databricks login --profile dev" {
+		t.Errorf("LoginCommand with a list = %q", got)
+	}
+}
+
+func TestRemoteHosts(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(RemoteHostEnv, "")
+	if got := RemoteHosts(); len(got) != 0 {
+		t.Errorf("unset = %q, want empty", got)
+	}
+	if err := SetCustomEnv(RemoteHostEnv, "v.example"); err != nil {
+		t.Fatal(err)
+	}
+	if got := RemoteHosts(); !slices.Equal(got, []string{"v.example"}) {
+		t.Errorf("vault value = %q", got)
+	}
+	t.Setenv(RemoteHostEnv, "a.example, b.example,")
+	if got := RemoteHosts(); !slices.Equal(got, []string{"a.example", "b.example"}) {
+		t.Errorf("process env = %q, want it to beat the vault", got)
 	}
 }
 

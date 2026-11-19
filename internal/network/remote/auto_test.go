@@ -56,3 +56,15 @@ func TestResolveAuto(t *testing.T) {
 		t.Errorf("ResolveAuto(wsl) = %q, %v; a named host passes through", got, err)
 	}
 }
+
+func TestAutoEnvHostFirstEntry(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv(HostEnv, " , a.example , b.example")
+	if got := autoEnvHost(); got != "a.example" {
+		t.Errorf("autoEnvHost = %q, want a.example", got)
+	}
+	t.Setenv(HostEnv, "")
+	if got := autoEnvHost(); got != "" {
+		t.Errorf("autoEnvHost unset = %q, want empty", got)
+	}
+}

@@ -131,7 +131,7 @@ Process env read directly by the harness (not pins; set them in the shell or the
 | `AGENT_ERROR_FALLBACK` | one of none, pin, agents, all (`1`/`true`/`yes` = all): how a failed dispatch falls back; unset = `none` (exit on the error); process env beats the vault env |
 | `HARNESS_EGRESS_HOST` | set by `--remote <h>`: Databricks workspace requests leave through that ssh host |
 | `HARNESS_REMOTE_BIN` | the remote `claude-code` binary for `--host` runs |
-| `CLAUDE_REMOTE_HOST` | the machine `--host auto` and `--remote auto` name (`rules/harness/network.md`) |
+| `CLAUDE_REMOTE_HOST` | a comma-separated list; the first entry is the machine `--host auto` and `--remote auto` name (`rules/harness/network.md`) |
 | `HARNESS_ALLOW_OPENCODE_2X` | any value lets one install link an opencode newer than 1.x |
 | `HARNESS_MODEL_CACHE_TTL` | Go duration a saved discovery snapshot stays fresh for launches and copilot (default `24h`) |
 | `HARNESS_USAGE_CACHE_TTL` | seconds a usage fetch stays fresh (default 60; 0 = always refetch) |

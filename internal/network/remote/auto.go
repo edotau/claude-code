@@ -36,7 +36,10 @@ const autoHostTTL = 10 * time.Minute
 // Seams of the auto resolver: tests stub all three, so nothing reads the vault, tailscale or ssh.
 var (
 	autoEnvHost = func() string {
-		return cmp.Or(strings.TrimSpace(os.Getenv(HostEnv)), strings.TrimSpace(providers.CustomEnv()[HostEnv]))
+		if hs := providers.RemoteHosts(); len(hs) > 0 {
+			return hs[0]
+		}
+		return ""
 	}
 	autoPeers   = onlinePeers
 	autoAnswers = answersVersion
