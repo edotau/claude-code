@@ -312,8 +312,7 @@ func printable(s string) string {
 	}, s)
 }
 
-// startWithKey sets WantRunning (and exit routes) by masked PATCH, posts start with only the AuthKey (D6), then
-// login-interactive when no node key exists or no key is given (`tailscale login`; start also drops a stale key).
+// startWithKey masks WantRunning (and exit routes) on, starts with only the AuthKey, then logs in when keyless.
 func startWithKey(ctx context.Context, authKey string, exitNode bool) error {
 	m := prefsMask{WantRunning: true, WantRunningSet: true, LoggedOutSet: true}
 	if exitNode {

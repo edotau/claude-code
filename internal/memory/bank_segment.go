@@ -113,7 +113,7 @@ type segView []byte
 // A document row is dl, text offset, text length, then the block's blockSum and ref, both fixed at encode time.
 const (
 	segHeader = 12
-	refWidth  = 9 // an 8-hex id, or "z" and 8 hex; the 8-hex form is NUL-padded
+	refWidth  = 9             // an 8-hex id, or "z" and 8 hex; the 8-hex form is NUL-padded
 	docStride = 21 + refWidth // the last byte flags a superseded block
 )
 
