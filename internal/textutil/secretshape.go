@@ -14,7 +14,7 @@ import (
 var bearerToken = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)bearer\s+\S{40,}`) })
 
 // bearerAuth captures the scheme so RedactSecrets masks only the token after it.
-var bearerAuth = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)(bearer\s+)\S{40,}`) })
+var bearerAuth = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)(bearer\s+)[^\s"\\,}\]]{40,}`) })
 
 // jwtToken matches a dotted JWT (header.payload, optional signature), which the run pass splits at its dots.
 var jwtToken = sync.OnceValue(func() *regexp.Regexp {
@@ -29,18 +29,19 @@ var pemPrivateKey = sync.OnceValue(func() *regexp.Regexp {
 // CredentialRE is the credential shape the memory commit gate and config history refuse; \b keeps sk- off kebab prose.
 var CredentialRE = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(strings.Join([]string{
-		`\bsk-[A-Za-z0-9_-]{20,}`,                     // OpenAI/Anthropic, incl. sk-proj-/sk-ant- segments
-		`\bdapi[0-9a-f]{32}`,                          // Databricks PAT
-		`\beyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}`, // JWT (header.payload)
-		`\bnvapi-[A-Za-z0-9_-]{24,}`,                  // NVIDIA
-		`\bgh[pousr]_[A-Za-z0-9]{28,}`,                // GitHub
-		`\bgithub_pat_[A-Za-z0-9_]{22,}`,              // GitHub fine-grained PAT
-		`\bAIza[0-9A-Za-z_-]{35}`,                     // Google API key
-		`\btvly-[A-Za-z0-9_-]{16,}`,                   // Tavily
-		`\bgsk_[A-Za-z0-9]{24,}`,                      // Groq
-		`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`,               // AWS access key id (long-term, STS)
-		`\bxox[abprs]-[A-Za-z0-9-]{10,}`,              // Slack
-		`-----BEGIN [A-Z ]*PRIVATE KEY`,               // private keys only, never certificates or public keys
+		`\bsk-[A-Za-z0-9_-]{20,}`,                        // OpenAI/Anthropic, incl. sk-proj-/sk-ant- segments
+		`\bdapi[0-9a-f]{32}`,                             // Databricks PAT
+		`\beyJ[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}`,    // JWT (header.payload)
+		`\bnvapi-[A-Za-z0-9_-]{24,}`,                     // NVIDIA
+		`\bgh[pousr]_[A-Za-z0-9]{28,}`,                   // GitHub
+		`\bgithub_pat_[A-Za-z0-9_]{22,}`,                 // GitHub fine-grained PAT
+		`\bAIza[0-9A-Za-z_-]{35}`,                        // Google API key
+		`\btvly-[A-Za-z0-9_-]{16,}`,                      // Tavily
+		`\bgsk_[A-Za-z0-9]{24,}`,                         // Groq
+		`\b(?:AKIA|ASIA)[0-9A-Z]{16}\b`,                  // AWS access key id (long-term, STS)
+		`\bxox[abprs]-[A-Za-z0-9-]{10,}`,                 // Slack
+		`\btskey-(?:auth|client|api)-[A-Za-z0-9_-]{16,}`, // Tailscale
+		`-----BEGIN [A-Z ]*PRIVATE KEY`,                  // private keys only, never certificates or public keys
 	}, "|"))
 })
 
@@ -208,30 +209,33 @@ func SecretSpans(s string) [][2]int {
 		if from == len(spans) {
 			return
 		}
-		b := []byte(shadow)
+		var b strings.Builder
+		b.Grow(len(shadow))
+		prev := 0
 		for _, span := range spans[from:] {
+			b.WriteString(shadow[prev:span[0]])
 			for i := span[0]; i < span[1]; i++ {
-				b[i] = ' '
+				b.WriteByte(' ')
 			}
+			prev = span[1]
 		}
-		shadow = string(b)
+		b.WriteString(shadow[prev:])
+		shadow = b.String()
 	}
-	for i, re := range []*regexp.Regexp{pemPrivateKey(), jwtToken()} {
-		if !strings.Contains(shadow, []string{"-----BEGIN ", "eyJ"}[i]) {
-			continue
-		}
+	if strings.Contains(shadow, "-----BEGIN ") {
 		from := len(spans)
-		for _, loc := range re.FindAllStringIndex(shadow, -1) {
+		for _, loc := range pemPrivateKey().FindAllStringIndex(shadow, -1) {
 			add(loc[0], loc[1])
 		}
 		hide(from)
 	}
-	from := len(spans)
-	if strings.Contains(strings.ToLower(shadow), "bearer") {
-		for _, loc := range bearerAuth().FindAllStringSubmatchIndex(shadow, -1) {
-			add(loc[3], loc[1])
-		}
+	if strings.Contains(shadow, "eyJ") {
+		from := len(spans)
+		jwtTokens(shadow, add)
+		hide(from)
 	}
+	from := len(spans)
+	bearerTokens(shadow, add)
 	hide(from)
 	starts := credentialStarts()
 	for i := 0; i < len(shadow); {
@@ -239,13 +243,127 @@ func SecretSpans(s string) [][2]int {
 		for j < len(shadow) && tokenByte(shadow[j]) {
 			j++
 		}
-		if j > i && starts[shadow[i]] && fullCredential(shadow[i:j]) {
+		if j-i >= minCredentialLen && starts[shadow[i]] && fullCredential(shadow[i:j]) {
 			add(i, j)
 		}
 		i = max(j, i+1)
 	}
 	return mergeSecretSpans(spans)
 }
+
+// jwtTokens calls add with each dotted JWT (header.payload, optional signature) in s, as jwtToken matches it.
+func jwtTokens(s string, add func(start, end int)) {
+	for i := 0; ; {
+		n := strings.Index(s[i:], "eyJ")
+		if n < 0 {
+			return
+		}
+		at := i + n
+		i = at + 1
+		if at > 0 && wordByte(s[at-1]) {
+			continue
+		}
+		if end := jwtEnd(s, at); end > 0 {
+			add(at, end)
+			i = end
+		}
+	}
+}
+
+// jwtEnd is where the JWT starting at s[at:] ends, or 0 when none starts there.
+func jwtEnd(s string, at int) int {
+	p := at + len("eyJ")
+	head := tokenRun(s, p)
+	if head < 16 || p+head >= len(s) || s[p+head] != '.' {
+		return 0
+	}
+	p += head + 1
+	body := tokenRun(s, p)
+	if body < 16 {
+		return 0
+	}
+	p += body
+	if p < len(s) && s[p] == '.' {
+		p += 1 + tokenRun(s, p+1)
+	}
+	return p
+}
+
+// tokenRun is the length of the run of [A-Za-z0-9_-] at s[from:].
+func tokenRun(s string, from int) int {
+	n := 0
+	for from+n < len(s) && tokenByte(s[from+n]) {
+		n++
+	}
+	return n
+}
+
+// wordByte is the regexp \b word class: ASCII letters, digits and underscore.
+func wordByte(c byte) bool {
+	return c == '_' || c >= '0' && c <= '9' || c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z'
+}
+
+// minCredentialLen is the shortest CredentialRE match (xox[abprs]-plus 10); a shorter run skips the regex.
+const minCredentialLen = 15
+
+// bearerTokens calls add with the span of each opaque token (40+ runes) after a case-insensitive "bearer" and spaces.
+func bearerTokens(s string, add func(start, end int)) {
+	lower, upper := strings.IndexByte(s, 'b'), strings.IndexByte(s, 'B')
+	for i := 0; ; {
+		lower, upper = advance(s, 'b', i, lower), advance(s, 'B', i, upper)
+		at := max(lower, upper)
+		if lower >= 0 && upper >= 0 {
+			at = min(lower, upper)
+		}
+		if at < 0 {
+			return
+		}
+		i = at + 1
+		if start, end := bearerRun(s, at); end > 0 {
+			add(start, end)
+			i = end
+		}
+	}
+}
+
+// bearerRun is the token span after a "bearer" at s[at:], or 0, 0 when the word, a space or 40 runes are missing.
+func bearerRun(s string, at int) (start, end int) {
+	const word = "bearer"
+	if at+len(word) > len(s) || !strings.EqualFold(s[at:at+len(word)], word) {
+		return 0, 0
+	}
+	start = at + len(word)
+	for start < len(s) && isSpaceByte(s[start]) {
+		start++
+	}
+	end = start
+	for end < len(s) && bearerByte(s[end]) {
+		end++
+	}
+	if start == at+len(word) || utf8.RuneCountInString(s[start:end]) < 40 {
+		return 0, 0
+	}
+	return start, end
+}
+
+// bearerByte reports a byte that can sit in a bearer token: not a space, control byte or JSON structure byte.
+func bearerByte(c byte) bool {
+	return c > ' ' && c != 0x7f && c != '"' && c != '\\' && c != ',' && c != '}' && c != ']'
+}
+
+// advance is the next index of c at or after from, given its cached position cur (-1 once none is left).
+func advance(s string, c byte, from, cur int) int {
+	if cur < from && cur >= 0 {
+		if n := strings.IndexByte(s[from:], c); n >= 0 {
+			return from + n
+		}
+		return -1
+	}
+	return cur
+}
+
+// isSpaceByte is the regexp \s class: ASCII tab, newline, form feed, carriage return and space.
+func isSpaceByte(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r' }
 
 // fullCredential is looksSecretToken minus the bare GitHub and Slack prefix checks, which match prose like "ghp_".
 func fullCredential(run string) bool {

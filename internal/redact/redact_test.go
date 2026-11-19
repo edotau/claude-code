@@ -99,6 +99,18 @@ func TestMaskCorners(t *testing.T) {
 	}
 }
 
+// A bearer token inside a JSON string stops at the closing quote, so the line stays valid JSON at the same length.
+func TestMaskBearerInJSON(t *testing.T) {
+	m := FromValues(nil)
+	tok := strings.Repeat("Xy9", 20)
+	for _, line := range []string{`{"h":"Authorization: Bearer ` + tok + `","n":1}`, `{"h":["Bearer ` + tok + `"],"n":{"a":"Bearer ` + tok + `"}}`, `{"h":"Bearer ` + tok + `\n"}`} {
+		buf := []byte(line)
+		if m.Mask(buf) == 0 || len(buf) != len(line) || bytes.Contains(buf, []byte(tok)) || !json.Valid(buf) {
+			t.Fatalf("bearer in JSON: %q masked to %q, want same length, token gone, valid JSON", line, buf)
+		}
+	}
+}
+
 func TestLoadAndFileGuards(t *testing.T) {
 	sentinel := errors.New("source unavailable")
 	_, err := Load(func() ([]string, error) { return nil, sentinel })
@@ -148,24 +160,41 @@ func TestFileLinks(t *testing.T) {
 	}
 }
 
+// benchSample is realistic output: log-like lines with hashes, a JSON line shape, and a few planted credentials.
+func benchSample(size int, jsonl bool, plant ...string) []byte {
+	line := "ok  \tgithub.com/edotau/claude-code/internal/redact\t0.412s sha=3f30f220c76ffebd0 Bearer is a word, token=abc\n"
+	if jsonl {
+		line = `{"type":"user","message":{"content":"ok  github.com/edotau/claude-code/internal/redact 0.412s sha=3f30f220c76ffebd0 ghost eyJ"},"uuid":"0f1e2d3c"}` + "\n"
+	}
+	out := bytes.Repeat([]byte(line), size/len(line)+1)[:size]
+	for i, p := range plant {
+		copy(out[size/(len(plant)+1)*(i+1):], p)
+	}
+	return out
+}
+
 func BenchmarkMask(b *testing.B) {
 	vals := make([]string, 200)
 	for i := range vals {
 		vals[i] = fmt.Sprintf("FAKE-SECRET-%04d-0123456789abcdef", i)
 	}
 	m := FromValues(vals)
-	for _, size := range []int{4096, 1 << 20} {
-		b.Run(fmt.Sprintf("bytes=%d", size), func(b *testing.B) {
-			input := bytes.Repeat([]byte("ordinary prose. "), (size+15)/16)[:size]
-			copy(input[size/2:], vals[199])
-			buf := make([]byte, size)
-			b.ReportAllocs()
-			b.SetBytes(int64(size))
-			for b.Loop() {
-				copy(buf, input)
-				m.Mask(buf)
+	shapes := []string{"gh" + "p_" + strings.Repeat("Ab1", 12), "tsk" + "ey-auth-kTEST000CNTRL-" + strings.Repeat("abcde", 6), "Bearer " + strings.Repeat("Xy9", 20)}
+	for _, size := range []int{64 << 10, 1 << 20, 16 << 20} {
+		for _, kind := range []string{"text", "jsonl"} {
+			input := benchSample(size, kind == "jsonl", append([]string{vals[199]}, shapes...)...)
+			for name, mask := range map[string]func([]byte) int{"values": m.MaskValues, "all": m.Mask} {
+				b.Run(fmt.Sprintf("%s/bytes=%d/%s", kind, size, name), func(b *testing.B) {
+					buf := make([]byte, size)
+					b.ReportAllocs()
+					b.SetBytes(int64(size))
+					for b.Loop() {
+						copy(buf, input)
+						mask(buf)
+					}
+				})
 			}
-		})
+		}
 	}
 }
 

@@ -269,7 +269,7 @@ func (m *Matcher) matchAt(b []byte, final bool) (int, bool) {
 			}
 			continue
 		}
-		if string(b[:len(needle)]) == needle {
+		if needle[1] == b[1] && string(b[:len(needle)]) == needle { // MinLen guarantees a second byte
 			return len(needle), true
 		}
 	}

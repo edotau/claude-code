@@ -16,7 +16,7 @@ const shapesOnlyMsg = "claude-code: secrets-out: vault values could not be loade
 
 const shapesOnlyNote = "claude-code: secrets-out: vault values unavailable; masked credential shapes only"
 
-// SecretsOut (PostToolUse Bash) masks vault values in the output at the same length; any other call returns nothing.
+// SecretsOut (PostToolUse Bash) masks vault values and credential shapes at the same length; other calls return nothing.
 func SecretsOut(in *core.Input) core.Result {
 	resp, ok := in.Field("tool_response").(map[string]any)
 	if !ok {
@@ -47,11 +47,11 @@ func SecretsOut(in *core.Input) core.Result {
 	return core.Result{UpdatedToolOutput: updated, Stderr: note, SystemMessage: msg}
 }
 
-// outputMask is the vault-value masker; unreadable or slow, shapes with a note, and a message once a minute.
+// outputMask masks values and shapes; vault unreadable or slow: shapes alone, a note, a message once a minute.
 func outputMask() (mask func([]byte) int, note, msg string) {
 	m, cause, announce := redact.SharedWithin(vaultWait())
 	if cause == "" {
-		return m.MaskValues, "", ""
+		return m.Mask, "", ""
 	}
 	if announce {
 		msg = fmt.Sprintf(shapesOnlyMsg, cause)
@@ -59,7 +59,7 @@ func outputMask() (mask func([]byte) int, note, msg string) {
 	return m.Mask, shapesOnlyNote, msg
 }
 
-// maskText masks s with mask: vault values only, unless the vault is unreadable and shapes stand in.
+// maskText masks s with mask and returns the masked text with the hit count.
 func maskText(mask func([]byte) int, s string) (string, int) {
 	b := []byte(s)
 	n := mask(b)

@@ -24,7 +24,7 @@ func bashOutput(stdout, stderr string) *core.Input {
 func quote(s string) string { return `"` + s + `"` }
 
 // A vault value in stdout or stderr is masked at the same length, other fields stay, other calls return nothing.
-func TestSecretsOutMasksVaultValuesOnly(t *testing.T) {
+func TestSecretsOutMasksVaultValues(t *testing.T) {
 	redact.StubValues(t, []string{fakeSecret})
 	got := SecretsOut(bashOutput("token="+fakeSecret+" ok", "err "+fakeSecret))
 	if got.UpdatedToolOutput == nil {
@@ -43,15 +43,30 @@ func TestSecretsOutMasksVaultValuesOnly(t *testing.T) {
 	if !strings.Contains(out.String(), `"updatedToolOutput"`) || strings.Contains(out.String(), fakeSecret) {
 		t.Errorf("rendered %q, want updatedToolOutput without the value", out.String())
 	}
+}
+
+// Output with no vault value, too short to open, or with no response returns no replacement.
+func TestSecretsOutLeavesCleanOutput(t *testing.T) {
+	redact.StubValues(t, []string{fakeSecret})
 	for name, in := range map[string]*core.Input{
 		"no value":     bashOutput("hello world, nothing secret here", ""),
-		"shape only":   bashOutput("key sk-learn-something-long-enough-0123456789", ""),
 		"short output": bashOutput("ok", ""),
 		"no response":  core.ParseInput(strings.NewReader(`{"tool_name":"Bash"}`)),
 	} {
 		if r := SecretsOut(in); r.UpdatedToolOutput != nil || r.Stderr != "" || r.Context != "" {
 			t.Errorf("%s: returned %+v, want nothing", name, r)
 		}
+	}
+}
+
+// A credential shape (ghp_, tskey-) is masked at the same length with the vault loaded, not only when it is unreadable.
+func TestSecretsOutMasksShapesWithVault(t *testing.T) {
+	redact.StubValues(t, []string{fakeSecret})
+	ghp, tskey := "gh"+"p_"+strings.Repeat("Ab1", 12), "tsk"+"ey-auth-kTEST000CNTRL-"+strings.Repeat("abcde", 6)
+	shapes := SecretsOut(bashOutput("a "+ghp+" b", "c "+tskey+" d")).UpdatedToolOutput
+	if o, e := shapes["stdout"].(string), shapes["stderr"].(string); len(o) != len("a "+ghp+" b") || len(e) != len("c "+tskey+" d") ||
+		strings.Contains(o, ghp) || strings.Contains(e, tskey) || !strings.HasSuffix(e, " d") {
+		t.Errorf("shapes with the vault loaded: stdout %q stderr %q, want both masked at the same length", o, e)
 	}
 }
 
@@ -80,7 +95,7 @@ func TestSecretsOutStalledVaultMasksShapes(t *testing.T) {
 	prev := vaultWait
 	vaultWait = func() time.Duration { return 20 * time.Millisecond }
 	t.Cleanup(func() { vaultWait = prev })
-	shape := "ghp_" + "Zq8rT2vLm9XwK4pB7nC1dF6hJ3sY5aE0uQiO"
+	shape := "gh" + "p_" + strings.Repeat("Zq8r", 9)
 	got := SecretsOut(bashOutput("GH="+shape+" ok", ""))
 	stdout, _ := got.UpdatedToolOutput["stdout"].(string)
 	if strings.Contains(stdout, shape) || len(stdout) != len("GH="+shape+" ok") || got.Stderr != shapesOnlyNote {

@@ -12,9 +12,9 @@ import (
 
 // countPieces mixes values that nest, overlap or span lines with every shape that can reach across a line break.
 var countPieces = []string{"FakeToken1234", "FakeToken1234LongSuffix5678", "Overlap-AAAA1234-Overlap", "Pem\nLine-1234",
-	"[redacted]****", "bearer \n", "Bearer " + strings.Repeat("Ab1_", 12), "-----BEGIN PRIVATE KEY-----\nabc\n",
-	"-----END PRIVATE KEY-----", "eyJ" + strings.Repeat("a", 20) + "." + strings.Repeat("b", 20),
-	"sk-" + strings.Repeat("a", 200), "AKIA" + strings.Repeat("B", 16), "\n", "\n", " ", "x", ". "}
+	"[redacted]****", "bearer \n", "Bearer " + strings.Repeat("Ab1_", 12), "-----BEGIN PRI" + "VATE KEY-----\nabc\n",
+	"-----END PRIVATE KEY-----", "ey" + "J" + strings.Repeat("a", 20) + "." + strings.Repeat("b", 20),
+	"s" + "k-" + strings.Repeat("a", 200), "AK" + "IA" + strings.Repeat("B", 16), "\n", "\n", " ", "x", ". "}
 
 // The windowed count equals Mask on the whole input, for random text with matches planted across window edges.
 func TestCounterMatchesMask(t *testing.T) {
@@ -47,7 +47,7 @@ func TestCounterTally(t *testing.T) {
 	m := FromRecords(map[string]string{"TOKEN_A": "FakeToken1234", "OAUTH": `{"refresh":"Refresh-0123456789"}`})
 	c := NewCounter(m)
 	c.Tally = NewTally()
-	in := "FakeToken1234 Refresh-0123456789 [redacted]*** AKIA" + strings.Repeat("B", 16) + "\n"
+	in := "FakeToken1234 Refresh-0123456789 [redacted]*** AK" + "IA" + strings.Repeat("B", 16) + "\n"
 	if n, err := c.count(strings.NewReader(in), &countBuffers{}); err != nil || n != 3 {
 		t.Fatalf("count %d error %v", n, err)
 	}
