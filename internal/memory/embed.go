@@ -765,7 +765,7 @@ func hedgeFunc(profile, model string) embedFn {
 	return nil
 }
 
-// hedgedEmbed runs primary, starts secondary after delay or on primary's failure; first success wins, the loser is cancelled.
+// hedgedEmbed runs primary, starts secondary after delay or on primary failure; first success wins, loser cancelled.
 func hedgedEmbed(ctx context.Context, delay time.Duration, texts []string, primary, secondary embedFn) ([][]float32, error) {
 	if secondary == nil {
 		return primary(ctx, texts)

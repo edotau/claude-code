@@ -58,7 +58,7 @@ var gofmtMatchesRuntime = sync.OnceValue(func() bool {
 	return err == nil && info.GoVersion == runtime.Version()
 })
 
-// formatGoInProcess is gofmt -w without the spawn: unchanged bytes are not written, a parse error leaves the file alone.
+// formatGoInProcess is gofmt -w without the spawn: unchanged bytes stay unwritten, a parse error leaves the file.
 func formatGoInProcess(path string) bool {
 	fi, err := os.Stat(path)
 	if err != nil {
