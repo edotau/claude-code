@@ -213,7 +213,7 @@ var roleCases = []roleCase{
 	{"claude-code vault get --secret GITHUB_TOKEN", "", devKube, core.Allow, core.Block},
 	{"T=$(claude-code resolve --profile dev --secret)", "", devKube, core.Allow, core.Block},
 	{"claude-code gateway proxy --client-token ed --secret", "", devKube, core.Allow, core.Block},
-	{"claude-code network tailscale --token --secret", "", devKube, core.Allow, core.Block},
+	{"claude-code tailscale --token --secret", "", devKube, core.Allow, core.Block},
 	{"claude-code vault get --secret --export A B", "", devKube, core.Allow, core.Block},
 	{"claude-code vault get A -- --secret", "", devKube, core.Allow, core.Allow},
 	{`claude-code agents ask --agent codex review the --secret flag`, "", devKube, core.Allow, core.Allow},

@@ -176,8 +176,8 @@ func TestEachGitStringArgs(t *testing.T) {
 	}
 	for _, cmd := range []string{"echo 'git x'", "git commit -m 'git y fix'", "xargs echo", "echo hi | bash -c 'cat'", "echo hi | bash",
 		"echo run git x later", "grep -rn git x internal", "claude-code memory recall git x", "claude-code memory recall 'git x'",
-		"claude-code network websearch --query 'git x vs git y'", "claude-code scm pr create --title 'git x guard'",
-		"claude-code memory remember 'never git x'", "claude-code scm comment 1 git x"} {
+		"claude-code network websearch --query 'git x vs git y'", "claude-code worktree pr create --title 'git x guard'",
+		"claude-code memory remember 'never git x'", "claude-code worktree comment 1 git x"} {
 		if got := collectGit(cmd, "/w"); len(got) > 1 || len(got) == 1 && got[0].verb != "commit" {
 			t.Errorf("EachGit(%q) = %v, want no inspected git text", cmd, got)
 		}

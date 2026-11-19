@@ -88,7 +88,7 @@
   },
   "inert_harness_verbs": {
     "purpose": "claude-code verbs whose arguments are search terms, facts or PR text, never run",
-    "words": ["memory recall", "memory search", "memory remember", "network websearch", "scm pr", "scm comment"]
+    "words": ["memory recall", "memory search", "memory remember", "network websearch", "worktree pr", "worktree comment"]
   },
   "runner_value_flags": {
     "purpose": "xargs, parallel and watch options whose value is the next word",
@@ -156,7 +156,7 @@
   },
   "data_harness_verbs": {
     "purpose": "claude-code verbs whose words are briefs, search terms, facts or PR text",
-    "words": ["agents", "memory", "network", "scm", "plan", "review"]
+    "words": ["agents", "memory", "network", "plan", "review"]
   },
   "branch_quiet_flags": {
     "purpose": "git checkout and switch flags that neither discard nor overwrite",

@@ -183,7 +183,12 @@ func dropEnvAssigns(toks []string) []string {
 
 // claudeCodeData reports a claude-code segment of text: a data verb, or a worktree commit message unless keepCommit.
 func claudeCodeData(toks []string, keepCommit bool) bool {
-	return len(toks) > 1 && dataHarnessVerbs()[toks[1]] || !keepCommit && inertWorktreeCommit(toks)
+	return len(toks) > 1 && dataHarnessVerbs()[toks[1]] || worktreeText(toks) || !keepCommit && inertWorktreeCommit(toks)
+}
+
+// worktreeText: the words of `claude-code worktree pr|checks|comment` are PR text, as `scm` was.
+func worktreeText(toks []string) bool {
+	return len(toks) > 2 && toks[1] == "worktree" && (toks[2] == "pr" || toks[2] == "checks" || toks[2] == "comment")
 }
 
 // dataJudges decide per command whether its words are text: grep without a --pre, sed without `e`, PR text, briefs.
