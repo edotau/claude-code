@@ -2,8 +2,10 @@ package tailscale
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -102,4 +104,32 @@ func apiKeyNote() (note string, ok bool) {
 		return fmt.Sprintf("; TAILSCALE_API_KEY malformed: %v", err), false
 	}
 	return "; api credential TAILSCALE_API_KEY", true
+}
+
+// ClientVersion is the installed client's release number ("1.104.7"), from the LocalAPI else the CLI's status.
+func ClientVersion(ctx context.Context) (string, error) {
+	st, err := Status(ctx)
+	if st.Version == "" {
+		if err == nil {
+			err = errors.New("status carries no version")
+		}
+		return "", err
+	}
+	v, _, _ := strings.Cut(st.Version, "-")
+	return v, nil
+}
+
+// AutoUpdateApply reports the AutoUpdate.Apply pref; known is false when the LocalAPI is unreachable.
+func AutoUpdateApply(ctx context.Context) (on, known bool) {
+	out, err := localAPI(ctx, http.MethodGet, "prefs", nil)
+	if err != nil {
+		return false, false
+	}
+	var p struct {
+		AutoUpdate struct{ Apply json.RawMessage }
+	}
+	if json.Unmarshal(out, &p) != nil || len(p.AutoUpdate.Apply) == 0 {
+		return false, false
+	}
+	return string(p.AutoUpdate.Apply) == "true", true
 }

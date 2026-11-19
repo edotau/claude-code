@@ -145,6 +145,9 @@ func checkHostHealth(ctx context.Context, check func(bool, bool, string, string)
 	check(rtkOK, false, "rtk compressor", rtkDetail)
 	tsOK, tsDetail := tailscale.Doctor(ctx)
 	check(tsOK, false, "tailscale", tsDetail)
+	for _, r := range upstreamRows(ctx) {
+		check(r.OK, false, r.Name, r.Detail)
+	}
 	settingsErr := settings.CheckFile(settings.SettingsFile())
 	nested := setup.NestedConfig()
 	check(nested.Dir == "" || onlyWorktrees(nested), false, "nested config", nestedDetail(nested))

@@ -60,6 +60,7 @@ type peer struct {
 
 // Local is this node's status.
 type Local struct {
+	Version      string // the client build, e.g. 1.104.7-t…-g…
 	ID           string // the stable node id, which the admin API accepts as a device id
 	BackendState string
 	DNSName      string
@@ -76,6 +77,7 @@ type Local struct {
 
 // rawStatus mirrors the subset of `tailscale status --json` this package reads.
 type rawStatus struct {
+	Version      string
 	BackendState string
 	Self         rawNode
 	Peer         map[string]rawNode
@@ -231,6 +233,7 @@ func parseStatus(out []byte, via string) (Local, error) {
 		return Local{}, fmt.Errorf("tailscale status: %w", err)
 	}
 	local := Local{
+		Version:          raw.Version,
 		ID:               raw.Self.ID,
 		BackendState:     raw.BackendState,
 		DNSName:          raw.Self.DNSName,
