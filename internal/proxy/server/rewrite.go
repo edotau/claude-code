@@ -108,6 +108,35 @@ type proxyBody struct {
 	raw   []byte
 	top   map[string]json.RawMessage
 	model string
+	lazy  *pendingMarshal // set: stages only mutate top and finish marshals once
+}
+
+// pendingMarshal records which stage kinds changed top: the last marshaler's escaping decides the bytes.
+type pendingMarshal struct{ dirty, model bool }
+
+// marshalTop marshals top for a stage, or defers to finish when the body is lazy.
+func (b proxyBody) marshalTop() []byte {
+	if b.lazy != nil {
+		b.lazy.dirty = true
+		return b.raw
+	}
+	return marshalOr(b.top, b.raw)
+}
+
+// finish marshals a lazy body once, with the encoder the last firing stage used; orig is the pre-stage body.
+func (m *pendingMarshal) finish(b proxyBody, orig []byte) ([]byte, error) {
+	if !m.dirty && !m.model {
+		return orig, nil
+	}
+	if m.dirty {
+		if out, err := json.Marshal(b.top); err == nil {
+			return out, nil
+		}
+		if !m.model {
+			return orig, nil
+		}
+	}
+	return textutil.MarshalNoEscape(b.top)
 }
 
 func decodeProxyBody(raw []byte) proxyBody {
@@ -169,8 +198,15 @@ func (b proxyBody) withModel(model string) (proxyBody, error) {
 	if json.Unmarshal(b.top["model"], &cur) == nil && cur == model {
 		return b, nil
 	}
-	top := maps.Clone(b.top)
+	top := b.top
+	if b.lazy == nil {
+		top = maps.Clone(top)
+	}
 	top["model"], _ = json.Marshal(model)
+	if b.lazy != nil {
+		b.top, b.model, b.lazy.model = top, model, true
+		return b, nil
+	}
 	raw, err := textutil.MarshalNoEscape(top)
 	b.top, b.raw, b.model = top, raw, model
 	return b, err

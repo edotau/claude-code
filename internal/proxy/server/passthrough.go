@@ -151,6 +151,8 @@ func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *provi
 func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect string,
 	dbxGemini bool) (out []byte, newModel string, geminiChat bool, err error) {
 	decoded := decodeProxyBody(body)
+	var pend pendingMarshal
+	decoded.lazy = &pend
 	model = cmp.Or(decoded.model, model)
 	if wire := models.Strip1M(p.WireModel(model)); model != "" && wire != model &&
 		(dialect == providers.ProtocolOpenAI || dialect == providers.ProtocolResponses) {
@@ -158,9 +160,7 @@ func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect
 			_, err := withModel(body, wire)
 			return nil, model, false, err
 		}
-		if decoded, err = decoded.withModel(wire); err != nil {
-			return nil, model, false, err
-		}
+		decoded, _ = decoded.withModel(wire) // lazy: finish reports the marshal error
 		model = wire
 	}
 	if dbxGemini {
@@ -176,7 +176,8 @@ func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect
 	if dialect != providers.ProtocolGemini {
 		decoded.raw = decoded.clampOutputTokens(model)
 	}
-	return decoded.raw, model, geminiChat, nil
+	out, err = pend.finish(decoded, body)
+	return out, model, geminiChat, err
 }
 
 func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *providers.Provider,
@@ -438,7 +439,7 @@ func (b proxyBody) dropNonFunctionTools() []byte {
 	} else {
 		top["tools"], _ = json.Marshal(kept)
 	}
-	return marshalOr(top, b.raw)
+	return b.marshalTop()
 }
 
 // fixGeminiChat normalizes streaming options, tool choice, schemas, and thought signatures.
@@ -461,7 +462,7 @@ func (b proxyBody) fixGeminiChat() []byte {
 	if !changed {
 		return b.raw
 	}
-	return marshalOr(top, b.raw)
+	return b.marshalTop()
 }
 
 // marshalOr marshals v, or returns body when v cannot be encoded.
@@ -481,7 +482,7 @@ func (b proxyBody) clampOutputTokens(model string) []byte {
 	if !ok || limits.Output <= 0 || !clampCaps(b.top, limits.Output) {
 		return b.raw
 	}
-	return marshalOr(b.top, b.raw)
+	return b.marshalTop()
 }
 
 // clampCaps lowers every output cap in top above max to max; false when none changed.
@@ -690,7 +691,7 @@ func (b proxyBody) thinkingLevel() []byte {
 	}
 	gen["thinkingConfig"], _ = json.Marshal(think)
 	b.top["generationConfig"], _ = json.Marshal(gen)
-	return marshalOr(b.top, b.raw)
+	return b.marshalTop()
 }
 
 // dropOffThoughts removes includeThoughts when thinkingBudget is 0: Vertex rejects thoughts with thinking off.
@@ -712,7 +713,7 @@ func (b proxyBody) dropOffThoughts() []byte {
 	delete(think, "includeThoughts")
 	gen["thinkingConfig"], _ = json.Marshal(think)
 	top["generationConfig"], _ = json.Marshal(gen)
-	return marshalOr(top, b.raw)
+	return b.marshalTop()
 }
 
 func geminiSignatures(top map[string]json.RawMessage, changed bool) bool {

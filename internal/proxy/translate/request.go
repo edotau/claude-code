@@ -426,6 +426,7 @@ func appendUser(msgs []chatMessage, blocks []block) ([]chatMessage, error) {
 func appendAssistant(msgs []chatMessage, blocks []block, wireModel string) []chatMessage {
 	var calls []chatToolCall
 	var results []chatMessage
+	var buf bytes.Buffer
 	for _, b := range blocks {
 		switch b.Type {
 		case "web_search_tool_result":
@@ -436,7 +437,7 @@ func appendAssistant(msgs []chatMessage, blocks []block, wireModel string) []cha
 			continue
 		}
 		args := "{}"
-		var buf bytes.Buffer
+		buf.Reset()
 		if string(b.Input) != "null" && json.Compact(&buf, b.Input) == nil {
 			args = buf.String()
 		}

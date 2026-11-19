@@ -1101,3 +1101,16 @@ func TestThinkingLevelReplacesBudget(t *testing.T) {
 		}
 	}
 }
+
+func BenchmarkFixPassthroughBody(b *testing.B) {
+	body := bytes.Replace(benchChatBody, []byte(`"claude-x"`), []byte(`"claude-sonnet-5-5"`), 1)
+	p := &providers.Provider{ModelPrefix: models.DatabricksPrefix}
+	b.SetBytes(int64(len(body)))
+	b.ReportAllocs()
+	for b.Loop() {
+		out, m, _, err := fixPassthroughBody(body, p, "chat/completions", "", providers.ProtocolOpenAI, false)
+		if err != nil || bytes.Equal(out, body) || !strings.HasPrefix(m, models.DatabricksPrefix) {
+			b.Fatal(err, m)
+		}
+	}
+}

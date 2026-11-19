@@ -9,6 +9,7 @@ import (
 	"os"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -97,7 +98,8 @@ func loadClientHashes() ([]string, error) {
 func (c *clientTokens) current() []string {
 	stamp := "missing"
 	if fi, err := os.Stat(vault.Path()); err == nil {
-		stamp = fmt.Sprintf("%d/%d", fi.ModTime().UnixNano(), fi.Size())
+		var buf [40]byte
+		stamp = string(strconv.AppendInt(append(strconv.AppendInt(buf[:0], fi.ModTime().UnixNano(), 10), '/'), fi.Size(), 10))
 	}
 	c.mu.Lock()
 	defer c.mu.Unlock()
