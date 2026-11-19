@@ -58,8 +58,12 @@ func RefreshStale(ctx context.Context, reg *providers.Registry, ps []Pin, now ti
 			}
 		})
 	}
-	for _, g := range staleGithubRows(reg, now, force) {
-		wg.Go(func() { discoverGithub(ctx, g.Name) })
+	if rows := staleGithubRows(reg, now, force); len(rows) > 0 {
+		wg.Go(func() { // one at a time: each child starts a Copilot runtime
+			for _, g := range rows {
+				discoverGithub(ctx, g.Name)
+			}
+		})
 	}
 	wg.Wait()
 	return errs
@@ -76,6 +80,7 @@ func discoverGithub(ctx context.Context, row string) {
 	defer cancel()
 	cmd := exec.CommandContext(lctx, self, "models", "preflight", "--discover", row)
 	cmd.Stderr = os.Stderr
+	proc.OwnGroup(cmd) // the timeout kills the Copilot runtime the child started too
 	if err := cmd.Run(); err != nil && lctx.Err() != nil {
 		fmt.Fprintf(os.Stderr, "preflight: %s: GitHub listing refresh timed out\n", row)
 	}
