@@ -40,7 +40,7 @@
         "enter": "chat:submit",
         "ctrl+x enter": "chat:queueSubmit",
         "ctrl+x ctrl+s": "chat:sendNow",
-        "ctrl+enter": "chat:sendNow",
+        "ctrl+enter": "chat:submit",
         "ctrl+j": "chat:newline",
         "up": "history:previous",
         "down": "history:next",
