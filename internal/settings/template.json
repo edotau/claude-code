@@ -11,14 +11,15 @@
       "WebFetch(*)"
     ],
     "deny": [
-      "Read(~/.ssh/**)",
-      "Read(**/state/vault.db)",
+      "Bash(rm -rf ~)",
       "Edit(~/.ssh/**)",
-      "Edit(**/state/vault.db)",
-      "Edit(**/.credentials.json)",
-      "Edit(~/.claude/settings.json)"
+      "Bash(sudo:*)"
     ],
     "ask": [
+      "Read(~/.ssh/id_*)",
+      "Edit(**/state/vault.db)",
+      "Edit(**/.credentials.json)",
+      "Edit(~/.claude/settings.json)",
       "Bash(git push --force:*)",
       "Bash(git push -f:*)",
       "Bash(git reset --hard:*)"
