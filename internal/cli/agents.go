@@ -37,7 +37,7 @@ func agentsSpec() *helptext.Node {
 			formatFlag()}},
 		"tree": {Flags: []helptext.Flag{flag("days"), flag("session"), boolFlag("detail"),
 			boolFlag("watch"), flag("interval"), boolFlag("files"), formatFlag()}},
-		"label": {Flags: []helptext.Flag{flag("model"), flag("profile"), flag("task"), flag("session-model"), formatFlag()}},
+		"label": {Flags: []helptext.Flag{flag("model"), flag("profile"), flag("task"), flag("session-model"), boolFlag("run"), flag("spec"), formatFlag()}},
 		"find": {Flags: []helptext.Flag{boolFlag("name"), boolFlag("func"), boolFlag("def"), boolFlag("callers"),
 			boolFlag("i"), boolFlag("w"), boolFlag("l"), flag("path"), flag("max"), formatFlag()}},
 		"diff": {Flags: []helptext.Flag{flag("base"), flag("path"), flag("verify"), boolFlag("check"), valuedFlag("gates", inspect.GateNames),
@@ -127,8 +127,9 @@ var agentsSubPages = map[string][3]string{
 		"--files adds each leaf's still-dirty files (claims ledger, or a dispatch's run), its latest undelivered note, and the dirty files no live leaf holds.",
 		"Exit 0, 2 usage (bad --format, --watch with json, or a non-positive --interval)."},
 	"label": {"label <type> [flags]", "Print the \"<model>: \" prefix the dispatch-effort hook requires on a dispatch " +
-		"description, for a leaf of <type> with the given model and task.",
-		"Exit 0, 1 the hook refuses <type> or the task is unreadable, 2 usage."},
+		"description, for a leaf of <type> with the given model and task. --run also prints the brief's exact Run: " +
+		"line, from --model/--profile or --spec.",
+		"Exit 0, 1 the hook refuses <type> or the task is unreadable, 2 usage or --spec."},
 	"diff": {"diff [flags]", "List the files changed since --base (default HEAD: uncommitted), with line counts, " +
 		"the ones outside every --path, each new Go test or helper with its caller count (advisory), and with --check the Go and docs gates (on the --path files; complexity only for " +
 		"findings the change introduced), findings as `path:line: tool/rule: message` rows. --gates picks gates (lint: " +
@@ -352,6 +353,8 @@ func cmdAgentsLabel(args []string) int {
 	profile := fs.String("profile", "", "the ask --profile the leaf runs on, when the brief's Run: line names none")
 	taskFile := fs.String("task", "", "the task file the leaf gets; - reads stdin")
 	sessionModel := fs.String("session-model", "", "the session's model id (default: from this session's transcript)")
+	run := fs.Bool("run", false, "also print the brief's Run: line for this leaf, first")
+	spec := fs.String("spec", "", "with --run: the ask spec (file, {...} or -) the Run: line carries")
 	format := helptext.FormatFlag(fs)
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -368,6 +371,13 @@ func cmdAgentsLabel(args []string) int {
 	if err != nil {
 		return helptext.Fail("agents label: %v", err)
 	}
+	runText, err := labelRun(*run, *spec, pos[0], model, profile)
+	if err != nil {
+		return helptext.FailUsage("agents label: %v", err)
+	}
+	if runText != "" {
+		task = runText + "\n\n" + task
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return helptext.Fail("agents label: %v", err)
@@ -377,16 +387,82 @@ func cmdAgentsLabel(args []string) int {
 	if *format == helptext.JSON {
 		return helptext.WriteJSONOrFail("agents label", row)
 	}
+	return emitLabel(row, runText, *model, *profile, task)
+}
+
+// emitLabel prints the Run: line, then the label, after the hook's refusal and notes.
+func emitLabel(row hooks.LabelRow, runText, model, profile, task string) int {
 	if row.Blocked != "" { // the hook refuses this dispatch: say so instead of printing a prefix it never accepts
 		return helptext.Fail("agents label: %s", row.Blocked)
 	}
 	if row.Note != "" {
 		fmt.Fprintln(os.Stderr, row.Note)
 	}
-	if pos[0] == "gemini" {
-		googleLabelWarning(context.Background(), os.Stderr, pos[0], *model, *profile, task)
+	if row.Type == "gemini" {
+		googleLabelWarning(context.Background(), os.Stderr, row.Type, model, profile, task)
+	}
+	if runText != "" {
+		fmt.Println(runText)
 	}
 	return printLabel(row.Label)
+}
+
+// labelRun is --run's Run: line, and clears model/profile, which the line now carries.
+func labelRun(run bool, spec, typ string, model, profile *string) (string, error) {
+	if !run {
+		if spec != "" {
+			return "", errors.New("--spec needs --run")
+		}
+		return "", nil
+	}
+	line, err := runLine(typ, spec, *model, *profile)
+	*model, *profile = "", ""
+	return line, err
+}
+
+// specFlags is the ask argv a label --run line carries: the spec's flags, else --model/--profile.
+func specFlags(spec, model, profile string) ([]string, error) {
+	var argv []string
+	if spec != "" {
+		if model != "" || profile != "" {
+			return nil, errors.New("--spec cannot be combined with --model or --profile")
+		}
+		a, prompt, err := ask.SpecArgv(spec, os.Stdin)
+		if err != nil {
+			return nil, err
+		}
+		if prompt != "" {
+			return nil, errors.New("--spec prompt: the brief body is the task; drop the key")
+		}
+		argv = a
+	}
+	if model != "" {
+		argv = append(argv, "--model", model)
+	}
+	if profile != "" {
+		argv = append(argv, "--profile", profile)
+	}
+	return argv, nil
+}
+
+// runLine is the Run: command for a leaf of typ, with no task words.
+func runLine(typ, spec, model, profile string) (string, error) {
+	argv, err := specFlags(spec, model, profile)
+	if err != nil {
+		return "", err
+	}
+	w, ok := hooks.ParseAskWords(argv)
+	if !ok {
+		return "", errors.New("the spec's flags do not parse as ask flags")
+	}
+	external := slices.Contains(agent.DefaultAgents, typ)
+	switch a := w.Value("agent"); {
+	case a != "" && external && a != typ:
+		return "", fmt.Errorf("spec agent %q differs from leaf type %q", a, typ)
+	case a == "" && external:
+		argv = append([]string{"--agent", typ}, argv...)
+	}
+	return hooks.RunLine(argv), nil
 }
 
 // printLabel prints the description prefix; an empty label prints nothing.

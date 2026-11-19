@@ -56,3 +56,8 @@ func (e *effortPlan) fixRunLine(field, task string) string {
 	}
 	return fixed
 }
+
+// RunLine is the brief's `Run:` line for ask argv, each word quoted for a shell.
+func RunLine(argv []string) string {
+	return "Run: " + textutil.ShellJoin(append([]string{"claude-code", "agents", "ask"}, argv...))
+}
