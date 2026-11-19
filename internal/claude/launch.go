@@ -71,9 +71,7 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 	if err != nil {
 		return agent.Plan{}, err
 	}
-	if proxied && passthrough && !agent.IsHeadless(args) { // only a login session had Remote Control to lose
-		plan.Warnings = append(plan.Warnings, "Remote Control is unavailable through the proxy; launch a direct login session to keep it")
-	}
+	warnLostRemoteControl(&plan, proxied, passthrough, args)
 	addr := proxyAddr(&plan, proxied)
 	setAliasDescriptions(ctx, &plan, sel, addr)
 	for i := range rows {
@@ -82,16 +80,29 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 	if err := applyOverlay(ctx, &plan, passthrough, args, helper, overlayPath, p, rows); err != nil {
 		return agent.Plan{}, err
 	}
-	if !agent.IsHeadless(args) { // a headless launch renders in claudeCmd, where the request is known
-		if err := renderInteractive(ctx, &plan, providers.Target{Provider: p, Model: o.Model}, args); err != nil {
-			return agent.Plan{}, err
-		}
+	if err := renderIfInteractive(ctx, &plan, providers.Target{Provider: p, Model: o.Model}, args); err != nil {
+		return agent.Plan{}, err
 	}
 	plan.Argv = append(plan.Argv, args...)
 	plan.Keep = o.KeepEnv
 	keepShellEndpoint(ctx, &plan, o)
 	injectVaultKey(ctx, &plan)
 	return plan, mergeUserSettings(&plan)
+}
+
+// warnLostRemoteControl notes a proxied interactive login session: only it had Remote Control to lose.
+func warnLostRemoteControl(plan *agent.Plan, proxied, passthrough bool, args []string) {
+	if proxied && passthrough && !agent.IsHeadless(args) {
+		plan.Warnings = append(plan.Warnings, "Remote Control is unavailable through the proxy; launch a direct login session to keep it")
+	}
+}
+
+// renderIfInteractive skips a headless launch, which renders in claudeCmd, where the request is known.
+func renderIfInteractive(ctx context.Context, plan *agent.Plan, target providers.Target, args []string) error {
+	if agent.IsHeadless(args) {
+		return nil
+	}
+	return renderInteractive(ctx, plan, target, args)
 }
 
 // injectVaultKey hands the session its master key in env so its hooks skip the keyring; an unresolved key adds nothing.
