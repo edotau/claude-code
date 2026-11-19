@@ -2,6 +2,7 @@ package inflight
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -14,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -361,15 +363,24 @@ func (s *scanner) agents(transcript string) map[string]metaAgent {
 	}
 	m := map[string]metaAgent{}
 	files, _ := filepath.Glob(filepath.Join(SubagentDir(transcript), "agent-*.meta.json"))
-	for _, f := range files {
-		if md, ok := readMeta(f); ok && md.ToolUseID != "" {
-			id := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(f), "agent-"), ".meta.json")
+	mds, _ := parallel.Map(context.Background(), files, metaReaders, func(_ context.Context, f string) (meta, error) {
+		if md, ok := readMeta(f); ok {
+			return md, nil
+		}
+		return meta{}, nil
+	})
+	for i, md := range mds {
+		if md.ToolUseID != "" {
+			id := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(files[i]), "agent-"), ".meta.json")
 			m[safeID(md.ToolUseID)] = metaAgent{id: id, finished: md.Finished}
 		}
 	}
 	s.meta[transcript] = m
 	return m
 }
+
+// metaReaders bounds the concurrent meta.json reads of one transcript's agents.
+const metaReaders = 8
 
 type meta struct {
 	ToolUseID string `json:"toolUseId"`

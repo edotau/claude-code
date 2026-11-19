@@ -4,6 +4,7 @@ package agent
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -15,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -351,7 +353,7 @@ func scanRelays(recs []Record) map[string]relayState {
 	for _, r := range recs {
 		ids[r.ID] = true
 	}
-	files, _ := filepath.Glob(filepath.Join(paths.ConfigDir(), "projects", "*", "*", "subagents", "agent-*.jsonl"))
+	files := relayTranscripts(filepath.Join(paths.ConfigDir(), "projects"))
 	since := oldestUnmatched(recs, out)
 	for _, f := range files {
 		if len(out) == len(ids) {
@@ -380,16 +382,64 @@ func oldestUnmatched(recs []Record, out map[string]relayState) time.Time {
 	return since
 }
 
+// relayChunk is the read size of matchRelay: memory is bounded by it plus one id, not by the transcript size.
+const relayChunk = 64 << 10
+
+// relayTranscripts lists <projects>/*/*/subagents/agent-*.jsonl in glob order, one project dir per worker.
+func relayTranscripts(projects string) []string {
+	dirs, _ := os.ReadDir(projects)
+	perDir, _ := parallel.Map(context.Background(), dirs, 8, func(_ context.Context, d os.DirEntry) ([]string, error) {
+		var files []string
+		sessions, _ := os.ReadDir(filepath.Join(projects, d.Name()))
+		for _, sess := range sessions {
+			sub := filepath.Join(projects, d.Name(), sess.Name(), "subagents")
+			names, _ := os.ReadDir(sub)
+			for _, n := range names {
+				if ok, _ := filepath.Match("agent-*.jsonl", n.Name()); ok {
+					files = append(files, filepath.Join(sub, n.Name()))
+				}
+			}
+		}
+		return files, nil
+	})
+	return slices.Concat(perDir...)
+}
+
 // matchRelay records transcript f against every job it names that started before it was last written.
 func matchRelay(out map[string]relayState, recs []Record, f string, at time.Time) {
-	b, err := os.ReadFile(f)
+	var want []Record
+	keep := 0
+	for _, r := range recs {
+		if _, seen := out[r.ID]; !seen && !at.Before(r.Time) {
+			want = append(want, r)
+			keep = max(keep, len(r.ID)-1)
+		}
+	}
+	if len(want) == 0 {
+		return
+	}
+	fd, err := os.Open(f)
 	if err != nil {
 		return
 	}
-	for _, r := range recs {
-		if _, seen := out[r.ID]; !seen && !at.Before(r.Time) && bytes.Contains(b, []byte(r.ID)) {
+	defer fd.Close()
+	buf := make([]byte, relayChunk+keep)
+	carried := 0
+	for len(want) > 0 {
+		n, err := fd.Read(buf[carried : carried+relayChunk])
+		data := buf[:carried+n]
+		want = slices.DeleteFunc(want, func(r Record) bool {
+			if !bytes.Contains(data, []byte(r.ID)) {
+				return false
+			}
 			out[r.ID] = relayState{finished: metaFinished(f), at: at}
+			return true
+		})
+		if err != nil {
+			return
 		}
+		carried = min(len(data), keep)
+		copy(buf, data[len(data)-carried:])
 	}
 }
 
