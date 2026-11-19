@@ -61,7 +61,7 @@ func TestReceiptFixHoldKeepsFinishedAnswer(t *testing.T) {
 	r, blocked := gate()
 	_, path, _ := strings.Cut(r.Reason, "is saved at ")
 	saved, _ := os.ReadFile(strings.TrimSuffix(path, "."))
-	if !blocked || !strings.Contains(r.Reason, "Dispatch second") || !strings.Contains(string(saved), "FINAL ANSWER first") || !wasHeld("a1") {
+	if !blocked || !strings.Contains(r.Reason, "Job second") || !strings.Contains(string(saved), "FINAL ANSWER first") || !wasHeld("a1") {
 		t.Fatalf("hold = %+v blocked=%v, saved %q: want the finished answer saved with the report and the marker", r, blocked, saved)
 	}
 	*hold = false
@@ -134,7 +134,7 @@ func TestRanOnHookRunsTheLine(t *testing.T) {
 		in := leafTx(t, c.st, "Run: "+c.line+"\n\n"+c.body, "ls output")
 		in = handbackOf(in, "my report")
 		r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
-		if !blocked || !strings.Contains(r.Reason, "this hand-back waits for it") || len(*spawned) != 1 || fmt.Sprint((*spawned)[0]) != fmt.Sprint(c.want) {
+		if !blocked || !strings.Contains(r.Reason, "hand-back waits") || len(*spawned) != 1 || fmt.Sprint((*spawned)[0]) != fmt.Sprint(c.want) {
 			t.Fatalf("%s first hand-back = %+v blocked=%v spawns %v, want one held launch of %v", c.st, r, blocked, *spawned, c.want)
 		}
 		m, _ := loadRelayRun("a1")

@@ -396,11 +396,11 @@ func dispatchReceipt(cwd string, rec agent.Record, how, output string, lr leafRe
 		return receipt{note: fmt.Sprintf("NOTE: dispatch %s (%s) still running at the %s limit; its result is not in this report "+
 			"(`claude-code agents result %s`).", rec.ID, how, leafStopMaxWait, rec.ID)}, nil
 	}
-	info := heldInfo(cwd, lr, rec)
+	info, idPrefix := heldInfo(cwd, lr, rec)
 	if slices.Contains(lr.scan.heldJobs, rec.ID) {
-		return receipt{}, &core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: repeatHold(info, rec.ID)}
+		return receipt{}, &core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: repeatHold(info, idPrefix, rec.ID)}
 	}
-	return receipt{}, &core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s Dispatch %s (%s). %s", info, rec.ID, how, pollOnce(rec.ID))}
+	return receipt{}, &core.Result{Decision: core.Block, Rule: "job-running", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s %s(%s). %s", info, idPrefix, how, pollOnce(rec.ID))}
 }
 
 // endedNote is a finished job's ran-on line and result.
@@ -441,7 +441,7 @@ func relayRunPending(in *core.Input, lr leafRead, m relayRun) (core.Result, bool
 		if rec, ok := hookJob(lr, m.Output); ok {
 			return hookJobReceipt(in, rec, m.Output, lr)
 		}
-		return core.Result{Decision: core.Block, Rule: "run-line-pending", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s The hook is running your brief's `Run:` line (`%s`, output %s). %s", heldRunInfo(m.Line), m.Line, m.Output, handBackForID)}, true
+		return core.Result{Decision: core.Block, Rule: "run-line-pending", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s Output %s. %s", heldRunInfo(m.Line), m.Output, handBackForID)}, true
 	}
 	return core.Result{Decision: core.Block, Rule: "no-dispatch-id", Verdict: core.VerdictRefused, Reason: fmt.Sprintf("No exact dispatch id appeared within %s. "+
 		"Recover the id from the hook launch output %s, run `claude-code agents result -f <id>` once, "+
@@ -532,8 +532,7 @@ func runBriefLine(in *core.Input, lr leafRead, agentID string, words []string) (
 	if rec, ok := hookJob(lr, m.Output); ok {
 		return hookJobReceipt(in, rec, m.Output, lr)
 	}
-	return core.Result{Decision: core.Block, Rule: "run-line-started", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s Your brief's `Run:` line was never run, so the hook started it "+
-		"with your brief as its task: `%s` (output %s). %s", heldRunInfo(line), line, m.Output, handBackForID)}, true
+	return core.Result{Decision: core.Block, Rule: "run-line-started", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s Output %s. %s", heldStartedInfo(line), m.Output, handBackForID)}, true
 }
 
 // jobOut is the job result a hand-back carries: one summary line and the job's final answer.

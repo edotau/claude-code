@@ -1393,7 +1393,7 @@ func TestRanOnRunLineClaimIsExclusive(t *testing.T) {
 	lr.scan.runLine = "x"
 	_, firstHeld := runBriefLine(in, lr, "a1", words)
 	second, held := runBriefLine(in, lr, "a1", words)
-	if !firstHeld || !held || len(*spawned) != 1 || !strings.Contains(second.Reason, "The hook is running your brief's `Run:` line") {
+	if !firstHeld || !held || len(*spawned) != 1 || !strings.Contains(second.Reason, "Info: Job running") {
 		t.Fatalf("spawns %v, second = %+v: want one launch and the later claimant held on it", *spawned, second)
 	}
 }
@@ -1414,7 +1414,7 @@ func TestRanOnHookLaunchPendingHolds(t *testing.T) {
 	leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in))) // the hook launches; its output stays empty
 	r, blocked := leafGate(in, "a1", readLeaf(in.AgentTranscriptPath, leafWants(in)))
 	if !blocked || len(*spawned) != 1 || r.UpdatedInput != nil ||
-		!strings.Contains(r.Reason, "The hook is running your brief's `Run:` line") || !strings.Contains(r.Reason, "this hand-back waits for it") {
+		!strings.Contains(r.Reason, "Info: Job running") || !strings.Contains(r.Reason, "hand-back waits") {
 		t.Fatalf("got %+v blocked=%v spawns %v, want a hold on the pending launch and no new launch", r, blocked, *spawned)
 	}
 }
