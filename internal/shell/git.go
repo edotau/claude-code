@@ -290,7 +290,9 @@ func containsAny(s string, subs ...string) bool {
 	return slices.ContainsFunc(subs, func(sub string) bool { return strings.Contains(s, sub) })
 }
 
-func messageVerb(verb string) bool { return verb == "commit" || verb == "merge" || verb == "tag" }
+func messageVerb(verb string) bool {
+	return verb == "commit" || verb == "merge" || verb == "tag" || verb == WorktreeCommit
+}
 
 // AttributionFooterCommit reports a commit footer at an argument's line start, in raw text past a subject, or built.
 func AttributionFooterCommit(cmd, cwd string) bool {
