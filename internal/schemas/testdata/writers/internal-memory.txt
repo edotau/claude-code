@@ -5,9 +5,10 @@ internal/memory/bank_blocks.go:assignFileIDs	unversioned: memory-bank: bank id c
 internal/memory/bank_commit.go:apply	unversioned: memory-bank: txn applied bank file
 internal/memory/bank_commit.go:save	memory-journal
 internal/memory/bank_fmt.go:formatFiles	unversioned: memory-bank: bank markdown format
+internal/memory/bank_region.go:adoptLegacy	unversioned: memory-bank: memory-md.gen copied from an older binary's store-root dotfile
 internal/memory/bank_region.go:appendToCatalog	unversioned: memory-bank: memory/index.md entry records, append-only
 internal/memory/bank_region.go:createExclusive	unversioned: memory-bank: MEMORY.md by O_EXCL create where hard links fail
-internal/memory/bank_region.go:refreshNativeIndex	unversioned: memory-bank: .archive-MEMORY.md.gen, the last MEMORY.md installed
+internal/memory/bank_region.go:refreshNativeIndex	unversioned: memory-bank: state/harness/memory/memory-md.gen, the last MEMORY.md installed
 internal/memory/bank_region.go:stageFile	unversioned: memory-bank: generated MEMORY.md staged in a temp file beside it
 internal/memory/bank_remember.go:appendText	unversioned: memory-bank: report and decisions append
 internal/memory/bank_remember.go:writeRememberFact	unversioned: memory-bank: bank remember

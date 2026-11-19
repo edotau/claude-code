@@ -1098,3 +1098,24 @@ func TestCleanRemovesSidecarLockWithItsFile(t *testing.T) {
 		t.Errorf("stale=%v+lock=%v fresh=%v+lock=%v", exists(t, staleLog), exists(t, staleLog+".lock"), exists(t, freshLog), exists(t, freshLog+".lock"))
 	}
 }
+
+// TestCleanMemoryStateLeavesTheKeptMemoryMdFiles: the refresh's kept copy and proof are never swept, at any age.
+func TestCleanMemoryStateLeavesTheKeptMemoryMdFiles(t *testing.T) {
+	dir := seedDebris(t)
+	kept := []string{filepath.Join(dir, "state/harness/memory/memory-md.prev"), filepath.Join(dir, "state/harness/memory/memory-md.gen")}
+	for _, p := range kept {
+		writeOldCleanFixture(t, p)
+	}
+	var out, errw bytes.Buffer
+	if code := Clean([]string{"--older-than", "0s", "--target", "memory-state"}, &out, &errw); code != 0 {
+		t.Fatalf("clean = %d: %s", code, errw.String())
+	}
+	for _, p := range kept {
+		if !exists(t, p) {
+			t.Errorf("%s was swept", p)
+		}
+	}
+	if exists(t, filepath.Join(dir, "state/harness/memory/update-20260101-000000.log")) {
+		t.Error("the aged log survived, so the run proves nothing")
+	}
+}

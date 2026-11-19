@@ -539,11 +539,15 @@ func TestUnresolvedShowsTheNewestTenAndKeepsAllInIndexMd(t *testing.T) {
 func snapshotIndexFiles(t *testing.T) map[string]string {
 	t.Helper()
 	out := map[string]string{}
-	for _, n := range []string{catalogFile, nativeIndexFile, routerFile, asideFile, "notes/a.md"} {
-		if target, err := os.Readlink(storePath(n)); err == nil {
+	for _, n := range []string{catalogFile, nativeIndexFile, routerFile, "notes/a.md", asidePath()} {
+		p := n
+		if !filepath.IsAbs(n) {
+			p = storePath(n)
+		}
+		if target, err := os.Readlink(p); err == nil {
 			out[n] = "link:" + target
 		} else {
-			out[n] = readIfExistsString(storePath(n))
+			out[n] = readIfExistsString(p)
 		}
 	}
 	return out
@@ -554,9 +558,16 @@ func TestAliasedIndexFilesAreRefusedWithNothingChanged(t *testing.T) {
 		"index.md to MEMORY.md": func() error { return os.Symlink(nativeIndexFile, catalogPath()) },
 		"index.md to a note":    func() error { return os.Symlink("notes/a.md", catalogPath()) },
 		"MEMORY.md symlink":     func() error { _ = os.Remove(NativeIndex()); return os.Symlink("notes/a.md", NativeIndex()) },
-		"kept copy symlink":     func() error { return os.Symlink("notes/a.md", storePath(asideFile)) },
-		"catalog.md symlink":    func() error { return os.Symlink("notes/a.md", storePath(routerFile)) },
-		"index.md hard link":    func() error { return os.Link(NativeIndex(), catalogPath()) },
+		"kept copy symlink": func() error {
+			_ = os.MkdirAll(StateDir(), 0o755)
+			return os.Symlink("notes/a.md", asidePath())
+		},
+		"catalog.md symlink": func() error { return os.Symlink("notes/a.md", storePath(routerFile)) },
+		"index.md hard link": func() error { return os.Link(NativeIndex(), catalogPath()) },
+		"kept copy hard link": func() error {
+			_ = os.MkdirAll(StateDir(), 0o755)
+			return os.Link(NativeIndex(), asidePath())
+		},
 	}
 	for name, alias := range aliases {
 		runBank(t, func(t *testing.T) {
@@ -642,9 +653,52 @@ func TestPromotedEntryDeletedFromIndexAndKeptCopyStaysGone(t *testing.T) {
 		refreshIndex(t)
 		_ = os.Remove(Sub("notes", "a.md")) // the promotion prompt's steps: the note, its record, its kept-copy line
 		write(t, catalogPath(), strings.Replace(mustRead(t, catalogPath()), encodeRecord(e), "", 1))
-		write(t, storePath(asideFile), strings.Replace(mustRead(t, storePath(asideFile)), e+"\n", "", 1))
+		write(t, asidePath(), strings.Replace(mustRead(t, asidePath()), e+"\n", "", 1))
 		if refreshIndex(t); slices.Contains(stored(t), e) {
 			t.Error("an entry deleted from index.md and the kept copy came back")
+		}
+	})
+}
+
+func TestOlderBinaryDotfilesAreAdoptedOnceWithNoLoss(t *testing.T) {
+	runBank(t, func(t *testing.T) {
+		writeNote(t, "notes", "a.md", "---\nname: a\ndescription: d\n---\n")
+		_, cur := refreshIndex(t)
+		write(t, storePath(legacyGen), cur) // the layout an older binary leaves: proof and kept copy in the root
+		write(t, storePath(legacyAside), "- hand-from-old-copy\n")
+		_ = os.Remove(asidePath())
+		_ = os.Remove(genPath())
+		for range 2 {
+			refreshIndex(t)
+		}
+		if s := stored(t); len(s) != 1 || s[0] != "- hand-from-old-copy" {
+			t.Errorf("index.md = %q, want the old kept copy's line once", s)
+		}
+		for _, p := range []string{storePath(legacyAside), storePath(legacyGen)} {
+			if _, err := os.Lstat(p); err == nil {
+				t.Errorf("%s still in the store root", p)
+			}
+		}
+		if mustRead(t, genPath()) != mustRead(t, NativeIndex()) {
+			t.Error("the state folder's proof is not the installed MEMORY.md")
+		}
+	})
+}
+
+func TestRefreshRefusesWhenTheKeptCopyCannotBeRenamedAcrossVolumes(t *testing.T) {
+	runBank(t, func(t *testing.T) {
+		write(t, NativeIndex(), "- keep-me\n")
+		renameFile = func(string, string) error { return &os.LinkError{Op: "rename", Err: errors.New("cross-device link")} }
+		t.Cleanup(func() { renameFile = os.Rename })
+		_, err := refreshNativeIndex(indexNow, false, nil)
+		if !errors.Is(err, errIndexProblem) || !strings.Contains(err.Error(), "one volume") {
+			t.Fatalf("err = %v, want a refusal naming the volume", err)
+		}
+		if mustRead(t, NativeIndex()) != "- keep-me\n" {
+			t.Error("MEMORY.md changed on a refused refresh")
+		}
+		if left, _ := filepath.Glob(NativeIndex() + ".tmp-*"); len(left) != 0 {
+			t.Errorf("staged temp files left: %v", left)
 		}
 	})
 }

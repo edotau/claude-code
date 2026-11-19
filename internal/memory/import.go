@@ -135,7 +135,7 @@ func (p *importPlan) countNewPointers() {
 	if held == nil {
 		held = map[string]bool{}
 	}
-	for _, f := range []string{storePath(asideFile), NativeIndex()} {
+	for _, f := range append(keptCopies(), NativeIndex()) {
 		data, _ := readIfExists(f)
 		in, _ := inputEntries(string(data), lastGenerated())
 		for _, e := range in {
@@ -178,8 +178,8 @@ func (p *importPlan) flatImportFile(rel string) bool {
 
 // readPointers collects the source's entries: its index.md records, then its moved-aside and live MEMORY.md input.
 func (p *importPlan) readPointers(root *os.Root) {
-	gen, _ := readSource(root, genFile) // the source's own proof of which edited-block lines it generated
-	for i, rel := range []string{catalogFile, asideFile, nativeIndexFile} {
+	gen, _ := readSource(root, legacyGen) // a source store's own dotfile, as older binaries left it; the source's own proof of which edited-block lines it generated
+	for i, rel := range []string{catalogFile, legacyAside, nativeIndexFile} {
 		data, err := readSource(root, rel)
 		switch {
 		case errors.Is(err, fs.ErrNotExist):

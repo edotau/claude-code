@@ -292,9 +292,9 @@ func (p *migPlan) planEntries(dir string) {
 		p.blockers = append(p.blockers, err.Error())
 		return
 	}
-	all, gen := decodeCatalog(p.read(filepath.Join(dir, catalogFile))), p.read(filepath.Join(dir, genFile))
-	for _, rel := range []string{asideFile, migIndexFile} {
-		in, _ := inputEntries(p.read(filepath.Join(dir, rel)), gen)
+	all, gen := decodeCatalog(p.read(filepath.Join(dir, catalogFile))), lastGenerated()
+	for _, f := range append(keptCopies(), filepath.Join(dir, migIndexFile)) {
+		in, _ := inputEntries(p.read(f), gen)
 		all = append(all, in...)
 	}
 	for _, e := range all {
