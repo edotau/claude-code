@@ -133,12 +133,6 @@ func gitTarget(cwd, gitDir, workTree string, cPaths []string) string {
 	return base
 }
 
-// gitCommitInvocation reports whether cmd, or a nested/substituted command within it, invokes `git commit`;
-// nesting too deep to inspect counts as a possible commit.
-func gitCommitInvocation(cmd string) bool {
-	return EachGit(cmd, "", func(_, verb string, _ []string) bool { return verb == "commit" || verb == Uninspectable })
-}
-
 // footerPatterns match an agent-attribution footer in command text (CLAUDE.md hard rule 3).
 var footerPatterns = sync.OnceValue(func() []*regexp.Regexp {
 	return []*regexp.Regexp{
