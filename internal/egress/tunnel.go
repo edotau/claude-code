@@ -32,12 +32,18 @@ type Tunnel struct {
 
 func (t Tunnel) addr() string { return net.JoinHostPort("127.0.0.1", strconv.Itoa(t.Port)) }
 
-func dir() string { return filepath.Join(paths.StateDir(), "ssh") }
+// SSHDir is the harness's ssh state dir: tunnel records and logs, and network remote's master sockets.
+func SSHDir() string { return filepath.Join(paths.StateDir(), "ssh") }
+
+// OwnConn makes an ssh call a connection of its own that exits when its forward cannot be made.
+func OwnConn() []string {
+	return []string{"-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ExitOnForwardFailure=yes"}
+}
 
 // recordPath is host's tunnel record; the name is a hash so any valid host is a safe file name.
 func recordPath(host string) string {
 	sum := sha256.Sum256([]byte(host))
-	return filepath.Join(dir(), "egress-"+hex.EncodeToString(sum[:8])+".json")
+	return filepath.Join(SSHDir(), "egress-"+hex.EncodeToString(sum[:8])+".json")
 }
 
 func readRecord(path string) (Tunnel, bool) {
@@ -61,7 +67,7 @@ func Ensure(ctx context.Context, host string) (string, error) {
 	if t, ok := reusable(ctx, path); ok {
 		return t.addr(), nil
 	}
-	if err := os.MkdirAll(dir(), 0o700); err != nil {
+	if err := os.MkdirAll(SSHDir(), 0o700); err != nil {
 		return "", fmt.Errorf("egress host %s: %w", host, err)
 	}
 	var addr string
@@ -146,10 +152,8 @@ func start(ctx context.Context, host, logPath string) (Tunnel, error) {
 
 // sshArgs is the tunnel's ssh argv after "ssh": no prompt, no shared master, dead within 30s of a lost link.
 func sshArgs(host string, port int, logPath string) []string {
-	argv := []string{"-N", "-D", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), "-E", logPath,
-		"-o", "BatchMode=yes", "-o", "ExitOnForwardFailure=yes",
-		"-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2",
-		"-o", "ControlMaster=no", "-o", "ControlPath=none"}
+	argv := append([]string{"-N", "-D", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), "-E", logPath,
+		"-o", "BatchMode=yes", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2"}, OwnConn()...)
 	return append(append(argv, tailscale.ProxyOpts(host)...), "--", host)
 }
 
@@ -196,7 +200,7 @@ func kill(t Tunnel) bool {
 
 // Tunnels lists the recorded tunnels.
 func Tunnels() []Tunnel {
-	records, _ := filepath.Glob(filepath.Join(dir(), "egress-*.json"))
+	records, _ := filepath.Glob(filepath.Join(SSHDir(), "egress-*.json"))
 	var out []Tunnel
 	for _, p := range records {
 		if t, ok := readRecord(p); ok {

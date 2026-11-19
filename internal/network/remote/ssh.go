@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
+	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/tailscale"
@@ -59,7 +60,7 @@ var controlDir = defaultControlDir
 // defaultControlDir picks the first short-enough private dir: the harness state dir, then ~/.ssh/cc.
 func defaultControlDir() string {
 	home, _ := os.UserHomeDir()
-	for _, dir := range []string{filepath.Join(paths.StateDir(), "ssh"), filepath.Join(home, ".ssh", "cc")} {
+	for _, dir := range []string{egress.SSHDir(), filepath.Join(home, ".ssh", "cc")} {
 		if home == "" || len(dir) > controlPathMax {
 			continue
 		}
@@ -262,8 +263,7 @@ func withForward(argv []string, port int) []string {
 
 // withTunnel adds one -L or -R forward on a connection of its own that fails when the forward cannot be made.
 func withTunnel(argv []string, flag, spec string) []string {
-	return slices.Insert(slices.Clone(argv), 1, "-o", "ControlMaster=no", "-o", "ControlPath=none",
-		"-o", "ExitOnForwardFailure=yes", flag, spec)
+	return slices.Insert(slices.Clone(argv), 1, append(egress.OwnConn(), flag, spec)...)
 }
 
 // tailnetHosts lists the other tailnet machines' DNS names; tests swap it.

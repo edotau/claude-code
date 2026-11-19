@@ -139,7 +139,8 @@ func TestValidRejectsPathSeparators(t *testing.T) {
 
 func TestSSHArgsBindLoopbackAndEndWithHost(t *testing.T) {
 	got := strings.Join(sshArgs("box", 4242, "/tmp/x.log"), " ")
-	for _, want := range []string{"-D 127.0.0.1:4242", "-E /tmp/x.log", "BatchMode=yes", "ControlPath=none", "-- box"} {
+	for _, want := range []string{"-D 127.0.0.1:4242", "-E /tmp/x.log", "BatchMode=yes", "ControlPath=none", "ControlMaster=no",
+		"ExitOnForwardFailure=yes", "ServerAliveInterval=15", "ServerAliveCountMax=2", "-- box"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("sshArgs missing %q in %q", want, got)
 		}
@@ -162,7 +163,7 @@ func TestSSHCauseIsTheLastLogLine(t *testing.T) {
 // Stop drops the record but never kills a live pid that is not the tunnel's ssh (a recycled pid).
 func TestStopDropsRecordAndSparesRecycledPid(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if err := os.MkdirAll(dir(), 0o700); err != nil {
+	if err := os.MkdirAll(SSHDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	rec := Tunnel{Host: "box", Port: 4242, PID: os.Getpid()}
@@ -328,7 +329,7 @@ func recordImpostor(t *testing.T, pid int, listen bool) string {
 	if !listen {
 		_ = s.l.Close()
 	}
-	if err := os.MkdirAll(dir(), 0o700); err != nil {
+	if err := os.MkdirAll(SSHDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := writeRecord(recordPath("box"), Tunnel{Host: "box", Port: s.l.Addr().(*net.TCPAddr).Port, PID: pid}); err != nil {
