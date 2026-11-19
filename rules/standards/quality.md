@@ -32,6 +32,9 @@ repo's docs, never in source. Enforced by the same gate; whole-tree cleanup list
 - **Shorten in place** — an over-long comment becomes one complete sentence that keeps its point; trim the verbose
   ones you pass.
 
+Performance work does the same work faster and never drops a check, measured before and after (R22,
+`standing-requirements.md`).
+
 ## Simplify — the gate behind `skills/simplify`
 
 The apply-gate (assumption before each cut, never-cut list, reuse first, thresholds, numbers) lives in
@@ -45,7 +48,7 @@ The apply-gate (assumption before each cut, never-cut list, reuse first, thresho
 | 2 | **Live check** — run the verb, endpoint or flow on real input | Every change with a runnable surface, before any new test |
 | 3 | The one thing changed — targeted assertion, negative control | Every edit |
 | 4 | Scoped tests for the packages you touched, named explicitly | Once the direction settles, or before commit |
-| 5 | **Simplify** — `Skill(simplify)` over the (merged) diff; re-run step 4 if it changed code | Every code change, before review, merge or commit |
+| 5 | **Simplify** — `Skill(simplify)` over the (merged) diff; re-run step 4 if it changed code | Every code change, and at the end of every wave over its merged diff |
 | 6 | Full suite + gate chain (format → lint → test → security) | **Once** at wrap-up, **only with the user's approval**, never a subagent |
 
 `make lint` and `agents diff --check` only check (a leaf runs `claude-code agents diff --check --path <files>` and

@@ -42,8 +42,10 @@ Claude Code reads these source files directly; external CLI projections refresh 
    `rebase`), in the live checkout (`~/.claude`).** It is one checkout shared by parallel subagents and every live
    session; fix a commit with a new one. Worktree choice and commands: `rules/standards/worktree-git.md`.
 5. **Finish at the requested boundary.** Reviews and edit-only tasks stop there. To land an authorized change,
-   follow `rules/standards/worktree-git.md`; after commit approval, `make audit`, `make install`, then push the
-   current branch (`main` by default). No pre-push hook or automatic CI runs these checks for you.
+   follow `rules/standards/worktree-git.md`. Stable code ships continuously: when the committed HEAD builds (macOS,
+   `GOOS=linux` build, `GOOS=windows` vet) and its touched packages' tests pass, push to origin main, then a subagent
+   pulls, installs and live-checks WSL. Full `make audit` runs on main after each worktree merge (automatic) and at
+   session end; `make install` after pulls.
 
 ## Behavioral guidelines
 

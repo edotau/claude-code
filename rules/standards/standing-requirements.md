@@ -31,3 +31,5 @@ A row is deleted only when the tool makes the prose redundant.
 | R19 WSL first | A harness change is built and live-checked on WSL first, then pulled and installed on the Mac | prose |
 | R20 Databricks arm | Subagents and dispatches run on the Databricks arm (`--provider databricks`) unless the owner names another route | prose |
 | R21 Live before tests | After code is written, no test is written or run until development is live-checked from several workspaces (main in `~/.claude`, another repo, `/tmp`; a subagent; each external agent); tests then wait for the owner's yes | prose |
+| R22 Performance | Performance work makes the same work faster (allocations, independent concurrency, caching, fewer spawns), never skips or removes a check; profile, implement, measure before/after with numbers; every feature gets this look | prose |
+| R23 Continuous ship | Stable code ships continuously: build and touched-package tests green, push main, WSL pull + install + live check; `CLAUDE.md` hard rule 5 | prose |
