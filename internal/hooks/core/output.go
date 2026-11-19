@@ -179,7 +179,7 @@ type Result struct {
 	ExitCode          int // non-zero exit other than 2; honored only from the worktree group
 	// Rule and Verdict name what decided, for telemetry only; empty fills from the module and the decision.
 	Rule, Verdict string
-	// Floor marks a safety block no leaf loosening may turn into allow: the code floor and settings deny rows.
+	// Floor marks a block no leaf loosening may allow: code floor, settings deny, dispatch deny, a failed gate.
 	Floor bool
 }
 

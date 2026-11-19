@@ -44,7 +44,7 @@ func TestPermissionGate(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv(agent.DispatchPermissionsEnv, c.env)
 			res := PermissionGate(core.ParseInput(strings.NewReader(c.payload)))
-			if (res.Decision == core.Block) != c.block || !strings.Contains(res.Reason, c.reason) {
+			if (res.Decision == core.Block) != c.block || res.Floor != c.block || !strings.Contains(res.Reason, c.reason) {
 				t.Errorf("decision %v reason %q, want block=%v naming %q", res.Decision, res.Reason, c.block, c.reason)
 			}
 		})

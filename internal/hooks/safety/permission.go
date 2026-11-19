@@ -26,6 +26,12 @@ var gateTools = map[string]string{
 
 // PermissionGate blocks a tool call the dispatch's Deny rules (or plan mode) refuse; with no policy in env it passes.
 func PermissionGate(in *core.Input) core.Result {
+	r := permissionGate(in)
+	r.Floor = r.Decision == core.Block // a dispatch's deny is the hard boundary: no leaf loosening allows it
+	return r
+}
+
+func permissionGate(in *core.Input) core.Result {
 	p, set, err := dispatchPolicy()
 	if err != nil {
 		return core.Result{Decision: core.Block, Reason: fmt.Sprintf(
@@ -61,7 +67,7 @@ func protectedEdit(in *core.Input) core.Result {
 			continue
 		}
 		if (matchesProtected(f, globs) || f != form && protectedPath(f, globs)) && !tempWriteAllowed("", f) {
-			return core.Result{Decision: core.Block, Reason: core.SafetyMessage(in, core.Block,
+			return core.Result{Decision: core.Block, Floor: true, Reason: core.SafetyMessage(in, core.Block,
 				"writes a file Edit/Write may never touch", f, "Edit it by hand, or run it yourself in a terminal.")}
 		}
 		if matchesProtected(f, asks) {

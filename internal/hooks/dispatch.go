@@ -219,6 +219,7 @@ func (m *dispatchMerge) failed(b Bound, err error) (gateFailed bool) {
 	fmt.Fprintf(m.log, "hook dispatch: %s/%s %v (%s)\n", b.Group, b.Spec.Name, err, skipOrBlock[b.Spec.Blocks])
 	if b.Spec.Blocks { // a gate that could not run fails closed
 		m.merged.Decision, m.merged.Reason = core.Block, fmt.Sprintf("%s did not complete (%v); blocked", b.Spec.Name, err)
+		m.merged.Floor = true
 		gateFailed = true
 	}
 	if b.Spec.FailExit { // exit 1, not 2: a worktree not made or not removed reports failure
@@ -260,7 +261,7 @@ func (m *dispatchMerge) apply(s step, event string) (gateFailed bool) {
 	case s.note != "":
 		m.sys = append(m.sys, s.note)
 	case s.block != "":
-		m.merged.Decision, m.merged.Reason = core.Block, s.block
+		m.merged.Decision, m.merged.Reason, m.merged.Floor = core.Block, s.block, true
 	default:
 		r, dur, err := s.wait()
 		rule, verdict := tagOf(s.b.Spec.Name, r, err)
@@ -463,7 +464,7 @@ func invokeDirect(name string, run core.Runner, stdin io.Reader, spec settings.E
 		in := core.ParseInput(stdin)
 		parsed.Store(in)
 		if problem := payloadProblem(in); problem != "" && spec.Blocks {
-			return directOutcome{in, core.Result{Decision: core.Block, Reason: unreadable(name, problem)}, nil}
+			return directOutcome{in, core.Result{Decision: core.Block, Reason: unreadable(name, problem), Floor: true}, nil}
 		}
 		return directOutcome{in, run(in), nil}
 	}, budget, &wg)()
@@ -472,9 +473,9 @@ func invokeDirect(name string, run core.Runner, stdin io.Reader, spec settings.E
 	case !errors.As(err, &re):
 		return o
 	case spec.Blocks && re.outcome == core.OutcomeOverrun:
-		return directOutcome{res: core.Result{Decision: core.Block, Reason: name + " timed out; blocked, retry the command"}, err: err}
+		return directOutcome{res: core.Result{Decision: core.Block, Reason: name + " timed out; blocked, retry the command", Floor: true}, err: err}
 	case spec.Blocks:
-		return directOutcome{parsed.Load(), core.Result{Decision: core.Block, Reason: fmt.Sprintf("%s did not complete (%v); blocked", name, err)}, err}
+		return directOutcome{parsed.Load(), core.Result{Decision: core.Block, Reason: fmt.Sprintf("%s did not complete (%v); blocked", name, err), Floor: true}, err}
 	}
 	return directOutcome{parsed.Load(), core.Result{Stderr: fmt.Sprintf("hook %s: %v (skipped)", name, err)}, err}
 }

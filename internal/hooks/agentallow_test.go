@@ -48,4 +48,11 @@ func TestAgentBashAllowKeepsFloor(t *testing.T) {
 			}
 		}
 	}
+	t.Setenv(agent.DispatchPermissionsEnv, `{"mode":"allow"}`) // Copilot's Edit on settings.json reaches safety-scan
+	payload, _ := json.Marshal(map[string]any{"tool_name": "Edit", "cwd": cfg, "agent_id": "a1",
+		"tool_input": map[string]string{"file_path": filepath.Join(cfg, "settings.json")}})
+	in := core.ParseInputFor(bytes.NewReader(payload), "copilot")
+	if r := agentBashAllow(in, safety.Scan(in)); r.Decision != core.Block {
+		t.Errorf("copilot leaf Edit of settings.json under --permissions allow: decision %v, want block", r.Decision)
+	}
 }

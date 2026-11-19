@@ -32,9 +32,10 @@ import (
 func TestDispatchBlockingGateFailsClosedOnPanic(t *testing.T) {
 	gate := bound("gate", "Bash", time.Second, func(*core.Input) core.Result { panic("scan blew up") })
 	gate.Spec.Blocks = true
-	res, _ := Dispatch([]Bound{gate}, "PreToolUse", bashInput(), &bytes.Buffer{})
-	if res.Decision != core.Block || !strings.Contains(res.Reason, "gate") {
-		t.Errorf("panicking Blocks:true handler must block, got %+v", res)
+	leaf := core.ParseInput(strings.NewReader(`{"tool_name":"Bash","agent_id":"a1","tool_input":{"command":"ls"}}`))
+	res, _ := Dispatch([]Bound{gate}, "PreToolUse", leaf, &bytes.Buffer{})
+	if res = agentBashAllow(leaf, res); res.Decision != core.Block || !strings.Contains(res.Reason, "gate") {
+		t.Errorf("panicking Blocks:true handler must block, even for a leaf, got %+v", res)
 	}
 }
 

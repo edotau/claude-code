@@ -9,7 +9,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 )
 
-// agentBashAllow allows an agent's blocked or asked call with a note; floor and settings-deny blocks stay.
+// agentBashAllow allows an agent's blocked or asked call with a note; Floor blocks stay.
 func agentBashAllow(in *core.Input, r core.Result) core.Result {
 	if in == nil || r.Decision == core.Allow || !agentAllowTool(in.CanonicalTool()) {
 		return r
