@@ -44,6 +44,48 @@ func TestCatchUpSweepDryRunListsMissedSession(t *testing.T) {
 	}
 }
 
+// A cached head verdict is reused while size and mtime match, and a transcript that grew is scanned again.
+func TestCatchUpHeadCacheKeysOnSizeAndMtime(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	const id = "88888888-8888-4888-8888-888888888888"
+	tr := filepath.Join(paths.ConfigDir(), "projects", "p", id+".jsonl")
+	edit := `{"type":"assistant","message":{"content":[{"type":"tool_use","name":"Edit","input":{"file_path":"/r/a.go"}}]}}` + "\n"
+	write(t, tr, `{"type":"user","entrypoint":"cli","message":{"content":"hello"}}`+"\n"+strings.Repeat(edit, 5))
+	idle(t, tr, 20*time.Minute)
+	dry := func() string {
+		var out bytes.Buffer
+		CatchUpSweep(SweepOptions{DryRun: true, Stdout: &out, Stderr: io.Discard})
+		return out.String()
+	}
+	if got := dry(); !strings.Contains(got, "would save "+id) {
+		t.Fatalf("interactive session not listed:\n%s", got)
+	}
+	h := loadHeadCache()
+	v, ok := h.Files[tr]
+	if !ok || !v.Interactive {
+		t.Fatalf("verdict not cached: %+v", h.Files)
+	}
+	v.Interactive = false
+	h.Files[tr], h.dirty = v, true
+	h.save(recentTranscripts(time.Now()))
+	if got := dry(); strings.Contains(got, id) {
+		t.Errorf("an unchanged transcript was rescanned:\n%s", got)
+	}
+	fi, _ := os.Stat(tr)
+	f, err := os.OpenFile(tr, os.O_APPEND|os.O_WRONLY, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString(edit)
+	f.Close()
+	if err := os.Chtimes(tr, fi.ModTime(), fi.ModTime()); err != nil {
+		t.Fatal(err)
+	}
+	if got := dry(); !strings.Contains(got, "would save "+id) {
+		t.Errorf("a grown transcript kept its stale verdict:\n%s", got)
+	}
+}
+
 // Given transcripts from each entrypoint, When classified, Then IDE and desktop are people and sdk-* are workers.
 func TestTranscriptInteractiveByEntrypoint(t *testing.T) {
 	dir := t.TempDir()

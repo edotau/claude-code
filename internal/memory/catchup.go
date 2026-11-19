@@ -20,6 +20,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 )
@@ -34,7 +35,77 @@ const (
 type sweepCand struct {
 	id, path, why string
 	edits         int
+	size          int64
 	mtime         time.Time
+}
+
+const headCacheSchema = 1
+
+// headVerdict is transcriptInteractive's answer for the file as sized and stamped here.
+type headVerdict struct {
+	Size        int64 `json:"size"`
+	MtimeNS     int64 `json:"mtime_ns"`
+	Interactive bool  `json:"interactive"`
+}
+
+// headCache is state/harness/memory/catchup-heads.json: transcript path -> verdict, so unchanged heads are not rescanned.
+type headCache struct {
+	Schema int                    `json:"schema"`
+	Files  map[string]headVerdict `json:"files"`
+	dirty  bool
+}
+
+var headCacheFormat = schemas.Register(schemas.Format{
+	Name: "memory-catchup-heads", Owner: "internal/memory", Kind: schemas.Cache,
+	Glob:    func() string { return headCachePath() },
+	New:     func() any { return &headCache{} },
+	Version: headCacheSchema, Keep: "rebuildable cache; a corrupt or newer file is a miss",
+})
+
+func headCachePath() string { return filepath.Join(StateDir(), "catchup-heads.json") }
+
+// loadHeadCache reads the cache file; a missing, corrupt or newer one yields an empty cache.
+func loadHeadCache() *headCache {
+	c := &headCache{}
+	if raw, err := os.ReadFile(headCachePath()); err != nil || !schemas.DecodeOK(headCacheFormat, raw, c) {
+		c = &headCache{}
+	}
+	if c.Files == nil {
+		c.Files = map[string]headVerdict{}
+	}
+	c.Schema = headCacheSchema
+	return c
+}
+
+// interactive is the cached verdict while size and mtime still match, else a fresh head scan; never trusts a changed file.
+func (h *headCache) interactive(c sweepCand) bool {
+	if v, ok := h.Files[c.path]; ok && v.Size == c.size && v.MtimeNS == c.mtime.UnixNano() {
+		return v.Interactive
+	}
+	got := transcriptInteractive(c.path)
+	h.Files[c.path] = headVerdict{Size: c.size, MtimeNS: c.mtime.UnixNano(), Interactive: got}
+	h.dirty = true
+	return got
+}
+
+// save drops entries outside the window and writes the file when anything changed; best effort.
+func (h *headCache) save(recent []sweepCand) {
+	live := make(map[string]bool, len(recent))
+	for _, c := range recent {
+		live[c.path] = true
+	}
+	for p := range h.Files {
+		if !live[p] {
+			delete(h.Files, p)
+			h.dirty = true
+		}
+	}
+	if !h.dirty {
+		return
+	}
+	if data, err := json.Marshal(h); err == nil && os.MkdirAll(filepath.Dir(headCachePath()), 0o700) == nil {
+		_ = paths.AtomicWriteNoSync(headCachePath(), data, 0o600) // rebuilt on the next sweep if torn
+	}
 }
 
 func catchupDonePath() string { return filepath.Join(StateDir(), "catchup-done") }
@@ -120,13 +191,13 @@ func transcriptPrompt(content json.RawMessage) string {
 }
 
 // sweepSkip is why a finished session needs no save ("" = it does): cheap checks before any transcript read.
-func sweepSkip(c sweepCand, current string, now time.Time) string {
+func sweepSkip(c sweepCand, current string, now time.Time, heads *headCache) string {
 	switch {
 	case c.id == current:
 		return "current session"
 	case now.Sub(c.mtime) < updateRearmCooldown:
 		return "live (modified within cooldown)"
-	case !transcriptInteractive(c.path):
+	case !heads.interactive(c):
 		return "headless (worker/leaf/ping)"
 	}
 	if res, ok := readUpdateResult(c.id); ok && res.Status == updateOK && res.Time.After(c.mtime) {
@@ -171,13 +242,15 @@ func retryStamp(id string, now time.Time) (time.Time, int) {
 // sweepCandidates lists finished sessions needing a save, newest first; all=false stops at catchupMax.
 func sweepCandidates(current string, now time.Time, all bool, count func(string, string) int) ([]sweepCand, map[string]int) {
 	recent := recentTranscripts(now)
+	heads := loadHeadCache()
+	defer heads.save(recent)
 	var out []sweepCand
 	skips := map[string]int{}
 	for _, c := range recent {
 		if !all && len(out) >= catchupMax {
 			break
 		}
-		skip := sweepSkip(c, current, now)
+		skip := sweepSkip(c, current, now, heads)
 		if skip == "" {
 			if c.why = sweepWhy(&c, now, count); c.why == "" {
 				skip = "nothing new"
@@ -201,7 +274,7 @@ func recentTranscripts(now time.Time) []sweepCand {
 		if err != nil || !looksLikeSessionID(id) || now.Sub(fi.ModTime()) > catchupWindow {
 			continue
 		}
-		recent = append(recent, sweepCand{id: id, path: p, mtime: fi.ModTime()})
+		recent = append(recent, sweepCand{id: id, path: p, size: fi.Size(), mtime: fi.ModTime()})
 	}
 	sort.Slice(recent, func(i, j int) bool { return recent[i].mtime.After(recent[j].mtime) })
 	return recent

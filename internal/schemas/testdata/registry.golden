@@ -42,6 +42,7 @@ dispatch-events | log | 1 | state/harness/dispatch/*.events.jsonl | internal/age
 dispatch-record | record | 1 | state/harness/dispatch/*.json | internal/agent | clean:dispatch-log
 live-request | wire | 1 | - | internal/agent/wire | keep
 login-state | cache | 1 | state/harness/cache/login-state/*.json | internal/providers | keep
+memory-catchup-heads | cache | 1 | state/harness/memory/catchup-heads.json | internal/memory | keep
 memory-embeddings | store | 3 | state/harness/memory/embeddings.db | internal/memory | keep
 memory-journal | record | 1 | state/harness/memory/journal/*.json | internal/memory | keep
 memory-sync | cache | 1 | state/harness/memory/sync.json | internal/memory | keep

@@ -18,6 +18,7 @@ internal/memory/bank_settle.go:writeCatalog	unversioned: memory-bank: memory/cat
 internal/memory/bank_supersede.go:writeDirtyDocs	unversioned: memory-bank: replaced-entry pointers
 internal/memory/catchup.go:noteBlocked	unversioned: text: one quiet blocked-update note line
 internal/memory/catchup.go:runSweep	unversioned: text: catch-up sweep done count
+internal/memory/catchup.go:save	memory-catchup-heads
 internal/memory/compact_handoff.go:WriteCompactHandoff	unversioned: text: PreCompact's fact-only handoff markdown in memory/handoffs
 internal/memory/doctor.go:cacheDoctorNotice	unversioned: text: per-store doctor notice line
 internal/memory/doctor.go:markDoctorNoticeShown	unversioned: text: once-a-day doctor notice stamp (date, findings digest)
