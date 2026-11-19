@@ -429,6 +429,15 @@ func ranRoute(res wire.Result) string {
 	return ""
 }
 
+// RecordRefusal saves the failed, never-launched record of a well-formed ask refused at the route check.
+func RecordRefusal(req RunOptions, err error) {
+	rec := ClaimRecord(req.Agent, req, time.Now())
+	hop := wire.Hop{Agent: req.Agent, Model: req.Model, ErrorKind: wire.ErrorKind(err), NotStarted: true}
+	rec.Finish(wire.Result{Agent: req.Agent, Invoked: req.Model, Hops: []wire.Hop{hop}}, err, 0)
+	rec.Attempts = []wire.Hop{hop} // Finish keeps attempts only past one hop
+	_ = rec.Save()                 // a failed save must not mask the refusal
+}
+
 // failKind: availability when no model could answer (limits, auth, routing, transport, timeout, cancel), else quality.
 func failKind(err error) string {
 	if _, ok := errors.AsType[*PreflightError](err); ok || errors.Is(err, ErrModelRoute) {

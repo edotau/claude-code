@@ -1093,3 +1093,17 @@ func TestFinishRecordsRanRoute(t *testing.T) {
 		t.Errorf("ran_route %q route %q, want the final started hop's databricks:dev and the typed route kept", rec.RanRoute, rec.Route)
 	}
 }
+
+// A refused-before-launch ask leaves one failed record whose only attempt never started.
+func TestRecordRefusalSavesNotStartedAttempt(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	RecordRefusal(RunOptions{Agent: "opencode", Model: "typed-model"}, errors.New("not served"))
+	recs, err := ReadRecent(5)
+	if err != nil || len(recs) != 1 {
+		t.Fatalf("records = %d, %v, want 1", len(recs), err)
+	}
+	r := recs[0]
+	if r.Status != "error" || r.Invoked != "typed-model" || len(r.Attempts) != 1 || !r.Attempts[0].NotStarted {
+		t.Errorf("record = status %q invoked %q attempts %+v, want a failed typed-model record with a not-started attempt", r.Status, r.Invoked, r.Attempts)
+	}
+}

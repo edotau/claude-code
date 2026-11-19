@@ -278,7 +278,7 @@ func (r *askRun) checkArm() (int, bool) {
 	// applied here, not in export: CheckArm, ConfineLead and resolveLead read the confinement from the run's values
 	ctx, err := ApplyCoworker(r.ctx, value, f.provider, agentName, f.model, fallback)
 	if err != nil {
-		return r.fail(err, ApplyCode(err))
+		return refuse(r, err, fallback)
 	}
 	r.ctx = ctx
 	if picks || r.jobAutoArm() {
@@ -291,6 +291,15 @@ func (r *askRun) checkArm() (int, bool) {
 		r.confined = confineLead(r.ctx, r.ag, f) || r.confined
 	}
 	return 0, false
+}
+
+// refuse fails a route refusal; a well-formed ask (exit 1, not --dry-run) also leaves its failed record.
+func refuse(r *askRun, err error, fallback string) (int, bool) {
+	code := ApplyCode(err)
+	if code == 1 && !r.f.dryRun {
+		agent.RecordRefusal(agent.RunOptions{Agent: r.ag, Model: r.f.model, Fallback: fallback}, err)
+	}
+	return r.fail(err, code)
 }
 
 // poolValue is value, or databricks:auto for --provider databricks with no profile, a pool pin, or a model the pin lacks.
