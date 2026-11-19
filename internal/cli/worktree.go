@@ -32,6 +32,9 @@ var worktreePage = helptext.Page{
 		{"clean-all", "remove every eligible worktree (--dry-run|--yes)"},
 		{"gate", "print the verify gate for --dir (--scope, --lint-check)"},
 		{"commit", "commit named files; main session may omit them (-m, --dry-run)"},
+		{"pr", "list (--state, --author, --limit) | view|diff <id> | create --title"},
+		{"checks", "CI results of a PR <id>, or of --sha"},
+		{"comment", "comment on a PR <id> (--body-file, --reply-to)"},
 	},
 	Hint: worktreeVerifyNote + "\n\nclaude-code worktree <command> -h lists that command's flags.",
 }
@@ -49,20 +52,23 @@ func cmdWorktree(args []string) int {
 	if code, ok := helpOrBare(worktreePage, args); ok {
 		return code
 	}
+	sub, rest := args[0], args[1:]
+	switch sub {
+	case "gate": // reads a toolchain file only, so it runs outside a git repo
+		return cmdWorktreeGate(rest)
+	case "pr", "checks", "comment":
+		return cmdScm(args)
+	}
 	cwd, err := os.Getwd()
 	if err != nil {
 		return helptext.Fail("worktree: %v", err)
-	}
-	sub, rest := args[0], args[1:]
-	if sub == "gate" { // reads a toolchain file only, so it runs outside a git repo
-		return cmdWorktreeGate(rest)
 	}
 	if sub == "commit" { // acts on the cwd's checkout, main or linked
 		return cmdWorktreeCommit(cwd, rest)
 	}
 	repo, err := worktree.ResolveRepo(cwd)
 	// a leading -h returns from the sub-verb's flag parse before repo is touched, so help works outside a repo
-	if err != nil && (len(rest) == 0 || (rest[0] != "-h" && rest[0] != "--help")) {
+	if err != nil && !helptext.WantsHelp(rest) {
 		return helptext.Fail("worktree: %v", err)
 	}
 	if handler, ok := worktreeHandlers[sub]; ok {
@@ -452,7 +458,7 @@ func names() []string {
 
 // worktreeSpec is the completion node for the worktree verb tree.
 func worktreeSpec() *helptext.Node {
-	return &helptext.Node{Sub: map[string]*helptext.Node{
+	sub := map[string]*helptext.Node{
 		"list":   {Flags: []helptext.Flag{helptext.CompletionFormatFlag()}},
 		"create": {Flags: []helptext.Flag{helptext.Plain("branch")}},
 		"commit": {Flags: []helptext.Flag{helptext.Plain("m"), helptext.Plain("task"), helptext.Plain("plan"), helptext.BoolFlag("dry-run")}},
@@ -461,5 +467,7 @@ func worktreeSpec() *helptext.Node {
 		"clean":     {Args: []func() []string{names}, Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("force")}},
 		"clean-all": {Flags: []helptext.Flag{helptext.BoolFlag("dry-run"), helptext.BoolFlag("yes")}},
 		"gate":      {Flags: []helptext.Flag{helptext.Plain("dir"), helptext.Plain("scope"), helptext.BoolFlag("lint-check"), helptext.CompletionFormatFlag()}},
-	}}
+	}
+	maps.Copy(sub, scmSpec().Sub)
+	return &helptext.Node{Sub: sub}
 }

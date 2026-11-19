@@ -22,7 +22,7 @@ var themeStatuslinePage = helptext.Page{
 }
 
 var themePage = helptext.Page{
-	Usage: "claude-code theme [<palette>|<command>] [flags]",
+	Usage: "claude-code configure theme [<palette>|<command>] [flags]",
 	About: "Pick the status line's gradient palette and theme the tools around it. A palette name sets it; " +
 		"--palettes lists them.",
 	Commands: [][2]string{
@@ -30,7 +30,7 @@ var themePage = helptext.Page{
 		{"statusline", "render the status line (settings.json runs it)"},
 		{"vscode", "merge VS Code settings, keybindings, chat models; link ext"},
 	},
-	Hint: "claude-code theme <command> -h lists that command's flags.",
+	Hint: "claude-code configure theme <command> -h lists that command's flags.",
 }
 
 // cmdTheme sets the statusline palette by name, lists them with --palettes, or runs a subcommand; unknown name exits 2.
@@ -123,7 +123,7 @@ func printPalettes(w io.Writer, colored bool) {
 // themeApply is `claude-code theme apply [--only a,b]`: merge every theme/<tool>.json|.conf into that tool's config.
 func themeApply(args []string) int {
 	fs := helptext.NewFlagSet("theme apply", helptext.Page{
-		Usage: "claude-code theme apply [flags]",
+		Usage: "claude-code configure theme apply [flags]",
 		About: "Merge every theme/<tool>.json|.conf into that tool's config. Targets: vscode, statusline, opencode, " +
 			"opencode-themes, copilot, gemini, ghostty.",
 	})

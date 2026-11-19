@@ -65,6 +65,8 @@ var configurePage = helptext.Page{
 		{"codex", "Codex preferences with encrypted config history"},
 		{"routing", "price weight, served-aware switch, opencode sub-pick knobs"},
 		{"databricks", "browser sign-in and token mint per Databricks profile"},
+		{"theme", "status line palette, tool themes, VS Code settings"},
+		{"--history", "config snapshots: snapshot, log, diff (see --history -h)"},
 	},
 }
 
@@ -99,6 +101,9 @@ func configureFlags() (*flag.FlagSet, *configureOpts) {
 
 // cmdConfigure is the guided setup: every section in order, or the one named; list prints `provider --list`.
 func cmdConfigure(args []string) int {
+	if code, ok := configureRoute(args); ok {
+		return code
+	}
 	fs, o := configureFlags()
 	// `configure agents --agent codex`: a leading section word precedes the flags, so lift it out first.
 	section := ""
@@ -119,6 +124,17 @@ func cmdConfigure(args []string) int {
 		return helptext.Fail("configure: %v", err)
 	}
 	return configureRun(o, section, pos)
+}
+
+// configureRoute sends `--history ...` to cmdHistory and `theme ...` to cmdTheme; ok is false for every other form.
+func configureRoute(args []string) (code int, ok bool) {
+	if i := slices.Index(args, "--history"); i >= 0 {
+		return cmdHistory(slices.Concat(args[:i], args[i+1:])), true
+	}
+	if len(args) > 0 && args[0] == "theme" {
+		return cmdTheme(args[1:]), true
+	}
+	return 0, false
 }
 
 // checkAuthFlag records whether --auth was passed (an empty value is meaningful) and refuses it off the github page.
@@ -362,5 +378,6 @@ func sections() []string {
 func configureSpec() *helptext.Node {
 	fs, _ := configureFlags()
 	return &helptext.Node{Args: []func() []string{sections, providers.ProfileNames}, Flags: helptext.FlagsOf(fs,
-		map[string]func() []string{"profile": providers.ProfileNames, "agent": agentNames, "auth": authNames})}
+		map[string]func() []string{"profile": providers.ProfileNames, "agent": agentNames, "auth": authNames}),
+		Sub: map[string]*helptext.Node{"--history": historySpec()}}
 }

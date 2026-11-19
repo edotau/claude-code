@@ -126,7 +126,7 @@ func TestCompletionContains(t *testing.T) {
 		{"databricks --profile", []string{"databricks", "--"}, []string{"--profile"}},
 		{"clip --serve", []string{"clip", "--"}, []string{"--serve"}},
 		{"theme values", []string{"theme", ""}, append([]string{"apply", "statusline", "vscode"}, theme.GradientNames()...)},
-		{"network subverbs", []string{"network", ""}, []string{"tailscale", "browser", "websearch", "remote"}},
+		{"network subverbs", []string{"network", ""}, []string{"browser", "websearch", "remote"}},
 		{"--flag=value", []string{"agents", "ask", "--agent=co"}, []string{"--agent=codex"}},
 		{"agents status --agent values", []string{"agents", "status", "--agent", ""}, []string{"claude", "codex", "copilot", "gemini", "opencode"}},
 		{"agents cancel flags", []string{"agents", "cancel", "--"}, []string{"--dry-run", "--lost"}},
@@ -418,7 +418,7 @@ func TestGoldenProbesNowNonEmpty(t *testing.T) {
 		{"vault set", []string{"vault", "set", ""}},
 		{"models --pin", []string{"models", "--pin", ""}},
 		{"configure", []string{"configure", ""}},
-		{"network tailscale --exit-node", []string{"network", "tailscale", "--exit-node", ""}},
+		{"tailscale --exit-node", []string{"tailscale", "--exit-node", ""}},
 		{"ask --agent=", []string{"agents", "ask", "--agent="}},
 	} {
 		if got := candidates(tc.words...); len(got) == 0 {
@@ -464,16 +464,15 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	tree := specTree()
 	for verb, want := range map[string][]string{
-		"history": {"snapshot", "log", "diff"},
 		"vault":   {"ls", "set", "get", "delete", "env", "import", "export", "rotate-secret"},
-		"network": {"tailscale", "browser", "websearch", "remote"},
+		"network": {"browser", "websearch", "remote"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"index", "path", "watch", "import", "fmt", "report", "sandbox", "migrate"},
 		"gateway":  {"proxy", "resolve"},
 		"agents":   {"sync", "tree", "list", "ask", "dispatch", "label", "diff", "fix", "find", "send", "status", "result", "cancel", "wait", "brief"},
 		"workflow": {"skeleton", "lint", "sync"},
 		"theme":    {"apply", "statusline", "vscode"},
-		"worktree": {"list", "create", "merge", "clean", "clean-all", "gate", "commit"},
+		"worktree": {"list", "create", "merge", "clean", "clean-all", "gate", "commit", "pr", "checks", "comment"},
 		"gemini":   vendorSubwords(),
 		"review":   reviewToolNames(),
 	} {
@@ -602,7 +601,7 @@ func checkClaudeHiddenFromUsage(t *testing.T, stdout string) {
 
 // TestMenuRowsFit: every group is present, every verb name is unique and every row has a summary.
 func TestMenuRowsFit(t *testing.T) {
-	want := map[string]bool{groupAgents: false, groupAuth: false, groupSession: false, groupDiagnostics: false, groupSettings: false}
+	want := map[string]bool{groupProviders: false, groupAgents: false, groupAuth: false, groupSession: false, groupDiagnostics: false, groupSettings: false}
 	names := map[string]bool{}
 	for _, c := range commands() {
 		if names[c.name] {
@@ -629,7 +628,7 @@ func TestMenuRowsFit(t *testing.T) {
 // Retired verbs (use was switch's old name) stay unknown: no dispatch, menu row or completion.
 func TestOldVerbsAreUnknownCommands(t *testing.T) {
 	vaulttest.UseFreshKey(t)
-	for _, old := range []string{"tailscale", "web", "mcp", "generate", "vscode", "settings", "statusline", "route",
+	for _, old := range []string{"web", "mcp", "generate", "vscode", "settings", "statusline", "route",
 		"router", "secrets", "providers", "token", "config", "use"} {
 		if lookup(old) != nil {
 			t.Errorf("lookup(%q) still resolves", old)
@@ -841,7 +840,7 @@ func (checks *helpRowChecks) checkRow(t *testing.T, section, label string) {
 
 func helpAllowsNoRows(path []string) bool {
 	flagless := map[string]bool{
-		"hook": true, "clip": true, "history diff": true, "workflow lint": true, "workflow sync": true,
+		"hook": true, "clip": true, "configure --history diff": true, "workflow lint": true, "workflow sync": true,
 		"vault delete": true, "test ramdisk": true, "memory init": true,
 		"opencode catalog remove": true, "opencode catalog reset": true,
 		"databricks open-url": true,

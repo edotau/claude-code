@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/network"
 	"github.com/edotau/claude-code/internal/network/egress"
 	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/network/tailscale"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -36,6 +37,7 @@ type command struct {
 
 // Menu groups; declaration order in commands() is the display order.
 const (
+	groupProviders   = "PROVIDERS"
 	groupAgents      = "AGENTS"
 	groupAuth        = "AUTH"
 	groupSession     = "SESSION"
@@ -59,34 +61,34 @@ func commands() []command {
 
 func buildCommands() []command {
 	return append([]command{
+		// PROVIDERS — Claude Code on a provider.
+		{name: "anthropic", group: groupProviders, summary: "Claude Code: --model opus|sonnet|haiku|fable; science", run: cmdAnthropic, spec: anthropicSpec},
+		{name: "databricks", group: groupProviders, summary: "Claude Code on Databricks; login, import/export, check --all", run: databricks.Run, spec: databricks.Spec},
 		// AGENTS — launch an agent CLI; `ask` runs one task headlessly.
-		{name: "anthropic", group: groupAgents, summary: "Claude Code: --model opus|sonnet|haiku|fable; science", run: cmdAnthropic, spec: anthropicSpec},
 		{name: "copilot", group: groupAgents, summary: "Copilot CLI on its own login, or your Databricks profile", run: func(a []string) int { return cmdAgentVerb("copilot", a) }, spec: agentSpec("copilot")},
 		{name: "codex", group: groupAgents, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return cmdAgentVerb("codex", a) }, spec: agentSpec("codex")},
 		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (ask --dirs)", run: func(a []string) int { return cmdAgentVerb("gemini", a) }, spec: agentSpec("gemini")},
 		{name: "opencode", group: groupAgents, summary: "OpenCode on its own login, or your Databricks profile; docs", run: func(a []string) int { return cmdAgentVerb("opencode", a) }, spec: agentSpec("opencode")},
-		{name: "databricks", group: groupAgents, summary: "Claude Code on Databricks; login, import/export, check --all", run: databricks.Run, spec: databricks.Spec},
 		// AUTH
 		{name: "resolve", group: groupAuth, hidden: true, summary: "print a profile's credential; --secret for the value (apiKeyHelper)", run: cmdResolve, spec: resolveSpec},
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: cmdVault, spec: vaultSpec},
-		{name: "network", group: groupAuth, summary: "tailnet, browsers, web search, remote agents", run: network.Run, spec: network.Spec},
+		{name: "network", group: groupAuth, summary: "web search, browsers, remote agents", run: network.Run, spec: network.Spec},
+		{name: "tailscale", group: groupAuth, summary: "tailnet: status, connect, token, exit node, subnet", run: tailscale.Cmd, spec: func() *helptext.Node { return &helptext.Node{Flags: tailscale.Flags()} }},
+		{name: "gateway", group: groupAuth, summary: "which agent + model a task routes to; the loopback proxy", run: cmdGateway, spec: gatewaySpec},
 		// SESSION
 		{name: "switch", group: groupSession, hidden: true, summary: "set the session profile on every agent that serves it", run: cmdSwitch, spec: switchSpec},
 		{name: "clean", group: groupSession, summary: "sweep accumulated state; --dry-run previews", run: func(args []string) int { return setup.Clean(args, os.Stdout, os.Stderr) }, spec: setup.CleanSpec},
-		{name: "history", group: groupSession, summary: "shadow git history of the config files", run: cmdHistory, spec: historySpec},
 		{name: "worktree", group: groupSession, summary: "manage worktrees in ~/worktrees/<repo>", run: cmdWorktree, spec: worktreeSpec},
 		{name: "test", group: groupSession, hidden: true, summary: "test tooling: run a command with TMPDIR on a RAM disk", run: cmdTest, spec: testSpec},
 		{name: "memory", group: groupSession, summary: "session memory bank: recall, save, promote", run: cmdMemory, spec: memorySpec},
 		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists and detectors: status, tick, assumptions, goals", run: cmdPlan, spec: planSpec},
-		{name: "scm", group: groupSession, summary: "PRs, checks, comments on GitHub or Bitbucket DC", run: cmdScm, spec: scmSpec},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: doctor.Run, spec: doctor.SpecNode},
-		{name: "gateway", group: groupDiagnostics, summary: "which agent + model a task routes to; the loopback proxy", run: cmdGateway, spec: gatewaySpec},
 		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, profile quotas, context by source", run: func(a []string) int { return usagecmd.Run(a, paths.ConfigDir(), os.Stdout, os.Stderr) }, spec: usagecmd.Spec},
 		// SETTINGS
 		{name: "install", group: groupSettings, summary: "install claude-code and agent links; seed settings.json", run: setup.RunInstall, spec: setup.InstallSpec},
 		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: cmdConfigure, spec: configureSpec},
-		{name: "theme", group: groupSettings, summary: "palette, statusline, VS Code template, tool themes", run: cmdTheme, spec: themeSpec},
+		{name: "theme", group: groupSettings, hidden: true, summary: "palette, statusline, VS Code template, tool themes", run: cmdTheme, spec: themeSpec},
 	}, hiddenCommands()...)
 }
 

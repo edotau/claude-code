@@ -14,7 +14,7 @@ import (
 )
 
 var page = helptext.Page{
-	Usage: "claude-code scm <pr list|view|diff|create | checks | comment> [flags]",
+	Usage: "claude-code worktree <pr|checks|comment> [flags]",
 	About: "Pull requests, CI checks and comments for the origin remote: GitHub via gh, " +
 		"Bitbucket Data Center via REST (BITBUCKET_URL in vault env, default https://<remote host>; BITBUCKET_TOKEN in vault).",
 	Commands: [][2]string{
@@ -34,7 +34,7 @@ func scmUsage(bare bool) int {
 	return 0
 }
 
-// cmdScm is the `scm` verb.
+// cmdScm handles the `worktree pr|checks|comment` subverbs.
 func cmdScm(args []string) int {
 	if len(args) == 0 || helptext.WantsHelp(args[:1]) {
 		return scmUsage(len(args) == 0)
@@ -42,17 +42,21 @@ func cmdScm(args []string) int {
 	verb, rest := args[0], args[1:]
 	switch verb {
 	case "pr":
-		if len(rest) == 0 || helptext.WantsHelp(rest[:1]) {
-			return scmUsage(len(rest) == 0)
+		if len(rest) == 0 {
+			return scmUsage(true)
+		}
+		if helptext.WantsHelp(rest[:1]) {
+			worktreePage.Fprint(os.Stdout)
+			return 0
 		}
 		if !scmPRVerbs[rest[0]] {
-			return helptext.FailUsage("scm pr: unknown command %q (list, view, diff, create)", rest[0])
+			return helptext.FailUsage("worktree pr: unknown command %q (list, view, diff, create)", rest[0])
 		}
 		return dispatch(rest[0], rest[1:])
 	case "checks", "comment":
 		return dispatch(verb, rest)
 	}
-	return helptext.FailUsage("scm: unknown command %q (see claude-code scm -h)", verb)
+	return helptext.FailUsage("worktree: unknown command %q (see claude-code worktree -h)", verb)
 }
 
 // scmPRVerbs are the verbs `scm pr` takes; checks and comment sit beside it.
@@ -90,12 +94,12 @@ func verbUsage(fs *flag.FlagSet, name string) {
 		f := fs.Lookup(n)
 		shown.Var(f.Value, n, f.Usage)
 	}
-	p := helptext.Page{Usage: "claude-code scm " + v.path + v.args + " [flags]", About: v.about, Flags: shown}
+	p := helptext.Page{Usage: "claude-code worktree " + v.path + v.args + " [flags]", About: v.about, Flags: shown}
 	fs.Usage = func() { p.Fprint(fs.Output()) }
 }
 
 func newFlags(name string) (*flag.FlagSet, *opts) {
-	fs := helptext.NewFlagSet("scm "+name, helptext.Page{Usage: "claude-code scm " + name + " [flags]"})
+	fs := helptext.NewFlagSet("worktree "+name, helptext.Page{Usage: "claude-code worktree " + name + " [flags]"})
 	o := &opts{format: helptext.FormatFlag(fs)}
 	o.state = fs.String("state", "open", "list: open|merged|all")
 	o.author = fs.String("author", "", "list: author, or @me")
@@ -117,19 +121,19 @@ func dispatch(name string, args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if err := helptext.CheckFormat(*o.format); err != nil {
-		return helptext.BadFormat("scm", err)
+		return helptext.BadFormat("worktree", err)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	if msg := checkArgs(name, pos, o); msg != "" {
-		return helptext.FailUsage("scm %s: %s", name, msg)
+		return helptext.FailUsage("worktree %s: %s", name, msg)
 	}
 	h, err := scm.Open(ctx)
 	if err != nil {
-		return helptext.Fail("scm %s: %v", name, err)
+		return helptext.Fail("worktree %s: %v", name, err)
 	}
 	if err := runVerb(ctx, h, name, pos, o); err != nil {
-		return helptext.Fail("scm %s: %v", name, err)
+		return helptext.Fail("worktree %s: %v", name, err)
 	}
 	return 0
 }
@@ -254,7 +258,7 @@ func emit(asJSON bool, v any, err error, text func()) error {
 	return helptext.WriteJSON(os.Stdout, v)
 }
 
-// scmSpec is the `scm` completion spec.
+// scmSpec is the `worktree pr|checks|comment` completion spec.
 func scmSpec() *helptext.Node {
 	leaf := func(flags ...helptext.Flag) *helptext.Node {
 		return &helptext.Node{Flags: append(flags, helptext.CompletionFormatFlag())}
@@ -267,6 +271,6 @@ func scmSpec() *helptext.Node {
 			"create": leaf(helptext.Plain("title"), helptext.Plain("body-file"), helptext.Plain("base"), helptext.BoolFlag("draft")),
 		}},
 		"checks":  leaf(helptext.Plain("sha")),
-		"comment": leaf(helptext.Plain("body-file"), helptext.Plain("reply-to")),
+		"comment": {Flags: []helptext.Flag{helptext.Plain("body-file"), helptext.Plain("reply-to")}},
 	}}
 }

@@ -118,7 +118,7 @@ func TestThemeNoArgsPrintsHelpWithoutPalettes(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("theme (no args) exit %d", code)
 	}
-	if !strings.Contains(out, "usage: claude-code theme") || strings.Contains(out, "PALETTES") {
+	if !strings.Contains(out, "usage: claude-code configure theme") || strings.Contains(out, "PALETTES") {
 		t.Errorf("bare theme must print usage only; palettes belong to --palettes:\n%s", out)
 	}
 	if _, err := os.Stat(configPath(dir)); !os.IsNotExist(err) {

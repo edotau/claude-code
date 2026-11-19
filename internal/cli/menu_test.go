@@ -101,8 +101,11 @@ func TestMenuGroupsAlphabetical(t *testing.T) {
 			t.Errorf("%s not alphabetical: %v", g, byGroup[g])
 		}
 	}
-	if got := byGroup[groupAgents]; len(got) == 0 || got[0] != "anthropic" {
-		t.Errorf("AGENTS must open with anthropic, got %v", got)
+	if got := byGroup[groupProviders]; len(got) == 0 || got[0] != "anthropic" {
+		t.Errorf("PROVIDERS must open with anthropic, got %v", got)
+	}
+	if got := byGroup[groupAgents]; len(got) == 0 || got[0] != "copilot" {
+		t.Errorf("AGENTS must open with copilot, got %v", got)
 	}
 }
 
