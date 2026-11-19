@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -12,6 +13,39 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 )
+
+func TestStopFormatNoEditsSkipsGit(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("git shim uses /bin/sh")
+	}
+	config, cwd, bin := t.TempDir(), t.TempDir(), t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", config)
+	called, tr := filepath.Join(bin, "called"), filepath.Join(cwd, "t.jsonl")
+	t.Setenv("STOPFORMAT_GIT_CALLED", called)
+	hosttest.WriteExec(t, filepath.Join(bin, "git"), "#!/bin/sh\n: > \"$STOPFORMAT_GIT_CALLED\"\n")
+	t.Setenv("PATH", bin)
+	hosttest.WriteRel(t, cwd, "t.jsonl", "{}\n")
+	in := core.ParseInput(strings.NewReader(fmt.Sprintf(`{"cwd":%q,"transcript_path":%q}`, cwd, tr)))
+	StopFormat(in)
+	if _, err := os.Stat(called); !os.IsNotExist(err) {
+		t.Fatalf("no edited files must not run git: %v", err)
+	}
+	stamps, err := filepath.Glob(filepath.Join(config, "state", "harness", "stop-format", "*.json"))
+	if err != nil || len(stamps) != 1 {
+		t.Fatalf("scan stamp: %v, %v", stamps, err)
+	}
+	if stamp := loadStampFile(stamps[0]); stamp.Offset != 3 || stamp.Transcript != tr {
+		t.Fatalf("scan progress was not cached: %+v", stamp)
+	}
+	at := time.Unix(1, 0)
+	if err := os.Chtimes(stamps[0], at, at); err != nil {
+		t.Fatal(err)
+	}
+	StopFormat(in)
+	if fi, err := os.Stat(stamps[0]); err != nil || !fi.ModTime().Equal(at) {
+		t.Fatalf("unchanged scan stamp was rewritten: %v, %v", fi, err)
+	}
+}
 
 func TestStopFormatOnlySessionWrites(t *testing.T) {
 	if _, err := exec.LookPath("gofmt"); err != nil {
@@ -43,8 +77,8 @@ func TestStopFormatOnlySessionWrites(t *testing.T) {
 	_ = os.Remove(mine)
 	_ = os.Remove(theirs)
 	StopFormat(core.ParseInput(strings.NewReader(fmt.Sprintf(`{"cwd":%q,"transcript_path":%q}`, repo, tr))))
-	if _, err := os.Stat(stamps[0]); !os.IsNotExist(err) {
-		t.Error("a clean tree must drop the stale stamp file")
+	if left := loadStampFile(stamps[0]); len(left.Stamps) != 0 || left.Offset == 0 {
+		t.Errorf("clean edited files must drop the stale stamps and keep the scan offset: %+v", left)
 	}
 }
 
@@ -59,10 +93,12 @@ func TestChangedFilesFromSubdir(t *testing.T) {
 		t.Fatal(err)
 	}
 	_ = os.WriteFile(filepath.Join(src, "a.go"), []byte("package a\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(src, "a[1].go"), []byte("package a\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(src, "a1.go"), []byte("package a\n"), 0o644)
 	_ = os.WriteFile(filepath.Join(repo, "top.go"), []byte("package top\n"), 0o644)
-	got := changedFiles(t.Context(), src)
-	if len(got) != 1 || got[0] != "a.go" {
-		t.Fatalf("changedFiles(src) = %v, want [a.go]", got)
+	got := changedFiles(t.Context(), src, allowSet(src, []string{"a.go", "a[1].go", "../top.go"}))
+	if strings.Join(got, ",") != "a.go,a[1].go" {
+		t.Fatalf("changedFiles(src) = %v, want [a.go a[1].go]", got)
 	}
 }
 

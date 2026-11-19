@@ -45,17 +45,7 @@ func StopFormat(in *core.Input) core.Result {
 	if cwd == "" {
 		return core.Result{}
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), stopFormatGitTimeout)
-	defer cancel()
 	stampPath := filepath.Join(paths.StateDir(), "stop-format", textutil.SHA256Hex([]byte(cwd))[:16]+".json")
-	changed := changedFiles(ctx, cwd)
-	if ctx.Err() != nil { // a git timeout is not a clean tree: keep the stamps
-		return core.Result{}
-	}
-	if len(changed) == 0 {
-		_ = os.Remove(stampPath) // clean tree: drop stale stamps and skip the transcript scan
-		return core.Result{}
-	}
 	prev := loadStampFile(stampPath)
 	edited, scan, err := scanEdited(prev, in.TranscriptPath)
 	if err != nil { // a partial scan still formats what it found
@@ -64,8 +54,14 @@ func StopFormat(in *core.Input) core.Result {
 	allow := allowSet(cwd, edited)
 	carry, missing := prev.Stamps, map[skipKey]int(nil)
 	if len(allow) > 0 {
+		ctx, cancel := context.WithTimeout(context.Background(), stopFormatGitTimeout)
+		defer cancel()
+		changed := changedFiles(ctx, cwd, allow)
+		if ctx.Err() != nil { // a git timeout is not a clean tree: keep the stamps
+			return core.Result{}
+		}
 		var eligible []string
-		eligible, carry = selectForFormat(cwd, changed, prev.Stamps, allow)
+		eligible, carry = selectForFormat(cwd, changed, prev.Stamps, allow) // nothing dirty drops the stale stamps
 		var stamps map[string]string
 		stamps, missing = formatAll(eligible)
 		maps.Copy(carry, stamps)
@@ -235,9 +231,18 @@ func loadStampFile(path string) stampFile {
 	return f
 }
 
-// changedFiles lists modified, staged and untracked paths relative to cwd; -z avoids git's C-quoting.
-func changedFiles(ctx context.Context, cwd string) []string {
-	data, err := proc.RunGit(ctx, cwd, "status", "--porcelain=v1", "-z", "--untracked-files=all")
+// changedFiles lists dirty allowed paths relative to cwd; literal pathspecs keep glob-shaped names scoped.
+func changedFiles(ctx context.Context, cwd string, allow map[string]bool) []string {
+	args := []string{"status", "--porcelain=v1", "-z", "--untracked-files=all", "--"}
+	for _, full := range slices.Sorted(maps.Keys(allow)) {
+		if rel, ok := core.RelWithin(cwd, full); ok {
+			args = append(args, ":(literal)"+filepath.ToSlash(rel))
+		}
+	}
+	if len(args) == 5 {
+		return nil
+	}
+	data, err := proc.RunGit(ctx, cwd, args...)
 	if err != nil || len(data) == 0 {
 		return nil
 	}
