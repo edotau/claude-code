@@ -79,8 +79,12 @@ func verifySteps(ctx context.Context, in TaskVerifyInput) []TaskCheck {
 	if len(in.Files) == 0 {
 		return out
 	}
-	if gate, src := worktree.ScopedVerifyGate(in.Dir, dirsOf(in.Files), false); src != "none" {
-		out = append(out, runCheck(ctx, in, id, "gate", gate))
+	// a dir the commit removed (a moved package) would fail go vet and go test as a pattern
+	dirs := slices.DeleteFunc(dirsOf(in.Files), func(d string) bool { return !paths.FileExists(filepath.Join(in.Dir, d)) })
+	if len(dirs) > 0 {
+		if gate, src := worktree.ScopedVerifyGate(in.Dir, dirs, false); src != "none" {
+			out = append(out, runCheck(ctx, in, id, "gate", gate))
+		}
 	}
 	diff := DefaultVerify(in.Files)
 	if in.Base != "" {
