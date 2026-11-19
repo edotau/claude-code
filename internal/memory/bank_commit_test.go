@@ -615,6 +615,22 @@ func TestCommitStagesOnlyNamedPathsAndSkipsEmpty(t *testing.T) {
 	assertDecoyUntouched(t, decoy)
 }
 
+// The sha parsed from commit's output and the ref read from disk agree with what git rev-parse reports.
+func TestCommitShaMatchesGitHead(t *testing.T) {
+	store, _ := storeFixture(t)
+	r := StoreRepo()
+	if err := r.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	write(t, filepath.Join(store, "repo", "MEMORY.md"), "- fact\n")
+	sha, _, err := r.Commit([]string{"repo/MEMORY.md"}, "settle", "")
+	want, _ := r.head()
+	full, ok := r.headSHA()
+	if err != nil || sha != want || !ok || !strings.HasPrefix(full, sha) {
+		t.Fatalf("sha %q (%v), git %q, headSHA %q %v", sha, err, want, full, ok)
+	}
+}
+
 // Absent + untracked is dropped; absent + tracked stages a deletion.
 func TestCommitDropsUntrackedAndStagesDeletion(t *testing.T) {
 	store, decoy := storeFixture(t)

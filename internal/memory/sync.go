@@ -186,9 +186,12 @@ func ChangedSince(local, seen map[string]string) []string {
 // LocalToken is "<HEAD> <digest>"; the digest covers the dirty paths and their bytes, "" when git status fails.
 func LocalToken() string {
 	repo := StoreRepo()
-	head, err := repo.run("rev-parse", "HEAD")
-	if err != nil {
-		head = ""
+	head, ok := repo.headSHA()
+	if !ok {
+		var err error
+		if head, err = repo.run("rev-parse", "HEAD"); err != nil {
+			head = ""
+		}
 	}
 	out, err := repo.run("status", "--porcelain=v1", "-z", "--untracked-files=all")
 	if err != nil {

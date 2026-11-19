@@ -446,10 +446,8 @@ func (r Repo) Ensure() error {
 		}
 		verifiedRoots.Store(key, struct{}{})
 	}
-	if remotes, err := r.remotes(); err != nil {
+	if err := r.checkNoRemotes(gitDir, key); err != nil {
 		return err
-	} else if len(remotes) > 0 {
-		return fmt.Errorf("memory repo is local-only but has remotes: %s", strings.Join(remotes, ", "))
 	}
 	if err := os.MkdirAll(filepath.Join(gitDir, "hooks"), 0o755); err != nil {
 		return err
@@ -497,6 +495,43 @@ func (r Repo) checkRoot(gitDir string) error {
 	if err == nil && paths.CanonDeep(outer) == want {
 		return fmt.Errorf("memory repo: %s is the outer checkout's git dir", gitDir)
 	}
+	return nil
+}
+
+// remoteFree maps a canonical git dir to the config stamp under which `git remote` last listed nothing.
+var remoteFree sync.Map
+
+// configStamp fingerprints the repo and user git config files by size and mtime; "" when none can be stat'ed.
+func configStamp(gitDir string) string {
+	var b strings.Builder
+	files := []string{filepath.Join(gitDir, "config")}
+	if home, err := os.UserHomeDir(); err == nil {
+		files = append(files, filepath.Join(home, ".gitconfig"))
+	}
+	for _, f := range files {
+		if fi, err := os.Stat(f); err == nil {
+			fmt.Fprintf(&b, "%s:%d:%d;", f, fi.Size(), fi.ModTime().UnixNano())
+		} else {
+			b.WriteString(f + ":-;")
+		}
+	}
+	return b.String()
+}
+
+// checkNoRemotes refuses a store with remotes; an unchanged config since the last clean listing skips the git call.
+func (r Repo) checkNoRemotes(gitDir, key string) error {
+	stamp := configStamp(gitDir)
+	if v, ok := remoteFree.Load(key); ok && v.(string) == stamp {
+		return nil
+	}
+	remotes, err := r.remotes()
+	if err != nil {
+		return err
+	}
+	if len(remotes) > 0 {
+		return fmt.Errorf("memory repo is local-only but has remotes: %s", strings.Join(remotes, ", "))
+	}
+	remoteFree.Store(key, stamp)
 	return nil
 }
 
@@ -558,15 +593,81 @@ func (r Repo) Commit(rels []string, subject, body string) (sha string, committed
 	if len(staged) == 0 { // the staged-names diff already answers what `diff --cached --quiet` would
 		return "", false, nil
 	}
-	args := []string{"commit", "--quiet", "-m", subject}
+	args := []string{"commit", "-m", subject}
 	if body != "" {
 		args = append(args, "-m", body)
 	}
-	if _, err := r.run(args...); err != nil {
+	out, err := r.run(args...)
+	if err != nil {
 		return "", false, err
+	}
+	if sha = r.commitSHA(out); sha != "" {
+		return sha, true, nil
 	}
 	sha, err = r.head()
 	return sha, true, err
+}
+
+// commitSHA reads the short id from commit's "[branch sha] subject" line; "" unless HEAD's id starts with it.
+func (r Repo) commitSHA(out string) string {
+	line, _, _ := strings.Cut(out, "\n")
+	inner, _, ok := strings.Cut(strings.TrimPrefix(line, "["), "]")
+	if !ok || !strings.HasPrefix(line, "[") {
+		return ""
+	}
+	f := strings.Fields(inner)
+	if len(f) == 0 {
+		return ""
+	}
+	sha := f[len(f)-1]
+	if full, ok := r.headSHA(); !ok || len(sha) < 4 || !strings.HasPrefix(full, sha) {
+		return ""
+	}
+	return sha
+}
+
+// headSHA is HEAD's full id read from the loose or packed ref; ok is false when only git can answer (unborn, odd refs).
+func (r Repo) headSHA() (string, bool) {
+	gitDir := filepath.Join(r.Dir, ".git")
+	b, err := os.ReadFile(filepath.Join(gitDir, "HEAD"))
+	if err != nil {
+		return "", false
+	}
+	head := strings.TrimSpace(string(b))
+	ref, symbolic := strings.CutPrefix(head, "ref: ")
+	if !symbolic {
+		return head, isHexID(head)
+	}
+	if !strings.HasPrefix(ref, "refs/") || strings.Contains(ref, "..") {
+		return "", false
+	}
+	if b, err := os.ReadFile(filepath.Join(gitDir, filepath.FromSlash(ref))); err == nil {
+		id := strings.TrimSpace(string(b))
+		return id, isHexID(id)
+	}
+	packed, err := os.ReadFile(filepath.Join(gitDir, "packed-refs"))
+	if err != nil {
+		return "", false
+	}
+	for line := range strings.Lines(string(packed)) {
+		if id, name, ok := strings.Cut(strings.TrimSpace(line), " "); ok && name == ref {
+			return id, isHexID(id)
+		}
+	}
+	return "", false
+}
+
+// isHexID reports a full SHA-1 or SHA-256 object id.
+func isHexID(s string) bool {
+	if len(s) != 40 && len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
+			return false
+		}
+	}
+	return true
 }
 
 // stageRels stages rels and returns every path the index now differs from HEAD in.

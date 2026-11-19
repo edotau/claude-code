@@ -554,9 +554,10 @@ const (
 // backupStoreBundle bundles the store repo before an import changes it; skipped when the newest is under a day old.
 func backupStoreBundle(now time.Time) error {
 	repo := StoreRepo()
-	sha, err := repo.head()
-	if err != nil || sha == "" { // no commit yet: git refuses an empty bundle and there is nothing to lose
-		return err
+	if _, ok := repo.headSHA(); !ok {
+		if sha, err := repo.head(); err != nil || sha == "" { // no commit yet: git refuses an empty bundle
+			return err
+		}
 	}
 	dir := filepath.Join(paths.StateDir(), "backups")
 	old, _ := filepath.Glob(filepath.Join(dir, bundlePrefix+"*"+bundleSuffix))
