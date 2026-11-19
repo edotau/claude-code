@@ -129,6 +129,42 @@ func TestPickArmExcludesTried(t *testing.T) {
 	}
 }
 
+// PickRowsAndStamp with Extra rotates least-recent over the workspaces plus the extra row, skipping unusable ones.
+func TestPickRowsRotation(t *testing.T) {
+	ultra := &providers.Provider{Name: "ultra", Provider: "anthropic", Auth: providers.Auth{Type: providers.AuthCLI}}
+	for _, c := range []struct {
+		name     string
+		unusable []string
+		want     []string
+	}{
+		{"four rows, each once per cycle", nil, []string{"dev", "prod", "qa", "ultra", "dev", "prod", "qa", "ultra"}},
+		{"held and credential-less rows skipped", []string{"prod", "qa"}, []string{"dev", "ultra", "dev", "ultra"}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			reg := poolFixture(t, map[string]int{"dev": 5}) // load is ignored: Live is the caller's, nil here
+			reg.Providers["anthropic"] = &providers.Provider{Name: "anthropic", Provider: "anthropic", Auth: providers.Auth{Type: "key"}}
+			reg.Providers["ultra"] = ultra
+			if err := writeArmPicks(armPicks{Schema: armPicksSchema, Picked: map[string]time.Time{"dev": time.Now()}}); err != nil {
+				t.Fatal(err)
+			}
+			q := armQuery{Extra: []*providers.Provider{ultra}, Key: RowRotationKey("claude"), Findings: noCredential(c.unusable),
+				Cooling: armCooling, Live: func([]*providers.Provider) map[string]int { return nil }}
+			now := time.Date(2026, 11, 19, 12, 0, 0, 0, time.UTC)
+			var got []string
+			for i := range c.want {
+				rows, skipped, err := PickRowsAndStamp(reg, q, now.Add(time.Duration(i)*time.Second))
+				if err != nil || len(skipped) != len(c.unusable) || len(rows) != 4-len(c.unusable) {
+					t.Fatalf("pick %d = %v, %d skipped, %v", i, rows, len(skipped), err)
+				}
+				got = append(got, rows[0])
+			}
+			if !slices.Equal(got, c.want) {
+				t.Errorf("picks = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
 // BenchmarkPickArmExcluding is the hot path a 429 adds: one pick outside the workspaces already tried.
 func BenchmarkPickArmExcluding(b *testing.B) {
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}

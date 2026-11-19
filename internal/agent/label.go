@@ -39,6 +39,11 @@ func runQueryRoute(ctx context.Context, reg *providers.Registry, q ModelQuery, a
 	if pq, ok := poolQuery(ctx, q); ok {
 		return pq, "", nil
 	}
+	if rows := claudeRows(ctx, RouteReq{Agent: q.Agent, Model: q.Model, Task: q.Task, Profile: q.Profile, Provider: q.Provider,
+		Host: q.Held}, false); len(rows) > 0 && q.Account == "" {
+		q.Model = rows[0] + ":" + AutoModel // the row the run's rotation takes next
+		return q, "", nil
+	}
 	if namesRoute(q) {
 		return q, "", nil
 	}

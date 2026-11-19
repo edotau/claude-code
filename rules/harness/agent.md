@@ -80,9 +80,11 @@ paths:
   does not serve falls back to the untiered pick with a note. The ranks are seeded estimates: edit
   `internal/catalog/ranks.json`.
   `--model auto` or `configure agents <agent> model=auto` picks the least-recent eligible model on a rotation row
-  (Databricks workspace or copilot GitHub login). Claude never rotates: its typed or pinned `auto` runs the brief's
-  tier model (haiku fast, sonnet standard or untiered, opus deep), and label, `gateway resolve`, `ask --dry-run` and
-  the run all show it. Each agent has one history per provider group across dev, qa and prod; holds stay per
+  (Databricks workspace or copilot GitHub login). Claude's model never rotates: its typed or pinned `auto` runs the
+  brief's tier model (haiku fast, sonnet standard or untiered, opus deep); with no route typed or inherited its row
+  rotates least-recent over the signed-in workspaces plus its record's `cli` Anthropic row (never the `key` row),
+  skipping a held, signed-out or unserving row, and label, `gateway resolve`, `ask --dry-run` and the run all show
+  it. Each agent has one history per provider group across dev, qa and prod; holds stay per
   workspace: a pool-pinned pick skips a model where that workspace skips or holds it, and keeps it
   while another workspace serves it. The pool input is the served listing (a GitHub login: its Copilot catalog
   snapshot) alone; there is no built-in seed pool.

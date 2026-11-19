@@ -42,35 +42,69 @@ type WorkspaceQuery[F any] struct {
 	Unserved         func(string, []F) error
 	Cooling          func(*providers.Provider, time.Time) bool
 	Live             func([]*providers.Provider) map[string]int
+	Extra            []*providers.Provider // rows ranked beside the Databricks workspaces (claude's subscription row)
+	Key              string                // stamp namespace in route-auto.json; "" is the shared workspace tie-break
+}
+
+// RowRotationKey is the route-auto.json namespace of agent's own row rotation, apart from databricks:auto's stamps.
+func RowRotationKey(agentName string) string { return agentName + "·rows" }
+
+func (q WorkspaceQuery[F]) stampKey(name string) string {
+	if q.Key == "" {
+		return name
+	}
+	return q.Key + "/" + name
 }
 
 // PickWorkspaceAndStamp claims a workspace; only real dispatches should advance the tie-break stamp.
 func PickWorkspaceAndStamp[F any](reg *providers.Registry, q WorkspaceQuery[F], now time.Time) (name string, live int, skipped []F, err error) {
-	usable, skipped, err := workspaceCandidates(reg, q, now)
+	order, live, skipped, err := pickAndStamp(reg, q, now)
 	if err != nil {
 		return "", 0, skipped, err
+	}
+	return order[0], live, skipped, nil
+}
+
+// PickRowsAndStamp is PickWorkspaceAndStamp returning every usable row in rank order, the claimed one first.
+func PickRowsAndStamp[F any](reg *providers.Registry, q WorkspaceQuery[F], now time.Time) ([]string, []F, error) {
+	order, _, skipped, err := pickAndStamp(reg, q, now)
+	return order, skipped, err
+}
+
+func pickAndStamp[F any](reg *providers.Registry, q WorkspaceQuery[F], now time.Time) (order []string, live int, skipped []F, err error) {
+	usable, skipped, err := workspaceCandidates(reg, q, now)
+	if err != nil {
+		return nil, 0, skipped, err
 	}
 	cooling := workspaceCooling(usable, q, now)
 	pick := func() error {
 		picks := readArmPicks()
 		counts := rankWorkspaces(usable, q, cooling, picks)
-		name, live = usable[0].Name, counts[usable[0].Name]
+		order, live = names(usable), counts[usable[0].Name]
 		stamp := now // Concurrent callers can acquire the lock out of timestamp order.
 		for _, at := range picks.Picked {
 			if !stamp.After(at) {
 				stamp = at.Add(time.Nanosecond)
 			}
 		}
-		picks.Picked[name] = stamp
+		picks.Picked[q.stampKey(order[0])] = stamp
 		return writeArmPicks(picks)
 	}
-	if err := paths.WithFileLock(armPicksFile(), pick); name == "" && err != nil { // Stamping is best-effort.
+	if err := paths.WithFileLock(armPicksFile(), pick); len(order) == 0 && err != nil { // Stamping is best-effort.
 		_ = pick()
 	}
 	if q.Pending != nil {
-		q.Pending[name]++
+		q.Pending[order[0]]++
 	}
-	return name, live, skipped, nil
+	return order, live, skipped, nil
+}
+
+func names(ps []*providers.Provider) []string {
+	out := make([]string, len(ps))
+	for i, p := range ps {
+		out[i] = p.Name
+	}
+	return out
 }
 
 // RankWorkspaces reads load and stamps without claiming a workspace or changing Pending.
@@ -80,11 +114,7 @@ func RankWorkspaces[F any](reg *providers.Registry, q WorkspaceQuery[F], now tim
 		return nil, skipped, err
 	}
 	rankWorkspaces(usable, q, workspaceCooling(usable, q, now), readArmPicks())
-	names := make([]string, len(usable))
-	for i, p := range usable {
-		names[i] = p.Name
-	}
-	return names, skipped, nil
+	return names(usable), skipped, nil
 }
 
 func workspaceCooling[F any](ps []*providers.Provider, q WorkspaceQuery[F], now time.Time) map[string]bool {
@@ -107,7 +137,7 @@ func rankWorkspaces[F any](ps []*providers.Provider, q WorkspaceQuery[F], coolin
 	}
 	slices.SortFunc(ps, func(a, b *providers.Provider) int {
 		return cmp.Or(cmp.Compare(rank(cooling[a.Name]), rank(cooling[b.Name])), cmp.Compare(counts[a.Name], counts[b.Name]),
-			picks.Picked[a.Name].Compare(picks.Picked[b.Name]), cmp.Compare(a.Name, b.Name))
+			picks.Picked[q.stampKey(a.Name)].Compare(picks.Picked[q.stampKey(b.Name)]), cmp.Compare(a.Name, b.Name))
 	})
 	return counts
 }
@@ -147,11 +177,17 @@ func readArmPicks() armPicks {
 
 func writeArmPicks(picks armPicks) error { return paths.WriteJSON(armPicksFile(), picks) }
 
-// armCandidates splits reg's Databricks workspaces (none in tried) by armFindings: usable, skipped.
+// armCandidates splits reg's Databricks workspaces plus q.Extra (none in tried) by armFindings: usable, skipped.
 func armCandidates[F any](reg *providers.Registry, q WorkspaceQuery[F], model string, now time.Time) (usable []*providers.Provider, skipped []F) {
+	rows := []*providers.Provider{}
 	for _, n := range slices.Sorted(maps.Keys(reg.Providers)) {
-		p := reg.Providers[n]
-		if p.Preset != providers.PresetDatabricks || slices.Contains(q.Tried, n) {
+		if p := reg.Providers[n]; p.Preset == providers.PresetDatabricks {
+			rows = append(rows, p)
+		}
+	}
+	for _, p := range append(rows, q.Extra...) {
+		n := p.Name
+		if slices.Contains(q.Tried, n) {
 			continue
 		}
 		if fs := q.Findings(p, q.AgentName, model, now); len(fs) > 0 {
