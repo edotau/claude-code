@@ -94,10 +94,11 @@ func TestAttributionFooterMessageFile(t *testing.T) {
 // Given an interpreter writing a footer into the -F file, Then it is caught; one that never names the file is not.
 func TestFooterFileWrittenByInterpreter(t *testing.T) {
 	for cmd, want := range map[string]bool{
-		`python3 -c 'open("/tmp/m.txt","w").write("Co-Authored-By: Claude")'; git commit -F /tmp/m.txt`:            true,
-		`printf 'Co-Authored-By: Claude' | python3 -c 'open("/tmp/m.txt","w").write(1)'; git commit -F /tmp/m.txt`: true,
-		`python3 -c 'print("Co-Authored-By: Claude")'; git commit -F /tmp/m.txt`:                                   false,
-		`python3 -c 'open("/tmp/m.txt","w").write("fix: x")'; git commit -F /tmp/m.txt`:                            false,
+		`python3 -c 'open("/tmp/m.txt","w").write("Co-Authored-By: Claude")'; git commit -F /tmp/m.txt`:                                      true,
+		`printf 'Co-Authored-By: Claude' | python3 -c 'import sys;open("/tmp/m.txt","w").write(sys.stdin.read())'; git commit -F /tmp/m.txt`: true,
+		`python3 -c 'print("/tmp/m.txt", "Co-Authored-By: Claude")'; git commit -F /tmp/m.txt`:                                               false,
+		`python3 -c 'print("Co-Authored-By: Claude")'; git commit -F /tmp/m.txt`:                                                             false,
+		`python3 -c 'open("/tmp/m.txt","w").write("fix: x")'; git commit -F /tmp/m.txt`:                                                      false,
 	} {
 		if got := FooterFileWritten(cmd, "/tmp"); got != want {
 			t.Errorf("FooterFileWritten(%q) = %v, want %v", cmd, got, want)

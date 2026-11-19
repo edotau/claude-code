@@ -42,6 +42,9 @@ func TestTokensPinnedOutput(t *testing.T) {
 		{`a)b`, []string{"a", "b"}},
 		{`a}b`, []string{"a", "b"}},
 		{`"a)b"`, []string{"a)b"}},
+		{`>important.txt`, []string{">important.txt"}},
+		{`> f`, []string{">", "f"}},
+		{`>f echo hi`, []string{"echo", "hi"}},
 		{`(`, nil},
 		{``, nil},
 	}

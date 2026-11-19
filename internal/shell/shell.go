@@ -286,7 +286,10 @@ func trimGroupOpen(out []string) []string {
 			i++
 			continue
 		}
-		rest := skipLeadRedirect(skipFuncHeader(out[i:]), true)
+		rest := skipFuncHeader(out[i:])
+		if after := skipLeadRedirect(rest, true); len(after) > 0 {
+			rest = after
+		}
 		if len(rest) == len(out)-i {
 			break
 		}
