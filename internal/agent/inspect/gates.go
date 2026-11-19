@@ -123,17 +123,17 @@ func runDefaultGates(ctx context.Context, in gateInput) []GateResult {
 		return appendDocs(ctx, out, in)
 	}
 	res := make([]GateResult, len(defs))
+	runGateSet(ctx, defs, in, res)
+	return appendDocs(ctx, res, in)
+}
+
+// runGateSet runs every gate at once; a failed build leaves the other gates' own results standing.
+func runGateSet(ctx context.Context, defs []gateDef, in gateInput, res []GateResult) {
 	var wg sync.WaitGroup
 	for i, d := range defs {
 		wg.Go(func() { res[i] = runGate(ctx, d, in) })
 	}
 	wg.Wait()
-	for i, d := range defs {
-		if d.needsBuild && res[buildIdx].Status == "FAIL" {
-			res[i] = GateResult{Name: d.name, Status: "skip", Reason: "build failed"}
-		}
-	}
-	return appendDocs(ctx, res, in)
 }
 
 // appendDocs adds the docs gate after the others, only when the change set holds Markdown.
@@ -149,7 +149,7 @@ const (
 	complexityIdx = 4
 )
 
-// gateDefs lists the default gates in report order; they run concurrently and build failure marks needsBuild ones skipped.
+// gateDefs lists the default gates in report order; they run concurrently.
 func gateDefs() []gateDef {
 	return []gateDef{
 		stepDef("gofmt", false),

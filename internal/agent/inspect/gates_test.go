@@ -71,17 +71,17 @@ func gateStatuses(rs []GateResult) string {
 	return strings.Join(parts, ", ")
 }
 
-func TestGatesSkipAfterBuildFailure(t *testing.T) {
+func TestGatesKeepOwnResultAfterBuildFailure(t *testing.T) {
 	dir, files := gateRepo(t)
 	f := &fakeGates{lint: true, fail: map[string]string{"go build": dir + "/pkg/p.go:3:1: undefined: x\n"}}
 	f.install(t)
 	rs := runGates(context.Background(), dir, "HEAD", files)
-	want := "ok gofmt, FAIL build, skip vet, skip golangci-lint, ok complexity, skip test"
+	want := "ok gofmt, FAIL build, ok vet, ok golangci-lint, ok complexity, ok test"
 	if got := gateStatuses(rs); got != want {
 		t.Fatalf("gates = %s, want %s", got, want)
 	}
-	if got := rs[1].Findings; len(got) != 1 || got[0].String() != "pkg/p.go:3: build: undefined: x" || rs[2].Reason != "build failed" {
-		t.Errorf("build rows %v (root must be scrubbed), vet reason %q", got, rs[2].Reason)
+	if got := rs[1].Findings; len(got) != 1 || got[0].String() != "pkg/p.go:3: build: undefined: x" {
+		t.Errorf("build rows %v (root must be scrubbed)", got)
 	}
 	if diffExit(DiffReport{Gates: rs}) != DiffExitGate {
 		t.Errorf("a failed build must exit 1")

@@ -189,11 +189,11 @@ func acquireTree(ctx context.Context, top, root, sha, own string) (string, func(
 	return dir, func() { removeTree(context.Background(), top, dir) }, nil
 }
 
-// resetSlot moves the slot's worktree to sha and drops untracked files, recreating it when it is missing or broken.
+// resetSlot moves the slot's worktree to sha and drops untracked and ignored files, recreating it when it is missing or broken.
 func resetSlot(ctx context.Context, top, dir, sha string) error {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
 		if _, err = proc.RunGit(ctx, dir, "checkout", "--force", "--detach", sha); err == nil {
-			if _, err = proc.RunGit(ctx, dir, "clean", "-fdq"); err == nil {
+			if _, err = proc.RunGit(ctx, dir, "clean", "-ffdxq"); err == nil {
 				return nil
 			}
 		}
