@@ -92,7 +92,7 @@ paths:
   with a note; a fresh listing with nothing runnable in the brief's tier and nothing held there steps to the standard
   tier, and only nothing eligible then exits naming held ids, without launching; unwritable pick
   state errors. An untyped, unpinned model keeps the ranked pick.
-  Refused auto picks share at most 3 re-picks per ask, including workspace retries; no re-pick follows streamed
+  Refused auto picks share at most 3 re-picks per ask, including a move after an exhausted pool (a 429 move is free); no re-pick follows streamed
   text or tool execution. Under `--fallback none` an auto-picked workspace whose pool is exhausted moves to another
   workspace of the same provider, never past a typed or inherited `--profile`.
   `--model databricks:auto` equals `--provider databricks --model auto`.
