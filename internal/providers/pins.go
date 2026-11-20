@@ -239,7 +239,8 @@ func mergeKeys[V any](a, b map[string]V) map[string]struct{} {
 
 // recordFields flattens r to field -> value, aliases as aliases.<alias>.
 func recordFields(r vault.AgentRecord) map[string]string {
-	f := map[string]string{"profile": r.Profile, "model": r.Model, "effort": r.Effort, "context": r.Context, "account": r.Account}
+	f := map[string]string{"profile": recordProfile(r), "model": r.Model, "effort": r.Effort, "context": r.Context,
+		"account": r.EffectiveRoute().Account}
 	for alias, v := range r.Aliases {
 		f["aliases."+alias] = v
 	}
