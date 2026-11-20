@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -74,7 +75,7 @@ func Review(name string, args []string, o ReviewOptions) int {
 
 // reviewLane runs the cloud review when the overlay sets cloud; a run with no overlay does no work here.
 func reviewLane(name string, o ReviewOptions) (rc int, done bool) {
-	value := cmp.Or(o.Overlay, os.Getenv(agentconfig.OverlayVar))
+	value := cmp.Or(o.Overlay, os.Getenv(route.OverlayVar))
 	if value == "" {
 		return 0, false
 	}
@@ -87,7 +88,7 @@ func reviewLane(name string, o ReviewOptions) (rc int, done bool) {
 		return helptext.Fail("%s review: %v", name, err), true
 	case o.Overlay != "" && (!ov.Cloud || name != "claude"):
 		return helptext.Fail("%s review: --overlay only selects the cloud review; use $%s for the local one",
-			name, agentconfig.OverlayVar), true
+			name, route.OverlayVar), true
 	case !ov.Cloud || name != "claude":
 		return 0, false
 	}

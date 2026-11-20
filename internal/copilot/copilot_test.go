@@ -17,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/agenttest"
+	"github.com/edotau/claude-code/internal/route"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -438,9 +439,9 @@ func TestArmCopilotBYOK(t *testing.T) {
 // An arm carried only by the run's values still puts a non-macOS route-less Databricks hop on routed BYOK.
 func TestArmedBYOKFromRunValues(t *testing.T) {
 	setGOOS(t, "linux")
-	t.Setenv(agentconfig.OverlayVar, "")
+	t.Setenv(route.OverlayVar, "")
 	tg := providers.Target{Provider: &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks}}
-	arm := proc.Values{agentconfig.OverlayVar: `{"provider":"databricks","profile":"dbx"}`}
+	arm := proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dbx"}`}
 	for name, c := range map[string]struct {
 		values proc.Values
 		want   bool
@@ -468,7 +469,7 @@ func runArmedBYOK(t *testing.T) (sdkOptions, []string) {
 	agenttest.StubProxy(t, testRouterBase, "rtr-secret-xyz")
 	agent.MintSession = func(context.Context, []string, int) (string, error) { return "cct_ARM", nil }
 	pathstest.FakeVendor(t, "copilot", "exit 0")
-	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"dbx"}`)
+	t.Setenv(route.OverlayVar, `{"provider":"databricks","profile":"dbx"}`)
 	t.Setenv("GH_TOKEN", "ghp-planted")
 	t.Setenv("COPILOT_GITHUB_TOKEN", "ghp-planted")
 	var got sdkOptions

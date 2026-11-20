@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxy/server"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -300,7 +301,7 @@ func gatewayFlags() (fs *flag.FlagSet, q *agent.RouteReq, overlay, format *strin
 	fs.StringVar(&q.Fallback, "fallback", "", strings.Join(router.FallbackModes, "|")+"; default from "+router.EnvFallback)
 	fs.StringVar(&q.Profile, "profile", "", "lead profile, or session")
 	fs.StringVar(&q.Provider, "provider", "", "lead on this provider's signed-in profile")
-	overlay = fs.String("overlay", "", "dispatch config: file, JSON or -; else $"+agentconfig.OverlayVar)
+	overlay = fs.String("overlay", "", "dispatch config: file, JSON or -; else $"+route.OverlayVar)
 	return fs, q, overlay, helptext.FormatFlag(fs)
 }
 

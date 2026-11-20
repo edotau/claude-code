@@ -16,6 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -173,7 +174,7 @@ func runCodexCatalog(ctx context.Context, bin, home string, args ...string) ([]b
 	ctx, cancel := context.WithTimeout(ctx, catalogTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, bin, args...)
-	spec := agent.EnvSpec{Mode: agent.EnvAgent, Unset: []string{agentconfig.OverlayVar}, Set: []string{"CODEX_HOME=" + home}}
+	spec := agent.EnvSpec{Mode: agent.EnvAgent, Unset: []string{route.OverlayVar}, Set: []string{"CODEX_HOME=" + home}}
 	cmd.Env = spec.Environ(agent.ProbeContext(ctx, "")) // no login or route credential; unset rides ctx
 	agentconfig.RecordOverlayDebug("codex-catalog", cmd.Env)
 	cmd.Dir = home

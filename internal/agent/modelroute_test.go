@@ -9,7 +9,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -298,7 +297,7 @@ func TestCommandTokenPoolHonorsDispatchOverride(t *testing.T) {
 	if r, err := ResolveModel(reg, q, now); err != nil || r.Profile != "dev" {
 		t.Fatalf("refreshable pool = %v, %v", r, err)
 	}
-	ctx := proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: `{"tokenCommand":[]}`})
+	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"tokenCommand":[]}`})
 	q = QueryFor(ctx, q)
 	if _, err := ResolveModel(reg, q, now); err == nil {
 		t.Fatal("disabled command accepted short token")

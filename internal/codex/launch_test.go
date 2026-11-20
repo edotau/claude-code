@@ -9,9 +9,9 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/route"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -35,7 +35,7 @@ func TestCodexHeadlessNetworkOptIn(t *testing.T) {
 	vaulttest.Use(t)
 	putCodexRecord(t, vault.AgentRecord{Extras: map[string]string{extraSandboxMode: "workspace-write"}})
 	const net = "sandbox_workspace_write.network_access=true"
-	open := proc.WithValues(context.Background(), proc.Values{agentconfig.OverlayVar: `{"codexNetwork":true}`})
+	open := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"codexNetwork":true}`})
 	if got := codexHeadless(context.Background(), nil, &agent.Headless{Tools: true}); slices.Contains(got, net) {
 		t.Fatalf("default tools run must stay sealed: %q", got)
 	}
@@ -50,12 +50,12 @@ func TestCodexHeadlessNetworkOptIn(t *testing.T) {
 	if err != nil || !slices.ContainsFunc(notes, func(n string) bool { return strings.Contains(n, "codexNetwork") }) {
 		t.Errorf("launch notes must show the opened network: %v, %v", notes, err)
 	}
-	nested := proc.WithValues(context.Background(), proc.Values{agentconfig.OverlayVar: `{"codexNetwork":true}`, proc.DispatchIDEnv: "d1"})
+	nested := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"codexNetwork":true}`, proc.DispatchIDEnv: "d1"})
 	if _, _, remove, err := codexToolsEnv(nested, nil, true, "workspace-write"); err == nil {
 		remove()
 		t.Error("a nested dispatch must not open network for itself")
 	}
-	depthOnly := proc.WithValues(context.Background(), proc.Values{agentconfig.OverlayVar: `{"codexNetwork":true}`, proc.DispatchDepthEnv: "1"})
+	depthOnly := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"codexNetwork":true}`, proc.DispatchDepthEnv: "1"})
 	if _, _, remove, err := codexToolsEnv(depthOnly, nil, true, "workspace-write"); err == nil {
 		remove()
 		t.Error("a dispatch child with only its depth marker must not open network for itself")
@@ -120,7 +120,7 @@ func TestCodexHeadlessReadsRunValues(t *testing.T) {
 	vaulttest.Use(t)
 	putCodexRecord(t, vault.AgentRecord{Extras: map[string]string{extraSandboxMode: "workspace-write"}})
 	t.Setenv("GOCACHE", "/ambient")
-	ctx := proc.WithValues(context.Background(), proc.Values{agentconfig.OverlayVar: `{"codexNetwork":true}`, "GOCACHE": "/run"})
+	ctx := proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"codexNetwork":true}`, "GOCACHE": "/run"})
 	got := codexHeadless(ctx, nil, &agent.Headless{Tools: true})
 	if !slices.Contains(got, "sandbox_workspace_write.network_access=true") {
 		t.Fatalf("run snapshot overlay network opt-in ignored: %q", got)

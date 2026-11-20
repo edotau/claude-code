@@ -24,14 +24,11 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
-	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
-
-// OverlayVar names the overlay (a file path, inline JSON or -) every dispatch this process starts reads.
-const OverlayVar = "COWORKER_OVERLAY"
 
 // overlaySchema versions the overlay document; one without "schema" reads as this version.
 const overlaySchema = 1
@@ -89,8 +86,6 @@ var identityModes = []string{providers.IdentityAuto, providers.IdentityUser, pro
 func in(names []string) func(string) bool {
 	return func(v string) bool { return slices.Contains(names, v) }
 }
-
-func sshHost(v string) bool { return textutil.ValidHost(v) == nil }
 
 // RoutingKeys lists the routing keys in document order.
 func RoutingKeys() []string {
@@ -343,7 +338,7 @@ func (o Overlay) Routed() bool {
 }
 
 // Confinement is the internal provider[:profile] value ("databricks:qa", "anthropic"); "" when no provider is named.
-func (o Overlay) Confinement() string { return router.JoinCoworker(o.Provider, o.Profile) }
+func (o Overlay) Confinement() string { return route.Join(o.Provider, o.Profile) }
 
 // InlineOverlay carries confinement and inherited dispatch caps without the parent's env or vendor budget.
 func InlineOverlay(provider, profile string, limits ...Overlay) string {
@@ -502,20 +497,20 @@ func (o Overlay) checkUnset(src overlaySrc, keep map[string]bool) error {
 
 // DispatchOverlayContext is a dispatch's overlay: flag, else the run's $COWORKER_OVERLAY, else the vault env's.
 func DispatchOverlayContext(ctx context.Context, flag string) string {
-	if v := cmp.Or(flag, proc.Value(ctx, OverlayVar)); v != "" {
+	if v := cmp.Or(flag, proc.Value(ctx, route.OverlayVar)); v != "" {
 		return v // a nested dispatch inherits $COWORKER_OVERLAY (its confinement) and never reads the vault's
 	}
 	if values, ok := proc.ValuesFromContext(ctx); ok {
-		if _, held := values[OverlayVar]; held {
+		if _, held := values[route.OverlayVar]; held {
 			return ""
 		}
 	}
-	return strings.TrimSpace(providers.CustomEnv()[OverlayVar])
+	return strings.TrimSpace(providers.CustomEnv()[route.OverlayVar])
 }
 
 // LoadOverlayContext reads value, else the run's $COWORKER_OVERLAY: a file, inline JSON or - for stdin; "" is none.
 func LoadOverlayContext(ctx context.Context, value string, stdin io.Reader) (Overlay, error) {
-	value = cmp.Or(value, proc.Value(ctx, OverlayVar))
+	value = cmp.Or(value, proc.Value(ctx, route.OverlayVar))
 	if value == "" {
 		return Overlay{}, nil
 	}

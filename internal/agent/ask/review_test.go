@@ -13,10 +13,10 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -260,7 +260,7 @@ func TestReviewLaneCloudGate(t *testing.T) {
 	}
 	for _, tc := range tests {
 		os.Remove(log)
-		t.Setenv(agentconfig.OverlayVar, tc.env)
+		t.Setenv(route.OverlayVar, tc.env)
 		id := ""
 		if tc.nested {
 			id = "d1"

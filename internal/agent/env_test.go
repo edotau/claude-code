@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/route"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 
@@ -366,8 +367,8 @@ func TestChildCmdCancelLeavesNoProcessGroup(t *testing.T) {
 func TestRunValuesAmbientEmptyOverlayKeepsStored(t *testing.T) {
 	vaulttest.Use(t)
 	const stored = `{"provider":"databricks","profile":"qa"}`
-	vaulttest.Put(t, vault.Env, agentconfig.OverlayVar, stored)
-	t.Setenv(agentconfig.OverlayVar, "")
+	vaulttest.Put(t, vault.Env, route.OverlayVar, stored)
+	t.Setenv(route.OverlayVar, "")
 	ctx, _ := RunValues(context.Background(), nil)
 	if got := agentconfig.DispatchOverlayContext(ctx, ""); got != stored {
 		t.Fatalf("DispatchOverlayContext = %q, want the stored overlay %q", got, stored)

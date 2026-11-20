@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/route"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 )
@@ -229,7 +229,7 @@ func TestRemoteScriptRelaysIdentity(t *testing.T) {
 
 // The confinement must cross to the remote: ApplyCoworker exports it as env, which ssh drops, so it ran unconfined.
 func TestRemoteScriptRelaysCoworker(t *testing.T) {
-	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
+	t.Setenv(route.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
 	script, err := remoteScript("claude-code", "codex", "", RunOptions{})
 	if err != nil || !strings.Contains(script, ` --overlay '{"provider":"databricks","profile":"dev"}'`) {
 		t.Fatalf("script = %s, err = %v; want the databricks:dev overlay relayed", script, err)

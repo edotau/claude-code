@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/schemas"
 )
 
@@ -247,7 +248,7 @@ func liveByWorkspace(ps []*providers.Provider) map[string]int {
 	<-done
 	out := map[string]int{}
 	for _, p := range ps {
-		out[p.Name] = snap.Per[AccountOf(p)] + routed[JoinCoworker(RouteDatabricks, p.Name)]
+		out[p.Name] = snap.Per[AccountOf(p)] + routed[route.Join(RouteDatabricks, p.Name)]
 	}
 	return out
 }

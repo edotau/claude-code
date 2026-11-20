@@ -1,7 +1,6 @@
 package ask
 
 import (
-	"bufio"
 	"cmp"
 	"context"
 	"errors"
@@ -20,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 
@@ -194,7 +194,7 @@ func takeRoute(r *askRun) error {
 	switch {
 	case f.overlay != "" && f.spec == "":
 		r.ovSrc = srcCmd
-	case f.overlay == "" && proc.Value(r.ctx, agentconfig.OverlayVar) != "":
+	case f.overlay == "" && proc.Value(r.ctx, route.OverlayVar) != "":
 		r.ovSrc = srcFence
 	}
 	fr := flagRoute(f)
@@ -220,10 +220,10 @@ func confinementValue(r *askRun) (string, error) {
 
 // LoadOverlay loads --overlay value, else $COWORKER_OVERLAY; a "-" source fails with busy when that is set.
 func LoadOverlay(ctx context.Context, value, busy string) (agentconfig.Overlay, error) {
-	if busy != "" && cmp.Or(value, proc.Value(ctx, agentconfig.OverlayVar)) == "-" {
+	if busy != "" && cmp.Or(value, proc.Value(ctx, route.OverlayVar)) == "-" {
 		from := "--overlay -"
 		if value == "" {
-			from = agentconfig.OverlayVar + "=-"
+			from = route.OverlayVar + "=-"
 		}
 		return agentconfig.Overlay{}, errors.New(from + ": " + busy)
 	}
@@ -382,7 +382,7 @@ func recordRefusal(r *askRun, err error, fallback string) {
 func (r *askRun) poolValue(value string) string {
 	f := r.f
 	r.swap = helptext.Explicit(r.fs, "fallback") && f.fallback != router.FallbackNone
-	auto := router.JoinCoworker(router.RouteDatabricks, router.AutoArm)
+	auto := route.Join(router.RouteDatabricks, router.AutoArm)
 	f.native = ownLoginNative(r.ag, f, value)
 	switch {
 	case value != "" || f.profile != "" || f.host != "" || r.jobRec != nil || f.native:
@@ -450,7 +450,7 @@ func recordConfinement(own, rec string) (string, error) {
 	if own != "" || rec == "" || rec == "default" {
 		return own, nil
 	}
-	if _, _, err := router.ParseCoworker(rec); err != nil {
+	if _, _, err := route.Parse(rec); err != nil {
 		return "", fmt.Errorf("the replayed record ran under route %q, which no longer exists: pass --overlay with a provider", rec)
 	}
 	return rec, nil
@@ -666,15 +666,6 @@ func (r *askRun) execute() int {
 		req = run.probe(req)
 	}
 	return askPrepareAndRun(r.dryCtx(ctx, prompt), r.fs, req, r.jobRec, r.ov, f.env, f.keepEnv, f.as, f.format, f.save, f.name, f.background, f.native, run, r.out)
-}
-
-// readPrompt reads the task; framed (stdin) is set only for the remote end of `ask --host`.
-func (r *askRun) readPrompt() (*bufio.Reader, string, error) {
-	if r.f.stdinFramed {
-		return readFramedPrompt(os.Stdin)
-	}
-	prompt, err := resolveAskPrompt(r.prompt)
-	return nil, prompt, err
 }
 
 // request is batchBase plus the single-task fields.

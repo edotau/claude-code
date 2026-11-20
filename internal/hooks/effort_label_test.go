@@ -12,10 +12,10 @@ import (
 	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
@@ -26,7 +26,7 @@ import (
 func TestLabelModelSpellsExplicitModelOnProfileRow(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
-	t.Setenv(agentconfig.OverlayVar, "")
+	t.Setenv(route.OverlayVar, "")
 	for _, flags := range []string{"--profile dev --model claude-opus-5", "--model dev:claude-opus-5"} {
 		task := "Run: claude-code agents ask --agent claude " + flags + " 'do x'"
 		if got, _ := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "databricks-claude-opus-5" {
@@ -39,7 +39,7 @@ func TestLabelModelSpellsExplicitModelOnProfileRow(t *testing.T) {
 func TestLabelModelQueryCarriesAskLine(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
-	t.Setenv(agentconfig.OverlayVar, "")
+	t.Setenv(route.OverlayVar, "")
 	for _, tc := range []struct {
 		flags                     string
 		agent, model, profile, df string
@@ -90,7 +90,7 @@ func TestLabelQueryCarriesProvider(t *testing.T) {
 func TestLabelModelExactDispatchModel(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
-	t.Setenv(agentconfig.OverlayVar, "")
+	t.Setenv(route.OverlayVar, "")
 	var seen agentpkg.ModelQuery
 	stubResolve(t, func(q agentpkg.ModelQuery) string { seen = q; return "wire-id" })
 	labelModel(context.Background(), newDispatchRun(nil), map[string]any{"model": "gpt-6-sol"}, "codex", "")
@@ -102,7 +102,7 @@ func TestLabelModelExactDispatchModel(t *testing.T) {
 func TestLabelModelUsesCachedServedSpelling(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
-	t.Setenv(agentconfig.OverlayVar, "")
+	t.Setenv(route.OverlayVar, "")
 	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
 		{ID: "databricks-glm-5-2", Ready: "READY"}, {ID: "databricks-custom-model", Ready: "READY"},
 	}}); err != nil {
@@ -160,7 +160,7 @@ func TestLabelModelAutoRunLine(t *testing.T) {
 	useAgentsDir(t, "claude")
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
-	t.Setenv(agentconfig.OverlayVar, "")
+	t.Setenv(route.OverlayVar, "")
 	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
 		{ID: "databricks-claude-opus-5-5", Task: "llm/v1/chat", Ready: "READY"},
 		{ID: "databricks-claude-haiku-5-5", Task: "llm/v1/chat", Ready: "READY"}}}); err != nil {

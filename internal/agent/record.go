@@ -1,7 +1,6 @@
 package agent
 
 import (
-	"bufio"
 	"bytes"
 	"cmp"
 	"context"
@@ -20,6 +19,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/route"
 
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
@@ -182,7 +182,7 @@ func NewRecord(name string, req RunOptions, now time.Time) Record {
 	depth, maxDepth := lineage(ctx, parent)
 	provider, profile, _ := router.CoworkerContext(ctx)
 	return Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
-		Parent: parent, Depth: depth, MaxDepth: &maxDepth, Widened: widened, Route: router.JoinCoworker(provider, profile)}
+		Parent: parent, Depth: depth, MaxDepth: &maxDepth, Widened: widened, Route: route.Join(provider, profile)}
 }
 
 // lineage is the depth and cap from the parent's record; the env may tighten both, never loosen (cap 0 = none).
@@ -592,7 +592,7 @@ func ranRoute(res wire.Result) string {
 		if !ok {
 			return provider // an own-login account has no "·", e.g. opencode-go
 		}
-		return router.JoinCoworker(provider, cmp.Or(h.Profile, profile))
+		return route.Join(provider, cmp.Or(h.Profile, profile))
 	}
 	return ""
 }
@@ -959,25 +959,6 @@ func runRecorded(ctx context.Context, rec *Record, agentName string, out wire.Si
 		return res, err
 	}
 	return res, rec.conclude(res, err, time.Since(begin), o, sink.Emit)
-}
-
-// lastResultEvent is the last result event's envelope in rec's events file; nil when none or the file is unreadable.
-func (rec Record) lastResultEvent() (*wire.Envelope, error) {
-	f, err := os.Open(rec.EventsPath())
-	if err != nil {
-		return nil, nil
-	}
-	defer f.Close()
-	var env *wire.Envelope
-	sc := bufio.NewScanner(f)
-	sc.Buffer(nil, 16<<20)
-	for sc.Scan() {
-		var ev wire.Event
-		if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Type == wire.EventResult && ev.Envelope != nil {
-			env = ev.Envelope
-		}
-	}
-	return env, sc.Err()
 }
 
 // SavedEnvelope is the last result event's envelope, true only when one was found and the events file read cleanly.

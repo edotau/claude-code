@@ -3,6 +3,7 @@ package agent
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -169,4 +170,23 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	case <-t.C:
 		return nil
 	}
+}
+
+// lastResultEvent is the last result event's envelope in rec's events file; nil when none or the file is unreadable.
+func (rec Record) lastResultEvent() (*wire.Envelope, error) {
+	f, err := os.Open(rec.EventsPath())
+	if err != nil {
+		return nil, nil
+	}
+	defer f.Close()
+	var env *wire.Envelope
+	sc := bufio.NewScanner(f)
+	sc.Buffer(nil, 16<<20)
+	for sc.Scan() {
+		var ev wire.Event
+		if json.Unmarshal(sc.Bytes(), &ev) == nil && ev.Type == wire.EventResult && ev.Envelope != nil {
+			env = ev.Envelope
+		}
+	}
+	return env, sc.Err()
 }

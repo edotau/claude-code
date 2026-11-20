@@ -17,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -169,7 +170,7 @@ func TestResolveOverlayFailsClosedAndNeverEchoes(t *testing.T) {
 func TestDispatchOverlayPrecedence(t *testing.T) {
 	vaulttest.Use(t)
 	stored := `{"provider":"databricks","profile":"auto"}`
-	vaulttest.Put(t, vault.Env, OverlayVar, stored)
+	vaulttest.Put(t, vault.Env, route.OverlayVar, stored)
 	qa := `{"provider":"databricks","profile":"qa"}`
 	for _, tc := range []struct{ name, flag, env, want string }{
 		{"stored alone", "", "", stored},
@@ -177,12 +178,12 @@ func TestDispatchOverlayPrecedence(t *testing.T) {
 		{"flag wins", `{"provider":"github"}`, `{"provider":"openai"}`, `{"provider":"github"}`},
 		{"nested keeps its inherited confinement, never the stored one", "", qa, qa},
 	} {
-		t.Setenv(OverlayVar, tc.env)
+		t.Setenv(route.OverlayVar, tc.env)
 		if got := DispatchOverlayContext(t.Context(), tc.flag); got != tc.want {
 			t.Errorf("%s: DispatchOverlay = %q, want %q", tc.name, got, tc.want)
 		}
 	}
-	t.Setenv(OverlayVar, "")
+	t.Setenv(route.OverlayVar, "")
 	o, err := LoadOverlayContext(t.Context(), DispatchOverlayContext(t.Context(), ""), strings.NewReader(""))
 	if err != nil || o.Confinement() != "databricks:auto" {
 		t.Errorf("stored overlay loaded as %q (err %v), want confinement databricks:auto", o.Confinement(), err)
@@ -193,19 +194,19 @@ func TestDispatchOverlayPrecedence(t *testing.T) {
 func TestDispatchOverlayContextSnapshotEmptyKeySuppressesStored(t *testing.T) {
 	vaulttest.Use(t)
 	stored := `{"provider":"databricks","profile":"auto"}`
-	vaulttest.Put(t, vault.Env, OverlayVar, stored)
-	t.Setenv(OverlayVar, "")
+	vaulttest.Put(t, vault.Env, route.OverlayVar, stored)
+	t.Setenv(route.OverlayVar, "")
 	flagDoc := `{"provider":"github"}`
 	for _, tc := range []struct {
 		name, flag string
 		ctx        context.Context
 		want       string
 	}{
-		{"snapshot holds the key empty", "", proc.WithValues(context.Background(), proc.Values{OverlayVar: ""}), ""},
+		{"snapshot holds the key empty", "", proc.WithValues(context.Background(), proc.Values{route.OverlayVar: ""}), ""},
 		{"snapshot lacks the key", "", proc.WithValues(context.Background(), proc.Values{"X": "1"}), stored},
 		{"no snapshot", "", context.Background(), stored},
-		{"flag wins over an empty held key", flagDoc, proc.WithValues(context.Background(), proc.Values{OverlayVar: ""}), flagDoc},
-		{"snapshot value wins", "", proc.WithValues(context.Background(), proc.Values{OverlayVar: "{}"}), "{}"},
+		{"flag wins over an empty held key", flagDoc, proc.WithValues(context.Background(), proc.Values{route.OverlayVar: ""}), flagDoc},
+		{"snapshot value wins", "", proc.WithValues(context.Background(), proc.Values{route.OverlayVar: "{}"}), "{}"},
 	} {
 		if got := DispatchOverlayContext(tc.ctx, tc.flag); got != tc.want {
 			t.Errorf("%s: DispatchOverlayContext = %q, want %q", tc.name, got, tc.want)
@@ -215,7 +216,7 @@ func TestDispatchOverlayContextSnapshotEmptyKeySuppressesStored(t *testing.T) {
 
 func TestTokenCommandOverlayDisableSurvivesRelay(t *testing.T) {
 	p := &providers.Provider{Name: "dev", Provider: "databricks", TokenCommand: []string{"mint-bearer"}}
-	ctx := proc.WithValues(t.Context(), proc.Values{OverlayVar: `{"provider":"databricks","profile":"dev","tokenCommand":[]}`})
+	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"provider":"databricks","profile":"dev","tokenCommand":[]}`})
 	o, err := LoadOverlayContext(ctx, "", nil)
 	if err != nil {
 		t.Fatal(err)
@@ -224,7 +225,7 @@ func TestTokenCommandOverlayDisableSurvivesRelay(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ctx = proc.WithValues(ctx, proc.Values{OverlayVar: string(raw)})
+	ctx = proc.WithValues(ctx, proc.Values{route.OverlayVar: string(raw)})
 	resolved, err := CommandProvider(ctx, p)
 	if err != nil || resolved.TokenCommand == nil || len(resolved.TokenCommand) != 0 || len(p.TokenCommand) != 1 {
 		t.Fatalf("disable override lost or mutated provider: %v", err)

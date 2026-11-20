@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -160,22 +161,7 @@ func TestProviderConfinementWithoutLadderStillFilters(t *testing.T) {
 func confine(t *testing.T, v string) {
 	provider, profile, _ := strings.Cut(v, ":")
 	doc, _ := json.Marshal(map[string]string{"provider": provider, "profile": profile})
-	t.Setenv(overlayEnv, string(doc))
-}
-
-func TestParseCoworker(t *testing.T) {
-	for _, bad := range []string{"databricks:", "nope", "databricks:a:b", "default", "first-party", "local", "anthropic:", ":dev"} {
-		if _, _, err := ParseCoworker(bad); err == nil {
-			t.Errorf("ParseCoworker(%q) accepted", bad)
-		}
-	}
-	for in, want := range map[string][2]string{"": {}, " anthropic ": {"anthropic"}, "github:personal": {"github", "personal"},
-		"databricks": {RouteDatabricks}, "databricks:dev": {RouteDatabricks, "dev"}} {
-		provider, profile, err := ParseCoworker(in)
-		if err != nil || [2]string{provider, profile} != want {
-			t.Errorf("ParseCoworker(%q) = %q, %q, %v; want %q", in, provider, profile, err, want)
-		}
-	}
+	t.Setenv(route.OverlayVar, string(doc))
 }
 
 // armPick runs want's pick under route databricks:dev on a hermetic registry with dev and qa workspaces.
@@ -267,9 +253,9 @@ func TestConfinedContextConcurrentRuns(t *testing.T) {
 	}
 	var ctxs [2]context.Context
 	for i := range ctxs {
-		ctxs[i] = proc.WithValues(context.Background(), proc.Values{overlayEnv: `{"provider":"` + keys[i] + `"}`})
+		ctxs[i] = proc.WithValues(context.Background(), proc.Values{route.OverlayVar: `{"provider":"` + keys[i] + `"}`})
 	}
-	t.Setenv(overlayEnv, `{"provider":"`+keys[2]+`"}`)
+	t.Setenv(route.OverlayVar, `{"provider":"`+keys[2]+`"}`)
 	var wg sync.WaitGroup
 	for range 50 {
 		for i := range ctxs {

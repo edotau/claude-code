@@ -25,7 +25,7 @@ import (
 
 // ApplyCoworker is ApplyRoute for a legacy provider[:profile] value; cli/gateway.go still passes strings.
 func ApplyCoworker(ctx context.Context, value, profile, agentName, model, fallback string) (context.Context, error) {
-	provider, p, err := router.ParseCoworker(value)
+	provider, p, err := route.Parse(value)
 	if err != nil {
 		if _, _, cerr := router.CoworkerContext(ctx); cerr != nil {
 			return ctx, cerr
@@ -66,7 +66,7 @@ func withValues(ctx context.Context, set proc.Values) context.Context {
 
 // confinement is $COWORKER_OVERLAY as provider[:p] alone: the router and nested dispatches read it there.
 func confinement(provider, p string) proc.Values {
-	return proc.Values{agentconfig.OverlayVar: agentconfig.InlineOverlay(provider, p)}
+	return proc.Values{route.OverlayVar: agentconfig.InlineOverlay(provider, p)}
 }
 
 // checkLeave refuses a provider or pinned profile other than the inherited confinement's; applyArm compares workspaces.
@@ -309,7 +309,7 @@ func pickWith(reg *providers.Registry, q armQuery, now time.Time) (string, int, 
 
 // errLeave refuses an overlay provider/profile that differs from the inherited confinement provider[:profile].
 func errLeave(provider, profile string) error {
-	return fmt.Errorf("overlay: a nested dispatch cannot leave %s: drop provider/profile", router.JoinCoworker(provider, profile))
+	return fmt.Errorf("overlay: a nested dispatch cannot leave %s: drop provider/profile", route.Join(provider, profile))
 }
 
 // bareArm is the first of profile and the session's profile that names a Databricks row, else "".
@@ -361,7 +361,7 @@ func checkNative(ctx context.Context, native bool) error {
 	case err != nil:
 		return err
 	case p != "":
-		return fmt.Errorf("--native: outside overlay %s", router.JoinCoworker(p, prof))
+		return fmt.Errorf("--native: outside overlay %s", route.Join(p, prof))
 	}
 	return nil
 }
@@ -394,7 +394,7 @@ func armFlags(arm, profile, provider string, direct bool) error {
 func confineFlags(ctx context.Context, profile, provider, model string) error {
 	cp, cprof := router.ConfinedContext(ctx)
 	typed := strings.Contains(model, ":")
-	label := "overlay " + router.JoinCoworker(cp, cprof)
+	label := "overlay " + route.Join(cp, cprof)
 	switch {
 	case cp == "":
 		return nil
@@ -462,7 +462,7 @@ func carryOverlay(ctx context.Context, ov agentconfig.Overlay) (context.Context,
 	if err != nil {
 		return ctx, err
 	}
-	return withValues(ctx, proc.Values{agentconfig.OverlayVar: string(doc)}), nil
+	return withValues(ctx, proc.Values{route.OverlayVar: string(doc)}), nil
 }
 
 // pinLacks reports the agent's Databricks pin with a fresh listing that does not serve model.

@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -59,7 +60,7 @@ func cloudFlags(verb string) (fs *flag.FlagSet, overlay *string) {
 			fs.Int(n, 0, "attempt number (1-based)")
 		}
 	}
-	return fs, fs.String("overlay", "", "config: file, JSON or -; else $"+agentconfig.OverlayVar)
+	return fs, fs.String("overlay", "", "config: file, JSON or -; else $"+route.OverlayVar)
 }
 
 // cloudArgv is the `codex cloud` argument list for verb args; the verb's flag set holds only its own flags.

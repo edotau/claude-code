@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -93,7 +94,7 @@ func TestRouterRouteMintsScopedSessionToken(t *testing.T) {
 			t.Fatalf("armed routerRoute key = %q, %v; want the minted session token", key, err)
 		}
 	}
-	t.Setenv(agentconfig.OverlayVar, "")
+	t.Setenv(route.OverlayVar, "")
 	if _, _, key, err := routerRoute(t.Context(), SchemaFor("codex"), reg.Providers["dev"], ""); err != nil || key != "cct_dev+qa" {
 		t.Errorf("unarmed routerRoute key = %q, %v; want the token for dev and its fallback qa", key, err)
 	}
@@ -106,7 +107,7 @@ func TestRouterRouteMintsScopedSessionToken(t *testing.T) {
 // A failed mint fails the route: the child is never handed the router secret instead.
 func TestRouterRouteMintFailureAborts(t *testing.T) {
 	armRegistry(t)
-	t.Setenv(agentconfig.OverlayVar, "")
+	t.Setenv(route.OverlayVar, "")
 	stubRouter(t, func(context.Context) (string, error) { return "http://127.0.0.1:9" + t.Name(), nil })
 	om := MintSession
 	t.Cleanup(func() { MintSession = om; ResetSessionTokens() })
@@ -402,21 +403,21 @@ func TestPrintRedactsCredentialSegmentNames(t *testing.T) {
 
 // ApplyOverlay reads the run's overlay from req.Values, never from the parent's own environment.
 func TestApplyOverlayIgnoresAmbientOverlay(t *testing.T) {
-	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
+	t.Setenv(route.OverlayVar, `{"provider":"databricks","profile":"dev"}`)
 	if got := (RunOptions{Values: proc.Values{"PST_RUN": "x"}}).ApplyOverlay(t.Context(), agentconfig.Resolved{}); len(got.Unset) != 0 {
-		t.Errorf("ambient $%s reached a run whose Values do not name it: Unset = %v", agentconfig.OverlayVar, got.Unset)
+		t.Errorf("ambient $%s reached a run whose Values do not name it: Unset = %v", route.OverlayVar, got.Unset)
 	}
-	named := RunOptions{Values: proc.Values{agentconfig.OverlayVar: `{"provider":"databricks"}`}}
-	if got := named.ApplyOverlay(t.Context(), agentconfig.Resolved{}); !slices.Contains(got.Unset, agentconfig.OverlayVar) {
+	named := RunOptions{Values: proc.Values{route.OverlayVar: `{"provider":"databricks"}`}}
+	if got := named.ApplyOverlay(t.Context(), agentconfig.Resolved{}); !slices.Contains(got.Unset, route.OverlayVar) {
 		t.Errorf("a run whose Values name the overlay must unset it for the child; Unset = %v", got.Unset)
 	}
 }
 
 // With nil Values, ApplyOverlay reads the overlay from ctx's snapshot, not the parent's environment.
 func TestApplyOverlayReadsCtxSnapshot(t *testing.T) {
-	t.Setenv(agentconfig.OverlayVar, "")
-	ctx := proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: `{"provider":"databricks"}`})
-	if got := (RunOptions{}).ApplyOverlay(ctx, agentconfig.Resolved{}); !slices.Contains(got.Unset, agentconfig.OverlayVar) {
+	t.Setenv(route.OverlayVar, "")
+	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"provider":"databricks"}`})
+	if got := (RunOptions{}).ApplyOverlay(ctx, agentconfig.Resolved{}); !slices.Contains(got.Unset, route.OverlayVar) {
 		t.Errorf("nil Values must read the overlay from ctx's snapshot; Unset = %v", got.Unset)
 	}
 }
@@ -470,14 +471,14 @@ func TestConfigureWireDirectNeverRefusesOnTokenLife(t *testing.T) {
 }
 
 func TestConfinementCarriesDispatchLimits(t *testing.T) {
-	ctx := proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: `{"maxChildren":0,"maxTreeTokens":123,"budgetUSD":1}`})
+	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"maxChildren":0,"maxTreeTokens":123,"budgetUSD":1}`})
 	for range 2 {
 		doc := confinementDocContext(ctx)
 		o, err := agentconfig.LoadOverlayContext(t.Context(), doc, nil)
 		if err != nil || o.MaxChildren == nil || *o.MaxChildren != 0 || o.MaxTreeTokens == nil || *o.MaxTreeTokens != 123 || o.BudgetUSD != nil {
 			t.Fatalf("nested limits: %s, %v", doc, err)
 		}
-		ctx = proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: doc})
+		ctx = proc.WithValues(t.Context(), proc.Values{route.OverlayVar: doc})
 	}
 }
 

@@ -15,40 +15,14 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 )
-
-// overlayEnv is agentconfig.OverlayVar (no import: agentconfig imports router); the router reads provider and profile.
-const overlayEnv = "COWORKER_OVERLAY"
 
 // RouteDatabricks is the provider whose confinement arms one workspace (ArmProfileContext); any other filters accounts.
 const RouteDatabricks = "databricks"
 
 // AutoArm is the databricks profile an ask resolves to one workspace; unresolved, it confines nothing yet.
 const AutoArm = "auto"
-
-// ParseCoworker splits a provider[:profile] value into its provider key and optional profile; "" is no confinement.
-func ParseCoworker(v string) (provider, profile string, err error) {
-	v = strings.TrimSpace(v)
-	provider, profile, named := strings.Cut(v, ":")
-	switch {
-	case v == "":
-		return "", "", nil
-	case slices.Contains(providers.ProviderKeys(), provider) && (!named || (profile != "" && !strings.Contains(profile, ":"))):
-		return provider, profile, nil
-	case named && profile == "" && slices.Contains(providers.ProviderKeys(), provider):
-		return "", "", fmt.Errorf("empty profile: want %s or %s:<profile>", provider, provider)
-	}
-	// never quotes v
-	return "", "", fmt.Errorf("unknown provider (%s)", strings.Join(providers.ProviderKeys(), "|"))
-}
-
-// JoinCoworker is ParseCoworker's inverse: provider[:profile]; a profile without a provider joins to "".
-func JoinCoworker(provider, profile string) string {
-	if provider == "" || profile == "" {
-		return provider
-	}
-	return provider + ":" + profile
-}
 
 // BadOverlay is the provider ConfinedContext reports for an unparseable overlay: no account, so nothing routes.
 const BadOverlay = "invalid-overlay"
@@ -208,7 +182,7 @@ func (l pickLadder) dropReason() string {
 func (s Skip) Outside() bool { return s.Gate == gateLadder && strings.HasPrefix(s.Reason, "outside ") }
 
 // armOutside is the Skip reason for an account route databricks:<arm> sets aside.
-func armOutside(arm string) string { return "outside " + JoinCoworker(RouteDatabricks, arm) }
+func armOutside(arm string) string { return "outside " + route.Join(RouteDatabricks, arm) }
 
 // armSplit moves the wanted agent's off-workspace candidates into the rest: its own login ranks in tier 2 (D1).
 func (l pickLadder) armSplit(first, rest [][]Candidate) ([][]Candidate, [][]Candidate) {
@@ -434,19 +408,19 @@ func withCoworker(ctx context.Context) context.Context {
 }
 
 func parseCoworker(ctx context.Context) (provider, profile string, err error) {
-	v := strings.TrimSpace(proc.Value(ctx, overlayEnv))
+	v := strings.TrimSpace(proc.Value(ctx, route.OverlayVar))
 	var doc struct{ Provider, Profile string }
 	switch {
 	case !strings.HasPrefix(v, "{"):
 		return "", "", nil
 	case json.Unmarshal([]byte(v), &doc) != nil:
-		return "", "", errors.New(overlayEnv + ": not valid JSON")
+		return "", "", errors.New(route.OverlayVar + ": not valid JSON")
 	case doc.Provider == RouteDatabricks && (doc.Profile == "" || doc.Profile == AutoArm):
 		// the ask applying this document resolves the workspace
 		return "", "", nil
 	}
-	if provider, profile, err = ParseCoworker(JoinCoworker(doc.Provider, doc.Profile)); err != nil {
-		return "", "", fmt.Errorf("%s: %w", overlayEnv, err)
+	if provider, profile, err = route.Parse(route.Join(doc.Provider, doc.Profile)); err != nil {
+		return "", "", fmt.Errorf("%s: %w", route.OverlayVar, err)
 	}
 	return provider, profile, nil
 }

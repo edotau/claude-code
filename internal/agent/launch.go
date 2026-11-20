@@ -664,12 +664,12 @@ func (p Plan) checkOverlay(r agentconfig.Resolved) error {
 // ApplyOverlay layers r under req's --env (the shorthand wins); the child's $COWORKER_OVERLAY is the confinement only.
 func (req RunOptions) ApplyOverlay(ctx context.Context, r agentconfig.Resolved) RunOptions {
 	_, values := RunValues(ctx, req.Values)
-	if len(r.Set)+len(r.Unset)+len(r.Keep) == 0 && values[agentconfig.OverlayVar] == "" {
+	if len(r.Set)+len(r.Unset)+len(r.Keep) == 0 && values[route.OverlayVar] == "" {
 		return req
 	}
 	req.Env = append(proc.Values(r.Set).Env(), req.Env...)
 	req.KeepEnv = slices.Concat(req.KeepEnv, r.Keep)
-	req.Unset = slices.Concat(req.Unset, r.Unset, []string{agentconfig.OverlayVar}) // Environ re-adds the confinement
+	req.Unset = slices.Concat(req.Unset, r.Unset, []string{route.OverlayVar}) // Environ re-adds the confinement
 	req.OverlaySet, req.OverlayUnset = slices.Sorted(maps.Keys(r.Set)), r.Unset
 	return req
 }
@@ -687,11 +687,11 @@ func (p Plan) withOverlay(r agentconfig.Resolved) Plan {
 	}
 	maps.Copy(set, p.Set)
 	if doc := confinementDocContext(valuesContext(context.Background(), p.Values)); doc != "" {
-		set[agentconfig.OverlayVar] = doc
+		set[route.OverlayVar] = doc
 	}
 	p.Set, p.Keep = set, slices.Concat(p.Keep, r.Keep)
 	unset := slices.DeleteFunc(slices.Clone(r.Unset), func(k string) bool { _, own := p.Set[k]; return own })
-	p.Unset = slices.Concat(p.Unset, unset, []string{agentconfig.OverlayVar})
+	p.Unset = slices.Concat(p.Unset, unset, []string{route.OverlayVar})
 	return p
 }
 

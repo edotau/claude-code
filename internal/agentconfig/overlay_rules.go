@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -76,7 +77,7 @@ var flagSetRules = slices.Concat([]rule{
 	[]rule{
 		{func(c *ruleCtx) bool { return envReserved(c.name, c.up) },
 			refuse(errors.New("reserved by the harness credential scrub: use `claude-code vault set` or a provider's auth.command"))},
-		{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, OverlayVar) }, // a flag must not point at another overlay
+		{func(c *ruleCtx) bool { return strings.HasPrefix(c.up, route.OverlayVar) }, // a flag must not point at another overlay
 			refuse(errors.New("harness-owned: pass an overlay with --overlay, not --env"))},
 		{func(c *ruleCtx) bool { return credentialName(c.up) || textutil.LooksSecret(c.val) },
 			refuse(errors.New("looks like a credential: store it with `claude-code vault set` or a provider's auth.command, not on the command line"))},
@@ -118,7 +119,7 @@ func envReserved(name, up string) bool { return proc.EnvBlocked(name) || proc.En
 var setRules = []rule{
 	{func(c *ruleCtx) bool { return !vault.EnvName().MatchString(c.name) }, refuse(errEnvName)},
 	{func(c *ruleCtx) bool {
-		return strings.HasPrefix(c.up, "HARNESS_") || strings.HasPrefix(c.up, OverlayVar)
+		return strings.HasPrefix(c.up, "HARNESS_") || strings.HasPrefix(c.up, route.OverlayVar)
 	},
 		refuse(errors.New("harness-owned: the harness sets it per launch"))},
 	{func(c *ruleCtx) bool { return routeRedirectName(c.up) }, refuse(errBaseURL)},
@@ -158,3 +159,5 @@ func refRule(ref string, route func(string) bool) error {
 	}
 	return nil
 }
+
+func sshHost(v string) bool { return textutil.ValidHost(v) == nil }

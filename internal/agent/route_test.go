@@ -10,10 +10,10 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -333,7 +333,7 @@ func TestOtherRouteFollowsLead(t *testing.T) {
 
 // Under overlay databricks:<p> the wanted agent on workspace <p> is the asked route, whatever its pin says.
 func TestOtherRouteFollowsArm(t *testing.T) {
-	t.Setenv(agentconfig.OverlayVar, `{"provider":"databricks","profile":"qa"}`)
+	t.Setenv(route.OverlayVar, `{"provider":"databricks","profile":"qa"}`)
 	rc := routeCtx{ctx: context.Background(), want: "opencode", pins: map[string]router.PinSpec{"opencode": {Profile: "dev"}}}
 	if rc.otherRoute(router.Candidate{Agent: "opencode", Profile: "qa"}) {
 		t.Error("the coworker workspace marked as another route")
@@ -369,7 +369,7 @@ func TestLeadFor(t *testing.T) {
 	}
 	for _, c := range cases {
 		if c.overlay != "" {
-			t.Setenv(agentconfig.OverlayVar, c.overlay)
+			t.Setenv(route.OverlayVar, c.overlay)
 			t.Setenv(providers.EnvSessionProfile, "")
 		}
 		lead, explicit, err := LeadFor(c.q)

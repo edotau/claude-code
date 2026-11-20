@@ -16,9 +16,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
@@ -51,7 +51,7 @@ func armRateFixture(t *testing.T, limited, broke []string) string {
 		retry.ResetCooldowns()
 	})
 	t.Setenv(providers.EnvSessionProfile, "")
-	t.Setenv(agentconfig.OverlayVar, "")
+	t.Setenv(route.OverlayVar, "")
 	return dump
 }
 
@@ -375,7 +375,7 @@ func retryUnitFixture(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
 		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"none"}},`+
 		`"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"none"}}}}}`)
-	t.Setenv(agentconfig.OverlayVar, "")
+	t.Setenv(route.OverlayVar, "")
 	t.Setenv(providers.EnvSessionProfile, "")
 	oldFind, oldLive, oldCool := armFindings, armLive, armCooling
 	armFindings = noCredential(nil)

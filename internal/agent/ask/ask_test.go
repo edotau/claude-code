@@ -18,10 +18,10 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
@@ -318,43 +318,6 @@ func TestCmdAskJobLogEachLineOnce(t *testing.T) {
 	if strings.Contains(got, `{"event"`) {
 		t.Errorf("log holds raw NDJSON:\n%s", got)
 	}
-}
-
-// hostFixture installs a fake ssh on PATH and a fake remote bin ($HARNESS_REMOTE_BIN) printing banner, then NDJSON.
-func hostFixture(t *testing.T, banner string, lines []string, exit int) string {
-	hosttest.SkipOnWindows(t, "sh script")
-	t.Helper()
-	skipWithoutSh(t)
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	dir := t.TempDir()
-	sshBody := "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift; shift\nexec sh -c \"$1\"\n"
-	if exit == 255 {
-		sshBody = "#!/bin/sh\necho 'ssh: connect to host fakehost port 22: Connection refused' >&2\nexit 255\n"
-	}
-	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(sshBody), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	data := filepath.Join(dir, "events.ndjson")
-	if err := os.WriteFile(data, []byte(strings.Join(lines, "\n")+"\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	bin := filepath.Join(dir, "remote-cc")
-	body := "#!/bin/sh\n"
-	if banner != "" {
-		body += "echo '" + banner + "'\n"
-	}
-	body += "cat '" + data + "'\n"
-	if exit != 0 && exit != 255 {
-		body += "exit " + string(rune('0'+exit)) + "\n"
-	}
-	if err := os.WriteFile(bin, []byte(body), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
-	t.Setenv(remote.BinEnv, bin)
-	return bin
 }
 
 func ndjson(t *testing.T, evs ...wire.Event) []string {
@@ -1271,7 +1234,7 @@ func TestCmdAskRetryReArmsRecordedConfinement(t *testing.T) {
 			t.Fatal(err)
 		}
 		t.Setenv(providers.EnvSessionProfile, "qa")
-		t.Setenv(agentconfig.OverlayVar, "")
+		t.Setenv(route.OverlayVar, "")
 	}
 	unarm()
 	code, _, stderr := runCLI(t, "ask", "--retry", recs[0].ID)
@@ -1361,7 +1324,7 @@ func TestPoolValue(t *testing.T) {
 		{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil {
 		t.Fatal(err)
 	}
-	auto := router.JoinCoworker(router.RouteDatabricks, router.AutoArm)
+	auto := route.Join(router.RouteDatabricks, router.AutoArm)
 	cases := []struct {
 		name string
 		args []string

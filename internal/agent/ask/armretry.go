@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -26,7 +27,7 @@ const (
 
 // armAutoPick reports whether applying the confinement value makes this process pick the workspace (databricks:auto).
 func armAutoPick(ctx context.Context, value string) bool {
-	provider, p, err := router.ParseCoworker(value)
+	provider, p, err := route.Parse(value)
 	return err == nil && provider == router.RouteDatabricks && p == router.AutoArm && router.ArmProfileContext(ctx) == ""
 }
 

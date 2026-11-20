@@ -15,10 +15,10 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/route"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -57,8 +57,8 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 	base, _ = s.Mode.scrub(ctx, base, s.Keep)
 	drop := s.dropper(ctx)
 	env := slices.DeleteFunc(slices.Clone(scrubIsolated(ctx, base, s.Keep)), drop)
-	if doc := confinementDocContext(ctx); doc != "" && drop(agentconfig.OverlayVar+"=") { // one hop: only the confinement goes down
-		env = append(env, agentconfig.OverlayVar+"="+doc)
+	if doc := confinementDocContext(ctx); doc != "" && drop(route.OverlayVar+"=") { // one hop: only the confinement goes down
+		env = append(env, route.OverlayVar+"="+doc)
 	}
 	// a coworker hop or probe drops a launch-set foreign login too (opencode's LaunchEnv adds OPENCODE_API_KEY everywhere)
 	env = append(append(env, dropForeignLogins(ctx, s.Set, s.Keep)...), s.Extra...)
@@ -321,8 +321,8 @@ func RunValues(ctx context.Context, values proc.Values) (context.Context, proc.V
 		values, ok = proc.ValuesFromContext(ctx)
 		if !ok {
 			values = proc.ValuesFromEnv(os.Environ())
-			if values[agentconfig.OverlayVar] == "" { // an ambient empty overlay must not suppress the stored one
-				delete(values, agentconfig.OverlayVar)
+			if values[route.OverlayVar] == "" { // an ambient empty overlay must not suppress the stored one
+				delete(values, route.OverlayVar)
 			}
 		}
 	}

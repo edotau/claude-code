@@ -112,7 +112,7 @@ func registerPermFlags(fs *flag.FlagSet, f *askFlags) {
 }
 
 func registerOverlayFlag(fs *flag.FlagSet, f *askFlags) {
-	fs.StringVar(&f.overlay, "overlay", "", "config: file, JSON or -; else $"+agentconfig.OverlayVar)
+	fs.StringVar(&f.overlay, "overlay", "", "config: file, JSON or -; else $"+route.OverlayVar)
 }
 
 func askRunFlags(fs *flag.FlagSet, f *askFlags) {
@@ -681,4 +681,13 @@ func settingConflict(fs *flag.FlagSet, ov agentconfig.Overlay) error {
 		}
 	}
 	return nil
+}
+
+// readPrompt reads the task; framed (stdin) is set only for the remote end of `ask --host`.
+func (r *askRun) readPrompt() (*bufio.Reader, string, error) {
+	if r.f.stdinFramed {
+		return readFramedPrompt(os.Stdin)
+	}
+	prompt, err := resolveAskPrompt(r.prompt)
+	return nil, prompt, err
 }

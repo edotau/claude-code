@@ -13,10 +13,10 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/agenttest"
+	"github.com/edotau/claude-code/internal/route"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
@@ -473,7 +473,7 @@ func TestCodexCommandOverlayAndOwnLogin(t *testing.T) {
 	pathstest.FakeVendor(t, "codex", "echo 'Logged in using ChatGPT' >&2")
 	p := &providers.Provider{Name: "refreshable", Provider: "databricks", Protocol: providers.ProtocolResponses,
 		BaseURL: "https://example.test/v1", Auth: providers.Auth{Type: providers.AuthNone}}
-	ctx := proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: `{"tokenCommand":["mint-bearer"]}`})
+	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: `{"tokenCommand":["mint-bearer"]}`})
 	env, argv, err := agent.SchemaFor("codex").Configure(ctx, providers.Target{Provider: p, Model: "gpt-x"})
 	if err != nil || len(env) != 0 || !strings.Contains(strings.Join(argv, " "), `command = "mint-bearer"`) {
 		t.Fatalf("overlay command: env count %d, argv %v, err %v", len(env), argv, err)
@@ -500,7 +500,7 @@ func TestRenderSettingsSandboxNotices(t *testing.T) {
 	} {
 		notices.Reset()
 		ctx := proc.WithValues(t.Context(), proc.Values{
-			agentconfig.OverlayVar: tc.overlay,
+			route.OverlayVar: tc.overlay,
 		})
 		_, _, emulated, cleanup, err := (codexEngine{}).RenderSettings(ctx, agent.Settings{Headless: true, Tools: true}, nil, nil)
 		cleanup()

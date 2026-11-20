@@ -16,10 +16,12 @@ import (
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -28,7 +30,7 @@ import (
 // confine sets this process's confinement to provider[:profile] as ApplyCoworker exports it; "" is none.
 func confine(t *testing.T, v string) {
 	provider, profile, _ := strings.Cut(v, ":")
-	t.Setenv(agentconfig.OverlayVar, agentconfig.InlineOverlay(provider, profile))
+	t.Setenv(route.OverlayVar, agentconfig.InlineOverlay(provider, profile))
 }
 
 // ConfineLead fills an untyped lead from a non-Databricks confinement; a typed profile:model passes through untouched.
@@ -79,16 +81,16 @@ func TestConfineLineRefusesOffRouteBatchLine(t *testing.T) {
 // The fences read the run's values, not the process env: a snapshot's confinement binds and an empty one frees.
 func TestConfinementFencesReadTheRunSnapshot(t *testing.T) {
 	vaulttest.Use(t)
-	bound := proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: agentconfig.InlineOverlay("openai", "")})
-	free := proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: ""})
-	t.Setenv(agentconfig.OverlayVar, "")
+	bound := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: agentconfig.InlineOverlay("openai", "")})
+	free := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: ""})
+	t.Setenv(route.OverlayVar, "")
 	if err := checkNative(bound, true); err == nil || !strings.Contains(err.Error(), "--native: outside overlay openai") {
 		t.Errorf("--native under a snapshot confinement: err = %v, want refusal though the env is free", err)
 	}
 	if _, err := confineLine(bound, "copilot", agent.RunOptions{}); err == nil || !strings.Contains(err.Error(), "copilot has no openai account") {
 		t.Errorf("copilot line under a snapshot confinement: err = %v, want no openai account", err)
 	}
-	if got := liveRequest(proc.WithValues(t.Context(), proc.Values{agentconfig.OverlayVar: agentconfig.InlineOverlay("databricks", "qa")}),
+	if got := liveRequest(proc.WithValues(t.Context(), proc.Values{route.OverlayVar: agentconfig.InlineOverlay("databricks", "qa")}),
 		(&askRun{f: &askFlags{}}).askState(), agent.Permissions{}, "claude").Provider; got != "qa" {
 		t.Errorf("live holder under a snapshot workspace: Provider = %q, want qa", got)
 	}
@@ -104,7 +106,7 @@ func TestConfinementFencesReadTheRunSnapshot(t *testing.T) {
 // A run's confinement, egress host and carried overlay live on its ctx: the process env is never written.
 func TestExportsLiveOnTheRunNotTheProcess(t *testing.T) {
 	vaulttest.Use(t)
-	t.Setenv(agentconfig.OverlayVar, "")
+	t.Setenv(route.OverlayVar, "")
 	t.Setenv(providers.EnvSessionProfile, "qa")
 	t.Setenv(egress.EnvHost, "")
 	ctx, err := ApplyCoworker(t.Context(), "openai", "", "", "", router.FallbackNone)
@@ -120,7 +122,7 @@ func TestExportsLiveOnTheRunNotTheProcess(t *testing.T) {
 	if p, _ := router.ConfinedContext(ctx); p != "openai" || egress.HostContext(ctx) != "syn-host" {
 		t.Errorf("run values hold confinement %q and egress %q, want openai and syn-host", p, egress.HostContext(ctx))
 	}
-	for name, want := range map[string]string{agentconfig.OverlayVar: "", providers.EnvSessionProfile: "qa", egress.EnvHost: ""} {
+	for name, want := range map[string]string{route.OverlayVar: "", providers.EnvSessionProfile: "qa", egress.EnvHost: ""} {
 		if got := os.Getenv(name); got != want {
 			t.Errorf("process env %s = %q, want %q: a run's exports belong on its ctx", name, got, want)
 		}
@@ -268,7 +270,7 @@ func armFixture(t *testing.T, shared bool) string {
 	}
 	t.Setenv("GH_TOKEN", "SENTINEL-gh")
 	t.Setenv(providers.EnvSessionProfile, "qa")
-	t.Setenv(agentconfig.OverlayVar, "") // ApplyCoworker and carryOverlay export into this process: restore after the run
+	t.Setenv(route.OverlayVar, "") // ApplyCoworker and carryOverlay export into this process: restore after the run
 	armCopilotLogin(t)
 	orig := agent.MintSession
 	agent.MintSession = func(_ context.Context, p []string, _ int) (string, error) {
@@ -349,8 +351,8 @@ func assertArmDevHop(t *testing.T, name, goos string, dump []string) {
 	if v, _ := envValue(dump, h.key); h.key != "" && v != "cct_ARM_dev" {
 		t.Errorf("%s dev hop: %s is not the dev session token", name, h.key)
 	}
-	if v, _ := envValue(dump, agentconfig.OverlayVar); v != armDevDoc {
-		t.Errorf("%s dev hop: %s is not %s", name, agentconfig.OverlayVar, armDevDoc)
+	if v, _ := envValue(dump, route.OverlayVar); v != armDevDoc {
+		t.Errorf("%s dev hop: %s is not %s", name, route.OverlayVar, armDevDoc)
 	}
 	assertArmNoLeak(t, name, dump)
 }
@@ -366,8 +368,8 @@ func assertArmCopilotRegistryHop(t *testing.T, dump []string) {
 			t.Errorf("copilot dev hop: registry child inherited the BYOK block %s", strings.SplitN(kv, "=", 2)[0])
 		}
 	}
-	if v, _ := envValue(dump, agentconfig.OverlayVar); v != armDevDoc {
-		t.Errorf("copilot dev hop: %s is not %s", agentconfig.OverlayVar, armDevDoc)
+	if v, _ := envValue(dump, route.OverlayVar); v != armDevDoc {
+		t.Errorf("copilot dev hop: %s is not %s", route.OverlayVar, armDevDoc)
 	}
 	assertArmNoLeak(t, "copilot", dump)
 }
@@ -487,7 +489,7 @@ func TestCheckNativeRefusedUnderConfinement(t *testing.T) {
 		{"opencode", `{"provider":"databricks","profile":"dev"}`, "--native: outside overlay databricks:dev"},
 		{"codex", `{"provider":"openai","profile":"chatgpt"}`, "--native: outside overlay openai"}, // opencode has no openai account to pass canUse
 	} {
-		t.Setenv(agentconfig.OverlayVar, "")
+		t.Setenv(route.OverlayVar, "")
 		t.Setenv(providers.EnvSessionProfile, "qa")
 		code, _, stderr := runCLI(t, "ask", "--agent", c.agent, "--native", "--overlay", c.overlay, "go")
 		if code != 2 || !strings.Contains(stderr, c.want) {
@@ -589,4 +591,41 @@ func TestPickWithUnservedModel(t *testing.T) {
 	if name, _, _, err := pickWith(reg, armQuery{Strict: true}, time.Now()); err != nil || name == "" {
 		t.Errorf("an untyped pick = %q, %v, want a pick", name, err)
 	}
+}
+
+// hostFixture installs a fake ssh on PATH and a fake remote bin ($HARNESS_REMOTE_BIN) printing banner, then NDJSON.
+func hostFixture(t *testing.T, banner string, lines []string, exit int) string {
+	hosttest.SkipOnWindows(t, "sh script")
+	t.Helper()
+	skipWithoutSh(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	dir := t.TempDir()
+	sshBody := "#!/bin/sh\nwhile [ \"$1\" != \"--\" ]; do shift; done\nshift; shift\nexec sh -c \"$1\"\n"
+	if exit == 255 {
+		sshBody = "#!/bin/sh\necho 'ssh: connect to host fakehost port 22: Connection refused' >&2\nexit 255\n"
+	}
+	if err := os.WriteFile(filepath.Join(dir, "ssh"), []byte(sshBody), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	data := filepath.Join(dir, "events.ndjson")
+	if err := os.WriteFile(data, []byte(strings.Join(lines, "\n")+"\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	bin := filepath.Join(dir, "remote-cc")
+	body := "#!/bin/sh\n"
+	if banner != "" {
+		body += "echo '" + banner + "'\n"
+	}
+	body += "cat '" + data + "'\n"
+	if exit != 0 && exit != 255 {
+		body += "exit " + string(rune('0'+exit)) + "\n"
+	}
+	if err := os.WriteFile(bin, []byte(body), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv(remote.BinEnv, bin)
+	return bin
 }
