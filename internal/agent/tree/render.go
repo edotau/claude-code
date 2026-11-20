@@ -99,7 +99,12 @@ func addJobs(l *layout, dispatches []Dispatch, now time.Time) {
 	l.free(0, "dispatches")
 	for _, n := range nestDispatches(dispatches) { // the id already ends in the agent name; where it runs and on what model come next
 		d := n.Dispatch
-		where := cmp.Or(d.Route, d.Provider, providers.AgentRecord(d.Agent).Profile, "own login") // no overlay provider: its pinned profile
+		pinned := providers.AgentRecord(d.Agent).EffectiveRoute()
+		profile := pinned.Profile
+		if pinned.Provider == providers.GroupDatabricks && profile == "auto" {
+			profile = pinned.Provider
+		}
+		where := cmp.Or(d.Route, d.Provider, profile, "own login")
 		id := d.ID
 		if n.level > 0 {
 			id = n.guide + id

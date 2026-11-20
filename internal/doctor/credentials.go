@@ -200,7 +200,7 @@ func profileInUse(reg *providers.Registry, name string, agents func() map[string
 		return true
 	}
 	for _, rec := range agents() {
-		if rec.Profile == name {
+		if rec.EffectiveRoute().Profile == name {
 			return true
 		}
 	}

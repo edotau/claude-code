@@ -654,7 +654,7 @@ func databricksProfiles() []string {
 }
 
 // claudeRecord looks up the claude record's profile; a var so tests can block it.
-var claudeRecord = func() string { return providers.AgentRecord("claude").Profile }
+var claudeRecord = func() string { return providers.AgentRecord("claude").EffectiveRoute().Profile }
 
 // claudeRecordProfile reads the vault record within ctx; the abandoned read ends on the vault's own timeout.
 func claudeRecordProfile(ctx context.Context) string {

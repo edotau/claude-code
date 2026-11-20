@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -74,10 +75,11 @@ func Check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
 		out = append(out, row)
 	}
 	for _, a := range slices.Sorted(slices.Values(router.TableAgents)) {
+		pinned := recs[a].EffectiveRoute()
 		switch spec := pins[a]; {
 		case a == "claude" || spec.Off:
-		case spec.Profile == "" && recs[a].Profile != "": // AgentPins clears an own-login record profile
-			out = append(out, loginRow(a, recs[a].Profile, spec.Model, now))
+		case spec.Profile == "" && pinned.Profile != "": // AgentPins clears an own-login record profile
+			out = append(out, loginRow(a, route.Target{Route: pinned, Model: spec.Model}, now))
 		default:
 			out = append(out, checkAgent(reg, a, spec, session, now))
 		}
@@ -86,10 +88,13 @@ func Check(ctx context.Context, reg *providers.Registry, now time.Time) []Pin {
 }
 
 // loginRow is the row of an agent on its own login or the pool pin; a rotation pin carries the rotation summary.
-func loginRow(a, profile, model string, now time.Time) Pin {
-	src := map[bool]string{true: "pool", false: "own login"}[strings.TrimSpace(profile) == agent.PoolPin]
-	row := Pin{Agent: a, Profile: profile, ProfileSource: src, Model: model, Served: "n/a", Status: StatusOK}
-	if model == agent.AutoModel {
+func loginRow(a string, target route.Target, now time.Time) Pin {
+	profile, src := target.Profile, "own login"
+	if target.Provider == providers.GroupDatabricks && profile == "auto" {
+		profile, src = agent.PoolPin, "pool"
+	}
+	row := Pin{Agent: a, Profile: profile, ProfileSource: src, Model: target.Model, Served: "n/a", Status: StatusOK}
+	if target.Model == agent.AutoModel {
 		row.rotationDetail = func() string { return agent.RotationSummary(a, now) }
 	}
 	return row

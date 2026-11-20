@@ -265,7 +265,7 @@ func resolveProfile(ctx context.Context, reg *providers.Registry, name string) s
 			return s
 		}
 	} else {
-		if c := providers.AgentRecord("claude").Profile; slices.Contains(profs, c) {
+		if c := providers.AgentRecord("claude").EffectiveRoute().Profile; slices.Contains(profs, c) {
 			return c
 		}
 	}

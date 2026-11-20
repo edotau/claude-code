@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -237,7 +238,7 @@ func TestCheckClaudeAliasPinResponsesOnly(t *testing.T) {
 
 func TestPinRotationDetailIsLazy(t *testing.T) {
 	hermeticVault(t)
-	row := loginRow("codex", "", agent.AutoModel, time.Now())
+	row := loginRow("codex", route.Target{Model: agent.AutoModel}, time.Now())
 	if row.Detail != "" || row.rotationDetail == nil {
 		t.Fatalf("auto row = detail %q, rotationDetail nil %v; want the summary deferred", row.Detail, row.rotationDetail == nil)
 	}

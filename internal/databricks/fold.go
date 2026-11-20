@@ -17,6 +17,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -358,21 +359,27 @@ func repoint(tx *vault.Tx, from, to string) error {
 	return nil
 }
 
-// repointRecord moves r's Profile, Fallback and the profile head of Model and Aliases from -> to; fields names each.
+// repointRecord moves Databricks route profiles and legacy model prefixes, preserving each route's other keys.
 func repointRecord(r vault.AgentRecord, from, to string) (vault.AgentRecord, []string) {
 	var fields []string
 	spec := func(s, field string) string {
 		if head, rest, ok := strings.Cut(s, ":"); ok && head == from {
+			target := route.Target{Model: rest}
+			target.Provider, target.Profile = providers.GroupDatabricks, to
 			fields = append(fields, field)
-			return to + ":" + rest
+			return target.Profile + ":" + target.Model // vault model and alias fields still store legacy strings
 		}
 		return s
 	}
-	if r.Profile == from {
-		r.Profile, fields = to, append(fields, "")
+	if rt := r.EffectiveRoute(); rt.Profile == from {
+		rt.Provider, rt.Profile = cmp.Or(rt.Provider, providers.GroupDatabricks), to
+		r.Route, r.Profile, r.Account = rt, "", ""
+		fields = append(fields, "")
 	}
-	if r.Fallback == from {
-		r.Fallback, fields = to, append(fields, " fallback")
+	if rt := r.EffectiveFallbackRoute(); rt.Profile == from {
+		rt.Provider, rt.Profile = cmp.Or(rt.Provider, providers.GroupDatabricks), to
+		r.FallbackRoute, r.Fallback = rt, ""
+		fields = append(fields, " fallback")
 	}
 	r.Model = spec(r.Model, " model")
 	aliases := maps.Clone(r.Aliases)

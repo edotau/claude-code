@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -151,6 +152,10 @@ func seedFoldReference(t *testing.T, dir, kind string) {
 		case "agent-refs":
 			return tx.Put(vault.Overlay, vault.AgentRecordsKey,
 				`{"claude":{"fallback":"`+old+`","model":"`+old+`:m1","aliases":{"opus":"`+old+`:m2"}}}`)
+		case "agent-route":
+			return tx.Put(vault.Overlay, vault.AgentRecordsKey, `{"claude":{
+				"route":{"provider":"databricks","profile":"`+old+`","identity":"sp","host":"worker"},
+				"fallbackRoute":{"provider":"databricks","profile":"`+old+`","identity":"user","remote":"backup"}}}`)
 		case "alias":
 			return tx.Put(vault.Overlay, "aliases", `{"dev":"`+old+`"}`)
 		case "pin":
@@ -189,11 +194,11 @@ func assertFoldRepoint(t *testing.T, kind string, folded bool, out string) {
 	if !folded && kind != "settings" && !strings.Contains(out, "referenced by vault overlay") {
 		t.Fatalf("missing veto reason: %s", out)
 	}
-	if kind == "agent" && providers.AgentRecord("claude").Profile != "dev" {
-		t.Fatalf("agent pin = %q, want dev", providers.AgentRecord("claude").Profile)
+	if kind == "agent" && providers.AgentRecord("claude").EffectiveRoute().Profile != "dev" {
+		t.Fatalf("agent pin = %q, want dev", providers.AgentRecord("claude").EffectiveRoute().Profile)
 	}
 	if r := providers.AgentRecord("claude"); kind == "agent-refs" &&
-		(r.Fallback != "dev" || r.Model != "dev:m1" || r.Aliases["opus"] != "dev:m2" || !strings.Contains(out, "agent claude fallback")) {
+		(r.EffectiveFallbackRoute().Profile != "dev" || r.Model != "dev:m1" || r.Aliases["opus"] != "dev:m2" || !strings.Contains(out, "agent claude fallback")) {
 		t.Fatalf("agent refs not re-pointed: %+v\n%s", r, out)
 	}
 	if kind == "pin" {
@@ -202,6 +207,19 @@ func assertFoldRepoint(t *testing.T, kind string, folded bool, out string) {
 		if v != "dev" {
 			t.Fatalf("PROFILE pin = %q, want dev", v)
 		}
+	}
+}
+
+func TestImportFoldRouteKeys(t *testing.T) {
+	dir := vaulttest.UseFreshKey(t)
+	seedLegacyRows(t)
+	seedFoldReference(t, dir, "agent-route")
+	mustFold(t, "--fold-legacy", "--apply")
+	r := providers.AgentRecord("claude")
+	primary := route.Route{Provider: "databricks", Profile: "dev", Identity: "sp", Host: "worker"}
+	fallback := route.Route{Provider: "databricks", Profile: "dev", Identity: "user", Remote: "backup"}
+	if r.EffectiveRoute() != primary || r.EffectiveFallbackRoute() != fallback {
+		t.Fatalf("fold lost route keys: %+v", r)
 	}
 }
 
