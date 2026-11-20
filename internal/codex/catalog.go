@@ -98,7 +98,10 @@ func catalogPlan(bin string, p *providers.Provider) ([]providers.OpencodeModel, 
 	return menu, key, prefs, err
 }
 
-// catalogInputs is the provider's menu and the cache key over codex's binary stamp (no --version spawn), menu and prefs.
+// catalogRev is bumped when the row builder changes, so cached catalogs from an older builder regenerate.
+const catalogRev = "2"
+
+// catalogInputs isthe provider's menu and the cache key over codex's binary stamp (no --version spawn), menu and prefs.
 func catalogInputs(bin string, p *providers.Provider, prefs map[string]string) ([]providers.OpencodeModel, string, error) {
 	stamp, ok := paths.BinKey(bin)
 	if !ok {
@@ -108,7 +111,7 @@ func catalogInputs(bin string, p *providers.Provider, prefs map[string]string) (
 	if err != nil {
 		return nil, "", err
 	}
-	parts := []string{stamp, p.Name, prefs[codexEffortKey], prefs[extraVerbosity]}
+	parts := []string{catalogRev, stamp, p.Name, prefs[codexEffortKey], prefs[extraVerbosity]}
 	for _, m := range menu {
 		parts = append(parts, agentconfig.MenuWire(p, m.ID), m.Label, strconv.FormatBool(m.Responses))
 	}
