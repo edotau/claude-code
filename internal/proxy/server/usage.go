@@ -133,7 +133,7 @@ func reqDiag(asked, served string) string {
 	if !swapped(asked, served) {
 		return ""
 	}
-	return " req=" + agentToken(asked)
+	return " asked=" + agentToken(asked)
 }
 
 // swapLogEvery is the least gap between two log lines for one (profile, asked, served) swap.

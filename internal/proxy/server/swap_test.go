@@ -63,9 +63,9 @@ func TestSwappedRequestRecordsRequestedAndLogsReq(t *testing.T) {
 	if len(got) != 1 || got[0].Model != "databricks-claude-opus-5-5" || got[0].Requested != "claude-fable-5-2" {
 		t.Fatalf("ledger = %+v, want model opus-5-5 requested claude-fable-5-2", got)
 	}
-	waitLog(log, " req=")
+	waitLog(log, " asked=")
 	out := log.String()
-	for _, want := range []string{" req=claude-fable-5-2", "proxy: dev asked for databricks-claude-fable-5-2, serving databricks-claude-opus-5-5"} {
+	for _, want := range []string{" asked=claude-fable-5-2", "proxy: dev asked for databricks-claude-fable-5-2, serving databricks-claude-opus-5-5"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("log lacks %q:\n%s", want, out)
 		}
@@ -82,7 +82,7 @@ func TestEquivalentIDRecordsNothingExtra(t *testing.T) {
 		t.Fatalf("ledger = %+v, want no requested", got)
 	}
 	waitLog(log, " 200 ")
-	if out := log.String(); strings.Contains(out, "req=") || strings.Contains(out, "asked for") {
+	if out := log.String(); strings.Contains(out, "asked=") || strings.Contains(out, "asked for") {
 		t.Errorf("log carries swap text for an equivalent id:\n%s", out)
 	}
 }
@@ -128,9 +128,9 @@ func TestDeadDemotionLogsSwap(t *testing.T) {
 	if resp := post(t, srv.URL+"/p/dev/v1/messages", `{"model":"databricks-claude-opus-5-5","max_tokens":5}`, nil); resp.StatusCode != 200 {
 		t.Fatalf("status %d: %s", resp.StatusCode, body(t, resp))
 	}
-	waitLog(log, " req=")
+	waitLog(log, " asked=")
 	want := "proxy: dev asked for databricks-claude-opus-5-5, serving databricks-claude-sonnet-5-5 (quota-dead for this key)"
-	if out := log.String(); !strings.Contains(out, want) || !strings.Contains(out, " req=databricks-claude-opus-5-5") {
+	if out := log.String(); !strings.Contains(out, want) || !strings.Contains(out, " asked=databricks-claude-opus-5-5") {
 		t.Errorf("log lacks the demotion line and req= token:\n%s", out)
 	}
 }
