@@ -280,7 +280,7 @@ func waveOverlap(w Wave) error {
 		for _, own := range t.Owns {
 			for _, prev := range slices.Sorted(maps.Keys(owners)) {
 				id := owners[prev]
-				if id != t.ID && ownsOverlap(prev, own) {
+				if id != t.ID && OwnsOverlap(prev, own) {
 					return &WaveError{t.ID, "owns: overlaps " + id + " at " + own}
 				}
 			}
@@ -290,7 +290,8 @@ func waveOverlap(w Wave) error {
 	return nil
 }
 
-func ownsOverlap(a, b string) bool {
+// OwnsOverlap reports whether two owned paths or globs name the same file or one contains the other.
+func OwnsOverlap(a, b string) bool {
 	a, b = path.Clean(a), path.Clean(b)
 	if a == b || strings.HasPrefix(a, b+"/") || strings.HasPrefix(b, a+"/") {
 		return true

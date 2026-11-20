@@ -31,6 +31,9 @@ paths:
   `--agent` or `--fallback none` pins the route or claude itself was cut off; it keeps the route and names the move.
   A plain resubmit of the same agent, model and task within 60 minutes of such a cutoff gets the same rule, from
   `state/harness/agent/cutoffs.json` (task hashes only); a successful run on the route clears its entry.
+- `agents ask --loop "<goal>"` (top level only) plans rounds of read-only parts on `--loop-planner` (claude), runs
+  them on the `--batch` pool, retries a failed part once on claude (not a typed model or `--fallback none`) and keeps
+  state in `state/harness/ask/loops/<id>.json`: exit 0 done, 1 `needs_main`, 4 cap or budget, `--loop-resume <id>`.
 - Without `--tools`, claude and opencode launch no tools, copilot's SDK rejects every request, gemini is only
   instructed not to use them, codex keeps a read-only sandbox shell. `--no-tools` is claude only (others exit 2).
   `--read-only` (implies `--tools`) runs reads, URL fetches and a vetted read-only shell list; other Bash and all

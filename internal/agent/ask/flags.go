@@ -44,6 +44,9 @@ type askFlags struct {
 	env                                                                                                                                                                           []string
 	spec                                                                                                                                                                          string
 	dryRun                                                                                                                                                                        bool
+	loop                                                                                                                                                                          bool
+	loopPlanner, loopResume                                                                                                                                                       string
+	loopRounds, loopBudget                                                                                                                                                        int
 }
 
 // CompletionFlags lists ask's flags for tab completion; --format stays free text, as text|json would drop stream-json.
@@ -137,6 +140,11 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.StringVar(&f.batchSrc, "batch", "", "run JSONL tasks from <file> or - on a pool; one envelope per line")
 	fs.IntVar(&f.jobs, "jobs", defaultJobs(), "batch: tasks run at once")
 	fs.BoolVar(&f.failFast, "fail-fast", false, "batch: the first failed task cancels the rest")
+	fs.BoolVar(&f.loop, "loop", false, "orchestrate the goal in rounds of parallel parts")
+	fs.IntVar(&f.loopRounds, "loop-rounds", loopDefaultRounds, "loop: most rounds per run")
+	fs.StringVar(&f.loopPlanner, "loop-planner", "claude", "loop: agent that plans each round")
+	fs.IntVar(&f.loopBudget, "loop-budget-tokens", 0, "loop: stop past this many tokens (0 = none)")
+	fs.StringVar(&f.loopResume, "loop-resume", "", "continue the saved loop <id>")
 	registerOverlayFlag(fs, f)
 	fs.StringVar(&f.spec, "spec", "", "the whole ask as JSON: file, inline {...} or -")
 	fs.BoolVar(&f.dryRun, "dry-run", false, "print route, permissions and argv; no model call")

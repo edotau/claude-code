@@ -36,6 +36,7 @@
 agents-tree-scan | cache | 2 | state/harness/cache/agents-tree-scan.json | internal/agent/tree | keep
 agentversion | cache | 1 | state/harness/agentversion.json | internal/agent/tools | keep
 ask-envelope | wire | 1 | - | internal/agent/wire | keep
+ask-loop | record | 1 | state/harness/ask/loops/*.json | internal/agent/ask | keep
 audit | log | 1 | state/harness/audit.jsonl* | internal/audit | keep
 claims | log | 1 | state/harness/hooks/claims/*.jsonl | internal/hooks/wthook | keep
 codex-catalog | derived | 1 | state/harness/codex/catalog-*.json | internal/codex | keep

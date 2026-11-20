@@ -422,6 +422,9 @@ func (r *askRun) parsePerms() (int, bool) {
 // dispatchMode handles --batch, which ends the run before a single task is built.
 func (r *askRun) dispatchMode() (int, bool) {
 	f := r.f
+	if code, done := r.loopMode(); done {
+		return code, true
+	}
 	if f.batchSrc != "" { // --batch picks once from the base flags; a single task checks after its record
 		if code, done := r.checkArm(); done {
 			return code, true
@@ -434,24 +437,34 @@ func (r *askRun) dispatchMode() (int, bool) {
 	return 0, false
 }
 
-// runBatch runs --batch to completion; every path ends the run.
-func (r *askRun) runBatch() (int, bool) {
+// batchInputs is what --batch and --loop need from the flags: the pool options and the base request.
+func batchInputs(r *askRun) (o batchOpts, base agent.RunOptions, code int, done bool) {
 	f := r.f
 	if code, done := r.resolveLead(); done { // validates --provider/--profile and sets r.lead for batchBase
-		return code, true
+		return o, base, code, true
 	}
-	o := batchOpts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native, Auto: r.auto, Identity: f.as, Swap: r.swap, Pending: map[string]int{}}
+	o = batchOpts{Jobs: f.jobs, FailFast: f.failFast, Agent: r.ref, Fallback: f.fallback, Native: f.native, Auto: r.auto, Identity: f.as, Swap: r.swap, Pending: map[string]int{}}
 	if r.auto != "" {
 		o.Reg, _ = providers.Load() // a failed load keeps the batch's shared pick
 	}
 	ov, err := resolveOverlay(r.ov, f.env, f.keepEnv, false)
 	if err != nil {
-		return r.fail(err, 2)
+		code, done = r.fail(err, 2)
+		return o, base, code, done
 	}
 	if code, done := r.export(); done {
+		return o, base, code, true
+	}
+	return o, r.batchBase().ApplyOverlay(r.ctx, ov), 0, false
+}
+
+// runBatch runs --batch to completion; every path ends the run.
+func (r *askRun) runBatch() (int, bool) {
+	o, base, code, done := batchInputs(r)
+	if done {
 		return code, true
 	}
-	return runAskBatch(r.ctx, r.fs, f.batchSrc, o, r.batchBase().ApplyOverlay(r.ctx, ov)), true
+	return runAskBatch(r.ctx, r.fs, r.f.batchSrc, o, base), true
 }
 
 // batchOnlyFlags refuses the first --batch-only flag typed without --batch.
