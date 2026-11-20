@@ -250,3 +250,32 @@ func TestCredentialRowReportsARecentSealFailure(t *testing.T) {
 		t.Errorf("row %q reports another profile's seal failure", got)
 	}
 }
+
+func TestCredentialRowNamesTheSourceThatWon(t *testing.T) {
+	vaulttest.Use(t)
+	p := &providers.Provider{Name: "dbx-pat", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthPAT, Env: "DBX_TEST_TOKEN"}}
+	old := probeCredential
+	t.Cleanup(func() { probeCredential = old })
+	probeCredential = func(context.Context, *providers.Provider) (string, string) { return providers.ProbeVerified, "" }
+	row := func() check {
+		reg := &providers.Registry{Default: "dbx-pat", Providers: map[string]*providers.Provider{"dbx-pat": p}}
+		return providerCredentialChecks(context.Background(), reg, providers.Selection{Provider: p}, nil, []string{"dbx-pat"})[0]
+	}
+	t.Setenv("DBX_TEST_TOKEN", "")
+	if err := vault.Store(providers.AuthSecretName(p), "tok"); err != nil {
+		t.Fatal(err)
+	}
+	if c := row(); !c.OK || !strings.HasSuffix(c.Detail, " · source=vault") {
+		t.Errorf("vault-only row = %+v, want source=vault", c)
+	}
+	t.Setenv(providers.AuthSecretName(p), "x")
+	if c := row(); !c.OK || !strings.HasSuffix(c.Detail, " · source=env "+providers.AuthSecretName(p)+" (shadows the vault entry)") {
+		t.Errorf("shadowing row = %+v, want the env shadow note", c)
+	}
+	if err := vault.Delete(providers.AuthSecretName(p)); err != nil {
+		t.Fatal(err)
+	}
+	if c := row(); !c.OK || !strings.HasSuffix(c.Detail, " · source=env "+providers.AuthSecretName(p)) {
+		t.Errorf("env-only row = %+v, want source=env", c)
+	}
+}

@@ -57,6 +57,7 @@ func providerCredentialCheck(ctx context.Context, reg *providers.Registry, sel p
 	if !present && !session && !profileInUse(reg, name, agents) {
 		present, label = true, label+" · unused"
 	}
+	label += credentialSourceLabel(p)
 	// A dead user login is a soft warning (the row still works through the service principal): never a hard failure.
 	return check{Name: "credential " + name, OK: present && !loginDead, Hard: session && !loginDead, Detail: label}
 }
@@ -71,6 +72,39 @@ func credentialBaseLabel(p *providers.Provider, session bool) string {
 		label += " (session profile)"
 	}
 	return label
+}
+
+// credentialSourceLabel names where the credential comes from (names only, never a value); information, not a check.
+func credentialSourceLabel(p *providers.Provider) string {
+	meta, err := vault.LoadMeta()
+	if err != nil {
+		return ""
+	}
+	if p.Auth.Type == providers.AuthOAuth { // u2m reads only the vault, never env
+		if _, ok := meta[providers.AuthSecretName(p)]; ok {
+			return " · source=vault"
+		}
+	} else if label := envOrVaultSource(providers.CredentialNames(p), meta); label != "" {
+		return label
+	}
+	if p.Auth.Command != "" {
+		return " · source=command"
+	}
+	return ""
+}
+
+func envOrVaultSource(names []string, meta map[string]vault.SecretMeta) string {
+	for _, n := range names {
+		switch src, shadowed := vault.Locate(n, meta); {
+		case src == "env" && shadowed != "":
+			return " · source=env " + n + " (shadows the vault entry)"
+		case src == "env":
+			return " · source=env " + n
+		case src == "vault":
+			return " · source=vault"
+		}
+	}
+	return ""
 }
 
 func alternativeCredentialLabel(name, label string) (bool, string) {
