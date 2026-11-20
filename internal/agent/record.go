@@ -611,6 +611,9 @@ func loadRecord(id string, list func(dir string) ([]string, error)) (Record, err
 // sameAgentRow reports a run on the asked agent, even after a move to another of its rows (Fallback is the asked name).
 func (r Record) sameAgentRow() bool { return r.RanAs == "" || r.RanAs == r.Fallback }
 
+// namesNoModel is a served name that is no model: empty, the request auto or "<synthetic>".
+func namesNoModel(m string) bool { return m == "" || m == AutoModel || strings.HasPrefix(m, "<") }
+
 // SessionModel is the newest dispatch's `<profile>:<served model>` (bare model with no profile); "" when unknown.
 func SessionModel(session string) string {
 	if session == "" {
@@ -625,11 +628,11 @@ func SessionModel(session string) string {
 		if !pinned || r.Model == r.Invoked { // served as typed: a local tag such as qwen3:30b, no profile prefix
 			profile, invoked = "", r.Invoked
 		}
-		m := cmp.Or(r.Model, invoked)  // the served model, not the requested alias
-		if strings.HasPrefix(m, "<") { // "<synthetic>" is no model
+		m := cmp.Or(r.Model, invoked) // the served model, not the requested alias
+		if namesNoModel(m) {
 			m = invoked
 		}
-		if m == "" || strings.HasPrefix(m, "<") {
+		if namesNoModel(m) {
 			return true
 		}
 		model = m

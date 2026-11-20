@@ -95,13 +95,7 @@ func pickAndStamp[F any](reg *providers.Registry, q WorkspaceQuery[F], now time.
 		picks := readArmPicks()
 		counts := rankWorkspaces(usable, q, cooling, load, picks)
 		order, live = names(usable), counts[usable[0].Name]
-		stamp := now // Concurrent callers can acquire the lock out of timestamp order.
-		for _, at := range picks.Picked {
-			if !stamp.After(at) {
-				stamp = at.Add(time.Nanosecond)
-			}
-		}
-		picks.Picked[q.stampKey(order[0])] = stamp
+		picks.Picked[q.stampKey(order[0])] = newestStamp(picks, now)
 		return writeArmPicks(picks)
 	}
 	if err := paths.WithFileLock(armPicksFile(), pick); len(order) == 0 && err != nil { // Stamping is best-effort.
@@ -111,6 +105,26 @@ func pickAndStamp[F any](reg *providers.Registry, q WorkspaceQuery[F], now time.
 		q.Pending[order[0]]++
 	}
 	return order, live, skipped, nil
+}
+
+// newestStamp is now, nudged past every stored stamp: concurrent callers can acquire the lock out of timestamp order.
+func newestStamp(picks armPicks, now time.Time) time.Time {
+	stamp := now
+	for _, at := range picks.Picked {
+		if !stamp.After(at) {
+			stamp = at.Add(time.Nanosecond)
+		}
+	}
+	return stamp
+}
+
+// StampRow records that agentName's row rotation ran row; best-effort like the pick's own stamp.
+func StampRow(agentName, row string, now time.Time) {
+	_ = paths.WithFileLock(armPicksFile(), func() error {
+		picks := readArmPicks()
+		picks.Picked[RowRotationKey(agentName)+"/"+row] = newestStamp(picks, now)
+		return writeArmPicks(picks)
+	})
 }
 
 func names(ps []*providers.Provider) []string {

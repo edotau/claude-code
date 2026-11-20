@@ -510,7 +510,7 @@ func recentPicks(agentName string, now time.Time) string {
 	counts := map[string]int{}
 	routes := map[string]int{}
 	_ = eachRecent(paths.DispatchDir(), jsonToken(agentName), func(r Record) bool { // an unreadable dir lists none
-		m := cmp.Or(r.Invoked, r.Model)
+		m := cmp.Or(r.Model, r.Invoked)
 		if r.Agent != agentName || now.Sub(r.Time) >= 7*24*time.Hour {
 			return true
 		}
@@ -522,6 +522,9 @@ func recentPicks(agentName string, now time.Time) string {
 		}
 		if _, after, ok := strings.Cut(m, ":"); ok {
 			m = after
+		}
+		if m == AutoModel { // a run that never named its model is no pick
+			return true
 		}
 		counts[catalog.ID(m)]++
 		return true

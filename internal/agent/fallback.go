@@ -145,7 +145,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	release, aerr := retry.AcquireDispatch(ctx, key) // per billed account, whichever key the task was queued under
 	if aerr != nil {
 		ce := &retry.Error{Kind: retry.KindFatal, Agent: disp.Agent.Name(), Err: aerr}
-		res, err = wire.Result{Agent: ce.Agent, Status: StatusOf(ce), Invoked: lreq.Model, NotStarted: true}, ce
+		res, err = wire.Result{Agent: ce.Agent, Status: StatusOf(ce), Invoked: invokedModel(lreq), NotStarted: true}, ce
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
 	}
 	held := &retry.Permit{Account: key, Release: release,
@@ -157,7 +157,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 				panic(r)
 			}
 			pe := &retry.Error{Kind: retry.KindFatal, Agent: disp.Agent.Name(), Err: fmt.Errorf("panic: %v", r)}
-			res, err = wire.Result{Agent: pe.Agent, Status: wire.StatusError, Invoked: lreq.Model}, pe
+			res, err = wire.Result{Agent: pe.Agent, Status: wire.StatusError, Invoked: invokedModel(lreq)}, pe
 			hops = append(hops, hopOf(disp, lreq, res, err))
 			panicked = true
 		}
@@ -171,21 +171,32 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	// another task may have marked this account dead while this dispatch waited for its permit
 	if skip := accountRefused(disp, lreq.Model); skip != nil {
 		skip.Terminal = true // refused before it ran: the chain moves on, whichever agent this hop was
-		res, err = wire.Result{Agent: disp.Agent.Name(), Status: StatusOf(skip), Invoked: lreq.Model, NotStarted: true}, skip
+		res, err = wire.Result{Agent: disp.Agent.Name(), Status: StatusOf(skip), Invoked: invokedModel(lreq), NotStarted: true}, skip
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
+	}
+	if disp.rowHop {
+		router.StampRow(disp.Agent.Name(), disp.row, time.Now()) // the hop's row served, so it is no longer least-recent
 	}
 	runCtx := retry.WithPermit(withCoolKey(ctx, key), held)
 	res, err = Run(runCtx, disp.Agent, lreq, sink, notify)
 	if replacement && !res.NotStarted {
 		lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
 	}
-	res.Invoked = lreq.Model
+	res.Invoked = invokedModel(lreq)
 	var more []wire.Hop
 	res, lreq, more, err = repick(runCtx, disp, lreq, res, err, sink, notify)
 	hops = append(hops, more...)
 	hops = append(hops, hopOf(disp, lreq, res, err))
 	noteFailure(disp, ranModel(lreq.Model, res), err)
 	return res, hops, false, err
+}
+
+// invokedModel is the request the hop was asked for: a bare cell an auto superseded is recorded as auto.
+func invokedModel(req RunOptions) string {
+	if req.CellModel && req.AutoModel {
+		return AutoModel
+	}
+	return req.Model
 }
 
 // MaxAutoRepicks bounds how many times one auto ask re-picks after its pick is refused before any work.

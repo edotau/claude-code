@@ -34,6 +34,7 @@ type Dispatch struct {
 	rung                         int                        // 1-based index of the pick candidate that built this dispatch; 0 = none
 	quotaOverflow                bool                       // the last hop: runs only after a quota-class failure
 	rowHop                       bool                       // a later row of claude's row rotation, after a refused row
+	row                          string                     // the rotation row a rowHop runs on, stamped once admitted
 }
 
 // Chain is a routed dispatch: Want is the agent asked for, Dispatches run in order, Skipped are gate drops.
@@ -463,7 +464,7 @@ func withRowHops(ctx context.Context, q RouteReq, c Chain, rows []string) Chain 
 		}
 		d := rc.Dispatches[0]
 		if !slices.ContainsFunc(c.Dispatches, d.same) {
-			d.rowHop = true
+			d.rowHop, d.row = true, row
 			hops = append(hops, d)
 		}
 	}

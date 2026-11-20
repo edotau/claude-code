@@ -24,7 +24,8 @@ paths:
 ## Dispatch behavior
 
 - `ask --format json` envelope: `agent`, `status` (`ok|error|partial|quota|stalled`), `model`, `answer`, `usage`,
-  `duration_ms`, `fallback*`, `handoff`, `transport`. Isolation: `--no-persist` (claude, codex), `--safe-mode` (claude,
+  `duration_ms`, `fallback*`, `handoff`, `transport`; `invoked_model` is the request as asked (`auto`, `<row>:auto` or
+  the selector) and `model` the model that ran. Isolation: `--no-persist` (claude, codex), `--safe-mode` (claude,
   codex, opencode), `--debug-file <path>` (claude, gemini).
 - Without `--tools`, claude and opencode launch no tools, copilot's SDK rejects every request, gemini is only
   instructed not to use them, codex keeps a read-only sandbox shell. `--no-tools` is claude only (others exit 2).

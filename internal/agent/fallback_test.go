@@ -1464,3 +1464,37 @@ func TestRunWithFallbackClaudeRowHopAfter429(t *testing.T) {
 		t.Fatalf("prod ran %d times, res=%+v; want the next row after a 429", len(prod.seen), res)
 	}
 }
+
+func TestRowHopStampsItsRowOnceAdmitted(t *testing.T) {
+	fallbackConfigDir(t)
+	dev := &fakeRunner{name: "claude", errs: []error{&retry.Error{Kind: retry.KindRateLimit, Err: errors.New("429")}}, emptyAnswer: true}
+	prod := &fakeRunner{name: "claude", errs: []error{nil}}
+	c := chainOf([]Engine{dev, prod})
+	c.Dispatches[1].rowHop, c.Dispatches[1].row = true, "prod"
+	runWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
+	if router.RowPicks("claude")["prod"].IsZero() {
+		t.Fatal("the row hop that ran left no stamp, so it still ranks least-recent")
+	}
+}
+
+// An engine resolving its target under the ask's context never gets a model the ask's re-pick excluded.
+func TestTargetCtxKeepsTriedPickExclusions(t *testing.T) {
+	autoFixture(t)
+	req := RunOptions{Agent: "opencode", Model: AutoModel, AutoModel: true, Provider: "dev", Prompt: standardBrief}
+	first, _, _, err := SchemaFor("opencode").targetPeek(req)
+	next, _, err2 := SchemaFor("opencode").TargetCtx(withTriedPicks(context.Background(), []string{first.Model}), req)
+	if err != nil || err2 != nil || next.Model == first.Model {
+		t.Fatalf("next=%q first=%q err=%v,%v; want a different model once the first is excluded", next.Model, first.Model, err, err2)
+	}
+}
+
+// A bare cell an auto superseded is recorded as the request auto, not the routing cell's model.
+func TestRunDispatchBareCellAutoInvokedIsAuto(t *testing.T) {
+	fallbackConfigDir(t)
+	eng := &fakeRunner{name: "copilot", errs: []error{nil}}
+	lreq := RunOptions{Prompt: "p", Model: "claude-sonnet-5.5", CellModel: true, AutoModel: true}
+	res, _, _, err := runDispatch(context.Background(), Chain{}, 0, Dispatch{Agent: eng}, lreq, lreq, "k", false, wire.Discard, nil)
+	if err != nil || res.Invoked != AutoModel {
+		t.Fatalf("invoked %q err %v; want %q", res.Invoked, err, AutoModel)
+	}
+}

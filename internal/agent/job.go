@@ -352,7 +352,7 @@ type Observed struct {
 
 // ObservedOf is rec's harness-observed facts, taken from the record alone.
 func ObservedOf(rec Record) *Observed {
-	o := &Observed{Parent: rec.Parent, Depth: rec.Depth, Usage: rec.Usage, Model: cmp.Or(rec.Invoked, rec.Model),
+	o := &Observed{Parent: rec.Parent, Depth: rec.Depth, Usage: rec.Usage, Model: cmp.Or(rec.Model, rec.Invoked),
 		Route: rec.Route, State: rec.Status}
 	if rec.DurationMs > 0 {
 		o.Duration = roundedRun(rec)

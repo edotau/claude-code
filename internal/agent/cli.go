@@ -37,16 +37,17 @@ func (s Schema) OwnProfile() string {
 
 // Target picks the session target if it serves the agent, else its own login or a keyed one.
 func (s Schema) Target(req RunOptions) (providers.Target, bool, error) {
-	t, own, note, err := s.targetNote(req)
-	if note != "" {
-		fmt.Fprintln(NoticeOut, note)
-	}
-	return t, own, err
+	return s.TargetCtx(context.Background(), req)
 }
 
 // targetNote is target without printing: the router resolves every candidate's backend through it.
 func (s Schema) targetNote(req RunOptions) (t providers.Target, own bool, note string, err error) {
-	return s.targetNoteCtx(valuesContext(context.Background(), req.Values), req)
+	return s.targetNoteIn(context.Background(), req)
+}
+
+// targetNoteIn is targetNote under ctx, so the ask's re-pick exclusions reach the pick.
+func (s Schema) targetNoteIn(ctx context.Context, req RunOptions) (t providers.Target, own bool, note string, err error) {
+	return s.targetNoteCtx(valuesContext(ctx, req.Values), req)
 }
 
 // targetPeek is targetNote for a caller that only reads the target: an auto rotation pick is peeked, not stamped.
@@ -232,7 +233,7 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 	ctx, req.Values = RunValues(ctx, req.Values)
 	name := v.Name()
 	s := SchemaFor(name)
-	t, own, err := s.Target(req)
+	t, own, err := s.TargetCtx(ctx, req)
 	if err != nil {
 		return CLIPrep{}, err
 	}
