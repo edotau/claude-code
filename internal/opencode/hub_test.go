@@ -167,7 +167,12 @@ func stallRun(t *testing.T, window, settle time.Duration, lines []string, delays
 	t.Helper()
 	w := agent.NewIdleTimeout("opencode", window, nil)
 	defer w.Stop()
-	firstByte, renew := w.Stop, func() { w.Beat("step_start") }
+	firstByte := w.Stop
+	renew := func(ev openCodeEvent) {
+		if ev.Type == "step_start" {
+			w.Beat("step_start")
+		}
+	}
 	pr, pw := io.Pipe()
 	done := make(chan struct{})
 	go func() {
@@ -304,6 +309,39 @@ func TestHubRunIdleAfterFirstOutput(t *testing.T) {
 	}
 	if err := run("/bin/cat > /dev/null\n" + line + strings.Repeat("/bin/sleep 0.05\n"+line, 8)); err != nil {
 		t.Fatalf("steady stream: %v", err)
+	}
+}
+
+func TestHubRunIdleSteps(t *testing.T) {
+	data, _ := fakeOpencode(t, "1.19.3", "", nil)
+	writeAuthJSON(t, data, `{"opencode":{"type":"api","key":"k"}}`)
+	old := agent.IdleLimit
+	agent.IdleLimit = 100 * time.Millisecond
+	t.Cleanup(func() { agent.IdleLimit = old })
+	p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
+	l := hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}
+	pr := func(j string) string { return "printf '%s\\n' '" + j + "'\n" }
+	step, text := pr(`{"type":"step_start","sessionID":"s"}`), pr(`{"type":"text","sessionID":"s","part":{"text":"hi"}}`)
+	fin := pr(`{"type":"step_finish","sessionID":"s","part":{"reason":"tool-calls"}}`)
+	retryLine := pr(`{"type":"error","sessionID":"s","error":{"name":"APIError","data":{"message":"retrying"}}}`)
+	run := func(body string) error {
+		pathstest.FakeVendor(t, "opencode", "/bin/cat > /dev/null\n"+body)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_, err := l.Run(ctx, agent.RunOptions{Prompt: "x"}, wire.Discard)
+		return err
+	}
+	if err := run(step + text + fin + step + "/bin/sleep 0.5\n" + text + fin); err != nil {
+		t.Errorf("silent tool inside a step was cut: %v", err)
+	}
+	if err := run(step + "/bin/sleep 0.4\n" + text + fin); err != nil {
+		t.Errorf("paid run silent before first content was cut: %v", err)
+	}
+	if err := run(step + text + fin + "/bin/sleep 0.4\n"); !errors.Is(err, agent.ErrSilent) {
+		t.Errorf("silent between steps: err = %v, want ErrSilent", err)
+	}
+	if err := run(text + strings.Repeat("/bin/sleep 0.06\n"+retryLine, 8)); !errors.Is(err, agent.ErrSilent) {
+		t.Errorf("retry-notice loop: err = %v, want ErrSilent", err)
 	}
 }
 

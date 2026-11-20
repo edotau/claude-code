@@ -252,14 +252,14 @@ func (h *hookHost) before(argv []string, prompt string) ([]string, error) {
 	return out, nil
 }
 
-// parser handles finished tool calls during runs; optional onStep fires on each step_start.
-func (h *hookHost) parser(onStep func()) func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error) {
+// parser handles finished tool calls during runs; optional onEvent sees every decoded event.
+func (h *hookHost) parser(onEvent func(openCodeEvent)) func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error) {
 	var onTool func(openCodeEvent)
 	if h != nil {
 		onTool = h.during
 	}
 	return func(br *bufio.Reader, sink wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (wire.Result, error) {
-		return parseOpenCodeEvents(br, sink, onMeaningful, onTool, onStep, logs...)
+		return parseOpenCodeEvents(br, sink, onMeaningful, onTool, onEvent, logs...)
 	}
 }
 

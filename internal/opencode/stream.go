@@ -63,11 +63,11 @@ func isMeaningfulOpenCodeEvent(ev openCodeEvent) bool {
 	return ev.Part.Tokens.Output > 0
 }
 
-// parseOpenCodeEvents streams root text, signals first content and finished tools, and reports each step_start.
-func parseOpenCodeEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onTool func(openCodeEvent), onStep func(), logs ...wire.StreamLog) (res wire.Result, _ error) {
+// parseOpenCodeEvents streams root text, signals first content and finished tools, and reports every decoded event.
+func parseOpenCodeEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onTool func(openCodeEvent), onEvent func(openCodeEvent), logs ...wire.StreamLog) (res wire.Result, _ error) {
 	lg := wire.PickLog(logs)
 	t := &ocTurn{sink: sink, lg: lg, res: &res, ans: wire.Answer{Join: "\n"}, seenTools: map[string]bool{},
-		onMeaningful: onMeaningful, onTool: onTool, onStep: onStep}
+		onMeaningful: onMeaningful, onTool: onTool, onEvent: onEvent}
 	tr, err := wire.DecodeEvents(br, lg, "decode opencode json", true, nil, t.handle)
 	res.Transport, res.Answer = tr, t.ans.String()
 	if err != nil {
@@ -90,7 +90,7 @@ type ocTurn struct {
 	fired        bool
 	onMeaningful func()
 	onTool       func(openCodeEvent)
-	onStep       func()
+	onEvent      func(openCodeEvent)
 }
 
 // handle applies one decoded event.
@@ -102,14 +102,14 @@ func (t *ocTurn) handle(ev openCodeEvent, _ *wire.TransportTracker) (bool, error
 	return false, t.apply(ev)
 }
 
-// notify fires the meaningful callback once, and the step callback on step_start until then.
+// notify reports the event, then fires the meaningful callback once.
 func (t *ocTurn) notify(ev openCodeEvent) {
+	if t.onEvent != nil {
+		t.onEvent(ev)
+	}
 	if !t.fired && t.onMeaningful != nil && isMeaningfulOpenCodeEvent(ev) {
 		t.fired = true
 		t.onMeaningful()
-	}
-	if !t.fired && t.onStep != nil && ev.Type == "step_start" {
-		t.onStep()
 	}
 }
 
