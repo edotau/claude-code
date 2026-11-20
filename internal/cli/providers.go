@@ -323,7 +323,7 @@ func printRecordDiff(apply func(map[string]vault.AgentRecord), notes []string) i
 
 var modelsDiscoverPage = helptext.Page{
 	Usage: "claude-code models discover [flags]",
-	About: "Live-discover models for one profile, or every registry profile (sorted).\nPreview by default; --apply appends sealed, profile-scoped selectable entries.\nNever removes models, changes pins/routes, or treats listing as inference proof.",
+	About: "Live-discover models for one profile, or every registry profile (sorted).\nPreview by default; --apply appends sealed, profile-scoped selectable entries.\n--drop removes ids and stops --apply re-adding them; --undrop reverses it;\nboth preview until --apply.\nNever changes pins/routes or treats listing as inference proof.",
 	Hint:  "Vendor-owned catalogs are not rewritten. /discover-models defaults to --apply.",
 }
 
@@ -332,6 +332,15 @@ func modelsDiscover(args []string) int {
 	profile := fs.String("profile", "", "discover only this registry profile")
 	apply := fs.Bool("apply", false, "append discovered additions to saved runtime pickers")
 	dry := fs.Bool("dry-run", false, "preview only (the default); conflicts with --apply")
+	var drop, undrop []string
+	listFlag := func(name, usage string, dst *[]string) {
+		fs.Func(name, usage, func(v string) error {
+			*dst = append(*dst, splitIDs(v)...)
+			return nil
+		})
+	}
+	listFlag("drop", "remove ids from saved menus, block re-adding (comma list)", &drop)
+	listFlag("undrop", "let discovery add dropped ids again (comma list)", &undrop)
 	format := helptext.FormatFlag(fs)
 	rest, err := helptext.ParseArgs(fs, args)
 	if err != nil {
@@ -354,11 +363,78 @@ func modelsDiscover(args []string) int {
 	if code != 0 {
 		return code
 	}
+	if len(drop)+len(undrop) > 0 {
+		return modelsDrop(names, *profile == "", drop, undrop, *apply, *format, reg)
+	}
 	results, ok := copilot.DiscoverPickerProfiles(reg, names, *apply)
 	if !ok {
 		code = 1
 	}
 	return printDiscoverResults(results, *apply, *format, code)
+}
+
+// splitIDs is the non-empty comma-separated ids of v.
+func splitIDs(v string) []string {
+	return slices.DeleteFunc(strings.Split(strings.ReplaceAll(v, " ", ""), ","), func(s string) bool { return s == "" })
+}
+
+// modelsDrop is `models discover --drop|--undrop`: a preview unless apply, and no discovery runs.
+func modelsDrop(names []string, global bool, drop, undrop []string, apply bool, format string, reg *providers.Registry) int {
+	if len(drop) > 0 && len(undrop) > 0 {
+		return helptext.FailUsage("models discover: --drop and --undrop conflict; run one at a time")
+	}
+	ids, un := drop, false
+	if len(undrop) > 0 {
+		ids, un = undrop, true
+	}
+	results, ok := copilot.DropPickerProfiles(reg, names, ids, un, global, apply)
+	code := 0
+	if !ok {
+		code = 1
+	}
+	if format == helptext.JSON {
+		if err := helptext.WriteJSON(os.Stdout, struct {
+			Apply   bool                 `json:"apply"`
+			Results []copilot.DropResult `json:"results"`
+		}{apply, results}); err != nil {
+			return helptext.Fail("models discover: cannot write JSON: %v", err)
+		}
+		return code
+	}
+	if err := printDropText(results, ids, un, apply); err != nil {
+		return helptext.Fail("models discover: cannot write text output: %v", err)
+	}
+	return code
+}
+
+func printDropText(results []copilot.DropResult, ids []string, undrop, apply bool) error {
+	verb, mode := "drop", "preview, nothing written; pass --apply to write"
+	if undrop {
+		verb = "undrop"
+	}
+	if apply {
+		mode = "written"
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%s %s (%s)\n", verb, strings.Join(ids, ","), mode)
+	found := map[string]bool{}
+	for _, r := range results {
+		where := cmp.Or(r.Profile, "saved menu")
+		for _, id := range r.Removed {
+			found[strings.TrimPrefix(id, "databricks-")] = true
+			fmt.Fprintf(&b, "  - %s: %s\n", where, id)
+		}
+		if r.Error != "" {
+			fmt.Fprintf(&b, "  error %s: %s\n", where, r.Error)
+		}
+	}
+	for _, id := range ids {
+		if !undrop && !found[strings.TrimPrefix(id, "databricks-")] {
+			fmt.Fprintf(&b, "  %s is in no saved menu\n", id)
+		}
+	}
+	_, err := io.WriteString(os.Stdout, b.String())
+	return err
 }
 
 // discoverNames is the sorted registry profile names, or just profile; an unknown one exits 2.
@@ -397,6 +473,9 @@ func printDiscoverText(results []copilot.DiscoverResult) error {
 		fmt.Fprintf(&b, "%s/%s: %s source=%s discovered=%d additions=%d\n", r.Provider, r.Profile, r.Status, cmp.Or(r.Source, "none"), r.Discovered, len(r.Additions))
 		for _, m := range r.Additions {
 			fmt.Fprintf(&b, "  + %s\n", m.ID)
+		}
+		if len(r.Dropped) > 0 {
+			fmt.Fprintf(&b, "  skipped as dropped: %s\n", strings.Join(r.Dropped, ", "))
 		}
 		if len(r.Destinations) > 0 {
 			fmt.Fprintf(&b, "  destinations: %s\n", strings.Join(r.Destinations, ", "))
@@ -515,7 +594,7 @@ func modelPinAliases() []string {
 // modelsSpec is the completion node for the models verb.
 func modelsSpec() *helptext.Node {
 	discover := &helptext.Node{Flags: []helptext.Flag{helptext.ValuedFlag("profile", providers.ProfileNames), helptext.BoolFlag("apply"),
-		helptext.BoolFlag("dry-run"), helptext.CompletionFormatFlag()}}
+		helptext.BoolFlag("dry-run"), {Name: "drop"}, {Name: "undrop"}, helptext.CompletionFormatFlag()}}
 	return &helptext.Node{Sub: map[string]*helptext.Node{"discover": discover, "preflight": preflightSpec()}, Flags: []helptext.Flag{helptext.ValuedFlag("profile", providers.ProfileNames),
 		helptext.BoolFlag("unpin"), helptext.BoolFlag("live"), {Name: "pin", Values: modelPinAliases}, helptext.BoolFlag("dry-run"), helptext.CompletionFormatFlag()}}
 }

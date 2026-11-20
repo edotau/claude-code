@@ -494,6 +494,7 @@ type DiscoverResult struct {
 	Source       string                `json:"source"`
 	Discovered   int                   `json:"discovered"`
 	Additions    []providers.ModelInfo `json:"additions"`
+	Dropped      []string              `json:"skipped_dropped,omitempty"`
 	Destinations []string              `json:"destinations"`
 	Status       string                `json:"status"`
 	Note         string                `json:"note,omitempty"`
@@ -559,6 +560,11 @@ func discoverPickerProfile(p *providers.Provider, apply bool) DiscoverResult {
 	}
 	r.Discovered = len(live)
 	r.Destinations = discoverDestinations(p)
+	if r.Dropped, err = providers.DroppedLive(p, live); err != nil {
+		r.Status = "error"
+		r.Note = "saved picker additions unavailable or invalid; nothing overwritten: " + err.Error()
+		return r
+	}
 	var added []providers.ModelInfo
 	if apply {
 		added, err = providers.AppendPickerModels(p, live)
@@ -615,4 +621,40 @@ func DiscoverPickerProfiles(reg *providers.Registry, names []string, apply bool)
 		results = append(results, r)
 	}
 	return results, ok && completed > 0
+}
+
+// DropResult is one profile's `models discover --drop|--undrop` outcome; Profile "" is the global saved menu.
+type DropResult struct {
+	Profile string   `json:"profile"`
+	Removed []string `json:"removed"`
+	Error   string   `json:"error,omitempty"`
+}
+
+// DropPickerProfiles drops (or un-drops) ids from the global menu (when global) and each named profile's picker.
+// write false previews. ok is false when any profile errored.
+func DropPickerProfiles(reg *providers.Registry, names, ids []string, undrop, global, write bool) (out []DropResult, ok bool) {
+	ok = true
+	if global && !undrop {
+		r := DropResult{Removed: []string{}}
+		removed, err := providers.DropFromMenu(ids, write)
+		r.Removed = append(r.Removed, removed...)
+		if err != nil {
+			r.Error, ok = err.Error(), false
+		}
+		out = append(out, r)
+	}
+	for _, name := range names {
+		r := DropResult{Profile: name, Removed: []string{}}
+		p, err := reg.Get(name)
+		if err == nil {
+			var removed []string
+			removed, err = providers.EditPickerDrops(p, ids, undrop, write)
+			r.Removed = append(r.Removed, removed...)
+		}
+		if err != nil {
+			r.Error, ok = err.Error(), false
+		}
+		out = append(out, r)
+	}
+	return out, ok
 }

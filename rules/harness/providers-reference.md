@@ -56,6 +56,7 @@ Precedence: `--profile` → the claude agent record's `profile` → registry `de
 per-profile errors/skips; it never saves fallback catalogs. CLI preview is the default;
 `--apply` saves append-only choices in sealed, versioned vault records scoped by profile,
 routes, spelling and account/auth configuration. A second unchanged apply adds nothing.
+`--drop <id>[,<id>]` (`--apply` writes) removes saved-menu ids and blocks their re-adding; `--undrop` reverses it.
 Configured aliases, selections, pins, routes and the legacy global Databricks menu are
 not rewritten. Except for Copilot, saved choices feed configure/agent model pickers and harness-generated
 OpenCode catalogs on the next routed launch; Databricks Codex catalogs include only

@@ -761,3 +761,20 @@ func TestCmdModelsUnknownProfileDoesNotWritePins(t *testing.T) {
 		})
 	}
 }
+
+func TestModelsDiscoverDropPreviewReportsAndWritesNothing(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	if err := providers.SetOpencodeMenu([]providers.OpencodeModel{{ID: "kimi-k3", Label: "K"}, {ID: "gpt-5", Label: "G"}}); err != nil {
+		t.Fatal(err)
+	}
+	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdModels([]string{"discover", "--drop", "gpt-5,ghost-1"}) })
+	if code != 0 || !strings.Contains(out, "- saved menu: gpt-5") || !strings.Contains(out, "ghost-1 is in no saved menu") {
+		t.Fatalf("exit=%d out=%q; want gpt-5 removable and ghost-1 reported", code, out)
+	}
+	if got := providers.OpencodeMenu(); len(got) != 2 {
+		t.Fatalf("preview wrote the menu: %v", got)
+	}
+	if code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdModels([]string{"discover", "--drop", "a", "--undrop", "b"}) }); code != 2 {
+		t.Errorf("--drop with --undrop exit=%d out=%q, want usage error 2", code, out)
+	}
+}
