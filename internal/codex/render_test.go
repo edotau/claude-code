@@ -2,6 +2,7 @@ package codex
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"os"
 	"path/filepath"
@@ -14,8 +15,10 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	_ "github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/models"
 	_ "github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -552,5 +555,49 @@ func TestCodexOnOwnLoginSkipsInsteadOfFailing(t *testing.T) {
 	// Top-level approval/sandbox keys are agentconfig's, independent of login type: written even here.
 	if !strings.Contains(string(raw), "approval_policy") || !strings.Contains(string(raw), "sandbox_mode") {
 		t.Fatalf("own-login codex should still get approval_policy/sandbox_mode:\n%s", raw)
+	}
+}
+
+func codexDbxFixture() (*providers.Registry, providers.Target) {
+	p := &providers.Provider{Name: "dev", Preset: providers.PresetDatabricks, BaseURL: "https://dbx.test",
+		Models: map[string]string{models.Opus: "databricks-claude-opus-5-5"},
+		Routes: map[string]string{providers.ProtocolResponses: "/responses", providers.ProtocolOpenAI: "/chat", providers.ProtocolAnthropic: "/anthropic"}}
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{"dev": p}}
+	return reg, providers.Target{Provider: p, Model: "databricks-claude-opus-5-5"}
+}
+
+func TestCodexRenderModelPicksResponsesModelWithoutPin(t *testing.T) {
+	vaulttest.Use(t)
+	reg, target := codexDbxFixture()
+	var out bytes.Buffer
+	got := codexRenderModel(context.Background(), reg, target, &out)
+	if want := providers.FirstResponsesModel(target.Provider); want == "" || got.Model != want {
+		t.Fatalf("model = %q, want the profile's Responses model %q", got.Model, want)
+	}
+	if !strings.Contains(out.String(), "codex: wrote model "+got.Model+" on profile dev") {
+		t.Fatalf("missing notice, got %q", out.String())
+	}
+}
+
+func TestCodexRenderModelHonoursPin(t *testing.T) {
+	vaulttest.Use(t)
+	reg, target := codexDbxFixture()
+	if err := vault.SetAgentRecord("codex", vault.AgentRecord{Model: "databricks-gpt-6-1-sol"}); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	got := codexRenderModel(context.Background(), reg, target, &out)
+	if got.Model != "databricks-gpt-6-1-sol" || !strings.Contains(out.String(), "the codex model pin") {
+		t.Fatalf("model = %q, out = %q, want the pin", got.Model, out.String())
+	}
+}
+
+func TestCodexRenderModelLeavesOtherRowsAlone(t *testing.T) {
+	vaulttest.Use(t)
+	reg, target := codexDbxFixture()
+	target.Provider.Preset = ""
+	var out bytes.Buffer
+	if got := codexRenderModel(context.Background(), reg, target, &out); got.Model != target.Model || out.Len() != 0 {
+		t.Fatalf("non-Databricks target changed: %q %q", got.Model, out.String())
 	}
 }

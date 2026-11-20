@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -48,6 +49,7 @@ func codexProviderSection(ctx context.Context, reg *providers.Registry, sel prov
 	if target.Provider != nil && target.Provider.Auth.Method() == providers.AuthCLI {
 		return codexLoginSection(target.Provider.Name, existing, out)
 	}
+	target = codexRenderModel(ctx, reg, target, out)
 	_, argv, err := codexSchema().Configure(ctx, target)
 	if err != nil {
 		fmt.Fprintf(out, "codex: skipped: %v\n", err)
@@ -65,6 +67,27 @@ func codexProviderSection(ctx context.Context, reg *providers.Registry, sel prov
 		block = keys + "\n" + block
 	}
 	return codexBannerSection(block), nil
+}
+
+// codexRenderModel gives a Databricks target the model a launch runs: the pin, else a Responses model; peek-only.
+func codexRenderModel(ctx context.Context, reg *providers.Registry, t providers.Target, out io.Writer) providers.Target {
+	if t.Provider == nil || t.Provider.Preset != providers.PresetDatabricks {
+		return t
+	}
+	pin := agent.AgentModelPin(agentid.Codex)
+	if _, auto := agent.SplitAuto(pin); pin != "" && !auto {
+		q := agent.QueryFor(agent.PeekContext(ctx), agent.ModelQuery{Agent: agentid.Codex, Profile: t.Provider.Name})
+		if r, err := agent.ResolveRun(reg, q, time.Now()); err == nil && providers.ServesResponses(t.Provider, r.Model) {
+			fmt.Fprintf(out, "codex: wrote model %s on profile %s (the codex model pin)\n", r.Model, t.Provider.Name)
+			t.Model = r.Model
+			return t
+		}
+	}
+	if m := codexResponsesModel(t.Provider, t.Model); m != t.Model {
+		fmt.Fprintf(out, "codex: wrote model %s on profile %s (%s is not served over Responses; no usable pin)\n", m, t.Provider.Name, t.Model)
+		t.Model = m
+	}
+	return t
 }
 
 func codexLoginSection(name, existing string, out io.Writer) (string, error) {
