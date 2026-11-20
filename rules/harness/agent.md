@@ -27,6 +27,8 @@ paths:
   `duration_ms`, `fallback*`, `handoff`, `transport`; `invoked_model` is the request as asked (`auto`, `<row>:auto` or
   the selector) and `model` the model that ran. Isolation: `--no-persist` (claude, codex), `--safe-mode` (claude,
   codex, opencode), `--debug-file <path>` (claude, gemini).
+- `ask --retry <id>` of a run cut off by a deadline, stall, idle or auth-retry runs on claude unless a `--model`,
+  `--agent` or `--fallback none` pins the route or claude itself was cut off; it keeps the route and names the move.
 - Without `--tools`, claude and opencode launch no tools, copilot's SDK rejects every request, gemini is only
   instructed not to use them, codex keeps a read-only sandbox shell. `--no-tools` is claude only (others exit 2).
   `--read-only` (implies `--tools`) runs reads, URL fetches and a vetted read-only shell list; other Bash and all

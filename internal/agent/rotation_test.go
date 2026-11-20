@@ -188,3 +188,30 @@ func TestClaudeRowRotation(t *testing.T) {
 		t.Errorf("subscriptionRows = %v, want only the cli-auth anthropic row", rows)
 	}
 }
+
+// A deadline or idle cutoff keeps its pool model out of the next auto pick; a stall-free error and the account stay.
+func TestNoteSlowModelHoldsPoolModel(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	dev, now := reg.Providers["dev"], time.Now()
+	pick := func() string {
+		t.Helper()
+		m, _, err := rotationModelOn([]*providers.Provider{dev}, "opencode", models.Sonnet, false, false, nil, now)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return m
+	}
+	slow := pick()
+	disp := Dispatch{Agent: &fakeRunner{name: "opencode"}, Account: router.ProviderAccount("dev")}
+	noteSlowModel(disp, slow, errors.New("boom"))
+	if pick() != slow {
+		t.Fatal("a non-cutoff error held the model")
+	}
+	noteSlowModel(disp, slow, ErrSilent)
+	if got := pick(); got == slow {
+		t.Errorf("auto pick after an idle cutoff = %s, want another model", got)
+	}
+	if e := loadState()[disp.Account]; !e.ExhaustedUntil.IsZero() {
+		t.Errorf("account benched for a slow model: %+v", e)
+	}
+}

@@ -441,6 +441,15 @@ const (
 	CutoffAuthRetry = "auth-retry" // stalled on API retries, which are not output (claude's "no model output")
 )
 
+// CutOff reports a run a limit ended (deadline, stall, silence, API retries), not a signal or a plain failure.
+func (r Record) CutOff() bool {
+	switch r.Cutoff {
+	case CutoffDeadline, CutoffStall, CutoffIdle, CutoffAuthRetry:
+		return true
+	}
+	return false
+}
+
 // CutoffOf names how err cut a run off, "" when it did not; claude's idle.go has no sentinel, so its text is matched.
 func CutoffOf(err error) string {
 	if err == nil {

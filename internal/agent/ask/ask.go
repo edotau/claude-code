@@ -531,7 +531,7 @@ func (r *askRun) applyRecord() (int, bool) {
 		if err != nil {
 			return r.fail(err, 1)
 		}
-		if rec.RanAs == "" || rec.RanAs == rec.Agent {
+		if (rec.RanAs == "" || rec.RanAs == rec.Agent) && f.name == rec.Agent { // never another agent's session
 			f.session = cmp.Or(rec.SessionID, f.session)
 		}
 	}

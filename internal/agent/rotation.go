@@ -544,3 +544,19 @@ func recentPicks(agentName string, now time.Time) string {
 	}
 	return summary
 }
+
+// slowHold is how long a pool model that hit the deadline or went silent mid-task stays out of auto picks.
+const slowHold = 15 * time.Minute
+
+// noteSlowModel holds a pool model out of auto picks after a deadline or idle cutoff; the account stays usable.
+func noteSlowModel(disp Dispatch, model string, err error) {
+	if k := CutoffOf(err); (k != CutoffDeadline && k != CutoffIdle) || model == "" || disp.Account == "" {
+		return
+	}
+	_, row, _ := strings.Cut(disp.Account, "·")
+	if !router.IsPoolModel(engineName(disp), loadRegistryWarn().Row(row), model) {
+		return
+	}
+	now := time.Now()
+	warnHold(disp.Account, markModelDead(disp.Account, model, now.Add(slowHold), now))
+}

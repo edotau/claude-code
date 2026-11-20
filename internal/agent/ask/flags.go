@@ -458,7 +458,36 @@ func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, f
 	}
 	*prompt, *s.rubric = cmp.Or(*prompt, rec.Request.Prompt), "" // a typed task replaces the logged one
 	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
+	moveOffCutoff(fs, s, rec, os.Stderr)
 	return 0, false
+}
+
+// keepReason names why a retry stays on its cut-off route, "" when it may move.
+func keepReason(typedModel, noFallback bool, ran string) string {
+	switch {
+	case typedModel:
+		return "a typed model; drop --model or add --agent claude to move it"
+	case noFallback:
+		return "--fallback none; add --agent claude to move it"
+	case ran == "claude":
+		return "claude failed; add --agent <other> to move it"
+	}
+	return ""
+}
+
+// moveOffCutoff sends a retry of a cut-off run to claude when nothing was typed to pin the route, else says how to move.
+func moveOffCutoff(fs *flag.FlagSet, s *askState, rec agent.Record, errw io.Writer) {
+	ran := cmp.Or(rec.RanAs, rec.Agent)
+	if !rec.CutOff() || helptext.Explicit(fs, "agent") {
+		return
+	}
+	typed, none := *s.modelTyped || helptext.Explicit(fs, "model"), *s.Fallback == router.FallbackNone
+	if why := keepReason(typed, none, ran); why != "" {
+		fmt.Fprintf(errw, "ask: %s cut off (%s) on %s; this retry keeps it (%s)\n", rec.ID, rec.Cutoff, ran, why)
+		return
+	}
+	*s.Name, *s.Model, *s.lead, *s.Coworker = "claude", "", "", ""
+	fmt.Fprintf(errw, "ask: %s cut off (%s) on %s; retrying on claude (--agent %s forces the original)\n", rec.ID, rec.Cutoff, ran, ran)
 }
 
 // clearTyped drops the record's lead and list values for flags typed on this command line; the re-parse sets them.

@@ -283,6 +283,7 @@ func noteFailure(disp Dispatch, model string, err error) {
 	noteQuota(disp, model, err)
 	noteAuth(disp, err)
 	noteStall(disp, err)
+	noteSlowModel(disp, model, err)
 }
 
 // promptFromHandoff is the prompt carrying the hand-off doc's progress, else prompt when there is none to read.

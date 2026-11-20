@@ -388,3 +388,41 @@ func TestRefuseAgentWord(t *testing.T) {
 		}
 	}
 }
+
+// A retry of a cut-off run leaves its route only when no model, agent or --fallback none pins it.
+func TestMoveOffCutoff(t *testing.T) {
+	cut := func(agentName, kind string) agent.Record {
+		return agent.Record{ID: "r1", Agent: agentName, Cutoff: kind}
+	}
+	for _, tc := range []struct {
+		name, args, fallback string
+		rec                  agent.Record
+		typedModel           bool
+		wantAgent, wantNote  string
+	}{
+		{"moves", "", "all", cut("codex", agent.CutoffIdle), false, "claude", "retrying on claude"},
+		{"typed model", "", "all", cut("codex", agent.CutoffIdle), true, "codex", "a typed model"},
+		{"fallback none", "", "none", cut("codex", agent.CutoffDeadline), false, "codex", "--fallback none"},
+		{"claude failed", "", "all", cut("claude", agent.CutoffStall), false, "claude", "claude failed"},
+		{"agent typed", "--agent=codex", "all", cut("codex", agent.CutoffIdle), false, "codex", ""},
+		{"cancelled", "", "all", cut("codex", agent.CutoffCancelled), false, "codex", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fs, f := askFlagSet()
+			args := strings.Fields(tc.args)
+			if err := fs.Parse(args); err != nil {
+				t.Fatal(err)
+			}
+			r := &askRun{ctx: t.Context(), fs: fs, f: f}
+			f.name, f.model, f.fallback, f.modelTyped = tc.rec.Agent, "gpt-x", tc.fallback, tc.typedModel
+			var note strings.Builder
+			moveOffCutoff(fs, r.askState(), tc.rec, &note)
+			if f.name != tc.wantAgent || (tc.wantNote == "") != (note.Len() == 0) || !strings.Contains(note.String(), tc.wantNote) {
+				t.Fatalf("agent %q note %q, want %q containing %q", f.name, note.String(), tc.wantAgent, tc.wantNote)
+			}
+			if tc.wantAgent == "claude" && tc.rec.Agent != "claude" && f.model != "" {
+				t.Fatalf("model %q kept across the move", f.model)
+			}
+		})
+	}
+}
