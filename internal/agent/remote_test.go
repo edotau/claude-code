@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/route"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -204,7 +205,7 @@ func TestRemoteHomePath(t *testing.T) {
 
 // Each permission rule crosses to the remote as its own quoted argv word, so spaces in a rule cannot split it.
 func TestRemoteScriptRelaysEachPermissionRule(t *testing.T) {
-	perms, err := ParsePermissions("auto", []string{"Bash(git log:*)", "Read"}, nil, []string{"Bash(rm:*)"})
+	perms, err := permission.ParsePermissions("auto", []string{"Bash(git log:*)", "Read"}, nil, []string{"Bash(rm:*)"})
 	if err != nil {
 		t.Fatal(err)
 	}

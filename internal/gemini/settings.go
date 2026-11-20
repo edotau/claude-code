@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -174,7 +175,7 @@ func agyEffortArgv(s agent.Settings, argv, emulated []string) ([]string, []strin
 }
 
 // agyPermissionSettings renders p as agy's per-run --settings JSON (plus guard denies when guard)
-func agyPermissionSettings(p agent.Permissions, guard, tools bool, cwd string) (settings string, notes []string, err error) {
+func agyPermissionSettings(p permission.Permissions, guard, tools bool, cwd string) (settings string, notes []string, err error) {
 	if p.IsZero() {
 		return "", nil, nil
 	}
@@ -191,7 +192,7 @@ func agyPermissionSettings(p agent.Permissions, guard, tools bool, cwd string) (
 	}
 	// A Bash Deny, or a Read/Write/Edit Deny agy's exact rules cannot express, is the gate hook's.
 	deny, unDeny := appendAgyRules(deny, p.Deny, cwd)
-	var unenforced []agent.Rule
+	var unenforced []permission.Rule
 	for _, r := range p.Deny {
 		if (r.Tool == "Bash" || slices.Contains(unDeny, r)) && !agyGateCovers(cwd, agyGateTools[r.Tool]...) {
 			unenforced = append(unenforced, r)
@@ -200,7 +201,7 @@ func agyPermissionSettings(p agent.Permissions, guard, tools bool, cwd string) (
 	if len(unenforced) > 0 {
 		home, _ := agentconfig.HomeOr("")
 		return "", nil, fmt.Errorf("agy cannot enforce deny rule(s) %s: the permission-gate hook does not cover them in %s; run `claude-code configure --restore --agents --agent gemini`: dispatch refused",
-			strings.Join(agent.RuleStrings(unenforced), ", "), agyHooksPath(home))
+			strings.Join(permission.RuleStrings(unenforced), ", "), agyHooksPath(home))
 	}
 	allow, unAllow := appendAgyRules(nil, slices.Concat(p.Allow, p.Ask), cwd)
 	for _, r := range p.Ask {
@@ -214,10 +215,10 @@ func agyPermissionSettings(p agent.Permissions, guard, tools bool, cwd string) (
 	if err != nil {
 		return "", nil, fmt.Errorf("agy: encode --settings: %w", err)
 	}
-	return string(b), append(notes, agent.RuleStrings(unAllow)...), nil
+	return string(b), append(notes, permission.RuleStrings(unAllow)...), nil
 }
 
-func agyPlanRefusal(p agent.Permissions, tools bool, cwd string) error {
+func agyPlanRefusal(p permission.Permissions, tools bool, cwd string) error {
 	switch {
 	case p.Mode != "plan":
 		return nil
@@ -232,41 +233,41 @@ func agyPlanRefusal(p agent.Permissions, tools bool, cwd string) error {
 
 // agyDenier explains agy's refusals of calls the run's policy did not grant natively.
 type agyDenier struct {
-	p   agent.Permissions
+	p   permission.Permissions
 	cwd string
 }
 
 // agyRefusedCall is the call a tool step agy refused for want of a grant; a deny rule's refusal reads differently.
-func agyRefusedCall(ev agyEvent) (agent.Rule, bool) {
+func agyRefusedCall(ev agyEvent) (permission.Rule, bool) {
 	u := ev.StepUpdate
 	if u.StepType != agyToolStep || u.State != "ERROR" || !strings.Contains(u.ToolInfo.Error.Message, "user denied permission") {
-		return agent.Rule{}, false
+		return permission.Rule{}, false
 	}
 	var args struct{ CommandLine, Path string }
 	if json.Unmarshal(u.ToolInfo.Parameters, &args) != nil {
-		return agent.Rule{}, false
+		return permission.Rule{}, false
 	}
 	switch u.ToolName {
 	case "run_command":
-		return agent.Rule{Tool: "Bash", Arg: args.CommandLine}, args.CommandLine != ""
+		return permission.Rule{Tool: "Bash", Arg: args.CommandLine}, args.CommandLine != ""
 	case "read_file":
-		return agent.Rule{Tool: "Read", Arg: args.Path}, args.Path != ""
+		return permission.Rule{Tool: "Read", Arg: args.Path}, args.Path != ""
 	case "write_file":
-		return agent.Rule{Tool: "Write", Arg: args.Path}, args.Path != ""
+		return permission.Rule{Tool: "Write", Arg: args.Path}, args.Path != ""
 	case "edit_file":
-		return agent.Rule{Tool: "Edit", Arg: args.Path}, args.Path != ""
+		return permission.Rule{Tool: "Edit", Arg: args.Path}, args.Path != ""
 	}
-	return agent.Rule{}, false
+	return permission.Rule{}, false
 }
 
-func (d *agyDenier) report(calls []agent.Rule) {
+func (d *agyDenier) report(calls []permission.Rule) {
 	for _, n := range d.notes(calls) {
 		fmt.Fprintln(os.Stderr, n)
 	}
 }
 
 // notes names, per refused call, the exact --allow that repairs it; a denied call gets none.
-func (d *agyDenier) notes(calls []agent.Rule) []string {
+func (d *agyDenier) notes(calls []permission.Rule) []string {
 	if d == nil {
 		return nil
 	}
@@ -285,8 +286,8 @@ func (d *agyDenier) notes(calls []agent.Rule) []string {
 }
 
 // appendAgyRules appends each rule agy can express natively to dst and names the rest.
-func appendAgyRules(dst []string, rules []agent.Rule, cwd string) ([]string, []agent.Rule) {
-	var unmapped []agent.Rule
+func appendAgyRules(dst []string, rules []permission.Rule, cwd string) ([]string, []permission.Rule) {
+	var unmapped []permission.Rule
 	for _, r := range rules {
 		if s := agyRules(r, cwd); len(s) > 0 {
 			dst = append(dst, s...)
@@ -298,7 +299,7 @@ func appendAgyRules(dst []string, rules []agent.Rule, cwd string) ([]string, []a
 }
 
 // agyRules maps an exact Bash command or glob-free path; Write and Edit give write_file and edit_file; nil if no map.
-func agyRules(r agent.Rule, cwd string) []string {
+func agyRules(r permission.Rule, cwd string) []string {
 	if r.Arg == "" || strings.ContainsAny(r.Arg, "*?[") {
 		return nil
 	}

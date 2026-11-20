@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/hooktelemetry"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memory"
@@ -43,7 +44,7 @@ func TestDispatchBlockingGateFailsClosedOnPanic(t *testing.T) {
 // A panic in a module's own process: an advisory module proceeds, a Blocks gate blocks.
 func TestRunDirectPanicAdvisoryProceedsGateBlocks(t *testing.T) {
 	dir := t.TempDir()
-	defer core.TelemetryDirForTest(dir)()
+	defer hooktelemetry.DirForTest(dir)()
 	for _, name := range []string{"memory-start", "safety-scan"} {
 		orig := native[name]
 		native[name] = func(*core.Input) core.Result { panic("module blew up") }
@@ -59,7 +60,7 @@ func TestRunDirectPanicAdvisoryProceedsGateBlocks(t *testing.T) {
 		!strings.Contains(errb.String(), "panic: module blew up") {
 		t.Errorf("gate panic: exit %d stderr %q; want ExitBlock naming the panic", code, errb.String())
 	}
-	assertDirectTelemetry(t, dir, core.OutcomePanic, 2)
+	assertDirectTelemetry(t, dir, hooktelemetry.OutcomePanic, 2)
 }
 
 func assertDirectTelemetry(t *testing.T, dir, outcome string, count int) {
@@ -684,7 +685,7 @@ func TestCodexFileWriteRunsDocGates(t *testing.T) {
 // A gate timeout preserves both the retry reason and the host-specific refusal.
 func TestRunDirectGateOverrunBlocks(t *testing.T) {
 	dir := t.TempDir()
-	defer core.TelemetryDirForTest(dir)()
+	defer hooktelemetry.DirForTest(dir)()
 	flagHarness(t)
 	orig := gateDeadline
 	gateDeadline = func(settings.EventSpec) time.Duration { return 50 * time.Millisecond }
@@ -708,7 +709,7 @@ func TestRunDirectGateOverrunBlocks(t *testing.T) {
 		!strings.Contains(out.String(), `"deny"`) {
 		t.Errorf("agy gate overrun: exit %d stdout %q; want the JSON deny", code, out.String())
 	}
-	assertDirectTelemetry(t, dir, core.OutcomeOverrun, 2)
+	assertDirectTelemetry(t, dir, hooktelemetry.OutcomeOverrun, 2)
 }
 
 func TestRunDirectAdvisoryOverrunProceeds(t *testing.T) {
@@ -794,8 +795,8 @@ func TestDirectTelemetryCannotFlipAllow(t *testing.T) {
 	if err := exec.Command("/usr/bin/mkfifo", file).Run(); err != nil {
 		t.Skip(err)
 	}
-	defer core.TelemetryDirForTest(dir)()
-	defer core.TelemetryWaitForTest(10 * time.Millisecond)()
+	defer hooktelemetry.DirForTest(dir)()
+	defer hooktelemetry.WaitForTest(10 * time.Millisecond)()
 	orig, deadline := native["safety-scan"], gateDeadline
 	native["safety-scan"] = func(*core.Input) core.Result { return core.Result{} }
 	gateDeadline = func(settings.EventSpec) time.Duration { return 30 * time.Millisecond }

@@ -15,6 +15,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/agenttest"
+	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -26,10 +27,10 @@ import (
 
 // Glob-free path denies and exact allows map to agy rules
 func TestAgyPermissionSettings(t *testing.T) {
-	p := agent.Permissions{
-		Deny:  []agent.Rule{{Tool: "Write", Arg: "denied2.txt"}, {Tool: "Read", Arg: "/abs/secret"}},
-		Allow: []agent.Rule{{Tool: "Bash", Arg: "go test ./..."}, {Tool: "Bash", Arg: "git log:*"}},
-		Ask:   []agent.Rule{{Tool: "WebFetch"}},
+	p := permission.Permissions{
+		Deny:  []permission.Rule{{Tool: "Write", Arg: "denied2.txt"}, {Tool: "Read", Arg: "/abs/secret"}},
+		Allow: []permission.Rule{{Tool: "Bash", Arg: "go test ./..."}, {Tool: "Bash", Arg: "git log:*"}},
+		Ask:   []permission.Rule{{Tool: "WebFetch"}},
 	}
 	got, notes, err := agyPermissionSettings(p, true, true, "/w")
 	if err != nil {
@@ -52,7 +53,7 @@ func TestAgyPermissionSettings(t *testing.T) {
 	if want := []string{"ask WebFetch runs as allow (agy has no headless judge)", "Bash(git log:*)", "WebFetch"}; !slices.Equal(notes, want) {
 		t.Errorf("notes = %q, want %q", notes, want)
 	}
-	if s, _, _ := agyPermissionSettings(agent.Permissions{}, true, true, "/w"); s != "" {
+	if s, _, _ := agyPermissionSettings(permission.Permissions{}, true, true, "/w"); s != "" {
 		t.Errorf("zero policy renders %q, want no --settings", s)
 	}
 }
@@ -62,16 +63,16 @@ func TestAgyRulesWriteToolsAndPaths(t *testing.T) {
 	both := func(p string) []string { return []string{"write_file(" + p + ")", "edit_file(" + p + ")"} }
 	for _, c := range []struct {
 		name string
-		rule agent.Rule
+		rule permission.Rule
 		cwd  string
 		want []string
 	}{
-		{"write relative", agent.Rule{Tool: "Write", Arg: "a.txt"}, "/w", both("/w/a.txt")},
-		{"edit relative", agent.Rule{Tool: "Edit", Arg: "a.txt"}, "/w", both("/w/a.txt")},
-		{"absolute ignores cwd", agent.Rule{Tool: "Edit", Arg: "/abs/a.txt"}, "/w", both("/abs/a.txt")},
-		{"absolute without cwd", agent.Rule{Tool: "Write", Arg: "/abs/a.txt"}, "", both("/abs/a.txt")},
-		{"relative without cwd", agent.Rule{Tool: "Write", Arg: "a.txt"}, "", nil},
-		{"read stays read_file", agent.Rule{Tool: "Read", Arg: "a.txt"}, "/w", []string{"read_file(/w/a.txt)"}},
+		{"write relative", permission.Rule{Tool: "Write", Arg: "a.txt"}, "/w", both("/w/a.txt")},
+		{"edit relative", permission.Rule{Tool: "Edit", Arg: "a.txt"}, "/w", both("/w/a.txt")},
+		{"absolute ignores cwd", permission.Rule{Tool: "Edit", Arg: "/abs/a.txt"}, "/w", both("/abs/a.txt")},
+		{"absolute without cwd", permission.Rule{Tool: "Write", Arg: "/abs/a.txt"}, "", both("/abs/a.txt")},
+		{"relative without cwd", permission.Rule{Tool: "Write", Arg: "a.txt"}, "", nil},
+		{"read stays read_file", permission.Rule{Tool: "Read", Arg: "a.txt"}, "/w", []string{"read_file(/w/a.txt)"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			if got := agyRules(c.rule, c.cwd); !slices.Equal(got, c.want) {
@@ -84,8 +85,8 @@ func TestAgyRulesWriteToolsAndPaths(t *testing.T) {
 // A Deny agy can't hold (no gate hook for a Bash deny, a glob path, a bare tool) or a failed guard load refuses.
 func TestAgyPermissionSettingsFailsClosed(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
-	for _, r := range []agent.Rule{{Tool: "Bash", Arg: "touch x"}, {Tool: "Bash", Arg: "rm:*"}, {Tool: "Edit", Arg: "internal/**"}, {Tool: "WebFetch"}} {
-		_, _, err := agyPermissionSettings(agent.Permissions{Deny: []agent.Rule{r}}, true, true, "/w")
+	for _, r := range []permission.Rule{{Tool: "Bash", Arg: "touch x"}, {Tool: "Bash", Arg: "rm:*"}, {Tool: "Edit", Arg: "internal/**"}, {Tool: "WebFetch"}} {
+		_, _, err := agyPermissionSettings(permission.Permissions{Deny: []permission.Rule{r}}, true, true, "/w")
 		if err == nil || !strings.Contains(err.Error(), r.String()) {
 			t.Errorf("deny %s: err = %v, want a refusal naming it", r, err)
 		}
@@ -93,7 +94,7 @@ func TestAgyPermissionSettingsFailsClosed(t *testing.T) {
 	orig := loadAgentConfig
 	loadAgentConfig = func() (*agentconfig.Config, error) { return nil, errors.New("overlay unreadable") }
 	t.Cleanup(func() { loadAgentConfig = orig })
-	_, _, err := agyPermissionSettings(agent.Permissions{Mode: "auto"}, true, true, "/w")
+	_, _, err := agyPermissionSettings(permission.Permissions{Mode: "auto"}, true, true, "/w")
 	if err == nil || !strings.Contains(err.Error(), "overlay unreadable") {
 		t.Errorf("failed guard load: err = %v, want it returned", err)
 	}
@@ -103,7 +104,7 @@ func TestAgyPermissionSettingsFailsClosed(t *testing.T) {
 func TestAgyPermissionSettingsRefusesPlan(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	p := agent.Permissions{Mode: "plan"}
+	p := permission.Permissions{Mode: "plan"}
 	_, _, err := agyPermissionSettings(p, true, true, "/w")
 	var ae *retry.Error
 	if !errors.As(err, &ae) || ae.Kind != retry.KindFatal || !strings.Contains(err.Error(), "drop --tools") {
@@ -124,7 +125,7 @@ func TestAgyPermissionSettingsRefusesPlan(t *testing.T) {
 func TestAgyBashDenyNeedsGateHook(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	p := agent.Permissions{Deny: []agent.Rule{{Tool: "Bash", Arg: "rm *"}, {Tool: "Bash", Arg: "touch x"}}}
+	p := permission.Permissions{Deny: []permission.Rule{{Tool: "Bash", Arg: "rm *"}, {Tool: "Bash", Arg: "touch x"}}}
 	if _, _, err := agyPermissionSettings(p, true, true, "/w"); err == nil || !strings.Contains(err.Error(), "Bash(rm *)") {
 		t.Fatalf("no gate installed: err = %v, want a refusal naming Bash(rm *)", err)
 	}
@@ -173,7 +174,7 @@ func TestAgyBashDenyRejectsNonBlockingGate(t *testing.T) {
 			if err := os.WriteFile(path, b, 0o600); err != nil {
 				t.Fatal(err)
 			}
-			p := agent.Permissions{Deny: []agent.Rule{{Tool: "Bash", Arg: "touch x"}}}
+			p := permission.Permissions{Deny: []permission.Rule{{Tool: "Bash", Arg: "touch x"}}}
 			_, _, err = agyPermissionSettings(p, true, true, cwd)
 			if (err == nil) != c.wantGate {
 				t.Fatalf("Bash deny with %s hook: err = %v, want gate accepted = %v", c.name, err, c.wantGate)
@@ -186,7 +187,7 @@ func TestAgyBashDenyRejectsNonBlockingGate(t *testing.T) {
 func TestAgyReadOnlyDenyNeedsGateHook(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("HOME", home)
-	p := agent.Permissions{Deny: agent.ReadOnlyDeny}
+	p := permission.Permissions{Deny: permission.ReadOnlyDeny}
 	_, _, err := agyPermissionSettings(p, true, true, "/w")
 	for _, r := range []string{"Bash", "Write", "Edit"} { // literal: the read-only set itself is under test
 		if err == nil || !strings.Contains(err.Error(), r) {
@@ -316,7 +317,7 @@ func TestAgyGateCoversIgnoresDisabledSet(t *testing.T) {
 			if got := agyGateCovers("", "run_command"); got != c.want {
 				t.Errorf("agyGateCovers = %v, want %v", got, c.want)
 			}
-			_, _, err = agyPermissionSettings(agent.Permissions{Deny: agent.ReadOnlyDeny}, true, true, "/w")
+			_, _, err = agyPermissionSettings(permission.Permissions{Deny: permission.ReadOnlyDeny}, true, true, "/w")
 			if (err == nil) != c.want {
 				t.Errorf("read-only deny err = %v, want accepted = %v", err, c.want)
 			}
@@ -349,7 +350,7 @@ func TestAgyGuardRulesFromExtras(t *testing.T) {
 				}
 			}
 			s := agent.Settings{Agent: "gemini", Headless: true, Tools: true, WorkDir: home,
-				Permissions: agent.Permissions{Mode: "bypassPermissions"},
+				Permissions: permission.Permissions{Mode: "bypassPermissions"},
 				Record:      vault.AgentRecord{Extras: map[string]string{extraUseGuardRules: c.guard}}}
 			_, argv, _, cleanup, err := geminiEngine{agent.NewBaseEngine("gemini")}.RenderSettings(t.Context(), s, nil, nil)
 			if err != nil {
@@ -379,7 +380,7 @@ func TestAgyGuardRulesEmptyRecordFailsClosed(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := agent.Settings{Agent: "gemini", Headless: true, Tools: true, WorkDir: "/w",
-		Permissions: agent.Permissions{Deny: []agent.Rule{{Tool: "Write", Arg: "x.txt"}, {Tool: "Bash", Arg: "touch x"}}}}
+		Permissions: permission.Permissions{Deny: []permission.Rule{{Tool: "Write", Arg: "x.txt"}, {Tool: "Bash", Arg: "touch x"}}}}
 	_, argv, _, _, err := geminiEngine{agent.NewBaseEngine("gemini")}.RenderSettings(context.Background(), s, nil, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -822,9 +823,9 @@ func stagedHooks(home string) (bool, error) {
 
 // Edit and Write path rules render both native write entries, in Deny and Allow alike.
 func TestAgyWriteRulesRenderBothNativeTools(t *testing.T) {
-	p := agent.Permissions{
-		Deny:  []agent.Rule{{Tool: "Edit", Arg: "d.txt"}, {Tool: "Write", Arg: "w.txt"}},
-		Allow: []agent.Rule{{Tool: "Edit", Arg: "/abs/a.txt"}},
+	p := permission.Permissions{
+		Deny:  []permission.Rule{{Tool: "Edit", Arg: "d.txt"}, {Tool: "Write", Arg: "w.txt"}},
+		Allow: []permission.Rule{{Tool: "Edit", Arg: "/abs/a.txt"}},
 	}
 	got, _, err := agyPermissionSettings(p, false, true, "/w")
 	if err != nil {
@@ -869,10 +870,10 @@ func TestAgyRefusedCallRemedy(t *testing.T) {
 	}
 	d := &agyDenier{cwd: "/w"}
 	want := "agy: refused Bash(echo zebra-ran): retry with --allow 'Bash(echo zebra-ran)'"
-	if got := d.notes([]agent.Rule{call}); !slices.Equal(got, []string{want}) {
+	if got := d.notes([]permission.Rule{call}); !slices.Equal(got, []string{want}) {
 		t.Fatalf("notes = %q, want %q", got, want)
 	}
-	if got, _, err := agyPermissionSettings(agent.Permissions{Allow: []agent.Rule{call}}, false, false, "/w"); err != nil || !strings.Contains(got, `"command(echo zebra-ran)"`) {
+	if got, _, err := agyPermissionSettings(permission.Permissions{Allow: []permission.Rule{call}}, false, false, "/w"); err != nil || !strings.Contains(got, `"command(echo zebra-ran)"`) {
 		t.Errorf("the offered allow renders %q, err %v; want it as a native command rule", got, err)
 	}
 	if _, ok := agyRefusedCall(step("run_command", `{"CommandLine":"x"}`, "Matches user-configured deny rule.")); ok {
@@ -881,22 +882,22 @@ func TestAgyRefusedCallRemedy(t *testing.T) {
 	if _, ok := agyRefusedCall(step("search_web", `{"Query":"q"}`, missed)); ok {
 		t.Error("a tool with no rule spelling produced a call")
 	}
-	denied := &agyDenier{p: agent.Permissions{Deny: []agent.Rule{{Tool: "Bash", Arg: "echo zebra-ran"}}}, cwd: "/w"}
-	glob := agent.Rule{Tool: "Bash", Arg: "echo *"}
+	denied := &agyDenier{p: permission.Permissions{Deny: []permission.Rule{{Tool: "Bash", Arg: "echo zebra-ran"}}}, cwd: "/w"}
+	glob := permission.Rule{Tool: "Bash", Arg: "echo *"}
 	checkNoAllowOffered(t, map[string]struct {
 		d    *agyDenier
-		call agent.Rule
+		call permission.Rule
 	}{"deny": {denied, call}, "glob": {d, glob}})
 }
 
 // checkNoAllowOffered expects each denier's note for its call to offer no --allow remedy.
 func checkNoAllowOffered(t *testing.T, cases map[string]struct {
 	d    *agyDenier
-	call agent.Rule
+	call permission.Rule
 }) {
 	t.Helper()
 	for name, c := range cases {
-		if got := c.d.notes([]agent.Rule{c.call}); len(got) != 1 || !strings.Contains(got[0], "no allow offered") {
+		if got := c.d.notes([]permission.Rule{c.call}); len(got) != 1 || !strings.Contains(got[0], "no allow offered") {
 			t.Errorf("%s: notes = %q, want a note with no allow", name, got)
 		}
 	}

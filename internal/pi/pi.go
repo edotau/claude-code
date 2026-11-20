@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -259,7 +260,7 @@ func toolsArgv(req agent.RunOptions, env []string) ([]string, error) {
 // (it reads every file under a path the gate judged once), find and ls too for a Glob or Grep deny.
 func guardTools(req agent.RunOptions) []string {
 	drop := []string{}
-	if req.ReadOnly || req.Permissions.Mode == agent.PermPlan {
+	if req.ReadOnly || req.Permissions.Mode == permission.PermPlan {
 		drop = append(drop, "bash", "edit", "write")
 	}
 	for _, r := range req.Permissions.Deny {

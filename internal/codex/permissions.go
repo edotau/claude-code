@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/shell"
 )
@@ -56,7 +57,7 @@ func codexGateInstalled() bool {
 	return false
 }
 
-func codexRender(p agent.Permissions, tools, gate bool) (codexPolicy, error) {
+func codexRender(p permission.Permissions, tools, gate bool) (codexPolicy, error) {
 	var pol codexPolicy
 	if p.Mode == "plan" && tools {
 		return pol, errors.New("codex: permission mode plan denies unmatched calls, which codex cannot enforce with --tools")
@@ -72,17 +73,17 @@ func codexRender(p agent.Permissions, tools, gate bool) (codexPolicy, error) {
 }
 
 // codexRenderRules renders each rule of p to its codex line, collecting the rules codex cannot express.
-func codexRenderRules(p agent.Permissions, tools, gate bool) (rules string, unmapped []string, err error) {
+func codexRenderRules(p permission.Permissions, tools, gate bool) (rules string, unmapped []string, err error) {
 	var b strings.Builder
-	p.Each(func(decision agent.Decision, r agent.Rule) {
-		if err != nil || (!tools && decision != agent.Deny) {
+	p.Each(func(decision permission.Decision, r permission.Rule) {
+		if err != nil || (!tools && decision != permission.Deny) {
 			return // no tools: an allow/prompt rule could auto-approve what the dispatch should not run
 		}
 		line, lerr := codexRule(r, [...]string{"forbidden", "prompt", "allow"}[decision], tools)
-		if errors.As(lerr, &notPrefixError{}) && decision == agent.Deny && gate {
+		if errors.As(lerr, &notPrefixError{}) && decision == permission.Deny && gate {
 			return
 		}
-		if lerr != nil && decision != agent.Allow {
+		if lerr != nil && decision != permission.Allow {
 			err = lerr // an ask codex cannot enforce would run unprompted: refused like a deny
 			return
 		}
@@ -95,7 +96,7 @@ func codexRenderRules(p agent.Permissions, tools, gate bool) (rules string, unma
 }
 
 // codexRule is one rules line; "" with nil error means the read-only sandbox already covers a write-tool deny.
-func codexRule(r agent.Rule, decision string, tools bool) (string, error) {
+func codexRule(r permission.Rule, decision string, tools bool) (string, error) {
 	if r.Tool != "Bash" {
 		if decision == "forbidden" && !tools && slices.Contains(codexWriteTools, r.Tool) {
 			return "", nil
@@ -118,7 +119,7 @@ func codexRule(r agent.Rule, decision string, tools bool) (string, error) {
 }
 
 // bashPrefixTokens splits a Bash rule into command-prefix tokens; wild reports a trailing wildcard.
-func bashPrefixTokens(r agent.Rule, decision string) (toks []string, wild bool, err error) {
+func bashPrefixTokens(r permission.Rule, decision string) (toks []string, wild bool, err error) {
 	prefix, wild := strings.CutSuffix(r.Arg, ":*")
 	if !wild {
 		prefix, wild = strings.CutSuffix(r.Arg, " *") // Claude's trailing wildcard, same as ":*"
@@ -312,7 +313,7 @@ func requireFileAuth(env []string) error {
 
 // codexCheckSafeMode rejects Deny and Ask rules under --safe-mode and logs the rules codex cannot enforce.
 func codexCheckSafeMode(req agent.RunOptions, pol codexPolicy) error {
-	if _, ok := agent.SafeModeDeny(req, func(agent.Rule) bool { return pol.rules != "" }); ok {
+	if _, ok := agent.SafeModeDeny(req, func(permission.Rule) bool { return pol.rules != "" }); ok {
 		return errors.New("codex: --safe-mode disables permission rules and hooks; remove --safe-mode to enforce --deny")
 	}
 	if req.SafeMode && req.Tools && len(req.Permissions.Ask) > 0 {
@@ -356,11 +357,11 @@ func codexApplyPermissions(req agent.RunOptions, argv, env []string) (outArgv, o
 }
 
 // codexDenial names the layer that refused a failed shell call and its real control.
-func codexDenial(p agent.Permissions, command, output string, tools bool, sandbox string) (agent.Denial, bool) {
-	call := agent.Rule{Tool: "Bash", Arg: codexShellCommand(command)}
+func codexDenial(p permission.Permissions, command, output string, tools bool, sandbox string) (permission.Denial, bool) {
+	call := permission.Rule{Tool: "Bash", Arg: codexShellCommand(command)}
 	text := strings.ToLower(output)
-	denial := func(layer, source, remedy string) (agent.Denial, bool) {
-		return agent.Denial{Call: call, Layer: layer, Source: source, Remedy: remedy}, true
+	denial := func(layer, source, remedy string) (permission.Denial, bool) {
+		return permission.Denial{Call: call, Layer: layer, Source: source, Remedy: remedy}, true
 	}
 	switch {
 	case strings.Contains(text, "blocked by pretooluse hook"):
@@ -390,7 +391,7 @@ func codexDenial(p agent.Permissions, command, output string, tools bool, sandbo
 		}
 		return denial("os-sandbox", sandbox+" sandbox", "the OS refused beyond the sandbox; no harness control repairs it")
 	}
-	return agent.Denial{}, false
+	return permission.Denial{}, false
 }
 
 func containsAny(s string, subs ...string) bool {
@@ -420,7 +421,7 @@ func (s *denialSink) runStream(ctx context.Context, name string, cmd *exec.Cmd, 
 	return res, err
 }
 
-func (s *denialSink) collect(d agent.Denial, ev wire.Event) {
+func (s *denialSink) collect(d permission.Denial, ev wire.Event) {
 	if d.Layer != "os-sandbox" {
 		return
 	}
@@ -514,7 +515,7 @@ func isAssignment(word string) bool {
 type denialSink struct {
 	denials  *wire.Denials
 	next     wire.Sink
-	p        agent.Permissions
+	p        permission.Permissions
 	tools    bool
 	sandbox  string
 	commands map[string]string // tool id -> command
@@ -540,7 +541,7 @@ func (s *denialSink) Emit(ev wire.Event) error {
 }
 
 // denial is the refusal ev reports, if any; a tool use is remembered so its result can name the command.
-func (s *denialSink) denial(ev wire.Event) (d agent.Denial, ok bool) {
+func (s *denialSink) denial(ev wire.Event) (d permission.Denial, ok bool) {
 	switch {
 	case ev.Type == wire.EventToolUse && ev.Tool != nil:
 		s.commands[ev.Tool.ID] = ev.Text

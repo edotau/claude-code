@@ -165,6 +165,16 @@ const (
 	Block
 )
 
+// Verdict words a Result reports for a decision; a hand-back is held, refused or passed, never both.
+const (
+	VerdictBlock   = "block"
+	VerdictAsk     = "ask"
+	VerdictRewrite = "rewrite"
+	VerdictHeld    = "held"
+	VerdictRefused = "refused"
+	VerdictPassed  = "passed"
+)
+
 // Result is what one handler contributes to its event; the dispatcher merges them and an agent builder renders it.
 type Result struct {
 	Decision      Decision

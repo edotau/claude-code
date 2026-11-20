@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent"
 )
@@ -30,12 +31,12 @@ var opencodeTools = map[string]struct {
 type opencodeEntry struct{ pattern, action string }
 
 // opencodePermission keeps rule precedence; gated (plugin judges every bash call) leaves read-only bash to the gate.
-func opencodePermission(p agent.Permissions, gated bool) (json.RawMessage, error) {
+func opencodePermission(p permission.Permissions, gated bool) (json.RawMessage, error) {
 	base := cmp.Or(map[string]string{"allow": "allow", "auto": "allow", "plan": "deny"}[p.Mode], "ask")
 	byKey := planEntries(p.Mode)
 	readOnly := opencodeReadOnly(agent.RunOptions{Permissions: p})
 	sets := []struct {
-		rules  []agent.Rule
+		rules  []permission.Rule
 		action string
 	}{{p.Allow, "allow"}, {p.Ask, "ask"}, {p.Deny, "deny"}}
 	for _, set := range sets {
@@ -44,7 +45,7 @@ func opencodePermission(p agent.Permissions, gated bool) (json.RawMessage, error
 			if err != nil {
 				return nil, err
 			}
-			if readOnly && set.action != "deny" && planDenied[key] && r != agent.ReadOnlyAllow {
+			if readOnly && set.action != "deny" && planDenied[key] && r != permission.ReadOnlyAllow {
 				continue
 			}
 			for _, pat := range pats {
@@ -120,7 +121,7 @@ func quote(s string) string {
 }
 
 // opencodeRule maps r to opencode's permission key and patterns; a rule it cannot express is an error naming it.
-func opencodeRule(r agent.Rule, action string) (key string, patterns []string, err error) {
+func opencodeRule(r permission.Rule, action string) (key string, patterns []string, err error) {
 	t, ok := opencodeTools[r.Tool]
 	if !ok {
 		return "", nil, fmt.Errorf("opencode: cannot express %s %s (no opencode permission for tool %s)", action, r, r.Tool)
@@ -158,13 +159,13 @@ func opencodePaths(arg, action string) []string {
 }
 
 // opencodeRuleOrList is opencodeRule, but read-only shell rules become the list's heads (the plugin judges exactly).
-func opencodeRuleOrList(r agent.Rule, action string, gated bool) (string, []string, error) {
+func opencodeRuleOrList(r permission.Rule, action string, gated bool) (string, []string, error) {
 	switch {
-	case r == agent.ReadOnlyAllow && gated:
+	case r == permission.ReadOnlyAllow && gated:
 		return "bash", []string{"*"}, nil
-	case r == agent.ReadOnlyAllow:
+	case r == permission.ReadOnlyAllow:
 		return "bash", readOnlyPatterns(), nil
-	case r.Tool == "Bash" && r.Arg == agent.NotReadOnlyShellArg:
+	case r.Tool == "Bash" && r.Arg == permission.NotReadOnlyShellArg:
 		return "bash", nil, nil
 	}
 	return opencodeRule(r, action)
@@ -173,7 +174,7 @@ func opencodeRuleOrList(r agent.Rule, action string, gated bool) (string, []stri
 // readOnlyPatterns are the native bash patterns of the shared read-only list.
 func readOnlyPatterns() []string {
 	var out []string
-	for _, h := range agent.ReadOnlyBashHeads() {
+	for _, h := range permission.ReadOnlyBashHeads() {
 		out = append(out, h, h+" *")
 	}
 	return out
@@ -232,7 +233,7 @@ func refusePureGates(req agent.RunOptions) error {
 		return retry.Fatal("opencode", fmt.Errorf("cannot run under --safe-mode: --pure loads no plugin, so gate hook(s) %s could not stop a call; run without --safe-mode",
 			strings.Join(gates, ", ")))
 	}
-	if r, ok := agent.SafeModeDeny(req, func(r agent.Rule) bool { return r.Tool == "Bash" }); ok {
+	if r, ok := agent.SafeModeDeny(req, func(r permission.Rule) bool { return r.Tool == "Bash" }); ok {
 		return retry.Fatal("opencode",
 			fmt.Errorf("cannot enforce deny %s under --safe-mode (--pure loads no plugin; bash -c bypasses its matcher); run without --safe-mode", r))
 	}
@@ -244,7 +245,7 @@ func opencodeReadOnly(req agent.RunOptions) bool {
 	if req.ReadOnly {
 		return true
 	}
-	for _, r := range agent.ReadOnlyDeny {
+	for _, r := range permission.ReadOnlyDeny {
 		if !slices.Contains(req.Permissions.Deny, r) {
 			return false
 		}
@@ -253,10 +254,10 @@ func opencodeReadOnly(req agent.RunOptions) bool {
 }
 
 // GatePolicy is the policy the plugin's permission-gate judges for req, plan mode included when read-only.
-func GatePolicy(req agent.RunOptions) agent.Permissions {
+func GatePolicy(req agent.RunOptions) permission.Permissions {
 	if req.ReadOnly {
-		req.Permissions.Deny = append(slices.Clone(req.Permissions.Deny), agent.ReadOnlyDeny...)
-		req.Permissions.Allow = append(slices.Clone(req.Permissions.Allow), agent.ReadOnlyAllow)
+		req.Permissions.Deny = append(slices.Clone(req.Permissions.Deny), permission.ReadOnlyDeny...)
+		req.Permissions.Allow = append(slices.Clone(req.Permissions.Allow), permission.ReadOnlyAllow)
 	}
 	if opencodeReadOnly(req) {
 		req.Permissions.Mode = "plan"

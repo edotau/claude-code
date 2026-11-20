@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -60,7 +61,7 @@ func liveMode(name string, readOnly bool) pathLaunch {
 }
 
 // permSummary is p's rule counts: enough to see a layer missing, never a rule's text.
-func permSummary(p agent.Permissions) string {
+func permSummary(p permission.Permissions) string {
 	return fmt.Sprintf("%d allow, %d ask, %d deny", len(p.Allow), len(p.Ask), len(p.Deny))
 }
 
@@ -92,8 +93,8 @@ func claudeLive(readOnly bool, wd string) pathLaunch {
 }
 
 // gatePolicyEnv is the permission policy a child's env carries for the permission-gate.
-func gatePolicyEnv(env []string) (agent.Permissions, bool) {
-	var p agent.Permissions
+func gatePolicyEnv(env []string) (permission.Permissions, bool) {
+	var p permission.Permissions
 	for _, e := range env {
 		if raw, ok := strings.CutPrefix(e, agent.DispatchPermissionsEnv+"="); ok {
 			return p, json.Unmarshal([]byte(raw), &p) == nil

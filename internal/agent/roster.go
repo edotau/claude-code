@@ -12,6 +12,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
@@ -593,13 +594,13 @@ func rosterPick(ctx context.Context, o router.PickOpts) (router.PickOpts, error)
 
 // Summary is one agent in `agents`: its binary, availability, capability levels and event kinds.
 type Summary struct {
-	Name      string            `json:"name"`
-	Binary    string            `json:"binary"`
-	Available bool              `json:"available"`
-	Reason    string            `json:"reason,omitempty"`
-	Caps      map[string]string `json:"caps"`
-	Events    []string          `json:"events"`
-	Defaults  Permissions       `json:"permissions"` // the resolved default dispatch policy; {} = none, the tier flags decide
+	Name      string                 `json:"name"`
+	Binary    string                 `json:"binary"`
+	Available bool                   `json:"available"`
+	Reason    string                 `json:"reason,omitempty"`
+	Caps      map[string]string      `json:"caps"`
+	Events    []string               `json:"events"`
+	Defaults  permission.Permissions `json:"permissions"` // the resolved default dispatch policy; {} = none, the tier flags decide
 	shown     []string
 }
 

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/tools"
@@ -20,7 +21,7 @@ import (
 
 type codexRenderCase struct {
 	name    string
-	p       agent.Permissions
+	p       permission.Permissions
 	tools   bool
 	gate    bool // the permission-gate hook is installed
 	rules   string
@@ -29,37 +30,37 @@ type codexRenderCase struct {
 }
 
 func codexRenderCases() []codexRenderCase {
-	bash := func(a string) agent.Rule { return agent.Rule{Tool: "Bash", Arg: a} }
+	bash := func(a string) permission.Rule { return permission.Rule{Tool: "Bash", Arg: a} }
 	return []codexRenderCase{
-		{name: "deny prefix", p: agent.Permissions{Mode: "auto", Deny: []agent.Rule{bash("rm:*")}}, tools: true,
+		{name: "deny prefix", p: permission.Permissions{Mode: "auto", Deny: []permission.Rule{bash("rm:*")}}, tools: true,
 			rules: `prefix_rule(pattern=["rm"], decision="forbidden"`, approve: true},
-		{name: "allow multi-word", p: agent.Permissions{Allow: []agent.Rule{bash("git status:*")}}, tools: true,
+		{name: "allow multi-word", p: permission.Permissions{Allow: []permission.Rule{bash("git status:*")}}, tools: true,
 			rules: `pattern=["git", "status"], decision="allow"`},
-		{name: "ask renders prompt", p: agent.Permissions{Ask: []agent.Rule{bash("git push:*")}}, tools: true,
+		{name: "ask renders prompt", p: permission.Permissions{Ask: []permission.Rule{bash("git push:*")}}, tools: true,
 			rules: `decision="prompt"`, approve: true},
-		{name: "exact deny over-matches safely", p: agent.Permissions{Deny: []agent.Rule{bash("rm -rf /")}},
+		{name: "exact deny over-matches safely", p: permission.Permissions{Deny: []permission.Rule{bash("rm -rf /")}},
 			rules: `pattern=["rm", "-rf", "/"]`},
-		{name: "wildcard deny is a prefix", p: agent.Permissions{Deny: []agent.Rule{bash("rm *")}},
+		{name: "wildcard deny is a prefix", p: permission.Permissions{Deny: []permission.Rule{bash("rm *")}},
 			rules: `pattern=["rm"], decision="forbidden"`},
-		{name: "mid wildcard deny refused", p: agent.Permissions{Deny: []agent.Rule{bash("git * --force")}}, err: "Bash(git * --force)"},
-		{name: "mid wildcard deny left to the gate hook", p: agent.Permissions{Deny: []agent.Rule{bash("git * --force")}}, gate: true},
-		{name: "pipeline deny left to the gate hook", p: agent.Permissions{Deny: []agent.Rule{bash("cat x | wc")}}, gate: true},
-		{name: "non-Bash deny still refused with the gate", p: agent.Permissions{Deny: []agent.Rule{{Tool: "Read", Arg: ".env"}}}, gate: true, err: "Read(.env)"},
-		{name: "ask exact command over-matches safely", p: agent.Permissions{Ask: []agent.Rule{bash("git push")}}, tools: true,
+		{name: "mid wildcard deny refused", p: permission.Permissions{Deny: []permission.Rule{bash("git * --force")}}, err: "Bash(git * --force)"},
+		{name: "mid wildcard deny left to the gate hook", p: permission.Permissions{Deny: []permission.Rule{bash("git * --force")}}, gate: true},
+		{name: "pipeline deny left to the gate hook", p: permission.Permissions{Deny: []permission.Rule{bash("cat x | wc")}}, gate: true},
+		{name: "non-Bash deny still refused with the gate", p: permission.Permissions{Deny: []permission.Rule{{Tool: "Read", Arg: ".env"}}}, gate: true, err: "Read(.env)"},
+		{name: "ask exact command over-matches safely", p: permission.Permissions{Ask: []permission.Rule{bash("git push")}}, tools: true,
 			rules: `pattern=["git", "push"], decision="prompt"`, approve: true},
-		{name: "unenforceable ask refused with tools", p: agent.Permissions{Ask: []agent.Rule{{Tool: "Edit", Arg: "src/**"}}}, tools: true,
+		{name: "unenforceable ask refused with tools", p: permission.Permissions{Ask: []permission.Rule{{Tool: "Edit", Arg: "src/**"}}}, tools: true,
 			err: "Edit(src/**)"},
-		{name: "mid wildcard ask refused despite the gate", p: agent.Permissions{Ask: []agent.Rule{bash("git * --force")}}, tools: true, gate: true,
+		{name: "mid wildcard ask refused despite the gate", p: permission.Permissions{Ask: []permission.Rule{bash("git * --force")}}, tools: true, gate: true,
 			err: "Bash(git * --force)"},
-		{name: "allow without tools writes nothing", p: agent.Permissions{Allow: []agent.Rule{bash("git status:*")}}},
-		{name: "exact allow skipped", p: agent.Permissions{Allow: []agent.Rule{bash("ls")}}},
-		{name: "write deny covered by read-only", p: agent.Permissions{Deny: []agent.Rule{{Tool: "Edit", Arg: "src/**"}}}},
-		{name: "write deny refused with tools", p: agent.Permissions{Deny: []agent.Rule{{Tool: "Edit", Arg: "src/**"}}}, tools: true,
+		{name: "allow without tools writes nothing", p: permission.Permissions{Allow: []permission.Rule{bash("git status:*")}}},
+		{name: "exact allow skipped", p: permission.Permissions{Allow: []permission.Rule{bash("ls")}}},
+		{name: "write deny covered by read-only", p: permission.Permissions{Deny: []permission.Rule{{Tool: "Edit", Arg: "src/**"}}}},
+		{name: "write deny refused with tools", p: permission.Permissions{Deny: []permission.Rule{{Tool: "Edit", Arg: "src/**"}}}, tools: true,
 			err: "Edit(src/**)"},
-		{name: "read deny refused", p: agent.Permissions{Deny: []agent.Rule{{Tool: "Read", Arg: ".env"}}}, err: "Read(.env)"},
-		{name: "pipeline deny refused", p: agent.Permissions{Deny: []agent.Rule{bash("cat x | wc")}}, err: "Bash(cat x | wc)"},
-		{name: "substitution deny refused", p: agent.Permissions{Deny: []agent.Rule{bash("echo $(id):*")}}, err: "command prefix"},
-		{name: "plan with tools refused", p: agent.Permissions{Mode: "plan"}, tools: true, err: "plan"},
+		{name: "read deny refused", p: permission.Permissions{Deny: []permission.Rule{{Tool: "Read", Arg: ".env"}}}, err: "Read(.env)"},
+		{name: "pipeline deny refused", p: permission.Permissions{Deny: []permission.Rule{bash("cat x | wc")}}, err: "Bash(cat x | wc)"},
+		{name: "substitution deny refused", p: permission.Permissions{Deny: []permission.Rule{bash("echo $(id):*")}}, err: "command prefix"},
+		{name: "plan with tools refused", p: permission.Permissions{Mode: "plan"}, tools: true, err: "plan"},
 	}
 }
 
@@ -88,7 +89,7 @@ func TestCodexApplyPermissionsArgv(t *testing.T) {
 	if err != nil || strings.Join(gotArgv, " ") != strings.Join(argv, " ") || len(gotEnv) != 1 {
 		t.Fatalf("zero Permissions changed the run: %v %v %v", gotArgv, gotEnv, err)
 	}
-	req := agent.RunOptions{Tools: true, Permissions: agent.Permissions{Mode: "auto"}}
+	req := agent.RunOptions{Tools: true, Permissions: permission.Permissions{Mode: "auto"}}
 	gotArgv, _, rm2, err := codexApplyPermissions(req, argv, env)
 	defer rm2()
 	if want := "exec -c x=1 --skip-git-repo-check --approve-for-me -"; err != nil || strings.Join(gotArgv, " ") != want {
@@ -98,8 +99,8 @@ func TestCodexApplyPermissionsArgv(t *testing.T) {
 
 func TestCodexApplyPermissionsSafeModeRejectsDispatchRules(t *testing.T) {
 	argv := []string{"exec", "--ignore-user-config", "--ignore-rules", "--sandbox", "workspace-write", "-"}
-	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: agent.Permissions{
-		Deny: []agent.Rule{{Tool: "Bash", Arg: "rm:*"}},
+	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: permission.Permissions{
+		Deny: []permission.Rule{{Tool: "Bash", Arg: "rm:*"}},
 	}}
 	_, _, remove, err := codexApplyPermissions(req, argv, []string{codexKeyEnv + "=test-key"})
 	defer remove()
@@ -109,8 +110,8 @@ func TestCodexApplyPermissionsSafeModeRejectsDispatchRules(t *testing.T) {
 }
 
 func TestCodexApplyPermissionsSafeModeRejectsAsk(t *testing.T) {
-	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: agent.Permissions{
-		Ask: []agent.Rule{{Tool: "Bash", Arg: "git push:*"}},
+	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: permission.Permissions{
+		Ask: []permission.Rule{{Tool: "Bash", Arg: "git push:*"}},
 	}}
 	_, _, remove, err := codexApplyPermissions(req, nil, []string{codexKeyEnv + "=test-key"})
 	defer remove()
@@ -122,8 +123,8 @@ func TestCodexApplyPermissionsSafeModeRejectsAsk(t *testing.T) {
 func TestCodexApplyPermissionsSafeModeDoesNotUseGate(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
 	writeCodexTestHooks(t, codexGateHooks)
-	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: agent.Permissions{
-		Deny: []agent.Rule{{Tool: "Bash", Arg: "git * --force"}},
+	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: permission.Permissions{
+		Deny: []permission.Rule{{Tool: "Bash", Arg: "git * --force"}},
 	}}
 	_, _, remove, err := codexApplyPermissions(req, nil, []string{codexKeyEnv + "=test-key"})
 	defer remove()
@@ -320,13 +321,13 @@ func TestCodexHasJSONDropsStaleFalseRow(t *testing.T) {
 }
 
 func TestCodexPermissionDenialNamesRealControl(t *testing.T) {
-	deny := agent.Permissions{Deny: []agent.Rule{{Tool: "Bash", Arg: "make lint"}}}
-	allowed := agent.Permissions{Allow: []agent.Rule{{Tool: "Bash", Arg: "make lint"}}}
-	plan := agent.Permissions{Mode: "plan", Allow: []agent.Rule{{Tool: "Bash", Arg: "git status"}}}
+	deny := permission.Permissions{Deny: []permission.Rule{{Tool: "Bash", Arg: "make lint"}}}
+	allowed := permission.Permissions{Allow: []permission.Rule{{Tool: "Bash", Arg: "make lint"}}}
+	plan := permission.Permissions{Mode: "plan", Allow: []permission.Rule{{Tool: "Bash", Arg: "git status"}}}
 	cmd := "/opt/homebrew/bin/bash -lc 'make lint'"
 	cases := []struct {
 		name, out, sandbox string
-		p                  agent.Permissions
+		p                  permission.Permissions
 		tools              bool
 		layer, remedy      string
 		replay             bool

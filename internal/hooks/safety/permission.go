@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/shell"
 )
 
@@ -83,13 +84,13 @@ func protectedEdit(in *core.Input) core.Result {
 }
 
 // judgeCall refuses the first of args the policy denies as tool, or whose unknown target a scoped deny may cover.
-func judgeCall(p agent.Permissions, cwd, tool string, args []string) core.Result {
+func judgeCall(p permission.Permissions, cwd, tool string, args []string) core.Result {
 	if tool == "Bash" {
 		p = readOnlyCDPolicy(p, args[0])
 	}
 	judge := anchorAllow(p, cwd)
 	if tool != "Bash" && tool != "Edit" {
-		judge = agent.Permissions{Deny: p.Deny} // plan mode reads through: only a Deny rule refuses a read
+		judge = permission.Permissions{Deny: p.Deny} // plan mode reads through: only a Deny rule refuses a read
 	}
 	hasAbs := slices.ContainsFunc(args, filepath.IsAbs)
 	for _, arg := range args {
@@ -99,43 +100,43 @@ func judgeCall(p agent.Permissions, cwd, tool string, args []string) core.Result
 		j := judge
 		// the cwd-relative spelling takes Deny rules only; its absolute forms meet the allow list
 		if tool == "Edit" && hasAbs && !filepath.IsAbs(arg) {
-			j = agent.Permissions{Deny: p.Deny}
+			j = permission.Permissions{Deny: p.Deny}
 		}
-		if decideCall(j, cwd, tool, arg) == agent.Deny {
-			return denyResult(p, cwd, agent.Rule{Tool: tool, Arg: arg})
+		if decideCall(j, cwd, tool, arg) == permission.Deny {
+			return denyResult(p, cwd, permission.Rule{Tool: tool, Arg: arg})
 		}
 	}
 	return core.Result{}
 }
 
-func readOnlyCDPolicy(p agent.Permissions, cmd string) agent.Permissions {
-	if !slices.Contains(p.Deny, agent.ReadOnlyDeny[0]) {
+func readOnlyCDPolicy(p permission.Permissions, cmd string) permission.Permissions {
+	if !slices.Contains(p.Deny, permission.ReadOnlyDeny[0]) {
 		return p
 	}
-	cd := agent.Permissions{Mode: "plan", Allow: []agent.Rule{agent.CdRule("/")}}
+	cd := permission.Permissions{Mode: "plan", Allow: []permission.Rule{permission.CdRule("/")}}
 	for _, seg := range shell.Segments(cmd) {
-		if !agent.ReadOnlyShell(seg) && cd.Decide("Bash", seg) != agent.Allow {
+		if !permission.ReadOnlyShell(seg) && cd.Decide("Bash", seg) != permission.Allow {
 			return p
 		}
 	}
-	p.Deny = slices.DeleteFunc(slices.Clone(p.Deny), func(r agent.Rule) bool { return r == agent.ReadOnlyDeny[0] })
+	p.Deny = slices.DeleteFunc(slices.Clone(p.Deny), func(r permission.Rule) bool { return r == permission.ReadOnlyDeny[0] })
 	return p
 }
 
 // GateBlocks reports whether the permission-gate refuses tool(arg) under p, for the doctor permissions report.
-func GateBlocks(p agent.Permissions, tool, arg string) bool {
+func GateBlocks(p permission.Permissions, tool, arg string) bool {
 	return judgeCall(p, "", tool, []string{arg}).Decision == core.Block
 }
 
 // anchorAllow adds each relative Edit/Write allow rule anchored at an absolute cwd, so an absolute path meets it too.
-func anchorAllow(p agent.Permissions, cwd string) agent.Permissions {
+func anchorAllow(p permission.Permissions, cwd string) permission.Permissions {
 	if !filepath.IsAbs(cwd) {
 		return p
 	}
 	allow := slices.Clone(p.Allow)
 	for _, r := range p.Allow {
 		if (r.Tool == "Edit" || r.Tool == "Write") && r.Arg != "" && !filepath.IsAbs(r.Arg) && !strings.HasPrefix(r.Arg, "~") {
-			allow = append(allow, agent.Rule{Tool: r.Tool, Arg: filepath.ToSlash(filepath.Join(cwd, r.Arg))})
+			allow = append(allow, permission.Rule{Tool: r.Tool, Arg: filepath.ToSlash(filepath.Join(cwd, r.Arg))})
 		}
 	}
 	p.Allow = allow
@@ -143,7 +144,7 @@ func anchorAllow(p agent.Permissions, cwd string) agent.Permissions {
 }
 
 // decideCall judges arg as tool run in cwd, plus the tool that also covers it: Edit is Write, Grep and Glob are Read.
-func decideCall(judge agent.Permissions, cwd, tool, arg string) agent.Decision {
+func decideCall(judge permission.Permissions, cwd, tool, arg string) permission.Decision {
 	d := judge.DecideAt(cwd, tool, arg)
 	switch tool {
 	case "Edit":
@@ -155,7 +156,7 @@ func decideCall(judge agent.Permissions, cwd, tool, arg string) agent.Decision {
 }
 
 // dispatchPolicy is the dispatch's Permissions from env; set is false when none is exported.
-func dispatchPolicy() (p agent.Permissions, set bool, err error) {
+func dispatchPolicy() (p permission.Permissions, set bool, err error) {
 	raw := strings.TrimSpace(os.Getenv(agent.DispatchPermissionsEnv))
 	if raw == "" {
 		return p, false, nil
@@ -165,41 +166,41 @@ func dispatchPolicy() (p agent.Permissions, set bool, err error) {
 }
 
 // noToolResult refuses a call whose hook input named no tool, under a policy with Deny rules or plan mode.
-func noToolResult(p agent.Permissions, in *core.Input) core.Result {
+func noToolResult(p permission.Permissions, in *core.Input) core.Result {
 	why := cmp.Or(in.Invalid, "missing tool_name in hook payload")
 	if in.Invalid == "" && len(strings.TrimSpace(string(in.Raw))) == 0 {
 		why = "empty hook payload"
 	}
 	return core.Result{Decision: core.Block, Reason: "permission-gate: BLOCKED — the hook input names no tool (" + why +
-		"), so the call cannot be judged\n  deny: " + strings.Join(agent.RuleStrings(p.Deny), ", ") +
+		"), so the call cannot be judged\n  deny: " + strings.Join(permission.RuleStrings(p.Deny), ", ") +
 		modeNote(p) + "\nReport it instead of retrying another way."}
 }
 
 // blindDeny refuses a Read/Edit whose target is unknown (no path key, no patch header) when a scoped Deny covers it.
-func blindDeny(p agent.Permissions, tool, arg string) (agent.Rule, bool) {
+func blindDeny(p permission.Permissions, tool, arg string) (permission.Rule, bool) {
 	if arg != "" || pathlessTools[tool] {
-		return agent.Rule{}, false
+		return permission.Rule{}, false
 	}
 	for _, r := range p.Deny {
 		if r.Arg != "" && (r.Tool == tool || tool == "Edit" && r.Tool == "Write") {
 			return r, true
 		}
 	}
-	return agent.Rule{}, false
+	return permission.Rule{}, false
 }
 
 // pathlessTools never name an unknown target without a path: a command, a URL, or (Grep/Glob) the cwd.
 var pathlessTools = map[string]bool{"Bash": true, "WebFetch": true, "Grep": true, "Glob": true}
 
 // blindResult refuses a pathless call, naming the tool and the scoped deny that made its unknown target unsafe.
-func blindResult(p agent.Permissions, tool string, rule agent.Rule) core.Result {
+func blindResult(p permission.Permissions, tool string, rule permission.Rule) core.Result {
 	return core.Result{Decision: core.Block, Reason: "permission-gate: BLOCKED — " + tool + " call has no path, so its " +
 		"target is unknown and may fall under the scoped deny " + rule.String() + "\n  deny: " +
-		strings.Join(agent.RuleStrings(p.Deny), ", ") + modeNote(p) +
+		strings.Join(permission.RuleStrings(p.Deny), ", ") + modeNote(p) +
 		"\nPass an explicit path outside the denied scope, or report it."}
 }
 
-func explainDeniedCall(p agent.Permissions, cwd string, call agent.Rule) agent.Denial {
+func explainDeniedCall(p permission.Permissions, cwd string, call permission.Rule) permission.Denial {
 	d := p.ExplainAt(cwd, call.Tool, call.Arg)
 	alias := ""
 	switch call.Tool {
@@ -216,25 +217,25 @@ func explainDeniedCall(p agent.Permissions, cwd string, call agent.Rule) agent.D
 	return d
 }
 
-func denyResult(p agent.Permissions, cwd string, call agent.Rule) core.Result {
+func denyResult(p permission.Permissions, cwd string, call permission.Rule) core.Result {
 	d := explainDeniedCall(p, cwd, call)
-	rules := "\n  deny: " + strings.Join(agent.RuleStrings(p.Deny), ", ")
+	rules := "\n  deny: " + strings.Join(permission.RuleStrings(p.Deny), ", ")
 	next := "\nReport it instead of retrying another way."
 	if seg := deniedSegment(p, call); seg != "" {
 		rules += "\n  denied segment: " + seg
 	}
 	switch {
-	case call.Tool == "Bash" && strings.Contains(call.Arg, ">") && anyDenyArg(p.Deny, agent.RedirectFileArg):
+	case call.Tool == "Bash" && strings.Contains(call.Arg, ">") && anyDenyArg(p.Deny, permission.RedirectFileArg):
 		next = "\nFile redirects (`>`, `>>`, `&>`) are refused; `2>&1` is allowed: run the same command again without them."
 	case p.Mode == "plan" && len(p.Allow) > 0: // an allow-list miss is not a reason to abandon the job
-		rules += "\n  allow: " + strings.Join(agent.RuleStrings(p.Allow), ", ")
+		rules += "\n  allow: " + strings.Join(permission.RuleStrings(p.Allow), ", ")
 		next = "\nOnly the allow list runs here: " + planMissHint(p, call)
 		if d.Replay != "" {
 			next += "\nOnly the dispatcher can permit it: re-dispatch with " + d.Remedy + "."
 		} else if d.Source != "permissions.deny" {
 			next += "\n" + d.Remedy + "."
 		}
-	case call.Tool == "Bash" && d.Rule == agent.ReadOnlyDeny[0]: // read-only is an allow list spelled as a deny
+	case call.Tool == "Bash" && d.Rule == permission.ReadOnlyDeny[0]: // read-only is an allow list spelled as a deny
 		next = "\nOnly read-only commands run here: drop the denied segment or rewrite it with an allowed command " +
 			"(static absolute paths for cd)."
 	}
@@ -249,7 +250,7 @@ func denyResult(p agent.Permissions, cwd string, call agent.Rule) core.Result {
 }
 
 // planMissHint names what missed the allow list and the closest allowed form of the same command or path, if any.
-func planMissHint(p agent.Permissions, call agent.Rule) string {
+func planMissHint(p permission.Permissions, call permission.Rule) string {
 	seg := cmp.Or(deniedSegment(p, call), strings.TrimSpace(call.Arg))
 	hint := call.Tool + "(" + seg + ") is not on it: "
 	if near, ok := nearestAllow(p.Allow, call.Tool, seg); ok {
@@ -259,8 +260,8 @@ func planMissHint(p agent.Permissions, call agent.Rule) string {
 }
 
 // nearestAllow is the rule for tool sharing the longest prefix with arg, past its first word or path element.
-func nearestAllow(rules []agent.Rule, tool, arg string) (agent.Rule, bool) {
-	var best agent.Rule
+func nearestAllow(rules []permission.Rule, tool, arg string) (permission.Rule, bool) {
+	var best permission.Rule
 	bestLen := 0
 	for _, r := range rules {
 		if r.Arg == "" || r.Tool != tool && (tool != "Edit" || r.Tool != "Write") {
@@ -291,24 +292,24 @@ func commonPrefix(a, b string) int {
 }
 
 // deniedSegment is the first segment of a compound Bash call that p denies on its own; "" otherwise.
-func deniedSegment(p agent.Permissions, call agent.Rule) string {
+func deniedSegment(p permission.Permissions, call permission.Rule) string {
 	if call.Tool != "Bash" {
 		return ""
 	}
 	segs := shell.Segments(call.Arg)
 	for _, seg := range segs {
-		if seg = strings.TrimSpace(seg); len(segs) > 1 && p.Decide("Bash", seg) == agent.Deny {
+		if seg = strings.TrimSpace(seg); len(segs) > 1 && p.Decide("Bash", seg) == permission.Deny {
 			return seg
 		}
 	}
 	return ""
 }
 
-func anyDenyArg(rules []agent.Rule, arg string) bool {
-	return slices.ContainsFunc(rules, func(r agent.Rule) bool { return r.Arg == arg })
+func anyDenyArg(rules []permission.Rule, arg string) bool {
+	return slices.ContainsFunc(rules, func(r permission.Rule) bool { return r.Arg == arg })
 }
 
-func modeNote(p agent.Permissions) string {
+func modeNote(p permission.Permissions) string {
 	if p.Mode == "" {
 		return ""
 	}

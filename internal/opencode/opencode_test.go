@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent/agenttest"
+	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -257,7 +258,7 @@ func TestOpencodeRenderSettingsAppliesEffortAndPolicy(t *testing.T) {
 	fakeOpencode(t, "1.19.3", "", nil)
 	vaulttest.Use(t)
 	t.Setenv(opencodeAPIKeyEnv, "")
-	perms, err := agent.ParsePermissions("", nil, nil, []string{"Bash(rm:*)"})
+	perms, err := permission.ParsePermissions("", nil, nil, []string{"Bash(rm:*)"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,7 +484,7 @@ func TestOpencodeChildPermissionRefusals(t *testing.T) {
 	for name, req := range map[string]agent.RunOptions{
 		"--no-tools":   {NoTools: true},
 		"--safe-mode":  {Tools: true, SafeMode: true},
-		"NotebookEdit": {Tools: true, Permissions: agent.Permissions{Allow: []agent.Rule{{Tool: "NotebookEdit"}}}},
+		"NotebookEdit": {Tools: true, Permissions: permission.Permissions{Allow: []permission.Rule{{Tool: "NotebookEdit"}}}},
 	} {
 		t.Run(name, func(t *testing.T) {
 			cmd, _, _, err := opencodeChild(t.Context(), "opencode", "/never-launch", nil, nil, "probe", req)
@@ -502,7 +503,7 @@ func TestOpencodeChildPermissionReadOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var p agent.Permissions
+	var p permission.Permissions
 	for _, kv := range cmd.Env {
 		if raw, ok := strings.CutPrefix(kv, agent.DispatchPermissionsEnv+"="); ok {
 			if err := json.Unmarshal([]byte(raw), &p); err != nil {
@@ -510,8 +511,8 @@ func TestOpencodeChildPermissionReadOnly(t *testing.T) {
 			}
 		}
 	}
-	if p.Decide("Bash", "cat README.md") != agent.Allow || p.Decide("Bash", "rm README.md") != agent.Deny ||
-		p.Decide("Write", "README.md") != agent.Deny {
+	if p.Decide("Bash", "cat README.md") != permission.Allow || p.Decide("Bash", "rm README.md") != permission.Deny ||
+		p.Decide("Write", "README.md") != permission.Deny {
 		t.Fatalf("child plugin lacks effective read-only policy: %+v", p)
 	}
 }

@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/network/remote"
@@ -109,9 +110,9 @@ func remoteScriptTail(req RunOptions) []string {
 	w := appendOpt(nil, "--permissions", req.Permissions.Mode)
 	for _, set := range []struct {
 		flag  string
-		rules []Rule
+		rules []permission.Rule
 	}{{"--allow", req.Permissions.Allow}, {"--ask", req.Permissions.Ask}, {"--deny", req.Permissions.Deny}} {
-		for _, s := range RuleStrings(set.rules) {
+		for _, s := range permission.RuleStrings(set.rules) {
 			w = appendOpt(w, set.flag, s)
 		}
 	}
@@ -139,8 +140,8 @@ func validateRemoteScript(bin, agentName string, req RunOptions) error {
 	vals := []string{bin, agentName, req.Model, req.Provider, req.Effort, req.Identity, confinementDoc(req), req.WorkDir, req.SessionID, req.SystemPrompt,
 		req.AppendSystemPrompt, req.OutputSchema}
 	vals = append(vals, req.Env...)
-	for _, rules := range [][]Rule{req.Permissions.Allow, req.Permissions.Ask, req.Permissions.Deny} {
-		vals = append(vals, RuleStrings(rules)...)
+	for _, rules := range [][]permission.Rule{req.Permissions.Allow, req.Permissions.Ask, req.Permissions.Deny} {
+		vals = append(vals, permission.RuleStrings(rules)...)
 	}
 	for _, v := range vals {
 		if strings.ContainsRune(v, 0) {

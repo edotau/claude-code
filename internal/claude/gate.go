@@ -13,22 +13,23 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/hooks/safety"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/shell"
 )
 
 // gatewayAllow is a --tools leaf's allow list off Anthropic (dontAsk denies the rest), every claude-code verb included.
-func gatewayAllow() []agent.Rule {
-	rules := []agent.Rule{{Tool: "Edit"}, {Tool: "Write"}, {Tool: "Read"}, {Tool: "Grep"}, {Tool: "Glob"}}
+func gatewayAllow() []permission.Rule {
+	rules := []permission.Rule{{Tool: "Edit"}, {Tool: "Write"}, {Tool: "Read"}, {Tool: "Grep"}, {Tool: "Glob"}}
 	rewritten := []string{"go build *", "go vet *", "go test *", "git diff *", "git status *", "git log *", "git show *",
 		"jq *", "ls *", "wc *", "rg *", "grep *"}
 	for _, c := range slices.Concat(rewritten, []string{"gofmt *", "go run *", "python *", "python3 *", "cat *", "head *", "tail *", "claude-code *"}) {
-		rules = append(rules, agent.Rule{Tool: "Bash", Arg: c})
+		rules = append(rules, permission.Rule{Tool: "Bash", Arg: c})
 	}
-	rules = append(rules, agent.Rule{Tool: "Bash", Arg: agent.SedPrintArg})
+	rules = append(rules, permission.Rule{Tool: "Bash", Arg: permission.SedPrintArg})
 	for _, w := range rtkWords() { // every spelling the rtk-rewrite hook can give its command word
 		for _, c := range append(slices.Clone(rewritten), "read *") {
-			rules = append(rules, agent.Rule{Tool: "Bash", Arg: w + " " + c})
+			rules = append(rules, permission.Rule{Tool: "Bash", Arg: w + " " + c})
 		}
 	}
 	return rules
@@ -66,8 +67,8 @@ func offAnthropicLaunch(req agent.RunOptions, anthropic bool) agent.RunOptions {
 	if !req.Tools || req.Gate || req.SafeMode || req.Permissions.Mode == "plan" || anthropic && !req.ReadOnly {
 		return req
 	}
-	if req.ReadOnly && !slices.Contains(req.Permissions.Allow, agent.ReadOnlyAllow) { // a caller that skipped checkRun
-		req.Permissions.Allow = append(slices.Clone(req.Permissions.Allow), agent.ReadOnlyAllow)
+	if req.ReadOnly && !slices.Contains(req.Permissions.Allow, permission.ReadOnlyAllow) { // a caller that skipped checkRun
+		req.Permissions.Allow = append(slices.Clone(req.Permissions.Allow), permission.ReadOnlyAllow)
 	}
 	switch {
 	case req.ReadOnly:
@@ -76,7 +77,7 @@ func offAnthropicLaunch(req agent.RunOptions, anthropic bool) agent.RunOptions {
 		req.Autonomous = true
 		return req
 	default: // only the dispatch's own rules gate; Ask has no judge here, so it denies
-		req.Permissions = agent.Permissions{Mode: req.Permissions.Mode, Allow: req.Permissions.Allow,
+		req.Permissions = permission.Permissions{Mode: req.Permissions.Mode, Allow: req.Permissions.Allow,
 			Deny: slices.Concat(req.Permissions.Deny, req.Permissions.Ask)}
 	}
 	req.Gate = true
@@ -84,14 +85,14 @@ func offAnthropicLaunch(req agent.RunOptions, anthropic bool) agent.RunOptions {
 }
 
 // readOnlyGatePolicy is a --read-only run's gate policy: reads, the shared shell list, no write, no redirect, no Ask.
-func readOnlyGatePolicy(p agent.Permissions) agent.Permissions {
-	allow := slices.Concat([]agent.Rule{{Tool: "Read"}, {Tool: "Grep"}, {Tool: "Glob"}}, p.Allow)
-	deny := slices.Concat(p.Deny, p.Ask, agent.ReadOnlyDeny, []agent.Rule{{Tool: "Bash", Arg: agent.RedirectFileArg}})
-	return agent.Permissions{Mode: "plan", Allow: allow, Deny: deny}
+func readOnlyGatePolicy(p permission.Permissions) permission.Permissions {
+	allow := slices.Concat([]permission.Rule{{Tool: "Read"}, {Tool: "Grep"}, {Tool: "Glob"}}, p.Allow)
+	deny := slices.Concat(p.Deny, p.Ask, permission.ReadOnlyDeny, []permission.Rule{{Tool: "Bash", Arg: permission.RedirectFileArg}})
+	return permission.Permissions{Mode: "plan", Allow: allow, Deny: deny}
 }
 
 // LaunchGate is the policy an off-Anthropic --tools launch of p hands the permission-gate; false means no gate.
-func LaunchGate(p agent.Permissions, ro bool) (agent.Permissions, bool) {
+func LaunchGate(p permission.Permissions, ro bool) (permission.Permissions, bool) {
 	req := offAnthropicLaunch(agent.RunOptions{Tools: true, ReadOnly: ro, Permissions: p}, false)
 	return req.Permissions, req.Gate
 }

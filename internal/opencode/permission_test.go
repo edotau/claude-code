@@ -17,15 +17,16 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/safety"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-func rules(t *testing.T, ss ...string) []agent.Rule {
+func rules(t *testing.T, ss ...string) []permission.Rule {
 	t.Helper()
-	var out []agent.Rule
+	var out []permission.Rule
 	for _, s := range ss {
-		r, err := agent.ParseRule(s)
+		r, err := permission.ParseRule(s)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -37,27 +38,27 @@ func rules(t *testing.T, ss ...string) []agent.Rule {
 func TestOpencodePermissionGolden(t *testing.T) {
 	cases := []struct {
 		name string
-		p    agent.Permissions
+		p    permission.Permissions
 		want string
 	}{
-		{"mode auto alone", agent.Permissions{Mode: "auto"}, `{"*":"allow"}`},
-		{"default mode asks unmatched", agent.Permissions{Mode: "default"}, `{"*":"ask"}`},
-		{"bash allow prefix", agent.Permissions{Mode: "auto", Allow: rules(t, "Bash", "Bash(git log:*)")},
+		{"mode auto alone", permission.Permissions{Mode: "auto"}, `{"*":"allow"}`},
+		{"default mode asks unmatched", permission.Permissions{Mode: "default"}, `{"*":"ask"}`},
+		{"bash allow prefix", permission.Permissions{Mode: "auto", Allow: rules(t, "Bash", "Bash(git log:*)")},
 			`{"*":"allow","bash":{"*":"allow","git log *":"allow"}}`},
-		{"ask stays ask", agent.Permissions{Mode: "auto", Ask: rules(t, "Bash(git log:*)")}, `{"*":"allow","bash":{"git log *":"ask"}}`},
-		{"default mode asks", agent.Permissions{Deny: rules(t, "Read(.env)")}, `{"*":"ask","read":{".env":"deny","*/.env":"deny"}}`},
-		{"plan mode is read-only", agent.Permissions{Mode: "plan"},
+		{"ask stays ask", permission.Permissions{Mode: "auto", Ask: rules(t, "Bash(git log:*)")}, `{"*":"allow","bash":{"git log *":"ask"}}`},
+		{"default mode asks", permission.Permissions{Deny: rules(t, "Read(.env)")}, `{"*":"ask","read":{".env":"deny","*/.env":"deny"}}`},
+		{"plan mode is read-only", permission.Permissions{Mode: "plan"},
 			`{"*":"deny","bash":"deny","edit":"deny","glob":"allow","grep":"allow","list":"allow","read":"allow","task":"deny","webfetch":"allow","websearch":"allow"}`},
-		{"plan mode keeps a read deny and a write allow", agent.Permissions{Mode: "plan", Allow: rules(t, "Edit"), Deny: rules(t, "Read(.env)")},
+		{"plan mode keeps a read deny and a write allow", permission.Permissions{Mode: "plan", Allow: rules(t, "Edit"), Deny: rules(t, "Read(.env)")},
 			`{"*":"deny","bash":"deny","edit":"allow","glob":"allow","grep":"allow","list":"allow","read":{"*":"allow",".env":"deny","*/.env":"deny"},"task":"deny","webfetch":"allow","websearch":"allow"}`},
-		{"plan mode preserves explicit write grants", agent.Permissions{Mode: "plan", Allow: rules(t, "Bash(go test:*)", "Write"), Ask: rules(t, "Agent")},
+		{"plan mode preserves explicit write grants", permission.Permissions{Mode: "plan", Allow: rules(t, "Bash(go test:*)", "Write"), Ask: rules(t, "Agent")},
 			`{"*":"deny","bash":{"*":"deny","go test *":"allow"},"edit":"allow","glob":"allow","grep":"allow","list":"allow","read":"allow","task":"ask","webfetch":"allow","websearch":"allow"}`},
-		{"deny outranks allow on the same pattern", agent.Permissions{Allow: rules(t, "Read"), Deny: rules(t, "Read")}, `{"*":"ask","read":"deny"}`},
-		{"read relative deny", agent.Permissions{Mode: "auto", Deny: rules(t, "Read(.env)")}, `{"*":"allow","read":{".env":"deny","*/.env":"deny"}}`},
-		{"edit and write share edit", agent.Permissions{Allow: rules(t, "Edit", "Write")}, `{"*":"ask","edit":"allow"}`},
-		{"tool level keys", agent.Permissions{Allow: rules(t, "Glob", "Grep", "WebFetch", "Agent"), Deny: rules(t, "Agent(Explore)")},
+		{"deny outranks allow on the same pattern", permission.Permissions{Allow: rules(t, "Read"), Deny: rules(t, "Read")}, `{"*":"ask","read":"deny"}`},
+		{"read relative deny", permission.Permissions{Mode: "auto", Deny: rules(t, "Read(.env)")}, `{"*":"allow","read":{".env":"deny","*/.env":"deny"}}`},
+		{"edit and write share edit", permission.Permissions{Allow: rules(t, "Edit", "Write")}, `{"*":"ask","edit":"allow"}`},
+		{"tool level keys", permission.Permissions{Allow: rules(t, "Glob", "Grep", "WebFetch", "Agent"), Deny: rules(t, "Agent(Explore)")},
 			`{"*":"ask","glob":"allow","grep":"allow","task":{"*":"allow","Explore":"deny"},"webfetch":"allow"}`},
-		{"double star deny", agent.Permissions{Deny: rules(t, "Read(**/.env)")}, `{"*":"ask","read":{"*.env":"deny"}}`},
+		{"double star deny", permission.Permissions{Deny: rules(t, "Read(**/.env)")}, `{"*":"ask","read":{"*.env":"deny"}}`},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -92,11 +93,11 @@ func withoutRoots(t *testing.T, perm json.RawMessage, want bool) string {
 
 // A Bash Deny renders natively again (the plugin's permission-gate covers `bash -c`); only --safe-mode refuses it.
 func TestOpencodePermissionBashDeny(t *testing.T) {
-	got, err := opencodePermission(agent.Permissions{Mode: "auto", Deny: rules(t, "Bash(rm *)")}, false)
+	got, err := opencodePermission(permission.Permissions{Mode: "auto", Deny: rules(t, "Bash(rm *)")}, false)
 	if want := `{"*":"allow","bash":{"rm *":"deny"}}`; err != nil || withoutRoots(t, got, true) != want {
 		t.Errorf("got %s, %v; want %s", got, err, want)
 	}
-	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: agent.Permissions{Deny: rules(t, "Bash(rm *)")}}
+	req := agent.RunOptions{Tools: true, SafeMode: true, Permissions: permission.Permissions{Deny: rules(t, "Bash(rm *)")}}
 	// gate hooks are bound: the refusal names them and the way out
 	_, err = opencodeApplyPermissions(nil, req, false)
 	requireFatal(t, err, "safety-scan", "without --safe-mode")
@@ -124,12 +125,12 @@ func requireFatal(t *testing.T, err error, wants ...string) {
 
 func TestOpencodePermissionRefusesWhatItCannotExpress(t *testing.T) {
 	for _, r := range []string{"WebFetch(domain:evil.com)", "NotebookEdit", "Glob(src/**)"} {
-		_, err := opencodePermission(agent.Permissions{Deny: rules(t, r)}, false)
+		_, err := opencodePermission(permission.Permissions{Deny: rules(t, r)}, false)
 		if err == nil || !strings.Contains(err.Error(), "cannot express deny "+r) {
 			t.Errorf("deny %s: err = %v, want it to name the rule", r, err)
 		}
 	}
-	if _, err := opencodePermission(agent.Permissions{Allow: rules(t, "Read(src/*.go)")}, false); err == nil || !strings.Contains(err.Error(), "cannot express allow") {
+	if _, err := opencodePermission(permission.Permissions{Allow: rules(t, "Read(src/*.go)")}, false); err == nil || !strings.Contains(err.Error(), "cannot express allow") {
 		t.Error("an allow whose * would cross directories must refuse")
 	}
 }
@@ -137,7 +138,7 @@ func TestOpencodePermissionRefusesWhatItCannotExpress(t *testing.T) {
 // A tool opencode has no permission for is refused in every set: plan mode never swallows it as a skipped rule.
 func TestOpencodePermissionRefusesUnknownToolInPlan(t *testing.T) {
 	r := rules(t, "NotebookEdit")
-	for name, p := range map[string]agent.Permissions{
+	for name, p := range map[string]permission.Permissions{
 		"allow": {Mode: "plan", Allow: r}, "ask": {Mode: "plan", Ask: r}, "deny": {Mode: "plan", Deny: r},
 	} {
 		if _, err := opencodePermission(p, false); err == nil || !strings.Contains(err.Error(), "NotebookEdit") {
@@ -152,7 +153,7 @@ func TestOpencodeApplyPermissions(t *testing.T) {
 	if err != nil || len(got) != 1 || got[0] != "A=1" {
 		t.Errorf("empty policy changed env: %v, %v", got, err)
 	}
-	req := agent.RunOptions{Tools: true, Permissions: agent.Permissions{Mode: "auto", Deny: rules(t, "Read(.env)")}}
+	req := agent.RunOptions{Tools: true, Permissions: permission.Permissions{Mode: "auto", Deny: rules(t, "Read(.env)")}}
 	got, err = opencodeApplyPermissions([]string{opencodeConfigEnv + `={"model":"m"}`}, req, false)
 	raw, perr := opencodePermission(req.Permissions, false) // the env carries exactly what the renderer produces
 	if perr != nil || withoutRoots(t, raw, true) != `{"*":"allow","read":{".env":"deny","*/.env":"deny"}}` {
@@ -269,11 +270,11 @@ func assertReadOnlyPerm(t *testing.T, perm, cfg string) {
 
 func assertReadOnlyDispatch(t *testing.T, raw string) {
 	t.Helper()
-	var p agent.Permissions
+	var p permission.Permissions
 	if err := json.Unmarshal([]byte(raw), &p); err != nil {
 		t.Fatalf("dispatch permissions: %v", err)
 	}
-	for _, r := range agent.ReadOnlyDeny {
+	for _, r := range permission.ReadOnlyDeny {
 		if !slices.Contains(p.Deny, r) {
 			t.Errorf("%s lacks deny %s: %+v", agent.DispatchPermissionsEnv, r, p)
 		}
@@ -288,7 +289,7 @@ func TestOpencodePolicyArgv(t *testing.T) {
 
 // TestOpencodePolicyArgvKeepsPromptLast pins --auto before options, attachments and the dash-prefixed prompt.
 func TestOpencodePolicyArgvKeepsPromptLast(t *testing.T) {
-	pol := agent.RunOptions{Tools: true, Permissions: agent.Permissions{Deny: rules(t, "Read(.env)")}}
+	pol := agent.RunOptions{Tools: true, Permissions: permission.Permissions{Deny: rules(t, "Read(.env)")}}
 	h := agent.Headless{Prompt: "-draft", Attach: []string{"notes.txt"}, Tools: true}
 	argv := opencodeArgv("p/m", h)
 	got := opencodePolicyArgv(argv, pol)
@@ -301,7 +302,7 @@ func TestOpencodePolicyArgvKeepsPromptLast(t *testing.T) {
 }
 
 func TestOpencodePolicyArgvAutoPrompt(t *testing.T) {
-	req := agent.RunOptions{Tools: true, Permissions: agent.Permissions{Deny: rules(t, "Read(.env)")}}
+	req := agent.RunOptions{Tools: true, Permissions: permission.Permissions{Deny: rules(t, "Read(.env)")}}
 	argv := opencodeArgv("p/m", agent.Headless{Prompt: "--auto", Tools: true, Autonomous: false})
 	before := slices.Clone(argv)
 	got := opencodePolicyArgv(argv, req)
@@ -319,7 +320,7 @@ func TestOpencodePolicyArgvAutoPrompt(t *testing.T) {
 
 // Under a policy, --env may not set names the policy pins (it would win, being last).
 func TestOpencodeExecRefusesPolicyEnv(t *testing.T) {
-	deny, err := agent.ParsePermissions("", nil, nil, []string{"Bash(rm:*)"})
+	deny, err := permission.ParsePermissions("", nil, nil, []string{"Bash(rm:*)"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -351,7 +352,7 @@ func TestOpencodeExecRefusesPolicyEnv(t *testing.T) {
 func TestOpencodePermissionResumeReloadsGrant(t *testing.T) {
 	engine, seen := readOnlyLaunchEngine(t, false)
 	for _, granted := range []bool{false, true} {
-		p := agent.Permissions{Mode: "plan"}
+		p := permission.Permissions{Mode: "plan"}
 		if granted {
 			p.Allow = rules(t, "Bash(make lint)")
 		}
@@ -377,7 +378,7 @@ func TestOpencodePermissionResumeReloadsGrant(t *testing.T) {
 }
 
 // launchPermissions reads the native permission map and the gate's dispatch permissions the fake launcher logged.
-func launchPermissions(t *testing.T, output string) (native map[string]json.RawMessage, gate agent.Permissions) {
+func launchPermissions(t *testing.T, output string) (native map[string]json.RawMessage, gate permission.Permissions) {
 	t.Helper()
 	for line := range strings.SplitSeq(output, "\n") {
 		if raw, ok := strings.CutPrefix(line, "PERM="); ok {

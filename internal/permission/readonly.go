@@ -1,4 +1,4 @@
-package agent
+package permission
 
 import (
 	"maps"
@@ -537,7 +537,7 @@ func cdReadDenied(reads []Rule, toks []string) bool {
 	target := path.Clean(toks[1])
 	targets := []string{target, paths.CanonDeep(target)}
 	return slices.ContainsFunc(reads, func(r Rule) bool {
-		dirs := append(denyParentDirs(r.Arg), denyParentDirs(expandHome("Read", r.Arg))...)
+		dirs := append(denyParentDirs(r.Arg), denyParentDirs(ExpandHome("Read", r.Arg))...)
 		return slices.ContainsFunc(targets, func(t string) bool {
 			return r.matches("Read", t) || slices.ContainsFunc(dirs, func(d string) bool { return pathMatches(d, t) })
 		})

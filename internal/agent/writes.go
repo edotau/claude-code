@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -75,7 +76,7 @@ func treeHolds(top, workdir string) bool {
 }
 
 // watchWrites observes the workdir and allowed write roots; nil means observation was incomplete.
-func watchWrites(ctx context.Context, workdir, top string, allow ...Rule) func() (changed, touched *[]string) {
+func watchWrites(ctx context.Context, workdir, top string, allow ...permission.Rule) func() (changed, touched *[]string) {
 	unobserved := func() (*[]string, *[]string) { return nil, nil }
 	roots, ok := writeRoots(ctx, workdir, top, allow)
 	if !ok {
@@ -107,7 +108,7 @@ func watchWrites(ctx context.Context, workdir, top string, allow ...Rule) func()
 	}
 }
 
-func writeRoots(ctx context.Context, workdir, top string, allow []Rule) ([]string, bool) {
+func writeRoots(ctx context.Context, workdir, top string, allow []permission.Rule) ([]string, bool) {
 	root := top
 	if !treeHolds(root, workdir) { // a resumed or re-run job can carry another directory's tree
 		gctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), writesTimeout)
@@ -131,7 +132,7 @@ func writeRoots(ctx context.Context, workdir, top string, allow []Rule) ([]strin
 }
 
 func allowedWritePath(workdir, arg string) string {
-	arg = expandHome("Write", arg)
+	arg = permission.ExpandHome("Write", arg)
 	if arg == "" || strings.HasPrefix(arg, "~") {
 		return ""
 	}
@@ -145,7 +146,7 @@ func allowedWritePath(workdir, arg string) string {
 	return arg
 }
 
-func allowedWriteRoots(ctx context.Context, workdir string, allow []Rule) ([]string, bool) {
+func allowedWriteRoots(ctx context.Context, workdir string, allow []permission.Rule) ([]string, bool) {
 	var roots []string
 	byDir := map[string]string{}
 	byRoot := map[string][]string{}

@@ -12,10 +12,10 @@ import (
 	"sync"
 	"unicode"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/shell"
 )
@@ -376,7 +376,7 @@ func settingsVerdict(in *core.Input, cmd, asked, plain string) (core.Decision, s
 }
 
 // fedRuleHit is the deny rule cmd hits, else the one a printf/echo piped into a shell prints.
-func fedRuleHit(cmd, cwd string, rules []agent.Rule) string {
+func fedRuleHit(cmd, cwd string, rules []permission.Rule) string {
 	if rule := settingsRuleHit(dropInertHeredocs(cmd), cwd, rules); rule != "" {
 		return rule
 	}

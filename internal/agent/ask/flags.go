@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/pack"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
@@ -60,7 +61,7 @@ func CompletionFlags() []helptext.Flag {
 }
 
 // permModes are the --permissions values.
-var permModes = []string{agent.PermAllow, agent.PermDefault, agent.PermAuto, agent.PermPlan}
+var permModes = []string{permission.PermAllow, permission.PermDefault, permission.PermAuto, permission.PermPlan}
 
 // engineNames lists the `ask --agent` agent names; agent.Engines() only builds the roster, it never dials an agent.
 func engineNames() []string {
@@ -411,7 +412,7 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	*t.SystemPrompt, *t.AppendSystemPrompt, *t.OutputSchema = rec.Request.SystemPrompt, rec.Request.AppendSystemPrompt, rec.Request.OutputSchema
 	*t.Host = rec.Host
 	p := rec.Request.Permissions
-	*t.PermMode, *t.PermAllow, *t.PermAsk, *t.PermDeny = p.Mode, agent.RuleStrings(p.Allow), agent.RuleStrings(p.Ask), agent.RuleStrings(p.Deny)
+	*t.PermMode, *t.PermAllow, *t.PermAsk, *t.PermDeny = p.Mode, permission.RuleStrings(p.Allow), permission.RuleStrings(p.Ask), permission.RuleStrings(p.Deny)
 	*t.Native, *t.Pack, *t.Persona = rec.Request.Native, rec.Request.Pack, rec.Request.Persona
 	if rec.FallbackPolicy != "" { // records from before the field keep this run's default
 		*t.Fallback = rec.FallbackPolicy

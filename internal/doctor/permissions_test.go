@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/permission"
 )
 
 func fixed(verdict, layer string) permVerdict {
@@ -150,7 +151,7 @@ func checkRemedyRepairs(t *testing.T, ag, mode string, row permRow, c permCell, 
 		return
 	}
 	tool, arg, _ := strings.Cut(row.Call, " ")
-	rule, err := agent.ParseRule(strings.Trim(flag, "'"))
+	rule, err := permission.ParseRule(strings.Trim(flag, "'"))
 	p, perr := agent.LaunchPermissions(ag, mode == "read-only")
 	if err != nil || perr != nil {
 		t.Fatalf("%s %s %q: remedy %q: %v %v", ag, mode, row.Job, c.Remedy, err, perr)
@@ -162,7 +163,7 @@ func checkRemedyRepairs(t *testing.T, ag, mode string, row permRow, c permCell, 
 }
 
 func TestGateDecideMatchesHook(t *testing.T) {
-	deny := agent.Permissions{Deny: []agent.Rule{{Tool: "Bash", Arg: "curl *"}}}
+	deny := permission.Permissions{Deny: []permission.Rule{{Tool: "Bash", Arg: "curl *"}}}
 	if r := gateDecide(deny)("Bash", "ls"); r.verdict != "allow" {
 		t.Fatalf("an unmatched call under a deny-only policy: %+v, the hook lets it through", r)
 	}

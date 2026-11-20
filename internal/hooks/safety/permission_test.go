@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -223,8 +224,8 @@ func TestPermissionGateTruncatedInputFailsClosed(t *testing.T) {
 }
 
 func TestPermissionGateReadOnlyCD(t *testing.T) {
-	p := agent.Permissions{Mode: "plan", Allow: []agent.Rule{agent.ReadOnlyAllow, agent.CdRule("/memory")},
-		Deny: append([]agent.Rule{{Tool: "Read", Arg: "**/.env"}, {Tool: "Bash", Arg: "cd:/private"}}, agent.ReadOnlyDeny...)}
+	p := permission.Permissions{Mode: "plan", Allow: []permission.Rule{permission.ReadOnlyAllow, permission.CdRule("/memory")},
+		Deny: append([]permission.Rule{{Tool: "Read", Arg: "**/.env"}, {Tool: "Bash", Arg: "cd:/private"}}, permission.ReadOnlyDeny...)}
 	setGatePermissions(t, p)
 	for cmd, block := range map[string]bool{
 		"cd /memory && wc -l progress.md && head -30 sessionHistory.md":     false,
@@ -263,7 +264,7 @@ func TestPermissionGateMissingToolReason(t *testing.T) {
 
 // TestPermissionGateRedirectDenialSaysHowToRetry: a memory job's `2>&1` is refused with the redirect-free retry, not "report it".
 func TestPermissionGateRedirectDenialSaysHowToRetry(t *testing.T) {
-	t.Setenv(agent.DispatchPermissionsEnv, `{"mode":"plan","allow":[{"Tool":"Bash","Arg":"claude-code memory review *"}],"deny":[{"Tool":"Bash","Arg":"`+agent.RedirectFileArg+`"}]}`)
+	t.Setenv(agent.DispatchPermissionsEnv, `{"mode":"plan","allow":[{"Tool":"Bash","Arg":"claude-code memory review *"}],"deny":[{"Tool":"Bash","Arg":"`+permission.RedirectFileArg+`"}]}`)
 	bash := func(cmd string) core.Result {
 		return PermissionGate(core.ParseInput(strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"` + cmd + `"}}`)))
 	}
@@ -314,9 +315,9 @@ func TestPermissionGateContractRecovery(t *testing.T) {
 	}
 }
 
-func mustParseRule(t *testing.T, spec string) agent.Rule {
+func mustParseRule(t *testing.T, spec string) permission.Rule {
 	t.Helper()
-	r, err := agent.ParseRule(spec)
+	r, err := permission.ParseRule(spec)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +325,7 @@ func mustParseRule(t *testing.T, spec string) agent.Rule {
 }
 
 // setGatePermissions sets p as the dispatch's permission env the gate reads.
-func setGatePermissions(t *testing.T, p agent.Permissions) {
+func setGatePermissions(t *testing.T, p permission.Permissions) {
 	t.Helper()
 	data, err := json.Marshal(p)
 	if err != nil {
@@ -336,9 +337,9 @@ func setGatePermissions(t *testing.T, p agent.Permissions) {
 // checkGateRecovery expects the gate to deny tc with the shared remedy (or the deciding deny rule) and each vendor to relay it.
 func checkGateRecovery(t *testing.T, tc gateRecoveryCase) {
 	t.Helper()
-	p := agent.Permissions{Mode: "plan", Allow: []agent.Rule{{Tool: "Bash", Arg: "ls"}}}
+	p := permission.Permissions{Mode: "plan", Allow: []permission.Rule{{Tool: "Bash", Arg: "ls"}}}
 	if tc.deny != "" {
-		p.Deny = []agent.Rule{mustParseRule(t, tc.deny)}
+		p.Deny = []permission.Rule{mustParseRule(t, tc.deny)}
 	}
 	payload := fmt.Sprintf(`{"tool_name":%q,"tool_input":{"command":%q,"file_path":%q}}`, tc.tool, tc.command, tc.arg)
 	setGatePermissions(t, p)
@@ -355,7 +356,7 @@ func checkGateRecovery(t *testing.T, tc gateRecoveryCase) {
 		if !strings.Contains(r.Reason, d.Remedy) {
 			t.Fatalf("missing shared remedy: %s", r.Reason)
 		}
-		p.Allow = append(p.Allow, agent.Rule{Tool: tc.tool, Arg: tc.arg})
+		p.Allow = append(p.Allow, permission.Rule{Tool: tc.tool, Arg: tc.arg})
 		setGatePermissions(t, p)
 		if replay := PermissionGate(core.ParseInput(strings.NewReader(payload))); replay.Decision == core.Block {
 			t.Fatalf("replay denied: %s", replay.Reason)
@@ -410,8 +411,8 @@ func TestPermissionGateLeafSettingsPatch(t *testing.T) {
 // dispatchAsk: the dispatch's own --allow/--deny rules decide a settings ask; with neither, the block names the flag.
 func TestDispatchAsk(t *testing.T) {
 	hit := askHit{what: "settings ask", tool: "Bash", arg: "go build ./...", rule: "Bash(go build *)"}
-	rules := func(specs ...string) []agent.Rule {
-		var out []agent.Rule
+	rules := func(specs ...string) []permission.Rule {
+		var out []permission.Rule
 		for _, s := range specs {
 			out = append(out, mustParseRule(t, s))
 		}
@@ -419,13 +420,13 @@ func TestDispatchAsk(t *testing.T) {
 	}
 	for _, c := range []struct {
 		name   string
-		policy *agent.Permissions
+		policy *permission.Permissions
 		want   core.Decision
 		reason string
 	}{
-		{"allow", &agent.Permissions{Allow: rules("Bash(go build:*)")}, core.Allow, ""},
-		{"deny", &agent.Permissions{Deny: rules("Bash(go build:*)"), Allow: rules("Bash")}, core.Block, "--deny"},
-		{"neither with the hint", &agent.Permissions{Allow: rules("Bash(ls:*)")}, core.Block, "--allow 'Bash(go build *)'"},
+		{"allow", &permission.Permissions{Allow: rules("Bash(go build:*)")}, core.Allow, ""},
+		{"deny", &permission.Permissions{Deny: rules("Bash(go build:*)"), Allow: rules("Bash")}, core.Block, "--deny"},
+		{"neither with the hint", &permission.Permissions{Allow: rules("Bash(ls:*)")}, core.Block, "--allow 'Bash(go build *)'"},
 		{"no policy with the hint", nil, core.Block, "--allow 'Bash(go build *)'"},
 	} {
 		t.Run(c.name, func(t *testing.T) {

@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/safety"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -130,15 +131,15 @@ func runtimeJudge(why string) permVerdict {
 }
 
 // withAllow is p with the exact rule granted, as `--allow` merges it: an Ask the rule matches is dropped.
-func withAllow(p agent.Permissions, r agent.Rule) agent.Permissions {
+func withAllow(p permission.Permissions, r permission.Rule) permission.Permissions {
 	p.Allow = append(slices.Clone(p.Allow), r)
-	p.Ask = slices.DeleteFunc(slices.Clone(p.Ask), func(x agent.Rule) bool { return x == r })
+	p.Ask = slices.DeleteFunc(slices.Clone(p.Ask), func(x permission.Rule) bool { return x == r })
 	return p
 }
 
-func remedyFor(eff agent.Permissions, tool, arg string, repaired func(agent.Rule) bool) string {
+func remedyFor(eff permission.Permissions, tool, arg string, repaired func(permission.Rule) bool) string {
 	d := eff.Explain(tool, arg)
-	if d.Remedy != "" && (d.Replay == "" || repaired(agent.Rule{Tool: tool, Arg: arg})) {
+	if d.Remedy != "" && (d.Replay == "" || repaired(permission.Rule{Tool: tool, Arg: arg})) {
 		return d.Remedy
 	}
 	return "no --allow repairs it: the launch tier, not a rule, refuses it"
@@ -181,13 +182,13 @@ func withSafety(name, wd string, next permVerdict) permVerdict {
 }
 
 // gateLayer is the permission-gate hook over p: only a Deny (or plan mode on Bash/Edit) blocks; Ask passes it.
-func gateLayer(name string, p agent.Permissions) permVerdict {
+func gateLayer(name string, p permission.Permissions) permVerdict {
 	return func(tool, arg string) permResult {
 		gate := strings.Replace(tool, "Write", "Edit", 1)
 		switch {
 		case !p.IsZero() && safety.GateBlocks(p, gate, arg):
 			return permResult{"deny", "permission-gate", ""}
-		case p.IsZero() || p.Decide(tool, arg) != agent.Ask || name == "gemini": // agy renders an Ask as Allow
+		case p.IsZero() || p.Decide(tool, arg) != permission.Ask || name == "gemini": // agy renders an Ask as Allow
 			return permResult{"allow", "", ""}
 		}
 		return permResult{verdictRuntime, "an Ask goes to opencode's --auto judge", ""}
@@ -195,12 +196,12 @@ func gateLayer(name string, p agent.Permissions) permVerdict {
 }
 
 // permLayer is the permission layer a real launch applies to p, with a denial's remedy checked against that layer.
-func permLayer(name string, p agent.Permissions, ro bool, wd string) permVerdict {
+func permLayer(name string, p permission.Permissions, ro bool, wd string) permVerdict {
 	judge, eff := bareLayer(name, p, ro, wd)
 	return func(t, a string) permResult {
 		r := judge(t, a)
 		if r.verdict == "deny" {
-			r.remedy = remedyFor(eff, t, a, func(rule agent.Rule) bool {
+			r.remedy = remedyFor(eff, t, a, func(rule permission.Rule) bool {
 				q, _ := bareLayer(name, withAllow(p, rule), ro, wd)
 				return q(t, a).verdict == "allow"
 			})
@@ -210,7 +211,7 @@ func permLayer(name string, p agent.Permissions, ro bool, wd string) permVerdict
 }
 
 // gateDecide is the verdict of claude's permission-gate policy gp, decided by the hook's own GateBlocks.
-func gateDecide(gp agent.Permissions) permVerdict {
+func gateDecide(gp permission.Permissions) permVerdict {
 	return func(t, a string) permResult {
 		if safety.GateBlocks(gp, strings.Replace(t, "Write", "Edit", 1), a) {
 			return permResult{"deny", "permission-gate", ""}
@@ -220,7 +221,7 @@ func gateDecide(gp agent.Permissions) permVerdict {
 }
 
 // bareLayer is the verdict of the policy each agent's own builder makes of p, and the policy that decides.
-func bareLayer(name string, p agent.Permissions, ro bool, wd string) (permVerdict, agent.Permissions) {
+func bareLayer(name string, p permission.Permissions, ro bool, wd string) (permVerdict, permission.Permissions) {
 	switch name {
 	case "claude":
 		gp, gated := claude.LaunchGate(p, ro)

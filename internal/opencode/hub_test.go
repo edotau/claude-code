@@ -16,6 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks"
@@ -253,11 +254,11 @@ func TestHubRunCarriesDenyAndPlugin(t *testing.T) {
 	if l.Caps().Permissions != agent.Native {
 		t.Fatal("hub Caps.Permissions must be Native once Run enforces them")
 	}
-	deny, err := agent.ParseRule("Bash(rm *)")
+	deny, err := permission.ParseRule("Bash(rm *)")
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := agent.RunOptions{Prompt: "hi", Tools: true, Permissions: agent.Permissions{Deny: []agent.Rule{deny}}}
+	req := agent.RunOptions{Prompt: "hi", Tools: true, Permissions: permission.Permissions{Deny: []permission.Rule{deny}}}
 	// the fake prints nothing, so an empty-answer error is expected
 	_, _ = l.Run(context.Background(), req, wire.Discard)
 	got, _ := os.ReadFile(seen)

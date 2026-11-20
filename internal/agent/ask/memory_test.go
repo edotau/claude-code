@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -29,7 +30,7 @@ func TestMemoryRunOptionsFollowTheJobKind(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	work := t.TempDir()
 	other := filepath.Join(paths.MemoryStoreDir(), "other-repo", "progress.md")
-	if got := memoryRunOptions(t.Context(), "p", work).Permissions.Decide("Write", other); got == agent.Allow {
+	if got := memoryRunOptions(t.Context(), "p", work).Permissions.Decide("Write", other); got == permission.Allow {
 		t.Errorf("update may write another repo's bank")
 	}
 	var dream context.Context
@@ -37,7 +38,7 @@ func TestMemoryRunOptionsFollowTheJobKind(t *testing.T) {
 	if err := memory.RunDream(memory.DreamRunOptions{CWD: work, Force: true, Out: io.Discard, Run: run}); err != nil || dream == nil {
 		t.Fatalf("RunDream ran the agent = %v, err %v", dream != nil, err)
 	}
-	if got := memoryRunOptions(dream, "p", work).Permissions.Decide("Write", other); got != agent.Allow {
+	if got := memoryRunOptions(dream, "p", work).Permissions.Decide("Write", other); got != permission.Allow {
 		t.Errorf("dream Decide(Write, another repo's bank) = %v, want allow", got)
 	}
 }
@@ -46,10 +47,10 @@ func TestMemoryRunOptionsFollowTheJobKind(t *testing.T) {
 func TestMemoryRunOptionsCdCoversOnlyTheStore(t *testing.T) {
 	p := memoryRunOptions(context.Background(), "p", t.TempDir()).Permissions
 	store := filepath.Join(paths.ConfigDir(), "memory")
-	for cmd, want := range map[string]agent.Decision{
-		"cd " + store: agent.Allow, "cd " + store + "/archive": agent.Allow,
-		"cd " + store + "-evil": agent.Deny, "cd " + store + "/../other": agent.Deny,
-		"cd " + filepath.Dir(store): agent.Deny, "cd /": agent.Deny, "cd": agent.Deny,
+	for cmd, want := range map[string]permission.Decision{
+		"cd " + store: permission.Allow, "cd " + store + "/archive": permission.Allow,
+		"cd " + store + "-evil": permission.Deny, "cd " + store + "/../other": permission.Deny,
+		"cd " + filepath.Dir(store): permission.Deny, "cd /": permission.Deny, "cd": permission.Deny,
 	} {
 		if got := p.Decide("Bash", cmd); got != want {
 			t.Errorf("Decide(Bash, %q) = %v, want %v", cmd, got, want)
@@ -63,19 +64,19 @@ func TestMemoryRunOptionsDenySecretReads(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
 	p := memoryRunOptions(context.Background(), "p", t.TempDir()).Permissions
 	for _, s := range []string{"Read(**/state/vault.db)", "Read(**/.credentials.json)", "Read(**/.env)", "Read(**/*.pem)"} {
-		if r, err := agent.ParseRule(s); err != nil || !slices.Contains(p.Deny, r) {
+		if r, err := permission.ParseRule(s); err != nil || !slices.Contains(p.Deny, r) {
 			t.Errorf("deny %s: parsed %+v, %v; not in %v", s, r, err, p.Deny)
 		}
 	}
 	cd := "cd " + paths.MemoryStoreDir() + " && "
 	for _, f := range []string{cfg + "/state/vault.db", cfg + "/.credentials.json", cfg + "/.env", cfg + "/k.pem"} {
 		for _, cmd := range []string{"cat " + f, cd + "head -1 " + f, "grep x " + f + " | wc -l", cd + "cat $(echo " + f + ")"} {
-			if got := p.Decide("Bash", cmd); got != agent.Deny {
+			if got := p.Decide("Bash", cmd); got != permission.Deny {
 				t.Errorf("Decide(Bash, %q) = %v, want deny", cmd, got)
 			}
 		}
 	}
-	if got := p.Decide("Bash", cd+"cat ../state/vault.db"); got != agent.Deny {
+	if got := p.Decide("Bash", cd+"cat ../state/vault.db"); got != permission.Deny {
 		t.Errorf("climbing read = %v, want deny", got)
 	}
 }
@@ -85,17 +86,17 @@ func TestMemoryRunOptionsReadOnlyBash(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	p := memoryRunOptions(context.Background(), "p", t.TempDir()).Permissions
 	cd := "cd " + paths.MemoryStoreDir() + " && "
-	for cmd, want := range map[string]agent.Decision{
-		cd + "wc -l claude-code--progress.md && head -n 20 claude-code--progress.md && echo done":           agent.Allow,
-		cd + "head -30 claude-code--sessionHistory.md && echo ---- && head -30 claude-code--decisionLog.md": agent.Allow,
-		cd + "sed -n 5,9p claude-code--activeContext.md; git log --oneline -5 | grep -v '^$'":               agent.Allow,
-		cd + "tail -5 claude-code--conventions.md":                                                          agent.Allow,
-		"echo x > /tmp/f": agent.Deny,
-		cd + "cat claude-code--progress.md > /tmp/out":             agent.Deny,
-		cd + "git add claude-code--progress.md && git commit -m x": agent.Deny,
-		"git commit -m x": agent.Deny,
-		"echo ok; rm -rf " + paths.MemoryStoreDir(): agent.Deny,
-		"echo $(git commit -m x)":                   agent.Deny,
+	for cmd, want := range map[string]permission.Decision{
+		cd + "wc -l claude-code--progress.md && head -n 20 claude-code--progress.md && echo done":           permission.Allow,
+		cd + "head -30 claude-code--sessionHistory.md && echo ---- && head -30 claude-code--decisionLog.md": permission.Allow,
+		cd + "sed -n 5,9p claude-code--activeContext.md; git log --oneline -5 | grep -v '^$'":               permission.Allow,
+		cd + "tail -5 claude-code--conventions.md":                                                          permission.Allow,
+		"echo x > /tmp/f": permission.Deny,
+		cd + "cat claude-code--progress.md > /tmp/out":             permission.Deny,
+		cd + "git add claude-code--progress.md && git commit -m x": permission.Deny,
+		"git commit -m x": permission.Deny,
+		"echo ok; rm -rf " + paths.MemoryStoreDir(): permission.Deny,
+		"echo $(git commit -m x)":                   permission.Deny,
 	} {
 		if got := p.Decide("Bash", cmd); got != want {
 			t.Errorf("Decide(Bash, %q) = %v, want %v", cmd, got, want)

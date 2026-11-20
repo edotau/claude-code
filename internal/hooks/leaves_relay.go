@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -87,7 +87,7 @@ func relayRefusal(seg string) string {
 
 // relayShellRefusal judges a segment that is not a claude-code call: read-only shell, navigation or a Go gate.
 func relayShellRefusal(seg string) string {
-	if agent.ReadOnlyShell(seg) || relayNavigate(seg) {
+	if permission.ReadOnlyShell(seg) || relayNavigate(seg) {
 		return ""
 	}
 	if rule, isGo := relayGoGate(seg); isGo {

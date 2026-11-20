@@ -26,17 +26,6 @@ var (
 	})
 )
 
-// NestedIn keeps the worktree paths inside top: the peer scan skips those, never the tree that holds top.
-func NestedIn(top string, worktrees []string) []string {
-	var out []string
-	for _, w := range worktrees {
-		if strings.HasPrefix(w, top+string(filepath.Separator)) {
-			out = append(out, w)
-		}
-	}
-	return out
-}
-
 // Gated is a regexp compiled on first use and tried only on text holding one of its required literals.
 type Gated struct {
 	src  string

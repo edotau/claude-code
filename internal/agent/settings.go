@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -22,13 +23,13 @@ type Settings struct {
 	LaunchEnv   proc.Values `json:"-"`
 	LaunchArgs  []string
 	Agent       string
-	Record      vault.AgentRecord // agentconfig.Settings(Agent)
-	Effort      string            // request (flag or routed cell) > Record.Effort; "" = the CLI's default
-	Permissions Permissions       // resolvePermissions(record policy, request)
-	Target      providers.Target  // the resolved profile row and model; Provider nil on the agent's own login
+	Record      vault.AgentRecord      // agentconfig.Settings(Agent)
+	Effort      string                 // request (flag or routed cell) > Record.Effort; "" = the CLI's default
+	Permissions permission.Permissions // permission.Resolve(record policy, request)
+	Target      providers.Target       // the resolved profile row and model; Provider nil on the agent's own login
 
 	Tools, Autonomous, SafeMode bool
-	Gate                        bool // claude: the permission-gate hook enforces Permissions, so no permission flags render
+	Gate                        bool // claude: the permission-gate hook enforces permission.Permissions, so no permission flags render
 	Headless                    bool // false for an interactive launch
 	WorkDir                     string
 }
@@ -69,9 +70,9 @@ func newSettings(agentName string, rec vault.AgentRecord, req RunOptions, t prov
 	rec = rec.Clone()
 	st.Agent, st.Record, st.Target = agentName, rec, t
 	st.Effort = cmp.Or(req.Effort, rec.Effort)
-	st.Permissions, _ = resolvePermissions(st.Permissions, req.Permissions)
+	st.Permissions, _ = permission.Resolve(st.Permissions, req.Permissions)
 	if row, ok := lookupRow(agentName); ok && req.ReadOnly { // fail closed for a caller that skipped checkRun
-		st.Permissions, _ = resolvePermissions(st.Permissions, withReadOnlyRules(row.CLI.Caps, Permissions{}))
+		st.Permissions, _ = permission.Resolve(st.Permissions, withReadOnlyRules(row.CLI.Caps, permission.Permissions{}))
 	}
 	st.Tools, st.Autonomous, st.SafeMode, st.Gate = req.Tools, req.Autonomous, req.SafeMode, req.Gate
 	st.Headless, st.WorkDir = headless, req.WorkDir
@@ -92,11 +93,11 @@ func newSettings(agentName string, rec vault.AgentRecord, req RunOptions, t prov
 }
 
 // policyPermissions parses a record policy; nil is no policy.
-func policyPermissions(p *vault.AgentPolicy) (Permissions, error) {
+func policyPermissions(p *vault.AgentPolicy) (permission.Permissions, error) {
 	if p == nil {
-		return Permissions{}, nil
+		return permission.Permissions{}, nil
 	}
-	return ParsePermissions(p.Mode, p.Allow, p.Ask, p.Deny)
+	return permission.ParsePermissions(p.Mode, p.Allow, p.Ask, p.Deny)
 }
 
 // recordFieldOwners are the record fields only one agent can use; every other agent refuses them.

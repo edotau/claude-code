@@ -8,16 +8,15 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"os/exec"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -162,53 +161,6 @@ func (geminiEngine) ConfigPaths(home string) ([]agentconfig.LabelPath, error) {
 func (geminiEngine) RouteDetail(context.Context) (string, bool) { return geminiRouteDetail(), true }
 
 func (geminiEngine) NewLive() agent.LiveBackend { return &agyLive{} }
-
-// geminiLogin runs agy on its own cached Google sign-in (AgyLoginMarker); without one it errors with the sign-in hint.
-func geminiLogin(model string, h *agent.Headless) ([]string, []string, error) {
-	present, perr := geminiLoginProbe()
-	if perr != nil {
-		return nil, nil, fmt.Errorf("gemini: agy login marker unreadable: %w", perr)
-	}
-	if !present {
-		s, _ := agent.LookupSchema("gemini")
-		return nil, nil, errors.New("gemini: agy is not signed in; " + s.CLI.ConfigureHint)
-	}
-	if h != nil {
-		return nil, nil, nil // headless argv is runAgy's (prompt over stdin stream-json)
-	}
-	return nil, []string{"--model", model}, nil
-}
-
-// geminiLoginProbe reports whether agy's cached Google login is on disk, plus the first real read failure.
-func geminiLoginProbe() (bool, error) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return false, err
-	}
-	for _, p := range agyLoginMarkers(home) {
-		fi, serr := os.Stat(p)
-		if serr == nil && fi.Size() > 0 {
-			return true, nil
-		}
-		if serr != nil && !errors.Is(serr, fs.ErrNotExist) && err == nil {
-			err = serr
-		}
-	}
-	return false, err
-}
-
-// AgyLoginMarker is agy's cached Google OAuth token path under home, the marker a login run leaves behind.
-func AgyLoginMarker(home string) string {
-	return agyLoginMarkers(home)[0]
-}
-
-// agyLoginMarkers lists every path agy has used for its cached Google OAuth token, newest first.
-func agyLoginMarkers(home string) []string {
-	return []string{
-		filepath.Join(home, ".gemini", "antigravity-cli", "antigravity-oauth-token"),
-		filepath.Join(home, ".gemini", "jetski-standalone-oauth-token"),
-	}
-}
 
 // agyDefaultModel runs agy when the caller names no model: the standard-tier pick, enough for headless dispatches.
 const agyDefaultModel = "gemini-4-hydrogen"
@@ -365,7 +317,7 @@ type agyRequest struct {
 	PrintTimeout                  time.Duration // --print-timeout; 0 omits it (live sessions)
 	OutputSchema                  string        // --json-schema
 	SettingsArgv                  []string      // RenderSettings' --effort and --settings fragment, inserted before -p=
-	Permissions                   agent.Permissions
+	Permissions                   permission.Permissions
 	Env, KeepEnv                  []string
 }
 
@@ -629,7 +581,7 @@ type agyTurn struct {
 	once      bool
 	res       *wire.Result
 	dn        *agyDenier // nil: refused calls are not explained
-	refused   []agent.Rule
+	refused   []permission.Rule
 	actions   []string // denied_actions names from the result event
 	ans       wire.Answer
 	pending   strings.Builder

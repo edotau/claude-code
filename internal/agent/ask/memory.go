@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -59,29 +60,29 @@ func (r *askRun) startRecall(prompt string) func() string {
 // memoryRunOptions pins the memory job to claude: it holds write tools, so it never falls back to another vendor.
 func memoryRunOptions(ctx context.Context, prompt, workdir string) agent.RunOptions {
 	s := memory.JobScope(memory.JobKind(ctx), workdir)
-	p := agent.Permissions{Mode: "plan", Deny: []agent.Rule{{Tool: "Bash", Arg: agent.RedirectFileArg}}}
+	p := permission.Permissions{Mode: "plan", Deny: []permission.Rule{{Tool: "Bash", Arg: permission.RedirectFileArg}}}
 	for _, secret := range []string{"**/state/vault.db", "**/.credentials.json", "**/.env", "**/*.pem"} {
-		p.Deny = append(p.Deny, agent.Rule{Tool: "Read", Arg: secret}) // also binds read-only Bash
+		p.Deny = append(p.Deny, permission.Rule{Tool: "Read", Arg: secret}) // also binds read-only Bash
 	}
 	for _, tool := range []string{"Edit", "Write"} {
 		for _, d := range s.NoWrite {
-			p.Deny = append(p.Deny, agent.Rule{Tool: tool, Arg: d})
+			p.Deny = append(p.Deny, permission.Rule{Tool: tool, Arg: d})
 		}
 		for _, w := range s.Write {
-			p.Allow = append(p.Allow, agent.Rule{Tool: tool, Arg: w})
+			p.Allow = append(p.Allow, permission.Rule{Tool: tool, Arg: w})
 		}
 	}
 	for _, dir := range s.CdDirs {
-		p.Allow = append(p.Allow, agent.CdRule(dir))
+		p.Allow = append(p.Allow, permission.CdRule(dir))
 	}
 	for _, b := range s.Bash {
-		p.Allow = append(p.Allow, agent.Rule{Tool: "Bash", Arg: b})
+		p.Allow = append(p.Allow, permission.Rule{Tool: "Bash", Arg: b})
 	}
 	for _, b := range s.NoBash {
-		p.Deny = append(p.Deny, agent.Rule{Tool: "Bash", Arg: b})
+		p.Deny = append(p.Deny, permission.Rule{Tool: "Bash", Arg: b})
 	}
 	// read-only inspection; echo is the job's separator, and the redirect deny still refuses `echo x > f`
-	p.Allow = append(p.Allow, agent.ReadOnlyAllow, agent.Rule{Tool: "Bash", Arg: "echo *"})
+	p.Allow = append(p.Allow, permission.ReadOnlyAllow, permission.Rule{Tool: "Bash", Arg: "echo *"})
 	return agent.RunOptions{Agent: "claude", Prompt: prompt, Effort: "medium", Tools: s.Tools, WorkDir: workdir,
 		Fallback: router.FallbackNone, Gate: true, DataPrompt: true, Maintenance: true, Permissions: p}
 }

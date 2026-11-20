@@ -25,6 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -361,7 +362,7 @@ func TestCheckRunGeminiReadOnlyDenies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, r := range ReadOnlyDeny {
+	for _, r := range permission.ReadOnlyDeny {
 		if !slices.Contains(got.Permissions.Deny, r) {
 			t.Errorf("deny %v lacks %s", got.Permissions.Deny, r)
 		}
@@ -398,17 +399,17 @@ type ancestorPolicyCase struct {
 
 // ancestorPolicyCases cover inherited deny, ask, read-only and plan, and an ancestor allow that must not pass down.
 func ancestorPolicyCases() []ancestorPolicyCase {
-	curl, edit, git := Rule{Tool: "Bash", Arg: "curl *"}, Rule{Tool: "Edit", Arg: "/x/**"}, Rule{Tool: "Bash", Arg: "git *"}
+	curl, edit, git := permission.Rule{Tool: "Bash", Arg: "curl *"}, permission.Rule{Tool: "Edit", Arg: "/x/**"}, permission.Rule{Tool: "Bash", Arg: "git *"}
 	return []ancestorPolicyCase{
-		{"deny bash", RunOptions{Tools: true, Permissions: Permissions{Deny: []Rule{curl}}},
+		{"deny bash", RunOptions{Tools: true, Permissions: permission.Permissions{Deny: []permission.Rule{curl}}},
 			func(o RunOptions) bool { return slices.Contains(o.Permissions.Deny, curl) }},
-		{"deny edit", RunOptions{Tools: true, Permissions: Permissions{Deny: []Rule{edit}}},
+		{"deny edit", RunOptions{Tools: true, Permissions: permission.Permissions{Deny: []permission.Rule{edit}}},
 			func(o RunOptions) bool { return slices.Contains(o.Permissions.Deny, edit) }},
-		{"ask", RunOptions{Tools: true, Permissions: Permissions{Ask: []Rule{curl}}},
+		{"ask", RunOptions{Tools: true, Permissions: permission.Permissions{Ask: []permission.Rule{curl}}},
 			func(o RunOptions) bool { return slices.Contains(o.Permissions.Ask, curl) }},
 		{"read-only", RunOptions{Tools: true, ReadOnly: true}, func(o RunOptions) bool { return o.ReadOnly }},
-		{"plan", RunOptions{Permissions: Permissions{Mode: "plan"}}, func(o RunOptions) bool { return o.Permissions.Mode == "plan" }},
-		{"allow stays with the ancestor", RunOptions{Tools: true, Permissions: Permissions{Allow: []Rule{git}}},
+		{"plan", RunOptions{Permissions: permission.Permissions{Mode: "plan"}}, func(o RunOptions) bool { return o.Permissions.Mode == "plan" }},
+		{"allow stays with the ancestor", RunOptions{Tools: true, Permissions: permission.Permissions{Allow: []permission.Rule{git}}},
 			func(o RunOptions) bool { return !slices.Contains(o.Permissions.Allow, git) }},
 	}
 }
@@ -535,8 +536,8 @@ func TestRunLayersAgentDefaultsUnderTheRequest(t *testing.T) {
 	if permsJSON(t, got) != want {
 		t.Errorf("engine saw %s\nwant %s", permsJSON(t, got), want)
 	}
-	if d := got.Decide("Bash", "git log && rm -rf x"); d != Deny {
-		t.Errorf("the default Deny must hold against a compound command, got %v", d)
+	if d := got.Decide("Bash", "git log && rm -rf x"); d != permission.Deny {
+		t.Errorf("the default permission.Deny must hold against a compound command, got %v", d)
 	}
 }
 

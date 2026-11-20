@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/shell"
 )
 
@@ -369,7 +369,7 @@ func sudoLeads(toks []string, depth int) bool {
 // skipPrefixOpts drops a prefix command's options, and timeout's duration; a value option's value is checked next round.
 func skipPrefixOpts(name string, toks []string) []string {
 	if name == "xargs" {
-		return agent.SkipXargs(toks)
+		return permission.SkipXargs(toks)
 	}
 	toks = toks[1:]
 	for len(toks) > 0 && (strings.HasPrefix(toks[0], "-") || len(toks) > 1 && name == "timeout") {

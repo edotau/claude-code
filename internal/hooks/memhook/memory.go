@@ -13,7 +13,6 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/preflight"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -91,21 +90,6 @@ func pinsOf(ctx context.Context, reg *providers.Registry, now time.Time) []prefl
 	return preflight.Check(ctx, reg, now)
 }
 
-// refreshServed re-lists a stale served-endpoint cache detached; needs no memory bank, never from an update child.
-func refreshServed(reg *providers.Registry, pins []preflight.Pin, cwd string, now time.Time) {
-	if !memory.IsUpdateChild() && servedRefreshDue(reg, pins, now) {
-		spawnServed(cwd)
-	}
-}
-
-// servedRefreshDue reports whether served routing is on and an in-use Databricks profile has no fresh listing.
-func servedRefreshDue(reg *providers.Registry, pins []preflight.Pin, now time.Time) bool {
-	if !providers.ServedRoutingOn() {
-		return false
-	}
-	return reg != nil && preflight.Stale(reg, pins, now) && preflight.Claim(now)
-}
-
 // loadRegistry is the provider registry, nil when it cannot load.
 func loadRegistry() *providers.Registry {
 	reg, err := loadProviders()
@@ -117,20 +101,6 @@ func loadRegistry() *providers.Registry {
 
 // loadProviders reads the provider registry (vault included); tests count it.
 var loadProviders = providers.Load
-
-// spawnServed is the detached `models preflight --refresh` seam; tests replace it.
-var spawnServed = func(cwd string) bool {
-	self, err := os.Executable()
-	if err != nil {
-		return false
-	}
-	null, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
-	if err != nil {
-		return false
-	}
-	defer null.Close()
-	return proc.SpawnDetached(self, []string{"models", "preflight", "--refresh"}, cwd, null)
-}
 
 func Recall(in *core.Input) core.Result {
 	if core.AutomatedDelivery(in.Prompt) {

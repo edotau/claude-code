@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
@@ -91,7 +92,7 @@ func TestConfinementFencesReadTheRunSnapshot(t *testing.T) {
 		t.Errorf("copilot line under a snapshot confinement: err = %v, want no openai account", err)
 	}
 	if got := liveRequest(proc.WithValues(t.Context(), proc.Values{route.OverlayVar: agentconfig.InlineOverlay("databricks", "qa")}),
-		(&askRun{f: &askFlags{}}).askState(), agent.Permissions{}, "claude").Provider; got != "qa" {
+		(&askRun{f: &askFlags{}}).askState(), permission.Permissions{}, "claude").Provider; got != "qa" {
 		t.Errorf("live holder under a snapshot workspace: Provider = %q, want qa", got)
 	}
 	confine(t, "openai")

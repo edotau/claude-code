@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
@@ -120,7 +121,7 @@ func TestAbandonLiveMarksRecordFailed(t *testing.T) {
 
 // A live session keeps --read-only and the permission rules: tools-on alone would grant full write access.
 func TestLiveRequestCarriesReadOnlyAndPermissions(t *testing.T) {
-	perms, err := agent.ParsePermissions("plan", []string{"Bash(ls:*)"}, nil, []string{"Bash(rm:*)"})
+	perms, err := permission.ParsePermissions("plan", []string{"Bash(ls:*)"}, nil, []string{"Bash(rm:*)"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +149,7 @@ func TestLiveRequestStartsOnConfinedProfile(t *testing.T) {
 			t.Setenv(route.OverlayVar, "")
 		}
 		f := askFlags{profile: tc.typed}
-		if got := liveRequest(t.Context(), (&askRun{f: &f}).askState(), agent.Permissions{}, "gemini").Provider; got != tc.want {
+		if got := liveRequest(t.Context(), (&askRun{f: &f}).askState(), permission.Permissions{}, "gemini").Provider; got != tc.want {
 			t.Errorf("confinement %q, typed %q: Provider = %q, want %q", tc.confinement, tc.typed, got, tc.want)
 		}
 	}
@@ -170,7 +171,7 @@ func TestStartLiveRecordsIdentity(t *testing.T) {
 	}
 	f := askFlags{}
 	s := (&askRun{f: &f}).askState()
-	if code, _, _ := hosttest.CaptureOutput(t, func() int { return startLive(t.Context(), s, agent.Permissions{}, "claude", "sp", "json") }); code != 1 {
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return startLive(t.Context(), s, permission.Permissions{}, "claude", "sp", "json") }); code != 1 {
 		t.Fatalf("startLive = %d, want 1 (test binary is not relaunched)", code)
 	}
 	recs := agent.RecentRecords(1)
@@ -218,7 +219,7 @@ func checkCLIBoundary(t *testing.T, mode string, req agent.RunOptions) {
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {
 		if mode == "live" {
 			f := askFlags{noTools: true}
-			return startLive(t.Context(), (&askRun{f: &f}).askState(), agent.Permissions{}, "codex", "", "json")
+			return startLive(t.Context(), (&askRun{f: &f}).askState(), permission.Permissions{}, "codex", "", "json")
 		}
 		fs, _ := askFlagSet()
 		var job *agent.Record
@@ -399,7 +400,7 @@ func TestSendResumesFinishedDispatch(t *testing.T) {
 	t.Setenv("PATH", t.TempDir()) // no agent binary: the resume is recorded, then fails to start
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv(proc.DispatchIDEnv, "outer")
-	perms, err := agent.ParsePermissions("", []string{"Read"}, nil, nil)
+	perms, err := permission.ParsePermissions("", []string{"Read"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -442,7 +443,7 @@ func assertSendRefused(t *testing.T, id, want string, timeout time.Duration, cou
 func assertResumedPosture(t *testing.T, r agent.RunOptions, cwd string) {
 	t.Helper()
 	if r.Prompt != "follow up" || r.SessionID != "sess-1" || !r.ReadOnly || !r.Tools || r.Effort != "low" || r.WorkDir != cwd ||
-		!reflect.DeepEqual(agent.RuleStrings(r.Permissions.Allow), []string{"Read"}) {
+		!reflect.DeepEqual(permission.RuleStrings(r.Permissions.Allow), []string{"Read"}) {
 		t.Errorf("resume request = %+v; want the record's session, tools, read-only, effort, workdir and permissions with the new prompt", r)
 	}
 }

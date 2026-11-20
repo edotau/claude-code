@@ -18,7 +18,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/shell"
@@ -709,7 +708,7 @@ func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	scan := worktree.ProcessScan
 	worktreetest.StubProcessScanForTest(scan.In, scan.Up, scan.Procs, scan.Agents)
-	wthook.PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
+	worktree.PeerScan = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
 	code := m.Run()
 	hosttest.Cleanup()
 	cleanup()

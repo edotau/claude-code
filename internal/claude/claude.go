@@ -14,7 +14,6 @@ import (
 	"slices"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
 	"github.com/edotau/claude-code/internal/agent"
@@ -22,7 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/egress"
-	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -136,7 +135,7 @@ func toolArgs(req agent.RunOptions) []string {
 }
 
 // planDeny is plan mode's write boundary: deny beats the user's allow rules and defaultMode, unlike bare plan mode.
-var planDeny = []agent.Rule{{Tool: "Edit"}, {Tool: "Write"}, {Tool: "NotebookEdit"}, {Tool: "Bash"}}
+var planDeny = []permission.Rule{{Tool: "Edit"}, {Tool: "Write"}, {Tool: "NotebookEdit"}, {Tool: "Bash"}}
 
 // RenderSettings adds --effort and, headless, the permission flags after the base launch env/args.
 func (e claudeEngine) RenderSettings(ctx context.Context, s agent.Settings, env, argv []string) ([]string, []string, []string, func(), error) {
@@ -172,7 +171,7 @@ func claudeEffort(e string) (string, error) {
 	return native, nil
 }
 
-func permissionArgs(p agent.Permissions, tools, autonomous, anthropic bool) []string {
+func permissionArgs(p permission.Permissions, tools, autonomous, anthropic bool) []string {
 	switch {
 	case tools && !anthropic && p.Mode != "plan" && (!autonomous || !p.IsZero()): // dontAsk: the request's rules only add
 		p.Allow = slices.Concat(gatewayAllow(), p.Allow)
@@ -186,11 +185,11 @@ func permissionArgs(p agent.Permissions, tools, autonomous, anthropic bool) []st
 }
 
 // ruleArgs is --allowedTools and --disallowedTools with their rules, each omitted when empty.
-func ruleArgs(p agent.Permissions) []string {
+func ruleArgs(p permission.Permissions) []string {
 	var args []string
 	for _, l := range []struct {
 		flag  string
-		rules []agent.Rule
+		rules []permission.Rule
 	}{{"--allowedTools", p.Allow}, {"--disallowedTools", p.Deny}} {
 		if len(l.rules) > 0 {
 			args = append(args, l.flag)
@@ -206,7 +205,7 @@ func permissionModeArgs(mode string, anthropic bool) []string {
 	switch {
 	case mode == "plan":
 		return nil
-	case mode == agent.PermAllow: // the development override: every call runs; --disallowedTools still holds
+	case mode == permission.PermAllow: // the development override: every call runs; --disallowedTools still holds
 		return []string{"--permission-mode", "bypassPermissions"}
 	case anthropic: // D3 auto: Ask and unmatched calls go to claude's judge; deny stays the hard boundary
 		return []string{"--permission-mode", "auto"}
@@ -216,7 +215,7 @@ func permissionModeArgs(mode string, anthropic bool) []string {
 }
 
 // refuseUnmappedDeny fails closed: claude takes any "Tool(arg)" rule, so only a nameless Deny rule cannot be enforced.
-func refuseUnmappedDeny(p agent.Permissions) error {
+func refuseUnmappedDeny(p permission.Permissions) error {
 	for _, r := range p.Deny {
 		if r.Tool == "" {
 			return retry.Fatal("claude", fmt.Errorf("cannot enforce deny rule %q: no tool name", r.String()))
@@ -854,51 +853,4 @@ func (claudeEngine) Verify(context.Context) (providers.AuthVerdict, string) {
 		return providers.VerdictOK, strings.TrimSuffix("logged in "+strings.Trim(plan, " ()"), " ")
 	}
 	return providers.VerdictNeedsLogin, ""
-}
-
-const claudeProbeTTL = 10 * time.Second
-
-type claudeProbe struct {
-	loggedIn bool
-	plan     string
-}
-
-// claudeProbeMemo is single-flight; only a logged-in answer is kept, so the recheck after a login sees it.
-var claudeProbeMemo paths.Memo[struct{}, claudeProbe]
-
-// claudeLoginProbe asks `claude auth status` (JSON); err != nil means unknown. Single-flight; logged-in memo 10s.
-func claudeLoginProbe() (loggedIn bool, plan string, err error) {
-	p, err := claudeProbeMemo.Do(struct{}{}, func(p claudeProbe, err error) time.Duration {
-		if err == nil && p.loggedIn {
-			return claudeProbeTTL
-		}
-		return -1
-	}, runClaudeProbe)
-	return p.loggedIn, p.plan, err
-}
-
-func runClaudeProbe() (claudeProbe, error) {
-	bin, err := ClaudeBinary()
-	if err != nil {
-		return claudeProbe{}, err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), agent.ProbeTimeout)
-	defer cancel()
-	probe := agent.ProbeContext(ctx, "claude") // claude's own login only
-	out, runErr := agent.ProbeCLI(probe, bin, agent.EnvSpec{Mode: agent.EnvAgent}, false, "auth", "status")
-	var st struct {
-		LoggedIn         bool   `json:"loggedIn"`
-		SubscriptionType string `json:"subscriptionType"`
-	}
-	if jerr := json.Unmarshal(out, &st); jerr != nil { // logged-out may exit nonzero but still print JSON
-		if runErr != nil {
-			return claudeProbe{}, runErr
-		}
-		return claudeProbe{}, jerr
-	}
-	p := claudeProbe{loggedIn: st.LoggedIn}
-	if st.SubscriptionType != "" {
-		p.plan = " (" + st.SubscriptionType + ")"
-	}
-	return p, nil
 }

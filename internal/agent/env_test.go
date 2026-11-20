@@ -4,30 +4,25 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
 	"slices"
-	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
-	"github.com/edotau/claude-code/internal/egress"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/proc"
 )
@@ -139,18 +134,18 @@ func TestEnvironInjectedCredentialBeatsInherited(t *testing.T) {
 // Given an outer dispatch's policy in the env, Then a nested policy keeps its Deny rules and plan mode, never fewer.
 func TestInheritPermissionsKeepsOuterDeny(t *testing.T) {
 	t.Setenv(DispatchPermissionsEnv, `{"mode":"plan","deny":[{"Tool":"Bash","Arg":"rm *"}],"ask":[{"Tool":"Bash","Arg":"curl *"}]}`)
-	inner, err := ParsePermissions("auto", []string{"Bash"}, nil, nil)
+	inner, err := permission.ParsePermissions("auto", []string{"Bash"}, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got, err := inheritPermissionsContext(context.Background(), inner)
-	if err != nil || got.Mode != "plan" || got.Decide("Bash", "rm x") != Deny || got.Decide("Bash", "ls") != Allow {
+	if err != nil || got.Mode != "plan" || got.Decide("Bash", "rm x") != permission.Deny || got.Decide("Bash", "ls") != permission.Allow {
 		t.Fatalf("inherit = %+v, %v; want plan mode, rm denied, ls allowed", got, err)
 	}
-	if got.Decide("Bash", "curl x") != Ask { // the inner Bash allow must not reopen the outer ask
+	if got.Decide("Bash", "curl x") != permission.Ask { // the inner Bash allow must not reopen the outer ask
 		t.Fatalf("inherit = %+v; want the outer curl ask kept", got)
 	}
-	if got, _ := inheritPermissionsContext(context.Background(), Permissions{}); len(got.Deny) != 1 {
+	if got, _ := inheritPermissionsContext(context.Background(), permission.Permissions{}); len(got.Deny) != 1 {
 		t.Fatalf("no inner policy: got %+v, want the outer policy whole", got)
 	}
 	t.Setenv(DispatchPermissionsEnv, "{bad")
@@ -330,93 +325,5 @@ func TestChildCmdLaunchValuesSurviveIsolationScrub(t *testing.T) {
 	cmd, _ := ChildCmd(ctx, "/bin/true", nil, []string{"OPENCODE_API_KEY=launch"}, "", "", nil, true)
 	if !slices.Contains(cmd.Env, "OPENCODE_API_KEY=launch") || slices.Contains(cmd.Env, "OPENCODE_API_KEY=inherited-foreign") {
 		t.Errorf("env keeps the inherited foreign value or lost the launch's: %d", len(cmd.Env))
-	}
-}
-
-// Given a real child under ChildCmd with a grandchild, When ctx is cancelled, Then no process stays in the group.
-func TestChildCmdCancelLeavesNoProcessGroup(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("process groups are unix-only")
-	}
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	cmd, _ := ChildCmd(ctx, "sh", []string{"-c", "sleep 60 & sleep 60; wait"}, nil, t.TempDir(), "", nil, false)
-	if err := cmd.Start(); err != nil {
-		t.Fatal(err)
-	}
-	pgid := cmd.Process.Pid
-	time.Sleep(100 * time.Millisecond)
-	if err := exec.Command("kill", "-0", "--", "-"+strconv.Itoa(pgid)).Run(); err != nil {
-		t.Fatalf("group %d not alive before cancel: %v", pgid, err)
-	}
-	cancel()
-	var ee *exec.ExitError
-	if err := cmd.Wait(); !errors.As(err, &ee) {
-		t.Fatalf("wait = %v, want the kill's exit error", err)
-	}
-	for end := time.Now().Add(3 * time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
-		if out, err := exec.Command("kill", "-0", "--", "-"+strconv.Itoa(pgid)).CombinedOutput(); err != nil &&
-			strings.Contains(string(out), "No such process") {
-			return
-		}
-	}
-	t.Errorf("process group %d still has members after cancel", pgid)
-}
-
-// An ambient but empty COWORKER_OVERLAY must not hide the vault's stored overlay from the captured snapshot.
-func TestRunValuesAmbientEmptyOverlayKeepsStored(t *testing.T) {
-	vaulttest.Use(t)
-	const stored = `{"provider":"databricks","profile":"qa"}`
-	vaulttest.Put(t, vault.Env, route.OverlayVar, stored)
-	t.Setenv(route.OverlayVar, "")
-	ctx, _ := RunValues(context.Background(), nil)
-	if got := agentconfig.DispatchOverlayContext(ctx, ""); got != stored {
-		t.Fatalf("DispatchOverlayContext = %q, want the stored overlay %q", got, stored)
-	}
-}
-
-// Concurrent child launches keep independent snapshots and request-pinned egress without changing the parent.
-func TestRunValuesConcurrentChildren(t *testing.T) {
-	hosttest.SkipOnWindows(t, "sh")
-	t.Setenv("PST_RUN", "parent")
-	t.Setenv(egress.EnvHost, "parent-host")
-	values := proc.ValuesFromEnv(os.Environ())
-	start := make(chan struct{})
-	errc := make(chan error, 2)
-	for _, name := range []string{"first", "second"} {
-		go func() {
-			<-start
-			ctx, copied := RunValues(context.Background(), values.With("PST_RUN", name))
-			copied["PST_RUN"] = "mutated-after-capture"
-			ctx = egress.WithHost(ctx, name+"-host")
-			for _, agent := range []string{"claude", "codex", "copilot", "gemini", "opencode"} {
-				cmd, _ := ChildCmd(ctx, "/bin/sh", []string{"-c", `printf '%s|%s' "$PST_RUN" "$HARNESS_EGRESS_HOST"`},
-					nil, "", "", nil, agent != "claude")
-				out, err := cmd.Output()
-				if err != nil {
-					errc <- err
-					return
-				}
-				if string(out) != name+"|"+name+"-host" {
-					errc <- fmt.Errorf("%s child got %q", agent, out)
-					return
-				}
-			}
-			direct := proc.ValuesFromEnv(EnvSpec{Mode: EnvClaude}.Environ(egress.WithHost(ctx, "")))
-			if direct[egress.EnvHost] != "" {
-				errc <- errors.New("explicit direct host lost")
-				return
-			}
-			errc <- nil
-		}()
-	}
-	close(start)
-	for range 2 {
-		if err := <-errc; err != nil {
-			t.Error(err)
-		}
-	}
-	if os.Getenv("PST_RUN") != "parent" || os.Getenv(egress.EnvHost) != "parent-host" {
-		t.Fatal("child snapshot changed the parent")
 	}
 }

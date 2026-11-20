@@ -9,32 +9,32 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/plans"
 )
 
 // permissions is the conversion ask.memoryRunOptions applies to a Scope: plan mode, bank writes, no redirects.
-func permissions(s memory.Scope) agent.Permissions {
-	p := agent.Permissions{Mode: "plan", Deny: []agent.Rule{{Tool: "Bash", Arg: agent.RedirectFileArg}}}
+func permissions(s memory.Scope) permission.Permissions {
+	p := permission.Permissions{Mode: "plan", Deny: []permission.Rule{{Tool: "Bash", Arg: permission.RedirectFileArg}}}
 	for _, tool := range []string{"Edit", "Write"} {
 		for _, d := range s.NoWrite {
-			p.Deny = append(p.Deny, agent.Rule{Tool: tool, Arg: d})
+			p.Deny = append(p.Deny, permission.Rule{Tool: tool, Arg: d})
 		}
 		for _, w := range s.Write {
-			p.Allow = append(p.Allow, agent.Rule{Tool: tool, Arg: w})
+			p.Allow = append(p.Allow, permission.Rule{Tool: tool, Arg: w})
 		}
 	}
 	for _, d := range s.CdDirs {
-		p.Allow = append(p.Allow, agent.CdRule(d))
+		p.Allow = append(p.Allow, permission.CdRule(d))
 	}
 	for _, b := range s.Bash {
-		p.Allow = append(p.Allow, agent.Rule{Tool: "Bash", Arg: b})
+		p.Allow = append(p.Allow, permission.Rule{Tool: "Bash", Arg: b})
 	}
 	for _, b := range s.NoBash {
-		p.Deny = append(p.Deny, agent.Rule{Tool: "Bash", Arg: b})
+		p.Deny = append(p.Deny, permission.Rule{Tool: "Bash", Arg: b})
 	}
 	return p
 }
@@ -60,25 +60,25 @@ func TestJobScopeBankAndDreamWrites(t *testing.T) {
 	other := filepath.Join(store, "other-repo", "progress.md")
 	tests := []struct {
 		kind, tool, arg string
-		want            agent.Decision
+		want            permission.Decision
 	}{
-		{memory.JobUpdate, "Write", memory.Path("progress.md"), agent.Allow},
-		{memory.JobUpdate, "Edit", filepath.Join(home, "conventions.md"), agent.Allow},
-		{memory.JobUpdate, "Write", other, agent.Deny},
-		{memory.JobUpdate, "Write", claudeMD, agent.Deny},
-		{memory.JobUpdate, "Write", filepath.Join(store, ".git", "config"), agent.Deny},
-		{memory.JobUpdate, "Bash", "claude-code memory promote x", agent.Deny},
-		{memory.JobUpdate, "Bash", "cd " + store, agent.Allow},
-		{memory.JobUpdate, "Bash", "cd " + t.TempDir(), agent.Deny},
-		{memory.JobDream, "Write", other, agent.Allow},
-		{memory.JobDream, "Edit", claudeMD, agent.Allow},
-		{memory.JobDream, "Write", filepath.Join(store, ".git", "config"), agent.Deny},
-		{memory.JobDream, "Write", filepath.Join(t.TempDir(), "x.md"), agent.Deny},
-		{memory.JobDream, "Bash", "claude-code memory promote --to claude-md x", agent.Allow},
-		{memory.JobDream, "Bash", "claude-code memory review --timeline --n 3", agent.Allow},
-		{memory.JobDream, "Bash", "claude-code memory review --brief", agent.Allow},
-		{memory.JobDream, "Bash", "rm -rf " + store, agent.Deny},
-		{memory.JobDream, "Bash", "echo x > " + other, agent.Deny},
+		{memory.JobUpdate, "Write", memory.Path("progress.md"), permission.Allow},
+		{memory.JobUpdate, "Edit", filepath.Join(home, "conventions.md"), permission.Allow},
+		{memory.JobUpdate, "Write", other, permission.Deny},
+		{memory.JobUpdate, "Write", claudeMD, permission.Deny},
+		{memory.JobUpdate, "Write", filepath.Join(store, ".git", "config"), permission.Deny},
+		{memory.JobUpdate, "Bash", "claude-code memory promote x", permission.Deny},
+		{memory.JobUpdate, "Bash", "cd " + store, permission.Allow},
+		{memory.JobUpdate, "Bash", "cd " + t.TempDir(), permission.Deny},
+		{memory.JobDream, "Write", other, permission.Allow},
+		{memory.JobDream, "Edit", claudeMD, permission.Allow},
+		{memory.JobDream, "Write", filepath.Join(store, ".git", "config"), permission.Deny},
+		{memory.JobDream, "Write", filepath.Join(t.TempDir(), "x.md"), permission.Deny},
+		{memory.JobDream, "Bash", "claude-code memory promote --to claude-md x", permission.Allow},
+		{memory.JobDream, "Bash", "claude-code memory review --timeline --n 3", permission.Allow},
+		{memory.JobDream, "Bash", "claude-code memory review --brief", permission.Allow},
+		{memory.JobDream, "Bash", "rm -rf " + store, permission.Deny},
+		{memory.JobDream, "Bash", "echo x > " + other, permission.Deny},
 	}
 	for _, tc := range tests {
 		p := permissions(memory.JobScope(tc.kind, work))
@@ -104,7 +104,7 @@ func TestJobScopeUnknownHoldsNoTools(t *testing.T) {
 // planRow is one plan call: the gate's verdict and, where the gate allows a hostile --plan, the verb's own refusal.
 type planRow struct {
 	kind, tool, arg string
-	want            agent.Decision
+	want            permission.Decision
 	plan            string // the --plan the verb would act on; "" when the gate alone decides
 }
 
@@ -113,25 +113,25 @@ func planRows(home, plan string) []planRow {
 	done := task + "--done --sha abc1234 --plan "
 	escape := home + "/../../../etc/2026-11-18-x.md"
 	return []planRow{
-		{memory.JobDream, "Bash", done + plan, agent.Allow, plan},
-		{memory.JobDream, "Bash", task + "--strike 'gone — evidence: decision:ab12cd34' --plan " + plan, agent.Allow, plan},
-		{memory.JobDream, "Bash", task + "--reopen --plan " + plan, agent.Deny, ""},
-		{memory.JobDream, "Bash", task + "-reopen --done --sha abc1234 --plan " + plan, agent.Deny, ""},
-		{memory.JobDream, "Bash", "FOO=bar " + task + "--done --sha abc1234 --reopen --plan " + plan, agent.Deny, ""},
-		{memory.JobDream, "Bash", "bash -c \"" + task + "--reopen --plan " + plan + "\"", agent.Deny, ""},
-		{memory.JobDream, "Bash", "claude-code plan tick --audit", agent.Deny, ""},
-		{memory.JobDream, "Bash", "claude-code plan tick --range a..b --plan " + plan, agent.Deny, ""},
-		{memory.JobDream, "Bash", "claude-code plan claim x --plan " + plan, agent.Deny, ""},
-		{memory.JobDream, "Bash", task + "--done --plan " + plan, agent.Deny, ""},
-		{memory.JobDream, "Bash", done + "2026-11-18-a.md", agent.Deny, ""},
-		{memory.JobDream, "Bash", done + home + "-evil/2026-11-18-a.md", agent.Deny, ""},
-		{memory.JobDream, "Bash", done + plan + " > /tmp/x", agent.Deny, ""},
-		{memory.JobDream, "Bash", done + plan + "; rm -rf " + home, agent.Deny, ""},
-		{memory.JobDream, "Bash", done + escape, agent.Allow, escape},                                                // `*` spans `..`: the verb refuses
-		{memory.JobDream, "Bash", done + plan + " --plan /etc/2026-11-18-x.md", agent.Allow, "/etc/2026-11-18-x.md"}, // the last --plan wins
-		{memory.JobDream, "Write", plan, agent.Deny, ""},
-		{memory.JobUpdate, "Bash", done + plan, agent.Deny, ""},
-		{memory.JobUpdate, "Edit", plan, agent.Deny, ""},
+		{memory.JobDream, "Bash", done + plan, permission.Allow, plan},
+		{memory.JobDream, "Bash", task + "--strike 'gone — evidence: decision:ab12cd34' --plan " + plan, permission.Allow, plan},
+		{memory.JobDream, "Bash", task + "--reopen --plan " + plan, permission.Deny, ""},
+		{memory.JobDream, "Bash", task + "-reopen --done --sha abc1234 --plan " + plan, permission.Deny, ""},
+		{memory.JobDream, "Bash", "FOO=bar " + task + "--done --sha abc1234 --reopen --plan " + plan, permission.Deny, ""},
+		{memory.JobDream, "Bash", "bash -c \"" + task + "--reopen --plan " + plan + "\"", permission.Deny, ""},
+		{memory.JobDream, "Bash", "claude-code plan tick --audit", permission.Deny, ""},
+		{memory.JobDream, "Bash", "claude-code plan tick --range a..b --plan " + plan, permission.Deny, ""},
+		{memory.JobDream, "Bash", "claude-code plan claim x --plan " + plan, permission.Deny, ""},
+		{memory.JobDream, "Bash", task + "--done --plan " + plan, permission.Deny, ""},
+		{memory.JobDream, "Bash", done + "2026-11-18-a.md", permission.Deny, ""},
+		{memory.JobDream, "Bash", done + home + "-evil/2026-11-18-a.md", permission.Deny, ""},
+		{memory.JobDream, "Bash", done + plan + " > /tmp/x", permission.Deny, ""},
+		{memory.JobDream, "Bash", done + plan + "; rm -rf " + home, permission.Deny, ""},
+		{memory.JobDream, "Bash", done + escape, permission.Allow, escape},                                                // `*` spans `..`: the verb refuses
+		{memory.JobDream, "Bash", done + plan + " --plan /etc/2026-11-18-x.md", permission.Allow, "/etc/2026-11-18-x.md"}, // the last --plan wins
+		{memory.JobDream, "Write", plan, permission.Deny, ""},
+		{memory.JobUpdate, "Bash", done + plan, permission.Deny, ""},
+		{memory.JobUpdate, "Edit", plan, permission.Deny, ""},
 	}
 }
 
@@ -161,7 +161,7 @@ func TestJobScopePlanRules(t *testing.T) {
 	wide := memory.JobScope(memory.JobDream, work) // the denies survive a later, broader grant
 	wide.Bash, wide.Write = append(wide.Bash, "claude-code plan *"), append(wide.Write, home+"/**")
 	for _, call := range [][2]string{{"Bash", "claude-code plan task x --reopen --plan " + plan}, {"Bash", "claude-code plan tick --audit"}, {"Write", plan}} {
-		if got := permissions(wide).Decide(call[0], call[1]); got != agent.Deny {
+		if got := permissions(wide).Decide(call[0], call[1]); got != permission.Deny {
 			t.Errorf("widened Decide(%s, %q) = %v, want deny", call[0], call[1], got)
 		}
 	}
@@ -211,7 +211,7 @@ func TestDreamPlanPhaseKeepsProvenChangesOnly(t *testing.T) {
 		prompt = p
 		gate := permissions(memory.JobScope(memory.JobKind(ctx), cwd))
 		for _, c := range calls {
-			if gate.Decide("Bash", c.cmd) != agent.Allow {
+			if gate.Decide("Bash", c.cmd) != permission.Allow {
 				denied++
 			} else if err := c.do(); err != nil {
 				t.Error(err)
@@ -261,12 +261,12 @@ func TestJobScopeDreamOwnerVerbsRefusedInEveryShape(t *testing.T) {
 		"X=0 claude-code plan tick --audit", "env X=0 claude-code plan tick --audit",
 		"bash -c 'claude-code plan tick --audit'", "/usr/local/bin/claude-code plan tick --audit",
 	} {
-		if got := p.Decide("Bash", c); got != agent.Deny {
+		if got := p.Decide("Bash", c); got != permission.Deny {
 			t.Errorf("Decide(Bash, %q) = %v, want Deny", c, got)
 		}
 	}
 	for _, c := range []string{"claude-code memory review --candidate fc-x", "X=0 claude-code memory review --brief"} {
-		if got := p.Decide("Bash", c); got != agent.Allow {
+		if got := p.Decide("Bash", c); got != permission.Allow {
 			t.Errorf("Decide(Bash, %q) = %v, want Allow", c, got)
 		}
 	}

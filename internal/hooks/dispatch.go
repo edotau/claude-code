@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/quality"
 	"github.com/edotau/claude-code/internal/hooks/safety"
 	"github.com/edotau/claude-code/internal/hooks/wthook"
+	"github.com/edotau/claude-code/internal/hooktelemetry"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -89,7 +90,7 @@ func runBudgeted[T any](f func() T, budget time.Duration, wg *sync.WaitGroup) (w
 	wg.Go(func() {
 		defer func() {
 			if p := recover(); p != nil {
-				done <- outcome{dur: time.Since(start), err: &runError{fmt.Sprintf("panic: %v", p), core.OutcomePanic}}
+				done <- outcome{dur: time.Since(start), err: &runError{fmt.Sprintf("panic: %v", p), hooktelemetry.OutcomePanic}}
 			}
 		}()
 		done <- outcome{v: f(), dur: time.Since(start)}
@@ -107,7 +108,7 @@ func runBudgeted[T any](f func() T, budget time.Duration, wg *sync.WaitGroup) (w
 			case o := <-done: // a result landing at the deadline still counts
 				res <- o
 			default:
-				res <- outcome{dur: time.Since(start), err: &runError{fmt.Sprintf("overran its %s budget", budget), core.OutcomeOverrun}}
+				res <- outcome{dur: time.Since(start), err: &runError{fmt.Sprintf("overran its %s budget", budget), hooktelemetry.OutcomeOverrun}}
 			}
 		}
 	}()
@@ -124,11 +125,11 @@ func outcomeOf(b Bound, r core.Result, err error) string {
 	case errors.As(err, &re):
 		return re.outcome
 	case r.Decision == core.Block && !b.Spec.Blocks:
-		return core.OutcomeBlock
+		return hooktelemetry.OutcomeBlock
 	case r.Decision != core.Allow:
-		return core.OutcomeDeny
+		return hooktelemetry.OutcomeDeny
 	}
-	return core.OutcomeOK
+	return hooktelemetry.OutcomeOK
 }
 
 // tagOf is the rule and verdict word of a decision that fired; empty when the handler only allowed or failed.
@@ -159,7 +160,7 @@ type dispatchMerge struct {
 	ctx, sys, errs []string
 	firstErr       error
 	log            io.Writer
-	rows           []core.TelemetryRow
+	rows           []hooktelemetry.Row
 }
 
 func (m *dispatchMerge) fail(err error) {
@@ -266,7 +267,7 @@ func (m *dispatchMerge) apply(s step, event string) (gateFailed bool) {
 	default:
 		r, dur, err := s.wait()
 		rule, verdict := tagOf(s.b.Spec.Name, r, err)
-		m.rows = append(m.rows, core.TelemetryRow{Event: event, Module: s.b.Spec.Name, Outcome: outcomeOf(s.b, r, err), Dur: dur, Rule: rule, Verdict: verdict})
+		m.rows = append(m.rows, hooktelemetry.Row{Event: event, Module: s.b.Spec.Name, Outcome: outcomeOf(s.b, r, err), Dur: dur, Rule: rule, Verdict: verdict})
 		if err != nil {
 			return m.failed(s.b, err)
 		}
@@ -278,11 +279,11 @@ func (m *dispatchMerge) apply(s step, event string) (gateFailed bool) {
 // Dispatch runs every matching handler concurrently and merges results in declaration order; a failed gate blocks.
 func Dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.Result, error) {
 	res, rows, err := dispatch(bound, event, in, log)
-	core.RecordTelemetry(rows)
+	hooktelemetry.Record(rows)
 	return res, err
 }
 
-func dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.Result, []core.TelemetryRow, error) {
+func dispatch(bound []Bound, event string, in *core.Input, log io.Writer) (core.Result, []hooktelemetry.Row, error) {
 	m := &dispatchMerge{log: log}
 	var wg sync.WaitGroup
 	steps := plan(bound, event, in, &wg)
@@ -334,7 +335,7 @@ func runEvent(event, flag string, stdin io.Reader, stdout, stderr io.Writer) int
 	res, rows, _ := dispatch(chain(Bind(), in.Agent(), flag), event, in, stderr)
 	res = agentBashAllow(in, res)
 	code := core.Emit(in.Agent(), event, res, stdout, stderr)
-	core.RecordTelemetry(rows)
+	hooktelemetry.Record(rows)
 	return code
 }
 
@@ -473,7 +474,7 @@ func invokeDirect(name string, run core.Runner, stdin io.Reader, spec settings.E
 	switch {
 	case !errors.As(err, &re):
 		return o
-	case spec.Blocks && re.outcome == core.OutcomeOverrun:
+	case spec.Blocks && re.outcome == hooktelemetry.OutcomeOverrun:
 		return directOutcome{res: core.Result{Decision: core.Block, Reason: name + " timed out; blocked, retry the command", Floor: true}, err: err}
 	case spec.Blocks:
 		return directOutcome{parsed.Load(), core.Result{Decision: core.Block, Reason: fmt.Sprintf("%s did not complete (%v); blocked", name, err), Floor: true}, err}
@@ -528,11 +529,11 @@ func runModuleDirect(name string, run core.Runner, stdin io.Reader, stdout, stde
 	dur := time.Since(start)
 	code := emitDirect(name, o, stdout, &boundedHookWriter{w: stderr})
 	rule, verdict := tagOf(name, o.res, o.err)
-	row := core.TelemetryRow{Event: spec.Event, Module: name, Outcome: outcomeOf(Bound{Spec: spec}, o.res, o.err), Dur: dur, Rule: rule, Verdict: verdict}
+	row := hooktelemetry.Row{Event: spec.Event, Module: name, Outcome: outcomeOf(Bound{Spec: spec}, o.res, o.err), Dur: dur, Rule: rule, Verdict: verdict}
 	if o.in != nil {
 		row.Sid, row.Tool = o.in.SessionID, o.in.ToolName
 	}
-	core.RecordTelemetry([]core.TelemetryRow{row})
+	hooktelemetry.Record([]hooktelemetry.Row{row})
 	return code
 }
 

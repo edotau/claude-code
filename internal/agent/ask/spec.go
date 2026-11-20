@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/askspec"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -303,14 +304,14 @@ func (d dryDoc) print(format string, out io.Writer) int {
 }
 
 // permLine is the mode plus each rule list, as --permissions and --allow/--ask/--deny take them.
-func permLine(p agent.Permissions) string {
+func permLine(p permission.Permissions) string {
 	parts := []string{cmp.Or(p.Mode, "default")}
 	for _, l := range []struct {
 		name  string
-		rules []agent.Rule
+		rules []permission.Rule
 	}{{"allow", p.Allow}, {"ask", p.Ask}, {"deny", p.Deny}} {
 		if len(l.rules) > 0 {
-			parts = append(parts, l.name+" "+strings.Join(agent.RuleStrings(l.rules), ", "))
+			parts = append(parts, l.name+" "+strings.Join(permission.RuleStrings(l.rules), ", "))
 		}
 	}
 	return strings.Join(parts, "; ")

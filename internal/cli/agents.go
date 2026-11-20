@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/gateway/resolve"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/parallel"
@@ -395,7 +396,7 @@ func emitLabel(row hooks.LabelRow, runText, model, profile, task string) int {
 		fmt.Fprintln(os.Stderr, row.Note)
 	}
 	if row.Type == "gemini" {
-		googleLabelWarning(context.Background(), os.Stderr, row.Type, model, profile, task)
+		resolve.GoogleLabelWarning(context.Background(), os.Stderr, row.Type, model, profile, task)
 	}
 	if runText != "" {
 		fmt.Println(runText)

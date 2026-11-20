@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 
@@ -79,7 +80,7 @@ func TestServeLiveAppliesCheckRun(t *testing.T) {
 	if err := ServeLive(context.Background(), &rec); !errors.Is(err, errBuildStop) {
 		t.Fatalf("ServeLive = %v, want the fake Build's stop", err)
 	}
-	if !slices.Contains(got.Permissions.Allow, ReadOnlyAllow) || !slices.Contains(got.Permissions.Deny, ReadOnlyDeny[0]) {
+	if !slices.Contains(got.Permissions.Allow, permission.ReadOnlyAllow) || !slices.Contains(got.Permissions.Deny, permission.ReadOnlyDeny[0]) {
 		t.Errorf("Build got permissions %+v, want the read-only rules checkRun adds", got.Permissions)
 	}
 }

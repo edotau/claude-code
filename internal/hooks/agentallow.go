@@ -7,6 +7,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/permission"
 )
 
 // agentBashAllow allows an agent's blocked or asked call with a note; Floor blocks stay.
@@ -31,8 +32,8 @@ func agentAllowTool(tool string) bool {
 	case "bash":
 		return true
 	case "write", "edit", "multiedit":
-		var p agent.Permissions
-		return json.Unmarshal([]byte(os.Getenv(agent.DispatchPermissionsEnv)), &p) == nil && p.Mode == agent.PermAllow
+		var p permission.Permissions
+		return json.Unmarshal([]byte(os.Getenv(agent.DispatchPermissionsEnv)), &p) == nil && p.Mode == permission.PermAllow
 	}
 	return false
 }

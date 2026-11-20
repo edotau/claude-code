@@ -1,4 +1,4 @@
-package agent
+package permission
 
 import (
 	"path/filepath"

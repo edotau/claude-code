@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -108,7 +109,7 @@ func settingsView(t *testing.T, agentName string, req RunOptions) string {
 	}
 	p := s.Permissions
 	return fmt.Sprintf("effort=%s args=%v mode=%s allow=%v deny=%v extras=%v tools=%v workdir=%s model=%s headless=%v",
-		s.Effort, args, p.Mode, RuleStrings(p.Allow), RuleStrings(p.Deny), s.Record.Extras, s.Tools, s.WorkDir,
+		s.Effort, args, p.Mode, permission.RuleStrings(p.Allow), permission.RuleStrings(p.Deny), s.Record.Extras, s.Tools, s.WorkDir,
 		s.Target.Model, s.Headless)
 }
 
@@ -140,10 +141,10 @@ func TestResolveSettingsReadOnlyRules(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.Contains(st.Permissions.Allow, ReadOnlyAllow) || !slices.Contains(st.Permissions.Deny, ReadOnlyDeny[0]) {
+	if !slices.Contains(st.Permissions.Allow, permission.ReadOnlyAllow) || !slices.Contains(st.Permissions.Deny, permission.ReadOnlyDeny[0]) {
 		t.Errorf("read-only gemini resolved %+v, want the read-only rules", st.Permissions)
 	}
-	req.Permissions = withReadOnlyRules(SchemaFor("gemini").CLI.Caps, Permissions{})
+	req.Permissions = withReadOnlyRules(SchemaFor("gemini").CLI.Caps, permission.Permissions{})
 	again, _ := ResolveSettings("gemini", req, providers.Target{}, true)
 	if len(again.Permissions.Allow) != len(st.Permissions.Allow) || len(again.Permissions.Deny) != len(st.Permissions.Deny) {
 		t.Errorf("rules applied by checkRun were duplicated: %+v vs %+v", again.Permissions, st.Permissions)
@@ -165,7 +166,7 @@ func TestResolveSettingsRecordOverBuiltIn(t *testing.T) {
 func TestResolveSettingsFlagOverRecord(t *testing.T) {
 	vaulttest.Use(t)
 	storeCopilotRecord(t)
-	req := RunOptions{Effort: "high", Tools: true, WorkDir: "/w", Permissions: Permissions{Mode: "default", Allow: []Rule{{Tool: "Read"}}}}
+	req := RunOptions{Effort: "high", Tools: true, WorkDir: "/w", Permissions: permission.Permissions{Mode: "default", Allow: []permission.Rule{{Tool: "Read"}}}}
 	want := "effort=high args=[--banner] mode=default allow=[Read] deny=[Bash(rm:*)] extras=map[defaultPermissionMode:allow-all] " +
 		"tools=true workdir=/w model=m headless=true"
 	if got := settingsView(t, "copilot", req); got != want {

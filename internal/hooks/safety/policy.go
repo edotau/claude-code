@@ -11,15 +11,15 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
 // policy is the settings.json permissions safety-scan reads: Bash rules per tier, Edit/Write globs as written.
 type policy struct {
-	bashAllow, bashAsk, bashDeny []agent.Rule
+	bashAllow, bashAsk, bashDeny []permission.Rule
 	editAsk, editDeny            []string
 }
 
@@ -68,11 +68,11 @@ func parsePolicy(l settings.PermissionLists) policy {
 	var p policy
 	for _, set := range []struct {
 		in   []string
-		bash *[]agent.Rule
+		bash *[]permission.Rule
 		edit *[]string
 	}{{l.Allow, &p.bashAllow, nil}, {l.Ask, &p.bashAsk, &p.editAsk}, {l.Deny, &p.bashDeny, &p.editDeny}} {
 		for _, s := range set.in {
-			if r, err := agent.ParseRule(s); err == nil && r.Tool == "Bash" {
+			if r, err := permission.ParseRule(s); err == nil && r.Tool == "Bash" {
 				*set.bash = append(*set.bash, r)
 				continue
 			}
@@ -102,15 +102,15 @@ func editGlobs(row string) []string {
 }
 
 // settingsRuleHit is the first of rules a segment of cmd runs (wrappers, sh -c, substitutions seen through), else "".
-func settingsRuleHit(cmd, cwd string, rules []agent.Rule) string {
-	judge := func(rs []agent.Rule) bool {
-		return agent.Permissions{Mode: agent.PermAllow, Deny: rs}.DecideAt(cwd, "Bash", cmd) == agent.Deny
+func settingsRuleHit(cmd, cwd string, rules []permission.Rule) string {
+	judge := func(rs []permission.Rule) bool {
+		return permission.Permissions{Mode: permission.PermAllow, Deny: rs}.DecideAt(cwd, "Bash", cmd) == permission.Deny
 	}
 	if len(rules) == 0 || !judge(rules) {
 		return ""
 	}
 	for _, r := range rules {
-		if judge([]agent.Rule{r}) {
+		if judge([]permission.Rule{r}) {
 			return r.String()
 		}
 	}
@@ -118,17 +118,17 @@ func settingsRuleHit(cmd, cwd string, rules []agent.Rule) string {
 }
 
 // settingsAllowed is Claude's allow test on Bash rules: bare Bash or Bash(*) allows all, else every segment must hit.
-func settingsAllowed(cmd, cwd string, rules []agent.Rule) bool {
-	rules = slices.DeleteFunc(slices.Clone(rules), func(r agent.Rule) bool { return r.Tool != "Bash" })
-	if slices.ContainsFunc(rules, func(r agent.Rule) bool { return r.Arg == "" || r.Arg == "*" }) {
+func settingsAllowed(cmd, cwd string, rules []permission.Rule) bool {
+	rules = slices.DeleteFunc(slices.Clone(rules), func(r permission.Rule) bool { return r.Tool != "Bash" })
+	if slices.ContainsFunc(rules, func(r permission.Rule) bool { return r.Arg == "" || r.Arg == "*" }) {
 		return true
 	}
-	return len(rules) > 0 && agent.Permissions{Mode: agent.PermPlan, Allow: rules}.DecideAt(cwd, "Bash", cmd) == agent.Allow
+	return len(rules) > 0 && permission.Permissions{Mode: permission.PermPlan, Allow: rules}.DecideAt(cwd, "Bash", cmd) == permission.Allow
 }
 
 // sudoDenied reports a settings deny row aimed at sudo (D2); read raw, since DecideAt unwraps sudo as a wrapper.
 func sudoDenied() bool {
-	return slices.ContainsFunc(livePolicy().bashDeny, func(r agent.Rule) bool {
+	return slices.ContainsFunc(livePolicy().bashDeny, func(r permission.Rule) bool {
 		a := strings.TrimSpace(r.Arg)
 		return r.Tool == "Bash" && (a == "sudo" || a == "sudo:*" || a == "sudo *")
 	})
@@ -144,11 +144,11 @@ func dispatchAsk(in *core.Input, h askHit) (core.Decision, string) {
 		return core.Block, core.SafetyMessage(in, core.Block, h.what, h.rule, "No dispatch policy decides it."+noAskRoute+
 			" Or re-dispatch with --allow '"+h.rule+"' (claude-code agents ask).")
 	}
-	if (agent.Permissions{Mode: agent.PermAllow, Deny: p.Deny}).DecideAt(in.CWD, h.tool, h.arg) == agent.Deny {
+	if (permission.Permissions{Mode: permission.PermAllow, Deny: p.Deny}).DecideAt(in.CWD, h.tool, h.arg) == permission.Deny {
 		return core.Block, core.SafetyMessage(in, core.Block, h.what+"; the dispatch's --deny refuses it", h.rule, ownerRoute)
 	}
 	if h.tool == "Bash" && settingsAllowed(h.arg, in.CWD, p.Allow) ||
-		h.tool != "Bash" && (agent.Permissions{Mode: agent.PermPlan, Allow: p.Allow}).DecideAt(in.CWD, h.tool, h.arg) == agent.Allow {
+		h.tool != "Bash" && (permission.Permissions{Mode: permission.PermPlan, Allow: p.Allow}).DecideAt(in.CWD, h.tool, h.arg) == permission.Allow {
 		return core.Allow, ""
 	}
 	return core.Block, core.SafetyMessage(in, core.Block, h.what, h.rule,

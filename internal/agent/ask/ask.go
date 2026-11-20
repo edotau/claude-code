@@ -8,15 +8,14 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/signal"
 	"slices"
 	"strings"
-	"syscall"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/network/remote"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
@@ -77,7 +76,7 @@ type askRun struct {
 	jobRec      *agent.Record
 	prompt      string
 	state       *askState
-	perms       agent.Permissions
+	perms       permission.Permissions
 	typed       string // --profile as typed, kept for the --dry-run argv: resolveLead clears f.profile
 	lead        string // profile a routed run leads with (--profile session, --provider, or --profile with --fallback)
 	swap        bool   // --fallback was typed and allows another model: a typed model may then be swapped
@@ -459,7 +458,7 @@ func recordConfinement(own, rec string) (string, error) {
 // parsePerms validates --allow/--ask/--deny/--permissions into r.perms; it reruns after a --retry record fills them.
 func (r *askRun) parsePerms() (int, bool) {
 	f := r.f
-	p, err := agent.ParsePermissions(f.permMode, f.permAllow, f.permAsk, f.permDeny)
+	p, err := permission.ParsePermissions(f.permMode, f.permAllow, f.permAsk, f.permDeny)
 	if err != nil {
 		return r.fail(err, 2)
 	}
@@ -628,44 +627,6 @@ func (r *askRun) askState() *askState {
 		OutputSchema: &f.outputSchema, Persona: &r.persona, Host: &f.host, Fallback: &f.fallback,
 		PermMode: &f.permMode, PermAllow: &f.permAllow, PermAsk: &f.permAsk, PermDeny: &f.permDeny,
 		Native: &f.native, Pack: &f.pack, Coworker: &r.recCoworker, rubric: &f.rubric, env: &f.env, lead: &r.lead}
-}
-
-// execute starts a live session or runs the one task.
-func (r *askRun) execute() int {
-	f := r.f
-	if f.live {
-		return startLive(r.ctx, r.state, r.perms, f.name, f.as, f.format)
-	}
-	if r.jobRec != nil && r.jobRec.Live {
-		return agent.RunHolder(r.jobRec, newClient().Launcher)
-	}
-	framed, prompt, err := r.readPrompt()
-	if err != nil {
-		return failAsk(f.format, f.name, err)
-	}
-	if strings.TrimSpace(prompt) == "" {
-		r.fs.Usage()
-		printAskFailure(f.format, f.name, errors.New("no task: give a prompt, or \"-\" to read stdin"))
-		return 2
-	}
-	join := func() string { return prompt }
-	if framed == nil && !f.dryRun {
-		join = r.startRecall(prompt) // overlaps the setup below; joined before request reads the brief
-	}
-	ctx, stop := signal.NotifyContext(r.ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP) // a kill finalizes the record
-	defer stop()
-	if framed != nil { // the remote end of `ask --host`: stdin closing means the local side cancelled or vanished
-		go func() { _, _ = io.Copy(io.Discard, framed); stop() }()
-	}
-	f.timeout = askTimeout(r.fs, f.timeout, f.retry, f.job, f.tools)
-	warnAskMemory(r.ag, f.enableMemory)
-	f.debugFile = absDebugFile(f.debugFile)
-	prompt = join()
-	req, run := r.request(prompt), r.armRun()
-	if run != nil {
-		req = run.probe(req)
-	}
-	return askPrepareAndRun(r.dryCtx(ctx, prompt), r.fs, req, r.jobRec, r.ov, f.env, f.keepEnv, f.as, f.format, f.save, f.name, f.background, f.native, run, r.out)
 }
 
 // request is batchBase plus the single-task fields.

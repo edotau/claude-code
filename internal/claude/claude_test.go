@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent/agenttest"
 
@@ -28,7 +29,6 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 const claudeFixture = `{"type":"system","subtype":"init","session_id":"sess-1","model":"claude-opus-5","tools":["Bash"]}
@@ -267,9 +267,9 @@ func TestParseClaudeStreamErrorResultKeepsAssistantText(t *testing.T) {
 }
 
 func TestClaudeArgsPermissions(t *testing.T) {
-	rules := func(s ...string) (r []agent.Rule) {
+	rules := func(s ...string) (r []permission.Rule) {
 		for _, x := range s {
-			p, err := agent.ParseRule(x)
+			p, err := permission.ParseRule(x)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -286,15 +286,15 @@ func TestClaudeArgsPermissions(t *testing.T) {
 		{"empty keeps today", agent.RunOptions{Tools: true}, tail},
 		{"empty autonomous keeps bypass", agent.RunOptions{Tools: true, Autonomous: true}, append([]string{"--permission-mode", "bypassPermissions"}, tail...)},
 		{"empty no tools", agent.RunOptions{}, []string{"--tools", "", "--setting-sources", ""}},
-		{"allow", agent.RunOptions{Tools: true, Permissions: agent.Permissions{Allow: rules("Bash(git *)", "Edit")}},
+		{"allow", agent.RunOptions{Tools: true, Permissions: permission.Permissions{Allow: rules("Bash(git *)", "Edit")}},
 			append([]string{"--allowedTools", "Bash(git *)", "Edit", "--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
-		{"deny with auto", agent.RunOptions{Tools: true, Permissions: agent.Permissions{Mode: "auto", Deny: rules("Bash(rm:*)")}},
+		{"deny with auto", agent.RunOptions{Tools: true, Permissions: permission.Permissions{Mode: "auto", Deny: rules("Bash(rm:*)")}},
 			append([]string{"--disallowedTools", "Bash(rm:*)", "--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
-		{"ask", agent.RunOptions{Tools: true, Permissions: agent.Permissions{Ask: rules("Write")}},
+		{"ask", agent.RunOptions{Tools: true, Permissions: permission.Permissions{Ask: rules("Write")}},
 			append([]string{"--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
-		{"plan denies writes, sets no mode", agent.RunOptions{Tools: true, Permissions: agent.Permissions{Mode: "plan", Ask: rules("Write")}},
+		{"plan denies writes, sets no mode", agent.RunOptions{Tools: true, Permissions: permission.Permissions{Mode: "plan", Ask: rules("Write")}},
 			append([]string{"--disallowedTools", "Edit", "Write", "NotebookEdit", "Bash", "--permission-prompts", "none"}, tail...)},
-		{"policy replaces bypass", agent.RunOptions{Tools: true, Autonomous: true, Permissions: agent.Permissions{Mode: "auto"}},
+		{"policy replaces bypass", agent.RunOptions{Tools: true, Autonomous: true, Permissions: permission.Permissions{Mode: "auto"}},
 			append([]string{"--permission-mode", "auto", "--permission-prompts", "none"}, tail...)},
 	}
 	for _, c := range cases {
@@ -302,7 +302,7 @@ func TestClaudeArgsPermissions(t *testing.T) {
 			t.Errorf("%s:\n got %q\nwant %q", c.name, got, c.want)
 		}
 	}
-	err := refuseUnmappedDeny(agent.Permissions{Deny: []agent.Rule{{Arg: "x"}}})
+	err := refuseUnmappedDeny(permission.Permissions{Deny: []permission.Rule{{Arg: "x"}}})
 	var ae *retry.Error
 	if !errors.As(err, &ae) || ae.Kind != retry.KindFatal || !strings.Contains(err.Error(), "(x)") {
 		t.Errorf("nameless deny rule must be refused naming it, got %v", err)
@@ -312,7 +312,7 @@ func TestClaudeArgsPermissions(t *testing.T) {
 // Auto mode's judge calls a fixed Anthropic model a Databricks endpoint does not serve
 func TestClaudeArgsPermissionModeByProvider(t *testing.T) {
 	hermetic(t, `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
-	allow := agent.Permissions{Allow: []agent.Rule{{Tool: "Bash"}}}
+	allow := permission.Permissions{Allow: []permission.Rule{{Tool: "Bash"}}}
 	for _, c := range []struct{ profile, want, not string }{{"qa", "dontAsk", "auto"}, {"ultra", "auto", "dontAsk"}} {
 		req := agent.RunOptions{Tools: true, Provider: c.profile, Permissions: allow}
 		got := strings.Join(renderedArgs(t, req, launchTarget(context.Background(), req)), " ")
@@ -614,68 +614,6 @@ func TestClaudeLoginProbeTriState(t *testing.T) {
 			}
 		})
 	}
-}
-
-func TestClaudeLoginProbeNativeInstall(t *testing.T) {
-	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
-	resetClaudeProbe()
-	t.Cleanup(resetClaudeProbe)
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv("PATH", t.TempDir())
-	versions := filepath.Join(os.Getenv("HOME"), ".local", "share", "claude", "versions")
-	if err := os.MkdirAll(versions, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	script := "#!/bin/sh\n" + `[ "$#" -eq 2 ] && [ "$1" = auth ] && [ "$2" = status ] || exit 1
- echo '{"loggedIn":true,"subscriptionType":"max"}'
-`
-	if err := os.WriteFile(filepath.Join(versions, "2.0.14"), []byte(script), 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := claudeAgent.Available(); err != nil {
-		t.Fatalf("native install unavailable: %v", err)
-	}
-	loggedIn, plan, err := claudeLoginProbe()
-	if err != nil || !loggedIn || plan != " (max)" {
-		t.Fatalf("native auth probe = %v, %q, %v; want true, max, nil", loggedIn, plan, err)
-	}
-}
-
-// `claude auth status` keeps claude's own login but no registry credential and no other agent's login.
-func TestClaudeLoginProbeScrubsCredentials(t *testing.T) {
-	resetClaudeProbe()
-	t.Cleanup(resetClaudeProbe)
-	vaulttest.UseKeyring(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks",`+
-		`"host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
-	t.Setenv("HOME", t.TempDir())
-	t.Setenv("PATH", t.TempDir())
-	for _, k := range []string{"DEV_WS_TOKEN", "OPENCODE_API_KEY", "GH_TOKEN", "OPENAI_API_KEY", "CLAUDE_CODE_OAUTH_TOKEN"} {
-		t.Setenv(k, "SENTINEL")
-	}
-	dump := filepath.Join(t.TempDir(), "env")
-	pathstest.FakeNativeClaude(t, "/usr/bin/env > "+dump+"\necho '{\"loggedIn\":true,\"subscriptionType\":\"max\"}'")
-	if in, plan, err := claudeLoginProbe(); !in || plan != " (max)" || err != nil {
-		t.Fatalf("probe = %v %q %v; want logged in (max)", in, plan, err)
-	}
-	env, err := os.ReadFile(dump)
-	if err != nil {
-		t.Fatal(err)
-	}
-	for _, k := range []string{"DEV_WS_TOKEN", "OPENCODE_API_KEY", "GH_TOKEN", "OPENAI_API_KEY"} {
-		if strings.Contains("\n"+string(env), "\n"+k+"=") {
-			t.Errorf("claude auth status inherited %s", k)
-		}
-	}
-	if !strings.Contains(string(env), "CLAUDE_CODE_OAUTH_TOKEN=SENTINEL") {
-		t.Error("claude auth status lost its own login CLAUDE_CODE_OAUTH_TOKEN")
-	}
-}
-
-// resetClaudeProbe drops the memo so the next claudeLoginProbe runs the binary again.
-func resetClaudeProbe() {
-	claudeProbeMemo.Drop()
 }
 
 // fakeLiveClaude is a shell claude that holds stdin open and answers each stream-json user turn with a result.

@@ -11,11 +11,11 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/shell"
+	"github.com/edotau/claude-code/internal/worktree"
 )
 
 // rewriteTimeout bounds the guard's git and process calls; safety-scan's budget is 5s.
@@ -187,7 +187,7 @@ func assessRewrite(in *core.Input, target, verb string, rng []string) (rewriteRi
 	if n == 0 {
 		return rewriteRisk{}, false // not a repo, a non-commit operand or an empty range: git rewrites nothing
 	}
-	_, branch, nested := wthook.CheckoutOf(ctx, top)
+	_, branch, nested := worktree.CheckoutPeersInfo(ctx, top)
 	if verb == "rebase" {
 		ref := rng[0]
 		if _, tip, ok := strings.Cut(ref, ".."); ok {
@@ -249,9 +249,9 @@ func shareReasons(ctx context.Context, in *core.Input, top string, linked bool, 
 	if top == paths.Real(paths.ConfigDir()) {
 		reasons = append(reasons, "it is the live config tree "+top)
 	}
-	procs, err := wthook.PeersOf(ctx, top, nested)
+	procs, err := worktree.PeersOf(ctx, top, nested)
 	for _, p := range procs {
-		reasons = append(reasons, wthook.SessionLabel(p)+" works in it")
+		reasons = append(reasons, worktree.SessionLabel(p)+" works in it")
 	}
 	if linked {
 		return reasons, err

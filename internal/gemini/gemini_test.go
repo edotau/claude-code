@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/agenttest"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -101,7 +102,7 @@ func agyWant(in []string, workDir string) []string {
 func TestAgyArgvSettings(t *testing.T) {
 	stream := []string{"--input-format", "stream-json", "--output-format", "stream-json"}
 	settings := `{"permissions":{"deny":["command(rm -rf /)","command(rm -rf ~)","write_file(/w/x.txt)","edit_file(/w/x.txt)"]}}`
-	deny := agent.Permissions{Deny: []agent.Rule{{Tool: "Write", Arg: "x.txt"}}}
+	deny := permission.Permissions{Deny: []permission.Rule{{Tool: "Write", Arg: "x.txt"}}}
 	high := &vault.AgentRecord{Effort: "high"}
 	for _, c := range []struct {
 		name         string
@@ -329,30 +330,6 @@ func TestAgyGatewayArgNonGeminiNeverEmpty(t *testing.T) {
 	base, arg, err := agyGatewayArg("claude-opus-4-1")
 	if err != nil || base == "" || arg == "" {
 		t.Fatalf("agyGatewayArg(non-Gemini) = (%q, %q, %v), want a non-empty Gemini base", base, arg, err)
-	}
-}
-
-// An unreadable login marker is an error, not "not signed in", and the probe reports it.
-func TestGeminiLoginUnreadableMarkerIsError(t *testing.T) {
-	home := t.TempDir()
-	t.Setenv("HOME", home)
-	dir := filepath.Join(home, ".gemini", "antigravity-cli")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(dir, "antigravity-oauth-token"), []byte("x"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Chmod(dir, 0); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
-	if ok, err := geminiLoginProbe(); ok || err == nil {
-		t.Fatalf("geminiLoginProbe() = (%v, %v), want (false, error)", ok, err)
-	}
-	_, _, err := geminiLogin("gemini-3.8-flash", nil)
-	if err == nil || !strings.Contains(err.Error(), "unreadable") {
-		t.Fatalf("geminiLogin err = %v, want an unreadable-marker error", err)
 	}
 }
 
@@ -771,7 +748,7 @@ func TestAgyResumeReloadsPermissions(t *testing.T) {
 	for _, deny := range []string{"a.txt", "b.txt"} {
 		agyFixture(t, nil)
 		req := agent.RunOptions{Prompt: "hi", Tools: true, WorkDir: "/w", SessionID: "conv-1",
-			Permissions: agent.Permissions{Deny: []agent.Rule{{Tool: "Write", Arg: deny}}}}
+			Permissions: permission.Permissions{Deny: []permission.Rule{{Tool: "Write", Arg: deny}}}}
 		p, err := agent.PrepareCLI(context.Background(), "gemini", req)
 		if err != nil {
 			t.Fatal(err)

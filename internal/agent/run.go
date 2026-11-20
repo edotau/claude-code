@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
@@ -424,14 +425,14 @@ func checkRun(r Engine, req RunOptions) (RunOptions, error) {
 	if err != nil {
 		return req, err
 	}
-	req.Permissions, _ = resolvePermissions(def, req.Permissions)
+	req.Permissions, _ = permission.Resolve(def, req.Permissions)
 	vctx := valuesContext(context.Background(), req.Values)
 	if req.Permissions, err = inheritPermissionsContext(vctx, req.Permissions); err != nil {
 		return req, err
 	}
 	// the records, unlike the policy env, survive a leaf clearing HARNESS_DISPATCH_PERMISSIONS
 	outer, readOnly := ancestorPolicy(proc.Value(vctx, proc.DispatchIDEnv))
-	req.Permissions.Deny, req.Permissions.Ask = union(req.Permissions.Deny, outer.Deny), union(req.Permissions.Ask, outer.Ask)
+	req.Permissions.Deny, req.Permissions.Ask = permission.Union(req.Permissions.Deny, outer.Deny), permission.Union(req.Permissions.Ask, outer.Ask)
 	req.Permissions.Mode = cmp.Or(outer.Mode, req.Permissions.Mode)
 	req.ReadOnly = req.ReadOnly || readOnly && req.Tools && !req.Maintenance
 	if err = refuseToollessEdit(req); err != nil {
@@ -584,27 +585,27 @@ type RunOptions struct {
 	BudgetCredits                                       *int        `json:"-"`
 	Values                                              proc.Values `json:"-"`
 	Prompt, Model, Provider, Effort, WorkDir, SessionID string
-	Lead                                                string      `json:",omitempty"` // lead profile for the pick; "" = its pin leads
-	Attach                                              []string    // absolute file paths, task text precedes them
-	KeepEnv                                             []string    // names the credential scrub must not drop, from --keep-env
-	Tools, Autonomous, EnableMemory, Direct             bool        // Direct: agent keeps the provider route, skips the router
-	Fleet                                               bool        // copilot only: run in fleet mode (parallel subagents)
-	NoTools                                             bool        // claude only: answer from the provider directly, no claude process
-	ReadOnly                                            bool        // tools may read but never write, run shell or commit
-	NoPersist                                           bool        // claude, codex: no session persistence
-	SafeMode                                            bool        // claude, codex, opencode: no hooks/plugins/customizations
-	DebugFile                                           string      // claude, gemini: debug log at <path>
-	SystemPrompt, AppendSystemPrompt                    string      // replace / extend the system prompt; native on claude, codex, copilot, opencode, emulated elsewhere
-	Env                                                 []string    `json:"-"`                   // KEY=VALUE for the child, layered last; never logged
-	EnvNames                                            []string    `json:"env_names,omitempty"` // the names of Env, all the dispatch log keeps
-	Unset                                               []string    `json:"-"`                   // names dropped from the child's inherited env (an overlay's unset); never logged
-	OverlaySet                                          []string    `json:"-"`                   // names an overlay file sets; refused where the route sets them
-	OverlayUnset                                        []string    `json:"-"`                   // names an overlay file unsets; refused like OverlaySet
-	OutputSchema                                        string      // JSON Schema text the answer must satisfy
-	Permissions                                         Permissions `json:"permissions,omitzero"` // allow/ask/deny rules and mode; zero value = no policy
-	Identity                                            string      `json:"identity,omitempty"`   // --as user|sp, claude only: the identity a live holder applies
-	Persona                                             *Schema     `json:"persona,omitempty"`    // claude: native agent definition; others: emulated
-	Pack                                                *pack.Spec  `json:"pack,omitempty"`       // inline workspace files into Prompt at Prepare; the record keeps the spec, not the bytes
+	Lead                                                string                 `json:",omitempty"` // lead profile for the pick; "" = its pin leads
+	Attach                                              []string               // absolute file paths, task text precedes them
+	KeepEnv                                             []string               // names the credential scrub must not drop, from --keep-env
+	Tools, Autonomous, EnableMemory, Direct             bool                   // Direct: agent keeps the provider route, skips the router
+	Fleet                                               bool                   // copilot only: run in fleet mode (parallel subagents)
+	NoTools                                             bool                   // claude only: answer from the provider directly, no claude process
+	ReadOnly                                            bool                   // tools may read but never write, run shell or commit
+	NoPersist                                           bool                   // claude, codex: no session persistence
+	SafeMode                                            bool                   // claude, codex, opencode: no hooks/plugins/customizations
+	DebugFile                                           string                 // claude, gemini: debug log at <path>
+	SystemPrompt, AppendSystemPrompt                    string                 // replace / extend the system prompt; native on claude, codex, copilot, opencode, emulated elsewhere
+	Env                                                 []string               `json:"-"`                   // KEY=VALUE for the child, layered last; never logged
+	EnvNames                                            []string               `json:"env_names,omitempty"` // the names of Env, all the dispatch log keeps
+	Unset                                               []string               `json:"-"`                   // names dropped from the child's inherited env (an overlay's unset); never logged
+	OverlaySet                                          []string               `json:"-"`                   // names an overlay file sets; refused where the route sets them
+	OverlayUnset                                        []string               `json:"-"`                   // names an overlay file unsets; refused like OverlaySet
+	OutputSchema                                        string                 // JSON Schema text the answer must satisfy
+	Permissions                                         permission.Permissions `json:"permissions,omitzero"` // allow/ask/deny rules and mode; zero value = no policy
+	Identity                                            string                 `json:"identity,omitempty"`   // --as user|sp, claude only: the identity a live holder applies
+	Persona                                             *Schema                `json:"persona,omitempty"`    // claude: native agent definition; others: emulated
+	Pack                                                *pack.Spec             `json:"pack,omitempty"`       // inline workspace files into Prompt at Prepare; the record keeps the spec, not the bytes
 	Timeout                                             time.Duration
 	Launcher                                            Launcher           `json:"-"` // claude only: resolves the launch plan
 	Agent                                               string             `json:"-"`
@@ -621,7 +622,7 @@ type RunOptions struct {
 	AutoArm                                             bool               `json:"auto_arm,omitempty"` // the workspace was an auto pick: a --job child may move on a 429
 	Maintenance                                         bool               `json:"-"`                  // trusted memory job: keeps its own write tools despite an inherited read-only
 	DataPrompt                                          bool               `json:"-"`                  // the prompt embeds transcript data: the gate skips its Workflow-brief scan
-	Gate                                                bool               `json:"-"`                  // claude: bypass its prompts, Permissions enforced by the injected permission-gate
+	Gate                                                bool               `json:"-"`                  // claude: bypass its prompts, permission.Permissions enforced by the injected permission-gate
 
 	// YieldFallback lets workspace retry handle a failed dispatch before the requested chain continues.
 	YieldFallback func(wire.Result, error) bool `json:"-"`

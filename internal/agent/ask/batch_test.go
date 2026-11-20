@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/route"
 )
 
@@ -133,7 +134,7 @@ func assertReplayedLeg(t *testing.T, failed agent.Record, got agent.RunOptions) 
 	if got.SessionID != failed.SessionID || got.Prompt != failed.Request.Prompt || got.Provider != failed.Request.Provider || got.Lead != failed.Request.Lead {
 		t.Fatalf("replay lost task/session/route: %+v", got)
 	}
-	if got.Permissions.Decide("Bash", "make lint") != agent.Allow || got.Permissions.Decide("Bash", "rm x") != agent.Deny {
+	if got.Permissions.Decide("Bash", "make lint") != permission.Allow || got.Permissions.Decide("Bash", "rm x") != permission.Deny {
 		t.Fatalf("replay lost exact repair or deny: %+v", got.Permissions)
 	}
 }

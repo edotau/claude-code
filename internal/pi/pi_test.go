@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -119,8 +120,8 @@ func TestToolsArgv(t *testing.T) {
 
 // The guard registers exactly these tools, and Pi has no builtin one: each deny kind removes what the gate cannot judge.
 func TestGuardTools(t *testing.T) {
-	deny := func(tool string) agent.Permissions {
-		return agent.Permissions{Deny: []agent.Rule{{Tool: tool, Arg: "x"}}}
+	deny := func(tool string) permission.Permissions {
+		return permission.Permissions{Deny: []permission.Rule{{Tool: tool, Arg: "x"}}}
 	}
 	all := "read,bash,edit,write,grep,find,ls"
 	for name, c := range map[string]struct {
@@ -129,7 +130,7 @@ func TestGuardTools(t *testing.T) {
 	}{
 		"bare":      {agent.RunOptions{Tools: true}, all},
 		"read-only": {agent.RunOptions{Tools: true, ReadOnly: true}, "read,grep,find,ls"},
-		"plan mode": {agent.RunOptions{Tools: true, Permissions: agent.Permissions{Mode: agent.PermPlan}}, "read,grep,find,ls"},
+		"plan mode": {agent.RunOptions{Tools: true, Permissions: permission.Permissions{Mode: permission.PermPlan}}, "read,grep,find,ls"},
 		"bash deny": {agent.RunOptions{Tools: true, Permissions: deny("Bash")}, all},
 		"edit deny": {agent.RunOptions{Tools: true, Permissions: deny("Edit")}, "read,edit,write,grep,find,ls"},
 		"read deny": {agent.RunOptions{Tools: true, Permissions: deny("Read")}, "read,edit,write,find,ls"},
@@ -202,13 +203,13 @@ func TestGuardWatchKillsWhenNotReady(t *testing.T) {
 }
 
 func TestRefuseRequest(t *testing.T) {
-	deny := agent.Permissions{Deny: []agent.Rule{{Tool: "Edit", Arg: "secret.txt"}}, Allow: []agent.Rule{{Tool: "Bash", Arg: "ls"}}, Mode: agent.PermPlan}
+	deny := permission.Permissions{Deny: []permission.Rule{{Tool: "Edit", Arg: "secret.txt"}}, Allow: []permission.Rule{{Tool: "Bash", Arg: "ls"}}, Mode: permission.PermPlan}
 	for name, c := range map[string]struct {
 		req  agent.RunOptions
 		want string
 	}{
 		"deny, allow, plan": {agent.RunOptions{Tools: true, Permissions: deny}, ""},
-		"ask rule":          {agent.RunOptions{Tools: true, Permissions: agent.Permissions{Ask: []agent.Rule{{Tool: "Bash", Arg: "git push"}}}}, "ask rule Bash(git push)"},
+		"ask rule":          {agent.RunOptions{Tools: true, Permissions: permission.Permissions{Ask: []permission.Rule{{Tool: "Bash", Arg: "git push"}}}}, "ask rule Bash(git push)"},
 		"nonce env":         {agent.RunOptions{Env: []string{"HARNESS_PI_GUARD_NONCE=x"}}, "HARNESS_PI_GUARD_NONCE"},
 		"agent dir env":     {agent.RunOptions{Env: []string{agentDirEnv + "=/x"}}, agentDirEnv},
 		"hook skip env":     {agent.RunOptions{Env: []string{"HARNESS_HOOK_SKIP=permission-gate"}}, "HARNESS_HOOK_SKIP"},
@@ -252,8 +253,8 @@ func TestRowRegistered(t *testing.T) {
 	if !ok || s.CLI.Binary != "pi" || c.ReadOnly != agent.Native || c.Permissions != agent.Native || c.WorkDir != agent.Emulated {
 		t.Errorf("pi row = %+v (found %v)", s.CLI, ok)
 	}
-	for _, req := range []agent.RunOptions{{Tools: true, Permissions: agent.Permissions{Deny: []agent.Rule{{Tool: "Edit", Arg: "x"}}}},
-		{Tools: true, Permissions: agent.Permissions{Mode: agent.PermPlan}}} {
+	for _, req := range []agent.RunOptions{{Tools: true, Permissions: permission.Permissions{Deny: []permission.Rule{{Tool: "Edit", Arg: "x"}}}},
+		{Tools: true, Permissions: permission.Permissions{Mode: permission.PermPlan}}} {
 		if err := agent.CheckCapabilities("pi", req); err != nil {
 			t.Errorf("pi refuses a rule its guard enforces: %v", err)
 		}
