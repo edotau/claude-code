@@ -608,6 +608,9 @@ func loadRecord(id string, list func(dir string) ([]string, error)) (Record, err
 	return readRecord(filepath.Join(dir, match[0]))
 }
 
+// sameAgentRow reports a run on the asked agent, even after a move to another of its rows (Fallback is the asked name).
+func (r Record) sameAgentRow() bool { return r.RanAs == "" || r.RanAs == r.Fallback }
+
 // SessionModel is the newest dispatch's `<profile>:<served model>` (bare model with no profile); "" when unknown.
 func SessionModel(session string) string {
 	if session == "" {
@@ -630,7 +633,7 @@ func SessionModel(session string) string {
 			return true
 		}
 		model = m
-		if profile != "" && r.RanAs == "" {
+		if profile != "" && r.sameAgentRow() {
 			model = profile + ":" + m
 		}
 		return false
