@@ -22,7 +22,7 @@ type teeReadCloser struct {
 }
 
 // ledgerUsage is the token counts scraped from a provider's raw bytes for the usage ledger.
-type ledgerUsage struct{ input, output, cacheRead int }
+type ledgerUsage struct{ input, output, cacheRead, cacheWrite, cacheWrite1h int }
 
 // usageBlockRE matches one `"usage":{...}` object with at most one nested level (prompt_tokens_details).
 var usageBlockRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`"usage"\s*:\s*\{(?:[^{}]|\{[^{}]*\})*\}`) })
@@ -72,14 +72,20 @@ func scrapeAnthropicUsage(body []byte) ledgerUsage {
 	var u ledgerUsage
 	for _, m := range usageBlockRE().FindAll(body, -1) {
 		var raw struct {
-			Input     int `json:"input_tokens"`
-			Output    int `json:"output_tokens"`
-			CacheRead int `json:"cache_read_input_tokens"`
+			Input      int `json:"input_tokens"`
+			Output     int `json:"output_tokens"`
+			CacheRead  int `json:"cache_read_input_tokens"`
+			CacheWrite int `json:"cache_creation_input_tokens"`
+			Creation   struct {
+				OneHour int `json:"ephemeral_1h_input_tokens"`
+			} `json:"cache_creation"`
 		}
 		if json.Unmarshal(wrapUsage(m), &raw) == nil {
 			u.input = max(u.input, raw.Input)
 			u.output = max(u.output, raw.Output)
 			u.cacheRead = max(u.cacheRead, raw.CacheRead)
+			u.cacheWrite = max(u.cacheWrite, raw.CacheWrite)
+			u.cacheWrite1h = max(u.cacheWrite1h, raw.Creation.OneHour)
 		}
 	}
 	return u
@@ -90,7 +96,7 @@ func metered(p *providers.Provider) bool { return p.Auth.Method() != providers.A
 
 // logLedgerUsage records one metered request to the usage ledger; best-effort, zero counts skipped.
 func logLedgerUsage(in *http.Request, p *providers.Provider, model string, u ledgerUsage) {
-	if u.input == 0 && u.output == 0 && u.cacheRead == 0 {
+	if u.input == 0 && u.output == 0 && u.cacheRead == 0 && u.cacheWrite == 0 {
 		return
 	}
 	session := in.Header.Get("X-Claude-Code-Session-Id")
@@ -98,5 +104,6 @@ func logLedgerUsage(in *http.Request, p *providers.Provider, model string, u led
 		Ts: time.Now(), Profile: p.Name, Provider: p.Provider, Model: model,
 		Agent: in.Header.Get(proxy.AgentHeader), Session: session,
 		Input: u.input, Output: u.output, CacheRead: u.cacheRead,
+		CacheWrite: u.cacheWrite, CacheWrite1h: u.cacheWrite1h,
 	})
 }

@@ -472,7 +472,7 @@ func aggregateLedger(entries []tokenledger.Entry, now time.Time) []ledgerAgg {
 			byKey[k] = a
 			order = append(order, k)
 		}
-		total := e.Input + e.Output + e.CacheRead
+		total := e.Input + e.Output + e.CacheRead + e.CacheWrite
 		a.AllTime += total
 		if !e.Ts.Before(cutoff30) {
 			a.Last30d += total

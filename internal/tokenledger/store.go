@@ -25,6 +25,9 @@ type Entry struct {
 	Input     int       `json:"input"`
 	Output    int       `json:"output"`
 	CacheRead int       `json:"cache_read"`
+	// CacheWrite is every cache-write token (5m and 1h); CacheWrite1h is the 1h part, 0 when unsplit.
+	CacheWrite   int `json:"cache_write,omitempty"`
+	CacheWrite1h int `json:"cache_write_1h,omitempty"`
 }
 
 // Path is <config dir>/state/usage/ledger.jsonl.

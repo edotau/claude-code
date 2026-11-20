@@ -190,3 +190,16 @@ func TestScrapeLastUsageSubtractsCachedForBothDialects(t *testing.T) {
 		t.Errorf("responses = %+v, cached > input must not be subtracted", resp)
 	}
 }
+
+func TestScrapeAnthropicUsageCacheWrites(t *testing.T) {
+	body := `{"usage":{"input_tokens":3,"output_tokens":9,"cache_read_input_tokens":2,` +
+		`"cache_creation_input_tokens":700,"cache_creation":{"ephemeral_5m_input_tokens":100,"ephemeral_1h_input_tokens":600}}}`
+	sse := `data: {"type":"message_start","message":{"usage":{"input_tokens":3,"cache_creation_input_tokens":700,` +
+		`"cache_creation":{"ephemeral_5m_input_tokens":100,"ephemeral_1h_input_tokens":600}}}}` + "\n" +
+		`data: {"type":"message_delta","usage":{"output_tokens":9}}`
+	for name, b := range map[string]string{"body": body, "sse": sse} {
+		if u := scrapeAnthropicUsage([]byte(b)); u.cacheWrite != 700 || u.cacheWrite1h != 600 {
+			t.Errorf("%s = %+v, want write 700 (1h 600)", name, u)
+		}
+	}
+}
