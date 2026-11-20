@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -108,5 +109,26 @@ func TestDoNilClientGetsTheDefaultTimeout(t *testing.T) {
 	start := time.Now()
 	if _, _, _, err := Do(context.Background(), Call{URL: srv.URL, Limit: 10}); err == nil || time.Since(start) > 5*time.Second {
 		t.Fatalf("nil client did not time out: %v", err)
+	}
+}
+
+func TestSameOriginRedirectRefusesCrossHostWithoutLeakingKey(t *testing.T) {
+	var gotKey string
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { gotKey = r.Header.Get("X-Api-Key") }))
+	defer other.Close()
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, other.URL+"/x?token=fake-query-value", http.StatusFound)
+	}))
+	defer origin.Close()
+	c := &http.Client{CheckRedirect: SameOriginRedirect}
+	req, _ := http.NewRequest(http.MethodGet, origin.URL, nil)
+	req.Header.Set("X-Api-Key", "fake-key-for-test")
+	_, err := c.Do(req)
+	var ue *url.Error // net/http itself prints the target URL in its wrapper; our own message must be clean
+	if !errors.As(err, &ue) || strings.Contains(ue.Err.Error(), "fake-query-value") || !strings.Contains(ue.Err.Error(), "refused redirect") {
+		t.Fatalf("err = %v, want a sanitized refusal", err)
+	}
+	if gotKey != "" {
+		t.Fatalf("redirect target saw X-Api-Key %q", gotKey)
 	}
 }

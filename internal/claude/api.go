@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 
 	"github.com/edotau/claude-code/internal/egress"
+	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -116,7 +117,7 @@ var chatClient = &http.Client{Transport: func() http.RoundTripper {
 	t.ResponseHeaderTimeout = 2 * time.Minute
 	t.Proxy = egress.Proxy // cloned at init, before cli.Run installs it on the default transport
 	return t
-}()}
+}(), CheckRedirect: httpx.SameOriginRedirect}
 
 type httpError struct {
 	status int

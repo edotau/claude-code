@@ -361,11 +361,11 @@ func redactJSON(raw json.RawMessage) json.RawMessage {
 	return b
 }
 
-// redactValue returns a copy of v with textutil.RedactSecrets applied to every string.
+// redactValue returns a copy of v with shape and vault-value masking applied to every string and key.
 func redactValue(v any) any {
 	switch x := v.(type) {
 	case string:
-		return textutil.RedactSecrets(x)
+		return maskText(x)
 	case []any:
 		out := make([]any, len(x))
 		for i, e := range x {
@@ -375,12 +375,14 @@ func redactValue(v any) any {
 	case map[string]any:
 		out := make(map[string]any, len(x))
 		for k, e := range x {
-			out[textutil.RedactSecrets(k)] = redactValue(e)
+			out[maskText(k)] = redactValue(e)
 		}
 		return out
 	}
 	return v
 }
+
+func maskText(s string) string { return redact.Text(textutil.RedactSecrets(s)) }
 
 // Close flushes held text and the buffer, then closes the file; it is safe to call twice.
 func (l *EventLog) Close() {

@@ -173,7 +173,7 @@ func TestCreateDetachedHeadIsClearError(t *testing.T) {
 	}
 }
 
-func TestRedirectKeepsTokenOnlyOnSameHost(t *testing.T) {
+func TestRedirectRefusedOffHostKeptOnSameHost(t *testing.T) {
 	var gotOther string
 	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		gotOther = r.Header.Get("Authorization")
@@ -195,8 +195,8 @@ func TestRedirectKeepsTokenOnlyOnSameHost(t *testing.T) {
 	}))
 	defer origin.Close()
 	h := NewBitbucket(origin.URL, "P", "r", "TOKEN")
-	if _, err := h.Diff(context.Background(), "1"); err != nil {
-		t.Fatal(err)
+	if _, err := h.Diff(context.Background(), "1"); err == nil {
+		t.Fatal("cross-host redirect followed; want it refused")
 	}
 	if gotOther != "" {
 		t.Errorf("Authorization on the other host = %q; want none", gotOther)

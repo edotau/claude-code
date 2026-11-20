@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"math"
 	"net/http"
@@ -74,7 +75,7 @@ func (c Call) request(ctx context.Context) (*http.Request, error) {
 func (c Call) client() *http.Client {
 	client := c.Client
 	if client == nil {
-		client = &http.Client{Timeout: defaultTimeout}
+		client = &http.Client{Timeout: defaultTimeout, CheckRedirect: SameOriginRedirect}
 	}
 	if c.NoRedirect {
 		cp := *client
@@ -82,4 +83,19 @@ func (c Call) client() *http.Client {
 		client = &cp
 	}
 	return client
+}
+
+// SameOriginRedirect is a CheckRedirect that refuses a hop to another scheme, host or port or one that changes the
+// method, so credentials in custom headers (X-Api-Key) never follow a redirect; the error names no query or userinfo.
+func SameOriginRedirect(req *http.Request, via []*http.Request) error {
+	if len(via) >= 10 {
+		return errors.New("stopped after 10 redirects")
+	}
+	first := via[0]
+	if req.URL.Scheme != first.URL.Scheme || req.URL.Host != first.URL.Host || req.Method != first.Method {
+		safe := *req.URL
+		safe.RawQuery, safe.Fragment, safe.User = "", "", nil
+		return fmt.Errorf("refused redirect to %s: not the same origin and method", safe.String())
+	}
+	return nil
 }

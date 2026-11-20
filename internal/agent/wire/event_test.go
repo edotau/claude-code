@@ -232,3 +232,15 @@ func TestEventLogMasksEncodedVaultValue(t *testing.T) {
 		t.Fatalf("event file keeps the value or lost the mask:\n%s", raw)
 	}
 }
+
+// A registered value in JSON-escaped form inside a structured result is masked by redactValue itself.
+func TestRedactValueMasksRegisteredEscapedValue(t *testing.T) {
+	value := `FAKE-SECRET-0123456789"\abc`
+	redact.StubValues(t, []string{value})
+	out := string(redactJSON(json.RawMessage(`{"k":` + mustJSON(value) + `}`)))
+	if strings.Contains(out, "FAKE-SECRET") {
+		t.Fatalf("structured value keeps the registered secret: %s", out)
+	}
+}
+
+func mustJSON(s string) string { b, _ := json.Marshal(s); return string(b) }
