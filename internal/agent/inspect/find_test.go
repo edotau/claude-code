@@ -299,3 +299,31 @@ func BenchmarkFindFixture(b *testing.B) {
 		}
 	}
 }
+
+func TestFindPrefilterMatchesFullScan(t *testing.T) {
+	root := findFixture(t)
+	for _, o := range []FindOptions{{Pattern: "needle"}, {Pattern: "needle", IgnoreCase: true}, {Pattern: "need.e"}, {Pattern: "fresh", Word: true}, {Pattern: "absent"}} {
+		o.Dir, o.Max, o.Err = root, FindDefaultMax, io.Discard
+		got, err := findReport(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		re, _ := findRegexp(o)
+		files, _ := findTracked(root, o)
+		r, _ := os.OpenRoot(root)
+		want := FindReport{Matches: []FindMatch{}}
+		res, stop := findFiles(r, files, o, re)
+		for i := range files {
+			<-res[i].ready
+			want.Matches = append(want.Matches, res[i].matches...)
+		}
+		stop()
+		r.Close()
+		if a, b := fmt.Sprint(got.Matches), fmt.Sprint(want.Matches); a != b {
+			t.Fatalf("%+v: prefilter %s, full scan %s", o, a, b)
+		}
+	}
+	if got := findPrefilter(root, []string{"a.txt", "sub/b.txt", "src/code.go"}, FindOptions{Pattern: "freshtoken"}); len(got) != 0 {
+		t.Fatalf("prefilter kept %v", got)
+	}
+}

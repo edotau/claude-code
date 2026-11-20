@@ -11,6 +11,7 @@ import (
 	"go/token"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"runtime"
@@ -111,6 +112,7 @@ func findReport(o FindOptions) (FindReport, error) {
 	if err != nil {
 		return rep, err
 	}
+	files = findPrefilter(root, files, o)
 	r, err := os.OpenRoot(root)
 	if err != nil {
 		return rep, err
@@ -186,6 +188,36 @@ func findTracked(root string, o FindOptions) ([]string, error) {
 			((o.Func || o.Def || o.Callers) && !strings.HasSuffix(p, ".go"))
 	})
 	return files, nil
+}
+
+// findPrefilter narrows content searches for a pure literal to git grep's candidates; any doubt keeps every file.
+// Go modes keep the full scan: a file without the literal could still print a "skipped" parse notice.
+func findPrefilter(root string, files []string, o FindOptions) []string {
+	if !findLiteral(o) {
+		return files
+	}
+	args := []string{"grep", "-l", "-z", "-F", "--untracked"}
+	if o.IgnoreCase {
+		args = append(args, "--ignore-case")
+	}
+	raw, err := proc.RunGitRaw(context.Background(), root, append(args, "-e", o.Pattern)...)
+	if exit, ok := errors.AsType[*exec.ExitError](err); err != nil && (!ok || exit.ExitCode() != 1) {
+		return files
+	}
+	hits := map[string]bool{}
+	for p := range strings.SplitSeq(raw, "\x00") {
+		hits[p] = true
+	}
+	return slices.DeleteFunc(files, func(p string) bool { return !hits[p] })
+}
+
+// findLiteral reports a content search whose pattern git -F can match as Go would; -i skips K, S and non-ASCII (Go folds them).
+func findLiteral(o FindOptions) bool {
+	if o.Name || o.Func || o.Def || o.Callers || o.Pattern == "" ||
+		regexp.QuoteMeta(o.Pattern) != o.Pattern || strings.ContainsAny(o.Pattern, "\r\n\x00") {
+		return false
+	}
+	return !o.IgnoreCase || !strings.ContainsFunc(o.Pattern, func(c rune) bool { return c >= 0x80 || strings.ContainsRune("kKsS", c) })
 }
 
 func findFile(root *os.Root, p string, o FindOptions, re *regexp.Regexp) ([]FindMatch, error) {
