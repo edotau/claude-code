@@ -81,6 +81,24 @@ func (r AgentRecord) WithPin(field, val string) AgentRecord {
 	return r
 }
 
+// WithExtra returns r with extras key set to val ("" removes it), leaving r's Extras map untouched.
+func (r AgentRecord) WithExtra(key, val string) AgentRecord {
+	extras := maps.Clone(r.Extras)
+	if val == "" {
+		delete(extras, key)
+	} else {
+		if extras == nil {
+			extras = map[string]string{}
+		}
+		extras[key] = val
+	}
+	if len(extras) == 0 {
+		extras = nil
+	}
+	r.Extras = extras
+	return r
+}
+
 // WithAlias returns r with the model alias set to val ("" removes it), leaving r's Aliases map untouched.
 func (r AgentRecord) WithAlias(alias, val string) AgentRecord {
 	aliases := maps.Clone(r.Aliases)

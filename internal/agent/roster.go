@@ -65,6 +65,9 @@ type CLI struct {
 	// Extras maps the record extras keys the CLI reads to their allowed values; nil = not declared yet, not validated.
 	Extras map[string][]string
 
+	// ExtraCheck validates one extras value by key, after the allowed-value list; "" (clearing) skips it.
+	ExtraCheck map[string]func(string) error
+
 	// Flags are the long flags the adapter passes, each named here once; doctor checks them against HelpArgv's output.
 	Flags    []string
 	HelpArgv []string // the help subcommand listing Flags; nil = --help

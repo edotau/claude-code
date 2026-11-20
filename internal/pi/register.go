@@ -16,6 +16,8 @@ var row = agent.Schema{Name: "pi", CLI: agent.CLI{
 	Binary:   "pi", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI},
 	RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI,
 		providers.ProtocolResponses: "/" + providers.ProtocolResponses},
+	Extras:     map[string][]string{extraPackages: nil, extraPackagesApproved: nil},
+	ExtraCheck: map[string]func(string) error{extraPackages: validatePackages, extraPackagesApproved: validatePackages},
 	MaxVersion: "1.x", MaxReason: "2.x is untested with the harness pi route",
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, ReadOnly: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, Env: agent.Native,

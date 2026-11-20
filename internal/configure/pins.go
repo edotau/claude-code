@@ -18,6 +18,9 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
+// ExtraPrefix marks a record field that is an agent extras key, the one write path for extras.
+const ExtraPrefix = "extra:"
+
 // SetAgentPin sets one record field (a vault.AgentRecord.WithPin name, or FALLBACK) on agent; false when unchanged.
 func SetAgentPin(agent, field, val string) (bool, error) {
 	recs, err := vault.ReadAgentRecords([]string{agent}) // a read error must not look like an empty record
@@ -45,6 +48,9 @@ func SetAgentPin(agent, field, val string) (bool, error) {
 
 // withField is rec with field set to val; FALLBACK is the record's fallback profile, the rest go through WithPin.
 func withField(rec vault.AgentRecord, field, val string) vault.AgentRecord {
+	if key, ok := strings.CutPrefix(field, ExtraPrefix); ok {
+		return rec.WithExtra(key, strings.TrimSpace(val))
+	}
 	if field == "FALLBACK" {
 		rec.Fallback = strings.TrimSpace(val)
 		return rec
@@ -54,6 +60,9 @@ func withField(rec vault.AgentRecord, field, val string) vault.AgentRecord {
 
 // AgentField is rec's PROFILE, MODEL or FALLBACK value.
 func AgentField(rec vault.AgentRecord, field string) string {
+	if key, ok := strings.CutPrefix(field, ExtraPrefix); ok {
+		return rec.Extras[key]
+	}
 	switch field {
 	case "PROFILE":
 		return rec.Profile
@@ -71,7 +80,7 @@ func ValidateAgentField(agent, field, val string) error {
 		}
 		return ValidProfile([]string{agent}, strings.TrimSpace(val))
 	}
-	return agentpkg.ValidateRecord(agent, vault.AgentRecord{}.WithPin(field, val))
+	return agentpkg.ValidateRecord(agent, withField(vault.AgentRecord{}, field, val))
 }
 
 // SeedProfiles lists the profiles agent can serve, its own login first; empty when reg is nil.

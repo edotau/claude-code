@@ -89,7 +89,7 @@ func TestCheckExtras(t *testing.T) {
 		{map[string]string{"sandbox": "x"}, `extras key "sandbox" unsupported (want free, model_verbosity)`},
 	}
 	for _, c := range cases {
-		if err := checkExtras("codex", decl, c.extras); !errMatches(err, c.wantErr) {
+		if err := checkExtras("codex", decl, nil, c.extras); !errMatches(err, c.wantErr) {
 			t.Errorf("checkExtras(%v) = %v, want %q", c.extras, err, c.wantErr)
 		}
 	}

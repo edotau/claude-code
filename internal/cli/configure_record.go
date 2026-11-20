@@ -2,9 +2,12 @@ package cli
 
 import (
 	"fmt"
+	"maps"
 	"os"
+	"slices"
 	"strings"
 
+	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/configure"
@@ -20,7 +23,7 @@ const routeKey = "config_route"
 
 // configureRecord is `configure agents <agent> key=value...`: set an agent record's profile, model or fallback.
 func configureRecord(agent string, pairs []string, dryRun bool) int {
-	set, err := parseRecordPairs(pairs)
+	set, err := parseRecordPairs(agent, pairs)
 	if err != nil {
 		return helptext.Fail("configure agents: %v", err)
 	}
@@ -28,7 +31,7 @@ func configureRecord(agent string, pairs []string, dryRun bool) int {
 }
 
 // parseRecordPairs reads key=value words into record fields; an empty value clears the field.
-func parseRecordPairs(words []string) (map[string]string, error) {
+func parseRecordPairs(agent string, words []string) (map[string]string, error) {
 	set := map[string]string{}
 	for _, w := range words {
 		key, val, ok := strings.Cut(w, "=")
@@ -40,13 +43,37 @@ func parseRecordPairs(words []string) (map[string]string, error) {
 		}
 		if key == routeKey {
 			field = routeKey
+		} else if _, declared := agentpkg.SchemaFor(agent).CLI.Extras[key]; declared && field == "" {
+			field = configure.ExtraPrefix + key
 		}
 		if !ok || field == "" {
-			return nil, fmt.Errorf("%q is not profile=<p>, model=<m>, fallback=<p> or config_route=<r>", w)
+			return nil, fmt.Errorf("%q is not <key>=<value> with key one of %s", w, strings.Join(recordKeyNames(agent), ", "))
 		}
 		set[field] = strings.TrimSpace(val)
 	}
 	return set, nil
+}
+
+// recordKeyNames lists the keys `configure agents` takes: the pin keys, config_route and agent's declared extras.
+func recordKeyNames(agent string) []string {
+	names := []string{"profile", "model", "fallback", routeKey}
+	for k := range agentpkg.SchemaFor(agent).CLI.Extras {
+		if k != routeKey {
+			names = append(names, k)
+		}
+	}
+	return slices.Sorted(slices.Values(names))
+}
+
+// appliedKeys is recordKeys then the extras keys in set, sorted.
+func appliedKeys(set map[string]string) []struct{ key, field string } {
+	out := slices.Clone(recordKeys)
+	for _, f := range slices.Sorted(maps.Keys(set)) {
+		if key, ok := strings.CutPrefix(f, configure.ExtraPrefix); ok {
+			out = append(out, struct{ key, field string }{key, f})
+		}
+	}
+	return out
 }
 
 // applyRecord validates every field first, then prints (unless dryRun, writes) each change as "agent key: old → new".
@@ -60,7 +87,7 @@ func applyRecord(agent string, set map[string]string, dryRun bool) int {
 	if err := validateRecordSet(agent, set, route, hasRoute); err != nil {
 		return helptext.Fail("configure agents: %v", err)
 	}
-	for _, k := range recordKeys {
+	for _, k := range appliedKeys(set) {
 		val, ok := set[k.field]
 		if !ok {
 			continue

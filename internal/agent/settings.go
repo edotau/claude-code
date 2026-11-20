@@ -132,7 +132,7 @@ func validateRecord(agentName string, r vault.AgentRecord) (Settings, error) {
 		return st, fmt.Errorf("%s permissions: %w", agentName, err)
 	}
 	if decl := SchemaFor(agentName).CLI.Extras; decl != nil {
-		if err := checkExtras(agentName, decl, r.Extras); err != nil {
+		if err := checkExtras(agentName, decl, SchemaFor(agentName).CLI.ExtraCheck, r.Extras); err != nil {
 			return st, err
 		}
 	}
@@ -163,7 +163,7 @@ func secretArg(a string) bool {
 }
 
 // checkExtras refuses an extras key decl lacks and a value outside its allowed list; "" (unset a built-in) passes.
-func checkExtras(agentName string, decl map[string][]string, extras map[string]string) error {
+func checkExtras(agentName string, decl map[string][]string, check map[string]func(string) error, extras map[string]string) error {
 	for _, k := range slices.Sorted(maps.Keys(extras)) {
 		allowed, ok := decl[k]
 		if !ok {
@@ -172,6 +172,11 @@ func checkExtras(agentName string, decl map[string][]string, extras map[string]s
 		}
 		if v := extras[k]; v != "" && allowed != nil && !slices.Contains(allowed, v) {
 			return fmt.Errorf("%s: extras.%s %q: want one of %s", agentName, k, v, strings.Join(allowed, ", "))
+		}
+		if v := extras[k]; v != "" && check[k] != nil {
+			if err := check[k](v); err != nil {
+				return fmt.Errorf("%s: extras.%s: %w", agentName, k, err)
+			}
 		}
 	}
 	return nil

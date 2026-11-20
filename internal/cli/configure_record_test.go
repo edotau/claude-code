@@ -41,3 +41,22 @@ func TestConfigureRecordRoute(t *testing.T) {
 		t.Errorf("config_route = exit %d, extras %v, want 0 and session", code, vault.GetAgentRecord("codex").Extras)
 	}
 }
+
+// A declared extras key goes through the same verb: set, validator refusal, dry-run, clear, unknown key.
+func TestConfigureRecordExtras(t *testing.T) {
+	hosttest.PinScratch(t)
+	run := func(args ...string) int { return cmdConfigure(append([]string{"agents", "pi"}, args...)) }
+	pkgs := func() string { return vault.GetAgentRecord("pi").Extras["packages"] }
+	if run("packages=npm:foo@^1") == 0 || run("bogus=1") == 0 {
+		t.Error("a floating version or an undeclared key exited 0")
+	}
+	if run("packages=npm:foo@1.2.3", "--dry-run") != 0 || pkgs() != "" {
+		t.Fatalf("dry-run wrote %q", pkgs())
+	}
+	if run("packages=npm:foo@1.2.3") != 0 || pkgs() != "npm:foo@1.2.3" {
+		t.Fatalf("set stored %q", pkgs())
+	}
+	if run("packages=") != 0 || pkgs() != "" || vault.GetAgentRecord("pi").Extras != nil {
+		t.Errorf("clear left %v", vault.GetAgentRecord("pi").Extras)
+	}
+}
