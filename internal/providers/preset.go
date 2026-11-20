@@ -182,8 +182,8 @@ func validateDatabricksFields(n string, p *Provider) []string {
 	if p.CLIProfile != "" && !cliProfileRE().MatchString(p.CLIProfile) {
 		errs = append(errs, fmt.Sprintf("%s: cliProfile %q must match [A-Za-z0-9_-]+", n, p.CLIProfile))
 	}
-	if w := p.Options.Wire; w != "" && w != WireServing {
-		errs = append(errs, fmt.Sprintf("%s: options.wire %q is not supported; only %s (/serving-endpoints) is routed", n, w, WireServing))
+	if err := p.Options.Validate(); err != nil {
+		errs = append(errs, n+": "+err.Error())
 	}
 	return append(errs, validateServingRoutes(n, p)...)
 }
@@ -304,7 +304,9 @@ const WireServing = "serving"
 
 // Options are a preset row's non-secret tuning knobs.
 type Options struct {
-	Wire string `json:"wire,omitempty"`
+	Wire        string           `json:"wire,omitempty"`
+	WarehouseID string           `json:"warehouse_id,omitempty"`
+	Prices      map[string]Price `json:"prices,omitempty"`
 }
 
 // SpellingRule is the models.Wire rule p's model ids use; "" means ids pass through as written.

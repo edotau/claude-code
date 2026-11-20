@@ -3,6 +3,7 @@ package providers
 import (
 	"context"
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
@@ -110,6 +111,14 @@ func ProfileDetail(p *Provider, source, note string) []string {
 		if id := p.Models[s]; id != "" {
 			lines = append(lines, fmt.Sprintf("  %-10s %s", s, id))
 		}
+	}
+	if p.Options.WarehouseID != "" {
+		lines = append(lines, "options.warehouse_id  "+p.Options.WarehouseID)
+	}
+	for _, id := range slices.Sorted(maps.Keys(p.Options.Prices)) {
+		price := p.Options.Prices[id]
+		lines = append(lines, fmt.Sprintf("options.prices.%s  input=%g output=%g cache_read=%g cache_write=%g USD/M",
+			id, price.Input, price.Output, price.CacheRead, price.CacheWrite))
 	}
 	return lines
 }

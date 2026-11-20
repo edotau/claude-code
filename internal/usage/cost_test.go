@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tokenledger"
 )
 
@@ -19,7 +20,7 @@ func TestCostEstimate(t *testing.T) {
 		{Ts: day, Profile: "dev", Model: "free", Input: 7},
 		{Ts: day.Add(-48 * time.Hour), Profile: "dev", Model: "m1", Input: 9_000_000},
 	}
-	prices := map[string]map[string]costPrice{"dev": {"m1": {Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 3.75}}}
+	prices := map[string]map[string]providers.Price{"dev": {"m1": {Input: 3, Output: 15, CacheRead: 0.3, CacheWrite: 3.75}}}
 	tests := []struct {
 		name    string
 		model   string

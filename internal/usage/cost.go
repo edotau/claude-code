@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/ui/table"
 )
@@ -18,11 +19,6 @@ const (
 	costBilled = "billed"
 	costWidth  = 80
 )
-
-// costPrice mirrors providers.Price (USD per million tokens); swap for it once Options.Prices lands (task 1.6).
-type costPrice struct {
-	Input, Output, CacheRead, CacheWrite float64
-}
 
 // costRow is one profile+model line of the cost report; USD is NaN when the model has no price.
 type costRow struct {
@@ -34,7 +30,7 @@ type costRow struct {
 }
 
 // estimateCost prices ledger entries at or after since with each profile's table; 1h cache writes count as CacheWrite.
-func estimateCost(entries []tokenledger.Entry, prices map[string]map[string]costPrice, since time.Time) []costRow {
+func estimateCost(entries []tokenledger.Entry, prices map[string]map[string]providers.Price, since time.Time) []costRow {
 	type key struct{ profile, model string }
 	idx := map[key]*costRow{}
 	var order []key

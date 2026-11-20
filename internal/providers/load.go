@@ -135,6 +135,7 @@ func (p *Provider) clone() *Provider {
 	out.Models = maps.Clone(p.Models)
 	out.Headers = maps.Clone(p.Headers)
 	out.Env = maps.Clone(p.Env)
+	out.Options.Prices = maps.Clone(p.Options.Prices)
 	return &out
 }
 

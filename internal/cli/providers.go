@@ -564,6 +564,7 @@ type providerEntry struct {
 	Host        string            `json:"host,omitempty"` // non-secret: preset host, else BaseURL's scheme+host
 	AccountID   string            `json:"accountId,omitempty"`
 	WorkspaceID string            `json:"workspaceId,omitempty"`
+	Options     providers.Options `json:"options,omitzero"`
 }
 
 // newProviderEntry builds p's listing entry; p.Name is its registry key.
@@ -571,7 +572,7 @@ func newProviderEntry(p *providers.Provider) providerEntry {
 	e := providerEntry{
 		Name: p.Name, Protocol: p.Protocol, Dialects: p.Dialects(), Auth: p.Auth.Method(), Login: p.Auth.Login,
 		Credential: providers.CredentialPresent(p), Models: p.Models, Group: p.Provider,
-		Host: providers.AuthHost(p), AccountID: p.Auth.AccountID, WorkspaceID: p.Auth.WorkspaceID,
+		Host: providers.AuthHost(p), AccountID: p.Auth.AccountID, WorkspaceID: p.Auth.WorkspaceID, Options: p.Options,
 	}
 	e.Source, e.Note = providers.CredSource(p)
 	return e

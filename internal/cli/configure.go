@@ -53,7 +53,8 @@ var configurePage = helptext.Page{
 		"claude-code configure --restore|--revert [flags]\n" +
 		"claude-code configure --fmt [--check] [--out FILE]\n" +
 		"claude-code configure agents <agent> key=value... [--dry-run]\n" +
-		"claude-code configure provider --all [<profile>] [--check]",
+		"claude-code configure provider --all [<profile>] [--check]\n" +
+		"claude-code configure provider <profile> options.<key>=<value>...",
 	About: "Guided setup for the profile, model pins and each agent CLI; bare opens a menu on a terminal " +
 		"(agents, tools, settings), else walks every page in order. " +
 		"--restore resets settings.json to the template (backup first), then re-renders the agent configs; " +
@@ -211,9 +212,20 @@ func isAgentRecord(section string, pos []string) bool {
 	return section == "agents" && len(pos) >= 2 && strings.Contains(pos[1], "=")
 }
 
+// configureAssignment runs `configure agents|provider <name> key=value ...`; ok is false for any other shape.
+func configureAssignment(o *configureOpts, section string, pos []string) (rc int, ok bool) {
+	switch {
+	case isAgentRecord(section, pos):
+		return configureRecord(pos[0], pos[1:], o.dryRun || o.check), true // --check never writes
+	case section == "provider" && len(pos) >= 2 && strings.Contains(pos[1], "="):
+		return configureProviderOptions(o, pos), true
+	}
+	return 0, false
+}
+
 func configureRun(o *configureOpts, section string, pos []string) int {
-	if isAgentRecord(section, pos) {
-		return configureRecord(pos[0], pos[1:], o.dryRun || o.check) // --check never writes
+	if rc, ok := configureAssignment(o, section, pos); ok {
+		return rc
 	}
 	profile, err := configureAllProfile(o, section, pos)
 	if err != nil {
