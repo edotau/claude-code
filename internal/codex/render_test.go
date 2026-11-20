@@ -641,7 +641,8 @@ func TestCodexConfigRouteWritesDatabricksBlockOnAnthropicSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, want := range []string{`model_provider = "claude-code"`, "[model_providers.claude-code]",
-		`name = "qa"`, "timeout_ms = 100000", "refresh_interval_ms = 300000"} {
+		`name = "qa"`, "timeout_ms = 100000", "refresh_interval_ms = 300000",
+		"stream_idle_timeout_ms = " + codexStreamIdleMS} {
 		if !strings.Contains(got, want) {
 			t.Errorf("block lacks %q:\n%s\n%s", want, got, out.String())
 		}

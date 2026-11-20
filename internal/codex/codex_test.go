@@ -319,6 +319,7 @@ func TestCodexCredentialHeaderTravelsInEnvNotArgv(t *testing.T) {
 	for _, want := range []string{
 		`env_http_headers = { "Authorization" = "CLAUDE_CODE_CODEX_HDR_AUTHORIZATION" }`,
 		`http_headers = { "X-Team" = "platform" }`,
+		"stream_idle_timeout_ms = " + codexStreamIdleMS,
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("argv missing %q in %s", want, joined)
@@ -482,7 +483,7 @@ func TestCodexCommandOverlayAndOwnLogin(t *testing.T) {
 	env, argv, err = agent.SchemaFor("codex").Configure(ctx, providers.Target{Provider: p, Model: "gpt-x"})
 	joined := strings.Join(argv, " ")
 	if err != nil || len(env) != 0 || strings.Contains(joined, "auth") || strings.Contains(joined, "env_key") ||
-		!strings.Contains(joined, `model_provider="openai"`) {
+		strings.Contains(joined, "stream_idle_timeout_ms") || !strings.Contains(joined, `model_provider="openai"`) {
 		t.Fatalf("own login: env count %d, argv %v, err %v", len(env), argv, err)
 	}
 }

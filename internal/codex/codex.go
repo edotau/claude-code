@@ -251,7 +251,8 @@ func codex(ctx context.Context, p *providers.Provider, base, model, cred string,
 		return nil, nil, err
 	}
 	fields = append(fields, [2]string{"name", agentconfig.TOMLQuote(p.Name)},
-		[2]string{"base_url", agentconfig.TOMLQuote(base)}, [2]string{"wire_api", agentconfig.TOMLQuote("responses")})
+		[2]string{"base_url", agentconfig.TOMLQuote(base)}, [2]string{"wire_api", agentconfig.TOMLQuote("responses")},
+		[2]string{"stream_idle_timeout_ms", codexStreamIdleMS})
 	if p.Preset == providers.PresetDatabricks {
 		env = env.Merge(proc.Values{settings.CodexProfileEnv: p.Name, settings.CodexCatalogEnv: ""})
 	}
@@ -283,6 +284,9 @@ func codexAuthFields(ctx context.Context, p *providers.Provider, cred string) ([
 	}
 	return [][2]string{{"env_key", agentconfig.TOMLQuote(codexKeyEnv)}}, nil, env, nil
 }
+
+// Above the longest healthy 228 s event gap seen in 100 runs, below the harness's 300 s idle watch (Codex default 300000).
+const codexStreamIdleMS = "240000"
 
 // codexFileAuthKey marks a ctx whose auth table is for config.toml, read by a GUI app that may wait on a slow refresh.
 type codexFileAuthKey struct{}
