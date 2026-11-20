@@ -909,8 +909,8 @@ func TestFailedRotatedSealIsAuditedAndRetriedOnNextMint(t *testing.T) {
 	r := newRotRig(t, "seal-audit")
 	restore := breakWritesOnFirstCall(t, r)
 	ctx := context.Background()
-	if _, err := Refresh(ctx, r.p); err != nil {
-		t.Fatalf("first mint = %v; want success despite the failed seal", err)
+	if _, err := Refresh(ctx, r.p); !errors.Is(err, errRotationUnsaved) {
+		t.Fatalf("first mint = %v; want the unsaved-rotation error", err)
 	}
 	assertRefreshSealAudited(t, r)
 	restore()
@@ -982,7 +982,7 @@ func TestCarriedRefreshYieldsToNewerLogin(t *testing.T) {
 		}
 	}
 	ctx := context.Background()
-	if _, err := Refresh(ctx, r.p); err != nil {
+	if _, err := Refresh(ctx, r.p); !errors.Is(err, errRotationUnsaved) {
 		t.Fatal(err)
 	}
 	if _, ok := unsealedRefresh.Load(r.p.Name); !ok {
@@ -1034,10 +1034,10 @@ func TestRotatedRefreshSurvivesAndNewerLoginWins(t *testing.T) {
 		}
 	}
 	ctx := context.Background()
-	for range 3 {
-		if _, err := Refresh(ctx, r.p); err != nil {
-			t.Fatal(err)
-		}
+	for i := range 3 {
+		// mints 1 and 3 hit the broken vault and report the unsaved rotation
+		_, err := Refresh(ctx, r.p)
+		checkUnsaved(t, err, i != 1)
 		restore()
 		if len(r.refreshesSent()) == 2 {
 			if ov, _ := readOAuth(r.p); ov.Refresh != "refresh-3" {

@@ -62,8 +62,8 @@ func rotRow(t *testing.T) (*Provider, *[]string, string) {
 // A rotated refresh token whose re-seal fails stays in memory, and the next mint seals it and clears the entry.
 func TestRotatedRefreshSealFailureCarriedToNextMint(t *testing.T) {
 	p, seen, good := rotRow(t)
-	if _, err := Refresh(context.Background(), p); err != nil {
-		t.Fatalf("first mint = %v; want success despite the failed re-seal", err)
+	if _, err := Refresh(context.Background(), p); !errors.Is(err, errRotationUnsaved) {
+		t.Fatalf("first mint = %v; want the unsaved-rotation error", err)
 	}
 	if v, ok := unsealedRefresh.Load(p.Name); !ok || v.(carriedRefresh).token != "refresh-2" {
 		t.Fatalf("unsealedRefresh = %v, %v; want the rotated refresh-2 kept in memory", v, ok)

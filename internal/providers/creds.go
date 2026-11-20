@@ -213,18 +213,57 @@ func cacheLookup(m *sync.Map, name string) (string, cacheState) {
 const (
 	// maxStaleWindow caps how long before expiry a sealed token turns stale and is refreshed early.
 	maxStaleWindow = 20 * time.Minute
-	// expirySkew is the last margin before expiry a stale token is served; past it callers block on a refresh.
+	// expirySkew caps the last margin before expiry a stale token is served; past it callers block on a refresh.
 	expirySkew = time.Minute
 	// refreshCooldown spaces background refreshes per profile so a failing token endpoint sees no storm.
 	refreshCooldown = time.Minute
-	// backgroundRefreshTimeout bounds one background refresh apart from the request that started it.
+	// backgroundRefreshTimeout bounds a background refresh's wait before its exchange; a sent exchange runs on.
 	backgroundRefreshTimeout = time.Minute
 )
+
+// stopWait bounds stop's wait for background refreshes: a sent exchange (exchangeBound) plus its seal and a margin.
+var stopWait = exchangeBound + sealTimeout + 5*time.Second
+
+// bgRun counts running background refreshes; idle is closed whenever the count drops to zero.
+var bgRun struct {
+	sync.Mutex
+	n    int
+	idle chan struct{}
+}
+
+func bgStart() {
+	bgRun.Lock()
+	defer bgRun.Unlock()
+	if bgRun.n == 0 {
+		bgRun.idle = make(chan struct{})
+	}
+	bgRun.n++
+}
+
+func bgDone() {
+	bgRun.Lock()
+	defer bgRun.Unlock()
+	if bgRun.n--; bgRun.n == 0 {
+		close(bgRun.idle)
+	}
+}
+
+// bgIdle is closed once no background refresh runs.
+func bgIdle() <-chan struct{} {
+	bgRun.Lock()
+	defer bgRun.Unlock()
+	if bgRun.n == 0 {
+		c := make(chan struct{})
+		close(c)
+		return c
+	}
+	return bgRun.idle
+}
 
 // bgBase is set only in a long-lived process (the proxy): a stale token is served while one refresh runs behind it.
 var bgBase atomic.Pointer[context.Context]
 
-// BackgroundRefresh enables stale-while-refresh until stop; stop cancels any refresh in flight and never waits.
+// BackgroundRefresh enables stale-while-refresh until stop; stop cancels refreshes not yet sent, waits for the rest.
 func BackgroundRefresh(ctx context.Context) (stop func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	ref := &ctx
@@ -232,6 +271,11 @@ func BackgroundRefresh(ctx context.Context) (stop func()) {
 	return func() {
 		cancel()
 		bgBase.CompareAndSwap(ref, nil)
+		select {
+		case <-bgIdle():
+		case <-time.After(stopWait):
+			fmt.Fprintf(os.Stderr, "providers: background token refresh still running after %v; exiting\n", stopWait)
+		}
 	}
 }
 
@@ -263,23 +307,30 @@ func (g *flightGroup) refreshBehind(base, ctx context.Context, name string, mint
 	if _, inflight := g.flights[name]; inflight || now.Before(g.tried[name].Add(refreshCooldown)) {
 		return
 	}
-	if g.tried == nil {
-		g.tried = map[string]time.Time{}
-	}
-	g.tried[name] = now
 	f := &flight{done: make(chan struct{}), err: errMintAborted}
 	g.flights[name] = f
 	// the request's values (identity) carry over; its cancellation must not, the base's must
 	mctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), backgroundRefreshTimeout)
 	stop := context.AfterFunc(base, cancel)
+	bgStart()
 	go g.runMint(name, f, func() {
-		defer func() { stop(); cancel() }()
+		defer func() { stop(); cancel(); g.cooled(name); bgDone() }()
 		f.val, f.err = mint(mctx)
 		if f.err != nil {
 			fmt.Fprintf(os.Stderr, "%s: background token refresh failed (%s); serving the cached token until it expires\n",
 				name, Verdict(f.err))
 		}
 	})
+}
+
+// cooled starts name's refresh cool-down when an attempt finishes, so a slow failure cannot be retried at once.
+func (g *flightGroup) cooled(name string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if g.tried == nil {
+		g.tried = map[string]time.Time{}
+	}
+	g.tried[name] = credNow()
 }
 
 // mintOnce is the one mint coordinator: per provider, single-flight; a forced call never joins a non-forced flight.
@@ -410,7 +461,8 @@ func cacheEntry(p *Provider, v string, until, exp, issued time.Time) cached {
 	if !sealedAuth(p.Auth.Type) {
 		return cached{value: v, until: minTime(until, exp.Add(-expiryMargin))}
 	}
-	return cached{value: v, until: minTime(until, exp.Add(-staleWindow(v, exp, issued))), hard: exp.Add(-expirySkew)}
+	window, skew := tokenMargins(v, exp, issued)
+	return cached{value: v, until: minTime(until, exp.Add(-window)), hard: exp.Add(-skew)}
 }
 
 func minTime(a, b time.Time) time.Time {
@@ -432,6 +484,12 @@ func staleWindow(v string, exp, issued time.Time) time.Duration {
 		return expiryMargin
 	}
 	return min(exp.Sub(issued)/2, maxStaleWindow)
+}
+
+// tokenMargins is v's stale window and serve skew; the skew stays under the window so a short life still caches.
+func tokenMargins(v string, exp, issued time.Time) (window, skew time.Duration) {
+	window = staleWindow(v, exp, issued)
+	return window, min(expirySkew, window/2)
 }
 
 // freshMargin asks jwtValidPast for the token's own stale window, so a peer's stale token is never adopted.
@@ -458,10 +516,12 @@ func staleServe(p *Provider, cache *sync.Map, what, old string, err error) (stri
 	if old == "" {
 		return "", false
 	}
-	fmt.Fprintf(os.Stderr, "%s: %s failed (%s); using the cached token until it expires\n", p.Name, what, textutil.FirstLine(err.Error()))
+	fmt.Fprintf(os.Stderr, "%s: %s failed (%s); using the cached token until it expires\n", p.Name, what, Verdict(err))
 	entry := cached{value: old, until: credNow().Add(time.Minute)}
 	if e, ok := JWTExp(old); ok {
-		entry.hard = time.Unix(e, 0).Add(-expirySkew)
+		exp := time.Unix(e, 0)
+		_, skew := tokenMargins(old, exp, time.Time{})
+		entry.hard = exp.Add(-skew)
 	}
 	cache.Store(p.Name, entry)
 	return old, true

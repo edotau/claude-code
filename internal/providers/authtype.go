@@ -112,8 +112,11 @@ func writeOAuth(p *Provider, ov oauthValue) error {
 	if err != nil {
 		return err
 	}
-	return vault.Store(AuthSecretName(p), string(b))
+	return vaultStore(AuthSecretName(p), string(b))
 }
+
+// vaultStore is writeOAuth's vault write; a seam for seal-failure tests.
+var vaultStore = vault.Store
 
 func sealedAuth(t string) bool { return authTable[t].Sealed }
 
@@ -211,21 +214,39 @@ var errRefreshLockTimeout = errors.New("timed out waiting for another refresh to
 
 var lockNameRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`[^A-Za-z0-9._-]+`) })
 
+// lockSlice is one bounded lock attempt; between slices a cancelled caller stops waiting.
+var lockSlice = 250 * time.Millisecond
+
 // withRefreshLock serializes a provider's refresh-token use across processes; mintOnce covers goroutines.
 func withRefreshLock(p *Provider, fn func() error) error {
+	return withRefreshLockCtx(context.Background(), p, fn)
+}
+
+// withRefreshLockCtx is withRefreshLock whose wait ends with ctx; a cancelled ctx never enters fn.
+func withRefreshLockCtx(ctx context.Context, p *Provider, fn func() error) error {
 	dir := filepath.Join(paths.StateDir(), "locks")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return fmt.Errorf("%s: refresh lock: %w", p.Name, err)
 	}
 	lock := filepath.Join(dir, "auth-"+lockNameRE().ReplaceAllString(p.Name, "_")+".lock")
-	ran, err := paths.TryFileLock(lock, refreshLockWait, fn)
-	if err != nil {
-		return err
+	guarded := func() error {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("%s: refresh lock: %w", p.Name, err)
+		}
+		return fn()
 	}
-	if !ran {
-		return fmt.Errorf("%s: %w", p.Name, errRefreshLockTimeout)
+	for deadline := time.Now().Add(refreshLockWait); ; {
+		if err := ctx.Err(); err != nil {
+			return fmt.Errorf("%s: refresh lock: %w", p.Name, err)
+		}
+		ran, err := paths.TryFileLock(lock, min(lockSlice, time.Until(deadline)), guarded)
+		if err != nil || ran {
+			return err
+		}
+		if !time.Now().Before(deadline) {
+			return fmt.Errorf("%s: %w", p.Name, errRefreshLockTimeout)
+		}
 	}
-	return nil
 }
 
 // authCredential mints (or serves from cache) the access token for a sealed auth type; force skips the cache.
@@ -352,7 +373,7 @@ func userCredential(ctx context.Context, p *Provider, force bool) (string, error
 
 // lockedUserMint is userMint under p's refresh lock; minted reports a token endpoint exchange.
 func lockedUserMint(ctx context.Context, p *Provider, force bool, margin time.Duration) (out string, minted bool, err error) {
-	err = withRefreshLock(p, func() error {
+	err = withRefreshLockCtx(ctx, p, func() error {
 		var e error
 		out, minted, e = userMint(ctx, p, force, margin)
 		return e
@@ -370,6 +391,10 @@ func userMint(ctx context.Context, p *Provider, force bool, margin time.Duration
 		clearLoginMark(p.Name)
 		sealAccess(p, v, base)
 		return v, true, nil
+	}
+	// the new token is cached for this process; the login is alive, only its rotation is unsaved
+	if errors.Is(err, errRotationUnsaved) {
+		return "", true, err
 	}
 	markLoginDead(p, err)
 	if !force && Verdict(err) == VerdictTransient {
@@ -415,9 +440,9 @@ func mintSP(ctx context.Context, p *Provider, force bool, margin time.Duration) 
 		return e
 	}
 	ran := false
-	err = withRefreshLock(p, func() error { ran = true; return mint() })
+	err = withRefreshLockCtx(ctx, p, func() error { ran = true; return mint() })
 	// an SP mint is idempotent: a lock timeout or lock error mints unlocked instead of failing
-	if !ran {
+	if !ran && ctx.Err() == nil {
 		err = mint()
 	}
 	if err != nil {
@@ -543,13 +568,13 @@ func sealAccess(p *Provider, tok string, base int64) {
 // mintAndCache mints, caches and returns the access token with the vault stamp the mint started from.
 func mintAndCache(ctx context.Context, p *Provider, force bool) (string, int64, error) {
 	tok, base, err := mintAuth(ctx, p, force)
-	if err != nil {
+	if err != nil && !errors.Is(err, errRotationUnsaved) {
 		return "", 0, err
 	}
-	if err := finishCredential(p, tok.Access, tok.Expiry); err != nil {
-		return "", 0, err
+	if cerr := finishCredential(p, tok.Access, tok.Expiry); cerr != nil {
+		return "", 0, cerr
 	}
-	return tok.Access, base, nil
+	return tok.Access, base, err
 }
 
 // mintAuth is the one path that turns a sealed credential into an access token; base is the vault stamp it read.
@@ -653,7 +678,13 @@ func noSecretError(p *Provider, name string) error {
 
 // mintU2M exchanges the sealed refresh token and re-seals a rotated one; base is the vault stamp secret came from.
 func mintU2M(ctx context.Context, p *Provider, host, name, secret string, base int64) (oauth.Token, error) {
-	tok, err := refreshU2M(ctx, host, secret)
+	if err := ctx.Err(); err != nil {
+		return oauth.Token{}, fmt.Errorf("%s: refresh not started: %w", p.Name, err)
+	}
+	// a sent refresh token is spent: the caller's cancellation must not drop the rotated reply
+	xctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), exchangeBound)
+	defer cancel()
+	tok, err := refreshU2M(xctx, host, secret)
 	if err != nil {
 		wrapped := fmt.Errorf("%s: %w (%s)", p.Name, err, authHint(p, name))
 		if oauth.IsLoginRequired(err) {
@@ -666,11 +697,18 @@ func mintU2M(ctx context.Context, p *Provider, host, name, secret string, base i
 		sealCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), sealTimeout)
 		defer cancel()
 		if err := sealRotated(sealCtx, p, oauth.Token{Refresh: cmp.Or(tok.Refresh, secret), Access: tok.Access}, base); err != nil {
-			fmt.Fprintf(os.Stderr, "%s: re-seal rotated refresh token (%s) failed; kept in memory: %v\n", p.Name, name, err)
+			fmt.Fprintf(os.Stderr, "%s: the rotated login could not be saved to the vault; this process keeps it\n", p.Name)
+			return tok, fmt.Errorf("%s: %w", p.Name, errRotationUnsaved)
 		}
 	}
 	return tok, nil
 }
+
+// exchangeBound caps a sent u2m exchange; postToken's own worst case (3 × 30s + backoff) ends first.
+const exchangeBound = 2 * time.Minute
+
+// errRotationUnsaved: the token endpoint rotated the refresh token and the vault would not take the new one.
+var errRotationUnsaved = errors.New("the rotated login could not be saved to the vault and lives only in this process (doctor: seal_failed)")
 
 // carriedRefresh is a rotated refresh token whose re-seal failed, and the vault stamp of the record it came from.
 type carriedRefresh struct {

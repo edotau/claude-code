@@ -1,9 +1,14 @@
 package providers
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -11,6 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -207,6 +213,9 @@ type staleRig struct {
 	fail    error
 	gate    chan struct{}
 	entered chan struct{}
+	hook    func()        // runs once the refresh token is spent, before the reply
+	life    time.Duration // minted lifetime; 0 is one hour
+	opaque  bool          // mint a non-JWT token with no expires_in
 }
 
 // jwtLife is an unsigned JWT issued at iat that expires at exp.
@@ -257,18 +266,28 @@ func (r *staleRig) refresh(ctx context.Context, _, refresh string) (oauth.Token,
 	case r.entered <- struct{}{}:
 	default:
 	}
+	if r.hook != nil {
+		r.hook()
+	}
 	if r.gate != nil {
-		select {
-		case <-r.gate:
-		case <-ctx.Done():
-			return oauth.Token{}, ctx.Err()
-		}
+		<-r.gate
+	}
+	// a real client drops the reply once its context ends, after the server spent the refresh token
+	if err := ctx.Err(); err != nil {
+		return oauth.Token{}, err
 	}
 	if r.fail != nil {
 		return oauth.Token{}, r.fail
 	}
-	now := r.now()
-	return oauth.Token{Access: jwtLife(now, now.Add(time.Hour)), Refresh: fmt.Sprintf("refresh-%d", n+1), Expiry: now.Add(time.Hour)}, nil
+	return r.minted(n), nil
+}
+
+func (r *staleRig) minted(n int32) oauth.Token {
+	now, life := r.now(), cmp.Or(r.life, time.Hour)
+	if r.opaque {
+		return oauth.Token{Access: fmt.Sprintf("opaque-%d", n), Refresh: fmt.Sprintf("refresh-%d", n+1)}
+	}
+	return oauth.Token{Access: jwtLife(now, now.Add(life)), Refresh: fmt.Sprintf("refresh-%d", n+1), Expiry: now.Add(life)}
 }
 
 // waitBackground waits for name's in-flight mint, if any, to finish.
@@ -382,27 +401,170 @@ func TestFailedBackgroundRefreshCoolsDown(t *testing.T) {
 	}
 }
 
-func TestBackgroundRefreshStopCancelsInFlight(t *testing.T) {
+// stop (or a cancelled caller) arriving after R1 was sent: the reply is still read and R2 sealed before stop returns.
+func TestSentExchangeSealsDespiteStop(t *testing.T) {
 	r, old := newStaleRig(t, "stale-stop", 15*time.Minute, false)
-	r.gate = make(chan struct{}) // never opened: only cancellation ends this refresh
+	r.gate = make(chan struct{})
 	stop := BackgroundRefresh(context.Background())
 	t.Cleanup(stop)
 	if v, err := r.credential(); err != nil || v != old {
 		t.Fatalf("stale call: same=%t err=%v", v == old, err)
 	}
+	waitSignal(t, r.entered)
+	stopped := make(chan string, 1)
+	go func() { stop(); ov, _ := readOAuth(r.p); stopped <- ov.Refresh }()
 	select {
-	case <-r.entered:
+	case got := <-stopped:
+		t.Fatalf("stop returned before the sent exchange finished (sealed %q)", got)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(r.gate)
+	select {
+	case got := <-stopped:
+		if got != "refresh-2" || strings.Join(r.spentTokens(), ",") != "refresh-1" {
+			t.Fatalf("after stop: sealed %q, spent %q; want refresh-2 sealed and refresh-1 sent once", got, r.spentTokens())
+		}
 	case <-time.After(5 * time.Second):
-		t.Fatal("no background refresh started")
+		t.Fatal("stop did not return after the seal")
 	}
-	start := time.Now()
-	stop()
-	if d := time.Since(start); d > time.Second {
-		t.Fatalf("stop took %v", d)
+}
+
+func TestCancelledCallerStillSealsSentExchange(t *testing.T) {
+	r, _ := newStaleRig(t, "cancel-sent", -time.Minute, false)
+	ctx, cancel := context.WithCancel(context.Background())
+	r.hook = cancel
+	if _, _, err := lockedUserMint(ctx, r.p, false, freshMargin); err != nil {
+		t.Fatal(err)
 	}
+	if ov, _ := readOAuth(r.p); ov.Refresh != "refresh-2" {
+		t.Fatalf("sealed %q; want refresh-2 although the caller cancelled mid-exchange", ov.Refresh)
+	}
+}
+
+func waitSignal(t *testing.T, c <-chan struct{}) {
+	t.Helper()
+	select {
+	case <-c:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no refresh started")
+	}
+}
+
+func TestRotatedSealRetriedThenSurfaced(t *testing.T) {
+	defer func(d time.Duration) { sealRetryDelay = d }(sealRetryDelay)
+	sealRetryDelay = time.Millisecond
+	for _, c := range []struct {
+		name     string
+		failures int32
+	}{{"fails once", 1}, {"never saves", 100}} {
+		t.Run(c.name, func(t *testing.T) {
+			r, _ := newStaleRig(t, "seal-retry", -time.Minute, false)
+			var writes atomic.Int32
+			orig := vaultStore
+			vaultStore = func(name, v string) error {
+				if writes.Add(1) <= c.failures {
+					return errors.New("vault: database is read-only")
+				}
+				return orig(name, v)
+			}
+			t.Cleanup(func() { vaultStore = orig; unsealedRefresh.Delete(r.p.Name) })
+			_, err := r.credential()
+			checkUnsaved(t, err, c.failures > 1)
+			if again, err := r.credential(); err != nil || again == "" || r.calls.Load() != 1 {
+				t.Fatalf("next call: served=%t calls=%d err=%v; want the in-memory token", again != "", r.calls.Load(), err)
+			}
+		})
+	}
+}
+
+// checkUnsaved wants the unsaved-rotation error when unsaved, else success.
+func checkUnsaved(t *testing.T, err error, unsaved bool) {
+	t.Helper()
+	if unsaved && !errors.Is(err, errRotationUnsaved) || !unsaved && err != nil {
+		t.Fatalf("mint: %v; want the unsaved-rotation error=%t", err, unsaved)
+	}
+}
+
+func TestShortLivedPeerTokenNotAdopted(t *testing.T) {
+	now := time.Now()
+	short := jwtLife(now.Add(-time.Minute), now.Add(30*time.Second))
+	if _, ok := jwtValidPast(short, freshMargin); ok {
+		t.Fatal("a 90s token with 30s left was adopted")
+	}
+	if e := cacheEntry(&Provider{Auth: Auth{Type: AuthOAuth}}, short, now.Add(time.Hour), now.Add(30*time.Second), now.Add(-time.Minute)); e.until.After(e.hard) {
+		t.Fatalf("cache entry fresh until %v past its serve limit %v", e.until, e.hard)
+	}
+}
+
+func TestCancelledLockWaitSendsNoExchange(t *testing.T) {
+	r, _ := newStaleRig(t, "lock-cancel", -time.Minute, false)
+	lock := filepath.Join(paths.StateDir(), "locks", "auth-lock-cancel.lock")
+	if err := os.MkdirAll(filepath.Dir(lock), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	held, release := make(chan struct{}), make(chan struct{})
+	t.Cleanup(func() { close(release) })
+	go func() {
+		_, _ = paths.TryFileLock(lock, time.Second, func() error { close(held); <-release; return nil })
+	}()
+	waitSignal(t, held)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { _, _, err := lockedUserMint(ctx, r.p, false, freshMargin); done <- err }()
+	cancel()
+	select {
+	case err := <-done:
+		if err == nil || r.calls.Load() != 0 {
+			t.Fatalf("err=%v exchanges=%d; want a cancelled wait and no exchange", err, r.calls.Load())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("a cancelled lock wait kept waiting")
+	}
+}
+
+func TestCooldownStartsWhenAttemptEnds(t *testing.T) {
+	r, old := newStaleRig(t, "cool-finish", 15*time.Minute, true)
+	putOAuth(t, r.p, oauthValue{Refresh: "refresh-1"})
+	r.fail, r.gate = errors.New("token endpoint: connection reset"), make(chan struct{})
+	if v, _ := r.credential(); v != old {
+		t.Fatal("stale call did not serve the cached token")
+	}
+	waitSignal(t, r.entered)
+	r.advance(refreshCooldown - time.Second)
+	close(r.gate)
 	waitBackground(t, r.p.Name)
-	if backgroundContext() != nil {
-		t.Fatal("background refresh still enabled after stop")
+	for _, step := range []struct {
+		advance time.Duration
+		want    int32
+	}{{2 * time.Second, 1}, {refreshCooldown, 2}} {
+		r.advance(step.advance)
+		_, _ = r.credential()
+		waitBackground(t, r.p.Name)
+		if n := r.calls.Load(); n != step.want {
+			t.Fatalf("after +%v: attempts = %d, want %d", step.advance, n, step.want)
+		}
+	}
+}
+
+// A lifetime under the skew still caches until its own skew; an opaque token caches for the row's ttl.
+func TestShortOrUnknownLifetimeRefreshesOnce(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		life   time.Duration
+		opaque bool
+	}{{"50s lifetime", 50 * time.Second, false}, {"no expiry", 0, true}} {
+		t.Run(c.name, func(t *testing.T) {
+			r, _ := newStaleRig(t, "short-life", -time.Minute, false)
+			r.life, r.opaque = c.life, c.opaque
+			for range 20 {
+				if _, err := r.credential(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if n := r.calls.Load(); n != 1 {
+				t.Fatalf("20 calls made %d refreshes, want 1", n)
+			}
+		})
 	}
 }
 
@@ -413,5 +575,22 @@ func TestCacheNeverServesPastExpirySkew(t *testing.T) {
 	m.Store("k", cached{value: "v", until: now.Add(time.Minute), hard: now.Add(-time.Second)})
 	if v, st := cacheLookup(&m, "k"); st != cacheMiss || v != "" {
 		t.Fatalf("state %d served=%t; want a miss past the skew", st, v != "")
+	}
+}
+
+func TestStaleServeLogsClassOnly(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	orig := os.Stderr
+	os.Stderr = w
+	var cache sync.Map
+	_, served := staleServe(&Provider{Name: "log-class"}, &cache, "refresh", "old", errors.New("upstream said refresh_token=leaky-value"))
+	os.Stderr = orig
+	_ = w.Close()
+	out, _ := io.ReadAll(r)
+	if !served || strings.Contains(string(out), "leaky") || !strings.Contains(string(out), "log-class: refresh failed (transient)") {
+		t.Fatalf("served=%t log %q; want one classified line with no upstream text", served, out)
 	}
 }
