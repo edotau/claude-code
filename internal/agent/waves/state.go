@@ -54,6 +54,7 @@ type WaveState struct {
 	Violations   []CheckViolation     `json:"violations,omitempty"`
 	Manual       []string             `json:"manual,omitempty"`
 	Packages     []Spec               `json:"packages,omitempty"`
+	NoVerify     []string             `json:"no_verify,omitempty"`
 }
 
 // LeafState is one leaf's record; Status is the envelope status, Verdict "" or "ok" unless the routing check failed.
@@ -298,7 +299,7 @@ func decideLeaf(l LeafState, fp FingerprintFunc) (DecideLeaf, error) {
 		d.Why = "status " + l.Status
 		return d, nil
 	}
-	if l.Verdict != "" && l.Verdict != LeafStateOK {
+	if l.Verdict != "" && l.Verdict != "pending" && l.Verdict != LeafStateOK {
 		d.Why = "verdict " + l.Verdict
 		return d, nil
 	}

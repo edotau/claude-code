@@ -54,6 +54,9 @@ func renderWave(out io.Writer, w WaveState, base string) error {
 // findingLines are the wave's file findings and its detection-only notice, one line each.
 func findingLines(w WaveState) []string {
 	var lines []string
+	if len(w.NoVerify) > 0 {
+		lines = append(lines, "  no verify: "+strings.Join(w.NoVerify, ",")+" (diff check only)")
+	}
 	if len(w.Outside) > 0 {
 		lines = append(lines, "  outside: "+strings.Join(w.Outside, ", "))
 	}

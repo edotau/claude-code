@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -66,7 +65,7 @@ type launchLine struct {
 var launchID = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._-]{1,64}$`) })
 var launchPhase = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[0-9]+\.[0-9]+$`) })
 
-// Launch runs the wave's ask batches; the envelopes are input-ordered, those of a batch that failed whole absent.
+// Launch returns input-ordered envelopes, retaining valid siblings when a batch fails.
 func Launch(ctx context.Context, executable string, specs []Spec, options LaunchOptions) ([]Envelope, error) {
 	if len(specs) == 0 {
 		_, err := launchLines(nil, options)
@@ -121,10 +120,7 @@ func launchBatchRun(ctx context.Context, executable string, specs []Spec, scope 
 	cmd.Stdout, cmd.Stderr = &stdout, os.Stderr
 	runErr := cmd.Run()
 	envelopes, parseErr := launchEnvelopes(stdout.Bytes(), specs, options)
-	if parseErr != nil {
-		return nil, errors.Join(runErr, parseErr)
-	}
-	return envelopes, errors.Join(runErr, launchSave(ctx, executable, envelopes))
+	return envelopes, errors.Join(runErr, parseErr, launchSave(ctx, executable, envelopes))
 }
 
 // askArgs is the `agents ask` batch command line (without the executable) for n leaves, scope flags last.
@@ -247,37 +243,43 @@ func launchTools(o LaunchOptions) *bool {
 
 func launchEnvelopes(data []byte, specs []Spec, options LaunchOptions) ([]Envelope, error) {
 	wanted := make(map[string]int, len(specs))
-	for i, spec := range specs {
-		wanted[options.Slug+"-"+spec.ID] = i
-	}
 	out := make([]Envelope, len(specs))
-	decoder := json.NewDecoder(bytes.NewReader(data))
-	for {
-		var envelope Envelope
-		err := decoder.Decode(&envelope)
-		if errors.Is(err, io.EOF) {
-			break
+	for i, spec := range specs {
+		id := options.Slug + "-" + spec.ID
+		wanted[id] = i
+		out[i] = Envelope{TaskID: id, Status: "error",
+			Report: filepath.Join(options.ReportsDir, dateFirst(id, options.Day)+".md"),
+			Result: filepath.Join(options.ReportsDir, dateFirst(id, options.Day)+".result.txt")}
+	}
+	var parseErr error
+	for line := range bytes.SplitSeq(data, []byte("\n")) {
+		if len(bytes.TrimSpace(line)) == 0 {
+			continue
 		}
-		if err != nil {
-			return nil, fmt.Errorf("decode batch envelope: %w", err)
+		var envelope Envelope
+		if err := json.Unmarshal(line, &envelope); err != nil {
+			parseErr = errors.Join(parseErr, fmt.Errorf("decode batch envelope: %w", err))
+			continue
 		}
 		i, ok := wanted[envelope.TaskID]
-		if !ok || out[i].TaskID != "" {
-			return nil, fmt.Errorf("unexpected batch task %q", envelope.TaskID)
+		if !ok {
+			parseErr = errors.Join(parseErr, fmt.Errorf("unexpected batch task %q", envelope.TaskID))
+			continue
 		}
+		delete(wanted, envelope.TaskID)
 		if err := launchCheckEnvelope(envelope); err != nil {
-			return nil, err
+			parseErr = errors.Join(parseErr, err)
+			envelope.Status, envelope.DispatchID = "error", ""
 		}
-		envelope.Report = filepath.Join(options.ReportsDir, dateFirst(envelope.TaskID, options.Day)+".md")
-		envelope.Result = filepath.Join(options.ReportsDir, dateFirst(envelope.TaskID, options.Day)+".result.txt")
+		envelope.Report, envelope.Result = out[i].Report, out[i].Result
 		out[i] = envelope
 	}
-	for _, envelope := range out {
-		if envelope.TaskID == "" {
-			return nil, errors.New("batch omitted a task envelope")
+	for _, spec := range specs {
+		if _, missing := wanted[options.Slug+"-"+spec.ID]; missing {
+			parseErr = errors.Join(parseErr, fmt.Errorf("batch omitted task envelope %s", spec.ID))
 		}
 	}
-	return out, nil
+	return out, parseErr
 }
 
 func launchCheckEnvelope(envelope Envelope) error {

@@ -154,8 +154,14 @@ func TestLaunchKeepsEnvelopesOfBatchesThatSucceeded(t *testing.T) {
 	t.Setenv("WAVES_SCOPE_FAIL", "toy-1.1")
 	wave := scopeWave("opencode", "opencode")
 	envelopes, err := Launch(t.Context(), exe, wave, LaunchOptions{Slug: "toy", ReportsDir: t.TempDir(), Wave: wave})
-	if err == nil || len(envelopes) != 1 || envelopes[0].TaskID != "toy-1.2" || !envelopes[0].Scoped {
+	if err == nil || len(envelopes) != 2 {
 		t.Fatalf("one batch failed whole: %+v, %v", envelopes, err)
+	}
+	if got := [3]string{envelopes[0].TaskID, envelopes[0].Status, envelopes[1].TaskID}; got != [3]string{"toy-1.1", "error", "toy-1.2"} {
+		t.Fatalf("batch failure lost a sibling: %+v", envelopes)
+	}
+	if !envelopes[1].Scoped {
+		t.Fatalf("sibling lost scope: %+v", envelopes[1])
 	}
 }
 

@@ -223,7 +223,7 @@ func (r *runner) wave(ctx context.Context, w plans.Wave) (int, error) {
 	if err != nil {
 		return 1, err
 	}
-	if ctx.Err() != nil || errors.Is(launchErr, context.DeadlineExceeded) || hasRunning(ws) {
+	if ctx.Err() != nil {
 		ws.Status, ws.Reason = "stopped", "stopped, same command resumes"
 		return 4, r.finish(ws)
 	}
@@ -280,8 +280,12 @@ func (r *runner) planWave(w plans.Wave) ([]Spec, WaveState, []Spec, bool, error)
 	ws.N, ws.Status, ws.Manual = w.Number, WaveStateRunning, manual
 	ws.Reason, ws.Outside, ws.Unattributed, ws.Gates, ws.Verifier, ws.Violations = "", nil, nil, nil, nil, nil
 	ws.Fallback = nil
+	ws.NoVerify = nil
 	var launch []Spec
 	for i, d := range decision.Leaves {
+		if specs[i].Verify == "" {
+			ws.NoVerify = append(ws.NoVerify, specs[i].ID)
+		}
 		if d.Action == DecideKeep {
 			continue
 		}

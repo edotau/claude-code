@@ -97,12 +97,6 @@ func relFiles(dir string, vs []CheckViolation) []CheckViolation {
 	return out
 }
 
-func hasRunning(w WaveState) bool {
-	return slices.ContainsFunc(w.Leaves, func(l LeafState) bool {
-		return l.Status == "partial" || l.Status == "stalled"
-	})
-}
-
 func (r *runner) verify(ctx context.Context, wave plans.Wave, w WaveState, specs []Spec, launchErr error) (int, error) {
 	code := 0
 	if launchErr != nil {
@@ -158,6 +152,10 @@ func (r *runner) verifyLeaf(ctx context.Context, w WaveState, s Spec) (WaveState
 		return w, nil
 	}
 	l.Verdict = "failed"
+	if l.Status != LeafStateOK {
+		w = w.WithLeaf(l)
+		return w, r.save(w)
+	}
 	if l.DispatchID != "" {
 		proof, err := RoutingProof(r.h.check, r.o.Dir, l.DispatchID)
 		if err != nil {

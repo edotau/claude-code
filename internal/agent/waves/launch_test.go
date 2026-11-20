@@ -72,6 +72,9 @@ func TestLaunchHelper(t *testing.T) {
 
 func launchHelperStatus(i int) string {
 	if i == 1 {
+		if os.Getenv("WAVES_LAUNCH_BAD_ENVELOPE") == "1" {
+			return "invalid"
+		}
 		return "error"
 	}
 	return "ok"
@@ -120,10 +123,12 @@ func TestLaunchLive(t *testing.T) {
 	capture := filepath.Join(dir, "stdin.jsonl")
 	t.Setenv("WAVES_LAUNCH_STDIN", capture)
 	t.Setenv("WAVES_LAUNCH_JOBS", "3")
+	t.Setenv("WAVES_LAUNCH_BAD_ENVELOPE", "1")
 	tools := true
 	options := LaunchOptions{Slug: "toy", ReportsDir: dir, Profiles: []string{"dev", "qa"}, Tools: &tools, Timeout: time.Minute}
 	specs := []Spec{{ID: "1.1", Agent: "codex", Task: "first", Owns: []string{"/tmp/first.go"}, Workdir: dir, Verify: "go vet"},
-		{ID: "1.2", Agent: "codex", Task: "second"}, {ID: "1.3", Agent: "codex", Task: "third"}}
+		{ID: "1.2", Agent: "codex", Task: "second", Owns: []string{"/tmp/second.go"}},
+		{ID: "1.3", Agent: "codex", Task: "third", Owns: []string{"/tmp/third.go"}}}
 	envelopes, err := Launch(t.Context(), executable, specs, options)
 	if err == nil {
 		t.Fatal("failed batch exit was lost")
@@ -138,15 +143,19 @@ func TestLaunchLive(t *testing.T) {
 func launchCheckEnvelopes(t *testing.T, envelopes []Envelope, specs []Spec) {
 	t.Helper()
 	for i, envelope := range envelopes {
-		if envelope.TaskID != "toy-"+specs[i].ID || envelope.DispatchID != "job-"+envelope.TaskID {
+		task, status := "toy-"+specs[i].ID, launchHelperStatus(i)
+		dispatch := "job-" + task
+		if status == "invalid" {
+			status, dispatch = "error", ""
+		}
+		if got := [3]string{envelope.TaskID, envelope.DispatchID, envelope.Status}; got != [3]string{task, dispatch, status} {
 			t.Fatalf("mapping: %+v", envelope)
 		}
-		if envelope.Status != launchHelperStatus(i) {
-			t.Fatalf("status: %+v", envelope)
-		}
-		data, err := os.ReadFile(envelope.Result)
-		if err != nil || string(data) != envelope.DispatchID {
-			t.Fatalf("save: %q, %v", data, err)
+		if envelope.DispatchID != "" {
+			data, err := os.ReadFile(envelope.Result)
+			if err != nil || string(data) != envelope.DispatchID {
+				t.Fatalf("save: %q, %v", data, err)
+			}
 		}
 	}
 }
@@ -231,10 +240,16 @@ func TestLaunchBatchTags(t *testing.T) {
 
 func TestLaunchEnvelopeValidation(t *testing.T) {
 	options := LaunchOptions{Slug: "toy", ReportsDir: t.TempDir(), Provider: "databricks", Profiles: []string{"dev"}}
-	specs := []Spec{{ID: "1.1"}}
+	specs := []Spec{{ID: "1.1", Owns: []string{"/tmp/first.go"}}}
 	for _, data := range []string{"", "{", `{"task_id":"other","status":"ok"}`, `{"task_id":"toy-1.1","status":"ok"}`, `{"task_id":"toy-1.1","status":"running"}`} {
-		if _, err := launchEnvelopes([]byte(data), specs, options); err == nil {
+		siblings := append(slices.Clone(specs), Spec{ID: "1.2"})
+		data += "\n" + `{"task_id":"toy-1.2","dispatch_id":"good","status":"ok"}`
+		envelopes, err := launchEnvelopes([]byte(data), siblings, options)
+		if err == nil {
 			t.Fatalf("accepted %q", data)
+		}
+		if len(envelopes) != 2 || envelopes[0].Status != "error" || envelopes[1].DispatchID != "good" {
+			t.Fatalf("lost sibling or missing error envelope: %+v, %v", envelopes, err)
 		}
 	}
 	data, err := launchLines(specs, options)
@@ -257,7 +272,7 @@ func TestLaunchWidthCap(t *testing.T) {
 	t.Setenv("WAVES_LAUNCH_JOBS", "24")
 	specs := make([]Spec, 25)
 	for i := range specs {
-		specs[i] = Spec{ID: fmt.Sprintf("1.%d", i+1), Task: "cap"}
+		specs[i] = Spec{ID: fmt.Sprintf("1.%d", i+1), Task: "cap", Owns: []string{"/tmp/first.go"}}
 	}
 	envelopes, err := Launch(t.Context(), executable, specs, LaunchOptions{Slug: "cap", ReportsDir: dir})
 	if len(envelopes) != len(specs) {
@@ -284,7 +299,7 @@ func TestLaunchForwardsRouteFlags(t *testing.T) {
 	route := []string{"--overlay", `{"fallback":"none"}`, "--permissions", "plan", "--allow", "Bash(ls:*)", "--deny", "Edit"}
 	t.Setenv("WAVES_LAUNCH_ROUTE", strings.Join(route, "\x1f"))
 	options := LaunchOptions{Slug: "toy", ReportsDir: dir, Route: route}
-	envelopes, err := Launch(t.Context(), executable, []Spec{{ID: "1.1", Agent: "codex", Task: "only"}}, options)
+	envelopes, err := Launch(t.Context(), executable, []Spec{{ID: "1.1", Agent: "codex", Task: "only", Owns: []string{"/tmp/first.go"}}}, options)
 	if err != nil || len(envelopes) != 1 || envelopes[0].Status != "ok" {
 		t.Fatalf("Launch with route flags: %+v, %v (a helper exit 5 means the flags did not reach the child)", envelopes, err)
 	}

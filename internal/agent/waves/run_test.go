@@ -22,6 +22,7 @@ type runFixture struct {
 	out                                bytes.Buffer
 	calls                              [][]Spec
 	fail, outside, mismatch            bool
+	failure                            string
 	foreign                            map[string][]CheckViolation // package id -> other packages' paths it wrote alone
 	parallel, scoped                   bool                        // 1.1 and 1.2 ran in one window, and 1.1 wrote 1.2's file; 1.1 was refused it
 	gates                              int
@@ -54,7 +55,10 @@ func (f *runFixture) launch(_ context.Context, _ string, specs []Spec, o LaunchO
 	for _, s := range specs {
 		status := "ok"
 		if f.fail && s.ID == "1.2" {
-			status = "error"
+			status = f.failure
+			if status == "" {
+				status = "error"
+			}
 		}
 		out = append(out, Envelope{TaskID: o.Slug + "-" + s.ID, DispatchID: s.ID, Status: status, Report: "report-" + s.ID,
 			Scoped: f.scoped, Foreign: f.foreign[s.ID]})
@@ -101,6 +105,7 @@ func (f *runFixture) exec(_ context.Context, _, cmd string, _ []string, _ io.Wri
 
 func TestRunEndToEnd(t *testing.T) {
 	f := newRunFixture(t)
+	f.failure = "stalled"
 	for _, tc := range []struct {
 		name                    string
 		fail, outside, mismatch bool
@@ -136,15 +141,22 @@ func TestRunEndToEnd(t *testing.T) {
 
 func TestRunResume(t *testing.T) {
 	f := newRunFixture(t)
+	f.failure = "partial"
 	f.fail = true
 	if code := runWith(t.Context(), f.o, f.h); code != 1 {
 		t.Fatal(code, &f.out)
+	}
+	if f.gates != 2 {
+		t.Fatalf("successful leaf and wave gate were not verified: %d steps", f.gates)
 	}
 	f.fail = false
 	f.calls = nil
 	f.out.Reset()
 	if code := runWith(t.Context(), f.o, f.h); code != 0 {
 		t.Fatal(code, &f.out)
+	}
+	if !strings.Contains(f.out.String(), "no verify: 2.1 (diff check only)") {
+		t.Fatalf("missing verify notice: %s", &f.out)
 	}
 	if len(f.calls) != 2 || len(f.calls[0]) != 1 || f.calls[0][0].ID != "1.2" {
 		t.Fatalf("resume: %+v", f.calls)

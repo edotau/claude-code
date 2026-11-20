@@ -93,7 +93,9 @@ func checkStateResume(t *testing.T, tc stateResumeCase, ids []string, fp Fingerp
 
 func TestStateDecideResumeTable(t *testing.T) {
 	disk := map[string]string{"a.go": "h1", "b.go": "h2"}
-	ok := func(id, f string) LeafState { return stateLeaf(id, LeafStateOK, "", map[string]string{f: disk[f]}) }
+	ok := func(id, f string) LeafState {
+		return stateLeaf(id, LeafStateOK, "pending", map[string]string{f: disk[f]})
+	}
 	for _, tc := range stateResumeCases(ok) {
 		t.Run(tc.name, func(t *testing.T) { checkStateResume(t, tc, []string{"p-2.1", "p-2.2"}, statefp(disk)) })
 	}
