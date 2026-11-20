@@ -168,20 +168,22 @@ func editRoutingChoice(d *dialog, f configure.RoutingField, values []string) (st
 
 // editRoutingText is the number/text/list prompt; an empty line resets to the default.
 func editRoutingText(d *dialog, f configure.RoutingField) (string, bool) {
-	raw, ok := readAnswer(d, f.Key+" (empty resets to default): ")
-	if !ok {
-		// input ended: a cancel, never an accidental reset
-		return "", false
+	for {
+		raw, ok := readAnswer(d, f.Key+" (empty resets to default): ")
+		if !ok {
+			// input ended: a cancel, never an accidental reset
+			return "", false
+		}
+		input := strings.TrimSpace(raw)
+		if input == "" {
+			return "", true
+		}
+		if err := configure.ValidateRoutingInput(f, input); err != nil {
+			d.printf("%s: %v\n", f.Key, err)
+			continue
+		}
+		return input, true
 	}
-	input := strings.TrimSpace(raw)
-	if input == "" {
-		return "", true
-	}
-	if err := configure.ValidateRoutingInput(f, input); err != nil {
-		d.printf("%s: %v\n", f.Key, err)
-		return "", false
-	}
-	return input, true
 }
 
 // saveRouting asks to save n staged change(s) on leaving the page; n/Esc discards them.
