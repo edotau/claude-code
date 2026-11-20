@@ -1122,3 +1122,25 @@ func TestPrepareResolvesModelWordForResolverDriver(t *testing.T) {
 		}
 	}
 }
+
+func TestRunOptionsEffectiveRoute(t *testing.T) {
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{"work": {}}}
+	for name, tc := range map[string]struct {
+		o    RunOptions
+		want [3]string
+	}{
+		"route wins":      {withRoute(RunOptions{Provider: "x"}, "github", "p"), [3]string{"github", "p", ""}},
+		"legacy provider": {RunOptions{Provider: "work", Account: "me"}, [3]string{"", "work", "me"}},
+		"prefixed model":  {RunOptions{Model: "work:sonnet"}, [3]string{"", "work", ""}},
+		"none":            {RunOptions{Model: "sonnet"}, [3]string{}},
+	} {
+		if r := tc.o.EffectiveRoute(reg); [3]string{r.Provider, r.Profile, r.Account} != tc.want {
+			t.Errorf("%s: got %+v, want %v", name, r, tc.want)
+		}
+	}
+}
+
+func withRoute(o RunOptions, provider, profile string) RunOptions {
+	o.Route.Provider, o.Route.Profile = provider, profile
+	return o
+}

@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
@@ -396,6 +397,7 @@ type LaunchOptions struct {
 	Overlay  string   // --overlay <value>; empty reads $COWORKER_OVERLAY
 	Dispatch bool
 	Binary   string // launcher only: the native claude to exec (VS Code wrapper's bundled path)
+	Route    route.Route
 }
 
 func (o *LaunchOptions) launchFlagSetter(name string, claude bool) func(string) {
@@ -404,6 +406,9 @@ func (o *LaunchOptions) launchFlagSetter(name string, claude bool) func(string) 
 		fields["-f"], fields["--file"] = &o.File, &o.File
 	}
 	if field := fields[name]; field != nil {
+		if name == "--profile" {
+			return func(v string) { o.Provider, o.Route = v, route.ParseLegacy(v) }
+		}
 		return func(v string) { *field = v }
 	}
 	if name == "--keep-env" {

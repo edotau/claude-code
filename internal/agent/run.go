@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -624,6 +625,26 @@ type RunOptions struct {
 
 	// YieldFallback lets workspace retry handle a failed dispatch before the requested chain continues.
 	YieldFallback func(wire.Result, error) bool `json:"-"`
+
+	// Route is the whole route when set; readers fall back to Provider, Account and a prefixed Model.
+	Route route.Route `json:"route,omitzero"`
+}
+
+// EffectiveRoute is Route when set, else built from the legacy Provider, Account and a "<row>:" Model prefix.
+func (o RunOptions) EffectiveRoute(reg *providers.Registry) route.Route {
+	if !o.Route.IsZero() {
+		return o.Route
+	}
+	r := route.ParseLegacy(o.Provider)
+	if r.IsZero() {
+		if spec, err := providers.SplitModelSpec(reg, o.Model); err == nil && spec.Row != "" {
+			r = route.Route{Profile: spec.Row}
+		}
+	}
+	if !r.IsZero() {
+		r.Account = o.Account
+	}
+	return r
 }
 
 // StatusOf maps the classified failure to the envelope status: quota, deadline, output-then-failure, else error.
