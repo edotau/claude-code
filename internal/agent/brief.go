@@ -76,6 +76,19 @@ func ParseOwned(brief string) []string {
 	return nil
 }
 
+// IsReadOnlyBrief reports whether the brief's header (before its first blank line) has a Mode: read-only line.
+func IsReadOnlyBrief(brief string) bool {
+	for line := range strings.SplitSeq(strings.TrimSpace(brief), "\n") {
+		if strings.TrimSpace(line) == "" {
+			return false
+		}
+		if v, ok := strings.CutPrefix(line, "Mode:"); ok && strings.HasPrefix(strings.TrimSpace(v), "read-only") {
+			return true
+		}
+	}
+	return false
+}
+
 // ReadBrief returns the brief file's text; "" is an empty brief and "-" reads stdin.
 func ReadBrief(path string) (string, error) {
 	switch path {

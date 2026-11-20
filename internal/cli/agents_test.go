@@ -1274,3 +1274,30 @@ func TestCmdAgentsAskJoinsContainedReap(t *testing.T) {
 		t.Errorf("panicking reap: rc=%d (want %d) stderr=%s", rc, want, stderr)
 	}
 }
+
+func TestRunLineReadOnly(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		typ, spec string
+		ro        bool
+		want      string
+	}{
+		{"copilot", "", true, "Run: claude-code agents ask --agent copilot --model m --read-only"},
+		{"copilot", "", false, "Run: claude-code agents ask --agent copilot --model m"},
+		{"copilot", `{"tools":true}`, true, "Run: claude-code agents ask --agent copilot --tools=true"},
+		{"codex", "", true, "Run: claude-code agents ask --agent codex --model m"},
+	}
+	for _, c := range cases {
+		model := "m"
+		if c.spec != "" {
+			model = ""
+		}
+		if line, err := runLine(c.typ, c.spec, model, "", c.ro); err != nil || line != c.want {
+			t.Errorf("runLine(%+v) = %q, %v", c, line, err)
+		}
+	}
+	if !agent.IsReadOnlyBrief("Owned: null\nMode: read-only; do not edit files\n\nTask:\nx") ||
+		agent.IsReadOnlyBrief("Owned: []\nMode: implementation\n\nMode: read-only") {
+		t.Error("IsReadOnlyBrief misreads the brief header")
+	}
+}
