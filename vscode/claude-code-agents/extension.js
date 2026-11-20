@@ -1572,11 +1572,25 @@ function registerChatProvider(context) {
   if (!vscode.lm || !vscode.lm.registerLanguageModelChatProvider) return;
   const out = vscode.window.createOutputChannel('Claude Code Databricks Models');
   const binary = harnessBinary();
-  const provider = new ChatProvider({ run: (argv) => runBinary(binary, [binary, ...argv]), log: (line) => out.appendLine(line) });
+  const state = context.globalState;
+  const provider = new ChatProvider({ run: (argv) => runBinary(binary, [binary, ...argv]), log: (line) => out.appendLine(line), state });
+  const item = vscode.window.createStatusBarItem(vscode.StatusBarAlignment.Right, 100);
+  item.command = 'claudeCodeAgents.switchChatProfile';
+  item.tooltip = 'Switch the Databricks profile (dev, qa, prod) whose models the chat picker lists';
+  const showProfile = async () => {
+    const { active, profiles } = await provider.summary().catch(() => ({ profiles: [] }));
+    item.text = `$(cloud) Databricks: ${active}`;
+    if (profiles.length) item.show();
+    else item.hide();
+  };
+  provider.onDidChangeLanguageModelChatInformation(showProfile);
+  showProfile();
   context.subscriptions.push(
     out,
+    item,
     vscode.lm.registerLanguageModelChatProvider(CHAT_VENDOR, provider),
     vscode.commands.registerCommand('claudeCodeAgents.refreshChatModels', () => provider.refresh()),
+    vscode.commands.registerCommand('claudeCodeAgents.switchChatProfile', () => provider.switchProfile()),
   );
 }
 

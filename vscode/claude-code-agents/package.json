@@ -141,6 +141,12 @@
         "command": "claudeCodeAgents.refreshChatModels",
         "title": "Refresh Databricks Chat Models",
         "category": "Claude Code Agents"
+      },
+      {
+        "command": "claudeCodeAgents.switchChatProfile",
+        "title": "Switch Databricks Profile",
+        "icon": "$(cloud)",
+        "category": "Claude Code Agents"
       }
     ],
     "menus": {

@@ -25,19 +25,22 @@ const SECRET = 'cct_tokensecret1';
 const sse = (...events) => ({ ok: true, status: 200, body: [new TextEncoder().encode(events.map((e) => `data: ${typeof e === 'string' ? e : JSON.stringify(e)}\n\n`).join(''))] });
 const delta = (d, finish) => ({ choices: [{ delta: d, finish_reason: finish || null }] });
 
-function setup(responses) {
+const THREE = { profiles: ['dev', 'qa', 'prod'].map((p) => ({ profile: p, base: `http://127.0.0.1:1/p/${p}`, models: [{ id: `m-${p}` }] })) };
+const fakeState = (store = new Map()) => ({ store, get: (k) => store.get(k), update: async (k, v) => store.set(k, v) });
+
+function setup(responses, { listing = LISTING, state } = {}) {
   const runs = [], fetches = [], logs = [];
   let n = 0;
   const run = async (argv) => {
     runs.push(argv.join(' '));
-    if (argv[0] === 'configure') return JSON.stringify(LISTING);
+    if (argv[0] === 'configure') return JSON.stringify(listing);
     return `${SECRET}${n++}\n`;
   };
   const fetch = async (url, init) => {
     fetches.push({ url, init, body: JSON.parse(init.body) });
     return responses.shift();
   };
-  return { runs, fetches, logs, provider: new ChatProvider({ run, fetch, log: (l) => logs.push(l) }) };
+  return { runs, fetches, logs, provider: new ChatProvider({ run, fetch, state, log: (l) => logs.push(l) }) };
 }
 
 async function chat(provider, messages, options) {
@@ -103,4 +106,51 @@ test('a second 401 after the refresh surfaces the proxy error and logs no token'
   await assert.rejects(ask(provider), /proxy returned 401: invalid session token/);
   assert.equal(runs.filter((r) => r.endsWith('--refresh')).length, 1, 'refreshed once, no loop');
   assert.ok(logs.length > 0 && !logs.join('\n').includes('cct_'), 'log holds byte counts only');
+});
+
+const ids = async (provider) => (await provider.provideLanguageModelChatInformation()).map((i) => i.id);
+const pick = (label) => { vscode.window.showQuickPick = async (items) => { pick.items = items; return items.find((i) => i.label === label); }; };
+
+test('only the active profile is listed; the first is the default', async () => {
+  const { provider } = setup([], { listing: THREE, state: fakeState() });
+  assert.deepEqual(await ids(provider), ['dev:m-dev']);
+});
+
+test('choosing a profile relists it and fires the change event once; the pick marks the current one', async () => {
+  const { provider } = setup([], { listing: THREE, state: fakeState() });
+  let fired = 0;
+  provider.onDidChangeLanguageModelChatInformation(() => fired++);
+  pick('qa');
+  await provider.switchProfile();
+  assert.deepEqual(pick.items.map((i) => i.label), ['dev', 'qa', 'prod', 'Refresh']);
+  assert.equal(pick.items[0].description, 'current');
+  assert.equal(fired, 1);
+  assert.deepEqual(await ids(provider), ['qa:m-qa']);
+});
+
+test('Refresh refetches the list and keeps the profile', async () => {
+  const { provider, runs } = setup([], { listing: THREE, state: fakeState(new Map([['claudeCodeAgents.databricksProfile', 'prod']])) });
+  await ids(provider);
+  pick('Refresh');
+  await provider.switchProfile();
+  assert.deepEqual(await ids(provider), ['prod:m-prod']);
+  assert.equal(runs.filter((r) => r.startsWith('configure')).length, 2);
+});
+
+test('the choice survives a restart; a vanished stored profile falls back to the first and logs it', async () => {
+  const state = fakeState();
+  pick('prod');
+  await setup([], { listing: THREE, state }).provider.switchProfile();
+  assert.deepEqual(await ids(setup([], { listing: THREE, state }).provider), ['prod:m-prod']);
+  state.store.set('claudeCodeAgents.databricksProfile', 'gone');
+  const { provider, logs } = setup([], { listing: THREE, state });
+  assert.deepEqual(await ids(provider), ['dev:m-dev']);
+  assert.ok(logs.some((l) => l.includes('gone')));
+});
+
+test('a model of a non-active profile is still served on its own route, even before any listing', async () => {
+  const { provider, fetches } = setup([sse(delta({ content: 'ok' }, 'stop'))], { listing: THREE, state: fakeState() });
+  const user = { role: 1, content: [new vscode.LanguageModelTextPart('x')] };
+  await provider.provideLanguageModelChatResponse({ id: 'prod:m-prod' }, [user], {}, { report() {} }, { isCancellationRequested: false });
+  assert.equal(fetches[0].url, 'http://127.0.0.1:1/p/prod/openai/chat/completions');
 });

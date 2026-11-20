@@ -156,51 +156,106 @@ class ProxyTokens {
   }
 }
 
+const PROFILE_KEY = 'claudeCodeAgents.databricksProfile';
+const REFRESH_LABEL = 'Refresh';
+
 class ChatProvider {
-  /** deps: run(argv) -> stdout of the claude-code binary, fetch, log(line). */
-  constructor({ run, fetch: fetchFn = globalThis.fetch, log = () => {} }) {
+  /** deps: run(argv) -> stdout of the claude-code binary, fetch, log(line), state (globalState-like get/update). */
+  constructor({ run, fetch: fetchFn = globalThis.fetch, log = () => {}, state }) {
     this.run = run;
     this.fetch = fetchFn;
     this.log = log;
+    this.state = state;
     this.tokens = new ProxyTokens(run, log);
-    this.models = undefined; // session cache of the harness list: Map<vscodeId, {profile, base, id, ...}>
+    this.listing = undefined; // session cache of the harness list: Promise<{profiles, models: Map<vscodeId, {...}>}>
     this.changed = new vscode.EventEmitter();
     this.onDidChangeLanguageModelChatInformation = this.changed.event;
   }
 
   /** Drops the cached model list and asks VS Code to list again. */
   refresh() {
-    this.models = undefined;
+    this.listing = undefined;
     this.changed.fire();
   }
 
   async load() {
-    const listing = JSON.parse(await this.run(['configure', '--vscode', '--print']));
-    const map = new Map();
-    for (const p of listing.profiles || []) {
-      for (const m of p.models || []) map.set(`${p.profile}:${m.id}`, { ...m, profile: p.profile, base: p.base });
+    const raw = JSON.parse(await this.run(['configure', '--vscode', '--print'])).profiles || [];
+    const models = new Map();
+    for (const p of raw) {
+      for (const m of p.models || []) models.set(`${p.profile}:${m.id}`, { ...m, profile: p.profile, base: p.base });
     }
-    this.log(`models: ${map.size} across ${(listing.profiles || []).length} profile(s)`);
-    return map;
+    this.log(`models: ${models.size} across ${raw.length} profile(s)`);
+    return { profiles: raw.map((p) => p.profile), models };
+  }
+
+  /** The cached list, loading it once; a failed load is not cached. */
+  async ensure() {
+    const pending = (this.listing ||= this.load());
+    try {
+      return await pending;
+    } catch (err) {
+      if (this.listing === pending) this.listing = undefined;
+      throw err;
+    }
+  }
+
+  activeOf(profiles) {
+    const stored = this.state && this.state.get(PROFILE_KEY);
+    if (stored && !profiles.includes(stored)) this.log(`stored profile ${stored} is gone; using ${profiles[0]}`);
+    return profiles.includes(stored) ? stored : profiles[0];
+  }
+
+  /** The active profile and every profile the harness returned. */
+  async summary() {
+    const { profiles } = await this.ensure();
+    return { active: this.activeOf(profiles), profiles };
+  }
+
+  async setProfile(profile) {
+    if (this.state) await this.state.update(PROFILE_KEY, profile);
+    this.changed.fire();
+  }
+
+  /** Quick pick over the harness's profiles plus Refresh; a profile applies at once, Refresh keeps the current one. */
+  async switchProfile() {
+    let summary;
+    try {
+      summary = await this.summary();
+    } catch (err) {
+      this.log(`model list failed: ${err.message}`);
+      return;
+    }
+    const items = [
+      ...summary.profiles.map((label) => ({ label, description: label === summary.active ? 'current' : '', picked: label === summary.active })),
+      { label: REFRESH_LABEL, description: 'refetch the model list' },
+    ];
+    const choice = await vscode.window.showQuickPick(items, { placeHolder: `Databricks profile (current: ${summary.active})` });
+    if (!choice) return;
+    if (choice.label === REFRESH_LABEL) return this.refresh();
+    if (choice.label !== summary.active) await this.setProfile(choice.label);
   }
 
   async provideLanguageModelChatInformation() {
+    let listing;
     try {
-      this.models ||= await this.load();
+      listing = await this.ensure();
     } catch (err) {
       this.log(`model list failed: ${err.message}`);
       return [];
     }
-    return [...this.models].map(([id, m]) => ({
-      id,
-      name: m.id,
-      family: m.id,
-      version: '1.0.0',
-      detail: `Databricks ${m.profile}`,
-      maxInputTokens: m.contextWindow || DEFAULT_INPUT,
-      maxOutputTokens: m.maxOutputTokens || DEFAULT_OUTPUT,
-      capabilities: { toolCalling: m.toolCalling !== false, imageInput: m.vision === true },
-    }));
+    const active = this.activeOf(listing.profiles);
+    return [...listing.models]
+      .filter(([, m]) => m.profile === active)
+      .map(([id, m]) => ({
+        id,
+        name: m.id,
+        family: m.id,
+        version: '1.0.0',
+        detail: `Databricks ${m.profile}`,
+        maxInputTokens: m.contextWindow || DEFAULT_INPUT,
+        maxOutputTokens: m.maxOutputTokens || DEFAULT_OUTPUT,
+        capabilities: { toolCalling: m.toolCalling !== false, imageInput: m.vision === true },
+      }));
   }
 
   async provideTokenCount(_model, input) {
@@ -218,7 +273,7 @@ class ChatProvider {
   }
 
   async provideLanguageModelChatResponse(model, messages, options, progress, token) {
-    const m = this.models && this.models.get(model.id);
+    const m = (await this.ensure()).models.get(model.id); // any profile's model, not only the listed ones
     if (!m) throw new Error(`unknown model ${model.id}: refresh the model list`);
     const body = chatRequest(m.id, messages, options);
     const abort = new AbortController();
