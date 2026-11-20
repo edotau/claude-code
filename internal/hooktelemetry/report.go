@@ -33,6 +33,7 @@ type signalRow struct {
 	Verdict string         `json:"verdict"`
 	Outcome string         `json:"outcome"`
 	MS      jsontext.Value `json:"ms"`
+	N       int            `json:"n"`
 }
 
 type signalRule struct{ rule, module string }
@@ -59,6 +60,7 @@ func Read(now time.Time, view View) Report {
 	for day := range int(view) {
 		date := now.AddDate(0, 0, -day).Format("20060102")
 		used, truncated := s.readFile(filepath.Join(dir, "telemetry-"+date+".jsonl"), left, view)
+		s.addPending(filepath.Join(dir, "telemetry-"+date+".jsonl"), view)
 		left -= used
 		if truncated {
 			s.Truncated = true
@@ -160,6 +162,17 @@ func (s *Report) add(line []byte, view View) {
 	if jsonv2.Unmarshal(line, &row) != nil {
 		return
 	}
+	s.addRow(row, view)
+}
+
+// addPending counts the minute of folded passes not yet flushed to the day file.
+func (s *Report) addPending(file string, view View) {
+	for _, e := range loadFold(file).Rows {
+		s.addRow(signalRow{Module: e.Module, Outcome: OutcomeOK, MS: strconv.AppendFloat(nil, e.Max, 'f', -1, 64), N: e.N}, view)
+	}
+}
+
+func (s *Report) addRow(row signalRow, view View) {
 	if row.Outcome == "dropped" {
 		s.Dropped++
 		return
@@ -172,7 +185,7 @@ func (s *Report) add(line []byte, view View) {
 		m = &moduleStats{}
 		s.modules[row.Module] = m
 	}
-	m.Fires++
+	m.Fires += max(1, row.N)
 	if view == Activity {
 		m.record(row)
 		return

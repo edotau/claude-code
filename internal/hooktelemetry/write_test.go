@@ -60,7 +60,7 @@ func TestRecordKeepsRecordingPastTheOldCapAndMarksTheDrop(t *testing.T) {
 		t.Fatal(err)
 	}
 	record := func(m string) {
-		recordTelemetry(dir, []Row{{"Stop", m, OutcomeOK, 0, "", "", "", ""}}, now, time.Now().Add(time.Hour))
+		recordTelemetry(dir, []Row{{"Stop", m, OutcomeOK, 2 * time.Millisecond, "", "", "", ""}}, now, time.Now().Add(time.Hour))
 	}
 	record("after-old-cap")
 	if raw, _ := os.ReadFile(file); !strings.Contains(string(raw), "after-old-cap") {
@@ -118,5 +118,20 @@ func BenchmarkRecord(b *testing.B) {
 	}
 	for b.Loop() {
 		Record(rows)
+	}
+}
+
+func TestFastPassesFoldIntoOneCounterRowPerMinute(t *testing.T) {
+	restore := DirForTest(t.TempDir())
+	defer restore()
+	dir := telemetryDir()
+	now := time.Date(2026, time.November, 20, 12, 0, 10, 0, time.UTC)
+	for range 5 {
+		recordTelemetry(dir, []Row{{"Stop", "a", OutcomeOK, 100 * time.Microsecond, "", "", "", ""}}, now, time.Now().Add(time.Hour))
+	}
+	recordTelemetry(dir, []Row{{"Stop", "a", OutcomeOK, 0, "", "", "", ""}}, now.Add(time.Minute), time.Now().Add(time.Hour))
+	raw, _ := os.ReadFile(filepath.Join(dir, "telemetry-20261120.jsonl"))
+	if got := strings.Count(string(raw), "\n"); got != 1 || !strings.Contains(string(raw), `"n":5`) {
+		t.Errorf("rows = %q, want one counter row n=5", raw)
 	}
 }

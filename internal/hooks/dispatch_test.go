@@ -782,7 +782,7 @@ func TestDispatchTelemetryCarriesSessionAndTool(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			dir := t.TempDir()
 			defer hooktelemetry.DirForTest(dir)()
-			b := bound("m", "", time.Second, func(*core.Input) core.Result { return core.Result{} })
+			b := bound("m", "", time.Second, func(*core.Input) core.Result { time.Sleep(2 * time.Millisecond); return core.Result{} })
 			b.Spec.Event = c.event
 			if _, err := Dispatch([]Bound{b}, c.event, core.ParseInput(strings.NewReader(c.payload)), io.Discard); err != nil {
 				t.Fatal(err)
@@ -815,7 +815,7 @@ func TestDispatchRecordsTelemetry(t *testing.T) {
 	blocker := bound("blocker", "Bash", time.Second, func(*core.Input) core.Result { return core.Result{Decision: core.Block} })
 	blocker.Spec.Blocks = true
 	bs := []Bound{
-		bound("fine", "Bash", time.Second, func(*core.Input) core.Result { return core.Result{} }),
+		bound("fine", "Bash", time.Second, func(*core.Input) core.Result { time.Sleep(2 * time.Millisecond); return core.Result{} }),
 		blocker,
 		bound("stopper", "Bash", time.Second, func(*core.Input) core.Result { return core.Result{Decision: core.Block} }),
 		bound("boom", "Bash", time.Second, func(*core.Input) core.Result { panic("x") }),
@@ -861,7 +861,7 @@ func TestDispatchTelemetryTagsRuleAndVerdict(t *testing.T) {
 	}
 	var bs []Bound
 	for name, r := range res {
-		bs = append(bs, bound(name, "Bash", time.Second, func(*core.Input) core.Result { return r }))
+		bs = append(bs, bound(name, "Bash", time.Second, func(*core.Input) core.Result { time.Sleep(2 * time.Millisecond); return r }))
 	}
 	if _, err := Dispatch(bs, "PreToolUse", in, io.Discard); err != nil {
 		t.Fatal(err)
