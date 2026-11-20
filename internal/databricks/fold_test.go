@@ -74,6 +74,43 @@ func rowPresent(t *testing.T, id string) bool {
 	return reg.Providers[id] != nil
 }
 
+func TestFoldAndPairWorkspaceFilter(t *testing.T) {
+	for _, c := range []struct {
+		name, src, dst string
+		want           bool
+	}{
+		{"equal", "101", "101", true},
+		{"different", "101", "202", false},
+		{"source missing", "", "202", true},
+		{"target missing", "101", "", true},
+		{"both missing", "", "", true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			src := providers.Provider{Preset: providers.PresetDatabricks, Host: foldDevHost,
+				Auth: providers.Auth{Type: providers.AuthM2M, ClientID: "sp", WorkspaceID: c.src}}
+			dst := providers.Provider{Preset: providers.PresetDatabricks, Host: foldDevHost,
+				Auth: providers.Auth{Type: providers.AuthOAuth, SPClientID: "sp", WorkspaceID: c.dst}}
+			target, _ := foldTarget(map[string]providers.Provider{"src": src, "dst": dst}, "src")
+			if (target == "dst") != c.want {
+				t.Fatalf("fold target = %q, want match %t", target, c.want)
+			}
+			sp := importRow{Host: foldDevHost, Auth: providers.AuthM2M, WorkspaceID: c.src}
+			rows := []importRow{
+				{Host: foldDevHost, Auth: providers.AuthOAuth, WorkspaceID: c.dst},
+				{Host: foldDevHost, Auth: providers.AuthM2M, WorkspaceID: c.dst},
+			}
+			users, principals := sameHostRows(rows, sp)
+			want := 0
+			if c.want {
+				want = 1
+			}
+			if len(users) != want || principals != want {
+				t.Fatalf("same-host counts = (%d, %d), want (%d, %d)", len(users), principals, want, want)
+			}
+		})
+	}
+}
+
 func TestImportFoldIsExplicitAndDryRun(t *testing.T) {
 	vaulttest.UseFreshKey(t)
 	seedLegacyRows(t)

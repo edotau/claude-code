@@ -721,7 +721,7 @@ func existingHost(raw json.RawMessage) string {
 // sameHostRows counts source profiles, including ones that an earlier pairing already consumed.
 func sameHostRows(rows []importRow, sp importRow) (users []int, principals int) {
 	for j, u := range rows {
-		if u.Skip != "" || u.Host != sp.Host {
+		if u.Skip != "" || u.Host != sp.Host || !sameWorkspace(u.WorkspaceID, sp.WorkspaceID) {
 			continue
 		}
 		if u.Auth == providers.AuthM2M {

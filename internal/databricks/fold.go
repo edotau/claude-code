@@ -171,7 +171,8 @@ func foldTarget(rows map[string]providers.Provider, id string) (string, string) 
 	var hits []string
 	for to, p := range rows {
 		if to != id && p.Auth.Type == providers.AuthOAuth && p.Auth.SPClientID != "" &&
-			p.Auth.SPClientID == src.Auth.ClientID && sameDatabricksHost(&src, &p) {
+			p.Auth.SPClientID == src.Auth.ClientID && sameDatabricksHost(&src, &p) &&
+			sameWorkspace(src.Auth.WorkspaceID, p.Auth.WorkspaceID) {
 			hits = append(hits, to)
 		}
 	}
@@ -183,6 +184,10 @@ func foldTarget(rows map[string]providers.Provider, id string) (string, string) 
 		return hits[0], ""
 	}
 	return "", "several profiles pair it: " + strings.Join(hits, ", ")
+}
+
+func sameWorkspace(a, b string) bool {
+	return a == "" || b == "" || a == b
 }
 
 // foldVeto names what keeps id from folding: a non-M2M secret or a reference fold cannot re-point; "" when none.
