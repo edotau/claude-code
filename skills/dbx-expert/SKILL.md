@@ -41,6 +41,9 @@ A model the fresh listing lacks prints `served: no` with the served alternatives
 - Doctor's credential rows end with `source=vault`, `source=env <NAME>` or `source=command`. An env var that
   shadows the vault entry is flagged `(shadows the vault entry)`: unset it or accept it.
 - Sign in: `claude-code databricks login --profile <p>`. Smoke test: `claude-code databricks check --all`.
+- Tokens refresh early (half their life, at most 20 minutes) and the proxy refreshes behind the request. It loads new
+  token code only on `claude-code gateway proxy --restart`. A process killed mid-refresh can lose a user login: renew
+  it with `databricks login --profile <p>`.
 
 ## Tokens to the proxy
 
@@ -55,15 +58,19 @@ A model the fresh listing lacks prints `served: no` with the served alternatives
 
 ```bash
 claude-code models discover --profile dev            # preview what the listing adds
-claude-code models discover --profile dev --apply --verify   # save, and drop ids answered "deprecated"
+claude-code models discover --profile dev --apply --verify   # save, drop ids answered "deprecated", flag broken ones
 claude-code models discover --profile dev --drop <id> --apply   # remove an id and stop re-adding it
 claude-code models discover --undrop <id> --apply    # let discovery add it again
 claude-code gateway resolve <agent> --model <id> --profile dev   # does it route, and on which wire
 ```
 
-- A listing is not proof the model answers. `--verify` and `claude-code databricks check` send one tiny
-  non-streaming request, which once passed for a model that then failed in real use with "stream disconnected".
-  Always finish with a streamed call: `claude-code agents ask --agent <a> --profile dev --model <id> -- "say pong"`.
+- A listing is not proof the model answers. `--verify` and `claude-code databricks check` send one tiny streamed
+  request. Verdicts: ok, deprecated, broken (accepted, but the stream ended without its terminator, had no content or
+  carried an error frame) or an error class. Only "deprecated" is dropped under `--apply`; a broken model is
+  reported with the `--drop <id> --apply` command to run by hand.
+- The proxy also drops a model by itself when real traffic gets "This endpoint <id> is deprecated" (no extra call;
+  the auto pool honours it). Lift it with `--undrop <id> --apply`.
+  Still finish with a real call: `claude-code agents ask --agent <a> --profile dev --model <id> -- "say pong"`.
 - Do not hand-edit generated agent menus: Codex catalog, OpenCode menu, Copilot catalog, Pi `models.json`.
   Change the source (discover, drop, the vault overlay), then `claude-code configure --restore --agents`
   (one agent: `--agent <a>`). Codex and Pi also rebuild theirs at launch from the cached listing.
@@ -78,12 +85,26 @@ claude-code gateway resolve <agent> --model <id> --profile dev   # does it route
 
 ## Cost
 
-Today: token counts only, taken from proxy responses and the agents' own stores (`claude-code usage`). There is no DBU
-price or dollar figure. A cost report would read Databricks system tables, which needs a SQL warehouse and grants.
+- Tokens: `claude-code usage --days 7`. Dollars: set prices once per profile (USD per million tokens), then
+  `claude-code usage --cost`:
+
+  ```bash
+  claude-code configure provider dev options.warehouse_id=<id> \
+    'options.prices={"<model-id>":{"input":0,"output":0,"cache_read":0,"cache_write":0}}'
+  ```
+
+- `configure provider --list dev` shows them; an empty `warehouse_id=` or `options.prices={}` clears. Doctor has a
+  `cost report` row.
+- The figure is labelled `est.`: local ledger tokens times your price table, not an invoice. With no prices set,
+  `usage --cost` prints one hint line.
+- A billed report from `system.billing` is not available yet: it needs `USE SCHEMA` and `SELECT` on `system.billing`
+  and `system.serving` for the identity that runs the query. The three workspaces share one metastore.
 
 ## Do not
 
-- Use AI Gateway routes, or call a workspace directly from an agent or with `curl` (probe with `agents ask`).
+- Use AI Gateway routes, or call a workspace directly from an agent or with `curl` (probe with `agents ask`; read
+  metadata with `claude-code databricks api <path> --profile <p>`, whose serving-endpoints output lists creator
+  addresses: keep it on the machine).
 - Put a secret in a file, a brief, a commit or a log.
 - Hand-edit generated agent configs or `settings.json` (`rules/harness/settings-management.md`).
 - Change production from a session: it is read-only; deploys go through its pipeline.

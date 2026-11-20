@@ -129,7 +129,14 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
   `claude-code agents ask`, not `curl`.
 - The `--verify` and `databricks check` probes send a streamed request and need the wire's terminator (a cut stream
   is `broken`, never auto-dropped); `claude-code databricks api <path>` is the read-only GET of allow-listed metadata
-  paths (serving-endpoints, sql, scim Me, unity-catalog) with a Databricks profile's token, not `curl`.
+  paths (serving-endpoints, sql, scim Me, unity-catalog) with a Databricks profile's token, not `curl`. Detail:
+  `providers-reference.md` → Probe verdicts, The `databricks api` verb.
+- A model the proxy sees answered `400 This endpoint <id> is deprecated` is dropped at once, with its reason and
+  date, and sends no extra call. The `--model auto` pool honours the drop list. A model Databricks later re-enables
+  stays dropped until `claude-code models discover --undrop <id> --apply`.
+- Cost: `claude-code usage --cost` is an estimate (local ledger tokens times the profile's price table), never an
+  invoice. A billed report from `system.billing` is not available yet. Keys and grants: `providers-reference.md` →
+  Cost keys.
 - pi has one provider per wire on `http://127.0.0.1:18765/p/<profile>`: Claude over Anthropic Messages, GPT over
   Responses, everything else and Grok over chat completions. Its key is an environment variable the harness sets at
   launch to the proxy session token; no token is on disk. Pinned Pi packages (`packages` in the Pi record) add
@@ -173,5 +180,19 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
 - While the proxy runs it refreshes tokens of profiles used in the last 24 h once under 15 minutes remain, under the
   per-profile lock. A rotated refresh token is carried until sealed (failure audits `seal_failed`); a stale one never
   replaces a newer vault copy.
+- **Token states:** a cached Databricks token is fresh until expiry minus min(lifetime/2, 20 minutes) (10 minutes when
+  the lifetime is unknown). Inside that window the proxy serves the current token at once and runs one background
+  refresh per profile; from expiry minus a skew (1 minute, at most half the window) callers wait for an in-line
+  refresh. A failed background refresh cools down for 1 minute and the valid token keeps being served. A short-lived
+  command refreshes in line at the same early window.
+- **A sent exchange finishes:** a u2m refresh token is single-use, so once an exchange is sent it always runs to its
+  vault write. Callers and a proxy stop cannot cancel it; proxy stop, CLI exit and the launcher's exec wait up to
+  2 minutes 15 seconds for it. If the vault write fails the call reports the rotation as unsaved (`seal_failed`).
+  A process killed between send and save loses that login: renew it with `claude-code databricks login --profile <p>`.
+  The proxy loads new token code only on a restart: `claude-code gateway proxy --restart`.
+- **Throttling:** token mint (429, 503) and endpoint listing (429, 502, 503, 504) try 3 times, honour `Retry-After`
+  (waits capped at 8 s) and otherwise back off from 500 ms with full jitter, capped at 4 s. Model traffic uses the
+  proxy's cool-down instead (`Retry-After`, 30 s default, 5 minutes at most).
+- Doctor's credential rows end with `source=vault`, `source=env <NAME>` or `source=command`.
 - Login gotcha: `--remote <host> databricks login` always signs the user in (a paired SP does not mint) and seals the
   token here; `--host` forwards the callback port. Flags: `claude-code databricks login -h`.

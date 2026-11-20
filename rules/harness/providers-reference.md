@@ -64,6 +64,17 @@ its own: the first real Databricks reply `400 This endpoint <id> is deprecated` 
 profile's drop list; pickers and the `--model auto` pool skip it and `models discover` lists it with the reason.
 `opencode catalog sync --apply` skips a dropped id (`skipped as dropped:`) and
 `catalog add` refuses it; `--undrop` lifts both.
+
+**Probe verdicts.** `models discover --apply|--verify`, `databricks check` and `opencode catalog sync --verify` send a
+streamed request (a non-chat endpoint cannot stream and keeps one non-streaming request). A 2xx counts only when the
+stream carries content and ends with its wire's terminator: `message_stop` (Anthropic), `response.completed` or
+`response.incomplete` (Responses), `[DONE]` or a `finish_reason` (chat). Verdicts: `ok`; `deprecated` (the explicit
+400 above); `broken` (accepted, but the stream ended without its terminator, had no content, or carried an error
+frame); and the existing error classes (`fail`, `transient`, `missing`). Only the explicit deprecated answer drops a
+model under `--apply`. A broken model is reported as `stream check failed, not dropped: <id>: <reason>` with the
+command to drop it by hand, `claude-code models discover --drop <id> --apply`. `databricks check` sends one
+`max_tokens=1` message on the profile's Anthropic route and prints `ok`, `stream broken: <reason>` or the HTTP class
+(a deprecated model shows as its 400 text); it never waits out a 429.
 Configured aliases, selections, pins, routes and the legacy global Databricks menu are
 not rewritten. Except for Copilot, saved choices feed configure/agent model pickers and harness-generated
 OpenCode catalogs on the next routed launch; Databricks Codex catalogs include only
@@ -265,7 +276,8 @@ present, and other models use the chat route's `/chat/completions`. No route is 
 Resolved routes must stay under the same workspace's HTTPS `/serving-endpoints` path; redirects are rejected.
 Verification uses four workers, 30-second request timeouts, a five-minute overall bound and token allowances of
 256 for chat, 128 for Responses and 32 for Anthropic. HTTP rejection retries without tools. Success means
-HTTP/tool-definition acceptance, **not an actual tool call or a validated generated answer**. A failed probe can
+HTTP/tool-definition acceptance and a stream that ends cleanly, **not an actual tool call or a validated generated
+answer**. A failed probe can
 reflect token budget or API-selection limitations rather than an unusable endpoint; no model-specific exceptions are
 applied.
 After separate successful manual verification, `catalog add --responses` can explicitly select Responses.
@@ -276,3 +288,43 @@ The vault menu overlay is **shared across profiles**, not scoped to `dev`: OpenC
 only includes Responses entries with matching bundled model metadata. Relaunch `claude-code opencode` and/or
 `claude-code codex` after applying. Listing an endpoint is **not proof of inference access or tool support**;
 use `check --all` for verification. Gateway listings are not used as evidence of Serving Endpoints availability.
+
+## Databricks read-only API and cost
+
+**The `databricks api` verb.** `claude-code databricks api <path> --profile <dev|qa|prod> [--as user|sp]` is an
+authenticated GET, so no one reaches for `curl` with a token. Databricks profiles only. The path must be plain: no
+scheme, host, escapes, `..` or `//`; a query may hold only letters, digits and `_=&.,-`. No redirect is followed, the
+body is capped at 8 MiB and the token is never printed. 429, 502, 503 and 504 are retried up to 3 times. Exit 2 on a
+refused path, a non-Databricks profile or a bad `--as`; exit 1 on a non-2xx reply. Allowed prefixes (metadata only),
+each followed by at most the shown number of extra path segments:
+
+```text
+/api/2.0/serving-endpoints            1
+/api/2.0/sql/warehouses               1
+/api/2.0/sql/statements               1
+/api/2.0/preview/scim/v2/Me           0
+/api/2.1/unity-catalog/metastore_summary  0
+/api/2.1/unity-catalog/metastores     2   (metastores/<id>/systemschemas)
+/api/2.1/unity-catalog/catalogs       1
+/api/2.1/unity-catalog/schemas        1
+/api/2.1/unity-catalog/tables         1
+```
+
+The serving-endpoints listing includes each endpoint's creator address: do not paste its output outside the machine.
+
+**Cost keys.** Per Databricks profile (others are refused), USD per million tokens; an empty `warehouse_id` clears it,
+and `options.prices={}` clears the table:
+
+```bash
+claude-code configure provider dev options.warehouse_id=<id> \
+  'options.prices={"<model-id>":{"input":0,"output":0,"cache_read":0,"cache_write":0}}'
+claude-code configure provider --list dev   # shows options.warehouse_id and each price
+claude-code usage --cost --days 7           # estimate per profile and model
+```
+
+`warehouse_id` is 1-64 letters and digits; rates are finite and not negative. `usage --cost` prints a table labelled
+`est.` (local ledger tokens times the price table, 1-hour cache writes counted as cache writes; not an invoice), `-`
+for a model with no price, and one hint line naming `options.prices` when no profile has prices. Doctor's
+`cost report` row passes when nothing is set and warns on a half-set profile. A billed report from `system.billing` is
+not available yet: it needs `USE SCHEMA` and `SELECT` on `system.billing` and `system.serving` for the identity that
+runs the query. All three workspaces share one metastore, so one warehouse can serve it.

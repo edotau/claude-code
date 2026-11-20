@@ -40,6 +40,8 @@ claude-code configure                 # interactive menu: agents, tools (databri
 claude-code configure models          # one page (provider|models|agents|github|remote|codex|routing|databricks)
 claude-code configure codex           # codex effort, verbosity, config_route (vault)
 claude-code configure --check         # report only; exit 1 if anything is unset
+claude-code configure provider <p> options.warehouse_id=<id> options.prices='{"<model>":{"input":0,...}}'
+                                      # a Databricks profile's cost keys (USD per million tokens)
 claude-code configure --restore [--agents|--agent a]   # reset settings.json to the template (backup first) + agent configs
 claude-code configure --revert [--agent a,b]        # restore agent CLI configs from backup
 ```
@@ -77,6 +79,7 @@ claude-code agents ask --agent gemini --tools --dirs internal "<task>"  # one 1M
 claude-code agents ask --agent codex --overlay '{"provider":"databricks","profile":"auto","remote":"auto"}' --tools "<task>"
                                                        # per-call config
 claude-code usage --days 7                             # subagent token usage
+claude-code usage --cost --days 7                      # adds an `est.` cost per profile and model
 claude-code usage --context                          # where one session's context went, by source
 ```
 
@@ -126,6 +129,7 @@ latest note, plus the free dirty files (`agents tree --files`; plain rows on an 
 | Run an agent on another tailnet box | `claude-code agents ask --host <h> --agent <a> "<task>"` · `network remote --host <h> --list --status` |
 | Browsers, web search | `claude-code network browser [--setup --browser <b>]` · `network websearch --query q` |
 | Tailnet status | `claude-code tailscale` (modes below) |
+| Read Databricks metadata (a GET, no `curl`) | `claude-code databricks api /api/2.0/serving-endpoints --profile dev [--as user\|sp]` |
 | Lint a workflow script | `claude-code workflow lint` · `workflow skeleton <pattern>` |
 | Housekeeping | `rtk make sweep [APPLY=1] [AGE=7d] [ONLY=<targets>]` (previews unless `APPLY=1`) · `claude-code clean [--list\|--dry-run]` · `doctor --audit [--days 7]` · `configure --history snapshot\|log\|diff` · `doctor --mcp` |
 | Theme, VS Code | `claude-code configure --theme [--palettes\|--reset] [<palette>]` · `configure --theme apply` · `configure --vscode [--check\|--dry-run]` |
