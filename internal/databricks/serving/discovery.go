@@ -100,13 +100,7 @@ func ValidateIdentity(ctx context.Context, p *providers.Provider) (string, error
 	}
 	ctx, cancel := context.WithTimeout(ctx, 20*time.Second)
 	defer cancel()
-	var authErr error
-	status, body, _, err := httpx.Do(ctx, httpx.Call{Client: http.DefaultClient, NoRedirect: true, Limit: 64 << 10,
-		URL: scope.Host + "/api/2.0/preview/scim/v2/Me?attributes=id,active",
-		Authorize: func(h http.Header) error {
-			authErr = providers.Authorize(ctx, p, h)
-			return authErr
-		}})
+	status, body, authErr, err := identityResponse(ctx, p, scope.Host)
 	switch {
 	case authErr != nil:
 		return "", errors.New("identity authentication failed; check profile credentials")
@@ -118,6 +112,24 @@ func ValidateIdentity(ctx context.Context, p *providers.Provider) (string, error
 		return "", errors.New("cannot read bounded identity response")
 	}
 	return parseIdentity(body)
+}
+
+func identityResponse(ctx context.Context, p *providers.Provider, host string) (int, []byte, error, error) {
+	for attempt := 1; ; attempt++ {
+		var authErr error
+		status, body, hdr, err := httpx.Do(ctx, httpx.Call{Client: http.DefaultClient, NoRedirect: true, Limit: 64 << 10,
+			URL: host + "/api/2.0/preview/scim/v2/Me?attributes=id,active",
+			Authorize: func(h http.Header) error {
+				authErr = providers.Authorize(ctx, p, h)
+				return authErr
+			}})
+		if authErr != nil || status == 0 || !textutil.RetriableGET(status) || attempt == 3 {
+			return status, body, authErr, err
+		}
+		if err := textutil.WaitRetry(ctx, attempt, 500*time.Millisecond, hdr.Get("Retry-After")); err != nil {
+			return 0, nil, nil, err
+		}
+	}
 }
 
 func parseIdentity(body []byte) (string, error) {

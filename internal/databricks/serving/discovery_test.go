@@ -26,11 +26,12 @@ type discoveryTransport func(*http.Request) (*http.Response, error)
 func (f discoveryTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 type discoveryFake struct {
-	me, list atomic.Int32
-	identity atomic.Value
-	status   atomic.Int32
-	listCode atomic.Int32
-	auth     atomic.Value
+	me, list  atomic.Int32
+	identity  atomic.Value
+	status    atomic.Int32
+	listCode  atomic.Int32
+	auth      atomic.Value
+	retryOnce atomic.Bool
 }
 
 func discoveryEnv(t *testing.T) (*providers.Provider, *discoveryFake) {
@@ -53,7 +54,11 @@ func discoveryEnv(t *testing.T) (*providers.Provider, *discoveryFake) {
 			if r.URL.Query().Get("attributes") != "id,active" || len(r.URL.Query()) != 1 {
 				t.Errorf("identity query = %q", r.URL.RawQuery)
 			}
-			w.WriteHeader(int(f.status.Load()))
+			status := f.status.Load()
+			if f.retryOnce.CompareAndSwap(true, false) {
+				f.status.Store(200)
+			}
+			w.WriteHeader(int(status))
 			_, _ = w.Write([]byte(f.identity.Load().(string)))
 		case "/api/2.0/serving-endpoints":
 			f.list.Add(1)
@@ -83,6 +88,25 @@ func discoverForTest(t *testing.T, p *providers.Provider, refresh bool) Snapshot
 		t.Fatal(err)
 	}
 	return s
+}
+
+func TestValidateIdentityRetriesTransientStatus(t *testing.T) {
+	for _, tc := range []struct {
+		status int32
+		want   int32
+	}{
+		{500, 2},
+		{403, 1},
+	} {
+		p, f := discoveryEnv(t)
+		f.status.Store(tc.status)
+		f.retryOnce.Store(true)
+		id, err := ValidateIdentity(context.Background(), p)
+		if f.me.Load() != tc.want || (tc.status == 500 && (err != nil || id != "subject-one")) ||
+			(tc.status == 403 && (err == nil || err.Error() != "identity validation failed (HTTP 403); no cached discovery used")) {
+			t.Fatalf("status %d: id=%q err=%v requests=%d, want %d", tc.status, id, err, f.me.Load(), tc.want)
+		}
+	}
 }
 
 func TestServingDiscoveryAuthenticatedHitAndRefresh(t *testing.T) {

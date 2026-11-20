@@ -60,6 +60,16 @@ func WaitRetry(ctx context.Context, attempt int, base time.Duration, retryAfter 
 	return RetrySleep(ctx, RetryDelay(attempt, base, retryAfter, time.Now()))
 }
 
+// RetriableGET reports transient HTTP statuses for idempotent GET requests.
+func RetriableGET(status int) bool {
+	switch status {
+	case http.StatusTooManyRequests, http.StatusInternalServerError, http.StatusBadGateway,
+		http.StatusServiceUnavailable, http.StatusGatewayTimeout:
+		return true
+	}
+	return false
+}
+
 // IsLoopbackHost accepts localhost case-insensitively and loopback IPs with optional brackets.
 func IsLoopbackHost(h string) bool {
 	h = strings.Trim(h, "[]")

@@ -100,7 +100,7 @@ func apiPrefixes() []string {
 	return out
 }
 
-// apiGet GETs host+path with p's credential, retrying 429/502/503/504 as the model listing does.
+// apiGet GETs host+path with p's credential, retrying transient GET statuses.
 func apiGet(ctx context.Context, p *providers.Provider, host, path string) (int, []byte, error) {
 	target := host + path
 	if u, err := url.Parse(target); err != nil || u.Host != strings.TrimPrefix(strings.TrimPrefix(host, "https://"), "http://") {
@@ -109,7 +109,7 @@ func apiGet(ctx context.Context, p *providers.Provider, host, path string) (int,
 	for attempt := 1; ; attempt++ {
 		status, body, hdr, err := httpx.Do(ctx, httpx.Call{Client: apiClient, URL: target, Limit: apiLimit, NoRedirect: true,
 			Authorize: func(h http.Header) error { return providers.Authorize(ctx, p, h) }})
-		if !slices.Contains([]int{429, 502, 503, 504}, status) || attempt == apiAttempts {
+		if !textutil.RetriableGET(status) || attempt == apiAttempts {
 			return status, body, err
 		}
 		if werr := textutil.WaitRetry(ctx, attempt, 500*time.Millisecond, hdr.Get("Retry-After")); werr != nil {
