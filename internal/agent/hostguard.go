@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -125,7 +126,7 @@ func guardProvider(r Engine, req RunOptions) (*providers.Provider, error) {
 		// the same target the agent picks: --provider, a provider:model prefix, the session, the copilot gate
 		t, own, _, err := s.targetPeek(req)
 		if err != nil {
-			if req.Provider != "" {
+			if !req.EffectiveRoute(nil).IsZero() {
 				return nil, err
 			}
 			return nil, nil // the agent reports its own resolution failure with its own kind
@@ -135,7 +136,7 @@ func guardProvider(r Engine, req RunOptions) (*providers.Provider, error) {
 		}
 		return t.Provider, nil
 	}
-	if req.Provider == "" && !known {
+	if req.EffectiveRoute(nil).IsZero() && !known {
 		return nil, nil
 	}
 	_, t, err := ResolveRequestTarget(req)
@@ -231,7 +232,8 @@ func guardConfinedContext(ctx context.Context, r Engine, gp *providers.Provider)
 	if cp == "" || gp == nil || (gp.Provider == cp && (cprof == "" || gp.Name == cprof)) {
 		return nil
 	}
-	return fmt.Errorf("%s: profile %s is outside %s", r.Name(), gp.Name, strings.TrimSuffix(cp+":"+cprof, ":"))
+	target := route.Target{Provider: cp, Profile: cprof}
+	return fmt.Errorf("%s: profile %s is outside %s", r.Name(), gp.Name, strings.TrimSuffix(target.Provider+":"+target.Profile, ":"))
 }
 
 // armOwnLogin: gp is agentName's own sign-in, claude's Anthropic subscription or opencode's Go plan.

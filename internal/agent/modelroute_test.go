@@ -14,7 +14,9 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -204,7 +206,7 @@ func TestAgentRunsGemini(t *testing.T) {
 }
 
 func TestModelRouteOverlay(t *testing.T) {
-	r := ModelRoute{Provider: "github", Profile: "aueric_boehcp", Model: "gpt-6-astra"}
+	r := ModelRoute{Provider: "github", Profile: "business", Login: "aueric_boehcp", Model: "gpt-6-astra"}
 	if o := r.Overlay(); o.Account != "aueric_boehcp" || o.Model != "gpt-6-astra" || r.Label() != "gpt-6-astra" {
 		t.Errorf("overlay %+v label %s", o, r.Label())
 	}
@@ -300,5 +302,28 @@ func TestCommandTokenPoolHonorsDispatchOverride(t *testing.T) {
 	q = QueryFor(ctx, q)
 	if _, err := ResolveModel(reg, q, now); err == nil {
 		t.Fatal("disabled command accepted short token")
+	}
+}
+
+func TestResolveModelKeepsRouteWhole(t *testing.T) {
+	vaulttest.Use(t)
+	reg := routeRegistry(t)
+	pinned := route.Route{Provider: "databricks", Profile: "dev", Identity: "sp", Host: "worker"}
+	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey,
+		`{"claude":{"route":{"provider":"databricks","profile":"dev","identity":"sp","host":"worker"},"profile":"ultra"}}`)
+	q := QueryFor(t.Context(), ModelQuery{Agent: "claude", Model: "claude-opus-5-5"})
+	if q.PinRoute != pinned || q.PinProfile != pinned.Profile {
+		t.Fatalf("pin = %+v, %q; want %+v", q.PinRoute, q.PinProfile, pinned)
+	}
+	q.Session = ""
+	r, err := ResolveModel(reg, q, time.Now())
+	if err != nil || r.Overlay().Route() != pinned {
+		t.Fatalf("pinned = %+v, %v; want %+v", r, err, pinned)
+	}
+	q.Route, q.Model = pinned, "ultra:claude-opus-5-5"
+	r, err = ResolveModel(reg, q, time.Now())
+	want := route.Route{Provider: "anthropic", Profile: "ultra"}
+	if err != nil || r.Overlay().Route() != want {
+		t.Fatalf("prefix = %+v, %v; want %+v", r, err, want)
 	}
 }

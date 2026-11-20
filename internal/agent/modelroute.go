@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -31,6 +32,8 @@ type ModelRoute struct {
 	Alias    string `json:"alias,omitempty"`    // the alias typed, when one was
 	Source   string `json:"source"`             // prefix|type|flag|account|pool|session|pin|default|own-login
 	Identity string `json:"identity,omitempty"` // the overlay's identity, echoed
+	Host     string `json:"host,omitempty"`
+	Remote   string `json:"remote,omitempty"`
 	Fallback string `json:"fallback,omitempty"` // the overlay's fallback mode, echoed
 	Served   string `json:"served,omitempty"`   // Databricks row only: ServedNo (fresh listing lacks Model) or ServedUnverified
 	Note     string `json:"note,omitempty"`     // a substitution or skip said aloud
@@ -61,6 +64,7 @@ const (
 // ModelQuery is what a launch or dispatch typed, then the fallbacks QueryFor fills, highest precedence first.
 type ModelQuery struct {
 	ctx                            context.Context
+	Route, PinRoute                route.Route
 	Agent, Model, Profile, Default string // Default: the alias used when nothing names a model
 	Provider, Account, Effort      string // overlay keys: a provider type, a GitHub account, an effort
 	Identity, Fallback             string // overlay keys echoed into the route
@@ -97,7 +101,8 @@ func SetCodexSwap(f func(*providers.Provider, string) string) { codexSwap = f }
 func QueryFor(ctx context.Context, q ModelQuery) ModelQuery {
 	q.ctx = ctx
 	rec := vault.GetAgentRecord(q.Agent)
-	q.PinProfile, q.PinAccount = strings.TrimSpace(rec.Profile), strings.TrimSpace(rec.Account)
+	q.PinRoute = rec.EffectiveRoute()
+	q.PinProfile, q.PinAccount = strings.TrimSpace(q.PinRoute.Profile), strings.TrimSpace(q.PinRoute.Account)
 	q.PinModel = agentModelPinContext(ctx, q.Agent)
 	q.Session = providers.SessionProfileContext(ctx)
 	return q
@@ -105,6 +110,9 @@ func QueryFor(ctx context.Context, q ModelQuery) ModelQuery {
 
 // ResolveModel is the one rule from agent + typed model string to profile, account and wire id.
 func ResolveModel(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRoute, error) {
+	if !q.Route.IsZero() {
+		q.Provider, q.Profile, q.Account, q.Identity = q.Route.Provider, q.Route.Profile, q.Route.Account, q.Route.Identity
+	}
 	model, err := resolveModelWord(q)
 	if err != nil {
 		return ModelRoute{}, fmt.Errorf("%w: %w", ErrModelRoute, err)
@@ -158,21 +166,34 @@ func resolveModelWord(q ModelQuery) (string, error) {
 	return q.Model, nil
 }
 
+type modelTarget struct {
+	route.Target
+	ByType, Pool bool
+}
+
 // splitQuery reads the typed prefix; pool is true for databricks:<model> and overlay profile auto.
-func splitQuery(reg *providers.Registry, q ModelQuery) (providers.ModelSpec, bool, error) {
-	spec, err := providers.SplitModelSpec(reg, q.Model)
+func splitQuery(reg *providers.Registry, q ModelQuery) (modelTarget, bool, error) {
+	legacy, err := providers.SplitModelSpec(reg, q.Model)
+	spec := modelTarget{Provider: legacy.Provider, Profile: legacy.Row,
+		Model: legacy.Model, ByType: legacy.ByType, Pool: legacy.Pool}
+	if p := reg.Row(spec.Profile); p != nil {
+		spec.Provider = p.Provider
+	}
+	if spec.Pool {
+		spec.Profile = poolName
+	}
 	if err != nil || spec.Pool {
 		return spec, spec.Pool, err
 	}
 	bare := q.Provider == providers.GroupDatabricks && q.Profile == ""
-	if (q.Profile == poolName || bare) && spec.Row == "" && reg.Providers[poolName] == nil {
+	if (q.Profile == poolName || bare) && spec.Profile == "" && reg.Providers[poolName] == nil {
 		return spec, true, nil
 	}
 	return spec, false, nil
 }
 
 // routeRow walks the profile precedence: typed sources must serve the agent, implicit ones fall through.
-func routeRow(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec) (*providers.Provider, string, string, error) {
+func routeRow(reg *providers.Registry, q ModelQuery, spec modelTarget) (*providers.Provider, string, string, error) {
 	note, err := profileClash(q, spec)
 	if err != nil {
 		return nil, "", "", err
@@ -199,14 +220,14 @@ func routeRow(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec) (
 }
 
 // profileClash is the note (or interactive error) for a --model prefix naming a different row than --profile.
-func profileClash(q ModelQuery, spec providers.ModelSpec) (string, error) {
-	if spec.Row == "" || q.Profile == "" || spec.Row == q.Profile {
+func profileClash(q ModelQuery, spec modelTarget) (string, error) {
+	if spec.Profile == "" || q.Profile == "" || spec.Profile == q.Profile {
 		return "", nil
 	}
 	if q.Interactive {
 		return "", fmt.Errorf("%w: --profile %s and --model %s name different profiles", ErrModelRoute, q.Profile, q.Model)
 	}
-	return fmt.Sprintf("--model prefix %s overrides profile %s", spec.Row, q.Profile), nil
+	return fmt.Sprintf("--model prefix %s overrides profile %s", spec.Profile, q.Profile), nil
 }
 
 // geminiModelRow is the row a typed model picks for gemini with no --profile: databricks- the gateway, Gemini Google.
@@ -245,10 +266,10 @@ func geminiGatewayPick(reg *providers.Registry, q ModelQuery) (*providers.Provid
 type namedSource struct{ name, src string }
 
 // typedRow is the highest typed source: prefix or type, the profile flag, the overlay provider, the account.
-func typedRow(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec) (namedSource, error) {
+func typedRow(reg *providers.Registry, q ModelQuery, spec modelTarget) (namedSource, error) {
 	switch {
-	case spec.Row != "":
-		return namedSource{spec.Row, cmp.Or(map[bool]string{true: "type"}[spec.ByType], "prefix")}, nil
+	case spec.Profile != "":
+		return namedSource{spec.Profile, cmp.Or(map[bool]string{true: "type"}[spec.ByType], "prefix")}, nil
 	case q.Profile != "":
 		return namedSource{q.Profile, "flag"}, nil
 	case q.Provider != "":
@@ -337,11 +358,20 @@ func rowServes(agent string, p *providers.Provider) (bool, string) {
 }
 
 // resolveOn resolves q on row p: model, spelling, servability and account.
-func resolveOn(p *providers.Provider, source string, q ModelQuery, spec providers.ModelSpec, now time.Time) (ModelRoute, error) {
+func resolveOn(p *providers.Provider, source string, q ModelQuery, spec modelTarget, now time.Time) (ModelRoute, error) {
+	selected := route.Pick(q.Route, route.Route{Provider: q.Provider, Profile: q.Profile, Account: q.Account, Identity: q.Identity})
+	switch {
+	case !spec.IsZero():
+		selected = spec.Route
+	case source == "pin":
+		selected = q.PinRoute
+	case source == "session" || source == "default" || source == "own-login":
+		selected = route.Route{}
+	}
 	r := ModelRoute{Agent: q.Agent, Provider: p.Provider, Profile: p.Name, Account: p.Account(), Source: source,
-		Identity: q.Identity, Fallback: q.Fallback}
+		Identity: selected.Identity, Host: selected.Host, Remote: selected.Remote, Fallback: q.Fallback}
 	if p.Provider == "github" {
-		r.Login = p.Login
+		r.Login = cmp.Or(selected.Account, p.Login)
 	}
 	if err := routeModel(&r, p, q, spec, now); err != nil {
 		return ModelRoute{}, err
@@ -351,7 +381,7 @@ func resolveOn(p *providers.Provider, source string, q ModelQuery, spec provider
 }
 
 // routeModel picks the typed model, else the record's, else the default alias, then cuts a gemini effort and spells it.
-func routeModel(r *ModelRoute, p *providers.Provider, q ModelQuery, spec providers.ModelSpec, now time.Time) error {
+func routeModel(r *ModelRoute, p *providers.Provider, q ModelQuery, spec modelTarget, now time.Time) error {
 	typed, pinned := spec.Model, false
 	if typed == "" {
 		typed, pinned = q.PinModel, q.PinModel != ""
@@ -551,9 +581,9 @@ func agentFamily(r *ModelRoute, p *providers.Provider) error {
 // Overlay is r as the keyed overlay document a dispatch carries.
 func (r ModelRoute) Overlay() agentconfig.Overlay {
 	o := agentconfig.Overlay{Schema: 1, Provider: r.Provider, Profile: r.Profile, Model: r.Model, Effort: r.Effort,
-		Fallback: r.Fallback, Identity: r.Identity}
+		Fallback: r.Fallback, Identity: r.Identity, Host: r.Host, Remote: r.Remote}
 	if r.Provider == "github" {
-		o.Account = r.Profile
+		o.Account = cmp.Or(r.Login, r.Profile)
 	}
 	return o
 }
@@ -562,7 +592,7 @@ func (r ModelRoute) Overlay() agentconfig.Overlay {
 func (r ModelRoute) Label() string { return r.Model }
 
 // resolvePool is the pool's first usable workspace serving the model; databricks:<m> walks vault order, auto ranks.
-func resolvePool(reg *providers.Registry, q ModelQuery, spec providers.ModelSpec, now time.Time) (ModelRoute, error) {
+func resolvePool(reg *providers.Registry, q ModelQuery, spec modelTarget, now time.Time) (ModelRoute, error) {
 	st, skipped := router.LoadState(), []string(nil)
 	names := reg.ProfilesOf(providers.GroupDatabricks)
 	if !spec.Pool {

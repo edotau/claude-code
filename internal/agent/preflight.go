@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -46,7 +47,8 @@ func (pf *Preflight) fail(f Finding) {
 		return
 	}
 	if pf.Requested == "" {
-		pf.Requested = strings.TrimSuffix(f.Profile+":"+f.Model, ":")
+		target := route.Target{Profile: f.Profile, Model: f.Model}
+		pf.Requested = strings.TrimSuffix(target.Profile+":"+target.Model, ":")
 	}
 	pf.Failed = append(pf.Failed, f)
 }
@@ -514,15 +516,15 @@ func routedWire(q RouteReq, p *providers.Provider, now time.Time) string {
 
 // modelFinding is explicitFinding for a --model <profile>:<model> with no --profile; nil when it names no row.
 func modelFinding(ctx context.Context, q RouteReq, pf *Preflight) *Finding {
-	name, _, ok := strings.Cut(q.Model, ":")
-	if !ok {
-		return nil
-	}
 	reg, err := providers.Load()
-	if err != nil || reg.Providers[name] == nil {
+	if err != nil {
 		return nil
 	}
-	return explicitFinding(ctx, q, reg.Providers[name], pf)
+	target, _, err := splitQuery(reg, ModelQuery{Model: q.Model})
+	if err != nil || target.Pool || target.ByType || reg.Row(target.Profile) == nil {
+		return nil
+	}
+	return explicitFinding(ctx, q, reg.Row(target.Profile), pf)
 }
 
 // previewServes refuses an explicit --model that is no alias, no catalog id and no READY endpoint of profiles.
