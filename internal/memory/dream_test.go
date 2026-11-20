@@ -166,7 +166,7 @@ func TestDreamIfDueSkipsUnderLockWhenPeerJustDreamed(t *testing.T) {
 		t.Fatal(err)
 	}
 	peer := time.Now().Add(-time.Minute).Truncate(time.Second)
-	if err := stampDream(peer, false); err != nil {
+	if err := stampDream(peer, 0); err != nil {
 		t.Fatal(err)
 	}
 	run := func(context.Context, string, string) (string, error) {
@@ -208,4 +208,24 @@ func countBase(paths []string, base string) int {
 		}
 	}
 	return n
+}
+
+func TestDreamRetryBackoff(t *testing.T) {
+	for fails, want := range map[int]time.Duration{1: 6 * time.Hour, 2: 12 * time.Hour, 3: 24 * time.Hour, 9: 24 * time.Hour} {
+		if got := retryAfter(fails); got != want {
+			t.Errorf("retryAfter(%d) = %v, want %v", fails, got, want)
+		}
+	}
+	isolatedConfig(t)
+	for n := 1; n <= 3; n++ {
+		if err := stampDream(time.Now(), n); err != nil {
+			t.Fatal(err)
+		}
+		if got := dreamFailures(); got != n {
+			t.Fatalf("dreamFailures = %d, want %d", got, n)
+		}
+	}
+	if err := stampDream(time.Now(), 0); err != nil || dreamFailures() != 0 {
+		t.Fatalf("success must reset the count: %v", err)
+	}
 }

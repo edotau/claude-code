@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -67,8 +68,34 @@ func previewDream() dreamPreview {
 
 const dreamInterval = 24 * time.Hour
 
-// dreamRetry is how long a failed dream waits before dreamDue offers it again.
+// dreamRetry is how long a first failed dream waits; each consecutive failure doubles it up to dreamInterval.
 const dreamRetry = 6 * time.Hour
+
+func retryAfter(fails int) time.Duration {
+	d := dreamRetry
+	for i := 1; i < fails && d < dreamInterval; i++ {
+		d *= 2
+	}
+	return min(d, dreamInterval)
+}
+
+// dreamFailures is the consecutive failed runs recorded in the stamp ("failed" alone counts 1).
+func dreamFailures() int {
+	data, err := os.ReadFile(dreamStampPath())
+	if err != nil {
+		return 0
+	}
+	_, rest, _ := strings.Cut(strings.TrimSpace(string(data)), "\n")
+	f, ok := strings.CutPrefix(rest, "failed")
+	if !ok {
+		return 0
+	}
+	n, err := strconv.Atoi(strings.TrimSpace(f))
+	if err != nil || n < 1 {
+		return 1
+	}
+	return n
+}
 
 // dreamChildEnv marks a process spawned by dream's agent run, where `promote --to claude-md` may print its procedure.
 const dreamChildEnv = "CLAUDE_MEMORY_DREAM_CHILD"
@@ -92,7 +119,7 @@ func dreamStamp() (t time.Time, failed, ok bool) {
 	}
 	first, rest, _ := strings.Cut(strings.TrimSpace(string(data)), "\n")
 	t, err = time.Parse(time.RFC3339, first)
-	return t, rest == "failed", err == nil
+	return t, strings.HasPrefix(rest, "failed"), err == nil
 }
 
 // effectiveStamp is dreamStamp, but a future stamp (clock moved back) reads as none: it would hide every changed file.
@@ -169,10 +196,11 @@ func dream(o dreamOptions) error {
 		return nil
 	}
 	if err := errors.Join(lockErr, runErr, archiveErr, dreamSettle(o)); err != nil { // settle after the lock is released
-		// backdated, so dreamDue retries in dreamRetry
-		return errors.Join(err, stampDream(time.Now().Add(dreamRetry-dreamInterval), true))
+		// backdated, so dreamDue retries after the backoff for this many consecutive failures
+		n := dreamFailures() + 1
+		return errors.Join(err, stampDream(time.Now().Add(retryAfter(n)-dreamInterval), n))
 	}
-	return stampDream(time.Now(), false)
+	return stampDream(time.Now(), 0)
 }
 
 // dreamSettle settles the bank and reports a failure on o.Out as well as returning it.
@@ -294,10 +322,11 @@ func storeCites() plans.Cite {
 	return func(kind, ref string) bool { return kind == "decision" && ids[ref] || kind == "note" && notes[ref] }
 }
 
-func stampDream(at time.Time, failed bool) error {
+// stampDream writes the stamp; fails is the consecutive failure count (0 = success).
+func stampDream(at time.Time, fails int) error {
 	body := at.Format(time.RFC3339) + "\n"
-	if failed {
-		body += "failed\n"
+	if fails > 0 {
+		body += "failed " + strconv.Itoa(fails) + "\n"
 	}
 	return paths.AtomicWrite(dreamStampPath(), []byte(body), 0o600)
 }
