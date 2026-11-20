@@ -28,6 +28,18 @@ file keeps only its own deltas. Manager dispatch is `CLAUDE.md` guideline 3; thi
   `--background` on `ask`/`review`/`transfer` prints `job <id> started`.
 - `claude-code agents ask --agent <agent>` is the one-shot form saved Workflows use; inline definitions:
   `--agents <json|file>` (`rules/harness/agent.md` → Dispatch behavior).
+- `agents ask --retry <id> --recover` reruns a dead or cut-off job: it starts a fresh session (not `--session`) seeded
+  from that job's event log and claims the record once; a second recover names the winner's id and fails.
+
+  ```sh
+  claude-code agents ask --retry <id> --recover
+  ```
+
+- `agents result --events --after <seq>` resumes an event stream after sequence `<seq>`, skipping lines at or below it.
+
+  ```sh
+  claude-code agents result <id> --events --after 120
+  ```
 
 ## Headless `ask` flags
 
