@@ -206,8 +206,8 @@ func armPick(t *testing.T, want, fallback string) PickResult {
 func TestArmPickOrder(t *testing.T) {
 	r := armPick(t, "codex", FallbackAll)
 	tier1, tier2 := armTiers(r)
-	if len(tier1) != 5 || tier1[0] != "codex" || !slices.Contains(tier1, "claude") {
-		t.Errorf("tier 1 = %v, want codex first then the other four agents on databricks·dev", tier1)
+	if len(tier1) != 6 || tier1[0] != "codex" || !slices.Contains(tier1, "claude") {
+		t.Errorf("tier 1 = %v, want codex first then the other five agents on databricks·dev", tier1)
 	}
 	wantTier2 := []string{"copilot/github·copilot", "codex/openai·chatgpt", "gemini/google·antigravity",
 		"opencode/opencode·go", "claude/anthropic·ultra"}

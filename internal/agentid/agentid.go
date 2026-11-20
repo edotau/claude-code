@@ -64,7 +64,9 @@ type RouteFacts struct {
 	FreezeTarget                                                                  bool
 	ModelFamily, binary                                                           string
 	ResponsesRoute, SubLadder, Discovery, GoogleOrDatabricks, NoWorkspaceFallback bool
-	nativeEfforts                                                                 []string
+	// NoOwnLogin runs only on a pinned Databricks workspace: no vendor login row.
+	NoOwnLogin    bool
+	nativeEfforts []string
 }
 
 // routeFacts is the one per-agent table; an unknown agent reads as the zero value.
@@ -74,7 +76,7 @@ var routeFacts = map[string]RouteFacts{
 	Copilot:  {FreezeTarget: true, Discovery: true},
 	Gemini:   {EffortSuffix: true, ModelFamily: "gemini", binary: "agy", GoogleOrDatabricks: true, NoWorkspaceFallback: true, nativeEfforts: EffortNames()},
 	OpenCode: {SubLadder: true, Discovery: true},
-	Pi:       {Discovery: true, nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh", "max"}},
+	Pi:       {Discovery: true, NoOwnLogin: true, nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh", "max"}},
 }
 
 // Routing is name's routing facts.

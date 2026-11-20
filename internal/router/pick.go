@@ -322,6 +322,9 @@ func (t *RouteTable) gateAgent(
 	if agentid.Routing(agent).SubLadder && !t.OpencodeRowOverridden[alias] {
 		return t.gateOpencodeCandidate(ctx, alias, "", st, o, now, configured, res)
 	}
+	if agentid.Routing(agent).NoOwnLogin {
+		return nil
+	}
 	c, ok := t.Cell(agent, alias)
 	if !ok {
 		skipNoRow(res, agent, alias)

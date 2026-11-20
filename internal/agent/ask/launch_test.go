@@ -123,9 +123,6 @@ func TestRosterMatchesSpecs(t *testing.T) {
 	} {
 		slices.Sort(other)
 		want := slices.Clone(names)
-		if label == "RouteAgents" { // pi has no route-table column
-			want = slices.DeleteFunc(want, func(n string) bool { return n == "pi" })
-		}
 		slices.Sort(want)
 		if !slices.Equal(other, want) {
 			t.Errorf("%s names = %v, roster names = %v", label, other, want)

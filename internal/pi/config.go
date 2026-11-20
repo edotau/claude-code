@@ -66,6 +66,14 @@ func pickWire(menu []providers.OpencodeModel, p *providers.Provider, wire string
 	return w, true
 }
 
+// compatFor forces adaptive thinking on Claude ids Pi does not know: Databricks refuses thinking.type=enabled.
+func compatFor(wire string) map[string]any {
+	if models.FamilyKind(wire) == models.FamilyClaude && !strings.Contains(wire, "haiku-4") {
+		return map[string]any{"forceAdaptiveThinking": true}
+	}
+	return nil
+}
+
 func modelEntry(p *providers.Provider, wire, label string) map[string]any {
 	e := map[string]any{
 		"id":        wire,
@@ -106,7 +114,11 @@ func BuildConfig(p *providers.Provider, bases Bases) (modelsJSON, settingsJSON [
 			dropped[w] = append(dropped[w], m.Label)
 			continue
 		}
-		byWire[w] = append(byWire[w], modelEntry(p, wire, m.Label))
+		e := modelEntry(p, wire, m.Label)
+		if c := compatFor(wire); c != nil {
+			e["compat"] = c
+		}
+		byWire[w] = append(byWire[w], e)
 		menu[wire] = ids[w]
 	}
 	for _, pp := range piProviders {

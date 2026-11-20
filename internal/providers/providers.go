@@ -193,7 +193,7 @@ type RouteCell struct {
 }
 
 // RouteAgents are the routing table's columns, in roster order; internal/router embeds the same list.
-var RouteAgents = []string{agentid.Claude, agentid.Copilot, agentid.Codex, agentid.OpenCode, agentid.Gemini}
+var RouteAgents = []string{agentid.Claude, agentid.Copilot, agentid.Codex, agentid.OpenCode, agentid.Gemini, agentid.Pi}
 
 // RouteAliases are the routed aliases, strongest first; fable stays Claude Code's own alias.
 var RouteAliases = []string{models.Opus, models.Sonnet, models.Haiku}

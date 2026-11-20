@@ -490,10 +490,10 @@ const wireHost = "https://example.cloud.databricks.com"
 
 func TestMain(m *testing.M) { os.Exit(hosttest.Main(m)) }
 
-// TestRouteAgentsAreTheCanonicalRoster checks RouteAgents is agentid.All() in route order; pi has no route-table column.
+// TestRouteAgentsAreTheCanonicalRoster checks RouteAgents is agentid.All() in route order.
 func TestRouteAgentsAreTheCanonicalRoster(t *testing.T) {
 	got := slices.Sorted(slices.Values(RouteAgents))
-	want := slices.DeleteFunc(slices.Sorted(slices.Values(agentid.All())), func(a string) bool { return a == agentid.Pi })
+	want := slices.Sorted(slices.Values(agentid.All()))
 	if !slices.Equal(got, want) {
 		t.Errorf("sorted RouteAgents = %v, want agentid.All() %v", got, want)
 	}

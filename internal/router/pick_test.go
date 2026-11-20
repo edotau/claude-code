@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -40,7 +41,8 @@ func assertEveryCellResolves(t *testing.T, tb *RouteTable) {
 	for _, r := range TableAgents {
 		for _, alias := range Aliases {
 			c, ok := tb.Cell(r, alias)
-			if !ok || c.Model == "" || c.Account == "" || tb.Billing[c.Account] == "" {
+			ownless := agentid.Routing(r).NoOwnLogin // a Databricks-only agent has no vendor account
+			if !ok || c.Model == "" || !ownless && (c.Account == "" || tb.Billing[c.Account] == "") {
 				t.Fatalf("%s/%s: cell %+v ok=%v billing=%q", r, alias, c, ok, tb.Billing[c.Account])
 			}
 			if got := tb.AliasOf(c.Model); got != alias && !sharedStrongerAlias(r, alias, got) {
@@ -412,8 +414,8 @@ func TestArmPickWantedClaudeFallsThrough(t *testing.T) {
 		"opencode/opencode·go", "claude/anthropic·ultra"}
 	for _, fb := range []string{FallbackAll, FallbackAgents} {
 		tier1, tier2 := armTiers(armPick(t, "claude", fb))
-		if len(tier1) != 5 || tier1[0] != "claude" {
-			t.Errorf("%s: tier 1 = %v, want claude first then the other four agents on databricks·dev", fb, tier1)
+		if len(tier1) != 6 || tier1[0] != "claude" {
+			t.Errorf("%s: tier 1 = %v, want claude first then the other five agents on databricks·dev", fb, tier1)
 		}
 		if !slices.Equal(tier2, wantTier2) {
 			t.Errorf("%s: tier 2 = %v, want %v", fb, tier2, wantTier2)

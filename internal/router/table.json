@@ -18,21 +18,24 @@
       "copilot": {"model": "claude-opus-5.5", "account_key": "github·copilot", "price": {"in": 4, "cached_in": 0.2, "out": 20}},
       "codex": {"model": "gpt-6.1-sol", "effort": "high", "account_key": "openai·chatgpt", "price": {"in": 0, "cached_in": 0, "out": 0}},
       "opencode": {"model": "opencode-go/kimi-k3.1-pro", "effort": "max", "account_key": "opencode·go", "price": {"in": 0, "cached_in": 0, "out": 0}},
-      "gemini": {"model": "gemini-4-argon", "account_key": "google·antigravity", "price": {"in": 0, "cached_in": 0, "out": 0}}
+      "gemini": {"model": "gemini-4-argon", "account_key": "google·antigravity", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "pi": {"model": "claude-opus-5-5", "account_key": "", "price": {"in": 0, "cached_in": 0, "out": 0}}
     },
     "claude-sonnet-5-5": {
       "claude": {"model": "claude-sonnet-5-5", "account_key": "anthropic·ultra", "price": {"in": 0, "cached_in": 0, "out": 0}},
       "copilot": {"model": "claude-sonnet-5.5", "account_key": "github·copilot", "price": {"in": 2, "cached_in": 0.1, "out": 10}},
       "codex": {"model": "gpt-6.1-sol", "account_key": "openai·chatgpt", "price": {"in": 0, "cached_in": 0, "out": 0}},
       "opencode": {"model": "opencode-go/kimi-k3.1-pro", "effort": "high", "account_key": "opencode·go", "price": {"in": 0, "cached_in": 0, "out": 0}},
-      "gemini": {"model": "gemini-3.8-flash", "account_key": "google·antigravity", "price": {"in": 0, "cached_in": 0, "out": 0}}
+      "gemini": {"model": "gemini-3.8-flash", "account_key": "google·antigravity", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "pi": {"model": "claude-sonnet-5-5", "account_key": "", "price": {"in": 0, "cached_in": 0, "out": 0}}
     },
     "claude-haiku-5-5": {
       "claude": {"model": "claude-haiku-5-5", "account_key": "anthropic·ultra", "price": {"in": 0, "cached_in": 0, "out": 0}},
       "copilot": {"model": "claude-haiku-5.5", "account_key": "github·copilot", "price": {"in": 0.1, "cached_in": 0.01, "out": 0.5}},
       "codex": {"model": "gpt-6-luna", "account_key": "openai·chatgpt", "price": {"in": 0, "cached_in": 0, "out": 0}},
       "opencode": {"model": "opencode-go/qwen3.8-flash", "account_key": "opencode·go", "price": {"in": 0, "cached_in": 0, "out": 0}},
-      "gemini": {"model": "gemini-3.8-flash-low", "account_key": "google·antigravity", "price": {"in": 0, "cached_in": 0, "out": 0}}
+      "gemini": {"model": "gemini-3.8-flash-low", "account_key": "google·antigravity", "price": {"in": 0, "cached_in": 0, "out": 0}},
+      "pi": {"model": "claude-haiku-5-5", "account_key": "", "price": {"in": 0, "cached_in": 0, "out": 0}}
     }
   },
   "databricks": {
