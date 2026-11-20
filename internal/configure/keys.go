@@ -50,7 +50,7 @@ func WarmServedOnChange(out io.Writer, skip bool, pins map[string]router.PinSpec
 
 // CurrentProvider is the configured profile (vault pin), falling back to the registry default when unpinned.
 func CurrentProvider(reg *providers.Registry) string {
-	if cur := vault.GetAgentRecord("claude").Profile; cur != "" {
+	if cur := profileKey(vault.GetAgentRecord("claude").EffectiveRoute()); cur != "" {
 		return cur
 	}
 	return reg.Default

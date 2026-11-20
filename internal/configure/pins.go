@@ -52,9 +52,16 @@ func withField(rec vault.AgentRecord, field, val string) vault.AgentRecord {
 	if key, ok := strings.CutPrefix(field, ExtraPrefix); ok {
 		return rec.WithExtra(key, strings.TrimSpace(val))
 	}
-	if field == "FALLBACK" {
-		rec.Fallback = strings.TrimSpace(val)
+	switch field {
+	case "FALLBACK":
+		val = strings.TrimSpace(val)
+		rec.FallbackRoute, rec.Fallback = routeFor(val), ""
+		if rec.FallbackRoute.IsZero() {
+			rec.Fallback = val
+		}
 		return rec
+	case "GITHUB_USER":
+		return withAccount(rec, strings.TrimSpace(val))
 	}
 	return rec.WithPin(field, val)
 }
@@ -66,11 +73,11 @@ func AgentField(rec vault.AgentRecord, field string) string {
 	}
 	switch field {
 	case "PROFILE":
-		return rec.Profile
+		return profileKey(rec.EffectiveRoute())
 	case "MODEL":
 		return rec.Model
 	}
-	return rec.Fallback
+	return profileKey(rec.EffectiveFallbackRoute())
 }
 
 // ValidateAgentField checks val for one record field before any write; a record invalid elsewhere does not block.

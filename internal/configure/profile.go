@@ -10,6 +10,7 @@ import (
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -18,12 +19,12 @@ func ApplyProfile(agents []string, profile string) (changed []string, err error)
 	if err := ValidProfile(agents, profile); err != nil {
 		return nil, err
 	}
+	rt := routeFor(profile)
 	err = vault.UpdateAgentRecords(func(m map[string]vault.AgentRecord) {
 		changed = nil
 		for _, a := range agents {
-			if r := m[a]; r.Profile != profile {
-				r.Profile = profile
-				m[a] = r
+			if profileKey(m[a].EffectiveRoute()) != profile {
+				m[a] = withProfile(m[a], rt, profile)
 				changed = append(changed, a)
 			}
 		}
@@ -32,6 +33,57 @@ func ApplyProfile(agents []string, profile string) (changed []string, err error)
 		return nil, err
 	}
 	return changed, nil
+}
+
+// routeFor is the route a profile name stores: the pool for "databricks", else its registry row's provider; zero when none.
+func routeFor(profile string) route.Route {
+	reg, err := providers.Load()
+	if err != nil {
+		return route.Route{}
+	}
+	return routeIn(reg, profile)
+}
+
+func routeIn(reg *providers.Registry, profile string) route.Route {
+	if profile == "databricks" {
+		return route.Route{Provider: "databricks", Profile: "auto"}
+	}
+	if row := reg.Providers[profile]; row != nil && row.Provider != "" {
+		return route.Route{Provider: row.Provider, Profile: profile}
+	}
+	return route.Route{}
+}
+
+// withProfile stores rt as r's route and clears the legacy keys; a zero rt keeps a non-empty name as a legacy pin.
+func withProfile(r vault.AgentRecord, rt route.Route, name string) vault.AgentRecord {
+	r.Route, r.Profile, r.Account = rt, "", ""
+	if rt.IsZero() {
+		r.Profile = name
+	}
+	return r
+}
+
+// withAccount sets r's copilot account route; "" clears only an account route.
+func withAccount(r vault.AgentRecord, account string) vault.AgentRecord {
+	switch {
+	case account != "":
+		return withProfile(r, route.Route{Provider: "github", Account: account}, "")
+	case r.Route.Account != "":
+		r.Route = route.Route{}
+	}
+	r.Account = ""
+	return r
+}
+
+// profileKey is the profile name a route is pinned as: "databricks" for the pool, "" for an account route.
+func profileKey(rt route.Route) string {
+	switch {
+	case rt.Account != "":
+		return ""
+	case rt.Provider == "databricks" && rt.Profile == "auto":
+		return "databricks"
+	}
+	return rt.Profile
 }
 
 // ValidProfile rejects a profile some agent cannot run on, before any record is written; "" (off) always passes.
@@ -61,7 +113,7 @@ func SwitchTargets(reg *providers.Registry, recs map[string]vault.AgentRecord, p
 		switch {
 		case !spec.External():
 			move = append(move, spec.Name)
-		case ok && recs[spec.Name].Profile == "":
+		case ok && profileKey(recs[spec.Name].EffectiveRoute()) == "":
 			off = append(off, spec.Name)
 		case ok:
 			move = append(move, spec.Name)
@@ -74,9 +126,7 @@ func SwitchTargets(reg *providers.Registry, recs map[string]vault.AgentRecord, p
 func SwitchRecords(reg *providers.Registry, m map[string]vault.AgentRecord, profile string) {
 	move, _ := SwitchTargets(reg, m, profile)
 	for _, name := range move {
-		r := m[name]
-		r.Profile = profile
-		m[name] = r
+		m[name] = withProfile(m[name], routeIn(reg, profile), profile)
 	}
 }
 
@@ -97,7 +147,7 @@ func SwitchProfile(reg *providers.Registry, profile string) error {
 // profileStatus is the one-line `<agent> profile` readout: the record's profile, identity and on/off state.
 func profileStatus(agent string) string {
 	line := agent + ": no profile set (launches use today's selection)"
-	if v := vault.GetAgentRecord(agent).Profile; v != "" {
+	if v := profileKey(vault.GetAgentRecord(agent).EffectiveRoute()); v != "" {
 		line = fmt.Sprintf("%s: profile %s", agent, v) + providers.IdentityNote(v)
 	}
 	if !agentpkg.VaultAgentIsClaude(agent) {
