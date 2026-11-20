@@ -8,8 +8,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
+	"strings"
+	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -66,6 +69,15 @@ const maxLineBytes = 4 << 10
 
 func logFile() string { return filepath.Join(paths.StateDir(), "audit.jsonl") }
 
+// liveLog is the real user's log; a test binary never writes it (a real session never runs under go test).
+var liveLog = func() string {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".claude", "state", "harness", "audit.jsonl")
+}
+
 // Log appends one event. Fail-open: callers are hooks and the router hot path, so nothing is returned.
 func Log(a Action, resource, detail string) { LogSession(a, "", resource, detail) }
 
@@ -95,6 +107,9 @@ func LogSession(a Action, session, resource, detail string) {
 		event.Detail = textutil.CutBytes(event.Detail, len(event.Detail)/2)
 	}
 	file := logFile()
+	if testing.Testing() && file == liveLog() {
+		return
+	}
 	if !prepareLogDir(filepath.Dir(file)) {
 		return
 	}
@@ -194,6 +209,24 @@ func readFile(path string, since time.Time) ([]Event, error) {
 	}
 }
 
+// realSession is a UUID (Claude Code) or a ses_ id (opencode); anything else is a test or probe stand-in.
+func realSession(id string) bool {
+	return strings.HasPrefix(id, "ses_") && len(id) >= 20 || uuidShape.MatchString(id)
+}
+
+var uuidShape = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
+// Synthetic counts hook_blocked events whose session id is empty or not a real session's shape.
+func Synthetic(events []Event) int {
+	n := 0
+	for _, e := range events {
+		if e.Action == HookBlocked && !realSession(e.Session) {
+			n++
+		}
+	}
+	return n
+}
+
 // Summary counts events per action.
 func Summary(events []Event) map[Action]int {
 	out := map[Action]int{}
@@ -201,17 +234,6 @@ func Summary(events []Event) map[Action]int {
 		out[e.Action]++
 	}
 	return out
-}
-
-// NoSession counts hook_blocked events with no session id: probe runs, or records from before ids were logged.
-func NoSession(events []Event) int {
-	n := 0
-	for _, e := range events {
-		if e.Action == HookBlocked && e.Session == "" {
-			n++
-		}
-	}
-	return n
 }
 
 const schemaVersion = 1
@@ -236,9 +258,9 @@ func Report(days int, format string) int {
 		if err := helptext.WriteJSON(os.Stdout, struct {
 			Days      int            `json:"days"`
 			Summary   map[Action]int `json:"summary"`
-			NoSession int            `json:"hook_blocked_no_session"`
+			Synthetic int            `json:"hook_blocked_synthetic"`
 			Events    []Event        `json:"events"`
-		}{days, Summary(ev), NoSession(ev), ev}); err != nil {
+		}{days, Summary(ev), Synthetic(ev), ev}); err != nil {
 			return helptext.Fail("doctor --audit: %v", err)
 		}
 		return 0
@@ -250,8 +272,8 @@ func Report(days int, format string) int {
 	for _, e := range ev {
 		fmt.Printf("%s  %-16s %-22s %s\n", e.Time.Local().Format("2006-01-02 15:04"), e.Action, e.Resource, e.Detail)
 	}
-	if n := NoSession(ev); n > 0 {
-		fmt.Printf("%d of %d hook_blocked had no session id (a probe run, or logged before session ids were)\n",
+	if n := Synthetic(ev); n > 0 {
+		fmt.Printf("%d of %d hook_blocked had a test/probe session id (empty or not a real session's shape)\n",
 			n, Summary(ev)[HookBlocked])
 	}
 	return 0

@@ -29,18 +29,33 @@ func TestLogReadRoundTripAndDropsInvalid(t *testing.T) {
 	}
 }
 
-// A hook_blocked event without a session id (a probe run) is counted apart from a session's.
-func TestNoSessionCountsOnlySessionlessBlocks(t *testing.T) {
+// Only hook_blocked events with an empty or non-session-shaped id count as test/probe rows.
+func TestSyntheticCountsOnlyNonSessionBlocks(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	Log(HookBlocked, "safety", "destructive command")
-	LogSession(HookBlocked, "s-1", "safety", "destructive command")
+	LogSession(HookBlocked, "probe-main", "safety", "destructive command")
+	LogSession(HookBlocked, "0f0ce843-24b4-492c-af96-5fc141ea3371", "safety", "destructive command")
+	LogSession(HookBlocked, "ses_e1063bdcfffeExp6ODVTmI9Lfv", "safety", "destructive command")
 	Log(ProviderSwitch, "gemini", "")
 	ev, err := Read(time.Time{})
-	if err != nil || len(ev) != 3 || ev[1].Session != "s-1" {
+	if err != nil || len(ev) != 5 {
 		t.Fatalf("Read = %+v, %v", ev, err)
 	}
-	if n := NoSession(ev); n != 1 {
-		t.Errorf("NoSession = %d, want 1", n)
+	if n := Synthetic(ev); n != 2 {
+		t.Errorf("Synthetic = %d, want 2", n)
+	}
+}
+
+// A test binary whose log path resolves to the user's real log writes nothing there.
+func TestLogSkipsTheLiveLogUnderGoTest(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	old := liveLog
+	liveLog = logFile
+	t.Cleanup(func() { liveLog = old })
+	Log(HookBlocked, "safety", "destructive command")
+	if _, err := os.Stat(logFile()); !os.IsNotExist(err) {
+		t.Errorf("Log wrote the live log under go test: stat err = %v", err)
 	}
 }
 

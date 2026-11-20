@@ -200,7 +200,7 @@ func checkDoctorVaultJSON(t *testing.T, stdout string) {
 func TestDoctorAuditTextMatchesOldAuditFormat(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	audit.Log(audit.ProviderSwitch, "gemini", "")
-	audit.LogSession(audit.HookBlocked, "s-1", "safety", "destructive command")
+	audit.LogSession(audit.HookBlocked, "0f0ce843-24b4-492c-af96-5fc141ea3371", "safety", "destructive command")
 
 	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return Run([]string{"--audit"}) })
 	if code != 0 {
@@ -227,8 +227,8 @@ func TestDoctorAuditTextMatchesOldAuditFormat(t *testing.T) {
 	}
 	audit.Log(audit.HookBlocked, "safety", "destructive command") // a probe run: no session id
 	_, stdout, _ = hosttest.CaptureOutput(t, func() int { return Run([]string{"--audit"}) })
-	if !strings.HasSuffix(stdout, "1 of 2 hook_blocked had no session id (a probe run, or logged before session ids were)\n") {
-		t.Errorf("doctor --audit text = %q, want the no-session count last", stdout)
+	if !strings.HasSuffix(stdout, "1 of 2 hook_blocked had a test/probe session id (empty or not a real session's shape)\n") {
+		t.Errorf("doctor --audit text = %q, want the test/probe count last", stdout)
 	}
 }
 

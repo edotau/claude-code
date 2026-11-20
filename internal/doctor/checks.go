@@ -219,18 +219,18 @@ func nestedDetail(n setup.Nested) string {
 	}
 }
 
-// auditSummary counts the last week's audited actions ("2 blocked · 1 with no session, 1 provider_switch").
+// auditSummary counts the last week's audited actions ("2 blocked (plus 1 test/probe), 1 provider_switch").
 func auditSummary() (ok bool, detail string) {
 	ev, err := audit.Read(time.Now().AddDate(0, 0, -7))
 	sum := audit.Summary(ev)
 	var parts []string
-	ns := audit.NoSession(ev)
+	syn := audit.Synthetic(ev)
 	for _, a := range audit.Actions {
 		n := sum[a]
 		switch {
 		case n == 0:
-		case a == audit.HookBlocked && ns > 0:
-			parts = append(parts, fmt.Sprintf("%d blocked · %d with no session", n, ns))
+		case a == audit.HookBlocked && syn > 0:
+			parts = append(parts, fmt.Sprintf("%d blocked (plus %d test/probe)", n-syn, syn))
 		default:
 			parts = append(parts, fmt.Sprintf("%d %s", n, a))
 		}
