@@ -8,10 +8,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"runtime"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -46,6 +48,11 @@ func (l *downLatch) Store(on bool) {
 func (l *downLatch) Load() bool { return time.Now().UnixNano() < l.until.Load() }
 
 var down downLatch
+
+var (
+	noteTimeout sync.Once
+	noteOut     io.Writer = os.Stderr
+)
 
 // ErrKeyringNoAnswer means the tool timed out or the `down` latch was already set — not a plain miss.
 var ErrKeyringNoAnswer = errors.New("keyring: did not answer")
@@ -102,6 +109,9 @@ func KeyringLookup(name string) (value string, found bool, err error) {
 	out, err2 := cmd.Output()
 	if ctx.Err() != nil {
 		down.Store(true)
+		noteTimeout.Do(func() {
+			fmt.Fprintln(noteOut, "vault: keyring did not answer; set HARNESS_KEYRING=off to skip it")
+		})
 		return "", false, ErrKeyringNoAnswer
 	}
 	if err2 != nil {

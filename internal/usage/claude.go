@@ -266,9 +266,9 @@ func writeClaudeUsageCache(path string, c claudeUsageCache) {
 }
 
 // claudeRetryAfter parses Retry-After (seconds or an HTTP-date); 120s default when absent or unparsable.
-func claudeRetryAfter(v string, now time.Time) time.Duration {
+func claudeRetryAfter(h http.Header, now time.Time) time.Duration {
 	const defaultCooldown = 120 * time.Second
-	if after, ok := textutil.ParseRetryAfter(v, now); ok && after > 0 {
+	if after, ok := textutil.HeaderRetryAfter(h, now); ok && after > 0 {
 		return after
 	}
 	return defaultCooldown
@@ -368,7 +368,7 @@ func claudeHandleResponse(status int, hdr http.Header, body []byte, cache *claud
 		})
 		return parseClaudeUsage(body, creds.ClaudeAiOauth.SubscriptionType)
 	case http.StatusTooManyRequests:
-		notBefore := now.Add(claudeRetryAfter(hdr.Get("Retry-After"), now))
+		notBefore := now.Add(claudeRetryAfter(hdr, now))
 		note := fmt.Sprintf("usage unavailable: HTTP %d", status)
 		if cache == nil {
 			cache = &claudeUsageCache{SubscriptionType: creds.ClaudeAiOauth.SubscriptionType, Owner: claudeOwner(creds)}

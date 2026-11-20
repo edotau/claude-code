@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	redactpkg "github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -53,7 +54,7 @@ func (d serverDef) MarshalJSON() ([]byte, error) {
 
 // redacted returns a copy of d with every secret-shaped env, header, arg and URL credential replaced.
 func (d serverDef) redacted() serverDef {
-	args, url := redactArgs(d.Args), maskURL(d.URL)
+	args, url := redactArgs(d.Args), redactpkg.URL(d.URL)
 	d.hadSecrets = d.hadSecrets || textutil.AnySecret(d.Env) || textutil.AnySecret(d.Headers) ||
 		!slices.Equal(args, d.Args) || url != d.URL
 	d.Env, d.Headers, d.Args, d.URL = textutil.RedactSecretMap(d.Env), textutil.RedactSecretMap(d.Headers), args, url
@@ -268,14 +269,6 @@ type secretFinding struct {
 	Key    string `json:"key,omitempty"`
 }
 
-// queryParamSecret matches a secret-named URL query parameter; group 1 keeps the name so redact() swaps the value.
-var queryParamSecret = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`(?i)([?&][\w-]*(?:token|key|passw(?:or)?d|secret|sig|auth)=)[^&\s]+`)
-})
-
-// urlUserinfo matches the password of scheme://user:password@host; group 1 keeps everything before it.
-var urlUserinfo = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)(\b[a-z][a-z0-9+.-]*://[^/\s:@]+:)[^/\s]+@`) })
-
 // secretFlag matches a flag name that carries a credential as its value (--password, --api-key, -token).
 var secretFlag = sync.OnceValue(func() *regexp.Regexp {
 	return regexp.MustCompile(`(?i)^--?[\w-]*(?:passw(?:or)?d|passphrase|secret|token|key|credential)$`)
@@ -287,7 +280,7 @@ func findSecrets(defs []def) []secretFinding {
 	for _, d := range defs {
 		out = append(out, scanMap(d, "env", d.D.Env)...)
 		out = append(out, scanMap(d, "headers", d.D.Headers)...)
-		if maskURL(d.D.URL) != d.D.URL {
+		if redactpkg.URL(d.D.URL) != d.D.URL {
 			out = append(out, secretFinding{Scope: d.Scope, Server: d.Server, Field: "url"})
 		}
 		masked := redactArgs(d.D.Args)
@@ -310,14 +303,9 @@ func redact(defs []def) []def {
 	return out
 }
 
-// maskURL masks the password in URL userinfo and token/key query values, keeping scheme, host and path.
-func maskURL(s string) string {
-	return queryParamSecret().ReplaceAllString(urlUserinfo().ReplaceAllString(s, "${1}REDACTED@"), "${1}REDACTED")
-}
-
 // scrub masks credential-shaped words, URL passwords and token/key query values in free text.
 func scrub(s string) string {
-	return maskURL(textutil.RedactSecrets(s))
+	return redactpkg.URL(textutil.RedactSecrets(s))
 }
 
 // redactArgs masks credential-shaped words and the value of a secret-named flag (--name value, --name=value).

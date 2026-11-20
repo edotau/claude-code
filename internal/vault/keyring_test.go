@@ -75,7 +75,13 @@ func TestLookupTimesOutReturnsErrNoAnswer(t *testing.T) {
 	timeout = 50 * time.Millisecond
 	t.Cleanup(func() { timeout = saved })
 
+	var note strings.Builder
+	noteOut, noteTimeout = &note, sync.Once{}
+	t.Cleanup(func() { noteOut = os.Stderr })
 	v, found, err := KeyringLookup("ANYTHING")
+	if !strings.Contains(note.String(), "HARNESS_KEYRING=off") {
+		t.Fatalf("note = %q", note.String())
+	}
 	if v != "" || found || err != ErrKeyringNoAnswer {
 		t.Fatalf("Lookup = (%q, %v, %v), want (\"\", false, ErrKeyringNoAnswer)", v, found, err)
 	}

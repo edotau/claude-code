@@ -126,7 +126,7 @@ func identityResponse(ctx context.Context, p *providers.Provider, host string) (
 		if authErr != nil || status == 0 || !textutil.RetriableGET(status) || attempt == 3 {
 			return status, body, authErr, err
 		}
-		if err := textutil.WaitRetry(ctx, attempt, 500*time.Millisecond, hdr.Get("Retry-After")); err != nil {
+		if err := textutil.WaitRetry(ctx, attempt, 500*time.Millisecond, hdr, textutil.StatusError(status)); err != nil {
 			return 0, nil, nil, err
 		}
 	}

@@ -109,7 +109,7 @@ func getCatalog(ctx context.Context, p *Provider, url string, hdr http.Header) (
 		if !slices.Contains([]int{429, 502, 503, 504}, status) || attempt == catalogAttempts {
 			return status, body, err
 		}
-		if werr := textutil.WaitRetry(ctx, attempt, 500*time.Millisecond, rh.Get("Retry-After")); werr != nil {
+		if werr := textutil.WaitRetry(ctx, attempt, 500*time.Millisecond, rh, textutil.StatusError(status)); werr != nil {
 			return 0, nil, werr
 		}
 	}

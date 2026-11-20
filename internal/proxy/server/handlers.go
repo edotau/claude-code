@@ -158,7 +158,7 @@ func (r *Router) failover(resp *http.Response, t providers.Target, last bool) (m
 // coolDown sinks p for resp's Retry-After (clamped) after a transient 429; a hold of coolPersistMin+ is also persisted.
 func (r *Router) coolDown(p *providers.Provider, resp *http.Response) {
 	now := r.now()
-	d := retryAfter(resp.Header.Get("Retry-After"), now)
+	d := retryAfter(resp.Header, now)
 	until := now.Add(d)
 	r.mu.Lock()
 	r.cool[p.Name] = until
@@ -251,14 +251,10 @@ func upstreamMessage(b []byte) string {
 	return textutil.Truncate(msg, 1024)
 }
 
-func retryAfter(v string, now time.Time) time.Duration {
+func retryAfter(h http.Header, now time.Time) time.Duration {
 	d := defaultCooldown
-	if s, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && s > 0 {
-		d = time.Duration(
-			min(s, int(maxCooldown/time.Second)),
-		) * time.Second // clamp first: a huge value would overflow
-	} else if at, err := http.ParseTime(v); err == nil && at.After(now) {
-		d = at.Sub(now)
+	if got, ok := textutil.HeaderRetryAfter(h, now); ok && got > 0 {
+		d = got
 	}
 	return min(d, maxCooldown)
 }

@@ -246,7 +246,7 @@ func (c *client) call(ctx context.Context, method, path string, body []byte, out
 			return err
 		}
 		if (status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable) && attempt < attempts {
-			if werr := textutil.WaitRetry(ctx, attempt, retryBase, rh.Get("Retry-After")); werr != nil {
+			if werr := textutil.WaitRetry(ctx, attempt, retryBase, rh, textutil.StatusError(status)); werr != nil {
 				return fmt.Errorf("sql statement: %w", werr)
 			}
 			continue

@@ -160,7 +160,7 @@ func chatStream(ctx context.Context, base string, p *providers.Provider, model, 
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 600))
-		after, _ := textutil.ParseRetryAfter(resp.Header.Get("Retry-After"), time.Now())
+		after, _ := textutil.HeaderRetryAfter(resp.Header, time.Now())
 		return wire.Usage{}, "", &httpError{status: resp.StatusCode, after: max(after, 0),
 			msg: fmt.Sprintf("HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(raw)))}
 	}
@@ -336,9 +336,9 @@ func boxSDKError(err error) error {
 	out := &httpError{status: apiErr.StatusCode, msg: fmt.Sprintf("HTTP %d: %s", apiErr.StatusCode, apiErr.RawJSON())}
 	if apiErr.Response != nil {
 		// Keep the SDK caller's integer-only header policy.
-		v := apiErr.Response.Header.Get("Retry-After")
-		if v == strings.TrimSpace(v) && !strings.Contains(v, ":") {
-			out.after, _ = textutil.ParseRetryAfter(v, time.Now())
+		h := apiErr.Response.Header
+		if v := h.Get("Retry-After"); h.Get("Retry-After-Ms") != "" || (v == strings.TrimSpace(v) && !strings.Contains(v, ":")) {
+			out.after, _ = textutil.HeaderRetryAfter(h, time.Now())
 		}
 	}
 	return out

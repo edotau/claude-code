@@ -52,8 +52,8 @@ type Token struct {
 // oauthError is a token-endpoint rejection (RFC 6749 §5.2): the HTTP status plus the error code and description.
 type oauthError struct {
 	Host, Op, Code, Desc string
-	Body                 string // a clipped non-JSON reply, for diagnostics
-	RetryAfter           string // the Retry-After header, raw
+	Body                 string      // a clipped non-JSON reply, for diagnostics
+	RetryAfter           http.Header // the response headers carrying Retry-After
 	Status               int
 }
 
@@ -181,11 +181,11 @@ func postToken(ctx context.Context, r tokenRequest) (tokenReply, error) {
 		if err == nil || !r.retryable(status, sent) || attempt == maxAttempts || noRetry(ctx) {
 			return reply, err
 		}
-		var retryAfter string
+		var hdr http.Header
 		if oe, ok := errors.AsType[*oauthError](err); ok {
-			retryAfter = oe.RetryAfter
+			hdr = oe.RetryAfter
 		}
-		if werr := textutil.WaitRetry(ctx, attempt, RetryBackoff, retryAfter); werr != nil {
+		if werr := textutil.WaitRetry(ctx, attempt, RetryBackoff, hdr, err); werr != nil {
 			return reply, werr
 		}
 	}
@@ -228,7 +228,7 @@ func doPost(ctx context.Context, r tokenRequest) (reply tokenReply, status int, 
 			Error       string `json:"error"`
 			Description string `json:"error_description"`
 		}
-		oe := &oauthError{Host: r.host, Op: r.op, Status: resp.StatusCode, RetryAfter: resp.Header.Get("Retry-After")}
+		oe := &oauthError{Host: r.host, Op: r.op, Status: resp.StatusCode, RetryAfter: resp.Header.Clone()}
 		if json.Unmarshal(raw, &e) == nil {
 			oe.Code, oe.Desc = e.Error, e.Description
 		} else {

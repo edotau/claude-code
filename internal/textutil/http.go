@@ -2,6 +2,7 @@ package textutil
 
 import (
 	"context"
+	"fmt"
 	"math"
 	"math/rand/v2"
 	"net"
@@ -15,6 +16,14 @@ import (
 )
 
 const maxRetrySeconds = int(math.MaxInt64 / time.Second)
+
+// HeaderRetryAfter reads retry-after-ms ahead of Retry-After; ok is false when neither parses.
+func HeaderRetryAfter(h http.Header, now time.Time) (time.Duration, bool) {
+	if ms, err := strconv.ParseInt(strings.TrimSpace(h.Get("Retry-After-Ms")), 10, 64); err == nil {
+		return time.Duration(max(0, min(ms, int64(maxRetrySeconds)*1000))) * time.Millisecond, true
+	}
+	return ParseRetryAfter(h.Get("Retry-After"), now)
+}
 
 // ParseRetryAfter parses seconds or an HTTP-date; callers decide how to handle nonpositive durations.
 func ParseRetryAfter(v string, now time.Time) (time.Duration, bool) {
@@ -46,19 +55,27 @@ var RetrySleep = func(ctx context.Context, d time.Duration) error {
 }
 
 // RetryDelay is the wait before retry number attempt (1-based): full-jitter exponential from base, never under Retry-After.
-func RetryDelay(attempt int, base time.Duration, retryAfter string, now time.Time) time.Duration {
+func RetryDelay(attempt int, base time.Duration, h http.Header, now time.Time) time.Duration {
 	backoff := min(base<<min(max(attempt-1, 0), 20), backoffCap)
 	wait := time.Duration(rand.Int64N(int64(max(backoff, 0)) + 1))
-	if d, ok := ParseRetryAfter(retryAfter, now); ok {
+	if d, ok := HeaderRetryAfter(h, now); ok {
 		wait = max(wait, min(d, retryAfterCap))
 	}
 	return wait
 }
 
-// WaitRetry sleeps RetryDelay on ctx and returns the context error if it ends first.
-func WaitRetry(ctx context.Context, attempt int, base time.Duration, retryAfter string) error {
-	return RetrySleep(ctx, RetryDelay(attempt, base, retryAfter, time.Now()))
+// WaitRetry sleeps RetryDelay on ctx; if ctx ends first it returns last (the final failed response) wrapped with
+// the context error, or the bare context error when last is nil.
+func WaitRetry(ctx context.Context, attempt int, base time.Duration, h http.Header, last error) error {
+	err := RetrySleep(ctx, RetryDelay(attempt, base, h, time.Now()))
+	if err == nil || last == nil {
+		return err
+	}
+	return fmt.Errorf("%w: %w", last, err)
 }
+
+// StatusError describes a final HTTP status for WaitRetry's last argument.
+func StatusError(status int) error { return fmt.Errorf("last response HTTP %d", status) }
 
 // RetriableGET reports transient HTTP statuses for idempotent GET requests.
 func RetriableGET(status int) bool {
