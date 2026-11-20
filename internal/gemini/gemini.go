@@ -463,7 +463,8 @@ func agyPrintTimeoutErr(err error, r agyRequest, stderr string, took time.Durati
 	if !agyPrintTimedOut(stderr, r.DebugFile, took, r.PrintTimeout) {
 		return err
 	}
-	return &retry.Error{Kind: retry.KindFatal, Agent: "gemini", Progressed: true, Err: &agyTimeoutError{after: r.PrintTimeout}}
+	streamed := !strings.Contains(err.Error(), "empty answer") // only a deadline after output is partial
+	return &retry.Error{Kind: retry.KindFatal, Agent: "gemini", Progressed: streamed, Err: &agyTimeoutError{after: r.PrintTimeout}}
 }
 
 func agyModelLimit(text string) bool {
