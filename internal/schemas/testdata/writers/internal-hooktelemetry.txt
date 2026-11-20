@@ -1,0 +1,3 @@
+internal/hooktelemetry/write.go:openTelemetry	unversioned: log: hook telemetry row append with short-write rollback
+internal/hooktelemetry/write.go:pruneTelemetry	unversioned: log: hook telemetry retention, removes files past 14 days
+internal/hooktelemetry/write.go:telemetryDropMarker	unversioned: log: hook telemetry .dropped marker, once per full day file

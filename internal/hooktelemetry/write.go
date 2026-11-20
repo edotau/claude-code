@@ -1,4 +1,4 @@
-package core
+package hooktelemetry
 
 import (
 	"encoding/json"
@@ -14,10 +14,10 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// telemetryEnv set to "off" stops RecordTelemetry; read only from the hook process's own environment.
+// telemetryEnv set to "off" stops Record; read only from the hook process's own environment.
 const telemetryEnv = "HARNESS_HOOK_TELEMETRY"
 
-// Outcomes a TelemetryRow reports; Ask counts as deny because Claude renders it as one.
+// Outcomes a Row reports; Ask counts as deny because Claude renders it as one.
 const (
 	OutcomeOK      = "ok"
 	OutcomeDeny    = "deny"
@@ -28,18 +28,8 @@ const (
 	OutcomeDropped = "dropped"
 )
 
-// Verdict words a TelemetryRow reports for a decision; a hand-back is held, refused or passed, never both.
-const (
-	VerdictBlock   = "block"
-	VerdictAsk     = "ask"
-	VerdictRewrite = "rewrite"
-	VerdictHeld    = "held"
-	VerdictRefused = "refused"
-	VerdictPassed  = "passed"
-)
-
-// TelemetryRow is one module run; Rule and Verdict are set only when a decision fired, never call text.
-type TelemetryRow struct {
+// Row is one module run; Rule and Verdict are set only when a decision fired, never call text.
+type Row struct {
 	Event, Module, Outcome string
 	Dur                    time.Duration
 	Sid, Tool              string
@@ -60,7 +50,7 @@ type telemetryLine struct {
 
 const telemetrySidLen = 8
 
-// telemetryDir is state/harness/hooks; a test binary writes nothing unless TelemetryDirForTest names a directory.
+// telemetryDir is state/harness/hooks; a test binary writes nothing unless DirForTest names a directory.
 var telemetryDir = func() string {
 	if testing.Testing() {
 		return ""
@@ -68,15 +58,15 @@ var telemetryDir = func() string {
 	return filepath.Join(paths.StateDir(), "hooks")
 }
 
-// TelemetryDirForTest redirects the telemetry directory until the returned restore runs.
-func TelemetryDirForTest(dir string) (restore func()) {
+// DirForTest redirects the telemetry directory until the returned restore runs.
+func DirForTest(dir string) (restore func()) {
 	prev, prevWait := telemetryDir, telemetryWait
 	telemetryDir, telemetryWait = func() string { return dir }, 2*time.Second // tests count rows: never drop them
 	return func() { telemetryDir, telemetryWait = prev, prevWait }
 }
 
-// TelemetryWaitForTest sets the hook's telemetry wait, for tests that stall the writer on purpose.
-func TelemetryWaitForTest(d time.Duration) (restore func()) {
+// WaitForTest sets the hook's telemetry wait, for tests that stall the writer on purpose.
+func WaitForTest(d time.Duration) (restore func()) {
 	prev := telemetryWait
 	telemetryWait = d
 	return func() { telemetryWait = prev }
@@ -94,13 +84,13 @@ var telemetryWait = 50 * time.Millisecond
 
 var telemetryBusy atomic.Bool
 
-// RecordTelemetry bounds best-effort disk work; a stalled filesystem never holds up a verdict.
-func RecordTelemetry(rows []TelemetryRow) {
+// Record bounds best-effort disk work; a stalled filesystem never holds up a verdict.
+func Record(rows []Row) {
 	dir := telemetryDir()
 	if len(rows) == 0 || dir == "" || os.Getenv(telemetryEnv) == "off" || !telemetryBusy.CompareAndSwap(false, true) {
 		return
 	}
-	rows = append([]TelemetryRow(nil), rows...)
+	rows = append([]Row(nil), rows...)
 	done := make(chan struct{})
 	deadline := time.Now().Add(telemetryWait)
 	go func() {
@@ -114,7 +104,7 @@ func RecordTelemetry(rows []TelemetryRow) {
 	}
 }
 
-func recordTelemetry(dir string, rows []TelemetryRow, now, deadline time.Time) {
+func recordTelemetry(dir string, rows []Row, now, deadline time.Time) {
 	file := filepath.Join(dir, "telemetry-"+now.Format(telemetryDateLayout)+".jsonl")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return
@@ -126,7 +116,7 @@ func recordTelemetry(dir string, rows []TelemetryRow, now, deadline time.Time) {
 	})
 }
 
-func appendRows(dir, file string, rows []TelemetryRow, now, deadline time.Time) {
+func appendRows(dir, file string, rows []Row, now, deadline time.Time) {
 	day, err := openTelemetry(file)
 	if err != nil {
 		return

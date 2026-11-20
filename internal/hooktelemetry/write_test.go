@@ -1,4 +1,4 @@
-package core
+package hooktelemetry
 
 import (
 	"os"
@@ -8,12 +8,12 @@ import (
 	"time"
 )
 
-func TestRecordTelemetryAppendsOneLinePerRow(t *testing.T) {
+func TestRecordAppendsOneLinePerRow(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "hooks")
 	now := time.Date(2026, time.November, 16, 12, 0, 0, 0, time.UTC)
 	deadline := time.Now().Add(time.Hour)
-	recordTelemetry(dir, []TelemetryRow{{"Stop", "a", OutcomeOK, 1500 * time.Microsecond, "", "", "", ""}, {"Stop", "b", OutcomeDeny, time.Millisecond, "", "", "", ""}}, now, deadline)
-	recordTelemetry(dir, []TelemetryRow{{"Stop", "c", OutcomePanic, 0, "", "", "", ""}}, now, deadline)
+	recordTelemetry(dir, []Row{{"Stop", "a", OutcomeOK, 1500 * time.Microsecond, "", "", "", ""}, {"Stop", "b", OutcomeDeny, time.Millisecond, "", "", "", ""}}, now, deadline)
+	recordTelemetry(dir, []Row{{"Stop", "c", OutcomePanic, 0, "", "", "", ""}}, now, deadline)
 	files, _ := filepath.Glob(filepath.Join(dir, "telemetry-*.jsonl"))
 	if len(files) != 1 {
 		t.Fatalf("files = %v", files)
@@ -46,13 +46,13 @@ func checkTelemetryStorageBounds(t *testing.T, dir, file string, now time.Time) 
 	if err := os.Truncate(file, telemetryDailyBytes); err != nil {
 		t.Fatal(err)
 	}
-	recordTelemetry(dir, []TelemetryRow{{"Stop", "full", OutcomeOK, 0, "", "", "", ""}}, now, time.Now().Add(time.Hour))
+	recordTelemetry(dir, []Row{{"Stop", "full", OutcomeOK, 0, "", "", "", ""}}, now, time.Now().Add(time.Hour))
 	if st, err := os.Stat(file); err != nil || st.Size() != telemetryDailyBytes {
 		t.Fatalf("daily ceiling: stat %v, err %v", st, err)
 	}
 }
 
-func TestRecordTelemetryKeepsRecordingPastTheOldCapAndMarksTheDrop(t *testing.T) {
+func TestRecordKeepsRecordingPastTheOldCapAndMarksTheDrop(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Date(2026, time.November, 18, 12, 0, 0, 0, time.UTC)
 	file := filepath.Join(dir, "telemetry-20261118.jsonl")
@@ -60,7 +60,7 @@ func TestRecordTelemetryKeepsRecordingPastTheOldCapAndMarksTheDrop(t *testing.T)
 		t.Fatal(err)
 	}
 	record := func(m string) {
-		recordTelemetry(dir, []TelemetryRow{{"Stop", m, OutcomeOK, 0, "", "", "", ""}}, now, time.Now().Add(time.Hour))
+		recordTelemetry(dir, []Row{{"Stop", m, OutcomeOK, 0, "", "", "", ""}}, now, time.Now().Add(time.Hour))
 	}
 	record("after-old-cap")
 	if raw, _ := os.ReadFile(file); !strings.Contains(string(raw), "after-old-cap") {
@@ -99,24 +99,24 @@ func TestPruneTelemetryBoundsTotalBytes(t *testing.T) {
 	}
 }
 
-func TestRecordTelemetryOffAndTestBinaryWriteNothing(t *testing.T) {
-	RecordTelemetry([]TelemetryRow{{"Stop", "a", OutcomeOK, 0, "", "", "", ""}}) // test binary: no directory, no write
+func TestRecordOffAndTestBinaryWriteNothing(t *testing.T) {
+	Record([]Row{{"Stop", "a", OutcomeOK, 0, "", "", "", ""}}) // test binary: no directory, no write
 	dir := t.TempDir()
-	defer TelemetryDirForTest(dir)()
+	defer DirForTest(dir)()
 	t.Setenv(telemetryEnv, "off")
-	RecordTelemetry([]TelemetryRow{{"Stop", "a", OutcomeOK, 0, "", "", "", ""}})
+	Record([]Row{{"Stop", "a", OutcomeOK, 0, "", "", "", ""}})
 	if ents, _ := os.ReadDir(dir); len(ents) != 0 {
 		t.Errorf("off wrote %v", ents)
 	}
 }
 
-func BenchmarkRecordTelemetry(b *testing.B) {
-	defer TelemetryDirForTest(b.TempDir())()
-	rows := make([]TelemetryRow, 8)
+func BenchmarkRecord(b *testing.B) {
+	defer DirForTest(b.TempDir())()
+	rows := make([]Row, 8)
 	for i := range rows {
-		rows[i] = TelemetryRow{"UserPromptSubmit", "memory-recall", OutcomeOK, time.Millisecond, "", "", "", ""}
+		rows[i] = Row{"UserPromptSubmit", "memory-recall", OutcomeOK, time.Millisecond, "", "", "", ""}
 	}
 	for b.Loop() {
-		RecordTelemetry(rows)
+		Record(rows)
 	}
 }
