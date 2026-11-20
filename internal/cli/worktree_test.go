@@ -322,6 +322,7 @@ func mergeFixtureCLIRun(t *testing.T, dir string, args ...string) {
 // mergeFixtureCLISetup makes a repo plus a "feature" worktree via the CLI create path, with a local git identity.
 func mergeFixtureCLISetup(t *testing.T) (repo string) {
 	t.Helper()
+	t.Cleanup(worktree.SwapAuditCommand(""))
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	repo = gitRepoCLI(t)

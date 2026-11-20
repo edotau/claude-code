@@ -16,6 +16,13 @@ import (
 // auditCommand is the full audit started on main after a promote; empty skips it (tests).
 var auditCommand = "make audit"
 
+// SwapAuditCommand sets the post-promote audit command ("" skips it) and returns a restore func, for other packages' tests.
+func SwapAuditCommand(cmd string) (restore func()) {
+	old := auditCommand
+	auditCommand = cmd
+	return func() { auditCommand = old }
+}
+
 // auditStale is how long a start record without an exit file still counts as running.
 const auditStale = time.Hour
 
