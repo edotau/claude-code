@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -88,7 +89,7 @@ func TestCodexCatalogPathCacheHitSkipsSpawnAndTempHome(t *testing.T) {
 func TestCodexRefuseNamesModelAndSuggestsResponses(t *testing.T) {
 	p := &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks, BaseURL: "https://dbx.test",
 		Routes: map[string]string{providers.ProtocolResponses: "/responses", providers.ProtocolOpenAI: "/chat", providers.ProtocolAnthropic: "/anthropic"}}
-	for _, m := range []string{"databricks-claude-opus-5-5", "databricks-gpt-6-1-terra", "databricks-deepseek-v4-1-flash"} {
+	for _, m := range []string{"databricks-claude-opus-5-5", "databricks-gpt-oss-120b", "databricks-deepseek-v4-1-flash"} {
 		err := codexRefuse(p, m)
 		if err == nil || !strings.Contains(err.Error(), m) || !strings.Contains(err.Error(), "Responses") {
 			t.Errorf("codexRefuse(%s) = %v, want a refusal naming the model", m, err)
@@ -99,6 +100,36 @@ func TestCodexRefuseNamesModelAndSuggestsResponses(t *testing.T) {
 	}
 	if err := codexRefuse(p, "databricks-gpt-6-sol"); err != nil {
 		t.Errorf("codexRefuse(gpt-6-sol) = %v, want nil", err)
+	}
+	if err := codexRefuse(p, "databricks-gpt-6-luna"); err != nil {
+		t.Errorf("codexRefuse(gpt-6-luna) = %v, want nil: a GPT row flagged Responses=false still runs over Responses", err)
+	}
+}
+
+// Given GPT rows flagged Responses=false, Then the catalog lists the servable ones and not chat-only or Claude rows.
+func TestCatalogListsServableGPTRowsWithoutResponsesFlag(t *testing.T) {
+	raw := `{"models":[{"slug":"gpt-6.1-sol"},{"slug":"gpt-6-luna"},{"slug":"gpt-oss-120b"},{"slug":"claude-opus-5-5"}]}`
+	p := &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks, ModelPrefix: "databricks-"}
+	menu := []providers.OpencodeModel{{ID: "gpt-6-1-sol", Label: "Sol", Responses: true}, {ID: "claude-opus-5-5", Label: "Opus"},
+		{ID: "gpt-oss-120b", Label: "OSS"}, {ID: "gpt-6-luna", Label: "Luna"}}
+	body, _, err := buildCodexCatalog(p, menu, []byte(raw), nil)
+	if err != nil || body == nil {
+		t.Fatalf("build = %v, %v", body, err)
+	}
+	var cat struct {
+		Models []struct{ Slug, Visibility string }
+	}
+	if err := json.Unmarshal(body, &cat); err != nil {
+		t.Fatal(err)
+	}
+	var listed []string
+	for _, m := range cat.Models {
+		if m.Visibility == "list" {
+			listed = append(listed, m.Slug)
+		}
+	}
+	if want := []string{"databricks-gpt-6-1-sol", "databricks-gpt-6-luna"}; !slices.Equal(listed, want) {
+		t.Fatalf("listed = %v, want %v", listed, want)
 	}
 }
 

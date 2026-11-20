@@ -273,3 +273,17 @@ func TestServesResponsesMenuOverridesCatalog(t *testing.T) {
 		t.Error("unlisted catalog Responses-only id must serve Responses")
 	}
 }
+
+// A Responses=false GPT row stays on chat for opencode yet is Responses-servable for codex.
+func TestResponsesFalseGPTRowKeepsOpencodeChatRoute(t *testing.T) {
+	vaulttest.Use(t)
+	p := &Provider{Name: "dev", Preset: PresetDatabricks, ModelPrefix: "databricks-"}
+	luna := []OpencodeModel{{ID: "gpt-6-luna"}}
+	p.Routes = map[string]string{ProtocolResponses: "/responses", ProtocolOpenAI: "/chat"}
+	if ServesResponsesIn(luna, p, "databricks-gpt-6-luna") || !ResponsesServable(p, "databricks-gpt-6-luna") {
+		t.Error("a Responses=false GPT row stays chat for opencode (ServesResponses) yet is Responses-servable for codex")
+	}
+	if wire, _, _ := WireForIn(luna, p, "databricks-gpt-6-luna"); wire == ProtocolResponses {
+		t.Errorf("opencode wire for the Responses=false row = %q, want %s", wire, ProtocolOpenAI)
+	}
+}

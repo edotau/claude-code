@@ -77,7 +77,7 @@ func codexRenderModel(ctx context.Context, reg *providers.Registry, t providers.
 	pin := agent.AgentModelPin(agentid.Codex)
 	if _, auto := agent.SplitAuto(pin); pin != "" && !auto {
 		q := agent.QueryFor(agent.PeekContext(ctx), agent.ModelQuery{Agent: agentid.Codex, Profile: t.Provider.Name})
-		if r, err := agent.ResolveRun(reg, q, time.Now()); err == nil && providers.ServesResponses(t.Provider, r.Model) {
+		if r, err := agent.ResolveRun(reg, q, time.Now()); err == nil && providers.ResponsesServable(t.Provider, r.Model) {
 			fmt.Fprintf(out, "codex: wrote model %s on profile %s (the codex model pin)\n", r.Model, t.Provider.Name)
 			t.Model = r.Model
 			return t

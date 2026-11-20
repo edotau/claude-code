@@ -196,7 +196,7 @@ func buildCodexCatalog(p *providers.Provider, menu []providers.OpencodeModel, ra
 	labels := make(map[string]int)
 	listed := make(map[string]bool)
 	for _, m := range menu {
-		if !m.Responses {
+		if !codexServes(p, m) {
 			continue
 		}
 		base := bySlug[codexSlug(m.ID)]
@@ -227,6 +227,11 @@ func buildCodexCatalog(p *providers.Provider, menu []providers.OpencodeModel, ra
 	out = appendNativeAliases(out, nativeSlugs, listed)
 	body, err := json.Marshal(map[string]any{"models": out})
 	return body, missing, err
+}
+
+// codexServes reports a menu row codex can run: flagged Responses, or an OpenAI GPT model that is not chat-only.
+func codexServes(p *providers.Provider, m providers.OpencodeModel) bool {
+	return m.Responses || providers.ResponsesServable(p, agentconfig.MenuWire(p, m.ID))
 }
 
 // appendNativeAliases adds a hidden row under each base model's own slug so codex still resolves it.
@@ -328,7 +333,7 @@ func codexRefuse(p *providers.Provider, model string) error {
 	if p.Preset != providers.PresetDatabricks {
 		return nil
 	}
-	if wire, ok, _ := providers.WireFor(p, model); ok && wire == providers.ProtocolResponses {
+	if providers.ResponsesServable(p, model) {
 		return nil
 	}
 	hint := cmp.Or(providers.FirstResponsesModel(p), "a Responses model")
