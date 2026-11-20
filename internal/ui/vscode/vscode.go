@@ -202,11 +202,11 @@ type outcome struct {
 
 // modelsOutcome is the chatLanguageModels.json merge: its path, or why it was skipped.
 type modelsOutcome struct {
-	Dest   string
-	Skip   bool
-	Note   string
-	Result mergeResult
-	Groups []string // "<group> (<n> models)" per Databricks group written
+	Dest    string
+	Skip    bool
+	Note    string
+	Result  mergeResult
+	Removed []string // the retired Databricks picker groups this run drops
 }
 
 // syncAll merges the settings and keybindings templates and the chat models, and links the Agents extension.
@@ -263,6 +263,6 @@ func syncModelsFor(o syncOptions) (modelsOutcome, error) {
 	if m.Dest, m.Skip, m.Note, err = resolveModelsDest(o.ModelsDest, o.Dest); err != nil || m.Skip {
 		return m, err
 	}
-	m.Result, m.Groups, err = syncModels(m.Dest, o.Check)
+	m.Result, m.Removed, err = syncModels(m.Dest, o.Check)
 	return m, err
 }

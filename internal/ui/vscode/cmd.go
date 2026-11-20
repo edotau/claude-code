@@ -19,7 +19,7 @@ func reportMerge(label, dest string, result mergeResult) {
 	}
 }
 
-// Run merges the settings, keybindings and Databricks chat model templates into VS Code and links the Agents extension.
+// Run merges the settings and keybindings templates, drops the retired chat groups and links the Agents extension.
 func Run(args []string) int {
 	fs := helptext.NewFlagSet("theme vscode", helptext.Page{Usage: "claude-code theme vscode [flags]",
 		About: "Merge embedded templates into VS Code's settings.json and keybindings.\n" +
@@ -27,7 +27,7 @@ func Run(args []string) int {
 			"~/.vscode-server it is the Machine scope, which Settings Sync skips.\n" +
 			"Skip keybindings on headless boxes with only ~/.vscode-server.\n" +
 			"Link the Claude Code Agents extension into the detected extensions directory.\n" +
-			"Write one chatLanguageModels.json group per signed-in Databricks profile."})
+			"Remove the Databricks groups an older run wrote into chatLanguageModels.json."})
 	check := fs.Bool("check", false, "report drift without writing; exit 1 on drift")
 	dryRun := fs.Bool("dry-run", false, "preview the merge, no write (not with --check)")
 	printModelsJSON := fs.Bool("print", false, "print the Databricks chat models as JSON, write nothing (not with --check or --dry-run)")
@@ -107,7 +107,7 @@ func (o vscodeReport) dryRun() {
 	reportSkip("keybindings", o.Skip, o.Note, func() { reportDryRun("keybindings template", o.KbDestPath, o.KbResult.Changed) })
 	reportDryRun("extension", o.ExtResult.Target, o.ExtResult.Changed)
 	reportSkip("chat models", o.Models.Skip, o.Models.Note, func() { reportDryRun("chat models", o.Models.Dest, o.Models.Result.Changed) })
-	o.reportGroups()
+	o.reportGroups("would remove")
 }
 
 func (o vscodeReport) apply() {
@@ -123,13 +123,13 @@ func (o vscodeReport) reportMerges() {
 	reportMerge("template", o.DestPath, o.Result)
 	reportSkip("keybindings", o.Skip, o.Note, func() { reportMerge("keybindings template", o.KbDestPath, o.KbResult) })
 	reportSkip("chat models", o.Models.Skip, o.Models.Note, func() { reportMerge("chat models", o.Models.Dest, o.Models.Result) })
-	o.reportGroups()
+	o.reportGroups("removed")
 }
 
-// reportGroups lists the Databricks model-picker groups the chat models merge owns.
-func (o vscodeReport) reportGroups() {
-	if !o.Models.Skip && len(o.Models.Groups) > 0 {
-		fmt.Printf("claude-code: vscode chat model groups: %s\n", strings.Join(o.Models.Groups, ", "))
+// reportGroups lists the retired Databricks picker groups this run drops, led by verb.
+func (o vscodeReport) reportGroups(verb string) {
+	if !o.Models.Skip && len(o.Models.Removed) > 0 {
+		fmt.Printf("claude-code: vscode %s chat model groups: %s\n", verb, strings.Join(o.Models.Removed, ", "))
 	}
 }
 

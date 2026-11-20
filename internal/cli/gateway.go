@@ -204,7 +204,7 @@ func proxyClientToken(name string) int {
 	if err != nil {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
-	fmt.Fprintln(os.Stderr, "claude-code: paste this once into VS Code's harnessProxyToken prompt; it is not shown again")
+	fmt.Fprintln(os.Stderr, "claude-code: this client token is shown once; store it in the client that needs it")
 	return helptext.PrintSecrets("gateway proxy", true, helptext.Secret{Value: tok})
 }
 

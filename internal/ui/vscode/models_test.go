@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,7 +12,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/serving"
-	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -19,15 +19,6 @@ import (
 
 // testBase stands in for the running proxy's base URL.
 const testBase = "http://127.0.0.1:1"
-
-// foreignProviders is a user's own entries in deliberately odd formatting: the merge must keep these bytes.
-const foreignProviders = `[
-  {"name": "Anthropic",   "vendor": "customendpoint", "apiKey": "${input:anthropicApiKey}",
-     "models": [{"id": "claude-sonnet-4-6", "url": "https://api.anthropic.com/v1/messages"}]},
-  {"name": "Databricks prod", "vendor": "customendpoint", "apiKey": "${input:harnessProxyToken}", "models": []},
-  {"name": "Databricks gone", "vendor": "customendpoint", "apiKey": "${input:harnessProxyToken}", "models": []},
-  "not-an-object"
-]`
 
 // seedDatabricks registers dev (signed in, cached listing), prod (signed in, cold) and qa (signed out).
 func seedDatabricks(t *testing.T) {
@@ -65,98 +56,77 @@ func seedDatabricks(t *testing.T) {
 	t.Cleanup(func() { routerBase = orig })
 }
 
-// theme vscode keeps foreign and cold groups verbatim, drops a gone one, adds dev's endpoints, writes no credential.
-func TestThemeVSCodeWritesDatabricksModelGroups(t *testing.T) {
-	hermeticVSCode(t)
+const harnessGroup = `{"name": "Databricks %s", "vendor": "customendpoint", "apiKey": "${input:harnessProxyToken}",
+     "models": [{"id": "m", "url": "http://127.0.0.1:7/p/%s/v1/messages"}]}`
+
+// Look-alike: same name and key reference, but its models point at a real host, so it is the user's.
+const lookalike = `{"name": "Databricks dev", "vendor": "customendpoint", "apiKey": "${input:harnessProxyToken}",
+     "models": [{"id": "m", "url": "https://dev.example.com/p/dev/v1/messages"}]}`
+
+const foreignGroup = `{"name": "Anthropic",   "vendor": "customendpoint", "apiKey": "${input:anthropicApiKey}",
+     "models": [{"id": "claude-sonnet-4-6", "url": "https://api.anthropic.com/v1/messages"}]}`
+
+func syncModelsFile(t *testing.T, content string, check bool) (string, mergeResult, []string) {
+	t.Helper()
+	dest := filepath.Join(t.TempDir(), modelsFileName)
+	writeFile(t, dest, content)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	res, removed, err := syncModels(dest, check)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(dest)
+	return string(got), res, removed
+}
+
+// The merge removes only the groups it wrote, keeps every other entry's bytes, and --check reports without writing.
+func TestSyncModelsRemovesOnlyHarnessGroups(t *testing.T) {
+	in := "[\n  " + fmt.Sprintf(harnessGroup, "dev", "dev") + ",\n  " + foreignGroup + ",\n  " + lookalike + ",\n  " +
+		fmt.Sprintf(harnessGroup, "prod", "prod") + "\n]\n"
+	got, res, removed := syncModelsFile(t, in, true)
+	if got != in || !res.Changed || strings.Join(removed, ",") != "Databricks dev,Databricks prod" {
+		t.Fatalf("check: changed=%v removed=%v wrote=%v", res.Changed, removed, got != in)
+	}
+	got, res, _ = syncModelsFile(t, in, false)
+	if !res.Changed || strings.Contains(got, "Databricks prod") || strings.Contains(got, "127.0.0.1") ||
+		strings.Count(got, "Databricks dev") != 1 {
+		t.Fatalf("harness groups left:\n%s", got)
+	}
+	for _, keep := range []string{foreignGroup, lookalike} {
+		if !strings.Contains(got, keep) {
+			t.Errorf("foreign entry not kept verbatim: %s\nin:\n%s", keep, got)
+		}
+	}
+}
+
+// A file with no harness groups is not rewritten.
+func TestSyncModelsLeavesCleanFileAlone(t *testing.T) {
+	in := "// mine\n[" + foreignGroup + ",   " + lookalike + "]"
+	got, res, removed := syncModelsFile(t, in, false)
+	if got != in || res.Changed || len(removed) != 0 || res.Backup != "" {
+		t.Fatalf("clean file touched: changed=%v removed=%v\n%s", res.Changed, removed, got)
+	}
+}
+
+// --print lists dev's three READY chat endpoints with the session base, whatever the chat models file holds.
+func TestPrintModelsListsDevEndpoints(t *testing.T) {
 	seedDatabricks(t)
-	tmpl, dest := writeVSCodeFixture(t)
-	models := filepath.Join(t.TempDir(), modelsFileName)
-	writeFile(t, models, foreignProviders)
-	o := isolated(t, tmpl, dest)
-	o.ModelsDest = models
-	assertDryRun(t, o, models)
-	if code, _, _ := hosttest.CaptureOutput(t, func() int { return vscodeSync(o, false, false) }); code != 0 {
-		t.Fatalf("apply exit %d", code)
+	var buf bytes.Buffer
+	if err := printModels(&buf); err != nil {
+		t.Fatal(err)
 	}
-	got, _ := os.ReadFile(models)
-	assertNoSecretAndForeignKept(t, got)
-	assertGroups(t, got)
-	if code, _, _ := hosttest.CaptureOutput(t, func() int { return vscodeSync(o, true, false) }); code != 0 {
-		t.Errorf("--check after apply exit %d, want 0 (in sync)", code)
-	}
-}
-
-// assertDryRun runs --dry-run: it names dev's group and notes cold prod (not signed-out qa), writing nothing.
-func assertDryRun(t *testing.T, o syncOptions, models string) {
-	t.Helper()
-	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return vscodeSync(o, false, true) })
-	if code != 0 || !strings.Contains(stdout, "would merge chat models") || !strings.Contains(stdout, "Databricks dev (3 models)") {
-		t.Fatalf("dry-run exit %d stdout %q", code, stdout)
-	}
-	if got, _ := os.ReadFile(models); string(got) != foreignProviders {
-		t.Fatal("--dry-run wrote the chat models file")
-	}
-	if !strings.Contains(stderr, "prod has no cached listing") || strings.Contains(stderr, "qa") {
-		t.Errorf("stderr %q, want one cold note for prod and none for signed-out qa", stderr)
-	}
-}
-
-// assertNoSecretAndForeignKept fails on any workspace credential or proxy token, or a foreign line not kept verbatim.
-func assertNoSecretAndForeignKept(t *testing.T, got []byte) {
-	t.Helper()
-	for _, secret := range []string{"dapi-dev-workspace-secret", "dapi-prod-workspace-secret", "cct_", "cck_"} {
-		if bytes.Contains(got, []byte(secret)) {
-			t.Fatalf("chat models file carries %q", secret)
+	var out struct {
+		Profiles []struct {
+			Profile, Base string
+			Models        []struct{ ID string }
 		}
 	}
-	keep := strings.Split(foreignProviders, "\n")
-	for _, line := range []string{keep[1], keep[2], keep[3], keep[5]} {
-		if !bytes.Contains(got, []byte(strings.TrimSuffix(line, ","))) {
-			t.Errorf("foreign bytes %q not kept verbatim in:\n%s", line, got)
-		}
+	if err := json.Unmarshal(buf.Bytes(), &out); err != nil || len(out.Profiles) != 1 {
+		t.Fatalf("print = %s (%v)", buf.Bytes(), err)
 	}
-}
-
-// assertGroups checks the merged order and dev's three READY chat endpoints with their wire, URL and key reference.
-func assertGroups(t *testing.T, raw []byte) {
-	t.Helper()
-	var groups []endpointGroup
-	var all []json.RawMessage
-	if err := json.Unmarshal(raw, &all); err != nil {
-		t.Fatalf("merged file is not a JSON array: %v\n%s", err, raw)
-	}
-	names := make([]string, len(all))
-	for i, r := range all {
-		var g endpointGroup
-		_ = json.Unmarshal(r, &g)
-		groups, names[i] = append(groups, g), g.Name
-	}
-	if strings.Join(names, ",") != "Anthropic,Databricks prod,,Databricks dev" {
-		t.Fatalf("groups = %q, want foreign + cold prod in order, gone dropped, dev appended", names)
-	}
-	dev := groups[len(groups)-1]
-	if dev.APIKey != proxyKeyRef || dev.Vendor != vendorEndpoint || len(dev.Models) != len(devWant) {
-		t.Fatalf("dev group = %+v, want the key reference and %d models", dev, len(devWant))
-	}
-	for _, m := range dev.Models {
-		assertModel(t, m)
-	}
-}
-
-// devWant is each dev endpoint's apiType and URL.
-var devWant = map[string][2]string{
-	"databricks-claude-opus-5-5": {"messages", testBase + "/p/dev/v1/messages"},
-	"databricks-gpt-6-1-sol":     {"responses", testBase + "/p/dev/responses/responses"},
-	"databricks-qwen3-next-80b":  {"chat-completions", testBase + "/p/dev/openai/chat/completions"},
-}
-
-// assertModel checks one entry: full name as label, wire and URL, limits, and stateless only on Responses.
-func assertModel(t *testing.T, m endpointModel) {
-	t.Helper()
-	w, ok := devWant[m.ID]
-	if !ok || m.Name != m.ID || m.APIType != w[0] || m.URL != w[1] || m.ContextWindow <= 0 || m.MaxOutputTokens <= 0 ||
-		(m.StatefulResponses != nil) != (w[0] == "responses") {
-		t.Errorf("model %+v, want %v", m, w)
+	p := out.Profiles[0]
+	if p.Profile != "dev" || p.Base != testBase+"/p/dev" || len(p.Models) != 3 {
+		t.Fatalf("profile = %+v, want dev at %s with 3 models", p, testBase+"/p/dev")
 	}
 }
 

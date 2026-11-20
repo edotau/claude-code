@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"slices"
 	"strings"
 	"time"
@@ -22,8 +21,8 @@ import (
 
 const (
 	modelsFileName = "chatLanguageModels.json"
-	groupPrefix    = "Databricks "                // groups this merge owns; every other provider is the user's
-	proxyKeyRef    = "${input:harnessProxyToken}" // VS Code prompts once and keeps the value in its secret storage
+	groupPrefix    = "Databricks "                // the name prefix of the picker groups
+	proxyKeyRef    = "${input:harnessProxyToken}" // the key reference the retired merge wrote
 	maxOutputCap   = 32_000                       // the output cap current Claude/GPT tiers accept (copilot's too)
 	vendorEndpoint = "customendpoint"
 )
@@ -58,11 +57,10 @@ type endpointGroup struct {
 	Models  []endpointModel `json:"models"`
 }
 
-// modelGroups is what the merge writes: one group per profile, and the profiles whose listing was cold.
+// modelGroups is what --print lists: one group per profile.
 type modelGroups struct {
 	Groups []endpointGroup
-	Cold   []string // their existing group, if any, is kept as is
-	Base   string   // the router base the groups' session URLs hang off
+	Base   string // the router base the groups' session URLs hang off
 }
 
 // routerBase is a seam for tests: the running proxy probe.
@@ -92,15 +90,13 @@ func buildDatabricksGroups(ctx context.Context) (modelGroups, error) {
 		if reg.ServingRow(name) != nil || p.Auth.Login != "" {
 			continue
 		}
-		if !providers.CredentialPresent(p) { // signed out: keep any group an earlier sign-in wrote, say nothing
-			out.Cold = append(out.Cold, name)
+		if !providers.CredentialPresent(p) { // signed out: say nothing
 			continue
 		}
 		snap, ok := serving.RecallCtx(ctx, p)
 		if !ok {
 			fmt.Fprintf(os.Stderr, "claude-code: vscode models: %s has no cached listing, group skipped "+
 				"(claude-code models preflight --discover %s)\n", name, name)
-			out.Cold = append(out.Cold, name)
 			continue
 		}
 		if base == "" {
@@ -154,75 +150,67 @@ func minPositive(a, b int) int {
 	return a
 }
 
-// syncModels merges the Databricks groups into dest, returning "<group> (<n> models)" per group; check never writes.
+// syncModels removes the groups an older merge wrote, returning their names; check never writes.
 func syncModels(dest string, check bool) (mergeResult, []string, error) {
-	mg, err := buildDatabricksGroups(context.Background())
-	if err != nil {
-		return mergeResult{}, nil, fmt.Errorf("models: %w", err)
-	}
-	var summary []string
-	for _, g := range mg.Groups {
-		summary = append(summary, fmt.Sprintf("%s (%d models)", g.Name, len(g.Models)))
-	}
 	if check {
-		result, err := mergeModels(dest, mg, true)
-		return result, summary, err
+		return mergeModels(dest, true)
 	}
 	var result mergeResult
-	err = withLock("vscode-models.lock", dest, func() (mergeErr error) {
-		result, mergeErr = mergeModels(dest, mg, false)
+	var removed []string
+	err := withLock("vscode-models.lock", dest, func() (mergeErr error) {
+		result, removed, mergeErr = mergeModels(dest, false)
 		return mergeErr
 	})
-	return result, summary, err
+	return result, removed, err
 }
 
-func mergeModels(dest string, mg modelGroups, check bool) (mergeResult, error) {
+// mergeModels drops every harness-owned group, keeping each other entry's original text (comments too).
+func mergeModels(dest string, check bool) (mergeResult, []string, error) {
 	var base []json.RawMessage
 	rawBase, err := readBase(dest, "chat models", &base)
 	if err != nil {
-		return mergeResult{}, err
+		return mergeResult{}, nil, err
 	}
-	body, err := mergedModels(rawBase, base, mg)
-	if err != nil {
-		return mergeResult{}, err
-	}
-	if sameJSON(rawBase, body) || (len(rawBase) == 0 && len(base) == 0 && len(mg.Groups) == 0) {
-		return mergeResult{}, nil
-	}
-	if check {
-		return mergeResult{Changed: true}, nil
-	}
-	return writeGuarded(dest, "chat models", rawBase, body)
-}
-
-// ownsGroup is true for a group this merge wrote: the Databricks prefix and the proxy token reference, both.
-func ownsGroup(raw json.RawMessage) (profile string, ours bool) {
-	var head struct{ Name, APIKey string }
-	_ = json.Unmarshal(raw, &head)
-	profile, prefixed := strings.CutPrefix(head.Name, groupPrefix)
-	return profile, prefixed && head.APIKey == proxyKeyRef
-}
-
-// mergedModels keeps each foreign entry's original text (comments too) and a cold group, then appends the groups.
-func mergedModels(rawBase []byte, base []json.RawMessage, mg modelGroups) ([]byte, error) {
 	head, elems, tail := splitArray(rawBase)
 	if len(elems) != len(base) {
-		return nil, fmt.Errorf("chat models: cannot split %d entries in the live file", len(base))
+		return mergeResult{}, nil, fmt.Errorf("chat models: cannot split %d entries in the live file", len(base))
 	}
-	items := make([][]byte, 0, len(base)+len(mg.Groups))
+	var removed []string
+	items := make([][]byte, 0, len(base))
 	for i, raw := range base {
-		if profile, ours := ownsGroup(raw); !ours || slices.Contains(mg.Cold, profile) {
-			items = append(items, bytes.TrimSpace(elems[i]))
+		if name, ours := ownsGroup(raw); ours {
+			removed = append(removed, name)
+			continue
+		}
+		items = append(items, bytes.TrimSpace(elems[i]))
+	}
+	if len(removed) == 0 {
+		return mergeResult{}, nil, nil
+	}
+	if check {
+		return mergeResult{Changed: true}, removed, nil
+	}
+	result, err := writeGuarded(dest, "chat models", rawBase, renderArray(head, items, tail))
+	return result, removed, err
+}
+
+// ownsGroup is true for a group an older merge wrote: the Databricks name, the proxy token reference and loopback URLs.
+func ownsGroup(raw json.RawMessage) (name string, ours bool) {
+	var g struct {
+		Name, APIKey string
+		Models       []struct{ URL string }
+	}
+	_ = json.Unmarshal(raw, &g)
+	profile, prefixed := strings.CutPrefix(g.Name, groupPrefix)
+	if !prefixed || g.APIKey != proxyKeyRef {
+		return "", false
+	}
+	for _, m := range g.Models {
+		if !strings.HasPrefix(m.URL, "http://127.0.0.1:") || !strings.Contains(m.URL, "/p/"+profile+"/") {
+			return "", false
 		}
 	}
-	for _, g := range mg.Groups {
-		b, err := json.MarshalIndent(g, "  ", "  ")
-		if err != nil {
-			return nil, err
-		}
-		items = append(items, b)
-	}
-	return renderArray(head, items, tail), nil
+	return g.Name, true
 }
 
 // renderArray lays items out one per line under head (a header comment) and above tail (comments before the ']').
@@ -349,15 +337,6 @@ func closeEntries(elems [][]byte, last []byte) (_ [][]byte, tail string) {
 		return append(elems, last), ""
 	}
 	return elems, string(bytes.TrimSpace(last))
-}
-
-// sameJSON reports whether raw (JSONC) and body decode to the same value.
-func sameJSON(raw, body []byte) bool {
-	var a, b any
-	if json.Unmarshal(textutil.StripJSONC(raw), &a) != nil || json.Unmarshal(body, &b) != nil {
-		return false
-	}
-	return reflect.DeepEqual(a, b)
 }
 
 // resolveModelsDest mirrors resolveKeybindingsDest: explicit wins, an explicit settings dest keeps its directory.
