@@ -143,6 +143,18 @@ func TestDispatchDryRunSpawnsNoSSH(t *testing.T) {
 	}
 }
 
+func TestDispatchHostAutoResolvesFirstRemoteHost(t *testing.T) {
+	hermeticDispatch(t)
+	emptyPATH(t)
+	t.Setenv("CLAUDE_REMOTE_HOST", "firsthost,second")
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
+		return Cmd([]string{"--host", "auto", "--dry-run", "hi"})
+	})
+	if code != 0 || !regexp.MustCompile(`argv\[\d+\]: --\n\s*argv\[\d+\]: firsthost\n`).MatchString(out) {
+		t.Errorf("auto: code=%d stderr=%q out:\n%s", code, stderr, out)
+	}
+}
+
 func TestDispatchDryRunRejectsBadName(t *testing.T) {
 	hermeticDispatch(t)
 	emptyPATH(t)

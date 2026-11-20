@@ -76,7 +76,11 @@ func Cmd(args []string) int {
 		return code
 	}
 	ctx := context.Background()
-	resolved, err := tailscale.ResolveHost(ctx, f.host)
+	host, err := ResolveAuto(f.host)
+	if err != nil {
+		return helptext.Fail("network remote: %v", err)
+	}
+	resolved, err := tailscale.ResolveHost(ctx, host)
 	if err != nil {
 		return helptext.Fail("network remote: %v", err)
 	}
