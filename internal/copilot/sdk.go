@@ -514,7 +514,7 @@ func sdkAsk(ctx context.Context, o sdkOptions, prompt string, images []string) (
 		}
 	}()
 
-	col := assistantCollector{onLimit: func(id string) { // cancel, or the headless turn waits on a user who is not there
+	col := assistantCollector{log: wire.EventLogFor(ctx), onLimit: func(id string) { // cancel, or the headless turn waits on a user who is not there
 		cancel := rpc.UISessionLimitsExhaustedResponse{Action: rpc.UISessionLimitsExhaustedResponseActionCancel}
 		_, _ = session.RPC.UI.HandlePendingSessionLimitsExhausted(context.WithoutCancel(ctx),
 			&rpc.UIHandlePendingSessionLimitsExhaustedRequest{RequestID: id, Response: cancel})
@@ -545,6 +545,8 @@ type assistantCollector struct {
 	filter  bool
 	limit   *copilot.SessionLimitsExhaustedRequestedData
 	onLimit func(requestID string)
+	// live activity to the dispatch log: the SDK turn streams nothing else, so a working run looked silent
+	log wire.StreamLog
 }
 
 // limitError names the budgetCredits cap when the SDK reported it reached; nil otherwise.
@@ -559,6 +561,7 @@ func (c *assistantCollector) limitError() error {
 }
 
 func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
+	c.logLive(ev)
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	root := ev.AgentID == nil || *ev.AgentID == "" // sub-agent text and model are not the answer; their usage is still billed
@@ -778,5 +781,17 @@ func selectRegistered(ctx context.Context, session *copilot.Session, o sdkOption
 		return fmt.Errorf("%w: select %s: %w", errUnregisteredPick, o.Model, err)
 	default:
 		return fmt.Errorf("select %s: %w", o.Model, err)
+	}
+}
+
+// logLive writes a tool start or root assistant message to the dispatch log.
+func (c *assistantCollector) logLive(ev copilot.SessionEvent) {
+	switch d := ev.Data.(type) {
+	case *copilot.AssistantMessageData:
+		if ev.AgentID == nil || *ev.AgentID == "" {
+			c.log.Emit("assistant", d.Content)
+		}
+	case *copilot.ToolExecutionStartData:
+		c.log.Emit("tool", d.ToolName)
 	}
 }

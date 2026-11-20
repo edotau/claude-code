@@ -832,3 +832,13 @@ func TestLimitsExhaustedNamesBudgetCredits(t *testing.T) {
 		t.Fatalf("cancel must answer the request: %q", id)
 	}
 }
+
+func TestCollectorLogsLiveActivity(t *testing.T) {
+	var got []string
+	c := assistantCollector{log: func(kind, text string) { got = append(got, kind+":"+text) }}
+	c.onEvent(copilot.SessionEvent{Data: &copilot.ToolExecutionStartData{ToolName: "view"}})
+	c.onEvent(copilot.SessionEvent{Data: &copilot.AssistantMessageData{Content: "hi"}})
+	if strings.Join(got, ",") != "tool:view,assistant:hi" {
+		t.Fatalf("live log: %v", got)
+	}
+}
