@@ -138,10 +138,11 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	return r.execute()
 }
 
-// markTyped records a --model typed on this command line; a session's or a record's model is not typed here.
+// markTyped records a --model typed on this command line; auto asks for rotation and pins nothing.
 func markTyped(fs *flag.FlagSet, f *askFlags) {
 	if helptext.Explicit(fs, "model") {
-		f.modelTyped = f.model != ""
+		_, auto := agent.SplitAuto(f.model)
+		f.modelTyped = f.model != "" && !auto
 	}
 }
 

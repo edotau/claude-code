@@ -1,6 +1,7 @@
 package ask
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -404,6 +405,7 @@ func TestMoveOffCutoff(t *testing.T) {
 		{"moves", "", "all", cut("codex", agent.CutoffIdle), false, "claude", "retrying on claude"},
 		{"typed model", "", "all", cut("codex", agent.CutoffIdle), true, "codex", "a typed model"},
 		{"fallback none", "", "none", cut("codex", agent.CutoffDeadline), false, "codex", "--fallback none"},
+		{"model auto typed", "--model=auto", "all", cut("codex", agent.CutoffDeadline), false, "claude", "retrying on claude"},
 		{"claude failed", "", "all", cut("claude", agent.CutoffStall), false, "claude", "claude failed"},
 		{"agent typed", "--agent=codex", "all", cut("codex", agent.CutoffIdle), false, "codex", ""},
 		{"cancelled", "", "all", cut("codex", agent.CutoffCancelled), false, "codex", ""},
@@ -415,7 +417,7 @@ func TestMoveOffCutoff(t *testing.T) {
 				t.Fatal(err)
 			}
 			r := &askRun{ctx: t.Context(), fs: fs, f: f}
-			f.name, f.model, f.fallback, f.modelTyped = tc.rec.Agent, "gpt-x", tc.fallback, tc.typedModel
+			f.name, f.model, f.fallback, f.modelTyped = tc.rec.Agent, cmp.Or(f.model, "gpt-x"), tc.fallback, tc.typedModel
 			var note strings.Builder
 			moveOffCutoff(fs, r.askState(), tc.rec, &note, "")
 			if f.name != tc.wantAgent || (tc.wantNote == "") != (note.Len() == 0) || !strings.Contains(note.String(), tc.wantNote) {
@@ -471,5 +473,19 @@ func TestGuardResubmit(t *testing.T) {
 				t.Fatalf("agent %q note %q, want %q containing %q", f.name, note.String(), tc.wantAgent, tc.wantNote)
 			}
 		})
+	}
+}
+
+// --model auto asks for rotation and pins nothing, so a cut-off retry of it moves; a real id stays typed.
+func TestMarkTypedAutoIsNoPin(t *testing.T) {
+	for model, want := range map[string]bool{"auto": false, "dev:auto": false, "opus": true, "databricks-gpt-6-astra": true} {
+		fs, f := askFlagSet()
+		if err := fs.Parse([]string{"--model", model}); err != nil {
+			t.Fatal(err)
+		}
+		markTyped(fs, f)
+		if f.modelTyped != want {
+			t.Fatalf("--model %s typed = %v, want %v", model, f.modelTyped, want)
+		}
 	}
 }

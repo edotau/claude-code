@@ -489,7 +489,8 @@ func moveOffCutoff(fs *flag.FlagSet, s *askState, rec agent.Record, errw io.Writ
 	if !rec.CutOff() || (ago == "" && helptext.Explicit(fs, "agent")) { // a resubmit always types --agent
 		return
 	}
-	typed, none := *s.modelTyped || helptext.Explicit(fs, "model"), *s.Fallback == router.FallbackNone
+	_, auto := agent.SplitAuto(*s.Model) // typed auto asks for rotation, not a pin
+	typed, none := *s.modelTyped || helptext.Explicit(fs, "model") && !auto, *s.Fallback == router.FallbackNone
 	id := rec.ID + ago
 	if why := keepReason(typed, none, ran); why != "" {
 		fmt.Fprintf(errw, "ask: %s cut off (%s) on %s; this retry keeps it (%s)\n", id, rec.Cutoff, ran, why)
