@@ -1,7 +1,9 @@
 package textutil
 
 import (
+	"context"
 	"math"
+	"math/rand/v2"
 	"net"
 	"net/http"
 	"net/netip"
@@ -24,6 +26,38 @@ func ParseRetryAfter(v string, now time.Time) (time.Duration, bool) {
 		return at.Sub(now), true
 	}
 	return 0, false
+}
+
+const (
+	backoffCap    = 4 * time.Second
+	retryAfterCap = 8 * time.Second // two waits at this cap keep a 3-attempt retry under ~16s
+)
+
+// RetrySleep waits d or until ctx ends; a var so tests see the wait without sleeping.
+var RetrySleep = func(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-t.C:
+		return nil
+	}
+}
+
+// RetryDelay is the wait before retry number attempt (1-based): full-jitter exponential from base, never under Retry-After.
+func RetryDelay(attempt int, base time.Duration, retryAfter string, now time.Time) time.Duration {
+	backoff := min(base<<min(max(attempt-1, 0), 20), backoffCap)
+	wait := time.Duration(rand.Int64N(int64(max(backoff, 0)) + 1))
+	if d, ok := ParseRetryAfter(retryAfter, now); ok {
+		wait = max(wait, min(d, retryAfterCap))
+	}
+	return wait
+}
+
+// WaitRetry sleeps RetryDelay on ctx and returns the context error if it ends first.
+func WaitRetry(ctx context.Context, attempt int, base time.Duration, retryAfter string) error {
+	return RetrySleep(ctx, RetryDelay(attempt, base, retryAfter, time.Now()))
 }
 
 // IsLoopbackHost accepts localhost case-insensitively and loopback IPs with optional brackets.

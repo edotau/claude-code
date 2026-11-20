@@ -24,6 +24,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest" // tests refuse real DNS: mock API calls
 	_ "github.com/edotau/claude-code/internal/nonet"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // Close closes every listener; production closes them through the callback server.
@@ -839,4 +840,76 @@ func mustQuery(t *testing.T, raw string) url.Values {
 		t.Fatal(err)
 	}
 	return u.Query()
+}
+
+// recordWaits swaps the retry sleep for a recorder so no test waits for real.
+func recordWaits(t *testing.T) *[]time.Duration {
+	var waits []time.Duration
+	orig := textutil.RetrySleep
+	textutil.RetrySleep = func(_ context.Context, d time.Duration) error { waits = append(waits, d); return nil }
+	t.Cleanup(func() { textutil.RetrySleep = orig })
+	return &waits
+}
+
+func TestPostTokenWaitsOutRetryAfter(t *testing.T) {
+	waits := recordWaits(t)
+	var n atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if n.Add(1) == 1 {
+			w.Header().Set("Retry-After", "2")
+			w.WriteHeader(http.StatusTooManyRequests)
+			return
+		}
+		tokenJSON(w, "ok", "")
+	}))
+	defer srv.Close()
+	if _, err := MintM2M(context.Background(), srv.URL, "id", "s"); err != nil || n.Load() != 2 {
+		t.Fatalf("err=%v posts=%d", err, n.Load())
+	}
+	if len(*waits) != 1 || (*waits)[0] < 2*time.Second {
+		t.Fatalf("waits = %v, want one wait >= 2s", *waits)
+	}
+}
+
+func TestPostTokenNoRetryOnInvalidGrant(t *testing.T) {
+	waits := recordWaits(t)
+	var n atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n.Add(1)
+		w.WriteHeader(http.StatusBadRequest)
+		io.WriteString(w, `{"error":"invalid_grant"}`)
+	}))
+	defer srv.Close()
+	if _, err := RefreshU2M(context.Background(), srv.URL, "r"); !IsLoginRequired(err) || n.Load() != 1 || len(*waits) != 0 {
+		t.Fatalf("err=%v posts=%d waits=%v", err, n.Load(), *waits)
+	}
+}
+
+func TestPostTokenCancelDuringWaitReturnsContextError(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	orig := textutil.RetrySleep
+	textutil.RetrySleep = func(ctx context.Context, d time.Duration) error { cancel(); return ctx.Err() }
+	t.Cleanup(func() { textutil.RetrySleep = orig })
+	var n atomic.Int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n.Add(1)
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	if _, err := MintM2M(ctx, srv.URL, "id", "s"); !errors.Is(err, context.Canceled) || n.Load() != 1 {
+		t.Fatalf("err=%v posts=%d", err, n.Load())
+	}
+}
+
+func TestPostTokenCapsHostileRetryAfter(t *testing.T) {
+	waits := recordWaits(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Retry-After", "999999")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer srv.Close()
+	MintM2M(context.Background(), srv.URL, "id", "s")
+	if len(*waits) != 2 || (*waits)[0] > 8*time.Second || (*waits)[1] > 8*time.Second {
+		t.Fatalf("waits = %v, want 2 waits <= 8s", *waits)
+	}
 }

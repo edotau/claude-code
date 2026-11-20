@@ -10,7 +10,9 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -332,5 +334,29 @@ func TestDecodeServingEndpointsKeepsFoundationModelFacts(t *testing.T) {
 	}
 	if e := got[1]; e.apiTypes != nil || e.context != 0 {
 		t.Errorf("entry without config = %+v, want unknown", e)
+	}
+}
+
+func TestLiveModelsRetriesThrottledListing(t *testing.T) {
+	var waits []time.Duration
+	orig := textutil.RetrySleep
+	textutil.RetrySleep = func(_ context.Context, d time.Duration) error { waits = append(waits, d); return nil }
+	t.Cleanup(func() { textutil.RetrySleep = orig })
+	var n int
+	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if n++; n == 1 {
+			w.Header().Set("Retry-After", "2")
+			writeJSON(w, 429, `{}`)
+			return
+		}
+		writeJSON(w, 200, dbxServingBody)
+	}))
+	t.Cleanup(srv.Close)
+	trustTestTLS(t, srv)
+	if _, err := LiveModels(context.Background(), liveDbxProvider(t, srv.URL, "tok-abc123")); err != nil || n != 2 {
+		t.Fatalf("err=%v hits=%d", err, n)
+	}
+	if len(waits) != 1 || waits[0] < 2*time.Second {
+		t.Fatalf("waits = %v", waits)
 	}
 }

@@ -81,8 +81,7 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 	if anthropicDialect {
 		hdr.Set("anthropic-version", "2023-06-01")
 	}
-	status, body, _, readErr := httpx.Do(ctx, httpx.Call{Client: httpClient(), URL: url, Header: hdr, Limit: 8 << 20, NoRedirect: true,
-		Authorize: func(h http.Header) error { return authorizeCatalog(ctx, p, h) }})
+	status, body, readErr := getCatalog(ctx, p, url, hdr)
 	if status == 0 {
 		return nil, readErr
 	}
@@ -97,6 +96,23 @@ func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error
 		return decodeServingEndpoints(url, body)
 	}
 	return decodeModelsList(url, body)
+}
+
+const catalogAttempts = 3
+
+// getCatalog GETs the catalog, retrying 429/502/503/504 (an idempotent GET) with Retry-After-aware backoff.
+func getCatalog(ctx context.Context, p *Provider, url string, hdr http.Header) (status int, body []byte, err error) {
+	for attempt := 1; ; attempt++ {
+		var rh http.Header
+		status, body, rh, err = httpx.Do(ctx, httpx.Call{Client: httpClient(), URL: url, Header: hdr, Limit: 8 << 20, NoRedirect: true,
+			Authorize: func(h http.Header) error { return authorizeCatalog(ctx, p, h) }})
+		if !slices.Contains([]int{429, 502, 503, 504}, status) || attempt == catalogAttempts {
+			return status, body, err
+		}
+		if werr := textutil.WaitRetry(ctx, attempt, 500*time.Millisecond, rh.Get("Retry-After")); werr != nil {
+			return 0, nil, werr
+		}
+	}
 }
 
 // catalogURL picks the model-listing URL for p and whether it speaks the Anthropic dialect.

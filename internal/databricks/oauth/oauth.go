@@ -33,7 +33,7 @@ import (
 // clientID is the public OAuth client id of the Databricks CLI (an identifier, not a secret).
 const clientID = "databricks-cli"
 
-// RetryBackoff is the token-endpoint retry step (attempt × step); a var so tests can shorten it.
+// RetryBackoff is the token-endpoint retry base (doubles per attempt, jittered); a var so tests can shorten it.
 var RetryBackoff = 500 * time.Millisecond
 
 const (
@@ -54,6 +54,7 @@ type Token struct {
 type oauthError struct {
 	Host, Op, Code, Desc string
 	Body                 string // a clipped non-JSON reply, for diagnostics
+	RetryAfter           string // the Retry-After header, raw
 	Status               int
 }
 
@@ -167,7 +168,7 @@ func WithoutRetry(ctx context.Context) context.Context {
 
 func noRetry(ctx context.Context) bool { v, _ := ctx.Value(noRetryKey{}).(bool); return v }
 
-// postToken sends the grant, retrying transient failures up to maxAttempts with an attempt × RetryBackoff pause.
+// postToken sends the grant, retrying transient failures up to maxAttempts, honouring Retry-After (worst case ~16s waiting).
 func postToken(ctx context.Context, r tokenRequest) (tokenReply, error) {
 	var (
 		reply  tokenReply
@@ -180,10 +181,12 @@ func postToken(ctx context.Context, r tokenRequest) (tokenReply, error) {
 		if err == nil || !r.retryable(status, sent) || attempt == maxAttempts || noRetry(ctx) {
 			return reply, err
 		}
-		select {
-		case <-ctx.Done():
-			return reply, err
-		case <-time.After(time.Duration(attempt) * RetryBackoff):
+		var retryAfter string
+		if oe, ok := errors.AsType[*oauthError](err); ok {
+			retryAfter = oe.RetryAfter
+		}
+		if werr := textutil.WaitRetry(ctx, attempt, RetryBackoff, retryAfter); werr != nil {
+			return reply, werr
 		}
 	}
 }
@@ -225,7 +228,7 @@ func doPost(ctx context.Context, r tokenRequest) (reply tokenReply, status int, 
 			Error       string `json:"error"`
 			Description string `json:"error_description"`
 		}
-		oe := &oauthError{Host: r.host, Op: r.op, Status: resp.StatusCode}
+		oe := &oauthError{Host: r.host, Op: r.op, Status: resp.StatusCode, RetryAfter: resp.Header.Get("Retry-After")}
 		if json.Unmarshal(raw, &e) == nil {
 			oe.Code, oe.Desc = e.Error, e.Description
 		} else {

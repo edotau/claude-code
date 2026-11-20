@@ -129,7 +129,7 @@ func checkFailedRefreshKeepsCache(t *testing.T, p *providers.Provider, f *discov
 	if err != nil {
 		t.Fatal(err)
 	}
-	f.listCode.Store(503)
+	f.listCode.Store(500)
 	if _, err := Discover(context.Background(), p, true); err == nil || strings.Contains(err.Error(), "encrypted-sentinel") {
 		t.Fatalf("failed refresh must fail without leaking body: %v", err)
 	}
