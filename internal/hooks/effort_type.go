@@ -76,7 +76,7 @@ func (e *effortPlan) retype(in *core.Input, to string) {
 	e.updated["subagent_type"] = to
 	e.changed = true
 	e.systemMessage = fmt.Sprintf("dispatch-effort: subagent_type %q rewritten to %q.", from, to)
-	e.fix(e.decision(e.systemMessage))
+	e.fix(e.systemMessage)
 }
 
 // coworkerTarget is the one allowed roster agent a coworker type wraps; "" when ambiguous or not a coworker type.

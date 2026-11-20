@@ -5,10 +5,11 @@ import (
 	"encoding/json"
 	"maps"
 	"os"
-	"strings"
+	"strconv"
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/inflight"
 )
 
 // The spawn mod's two payload calls ride the dispatch-effort command: top-level `harness_spawn` of "ready" or "query".
@@ -17,7 +18,6 @@ const (
 	spawnReady = "ready"
 	spawnQuery = "query"
 	readyKind  = "hooks/spawn-mod-ready"
-	readyKey   = "ready"
 	readyAge   = 7 * 24 * time.Hour
 )
 
@@ -26,7 +26,7 @@ type spawnMode uint8
 
 const (
 	modeToday    spawnMode = iota // updatedInput, as the hook always did
-	modeDeferred                  // the session's spawn mod applies them: notes only
+	modeDeferred                  // the session's spawn mod applies them: denials, retype and recall only
 	modeQuery                     // the mod's spawn-time ask: no recall, no stamps
 )
 
@@ -41,13 +41,18 @@ func EffortSpawn(in *core.Input) core.Result {
 	return Effort(in)
 }
 
+// readyOwner is the marker key: the agent process, so a resumed session in a new process never matches.
+func readyOwner() string {
+	return strconv.Itoa(inflight.SessionOwner())
+}
+
 // markReady records that session's spawn mod is loaded (a refreshed mtime keeps a long session's marker alive).
 func markReady(session string) core.Result {
 	res := core.Result{Stdout: "{}"}
-	if session == "" {
+	if session == "" || readyOwner() == "0" {
 		return res
 	}
-	if first, err := core.SeenAdd(readyKind, session, readyKey); err != nil {
+	if first, err := core.SeenAdd(readyKind, session, readyOwner()); err != nil {
 		res.Stderr = "dispatch-effort: spawn marker not written: " + err.Error()
 	} else if !first {
 		now := time.Now()
@@ -58,7 +63,7 @@ func markReady(session string) core.Result {
 	return res
 }
 
-// modeFor is deferred when the call's session has a marker younger than readyAge, else today's.
+// modeFor is deferred when this process's mod marked the session within readyAge, else today's.
 func modeFor(in *core.Input) spawnMode {
 	if in.SessionID == "" {
 		return modeToday
@@ -67,29 +72,21 @@ func modeFor(in *core.Input) spawnMode {
 	if err != nil || time.Since(st.ModTime()) > readyAge {
 		return modeToday
 	}
-	return modeDeferred
-}
-
-// decision tags a decision note as applied at spawn when the mod will apply it; else the note as is.
-func (e *effortPlan) decision(note string) string {
-	if e.mode != modeDeferred {
-		return note
+	if seen, _ := core.SeenHas(readyKind, in.SessionID, readyOwner()); !seen {
+		return modeToday
 	}
-	return strings.Replace(note, "dispatch-effort:", "dispatch-effort (applied at spawn):", 1)
+	return modeDeferred
 }
 
 // spawnFields maps the Agent input keys the mod's agent.spawn event can rewrite to its field names.
 var spawnFields = [][2]string{{"description", "description"}, {"prompt", "prompt"}, {"subagent_type", "subagentType"}, {"model", "model"}}
 
-// spawnAnswer is the one JSON object for the mod: only the fields the decisions change, plus notes; `{}` for none.
+// spawnAnswer is the one JSON object for the mod: only the fields the decisions change; `{}` for none.
 func spawnAnswer(in *core.Input) core.Result {
 	res := effortFor(context.Background(), in, modeQuery)
 	out := map[string]any{}
 	if res.Decision == core.Allow {
 		maps.Copy(out, changedFields(in.ToolInput(), res.UpdatedInput))
-		if notes := spawnNotes(in, res); len(notes) > 0 {
-			out["notes"] = notes
-		}
 	}
 	raw, err := json.Marshal(out)
 	if err != nil {
@@ -107,18 +104,4 @@ func changedFields(orig, updated map[string]any) map[string]any {
 		}
 	}
 	return out
-}
-
-// spawnNotes is the hook's note lines, plus a line for an effort fill the spawn event has no field for.
-func spawnNotes(in *core.Input, res core.Result) []string {
-	var notes []string
-	for l := range strings.SplitSeq(res.Context, "\n") {
-		if l = strings.TrimSpace(l); l != "" {
-			notes = append(notes, l)
-		}
-	}
-	if e, _ := res.UpdatedInput["effort"].(string); e != "" && e != in.Nested("tool_input", "effort") {
-		notes = append(notes, "dispatch-effort: effort "+e+" not applied: no spawn field")
-	}
-	return notes
 }

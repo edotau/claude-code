@@ -75,9 +75,11 @@ func plainCommand(command string, words []string) bool {
 }
 
 func (e *effortPlan) fixRunLine(field, task string) string {
+	if e.mode == modeDeferred { // the mod's query makes the fix at spawn
+		return task
+	}
 	fixed, note := fixRunLine(task)
 	if fixed != task {
-		note = e.decision(note)
 		e.updated[field], e.changed = fixed, true
 	}
 	e.fix(note)

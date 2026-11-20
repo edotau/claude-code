@@ -15,6 +15,7 @@ function world(on: On, reply: Reply) {
   on('session.start', async (_$, e) => ({ cwd: e.cwd }))
   on('env.get', async () => ({ value: '/h' }))
   on('session.id', async () => ({ value: 'S1' }))
+  on('session.info', async () => ({ value: { transcriptPath: '/t.jsonl' } as never }))
   on('process.run', async (_$, e) => {
     runs.push({ argv: e.argv, stdin: String(e.init?.stdin) })
     return { value: { ...reply, stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
@@ -40,6 +41,7 @@ describe('dispatch-spawn', () => {
     const { runs, spawned } = world(on, { exitCode: 0, stdout: answer })
     await $.agent.spawn(SPAWN)
     expect(JSON.parse(runs[0]!.stdin).harness_spawn).toBe('query')
+    expect(JSON.parse(runs[0]!.stdin).transcript_path).toBe('/t.jsonl')
     expect(spawned[0]).toMatchObject({ description: 'opus: new', model: 'opus', prompt: 'p' })
   })
 

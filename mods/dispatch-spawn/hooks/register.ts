@@ -47,6 +47,7 @@ const ask = async ($: EngineInterface, home: string, e: Parameters<typeof toolIn
   const payload = {
     harness_spawn: 'query',
     session_id: await $.session.id(),
+    transcript_path: (await $.session.info()).transcriptPath,
     permission_mode: e.permissionMode,
     tool_name: 'Agent',
     tool_input: toolInput(e),

@@ -57,9 +57,8 @@ func TestSpawnMarkerMovesRewritesToNotes(t *testing.T) {
 		t.Fatalf("ready stdout = %q, want {}", r.Stdout)
 	}
 	r := smRun(smPayload("", "s-ready"))
-	if r.UpdatedInput != nil || r.SystemMessage != "" || !strings.Contains(r.Context, "applied at spawn") ||
-		!strings.Contains(r.Context, `rewritten to "haiku: "`) || !strings.Contains(r.Context, "model=haiku") {
-		t.Fatalf("marked PreToolUse = %+v, want notes only", r)
+	if r.UpdatedInput != nil || r.SystemMessage != "" || strings.Contains(r.Context, "model=haiku") {
+		t.Fatalf("marked PreToolUse = %+v, want no pin or label (the mod's query makes them)", r)
 	}
 	if r2 := smRun(smPayload("", "s-other")); r2.UpdatedInput == nil {
 		t.Fatalf("another session = %+v, want today's updatedInput", r2)
@@ -75,10 +74,6 @@ func TestSpawnQueryAnswersChangedFieldsOnly(t *testing.T) {
 	}
 	if got["description"] != "haiku: fix typo" || got["model"] != "haiku" || got["prompt"] != nil || got["subagentType"] != nil {
 		t.Fatalf("query = %v, want description and model only", got)
-	}
-	notes, _ := got["notes"].([]any)
-	if len(notes) == 0 || !strings.Contains(notes[len(notes)-1].(string), "effort low not applied: no spawn field") {
-		t.Fatalf("notes = %v, want the effort line last", notes)
 	}
 }
 
@@ -138,8 +133,5 @@ func TestSpawnMarkerKeepsCoworkerRetype(t *testing.T) {
 	marked, today := call("s-co"), call("s-co-none")
 	if marked.UpdatedInput["subagent_type"] != "claude" || marked.UpdatedInput["subagent_type"] != today.UpdatedInput["subagent_type"] {
 		t.Fatalf("marked = %+v, today = %+v, want updatedInput retyped to claude", marked, today)
-	}
-	if strings.Contains(marked.Context, "applied at spawn") {
-		t.Fatalf("notes = %q, want no 'applied at spawn' for the retype", marked.Context)
 	}
 }

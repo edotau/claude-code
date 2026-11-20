@@ -121,10 +121,11 @@ not data. Blocks name the allowed route and the owner's `!`; `claude-code doctor
 
 **`dispatch-effort` and a spawn mod.** A mod that rewrites at `agent.spawn` calls `hook PreToolUse --dispatch-effort`
 with a top-level `harness_spawn` in the payload: `"ready"` plus `session_id` writes the session's marker
-(`state/harness/hooks/spawn-mod-ready/<session>`, ignored after 7 days) and prints `{}`; `"query"` plus the Agent
-fields prints one object of the changed `description`, `prompt`, `subagentType`, `model` and `notes`, claiming and
-stamping nothing (no recall). With the marker, PreToolUse emits no `updatedInput`: each decision is a note, recall too;
-denials are unchanged, and a `coworker:<agent>` retype stays a hook `updatedInput` (the host validates the type
+(`state/harness/hooks/spawn-mod-ready/<session>`, keyed to the session's process, ignored after 7 days) and prints
+`{}`; `"query"` plus the Agent fields and `transcript_path` prints one object of the changed `description`, `prompt`,
+`subagentType` and `model`, claiming and stamping nothing (no recall). With the marker, PreToolUse skips the pin, label
+and `Run:` fixes (the mod's query computes them once) and emits only the recall note; denials are unchanged, and a
+`coworker:<agent>` retype stays a hook `updatedInput` (the host validates the type
 before `agent.spawn`). The mod is `mods/dispatch-spawn` (`claude plugin test mods/dispatch-spawn`), loaded with
 `slash-usage` by `CLAUDE_CODE_PLUGIN_DIRS` (`internal/settings/template.json`; `doctor` row `mods` flags a
 settings.json without it); without it (other CLIs, `claude -p`) no marker exists and the hook rewrites as before.

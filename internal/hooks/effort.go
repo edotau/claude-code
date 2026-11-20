@@ -105,9 +105,12 @@ func effortFor(ctx context.Context, in *core.Input, mode spawnMode) core.Result 
 func (e *effortPlan) finish(ctx context.Context, in *core.Input, promptField, task string, direct bool) core.Result {
 	st := in.Nested("tool_input", "subagent_type")
 	recallNote := e.recallStep(ctx, in, promptField, task, true)
+	if e.mode == modeDeferred {
+		return core.Result{Context: recallNote}
+	}
 	if !direct && !fixedModelTypes[st] {
 		pinNote, pinMsg := pinModel(e.run, in, e.updated, task)
-		e.fix(e.decision(pinNote))
+		e.fix(pinNote)
 		e.systemMessage = strings.TrimSpace(e.systemMessage + " " + pinMsg)
 		e.changed = e.changed || pinNote != ""
 	}
@@ -164,7 +167,7 @@ func (e *effortPlan) recallStep(ctx context.Context, in *core.Input, promptField
 	if e.mode == modeQuery {
 		return ""
 	}
-	return e.recall(ctx, in, promptField, task, asNote || e.mode == modeDeferred)
+	return e.recall(ctx, in, promptField, task, asNote)
 }
 
 // recall appends the memory-recall block to the prompt, or returns it as a note (direct ask run or auto mode).
@@ -252,9 +255,6 @@ func freshPointers(session, block string) string {
 func (e *effortPlan) label(ctx context.Context, task string) {
 	changed, note := applyLabel(ctx, e.run, e.updated, task)
 	e.changed = changed || e.changed
-	if i := strings.LastIndex(note, "\n") + 1; changed {
-		note = note[:i] + e.decision(note[i:]) // the last line is the rewrite itself
-	}
 	e.fix(note)
 }
 
@@ -267,8 +267,6 @@ func (e *effortPlan) fix(note string) {
 
 func (e *effortPlan) result() core.Result {
 	switch {
-	case e.mode == modeDeferred:
-		return core.Result{Context: e.note}
 	case e.changed:
 		return core.Result{UpdatedInput: e.updated, Context: e.note, SystemMessage: e.systemMessage}
 	case e.note != "":
