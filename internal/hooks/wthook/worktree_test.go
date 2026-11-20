@@ -40,7 +40,7 @@ func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	scan := worktree.ProcessScan
 	worktreetest.StubProcessScanForTest(scan.In, scan.Up, scan.Procs, scan.Agents)
-	PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
+	worktree.PeerScan = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
 	core.HookMargin = -testHookBudget // every hook runs under a budget no busy machine exhausts
 	code := m.Run()
 	hosttest.Cleanup()
@@ -249,9 +249,9 @@ func TestWorktreeBusyMode(t *testing.T) {
 		t.Fatal(err)
 	}
 	peers := []worktree.Proc{{PID: 4242, Comm: "claude"}}
-	old := PeerAgents
-	PeerAgents = func(string, []string) ([]worktree.Proc, error) { return peers, nil }
-	defer func() { PeerAgents = old }()
+	old := worktree.PeerScan
+	worktree.PeerScan = func(string, []string) ([]worktree.Proc, error) { return peers, nil }
+	defer func() { worktree.PeerScan = old }()
 	busyScanTTL = 0 // every prompt scans
 	t.Cleanup(func() { busyScanTTL = time.Minute })
 	in := &core.Input{SessionID: "s1", CWD: cwd}
@@ -287,11 +287,11 @@ func TestWorktreeBusyStateFileIs0600(t *testing.T) {
 	if err := exec.Command("git", "-C", cwd, "init", "-q").Run(); err != nil {
 		t.Fatal(err)
 	}
-	old := PeerAgents
-	PeerAgents = func(string, []string) ([]worktree.Proc, error) {
+	old := worktree.PeerScan
+	worktree.PeerScan = func(string, []string) ([]worktree.Proc, error) {
 		return []worktree.Proc{{PID: 4242, Comm: "claude"}}, nil
 	}
-	defer func() { PeerAgents = old }()
+	defer func() { worktree.PeerScan = old }()
 	Busy(&core.Input{SessionID: "s1", CWD: cwd})
 	files, _ := filepath.Glob(filepath.Join(paths.StateDir(), "worktree-busy", "*"))
 	if len(files) != 1 {
@@ -306,62 +306,6 @@ func TestWorktreeBusyStateFileIs0600(t *testing.T) {
 	}
 }
 
-// TestCheckoutOfPassesOnlyNestedWorktrees: a nested worktree never skips the main tree, which holds all its peers.
-func TestCheckoutOfPassesOnlyNestedWorktrees(t *testing.T) {
-	main := paths.Real(hosttest.Repo(t))
-	nested := filepath.Join(main, ".wt", "x")
-	hosttest.In(t, main, "worktree", "add", "-q", "-b", "x", nested)
-	ctx, cancel := core.HookContext("worktree-busy")
-	defer cancel()
-	if top, _, skip := CheckoutOf(ctx, nested); top != nested || len(skip) != 0 {
-		t.Fatalf("from the nested worktree: top %q, skip %v; want top %q and no skip dirs", top, skip, nested)
-	}
-	if top, branch, skip := CheckoutOf(ctx, main); top != main || branch == "" || len(skip) != 1 || skip[0] != nested {
-		t.Fatalf("from the main tree: top %q, branch %q, skip %v; want top %q, a branch and skip [%s]", top, branch, skip, main, nested)
-	}
-}
-
-func TestCheckoutOfReadsMetadataWithoutGit(t *testing.T) {
-	repo := paths.Real(hosttest.Repo(t))
-	nested := filepath.Join(repo, "nested")
-	hosttest.In(t, repo, "worktree", "add", "-q", "-b", "topic", nested)
-	head := strings.TrimSpace(hosttest.In(t, repo, "rev-parse", "HEAD"))
-	hosttest.In(t, repo, "pack-refs", "--all", "--prune")
-	t.Setenv("PATH", t.TempDir())
-	for _, tc := range []struct {
-		name, head, branch string
-	}{
-		{"packed", "ref: refs/heads/main\n", "main"},
-		{"loose", "ref: refs/heads/main\n", "main"},
-		{"detached", head + "\n", "HEAD"},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			if tc.name == "loose" {
-				hosttest.WriteRel(t, repo, ".git/refs/heads/main", head+"\n")
-			}
-			hosttest.WriteRel(t, repo, ".git/HEAD", tc.head)
-			top, branch, skip := CheckoutOf(context.Background(), repo)
-			if top != repo || branch != tc.branch || len(skip) != 1 || skip[0] != nested {
-				t.Fatalf("top %q, branch %q, skip %v; want %q, %q, [%s] without Git", top, branch, skip,
-					repo, tc.branch, nested)
-			}
-		})
-	}
-}
-
-// TestCheckoutOfKeepsTopWhenGitFails: both git calls failing leaves the top and yields no branch and no nested dirs.
-func TestCheckoutOfKeepsTopWhenGitFails(t *testing.T) {
-	dir := paths.Real(t.TempDir())
-	if err := os.WriteFile(filepath.Join(dir, ".git"), []byte("gitdir: "+filepath.Join(dir, "missing")+"\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	ctx, cancel := core.HookContext("worktree-busy")
-	defer cancel()
-	if top, branch, nested := CheckoutOf(ctx, dir); top != dir || branch != "" || len(nested) != 0 {
-		t.Fatalf("top %q, branch %q, nested %v; want top %q and nothing else", top, branch, nested, dir)
-	}
-}
-
 // TestBusyLineAbandonsHungScan: a process scan that never returns must not outlive the hook deadline.
 func TestBusyLineAbandonsHungScan(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
@@ -370,9 +314,9 @@ func TestBusyLineAbandonsHungScan(t *testing.T) {
 		t.Fatal(err)
 	}
 	release := make(chan struct{})
-	old := PeerAgents
-	PeerAgents = func(string, []string) ([]worktree.Proc, error) { <-release; return nil, nil }
-	t.Cleanup(func() { close(release); PeerAgents = old })
+	old := worktree.PeerScan
+	worktree.PeerScan = func(string, []string) ([]worktree.Proc, error) { <-release; return nil, nil }
+	t.Cleanup(func() { close(release); worktree.PeerScan = old })
 	ctx, cancel := context.WithTimeout(context.Background(), 200*time.Millisecond)
 	defer cancel()
 	done := make(chan string, 1)
@@ -462,11 +406,11 @@ func divergedClone(t *testing.T) string {
 	hosttest.In(t, work, "add", ".")
 	hosttest.In(t, work, "commit", "-qm", "local")
 	hosttest.In(t, work, "fetch", "-q")
-	orig := PeerAgents
-	PeerAgents = func(string, []string) ([]worktree.Proc, error) {
+	orig := worktree.PeerScan
+	worktree.PeerScan = func(string, []string) ([]worktree.Proc, error) {
 		return []worktree.Proc{{PID: 4242, Comm: "claude"}}, nil
 	}
-	t.Cleanup(func() { PeerAgents = orig })
+	t.Cleanup(func() { worktree.PeerScan = orig })
 	return work
 }
 
@@ -510,8 +454,8 @@ func TestDivergenceInfraErrorWarnsAndAllows(t *testing.T) {
 func TestBusyScansPeersOnce(t *testing.T) {
 	work := divergedClone(t)
 	t.Setenv(worktreeModeEnv, "")
-	scans, stub := 0, PeerAgents
-	PeerAgents = func(top string, nested []string) ([]worktree.Proc, error) { scans++; return stub(top, nested) }
+	scans, stub := 0, worktree.PeerScan
+	worktree.PeerScan = func(top string, nested []string) ([]worktree.Proc, error) { scans++; return stub(top, nested) }
 	got := Busy(&core.Input{SessionID: "sB", CWD: work})
 	if scans != 1 || !strings.Contains(got.Context, "claude pid 4242") || !strings.Contains(got.Context, "diverged") {
 		t.Fatalf("scans = %d, context %q; want one scan feeding both the busy and the divergence line", scans, got.Context)
@@ -525,14 +469,14 @@ func TestBusyReportsScanAndStateErrors(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			t.Setenv(worktreeModeEnv, "")
 			cwd := hosttest.Repo(t)
-			orig := PeerAgents
-			PeerAgents = func(string, []string) ([]worktree.Proc, error) {
+			orig := worktree.PeerScan
+			worktree.PeerScan = func(string, []string) ([]worktree.Proc, error) {
 				if failure == "scan peers" {
 					return nil, errors.New("scan unavailable")
 				}
 				return []worktree.Proc{{PID: 4242, Comm: "claude"}}, nil
 			}
-			t.Cleanup(func() { PeerAgents = orig })
+			t.Cleanup(func() { worktree.PeerScan = orig })
 			if failure == "write peer state" { // a directory where the state file goes fails the atomic rename
 				if err := os.MkdirAll(filepath.Join(paths.StateDir(), "worktree-busy", "s1"), 0o700); err != nil {
 					t.Fatal(err)

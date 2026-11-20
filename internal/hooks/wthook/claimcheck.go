@@ -45,7 +45,7 @@ func stageText(cmd string) bool { return gitStageCmd.MatchString(cmd) || verbTex
 func liveClaims(in *core.Input) (map[string][]worktree.ClaimHit, error) {
 	return worktree.LiveClaims(worktree.ClaimSource{Alive: claimAlive, Self: sessionSlug(in.SessionID), Owner: claimOwner,
 		Leaf: siblingLeaf(in), Dispatch: hookDispatch(in), Label: func(pid int) string {
-			return SessionLabel(worktree.Proc{PID: pid, Comm: cmp.Or(proc.Comm(pid), "claude")})
+			return worktree.SessionLabel(worktree.Proc{PID: pid, Comm: cmp.Or(proc.Comm(pid), "claude")})
 		}})
 }
 
