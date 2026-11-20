@@ -81,7 +81,26 @@ test('a 401 fetches one new token and retries once; no token reaches the log', a
   assert.equal(parts[0].value, 'ok');
   assert.equal(fetches.length, 2);
   assert.equal(runs.filter((r) => r.startsWith('resolve')).length, 2, 'one token, one renewal');
+  assert.deepEqual(runs.filter((r) => r.startsWith('resolve')).map((r) => r.endsWith('--refresh')), [false, true], 'only the renewal forces a new token');
   assert.equal(fetches[0].init.headers.Authorization, `Bearer ${SECRET}0`);
   assert.equal(fetches[1].init.headers.Authorization, `Bearer ${SECRET}1`);
+  assert.ok(logs.length > 0 && !logs.join('\n').includes('cct_'), 'log holds byte counts only');
+});
+
+const ask = (provider) => chat(provider, [{ role: 1, content: [new vscode.LanguageModelTextPart('x')] }]);
+
+test('two concurrent 401s share one refresh', async () => {
+  const { provider, runs } = setup([{ status: 401, ok: false }, { status: 401, ok: false }, sse(delta({ content: 'a' }, 'stop')), sse(delta({ content: 'b' }, 'stop'))]);
+  await provider.provideLanguageModelChatInformation();
+  await provider.tokens.get('dev');
+  await Promise.all([ask(provider), ask(provider)]);
+  assert.equal(runs.filter((r) => r.endsWith('--refresh')).length, 1, 'one refresh for both callers');
+});
+
+test('a second 401 after the refresh surfaces the proxy error and logs no token', async () => {
+  const text = async () => 'invalid session token';
+  const { provider, runs, logs } = setup([{ status: 401, ok: false }, { status: 401, ok: false, text }]);
+  await assert.rejects(ask(provider), /proxy returned 401: invalid session token/);
+  assert.equal(runs.filter((r) => r.endsWith('--refresh')).length, 1, 'refreshed once, no loop');
   assert.ok(logs.length > 0 && !logs.join('\n').includes('cct_'), 'log holds byte counts only');
 });

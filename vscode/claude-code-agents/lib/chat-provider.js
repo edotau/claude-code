@@ -118,6 +118,7 @@ class ProxyTokens {
     this.run = run; // (argv) => Promise<stdout>
     this.log = log;
     this.cache = new Map();
+    this.renewing = new Map(); // profile -> in-flight refresh, shared by every caller holding the rejected token
   }
 
   async get(profile) {
@@ -125,14 +126,21 @@ class ProxyTokens {
     return this.cache.get(profile);
   }
 
-  /** A token the proxy rejected: forget it and ask once more. */
+  /** A token the proxy rejected: one `resolve --refresh` serves every caller still holding it. */
   async renew(profile, rejected) {
-    if (this.cache.get(profile) === rejected) this.cache.delete(profile);
-    return this.get(profile);
+    const current = this.cache.get(profile);
+    if (current !== undefined && current !== rejected) return current;
+    if (!this.renewing.has(profile)) {
+      const flight = this.mint(profile, true)
+        .then((token) => this.cache.set(profile, token).get(profile))
+        .finally(() => this.renewing.delete(profile));
+      this.renewing.set(profile, flight);
+    }
+    return this.renewing.get(profile);
   }
 
-  async mint(profile) {
-    const argv = ['resolve', '--secret', '--proxy', '--profile', profile];
+  async mint(profile, refresh = false) {
+    const argv = ['resolve', '--secret', '--proxy', '--profile', profile, ...(refresh ? ['--refresh'] : [])];
     let out;
     try {
       out = await this.run(argv);

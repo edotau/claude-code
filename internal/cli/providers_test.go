@@ -734,6 +734,25 @@ func TestResolveProxyNeverPrintsSecret(t *testing.T) {
 	}
 }
 
+// resolve --refresh asks the refresh seam, not the cache seam, and needs --proxy.
+func TestResolveRefreshMintsNewTokenAndNeedsProxy(t *testing.T) {
+	cliScratch(t)
+	origR, origF := resolveProxyToken, refreshProxyToken
+	t.Cleanup(func() { resolveProxyToken, refreshProxyToken = origR, origF })
+	resolveProxyToken = func(context.Context, []string, int) (string, error) { return "cct_CACHED", nil }
+	refreshProxyToken = func(context.Context, []string, int) (string, error) { return "cct_FRESH", nil }
+	t.Setenv(claude.ProxyKeyEnv, "")
+	for args, want := range map[string]string{"--secret --proxy": "cct_CACHED", "--secret --proxy --refresh": "cct_FRESH"} {
+		code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdResolve(strings.Fields(args)) })
+		if got := strings.TrimSpace(out); code != 0 || got != want {
+			t.Errorf("%s: exit %d, token matches %s = %v", args, code, want, got == want)
+		}
+	}
+	if code := cmdResolve([]string{"--refresh", "--secret"}); code != 2 {
+		t.Errorf("--refresh without --proxy: exit %d, want 2", code)
+	}
+}
+
 func TestCmdModelsUnknownProfileDoesNotWritePins(t *testing.T) {
 	for _, args := range [][]string{
 		{"--pin", "opus=claude-opus-5-5"},

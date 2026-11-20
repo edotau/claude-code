@@ -100,3 +100,27 @@ func TestResolveProxyTokenRejectsReusedPID(t *testing.T) {
 		t.Fatalf("same process: token=%q, mints=%d, err=%v", again, mints, err)
 	}
 }
+
+func TestRefreshProxyTokenReplacesCacheAndRevokesOld(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	om, oa, ost, orv := mintScoped, alive, proxyTokenStart, revokeSession
+	t.Cleanup(func() { mintScoped, alive, proxyTokenStart, revokeSession = om, oa, ost, orv })
+	alive = func(pid int) bool { return pid == 4242 }
+	proxyTokenStart = func(int) (string, error) { return "start", nil }
+	mints := 0
+	mintScoped = func(context.Context, []string, int) (string, error) {
+		mints++
+		return fmt.Sprintf("cct_%d", mints), nil
+	}
+	var revoked []string
+	revokeSession = func(_ context.Context, tok string) error { revoked = append(revoked, tok); return nil }
+	ctx, scope := context.Background(), []string{"dev"}
+	first, _ := ResolveProxyToken(ctx, scope, 4242)
+	fresh, err := RefreshProxyToken(ctx, scope, 4242)
+	if err != nil || fresh == first || mints != 2 || len(revoked) != 1 || revoked[0] != first {
+		t.Fatalf("refresh = %q (first %q), %v; %d mints, revoked %v", fresh, first, err, mints, revoked)
+	}
+	if again, _ := ResolveProxyToken(ctx, scope, 4242); again != fresh || mints != 2 {
+		t.Errorf("cache not replaced by the refresh: %q, %d mints", again, mints)
+	}
+}

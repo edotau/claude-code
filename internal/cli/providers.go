@@ -3,6 +3,7 @@ package cli
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"maps"
@@ -239,11 +240,15 @@ func cmdResolve(args []string) int {
 	profile := fs.String("profile", "", "profile name")
 	viaRouter := fs.Bool("proxy", false, "select a scoped proxy session token")
 	as := fs.String("as", "", "Databricks identity the launch carries: auto|user|sp|headless")
+	refresh := fs.Bool("refresh", false, "with --proxy: mint a new session token, drop the cached")
 	secret := helptext.SecretFlag(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
-	tok, err := resolveToken(*viaRouter, *profile, *as)
+	if *refresh && !*viaRouter {
+		return helptext.FailUsage("resolve --refresh needs --proxy: a direct credential has no session token to renew")
+	}
+	tok, err := resolveToken(*viaRouter, *profile, *as, *refresh)
 	if err != nil {
 		return helptext.Fail("%v", err)
 	}
@@ -251,12 +256,15 @@ func cmdResolve(args []string) int {
 }
 
 // resolveToken is the armed or scoped proxy token with proxy, else the profile's credential.
-func resolveToken(proxy bool, profile, as string) (string, error) {
+func resolveToken(proxy bool, profile, as string, refresh bool) (string, error) {
 	if proxy {
 		if tok := os.Getenv(claude.ProxyKeyEnv); tok != "" { // an armed launch's session token, confined to its profile
+			if refresh {
+				return "", errors.New("resolve --refresh: an armed launch's token cannot be renewed here")
+			}
 			return tok, nil
 		}
-		tok, err := scopedProxyToken(profile)
+		tok, err := scopedProxyToken(profile, refresh)
 		if err != nil {
 			return "", fmt.Errorf("resolve --proxy: %w", err) // never falls back to the router secret
 		}
@@ -273,11 +281,14 @@ func resolveToken(proxy bool, profile, as string) (string, error) {
 	return providers.Credential(providers.WithIdentity(context.Background(), as), sel.Provider)
 }
 
-// resolveProxyToken is the mint+cache seam of resolve --proxy.
-var resolveProxyToken = proxy.ResolveProxyToken
+// resolveProxyToken and refreshProxyToken are the mint+cache seams of resolve --proxy [--refresh].
+var (
+	resolveProxyToken = proxy.ResolveProxyToken
+	refreshProxyToken = proxy.RefreshProxyToken
+)
 
 // scopedProxyToken mints (or reuses) the session token the launcher would arm for the calling claude process.
-func scopedProxyToken(profile string) (string, error) {
+func scopedProxyToken(profile string, refresh bool) (string, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return "", err
@@ -293,6 +304,9 @@ func scopedProxyToken(profile string) (string, error) {
 	scope, err := agent.TokenScope(sel.Provider.Name, aliases...)
 	if err != nil {
 		return "", err
+	}
+	if refresh {
+		return refreshProxyToken(context.Background(), scope, os.Getppid())
 	}
 	return resolveProxyToken(context.Background(), scope, os.Getppid())
 }
@@ -616,5 +630,5 @@ func switchSpec() *helptext.Node {
 func resolveSpec() *helptext.Node {
 	identities := func() []string { return []string{"auto", "user", "sp", "headless"} }
 	return &helptext.Node{Flags: []helptext.Flag{helptext.ValuedFlag("profile", providers.ProfileNames), helptext.BoolFlag("proxy"),
-		helptext.ValuedFlag("as", identities), helptext.BoolFlag("secret")}}
+		helptext.ValuedFlag("as", identities), helptext.BoolFlag("refresh"), helptext.BoolFlag("secret")}}
 }

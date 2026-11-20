@@ -159,6 +159,15 @@ func proxyTokenDir() string { return filepath.Join(paths.StateDir(), "proxy-toke
 
 // ResolveProxyToken caches pid's scoped token (0600) while fresh with matching process identity and scope.
 func ResolveProxyToken(ctx context.Context, scope []string, pid int) (string, error) {
+	return resolveProxyToken(ctx, scope, pid, false)
+}
+
+// RefreshProxyToken discards pid's cached token, mints and caches a new one, and revokes the old at the daemon.
+func RefreshProxyToken(ctx context.Context, scope []string, pid int) (string, error) {
+	return resolveProxyToken(ctx, scope, pid, true)
+}
+
+func resolveProxyToken(ctx context.Context, scope []string, pid int, refresh bool) (string, error) {
 	start, err := proxyTokenStart(pid)
 	if err != nil {
 		return "", fmt.Errorf("identify token process %d: %w", pid, err)
@@ -166,7 +175,10 @@ func ResolveProxyToken(ctx context.Context, scope []string, pid int) (string, er
 	dir := proxyTokenDir()
 	pruneProxyTokens(dir)
 	file := filepath.Join(dir, strconv.Itoa(pid)+".json")
-	if tok, ok := cachedProxyToken(file, start, scope); ok {
+	var old string
+	if refresh {
+		old = recordedProxyToken(file)
+	} else if tok, ok := cachedProxyToken(file, start, scope); ok {
 		return tok, nil
 	}
 	tok, err := mintScoped(ctx, scope, pid)
@@ -183,7 +195,26 @@ func ResolveProxyToken(ctx context.Context, scope []string, pid int) (string, er
 	if err := paths.AtomicWrite(file, b, 0o600); err != nil {
 		return "", fmt.Errorf("cache scoped token: %w", err)
 	}
+	if old != "" && old != tok {
+		_ = revokeSession(ctx, old) // best effort: the replaced token is dead to the caller and expires anyway
+	}
 	return tok, nil
+}
+
+// revokeSession is the revoke seam of RefreshProxyToken.
+var revokeSession = RevokeSessionToken
+
+// recordedProxyToken is file's cached token however old, or "" when none is readable.
+func recordedProxyToken(file string) string {
+	b, err := os.ReadFile(file)
+	if err != nil {
+		return ""
+	}
+	var rec proxyTokenRecord
+	if json.Unmarshal(b, &rec) != nil {
+		return ""
+	}
+	return rec.Token
 }
 
 // cachedProxyToken reads file's token when its process identity and scope match and it is still fresh.
