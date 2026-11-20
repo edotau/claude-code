@@ -233,7 +233,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 	}
 	for len(tried) < limit {
 		ran := ranModel(lreq.Model, res)
-		next := retryModel(disp, lreq, ran, err)
+		next := retryModel(ctx, disp, lreq, ran, err)
 		if next == "" {
 			break
 		}
@@ -897,7 +897,7 @@ var pickGoneErr = sync.OnceValue(func() *regexp.Regexp {
 })
 
 // retryModel is the next model after a capability (auto: ran is skipped) or endpoint-gone (served) failure, else "".
-func retryModel(disp Dispatch, lreq RunOptions, ran string, err error) string {
+func retryModel(ctx context.Context, disp Dispatch, lreq RunOptions, ran string, err error) string {
 	if err == nil {
 		return ""
 	}
@@ -907,7 +907,7 @@ func retryModel(disp Dispatch, lreq RunOptions, ran string, err error) string {
 	_, auto := SplitAuto(lreq.Model)
 	msg := err.Error()
 	switch {
-	case autoRefusal(disp, lreq.Model, ran, msg):
+	case autoRefusal(ctx, disp, lreq.Model, ran, msg):
 		return lreq.Model // the same auto request re-picks, the failed model excluded
 	case !auto && disp.servedRepick != nil && strings.Contains(msg, "ENDPOINT_NOT_FOUND"): // auto re-picks from its pool below
 		return disp.servedRepick(lreq.Model)
@@ -916,11 +916,11 @@ func retryModel(disp Dispatch, lreq RunOptions, ran string, err error) string {
 }
 
 // autoRefusal is a pick refusal an auto ask re-picks past: a size refusal holds nothing, a model one skips ran for 7 days.
-func autoRefusal(disp Dispatch, requested, ran, msg string) bool {
+func autoRefusal(ctx context.Context, disp Dispatch, requested, ran, msg string) bool {
 	if requestSizeErr().MatchString(msg) {
 		return autoRetryable(disp, requested, ran) != nil
 	}
-	return (capabilityErr().MatchString(msg) || pickGoneErr().MatchString(msg)) && skipAutoModel(disp, requested, ran)
+	return (capabilityErr().MatchString(msg) || pickGoneErr().MatchString(msg)) && skipAutoModel(ctx, disp, requested, ran)
 }
 
 // autoRetryable is disp's fresh rotation row when an auto ask may re-pick past ran, else nil.
@@ -940,9 +940,9 @@ func autoRetryable(disp Dispatch, requested, ran string) *providers.Provider {
 }
 
 // skipAutoModel benches ran in the auto pool of disp's row; false when the request is not an auto or nothing matched.
-func skipAutoModel(disp Dispatch, requested, ran string) bool {
+func skipAutoModel(ctx context.Context, disp Dispatch, requested, ran string) bool {
 	p := autoRetryable(disp, requested, ran)
-	return p != nil && router.SkipDiscovery(disp.Agent.Name(), p, strings.TrimPrefix(ran, p.Name+":")) != ""
+	return p != nil && router.SkipDiscovery(ctx, disp.Agent.Name(), p, strings.TrimPrefix(ran, p.Name+":")) != ""
 }
 
 // dispatchRequest is req for disp: a later dispatch drops provider and session and runs its cell; --effort wins.

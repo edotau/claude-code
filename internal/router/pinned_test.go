@@ -45,7 +45,7 @@ func TestRotationPickAndPeek(t *testing.T) {
 			oldPool := RotationPool
 			RotationPool = func(string, string, *providers.Provider, bool, time.Time) []string { return pool }
 			t.Cleanup(func() { RotationPool = oldPool })
-			if tc.held != "" && SkipDiscovery(agent, p, tc.held) != tc.held {
+			if tc.held != "" && SkipDiscovery(context.Background(), agent, p, tc.held) != tc.held {
 				t.Fatal("SkipDiscovery did not hold the model")
 			}
 			checkRotationPeek(t, p, pool, now, tc.first)
@@ -161,7 +161,7 @@ func TestPickPoolRotatesHonorsSkipAndExpiry(t *testing.T) {
 	if !slices.Equal(got, pool) {
 		t.Fatalf("3 picks = %v, want pool order %v (ties by pool order, then least recent)", got, pool)
 	}
-	if m := SkipDiscovery("opencode", p, "databricks-kimi-k3"); m != "databricks-kimi-k3" {
+	if m := SkipDiscovery(context.Background(), "opencode", p, "databricks-kimi-k3"); m != "databricks-kimi-k3" {
 		t.Fatalf("SkipDiscovery = %q, want kimi-k3", m)
 	}
 	if m, _ := pickPool("copilot", p, pool, now.Add(9*time.Second)); m != "databricks-kimi-k3" {
@@ -222,7 +222,7 @@ func TestSkipDiscoveryReportsNothingWhenSkipNotPersisted(t *testing.T) {
 	if os.WriteFile(filepath.Join(filepath.Dir(StatePath()), "probe"), nil, 0o600) == nil {
 		t.Skip("state dir stays writable (running as root)")
 	}
-	if m := SkipDiscovery("opencode", poolProvider(), "databricks-kimi-k3"); m != "" {
+	if m := SkipDiscovery(context.Background(), "opencode", poolProvider(), "databricks-kimi-k3"); m != "" {
 		t.Fatalf("SkipDiscovery with an unwritable quota.json = %q, want empty", m)
 	}
 }
@@ -234,7 +234,10 @@ func TestSkipDiscoveryReportsPersistenceFailure(t *testing.T) {
 		t.Fatal(err)
 	}
 	var got string
-	_, _, out := hosttest.CaptureOutput(t, func() int { got = SkipDiscovery("opencode", poolProvider(), "databricks-kimi-k3"); return 0 })
+	_, _, out := hosttest.CaptureOutput(t, func() int {
+		got = SkipDiscovery(context.Background(), "opencode", poolProvider(), "databricks-kimi-k3")
+		return 0
+	})
 	if got != "" || !strings.Contains(string(out), "could not persist model skip") {
 		t.Errorf("got %q, stderr %q; want empty result and a persistence message", got, out)
 	}

@@ -51,7 +51,7 @@ func TestRotationPoolPinSkips(t *testing.T) {
 	picks := func() []string { // stamped picks cycle the whole pool
 		var out []string
 		for range rotationPool("opencode", models.Sonnet, rows[0], false, time.Now()) {
-			m, _, err := rotationModelOn(rows, "opencode", models.Sonnet, true, false, nil, time.Now())
+			m, _, err := rotationModelOn(context.Background(), rows, "opencode", models.Sonnet, true, false, nil, time.Now())
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -61,7 +61,7 @@ func TestRotationPoolPinSkips(t *testing.T) {
 	}
 	first := picks()[0]
 	for i, want := range []bool{true, false} {
-		router.SkipDiscovery("opencode", rows[i], providers.SpellPin(rows[i], first))
+		router.SkipDiscovery(context.Background(), "opencode", rows[i], providers.SpellPin(rows[i], first))
 		if got := picks(); slices.Contains(got, first) != want {
 			t.Errorf("after skipping on %d row(s): picks %v, want %s in them %v", i+1, got, first, want)
 		}
@@ -79,7 +79,7 @@ func TestRotationLeastRecentCycle(t *testing.T) {
 	}
 	var seen []string
 	for range n + 1 {
-		m, _, err := rotationModelOn(rows, "opencode", models.Sonnet, true, false, nil, now)
+		m, _, err := rotationModelOn(context.Background(), rows, "opencode", models.Sonnet, true, false, nil, now)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -114,7 +114,7 @@ func TestRotationPickOutcomes(t *testing.T) {
 		{"empty tier steps to standard", "xf:auto", deepBrief, func() {}, rotationRan(band(pair, "standard", false, nil), "(standard tier,"), true},
 		{"every tier member held", "dev:auto", deepBrief, func() {
 			for _, id := range rotationPool("opencode", models.Opus, dev, false, now) {
-				router.SkipDiscovery("opencode", dev, providers.SpellPin(dev, id))
+				router.SkipDiscovery(context.Background(), "opencode", dev, providers.SpellPin(dev, id))
 			}
 		}, func(_ ModelRoute, err error) bool { return errors.Is(err, ErrPoolExhausted) }, true},
 		{"state unwritable", "dev:auto", standardBrief, func() {
@@ -197,7 +197,7 @@ func TestNoteSlowModelHoldsPoolModel(t *testing.T) {
 	dev, now := reg.Providers["dev"], time.Now()
 	pick := func() string {
 		t.Helper()
-		m, _, err := rotationModelOn([]*providers.Provider{dev}, "opencode", models.Sonnet, false, false, nil, now)
+		m, _, err := rotationModelOn(context.Background(), []*providers.Provider{dev}, "opencode", models.Sonnet, false, false, nil, now)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -225,10 +225,10 @@ func TestRetryModelMenuRefusalRepicksAutoOnly(t *testing.T) {
 	ran := providers.SpellPin(row, rotationPool("opencode", "", row, false, time.Now())[0])
 	disp := Dispatch{Agent: &pickRefuser{}, Account: row.Account()}
 	msg := errors.New(`pi: model "` + ran + `" is not on the dev menu`)
-	if got := retryModel(disp, RunOptions{Model: "dev:auto"}, ran, msg); got != "dev:auto" {
+	if got := retryModel(context.Background(), disp, RunOptions{Model: "dev:auto"}, ran, msg); got != "dev:auto" {
 		t.Fatalf("auto retry = %q, want the auto re-pick", got)
 	}
-	if got := retryModel(disp, RunOptions{Model: ran}, ran, msg); got != "" {
+	if got := retryModel(context.Background(), disp, RunOptions{Model: ran}, ran, msg); got != "" {
 		t.Fatalf("typed retry = %q, want none", got)
 	}
 }

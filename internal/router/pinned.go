@@ -312,9 +312,9 @@ func updateCtx(ctx context.Context, fn func(State)) error {
 }
 
 // SkipDiscovery marks a pool entry unusable; returns "" for no match or a persistence error, reported on stderr.
-func SkipDiscovery(agent string, p *providers.Provider, wire string) string {
+func SkipDiscovery(ctx context.Context, agent string, p *providers.Provider, wire string) string {
 	var hit string
-	err := update(func(s State) {
+	err := updateCtx(ctx, func(s State) {
 		for _, entry := range poolFor(agent, "", p, time.Now()) {
 			if providers.SpellPin(p, entry) != wire {
 				continue

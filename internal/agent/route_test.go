@@ -559,13 +559,13 @@ func TestServedRepickOnEndpointNotFound(t *testing.T) {
 		t.Fatal("codex on a Databricks profile with the switch on must get a repick")
 	}
 	err := errors.New("RESOURCE_DOES_NOT_EXIST: ENDPOINT_NOT_FOUND: no endpoint m-a")
-	if got := retryModel(disp, RunOptions{Model: "dev:m-a"}, "", err); got != "dev:m-b" {
+	if got := retryModel(context.Background(), disp, RunOptions{Model: "dev:m-a"}, "", err); got != "dev:m-b" {
 		t.Fatalf("repick = %q, want dev:m-b", got)
 	}
 	if at := router.LoadState()[router.ProviderAccount("dev")].Unserved["m-a"]; at.IsZero() {
 		t.Error("m-a was not marked unserved")
 	}
-	if got := retryModel(disp, RunOptions{Model: "dev:m-b"}, "", err); got != "" {
+	if got := retryModel(context.Background(), disp, RunOptions{Model: "dev:m-b"}, "", err); got != "" {
 		t.Errorf("second failure repicked %q, want none left", got)
 	}
 }
@@ -574,7 +574,7 @@ func TestServedRepickOnEndpointNotFound(t *testing.T) {
 func TestServedRepickIgnoresUnrelatedError(t *testing.T) {
 	reg := servedEnv(t, "true", map[string]string{"m-a": "READY", "m-b": "READY"})
 	disp := Dispatch{servedRepick: routeCtx{reg: reg}.servedRepickFor(servedCand)}
-	if got := retryModel(disp, RunOptions{Model: "dev:m-a"}, "", errors.New("connection reset")); got != "" {
+	if got := retryModel(context.Background(), disp, RunOptions{Model: "dev:m-a"}, "", errors.New("connection reset")); got != "" {
 		t.Errorf("unrelated error repicked %q", got)
 	}
 	if at := router.LoadState()[router.ProviderAccount("dev")].Unserved["m-a"]; !at.IsZero() {
@@ -603,10 +603,10 @@ func TestServedRepickNotOfferedWhereItWouldMislead(t *testing.T) {
 func TestRetryModelSkipsProgressedError(t *testing.T) {
 	disp := Dispatch{servedRepick: func(string) string { return "dbx:m-b" }}
 	capMsg := errors.New("ENDPOINT_NOT_FOUND: no endpoint m-a")
-	if got := retryModel(disp, RunOptions{Model: "dbx:m-a"}, "", &retry.Error{Kind: retry.KindFatal, Agent: "x", Progressed: true, Err: capMsg}); got != "" {
+	if got := retryModel(context.Background(), disp, RunOptions{Model: "dbx:m-a"}, "", &retry.Error{Kind: retry.KindFatal, Agent: "x", Progressed: true, Err: capMsg}); got != "" {
 		t.Errorf("progressed capability error repicked %q, want none", got)
 	}
-	if got := retryModel(disp, RunOptions{Model: "dbx:m-a"}, "", &retry.Error{Kind: retry.KindFatal, Agent: "x", Err: capMsg}); got != "dbx:m-b" {
+	if got := retryModel(context.Background(), disp, RunOptions{Model: "dbx:m-a"}, "", &retry.Error{Kind: retry.KindFatal, Agent: "x", Err: capMsg}); got != "dbx:m-b" {
 		t.Errorf("unprogressed capability error = %q, want dbx:m-b", got)
 	}
 }
