@@ -118,7 +118,9 @@ func TestExtractCLIOutputBytes(t *testing.T) {
 }
 
 func TestExtractRejectsOutputWriteFailure(t *testing.T) {
-	extract := func(context.Context, []string) (string, int, error) { return "# https://example.com/a\nBODY\n\n", 1, nil }
+	extract := func(context.Context, []string) (string, int, error) {
+		return "# https://example.com/a\nBODY\n\n", 1, nil
+	}
 	hosttest.ClosedStdout(t)
 	if code := extractURLs(context.Background(), []string{"https://example.com/a"}, extract); code == 0 {
 		t.Fatal("closed stdout must return a nonzero exit code despite a successfully fetched page")

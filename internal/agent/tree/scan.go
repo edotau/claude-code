@@ -109,7 +109,6 @@ func truncate(s string, n int) string {
 	return textutil.CapRunes(textutil.OneLine(s), n, "…")
 }
 
-
 var toolUseMarker = []byte(`"tool_use"`)
 
 // assistantContentLine is the assistant record subset this file reads: tool_use/text blocks plus the timestamp.
