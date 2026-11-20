@@ -15,7 +15,7 @@ import (
 const authRetryLimit = 3
 
 // claudeIdleLimit is how long a claude child may emit nothing while a model response is expected; tests shorten it.
-var claudeIdleLimit = 90 * time.Second
+var claudeIdleLimit = agent.IdleLimitFor("claude")
 
 // idleWatch feeds claude's events to an agent.IdleTimeout: paused while a top-level tool runs, re-armed by every event.
 type idleWatch struct {

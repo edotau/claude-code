@@ -36,9 +36,6 @@ type Progress struct {
 
 // progressLimits are the quiet and hung thresholds per agent, derived from the harness's own idle limits.
 func progressLimits(agent string) (quiet, hung time.Duration, ok bool) {
-	if agent == "claude" {
-		return 45 * time.Second, 90 * time.Second, true // internal/claude/idle.go cuts a silent run at 90 s
-	}
 	if lim := IdleLimitFor(agent); lim > 0 {
 		return lim / 2, lim, true
 	}
