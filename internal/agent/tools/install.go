@@ -131,6 +131,55 @@ func installCopilot(ctx context.Context, w io.Writer, dir string, dryRun bool) e
 	return runInstallScript(ctx, w, dryRun, copilotInstallScriptURL, nil, []string{"PREFIX=" + filepath.Dir(dir)})
 }
 
+// Pi is pinned to an exact version (plan D3); bump it only after re-checking the flags in internal/pi/register.go.
+const (
+	piNpmPackage = "@earendil-works/pi-coding-agent"
+	piPin        = "1.6.0"
+	piMinNode    = "22.19"
+)
+
+// installPi installs the pinned Pi into <state>/pi/npm without lifecycle scripts and links dir/pi to its bin.
+func installPi(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
+	prefix := filepath.Join(paths.StateDir(), "pi", "npm")
+	args := []string{"install", "--prefix", prefix, "--ignore-scripts", "--no-fund", "--no-audit", piNpmPackage + "@" + piPin}
+	target := filepath.Join(prefix, "node_modules", ".bin", "pi")
+	link := filepath.Join(dir, "pi")
+	if dryRun {
+		fmt.Fprintf(w, "  npm      %s; link %s -> %s\n", strings.Join(append([]string{"npm"}, args...), " "), link, target)
+		return nil
+	}
+	if err := requirePiNode(ctx); err != nil {
+		return err
+	}
+	if err := runLogged(ctx, w, nil, "npm", args...); err != nil {
+		return fmt.Errorf("pi: npm install: %w", err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		return fmt.Errorf("pi: npm install left no %s: %w", target, err)
+	}
+	return withBinLock(dir, func() error {
+		fmt.Fprintf(w, "  link     %s -> %s\n", link, target)
+		return paths.SwapSymlink(target, link)
+	})
+}
+
+// requirePiNode fails with the node dep row's fix when npm is missing or Node is older than piMinNode.
+func requirePiNode(ctx context.Context) error {
+	fix := depFix(deps[slices.IndexFunc(deps, func(d dep) bool { return d.Name == "node" })])
+	if _, err := depLookPath("npm"); err != nil {
+		return fmt.Errorf("pi: npm not on PATH (Node %s+ needed); run: %s", piMinNode, fix)
+	}
+	node, err := depLookPath("node")
+	if err != nil {
+		return fmt.Errorf("pi: node not on PATH (Node %s+ needed); run: %s", piMinNode, fix)
+	}
+	have := parseVersion(versionOutput(ctx, node, versionProbeTimeout, "--version"))
+	if c, ok := textutil.CompareVersions(have, piMinNode); !ok || c < 0 {
+		return fmt.Errorf("pi: node %q is older than %s; run: %s", have, piMinNode, fix)
+	}
+	return nil
+}
+
 const opencodeAllowMajorEnv = "HARNESS_ALLOW_OPENCODE_2X"
 
 func installOpencode(ctx context.Context, w io.Writer, dir string, dryRun bool) error {

@@ -43,6 +43,7 @@ var tools = append([]tool{
 	{Name: agentid.Copilot, Binary: agentid.Copilot, Install: installCopilot},
 	{Name: agentid.Codex, Binary: agentid.Codex, Install: installCodex},
 	{Name: agentid.OpenCode, Binary: agentid.OpenCode, Install: installOpencode},
+	{Name: agentid.Pi, Binary: agentid.Pi, Install: installPi},
 	{Name: "claude-science", Binary: "claude-science", Install: installClaudeScience, Update: updateClaudeScience},
 	{Name: "agy", Binary: "agy", Install: installAgy, Update: updateAgy, OwnTarget: true},
 	{Name: "tailscale", Binary: "tailscale", Install: installTailscale, OwnTarget: true},

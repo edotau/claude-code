@@ -135,6 +135,7 @@ func checkProviderHealth(ctx context.Context, check func(bool, bool, string, str
 		check(true, false, "copilot route", routeDetail(ctx, "copilot"))
 		check(true, false, "codex route", routeDetail(ctx, "codex"))
 		check(true, false, "gemini route", routeDetail(ctx, "gemini"))
+		check(true, false, "pi route", routeDetail(ctx, "pi"))
 		for _, pin := range preflight.Check(ctx, reg, time.Now()) {
 			check(pin.Status == preflight.StatusOK, false, "pin "+pin.Agent, pin.Line())
 		}

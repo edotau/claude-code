@@ -769,3 +769,44 @@ func TestTailscaleRepairsDanglingCLI(t *testing.T) {
 		t.Fatalf("dangling CLI was reported as kept: %s", &out)
 	}
 }
+
+func TestInstallPiDryRunNamesPinnedCommandAndWritesNothing(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	dir := t.TempDir()
+	var out bytes.Buffer
+	if err := installPi(context.Background(), &out, dir, true); err != nil {
+		t.Fatalf("installPi dry-run: %v", err)
+	}
+	prefix := filepath.Join(paths.StateDir(), "pi", "npm")
+	for _, want := range []string{"@earendil-works/pi-coding-agent@1.6.0", "--ignore-scripts", "--prefix " + prefix, filepath.Join(dir, "pi")} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("dry-run output %q lacks %q", out.String(), want)
+		}
+	}
+	for _, d := range []string{cfg, dir} {
+		if entries, _ := os.ReadDir(d); len(entries) != 0 {
+			t.Errorf("dry-run wrote into %s: %v", d, entries)
+		}
+	}
+}
+
+func TestInstallPiWithoutNpmFailsWithNodeHint(t *testing.T) {
+	stubDeps(t, "linux", map[string]string{"node": "/usr/bin/node"}, nil)
+	err := installPi(context.Background(), io.Discard, t.TempDir(), false)
+	if err == nil || !strings.Contains(err.Error(), "npm not on PATH") || !strings.Contains(err.Error(), "run: ") {
+		t.Fatalf("installPi without npm = %v, want npm-missing error with the node hint", err)
+	}
+}
+
+func TestInstallPiRefusesOldNode(t *testing.T) {
+	fake := filepath.Join(t.TempDir(), "node")
+	if err := os.WriteFile(fake, []byte("#!/bin/sh\necho v20.1.0\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	stubDeps(t, "linux", map[string]string{"node": fake, "npm": "/usr/bin/npm"}, nil)
+	err := installPi(context.Background(), io.Discard, t.TempDir(), false)
+	if err == nil || !strings.Contains(err.Error(), "older than 22.19") {
+		t.Fatalf("installPi with Node 20 = %v, want an older-than-22.19 refusal", err)
+	}
+}
