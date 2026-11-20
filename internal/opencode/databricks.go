@@ -58,9 +58,8 @@ func databricksRoutes(p *providers.Provider, dialect, base string, routed bool) 
 	}
 	// base is the session base plus the dialect suffix routerRoute added
 	if routed {
-		sfx := row.CLI.RouterSuffix
-		sess := strings.TrimSuffix(base, sfx[dialect])
-		chatBase, respBase, claudeBase = sess+sfx[providers.ProtocolOpenAI], sess+sfx[providers.ProtocolResponses], sess+sfx[providers.ProtocolAnthropic]+"/v1"
+		b := row.CLI.RouterBases(base, dialect)
+		chatBase, respBase, claudeBase = b[providers.ProtocolOpenAI], b[providers.ProtocolResponses], b[providers.ProtocolAnthropic]+"/v1"
 	}
 	return chatBase, respBase, claudeBase, nil
 }

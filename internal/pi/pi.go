@@ -48,10 +48,8 @@ var _ agent.HeadlessDriver = piEngine{}
 
 // piBases re-derives the three wire bases from the route's base by swapping the dialect's router suffix.
 func piBases(base, dialect string) Bases {
-	root := strings.TrimSuffix(base, row.CLI.RouterSuffix[dialect])
-	suf := row.CLI.RouterSuffix
-	return Bases{Claude: root + suf[providers.ProtocolAnthropic], Responses: root + suf[providers.ProtocolResponses],
-		Chat: root + suf[providers.ProtocolOpenAI]}
+	b := row.CLI.RouterBases(base, dialect)
+	return Bases{Claude: b[providers.ProtocolAnthropic], Responses: b[providers.ProtocolResponses], Chat: b[providers.ProtocolOpenAI]}
 }
 
 // Wire writes the run's private agent dir and builds Pi's env and argv; r.Cred is the proxy session token, never upstream's.

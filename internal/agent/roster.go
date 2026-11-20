@@ -241,6 +241,16 @@ func lookupRow(name string) (Schema, bool) {
 	return rosterRows[i], true
 }
 
+// RouterBases is the base for every RouterSuffix wire, re-derived from base, which carries dialect's suffix.
+func (c CLI) RouterBases(base, dialect string) map[string]string {
+	root := strings.TrimSuffix(base, c.RouterSuffix[dialect])
+	out := make(map[string]string, len(c.RouterSuffix))
+	for wire, suf := range c.RouterSuffix {
+		out[wire] = root + suf
+	}
+	return out
+}
+
 // External reports whether the row drives an external CLI rather than the harness's Claude launcher.
 func (s Schema) External() bool { return s.CLI.Binary != "" }
 
