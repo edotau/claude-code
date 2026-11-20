@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"maps"
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -54,11 +55,12 @@ type document struct {
 	API        []ledgerAgg  `json:"api,omitempty"`
 	Billing    *billing     `json:"billing,omitempty"`
 	Agents     []agentUsage `json:"agents,omitempty"`
+	Cost       []costJSON   `json:"cost,omitempty"`
 	WindowDays int          `json:"window_days"`
 }
 
 // report builds the JSON document for one window (session scopes to one id, else the last days days).
-func report(claudeDir, session string, days int, withQuotas bool, errw io.Writer) (*document, error) {
+func report(claudeDir, session string, days int, withQuotas, withCost bool, errw io.Writer) (*document, error) {
 	quotasCh := startQuotaFetch(withQuotas) // overlaps the local scan below
 	scan, err := scanUsage(claudeDir, session, days, errw)
 	if err != nil {
@@ -67,11 +69,15 @@ func report(claudeDir, session string, days int, withQuotas bool, errw io.Writer
 	agg := scan.agg
 	agents := buildAgentsUsage(scan, session, days)
 	quotas := <-quotasCh
-	aggs, _ := loadLedger(errw)
+	aggs, entries := loadLedger(errw)
+	var cost []costJSON
+	if withCost {
+		cost = costForJSON(entries, windowCutoff(days))
+	}
 	if session != "" {
 		days = 0 // --days is ignored with --session, so no window applies
 	}
-	return &document{agg, quotas, aggs, resolveBilling(), agents, days}, nil
+	return &document{agg, quotas, aggs, resolveBilling(), agents, cost, days}, nil
 }
 
 type transcriptScan struct {
@@ -148,6 +154,7 @@ type usageOpts struct {
 	jsonOut      bool
 	context      bool
 	wantProvider bool
+	cost         bool
 }
 
 // parseUsageArgs parses and validates the flags; done is true when the caller should exit with code.
@@ -165,10 +172,11 @@ func parseUsageArgs(args []string, errw io.Writer) (o usageOpts, code int, done 
 	formatFlag := helptext.FormatFlag(fs)
 	providersFlag := fs.Bool("providers", true, "append live plan quotas for every provider; =false stays offline")
 	showFlag := fs.String("show", "used", "quota column: used (default) or left; total hides the quota table")
+	costFlag := fs.Bool("cost", false, "add cost per model and profile: est. now, billed when set up")
 	if code, done := helptext.Parse(fs, args); done {
 		return usageOpts{}, code, true
 	}
-	raw := usageOpts{session: *sessionFlag, days: *daysFlag, show: *showFlag, wantProvider: *providersFlag, context: *contextFlag}
+	raw := usageOpts{session: *sessionFlag, days: *daysFlag, show: *showFlag, wantProvider: *providersFlag, context: *contextFlag, cost: *costFlag}
 	o, err := buildUsageOpts(raw, *formatFlag)
 	if err != nil {
 		fmt.Fprintln(errw, "usage:", err)
@@ -225,7 +233,7 @@ func Run(args []string, claudeDir string, out, errw io.Writer) int {
 		return runContext(o, out, errw)
 	}
 	if o.jsonOut {
-		doc, err := report(claudeDir, o.session, o.days, o.wantProvider, errw)
+		doc, err := report(claudeDir, o.session, o.days, o.wantProvider, o.cost, errw)
 		if err != nil {
 			fmt.Fprintln(errw, "usage:", err)
 			return 1
@@ -275,6 +283,9 @@ func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 		printGoogleLimits(w, <-googleCh)
 	}
 	printLedgerSection(w, aggs, ledgerSince(ledgerEntries))
+	if o.cost {
+		printUsageCost(w, ledgerEntries, days)
+	}
 
 	// Section 4 (AGENTS): the aggregation above has had the whole quota round-trip to finish by now.
 	printAgentsSection(w, <-agentsCh, session, days)
@@ -520,7 +531,68 @@ func printQuotaWarnings(errw io.Writer, qs []quota) {
 // Spec is the completion node for the usage verb.
 func Spec() *helptext.Node {
 	flag, boolFlag := helptext.Plain, helptext.BoolFlag
-	return &helptext.Node{Flags: []helptext.Flag{boolFlag("context"), flag("session"), flag("days"), helptext.CompletionFormatFlag(), boolFlag("providers"), flag("show")}}
+	return &helptext.Node{Flags: []helptext.Flag{boolFlag("context"), flag("session"), flag("days"), helptext.CompletionFormatFlag(), boolFlag("providers"), flag("show"), boolFlag("cost")}}
+}
+
+const costPriceHint = "usage: no price table; set one with `claude-code configure provider <profile> options.prices='{...}'`"
+
+// loadCostRegistry is the registry read for prices; a var so tests never open the real vault.
+var loadCostRegistry = providers.Load
+
+// costPrices maps each Databricks profile to its Options.Prices; an unreadable registry is none.
+func costPrices() map[string]map[string]providers.Price {
+	reg, err := loadCostRegistry()
+	if err != nil {
+		return nil
+	}
+	out := map[string]map[string]providers.Price{}
+	for _, name := range providers.DatabricksProfiles(reg) {
+		if p := reg.Row(name); p != nil && len(p.Options.Prices) > 0 {
+			out[name] = p.Options.Prices
+		}
+	}
+	return out
+}
+
+// printUsageCost prints the estimate, or one line naming the key to set when no profile carries prices.
+func printUsageCost(w io.Writer, entries []tokenledger.Entry, days int) {
+	prices := costPrices()
+	if len(prices) == 0 {
+		fmt.Fprintln(w, costPriceHint)
+		return
+	}
+	printCostSection(w, estimateCost(entries, prices, windowCutoff(days)), days)
+}
+
+// costJSON is one cost row; USD is null when the model has no price, never NaN.
+type costJSON struct {
+	Profile    string   `json:"profile"`
+	Model      string   `json:"model"`
+	Input      int      `json:"input"`
+	Output     int      `json:"output"`
+	CacheRead  int      `json:"cache_read"`
+	CacheWrite int      `json:"cache_write"`
+	DBUs       float64  `json:"dbus"`
+	USD        *float64 `json:"usd"`
+	Source     string   `json:"source"`
+}
+
+func costForJSON(entries []tokenledger.Entry, since time.Time) []costJSON {
+	prices := costPrices()
+	if len(prices) == 0 {
+		return nil // as in the text output: no price table, no cost section
+	}
+	rows := estimateCost(entries, prices, since)
+	out := make([]costJSON, 0, len(rows))
+	for _, r := range rows {
+		j := costJSON{Profile: r.Profile, Model: r.Model, Input: r.Input, Output: r.Output,
+			CacheRead: r.CacheRead, CacheWrite: r.CacheWrite, DBUs: r.DBUs, Source: r.Source}
+		if !math.IsNaN(r.USD) {
+			j.USD = &r.USD
+		}
+		out = append(out, j)
+	}
+	return out
 }
 
 // inWindowResponses keeps the responses stamped at or after cutoff; an unstamped response is kept, as in foldResponses.

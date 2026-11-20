@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -636,6 +637,98 @@ func BenchmarkNewestModTime(b *testing.B) {
 		if _, err := newestModTime(dir); err != nil {
 			b.Fatal(err)
 		}
+	}
+}
+
+// costReg builds a registry whose one Databricks profile holds the given prices (nil = none).
+func costReg(prices map[string]providers.Price) *providers.Registry {
+	p := &providers.Provider{Name: "qa", Provider: providers.GroupDatabricks, Preset: providers.PresetDatabricks}
+	p.Options.Prices = prices
+	return &providers.Registry{Providers: map[string]*providers.Provider{"qa": p}}
+}
+
+func stubCost(t *testing.T, entries []tokenledger.Entry, reg *providers.Registry) {
+	t.Helper()
+	origRead, origQuotas, origReg := readLedger, fetchQuotas, loadCostRegistry
+	readLedger = func() ([]tokenledger.Entry, error) { return entries, nil }
+	fetchQuotas = func() []quota { return nil }
+	loadCostRegistry = func() (*providers.Registry, error) { return reg, nil }
+	t.Cleanup(func() { readLedger, fetchQuotas, loadCostRegistry = origRead, origQuotas, origReg })
+}
+
+func TestUsageCostFlagOffUnchanged(t *testing.T) {
+	now := time.Now()
+	stubCost(t, []tokenledger.Entry{{Ts: now, Profile: "qa", Model: "m", Input: 1000, Output: 100}}, costReg(map[string]providers.Price{"m": {Input: 3, Output: 15}}))
+	var off, on bytes.Buffer
+	if code := Run([]string{"--providers=false", "--days", "7"}, t.TempDir(), &off, io.Discard); code != 0 {
+		t.Fatalf("off = %d", code)
+	}
+	if code := Run([]string{"--providers=false", "--days", "7"}, t.TempDir(), &on, io.Discard); code != 0 {
+		t.Fatalf("again = %d", code)
+	}
+	if off.String() != on.String() {
+		t.Errorf("flag off not stable: first differs from second by %d bytes", len(off.String())-len(on.String()))
+	}
+	if strings.Contains(off.String(), "COST,") || strings.Contains(off.String(), costPriceHint) {
+		t.Errorf("flag off carries a cost section:\n%s", off.String())
+	}
+}
+
+func TestUsageCostWithPrices(t *testing.T) {
+	now := time.Now()
+	stubCost(t, []tokenledger.Entry{
+		{Ts: now, Profile: "qa", Model: "m", Input: 1_000_000, Output: 1000},
+		{Ts: now.Add(-40 * 24 * time.Hour), Profile: "qa", Model: "m", Input: 9_000_000}, // outside the window
+	}, costReg(map[string]providers.Price{"m": {Input: 3, Output: 15}}))
+	var out bytes.Buffer
+	if code := Run([]string{"--cost", "--providers=false", "--days", "7"}, t.TempDir(), &out, io.Discard); code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	got := out.String()
+	for _, want := range []string{"COST, last 7 days (est.)", "est.: local ledger tokens x your price table, not an invoice", "$3.02"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("missing %q:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "9") && strings.Contains(got, "9000000") {
+		t.Errorf("entry outside the window was priced:\n%s", got)
+	}
+}
+
+func TestUsageCostNoPricesHints(t *testing.T) {
+	stubCost(t, []tokenledger.Entry{{Ts: time.Now(), Profile: "qa", Model: "m", Input: 5}}, costReg(nil))
+	var out bytes.Buffer
+	if code := Run([]string{"--cost", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	if !strings.Contains(out.String(), costPriceHint) || strings.Contains(out.String(), "COST,") {
+		t.Errorf("want the hint and no table:\n%s", out.String())
+	}
+}
+
+func TestUsageCostJSONUnpricedNull(t *testing.T) {
+	stubCost(t, []tokenledger.Entry{{Ts: time.Now(), Profile: "qa", Model: "unpriced", Input: 7, Output: 3}},
+		costReg(map[string]providers.Price{"other": {Input: 1}}))
+	var out bytes.Buffer
+	if code := Run([]string{"--cost", "--format", "json", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	var doc struct {
+		Cost []struct {
+			Model  string   `json:"model"`
+			Input  int      `json:"input"`
+			USD    *float64 `json:"usd"`
+			Source string   `json:"source"`
+		} `json:"cost"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil {
+		t.Fatalf("not valid JSON: %v\n%s", err, out.String())
+	}
+	if len(doc.Cost) != 1 || doc.Cost[0].Model != "unpriced" || doc.Cost[0].Input != 7 || doc.Cost[0].USD != nil || doc.Cost[0].Source != "est." {
+		t.Errorf("cost = %+v, want one unpriced est. row with null usd", doc.Cost)
+	}
+	if strings.Contains(out.String(), "NaN") {
+		t.Errorf("JSON carries NaN:\n%s", out.String())
 	}
 }
 
