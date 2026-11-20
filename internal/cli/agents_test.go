@@ -1284,7 +1284,8 @@ func TestRunLineReadOnly(t *testing.T) {
 	}{
 		{"copilot", "", true, "Run: claude-code agents ask --agent copilot --model m --read-only"},
 		{"copilot", "", false, "Run: claude-code agents ask --agent copilot --model m"},
-		{"copilot", `{"tools":true}`, true, "Run: claude-code agents ask --agent copilot --tools=true"},
+		{"copilot", `{"tools":true}`, true, "Run: claude-code agents ask --agent copilot --tools=true --read-only"},
+		{"copilot", `{"no-tools":true}`, true, "Run: claude-code agents ask --agent copilot --no-tools=true"},
 		{"codex", "", true, "Run: claude-code agents ask --agent codex --model m"},
 	}
 	for _, c := range cases {

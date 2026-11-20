@@ -481,9 +481,9 @@ func runLine(typ, spec, model, profile string, readOnly bool) (string, error) {
 	return hooks.RunLine(argv), nil
 }
 
-// withReadOnly adds --read-only for a read-only brief unless the spec set tools or read-only; codex's turns tools off.
+// withReadOnly adds --read-only for a read-only brief unless the spec set read-only or no-tools; codex's turns tools off.
 func withReadOnly(argv []string, w hooks.AskWords, typ string, readOnly bool) []string {
-	if !readOnly || w.Has("tools", "read-only") || typ == "codex" {
+	if !readOnly || w.Has("read-only", "no-tools") || typ == "codex" {
 		return argv
 	}
 	return append(argv, "--read-only")

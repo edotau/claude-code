@@ -41,8 +41,7 @@ func (w *idleWatch) observe(ev claudeEvent, msg anthropic.Message) {
 	if w == nil {
 		return
 	}
-	if ev.Type == "system" && ev.Subtype == "api_retry" { // a failing API call is not progress: never re-arm
-		w.noteRetry(ev.ErrorStatus)
+	if w.authRetry(ev) {
 		return
 	}
 	w.retries = 0
@@ -63,6 +62,16 @@ func (w *idleWatch) observe(ev claudeEvent, msg anthropic.Message) {
 		return
 	}
 	w.Beat(ev.Type)
+}
+
+// authRetry counts a retry of a rejected login, which never recovers; a 429 or 5xx backoff still beats.
+func (w *idleWatch) authRetry(ev claudeEvent) bool {
+	st := ev.ErrorStatus
+	if ev.Type != "system" || ev.Subtype != "api_retry" || st == nil || (*st != 401 && *st != 403) {
+		return false
+	}
+	w.noteRetry(st)
+	return true
 }
 
 func (w *idleWatch) noteRetry(status *int) {
