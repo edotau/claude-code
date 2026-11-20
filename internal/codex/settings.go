@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -57,6 +58,7 @@ func codexSettingsSection(raw string) (start, end int, err error) {
 }
 
 func patchCodexSettings(raw string, overlay map[string]string) (string, error) {
+	overlay = withoutRoute(overlay)
 	if err := validateCodexOverlay(overlay); err != nil {
 		return "", err
 	}
@@ -77,7 +79,7 @@ func patchCodexSettings(raw string, overlay map[string]string) (string, error) {
 	}
 	var section strings.Builder
 	section.WriteString(codexSettingsBegin + "\n")
-	for _, field := range CodexFields() {
+	for _, field := range nativeFields() {
 		if value, ok := overlay[field.Key]; ok {
 			fmt.Fprintf(&section, "%s = %q\n", field.Key, value)
 		}
@@ -104,7 +106,7 @@ func ReadCodexSettings(home string) (map[string]string, error) {
 
 func readCodexSettings(raw string) (map[string]string, error) {
 	return readCodexStrings(raw, func(key string) bool {
-		return slices.ContainsFunc(CodexFields(), func(f CodexField) bool { return f.Key == key })
+		return slices.ContainsFunc(nativeFields(), func(f CodexField) bool { return f.Key == key })
 	})
 }
 
@@ -213,6 +215,9 @@ func codexPreferences(rec vault.AgentRecord, overlay map[string]string) (map[str
 	if v := rec.Extras[extraVerbosity]; v != "" {
 		prefs[extraVerbosity] = v
 	}
+	if v := rec.Extras[extraConfigRoute]; v != "" {
+		prefs[extraConfigRoute] = v
+	}
 	return prefs, nil
 }
 
@@ -229,8 +234,16 @@ func LoadCodexPreferences() (map[string]string, error) {
 	return codexPreferences(rec, overlay)
 }
 
+// withoutRoute is prefs minus config_route, which is record-only and never a config.toml key.
+func withoutRoute(prefs map[string]string) map[string]string {
+	out := maps.Clone(prefs)
+	delete(out, extraConfigRoute)
+	return out
+}
+
 // UpdateCodexPreferences edits the preferences in one transaction: writes the codex record, empties the legacy overlay.
 func UpdateCodexPreferences(edit func(map[string]string) map[string]string) error {
+	reg, regErr := providers.LoadShared() // read before the transaction: the registry reads the vault itself
 	return vault.Update(func(tx *vault.Tx) error {
 		overlay, err := loadCodexOverlay(tx)
 		if err != nil {
@@ -246,19 +259,33 @@ func UpdateCodexPreferences(edit func(map[string]string) map[string]string) erro
 			return err
 		}
 		next := edit(prefs)
-		if err := validateCodexOverlay(next); err != nil {
+		if err := validateCodexNext(reg, regErr, next); err != nil {
 			return err
 		}
 		if recEffort, _ := agentid.NativeEffort(agentid.Codex, agentid.Effort(rec.Effort)); next[codexEffortKey] != recEffort {
 			rec.Effort = next[codexEffortKey]
 		}
 		rec.Extras = withExtra(rec.Extras, extraVerbosity, next[extraVerbosity])
+		rec.Extras = withExtra(rec.Extras, extraConfigRoute, next[extraConfigRoute])
 		recs[agentid.Codex] = rec
 		if err := tx.PutAgentRecords(recs); err != nil {
 			return err
 		}
 		return tx.Put(vault.Overlay, codexOverlayKey, "")
 	})
+}
+
+func validateCodexNext(reg *providers.Registry, regErr error, next map[string]string) error {
+	if err := validateCodexOverlay(withoutRoute(next)); err != nil {
+		return err
+	}
+	if next[extraConfigRoute] == "" {
+		return nil
+	}
+	if regErr != nil {
+		return regErr
+	}
+	return validateConfigRoute(reg, strings.TrimSpace(next[extraConfigRoute]))
 }
 
 func withExtra(extras map[string]string, key, v string) map[string]string {
@@ -486,22 +513,39 @@ func codexConfigCheck(name, path string, managed bool) agent.Check {
 
 const codexOverlayKey = "codex-settings"
 
+// CodexField is one preference; Local ones live only in the codex record, never in config.toml.
 type CodexField struct {
 	Key    string
 	Values []string
+	Local  bool
 }
 
+// CodexFields is every preference the page shows, config_route last.
 func CodexFields() []CodexField {
+	return append(nativeFields(), CodexField{Key: extraConfigRoute, Values: codexRouteChoices(), Local: true})
+}
+
+// nativeFields are the preferences config.toml carries; no registry read, so a vault transaction may call it.
+func nativeFields() []CodexField {
 	return []CodexField{
-		{"model_reasoning_effort", agentid.NativeEfforts(agentid.Codex)},
-		{extraVerbosity, codexVerbosities},
+		{Key: "model_reasoning_effort", Values: agentid.NativeEfforts(agentid.Codex)},
+		{Key: extraVerbosity, Values: codexVerbosities},
 	}
+}
+
+// codexRouteChoices are the config_route values the page offers: the pool pick and each codex-serving profile.
+func codexRouteChoices() []string {
+	reg, err := providers.LoadShared()
+	if err != nil {
+		return []string{routeDatabricks}
+	}
+	return append([]string{routeDatabricks}, codexRouteProfiles(reg)...)
 }
 
 func validateCodexOverlay(ov map[string]string) error {
 	for key, value := range ov {
 		found := false
-		for _, f := range CodexFields() {
+		for _, f := range nativeFields() {
 			if f.Key == key {
 				found = true
 				if !slices.Contains(f.Values, value) {
@@ -511,7 +555,7 @@ func validateCodexOverlay(ov map[string]string) error {
 			}
 		}
 		if !found {
-			return fmt.Errorf("codex: unsupported preference %s; use model_reasoning_effort or model_verbosity", key)
+			return fmt.Errorf("codex: unsupported preference %s; use model_reasoning_effort, model_verbosity or config_route", key)
 		}
 	}
 	return nil

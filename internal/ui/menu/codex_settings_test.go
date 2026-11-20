@@ -91,7 +91,7 @@ func TestCodexSettingsMenuStagesUntilSave(t *testing.T) {
 	for _, save := range []bool{false, true} {
 		name, input := "cancel", "2\n1\n\n"
 		if save {
-			name, input = "save", "2\n1\n3\n"
+			name, input = "save", "2\n1\n4\n"
 		}
 		t.Run(name, func(t *testing.T) {
 			home, path := codexSettingsFixture(t)
@@ -132,7 +132,7 @@ func TestCodexSettingsReportsNeverWrite(t *testing.T) {
 				t.Fatal(err)
 			}
 			nativeBefore, vaultBefore := readBytes(t, path), readBytes(t, vault.Path())
-			input := strings.NewReader("2\n1\n3\n")
+			input := strings.NewReader("2\n1\n4\n")
 			var out bytes.Buffer
 			o := Options{Home: home, In: input, Out: &out, Check: mode == "check", DryRun: mode == "dry-run", Interactive: mode == "piped"}
 			rc := Run(o, "codex")
@@ -143,7 +143,7 @@ func TestCodexSettingsReportsNeverWrite(t *testing.T) {
 			if rc != want || !strings.Contains(out.String(), "live differs") {
 				t.Fatalf("report rc=%d want=%d output=%s", rc, want, out.String())
 			}
-			if input.Len() != len("2\n1\n3\n") {
+			if input.Len() != len("2\n1\n4\n") {
 				t.Error("read-only report consumed menu input")
 			}
 			if !bytes.Equal(nativeBefore, readBytes(t, path)) || !bytes.Equal(vaultBefore, readBytes(t, vault.Path())) {
@@ -159,7 +159,7 @@ func TestCodexSettingsApplyFailureIsReported(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(home, ".codex"), []byte("blocked native directory"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	d, out := codexSettingsDialog(home, "2\n1\n3\n")
+	d, out := codexSettingsDialog(home, "2\n1\n4\n")
 	if runCodexSettingsMenu(d, map[string]string{}, map[string]string{}) {
 		t.Fatal("menu reported success after native apply failed")
 	}

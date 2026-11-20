@@ -7,6 +7,7 @@ import (
 	"io"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -38,7 +39,12 @@ func codexBannerSection(block string) string {
 var errNoBlock = errors.New("codex: no config.toml block")
 
 func codexProviderSection(ctx context.Context, reg *providers.Registry, sel providers.Selection, existing string, out io.Writer) (string, error) {
-	target, note, err := codexSchema().ResolveTarget(ctx, agent.RunOptions{}, reg, sel, false)
+	ctx = context.WithValue(ctx, codexFileAuthKey{}, true)
+	sel, routed, err := codexRouteSelection(ctx, reg, sel, out)
+	if err != nil {
+		return "", err
+	}
+	target, note, err := codexSchema().ResolveTarget(ctx, agent.RunOptions{}, reg, sel, routed)
 	if err != nil {
 		fmt.Fprintf(out, "codex: skipped: %v\n", err)
 		return "", nil
@@ -69,6 +75,72 @@ func codexProviderSection(ctx context.Context, reg *providers.Registry, sel prov
 	return codexBannerSection(block), nil
 }
 
+// config_route values besides "": session follows the session profile, databricks the record's pool pick.
+const (
+	routeSession    = "session"
+	routeDatabricks = providers.GroupDatabricks
+)
+
+// codexRouteProfiles are the Databricks profiles in reg that serve codex.
+func codexRouteProfiles(reg *providers.Registry) []string {
+	var out []string
+	for _, n := range reg.ProfilesOf(providers.GroupDatabricks) {
+		if agent.CanServe(agentid.Codex, reg.Providers[n]) {
+			out = append(out, n)
+		}
+	}
+	return out
+}
+
+// validateConfigRoute refuses a config_route that is not empty, session, databricks or a codex-serving Databricks profile.
+func validateConfigRoute(reg *providers.Registry, v string) error {
+	names := codexRouteProfiles(reg)
+	if v == "" || v == routeSession || (v == routeDatabricks && len(names) > 0) || slices.Contains(names, v) {
+		return nil
+	}
+	valid := append([]string{routeSession, routeDatabricks}, names...)
+	return fmt.Errorf("codex: config_route %q: want one of %s", v, strings.Join(valid, ", "))
+}
+
+// ValidateConfigRoute is validateConfigRoute against the loaded registry.
+func ValidateConfigRoute(v string) error {
+	reg, err := providers.LoadShared()
+	if err != nil {
+		return err
+	}
+	return validateConfigRoute(reg, strings.TrimSpace(v))
+}
+
+// codexRouteSelection is sel, or the Selection of the Databricks profile the record's config_route names; routed is true then.
+func codexRouteSelection(ctx context.Context, reg *providers.Registry, sel providers.Selection, out io.Writer) (providers.Selection, bool, error) {
+	rec, err := agentconfig.Settings(agentid.Codex)
+	if err != nil {
+		return sel, false, fmt.Errorf("codex: agent settings: %w", err)
+	}
+	route := strings.TrimSpace(rec.Extras[extraConfigRoute])
+	if route == "" || route == routeSession {
+		return sel, false, nil
+	}
+	if err := validateConfigRoute(reg, route); err != nil {
+		return sel, false, err
+	}
+	name := route
+	if route == routeDatabricks {
+		q := agent.QueryFor(agent.PeekContext(ctx), agent.ModelQuery{Agent: agentid.Codex, Profile: agent.AutoModel})
+		r, err := agent.ResolveModel(reg, q, time.Now())
+		if err != nil {
+			return sel, false, fmt.Errorf("codex: config_route %s: %w", route, err)
+		}
+		name = r.Profile
+	}
+	routed, err := providers.Select(reg, name)
+	if err != nil {
+		return sel, false, fmt.Errorf("codex: config_route %s: %w", route, err)
+	}
+	fmt.Fprintf(out, "codex: config_route %s: writing the Databricks block for profile %s\n", route, name)
+	return routed, true, nil
+}
+
 // codexRenderModel gives a Databricks target the model a launch runs: the pin, else a Responses model; peek-only.
 func codexRenderModel(ctx context.Context, reg *providers.Registry, t providers.Target, out io.Writer) providers.Target {
 	if t.Provider == nil || t.Provider.Preset != providers.PresetDatabricks {
@@ -77,7 +149,7 @@ func codexRenderModel(ctx context.Context, reg *providers.Registry, t providers.
 	pin := agent.AgentModelPin(agentid.Codex)
 	if _, auto := agent.SplitAuto(pin); pin != "" && !auto {
 		q := agent.QueryFor(agent.PeekContext(ctx), agent.ModelQuery{Agent: agentid.Codex, Profile: t.Provider.Name})
-		if r, err := agent.ResolveRun(reg, q, time.Now()); err == nil && providers.ResponsesServable(t.Provider, r.Model) {
+		if r, err := agent.ResolveRun(reg, q, time.Now()); err == nil && codexResponses(t.Provider, r.Model) {
 			fmt.Fprintf(out, "codex: wrote model %s on profile %s (the codex model pin)\n", r.Model, t.Provider.Name)
 			t.Model = r.Model
 			return t
@@ -214,7 +286,20 @@ func renderCodex(ctx context.Context, reg *providers.Registry, sel providers.Sel
 		return false, err
 	}
 
-	return commitCodexFiles(hooksPath, hooksRaw, mergedHooks, hooksExisted, path, raw, next, existed, o, out)
+	drift, err := commitCodexFiles(hooksPath, hooksRaw, mergedHooks, hooksExisted, path, raw, next, existed, o, out)
+	if err == nil && !o.DryRun && !o.Check && codexRouteSig(string(raw)) != codexRouteSig(next) {
+		fmt.Fprintf(out, "codex: provider, model or catalog changed in %s; restart a running ChatGPT app or Codex app-server\n", path)
+	}
+	return drift, err
+}
+
+// codexRouteSig is the top-level provider, model and catalog keys plus the provider table of the managed block.
+func codexRouteSig(text string) string {
+	keys := []string{"model_provider", "model", "model_catalog_json"}
+	vals, _ := readCodexStrings(text, func(k string) bool { return slices.Contains(keys, k) })
+	banner := codexBannerRE().FindString(text)
+	_, table, _ := strings.Cut(banner, "[model_providers.")
+	return fmt.Sprint(vals) + "\x00" + table
 }
 
 // commitCodexFiles writes hooks.json first, so a failed hooks write leaves config.toml without trust hashes for it.

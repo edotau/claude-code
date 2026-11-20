@@ -284,10 +284,23 @@ func codexAuthFields(ctx context.Context, p *providers.Provider, cred string) ([
 	return [][2]string{{"env_key", agentconfig.TOMLQuote(codexKeyEnv)}}, nil, env, nil
 }
 
+// codexFileAuthKey marks a ctx whose auth table is for config.toml, read by a GUI app that may wait on a slow refresh.
+type codexFileAuthKey struct{}
+
+// The helper never opens a browser: its worst case is 3 token posts of 30 s plus 1.5 s backoff (oauth.go:37,144,171).
+const (
+	codexAuthTimeoutMS     = "15000"
+	codexFileAuthTimeoutMS = "100000"
+)
+
 func codexCommandAuth(ctx context.Context, p *providers.Provider) (string, error) {
 	args, err := p.CredentialCommand(ctx, p.Headers[proxy.AgentHeader] != "")
 	if err != nil {
 		return "", err
+	}
+	timeout := codexAuthTimeoutMS
+	if ctx.Value(codexFileAuthKey{}) != nil {
+		timeout = codexFileAuthTimeoutMS
 	}
 	bin, args := args[0], args[1:]
 	quoted := make([]string, len(args))
@@ -296,7 +309,7 @@ func codexCommandAuth(ctx context.Context, p *providers.Provider) (string, error
 	}
 	return agentconfig.TOMLInline([][2]string{
 		{"command", agentconfig.TOMLQuote(bin)}, {"args", "[" + strings.Join(quoted, ", ") + "]"},
-		{"refresh_interval_ms", "300000"}, {"timeout_ms", "15000"},
+		{"refresh_interval_ms", "300000"}, {"timeout_ms", timeout},
 	}), nil
 }
 

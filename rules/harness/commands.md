@@ -38,7 +38,7 @@ Moved from the README: install options, setup, agent and utility commands, the s
 claude-code configure                 # interactive menu: agents, tools (databricks, tailscale, web search), settings
                                       # (secrets, routing, environment, seed agents); Submit seals keys
 claude-code configure models          # one page (provider|models|agents|github|remote|codex|routing|databricks)
-claude-code configure codex           # codex effort and verbosity (vault)
+claude-code configure codex           # codex effort, verbosity, config_route (vault)
 claude-code configure --check         # report only; exit 1 if anything is unset
 claude-code configure --restore [--agents|--agent a]   # reset settings.json to the template (backup first) + agent configs
 claude-code configure --revert [--agent a,b]        # restore agent CLI configs from backup

@@ -317,3 +317,42 @@ func TestOverlayEffortAcceptsMinimalAndRejectsMax(t *testing.T) {
 		t.Error("max accepted")
 	}
 }
+
+func TestConfigRoutePreferenceRoundTrip(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", routeRows)
+	set := func(v string) error {
+		return UpdateCodexPreferences(func(p map[string]string) map[string]string {
+			if v == "" {
+				delete(p, extraConfigRoute)
+			} else {
+				p[extraConfigRoute] = v
+			}
+			return p
+		})
+	}
+	if err := set("qa"); err != nil {
+		t.Fatal(err)
+	}
+	prefs, err := LoadCodexPreferences()
+	if err != nil || prefs[extraConfigRoute] != "qa" || vault.GetAgentRecord("codex").Extras[extraConfigRoute] != "qa" {
+		t.Fatalf("saved route: prefs %v, err %v", prefs, err)
+	}
+	if out, err := patchCodexSettings("", prefs); err != nil || strings.Contains(out, extraConfigRoute) {
+		t.Fatalf("config_route is record-only, but config.toml got %q (err %v)", out, err)
+	}
+	assertRouteRefusedAndUnset(t, set)
+}
+
+func assertRouteRefusedAndUnset(t *testing.T, set func(string) error) {
+	t.Helper()
+	if err := set("nosuch"); err == nil || !strings.Contains(err.Error(), "want one of session, databricks, dev, qa") {
+		t.Fatalf("bad route err = %v, want the valid values named", err)
+	}
+	if got := vault.GetAgentRecord("codex").Extras[extraConfigRoute]; got != "qa" {
+		t.Fatalf("a refused value changed the record to %q", got)
+	}
+	if err := set(""); err != nil || vault.GetAgentRecord("codex").Extras[extraConfigRoute] != "" {
+		t.Fatalf("unset left the route: %v", err)
+	}
+}

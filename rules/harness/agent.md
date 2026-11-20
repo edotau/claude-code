@@ -18,6 +18,10 @@ paths:
 - Codex pins live in the vault codex agent record and apply to `$CODEX_HOME/config.toml`; snapshots and baseline are
   vault-encrypted (`settings_backups`, last 5, excluded from exports). Provider config, hook trust and unknown native
   keys are preserved; an unavailable vault key aborts changed writes.
+- The file's route follows the session profile unless the codex record's `config_route` (`session` | `databricks` | a
+  Databricks profile; `configure codex` or `configure agents codex config_route=<r>`) pins it. A changed provider, model
+  or catalog prints a restart notice (ChatGPT app, Codex app-server); the file's helper `timeout_ms` is 100000 (`-c`
+  stays 15000).
 - Hooks rendered into `~/.codex` carry `HARNESS_HOOK_AGENT=codex`; any `HARNESS_HOOK_*` prefix is harness-owned on
   re-render.
 

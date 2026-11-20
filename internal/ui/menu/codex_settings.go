@@ -54,7 +54,7 @@ func reportCodexSettings(d *dialog, ov, live map[string]string) bool {
 	}
 	for _, field := range codex.CodexFields() {
 		value, source := codexPreferenceValue(field.Key, ov, live)
-		if saved, exists := ov[field.Key]; exists && live[field.Key] != saved {
+		if saved, exists := ov[field.Key]; exists && !field.Local && live[field.Key] != saved {
 			source += " · live differs"
 		}
 		d.printf("%s  %s  %s\n", field.Key, value, source)

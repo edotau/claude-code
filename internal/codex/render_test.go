@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -599,5 +600,112 @@ func TestCodexRenderModelLeavesOtherRowsAlone(t *testing.T) {
 	var out bytes.Buffer
 	if got := codexRenderModel(context.Background(), reg, target, &out); got.Model != target.Model || out.Len() != 0 {
 		t.Fatalf("non-Databricks target changed: %q %q", got.Model, out.String())
+	}
+}
+
+const routeRows = `{"default":"ultra","providers":{"databricks":{` +
+	`"dev":{"preset":"databricks","host":"https://zq1.example.test","auth":{"type":"key","command":"echo zq"}},` +
+	`"qa":{"preset":"databricks","host":"https://zq2.example.test","auth":{"type":"key","command":"echo zq"}}}}}`
+
+// routeFixture is a hermetic home whose session profile (ultra) cannot serve codex, beside two Databricks rows.
+func routeFixture(t *testing.T, route string) (string, *providers.Registry, providers.Selection) {
+	t.Helper()
+	home := agenttest.Scratch(t)
+	oldMint := agent.MintSession
+	agent.MintSession = func(context.Context, []string, int) (string, error) { return "zqtoken", nil }
+	t.Cleanup(func() { agent.MintSession = oldMint })
+	vaulttest.Put(t, vault.Overlay, "providers", routeRows)
+	rec := vault.AgentRecord{}
+	if route != "" {
+		rec.Extras = map[string]string{extraConfigRoute: route}
+	}
+	if err := vault.SetAgentRecord("codex", rec); err != nil {
+		t.Fatal(err)
+	}
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sel, err := providers.Select(reg, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return home, reg, sel
+}
+
+func TestCodexConfigRouteWritesDatabricksBlockOnAnthropicSession(t *testing.T) {
+	_, reg, sel := routeFixture(t, "qa")
+	var out bytes.Buffer
+	got, err := codexProviderConfig(context.Background(), reg, sel, "", &out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`model_provider = "claude-code"`, "[model_providers.claude-code]",
+		`name = "qa"`, "timeout_ms = 100000", "refresh_interval_ms = 300000"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("block lacks %q:\n%s\n%s", want, got, out.String())
+		}
+	}
+	if m := regexp.MustCompile(`command = "([^"]+)"`).FindStringSubmatch(got); m == nil || !filepath.IsAbs(m[1]) {
+		t.Errorf("helper command must be an absolute path, got %v", m)
+	}
+}
+
+func TestCodexConfigRouteDatabricksPicksPoolProfile(t *testing.T) {
+	_, reg, sel := routeFixture(t, "databricks")
+	var out bytes.Buffer
+	got, err := codexProviderConfig(context.Background(), reg, sel, "", &out)
+	if err != nil || !strings.Contains(got, "[model_providers.claude-code]") || !strings.Contains(out.String(), "config_route databricks") {
+		t.Fatalf("pool route: err %v\n%s\n%s", err, got, out.String())
+	}
+}
+
+func TestCodexConfigRouteUnsetKeepsSessionResult(t *testing.T) {
+	for _, route := range []string{"", "session"} {
+		_, reg, sel := routeFixture(t, route)
+		var out bytes.Buffer
+		got, err := codexProviderConfig(context.Background(), reg, sel, "", &out)
+		if err != nil || strings.Contains(got, "model_providers") || !strings.Contains(got, "approval_policy") ||
+			!strings.Contains(out.String(), "runs on codex's own login; writing approval/sandbox keys only") {
+			t.Errorf("route %q: err %v, want approval keys and no provider block:\n%s\n%s", route, err, got, out.String())
+		}
+	}
+}
+
+func TestCodexConfigRouteBadValueWritesNothing(t *testing.T) {
+	home, _, _ := routeFixture(t, "nosuch")
+	var out bytes.Buffer
+	_, err := agent.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}})
+	if err == nil || !strings.Contains(err.Error(), "want one of session, databricks, dev, qa") {
+		t.Fatalf("err = %v, want the valid values named", err)
+	}
+	agenttest.AssertNotExist(t, "a bad config_route must write nothing", filepath.Join(home, ".codex"))
+}
+
+func TestCodexLaunchAuthKeepsShortTimeout(t *testing.T) {
+	_, reg, sel := routeFixture(t, "qa")
+	target := providers.Target{Provider: reg.Providers["qa"], Model: sel.Aliases[models.Opus].Model}
+	target = codexRenderModel(context.Background(), reg, target, io.Discard)
+	_, argv, err := codexSchema().Configure(context.Background(), target)
+	if err != nil || !strings.Contains(strings.Join(argv, " "), "timeout_ms = 15000") {
+		t.Fatalf("launch argv must keep timeout_ms = 15000: %v\n%v", err, argv)
+	}
+}
+
+func TestCodexRestartNoticeOnlyOnRouteChange(t *testing.T) {
+	home, _, _ := routeFixture(t, "qa")
+	render := func() string {
+		var out bytes.Buffer
+		if _, err := agent.RenderConfigs(agentconfig.RenderOptions{Home: home, ForceHomes: true, Out: &out, Agents: []string{"codex"}}); err != nil {
+			t.Fatal(err)
+		}
+		return out.String()
+	}
+	const notice = "restart a running ChatGPT app or Codex app-server"
+	if first := render(); !strings.Contains(first, notice) {
+		t.Fatalf("first render changes the provider, want the restart notice:\n%s", first)
+	}
+	if second := render(); strings.Contains(second, notice) {
+		t.Fatalf("unchanged file must not print the notice:\n%s", second)
 	}
 }

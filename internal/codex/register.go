@@ -30,14 +30,16 @@ var row = agent.Schema{Name: "codex", CLI: agent.CLI{
 	Events:       []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventToolResult, wire.EventResult, wire.EventError},
 	ResumeFormat: "codex resume %s", ModelsProvider: "openai", LoginArgv: []string{"codex", "login"},
 	ConfigureHint: "run `codex login` (ChatGPT) or `claude-code configure` → codex → profile",
-	Extras:        map[string][]string{extraApprovalPolicy: nil, extraSandboxMode: nil, extraVerbosity: codexVerbosities},
+	Extras: map[string][]string{extraApprovalPolicy: nil, extraSandboxMode: nil, extraVerbosity: codexVerbosities,
+		extraConfigRoute: nil},
 }}
 
-// The record extras codex reads: approval_policy and sandbox_mode (free-form) and model_verbosity in config.toml.
+// The record extras codex reads: approval_policy and sandbox_mode (free-form), model_verbosity and config_route.
 const (
 	extraApprovalPolicy = "approvalPolicy"
 	extraSandboxMode    = "sandboxMode"
 	extraVerbosity      = "model_verbosity"
+	extraConfigRoute    = "config_route"
 )
 
 var codexVerbosities = []string{"low", "medium", "high"}
