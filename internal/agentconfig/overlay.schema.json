@@ -1,0 +1,159 @@
+{
+  "$id": "claude-code/overlay.schema.json",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "identity"
+        ]
+      },
+      "then": {
+        "properties": {
+          "provider": {
+            "const": "databricks"
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "account"
+        ]
+      },
+      "then": {
+        "properties": {
+          "provider": {
+            "const": "github"
+          }
+        }
+      }
+    }
+  ],
+  "dependentRequired": {
+    "account": [
+      "provider"
+    ],
+    "identity": [
+      "provider"
+    ],
+    "profile": [
+      "provider"
+    ]
+  },
+  "not": {
+    "required": [
+      "host",
+      "remote"
+    ]
+  },
+  "properties": {
+    "account": {
+      "minLength": 1,
+      "type": "string"
+    },
+    "budgetCredits": {
+      "minimum": 30,
+      "type": "integer"
+    },
+    "budgetUSD": {
+      "exclusiveMinimum": 0,
+      "type": "number"
+    },
+    "cloud": {
+      "type": "boolean"
+    },
+    "codexNetwork": {
+      "type": "boolean"
+    },
+    "effort": {
+      "enum": [
+        "low",
+        "medium",
+        "high",
+        "xhigh",
+        "max"
+      ]
+    },
+    "fallback": {
+      "enum": [
+        "none",
+        "pin",
+        "agents",
+        "all"
+      ]
+    },
+    "host": {
+      "type": "string"
+    },
+    "identity": {
+      "enum": [
+        "auto",
+        "user",
+        "sp"
+      ]
+    },
+    "keep": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    },
+    "maxChildren": {
+      "type": "integer"
+    },
+    "maxTreeTokens": {
+      "type": "integer"
+    },
+    "model": {
+      "description": "plain id or alias; no \u003cprofile\u003e: prefix",
+      "minLength": 1,
+      "type": "string"
+    },
+    "profile": {
+      "description": "registry row or auto",
+      "pattern": "^[^:\\s]+$",
+      "type": "string"
+    },
+    "provider": {
+      "enum": [
+        "anthropic",
+        "databricks",
+        "github",
+        "google",
+        "openai"
+      ]
+    },
+    "remote": {
+      "type": "string"
+    },
+    "schema": {
+      "maximum": 1,
+      "minimum": 0,
+      "type": "integer"
+    },
+    "set": {
+      "additionalProperties": {
+        "type": "string"
+      },
+      "type": "object"
+    },
+    "tokenCommand": {
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1,
+      "type": "array"
+    },
+    "unset": {
+      "items": {
+        "type": "string"
+      },
+      "type": "array"
+    }
+  },
+  "title": "claude-code dispatch overlay",
+  "type": "object"
+}
