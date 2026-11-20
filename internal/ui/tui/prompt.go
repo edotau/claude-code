@@ -107,6 +107,16 @@ func StdinIsTerminal() bool { return proc.IsTerminalFD(int(os.Stdin.Fd())) }
 // StdoutIsTerminal reports whether stdout is a real terminal (a /dev/null char device is not).
 func StdoutIsTerminal() bool { return proc.IsTerminalFD(int(os.Stdout.Fd())) }
 
+// Interactive reports whether prompts may run: stdin and stdout are terminals, outside a dispatch and CI.
+func Interactive() bool {
+	for _, k := range []string{proc.DispatchIDEnv, proc.DispatchDepthEnv, "CI"} {
+		if os.Getenv(k) != "" {
+			return false
+		}
+	}
+	return StdinIsTerminal() && StdoutIsTerminal()
+}
+
 // confirmKey maps one keypress to an answer: y yes; n, Esc, q or Ctrl-C no; Enter the default; done=false waits.
 func confirmKey(k Key, def bool) (answer, done bool) {
 	switch {

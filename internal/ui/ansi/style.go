@@ -31,10 +31,13 @@ const (
 	Dim    = "\x1b[2m"
 )
 
-// Enabled follows https://no-color.org: color only when w is a terminal and NO_COLOR is unset.
+// Enabled follows https://no-color.org: color only when w is a terminal; NO_COLOR or TERM=dumb turn it off, FORCE_COLOR on.
 func Enabled(w io.Writer) bool {
-	if os.Getenv("NO_COLOR") != "" {
+	if os.Getenv("NO_COLOR") != "" || os.Getenv("TERM") == "dumb" {
 		return false
+	}
+	if os.Getenv("FORCE_COLOR") != "" && os.Getenv("FORCE_COLOR") != "0" {
+		return true
 	}
 	f, ok := w.(*os.File)
 	return ok && proc.IsTerminal(f)

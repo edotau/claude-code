@@ -12,7 +12,6 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/parallel"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/ansi"
 	"github.com/edotau/claude-code/internal/ui/tui"
@@ -232,7 +231,7 @@ func yes(br *bufio.Reader) bool {
 
 // confirmTerminal asks question by keypress on a terminal (Enter takes def, Esc is no); non-terminal runs proceed.
 func confirmTerminal(question string, def bool) bool {
-	if !proc.IsTerminal(os.Stdin) {
+	if !tui.Interactive() {
 		return true
 	}
 	return tui.ConfirmKey(question+"?", def)

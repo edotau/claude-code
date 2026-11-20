@@ -36,7 +36,7 @@ func Restore(w io.Writer, agents, out string, forceHomes bool) error {
 // confirmAndRender renders the agent configs, asking before an overwrite on a real terminal.
 func confirmAndRender(w io.Writer, agents string, forceHomes bool) error {
 	opts := agentconfig.RenderOptions{Agents: textutil.SplitCSV(agents), Out: w, ForceHomes: forceHomes}
-	if tui.StdinIsTerminal() && tui.StdoutIsTerminal() {
+	if tui.Interactive() {
 		opts.Confirm = func(path string, lost []string) bool {
 			return tui.ConfirmKey(fmt.Sprintf("overwrite %s?", path), true)
 		}

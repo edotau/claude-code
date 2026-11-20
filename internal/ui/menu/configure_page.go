@@ -507,7 +507,7 @@ func confirmLeave(n int, what string) bool {
 	return n > 0 && saveConfirmed(fmt.Sprintf("Save %d %s", n, what))
 }
 
-func isStdinTTY() bool { return proc.IsTerminal(os.Stdin) }
+func isStdinTTY() bool { return tui.Interactive() }
 
 // runModels is the `configure models` / "Models" row entry.
 func runModels(d *dialog) bool {

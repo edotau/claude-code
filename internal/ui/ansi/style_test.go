@@ -219,3 +219,22 @@ var statusRows = []string{
 	"codex: set up stopped at verify: 402 payment required\n",
 	"a" + SpanOK + "verified" + SpanEnd + " pinned " + SpanWarn + "not verified" + SpanEnd,
 }
+
+func TestEnabledEnv(t *testing.T) {
+	for _, c := range []struct {
+		noColor, term, force string
+		want                 bool
+	}{
+		{"", "xterm", "1", true},
+		{"", "dumb", "1", false},
+		{"1", "xterm", "1", false},
+		{"", "xterm", "0", false},
+	} {
+		t.Setenv("NO_COLOR", c.noColor)
+		t.Setenv("TERM", c.term)
+		t.Setenv("FORCE_COLOR", c.force)
+		if got := Enabled(&strings.Builder{}); got != c.want {
+			t.Errorf("%+v: Enabled = %v", c, got)
+		}
+	}
+}
