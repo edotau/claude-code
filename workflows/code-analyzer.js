@@ -82,7 +82,7 @@ const ranOnReworded = (ranOn) => /^(?:ran on )?(?:claude|codex|copilot|gemini|op
 const ranOnVerdict = (r) => {
   const ranOn = (r && r.ran_on) || ''
   const canon = /^ran on \S+ · .+ · fallback (?:none|from )/.test(ranOn)
-  const failed = /\b(?:unavailable|failed|blocked|no execution|not run)\b/i.test(ranOn)
+  const failed = /\b(?:unavailable|failed|blocked|no execution|not run)\b/i.test(ranOn.split(' · fallback ')[0])
   return { ranOn, canon, ok: !!(r && r.coworker === 'ok' && (canon || ranOnReworded(ranOn)) && !failed) }
 }
 // Unknown stage/field backstop only; value and route checks run in the dispatch-effort hook (workflowlint.go).
@@ -104,7 +104,7 @@ const stepFields = (v, d, o) => ({ who: v.agent !== undefined ? v.agent : 'claud
 const stepSame = (_label, r) => r
 const claudeStage = (v, d, effort) => ({ agent: 'claude', ext: false, model: v.model !== undefined ? v.model : d.model || 'sonnet', effort,
   type: d.agentType ? { agentType: d.agentType } : {}, task: (p) => p, schema: (s) => s, done: stepSame, text: stepSame })
-const ST_EXT_RETRY = ' If a tool call is refused because auto mode cannot judge it right now (its classifier is unavailable), retry that same call up to 3 times before reporting BLOCKED.'
+const ST_EXT_RETRY = ' Set the Bash timeout to 600000 ms and pass --timeout 9m to agents ask. If a tool call is refused because auto mode cannot judge it right now (its classifier is unavailable), retry that same call up to 3 times before reporting BLOCKED.'
 const ST_EXT_DONE = ' Copy the envelope dispatch id into dispatch_id and run `claude-code agents diff --verify <id>` with that id; verification failure means BLOCKED. The external agent does the whole task; never do it yourself or grade/answer in-context after a probe call. Copy the envelope\'s ran_on verbatim into ran_on, the length of its hops array in hops, and set coworker "ok". If every hop failed'
 const ST_EXT_FAIL = ' (429, auth, no route), set coworker "BLOCKED", coworker_error to the exact error, and the other fields to their empty values.\n\nTASK:\n'
 const EXT_F = { dispatch_id: { type: 'string' }, ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
@@ -366,6 +366,11 @@ const stTestBrief = (ctx, o, impl, tdirs, list) => ctx.rules + ' Fixes just land
     'Run the tests of ' + tdirs.join(', ') + ' and repair only the tests these fixes broke. Edit only *_test.go and testdata files directly in ' + tdirs.join(', ') + '; never another package\'s tests or shared fixtures (list any you would need in leftUndone). ' +
     'Write NO new test.' + ST_PROPOSE + ' Put "n/a" in callers.\nThe fixes:\n' + list
 const stFixDone = (impl) => !!(impl && (impl.status === 'done' || (impl.status === 'partial' && impl.seams && impl.seams.length && !(impl.leftUndone || []).length)))
+const stFixNote = (label, impl) => impl ? impl.status + ' — ' + impl.summary + (stList(impl, 'leftUndone').length ? '; left undone: ' + impl.leftUndone.join(', ') : '') : stWhy(label, 'no result')
+function stFixSeams(ctx, pkg, impl) {
+  for (const s of stList(impl, 'seams')) ST_SEAMS.push({ pkg, file: stRel(ctx, s.file), need: s.need })
+  for (const file of stList(impl, 'leftUndone')) ST_SEAMS.push({ pkg, file: stRel(ctx, file), need: impl.summary || 'unfinished fix' })
+}
 const stTdirs = (ctx, o, impl) => [...new Set([o.pkg, ...stList(impl, 'files').map((f) => stDir(stRel(ctx, f))).filter((d) => d === o.pkg || d.startsWith(o.pkg + '/'))])]
 const stFixFiles = (ctx, impl, b, test) => [...new Set([...stList(impl, 'files'), ...stList(b.shrink, 'files'), ...stList(test, 'files')].map((f) => stRel(ctx, f)))]
 // stageFix: one implementer over confirmed findings in one package, measured and held to ctx.lineBudget, then the Test stage.
@@ -376,7 +381,8 @@ async function stageFix(ctx, o) {
   const pre = await stSnap(ctx, 'pre:' + o.label, at)
   const impl = await stageAsk(ctx, ctx.S.fix, 'fix:' + o.label, 'Fix', stFixBrief(ctx, o, own, list), ST_FIXW, o.pin)
   const done = stFixDone(impl)
-  for (const s of stList(impl, 'seams')) ST_SEAMS.push({ pkg: o.pkg, file: stRel(ctx, s.file), need: s.need })
+  stFixSeams(ctx, o.pkg, impl)
+  log(o.pkg + ': ' + stFixNote('fix:' + o.label, impl))
   const b = await stBudget(ctx, o, { task: own + '\n' + list, done, pre, at })
   // the owner's test rule: repair what the edits broke, write nothing new, propose the rest with a reason and a runtime
   const test = done && o.tests !== false ? await stageAsk(ctx, ctx.S.test, 'test:' + o.label, 'Test', stTestBrief(ctx, o, impl, stTdirs(ctx, o, impl), list), ST_TESTW) : null
@@ -426,7 +432,7 @@ async function stHeld(ctx, P, k, r) {
   P.snap = s
   const net = d.prod.net + d.test.net
   const out = r && d.measured && net > 0 ? { ...r, status: 'partial', measured: net } : r ? { ...r, measured: d.measured ? net : null } : r
-  P.lines.push(k + ': ' + (out ? out.applied.length + ' applied, ' + out.flagged.length + ' flagged, measured Δ ' + (d.measured ? net : '?') + ' lines (' + out.status + (net > 0 ? ': net must be ≤ 0' : '') + ')' : 'agent returned nothing'))
+  P.lines.push(k + ': ' + (out ? out.applied.length + ' applied, ' + out.flagged.length + ' flagged, measured Δ ' + (d.measured ? net : '?') + ' lines (' + out.status + (net > 0 ? ': net must be ≤ 0' : '') + ')' : stWhy(k, 'agent returned nothing')))
   return out
 }
 const stDedupeBrief = (ctx, P) => ctx.rules + ' Never edit packages red before polish: ' + P.preRed.join(', ') + '. Cross-package dedupe, the reuse angle of ' + ctx.cwd + '/skills/simplify/SKILL.md.' + P.scope +
@@ -443,7 +449,7 @@ async function stReview(ctx, P) {
     '/skills/evaluate-code/SKILL.md correctness and contract lenses (wrong results, broken invariants, changed behavior callers rely on, errors dropped).' + P.scope +
     ' Each finding: file, line, symbol, one-line symptom, severity. Return {findings: []} when clean.', ST_REVF)
   const findings = rv ? rv.findings.map((f) => ({ ...f, file: stRel(ctx, f.file) })) : []
-  P.lines.push('review: ' + (rv ? findings.length + ' finding(s)' : 'agent returned nothing'))
+  P.lines.push('review: ' + (rv ? findings.length + ' finding(s)' : stWhy('review', 'agent returned nothing')))
   return { rv, findings }
 }
 // a finding outside the diff's packages has no Fix-all owner: unresolved, and MEDIUM+ keeps the polish red
@@ -898,11 +904,13 @@ for (let round = 1; round <= ROUNDS; round++) {
   const unverified = []
   let refuteCalls = 0
   let auditorCount = 0
+  const missingAudits = new Set()
+  let missingRefutes = 0, missingUnits = 0
   const findStage = u => {
     auditorCount++
     return auditGate(() => ag(S.audit.task(findPrompt(u)),
       { label: `find:${round}:${u.key}`, phase: 'Find', schema: S.audit.schema(FINDINGS_SCHEMA), ...S.audit.type, model: routeModel((RAW.audit && RAW.audit.model) || u.dim.model || S.audit.model), effort: AUDIT_EFFORT || u.dim.effort || 'low' }
-    )).then(r => S.audit.done(`find:${round}:${u.key}`, r))
+    )).catch(() => null).then(r => S.audit.done(`find:${round}:${u.key}`, r)).then(r => { if (!r) missingAudits.add(u.key); return r })
   }
   const refuteStage = (found, u) => {
     const fresh = (found ? found.findings : []).filter(f => {
@@ -915,10 +923,10 @@ for (let round = 1; round <= ROUNDS; round++) {
       refuteCalls++
       const brief = refuteBrief(pkg, fs)
       const label = `refute:${round}:${pkg.split('/').pop()}:${bi}`
-      return refuteGate(() => ag(S.refute.task(brief), { label, phase: 'Refute', schema: S.refute.schema(VERDICTS_SCHEMA), ...S.refute.type, model: routeModel(S.refute.model), effort: S.refute.effort })).then(v => judgeBatch(fs, S.refute.done(label, v), u, refuted, unverified))
+      return refuteGate(() => ag(S.refute.task(brief), { label, phase: 'Refute', schema: S.refute.schema(VERDICTS_SCHEMA), ...S.refute.type, model: routeModel(S.refute.model), effort: S.refute.effort })).catch(() => null).then(v => S.refute.done(label, v)).then(v => { if (!v) missingRefutes++; return judgeBatch(fs, v, u, refuted, unverified) })
     })).then(groups => groups.flat())
   }
-  const collect = results => results.filter(Boolean).flat().filter(Boolean)
+  const collect = results => { missingUnits += results.filter(r => !r).length; return results.filter(Boolean).flat().filter(Boolean) }
   const confirmed = PRE ? PRE.map(norm) : collect(await pipeline(mkUnits(primaryDims, chunks, ''), findStage, refuteStage))
   if (!PRE && hitDims.length) {
     const flagged = new Set(confirmed.map(f => relPath(f.file)))
@@ -934,12 +942,14 @@ for (let round = 1; round <= ROUNDS; round++) {
   const metrics = { scopers: PRE ? 0 : GROUPS.length, chunks: chunks.length, auditors: auditorCount, refuters: refuteCalls, confirmed: confirmed.length, refuted: refuted.length, deferred: deferred.length }
   log(`round ${round}/${ROUNDS}: merged ${mergedCount}, confirmed ${confirmed.length}, refuted ${refuted.length}, below the fix floor ${deferred.length}, unverified ${unverified.length}`)
 
-  const base = { confirmed, refuted, unverified, deferred, round }
+  const starvedUnits = missingAudits.size + missingRefutes + missingUnits
+  const base = { confirmed, refuted, unverified, deferred, round, starved: { audits: [...missingAudits], refutes: missingRefutes, units: missingUnits } }
   // More than half of a stage's external legs BLOCKED means the round saw too little to call it clean.
   const legs = p => COWORKERS.filter(c => c.label.startsWith(p))
   const starved = [['audit', `find:${round}:`], ['refute', `refute:${round}:`]].map(([st, p]) => [st, legs(p)])
     .filter(([, ls]) => ls.filter(c => c.status === 'BLOCKED').length * 2 > ls.length)
-  if (starved.length) {
+  if (starved.length || starvedUnits) {
+    if (starvedUnits) decisions.push(`round ${round}: ${missingAudits.size} audit chunk(s), ${missingRefutes} refute batch(es), ${missingUnits} pipeline unit(s) starved — exit blocked, not dry`)
     for (const [st, ls] of starved) decisions.push(`round ${round}: ${st} ${ls.filter(c => c.status === 'BLOCKED').length}/${ls.length} external legs BLOCKED — exit blocked, not dry`)
     STARVED = true // coverage gap: still fix what was confirmed, but never report the run clean
     if (!FIX || !toFix.length) { rounds.push({ ...base, fixed: [], gate: null, exit: 'blocked', metrics }); break }
@@ -1049,7 +1059,7 @@ const red = [...new Set([...stGateRed([...ST_GATES.map(g => g.dir), ...rounds.fl
 const lines = stLines(ST_LINES)
 if (ST_OVER.length) decisions.push(`over line budget ${LINE_BUDGET}: ${ST_OVER.map(o => o.pkg + ' net ' + o.net).join(', ')}`)
 for (const r of rounds) {
-  for (const x of r.fixed || []) decisions.push(`${x.notDone ? 'fix NOT done (' + (x.impl ? x.impl.status : 'no result') + ') for ' : 'fixed '}${x.findings || 0} finding(s) in ${x.package}` +
+  for (const x of r.fixed || []) decisions.push(`${x.notDone ? 'fix NOT done for ' : 'fixed '}${x.findings || 0} finding(s) in ${x.package}: ` + stFixNote('fix:' + r.round + ':' + x.package, x.impl) +
     (x.testNotDone ? ` — test stage ${x.test ? x.test.status : 'returned nothing'}` : ''))
   if (r.gate) decisions.push(`round ${r.round}: gate ${r.gate.exit} (${r.gate.gateRuns} run(s), exit code ${r.gate.exitCode})`)
 }
@@ -1073,6 +1083,6 @@ return {
   route: 'code-analyzer', packages: PKG_COUNT, merged: totalMerged, confirmed: allConfirmed, // every round's, not only the last re-audit's
   dropped: rounds.flatMap(r => (r.refuted || []).map(f => ({ file: relPath(f.file), line: f.line, symptom: f.title }))),
   unverified: unverifiedAll, fixed: fixedAll, red, decisions, report, partition: partitionOut, coworkers: COWORKERS,
-  lines, proposedTests: ST_PROPOSED, over: ST_OVER, gates: ST_GATES.map(withRuns),
+  lines, proposedTests: ST_PROPOSED, over: ST_OVER, gates: ST_GATES.map(withRuns), seams: ST_SEAMS,
   plan: planOut, planPath: lastPart ? lastPart.planPath || '' : '', findingsPath: lastPart ? lastPart.findingsPath || '' : '',
 }

@@ -40,7 +40,7 @@ const ranOnReworded = (ranOn) => /^(?:ran on )?(?:claude|codex|copilot|gemini|op
 const ranOnVerdict = (r) => {
   const ranOn = (r && r.ran_on) || ''
   const canon = /^ran on \S+ · .+ · fallback (?:none|from )/.test(ranOn)
-  const failed = /\b(?:unavailable|failed|blocked|no execution|not run)\b/i.test(ranOn)
+  const failed = /\b(?:unavailable|failed|blocked|no execution|not run)\b/i.test(ranOn.split(' · fallback ')[0])
   return { ranOn, canon, ok: !!(r && r.coworker === 'ok' && (canon || ranOnReworded(ranOn)) && !failed) }
 }
 // Unknown stage/field backstop only; value and route checks run in the dispatch-effort hook (workflowlint.go).
@@ -62,7 +62,7 @@ const stepFields = (v, d, o) => ({ who: v.agent !== undefined ? v.agent : 'claud
 const stepSame = (_label, r) => r
 const claudeStage = (v, d, effort) => ({ agent: 'claude', ext: false, model: v.model !== undefined ? v.model : d.model || 'sonnet', effort,
   type: d.agentType ? { agentType: d.agentType } : {}, task: (p) => p, schema: (s) => s, done: stepSame, text: stepSame })
-const ST_EXT_RETRY = ' If a tool call is refused because auto mode cannot judge it right now (its classifier is unavailable), retry that same call up to 3 times before reporting BLOCKED.'
+const ST_EXT_RETRY = ' Set the Bash timeout to 600000 ms and pass --timeout 9m to agents ask. If a tool call is refused because auto mode cannot judge it right now (its classifier is unavailable), retry that same call up to 3 times before reporting BLOCKED.'
 const ST_EXT_DONE = ' Copy the envelope dispatch id into dispatch_id and run `claude-code agents diff --verify <id>` with that id; verification failure means BLOCKED. The external agent does the whole task; never do it yourself or grade/answer in-context after a probe call. Copy the envelope\'s ran_on verbatim into ran_on, the length of its hops array in hops, and set coworker "ok". If every hop failed'
 const ST_EXT_FAIL = ' (429, auth, no route), set coworker "BLOCKED", coworker_error to the exact error, and the other fields to their empty values.\n\nTASK:\n'
 const EXT_F = { dispatch_id: { type: 'string' }, ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }

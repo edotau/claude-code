@@ -24,7 +24,7 @@ const ranOnReworded = (ranOn) => /^(?:ran on )?(?:claude|codex|copilot|gemini|op
 const ranOnVerdict = (r) => {
   const ranOn = (r && r.ran_on) || ''
   const canon = /^ran on \S+ · .+ · fallback (?:none|from )/.test(ranOn)
-  const failed = /\b(?:unavailable|failed|blocked|no execution|not run)\b/i.test(ranOn)
+  const failed = /\b(?:unavailable|failed|blocked|no execution|not run)\b/i.test(ranOn.split(' · fallback ')[0])
   return { ranOn, canon, ok: !!(r && r.coworker === 'ok' && (canon || ranOnReworded(ranOn)) && !failed) }
 }
 // Unknown stage/field backstop only; value and route checks run in the dispatch-effort hook (workflowlint.go).
@@ -46,7 +46,7 @@ const stepFields = (v, d, o) => ({ who: v.agent !== undefined ? v.agent : 'claud
 const stepSame = (_label, r) => r
 const claudeStage = (v, d, effort) => ({ agent: 'claude', ext: false, model: v.model !== undefined ? v.model : d.model || 'sonnet', effort,
   type: d.agentType ? { agentType: d.agentType } : {}, task: (p) => p, schema: (s) => s, done: stepSame, text: stepSame })
-const ST_EXT_RETRY = ' If a tool call is refused because auto mode cannot judge it right now (its classifier is unavailable), retry that same call up to 3 times before reporting BLOCKED.'
+const ST_EXT_RETRY = ' Set the Bash timeout to 600000 ms and pass --timeout 9m to agents ask. If a tool call is refused because auto mode cannot judge it right now (its classifier is unavailable), retry that same call up to 3 times before reporting BLOCKED.'
 const ST_EXT_DONE = ' Copy the envelope dispatch id into dispatch_id and run `claude-code agents diff --verify <id>` with that id; verification failure means BLOCKED. The external agent does the whole task; never do it yourself or grade/answer in-context after a probe call. Copy the envelope\'s ran_on verbatim into ran_on, the length of its hops array in hops, and set coworker "ok". If every hop failed'
 const ST_EXT_FAIL = ' (429, auth, no route), set coworker "BLOCKED", coworker_error to the exact error, and the other fields to their empty values.\n\nTASK:\n'
 const EXT_F = { dispatch_id: { type: 'string' }, ran_on: { type: 'string' }, hops: { type: 'integer' }, coworker: { type: 'string', enum: ['ok', 'BLOCKED'] }, coworker_error: { type: 'string' } }
@@ -308,6 +308,11 @@ const stTestBrief = (ctx, o, impl, tdirs, list) => ctx.rules + ' Fixes just land
     'Run the tests of ' + tdirs.join(', ') + ' and repair only the tests these fixes broke. Edit only *_test.go and testdata files directly in ' + tdirs.join(', ') + '; never another package\'s tests or shared fixtures (list any you would need in leftUndone). ' +
     'Write NO new test.' + ST_PROPOSE + ' Put "n/a" in callers.\nThe fixes:\n' + list
 const stFixDone = (impl) => !!(impl && (impl.status === 'done' || (impl.status === 'partial' && impl.seams && impl.seams.length && !(impl.leftUndone || []).length)))
+const stFixNote = (label, impl) => impl ? impl.status + ' — ' + impl.summary + (stList(impl, 'leftUndone').length ? '; left undone: ' + impl.leftUndone.join(', ') : '') : stWhy(label, 'no result')
+function stFixSeams(ctx, pkg, impl) {
+  for (const s of stList(impl, 'seams')) ST_SEAMS.push({ pkg, file: stRel(ctx, s.file), need: s.need })
+  for (const file of stList(impl, 'leftUndone')) ST_SEAMS.push({ pkg, file: stRel(ctx, file), need: impl.summary || 'unfinished fix' })
+}
 const stTdirs = (ctx, o, impl) => [...new Set([o.pkg, ...stList(impl, 'files').map((f) => stDir(stRel(ctx, f))).filter((d) => d === o.pkg || d.startsWith(o.pkg + '/'))])]
 const stFixFiles = (ctx, impl, b, test) => [...new Set([...stList(impl, 'files'), ...stList(b.shrink, 'files'), ...stList(test, 'files')].map((f) => stRel(ctx, f)))]
 // stageFix: one implementer over confirmed findings in one package, measured and held to ctx.lineBudget, then the Test stage.
@@ -318,7 +323,8 @@ async function stageFix(ctx, o) {
   const pre = await stSnap(ctx, 'pre:' + o.label, at)
   const impl = await stageAsk(ctx, ctx.S.fix, 'fix:' + o.label, 'Fix', stFixBrief(ctx, o, own, list), ST_FIXW, o.pin)
   const done = stFixDone(impl)
-  for (const s of stList(impl, 'seams')) ST_SEAMS.push({ pkg: o.pkg, file: stRel(ctx, s.file), need: s.need })
+  stFixSeams(ctx, o.pkg, impl)
+  log(o.pkg + ': ' + stFixNote('fix:' + o.label, impl))
   const b = await stBudget(ctx, o, { task: own + '\n' + list, done, pre, at })
   // the owner's test rule: repair what the edits broke, write nothing new, propose the rest with a reason and a runtime
   const test = done && o.tests !== false ? await stageAsk(ctx, ctx.S.test, 'test:' + o.label, 'Test', stTestBrief(ctx, o, impl, stTdirs(ctx, o, impl), list), ST_TESTW) : null
@@ -368,7 +374,7 @@ async function stHeld(ctx, P, k, r) {
   P.snap = s
   const net = d.prod.net + d.test.net
   const out = r && d.measured && net > 0 ? { ...r, status: 'partial', measured: net } : r ? { ...r, measured: d.measured ? net : null } : r
-  P.lines.push(k + ': ' + (out ? out.applied.length + ' applied, ' + out.flagged.length + ' flagged, measured Δ ' + (d.measured ? net : '?') + ' lines (' + out.status + (net > 0 ? ': net must be ≤ 0' : '') + ')' : 'agent returned nothing'))
+  P.lines.push(k + ': ' + (out ? out.applied.length + ' applied, ' + out.flagged.length + ' flagged, measured Δ ' + (d.measured ? net : '?') + ' lines (' + out.status + (net > 0 ? ': net must be ≤ 0' : '') + ')' : stWhy(k, 'agent returned nothing')))
   return out
 }
 const stDedupeBrief = (ctx, P) => ctx.rules + ' Never edit packages red before polish: ' + P.preRed.join(', ') + '. Cross-package dedupe, the reuse angle of ' + ctx.cwd + '/skills/simplify/SKILL.md.' + P.scope +
@@ -385,7 +391,7 @@ async function stReview(ctx, P) {
     '/skills/evaluate-code/SKILL.md correctness and contract lenses (wrong results, broken invariants, changed behavior callers rely on, errors dropped).' + P.scope +
     ' Each finding: file, line, symbol, one-line symptom, severity. Return {findings: []} when clean.', ST_REVF)
   const findings = rv ? rv.findings.map((f) => ({ ...f, file: stRel(ctx, f.file) })) : []
-  P.lines.push('review: ' + (rv ? findings.length + ' finding(s)' : 'agent returned nothing'))
+  P.lines.push('review: ' + (rv ? findings.length + ' finding(s)' : stWhy('review', 'agent returned nothing')))
   return { rv, findings }
 }
 // a finding outside the diff's packages has no Fix-all owner: unresolved, and MEDIUM+ keeps the polish red
@@ -584,6 +590,10 @@ function knownReview(p) {
   log(p + ': fast path, ' + confirmed.length + ' named, find+rederive skipped')
   return { pkg: p, merged: confirmed.length, confirmed, dropped: [], unverified: [], fast: true }
 }
+const reviewStarved = (finds, unverified) => {
+  const blocked = finds.filter((r) => !r).length
+  return blocked || unverified.length ? blocked + '/' + finds.length + ' find legs, ' + unverified.length + ' rederive legs' : ''
+}
 async function review(p) {
   if (KNOWN[p]) return knownReview(p)
   const St = sOf(p)
@@ -591,15 +601,14 @@ async function review(p) {
     agent(
       St.find.task(ro(l.ask) + ' Package ' + p + ' (its own directory and nested packages).' + (FILES[p] ? ' Focus on these files: ' + FILES[p].join(', ') + '.' : '') + findAsk(l)),
       { phase: 'Find', label: 'find:' + l.key + ':' + p, schema: St.find.schema(FINDINGS), model: St.find.model, effort: St.find.effort, ...St.find.type },
-    ).then((r) => St.find.done('find:' + l.key + ':' + p, r))))
-  const merged = merge(finds.filter(Boolean).flatMap((r) => r.findings || []))
-  const blocked = finds.filter((r) => !r).length // BLOCKED or empty find legs: over half means the package was not really searched
+    ).catch(() => null).then((r) => St.find.done('find:' + l.key + ':' + p, r))))
+  const merged = merge(finds.filter(Boolean).flatMap((r) => stList(r, 'findings')))
   const judged = await parallel(merged.map((f, i) => () =>
     agent(
       St.rederive.task(ro(f.file + ' ' + (f.kind || '')) + ' A teammate says there is ' + (stCost(f) ? 'a ' + f.kind + ' cost' : 'a bug') + ' at ' + f.file + ':' + f.line + ' (' + f.symbol + ') with this symptom: ' + f.symptom +
         '. You have not seen their reasoning. ' + judge(f)),
       { phase: 'Rederive', label: 'rederive:' + p + ':' + i, schema: St.rederive.schema(REDERIVE), model: St.rederive.model, effort: St.rederive.effort, ...St.rederive.type },
-    ).then((r) => ({ f, r: St.rederive.done('rederive:' + p + ':' + i, r) }))))
+    ).catch(() => null).then((r) => ({ f, r: St.rederive.done('rederive:' + p + ':' + i, r) }))))
   // A null rederive (rate or API error) is unverified, never refuted.
   const ok = merged.map((f, i) => judged[i] ?? { f, r: null })
   const unverified = ok.filter((x) => !x.r).map((x) => ({ file: x.f.file, line: x.f.line, symptom: x.f.symptom }))
@@ -608,7 +617,7 @@ async function review(p) {
     .map((c, i) => c ?? { ...repro[i].f, kind: repro[i].f.kind || 'bug', severity: repro[i].r.severity, rederived: repro[i].r.scenario })
   const dropped = ok.filter((x) => x.r && !x.r.reproduced).map((x) => ({ file: x.f.file, line: x.f.line, symptom: x.f.symptom }))
   log(p + ': merged ' + merged.length + ', confirmed ' + confirmed.length + ', dropped ' + dropped.length + ', unverified ' + unverified.length)
-  return { pkg: p, merged: merged.length, confirmed, dropped, unverified, starved: blocked * 2 > finds.length ? blocked + '/' + finds.length : '' }
+  return { pkg: p, merged: merged.length, confirmed, dropped, unverified, starved: reviewStarved(finds, unverified) }
 }
 // Severity drift: finder and rederiver split across the fix line → one blind tie-breaker; the median of three wins.
 async function settleSeverity(p, x, i) {
@@ -637,14 +646,14 @@ async function repair(rev) {
   const p = rev.pkg
   const cs = rev.confirmed.filter((c) => ORDER[c.severity] <= MIN_FIX && inPkg(c.file, p))
   if (!FIX) return { ...rev, fixed: 0, decisions: [] }
-  if (!cs.length && rev.starved) return { ...rev, fixed: 0, decisions: [p + ': ' + rev.starved + ' find legs BLOCKED — red, not clean'] }
+  if (!cs.length && rev.starved) return { ...rev, fixed: 0, decisions: [p + ': ' + rev.starved + ' BLOCKED — red, not clean'] }
   if (!cs.length) return { ...rev, fixed: 0, decisions: ['no finding ' + ABOVE + ' in ' + p] }
   log(p + ': ' + cs.length + ' finding(s) ' + ABOVE + ', fixing now')
   const fx = await stageRepair(ctxOf(p), p, cs.map((c) => ({ ...c, scenario: c.rederived || c.scenario })), { label: p, gate: 'gate:' + p, scope: norm(p) })
   const { gate, green } = fx
   log(p + ': fixed ' + (fx.done ? cs.length : 0) + '/' + cs.length + ', gate ' + (green ? 'green' : 'red'))
   const decisions = [...(rev.fast ? ['fast path: skipped find+rederive, task names the bug'] : []),
-    (fx.done ? 'fixed ' : 'fix NOT done (' + (fx.impl ? fx.impl.status : 'no result') + ') for ') + cs.length + ' finding(s) in ' + p,
+    (fx.done ? 'fixed ' : 'fix NOT done for ') + cs.length + ' finding(s) in ' + p + ': ' + stFixNote('fix:' + p, fx.impl),
     gate ? 'gate ' + gate.exit + (gate.iterations ? ' after ' + gate.iterations + ' fix iteration(s)' : '') + ' in ' + p +
       (gate.residual.length ? ': ' + gate.residual.map((r) => r.text).join('; ') : '') : 'gate skipped in ' + p + ': no observed edits',
     ...(fx.done && !fx.testOk ? ['test stage not done (' + (fx.test ? fx.test.status : 'no result') + ') in ' + p] : [])]
@@ -659,7 +668,7 @@ const ALL = PKGS
 if (SLICE) PKGS = ALL.slice(0, SLICE)
 log('code-workers: ' + PKGS.length + ' package(s), est. ' + (PKGS.length * 6) + ' agents' + (FIX ? ' (+3 per fixed package, up to ' + (PKGS.length * 3) + ', + up to ' + MAX_ITER + ' gate fix iteration(s) each; polish once after the stream: +2-3, +3 per package with review findings)' : '') +
   (SLICE && ALL.length > SLICE ? '; slice=' + SLICE + ' skipped ' + (ALL.length - SLICE) + ': ' + ALL.slice(SLICE).join(', ') : ''))
-const results = (await pipeline(PKGS, review, repair)).filter(Boolean)
+const results = (await pipeline(PKGS, review, repair)).map((r, i) => r || { pkg: PKGS[i], merged: 0, confirmed: [], dropped: [], unverified: [], starved: 'threw', decisions: [PKGS[i] + ': pipeline failed — starved, not clean'] })
 // Findings cited outside their finder's package: fixed per owning dir after the stream, or under polish:false handed to the parent.
 const foreign = {}
 for (const r of results) for (const c of r.confirmed) if (!inPkg(c.file, r.pkg) && ORDER[c.severity] <= MIN_FIX) (foreign[dirOf(norm(c.file))] = foreign[dirOf(norm(c.file))] || []).push(c)
@@ -688,9 +697,9 @@ else if (FIX && POLISH && polishFiles.length) {
 } else if (FIX && polishFiles.length) decisions.push('polish skipped: polish=false')
 const files = [...new Set([...results.flatMap((r) => r.files || []), ...(polish ? polish.files : [])])].sort() // a partial fix's edits count too
 // red reads the last gate per dir: a stage's red stands unless a later gate proved the dir green; an ungated touched dir is red
-const selfRed = [...results.filter((r) => (r.attempted && !r.green) || (!r.attempted && r.starved)).map((r) => r.pkg), ...(polish ? polish.red : [])]
+const selfRed = [...results.filter((r) => r.attempted && !r.green).map((r) => r.pkg), ...(polish ? polish.red : [])]
 const touched = files.filter((f) => a.gate || /\.go$/.test(f)).map((f) => stDir(norm(f)))
-const red = [...new Set([...stGateRed([...ST_GATES.map((g) => g.dir), ...touched, ...selfRed]), ...(polish ? polish.hold : [])])].sort()
+const red = [...new Set([...stGateRed([...ST_GATES.map((g) => g.dir), ...touched, ...selfRed]), ...results.filter((r) => r.starved).map((r) => r.pkg), ...(polish ? polish.hold : [])])].sort()
 if (ST_OVER.length) decisions.push('over line budget ' + LINE_BUDGET + ': ' + ST_OVER.map((o) => o.pkg + ' net ' + o.net).join(', ') + (red.length ? '' : ' — exit review'))
 const lines = stLines(ST_LINES)
 const residual = red.flatMap((p) => {
