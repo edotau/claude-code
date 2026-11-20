@@ -1,6 +1,7 @@
 package usage
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"math"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/databricks/sqlexec"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -17,9 +19,11 @@ import (
 )
 
 const (
-	costEst    = "est."
-	costBilled = "billed"
-	costWidth  = 80
+	costEst       = "est."
+	costBilled    = "billed"
+	costWidth     = 80
+	budgetPercent = 100
+	budgetWarning = 80
 )
 
 // costRow is one profile+model line of the cost report; USD and DBUs are NaN when unknown (no price, SQL NULL).
@@ -191,6 +195,44 @@ func printCostSection(out io.Writer, rows []costRow, scope string) {
 		fmt.Fprint(out, table.Render(head, []int{14, 28}, body, costWidth))
 		fmt.Fprintln(out, costCaption(src, sub))
 	}
+}
+
+func printCostBudgets(out io.Writer) {
+	reg, err := loadCostRegistry()
+	if err != nil {
+		return
+	}
+	for _, profile := range providers.DatabricksProfiles(reg) {
+		budgets, err := databricks.ReadBudgetSpend(context.Background(), reg.Row(profile))
+		if err != nil {
+			continue
+		}
+		for _, budget := range budgets {
+			fmt.Fprintln(out, costBudgetLine(profile, budget))
+		}
+	}
+}
+
+func costBudgetLine(profile string, b databricks.BudgetSpend) string {
+	scope := "scope unspecified"
+	switch b.Scope {
+	case "ALERT_CONFIGURATION_SCOPE_TYPE_PER_USER":
+		scope = "per-user"
+	case "ALERT_CONFIGURATION_SCOPE_TYPE_WORKSPACE":
+		scope = "workspace"
+	}
+	period := "period unspecified"
+	switch b.Period {
+	case "DAY", "WEEK", "MONTH", "YEAR":
+		period = strings.ToLower(b.Period)
+	}
+	percent := b.Spend / b.Limit * budgetPercent
+	warning := ""
+	if percent >= budgetWarning {
+		warning = " WARNING"
+	}
+	return fmt.Sprintf("budget est.: %s #%d %s/%s: $%.2f spend / $%.2f limit, %.1f%%%s",
+		profile, b.Budget, scope, period, b.Spend, b.Limit, percent, warning)
 }
 
 func costCaption(src string, rows []costRow) string {

@@ -8,6 +8,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/databricks/sqlexec"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tokenledger"
@@ -124,6 +125,7 @@ func TestCostThroughFormats(t *testing.T) {
 }
 
 func TestCostPrintSection(t *testing.T) {
+	stubCost(t, nil, costReg(nil))
 	rows := []costRow{
 		{Profile: "dev", Model: "a", Input: 1_500_000, USD: 1.25, Source: "est."},
 		{Profile: "dev", Model: "b", Input: 10, USD: math.NaN(), Source: "est."},
@@ -142,6 +144,7 @@ func TestCostPrintSection(t *testing.T) {
 }
 
 func TestCostWidth(t *testing.T) {
+	stubCost(t, nil, costReg(nil))
 	long := strings.Repeat("databricks-claude-sonnet-4-5-", 4)
 	rows := []costRow{
 		{Profile: strings.Repeat("p", 40), Model: long, Input: 123_456_789, Output: 98_765_432, CacheRead: 1, CacheWrite: 2, USD: 12345.67, Source: "est."},
@@ -152,6 +155,22 @@ func TestCostWidth(t *testing.T) {
 	for line := range strings.SplitSeq(sb.String(), "\n") {
 		if n := utf8.RuneCountInString(line); n > 80 {
 			t.Errorf("line is %d columns: %q", n, line)
+		}
+	}
+}
+
+func TestCostBudgetLine(t *testing.T) {
+	b := databricks.BudgetSpend{Budget: 1, Scope: "ALERT_CONFIGURATION_SCOPE_TYPE_PER_USER", Period: "MONTH", Limit: 100}
+	for _, spend := range []float64{79, 80, 125} {
+		b.Spend = spend
+		got := costBudgetLine("dev", b)
+		if strings.Contains(got, "WARNING") != (spend >= 80) {
+			t.Errorf("spend %v: wrong warning: %s", spend, got)
+		}
+		for _, want := range []string{"budget est.: dev #1 per-user/month", "spend / $100.00 limit"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("missing %q: %s", want, got)
+			}
 		}
 	}
 }

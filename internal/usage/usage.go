@@ -568,6 +568,7 @@ func costScope(entries []tokenledger.Entry, session string, days int) ([]tokenle
 
 // printUsageCost prints the estimate, or one line naming the key to set when no profile carries prices.
 func printUsageCost(w io.Writer, entries []tokenledger.Entry, session string, days int) {
+	printCostBudgets(w)
 	prices := costPrices()
 	if len(prices) == 0 {
 		fmt.Fprintln(w, costPriceHint)
