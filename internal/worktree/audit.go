@@ -19,6 +19,9 @@ var auditCommand = "make audit"
 // auditStale is how long a start record without an exit file still counts as running.
 const auditStale = time.Hour
 
+// auditHungAfter is how long a running audit's log may sit unchanged before it is reported hung.
+var auditHungAfter = 20 * time.Minute
+
 // auditRecord is the start record <short-sha>.json; the exit file <short-sha>.exit ("<code> <seconds>") ends it.
 type auditRecord struct {
 	SHA     string `json:"sha"`
@@ -51,6 +54,7 @@ func StartAudit(main, sha string) string {
 	}
 	_ = os.Remove(base + ".exit")
 	_ = os.Remove(base + ".reported")
+	_ = os.Remove(base + ".hung")
 	logFile, err := os.Create(base + ".log")
 	if err != nil {
 		return "audit: not started: " + err.Error()
@@ -89,6 +93,10 @@ func AuditReports() []string {
 			continue
 		}
 		code, secs, ok := readAuditExit(base + ".exit")
+		if !ok && auditHung(rec) && claimAuditReport(base+".hung") {
+			lines = append(lines, fmt.Sprintf("audit of %s hung (no log output for %s): %s", ShortOID(rec.SHA), auditHungAfter, rec.Log))
+			continue
+		}
 		if !ok || !claimAuditReport(base+".reported") {
 			continue
 		}
@@ -99,6 +107,12 @@ func AuditReports() []string {
 		}
 	}
 	return lines
+}
+
+// auditHung is true for a started audit (caller checked no exit file) whose log has not changed within auditHungAfter.
+func auditHung(rec auditRecord) bool {
+	fi, err := os.Stat(rec.Log)
+	return err == nil && time.Since(fi.ModTime()) > auditHungAfter
 }
 
 // readAuditExit parses an exit file "<code> <seconds>"; ok is false while the audit has not ended.

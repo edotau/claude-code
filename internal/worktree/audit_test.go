@@ -64,3 +64,31 @@ func TestAuditReportsFailure(t *testing.T) {
 		t.Fatalf("failed report = %v (dir %s)", got, filepath.Dir(base))
 	}
 }
+
+// A running audit whose log is older than the threshold reports hung once, with the log path.
+func TestAuditReportsHung(t *testing.T) {
+	old := auditHungAfter
+	auditHungAfter = time.Minute
+	t.Cleanup(func() { auditHungAfter = old })
+	base := auditBase("0123456789abcdef")
+	if err := os.MkdirAll(auditDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	log := base + ".log"
+	if err := os.WriteFile(base+".json", []byte(`{"sha":"0123456789abcdef","log":"`+log+`"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(log, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	past := time.Now().Add(-time.Hour)
+	if err := os.Chtimes(log, past, past); err != nil {
+		t.Fatal(err)
+	}
+	if got := AuditReports(); len(got) != 1 || !strings.Contains(got[0], "hung") || !strings.Contains(got[0], log) {
+		t.Fatalf("hung report = %v", got)
+	}
+	if again := AuditReports(); len(again) != 0 {
+		t.Fatalf("second report = %v", again)
+	}
+}
