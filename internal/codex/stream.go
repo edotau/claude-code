@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"io"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -46,6 +47,8 @@ type codexStreamState struct {
 	onMeaningful func()
 	idle         *agent.IdleTimeout
 	running      map[string]bool // tool items started and not yet completed
+	marked       map[string]bool // non-shell tool items already marked as replay progress
+	turnDone     bool            // the last turn ended with turn.completed
 }
 
 // parseCodexStream emits text, tools and usage, retaining the last message as the answer.
@@ -56,7 +59,7 @@ func parseCodexStream(br *bufio.Reader, sink wire.Sink, onMeaningful func(), log
 // parseCodexIdle is parseCodexStream that feeds every event to idle: a nil idle is no watch.
 func parseCodexIdle(idle *agent.IdleTimeout) func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error) {
 	return func(br *bufio.Reader, sink wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (res wire.Result, _ error) {
-		state := codexStreamState{log: wire.PickLog(logs), sink: sink, onMeaningful: onMeaningful, idle: idle, running: map[string]bool{}}
+		state := codexStreamState{log: wire.PickLog(logs), sink: sink, onMeaningful: onMeaningful, idle: idle, running: map[string]bool{}, marked: map[string]bool{}}
 		return state.parse(br)
 	}
 }
@@ -74,6 +77,9 @@ func (s *codexStreamState) parse(br *bufio.Reader) (res wire.Result, _ error) {
 	s.failure = cmp.Or(s.failure, s.retryError)
 	if s.failure != "" {
 		return res, errors.New(s.failure)
+	}
+	if !s.turnDone { // interim text without turn.completed is a cut-off run, not an answer
+		return res, fmt.Errorf("codex: stream ended without turn.completed: %w", io.ErrUnexpectedEOF)
 	}
 	return res, nil
 }
@@ -102,25 +108,24 @@ func (s *codexStreamState) observe(ev codexEvent) {
 }
 
 func codexToolItem(typ string) bool {
-	return typ == "command_execution" || typ == "mcp_tool_call" || typ == "collab_tool_call" || typ == "web_search"
+	return typ == "command_execution" || typ == "file_change" || typ == "mcp_tool_call" || typ == "collab_tool_call" || typ == "web_search"
 }
 
 func (s *codexStreamState) apply(ev codexEvent) error {
+	if err := s.markTool(ev); err != nil {
+		return err
+	}
 	switch ev.Type {
 	case "thread.started":
 		s.res.SessionID = ev.ThreadID
 	case "item.completed":
 		return s.completedItem(ev)
 	case "item.started":
-		if ev.Item.Type == "command_execution" {
-			tool := wire.ToolEvent("shell", ev.Item.ID)
-			tool.Text = ev.Item.Command
-			if err := s.sink.Emit(tool); err != nil {
-				return err
-			}
-			s.log.Emit("tool", ev.Item.Command)
-		}
+		return s.startedItem(ev)
+	case "turn.started":
+		s.turnDone = false
 	case "turn.completed":
+		s.turnDone = true
 		s.retryError = ""
 		u := ev.Usage
 		s.res.Usage.InputTokens += max(0, u.InputTokens-u.CachedInputTokens)
@@ -137,6 +142,31 @@ func (s *codexStreamState) apply(ev codexEvent) error {
 		s.log.Emit("warning", message)
 		return s.sink.Emit(wire.Event{Type: wire.EventProgress, Text: message, Status: "warning"})
 	}
+	return nil
+}
+
+// markTool emits one bare progress mark per non-shell tool item, so a retry never replays its effects.
+func (s *codexStreamState) markTool(ev codexEvent) error {
+	it := ev.Item
+	if ev.Type != "item.started" && ev.Type != "item.completed" || it.Type == "command_execution" ||
+		!codexToolItem(it.Type) || s.marked[it.ID] {
+		return nil
+	}
+	s.marked[it.ID] = true
+	s.log.Emit("tool", it.Type)
+	return s.sink.Emit(wire.Event{Type: wire.EventProgress, Text: it.Type})
+}
+
+func (s *codexStreamState) startedItem(ev codexEvent) error {
+	if ev.Item.Type != "command_execution" {
+		return nil
+	}
+	tool := wire.ToolEvent("shell", ev.Item.ID)
+	tool.Text = ev.Item.Command
+	if err := s.sink.Emit(tool); err != nil {
+		return err
+	}
+	s.log.Emit("tool", ev.Item.Command)
 	return nil
 }
 
