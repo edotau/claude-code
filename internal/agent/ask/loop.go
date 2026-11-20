@@ -45,15 +45,16 @@ const (
 const (
 	loopDone          = "planner done"
 	loopCap           = "round cap reached"
-	loopBudget        = "token budget reached"
+	loopBudget        = "token budget reached (parts already running finish first)"
 	loopInterrupted   = "interrupted"
 	loopNoProgress    = "no progress: the planner repeated the previous round"
 	loopBadPlan       = "round refused: invalid plan"
 	loopPlannerFailed = "planner failed"
+	loopSaveFailed    = "state not saved"
 )
 
 var loopCodes = map[string]int{loopDone: 0, loopCap: 4, loopBudget: 4, loopInterrupted: 4,
-	loopNoProgress: 1, loopBadPlan: 1, loopPlannerFailed: 1}
+	loopNoProgress: 1, loopBadPlan: 1, loopPlannerFailed: 1, loopSaveFailed: 1}
 
 // loopCfg is one invocation's settings; plan and run are the seams the model calls go through.
 type loopCfg struct {
@@ -90,7 +91,9 @@ func (d *loopDriver) logf(format string, a ...any) {
 // runLoop drives rounds until a stop reason, prints the outcome and returns the exit code.
 func runLoop(ctx context.Context, cfg loopCfg, st loopFile) int {
 	d := &loopDriver{cfg: cfg, st: st, limit: len(st.Rounds) + cfg.Rounds, start: time.Now()}
-	d.save()
+	if err := d.save(); err != nil {
+		return d.finish(d.saveStop(err))
+	}
 	d.logf("%s: goal hash %s, up to %d round(s)", st.ID, st.GoalHash, cfg.Rounds)
 	why := d.loop(ctx)
 	return d.finish(why)
@@ -105,7 +108,9 @@ func (d *loopDriver) loop(ctx context.Context) string {
 		if why != "" {
 			return why
 		}
-		d.execute(ctx, todo)
+		if err := d.execute(ctx, todo); err != nil {
+			return d.saveStop(err)
+		}
 	}
 }
 
@@ -115,10 +120,17 @@ func (d *loopDriver) gate(ctx context.Context, ran int) string {
 		return loopInterrupted
 	case ran >= d.cfg.Rounds:
 		return loopCap
-	case d.cfg.Budget > 0 && d.st.Tokens >= d.cfg.Budget:
+	case d.overBudget():
 		return loopBudget
 	}
 	return ""
+}
+
+func (d *loopDriver) overBudget() bool { return d.cfg.Budget > 0 && d.st.Tokens >= d.cfg.Budget }
+
+func (d *loopDriver) saveStop(err error) string {
+	d.logf("%v", err)
+	return loopSaveFailed
 }
 
 // next is the interrupted round's unfinished parts, else a freshly planned round.
@@ -148,6 +160,9 @@ func (d *loopDriver) next(ctx context.Context) (loopTodo, string) {
 	if d.sameAsLast(p.Parts) {
 		return loopTodo{}, loopNoProgress
 	}
+	if d.overBudget() {
+		return loopTodo{}, loopBudget
+	}
 	return loopTodo{round: round, parts: p.Parts}, ""
 }
 
@@ -161,6 +176,7 @@ func pendingParts(rd loopRound) []loopPart {
 	return out
 }
 
+// sameAsLast: the planner saw the previous round's results and asked for the same ids and prompts, so it is stuck.
 func (d *loopDriver) sameAsLast(parts []loopPart) bool {
 	n := len(d.st.Rounds)
 	if n == 0 || len(d.st.Rounds[n-1].Parts) != len(parts) {
@@ -174,7 +190,7 @@ func (d *loopDriver) sameAsLast(parts []loopPart) bool {
 	return true
 }
 
-// planWith asks the planner; a failed non-claude planner is asked once more on claude.
+// planWith asks the planner; a failed non-claude planner is asked once more on claude unless --fallback none.
 func (d *loopDriver) planWith(ctx context.Context, round int) (loopPlan, error) {
 	prompt, err := plannerPrompt(d.st.Goal, round, d.limit, d.digest())
 	if err != nil {
@@ -183,6 +199,9 @@ func (d *loopDriver) planWith(ctx context.Context, round int) (loopPlan, error) 
 	d.logf("round %d: planning on %s", round, d.cfg.Planner)
 	p, u, err := d.cfg.plan(ctx, d.cfg.Planner, prompt)
 	d.st.Tokens += usageTokens(u)
+	if err != nil && d.cfg.Planner != "claude" && d.cfg.NoMove {
+		return p, fmt.Errorf("planner %s failed and --fallback none keeps it there: %w", d.cfg.Planner, err)
+	}
 	if err != nil && d.cfg.Planner != "claude" && ctx.Err() == nil {
 		d.logf("planner %s failed (%v); asking claude once", d.cfg.Planner, err)
 		p, u, err = d.cfg.plan(ctx, "claude", prompt)
@@ -250,7 +269,7 @@ func ownsDisjoint(p loopPart, before []loopPart) error {
 	return nil
 }
 
-func (d *loopDriver) execute(ctx context.Context, td loopTodo) {
+func (d *loopDriver) execute(ctx context.Context, td loopTodo) error {
 	d.logf("round %d: %d part(s)", td.round, len(td.parts))
 	res := d.runParts(ctx, td.round, td.parts, false)
 	if !td.resume {
@@ -264,11 +283,14 @@ func (d *loopDriver) execute(ctx context.Context, td loopTodo) {
 			rd.Parts = append(rd.Parts, r)
 		}
 	}
-	d.save()
-	if ctx.Err() == nil {
-		d.retryFailed(ctx, td.round, rd)
-		d.save()
+	if err := d.save(); err != nil {
+		return err
 	}
+	if ctx.Err() == nil && !d.overBudget() {
+		d.retryFailed(ctx, td.round, rd)
+		return d.save()
+	}
+	return nil
 }
 
 // runParts runs parts as one batch; a part with no envelope is reported as an error result.
@@ -350,10 +372,15 @@ func (d *loopDriver) retryFailed(ctx context.Context, round int, rd *loopRound) 
 	}
 	d.logf("retrying %d part(s) once on claude", len(again))
 	res := d.runParts(ctx, round, again, true)
-	if ctx.Err() != nil {
-		return // left as they were: a resume retries them
-	}
+	mergeRetries(rd, res, ctx.Err() != nil)
+}
+
+// mergeRetries folds retry results into rd; once cancelled, a canceled or missing one stays for a resume to retry.
+func mergeRetries(rd *loopRound, res []loopResult, cancelled bool) {
 	for _, x := range res {
+		if cancelled && (x.Kind == "canceled" || x.Kind == "missing") {
+			continue
+		}
 		i := slices.IndexFunc(rd.Parts, func(y loopResult) bool { return y.Part.ID == x.Part.ID })
 		x.Dispatches = append(slices.Clone(rd.Parts[i].Dispatches), x.Dispatches...)
 		x.Retried = true
@@ -378,7 +405,9 @@ func (d *loopDriver) needsMain() []loopResult {
 
 func (d *loopDriver) finish(why string) int {
 	d.st.Reason = why
-	d.save()
+	if err := d.save(); err != nil {
+		d.logf("%v", err)
+	}
 	code := loopCodes[why]
 	nm := d.needsMain()
 	if code == 0 && len(nm) > 0 {

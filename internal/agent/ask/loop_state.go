@@ -95,15 +95,18 @@ func loadLoop(id string) (loopFile, error) {
 	return st, nil
 }
 
-func (d *loopDriver) save() {
+// save writes the state; an error names the path and means the loop must stop.
+func (d *loopDriver) save() error {
 	d.st.Updated = time.Now().UTC()
+	path := filepath.Join(loopDir(), d.st.ID+".json")
 	b, err := json.Marshal(d.st)
 	if err == nil {
 		if err = os.MkdirAll(loopDir(), 0o700); err == nil {
-			err = paths.AtomicWrite(filepath.Join(loopDir(), d.st.ID+".json"), b, 0o600)
+			err = paths.AtomicWrite(path, b, 0o600)
 		}
 	}
 	if err != nil {
-		d.logf("state not saved, the loop cannot be resumed: %v", err)
+		return fmt.Errorf("state not saved at %s, stopping: %w", path, err)
 	}
+	return nil
 }

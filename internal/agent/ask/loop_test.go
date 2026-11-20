@@ -3,6 +3,9 @@ package ask
 import (
 	"bytes"
 	"context"
+	"errors"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -183,6 +186,104 @@ func TestLoopIdenticalPlansStopNoProgress(t *testing.T) {
 	}
 	if got, _ := loadLoop(st.ID); got.Reason != loopNoProgress {
 		t.Fatalf("reason %q", got.Reason)
+	}
+}
+
+// A named non-claude planner under --fallback none fails and is never asked on claude.
+func TestLoopPlannerNotMovedUnderFallbackNone(t *testing.T) {
+	loopTestEnv(t)
+	var asked []string
+	var out bytes.Buffer
+	cfg := (&fakeLoop{}).cfg(&out, 4)
+	cfg.Planner, cfg.NoMove = "codex", true
+	cfg.plan = func(_ context.Context, planner, _ string) (loopPlan, wire.Usage, error) {
+		asked = append(asked, planner)
+		return loopPlan{}, wire.Usage{}, errors.New("bad plan")
+	}
+	if rc := runLoop(context.Background(), cfg, newLoopFile("goal")); rc != 1 || strings.Join(asked, ",") != "codex" {
+		t.Fatalf("exit %d, asked %v: want 1 and codex only\n%s", rc, asked, out.String())
+	}
+}
+
+// An interrupt mid-retry keeps the retry that finished (ok) and leaves the unfinished part for the resume.
+func TestLoopInterruptKeepsFinishedRetry(t *testing.T) {
+	loopTestEnv(t)
+	f := &fakeLoop{plans: []loopPlan{parts("a", "b"), planDone}, status: func(_ string, retry bool) string {
+		if retry {
+			return wire.StatusOK
+		}
+		return wire.StatusStalled
+	}}
+	var out bytes.Buffer
+	ctx, cancel := context.WithCancel(context.Background())
+	cfg := f.cfg(&out, 4)
+	inner := cfg.run
+	cfg.run = func(c context.Context, round int, ps []loopPart, retry bool, emit func(wire.Envelope)) {
+		if !retry {
+			inner(c, round, ps, retry, emit)
+			return
+		}
+		inner(c, round, ps[:1], retry, emit) // a finishes its retry, then the interrupt hits b
+		cancel()
+	}
+	st := newLoopFile("goal")
+	if rc := runLoop(ctx, cfg, st); rc != 4 {
+		t.Fatalf("exit %d, want 4\n%s", rc, out.String())
+	}
+	saved, _ := loadLoop(st.ID)
+	if a := saved.Rounds[0].Parts[0]; a.Status != wire.StatusOK || !a.Retried {
+		t.Fatalf("a = %+v, want ok and retried", a)
+	}
+	g := &fakeLoop{plans: []loopPlan{planDone}}
+	if rc := runLoop(context.Background(), g.cfg(&out, 2), saved); rc != 0 || strings.Join(g.runs, ",") != "b" {
+		t.Fatalf("resume exit %d, runs %v: want 0 and only b", rc, g.runs)
+	}
+}
+
+// Same ids with a new prompt is progress; the same ids and prompts after failures stop too.
+func TestLoopNoProgressRule(t *testing.T) {
+	loopTestEnv(t)
+	next := parts("a")
+	next.Parts[0].Prompt = "do the next batch"
+	f := &fakeLoop{plans: []loopPlan{parts("a"), next, planDone}}
+	var out bytes.Buffer
+	if rc := runLoop(context.Background(), f.cfg(&out, 4), newLoopFile("goal")); rc != 0 || len(f.runs) != 2 {
+		t.Fatalf("new prompt: exit %d, runs %v: want 0 and two runs\n%s", rc, f.runs, out.String())
+	}
+	g := &fakeLoop{plans: []loopPlan{parts("a"), parts("a"), planDone}, status: func(string, bool) string { return wire.StatusError }}
+	if rc := runLoop(context.Background(), g.cfg(&out, 4), newLoopFile("goal")); rc != 1 || len(g.runs) != 2 {
+		t.Fatalf("repeat after failure: exit %d, runs %v: want 1 and a, a+retry", rc, g.runs)
+	}
+}
+
+// A planner step that crosses the token budget stops before any part launches.
+func TestLoopBudgetStopsBeforeParts(t *testing.T) {
+	loopTestEnv(t)
+	f := &fakeLoop{plans: []loopPlan{parts("a"), planDone}}
+	var out bytes.Buffer
+	cfg := f.cfg(&out, 4)
+	cfg.Budget = 1 // the fake planner reports 1 token
+	if rc := runLoop(context.Background(), cfg, newLoopFile("goal")); rc != 4 || len(f.runs) != 0 {
+		t.Fatalf("exit %d, runs %v: want 4 and none\n%s", rc, f.runs, out.String())
+	}
+}
+
+// A failing state write stops the loop with exit 1 before any part is dispatched.
+func TestLoopSaveFailureStops(t *testing.T) {
+	loopTestEnv(t)
+	if err := os.MkdirAll(filepath.Dir(loopDir()), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(loopDir(), nil, 0o600); err != nil { // a file where the state dir belongs
+		t.Fatal(err)
+	}
+	f := &fakeLoop{plans: []loopPlan{parts("a"), planDone}}
+	var out bytes.Buffer
+	if rc := runLoop(context.Background(), f.cfg(&out, 4), newLoopFile("goal")); rc != 1 || len(f.runs) != 0 {
+		t.Fatalf("exit %d, runs %v: want 1 and none\n%s", rc, f.runs, out.String())
+	}
+	if !strings.Contains(out.String(), "state not saved at") {
+		t.Fatalf("no state-path message:\n%s", out.String())
 	}
 }
 
