@@ -129,12 +129,20 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 		defer Reap()() // flags and any spec, stdin included, are parsed, so dryness is final; a dry run reaps nothing
 	}
 	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out}
+	markTyped(fs, f) // before dispatchMode: a batch builds its base request there
 	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
 		if code, done := phase(); done {
 			return code
 		}
 	}
 	return r.execute()
+}
+
+// markTyped records a --model typed on this command line; a session's or a record's model is not typed here.
+func markTyped(fs *flag.FlagSet, f *askFlags) {
+	if helptext.Explicit(fs, "model") {
+		f.modelTyped = f.model != ""
+	}
 }
 
 func (r *askRun) fail(err error, code int) (int, bool) {
@@ -459,7 +467,7 @@ func batchOnlyFlags(fs *flag.FlagSet) error {
 func (r *askRun) batchBase() agent.RunOptions {
 	f := r.f
 	_, values := agent.RunValues(r.ctx, nil)
-	return agent.RunOptions{Model: f.model, Provider: f.provider, Account: r.ov.Account, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, ReadOnly: f.readOnly, NoTools: f.noTools,
+	return agent.RunOptions{Model: f.model, ModelTyped: f.modelTyped, Provider: f.provider, Account: r.ov.Account, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, ReadOnly: f.readOnly, NoTools: f.noTools,
 		Timeout: f.timeout, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SafeMode: f.safeMode, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
 		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Permissions: r.perms, Values: values}
@@ -474,6 +482,7 @@ func (r *askRun) resolveRecord() (int, bool) {
 		return rc, true
 	}
 	var err error
+	markTyped(r.fs, f) // again: applyRecord loaded the record's flag, and a --model on this line wins
 	if f.model == "" { // a resumed session keeps its model; a typed --model wins
 		f.model = agent.SessionModel(f.session)
 	}
@@ -547,7 +556,7 @@ func resolveAskHost(ov agentconfig.Overlay, f *askFlags) error {
 
 func (r *askRun) askState() *askState {
 	f := r.f
-	return &askState{Name: &f.name, Provider: &f.provider, Model: &f.model, Effort: &f.effort,
+	return &askState{Name: &f.name, Provider: &f.provider, Model: &f.model, modelTyped: &f.modelTyped, Effort: &f.effort,
 		Workdir: &f.workdir, Session: &f.session, Tools: &f.tools, ReadOnly: &f.readOnly, NoTools: &f.noTools,
 		Timeout: &f.timeout, Attach: (*[]string)(&f.attach), KeepEnv: &f.keepEnv, Autonomous: &f.autonomous,
 		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist, SafeMode: &f.safeMode,

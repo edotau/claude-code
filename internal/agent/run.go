@@ -572,8 +572,9 @@ type RunOptions struct {
 	Fallback                                            string             `json:"-"`
 	Account                                             string             `json:"-"` // the overlay account key: a GitHub login or profile
 	CellModel                                           bool               `json:"-"`
-	AutoModel                                           bool               `json:"auto_model,omitempty"` // --model auto: ResolveRun picks per task, over the record's model
-	Native                                              bool               `json:"native,omitempty"`     // opencode: skip the hub ladder; --retry replays it
+	ModelTyped                                          bool               `json:"model_typed,omitempty"` // Model came from the user's --model; kept so --job and --retry stay typed
+	AutoModel                                           bool               `json:"auto_model,omitempty"`  // --model auto: ResolveRun picks per task, over the record's model
+	Native                                              bool               `json:"native,omitempty"`      // opencode: skip the hub ladder; --retry replays it
 	Host                                                string             `json:"-"`
 	Rubric                                              string             `json:"-"`
 	Background                                          bool               `json:"-"`

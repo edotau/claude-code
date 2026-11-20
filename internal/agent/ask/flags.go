@@ -28,6 +28,7 @@ import (
 // askFlags are the values of ask's flags.
 type askFlags struct {
 	name, fallback, provider, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, format, rubric, retry, job, batchSrc, overlay string
+	modelTyped                                                                                                                                                                    bool
 	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast                                       bool
 	timeout                                                                                                                                                                       time.Duration
 	jobs, maxFiles, maxFileBytes                                                                                                                                                  int
@@ -405,9 +406,10 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 // askState is the askTarget plus the flag pointers --retry resets or --job clears.
 type askState struct {
 	askTarget
-	rubric *string
-	env    *[]string
-	lead   *string // routed lead profile resolved by resolveLead; a live holder keeps it
+	rubric     *string
+	env        *[]string
+	modelTyped *bool   // --model typed on this command line or in the --job/--retry record
+	lead       *string // routed lead profile resolved by resolveLead; a live holder keeps it
 }
 
 // askTimeout is the deadline: a fresh --tools run without an explicit --timeout gets 15m.
@@ -431,6 +433,7 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Rec
 		return nil, failAsk(format, *s.Name, err), true
 	}
 	s.Apply(r, os.Stderr)
+	*s.modelTyped = r.Request.ModelTyped
 	*s.lead = r.Request.Lead // the detached child leads with the profile the parent resolved
 	*prompt, *s.rubric = r.Request.Prompt, ""
 	return &r, 0, false
@@ -447,6 +450,7 @@ func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, f
 	}
 	// The logged request wins; only flags typed on this command line override it.
 	s.Apply(rec, os.Stderr)
+	*s.modelTyped = rec.Request.ModelTyped
 	*s.lead = rec.Request.Lead // the routed lead is not a flag: the replay leads with the profile the run used
 	clearTyped(fs, s)
 	if _, err := helptext.ParseArgs(fs, args); err != nil { // re-apply explicit flags over the record

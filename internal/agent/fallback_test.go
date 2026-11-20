@@ -1063,6 +1063,16 @@ func TestAliasMoveSkipsWaitAndCooldown(t *testing.T) {
 	}
 }
 
+// A typed alias is never swapped (R8): the refusal ends the ask and names the alias to type.
+func TestTypedAliasNotDowngraded(t *testing.T) {
+	req := RunOptions{Model: "opus", ModelTyped: true}
+	e := &retry.Error{Kind: retry.KindRateLimit, Err: errors.New("quota exceeded, limit: 0")}
+	fallToNextAlias(&fakeRunner{caps: Caps{Model: Native}}, &req, e, nil)
+	if req.Model != "opus" || !e.Terminal || !strings.Contains(e.Err.Error(), "type --model sonnet instead") {
+		t.Errorf("typed alias: model=%s terminal=%v err=%v, want opus kept and the next alias named", req.Model, e.Terminal, e.Err)
+	}
+}
+
 // The agy overflow hop runs after a quota failure of the claude ladder, even past a claude hop that would stop.
 func TestQuotaOverflowHop(t *testing.T) {
 	quota := &retry.Error{Kind: retry.KindQuota, Agent: "claude", Err: errors.New("weekly limit reached")}

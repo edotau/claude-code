@@ -195,7 +195,8 @@ func checkLineIDs(n int, id, planTask string, seen map[string]bool) error {
 func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.RunOptions, string, error) {
 	tl, req := l.Task, base
 	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
-	if tl.Profile != "" { // the line's own profile replaces the lead the batch flags resolved
+	req.ModelTyped = tl.Model != "" || base.ModelTyped // a line's own model is as typed as a --model flag
+	if tl.Profile != "" {                              // the line's own profile replaces the lead the batch flags resolved
 		req.Lead = ""
 	}
 	name, err := agent.SelectAndOverlay(agentName, base.Agents, &req) // explicit line/base options win over the definition

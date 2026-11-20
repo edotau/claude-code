@@ -950,6 +950,7 @@ func cellRequest(out, req RunOptions, disp Dispatch) RunOptions {
 			out.Model = AutoCell(disp.Model) // typed or pinned auto beats the cell's model, on the cell's row (RunQuery)
 		}
 	}
+	out.ModelTyped = req.ModelTyped && out.Model == req.Model // a model the cell replaced is the harness's
 	return out
 }
 
@@ -1039,12 +1040,18 @@ func fallToNextAlias(r Engine, req *RunOptions, e *retry.Error, notify func(stri
 		return
 	}
 	cur := cmp.Or(req.Model, models.Opus)
-	if next := models.NextAlias(cur); next != "" {
-		if notify != nil {
-			notify(fmt.Sprintf("%s: the %s model is quota-dead on this key; retrying on %s", r.Name(), cur, next))
-		}
-		req.Model, e.RetryAfter, e.Kind, e.RetryNow = next, 0, retry.KindRateLimit, true
+	next := models.NextAlias(cur)
+	if next == "" {
+		return
 	}
+	if req.ModelTyped { // R8: a typed model is never swapped; name the alias to type instead
+		e.Err, e.Terminal, e.RetryAfter = fmt.Errorf("%s is quota-dead on this key; type --model %s instead: %w", cur, next, e.Err), true, 0
+		return
+	}
+	if notify != nil {
+		notify(fmt.Sprintf("%s: the %s model is quota-dead on this key; retrying on %s", r.Name(), cur, next))
+	}
+	req.Model, e.RetryAfter, e.Kind, e.RetryNow = next, 0, retry.KindRateLimit, true
 }
 
 // aliasDenied reports e as a rate or quota refusal of req's alias model (none: opus) on an agent that takes --model.
