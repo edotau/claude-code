@@ -1,6 +1,10 @@
 package route
 
-import "testing"
+import (
+	"testing"
+
+	_ "github.com/edotau/claude-code/internal/nonet"
+)
 
 func TestPickTakesWholeLayer(t *testing.T) {
 	low := Route{Provider: "databricks", Profile: "qa"}
