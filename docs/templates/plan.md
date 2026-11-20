@@ -112,7 +112,7 @@ abbreviate against the previous one: a bare name sits in its directory, `<dir>/<
 part (`internal/configure/a.go, b.go, ui/c.go`). E.g.:
 `- [ ] Phase 2.1 — Add --attach — leaf: opencode, Agent: opencode — owns: internal/agent/cli.go`
 
-`claude-code agents dispatch --waves <plan>` reads the same lines: `Phase W.k` is wave W, package k;
+`claude-code agents ask --waves <plan>` reads the same lines: `Phase W.k` is wave W, package k;
 `W.V` is the wave's manual verifier (never launched). Optional attributes go **before** `owns:`, which takes
 everything after the last `owns:`:
 `... Agent: codex — verify: go test ./internal/claude — findings: reports/x.md#key — owns: internal/claude/gate.go`.

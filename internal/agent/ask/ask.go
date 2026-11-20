@@ -99,6 +99,9 @@ func parseAskArgs(fs *flag.FlagSet, args []string) (pos []string, code int, done
 	return nil, helptext.ExitCode(err), true
 }
 
+// Waves runs `ask --waves <plan>` on the raw args; the cli sets it.
+var Waves = func([]string) int { return 2 }
+
 // Reap starts the silent cleanup of a real ask and returns its join; the cli sets it.
 var Reap = func() func() { return func() {} }
 

@@ -15,22 +15,22 @@ func TestWorkflowSyncRepair(t *testing.T) {
 	if rc, _, errs := runLint(root); rc != 1 || !strings.Contains(errs, "differs") {
 		t.Fatalf("before: rc=%d stderr=%s", rc, errs)
 	}
-	rc, out, errs := runSync(path)
-	if rc != 0 || strings.Count(out, "\n") != 3 || !strings.Contains(out, "synced "+filepath.Join(dir, "target.js")) {
+	rc, out, errs := runSync(root)
+	if rc != 0 || strings.Count(out, "\n") != 4 || !strings.Contains(out, "synced "+filepath.Join(dir, "target.js")) {
 		t.Fatalf("sync: rc=%d stdout=%s stderr=%s", rc, out, errs)
 	}
 	if data, err := os.ReadFile(path); err != nil || string(data) != canonical {
 		t.Fatalf("canonical changed: %q %v", data, err)
 	}
-	assertSyncedClean(t, root, path)
+	assertSyncedClean(t, root)
 }
 
-func assertSyncedClean(t *testing.T, root, path string) {
+func assertSyncedClean(t *testing.T, root string) {
 	t.Helper()
 	if rc, _, errs := runLint(root); rc != 0 {
 		t.Fatalf("after: rc=%d stderr=%s", rc, errs)
 	}
-	if rc, out, errs := runSync(path); rc != 0 || strings.Count(out, "unchanged ") != 3 {
+	if rc, out, errs := runSync(root); rc != 0 || strings.Count(out, "unchanged ") != 4 {
 		t.Fatalf("idempotence: rc=%d stdout=%s stderr=%s", rc, out, errs)
 	}
 }
@@ -39,11 +39,11 @@ func writeSyncFixture(t *testing.T) (root, canonical string) {
 	t.Helper()
 	root = writeDriftRoot(t, nil, nil)
 	dir := filepath.Join(root, "workflows")
-	step := helperStart + " shared\nfunction stepOf() {}\n" + helperEnd + "\n"
-	stages := stagesStart + " shared\nfunction stageLoop() {}\n" + stagesEnd + "\n"
+	step := helperStart + stepOfSource + helperEnd + "\n"
+	stages := stagesStart + stagesSource + stagesEnd + "\n"
 	canonical = okBody + step + stages
 	writeScript(t, dir, "canonical.js", canonical)
-	writeScript(t, dir, "target.js", strings.Replace(canonical, "shared", "changed", 1))
+	writeScript(t, dir, "target.js", strings.Replace(canonical, "const COWORKERS = []", "const COWORKERS = [1]", 1))
 	writeScript(t, dir, "step-only.js", okBody+step)
 	writeScript(t, dir, "none.js", okBody)
 	return root, canonical
@@ -66,11 +66,10 @@ func TestWorkflowSyncMissingMarkers(t *testing.T) {
 		t.Run(body, func(t *testing.T) {
 			root := writeDriftRoot(t, nil, nil)
 			dir := filepath.Join(root, "workflows")
-			canonical := helperStart + " shared\nfunction stepOf() {}\n" + helperEnd + "\n"
-			writeScript(t, dir, "canonical.js", canonical)
+			writeScript(t, dir, "canonical.js", helperStart+stepOfSource+helperEnd+"\n")
 			writeScript(t, dir, "broken.js", body)
 			var out, errb bytes.Buffer
-			if rc := RunWorkflowSync([]string{filepath.Join(dir, "canonical.js")}, &out, &errb); rc != 1 || !strings.Contains(errb.String(), "no stepOf block") {
+			if rc := RunWorkflowSync([]string{root}, &out, &errb); rc != 1 || !strings.Contains(errb.String(), "no stepOf block") {
 				t.Fatalf("rc=%d stdout=%s stderr=%s", rc, &out, &errb)
 			}
 			data, err := os.ReadFile(filepath.Join(dir, "broken.js"))
@@ -82,7 +81,7 @@ func TestWorkflowSyncMissingMarkers(t *testing.T) {
 }
 
 func TestWorkflowSyncUsage(t *testing.T) {
-	for _, args := range [][]string{nil, {"a.js", "b.js"}, {"--bad"}, {"not-js"}} {
+	for _, args := range [][]string{{"a.js", "b.js"}, {"--bad"}} {
 		var out, errb bytes.Buffer
 		if rc := RunWorkflowSync(args, &out, &errb); rc != 2 {
 			t.Fatalf("args=%v rc=%d", args, rc)

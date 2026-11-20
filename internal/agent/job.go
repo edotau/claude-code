@@ -171,10 +171,9 @@ func isOwnArgv(argv []string, rec *Record) bool {
 	return isJobArgv(argv, rec.ID) || isReviewArgv(argv, rec)
 }
 
-// isJobArgv reports whether argv carries the whole arguments `ask` or `dispatch --waves`, `--job` and id.
+// isJobArgv reports whether argv carries the whole arguments `ask` (with or without `--waves`), `--job` and id.
 func isJobArgv(argv []string, id string) bool {
-	runner := slices.Contains(argv, "ask") || (slices.Contains(argv, "dispatch") && slices.Contains(argv, "--waves"))
-	return runner && slices.Contains(argv, "--job") && slices.Contains(argv, id)
+	return slices.Contains(argv, "ask") && slices.Contains(argv, "--job") && slices.Contains(argv, id)
 }
 
 // isReviewArgv reports whether argv is rec's split review: `<agent> review` at argv[1], or [2] under an interpreter.
@@ -312,7 +311,7 @@ func groupGone(pid int) bool {
 	return !slices.ContainsFunc(procs, func(p proc.Info) bool { return p.PGID == pid })
 }
 
-// wavesJobAgent is the job-only agent name of a detached `dispatch --waves` runner; it is not a launchable agent.
+// wavesJobAgent is the job-only agent name of a detached `ask --waves` runner; it is not a launchable agent.
 const wavesJobAgent = "waves"
 
 // checkAgent errors when name is neither a registered agent nor the job-only waves runner.

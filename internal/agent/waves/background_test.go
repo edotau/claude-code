@@ -16,7 +16,7 @@ import (
 
 func TestBackgroundArgsPreserveFlags(t *testing.T) {
 	args := []string{"--waves", "plan", "--background=true", "--allow", "Bash(go test *)", "--profiles", "qa", "--profiles", "prod", "--format=json"}
-	want := append([]string{"agents", "dispatch"}, args...)
+	want := append([]string{"agents", "ask"}, args...)
 	want = append(want, "--background=false", "--job", "id")
 	if got := backgroundArgs(args, "id"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("got %q, want %q", got, want)

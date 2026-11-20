@@ -15,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// registerDispatchWaves registers the plan runner's options on dispatch's existing flag set.
+// registerDispatchWaves registers the plan runner's options on the waves flag set.
 func registerDispatchWaves(fs *flag.FlagSet) *waves.Options {
 	o := &waves.Options{Out: os.Stdout, Err: os.Stderr}
 	fs.StringVar(&o.Plan, "waves", "", "run the waves of this plan")
@@ -80,21 +80,21 @@ type waveJob struct {
 // dispatchWaves preserves the runner's exit codes and forwards shared route flags to every leaf.
 func dispatchWaves(pos []string, route *ask.RouteFlags, o *waves.Options, job waveJob) int {
 	if job.background && (o.DryRun || o.Status || job.id != "") {
-		return helptext.FailUsage("agents dispatch: --background cannot combine with --dry-run, --status or --job")
+		return helptext.FailUsage("agents ask --waves: --background cannot combine with --dry-run, --status or --job")
 	}
 	if len(pos) != 0 {
-		return helptext.FailUsage("agents dispatch: --waves accepts no role or task argument")
+		return helptext.FailUsage("agents ask --waves: --waves accepts no role or task argument")
 	}
 	var err error
 	o.Route, err = route.Args()
 	if err != nil {
-		return helptext.FailUsage("agents dispatch: %v", err)
+		return helptext.FailUsage("agents ask --waves: %v", err)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	o.Dir, err = wavesDir(ctx)
 	if err != nil {
-		return helptext.Fail("agents dispatch: %v", err)
+		return helptext.Fail("agents ask --waves: %v", err)
 	}
 	if job.background {
 		return waves.Background(ctx, *o, job.args)

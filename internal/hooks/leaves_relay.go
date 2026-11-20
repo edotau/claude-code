@@ -295,7 +295,7 @@ func askVerb(words []string) string {
 	if len(words) < 2 {
 		return ""
 	}
-	if words[0] == "agents" && slices.Contains([]string{"ask", "dispatch", "result"}, words[1]) {
+	if words[0] == "agents" && slices.Contains([]string{"ask", "result"}, words[1]) {
 		return words[1]
 	}
 	if externalTypes[words[0]] && words[1] == "ask" {

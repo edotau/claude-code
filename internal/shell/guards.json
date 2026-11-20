@@ -168,7 +168,7 @@
   },
   "agents_brief_verbs": {
     "purpose": "claude-code agents verbs whose words are a brief, never run here",
-    "words": ["ask", "send", "dispatch", "brief"]
+    "words": ["ask", "send", "brief"]
   },
   "runner_names": {
     "purpose": "commands that take their input or arguments as code; text piped into one is not data (X3 X4 X8)",

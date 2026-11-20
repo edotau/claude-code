@@ -122,7 +122,7 @@ Every phase is:
   main session's `worktree commit --task` ticks it after verifying (`docs-plan-tick`).
 - **Wave-readable** — `Phase W.k` = wave W package k, `W.V` the manual verifier; `verify:` and `findings: <path>#<key>`
   go before `owns:`; the first `bash` fence under `## Phases` is the wave gate, free of git write verbs;
-  `claude-code agents dispatch --waves <plan>` runs it (template `## Tasks`).
+  `claude-code agents ask --waves <plan>` runs it (template `## Tasks`).
 
 ### Delegation rules
 

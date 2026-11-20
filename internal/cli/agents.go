@@ -42,12 +42,9 @@ func agentsSpec() *helptext.Node {
 			boolFlag("i"), boolFlag("w"), boolFlag("l"), flag("path"), flag("max"), formatFlag()}},
 		"diff": {Flags: []helptext.Flag{flag("base"), flag("path"), flag("verify"), boolFlag("check"), valuedFlag("gates", inspect.GateNames),
 			boolFlag("all"), formatFlag()}},
-		"fix":  {Flags: []helptext.Flag{flag("path"), boolFlag("dry-run")}},
-		"list": {Flags: []helptext.Flag{flag("host"), formatFlag()}},
-		"ask":  {Flags: ask.CompletionFlags()},
-		"dispatch": {Flags: []helptext.Flag{flag("timeout"), formatFlag(), boolFlag("background"),
-			flag("waves"), flag("wave"), boolFlag("dry-run"), boolFlag("status"), boolFlag("fresh"), flag("gate"),
-			flag("provider"), flag("profile"), flag("profiles"), flag("job"), flag("overlay"), flag("allow"), flag("ask"), flag("deny"), flag("permissions"), flag("fallback")}},
+		"fix":    {Flags: []helptext.Flag{flag("path"), boolFlag("dry-run")}},
+		"list":   {Flags: []helptext.Flag{flag("host"), formatFlag()}},
+		"ask":    {Flags: ask.CompletionFlags()},
 		"send":   {Flags: []helptext.Flag{flag("format"), flag("timeout")}},
 		"status": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("all"), formatFlag()}},
 		"result": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("f"), boolFlag("events"), flag("save"),
@@ -93,7 +90,6 @@ var agentsPage = helptext.Page{
 	Commands: [][2]string{
 		{"list", "list each agent, its availability and honored fields; --format json"},
 		{"ask", "one-shot task on an agent; --format json = envelope"},
-		{"dispatch", "run a plan's waves: dispatch --waves <plan>"},
 		{"sync", "project agents/ + CLAUDE.md into every agent home; link skills"},
 		{"tree", "live tree of sessions, subagents and dispatches; --watch"},
 		{"label", "print a leaf's dispatch description prefix"},
@@ -143,10 +139,6 @@ var agentsSubPages = map[string][3]string{
 		"--live), or wait for a running dispatch then resume its session on any agent as a new child dispatch; exits on its result. One turn at a time per live session. " +
 		"send parent <note> files the note (200 characters, one line) as a note in the calling leaf's dispatcher inbox, shown on its next prompt; " +
 		"the note is literal text; it exits 0 with \"no dispatcher to notify\" on stderr when no live one exists, skips a repeat, refuses a sixth unread note."},
-	"dispatch": {"dispatch --waves <plan> [flags]", "Run a plan’s waves with observed verification and no commits; " +
-		"the shared route and permission flags reach every leaf.",
-		"Exit 0 passed, 1 failed wave, 2 usage or invalid plan,\n" +
-			"3 outside owned files or unattributed, 4 interrupted."},
 	"status": {"status [<id>] [flags]", "With no <id> and no --agent, list the 20 most recent dispatches of every agent. " +
 		"With --agent, list that agent's jobs in this repo, newest first (--all: every repo). " +
 		"An <id> shows that dispatch, whichever agent ran it.",
@@ -197,6 +189,7 @@ var reapLost = func() { tree.Reap(false, io.Discard, io.Discard) }
 func cmdAgentsAsk(args []string) int { return ask.Cmd(args) }
 
 func init() {
+	ask.Waves = cmdAgentsWaves
 	ask.Reap = func() func() {
 		done := make(chan struct{})
 		parallel.Go(func() {
@@ -209,7 +202,7 @@ func init() {
 
 // agentsVerbs routes `agents <verb>` to its handler.
 var agentsVerbs = map[string]func([]string) int{
-	"list": cmdAgentsList, "ask": cmdAgentsAsk, "dispatch": cmdAgentsDispatch, "sync": cmdAgentsSync,
+	"list": cmdAgentsList, "ask": cmdAgentsAsk, "sync": cmdAgentsSync,
 	"tree": cmdAgentsTree, "send": cmdAgentsSend, "label": cmdAgentsLabel,
 	"diff":   cmdAgentsDiff,
 	"fix":    cmdAgentsFix,
@@ -593,9 +586,11 @@ func cmdAgentsFind(args []string) int {
 	return inspect.Find(o)
 }
 
-// cmdAgentsDispatch is `agents dispatch --waves <plan>`: the wave runner.
-func cmdAgentsDispatch(args []string) int {
-	fs := agentsFlags("dispatch")
+// cmdAgentsWaves is `agents ask --waves <plan>`: the wave runner.
+func cmdAgentsWaves(args []string) int {
+	fs := helptext.NewFlagSet("agents ask --waves", helptext.Page{Usage: "claude-code agents ask --waves <plan> [flags]",
+		About: "Run a plan’s waves with observed verification and no commits; the shared route and permission flags reach every leaf.",
+		Hint:  "Exit 0 passed, 1 failed wave, 2 usage or invalid plan,\n3 outside owned files or unattributed, 4 interrupted."})
 	timeout := fs.Duration("timeout", 0, "per-dispatch time limit (0 = the agent's default)")
 	format := helptext.FormatFlag(fs)
 	background := fs.Bool("background", false, "detach the run, print its id")
@@ -607,10 +602,7 @@ func cmdAgentsDispatch(args []string) int {
 		return helptext.ExitCode(err)
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
-		return helptext.BadFormat("dispatch", err)
-	}
-	if waveOpts.Plan == "" {
-		return helptext.FailUsage("agents dispatch: --waves <plan> is required")
+		return helptext.BadFormat("agents ask --waves", err)
 	}
 	waveOpts.Timeout, waveOpts.JSON = *timeout, *format == helptext.JSON
 	return dispatchWaves(pos, route, waveOpts, waveJob{*background, *job, args})

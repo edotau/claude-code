@@ -59,7 +59,7 @@ var workflowPage = helptext.Page{
 	Commands: [][2]string{
 		{"skeleton", "print a pipeline|parallel|evaluator|orchestrator script"},
 		{"lint", "check pins, meta/throw, syntax and the saved-workflows table"},
-		{"sync", "copy canonical helper blocks into sibling scripts"},
+		{"sync", "write embedded helper blocks into saved scripts"},
 	},
 	Hint: "claude-code workflow <command> -h lists that command's flags.",
 }
@@ -68,8 +68,8 @@ var workflowPage = helptext.Page{
 func workflowSubPage(sub string) helptext.Page {
 	if sub == "sync" {
 		return helptext.Page{
-			Usage: "claude-code workflow sync <canonical.js>",
-			About: "Copy helper blocks into sibling scripts; never edit the canonical file. " +
+			Usage: "claude-code workflow sync [<root>]",
+			About: "Write embedded helper blocks into marked scripts; <root> defaults to the config dir. " +
 				"Exits: 0 synced or unchanged; 1 file/marker error; 2 usage.",
 		}
 	}
@@ -107,6 +107,9 @@ func cmdWorkflow(args []string) int {
 	case "lint":
 		return workflowLint(args[1:])
 	case "sync":
+		if len(args) == 1 {
+			return workflows.RunWorkflowSync([]string{paths.ConfigDir()}, os.Stdout, os.Stderr)
+		}
 		return workflows.RunWorkflowSync(args[1:], os.Stdout, os.Stderr)
 	}
 	return unknownSub("workflow", args[0], workflowPage)

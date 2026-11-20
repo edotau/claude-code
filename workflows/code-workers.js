@@ -15,6 +15,7 @@ export const meta = {
   ],
 }
 
+// <block:stepOf>
 // ── stepOf: copied verbatim into code-analyzer, code-looper, code-evaluator, code-workers, code-engineer ──
 // stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others via `agents ask`.
 const COWORKERS = []
@@ -85,6 +86,8 @@ const stepOf = (steps, name, defaults, opt) => {
   return stepExt(name, v, d, f)
 }
 // ── end stepOf ──
+// </block:stepOf>
+// <block:stages>
 // ── stages: copied verbatim into code-analyzer, code-looper, code-workers, code-engineer ──
 // Shared stages, run in-script so workflow() nests one level; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?, kind?, lineBudget?, seams?}.
 const ST_NEAR = 10
@@ -459,6 +462,7 @@ async function stagePolish(ctx, o) {
   return stPolishEnd(P, { dedupe, simplify, rv, findings, fixall, incomplete, open, pg })
 }
 // ── end stages ──
+// </block:stages>
 
 const ERR = (m) => ({ exit: 'error', error: 'code-workers: ' + m, route: 'code-workers', decisions: [], report: '' })
 const a = args && typeof args === 'object' && !Array.isArray(args) ? args : {}

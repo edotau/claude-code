@@ -2,7 +2,7 @@ export const meta = {
   name: 'code-analyzer',
   description: 'Audit a change set: parallel scoped auditors → refute each finding → per-package implementer, then test repair → gate loop, every editing stage numstat-measured',
   whenToUse:
-    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: maxAgents (hard cap on agents per run, default 200), fix (default true), partition (with fix:false: return the wave plan, no edits), cap (wave width, default 8), hotspots (extra single-owner files), minFix, rounds, dimensions (replaces the lenses), focus (appended to every auditor lens), tests, gate (command override), maxIterations (gate loop cap), prior (earlier findings to skip), chunkChars (chunk size), refuteBatch (findings per skeptic), kind (audit default; consolidate swaps the lenses for duplicates, dead code, legacy and stale tests), lineBudget (shrink|neutral|free; default by kind: refactor neutral, consolidate shrink, else free; an over-budget fix gets one shrink-or-justify pass, still over exits review), steps {scope, audit, refute, fix, test, gate, depscan, record} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages). An unknown arg is refused at launch. Test stages repair what the fixes broke and write nothing new; every other test comes back in proposedTests. COST: the dispatch hook claims 2 slots (call-site count); a run spawns far more agents (up to maxAgents, default 200). RETURNS {exit, outcome (green|review|red|error: green is dry, nothing-changed or capped with no red and nothing over budget), route, packages, merged, confirmed, dropped, unverified, fixed, red (fix not done, or the package\'s last gate not green), decisions, report, partition, lines (numstat per stage, per package and total, production vs test), proposedTests, over, gates (per scope dir, with gateRuns and exitCode)} plus refuted, rounds; a partition run also returns plan (parses with `agents dispatch --waves`), planPath and findingsPath (memory reports; the findings file holds one json block per package). Details: saved-workflows.md.',
+    'USE: audit before a merge or after a refactor; review-only with fix:false. CALL: Workflow({scriptPath: "~/.claude/workflows/code-analyzer.js", args: {cwd, paths: [...] | range: "main..HEAD" | findings}}). OPTIONAL: maxAgents (hard cap on agents per run, default 200), fix (default true), partition (with fix:false: return the wave plan, no edits), cap (wave width, default 8), hotspots (extra single-owner files), minFix, rounds, dimensions (replaces the lenses), focus (appended to every auditor lens), tests, gate (command override), maxIterations (gate loop cap), prior (earlier findings to skip), chunkChars (chunk size), refuteBatch (findings per skeptic), kind (audit default; consolidate swaps the lenses for duplicates, dead code, legacy and stale tests), lineBudget (shrink|neutral|free; default by kind: refactor neutral, consolidate shrink, else free; an over-budget fix gets one shrink-or-justify pass, still over exits review), steps {scope, audit, refute, fix, test, gate, depscan, record} = {agent?, model?, effort?, profile?, provider?} per stage (agent claude|codex|copilot|gemini|opencode; external stages run on their pins, or args/steps profile|provider, and fall back on 429/auth; each reports ran on or BLOCKED). OPTIONAL: profile, provider (run-wide override for external stages). An unknown arg is refused at launch. Test stages repair what the fixes broke and write nothing new; every other test comes back in proposedTests. COST: the dispatch hook claims 2 slots (call-site count); a run spawns far more agents (up to maxAgents, default 200). RETURNS {exit, outcome (green|review|red|error: green is dry, nothing-changed or capped with no red and nothing over budget), route, packages, merged, confirmed, dropped, unverified, fixed, red (fix not done, or the package\'s last gate not green), decisions, report, partition, lines (numstat per stage, per package and total, production vs test), proposedTests, over, gates (per scope dir, with gateRuns and exitCode)} plus refuted, rounds; a partition run also returns plan (parses with `agents ask --waves`), planPath and findingsPath (memory reports; the findings file holds one json block per package). Details: saved-workflows.md.',
   phases: [
     { title: 'Scope', detail: 'one cheap agent per package group returns per-file sizes; the script packs them into ≤50 KB chunks' },
     { title: 'Find', detail: 'one auditor per (dimension × chunk) reading its chunk in-context — agent count scales with diff size' },
@@ -73,6 +73,7 @@ const SHARED_TREE =
   'Shared live tree: never git stash|checkout|reset|restore|clean|commit, never make build|install|audit, never edit settings.json. ' +
   (CWD ? 'cwd: ' + CWD + ' (external agents: ask --workdir ' + CWD + '). Prefix every shell command with `cd ' + CWD + ' &&` (each Bash call starts in the session dir; the copilot shell allows a cd inside its roots). ' : '') + 'Comments 1 line ≤120 chars.'
 
+// <block:stepOf>
 // ── stepOf: copied verbatim into code-analyzer, code-looper, code-evaluator, code-workers, code-engineer ──
 // stepOf(steps, name, defaults, {allowed, external, profile, provider}) -> stage; claude in-context, others via `agents ask`.
 const COWORKERS = []
@@ -143,6 +144,8 @@ const stepOf = (steps, name, defaults, opt) => {
   return stepExt(name, v, d, f)
 }
 // ── end stepOf ──
+// </block:stepOf>
+// <block:stages>
 // ── stages: copied verbatim into code-analyzer, code-looper, code-workers, code-engineer ──
 // Shared stages, run in-script so workflow() nests one level; ctx = {cwd, cd, rules, S, model?, gateMax?, gate?, kind?, lineBudget?, seams?}.
 const ST_NEAR = 10
@@ -517,6 +520,7 @@ async function stagePolish(ctx, o) {
   return stPolishEnd(P, { dedupe, simplify, rv, findings, fixall, incomplete, open, pg })
 }
 // ── end stages ──
+// </block:stages>
 
 // ── Steps: who runs each stage; defaults reproduce the pre-steps models and efforts ──
 const STAGES = ['scope', 'audit', 'refute', 'fix', 'test', 'gate', 'record']
@@ -703,7 +707,7 @@ const planWaves = (tasks, hot, cap) => {
     : null
   return { waves: out, hotspotTask, edges }
 }
-// planMarkdown: a plan `agents dispatch --waves` reads (Waves table, Phase W.k task lines); o = {gate, findings}.
+// planMarkdown: a plan `agents ask --waves` reads (Waves table, Phase W.k task lines); o = {gate, findings}.
 const one = x => String(x || '').replace(/\s+/g, ' ').trim()
 const planMarkdown = (p, byPkg, o) => {
   const gate = one(o.gate)
@@ -777,7 +781,7 @@ const recordReport = async (label, report, dryRun) => {
   const json = '\nJSON:\n' + JSON.stringify({ report, decisions: [] })
   const once = () => ag(S.record.task(SHARED_TREE + ' Record this and nothing else. First run `date +%H%M%S` as its own command. Write the JSON below verbatim to a NEW file from `mktemp "${TMPDIR:-/tmp}/record.XXXXXX"` ' +
     '(Read that empty file before you Write it), then run exactly `' + CD + 'claude-code memory report --label ' + label + '-<that time> --file <that file> --format json </dev/null` ' +
-    'and return its paths array (the first path is the report file).' + (dryRun ? ' Then run exactly `' + CD + 'claude-code agents dispatch --waves <that first path> --dry-run </dev/null` and return its exit code as dryRunExit.' : '') + json),
+    'and return its paths array (the first path is the report file).' + (dryRun ? ' Then run exactly `' + CD + 'claude-code agents ask --waves <that first path> --dry-run </dev/null` and return its exit code as dryRunExit.' : '') + json),
     { label: 'record:' + label, phase: 'Plan', schema: S.record.schema(RECORDED), ...S.record.type, model: S.record.model, effort: S.record.effort }).catch(() => null)
   for (let i = 0; i < 2; i++) { // a no-op record (paths []) gets one retry
     const r = S.record.done('record:' + label, await once())
@@ -797,7 +801,7 @@ const recordPartition = async (partition, byPkg, confirmed, gate) => {
   const plan = planMarkdown(partition, byPkg, { gate, findings: fr.path })
   const pr = await recordReport('analyzer-plan', plan, true)
   const notes = [...(fr.path ? [] : ['findings record failed']), ...(pr.path ? [] : ['plan record failed']),
-    ...(pr.dryRunExit === null || pr.dryRunExit === 0 ? [] : ['plan dry-run exit ' + pr.dryRunExit + ': agents dispatch --waves refused the plan'])]
+    ...(pr.dryRunExit === null || pr.dryRunExit === 0 ? [] : ['plan dry-run exit ' + pr.dryRunExit + ': agents ask --waves refused the plan'])]
   return { plan, planPath: pr.path, findingsPath: fr.path, planDryRunExit: pr.dryRunExit, notes }
 }
 // The find lens prompt: the first call differs by mode; a failed scope agent leaves the auditor to list its own files.

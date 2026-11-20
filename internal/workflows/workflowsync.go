@@ -9,9 +9,9 @@ import (
 	"strings"
 )
 
-const workflowSyncUsage = "usage: claude-code workflow sync <canonical.js>\nExits: 0 synced or unchanged; 1 file/marker error; 2 usage.\n"
+const workflowSyncUsage = "usage: claude-code workflow sync [<root>]\nExits: 0 synced or unchanged; 1 file/marker error; 2 usage.\n"
 
-// RunWorkflowSync copies canonical helper blocks into sibling scripts without editing the canonical file.
+// RunWorkflowSync writes embedded helper blocks into marked workflow scripts under root.
 func RunWorkflowSync(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 1 && (args[0] == "-h" || args[0] == "--help") {
 		if _, err := io.WriteString(stdout, workflowSyncUsage); err == nil {
@@ -19,36 +19,26 @@ func RunWorkflowSync(args []string, stdout, stderr io.Writer) int {
 		}
 		return 1
 	}
-	if len(args) != 1 || strings.HasPrefix(args[0], "-") || filepath.Ext(args[0]) != ".js" {
+	if len(args) > 1 || (len(args) == 1 && strings.HasPrefix(args[0], "-")) {
 		fmt.Fprint(stderr, workflowSyncUsage)
 		return 2
 	}
-	canonical, err := os.ReadFile(args[0])
-	if err != nil {
-		fmt.Fprintf(stderr, "workflow sync: %v\n", err)
-		return 1
+	root := "."
+	if len(args) == 1 {
+		root = args[0]
 	}
-	if _, err = syncHelperBlocks(string(canonical), string(canonical)); err != nil {
-		fmt.Fprintf(stderr, "workflow sync: %s: %v\n", args[0], err)
-		return 1
-	}
-	return syncWorkflowDir(args[0], string(canonical), stdout, stderr)
+	return syncWorkflowDir(root, stdout, stderr)
 }
 
-func syncWorkflowDir(path, canonical string, stdout, stderr io.Writer) int {
-	dir := filepath.Dir(path)
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		fmt.Fprintf(stderr, "workflow sync: %v\n", err)
+func syncWorkflowDir(root string, stdout, stderr io.Writer) int {
+	scripts := lintTargets(root)
+	if len(scripts) == 0 {
+		fmt.Fprintf(stderr, "workflow sync: no scripts in %s\n", filepath.Join(root, "workflows", "*.js"))
 		return 1
 	}
 	code := 0
-	for _, entry := range entries {
-		if entry.Name() == filepath.Base(path) || filepath.Ext(entry.Name()) != ".js" {
-			continue
-		}
-		path := filepath.Join(dir, entry.Name())
-		status, err := syncWorkflowFile(path, canonical)
+	for _, path := range scripts {
+		status, err := syncWorkflowFile(path)
 		if err != nil {
 			fmt.Fprintf(stderr, "workflow sync: %s: %v\n", path, err)
 			code = 1
@@ -62,7 +52,7 @@ func syncWorkflowDir(path, canonical string, stdout, stderr io.Writer) int {
 	return code
 }
 
-func syncWorkflowFile(path, canonical string) (string, error) {
+func syncWorkflowFile(path string) (string, error) {
 	info, err := os.Lstat(path)
 	if err != nil {
 		return "", err
@@ -74,7 +64,7 @@ func syncWorkflowFile(path, canonical string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	updated, err := syncHelperBlocks(canonical, string(data))
+	updated, err := syncHelperBlocks(string(data))
 	if err != nil {
 		return "", err
 	}
@@ -87,24 +77,14 @@ func syncWorkflowFile(path, canonical string) (string, error) {
 	return "synced", nil
 }
 
-func syncHelperBlocks(canonical, target string) (string, error) {
+func syncHelperBlocks(target string) (string, error) {
 	for _, block := range helperBlocks {
-		ci, cj, err := syncBlockBounds(canonical, block)
-		if err != nil {
-			return "", fmt.Errorf("canonical: %w", err)
-		}
 		ti, tj, err := syncBlockBounds(target, block)
 		if err != nil {
 			return "", err
 		}
-		if ci < 0 {
-			if ti >= 0 {
-				return "", fmt.Errorf("canonical: no %s block", block.name)
-			}
-			continue
-		}
 		if ti >= 0 {
-			target = target[:ti] + canonical[ci:cj] + target[tj:]
+			target = target[:ti] + block.start + block.source + block.end + target[tj:]
 		}
 	}
 	return target, nil
@@ -116,7 +96,10 @@ func syncBlockBounds(src string, block helperBlock) (int, int, error) {
 		return -1, -1, nil
 	}
 	if i < 0 || j < i {
-		return 0, 0, fmt.Errorf("no %s block (%s … %s)", block.name, block.start, block.end)
+		return 0, 0, fmt.Errorf("no %s block (%s … %s)", block.name, strings.TrimSpace(block.start), block.end)
+	}
+	if strings.Count(src, block.start) != 1 || strings.Count(src, block.end) != 1 {
+		return 0, 0, fmt.Errorf("duplicate %s block markers", block.name)
 	}
 	return i, j + len(block.end), nil
 }

@@ -37,7 +37,7 @@ func Background(ctx context.Context, o Options, args []string) int {
 }
 
 func backgroundArgs(args []string, id string) []string {
-	out := append([]string{"agents", "dispatch"}, args...)
+	out := append([]string{"agents", "ask"}, args...)
 	return append(out, "--background=false", "--job", id)
 }
 

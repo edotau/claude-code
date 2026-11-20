@@ -1,6 +1,7 @@
 package workflows
 
 import (
+	_ "embed"
 	"errors"
 	"io/fs"
 	"os"
@@ -56,18 +57,24 @@ func workflowDocDrift(root string) []string {
 	return out
 }
 
-const helperStart, helperEnd = "// ── stepOf:", "// ── end stepOf ──"
-const stagesStart, stagesEnd = "// ── stages:", "// ── end stages ──"
+const helperStart, helperEnd = "// <block:stepOf>\n", "// </block:stepOf>"
+const stagesStart, stagesEnd = "// <block:stages>\n", "// </block:stages>"
+
+//go:embed blocks/stepof.js
+var stepOfSource string
+
+//go:embed blocks/stages.js
+var stagesSource string
 
 // helperBlock is one library block that every script calling one of its functions must carry verbatim.
 type helperBlock struct {
-	name, start, end string
-	uses             []string
+	name, start, end, source string
+	uses                     []string
 }
 
 var helperBlocks = []helperBlock{
-	{"stepOf", helperStart, helperEnd, []string{"stepOf("}},
-	{"stages", stagesStart, stagesEnd, []string{"stageLoop(", "stageFix(", "stagePolish(", "stageDetect("}},
+	{"stepOf", helperStart, helperEnd, stepOfSource, []string{"stepOf("}},
+	{"stages", stagesStart, stagesEnd, stagesSource, []string{"stageLoop(", "stageFix(", "stagePolish(", "stageDetect("}},
 }
 
 // lintTargets is every workflow script plus every skill script under root.
@@ -91,25 +98,19 @@ func workflowHelperDrift(root string) []string {
 	return out
 }
 
-// blockDrift compares every script's copy of b with the first script's copy.
+// blockDrift checks each copy against the embedded source, including the first script.
 func blockDrift(b helperBlock, scripts []string, srcs map[string]string) []string {
 	var out []string
-	first, firstName := "", ""
 	for _, s := range scripts {
 		src, ok := srcs[s]
 		if !ok {
 			continue
 		}
-		i, j := strings.Index(src, b.start), strings.Index(src, b.end)
-		switch {
-		case i < 0 && !usesAny(src, b.uses):
-			continue
-		case i < 0 || j < i:
-			out = append(out, s+": no "+b.name+" block ("+b.start+" … "+b.end+")")
-		case firstName == "":
-			first, firstName = src[i:j], s
-		case src[i:j] != first:
-			out = append(out, s+": "+b.name+" block differs from "+filepath.Base(firstName)+" (copy it verbatim)")
+		i, j, err := syncBlockBounds(src, b)
+		if err != nil {
+			out = append(out, s+": "+err.Error())
+		} else if i >= 0 && src[i:j] != b.start+b.source+b.end {
+			out = append(out, s+": "+b.name+" block differs from embedded source (run claude-code workflow sync)")
 		}
 	}
 	return out

@@ -18,7 +18,7 @@
 | VS Code keybindings template | [`internal/ui/vscode/keybindings.template.json`](../../internal/ui/vscode/keybindings.template.json) | `claude-code configure --vscode` (keybindings step) | — |
 | claude-science config | [`internal/claude/science.toml`](../../internal/claude/science.toml) | `claude-code anthropic science` (`--print-env`) | — |
 | `clip paste` WSL clipboard shim | [`internal/clipboard/wl-paste-claude.sh`](../../internal/clipboard/wl-paste-claude.sh) | `claude-code install` (`InstallProxy`, WSL only) | — |
-| Leaf brief template | [`internal/agent/brief.tmpl`](../../internal/agent/brief.tmpl) | `claude-code agents brief`, `agents dispatch --waves` (`RenderBrief`) | — |
+| Leaf brief template | [`internal/agent/brief.tmpl`](../../internal/agent/brief.tmpl) | `claude-code agents brief`, `agents ask --waves` (`RenderBrief`) | — |
 | Memory procedures | [`internal/memory/prompts/*.md`](../../internal/memory/prompts/) | `claude-code memory <verb>` (`Reference`) | — |
 | Model ranks | [`internal/catalog/ranks.json`](../../internal/catalog/ranks.json) | `--model auto` ranking | — |
 | Model catalog and route table | [`internal/models/catalog.json`](../../internal/models/catalog.json), [`internal/router/table.json`](../../internal/router/table.json) | model resolution, the fallback ladder | — |

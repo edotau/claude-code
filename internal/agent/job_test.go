@@ -425,9 +425,8 @@ func TestIsJobArgvRequiresWholeArgs(t *testing.T) {
 		{"id substring only", []string{"claude-code", "ask", "--job", id + "-x"}, false},
 		{"joined arg", []string{"claude-code", "ask --job " + id}, false},
 		{"missing job flag", []string{"claude-code", "ask", id}, false},
-		{"waves runner", []string{"/bin/claude-code", "agents", "dispatch", "--waves", "p.md", "--background=false", "--job", id}, true},
-		{"dispatch without waves", []string{"claude-code", "agents", "dispatch", "--job", id}, false},
-		{"waves without job", []string{"claude-code", "agents", "dispatch", "--waves", "p.md"}, false},
+		{"waves runner", []string{"/bin/claude-code", "agents", "ask", "--waves", "p.md", "--background=false", "--job", id}, true},
+		{"waves without job", []string{"claude-code", "agents", "ask", "--waves", "p.md"}, false},
 		{"empty", nil, false},
 	}
 	for _, c := range cases {

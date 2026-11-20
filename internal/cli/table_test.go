@@ -478,7 +478,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"index", "path", "watch", "import", "fmt", "report", "sandbox", "migrate"},
 		"gateway":  {"proxy", "resolve"},
-		"agents":   {"sync", "tree", "list", "ask", "dispatch", "label", "diff", "fix", "find", "send", "status", "result", "cancel", "wait", "brief"},
+		"agents":   {"sync", "tree", "list", "ask", "label", "diff", "fix", "find", "send", "status", "result", "cancel", "wait", "brief"},
 		"workflow": {"skeleton", "lint", "sync"},
 		"theme":    {"apply", "statusline", "vscode"},
 		"worktree": {"list", "create", "merge", "clean", "clean-all", "gate", "commit", "pr", "checks", "comment"},
@@ -905,23 +905,15 @@ func termWidth(l string) int {
 	return w
 }
 
-func TestCompletionAgentsDispatchWaves(t *testing.T) {
-	got := candidates("agents", "dispatch", "--")
+func TestCompletionAgentsAskWaves(t *testing.T) {
+	got := candidates("agents", "ask", "--")
 	for _, name := range []string{"waves", "wave", "dry-run", "status", "fresh", "gate", "provider", "profile", "profiles"} {
 		if !slices.Contains(got, "--"+name) {
-			t.Errorf("dispatch completions lack --%s: %v", name, got)
+			t.Errorf("ask completions lack --%s: %v", name, got)
 		}
 	}
-	if slices.Contains(candidates("agents", ""), "waves") {
-		t.Fatal("waves must be a dispatch flag, not a verb")
-	}
-	for _, name := range []string{"part", "no-web", "models", "jobs", "output-schema"} {
-		if slices.Contains(got, "--"+name) {
-			t.Errorf("dispatch completions still offer the role-mode flag --%s", name)
-		}
-	}
-	if slices.Contains(candidates("agents", "dispatch", ""), "explore") {
-		t.Error("dispatch completions still offer the explore role")
+	if slices.Contains(candidates("agents", ""), "dispatch") {
+		t.Fatal("dispatch is retired: no verb")
 	}
 }
 

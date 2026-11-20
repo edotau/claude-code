@@ -35,14 +35,14 @@ type stageDef struct {
 	Launch               string // when set, the launch mode in place of stepOf's: tools, read-only or no flag
 }
 
-// wavesLeafDef is the leaf `agents dispatch --waves` launches, read from the launch code's flags, tools and brief.
+// wavesLeafDef is the leaf `agents ask --waves` launches, read from the launch code's flags, tools and brief.
 func wavesLeafDef() (stageDef, error) {
 	args, tools, brief, err := waves.LeafLaunch(waves.LaunchOptions{}, "a.go", "go test ./x && go vet ./x")
 	if err != nil {
 		return stageDef{}, err
 	}
 	needs := stageNeeds(stageTextNeeds([]string{brief}, brief, true, "edit"), false, false)
-	return stageDef{Script: "agents dispatch --waves", Stage: "leaf", Needs: needs, Launch: launchModeOf(args, tools)}, nil
+	return stageDef{Script: "agents ask --waves", Stage: "leaf", Needs: needs, Launch: launchModeOf(args, tools)}, nil
 }
 
 // launchModeOf is the launch mode an `ask` command line and a batch line's tools setting amount to.
@@ -204,7 +204,7 @@ func stageCell(judge permVerdict, why, mode string, needs []string, probes map[s
 	return c
 }
 
-// permStageRows is one row per stage of every workflows/*.js under dir plus the `agents dispatch --waves` leaf.
+// permStageRows is one row per stage of every workflows/*.js under dir plus the `agents ask --waves` leaf.
 func permStageRows(dir string, agents []string, wd string) ([]permStageRow, permTally, error) {
 	scripts, err := filepath.Glob(filepath.Join(dir, "*.js"))
 	if err != nil {

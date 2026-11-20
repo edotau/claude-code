@@ -53,7 +53,7 @@ CLASSIFY → REVIEW → CODEBASE INTEL → RESEARCH → PLAN → [REFINE: opt-in
   in-context for MEDIUM, a `codex` leaf for HIGH+, per `skills/evaluate-code/references/task-review.md` → Plan review.
 - **5 Refine**: one brief per sub-task with the fields in `skills/subagent-workflows/SKILL.md` → Handoff contract.
 - **6 Dispatch**: shapes `skills/subagent-workflows/references/patterns.md`; a plan's `Phase W.k` waves run with
-  `claude-code agents dispatch --waves <plan>` (never commits; `references/agent-verbs.md`).
+  `claude-code agents ask --waves <plan>` (never commits; `references/agent-verbs.md`).
 - **7 Merge**: default is no worktree (`rules/standards/worktree-git.md`), else `skills/using-git-worktrees/SKILL.md`.
   Stop any leaf still running on merged work; a leaf at its turn limit reports partial work without committing.
 - **8 Verify**: loop and caps `skills/problem-solving/references/verify.md`. Simplify runs once over the merged diff

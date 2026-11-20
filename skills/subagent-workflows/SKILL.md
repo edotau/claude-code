@@ -112,7 +112,7 @@ unticked line of its `~/.claude/plans/` checklist).
 | Which agent, model, workspace | [agents-and-models.md](references/agents-and-models.md) |
 | Same question, many angles | Separate Agent leaves; shell role commands only for requested scripts ([cost-routing.md](references/cost-routing.md)) |
 | Sequential plan · tournament | [patterns.md](references/patterns.md) |
-| A plan's waves, observed | `claude-code agents dispatch --waves <plan>` (a flag, not a verb; never commits) ; exit codes, rerun and the `--background` + `agents wait` loop: [agent-verbs.md](references/agent-verbs.md) |
+| A plan's waves, observed | `claude-code agents ask --waves <plan>` (a flag, not a verb; never commits) ; exit codes, rerun and the `--background` + `agents wait` loop: [agent-verbs.md](references/agent-verbs.md) |
 | Many leaf-sized tasks | [Lane orchestrator](references/lane-orchestrator.md) |
 | Saved `Workflow` | `workflows/*.js`, **only when the user asks** ([saved-workflows.md](references/saved-workflows.md)) · templates: [composites.md](references/composites.md) |
 | Fleet scan | A `copilot` leaf with an explicitly requested fleet task; verify the returned diff |

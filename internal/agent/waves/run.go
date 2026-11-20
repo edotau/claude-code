@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 )
 
-// Options is the dispatch --waves library contract.
+// Options is the ask --waves library contract.
 type Options struct {
 	Plan                        string
 	From, To                    int
@@ -303,7 +303,7 @@ func (r *runner) planWave(w plans.Wave) ([]Spec, WaveState, []Spec, bool, error)
 }
 
 func (r *runner) rerun(n int) string {
-	args := []string{"claude-code", "agents", "dispatch", "--waves", r.o.Plan, "--wave", strconv.Itoa(n)}
+	args := []string{"claude-code", "agents", "ask", "--waves", r.o.Plan, "--wave", strconv.Itoa(n)}
 	for _, pair := range [][2]string{{"--gate", r.o.Gate}, {"--provider", r.o.Provider}, {"--profiles", strings.Join(r.o.Profiles, ",")}} {
 		if pair[1] != "" {
 			args = append(args, pair[:]...)

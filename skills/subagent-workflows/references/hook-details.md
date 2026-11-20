@@ -141,7 +141,7 @@ Retire the spawn's slots. `dispatch-stop` first blocks a leaf's stop (up to 2 ho
 visible fail-open) while a `job <id> started` its own transcript printed is still running, naming `claude-code agents
 result -f <id>`; a blocked stop retires nothing. A `codex`/`copilot`/`gemini`/`opencode` leaf whose tool results carry
 no `ask: ran on <agent> ·` line or `ran_on` field (`claude` leaves are exempt; the type is the request) is never
-refused. Its job is an id its own `agents ask|dispatch|result` call printed, else a record of that agent started
+refused. Its job is an id its own `agents ask|result` call printed, else a record of that agent started
 within 2 minutes after one of its ask calls (or after the hook's own launch). (1) Job running: a hand-back polls it
 every 250 ms for up to 13 s and passes at once when it ends; otherwise (and at once for a stop) it is held, not
 counted, naming `claude-code agents result -f <id>`, until the job ends or the 2 h cap (then it passes with a note); a
@@ -171,7 +171,7 @@ For the `verify:` allowlist, see `VerifyShape` in `internal/plans/verify.go`.
 
 `dispatch-handback` prepends the note and receipt and appends the job result to the hand-back `message`. When a leaf
 started several jobs, every finished job's answer is attached in dispatch order, each under its own receipt line,
-including jobs that finished before the wait. Attribution: only ids the leaf's own `agents ask|dispatch|result` call
+including jobs that finished before the wait. Attribution: only ids the leaf's own `agents ask|result` call
 printed count, never ids from listings, logs, files or the answer body, except one its own successful `agents
 result|wait <id>` named whose record is this session's, started within 2 min after the leaf's ask, with that ask's
 agent and a prompt holding its brief. With no such id it binds a record only when exactly one of this session's

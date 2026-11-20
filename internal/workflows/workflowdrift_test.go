@@ -90,25 +90,30 @@ func TestWorkflowLintDrift(t *testing.T) {
 
 func TestWorkflowHelperDrift(t *testing.T) {
 	block := func(tag string) string {
-		return helperStart + " x\nfunction stepOf() {" + tag + "}\n" + helperEnd + "\n"
+		return helperStart + strings.Replace(stepOfSource, "const COWORKERS = []", "const COWORKERS = ["+tag+"]", 1) + helperEnd + "\n"
 	}
 	root := t.TempDir()
 	if err := os.Mkdir(filepath.Join(root, "workflows"), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	put := func(name, body string) { writeScript(t, filepath.Join(root, "workflows"), name, body) }
-	put("a.js", block("1"))
-	put("b.js", block("1"))
+	put("a.js", block(""))
+	put("b.js", block(""))
 	put("none.js", "const x = 1\n")
 	if got := workflowHelperDrift(root); got != nil {
 		t.Fatalf("identical blocks: %v", got)
 	}
 	put("b.js", block("2"))
 	got := workflowHelperDrift(root)
-	if len(got) != 1 || !strings.Contains(got[0], "b.js") || !strings.Contains(got[0], "differs from a.js") {
+	if len(got) != 1 || !strings.Contains(got[0], "b.js") || !strings.Contains(got[0], "differs from embedded source") {
 		t.Fatalf("differing block: %v", got)
 	}
-	put("b.js", block("1"))
+	put("a.js", block("2"))
+	if got := workflowHelperDrift(root); len(got) != 2 {
+		t.Fatalf("identical drift must fail for both scripts: %v", got)
+	}
+	put("a.js", block(""))
+	put("b.js", block(""))
 	put("c.js", "stepOf(1)\n")
 	got = workflowHelperDrift(root)
 	if len(got) != 1 || !strings.Contains(got[0], "c.js") || !strings.Contains(got[0], "no stepOf block") {
@@ -119,18 +124,18 @@ func TestWorkflowHelperDrift(t *testing.T) {
 // A stages block is held to the same verbatim rule as stepOf; a stage call without the block is a hit.
 func TestWorkflowStagesDrift(t *testing.T) {
 	block := func(tag string) string {
-		return stagesStart + " x\nasync function stageLoop() {" + tag + "}\n" + stagesEnd + "\n"
+		return stagesStart + strings.Replace(stagesSource, "const ST_NEAR = 10", "const ST_NEAR = "+tag, 1) + stagesEnd + "\n"
 	}
 	root := t.TempDir()
 	dir := filepath.Join(root, "workflows")
 	if err := os.Mkdir(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	writeScript(t, dir, "a.js", block("1"))
+	writeScript(t, dir, "a.js", block("10"))
 	writeScript(t, dir, "b.js", block("2"))
 	writeScript(t, dir, "c.js", "await stageFix(ctx, {})\n")
 	got := strings.Join(workflowHelperDrift(root), "\n")
-	if !strings.Contains(got, "b.js: stages block differs from a.js") || !strings.Contains(got, "c.js: no stages block") {
+	if !strings.Contains(got, "b.js: stages block differs from embedded source") || !strings.Contains(got, "c.js: no stages block") {
 		t.Fatalf("stages drift: %q", got)
 	}
 }

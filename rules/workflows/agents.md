@@ -11,7 +11,7 @@ agent: `skills/subagent-workflows/SKILL.md`.
 
 ## Commands
 
-- Verb table (`ask`, `status`, `result`, `cancel`, `wait`, `brief`, `diff`, `find`, `dispatch --waves`, codex/gemini/
+- Verb table (`ask`, `status`, `result`, `cancel`, `wait`, `brief`, `diff`, `find`, `ask --waves`, codex/gemini/
   opencode/copilot verbs): `skills/subagent-workflows/references/agent-verbs.md`. Ask flags, `--live`, `--host`,
   stream-json: `skills/subagent-workflows/references/cost-routing.md` → Ask flags and lifecycle.
 - Not in those: `claude-code agents sync [--agent a] [--dry-run|--check]` projects agents and CLAUDE.md into every

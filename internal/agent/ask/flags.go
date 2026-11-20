@@ -45,6 +45,7 @@ type askFlags struct {
 	spec                                                                                                                                                                          string
 	dryRun                                                                                                                                                                        bool
 	loop                                                                                                                                                                          bool
+	waves                                                                                                                                                                         string
 	loopPlanner, loopResume                                                                                                                                                       string
 	loopRounds, loopBudget                                                                                                                                                        int
 }
@@ -148,6 +149,17 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	registerOverlayFlag(fs, f)
 	fs.StringVar(&f.spec, "spec", "", "the whole ask as JSON: file, inline {...} or -")
 	fs.BoolVar(&f.dryRun, "dry-run", false, "print route, permissions and argv; no model call")
+	registerWavesFlags(fs, f)
+}
+
+// registerWavesFlags names the --waves flags so ask parses and completes them; Waves re-parses and runs them.
+func registerWavesFlags(fs *flag.FlagSet, f *askFlags) {
+	fs.StringVar(&f.waves, "waves", "", "run the waves of this plan (--wave N[-M], --status, --fresh, --gate CMD, --profiles)")
+	fs.String("wave", "", "with --waves, wave N or inclusive range N-M")
+	fs.Bool("status", false, "with --waves, print saved state without launching")
+	fs.Bool("fresh", false, "with --waves, discard saved state and use current HEAD")
+	fs.String("gate", "", "with --waves, override the wave gate command")
+	fs.String("profiles", "", "with --waves, leaf profiles (comma-separated)")
 }
 
 // askCheckFlags runs the flag checks needing no resolved agent; every failure is a usage error (exit 2).

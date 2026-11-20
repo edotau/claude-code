@@ -400,25 +400,6 @@ func TestAgentsResultFollow(t *testing.T) {
 	}
 }
 
-// Bad dispatch args exit 2 and the message names --waves: the role mode is gone.
-func TestDispatchUsageErrorsExit2(t *testing.T) {
-	vaulttest.UseFreshKey(t)
-	for _, tc := range []struct {
-		name string
-		args []string
-	}{
-		{"no args", []string{}},
-		{"explore", []string{"explore", "x"}},
-		{"fleet", []string{"fleet", "x"}},
-		{"compare", []string{"compare", "x"}},
-	} {
-		code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsDispatch(tc.args) })
-		if code != 2 || !strings.Contains(stderr, "--waves <plan> is required") {
-			t.Errorf("%s: exit %d, stderr %q; want exit 2 naming --waves", tc.name, code, stderr)
-		}
-	}
-}
-
 // writeEvents writes evs as JSON lines to the record's events file.
 func writeEvents(t *testing.T, rec agent.Record, evs []wire.Event) {
 	t.Helper()
@@ -997,28 +978,12 @@ func TestAgentsDispatchWaves(t *testing.T) {
 		{"bad range", []string{"--waves", plan, "--wave", "3-2"}, 2, "invalid wave range"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsDispatch(tc.args) })
+			code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsAsk(tc.args) })
 			if code != tc.code || !strings.Contains(stderr, tc.message) {
 				t.Fatalf("exit %d, stdout %q, stderr %q; want %d and %q", code, out, stderr, tc.code, tc.message)
 			}
 			if tc.code == 0 && out == "" {
 				t.Fatal("dry run printed no packages")
-			}
-		})
-	}
-}
-
-func TestAgentsDispatchWaveCompanionsRequirePlan(t *testing.T) {
-	for _, args := range [][]string{
-		{"--dry-run"}, {"--dry-run=false"}, {"--status"}, {"--fresh"}, {"--gate", "true"},
-		{"--wave", "1"}, {"--waves", ""}, {"--provider", "databricks"},
-		{"--profile", "dev"}, {"--profiles", "dev,qa"},
-	} {
-		t.Run(strings.Join(args, " "), func(t *testing.T) {
-			args = append(args, "explore", "task")
-			code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdAgentsDispatch(args) })
-			if code != 2 || !strings.Contains(stderr, "--waves <plan> is required") {
-				t.Fatalf("exit %d, stderr %q; want usage error requiring --waves", code, stderr)
 			}
 		})
 	}

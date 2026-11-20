@@ -63,7 +63,7 @@ func TestPermStageRowsGrowWithAScriptsStages(t *testing.T) {
 	if rows, _, err = permStageRows(dir, agents, t.TempDir()); err != nil || len(rows) != before+1 {
 		t.Fatalf("a new stage must add one row: %d rows, was %d, err %v", len(rows), before, err)
 	}
-	if last := rows[len(rows)-1]; last.Script != "agents dispatch --waves" || rows[len(rows)-2].Stage != "review" {
+	if last := rows[len(rows)-1]; last.Script != "agents ask --waves" || rows[len(rows)-2].Stage != "review" {
 		t.Fatalf("want the new stage then the waves leaf, got %+v", rows[len(rows)-2:])
 	}
 }
@@ -113,7 +113,7 @@ func TestDoctorPermissionsJSONListsTheStageSection(t *testing.T) {
 	if code := doctorPermissions(&out, "copilot", true); code > 1 { // 1 is a denied row, a finding rather than a failure
 		t.Fatalf("exit %d\n%s", code, out.String())
 	}
-	if !strings.Contains(out.String(), `"script": "agents dispatch --waves"`) {
+	if !strings.Contains(out.String(), `"script": "agents ask --waves"`) {
 		t.Fatalf("the waves leaf row is missing from the JSON:\n%s", out.String())
 	}
 }

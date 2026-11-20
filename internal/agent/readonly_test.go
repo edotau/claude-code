@@ -307,7 +307,7 @@ func TestReadOnlyAgentsWait(t *testing.T) {
 	checkReadOnly(t, []roCase{
 		{"claude-code agents wait job --timeout 10m", true},
 		{"claude-code agents wait job --save /tmp/result", false},
-		{"claude-code agents dispatch --waves plan --background", false},
+		{"claude-code agents ask --waves plan --background", false},
 	})
 }
 
