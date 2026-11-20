@@ -46,8 +46,7 @@ func interactiveWire(ctx context.Context, r agent.WireRoute) (env, argv []string
 	return env, append(argv, PackageArgv(loadedAt(pkgDirs))...), nil
 }
 
-// passFlags are the Pi flags (args.js parseArgs) `claude-code pi` passes on, true when the flag takes the next arg;
-// the rest can load code (-e, --skill, --theme), reopen project settings (-a), or change the route or tools.
+// passFlags are the only Pi flags passed on (true: takes a value); any other can load code or reopen project settings.
 var passFlags = map[string]bool{"-c": false, "--continue": false, "-r": false, "--resume": false, "--session": true,
 	"-n": true, "--name": true, "--thinking": true, "-p": false, "--print": false, "--verbose": false, "--offline": false}
 
