@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
@@ -271,5 +272,23 @@ func TestChildCmdCarriesNoHookControl(t *testing.T) {
 	}
 	if !slices.Contains(cmd.Env, "KEEP=1") {
 		t.Error("the launch's own env was dropped")
+	}
+}
+
+func TestToolIdleResumesOnlyWhenNoToolRuns(t *testing.T) {
+	idle := agent.NewIdleTimeout("pi", 150*time.Millisecond, nil)
+	ti := newToolIdle(idle)
+	for _, ev := range []piEvent{{Type: "tool_execution_start", ToolCallID: "bash"}, {Type: "tool_execution_start", ToolCallID: "read"},
+		{Type: "tool_execution_end", ToolCallID: "read"}, {Type: "tool_execution_end", ToolCallID: "stray"}, {Type: "message_update"}} {
+		ti.beat(ev)
+	}
+	time.Sleep(400 * time.Millisecond)
+	if err := idle.Err(); err != nil {
+		t.Fatalf("idle tripped while bash still ran: %v", err)
+	}
+	ti.beat(piEvent{Type: "tool_execution_end", ToolCallID: "bash"})
+	time.Sleep(400 * time.Millisecond)
+	if idle.Err() == nil {
+		t.Fatal("idle never resumed after the last tool ended")
 	}
 }

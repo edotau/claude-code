@@ -47,9 +47,10 @@ Shared flags and the headless `ask` table: `skills/subagent-workflows/references
   from a harness-generated private agent dir (`PI_CODING_AGENT_DIR`); nothing is written to `~/.pi`.
 - `--tools` launches Pi with `--no-builtin-tools` and the harness's guard extension (`-e`), which registers the only
   tools Pi has (Pi's own tool code, wrapped): each call goes to `claude-code hook PreToolUse --pi-guard`, which
-  normalizes the path exactly as Pi does (`@`, `~`, Unicode spaces; `file://` and NUL are refused), builds the hook
-  payload from canonical fields only and runs `safety-scan` and `permission-gate`; the tool then runs on the judged
-  path. A guard that fails to load leaves Pi no tools (and Pi exits 1); the guard also refuses a Pi that is not the
+  normalizes the path exactly as Pi does (`@`, `~`, Unicode spaces; `file://` and NUL are refused; a new path with a
+  combining mark is refused, an existing one is judged as typed and as the disk lists it), builds the hook payload
+  from canonical fields only and runs `safety-scan` and `permission-gate`; the tool then runs on the judged path. A
+  guard that fails to load leaves Pi no tools (and Pi exits 1); the guard also refuses a Pi that is not the
   pinned version. Pi proves it loaded by writing a per-run nonce, checked on the first stream event ("pi guard did not
   load; run refused"). Bare `--tools` offers read, bash, edit, write, grep, find and ls; `powershell` is never offered.
 - `--read-only` and `--permissions plan` give Pi read, grep, find and ls only: no shell, stronger than the vetted

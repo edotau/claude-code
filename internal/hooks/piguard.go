@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
@@ -69,20 +70,85 @@ func judgePi(c piCall) piVerdict {
 	if why != "" {
 		return piBlock(why)
 	}
-	payload, err := json.Marshal(map[string]any{"hook_event_name": settings.EventPreToolUse, "tool_name": tool, "tool_input": ti,
-		"cwd": c.CWD, "session_id": c.SessionID, "harness_agent": "pi"})
-	if err != nil {
-		return piBlock("payload: " + err.Error())
+	spellings, why := piSpellings(path)
+	if why != "" {
+		return piBlock(why)
 	}
-	for _, s := range settings.SpecsFor("pi", "plugin") {
-		if s.Event != settings.EventPreToolUse || !matchTool(s.Matcher, tool) {
-			continue
+	for _, sp := range spellings {
+		if sp != "" {
+			ti["file_path"] = sp
 		}
-		if reason := piModuleBlock(s, payload); reason != "" {
+		payload, err := json.Marshal(map[string]any{"hook_event_name": settings.EventPreToolUse, "tool_name": tool, "tool_input": ti,
+			"cwd": c.CWD, "session_id": c.SessionID, "harness_agent": "pi"})
+		if err != nil {
+			return piBlock("payload: " + err.Error())
+		}
+		if reason := piModulesBlock(settings.SpecsFor("pi", "plugin"), tool, payload); reason != "" {
 			return piVerdict{Block: reason}
 		}
 	}
 	return piVerdict{Allow: true, Path: path}
+}
+
+// piSpellings is the path as typed and, when it differs, as the disk spells it: one file, so each must pass the hooks.
+func piSpellings(path string) ([]string, string) {
+	if path == "" {
+		return []string{""}, "" // bash names no path
+	}
+	disk, why := diskSpelling(path)
+	if why != "" || disk == path {
+		return []string{path}, why
+	}
+	return []string{path, disk}, ""
+}
+
+// piModulesBlock runs the PreToolUse modules matching tool; fail closed: none judging the call is a block, not an allow.
+func piModulesBlock(specs []settings.EventSpec, tool string, payload []byte) string {
+	judged := 0
+	for _, s := range specs {
+		if s.Event != settings.EventPreToolUse || !matchTool(s.Matcher, tool) {
+			continue
+		}
+		judged++
+		if reason := piModuleBlock(s, payload); reason != "" {
+			return reason
+		}
+	}
+	if judged == 0 {
+		return "pi guard: no guard module matched " + tool + "; blocked"
+	}
+	return ""
+}
+
+// diskSpelling is p with each existing component named as its directory lists it; fail closed on what it cannot know.
+func diskSpelling(p string) (string, string) {
+	vol := filepath.VolumeName(p)
+	cur := vol + string(filepath.Separator)
+	parts := strings.Split(strings.Trim(p[len(vol):], string(filepath.Separator)), string(filepath.Separator))
+	for i, part := range parts {
+		fi, err := os.Lstat(filepath.Join(cur, part))
+		if err != nil {
+			tail := filepath.Join(parts[i:]...)
+			if strings.ContainsFunc(tail, func(r rune) bool { return r >= 0x300 && r <= 0x36F }) {
+				return "", "a new path with a combining mark has no known on-disk spelling" // NFC and NFD could be one file
+			}
+			return filepath.Join(cur, tail), ""
+		}
+		ents, err := os.ReadDir(cur)
+		if err != nil {
+			return "", "the directory " + cur + " cannot be listed for its on-disk spelling"
+		}
+		name := part
+		exact := slices.ContainsFunc(ents, func(e os.DirEntry) bool { return e.Name() == part })
+		for _, e := range ents { // stat entries only when no entry has the typed name
+			if ei, err := e.Info(); !exact && err == nil && os.SameFile(ei, fi) {
+				name = e.Name()
+				break
+			}
+		}
+		cur = filepath.Join(cur, name)
+	}
+	return cur, ""
 }
 
 func piBlock(why string) piVerdict { return piVerdict{Block: "pi guard: " + why + "; blocked"} }

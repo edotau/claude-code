@@ -12,12 +12,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -25,6 +27,8 @@ const (
 	agentDirEnv = "PI_CODING_AGENT_DIR"
 	// guardToolsEnv names the tools the guard registers; there is no powershell: the guard maps no such tool.
 	guardToolsEnv = "HARNESS_PI_GUARD_TOOLS"
+	// stopGrace is how long Pi gets to kill its own bash groups after SIGTERM before the descendants are killed.
+	stopGrace = 2 * time.Second
 )
 
 // lockdownArgv loads no project code: --no-approve ignores the work dir's .pi (extensions, packages, settings) and
@@ -206,8 +210,9 @@ func (e piEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOption
 	cmd, tail := childCmd(ctx, bin, p, req)
 	idle := agent.NewIdleTimeout(e.Name(), agent.IdleLimitFor(e.Name()), nil)
 	w := newGuardWatch(e.Name(), req.Tools, p.Env, cmd)
+	ti := newToolIdle(idle)
 	parse := func(br *bufio.Reader, s wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (wire.Result, error) {
-		return parseEvents(br, s, onMeaningful, func(ev piEvent) error { beat(idle, ev); return w.check() }, logs...)
+		return parseEvents(br, s, onMeaningful, func(ev piEvent) error { ti.beat(ev); return w.check() }, logs...)
 	}
 	return agent.RunStreamWith(ctx, e.Name(), cmd, tail, p.Result, sink, parse, agent.StreamOpts{Idle: idle, Cause: w.cause})
 }
@@ -216,6 +221,7 @@ func (e piEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOption
 func childCmd(ctx context.Context, bin string, p agent.CLIPrep, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer) {
 	cmd, tail := agent.ChildCmd(ctx, bin, p.Argv, p.Env, req.WorkDir, "", req.KeepEnv, true)
 	cmd.Env = withoutHookControl(cmd.Env)
+	proc.TreeCancel(cmd, stopGrace) // Pi's bash runs in its own group: a group kill alone leaves it running
 	return cmd, tail
 }
 
@@ -250,13 +256,30 @@ func (w *guardWatch) check() error {
 // cause outranks the idle and exit errors the kill produces.
 func (w *guardWatch) cause() error { return w.err }
 
-// beat keeps the idle watch honest: a running tool holds it off, any other progress restarts it.
-func beat(idle *agent.IdleTimeout, ev piEvent) {
+// toolIdle keeps the idle watch honest: any running tool holds it off, other progress restarts it.
+type toolIdle struct {
+	idle   *agent.IdleTimeout
+	active map[string]bool // tool call ids between start and end; Pi runs calls in parallel
+}
+
+func newToolIdle(idle *agent.IdleTimeout) *toolIdle {
+	return &toolIdle{idle: idle, active: map[string]bool{}}
+}
+
+func (t *toolIdle) beat(ev piEvent) {
 	switch ev.Type {
 	case "tool_execution_start":
-		idle.Pause()
-	case "tool_execution_end", "message_update", "turn_start":
-		idle.Beat(ev.Type)
+		t.active[ev.ToolCallID] = true
+		t.idle.Pause()
+	case "tool_execution_end":
+		delete(t.active, ev.ToolCallID) // an end with no start changes nothing
+		if len(t.active) == 0 {
+			t.idle.Beat(ev.Type)
+		}
+	case "message_update", "turn_start":
+		if len(t.active) == 0 {
+			t.idle.Beat(ev.Type)
+		}
 	}
 }
 

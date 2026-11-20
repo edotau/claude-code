@@ -51,9 +51,11 @@ paths:
   menu: an id not on it is refused ("not on the menu") and never enters the auto pool. With no tools flag it runs with
   no tools. Any `--tools` run runs Pi with `--no-builtin-tools` plus the harness's guard extension (`-e`, run dir,
   0600), whose wrapped tools are the only ones Pi has: each call is judged by `hook PreToolUse --pi-guard` (path
-  normalized as Pi does, `safety-scan` and `permission-gate`) and fails closed; Pi proves it loaded by writing the
-  run's nonce, checked on the first stream event, else the run is killed and refused ("pi guard did not load; run
-  refused"). Bare `--tools` gives read, bash, edit, write, grep, find and ls (never `powershell`: unmapped, blocked);
+  normalized as Pi does and judged as typed and as the disk spells it, `safety-scan` and `permission-gate`) and fails
+  closed; a cancel stops Pi with SIGTERM, then kills every descendant (Pi's bash groups included); Pi proves it
+  loaded by writing the run's nonce, checked on the first stream event, else the run is killed and refused ("pi guard
+  did not load; run refused"). Bare `--tools` gives read, bash, edit, write, grep, find and ls (never `powershell`:
+  unmapped, blocked);
   `--read-only` and `--permissions plan` give read, grep, find and ls only (no shell, stronger than other agents'
   vetted list); a Deny on Edit or Write drops bash (the gate cannot tie a shell command to a file), on Read also grep,
   on Glob or Grep also grep, find and ls. `--allow`, `--deny` and `--permissions` ride `HARNESS_DISPATCH_PERMISSIONS`

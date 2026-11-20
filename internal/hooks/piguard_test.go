@@ -15,10 +15,14 @@ const piDeny = `{"deny":[{"Tool":"Write","Arg":"denied.txt"},{"Tool":"Edit","Arg
 
 func piGuard(t *testing.T, tool string, input map[string]any) piVerdict {
 	t.Helper()
-	cwd := t.TempDir()
+	return piGuardIn(t, t.TempDir(), piDeny, tool, input)
+}
+
+func piGuardIn(t *testing.T, cwd, policy, tool string, input map[string]any) piVerdict {
+	t.Helper()
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv("HOME", cwd)
-	t.Setenv(agent.DispatchPermissionsEnv, piDeny)
+	t.Setenv(agent.DispatchPermissionsEnv, policy)
 	in, _ := json.Marshal(piCall{Tool: tool, Input: input, CWD: cwd})
 	var out, errb bytes.Buffer
 	if code := runPiGuard(bytes.NewReader(in), &out, &errb); code != 0 {
@@ -92,5 +96,31 @@ func TestPiGuardUnreadableCallBlocks(t *testing.T) {
 	runPiGuard(strings.NewReader("not json"), &out, &bytes.Buffer{})
 	if strings.Contains(out.String(), `"allow"`) || !strings.Contains(out.String(), "blocked") {
 		t.Errorf("reply = %s", out.String())
+	}
+}
+
+func TestPiGuardJudgesTheOnDiskSpelling(t *testing.T) {
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	nfc, nfd := "caf\u00e9.txt", "cafe\u0301.txt"
+	if err := os.WriteFile(filepath.Join(dir, nfc), nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got, why := diskSpelling(filepath.Join(dir, nfd)); why == "" && got != filepath.Join(dir, nfc) {
+		t.Errorf("diskSpelling = %q, want the listed NFC name or a refusal", got)
+	}
+	deny, _ := json.Marshal(map[string]any{"deny": []map[string]string{{"Tool": "Write", "Arg": filepath.Join(dir, nfc)}}})
+	for _, name := range []string{nfc, nfd} {
+		if v := piGuardIn(t, dir, string(deny), "write", map[string]any{"path": name, "content": "x"}); v.Allow {
+			t.Errorf("write %q allowed past a deny on the NFC spelling: %+v", name, v)
+		}
+	}
+}
+
+func TestPiModulesBlockFailsClosedWhenNoModuleJudges(t *testing.T) {
+	if got := piModulesBlock(nil, "Write", []byte("{}")); !strings.Contains(got, "no guard module matched") {
+		t.Errorf("empty module list: %q, want a block", got)
 	}
 }
