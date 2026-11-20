@@ -125,12 +125,6 @@ func TestRunDirsAreIsolated(t *testing.T) {
 	rmB()
 }
 
-func TestRowIsReadOnlyOnly(t *testing.T) {
-	if !row.CLI.ReadOnlyOnly {
-		t.Error("pi must stay out of editing dispatches' fallbacks until the stage 2 guard exists")
-	}
-}
-
 func TestBuildConfigDefaultIsTheRunsModelElseFirstEntry(t *testing.T) {
 	p := testProvider(t)
 	bases := Bases{Claude: "http://127.0.0.1:1/p/dbx", Responses: "http://127.0.0.1:1/p/dbx/responses", Chat: "http://127.0.0.1:1/p/dbx/openai"}

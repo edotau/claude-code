@@ -2,6 +2,7 @@ package pi
 
 import (
 	"os"
+	"os/exec"
 	"slices"
 	"strings"
 	"testing"
@@ -29,8 +30,9 @@ func TestWireArgvAndEnv(t *testing.T) {
 	if !slices.Equal(argv, want) {
 		t.Errorf("argv = %v, want %v", argv, want)
 	}
-	if len(env) != 2 || !strings.HasPrefix(env[0], "PI_CODING_AGENT_DIR=") || env[1] != "HARNESS_PROXY_API_KEY="+testCred {
-		t.Errorf("env names = %v, want PI_CODING_AGENT_DIR and HARNESS_PROXY_API_KEY only", envNames(env))
+	wantEnv := []string{"PI_CODING_AGENT_DIR", "HARNESS_PROXY_API_KEY", nonceFileEnv, nonceValueEnv}
+	if !slices.Equal(envNames(env), wantEnv) || env[1] != "HARNESS_PROXY_API_KEY="+testCred {
+		t.Errorf("env names = %v, want %v", envNames(env), wantEnv)
 	}
 }
 
@@ -85,27 +87,124 @@ func TestWireRefusals(t *testing.T) {
 	}
 }
 
+// guardedEnv is the env Wire writes for a tools run: the agent dir plus the guard's nonce env.
+func guardedEnv(t *testing.T) (env []string, g Guard) {
+	t.Helper()
+	dir := t.TempDir()
+	g, err := WriteGuard(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return append([]string{agentDirEnv + "=" + dir}, g.Env()...), g
+}
+
 func TestToolsArgv(t *testing.T) {
+	env, g := guardedEnv(t)
+	plan := agent.Permissions{Mode: agent.PermPlan}
 	for name, c := range map[string]struct {
 		req  agent.RunOptions
 		want []string
-		bad  bool
 	}{
-		"no tools":    {agent.RunOptions{}, []string{"--no-tools"}, false},
-		"read-only":   {agent.RunOptions{Tools: true, ReadOnly: true}, []string{"--tools", "read,grep,find,ls"}, false},
-		"write tools": {agent.RunOptions{Tools: true}, nil, true},
+		"no tools":    {agent.RunOptions{}, []string{"--no-tools"}},
+		"read-only":   {agent.RunOptions{Tools: true, ReadOnly: true}, []string{"-e", g.Path, "--tools", "read,grep,find,ls"}},
+		"plan mode":   {agent.RunOptions{Tools: true, Permissions: plan}, []string{"-e", g.Path, "--tools", "read,grep,find,ls"}},
+		"write tools": {agent.RunOptions{Tools: true}, []string{"-e", g.Path, "--tools", "read,bash,edit,write,grep,find,ls"}},
+		"file deny":   {agent.RunOptions{Tools: true, Permissions: agent.Permissions{Deny: []agent.Rule{{Tool: "Edit", Arg: "x"}}}}, []string{"-e", g.Path, "--tools", "read,edit,write,grep,find,ls"}},
+		"bash deny":   {agent.RunOptions{Tools: true, Permissions: agent.Permissions{Deny: []agent.Rule{{Tool: "Bash", Arg: "git push*"}}}}, []string{"-e", g.Path, "--tools", "read,bash,edit,write,grep,find,ls"}},
 	} {
-		got, err := toolsArgv(c.req)
-		if (err != nil) != c.bad || !slices.Equal(got, c.want) {
-			t.Errorf("%s: got %v, %v", name, got, err)
+		got, err := toolsArgv(c.req, env)
+		if err != nil || !slices.Equal(got, c.want) {
+			t.Errorf("%s: got %v, %v; want %v", name, got, err, c.want)
+		}
+		if slices.ContainsFunc(got, func(a string) bool { return strings.Contains(a, "powershell") }) {
+			t.Errorf("%s: powershell offered: %v", name, got)
+		}
+	}
+}
+
+// No guard, no tools: without the guard env every tools request fails and yields no argv at all.
+func TestToolsArgvWithoutGuardOffersNoTools(t *testing.T) {
+	_, g := guardedEnv(t)
+	for name, env := range map[string][]string{"empty": nil, "dir only": {agentDirEnv + "=/x"}, "no nonce": {agentDirEnv + "=/x", nonceFileEnv + "=" + g.NonceFile}} {
+		for _, ro := range []bool{false, true} {
+			if got, err := toolsArgv(agent.RunOptions{Tools: true, ReadOnly: ro}, env); err == nil || got != nil {
+				t.Errorf("%s ro=%v: got %v, %v; want a refusal", name, ro, got, err)
+			}
+		}
+	}
+}
+
+func TestWireToolsRunWritesGuard(t *testing.T) {
+	env, argv, err := piEngine{}.Wire(t.Context(), testRoute(t, "databricks-claude-sonnet-5-5", true), &agent.Headless{Tools: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, ok := guardFromEnv(env)
+	if !ok {
+		t.Fatalf("a tools run's env has no guard: %v", envNames(env))
+	}
+	if _, err := os.Stat(g.Path); err != nil {
+		t.Errorf("guard not written: %v", err)
+	}
+	if slices.Contains(argv, "-e") {
+		t.Errorf("Wire must leave -e to toolsArgv: %v", argv)
+	}
+	envNo, _, err := piEngine{}.Wire(t.Context(), testRoute(t, "databricks-claude-sonnet-5-5", true), &agent.Headless{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := guardFromEnv(envNo); ok {
+		t.Error("a no-tools run wrote a guard")
+	}
+}
+
+func TestGuardWatchKillsWhenNotReady(t *testing.T) {
+	env, g := guardedEnv(t)
+	killed := false
+	w := newGuardWatch("pi", true, env, &exec.Cmd{Cancel: func() error { killed = true; return nil }})
+	err := w.check()
+	if err == nil || !killed || !strings.Contains(err.Error(), "pi guard did not load; run refused") || w.cause() == nil {
+		t.Fatalf("err = %v killed = %v; want a refusal and a kill", err, killed)
+	}
+	// ready: the extension wrote this run's nonce
+	if err := os.WriteFile(g.NonceFile, []byte(g.Nonce), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	killed = false
+	if w = newGuardWatch("pi", true, env, &exec.Cmd{Cancel: func() error { killed = true; return nil }}); w.check() != nil || killed {
+		t.Errorf("a ready guard was refused (killed=%v)", killed)
+	}
+	// no tools: nothing to prove
+	if w = newGuardWatch("pi", false, nil, nil); w.check() != nil {
+		t.Error("a no-tools run was checked")
+	}
+}
+
+func TestRefuseRequest(t *testing.T) {
+	deny := agent.Permissions{Deny: []agent.Rule{{Tool: "Edit", Arg: "secret.txt"}}, Allow: []agent.Rule{{Tool: "Bash", Arg: "ls"}}, Mode: agent.PermPlan}
+	for name, c := range map[string]struct {
+		req  agent.RunOptions
+		want string
+	}{
+		"deny, allow, plan": {agent.RunOptions{Tools: true, Permissions: deny}, ""},
+		"ask rule":          {agent.RunOptions{Tools: true, Permissions: agent.Permissions{Ask: []agent.Rule{{Tool: "Bash", Arg: "git push"}}}}, "ask rule Bash(git push)"},
+		"nonce env":         {agent.RunOptions{Env: []string{"HARNESS_PI_GUARD_NONCE=x"}}, "HARNESS_PI_GUARD_NONCE"},
+		"agent dir env":     {agent.RunOptions{Env: []string{agentDirEnv + "=/x"}}, agentDirEnv},
+		"policy env":        {agent.RunOptions{Env: []string{agent.DispatchPermissionsEnv + "={}"}}, agent.DispatchPermissionsEnv},
+		"other env":         {agent.RunOptions{Env: []string{"FOO=1"}}, ""},
+	} {
+		err := refuseRequest(c.req)
+		if (c.want == "") != (err == nil) || err != nil && !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, c.want)
 		}
 	}
 }
 
 func TestAfterPutsPromptLast(t *testing.T) {
-	p := &agent.CLIPrep{Argv: []string{"--mode", "json"}, Prompt: "do it"}
-	piEngine{}.After(p, agent.RunOptions{Tools: true, ReadOnly: true})
-	if got := p.Argv[len(p.Argv)-1]; got != "do it" || !slices.Contains(p.Argv, "read,grep,find,ls") {
+	env, g := guardedEnv(t)
+	p := &agent.CLIPrep{Argv: []string{"--mode", "json"}, Env: env, Prompt: "do it"}
+	piEngine{}.After(p, agent.RunOptions{Tools: true})
+	if got := p.Argv[len(p.Argv)-1]; got != "do it" || !slices.Contains(p.Argv, "read,bash,edit,write,grep,find,ls") || !slices.Contains(p.Argv, g.Path) {
 		t.Errorf("argv = %v", p.Argv)
 	}
 }
@@ -113,8 +212,14 @@ func TestAfterPutsPromptLast(t *testing.T) {
 func TestRowRegistered(t *testing.T) {
 	s, ok := agent.LookupSchema("pi")
 	c := s.CLI.Caps
-	if !ok || s.CLI.Binary != "pi" || c.ReadOnly != agent.Native || c.Permissions != agent.None || c.WorkDir != agent.Emulated {
+	if !ok || s.CLI.Binary != "pi" || c.ReadOnly != agent.Native || c.Permissions != agent.Native || c.WorkDir != agent.Emulated {
 		t.Errorf("pi row = %+v (found %v)", s.CLI, ok)
+	}
+	for _, req := range []agent.RunOptions{{Tools: true, Permissions: agent.Permissions{Deny: []agent.Rule{{Tool: "Edit", Arg: "x"}}}},
+		{Tools: true, Permissions: agent.Permissions{Mode: agent.PermPlan}}} {
+		if err := agent.CheckCapabilities("pi", req); err != nil {
+			t.Errorf("pi refuses a rule its guard enforces: %v", err)
+		}
 	}
 	if agent.IdleLimitFor("pi") == 0 {
 		t.Error("pi has no idle limit")

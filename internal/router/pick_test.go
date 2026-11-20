@@ -748,15 +748,3 @@ func BenchmarkPick(b *testing.B) {
 		pickRepo(tb, "sonnet", st, true)
 	}
 }
-
-// A refused agent is no fallback; the wanted agent is never asked (a named dispatch still runs where it was sent).
-func TestPickRefuseDropsFallbackNotWant(t *testing.T) {
-	tb := testTable(t)
-	o := PickOpts{Fallback: FallbackAgents, Configured: allConfigured, Now: func() time.Time { return now0 },
-		Refuse: func(a string) string {
-			return map[bool]string{true: a + " is read-only", false: ""}[a == "codex" || a == "copilot"]
-		}}
-	if got := runners(tb.Pick(context.Background(), "opus", "copilot", State{}, o)); strings.Contains(got, "codex") || !strings.Contains(got, "copilot") {
-		t.Errorf("refused codex must drop, wanted copilot stay: %s", got)
-	}
-}

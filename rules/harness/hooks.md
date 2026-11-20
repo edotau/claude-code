@@ -64,7 +64,7 @@ decision, so an ask denies there; their other hooks are advisory unless noted.
 **Pi · plugin** (`pi`): only `safety-scan` and `permission-gate`, run by the guard extension on Pi's `tool_call` through
 `claude-code hook PreToolUse --safety-scan|--permission-gate` with a Claude-shaped payload carrying
 `"harness_agent":"pi"` (or `HARNESS_HOOK_AGENT=pi`). Pi has no ask, so an ask is a block that names it (`no ask decision
-on pi`) unless the dispatch's `--allow`/`--deny` settles it, as on opencode. Output: allow is exit 0 with empty stdout;
+on pi`), and a dispatch `--ask` rule is refused. Output: allow is exit 0 with empty stdout;
 block is exit 2 with empty stdout and the reason on stderr; the extension fails closed on any other exit.
 
 `permission-gate` judges each call with `Permissions.Decide` against `HARNESS_DISPATCH_PERMISSIONS`; how each agent

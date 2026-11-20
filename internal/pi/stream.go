@@ -50,7 +50,7 @@ type piUsage struct {
 }
 
 // parseEvents turns Pi's JSONL into wire events; the exit code says nothing, so the stream alone decides failure.
-func parseEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onEvent func(piEvent), logs ...wire.StreamLog) (res wire.Result, _ error) {
+func parseEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onEvent func(piEvent) error, logs ...wire.StreamLog) (res wire.Result, _ error) {
 	t := &piTurn{open: map[string]string{}, sink: sink, lg: wire.PickLog(logs), res: &res, onMeaningful: onMeaningful, onEvent: onEvent}
 	tr, err := wire.DecodeEvents(br, t.lg, "decode pi json", true, nil, t.handle)
 	res.Transport = tr
@@ -79,12 +79,14 @@ type piTurn struct {
 	aborted      bool
 	fired        bool
 	onMeaningful func()
-	onEvent      func(piEvent)
+	onEvent      func(piEvent) error
 }
 
 func (t *piTurn) handle(ev piEvent, ts *wire.TransportTracker) (bool, error) {
 	if t.onEvent != nil {
-		t.onEvent(ev)
+		if err := t.onEvent(ev); err != nil { // an error stops the stream before this event is forwarded
+			return false, err
+		}
 	}
 	if !t.fired && t.onMeaningful != nil && isMeaningful(ev) {
 		t.fired = true

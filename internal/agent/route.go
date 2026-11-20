@@ -480,18 +480,7 @@ func (e *LeadError) Unwrap() error { return e.Err }
 
 func chainFor(ctx context.Context, q RouteReq, hint, lead string) (Chain, router.PickResult, error) {
 	o := router.PickOpts{Lead: lead, Refresh: q.Refresh, WorkRepo: func() bool { return router.IsWorkRepo(q.WorkDir) }}
-	if q.Tools && !q.ReadOnly {
-		o.Refuse = refuseWriteTools
-	}
 	return RouteChainFor(ctx, q.Agent, q.Model, hint, q.Fallback, q.Native, o)
-}
-
-// refuseWriteTools is why an agent that runs read-only cannot be a fallback for an editing dispatch.
-func refuseWriteTools(name string) string {
-	if s, ok := LookupSchema(name); ok && s.CLI.ReadOnlyOnly {
-		return name + " runs read-only until its write guard exists; this dispatch edits"
-	}
-	return ""
 }
 
 // routeLeadContext is LeadFor, except a preview leads on its pin or a profile:model's profile, never explicitly.

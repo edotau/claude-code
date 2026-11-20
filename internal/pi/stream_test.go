@@ -2,6 +2,7 @@ package pi
 
 import (
 	"bufio"
+	"errors"
 	"os"
 	"slices"
 	"strings"
@@ -27,7 +28,7 @@ func (c *collectSink) count(typ string) (n int) {
 func parseFixture(t *testing.T, data string) (wire.Result, *collectSink, int, error) {
 	t.Helper()
 	sink, seen := &collectSink{}, 0
-	res, err := parseEvents(bufio.NewReader(strings.NewReader(data)), sink, nil, func(piEvent) { seen++ })
+	res, err := parseEvents(bufio.NewReader(strings.NewReader(data)), sink, nil, func(piEvent) error { seen++; return nil })
 	return res, sink, seen, err
 }
 
@@ -163,5 +164,15 @@ func TestParseEventsRunMustFinishProperly(t *testing.T) {
 		if res.Answer == "" {
 			t.Errorf("%s: partial text was dropped", name)
 		}
+	}
+}
+
+// An onEvent error stops the stream before that event is forwarded to the sink.
+func TestParseEventsOnEventErrorStopsBeforeForwarding(t *testing.T) {
+	sink, boom := &collectSink{}, errors.New("guard")
+	_, err := parseEvents(bufio.NewReader(strings.NewReader(`{"type":"session","id":"s1"}`+"\n")), sink, nil,
+		func(piEvent) error { return boom })
+	if !errors.Is(err, boom) || len(sink.evs) != 0 {
+		t.Errorf("err = %v, forwarded %v; want the guard error and no events", err, sink.evs)
 	}
 }
