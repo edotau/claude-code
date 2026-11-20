@@ -25,11 +25,23 @@ type idleWatch struct {
 	retries, status int
 	rejected        bool // authRetryLimit rejected-login retries ended the attempt early
 	start           time.Time
+	tools           map[string]openTool // open top-level tool_use id -> call, each with its own pause ceiling
+	idle            time.Duration       // the window length outside a tool call
+	paused          bool                // a tool-call ceiling window is running
+	pauseEnd        time.Time           // ceiling for pending calls whose ids were not tracked
 }
+
+type openTool struct {
+	name     string
+	deadline time.Time
+}
+
+// toolPauseCeiling bounds how long one tool call may hold the idle window off; tests shorten it.
+var toolPauseCeiling = 10 * time.Minute
 
 // newIdleWatch arms the idle window now; kill (nil inside RunEventStream, which binds it) runs once on expiry.
 func newIdleWatch(d time.Duration, kill func()) *idleWatch {
-	return &idleWatch{IdleTimeout: agent.NewIdleTimeout("claude", d, kill), start: time.Now()}
+	return &idleWatch{IdleTimeout: agent.NewIdleTimeout("claude", d, kill), start: time.Now(), idle: d, tools: map[string]openTool{}}
 }
 
 // stalledErr names the API retries behind a stall, since they are not activity; err is returned as is when there were none.
@@ -37,11 +49,19 @@ func (w *idleWatch) stalledErr(err error) error {
 	if w != nil && w.rejected {
 		return w.rejectedErr()
 	}
+	if w.ceilingHit(err) {
+		return fmt.Errorf("claude: tool %s ran past the %s pause ceiling: %w", w.earliestTool().name, toolPauseCeiling, err)
+	}
 	if w == nil || w.retries == 0 || !errors.Is(err, agent.ErrStalled) {
 		return err
 	}
 	return fmt.Errorf("claude: no model output: %d API retries (%d) in %s: %w",
 		w.retries, w.status, time.Since(w.start).Round(time.Second), err)
+}
+
+// ceilingHit reports an expiry while a tool call held the window.
+func (w *idleWatch) ceilingHit(err error) bool {
+	return w != nil && w.paused && len(w.tools) > 0 && (errors.Is(err, agent.ErrStalled) || errors.Is(err, agent.ErrSilent))
 }
 
 // rejectedErr is the auth-kind failure of a login the API refused; AuthReason makes the fallback chain mark the account.
@@ -69,15 +89,13 @@ func (w *idleWatch) observe(ev claudeEvent, msg anthropic.Message) {
 			}
 		case "assistant":
 			w.pending += countBlocks(msg, "tool_use")
+			w.trackTools(msg, false)
 		case "user":
 			w.pending = max(w.pending-userAnswers(msg), 0)
+			w.trackTools(msg, true)
 		}
 	}
-	if w.pending > 0 { // a result keeps the window armed: a hang before EOF is still a stall
-		w.Pause()
-		return
-	}
-	w.Beat(ev.Type)
+	w.rearm(ev.Type)
 }
 
 // authRetry counts a retry of a rejected login, which never recovers; a 429 or 5xx backoff still beats.
@@ -117,4 +135,50 @@ func userAnswers(msg anthropic.Message) int {
 		return 1
 	}
 	return countBlocks(msg, "tool_result")
+}
+
+// earliestTool is the open tool call whose ceiling expires first.
+func (w *idleWatch) earliestTool() openTool {
+	best := openTool{name: "unknown"}
+	for _, t := range w.tools {
+		if best.deadline.IsZero() || t.deadline.Before(best.deadline) {
+			best = t
+		}
+	}
+	return best
+}
+
+// trackTools records opened tool calls by id, or drops the answered ones (all once none is pending).
+func (w *idleWatch) trackTools(msg anthropic.Message, answered bool) {
+	for _, b := range msg.Content {
+		if answered {
+			delete(w.tools, b.ToolUseID)
+		} else if b.Type == "tool_use" {
+			w.tools[b.ID] = openTool{name: b.Name, deadline: time.Now().Add(toolPauseCeiling)}
+		}
+	}
+	if w.pending == 0 {
+		clear(w.tools)
+	}
+}
+
+// rearm arms the earliest open tool call's ceiling (later events do not extend it), else beats the idle window.
+func (w *idleWatch) rearm(what string) {
+	switch {
+	case w.pending > 0: // a result keeps the window armed: a hang before EOF is still a stall
+		if !w.paused {
+			w.paused = true
+			w.pauseEnd = time.Now().Add(toolPauseCeiling)
+		}
+		end := w.pauseEnd
+		if t := w.earliestTool(); len(w.tools) > 0 {
+			end = t.deadline
+		}
+		w.Rearm(max(time.Until(end), time.Millisecond), what)
+	case w.paused:
+		w.paused = false
+		w.Rearm(w.idle, what)
+	default:
+		w.Beat(what)
+	}
 }

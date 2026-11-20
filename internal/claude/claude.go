@@ -570,7 +570,7 @@ func (s claudeStreamState) apply(ev claudeEvent, msg anthropic.Message, untilRes
 			return false, err
 		}
 		s.log.Emit("result", ev.Result)
-		return untilResult, nil
+		return untilResult, s.emitResultOnly(ev)
 	case "user":
 		s.res.GateBlocks += ev.gateBlocks()
 	case "error":
@@ -580,6 +580,14 @@ func (s claudeStreamState) apply(ev claudeEvent, msg anthropic.Message, untilRes
 		}
 	}
 	return false, nil
+}
+
+// emitResultOnly streams a result-only answer, which has no assistant text of its own, once.
+func (s claudeStreamState) emitResultOnly(ev claudeEvent) error {
+	if !s.seen.Empty() || ev.Result == "" || ev.IsError {
+		return nil
+	}
+	return s.seen.Emit(s.sink, ev.Result, true)
 }
 
 // gateBlockPrefix starts every Reason the permission-gate hook blocks with (internal/hooks/safety/permission.go).
@@ -700,9 +708,19 @@ func applyClaudeResult(res *wire.Result, ev claudeEvent) error {
 		res.Structured = ev.Structured
 	}
 	if ev.IsError {
-		return wire.NewResultError(fmt.Errorf("claude %s: %s", ev.Subtype, cmp.Or(ev.Result, strings.Join(ev.Errors, "; "))))
+		return resultFailure(ev)
 	}
 	return nil
+}
+
+// resultFailure is a failed result; a credential-helper failure is auth, so it reads as availability, not quality.
+func resultFailure(ev claudeEvent) error {
+	detail := cmp.Or(ev.Result, strings.Join(ev.Errors, "; "))
+	err := wire.NewResultError(fmt.Errorf("claude %s: %s", ev.Subtype, detail))
+	if strings.Contains(ev.Result, "apiKeyHelper") || strings.Contains(strings.Join(ev.Errors, "; "), "apiKeyHelper") {
+		return &retry.Error{Kind: retry.KindAuth, Agent: "claude", Err: err}
+	}
+	return err
 }
 
 func claudeAttach(prompt string, attach []string, tools bool) (string, error) {
