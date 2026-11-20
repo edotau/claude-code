@@ -37,7 +37,7 @@ func Save(in *core.Input, stderr io.Writer) int {
 	approvedText := plan     // snapshot before withTasks, to compare against the draft's current bytes below
 	plan = withTasks(plan)
 
-	draftPath := core.AnchorPath(cmp.Or(responsePath, inputPath), in.CWD)
+	draftPath := paths.AnchorPath(cmp.Or(responsePath, inputPath), in.CWD)
 	dest, ok := "", false
 	if draftPath != "" {
 		dest, ok = plans.ReadRecordedDest(filepath.Base(draftPath))
@@ -70,7 +70,7 @@ func approvedPlanBytes(in *core.Input, responsePath, inputPath string, stderr io
 		}
 		if path != "" {
 			var err error
-			plan, err = os.ReadFile(core.AnchorPath(path, in.CWD))
+			plan, err = os.ReadFile(paths.AnchorPath(path, in.CWD))
 			if err != nil {
 				fmt.Fprintf(stderr, "save-plan: %v\n", err)
 			}
@@ -172,7 +172,7 @@ func planTitle(plan []byte) string {
 
 // draftTarget is tool_input.file_path anchored to cwd; ok reports it names an undated draft.
 func draftTarget(in *core.Input) (path string, ok bool) {
-	path = core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
+	path = paths.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
 	return path, isUndatedDraft(path)
 }
 
@@ -344,7 +344,7 @@ func Gate(in *core.Input, stderr io.Writer) int {
 			if e.Kind != textutil.PatchAdd {
 				continue
 			}
-			if code := gateDraft(core.AnchorPath(e.Path, in.CWD), e.Body, stderr); code != core.ExitProceed {
+			if code := gateDraft(paths.AnchorPath(e.Path, in.CWD), e.Body, stderr); code != core.ExitProceed {
 				return code
 			}
 		}
@@ -353,7 +353,7 @@ func Gate(in *core.Input, stderr io.Writer) int {
 	if tool != "" && tool != "write" && tool != "create" {
 		return core.ExitProceed
 	}
-	return gateDraft(core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD), in.Nested("tool_input", "content"), stderr)
+	return gateDraft(paths.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD), in.Nested("tool_input", "content"), stderr)
 }
 
 // planGate rewrites a new plan-named markdown at a repo root or docs/ to dest, else runs Gate.
@@ -392,7 +392,7 @@ func planDest(in *core.Input) (string, error) {
 	if tool := strings.ToLower(in.ToolName); tool != "write" && tool != "create" {
 		return "", nil
 	}
-	abs := core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
+	abs := paths.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
 	base := filepath.Base(abs)
 	if !isMarkdownPath(abs) || !hasNameToken(base, "plan", "plans") {
 		return "", nil
@@ -512,7 +512,7 @@ func fixPlanDraft(in *core.Input) (core.Result, bool) {
 	if tool := strings.ToLower(in.ToolName); in.Agent() != core.AgentClaude || tool != "" && tool != "write" && tool != "create" {
 		return core.Result{}, false
 	}
-	path := core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
+	path := paths.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
 	if !firstDraftWrite(path) {
 		return core.Result{}, false
 	}

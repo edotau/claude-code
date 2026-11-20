@@ -1,34 +1,13 @@
 package core
 
 import (
-	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 	"unicode/utf8"
-
-	"github.com/edotau/claude-code/internal/paths"
 )
-
-// Given an inherited GIT_DIR naming a bogus dir, Git still reads the repo at dir (-C is not overridden).
-func TestGitScrubsInheritedGitDir(t *testing.T) {
-	repo := t.TempDir()
-	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
-		t.Fatalf("git init: %v: %s", err, out)
-	}
-	t.Setenv("GIT_DIR", t.TempDir()+"/bogus")
-	t.Setenv("GIT_WORK_TREE", t.TempDir())
-	lines, ok, err := Git(context.Background(), repo, "rev-parse", "--show-toplevel")
-	if err != nil || !ok {
-		t.Fatalf("Git rev-parse = ok %v err %v; GIT_DIR leaked into the call", ok, err)
-	}
-	if got, want := paths.Real(lines[0]), paths.Real(repo); got != want {
-		t.Fatalf("toplevel = %q, want %q", got, want)
-	}
-}
 
 // TestSafetyMessageCapsCommandOnRuneBoundary: 300 multibyte runes echo as 160 runes plus "…"; a short one stays whole.
 func TestSafetyMessageCapsCommandOnRuneBoundary(t *testing.T) {

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/review/source"
 )
@@ -22,7 +23,7 @@ const (
 
 // ReviewSimplicity is the PostToolUse(Write|Edit) advisory: findings the edit introduced, never blocking.
 func ReviewSimplicity(in *core.Input) core.Result {
-	path := core.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
+	path := paths.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
 	if path == "" || (in.ToolName != "Write" && in.ToolName != "Edit") || source.DetectLanguage(path) == "" {
 		return core.Result{}
 	}
@@ -40,7 +41,7 @@ func ReviewSimplicity(in *core.Input) core.Result {
 		return core.Result{}
 	}
 	rel := path
-	if p, ok := core.RelWithin(in.CWD, path); ok {
+	if p, ok := paths.RelWithin(in.CWD, path); ok {
 		rel = p
 	}
 	return core.Result{Context: simplicityText(rel, found)}

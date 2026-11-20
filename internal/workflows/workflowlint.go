@@ -33,7 +33,7 @@ func WorkflowResult(in *core.Input) core.Result {
 		}
 		return workflowInline(in, script)
 	}
-	if path := core.AnchorPath(paths.ExpandHome(in.Nested("tool_input", "scriptPath")), in.CWD); path != "" {
+	if path := paths.AnchorPath(paths.ExpandHome(in.Nested("tool_input", "scriptPath")), in.CWD); path != "" {
 		data, err := os.ReadFile(path)
 		if err != nil {
 			return core.Result{} // fail open: the tool reports an unreadable scriptPath itself

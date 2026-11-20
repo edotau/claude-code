@@ -466,7 +466,7 @@ func divergedCheckDue(session string) bool {
 
 // divergedAt reads dir's ahead/behind counts against its upstream; nil when there is no upstream or no divergence.
 func divergedAt(ctx context.Context, dir string) (*divergence, error) {
-	counts, ok, err := core.Git(ctx, dir, "rev-list", "--left-right", "--count", "HEAD...@{upstream}")
+	counts, ok, err := proc.Git(ctx, dir, "rev-list", "--left-right", "--count", "HEAD...@{upstream}")
 	if err != nil || !ok {
 		return nil, err // !ok: not a repo, detached, or no upstream
 	}
@@ -474,13 +474,13 @@ func divergedAt(ctx context.Context, dir string) (*divergence, error) {
 	if a == 0 || b == 0 {
 		return nil, nil
 	}
-	ids, _, err := core.Git(ctx, dir, "rev-parse", "--show-toplevel", "HEAD", "@{upstream}", "--abbrev-ref", "HEAD",
+	ids, _, err := proc.Git(ctx, dir, "rev-parse", "--show-toplevel", "HEAD", "@{upstream}", "--abbrev-ref", "HEAD",
 		"@{upstream}")
 	if len(ids) != 5 {
 		return nil, err
 	}
 	// A rewrite (amend, rebase) leaves the same patch on both sides; --cherry-mark tags those commits "=".
-	marked, _, err := core.Git(ctx, dir, "rev-list", "--left-right", "--cherry-mark", "HEAD...@{upstream}")
+	marked, _, err := proc.Git(ctx, dir, "rev-list", "--left-right", "--cherry-mark", "HEAD...@{upstream}")
 	if err != nil {
 		return nil, err
 	}
@@ -491,7 +491,7 @@ func divergedAt(ctx context.Context, dir string) (*divergence, error) {
 
 // hasPatch reports whether commit changes a file; empty commits share one patch-id yet replace nothing.
 func hasPatch(ctx context.Context, dir, commit string) bool {
-	files, _, err := core.Git(ctx, dir, "diff-tree", "--root", "-r", "--name-only", "--no-commit-id", commit)
+	files, _, err := proc.Git(ctx, dir, "diff-tree", "--root", "-r", "--name-only", "--no-commit-id", commit)
 	return err != nil || len(files) > 0 && files[0] != ""
 }
 

@@ -338,7 +338,7 @@ func pathForms(cwd, p string) []string {
 	if p == "" {
 		return []string{""}
 	}
-	abs := core.AnchorPath(p, cwd)
+	abs := paths.AnchorPath(p, cwd)
 	forms := []string{relToCWD(cwd, p), abs}
 	if filepath.IsAbs(abs) {
 		canonCWD := cwd

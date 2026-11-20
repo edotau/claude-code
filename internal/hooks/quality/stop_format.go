@@ -236,7 +236,7 @@ func changedFiles(ctx context.Context, cwd string, allow map[string]bool) []stri
 	cwd = paths.Real(cwd) // allow holds resolved paths, so cwd must be resolved to take their relative form
 	args := []string{"status", "--porcelain=v1", "-z", "--untracked-files=all", "--"}
 	for _, full := range slices.Sorted(maps.Keys(allow)) {
-		if rel, ok := core.RelWithin(cwd, full); ok {
+		if rel, ok := paths.RelWithin(cwd, full); ok {
 			args = append(args, ":(literal)"+filepath.ToSlash(rel))
 		}
 	}
@@ -253,7 +253,7 @@ func changedFiles(ctx context.Context, cwd string, allow map[string]bool) []stri
 	}
 	var out []string
 	for _, e := range proc.StatusEntries(data) {
-		if rel, ok := core.RelWithin(cwd, filepath.Join(root, e.Path)); ok {
+		if rel, ok := paths.RelWithin(cwd, filepath.Join(root, e.Path)); ok {
 			out = append(out, rel)
 		}
 	}

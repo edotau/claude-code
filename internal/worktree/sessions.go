@@ -20,7 +20,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/schemas"
@@ -248,7 +247,7 @@ func FreshHits(ctx context.Context, top, p string, dirty map[string]bool, claims
 	if top == "" || !dirty[p] {
 		return nil, nil
 	}
-	out, _, err := core.Git(ctx, top, "log", "-1", "--format=%ct", "--", p)
+	out, _, err := proc.Git(ctx, top, "log", "-1", "--format=%ct", "--", p)
 	if err != nil {
 		return nil, err
 	}

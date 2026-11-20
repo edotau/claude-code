@@ -63,7 +63,7 @@ func noteRedirect(in *core.Input) (core.Result, bool) {
 		return core.Result{}, false
 	}
 	from := in.Nested("tool_input", "file_path")
-	abs := core.AnchorPath(from, in.CWD)
+	abs := paths.AnchorPath(from, in.CWD)
 	base := filepath.Base(abs)
 	folder := memory.NoteFolder(base)
 	if from == "" || folder == "" || !paths.SameFile(filepath.Dir(abs), paths.MemoryStoreDir()) {
@@ -84,7 +84,7 @@ func storeNameRedirect(in *core.Input) (core.Result, bool) {
 	if from == "" || strings.ToLower(in.ToolName) != "write" {
 		return core.Result{}, false
 	}
-	abs := core.AnchorPath(from, in.CWD)
+	abs := paths.AnchorPath(from, in.CWD)
 	dir, base := filepath.Dir(abs), filepath.Base(abs)
 	name := memory.DatedName(base, time.Now())
 	if name == base { // pure string check first: most writes are already dated or exempt
@@ -161,7 +161,7 @@ func docsPlacementPath(ctx context.Context, in *core.Input, path string, stderr 
 	if path == "" || !isMarkdownPath(path) {
 		return core.ExitProceed
 	}
-	path = core.AnchorPath(path, in.CWD)
+	path = paths.AnchorPath(path, in.CWD)
 	// Canonicalize: a write spelled through a symlink would never equal git's realpath and would pass the gate.
 	abs := paths.Real(path)
 	dir, base := filepath.Dir(abs), filepath.Base(abs)
@@ -182,7 +182,7 @@ func repoDocsPlacement(ctx context.Context, stderr io.Writer, dir, base, abs str
 	if root == "" {
 		return core.ExitProceed
 	}
-	rel, ok := core.RelWithin(root, abs)
+	rel, ok := paths.RelWithin(root, abs)
 	if !ok {
 		return core.ExitProceed
 	}

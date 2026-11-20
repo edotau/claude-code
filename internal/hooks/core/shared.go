@@ -1,11 +1,9 @@
 package core
 
 import (
-	"context"
 	"errors"
 	"fmt"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
@@ -14,7 +12,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -28,38 +25,6 @@ var (
 		return regexp.MustCompile(`(?m)^\[(?:detached HEAD|[^\]\s]+)(?: \(root-commit\))? ([0-9a-f]{7,40})\] `)
 	})
 )
-
-// AnchorPath anchors a relative path to cwd; an empty path or cwd leaves it unchanged.
-func AnchorPath(path, cwd string) string {
-	if path != "" && !filepath.IsAbs(path) && cwd != "" {
-		return filepath.Join(cwd, path)
-	}
-	return path
-}
-
-// Git runs git in dir with GIT_* scrubbed: ok=false when git itself refused; err for a missing binary or a timeout.
-func Git(ctx context.Context, dir string, args ...string) (lines []string, ok bool, err error) {
-	out, err := proc.RunGit(ctx, dir, args...)
-	var exit *exec.ExitError
-	switch {
-	case ctx.Err() != nil:
-		return nil, false, ctx.Err()
-	case errors.As(err, &exit):
-		return nil, false, nil
-	case err != nil:
-		return nil, false, err
-	}
-	return strings.Split(strings.TrimSpace(out), "\n"), true, nil
-}
-
-// RelWithin is abs relative to root; false when abs escapes root.
-func RelWithin(root, abs string) (string, bool) {
-	rel, err := filepath.Rel(root, abs)
-	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-		return "", false
-	}
-	return rel, true
-}
 
 // NestedIn keeps the worktree paths inside top: the peer scan skips those, never the tree that holds top.
 func NestedIn(top string, worktrees []string) []string {

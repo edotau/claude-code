@@ -187,7 +187,7 @@ func resolveTarget(t, cwd string) string {
 			t = "~" + rest
 		}
 	}
-	return AnchorPath(paths.ExpandHome(t), cwd)
+	return paths.AnchorPath(paths.ExpandHome(t), cwd)
 }
 
 // redirectTargets are the files a segment's `>`, `>>`, `2>`, `&>` words name.

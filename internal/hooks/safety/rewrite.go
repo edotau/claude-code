@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/shell"
 )
 
@@ -214,7 +215,7 @@ func rewriteWarn(verb string, err error) string {
 
 // probeRewrite resolves target's toplevel, whether it is a linked worktree, and the rewrite's commit count.
 func probeRewrite(ctx context.Context, target string, rng []string) (string, bool, int, error) {
-	dirs, ok, err := core.Git(ctx, target, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir",
+	dirs, ok, err := proc.Git(ctx, target, "rev-parse", "--path-format=absolute", "--show-toplevel", "--git-dir",
 		"--git-common-dir")
 	if err == nil && ok && len(dirs) != 3 { // git before 2.31 echoes --path-format as a line
 		err = fmt.Errorf("rev-parse printed %d lines, want 3", len(dirs))
@@ -230,11 +231,11 @@ func probeRewrite(ctx context.Context, target string, rng []string) (string, boo
 // rewriteCount is how many commits rng holds in dir; 0 when its base is not a commit (a path, no upstream).
 func rewriteCount(ctx context.Context, dir string, rng []string) (int, error) {
 	if base, _, isRange := strings.Cut(rng[0], ".."); isRange {
-		if _, ok, err := core.Git(ctx, dir, "rev-parse", "--verify", "--quiet", base+"^{commit}"); err != nil || !ok {
+		if _, ok, err := proc.Git(ctx, dir, "rev-parse", "--verify", "--quiet", base+"^{commit}"); err != nil || !ok {
 			return 0, err
 		}
 	}
-	out, ok, err := core.Git(ctx, dir, append([]string{"rev-list", "--count"}, rng...)...)
+	out, ok, err := proc.Git(ctx, dir, append([]string{"rev-list", "--count"}, rng...)...)
 	if err != nil || !ok {
 		return 0, err
 	}

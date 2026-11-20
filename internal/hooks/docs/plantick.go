@@ -190,7 +190,7 @@ func commitCandidates(cwd, cmd string) []string {
 
 // candidateDir expands a leading ~ or ~/ and anchors a relative path to base.
 func candidateDir(p, base string) string {
-	return core.AnchorPath(paths.ExpandHome(p), base)
+	return paths.AnchorPath(paths.ExpandHome(p), base)
 }
 
 var briefTaskRe = sync.OnceValue(func() *regexp.Regexp {

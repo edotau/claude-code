@@ -216,7 +216,7 @@ func (v claimView) dirtyPath(p string) (string, map[string]bool, error) {
 	if top == "" {
 		return "", nil, nil
 	}
-	rel, ok := core.RelWithin(paths.Real(top), p)
+	rel, ok := paths.RelWithin(paths.Real(top), p)
 	if !ok {
 		return v.dirtyAt(filepath.Dir(p))
 	}
@@ -234,7 +234,7 @@ func (v *claimView) scopePaths(edits []string) {
 	v.scopes = map[string][]string{}
 	for _, p := range edits {
 		top, _ := paths.CheckoutOf(filepath.Dir(p))
-		if rel, ok := core.RelWithin(paths.Real(top), p); top != "" && ok {
+		if rel, ok := paths.RelWithin(paths.Real(top), p); top != "" && ok {
 			v.scopes[top] = append(v.scopes[top], ":(literal)"+rel)
 		}
 	}
@@ -317,7 +317,7 @@ func liveVerdict(ctx context.Context, in *core.Input, cmd string, edits []string
 	hits = slices.Compact(slices.Sorted(slices.Values(hits)))
 	names := make([]string, 0, claimShown)
 	for _, p := range hits[:min(len(hits), claimShown)] {
-		rel, _ := core.RelWithin(live, p)
+		rel, _ := paths.RelWithin(live, p)
 		names = append(names, rel)
 	}
 	what := fmt.Sprintf("lanes mode: %d tracked file(s) of the live checkout (%s) will change; it only fast-forwards",
@@ -386,7 +386,7 @@ func liveTracked(ctx context.Context, live string, edits []string) ([]string, er
 		if top, _ := paths.CheckoutOf(filepath.Dir(p)); paths.Real(top) != live {
 			continue
 		}
-		if rel, ok := core.RelWithin(live, p); ok {
+		if rel, ok := paths.RelWithin(live, p); ok {
 			specs = append(specs, ":(literal)"+rel)
 		}
 	}
@@ -518,7 +518,7 @@ func editPaths(in *core.Input) []string {
 	}
 	var out []string
 	for _, e := range in.EditedPaths() {
-		if p := paths.Real(core.AnchorPath(e.Path, in.CWD)); !slices.Contains(out, p) {
+		if p := paths.Real(paths.AnchorPath(e.Path, in.CWD)); !slices.Contains(out, p) {
 			out = append(out, p)
 		}
 	}
@@ -542,7 +542,7 @@ func (v claimView) editCheck(p string) core.Result {
 	if err != nil {
 		return claimWarn(err)
 	}
-	rel, _ := core.RelWithin(top, p)
+	rel, _ := paths.RelWithin(top, p)
 	var lines []string
 	for _, h := range hits {
 		if firstSighting(v.in.SessionID, p+"\t"+h.Who) {
@@ -832,7 +832,7 @@ func (v claimView) takenPaths(top string, dirty map[string]bool, scopes []string
 		if len(hits) > 0 {
 			claimed++
 		}
-		rel, _ := core.RelWithin(top, p)
+		rel, _ := paths.RelWithin(top, p)
 		for _, h := range hits {
 			taken = append(taken, fmt.Sprintf("%s takes %s's uncommitted hunks (since %s)", cmp.Or(rel, p), h.Who,
 				clock(h.TS)))

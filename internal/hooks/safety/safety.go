@@ -489,7 +489,7 @@ func impliedRefspec(args []string) bool {
 func protectedHead(dir string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), rewriteTimeout)
 	defer cancel()
-	lines, ok, err := core.Git(ctx, dir, "symbolic-ref", "--short", "-q", "HEAD")
+	lines, ok, err := proc.Git(ctx, dir, "symbolic-ref", "--short", "-q", "HEAD")
 	if err != nil {
 		return "an unknown branch (git failed)"
 	}

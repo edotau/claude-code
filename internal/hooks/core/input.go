@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -232,7 +233,7 @@ func (in *Input) normalizeToolArgs() string {
 		return ""
 	}
 	if path := toolPath(input); path != "" {
-		input["file_path"] = AnchorPath(path, in.CWD)
+		input["file_path"] = paths.AnchorPath(path, in.CWD)
 	}
 	in.doc["tool_input"] = input
 	return ""

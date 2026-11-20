@@ -17,7 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
@@ -182,7 +181,7 @@ func dirtyAmong(entries []proc.StatusEntry, want []string) []string {
 func namedPaths(dir, top string, args []string) ([]string, error) {
 	var out []string
 	for _, a := range args {
-		p := core.AnchorPath(a, paths.Real(dir))
+		p := paths.AnchorPath(a, paths.Real(dir))
 		matches := []string{p}
 		if _, err := os.Lstat(p); err != nil && strings.ContainsAny(a, "*?[") {
 			if g, _ := filepath.Glob(p); len(g) > 0 {
@@ -205,10 +204,10 @@ func namedPaths(dir, top string, args []string) ([]string, error) {
 
 // inCheckout is p relative to top, resolving a symlinked parent directory.
 func inCheckout(top, p string) (string, bool) {
-	if rel, ok := core.RelWithin(top, p); ok {
+	if rel, ok := paths.RelWithin(top, p); ok {
 		return filepath.ToSlash(rel), true
 	}
-	rel, ok := core.RelWithin(top, filepath.Join(paths.Real(filepath.Dir(p)), filepath.Base(p)))
+	rel, ok := paths.RelWithin(top, filepath.Join(paths.Real(filepath.Dir(p)), filepath.Base(p)))
 	return filepath.ToSlash(rel), ok
 }
 
@@ -221,7 +220,7 @@ func ownClaimed(req CommitRequest, t commitTree) ([]string, error) {
 		if slug != req.Source.Self && pid != own() {
 			return
 		}
-		rel, ok := core.RelWithin(t.top, c.Path)
+		rel, ok := paths.RelWithin(t.top, c.Path)
 		if !ok || !t.dirty[c.Path] {
 			return
 		}
