@@ -496,10 +496,7 @@ func CancelJob(ctx context.Context, name, cwd, ref string) (CancelResult, error)
 
 // toRow derives a status Row from a dispatch record; redaction matches Record.LogLine.
 func toRow(r Record) Row {
-	status := r.Status
-	if status == "running" && !r.Alive() {
-		status = "lost"
-	}
+	status := r.Outcome()
 	elapsed := r.Elapsed()
 	if status == "running" || status == "lost" {
 		elapsed = time.Since(r.Time).Round(time.Second).String()

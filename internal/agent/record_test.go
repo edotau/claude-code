@@ -1209,3 +1209,24 @@ func TestRecordRouteWrittenAsObject(t *testing.T) {
 		t.Errorf("round trip: %v %q %q", err, back.Route, back.RanRoute)
 	}
 }
+
+func TestRecordOutcomeAndResumeHint(t *testing.T) {
+	old := time.Now().Add(-48 * time.Hour)
+	for _, c := range []struct {
+		r             Record
+		outcome, hint string
+	}{
+		{Record{Status: "ok"}, "ok", ""},
+		{Record{Status: "quota"}, "quota", "Resume with: claude-code agents ask --retry x"},
+		{Record{Status: "running", Time: old}, "lost", "Resume with: claude-code agents ask --retry x"},
+		{Record{Status: "running", Time: time.Now(), PID: os.Getpid()}, "running", "Resume with: claude-code agents wait x"},
+	} {
+		c.r.ID = "x"
+		if got := c.r.Outcome(); got != c.outcome {
+			t.Errorf("Outcome(%+v) = %q, want %q", c.r.Status, got, c.outcome)
+		}
+		if got := ResumeHint(c.r); got != c.hint {
+			t.Errorf("ResumeHint(%q) = %q, want %q", c.r.Status, got, c.hint)
+		}
+	}
+}

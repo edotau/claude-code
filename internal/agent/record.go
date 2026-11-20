@@ -115,6 +115,25 @@ func (r Record) Failed() bool {
 	return false
 }
 
+// Outcome is the one terminal state (ok|partial|error|quota|stalled|lost|running); a dead running record is lost.
+func (r Record) Outcome() string {
+	if r.Status == "running" && !r.Alive() {
+		return "lost"
+	}
+	return r.Status
+}
+
+// ResumeHint is the one stderr line that continues r; "" for an ok run.
+func ResumeHint(r Record) string {
+	switch r.Outcome() {
+	case "ok":
+		return ""
+	case "running":
+		return "Resume with: claude-code agents wait " + r.ID
+	}
+	return "Resume with: claude-code agents ask --retry " + r.ID
+}
+
 // LogPath is the dispatch's log file: Log when set, else <id>.log beside the record.
 func (r Record) LogPath() string {
 	return cmp.Or(r.Log, filepath.Join(paths.DispatchDir(), r.ID+".log"))

@@ -186,6 +186,11 @@ func reportAsk(out io.Writer, format, save string, p *agent.Prepared, res wire.R
 			fmt.Fprintln(os.Stderr, "ask:", line)
 		}
 	}
+	if rec, lerr := agent.LoadRecord(p.Record.ID); lerr == nil {
+		if hint := agent.ResumeHint(rec); hint != "" {
+			fmt.Fprintln(os.Stderr, hint)
+		}
+	}
 	if err := cmp.Or(err, writeErr); err != nil {
 		return helptext.Fail("ask: %v", err)
 	}

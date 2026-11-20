@@ -633,7 +633,20 @@ func cmdAgentsWait(args []string) int {
 			fmt.Println(r.Line())
 		}
 	}
+	printResumeHints(rows)
 	return agent.WaitExit(rows)
+}
+
+// printResumeHints prints each unfinished or failed wait row's resume line on stderr.
+func printResumeHints(rows []agent.WaitResult) {
+	for _, r := range rows {
+		if r.State == agent.WaitDone {
+			continue
+		}
+		if rec, err := agent.LoadRecord(r.ID); err == nil && agent.ResumeHint(rec) != "" {
+			fmt.Fprintln(os.Stderr, agent.ResumeHint(rec))
+		}
+	}
 }
 
 // Implementation briefs require both an ownership boundary and a verification criterion.
