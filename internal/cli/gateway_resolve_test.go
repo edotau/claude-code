@@ -1,24 +1,19 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
-	"maps"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/gemini"
+	"github.com/edotau/claude-code/internal/gateway/resolve"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -35,7 +30,7 @@ func TestGatewayResolveUsage(t *testing.T) {
 		t.Errorf("--live without --all-profiles exit = %d; want 2", code)
 	}
 	vaulttest.Use(t)
-	if _, err := resolveQuery(context.Background(), "claude", "sonnet", "ultra",
+	if _, err := resolve.Query(context.Background(), "claude", "sonnet", "ultra",
 		`{"provider":"databricks","profile":"dev","identity":"sp"}`); err == nil {
 		t.Error("typed profile accepted another route's identity")
 	}
@@ -58,37 +53,6 @@ func TestPrintRouteAutoReasonMidNote(t *testing.T) {
 	_, out, _ := hosttest.CaptureOutput(t, func() int { return printRoute(r, choice, "text") })
 	if !strings.Contains(out, "note: first; detail\n") {
 		t.Errorf("printRoute = %q; want note \"first; detail\"", out)
-	}
-}
-
-// An untyped resolve reports the hop RunQuery picks (the label's resolver), its note kept; an error is returned.
-func TestResolveFirstHop(t *testing.T) {
-	base, err := os.ReadFile("../providers/defaults.json")
-	if err != nil {
-		t.Fatal(err)
-	}
-	reg, err := providers.Parse(base, nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got agent.ModelQuery
-	hint := ""
-	stub := func(_ context.Context, _ *providers.Registry, q agent.ModelQuery, alias string) (agent.ModelQuery, string, error) {
-		got, hint = q, alias
-		return agent.ModelQuery{Agent: "claude", Model: "ultra:claude-sonnet-5-5"}, "codex is gated out", nil
-	}
-	old := resolveRunQuery
-	t.Cleanup(func() { resolveRunQuery = old })
-	resolveRunQuery = stub
-	r, _, err := resolveFirstHop(context.Background(), reg, agent.ModelQuery{Agent: "codex"}, "fix the typo")
-	if err != nil || got.Agent != "codex" || hint != "haiku" || r.Agent != "claude" || r.Model != "claude-sonnet-5-5" || r.Account != "anthropic·ultra" || !strings.Contains(r.Note, "gated out") {
-		t.Errorf("resolveFirstHop = %+v, %v (query %+v); want the stubbed claude sonnet hop on anthropic·ultra with its note", r, err, got)
-	}
-	resolveRunQuery = func(context.Context, *providers.Registry, agent.ModelQuery, string) (agent.ModelQuery, string, error) {
-		return agent.ModelQuery{}, "", errors.New("no route runs codex")
-	}
-	if _, _, err := resolveFirstHop(context.Background(), reg, agent.ModelQuery{Agent: "codex"}, ""); err == nil {
-		t.Error("resolveFirstHop swallowed the ladder error")
 	}
 }
 
@@ -184,7 +148,7 @@ func TestResolveAllUnverifiedOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := resolveAll(context.Background(), reg, agent.ModelQuery{Agent: "opencode", Model: "opus", Identity: "sp", Account: "parent"}, false)
+	rows := resolve.All(context.Background(), reg, agent.ModelQuery{Agent: "opencode", Model: "opus", Identity: "sp", Account: "parent"}, false)
 	for _, row := range rows {
 		if row.Route != nil && row.Route.Identity != "" {
 			t.Error("all-profiles inherited the input route's identity")
@@ -193,108 +157,5 @@ func TestResolveAllUnverifiedOnce(t *testing.T) {
 	_, out, _ := hosttest.CaptureOutput(t, func() int { return printRows(rows, "text") })
 	if n := strings.Count(out, "unverified"); !strings.Contains(out, "dev") || n != 1 {
 		t.Errorf("printRows = %q; want the dev row with served: unverified once (got %d)", out, n)
-	}
-}
-
-func stubGoogleQuota(t *testing.T, fn func(context.Context, string, time.Time) (gemini.ModelQuota, error)) *int {
-	t.Helper()
-	calls := 0
-	old := googleQuotaCheck
-	googleQuotaCheck = func(ctx context.Context, m string, now time.Time) (gemini.ModelQuota, error) {
-		calls++
-		return fn(ctx, m, now)
-	}
-	t.Cleanup(func() { googleQuotaCheck = old })
-	return &calls
-}
-
-func TestWithGoogleQuotaNotesPoolAndHold(t *testing.T) {
-	until := time.Date(2026, 11, 23, 3, 35, 47, 0, time.UTC)
-	low := gemini.QuotaRow{Pool: "Gemini Models", Limit: "Five Hour Limit Remaining", Remaining: 9}
-	calls := stubGoogleQuota(t, func(_ context.Context, m string, _ time.Time) (gemini.ModelQuota, error) {
-		if m == "gemini-4-argon" {
-			return gemini.ModelQuota{Pool: "Gemini 4 Argon", Left: 0, HeldUntil: until}, nil
-		}
-		return gemini.ModelQuota{Pool: "Gemini Models", Left: 9, Low: &low}, nil
-	})
-	var warn bytes.Buffer
-	r := withGoogleQuota(context.Background(), agent.ModelRoute{Account: "google·antigravity", Model: "gemini-4-argon", Note: "pinned"}, &warn)
-	if want := "held until " + until.Local().Format("2006-01-02 15:04"); !strings.Contains(r.Note, want) || !strings.HasPrefix(r.Note, "pinned; Gemini 4 Argon 0% left") || warn.Len() != 0 {
-		t.Errorf("held route: note %q warn %q, want the pool, 0%% and %q", r.Note, warn.String(), want)
-	}
-	r = withGoogleQuota(context.Background(), agent.ModelRoute{Account: "google·antigravity", Model: "gemini-4-hydrogen"}, &warn)
-	if w := warn.String(); r.Note != "Gemini Models 9% left" || !strings.HasPrefix(w, "warning:") || strings.Count(w, "\n") != 1 {
-		t.Errorf("low route: note %q warn %q, want 9%% and a one-line warning", r.Note, w)
-	}
-	if *calls != 2 {
-		t.Errorf("usage read %d times, want 2", *calls)
-	}
-}
-
-func TestWithGoogleQuotaSkipsOtherRoutes(t *testing.T) {
-	calls := stubGoogleQuota(t, func(context.Context, string, time.Time) (gemini.ModelQuota, error) {
-		return gemini.ModelQuota{}, errors.New("must not run")
-	})
-	for _, acct := range []string{"databricks·qa", "anthropic·ultra", ""} {
-		var warn bytes.Buffer
-		r := withGoogleQuota(context.Background(), agent.ModelRoute{Account: acct, Model: "gemini-4-hydrogen", Note: "n"}, &warn)
-		if r.Note != "n" || warn.Len() != 0 {
-			t.Errorf("%q: note %q warn %q, want the route unchanged", acct, r.Note, warn.String())
-		}
-	}
-	if *calls != 0 {
-		t.Errorf("usage read %d times on non-Google routes, want 0", *calls)
-	}
-}
-
-func TestWithGoogleQuotaFailureNeverFailsResolve(t *testing.T) {
-	stubGoogleQuota(t, func(context.Context, string, time.Time) (gemini.ModelQuota, error) {
-		return gemini.ModelQuota{}, errors.New("agy usage unavailable")
-	})
-	var warn bytes.Buffer
-	r := withGoogleQuota(context.Background(), agent.ModelRoute{Account: "google·antigravity", Model: "gemini-4-hydrogen"}, &warn)
-	if r.Note != "usage unavailable" || warn.Len() != 0 || r.Model != "gemini-4-hydrogen" {
-		t.Errorf("route = %+v warn %q, want the route intact and the note %q", r, warn.String(), "usage unavailable")
-	}
-}
-
-// The pool table sorts agent, row, tier, omits a pair the row cannot run and fits 80 columns on a terminal.
-func TestPoolTable(t *testing.T) {
-	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	vaulttest.Use(t)
-	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	rows := poolRows(context.Background(), reg, []string{"fast", "deep"}, false, "", time.Now())
-	seen := map[string]poolRow{}
-	var keys []string
-	for _, r := range rows {
-		seen[r.Agent+" "+r.Row+" "+r.Tier] = r
-		keys = append(keys, r.Agent+" "+r.Row+" "+map[string]string{"fast": "0", "deep": "1"}[r.Tier])
-	}
-	if !slices.IsSorted(keys) {
-		t.Errorf("rows not sorted by agent, row, tier: %q", keys)
-	}
-	_, copilot := seen["copilot github·copilot fast"]
-	if _, codex := seen["codex github·copilot fast"]; !copilot || codex {
-		t.Errorf("copilot row %v, codex row %v on the copilot login; want only copilot: %v", copilot, codex,
-			slices.Collect(maps.Keys(seen)))
-	}
-	claude := seen["claude databricks·dev deep"]
-	if got := [3]any{claude.Size, claude.Next != "", strings.HasPrefix(claude.Note, "credential:")}; got != [3]any{0, true, true} {
-		t.Errorf("claude on dev = %+v; want its tier model and the credential skip as its note", claude)
-	}
-	var out bytes.Buffer
-	renderPoolTable(&out, rows, 80, time.Now())
-	lines := strings.Split(strings.TrimSpace(out.String()), "\n")
-	if len(lines) != len(rows)+1 {
-		t.Errorf("%d lines for %d rows; want a header plus one per row", len(lines), len(rows))
-	}
-	for _, l := range lines {
-		if n := textutil.DisplayWidth(l); n > 80 {
-			t.Errorf("line is %d columns, want at most 80: %q", n, l)
-		}
 	}
 }
