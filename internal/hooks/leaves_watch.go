@@ -103,6 +103,16 @@ func watchTick(in *core.Input) core.Result {
 	return res
 }
 
+// runningDetail is a named job's progress (agent, elapsed, last event, tools); a job past the shown ones stays short.
+func runningDetail(r agent.Record, shown int, now time.Time) string {
+	if shown >= watchBeatMax { // never named in the line: skip its file reads
+		return r.Agent + ", " + agent.ShortDur(now.Sub(r.Time))
+	}
+	p := agent.ProgressOf(r, now)
+	p.Model, p.Doing = "", "" // the line holds up to four jobs: keep each to its signal
+	return p.Line(60)
+}
+
 // runningLine names up to watchBeatMax healthy running jobs so a long healthy job is not silence; "" when none.
 func runningLine(running []agent.Record, stale []agent.StaleJob, now time.Time) string {
 	var parts []string
@@ -114,7 +124,7 @@ func runningLine(running []agent.Record, stale []agent.StaleJob, now time.Time) 
 		if t := recordPlanTask([]agent.Record{r}); t != "" {
 			what = "Task " + t
 		}
-		parts = append(parts, fmt.Sprintf("%s (%s, %s)", what, r.Agent, agent.ShortDur(now.Sub(r.Time))))
+		parts = append(parts, fmt.Sprintf("%s (%s)", what, runningDetail(r, len(parts), now)))
 	}
 	if len(parts) == 0 {
 		return ""

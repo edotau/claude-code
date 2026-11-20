@@ -146,9 +146,9 @@ func TestRunningLine(t *testing.T) {
 		want    string
 	}{
 		{"none", nil, nil, ""},
-		{"entries", []agent.Record{r1, r2}, nil, "running: Task Phase 2.2 (codex, 6m); Job j2 (opencode, 40s)"},
-		{"cap", many, nil, "running: Task Phase 2.2 (codex, 6m); Job j2 (opencode, 40s); Job j3 (a, 1m); Job j4 (a, 1m); +1 more"},
-		{"stale excluded", []agent.Record{r1, r2}, []agent.StaleJob{{ID: "j1"}}, "running: Job j2 (opencode, 40s)"},
+		{"entries", []agent.Record{r1, r2}, nil, "running: Task Phase 2.2 (codex · 6m00s · ⚠ no event 6m00s); Job j2 (opencode · 40s · last event 40s ago)"},
+		{"cap", many, nil, "running: Task Phase 2.2 (codex · 6m00s · ⚠ no event 6m00s); Job j2 (opencode · 40s · last event 40s ago); Job j3 (a · 1m00s · no live signal from a); +2 more"},
+		{"stale excluded", []agent.Record{r1, r2}, []agent.StaleJob{{ID: "j1"}}, "running: Job j2 (opencode · 40s · last event 40s ago)"},
 	} {
 		if got := runningLine(c.running, c.stale, now); got != c.want {
 			t.Errorf("%s: got %q, want %q", c.name, got, c.want)
