@@ -1,14 +1,12 @@
 package cli
 
 import (
-	"context"
 	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
 	"maps"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -17,7 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -578,7 +576,7 @@ func cmdMemoryImport(args []string) int {
 	if (*from == "") == (*host == "") {
 		return helptext.FailUsage("memory import: give exactly one of --from or --host (usage: %s)", memoryImportPage.Usage)
 	}
-	replace, err := readReplaceList(*replaceFile)
+	replace, err := memory.ReadReplaceList(*replaceFile)
 	if err != nil {
 		return helptext.FailUsage("memory import: --replace: %v", err)
 	}
@@ -597,11 +595,33 @@ func cmdMemoryImport(args []string) int {
 	return 0
 }
 
+// memorySync is `memory import --sync`: the opt-in first, then the peers (--host, else CLAUDE_REMOTE_HOST).
+func memorySync(host string, dryRun bool) int {
+	if !memory.SyncOn() {
+		return helptext.FailUsage(memory.SyncOffMsg)
+	}
+	peers := []string{host}
+	if host == "" {
+		peers = providers.RemoteHosts()
+	}
+	for i := range peers {
+		peers[i] = strings.TrimSpace(peers[i])
+	}
+	if len(peers) == 0 {
+		return helptext.FailUsage("memory import --sync: CLAUDE_REMOTE_HOST names no peer; give --host")
+	}
+	code, err := memory.RunSync(peers, dryRun, os.Stdout)
+	if err != nil {
+		return helptext.Fail("memory sync: %v", err)
+	}
+	return code
+}
+
 // memoryImportFail is exit 2 for a bad --from or flag combination, 75 for a busy store, else exit 1.
 func memoryImportFail(err error) int {
 	if errors.Is(err, memory.ErrBankBusy) {
 		helptext.Fail("memory import: %v", err)
-		return importBusyExit
+		return memory.ImportBusyExit
 	}
 	if _, bad := errors.AsType[*memory.ImportInputError](err); bad {
 		return helptext.FailUsage("memory import: %v", err)
@@ -614,53 +634,11 @@ func memoryImportSource(from, host string) (dir, label string, err error) {
 	if host == "" {
 		return from, from, nil
 	}
-	if dir, err = fetchRoot(host); err != nil {
+	if dir, err = memory.FetchRoot(host); err != nil {
 		_ = os.RemoveAll(dir)
 		err = fmt.Errorf("fetch from %s: %w", host, err)
 	}
 	return dir, host, err
-}
-
-// memoryFetchTimeout bounds the whole `memory import --host` transfer; a store is tens of MB, so this is generous.
-const memoryFetchTimeout = 10 * time.Minute
-
-const memoryFetchScript = `cd "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/memory" && COPYFILE_DISABLE=1 tar -cf - --exclude=.git --exclude='*.lock' --exclude=.postupdate .`
-
-// fetchMemoryRoot streams host's memory root as a tar into a fresh private temp dir; the caller removes it.
-func fetchMemoryRoot(host string) (string, error) {
-	argv, err := syncArgv(host, memoryFetchScript)
-	if err != nil {
-		return "", err
-	}
-	dir, err := os.MkdirTemp("", "memory-import-")
-	if err != nil {
-		return "", err
-	}
-	ctx, cancel := context.WithTimeout(context.Background(), memoryFetchTimeout)
-	defer cancel()
-	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
-	proc.OwnGroup(cmd) // the deadline kills ssh's whole group, so a hung host cannot block the import
-	cmd.WaitDelay = proc.ExecWaitDelay
-	cmd.Stderr = os.Stderr
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		return dir, err
-	}
-	if err := cmd.Start(); err != nil {
-		return dir, err
-	}
-	skipped, xerr := memory.ExtractStoreTar(out, dir)
-	if xerr != nil {
-		_ = cmd.Process.Kill()
-	}
-	werr := cmd.Wait()
-	for _, s := range skipped {
-		fmt.Println("fetch " + s)
-	}
-	if xerr != nil { // ssh was killed for it, so its own error would only say "killed"
-		return dir, xerr
-	}
-	return dir, werr
 }
 
 // memoryRecallExplain prints the hook's recall selection; --explain refuses the flags that need real hits.

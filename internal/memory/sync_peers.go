@@ -1,4 +1,4 @@
-package cli
+package memory
 
 import (
 	"archive/tar"
@@ -18,13 +18,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
 // syncDigestScript hashes the dirty paths and each changed file's blob id, with git alone and writing nothing.
@@ -36,11 +33,11 @@ const syncDigestScript = `{ git --no-optional-locks status --porcelain; ` +
 const syncProbeScript = `cd "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/memory" && cat .layout && git rev-parse HEAD && ` + syncDigestScript
 
 const (
-	syncOffMsg       = "memory sync is off on this machine: claude-code vault env set NETWORK_MEMORY on"
+	SyncOffMsg       = "memory sync is off on this machine: claude-code vault env set NETWORK_MEMORY on"
 	syncProbeTimeout = 30 * time.Second
 	syncRefusalHold  = 24 * time.Hour
 	syncNoLogin      = "no login from this machine"
-	importBusyExit   = 75  // sysexits EX_TEMPFAIL: the store is busy, retry later; distinct from 1, 2 and ssh's 255
+	ImportBusyExit   = 75  // sysexits EX_TEMPFAIL: the store is busy, retry later; distinct from 1, 2 and ssh's 255
 	sshFailExit      = 255 // ssh's own failure: no connection, no login
 	sshTailMax       = 2048
 	credentialMark   = "credential-shaped content" // the import's refusal, which repeats until the file changes
@@ -75,36 +72,18 @@ func syncArgv(host, script string) ([]string, error) {
 	return slices.Insert(argv, 1, "-o", "ConnectTimeout=5"), nil
 }
 
-var fetchRoot = fetchMemoryRoot
+var fetchRoot = FetchRoot
 
-// memorySync is `memory import --sync`: the opt-in first, then the peers (--host, else CLAUDE_REMOTE_HOST).
-func memorySync(host string, dryRun bool) int {
-	if !memory.SyncOn() {
-		return helptext.FailUsage(syncOffMsg)
-	}
-	peers := []string{host}
-	if host == "" {
-		peers = providers.RemoteHosts()
-	}
-	for i := range peers {
-		peers[i] = strings.TrimSpace(peers[i])
-	}
-	if len(peers) == 0 {
-		return helptext.FailUsage("memory import --sync: CLAUDE_REMOTE_HOST names no peer; give --host")
-	}
-	return runSync(peers, dryRun, os.Stdout)
-}
-
-// runSync is one pass under the try-once sync lock: probe every peer, pull from each, then push to each.
-func runSync(peers []string, dryRun bool, out io.Writer) int {
+// RunSync is one pass under the try-once sync lock: probe every peer, pull from each, then push to each.
+func RunSync(peers []string, dryRun bool, out io.Writer) (int, error) {
 	for _, p := range peers {
 		if err := textutil.ValidHost(p); err != nil {
 			fmt.Fprintf(out, "memory sync: %v; nothing was sent\n", err)
-			return 2
+			return 2, nil
 		}
 	}
 	if err := os.MkdirAll(paths.MemoryStateDir(), 0o700); err != nil {
-		return helptext.Fail("memory sync: %v", err)
+		return 0, err
 	}
 	code := 0
 	ran, err := paths.TryFileLock(filepath.Join(paths.MemoryStateDir(), "sync.lock"), 0, func() error {
@@ -113,16 +92,16 @@ func runSync(peers []string, dryRun bool, out io.Writer) int {
 	})
 	switch {
 	case err != nil:
-		return helptext.Fail("memory sync: %v", err)
+		return 0, err
 	case !ran:
 		fmt.Fprintln(out, "memory sync: another pass is running")
 	}
-	return code
+	return code, nil
 }
 
 // syncPass is one pass's state; refused counts peers with a refusal, failed is a peer set that is not converged.
 type syncPass struct {
-	st                   *memory.SyncState
+	st                   *SyncState
 	dryRun               bool
 	now                  time.Time
 	out                  io.Writer
@@ -132,7 +111,7 @@ type syncPass struct {
 
 func syncPeers(peers []string, dryRun bool, out io.Writer) int {
 	layout, _ := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), ".layout"))
-	s := &syncPass{st: memory.LoadSync(), dryRun: dryRun, now: time.Now(), out: out, layout: strings.TrimSpace(string(layout))}
+	s := &syncPass{st: LoadSync(), dryRun: dryRun, now: time.Now(), out: out, layout: strings.TrimSpace(string(layout))}
 	tokens := map[string]string{}
 	for _, peer := range peers {
 		if tok, ok := s.probe(peer, s.peer(peer)); ok {
@@ -145,7 +124,7 @@ func syncPeers(peers []string, dryRun bool, out io.Writer) int {
 	s.failed += len(bad)
 	s.synced = len(tokens) - len(bad)
 	if !dryRun {
-		if err := memory.SaveSync(s.st); err != nil {
+		if err := SaveSync(s.st); err != nil {
 			fmt.Fprintf(out, "memory sync: saving state: %v\n", err)
 			s.failed++
 		}
@@ -155,7 +134,7 @@ func syncPeers(peers []string, dryRun bool, out io.Writer) int {
 }
 
 // each runs one direction for every reachable peer, in list order, marking the ones that did not converge.
-func (s *syncPass) each(peers []string, tokens map[string]string, bad map[string]bool, fn func(string, *memory.PeerSync, string) bool) {
+func (s *syncPass) each(peers []string, tokens map[string]string, bad map[string]bool, fn func(string, *PeerSync, string) bool) {
 	for _, peer := range peers {
 		if tok, ok := tokens[peer]; ok && !fn(peer, s.peer(peer), tok) {
 			bad[peer] = true
@@ -163,10 +142,10 @@ func (s *syncPass) each(peers []string, tokens map[string]string, bad map[string
 	}
 }
 
-func (s *syncPass) peer(name string) *memory.PeerSync {
+func (s *syncPass) peer(name string) *PeerSync {
 	p := s.st.Peers[name]
 	if p == nil {
-		p = &memory.PeerSync{}
+		p = &PeerSync{}
 		s.st.Peers[name] = p
 	}
 	if p.Seen == nil {
@@ -178,17 +157,17 @@ func (s *syncPass) peer(name string) *memory.PeerSync {
 func (s *syncPass) say(dir, peer, msg string) { fmt.Fprintf(s.out, "%s %s: %s\n", dir, peer, msg) }
 
 // held reports a stored refusal still in force: same source token and under a day old.
-func (s *syncPass) held(d memory.SyncDir, token string) bool {
+func (s *syncPass) held(d SyncDir, token string) bool {
 	return d.Refusal != "" && d.Token == token && s.now.Sub(d.Since) < syncRefusalHold
 }
 
-func (s *syncPass) refuse(d *memory.SyncDir, dir, peer, why, token string) {
+func (s *syncPass) refuse(d *SyncDir, dir, peer, why, token string) {
 	d.Refusal, d.Since, d.Token = why, s.now, token
 	s.say(dir, peer, "refused: "+why)
 }
 
 // probe returns the peer's token ("<HEAD> <dirty-state digest>"), or false when it cannot sync now.
-func (s *syncPass) probe(name string, p *memory.PeerSync) (string, bool) {
+func (s *syncPass) probe(name string, p *PeerSync) (string, bool) {
 	if p.Pull.Refusal == syncNoLogin && s.held(p.Pull, "") {
 		s.down++
 		s.say("probe", name, "skipped: "+syncNoLogin+" (tried once a day)")
@@ -221,7 +200,7 @@ func (s *syncPass) probe(name string, p *memory.PeerSync) (string, bool) {
 }
 
 // unreachable reports an ssh-level failure (exit 255, no answer): a refused login is held a day, the rest retried.
-func (s *syncPass) unreachable(name string, p *memory.PeerSync, tail string, exit int, err error) bool {
+func (s *syncPass) unreachable(name string, p *PeerSync, tail string, exit int, err error) bool {
 	switch {
 	case exit == sshFailExit && strings.Contains(tail, "Permission denied"):
 		s.refuse(&p.Pull, "probe", name, syncNoLogin, "")
@@ -244,7 +223,7 @@ func lastLine(s string) string {
 }
 
 // pull fetches the peer's store and imports it, letting a peer file win where only the peer changed it.
-func (s *syncPass) pull(name string, p *memory.PeerSync, tok string) bool {
+func (s *syncPass) pull(name string, p *PeerSync, tok string) bool {
 	if tok == p.Pulled {
 		s.say("pull", name, "unchanged")
 		return true
@@ -260,24 +239,24 @@ func (s *syncPass) pull(name string, p *memory.PeerSync, tok string) bool {
 		return false
 	}
 	theirs := hashTree(dir)
-	res, err := memory.ImportBank(memory.ImportOptions{From: dir, Label: name, DryRun: s.dryRun, Topics: true,
-		Replace: takePeer(p.Seen, memory.HashStore(), theirs)})
+	res, err := ImportBank(ImportOptions{From: dir, Label: name, DryRun: s.dryRun, Topics: true,
+		Replace: takePeer(p.Seen, HashStore(), theirs)})
 	if err != nil {
-		_, input := errors.AsType[*memory.ImportInputError](err)
+		_, input := errors.AsType[*ImportInputError](err)
 		s.fail(&p.Pull, "pull", name, refusalReason(err), input || strings.Contains(err.Error(), credentialMark), tok)
 		return false
 	}
 	n := countPrefix(res.Lines, "conflict ")
 	s.say("pull", name, fmt.Sprintf("%s; differ %d", res.Summary, n))
 	if !s.dryRun {
-		settleSeen(p.Seen, memory.HashStore(), theirs, wroteFiles(res.Lines))
-		p.Pulled, p.Pull = tok, memory.SyncDir{OK: s.now, Summary: res.Summary, Differ: n}
+		settleSeen(p.Seen, HashStore(), theirs, wroteFiles(res.Lines))
+		p.Pulled, p.Pull = tok, SyncDir{OK: s.now, Summary: res.Summary, Differ: n}
 	}
 	return true
 }
 
 // fail files a failed direction: a lasting refusal is held, anything else (busy, cut off) is retried at the next pass.
-func (s *syncPass) fail(d *memory.SyncDir, dir, peer, why string, lasting bool, token string) {
+func (s *syncPass) fail(d *SyncDir, dir, peer, why string, lasting bool, token string) {
 	if lasting {
 		s.refuse(d, dir, peer, why, token)
 		return
@@ -289,7 +268,7 @@ func (s *syncPass) fail(d *memory.SyncDir, dir, peer, why string, lasting bool, 
 func takePeer(seen, local, theirs map[string]string) map[string]string {
 	replace := map[string]string{}
 	for rel, h := range theirs {
-		if l, ok := local[rel]; ok && !memory.MergesOnImport(rel) && memory.DecideSync(seen[rel], l, h) == memory.SyncTakePeer {
+		if l, ok := local[rel]; ok && !MergesOnImport(rel) && DecideSync(seen[rel], l, h) == SyncTakePeer {
 			replace[rel] = l
 		}
 	}
@@ -303,10 +282,10 @@ func settleSeen(seen, local, theirs map[string]string, wrote map[string]bool) {
 		switch {
 		case wrote[rel]:
 			seen[rel] = h // the import wrote the peer's bytes: an edit since is a local change
-		case !ok, memory.MergesOnImport(rel) && l != h:
+		case !ok, MergesOnImport(rel) && l != h:
 		case l == h:
 			seen[rel] = l
-		case memory.DecideSync(seen[rel], l, h) == memory.SyncDiffer:
+		case DecideSync(seen[rel], l, h) == SyncDiffer:
 			seen[rel] = l + " " + h // both keep their own; the next one-sided change wins
 		}
 	}
@@ -326,7 +305,7 @@ func wroteFiles(lines []string) map[string]bool {
 }
 
 func refusalReason(err error) string {
-	if errors.Is(err, memory.ErrBankBusy) {
+	if errors.Is(err, ErrBankBusy) {
 		return "busy"
 	}
 	return lastLine(strings.SplitN(err.Error(), "\n", 2)[0])
@@ -366,8 +345,8 @@ func hashTree(dir string) map[string]string {
 }
 
 // push sends the files whose local hash moved since the peer last saw them; skipped when the local token did not move.
-func (s *syncPass) push(name string, p *memory.PeerSync, peerTok string) bool {
-	tok := memory.LocalToken()
+func (s *syncPass) push(name string, p *PeerSync, peerTok string) bool {
+	tok := LocalToken()
 	if tok != "" && tok == p.Pushed {
 		s.say("push", name, "unchanged")
 		return true
@@ -376,8 +355,8 @@ func (s *syncPass) push(name string, p *memory.PeerSync, peerTok string) bool {
 		s.say("push", name, "refused earlier: "+p.Push.Refusal)
 		return false
 	}
-	local := memory.HashStore()
-	rels := memory.ChangedSince(local, p.Seen)
+	local := HashStore()
+	rels := ChangedSince(local, p.Seen)
 	if len(rels) == 0 {
 		if !s.dryRun {
 			p.Pushed = tok
@@ -386,21 +365,28 @@ func (s *syncPass) push(name string, p *memory.PeerSync, peerTok string) bool {
 		return true
 	}
 	a, tail, exit, err := s.send(name, rels, pushReplace(p.Seen, local, rels))
-	switch {
-	case err != nil || exit == sshFailExit || exit < 0:
-		s.say("push", name, "connection lost: "+cmpErr(err, tail)+"; retried at the next pass")
-		return false
-	case exit != 0:
-		why := map[bool]string{true: "busy"}[exit == importBusyExit]
-		s.fail(&p.Push, "push", name, cmp.Or(why, fmt.Sprintf("exit %d: %s", exit, lastLine(tail))),
-			exit == 2 || strings.Contains(tail, credentialMark), tok)
-		return false
-	case !a.complete:
-		s.say("push", name, "the peer's answer ended before its summary; nothing marked as sent, retried at the next pass")
+	if !s.pushOK(name, p, tok, a, tail, exit, err) {
 		return false
 	}
 	s.pushed(name, p, pushResult{tok: tok, peerTok: peerTok, rels: rels, local: local, a: a})
 	return true
+}
+
+// pushOK reports whether the peer's push answer is complete and clean, filing the failure otherwise.
+func (s *syncPass) pushOK(name string, p *PeerSync, tok string, a pushAnswer, tail string, exit int, err error) bool {
+	switch {
+	case err != nil || exit == sshFailExit || exit < 0:
+		s.say("push", name, "connection lost: "+cmpErr(err, tail)+"; retried at the next pass")
+	case exit != 0:
+		why := map[bool]string{true: "busy"}[exit == ImportBusyExit]
+		s.fail(&p.Push, "push", name, cmp.Or(why, fmt.Sprintf("exit %d: %s", exit, lastLine(tail))),
+			exit == 2 || strings.Contains(tail, credentialMark), tok)
+	case !a.complete:
+		s.say("push", name, "the peer's answer ended before its summary; nothing marked as sent, retried at the next pass")
+	default:
+		return true
+	}
+	return false
 }
 
 func cmpErr(err error, tail string) string {
@@ -415,7 +401,7 @@ func pushReplace(seen, local map[string]string, rels []string) string {
 	var b strings.Builder
 	for _, rel := range rels {
 		f := strings.Fields(seen[rel])
-		if len(f) > 0 && !memory.MergesOnImport(rel) && memory.DecideSync(seen[rel], local[rel], f[len(f)-1]) == memory.SyncSendLocal {
+		if len(f) > 0 && !MergesOnImport(rel) && DecideSync(seen[rel], local[rel], f[len(f)-1]) == SyncSendLocal {
 			fmt.Fprintf(&b, "%s  %s\n", f[len(f)-1], rel)
 		}
 	}
@@ -430,7 +416,7 @@ type pushResult struct {
 }
 
 // pushed records a push: each sent file the peer did not name as kept or skipped is equal; a dry run records nothing.
-func (s *syncPass) pushed(name string, p *memory.PeerSync, r pushResult) {
+func (s *syncPass) pushed(name string, p *PeerSync, r pushResult) {
 	n := len(r.a.kept)
 	s.say("push", name, fmt.Sprintf("sent %d file(s): %s; differ %d", len(r.rels), r.a.summary, n))
 	if s.dryRun {
@@ -444,7 +430,7 @@ func (s *syncPass) pushed(name string, p *memory.PeerSync, r pushResult) {
 	if r.a.pre == r.peerTok && p.Pulled == r.peerTok && r.a.post != "" { // nothing else moved the peer: the next pull skips
 		p.Pulled = r.a.post
 	}
-	p.Pushed, p.Push = r.tok, memory.SyncDir{OK: s.now, Summary: r.a.summary, Differ: n}
+	p.Pushed, p.Push = r.tok, SyncDir{OK: s.now, Summary: r.a.summary, Differ: n}
 }
 
 // pushAnswer is what the driver reads from the peer's import; complete means the summary came right before sync-post.
@@ -519,7 +505,7 @@ func writePushTar(w io.Writer, replace string, rels []string) error {
 			return err
 		}
 	}
-	return memory.WriteStoreTar(w, append(slices.Clone(rels), "index.md")) // index.md: the peer reads only its entries
+	return WriteStoreTar(w, append(slices.Clone(rels), "index.md")) // index.md: the peer reads only its entries
 }
 
 // pushScript unpacks the tar into a temp dir the trap removes, runs the peer's import, and brackets it with tokens.
@@ -536,8 +522,8 @@ func pushScript(replace, dryRun bool) string {
 		`tar -xf - -C "$d" || exit 1; tok sync-pre; ` + remote.PathPrefix + " " + imp + `; rc=$?; tok sync-post; exit $rc`
 }
 
-// readReplaceList parses --replace FILE: `<sha256>  <rel>` lines as sha256sum prints them ("*" marks binary mode).
-func readReplaceList(file string) (map[string]string, error) {
+// ReadReplaceList parses --replace FILE: `<sha256>  <rel>` lines as sha256sum prints them ("*" marks binary mode).
+func ReadReplaceList(file string) (map[string]string, error) {
 	if file == "" {
 		return nil, nil
 	}
@@ -558,4 +544,46 @@ func readReplaceList(file string) (map[string]string, error) {
 		out[filepath.ToSlash(rel)] = strings.ToLower(sum)
 	}
 	return out, nil
+}
+
+// memoryFetchTimeout bounds the whole `memory import --host` transfer; a store is tens of MB, so this is generous.
+const memoryFetchTimeout = 10 * time.Minute
+
+const memoryFetchScript = `cd "${CLAUDE_CONFIG_DIR:-$HOME/.claude}/memory" && COPYFILE_DISABLE=1 tar -cf - --exclude=.git --exclude='*.lock' --exclude=.postupdate .`
+
+// FetchRoot streams host's memory root as a tar into a fresh private temp dir; the caller removes it.
+func FetchRoot(host string) (string, error) {
+	argv, err := syncArgv(host, memoryFetchScript)
+	if err != nil {
+		return "", err
+	}
+	dir, err := os.MkdirTemp("", "memory-import-")
+	if err != nil {
+		return "", err
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), memoryFetchTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, argv[0], argv[1:]...)
+	proc.OwnGroup(cmd) // the deadline kills ssh's whole group, so a hung host cannot block the import
+	cmd.WaitDelay = proc.ExecWaitDelay
+	cmd.Stderr = os.Stderr
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		return dir, err
+	}
+	if err := cmd.Start(); err != nil {
+		return dir, err
+	}
+	skipped, xerr := ExtractStoreTar(out, dir)
+	if xerr != nil {
+		_ = cmd.Process.Kill()
+	}
+	werr := cmd.Wait()
+	for _, s := range skipped {
+		fmt.Println("fetch " + s)
+	}
+	if xerr != nil { // ssh was killed for it, so its own error would only say "killed"
+		return dir, xerr
+	}
+	return dir, werr
 }

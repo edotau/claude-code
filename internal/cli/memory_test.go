@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -710,5 +712,41 @@ func TestMemoryUpdateCatchupDryRunWritesNothing(t *testing.T) {
 	}
 	if after := treeNames(t, cfg); !slices.Equal(before, after) {
 		t.Errorf("catchup dry-run wrote files: before=%v after=%v", before, after)
+	}
+}
+
+func TestSyncOffExitsUsage(t *testing.T) {
+	memCfg(t)
+	t.Setenv("NETWORK_MEMORY", "")
+	if code, _, stderr := memCLI(t, "import", "--sync", "--host", "peer.example"); code != 2 || !strings.Contains(stderr, memory.SyncOffMsg) {
+		t.Fatalf("code %d, stderr %q; want 2 and the opt-in hint", code, stderr)
+	}
+}
+
+func TestImportReplaceFile(t *testing.T) {
+	memCfg(t)
+	t.Setenv("HOME", t.TempDir())
+	memInit(t)
+	memMust(t, memory.StoreRepo().Ensure())
+	note := filepath.Join(paths.MemoryStoreDir(), "notes", "local.md")
+	memMust(t, os.MkdirAll(filepath.Dir(note), 0o700))
+	memMust(t, os.WriteFile(note, []byte("local\n"), 0o600))
+	src := t.TempDir()
+	memMust(t, os.WriteFile(filepath.Join(src, ".layout"), []byte("flat 3\n"), 0o600))
+	memMust(t, os.MkdirAll(filepath.Join(src, "notes"), 0o700))
+	memMust(t, os.WriteFile(filepath.Join(src, "notes", "local.md"), []byte("remote\n"), 0o600))
+	list := filepath.Join(t.TempDir(), "replace")
+	for _, c := range []struct{ seen, want string }{
+		{"stale\n", "conflict notes/local.md: kept local"},
+		{"local\n", "replace notes/local.md"},
+	} {
+		sum := sha256.Sum256([]byte(c.seen))
+		memMust(t, os.WriteFile(list, []byte(hex.EncodeToString(sum[:])+"  notes/local.md\n"), 0o600))
+		if out := memCLIOK(t, "import", "--from", src, "--topics", "--replace", list); !strings.Contains(out, c.want) {
+			t.Fatalf("seen %q: output %q; want %q", c.seen, out, c.want)
+		}
+	}
+	if b, _ := os.ReadFile(note); string(b) != "remote\n" {
+		t.Fatalf("after a matching hash the note holds %q, want the source's", b)
 	}
 }
