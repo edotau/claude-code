@@ -51,7 +51,7 @@ func TestLogSkipsTheLiveLogUnderGoTest(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", dir)
 	old := liveLog
-	liveLog = logFile
+	liveLog = logFile()
 	t.Cleanup(func() { liveLog = old })
 	Log(HookBlocked, "safety", "destructive command")
 	if _, err := os.Stat(logFile()); !os.IsNotExist(err) {

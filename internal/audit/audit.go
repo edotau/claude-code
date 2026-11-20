@@ -69,14 +69,8 @@ const maxLineBytes = 4 << 10
 
 func logFile() string { return filepath.Join(paths.StateDir(), "audit.jsonl") }
 
-// liveLog is the real user's log; a test binary never writes it (a real session never runs under go test).
-var liveLog = func() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(home, ".claude", "state", "harness", "audit.jsonl")
-}
+// liveLog is the log of the config dir resolved at start, before any test relocates it; a test binary never writes it.
+var liveLog = logFile()
 
 // Log appends one event. Fail-open: callers are hooks and the router hot path, so nothing is returned.
 func Log(a Action, resource, detail string) { LogSession(a, "", resource, detail) }
@@ -107,7 +101,7 @@ func LogSession(a Action, session, resource, detail string) {
 		event.Detail = textutil.CutBytes(event.Detail, len(event.Detail)/2)
 	}
 	file := logFile()
-	if testing.Testing() && file == liveLog() {
+	if testing.Testing() && file == liveLog {
 		return
 	}
 	if !prepareLogDir(filepath.Dir(file)) {
