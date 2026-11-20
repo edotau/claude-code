@@ -9,7 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
-	"github.com/edotau/claude-code/internal/copilot"
+	"github.com/edotau/claude-code/internal/github"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/providers"
@@ -33,7 +33,7 @@ func githubStatusRows(d *dialog) (ghOK, copilotOK, routesOK bool) {
 	case !gh.Found:
 		d.printf("%-16s ABSENT: gh CLI not found on PATH\n", "gh CLI")
 	case gh.LoggedIn:
-		acct := copilot.GHActiveAccount()
+		acct := github.GHActiveAccount()
 		if acct == "" {
 			acct = gh.Account
 		}
@@ -70,7 +70,7 @@ func opencodeAccountLine(reg *providers.Registry) string {
 	if !opencode.OpencodeCopilotLoginPresent() {
 		return "not signed in (Log in to OpenCode)"
 	}
-	cur := copilot.GitHubLogin(opencode.OpencodeCopilotToken())
+	cur := github.GitHubLogin(opencode.OpencodeCopilotToken())
 	if cur == "" {
 		return "signed in, account not readable"
 	}
@@ -99,7 +99,7 @@ func githubAuthLine(d *dialog) string {
 	case p.Login == "":
 		return profile + " · drift: profile has no login, gh follows its active account"
 	}
-	if active := copilot.GHActiveAccount(); active != p.Login {
+	if active := github.GHActiveAccount(); active != p.Login {
 		return p.Login + " · drift: gh active is " + cmp.Or(active, "none")
 	}
 	return p.Login
@@ -109,7 +109,7 @@ func githubAuthLine(d *dialog) string {
 func pickGitHubAuth(d *dialog) {
 	accounts := GitHubAccounts(d.reg)
 	rows := append([][2]string{{"follow gh active", "no switch; use whichever account gh has active"}},
-		ghUserRows(accounts, copilot.GHActiveAccount(), "")...)
+		ghUserRows(accounts, github.GHActiveAccount(), "")...)
 	idx, err := d.shell().Pick("GitHub auth — gh's active account", rows)
 	if err != nil || idx < 0 {
 		return
@@ -131,7 +131,7 @@ func GitHubAccounts(reg *providers.Registry) []string {
 			}
 		}
 	}
-	for _, l := range copilot.GHAccounts() {
+	for _, l := range github.GHAccounts() {
 		if !slices.Contains(out, l) {
 			out = append(out, l)
 		}
@@ -184,9 +184,9 @@ func applyGitHubAuth(d *dialog, name string) bool {
 	if !ok {
 		return false
 	}
-	prev := copilot.GHActiveAccount()
+	prev := github.GHActiveAccount()
 	if name != "" {
-		if err := copilot.SwitchGH(login); err != nil {
+		if err := github.SwitchGH(login); err != nil {
 			d.printf("github auth: %v\n", err)
 			return false
 		}
@@ -194,7 +194,7 @@ func applyGitHubAuth(d *dialog, name string) bool {
 	if err := vault.SetGitHubAuth(name); err != nil {
 		d.printf("github auth: %v\n", err)
 		if name != "" && prev != "" && prev != login {
-			if rerr := copilot.SwitchGH(prev); rerr != nil {
+			if rerr := github.SwitchGH(prev); rerr != nil {
 				d.printf("github auth: rollback to %s failed: %v\n", prev, rerr)
 			}
 		}

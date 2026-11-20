@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/claude"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
@@ -381,7 +382,7 @@ func modelsDiscover(args []string) int {
 	if len(drop)+len(undrop) > 0 {
 		return modelsDrop(names, *profile == "", drop, undrop, *apply, *format, reg)
 	}
-	results, ok := copilot.DiscoverPickerProfiles(reg, names, *apply, *verify)
+	results, ok := catalog.DiscoverPickerProfiles(reg, names, copilot.DiscoverGithubModels, *apply, *verify)
 	if !ok {
 		code = 1
 	}
@@ -402,7 +403,7 @@ func modelsDrop(names []string, global bool, drop, undrop []string, apply bool, 
 	if len(undrop) > 0 {
 		ids, un = undrop, true
 	}
-	results, ok := copilot.DropPickerProfiles(reg, names, ids, un, global, apply)
+	results, ok := catalog.DropPickerProfiles(reg, names, ids, un, global, apply)
 	code := 0
 	if !ok {
 		code = 1
@@ -410,7 +411,7 @@ func modelsDrop(names []string, global bool, drop, undrop []string, apply bool, 
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, struct {
 			Apply   bool                 `json:"apply"`
-			Results []copilot.DropResult `json:"results"`
+			Results []catalog.DropResult `json:"results"`
 		}{apply, results}); err != nil {
 			return helptext.Fail("models discover: cannot write JSON: %v", err)
 		}
@@ -422,7 +423,7 @@ func modelsDrop(names []string, global bool, drop, undrop []string, apply bool, 
 	return code
 }
 
-func printDropText(results []copilot.DropResult, ids []string, undrop, apply bool) error {
+func printDropText(results []catalog.DropResult, ids []string, undrop, apply bool) error {
 	verb, mode := "drop", "preview, nothing written; pass --apply to write"
 	if undrop {
 		verb = "undrop"
@@ -465,11 +466,11 @@ func discoverNames(reg *providers.Registry, profile string) ([]string, int) {
 	return []string{profile}, 0
 }
 
-func printDiscoverResults(results []copilot.DiscoverResult, apply bool, format string, code int) int {
+func printDiscoverResults(results []catalog.DiscoverResult, apply bool, format string, code int) int {
 	if format == helptext.JSON {
 		if err := helptext.WriteJSON(os.Stdout, struct {
 			Apply   bool                     `json:"apply"`
-			Results []copilot.DiscoverResult `json:"results"`
+			Results []catalog.DiscoverResult `json:"results"`
 		}{apply, results}); err != nil {
 			return helptext.Fail("models discover: cannot write JSON: %v", err)
 		}
@@ -482,7 +483,7 @@ func printDiscoverResults(results []copilot.DiscoverResult, apply bool, format s
 }
 
 // printDiscoverText renders the results into one buffer and writes it once, so a stdout write error is returned.
-func printDiscoverText(results []copilot.DiscoverResult) error {
+func printDiscoverText(results []catalog.DiscoverResult) error {
 	var b strings.Builder
 	for _, r := range results {
 		fmt.Fprintf(&b, "%s/%s: %s source=%s discovered=%d additions=%d\n", r.Provider, r.Profile, r.Status, cmp.Or(r.Source, "none"), r.Discovered, len(r.Additions))

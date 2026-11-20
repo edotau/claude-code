@@ -14,8 +14,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
-	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/gemini"
+	"github.com/edotau/claude-code/internal/github"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
@@ -158,7 +158,7 @@ func GHAuthCheck() ghStatus {
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
 	defer cancel()
 	err = exec.CommandContext(ctx, bin, "auth", "status").Run()
-	account := copilot.GHActiveAccount() // `gh auth status` lists the first account, not the active one
+	account := github.GHActiveAccount() // `gh auth status` lists the first account, not the active one
 	return ghStatus{Found: true, LoggedIn: err == nil || account != "", Account: account}
 }
 

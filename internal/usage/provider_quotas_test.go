@@ -613,11 +613,11 @@ func TestRefreshAccountPassesLoginToGh(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", bin)
-	for key, want := range map[string]string{"github·tester": "--user tester", "github·octocat": "--user octocat"} {
+	for key, want := range map[string]string{"github·tester": "-u tester", "github·octocat": "-u octocat"} {
 		_ = os.Remove(log)
 		RefreshAccount(context.Background(), key)
 		raw, _ := os.ReadFile(log)
-		if !strings.Contains(string(raw), want) || strings.Contains(string(raw), "--user personal") {
+		if !strings.Contains(string(raw), want) || strings.Contains(string(raw), "-u personal") {
 			t.Errorf("RefreshAccount(%q): gh argv %q, want %q", key, raw, want)
 		}
 	}

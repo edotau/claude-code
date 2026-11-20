@@ -14,8 +14,8 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/claude"
-	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
@@ -666,7 +666,7 @@ func TestProviderListJSONQualifiedName(t *testing.T) {
 }
 
 func TestPrintDiscoverResultsTextWriteError(t *testing.T) {
-	results := []copilot.DiscoverResult{{Provider: "openai", Profile: "fake", Status: "preview", Discovered: 1}}
+	results := []catalog.DiscoverResult{{Provider: "openai", Profile: "fake", Status: "preview", Discovered: 1}}
 	for _, status := range []int{0, 1} {
 		code, stdout, stderr := hosttest.CaptureOutput(t, func() int {
 			return printDiscoverResults(results, false, helptext.Text, status)

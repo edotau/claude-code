@@ -23,6 +23,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/github"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -417,7 +418,7 @@ func (copilotEngine) Presence(_ context.Context, _ router.Cell) error {
 	if err != nil {
 		return fmt.Errorf("cannot read the provider registry to check the pinned gh user: %w", err)
 	}
-	if u != "" && !slices.Contains(GHAccounts(), u) {
+	if u != "" && !slices.Contains(github.GHAccounts(), u) {
 		return fmt.Errorf("pinned gh user %s is not logged in (gh auth login); no other account is used", u)
 	}
 	return nil

@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/copilot"
+	"github.com/edotau/claude-code/internal/github"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -104,9 +104,9 @@ func TestPickGitHubAuthRollsGHBackWhenVaultWriteFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	var switched []string
-	orig := copilot.SwitchGH
-	copilot.SwitchGH = func(login string) error { switched = append(switched, login); return nil }
-	t.Cleanup(func() { copilot.SwitchGH = orig })
+	orig := github.SwitchGH
+	github.SwitchGH = func(login string) error { switched = append(switched, login); return nil }
+	t.Cleanup(func() { github.SwitchGH = orig })
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{"work": {Provider: "github", Login: "new"}}}
 	var out bytes.Buffer
 	d := &dialog{reg: reg, out: &out, br: bufio.NewReader(strings.NewReader("2\n"))}
@@ -121,9 +121,9 @@ func authFlagDialog(t *testing.T, auth string, o Options) (*dialog, *[]string, *
 	hosttest.GithubScratch(t)
 	vaulttest.UseKeyring(t)
 	var switched []string
-	orig := copilot.SwitchGH
-	copilot.SwitchGH = func(login string) error { switched = append(switched, login); return nil }
-	t.Cleanup(func() { copilot.SwitchGH = orig })
+	orig := github.SwitchGH
+	github.SwitchGH = func(login string) error { switched = append(switched, login); return nil }
+	t.Cleanup(func() { github.SwitchGH = orig })
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{
 		"work": {Provider: "github", Login: "wl"}, "follow": {Provider: "github", Login: "fl"}}}
 	o.Auth, o.AuthSet = auth, true

@@ -16,7 +16,6 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
-	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -24,6 +23,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/codex"
+	"github.com/edotau/claude-code/internal/github"
 	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
@@ -114,17 +114,13 @@ func ghRun(ctx context.Context, env []string, args ...string) ([]byte, error) {
 	return c.Output()
 }
 
-var ghAccountRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`Logged in to github\.com account (\S+)`) })
-
 // githubQuotas reads /copilot_internal/user once per gh login — personal and work seats bill separately.
 func githubQuotas(ctx context.Context) []quota {
-	c := exec.CommandContext(ctx, "gh", "auth", "status", "--hostname", "github.com")
-	status, _ := c.CombinedOutput() // exits 1 when any account's token is stale; the others still list
-	logins := ghAccountRE().FindAllSubmatch(status, -1)
+	logins := github.GHAccounts()
 	out := make([]quota, len(logins))
 	var wg sync.WaitGroup
-	for i, m := range logins {
-		wg.Go(func() { out[i] = githubQuota(ctx, string(m[1])) })
+	for i, login := range logins {
+		wg.Go(func() { out[i] = githubQuota(ctx, login) })
 	}
 	wg.Wait()
 	if len(out) == 0 {
@@ -135,11 +131,11 @@ func githubQuotas(ctx context.Context) []quota {
 
 // githubQuota reads one gh login's Copilot seat; the login's own token, never another account's.
 func githubQuota(ctx context.Context, login string) quota {
-	tok, err := ghRun(ctx, nil, "auth", "token", "--hostname", "github.com", "--user", login)
-	if err != nil {
+	tok := github.GHToken(login)
+	if tok == "" {
 		return quota{Provider: "github", Account: login, Note: "unavailable: no token"}
 	}
-	body, err := ghRun(ctx, []string{"GH_TOKEN=" + strings.TrimSpace(string(tok))}, "api", "/copilot_internal/user")
+	body, err := ghRun(ctx, []string{"GH_TOKEN=" + tok}, "api", "/copilot_internal/user")
 	if err != nil {
 		return quota{Provider: "github", Account: login, Note: "unavailable: no Copilot seat or API error"}
 	}

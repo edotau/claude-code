@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
+	"github.com/edotau/claude-code/internal/github"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/opencode"
 	"github.com/edotau/claude-code/internal/paths"
@@ -595,12 +596,12 @@ func copilotKeyRow(d *dialog) billingRow {
 
 // pickGitHubUser lists gh's accounts.
 func pickGitHubUser(d *dialog, cur providers.AuthState) bool {
-	gh := copilot.GHAccounts()
+	gh := github.GHAccounts()
 	if !d.onTerminal() {
 		d.printf("copilot: runs as %s; gh accounts: %s\n", cur.Label(), strings.Join(gh, ", "))
 		return false
 	}
-	active := copilot.GHActiveAccount()
+	active := github.GHActiveAccount()
 	rows := ghUserRows(gh, active, cur.Account)
 	rows = append(rows, [2]string{"New sign-in", "gh auth login · adds another account to this list"})
 	idx, err := d.shell().Pick("copilot — which GitHub user? (now: "+cur.Label()+")", rows, 0)
@@ -611,7 +612,7 @@ func pickGitHubUser(d *dialog, cur providers.AuthState) bool {
 		return signIn(d, "gh", []string{"gh", "auth", "login"})
 	}
 	u := gh[idx]
-	if tok := copilot.GHToken(u); tok == "" || copilot.GitHubLogin(tok) != u {
+	if tok := github.GHToken(u); tok == "" || github.GitHubLogin(tok) != u {
 		d.printf("copilot: gh has no working token for %s; run gh auth login\n", u)
 		return false
 	}

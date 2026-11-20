@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -534,7 +535,7 @@ func modelEffort(s agent.Settings) (string, string) {
 	}
 	accepted := catalogEfforts(id)
 	// a gateway-served (BYOK) row; a nil, github or own-login row reads the Copilot catalog
-	if p := s.Target.Provider; p != nil && !isGithubProfile(p) && p.Auth.Login == "" {
+	if p := s.Target.Provider; p != nil && !catalog.IsGithubProfile(p) && p.Auth.Login == "" {
 		accepted = servedEfforts(id)
 	}
 	native := nearestEffort(accepted, s.Effort)
