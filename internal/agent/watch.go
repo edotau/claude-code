@@ -390,26 +390,33 @@ func scanRelays(recs []Record) map[string]relayState {
 	files := relayTranscripts(filepath.Join(paths.ConfigDir(), "projects"))
 	since := oldestUnmatched(recs, out)
 	for _, f := range files {
-		if len(out) == len(ids) {
-			break // every job is matched: later transcripts cannot change an entry
+		if len(out) == len(ids) && !anyFinished(out) {
+			break // every job maps to a live relay: later transcripts cannot change an entry
 		}
 		if info, err := os.Stat(f); err == nil && !info.ModTime().Before(since) {
-			n := len(out)
 			matchRelay(out, recs, f, info.ModTime())
-			if len(out) != n {
-				since = oldestUnmatched(recs, out)
-			}
+			since = oldestUnmatched(recs, out)
 		}
 	}
 	return out
 }
 
-// oldestUnmatched is the earliest start among jobs with no entry in out: no older transcript can name them.
+// anyFinished reports whether some job is matched only to a finished transcript, which a live one may still replace.
+func anyFinished(out map[string]relayState) bool {
+	for _, st := range out {
+		if st.finished {
+			return true
+		}
+	}
+	return false
+}
+
+// oldestUnmatched is the earliest start among jobs with no live relay in out: no older transcript can name them.
 func oldestUnmatched(recs []Record, out map[string]relayState) time.Time {
 	var since time.Time
 	first := true
 	for _, r := range recs {
-		if _, seen := out[r.ID]; !seen && (first || r.Time.Before(since)) {
+		if st, seen := out[r.ID]; (!seen || st.finished) && (first || r.Time.Before(since)) {
 			since, first = r.Time, false
 		}
 	}
@@ -439,12 +446,12 @@ func relayTranscripts(projects string) []string {
 	return slices.Concat(perDir...)
 }
 
-// matchRelay records transcript f against every job it names that started before it was last written.
+// matchRelay records transcript f against the jobs it names; a live transcript replaces a finished one.
 func matchRelay(out map[string]relayState, recs []Record, f string, at time.Time) {
 	var want []Record
 	keep := 0
 	for _, r := range recs {
-		if _, seen := out[r.ID]; !seen && !at.Before(r.Time) {
+		if st, seen := out[r.ID]; (!seen || st.finished) && !at.Before(r.Time) {
 			want = append(want, r)
 			keep = max(keep, len(r.ID)-1)
 		}
