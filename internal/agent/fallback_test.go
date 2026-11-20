@@ -1470,7 +1470,7 @@ func TestRowHopStampsItsRowOnceAdmitted(t *testing.T) {
 	dev := &fakeRunner{name: "claude", errs: []error{&retry.Error{Kind: retry.KindRateLimit, Err: errors.New("429")}}, emptyAnswer: true}
 	prod := &fakeRunner{name: "claude", errs: []error{nil}}
 	c := chainOf([]Engine{dev, prod})
-	c.Dispatches[1].rowHop, c.Dispatches[1].row = true, "prod"
+	c.Dispatches[0].Account, c.Dispatches[1].Account, c.Dispatches[1].rowHop, c.Dispatches[1].row = "databricks·dev", "databricks·prod", true, "prod" // own cooldown keys
 	runWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if router.RowPicks("claude")["prod"].IsZero() {
 		t.Fatal("the row hop that ran left no stamp, so it still ranks least-recent")

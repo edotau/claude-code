@@ -52,8 +52,9 @@ The apply-gate (assumption before each cut, never-cut list, reuse first, thresho
 | 6 | Full suite + gate chain (format → lint → test → security) | **Once** at wrap-up, **only with the user's approval**, never a subagent |
 
 `rtk make lint` and `agents diff --check` only check (a leaf runs `claude-code agents diff --check --path <files>` and
-fixes its own files from the output, or with `claude-code agents fix --path <files>`); `rtk make fmt` fixes,
-`rtk make audit` and `rtk make install` ship: the main session's, from a clean tree.
+fixes its own files from the output, or with `claude-code agents fix --path <files>`); pass all your files in one
+call, never one call per file (each re-runs the package tests); `rtk make fmt` fixes, `rtk make audit` and
+`rtk make install` ship: the main session's, from a clean tree.
 
 Lint gates the rest: a syntax error makes test output meaningless. Untouched packages are noise during development.
 The IDE's diagnostics are a second gate, not a duplicate: the editor runs analyzers the repo's CLI lint does not

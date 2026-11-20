@@ -359,7 +359,7 @@ func expandArgs(cmd, files, pkgs []string) []string {
 	return out
 }
 
-// testGate tests the touched packages, plus internal/schemas (it pins file writers) when production Go changed.
+// testGate tests the touched packages (Go's test cache answers identical inputs) plus internal/schemas for prod Go.
 func testGate(ctx context.Context, in gateInput) (string, string, error) {
 	const schemas = "./internal/schemas"
 	prod := slices.ContainsFunc(match(in.files, []string{goGlob}), func(p string) bool { return !pack.IsTestPath(p) })
@@ -369,7 +369,7 @@ func testGate(ctx context.Context, in gateInput) (string, string, error) {
 	if len(in.pkgs) == 0 {
 		return "", "no Go packages", nil
 	}
-	out, err := gateRun(ctx, in.root, "go", append([]string{"test", "-count=1"}, in.pkgs...)...)
+	out, err := gateRun(ctx, in.root, "go", append([]string{"test"}, in.pkgs...)...)
 	return out, "", err
 }
 
