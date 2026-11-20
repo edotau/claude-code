@@ -233,6 +233,7 @@ func loadStampFile(path string) stampFile {
 
 // changedFiles lists dirty allowed paths relative to cwd; literal pathspecs keep glob-shaped names scoped.
 func changedFiles(ctx context.Context, cwd string, allow map[string]bool) []string {
+	cwd = paths.Real(cwd) // allow holds resolved paths, so cwd must be resolved to take their relative form
 	args := []string{"status", "--porcelain=v1", "-z", "--untracked-files=all", "--"}
 	for _, full := range slices.Sorted(maps.Keys(allow)) {
 		if rel, ok := core.RelWithin(cwd, full); ok {
