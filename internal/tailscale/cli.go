@@ -10,13 +10,10 @@ import (
 	"net/netip"
 	"os"
 	"os/exec"
-	"path/filepath"
-	"regexp"
 	"runtime"
 	"slices"
 	"strconv"
 	"strings"
-	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
@@ -78,7 +75,7 @@ type Local struct {
 	Peers        []peer
 	LoginName    string `json:"-"` // the signed-in user, empty when status names none
 	NodeKey      string `json:"-"` // this node's public key; a browser re-auth rotates it
-	Via          string `json:"-"` // "localapi", "cli" or "tsnet": which path answered
+	Via          string `json:"-"` // "localapi" or "cli": which path answered
 }
 
 // rawStatus mirrors the subset of `tailscale status --json` this package reads.
@@ -204,7 +201,7 @@ func tailscaleBin() (string, error) {
 	return "", errNoCLI
 }
 
-// Status reads the LocalAPI, else `tailscale status --json`, else an initialized tsnet helper; errNotRunning keeps it.
+// Status reads the LocalAPI, else `tailscale status --json`; errNotRunning keeps it.
 func Status(ctx context.Context) (Local, error) {
 	out, err := localAPI(ctx, http.MethodGet, "status", nil)
 	via := "localapi"
@@ -212,101 +209,13 @@ func Status(ctx context.Context) (Local, error) {
 		if !errors.Is(err, errNoLocalAPI) {
 			return Local{}, err
 		}
-		cliOut, cliErr := statusCLI(ctx)
-		out, err, via = cliOut, cliErr, "cli"
-		if errors.Is(cliErr, errNoCLI) {
-			if hOut, hErr := statusHelper(ctx); hErr == nil {
-				out, err, via = hOut, nil, "tsnet"
-			}
-		}
+		out, err = statusCLI(ctx)
+		via = "cli"
 	}
 	if err != nil {
 		return Local{}, err
 	}
 	return parseStatus(out, via)
-}
-
-// helperName is the tsnet helper `make install` builds next to claude-code (no helper on Windows).
-const helperName = "claude-code-tsnet"
-
-// helperOff keeps tests from spawning an installed helper, as localAPIOff does for tailscaled.
-var helperOff = testing.Testing()
-
-// helperBin resolves the tsnet helper: BinDir (where `make install` puts it), then PATH.
-func helperBin() (string, bool) {
-	if helperOff || goos == "windows" {
-		return "", false
-	}
-	p := filepath.Join(paths.BinDir(), helperName)
-	if fi, err := os.Stat(p); err == nil && fi.Mode().IsRegular() && fi.Mode().Perm()&0o111 != 0 {
-		return p, true
-	}
-	p, err := lookPathReal(helperName)
-	return p, err == nil
-}
-
-// statusHelper is the helper's `status --json`; it fails while the helper's node is not initialized.
-func statusHelper(ctx context.Context) ([]byte, error) {
-	bin, ok := helperBin()
-	if !ok {
-		return nil, errors.New("tailscale: " + helperName + " not installed")
-	}
-	ctx, cancel := context.WithTimeout(ctx, connectTimeout)
-	defer cancel()
-	cmd := execCommandContext(ctx, bin, "status", "--json")
-	cmd.WaitDelay = proc.ExecWaitDelay
-	out, err := proc.OutputCapped(cmd)
-	if err != nil {
-		return nil, execErr(ctx, "tsnet status --json", err)
-	}
-	return out, nil
-}
-
-// Reachable is false only when no LocalAPI endpoint accepts and no CLI is installed: the case the helper serves.
-func Reachable() bool {
-	if _, err := tailscaleBin(); err == nil {
-		return true
-	}
-	_, err := localAPI(context.Background(), http.MethodGet, "status", nil)
-	return !errors.Is(err, errNoLocalAPI)
-}
-
-// helperHost is ^[A-Za-z0-9._-]+$: ProxyCommand runs under /bin/sh, and the helper re-checks %h with the same set.
-var helperHost = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
-
-// ProxyOpts is ssh's `-o ProxyCommand=<helper> dial %h %p` for a tailnet peer only the initialized helper reaches.
-func ProxyOpts(host string) []string {
-	if !helperHost.MatchString(host) || Reachable() {
-		return nil
-	}
-	bin, ok := helperBin()
-	if !ok {
-		return nil
-	}
-	st, err := Status(context.Background())
-	if err != nil || st.Via != "tsnet" || !isPeer(st.Peers, host) {
-		return nil
-	}
-	q := "'" + strings.ReplaceAll(strings.ReplaceAll(bin, "%", "%%"), "'", `'\''`) + "'"
-	return []string{"-o", "ProxyCommand=" + q + " dial %h %p"}
-}
-
-// isPeer is true when host is exactly a peer's MagicDNS name, its short label, or one of its tailnet IPs.
-func isPeer(peers []peer, host string) bool {
-	ip, ipErr := netip.ParseAddr(host)
-	for _, p := range peers {
-		name := strings.TrimSuffix(p.DNSName, ".")
-		if short, _, _ := strings.Cut(name, "."); host == name || host == short {
-			return true
-		}
-		if ipErr == nil && slices.ContainsFunc(p.IPs, func(s string) bool {
-			a, err := netip.ParseAddr(s)
-			return err == nil && a == ip
-		}) {
-			return true
-		}
-	}
-	return false
 }
 
 // statusCLI is `tailscale status --json`'s raw output; errNoCLI without the CLI.

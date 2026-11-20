@@ -20,7 +20,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
-	"github.com/edotau/claude-code/internal/tailscale"
 )
 
 // Tunnel is one recorded ssh SOCKS5 tunnel.
@@ -154,7 +153,7 @@ func start(ctx context.Context, host, logPath string) (Tunnel, error) {
 func sshArgs(host string, port int, logPath string) []string {
 	argv := append([]string{"-N", "-D", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), "-E", logPath,
 		"-o", "BatchMode=yes", "-o", "ServerAliveInterval=15", "-o", "ServerAliveCountMax=2"}, OwnConn()...)
-	return append(append(argv, tailscale.ProxyOpts(host)...), "--", host)
+	return append(argv, "--", host)
 }
 
 // spawnSSH starts the detached tunnel; exited closes when ssh ends, and ssh writes its own errors to logPath.
