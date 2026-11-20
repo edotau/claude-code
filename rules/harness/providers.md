@@ -121,6 +121,8 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
 
 ## Databricks routes (key rule)
 
+- Task-first how-to (failed call, add a model, throttling, cost): `skills/dbx-expert/SKILL.md`.
+
 - Every agent uses the workspace serving endpoints, never a gateway product (an `options.wire` other than `serving` is
   refused): claude `<workspace>/serving-endpoints/anthropic`, codex `/responses`; copilot and opencode pick per model
   (Claude `/anthropic`, Responses-only GPTs `/responses`, the rest `/chat/completions`). Probe a route with a real
