@@ -31,6 +31,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/pi"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -796,13 +797,10 @@ func piSlotGlobs() []string {
 	return []string{statePath("pi", "packages", "npm-*"), statePath("pi", "packages", "git-*")}
 }
 
-// KeepPiSlot is pi.KeepSlot, wired by the CLI (setup cannot import pi); the default keeps every slot.
-var KeepPiSlot = func(string) bool { return true }
-
 // keepPiSlot keeps every slot while any pi run dir is kept as live: a launch loads its slots without a lock on them.
 func keepPiSlot(p string) bool {
 	runs, _ := filepath.Glob(statePath("pi", "*", "runs", "*"))
-	return slices.ContainsFunc(runs, keepPiRun) || KeepPiSlot(p)
+	return slices.ContainsFunc(runs, keepPiRun) || pi.KeepSlot(p)
 }
 
 // tempBackupGlobs match mirrored backups of files that lived in a temp dir (test runs): their source is long gone.

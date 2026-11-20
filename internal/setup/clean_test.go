@@ -936,6 +936,12 @@ func TestContractCleanSweeps(t *testing.T) {
 				}
 			}
 			writeOldCleanFixture(t, path)
+			if f.Clean == "pi-runs" { // the swept entry is the run dir, kept while young
+				old := time.Now().AddDate(0, 0, -400)
+				if err := os.Chtimes(filepath.Dir(path), old, old); err != nil {
+					t.Fatal(err)
+				}
+			}
 			got := cleanSweep(t, f.Clean)
 			if !strings.Contains(got, f.Clean) || !strings.Contains(got, "would remove 1 entr") {
 				t.Fatalf("clean --target %s does not sweep %s:\n%s", f.Clean, path, got)
@@ -1152,10 +1158,10 @@ func TestKeepPiRun(t *testing.T) {
 
 func TestKeepPiSlotWhileARunIsLive(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	old := KeepPiSlot
-	t.Cleanup(func() { KeepPiSlot = old })
-	KeepPiSlot = func(string) bool { return false } // the record no longer lists it
-	slot := statePath("pi", "packages", "npm-0123456789abcdef")
+	slot := statePath("pi", "packages", "npm-0123456789abcdef") // a real slot the Pi record does not list
+	if err := os.MkdirAll(slot, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if keepPiSlot(slot) {
 		t.Fatal("no live run, unlisted slot kept")
 	}
