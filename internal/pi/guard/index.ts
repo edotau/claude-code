@@ -1,75 +1,62 @@
-// Pi guard extension (internal/pi/guard.go renders __BIN__ and __MODULES__); runs the harness's PreToolUse guards.
+// Pi guard extension (internal/pi/guard.go renders the __ constants): the only tools Pi has are these, each judged first.
 import { execFileSync } from "node:child_process"
-import { writeFileSync } from "node:fs"
-import { resolve } from "node:path"
+import { existsSync, writeFileSync } from "node:fs"
+import * as pkg from "@earendil-works/pi-coding-agent"
 
 const BIN: string = __BIN__
-const MODULES: { name: string; matcher: string; budgetMs: number }[] = __MODULES__
-const TOOLS: Record<string, string> = { bash: "Bash", edit: "Edit", write: "Write", read: "Read", grep: "Grep", find: "Glob", ls: "Read" }
-const NO_PATH_DEFAULT_CWD = new Set(["grep", "find", "ls"]) // these tools search the cwd when path is omitted
+const VERIFIED_PI: string = __PI_VERSION__ // the Pi version whose tool code this guard was checked against
+const BUDGET_MS: number = __BUDGET_MS__
+const FACTORIES: Record<string, string> = { bash: "createBashToolDefinition", edit: "createEditToolDefinition",
+  write: "createWriteToolDefinition", read: "createReadToolDefinition", grep: "createGrepToolDefinition",
+  find: "createFindToolDefinition", ls: "createLsToolDefinition" }
 
-// toolInput is the Claude-shaped tool_input, or a string naming why the call cannot be judged (the caller blocks).
-function toolInput(tool: string, input: any, cwd: string): Record<string, unknown> | string {
-  if (typeof input !== "object" || input === null) return "tool input is not an object"
-  if (tool === "bash") return typeof input.command === "string" ? { command: input.command } : "bash call has no command"
-  const raw = typeof input.path === "string" && input.path ? input.path : NO_PATH_DEFAULT_CWD.has(tool) ? "." : ""
-  if (!raw) return tool + " call has no path"
-  return { ...input, file_path: resolve(cwd, raw) }
+// hookEnv is the hook process's env: the inherited one minus every HARNESS_HOOK_* switch (fail closed: none can skip).
+function hookEnv(): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.toUpperCase().startsWith("HARNESS_HOOK_")) env[k] = v
+  return env
 }
 
-// denied is the block reason ("" allows), or null when stdout is not a hook document.
-function denied(stdout: string): string | null {
-  if (!stdout.trim()) return "" // a silent allow prints nothing
-  let out: any
+// judge sends the raw call to the harness, which normalizes the path and runs every hook; only {allow:true} allows.
+function judge(tool: string, input: any, cwd: string, sid: string): { block?: string; path?: string } {
+  const stuck = (why: string) => ({ block: "pi guard: " + why + "; blocked" })
   try {
-    out = JSON.parse(stdout).hookSpecificOutput ?? {}
-  } catch {
-    return null
-  }
-  if (out.permissionDecision === "ask") return out.permissionDecisionReason || "approval required; blocked" // no one to ask
-  return out.permissionDecision === "deny" ? out.permissionDecisionReason || "denied" : ""
-}
-
-// verdict is one module's block reason, or "" to allow; every failure to run or read the module blocks.
-function verdict(m: { name: string; budgetMs: number }, payload: string): string {
-  const stuck = (why: string) => "pi guard: " + m.name + " did not complete (" + why + "); blocked"
-  try {
-    const out = execFileSync(BIN, ["hook", "PreToolUse", "--" + m.name],
-      { input: payload, timeout: m.budgetMs, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] })
-    return denied(out) ?? stuck("malformed output")
+    const out = execFileSync(BIN, ["hook", "PreToolUse", "--pi-guard"], { input: JSON.stringify({ tool, input, cwd, session_id: sid }),
+      env: hookEnv(), timeout: BUDGET_MS, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"] })
+    const v = JSON.parse(out)
+    if (typeof v.block === "string" && v.block) return { block: v.block }
+    return v.allow === true ? { path: typeof v.path === "string" ? v.path : "" } : stuck("unrecognized verdict")
   } catch (err: any) {
-    if (err.status === 2) return String(err.stderr ?? "").trim() || "pi guard: " + m.name + " blocked the call"
-    if (err.code === "EPIPE" && err.status === 0) return denied(String(err.stdout ?? "")) ?? stuck("malformed output")
-    return stuck(err.signal ? "timed out (" + err.signal + ")" : String(err.code ?? "exit " + err.status))
+    return stuck(err.signal ? "timed out (" + err.signal + ")" : String(err.code ?? err.message ?? "exit " + err.status))
   }
 }
 
-// judge is the block reason for a tool call, or "" to let it run.
-function judge(name: string, input: any, cwd: string, sid: string): string {
-  const tool = TOOLS[name]
-  if (!tool) return "pi guard: tool " + name + " is not mapped" // unknown and package tools are never allowed
-  const ti = toolInput(name, input, cwd)
-  if (typeof ti === "string") return "pi guard: " + ti
-  const payload = JSON.stringify({ hook_event_name: "PreToolUse", tool_name: tool, tool_input: ti, cwd, session_id: sid,
-    harness_agent: "pi" })
-  for (const m of MODULES) {
-    if (!new RegExp("^(?:" + m.matcher + ")$", "i").test(tool)) continue
-    const reason = verdict(m, payload)
-    if (reason) return reason
-  }
-  return ""
+// guarded is def with execute wrapped: it runs only after the hooks allow, on the exact path they judged.
+function guarded(name: string, def: any) {
+  return { ...def, async execute(id: string, params: any, signal: any, onUpdate: any, ctx: any) {
+    const sid = String(ctx?.sessionManager?.getSessionId?.() ?? "")
+    const v = judge(name, params, String(ctx?.cwd || process.cwd()), sid)
+    if (v.block) throw new Error(v.block)
+    if (name === "bash") return def.execute(id, params, signal, onUpdate, ctx)
+    // fail closed: Pi's read tries other spellings of a missing file (NFD, curly quote); a missing path is never read
+    if (name === "read" && !existsSync(v.path!)) throw new Error("File not found: " + v.path)
+    return def.execute(id, { ...params, path: v.path }, signal, onUpdate, ctx)
+  } }
 }
 
 export default function (pi: any) {
+  // fail closed: a Pi this guard was not checked against may normalize or validate differently; throwing aborts the run
+  if ((pkg as any).VERSION !== VERIFIED_PI) throw new Error("pi guard: Pi " + (pkg as any).VERSION + " is not the verified " + VERIFIED_PI)
+  const names = String(process.env.HARNESS_PI_GUARD_TOOLS ?? "").split(",").filter(Boolean)
   const file = process.env.HARNESS_PI_GUARD_NONCE_FILE, nonce = process.env.HARNESS_PI_GUARD_NONCE
-  if (!file || !nonce) throw new Error("pi guard: nonce env is not set") // a guard that cannot prove it loaded aborts the run
+  if (!names.length || !file || !nonce) throw new Error("pi guard: tool or nonce env is not set") // cannot prove it loaded: abort
+  for (const name of names) {
+    const make = (pkg as any)[FACTORIES[name] ?? ""]
+    if (typeof make !== "function") throw new Error("pi guard: no tool factory for " + name)
+    pi.registerTool(guarded(name, make(process.cwd())))
+  }
+  // second layer: Pi runs with no builtin tools, so a tool that is not the guard's own is blocked here
+  pi.on("tool_call", (ev: any) => names.includes(String(ev.toolName)) ? undefined
+    : { block: true, reason: "pi guard: tool " + ev.toolName + " is not a guarded tool" })
   writeFileSync(file, nonce, { mode: 0o600 })
-  pi.on("tool_call", async (ev: any, ctx: any) => {
-    try {
-      const reason = judge(String(ev.toolName), ev.input, String(ctx?.cwd ?? ""), String(ctx?.sessionManager?.getSessionId?.() ?? ""))
-      return reason ? { block: true, reason } : undefined
-    } catch (err: any) {
-      return { block: true, reason: "pi guard: " + String(err?.message ?? err) + "; blocked" }
-    }
-  })
 }

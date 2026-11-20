@@ -2,9 +2,11 @@ package pi
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/settings"
 )
 
 // refuseRequest refuses what the guard cannot judge: an Ask rule (no one to ask) and a --env that replaces the guard's wiring.
@@ -17,6 +19,22 @@ func refuseRequest(req agent.RunOptions) error {
 		if k == agentDirEnv || k == agent.DispatchPermissionsEnv || strings.HasPrefix(k, "HARNESS_PI_") {
 			return fmt.Errorf("--env %s: pi's guard wiring owns it; drop it from --env", k)
 		}
+		if settings.IsHookControlEnv(k) {
+			return fmt.Errorf("--env %s: a hook-control variable could turn pi's guard off; drop it from --env", k)
+		}
+	}
+	for _, k := range req.OverlaySet {
+		if settings.IsHookControlEnv(k) {
+			return fmt.Errorf("overlay set %s: a hook-control variable could turn pi's guard off; drop it from the overlay", k)
+		}
 	}
 	return nil
+}
+
+// withoutHookControl drops every hook-control variable from a child env: pi's own process never inherits one.
+func withoutHookControl(env []string) []string {
+	return slices.DeleteFunc(slices.Clone(env), func(kv string) bool {
+		k, _, _ := strings.Cut(kv, "=")
+		return settings.IsHookControlEnv(k)
+	})
 }

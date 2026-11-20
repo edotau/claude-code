@@ -23,11 +23,8 @@ import (
 
 const (
 	agentDirEnv = "PI_CODING_AGENT_DIR"
-	readTools   = "read,grep,find,ls"
-	// writeTools never lists powershell: the guard maps no such tool, so it would be blocked anyway.
-	writeTools = "read,bash,edit,write,grep,find,ls"
-	// noShellTools is writeTools minus bash: the gate cannot tie a shell command to a file deny (`echo x > f`).
-	noShellTools = "read,edit,write,grep,find,ls"
+	// guardToolsEnv names the tools the guard registers; there is no powershell: the guard maps no such tool.
+	guardToolsEnv = "HARNESS_PI_GUARD_TOOLS"
 )
 
 // lockdownArgv loads no project code: --no-approve ignores the work dir's .pi (extensions, packages, settings) and
@@ -142,7 +139,7 @@ func guardFromEnv(env []string) (Guard, bool) {
 	return Guard{Path: filepath.Join(dir, guardFile), NonceFile: file, Nonce: nonce}, true
 }
 
-// toolsArgv is Pi's whole tool selection; any tool set comes with the guard's -e, so tools without a guard cannot exist.
+// toolsArgv is Pi's whole tool selection: the guard's -e and no builtin tools, so the only tools are the guard's own.
 func toolsArgv(req agent.RunOptions, env []string) ([]string, error) {
 	if !req.Tools {
 		return []string{"--no-tools"}, nil
@@ -151,25 +148,28 @@ func toolsArgv(req agent.RunOptions, env []string) ([]string, error) {
 	if !ok {
 		return nil, errors.New("pi: no guard extension for this run; tools refused")
 	}
-	tools := writeTools
-	switch {
-	case req.ReadOnly || req.Permissions.Mode == agent.PermPlan: // read tools only: stronger than the vetted shell list
-		tools = readTools
-	case denysFiles(req.Permissions): // fail closed: a file deny the shell could dodge removes the shell
-		tools = noShellTools
-	}
-	return append(g.Argv(), "--tools", tools), nil
+	return append(g.Argv(), "--no-builtin-tools"), nil
 }
 
-// denysFiles is true when a Deny rule names a file tool, which bash could bypass.
-func denysFiles(p agent.Permissions) bool {
-	return slices.ContainsFunc(p.Deny, func(r agent.Rule) bool {
+// guardTools is the tools the guard registers for req: read-only and plan runs drop the writers, and each file deny
+// drops what the gate cannot enforce on it: bash for any file deny (`echo x > f`), grep for a Read, Glob or Grep deny
+// (it reads every file under a path the gate judged once), find and ls too for a Glob or Grep deny.
+func guardTools(req agent.RunOptions) []string {
+	drop := []string{}
+	if req.ReadOnly || req.Permissions.Mode == agent.PermPlan {
+		drop = append(drop, "bash", "edit", "write")
+	}
+	for _, r := range req.Permissions.Deny {
 		switch r.Tool {
-		case "Edit", "Write", "MultiEdit", "Read", "Glob", "Grep":
-			return true
+		case "Edit", "Write", "MultiEdit":
+			drop = append(drop, "bash")
+		case "Read":
+			drop = append(drop, "bash", "grep") // find and ls show names, which Read denies do not hide for any agent
+		case "Glob", "Grep":
+			drop = append(drop, "bash", "grep", "find", "ls")
 		}
-		return false
-	})
+	}
+	return slices.DeleteFunc([]string{"read", "bash", "edit", "write", "grep", "find", "ls"}, func(t string) bool { return slices.Contains(drop, t) })
 }
 
 // After appends the system prompt flags, the tool selection and, last, the prompt; Exec re-reads toolsArgv's refusal.
@@ -182,6 +182,9 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 	}
 	if tools, err := toolsArgv(req, p.Env); err == nil {
 		p.Argv = append(p.Argv, tools...)
+		if req.Tools {
+			p.Env = append(p.Env, guardToolsEnv+"="+strings.Join(guardTools(req), ","))
+		}
 	}
 	p.Argv = append(p.Argv, p.Prompt)
 }
@@ -200,13 +203,20 @@ func (e piEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOption
 	if err != nil {
 		return p.Result, err
 	}
-	cmd, tail := agent.ChildCmd(ctx, bin, p.Argv, p.Env, req.WorkDir, "", req.KeepEnv, true)
+	cmd, tail := childCmd(ctx, bin, p, req)
 	idle := agent.NewIdleTimeout(e.Name(), agent.IdleLimitFor(e.Name()), nil)
 	w := newGuardWatch(e.Name(), req.Tools, p.Env, cmd)
 	parse := func(br *bufio.Reader, s wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (wire.Result, error) {
 		return parseEvents(br, s, onMeaningful, func(ev piEvent) error { beat(idle, ev); return w.check() }, logs...)
 	}
 	return agent.RunStreamWith(ctx, e.Name(), cmd, tail, p.Result, sink, parse, agent.StreamOpts{Idle: idle, Cause: w.cause})
+}
+
+// childCmd is Pi's process; fail closed: no source (inherited, vault, overlay, --env) may hand it a HARNESS_HOOK_* switch.
+func childCmd(ctx context.Context, bin string, p agent.CLIPrep, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer) {
+	cmd, tail := agent.ChildCmd(ctx, bin, p.Argv, p.Env, req.WorkDir, "", req.KeepEnv, true)
+	cmd.Env = withoutHookControl(cmd.Env)
+	return cmd, tail
 }
 
 // guardWatch proves the guard loaded on the run's first event and kills the child when it did not.
@@ -230,7 +240,7 @@ func (w *guardWatch) check() error {
 	}
 	w.pending = false
 	if err := w.g.Ready(); err != nil {
-		w.err = retry.Fatal(w.name, fmt.Errorf("pi guard did not load; run refused (no tool ran): %w", err))
+		w.err = retry.Fatal(w.name, fmt.Errorf("pi guard did not load; run refused (builtin tools are off, so no tool could run unguarded): %w", err))
 		_ = w.cmd.Cancel()
 		return w.err
 	}

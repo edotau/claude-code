@@ -131,10 +131,10 @@ func installCopilot(ctx context.Context, w io.Writer, dir string, dryRun bool) e
 	return runInstallScript(ctx, w, dryRun, copilotInstallScriptURL, nil, []string{"PREFIX=" + filepath.Dir(dir)})
 }
 
-// Pi is pinned to an exact version (plan D3); bump it only after re-checking the flags in internal/pi/register.go.
+// PiPin is Pi's exact version (plan D3); bump it only after re-checking internal/pi/register.go and the guard (guard/index.ts).
 const (
 	piNpmPackage = "@earendil-works/pi-coding-agent"
-	piPin        = "1.6.0"
+	PiPin        = "1.6.0"
 	piMinNode    = "22.19"
 )
 
@@ -144,7 +144,7 @@ func installPi(ctx context.Context, w io.Writer, dir string, dryRun bool) error 
 		dir = redirectToBinDir(w, "pi links only from this config dir's bin/")
 	}
 	prefix := piPrefix()
-	args := []string{"install", "--prefix", prefix, "--ignore-scripts", "--no-fund", "--no-audit", piNpmPackage + "@" + piPin}
+	args := []string{"install", "--prefix", prefix, "--ignore-scripts", "--no-fund", "--no-audit", piNpmPackage + "@" + PiPin}
 	target := filepath.Join(prefix, "node_modules", ".bin", "pi")
 	link := filepath.Join(dir, "pi")
 	if dryRun {

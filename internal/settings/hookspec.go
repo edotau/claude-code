@@ -18,6 +18,14 @@ const hookBin = "$HOME/.claude/bin/claude-code"
 // AgentEnv identifies the agent invoking a hook with a shared payload contract.
 const AgentEnv = "HARNESS_HOOK_AGENT"
 
+// HookControlPrefix starts every variable that switches a hook off or changes its verdict (HARNESS_HOOK_SKIP, _AGENT, ...).
+const HookControlPrefix = "HARNESS_HOOK_"
+
+// IsHookControlEnv reports whether an environment variable name is a hook-control variable, whatever its case.
+func IsHookControlEnv(name string) bool {
+	return strings.HasPrefix(strings.ToUpper(name), HookControlPrefix)
+}
+
 // CodexProfileEnv identifies the inherited provider for native Codex child routing.
 const CodexProfileEnv = "HARNESS_CODEX_PROFILE"
 

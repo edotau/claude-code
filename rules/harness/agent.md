@@ -46,27 +46,28 @@ paths:
   Write/Edit stay denied, and `--allow` never reopens a deny. codex and gemini refuse `--tools` with
   `--permissions plan`; claude `--tools` off Anthropic gates only explicit rules. Grants and gates:
   `skills/subagent-workflows/references/dispatch-policy-details.md` → Read-only and tools.
-- **pi** (npm `@earendil-works/pi-coding-agent`, MIT, pinned 1.6.0, Node 22.19+) is dispatch-only
-  (`agents ask --agent pi`), on a Databricks profile through the loopback proxy, with no own login. It runs the models
-  on the profile's Pi menu: an id not on it is refused ("not on the menu") and never enters the auto pool. With no
-  tools flag it runs with no tools. Any `--tools` run loads the harness's guard extension (`-e`, run dir, 0600), which
-  runs `safety-scan` and `permission-gate` on every Pi tool call and fails closed; Pi proves it loaded by writing the
+- **pi** (npm `@earendil-works/pi-coding-agent`, MIT, pinned 1.6.0, Node 22.19+) is dispatch-only (`agents ask --agent
+  pi`), on a Databricks profile through the loopback proxy, with no own login. It runs the models on the profile's Pi
+  menu: an id not on it is refused ("not on the menu") and never enters the auto pool. With no tools flag it runs with
+  no tools. Any `--tools` run runs Pi with `--no-builtin-tools` plus the harness's guard extension (`-e`, run dir,
+  0600), whose wrapped tools are the only ones Pi has: each call is judged by `hook PreToolUse --pi-guard` (path
+  normalized as Pi does, `safety-scan` and `permission-gate`) and fails closed; Pi proves it loaded by writing the
   run's nonce, checked on the first stream event, else the run is killed and refused ("pi guard did not load; run
   refused"). Bare `--tools` gives read, bash, edit, write, grep, find and ls (never `powershell`: unmapped, blocked);
   `--read-only` and `--permissions plan` give read, grep, find and ls only (no shell, stronger than other agents'
-  vetted list); a Deny on a file tool (Edit, Write, Read, Glob, Grep) drops bash, since the gate cannot tie a shell
-  command to a file. `--allow`, `--deny` and `--permissions` ride `HARNESS_DISPATCH_PERMISSIONS` to the gate as for
-  opencode; an `--ask` rule is refused (the guard only allows or blocks), as is an `--env` naming
-  `PI_CODING_AGENT_DIR`, `HARNESS_PI_*` or `HARNESS_DISPATCH_PERMISSIONS`. Pi has no permission prompts or sandbox of
-  its own. A dispatch passes `--no-context-files` (no CLAUDE.md or AGENTS.md), `--no-mcp` and, so a repo's own `.pi`
-  never runs code with your privileges, `--no-approve --no-extensions --no-skills --no-prompt-templates --no-themes`;
-  `--effort` maps to `--thinking` (minimal to max); `--model auto` and tier aliases follow the other agents' rules.
-  Wire routing is per model (`internal/pi/config.go` `pickWire`): Claude ids on Anthropic Messages, any non-Claude,
-  non-Grok model that serves Responses on the Responses wire, everything else and Grok on chat completions; a model
-  whose wire has no route on the profile is dropped from the menu. Pi exits 0 even when a request fails, so the harness
-  judges the run from its JSON event stream: success needs `agent_settled`, a last message stopped `stop` and no open
-  tool call (`length`, `aborted`, `toolUse` left unsettled, unknown stop reasons and cut-off streams fail). Pi is no
-  longer read-only, so it may be a fallback for write work.
+  vetted list); a Deny on Edit or Write drops bash (the gate cannot tie a shell command to a file), on Read also grep,
+  on Glob or Grep also grep, find and ls. `--allow`, `--deny` and `--permissions` ride `HARNESS_DISPATCH_PERMISSIONS`
+  to the gate as for opencode; an `--ask` rule is refused (the guard only allows or blocks), as is an `--env` naming
+  `PI_CODING_AGENT_DIR`, `HARNESS_PI_*`, `HARNESS_HOOK_*` or `HARNESS_DISPATCH_PERMISSIONS`. Pi has no permission
+  prompts or sandbox of its own. A dispatch passes `--no-context-files` (no CLAUDE.md or AGENTS.md), `--no-mcp` and,
+  so a repo's own `.pi` never runs code with your privileges, `--no-approve --no-extensions --no-skills
+  --no-prompt-templates --no-themes`; `--effort` maps to `--thinking` (minimal to max); `--model auto` and tier
+  aliases follow the other agents' rules. Wire routing is per model (`internal/pi/config.go` `pickWire`): Claude ids
+  on Anthropic Messages, any non-Claude, non-Grok model that serves Responses on the Responses wire, everything else
+  and Grok on chat completions; a model whose wire has no route on the profile is dropped from the menu. Pi exits 0
+  even when a request fails, so the harness judges the run from its JSON event stream: success needs `agent_settled`,
+  a last message stopped `stop` and no open tool call (`length`, `aborted`, `toolUse` left unsettled, unknown stop
+  reasons and cut-off streams fail). Pi is no longer read-only, so it may be a fallback for write work.
 - `agents ask --agents <json|file>` defines agents inline (`name`, `description`, `prompt`, `tools`, `model`,
   `max_turns`, `agent`, `profile`, `effort`); `--agent` also takes an `--agents` key. With `--batch`, a line's `agent`
   takes the same selector; `--host` with `--agents` exits 2.

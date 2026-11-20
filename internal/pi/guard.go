@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/settings"
@@ -37,37 +39,29 @@ type Guard struct {
 	Path, NonceFile, Nonce string
 }
 
-type guardModule struct {
-	Name     string `json:"name"`
-	Matcher  string `json:"matcher"`
-	BudgetMs int64  `json:"budgetMs"`
-}
-
-// guardModules are Pi's PreToolUse guards (SpecsFor("pi", "plugin")); the extension fails closed on every one.
-func guardModules() []guardModule {
-	var out []guardModule
+// guardBudgetMs is the time the extension gives one judged call: every PreToolUse module's budget plus a margin; the
+// modules themselves run in the harness (`hook PreToolUse --pi-guard`), so none declared means no guard.
+func guardBudgetMs() (int64, error) {
+	var total int64
 	for _, s := range settings.SpecsFor("pi", "plugin") {
 		if s.Event == settings.EventPreToolUse {
-			out = append(out, guardModule{Name: s.Name, Matcher: s.Matcher, BudgetMs: s.Budget.Milliseconds()})
+			total += s.Budget.Milliseconds()
 		}
 	}
-	return out
+	if total == 0 {
+		return 0, errors.New("pi guard: no PreToolUse modules are declared for pi")
+	}
+	return total + 2000, nil
 }
 
-// renderGuard fills the template's JSON literals; no modules means no guard, never an unguarded extension.
-func renderGuard(bin string, mods []guardModule) ([]byte, error) {
-	if len(mods) == 0 {
-		return nil, errors.New("pi guard: no PreToolUse modules are declared for pi")
-	}
+// renderGuard fills the template's literals: the harness binary, the Pi version the guard was verified on, the budget.
+func renderGuard(bin string, budgetMs int64) ([]byte, error) {
 	binJSON, err := json.Marshal(bin)
 	if err != nil {
 		return nil, err
 	}
-	modsJSON, err := json.Marshal(mods)
-	if err != nil {
-		return nil, err
-	}
-	return []byte(strings.NewReplacer("__BIN__", string(binJSON), "__MODULES__", string(modsJSON)).Replace(guardTS)), nil
+	r := strings.NewReplacer("__BIN__", string(binJSON), "__PI_VERSION__", strconv.Quote(tools.PiPin), "__BUDGET_MS__", strconv.FormatInt(budgetMs, 10))
+	return []byte(r.Replace(guardTS)), nil
 }
 
 // WriteGuard writes the extension (0600) into runDir, a private dir the harness made, and mints this run's nonce.
@@ -76,7 +70,11 @@ func WriteGuard(runDir string) (Guard, error) {
 	if err != nil {
 		bin = filepath.Join(paths.BinDir(), "claude-code") // a missing binary makes the guard block every call
 	}
-	body, err := renderGuard(bin, guardModules())
+	budget, err := guardBudgetMs()
+	if err != nil {
+		return Guard{}, err
+	}
+	body, err := renderGuard(bin, budget)
 	if err != nil {
 		return Guard{}, err
 	}

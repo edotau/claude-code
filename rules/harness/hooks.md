@@ -61,11 +61,13 @@ decision, so an ask denies there; their other hooks are advisory unless noted.
 | opencode · hosted | `Hosted` specs (docs, paths, memory, format, review; `safety-scan` and `docs-placement` are declared hosted but fire only through the plugin; no worktree notices) | **advisory**; `--pure` loads no plugin, so it is refused while a PreToolUse gate is bound; Stop and SessionEnd run only after a watched tool call |
 | opencode · plugin | `safety-scan`, `permission-gate`, `docs-placement`, `worktree-claim-check`; `worktree-claim` in `tool.execute.after` | **block** (throws in `tool.execute.before`; the host then skips these); the claim is a detached, non-blocking spawn per edit |
 
-**Pi · plugin** (`pi`): only `safety-scan` and `permission-gate`, run by the guard extension on Pi's `tool_call` through
-`claude-code hook PreToolUse --safety-scan|--permission-gate` with a Claude-shaped payload carrying
-`"harness_agent":"pi"` (or `HARNESS_HOOK_AGENT=pi`). Pi has no ask, so an ask is a block that names it (`no ask decision
-on pi`), and a dispatch `--ask` rule is refused. Output: allow is exit 0 with empty stdout;
-block is exit 2 with empty stdout and the reason on stderr; the extension fails closed on any other exit.
+**Pi · plugin** (`pi`): only `safety-scan` and `permission-gate`, run by the guard extension, which registers the only
+tools Pi has and sends each raw call to `claude-code hook PreToolUse --pi-guard`. That entry ignores every
+`HARNESS_HOOK_*` variable (a skip, a changed agent), normalizes the path as Pi does, builds a Claude-shaped payload
+from canonical fields only with `"harness_agent":"pi"`, and runs the two modules. Pi has no ask, so an ask is a block,
+and a dispatch `--ask` rule is refused. Reply: one JSON line; only `{"allow":true,"path":...}` lets the tool run (on
+that path), `{"block":"<reason>"}` or anything else blocks. `docs-placement` and `worktree-claim-check` are not on
+Pi's list (plan NEXT); `safety-scan` stays Bash-only, as for codex and gemini: file edits meet `permission-gate`.
 
 `permission-gate` judges each call with `Permissions.Decide` against `HARNESS_DISPATCH_PERMISSIONS`; how each agent
 reaches it, and the gated Claude launches: `agent.md` → Bash deny via `permission-gate`.

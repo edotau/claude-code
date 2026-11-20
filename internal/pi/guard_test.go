@@ -3,8 +3,11 @@ package pi
 import (
 	"os"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agent/tools"
 )
 
 func TestGuardWritesPrivateExtension(t *testing.T) {
@@ -17,12 +20,12 @@ func TestGuardWritesPrivateExtension(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"safety-scan", "permission-gate", "harness_agent"} {
+	for _, want := range []string{"--pi-guard", "HARNESS_HOOK_", "VERIFIED_PI", "registerTool", "tool_call"} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("extension lacks %q", want)
 		}
 	}
-	if strings.Contains(string(body), "__BIN__") || strings.Contains(string(body), "__MODULES__") {
+	if strings.Contains(string(body), "__BIN__") || strings.Contains(string(body), "__PI_VERSION__") || strings.Contains(string(body), "__BUDGET_MS__") {
 		t.Error("placeholder left unrendered")
 	}
 	if info, _ := os.Stat(g.Path); runtime.GOOS != "windows" && info.Mode().Perm() != 0o600 {
@@ -59,8 +62,9 @@ func TestGuardReadyNeedsTheNonce(t *testing.T) {
 	}
 }
 
-func TestGuardRefusesNoModules(t *testing.T) {
-	if _, err := renderGuard("/bin/x", nil); err == nil {
-		t.Fatal("rendered an extension with no guard modules")
+func TestGuardPinsVerifiedPi(t *testing.T) {
+	body, err := renderGuard("/bin/x", 7000)
+	if err != nil || !strings.Contains(string(body), "VERIFIED_PI: string = "+strconv.Quote(tools.PiPin)) {
+		t.Fatalf("guard does not carry the install pin %s: %v", tools.PiPin, err)
 	}
 }

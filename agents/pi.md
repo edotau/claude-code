@@ -45,14 +45,21 @@ Shared flags and the headless `ask` table: `skills/subagent-workflows/references
 
 - Dispatch only: no `claude-code pi` launcher yet. Pi runs only through the loopback proxy on a Databricks profile,
   from a harness-generated private agent dir (`PI_CODING_AGENT_DIR`); nothing is written to `~/.pi`.
-- `--tools` loads the harness's guard extension, which runs `safety-scan` and `permission-gate` on every Pi tool call
-  and fails closed. Pi proves it loaded by writing a per-run nonce, checked on the first stream event; otherwise the
-  run is killed and refused ("pi guard did not load; run refused"). Bare `--tools` offers read, bash, edit, write, grep,
-  find and ls; `powershell` is never offered.
+- `--tools` launches Pi with `--no-builtin-tools` and the harness's guard extension (`-e`), which registers the only
+  tools Pi has (Pi's own tool code, wrapped): each call goes to `claude-code hook PreToolUse --pi-guard`, which
+  normalizes the path exactly as Pi does (`@`, `~`, Unicode spaces; `file://` and NUL are refused), builds the hook
+  payload from canonical fields only and runs `safety-scan` and `permission-gate`; the tool then runs on the judged
+  path. A guard that fails to load leaves Pi no tools (and Pi exits 1); the guard also refuses a Pi that is not the
+  pinned version. Pi proves it loaded by writing a per-run nonce, checked on the first stream event ("pi guard did not
+  load; run refused"). Bare `--tools` offers read, bash, edit, write, grep, find and ls; `powershell` is never offered.
 - `--read-only` and `--permissions plan` give Pi read, grep, find and ls only: no shell, stronger than the vetted
-  shell list of other agents. A `--deny` on a file tool (Edit, Write, Read, Glob, Grep) also drops bash, since the
-  gate cannot tie a shell command to a file. `--allow`, `--deny` and `--permissions` ride to the gate; `--ask` and an
-  `--env` naming `PI_CODING_AGENT_DIR`, `HARNESS_PI_*` or `HARNESS_DISPATCH_PERMISSIONS` are refused.
+  shell list of other agents. A `--deny` on Edit or Write also drops bash (the gate cannot tie a shell command to a
+  file); on Read it drops bash and grep (grep reads every file under a path the gate judged once; find and ls show
+  names only, which Read denies do not hide for other agents either); on Glob or Grep it drops bash, grep, find and ls.
+  `--allow`, `--deny` and `--permissions` ride to the gate; `--ask` and an `--env` naming `PI_CODING_AGENT_DIR`,
+  `HARNESS_PI_*`, `HARNESS_HOOK_*` or `HARNESS_DISPATCH_PERMISSIONS` (or an overlay setting `HARNESS_HOOK_*`) are
+  refused, and Pi's process never inherits a `HARNESS_HOOK_*` variable, so `HARNESS_HOOK_SKIP` cannot disable the
+  guard.
 - Pi has no permission prompts and no sandbox of its own, so the guard is the only boundary.
   A dispatch passes `--no-context-files` (CLAUDE.md and AGENTS.md are not loaded), `--no-mcp` and
   `--no-approve --no-extensions --no-skills --no-prompt-templates --no-themes`

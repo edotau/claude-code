@@ -594,6 +594,9 @@ func RunArgs(event string, flags []string, stdin io.Reader, stdout, stderr io.Wr
 
 // runModule runs one module on its declared event.
 func runModule(event, name string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if name == piGuardName && event == settings.EventPreToolUse {
+		return runPiGuard(stdin, stdout, stderr)
+	}
 	if _, ok := native[name]; !ok || eventOf(name) != event {
 		return unknownModule(event, name, stderr)
 	}

@@ -19,7 +19,7 @@ Role selection and dispatch: `../SKILL.md` → Leaf types. Shell flags and lifec
 | `copilot` | Copilot SDK for headless ask | rendered instructions plus SDK context |
 | `gemini` | Antigravity (`agy`) | `~/.gemini/GEMINI.md`, rendered by sync |
 | `opencode` | OpenCode | native `CLAUDE.md` plus launch overlay |
-| `pi` | Pi (`pi`), Databricks only, read-only | none: dispatch passes `--no-context-files` |
+| `pi` | Pi (`pi`), Databricks only, behind the guard extension | none: dispatch passes `--no-context-files` |
 
 Projection and per-agent read-only behavior: `rules/harness/agent.md`. Hook applicability: `rules/harness/hooks.md`.
 Unsupported flags appear in the result's `dropped`; check capability definitions in each agent's registration
