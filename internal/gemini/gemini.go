@@ -434,7 +434,63 @@ func runAgy(ctx context.Context, r agyRequest, sink wire.Sink) (wire.Result, err
 	parse := func(br *bufio.Reader, sink wire.Sink, _ func(), logs ...wire.StreamLog) (wire.Result, error) {
 		return parseAgyEvents(br, sink, false, wire.PickLog(logs), dn)
 	}
-	return agent.RunEventStream(ctx, "gemini", cmd, tail, sink, parse, agent.StreamOpts{})
+	start := time.Now()
+	res, err := agent.RunEventStream(ctx, "gemini", cmd, tail, sink, parse, agent.StreamOpts{})
+	return res, agyPrintTimeoutErr(err, r, tail.String(), time.Since(start))
+}
+
+// agyTimeoutError is agy's own print timer firing; it reads as a harness deadline so the run records a deadline cutoff.
+type agyTimeoutError struct{ after time.Duration }
+
+func (e *agyTimeoutError) Error() string        { return "agy: print timeout after " + e.after.String() }
+func (e *agyTimeoutError) Is(target error) bool { return target == context.DeadlineExceeded }
+
+const agyLogTailBytes = 8 << 10
+
+// agyPrintTimedOut: stderr's print_timeout reason, else the log's timeout line, else (log unreadable) elapsed >= limit.
+func agyPrintTimedOut(stderr, logPath string, took, limit time.Duration) bool {
+	if strings.Contains(stderr, `"reason":"print_timeout"`) {
+		return true
+	}
+	if tail, err := readTail(logPath, agyLogTailBytes); err == nil {
+		return strings.Contains(tail, "Print mode: print timeout after")
+	}
+	return limit > 0 && took >= limit
+}
+
+// readTail is the last n bytes of the file at path.
+func readTail(path string, n int64) (string, error) {
+	if path == "" {
+		return "", os.ErrNotExist
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+	buf := make([]byte, min(n, st.Size()))
+	if _, err := f.ReadAt(buf, st.Size()-int64(len(buf))); err != nil && !errors.Is(err, io.EOF) {
+		return "", err
+	}
+	return string(buf), nil
+}
+
+// agyPrintTimeoutErr turns a partial or empty result that agy ended with its print timer into a deadline cutoff.
+func agyPrintTimeoutErr(err error, r agyRequest, stderr string, took time.Duration) error {
+	if err == nil || agent.CutoffOf(err) != "" {
+		return err
+	}
+	if msg := err.Error(); !strings.Contains(msg, "partial result") && !strings.Contains(msg, "empty answer") {
+		return err
+	}
+	if !agyPrintTimedOut(stderr, r.DebugFile, took, r.PrintTimeout) {
+		return err
+	}
+	return &retry.Error{Kind: retry.KindFatal, Agent: "gemini", Progressed: true, Err: &agyTimeoutError{after: r.PrintTimeout}}
 }
 
 func agyModelLimit(text string) bool {

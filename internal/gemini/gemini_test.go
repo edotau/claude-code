@@ -195,6 +195,56 @@ func TestHeadlessAgyPrintTimeoutAndLog(t *testing.T) {
 	}
 }
 
+func agyPartialErr() error {
+	return &retry.Error{Kind: retry.KindFatal, Agent: "gemini", Progressed: true, Err: errors.New("agy: partial result: empty answer")}
+}
+
+// Fails without agyPrintTimeoutErr: the partial result stays a quality failure with no cutoff.
+func TestAgyPrintTimeoutIsDeadlineCutoff(t *testing.T) {
+	limit := 10 * time.Second
+	logAt := func(body string) string {
+		p := filepath.Join(t.TempDir(), "agy.log")
+		if err := os.WriteFile(p, []byte(body), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	missing := filepath.Join(t.TempDir(), "none.log")
+	stderr := `AGY_ERROR: {"status":"DEADLINE_EXCEEDED","reason":"print_timeout"}`
+	timeoutLine := "W1120 06:24:13.206247 1 poll.go:182] Print mode: print timeout after 10s with turn in progress\n"
+	const timeoutMsg, partialMsg = "gemini: failed: agy: print timeout after 10s", "gemini: failed: agy: partial result: empty answer"
+	for _, c := range []struct {
+		name, stderr, log, want string
+		took                    time.Duration
+	}{
+		{"stderr reason", stderr, missing, timeoutMsg, time.Second},
+		{"log line", "", logAt(timeoutLine), timeoutMsg, time.Second},
+		{"log missing, elapsed past limit", "", missing, timeoutMsg, 14 * time.Second},
+		{"log missing, elapsed under limit", "", missing, partialMsg, 3 * time.Second},
+		{"log readable without line, elapsed past limit", "", logAt("I1120 ok\n"), partialMsg, 14 * time.Second},
+	} {
+		got := agyPrintTimeoutErr(agyPartialErr(), agyRequest{PrintTimeout: limit, DebugFile: c.log}, c.stderr, c.took)
+		if got.Error() != c.want || (c.want == timeoutMsg) != (agent.CutoffOf(got) == agent.CutoffDeadline) {
+			t.Errorf("%s: err = %q cutoff %q, want %q", c.name, got, agent.CutoffOf(got), c.want)
+		}
+	}
+	e, ok := errors.AsType[*retry.Error](agyPrintTimeoutErr(agyPartialErr(), agyRequest{PrintTimeout: limit}, stderr, 0))
+	if !ok || agent.StatusOf(e) != wire.StatusStalled {
+		t.Errorf("status = %v, want the cutoff status %q", e, wire.StatusStalled)
+	}
+}
+
+func TestAgyPrintTimeoutLeavesOtherErrors(t *testing.T) {
+	stderr := `"reason":"print_timeout"`
+	other := errors.New("agy: not signed in")
+	if got := agyPrintTimeoutErr(other, agyRequest{PrintTimeout: time.Second}, stderr, time.Minute); got != other {
+		t.Errorf("an unrelated error was rewritten: %v", got)
+	}
+	if got := agyPrintTimeoutErr(nil, agyRequest{PrintTimeout: time.Second}, stderr, time.Minute); got != nil {
+		t.Errorf("nil became %v", got)
+	}
+}
+
 // Deltas already parsed survive a later typed-decode failure.
 func TestParseAgyStreamDecodeErrorKeepsText(t *testing.T) {
 	stream := `{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"hi"}}
