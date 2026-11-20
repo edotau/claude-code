@@ -1114,3 +1114,62 @@ func BenchmarkFixPassthroughBody(b *testing.B) {
 		}
 	}
 }
+
+func TestPassthroughOverflowRewrittenToCompactForm(t *testing.T) {
+	cases := map[string]string{
+		"input exceeds": `{"error_code":"BAD_REQUEST","message":"Input exceeds the model's maximum context length of 131072 tokens, got 140001"}`,
+		"input longer":  `{"message":"The input (140001 tokens) is longer than the model's context length (131072 tokens)."}`,
+		"input length":  `{"error_code":"BAD_REQUEST","message":"Input length of 140001 tokens exceeds model context length (131072)\n"}`,
+		"vllm nested":   `{"error":{"message":"This model's maximum context length is 131072 tokens. However, you requested 140001","code":400}}`,
+	}
+	for name, upBody := range cases {
+		for _, dialect := range []string{"openai", "responses"} {
+			t.Run(name+"/"+dialect, func(t *testing.T) {
+				up := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+					w.Header().Set("Content-Type", "application/json")
+					w.WriteHeader(http.StatusBadRequest)
+					io.WriteString(w, upBody)
+				})
+				t.Setenv("PT_KEY", "prov-cred")
+				srv := setup(t, ptOverlay(up.URL))
+				resp := ptDo(t, http.MethodPost, srv.URL+"/p/pt/"+dialect+"/chat/completions", `{"model":"m"}`, nil)
+				b, _ := io.ReadAll(resp.Body)
+				var e struct {
+					Error struct{ Message, Type, Code string }
+				}
+				if err := json.Unmarshal(b, &e); err != nil || resp.StatusCode != 400 {
+					t.Fatalf("status %d body %q err %v", resp.StatusCode, b, err)
+				}
+				if e.Error.Type != "invalid_request_error" || e.Error.Code != "context_length_exceeded" ||
+					!strings.HasPrefix(e.Error.Message, "prompt is too long: ") ||
+					!strings.Contains(e.Error.Message, "131072") || !strings.Contains(e.Error.Message, "tokens") {
+					t.Fatalf("not rewritten: %s", b)
+				}
+			})
+		}
+	}
+}
+
+func TestPassthroughOverflowLeavesOthersAlone(t *testing.T) {
+	for name, tc := range map[string]struct {
+		status int
+		body   string
+	}{
+		"unrelated 400":      {400, `{"message":"bad field  x"}`},
+		"already recognised": {400, `{"error":{"message":"prompt is too long: 9 tokens > 5 maximum, maximum context length is 5 tokens"}}`},
+		"500 with wording":   {500, `{"message":"maximum context length is 5 tokens"}`},
+		"200 with wording":   {200, `{"message":"maximum context length is 5 tokens"}`},
+	} {
+		t.Run(name, func(t *testing.T) {
+			resp := &http.Response{StatusCode: tc.status, Header: http.Header{"X-K": {"v"}},
+				Body: io.NopCloser(strings.NewReader(tc.body))}
+			if overflowRewrite(resp) {
+				t.Fatal("must not rewrite")
+			}
+			got, _ := io.ReadAll(resp.Body)
+			if string(got) != tc.body || resp.StatusCode != tc.status || resp.Header.Get("X-K") != "v" {
+				t.Fatalf("altered: %d %q", resp.StatusCode, got)
+			}
+		})
+	}
+}

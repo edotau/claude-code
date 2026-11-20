@@ -5,6 +5,7 @@ import (
 	"cmp"
 	"context"
 	"crypto/subtle"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -193,6 +194,60 @@ func tooLong(resp *http.Response) bool {
 	resp.ContentLength = int64(len(body))
 	resp.Header = http.Header{"Content-Type": {"application/json"}}
 	return true
+}
+
+// overflowWording matches upstream open-model context-overflow texts (Databricks relay patterns plus OpenAI/vLLM).
+var overflowWording = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`(?i)input exceeds the model's maximum context length|` +
+		`the input \(\d+ tokens\) is longer than the model's context length|` +
+		`input length of \d+ tokens exceeds model context length|` + // gpt-oss on Databricks
+		`maximum context length is \d+ tokens|context_length_exceeded`)
+})
+
+// overflowRewrite turns a 4xx context-overflow reply into the OpenAI-form error Copilot compacts on, keeping the text.
+func overflowRewrite(resp *http.Response) bool {
+	if resp.StatusCode != http.StatusBadRequest && resp.StatusCode != http.StatusRequestEntityTooLarge {
+		return false
+	}
+	peek := peekBody(resp, 8<<10)
+	if !overflowWording().Match(peek) || promptTooLong().Match(peek) {
+		return false
+	}
+	msg := upstreamMessage(peek)
+	drain(resp)
+	body, err := json.Marshal(map[string]any{"error": map[string]any{
+		"message": "prompt is too long: " + msg, "type": "invalid_request_error",
+		"code": "context_length_exceeded", "param": "messages"}})
+	if err != nil {
+		return false
+	}
+	resp.StatusCode = http.StatusBadRequest
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	resp.ContentLength = int64(len(body))
+	resp.Header = http.Header{"Content-Type": {"application/json"}}
+	return true
+}
+
+// upstreamMessage is the error text of a JSON reply, else the raw body, capped at 1 KiB.
+func upstreamMessage(b []byte) string {
+	var e struct {
+		Error   json.RawMessage `json:"error"`
+		Message string          `json:"message"`
+	}
+	msg := strings.TrimSpace(string(b))
+	if json.Unmarshal(b, &e) == nil {
+		var inner struct{ Message string }
+		var str string
+		switch {
+		case json.Unmarshal(e.Error, &inner) == nil && inner.Message != "":
+			msg = inner.Message
+		case json.Unmarshal(e.Error, &str) == nil && str != "":
+			msg = str
+		case e.Message != "":
+			msg = e.Message
+		}
+	}
+	return textutil.Truncate(msg, 1024)
 }
 
 func retryAfter(v string, now time.Time) time.Duration {

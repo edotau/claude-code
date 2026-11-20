@@ -215,6 +215,9 @@ func (r *Router) relayPassthrough(sw *statusWriter, in *http.Request, p *provide
 		writeError(sw, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())
 		return model, extra, p.Name
 	}
+	if dialect == providers.ProtocolOpenAI || dialect == providers.ProtocolResponses {
+		overflowRewrite(resp) // a no-op on every status but 400/413, so successful replies pay nothing
+	}
 	tail := teeUsageTail(resp, in, p, dialect)
 	relay(sw, resp)
 	if tail != nil {
