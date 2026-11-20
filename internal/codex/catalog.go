@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -192,9 +193,15 @@ func buildCodexCatalog(p *providers.Provider, menu []providers.OpencodeModel, ra
 	}
 	var out []map[string]any
 	var nativeSlugs []string
-	var missing string
+	var unbased []providers.OpencodeModel
 	labels := make(map[string]int)
 	listed := make(map[string]bool)
+	add := func(entry map[string]any) {
+		applyCodexPreferences(entry, prefs)
+		out = append(out, entry)
+		listed[entry["slug"].(string)] = true
+		labels[entry["display_name"].(string)]++
+	}
 	for _, m := range menu {
 		if !codexServes(p, m) {
 			continue
@@ -204,20 +211,18 @@ func buildCodexCatalog(p *providers.Provider, menu []providers.OpencodeModel, ra
 			base = byKey[codexModelKey(m.ID)]
 		}
 		if base == nil {
-			if missing == "" {
-				missing = m.ID
-			}
+			unbased = append(unbased, m)
 			continue
 		}
-		entry := codexMenuEntry(p, m, base, len(out))
-		applyCodexPreferences(entry, prefs)
-		out = append(out, entry)
+		add(codexMenuEntry(p, m, base, len(out)))
 		nativeSlugs = append(nativeSlugs, base["slug"].(string))
-		listed[entry["slug"].(string)] = true
-		labels[entry["display_name"].(string)]++
+	}
+	rows, missing := codexFallbackRows(p, unbased, out, bySlug)
+	for _, entry := range rows {
+		add(entry)
 	}
 	if len(out) == 0 {
-		return nil, missing, nil
+		return nil, strings.Join(missing, ", "), nil
 	}
 	for _, entry := range out {
 		if labels[entry["display_name"].(string)] > 1 {
@@ -226,12 +231,100 @@ func buildCodexCatalog(p *providers.Provider, menu []providers.OpencodeModel, ra
 	}
 	out = appendNativeAliases(out, nativeSlugs, listed)
 	body, err := json.Marshal(map[string]any{"models": out})
-	return body, missing, err
+	return body, strings.Join(missing, ", "), err
+}
+
+// fallbackContextWindow is the window a fallback row assumes for a model with no known limit; kept under codex's 272k.
+const fallbackContextWindow = 128_000
+
+var gptVersionRE = regexp.MustCompile(`^gpt-(\d+)(?:[.-](\d+))?(?:-|$)`)
+
+// gptVersion is a gpt slug's generation as major*100+minor (gpt-5.4 is 504); ok is false for any other slug.
+func gptVersion(slug string) (int, bool) {
+	m := gptVersionRE.FindStringSubmatch(codexModelKey(slug))
+	if m == nil {
+		return 0, false
+	}
+	major, _ := strconv.Atoi(m[1])
+	minor, _ := strconv.Atoi(m[2])
+	return major*100 + minor, true
+}
+
+// nearestGPT is the slug of the bundled GPT row closest in generation to want, ties to the lower slug; "" when none.
+func nearestGPT(want int, bySlug map[string]map[string]any) string {
+	best, bestDiff := "", 0
+	for slug := range bySlug {
+		got, ok := gptVersion(slug)
+		diff := max(want-got, got-want)
+		if ok && (best == "" || diff < bestDiff || diff == bestDiff && slug < best) {
+			best, bestDiff = slug, diff
+		}
+	}
+	return best
+}
+
+// fallbackTemplate is the bundled row of the nearest GPT generation, else the first listed GPT row, else nil.
+func fallbackTemplate(id string, listed []map[string]any, bySlug map[string]map[string]any) map[string]any {
+	if want, ok := gptVersion(id); ok {
+		if best := nearestGPT(want, bySlug); best != "" {
+			return bySlug[best]
+		}
+	}
+	for _, row := range listed {
+		if models.FamilyKind(row["slug"].(string)) == models.FamilyGPT {
+			return row
+		}
+	}
+	return nil
+}
+
+// codexFallbackRows builds a row per unbased model from a template; models with no template come back as missing ids.
+func codexFallbackRows(p *providers.Provider, unbased []providers.OpencodeModel, listed []map[string]any, bySlug map[string]map[string]any) (rows []map[string]any, missing []string) {
+	var assumed []string
+	for _, m := range unbased {
+		tmpl := fallbackTemplate(m.ID, listed, bySlug)
+		if tmpl == nil {
+			missing = append(missing, m.ID)
+			continue
+		}
+		entry := codexMenuEntry(p, m, tmpl, len(listed)+len(rows))
+		window := fallbackContextWindow
+		if l, ok := models.Limits(m.ID); ok && l.Context > 0 {
+			window = l.Context
+		} else {
+			assumed = append(assumed, m.ID)
+		}
+		entry["context_window"], entry["max_context_window"] = window, window
+		if models.IsGrok(m.ID) {
+			keepDefaultEffort(entry)
+		}
+		rows = append(rows, entry)
+	}
+	if len(assumed) > 0 {
+		fmt.Fprintf(agentconfig.CatalogWarn, "codex catalog: no known context window for %s; assuming %d\n", strings.Join(assumed, ", "), fallbackContextWindow)
+	}
+	return rows, missing
+}
+
+// keepDefaultEffort trims a row's reasoning levels to its default, the only one a model with no probed levels advertises.
+func keepDefaultEffort(entry map[string]any) {
+	levels, _ := entry["supported_reasoning_levels"].([]any)
+	for _, level := range levels {
+		if row, _ := level.(map[string]any); row["effort"] == entry["default_reasoning_level"] {
+			entry["supported_reasoning_levels"] = []any{level}
+			return
+		}
+	}
 }
 
 // codexServes reports a menu row codex can run: flagged Responses, or an OpenAI GPT model that is not chat-only.
 func codexServes(p *providers.Provider, m providers.OpencodeModel) bool {
-	return m.Responses || providers.ResponsesServable(p, agentconfig.MenuWire(p, m.ID))
+	return m.Responses || codexResponses(p, agentconfig.MenuWire(p, m.ID))
+}
+
+// codexResponses is ResponsesServable plus xAI Grok, which Databricks passes through on Responses (probed live).
+func codexResponses(p *providers.Provider, wire string) bool {
+	return providers.ResponsesServable(p, wire) || models.IsGrok(wire)
 }
 
 // appendNativeAliases adds a hidden row under each base model's own slug so codex still resolves it.
@@ -322,7 +415,7 @@ func cloneCodexMetadata(value any) any {
 
 // codexResponsesModel is the default a model Responses cannot serve falls back to: the menu's first Responses model.
 func codexResponsesModel(p *providers.Provider, model string) string {
-	if p.Preset != providers.PresetDatabricks || providers.ResponsesServable(p, model) {
+	if p.Preset != providers.PresetDatabricks || codexResponses(p, model) {
 		return model
 	}
 	return cmp.Or(providers.FirstResponsesModel(p), model)
@@ -333,7 +426,7 @@ func codexRefuse(p *providers.Provider, model string) error {
 	if p.Preset != providers.PresetDatabricks {
 		return nil
 	}
-	if providers.ResponsesServable(p, model) {
+	if codexResponses(p, model) {
 		return nil
 	}
 	hint := cmp.Or(providers.FirstResponsesModel(p), "a Responses model")

@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -178,5 +179,75 @@ func TestCatalogKeyFollowsPreferences(t *testing.T) {
 	_, verb, _ := catalogInputs(bin, p, map[string]string{extraVerbosity: "medium"})
 	if none == eff || none == verb || eff == verb {
 		t.Fatalf("keys must differ per preference: %s %s %s", none, eff, verb)
+	}
+}
+
+type catalogRow struct {
+	Slug, Visibility string
+	ContextWindow    int                       `json:"context_window"`
+	Levels           []struct{ Effort string } `json:"supported_reasoning_levels"`
+}
+
+func buildRows(t *testing.T, raw string, menu []providers.OpencodeModel) ([]catalogRow, string) {
+	t.Helper()
+	var warn strings.Builder
+	defer agentconfig.SetCatalogWarn(agentconfig.SetCatalogWarn(&warn))
+	p := &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks, ModelPrefix: "databricks-"}
+	body, _, err := buildCodexCatalog(p, menu, []byte(raw), nil)
+	if err != nil || body == nil {
+		t.Fatalf("build = %v, %v", body, err)
+	}
+	var cat struct{ Models []catalogRow }
+	if err := json.Unmarshal(body, &cat); err != nil {
+		t.Fatal(err)
+	}
+	return cat.Models, warn.String()
+}
+
+const fallbackBundled = `{"models":[{"slug":"gpt-5.5","context_window":272000,"max_context_window":272000,"default_reasoning_level":"medium",
+	"supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"}]},{"slug":"gpt-6-luna"}]}`
+
+// Given servable rows with no bundled base, Then they list after the based rows from the nearest GPT template.
+func TestCatalogFallbackRowsFollowBasedRows(t *testing.T) {
+	menu := []providers.OpencodeModel{{ID: "gpt-5-4", Label: "G54"}, {ID: "gpt-5-5", Label: "G55"}, {ID: "grok-4-7", Label: "Grok"},
+		{ID: "kimi-k3", Label: "Kimi"}, {ID: "claude-sonnet-5-5", Label: "Sonnet"}, {ID: "gemini-4-argon", Label: "Gem"}, {ID: "gpt-oss-120b", Label: "OSS"}}
+	rows, warn := buildRows(t, fallbackBundled, menu)
+	var listed []string
+	byslug := map[string]catalogRow{}
+	for _, r := range rows {
+		byslug[r.Slug] = r
+		if r.Visibility == "list" {
+			listed = append(listed, r.Slug)
+		}
+	}
+	if want := []string{"databricks-gpt-5-5", "databricks-gpt-5-4", "databricks-grok-4-7"}; !slices.Equal(listed, want) {
+		t.Fatalf("listed = %v, want %v", listed, want)
+	}
+	if got := byslug["databricks-gpt-5-4"]; got.ContextWindow != fallbackContextWindow || len(got.Levels) != 3 {
+		t.Errorf("gpt-5-4 = %+v, want window %d and the template's 3 levels", got, fallbackContextWindow)
+	}
+	if got := byslug["databricks-grok-4-7"]; len(got.Levels) != 1 || got.Levels[0].Effort != "medium" {
+		t.Errorf("grok levels = %+v, want the default only", got.Levels)
+	}
+	if !strings.Contains(warn, "gpt-5-4, grok-4-7") || !strings.Contains(warn, "128000") {
+		t.Errorf("note = %q, want the assumed window naming both models", warn)
+	}
+}
+
+// Given a servable row whose limit the catalog knows, Then its window is that limit and no assumption is noted.
+func TestCatalogFallbackRowUsesKnownLimit(t *testing.T) {
+	rows, warn := buildRows(t, fallbackBundled, []providers.OpencodeModel{{ID: "gpt-5-5", Label: "G"}, {ID: "gemini-4-argon", Label: "Gem", Responses: true}})
+	if got := rows[1]; got.Slug != "databricks-gemini-4-argon" || got.ContextWindow != 1048576 || warn != "" {
+		t.Errorf("row = %+v note %q, want window 1048576 and no note", got, warn)
+	}
+}
+
+// Given a servable model with no template at all, Then the skip note names every such id on one line.
+func TestCatalogSkipNoteNamesEveryUnlistedModel(t *testing.T) {
+	p := &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks, ModelPrefix: "databricks-"}
+	menu := []providers.OpencodeModel{{ID: "gpt-5-4"}, {ID: "grok-4-7"}}
+	body, missing, err := buildCodexCatalog(p, menu, []byte(`{"models":[{"slug":"gpt-daybreak"}]}`), nil)
+	if body != nil || err != nil || missing != "gpt-5-4, grok-4-7" {
+		t.Errorf("build = %s, %q, %v; want no body and both ids", body, missing, err)
 	}
 }

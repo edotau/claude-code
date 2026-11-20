@@ -287,3 +287,17 @@ func TestResponsesFalseGPTRowKeepsOpencodeChatRoute(t *testing.T) {
 		t.Errorf("opencode wire for the Responses=false row = %q, want %s", wire, ProtocolOpenAI)
 	}
 }
+
+// Given a Grok row, Then opencode keeps its chat route even though codex now runs Grok over Responses.
+func TestGrokKeepsOpencodeChatRoute(t *testing.T) {
+	vaulttest.Use(t)
+	p := &Provider{Name: "dev", Preset: PresetDatabricks, ModelPrefix: "databricks-"}
+	p.Routes = map[string]string{ProtocolResponses: "/responses", ProtocolOpenAI: "/chat"}
+	grok := []OpencodeModel{{ID: "grok-4-7"}}
+	if ResponsesServable(p, "databricks-grok-4-7") || ServesResponsesIn(grok, p, "databricks-grok-4-7") {
+		t.Error("Grok must stay outside ResponsesServable and ServesResponses: codex's rule lives in internal/codex")
+	}
+	if wire, _, _ := WireForIn(grok, p, "databricks-grok-4-7"); wire == ProtocolResponses {
+		t.Errorf("opencode wire for Grok = %q, want %s", wire, ProtocolOpenAI)
+	}
+}

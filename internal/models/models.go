@@ -221,6 +221,9 @@ func FamilyKind(id string) Family {
 	return familyOther
 }
 
+// IsGrok reports an xAI Grok id under any spelling or vendor prefix.
+func IsGrok(id string) bool { return strings.HasPrefix(normID(id), "grok-") }
+
 // IsOpenAIReasoning reports an OpenAI reasoning model (o-series, gpt-5 and newer) under any spelling or vendor prefix.
 func IsOpenAIReasoning(id string) bool { return openAIReasoningRE().MatchString(normID(id)) }
 
