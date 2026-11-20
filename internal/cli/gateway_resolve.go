@@ -320,7 +320,7 @@ func liveCheck(ctx context.Context, p *providers.Provider, r agent.ModelRoute) s
 	ctx, cancel := context.WithTimeout(providers.WithIdentity(ctx, providers.IdentityHeadless), 45*time.Second)
 	defer cancel()
 	if _, err := providers.Credential(ctx, p); err != nil && !errors.Is(err, providers.ErrPassthrough) {
-		return "credential: " + firstLine(err.Error())
+		return "credential: " + textutil.FirstLine(err.Error())
 	}
 	if p.Preset != providers.PresetDatabricks {
 		return ""
@@ -347,15 +347,13 @@ func refreshServed(ctx context.Context, p *providers.Provider, now time.Time) st
 	}
 	infos, err := providers.ListModels(ctx, p)
 	if err != nil {
-		return "listing refresh: " + firstLine(err.Error())
+		return "listing refresh: " + textutil.FirstLine(err.Error())
 	}
 	if err := router.WarmServed(p.Name, infos, now); err != nil {
 		return "listing save: " + err.Error()
 	}
 	return ""
 }
-
-func firstLine(s string) string { return strings.SplitN(s, "\n", 2)[0] }
 
 // printRows prints one PASS/FAIL row per profile (or a JSON array).
 func printRows(rows []resolveRow, format string) int {
