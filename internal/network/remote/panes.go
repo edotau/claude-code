@@ -2,7 +2,9 @@ package remote
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os/exec"
 	"regexp"
 	"slices"
 	"strconv"
@@ -196,10 +198,11 @@ const (
 )
 
 // captureCommand lists cc-* panes and captures each, control-byte framed; fieldSep is "|" since tmux mangles tabs.
-// Gotcha: list-panes' exit is checked before the pipe, else a tmux failure reads as no panes and all look gone.
+// Gotcha: list-panes' exit is checked before the pipe, else a tmux failure reads as no panes and all look gone;
+// a failure exits 1 with tmux's message on stderr, which capturePanes tells from "no server" (an empty status).
 var captureCommand = `list_out="$(tmux list-panes -a -F '#{session_name}` + fieldSep + `#{pane_id}` + fieldSep +
-	`#{@cc_agent}` + fieldSep + `#{pane_current_command}' 2>/dev/null)"; list_rc=$?` +
-	`; if [ "$list_rc" -ne 0 ]; then echo 'network remote: tmux list-panes failed' >&2; exit 1; fi` +
+	`#{@cc_agent}` + fieldSep + `#{pane_current_command}' 2>&1)"; list_rc=$?` +
+	`; if [ "$list_rc" -ne 0 ]; then printf '%s\n' "$list_out" >&2; exit 1; fi` +
 	`; printf '%s\n' "$list_out"` +
 	` | awk -F'` + fieldSep + `' '$1 ~ /^cc-/'` +
 	` | while IFS='` + fieldSep + `' read -r sess pid agent cmd; do` +
@@ -207,6 +210,12 @@ var captureCommand = `list_out="$(tmux list-panes -a -F '#{session_name}` + fiel
 	`%s\n' "$sess" "$pid" "$agent" "$cmd";` +
 	` if ! tmux capture-pane -p -t "$pid" -S -` + strconv.Itoa(paneCaptureLines) + ` 2>/dev/null; then exit 1; fi;` +
 	` printf '` + paneRecordEnd + `\n'; done`
+
+// noTmuxServer reports tmux's "nothing running" stderr, which is an empty pane list rather than a failure.
+func noTmuxServer(stderr string) bool {
+	return strings.Contains(stderr, "no server running") || strings.Contains(stderr, "No such file or directory") ||
+		strings.Contains(stderr, "no sessions")
+}
 
 // paneCapture is one pane's raw sample: tmux-reported identity plus its last captured lines.
 type paneCapture struct {
@@ -232,6 +241,13 @@ func capturePanes(ctx context.Context, host string, local bool, run paneRunner) 
 	}
 	out, err := run(ctx, argv)
 	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && noTmuxServer(string(ee.Stderr)) {
+			return nil, nil
+		}
+		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+			return nil, fmt.Errorf("dispatch: capture panes on %s: %s: %w", host, strings.TrimSpace(string(ee.Stderr)), err)
+		}
 		return nil, fmt.Errorf("dispatch: capture panes on %s: %w", host, err)
 	}
 	if len(out) > proc.MaxCaptureBytes {

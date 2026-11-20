@@ -472,3 +472,24 @@ func TestExecRunnerCapsOutput(t *testing.T) {
 			proc.MaxCaptureBytes)
 	}
 }
+
+// TestCapturePanes_RealScriptTmuxStderr: no server is an empty list; any other tmux failure carries its stderr.
+func TestCapturePanes_RealScriptTmuxStderr(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
+	for msg, wantErr := range map[string]bool{
+		"error connecting to /tmp/tmux-1000/default (No such file or directory)": false,
+		"no server running on /tmp/tmux-1000/default":                            false,
+		"protocol version mismatch":                                              true,
+	} {
+		stubDir := t.TempDir()
+		script := "#!/bin/sh\necho '" + msg + "' >&2\nexit 1\n"
+		if err := os.WriteFile(stubDir+"/tmux", []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		caps, err := capturePanes(context.Background(), "localhost", true, execRunner)
+		if wantErr != (err != nil) || (err != nil && !strings.Contains(err.Error(), msg)) || len(caps) != 0 {
+			t.Errorf("%q: caps=%v err=%v, want error=%v carrying the stderr", msg, caps, err, wantErr)
+		}
+	}
+}
