@@ -1,8 +1,10 @@
 // Pi guard extension (internal/pi/guard.go renders the __ constants): the only tools Pi has are these, each judged first.
 import { execFileSync } from "node:child_process"
 import { existsSync, writeFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import * as pkg from "@earendil-works/pi-coding-agent"
 
+const SELF: string = fileURLToPath(import.meta.url)
 const BIN: string = __BIN__
 const VERIFIED_PI: string = __PI_VERSION__ // the Pi version whose tool code this guard was checked against
 const BUDGET_MS: number = __BUDGET_MS__
@@ -55,8 +57,13 @@ export default function (pi: any) {
     if (typeof make !== "function") throw new Error("pi guard: no tool factory for " + name)
     pi.registerTool(guarded(name, make(process.cwd())))
   }
-  // second layer: Pi runs with no builtin tools, so a tool that is not the guard's own is blocked here
-  pi.on("tool_call", (ev: any) => names.includes(String(ev.toolName)) ? undefined
+  // pi.getAllTools() throws while extensions load, so a tool registered ahead of the guard is caught once Pi is bound
+  const ours = (name: string): boolean => {
+    try { return pi.getAllTools().find((t: any) => t.name === name)?.sourceInfo?.path === SELF } catch { return false } // fail closed
+  }
+  // second layer: a call is judged only when the tool Pi runs under that name is the guard's own registration
+  pi.on("tool_call", (ev: any) => names.includes(String(ev.toolName)) && ours(String(ev.toolName)) ? undefined
     : { block: true, reason: "pi guard: tool " + ev.toolName + " is not a guarded tool" })
-  writeFileSync(file, nonce, { mode: 0o600 })
+  // fail closed: the nonce is written only after every guarded name resolves to this file, so a shadowed tool means no guard
+  pi.on("session_start", () => { if (names.every(ours)) writeFileSync(file, nonce, { mode: 0o600 }) })
 }

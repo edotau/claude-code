@@ -104,3 +104,19 @@ func TestInteractiveReadOnlyRegistersOnlyReadTools(t *testing.T) {
 		t.Errorf("env = %v argv = %v", env, argv)
 	}
 }
+
+func TestInteractivePackagesAfterGuardAndPreviewInstallsNothing(t *testing.T) {
+	route := testRoute(t, "databricks-claude-sonnet-5-5", true)
+	pkg := skillPkg(t)
+	setPackages(t, pkg+",npm:foo@1.0.0", "")
+	_, argv, err := piEngine{}.Wire(agent.WithDryRun(t.Context()), route, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(packageStore()); err == nil {
+		t.Error("a preview created the package store")
+	}
+	if i := slices.Index(argv, "--no-builtin-tools"); i < 0 || !slices.Equal(argv[i+1:i+3], []string{"-e", pkg}) || slices.Index(argv, "-e") > i {
+		t.Errorf("argv = %v, want the guard's -e first and the package -e after it", argv)
+	}
+}

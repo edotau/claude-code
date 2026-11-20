@@ -3,6 +3,7 @@ package pi
 import (
 	"os"
 	"os/exec"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -290,5 +292,78 @@ func TestToolIdleResumesOnlyWhenNoToolRuns(t *testing.T) {
 	time.Sleep(400 * time.Millisecond)
 	if idle.Err() == nil {
 		t.Fatal("idle never resumed after the last tool ended")
+	}
+}
+
+// setPackages writes the Pi record's pin extras into the test vault.
+func setPackages(t *testing.T, packages, approved string) {
+	t.Helper()
+	rec := vault.AgentRecord{Extras: map[string]string{extraPackages: packages, extraPackagesApproved: approved}}
+	if err := vault.Update(func(tx *vault.Tx) error { return tx.PutAgentRecords(map[string]vault.AgentRecord{"pi": rec}) }); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// skillPkg is a local package with one skill and no code.
+func skillPkg(t *testing.T) string {
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "package.json"), `{"name":"s","version":"1.0.0","pi":{"skills":["./skills"]}}`)
+	writeFile(t, filepath.Join(dir, "skills", "x", "SKILL.md"), "x")
+	return dir
+}
+
+// The guard's -e must be Pi's first: it keeps the first registration of a tool name.
+func TestHeadlessPackagesLoadAfterGuard(t *testing.T) {
+	route := testRoute(t, "databricks-claude-sonnet-5-5", true)
+	pkg := skillPkg(t)
+	setPackages(t, pkg, "")
+	env, argv, err := piEngine{}.Wire(t.Context(), route, &agent.Headless{Tools: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := &agent.CLIPrep{Argv: argv, Env: env, Prompt: "go"}
+	piEngine{}.After(p, agent.RunOptions{Tools: true})
+	g, _ := guardFromEnv(p.Env)
+	var es []string
+	for i, a := range p.Argv {
+		if a == "-e" {
+			es = append(es, p.Argv[i+1])
+		}
+	}
+	if !slices.Equal(es, []string{g.Path, pkg}) {
+		t.Errorf("-e order = %v, want guard %s then %s", es, g.Path, pkg)
+	}
+	if slices.ContainsFunc(p.Env, func(kv string) bool { return strings.HasPrefix(kv, packageDirsEnv+"=") }) {
+		t.Errorf("Pi's env carries the package dirs: %v", p.Env)
+	}
+}
+
+func TestSyncErrorFailsLaunchAndRemovesRunDir(t *testing.T) {
+	route := testRoute(t, "databricks-claude-sonnet-5-5", true)
+	dir := t.TempDir()
+	writeFile(t, filepath.Join(dir, "package.json"), `{"name":"c","pi":{"extensions":["./e.ts"]}}`)
+	setPackages(t, dir, "")
+	for _, h := range []*agent.Headless{{Tools: true}, nil} {
+		_, _, err := piEngine{}.Wire(t.Context(), route, h)
+		if err == nil || !strings.Contains(err.Error(), "packages_approved="+dir) {
+			t.Fatalf("unapproved code: err = %v, want the approving command", err)
+		}
+		if left, _ := os.ReadDir(RunsDir("dbx")); len(left) != 0 {
+			t.Errorf("a refused launch left run dirs: %v", left)
+		}
+	}
+	setPackages(t, dir, dir)
+	if _, _, err := (piEngine{}).Wire(t.Context(), route, &agent.Headless{Tools: true}); err != nil {
+		t.Errorf("approved: %v", err)
+	}
+}
+
+func TestEmptyPackageListSyncsNothing(t *testing.T) {
+	route := testRoute(t, "databricks-claude-sonnet-5-5", true)
+	if _, _, err := (piEngine{}).Wire(t.Context(), route, &agent.Headless{Tools: true}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(packageStore()); err == nil {
+		t.Error("an empty list created the package store")
 	}
 }

@@ -21,7 +21,7 @@ func interactiveArgv() []string {
 
 // interactiveWire builds `claude-code pi`: Pi's TUI on the same guard as a dispatch; the launch execs Pi, so no nonce is read.
 func interactiveWire(ctx context.Context, r agent.WireRoute) (env, argv []string, err error) {
-	dir, model, remove, err := runSetup(r)
+	dir, model, pkgDirs, remove, err := runSetup(ctx, r)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -41,7 +41,9 @@ func interactiveWire(ctx context.Context, r agent.WireRoute) (env, argv []string
 		fmt.Fprintf(agent.NoticeOut, "claude-code: pi guard %s tools=%s (builtin tools off)\n", g.Path, tools)
 	}
 	argv = append(interactiveArgv(), "--model", model, "--session-dir", filepath.Join(paths.StateDir(), "pi", "sessions"))
-	return env, append(append(argv, g.Argv()...), "--no-builtin-tools"), nil
+	// the guard's -e stays first: Pi keeps the first registration of a tool name, so a package never shadows a guarded tool
+	argv = append(append(argv, g.Argv()...), "--no-builtin-tools")
+	return env, append(argv, PackageArgv(loadedAt(pkgDirs))...), nil
 }
 
 // LaunchArgs drops --read-only: the launcher saw it already and Wire registers only the read tools.

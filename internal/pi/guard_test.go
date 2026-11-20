@@ -20,7 +20,7 @@ func TestGuardWritesPrivateExtension(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, want := range []string{"--pi-guard", "HARNESS_HOOK_", "VERIFIED_PI", "registerTool", "tool_call"} {
+	for _, want := range []string{"--pi-guard", "HARNESS_HOOK_", "VERIFIED_PI", "registerTool", "tool_call", "getAllTools", "sourceInfo", "session_start"} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("extension lacks %q", want)
 		}

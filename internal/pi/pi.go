@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
@@ -29,6 +30,8 @@ const (
 	guardToolsEnv = "HARNESS_PI_GUARD_TOOLS"
 	// stopGrace is how long Pi gets to kill its own bash groups after SIGTERM before the descendants are killed.
 	stopGrace = 2 * time.Second
+	// packageDirsEnv carries Wire's synced package dirs to After; After strips it, so Pi never sees it.
+	packageDirsEnv = "HARNESS_PI_PACKAGE_DIRS"
 )
 
 // lockdownArgv loads no project code: --no-approve ignores the work dir's .pi (extensions, packages, settings) and
@@ -62,11 +65,14 @@ func (piEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) 
 	if err != nil {
 		return nil, nil, err
 	}
-	dir, model, remove, err := runSetup(r)
+	dir, model, pkgDirs, remove, err := runSetup(ctx, r)
 	if err != nil {
 		return nil, nil, err
 	}
 	env = []string{agentDirEnv + "=" + dir, keyEnv + "=" + r.Cred}
+	if len(pkgDirs) > 0 { // After appends them behind the guard's -e, which it adds later
+		env = append(env, packageDirsEnv+"="+strings.Join(pkgDirs, string(filepath.ListSeparator)))
+	}
 	if env, err = withGuard(env, dir, h.Tools); err != nil {
 		remove()
 		return nil, nil, err
@@ -79,25 +85,97 @@ func (piEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) 
 	return env, append(argv, "--no-session"), nil
 }
 
-// runSetup writes the run's private agent dir and returns it with Pi's provider-qualified model and a remover.
-func runSetup(r agent.WireRoute) (dir, model string, remove func(), err error) {
+// runSetup writes the run's private agent dir and returns it with Pi's model, the synced package dirs and a remover.
+func runSetup(ctx context.Context, r agent.WireRoute) (dir, model string, pkgDirs []string, remove func(), err error) {
 	mj, sj, menu, err := BuildConfig(r.Provider, cmp.Or(r.Target.Provider, r.Provider), piBases(r.Base, r.Dialect), r.Model)
 	if err != nil {
-		return "", "", nil, err
+		return "", "", nil, nil, err
 	}
 	prov, ok := menu[r.Model]
 	if !ok {
-		return "", "", nil, fmt.Errorf("pi: model %q is not on the %s menu", r.Model, r.Provider.Name)
+		return "", "", nil, nil, fmt.Errorf("pi: model %q is not on the %s menu", r.Model, r.Provider.Name)
 	}
 	dir, remove, err = NewRunDir(r.Provider.Name)
 	if err != nil {
-		return "", "", nil, err
+		return "", "", nil, nil, err
 	}
 	if err = WriteConfig(dir, mj, sj); err != nil {
 		remove()
-		return "", "", nil, err
+		return "", "", nil, nil, err
 	}
-	return dir, prov + "/" + r.Model, remove, nil
+	if pkgDirs, err = recordPackages(ctx); err != nil {
+		remove() // fail closed: never launch with a partial or unreviewed package set
+		return "", "", nil, nil, err
+	}
+	return dir, prov + "/" + r.Model, pkgDirs, remove, nil
+}
+
+// recordPackages syncs the Pi record's pinned packages and returns the dirs to load; a preview installs nothing.
+func recordPackages(ctx context.Context) ([]string, error) {
+	rec, err := agentconfig.Settings(agentid.Pi)
+	if err != nil {
+		return nil, err
+	}
+	wanted, err := ParsePackages(rec.Extras[extraPackages])
+	if err != nil {
+		return nil, err
+	}
+	approved, err := ParsePackages(rec.Extras[extraPackagesApproved])
+	if err != nil {
+		return nil, err
+	}
+	if agent.IsDryRun(ctx) {
+		return previewPackages(wanted), nil
+	}
+	loaded, err := SyncPackages(ctx, agent.NoticeOut, paths.ConfigDir(), wanted, approved)
+	if err != nil {
+		return nil, err
+	}
+	return packageDirs(loaded), nil
+}
+
+// previewPackages is the dirs a launch would load, computed without installing, reviewing or pruning.
+func previewPackages(wanted []Package) []string {
+	var dirs []string
+	for _, p := range wanted {
+		dir := p.LocalPath(paths.ConfigDir())
+		if p.Kind != KindLocal {
+			dir = packageDir(filepath.Join(packageStore(), slotName(p)), p)
+		}
+		fmt.Fprintf(agent.NoticeOut, "claude-code: pi packages preview: would load %s from %s (nothing installed)\n", p.Spec, dir)
+		dirs = append(dirs, dir)
+	}
+	return dirs
+}
+
+// packageDirs is the directory of each loaded package, in load order.
+func packageDirs(loaded []Loaded) []string {
+	dirs := make([]string, len(loaded))
+	for i, l := range loaded {
+		dirs[i] = l.Dir
+	}
+	return dirs
+}
+
+// loadedAt wraps dirs for PackageArgv, which reads only each package's Dir.
+func loadedAt(dirs []string) []Loaded {
+	out := make([]Loaded, len(dirs))
+	for i, d := range dirs {
+		out[i].Dir = d
+	}
+	return out
+}
+
+// takePackageDirs splits Wire's package dirs off env so Pi's own env never carries them.
+func takePackageDirs(env []string) (rest, dirs []string) {
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, packageDirsEnv+"="); ok {
+			dirs = filepath.SplitList(v)
+			continue
+		}
+		rest = append(rest, kv)
+	}
+	return rest, dirs
 }
 
 // thinkingArgv maps --effort to Pi's --thinking level; no effort adds nothing.
@@ -193,11 +271,15 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 	if req.AppendSystemPrompt != "" {
 		p.Argv = append(p.Argv, "--append-system-prompt", req.AppendSystemPrompt)
 	}
+	var dirs []string
+	p.Env, dirs = takePackageDirs(p.Env)
 	if tools, err := toolsArgv(req, p.Env); err == nil {
 		p.Argv = append(p.Argv, tools...)
 		if req.Tools {
 			p.Env = append(p.Env, guardToolsEnv+"="+strings.Join(guardTools(req), ","))
 		}
+		// the guard's -e stays first: Pi keeps the first registration of a tool name, so a package never shadows a guarded tool
+		p.Argv = append(p.Argv, PackageArgv(loadedAt(dirs))...)
 	}
 	p.Argv = append(p.Argv, p.Prompt)
 }
