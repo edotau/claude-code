@@ -87,18 +87,19 @@ func shellFeedCases(harness string) []safetyTierCase {
 		safetyTierCase{`printf "rm -rf $D\n" | bash`, "", core.Allow})
 }
 
-// A recursive rm is judged by its own operands: a later command's `/` is not its target.
-func TestRmRecursiveStopsAtCommandEnd(t *testing.T) {
+// A root target stays blocked however the operands before it are quoted; a separate later command's `/` does not count.
+func TestRmRecursiveRootTarget(t *testing.T) {
 	for cmd, want := range map[string]bool{
 		"rm -rf /":                     true,
 		"rm -rf x /":                   true,
+		`rm -rf "a;b" /`:               true,
+		`rm -rf 'a|b' /`:               true,
 		"rm -rf a; rm -rf /":           true,
 		"rm -rf a && rm -rf /usr":      true,
+		`ssh box "rm -rf x; rm -rf /"`: true,
 		"rm -rf x; df -h /":            false,
 		"rm -rf build && ls /":         false,
 		"rm -rf out | tee /dev/null":   false,
-		`ssh box "rm -rf x; df -h /"`:  false,
-		`ssh box "rm -rf x; rm -rf /"`: true,
 	} {
 		if _, got := firstHardBlock(cmd); got != want {
 			t.Errorf("firstHardBlock(%q) blocked = %v, want %v", cmd, got, want)

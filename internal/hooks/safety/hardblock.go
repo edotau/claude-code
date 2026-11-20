@@ -11,8 +11,8 @@ import (
 	"github.com/edotau/claude-code/internal/shell"
 )
 
-// rmRecursive matches `rm` with a recursive flag (-r, -Rf, -r -f, --recursive) and its operands, not a later command's.
-const rmRecursive = `(^|[^[:alnum:]_])rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+([^\s;&|]+\s+)*`
+// rmRecursive matches `rm` with any recursive flag spelling (-r, -Rf, -r -f, --recursive) and trailing operands.
+const rmRecursive = `(^|[^[:alnum:]_])rm\s+(-\S+\s+)*(-[a-zA-Z]*[rR][a-zA-Z]*|--recursive)\s+(\S+\s+)*`
 
 // hardBlocks are command shapes that are almost never intentional; each is gated on a literal every match holds.
 var hardBlocks = []*core.Gated{

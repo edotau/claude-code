@@ -290,9 +290,18 @@ func mainOnlyHit(in *core.Input, cmd string) *mainOnly {
 
 // makeDryRun reports a make that only prints or questions its recipe (-n, -q and their long forms).
 func makeDryRun(w []string) bool {
+	if slices.ContainsFunc(w[1:], makeRunsText) { // another makefile or evaluated text can run commands under -n
+		return false
+	}
 	return slices.ContainsFunc(w[1:], func(a string) bool {
 		return slices.Contains([]string{"-n", "--just-print", "--dry-run", "--recon", "-q", "--question"}, a)
 	})
+}
+
+// makeRunsText reports an argument that feeds make its own makefile or text to evaluate.
+func makeRunsText(a string) bool {
+	return strings.Contains(a, "$(shell") || slices.ContainsFunc([]string{"-f", "--file", "--makefile", "-E", "--eval"},
+		func(f string) bool { return a == f || strings.HasPrefix(a, f+"=") })
 }
 
 // vaultKey reports `vault get --key --secret`, the master key's value, in a claude-code command's HarnessArgs.
