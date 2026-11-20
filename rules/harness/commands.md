@@ -32,6 +32,9 @@ Moved from the README: install options, setup, agent and utility commands, the s
   to native claude, without the harness settings.
   Routed launches go through `claude-code <agent>`.
 
+Exit codes: 0 ok, 1 runtime, 2 usage, 3 auth (`helptext.Error`); `--format json` on a verb with no envelope
+prints `{error, kind, exit_code, hints}` to stderr, secrets redacted.
+
 ## Setup
 
 ```bash

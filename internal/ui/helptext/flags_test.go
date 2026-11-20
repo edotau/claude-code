@@ -269,3 +269,23 @@ func TestExtractBool(t *testing.T) {
 		}
 	}
 }
+
+type authErr struct{}
+
+func (authErr) Error() string { return "401 token abc" }
+func (authErr) IsAuth() bool  { return true }
+
+func TestExitContract(t *testing.T) {
+	if e := NewError(ExitUsage, "bad"); e.Code != 2 || e.Kind != "usage" {
+		t.Errorf("usage error = %+v", e)
+	}
+	if e := NewError(ExitRuntime, "boom: %v", errors.New("x")); e.Code != 1 {
+		t.Errorf("runtime code = %d", e.Code)
+	}
+	if e := NewError(ExitRuntime, "call: %v", fmt.Errorf("wrap: %w", authErr{})); e.Code != 3 || e.Kind != "auth" {
+		t.Errorf("auth error = %+v", e)
+	}
+	if !WantsJSON([]string{"--format", "json"}) || WantsJSON([]string{"--", "--format=json"}) {
+		t.Error("WantsJSON misread args")
+	}
+}

@@ -91,6 +91,9 @@ func roundWaited(d time.Duration) time.Duration {
 
 func (e *Error) Unwrap() error { return e.Err }
 
+// IsAuth marks a rejected credential for helptext's exit-code 3.
+func (e *Error) IsAuth() bool { return e.Kind == KindAuth }
+
 // AttemptMessage is Error() as one attempt saw it, without the "(after N attempts)" tally.
 func (e *Error) AttemptMessage() string {
 	one := *e

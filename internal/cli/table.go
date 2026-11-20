@@ -85,7 +85,9 @@ func buildCommands() []command {
 		{name: "plan", group: groupSession, hidden: true, summary: "plan checklists and detectors: status, tick, assumptions, goals", run: cmdPlan, spec: planSpec},
 		// DIAGNOSTICS
 		{name: "doctor", group: groupDiagnostics, summary: "read-only health checks (--audit: action log)", run: doctor.Run, spec: doctor.SpecNode},
-		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, profile quotas, context by source", run: func(a []string) int { return usagecmd.Run(a, paths.ConfigDir(), os.Stdout, os.Stderr) }, spec: usagecmd.Spec},
+		{name: "usage", group: groupDiagnostics, summary: "token totals, peak rate, profile quotas, context by source", run: func(a []string) int {
+			return usagecmd.RunWithBudgets(a, paths.ConfigDir(), os.Stdout, os.Stderr, usageBudgets)
+		}, spec: usagecmd.Spec},
 		// SETTINGS
 		{name: "install", group: groupSettings, summary: "install claude-code and agent links; seed settings.json", run: setup.RunInstall, spec: setup.InstallSpec},
 		{name: "configure", group: groupSettings, summary: "guided setup; --restore resets settings.json", run: cmdConfigure, spec: configureSpec},
@@ -263,6 +265,8 @@ func Run(argv []string) int {
 	if isHelpVerb(name) {
 		return printUsage()
 	}
+	// `agents ask` prints its own JSON envelope; every other verb gets the stderr error object.
+	defer helptext.SetJSONErrors(helptext.SetJSONErrors(jsonErrorsFor(name, args)))
 	if code, ok := runRouted(argv, name); ok {
 		return code
 	}
@@ -287,6 +291,11 @@ func Run(argv []string) int {
 	}
 	fmt.Fprintf(os.Stderr, "claude-code: unknown command %q (see `claude-code help`)\n", name)
 	return 2
+}
+
+// jsonErrorsFor is true for --format json on a verb without its own envelope (`agents ask` has one).
+func jsonErrorsFor(name string, args []string) bool {
+	return helptext.WantsJSON(args) && (name != "agents" || len(args) == 0 || args[0] != "ask")
 }
 
 // retiredVerbs maps a removed verb to its new home for the unknown-command message.

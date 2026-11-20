@@ -88,16 +88,14 @@ func ExtractBool(args []string, name string) (bool, []string) {
 	return found, rest
 }
 
-// Fail prints a one-line error and returns exit code 1.
+// Fail prints a one-line error and returns exit code 1, or 3 when an argument is an auth failure.
 func Fail(format string, a ...any) int {
-	fmt.Fprintf(os.Stderr, "claude-code: "+format+"\n", a...)
-	return 1
+	return Report(NewError(ExitRuntime, format, a...))
 }
 
 // FailUsage prints a one-line error and returns usage exit code 2.
 func FailUsage(format string, a ...any) int {
-	Fail(format, a...)
-	return 2
+	return Report(NewError(ExitUsage, format, a...))
 }
 
 // SecretFlag registers --secret, the one flag that prints a credential's actual value.

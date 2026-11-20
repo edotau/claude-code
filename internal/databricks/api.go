@@ -27,7 +27,7 @@ var apiPage = helptext.Page{
 	About: "GET an allow-listed workspace metadata path with a Databricks profile's credential and print the\n" +
 		"JSON body. Read-only: GET only, no redirect is followed, the token is never printed. Allowed:\n" +
 		"serving-endpoints, sql/warehouses, sql/statements, scim Me, unity-catalog metastore, catalogs,\n" +
-		"schemas and tables (see the error for the exact prefixes). Exit 1 on a non-2xx.",
+		"schemas and tables (see the error for the exact prefixes). Exit 1 on a non-2xx, 3 on 401/403.",
 }
 
 const (
@@ -113,7 +113,7 @@ func apiGet(ctx context.Context, p *providers.Provider, host, path string) (int,
 		if !textutil.RetriableGET(status) || attempt == apiAttempts {
 			return status, body, err
 		}
-		if werr := textutil.WaitRetry(ctx, attempt, 500*time.Millisecond, hdr.Get("Retry-After")); werr != nil {
+		if werr := textutil.WaitRetry(ctx, attempt, 500*time.Millisecond, hdr, textutil.StatusError(status)); werr != nil {
 			return 0, nil, werr
 		}
 	}
@@ -175,16 +175,26 @@ func apiRun(profile, as, path string) int {
 	if ue, ok := errors.AsType[*url.Error](err); ok { // the url.Error text names the host
 		err = ue.Err
 	}
-	switch {
-	case status/100 != 2 && status != 0:
-		return fail("api: HTTP %d: %s", status, textutil.CapRunes(strings.TrimSpace(string(body)), 2000, "..."))
-	case err != nil:
-		return fail("api: %v", err)
+	if code := apiStatusExit(status, body, err); code != 0 {
+		return code
 	}
 	var pretty bytes.Buffer
 	if json.Indent(&pretty, body, "", "  ") == nil {
 		body = append(pretty.Bytes(), '\n')
 	}
 	_, _ = os.Stdout.Write(body)
+	return 0
+}
+
+// apiStatusExit maps a failed reply to its exit code (3 on 401/403, else 1), printing the error; 0 means success.
+func apiStatusExit(status int, body []byte, err error) int {
+	switch {
+	case status == http.StatusUnauthorized || status == http.StatusForbidden:
+		return helptext.Report(helptext.NewError(helptext.ExitAuth, "databricks api: HTTP %d: %s", status, textutil.CapRunes(strings.TrimSpace(string(body)), 2000, "...")))
+	case status/100 != 2 && status != 0:
+		return fail("api: HTTP %d: %s", status, textutil.CapRunes(strings.TrimSpace(string(body)), 2000, "..."))
+	case err != nil:
+		return fail("api: %v", err)
+	}
 	return 0
 }
