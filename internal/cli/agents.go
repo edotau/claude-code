@@ -736,6 +736,8 @@ var agentAbout = map[string]string{
 	"opencode": "The OpenCode CLI, a general code agent with the widest model pool (catalog), on its " +
 		"own login or the selected Databricks profile. Bare launches it with args forwarded; the " +
 		"commands below run it headless.",
+	"pi": "The Pi coding agent on the selected Databricks profile through the loopback proxy, read-only. " +
+		"The commands below run it headless (ask --read-only gives it read, grep, find and ls).",
 }
 
 // agentPage is the help page for one agent verb: the shared command roster plus the CLI's extra rows.

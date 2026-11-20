@@ -66,6 +66,7 @@ claude-code agents ask --agents <json|file> --agent <name> "<task>"   # inline a
 claude-code agents ask --spec task.json --dry-run   # resolved route and argv; no model call
 claude-code agents status | ask --retry <id>                   # recent dispatches; replay one
 claude-code agents ask --batch tasks.jsonl|- [--jobs N] [--fail-fast]   # many tasks on a pool; one envelope per line
+claude-code agents ask --agent pi --read-only "<q>"   # Pi on Databricks; read/grep/find/ls
 claude-code opencode --profile ollama --model qwen3-coder   # interactive; -- forces passthrough
 claude-code opencode catalog [list|add|remove|import|reset|check|sync]   # shared Databricks model menu
 claude-code codex review --adversarial --base main     # per-agent verbs; claude-code codex -h lists them

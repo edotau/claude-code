@@ -39,6 +39,7 @@ Shell `agents ask` belongs only inside an external relay or a requested script. 
 | `copilot` | Test repair, mechanical edits, authorized LAST-MILE | Scoped results |
 | `gemini` | Read-only research and codebase sweeps | Cited findings |
 | `opencode` | Code/docs work and requested model discovery | Status and verification |
+| `pi` | Read-only review, exploration and audits on any Databricks model | Cited findings |
 | `Explore` | Scoped read-only scan before non-trivial work | Codebase Context Brief |
 | `Plan` | Read-only design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
 | `general-purpose` | Built-in work when no named role fits | Brief's requested report |
@@ -55,7 +56,7 @@ select external execution; never overwrite another machine's pins.
 
 ### External relay contract
 
-For `codex`, `copilot`, `gemini` and `opencode` wrappers:
+For `codex`, `copilot`, `gemini`, `opencode` and `pi` wrappers:
 
 - A thin pipe; a brief that starts with `Run:` is a relay job, in this order:
   1. You do none of the work yourself.
@@ -275,8 +276,8 @@ files only.
 ## Rules
 
 - **Visible dispatch (owner preference from 2026-11-12; lifted for long jobs on 2026-11-20):** a dispatch goes through
-  the Agent tool with a harness type (`claude`, `codex`, `copilot`, `gemini`, `opencode`). A job expected to outlast a
-  Bash call (~10 minutes) may instead be started by the main session itself with
+  the Agent tool with a harness type (`claude`, `codex`, `copilot`, `gemini`, `opencode`, `pi`). A job expected to
+  outlast a Bash call (~10 minutes) may instead be started by the main session itself with
   `claude-code agents ask --background`, then `claude-code agents wait <id>... --timeout 9m` and `agents result <id>`:
   no leaf sits waiting on a shell. Routing rides the brief's leading `Run:` line. A relayed job that can
   outlast a Bash call (~10 minutes) puts `--background` on that line: the stop gate holds the leaf until the job ends

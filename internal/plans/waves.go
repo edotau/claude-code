@@ -220,7 +220,7 @@ func (p *WavePlan) validate() error {
 			return &WaveError{t.ID, "duplicate id"}
 		}
 		seen[t.ID] = true
-		if !slices.Contains([]string{"claude", "codex", "copilot", "gemini", "opencode", "in-context"}, t.Agent) {
+		if !slices.Contains([]string{"claude", "codex", "copilot", "gemini", "opencode", "pi", "in-context"}, t.Agent) {
 			return &WaveError{t.ID, "unknown Agent: " + t.Agent}
 		}
 		if err := checkTask(t); err != nil {

@@ -5,13 +5,15 @@ paths:
   - "internal/copilot/**"
   - "internal/setup/install*.go"
 ---
-# Agent CLIs — codex, copilot, opencode, gemini
+# Agent CLIs — codex, copilot, opencode, gemini, pi
 
 ## Config writes
 
 - Agent CLI configs are merged, never replaced (`~/.codex/config.toml`, `~/.gemini/antigravity-cli/settings.json`,
   Codex/Copilot hooks); keys are referenced by env var and exported only by a routed launch. Each overwrite keeps 5
   timestamped backups; `configure --revert [--agent a]` steps back one.
+- pi runs from a harness-generated private agent dir (`PI_CODING_AGENT_DIR` under the harness state dir); nothing is
+  written to `~/.pi`.
 - opencode's `~/.config/opencode/` gets only the theme file and `agents sync`'s agent files; model/MCP/theme config
   come from a tracked overlay injected at launch (`OPENCODE_CONFIG` / `OPENCODE_TUI_CONFIG`,
   `internal/agentconfig/template/`).
@@ -44,6 +46,13 @@ paths:
   Write/Edit stay denied, and `--allow` never reopens a deny. codex and gemini refuse `--tools` with
   `--permissions plan`; claude `--tools` off Anthropic gates only explicit rules. Grants and gates:
   `skills/subagent-workflows/references/dispatch-policy-details.md` → Read-only and tools.
+- **pi** (npm `@earendil-works/pi-coding-agent`, MIT, pinned 1.6.0, Node 22.19+) is dispatch-only
+  (`agents ask --agent pi`), on a Databricks profile through the loopback proxy, with no own login. With no tools flag
+  it runs with no tools; `--read-only` gives it read, grep, find and ls; bare `--tools` is refused until the stage 2
+  guard extension exists, and `--deny`, `--allow` and `--permissions` are refused (Pi enforces none). Pi has no
+  permission prompts or sandbox. A dispatch passes `--no-context-files` (no CLAUDE.md or AGENTS.md) and `--no-mcp`;
+  `--effort` maps to `--thinking` (minimal to max); `--model auto` and tier aliases follow the other agents' rules.
+  Pi exits 0 even when a request fails, so the harness judges the run from its JSON event stream.
 - `agents ask --agents <json|file>` defines agents inline (`name`, `description`, `prompt`, `tools`, `model`,
   `max_turns`, `agent`, `profile`, `effort`); `--agent` also takes an `--agents` key. With `--batch`, a line's `agent`
   takes the same selector; `--host` with `--agents` exits 2.

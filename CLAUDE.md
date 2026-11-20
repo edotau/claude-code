@@ -54,7 +54,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
 2. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
 3. **Dispatch with the Agent tool.** Choose `subagent_type` from `claude`, `codex`, `copilot`, `gemini`, `opencode`,
-   `Plan`, `Explore`, `general-purpose`, `web-fetch`, `claude-code-guide`, `statusline-setup`; description starts
+   `pi`, `Plan`, `Explore`, `general-purpose`, `web-fetch`, `claude-code-guide`, `statusline-setup`; description starts
    `<model>:` followed by a space (`web-fetch` takes none), printed by `claude-code agents label <type>`. Anything
    bigger than a one-line edit goes to a leaf with named owned files;
    begin non-trivial work with scoped `Explore` legs. **Fan out as many parallel leaves as the task allows**, in one

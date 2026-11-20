@@ -125,6 +125,9 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
   refused): claude `<workspace>/serving-endpoints/anthropic`, codex `/responses`; copilot and opencode pick per model
   (Claude `/anthropic`, Responses-only GPTs `/responses`, the rest `/chat/completions`). Probe a route with a real
   `claude-code agents ask`, not `curl`.
+- pi has one provider per wire on `http://127.0.0.1:18765/p/<profile>`: Claude over Anthropic Messages, GPT over
+  Responses, everything else and Grok over chat completions. Its key is an environment variable the harness sets at
+  launch to the proxy session token; no token is on disk.
 - gemini (agy) speaks chat/completions through the proxy's `openai` passthrough, so on a Databricks profile it runs
   any chat model the workspace serves when one is typed with `--model` (or `--model auto`); with no model or a tier
   alias it still runs its Gemini pin. The Responses-only models (`gpt-6-1-sol`, `gpt-6-astra`, `gpt-6-sol`, `gpt-5-5`,
