@@ -227,15 +227,15 @@ func recordDiff(reg *Registry, before, after map[string]vault.AgentRecord) []str
 func routeForm(reg *Registry, recs map[string]vault.AgentRecord) map[string]vault.AgentRecord {
 	out := make(map[string]vault.AgentRecord, len(recs))
 	for a, r := range recs {
-		r.Route, r.FallbackRoute = withProvider(reg, r.EffectiveRoute()), withProvider(reg, r.EffectiveFallbackRoute())
+		r.Route, r.FallbackRoute = CompleteRoute(reg, r.EffectiveRoute()), CompleteRoute(reg, r.EffectiveFallbackRoute())
 		r.Profile, r.Account, r.Fallback = "", "", ""
 		out[a] = r
 	}
 	return out
 }
 
-// withProvider fills a bare-profile route's provider from the registry, as configure stores it.
-func withProvider(reg *Registry, rt route.Route) route.Route {
+// CompleteRoute fills a bare-profile route's provider from the registry: "databricks" is the pool, else the row's provider.
+func CompleteRoute(reg *Registry, rt route.Route) route.Route {
 	switch {
 	case rt.Provider != "" || rt.Profile == "" || reg == nil:
 	case rt.Profile == "databricks":

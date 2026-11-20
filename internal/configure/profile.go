@@ -44,13 +44,10 @@ func routeFor(profile string) route.Route {
 	return RouteIn(reg, profile)
 }
 
-// RouteIn is the route profile stores in reg: the pool for "databricks", else its row's provider; zero when none.
+// RouteIn is the route profile stores in reg; zero when reg has no provider for it.
 func RouteIn(reg *providers.Registry, profile string) route.Route {
-	if profile == "databricks" {
-		return route.Route{Provider: "databricks", Profile: "auto"}
-	}
-	if row := reg.Providers[profile]; row != nil && row.Provider != "" {
-		return route.Route{Provider: row.Provider, Profile: profile}
+	if rt := providers.CompleteRoute(reg, route.Route{Profile: profile}); rt.Provider != "" {
+		return rt
 	}
 	return route.Route{}
 }
