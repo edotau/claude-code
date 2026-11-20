@@ -211,6 +211,7 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 
 func (r *Router) relayPassthrough(sw *statusWriter, in *http.Request, p *providers.Provider,
 	resp *http.Response, model, dialect string, geminiChat bool, extra string) (string, string, string) {
+	r.noteDeprecated(p, resp)
 	if err := flattenPassthroughResponse(resp, geminiChat); err != nil {
 		writeError(sw, http.StatusBadGateway, "proxy: "+p.Name+": "+err.Error())
 		return model, extra, p.Name

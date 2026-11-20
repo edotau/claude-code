@@ -41,7 +41,7 @@ func rotationPool(agentName, alias string, p *providers.Provider, tools bool, no
 	if err != nil || !router.RotationRow(p) {
 		return nil
 	}
-	cands := rotationCandidates(reg, agentName, p, tools, now)
+	cands := withoutDeprecated(p, rotationCandidates(reg, agentName, p, tools, now))
 	tiers := []string{"fast", "standard", "deep"}
 	if t := rotationTiers[alias]; t != "" {
 		tiers = []string{t}
@@ -60,6 +60,15 @@ func rotationPool(agentName, alias string, p *providers.Provider, tools bool, no
 		})
 	}
 	return out
+}
+
+// withoutDeprecated drops candidates on p's dropped list (discovery's, or the proxy's deprecated-400 record).
+func withoutDeprecated(p *providers.Provider, cands []catalog.Candidate) []catalog.Candidate {
+	dropped, _ := catalog.DroppedIDs(p)
+	if len(dropped) == 0 {
+		return cands
+	}
+	return slices.DeleteFunc(cands, func(c catalog.Candidate) bool { return dropped[catalog.ID(c.Model)] })
 }
 
 // rotationCandidates is p's served chat models agent runs: a Databricks listing, else the Copilot catalog snapshot.

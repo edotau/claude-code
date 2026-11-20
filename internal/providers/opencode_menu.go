@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"slices"
 	"strings"
@@ -149,6 +150,8 @@ type pickerCatalog struct {
 	Models []ModelInfo `json:"models"`
 	// Dropped ids are never re-added by discovery until `models discover --undrop`.
 	Dropped []string `json:"dropped,omitempty"`
+	// DroppedWhy maps a dropped id to "deprecated <date>"; absent for a hand drop.
+	DroppedWhy map[string]string `json:"dropped_why,omitempty"`
 }
 
 var _ = schemas.Register(schemas.Format{
@@ -330,6 +333,8 @@ func applyDrop(p *Provider, c pickerCatalog, ids []string, undrop bool) (next pi
 	next.Schema, next.Scope = 1, pickerScope(p)
 	if undrop {
 		next.Dropped = slices.DeleteFunc(slices.Clone(c.Dropped), func(id string) bool { return want[menuID(id)] })
+		next.DroppedWhy = maps.Clone(c.DroppedWhy)
+		maps.DeleteFunc(next.DroppedWhy, func(id, _ string) bool { return want[menuID(id)] })
 		return next, nil
 	}
 	next.Models = nil
@@ -379,6 +384,37 @@ func EditPickerDrops(p *Provider, ids []string, undrop, write bool) (removed []s
 		return tx.PutSealed(key, name, string(data), "picker additions", time.Now().UTC())
 	})
 	return removed, err
+}
+
+// RecordDeprecated drops id from p's picker with the reason and date; added is false when it was already dropped.
+func RecordDeprecated(p *Provider, id string, at time.Time) (added bool, err error) {
+	name, scope := pickerKey(p), pickerScope(p)
+	err = vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
+		added = false // UpdateSealed may retry
+		c, err := txPicker(tx, key, name, scope)
+		if err != nil || idSet(c.Dropped)[menuID(id)] {
+			return err
+		}
+		next, _ := applyDrop(p, c, []string{id}, false)
+		next.DroppedWhy = maps.Clone(c.DroppedWhy)
+		if next.DroppedWhy == nil {
+			next.DroppedWhy = map[string]string{}
+		}
+		next.DroppedWhy[id] = "deprecated " + at.UTC().Format(time.DateOnly)
+		data, err := json.Marshal(next)
+		if err != nil {
+			return errors.New("cannot encode picker additions")
+		}
+		added = true
+		return tx.PutSealed(key, name, string(data), "picker additions", time.Now().UTC())
+	})
+	return added, err
+}
+
+// DroppedReasons is p's recorded drop reasons by id ("deprecated 2026-11-20").
+func DroppedReasons(p *Provider) (map[string]string, error) {
+	c, err := pickerRecord(p)
+	return c.DroppedWhy, err
 }
 
 // DroppedLive is the dropped ids of p that the live listing still serves, for discovery to report as skipped.

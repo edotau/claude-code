@@ -13,6 +13,7 @@ import (
 	"maps"
 	"net"
 	"net/http"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -117,6 +118,20 @@ const StatusOK, StatusFail, StatusMissing = "ok", "fail", "missing"
 
 // StatusBroken marks a streamed probe that was accepted (2xx) but ended without its wire's terminator.
 const StatusBroken = "broken"
+
+var deprecatedEndpointRE = regexp.MustCompile(`This endpoint ([A-Za-z0-9._-]+) is deprecated`)
+
+// DeprecatedEndpoint is the endpoint a 400 body names as deprecated; only that explicit answer qualifies.
+func DeprecatedEndpoint(status int, body string) (string, bool) {
+	if status != http.StatusBadRequest {
+		return "", false
+	}
+	m := deprecatedEndpointRE.FindStringSubmatch(body)
+	if m == nil {
+		return "", false
+	}
+	return m[1], true
+}
 
 // TransientHTTP reports a status that is a passing condition rather than a verdict on the model.
 func TransientHTTP(code int) bool {

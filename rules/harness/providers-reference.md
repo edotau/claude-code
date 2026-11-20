@@ -59,8 +59,11 @@ routes, spelling and account/auth configuration. A second unchanged apply adds n
 `--drop <id>[,<id>]` (`--apply` writes) removes saved-menu ids and blocks their re-adding; `--undrop` reverses it.
 `--apply` on a Databricks profile sends one tiny request per id it is about to add (`--verify`: also the saved ones;
 4 workers, 30 s each) and drops an id answered HTTP 400 `This endpoint <id> is deprecated` (`dropped as deprecated:`);
-any other failure changes nothing, and a preview sends no probe. `opencode catalog sync --apply` skips a dropped id
-(`skipped as dropped:`) and `catalog add` refuses it; `--undrop` lifts both.
+any other failure changes nothing, and a preview sends no probe. The proxy drops the same way on
+its own: the first real Databricks reply `400 This endpoint <id> is deprecated` records the id (reason, date) in that
+profile's drop list; pickers and the `--model auto` pool skip it and `models discover` lists it with the reason.
+`opencode catalog sync --apply` skips a dropped id (`skipped as dropped:`) and
+`catalog add` refuses it; `--undrop` lifts both.
 Configured aliases, selections, pins, routes and the legacy global Databricks menu are
 not rewritten. Except for Copilot, saved choices feed configure/agent model pickers and harness-generated
 OpenCode catalogs on the next routed launch; Databricks Codex catalogs include only

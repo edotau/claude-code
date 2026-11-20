@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -569,6 +568,7 @@ func discoverPickerProfile(p *providers.Provider, apply, verify bool) DiscoverRe
 		r.Note = "saved picker additions unavailable or invalid; nothing overwritten: " + err.Error()
 		return r
 	}
+	r.Dropped = withReasons(p, r.Dropped)
 	r.Deprecated, r.ProbeNote = databricksListing(ctx, p, live, apply, verify)
 	var added []providers.ModelInfo
 	if apply {
@@ -683,13 +683,25 @@ func databricksListing(ctx context.Context, p *providers.Provider, live []provid
 		return nil, "deprecation probe skipped: " + err.Error()
 	}
 	dropped, broken, err := deprecatedIDs(ctx, p, live, ids)
-	if err == nil && len(dropped) > 0 {
-		_, err = providers.EditPickerDrops(p, dropped, false, true)
+	for i := 0; err == nil && i < len(dropped); i++ {
+		_, err = providers.RecordDeprecated(p, dropped[i], time.Now())
 	}
 	if err != nil {
 		return nil, "deprecation probe changed nothing: " + err.Error()
 	}
 	return dropped, brokenNote(broken)
+}
+
+// withReasons appends each id's recorded drop reason, e.g. "gpt-5 (deprecated 2026-11-20)".
+func withReasons(p *providers.Provider, ids []string) []string {
+	why, _ := providers.DroppedReasons(p)
+	out := slices.Clone(ids)
+	for i, id := range out {
+		if w := why[id]; w != "" {
+			out[i] = id + " (" + w + ")"
+		}
+	}
+	return out
 }
 
 // brokenNote names each id whose stream broke; none is dropped, the owner decides.
@@ -750,11 +762,16 @@ func deprecatedIDs(ctx context.Context, p *providers.Provider, live []providers.
 	return dropped, broken, nil
 }
 
+func deprecatedAnswer(r serving.CheckResult) bool {
+	id, ok := serving.DeprecatedEndpoint(r.HTTP, r.Error)
+	return ok && id == r.ID
+}
+
 // probeVerdicts splits results into deprecated ids and "id: reason" lines for streams that broke.
 func probeVerdicts(results []serving.CheckResult) (dropped, broken []string) {
 	for _, r := range results {
 		switch {
-		case r.HTTP == http.StatusBadRequest && strings.Contains(r.Error, "This endpoint "+r.ID+" is deprecated"):
+		case deprecatedAnswer(r):
 			dropped = append(dropped, r.ID)
 		case r.Status == serving.StatusBroken:
 			broken = append(broken, r.ID+": "+r.Error)

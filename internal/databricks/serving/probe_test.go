@@ -424,3 +424,18 @@ func TestSanitizeChecksKeepsBrokenVerdict(t *testing.T) {
 		t.Errorf("SanitizeChecks = %+v, want the broken verdict kept without its error text", got)
 	}
 }
+
+func TestDeprecatedEndpointNeedsTheExplicitAnswer(t *testing.T) {
+	const body = `{"message":"BAD_REQUEST: This endpoint databricks-gpt-5 is deprecated. See docs."}`
+	if id, ok := DeprecatedEndpoint(400, body); !ok || id != "databricks-gpt-5" {
+		t.Errorf("400 = %q %v, want databricks-gpt-5", id, ok)
+	}
+	for _, c := range []struct {
+		code int
+		body string
+	}{{429, body}, {503, body}, {200, body}, {401, body}, {400, `{"message":"bad request shape"}`}} {
+		if _, ok := DeprecatedEndpoint(c.code, c.body); ok {
+			t.Errorf("HTTP %d %q qualified, want not", c.code, c.body)
+		}
+	}
+}

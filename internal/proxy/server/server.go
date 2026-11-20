@@ -66,8 +66,10 @@ type Router struct {
 	authGen int
 	// provider names this process marked auth-dead: cleared on their next success
 	marked map[string]bool
-	used   map[string]profileUse // provider name → last request time and egress host, for the keepalive loop
-	ka     keepalive
+	// provider:endpoint pairs already recorded as deprecated by this process, guarded by mu
+	deprecated map[string]bool
+	used       map[string]profileUse // provider name → last request time and egress host, for the keepalive loop
+	ka         keepalive
 	// scope|sha256 → uploaded file id (fileCacheTTL), guarded by mu
 	files map[string]fileEntry
 	// sha256 of the bearer the Files API refused; a new credential clears it
@@ -87,7 +89,7 @@ func newRouter(secret string) *Router {
 	r := &Router{secret: secret, client: guardedClient(), log: os.Stderr, now: time.Now,
 		cool: map[string]time.Time{}, dead: map[string]time.Time{}, deadAt: map[string]time.Time{},
 		cred: map[string]time.Time{}, credGen: map[string]int{},
-		marked: map[string]bool{}, used: map[string]profileUse{}, ka: newKeepalive(), oauth: providers.HeadlessOAuthToken}
+		marked: map[string]bool{}, deprecated: map[string]bool{}, used: map[string]profileUse{}, ka: newKeepalive(), oauth: providers.HeadlessOAuthToken}
 	r.sessions = newSessionStore(func() time.Time { return r.now() })
 	r.clients = &clientTokens{load: loadClientHashes}
 	r.headers = parseHeaders(os.Getenv(headersEnv), r.log)
