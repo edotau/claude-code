@@ -1,0 +1,1 @@
+{ "name": "dispatch-spawn", "version": "0.1.0", "description": "Applies the harness's dispatch label, model and Run-line fix when a subagent spawns, so the reviewed Agent call is never rewritten" }

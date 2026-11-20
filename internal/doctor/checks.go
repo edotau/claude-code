@@ -91,6 +91,8 @@ func checkBinaryHealth(_ context.Context, check func(bool, bool, string, string)
 	check(err == nil, true, "claude binary", orErr(bin, err))
 	launcherOK, launcherDetail := claudeLauncherDetail(bin)
 	check(launcherOK, false, "claude launcher", launcherDetail)
+	modsOK, modsDetail := modsLoadedDetail()
+	check(modsOK, false, "mods", modsDetail)
 	for _, c := range codex.CodexConfigChecks() {
 		check(c.State == "ok", false, c.Name, c.Detail)
 	}

@@ -1,6 +1,7 @@
 package doctor
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -20,11 +21,42 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
 // detectBrowsers reads the host's browsers; a var so tests never wait on the real powershell.exe under WSL.
 var detectBrowsers = func() (browser.Report, error) { return browser.DetectDefault(browser.NewEnv()) }
+
+// modsLoadedDetail names template CLAUDE_CODE_PLUGIN_DIRS entries the user's settings.json env lacks.
+func modsLoadedDetail() (bool, string) {
+	want := pluginDirs(settings.Template())
+	var user []byte
+	if b, err := os.ReadFile(settings.SettingsFile()); err == nil { // a missing file sets no dirs
+		user = b
+	}
+	have := pluginDirs(user)
+	var missing []string
+	for _, d := range want {
+		if !slices.Contains(have, d) {
+			missing = append(missing, d)
+		}
+	}
+	if len(missing) == 0 {
+		return true, "every template mod is in CLAUDE_CODE_PLUGIN_DIRS"
+	}
+	return false, "settings.json env.CLAUDE_CODE_PLUGIN_DIRS lacks " + strings.Join(missing, ", ") +
+		` (set it to "` + strings.Join(want, string(filepath.ListSeparator)) + `", then /reload-plugins)`
+}
+
+// pluginDirs reads env.CLAUDE_CODE_PLUGIN_DIRS from a settings document; none when it is absent or unparsable.
+func pluginDirs(doc []byte) []string {
+	var d struct {
+		Env map[string]string `json:"env"`
+	}
+	_ = json.Unmarshal(doc, &d) // an unparsable file names no dirs
+	return filepath.SplitList(d.Env["CLAUDE_CODE_PLUGIN_DIRS"])
+}
 
 // strayClaudeJSON flags ~/.claude/.claude.json, which claude reads instead of ~/.claude.json under CLAUDE_CONFIG_DIR.
 func strayClaudeJSON() (ok bool, detail string) {

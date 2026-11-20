@@ -118,7 +118,10 @@ with a top-level `harness_spawn` in the payload: `"ready"` plus `session_id` wri
 (`state/harness/hooks/spawn-mod-ready/<session>`, ignored after 7 days) and prints `{}`; `"query"` plus the Agent
 fields prints one object of the changed `description`, `prompt`, `subagentType`, `model` and `notes`, claiming and
 stamping nothing (no recall). With the marker, PreToolUse emits no `updatedInput`: each decision is a note, recall too;
-denials are unchanged.
+denials are unchanged, and a `coworker:<agent>` retype stays a hook `updatedInput` (the host validates the type
+before `agent.spawn`). The mod is `mods/dispatch-spawn` (`claude plugin test mods/dispatch-spawn`), loaded with
+`slash-usage` by `CLAUDE_CODE_PLUGIN_DIRS` (`internal/settings/template.json`; `doctor` row `mods` flags a
+settings.json without it); without it (other CLIs, `claude -p`) no marker exists and the hook rewrites as before.
 
 ### safety-scan main-session rules
 

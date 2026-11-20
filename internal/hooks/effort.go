@@ -74,6 +74,12 @@ func effortFor(ctx context.Context, in *core.Input, mode spawnMode) core.Result 
 	if deny != nil {
 		return *deny
 	}
+	if fixType != "" && mode == modeDeferred {
+		mode = modeToday // the host validates the type before agent.spawn, so only this hook can retype
+	}
+	if fixType != "" && mode == modeQuery {
+		fixType = "" // the mod only sees a type the host already accepted
+	}
 	// updatedInput REPLACES the whole tool_input record, so every original key must be echoed back.
 	updated := in.CloneToolInput()
 	if updated == nil {

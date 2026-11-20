@@ -26,7 +26,7 @@ Claude Code reads these source files directly; external CLI projections refresh 
 | `skills/<name>/SKILL.md` | On-demand references. Untracked skill dirs are the user's own (symlinks into `~/.agents`) — leave them. `skills/synced/` = claude.ai account skills, re-downloaded each sync; edit them on claude.ai |
 | `plans/` | Implementation plans (native `plansDirectory`), gitignored: this repo's at the top, others' under `plans/<repo-slug>/` |
 | `memory/` | The one memory store, a local-only git repo, one bank for every workspace, no repo keys; `MEMORY.md` and `index.md` are generated, never hand-edit (`rules/workflows/memory-bank.md`) |
-| `container/` · `mods/` | Ubuntu harness image, podman (`make image\|image-audit\|image-shell`) · TypeScript plugins (`mods/slash-usage`; `mods/agents-band` is kept but not loaded) |
+| `container/` · `mods/` | Ubuntu harness image, podman (`make image\|image-audit\|image-shell`) · TypeScript plugins (`mods/slash-usage`, `mods/dispatch-spawn`; `mods/agents-band` is kept but not loaded) |
 | `~/worktrees/<repo>/<slug>` | Linked worktrees (`<repo>` = checkout dir without a leading dot: `~/worktrees/claude/`) |
 
 ## Hard rules (always on)

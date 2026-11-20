@@ -127,3 +127,19 @@ func TestSpawnMarkerExpires(t *testing.T) {
 		t.Fatalf("stale marker = %+v, want today's updatedInput", r)
 	}
 }
+
+// Fails without the retype carve-out: a marked coworker call would get notes only and the host would reject the type.
+func TestSpawnMarkerKeepsCoworkerRetype(t *testing.T) {
+	smHome(t)
+	call := func(session string) core.Result {
+		return smRun(strings.Replace(smPayload("", session), `"general-purpose"`, `"coworker:claude"`, 1))
+	}
+	smRun(`{"harness_spawn":"ready","session_id":"s-co"}`)
+	marked, today := call("s-co"), call("s-co-none")
+	if marked.UpdatedInput["subagent_type"] != "claude" || marked.UpdatedInput["subagent_type"] != today.UpdatedInput["subagent_type"] {
+		t.Fatalf("marked = %+v, today = %+v, want updatedInput retyped to claude", marked, today)
+	}
+	if strings.Contains(marked.Context, "applied at spawn") {
+		t.Fatalf("notes = %q, want no 'applied at spawn' for the retype", marked.Context)
+	}
+}
