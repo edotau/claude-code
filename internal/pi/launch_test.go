@@ -63,6 +63,24 @@ func TestInteractiveWireRefusesWithoutGuard(t *testing.T) {
 	}
 }
 
+func TestPreviewLeavesNoRunDirButLaunchKeepsIt(t *testing.T) {
+	route := testRoute(t, "databricks-claude-sonnet-5-5", true)
+	if _, _, err := (piEngine{}).Wire(agent.WithDryRun(t.Context()), route, nil); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := os.ReadDir(RunsDir("dbx")); len(left) != 0 {
+		t.Fatalf("a preview left run dirs: %v", left)
+	}
+	env, _, err := piEngine{}.Wire(t.Context(), route, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	g, _ := guardFromEnv(env)
+	if _, err := os.Stat(g.Path); err != nil {
+		t.Errorf("a real launch lost its run dir before exec: %v", err)
+	}
+}
+
 func TestInteractiveWireRefusesDirect(t *testing.T) {
 	if _, _, err := (piEngine{}).Wire(t.Context(), testRoute(t, "databricks-claude-sonnet-5-5", false), nil); err == nil {
 		t.Fatal("a direct launch must be refused")

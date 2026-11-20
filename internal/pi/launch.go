@@ -34,7 +34,12 @@ func interactiveWire(ctx context.Context, r agent.WireRoute) (env, argv []string
 	tools := strings.Join(guardTools(agent.RunOptions{ReadOnly: agent.IsReadOnly(ctx)}), ",")
 	env = append(env, guardToolsEnv+"="+tools)
 	g, _ := guardFromEnv(env)
-	fmt.Fprintf(agent.NoticeOut, "claude-code: pi guard %s tools=%s (builtin tools off)\n", g.Path, tools)
+	if agent.IsDryRun(ctx) {
+		remove() // a preview execs nothing, so its run dir would never be reaped
+		fmt.Fprintf(agent.NoticeOut, "claude-code: pi guard preview %s tools=%s (builtin tools off)\n", g.Path, tools)
+	} else {
+		fmt.Fprintf(agent.NoticeOut, "claude-code: pi guard %s tools=%s (builtin tools off)\n", g.Path, tools)
+	}
 	argv = append(interactiveArgv(), "--model", model, "--session-dir", filepath.Join(paths.StateDir(), "pi", "sessions"))
 	return env, append(append(argv, g.Argv()...), "--no-builtin-tools"), nil
 }
