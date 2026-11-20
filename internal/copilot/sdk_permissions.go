@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/shell"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
@@ -56,7 +56,7 @@ func withPermissions(o sdkOptions, next copilot.PermissionHandlerFunc) copilot.P
 }
 
 // ruleDecision rejects when o.Permissions refuses any group of calls; handled is false when next should decide.
-func ruleDecision(o sdkOptions, req copilot.PermissionRequest, groups [][]agent.Rule) (rpc.PermissionDecision, bool) {
+func ruleDecision(o sdkOptions, req copilot.PermissionRequest, groups [][]permission.Rule) (rpc.PermissionDecision, bool) {
 	if len(groups) == 0 && o.Permissions.Mode == "plan" && !readOnlyKinds[req.Kind()] && !isWebSearchMCP(req) {
 		feedback := "Refused by permissions.mode (plan): this request has no supported rule mapping; use a supported read tool."
 		return &rpc.PermissionDecisionReject{Feedback: &feedback}, true
@@ -71,9 +71,9 @@ func ruleDecision(o sdkOptions, req copilot.PermissionRequest, groups [][]agent.
 }
 
 // denialFeedback names the refused call, its deciding source and rule, and the repair the owner can replay.
-func denialFeedback(d agent.Denial) string {
+func denialFeedback(d permission.Denial) string {
 	by := d.Source
-	if d.Rule != (agent.Rule{}) {
+	if d.Rule != (permission.Rule{}) {
 		by += " " + d.Rule.String()
 	}
 	remedy := d.Remedy
@@ -84,32 +84,32 @@ func denialFeedback(d agent.Denial) string {
 }
 
 // refusedCall is the call a Deny names in group, else group[0] when none is allowed (plan passes reads unless denied).
-func refusedCall(p agent.Permissions, req copilot.PermissionRequest, group []agent.Rule) (agent.Rule, bool) {
+func refusedCall(p permission.Permissions, req copilot.PermissionRequest, group []permission.Rule) (permission.Rule, bool) {
 	for _, call := range group {
-		if (agent.Permissions{Deny: p.Deny}).Decide(call.Tool, call.Arg) == agent.Deny {
+		if (permission.Permissions{Deny: p.Deny}).Decide(call.Tool, call.Arg) == permission.Deny {
 			return call, true
 		}
 	}
-	if slices.ContainsFunc(group, func(c agent.Rule) bool { return p.Decide(c.Tool, c.Arg) != agent.Deny }) {
-		return agent.Rule{}, false
+	if slices.ContainsFunc(group, func(c permission.Rule) bool { return p.Decide(c.Tool, c.Arg) != permission.Deny }) {
+		return permission.Rule{}, false
 	}
 	if p.Mode == "plan" && (readOnlyKinds[req.Kind()] || isWebSearchMCP(req)) {
-		return agent.Rule{}, false
+		return permission.Rule{}, false
 	}
 	return group[0], true
 }
 
 // ruleCalls are the Tool(arg) names a request is judged as: Deny on any spelling refuses, Allow on any grants.
-func ruleCalls(req copilot.PermissionRequest, workDir string) [][]agent.Rule {
+func ruleCalls(req copilot.PermissionRequest, workDir string) [][]permission.Rule {
 	switch r := requestValue(req).(type) {
 	case rpc.PermissionRequestShell:
-		return [][]agent.Rule{{{Tool: "Bash", Arg: r.FullCommandText}}}
+		return [][]permission.Rule{{{Tool: "Bash", Arg: r.FullCommandText}}}
 	case rpc.PermissionRequestWrite:
-		return [][]agent.Rule{pathCalls([]string{"Edit", "Write"}, workDir, r.FileName)}
+		return [][]permission.Rule{pathCalls([]string{"Edit", "Write"}, workDir, r.FileName)}
 	case rpc.PermissionRequestRead:
-		return [][]agent.Rule{pathCalls([]string{"Read"}, workDir, r.Path)}
+		return [][]permission.Rule{pathCalls([]string{"Read"}, workDir, r.Path)}
 	case rpc.PermissionRequestURL:
-		return [][]agent.Rule{{{Tool: "WebFetch", Arg: r.URL}}}
+		return [][]permission.Rule{{{Tool: "WebFetch", Arg: r.URL}}}
 	case rpc.PermissionRequestMCP:
 		return mcpCalls(r.ServerName, r.ToolName)
 	}
@@ -117,15 +117,15 @@ func ruleCalls(req copilot.PermissionRequest, workDir string) [][]agent.Rule {
 }
 
 // pathCalls is path under each tool name, as given and (when inside workDir) workdir-relative.
-func pathCalls(tools []string, workDir, path string) []agent.Rule {
+func pathCalls(tools []string, workDir, path string) []permission.Rule {
 	args := []string{path}
 	if rel := relToWorkDir(workDir, path); rel != path {
 		args = append(args, rel)
 	}
-	var calls []agent.Rule
+	var calls []permission.Rule
 	for _, tool := range tools {
 		for _, arg := range args {
-			calls = append(calls, agent.Rule{Tool: tool, Arg: arg})
+			calls = append(calls, permission.Rule{Tool: tool, Arg: arg})
 		}
 	}
 	return calls
@@ -149,8 +149,8 @@ func requestValue(req copilot.PermissionRequest) any {
 }
 
 // mcpCalls are Claude Code's MCP rule names for one tool: mcp__<server>__<tool> and the server-wide mcp__<server>.
-func mcpCalls(server, tool string) [][]agent.Rule {
-	return [][]agent.Rule{{{Tool: "mcp__" + server + "__" + tool}}, {{Tool: "mcp__" + server}}}
+func mcpCalls(server, tool string) [][]permission.Rule {
+	return [][]permission.Rule{{{Tool: "mcp__" + server + "__" + tool}}, {{Tool: "mcp__" + server}}}
 }
 
 // relToWorkDir is p relative to workDir when inside it, else p unchanged.
@@ -218,7 +218,7 @@ func approveReadOnly(req copilot.PermissionRequest, inv copilot.PermissionInvoca
 
 // readOnlyCommand reports a shell command the read-only tier may run: a read-only git or a vetted shell command.
 func readOnlyCommand(cmd string) bool {
-	return shell.ReadOnlyGit(cmd) || agent.ReadOnlyShell(cmd)
+	return shell.ReadOnlyGit(cmd) || permission.ReadOnlyShell(cmd)
 }
 
 // approveToolOnce is the explicit opt-in; managed org settings still win.
@@ -230,7 +230,7 @@ func approveToolOnce(_ copilot.PermissionRequest, inv copilot.PermissionInvocati
 }
 
 // DecideCall is the SDK handler's verdict (allow, deny or ask) for one Tool(arg) call, for the doctor report.
-func DecideCall(p agent.Permissions, readOnly bool, workDir, tool, arg string) string {
+func DecideCall(p permission.Permissions, readOnly bool, workDir, tool, arg string) string {
 	var req copilot.PermissionRequest
 	switch tool {
 	case "Bash":

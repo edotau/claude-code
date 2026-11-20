@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/permission"
 	copilot "github.com/github/copilot-sdk/go"
 	"github.com/github/copilot-sdk/go/rpc"
 )
@@ -19,7 +19,7 @@ type permCase struct {
 }
 
 // policyVerdict evaluates a rule call through baseHandler.
-func policyVerdict(p agent.Permissions, tools, readOnly bool, workDir string, call agent.Rule) agent.Decision {
+func policyVerdict(p permission.Permissions, tools, readOnly bool, workDir string, call permission.Rule) permission.Decision {
 	o := sdkOptions{Permissions: p, AllowAllTools: tools, ReadOnlyTools: readOnly, WorkingDirectory: workDir}
 	var req copilot.PermissionRequest
 	switch call.Tool {
@@ -37,48 +37,48 @@ func policyVerdict(p agent.Permissions, tools, readOnly bool, workDir string, ca
 	}
 	d, _ := baseHandler(o)(req, copilot.PermissionInvocation{})
 	if _, rejected := d.(*rpc.PermissionDecisionReject); rejected {
-		return agent.Deny
+		return permission.Deny
 	}
-	return agent.Allow
+	return permission.Allow
 }
 
 func TestPolicyVerdict(t *testing.T) {
 	wd := t.TempDir()
-	calls := []agent.Rule{
+	calls := []permission.Rule{
 		{Tool: "Bash", Arg: "git status"}, {Tool: "Bash", Arg: "rm victim"},
 		{Tool: "Edit", Arg: filepath.Join(wd, "secret", "k")},
 		{Tool: "Read", Arg: filepath.Join(wd, "secret", "k")},
 		{Tool: "WebFetch", Arg: "https://example.com"},
 		{Tool: "mcp__web_search__web_search"}, {Tool: "mcp__github__create_issue"},
 	}
-	deny := []agent.Rule{
+	deny := []permission.Rule{
 		{Tool: "Bash"}, {Tool: "Edit", Arg: "secret/**"}, {Tool: "Read", Arg: "secret/**"},
 		{Tool: "WebFetch", Arg: "domain:example.com"},
 		{Tool: "mcp__web_search"}, {Tool: "mcp__github__create_issue"},
 	}
 	for _, tc := range []struct {
 		name     string
-		policy   agent.Permissions
+		policy   permission.Permissions
 		tools    bool
 		readOnly bool
 		want     string
 	}{
-		{"zero", agent.Permissions{}, true, false, "AAAAAAA"},
-		{"deny", agent.Permissions{Deny: deny}, true, false, "DDDDDDD"},
-		{"ask", agent.Permissions{Ask: deny}, true, false, "AAAAAAA"},
-		{"allow unmatched", agent.Permissions{Allow: []agent.Rule{{Tool: "Read"}}}, true, false, "AAAAAAA"},
-		{"auto", agent.Permissions{Mode: "auto"}, true, false, "AAAAAAA"},
-		{"plan", agent.Permissions{Mode: "plan"}, true, false, "DDDAAAD"},
-		{"plan explicit deny", agent.Permissions{Mode: "plan", Deny: deny}, true, false, "DDDDDDD"},
-		{"read only", agent.Permissions{}, true, true, "ADDAAAD"},
-		{"tools off", agent.Permissions{}, false, false, "DDDDDDD"},
-		{"tools off read only", agent.Permissions{}, false, true, "DDDDDDD"},
+		{"zero", permission.Permissions{}, true, false, "AAAAAAA"},
+		{"deny", permission.Permissions{Deny: deny}, true, false, "DDDDDDD"},
+		{"ask", permission.Permissions{Ask: deny}, true, false, "AAAAAAA"},
+		{"allow unmatched", permission.Permissions{Allow: []permission.Rule{{Tool: "Read"}}}, true, false, "AAAAAAA"},
+		{"auto", permission.Permissions{Mode: "auto"}, true, false, "AAAAAAA"},
+		{"plan", permission.Permissions{Mode: "plan"}, true, false, "DDDAAAD"},
+		{"plan explicit deny", permission.Permissions{Mode: "plan", Deny: deny}, true, false, "DDDDDDD"},
+		{"read only", permission.Permissions{}, true, true, "ADDAAAD"},
+		{"tools off", permission.Permissions{}, false, false, "DDDDDDD"},
+		{"tools off read only", permission.Permissions{}, false, true, "DDDDDDD"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			for i, call := range calls {
-				want := agent.Deny
+				want := permission.Deny
 				if tc.want[i] == 'A' {
-					want = agent.Allow
+					want = permission.Allow
 				}
 				if got := policyVerdict(tc.policy, tc.tools, tc.readOnly, wd, call); got != want {
 					t.Errorf("%s: got %v, want %v", call, got, want)
@@ -179,8 +179,8 @@ func TestReadOnlyGitShell(t *testing.T) {
 
 func TestPermissionsDecideInHandler(t *testing.T) {
 	wd := t.TempDir()
-	perms := agent.Permissions{
-		Deny: []agent.Rule{{Tool: "Bash", Arg: "rm *"}, {Tool: "Edit", Arg: "secret/**"}},
+	perms := permission.Permissions{
+		Deny: []permission.Rule{{Tool: "Bash", Arg: "rm *"}, {Tool: "Edit", Arg: "secret/**"}},
 	}
 	h := buildSessionConfig(sdkOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: perms}).OnPermissionRequest
 	for _, tc := range []struct {
@@ -213,7 +213,7 @@ func TestPermissionsDecideInHandler(t *testing.T) {
 
 func TestPlanModeLetsReadsThrough(t *testing.T) {
 	wd := t.TempDir()
-	perms := agent.Permissions{Mode: "plan", Deny: []agent.Rule{{Tool: "Read", Arg: "secret/**"}}}
+	perms := permission.Permissions{Mode: "plan", Deny: []permission.Rule{{Tool: "Read", Arg: "secret/**"}}}
 	h := buildSessionConfig(sdkOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: perms}).OnPermissionRequest
 	for _, tc := range []struct {
 		name string
@@ -283,11 +283,11 @@ func TestToolsTierDenyRejectsFormerlyScoped(t *testing.T) {
 			// memory maps to no rule tool, so no Deny can name it
 			continue
 		}
-		r, err := agent.ParseRule(tc.deny)
+		r, err := permission.ParseRule(tc.deny)
 		if err != nil {
 			t.Fatal(err)
 		}
-		o := sdkOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: agent.Permissions{Deny: []agent.Rule{r}}}
+		o := sdkOptions{AllowAllTools: true, WorkingDirectory: wd, Permissions: permission.Permissions{Deny: []permission.Rule{r}}}
 		d, err := buildSessionConfig(o).OnPermissionRequest(tc.req, copilot.PermissionInvocation{})
 		if _, ok := d.(*rpc.PermissionDecisionReject); err != nil || !ok {
 			t.Errorf("%s under Deny %s: decision %T, err %v; want Reject", tc.name, tc.deny, d, err)
@@ -301,15 +301,15 @@ func TestPlanModeWebSearchMCP(t *testing.T) {
 	for _, tc := range []struct {
 		name string
 		req  copilot.PermissionRequest
-		deny []agent.Rule
+		deny []permission.Rule
 		want bool
 	}{
 		{"web search approved", search, nil, true},
 		{"web search pointer approved", &search, nil, true},
 		{"other server rejected", rpc.PermissionRequestMCP{ServerName: "github", ToolName: "web_search"}, nil, false},
-		{"denied web search rejected", search, []agent.Rule{{Tool: "mcp__" + webSearchServer}}, false},
+		{"denied web search rejected", search, []permission.Rule{{Tool: "mcp__" + webSearchServer}}, false},
 	} {
-		perms := agent.Permissions{Mode: "plan", Deny: tc.deny}
+		perms := permission.Permissions{Mode: "plan", Deny: tc.deny}
 		h := buildSessionConfig(sdkOptions{AllowAllTools: true, Permissions: perms}).OnPermissionRequest
 		d, err := h(tc.req, copilot.PermissionInvocation{})
 		if err != nil {
@@ -325,20 +325,20 @@ func TestPlanModeWebSearchMCP(t *testing.T) {
 func TestWriteAndAbsolutePathRules(t *testing.T) {
 	wd := t.TempDir()
 	abs := filepath.Join(wd, "src", "a.go")
-	rule := func(tool, arg string) []agent.Rule { return []agent.Rule{{Tool: tool, Arg: arg}} }
+	rule := func(tool, arg string) []permission.Rule { return []permission.Rule{{Tool: tool, Arg: arg}} }
 	for _, tc := range []struct {
 		name  string
-		perms agent.Permissions
+		perms permission.Permissions
 		want  bool
 	}{
-		{"plan allow Write rel", agent.Permissions{Mode: "plan", Allow: rule("Write", "src/**")}, true},
-		{"plan allow Edit rel", agent.Permissions{Mode: "plan", Allow: rule("Edit", "src/**")}, true},
-		{"plan allow abs", agent.Permissions{Mode: "plan", Allow: rule("Edit", wd+"/src/**")}, true},
-		{"plan unmatched", agent.Permissions{Mode: "plan", Allow: rule("Write", "other/**")}, false},
-		{"deny Write", agent.Permissions{Deny: rule("Write", "src/**")}, false},
-		{"deny Edit", agent.Permissions{Deny: rule("Edit", "src/**")}, false},
-		{"deny abs", agent.Permissions{Deny: rule("Edit", wd+"/src/**")}, false},
-		{"deny wins over allow", agent.Permissions{Allow: rule("Write", "src/**"), Deny: rule("Edit", wd+"/src/**")}, false},
+		{"plan allow Write rel", permission.Permissions{Mode: "plan", Allow: rule("Write", "src/**")}, true},
+		{"plan allow Edit rel", permission.Permissions{Mode: "plan", Allow: rule("Edit", "src/**")}, true},
+		{"plan allow abs", permission.Permissions{Mode: "plan", Allow: rule("Edit", wd+"/src/**")}, true},
+		{"plan unmatched", permission.Permissions{Mode: "plan", Allow: rule("Write", "other/**")}, false},
+		{"deny Write", permission.Permissions{Deny: rule("Write", "src/**")}, false},
+		{"deny Edit", permission.Permissions{Deny: rule("Edit", "src/**")}, false},
+		{"deny abs", permission.Permissions{Deny: rule("Edit", wd+"/src/**")}, false},
+		{"deny wins over allow", permission.Permissions{Allow: rule("Write", "src/**"), Deny: rule("Edit", wd+"/src/**")}, false},
 	} {
 		h := buildSessionConfig(sdkOptions{AllowAllTools: true, Permissions: tc.perms, WorkingDirectory: wd}).OnPermissionRequest
 		d, err := h(writeReq(abs), copilot.PermissionInvocation{})
@@ -377,10 +377,10 @@ func TestReadOnlySimplifyDetector(t *testing.T) {
 }
 
 func TestPermissionRemedyResume(t *testing.T) {
-	call := agent.Rule{Tool: "Bash", Arg: "make lint"}
-	o := sdkOptions{AllowAllTools: true, SessionID: "same-session", Permissions: agent.Permissions{Mode: "plan"}}
+	call := permission.Rule{Tool: "Bash", Arg: "make lint"}
+	o := sdkOptions{AllowAllTools: true, SessionID: "same-session", Permissions: permission.Permissions{Mode: "plan"}}
 	req := rpc.PermissionRequestShell{FullCommandText: call.Arg}
-	o.Permissions.Allow = []agent.Rule{remedyRule(t, o, call, req)}
+	o.Permissions.Allow = []permission.Rule{remedyRule(t, o, call, req)}
 	h := buildResumeSessionConfig(o).OnPermissionRequest
 	for _, managed := range []bool{false, true} {
 		d, err := h(req, copilot.PermissionInvocation{ManagedSettingsEnabled: managed})
@@ -390,7 +390,7 @@ func TestPermissionRemedyResume(t *testing.T) {
 			t.Fatalf("resumed managed=%v: %T, err %v", managed, d, err)
 		}
 	}
-	o.Permissions.Deny = []agent.Rule{call}
+	o.Permissions.Deny = []permission.Rule{call}
 	d, err := buildResumeSessionConfig(o).OnPermissionRequest(req, copilot.PermissionInvocation{ManagedSettingsEnabled: true})
 	rejected, ok := d.(*rpc.PermissionDecisionReject)
 	if err != nil || !ok || rejected.Feedback == nil || strings.Contains(*rejected.Feedback, "--allow") ||
@@ -400,7 +400,7 @@ func TestPermissionRemedyResume(t *testing.T) {
 }
 
 // remedyRule rejects req under o's plan mode and returns the exact allow rule parsed from the rejection's feedback.
-func remedyRule(t *testing.T, o sdkOptions, call agent.Rule, req rpc.PermissionRequestShell) agent.Rule {
+func remedyRule(t *testing.T, o sdkOptions, call permission.Rule, req rpc.PermissionRequestShell) permission.Rule {
 	t.Helper()
 	d, err := buildSessionConfig(o).OnPermissionRequest(req, copilot.PermissionInvocation{})
 	rejected, ok := d.(*rpc.PermissionDecisionReject)
@@ -416,7 +416,7 @@ func remedyRule(t *testing.T, o sdkOptions, call agent.Rule, req rpc.PermissionR
 	if !found {
 		t.Fatal("feedback has no exact allow flag")
 	}
-	rule, err := agent.ParseRule(strings.TrimSuffix(quoted, "'"))
+	rule, err := permission.ParseRule(strings.TrimSuffix(quoted, "'"))
 	if err != nil || rule != call {
 		t.Fatalf("repair = %v, err %v; want %v", rule, err, call)
 	}
@@ -429,7 +429,7 @@ func TestPermissionAskAndToolsOffResume(t *testing.T) {
 		rpc.PermissionRequestRead{Path: "a.go"}, rpc.PermissionRequestWrite{FileName: "a.go"},
 		rpc.PermissionRequestMCP{ServerName: "github", ToolName: "create_issue"}, rpc.PermissionRequestMemory{},
 	}
-	o := sdkOptions{AllowAllTools: true, Permissions: agent.Permissions{Ask: []agent.Rule{{Tool: "Bash"}}}}
+	o := sdkOptions{AllowAllTools: true, Permissions: permission.Permissions{Ask: []permission.Rule{{Tool: "Bash"}}}}
 	for _, tools := range []bool{true, false} {
 		o.AllowAllTools = tools
 		cfg := buildResumeSessionConfig(o)

@@ -18,6 +18,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/permission"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -56,7 +57,7 @@ type sdkOptions struct {
 	// with AllowAllTools: approve only file reads and URL fetches
 	ReadOnlyTools bool
 	// with AllowAllTools: Deny rejects; anything else falls to the tier
-	Permissions agent.Permissions
+	Permissions permission.Permissions
 	// always explicit: unset, the SDK silently falls back to the GitHub subscription
 	UseLoggedInUser bool
 	GitHubToken     string
@@ -514,7 +515,11 @@ func sdkAsk(ctx context.Context, o sdkOptions, prompt string, images []string) (
 		}
 	}()
 
-	col := assistantCollector{log: wire.EventLogFor(ctx), onLimit: func(id string) { // cancel, or the headless turn waits on a user who is not there
+	ctx, stop := context.WithCancel(ctx)
+	defer stop()
+	idle := agent.NewIdleTimeout("copilot", agent.IdleLimitFor("copilot"), stop)
+	defer idle.Stop()
+	col := assistantCollector{idle: idle, log: wire.EventLogFor(ctx), onLimit: func(id string) { // cancel, or the headless turn waits on a user who is not there
 		cancel := rpc.UISessionLimitsExhaustedResponse{Action: rpc.UISessionLimitsExhaustedResponseActionCancel}
 		_, _ = session.RPC.UI.HandlePendingSessionLimitsExhausted(context.WithoutCancel(ctx),
 			&rpc.UIHandlePendingSessionLimitsExhaustedRequest{RequestID: id, Response: cancel})
@@ -523,6 +528,9 @@ func sdkAsk(ctx context.Context, o sdkOptions, prompt string, images []string) (
 	defer unsubscribe()
 
 	sendErr := sendPrompt(ctx, session, o, prompt, images)
+	if stall := idle.Err(); stall != nil {
+		sendErr = stall // the partial text and session id still ride back
+	}
 	text, model, usage := col.snapshot()
 	res := sdkResult{Text: text, SessionID: session.SessionID, Model: model, ToolRan: approved.Load(), Usage: usage}
 	res.FinishReason, res.ContentFiltered = col.finish()
@@ -547,6 +555,9 @@ type assistantCollector struct {
 	onLimit func(requestID string)
 	// live activity to the dispatch log: the SDK turn streams nothing else, so a working run looked silent
 	log wire.StreamLog
+	// kills a run silent past the limit; paused while a tool call is open
+	idle      *agent.IdleTimeout
+	openTools int
 }
 
 // limitError names the budgetCredits cap when the SDK reported it reached; nil otherwise.
@@ -564,6 +575,7 @@ func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
 	c.logLive(ev)
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	c.watch(ev)
 	root := ev.AgentID == nil || *ev.AgentID == "" // sub-agent text and model are not the answer; their usage is still billed
 	switch d := ev.Data.(type) {
 	case *copilot.AssistantMessageData:
@@ -581,6 +593,23 @@ func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
 		if root && d.Summary != nil {
 			c.summary = *d.Summary
 		}
+	}
+}
+
+// watch feeds the idle timeout: any event is a sign of life, a tool call holds the window off until the last one ends.
+func (c *assistantCollector) watch(ev copilot.SessionEvent) {
+	switch ev.Data.(type) {
+	case *copilot.ToolExecutionStartData:
+		c.openTools++
+		c.idle.Pause()
+		return
+	case *copilot.ToolExecutionCompleteData:
+		c.openTools = max(c.openTools-1, 0)
+	case *copilot.AssistantMessageData:
+		c.idle.Spoke()
+	}
+	if c.openTools == 0 {
+		c.idle.Beat(string(ev.Type()))
 	}
 }
 

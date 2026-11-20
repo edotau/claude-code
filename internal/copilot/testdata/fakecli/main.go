@@ -47,6 +47,9 @@ func serve(in io.Reader, out io.Writer) {
 			send(map[string]any{"jsonrpc": "2.0", "id": req.ID, "error": map[string]any{"code": -32000, "message": errMsg}})
 			continue
 		}
+		if req.Method == "session.sendAndWait" && os.Getenv("FAKECLI_SILENT") != "" {
+			continue // never answers: the idle watch must kill the run
+		}
 		// the turn's events precede the result naming its idle event
 		if req.Method == "session.sendAndWait" {
 			res["completionEventId"] = sendTurn(send, req.Params)
