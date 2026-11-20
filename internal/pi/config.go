@@ -69,7 +69,7 @@ func NewRunDir(profile string) (dir string, remove func(), err error) {
 	return dir, func() { _ = os.RemoveAll(dir) }, nil
 }
 
-// pickWire is the Pi wire for a model: Responses where p serves it, else chat; Claude keeps anthropic.
+// pickWire is the Pi wire for a model: Responses where p serves it, else chat (a Responses-only model is dropped).
 // Grok accepts Responses but Databricks does not stream it, so it goes to chat.
 func pickWire(p *providers.Provider, wire string) (string, bool) {
 	has := func(d string) bool { _, ok := p.Route(d); return ok }
@@ -79,6 +79,8 @@ func pickWire(p *providers.Provider, wire string) (string, bool) {
 	case models.FamilyKind(wire) != models.FamilyClaude && !strings.HasPrefix(models.ModelKey(wire), "grok") &&
 		providers.ResponsesServable(p, wire) && has(providers.ProtocolResponses):
 		return providers.ProtocolResponses, true
+	case models.ResponsesOnly(wire):
+		return providers.ProtocolResponses, false
 	}
 	return providers.ProtocolOpenAI, has(providers.ProtocolOpenAI)
 }

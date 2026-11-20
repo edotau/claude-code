@@ -147,15 +147,17 @@ func TestParseEventsOverflowRecoverySettlesAtAgentSettled(t *testing.T) {
 func TestParseEventsRunMustFinishProperly(t *testing.T) {
 	text := `{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"partial"}}` + "\n"
 	for name, c := range map[string]struct{ data, want string }{
-		"cut after toolUse":      {text + msgEnd("toolUse", "") + `{"type":"tool_execution_start","toolCallId":"c1","toolName":"read"}` + "\n", "ended before finishing"},
-		"tool left open":         {text + msgEnd("stop", "") + `{"type":"tool_execution_start","toolCallId":"c1","toolName":"read"}` + "\n" + settled, "tool call running"},
-		"stop but never settled": {text + msgEnd("stop", ""), "ended before finishing"},
-		"malformed last line":    {text + msgEnd("stop", "") + `{"type":"agent_set`, "ended before finishing"},
-		"aborted stop":           {text + msgEnd("aborted", "") + settled, "aborted"},
-		"length stop":            {text + msgEnd("length", "") + settled, "truncated"},
-		"unknown stop":           {text + msgEnd("brand-new", "") + settled, "unfinished stop reason"},
-		"settled on toolUse":     {text + msgEnd("toolUse", "") + settled, "tool call pending"},
-		"settled aborted":        {text + msgEnd("stop", "") + `{"type":"agent_settled","aborted":true}` + "\n", "run aborted"},
+		"cut after toolUse":         {text + msgEnd("toolUse", "") + `{"type":"tool_execution_start","toolCallId":"c1","toolName":"read"}` + "\n", "ended before finishing"},
+		"tool left open":            {text + msgEnd("stop", "") + `{"type":"tool_execution_start","toolCallId":"c1","toolName":"read"}` + "\n" + settled, "tool call running"},
+		"stop but never settled":    {text + msgEnd("stop", ""), "ended before finishing"},
+		"malformed last line":       {text + msgEnd("stop", "") + `{"type":"agent_set`, "ended before finishing"},
+		"aborted stop":              {text + msgEnd("aborted", "") + settled, "aborted"},
+		"length stop":               {text + msgEnd("length", "") + settled, "truncated"},
+		"unknown stop":              {text + msgEnd("brand-new", "") + settled, "unfinished stop reason"},
+		"settled on toolUse":        {text + msgEnd("toolUse", "") + settled, "tool call pending"},
+		"tool opened after settled": {text + msgEnd("stop", "") + settled + `{"type":"tool_execution_start","toolCallId":"c1","toolName":"read"}` + "\n", "ended before finishing"},
+		"toolUse after settled":     {text + msgEnd("stop", "") + settled + msgEnd("toolUse", ""), "ended before finishing"},
+		"settled aborted":           {text + msgEnd("stop", "") + `{"type":"agent_settled","aborted":true}` + "\n", "run aborted"},
 	} {
 		res, _, _, err := parseFixture(t, c.data)
 		if err == nil || !strings.Contains(err.Error(), c.want) {

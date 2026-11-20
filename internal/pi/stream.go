@@ -110,6 +110,10 @@ func isMeaningful(ev piEvent) bool {
 
 func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 	switch ev.Type {
+	case "message_update", "message_end", "tool_execution_start", "auto_retry_start":
+		t.finished = false // work after agent_settled voids that judgment; only a later agent_settled settles the run
+	}
+	switch ev.Type {
 	case "session":
 		t.res.SessionID = ev.ID
 		return t.sink.Emit(wire.Event{Type: wire.EventStart, SessionID: ev.ID})

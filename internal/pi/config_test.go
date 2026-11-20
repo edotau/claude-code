@@ -105,6 +105,14 @@ func TestBuildConfigRoutelessWire(t *testing.T) {
 	}
 }
 
+func TestPickWireDropsResponsesOnlyWithoutRoute(t *testing.T) {
+	p := testProvider(t)
+	delete(p.Routes, providers.ProtocolResponses)
+	if w, ok := pickWire(p, "databricks-gpt-6-1-sol"); ok || w != providers.ProtocolResponses {
+		t.Errorf("responses-only model kept on %q (ok=%v), want dropped", w, ok)
+	}
+}
+
 func TestRunDirsAreIsolated(t *testing.T) {
 	vaulttest.Use(t)
 	a, rmA, err := NewRunDir("dbx")
