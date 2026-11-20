@@ -326,12 +326,13 @@ func checkAgent(name string) error {
 // Row is one background-job line for `claude-code agents status`.
 type Row struct {
 	ID       string
-	Status   string // running | lost | ok | error (lost = running record, dead pid)
+	Status   string // running | lost | ok | error | partial | stalled | quota (lost = running record, dead pid)
 	Elapsed  string
 	Preview  string
 	Session  string
 	Error    string `json:",omitempty"` // the failed dispatch's redacted error text
 	Progress string `json:",omitempty"` // "part 2/3" while a split review runs
+	Cutoff   string `json:",omitempty"` // how a cut-off run ended: deadline, stall, idle, cancelled, auth-retry
 
 	Parent string      `json:"parent,omitempty"`
 	Depth  int         `json:"depth,omitempty"`
@@ -412,6 +413,9 @@ func ObservedLine(rec Record) string {
 // Detail is a status row's tail: progress and preview, or the preview plus the one-line error text.
 func (r Row) Detail() string {
 	d := r.Preview
+	if r.Cutoff != "" {
+		d = "(" + r.Cutoff + ") " + d
+	}
 	if r.Progress != "" {
 		d = "[" + r.Progress + "] " + d
 	}
@@ -502,7 +506,7 @@ func toRow(r Record) Row {
 	}
 	preview := textutil.PreviewRedacted(r.Request.Prompt, 60)
 	return Row{ID: r.ID, Status: status, Elapsed: elapsed, Preview: preview, Session: r.SessionID,
-		Error: textutil.RedactSecrets(r.Error), Progress: r.Progress,
+		Error: textutil.RedactSecrets(r.Error), Progress: r.Progress, Cutoff: r.Cutoff,
 		Parent: r.Parent, Depth: r.Depth, Usage: r.Usage}
 }
 

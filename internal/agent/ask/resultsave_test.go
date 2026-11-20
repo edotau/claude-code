@@ -98,3 +98,11 @@ func TestSaveResultMasksVaultValue(t *testing.T) {
 		t.Fatalf("saved result = %q, want the value masked at its own length", saved)
 	}
 }
+
+func TestResultTextShowsCutoff(t *testing.T) {
+	t.Setenv("HARNESS_STATE_DIR", t.TempDir())
+	text := resultText(agent.Record{ID: "x-codex", Agent: "codex", Status: "stalled", Cutoff: "deadline", Error: "cut off"}, "")
+	if !strings.Contains(text, "cutoff: deadline (stalled)\n") {
+		t.Errorf("result text = %q, want a cutoff line", text)
+	}
+}

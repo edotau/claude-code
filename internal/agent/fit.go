@@ -27,7 +27,7 @@ func FitOutcomes(recs []Record) []catalog.Outcome {
 
 func fitOutcome(r Record) (catalog.Outcome, bool) {
 	ok := r.Status == "ok"
-	if !ok && (r.Status != "error" || r.FailKind != FailQuality) {
+	if !ok && (!r.Failed() || r.FailKind != FailQuality) {
 		return catalog.Outcome{}, false
 	}
 	alias, _ := TaskTier(r.Request.Prompt)

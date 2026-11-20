@@ -38,3 +38,16 @@ func TestAutoLabelFitShadow(t *testing.T) {
 		t.Errorf("shadow choice: %v (%v), want %q unchanged plus the fit score", ac, err, bc.Reason())
 	}
 }
+
+// A partial run that blamed the model counts as a quality failure, as its error record did; a stall does not.
+func TestFitOutcomeCountsPartialQuality(t *testing.T) {
+	rec := Record{Time: time.Now(), Agent: "claude", Status: "partial", FailKind: FailQuality, Model: "claude-sonnet-5-5",
+		Request: RunOptions{Prompt: "Tier: standard\nAdd a flag."}}
+	if _, ok := fitOutcome(rec); !ok {
+		t.Error("partial quality failure not counted")
+	}
+	rec.Status, rec.FailKind = "stalled", FailAvailability
+	if _, ok := fitOutcome(rec); ok {
+		t.Error("stalled availability failure counted")
+	}
+}

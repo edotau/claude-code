@@ -173,7 +173,7 @@ func CancelJob(prefix, agentName, ref, format string) int {
 
 // resultExit reports a failed job's error on stderr and returns 1; a finished ok job returns 0.
 func resultExit(rec agent.Record) int {
-	if rec.Status != "error" {
+	if !rec.Failed() {
 		return 0
 	}
 	fmt.Fprintf(os.Stderr, "error: %s\n", redact.Text(textutil.RedactSecrets(rec.Error))) // the stderr tail in it may carry a key

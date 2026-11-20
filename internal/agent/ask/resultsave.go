@@ -31,6 +31,9 @@ func resultText(rec agent.Record, log string) string {
 	if line := agent.ObservedLine(rec); line != "" {
 		fmt.Fprintln(&b, line)
 	}
+	if rec.Cutoff != "" {
+		fmt.Fprintf(&b, "cutoff: %s (%s)\n", rec.Cutoff, rec.Status)
+	}
 	if rec.SessionID != "" {
 		fmt.Fprintf(&b, "session: %s\n", rec.SessionID)
 		fprintResumeHint(&b, rec.Agent, rec.SessionID)

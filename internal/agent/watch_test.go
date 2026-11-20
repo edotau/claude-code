@@ -314,3 +314,20 @@ func TestStaleJobJSONCarriesLineage(t *testing.T) {
 		t.Errorf("top-level json gained keys: %s", tb)
 	}
 }
+
+// A log kept fresh only by heartbeat lines does not hide a hung child: its signal is the last real output.
+func TestLastSignalIgnoresHeartbeatLines(t *testing.T) {
+	r := watchRec(t, "running", "p", time.Hour, 0)
+	beat := "▸ heartbeat: codex still running, no output for 30s\n"
+	if err := os.WriteFile(r.Log, []byte("working on it\n"+strings.Repeat(beat, 4)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	mt := watchT0
+	if err := os.Chtimes(r.Log, mt, mt); err != nil {
+		t.Fatal(err)
+	}
+	at, source := LastSignal(r)
+	if want := mt.Add(-4 * heartbeatEvery); !at.Equal(want) || source != "log" {
+		t.Errorf("LastSignal = %v %q, want %v log (four heartbeats discounted)", at, source, want)
+	}
+}

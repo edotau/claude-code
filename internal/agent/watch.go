@@ -199,7 +199,7 @@ func classifyJob(r Record, now time.Time, lim WatchLimits, rel relayState) (Stal
 		return classifyRunning(r, now, lim, rel)
 	}
 	end := r.Time.Add(time.Duration(r.DurationMs) * time.Millisecond)
-	if !r.Background || r.Status == "error" && end.Sub(r.Time) < quickFailure {
+	if !r.Background || r.Failed() && end.Sub(r.Time) < quickFailure {
 		return StaleJob{}, false
 	}
 	if now.Sub(end) > collectHorizon || collected(r.ID) || rel.finished && !rel.at.Before(end) {
@@ -290,11 +290,50 @@ func collected(id string) bool {
 func LastSignal(r Record) (time.Time, string) {
 	at, source := r.Time, "record"
 	for _, c := range []struct{ path, name string }{{r.EventsPath(), "events"}, {r.LogPath(), "log"}} {
-		if info, err := os.Stat(c.path); err == nil && info.ModTime().After(at) {
-			at, source = info.ModTime(), c.name
+		info, err := os.Stat(c.path)
+		if err != nil {
+			continue
+		}
+		mt := info.ModTime()
+		if c.name == "log" { // heartbeat lines touch the log: the quiet they report is not output
+			mt = mt.Add(-time.Duration(heartbeatTail(c.path)) * heartbeatEvery)
+		}
+		if mt.After(at) {
+			at, source = mt, c.name
 		}
 	}
 	return at, source
+}
+
+// heartbeatTail counts the heartbeat lines that end the log, within its last logTailBytes.
+func heartbeatTail(path string) int {
+	b, err := tailBytes(path)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for _, l := range slices.Backward(strings.Split(strings.TrimRight(string(b), "\n"), "\n")) {
+		if !strings.HasPrefix(l, "▸ heartbeat:") {
+			break
+		}
+		n++
+	}
+	return n
+}
+
+// tailBytes is the last logTailBytes of the file at path.
+func tailBytes(path string) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	if info, err := f.Stat(); err == nil && info.Size() > logTailBytes {
+		if _, err := f.Seek(-logTailBytes, io.SeekEnd); err != nil {
+			return nil, err
+		}
+	}
+	return io.ReadAll(io.LimitReader(f, logTailBytes))
 }
 
 // logTailBytes bounds the log read for the last line.
@@ -302,17 +341,7 @@ const logTailBytes = 4096
 
 // lastLogLine is the log's last non-empty line, dropped when it holds a credential shape.
 func lastLogLine(path string) string {
-	f, err := os.Open(path)
-	if err != nil {
-		return ""
-	}
-	defer f.Close()
-	if info, err := f.Stat(); err == nil && info.Size() > logTailBytes {
-		if _, err := f.Seek(-logTailBytes, io.SeekEnd); err != nil {
-			return ""
-		}
-	}
-	b, err := io.ReadAll(io.LimitReader(f, logTailBytes))
+	b, err := tailBytes(path)
 	if err != nil {
 		return ""
 	}

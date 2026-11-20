@@ -505,3 +505,15 @@ func TestSendParentFilesTheLiteralNoteOrSaysNoDispatcher(t *testing.T) {
 		t.Errorf("no parent: code %d, want 0", code)
 	}
 }
+
+// A stalled, partial or quota job is a failure to `agents result`, like an error job.
+func TestResultExitFailsCutoffStatuses(t *testing.T) {
+	for _, st := range []string{"error", "stalled", "partial", "quota"} {
+		if rc := resultExit(agent.Record{Status: st, Error: "cut off"}); rc != 1 {
+			t.Errorf("status %q: rc = %d, want 1", st, rc)
+		}
+	}
+	if rc := resultExit(agent.Record{Status: "ok"}); rc != 0 {
+		t.Errorf("ok job: rc = %d, want 0", rc)
+	}
+}

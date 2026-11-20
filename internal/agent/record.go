@@ -15,6 +15,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -52,9 +53,10 @@ type Record struct {
 	Time           time.Time  `json:"time"`
 	Agent          string     `json:"agent"`
 	Request        RunOptions `json:"request"`
-	Status         string     `json:"status"` // running | ok | error
+	Status         string     `json:"status"` // running | ok | error | partial | stalled | quota
 	Error          string     `json:"error,omitempty"`
 	FailKind       string     `json:"fail_kind,omitempty"` // availability | quality; empty when the run succeeded
+	Cutoff         string     `json:"cutoff,omitempty"`    // deadline | stall | idle | cancelled | auth-retry; set on a cut-off run
 	Gates          string     `json:"gates,omitempty"`     // pass | fail | none (empty reads as none): set by SetGates
 	Provider       string     `json:"provider,omitempty"`
 	Model          string     `json:"model,omitempty"`          // as the agent reported it; may be empty
@@ -100,6 +102,15 @@ type Record struct {
 
 // Alive reports whether this dispatch is still running, by the shared inflight.DispatchAlive rule.
 func (r Record) Alive() bool { return inflight.DispatchAlive(r.Status, r.PID, r.Time) }
+
+// Failed reports a finished dispatch that did not succeed: error, or a cut-off partial, stalled or quota run.
+func (r Record) Failed() bool {
+	switch r.Status {
+	case "error", wire.StatusPartial, wire.StatusStalled, wire.StatusQuota:
+		return true
+	}
+	return false
+}
 
 // LogPath is the dispatch's log file: Log when set, else <id>.log beside the record.
 func (r Record) LogPath() string {
@@ -373,6 +384,9 @@ func (r Record) LogLine() string {
 	if r.Request.Tools {
 		tools = " tools"
 	}
+	if r.Cutoff != "" {
+		tools += " [" + r.Cutoff + "]"
+	}
 	agentCol := r.Agent
 	if r.Fallback != "" {
 		agentCol = r.Fallback + "→" + cmp.Or(r.RanAs, "?")
@@ -386,7 +400,7 @@ func (r Record) LogLine() string {
 
 // Finish records the outcome of the run.
 func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
-	r.FailKind = ""
+	r.FailKind, r.Cutoff = "", ""
 	r.Status, r.Provider, r.Model, r.SessionID = "ok", res.Provider, res.Model, res.SessionID
 	r.Invoked, r.Reported = res.Invoked, res.Reported
 	r.Usage = nil
@@ -411,7 +425,87 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 	r.DurationMs = took.Milliseconds()
 	if err != nil {
 		r.Status, r.Error, r.FailKind = "error", redact.Text(textutil.RedactSecrets(err.Error())), failKind(err) // redact.Text: stderrTails can hold the env master key
+		r.Cutoff = CutoffOf(err)
+		if slices.Contains([]string{wire.StatusPartial, wire.StatusStalled, wire.StatusQuota}, res.Status) {
+			r.Status = res.Status // the envelope's cutoff status, so a timeout reads apart from a bad flag
+		}
 	}
+}
+
+// Cutoff values: how a run was cut off, recorded alongside fail_kind.
+const (
+	CutoffDeadline  = "deadline"   // the attempt deadline (--timeout or the tools default)
+	CutoffStall     = "stall"      // no output before the first model output
+	CutoffIdle      = "idle"       // silent after output had started
+	CutoffCancelled = "cancelled"  // stopped from outside: a signal or `agents cancel`
+	CutoffAuthRetry = "auth-retry" // stalled on API retries, which are not output (claude's "no model output")
+)
+
+// CutoffOf names how err cut a run off, "" when it did not; claude's idle.go has no sentinel, so its text is matched.
+func CutoffOf(err error) string {
+	if err == nil {
+		return ""
+	}
+	msg := err.Error()
+	switch {
+	case errors.Is(err, ErrStalled) && strings.Contains(msg, " API retries ("):
+		return CutoffAuthRetry
+	case errors.Is(err, ErrStalled):
+		return CutoffStall
+	case errors.Is(err, ErrSilent):
+		return CutoffIdle
+	case errors.Is(err, context.DeadlineExceeded), strings.Contains(msg, "timed out after"),
+		strings.Contains(msg, "context deadline exceeded"):
+		return CutoffDeadline
+	case errors.Is(err, context.Canceled):
+		return CutoffCancelled
+	}
+	return ""
+}
+
+// tally counts the tool calls and text bytes a run streamed, so a cut-off error can say what was lost.
+type tally struct {
+	wire.Sink
+	tools, text atomic.Int64
+}
+
+func (t *tally) Emit(ev wire.Event) error {
+	switch ev.Type {
+	case wire.EventToolUse:
+		t.tools.Add(1)
+	case wire.EventText:
+		t.text.Add(int64(len(ev.Text)))
+	}
+	return t.Sink.Emit(ev)
+}
+
+// cutoffError wraps err with one line naming what was lost and the command that continues; deadlines and stalls only.
+type cutoffError struct {
+	err  error
+	hint string
+}
+
+func (e *cutoffError) Error() string { return e.hint + ": " + e.err.Error() }
+func (e *cutoffError) Unwrap() error { return e.err }
+
+// withCutoffHint adds the continue line to a deadline or stall error; any other error comes back as it was.
+func withCutoffHint(err error, rec *Record, res wire.Result, took time.Duration, t *tally) error {
+	kind := CutoffOf(err)
+	if kind == "" || kind == CutoffCancelled {
+		return err
+	}
+	who := cmp.Or(res.Agent, rec.Agent)
+	next := "claude-code agents ask --retry " + rec.ID
+	if res.SessionID != "" {
+		next = "claude-code agents ask --agent " + who + " --session " + res.SessionID + " 'finish from what you have'"
+	}
+	lost := "no answer"
+	if n := t.text.Load(); n > 0 {
+		lost = fmt.Sprintf("%d B of text streamed", n)
+	}
+	hint := fmt.Sprintf("%s cut off (%s) after %s with %d tool calls and %s; continue with: %s",
+		who, kind, took.Round(time.Second), t.tools.Load(), lost, next)
+	return &cutoffError{err: err, hint: hint}
 }
 
 // ranRoute is the final hop's row as provider:profile, the value the ran-on line prints; empty when no row ran.
@@ -473,7 +567,7 @@ func (r *Record) finishSave(res wire.Result, err error, took time.Duration, noti
 	r.Finish(res, err, took)
 	_, _, serr := updateRecord(r.ID, func(current Record) (Record, bool) {
 		// The runner has the actual outcome; only a failed run needs the provisional reason as context.
-		if err != nil && current.Status == "error" && current.Error != "" && current.Error != r.Error {
+		if err != nil && current.Failed() && current.Error != "" && current.Error != r.Error {
 			r.Error += "; " + current.Error
 		}
 		return *r, true
@@ -774,7 +868,9 @@ func runRecorded(ctx context.Context, rec *Record, agentName string, out wire.Si
 		rec.finishSave(res, err, time.Since(begin), o.Notify)
 		return res, err
 	}
-	res, err = run(ctx, sink)
+	tl := &tally{Sink: sink}
+	res, err = run(ctx, tl)
+	err = withCutoffHint(err, rec, res, time.Since(begin), tl)
 	logSink.Close() // flush before writing the answer, so tail -f never misses the last line
 	if o.Hold {
 		return res, err
@@ -820,11 +916,11 @@ func (rec Record) ResultEnvelope(errw io.Writer) wire.Envelope {
 		return *env
 	}
 	var runErr error
-	if rec.Status == "error" {
-		runErr = fmt.Errorf("%s", rec.Error)
-	}
 	res := wire.Result{Agent: rec.Agent, Provider: rec.Provider, Model: rec.Model, Invoked: rec.Invoked,
 		SessionID: rec.SessionID, DurationMs: rec.DurationMs, Fallback: rec.Fallback, FallbackReason: rec.FallbackReason}
+	if rec.Failed() {
+		runErr, res.Status = fmt.Errorf("%s", rec.Error), rec.Status
+	}
 	if rec.Usage != nil {
 		res.Usage = *rec.Usage
 	}

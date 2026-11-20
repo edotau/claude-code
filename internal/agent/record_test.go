@@ -1109,3 +1109,64 @@ func TestRecordRefusalSavesNotStartedAttempt(t *testing.T) {
 		t.Errorf("record = status %q invoked %q attempts %+v, want a failed typed-model record with a not-started attempt", r.Status, r.Invoked, r.Attempts)
 	}
 }
+
+// Finish keeps the envelope's partial, stalled and quota status; any other failed run stays error, a clean one ok.
+func TestFinishKeepsCutoffStatus(t *testing.T) {
+	for _, tc := range []struct{ status, want string }{{"stalled", "stalled"}, {"partial", "partial"}, {"quota", "quota"}, {"", "error"}, {"ok", "error"}} {
+		rec := Record{}
+		rec.Finish(wire.Result{Status: tc.status}, errors.New("boom"), 0)
+		if rec.Status != tc.want || !rec.Failed() {
+			t.Errorf("res status %q: record status %q failed=%v, want %q failed", tc.status, rec.Status, rec.Failed(), tc.want)
+		}
+	}
+	ok := Record{}
+	ok.Finish(wire.Result{Status: "ok"}, nil, 0)
+	if ok.Status != "ok" || ok.Failed() {
+		t.Errorf("clean run: status %q failed=%v", ok.Status, ok.Failed())
+	}
+}
+
+// Each cutoff has its own kind, recorded by Finish; a model refusal has none.
+func TestCutoffOfNamesEachKind(t *testing.T) {
+	deadline := fmt.Errorf("timed out after 15m0s: %w", errors.New("signal: killed"))
+	authLoop := fmt.Errorf("claude: no model output: 3 API retries (401) in 1m30s: %w", ErrStalled)
+	for _, tc := range []struct {
+		err  error
+		want string
+	}{
+		{context.DeadlineExceeded, CutoffDeadline}, {deadline, CutoffDeadline}, {ErrStalled, CutoffStall}, {ErrSilent, CutoffIdle},
+		{context.Canceled, CutoffCancelled}, {authLoop, CutoffAuthRetry}, {errors.New("model refused"), ""}, {nil, ""},
+	} {
+		if got := CutoffOf(tc.err); got != tc.want {
+			t.Errorf("CutoffOf(%v) = %q, want %q", tc.err, got, tc.want)
+		}
+	}
+	rec := Record{}
+	rec.Finish(wire.Result{Status: "stalled"}, ErrSilent, 0)
+	if rec.Cutoff != CutoffIdle {
+		t.Errorf("Finish cutoff = %q, want %q", rec.Cutoff, CutoffIdle)
+	}
+}
+
+// A deadline says what was lost and the exact next command, and keeps the original error for errors.Is.
+func TestCutoffHintNamesNextCommand(t *testing.T) {
+	rec := &Record{ID: "20261120T100000.000-codex", Agent: "codex"}
+	tl := &tally{Sink: wire.Discard}
+	for range 47 {
+		_ = tl.Emit(wire.Event{Type: wire.EventToolUse})
+	}
+	err := withCutoffHint(context.DeadlineExceeded, rec, wire.Result{SessionID: "sess-1"}, 15*time.Minute, tl)
+	want := "codex cut off (deadline) after 15m0s with 47 tool calls and no answer; continue with: " +
+		"claude-code agents ask --agent codex --session sess-1 'finish from what you have'"
+	if !errors.Is(err, context.DeadlineExceeded) || !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("err = %v, want it to start with %q and wrap the deadline", err, want)
+	}
+	err = withCutoffHint(ErrStalled, rec, wire.Result{}, time.Minute, tl)
+	if !strings.Contains(err.Error(), "continue with: claude-code agents ask --retry "+rec.ID) {
+		t.Errorf("no-session err = %v, want the --retry command", err)
+	}
+	plain := errors.New("model refused")
+	if got := withCutoffHint(plain, rec, wire.Result{}, time.Minute, tl); got != plain {
+		t.Errorf("a refusal was rewrapped: %v", got)
+	}
+}

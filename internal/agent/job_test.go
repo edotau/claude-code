@@ -943,3 +943,14 @@ func TestCancelNeverOverwritesConcurrentFinish(t *testing.T) {
 		t.Fatalf("finish lost to cancel: %q/%q usage=%v", got.Status, got.Error, got.Usage)
 	}
 }
+
+// A status row shows the cutoff kind ahead of its detail; a row without one is unchanged.
+func TestRowDetailShowsCutoff(t *testing.T) {
+	r := toRow(Record{Status: "stalled", Cutoff: CutoffStall, Error: "cut off", Request: RunOptions{Prompt: "do it"}})
+	if got := r.Detail(); got != "(stall) do it -- cut off" {
+		t.Errorf("Detail = %q", got)
+	}
+	if got := toRow(Record{Status: "error", Request: RunOptions{Prompt: "do it"}}).Detail(); got != "do it" {
+		t.Errorf("plain Detail = %q", got)
+	}
+}
