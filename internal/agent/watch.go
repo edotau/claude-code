@@ -210,6 +210,9 @@ func classifyJob(r Record, now time.Time, lim WatchLimits, rel relayState) (Stal
 	}
 	s := staleFrom(r, now, WatchUncollected)
 	s.Next = []string{"claude-code", "agents", "result", r.ID}
+	if r.Failed() && recoverable(r) {
+		s.Next = recoverArgs(r)
+	}
 	return s, false
 }
 
@@ -222,8 +225,11 @@ func classifyRunning(r Record, now time.Time, lim WatchLimits, rel relayState) (
 		s := staleFrom(r, now, WatchDead)
 		s.SessionID = jobSession(r)
 		s.Next = []string{"claude-code", "agents", "result", r.ID}
-		if s.SessionID != "" {
+		switch {
+		case s.SessionID != "":
 			s.Next = ResumeArgs(r, s.SessionID)
+		case recoverable(r):
+			s.Next = recoverArgs(r)
 		}
 		return s, false
 	}
@@ -239,6 +245,17 @@ func classifyRunning(r Record, now time.Time, lim WatchLimits, rel relayState) (
 	}
 	s.Next = []string{"claude-code", "agents", "result", r.ID}
 	return s, false
+}
+
+// recoverable reports whether r's event log holds text or tool events, so `ask --retry --recover` has a log to resume.
+func recoverable(r Record) bool {
+	_, err := recoveryLog(r.EventsPath())
+	return err == nil
+}
+
+// recoverArgs is the suggested (never auto-run) `ask --retry --recover` argv for r.
+func recoverArgs(r Record) []string {
+	return []string{"claude-code", "agents", "ask", "--retry", r.ID, "--recover"}
 }
 
 // ResumeArgs is the `agents ask --session` argv that continues r's session in the background.
