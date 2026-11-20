@@ -1,6 +1,5 @@
+// Package websearch implements the Tavily web search, page extraction and stdio MCP server.
 package websearch
-
-// Stdlib-only stdio MCP server for `web_search` and `web_extract` via Tavily; stdout is JSON-RPC only, logs to stderr.
 
 import (
 	"bufio"
@@ -13,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"strings"
 	"sync"
 	"syscall"
@@ -22,7 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -34,14 +31,16 @@ const (
 	toolName               = "web_search"
 	extractToolName        = "web_extract"
 	extractToolDescription = "Read public web pages as markdown via Tavily; up to 20 URLs; honors robots.txt"
-	maxExtractURLs         = 20
-	extractPageCapRunes    = 12000 // per-page bound on extract output
-	toolDescription        = "Search the web via Tavily for up-to-date public information, current events, " +
+	// MaxExtractURLs is the maximum number of URLs one extract call accepts.
+	MaxExtractURLs      = 20
+	extractPageCapRunes = 12000 // per-page bound on extract output
+	toolDescription     = "Search the web via Tavily for up-to-date public information, current events, " +
 		"and recent data. Use when the question needs information beyond your training data."
-	tavilyURL         = "https://api.tavily.com/search"
-	tavilyExtractURL  = "https://api.tavily.com/extract"
-	requestTimeout    = 20 * time.Second
-	defaultMaxResults = 5
+	tavilyURL        = "https://api.tavily.com/search"
+	tavilyExtractURL = "https://api.tavily.com/extract"
+	requestTimeout   = 20 * time.Second
+	// DefaultMaxResults is the default number of search hits returned when maxResults <= 0.
+	DefaultMaxResults = 5
 )
 
 // keyName is the secret name Tavily's API key resolves under (the vault, or env).
@@ -54,8 +53,8 @@ func keyHint() string {
 	return fmt.Sprintf("run `claude-code vault set %s` (%s)", keyName, mintHint)
 }
 
-// resolveKey returns the Tavily API key (vault, then env); an unreadable vault is its own error, never "unset".
-func resolveKey() (string, error) {
+// ResolveKey returns the Tavily API key (vault, then env); an unreadable vault is its own error, never "unset".
+func ResolveKey() (string, error) {
 	v, _, err := vault.Lookup(keyName)
 	if err != nil {
 		return "", fmt.Errorf("%s: the vault could not be read (%w); export %s or fix vault access", keyName, err, keyName)
@@ -114,7 +113,7 @@ func toolDescriptor() map[string]any {
 			"properties": map[string]any{
 				"query": map[string]any{"type": "string", "description": "The search query."},
 				"max_results": map[string]any{"type": "integer",
-					"description": fmt.Sprintf("Max results (default %d).", defaultMaxResults), "default": defaultMaxResults},
+					"description": fmt.Sprintf("Max results (default %d).", DefaultMaxResults), "default": DefaultMaxResults},
 			},
 			"required": []string{"query"},
 		},
@@ -129,19 +128,19 @@ func extractDescriptor() map[string]any {
 			"type": "object",
 			"properties": map[string]any{
 				"urls": map[string]any{"type": "array", "items": map[string]any{"type": "string"},
-					"minItems": 1, "maxItems": maxExtractURLs, "description": "Public http(s) page URLs to read."},
+					"minItems": 1, "maxItems": MaxExtractURLs, "description": "Public http(s) page URLs to read."},
 			},
 			"required": []string{"urls"},
 		},
 	}
 }
 
-// searcher runs one web search. The default is Tavily; tests inject a fake to avoid network calls.
-type searcher func(ctx context.Context, query string, maxResults int) (string, error)
+// Searcher runs one web search. The default is Tavily; tests inject a fake to avoid network calls.
+type Searcher func(ctx context.Context, query string, maxResults int) (string, error)
 
-// server holds the injectable search backend. Zero value uses the Tavily HTTP backend.
-type server struct {
-	Search searcher
+// Server holds the injectable search backend. Zero value uses the Tavily HTTP backend.
+type Server struct {
+	Search Searcher
 }
 
 // supportedProtocolVersions are the MCP revisions served; 2026-07-28 is absent: it retires initialize.
@@ -161,14 +160,14 @@ func negotiateProtocolVersion(params json.RawMessage) string {
 }
 
 // handle dispatches one request. A notification (no id) gets no reply, whatever its method.
-func (s *server) handle(ctx context.Context, req rpcRequest) map[string]any {
+func (s *Server) handle(ctx context.Context, req rpcRequest) map[string]any {
 	if len(req.ID) == 0 {
 		return nil
 	}
 	return s.dispatch(ctx, req)
 }
 
-func (s *server) dispatch(ctx context.Context, req rpcRequest) map[string]any {
+func (s *Server) dispatch(ctx context.Context, req rpcRequest) map[string]any {
 	switch req.Method {
 	case "initialize":
 		return result(req.ID, map[string]any{
@@ -188,7 +187,7 @@ func (s *server) dispatch(ctx context.Context, req rpcRequest) map[string]any {
 	return rpcError(req.ID, -32601, fmt.Sprintf("Method not found: %q", req.Method))
 }
 
-func (s *server) handleToolsCall(ctx context.Context, req rpcRequest) map[string]any {
+func (s *Server) handleToolsCall(ctx context.Context, req rpcRequest) map[string]any {
 	var p struct {
 		Name      string `json:"name"`
 		Arguments struct {
@@ -211,11 +210,11 @@ func (s *server) handleToolsCall(ctx context.Context, req rpcRequest) map[string
 	}
 	maxResults := p.Arguments.MaxResults
 	if maxResults <= 0 {
-		maxResults = defaultMaxResults
+		maxResults = DefaultMaxResults
 	}
 	search := s.Search
 	if search == nil {
-		search = tavilySearch
+		search = SearchText
 	}
 	text, err := search(ctx, p.Arguments.Query, maxResults)
 	if err != nil {
@@ -228,7 +227,7 @@ func (s *server) handleToolsCall(ctx context.Context, req rpcRequest) map[string
 }
 
 // Serve bounds concurrent JSON-RPC requests, serializes replies, and joins in-flight work at EOF.
-func (s *server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
+func (s *Server) Serve(ctx context.Context, in io.Reader, out io.Writer) error {
 	slots := make(chan struct{}, requestConcurrency)
 	reader := bufio.NewReaderSize(in, 64*1024)
 	enc := json.NewEncoder(out)
@@ -290,7 +289,7 @@ func admitRequest(ctx context.Context, slots chan struct{}) bool {
 	}
 }
 
-func (s *server) launch(ctx context.Context, req rpcRequest, send func(map[string]any), slots chan struct{}, wg *sync.WaitGroup) {
+func (s *Server) launch(ctx context.Context, req rpcRequest, send func(map[string]any), slots chan struct{}, wg *sync.WaitGroup) {
 	wg.Add(1)
 	finish := func() { <-slots; wg.Done() }
 	parallel.Go(func() {
@@ -334,41 +333,8 @@ const requestConcurrency = 8
 // maxLineBytes caps one JSON-RPC line; a longer line is drained and answered with a parse error.
 const maxLineBytes = 4 * 1024 * 1024
 
-// run wires stdin/stdout to a default (Tavily-backed) server. Entry point for the CLI command.
-func run(ctx context.Context) int {
-	if _, err := resolveKey(); err != nil {
-		fmt.Fprintf(os.Stderr, "websearch: %v; web_search returns an error until fixed\n", err)
-	}
-	srv := &server{}
-	if err := srv.Serve(ctx, os.Stdin, os.Stdout); err != nil {
-		return helptext.Fail("network websearch: %v", err)
-	}
-	return 0
-}
-
-// oneShot runs one Tavily search and writes the text to out (no MCP handshake); non-zero exit on error.
-func oneShot(ctx context.Context, query string, maxResults int, search searcher, out io.Writer) int {
-	if strings.TrimSpace(query) == "" {
-		return helptext.FailUsage("network websearch: a query is required")
-	}
-	if maxResults <= 0 {
-		maxResults = defaultMaxResults
-	}
-	if search == nil {
-		search = tavilySearch
-	}
-	text, err := search(ctx, query, maxResults)
-	if err != nil {
-		return helptext.Fail("network websearch: %v", err)
-	}
-	if _, err := fmt.Fprintln(out, text); err != nil {
-		return helptext.Fail("network websearch: could not write result: %v", err)
-	}
-	return 0
-}
-
-// tavilySearch is the default backend; requestTimeout is layered on the caller's ctx, not replacing it.
-func tavilySearch(ctx context.Context, query string, maxResults int) (string, error) {
+// SearchText is the default backend; requestTimeout is layered on the caller's ctx, not replacing it.
+func SearchText(ctx context.Context, query string, maxResults int) (string, error) {
 	answer, results, err := fetchResults(ctx, query, maxResults, nil, nil)
 	if err != nil {
 		return "", err
@@ -391,7 +357,7 @@ func Search(ctx context.Context, query string, maxResults int, allowed, blocked 
 
 // fetchResults posts one Tavily search and decodes the answer and results.
 func fetchResults(ctx context.Context, query string, maxResults int, allowed, blocked []string) (string, []tavilyResult, error) {
-	apiKey, err := resolveKey()
+	apiKey, err := ResolveKey()
 	if err != nil {
 		return "", nil, err
 	}
@@ -457,7 +423,7 @@ type extractResponse struct {
 	} `json:"failed_results"`
 }
 
-// tavilyExtract is the HTTP seam for extractURLs; tests swap it to avoid the network.
+// tavilyExtract is the HTTP seam for Extract; tests swap it to avoid the network.
 var tavilyExtract = postTavilyExtract
 
 func postTavilyExtract(ctx context.Context, apiKey string, urls []string, depth string) (extractResponse, error) {
@@ -564,10 +530,10 @@ func vetExtractURLs(ctx context.Context, urls []string) ([]string, map[string]st
 
 // extractToolResult validates urls like the CLI, then renders pages; a key/fetch error or all-failed is a tool error.
 func extractToolResult(ctx context.Context, urls []string) map[string]any {
-	if len(urls) == 0 || len(urls) > maxExtractURLs {
-		return toolError(fmt.Sprintf("`urls` must hold 1-%d URLs (got %d).", maxExtractURLs, len(urls)))
+	if len(urls) == 0 || len(urls) > MaxExtractURLs {
+		return toolError(fmt.Sprintf("`urls` must hold 1-%d URLs (got %d).", MaxExtractURLs, len(urls)))
 	}
-	text, ok, err := renderExtract(ctx, urls)
+	text, ok, err := Extract(ctx, urls)
 	if err != nil {
 		return toolError("websearch: " + err.Error())
 	}
@@ -577,12 +543,12 @@ func extractToolResult(ctx context.Context, urls []string) map[string]any {
 	return toolText(text)
 }
 
-// renderExtract reads each URL as markdown via Tavily into `# <url>` blocks; an error means nothing rendered.
-func renderExtract(ctx context.Context, urls []string) (string, int, error) {
+// Extract reads each URL as markdown via Tavily into `# <url>` blocks; an error means nothing rendered.
+func Extract(ctx context.Context, urls []string) (string, int, error) {
 	send, failed := vetExtractURLs(ctx, urls)
 	content := map[string]string{}
 	if len(send) > 0 {
-		apiKey, err := resolveKey()
+		apiKey, err := ResolveKey()
 		if err != nil {
 			return "", 0, err
 		}
@@ -619,24 +585,6 @@ func capExtractPage(page string) string {
 	note := fmt.Sprintf("\n…[truncated: %d of %d chars shown; pass a narrower URL or fetch the section you need]",
 		extractPageCapRunes, total)
 	return textutil.CapRunes(page, extractPageCapRunes, note)
-}
-
-// extractURLs prints renderExtract's `# <url>` blocks to stdout. Exit 1 when every URL failed, else 0.
-func extractURLs(ctx context.Context, urls []string) int {
-	if len(urls) > maxExtractURLs { // Tavily rejects the whole call over its cap, as the MCP path does
-		return helptext.Fail("network websearch --extract: at most %d URLs (got %d)", maxExtractURLs, len(urls))
-	}
-	text, ok, err := renderExtract(ctx, urls)
-	if err != nil {
-		return helptext.Fail("network websearch --extract: %v", err)
-	}
-	if _, err := fmt.Print(text); err != nil {
-		return helptext.Fail("network websearch --extract: could not write result: %v", err)
-	}
-	if ok == 0 {
-		return 1
-	}
-	return 0
 }
 
 // searchMaxBody caps the Tavily search reply, sized like the extract reply.

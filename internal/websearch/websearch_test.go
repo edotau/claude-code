@@ -26,7 +26,7 @@ import (
 )
 
 // drive runs the server over a scripted set of request lines and returns the decoded responses.
-func drive(t *testing.T, srv *server, lines ...string) []map[string]any {
+func drive(t *testing.T, srv *Server, lines ...string) []map[string]any {
 	t.Helper()
 	var out strings.Builder
 	if err := srv.Serve(context.Background(), strings.NewReader(strings.Join(lines, "\n")+"\n"), &out); err != nil {
@@ -53,7 +53,7 @@ func drive(t *testing.T, srv *server, lines ...string) []map[string]any {
 }
 
 func TestInitializeAndToolsList(t *testing.T) {
-	srv := &server{Search: func(context.Context, string, int) (string, error) { return "unused", nil }}
+	srv := &Server{Search: func(context.Context, string, int) (string, error) { return "unused", nil }}
 	resps := drive(t, srv,
 		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
@@ -81,7 +81,7 @@ func TestInitializeAndToolsList(t *testing.T) {
 
 func TestToolsCallSuccess(t *testing.T) {
 	called := ""
-	srv := &server{Search: func(_ context.Context, q string, _ int) (string, error) {
+	srv := &Server{Search: func(_ context.Context, q string, _ int) (string, error) {
 		called = q
 		return "RESULT for " + q, nil
 	}}
@@ -116,14 +116,14 @@ func TestServeProtocolEdges(t *testing.T) {
 		return res
 	}
 	for name, tc := range map[string]struct {
-		srv   *server
+		srv   *Server
 		lines []string
 		check func(t *testing.T, r []map[string]any)
 	}{
-		"empty query is a tool error": {&server{}, []string{call("web_search", `{"query":"  "}`)},
+		"empty query is a tool error": {&Server{}, []string{call("web_search", `{"query":"  "}`)},
 			func(t *testing.T, r []map[string]any) { toolErr(t, r) }},
 		"backend error is a tool result, not an RPC error": {
-			&server{Search: func(context.Context, string, int) (string, error) { return "", errString("boom") }},
+			&Server{Search: func(context.Context, string, int) (string, error) { return "", errString("boom") }},
 			[]string{call("web_search", `{"query":"q"}`)},
 			func(t *testing.T, r []map[string]any) {
 				if _, isRPCErr := r[0]["error"]; isRPCErr {
@@ -133,31 +133,31 @@ func TestServeProtocolEdges(t *testing.T) {
 					t.Errorf("want websearch: boom prefix, got %v", res)
 				}
 			}},
-		"unknown tool is an RPC error": {&server{}, []string{call("nope", `{}`)},
+		"unknown tool is an RPC error": {&Server{}, []string{call("nope", `{}`)},
 			func(t *testing.T, r []map[string]any) {
 				if _, ok := r[0]["error"]; !ok {
 					t.Errorf("unknown tool should be a JSON-RPC error, got %v", r[0])
 				}
 			}},
-		"unknown-method notification is ignored": {&server{}, []string{`{"jsonrpc":"2.0","method":"some/notify"}`},
+		"unknown-method notification is ignored": {&Server{}, []string{`{"jsonrpc":"2.0","method":"some/notify"}`},
 			func(t *testing.T, r []map[string]any) {
 				if len(r) != 0 {
-					t.Errorf("notification should yield no response, got %v", r)
+					t.Errorf("notification should yield no response, got %v", r[0])
 				}
 			}},
-		"malformed line is a parse error": {&server{}, []string{`{not json`},
+		"malformed line is a parse error": {&Server{}, []string{`{not json`},
 			func(t *testing.T, r []map[string]any) {
 				if _, ok := r[0]["error"]; !ok {
 					t.Errorf("malformed line should yield a parse error, got %v", r[0])
 				}
 			}},
-		"ping returns an empty result": {&server{}, []string{`{"jsonrpc":"2.0","id":7,"method":"ping"}`},
+		"ping returns an empty result": {&Server{}, []string{`{"jsonrpc":"2.0","id":7,"method":"ping"}`},
 			func(t *testing.T, r []map[string]any) {
 				if len(r) != 1 || r[0]["error"] != nil || r[0]["result"] == nil {
 					t.Errorf("ping = %v, want an empty result and no error", r)
 				}
 			}},
-		"tools/list notification gets no response": {&server{}, []string{
+		"tools/list notification gets no response": {&Server{}, []string{
 			`{"jsonrpc":"2.0","method":"tools/list"}`, `{"jsonrpc":"2.0","id":1,"method":"tools/list"}`},
 			func(t *testing.T, r []map[string]any) {
 				if len(r) != 1 || r[0]["id"] != float64(1) {
@@ -169,44 +169,8 @@ func TestServeProtocolEdges(t *testing.T) {
 	}
 }
 
-func TestOneShotExitCodes(t *testing.T) {
-	ok := func(context.Context, string, int) (string, error) { return "x", nil }
-	for name, tc := range map[string]struct {
-		query   string
-		max     int
-		search  func(context.Context, string, int) (string, error)
-		want    int
-		wantOut string
-	}{
-		"success passes query and max_results": {"golang generics", 3, func(_ context.Context, q string, n int) (string, error) {
-			if q != "golang generics" || n != 3 {
-				t.Errorf("searcher got (%q, %d), want (golang generics, 3)", q, n)
-			}
-			return "the answer", nil
-		}, 0, "the answer"},
-		"empty query":    {"   ", 5, ok, 2, ""},
-		"searcher error": {"q", 5, func(context.Context, string, int) (string, error) { return "", errString("boom") }, 1, ""},
-		"zero max defaults to 5": {"q", 0, func(_ context.Context, _ string, n int) (string, error) {
-			if n != 5 {
-				t.Errorf("default max_results = %d, want 5", n)
-			}
-			return "ok", nil
-		}, 0, "ok"},
-	} {
-		t.Run(name, func(t *testing.T) {
-			var out strings.Builder
-			if code := oneShot(context.Background(), tc.query, tc.max, tc.search, &out); code != tc.want {
-				t.Errorf("exit = %d, want %d", code, tc.want)
-			}
-			if strings.TrimSpace(out.String()) != tc.wantOut {
-				t.Errorf("out = %q, want %q", out.String(), tc.wantOut)
-			}
-		})
-	}
-}
-
-// The caller's cancellation must reach the backend through both Serve and the one-shot entry point.
-func TestEntryPointsThreadContextToSearcher(t *testing.T) {
+// The caller's cancellation must reach the backend through Serve.
+func TestServeThreadsContextToSearcher(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var seen error
@@ -215,24 +179,11 @@ func TestEntryPointsThreadContextToSearcher(t *testing.T) {
 		return "ok", nil
 	}
 	line := `{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"q"}}}`
-	for name, run := range map[string]func() error{
-		"serve": func() error { return (&server{Search: search}).Serve(ctx, strings.NewReader(line+"\n"), io.Discard) },
-		"oneShot": func() error {
-			if code := oneShot(ctx, "q", 5, search, io.Discard); code != 0 {
-				return fmt.Errorf("exit code = %d, want 0", code)
-			}
-			return nil
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			seen = nil
-			if err := run(); err != nil {
-				t.Fatal(err)
-			}
-			if !errors.Is(seen, context.Canceled) {
-				t.Errorf("searcher ctx.Err() = %v, want context.Canceled", seen)
-			}
-		})
+	if err := (&Server{Search: search}).Serve(ctx, strings.NewReader(line+"\n"), io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if !errors.Is(seen, context.Canceled) {
+		t.Errorf("searcher ctx.Err() = %v, want context.Canceled", seen)
 	}
 }
 
@@ -251,7 +202,7 @@ func TestInitializeNegotiatesProtocolVersion(t *testing.T) {
 		"garbage version falls back":      {`{"protocolVersion":"not-a-version"}`, defaultProtocolVersion},
 	} {
 		t.Run(name, func(t *testing.T) {
-			srv := &server{Search: func(context.Context, string, int) (string, error) { return "unused", nil }}
+			srv := &Server{Search: func(context.Context, string, int) (string, error) { return "unused", nil }}
 			resps := drive(t, srv, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":`+tc.params+`}`)
 			if len(resps) != 1 {
 				t.Fatalf("got %d responses, want 1", len(resps))
@@ -278,7 +229,7 @@ func TestDefaultProtocolVersionIsHonest(t *testing.T) {
 func TestServeDispatchesToolCallsConcurrently(t *testing.T) {
 	var inFlight atomic.Int32
 	release := make(chan struct{})
-	srv := &server{Search: func(ctx context.Context, q string, n int) (string, error) {
+	srv := &Server{Search: func(ctx context.Context, q string, n int) (string, error) {
 		if inFlight.Add(1) == 2 {
 			close(release) // both arrived: overlap proven
 		}
@@ -390,11 +341,11 @@ func TestExtractPrintsPagesAndFailures(t *testing.T) {
 		return r, nil
 	}
 	urls := []string{"https://example.com/a", "https://example.org/b", "https://example.net/c"}
-	code, out, _ := hosttest.CaptureOutput(t, func() int { return extractURLs(context.Background(), urls) })
+	out, ok, err := Extract(context.Background(), urls)
 	wantCalls := "basic:https://example.com/a,https://example.org/b,https://example.net/c|" +
 		"advanced:https://example.org/b,https://example.net/c"
-	if code != 0 || strings.Join(calls, "|") != wantCalls {
-		t.Fatalf("code=%d calls=%v, want 0 and only basic failures retried at advanced depth", code, calls)
+	if err != nil || ok != 2 || strings.Join(calls, "|") != wantCalls {
+		t.Fatalf("err=%v ok=%d calls=%v, want 2 ok and only basic failures retried at advanced depth", err, ok, calls)
 	}
 	for _, want := range []string{
 		"# https://example.com/a\n# Hello\nbody basic",
@@ -415,12 +366,10 @@ func TestExtractRefusesInternalAddresses(t *testing.T) {
 		t.Error("seam called for an internal URL")
 		return extractResponse{}, nil
 	}
-	code, out, _ := hosttest.CaptureOutput(t, func() int {
-		return extractURLs(context.Background(), []string{"http://127.0.0.1/", "http://192.168.1.1/", "file:///etc/passwd"})
-	})
-	if code != 1 || strings.Count(out, "failed:") != 3 || !strings.Contains(out,
+	out, ok, err := Extract(context.Background(), []string{"http://127.0.0.1/", "http://192.168.1.1/", "file:///etc/passwd"})
+	if err != nil || ok != 0 || strings.Count(out, "failed:") != 3 || !strings.Contains(out,
 		"refusing to fetch internal address 192.168.1.1") {
-		t.Errorf("code=%d out=%q, want exit 1 with 3 refusals", code, out)
+		t.Errorf("err=%v ok=%d out=%q, want 0 ok with 3 refusals", err, ok, out)
 	}
 }
 
@@ -448,11 +397,9 @@ func TestExtractMatchesTavilyNormalisedURL(t *testing.T) {
 		r.Failed = append(r.Failed, tstFail("https://EXAMPLE.org", "boom")...)
 		return r, nil
 	}
-	code, out, _ := hosttest.CaptureOutput(t, func() int {
-		return extractURLs(context.Background(), []string{"https://example.com", "https://example.org"})
-	})
-	if code != 0 || !strings.Contains(out, "# https://example.com\nBODY") || !strings.Contains(out, "failed: boom") {
-		t.Errorf("code=%d out=%q, want body for normalised echo and failure surfaced", code, out)
+	out, ok, err := Extract(context.Background(), []string{"https://example.com", "https://example.org"})
+	if err != nil || ok != 1 || !strings.Contains(out, "# https://example.com\nBODY") || !strings.Contains(out, "failed: boom") {
+		t.Errorf("err=%v ok=%d out=%q, want body for normalised echo and failure surfaced", err, ok, out)
 	}
 }
 
@@ -462,7 +409,7 @@ func TestTavilySearchReportsUnreadableVault(t *testing.T) {
 	t.Setenv(keyName, "")
 	vaulttest.Secret(t, keyName, "tvly-test")
 	t.Setenv("HARNESS_VAULT_KEY", base64.StdEncoding.EncodeToString(bytes.Repeat([]byte{7}, 32)))
-	_, err := tavilySearch(context.Background(), "q", 1)
+	_, err := SearchText(context.Background(), "q", 1)
 	if err == nil || strings.Contains(err.Error(), "is not set") || !strings.Contains(err.Error(), "vault") {
 		t.Fatalf("err = %v, want a vault read error, not %q", err, "is not set")
 	}
@@ -471,7 +418,7 @@ func TestTavilySearchReportsUnreadableVault(t *testing.T) {
 // extractCall drives one web_extract tools/call and returns its text and isError flag.
 func extractCall(t *testing.T, args string) (string, bool) {
 	t.Helper()
-	resps := drive(t, &server{},
+	resps := drive(t, &Server{},
 		`{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"web_extract","arguments":`+args+`}}`)
 	res, _ := resps[0]["result"].(map[string]any)
 	content, _ := res["content"].([]any)
@@ -537,18 +484,16 @@ func TestWebExtractToolRejectsBadInput(t *testing.T) {
 	}
 }
 
-func TestExtractCLIOutputBytes(t *testing.T) {
+func TestExtractOutputBytes(t *testing.T) {
 	t.Setenv(keyName, "test-key")
 	stubExtract(t, func(urls []string) extractResponse {
 		return extractResponse{Results: tstPage(urls[0], "BODY")}
 	})
-	code, out, _ := hosttest.CaptureOutput(t, func() int {
-		return extractURLs(context.Background(), []string{"https://example.com/a", "http://127.0.0.1/"})
-	})
+	out, ok, err := Extract(context.Background(), []string{"https://example.com/a", "http://127.0.0.1/"})
 	want := "# https://example.com/a\nBODY\n\n" +
 		"# http://127.0.0.1/\nfailed: refusing to fetch internal address 127.0.0.1\n\n"
-	if code != 0 || out != want {
-		t.Errorf("code=%d out=%q, want %q", code, out, want)
+	if err != nil || ok != 1 || out != want {
+		t.Errorf("err=%v ok=%d out=%q, want %q", err, ok, out, want)
 	}
 }
 
@@ -558,7 +503,7 @@ func TestToolsCallRejectsMalformedArguments(t *testing.T) {
 		"extract": `{"name":"web_extract","arguments":{"urls":[123,"http://127.0.0.1/"]}}`,
 	} {
 		t.Run(name, func(t *testing.T) {
-			srv := &server{Search: func(context.Context, string, int) (string, error) {
+			srv := &Server{Search: func(context.Context, string, int) (string, error) {
 				t.Error("search backend called for malformed arguments")
 				return "unexpected search", nil
 			}}
@@ -578,34 +523,6 @@ func TestToolsCallRejectsMalformedArguments(t *testing.T) {
 				t.Errorf("tool error = %s, want argument decoding error", content)
 			}
 		})
-	}
-}
-
-func closedTestOutput(t *testing.T) *os.File {
-	t.Helper()
-	out, err := os.CreateTemp(t.TempDir(), "output")
-	if err != nil || out.Close() != nil {
-		t.Fatalf("closed output file: %v", err)
-	}
-	return out
-}
-
-func TestOneShotRejectsOutputWriteFailure(t *testing.T) {
-	search := func(context.Context, string, int) (string, error) { return "the answer", nil }
-	if code := oneShot(context.Background(), "golang", 3, search, closedTestOutput(t)); code == 0 {
-		t.Fatal("closed output writer must return a nonzero exit code")
-	}
-}
-
-func TestExtractRejectsOutputWriteFailure(t *testing.T) {
-	t.Setenv(keyName, "test-key")
-	stubExtract(t, func(urls []string) extractResponse {
-		return extractResponse{Results: tstPage(urls[0], "BODY")}
-	})
-	urls := []string{"https://example.com/a"}
-	hosttest.ClosedStdout(t)
-	if code := extractURLs(context.Background(), urls); code == 0 {
-		t.Fatal("closed stdout must return a nonzero exit code despite a successfully fetched page")
 	}
 }
 
@@ -636,7 +553,7 @@ func TestTavilySearchIsSnippetOnly(t *testing.T) {
 	http.DefaultTransport = swapTransport{reply: string(reply), next: orig}
 	t.Cleanup(func() { http.DefaultTransport = orig })
 
-	out, err := tavilySearch(context.Background(), "q", 1)
+	out, err := SearchText(context.Background(), "q", 1)
 	if err != nil || !strings.Contains(out, "the snippet") || !strings.Contains(out, origin.URL+"/page") {
 		t.Fatalf("out = %q err = %v, want the provider snippet and URL", out, err)
 	}
@@ -646,7 +563,7 @@ func TestTavilySearchIsSnippetOnly(t *testing.T) {
 }
 
 func TestServeContainsPanic(t *testing.T) {
-	s := &server{Search: func(context.Context, string, int) (string, error) { panic("backend exploded") }}
+	s := &Server{Search: func(context.Context, string, int) (string, error) { panic("backend exploded") }}
 	replies := drive(t, s,
 		`{"id":1,"method":"tools/call","params":{"name":"web_search","arguments":{"query":"panic"}}}`,
 		`{"id":2,"method":"ping"}`)
@@ -658,7 +575,7 @@ func TestServeContainsPanic(t *testing.T) {
 func TestServeBoundsRequests(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		var active, peak atomic.Int32
-		s := &server{Search: func(context.Context, string, int) (string, error) {
+		s := &Server{Search: func(context.Context, string, int) (string, error) {
 			current := active.Add(1)
 			for old := peak.Load(); current > old; old = peak.Load() {
 				if peak.CompareAndSwap(old, current) {

@@ -7,9 +7,9 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/edotau/claude-code/internal/network/websearch"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy/translate"
+	"github.com/edotau/claude-code/internal/websearch"
 )
 
 // searchRoundCap bounds one request's web searches, and the rounds a model may spend after its max_uses.
