@@ -3,13 +3,14 @@ package memory
 import (
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // runBank runs fn on a fresh bank in an isolated flat config.

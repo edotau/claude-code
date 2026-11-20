@@ -1,12 +1,13 @@
 package memory
 
 import (
-	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // seedConventionBlock plants one id-marked conventions.md bullet in the bank and returns its id.

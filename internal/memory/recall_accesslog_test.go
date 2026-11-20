@@ -2,7 +2,6 @@ package memory
 
 import (
 	"fmt"
-	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"path/filepath"
 	"slices"
@@ -10,6 +9,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // Rotation preserves history; returns exclude old reads and injections; nominations include other repos.

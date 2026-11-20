@@ -3,7 +3,6 @@ package memory
 import (
 	"errors"
 	"fmt"
-	"github.com/edotau/claude-code/internal/paths"
 	"maps"
 	"math/rand/v2"
 	"os"
@@ -12,6 +11,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // Only a line-start "---" closes front matter, so an indented one inside a block scalar is left alone.

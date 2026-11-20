@@ -2,7 +2,6 @@ package memory
 
 import (
 	"errors"
-	"github.com/edotau/claude-code/internal/paths"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 type splitCase struct {

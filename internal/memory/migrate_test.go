@@ -4,13 +4,14 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"errors"
-	"github.com/edotau/claude-code/internal/paths"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func migFixture(t *testing.T, files map[string]string) string {

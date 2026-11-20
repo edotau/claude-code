@@ -3,13 +3,14 @@ package memory
 import (
 	"context"
 	"fmt"
-	"github.com/edotau/claude-code/internal/paths"
 	"path/filepath"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 const reviseLog = `# Decision Log

@@ -2,12 +2,13 @@ package memory
 
 import (
 	"errors"
-	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // A messy registry (blank, duplicate, trailing slash, CRLF, relative, gone) keeps only the real absolute dirs.

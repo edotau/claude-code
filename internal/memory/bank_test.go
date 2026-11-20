@@ -2,10 +2,11 @@ package memory
 
 import (
 	"errors"
-	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func TestBankPaths(t *testing.T) {

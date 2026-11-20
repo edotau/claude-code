@@ -1,13 +1,14 @@
 package memory
 
 import (
-	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 type recallIndexFixture struct {
