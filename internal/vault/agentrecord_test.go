@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 func TestAgentRecordsNullRemainsWritable(t *testing.T) {
@@ -207,5 +208,29 @@ func TestAgentRecordsRenameOldGithubProfile(t *testing.T) {
 		return err
 	}); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestEffectiveRouteReadsLegacy(t *testing.T) {
+	db := route.Route{Provider: "databricks", Profile: "auto"}
+	cases := []struct {
+		name      string
+		rec       AgentRecord
+		want, fbk route.Route
+	}{
+		{"pool pin", AgentRecord{Profile: "databricks"}, db, route.Route{}},
+		{"copilot account+fallback", AgentRecord{Profile: "copilot", Account: "me", Fallback: "dev"},
+			route.Route{Provider: "github", Account: "me"}, route.Route{Profile: "dev"}},
+		{"plain profile", AgentRecord{Profile: "ultra"}, route.Route{Profile: "ultra"}, route.Route{}},
+		{"route object wins", AgentRecord{Profile: "ultra", Route: db, FallbackRoute: db, Fallback: "dev"}, db, db},
+	}
+	for _, c := range cases {
+		if got, fbk := c.rec.EffectiveRoute(), c.rec.EffectiveFallbackRoute(); got != c.want || fbk != c.fbk {
+			t.Errorf("%s: got %+v / %+v, want %+v / %+v", c.name, got, fbk, c.want, c.fbk)
+		}
+	}
+	b, _ := json.Marshal(AgentRecord{Route: db})
+	if string(b) != `{"route":{"provider":"databricks","profile":"auto"}}` {
+		t.Errorf("marshal = %s", b)
 	}
 }

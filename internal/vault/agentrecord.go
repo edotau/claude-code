@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 // AgentRecordsKey is the Overlay entry holding every agent's record: a JSON object of agent name -> AgentRecord.
@@ -27,6 +28,9 @@ type AgentRecord struct {
 	Account string `json:"account,omitempty"` // copilot GitHub user
 	// Fallback is the one profile the agent falls back to when its Profile is unavailable.
 	Fallback string `json:"fallback,omitempty"`
+	// Route and FallbackRoute replace Profile/Account/Fallback; read them through EffectiveRoute.
+	Route         route.Route `json:"route,omitzero"`
+	FallbackRoute route.Route `json:"fallbackRoute,omitzero"`
 	// Aliases are claude's per-alias model pins (CLAUDE_<ALIAS>_MODEL), keyed by lower-case alias.
 	Aliases map[string]string `json:"aliases,omitempty"`
 	// Permissions is the default dispatch policy in Claude Code rule grammar; nil inherits the built-in.
@@ -53,8 +57,42 @@ type AgentLaunch struct {
 
 // IsZero reports a record with nothing set.
 func (r AgentRecord) IsZero() bool {
-	return r.Profile == "" && r.Model == "" && r.Effort == "" && r.Context == "" && r.Account == "" && r.Fallback == "" && len(r.Aliases) == 0 &&
-		r.Permissions == nil && r.Launch == nil && len(r.Extras) == 0
+	if !r.Route.IsZero() || !r.FallbackRoute.IsZero() || r.Permissions != nil || r.Launch != nil {
+		return false
+	}
+	if len(r.Aliases) != 0 || len(r.Extras) != 0 {
+		return false
+	}
+	return r.Profile+r.Model+r.Effort+r.Context+r.Account+r.Fallback == ""
+}
+
+// EffectiveRoute is the stored Route, else the legacy account or profile (a bare profile: caller fills provider).
+func (r AgentRecord) EffectiveRoute() route.Route {
+	if !r.Route.IsZero() {
+		return r.Route
+	}
+	if r.Account != "" {
+		return route.Route{Provider: "github", Account: r.Account}
+	}
+	return legacyRoute(r.Profile)
+}
+
+// EffectiveFallbackRoute is the stored FallbackRoute, else the legacy Fallback profile read like Profile.
+func (r AgentRecord) EffectiveFallbackRoute() route.Route {
+	if !r.FallbackRoute.IsZero() {
+		return r.FallbackRoute
+	}
+	return legacyRoute(r.Fallback)
+}
+
+func legacyRoute(profile string) route.Route {
+	switch profile {
+	case "":
+		return route.Route{}
+	case "databricks":
+		return route.Route{Provider: "databricks", Profile: "auto"}
+	}
+	return route.Route{Profile: profile}
 }
 
 // WithPin returns r with the legacy pin field set to val; ACTIVE=off clears the profile, any other ACTIVE is a no-op.
