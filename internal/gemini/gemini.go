@@ -206,8 +206,8 @@ func agyLoginMarkers(home string) []string {
 	}
 }
 
-// agyDefaultModel runs agy when the caller names no model: fast, and enough for headless dispatches.
-const agyDefaultModel = "gemini-3.8-flash-high"
+// agyDefaultModel runs agy when the caller names no model: the standard-tier pick, enough for headless dispatches.
+const agyDefaultModel = "gemini-4-hydrogen"
 
 // agyGatewayArg is model's Databricks name and --model; a non-Gemini id lacking databricks- runs the pin or default.
 func agyGatewayArg(model string) (base, arg string, err error) {
@@ -699,7 +699,7 @@ func geminiRouteDetail() string {
 
 // agyModelEffort is the --model agy runs for req on t and a Databricks row's pinned effort ("" elsewhere).
 func agyModelEffort(req agent.RunOptions, t providers.Target) (model, effort string) {
-	if req.Model == "" || t.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else flash-high
+	if req.Model == "" || t.Model == "" { // the slot table's opus id isn't agy's own: GEMINI_MODEL pin, else hydrogen
 		t.Model = agyDefaultModel
 	}
 	ctx := context.Background() // Before carries no ctx; the run's values ride req
