@@ -60,6 +60,7 @@ opencode-auth-cache | cache | 1 | state/harness/vendors/opencode-auth.json | int
 opencode-models-check | cache | 2 | state/harness/opencode-models-check.json | internal/catalog | keep
 opencode-overlay | derived | 1 | state/harness/opencode/*.json | internal/agentconfig | keep
 pi-config | derived | 1 | state/harness/pi/*/runs/*/*.json | internal/pi | clean:pi-runs
+pi-guard | derived | 1 | state/harness/pi/*/runs/*/guard.ts | internal/pi | clean:pi-runs
 picker-additions | store | 1 | state/vault.db | internal/providers | keep
 projections | derived | 1 | state/projections/* | internal/agentconfig/project | clean:projections
 quota | derived | 0 | state/harness/quota.json | internal/router | keep
