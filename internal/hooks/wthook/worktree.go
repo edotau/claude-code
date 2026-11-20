@@ -267,7 +267,7 @@ func divergedLine(ctx context.Context, in *core.Input, run *hookRun) (string, er
 
 // divergedCheckDue rate-limits the divergence git call to once per busyScanTTL per session, via an empty stamp file.
 func divergedCheckDue(session string) bool {
-	stamp := filepath.Join(paths.StateDir(), "worktree-diverged", sessionSlug(session))
+	stamp := filepath.Join(paths.StateDir(), "worktree-diverged", worktree.SessionSlug(session))
 	st, err := os.Stat(stamp)
 	if err == nil && time.Since(st.ModTime()) < busyScanTTL {
 		return false

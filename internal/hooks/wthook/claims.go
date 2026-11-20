@@ -43,12 +43,9 @@ var claimOwner = inflight.SessionOwner
 // ownerStart reads the owner's start token each claim line carries; a var seam beside claimOwner.
 var ownerStart = proc.StartTime
 
-// sessionSlug is the session id as the file-name slug every per-session state file uses.
-func sessionSlug(session string) string { return paths.Slug(session, "", 80, "session") }
-
 // claimsFile is <claims>/<owner pid>-<session slug>.jsonl; a dead owner pid retires the whole file.
 func claimsFile(owner int, session string) string {
-	return filepath.Join(worktree.ClaimsDir(), fmt.Sprintf("%d-%s.jsonl", owner, sessionSlug(session)))
+	return filepath.Join(worktree.ClaimsDir(), fmt.Sprintf("%d-%s.jsonl", owner, worktree.SessionSlug(session)))
 }
 
 // claimAgent names the leaf behind a claim: a subagent's id, else a dispatched non-Claude agent's dispatch id.

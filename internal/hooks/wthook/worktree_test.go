@@ -502,7 +502,7 @@ func TestDivergedCheckDueRateLimitsPerSession(t *testing.T) {
 	if !divergedCheckDue("s2") {
 		t.Fatal("a different session has its own stamp")
 	}
-	stamp := filepath.Join(paths.StateDir(), "worktree-diverged", sessionSlug("s1"))
+	stamp := filepath.Join(paths.StateDir(), "worktree-diverged", worktree.SessionSlug("s1"))
 	old := time.Now().Add(-busyScanTTL - time.Second)
 	if err := os.Chtimes(stamp, old, old); err != nil {
 		t.Fatal(err)

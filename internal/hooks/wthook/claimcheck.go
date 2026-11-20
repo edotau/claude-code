@@ -43,7 +43,7 @@ func stageText(cmd string) bool { return gitStageCmd.MatchString(cmd) || verbTex
 
 // liveClaims maps each path other live parties claim to its claimants; a dead owner pid's file is removed.
 func liveClaims(in *core.Input) (map[string][]worktree.ClaimHit, error) {
-	return worktree.LiveClaims(worktree.ClaimSource{Alive: claimAlive, Self: sessionSlug(in.SessionID), Owner: claimOwner,
+	return worktree.LiveClaims(worktree.ClaimSource{Alive: claimAlive, Self: worktree.SessionSlug(in.SessionID), Owner: claimOwner,
 		Leaf: siblingLeaf(in), Dispatch: hookDispatch(in), Label: func(pid int) string {
 			return worktree.SessionLabel(worktree.Proc{PID: pid, Comm: cmp.Or(proc.Comm(pid), "claude")})
 		}})
