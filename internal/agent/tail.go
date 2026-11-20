@@ -66,7 +66,7 @@ func quietLine(rec Record, quiet time.Duration, now time.Time) string {
 }
 
 // TailEvents copies rec's <id>.events.jsonl to w; follow waits until the record leaves running, heartbeating.
-func TailEvents(ctx context.Context, rec Record, follow bool, w io.Writer) (Record, error) {
+func TailEvents(ctx context.Context, rec Record, follow bool, after int64, w io.Writer) (Record, error) {
 	rec, f, err := openTail(ctx, rec, follow, Record.EventsPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -76,7 +76,7 @@ func TailEvents(ctx context.Context, rec Record, follow bool, w io.Writer) (Reco
 	}
 	defer f.Close()
 	br, pend := bufio.NewReader(f), []byte(nil)
-	return followTail(ctx, rec, follow, func() (int, error) { return copyEventLines(br, &pend, w) },
+	return followTail(ctx, rec, follow, func() (int, error) { return copyEventLines(br, &pend, after, w) },
 		func(rec Record, n int, lastOut, lastBeat time.Time) (time.Time, error) {
 			return eventHeartbeat(w, rec, n, lastOut, lastBeat)
 		})
@@ -133,7 +133,7 @@ func eventHeartbeat(w io.Writer, rec Record, n int, lastOut, lastBeat time.Time)
 }
 
 // copyEventLines writes each complete line br has to w, holding a partial tail in pend.
-func copyEventLines(br *bufio.Reader, pend *[]byte, w io.Writer) (int, error) {
+func copyEventLines(br *bufio.Reader, pend *[]byte, after int64, w io.Writer) (int, error) {
 	n := 0
 	for {
 		chunk, rerr := br.ReadBytes('\n')
@@ -143,6 +143,16 @@ func copyEventLines(br *bufio.Reader, pend *[]byte, w io.Writer) (int, error) {
 				return n, nil
 			}
 			return n, rerr
+		}
+		if after > 0 {
+			var event struct{ Seq int64 }
+			if err := json.Unmarshal(*pend, &event); err != nil {
+				return n, fmt.Errorf("decode event sequence: %w", err)
+			}
+			if event.Seq <= after {
+				*pend = (*pend)[:0]
+				continue
+			}
 		}
 		if _, err := w.Write(*pend); err != nil {
 			return n, err

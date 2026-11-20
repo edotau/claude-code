@@ -922,7 +922,7 @@ func TestTailEventsFollowsTwoLiveTurns(t *testing.T) {
 	defer stop()
 	done := make(chan tailOutcome, 1)
 	go func() {
-		got, err := agent.TailEvents(tailCtx, rec, true, out)
+		got, err := agent.TailEvents(tailCtx, rec, true, 0, out)
 		done <- tailOutcome{got, err}
 	}()
 	awaitTailResult(t, out.results, done)

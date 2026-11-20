@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"errors"
@@ -13,6 +14,31 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 )
+
+func TestCopyEventLinesAfter(t *testing.T) {
+	for _, tc := range []struct {
+		after       int64
+		first, rest string
+	}{
+		{0, "{\"seq\":2}\n", "{\"seq\":5}\n{\"seq\":9}\n"},
+		{5, "", "{\"seq\":9}\n"},
+		{9, "", ""},
+	} {
+		source := bytes.NewBufferString("{\"seq\":2}\n{\"seq\":5")
+		reader := bufio.NewReader(source)
+		var pending []byte
+		var out bytes.Buffer
+		n, err := copyEventLines(reader, &pending, tc.after, &out)
+		if err != nil || out.String() != tc.first || n != len(tc.first) || string(pending) != "{\"seq\":5" {
+			t.Fatalf("after %d partial: n=%d, output=%q, pending=%q, err=%v", tc.after, n, &out, pending, err)
+		}
+		source.WriteString("}\n{\"seq\":9}\n")
+		n, err = copyEventLines(reader, &pending, tc.after, &out)
+		if err != nil || out.String() != tc.first+tc.rest || n != len(tc.rest) || len(pending) != 0 {
+			t.Fatalf("after %d complete: n=%d, output=%q, pending=%q, err=%v", tc.after, n, &out, pending, err)
+		}
+	}
+}
 
 // syncBuffer is a bytes.Buffer safe for Tail writing while the test reads.
 type syncBuffer struct {
@@ -209,7 +235,7 @@ func TestTailEventsStopsWhenRecordFinishesWithoutResult(t *testing.T) {
 	var out syncBuffer
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	got, err := TailEvents(ctx, rec, true, &out)
+	got, err := TailEvents(ctx, rec, true, 0, &out)
 	if err != nil {
 		t.Fatalf("TailEvents: %v", err)
 	}
@@ -271,7 +297,7 @@ func TestTailEventsWaitsForSavedResultRecord(t *testing.T) {
 	out := &resultNoticeWriter{results: make(chan struct{}, 4)}
 	done := make(chan tailOutcome, 1)
 	go func() {
-		got, err := TailEvents(ctx, rec, true, out)
+		got, err := TailEvents(ctx, rec, true, 0, out)
 		done <- tailOutcome{got, err}
 	}()
 	awaitTailResult(t, out.results, done)
@@ -314,7 +340,7 @@ func TestTailHeartbeatWriteErrors(t *testing.T) {
 			defer cancel()
 			var err error
 			if mode == "events" {
-				_, err = TailEvents(ctx, rec, true, partialErrorWriter{want})
+				_, err = TailEvents(ctx, rec, true, 0, partialErrorWriter{want})
 			} else {
 				_, err = Tail(ctx, rec.Agent, "", rec.ID, true, partialErrorWriter{want})
 			}

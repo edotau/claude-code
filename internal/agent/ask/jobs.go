@@ -51,6 +51,7 @@ func Status(prefix, agentName, ref string, all bool, format, empty string) int {
 type ResultOptions struct {
 	Prefix, Agent, Ref, Format string
 	Follow, Events             bool
+	After                      int64
 }
 
 // Result prints a job's log, ask line and resume command (json: its envelope); exit 1 for an errored or lost job.
@@ -92,7 +93,7 @@ func streamResult(prefix string, o ResultOptions, name, cwd, ref string) int {
 	out := &endWriter{w: os.Stdout}
 	switch {
 	case o.Events:
-		rec, err = agent.TailEvents(ctx, rec, o.Follow, os.Stdout)
+		rec, err = agent.TailEvents(ctx, rec, o.Follow, o.After, os.Stdout)
 	case o.Format == helptext.JSON: // the envelope is the only JSON: wait for the job, stream nothing
 		rec, err = agent.Tail(ctx, name, cwd, rec.ID, true, io.Discard)
 	default:

@@ -47,7 +47,7 @@ func agentsSpec() *helptext.Node {
 		"ask":    {Flags: ask.CompletionFlags()},
 		"send":   {Flags: []helptext.Flag{flag("format"), flag("timeout")}},
 		"status": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("all"), formatFlag()}},
-		"result": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("f"), boolFlag("events"), flag("save"),
+		"result": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("f"), boolFlag("events"), flag("after"), flag("save"),
 			flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
 		"cancel": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("lost"), boolFlag("dry-run"), formatFlag()}},
 		"wait":   {Flags: []helptext.Flag{flag("timeout"), formatFlag()}},

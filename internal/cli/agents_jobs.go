@@ -2,6 +2,7 @@ package cli
 
 import (
 	"errors"
+	"flag"
 	"os"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -53,6 +54,7 @@ type resultFlags struct {
 	verdict        bool
 	lines          int
 	format         string
+	after          int64
 }
 
 // check reports why the flag combination is refused, given whether an <id> was named.
@@ -64,6 +66,8 @@ func (o resultFlags) check(hasID bool) error {
 		return err
 	}
 	switch {
+	case o.after < 0:
+		return errors.New("--after needs a non-negative sequence")
 	case o.events && o.format == helptext.JSON:
 		return errors.New("--events has no JSON form; drop --format json")
 	case !hasID && o.agent == "":
@@ -102,6 +106,7 @@ func cmdAgentsResult(args []string) int {
 	fs.StringVar(&o.agent, "agent", "", "with no <id>, that agent's newest job in this repo")
 	fs.BoolVar(&o.follow, "f", false, "follow a running job until it finishes, with a heartbeat on silence")
 	fs.BoolVar(&o.events, "events", false, "stream the job's events.jsonl instead of its log")
+	fs.Int64Var(&o.after, "after", 0, "with --events, skip sequences at or below N")
 	fs.StringVar(&o.save, "save", "", "write the result text to this file and print one summary line")
 	fs.IntVar(&o.head, "head", 0, "with --save, also print the first N lines of the saved text")
 	fs.BoolVar(&o.verdict, "verdict", false, "print one status line and the last --lines non-empty answer lines")
@@ -110,6 +115,12 @@ func cmdAgentsResult(args []string) int {
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
+	}
+	afterSet := false
+	fs.Visit(func(f *flag.Flag) { afterSet = afterSet || f.Name == "after" })
+	if afterSet && !o.events {
+		fs.Usage()
+		return helptext.FailUsage("agents result: --after needs --events")
 	}
 	if err := helptext.CheckFormat(*format); err != nil {
 		return helptext.BadFormat("agents result", err)
@@ -129,7 +140,7 @@ func cmdAgentsResult(args []string) int {
 func runAgentsResult(o resultFlags, id string) int {
 	if o.save == "" && !o.verdict {
 		return ask.Result(ask.ResultOptions{Prefix: "agents result", Agent: o.agent, Ref: id, Format: o.format,
-			Follow: o.follow, Events: o.events})
+			Follow: o.follow, Events: o.events, After: o.after})
 	}
 	rec, err := agent.LoadRecord(id)
 	if err != nil {
