@@ -428,7 +428,7 @@ func labelRun(run bool, spec, typ, task string, model, profile *string) (string,
 	return line, err
 }
 
-// specFlags is the ask argv a label --run line carries: the spec's flags, else --model/--profile.
+// specFlags is the ask argv a label --run line carries: the spec's flags, else one --overlay object.
 func specFlags(spec, model, profile string) ([]string, error) {
 	var argv []string
 	if spec != "" {
@@ -444,13 +444,7 @@ func specFlags(spec, model, profile string) ([]string, error) {
 		}
 		argv = a
 	}
-	if model != "" {
-		argv = append(argv, "--model", model)
-	}
-	if profile != "" {
-		argv = append(argv, "--profile", profile)
-	}
-	return argv, nil
+	return append(argv, hooks.OverlayArgs(profile, model, "", "")...), nil
 }
 
 // runLine is the Run: command for a leaf of typ, with no task words; readOnly adds --read-only unless set or codex.

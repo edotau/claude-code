@@ -438,11 +438,8 @@ func heldInfo(cwd string, lr leafRead, rec agent.Record) (lead, idPrefix string)
 	cmd := ""
 	if rec.Agent != "" {
 		parts := []string{"claude-code agents ask --agent", rec.Agent}
-		if rec.Request.Provider != "" {
-			parts = append(parts, "--provider", rec.Request.Provider)
-		}
-		if rec.Request.Model != "" {
-			parts = append(parts, "--model", rec.Request.Model)
+		for _, a := range OverlayArgs(rec.Request.Provider, rec.Request.Model, rec.Request.Identity, rec.Request.Account) {
+			parts = append(parts, textutil.ShellQuote(a))
 		}
 		cmd = strings.Join(parts, " ")
 	}

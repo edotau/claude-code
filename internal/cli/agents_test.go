@@ -1253,7 +1253,7 @@ func TestCmdAgentsAskJoinsContainedReap(t *testing.T) {
 func TestRunLineNamesEveryExternalAgent(t *testing.T) {
 	t.Parallel()
 	for _, a := range agentid.External() {
-		want := "Run: claude-code agents ask --agent " + a + " --model m"
+		want := "Run: claude-code agents ask --agent " + a + " --overlay '{\"model\":\"m\"}'"
 		if line, err := runLine(a, "", "m", "", false); err != nil || line != want {
 			t.Errorf("runLine(%s) = %q, %v; want %q", a, line, err, want)
 		}
@@ -1267,11 +1267,11 @@ func TestRunLineReadOnly(t *testing.T) {
 		ro        bool
 		want      string
 	}{
-		{"copilot", "", true, "Run: claude-code agents ask --agent copilot --model m --read-only"},
-		{"copilot", "", false, "Run: claude-code agents ask --agent copilot --model m"},
+		{"copilot", "", true, "Run: claude-code agents ask --agent copilot --overlay '{\"model\":\"m\"}' --read-only"},
+		{"copilot", "", false, "Run: claude-code agents ask --agent copilot --overlay '{\"model\":\"m\"}'"},
 		{"copilot", `{"tools":true}`, true, "Run: claude-code agents ask --agent copilot --tools=true --read-only"},
 		{"copilot", `{"no-tools":true}`, true, "Run: claude-code agents ask --agent copilot --no-tools=true"},
-		{"codex", "", true, "Run: claude-code agents ask --agent codex --model m"},
+		{"codex", "", true, "Run: claude-code agents ask --agent codex --overlay '{\"model\":\"m\"}'"},
 	}
 	for _, c := range cases {
 		model := "m"

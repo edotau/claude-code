@@ -1,11 +1,14 @@
 package hooks
 
 import (
+	"cmp"
 	"slices"
 	"strings"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/askspec"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/shell"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -110,4 +113,45 @@ func toolsNote(task string) string {
 // RunLine is the brief's `Run:` line for ask argv, each word quoted for a shell.
 func RunLine(argv []string) string {
 	return "Run: " + textutil.ShellJoin(append([]string{"claude-code", "agents", "ask"}, argv...))
+}
+
+// OverlayArgs is the ask argv for a profile and a plain or "row:model" model: one --overlay, or --profile when unknown.
+func OverlayArgs(profile, model, identity, account string) []string {
+	t := overlayTarget(profile, model)
+	switch t.Provider {
+	case "databricks":
+		t.Identity = identity
+	case "github":
+		t.Account = account
+	case "":
+		if t.Profile != "" { // no registry row: ask resolves the name and refuses it if unknown
+			return append([]string{"--profile", t.Profile}, overlayFlag(route.Target{Model: t.Model})...)
+		}
+	}
+	return overlayFlag(t)
+}
+
+// overlayTarget fills the provider from the profile's registry row; a bare provider key is its pool pick.
+func overlayTarget(profile, model string) route.Target {
+	reg, _ := providers.Load()
+	if spec, err := providers.SplitModelSpec(reg, model); err == nil {
+		model = spec.Model
+		profile = cmp.Or(profile, spec.Row)
+	}
+	t := route.Target{Route: route.ParseLegacy(profile), Model: model}
+	if t.Provider != "" {
+		t.Profile = cmp.Or(t.Profile, agentpkg.AutoModel)
+	} else if reg != nil && t.Profile != "" {
+		if p, err := reg.Get(t.Profile); err == nil {
+			t.Provider = p.Provider
+		}
+	}
+	return t
+}
+
+func overlayFlag(t route.Target) []string {
+	if t.IsZero() && t.Model == "" {
+		return nil
+	}
+	return []string{"--overlay", t.JSON()}
 }
