@@ -411,7 +411,10 @@ func frameKind(data string, c ProbeCall) (terminator, failed, content bool) {
 		return data == "[DONE]", hasErr, len(f.Choices) > 0 && !hasErr
 	}
 	var f struct {
-		Type string `json:"type"`
+		Type  string `json:"type"`
+		Delta struct {
+			StopReason string `json:"stop_reason"`
+		} `json:"delta"`
 	}
 	_ = json.Unmarshal([]byte(data), &f)
 	switch {
@@ -419,8 +422,8 @@ func frameKind(data string, c ProbeCall) (terminator, failed, content bool) {
 		return true, false, false
 	case f.Type == "error", f.Type == "response.failed":
 		return false, true, false
-	case c.Anthropic:
-		return false, false, strings.HasPrefix(f.Type, "content_block")
+	case c.Anthropic: // max_tokens: a tiny budget spent on hidden thinking is a clean end, as response.incomplete
+		return false, false, strings.HasPrefix(f.Type, "content_block") || f.Delta.StopReason == "max_tokens"
 	}
 	return false, false, strings.Contains(f.Type, "delta") || strings.HasPrefix(f.Type, "response.output")
 }
