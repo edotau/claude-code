@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 )
 
@@ -45,6 +46,7 @@ func Serve(ctx context.Context, port int) error {
 
 	r := newRouter(secret)
 	defer drainStateWrites(r) // in-flight state writes finish before the process exits, within a short bound
+	defer providers.BackgroundRefresh(ctx)()
 	defer r.startKeepalive(ctx)()
 	srv := &http.Server{Handler: r, ReadHeaderTimeout: 30 * time.Second, IdleTimeout: 120 * time.Second}
 	serveListening()

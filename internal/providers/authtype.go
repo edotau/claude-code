@@ -345,7 +345,7 @@ func userCredential(ctx context.Context, p *Provider, force bool) (string, error
 		if rec, dead := openLoginMark(p); dead && !force {
 			return "", loginRenewalError(p, rec)
 		}
-		out, _, err := lockedUserMint(ctx, p, force, expiryMargin)
+		out, _, err := lockedUserMint(ctx, p, force, freshMargin)
 		return out, err
 	})
 }
@@ -386,13 +386,13 @@ var (
 	mintM2M              = oauth.MintM2M
 	spNoteOut  io.Writer = os.Stderr
 	spCache    sync.Map
-	spFlights  = &flightGroup{flights: map[string]*flight{}, cached: func(name string) (string, bool) { return cacheGet(&spCache, name) }}
+	spFlights  = &flightGroup{flights: map[string]*flight{}, cached: func(name string) (string, cacheState) { return cacheLookup(&spCache, name) }}
 )
 
 // spCredential isolates SP tokens, expiry records and flights from the user's profile key.
 func spCredential(ctx context.Context, p *Provider, force bool) (string, error) {
 	return spFlights.do(ctx, p.Name, force, func(ctx context.Context) (string, error) {
-		v, _, err := mintSP(ctx, p, force, expiryMargin)
+		v, _, err := mintSP(ctx, p, force, freshMargin)
 		return v, err
 	})
 }
@@ -583,12 +583,12 @@ type clientAccess struct {
 	Bind   string `json:"bind"`
 }
 
-// m2mToken serves an m2m/sp token sealed by any process while it is valid past expiryMargin; force mints anew.
+// m2mToken serves an m2m/sp token sealed by any process while it is fresh by its stale window; force mints anew.
 func m2mToken(ctx context.Context, p *Provider, secretName, host, clientID, secret string, force bool) (oauth.Token, error) {
 	bind := clientBind(host, clientID, secret)
 	name := secretName + "_ACCESS"
 	if !force {
-		if v, ok := sealedClientAccess(name, bind, expiryMargin); ok {
+		if v, ok := sealedClientAccess(name, bind, freshMargin); ok {
 			return oauth.Token{Access: v}, nil
 		}
 	}

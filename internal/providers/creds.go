@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode"
 
@@ -27,7 +28,21 @@ var ErrPassthrough = errors.New("provider uses passthrough auth")
 type cached struct {
 	value string
 	until time.Time
+	// zero: unservable past until; else a sealed token served stale until here (expiry minus expirySkew)
+	hard time.Time
 }
+
+// cacheState is a cached token's age: missing or expired, fresh, or stale (valid but due for refresh).
+type cacheState int
+
+const (
+	cacheMiss cacheState = iota
+	cacheFresh
+	cacheStale
+)
+
+// credNow is the credential cache's clock; a var so tests step time without sleeping.
+var credNow = time.Now
 
 var cmdCache sync.Map
 
@@ -160,19 +175,111 @@ var flightHook = func(bool) {}
 type flightGroup struct {
 	mu      sync.Mutex
 	flights map[string]*flight
-	cached  func(name string) (string, bool)
+	cached  func(name string) (string, cacheState)
+	// name -> start of its last background refresh, spaced by refreshCooldown
+	tried map[string]time.Time
 }
 
-var cmdFlights = &flightGroup{flights: map[string]*flight{}, cached: cachedCommand}
+var cmdFlights = &flightGroup{flights: map[string]*flight{}, cached: func(name string) (string, cacheState) {
+	return cacheLookup(&cmdCache, name)
+}}
 
 func cachedCommand(name string) (string, bool) { return cacheGet(&cmdCache, name) }
 
-// cacheGet returns the unexpired value cached under name.
+// cacheGet returns the fresh value cached under name.
 func cacheGet(m *sync.Map, name string) (string, bool) {
-	if c, ok := m.Load(name); ok && time.Now().Before(c.(cached).until) {
-		return c.(cached).value, true
+	v, st := cacheLookup(m, name)
+	return v, st == cacheFresh
+}
+
+// cacheLookup is the value cached under name and its state; past hard (or past until with no hard) it is a miss.
+func cacheLookup(m *sync.Map, name string) (string, cacheState) {
+	c, ok := m.Load(name)
+	if !ok {
+		return "", cacheMiss
 	}
-	return "", false
+	e, now := c.(cached), credNow()
+	switch {
+	case !e.hard.IsZero() && !now.Before(e.hard):
+		return "", cacheMiss
+	case now.Before(e.until):
+		return e.value, cacheFresh
+	case now.Before(e.hard):
+		return e.value, cacheStale
+	}
+	return "", cacheMiss
+}
+
+const (
+	// maxStaleWindow caps how long before expiry a sealed token turns stale and is refreshed early.
+	maxStaleWindow = 20 * time.Minute
+	// expirySkew is the last margin before expiry a stale token is served; past it callers block on a refresh.
+	expirySkew = time.Minute
+	// refreshCooldown spaces background refreshes per profile so a failing token endpoint sees no storm.
+	refreshCooldown = time.Minute
+	// backgroundRefreshTimeout bounds one background refresh apart from the request that started it.
+	backgroundRefreshTimeout = time.Minute
+)
+
+// bgBase is set only in a long-lived process (the proxy): a stale token is served while one refresh runs behind it.
+var bgBase atomic.Pointer[context.Context]
+
+// BackgroundRefresh enables stale-while-refresh until stop; stop cancels any refresh in flight and never waits.
+func BackgroundRefresh(ctx context.Context) (stop func()) {
+	ctx, cancel := context.WithCancel(ctx)
+	ref := &ctx
+	bgBase.Store(ref)
+	return func() {
+		cancel()
+		bgBase.CompareAndSwap(ref, nil)
+	}
+}
+
+// backgroundContext is the live BackgroundRefresh context; nil in a short-lived process, which refreshes in line.
+func backgroundContext() context.Context {
+	if ref := bgBase.Load(); ref != nil && (*ref).Err() == nil {
+		return *ref
+	}
+	return nil
+}
+
+// served is the cached value a non-forced call may return now; a stale one also starts a background refresh.
+func (g *flightGroup) served(ctx context.Context, name string, mint func(context.Context) (string, error)) (string, bool) {
+	v, st := g.cached(name)
+	if st == cacheFresh {
+		return v, true
+	}
+	base := backgroundContext()
+	if st != cacheStale || base == nil {
+		return "", false
+	}
+	g.refreshBehind(base, ctx, name, mint)
+	return v, true
+}
+
+// refreshBehind starts one background flight for name unless one runs or the cool-down holds; callers hold g.mu.
+func (g *flightGroup) refreshBehind(base, ctx context.Context, name string, mint func(context.Context) (string, error)) {
+	now := credNow()
+	if _, inflight := g.flights[name]; inflight || now.Before(g.tried[name].Add(refreshCooldown)) {
+		return
+	}
+	if g.tried == nil {
+		g.tried = map[string]time.Time{}
+	}
+	g.tried[name] = now
+	f := &flight{done: make(chan struct{}), err: errMintAborted}
+	g.flights[name] = f
+	// the request's values (identity) carry over; its cancellation must not, the base's must
+	mctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), backgroundRefreshTimeout)
+	stop := context.AfterFunc(base, cancel)
+	go g.runMint(name, f, func() {
+		defer func() { stop(); cancel() }()
+		f.val, f.err = mint(mctx)
+		if f.err != nil {
+			fmt.Fprintf(os.Stderr, "%s: background token refresh failed (%s); serving the cached token until it expires\n",
+				name, Verdict(f.err))
+		}
+	})
 }
 
 // mintOnce is the one mint coordinator: per provider, single-flight; a forced call never joins a non-forced flight.
@@ -184,7 +291,7 @@ func (g *flightGroup) do(ctx context.Context, name string, force bool, mint func
 	for {
 		g.mu.Lock()
 		if !force {
-			if v, ok := g.cached(name); ok {
+			if v, ok := g.served(ctx, name, mint); ok {
 				g.mu.Unlock()
 				return v, nil
 			}
@@ -283,37 +390,80 @@ func cacheCredential(p *Provider, cache *sync.Map, record, method, v string, exp
 	if ttl <= 0 {
 		ttl = 5 * time.Minute
 	}
-	until := time.Now().Add(ttl)
-	if exp.IsZero() {
-		if e, ok := JWTExp(v); ok {
-			exp = time.Unix(e, 0)
-		}
-	}
+	now := credNow()
+	var issued time.Time
 	if !exp.IsZero() {
-		if e := exp.Add(-expiryMargin); e.Before(until) {
-			until = e
-		}
+		// an expiry from the token endpoint means the token was minted just now
+		issued = now
+	} else if e, ok := JWTExp(v); ok {
+		exp = time.Unix(e, 0)
 	}
-	cache.Store(p.Name, cached{value: v, until: until})
+	cache.Store(p.Name, cacheEntry(p, v, now.Add(ttl), exp, issued))
 	return nil
 }
 
+// cacheEntry is v fresh until until or its refresh point; a sealed type's token may then be served stale until hard.
+func cacheEntry(p *Provider, v string, until, exp, issued time.Time) cached {
+	if exp.IsZero() {
+		return cached{value: v, until: until}
+	}
+	if !sealedAuth(p.Auth.Type) {
+		return cached{value: v, until: minTime(until, exp.Add(-expiryMargin))}
+	}
+	return cached{value: v, until: minTime(until, exp.Add(-staleWindow(v, exp, issued))), hard: exp.Add(-expirySkew)}
+}
+
+func minTime(a, b time.Time) time.Time {
+	if b.Before(a) {
+		return b
+	}
+	return a
+}
+
+// staleWindow is min(lifetime/2, 20m), lifetime from issued else the JWT iat; unknown keeps the old 10m margin.
+func staleWindow(v string, exp, issued time.Time) time.Duration {
+	var claims struct {
+		Iat *float64 `json:"iat"`
+	}
+	if issued.IsZero() && textutil.JWTClaims(v, &claims) && claims.Iat != nil && *claims.Iat > 0 && *claims.Iat < maxJWTExp {
+		issued = time.Unix(int64(*claims.Iat), 0)
+	}
+	if issued.IsZero() || !exp.After(issued) {
+		return expiryMargin
+	}
+	return min(exp.Sub(issued)/2, maxStaleWindow)
+}
+
+// freshMargin asks jwtValidPast for the token's own stale window, so a peer's stale token is never adopted.
+const freshMargin time.Duration = -1
+
 // jwtValidPast returns v when its JWT exp is still more than margin away.
 func jwtValidPast(v string, margin time.Duration) (string, bool) {
-	exp, ok := JWTExp(v)
-	if !ok || !time.Unix(exp, 0).Add(-margin).After(time.Now()) {
+	e, ok := JWTExp(v)
+	if !ok {
+		return "", false
+	}
+	exp := time.Unix(e, 0)
+	if margin == freshMargin {
+		margin = staleWindow(v, exp, time.Time{})
+	}
+	if !exp.Add(-margin).After(credNow()) {
 		return "", false
 	}
 	return v, true
 }
 
-// staleServe rides out a transient mint failure on old for one minute, noting what failed.
+// staleServe rides out a transient mint failure on old: fresh for one minute, then stale until its expiry skew.
 func staleServe(p *Provider, cache *sync.Map, what, old string, err error) (string, bool) {
 	if old == "" {
 		return "", false
 	}
 	fmt.Fprintf(os.Stderr, "%s: %s failed (%s); using the cached token until it expires\n", p.Name, what, textutil.FirstLine(err.Error()))
-	cache.Store(p.Name, cached{value: old, until: time.Now().Add(time.Minute)})
+	entry := cached{value: old, until: credNow().Add(time.Minute)}
+	if e, ok := JWTExp(old); ok {
+		entry.hard = time.Unix(e, 0).Add(-expirySkew)
+	}
+	cache.Store(p.Name, entry)
 	return old, true
 }
 

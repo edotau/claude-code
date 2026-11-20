@@ -3,11 +3,14 @@ package providers
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
+	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -191,5 +194,224 @@ func TestFlightGroupCanceledLeaderStopsWaitingWhileFollowerMints(t *testing.T) {
 	result = authFixWaitResult(t, follower)
 	if result.err != nil || result.value != "shared-result" {
 		t.Fatalf("follower did not receive the original mint: err=%v", result.err)
+	}
+}
+
+// staleRig is a u2m row on a stubbed token endpoint that counts calls, records each refresh token spent and rotates it.
+type staleRig struct {
+	p       *Provider
+	calls   atomic.Int32
+	mu      sync.Mutex
+	spent   []string
+	clock   atomic.Int64
+	fail    error
+	gate    chan struct{}
+	entered chan struct{}
+}
+
+// jwtLife is an unsigned JWT issued at iat that expires at exp.
+func jwtLife(iat, exp time.Time) string {
+	return hosttest.UnsignedJWT(fmt.Sprintf(`{"iss":"","iat":%d,"exp":%d}`, iat.Unix(), exp.Unix()))
+}
+
+// newStaleRig seals and caches a one-hour token with left to live; async turns on BackgroundRefresh.
+func newStaleRig(t *testing.T, name string, left time.Duration, async bool) (*staleRig, string) {
+	t.Helper()
+	r := &staleRig{p: mintRow(t, name, AuthOAuth, "", "https://h.example.invalid"), entered: make(chan struct{}, 1)}
+	r.clock.Store(time.Now().UnixNano())
+	origNow, origRefresh := credNow, refreshU2M
+	credNow, refreshU2M = r.now, r.refresh
+	t.Cleanup(func() {
+		credNow, refreshU2M = origNow, origRefresh
+		cmdCache.Delete(name)
+		cmdFlights.mu.Lock()
+		delete(cmdFlights.tried, name)
+		cmdFlights.mu.Unlock()
+	})
+	old := jwtLife(r.now().Add(left-time.Hour), r.now().Add(left))
+	putOAuth(t, r.p, oauthValue{Refresh: "refresh-1", Access: old})
+	if err := finishCredential(r.p, old, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if async {
+		t.Cleanup(BackgroundRefresh(context.Background()))
+	}
+	return r, old
+}
+
+func (r *staleRig) now() time.Time          { return time.Unix(0, r.clock.Load()) }
+func (r *staleRig) advance(d time.Duration) { r.clock.Add(int64(d)) }
+func (r *staleRig) spentTokens() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.spent...)
+}
+func (r *staleRig) credential() (string, error) { return Credential(context.Background(), r.p) }
+
+func (r *staleRig) refresh(ctx context.Context, _, refresh string) (oauth.Token, error) {
+	n := r.calls.Add(1)
+	r.mu.Lock()
+	r.spent = append(r.spent, refresh)
+	r.mu.Unlock()
+	select {
+	case r.entered <- struct{}{}:
+	default:
+	}
+	if r.gate != nil {
+		select {
+		case <-r.gate:
+		case <-ctx.Done():
+			return oauth.Token{}, ctx.Err()
+		}
+	}
+	if r.fail != nil {
+		return oauth.Token{}, r.fail
+	}
+	now := r.now()
+	return oauth.Token{Access: jwtLife(now, now.Add(time.Hour)), Refresh: fmt.Sprintf("refresh-%d", n+1), Expiry: now.Add(time.Hour)}, nil
+}
+
+// waitBackground waits for name's in-flight mint, if any, to finish.
+func waitBackground(t *testing.T, name string) {
+	t.Helper()
+	cmdFlights.mu.Lock()
+	f := cmdFlights.flights[name]
+	cmdFlights.mu.Unlock()
+	if f == nil {
+		return
+	}
+	select {
+	case <-f.done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("background refresh did not finish")
+	}
+}
+
+func TestFreshTokenServedWithoutRefresh(t *testing.T) {
+	r, old := newStaleRig(t, "stale-fresh", 50*time.Minute, true)
+	for range 10 {
+		if v, err := r.credential(); err != nil || v != old {
+			t.Fatalf("fresh call: same=%t err=%v", v == old, err)
+		}
+	}
+	waitBackground(t, r.p.Name)
+	if n := r.calls.Load(); n != 0 {
+		t.Fatalf("fresh token refreshed %d times, want 0", n)
+	}
+}
+
+func TestStaleTokenServedWhileOneRefreshRuns(t *testing.T) {
+	r, old := newStaleRig(t, "stale-herd", 15*time.Minute, true)
+	r.gate = make(chan struct{})
+	vals, errs := herd(r.p, 20)
+	for i := range vals {
+		if errs[i] != nil || vals[i] != old {
+			t.Fatalf("caller %d: served the cached token=%t err=%v; want it at once", i, vals[i] == old, errs[i])
+		}
+	}
+	close(r.gate)
+	waitBackground(t, r.p.Name)
+	got, err := r.credential()
+	if err != nil || got == old || r.calls.Load() != 1 {
+		t.Fatalf("after the refresh: new=%t calls=%d err=%v; want one refresh and its token", got != old, r.calls.Load(), err)
+	}
+	if ov, _ := readOAuth(r.p); ov.Refresh != "refresh-2" || ov.Access != got {
+		t.Fatalf("vault: rotated=%t access sealed=%t", ov.Refresh == "refresh-2", ov.Access == got)
+	}
+	checkPeerAdoptsRotation(t, r, old, got)
+}
+
+// checkPeerAdoptsRotation: a peer caching the stale token adopts the sealed rotation instead of spending it again.
+func checkPeerAdoptsRotation(t *testing.T, r *staleRig, old, got string) {
+	t.Helper()
+	r.advance(refreshCooldown + time.Second)
+	if err := finishCredential(r.p, old, time.Time{}); err != nil {
+		t.Fatal(err)
+	}
+	if v, err := r.credential(); err != nil || v != old {
+		t.Fatalf("peer stale call: same=%t err=%v", v == old, err)
+	}
+	waitBackground(t, r.p.Name)
+	if v, _ := r.credential(); v != got || len(r.spentTokens()) != 1 || r.spentTokens()[0] != "refresh-1" {
+		t.Fatalf("peer: adopted=%t refresh tokens spent=%d; want the sealed token and one spend", v == got, len(r.spentTokens()))
+	}
+}
+
+func TestStaleOrExpiredTokenBlocksOnRefresh(t *testing.T) {
+	for _, c := range []struct {
+		name  string
+		left  time.Duration
+		async bool
+	}{
+		{"stale in a short-lived process", 15 * time.Minute, false},
+		{"inside the expiry skew", 30 * time.Second, true},
+		{"expired", -time.Minute, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			r, old := newStaleRig(t, "stale-block", c.left, c.async)
+			if v, err := r.credential(); err != nil || v == old || r.calls.Load() != 1 {
+				t.Fatalf("got the old token=%t calls=%d err=%v; want a blocking refresh", v == old, r.calls.Load(), err)
+			}
+		})
+	}
+}
+
+func TestFailedBackgroundRefreshCoolsDown(t *testing.T) {
+	r, old := newStaleRig(t, "stale-fail", 10*time.Minute, true)
+	putOAuth(t, r.p, oauthValue{Refresh: "refresh-1"})
+	r.fail = errors.New("token endpoint: connection reset")
+	burst := func(step time.Duration, wantCalls int32) {
+		t.Helper()
+		r.advance(step)
+		for range 50 {
+			if v, err := r.credential(); err != nil || v != old {
+				t.Fatalf("stale call: served=%t err=%v; want the valid cached token", v == old, err)
+			}
+		}
+		waitBackground(t, r.p.Name)
+		if n := r.calls.Load(); n != wantCalls {
+			t.Fatalf("refresh attempts = %d, want %d", n, wantCalls)
+		}
+	}
+	burst(0, 1)
+	burst(refreshCooldown/2, 1)
+	burst(refreshCooldown/2+time.Second, 2)
+	r.advance(10*time.Minute - refreshCooldown - time.Second - expirySkew/2)
+	if v, err := r.credential(); err == nil || v != "" || r.calls.Load() != 3 {
+		t.Fatalf("past the skew: value=%t calls=%d err=%v; want the refresh error", v != "", r.calls.Load(), err)
+	}
+}
+
+func TestBackgroundRefreshStopCancelsInFlight(t *testing.T) {
+	r, old := newStaleRig(t, "stale-stop", 15*time.Minute, false)
+	r.gate = make(chan struct{}) // never opened: only cancellation ends this refresh
+	stop := BackgroundRefresh(context.Background())
+	t.Cleanup(stop)
+	if v, err := r.credential(); err != nil || v != old {
+		t.Fatalf("stale call: same=%t err=%v", v == old, err)
+	}
+	select {
+	case <-r.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no background refresh started")
+	}
+	start := time.Now()
+	stop()
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("stop took %v", d)
+	}
+	waitBackground(t, r.p.Name)
+	if backgroundContext() != nil {
+		t.Fatal("background refresh still enabled after stop")
+	}
+}
+
+func TestCacheNeverServesPastExpirySkew(t *testing.T) {
+	var m sync.Map
+	now := time.Now()
+	// a staleServe entry can stay fresh past its token's skew point; the skew wins
+	m.Store("k", cached{value: "v", until: now.Add(time.Minute), hard: now.Add(-time.Second)})
+	if v, st := cacheLookup(&m, "k"); st != cacheMiss || v != "" {
+		t.Fatalf("state %d served=%t; want a miss past the skew", st, v != "")
 	}
 }
