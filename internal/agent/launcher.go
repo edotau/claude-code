@@ -3,6 +3,7 @@ package agent
 import (
 	"cmp"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -66,7 +67,8 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 	if _, err := agentconfig.FlagOverlay(nil, o.KeepEnv); err != nil { // names only: never a value
 		return LaunchOptions{}, nil, err
 	}
-	return o, rest, nil
+	err := o.foldOverlay()
+	return o, rest, err
 }
 
 // UsageError is a launch refusal the CLI reports verbatim with exit 2.
@@ -222,14 +224,56 @@ func launchOverlay(opts LaunchOptions) (agentconfig.Resolved, error) {
 	if o.BudgetUSD != nil || o.BudgetCredits != nil { // a budget needs the ask loop to meter it
 		return agentconfig.Resolved{}, errors.New("overlay budgetUSD/budgetCredits apply to agents ask only")
 	}
-	if o.Routed() { // an interactive launch takes the env layer only: refuse, never silently ignore
-		return agentconfig.Resolved{}, errors.New("overlay " + strings.Join(agentconfig.RoutingKeys(), "/") +
-			" apply to agents ask and gateway, not an interactive launch")
+	if key := refusedLaunchKey(o, opts.Overlay != ""); key != "" { // refuse, never silently ignore
+		return agentconfig.Resolved{}, errors.New("overlay " + key + " applies to agents ask and gateway, not an interactive launch")
 	}
 	if opts.PrintEnv {
 		return agentconfig.Resolved{Set: o.Set, Unset: o.Unset, Keep: o.Keep}, nil
 	}
 	return agentconfig.ResolveOverlay(o)
+}
+
+// refusedLaunchKey names the first overlay key a launch cannot honor; the route, model and effort fold in ParseArgs.
+func refusedLaunchKey(o agentconfig.Overlay, explicit bool) string {
+	switch {
+	case o.Fallback != "":
+		return "fallback"
+	case o.TokenCommand != nil:
+		return "tokenCommand"
+	case o.CodexNetwork:
+		return "codexNetwork"
+	case o.Cloud:
+		return "cloud"
+	case !explicit && (!o.Route().IsZero() || o.Model != "" || o.Effort != ""): // only --overlay routes a launch
+		return "provider/profile/model/effort"
+	}
+	return ""
+}
+
+// foldOverlay inlines a --overlay once (stdin reads once) and lets its route and model fill what no flag typed.
+func (o *LaunchOptions) foldOverlay() error {
+	if o.Overlay == "" {
+		return nil
+	}
+	ov, err := agentconfig.LoadOverlayContext(context.Background(), o.Overlay, os.Stdin)
+	if err != nil {
+		return err
+	}
+	doc, err := json.Marshal(ov)
+	if err != nil {
+		return err
+	}
+	o.Overlay = string(doc)
+	r := ov.Route()
+	if o.Provider == "" && !r.IsZero() { // the route comes whole from one source: a typed --profile wins it all
+		o.Route = r
+		o.Provider = r.Profile
+		if r.Profile == "auto" {
+			o.Provider, o.Model = "", cmp.Or(o.Model, r.Provider+":"+cmp.Or(ov.Model, "auto"))
+		}
+	}
+	o.Model = cmp.Or(o.Model, ov.Model)
+	return nil
 }
 
 // LaunchPlan resolves `claude-code <agent>`: the opus target via Configure, else the agent's own login.
@@ -315,7 +359,7 @@ func poolLaunch(name string, o LaunchOptions) (LaunchOptions, bool, error) {
 	if err != nil || pinned.Provider != "" {
 		return o, false, err
 	}
-	o.Model = PoolPin + ":auto"
+	o.Model = poolRoute.Provider + ":" + poolRoute.Profile
 	return o, true, nil
 }
 
@@ -460,7 +504,7 @@ func launchProfile(name string, o LaunchOptions) (LaunchOptions, error) {
 	if err != nil {
 		return LaunchOptions{}, err
 	}
-	o.Provider, err = pinRoute(name, recs[name].Profile)
+	o.Provider, err = pinRoute(name, pinProfile(recs[name]))
 	return o, err
 }
 

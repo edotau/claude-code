@@ -409,3 +409,17 @@ func TestPoolPickedRefusalNamesTheWayForward(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+// Given a route overlay, ParseArgs folds it into the launch; a fallback key is refused naming the key.
+func TestLaunchOverlayRoute(t *testing.T) {
+	o, _, err := ParseArgs([]string{"--overlay", `{"provider":"databricks","profile":"dev","model":"opus"}`}, true)
+	if err != nil || o.Provider != "dev" || o.Model != "opus" || o.Route.Provider != "databricks" {
+		t.Fatalf("fold: %+v, %v", o, err)
+	}
+	if _, err := launchOverlay(o); err != nil {
+		t.Fatalf("route overlay refused: %v", err)
+	}
+	if _, err := launchOverlay(LaunchOptions{Overlay: `{"fallback":"all"}`, PrintEnv: true}); err == nil || !strings.Contains(err.Error(), "fallback") {
+		t.Fatalf("fallback: %v", err)
+	}
+}

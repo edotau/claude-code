@@ -65,7 +65,7 @@ func anthropicFlags(w io.Writer) *flag.FlagSet {
 	fs.String("profile", "", "run on this registry profile instead")
 	fs.Bool("print-env", false, "print the resolved launch; never prompts")
 	fs.String("keep-env", "", "env names the credential scrub keeps")
-	fs.String("overlay", "", "env layer {set,unset,keep}: file, inline JSON, or -")
+	fs.String("overlay", "", "route, model, effort, env: file, JSON, or -")
 	return fs
 }
 

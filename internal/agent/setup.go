@@ -76,7 +76,7 @@ func (s Schema) routeState(ctx context.Context) string {
 		return "warn"
 	}
 	ri := s.DescribeRoute(ctx, reg)
-	if !ri.OK || ri.Route != RouteCopilotLogin && ri.Provider != vault.GetAgentRecord(s.Name).Profile {
+	if !ri.OK || ri.Route != RouteCopilotLogin && ri.Provider != pinProfile(vault.GetAgentRecord(s.Name)) {
 		return "warn"
 	}
 	return "ok"

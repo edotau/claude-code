@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -462,7 +463,7 @@ func AgentActive(agent string) bool {
 	if _, ok := lookupRow(agent); !ok {
 		return true
 	}
-	return vault.GetAgentRecord(agent).Profile != ""
+	return !vault.GetAgentRecord(agent).EffectiveRoute().IsZero()
 }
 
 // AgentPinsContext reads the records once and returns every agent's spec; claude's profile is the session's.
@@ -477,11 +478,12 @@ func AgentPinsContext(ctx context.Context) (map[string]router.PinSpec, error) {
 	out := make(map[string]router.PinSpec, len(rs))
 	for _, k := range rs {
 		r := recs[k.Name]
-		spec := router.PinSpec{Profile: r.Profile, Off: k.External() && r.Profile == ""}
-		if ownLogin(reg, k.Name, r.Profile) || k.External() && strings.TrimSpace(r.Profile) == PoolPin {
+		pin := pinProfile(r)
+		spec := router.PinSpec{Profile: pin, Off: k.External() && pin == ""}
+		if ownLogin(reg, k.Name, pin) || k.External() && strings.TrimSpace(pin) == PoolPin {
 			spec.Profile = "" // own login, or the pool (no fixed workspace): routes as the old unset pin did
 		}
-		spec.Model, spec.Fallback = agentModelPinContext(ctx, k.Name), r.Fallback
+		spec.Model, spec.Fallback = agentModelPinContext(ctx, k.Name), r.EffectiveFallbackRoute().Profile
 		if !k.External() {
 			spec.Profile = cmp.Or(providers.SessionLeadContext(ctx, nil, false), spec.Profile)
 		}
@@ -512,10 +514,24 @@ func ownLogin(loadReg func() *providers.Registry, agent, profile string) bool {
 // PoolPin is the record profile pinning an agent to the Databricks pool: the auto pick, no fixed workspace.
 const PoolPin = providers.GroupDatabricks
 
+var poolRoute = route.Route{Provider: providers.GroupDatabricks, Profile: "auto"}
+
+// pinProfile is rec's route as the profile name the pins read: the pool pin, a registry profile, else the row name.
+func pinProfile(rec vault.AgentRecord) string {
+	rt := rec.EffectiveRoute()
+	switch {
+	case rt == poolRoute:
+		return PoolPin
+	case rt.Profile != "":
+		return rt.Profile
+	}
+	return rec.Profile
+}
+
 // PinsPool reports an external agent whose record profile is PoolPin.
 func PinsPool(agent string) bool {
 	s, ok := lookupRow(agent)
-	return ok && s.External() && strings.TrimSpace(vault.GetAgentRecord(agent).Profile) == PoolPin
+	return ok && s.External() && vault.GetAgentRecord(agent).EffectiveRoute() == poolRoute
 }
 
 // servesPool reports whether agent can run on any Databricks row of reg.
