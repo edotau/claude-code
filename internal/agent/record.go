@@ -123,7 +123,7 @@ func (r Record) EventsPath() string {
 }
 
 // dispatchKeep bounds the log after pruning once the margin is exceeded.
-var dispatchKeep = 200
+var dispatchKeep = 2000
 
 // DispatchKeep is how many newest dispatch records pruning keeps; `claude-code clean` never sweeps them.
 func DispatchKeep() int { return dispatchKeep }
@@ -549,6 +549,7 @@ func RecordRefusal(name string, req RunOptions, job *Record, err error) {
 	rec.Finish(res, err, 0)
 	rec.Attempts = res.Hops // Finish keeps attempts only past one hop
 	claimRecord(rec)        // the one write is already concluded; a failed claim leaves nothing behind
+	pruneDispatches(paths.DispatchDir())
 }
 
 // failKind: availability when no model could answer (limits, auth, routing, transport, timeout, cancel), else quality.
@@ -589,6 +590,7 @@ func (r *Record) finishSave(res wire.Result, err error, took time.Duration, noti
 		notify(fmt.Sprintf("dispatch %s record not saved: %v", r.ID, serr))
 	}
 	r.warnCutoff(notify)
+	pruneDispatches(paths.DispatchDir()) // claimRecord pre-creates the file, so Save never sees a new record
 }
 
 func pruneDispatches(dir string) {

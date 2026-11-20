@@ -1170,3 +1170,41 @@ func TestCutoffHintNamesNextCommand(t *testing.T) {
 		t.Errorf("a refusal was rewrapped: %v", got)
 	}
 }
+
+// claimRecord pre-creates the file, so Save never prunes; finishSave must.
+func TestFinishSavePrunesClaimedRecords(t *testing.T) {
+	setConfigDir(t)
+	old := dispatchKeep
+	dispatchKeep = 2
+	t.Cleanup(func() { dispatchKeep = old })
+	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
+	active := ClaimRecord("codex", RunOptions{Prompt: "running"}, base)
+	active.PID = os.Getpid()
+	if err := active.Save(); err != nil {
+		t.Fatal(err)
+	}
+	first := ClaimRecord("codex", RunOptions{Prompt: "done"}, base.Add(time.Minute))
+	first.Status = "ok"
+	for i := 2; i <= dispatchKeep+dispatchPruneMargin; i++ {
+		rec := ClaimRecord("codex", RunOptions{Prompt: "done"}, base.Add(time.Duration(i)*time.Minute))
+		rec.Status = "ok"
+		if err := rec.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(first.EventsPath(), []byte("{}"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	last := ClaimRecord("codex", RunOptions{Prompt: "last"}, base.Add(time.Hour))
+	last.finishSave(wire.Result{Agent: "codex"}, nil, time.Second, nil)
+	names, err := recordNames(paths.DispatchDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := []string{active.ID + ".json", last.ID + ".json"}; !slices.Equal(names, want) {
+		t.Fatalf("after finish: records %v, want the running %s and the newest %s", names, active.ID, last.ID)
+	}
+	if _, err := os.Stat(first.EventsPath()); !os.IsNotExist(err) {
+		t.Fatalf("pruned record's events file must go, stat err = %v", err)
+	}
+}
