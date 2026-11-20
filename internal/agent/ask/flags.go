@@ -458,7 +458,7 @@ func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, f
 	}
 	*prompt, *s.rubric = cmp.Or(*prompt, rec.Request.Prompt), "" // a typed task replaces the logged one
 	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
-	moveOffCutoff(fs, s, rec, os.Stderr)
+	moveOffCutoff(fs, s, rec, os.Stderr, "")
 	return 0, false
 }
 
@@ -476,18 +476,47 @@ func keepReason(typedModel, noFallback bool, ran string) string {
 }
 
 // moveOffCutoff sends a retry of a cut-off run to claude when nothing was typed to pin the route, else says how to move.
-func moveOffCutoff(fs *flag.FlagSet, s *askState, rec agent.Record, errw io.Writer) {
+func moveOffCutoff(fs *flag.FlagSet, s *askState, rec agent.Record, errw io.Writer, ago string) {
 	ran := cmp.Or(rec.RanAs, rec.Agent)
-	if !rec.CutOff() || helptext.Explicit(fs, "agent") {
+	if !rec.CutOff() || (ago == "" && helptext.Explicit(fs, "agent")) { // a resubmit always types --agent
 		return
 	}
 	typed, none := *s.modelTyped || helptext.Explicit(fs, "model"), *s.Fallback == router.FallbackNone
+	id := rec.ID + ago
 	if why := keepReason(typed, none, ran); why != "" {
-		fmt.Fprintf(errw, "ask: %s cut off (%s) on %s; this retry keeps it (%s)\n", rec.ID, rec.Cutoff, ran, why)
+		fmt.Fprintf(errw, "ask: %s cut off (%s) on %s; this retry keeps it (%s)\n", id, rec.Cutoff, ran, why)
 		return
 	}
 	*s.Name, *s.Model, *s.lead, *s.Coworker = "claude", "", "", ""
-	fmt.Fprintf(errw, "ask: %s cut off (%s) on %s; retrying on claude (--agent %s forces the original)\n", rec.ID, rec.Cutoff, ran, ran)
+	force := "--agent " + ran + " forces the original"
+	if ago != "" {
+		force = "--model or --fallback none keeps the original"
+	}
+	fmt.Fprintf(errw, "ask: %s cut off (%s) on %s; retrying on claude (%s)\n", id, rec.Cutoff, ran, force)
+}
+
+// guardResubmit reads a plain ask's task early (stdin once) so a resubmit of a recent cutoff can leave its route.
+func (r *askRun) guardResubmit() (int, bool) {
+	f := r.f
+	if f.retry != "" || f.job != "" || f.stdinFramed || f.live || r.persona != nil {
+		return 0, false
+	}
+	prompt, err := resolveAskPrompt(r.prompt)
+	if err != nil {
+		return failAsk(f.format, f.name, err), true
+	}
+	r.prompt = prompt // stdin is read once; execute takes it from here
+	guardResubmit(r.fs, r.state, prompt, os.Stderr, time.Now())
+	return 0, false
+}
+
+// guardResubmit applies moveOffCutoff to a plain ask whose agent, model and task cut off within the last hour.
+func guardResubmit(fs *flag.FlagSet, s *askState, prompt string, errw io.Writer, now time.Time) {
+	e, ok := agent.RecentCutoff(agent.CutoffKey(*s.Name, *s.Model, prompt), now)
+	if !ok {
+		return
+	}
+	moveOffCutoff(fs, s, agent.Record{ID: e.ID, Agent: e.Agent, Cutoff: e.Kind}, errw, " ("+now.Sub(e.Time).Truncate(time.Second).String()+" ago)")
 }
 
 // clearTyped drops the record's lead and list values for flags typed on this command line; the re-parse sets them.

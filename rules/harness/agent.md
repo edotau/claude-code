@@ -29,6 +29,8 @@ paths:
   codex, opencode), `--debug-file <path>` (claude, gemini).
 - `ask --retry <id>` of a run cut off by a deadline, stall, idle or auth-retry runs on claude unless a `--model`,
   `--agent` or `--fallback none` pins the route or claude itself was cut off; it keeps the route and names the move.
+  A plain resubmit of the same agent, model and task within 60 minutes of such a cutoff gets the same rule, from
+  `state/harness/agent/cutoffs.json` (task hashes only); a successful run on the route clears its entry.
 - Without `--tools`, claude and opencode launch no tools, copilot's SDK rejects every request, gemini is only
   instructed not to use them, codex keeps a read-only sandbox shell. `--no-tools` is claude only (others exit 2).
   `--read-only` (implies `--tools`) runs reads, URL fetches and a vetted read-only shell list; other Bash and all
@@ -93,7 +95,9 @@ paths:
   snapshot) alone; there is no built-in seed pool.
   Rotation admits only rows not marked `"rotate": false` in `internal/catalog/ranks.json`; typed, those still run.
   The pool admits only models the agent can run within the tier's `rotation` capability floor and cost cap in
-  `internal/catalog/ranks.json` (unranked models skip both where the tier admits them). The vault's
+  `internal/catalog/ranks.json` (unranked models skip both where the tier admits them); a tier's
+  `defer_cost`/`defer_turns` make a model that dear take one of every `defer_turns` of its turns (standard: cost 5,
+  3 turns; a lone or only-remaining dear model still runs). The vault's
   `discovery-models` allowlist only narrows it; held models and, under `--tools`, models probed tools `no` are skipped.
   Outside a rotation row, auto runs the row's tier model (no listing to rank). A cold (missing or stale)
   listing runs the row's tier model with a note; a fresh listing with nothing runnable in the brief's tier and

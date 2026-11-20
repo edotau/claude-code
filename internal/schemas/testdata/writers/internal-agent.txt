@@ -1,4 +1,5 @@
 internal/agent/brief.go:reserveBrief	unversioned: marker: empty relay brief file reserved by exclusive create; the relay fills it
+internal/agent/cutoffs.go:updateCutoffs	dispatch-cutoffs
 internal/agent/job.go:SpawnArgvContext	unversioned: log: vendor job log, humans only
 internal/agent/launch.go:WriteFiles	unversioned: per-launch 0600 files: settings-overlay row; copilot's foreign registry
 internal/agent/live.go:acquireLiveSlot	unversioned: lock: live-session slot file, flock only, no content

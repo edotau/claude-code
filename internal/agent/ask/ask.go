@@ -486,6 +486,9 @@ func (r *askRun) resolveRecord() (int, bool) {
 	if f.model == "" { // a resumed session keeps its model; a typed --model wins
 		f.model = agent.SessionModel(f.session)
 	}
+	if rc, done := r.guardResubmit(); done {
+		return rc, true
+	}
 	if err := recordTools(f); err != nil {
 		return r.fail(err, 2)
 	}

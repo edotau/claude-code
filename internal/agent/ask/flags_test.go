@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/pack"
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/router"
@@ -416,12 +417,58 @@ func TestMoveOffCutoff(t *testing.T) {
 			r := &askRun{ctx: t.Context(), fs: fs, f: f}
 			f.name, f.model, f.fallback, f.modelTyped = tc.rec.Agent, "gpt-x", tc.fallback, tc.typedModel
 			var note strings.Builder
-			moveOffCutoff(fs, r.askState(), tc.rec, &note)
+			moveOffCutoff(fs, r.askState(), tc.rec, &note, "")
 			if f.name != tc.wantAgent || (tc.wantNote == "") != (note.Len() == 0) || !strings.Contains(note.String(), tc.wantNote) {
 				t.Fatalf("agent %q note %q, want %q containing %q", f.name, note.String(), tc.wantAgent, tc.wantNote)
 			}
 			if tc.wantAgent == "claude" && tc.rec.Agent != "claude" && f.model != "" {
 				t.Fatalf("model %q kept across the move", f.model)
+			}
+		})
+	}
+}
+
+// A plain resubmit of a task that cut off within the hour follows the --retry rule; success or age lifts it.
+func TestGuardResubmit(t *testing.T) {
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name, fallback, ran string
+		typed               bool
+		age                 time.Duration
+		cleared             bool
+		wantAgent, wantNote string
+	}{
+		{"untyped moves", "all", "codex", false, 5 * time.Minute, false, "claude", "(5m0s ago) cut off (stall) on codex; retrying on claude (--model or --fallback none keeps"},
+		{"typed keeps", "all", "codex", true, 5 * time.Minute, false, "codex", "a typed model"},
+		{"fallback none keeps", "none", "codex", false, 5 * time.Minute, false, "codex", "--fallback none"},
+		{"claude cut off keeps", "all", "claude", false, 5 * time.Minute, false, "claude", "claude failed"},
+		{"older than 60 minutes", "all", "codex", false, 61 * time.Minute, false, "codex", ""},
+		{"success cleared it", "all", "codex", false, 5 * time.Minute, true, "codex", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			rec := agent.Record{ID: "r1", Agent: tc.ran, Request: agent.RunOptions{Model: "gpt-x", Prompt: "task"}}
+			rec.Finish(wire.Result{}, agent.ErrStalled, 0)
+			if err := rec.NoteCutoff(now.Add(-tc.age)); err != nil {
+				t.Fatal(err)
+			}
+			if tc.cleared {
+				ok := rec
+				ok.Finish(wire.Result{}, nil, 0)
+				if err := ok.NoteCutoff(now); err != nil {
+					t.Fatal(err)
+				}
+			}
+			fs, f := askFlagSet()
+			if err := fs.Parse([]string{"--agent=" + tc.ran}); err != nil { // a resubmit always types --agent
+				t.Fatal(err)
+			}
+			r := &askRun{ctx: t.Context(), fs: fs, f: f}
+			f.name, f.model, f.fallback, f.modelTyped = tc.ran, "gpt-x", tc.fallback, tc.typed
+			var note strings.Builder
+			guardResubmit(fs, r.askState(), "task \n", &note, now)
+			if f.name != tc.wantAgent || (tc.wantNote == "") != (note.Len() == 0) || !strings.Contains(note.String(), tc.wantNote) {
+				t.Fatalf("agent %q note %q, want %q containing %q", f.name, note.String(), tc.wantAgent, tc.wantNote)
 			}
 		})
 	}

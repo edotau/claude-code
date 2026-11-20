@@ -457,7 +457,7 @@ func CutoffOf(err error) string {
 	}
 	msg := err.Error()
 	switch {
-	case errors.Is(err, ErrStalled) && strings.Contains(msg, " API retries ("):
+	case errors.Is(err, ErrStalled) && strings.Contains(msg, " API retries ("), strings.Contains(msg, "login rejected ("):
 		return CutoffAuthRetry
 	case errors.Is(err, ErrStalled):
 		return CutoffStall
@@ -584,6 +584,7 @@ func (r *Record) finishSave(res wire.Result, err error, took time.Duration, noti
 	if serr != nil && notify != nil {
 		notify(fmt.Sprintf("dispatch %s record not saved: %v", r.ID, serr))
 	}
+	r.warnCutoff(notify)
 }
 
 func pruneDispatches(dir string) {
