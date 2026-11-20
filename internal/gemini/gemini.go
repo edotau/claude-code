@@ -250,7 +250,7 @@ func geminiNamed(id string) bool { return strings.Contains(strings.ToLower(id), 
 
 // agyGatewayBase resolves id (bare, dotted, Databricks-spelled, or effort-suffixed) to the Databricks endpoint name.
 func agyGatewayBase(id string) (base, effort string, ok bool) {
-	if before, suffix, ok := splitEffort(id); ok {
+	if before, suffix, ok := agentid.SplitNativeEffort(id); ok {
 		if b, _, ok := agyGatewayBase(before); ok {
 			return b, suffix, true
 		}
@@ -369,25 +369,15 @@ type agyRequest struct {
 	Env, KeepEnv                  []string
 }
 
-// effortSuffixed reports a model id that already names its effort (gemini-3.8-flash-high).
-func effortSuffixed(model string) bool {
-	_, _, ok := splitEffort(model)
-	return ok
-}
-
-func splitEffort(id string) (base, effort string, ok bool) {
-	base, effort, cut := strings.CutLast(id, "-")
-	return base, effort, cut && slices.Contains(agentid.NativeEfforts(agentid.Gemini), effort)
-}
-
 // agyToolLessPreamble is agy's own verified tool-less instruction (no tools-off flag exists).
 const agyToolLessPreamble = "Answer from the text below only. Do not call any tools.\n\n"
 
 // agyArgv builds agy's headless argv: stream-json both ways, the prompt rides stdin behind -p=.
 func agyArgv(r agyRequest) []string {
 	argv := []string{"--model", r.Model}
+	_, _, effortSuffixed := agentid.SplitNativeEffort(r.Model)
 	// agy refuses --effort beside an effort-suffixed id; a --effort in SettingsArgv (flag or record) beats the pin suffix
-	if slices.Contains(agentid.NativeEfforts(agentid.Gemini), r.Effort) && !effortSuffixed(r.Model) && !slices.Contains(r.SettingsArgv, "--effort") {
+	if slices.Contains(agentid.NativeEfforts(agentid.Gemini), r.Effort) && !effortSuffixed && !slices.Contains(r.SettingsArgv, "--effort") {
 		argv = append(argv, "--effort", r.Effort)
 	}
 	if r.SessionID != "" { // resume a prior agy conversation rather than starting fresh

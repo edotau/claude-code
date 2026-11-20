@@ -270,8 +270,8 @@ func deadLoginFinding(p *providers.Provider) (Finding, bool) {
 
 // checkModel is model as p serves it to agentName; failed names the check that refused it, note a check it skipped.
 func checkModel(agentName string, p *providers.Provider, model string, now time.Time) (wire string, failed *Finding, note string) {
-	base, effort, ok := geminiEffort(agentName, model) // agy takes <id>-<effort>; the endpoint is <id>
-	if !ok {
+	base, effort, ok := agentid.SplitNativeEffort(model) // agy takes <id>-<effort>; the endpoint is <id>
+	if !agentid.Routing(agentName).EffortSuffix || !ok {
 		return checkServed(agentName, p, model, now)
 	}
 	if wire, failed, note = checkServed(agentName, p, base, now); failed != nil {
@@ -322,12 +322,6 @@ func listingVerdict(p *providers.Provider, wire string, now time.Time) (note str
 		return "no fresh listing for " + p.Name + ": endpoint check skipped", false, false
 	}
 	return "", !listed, listed && !ready
-}
-
-// geminiEffort cuts gemini's trailing native effort off model; ok is false for any other agent or no suffix.
-func geminiEffort(agentName, model string) (base, effort string, ok bool) {
-	base, effort, cut := strings.CutLast(model, "-")
-	return base, effort, agentid.Routing(agentName).EffortSuffix && cut && slices.Contains(agentid.NativeEfforts(agentid.Gemini), effort)
 }
 
 // servedSpelling is id as agentName asks p for it: databricks-<id> where served; claude never takes GPT/Gemini.

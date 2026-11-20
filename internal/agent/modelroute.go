@@ -407,10 +407,9 @@ func routeModel(r *ModelRoute, p *providers.Provider, q ModelQuery, spec modelTa
 // spellTyped cuts gemini's effort suffix (any other agent refuses it) and spells the id for p.
 func spellTyped(r *ModelRoute, p *providers.Provider, q ModelQuery, typed string, now time.Time) (string, error) {
 	bare := models.Strip1M(typed)
-	if i := strings.LastIndex(bare, "-"); i > 0 {
-		base, effort := bare[:i], bare[i+1:]
+	if base, effort, ok := agentid.SplitNativeEffort(bare); ok && base != "" {
 		agyOwn := len(models.AcceptedEfforts(q.Agent, base)) > 0 // agy's own Claude and GPT-OSS take an effort suffix too
-		if slices.Contains(agentid.NativeEfforts(agentid.Gemini), effort) && (models.FamilyKind(base) == models.FamilyGemini || agyOwn) {
+		if models.FamilyKind(base) == models.FamilyGemini || agyOwn {
 			if !agentid.Routing(q.Agent).EffortSuffix {
 				return "", fmt.Errorf("%w: %s: effort suffixes are gemini's; use --effort %s", ErrModelRoute, typed, effort)
 			}

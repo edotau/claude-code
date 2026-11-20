@@ -92,6 +92,12 @@ func Routing(name string) RouteFacts { return routeFacts[name] }
 // NativeEfforts is the values agent's CLI accepts, weakest first; nil means model-specific (passed through).
 func NativeEfforts(agent string) []string { return slices.Clone(routeFacts[agent].nativeEfforts) }
 
+// SplitNativeEffort cuts a case-sensitive Gemini effort suffix, preserving the split even when ok is false.
+func SplitNativeEffort(model string) (base, effort string, ok bool) {
+	base, effort, cut := strings.CutLast(model, "-")
+	return base, effort, cut && slices.Contains(NativeEfforts(Gemini), effort)
+}
+
 // NativeEffort spells e for agent's CLI; clamped reports a move to the nearest value the CLI has; "" means refused.
 func NativeEffort(agent string, e Effort) (native string, clamped bool) {
 	if !Known(agent) {

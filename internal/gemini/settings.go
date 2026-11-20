@@ -159,7 +159,7 @@ func agyEffortArgv(s agent.Settings, argv, emulated []string) ([]string, []strin
 	if i := slices.Index(argv, "--model"); i >= 0 && i+1 < len(argv) {
 		model = argv[i+1]
 	}
-	if effortSuffixed(model) {
+	if _, _, ok := agentid.SplitNativeEffort(model); ok {
 		return argv, append(emulated, "effort "+s.Effort+": model "+model+" carries its own"), nil
 	}
 	if agyForeign(model) { // agy refuses --effort for a non-Gemini gateway model; agy has no env or settings equivalent

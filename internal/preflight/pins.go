@@ -198,8 +198,7 @@ func checkServed(p *Pin, prov *providers.Provider, name string, now time.Time) {
 
 // servedName is the model's serving-endpoint name: gemini's effort suffix (gemini-3.8-flash-high) is not part of it.
 func servedName(agent, model string) string {
-	if base, effort, ok := strings.CutLast(model, "-"); agentid.Routing(agent).EffortSuffix && ok &&
-		slices.Contains(agentid.NativeEfforts(agentid.Gemini), effort) {
+	if base, _, ok := agentid.SplitNativeEffort(model); agentid.Routing(agent).EffortSuffix && ok {
 		return base
 	}
 	return model

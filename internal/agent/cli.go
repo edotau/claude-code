@@ -562,21 +562,17 @@ func aliasedTarget(reg *providers.Registry, sel providers.Selection, model strin
 	return providers.Target{}, false
 }
 
-// splitAgyEffort lowercases model and splits a trailing native effort suffix off it.
-func splitAgyEffort(model string) (base, effort string) {
-	base = strings.ToLower(model)
-	if i := strings.LastIndex(base, "-"); i > 0 && slices.Contains(agentid.NativeEfforts(agentid.Gemini), base[i+1:]) {
-		return base[:i], base[i+1:]
-	}
-	return base, ""
-}
-
 // agyOwnTarget is agy's own model typed on its Google row, spelled as agy takes it; an effort it lacks errors.
 func agyOwnTarget(req RunOptions, p *providers.Provider) (t providers.Target, ok bool, err error) {
 	if !agentid.Routing(req.Agent).EffortSuffix || p.Auth.Login != agentid.Gemini {
 		return t, false, nil
 	}
-	base, effort := splitAgyEffort(req.Model)
+	model := strings.ToLower(req.Model)
+	base, effort, cut := agentid.SplitNativeEffort(model)
+	if !cut {
+		base, effort = model, ""
+	}
+	// AcceptedEfforts rejects an empty base just as it rejects the unsplit "-high" spelling.
 	accepted := models.AcceptedEfforts(agentid.Gemini, base)
 	if len(accepted) == 0 || effort == "" && models.FamilyKind(base) == models.FamilyGemini {
 		return t, false, nil

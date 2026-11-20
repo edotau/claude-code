@@ -108,6 +108,35 @@ func TestNativeEfforts(t *testing.T) {
 	}
 }
 
+func TestSplitNativeEffort(t *testing.T) {
+	for _, c := range []struct {
+		model, base, effort string
+		ok                  bool
+	}{
+		{"gemini-4-hydrogen-low", "gemini-4-hydrogen", "low", true},
+		{"gemini-4-hydrogen-medium", "gemini-4-hydrogen", "medium", true},
+		{"gemini-4-hydrogen-high", "gemini-4-hydrogen", "high", true},
+		{"gemini-4-hydrogen-xhigh", "gemini-4-hydrogen", "xhigh", true},
+		{"gemini-4-hydrogen-max", "gemini-4-hydrogen", "max", true},
+		{"Gemini-4-Hydrogen-high", "Gemini-4-Hydrogen", "high", true},
+		{"-high", "", "high", true},
+		{"--high", "-", "high", true},
+		{"model-high-high", "model-high", "high", true},
+		{"gemini-4-hydrogen-minimal", "gemini-4-hydrogen", "minimal", false},
+		{"gemini-4-hydrogen-HIGH", "gemini-4-hydrogen", "HIGH", false},
+		{"gemini-4-hydrogen-high[1m]", "gemini-4-hydrogen", "high[1m]", false},
+		{"gemini-4-hydrogen-", "gemini-4-hydrogen", "", false},
+		{"high", "high", "", false},
+		{"", "", "", false},
+	} {
+		base, effort, ok := SplitNativeEffort(c.model)
+		if base != c.base || effort != c.effort || ok != c.ok {
+			t.Errorf("SplitNativeEffort(%q) = (%q, %q, %v), want (%q, %q, %v)",
+				c.model, base, effort, ok, c.base, c.effort, c.ok)
+		}
+	}
+}
+
 func TestClampEffort(t *testing.T) {
 	for _, c := range []struct {
 		supported []string

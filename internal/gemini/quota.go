@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/router"
@@ -203,7 +204,7 @@ func (r QuotaRow) Line() string {
 
 // quotaKey is model's catalog id without an effort suffix, wire prefix or [1m].
 func quotaKey(model string) string {
-	if base, _, ok := splitEffort(model); ok {
+	if base, _, ok := agentid.SplitNativeEffort(model); ok {
 		model = base
 	}
 	return models.ModelKey(model)
