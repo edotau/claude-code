@@ -82,7 +82,7 @@ func buildChecks(pr map[string]piProv, full Bases, menu map[string]string, mj, s
 func TestBuildConfig(t *testing.T) {
 	p := testProvider(t)
 	full := Bases{Claude: "http://127.0.0.1:1/p/dbx", Responses: "http://127.0.0.1:1/p/dbx/responses", Chat: "http://127.0.0.1:1/p/dbx/openai"}
-	mj, sj, menu, err := BuildConfig(p, full, "databricks-claude-sonnet-5-5")
+	mj, sj, menu, err := BuildConfig(p, p, full, "databricks-claude-sonnet-5-5")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,7 +99,7 @@ func TestBuildConfig(t *testing.T) {
 
 func TestBuildConfigRoutelessWire(t *testing.T) {
 	p := testProvider(t)
-	mj, _, menu, err := BuildConfig(p, Bases{Claude: "http://127.0.0.1:1/p/dbx", Chat: "http://127.0.0.1:1/p/dbx/openai"}, "")
+	mj, _, menu, err := BuildConfig(p, p, Bases{Claude: "http://127.0.0.1:1/p/dbx", Chat: "http://127.0.0.1:1/p/dbx/openai"}, "")
 	if err != nil || strings.Contains(string(mj), "dbx-gpt") || menu["databricks-gpt-5-4-mini"] != "" {
 		t.Errorf("routeless responses wire kept models: err=%v menu=%v", err, menu)
 	}
@@ -135,7 +135,7 @@ func TestBuildConfigDefaultIsTheRunsModelElseFirstEntry(t *testing.T) {
 	p := testProvider(t)
 	bases := Bases{Claude: "http://127.0.0.1:1/p/dbx", Responses: "http://127.0.0.1:1/p/dbx/responses", Chat: "http://127.0.0.1:1/p/dbx/openai"}
 	for want, def := range map[string]string{"databricks-kimi-k3": "databricks-kimi-k3", "not-on-the-menu": ""} {
-		_, sj, menu, err := BuildConfig(p, bases, want)
+		_, sj, menu, err := BuildConfig(p, p, bases, want)
 		if err != nil {
 			t.Fatalf("%s: %v", want, err)
 		}
@@ -158,5 +158,38 @@ func TestRunDirNamesItsOwner(t *testing.T) {
 	defer rm()
 	if want := RunDirPrefix + strconv.Itoa(os.Getpid()) + "-"; !strings.HasPrefix(filepath.Base(dir), want) {
 		t.Errorf("run dir %s does not start with %s", dir, want)
+	}
+}
+
+// The pool predicate is the menu BuildConfig writes: one id from each wire runs, a Gemini id does not.
+func TestRunnableIsTheMenu(t *testing.T) {
+	p := testProvider(t)
+	for _, id := range []string{"databricks-claude-sonnet-5-5", "databricks-gpt-5-4-mini", "databricks-kimi-k3"} {
+		if !(piEngine{}).Runnable(p, id) {
+			t.Errorf("%s should be runnable", id)
+		}
+	}
+	if (piEngine{}).Runnable(p, "databricks-gemini-4-argon") {
+		t.Error("gemini is not on Pi's menu")
+	}
+}
+
+// A routed copy has other URLs, so its scope misses the picker additions: the menu is read from the configured profile.
+func TestBuildConfigMenuReadsTheConfiguredProfile(t *testing.T) {
+	src := testProvider(t)
+	if _, err := providers.AppendPickerModels(src, []providers.ModelInfo{{ID: "databricks-gemini-4-argon", Ready: "READY", Task: "llm/v1/chat"}}); err != nil {
+		t.Fatal(err)
+	}
+	routed := *src
+	routed.BaseURL = "http://127.0.0.1:1/p/dbx"
+	bases := Bases{Claude: "x", Responses: "x", Chat: "x"}
+	if _, _, menu, err := BuildConfig(&routed, src, bases, ""); err != nil || menu["databricks-gemini-4-argon"] != "dbx-chat" {
+		t.Fatalf("menu[gemini] = %q, err %v; want dbx-chat", menu["databricks-gemini-4-argon"], err)
+	}
+	if _, _, menu, _ := BuildConfig(&routed, &routed, bases, ""); menu["databricks-gemini-4-argon"] != "" {
+		t.Fatal("control: the routed copy should not see the picker addition")
+	}
+	if !(piEngine{}).Runnable(src, "databricks-gemini-4-argon") {
+		t.Fatal("pool predicate must agree with the menu")
 	}
 }

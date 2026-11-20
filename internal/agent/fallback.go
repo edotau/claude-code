@@ -874,7 +874,7 @@ var requestSizeErr = sync.OnceValue(func() *regexp.Regexp {
 
 // pickGoneErr is an endpoint or CLI saying the picked model does not exist there.
 var pickGoneErr = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`ENDPOINT_NOT_FOUND|ProviderModelNotFoundError|Model "[^"]+" is not available`)
+	return regexp.MustCompile(`ENDPOINT_NOT_FOUND|ProviderModelNotFoundError|Model "[^"]+" is not available|model "[^"]+" is not on the [^ ]+ menu`)
 })
 
 // retryModel is the next model after a capability (auto: ran is skipped) or endpoint-gone (served) failure, else "".

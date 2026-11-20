@@ -8,6 +8,7 @@ import (
 	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -110,24 +111,12 @@ func modelEntry(p *providers.Provider, wire, label string) map[string]any {
 	return e
 }
 
-// BuildConfig renders Pi's models.json and settings.json for p's menu; menu maps each wire id to its Pi provider id.
-// The default model is want, else the first menu entry, so the run's own model never depends on the sonnet alias.
-func BuildConfig(p *providers.Provider, bases Bases, want string) (modelsJSON, settingsJSON []byte, menu map[string]string, err error) {
-	if p == nil {
-		return nil, nil, nil, errors.New("pi: no provider")
-	}
-	entries, err := providers.OpencodeMenuFor(p)
-	if err != nil {
-		fmt.Fprintln(agentconfig.CatalogWarn, "pi:", err)
-	}
-	byWire := map[string][]map[string]any{}
-	dropped := map[string][]string{}
-	menu = map[string]string{}
-	first := ""
-	ids := map[string]string{}
-	for _, pp := range piProviders {
-		ids[pp.wire] = pp.id
-	}
+type menuItem struct{ wire, label, w string }
+
+// piMenu is the profile's menu on the wires Pi can reach, plus what each wire left out; BuildConfig and Runnable share it.
+func piMenu(p, src *providers.Provider, bases Bases) (items []menuItem, dropped map[string][]string, err error) {
+	entries, err := providers.OpencodeMenuFor(src)
+	dropped = map[string][]string{}
 	for _, m := range entries {
 		wire := agentconfig.MenuWire(p, m.ID)
 		w, ok := pickWire(p, wire)
@@ -135,13 +124,43 @@ func BuildConfig(p *providers.Provider, bases Bases, want string) (modelsJSON, s
 			dropped[w] = append(dropped[w], m.Label)
 			continue
 		}
-		e := modelEntry(p, wire, m.Label)
-		if c := compatFor(wire); c != nil {
+		items = append(items, menuItem{wire, m.Label, w})
+	}
+	return items, dropped, err
+}
+
+// Runnable reports whether model is on p's Pi menu, the one set BuildConfig writes; auto's pool admits only these.
+func (piEngine) Runnable(p *providers.Provider, model string) bool {
+	items, _, _ := piMenu(p, p, Bases{Claude: "x", Responses: "x", Chat: "x"})
+	return slices.ContainsFunc(items, func(i menuItem) bool { return i.wire == model })
+}
+
+// BuildConfig renders Pi's models.json and settings.json for src's menu (the profile as configured: a routed copy's
+// rewritten URLs and headers would miss its saved picker additions); menu maps each wire id to its Pi provider id.
+// The default model is want, else the first menu entry, so the run's own model never depends on the sonnet alias.
+func BuildConfig(p, src *providers.Provider, bases Bases, want string) (modelsJSON, settingsJSON []byte, menu map[string]string, err error) {
+	if p == nil {
+		return nil, nil, nil, errors.New("pi: no provider")
+	}
+	items, dropped, err := piMenu(p, src, bases)
+	if err != nil {
+		fmt.Fprintln(agentconfig.CatalogWarn, "pi:", err)
+	}
+	byWire := map[string][]map[string]any{}
+	menu = map[string]string{}
+	first := ""
+	ids := map[string]string{}
+	for _, pp := range piProviders {
+		ids[pp.wire] = pp.id
+	}
+	for _, it := range items {
+		e := modelEntry(p, it.wire, it.label)
+		if c := compatFor(it.wire); c != nil {
 			e["compat"] = c
 		}
-		byWire[w] = append(byWire[w], e)
-		menu[wire] = ids[w]
-		first = cmp.Or(first, wire)
+		byWire[it.w] = append(byWire[it.w], e)
+		menu[it.wire] = ids[it.w]
+		first = cmp.Or(first, it.wire)
 	}
 	for _, pp := range piProviders {
 		if d := dropped[pp.wire]; len(d) > 0 {

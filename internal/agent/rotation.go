@@ -70,7 +70,7 @@ func rotationCandidates(reg *providers.Registry, agentName string, p *providers.
 		if agentName == agentid.OpenCode {
 			return opencodeRunnable(p, cands)
 		}
-		return cands
+		return driverRunnable(agentName, p, cands)
 	}
 	if router.GithubCatalogIDs == nil {
 		return nil
@@ -99,6 +99,20 @@ func opencodeRunnable(p *providers.Provider, cands []catalog.Candidate) []catalo
 		_, routed, _ := providers.WireFor(p, c.Model)
 		return !listed[c.Model] && !member || !routed
 	})
+}
+
+// PoolRunnable is an optional Driver method: whether the agent can run model on p, so auto's pool admits only those.
+type PoolRunnable interface {
+	Runnable(p *providers.Provider, model string) bool
+}
+
+func driverRunnable(agentName string, p *providers.Provider, cands []catalog.Candidate) []catalog.Candidate {
+	d, ok := driverFor(agentName)
+	pr, can := d.(PoolRunnable)
+	if !ok || !can {
+		return cands
+	}
+	return slices.DeleteFunc(cands, func(c catalog.Candidate) bool { return !pr.Runnable(p, c.Model) })
 }
 
 // rotatesUnderAuto is false for claude: an asked auto keeps the brief's tier model; its row rotates (claudeRows).

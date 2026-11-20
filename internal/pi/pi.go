@@ -3,6 +3,7 @@ package pi
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -58,7 +59,7 @@ func (piEngine) Wire(_ context.Context, r agent.WireRoute, h *agent.Headless) (e
 		}
 		thinking = []string{"--thinking", native}
 	}
-	mj, sj, menu, err := BuildConfig(r.Provider, piBases(r.Base, r.Dialect), r.Model)
+	mj, sj, menu, err := BuildConfig(r.Provider, cmp.Or(r.Target.Provider, r.Provider), piBases(r.Base, r.Dialect), r.Model)
 	if err != nil {
 		return nil, nil, err
 	}

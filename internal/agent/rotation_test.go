@@ -217,3 +217,37 @@ func TestNoteSlowModelHoldsPoolModel(t *testing.T) {
 		t.Errorf("account benched for a slow model: %+v", e)
 	}
 }
+
+// A pre-launch "not on the menu" refusal re-picks an auto ask and never swaps a typed model.
+func TestRetryModelMenuRefusalRepicksAutoOnly(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	row := reg.Row("dev")
+	ran := providers.SpellPin(row, rotationPool("opencode", "", row, false, time.Now())[0])
+	disp := Dispatch{Agent: &pickRefuser{}, Account: row.Account()}
+	msg := errors.New(`pi: model "` + ran + `" is not on the dev menu`)
+	if got := retryModel(disp, RunOptions{Model: "dev:auto"}, ran, msg); got != "dev:auto" {
+		t.Fatalf("auto retry = %q, want the auto re-pick", got)
+	}
+	if got := retryModel(disp, RunOptions{Model: ran}, ran, msg); got != "" {
+		t.Fatalf("typed retry = %q, want none", got)
+	}
+}
+
+// An agent driver's Runnable narrows auto's pool to models it can run.
+func TestDriverRunnableFiltersPool(t *testing.T) {
+	registryMu.Lock()
+	drivers["pi"] = onlyKeep{NewBaseEngine("pi"), "keep"}
+	registryMu.Unlock()
+	t.Cleanup(func() { registryMu.Lock(); delete(drivers, "pi"); registryMu.Unlock() })
+	got := driverRunnable("pi", &providers.Provider{}, []catalog.Candidate{{Model: "keep"}, {Model: "drop"}})
+	if len(got) != 1 || got[0].Model != "keep" {
+		t.Fatalf("pool = %v, want only keep", got)
+	}
+}
+
+type onlyKeep struct {
+	BaseEngine
+	id string
+}
+
+func (o onlyKeep) Runnable(_ *providers.Provider, m string) bool { return m == o.id }
