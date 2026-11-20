@@ -321,7 +321,7 @@ func limitDetail(q quota, show string) string {
 }
 
 // printLedgerSection renders the local per-token ledger rollup; an empty ledger prints one line instead.
-func printLedgerSection(out io.Writer, aggs []ledgerAgg, since time.Time) {
+func printLedgerSection(out io.Writer, aggs []ledgerAgg, swaps []swapAgg, since time.Time) {
 	fmt.Fprintf(out, "\nAPI KEYS (per-token, accumulated via harness)\n")
 	if len(aggs) == 0 {
 		when := "now"
@@ -337,6 +337,7 @@ func printLedgerSection(out io.Writer, aggs []ledgerAgg, since time.Time) {
 		rows = append(rows, []string{rowLabel(a.Provider, a.Profile), dash(a.Model), humanTokens(a.Today), humanTokens(a.Last30d), humanTokens(a.AllTime)})
 	}
 	fmt.Fprint(out, table.Render(head, nil, rightAlign(head, rows, 2, 4), 0))
+	printSwaps(out, swaps)
 }
 
 func dash(s string) string { return cmp.Or(s, "-") }
@@ -489,6 +490,47 @@ func aggregateLedger(entries []tokenledger.Entry, now time.Time) []ledgerAgg {
 		out[i] = *byKey[k]
 	}
 	return out
+}
+
+// swapAgg counts the ledger requests of one profile that asked for one model and were served another.
+type swapAgg struct {
+	Profile   string `json:"profile"`
+	Requested string `json:"requested"`
+	Served    string `json:"served"`
+	Requests  int    `json:"requests"`
+}
+
+// aggregateSwaps counts entries of the last 30 days that carry a requested model, most frequent triple first.
+func aggregateSwaps(entries []tokenledger.Entry, now time.Time) []swapAgg {
+	cutoff := now.Add(-30 * 24 * time.Hour)
+	counts := map[swapAgg]int{}
+	for _, e := range entries {
+		if e.Requested != "" && !e.Ts.Before(cutoff) {
+			counts[swapAgg{Profile: e.ProfileName(), Requested: e.Requested, Served: e.Model}]++
+		}
+	}
+	var out []swapAgg
+	for k, n := range counts {
+		k.Requests = n
+		out = append(out, k)
+	}
+	slices.SortFunc(out, func(a, b swapAgg) int {
+		return cmp.Or(cmp.Compare(b.Requests, a.Requests), cmp.Compare(a.Profile, b.Profile),
+			cmp.Compare(a.Requested, b.Requested), cmp.Compare(a.Served, b.Served))
+	})
+	return out
+}
+
+// printSwaps adds a footnote under the API table: one line per swap triple (at most 5), nothing when there are none.
+func printSwaps(out io.Writer, swaps []swapAgg) {
+	const maxLines = 5
+	for i, s := range swaps {
+		if i == maxLines {
+			fmt.Fprintf(out, "and %d more\n", len(swaps)-maxLines)
+			return
+		}
+		fmt.Fprintf(out, "swapped: %d requests asked for %s and were served by %s on %s\n", s.Requests, s.Requested, s.Served, s.Profile)
+	}
 }
 
 // ledgerSince is the earliest entry's timestamp, used for the "ledger started <date>" empty message.

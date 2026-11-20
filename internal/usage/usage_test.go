@@ -783,3 +783,30 @@ func BenchmarkSessionDirs(b *testing.B) {
 		}
 	}
 }
+
+func TestUsageRunShowsSwapsOnlyWhenPresent(t *testing.T) {
+	now := time.Now()
+	swapped := tokenledger.Entry{Ts: now, Provider: "databricks", Profile: "dev", Model: "m-served", Requested: "m-asked", Input: 5}
+	plain := tokenledger.Entry{Ts: now, Provider: "databricks", Profile: "dev", Model: "m-served", Input: 5}
+	origRead, origQuotas := readLedger, fetchQuotas
+	fetchQuotas = func() []quota { return nil }
+	t.Cleanup(func() { readLedger, fetchQuotas = origRead, origQuotas })
+	run := func(entries []tokenledger.Entry, args ...string) string {
+		readLedger = func() ([]tokenledger.Entry, error) { return entries, nil }
+		var out, errw bytes.Buffer
+		if code := Run(args, t.TempDir(), &out, &errw); code != 0 {
+			t.Fatalf("Run = %d; stderr:\n%s", code, errw.String())
+		}
+		return out.String()
+	}
+	if got := run([]tokenledger.Entry{plain}, "--format", "json") + run([]tokenledger.Entry{plain}); strings.Contains(got, "swap") {
+		t.Errorf("a ledger with no swaps mentions swaps:\n%s", got)
+	}
+	text := run([]tokenledger.Entry{plain, swapped})
+	if !strings.Contains(text, "swapped: 1 requests asked for m-asked and were served by m-served on dev\n") {
+		t.Errorf("text lacks the footnote:\n%s", text)
+	}
+	if js := run([]tokenledger.Entry{swapped}, "--format", "json"); !strings.Contains(js, `"swaps"`) || !strings.Contains(js, `"requested": "m-asked"`) && !strings.Contains(js, `"requested":"m-asked"`) {
+		t.Errorf("json lacks swaps:\n%s", js)
+	}
+}

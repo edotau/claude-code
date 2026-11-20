@@ -234,3 +234,44 @@ func BenchmarkRead(b *testing.B) {
 		}
 	}
 }
+
+// legacyEntry is the Entry shape before Requested existed: what an older binary decodes into.
+type legacyEntry struct {
+	Schema   int       `json:"schema"`
+	Ts       time.Time `json:"ts"`
+	Provider string    `json:"provider"`
+	Model    string    `json:"model"`
+	Input    int       `json:"input"`
+}
+
+func TestRequestedFieldIsCompatibleBothWays(t *testing.T) {
+	withLedgerDir(t)
+	ts := time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
+	Append(Entry{Ts: ts, Provider: "p", Model: "m", Input: 1})
+	Append(Entry{Ts: ts, Provider: "p", Model: "m", Requested: "asked", Input: 2})
+	raw, err := os.ReadFile(Path())
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	checkOlderBinaryReads(t, lines)
+	oldLine := `{"schema":1,"ts":"2026-10-20T12:00:00Z","provider":"p","model":"m","input":3,"output":0,"cache_read":0}` + "\n"
+	if err := os.WriteFile(Path(), append(raw, oldLine...), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Read()
+	if err != nil || len(got) != 3 || got[1].Requested != "asked" || got[2].Requested != "" || got[2].Input != 3 {
+		t.Fatalf("Read = %+v, %v", got, err)
+	}
+}
+
+func checkOlderBinaryReads(t *testing.T, lines []string) {
+	t.Helper()
+	if strings.Contains(lines[0], "requested") || !strings.Contains(lines[1], `"requested":"asked"`) {
+		t.Fatalf("requested must be omitted when empty and written when set:\n%s", lines)
+	}
+	var old legacyEntry
+	if err := json.Unmarshal([]byte(lines[1]), &old); err != nil || old.Model != "m" || old.Input != 2 {
+		t.Fatalf("an older binary cannot read a new line: %+v, %v", old, err)
+	}
+}

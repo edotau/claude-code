@@ -15,16 +15,18 @@ import (
 
 // Entry is one metered proxy request
 type Entry struct {
-	Schema    int       `json:"schema"`
-	Ts        time.Time `json:"ts"`
-	Profile   string    `json:"profile,omitempty"`
-	Provider  string    `json:"provider"`
-	Agent     string    `json:"agent,omitempty"`
-	Session   string    `json:"session,omitempty"`
-	Model     string    `json:"model"`
-	Input     int       `json:"input"`
-	Output    int       `json:"output"`
-	CacheRead int       `json:"cache_read"`
+	Schema   int       `json:"schema"`
+	Ts       time.Time `json:"ts"`
+	Profile  string    `json:"profile,omitempty"`
+	Provider string    `json:"provider"`
+	Agent    string    `json:"agent,omitempty"`
+	Session  string    `json:"session,omitempty"`
+	Model    string    `json:"model"`
+	// Requested is the model the client asked for, set only when the proxy served a different one.
+	Requested string `json:"requested,omitempty"`
+	Input     int    `json:"input"`
+	Output    int    `json:"output"`
+	CacheRead int    `json:"cache_read"`
 	// CacheWrite is every cache-write token (5m and 1h); CacheWrite1h is the 1h part, 0 when unsplit.
 	CacheWrite   int `json:"cache_write,omitempty"`
 	CacheWrite1h int `json:"cache_write_1h,omitempty"`

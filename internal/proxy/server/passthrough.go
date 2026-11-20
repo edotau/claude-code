@@ -222,7 +222,7 @@ func (r *Router) relayPassthrough(sw *statusWriter, in *http.Request, p *provide
 	tail := teeUsageTail(resp, in, p, dialect)
 	relay(sw, resp)
 	if tail != nil {
-		logLedgerUsage(in, p, model, scrapeUsage(tail.buf))
+		logLedgerUsage(in, p, ledgerModel(in, model), scrapeUsage(tail.buf))
 	}
 	return model, extra, p.Name
 }
@@ -754,4 +754,26 @@ func signCalls(calls []map[string]json.RawMessage) bool {
 		}
 	}
 	return touched
+}
+
+var passthroughSafeRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
+
+// ledgerModel is the model a passthrough ledger row names: the body's, else the serving endpoint in the URL path
+// (<endpoint>/invocations), else a label for the route kind; never "".
+func ledgerModel(in *http.Request, model string) string {
+	if model != "" {
+		return model
+	}
+	_, _, rest, _ := parsePassthrough(in.URL.Path)
+	segs := strings.Split(strings.TrimPrefix(rest, "v1/"), "/")
+	if len(segs) == 2 && segs[1] == "invocations" && passthroughSafeRE.MatchString(segs[0]) {
+		return segs[0]
+	}
+	kind := make([]string, 0, 2)
+	for _, s := range segs[:min(len(segs), 2)] {
+		if passthroughSafeRE.MatchString(s) {
+			kind = append(kind, s)
+		}
+	}
+	return "(passthrough:" + cmp.Or(strings.Join(kind, "/"), "unknown") + ")"
 }

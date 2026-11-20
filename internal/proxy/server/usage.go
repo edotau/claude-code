@@ -2,13 +2,17 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxy/translate"
@@ -100,10 +104,55 @@ func logLedgerUsage(in *http.Request, p *providers.Provider, model string, u led
 		return
 	}
 	session := in.Header.Get("X-Claude-Code-Session-Id")
+	requested, _ := in.Context().Value(askedKey{}).(string)
+	if !swapped(requested, model) {
+		requested = ""
+	}
 	tokenledger.Append(tokenledger.Entry{
-		Ts: time.Now(), Profile: p.Name, Provider: p.Provider, Model: model,
+		Ts: time.Now(), Profile: p.Name, Provider: p.Provider, Model: model, Requested: requested,
 		Agent: in.Header.Get(proxy.AgentHeader), Session: session,
 		Input: u.input, Output: u.output, CacheRead: u.cacheRead,
 		CacheWrite: u.cacheWrite, CacheWrite1h: u.cacheWrite1h,
 	})
+}
+
+// askedKey carries the model id the client asked for, before any rewrite, to the ledger write.
+type askedKey struct{}
+
+func withAsked(in *http.Request, id string) *http.Request {
+	return in.WithContext(context.WithValue(in.Context(), askedKey{}, id))
+}
+
+// swapped reports that served is a different model from asked; spellings of one model (prefix, [1m], alias) are not.
+func swapped(asked, served string) bool {
+	return asked != "" && asked != served && models.ModelKey(asked) != models.ModelKey(served)
+}
+
+// reqDiag is the log token naming the asked model, only when the request was served by another one.
+func reqDiag(asked, served string) string {
+	if !swapped(asked, served) {
+		return ""
+	}
+	return " req=" + agentToken(asked)
+}
+
+// swapLogEvery is the least gap between two log lines for one (profile, asked, served) swap.
+const swapLogEvery = time.Minute
+
+// noteSwap logs a silent model swap once per swapLogEvery per (profile, asked, served).
+func (r *Router) noteSwap(profile, asked, served, why string) {
+	key := strings.Join([]string{profile, asked, served}, "\x00")
+	now := r.now()
+	r.swapMu.Lock()
+	if r.swapSeen == nil {
+		r.swapSeen = map[string]time.Time{}
+	}
+	last, seen := r.swapSeen[key]
+	if seen && now.Sub(last) < swapLogEvery {
+		r.swapMu.Unlock()
+		return
+	}
+	r.swapSeen[key] = now
+	r.swapMu.Unlock()
+	fmt.Fprintf(r.log, "proxy: %s asked for %s, serving %s (%s)\n", profile, asked, served, why)
 }

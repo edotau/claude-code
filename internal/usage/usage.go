@@ -53,6 +53,7 @@ type document struct {
 	*transcript.UsageAggregate
 	Providers  []quota         `json:"providers,omitempty"`
 	API        []ledgerAgg     `json:"api,omitempty"`
+	Swaps      []swapAgg       `json:"swaps,omitempty"`
 	Billing    *billing        `json:"billing,omitempty"`
 	Agents     []agentUsage    `json:"agents,omitempty"`
 	Cost       []costJSON      `json:"cost,omitempty"`
@@ -79,7 +80,7 @@ func report(claudeDir, session string, days int, withQuotas, withCost bool, errw
 	if session != "" {
 		days = 0 // --days is ignored with --session, so no window applies
 	}
-	return &document{agg, quotas, aggs, resolveBilling(), agents, cost, costTotals, days}, nil
+	return &document{agg, quotas, aggs, aggregateSwaps(entries, time.Now()), resolveBilling(), agents, cost, costTotals, days}, nil
 }
 
 type transcriptScan struct {
@@ -284,7 +285,7 @@ func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 		printSubscriptionQuotas(w, quotas, show)
 		printGoogleLimits(w, <-googleCh)
 	}
-	printLedgerSection(w, aggs, ledgerSince(ledgerEntries))
+	printLedgerSection(w, aggs, aggregateSwaps(ledgerEntries, time.Now()), ledgerSince(ledgerEntries))
 	if o.cost {
 		printUsageCost(w, ledgerEntries, session, days)
 	}

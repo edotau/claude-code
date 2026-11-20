@@ -30,15 +30,18 @@ func sessionScope(in *http.Request) ([]string, bool) {
 }
 
 // resolveTarget maps the path profile and requested model to a target, writing the error when it cannot.
-func resolveTarget(w http.ResponseWriter, in *http.Request, reg *providers.Registry,
+func (r *Router) resolveTarget(w http.ResponseWriter, in *http.Request, reg *providers.Registry,
 	session, model string) (providers.Target, bool) {
 	sess, err := reg.Get(session)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "proxy: "+err.Error())
 		return providers.Target{}, false
 	}
-	target := providers.ParseTarget(reg, model, sess)
-	target = fableToOpus(reg, target)
+	parsed := providers.ParseTarget(reg, model, sess)
+	target := fableToOpus(reg, parsed)
+	if target.Model != parsed.Model {
+		r.noteSwap(target.Provider.Name, parsed.Model, target.Model, "no Fable endpoint on this route")
+	}
 	// a resolved target outside a token's profiles is a 403
 	if scope, scoped := sessionScope(in); scoped && !slices.Contains(scope, target.Provider.Name) {
 		writeError(w, http.StatusForbidden, "proxy: this token is limited to profiles "+strings.Join(scope, ", "))

@@ -217,6 +217,7 @@ type statusWriter struct {
 	status int
 	rc     *http.ResponseController // cached: constructing one per Flush call allocated on every SSE chunk
 	errBuf []byte                   // the first bytes of an error reply (status >= 400), for the request log
+	asked  string                   // the model id the client asked for, "" before route reads it
 	broken string                   // error class when relay hit a mid-body upstream failure: abort once logged and metered
 }
 

@@ -80,6 +80,9 @@ type Router struct {
 	oauthAt  time.Time         // oauthTok is valid until oauthAt+credTTL, a miss until oauthAt+oauthMissTTL
 	oauth    func() string     // reads the sealed subscription token; a seam for tests
 	headers  map[string]string // validated HARNESS_HEADERS, canonical names
+	// swapSeen is when each (profile, asked, served) swap was last logged, guarded by swapMu
+	swapMu   sync.Mutex
+	swapSeen map[string]time.Time
 }
 
 // quotaDeadFor is how long a hard-quota model is skipped before the router tries it again.
@@ -122,7 +125,7 @@ func (r *Router) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		kind = " kind=count_tokens"
 	}
 	fmt.Fprintf(r.log, "%s %s %s %d %d %s%s%s%s%s\n", start.Format(time.RFC3339), provider, model, sw.status, attempts,
-		time.Since(start).Round(time.Millisecond), kind, viaDiag(req), dispatchDiag(req), addBroken(errDiag(sw.errBuf), brokenDiag(sw)))
+		time.Since(start).Round(time.Millisecond), kind+reqDiag(sw.asked, model), viaDiag(req), dispatchDiag(req), addBroken(errDiag(sw.errBuf), brokenDiag(sw)))
 	sw.abortIfBroken()
 }
 
@@ -217,17 +220,18 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 		writeError(w, http.StatusInternalServerError, "proxy: "+err.Error())
 		return session, model, 0
 	}
-	target, ok := resolveTarget(w, in, reg, session, model)
+	target, ok := r.resolveTarget(w, in, reg, session, model)
 	if !ok {
 		return session, model, 0
 	}
+	clientModel := models.Strip1M(model)
+	w.asked, in = clientModel, withAsked(in, clientModel)
 	clientAuth := in.Header.Get("Authorization") != "" ||
 		r.oauthToken() != "" // the sealed token authenticates passthrough
 	if msg := unroutable(target.Provider, clientAuth); msg != "" {
 		writeError(w, http.StatusBadRequest, "proxy: "+msg)
 		return target.Provider.Name, target.Model, 0
 	}
-	clientModel := models.Strip1M(model)
 	ladder := r.attempts(in, reg, target, clientAuth)
 	return r.walkAttempts(w, in, decoded, ladder, clientModel, count)
 }
@@ -348,6 +352,7 @@ func (r *Router) attempts(in *http.Request, reg *providers.Registry, target prov
 	for i, t := range out {
 		if r.isDead(t) {
 			if d, ok := r.demotion(t); ok {
+				r.noteSwap(t.Provider.Name, t.Model, d.Model, "quota-dead for this key")
 				out[i] = d
 			}
 		}

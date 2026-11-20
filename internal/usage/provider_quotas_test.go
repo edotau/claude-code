@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -15,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/tokenledger"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -673,5 +675,54 @@ func TestRecordQuotasRejectsCachedWeeklyWindow(t *testing.T) {
 	}
 	if state := router.LoadState(); len(state) != 0 {
 		t.Fatalf("cached weekly quota became a fresh router observation: %+v", state)
+	}
+}
+
+func swapFixture(now time.Time) []tokenledger.Entry {
+	e := func(profile, req, served string, age time.Duration) tokenledger.Entry {
+		return tokenledger.Entry{Ts: now.Add(-age), Provider: "databricks", Profile: profile, Model: served, Requested: req, Input: 1}
+	}
+	var out []tokenledger.Entry
+	for range 3 {
+		out = append(out, e("dev", "claude-fable-5-2", "databricks-claude-opus-5-5", time.Hour))
+	}
+	out = append(out, e("dev", "claude-fable-5-2", "databricks-claude-opus-5-5", 40*24*time.Hour)) // outside 30d
+	out = append(out, e("dev", "", "databricks-claude-opus-5-5", time.Hour))                       // not swapped
+	for i := range 6 {
+		out = append(out, e(fmt.Sprintf("p%d", i), "a", "b", time.Hour))
+	}
+	return out
+}
+
+func TestSwapFootnote(t *testing.T) {
+	now := time.Now()
+	swaps := aggregateSwaps(swapFixture(now), now)
+	if len(swaps) != 7 || swaps[0].Requests != 3 || swaps[0].Profile != "dev" {
+		t.Fatalf("swaps = %+v, want 7 triples, dev first with 3", swaps)
+	}
+	var out bytes.Buffer
+	printSwaps(&out, swaps)
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(lines) != 6 || lines[0] != "swapped: 3 requests asked for claude-fable-5-2 and were served by databricks-claude-opus-5-5 on dev" ||
+		lines[5] != "and 2 more" {
+		t.Errorf("footnote =\n%s", out.String())
+	}
+}
+
+func TestNoSwapsLeavesOutputUnchanged(t *testing.T) {
+	now := time.Now()
+	plain := swapFixture(now)[4:5] // the one unswapped entry
+	var out bytes.Buffer
+	printSwaps(&out, aggregateSwaps(plain, now))
+	if out.Len() != 0 {
+		t.Errorf("printSwaps wrote %q with no swaps", out.String())
+	}
+	b, err := json.Marshal(document{Swaps: aggregateSwaps(plain, now)})
+	if err != nil || strings.Contains(string(b), "swaps") {
+		t.Errorf("document JSON carries swaps with none: %s %v", b, err)
+	}
+	b, _ = json.Marshal(document{Swaps: aggregateSwaps(swapFixture(now), now)[:1]})
+	if !strings.Contains(string(b), `"swaps":[{"profile":"dev","requested":"claude-fable-5-2","served":"databricks-claude-opus-5-5","requests":3}]`) {
+		t.Errorf("document JSON = %s", b)
 	}
 }
