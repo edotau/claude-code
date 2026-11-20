@@ -49,7 +49,7 @@ func codexCatalogPath(ctx context.Context, p *providers.Provider) (string, strin
 	if err != nil {
 		return "", "", fmt.Errorf("binary lookup failed: %w", err)
 	}
-	menu, key, err := catalogInputs(bin, p)
+	menu, key, prefs, err := catalogPlan(bin, p)
 	if err != nil {
 		return "", "", err
 	}
@@ -68,7 +68,7 @@ func codexCatalogPath(ctx context.Context, p *providers.Provider) (string, strin
 	if err != nil {
 		return "", "", fmt.Errorf("bundled dump failed: %w", err)
 	}
-	body, missing, err := buildCodexCatalog(p, menu, raw)
+	body, missing, err := buildCodexCatalog(p, menu, raw, prefs)
 	if err != nil {
 		return "", "", fmt.Errorf("bundled metadata failed: %w", err)
 	}
@@ -87,8 +87,18 @@ func codexCatalogPath(ctx context.Context, p *providers.Provider) (string, strin
 // catalogTempDir makes the scratch CODEX_HOME only a catalog cache miss needs; a var so tests catch a stray one.
 var catalogTempDir = func() (string, error) { return os.MkdirTemp("", "codex-catalog-") }
 
-// catalogInputs is the provider's menu and the cache key over codex's binary stamp (no --version spawn) and that menu.
-func catalogInputs(bin string, p *providers.Provider) ([]providers.OpencodeModel, string, error) {
+// catalogPlan is catalogInputs over the owner's saved preferences, which the rows' defaults follow.
+func catalogPlan(bin string, p *providers.Provider) ([]providers.OpencodeModel, string, map[string]string, error) {
+	prefs, err := LoadCodexPreferences()
+	if err != nil {
+		return nil, "", nil, fmt.Errorf("preferences failed: %w", err)
+	}
+	menu, key, err := catalogInputs(bin, p, prefs)
+	return menu, key, prefs, err
+}
+
+// catalogInputs is the provider's menu and the cache key over codex's binary stamp (no --version spawn), menu and prefs.
+func catalogInputs(bin string, p *providers.Provider, prefs map[string]string) ([]providers.OpencodeModel, string, error) {
 	stamp, ok := paths.BinKey(bin)
 	if !ok {
 		return nil, "", fmt.Errorf("binary stamp failed: %s", bin)
@@ -97,7 +107,7 @@ func catalogInputs(bin string, p *providers.Provider) ([]providers.OpencodeModel
 	if err != nil {
 		return nil, "", err
 	}
-	parts := []string{stamp, p.Name}
+	parts := []string{stamp, p.Name, prefs[codexEffortKey], prefs[extraVerbosity]}
 	for _, m := range menu {
 		parts = append(parts, agentconfig.MenuWire(p, m.ID), m.Label, strconv.FormatBool(m.Responses))
 	}
@@ -175,7 +185,7 @@ var (
 	})
 )
 
-func buildCodexCatalog(p *providers.Provider, menu []providers.OpencodeModel, raw []byte) ([]byte, string, error) {
+func buildCodexCatalog(p *providers.Provider, menu []providers.OpencodeModel, raw []byte, prefs map[string]string) ([]byte, string, error) {
 	bySlug, byKey, err := indexCodexModels(raw)
 	if err != nil {
 		return nil, "", err
@@ -200,6 +210,7 @@ func buildCodexCatalog(p *providers.Provider, menu []providers.OpencodeModel, ra
 			continue
 		}
 		entry := codexMenuEntry(p, m, base, len(out))
+		applyCodexPreferences(entry, prefs)
 		out = append(out, entry)
 		nativeSlugs = append(nativeSlugs, base["slug"].(string))
 		listed[entry["slug"].(string)] = true
@@ -263,6 +274,21 @@ func codexMenuEntry(p *providers.Provider, m providers.OpencodeModel, base map[s
 	entry["service_tiers"], entry["additional_speed_tiers"] = []any{}, []any{}
 	entry["upgrade"], entry["availability_nux"] = nil, nil
 	return entry
+}
+
+// applyCodexPreferences makes the owner's effort and verbosity the row's defaults where the model supports them.
+func applyCodexPreferences(entry map[string]any, prefs map[string]string) {
+	if v := prefs[extraVerbosity]; v != "" && entry["support_verbosity"] != false {
+		entry["default_verbosity"] = v
+	}
+	effort := prefs[codexEffortKey]
+	levels, _ := entry["supported_reasoning_levels"].([]any)
+	for _, level := range levels {
+		if row, _ := level.(map[string]any); effort != "" && row["effort"] == effort {
+			entry["default_reasoning_level"] = effort
+			return
+		}
+	}
 }
 
 func codexModelKey(slug string) string {

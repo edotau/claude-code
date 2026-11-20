@@ -2,6 +2,7 @@ package codex
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -63,7 +64,7 @@ func TestCodexCatalogPathCacheHitSkipsSpawnAndTempHome(t *testing.T) {
 	spawns := filepath.Join(t.TempDir(), "spawns")
 	bin := pathstest.FakeVendor(t, "codex", "echo run >> "+spawns+"\necho 'codex-cli 0.155.0'")
 	p := &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks}
-	_, key, err := catalogInputs(bin, p)
+	_, key, err := catalogInputs(bin, p, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,5 +99,53 @@ func TestCodexRefuseNamesModelAndSuggestsResponses(t *testing.T) {
 	}
 	if err := codexRefuse(p, "databricks-gpt-6-sol"); err != nil {
 		t.Errorf("codexRefuse(gpt-6-sol) = %v, want nil", err)
+	}
+}
+
+func catalogDefaults(t *testing.T, prefs map[string]string) (effort, verbosity string) {
+	t.Helper()
+	raw := `{"models":[{"slug":"gpt-6.1-sol","default_reasoning_level":"low","default_verbosity":"low","support_verbosity":true,
+		"supported_reasoning_levels":[{"effort":"low"},{"effort":"medium"},{"effort":"high"}]}]}`
+	p := &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks}
+	menu := []providers.OpencodeModel{{ID: "databricks-gpt-6-1-sol", Label: "Sol", Responses: true}}
+	body, _, err := buildCodexCatalog(p, menu, []byte(raw), prefs)
+	if err != nil || body == nil {
+		t.Fatalf("build = %v, %v", body, err)
+	}
+	var cat struct {
+		Models []struct {
+			Effort    string `json:"default_reasoning_level"`
+			Verbosity string `json:"default_verbosity"`
+		}
+	}
+	if err := json.Unmarshal(body, &cat); err != nil {
+		t.Fatal(err)
+	}
+	return cat.Models[0].Effort, cat.Models[0].Verbosity
+}
+
+// Given a configured effort and verbosity, Then a model whose vendor default is lower follows them when supported.
+func TestCatalogFollowsConfiguredPreferences(t *testing.T) {
+	if e, v := catalogDefaults(t, map[string]string{codexEffortKey: "medium", extraVerbosity: "medium"}); e != "medium" || v != "medium" {
+		t.Errorf("defaults = %s/%s, want medium/medium", e, v)
+	}
+	if e, v := catalogDefaults(t, map[string]string{codexEffortKey: "max"}); e != "low" || v != "low" {
+		t.Errorf("unsupported effort: defaults = %s/%s, want the vendor low/low", e, v)
+	}
+	if e, v := catalogDefaults(t, nil); e != "low" || v != "low" {
+		t.Errorf("no preference: defaults = %s/%s, want the vendor low/low", e, v)
+	}
+}
+
+func TestCatalogKeyFollowsPreferences(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	t.Setenv("HARNESS_VAULT_KEY", "probe-secret")
+	bin := pathstest.FakeVendor(t, "codex", "echo 'codex-cli 0.155.0'")
+	p := &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks}
+	_, none, _ := catalogInputs(bin, p, nil)
+	_, eff, _ := catalogInputs(bin, p, map[string]string{codexEffortKey: "medium"})
+	_, verb, _ := catalogInputs(bin, p, map[string]string{extraVerbosity: "medium"})
+	if none == eff || none == verb || eff == verb {
+		t.Fatalf("keys must differ per preference: %s %s %s", none, eff, verb)
 	}
 }
