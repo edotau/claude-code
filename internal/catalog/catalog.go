@@ -21,11 +21,11 @@ import (
 
 // Profile is agent's catalog profile: flag, else the agent's pin, else the session; nil when none is named.
 func Profile(ctx context.Context, agent, flag string) (*providers.Provider, error) {
-	pin := vault.GetAgentRecord(agent).Profile
-	if pin == providers.GroupDatabricks { // the pool pin names no workspace: the session's stands in
-		pin = ""
+	pin := vault.GetAgentRecord(agent).EffectiveRoute()
+	if pin.Provider == providers.GroupDatabricks && pin.Profile == router.AutoArm { // the pool names no workspace
+		pin.Profile = ""
 	}
-	name := cmp.Or(flag, pin, providers.SessionProfileContext(ctx))
+	name := cmp.Or(flag, pin.Profile, providers.SessionProfileContext(ctx))
 	if name == "" {
 		return nil, nil
 	}

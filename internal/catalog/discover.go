@@ -36,7 +36,7 @@ func SpawnDiscover(profile string, force bool) bool {
 func DiscoverTargets(reg *providers.Registry) []string {
 	var out []string
 	for _, agent := range []string{agentid.Copilot, agentid.OpenCode} {
-		name := providers.AgentRecord(agent).Profile
+		name := providers.AgentRecord(agent).EffectiveRoute().Profile
 		if name == "" && agent == agentid.Copilot {
 			name = GithubProfile(reg)
 		}

@@ -179,9 +179,14 @@ func legacyRecord(a agentConfig) vault.AgentRecord {
 // mergeRecord lays over on base: scalars and aliases when set, policy and launch whole when non-nil, extras by key.
 func mergeRecord(base, over vault.AgentRecord) vault.AgentRecord {
 	out := base
-	out.Profile, out.Model = cmp.Or(over.Profile, base.Profile), cmp.Or(over.Model, base.Model)
-	out.Effort, out.Context = cmp.Or(over.Effort, base.Effort), cmp.Or(over.Context, base.Context)
-	out.Account, out.Fallback = cmp.Or(over.Account, base.Account), cmp.Or(over.Fallback, base.Fallback)
+	out.Model, out.Effort = cmp.Or(over.Model, base.Model), cmp.Or(over.Effort, base.Effort)
+	out.Context = cmp.Or(over.Context, base.Context)
+	if !over.EffectiveRoute().IsZero() { // a route is taken whole from one layer
+		out.Route, out.Profile, out.Account = over.Route, over.Profile, over.Account
+	}
+	if !over.EffectiveFallbackRoute().IsZero() {
+		out.FallbackRoute, out.Fallback = over.FallbackRoute, over.Fallback
+	}
 	if len(over.Aliases) > 0 {
 		out.Aliases = over.Aliases
 	}

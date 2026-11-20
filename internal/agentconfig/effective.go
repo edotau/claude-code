@@ -11,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -158,6 +159,7 @@ func ForContext(ctx context.Context, agent string, l Launch) (Effective, error) 
 	}
 	rec := recs[agent]
 	cfg := Effective{Agent: agent, AgentRecord: rec}
+	cfg.Profile = pinProfile(rec.EffectiveRoute())
 	if cfg.Profile == "" && agent == agentid.Gemini {
 		cfg.Profile = geminiLogin
 	}
@@ -165,6 +167,14 @@ func ForContext(ctx context.Context, agent string, l Launch) (Effective, error) 
 		return Effective{}, err
 	}
 	return cfg, checkProfile(reg, agent, cfg.Profile)
+}
+
+// pinProfile is a pinned route as the profile a launch leads with; the pool keeps its group name.
+func pinProfile(rt route.Route) string {
+	if rt.Provider == providers.GroupDatabricks && rt.Profile == router.AutoArm {
+		return providers.GroupDatabricks
+	}
+	return rt.Profile
 }
 
 func launchProfile(ctx context.Context, reg *providers.Registry, cfg Effective, l Launch) (string, error) {
