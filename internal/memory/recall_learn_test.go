@@ -29,10 +29,10 @@ func TestLearnRecall(t *testing.T) {
 	}
 	logAccessBatch(dir, now.Add(-time.Minute), []string{"aaaa0003"}, accessRecall, sessions[0])
 	for _, s := range sessions {
-		t.Setenv(SessionIDEnv, s)
+		t.Setenv(paths.SessionIDEnv, s)
 		showRecallFixture(t, "aaaa0001")
 	}
-	t.Setenv(SessionIDEnv, elsewhere)
+	t.Setenv(paths.SessionIDEnv, elsewhere)
 	showRecallFixture(t, "aaaa0002")
 	if err := LearnRecall(now); err != nil {
 		t.Fatal(err)
@@ -86,7 +86,7 @@ func BenchmarkRecallRanking(b *testing.B) {
 			write(b, Path("conventions.md"), bank.String())
 			logAccess(accessDir(), time.Now(), "00000001", AccessShow)
 			if present {
-				path := filepath.Join(StateDir(), "recall-learning.json")
+				path := filepath.Join(paths.MemoryStateDir(), "recall-learning.json")
 				write(b, path, `{"days":{"2026-11-18":{"00000001":{"injected":5,"used":5}}}}`)
 			}
 			recallPicks(context.Background(), "", recallTask, false, false)

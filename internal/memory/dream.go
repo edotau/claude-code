@@ -55,7 +55,7 @@ func (p dreamPreview) Report() string {
 // previewDream computes dreamPreview without writing anything.
 func previewDream() dreamPreview {
 	local := statBank() // one read per typed file feeds the cap, archive and rotation checks below
-	p := dreamPreview{Dir: SubDir(""), Oversized: local.Oversized, Unreadable: local.Unreadable}
+	p := dreamPreview{Dir: paths.MemorySubDir(""), Oversized: local.Oversized, Unreadable: local.Unreadable}
 	for name, capLines := range archiveCaps {
 		_, _, overflow := overflowSplit(name, string(local.data[name]), capLines) // archiveFile's split, read-only
 		p.Archivable += len(overflow)
@@ -81,7 +81,7 @@ func isDreamChild() bool {
 
 // dreamStampPath records the last consolidation time.
 func dreamStampPath() string {
-	return filepath.Join(StateDir(), "last-dream-"+stateKey())
+	return filepath.Join(paths.MemoryStateDir(), "last-dream-"+stateKey())
 }
 
 // dreamStamp reads the stamp: its time (line 1) and whether that run failed (line 2 = "failed").
@@ -126,7 +126,7 @@ type dreamOptions struct {
 // dreamChanged lists the top-level and feedback/ and notes/ store .md files modified after since (all when zero).
 func dreamChanged(since time.Time) []string {
 	var out []string
-	for _, dir := range []string{StoreDir(), filepath.Join(StoreDir(), "feedback"), filepath.Join(StoreDir(), "notes")} {
+	for _, dir := range []string{paths.MemoryStoreDir(), filepath.Join(paths.MemoryStoreDir(), "feedback"), filepath.Join(paths.MemoryStoreDir(), "notes")} {
 		for _, f := range transcript.GlobIn(dir, "*.md") {
 			if fi, err := os.Stat(f); err == nil && fi.ModTime().After(since) {
 				out = append(out, f)
@@ -146,7 +146,7 @@ func agentDreamPrompt(changed []string) (string, error) {
 	if len(changed) > 0 {
 		list = "\n- " + strings.Join(changed, "\n- ")
 	}
-	return fmt.Sprintf(dreamPromptFormat, StoreDir()) +
+	return fmt.Sprintf(dreamPromptFormat, paths.MemoryStoreDir()) +
 		"Write only under the memory root. Be surgical.\n\nChanged since the last dream: " + list + "\n\n" + ref, nil
 }
 
@@ -278,7 +278,7 @@ func (d *dreamPlans) finish(out io.Writer) {
 // storeCites is the evidence a strike may cite, read before the run so the job cannot cite what it wrote.
 func storeCites() plans.Cite {
 	ids := map[string]bool{}
-	logs := append([]string{Path("decisionLog.md")}, transcript.GlobIn(filepath.Join(StoreDir(), "archive"), "decisionLog*.md")...)
+	logs := append([]string{Path("decisionLog.md")}, transcript.GlobIn(filepath.Join(paths.MemoryStoreDir(), "archive"), "decisionLog*.md")...)
 	for _, f := range logs {
 		b, _ := os.ReadFile(f) // a missing log cites nothing
 		for _, m := range idMarker().FindAllStringSubmatch(string(b), -1) {
@@ -287,7 +287,7 @@ func storeCites() plans.Cite {
 	}
 	notes := map[string]bool{}
 	for _, dir := range []string{"feedback", "notes"} {
-		for _, f := range transcript.GlobIn(filepath.Join(StoreDir(), dir), "*.md") {
+		for _, f := range transcript.GlobIn(filepath.Join(paths.MemoryStoreDir(), dir), "*.md") {
 			notes[dir+"/"+filepath.Base(f)] = true
 		}
 	}

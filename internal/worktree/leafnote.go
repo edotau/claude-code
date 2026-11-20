@@ -10,7 +10,7 @@ import (
 	"unicode"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -86,7 +86,7 @@ func dispatcherOf() (session, from string) {
 	if id := os.Getenv(proc.DispatchIDEnv); id != "" {
 		return recordSession(id), DispatchNoteFrom(id)
 	}
-	return os.Getenv(memory.SessionIDEnv), SubagentNoteFrom
+	return os.Getenv(paths.SessionIDEnv), SubagentNoteFrom
 }
 
 // recordSession walks id's Parent chain to the dispatch the main session launched and names that owner's session.

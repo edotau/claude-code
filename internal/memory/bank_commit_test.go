@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -32,7 +33,7 @@ func captureStderr(t *testing.T) func() string {
 
 func readStore(t *testing.T, rel string) string {
 	t.Helper()
-	data, err := os.ReadFile(filepath.Join(StoreDir(), rel))
+	data, err := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), rel))
 	if err != nil {
 		t.Fatalf("read %s: %v", rel, err)
 	}
@@ -442,7 +443,7 @@ func TestSkippedJournalReplayDivergesOnSameFile(t *testing.T) {
 // A credential-shaped file outside the batch's dirs is named once on stderr and never swept; inside, it refuses.
 func TestCommitChangesLockedSkipsAnotherReposCredentialFile(t *testing.T) {
 	storeFixture(t)
-	write(t, filepath.Join(StoreDir(), "other", "note.md"), "key: "+fakeCredential()+"\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), "other", "note.md"), "key: "+fakeCredential()+"\n")
 	readStderr := captureStderr(t)
 	rec, err := commitLocked(t, "import", []Change{{Rel: "r/a.md", Data: []byte("a\n")}})
 	stderr := readStderr()
@@ -459,7 +460,7 @@ func TestCommitChangesLockedSkipsAnotherReposCredentialFile(t *testing.T) {
 		t.Fatalf("the skipped file must stay uncommitted: %+v", st)
 	}
 
-	write(t, filepath.Join(StoreDir(), "r", "leak.md"), "key: "+fakeCredential()+"\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), "r", "leak.md"), "key: "+fakeCredential()+"\n")
 	if _, err := commitLocked(t, "import", []Change{{Rel: "r/b.md", Data: []byte("b\n")}}); err == nil ||
 		!strings.Contains(err.Error(), "credential-shaped content") {
 		t.Fatalf("a credential-shaped file in the batch's dir must be refused, got %v", err)
@@ -485,7 +486,7 @@ func storeFixture(t *testing.T) (store string, decoy Repo) {
 	t.Setenv("GIT_DIR", filepath.Join(decoy.Dir, ".git"))
 	t.Setenv("GIT_WORK_TREE", decoy.Dir)
 	t.Setenv("GIT_INDEX_FILE", filepath.Join(decoy.Dir, ".git", "index"))
-	return StoreDir(), decoy
+	return paths.MemoryStoreDir(), decoy
 }
 
 // assertDecoyUntouched: the hostile GIT_* env must never retarget a store operation at the decoy.

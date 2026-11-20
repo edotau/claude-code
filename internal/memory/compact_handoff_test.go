@@ -23,7 +23,7 @@ func compactRepo(t *testing.T) (root string) {
 	write(t, Path("decisionLog.md"), "# Decision Log\n\n## 2026-11-16 — Ship the handoff <!-- id:9c2d7e41 -->\n\nbody\n\n"+
 		"## 2026-11-15 — Older ruling <!-- id:e19b50c3 -->\n\nbody\n")
 	write(t, filepath.Join(paths.ConfigDir(), "plans", "2026-11-16-plan.md"), "# plan\n")
-	write(t, Sub("reports", "2026-11-16-review.md"), "r\n")
+	write(t, paths.MemorySub("reports", "2026-11-16-review.md"), "r\n")
 	return root
 }
 
@@ -84,8 +84,8 @@ func TestCompactHandoffDropsCredentialShapedBriefLines(t *testing.T) {
 func TestCompactHandoffOverwritesOnlyItsOwnFile(t *testing.T) {
 	root := compactRepo(t)
 	now := time.Now()
-	other := Sub("handoffs", now.Format("2006-01-02")+"-compact-99999999.md")
-	model := Sub("handoffs", now.Format("2006-01-02")+"-topic.md")
+	other := paths.MemorySub("handoffs", now.Format("2006-01-02")+"-compact-99999999.md")
+	model := paths.MemorySub("handoffs", now.Format("2006-01-02")+"-topic.md")
 	write(t, other, "other session")
 	write(t, model, "model written")
 	writeHandoff(t, compactInput(root, now))
@@ -108,8 +108,8 @@ func TestResumeNoteListsModelHandoffBeforeGenerated(t *testing.T) {
 	if got := ResumeNote("compact", "4f1c2a9e-1111", root, now); got != "handoff: "+gen {
 		t.Fatalf("generated only: ResumeNote = %q, want the generated handoff", got)
 	}
-	model := Sub("handoffs", now.Format("2006-01-02")+"-session-4f1c2a9e.md")
-	peer := Sub("handoffs", now.Format("2006-01-02")+"-session-99999999.md")
+	model := paths.MemorySub("handoffs", now.Format("2006-01-02")+"-session-4f1c2a9e.md")
+	peer := paths.MemorySub("handoffs", now.Format("2006-01-02")+"-session-99999999.md")
 	write(t, model, handoffIdentity("4f1c2a9e-1111")+"\nmodel written")
 	write(t, handoffDoneMarker("4f1c2a9e-1111"), "4f1c2a9e-1111\n"+model+"\nrequest")
 	write(t, peer, "another session")

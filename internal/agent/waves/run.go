@@ -11,7 +11,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 )
@@ -133,7 +132,7 @@ func (r *runner) prepare() error {
 	}
 	r.slug = paths.Slug(strings.TrimSuffix(filepath.Base(r.o.Plan), filepath.Ext(r.o.Plan)), "._-", 50, "plan")
 	r.day = time.Now()
-	r.dir, r.reports = filepath.Join(paths.StateDir(), "waves", r.slug), memory.SubDir("reports")
+	r.dir, r.reports = filepath.Join(paths.StateDir(), "waves", r.slug), paths.MemorySubDir("reports")
 	r.path = filepath.Join(r.dir, "state.json")
 	r.state.Plan = r.o.Plan
 	return nil

@@ -492,7 +492,7 @@ func seenPath(sessionID string) string {
 	if id == "" || id == "." || id == ".." || id == string(filepath.Separator) {
 		return ""
 	}
-	return filepath.Join(StateDir(), "recall-seen", id)
+	return filepath.Join(paths.MemoryStateDir(), "recall-seen", id)
 }
 
 // resetSeen restarts sessionID's seen set with every corpus block the SessionStart surface carried in full.
@@ -571,10 +571,10 @@ func markSeen(sessionID string, hits []SearchHit, expanded bool) {
 func pruneSeen(dir string) {
 	cutoff := time.Now().Add(-seenMaxAge)
 	// + stale compact records and synthesized agent transcripts
-	for _, path := range []string{dir, StateDir(), filepath.Dir(compactRecordPath("")), agentTranscriptDir()} {
+	for _, path := range []string{dir, paths.MemoryStateDir(), filepath.Dir(compactRecordPath("")), agentTranscriptDir()} {
 		ents, _ := os.ReadDir(path)
 		for _, e := range ents {
-			if !e.Type().IsRegular() || path == StateDir() && !prunableSessionState(e.Name()) && !staleSessionRoot(path, e.Name(), cutoff) {
+			if !e.Type().IsRegular() || path == paths.MemoryStateDir() && !prunableSessionState(e.Name()) && !staleSessionRoot(path, e.Name(), cutoff) {
 				continue
 			}
 			if fi, err := e.Info(); err == nil && fi.ModTime().Before(cutoff) {
@@ -778,7 +778,7 @@ func recallLoad(out, errw io.Writer, hits []SearchHit, n int) {
 
 // RecallExplain writes the hook-recall selection trace for query: terms, cache state and every candidate's scores.
 func RecallExplain(w io.Writer, query string) {
-	_, trace := recallPicks(context.Background(), os.Getenv(SessionIDEnv), query, true, true)
+	_, trace := recallPicks(context.Background(), os.Getenv(paths.SessionIDEnv), query, true, true)
 	fmt.Fprintf(w, "query terms: %s\nembeddings: %s\ncache age: %s; rows: %d\nwould stay silent: %t\n",
 		strings.Join(trace.Terms, " "), trace.Embeddings, trace.CacheAge, trace.CacheRows, trace.Silent)
 	files := explainFiles(w, trace.Rows)

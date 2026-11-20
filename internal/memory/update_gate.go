@@ -152,7 +152,7 @@ type updateStamp struct {
 }
 
 func stampPath(sessionID string) string {
-	return filepath.Join(StateDir(), "stamp-"+filepath.Base(sessionID))
+	return filepath.Join(paths.MemoryStateDir(), "stamp-"+filepath.Base(sessionID))
 }
 
 func readStamp(path string) (updateStamp, bool) {
@@ -227,7 +227,7 @@ type countState struct {
 }
 
 func countPath(sessionID string) string {
-	return filepath.Join(StateDir(), "count-"+filepath.Base(sessionID))
+	return filepath.Join(paths.MemoryStateDir(), "count-"+filepath.Base(sessionID))
 }
 
 func readCountState(path string) (countState, bool) {

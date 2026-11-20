@@ -262,7 +262,7 @@ func cmdMemoryRemember(args []string) int {
 	if err != nil {
 		return helptext.Fail("memory remember: %v", err)
 	}
-	fmt.Printf("remembered [%s] -> %s\n", id, memory.SubDir(""))
+	fmt.Printf("remembered [%s] -> %s\n", id, paths.MemorySubDir(""))
 	return 0
 }
 
@@ -383,11 +383,11 @@ func cmdMemoryPath(args []string) int {
 	}
 	switch len(pos) {
 	case 0:
-		fmt.Println(memory.SubDir(""))
+		fmt.Println(paths.MemorySubDir(""))
 	case 1:
-		fmt.Println(memory.SubDir(pos[0]))
+		fmt.Println(paths.MemorySubDir(pos[0]))
 	default:
-		fmt.Println(memory.Sub(pos[0], memoryPathName(pos[0], pos[1])))
+		fmt.Println(paths.MemorySub(pos[0], memoryPathName(pos[0], pos[1])))
 	}
 	return 0
 }

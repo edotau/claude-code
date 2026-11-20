@@ -16,8 +16,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
-
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
@@ -496,7 +494,7 @@ var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 }}
 
 // Seams for the mid-dispatch quota hand-off; tests replace them.
-var handoffPath = func(root, name string) string { return memory.Sub("handoffs", name) }
+var handoffPath = func(root, name string) string { return paths.MemorySub("handoffs", name) }
 
 // copilotQuotaHandoff marks the exhausted account and returns a redacted handoff of the failed run's partial output.
 func copilotQuotaHandoff(

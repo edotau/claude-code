@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"errors"
+	"github.com/edotau/claude-code/internal/paths"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -16,7 +17,7 @@ func migFixture(t *testing.T, files map[string]string) string {
 	t.Helper()
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	dir := StoreDir()
+	dir := paths.MemoryStoreDir()
 	for rel, body := range files {
 		if err := os.MkdirAll(filepath.Dir(filepath.Join(dir, rel)), 0o755); err != nil {
 			t.Fatal(err)

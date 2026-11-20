@@ -37,7 +37,7 @@ type Job struct {
 	Attempts  int               `json:"attempts"`
 }
 
-func queueDir() string { return filepath.Join(StateDir(), "queue") }
+func queueDir() string { return filepath.Join(paths.MemoryStateDir(), "queue") }
 
 // jobName keeps a bounded readable prefix and hashes the original key to distinguish sanitized and case variants.
 func jobName(kind, key string) string {

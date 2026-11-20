@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/paths"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -13,10 +14,10 @@ func TestCandidateApproveAndClose(t *testing.T) {
 	cfg, _ := isolatedConfig(t)
 	t.Setenv(dreamChildEnv, "")
 	for _, n := range []string{"feedback/feedback-a.md", "feedback/feedback-b.md", "notes/note-c.md"} {
-		write(t, filepath.Join(StoreDir(), filepath.FromSlash(n)), "x\n")
+		write(t, filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(n)), "x\n")
 	}
 	write(t, filepath.Join(cfg, "rules", "x.md"), "one\ntwo\n")
-	path := filepath.Join(StoreDir(), filepath.FromSlash(candidatesRel))
+	path := filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(candidatesRel))
 	write(t, path, "# C\n\n```jsonl\n"+candidateRows+"\n```\n")
 	if err := EnsureBank(""); err != nil {
 		t.Fatal(err)

@@ -26,6 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/wthook"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/memtest"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -711,7 +712,7 @@ func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
 	tb := &hosttest.MainTB{}
-	memory.StubSpawn(tb, true)
+	memtest.StubSpawn(tb, true)
 	wthook.PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
 	code := m.Run()
 	for _, f := range tb.Cleanups {
@@ -749,7 +750,7 @@ func TestSessionStartMemorySpawnsAreStubbed(t *testing.T) {
 	if _, err := memory.Init(); err != nil {
 		t.Fatal(err)
 	}
-	spawns := memory.StubSpawn(t, true)
+	spawns := memtest.StubSpawn(t, true)
 	payload := `{"hook_event_name":"SessionStart","session_id":"44444444-4444-4444-8444-444444444444","cwd":"` + cwd + `"}`
 	var out, errb strings.Builder
 	if code := runEvent("SessionStart", "", strings.NewReader(payload), &out, &errb); code != core.ExitProceed {

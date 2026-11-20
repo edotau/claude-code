@@ -70,7 +70,7 @@ func jsonEncoder(w io.Writer) *json.Encoder {
 
 // readCandidates returns the file's valid records; none when it is absent or unreadable.
 func readCandidates() []candidate {
-	data, err := os.ReadFile(filepath.Join(StoreDir(), filepath.FromSlash(candidatesRel)))
+	data, err := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(candidatesRel)))
 	if err != nil {
 		return nil
 	}
@@ -174,7 +174,7 @@ func enforceEdit(c *candidate, ref string) error {
 // rewriteCandidate edits one record in place under the bank lock; the file's other lines are kept byte for byte.
 func rewriteCandidate(id, verb string, edit func(*candidate) error) error {
 	return withFlatLock(BankLockWait, func() error {
-		data, err := os.ReadFile(filepath.Join(StoreDir(), filepath.FromSlash(candidatesRel)))
+		data, err := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(candidatesRel)))
 		if err != nil {
 			return errors.New("no candidates file in the store")
 		}

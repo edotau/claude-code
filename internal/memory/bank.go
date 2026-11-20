@@ -17,31 +17,23 @@ import (
 const layoutFile, layoutFlat, layoutFlat2, layoutPerKey = ".layout", "flat 3", "flat 2", "flat 1"
 
 // Path is one of the bank's top-level files.
-func Path(name string) string { return filepath.Join(StoreDir(), name) }
-
-// SubDir is the store root: a named sub is a filename prefix, not a directory.
-func SubDir(sub string) string { return filepath.Join(StoreDir(), sub) }
-
-// Sub is name inside the store folder sub (archive, handoffs, reports, …); sub "" is a top-level file.
-func Sub(sub, name string) string {
-	return filepath.Join(StoreDir(), sub, filepath.FromSlash(name))
-}
+func Path(name string) string { return filepath.Join(paths.MemoryStoreDir(), name) }
 
 // NativeIndex is the one shared MEMORY.md.
-func NativeIndex() string { return filepath.Join(StoreDir(), "MEMORY.md") }
+func NativeIndex() string { return filepath.Join(paths.MemoryStoreDir(), "MEMORY.md") }
 
 func Ensure(sub string) error {
 	if err := requireFlat(); err != nil {
 		return err
 	}
-	return os.MkdirAll(SubDir(sub), 0o755)
+	return os.MkdirAll(paths.MemorySubDir(sub), 0o755)
 }
 
 // layoutCache memoizes the stamp per store root: tests swap the config dir mid-process.
 var layoutCache sync.Map
 
 func storeFlat() bool {
-	d := StoreDir()
+	d := paths.MemoryStoreDir()
 	if v, ok := layoutCache.Load(d); ok {
 		return v.(bool)
 	}
@@ -53,12 +45,12 @@ func storeFlat() bool {
 }
 
 func storePerKey() bool {
-	b, _ := os.ReadFile(filepath.Join(StoreDir(), layoutFile))
+	b, _ := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), layoutFile))
 	return strings.TrimSpace(string(b)) == layoutPerKey
 }
 
 // forgetLayout drops the memoized stamp for the current store.
-func forgetLayout() { layoutCache.Delete(StoreDir()) }
+func forgetLayout() { layoutCache.Delete(paths.MemoryStoreDir()) }
 
 const homeDir = "home"
 
@@ -73,7 +65,7 @@ func requireFlat() error {
 	if err := checkFlat(); err != nil || storeFlat() {
 		return err
 	}
-	err := paths.AtomicWrite(filepath.Join(StoreDir(), layoutFile), []byte(layoutFlat+"\n"), 0o644)
+	err := paths.AtomicWrite(filepath.Join(paths.MemoryStoreDir(), layoutFile), []byte(layoutFlat+"\n"), 0o644)
 	forgetLayout()
 	return err
 }
@@ -86,7 +78,7 @@ func checkFlat() error {
 	if storePerKey() {
 		return errStoreNotFlat
 	}
-	ents, err := os.ReadDir(StoreDir())
+	ents, err := os.ReadDir(paths.MemoryStoreDir())
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err // an unreadable store must not look empty and get stamped
 	}

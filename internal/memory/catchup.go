@@ -62,7 +62,7 @@ var headCacheFormat = schemas.Register(schemas.Format{
 	Version: headCacheSchema, Keep: "rebuildable cache; a corrupt or newer file is a miss",
 })
 
-func headCachePath() string { return filepath.Join(StateDir(), "catchup-heads.json") }
+func headCachePath() string { return filepath.Join(paths.MemoryStateDir(), "catchup-heads.json") }
 
 // loadHeadCache reads the cache file; a missing, corrupt or newer one yields an empty cache.
 func loadHeadCache() *headCache {
@@ -108,7 +108,7 @@ func (h *headCache) save(recent []sweepCand) {
 	}
 }
 
-func catchupDonePath() string { return filepath.Join(StateDir(), "catchup-done") }
+func catchupDonePath() string { return filepath.Join(paths.MemoryStateDir(), "catchup-done") }
 
 // transcriptInteractive scans through the first user prompt, even after a long metadata prelude.
 func transcriptInteractive(path string) (interactive bool) {
@@ -304,11 +304,11 @@ func CatchUpSweep(o SweepOptions) int {
 		fmt.Fprintf(stdout, "skipped: %v\n", skips)
 		return 0
 	}
-	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
+	if err := os.MkdirAll(paths.MemoryStateDir(), 0o700); err != nil {
 		fmt.Fprintf(stderr, "memory update --catchup: %v\n", err)
 		return 1
 	}
-	_, err := paths.TryFileLock(filepath.Join(StateDir(), "catchup.lock"), 0, func() error {
+	_, err := paths.TryFileLock(filepath.Join(paths.MemoryStateDir(), "catchup.lock"), 0, func() error {
 		runSweep(current, now, stdout)
 		return nil
 	})
@@ -372,7 +372,7 @@ func catchupDoneCount() int {
 }
 
 // blockedNotePath holds the one quiet line a detached update leaves for the next SessionStart to show.
-func blockedNotePath() string { return filepath.Join(StateDir(), "update-blocked-note") }
+func blockedNotePath() string { return filepath.Join(paths.MemoryStateDir(), "update-blocked-note") }
 
 // noteOut is where a foreground update's quiet note goes; a var for tests.
 var noteOut io.Writer = os.Stderr
@@ -413,7 +413,7 @@ func consumeSavedNote() string {
 	}
 	n := 0
 	// A running sweep holds the lock and still updates the count: leave it for the next start.
-	_, _ = paths.TryFileLock(filepath.Join(StateDir(), "catchup.lock"), 0, func() error {
+	_, _ = paths.TryFileLock(filepath.Join(paths.MemoryStateDir(), "catchup.lock"), 0, func() error {
 		n = catchupDoneCount()
 		return os.Remove(catchupDonePath())
 	})

@@ -102,8 +102,8 @@ func openEmbedDB(opts *bbolt.Options) (*bbolt.DB, error) {
 	return db, nil
 }
 
-// embedDBPath is the one bbolt file holding the shared entry-vector record, scoped like StateDir.
-func embedDBPath() string { return filepath.Join(StateDir(), "embeddings.db") }
+// embedDBPath is the one bbolt file holding the shared entry-vector record, scoped like MemoryStateDir.
+func embedDBPath() string { return filepath.Join(paths.MemoryStateDir(), "embeddings.db") }
 
 func mintedTime(f vectorRecord) time.Time { return time.Unix(0, f.MintedAt) }
 
@@ -265,7 +265,7 @@ func decodeVectorBucket(b *bbolt.Bucket, f schemas.Format) vectorRecord {
 
 // updateEmbedDB runs fn in one short read-write transaction on embeddings.db, creating the file and buckets.
 func updateEmbedDB(fn func(tx *bbolt.Tx) error) error {
-	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
+	if err := os.MkdirAll(paths.MemoryStateDir(), 0o700); err != nil {
 		return err
 	}
 	db, err := openEmbedDB(&bbolt.Options{Timeout: embedWriteTimeout})
@@ -407,7 +407,7 @@ func (s *boltVectorStore) FoldLegacy(model string) error {
 	if err := updateEmbedDB(func(tx *bbolt.Tx) error { return foldLegacyTx(tx, model) }); err != nil {
 		return err
 	}
-	stamps, _ := filepath.Glob(filepath.Join(StateDir(), embedCachePre+"*.refresh*"))
+	stamps, _ := filepath.Glob(filepath.Join(paths.MemoryStateDir(), embedCachePre+"*.refresh*"))
 	for _, stamp := range stamps {
 		_ = os.Remove(stamp)
 	}
@@ -485,11 +485,11 @@ func embedClaimLive(tx *bbolt.Tx, now time.Time) bool {
 
 // refreshEmbeddings starts a detached mint at most once per claim TTL, whichever workspace it runs through.
 func refreshEmbeddings(root, profile string, now time.Time) bool {
-	stamp := filepath.Join(StateDir(), "embeddings.refresh")
+	stamp := filepath.Join(paths.MemoryStateDir(), "embeddings.refresh")
 	if IsUpdateChild() || refreshStampFresh(stamp, now) {
 		return false
 	}
-	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
+	if err := os.MkdirAll(paths.MemoryStateDir(), 0o700); err != nil {
 		return false
 	}
 	spawned := false

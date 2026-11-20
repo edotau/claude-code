@@ -15,7 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -484,9 +484,9 @@ func TestDocsPlacementNamesExactDest(t *testing.T) {
 		{"bash plan", "Bash", map[string]any{"command": "echo x > migration-plan.md"}, filepath.Join(planHome, day+"-migration-plan.md")},
 		{"codex patch plan", "apply_patch", patch("command", "rollout-plan.md"), filepath.Join(planHome, day+"-rollout-plan.md")},
 		{"taken plan name", "Bash", map[string]any{"command": "echo x > taken-plan.md"}, filepath.Join(planHome, day+"-taken-plan-2.md")},
-		{"report", "Write", map[string]any{"file_path": filepath.Join(repo, "audit-report.md")}, memory.Sub("reports", day+"-audit-report.md")},
-		{"findings", "Bash", map[string]any{"command": "echo x | tee review-findings.md"}, memory.Sub("reports", day+"-review-findings.md")},
-		{"handoff", "apply_patch", patch("patchText", "session-handoff.md"), memory.Sub("handoffs", day+"-session-handoff.md")},
+		{"report", "Write", map[string]any{"file_path": filepath.Join(repo, "audit-report.md")}, paths.MemorySub("reports", day+"-audit-report.md")},
+		{"findings", "Bash", map[string]any{"command": "echo x | tee review-findings.md"}, paths.MemorySub("reports", day+"-review-findings.md")},
+		{"handoff", "apply_patch", patch("patchText", "session-handoff.md"), paths.MemorySub("handoffs", day+"-session-handoff.md")},
 		{"no kind word", "Write", map[string]any{"file_path": filepath.Join(repo, "NOTES.md")}, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -531,7 +531,7 @@ func TestDocsPlacementFeedbackRedirect(t *testing.T) {
 func TestStoreNameRedirect(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	store := memory.StoreDir()
+	store := paths.MemoryStoreDir()
 	if err := os.MkdirAll(filepath.Join(store, "reports"), 0o755); err != nil {
 		t.Fatal(err)
 	}

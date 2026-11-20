@@ -74,8 +74,8 @@ func syncStore(t *testing.T) {
 	t.Setenv("CLAUDE_REMOTE_HOST", "")
 	memInit(t)
 	memMust(t, memory.StoreRepo().Ensure())
-	memMust(t, os.MkdirAll(filepath.Join(memory.StoreDir(), "notes"), 0o700))
-	memMust(t, os.WriteFile(filepath.Join(memory.StoreDir(), "notes", "local.md"), []byte("local\n"), 0o600))
+	memMust(t, os.MkdirAll(filepath.Join(paths.MemoryStoreDir(), "notes"), 0o700))
+	memMust(t, os.WriteFile(filepath.Join(paths.MemoryStoreDir(), "notes", "local.md"), []byte("local\n"), 0o600))
 }
 
 func probeOut(layout string) string { return layout + "\n" + syncTestHead + "\n       0\n" }
@@ -155,7 +155,7 @@ func TestSyncRefusesOptionShapedPeer(t *testing.T) {
 
 func TestImportReplaceFile(t *testing.T) {
 	syncStore(t)
-	note := filepath.Join(memory.StoreDir(), "notes", "local.md")
+	note := filepath.Join(paths.MemoryStoreDir(), "notes", "local.md")
 	src := t.TempDir()
 	memMust(t, os.WriteFile(filepath.Join(src, ".layout"), []byte("flat 3\n"), 0o600))
 	memMust(t, os.MkdirAll(filepath.Join(src, "notes"), 0o700))
@@ -199,7 +199,7 @@ func TestSyncLiveTwoStores(t *testing.T) {
 	syncStore(t)
 	peerCfg := t.TempDir()
 	commit := syncLiveSetup(t, peerCfg)
-	local := filepath.Join(memory.StoreDir(), "notes", "local.md")
+	local := filepath.Join(paths.MemoryStoreDir(), "notes", "local.md")
 	peerNote := filepath.Join(peerCfg, "memory", "notes", "local.md")
 	steps := []struct{ name, a, b string }{
 		{"seed", "", ""}, {"edit on A", "edit A\n", ""}, {"edit both", "A2\n", "B2\n"}, {"no change", "", ""},
@@ -294,7 +294,7 @@ func (ts *twoStores) ssh(_ context.Context, host, script string, in io.Reader, o
 	code := 0
 	ts.asPeer(func() {
 		if script == syncProbeScript {
-			layout, _ := os.ReadFile(filepath.Join(memory.StoreDir(), ".layout"))
+			layout, _ := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), ".layout"))
 			head, digest, _ := strings.Cut(memory.LocalToken(), " ")
 			_, _ = fmt.Fprintf(out, "%s\n%s\n%s\n", strings.TrimSpace(string(layout)), head, digest)
 			return
@@ -356,7 +356,7 @@ func (ts *twoStores) fetch(host string) (string, error) {
 // put writes rel on the local side (peer false) or the peer's.
 func (ts *twoStores) put(peer bool, rel, body string) {
 	write := func() {
-		p := filepath.Join(memory.StoreDir(), filepath.FromSlash(rel))
+		p := filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(rel))
 		memMust(ts.t, os.MkdirAll(filepath.Dir(p), 0o700))
 		memMust(ts.t, os.WriteFile(p, []byte(body), 0o600))
 	}
@@ -369,7 +369,7 @@ func (ts *twoStores) put(peer bool, rel, body string) {
 
 func (ts *twoStores) get(rel string) (local, peer string) {
 	read := func() string {
-		b, _ := os.ReadFile(filepath.Join(memory.StoreDir(), filepath.FromSlash(rel)))
+		b, _ := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(rel)))
 		return string(b)
 	}
 	local = read()
@@ -447,7 +447,7 @@ func TestSyncDryRunWritesNoState(t *testing.T) {
 	runSync([]string{"peer.example"}, true, &out)
 	_, peerX := ts.get("notes/x.md")
 	localY, _ := ts.get("notes/y.md")
-	if _, err := os.Stat(filepath.Join(memory.StateDir(), "sync.json")); err == nil || peerX != "" || localY != "" {
+	if _, err := os.Stat(filepath.Join(paths.MemoryStateDir(), "sync.json")); err == nil || peerX != "" || localY != "" {
 		t.Fatalf("dry run wrote: state err %v, peer x %q, local y %q\n%s", err, peerX, localY, out.String())
 	}
 }
@@ -478,7 +478,7 @@ func TestSyncProbeDigestTracksContent(t *testing.T) {
 		memMust(t, err)
 		return string(b)
 	}
-	note := filepath.Join(memory.StoreDir(), "notes", "local.md")
+	note := filepath.Join(paths.MemoryStoreDir(), "notes", "local.md")
 	memMust(t, os.WriteFile(note, []byte("one\n"), 0o600))
 	a := probe()
 	memMust(t, os.WriteFile(note, []byte("two\n"), 0o600))

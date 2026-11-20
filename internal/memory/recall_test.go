@@ -17,6 +17,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -28,7 +29,7 @@ func searchBanks(query string, k int) []SearchHit {
 
 func writeBank(t *testing.T, rel, body string) {
 	t.Helper()
-	p := filepath.Join(StoreDir(), rel)
+	p := filepath.Join(paths.MemoryStoreDir(), rel)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -424,7 +425,7 @@ func TestPickTierAccessBoost(t *testing.T) {
 // Session-root files age out with their session, but survive while the session's count- file is fresh.
 func TestPruneSeenSessionRoots(t *testing.T) {
 	isolatedConfig(t)
-	state := StateDir()
+	state := paths.MemoryStateDir()
 	old := time.Now().Add(-2 * seenMaxAge)
 	const stale, live = "stale-session", "live-session"
 	for _, name := range []string{"root-" + stale, "root-" + stale + ".lock", "root-" + live, "root-" + live + ".lock", "count-" + stale, "count-" + live} {
@@ -450,7 +451,7 @@ func TestPruneSeenSessionRoots(t *testing.T) {
 // Synthesized agent transcripts age out after seenMaxAge; a fresh one stays.
 func TestPruneSeenAgentTranscripts(t *testing.T) {
 	isolatedConfig(t)
-	dir := filepath.Join(StateDir(), "agent-transcripts")
+	dir := filepath.Join(paths.MemoryStateDir(), "agent-transcripts")
 	oldF, newF := filepath.Join(dir, "old.jsonl"), filepath.Join(dir, "new.jsonl")
 	write(t, oldF, "x")
 	write(t, newF, "x")
@@ -458,7 +459,7 @@ func TestPruneSeenAgentTranscripts(t *testing.T) {
 	if err := os.Chtimes(oldF, old, old); err != nil {
 		t.Fatal(err)
 	}
-	pruneSeen(filepath.Join(StateDir(), "recall-seen"))
+	pruneSeen(filepath.Join(paths.MemoryStateDir(), "recall-seen"))
 	if _, err := os.Stat(oldF); !os.IsNotExist(err) {
 		t.Errorf("8-day-old agent transcript survived the prune: %v", err)
 	}
@@ -474,7 +475,7 @@ func TestResetSeenDropsBlocksFromAnUnreadableFile(t *testing.T) {
 	}
 	tempConfig(t)
 	const sid = "41111111-2222-4333-8444-555555555555"
-	bank := filepath.Join(StoreDir(), "conventions.md")
+	bank := filepath.Join(paths.MemoryStoreDir(), "conventions.md")
 	write(t, bank, "# C\n\n- focus rule shown at start\n")
 	resetSeen(sid, "- focus rule shown at start\n")
 	if len(seenBlocks(sid)) != 1 {
@@ -566,7 +567,7 @@ func TestRecallExpandHeaderOncePerSessionAndNativeLabel(t *testing.T) {
 	recallEnv(t)
 	writeBank(t, "conventions.md", "# C\n\n- Zebra quota limiter fallback convention rule <!-- id:aaaa0005 -->\n\n"+
 		"- Quokka burrow tunnel survey convention rule <!-- id:aaaa0006 -->\n")
-	write(t, filepath.Join(StoreDir(), "notes", "zebra-topic.md"),
+	write(t, filepath.Join(paths.MemoryStoreDir(), "notes", "zebra-topic.md"),
 		"---\nname: zebra-topic\ndescription: zebra quota limiter fallback guidance\n---\nbody\n")
 	const sid = "51111111-2222-4333-8444-555555555555"
 	first := PromptRecall(context.Background(), sid, "zebra quota limiter fallback", io.Discard)

@@ -156,7 +156,7 @@ func writeSynthTranscript(sessionID string, at agentTranscript) (string, error) 
 }
 
 // agentTranscriptDir holds synthesized transcripts; pruneSeen ages them out.
-func agentTranscriptDir() string { return filepath.Join(StateDir(), "agent-transcripts") }
+func agentTranscriptDir() string { return filepath.Join(paths.MemoryStateDir(), "agent-transcripts") }
 
 func synthLine(kind string, block map[string]any) map[string]any {
 	block["type"] = kind

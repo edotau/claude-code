@@ -28,7 +28,7 @@ func TestMemoryRunOptionsNeverFallBack(t *testing.T) {
 func TestMemoryRunOptionsFollowTheJobKind(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	work := t.TempDir()
-	other := filepath.Join(memory.StoreDir(), "other-repo", "progress.md")
+	other := filepath.Join(paths.MemoryStoreDir(), "other-repo", "progress.md")
 	if got := memoryRunOptions(t.Context(), "p", work).Permissions.Decide("Write", other); got == agent.Allow {
 		t.Errorf("update may write another repo's bank")
 	}
@@ -67,7 +67,7 @@ func TestMemoryRunOptionsDenySecretReads(t *testing.T) {
 			t.Errorf("deny %s: parsed %+v, %v; not in %v", s, r, err, p.Deny)
 		}
 	}
-	cd := "cd " + memory.StoreDir() + " && "
+	cd := "cd " + paths.MemoryStoreDir() + " && "
 	for _, f := range []string{cfg + "/state/vault.db", cfg + "/.credentials.json", cfg + "/.env", cfg + "/k.pem"} {
 		for _, cmd := range []string{"cat " + f, cd + "head -1 " + f, "grep x " + f + " | wc -l", cd + "cat $(echo " + f + ")"} {
 			if got := p.Decide("Bash", cmd); got != agent.Deny {
@@ -84,7 +84,7 @@ func TestMemoryRunOptionsDenySecretReads(t *testing.T) {
 func TestMemoryRunOptionsReadOnlyBash(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	p := memoryRunOptions(context.Background(), "p", t.TempDir()).Permissions
-	cd := "cd " + memory.StoreDir() + " && "
+	cd := "cd " + paths.MemoryStoreDir() + " && "
 	for cmd, want := range map[string]agent.Decision{
 		cd + "wc -l claude-code--progress.md && head -n 20 claude-code--progress.md && echo done":           agent.Allow,
 		cd + "head -30 claude-code--sessionHistory.md && echo ---- && head -30 claude-code--decisionLog.md": agent.Allow,
@@ -93,9 +93,9 @@ func TestMemoryRunOptionsReadOnlyBash(t *testing.T) {
 		"echo x > /tmp/f": agent.Deny,
 		cd + "cat claude-code--progress.md > /tmp/out":             agent.Deny,
 		cd + "git add claude-code--progress.md && git commit -m x": agent.Deny,
-		"git commit -m x":                      agent.Deny,
-		"echo ok; rm -rf " + memory.StoreDir(): agent.Deny,
-		"echo $(git commit -m x)":              agent.Deny,
+		"git commit -m x": agent.Deny,
+		"echo ok; rm -rf " + paths.MemoryStoreDir(): agent.Deny,
+		"echo $(git commit -m x)":                   agent.Deny,
 	} {
 		if got := p.Decide("Bash", cmd); got != want {
 			t.Errorf("Decide(Bash, %q) = %v, want %v", cmd, got, want)
@@ -124,7 +124,7 @@ func TestAskAttachesRecallOnce(t *testing.T) {
 	for i := range 3 {
 		fmt.Fprintf(&b, "- deploy pipeline staging signoff rule %d <!-- id:%08x -->\n", i, i+1)
 	}
-	bank := filepath.Join(memory.StoreDir(), "conventions.md")
+	bank := filepath.Join(paths.MemoryStoreDir(), "conventions.md")
 	if err := os.MkdirAll(filepath.Dir(bank), 0o755); err != nil {
 		t.Fatal(err)
 	}

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"errors"
+	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -56,7 +57,7 @@ func TestSandboxEmpty(t *testing.T) {
 
 func TestSandboxRefusesUnstampedStore(t *testing.T) {
 	tempConfig(t)
-	write(t, filepath.Join(StoreDir(), "alpha", "progress.md"), "x\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), "alpha", "progress.md"), "x\n")
 	if _, err := Sandbox(SandboxOptions{Empty: true}); !errors.Is(err, errStoreNotFlat) {
 		t.Fatalf("Sandbox on a per-repo store = %v, want errStoreNotFlat", err)
 	}
@@ -66,7 +67,7 @@ func TestSandboxCopiesTheOneBankAndWritesNoOrigins(t *testing.T) {
 	tempConfig(t)
 	rels := []string{"progress.md", "topic.md", "reports--r.md", "reports--bundle--sub--review.md", "waves--plan--state.json"}
 	for _, rel := range rels {
-		write(t, filepath.Join(StoreDir(), rel), "x")
+		write(t, filepath.Join(paths.MemoryStoreDir(), rel), "x")
 	}
 	res, err := Sandbox(SandboxOptions{})
 	if err != nil {
@@ -93,7 +94,7 @@ func TestSandboxLeavesSourceUnstamped(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(res.Dir) })
-	if statOK(filepath.Join(StoreDir(), layoutFile)) {
+	if statOK(filepath.Join(paths.MemoryStoreDir(), layoutFile)) {
 		t.Error("Sandbox stamped the source store")
 	}
 	if !statOK(Path("progress.md")) { // a copy, not a move

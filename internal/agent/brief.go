@@ -15,7 +15,7 @@ import (
 	"text/template"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // BriefInput supplies the authored task and the leaf's execution contract.
@@ -67,7 +67,7 @@ func RenderBrief(input BriefInput) (string, error) {
 	data := struct {
 		BriefInput
 		OwnedLine, ReportsDir string
-	}{input, string(owned), memory.SubDir("reports")}
+	}{input, string(owned), paths.MemorySubDir("reports")}
 	if err := tmpl.Execute(&out, data); err != nil {
 		return "", fmt.Errorf("render brief: %w", err)
 	}

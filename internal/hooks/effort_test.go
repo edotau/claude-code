@@ -13,14 +13,14 @@ import (
 	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/agentconfig"
 	_ "github.com/edotau/claude-code/internal/claude" // registers the claude row an unsigned agent's pick falls through to
 	_ "github.com/edotau/claude-code/internal/codex"
 	_ "github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -153,7 +153,7 @@ func TestAgentEffortPreservesAllInputKeys(t *testing.T) {
 // seedHomeRecallBlock writes n id-marked home-bank blocks repeating the query terms so BM25 scores them close.
 func seedHomeRecallBlock(t *testing.T, n int) {
 	t.Helper()
-	if err := os.MkdirAll(memory.StoreDir(), 0o755); err != nil {
+	if err := os.MkdirAll(paths.MemoryStoreDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	var b strings.Builder
@@ -161,7 +161,7 @@ func seedHomeRecallBlock(t *testing.T, n int) {
 	for i := range n {
 		fmt.Fprintf(&b, "- deploy pipeline staging signoff rule %d %s<!-- id:%08x -->\n", i, strings.Repeat("padding ", 40), i+1)
 	}
-	if err := os.WriteFile(filepath.Join(memory.StoreDir(), "conventions.md"), []byte(b.String()), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(paths.MemoryStoreDir(), "conventions.md"), []byte(b.String()), 0o600); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -541,7 +541,7 @@ func TestAgentEffortReadsRosterAndRegistryOnce(t *testing.T) {
 func TestDispatchPreflightRefusesUnservedModel(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
-	t.Setenv(agentconfig.OverlayVar, "")
+	t.Setenv(route.OverlayVar, "")
 	t.Setenv(router.EnvFallback, "")
 	stubLabelModels(t, "")
 	cases := []struct {

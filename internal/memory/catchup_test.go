@@ -160,7 +160,7 @@ func TestTranscriptInteractiveAdversarial(t *testing.T) {
 // Row 5: a sweep error names the live `memory update --catchup` verb, not the deleted `memory catchup`.
 func TestCatchUpSweepErrorNamesLiveVerb(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	write(t, StateDir(), "a file where the state dir should be")
+	write(t, paths.MemoryStateDir(), "a file where the state dir should be")
 	var errOut bytes.Buffer
 	if rc := CatchUpSweep(SweepOptions{Stdout: io.Discard, Stderr: &errOut}); rc != 1 {
 		t.Fatalf("exit = %d, want 1", rc)

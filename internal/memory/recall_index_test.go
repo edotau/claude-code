@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -27,20 +28,20 @@ func newRecallIndexFixture(t testing.TB) recallIndexFixture {
 	f := recallIndexFixture{
 		root:    root,
 		source:  Path("decisionLog.md"),
-		archive: Sub("archive", "sessionHistory-old.md"),
+		archive: paths.MemorySub("archive", "sessionHistory-old.md"),
 		key:     encoderKey(),
 	}
 	files := map[string]string{
 		f.source: "# Decisions\n\n## router retry\nrouter retry latency\n" +
 			"```\n## fenced marker\n- fenced marker\n```\n\n## the and of\nwith the and\n",
-		Path("conventions.md"):                      "# Conventions\n\n- commit small\nreview focused changes\n",
-		filepath.Join(StoreDir(), "conventions.md"): "# Global\n\n- router retry\nbounded latency\n",
+		Path("conventions.md"): "# Conventions\n\n- commit small\nreview focused changes\n",
+		filepath.Join(paths.MemoryStoreDir(), "conventions.md"): "# Global\n\n- router retry\nbounded latency\n",
 		f.archive: "# Archive\n\n## archive storm\nrouter retry during outage\n",
 		Path("recall.md"): "---\nname: native recall\n" +
 			"description: router context\n---\nNative recall preserves retry details.\n",
 		Path("bank-topic.md"): "---\nname: excludedbanktoken\n" +
 			"description: excludedbanktoken\nharness_kind: bank\n---\nexcludedbanktoken\n",
-		filepath.Join(SubDir("knowledge"), "invariant.md"): "---\nname: strippedmetadata\n---\n" +
+		filepath.Join(paths.MemorySubDir("knowledge"), "invariant.md"): "---\nname: strippedmetadata\n---\n" +
 			"# knowledge invariant\nRouter retry requires bounded latency.\n",
 	}
 	for path, body := range files {
@@ -64,7 +65,7 @@ func (f recallIndexFixture) search(t testing.TB, query string) []SearchHit {
 
 func (f recallIndexFixture) index(t testing.TB) map[fileKey]indexed {
 	t.Helper()
-	index := readRecallIndex(filepath.Join(StateDir(), recallIndexFile), f.key, nil)
+	index := readRecallIndex(filepath.Join(paths.MemoryStateDir(), recallIndexFile), f.key, nil)
 	if len(index) == 0 {
 		t.Fatal("no persisted index entries for the current encoder key")
 	}
@@ -100,7 +101,7 @@ func assertPersistedRecallFile(t testing.TB, file corpusFile, index map[fileKey]
 
 func TestRecallIndexWarmEqualsCold(t *testing.T) {
 	f := newRecallIndexFixture(t)
-	path := filepath.Join(StateDir(), recallIndexFile)
+	path := filepath.Join(paths.MemoryStateDir(), recallIndexFile)
 	queries := []string{"router", "router router retry", "commit small", "fenced marker",
 		"native recall", "knowledge invariant", "archive storm", "the and of", "excludedbanktoken"}
 	for _, query := range queries {
@@ -180,7 +181,7 @@ func TestRecallIndexKeyMismatchIgnored(t *testing.T) {
 		index[key] = entry
 	}
 	wrong := f.key + 1
-	path := filepath.Join(StateDir(), recallIndexFile)
+	path := filepath.Join(paths.MemoryStateDir(), recallIndexFile)
 	if err := writeRecallIndex(path, wrong, index); err != nil {
 		t.Fatal(err)
 	}
@@ -201,7 +202,7 @@ func TestRecallIndexCorruptFailsOpen(t *testing.T) {
 	f := newRecallIndexFixture(t)
 	f.search(t, "router retry")
 	f.persisted(t)
-	path := filepath.Join(StateDir(), recallIndexFile)
+	path := filepath.Join(paths.MemoryStateDir(), recallIndexFile)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
@@ -249,7 +250,7 @@ func TestRecallIndexTornWriteIsAMiss(t *testing.T) {
 	f := newRecallIndexFixture(t)
 	f.search(t, "router retry")
 	f.persisted(t)
-	path := filepath.Join(StateDir(), recallIndexFile)
+	path := filepath.Join(paths.MemoryStateDir(), recallIndexFile)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)

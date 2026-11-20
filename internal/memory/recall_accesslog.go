@@ -319,12 +319,12 @@ func logShown(id, reason string, now time.Time) {
 	if id == "" {
 		return
 	}
-	logAccessBatch(accessDir(), now, []string{id}, reason, os.Getenv(SessionIDEnv))
+	logAccessBatch(accessDir(), now, []string{id}, reason, os.Getenv(paths.SessionIDEnv))
 }
 
 // accessDir is the access-log key dir, named by stateKey so a repo keyed "home" never shares home.log.
 func accessDir() string {
-	return filepath.Join(StoreDir(), stateKey())
+	return filepath.Join(paths.MemoryStoreDir(), stateKey())
 }
 
 // AccessLogPath puts store traces in state/harness/memory/access, otherwise beside the bank.

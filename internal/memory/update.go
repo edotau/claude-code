@@ -92,7 +92,7 @@ type UpdateResult struct {
 }
 
 func resultPath(sessionID string) string {
-	return filepath.Join(StateDir(), "update-result-"+filepath.Base(sessionID))
+	return filepath.Join(paths.MemoryStateDir(), "update-result-"+filepath.Base(sessionID))
 }
 
 // writeUpdateResult persists r for sessionID; a blank id (manual run) records nothing.
@@ -600,15 +600,15 @@ func parseTagLine(ln string) (tag, bool) {
 
 // handoffMarker is the per-session file the context steward leaves for its update worker; it holds the handoff path.
 func handoffMarker(sessionID string) string {
-	return filepath.Join(StateDir(), "handoff-"+filepath.Base(sessionID))
+	return filepath.Join(paths.MemoryStateDir(), "handoff-"+filepath.Base(sessionID))
 }
 
 // handoffRunMarker stands in for the pending marker while the worker writes the handoff.
 func handoffRunMarker(sessionID string) string {
-	return filepath.Join(StateDir(), "handoff-run-"+filepath.Base(sessionID))
+	return filepath.Join(paths.MemoryStateDir(), "handoff-run-"+filepath.Base(sessionID))
 }
 
 // stewardHandoffPath is the one path the steward's handoff for this session is written to.
 func stewardHandoffPath(sessionID string, now time.Time) string {
-	return Sub("handoffs", now.Format("2006-01-02")+"-session-"+compactID(sessionID)+".md")
+	return paths.MemorySub("handoffs", now.Format("2006-01-02")+"-session-"+compactID(sessionID)+".md")
 }

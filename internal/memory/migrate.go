@@ -75,7 +75,7 @@ func migrate(o MigrateOptions) error {
 	if out == nil {
 		out = io.Discard
 	}
-	dir := StoreDir()
+	dir := paths.MemoryStoreDir()
 	stampRaw, _ := os.ReadFile(filepath.Join(dir, migLayoutName))
 	stamp := strings.TrimSpace(string(stampRaw))
 	if stamp == layoutFlat && !migHasPrefixed(dir) {

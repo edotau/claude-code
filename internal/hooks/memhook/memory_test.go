@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/memtest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
@@ -34,7 +35,7 @@ func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
 	worktree.StubProcessScanForTest()
 	tb := &hosttest.MainTB{}
-	memory.StubSpawn(tb, true)
+	memtest.StubSpawn(tb, true)
 	orig := spawnServed
 	spawnServed = func(string) bool { return true }
 	code := m.Run()
@@ -112,10 +113,10 @@ func TestSessionStartClaimsServedRefreshOncePerRetryWindow(t *testing.T) {
 func resumeSession(t *testing.T) (cwd, fresh string) {
 	t.Helper()
 	vaulttest.Use(t)
-	memory.StubSpawn(t, true)
+	memtest.StubSpawn(t, true)
 	swap(t, &stewardWait, 50*time.Millisecond)
 	cwd = t.TempDir()
-	dir := memory.SubDir("handoffs")
+	dir := paths.MemorySubDir("handoffs")
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -130,10 +131,10 @@ func resumeSession(t *testing.T) (cwd, fresh string) {
 	if err := os.Chtimes(stale, old, old); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(memory.StateDir(), 0o700); err != nil {
+	if err := os.MkdirAll(paths.MemoryStateDir(), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(memory.StateDir(), "handoff-s1.done"), []byte("s1\n"+fresh+"\nrequest"), 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(paths.MemoryStateDir(), "handoff-s1.done"), []byte("s1\n"+fresh+"\nrequest"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return cwd, fresh
@@ -253,10 +254,10 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 		"activeContext.md": "# Active\n\n## Current Focus\n\n- alpha bravo charlie delta already in context\n",
 		"conventions.md":   "# C\n\n- alpha bravo charlie delta echo fresh\n- echo only one shared term\n",
 	} {
-		if err := os.MkdirAll(memory.StoreDir(), 0o755); err != nil {
+		if err := os.MkdirAll(paths.MemoryStoreDir(), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(memory.StoreDir(), name), []byte(body), 0o600); err != nil {
+		if err := os.WriteFile(filepath.Join(paths.MemoryStoreDir(), name), []byte(body), 0o600); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -281,7 +282,7 @@ func TestMemoryRecallSkipsWhatIsInContext(t *testing.T) {
 
 func writeBank(t *testing.T, rel, body string) {
 	t.Helper()
-	p := filepath.Join(memory.StoreDir(), rel)
+	p := filepath.Join(paths.MemoryStoreDir(), rel)
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -367,13 +368,13 @@ func hookSession(t *testing.T) (tr string, payload func() *core.Input) {
 func TestFailedWorkerSpawnProceedsWithNote(t *testing.T) {
 	tr, payload := hookSession(t)
 	hosttest.WriteEdits(t, tr, 5)
-	memory.StubSpawn(t, false)
+	memtest.StubSpawn(t, false)
 	for i := range 3 {
 		if r := Stop(payload()); r.Decision == core.Block || r.SystemMessage != updateNotSaved {
 			t.Fatalf("Stop %d = %+v, want proceed with %q", i, r, updateNotSaved)
 		}
 	}
-	spawns := memory.StubSpawn(t, true)
+	spawns := memtest.StubSpawn(t, true)
 	End(payload())
 	if got := spawns.Update.Load(); got != 1 {
 		t.Fatalf("SessionEnd dispatched %d updates after failed Stops, want 1", got)
@@ -385,7 +386,7 @@ func TestEndAndCompactDispatchOnce(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			tr, payload := hookSession(t)
 			hosttest.WriteEdits(t, tr, 3)
-			spawns := memory.StubSpawn(t, true)
+			spawns := memtest.StubSpawn(t, true)
 			swap(t, &stewardWait, 50*time.Millisecond)
 			for range 2 {
 				if r := hook(payload()); !reflect.DeepEqual(r, core.Result{}) {
@@ -419,13 +420,13 @@ func TestUpdateAppendsWorktreeLedger(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	spawns := memory.StubSpawn(t, true)
+	spawns := memtest.StubSpawn(t, true)
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	hosttest.WriteEdits(t, tr, 3)
 	if res := Stop(core.ParseInput(strings.NewReader(updatePayload(tr, dest)))); res.Decision == core.Block || spawns.Update.Load() != 1 {
 		t.Fatalf("update = %+v, spawns=%d; want not blocked and one background worker", res, spawns.Update.Load())
 	}
-	data, err := os.ReadFile(memory.Sub("worktrees", time.Now().Format("2006-01-02")+"-wt-h.md"))
+	data, err := os.ReadFile(paths.MemorySub("worktrees", time.Now().Format("2006-01-02")+"-wt-h.md"))
 	if err != nil || !strings.Contains(string(data), "update (") || !strings.Contains(string(data), "3 edits, session s1") {
 		t.Fatalf("no update line in ledger: %v\n%s", err, data)
 	}
@@ -435,7 +436,7 @@ func TestStopBelowUpdateThresholdRefreshesOnce(t *testing.T) {
 	tr, payload := hookSession(t)
 	hosttest.WriteEdits(t, tr, 1)
 	writeBank(t, "conventions.md", "# Conventions\n\n- Keep recall fresh.\n")
-	spawns := memory.StubSpawn(t, true)
+	spawns := memtest.StubSpawn(t, true)
 	for range 2 {
 		Stop(payload())
 	}

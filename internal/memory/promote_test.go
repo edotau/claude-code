@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"path/filepath"
 	"strings"
@@ -36,7 +37,7 @@ func TestPromoteJudgmentTargetsPrintOnly(t *testing.T) {
 		t.Fatalf("Reference(\"promote\"): %v", err)
 	}
 	id, localPath, before := judgmentFixture(t)
-	homePath := filepath.Join(StoreDir(), "conventions.md")
+	homePath := filepath.Join(paths.MemoryStoreDir(), "conventions.md")
 	_, homeErrBefore := os.Stat(homePath)
 	for _, to := range []string{"rules", "skill"} {
 		out, err := Promote(id, to)

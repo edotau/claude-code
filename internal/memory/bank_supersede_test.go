@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"github.com/edotau/claude-code/internal/paths"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -166,7 +167,7 @@ func TestSettleRecoversPendingJournal(t *testing.T) {
 	path := Path("decisionLog.md")
 	write(t, path, reviseLog)
 	recovered := reviseLog + "\n## Recovered <!-- id:f0000006 -->\nRecovered journal payload.\n"
-	rel, err := filepath.Rel(StoreDir(), path)
+	rel, err := filepath.Rel(paths.MemoryStoreDir(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -256,8 +257,8 @@ func assertReviseChain(t *testing.T, mode string) {
 func TestReviseResolvesRefsOfLoadedArchives(t *testing.T) {
 	tempConfig(t)
 	write(t, Path("decisionLog.md"), "# Decision Log\n\n## 2026-11-16 — Live <!-- id:a1000001 -->\nSupersedes b2000002. Live.\n")
-	write(t, Sub("archive", "decisionLog-2026-11.md"), "## 2026-11-10 — Mid <!-- id:b2000002 -->\nSupersedes c3000003. Mid.\n")
-	write(t, Sub("archive", "decisionLog-2026-10.md"), "## 2026-10-01 — Old <!-- id:c3000003 -->\nOld.\n")
+	write(t, paths.MemorySub("archive", "decisionLog-2026-11.md"), "## 2026-11-10 — Mid <!-- id:b2000002 -->\nSupersedes c3000003. Mid.\n")
+	write(t, paths.MemorySub("archive", "decisionLog-2026-10.md"), "## 2026-10-01 — Old <!-- id:c3000003 -->\nOld.\n")
 	if p := reviseBankProblems(); strings.Contains(strings.Join(p, "\n"), "unknown id") {
 		t.Fatalf("review problems = %q; want no unknown id", p)
 	}

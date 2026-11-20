@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 // xword is a fixed-width filler token so first-line/continuation capacity is hand-computable.
@@ -346,7 +347,7 @@ func bankFmtRepoStore(t *testing.T) (globalDir string) {
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	return StoreDir()
+	return paths.MemoryStoreDir()
 }
 
 func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.T) {
@@ -354,11 +355,11 @@ func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.
 	for _, name := range bankFiles {
 		write(t, Path(name), "# "+name+"\nbody\n")
 	}
-	write(t, Sub("archive", "sessionHistory-2026-01.md"), "# archived\nbody\n")
-	write(t, Sub("handoffs", "2026-01-01-x.md"), "# handoff\nbody\n")
-	write(t, Sub("reports", "review.md"), "# report\nbody\n")
-	write(t, filepath.Join(StoreDir(), nativeIndexFile), "native MEMORY.md\n")
-	write(t, filepath.Join(StoreDir(), catalogFile), "catalog\n")
+	write(t, paths.MemorySub("archive", "sessionHistory-2026-01.md"), "# archived\nbody\n")
+	write(t, paths.MemorySub("handoffs", "2026-01-01-x.md"), "# handoff\nbody\n")
+	write(t, paths.MemorySub("reports", "review.md"), "# report\nbody\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), nativeIndexFile), "native MEMORY.md\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), catalogFile), "catalog\n")
 	write(t, filepath.Join(global, "decisionLog.md"), "# decisionLog\nbody\n")
 
 	files, err := bankFmtTargets()
@@ -366,16 +367,16 @@ func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.
 		t.Fatal(err)
 	}
 	want := map[string]bool{
-		Path("projectContext.md"):                   true,
-		Path("activeContext.md"):                    true,
-		Path("progress.md"):                         true,
-		Path("decisionLog.md"):                      true,
-		Path("conventions.md"):                      true,
-		Path("sessionHistory.md"):                   true,
-		Sub("archive", "sessionHistory-2026-01.md"): true,
-		Sub("handoffs", "2026-01-01-x.md"):          true,
-		Sub("reports", "review.md"):                 true,
-		filepath.Join(global, "decisionLog.md"):     true,
+		Path("projectContext.md"):                               true,
+		Path("activeContext.md"):                                true,
+		Path("progress.md"):                                     true,
+		Path("decisionLog.md"):                                  true,
+		Path("conventions.md"):                                  true,
+		Path("sessionHistory.md"):                               true,
+		paths.MemorySub("archive", "sessionHistory-2026-01.md"): true,
+		paths.MemorySub("handoffs", "2026-01-01-x.md"):          true,
+		paths.MemorySub("reports", "review.md"):                 true,
+		filepath.Join(global, "decisionLog.md"):                 true,
 	}
 	got := map[string]bool{}
 	for _, f := range files {
@@ -386,7 +387,7 @@ func TestBankFmtTargetsCoversSixFilesPlusColdTiersNeverMemoryOrIndex(t *testing.
 			t.Errorf("bankFmtTargets missing %s", f)
 		}
 	}
-	for _, never := range []string{filepath.Join(StoreDir(), nativeIndexFile), filepath.Join(StoreDir(), catalogFile)} {
+	for _, never := range []string{filepath.Join(paths.MemoryStoreDir(), nativeIndexFile), filepath.Join(paths.MemoryStoreDir(), catalogFile)} {
 		if got[never] {
 			t.Errorf("bankFmtTargets included %s, want never", never)
 		}
@@ -491,8 +492,8 @@ func TestFormatBankNativeAndCatalogUntouched(t *testing.T) {
 	typed := filepath.Join(global, "decisionLog.md")
 	write(t, typed, "# decisionLog\n\n"+longLine+"\n")
 	untouched := map[string]string{
-		filepath.Join(global, nativeIndexFile): "native MEMORY.md\n" + longLine + "\n",
-		filepath.Join(StoreDir(), catalogFile): "catalog\n" + longLine + "\n",
+		filepath.Join(global, nativeIndexFile):             "native MEMORY.md\n" + longLine + "\n",
+		filepath.Join(paths.MemoryStoreDir(), catalogFile): "catalog\n" + longLine + "\n",
 	}
 	for p, body := range untouched {
 		write(t, p, body)
@@ -542,7 +543,7 @@ func fmtDiscoveryFailure(t *testing.T, sub string) error {
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	t.Helper()
 	if sub == "stat" {
-		file := filepath.Join(StoreDir(), "decisionLog.md")
+		file := filepath.Join(paths.MemoryStoreDir(), "decisionLog.md")
 		if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
 			t.Fatal(err)
 		}
@@ -551,7 +552,7 @@ func fmtDiscoveryFailure(t *testing.T, sub string) error {
 		}
 		return syscall.ELOOP
 	}
-	dir := filepath.Join(StoreDir(), sub)
+	dir := filepath.Join(paths.MemoryStoreDir(), sub)
 	write(t, filepath.Join(dir, "decisionLog.md"), "## Hidden\nbody\n")
 	denyBankAccess(t, dir)
 	return fs.ErrPermission

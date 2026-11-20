@@ -19,6 +19,7 @@ import (
 	"unsafe"
 
 	"github.com/edotau/claude-code/internal/parallel"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
 )
@@ -48,7 +49,7 @@ func corpusOf() []corpusFile {
 	for _, path := range topicFiles() {
 		out = append(out, corpusFile{"native", path, segNative})
 	}
-	for _, path := range searchTopicFiles(SubDir(techdebtDir)) {
+	for _, path := range searchTopicFiles(paths.MemorySubDir(techdebtDir)) {
 		out = append(out, corpusFile{techdebtDir, path, segNative})
 	}
 	for _, path := range knowledgeNotes() {
@@ -58,16 +59,16 @@ func corpusOf() []corpusFile {
 }
 
 // ownedFiles lists the *.md in the store folder sub; sub "" is the top-level files.
-func ownedFiles(sub string) []string { return transcript.GlobIn(SubDir(sub), "*.md") }
+func ownedFiles(sub string) []string { return transcript.GlobIn(paths.MemorySubDir(sub), "*.md") }
 
 // topicFiles are the native topics: top-level non-typed notes plus the feedback/ and notes/ folders.
 func topicFiles() []string {
-	files := searchTopicFiles(StoreDir())
+	files := searchTopicFiles(paths.MemoryStoreDir())
 	for _, d := range noteDirs {
 		if d == techdebtDir {
 			continue
 		}
-		files = append(files, searchTopicFiles(SubDir(d))...)
+		files = append(files, searchTopicFiles(paths.MemorySubDir(d))...)
 	}
 	return files
 }

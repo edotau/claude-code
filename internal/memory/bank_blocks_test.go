@@ -2,6 +2,7 @@ package memory
 
 import (
 	"errors"
+	"github.com/edotau/claude-code/internal/paths"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -180,7 +181,7 @@ func TestBlockIDsPersistAcrossEditsAndArchive(t *testing.T) {
 			t.Errorf("show after a title edit = %q, %v", block, err)
 		}
 		moved, _ := os.ReadFile(log)
-		archive := Sub("archive", "decisionLog-2026-10.md")
+		archive := paths.MemorySub("archive", "decisionLog-2026-10.md")
 		write(t, archive, string(moved))
 		write(t, log, "# Decision Log\n")
 		assertShownFromArchive(t, id, archive)
@@ -362,7 +363,7 @@ func TestAssignIDsIgnoresFencedMarkers(t *testing.T) {
 // Content refs of native topics and knowledge notes (indexed whole) expand through ShowBlock.
 func TestShowBlockExpandsNativeAndKnowledgeRefs(t *testing.T) {
 	isolatedConfig1(t)
-	note := Sub("knowledge", "wires.md")
+	note := paths.MemorySub("knowledge", "wires.md")
 	write(t, note, "---\ndescription: d\n---\n# Wires\nknowledge body zebra\n")
 	hits, err := corpusBlocks()
 	if err != nil {
@@ -399,10 +400,10 @@ func TestLogicalNameMatchesTypedStemExactlyOrArchive(t *testing.T) {
 
 func TestShowBlockKeepsMatchBeforeUnreadableDirectory(t *testing.T) {
 	isolatedConfig1(t)
-	path := filepath.Join(StoreDir(), "a-match", "decisionLog.md")
+	path := filepath.Join(paths.MemoryStoreDir(), "a-match", "decisionLog.md")
 	block := "## Found <!-- id:abcd1234 -->\nmatched body"
 	write(t, path, block+"\n")
-	unreadable := filepath.Join(StoreDir(), "z-unreadable")
+	unreadable := filepath.Join(paths.MemoryStoreDir(), "z-unreadable")
 	write(t, filepath.Join(unreadable, "decisionLog.md"), "## Hidden\nother body\n")
 	denyBankAccess(t, unreadable)
 	if _, err := os.ReadDir(unreadable); !errors.Is(err, fs.ErrPermission) {
@@ -425,7 +426,7 @@ func TestShowBlockSkipsLaterBlockQuotingMarker(t *testing.T) {
 	isolatedConfig1(t)
 	owner := "## Owner <!-- id:abcd1234 -->\nowner body"
 	quote := "## Later <!-- id:bbbbbbbb -->\n```\n<!-- id:abcd1234 -->\n```"
-	write(t, filepath.Join(StoreDir(), "decisionLog.md"), owner+"\n\n"+quote+"\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), "decisionLog.md"), owner+"\n\n"+quote+"\n")
 	if _, got, err := ShowBlock("abcd1234"); err != nil || !strings.Contains(got, "owner body") {
 		t.Fatalf("ShowBlock = %q, %v; want the owning block", got, err)
 	}
@@ -435,7 +436,7 @@ func TestShowBlockReturnsWalkErrors(t *testing.T) {
 	for _, sub := range []string{"", "unreadable"} {
 		t.Run(sub, func(t *testing.T) {
 			isolatedConfig1(t)
-			dir := filepath.Join(StoreDir(), sub)
+			dir := filepath.Join(paths.MemoryStoreDir(), sub)
 			write(t, filepath.Join(dir, "decisionLog.md"), "## Hidden <!-- id:deadbeef -->\nbody\n")
 			denyBankAccess(t, dir)
 			_, _, err := ShowBlock("deadbeef")

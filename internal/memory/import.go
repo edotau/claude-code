@@ -299,11 +299,11 @@ func (p *importPlan) importFile(root *os.Root, rel string) {
 		return
 	}
 	if idFiles[rel] != "" {
-		data = unarchived(StoreDir(), rel, data)
+		data = unarchived(paths.MemoryStoreDir(), rel, data)
 	}
-	dst := filepath.Join(StoreDir(), filepath.FromSlash(rel))
-	if f := NoteFolder(rel); f != "" && !strings.Contains(rel, "/") && !statOK(dst) && statOK(Sub(f, rel)) {
-		dst = Sub(f, rel) // settle already filed the loose note, so compare against it
+	dst := filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(rel))
+	if f := NoteFolder(rel); f != "" && !strings.Contains(rel, "/") && !statOK(dst) && statOK(paths.MemorySub(f, rel)) {
+		dst = paths.MemorySub(f, rel) // settle already filed the loose note, so compare against it
 	}
 	cur, err := os.ReadFile(dst)
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
@@ -311,7 +311,7 @@ func (p *importPlan) importFile(root *os.Root, rel string) {
 		return
 	}
 	a := decideImport(rel, cur, data, err == nil, p.replace[rel])
-	if err == nil && dst == filepath.Join(StoreDir(), filepath.FromSlash(rel)) {
+	if err == nil && dst == filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(rel)) {
 		a.pre = sha256Hex(cur) // else rel itself was absent at the plan
 	}
 	p.record(rel, a)
@@ -605,7 +605,7 @@ func storeTarName(rel string) bool {
 
 // WriteStoreTar writes the named store files, plus .layout, as a tar ExtractStoreTar reads; skipped names are dropped.
 func WriteStoreTar(w io.Writer, rels []string) error {
-	root, err := os.OpenRoot(StoreDir())
+	root, err := os.OpenRoot(paths.MemoryStoreDir())
 	if err != nil {
 		return err
 	}

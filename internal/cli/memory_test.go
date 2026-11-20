@@ -141,7 +141,7 @@ func TestMemoryInitAndIndexOutput(t *testing.T) {
 		t.Errorf("memory index output still names the pre-rename global tier: %q", out)
 	}
 
-	hosttest.WriteRel(t, memory.StoreDir(), "conventions.md", "# C\n\n- a rule\n")
+	hosttest.WriteRel(t, paths.MemoryStoreDir(), "conventions.md", "# C\n\n- a rule\n")
 	catalog, err := memory.BuildCatalog(time.Now())
 	if err != nil {
 		t.Fatal(err)
@@ -154,9 +154,9 @@ func TestMemoryInitAndIndexOutput(t *testing.T) {
 // --check reports the over-width file without writing it; the default pass wraps it; the hint lists fmt.
 func TestCmdMemoryFmtRejectsCheckWithOwn(t *testing.T) {
 	memCfg(t)
-	target := filepath.Join(memory.StoreDir(), "decisionLog.md")
+	target := filepath.Join(paths.MemoryStoreDir(), "decisionLog.md")
 	longLine := "- " + strings.Repeat("xxxxxxxxxx ", 14) + "xxxxxxxxxx"
-	hosttest.WriteRel(t, memory.StoreDir(), "decisionLog.md", "# decisionLog\n\n"+longLine+"\n")
+	hosttest.WriteRel(t, paths.MemoryStoreDir(), "decisionLog.md", "# decisionLog\n\n"+longLine+"\n")
 	if code, _, _ := hosttest.CaptureOutput(t, func() int { return cmdMemoryFmt([]string{"--check", "--own"}) }); code != 2 {
 		t.Fatalf("--check --own: code=%d, want 2", code)
 	}
@@ -167,9 +167,9 @@ func TestCmdMemoryFmtRejectsCheckWithOwn(t *testing.T) {
 
 func TestCmdMemoryFmt(t *testing.T) {
 	memCfg(t)
-	target := filepath.Join(memory.StoreDir(), "decisionLog.md")
+	target := filepath.Join(paths.MemoryStoreDir(), "decisionLog.md")
 	longLine := "- " + strings.Repeat("xxxxxxxxxx ", 14) + "xxxxxxxxxx"
-	hosttest.WriteRel(t, memory.StoreDir(), "decisionLog.md", "# decisionLog\n\n"+longLine+"\n")
+	hosttest.WriteRel(t, paths.MemoryStoreDir(), "decisionLog.md", "# decisionLog\n\n"+longLine+"\n")
 
 	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdMemoryFmt([]string{"--check"}) })
 	if code != 1 || !strings.Contains(out, target) {
@@ -222,7 +222,7 @@ func overCapDecisions(t *testing.T, repo string) {
 	for i := 80; i >= 1; i-- {
 		fmt.Fprintf(&b, "\n## decision %02d\n\nrationale topic%d choice%d\n", i, i, i)
 	}
-	hosttest.WriteRel(t, memory.SubDir(""), "decisionLog.md", b.String())
+	hosttest.WriteRel(t, paths.MemorySubDir(""), "decisionLog.md", b.String())
 }
 
 // checkReviewCandidates requires the review procedure to print after the stats block.
@@ -305,12 +305,12 @@ func dirChecksum(dir string) string {
 func TestMemoryDreamDryRunWritesNothing(t *testing.T) {
 	memCfg(t)
 	repo := memoryBankRepo(t)
-	before := dirChecksum(memory.SubDir(""))
+	before := dirChecksum(paths.MemorySubDir(""))
 	out := memCLIOK(t, "dream", "--cwd", repo, "--dry-run")
-	if !strings.Contains(out, "bank: "+memory.SubDir("")) {
+	if !strings.Contains(out, "bank: "+paths.MemorySubDir("")) {
 		t.Errorf("output missing the preview's bank line: %q", out)
 	}
-	if after := dirChecksum(memory.SubDir("")); before != after {
+	if after := dirChecksum(paths.MemorySubDir("")); before != after {
 		t.Errorf("--dry-run changed the bank directory: before=%s after=%s", before, after)
 	}
 }
@@ -322,7 +322,7 @@ func TestMemoryDreamDefaultsToCwd(t *testing.T) {
 	memInit(t)
 	t.Chdir(repo)
 	code, out, stderr := hosttest.CaptureOutput(t, func() int { return cmdMemoryDream([]string{"--dry-run"}) })
-	if code != 0 || !strings.Contains(out, "bank: "+memory.SubDir("")) {
+	if code != 0 || !strings.Contains(out, "bank: "+paths.MemorySubDir("")) {
 		t.Errorf("memory dream --dry-run in %s: code=%d out=%q stderr=%q, want its bank", repo, code, out, stderr)
 	}
 }
@@ -370,12 +370,12 @@ func TestMemoryUpdateLiveSession(t *testing.T) {
 	dir := t.TempDir()
 	tr := filepath.Join(cfg, "projects", paths.ProjectSlug(dir), "live-1.jsonl")
 	hosttest.WriteRel(t, filepath.Dir(tr), filepath.Base(tr), "{}\n")
-	t.Setenv(memory.SessionIDEnv, "live-1")
+	t.Setenv(paths.SessionIDEnv, "live-1")
 	code, out, _ := hosttest.CaptureOutput(t, func() int { return cmdMemoryUpdate([]string{"--dry-run", "--cwd", dir}) })
 	if code != 0 || !strings.Contains(out, tr) {
 		t.Errorf("live session: code=%d out=%q, want the transcript %s", code, out, tr)
 	}
-	t.Setenv(memory.SessionIDEnv, "")
+	t.Setenv(paths.SessionIDEnv, "")
 	code, out, _ = hosttest.CaptureOutput(t, func() int { return cmdMemoryUpdate([]string{"--dry-run", "--cwd", dir}) })
 	if code != 0 || strings.Contains(out, "dry run") {
 		t.Errorf("no session: code=%d out=%q, want the procedure, not a dry run", code, out)
@@ -388,7 +388,7 @@ func TestMemoryShowAndSearchLogAccess(t *testing.T) {
 	t.Setenv("CLAUDE_PROJECT_DIR", "")
 	t.Chdir(t.TempDir()) // a non-repo cwd: search rides the home bank
 	body := "# D\n\n## 2026-10-01 — Zebra quota limiter choice <!-- id:abcd1234 -->\n\nzebra quota limiter fallback rationale\n"
-	hosttest.WriteRel(t, memory.StoreDir(), "decisionLog.md", body)
+	hosttest.WriteRel(t, paths.MemoryStoreDir(), "decisionLog.md", body)
 
 	code, out, _ := memCLI(t, "show", "abcd1234")
 	if code != 0 || !strings.Contains(out, "Zebra quota limiter choice") {
@@ -398,7 +398,7 @@ func TestMemoryShowAndSearchLogAccess(t *testing.T) {
 	if code != 0 || !strings.Contains(out, "decisionLog.md") {
 		t.Fatalf("memory search: code=%d out=%q", code, out)
 	}
-	data, err := os.ReadFile(memory.AccessLogPath(memory.StoreDir()))
+	data, err := os.ReadFile(memory.AccessLogPath(paths.MemoryStoreDir()))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -466,9 +466,9 @@ func TestMemoryRecallRanksAndFormatsUnstampedHits(t *testing.T) {
 	memCfg(t)
 	memMust(t, memory.StoreRepo().Ensure())
 	memoryBankRepo(t)
-	hosttest.WriteRel(t, memory.SubDir(""), "conventions.md", "# Conventions\n\n- stamped id-marked rule <!-- id:deadbeef -->\n")
+	hosttest.WriteRel(t, paths.MemorySubDir(""), "conventions.md", "# Conventions\n\n- stamped id-marked rule <!-- id:deadbeef -->\n")
 	// activeContext.md is never id-assigned, so this line stays unstamped (SearchBanks still indexes it).
-	hosttest.WriteRel(t, memory.SubDir(""), "activeContext.md", "# Active Context\n\n- rule stamped id-marked never settled here\n")
+	hosttest.WriteRel(t, paths.MemorySubDir(""), "activeContext.md", "# Active Context\n\n- rule stamped id-marked never settled here\n")
 
 	out := memCLIOK(t, "recall", "stamped", "id-marked", "rule")
 	if !strings.Contains(out, "deadbeef — ") {
@@ -496,7 +496,7 @@ func TestMemoryRecallLoad(t *testing.T) {
 		memCfg(t)
 		memMust(t, memory.StoreRepo().Ensure())
 		memoryBankRepo(t)
-		hosttest.WriteRel(t, memory.SubDir(""), "activeContext.md", "# Active Context\n\n- never settled widget rollout detail\n")
+		hosttest.WriteRel(t, paths.MemorySubDir(""), "activeContext.md", "# Active Context\n\n- never settled widget rollout detail\n")
 		out := memCLIOK(t, "recall", "--load", "1", "never", "settled", "widget", "rollout")
 		if !strings.Contains(out, "never settled widget rollout detail") {
 			t.Errorf("recall --load did not resolve the unstamped hit's body: %q", out)
@@ -543,7 +543,7 @@ func TestMemoryStrayRejectedBeforeFlags(t *testing.T) {
 		t.Setenv("CLAUDE_PROJECT_DIR", "")
 		t.Chdir(t.TempDir())
 		before := "# Decision Log\n\n- " + strings.Repeat("longword ", 30) + "end\n"
-		hosttest.WriteRel(t, memory.StoreDir(), "decisionLog.md", before)
+		hosttest.WriteRel(t, paths.MemoryStoreDir(), "decisionLog.md", before)
 		code, out, stderr := memCLI(t, "fmt", "stray", "--check")
 		if code != 2 {
 			t.Errorf("fmt ignored stray before --check: exit=%d stdout=%q stderr=%q", code, out, stderr)
@@ -551,7 +551,7 @@ func TestMemoryStrayRejectedBeforeFlags(t *testing.T) {
 		if !strings.Contains(stderr, `memory fmt: unexpected argument "stray"`) {
 			t.Errorf("fmt missing positional usage error: %q", stderr)
 		}
-		after, err := os.ReadFile(filepath.Join(memory.StoreDir(), "decisionLog.md"))
+		after, err := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), "decisionLog.md"))
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -682,13 +682,13 @@ func TestMemoryPathSubNameAndBareDir(t *testing.T) {
 	memCfg(t)
 	hosttest.Repo(t)
 	for args, want := range map[string]string{
-		"":                                     memory.SubDir(""),
-		"reports":                              memory.SubDir("reports"),
-		"reports claude-code--2026-01-02-x.md": memory.Sub("reports", "2026-01-02-x.md"),
-		"knowledge claude-code--a.md":          memory.Sub("knowledge", "a.md"),
-		"knowledge a.md":                       memory.Sub("knowledge", "a.md"),
-		"knowledge a":                          memory.Sub("knowledge", "a.md"),
-		"techdebt area":                        memory.Sub("techdebt", "area.md"),
+		"":                                     paths.MemorySubDir(""),
+		"reports":                              paths.MemorySubDir("reports"),
+		"reports claude-code--2026-01-02-x.md": paths.MemorySub("reports", "2026-01-02-x.md"),
+		"knowledge claude-code--a.md":          paths.MemorySub("knowledge", "a.md"),
+		"knowledge a.md":                       paths.MemorySub("knowledge", "a.md"),
+		"knowledge a":                          paths.MemorySub("knowledge", "a.md"),
+		"techdebt area":                        paths.MemorySub("techdebt", "area.md"),
 	} {
 		argv := append([]string{"path"}, strings.Fields(args)...)
 		if code, out, errs := memCLI(t, argv...); code != 0 || strings.TrimSpace(out) != want {

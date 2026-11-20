@@ -35,7 +35,7 @@ type bankStat struct {
 }
 
 func statBank() bankStat {
-	s := bankStat{Dir: SubDir(""), data: map[string][]byte{}}
+	s := bankStat{Dir: paths.MemorySubDir(""), data: map[string][]byte{}}
 	for _, name := range bankFiles {
 		path := Path(name)
 		data, err := readFile(path)
@@ -65,7 +65,7 @@ const DefaultStaleDays = 90
 
 // doctorNoticePath is the per-store cached doctor summary read at SessionStart.
 func doctorNoticePath() string {
-	return filepath.Join(StateDir(), "doctor-notice-"+stateKey())
+	return filepath.Join(paths.MemoryStateDir(), "doctor-notice-"+stateKey())
 }
 
 const doctorFindingsSeparator = "\nfindings-sha256:"
@@ -223,7 +223,9 @@ func indexProblem(err error) string {
 		errIndexProblem, msg)
 }
 
-func indexProblemPath() string { return filepath.Join(StateDir(), "index-problem-"+stateKey()) }
+func indexProblemPath() string {
+	return filepath.Join(paths.MemoryStateDir(), "index-problem-"+stateKey())
+}
 
 func isLostPinProblem(line string) bool {
 	_, rest, found := strings.Cut(line, " ")
@@ -328,7 +330,7 @@ func bankProblems(tier string, s bankStat, staleDays int, now time.Time) []strin
 	return problems
 }
 
-// bankStats aggregates every update receipt under StateDir() into update-success and bank-updated rates.
+// bankStats aggregates every update receipt under paths.MemoryStateDir() into update-success and bank-updated rates.
 type bankStats struct {
 	Updates     int // receipt files parsed
 	OK          int
@@ -340,7 +342,7 @@ type bankStats struct {
 	Newest      time.Time
 }
 
-// collectBankStats scans StateDir()/update-result-*. Unreadable or statusless receipts are skipped.
+// collectBankStats scans paths.MemoryStateDir()/update-result-*. Unreadable or statusless receipts are skipped.
 func collectBankStats() bankStats {
 	var s bankStats
 	for _, rc := range readReceipts() {
@@ -468,10 +470,10 @@ type receipt struct {
 	r  UpdateResult
 }
 
-// readReceipts returns every parseable StateDir()/update-result-* receipt, skipping unreadable ones.
+// readReceipts returns every parseable paths.MemoryStateDir()/update-result-* receipt, skipping unreadable ones.
 func readReceipts() []receipt {
 	var out []receipt
-	for _, p := range transcript.GlobIn(StateDir(), "update-result-*") {
+	for _, p := range transcript.GlobIn(paths.MemoryStateDir(), "update-result-*") {
 		id := strings.TrimPrefix(filepath.Base(p), "update-result-")
 		if r, ok := readUpdateResult(id); ok {
 			out = append(out, receipt{id, r})
@@ -506,7 +508,7 @@ var (
 
 // candidateProblems validates the candidates file, one `<file>:<line>: <message>` row each; none when it is absent.
 func candidateProblems() []string {
-	data, err := os.ReadFile(filepath.Join(StoreDir(), filepath.FromSlash(candidatesRel)))
+	data, err := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(candidatesRel)))
 	if errors.Is(err, os.ErrNotExist) {
 		return nil
 	}
@@ -647,7 +649,7 @@ func targetProblem(target string) string {
 	if !filepath.IsAbs(p) && !strings.HasPrefix(p, "/") && !strings.HasPrefix(p, `\`) {
 		p = filepath.Join(paths.ConfigDir(), p)
 	}
-	if paths.InsideDir(p, paths.ConfigDir()) || paths.InsideDir(p, StoreDir()) {
+	if paths.InsideDir(p, paths.ConfigDir()) || paths.InsideDir(p, paths.MemoryStoreDir()) {
 		return ""
 	}
 	return "target is outside the repository and the store"
@@ -667,7 +669,7 @@ func plainPath(p string) bool {
 func evidenceProblems(c candidate) []string {
 	var out []string
 	distinct := map[string]bool{}
-	store := paths.Real(StoreDir())
+	store := paths.Real(paths.MemoryStoreDir())
 	for i, e := range c.Evidence {
 		clean := filepath.ToSlash(filepath.Clean(filepath.FromSlash(e)))
 		dir, _, _ := strings.Cut(clean, "/")
@@ -675,7 +677,7 @@ func evidenceProblems(c candidate) []string {
 			out = append(out, fmt.Sprintf("evidence[%d] must be feedback/<name>.md or notes/<name>.md", i))
 			continue
 		}
-		full := filepath.Join(StoreDir(), filepath.FromSlash(e))
+		full := filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(e))
 		if fi, err := os.Lstat(full); err != nil || !fi.Mode().IsRegular() {
 			out = append(out, fmt.Sprintf("evidence[%d] does not exist in the store as a regular file", i))
 			continue

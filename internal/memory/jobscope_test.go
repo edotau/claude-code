@@ -41,7 +41,7 @@ func permissions(s memory.Scope) agent.Permissions {
 
 func TestJobScopeBankAndDreamWrites(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	store := memory.StoreDir()
+	store := paths.MemoryStoreDir()
 	if err := os.MkdirAll(store, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -55,7 +55,7 @@ func TestJobScopeBankAndDreamWrites(t *testing.T) {
 	if out, err := exec.Command("git", "-C", work, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v: %s", err, out)
 	}
-	home := memory.StoreDir()
+	home := paths.MemoryStoreDir()
 	claudeMD := filepath.Join(paths.ConfigDir(), "CLAUDE.md")
 	other := filepath.Join(store, "other-repo", "progress.md")
 	tests := []struct {
@@ -188,7 +188,7 @@ func planFixture(t *testing.T) (work, plan, good, side string) {
 	hosttest.In(t, work, "commit", "-q", "-m", "feat: b")
 	side = strings.TrimSpace(hosttest.In(t, work, "rev-parse", "--short=7", "HEAD"))
 	hosttest.In(t, work, "switch", "-q", "main")
-	hosttest.WriteRel(t, memory.StoreDir(), "feedback/x.md", "x\n")
+	hosttest.WriteRel(t, paths.MemoryStoreDir(), "feedback/x.md", "x\n")
 	plan = filepath.Join(plans.Home(work), time.Now().Format(time.DateOnly)+"-e2e.md")
 	hosttest.WriteRel(t, filepath.Dir(plan), filepath.Base(plan), "# P\n\n- [ ] Phase 1.1 One — owns: a.go\n- [ ] Phase 1.2 Two\n"+
 		"- [ ] Phase 1.3 Three — owns: b.go\n- [x] Phase 1.4 Four ("+good+")\n")

@@ -269,7 +269,7 @@ func reviseFilesOf(archives bool) []string {
 		return out
 	}
 	for _, name := range reviseFiles {
-		p := Sub("archive", "*"+strings.TrimSuffix(name, ".md")+"-*.md") // * keeps pre-merge <key>-- archives
+		p := paths.MemorySub("archive", "*"+strings.TrimSuffix(name, ".md")+"-*.md") // * keeps pre-merge <key>-- archives
 		out = append(out, transcript.GlobIn(filepath.Dir(p), filepath.Base(p))...)
 	}
 	return out

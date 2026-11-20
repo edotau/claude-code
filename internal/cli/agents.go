@@ -20,7 +20,6 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig/project"
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/hooks"
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
@@ -380,7 +379,7 @@ func cmdAgentsLabel(args []string) int {
 		return helptext.Fail("agents label: %v", err)
 	}
 	row := hooks.Label(hooks.LabelInput{Type: pos[0], Model: *model, Profile: *profile, Brief: task, SessionModel: *sessionModel},
-		cwd, os.Getenv(memory.SessionIDEnv))
+		cwd, os.Getenv(paths.SessionIDEnv))
 	if *format == helptext.JSON {
 		return helptext.WriteJSONOrFail("agents label", row)
 	}

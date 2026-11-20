@@ -30,7 +30,7 @@ type recallLearning struct {
 }
 
 func recallLearningPath() string {
-	return filepath.Join(StateDir(), "recall-learning.json")
+	return filepath.Join(paths.MemoryStateDir(), "recall-learning.json")
 }
 
 var learnedBoosts paths.StampCache[map[string]float64]

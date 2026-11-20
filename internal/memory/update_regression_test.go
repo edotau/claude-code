@@ -285,7 +285,7 @@ func TestUpdatePlansAudit(t *testing.T) {
 		t.Fatalf("missing tick or log block: %s", out.String())
 	}
 	t.Logf("update log block: %s", out.String())
-	log := filepath.Join(StateDir(), "plans-audit.jsonl")
+	log := filepath.Join(paths.MemoryStateDir(), "plans-audit.jsonl")
 	before := mustRead(t, log)
 	t.Logf("audit log line: %s", strings.Split(before, "\n")[0])
 	checkUpdateAuditSkips(t, opts, plan, body, log, before)

@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/memtest"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -23,7 +24,7 @@ func TestContextCheckpoint(t *testing.T) {
 	line := `{"type":"assistant","message":{"model":"claude-sonnet-4-5","usage":{"input_tokens":%d,"cache_read_input_tokens":0,"output_tokens":0}}}` + "\n"
 	payload := fmt.Sprintf(`{"session_id":"s1","transcript_path":%q}`, tr)
 	_ = os.WriteFile(tr, fmt.Appendf(nil, line, 100_000), 0o600)
-	calls := &memory.StubSpawn(t, true).Update
+	calls := &memtest.StubSpawn(t, true).Update
 	contextCheckpoint(core.ParseInput(strings.NewReader(payload)))
 	if calls.Load() != 0 {
 		t.Fatalf("50%% must not spawn, got %d", calls.Load())
@@ -44,7 +45,7 @@ func TestContextCheckpoint(t *testing.T) {
 		t.Error("a [1m] session at 180K is 18% and must not spawn")
 	}
 	t.Setenv("ANTHROPIC_DEFAULT_SONNET_MODEL", "")
-	memory.StubSpawn(t, false)
+	memtest.StubSpawn(t, false)
 	failed := strings.Replace(payload, "s1", "s3", 1)
 	contextCheckpoint(core.ParseInput(strings.NewReader(failed)))
 	if _, err := os.Stat(filepath.Join(paths.StateDir(), "checkpoint", "s3")); err == nil {
@@ -75,7 +76,7 @@ func steward(t *testing.T) (payload func(extra string) *core.Input, fill func(to
 	payload = func(extra string) *core.Input {
 		return core.ParseInput(strings.NewReader(fmt.Sprintf(`{"session_id":"s1","cwd":%q,"transcript_path":%q%s}`, cwd, tr, extra)))
 	}
-	return payload, fill, memory.StubSpawn(t, true)
+	return payload, fill, memtest.StubSpawn(t, true)
 }
 
 func TestStopSpawnsHandoffOnceWhenIdle(t *testing.T) {
@@ -119,7 +120,7 @@ func TestStopRearmsBelowThreshold(t *testing.T) {
 	payload, fill, spawns := steward(t)
 	fill(180_000)
 	Stop(payload(""))
-	if err := os.Remove(filepath.Join(memory.StateDir(), "handoff-s1")); err != nil {
+	if err := os.Remove(filepath.Join(paths.MemoryStateDir(), "handoff-s1")); err != nil {
 		t.Fatal(err)
 	}
 	fill(20_000) // after the prior worker completed and compaction

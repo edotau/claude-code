@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/router"
 )
 
@@ -39,7 +40,7 @@ func (r *askRun) startRecall(prompt string) func() string {
 	ctx, cancel := context.WithCancel(r.ctx)
 	go func() {
 		defer cancel()
-		session := os.Getenv(memory.SessionIDEnv)
+		session := os.Getenv(paths.SessionIDEnv)
 		block, _ := memory.AgentRecall(ctx, session, recallQuery(prompt))
 		memory.LogBriefRecall(session, block)
 		done <- block

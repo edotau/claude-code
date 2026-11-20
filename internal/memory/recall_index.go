@@ -182,7 +182,7 @@ func encodeFile(f corpusFile) segView {
 
 func loadSegments(files []corpusFile, persist bool) []segView {
 	key := encoderKey()
-	path := filepath.Join(StateDir(), recallIndexFile)
+	path := filepath.Join(paths.MemoryStateDir(), recallIndexFile)
 	index := readFilesIndex(path, key, files)
 	segs := make([]segView, len(files))
 	// Reuse query stats when pruning so each corpus file is statted only once.

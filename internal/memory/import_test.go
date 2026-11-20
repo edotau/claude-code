@@ -67,14 +67,14 @@ func TestImportRefusesSourceWithDifferentLayout(t *testing.T) {
 			if !errors.As(err, &in) || !strings.Contains(err.Error(), "older store layout") {
 				t.Errorf("import of a %s source err = %v, want the migrate hint", name, err)
 			}
-			if _, err := os.Stat(filepath.Join(StoreDir(), layoutFile)); !errors.Is(err, fs.ErrNotExist) {
+			if _, err := os.Stat(filepath.Join(paths.MemoryStoreDir(), layoutFile)); !errors.Is(err, fs.ErrNotExist) {
 				t.Fatalf("import --dry-run stamped the store layout (stat err = %v); it must write nothing", err)
 			}
 		})
 	}
 	tempConfig(t)
 	from := t.TempDir()
-	write(t, filepath.Join(StoreDir(), "alpha", "progress.md"), "x\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), "alpha", "progress.md"), "x\n")
 	write(t, filepath.Join(from, layoutFile), layoutFlat+"\n")
 	if _, err := ImportBank(ImportOptions{From: from, DryRun: true}); !errors.Is(err, errStoreNotFlat) {
 		t.Errorf("import into a per-repo store err = %v, want errStoreNotFlat", err)
@@ -121,20 +121,20 @@ func TestImportFlatAdditiveAndIdempotent(t *testing.T) {
 	if !strings.Contains(log, "11111111") || !strings.Contains(log, "22222222") {
 		t.Fatal(log)
 	}
-	wantFile(t, Sub("notes", "topic.md"), "keep local\n")
-	wantFile(t, Sub("notes", "new.md"), "new topic\n")
-	wantFile(t, Sub("notes", "native-only.md"), "shared topic\n")
-	wantFile(t, Sub("reports", "bundle/report.md"), "nested report\n")
+	wantFile(t, paths.MemorySub("notes", "topic.md"), "keep local\n")
+	wantFile(t, paths.MemorySub("notes", "new.md"), "new topic\n")
+	wantFile(t, paths.MemorySub("notes", "native-only.md"), "shared topic\n")
+	wantFile(t, paths.MemorySub("reports", "bundle/report.md"), "nested report\n")
 	if idx := aliasRead(t, NativeIndex()); !strings.Contains(idx, "- [Remote](new.md) — remote hook\n") || !strings.Contains(idx, "- [Local](local.md)\n") ||
 		!slices.Contains(stored(t), "## Old header") {
 		t.Fatalf("MEMORY.md = %q, want the remote line verbatim and the local line kept", idx)
 	}
 	for _, rel := range []string{"writer.lock", "huge.md", "link.md", "locks/writer.md"} {
-		if pathExists(filepath.Join(StoreDir(), rel)) {
+		if pathExists(filepath.Join(paths.MemoryStoreDir(), rel)) {
 			t.Errorf("imported excluded file %s", rel)
 		}
 	}
-	if strings.Contains(aliasRead(t, filepath.Join(StoreDir(), catalogFile)), "foreign catalog") {
+	if strings.Contains(aliasRead(t, filepath.Join(paths.MemoryStoreDir(), catalogFile)), "foreign catalog") {
 		t.Fatal("imported catalog")
 	}
 	res, err = ImportBank(o)
@@ -160,7 +160,7 @@ func TestImportFlatKeyLogsOnlyAndDryRun(t *testing.T) {
 	if !strings.Contains(aliasRead(t, Path("decisionLog.md")), "22222222") {
 		t.Fatal("missing remote log")
 	}
-	if pathExists(Sub("notes", "new.md")) || strings.Contains(aliasRead(t, NativeIndex()), "(new.md)") {
+	if pathExists(paths.MemorySub("notes", "new.md")) || strings.Contains(aliasRead(t, NativeIndex()), "(new.md)") {
 		t.Fatal("topics imported without flag")
 	}
 }
@@ -179,14 +179,14 @@ func TestImportRefusesCredentialShapedSourceBeforeWriting(t *testing.T) {
 			if err := requireFlat(); err != nil {
 				t.Fatal(err)
 			}
-			before := dirHashes(t, StoreDir())
+			before := dirHashes(t, paths.MemoryStoreDir())
 			for _, dry := range []bool{true, false} {
 				_, err := ImportBank(ImportOptions{From: src, Topics: true, DryRun: dry})
 				if err == nil || !strings.Contains(err.Error(), "credential-shaped content: "+tc.rel) ||
 					!strings.Contains(err.Error(), "nothing was imported") || strings.Contains(err.Error(), "topic.md") {
 					t.Fatalf("dry=%v: err = %v, want a refusal naming only %s", dry, err, tc.rel)
 				}
-				if !equalSnap(before, dirHashes(t, StoreDir())) {
+				if !equalSnap(before, dirHashes(t, paths.MemoryStoreDir())) {
 					t.Fatalf("dry=%v: a refused import changed the local store", dry)
 				}
 			}
@@ -256,7 +256,7 @@ func TestFlatArchiveNames(t *testing.T) {
 func pointerOnlySource(t *testing.T, line string) string {
 	t.Helper()
 	const note = "---\nname: a\ndescription: d\n---\n"
-	write(t, Sub("notes", "a.md"), note)
+	write(t, paths.MemorySub("notes", "a.md"), note)
 	src := t.TempDir()
 	write(t, filepath.Join(src, layoutFile), layoutFlat+"\n")
 	write(t, filepath.Join(src, "notes", "a.md"), note)
@@ -303,7 +303,7 @@ func TestImportOfAnOldFormatStoreKeepsEveryEntryShape(t *testing.T) {
 		"[bare](notes/bare.md) - bare"}
 	for _, n := range []string{"odd", "star", "bare"} {
 		note := "---\nname: " + n + "\ndescription: d\n---\n"
-		write(t, Sub("notes", n+".md"), note)
+		write(t, paths.MemorySub("notes", n+".md"), note)
 		write(t, filepath.Join(src, "notes", n+".md"), note)
 	}
 	write(t, filepath.Join(src, catalogFile), "# Memory catalog\n\n## Index\n\n- decisionLog.md (1 entries)\n")
@@ -363,13 +363,13 @@ func TestImportReplaceNeedsMatchingHash(t *testing.T) {
 	if err != nil || !slices.Contains(res.Lines, "replace topic.md") || !strings.Contains(res.Summary, "1 copied, 0 kept local, 0 conflict(s)") {
 		t.Fatalf("matching hash: %v %q, %v; want a replace counted as copied", res.Lines, res.Summary, err)
 	}
-	wantFile(t, Sub("notes", "topic.md"), "remote\n") // the settle step files the loose note
+	wantFile(t, paths.MemorySub("notes", "topic.md"), "remote\n") // the settle step files the loose note
 }
 
 func TestWriteStoreTarRoundTrip(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
-	write(t, filepath.Join(StoreDir(), layoutFile), layoutFlat+"\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), layoutFile), layoutFlat+"\n")
 	write(t, Path("topic.md"), "topic\n")
 	write(t, Path("notes/deep.md"), "deep\n")
 	write(t, Path("writer.lock"), "lock\n")
@@ -478,7 +478,7 @@ func TestImportReplaceRechecksBeforeWrite(t *testing.T) {
 	}
 	at := Path("topic.md")
 	if !pathExists(at) {
-		at = Sub("notes", "topic.md") // settle files the loose note
+		at = paths.MemorySub("notes", "topic.md") // settle files the loose note
 	}
 	got := aliasRead(t, at)
 	if res := p.result(opt); got != "edited\n" || !slices.Contains(res.Lines, "conflict topic.md: kept local (changed during the import)") {

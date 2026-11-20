@@ -2,6 +2,7 @@ package memory
 
 import (
 	"errors"
+	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"path/filepath"
 	"testing"
@@ -9,19 +10,19 @@ import (
 
 func TestBankPaths(t *testing.T) {
 	isolatedConfig(t)
-	s := StoreDir()
+	s := paths.MemoryStoreDir()
 	for got, want := range map[string]string{
-		Path("activeContext.md"):   "activeContext.md",
-		Sub("reports", "x.md"):     "reports/x.md",
-		Sub("techdebt", "area.md"): "techdebt/area.md",
-		NativeIndex():              "MEMORY.md",
+		Path("activeContext.md"):               "activeContext.md",
+		paths.MemorySub("reports", "x.md"):     "reports/x.md",
+		paths.MemorySub("techdebt", "area.md"): "techdebt/area.md",
+		NativeIndex():                          "MEMORY.md",
 	} {
 		if got != filepath.Join(s, want) {
 			t.Errorf("got %s, want %s", got, filepath.Join(s, want))
 		}
 	}
-	if got := SubDir("reports"); got != filepath.Join(s, "reports") {
-		t.Errorf("SubDir(reports) = %s", got)
+	if got := paths.MemorySubDir("reports"); got != filepath.Join(s, "reports") {
+		t.Errorf("paths.MemorySubDir(reports) = %s", got)
 	}
 }
 
@@ -30,7 +31,7 @@ func TestStoreFlatReadsStamp(t *testing.T) {
 	if storeFlat() {
 		t.Fatal("unstamped store reads flat")
 	}
-	write(t, filepath.Join(StoreDir(), layoutFile), layoutFlat+"\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), layoutFile), layoutFlat+"\n")
 	forgetLayout()
 	if !storeFlat() {
 		t.Fatal("stamped store reads legacy")
@@ -39,7 +40,7 @@ func TestStoreFlatReadsStamp(t *testing.T) {
 
 func TestWritersRefuseLegacyStoreAndStampFreshOne(t *testing.T) {
 	isolatedConfig(t)
-	write(t, filepath.Join(StoreDir(), layoutFile), layoutPerKey+"\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), layoutFile), layoutPerKey+"\n")
 	forgetLayout()
 	if err := EnsureBank(""); !errors.Is(err, errStoreNotFlat) {
 		t.Errorf("EnsureBank = %v, want errStoreNotFlat", err)
@@ -50,7 +51,7 @@ func TestWritersRefuseLegacyStoreAndStampFreshOne(t *testing.T) {
 	if err := withFlatLock(BankLockWait, func() error { return nil }); !errors.Is(err, errStoreNotFlat) {
 		t.Errorf("withFlatLock = %v, want errStoreNotFlat", err)
 	}
-	if err := os.Remove(filepath.Join(StoreDir(), layoutFile)); err != nil {
+	if err := os.Remove(filepath.Join(paths.MemoryStoreDir(), layoutFile)); err != nil {
 		t.Fatal(err)
 	}
 	forgetLayout()

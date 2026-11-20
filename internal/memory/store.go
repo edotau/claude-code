@@ -55,7 +55,7 @@ func Init() (string, error) {
 			return "", err
 		}
 	}
-	return SubDir(""), nil
+	return paths.MemorySubDir(""), nil
 }
 
 // writeBody writes a new file's body (seedFile, createExcl); tests swap it to fail mid-write.
@@ -120,18 +120,15 @@ var templates = sync.OnceValue(func() map[string]string {
 // catalogFile holds every MEMORY.md entry, append-only; routerFile is the generated router BuildCatalog writes.
 const catalogFile, routerFile = "index.md", "catalog.md"
 
-// StoreDir is the memory store root and the work tree of the local memory repo.
-func StoreDir() string { return filepath.Join(paths.ConfigDir(), "memory") }
-
 // JournalDir holds pending commit-transaction journals; state only, never committed.
-func JournalDir() string { return filepath.Join(StateDir(), "journal") }
+func JournalDir() string { return filepath.Join(paths.MemoryStateDir(), "journal") }
 
 // AccessStateDir holds the access logs; the single source of truth for their path.
-func AccessStateDir() string { return filepath.Join(StateDir(), "access") }
+func AccessStateDir() string { return filepath.Join(paths.MemoryStateDir(), "access") }
 
 // insideStore reports whether p resolves under the store (and not under its .git); rel is slash-separated.
 func insideStore(p string) (rel string, ok bool) {
-	store := paths.CanonDeep(StoreDir())
+	store := paths.CanonDeep(paths.MemoryStoreDir())
 	r, err := filepath.Rel(store, paths.CanonDeep(p))
 	if err != nil || r == ".." || strings.HasPrefix(r, ".."+string(filepath.Separator)) {
 		return "", false
@@ -142,9 +139,6 @@ func insideStore(p string) (rel string, ok bool) {
 	}
 	return rel, true
 }
-
-// StateDir holds update stamps, results, logs and the session chain.
-func StateDir() string { return filepath.Join(paths.StateDir(), "memory") }
 
 func root(repo string) string {
 	if repo != "" {
@@ -166,7 +160,7 @@ func root(repo string) string {
 		top = GitToplevel(cwd)
 	}
 	// Inside the store its own toplevel is the store root; keep cwd so the <repo>-- files resolve to that repo.
-	if top != "" && !paths.SamePath(top, StoreDir()) {
+	if top != "" && !paths.SamePath(top, paths.MemoryStoreDir()) {
 		return top
 	}
 	return cwd
@@ -194,11 +188,11 @@ var BankLockWait = 5 * time.Second
 var ErrBankBusy = errors.New("memory store busy: another harness worker holds the bank lock")
 
 // BankLockPath is the PHYSICAL lock file; nothing appends ".lock" to it (no .lock.lock variants).
-func BankLockPath() string { return filepath.Join(StateDir(), bankLockFile) }
+func BankLockPath() string { return filepath.Join(paths.MemoryStateDir(), bankLockFile) }
 
 // storeLockDir is the lock dir (named by stateKey), created 0700.
 func storeLockDir() string {
-	d := filepath.Join(StateDir(), "locks", stateKey())
+	d := filepath.Join(paths.MemoryStateDir(), "locks", stateKey())
 	_ = os.MkdirAll(d, 0o700)
 	return d
 }
@@ -208,7 +202,7 @@ func stateKey() string { return homeDir }
 
 // WithBankLock runs fn under the bank lock (wait<=0 = BankLockWait); not reentrant, so *Locked helpers never take it.
 func WithBankLock(wait time.Duration, fn func() error) error {
-	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
+	if err := os.MkdirAll(paths.MemoryStateDir(), 0o700); err != nil {
 		return err
 	}
 	if wait <= 0 {
@@ -266,7 +260,7 @@ func linkNativeFor(cwd string) (linkResult, bool) {
 		root = paths.CanonDeep(top)
 	}
 	nativeRoots.Store(filepath.Clean(cwd), root)
-	target := StoreDir()
+	target := paths.MemoryStoreDir()
 	if fi, err := os.Stat(target); err != nil || !fi.IsDir() {
 		return linkResult{}, false // no store yet: never mint an origin-less dir that would squat the repo's key
 	}
@@ -349,9 +343,9 @@ func nativeLinkTarget(link string) string {
 func nativeLinkTargets(root string) map[string]string {
 	targets := map[string]string{}
 	home, _ := os.UserHomeDir()
-	for _, cwd := range []string{root, paths.ConfigDir(), StoreDir(), home} {
+	for _, cwd := range []string{root, paths.ConfigDir(), paths.MemoryStoreDir(), home} {
 		if cwd != "" {
-			targets[paths.ProjectSlug(cwd)] = StoreDir()
+			targets[paths.ProjectSlug(cwd)] = paths.MemoryStoreDir()
 		}
 	}
 	return targets

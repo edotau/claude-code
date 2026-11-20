@@ -388,7 +388,7 @@ func docsGate(ctx context.Context, in gateInput) (string, string, error) {
 
 // memoryFmtGate runs `memory fmt --check`; it fails on the changed bank files it lists, or all of them with --all.
 func memoryFmtGate(in gateInput) (string, error) {
-	store := paths.CanonDeep(memory.StoreDir())
+	store := paths.CanonDeep(paths.MemoryStoreDir())
 	changed := map[string]bool{}
 	for _, p := range match(in.files, []string{mdGlob}) {
 		abs := paths.CanonDeep(filepath.Join(in.root, filepath.FromSlash(p)))

@@ -25,7 +25,7 @@ const (
 var updateWatchPoll = time.Minute
 
 func watchClaimPath(sessionID string) string {
-	return filepath.Join(StateDir(), "watch-"+filepath.Base(sessionID))
+	return filepath.Join(paths.MemoryStateDir(), "watch-"+filepath.Base(sessionID))
 }
 
 // spawnIdleWatcher starts THIS session's watcher once: a claim file makes every later Stop a no-op.

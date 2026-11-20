@@ -268,8 +268,8 @@ func (x *e2eRun) init(t *testing.T) {
 		t.Errorf("init output names no bank:\n%s", out)
 	}
 	x.bankDir = strings.TrimSpace(x.e.mustRun(t, "", "memory", "path"))
-	if rel, err := filepath.Rel(StoreDir(), x.bankDir); err != nil || strings.HasPrefix(rel, "..") {
-		t.Fatalf("bank dir %s is not under the store %s", x.bankDir, StoreDir())
+	if rel, err := filepath.Rel(paths.MemoryStoreDir(), x.bankDir); err != nil || strings.HasPrefix(rel, "..") {
+		t.Fatalf("bank dir %s is not under the store %s", x.bankDir, paths.MemoryStoreDir())
 	}
 	for _, name := range BankFiles() {
 		if _, err := os.Stat(x.file(name)); err != nil {
@@ -283,8 +283,8 @@ func (x *e2eRun) sessionStart(t *testing.T) {
 	in := `{"session_id":"e2e-session-start","cwd":"` + x.repo + `","hook_event_name":"SessionStart"}`
 	out := x.e.mustRun(t, in, "hook", "SessionStart", "--memory-start")
 	ctx := hookContext(t, out)
-	if !strings.Contains(ctx, "Session memory bank") || !strings.Contains(ctx, StoreDir()) {
-		t.Errorf("additionalContext does not name the store %s:\n%s", StoreDir(), ctx)
+	if !strings.Contains(ctx, "Session memory bank") || !strings.Contains(ctx, paths.MemoryStoreDir()) {
+		t.Errorf("additionalContext does not name the store %s:\n%s", paths.MemoryStoreDir(), ctx)
 	}
 	link := filepath.Join(x.cfg, "projects", paths.ProjectSlug(x.repo), "memory")
 	if fi, err := os.Lstat(link); err != nil || fi.Mode()&fs.ModeSymlink == 0 {
@@ -501,12 +501,12 @@ func TestArchiveOverflowKeepsOldestInArchive(t *testing.T) {
 
 func TestDoctorFlagsOversizedAndStale(t *testing.T) {
 	tempConfig(t)
-	decisionLogOver(t, filepath.Join(StoreDir(), "decisionLog.md"), 80)
+	decisionLogOver(t, filepath.Join(paths.MemoryStoreDir(), "decisionLog.md"), 80)
 	old := time.Now().AddDate(0, 0, -(DefaultStaleDays + 1))
-	if err := os.Chtimes(filepath.Join(StoreDir(), "decisionLog.md"), old, old); err != nil {
+	if err := os.Chtimes(filepath.Join(paths.MemoryStoreDir(), "decisionLog.md"), old, old); err != nil {
 		t.Fatal(err)
 	}
-	problems := doctor(StoreDir(), DefaultStaleDays, time.Now())
+	problems := doctor(paths.MemoryStoreDir(), DefaultStaleDays, time.Now())
 	joined := strings.Join(problems, "\n")
 	if !strings.Contains(joined, "decisionLog.md: over") {
 		t.Errorf("want an over-cap finding, got %v", problems)
@@ -518,8 +518,8 @@ func TestDoctorFlagsOversizedAndStale(t *testing.T) {
 
 func TestDoctorFlagsCredentialShapedValue(t *testing.T) {
 	tempConfig(t)
-	write(t, filepath.Join(StoreDir(), "conventions.md"), "# C\n\n- token AK"+"IAABCDEFGHIJKLMNOP in here\n")
-	problems := doctor(StoreDir(), DefaultStaleDays, time.Now())
+	write(t, filepath.Join(paths.MemoryStoreDir(), "conventions.md"), "# C\n\n- token AK"+"IAABCDEFGHIJKLMNOP in here\n")
+	problems := doctor(paths.MemoryStoreDir(), DefaultStaleDays, time.Now())
 	if !strings.Contains(strings.Join(problems, "\n"), "possible credential") {
 		t.Errorf("want a credential finding, got %v", problems)
 	}
@@ -527,8 +527,8 @@ func TestDoctorFlagsCredentialShapedValue(t *testing.T) {
 
 func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 	tempConfig(t)
-	decisionLogOver(t, filepath.Join(StoreDir(), "decisionLog.md"), 80)
-	if err := writeDoctorNotice(StoreDir(), DefaultStaleDays, time.Now()); err != nil {
+	decisionLogOver(t, filepath.Join(paths.MemoryStoreDir(), "decisionLog.md"), 80)
+	if err := writeDoctorNotice(paths.MemoryStoreDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	notice := mustRead(t, doctorNoticePath())
@@ -536,8 +536,8 @@ func TestWriteDoctorNoticeCachesFirstProblem(t *testing.T) {
 		t.Errorf("notice %q", notice)
 	}
 	// A clean bank caches an EMPTY notice — distinct from no file at all.
-	write(t, filepath.Join(StoreDir(), "decisionLog.md"), "# D\n")
-	if err := writeDoctorNotice(StoreDir(), DefaultStaleDays, time.Now()); err != nil {
+	write(t, filepath.Join(paths.MemoryStoreDir(), "decisionLog.md"), "# D\n")
+	if err := writeDoctorNotice(paths.MemoryStoreDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if notice := mustRead(t, doctorNoticePath()); notice != "" {
@@ -610,7 +610,7 @@ func TestJournalProblemsNamesStaleJournal(t *testing.T) {
 
 func TestDoctorCachesUnreadableBankWarning(t *testing.T) {
 	isolatedConfig(t)
-	root := StoreDir()
+	root := paths.MemoryStoreDir()
 	if err := os.MkdirAll(filepath.Join(root, "conventions.md"), 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -655,7 +655,7 @@ func TestDoctorReadsEachBankFileOnce(t *testing.T) {
 // doctorNotice truncates by rune, never splitting a multi-byte character at the 200 boundary.
 func TestDoctorNoticeTruncationPreservesUTF8(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	if err := os.MkdirAll(StateDir(), 0o755); err != nil {
+	if err := os.MkdirAll(paths.MemoryStateDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	notice := strings.Repeat("A", 196) + "中" + "国" // 202 bytes: a byte cut at 200 splits "国"
@@ -731,9 +731,9 @@ func TestCandidatesEndToEnd(t *testing.T) {
 	t.Setenv(dreamChildEnv, "")
 	root := repoRoot(t, "proj")
 	for _, n := range []string{"feedback/feedback-a.md", "feedback/feedback-b.md", "notes/note-c.md"} {
-		write(t, filepath.Join(StoreDir(), filepath.FromSlash(n)), "restated twice\n")
+		write(t, filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(n)), "restated twice\n")
 	}
-	candidates := filepath.Join(StoreDir(), filepath.FromSlash(candidatesRel))
+	candidates := filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(candidatesRel))
 	good := `{"id":"fc-a","evidence":["feedback/feedback-a.md","notes/note-c.md"],"change":"Add a hook.","target":"unknown","kind":"hook","size":"small"}` + "\n" +
 		`{"id":"fc-b","evidence":["feedback/feedback-b.md"],"repeats":3,"change":"Add a verb flag.","target":"rules/standards/x.md","kind":"verb","size":"medium"}`
 	file := func(rows string) string { return "# Candidates\n\n```jsonl\n" + rows + "\n```\n" }
@@ -824,11 +824,11 @@ func TestCandidatePathsResolveSymlinks(t *testing.T) {
 	cfg, _ := isolatedConfig(t)
 	outside := canonTemp(t, t.TempDir())
 	write(t, filepath.Join(outside, "n.md"), "x\n")
-	write(t, filepath.Join(StoreDir(), "feedback", "feedback-a.md"), "x\n")
-	write(t, filepath.Join(StoreDir(), "notes", "note-c.md"), "x\n")
-	for _, l := range [][2]string{{outside, filepath.Join(cfg, "linkout")}, {outside, filepath.Join(StoreDir(), "knowledge-out")},
-		{filepath.Join(StoreDir(), "feedback", "feedback-a.md"), filepath.Join(StoreDir(), "feedback", "alias.md")},
-		{filepath.Join(StoreDir(), "feedback"), filepath.Join(StoreDir(), "notes-alias")}} {
+	write(t, filepath.Join(paths.MemoryStoreDir(), "feedback", "feedback-a.md"), "x\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), "notes", "note-c.md"), "x\n")
+	for _, l := range [][2]string{{outside, filepath.Join(cfg, "linkout")}, {outside, filepath.Join(paths.MemoryStoreDir(), "knowledge-out")},
+		{filepath.Join(paths.MemoryStoreDir(), "feedback", "feedback-a.md"), filepath.Join(paths.MemoryStoreDir(), "feedback", "alias.md")},
+		{filepath.Join(paths.MemoryStoreDir(), "feedback"), filepath.Join(paths.MemoryStoreDir(), "notes-alias")}} {
 		if err := os.Symlink(l[0], l[1]); err != nil {
 			t.Skip("symlinks unavailable:", err)
 		}
@@ -851,7 +851,7 @@ func TestCandidatePathsResolveSymlinks(t *testing.T) {
 	if got := ev("notes-alias/feedback-a.md"); got == "" {
 		t.Error("evidence outside feedback/ and notes/ accepted")
 	}
-	if upper := filepath.Join(StoreDir(), "feedback", "FEEDBACK-A.md"); paths.FoldsCase {
+	if upper := filepath.Join(paths.MemoryStoreDir(), "feedback", "FEEDBACK-A.md"); paths.FoldsCase {
 		if _, err := os.Stat(upper); err == nil && ev("feedback/feedback-a.md", "feedback/FEEDBACK-A.md") == "" {
 			t.Error("two spellings of one file counted as two")
 		}

@@ -18,9 +18,9 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/worktree"
@@ -145,7 +145,7 @@ func TestLiveRequestStartsOnConfinedProfile(t *testing.T) {
 	} {
 		confine(t, tc.confinement)
 		if tc.confinement == "" {
-			t.Setenv(agentconfig.OverlayVar, "")
+			t.Setenv(route.OverlayVar, "")
 		}
 		f := askFlags{profile: tc.typed}
 		if got := liveRequest(t.Context(), (&askRun{f: &f}).askState(), agent.Permissions{}, "gemini").Provider; got != tc.want {
@@ -484,7 +484,7 @@ func TestSendQueuesNoteUntilJobEnds(t *testing.T) {
 func TestSendParentFilesTheLiteralNoteOrSaysNoDispatcher(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(proc.DispatchIDEnv, "")
-	t.Setenv(memory.SessionIDEnv, "main-sess")
+	t.Setenv(paths.SessionIDEnv, "main-sess")
 	reg := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "sessions")
 	pid := strconv.Itoa(os.Getpid())
 	if err := os.MkdirAll(reg, 0o700); err != nil || os.WriteFile(filepath.Join(reg, pid+".json"), []byte(`{"pid":`+pid+`,"sessionId":"main-sess"}`), 0o600) != nil {
@@ -500,7 +500,7 @@ func TestSendParentFilesTheLiteralNoteOrSaysNoDispatcher(t *testing.T) {
 		t.Fatalf("inbox = %+v, %v; want the three literal notes", got, err)
 	}
 
-	t.Setenv(memory.SessionIDEnv, "")
+	t.Setenv(paths.SessionIDEnv, "")
 	if code := Send(ParentTarget, "nobody", "text", 0); code != 0 {
 		t.Errorf("no parent: code %d, want 0", code)
 	}

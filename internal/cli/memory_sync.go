@@ -103,11 +103,11 @@ func runSync(peers []string, dryRun bool, out io.Writer) int {
 			return 2
 		}
 	}
-	if err := os.MkdirAll(memory.StateDir(), 0o700); err != nil {
+	if err := os.MkdirAll(paths.MemoryStateDir(), 0o700); err != nil {
 		return helptext.Fail("memory sync: %v", err)
 	}
 	code := 0
-	ran, err := paths.TryFileLock(filepath.Join(memory.StateDir(), "sync.lock"), 0, func() error {
+	ran, err := paths.TryFileLock(filepath.Join(paths.MemoryStateDir(), "sync.lock"), 0, func() error {
 		code = syncPeers(peers, dryRun, out)
 		return nil
 	})
@@ -131,7 +131,7 @@ type syncPass struct {
 }
 
 func syncPeers(peers []string, dryRun bool, out io.Writer) int {
-	layout, _ := os.ReadFile(filepath.Join(memory.StoreDir(), ".layout"))
+	layout, _ := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), ".layout"))
 	s := &syncPass{st: memory.LoadSync(), dryRun: dryRun, now: time.Now(), out: out, layout: strings.TrimSpace(string(layout))}
 	tokens := map[string]string{}
 	for _, peer := range peers {

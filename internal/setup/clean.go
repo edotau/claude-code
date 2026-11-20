@@ -567,7 +567,7 @@ func protected(p string) bool {
 	if paths.Within(p, memory.AccessStateDir()) {
 		return !orphanAccessLog(p)
 	}
-	for _, root := range []string{memory.StoreDir(), memory.JournalDir()} {
+	for _, root := range []string{paths.MemoryStoreDir(), memory.JournalDir()} {
 		if paths.Within(p, root) {
 			return true
 		}

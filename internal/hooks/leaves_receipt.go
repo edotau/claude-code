@@ -19,7 +19,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/redact"
@@ -93,7 +92,7 @@ func scratchPath(p string, cwd ...string) bool {
 	if p == "" {
 		return false
 	}
-	dirs := []string{"/tmp", "/private/tmp", os.TempDir(), memory.SubDir("reports"), memory.SubDir("handoffs"), memory.SubDir("notes")}
+	dirs := []string{"/tmp", "/private/tmp", os.TempDir(), paths.MemorySubDir("reports"), paths.MemorySubDir("handoffs"), paths.MemorySubDir("notes")}
 	return slices.ContainsFunc(dirs, func(dir string) bool {
 		if dir == "" {
 			return false
@@ -679,7 +678,7 @@ func preserveReport(in *core.Input, agentID string, lr leafRead, res core.Result
 		return res
 	}
 	text = redact.Text(text)
-	path := memory.Sub("reports", time.Now().Format("2006-01-02")+"-handback-"+paths.Slug(agentID, "", 40, "leaf")+".md")
+	path := paths.MemorySub("reports", time.Now().Format("2006-01-02")+"-handback-"+paths.Slug(agentID, "", 40, "leaf")+".md")
 	if os.MkdirAll(filepath.Dir(path), 0o700) != nil || paths.AtomicWrite(path, []byte(text), 0o600) != nil {
 		return res
 	}

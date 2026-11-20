@@ -82,7 +82,7 @@ func resolveOrigin(root string, main func(string) (string, bool)) (origin string
 
 // storeIdentity maps a cwd inside the store to the home tier, else ok=false.
 func storeIdentity(root string) (Identity, bool) {
-	if !paths.Within(paths.CanonDeep(root), paths.CanonDeep(StoreDir())) {
+	if !paths.Within(paths.CanonDeep(root), paths.CanonDeep(paths.MemoryStoreDir())) {
 		return Identity{}, false
 	}
 	return Identity{}, true

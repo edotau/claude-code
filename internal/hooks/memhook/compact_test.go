@@ -14,6 +14,8 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/memtest"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
 func swap[T any](t *testing.T, p *T, v T) {
@@ -36,7 +38,7 @@ func compactSession(t *testing.T) (in *core.Input, handoffs string) {
 	if err := os.WriteFile(memory.Path("activeContext.md"), []byte("# A\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	return in, memory.SubDir("handoffs")
+	return in, paths.MemorySubDir("handoffs")
 }
 
 // cancellable is a hook context the test ends itself, so a blocked half never holds the test for the budget.
@@ -79,7 +81,7 @@ func TestCompactWritesHandoffWhileUpdateBlocks(t *testing.T) {
 
 func TestCompactDispatchesUpdateWhileHandoffBlocks(t *testing.T) {
 	in, dir := compactSession(t)
-	spawns := memory.StubSpawn(t, true)
+	spawns := memtest.StubSpawn(t, true)
 	cancel := cancellable(t)
 	wait := blocked(t)
 	swap(t, &compactHandoff, func(context.Context, *core.Input, time.Time) { wait() })
@@ -99,7 +101,7 @@ func TestCompactProceedsWhenHandoffsHomeUnwritable(t *testing.T) {
 		t.Skip("needs POSIX permissions as a non-root user")
 	}
 	in, dir := compactSession(t)
-	spawns := memory.StubSpawn(t, true)
+	spawns := memtest.StubSpawn(t, true)
 	if err := os.MkdirAll(dir, 0o500); err != nil {
 		t.Fatal(err)
 	}

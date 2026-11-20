@@ -672,7 +672,7 @@ func claudeRecordProfile(ctx context.Context) string {
 }
 
 func embedBackoffPath(profile string) string {
-	return filepath.Join(StateDir(), embedCachePre+profile+".backoff")
+	return filepath.Join(paths.MemoryStateDir(), embedCachePre+profile+".backoff")
 }
 
 // embedEndpoint is the first candidate workspace whose endpoint is not backing off; err says why none is.

@@ -4,9 +4,9 @@ import (
 	"os"
 	"path/filepath"
 	"sync/atomic"
-	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -17,7 +17,7 @@ const logStampLayout = "20060102-150405.000"
 // spawnDetached is the process-launch seam under spawnSelf; tests replace it.
 var spawnDetached = proc.SpawnDetached
 
-// spawnSelf relaunches this binary detached in dir; a non-empty logName appends its output to StateDir()/logName.
+// spawnSelf relaunches this binary detached in dir; a non-empty logName appends its output to paths.MemoryStateDir()/logName.
 func spawnSelf(args []string, dir, logName string, env ...string) bool {
 	self, err := os.Executable()
 	if err != nil {
@@ -25,10 +25,10 @@ func spawnSelf(args []string, dir, logName string, env ...string) bool {
 	}
 	var out *os.File
 	if logName != "" {
-		if os.MkdirAll(StateDir(), 0o700) != nil {
+		if os.MkdirAll(paths.MemoryStateDir(), 0o700) != nil {
 			return false
 		}
-		out, err = os.OpenFile(filepath.Join(StateDir(), logName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
+		out, err = os.OpenFile(filepath.Join(paths.MemoryStateDir(), logName), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600)
 		if err != nil {
 			return false
 		}
@@ -54,7 +54,7 @@ func spawnUpdate(transcriptPath, cwd, sessionID string) bool {
 	logName := "update-" + time.Now().Format(logStampLayout) + ".log"
 	args := []string{"memory", "update", "--transcript", transcriptPath, "--cwd", cwd, "--session", sessionID}
 	prior, hadPrior := readUpdateResult(sessionID)
-	_ = writeUpdateResult(sessionID, UpdateResult{Status: updatePending, Time: time.Now(), Log: filepath.Join(StateDir(), logName)})
+	_ = writeUpdateResult(sessionID, UpdateResult{Status: updatePending, Time: time.Now(), Log: filepath.Join(paths.MemoryStateDir(), logName)})
 	if spawnSelf(args, cwd, logName, DetachedEnv+"=1") {
 		return true
 	}
@@ -69,7 +69,7 @@ func spawnUpdate(transcriptPath, cwd, sessionID string) bool {
 // spawnWatcher launches `memory watch`; args[1] is the session ID naming its log.
 func spawnWatcher(args []string, cwd string) bool {
 	// The helper runs from the state dir: a cwd inside the spawning worktree makes `worktree merge` refuse the lane.
-	return spawnSelf(append([]string{"memory", "watch"}, args...), StateDir(), "watch-"+filepath.Base(args[1])+".log")
+	return spawnSelf(append([]string{"memory", "watch"}, args...), paths.MemoryStateDir(), "watch-"+filepath.Base(args[1])+".log")
 }
 
 func spawnDream(cwd string) bool {
@@ -97,8 +97,8 @@ func spawnEmbedRefresh(root, profile string) bool {
 // Spawns counts the stubbed spawns tests read; atomic because the idle watcher calls its stub on its own goroutine.
 type Spawns struct{ Update, Dream, Catchup, Refresh, Sync atomic.Int64 }
 
-// stubSpawns replaces every detached worker spawn (update ok-flagged, the rest succeed); restore undoes it.
-func stubSpawns(ok bool) (s *Spawns, restore func()) {
+// StubSpawns replaces every detached worker spawn (update ok-flagged, the rest succeed); restore undoes it.
+func StubSpawns(ok bool) (s *Spawns, restore func()) {
 	s = new(Spawns)
 	prev := spawn
 	spawn = spawner{
@@ -110,12 +110,4 @@ func stubSpawns(ok bool) (s *Spawns, restore func()) {
 		sync:    func(string) bool { s.Sync.Add(1); return true },
 	}
 	return s, func() { spawn = prev }
-}
-
-// StubSpawn is stubSpawns restored when tb ends; tests use it so none relaunches the test binary.
-func StubSpawn(tb testing.TB, ok bool) *Spawns {
-	tb.Helper()
-	s, restore := stubSpawns(ok)
-	tb.Cleanup(restore)
-	return s
 }

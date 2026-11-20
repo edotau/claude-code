@@ -180,7 +180,7 @@ func lockStoreIndex(t *testing.T) func() {
 	if err := StoreRepo().Ensure(); err != nil {
 		t.Fatal(err)
 	}
-	lock := filepath.Join(StoreDir(), ".git", "index.lock")
+	lock := filepath.Join(paths.MemoryStoreDir(), ".git", "index.lock")
 	t.Cleanup(func() { _ = os.Remove(lock) })
 	return func() {
 		if err := os.WriteFile(lock, nil, 0o600); err != nil {
@@ -210,7 +210,7 @@ func TestRememberSettleFailureRollsBackTheWrite(t *testing.T) {
 		t.Fatalf("failed Remember left the bank changed:\nbefore %q\nafter  %q", before, after)
 	}
 	afterRememberWrite = orig
-	_ = os.Remove(filepath.Join(StoreDir(), ".git", "index.lock"))
+	_ = os.Remove(filepath.Join(paths.MemoryStoreDir(), ".git", "index.lock"))
 	if _, err := Remember("feedback", fact, time.Now()); err != nil {
 		t.Fatalf("retry: %v", err)
 	}
@@ -227,8 +227,8 @@ func TestAppendReportRollsBackWhenDecisionsFail(t *testing.T) {
 	for _, previous := range []string{"", "# Existing\n\nKeep these bytes.\t"} {
 		t.Run(previous, func(t *testing.T) {
 			runBank(t, func(t *testing.T) {
-				report := Sub("reports", "2026-11-08-review.md")
-				decisions := Sub("reports", "2026-11-08-decisions.md")
+				report := paths.MemorySub("reports", "2026-11-08-review.md")
+				decisions := paths.MemorySub("reports", "2026-11-08-decisions.md")
 				if previous != "" {
 					write(t, report, previous)
 				}
@@ -236,9 +236,9 @@ func TestAppendReportRollsBackWhenDecisionsFail(t *testing.T) {
 					t.Fatal(err)
 				}
 				in := ReportInput{Report: "# Review\n\nUnique report body.", Decisions: []string{"Keep it."}}
-				paths, err := appendReport("review", in)
-				if err == nil || len(paths) != 0 {
-					t.Fatalf("failed decisions write = %v, %v; want no paths and an error", paths, err)
+				got, err := appendReport("review", in)
+				if err == nil || len(got) != 0 {
+					t.Fatalf("failed decisions write = %v, %v; want no paths and an error", got, err)
 				}
 				assertReportRolledBack(t, report, previous)
 				if err := os.Remove(decisions); err != nil {
@@ -310,17 +310,17 @@ func TestAppendReportRejectsDecisionsLabel(t *testing.T) {
 	tempConfig(t)
 	for _, label := range []string{"decisions", "DECISIONS", "Decisions"} {
 		t.Run(label, func(t *testing.T) {
-			paths, err := appendReport(label, ReportInput{
+			got, err := appendReport(label, ReportInput{
 				Report:    "# Review\n\nReport body.\n",
 				Decisions: []string{"Keep reports separate from decisions."},
 			})
 			if err == nil || !strings.Contains(err.Error(), "reserved") {
-				t.Fatalf("appendReport(%q) = %v, %v; want reserved-label error", label, paths, err)
+				t.Fatalf("appendReport(%q) = %v, %v; want reserved-label error", label, got, err)
 			}
-			if len(paths) != 0 {
-				t.Fatalf("rejected report returned paths: %v", paths)
+			if len(got) != 0 {
+				t.Fatalf("rejected report returned paths: %v", got)
 			}
-			if _, err := os.Stat(SubDir("reports")); !os.IsNotExist(err) {
+			if _, err := os.Stat(paths.MemorySubDir("reports")); !os.IsNotExist(err) {
 				t.Fatalf("rejected label created reports directory: %v", err)
 			}
 		})

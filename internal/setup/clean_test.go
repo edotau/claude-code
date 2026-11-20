@@ -326,7 +326,7 @@ func checkRootAllowed(t *testing.T, tg target, root string) {
 	t.Helper()
 	bank := filepath.Join(paths.ConfigDir(), "docs", "memory", "bank")
 	envDir := filepath.Join(paths.ConfigDir(), "env.d")
-	store := memory.StoreDir()
+	store := paths.MemoryStoreDir()
 	if strings.HasPrefix(root, bank) {
 		t.Errorf("target %q resolves under the memory bank %q", tg.name, root)
 	}

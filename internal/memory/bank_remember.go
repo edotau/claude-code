@@ -158,12 +158,12 @@ func appendReport(label string, in ReportInput) ([]string, error) {
 
 // appendReportLocked is appendReport's body; the caller holds the bank lock.
 func appendReportLocked(label string, in ReportInput) ([]string, error) {
-	if err := os.MkdirAll(SubDir("reports"), 0o700); err != nil {
+	if err := os.MkdirAll(paths.MemorySubDir("reports"), 0o700); err != nil {
 		return nil, err
 	}
 	day := now().Format("2006-01-02")
-	reportPath := Sub("reports", day+"-"+label+".md")
-	decisionsPath := Sub("reports", day+"-decisions.md")
+	reportPath := paths.MemorySub("reports", day+"-"+label+".md")
+	decisionsPath := paths.MemorySub("reports", day+"-decisions.md")
 	report, err := snapshotFile(reportPath)
 	if err != nil {
 		return nil, err

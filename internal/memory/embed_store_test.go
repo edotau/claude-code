@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"go.etcd.io/bbolt"
 )
 
@@ -58,7 +59,7 @@ const lease3Bank = "# D\n\n## 2026-10-01 — gamma <!-- id:aaaa0001 -->\n\nb1\n\
 // The 1h lease end to end: mint, no-op inside it, re-mint after it, the 52m override, the race, partial run, recall.
 func TestEmbedLeaseEndToEnd(t *testing.T) {
 	isolatedConfig1(t)
-	write(t, filepath.Join(StoreDir(), "decisionLog.md"),
+	write(t, filepath.Join(paths.MemoryStoreDir(), "decisionLog.md"),
 		"# D\n\n## 2026-10-01 — gamma <!-- id:aaaa0001 -->\n\nb1\n\n## 2026-10-02 — delta <!-- id:aaaa0002 -->\n\nb2\n")
 	e := &leaseEnv{t: t, ctx: context.Background(), root: t.TempDir()}
 	e.c = leaseClient(&e.calls, nil)
@@ -101,7 +102,7 @@ func (e *leaseEnv) remintAfterExpiry() {
 		e.t.Fatalf("59m old record must be valid: %v", err)
 	}
 	old := backdate(e.t, embedValidity+time.Second)
-	write(e.t, filepath.Join(StoreDir(), "decisionLog.md"), lease3Bank)
+	write(e.t, filepath.Join(paths.MemoryStoreDir(), "decisionLog.md"), lease3Bank)
 	before := e.calls
 	if n, _, err := embedChanged(e.ctx, e.root, e.c); err != nil || n != 1 || e.calls != before+1 {
 		e.t.Fatalf("expired record must re-mint the changed rows: n=%d calls=%d err=%v", n, e.calls-before, err)
@@ -188,7 +189,7 @@ func (e *leaseEnv) recallReadsExpired() {
 func leaseFixture(t *testing.T) string {
 	t.Helper()
 	isolatedConfig1(t)
-	write(t, filepath.Join(StoreDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma <!-- id:aaaa0001 -->\n\nb1\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), "decisionLog.md"), "# D\n\n## 2026-10-01 — gamma <!-- id:aaaa0001 -->\n\nb1\n")
 	return t.TempDir()
 }
 
@@ -370,7 +371,7 @@ func TestEmbedModelChangeIgnoresForeignLease(t *testing.T) {
 
 func TestEmbedDimensionMigrationLeavesRepairLeaseOpen(t *testing.T) {
 	root := leaseFixture(t)
-	bankFile := filepath.Join(StoreDir(), "decisionLog.md")
+	bankFile := filepath.Join(paths.MemoryStoreDir(), "decisionLog.md")
 	write(t, bankFile, lease3Bank[:strings.LastIndex(lease3Bank, "\n\n##")]+"\n")
 	ctx := context.Background()
 	if _, _, err := embedChanged(ctx, root, dimEmbedClient(3, nil)); err != nil {
@@ -495,7 +496,7 @@ func TestNewSemanticSuccessKeepsFreshBackoffMarker(t *testing.T) {
 	if err := saveEmbedCache(f); err != nil {
 		t.Fatal(err)
 	}
-	marker := filepath.Join(StateDir(), embedCachePre+"fake.backoff")
+	marker := filepath.Join(paths.MemoryStateDir(), embedCachePre+"fake.backoff")
 	write(t, marker, "")
 	stale := time.Now().Add(-2 * embedBackoff)
 	if err := os.Chtimes(marker, stale, stale); err != nil {
@@ -541,7 +542,7 @@ func TestReleaseReturnsUpdateFailure(t *testing.T) {
 func TestEmbedCorpusReadFailureReleasesClaim(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	root := leaseFixture(t)
-	bankFile := filepath.Join(StoreDir(), "decisionLog.md")
+	bankFile := filepath.Join(paths.MemoryStoreDir(), "decisionLog.md")
 	backup := bankFile + ".saved"
 	var calls int
 	c := leaseClient(&calls, func() {
@@ -588,7 +589,7 @@ func TestNewSemanticMismatchWritesNoBackoff(t *testing.T) {
 		return &EmbedClient{Model: "other-gte"}, nil
 	}
 	_, err := embedQuery(context.Background(), "q")
-	if _, statErr := os.Stat(filepath.Join(StateDir(), embedCachePre+"fake.backoff")); !os.IsNotExist(statErr) {
+	if _, statErr := os.Stat(filepath.Join(paths.MemoryStateDir(), embedCachePre+"fake.backoff")); !os.IsNotExist(statErr) {
 		t.Errorf("a local model mismatch wrote the endpoint backoff marker: %v", statErr)
 	}
 	if !errors.Is(err, errEmbedMismatch) {
@@ -604,7 +605,7 @@ func TestBrokenEmbedDBHeals(t *testing.T) {
 			if name == "truncated" { // bbolt maps a cut-short file and faults on read: half of a real one
 				body = truncatedEmbedDB(t)
 			}
-			if err := os.MkdirAll(StateDir(), 0o700); err != nil {
+			if err := os.MkdirAll(paths.MemoryStateDir(), 0o700); err != nil {
 				t.Fatal(err)
 			}
 			write(t, embedDBPath(), string(body))
@@ -669,9 +670,9 @@ func TestFoldLegacyMergesProfilesOfTheCurrentModel(t *testing.T) {
 	seedLegacy(t, "qa", "gte", map[string]vectorRow{"a2": {Hash: "h2", Vec: vec}, "a3": {Hash: "h3", Vec: vec}})
 	seedLegacy(t, "prod", "old-model", map[string]vectorRow{"a4": {Hash: "h4", Vec: vec}})
 	for _, name := range []string{"dev.refresh", "dev.refresh.lock", "qa.refresh"} {
-		write(t, filepath.Join(StateDir(), embedCachePre+name), "")
+		write(t, filepath.Join(paths.MemoryStateDir(), embedCachePre+name), "")
 	}
-	write(t, filepath.Join(StateDir(), embedCachePre+"dev.backoff"), "")
+	write(t, filepath.Join(paths.MemoryStateDir(), embedCachePre+"dev.backoff"), "")
 	if err := vectorStore.FoldLegacy("gte"); err != nil {
 		t.Fatal(err)
 	}
@@ -682,7 +683,7 @@ func TestFoldLegacyMergesProfilesOfTheCurrentModel(t *testing.T) {
 	if found, err := legacyPresent(); err != nil || found {
 		t.Fatalf("legacy buckets after the fold: found=%v err=%v", found, err)
 	}
-	left, _ := filepath.Glob(filepath.Join(StateDir(), embedCachePre+"*"))
+	left, _ := filepath.Glob(filepath.Join(paths.MemoryStateDir(), embedCachePre+"*"))
 	if len(left) != 1 || !strings.HasSuffix(left[0], "dev.backoff") {
 		t.Errorf("after the fold left %v, want only the per-endpoint backoff marker", left)
 	}

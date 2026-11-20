@@ -102,7 +102,7 @@ func TestSyncStateAndChangedSince(t *testing.T) {
 	if got == nil || got.Pulled != "h 0" || !got.Pull.OK.Equal(at) || got.Pull.Differ != 2 || got.Seen["a.md"] != "x" {
 		t.Fatalf("round trip lost data: %+v", got)
 	}
-	root := StoreDir()
+	root := paths.MemoryStoreDir()
 	write(t, filepath.Join(root, layoutFile), layoutFlat+"\n")
 	write(t, filepath.Join(root, "notes", "a.md"), "one")
 	write(t, filepath.Join(root, "notes", "b.md"), "two")

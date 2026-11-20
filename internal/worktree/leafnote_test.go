@@ -11,7 +11,7 @@ import (
 	"unicode"
 
 	"github.com/edotau/claude-code/internal/agent"
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 )
 
@@ -40,7 +40,7 @@ func registerSession(t *testing.T, session string) {
 func TestNoteDispatcherAddressesParentCapsAndSanitizes(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(proc.DispatchIDEnv, "")
-	t.Setenv(memory.SessionIDEnv, "main-session")
+	t.Setenv(paths.SessionIDEnv, "main-session")
 	registerSession(t, "main-session")
 
 	sent, err := NoteDispatcher("done\twith \x1b[31m\"x\"\nnext " + strings.Repeat("y", 300))
@@ -59,7 +59,7 @@ func TestNoteDispatcherAddressesParentCapsAndSanitizes(t *testing.T) {
 		t.Errorf("text %q lacks the data frame", got[0].Text)
 	}
 
-	t.Setenv(memory.SessionIDEnv, "")
+	t.Setenv(paths.SessionIDEnv, "")
 	if sent, err := NoteDispatcher("nobody home"); sent || err != nil {
 		t.Errorf("no parent: sent=%v err=%v, want a silent no-op", sent, err)
 	}
@@ -70,7 +70,7 @@ func TestNoteDispatcherAddressesParentCapsAndSanitizes(t *testing.T) {
 
 func TestNoteDispatcherResolvesDispatchOwnerSession(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.SessionIDEnv, "")
+	t.Setenv(paths.SessionIDEnv, "")
 	registerSession(t, "Owner-Session")
 	pid := os.Getpid()
 	rec := agent.NewRecord("codex", agent.RunOptions{}, time.Now())
@@ -91,7 +91,7 @@ func TestNoteDispatcherResolvesDispatchOwnerSession(t *testing.T) {
 
 func TestNoteDispatcherFilesNothingWithoutALiveResolvedParent(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	t.Setenv(memory.SessionIDEnv, "leaf-own-session")
+	t.Setenv(paths.SessionIDEnv, "leaf-own-session")
 	registerSession(t, "leaf-own-session")
 	t.Setenv(proc.DispatchIDEnv, "no-such-dispatch")
 	if sent, err := NoteDispatcher("lost"); sent || err != nil {
@@ -99,11 +99,11 @@ func TestNoteDispatcherFilesNothingWithoutALiveResolvedParent(t *testing.T) {
 	}
 
 	t.Setenv(proc.DispatchIDEnv, "")
-	t.Setenv(memory.SessionIDEnv, "dead-session")
+	t.Setenv(paths.SessionIDEnv, "dead-session")
 	if sent, err := NoteDispatcher("to the dead"); sent || err != nil {
 		t.Errorf("unregistered session: sent=%v err=%v, want no dispatcher", sent, err)
 	}
-	t.Setenv(memory.SessionIDEnv, "leaf-own-session")
+	t.Setenv(paths.SessionIDEnv, "leaf-own-session")
 	claimStart = func(int) (string, error) { return "Thu Jan  1 00:00:01 2026", nil }
 	t.Cleanup(func() { claimStart = proc.StartTime })
 	reg := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "sessions", strconv.Itoa(os.Getpid())+".json")
@@ -122,7 +122,7 @@ func TestNoteDispatcherFilesNothingWithoutALiveResolvedParent(t *testing.T) {
 func TestNoteDispatcherSkipsRepeatsAndRefusesASixthNote(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	t.Setenv(proc.DispatchIDEnv, "")
-	t.Setenv(memory.SessionIDEnv, "main-session")
+	t.Setenv(paths.SessionIDEnv, "main-session")
 	registerSession(t, "main-session")
 	for _, note := range []string{"one", "one", "two", "three", "four", "five"} {
 		if sent, err := NoteDispatcher(note); !sent || err != nil {

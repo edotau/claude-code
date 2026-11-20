@@ -3,6 +3,7 @@ package memory
 import (
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"path/filepath"
 	"slices"
@@ -29,7 +30,7 @@ func TestRotateSessionHistoryRetryDoesNotDuplicateArchive(t *testing.T) {
 			entries[i] = fmt.Sprintf("## Session %02d\n\nDistinct body %02d.", i, i)
 		}
 		path := Path("sessionHistory.md")
-		archive := Sub("archive", "sessionHistory-2026-11.md")
+		archive := paths.MemorySub("archive", "sessionHistory-2026-11.md")
 		write(t, path, rejoin("# Session history", entries))
 		// Recreate an archive write that persisted before the source rewrite failed, plus one still-unarchived entry.
 		write(t, archive, rejoin("# Archived sessions", entries[sessionHistoryMaxEntries:sessionHistoryMaxEntries+1]))
@@ -72,7 +73,7 @@ func TestRotateSessionHistoryReportsReadError(t *testing.T) {
 // TestSettleBankLockLivesUnderStateNotStore: settleBank locks BankLockPath() under state, not a dotfile in the store.
 func TestSettleBankLockLivesUnderStateNotStore(t *testing.T) {
 	cfg := tempConfig(t)
-	dir := StoreDir()
+	dir := paths.MemoryStoreDir()
 	if _, err := settleBank(time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -122,7 +123,7 @@ func TestSettleDirWrapsTypedFilesWhenALaterStepFails(t *testing.T) {
 		}
 		write(t, Path("sessionHistory.md"), rejoin("# Session history", entries))
 		now := time.Date(2026, time.November, 13, 12, 0, 0, 0, time.UTC)
-		if err := os.MkdirAll(Sub("archive", "sessionHistory-2026-11.md"), 0o700); err != nil { // the rotation cannot append
+		if err := os.MkdirAll(paths.MemorySub("archive", "sessionHistory-2026-11.md"), 0o700); err != nil { // the rotation cannot append
 			t.Fatal(err)
 		}
 
@@ -142,8 +143,8 @@ func TestSettleBankCommitsEveryStoreFile(t *testing.T) {
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(StoreDir(), "topic.md"), "a topic\n")
-	write(t, Sub("reports", "r.md"), "a report\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), "topic.md"), "a topic\n")
+	write(t, paths.MemorySub("reports", "r.md"), "a report\n")
 	write(t, Path("decisionLog.md"), "# Log\n\n## 2026-11-16 — new entry\nBody.\n")
 	if _, err := settleBank(time.Now()); err != nil {
 		t.Fatal(err)
@@ -161,7 +162,7 @@ func TestSettleBankCommitsEveryStoreFile(t *testing.T) {
 // writeNote writes a native note under the store's folder.
 func writeNote(t *testing.T, folder, file, content string) {
 	t.Helper()
-	write(t, Sub(folder, file), content)
+	write(t, paths.MemorySub(folder, file), content)
 }
 
 func catalogOf(t *testing.T) string {
@@ -169,7 +170,7 @@ func catalogOf(t *testing.T) string {
 	if err := writeCatalog(time.Unix(0, 0)); err != nil {
 		t.Fatal(err)
 	}
-	data, err := os.ReadFile(filepath.Join(StoreDir(), routerFile))
+	data, err := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), routerFile))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -235,7 +236,7 @@ func TestCatalogGrowthDoesNotGrowSessionSurface(t *testing.T) {
 			writeNote(t, "notes", fmt.Sprintf("n%03d.md", i), "---\nname: N\ndescription: "+strings.Repeat("x", 150)+"\n---\n")
 		}
 		small := len(catalogOf(t))
-		if after := len(sessionSurface(t.TempDir())); after > before+len("<!-- catalog: ")+len(StoreDir())+200 || small < 20000 {
+		if after := len(sessionSurface(t.TempDir())); after > before+len("<!-- catalog: ")+len(paths.MemoryStoreDir())+200 || small < 20000 {
 			t.Errorf("surface grew %d -> %d (catalog %d bytes)", before, after, small)
 		}
 	})

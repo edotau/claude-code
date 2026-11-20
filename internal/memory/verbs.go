@@ -69,7 +69,7 @@ func DispatchCheckpoint(r UpdateRequest, handoff bool, now time.Time) bool {
 // DispatchCheckpointContext bounds stamp-lock contention by the caller's hook budget.
 func DispatchCheckpointContext(ctx context.Context, r UpdateRequest, handoff bool, now time.Time) bool {
 	covered := false
-	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
+	if err := os.MkdirAll(paths.MemoryStateDir(), 0o700); err != nil {
 		return false
 	}
 	for ctx.Err() == nil {
@@ -157,7 +157,7 @@ func handoffDoneMarker(sessionID string) string { return handoffMarker(sessionID
 func handoffIdentity(sessionID string) string { return "<!-- session: " + sessionID + " -->" }
 
 func markHandoff(sessionID string, now time.Time) error {
-	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
+	if err := os.MkdirAll(paths.MemoryStateDir(), 0o700); err != nil {
 		return err
 	}
 	if err := os.Remove(handoffDoneMarker(sessionID)); err != nil && !os.IsNotExist(err) {
@@ -254,7 +254,7 @@ func InitBank(w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, SubDir(""))
+	fmt.Fprintf(w, "bank:    %s\nhome:    %s\nsession-start injects it; `claude-code memory update` (or the background update) writes it.\n", dir, paths.MemorySubDir(""))
 	if isProjectContextTemplate() {
 		ref, err := Reference("init")
 		if err != nil {
@@ -307,13 +307,13 @@ func Index(out, errw io.Writer, o IndexOptions) error {
 		return fmt.Errorf("memory index: %w", err)
 	}
 	if hasStore {
-		fmt.Fprintf(out, "indexed %s", SubDir(""))
+		fmt.Fprintf(out, "indexed %s", paths.MemorySubDir(""))
 		if rotated > 0 {
 			fmt.Fprintf(out, " (rotated %d sessionHistory entries to archive/)", rotated)
 		}
 		fmt.Fprintln(out)
 	} else {
-		fmt.Fprintf(out, "no store at %s; run `claude-code memory init` in the repo to create one\n", SubDir(""))
+		fmt.Fprintf(out, "no store at %s; run `claude-code memory init` in the repo to create one\n", paths.MemorySubDir(""))
 	}
 	refreshBankNotice(errw, "memory index", root)
 	learnRecallForIndex(errw)
@@ -372,7 +372,7 @@ func resolveUpdateTarget(o UpdateSessionOptions) (root, session, transcript stri
 	session, transcript = o.Session, o.Transcript
 	explicit := session != "" || transcript != ""
 	if transcript == "" && session == "" { // a live session updates itself
-		session = os.Getenv(SessionIDEnv)
+		session = os.Getenv(paths.SessionIDEnv)
 	}
 	if transcript == "" {
 		transcript = LiveTranscript(root, session)
@@ -398,7 +398,7 @@ func UpdateSession(o UpdateSessionOptions) error {
 		return nil
 	}
 	if o.DryRun {
-		fmt.Fprintf(o.Out, "memory update (dry run): session %s, transcript %s, bank %s\n", session, transcript, SubDir(""))
+		fmt.Fprintf(o.Out, "memory update (dry run): session %s, transcript %s, bank %s\n", session, transcript, paths.MemorySubDir(""))
 		return nil
 	}
 	return update(updateOptions{Run: o.Run, Transcript: transcript, CWD: root, Session: session, Historical: o.Historical, Out: o.Out})

@@ -314,7 +314,7 @@ func TestLocateLedgerInsideGitDirErrors(t *testing.T) {
 // TestLedgerPathResolvesPerRepo checks same-named worktrees of two repos each find their own ledger form.
 func TestLedgerPathResolvesPerRepo(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
-	dir := memory.SubDir("worktrees")
+	dir := paths.MemorySubDir("worktrees")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		t.Fatal(err)
 	}

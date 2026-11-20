@@ -51,7 +51,7 @@ func rotateSessionHistory(now time.Time) (int, error) {
 	if len(overflow) == 0 {
 		return 0, nil
 	}
-	archive := Sub("archive", "sessionHistory-"+now.Format("2006-01")+".md")
+	archive := paths.MemorySub("archive", "sessionHistory-"+now.Format("2006-01")+".md")
 	if err := appendUnarchived(archive, overflow); err != nil {
 		return 0, err // never truncate unarchived entries
 	}
@@ -310,7 +310,7 @@ func writeCatalog(now time.Time) error {
 	if err != nil {
 		return err
 	}
-	return paths.AtomicWrite(filepath.Join(StoreDir(), routerFile), []byte(c+nativeCatalog()), 0o644)
+	return paths.AtomicWrite(filepath.Join(paths.MemoryStoreDir(), routerFile), []byte(c+nativeCatalog()), 0o644)
 }
 
 // nativeCatalog lists every native note by folder, one line each, from its front matter alone.
@@ -354,7 +354,7 @@ func clipDesc(s string) string {
 func storeRels(dirs []string) []string {
 	var rels []string
 	for _, d := range dirs {
-		if rel, err := filepath.Rel(StoreDir(), d); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
+		if rel, err := filepath.Rel(paths.MemoryStoreDir(), d); err == nil && rel != "." && !strings.HasPrefix(rel, "..") {
 			rels = append(rels, filepath.ToSlash(rel))
 		}
 	}
@@ -409,7 +409,7 @@ const techdebtDir = "techdebt"
 
 // sweepNotes moves top-level native notes into feedback/ or notes/.
 func sweepNotes() error {
-	dir := StoreDir()
+	dir := paths.MemoryStoreDir()
 	ents, err := os.ReadDir(dir)
 	if err != nil {
 		return err

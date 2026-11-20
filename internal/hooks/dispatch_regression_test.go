@@ -23,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/memory/memtest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
@@ -361,7 +362,7 @@ func newStopFormatFixture(t *testing.T) stopFormatFixture {
 	for _, k := range []string{"ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL", "ANTHROPIC_DEFAULT_FABLE_MODEL"} {
 		t.Setenv(k, "")
 	}
-	memory.StubSpawn(t, false)
+	memtest.StubSpawn(t, false)
 	repo, _ := filepath.EvalSymlinks(t.TempDir())
 	if out, err := exec.Command("git", "-C", repo, "init", "-q").CombinedOutput(); err != nil {
 		t.Fatalf("git init: %v %s", err, out)

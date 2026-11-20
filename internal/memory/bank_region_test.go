@@ -3,6 +3,7 @@ package memory
 import (
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/paths"
 	"maps"
 	"math/rand/v2"
 	"os"
@@ -79,7 +80,7 @@ func testDecode(text string) []string {
 
 func stored(t *testing.T) []string {
 	t.Helper()
-	return testDecode(readIfExistsString(filepath.Join(StoreDir(), catalogFile)))
+	return testDecode(readIfExistsString(filepath.Join(paths.MemoryStoreDir(), catalogFile)))
 }
 
 func TestNativeIndexHoldsPinnedPlusNewestTwentyAndAMoreLine(t *testing.T) {
@@ -138,7 +139,7 @@ func TestFolderPointersJoinTheNewestListByFileDate(t *testing.T) {
 		var lines []string
 		for i := range handoffs {
 			name := time.Date(2026, 2, 1+i, 0, 0, 0, 0, time.UTC).Format("2006-01-02") + fmt.Sprintf("-h%03d.md", i)
-			write(t, Sub("handoffs", name), "handoff\n")
+			write(t, paths.MemorySub("handoffs", name), "handoff\n")
 			lines = append(lines, fmt.Sprintf("- [h%03d](handoffs/%s) — handoff %d", i, name, i))
 		}
 		write(t, NativeIndex(), strings.Join(lines, "\n")+"\n")
@@ -303,7 +304,7 @@ func TestEntriesRoundTripAcrossSessions(t *testing.T) {
 		note := "---\nname: a\ndescription: d\n---\n"
 		writeNote(t, "notes", "a.md", note)
 		writeNote(t, "notes", "b.md", "---\nname: b\ndescription: e\n---\n")
-		write(t, Sub("handoffs", "2026-03-01-h.md"), "h\n")
+		write(t, paths.MemorySub("handoffs", "2026-03-01-h.md"), "h\n")
 		bullets, lead := hostileEntries()
 		rt := &roundTrip{r: rand.New(rand.NewPCG(7, 11)), bullets: bullets, lead: lead, want: map[string]bool{}, pending: map[string]bool{}}
 		indexStep = func(step string) { rt.inject(t, step) }
@@ -319,7 +320,7 @@ func TestEntriesRoundTripAcrossSessions(t *testing.T) {
 			rt.injectedAtStep = []string{"", "renamed", "appended", "installed", "held"}[session%5]
 			rt.session(t, session, extra)
 		}
-		if mustRead(t, Sub("notes", "a.md")) != note {
+		if mustRead(t, paths.MemorySub("notes", "a.md")) != note {
 			t.Error("a note was edited")
 		}
 	})
@@ -328,7 +329,7 @@ func TestEntriesRoundTripAcrossSessions(t *testing.T) {
 // session runs one refresh with its injected write, a follow-up that folds it, and a rerun that must change nothing.
 func (rt *roundTrip) session(t *testing.T, session int, extra []string) {
 	t.Helper()
-	cat := filepath.Join(StoreDir(), catalogFile)
+	cat := filepath.Join(paths.MemoryStoreDir(), catalogFile)
 	if rt.injectedAtStep == "held" {
 		f, err := os.OpenFile(NativeIndex(), os.O_WRONLY|os.O_APPEND, 0)
 		if err != nil {
@@ -357,7 +358,7 @@ func (rt *roundTrip) session(t *testing.T, session int, extra []string) {
 // check asserts after a refresh: each wanted entry stored exactly once, index.md only grew, MEMORY.md in bounds.
 func (rt *roundTrip) check(t *testing.T, session int, before string, want map[string]bool) {
 	t.Helper()
-	after := readIfExistsString(filepath.Join(StoreDir(), catalogFile))
+	after := readIfExistsString(filepath.Join(paths.MemoryStoreDir(), catalogFile))
 	if !strings.HasPrefix(after, before) {
 		t.Fatalf("session %d: index.md before the refresh is not a prefix of index.md after it", session)
 	}
@@ -394,12 +395,12 @@ func TestOwnerEditsToIndexMdAreNeverDeletedOrMoved(t *testing.T) {
 			writeNote(t, "notes", "a.md", "---\nname: a\ndescription: d\n---\n")
 			write(t, NativeIndex(), "- [a](notes/a.md) — one\n")
 			refreshIndex(t)
-			cat := filepath.Join(StoreDir(), catalogFile)
+			cat := filepath.Join(paths.MemoryStoreDir(), catalogFile)
 			older := mustRead(t, cat)
 			appendFile(t, NativeIndex(), "- [a](notes/a.md) — two\nfree text\n")
 			refreshIndex(t)
 			if name == "empty" {
-				_ = os.RemoveAll(filepath.Join(StoreDir(), ".git")) // no history is ever needed
+				_ = os.RemoveAll(filepath.Join(paths.MemoryStoreDir(), ".git")) // no history is ever needed
 			}
 			owner := edit(mustRead(t, cat), older)
 			write(t, cat, owner)
@@ -495,7 +496,7 @@ func TestNotesWithCRLFBOMOrInlineMetadataAreListedNeverEdited(t *testing.T) {
 			}
 		}
 		for f, body := range notes {
-			if mustRead(t, Sub("notes", f)) != body {
+			if mustRead(t, paths.MemorySub("notes", f)) != body {
 				t.Errorf("%s was edited", f)
 			}
 		}
@@ -559,13 +560,13 @@ func TestAliasedIndexFilesAreRefusedWithNothingChanged(t *testing.T) {
 		"index.md to a note":    func() error { return os.Symlink("notes/a.md", catalogPath()) },
 		"MEMORY.md symlink":     func() error { _ = os.Remove(NativeIndex()); return os.Symlink("notes/a.md", NativeIndex()) },
 		"kept copy symlink": func() error {
-			_ = os.MkdirAll(StateDir(), 0o755)
+			_ = os.MkdirAll(paths.MemoryStateDir(), 0o755)
 			return os.Symlink("notes/a.md", asidePath())
 		},
 		"catalog.md symlink": func() error { return os.Symlink("notes/a.md", storePath(routerFile)) },
 		"index.md hard link": func() error { return os.Link(NativeIndex(), catalogPath()) },
 		"kept copy hard link": func() error {
-			_ = os.MkdirAll(StateDir(), 0o755)
+			_ = os.MkdirAll(paths.MemoryStateDir(), 0o755)
 			return os.Link(NativeIndex(), asidePath())
 		},
 	}
@@ -665,7 +666,7 @@ func TestPromotedEntryDeletedFromIndexAndKeptCopyStaysGone(t *testing.T) {
 		e := "- [a](notes/a.md) custom"
 		write(t, NativeIndex(), e+"\n")
 		refreshIndex(t)
-		_ = os.Remove(Sub("notes", "a.md")) // the promotion prompt's steps: the note, its record, its kept-copy line
+		_ = os.Remove(paths.MemorySub("notes", "a.md")) // the promotion prompt's steps: the note, its record, its kept-copy line
 		write(t, catalogPath(), strings.Replace(mustRead(t, catalogPath()), encodeRecord(e), "", 1))
 		write(t, asidePath(), strings.Replace(mustRead(t, asidePath()), e+"\n", "", 1))
 		if refreshIndex(t); slices.Contains(stored(t), e) {

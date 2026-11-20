@@ -24,7 +24,7 @@ func StartSession(sessionID, cwd string, now time.Time) string {
 	if !IsUpdateChild() {
 		linkNativeFor(cwd) // after the scaffold, so the link targets the store Init named (origin record in the vault)
 	}
-	chain := filepath.Join(StateDir(), "last-session")
+	chain := filepath.Join(paths.MemoryStateDir(), "last-session")
 	out := sessionSurfaceText(cwd, prefix, chain, sessionID, now, doctorNoticeAt)
 	if !IsUpdateChild() {
 		startWorkers(cwd, sessionID, now, banked)
@@ -40,7 +40,7 @@ func StartSession(sessionID, cwd string, now time.Time) string {
 
 // SessionText is StartSession's text for an audit: no scaffold, link, workers, seen reset or chain write.
 func SessionText(sessionID, cwd string, now time.Time) string {
-	return sessionSurfaceText(cwd, "", filepath.Join(StateDir(), "last-session"), sessionID, now, func(time.Time) string { return doctorNotice() })
+	return sessionSurfaceText(cwd, "", filepath.Join(paths.MemoryStateDir(), "last-session"), sessionID, now, func(time.Time) string { return doctorNotice() })
 }
 
 // sessionSurfaceText renders the start-of-session note and (when a bank exists) its surface.
@@ -175,7 +175,7 @@ func takeCompactRecord(sessionID string) (r compactRecord, ok bool) {
 
 // newestHandoff is the store's most recently modified model-written handoff within maxAge, or "".
 func newestHandoff(now time.Time, maxAge time.Duration) string {
-	dir := SubDir("handoffs")
+	dir := paths.MemorySubDir("handoffs")
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return ""
@@ -310,7 +310,7 @@ func staleSessionRoot(dir, name string, cutoff time.Time) bool {
 var sessionRootLockWait = 5 * time.Second
 
 func sessionRootPath(sessionID string) string {
-	return filepath.Join(StateDir(), "root-"+filepath.Base(sessionID))
+	return filepath.Join(paths.MemoryStateDir(), "root-"+filepath.Base(sessionID))
 }
 
 // SessionRoot uses the launch repository when available, otherwise the hook payload cwd.
@@ -332,7 +332,7 @@ func sessionRootFor(cwd string) string {
 	switch {
 	case root == "": // not a work tree: git's main-checkout probe would fail the same way
 		root = resolveWith(cwd, func(string) (string, bool) { return "", true }).Origin
-	case paths.SamePath(root, StoreDir()):
+	case paths.SamePath(root, paths.MemoryStoreDir()):
 		root = Resolve(cwd).Origin
 	}
 	if root == "" {
@@ -372,9 +372,6 @@ func writeSessionRoot(sessionID, root string) error {
 	}
 	return err
 }
-
-// SessionIDEnv is the env var Claude Code sets in every live session's tools.
-const SessionIDEnv = "CLAUDE_CODE_SESSION_ID"
 
 // sessionRoot is the transcript's recorded SessionStart root, else its project's cwd; "" if neither is known.
 func sessionRoot(path string) string {
@@ -438,17 +435,17 @@ const focusCapChars = 1200
 // sessionSurface is the capped session preload: the one bank's focus plus a pointer to the catalog, whatever root is.
 func sessionSurface(root string) string {
 	var parts []string
-	if _, err := os.Stat(filepath.Join(StoreDir(), routerFile)); err == nil {
-		parts = append(parts, "<!-- catalog: "+filepath.Join(StoreDir(), routerFile)+"; search: `claude-code memory search <terms>` -->")
+	if _, err := os.Stat(filepath.Join(paths.MemoryStoreDir(), routerFile)); err == nil {
+		parts = append(parts, "<!-- catalog: "+filepath.Join(paths.MemoryStoreDir(), routerFile)+"; search: `claude-code memory search <terms>` -->")
 	}
 	if bankExists() { // the header alone still names the bank when there is no focus text yet
-		head := "<!-- MEMORY (" + SubDir("") + ") -->"
+		head := "<!-- MEMORY (" + paths.MemorySubDir("") + ") -->"
 		if focus := repoFocus(); len(focus) > 0 {
 			head += "\n" + strings.Join(focus, "\n\n")
 		}
 		parts = append(parts, capChars(head, focusCapChars))
 	}
-	if !nativeLinked(root, SubDir("")) { // Claude Code is reading another dir: carry the store's index ourselves
+	if !nativeLinked(root, paths.MemorySubDir("")) { // Claude Code is reading another dir: carry the store's index ourselves
 		if data, err := os.ReadFile(NativeIndex()); err == nil && len(data) > 0 {
 			parts = append(parts, capChars("<!-- MEMORY.md (native link missing or blocked) -->\n"+strings.TrimSpace(string(data)), indexCapChars))
 		}

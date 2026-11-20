@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/edotau/claude-code/internal/paths"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -189,7 +190,7 @@ func TestDreamChangedFlatListsEachFileOnce(t *testing.T) {
 	if _, err := Init(); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(StoreDir(), "knowledge--topic.md"), "x\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), "knowledge--topic.md"), "x\n")
 	got := dreamChanged(time.Time{})
 	for _, want := range []string{"progress.md", "knowledge--topic.md"} {
 		if n := countBase(got, want); n != 1 {

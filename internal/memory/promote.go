@@ -50,7 +50,7 @@ func settledSplit(base, header string, blocks []string, capLines int) (keep, ove
 
 // archivePath is the archive/<name>-<yyyy-mm>.md destination of archiveFile.
 func archivePath(name string, now time.Time) string {
-	return Sub("archive", strings.TrimSuffix(name, ".md")+"-"+now.Format("2006-01")+".md")
+	return paths.MemorySub("archive", strings.TrimSuffix(name, ".md")+"-"+now.Format("2006-01")+".md")
 }
 
 // splitOverflow reads path and splits off its oldest blocks beyond capLines; an absent or in-cap file has none.
@@ -186,7 +186,7 @@ func findBlock(id string) (file, block, src string, err error) {
 		return "", "", "", err
 	}
 	for name := range idFiles {
-		ap := Sub("archive", strings.TrimSuffix(name, ".md")+"-*.md")
+		ap := paths.MemorySub("archive", strings.TrimSuffix(name, ".md")+"-*.md")
 		for _, p := range transcript.GlobIn(filepath.Dir(ap), filepath.Base(ap)) {
 			blk, rerr := blockIn(p, name, id)
 			if rerr != nil {

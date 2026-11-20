@@ -693,7 +693,7 @@ func stubSpawn(t *testing.T) *[][]string {
 func TestRanOnMemoryReportEditIsNotTheWork(t *testing.T) {
 	spawned := stubSpawn(t)
 	in := leafTx(t, "gemini", "Run: claude-code agents ask --agent gemini 'research'\n", "ls output")
-	report := memory.Sub("reports", "2026-11-16-x.md")
+	report := paths.MemorySub("reports", "2026-11-16-x.md")
 	edit, _ := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{"content": []map[string]any{
 		{"type": "tool_use", "id": "e1", "name": "Write", "input": map[string]any{"file_path": report}}}}})
 	appendLines(t, in.AgentTranscriptPath, string(edit))

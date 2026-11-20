@@ -28,7 +28,7 @@ type SandboxOwner struct {
 }
 
 // SandboxRegistry lists every sandbox dir ever created, whatever TMPDIR it was under.
-func SandboxRegistry() string { return filepath.Join(StateDir(), "sandboxes.list") }
+func SandboxRegistry() string { return filepath.Join(paths.MemoryStateDir(), "sandboxes.list") }
 
 // UpdateSandboxRegistry adds dir when non-empty, drops entries whose dir is gone, and returns the live ones.
 func UpdateSandboxRegistry(add string) (live []string, err error) {
@@ -132,7 +132,7 @@ func sandboxFlat(config string, opt SandboxOptions) ([]SandboxStore, error) {
 	if err != nil {
 		return nil, err
 	}
-	stamp, err := os.ReadFile(filepath.Join(StoreDir(), layoutFile))
+	stamp, err := os.ReadFile(filepath.Join(paths.MemoryStoreDir(), layoutFile))
 	if err != nil {
 		stamp = []byte(layoutFlat + "\n")
 	}
@@ -164,7 +164,7 @@ func placeStoreRels(dst string, rels []string, empty bool) ([]string, error) {
 			data = []byte(templates()[rel])
 		} else {
 			var err error
-			data, err = os.ReadFile(filepath.Join(StoreDir(), filepath.FromSlash(rel)))
+			data, err = os.ReadFile(filepath.Join(paths.MemoryStoreDir(), filepath.FromSlash(rel)))
 			if errors.Is(err, fs.ErrNotExist) {
 				continue // deleted since listing (a detached settle): gone from the source too
 			} else if err != nil {
@@ -193,7 +193,7 @@ func ownedStoreRels() []string {
 }
 
 func ownedIn(dir string) (rels []string) {
-	ents, _ := os.ReadDir(filepath.Join(StoreDir(), dir))
+	ents, _ := os.ReadDir(filepath.Join(paths.MemoryStoreDir(), dir))
 	for _, e := range ents {
 		rel := path.Join(dir, e.Name())
 		switch {
@@ -208,8 +208,8 @@ func ownedIn(dir string) (rels []string) {
 }
 
 func regularFilesUnder(rel string) (rels []string) {
-	_ = filepath.WalkDir(filepath.Join(StoreDir(), rel), func(p string, d fs.DirEntry, err error) error {
-		if r, rerr := filepath.Rel(StoreDir(), p); err == nil && rerr == nil && d.Type().IsRegular() {
+	_ = filepath.WalkDir(filepath.Join(paths.MemoryStoreDir(), rel), func(p string, d fs.DirEntry, err error) error {
+		if r, rerr := filepath.Rel(paths.MemoryStoreDir(), p); err == nil && rerr == nil && d.Type().IsRegular() {
 			rels = append(rels, filepath.ToSlash(r))
 		}
 		return nil

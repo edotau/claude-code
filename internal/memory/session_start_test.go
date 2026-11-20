@@ -52,7 +52,7 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 		t.Errorf("a repo subdir must not be scaffolded: %q", got)
 	}
 	// the unified surface is catalog + focus only; seed a catalog so the scaffold notice has a surface to ride on
-	write(t, filepath.Join(StoreDir(), catalogFile), "# Memory catalog\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), catalogFile), "# Memory catalog\n")
 	got := sessionStartContext(t, s1, repo)
 	if !strings.Contains(got, "Memory bank scaffolded at") {
 		t.Fatalf("auto-init surface: %q", got)
@@ -69,7 +69,7 @@ func TestSessionStartAutoInitAndNotice(t *testing.T) {
 	}
 	t.Setenv(UpdateChildEnv, "1")
 	sessionStartContext(t, "child", repo) // a non-UUID update-child id: excluded by IsUpdateChild regardless of shape
-	if e, ok := readChain(filepath.Join(StateDir(), "last-session")); !ok || e != s2 {
+	if e, ok := readChain(filepath.Join(paths.MemoryStateDir(), "last-session")); !ok || e != s2 {
 		t.Errorf("an update child advanced the session chain: %+v ok=%v", e, ok)
 	}
 }
@@ -87,7 +87,7 @@ func TestSessionStartProbeIDDoesNotClobberLastSession(t *testing.T) {
 	}
 	const real = "33333333-3333-4333-8333-333333333333"
 	StartSession(real, repo, time.Now())
-	chain := filepath.Join(StateDir(), "last-session")
+	chain := filepath.Join(paths.MemoryStateDir(), "last-session")
 	if e, ok := readChain(chain); !ok || e != real {
 		t.Fatalf("a UUID session id must advance last-session: %+v ok=%v", e, ok)
 	}
@@ -160,8 +160,8 @@ func TestSessionStartFirstSessionLinksScaffoldedStore(t *testing.T) {
 	StartSession("first", repo, time.Now())
 
 	res, ok := linkNativeFor(repo)
-	if !ok || res.Action != "ok" || res.Target != StoreDir() {
-		t.Errorf("native link after first SessionStart = %+v ok=%v, want ok -> %s", res, ok, StoreDir())
+	if !ok || res.Action != "ok" || res.Target != paths.MemoryStoreDir() {
+		t.Errorf("native link after first SessionStart = %+v ok=%v, want ok -> %s", res, ok, paths.MemoryStoreDir())
 	}
 }
 
@@ -191,7 +191,7 @@ func TestSessionStartCatchUpUpdateChildNeverSpawns(t *testing.T) {
 	tr := filepath.Join(t.TempDir(), "t.jsonl")
 	hosttest.WriteEdits(t, tr, 5)
 	idle(t, tr, 20*time.Minute)
-	chain := filepath.Join(StateDir(), "last-session")
+	chain := filepath.Join(paths.MemoryStateDir(), "last-session")
 	writeChain(chain, "prev3")
 	var sweeps int
 	orig := spawn.catchup
@@ -363,7 +363,7 @@ func TestUnifiedSurfaceFocusOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(StoreDir(), catalogFile), "# Memory catalog\n\n- proj — hook · last never -> proj/MEMORY.md\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), catalogFile), "# Memory catalog\n\n- proj — hook · last never -> proj/MEMORY.md\n")
 	write(t, Path("activeContext.md"), "# Active Context\n\n"+
 		"## Current Focus\n\n- shipping the router\n\n"+
 		"## Open Questions\n\n- should not appear\n\n"+
@@ -431,16 +431,16 @@ func TestAccessLogPathMovesToStateAfterCutover(t *testing.T) {
 	}
 	initStore(t)
 	for dir, want := range map[string]string{
-		StoreDir():                           "home.log",
-		filepath.Join(StoreDir(), ".claude"): ".claude.log",
-		filepath.Join(StoreDir(), "repo-a"):  "repo-a.log",
+		paths.MemoryStoreDir():                           "home.log",
+		filepath.Join(paths.MemoryStoreDir(), ".claude"): ".claude.log",
+		filepath.Join(paths.MemoryStoreDir(), "repo-a"):  "repo-a.log",
 	} {
 		if got := AccessLogPath(dir); got != filepath.Join(AccessStateDir(), want) {
 			t.Errorf("AccessLogPath(%s) = %s, want %s", dir, got, want)
 		}
 	}
-	logAccess(filepath.Join(StoreDir(), "repo-a"), time.Now(), "aa11bb22", "read")
-	if _, err := os.Stat(filepath.Join(StoreDir(), "repo-a", accessLogFile)); !os.IsNotExist(err) {
+	logAccess(filepath.Join(paths.MemoryStoreDir(), "repo-a"), time.Now(), "aa11bb22", "read")
+	if _, err := os.Stat(filepath.Join(paths.MemoryStoreDir(), "repo-a", accessLogFile)); !os.IsNotExist(err) {
 		t.Errorf("access.log written inside the store: %v", err)
 	}
 	if data, _ := os.ReadFile(filepath.Join(AccessStateDir(), "repo-a.log")); !strings.Contains(string(data), "aa11bb22") {
@@ -452,8 +452,8 @@ func TestAccessLogPathMovesToStateAfterCutover(t *testing.T) {
 func TestKnowledgeIsSearchedAndCataloged(t *testing.T) {
 	isolatedConfig(t)
 	initStore(t)
-	write(t, Sub("knowledge", "README.md"), "# Knowledge\nzebracorn readme\n")
-	write(t, Sub("knowledge", "zebra.md"), "# Zebra\nZebracorn invariant: probes never ship.\n")
+	write(t, paths.MemorySub("knowledge", "README.md"), "# Knowledge\nzebracorn readme\n")
+	write(t, paths.MemorySub("knowledge", "zebra.md"), "# Zebra\nZebracorn invariant: probes never ship.\n")
 	hits := searchBanks("zebracorn invariant probes", 5)
 	if len(hits) == 0 || hits[0].Bank != "knowledge" || hits[0].File != "zebra.md" {
 		t.Fatalf("knowledge not ranked first: %+v", hits)
@@ -497,7 +497,7 @@ func TestUnifiedSurfaceFallsBackWhenNativeUnlinked(t *testing.T) {
 	if err := EnsureBank(""); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(StoreDir(), nativeIndexFile), "- [Topic](topic.md) — fallback marker\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), nativeIndexFile), "- [Topic](topic.md) — fallback marker\n")
 	if s := sessionSurface(repo); !strings.Contains(s, "native link missing") || !strings.Contains(s, "fallback marker") {
 		t.Fatalf("unlinked surface lacks the MEMORY.md fallback:\n%s", s)
 	}
@@ -523,12 +523,12 @@ func TestSessionSurfaceRelativeNativeLink(t *testing.T) {
 	if err := EnsureBank(""); err != nil {
 		t.Fatal(err)
 	}
-	write(t, filepath.Join(StoreDir(), nativeIndexFile), "unique native-only index marker\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), nativeIndexFile), "unique native-only index marker\n")
 	link := projectsMemory(paths.ProjectSlug(root))
 	if err := os.MkdirAll(filepath.Dir(link), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	target, err := filepath.Rel(filepath.Dir(link), StoreDir())
+	target, err := filepath.Rel(filepath.Dir(link), paths.MemoryStoreDir())
 	if err != nil {
 		t.Fatal(err)
 	}

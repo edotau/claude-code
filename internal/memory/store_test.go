@@ -21,12 +21,12 @@ func TestInsideStore(t *testing.T) {
 		rel string
 		ok  bool
 	}{
-		filepath.Join(StoreDir(), "repo", "MEMORY.md"): {"repo/MEMORY.md", true},
-		filepath.Join(StoreDir(), ".git", "config"):    {"", false},
-		filepath.Join(StoreDir(), ".gitx"):             {".gitx", true},
-		filepath.Join(cfg, "memory-other", "x.md"):     {"", false},
-		filepath.Join(cfg, "docs", "x.md"):             {"", false},
-		StoreDir():                                     {".", true},
+		filepath.Join(paths.MemoryStoreDir(), "repo", "MEMORY.md"): {"repo/MEMORY.md", true},
+		filepath.Join(paths.MemoryStoreDir(), ".git", "config"):    {"", false},
+		filepath.Join(paths.MemoryStoreDir(), ".gitx"):             {".gitx", true},
+		filepath.Join(cfg, "memory-other", "x.md"):                 {"", false},
+		filepath.Join(cfg, "docs", "x.md"):                         {"", false},
+		paths.MemoryStoreDir():                                     {".", true},
 	}
 	for p, want := range cases {
 		if rel, ok := insideStore(p); rel != want.rel || ok != want.ok {
@@ -39,15 +39,15 @@ func TestInsideStore(t *testing.T) {
 func TestInsideStoreRejectsEscapingSymlink(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh scripts, symlinks or errno")
 	tempConfig(t)
-	if err := os.MkdirAll(StoreDir(), 0o755); err != nil {
+	if err := os.MkdirAll(paths.MemoryStoreDir(), 0o755); err != nil {
 		t.Fatal(err)
 	}
 	outside := filepath.Join(t.TempDir(), "outside.md")
 	os.WriteFile(outside, []byte("x"), 0o600)
-	if err := os.Symlink(outside, filepath.Join(StoreDir(), "escape.md")); err != nil {
+	if err := os.Symlink(outside, filepath.Join(paths.MemoryStoreDir(), "escape.md")); err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := insideStore(filepath.Join(StoreDir(), "escape.md")); ok {
+	if _, ok := insideStore(filepath.Join(paths.MemoryStoreDir(), "escape.md")); ok {
 		t.Error("insideStore accepted a symlink escaping the store")
 	}
 }
@@ -403,7 +403,7 @@ func TestEnsureLinkStates(t *testing.T) {
 // TestLinkNativeForNoopWithoutStore: linkNativeFor reports ok=false while the store dir does not exist.
 func TestLinkNativeForNoopWithoutStore(t *testing.T) {
 	isolatedConfig(t)
-	if err := os.RemoveAll(StoreDir()); err != nil {
+	if err := os.RemoveAll(paths.MemoryStoreDir()); err != nil {
 		t.Fatal(err)
 	}
 	if _, ok := linkNativeFor(t.TempDir()); ok {
@@ -434,7 +434,7 @@ func TestLinkNativeForProbesGitOnce(t *testing.T) {
 	identities.Delete(filepath.Clean(root)) // the store's creation memoized it; linkNativeFor must resolve afresh
 	probes := countGitProbes(t, "--git-common-dir")
 	res, ok := linkNativeFor(root)
-	if !ok || res.Target != StoreDir() || res.Action != "linked" {
+	if !ok || res.Target != paths.MemoryStoreDir() || res.Action != "linked" {
 		t.Fatalf("linkNativeFor = %+v, %v, want a link to the repo's store", res, ok)
 	}
 	if *probes != 1 {
@@ -455,15 +455,15 @@ func TestInitSeedsTheBank(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if dir != SubDir("") {
-			t.Fatalf("Init = %s, want its SubDir", dir)
+		if dir != paths.MemorySubDir("") {
+			t.Fatalf("Init = %s, want its MemorySubDir", dir)
 		}
 		for _, name := range bankFiles {
 			if !statOK(Path(name)) {
 				t.Errorf("Init left %s missing", Path(name))
 			}
 		}
-		if dir != StoreDir() || filepath.Base(Path("progress.md")) != "progress.md" {
+		if dir != paths.MemoryStoreDir() || filepath.Base(Path("progress.md")) != "progress.md" {
 			t.Errorf("dir %s and file %s disagree with the flat layout", dir, Path("progress.md"))
 		}
 	})
@@ -476,18 +476,18 @@ func TestNativeLinksShareTheStoreRoot(t *testing.T) {
 			t.Fatal(err)
 		}
 		res, ok := linkNativeFor(root)
-		wantTarget := SubDir("")
+		wantTarget := paths.MemorySubDir("")
 		if !ok || res.Target != wantTarget {
 			t.Fatalf("linkNativeFor = %+v, %v, want target %s", res, ok, wantTarget)
 		}
-		if got := nativeLinkTargets(root)[paths.ProjectSlug(paths.ConfigDir())]; got != StoreDir() {
+		if got := nativeLinkTargets(root)[paths.ProjectSlug(paths.ConfigDir())]; got != paths.MemoryStoreDir() {
 			t.Errorf("harness slug target = %q, want the store root", got)
 		}
 		link := projectsMemory("-stale-slug")
 		if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.Symlink(StoreDir(), link); err != nil {
+		if err := os.Symlink(paths.MemoryStoreDir(), link); err != nil {
 			t.Fatal(err)
 		}
 		flagged := slices.ContainsFunc(brokenNativeLinks(root), func(r linkResult) bool { return r.Link == link })

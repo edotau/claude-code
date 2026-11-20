@@ -8,6 +8,7 @@ import (
 	"slices"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -40,7 +41,7 @@ func TestSpawnSelfLaunchesWithLogUnderStateDir(t *testing.T) {
 		t.Fatal("spawnSelf = false with a recording launcher")
 	}
 	self, _ := os.Executable()
-	want := launch{bin: self, dir: "/work", log: filepath.Join(StateDir(), "x.log"), args: []string{"memory", "x"},
+	want := launch{bin: self, dir: "/work", log: filepath.Join(paths.MemoryStateDir(), "x.log"), args: []string{"memory", "x"},
 		env: []string{"A=1"}}
 	if len(*got) != 1 || !sameLaunch((*got)[0], want) {
 		t.Fatalf("launch count = %d; want one launch matching args %q", len(*got), want.args)
@@ -65,7 +66,7 @@ func TestDefaultSpawnersBuildTodaysArgvAndLogs(t *testing.T) {
 		env        []string
 	}{
 		{[]string{"memory", "update", "--transcript", "/t.jsonl", "--cwd", "/c", "--session", "s1"}, "/c", "update-" + stamp + `\.log`, []string{DetachedEnv + "=1"}},
-		{[]string{"memory", "watch", "--session", "s1", "--transcript", "/t.jsonl"}, StateDir(), `watch-s1\.log`, nil},
+		{[]string{"memory", "watch", "--session", "s1", "--transcript", "/t.jsonl"}, paths.MemoryStateDir(), `watch-s1\.log`, nil},
 		{[]string{"memory", "dream", "--cwd", "/c"}, "/c", "dream-" + stamp + `\.log`, nil},
 		{[]string{"memory", "update", "--catchup", "--skip", "s1"}, "/c", "catchup-" + stamp + `\.log`, []string{DetachedEnv + "=1"}},
 		{[]string{"memory", "index", "--mint-only"}, "/r", "",
@@ -87,8 +88,8 @@ func TestDefaultSpawnersBuildTodaysArgvAndLogs(t *testing.T) {
 
 func TestStubSpawnsCountsAndRestoresNested(t *testing.T) {
 	base := StubSpawn(t, true)
-	outer, restoreOuter := stubSpawns(true)
-	inner, restoreInner := stubSpawns(false)
+	outer, restoreOuter := StubSpawns(true)
+	inner, restoreInner := StubSpawns(false)
 	if spawn.update("", "", "") || !spawn.dream("") || !spawn.catchup("", "") || !spawn.watcher(nil, "") || !spawn.refresh("", "") {
 		t.Fatal("inner stub: want update=false (ok flag), the rest true")
 	}
@@ -113,7 +114,7 @@ func stateLog(path, re string) bool {
 	if re == "" {
 		return path == ""
 	}
-	return filepath.Dir(path) == StateDir() && regexp.MustCompile(`^`+re+`$`).MatchString(filepath.Base(path))
+	return filepath.Dir(path) == paths.MemoryStateDir() && regexp.MustCompile(`^`+re+`$`).MatchString(filepath.Base(path))
 }
 
 func sameLaunch(a, b launch) bool {

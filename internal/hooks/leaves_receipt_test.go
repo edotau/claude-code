@@ -14,7 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
-	"github.com/edotau/claude-code/internal/memory"
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/redact"
 )
 
@@ -262,7 +262,7 @@ func TestEditEvidence(t *testing.T) {
 		path := tc.path
 		if strings.HasPrefix(path, "memory/") {
 			var err error
-			path, err = filepath.Rel(cwd, memory.Sub("reports", "x.md"))
+			path, err = filepath.Rel(cwd, paths.MemorySub("reports", "x.md"))
 			if err != nil {
 				t.Fatal(err)
 			}

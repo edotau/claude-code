@@ -19,16 +19,17 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/paths"
 )
 
-// A native topic file in StoreDir() belongs to a repo's native corpus.
+// A native topic file in paths.MemoryStoreDir() belongs to a repo's native corpus.
 func TestCorpusFilesIncludesGlobalNativeTopic(t *testing.T) {
 	root := isolatedConfig1(t)
 	initStore(t)
 	if err := EnsureBank(""); err != nil {
 		t.Fatal(err)
 	}
-	topic := filepath.Join(StoreDir(), "global-topic.md")
+	topic := filepath.Join(paths.MemoryStoreDir(), "global-topic.md")
 	write(t, topic, "---\nname: global-topic\n---\n\nglobal fact\n")
 
 	var found bool
@@ -136,7 +137,7 @@ func TestCorpusFilesOwnershipInEachLayout(t *testing.T) {
 		if _, err := Init(); err != nil {
 			t.Fatal(err)
 		}
-		topic, arc := Path("topic.md"), Sub("archive", "old.md")
+		topic, arc := Path("topic.md"), paths.MemorySub("archive", "old.md")
 		for _, p := range []string{topic, arc} {
 			write(t, p, "---\nname: x\n---\nzebra\n")
 		}
@@ -161,7 +162,7 @@ func TestCorpusFilesOwnershipInEachLayout(t *testing.T) {
 
 func TestCorpusBlocksReturnsReadErrors(t *testing.T) {
 	isolatedConfig1(t)
-	file := filepath.Join(StoreDir(), "decisionLog.md")
+	file := filepath.Join(paths.MemoryStoreDir(), "decisionLog.md")
 	write(t, file, "## Hidden\nbody\n")
 	denyBankAccess(t, file)
 	hits, err := corpusBlocks()

@@ -400,7 +400,7 @@ var journalFormat = schemas.Register(schemas.Format{
 type Repo struct{ Dir string }
 
 // StoreRepo is the live memory store's repo.
-func StoreRepo() Repo { return Repo{Dir: StoreDir()} }
+func StoreRepo() Repo { return Repo{Dir: paths.MemoryStoreDir()} }
 
 // prePushHook refuses every push: a guard against accidents, not an access-control boundary.
 const prePushHook = "#!/bin/sh\n# memory is local-only: refuse every push; a guard against accidents, not access control.\n" +

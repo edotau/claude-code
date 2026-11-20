@@ -34,7 +34,7 @@ func JobScope(kind, workdir string) Scope {
 		s.Write = updateWriteScope(workdir)
 	case JobDream:
 		// dream alone may promote a gated hard rule, which it then writes into CLAUDE.md by hand
-		s.Write = []string{StoreDir() + "/**", filepath.Join(paths.ConfigDir(), "CLAUDE.md")}
+		s.Write = []string{paths.MemoryStoreDir() + "/**", filepath.Join(paths.ConfigDir(), "CLAUDE.md")}
 		s.Bash = append([]string{"claude-code memory review *", "claude-code memory index *",
 			"claude-code memory promote *"}, planGrants(workdir)...)
 		s.NoBash = []string{"claude-code plan task *-reopen*", "claude-code plan tick*",
@@ -44,14 +44,14 @@ func JobScope(kind, workdir string) Scope {
 	}
 	s.Tools = true
 	// plan boxes change only through the plan verb, in every repo's plans home
-	s.NoWrite = []string{StoreDir() + "/.git/**", filepath.Join(paths.ConfigDir(), "plans") + "/**"}
+	s.NoWrite = []string{paths.MemoryStoreDir() + "/.git/**", filepath.Join(paths.ConfigDir(), "plans") + "/**"}
 	for _, w := range s.Write {
 		if dir, ok := strings.CutSuffix(w, "/**"); ok {
 			s.CdDirs = append(s.CdDirs, dir)
 		}
 	}
 	if kind == JobUpdate {
-		s.CdDirs = append(s.CdDirs, StoreDir())
+		s.CdDirs = append(s.CdDirs, paths.MemoryStoreDir())
 	}
 	return s
 }
@@ -73,7 +73,7 @@ func updateWriteScope(string) []string {
 	for _, name := range bankFiles {
 		w = append(w, Path(name))
 	}
-	return append(w, filepath.Join(StoreDir(), "archive", "*"))
+	return append(w, filepath.Join(paths.MemoryStoreDir(), "archive", "*"))
 }
 
 // JobKind names the job ctx's child env marks: dream carries its own child marker, anything else is an update.

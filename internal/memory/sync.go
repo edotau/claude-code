@@ -66,7 +66,7 @@ type SyncDir struct {
 	Token   string    `json:"refused_token"`
 }
 
-func syncStatePath() string { return filepath.Join(StateDir(), "sync.json") }
+func syncStatePath() string { return filepath.Join(paths.MemoryStateDir(), "sync.json") }
 
 var syncFormat = schemas.Register(schemas.Format{
 	Name: "memory-sync", Owner: "internal/memory", Kind: schemas.Cache, Version: syncSchema,
@@ -95,7 +95,7 @@ func SaveSync(st *SyncState) error {
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(StateDir(), 0o700); err != nil {
+	if err := os.MkdirAll(paths.MemoryStateDir(), 0o700); err != nil {
 		return err
 	}
 	return paths.AtomicWrite(syncStatePath(), b, 0o600)
@@ -136,7 +136,7 @@ func DecideSync(seen, local, peer string) SyncAction {
 // HashStore is the sha256 of every file an import would consider, keyed by store-relative slash path.
 func HashStore() map[string]string {
 	out := map[string]string{}
-	root, err := os.OpenRoot(StoreDir())
+	root, err := os.OpenRoot(paths.MemoryStoreDir())
 	if err != nil {
 		return out
 	}

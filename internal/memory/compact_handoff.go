@@ -65,10 +65,10 @@ func WriteCompactHandoff(ctx context.Context, h CompactHandoff) (string, error) 
 	gctx, cancel := context.WithTimeout(ctx, handoffGitBudget)
 	body := renderCompactHandoff(gctx, h, since)
 	cancel()
-	if err := os.MkdirAll(SubDir("handoffs"), 0o755); err != nil {
+	if err := os.MkdirAll(paths.MemorySubDir("handoffs"), 0o755); err != nil {
 		return "", err
 	}
-	path := Sub("handoffs", h.Now.Format("2006-01-02")+"-compact-"+compactID(h.SessionID)+".md")
+	path := paths.MemorySub("handoffs", h.Now.Format("2006-01-02")+"-compact-"+compactID(h.SessionID)+".md")
 	return path, paths.AtomicWrite(path, []byte(body), 0o600)
 }
 

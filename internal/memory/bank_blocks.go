@@ -430,7 +430,7 @@ var errNoBlock = errors.New("no memory block with that id")
 func ShowBlock(ref string) (string, string, error) {
 	derived := derivedRef().MatchString(ref)
 	var foundPath, foundBlock string
-	err := filepath.WalkDir(StoreDir(), func(p string, d fs.DirEntry, err error) error {
+	err := filepath.WalkDir(paths.MemoryStoreDir(), func(p string, d fs.DirEntry, err error) error {
 		switch {
 		case errors.Is(err, fs.ErrNotExist): // no store yet: nothing to find
 			return nil

@@ -66,14 +66,14 @@ func noteRedirect(in *core.Input) (core.Result, bool) {
 	abs := core.AnchorPath(from, in.CWD)
 	base := filepath.Base(abs)
 	folder := memory.NoteFolder(base)
-	if from == "" || folder == "" || !paths.SameFile(filepath.Dir(abs), memory.StoreDir()) {
+	if from == "" || folder == "" || !paths.SameFile(filepath.Dir(abs), paths.MemoryStoreDir()) {
 		return core.Result{}, false
 	}
 	updated := in.CloneToolInput()
 	if updated == nil {
 		return core.Result{}, false
 	}
-	dest := filepath.Join(memory.StoreDir(), folder, base)
+	dest := filepath.Join(paths.MemoryStoreDir(), folder, base)
 	updated["file_path"] = dest
 	return core.Result{UpdatedInput: updated, SystemMessage: "memory-note-path: " + from + " → " + dest}, true
 }
@@ -93,7 +93,7 @@ func storeNameRedirect(in *core.Input) (core.Result, bool) {
 	if _, err := os.Stat(abs); err == nil {
 		return core.Result{}, false
 	}
-	hit, realDir, store := false, paths.FoldCase(paths.Real(dir)), memory.StoreDir()
+	hit, realDir, store := false, paths.FoldCase(paths.Real(dir)), paths.MemoryStoreDir()
 	for _, f := range []string{"handoffs", "reports", "worktrees"} {
 		hit = hit || realDir == paths.FoldCase(paths.Real(filepath.Join(store, f)))
 	}
@@ -170,7 +170,7 @@ func docsPlacementPath(ctx context.Context, in *core.Input, path string, stderr 
 	if harnessDocs := filepath.Join(config, "docs"); paths.Within(abs, harnessDocs) {
 		return harnessDocsPlacement(ctx, stderr, config, harnessDocs, abs, base)
 	}
-	if paths.SameFile(dir, memory.StoreDir()) { // the store is its own git repo; notes at its root are the point
+	if paths.SameFile(dir, paths.MemoryStoreDir()) { // the store is its own git repo; notes at its root are the point
 		return core.ExitProceed
 	}
 	return repoDocsPlacement(ctx, stderr, dir, base, abs)
@@ -246,7 +246,7 @@ func blockPlacement(stderr io.Writer, base, where, root string) int {
 		fix = "Re-issue the write to " + dest + "."
 	} else {
 		fix = fmt.Sprintf("Plans belong in %s, reports in %s, handoffs in %s; re-issue the write there.",
-			plans.Home(planRepoRoot(root)), memory.Sub("reports", "YYYY-MM-DD-<name>.md"), memory.Sub("handoffs", "YYYY-MM-DD-<topic>.md"))
+			plans.Home(planRepoRoot(root)), paths.MemorySub("reports", "YYYY-MM-DD-<name>.md"), paths.MemorySub("handoffs", "YYYY-MM-DD-<topic>.md"))
 	}
 	fmt.Fprintf(stderr, "docs-placement: BLOCKED — %s would land in %s.\n"+
 		"%s A genuine repo doc the user\n"+
@@ -265,9 +265,9 @@ func exactDest(base, root string) string {
 	case hasNameToken(base, "plan", "plans"):
 		prefix = filepath.Join(plans.Home(planRepoRoot(root)), day+"-"+paths.Slug(stem, "-", 60, "plan"))
 	case hasNameToken(base, "report", "reports", "audit", "review", "findings"):
-		prefix = memory.Sub("reports", day+"-"+paths.Slug(stem, "-", 60, "report"))
+		prefix = paths.MemorySub("reports", day+"-"+paths.Slug(stem, "-", 60, "report"))
 	case hasNameToken(base, "handoff", "handoffs"):
-		prefix = memory.Sub("handoffs", day+"-"+paths.Slug(stem, "-", 60, "handoff"))
+		prefix = paths.MemorySub("handoffs", day+"-"+paths.Slug(stem, "-", 60, "handoff"))
 	default:
 		return ""
 	}

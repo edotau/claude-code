@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -78,9 +79,9 @@ func TestIndexRefreshesTheCachedDoctorNotice(t *testing.T) {
 	prev := openEmbedClient
 	t.Cleanup(func() { openEmbedClient = prev })
 	openEmbedClient = func(context.Context, string, string) (*EmbedClient, error) { return nil, errors.New("stub") }
-	decisionLog := filepath.Join(StoreDir(), "decisionLog.md")
+	decisionLog := filepath.Join(paths.MemoryStoreDir(), "decisionLog.md")
 	decisionLogOver(t, decisionLog, 80)
-	if err := writeDoctorNotice(StoreDir(), DefaultStaleDays, time.Now()); err != nil {
+	if err := writeDoctorNotice(paths.MemoryStoreDir(), DefaultStaleDays, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	write(t, decisionLog, "# D\n")
@@ -115,7 +116,7 @@ func TestAppendReportLandsUnderTheBanksReports(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		want := []string{Sub("reports", "2026-11-08-rev.md"), Sub("reports", "2026-11-08-decisions.md")}
+		want := []string{paths.MemorySub("reports", "2026-11-08-rev.md"), paths.MemorySub("reports", "2026-11-08-decisions.md")}
 		if !slices.Equal(got, want) {
 			t.Fatalf("appendReport = %v, want %v", got, want)
 		}

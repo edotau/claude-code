@@ -13,8 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/edotau/claude-code/internal/memory"
-
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
@@ -159,7 +157,7 @@ func TestWorktreeRemoveClosesLedger(t *testing.T) {
 	t.Setenv("HOME", t.TempDir())
 	repo := hosttest.Repo(t)
 	wt := mustCreate(t, repo, "led")
-	ledger := memory.Sub("worktrees", time.Now().Format("2006-01-02")+"-led.md")
+	ledger := paths.MemorySub("worktrees", time.Now().Format("2006-01-02")+"-led.md")
 	if data, err := os.ReadFile(ledger); err != nil || !strings.Contains(string(data), "- Status: open") {
 		t.Fatalf("ledger not opened by create: %v\n%s", err, data)
 	}

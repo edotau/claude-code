@@ -121,8 +121,8 @@ func TestSplitBlocksFenceAware(t *testing.T) {
 func TestSearchBanksRanking(t *testing.T) {
 	tempConfig(t)
 	write(t, Path("decisionLog.md"), "# D\n\n## 2026-01-01 — router retries on 429\n\nwhy: rate limits\n\n## 2026-01-02 — unrelated choice\n\nthe router is mentioned once\n")
-	write(t, filepath.Join(StoreDir(), "conventions.md"), "# C\n\n- keep commits small\n")
-	write(t, Sub("archive", "sessionHistory-2025-12.md"), "# old\n\n## 2025-12-01 — 429 storm\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), "conventions.md"), "# C\n\n- keep commits small\n")
+	write(t, paths.MemorySub("archive", "sessionHistory-2025-12.md"), "# old\n\n## 2025-12-01 — 429 storm\n")
 	hits := searchBanks("the router 429", 0)
 	if len(hits) != 3 || !strings.Contains(hits[0].Block, "retries on 429") || hits[0].Bank != "home" {
 		t.Fatalf("hits %+v", hits)
@@ -164,7 +164,7 @@ func TestRotateAndSettle(t *testing.T) {
 func assertRotated(t *testing.T) {
 	t.Helper()
 	_, kept := splitHeadingBlocks(mustRead(t, Path("sessionHistory.md")))
-	arch := mustRead(t, Sub("archive", "sessionHistory-2026-09.md"))
+	arch := mustRead(t, paths.MemorySub("archive", "sessionHistory-2026-09.md"))
 	if len(kept) != sessionHistoryMaxEntries || !strings.HasPrefix(kept[0], "## entry 35") || !strings.Contains(arch, "## entry 01") || strings.Contains(arch, "## entry 06") {
 		t.Errorf("kept %d first %q archive %q", len(kept), kept[0], arch)
 	}
@@ -244,7 +244,7 @@ func TestNativeTopicsJoinSearch(t *testing.T) {
 
 func TestSeenSetTracksInjectedBlocks(t *testing.T) {
 	tempConfig(t)
-	write(t, filepath.Join(StoreDir(), "conventions.md"), "# C\n\n- injected rule\n  continues here\n- other rule\n")
+	write(t, filepath.Join(paths.MemoryStoreDir(), "conventions.md"), "# C\n\n- injected rule\n  continues here\n- other rule\n")
 	resetSeen("11111111-1111-1111-1111-111111111111", "<!-- surface -->\n- injected   rule\ncontinues here\n")
 	seen := seenBlocks("11111111-1111-1111-1111-111111111111")
 	if !seen[blockKey("- injected rule\n  continues here")] || seen[blockKey("- other rule")] || len(seen) != 1 {

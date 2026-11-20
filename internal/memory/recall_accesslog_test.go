@@ -2,6 +2,7 @@ package memory
 
 import (
 	"fmt"
+	"github.com/edotau/claude-code/internal/paths"
 	"os"
 	"path/filepath"
 	"slices"
@@ -15,7 +16,7 @@ import (
 func TestAccessRotationReturnCountsAndRepoNominations(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
-	home := StoreDir()
+	home := paths.MemoryStoreDir()
 	old := now.AddDate(0, 0, -(accessRotateDays + 1))
 	logAccess(home, old, "aa000001", accessRecall)
 	logAccess(home, old, "cc000003", AccessSearch)
@@ -63,7 +64,7 @@ func assertHotNomination(t *testing.T, now time.Time) {
 func TestAccessLogConcurrentRotationRotatesOnce(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 10, 29, 12, 0, 0, 0, time.UTC)
-	home := StoreDir()
+	home := paths.MemoryStoreDir()
 	logAccess(home, now.AddDate(0, 0, -(accessRotateDays+1)), "aa000001", accessRecall)
 	const writers = 16
 	var wg sync.WaitGroup
@@ -84,7 +85,7 @@ func TestAccessLogConcurrentRotationRotatesOnce(t *testing.T) {
 func TestLogHitsCreditsTheOneBank(t *testing.T) {
 	isolatedConfig1(t)
 	initStore(t)
-	write(t, Sub("archive", "old.md"), "# A\n\n## 2026-01-01 — zebra archived quota <!-- id:bbbb0001 -->\n\nzebra quota\n")
+	write(t, paths.MemorySub("archive", "old.md"), "# A\n\n## 2026-01-01 — zebra archived quota <!-- id:bbbb0001 -->\n\nzebra quota\n")
 	write(t, Path("decisionLog.md"), "# D\n\n## 2026-01-01 — zebra live quota <!-- id:bbbb0003 -->\n\nzebra quota\n")
 	now := time.Now()
 	logHits(searchAll("zebra quota", 0), AccessSearch, now, "")
@@ -119,7 +120,7 @@ func TestLogAccessAndAccessStatsAt(t *testing.T) {
 func TestAccessNominationsHotAndCold(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	dir := StoreDir()
+	dir := paths.MemoryStoreDir()
 	for d := range 5 {
 		logAccess(dir, now.AddDate(0, 0, -d), "aa11bb22", accessRecall)
 	}
@@ -155,7 +156,7 @@ func TestLogAccessRecallInjectOncePerEntryPerDay(t *testing.T) {
 func TestAccessNominationsSurviveBusyDays(t *testing.T) {
 	tempConfig(t)
 	now := time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)
-	dir := StoreDir()
+	dir := paths.MemoryStoreDir()
 	logAccess(dir, now.AddDate(0, 0, -(coldDays+5)), "ee55ff66", accessRecall)
 	for d := range hotMinDays {
 		for range 50 {

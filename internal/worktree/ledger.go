@@ -31,7 +31,7 @@ type ledgerCandidate struct{ file, date, repo string }
 
 // ledgerPath is name's ledger for the repo at main (newest match), or a new one dated now.
 func ledgerPath(main, name string, now time.Time) string {
-	cands := ledgerCandidates(memory.SubDir("worktrees"), name)
+	cands := ledgerCandidates(paths.MemorySubDir("worktrees"), name)
 	var own, unowned *ledgerCandidate
 	for i, c := range cands {
 		switch {
@@ -45,16 +45,16 @@ func ledgerPath(main, name string, now time.Time) string {
 		own = unowned
 	}
 	if own != nil {
-		return memory.Sub("worktrees", own.file)
+		return paths.MemorySub("worktrees", own.file)
 	}
 	if now.IsZero() {
 		now = time.Now()
 	}
 	file := now.Format("2006-01-02") + "-" + name + ".md"
-	if _, err := os.Stat(memory.Sub("worktrees", file)); err == nil {
+	if _, err := os.Stat(paths.MemorySub("worktrees", file)); err == nil {
 		file = now.Format("2006-01-02") + "-" + name + "-" + filepath.Base(main) + ".md"
 	}
-	return memory.Sub("worktrees", file)
+	return paths.MemorySub("worktrees", file)
 }
 
 // newerLedger is the later-dated of a and b (a nil loses; the later file name wins a tie).
