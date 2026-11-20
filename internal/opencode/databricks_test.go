@@ -1,6 +1,7 @@
 package opencode
 
 import (
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -10,6 +11,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -96,5 +98,37 @@ func TestOpencodeDatabricksRunsUnknownFamilyMember(t *testing.T) {
 	}
 	if _, err := opencodeDatabricks(p, "harness-dev", providers.ProtocolOpenAI, p.BaseURL, "databricks-gpt-7-nova", "", false, nil); err == nil {
 		t.Error("an off-menu id outside every family must stay refused")
+	}
+}
+
+func TestMenuEntriesCarryCatalogLimits(t *testing.T) {
+	menu := []providers.OpencodeModel{{ID: "claude-opus-5-5", Label: "Opus"}, {ID: "glm-5-2", Label: "GLM", Responses: true}}
+	p := regressionDatabricksProfile(t, "qa-lim", menu)
+	body := string(regressionGeneratedMenu(t, p, "glm-5-2"))
+	var cfg struct {
+		Provider map[string]struct {
+			Models map[string]struct {
+				Limit *struct{ Context, Output int } `json:"limit"`
+			} `json:"models"`
+		} `json:"provider"`
+	}
+	if err := json.Unmarshal([]byte(body), &cfg); err != nil {
+		t.Fatal(err)
+	}
+	lim, known := models.Limits("claude-opus-5-5")
+	if !known {
+		t.Fatal("catalog lacks claude-opus-5-5 limits")
+	}
+	got := map[string]*struct{ Context, Output int }{}
+	for _, prov := range cfg.Provider {
+		for id, m := range prov.Models {
+			got[id] = m.Limit
+		}
+	}
+	if o := got["databricks-claude-opus-5-5"]; o == nil || o.Context != lim.Context || o.Output != lim.Output {
+		t.Errorf("opus limit = %+v, want %+v", o, lim)
+	}
+	if g, ok := got["databricks-glm-5-2"]; !ok || g != nil {
+		t.Errorf("glm entry present=%v limit=%+v, want present without a limit", ok, g)
 	}
 }
