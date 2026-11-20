@@ -127,9 +127,10 @@ func VerifyCommit(ctx context.Context, top, sha string, tasks []plans.Task) (map
 		return nil, fmt.Errorf("not a commit sha: %q", sha)
 	}
 	root := filepath.Join(paths.StateDir(), "verify")
-	pruneTrees(ctx, top, root)
+	treeRoot := filepath.Join(os.TempDir(), "claude-code-verify")
+	pruneTrees(ctx, top, root, treeRoot)
 	own := sha[:min(12, len(sha))] + "-" + strconv.Itoa(os.Getpid())
-	dir, release, err := acquireTree(ctx, top, root, sha, own)
+	dir, release, err := acquireTree(ctx, top, treeRoot, sha, own)
 	if err != nil {
 		return nil, err
 	}
@@ -148,9 +149,18 @@ func VerifyCommit(ctx context.Context, top, sha string, tasks []plans.Task) (map
 	return out, nil
 }
 
-// pruneTrees removes scratch trees whose verifier pid is gone (killed or crashed) and outputs past their keep.
-func pruneTrees(ctx context.Context, top, root string) {
+// pruneTrees removes in-repo trees, trees whose verifier pid is gone, and outputs past their keep.
+func pruneTrees(ctx context.Context, top, root, treeRoot string) {
+	// in-repo trees and slots are from before snapshots moved out of the module; go build and gopls walk into them
+	old, _ := filepath.Glob(filepath.Join(root, "slot-*-[0-9]"))
+	for _, t := range old {
+		removeTree(ctx, top, t)
+	}
 	trees, _ := filepath.Glob(filepath.Join(root, "tree-*"))
+	for _, t := range trees {
+		removeTree(ctx, top, t)
+	}
+	trees, _ = filepath.Glob(filepath.Join(treeRoot, "tree-*"))
 	for _, t := range trees {
 		pid, err := strconv.Atoi(t[strings.LastIndexByte(t, '-')+1:])
 		if _, serr := proc.StartTime(pid); err != nil || errors.Is(serr, proc.ErrNoProcess) {
