@@ -70,10 +70,13 @@ Shared flags and the headless `ask` table: `skills/subagent-workflows/references
   process with the user's privileges; it is not sandboxed and the guard does not judge it.** It can run code on
   load, patch the guard, read the environment and make network calls. The automatic review covers only manifest
   keys, whether code ships and the exact version; the owner's approval is the only control. Full rules:
-  `/Users/edotau/.claude/rules/harness/agent.md` → pi packages. Never approve a package yourself.
+  `/Users/edotau/.claude/rules/harness/agent.md` → pi packages. Never pin or approve a package yourself: `configure`
+  refuses `packages` and `packages_approved` inside a dispatch; only the owner's own session sets them.
   A dispatch passes `--no-context-files` (CLAUDE.md and AGENTS.md are not loaded), `--no-mcp` and
   `--no-approve --no-extensions --no-skills --no-prompt-templates --no-themes`
-  (the work dir's `.pi` extensions, packages and settings never load).
+  (the work dir's `.pi` extensions, packages and settings never load). The prompt goes after `--`, so Pi never
+  reads it as a flag; `claude-code pi` passes Pi only allow-listed flags (`-c`, `-r`, `--session`, `--name`,
+  `--thinking`, `-p`, `--verbose`, `--offline`).
 - Pi exits 0 even when a request fails; the harness judges the run from Pi's JSON event stream: `toolUse` left
   unsettled and unknown stop reasons fail too.
 - `--effort` maps to Pi's `--thinking` levels (minimal, low, medium, high, xhigh, max).

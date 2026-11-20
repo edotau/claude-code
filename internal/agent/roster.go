@@ -68,6 +68,9 @@ type CLI struct {
 	// ExtraCheck validates one extras value by key, after the allowed-value list; "" (clearing) skips it.
 	ExtraCheck map[string]func(string) error
 
+	// ExtraOwnerOnly are extras keys only the owner's own session writes; configure refuses them inside a dispatch.
+	ExtraOwnerOnly []string
+
 	// Flags are the long flags the adapter passes, each named here once; doctor checks them against HelpArgv's output.
 	Flags    []string
 	HelpArgv []string // the help subcommand listing Flags; nil = --help
@@ -215,6 +218,8 @@ func cloneSchema(s Schema) Schema {
 	s.CLI.PinIDs = slices.Clone(s.CLI.PinIDs)
 	s.CLI.LoginArgv = slices.Clone(s.CLI.LoginArgv)
 	s.CLI.ExtraUsage = slices.Clone(s.CLI.ExtraUsage)
+	// ExtraCheck stays shared: its values are funcs, which a copy could not compare equal
+	s.CLI.Extras, s.CLI.ExtraOwnerOnly = maps.Clone(s.CLI.Extras), slices.Clone(s.CLI.ExtraOwnerOnly)
 	return s
 }
 

@@ -1,7 +1,9 @@
 package pi
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -34,17 +36,20 @@ func PackageStatus() ([]PkgStatus, error) {
 	if err != nil {
 		return nil, err
 	}
-	return statusIn(packageStore(), paths.ConfigDir(), wanted, approved), nil
+	return statusIn(packageStore(), paths.ConfigDir(), wanted, approved)
 }
 
-func statusIn(store, configDir string, wanted, approved []Package) []PkgStatus {
+func statusIn(store, configDir string, wanted, approved []Package) ([]PkgStatus, error) {
 	var out []PkgStatus
 	keep := map[string]bool{}
 	for _, p := range wanted {
 		keep[slotName(p)] = true
 		out = append(out, pkgStatus(store, configDir, p, approved))
 	}
-	ents, _ := os.ReadDir(store)
+	ents, err := os.ReadDir(store)
+	if err != nil && !errors.Is(err, fs.ErrNotExist) { // an unreadable store is a problem even with nothing pinned
+		return out, fmt.Errorf("pi package store: %w", err)
+	}
 	for _, e := range ents {
 		if !slotRe.MatchString(e.Name()) || keep[e.Name()] {
 			continue
@@ -54,9 +59,10 @@ func statusIn(store, configDir string, wanted, approved []Package) []PkgStatus {
 		if s == "" {
 			s = e.Name()
 		}
-		out = append(out, PkgStatus{Spec: s, Installed: true, Stale: true, Problem: "stale slot not in the list; removed on the next pi launch"})
+		out = append(out, PkgStatus{Spec: s, Installed: true, Stale: true, Problem: "stale slot not in the list; " +
+			"`claude-code clean` removes it once no pi run is live"})
 	}
-	return out
+	return out, nil
 }
 
 func pkgStatus(store, configDir string, p Package, approved []Package) PkgStatus {
@@ -77,9 +83,8 @@ func pkgStatus(store, configDir string, p Package, approved []Package) PkgStatus
 	}
 	st.Installed, st.ShipsCode = true, rv.ShipsCode
 	st.Kinds = reviewKinds(rv)
-	if p.Kind == KindNPM && (rv.Name != p.Name || rv.Version != p.Version) {
-		st.VersionMismatch = true
-		st.Problem = fmt.Sprintf("installed %s@%s differs from the pin", rv.Name, rv.Version)
+	if err := checkPin(p, dir, rv); err != nil { // the same name, version and commit check a launch runs
+		st.VersionMismatch, st.Problem = true, err.Error()
 	} else if rv.ShipsCode && !st.Approved {
 		st.Problem = "ships code and is not approved"
 	}

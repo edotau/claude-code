@@ -1,10 +1,11 @@
 // Pi guard extension (internal/pi/guard.go renders the __ constants): the only tools Pi has are these, each judged first.
 import { execFileSync } from "node:child_process"
-import { existsSync, writeFileSync } from "node:fs"
+import { existsSync, realpathSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
 import * as pkg from "@earendil-works/pi-coding-agent"
 
-const SELF: string = fileURLToPath(import.meta.url)
+// Pi imports an -e file by its real path but reports the path as given, so both sides compare as real paths
+const SELF: string = realpathSync(fileURLToPath(import.meta.url))
 const BIN: string = __BIN__
 const VERIFIED_PI: string = __PI_VERSION__ // the Pi version whose tool code this guard was checked against
 const BUDGET_MS: number = __BUDGET_MS__
@@ -58,8 +59,14 @@ export default function (pi: any) {
     pi.registerTool(guarded(name, make(process.cwd())))
   }
   // pi.getAllTools() throws while extensions load, so a tool registered ahead of the guard is caught once Pi is bound
+  const reals = new Map<string, string>()
+  const real = (p: string): string => { // fail closed: a path that does not resolve is "" and never matches SELF
+    if (!reals.has(p)) { try { reals.set(p, realpathSync(p)) } catch { reals.set(p, "") } }
+    return reals.get(p)!
+  }
   const ours = (name: string): boolean => {
-    try { return pi.getAllTools().find((t: any) => t.name === name)?.sourceInfo?.path === SELF } catch { return false } // fail closed
+    try { const p = pi.getAllTools().find((t: any) => t.name === name)?.sourceInfo?.path; return typeof p === "string" && real(p) === SELF }
+    catch { return false } // fail closed
   }
   // second layer: a call is judged only when the tool Pi runs under that name is the guard's own registration
   pi.on("tool_call", (ev: any) => names.includes(String(ev.toolName)) && ours(String(ev.toolName)) ? undefined

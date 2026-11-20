@@ -1,6 +1,7 @@
 package pi
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -18,6 +19,8 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/schemas"
 )
@@ -26,6 +29,8 @@ import (
 const (
 	specMarker     = ".spec" // written last: a slot without it is a partial install and is removed
 	installTimeout = 10 * time.Minute
+	walkLimit      = 20_000 // entries a no-code package's link check visits; a bigger package is refused
+	walkDepth      = 32     // directory levels the same check descends
 )
 
 var (
@@ -37,18 +42,21 @@ var (
 
 var _ = schemas.Register(schemas.Format{
 	Name: "pi-packages", Owner: "internal/pi", Kind: schemas.Derived,
-	Glob:    func() string { return filepath.Join(paths.StateDir(), "pi", "packages", "*", specMarker) },
-	Version: 1, Keep: "pinned package store: the next sync removes any slot the record no longer lists",
+	Glob:    func() string { return filepath.Join(packageStore(), "*", specMarker) },
+	Version: 1, Keep: "pinned package store: `clean` removes a slot the record no longer lists while no pi run is live",
 })
 
-// installPackage fills slot with p; tests replace it. Lifecycle scripts must stay off whatever it does.
-var installPackage = runInstaller
+// fetchPackage puts p's files in slot (npm: package and deps; git: pinned checkout), scripts off; tests replace it.
+var fetchPackage = runFetch
+
+// installDeps installs an approved git package's dependencies in dir; tests replace it.
+var installDeps = runDeps
 
 // Review is what an installed package declares, read from its package.json alone.
 type Review struct {
 	Name, Version                       string
 	Extensions, Skills, Prompts, Themes []string
-	ShipsCode                           bool
+	ShipsCode, HasDeps                  bool
 	CodeReasons                         []string
 	Resolved, Integrity                 string // npm lockfile fields, informational
 }
@@ -61,24 +69,49 @@ type Loaded struct {
 }
 
 type manifest struct {
-	Name    string                     `json:"name"`
-	Version string                     `json:"version"`
-	Bin     json.RawMessage            `json:"bin"`
-	Scripts map[string]json.RawMessage `json:"scripts"`
-	Pi      map[string]json.RawMessage `json:"pi"`
+	Name, Version  string
+	Bin            json.RawMessage
+	Scripts        map[string]json.RawMessage
+	Pi             map[string]json.RawMessage
+	HasPi, HasDeps bool
+}
+
+// readManifest decodes package.json by exact key as Node does; Go's struct decoding would fold "PI" into "pi".
+func readManifest(dir string) (manifest, error) {
+	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	if err != nil {
+		return manifest{}, fmt.Errorf("package review: %w", err)
+	}
+	var top map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &top); err != nil || top == nil {
+		return manifest{}, fmt.Errorf("package review: %s/package.json is not a JSON object: %v", dir, err)
+	}
+	var m manifest
+	_ = json.Unmarshal(top["name"], &m.Name) // a non-string name stays "", which no npm pin matches
+	_ = json.Unmarshal(top["version"], &m.Version)
+	_ = json.Unmarshal(top["scripts"], &m.Scripts)
+	var deps map[string]json.RawMessage
+	m.HasDeps = json.Unmarshal(top["dependencies"], &deps) == nil && len(deps) > 0
+	m.Bin = top["bin"]
+	pi, ok := top["pi"]
+	if !ok {
+		return m, nil
+	}
+	// fail closed: Pi auto-discovers code when pi is not an object (null, array), so only an object is accepted
+	if !bytes.HasPrefix(bytes.TrimSpace(pi), []byte("{")) || json.Unmarshal(pi, &m.Pi) != nil {
+		return manifest{}, fmt.Errorf("package review: %s: pi must be an object", dir)
+	}
+	m.HasPi = true
+	return m, nil
 }
 
 // ReviewPackage reads dir's package.json; an unreadable or malformed manifest is an error, never "no code".
 func ReviewPackage(dir string) (Review, error) {
-	raw, err := os.ReadFile(filepath.Join(dir, "package.json"))
+	m, err := readManifest(dir)
 	if err != nil {
-		return Review{}, fmt.Errorf("package review: %w", err)
+		return Review{}, err
 	}
-	var m manifest
-	if err := json.Unmarshal(raw, &m); err != nil {
-		return Review{}, fmt.Errorf("package review: %s/package.json: %w", dir, err)
-	}
-	r := Review{Name: m.Name, Version: m.Version}
+	r := Review{Name: m.Name, Version: m.Version, HasDeps: m.HasDeps}
 	dst := map[string]*[]string{"extensions": &r.Extensions, "skills": &r.Skills, "prompts": &r.Prompts, "themes": &r.Themes}
 	declared := false
 	for _, k := range resourceKeys {
@@ -87,12 +120,18 @@ func ReviewPackage(dir string) (Review, error) {
 			continue
 		}
 		declared = true
-		if err := json.Unmarshal(v, dst[k]); err != nil || slices.ContainsFunc(*dst[k], escapes) {
+		// fail closed: pi-manifest.js keeps a field only when it is an array of strings, else Pi auto-discovers
+		if !bytes.HasPrefix(bytes.TrimSpace(v), []byte("[")) || json.Unmarshal(v, dst[k]) != nil || slices.ContainsFunc(*dst[k], escapes) {
 			return Review{}, fmt.Errorf("package review: %s: pi.%s must be an array of paths inside the package", dir, k)
 		}
 	}
 	r.CodeReasons = codeReasons(dir, m, r, declared)
 	r.ShipsCode = len(r.CodeReasons) > 0
+	if !r.ShipsCode { // approved code may do anything; a no-code package must not reach outside itself
+		if err := checkLinks(dir); err != nil {
+			return Review{}, err
+		}
+	}
 	return r, nil
 }
 
@@ -102,7 +141,34 @@ func escapes(p string) bool {
 	return filepath.IsAbs(p) || strings.HasPrefix(p, "/") || slices.Contains(seg, "..")
 }
 
-// autoCode is the code Pi finds without a pi manifest: an extensions/ dir, or the package dir itself when none exist.
+// checkLinks refuses a symlink whose target leaves the package: Pi follows links when it collects resource files.
+func checkLinks(dir string) error {
+	root, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return fmt.Errorf("package review: %w", err)
+	}
+	n := 0
+	return filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(root, p)
+		// fail closed: a tree too big or too deep to check is refused, never loaded unchecked
+		if n++; n > walkLimit || strings.Count(rel, string(filepath.Separator)) > walkDepth {
+			return fmt.Errorf("package review: %s is over %d entries or %d levels deep; refused", dir, walkLimit, walkDepth)
+		}
+		if d.Type()&fs.ModeSymlink == 0 {
+			return nil
+		}
+		// fail closed: a dangling link or one resolving outside the package is refused
+		if t, err := filepath.EvalSymlinks(p); err != nil || !paths.Within(t, root) {
+			return fmt.Errorf("package review: %s: symlink %s points outside the package", dir, rel)
+		}
+		return nil
+	})
+}
+
+// autoCode is what Pi's collectPackageResources finds with no manifest: extensions/, else the dir itself as one.
 func autoCode(dir string) []string {
 	has := func(k string) bool { _, err := os.Stat(filepath.Join(dir, k)); return err == nil }
 	if has("extensions") {
@@ -154,7 +220,25 @@ func PackageArgv(loaded []Loaded) []string {
 	return argv
 }
 
-func packageStore() string { return filepath.Join(paths.StateDir(), "pi", "packages") }
+func packageStore() string { return storeUnder(paths.StateDir()) }
+
+func storeUnder(root string) string { return filepath.Join(root, "pi", "packages") }
+
+// checkStore refuses a store whose real path is not strictly inside root's real path (a symlinked store or pi dir).
+func checkStore(root, store string) error {
+	r, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		return fmt.Errorf("package store: %w", err)
+	}
+	s, err := filepath.EvalSymlinks(store)
+	if err != nil {
+		return fmt.Errorf("package store: %w", err)
+	}
+	if s == r || !paths.Within(s, r) {
+		return fmt.Errorf("package store: %s resolves to %s, outside %s; refusing to install or remove", store, s, r)
+	}
+	return nil
+}
 
 func slotName(p Package) string {
 	sum := sha256.Sum256([]byte(p.Spec))
@@ -185,9 +269,31 @@ func removeSlot(store, slot string) error {
 	return os.RemoveAll(slot)
 }
 
-// SyncPackages leaves the store holding exactly the reviewed, approved pins; any error means do not launch.
+// KeepSlot is clean's keep test: false only for a slot the Pi record no longer lists, in a store inside the state dir.
+func KeepSlot(path string) bool {
+	rec, err := agentconfig.Settings(agentid.Pi)
+	if err != nil {
+		return true // fail closed: an unreadable record keeps every slot
+	}
+	wanted, err := ParsePackages(rec.Extras[extraPackages])
+	return err != nil || keepSlotIn(paths.StateDir(), path, wanted)
+}
+
+// keepSlotIn keeps anything that is not a real slot directly in a store whose real path sits inside root's.
+func keepSlotIn(root, path string, wanted []Package) bool {
+	store := storeUnder(root)
+	if filepath.Dir(filepath.Clean(path)) != store || !slotRe.MatchString(filepath.Base(path)) || checkStore(root, store) != nil {
+		return true
+	}
+	if fi, err := os.Lstat(path); err != nil || fi.Mode()&fs.ModeSymlink != 0 {
+		return true
+	}
+	return slices.ContainsFunc(wanted, func(p Package) bool { return slotName(p) == filepath.Base(path) })
+}
+
+// SyncPackages installs missing pins and returns the approved ones (error: no launch); `clean` prunes, never a launch.
 func SyncPackages(ctx context.Context, w io.Writer, configDir string, wanted, approved []Package) ([]Loaded, error) {
-	return syncIn(ctx, w, packageStore(), configDir, wanted, approved)
+	return syncIn(ctx, w, paths.StateDir(), configDir, wanted, approved)
 }
 
 // syncer is one sync's fixed inputs.
@@ -197,19 +303,20 @@ type syncer struct {
 	approved         []Package
 }
 
-func syncIn(ctx context.Context, w io.Writer, store, configDir string, wanted, approved []Package) ([]Loaded, error) {
-	if _, err := os.Stat(store); errors.Is(err, fs.ErrNotExist) && len(wanted) == 0 {
-		return nil, nil
+func syncIn(ctx context.Context, w io.Writer, root, configDir string, wanted, approved []Package) ([]Loaded, error) {
+	if len(wanted) == 0 {
+		return nil, nil // nothing pinned touches no store, lock or install
 	}
+	store := storeUnder(root)
 	if err := os.MkdirAll(store, 0o700); err != nil {
+		return nil, err
+	}
+	if err := checkStore(root, store); err != nil {
 		return nil, err
 	}
 	var out []Loaded
 	sy := syncer{w, store, configDir, approved}
 	err := paths.WithFileLock(filepath.Join(store, "sync"), func() error {
-		if err := pruneStore(w, store, wanted); err != nil {
-			return err
-		}
 		for _, p := range wanted {
 			l, err := sy.one(ctx, p)
 			if err != nil {
@@ -225,78 +332,63 @@ func syncIn(ctx context.Context, w io.Writer, store, configDir string, wanted, a
 	return out, nil
 }
 
-// pruneStore removes every slot no wanted pin owns.
-func pruneStore(w io.Writer, store string, wanted []Package) error {
-	keep := map[string]bool{}
-	for _, p := range wanted {
-		keep[slotName(p)] = true
+// one reviews p every time; a complete slot failing a check stays for clean (a live run may load it) but never loads.
+func (sy syncer) one(ctx context.Context, p Package) (Loaded, error) {
+	if p.Kind == KindLocal {
+		return sy.review(p, p.LocalPath(sy.configDir))
 	}
-	ents, err := os.ReadDir(store)
+	slot := filepath.Join(sy.store, slotName(p))
+	if b, err := os.ReadFile(filepath.Join(slot, specMarker)); err == nil && string(b) == p.Spec {
+		return sy.review(p, packageDir(slot, p))
+	}
+	l, err := sy.install(ctx, p, slot)
 	if err != nil {
-		return err
+		return Loaded{}, errors.Join(err, removeSlot(sy.store, slot)) // a fresh slot no run has loaded
 	}
-	for _, e := range ents {
-		if !slotRe.MatchString(e.Name()) || keep[e.Name()] {
-			continue
-		}
-		slot := filepath.Join(store, e.Name())
-		spec, _ := os.ReadFile(filepath.Join(slot, specMarker))
-		if err := removeSlot(store, slot); err != nil {
-			return err
-		}
-		fmt.Fprintf(w, "pi packages: removed %s\n", strings.TrimSpace(string(spec))+" ("+e.Name()+")")
-	}
-	return nil
+	return l, nil
 }
 
-// one installs p if missing, reviews it every time; a managed slot failing any check is removed (fail closed).
-func (sy syncer) one(ctx context.Context, p Package) (l Loaded, err error) {
-	dir, slot := p.LocalPath(sy.configDir), ""
-	if p.Kind != KindLocal {
-		slot = filepath.Join(sy.store, slotName(p))
-		defer func() {
-			if err != nil {
-				err = errors.Join(err, removeSlot(sy.store, slot))
-			}
-		}()
-		if err = ensureInstalled(ctx, sy.w, slot, p); err != nil {
-			return l, err
-		}
-		dir = packageDir(slot, p)
-	}
+// review checks the package at dir against its pin and the approvals.
+func (sy syncer) review(p Package, dir string) (Loaded, error) {
 	rv, err := ReviewPackage(dir)
 	if err != nil {
-		return l, fmt.Errorf("%s: %w", p.Spec, err)
+		return Loaded{}, fmt.Errorf("%s: %w", p.Spec, err)
 	}
 	if err = checkPin(p, dir, rv); err != nil {
-		return l, err
+		return Loaded{}, err
 	}
 	if rv.ShipsCode && !Approved(p.Spec, sy.approved) {
-		return l, unapprovedError(p, rv, sy.approved)
+		return Loaded{}, unapprovedError(p, rv, sy.approved)
 	}
-	if slot != "" {
-		rv.Resolved, rv.Integrity = lockEntry(slot, p.Name)
+	if p.Kind == KindNPM {
+		rv.Resolved, rv.Integrity = lockEntry(filepath.Join(sy.store, slotName(p)), p.Name)
 	}
 	return Loaded{Pkg: p, Dir: dir, Review: rv}, nil
 }
 
-// ensureInstalled does nothing (no output, no network) when slot is complete for exactly p.Spec.
-func ensureInstalled(ctx context.Context, w io.Writer, slot string, p Package) error {
-	if b, err := os.ReadFile(filepath.Join(slot, specMarker)); err == nil && string(b) == p.Spec {
-		return nil
-	}
-	store := filepath.Dir(slot)
-	if err := removeSlot(store, slot); err != nil { // a partial slot from a crashed install
-		return err
+// install fetches p into a fresh slot and reviews it; only then does an approved git package get its dependencies.
+func (sy syncer) install(ctx context.Context, p Package, slot string) (Loaded, error) {
+	if err := removeSlot(sy.store, slot); err != nil { // a partial slot from a crashed install
+		return Loaded{}, err
 	}
 	if err := os.Mkdir(slot, 0o700); err != nil {
-		return err
+		return Loaded{}, err
 	}
-	fmt.Fprintf(w, "pi packages: installing %s\n", p.Spec)
-	if err := installPackage(ctx, w, p, slot, installEnv(ctx)); err != nil {
-		return fmt.Errorf("install %s: %w", p.Spec, err)
+	fmt.Fprintf(sy.w, "pi packages: installing %s\n", p.Spec)
+	env := installEnv(ctx)
+	if err := fetchPackage(ctx, sy.w, p, slot, env); err != nil {
+		return Loaded{}, fmt.Errorf("install %s: %w", p.Spec, err)
 	}
-	return os.WriteFile(filepath.Join(slot, specMarker), []byte(p.Spec), 0o600)
+	l, err := sy.review(p, packageDir(slot, p))
+	if err != nil {
+		return Loaded{}, err
+	}
+	if p.Kind == KindGit && l.Review.ShipsCode && l.Review.HasDeps { // reviewed and approved: code with dependencies
+		if err := installDeps(ctx, sy.w, l.Dir, env); err != nil {
+			return Loaded{}, fmt.Errorf("install %s dependencies: %w", p.Spec, err)
+		}
+	}
+	return l, os.WriteFile(filepath.Join(slot, specMarker), []byte(p.Spec), 0o600)
 }
 
 // checkPin refuses an installed package whose name, version or commit is not exactly the pin.
@@ -306,7 +398,7 @@ func checkPin(p Package, dir string, rv Review) error {
 		if rv.Name != p.Name || rv.Version != p.Version {
 			return fmt.Errorf("%s: installed %s@%s does not match the pin", p.Spec, rv.Name, rv.Version)
 		}
-	case KindGit:
+	case KindGit: // a detached HEAD file holds the checked-out commit: the rev-parse HEAD check without a spawn
 		head, err := os.ReadFile(filepath.Join(dir, ".git", "HEAD"))
 		if got := strings.TrimSpace(string(head)); err != nil || !hex40.MatchString(got) || got != p.Version {
 			return fmt.Errorf("%s: checked-out commit %q does not match the pin", p.Spec, got)
@@ -337,35 +429,62 @@ func lockEntry(root, name string) (resolved, integrity string) {
 	return "", ""
 }
 
-// installEnv is the installer's env: no credentials (the vendor-installer scrub) and npm lifecycle scripts off.
+// installEnv is the installer's env: the credential scrub, no inherited npm or git config, scripts and prompts off.
 func installEnv(ctx context.Context) []string {
-	return agent.EnvSpec{Mode: agent.EnvAgent, Set: []string{"npm_config_ignore_scripts=true", "GIT_TERMINAL_PROMPT=0"}}.
-		Environ(agent.ProbeContext(ctx, ""))
+	env := slices.DeleteFunc(agent.EnvSpec{Mode: agent.EnvAgent}.Environ(agent.ProbeContext(ctx, "")), func(kv string) bool {
+		k := strings.ToUpper(kv[:max(strings.IndexByte(kv, '='), 0)])
+		return strings.HasPrefix(k, "NPM_CONFIG_") || strings.HasPrefix(k, "GIT_")
+	})
+	return append(env, "npm_config_ignore_scripts=true", "GIT_TERMINAL_PROMPT=0", "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL="+os.DevNull)
 }
 
-// npmInstallArgs mirrors Pi's own managed install, plus --ignore-scripts as the flag, which beats any env or .npmrc.
+// npmFlags keep npm off lifecycle scripts and every user or global npmrc; the flag beats any env or project config.
+var npmFlags = []string{"--ignore-scripts", "--userconfig=" + os.DevNull, "--globalconfig=" + os.DevNull,
+	"--legacy-peer-deps", "--no-audit", "--no-fund"}
+
+// npmInstallArgs mirrors Pi's own managed install under npmFlags; run from the slot, which holds no .npmrc.
 func npmInstallArgs(specs []string, prefix string) []string {
-	return append(append([]string{"install"}, specs...), "--prefix", prefix, "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund")
+	return append(append(append([]string{"install"}, specs...), "--prefix", prefix), npmFlags...)
 }
 
-func runInstaller(ctx context.Context, w io.Writer, p Package, slot string, env []string) error {
+// gitArgv is one git command with repo hooks, fsmonitor, file/ext transports, symlinks and submodules off.
+func gitArgv(args ...string) []string {
+	return append([]string{"git", "-c", "core.hooksPath=" + os.DevNull, "-c", "core.fsmonitor=false",
+		"-c", "protocol.file.allow=never", "-c", "protocol.ext.allow=never", "-c", "core.symlinks=false",
+		"-c", "submodule.recurse=false"}, args...)
+}
+
+func runFetch(ctx context.Context, w io.Writer, p Package, slot string, env []string) error {
 	if p.Kind == KindGit {
-		repo := packageDir(slot, p)
-		if err := runCmd(ctx, w, slot, env, "git", "clone", "--no-checkout", "https://"+p.Name, repo); err != nil {
-			return err
-		}
-		if err := runCmd(ctx, w, repo, env, "git", "checkout", "--detach", p.Version); err != nil {
-			return err
-		}
-		if _, err := os.Stat(filepath.Join(repo, "package.json")); err != nil {
-			return nil
-		}
-		return runCmd(ctx, w, repo, env, "npm", "install", "--omit=dev", "--ignore-scripts", "--legacy-peer-deps", "--no-audit", "--no-fund")
+		return fetchGit(ctx, w, p, packageDir(slot, p), env)
 	}
 	if err := os.WriteFile(filepath.Join(slot, "package.json"), []byte(`{"name":"pi-extensions","private":true}`), 0o600); err != nil {
 		return err
 	}
 	return runCmd(ctx, w, slot, env, append([]string{"npm"}, npmInstallArgs([]string{p.Name + "@" + p.Version}, slot)...)...)
+}
+
+// fetchGit checks out the pinned commit: a shallow fetch of it, else the branch heads; no tags or submodules.
+func fetchGit(ctx context.Context, w io.Writer, p Package, repo string, env []string) error {
+	url := "https://" + p.Name
+	if err := runCmd(ctx, w, filepath.Dir(repo), env, gitArgv("init", "-q", "--template=", repo)...); err != nil {
+		return err
+	}
+	fetch := []string{"fetch", "-q", "--no-tags", "--no-recurse-submodules"}
+	if err := runCmd(ctx, w, repo, env, gitArgv(append(fetch, "--depth=1", url, p.Version)...)...); err != nil {
+		if err := runCmd(ctx, w, repo, env, gitArgv(append(fetch, url, "+refs/heads/*:refs/remotes/origin/*")...)...); err != nil {
+			return err
+		}
+	}
+	return runCmd(ctx, w, repo, env, gitArgv("checkout", "-q", "--detach", p.Version)...)
+}
+
+// runDeps installs a reviewed, approved git package's dependencies; fail closed: a repo .npmrc would configure npm.
+func runDeps(ctx context.Context, w io.Writer, dir string, env []string) error {
+	if _, err := os.Lstat(filepath.Join(dir, ".npmrc")); !errors.Is(err, fs.ErrNotExist) {
+		return fmt.Errorf("%s ships an .npmrc; the harness never installs dependencies under a repo's own npm config", dir)
+	}
+	return runCmd(ctx, w, dir, env, append([]string{"npm", "install", "--omit=dev"}, npmFlags...)...)
 }
 
 func runCmd(ctx context.Context, w io.Writer, dir string, env []string, argv ...string) error {

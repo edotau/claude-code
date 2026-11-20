@@ -6,6 +6,7 @@ import (
 	"maps"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
@@ -169,6 +170,9 @@ func checkExtras(agentName string, decl map[string][]string, check map[string]fu
 		if !ok {
 			want := cmp.Or(strings.Join(slices.Sorted(maps.Keys(decl)), ", "), "none")
 			return fmt.Errorf("%s: extras key %q unsupported (want %s)", agentName, k, want)
+		}
+		if strings.ContainsFunc(extras[k], unicode.IsControl) { // a newline would split a rendered TOML line or argv
+			return fmt.Errorf("%s: extras.%s: control characters are not allowed", agentName, k)
 		}
 		if v := extras[k]; v != "" && allowed != nil && !slices.Contains(allowed, v) {
 			return fmt.Errorf("%s: extras.%s %q: want one of %s", agentName, k, v, strings.Join(allowed, ", "))

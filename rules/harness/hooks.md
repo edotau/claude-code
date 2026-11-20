@@ -69,7 +69,8 @@ and a dispatch `--ask` rule is refused. Reply: one JSON line; only `{"allow":tru
 that path), `{"block":"<reason>"}` or anything else blocks. `docs-placement` and `worktree-claim-check` are not on
 Pi's list (plan NEXT); `safety-scan` stays Bash-only, as for codex and gemini: file edits meet `permission-gate`.
 Pi itself has no permission prompts and no sandbox: it runs with `--no-builtin-tools`, and the guard's seven tools are
-the only ones it has. Only calls of those seven are judged; a tool a package registers is blocked. The guard fails
+the only ones it has. Only calls of those seven are judged; a tool a package registers is blocked (the guard compares
+real paths, so a run dir reached through a symlink still matches its own tools). The guard fails
 closed: one that fails to load leaves Pi no tools, it refuses any Pi but the pinned one, and each dispatch checks a
 load nonce. `permission-gate` judges every tool; `safety-scan` judges bash. Pi tool to hook tool name:
 

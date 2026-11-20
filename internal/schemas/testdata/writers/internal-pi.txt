@@ -1,4 +1,4 @@
 internal/pi/config.go:WriteConfig	pi-config
 internal/pi/guard.go:WriteGuard	pi-guard
-internal/pi/pkginstall.go:ensureInstalled	pi-packages
-internal/pi/pkginstall.go:runInstaller	pi-packages
+internal/pi/pkginstall.go:install	pi-packages
+internal/pi/pkginstall.go:runFetch	pi-packages

@@ -3,7 +3,9 @@ package cli
 import (
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -56,7 +58,32 @@ func TestConfigureRecordExtras(t *testing.T) {
 	if run("packages=npm:foo@1.2.3") != 0 || pkgs() != "npm:foo@1.2.3" {
 		t.Fatalf("set stored %q", pkgs())
 	}
-	if run("packages=") != 0 || pkgs() != "" || vault.GetAgentRecord("pi").Extras != nil {
+	if run("packages=") != 0 || pkgs() != "" {
 		t.Errorf("clear left %v", vault.GetAgentRecord("pi").Extras)
+	}
+}
+
+// A control character never reaches a record, and a dispatched leaf cannot pin or approve a pi package.
+func TestConfigureRecordExtrasRefusals(t *testing.T) {
+	hosttest.PinScratch(t)
+	if cmdConfigure([]string{"agents", "codex", "sandboxMode=workspace-write\nx"}) == 0 {
+		t.Error("a control character in an extras value was stored")
+	}
+	t.Setenv(proc.DispatchIDEnv, "d-1")
+	if cmdConfigure([]string{"agents", "pi", "packages_approved=npm:foo@1.2.3"}) == 0 || vault.GetAgentRecord("pi").Extras["packages_approved"] != "" {
+		t.Error("a dispatched leaf approved a pi package")
+	}
+}
+
+// An empty value is stored, so it keeps unsetting a built-in: clearing sandboxMode must not restore danger-full-access.
+func TestConfigureRecordEmptyExtraUnsetsBuiltin(t *testing.T) {
+	hosttest.PinScratch(t)
+	if code := cmdConfigure([]string{"agents", "codex", "sandboxMode="}); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	ex, ok := vault.GetAgentRecord("codex").Extras["sandboxMode"]
+	rec, err := agentconfig.Settings("codex")
+	if !ok || ex != "" || err != nil || rec.Extras["sandboxMode"] != "" {
+		t.Errorf("stored %q (present %v), merged %q (%v); want the built-in unset", ex, ok, rec.Extras["sandboxMode"], err)
 	}
 }

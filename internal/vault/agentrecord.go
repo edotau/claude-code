@@ -81,20 +81,13 @@ func (r AgentRecord) WithPin(field, val string) AgentRecord {
 	return r
 }
 
-// WithExtra returns r with extras key set to val ("" removes it), leaving r's Extras map untouched.
+// WithExtra returns a copy with extras key set to val; a stored "" unsets a built-in (sandboxMode), so it is kept.
 func (r AgentRecord) WithExtra(key, val string) AgentRecord {
 	extras := maps.Clone(r.Extras)
-	if val == "" {
-		delete(extras, key)
-	} else {
-		if extras == nil {
-			extras = map[string]string{}
-		}
-		extras[key] = val
+	if extras == nil {
+		extras = map[string]string{}
 	}
-	if len(extras) == 0 {
-		extras = nil
-	}
+	extras[key] = val
 	r.Extras = extras
 	return r
 }

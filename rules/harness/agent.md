@@ -79,22 +79,36 @@ paths:
   no pin and no `--profile` it picks a profile from the Databricks pool and says which. Pi has no login of its own, so
   it never launches plain and `--direct` is refused. Context files (`AGENTS.md`, `CLAUDE.md`) load here, not in a
   dispatch; the work dir's `.pi` extensions, packages and settings never load. Sessions are kept in
-  `state/harness/pi/sessions`. `--print-env` is a preview: it leaves no run dir.
+  `state/harness/pi/sessions`. `--print-env` is a preview: it leaves no run dir. Pi args (after `--`, or the record's
+  `launch.args`) pass only from an allow-list: `-c`/`--continue`, `-r`/`--resume`, `--session <id>`,
+  `-n`/`--name <name>`, `--thinking <level>`, `-p`/`--print`, `--verbose`, `--offline` and a prompt; any other flag
+  (`-e`, `-a`/`--approve`, `--skill`, `--tools`, `--model`, `--mode`, ...) or `@file` is refused with the harness
+  way to do it. A dispatch passes its prompt after `--` (a prompt like `-a` stays text; a leading `@` gets a space).
 - **pi packages** — the owner pins an exact list in the Pi record:
   `claude-code configure agents pi packages=<spec>[,<spec>...]`. A spec is `npm:[@scope/]name@<exact x.y.z>`,
   `git:<host>/<owner>/<repo>@<40-hex commit>` (a branch or tag is refused: only a commit is immutable) or a local
   path (absolute or `./relative`, resolved against the config dir). Packages install into a private store in
-  `state/harness/pi/packages` with npm lifecycle scripts off and a credential-free environment. Every sync reviews
-  each package again. A package that ships code (extensions, a bare package dir Pi would load as an extension, a
-  `bin`, or lifecycle scripts) is removed again and the launch refused unless its exact spec is in
-  `packages_approved` (`claude-code configure agents pi packages_approved=<spec>`). Approval is per exact spec: a new
-  version needs a new approval. Nothing is updated automatically. Packages load after the guard, so a package cannot
-  replace a guarded tool; a package's own tools are blocked (its skills, prompts, themes and commands work).
+  `state/harness/pi/packages` (its real path must sit inside the state dir, else nothing installs or is removed),
+  credential-free. npm runs with `--ignore-scripts --userconfig=<null> --globalconfig=<null>` and no inherited
+  `npm_config_*`; git runs with system and global config off, hooks, fsmonitor, symlinks, submodules and the file and
+  ext transports off, fetching the pinned commit only (shallow, else the branch heads; no tags), and the checked-out
+  HEAD must equal the pin. A launch reviews each package again with Pi's own manifest rules (exact `pi` key, each
+  resource an array of strings, else refused) and refuses a no-code package with a symlink leaving it. A package that
+  ships code (extensions, a bare package dir Pi would load as an extension, a `bin`, or lifecycle scripts) is refused
+  (a fresh install is removed) unless its exact spec is in `packages_approved`
+  (`claude-code configure agents pi packages_approved=<spec>`); a git package's dependencies install only after that
+  approval, and never when the repo ships an `.npmrc`. Approval is per exact spec: a new version needs a new approval.
+  Only the owner's own session sets `packages` or `packages_approved`: `configure` refuses both inside a dispatch
+  (`HARNESS_DISPATCH_*` set; advisory: a leaf that unsets them, or an in-session subagent, is not caught). A launch
+  never removes a slot: `claude-code clean` (target `pi-packages`) removes slots the record no longer lists, only while
+  no pi run is live. Nothing is updated automatically. Packages load after the guard, so a package cannot replace a
+  guarded tool; a package's own tools are blocked (its skills, prompts, themes and commands work).
 - **pi package risk** — **a Pi package's extension code runs inside the Pi process with the user's privileges. It is
   not sandboxed and the guard does not judge it.** It can run code on load, patch the guard, read the environment and
   make network calls. The automatic review covers only manifest keys, whether code ships and the exact version. The
   owner's approval is the only control over what that code does. The content of a local-path package can change
-  after approval.
+  after approval and is not hashed: each launch re-reviews it (new code needs approval), but approved code that
+  changes, or changes during a run (`/reload`), loads unchecked.
 - `claude-code doctor --permissions` lists pi, the wave owned-files gate covers pi, and `doctor` has the rows
   `pi route`, `tool pi` and `pi packages`.
 - `agents ask --agents <json|file>` defines agents inline (`name`, `description`, `prompt`, `tools`, `model`,

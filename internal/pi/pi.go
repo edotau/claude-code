@@ -117,8 +117,8 @@ func recordPackages(ctx context.Context) ([]string, error) {
 		return nil, err
 	}
 	wanted, err := ParsePackages(rec.Extras[extraPackages])
-	if err != nil {
-		return nil, err
+	if err != nil || len(wanted) == 0 {
+		return nil, err // nothing pinned reads no approval list and touches no store
 	}
 	approved, err := ParsePackages(rec.Extras[extraPackagesApproved])
 	if err != nil {
@@ -204,6 +204,11 @@ func withGuard(env []string, dir string, tools bool) ([]string, error) {
 
 // RenderSettings adds the base settings and a cleanup that removes the run's private agent dir.
 func (e piEngine) RenderSettings(ctx context.Context, s agent.Settings, env, argv []string) ([]string, []string, []string, func(), error) {
+	if l := s.Record.Launch; l != nil && !s.Headless { // the record's launch args reach the TUI argv: same allow-list
+		if err := checkPassArgs(l.Args); err != nil {
+			return nil, nil, nil, func() {}, fmt.Errorf("pi launch.args: %w", err)
+		}
+	}
 	env, argv, emu, cleanup, err := e.BaseEngine.RenderSettings(ctx, s, env, argv)
 	for _, kv := range env {
 		if dir, ok := strings.CutPrefix(kv, agentDirEnv+"="); ok && filepath.Base(filepath.Dir(dir)) == "runs" {
@@ -281,7 +286,15 @@ func (piEngine) After(p *agent.CLIPrep, req agent.RunOptions) {
 		// the guard's -e stays first: Pi keeps the first registration of a tool name, so a package never shadows a guarded tool
 		p.Argv = append(p.Argv, PackageArgv(loadedAt(dirs))...)
 	}
-	p.Argv = append(p.Argv, p.Prompt)
+	p.Argv = append(p.Argv, "--", promptArg(p.Prompt))
+}
+
+// promptArg goes after "--", where Pi reads text, never a flag (-a, -e); a leading @ would still read a file unguarded.
+func promptArg(prompt string) string {
+	if strings.HasPrefix(prompt, "@") {
+		return " " + prompt
+	}
+	return prompt
 }
 
 func (e piEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {

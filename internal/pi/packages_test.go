@@ -3,6 +3,8 @@ package pi
 import (
 	"strings"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/agent"
 )
 
 func TestParsePackages(t *testing.T) {
@@ -50,5 +52,16 @@ func TestApprovedAndExtra(t *testing.T) {
 	}
 	if got := (Package{Kind: KindLocal, Name: "ext/x"}).LocalPath("/cfg"); got != "/cfg/ext/x" {
 		t.Errorf("LocalPath = %q", got)
+	}
+}
+
+// A looked-up row is a copy: changing its extras declaration must not change the registry's.
+func TestLookupSchemaClonesExtras(t *testing.T) {
+	s, _ := agent.LookupSchema("pi")
+	s.CLI.Extras["injected"] = nil
+	s.CLI.ExtraOwnerOnly[0] = "x"
+	again, _ := agent.LookupSchema("pi")
+	if _, leaked := again.CLI.Extras["injected"]; leaked || again.CLI.Extras == nil || again.CLI.ExtraOwnerOnly[0] != extraPackages {
+		t.Errorf("registry row changed through a lookup: %v %v", again.CLI.Extras, again.CLI.ExtraOwnerOnly)
 	}
 }

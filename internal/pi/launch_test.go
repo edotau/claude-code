@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/vault"
 )
 
 func interactive(t *testing.T) (env, argv []string) {
@@ -91,6 +92,36 @@ func TestLaunchArgsDropsReadOnly(t *testing.T) {
 	got, err := piEngine{}.LaunchArgs("", []string{"--read-only", "-c"})
 	if err != nil || !slices.Equal(got, []string{"-c"}) {
 		t.Errorf("got %v, %v", got, err)
+	}
+}
+
+func TestLaunchArgsAllowList(t *testing.T) {
+	for _, ok := range [][]string{{"-c"}, {"--resume"}, {"--session", "abc"}, {"-n", "x", "--thinking", "high"}, {"-p", "say hi"}, {"fix it"}} {
+		if _, err := (piEngine{}).LaunchArgs("", ok); err != nil {
+			t.Errorf("%v refused: %v", ok, err)
+		}
+	}
+	for _, bad := range [][]string{{"-e", "/tmp/x.ts"}, {"--approve"}, {"-a"}, {"--skill", "s"}, {"--tools", "bash"}, {"--model", "m"},
+		{"--mode", "rpc"}, {"--", "-e", "x"}, {"@/etc/hosts"}, {"--session=x"}, {"-c", "--no-builtin-tools"}} {
+		_, err := (piEngine{}).LaunchArgs("", bad)
+		var usage *agent.UsageError
+		if !errors.As(err, &usage) || !strings.Contains(err.Error(), "packages=") {
+			t.Errorf("%v: err = %v, want a refusal naming the harness way", bad, err)
+		}
+	}
+	st := agent.Settings{Record: vault.AgentRecord{Launch: &vault.AgentLaunch{Args: []string{"-e", "/x.ts"}}}}
+	if _, _, _, _, err := (piEngine{}).RenderSettings(t.Context(), st, nil, nil); err == nil {
+		t.Error("record launch.args -e reached the TUI argv")
+	}
+}
+
+func TestHeadlessPromptNeverParsesAsAFlag(t *testing.T) {
+	for prompt, want := range map[string]string{"-a": "-a", "--approve": "--approve", "@secret": " @secret", "a@b": "a@b"} {
+		p := &agent.CLIPrep{Prompt: prompt}
+		piEngine{}.After(p, agent.RunOptions{})
+		if n := len(p.Argv); n < 2 || p.Argv[n-2] != "--" || p.Argv[n-1] != want {
+			t.Errorf("prompt %q: argv tail %v, want -- %q", prompt, p.Argv, want)
+		}
 	}
 }
 

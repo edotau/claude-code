@@ -132,6 +132,10 @@ func daemonTargets() []target {
 			ageless: true, keep: keepPiRun,
 		},
 		{
+			name: "pi-packages", doc: "pi package slots the pi record no longer lists, only while no pi run is live",
+			globs: piSlotGlobs, ageless: true, keep: keepPiSlot,
+		},
+		{
 			// proxy.json is the DAEMON's live state (removed on exit); only its log is debris, and a live proxy rewrites it.
 			name: "proxy-log", doc: "proxy.log and the pre-rename router.log (daemon stdio only)",
 			globs: func() []string { return []string{statePath("proxy.log"), statePath("router.log")} },
@@ -786,6 +790,19 @@ func keepPiRun(p string) bool {
 		}
 	}
 	return youngDir(p)
+}
+
+func piSlotGlobs() []string {
+	return []string{statePath("pi", "packages", "npm-*"), statePath("pi", "packages", "git-*")}
+}
+
+// KeepPiSlot is pi.KeepSlot, wired by the CLI (setup cannot import pi); the default keeps every slot.
+var KeepPiSlot = func(string) bool { return true }
+
+// keepPiSlot keeps every slot while any pi run dir is kept as live: a launch loads its slots without a lock on them.
+func keepPiSlot(p string) bool {
+	runs, _ := filepath.Glob(statePath("pi", "*", "runs", "*"))
+	return slices.ContainsFunc(runs, keepPiRun) || KeepPiSlot(p)
 }
 
 // tempBackupGlobs match mirrored backups of files that lived in a temp dir (test runs): their source is long gone.

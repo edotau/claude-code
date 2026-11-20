@@ -46,8 +46,35 @@ func interactiveWire(ctx context.Context, r agent.WireRoute) (env, argv []string
 	return env, append(argv, PackageArgv(loadedAt(pkgDirs))...), nil
 }
 
-// LaunchArgs drops --read-only: the launcher saw it already and Wire registers only the read tools.
+// passFlags are the Pi flags (args.js parseArgs) `claude-code pi` passes on, true when the flag takes the next arg;
+// the rest can load code (-e, --skill, --theme), reopen project settings (-a), or change the route or tools.
+var passFlags = map[string]bool{"-c": false, "--continue": false, "-r": false, "--resume": false, "--session": true,
+	"-n": true, "--name": true, "--thinking": true, "-p": false, "--print": false, "--verbose": false, "--offline": false}
+
+const passHelp = "allowed: -c/--continue, -r/--resume, --session <id>, -n/--name <name>, --thinking <level>, " +
+	"-p/--print, --verbose, --offline and a prompt; extensions and packages: `claude-code configure agents pi packages=…`, " +
+	"model: `claude-code pi --model …`"
+
+// checkPassArgs refuses an arg Pi would read as a flag or an @file unless passFlags names it.
+func checkPassArgs(args []string) error {
+	for i := 0; i < len(args); i++ {
+		takes, ok := passFlags[args[i]]
+		switch {
+		case ok && takes:
+			i++ // Pi takes the next arg as the value whatever it looks like
+		case !ok && (strings.HasPrefix(args[i], "-") || strings.HasPrefix(args[i], "@")):
+			return &agent.UsageError{Msg: fmt.Sprintf("claude-code pi: %q is not passed to Pi; %s", args[i], passHelp)}
+		}
+	}
+	return nil
+}
+
+// LaunchArgs drops --read-only (the launcher saw it; Wire registers only the read tools), then refuses unsafe flags.
 func (e piEngine) LaunchArgs(file string, args []string) ([]string, error) {
 	args, err := e.BaseEngine.LaunchArgs(file, args)
-	return slices.DeleteFunc(slices.Clone(args), func(a string) bool { return a == "--read-only" }), err
+	if err != nil {
+		return nil, err
+	}
+	args = slices.DeleteFunc(slices.Clone(args), func(a string) bool { return a == "--read-only" })
+	return args, checkPassArgs(args)
 }

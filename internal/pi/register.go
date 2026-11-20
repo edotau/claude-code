@@ -18,7 +18,9 @@ var row = agent.Schema{Name: "pi", CLI: agent.CLI{
 		providers.ProtocolResponses: "/" + providers.ProtocolResponses},
 	Extras:     map[string][]string{extraPackages: nil, extraPackagesApproved: nil},
 	ExtraCheck: map[string]func(string) error{extraPackages: validatePackages, extraPackagesApproved: validatePackages},
-	MaxVersion: "1.x", MaxReason: "2.x is untested with the harness pi route",
+	// a leaf that could pin or approve a package would choose the code every later pi run loads
+	ExtraOwnerOnly: []string{extraPackages, extraPackagesApproved},
+	MaxVersion:     "1.x", MaxReason: "2.x is untested with the harness pi route",
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, ReadOnly: agent.Native, Autonomous: agent.Native, NoPersist: agent.Native, Env: agent.Native,
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, WorkDir: agent.Emulated,

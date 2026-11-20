@@ -1149,3 +1149,21 @@ func TestKeepPiRun(t *testing.T) {
 		}
 	}
 }
+
+func TestKeepPiSlotWhileARunIsLive(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	old := KeepPiSlot
+	t.Cleanup(func() { KeepPiSlot = old })
+	KeepPiSlot = func(string) bool { return false } // the record no longer lists it
+	slot := statePath("pi", "packages", "npm-0123456789abcdef")
+	if keepPiSlot(slot) {
+		t.Fatal("no live run, unlisted slot kept")
+	}
+	run := statePath("pi", "dev", "runs", "run-"+strconv.Itoa(os.Getpid())+"-1")
+	if err := os.MkdirAll(run, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if !keepPiSlot(slot) {
+		t.Error("a slot was prunable while a pi run is live")
+	}
+}

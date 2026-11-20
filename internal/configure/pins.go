@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/opencode"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
@@ -74,6 +75,12 @@ func AgentField(rec vault.AgentRecord, field string) string {
 
 // ValidateAgentField checks val for one record field before any write; a record invalid elsewhere does not block.
 func ValidateAgentField(agent, field, val string) error {
+	key, extra := strings.CutPrefix(field, ExtraPrefix)
+	// advisory: a dispatch child is known by its HARNESS_DISPATCH_* markers, which a leaf that unsets them evades
+	if extra && slices.Contains(agentpkg.SchemaFor(agent).CLI.ExtraOwnerOnly, key) && proc.InDispatch(context.Background()) {
+		return fmt.Errorf("%s %s: only the owner's own session can pin or approve %s packages; refused inside a dispatch",
+			agent, key, agent)
+	}
 	if field == "PROFILE" || field == "FALLBACK" {
 		if err := agentpkg.ValidateRecord(agent, vault.AgentRecord{}); err != nil {
 			return err // an unknown agent, before the registry load
