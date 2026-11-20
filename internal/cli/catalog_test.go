@@ -1148,4 +1148,4 @@ func TestOpencodeMenuSyncAndAddHonorDiscoveryDrops(t *testing.T) {
 
 // okStream is a stream every wire accepts: a content frame, then each wire's terminator.
 const okStream = "data: {\"type\":\"response.output_text.delta\",\"choices\":[{\"delta\":{\"content\":\"OK\"}}]}\n\n" +
-	"data: {\"type\":\"response.completed\"}\n\ndata: {\"type\":\"message_stop\"}\n\ndata: [DONE]\n\n"
+	"data: {\"type\":\"content_block_delta\"}\n\ndata: {\"type\":\"response.completed\"}\n\ndata: {\"type\":\"message_stop\"}\n\ndata: [DONE]\n\n"

@@ -128,8 +128,8 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
   (Claude `/anthropic`, Responses-only GPTs `/responses`, the rest `/chat/completions`). Probe a route with a real
   `claude-code agents ask`, not `curl`.
 - The `--verify` and `databricks check` probes send a streamed request and need the wire's terminator (a cut stream
-  is `broken`, never auto-dropped); `claude-code databricks api /api/<path>` is the read-only GET with a profile's
-  token, not `curl`.
+  is `broken`, never auto-dropped); `claude-code databricks api <path>` is the read-only GET of allow-listed metadata
+  paths (serving-endpoints, sql, scim Me, unity-catalog) with a Databricks profile's token, not `curl`.
 - pi has one provider per wire on `http://127.0.0.1:18765/p/<profile>`: Claude over Anthropic Messages, GPT over
   Responses, everything else and Grok over chat completions. Its key is an environment variable the harness sets at
   launch to the proxy session token; no token is on disk. Pinned Pi packages (`packages` in the Pi record) add

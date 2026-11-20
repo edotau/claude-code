@@ -11,27 +11,42 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-func TestAPIPathValidation(t *testing.T) {
-	cases := []struct {
-		path string
-		ok   bool
-	}{
-		{"/api/2.0/serving-endpoints", true},
-		{"/api/2.0/serving-endpoints?limit=1", true},
-		{"https://evil.example/x", false},
-		{"//evil.example/api/x", false},
-		{"/api/../x", false},
-		{"/api/%2e%2e/x", false},
-		{"/api/x y", false},
-		{"/api/x\ny", false},
-		{"/api/https://evil.example", false},
-		{"/other/api/x", false},
-		{"api/2.0/x", false},
+func TestAPITargetValidation(t *testing.T) {
+	cases := []struct{ raw, want string }{
+		{"/api/2.0/serving-endpoints", "/api/2.0/serving-endpoints"},
+		{"/api/2.0/serving-endpoints/", "/api/2.0/serving-endpoints"},
+		{"/api/2.0/serving-endpoints/my-ep?limit=1", "/api/2.0/serving-endpoints/my-ep?limit=1"},
+		{"/api/2.0/sql/statements/abc", "/api/2.0/sql/statements/abc"},
+		{"/api/2.0/preview/scim/v2/Me", "/api/2.0/preview/scim/v2/Me"},
+		{"/api/2.1/unity-catalog/metastores/m1/systemschemas", "/api/2.1/unity-catalog/metastores/m1/systemschemas"},
+		{"https://evil.example/x", ""},
+		{"//evil.example/api/x", ""},
+		{"/api/../x", ""},
+		{"/api/2.0/sql/warehouses/../x", ""},
+		{"/api/2.0/serving-endpoints/%2e%2e/x", ""},
+		{"/api/2.0/serving-endpoints/%252e%252e", ""},
+		{"/api/2.0/serving-endpoints/./x", "/api/2.0/serving-endpoints/x"},
+		{"/api/2.0/serving-endpoints/%252e%252e/x", ""},
+		{"/api/2.0/serving-endpoints/a%5cb", ""},
+		{"/api/2.0/serving-endpoints/a%3Fb", ""},
+		{"/api/2.0/serving-endpoints/x y", ""},
+		{"/api/2.0/serving-endpoints/x\ny", ""},
+		{"/api/2.0/serving-endpoints?a=%41", ""},
+		{"/api/2.0/serving-endpoints?a=b c", ""},
+		{"/api/2.0/serving-endpoints-evil", ""},
+		{"/api/2.0/serving-endpoints/a/config", ""},
+		{"/api/2.0/workspace/list?path=/", ""},
+		{"/api/2.0/preview/scim/v2/Users", ""},
+		{"/other/api/x", ""},
 	}
 	for _, c := range cases {
-		if got := apiPath(c.path) == ""; got != c.ok {
-			t.Errorf("apiPath(%q) accepted = %v, want %v", c.path, got, c.ok)
+		got, err := apiTarget(c.raw)
+		if (err == nil) != (c.want != "") || got != c.want {
+			t.Errorf("apiTarget(%q) = %q, %v; want %q", c.raw, got, err, c.want)
 		}
+	}
+	if _, err := apiTarget("/api/2.0/workspace/list"); err == nil || !strings.Contains(err.Error(), "/api/2.0/sql/warehouses") {
+		t.Errorf("refusal must list the allowed prefixes: %v", err)
 	}
 }
 
@@ -58,12 +73,12 @@ func runAPI(t *testing.T, path string) (int, string, string) {
 
 func TestAPIGetPrettyPrintsAndHidesToken(t *testing.T) {
 	apiServer(t, func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Path != "/api/2.0/x" || r.Header.Get("Authorization") != "Bearer synthetic-api-token" {
+		if r.Method != http.MethodGet || r.URL.Path != "/api/2.0/serving-endpoints/x" || r.Header.Get("Authorization") != "Bearer synthetic-api-token" {
 			t.Errorf("request = %s %s auth %q", r.Method, r.URL.Path, r.Header.Get("Authorization"))
 		}
 		_, _ = w.Write([]byte(`{"a":1}`))
 	})
-	code, out, errs := runAPI(t, "/api/2.0/x")
+	code, out, errs := runAPI(t, "/api/2.0/serving-endpoints/x")
 	if code != 0 || out != "{\n  \"a\": 1\n}\n" || strings.Contains(out+errs, "synthetic-api-token") {
 		t.Errorf("api = %d %q %q", code, out, errs)
 	}
@@ -71,9 +86,24 @@ func TestAPIGetPrettyPrintsAndHidesToken(t *testing.T) {
 
 func TestAPINon2xxExitsNonZeroWithStatus(t *testing.T) {
 	apiServer(t, func(w http.ResponseWriter, _ *http.Request) { http.Error(w, "no such thing", http.StatusNotFound) })
-	code, out, errs := runAPI(t, "/api/2.0/x")
+	code, out, errs := runAPI(t, "/api/2.0/serving-endpoints/x")
 	if code != 1 || out != "" || !strings.Contains(errs, "HTTP 404: no such thing") {
 		t.Errorf("api = %d %q %q", code, out, errs)
+	}
+}
+
+func TestAPIRefusesNonDatabricksProfile(t *testing.T) {
+	var hits atomic.Int32
+	apiServer(t, func(http.ResponseWriter, *http.Request) { hits.Add(1) })
+	if err := providers.SetProviderFields("other-key", map[string]any{"protocol": "openai", "base_url": "https://other.invalid/v1",
+		"auth": map[string]any{"type": "key", "env": "DATABRICKS_TEST_API_TOKEN"}}); err != nil {
+		t.Fatal(err)
+	}
+	code, out, errs := hosttest.CaptureOutput(t, func() int {
+		return Run([]string{"api", "/api/2.0/serving-endpoints", "--profile", "other-key"})
+	})
+	if code != 2 || out != "" || hits.Load() != 0 || !strings.Contains(errs, "not a Databricks profile") || !strings.Contains(errs, "api-test") {
+		t.Errorf("api = %d %q %q hits %d", code, out, errs, hits.Load())
 	}
 }
 
@@ -81,7 +111,7 @@ func TestAPIRefusesBadPathBeforeAnyRequest(t *testing.T) {
 	var hits atomic.Int32
 	apiServer(t, func(http.ResponseWriter, *http.Request) { hits.Add(1) })
 	code, _, errs := runAPI(t, "//evil.example/api/x")
-	if code != 2 || hits.Load() != 0 || !strings.Contains(errs, "scheme or host") {
+	if code != 2 || hits.Load() != 0 || !strings.Contains(errs, "path must be plain") {
 		t.Errorf("api = %d hits %d %q", code, hits.Load(), errs)
 	}
 }
@@ -96,7 +126,7 @@ func TestAPIDoesNotFollowRedirect(t *testing.T) {
 	}))
 	t.Cleanup(other.Close)
 	apiServer(t, func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, other.URL+"/x", http.StatusFound) })
-	code, _, errs := runAPI(t, "/api/2.0/x")
+	code, _, errs := runAPI(t, "/api/2.0/serving-endpoints/x")
 	if code != 1 || second.Load() != 0 || !strings.Contains(errs, "HTTP 302") {
 		t.Errorf("api = %d second host hits %d %q", code, second.Load(), errs)
 	}

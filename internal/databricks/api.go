@@ -5,9 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/url"
 	"os"
+	"path"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -21,9 +24,10 @@ import (
 
 var apiPage = helptext.Page{
 	Usage: "claude-code databricks api /api/<path> [--profile <name>] [--as user|sp]",
-	About: "GET a workspace REST path with the profile's stored credential and print the JSON body.\n" +
-		"Read-only: GET only, the path must start with /api/, no redirect is followed, the token is\n" +
-		"never printed. Exit 1 on a non-2xx, with its status and body on stderr.",
+	About: "GET an allow-listed workspace metadata path with a Databricks profile's credential and print the\n" +
+		"JSON body. Read-only: GET only, no redirect is followed, the token is never printed. Allowed:\n" +
+		"serving-endpoints, sql/warehouses, sql/statements, scim Me, unity-catalog metastore, catalogs,\n" +
+		"schemas and tables (see the error for the exact prefixes). Exit 1 on a non-2xx.",
 }
 
 const (
@@ -34,19 +38,66 @@ const (
 // apiClient is the HTTP client for api; a package var so tests reach their TLS server.
 var apiClient = &http.Client{Timeout: 30 * time.Second}
 
-// apiPath is the one reason a path could send the token to another host or another route; "" when the path is safe.
-func apiPath(path string) string {
-	switch {
-	case strings.Contains(path, "://") || strings.HasPrefix(path, "//") || strings.Contains(path, `\`):
-		return "path must not carry a scheme or host"
-	case !strings.HasPrefix(path, "/api/"):
-		return "path must start with /api/"
-	case strings.Contains(path, "..") || strings.Contains(strings.ToLower(path), "%2e"):
-		return "path must not contain .."
-	case strings.IndexFunc(path, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) >= 0:
-		return "path must not contain whitespace"
+// apiAllowed is read-only metadata only (no exports, DBFS, tokens, users, jobs); extra is the segments below prefix.
+var apiAllowed = []struct {
+	prefix string
+	extra  int
+}{
+	{"/api/2.0/serving-endpoints", 1}, // list and get only; key redaction unverified
+	{"/api/2.0/sql/warehouses", 1},
+	{"/api/2.0/sql/statements", 1},
+	{"/api/2.0/preview/scim/v2/Me", 0},
+	{"/api/2.1/unity-catalog/metastore_summary", 0},
+	{"/api/2.1/unity-catalog/metastores", 2}, // metastores/<id>/systemschemas
+	{"/api/2.1/unity-catalog/catalogs", 1},
+	{"/api/2.1/unity-catalog/schemas", 1},
+	{"/api/2.1/unity-catalog/tables", 1},
+}
+
+var apiQuery = regexp.MustCompile(`^[A-Za-z0-9_=&.,-]*$`)
+
+// apiTarget is the cleaned, allow-listed path plus query to send, or why raw is refused; what it returns is what is sent.
+func apiTarget(raw string) (string, error) {
+	rawPath, query, hasQuery := strings.Cut(raw, "?")
+	if hasQuery && !apiQuery.MatchString(query) {
+		return "", errors.New("query may hold only letters, digits and _=&.,-")
 	}
-	return ""
+	p, err := url.PathUnescape(rawPath)
+	if err != nil || !plainPath(p) {
+		return "", errors.New("path must be plain: no scheme, host, escapes, .., // or whitespace")
+	}
+	p = path.Clean(p)
+	if !apiListed(p) {
+		return "", fmt.Errorf("path is not allowed; allowed prefixes: %s", strings.Join(apiPrefixes(), " "))
+	}
+	if hasQuery && query != "" {
+		p += "?" + query
+	}
+	return p, nil
+}
+
+// plainPath is true when an unescaped path still holds no escape, backslash, ?, #, .., // or whitespace.
+func plainPath(p string) bool {
+	return !strings.ContainsAny(p, `%\?#`) && !strings.Contains(p, "..") && !strings.Contains(p, "//") &&
+		strings.IndexFunc(p, func(r rune) bool { return unicode.IsSpace(r) || unicode.IsControl(r) }) < 0
+}
+
+func apiListed(p string) bool {
+	for _, a := range apiAllowed {
+		rest, ok := strings.CutPrefix(p, a.prefix)
+		if ok && (rest == "" || (rest[0] == '/' && strings.Count(rest, "/") <= a.extra)) {
+			return true
+		}
+	}
+	return false
+}
+
+func apiPrefixes() []string {
+	out := make([]string, len(apiAllowed))
+	for i, a := range apiAllowed {
+		out[i] = a.prefix
+	}
+	return out
 }
 
 // apiGet GETs host+path with p's credential, retrying 429/502/503/504 as the model listing does.
@@ -81,8 +132,9 @@ func apiVerb(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	if why := apiPath(rest[0]); why != "" {
-		return failCode(2, "api: %s", why)
+	target, err := apiTarget(rest[0])
+	if err != nil {
+		return failCode(2, "api: %v", err)
 	}
 	if _, err := providers.ResolveIdentity("", as); err != nil || as == providers.IdentityAuto {
 		return failCode(2, "api: --as must be user or sp")
@@ -90,7 +142,7 @@ func apiVerb(args []string) int {
 	if err := checkProfileFlag(fs, profile); err != nil {
 		return failCode(2, "api: %v", err)
 	}
-	return apiRun(profile, as, rest[0])
+	return apiRun(profile, as, target)
 }
 
 func failCode(code int, format string, a ...any) int {
@@ -110,11 +162,11 @@ func apiRun(profile, as, path string) int {
 	if name == "" {
 		return fail("api: %v", errNoProfile)
 	}
-	p, err := reg.Get(name)
-	if err != nil {
-		return fail("api: %v", err)
+	if !slices.Contains(providers.DatabricksProfiles(reg), name) {
+		return failCode(2, "api: %q is not a Databricks profile; use one of: %s", name, strings.Join(providers.DatabricksProfiles(reg), ", "))
 	}
-	host := providers.AuthHost(p)
+	p := reg.Providers[name]
+	host := providers.PresetHost(p.Host)
 	if host == "" {
 		return fail("api: %s has no https workspace host", name)
 	}

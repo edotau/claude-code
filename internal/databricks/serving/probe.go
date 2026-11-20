@@ -368,12 +368,15 @@ func scanStream(r io.Reader, c ProbeCall) (events, n int, done bool, err error) 
 			continue
 		}
 		data = strings.TrimSpace(data)
-		term, failed := frameKind(data, c)
+		term, failed, content := frameKind(data, c)
 		if failed {
 			return events, cr.n, false, nil
 		}
 		if term {
 			return events, cr.n, true, nil
+		}
+		if !content {
+			continue
 		}
 		events++
 		finished = finished || (!c.Anthropic && !c.Responses && strings.Contains(data, `"finish_reason":"`))
@@ -381,22 +384,30 @@ func scanStream(r io.Reader, c ProbeCall) (events, n int, done bool, err error) 
 	return events, cr.n, finished, sc.Err()
 }
 
-// frameKind says whether one data payload ends the stream, or is a failure frame that must not count as content.
-func frameKind(data string, c ProbeCall) (terminator, failed bool) {
+// frameKind classes one data payload: the stream's terminator, a failure frame, or a content-bearing one for the wire.
+func frameKind(data string, c ProbeCall) (terminator, failed, content bool) {
 	if !c.Anthropic && !c.Responses {
-		return data == "[DONE]", false
+		var f struct {
+			Error   json.RawMessage   `json:"error"`
+			Choices []json.RawMessage `json:"choices"`
+		}
+		_ = json.Unmarshal([]byte(data), &f)
+		hasErr := len(f.Error) > 0 && string(f.Error) != "null"
+		return data == "[DONE]", hasErr, len(f.Choices) > 0 && !hasErr
 	}
 	var f struct {
 		Type string `json:"type"`
 	}
 	_ = json.Unmarshal([]byte(data), &f)
-	switch f.Type {
-	case "message_stop", "response.completed", "response.incomplete": // incomplete: the tiny budget ran out, still a clean end
-		return true, false
-	case "error", "response.failed":
-		return false, true
+	switch {
+	case f.Type == "message_stop", f.Type == "response.completed", f.Type == "response.incomplete": // incomplete: budget ran out, a clean end
+		return true, false, false
+	case f.Type == "error", f.Type == "response.failed":
+		return false, true, false
+	case c.Anthropic:
+		return false, false, strings.HasPrefix(f.Type, "content_block")
 	}
-	return false, false
+	return false, false, strings.Contains(f.Type, "delta") || strings.HasPrefix(f.Type, "response.output")
 }
 
 type countReader struct {

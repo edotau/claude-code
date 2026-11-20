@@ -408,3 +408,19 @@ func TestProbeStreamChatFinishReasonWithoutDoneIsOK(t *testing.T) {
 		t.Errorf("finish_reason stream = %+v, want ok", r)
 	}
 }
+
+func TestProbeStreamErrorFrameIsBroken(t *testing.T) {
+	r := probeStreamWire(t, clientRouteCases[0], func(w http.ResponseWriter, _ map[string]any) {
+		_, _ = w.Write([]byte("data: {\"error\":{\"message\":\"upstream failed\"},\"choices\":[{\"delta\":{}}]}\n\ndata: [DONE]\n\n"))
+	})
+	if r.Status != StatusBroken {
+		t.Errorf("error frame then [DONE] = %+v, want broken", r)
+	}
+}
+
+func TestSanitizeChecksKeepsBrokenVerdict(t *testing.T) {
+	got := SanitizeChecks([]CheckResult{{ID: "m", Status: StatusBroken, HTTP: 200, Error: "stream ended"}})
+	if len(got) != 1 || got[0].Status != StatusBroken || got[0].Error != "" {
+		t.Errorf("SanitizeChecks = %+v, want the broken verdict kept without its error text", got)
+	}
+}

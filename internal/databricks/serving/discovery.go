@@ -316,7 +316,8 @@ func readValidated(name string) (validated, bool) {
 func SanitizeChecks(checks []CheckResult) []CheckResult {
 	var out []CheckResult
 	for _, c := range checks {
-		if c.Status != StatusOK && c.Status != StatusFail && c.Status != StatusMissing && c.Status != StatusTransient {
+		if c.Status != StatusOK && c.Status != StatusFail && c.Status != StatusMissing && c.Status != StatusTransient &&
+			c.Status != StatusBroken {
 			continue
 		}
 		tools := ""
