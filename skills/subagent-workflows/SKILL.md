@@ -292,7 +292,7 @@ files only.
 
 | Situation | Strategy |
 | --- | --- |
-| One leaf fails | Retry once with its failure output and a changed brief; a second failure: land the rest, name the gap |
+| One leaf fails | Retry once on a `claude` leaf with its failure output; a second failure: the main session finishes it where it can and says so, else lands the rest and names the gap |
 | Most leaves fail | Stop and tell the owner; the brief or plan is wrong |
 | Timeout | Keep partial results, cancel the rest |
 | A leaf touched a file it didn't own | Revert that hunk, re-dispatch with `Owns:` sharpened |
