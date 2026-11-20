@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/egress"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -141,6 +142,7 @@ func pinSegment(ctx context.Context, prefix, seg string) (context.Context, error
 	if !proxy.ValidDispatchID(seg) {
 		return nil, fmt.Errorf("id>: invalid dispatch id %q (digits, letters, '.', '-')", seg)
 	}
+	ctx = providers.WithRanIdentity(ctx, func(identity string) { proxy.WriteRanIdentity(seg, identity) })
 	return context.WithValue(ctx, dispatchKey{}, seg), nil
 }
 

@@ -192,6 +192,11 @@ func ensureRouter(ctx context.Context) (string, error) {
 	return proxy.TaggedBase(ctx, base, id), nil
 }
 
+// ranIdentityOf is the identity (sp|user) the proxy recorded for dispatch id, "" when none.
+func ranIdentityOf(id string) string { return proxy.ReadRanIdentity(id) }
+
+func ranIdentityPath(id string) string { return proxy.RanIdentityPath(id) }
+
 // refuseDirectContext rejects --direct under --remote: a direct agent calls the provider itself, around the tunnel.
 func refuseDirectContext(ctx context.Context, direct bool) error {
 	if direct && egress.HostContext(ctx) != "" {

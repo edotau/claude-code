@@ -369,13 +369,17 @@ func dispatchCredential(ctx context.Context, p *Provider, force bool) (string, e
 
 // userCredential keeps user-only flights apart from SP fallback; an unforced call fails inside a dead login's window.
 func userCredential(ctx context.Context, p *Provider, force bool) (string, error) {
-	return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) {
+	v, err := mintOnce(ctx, p, force, func(ctx context.Context) (string, error) {
 		if rec, dead := openLoginMark(p); dead && !force {
 			return "", loginRenewalError(p, rec)
 		}
 		out, _, err := lockedUserMint(ctx, p, force, freshMargin)
 		return out, err
 	})
+	if err == nil {
+		reportRan(ctx, IdentityUser)
+	}
+	return v, err
 }
 
 // lockedMintExited runs as each lockedUserMint goroutine ends; a test seam, atomic like lockWaitHook.
@@ -468,10 +472,27 @@ var (
 
 // spCredential isolates SP tokens, expiry records and flights from the user's profile key.
 func spCredential(ctx context.Context, p *Provider, force bool) (string, error) {
-	return spFlights.do(ctx, p.Name, force, func(ctx context.Context) (string, error) {
+	v, err := spFlights.do(ctx, p.Name, force, func(ctx context.Context) (string, error) {
 		v, _, err := mintSP(ctx, p, force, freshMargin)
 		return v, err
 	})
+	if err == nil {
+		reportRan(ctx, IdentitySP)
+	}
+	return v, err
+}
+
+type ranKey struct{}
+
+// WithRanIdentity routes the identity (sp or user) of each served credential to sink; never the credential itself.
+func WithRanIdentity(ctx context.Context, sink func(string)) context.Context {
+	return context.WithValue(ctx, ranKey{}, sink)
+}
+
+func reportRan(ctx context.Context, identity string) {
+	if sink, ok := ctx.Value(ranKey{}).(func(string)); ok {
+		sink(identity)
+	}
 }
 
 // mintSP mints the paired SP's token under the refresh lock, never touching the user login; minted reports an exchange.

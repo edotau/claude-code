@@ -1,4 +1,5 @@
 internal/proxy/daemon.go:WriteState	router-runtime
+internal/proxy/ranidentity.go:WriteRanIdentity	unversioned: marker: the identity (sp|user) the proxy served a dispatch, beside its record, no credential
 internal/proxy/restart.go:Hold	unversioned: marker: deliberate proxy stop, watchdog stays off
 internal/proxy/restart.go:claimRestartLocked	unversioned: marker: watchdog proxy restart stamp
 internal/proxy/sessions.go:resolveProxyToken	unversioned: runtime: scoped proxy token cache per claude pid, pruned when the pid dies

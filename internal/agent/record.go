@@ -69,6 +69,7 @@ type Record struct {
 	RanAs          string     `json:"ran_as,omitempty"`          // the agent that answered, when a fallback dispatch did
 	Repo           string     `json:"repo,omitempty"`            // main checkout root the job belongs to
 	RanRoute       string     `json:"ran_route,omitempty"`       // provider:profile of the row that answered, as the ran-on line names it
+	RanIdentity    string     `json:"ran_identity,omitempty"`    // sp | user: the Databricks identity the proxy last served the run
 	Attempts       []wire.Hop `json:"attempts,omitempty"`        // every hop of a re-picked or moved run; absent for a one-hop run
 	Route          string     `json:"route,omitempty"`           // overlay confinement at launch (databricks:qa), so a running job shows where it is going
 	PID            int        `json:"pid,omitempty"`             // pid of the detached `claude-code agents ask --job` child
@@ -471,6 +472,7 @@ func (r *Record) Finish(res wire.Result, err error, took time.Duration) {
 		r.Usage = &usage
 	}
 	r.RanRoute = ranRoute(res)
+	r.RanIdentity = ranIdentityOf(r.ID)
 	r.Attempts = nil
 	if len(res.Hops) > 1 {
 		r.Attempts = slices.Clone(res.Hops) // hop errors are redacted where hopOf builds them
@@ -576,6 +578,13 @@ func withCutoffHint(err error, rec *Record, res wire.Result, took time.Duration,
 	}
 	hint := fmt.Sprintf("%s cut off (%s) after %s with %d tool calls and %s; continue with: %s",
 		who, kind, took.Round(time.Second), t.tools.Load(), lost, next)
+	if rec.RanIdentity == "" {
+		rec.RanIdentity = ranIdentityOf(rec.ID)
+	}
+	if rec.RanIdentity != "" {
+		hint += "; ran as the " + rec.RanIdentity + " identity"
+	}
+	hint += "; or resume in a fresh session: claude-code agents ask --retry " + rec.ID + " --recover"
 	if who == "gemini" {
 		hint += "; agy log: " + AgyLogPath(rec.ID)
 	}
@@ -680,6 +689,7 @@ func pruneDispatches(dir string, keep ...string) {
 		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+".log"))
 		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+paths.DispatchEventsSuffix))
 		_ = os.Remove(AgyLogPath(strings.TrimSuffix(name, ".json")))
+		_ = os.Remove(ranIdentityPath(strings.TrimSuffix(name, ".json")))
 		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+wire.LiveSockSuffix))
 		excess--
 	}
