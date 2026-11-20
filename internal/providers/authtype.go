@@ -518,6 +518,9 @@ func spMintUnderLock(ctx context.Context, p *Provider, force bool, margin time.D
 		}
 		return "", false, fmt.Errorf("%s: service principal: %w", p.Name, err)
 	}
+	if err := expiredMint(p, tok); err != nil {
+		return "", false, err
+	}
 	if err := finishSPCredential(p, tok.Access, tok.Expiry); err != nil {
 		return "", false, err
 	}
@@ -623,10 +626,25 @@ func mintAndCache(ctx context.Context, p *Provider, force bool) (string, int64, 
 	if err != nil && !errors.Is(err, errRotationUnsaved) {
 		return "", 0, err
 	}
+	if xerr := expiredMint(p, tok); xerr != nil {
+		return "", 0, xerr
+	}
 	if cerr := finishCredential(p, tok.Access, tok.Expiry); cerr != nil {
 		return "", 0, cerr
 	}
 	return tok.Access, base, err
+}
+
+// expiredMint refuses a token minted already expired, by its endpoint lifetime else its JWT exp; unknown passes.
+func expiredMint(p *Provider, tok oauth.Token) error {
+	exp := tok.Expiry
+	if e, ok := JWTExp(tok.Access); exp.IsZero() && ok {
+		exp = time.Unix(e, 0)
+	}
+	if exp.IsZero() || exp.After(credNow()) {
+		return nil
+	}
+	return fmt.Errorf("%s: the token endpoint returned a token that is already expired", p.Name)
 }
 
 // mintAuth is the one path that turns a sealed credential into an access token; base is the vault stamp it read.

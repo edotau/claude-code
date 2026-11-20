@@ -163,6 +163,10 @@ type flight struct {
 	val      string
 	err      error
 	panicked any
+	// callers still waiting, guarded by the group's mu; the last to leave runs cancel
+	waiters int
+	// ends the mint's context (it never starts an exchange after); nil on a background flight
+	cancel context.CancelFunc
 }
 
 // errMintAborted is what followers see when the leader's mint panics before it returns.
@@ -370,18 +374,22 @@ func (g *flightGroup) do(ctx context.Context, name string, force bool, mint func
 		}
 		f, inflight := g.flights[name]
 		if !inflight {
-			f = &flight{done: make(chan struct{}), force: force, err: errMintAborted}
+			// the mint outlives any one caller, but not all of them: see leave
+			mctx, cancel := context.WithCancel(context.WithoutCancel(ctx))
+			f = &flight{done: make(chan struct{}), force: force, err: errMintAborted, waiters: 1, cancel: cancel}
 			g.flights[name] = f
 			g.mu.Unlock()
 			flightHook(true)
-			go g.runMint(name, f, func() { f.val, f.err = mint(context.WithoutCancel(ctx)) })
-			return awaitFlight(ctx, f)
+			go g.runMint(name, f, func() { defer cancel(); f.val, f.err = mint(mctx) })
+			return g.awaitFlight(ctx, name, f)
 		}
+		f.waiters++
 		g.mu.Unlock()
 		flightHook(false)
 		select {
 		case <-f.done:
 		case <-ctx.Done():
+			g.leave(name, f)
 			return "", ctx.Err()
 		}
 		if f.force || !force {
@@ -396,7 +404,9 @@ func (g *flightGroup) runMint(name string, f *flight, mint func()) {
 		// re-raised in the leader's caller by awaitFlight
 		f.panicked = recover()
 		g.mu.Lock()
-		delete(g.flights, name)
+		if g.flights[name] == f {
+			delete(g.flights, name)
+		}
 		g.mu.Unlock()
 		close(f.done)
 	}()
@@ -404,7 +414,7 @@ func (g *flightGroup) runMint(name string, f *flight, mint func()) {
 }
 
 // awaitFlight waits for f's mint; a caller whose ctx ends stops waiting while the mint continues for followers.
-func awaitFlight(ctx context.Context, f *flight) (string, error) {
+func (g *flightGroup) awaitFlight(ctx context.Context, name string, f *flight) (string, error) {
 	select {
 	case <-f.done:
 		if f.panicked != nil {
@@ -412,12 +422,29 @@ func awaitFlight(ctx context.Context, f *flight) (string, error) {
 		}
 		return f.val, f.err
 	case <-ctx.Done():
+		g.leave(name, f)
 		return "", ctx.Err()
 	}
 }
 
+// leave drops a waiter whose ctx ended; when none remain the mint is cancelled and a new caller starts afresh.
+func (g *flightGroup) leave(name string, f *flight) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	if f.waiters--; f.waiters > 0 || f.cancel == nil {
+		return
+	}
+	f.cancel()
+	if g.flights[name] == f {
+		delete(g.flights, name)
+	}
+}
+
 func commandCredential(ctx context.Context, p *Provider, force bool) (string, error) {
-	return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) { return mintCommand(ctx, p, force) })
+	// an auth command runs to the end even when every caller left, as before: its result is cached for the next one
+	return mintOnce(ctx, p, force, func(ctx context.Context) (string, error) {
+		return mintCommand(context.WithoutCancel(ctx), p, force)
+	})
 }
 
 func mintCommand(ctx context.Context, p *Provider, force bool) (string, error) {
@@ -469,9 +496,6 @@ func cacheCredential(p *Provider, cache *sync.Map, record, method, v string, exp
 		issued = now
 	} else if e, ok := JWTExp(v); ok {
 		exp = time.Unix(e, 0)
-	}
-	if sealedAuth(p.Auth.Type) && !issued.IsZero() && !exp.After(now) {
-		return fmt.Errorf("%s: the token endpoint returned a token that is already expired", p.Name)
 	}
 	cache.Store(p.Name, cacheEntry(p, v, now.Add(ttl), exp, issued))
 	return nil

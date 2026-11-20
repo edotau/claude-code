@@ -913,3 +913,24 @@ func TestPostTokenCapsHostileRetryAfter(t *testing.T) {
 		t.Fatalf("waits = %v, want 2 waits <= 8s", *waits)
 	}
 }
+
+func TestExpiresInAbsentVersusZero(t *testing.T) {
+	for _, c := range []struct {
+		body              string
+		wantZero, expired bool
+	}{
+		{`{"access_token":"a"}`, true, false},
+		{`{"access_token":"a","expires_in":0}`, false, true},
+		{`{"access_token":"a","expires_in":-5}`, false, true},
+		{`{"access_token":"a","expires_in":3600}`, false, false},
+	} {
+		var reply tokenReply
+		if err := json.Unmarshal([]byte(c.body), &reply); err != nil {
+			t.Fatal(err)
+		}
+		exp := reply.token("").Expiry
+		if exp.IsZero() != c.wantZero || !exp.IsZero() && exp.After(time.Now()) == c.expired {
+			t.Errorf("%s: expiry zero=%t future=%t; want zero=%t expired=%t", c.body, exp.IsZero(), exp.After(time.Now()), c.wantZero, c.expired)
+		}
+	}
+}

@@ -129,9 +129,10 @@ func checkHostURL(host string, u *url.URL) error {
 
 // tokenReply is the success body of the token endpoint.
 type tokenReply struct {
-	AccessToken  string  `json:"access_token"`
-	RefreshToken string  `json:"refresh_token"`
-	ExpiresIn    float64 `json:"expires_in"`
+	AccessToken  string `json:"access_token"`
+	RefreshToken string `json:"refresh_token"`
+	// nil when absent (lifetime unknown); an explicit zero or negative means already expired
+	ExpiresIn *float64 `json:"expires_in"`
 }
 
 type tokenRequest struct {
@@ -253,11 +254,11 @@ func clipBody(raw []byte) string {
 	return textutil.CapRunes(strings.Join(strings.Fields(clean), " "), 120, "…")
 }
 
-// token converts a reply into a Token whose Expiry is zero when the server sent no lifetime.
+// token converts a reply into a Token whose Expiry is zero when the server sent no lifetime, past when it sent <= 0.
 func (t tokenReply) token(refresh string) Token {
 	tok := Token{Access: t.AccessToken, Refresh: refresh}
-	if t.ExpiresIn > 0 {
-		tok.Expiry = time.Now().Add(time.Duration(t.ExpiresIn * float64(time.Second)))
+	if t.ExpiresIn != nil {
+		tok.Expiry = time.Now().Add(time.Duration(*t.ExpiresIn * float64(time.Second)))
 	}
 	return tok
 }

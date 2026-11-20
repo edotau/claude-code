@@ -193,7 +193,7 @@ func TestFlightGroupCanceledLeaderStopsWaitingWhileFollowerMints(t *testing.T) {
 		t.Fatalf("canceled leader returned value=%t err=%v", result.value != "", result.err)
 	}
 	mintCtx := <-mintContext
-	if mintCtx.Err() != nil || mintCtx.Done() != nil {
+	if mintCtx.Err() != nil { // the follower still waits, so the shared mint context stays live
 		t.Fatal("leader cancellation reached the shared mint context")
 	}
 	unblock()
@@ -216,6 +216,7 @@ type staleRig struct {
 	hook    func()        // runs once the refresh token is spent, before the reply
 	life    time.Duration // minted lifetime; 0 is one hour, lifeZero is zero
 	opaque  bool          // mint a non-JWT token with no expires_in
+	jwtOnly bool          // mint a JWT with no expires_in: its exp claim is the only expiry
 }
 
 // jwtLife is an unsigned JWT issued at iat that expires at exp.
@@ -291,7 +292,11 @@ func (r *staleRig) minted(n int32) oauth.Token {
 	if r.opaque {
 		return oauth.Token{Access: fmt.Sprintf("opaque-%d", n), Refresh: fmt.Sprintf("refresh-%d", n+1)}
 	}
-	return oauth.Token{Access: jwtLife(now, now.Add(life)), Refresh: fmt.Sprintf("refresh-%d", n+1), Expiry: now.Add(life)}
+	tok := oauth.Token{Access: jwtLife(now, now.Add(life)), Refresh: fmt.Sprintf("refresh-%d", n+1), Expiry: now.Add(life)}
+	if r.jwtOnly {
+		tok.Expiry = time.Time{}
+	}
+	return tok
 }
 
 // lifeZero asks the rig for a token that expires the instant it is minted.
@@ -667,6 +672,15 @@ func (h *heldTokenServer) sent() string {
 func TestForegroundExchangeSealsThroughCancelAndStop(t *testing.T) {
 	t.Cleanup(openExchanges)
 	h, p := newHeldTokenServer(t)
+	var seals atomic.Int32
+	orig := vaultStore
+	vaultStore = func(name, v string) error {
+		if name == AuthSecretName(p) {
+			seals.Add(1)
+		}
+		return orig(name, v)
+	}
+	t.Cleanup(func() { vaultStore = orig })
 	stop := BackgroundRefresh(context.Background())
 	ctx, cancel := context.WithCancel(context.Background())
 	caller := make(chan error, 1)
@@ -682,6 +696,9 @@ func TestForegroundExchangeSealsThroughCancelAndStop(t *testing.T) {
 		t.Fatal("the cancelled caller kept waiting on the sent exchange")
 	}
 	checkStopWaitsForSeal(t, stop, h, p)
+	if n := seals.Load(); n != 1 {
+		t.Fatalf("vault writes of the login = %d, want exactly 1", n)
+	}
 	if _, _, err := lockedUserMint(context.Background(), p, true, freshMargin); !errors.Is(err, errShuttingDown) || h.sent() != "refresh-1" {
 		t.Fatalf("after stop: err=%v sent %q; want admission closed and nothing sent", err, h.sent())
 	}
@@ -763,5 +780,85 @@ func TestUnsavedRotationClearsDeadMark(t *testing.T) {
 	}
 	if _, dead := readLoginMark(r.p.Name); dead {
 		t.Fatal("a login that refreshed in this process is still marked dead")
+	}
+}
+
+// waitingCaller starts Credential on ctx, then waits until its flight provably waits on the held refresh lock.
+func waitingCaller(t *testing.T, r *staleRig, ctx context.Context, waiting <-chan struct{}) <-chan error {
+	t.Helper()
+	out := make(chan error, 1)
+	go func() { _, err := Credential(ctx, r.p); out <- err }()
+	waitSignal(t, waiting)
+	return out
+}
+
+// lockWaitSignals installs the lock-wait and mint-exit hooks for one test.
+func lockWaitSignals(t *testing.T) (waiting, exited chan struct{}) {
+	t.Helper()
+	waiting, exited = make(chan struct{}, 1), make(chan struct{}, 1)
+	wait := func() { trySignal(waiting) }
+	exit := func() { trySignal(exited) }
+	lockWaitHook.Store(&wait)
+	lockedMintExited.Store(&exit)
+	t.Cleanup(func() { lockWaitHook.Store(nil); lockedMintExited.Store(nil) })
+	return waiting, exited
+}
+
+func trySignal(c chan struct{}) {
+	select {
+	case c <- struct{}{}:
+	default:
+	}
+}
+
+func TestSoleCallerCancelBeforeSendStartsNoExchange(t *testing.T) {
+	r, _ := newStaleRig(t, "sole-cancel", -time.Minute, false)
+	release := holdRefreshLock(t, r.p)
+	waiting, exited := lockWaitSignals(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	caller := waitingCaller(t, r, ctx, waiting)
+	cancel()
+	if err := <-caller; !errors.Is(err, context.Canceled) {
+		t.Fatalf("Credential err = %v; want its cancellation", err)
+	}
+	release()
+	waitSignal(t, exited)
+	if n := r.calls.Load(); n != 0 {
+		t.Fatalf("exchanges = %d after the only caller cancelled before the send; want 0", n)
+	}
+}
+
+func TestOneOfTwoCallersCancelsExchangeProceeds(t *testing.T) {
+	r, _ := newStaleRig(t, "one-cancel", -time.Minute, false)
+	release := holdRefreshLock(t, r.p)
+	waiting, _ := lockWaitSignals(t)
+	joined := make(chan struct{}, 2)
+	setFlightHook(t, func(bool) { joined <- struct{}{} })
+	ctx, cancel := context.WithCancel(context.Background())
+	leader := waitingCaller(t, r, ctx, waiting)
+	waitSignal(t, joined)
+	follower := make(chan string, 1)
+	go func() { v, _ := r.credential(); follower <- v }()
+	waitSignal(t, joined)
+	cancel()
+	if err := <-leader; !errors.Is(err, context.Canceled) {
+		t.Fatalf("leader err = %v; want its cancellation", err)
+	}
+	release()
+	select {
+	case v := <-follower:
+		if v == "" || r.calls.Load() != 1 {
+			t.Fatalf("follower served=%t exchanges=%d; want the token from one exchange", v != "", r.calls.Load())
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the remaining caller never got the token")
+	}
+}
+
+func TestJWTOnlyExpiredMintRefused(t *testing.T) {
+	r, _ := newStaleRig(t, "jwt-expired", -time.Minute, false)
+	r.life, r.jwtOnly = -time.Minute, true
+	if v, err := r.credential(); err == nil || v != "" {
+		t.Fatalf("served=%t err=%v; want an expired mint refused", v != "", err)
 	}
 }
