@@ -714,11 +714,11 @@ func pruneDispatches(dir string, keep ...string) {
 	}
 }
 
-// activeRecord keeps a live dispatch (see Record.Alive) out of the prune.
+// activeRecord keeps a live dispatch (see Record.Alive) and any record it cannot read out of the prune.
 func activeRecord(path string) bool {
 	r, err := readRecord(path)
 	if err != nil {
-		return errors.Is(err, schemas.ErrNewer) // a newer build's record is never pruned blind
+		return true // newer schema, partial write or read error: liveness unknown, keep it and its logs
 	}
 	return r.Alive()
 }

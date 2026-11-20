@@ -1230,3 +1230,28 @@ func TestRecordOutcomeAndResumeHint(t *testing.T) {
 		}
 	}
 }
+
+func TestPruneDispatchesKeepsUnreadableRecordAndLog(t *testing.T) {
+	setConfigDir(t)
+	old := dispatchKeep
+	dispatchKeep = 2
+	t.Cleanup(func() { dispatchKeep = old })
+	dir := paths.DispatchDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	corrupt := filepath.Join(dir, "0000-corrupt.json") // sorts first: the oldest prune candidate
+	logPath := filepath.Join(dir, "0000-corrupt.log")
+	for _, p := range []string{corrupt, logPath} {
+		if err := os.WriteFile(p, []byte(`{"id":"trunc`), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	savePruneRecords(t, time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC), dispatchKeep+dispatchPruneMargin)
+	pruneDispatches(dir)
+	for _, p := range []string{corrupt, logPath} {
+		if _, err := os.Stat(p); err != nil {
+			t.Fatalf("unreadable record's file %s must survive prune: %v", p, err)
+		}
+	}
+}
