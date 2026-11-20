@@ -63,11 +63,11 @@ func OverlaySchema() []byte {
 	doc := obj{
 		"$schema": "https://json-schema.org/draft/2020-12/schema", "$id": "claude-code/overlay.schema.json",
 		"title": "claude-code dispatch overlay", "type": "object", "additionalProperties": false,
-		"properties":        props,
+		"properties": props,
 		"dependentRequired": obj{
 			"profile": []string{"provider"}, "identity": []string{"provider"}, "account": []string{"provider"},
 		},
-		"not":               obj{"required": []string{"host", "remote"}},
+		"not": obj{"required": []string{"host", "remote"}},
 		"allOf": []obj{
 			onlyWith("identity", "databricks"),
 			onlyWith("account", "github"),
