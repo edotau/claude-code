@@ -22,7 +22,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
-	"github.com/edotau/claude-code/internal/vault"
 )
 
 // askedSkips keeps the skip reasons of the wanted agent; those of agents nobody asked for are noise.
@@ -1021,16 +1020,13 @@ func engineName(d Dispatch) string {
 
 // autoRunEffort gives an auto run its tier's effort unless --effort or the record names one; alias "" computes it.
 func autoRunEffort(out RunOptions, agentName, alias string) RunOptions {
-	if out.Effort != "" {
-		return out
-	}
-	if !out.AutoModel && !pinsAuto(out.Values, agentName) || vault.GetAgentRecord(agentName).Effort != "" {
+	if out.Effort != "" || !out.AutoModel && !pinsAuto(out.Values, agentName) {
 		return out
 	}
 	if alias == "" {
 		alias, _ = TaskTier(preRecall(out.Prompt))
 	}
-	out.Effort = TierEffort(cmp.Or(alias, models.Opus))
+	out.Effort = autoEffort("", agentName, autoNeed{mode: autoAsked, tier: rotationTiers[cmp.Or(alias, models.Opus)]})
 	return out
 }
 

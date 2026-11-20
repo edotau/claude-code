@@ -2,6 +2,7 @@ package router
 
 import (
 	"bytes"
+	"context"
 	"maps"
 	"os"
 	"path/filepath"
@@ -81,7 +82,7 @@ func TestPickRotationAcrossWorkspaces(t *testing.T) {
 				}
 			}
 			for i, workspace := range workspaces {
-				got, err := PickRotation("opencode", ProviderAccount(workspace), hist, nil, tc.pool, nil, now)
+				got, err := PickRotation(context.Background(), "opencode", ProviderAccount(workspace), hist, nil, tc.pool, nil, now)
 				if err != nil || got != tc.want[i] {
 					t.Fatalf("%s pick = %q, %v; want %q", workspace, got, err, tc.want[i])
 				}
@@ -123,7 +124,7 @@ func checkRotationPicks(t *testing.T, p *providers.Provider, pool []string, now 
 	account, before := ProviderAccount(p.Name), LoadState()
 	for i, want := range wants {
 		at := now.Add(time.Duration(i+1) * time.Second)
-		got, err := PickRotation(agent, account, account, p, pool, nil, at)
+		got, err := PickRotation(context.Background(), agent, account, account, p, pool, nil, at)
 		if err != nil || got != want {
 			t.Fatalf("PickRotation = %q, %v; want %q", got, err, want)
 		}
@@ -257,7 +258,7 @@ func TestPickRotationDefersDear(t *testing.T) {
 			for i := range 12 {
 				at := now.Add(time.Duration(i) * time.Second)
 				peek := PeekRotation("opencode", "acct", "acct", nil, tc.pool, tc.dear, at)
-				m, err := PickRotation("opencode", "acct", "acct", nil, tc.pool, tc.dear, at)
+				m, err := PickRotation(context.Background(), "opencode", "acct", "acct", nil, tc.pool, tc.dear, at)
 				if err != nil || m != peek {
 					t.Fatalf("pick %d = %q, %v; peek said %q", i, m, err, peek)
 				}
@@ -268,4 +269,9 @@ func TestPickRotationDefersDear(t *testing.T) {
 			}
 		})
 	}
+}
+
+// pickPool is PickRotation on p's own account.
+func pickPool(agent string, p *providers.Provider, pool []string, now time.Time) (string, error) {
+	return PickRotation(context.Background(), agent, ProviderAccount(p.Name), ProviderAccount(p.Name), p, pool, nil, now)
 }

@@ -293,9 +293,10 @@ func checkServed(agentName string, p *providers.Provider, model string, now time
 	}
 	served := servedSpelling(agentName, p, model, now)
 	wire, why := preflightModelWire(agentName, p, served)
-	spelled := cmp.Or(wire, providers.SpellPin(p, served)) // a Responses agent's wire check runs before Serves' wording
+	spelled := cmp.Or(wire, providers.SpellPin(p, served))  // a Responses agent's wire check runs before Serves' wording
+	note, gone, notReady := listingVerdict(p, spelled, now) // one listing read; spelled is wire once why is empty
 	switch {
-	case unlisted(p, spelled, now): // a fresh listing without it beats the wire wording: the endpoint does not exist
+	case gone: // a fresh listing without it beats the wire wording: the endpoint does not exist
 		return fail("served", p.Name+" lists no endpoint "+spelled)
 	case preflightResponsesMismatch(agentName, p, spelled):
 		return fail("wire", p.Name+" serves no "+model+" over Responses")
@@ -303,12 +304,22 @@ func checkServed(agentName string, p *providers.Provider, model string, now time
 		return fail("served", why)
 	case p.Preset != providers.PresetDatabricks:
 		return wire, nil, ""
-	}
-	note, why = preflightEndpoint(p, wire, now)
-	if why != "" {
-		return fail("served", why)
+	case notReady:
+		return fail("served", wire+" is not a READY endpoint on "+p.Name)
 	}
 	return wire, nil, note
+}
+
+// listingVerdict reads p's cached listing for a Databricks wire: a skipped-check note, unlisted, or listed not READY.
+func listingVerdict(p *providers.Provider, wire string, now time.Time) (note string, gone, notReady bool) {
+	if p.Preset != providers.PresetDatabricks || wire == "" {
+		return "", false, false
+	}
+	listed, ready, fresh := router.ServedListed(p, wire, now)
+	if !fresh {
+		return "no fresh listing for " + p.Name + ": endpoint check skipped", false, false
+	}
+	return "", !listed, listed && !ready
 }
 
 // geminiEffort cuts gemini's trailing native effort off model; ok is false for any other agent or no suffix.
@@ -331,15 +342,6 @@ func launchWire(agentName string, p *providers.Provider, id string) string {
 	return cmp.Or(servedSpelling(agentName, p, id, time.Now()), p.WireModel(id))
 }
 
-// unlisted reports a Databricks row whose fresh listing has no endpoint wire.
-func unlisted(p *providers.Provider, wire string, now time.Time) bool {
-	if p.Preset != providers.PresetDatabricks || wire == "" {
-		return false
-	}
-	listed, _, fresh := router.ServedListed(p, wire, now)
-	return fresh && !listed
-}
-
 // preflightResponsesMismatch preserves the Responses wire refusal before the served-model refusal.
 func preflightResponsesMismatch(agentName string, p *providers.Provider, wire string) bool {
 	return speaksResponses(agentName) && p.Preset == providers.PresetDatabricks &&
@@ -356,20 +358,6 @@ func preflightModelWire(agentName string, p *providers.Provider, model string) (
 		wire, why = ProfileServes(agentName, p, model)
 	}
 	return wire, why
-}
-
-// preflightEndpoint checks the cached workspace listing without making a model call.
-func preflightEndpoint(p *providers.Provider, wire string, now time.Time) (note, why string) {
-	listed, ready, fresh := router.ServedListed(p, wire, now)
-	switch {
-	case !fresh:
-		return "no fresh listing for " + p.Name + ": endpoint check skipped", ""
-	case !listed:
-		return "", p.Name + " lists no endpoint " + wire
-	case !ready:
-		return "", wire + " is not a READY endpoint on " + p.Name
-	}
-	return "", ""
 }
 
 // maxAlternatives caps the served ids a refusal names.

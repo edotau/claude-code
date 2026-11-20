@@ -91,15 +91,19 @@ func pickAndStamp[F any](reg *providers.Registry, q WorkspaceQuery[F], now time.
 	}
 	cooling := workspaceCooling(usable, q, now)
 	load := workspaceLoad(usable, q) // the marker and record scans stay out of the stamp lock
-	pick := func() error {
+	rankFrom := func() armPicks {
 		picks := readArmPicks()
-		counts := rankWorkspaces(usable, q, cooling, load, picks)
-		order, live = names(usable), counts[usable[0].Name]
+		live = rankWorkspaces(usable, q, cooling, load, picks)[usable[0].Name]
+		order = names(usable)
+		return picks
+	}
+	pick := func() error {
+		picks := rankFrom()
 		picks.Picked[q.stampKey(order[0])] = newestStamp(picks, now)
 		return writeArmPicks(picks)
 	}
-	if err := paths.WithFileLock(armPicksFile(), pick); len(order) == 0 && err != nil { // Stamping is best-effort.
-		_ = pick()
+	if err := paths.WithFileLock(armPicksFile(), pick); len(order) == 0 && err != nil { // no lock: rank read-only, unstamped
+		rankFrom()
 	}
 	if q.Pending != nil {
 		q.Pending[order[0]]++

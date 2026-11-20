@@ -174,19 +174,14 @@ func stateErrClass(err error) string {
 	return "file error"
 }
 
-// pickPool is PickRotation on p's own account.
-func pickPool(agent string, p *providers.Provider, pool []string, now time.Time) (string, error) {
-	return PickRotation(agent, ProviderAccount(p.Name), ProviderAccount(p.Name), p, pool, nil, now)
-}
-
 // PickRotation orders by hist under one lock, keeping holds on account; nil p skips the listing.
 // A model in dear (entry -> turns) is passed over, sent to the back, until it has sat out turns-1 of its turns.
-func PickRotation(agent, account, hist string, p *providers.Provider, pool []string, dear map[string]int, now time.Time) (string, error) {
+func PickRotation(ctx context.Context, agent, account, hist string, p *providers.Provider, pool []string, dear map[string]int, now time.Time) (string, error) {
 	if p != nil {
 		pool = ServedPool(p, pool, now)
 	}
 	var model string
-	err := update(func(s State) {
+	err := updateCtx(ctx, func(s State) {
 		e := s[hist]
 		selected, passed := leastRecent(s[account], e, agent, p, pool, dear, now)
 		if selected == "" {
@@ -249,7 +244,7 @@ func leastRecent(e, history Entry, agent string, p *providers.Provider, pool []s
 func oldest(e, history Entry, agent string, p *providers.Provider, pool, skip []string, now time.Time) string {
 	var selected string
 	for _, entry := range pool {
-		if slices.Contains(skip, entry) || providers.SpellPin(p, entry) == "" || discoverySkipped(e, agent, entry, now) || e.ModelDead[ModelKey(entry)].After(now) {
+		if slices.Contains(skip, entry) || providers.SpellPin(p, entry) == "" || HeldUntil(e, agent, entry, now) != nil {
 			continue
 		}
 		if selected == "" || history.Discovery[DiscoverySkipKey(agent, entry)].Before(history.Discovery[DiscoverySkipKey(agent, selected)]) {
@@ -286,9 +281,34 @@ func withTime(m map[string]time.Time, k string, t time.Time) map[string]time.Tim
 // DiscoverySkipKey is the Discovery and DiscoverySkip map key for agent and entry.
 func DiscoverySkipKey(agent, entry string) string { return agent + "|" + entry }
 
-func discoverySkipped(e Entry, agent, entry string, now time.Time) bool {
-	at, ok := e.DiscoverySkip[DiscoverySkipKey(agent, entry)]
-	return ok && now.Sub(at) < DiscoverySkipTTL
+// HeldUntil is when a live quota hold or capability skip on e keeps agent's entry out of a pick; nil when none.
+func HeldUntil(e Entry, agent, entry string, now time.Time) *time.Time {
+	if until := e.ModelDead[ModelKey(entry)]; until.After(now) {
+		return &until
+	}
+	if at, ok := e.DiscoverySkip[DiscoverySkipKey(agent, entry)]; ok && now.Sub(at) < DiscoverySkipTTL {
+		until := at.Add(DiscoverySkipTTL)
+		return &until
+	}
+	return nil
+}
+
+// stateLockWait matches paths.WithFileLock's wait; updateCtx polls the lock in stateLockSlice tries until then.
+const stateLockWait, stateLockSlice = 2 * time.Minute, 100 * time.Millisecond
+
+// updateCtx is update that also gives up once ctx ends, so a cancelled ask never waits out a held lock.
+func updateCtx(ctx context.Context, fn func(State)) error {
+	for deadline := time.Now().Add(stateLockWait); ; {
+		ran, err := tryUpdate(stateLockSlice, fn)
+		switch {
+		case ran || err != nil:
+			return err
+		case ctx.Err() != nil:
+			return ctx.Err()
+		case time.Now().After(deadline):
+			return fmt.Errorf("%w: %s.lock", paths.ErrLockTimeout, StatePath())
+		}
+	}
 }
 
 // SkipDiscovery marks a pool entry unusable; returns "" for no match or a persistence error, reported on stderr.

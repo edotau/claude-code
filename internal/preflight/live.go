@@ -341,7 +341,7 @@ func Warm(ctx context.Context, w io.Writer, reg *providers.Registry, now time.Ti
 	defer cancel()
 	ps := Check(ctx, reg, now)
 	printRefreshErrors(w, RefreshStale(ctx, reg, ps, now, false))
-	printFixRows(w, ps)
+	printFixRows(w, Check(ctx, reg, now)) // recheck: the refresh may have repaired a stale or missing listing
 }
 
 // RefreshPinned force re-lists every pinned Databricks profile's endpoints; returns the load or listing errors.

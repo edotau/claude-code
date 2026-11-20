@@ -268,11 +268,11 @@ func rotationRows(reg *providers.Registry, agentName string) []*providers.Provid
 
 // RotationModel is agent's next rotation model at alias across its rows; stamp records the pick, else it only peeks.
 func RotationModel(reg *providers.Registry, agentName, alias string, stamp bool, now time.Time) (string, string, error) {
-	return rotationModelOn(rotationRows(reg, agentName), agentName, alias, stamp, false, nil, now)
+	return rotationModelOn(context.Background(), rotationRows(reg, agentName), agentName, alias, stamp, false, nil, now)
 }
 
 // rotationModelOn is RotationModel over the given rows.
-func rotationModelOn(rows []*providers.Provider, agentName, alias string, stamp, tools bool, tried []string, now time.Time) (string, string, error) {
+func rotationModelOn(ctx context.Context, rows []*providers.Provider, agentName, alias string, stamp, tools bool, tried []string, now time.Time) (string, string, error) {
 	if len(rows) == 0 {
 		return "", "", nil
 	}
@@ -281,7 +281,7 @@ func rotationModelOn(rows []*providers.Provider, agentName, alias string, stamp,
 	for _, p := range rows {
 		for _, m := range withoutTried(rotationPool(agentName, alias, p, tools, now), tried, p) {
 			// skips and holds live on the workspace's account, not the pool account the pick below reads
-			held, _ := heldUntil(st[router.AccountOf(p)], router.DiscoverySkipKey(agentName, m), m, now)
+			held := router.HeldUntil(st[router.AccountOf(p)], agentName, m, now) != nil
 			if !slices.Contains(pool, m) && (len(rows) == 1 || !held) {
 				pool = append(pool, m)
 			}
@@ -301,7 +301,7 @@ func rotationModelOn(rows []*providers.Provider, agentName, alias string, stamp,
 		m := router.PeekRotation(agentName, account, hist, p, pool, dear, now)
 		return m, rotationNote(m, alias, n, "next"), nil
 	}
-	m, err := router.PickRotation(agentName, account, hist, p, pool, dear, now)
+	m, err := router.PickRotation(ctx, agentName, account, hist, p, pool, dear, now)
 	return m, rotationNote(m, alias, n, "picked"), err
 }
 
@@ -317,8 +317,7 @@ func takeable(e router.Entry, agentName string, p *providers.Provider, pool []st
 		pool = router.ServedPool(p, pool, now)
 	}
 	return len(pool) - len(slices.DeleteFunc(slices.Clone(pool), func(m string) bool {
-		held, _ := heldUntil(e, router.DiscoverySkipKey(agentName, m), m, now)
-		return !held
+		return router.HeldUntil(e, agentName, m, now) == nil
 	}))
 }
 
@@ -356,7 +355,8 @@ func RotationMembers(agentName, profile, tier string, now time.Time) []PoolMembe
 		if at := history.Discovery[key]; !at.IsZero() {
 			m.LastPicked = &at
 		}
-		m.Held, m.HeldUntil = heldUntil(e, key, entry, now)
+		m.HeldUntil = router.HeldUntil(e, agentName, entry, now)
+		m.Held = m.HeldUntil != nil
 		if !m.Held {
 			live = append(live, entry)
 		}
@@ -377,18 +377,6 @@ func heldRank(m PoolMember) int {
 		return 1
 	}
 	return 0
-}
-
-// heldUntil is when a quota hold or a capability skip on entry ends; false when none is live.
-func heldUntil(e router.Entry, key, entry string, now time.Time) (bool, *time.Time) {
-	if until := e.ModelDead[router.ModelKey(entry)]; until.After(now) {
-		return true, &until
-	}
-	if at, ok := e.DiscoverySkip[key]; ok && now.Sub(at) < router.DiscoverySkipTTL {
-		until := at.Add(router.DiscoverySkipTTL)
-		return true, &until
-	}
-	return false, nil
 }
 
 func timeOf(t *time.Time) time.Time {
@@ -446,11 +434,12 @@ func rotationPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need a
 
 // tierRotation is the pick at alias on p, stepping to standard when the row serves nothing in alias's tier.
 func tierRotation(q ModelQuery, alias string, p *providers.Provider, now time.Time) (string, string, string, error) {
-	stamp := q.ctx == nil || !Peeking(q.ctx)
-	m, note, err := rotationModelOn([]*providers.Provider{p}, q.Agent, alias, stamp, q.Tools, askTriedPicks(q.ctx), now)
+	ctx := cmp.Or(q.ctx, context.Background())
+	stamp := !Peeking(ctx)
+	m, note, err := rotationModelOn(ctx, []*providers.Provider{p}, q.Agent, alias, stamp, q.Tools, askTriedPicks(q.ctx), now)
 	if err == nil && m == "" && alias != models.Sonnet && len(heldIn(q.Agent, alias, p, q.Tools, now)) == 0 {
 		alias = models.Sonnet // the row serves nothing in this tier: step to standard, as the tier ladder does
-		m, note, err = rotationModelOn([]*providers.Provider{p}, q.Agent, alias, stamp, q.Tools, askTriedPicks(q.ctx), now)
+		m, note, err = rotationModelOn(ctx, []*providers.Provider{p}, q.Agent, alias, stamp, q.Tools, askTriedPicks(q.ctx), now)
 	}
 	return m, note, alias, err
 }
@@ -465,7 +454,7 @@ func heldIn(agentName, alias string, p *providers.Provider, tools bool, now time
 	e := router.LoadState()[router.AccountOf(p)]
 	var held []string
 	for _, id := range rotationPool(agentName, alias, p, tools, now) {
-		if yes, _ := heldUntil(e, router.DiscoverySkipKey(agentName, id), id, now); yes {
+		if router.HeldUntil(e, agentName, id, now) != nil {
 			held = append(held, id)
 		}
 	}
