@@ -114,7 +114,7 @@ func TestClaudeExecAPIRetryIsNotActivity(t *testing.T) {
 	text := `{"type":"assistant","session_id":"s","message":{"model":"m","content":[{"type":"text","text":"hi"}]}}`
 	r := runFakeClaudeStall(t, func(limit time.Duration) string {
 		gap := strconv.FormatFloat((limit / 4).Seconds(), 'f', 3, 64)
-		return "echo '" + initLine + "'\nfor i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do echo '" + retryLine +
+		return "echo '" + initLine + "'\nfor i in 1 2; do echo '" + retryLine +
 			"'\nsleep " + gap + "\ndone\nexec sleep 30\n"
 	})
 	if !errors.Is(r.err, agent.ErrStalled) || !strings.Contains(r.err.Error(), "no model output") || !strings.Contains(r.err.Error(), "(401)") {
@@ -127,6 +127,37 @@ func TestClaudeExecAPIRetryIsNotActivity(t *testing.T) {
 	})
 	if r.err != nil || r.res.Answer != "done" {
 		t.Fatalf("res = %+v, err = %v; text must keep the run alive", r.res, r.err)
+	}
+}
+
+// Three consecutive 401 retries end the run at once as an auth failure; fewer, text between them, or 429s do not.
+func TestClaudeExecRejectedLoginEndsEarly(t *testing.T) {
+	rl := func(st int) string {
+		return `echo '{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":1,"error_status":` + strconv.Itoa(st) + `}'` + "\n"
+	}
+	const idle = 5 * time.Second // far above start-up, so only the early end can finish the run quickly
+	start := time.Now()
+	_, err := runFakeClaudeIdle(t, idle, "echo '"+initLine+"'\n"+strings.Repeat(rl(401), 3)+"exec sleep 30\n")
+	var re *retry.Error
+	if !errors.As(err, &re) || re.Kind != retry.KindAuth || re.AuthReason == "" || errors.Is(err, agent.ErrStalled) ||
+		!strings.Contains(err.Error(), "login rejected (401)") || time.Since(start) > idle/2 {
+		t.Fatalf("took %v, err = %v; want a prompt auth-kind error with a reason", time.Since(start), err)
+	}
+}
+
+// Text between 401 retries resets the count, and 429 retries never end the run as an auth failure.
+func TestClaudeExecRejectedLoginCountResets(t *testing.T) {
+	rl := func(st int) string {
+		return `echo '{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":1,"error_status":` + strconv.Itoa(st) + `}'` + "\n"
+	}
+	text := `{"type":"assistant","session_id":"s","message":{"model":"m","content":[{"type":"text","text":"hi"}]}}`
+	const idle = 5 * time.Second
+	two := "echo '" + initLine + "'\n" + strings.Repeat(rl(401), 2) + "echo '" + text + "'\n" + rl(401) + rl(401) + "echo '" + resultLine + "'\n"
+	if res, err := runFakeClaudeIdle(t, idle, two); err != nil || res.Answer != "done" {
+		t.Fatalf("res = %+v, err = %v; text must reset the 401 count", res, err)
+	}
+	if res, err := runFakeClaudeIdle(t, idle, "echo '"+initLine+"'\n"+strings.Repeat(rl(429), 5)+"echo '"+resultLine+"'\n"); err != nil || res.Answer != "done" {
+		t.Fatalf("res = %+v, err = %v; 429 retries are never an auth failure", res, err)
 	}
 }
 

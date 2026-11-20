@@ -8,7 +8,11 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/retry"
 )
+
+// authRetryLimit is how many consecutive 401/403 api_retry events end an attempt: a rejected login never recovers.
+const authRetryLimit = 3
 
 // claudeIdleLimit is how long a claude child may emit nothing while a model response is expected; tests shorten it.
 var claudeIdleLimit = 90 * time.Second
@@ -19,6 +23,7 @@ type idleWatch struct {
 	pending int // tool_use blocks emitted and not yet answered by a tool_result; read by the parser goroutine only
 	// api_retry events since the last real event and the last status; claudeExec reads them after the stream ends
 	retries, status int
+	rejected        bool // authRetryLimit rejected-login retries ended the attempt early
 	start           time.Time
 }
 
@@ -29,11 +34,22 @@ func newIdleWatch(d time.Duration, kill func()) *idleWatch {
 
 // stalledErr names the API retries behind a stall, since they are not activity; err is returned as is when there were none.
 func (w *idleWatch) stalledErr(err error) error {
+	if w != nil && w.rejected {
+		return w.rejectedErr()
+	}
 	if w == nil || w.retries == 0 || !errors.Is(err, agent.ErrStalled) {
 		return err
 	}
 	return fmt.Errorf("claude: no model output: %d API retries (%d) in %s: %w",
 		w.retries, w.status, time.Since(w.start).Round(time.Second), err)
+}
+
+// rejectedErr is the auth-kind failure of a login the API refused; AuthReason makes the fallback chain mark the account.
+func (w *idleWatch) rejectedErr() error {
+	msg := fmt.Sprintf("claude: login rejected (%d) after %d retries; sign in with `claude-code databricks login --profile <profile>`"+
+		" (or `claude /login` for the subscription row), or finish this task in the main session", w.status, w.retries)
+	return &retry.Error{Kind: retry.KindAuth, Agent: "claude", Status: w.status,
+		AuthReason: fmt.Sprintf("login rejected (%d)", w.status), Err: errors.New(msg)}
 }
 
 // observe records an event: it resets the window unless a tool is running, which pauses it.
@@ -79,6 +95,10 @@ func (w *idleWatch) noteRetry(status *int) {
 	w.status = 0
 	if status != nil {
 		w.status = *status
+	}
+	if w.retries >= authRetryLimit && !w.rejected {
+		w.rejected = true
+		w.Kill()
 	}
 }
 

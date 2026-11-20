@@ -60,6 +60,25 @@ func (w *IdleTimeout) trip() {
 	}
 }
 
+// Kill ends the window now as a trip, running the kill once; a later Err reads as a stall unless the caller classifies it.
+func (w *IdleTimeout) Kill() {
+	if w == nil {
+		return
+	}
+	w.mu.Lock()
+	if w.done || w.tripped {
+		w.mu.Unlock()
+		return
+	}
+	w.tripped = true
+	w.timer.Stop()
+	kill := w.kill
+	w.mu.Unlock()
+	if kill != nil {
+		kill()
+	}
+}
+
 // bind sets the kill to cancel once the child has started; a trip that came first kills it now.
 func (w *IdleTimeout) bind(cancel func() error) {
 	if w == nil || cancel == nil {

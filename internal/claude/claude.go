@@ -796,7 +796,7 @@ func (b *claudeLive) Parse(dec *bufio.Reader, sink wire.Sink, lg func(kind, text
 	defer wd.Stop()
 	res, err := parseClaudeEvents(dec, true, wd, sink, wd.Spoke, lg)
 	if serr := wd.Err(); serr != nil {
-		err = serr
+		err = wd.stalledErr(serr)
 	}
 	total := res.Usage.CostUSD
 	res.Usage.CostUSD = max(total-b.prevCost, 0)
