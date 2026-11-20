@@ -60,20 +60,19 @@ func (r *dispatchRun) rosterEffort(name string) string {
 
 // agentEffortResult is the pin step: a spawn gets one UpdatedInput (pin, recall, label), a Workflow its lint result.
 func agentEffortResult(ctx context.Context, in *core.Input) core.Result {
+	return effortFor(ctx, in, modeFor(in))
+}
+
+func effortFor(ctx context.Context, in *core.Input, mode spawnMode) core.Result {
 	if in.ToolName == "Workflow" {
 		return workflows.WorkflowResult(in)
 	}
 	if !core.SpawnTools[in.ToolName] {
 		return core.Result{}
 	}
-	if deny := runLineBlock(ctx, in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")); deny != nil {
+	fixType, deny := effortDenial(ctx, in)
+	if deny != nil {
 		return *deny
-	}
-	fixType := ""
-	if deny := typeBlock(in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")); deny != nil {
-		if fixType = coworkerTarget(in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")); fixType == "" {
-			return *deny
-		}
 	}
 	// updatedInput REPLACES the whole tool_input record, so every original key must be echoed back.
 	updated := in.CloneToolInput()
@@ -86,18 +85,23 @@ func agentEffortResult(ctx context.Context, in *core.Input) core.Result {
 	// a direct ask run's prompt changes only by a Run: line fix; its recall rides additionalContext
 	direct := opensWithAsk(task)
 	session := func() string { u, _ := transcript.LastUsage(in.TranscriptPath); return u.Model }
-	e := &effortPlan{updated: updated, run: newDispatchRun(session)}
+	e := &effortPlan{updated: updated, run: newDispatchRun(session), mode: mode}
 	task = e.fixRunLine(promptField, task)
 	if deny := preflightBlock(ctx, e.run, task); deny != nil {
 		return *deny
 	}
 	e.retype(in, fixType)
+	return e.finish(ctx, in, promptField, task, direct)
+}
+
+// finish runs the recall, model pin and label steps and renders the result.
+func (e *effortPlan) finish(ctx context.Context, in *core.Input, promptField, task string, direct bool) core.Result {
 	// auto mode refuses a hook-modified input, so its recall rides additionalContext too
 	st := in.Nested("tool_input", "subagent_type")
-	recallNote := e.recall(ctx, in, promptField, task, direct || fixedModelTypes[st] || in.Nested("permission_mode") == "auto")
+	recallNote := e.recallStep(ctx, in, promptField, task, direct || fixedModelTypes[st] || in.Nested("permission_mode") == "auto")
 	if !direct && !fixedModelTypes[st] {
-		pinNote, pinMsg := pinModel(e.run, in, updated, task)
-		e.fix(pinNote)
+		pinNote, pinMsg := pinModel(e.run, in, e.updated, task)
+		e.fix(e.decision(pinNote))
 		e.systemMessage = strings.TrimSpace(e.systemMessage + " " + pinMsg)
 		e.changed = e.changed || pinNote != ""
 	}
@@ -106,6 +110,21 @@ func agentEffortResult(ctx context.Context, in *core.Input) core.Result {
 	}
 	e.note = strings.TrimSpace(e.note + "\n" + recallNote)
 	return e.result()
+}
+
+// effortDenial is the call's type or Run: denial, else the coworker type to retype to ("" for none).
+func effortDenial(ctx context.Context, in *core.Input) (fixType string, deny *core.Result) {
+	st, prompt := in.Nested("tool_input", "subagent_type"), in.Nested("tool_input", "prompt")
+	if deny = runLineBlock(ctx, st, prompt); deny != nil {
+		return "", deny
+	}
+	if deny = typeBlock(st, prompt); deny != nil {
+		if fixType = coworkerTarget(st, prompt); fixType == "" {
+			return "", deny
+		}
+		return fixType, nil
+	}
+	return "", nil
 }
 
 func spawnTask(in *core.Input) (field, task string) {
@@ -121,6 +140,15 @@ type effortPlan struct {
 	note          string
 	systemMessage string
 	changed       bool
+	mode          spawnMode
+}
+
+// recallStep is recall for the run's mode: a spawn mod's marker moves it to a note, its query skips it (it stamps).
+func (e *effortPlan) recallStep(ctx context.Context, in *core.Input, promptField, task string, asNote bool) string {
+	if e.mode == modeQuery {
+		return ""
+	}
+	return e.recall(ctx, in, promptField, task, asNote || e.mode == modeDeferred)
 }
 
 // recall appends the memory-recall block to the prompt, or returns it as a note (direct ask run or auto mode).
@@ -208,6 +236,9 @@ func freshPointers(session, block string) string {
 func (e *effortPlan) label(ctx context.Context, task string) {
 	changed, note := applyLabel(ctx, e.run, e.updated, task)
 	e.changed = changed || e.changed
+	if i := strings.LastIndex(note, "\n") + 1; changed {
+		note = note[:i] + e.decision(note[i:]) // the last line is the rewrite itself
+	}
 	e.fix(note)
 }
 
@@ -220,6 +251,8 @@ func (e *effortPlan) fix(note string) {
 
 func (e *effortPlan) result() core.Result {
 	switch {
+	case e.mode == modeDeferred:
+		return core.Result{Context: e.note}
 	case e.changed:
 		return core.Result{UpdatedInput: e.updated, Context: e.note, SystemMessage: e.systemMessage}
 	case e.note != "":

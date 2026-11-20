@@ -76,11 +76,12 @@ func plainCommand(command string, words []string) bool {
 
 func (e *effortPlan) fixRunLine(field, task string) string {
 	fixed, note := fixRunLine(task)
-	e.fix(note)
-	e.fix(toolsNote(fixed))
 	if fixed != task {
+		note = e.decision(note)
 		e.updated[field], e.changed = fixed, true
 	}
+	e.fix(note)
+	e.fix(toolsNote(fixed))
 	return fixed
 }
 

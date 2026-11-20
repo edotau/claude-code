@@ -415,7 +415,7 @@ var native = map[string]core.Runner{
 	"review-simplicity":    quality.ReviewSimplicity,
 	"format-stop":          quality.StopFormat,
 	"memory-end":           memhook.End,
-	"dispatch-effort":      Effort,
+	"dispatch-effort":      EffortSpawn,
 	"codex-agent-route":    CodexAgentRoute,
 	"codex-routing-start":  CodexRoutingStart,
 	"codex-routing-result": CodexRoutingResult,

@@ -113,6 +113,13 @@ not data. Blocks name the allowed route and the owner's `!`; `claude-code doctor
 | `worktree-claim` ¶ | PostToolUse (Write\|Edit\|MultiEdit; Bash async) | Never blocks: appends written or staged paths still dirty to `state/harness/hooks/claims/<pid>-<session>.jsonl`; synchronous on Codex, Copilot and Gemini (no async entry; about 10 ms per call) |
 | `worktree-claim-check` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | Notes an edit of a dirty file another live session or sibling leaf claims; **asks** on staging or committing it, in a leaf under `~/.claude` the block becomes allow + note for Bash (Write/Edit stay blocked unless `--permissions allow`); `HARNESS_WORKTREE=lanes` extends it to tracked-file edits in the live checkout (`worktree-git.md` → Worktrees); infra errors allow with a warning |
 
+**`dispatch-effort` and a spawn mod.** A mod that rewrites at `agent.spawn` calls `hook PreToolUse --dispatch-effort`
+with a top-level `harness_spawn` in the payload: `"ready"` plus `session_id` writes the session's marker
+(`state/harness/hooks/spawn-mod-ready/<session>`, ignored after 7 days) and prints `{}`; `"query"` plus the Agent
+fields prints one object of the changed `description`, `prompt`, `subagentType`, `model` and `notes`, claiming and
+stamping nothing (no recall). With the marker, PreToolUse emits no `updatedInput`: each decision is a note, recall too;
+denials are unchanged.
+
 ### safety-scan main-session rules
 
 A leaf is a subagent or a dispatched agent; rules match commands, never text, and are stated before `agentBashAllow`
