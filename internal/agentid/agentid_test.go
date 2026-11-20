@@ -10,7 +10,7 @@ import (
 
 func TestAll(t *testing.T) {
 	all := All()
-	if want := []string{"claude", "codex", "copilot", "gemini", "opencode"}; !slices.Equal(all, want) {
+	if want := []string{"claude", "codex", "copilot", "gemini", "opencode", "pi"}; !slices.Equal(all, want) {
 		t.Fatalf("All() = %v, want %v", all, want)
 	}
 	for i, name := range all {
@@ -54,6 +54,7 @@ func TestNativeEffort(t *testing.T) {
 		Copilot:  {pass, pass, pass, pass, pass, refuse, refuse},
 		Gemini:   {pass, pass, pass, pass, pass, refuse, refuse},
 		OpenCode: {pass, pass, pass, pass, pass, refuse, refuse},
+		Pi:       {pass, pass, pass, pass, pass, pass, refuse},
 		"agy":    {refuse, refuse, refuse, refuse, refuse, refuse, refuse},
 	}
 	levels := append(efforts(), "minimal", "bogus")
@@ -98,6 +99,7 @@ func TestNativeEfforts(t *testing.T) {
 		Copilot:  nil,
 		Gemini:   EffortNames(),
 		OpenCode: nil,
+		Pi:       {"minimal", "low", "medium", "high", "xhigh", "max"},
 	}
 	for _, agent := range All() {
 		if got := NativeEfforts(agent); !slices.Equal(got, want[agent]) || (got == nil) != (want[agent] == nil) {

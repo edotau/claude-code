@@ -95,13 +95,13 @@ func TestCompletionExact(t *testing.T) {
 		{"doctor flags", []string{"doctor", "--"}, []string{"--agent", "--audit", "--days", "--fix", "--format", "--git", "--mcp",
 			"--permissions", "--prompts", "--range", "--refresh", "--scan", "--secrets", "--since"}},
 		{"switch values", []string{"switch", ""}, providers.ProfileNames()},
-		{"ask --agent values", []string{"agents", "ask", "--agent", ""}, []string{"claude", "codex", "copilot", "gemini", "opencode"}},
+		{"ask --agent values", []string{"agents", "ask", "--agent", ""}, []string{"claude", "codex", "copilot", "gemini", "opencode", "pi"}},
 		{"ask --model has no domain", []string{"agents", "ask", "--model", ""}, nil},
 		{"workflow skeleton positional", []string{"workflow", "skeleton", ""}, workflowPatterns()},
 		{"bare flag keeps prefix match", []string{"agents", "ask", "--agent"}, []string{"--agent", "--agents"}},
 		{"vendor past double dash", []string{"codex", "--", ""}, nil},
 		{"resolve-agent domain", []string{"worktree", "merge", "--resolve-agent", ""},
-			[]string{"claude", "codex", "copilot", "gemini", "opencode"}},
+			[]string{"claude", "codex", "copilot", "gemini", "opencode", "pi"}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := candidates(tc.words...); !slices.Equal(got, tc.want) {
@@ -447,6 +447,9 @@ func TestCompletionNeverInvokesARunFunc(t *testing.T) {
 func TestVendorCompletionOffersEverySubverb(t *testing.T) {
 	want := vendorSubwords()
 	for _, vendor := range agent.Names() {
+		if specTree()[vendor] == nil { // an agent with no vendor verb yet (pi)
+			continue
+		}
 		got := candidates(vendor, "")
 		slices.Sort(got)
 		wantVendor := want

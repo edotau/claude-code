@@ -489,7 +489,7 @@ var IdleLimit = 5 * time.Minute
 // gemini and copilot often emit nothing until the end, so no event stream signals their liveness.
 func IdleLimitFor(name string) time.Duration {
 	switch name {
-	case "codex", "opencode":
+	case "codex", "opencode", "pi":
 		return IdleLimit
 	}
 	return 0

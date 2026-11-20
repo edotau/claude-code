@@ -112,7 +112,7 @@ func TestRosterMatchesSpecs(t *testing.T) {
 	for _, s := range agent.Roster() {
 		names = append(names, s.Name)
 	}
-	if !slices.Equal(names, []string{"claude", "codex", "copilot", "gemini", "opencode"}) {
+	if !slices.Equal(names, []string{"claude", "codex", "copilot", "gemini", "opencode", "pi"}) {
 		t.Fatalf("roster order = %v", names)
 	}
 	for _, r := range agent.Engines() {
@@ -123,6 +123,9 @@ func TestRosterMatchesSpecs(t *testing.T) {
 	} {
 		slices.Sort(other)
 		want := slices.Clone(names)
+		if label == "RouteAgents" { // pi has no route-table column
+			want = slices.DeleteFunc(want, func(n string) bool { return n == "pi" })
+		}
 		slices.Sort(want)
 		if !slices.Equal(other, want) {
 			t.Errorf("%s names = %v, roster names = %v", label, other, want)

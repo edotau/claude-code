@@ -8,17 +8,18 @@ import (
 	"strings"
 )
 
-// The five roster agents.
+// The six roster agents.
 const (
 	Claude   = "claude"
 	Codex    = "codex"
 	Copilot  = "copilot"
 	Gemini   = "gemini"
 	OpenCode = "opencode"
+	Pi       = "pi"
 )
 
 // All is every roster agent: claude first, then the external CLIs by name; a fresh slice each call.
-func All() []string { return []string{Claude, Codex, Copilot, Gemini, OpenCode} }
+func All() []string { return []string{Claude, Codex, Copilot, Gemini, OpenCode, Pi} }
 
 // External is the agents that run an external CLI (All without claude).
 func External() []string { return All()[1:] }
@@ -73,6 +74,7 @@ var routeFacts = map[string]RouteFacts{
 	Copilot:  {FreezeTarget: true, Discovery: true},
 	Gemini:   {EffortSuffix: true, ModelFamily: "gemini", binary: "agy", GoogleOrDatabricks: true, NoWorkspaceFallback: true, nativeEfforts: EffortNames()},
 	OpenCode: {SubLadder: true, Discovery: true},
+	Pi:       {Discovery: true, nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh", "max"}},
 }
 
 // Routing is name's routing facts.

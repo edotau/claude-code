@@ -327,6 +327,9 @@ func TestOwnLoginProfilesMatchBuiltInDefaults(t *testing.T) {
 	}
 	for _, a := range agentid.External() {
 		want := vault.OwnLoginProfiles[a]
+		if a == "pi" { // pi has no own login: it runs only on a routed profile
+			continue
+		}
 		if a == "opencode" {
 			if want != "zen-free" {
 				t.Errorf("opencode own login = %q, want %q", want, "zen-free")

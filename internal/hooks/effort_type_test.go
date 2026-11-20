@@ -60,7 +60,7 @@ func TestDispatchTypeGateFallsBackToRoster(t *testing.T) {
 	orig := listAgents
 	t.Cleanup(func() { listAgents = orig })
 	listAgents = func(string) ([]project.Source, error) { return nil, os.ErrPermission }
-	if got, want := dispatchTypes(), []string{"Explore", "claude", "claude-code-guide", "codex", "copilot", "gemini", "general-purpose", "opencode", "statusline-setup", "web-fetch"}; fmt.Sprint(got) != fmt.Sprint(want) {
+	if got, want := dispatchTypes(), []string{"Explore", "claude", "claude-code-guide", "codex", "copilot", "gemini", "general-purpose", "opencode", "pi", "statusline-setup", "web-fetch"}; fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("fallback types = %v, want %v", got, want)
 	}
 	useAgentsDir(t) // no agents/ at all

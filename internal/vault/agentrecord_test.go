@@ -51,8 +51,9 @@ func TestFallbackRoundTrip(t *testing.T) {
 
 func TestAgentNameListsTieToAgentid(t *testing.T) {
 	keys := slices.Sorted(maps.Keys(OwnLoginProfiles))
-	if want := slices.Sorted(slices.Values(agentid.External())); !slices.Equal(keys, want) {
-		t.Fatalf("OwnLoginProfiles keys = %v, want agentid.External() %v", keys, want)
+	want := slices.DeleteFunc(slices.Sorted(slices.Values(agentid.External())), func(a string) bool { return a == agentid.Pi }) // pi has no own login
+	if !slices.Equal(keys, want) {
+		t.Fatalf("OwnLoginProfiles keys = %v, want agentid.External() minus pi %v", keys, want)
 	}
 }
 
