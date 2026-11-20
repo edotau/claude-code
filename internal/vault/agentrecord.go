@@ -82,6 +82,9 @@ func (r AgentRecord) EffectiveFallbackRoute() route.Route {
 	if !r.FallbackRoute.IsZero() {
 		return r.FallbackRoute
 	}
+	if r.Fallback == "" && r.Route.IsZero() && r.Account != "" { // D6: a legacy copilot profile beside its account
+		return legacyRoute(r.Profile)
+	}
 	return legacyRoute(r.Fallback)
 }
 

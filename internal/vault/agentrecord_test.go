@@ -222,6 +222,8 @@ func TestEffectiveRouteReadsLegacy(t *testing.T) {
 		{"copilot account+fallback", AgentRecord{Profile: "copilot", Account: "me", Fallback: "dev"},
 			route.Route{Provider: "github", Account: "me"}, route.Route{Profile: "dev"}},
 		{"plain profile", AgentRecord{Profile: "ultra"}, route.Route{Profile: "ultra"}, route.Route{}},
+		{"copilot account+profile", AgentRecord{Profile: "qa", Account: "me"},
+			route.Route{Provider: "github", Account: "me"}, route.Route{Profile: "qa"}},
 		{"route object wins", AgentRecord{Profile: "ultra", Route: db, FallbackRoute: db, Fallback: "dev"}, db, db},
 	}
 	for _, c := range cases {

@@ -28,7 +28,6 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/redact"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/vault"
 )
 
 // copilotEngine is copilot's engine and its Engine: it drives the CLI through the SDK; tools are denied unless asked.
@@ -394,7 +393,7 @@ func (e copilotEngine) GateExplicit(ctx context.Context, req agent.RunOptions, r
 	}
 	from := t.Provider
 	t, note, err := copilotGate(ctx, reg, t, typedOffPin(t), req.Fallback)
-	if err == nil && t.Provider != from && req.Provider != "" && req.Provider == vault.GetAgentRecord("copilot").Profile {
+	if err == nil && t.Provider != from && req.Provider != "" && req.Provider == pinProfile() {
 		return t, note, &retry.Error{Kind: retry.KindQuota, Agent: e.Name(), Err: errors.New(note)}
 	}
 	if tier := resumeAlias(reg, req.Model); err == nil && t.Provider != from && t.Provider.Preset == providers.PresetDatabricks && tierModel(t.Provider, tier) != "" {

@@ -72,7 +72,7 @@ func fallbackMode(ctx context.Context) string {
 
 // pinHop is copilot's record profile as a target other than t's row; false when the pin is t, unset or unusable.
 func pinHop(reg *providers.Registry, t providers.Target) (providers.Target, bool) {
-	pin := reg.Row(vault.GetAgentRecord("copilot").Profile)
+	pin := reg.Row(pinProfile())
 	switch {
 	case pin == nil || pin == t.Provider:
 		return providers.Target{}, false
@@ -85,9 +85,15 @@ func pinHop(reg *providers.Registry, t providers.Target) (providers.Target, bool
 	return providers.Target{}, false
 }
 
+// pinProfile is copilot's route profile, else its fallback route's (a {github, account} route names none).
+func pinProfile() string {
+	rec := vault.GetAgentRecord("copilot")
+	return cmp.Or(rec.EffectiveRoute().Profile, rec.EffectiveFallbackRoute().Profile)
+}
+
 // typedOffPin reports a target row other than copilot's record profile: the caller typed it.
 func typedOffPin(t providers.Target) bool {
-	return t.Provider != nil && t.Provider.Name != vault.GetAgentRecord("copilot").Profile
+	return t.Provider != nil && t.Provider.Name != pinProfile()
 }
 
 // tierModel is copilot's Databricks tier model at alias on p (router table), else p's own alias model.
@@ -133,7 +139,7 @@ func describeCopilotRoute(ctx context.Context, reg *providers.Registry) agent.Ro
 	if reg == nil {
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteNone, Reason: "no route for copilot: no provider registry"}
 	}
-	if pin := vault.GetAgentRecord("copilot").Profile; reg.Providers[pin].DatabricksUsable() {
+	if pin := pinProfile(); reg.Providers[pin].DatabricksUsable() {
 		p := reg.Providers[pin]
 		t := agent.PinnedTarget(ctx, "copilot", providers.Target{Provider: p, Model: tierModel(p, models.Opus)})
 		return agent.RouteInfo{Agent: "copilot", Route: agent.RouteDatabricks, Provider: p.Name, Model: t.Model,
@@ -192,7 +198,7 @@ func RouteChain(ctx context.Context, reg *providers.Registry) []RouteStep {
 		return nil
 	}
 	var steps []RouteStep
-	pin := vault.GetAgentRecord("copilot").Profile
+	pin := pinProfile()
 	if p := reg.Providers[pin]; p != nil && p.Preset == providers.PresetDatabricks {
 		steps = append(steps, RouteStep{Label: "databricks-" + pin, When: "pinned", OK: p.DatabricksUsable()})
 	}
