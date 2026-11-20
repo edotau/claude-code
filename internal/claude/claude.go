@@ -84,7 +84,7 @@ func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink w
 	}
 	res, err := agent.RunEventStream(ctx, "claude", cmd, tail, sink, parse, agent.StreamOpts{Idle: wd.IdleTimeout})
 	res.Provider = cl.Set[providers.EnvSessionProfile]
-	return res, err
+	return res, wd.stalledErr(err)
 }
 
 func claudeStreamArgs(req agent.RunOptions, live bool) []string {

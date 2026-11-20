@@ -1,6 +1,8 @@
 package claude
 
 import (
+	"errors"
+	"fmt"
 	"time"
 
 	"github.com/anthropics/anthropic-sdk-go"
@@ -15,11 +17,23 @@ var claudeIdleLimit = 90 * time.Second
 type idleWatch struct {
 	*agent.IdleTimeout
 	pending int // tool_use blocks emitted and not yet answered by a tool_result; read by the parser goroutine only
+	// api_retry events since the last real event and the last status; claudeExec reads them after the stream ends
+	retries, status int
+	start           time.Time
 }
 
 // newIdleWatch arms the idle window now; kill (nil inside RunEventStream, which binds it) runs once on expiry.
 func newIdleWatch(d time.Duration, kill func()) *idleWatch {
-	return &idleWatch{IdleTimeout: agent.NewIdleTimeout("claude", d, kill)}
+	return &idleWatch{IdleTimeout: agent.NewIdleTimeout("claude", d, kill), start: time.Now()}
+}
+
+// stalledErr names the API retries behind a stall, since they are not activity; err is returned as is when there were none.
+func (w *idleWatch) stalledErr(err error) error {
+	if w == nil || w.retries == 0 || !errors.Is(err, agent.ErrStalled) {
+		return err
+	}
+	return fmt.Errorf("claude: no model output: %d API retries (%d) in %s: %w",
+		w.retries, w.status, time.Since(w.start).Round(time.Second), err)
 }
 
 // observe records an event: it resets the window unless a tool is running, which pauses it.
@@ -27,6 +41,11 @@ func (w *idleWatch) observe(ev claudeEvent, msg anthropic.Message) {
 	if w == nil {
 		return
 	}
+	if ev.Type == "system" && ev.Subtype == "api_retry" { // a failing API call is not progress: never re-arm
+		w.noteRetry(ev.ErrorStatus)
+		return
+	}
+	w.retries = 0
 	if ev.ParentToolUseID == "" {
 		switch ev.Type {
 		case "result":
@@ -44,6 +63,14 @@ func (w *idleWatch) observe(ev claudeEvent, msg anthropic.Message) {
 		return
 	}
 	w.Beat(ev.Type)
+}
+
+func (w *idleWatch) noteRetry(status *int) {
+	w.retries++
+	w.status = 0
+	if status != nil {
+		w.status = *status
+	}
 }
 
 func countBlocks(msg anthropic.Message, typ string) (n int) {

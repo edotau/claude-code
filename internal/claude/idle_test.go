@@ -108,6 +108,28 @@ func TestClaudeExecStallsWhenSilent(t *testing.T) {
 	}
 }
 
+// A stream of only api_retry events is a stall naming the retries; text between them re-arms the window.
+func TestClaudeExecAPIRetryIsNotActivity(t *testing.T) {
+	retryLine := `{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":1,"error_status":401}`
+	text := `{"type":"assistant","session_id":"s","message":{"model":"m","content":[{"type":"text","text":"hi"}]}}`
+	r := runFakeClaudeStall(t, func(limit time.Duration) string {
+		gap := strconv.FormatFloat((limit / 4).Seconds(), 'f', 3, 64)
+		return "echo '" + initLine + "'\nfor i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do echo '" + retryLine +
+			"'\nsleep " + gap + "\ndone\nexec sleep 30\n"
+	})
+	if !errors.Is(r.err, agent.ErrStalled) || !strings.Contains(r.err.Error(), "no model output") || !strings.Contains(r.err.Error(), "(401)") {
+		t.Fatalf("err = %v, want a stall naming the 401 retries", r.err)
+	}
+	r = runFakeClaudeStall(t, func(limit time.Duration) string {
+		gap := strconv.FormatFloat((limit / 4).Seconds(), 'f', 3, 64)
+		return "echo '" + initLine + "'\nfor i in 1 2 3 4 5 6; do echo '" + retryLine + "'\necho '" + text +
+			"'\nsleep " + gap + "\ndone\necho '" + resultLine + "'\n"
+	})
+	if r.err != nil || r.res.Answer != "done" {
+		t.Fatalf("res = %+v, err = %v; text must keep the run alive", r.res, r.err)
+	}
+}
+
 // A claude that delivers a successful result and then lingers is killed, but the run succeeds with the answer.
 func TestClaudeExecStallsAfterSuccessfulResult(t *testing.T) {
 	pidFile := filepath.Join(t.TempDir(), "pid")
