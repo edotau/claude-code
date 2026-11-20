@@ -31,6 +31,7 @@ import (
 type askFlags struct {
 	name, fallback, profile, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, format, rubric, retry, job, batchSrc, overlay string
 	modelTyped                                                                                                                                                                   bool
+	recover                                                                                                                                                                      bool
 	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast                                      bool
 	timeout                                                                                                                                                                      time.Duration
 	jobs, maxFiles, maxFileBytes                                                                                                                                                 int
@@ -136,6 +137,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.IntVar(&f.maxFileBytes, "max-file-bytes", pack.DefaultMaxFileBytes, "max bytes per inlined file")
 	fs.StringVar(&f.rubric, "rubric", "", "review standard file quoted verbatim ahead of the task")
 	fs.StringVar(&f.retry, "retry", "", "replay a logged dispatch by id (or unique id prefix); see agents status")
+	fs.BoolVar(&f.recover, "recover", false, "with --retry: rerun a dead or cut-off job from its event log, fresh session")
 	fs.BoolVar(&f.live, "live", false, "claude|gemini: hold a session open for agents send; --timeout is its idle limit")
 	fs.BoolVar(&f.background, "background", false, "detach: log a job, print its id, exit")
 	fs.StringVar(&f.save, "save", "", "write the answer to FILE; stdout keeps its first 8 lines")
@@ -691,4 +693,103 @@ func (r *askRun) readPrompt() (*bufio.Reader, string, error) {
 	}
 	prompt, err := resolveAskPrompt(r.prompt)
 	return nil, prompt, err
+}
+
+// recoverKey carries a *recoverClaim: the dispatch a --recover targets and whether this run holds its marker.
+type recoverKey struct{}
+
+type recoverClaim struct {
+	from string
+	held bool
+}
+
+func recoverOf(ctx context.Context) *recoverClaim {
+	c, _ := ctx.Value(recoverKey{}).(*recoverClaim)
+	return c
+}
+
+// claimRecover takes the one recovery claim on dispatch id (an O_EXCL marker); the loser learns the winner's id.
+func claimRecover(ctx context.Context) error {
+	c := recoverOf(ctx)
+	if c == nil {
+		return nil
+	}
+	rec, err := agent.LoadRecord(c.from)
+	if err != nil {
+		return err
+	}
+	if rec.Alive() {
+		return checkResumable(rec)
+	}
+	marker := agent.WatchMarker("resumed", rec.ID)
+	if marker == "" {
+		return fmt.Errorf("dispatch id %q cannot be claimed", rec.ID)
+	}
+	if err := os.MkdirAll(filepath.Dir(marker), 0o700); err != nil {
+		return err
+	}
+	f, err := os.OpenFile(marker, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+	if errors.Is(err, os.ErrExist) {
+		if id, _ := agent.ResumedAs(rec.ID); id != "" {
+			return fmt.Errorf("dispatch %s already recovered as %s", rec.ID, id)
+		}
+		return fmt.Errorf("dispatch %s is already being recovered by another session", rec.ID)
+	}
+	if err != nil {
+		return err
+	}
+	c.held = true
+	return f.Close()
+}
+
+// finishRecover records the new dispatch id in the claim marker of a --recover run.
+func finishRecover(ctx context.Context, id string) {
+	if c := recoverOf(ctx); c != nil && c.held {
+		if m := agent.WatchMarker("resumed", c.from); m != "" {
+			_ = os.WriteFile(m, []byte(id+"\n"), 0o600)
+		}
+	}
+}
+
+// releaseRecover drops a --recover claim that never got a dispatch id, so a failed start can be retried.
+func releaseRecover(ctx context.Context) {
+	c := recoverOf(ctx)
+	if c == nil || !c.held {
+		return
+	}
+	if m := agent.WatchMarker("resumed", c.from); m != "" {
+		if b, err := os.ReadFile(m); err == nil && len(strings.TrimSpace(string(b))) == 0 {
+			_ = os.Remove(m)
+		}
+	}
+}
+
+// recoverRetry turns a --retry into a recovery: swap in RecoveryPrompt and start a fresh session; the claim is later.
+func (r *askRun) recoverRetry() (int, bool) {
+	f := r.f
+	if f.retry == "" {
+		return r.fail(errors.New("--recover needs --retry <id>"), 2)
+	}
+	rec, err := agent.LoadRecord(f.retry)
+	if err != nil {
+		return r.fail(err, 1)
+	}
+	if rec.Alive() {
+		return r.fail(checkResumable(rec), 1)
+	}
+	r.ctx = context.WithValue(r.ctx, recoverKey{}, &recoverClaim{from: rec.ID})
+	if !helptext.Explicit(r.fs, "session") {
+		f.session = "" // never inherit the cut-off turn's session
+	}
+	if r.prompt != rec.Request.Prompt { // a typed task replaces the logged one: nothing to recover into
+		return 0, false
+	}
+	p, err := agent.RecoveryPrompt(rec, 0)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ask: --recover: %v; plain retry\n", err)
+		return 0, false
+	}
+	r.prompt = p
+	fmt.Fprintf(os.Stderr, "ask: recovering %s on a fresh session\n", rec.ID)
+	return 0, false
 }

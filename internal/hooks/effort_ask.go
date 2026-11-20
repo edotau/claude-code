@@ -128,7 +128,7 @@ type AskWords struct {
 
 // askBoolFlags are ask's boolean flags; every other registered flag takes a value (a test pins both lists to ask's).
 var askBoolFlags = strings.Fields("native tools read-only no-tools no-persist safe-mode direct autonomous fleet " +
-	"enable-memory stdin-framed live background fail-fast diff index dry-run loop status fresh")
+	"enable-memory stdin-framed live background fail-fast diff index dry-run loop status fresh recover")
 
 // ParseAskWords parses words as ask does (flags anywhere, none after "--"); ok is false where ask would exit 2.
 func ParseAskWords(words []string) (AskWords, bool) {

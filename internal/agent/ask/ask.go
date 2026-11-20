@@ -589,7 +589,12 @@ func (r *askRun) applyRecord() (int, bool) {
 	if rc, done := loadAskRetry(r.ctx, r.fs, r.args, f.retry, f.format, r.state, &r.prompt); done {
 		return rc, true
 	}
-	if f.retry != "" && !helptext.Explicit(r.fs, "session") {
+	if f.recover {
+		if rc, done := r.recoverRetry(); done {
+			return rc, true
+		}
+	}
+	if f.retry != "" && !f.recover && !helptext.Explicit(r.fs, "session") {
 		rec, err := agent.LoadRecord(f.retry)
 		if err != nil {
 			return r.fail(err, 1)
@@ -642,6 +647,14 @@ func (r *askRun) request(prompt string) agent.RunOptions {
 // askPrepareAndRun layers the overlay over req, prepares the dispatch, then detaches or runs it and reports.
 func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, doc agentconfig.Overlay,
 	env, keepEnv []string, as, format, save, name string, background, native bool, run *armRetry, out io.Writer) int {
+	rc := askPrepare(ctx, fs, req, jobRec, doc, env, keepEnv, as, format, save, name, background, native, run, out)
+	releaseRecover(ctx)
+	return rc
+}
+
+// askPrepare is askPrepareAndRun's body.
+func askPrepare(ctx context.Context, fs *flag.FlagSet, req agent.RunOptions, jobRec *agent.Record, doc agentconfig.Overlay,
+	env, keepEnv []string, as, format, save, name string, background, native bool, run *armRetry, out io.Writer) int {
 	ov, err := resolveOverlay(doc, env, keepEnv, background)
 	if err != nil {
 		return failAskCode(format, name, err, 2)
@@ -655,6 +668,9 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	if dry, ok := ctx.Value(dryKey{}).(dryDoc); ok {
 		return dryRun(ctx, req, dry, format, out)
 	}
+	if err := claimRecover(ctx); err != nil {
+		return failAsk(format, name, err)
+	}
 	go warmMask() // resolve the vault key while Prepare runs
 	prepared, err := run.prepare(ctx, cl, req, jobRec)
 	if err != nil {
@@ -663,6 +679,7 @@ func askPrepareAndRun(ctx context.Context, fs *flag.FlagSet, req agent.RunOption
 	if err := takeClaim(jobRec, prepared.Record.ID); err != nil {
 		return failAsk(format, name, err)
 	}
+	finishRecover(ctx, prepared.Record.ID)
 	saveErr := startPrepared(cl, prepared, background)
 	if background {
 		if saveErr != nil { // the --job child loads this record: without it the job could never start

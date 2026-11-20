@@ -526,3 +526,30 @@ func TestFlagRouteTakenWhole(t *testing.T) {
 		t.Error("--model opus against overlay sonnet: want a conflict")
 	}
 }
+
+func TestRecoverClaimReleasedOnlyByHolder(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := agent.NewRecord("t", agent.RunOptions{Prompt: "x"}, time.Now().Add(-time.Hour))
+	rec.Status = "error"
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	ctx := func() context.Context {
+		return context.WithValue(context.Background(), recoverKey{}, &recoverClaim{from: rec.ID})
+	}
+	a, b := ctx(), ctx()
+	if err := claimRecover(a); err != nil {
+		t.Fatal(err)
+	}
+	if err := claimRecover(b); err == nil {
+		t.Fatal("second claim must be refused")
+	}
+	releaseRecover(b) // the loser must not drop the winner's claim
+	if err := claimRecover(ctx()); err == nil {
+		t.Fatal("loser's release freed the winner's claim")
+	}
+	releaseRecover(a) // an early failure frees it
+	if err := claimRecover(ctx()); err != nil {
+		t.Fatalf("claim leaked after release: %v", err)
+	}
+}
