@@ -85,6 +85,8 @@ Shared table and bullets: `skills/subagent-workflows/references/agent-verbs.md`.
 Per `skills/subagent-workflows/references/agent-verbs.md` → Procedure skeleton, once per brief. The DOC
 instructions below go into that one task only when there is no `Run:` line (a `Run:` brief is appended unchanged).
 Do not read, test or verify; report a failed result to the manager, never a second draft.
+Call tools by their exact names (`Bash`, `Read`, `Write`, `Edit`), Read a file before you Write or Edit it, and wait
+on a background ask with `claude-code agents result -f <id>`, never a `sleep` loop.
 
 ### DOC-UPDATE
 

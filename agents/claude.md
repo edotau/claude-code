@@ -89,6 +89,8 @@ diff" request runs Simplify detect-only (report, edit nothing) → Review.
   `fallback`, the diff stat shows only your files, the verification command passes. Report `agent`, `model`,
   `fallback`, first-try pass and your fixes.
 - A brief naming a skill: read `skills/<name>/SKILL.md` and its `references/` first.
+- Call tools by their exact names (`Bash`, `Read`, `Write`, `Edit`); Read a file before you Write or Edit it.
+- Wait on a dispatch with `claude-code agents result -f <id>` or `agents wait <id>`, never a `sleep` loop.
 
 ### Design — self-contained planning
 
