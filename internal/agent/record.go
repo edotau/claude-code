@@ -592,6 +592,25 @@ func ranRoute(res wire.Result) string {
 	return ""
 }
 
+// UnmarshalJSON accepts route and ran_route as the legacy string or a route object.
+func (r *Record) UnmarshalJSON(b []byte) error {
+	type plain Record
+	aux := struct {
+		*plain
+		Route    json.RawMessage `json:"route"`
+		RanRoute json.RawMessage `json:"ran_route"`
+	}{plain: (*plain)(r)}
+	if err := json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	var err error
+	if r.Route, err = wire.RouteString(aux.Route); err != nil {
+		return err
+	}
+	r.RanRoute, err = wire.RouteString(aux.RanRoute)
+	return err
+}
+
 // RecordRefusal fails a never-launched ask refused at the route check: its job's record, else one new record.
 func RecordRefusal(name string, req RunOptions, job *Record, err error) {
 	hop := wire.Hop{Agent: name, Model: req.Model, ErrorKind: wire.ErrorKind(err), NotStarted: true}
@@ -764,9 +783,6 @@ func loadRecord(id string, list func(dir string) ([]string, error)) (Record, err
 	return readRecord(filepath.Join(dir, match[0]))
 }
 
-// sameAgentRow reports a run on the asked agent, even after a move to another of its rows (Fallback is the asked name).
-func (r Record) sameAgentRow() bool { return r.RanAs == "" || r.RanAs == r.Fallback }
-
 // namesNoModel is a served name that is no model: empty, the request auto or "<synthetic>".
 func namesNoModel(m string) bool { return m == "" || m == AutoModel || strings.HasPrefix(m, "<") }
 
@@ -792,7 +808,7 @@ func SessionModel(session string) string {
 			return true
 		}
 		model = m
-		if profile != "" && r.sameAgentRow() {
+		if profile != "" && (r.RanAs == "" || r.RanAs == r.Fallback) { // ran on the asked agent (Fallback names it)
 			model = profile + ":" + m
 		}
 		return false

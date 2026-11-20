@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -30,6 +31,44 @@ type Denials struct {
 	Commands []string `json:"commands"`
 }
 
+// RouteString reads a legacy "provider:profile" string or a route object as the string form.
+func RouteString(raw json.RawMessage) (string, error) {
+	if len(raw) == 0 || string(raw) == "null" {
+		return "", nil
+	}
+	if raw[0] == '"' {
+		var s string
+		err := json.Unmarshal(raw, &s)
+		return s, err
+	}
+	var r route.Route
+	if err := json.Unmarshal(raw, &r); err != nil {
+		return "", err
+	}
+	if r.Provider == "" {
+		return r.Profile, nil
+	}
+	if r.Profile == "" {
+		return r.Provider, nil
+	}
+	return r.Provider + ":" + r.Profile, nil
+}
+
+// UnmarshalJSON accepts "requested" as the legacy string or a route object.
+func (e *Envelope) UnmarshalJSON(b []byte) error {
+	type plain Envelope
+	aux := struct {
+		*plain
+		Requested json.RawMessage `json:"requested"`
+	}{plain: (*plain)(e)}
+	if err := json.Unmarshal(b, &aux); err != nil {
+		return err
+	}
+	s, err := RouteString(aux.Requested)
+	e.Requested = s
+	return err
+}
+
 // Envelope is the one typed JSON body `ask --format json` prints for every agent, on success and on every error path.
 type Envelope struct {
 	Schema          int             `json:"schema"`
@@ -42,9 +81,11 @@ type Envelope struct {
 	SessionID       string          `json:"session_id"`
 	Fallback        *string         `json:"fallback"` // null unless a different agent or route than requested ran
 	FallbackReason  string          `json:"fallback_reason"`
-	Requested       string          `json:"requested,omitempty"`     // <profile>[:<model>] asked for, when another step answered
-	RequestedWhy    string          `json:"requested_why,omitempty"` // why the requested target did not answer
-	Usage           *Usage          `json:"usage"`                   // null when the agent reports no token counts
+	Requested       string          `json:"requested,omitempty"`       // <profile>[:<model>] asked for, when another step answered
+	RequestedWhy    string          `json:"requested_why,omitempty"`   // why the requested target did not answer
+	Route           *route.Route    `json:"route,omitempty"`           // the route that answered, as an object; unpopulated until writers move
+	RequestedRoute  *route.Route    `json:"requested_route,omitempty"` // the route asked for, as an object; unpopulated until writers move
+	Usage           *Usage          `json:"usage"`                     // null when the agent reports no token counts
 	DurationMs      int64           `json:"duration_ms"`
 	Error           *EnvelopeError  `json:"error"` // null on success
 	Denials         *Denials        `json:"denials,omitempty"`

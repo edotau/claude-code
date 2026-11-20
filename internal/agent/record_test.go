@@ -1229,3 +1229,16 @@ func TestFinishingRecordSurvivesItsOwnPrune(t *testing.T) {
 		t.Fatalf("the finishing record was pruned: %v", err)
 	}
 }
+
+func TestRecordRouteAcceptsStringOrObject(t *testing.T) {
+	var a, b Record
+	if err := json.Unmarshal([]byte(`{"route":"databricks:qa","ran_route":"databricks:qa"}`), &a); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(`{"route":{"provider":"databricks","profile":"qa"},"ran_route":{"provider":"databricks","profile":"qa"}}`), &b); err != nil {
+		t.Fatal(err)
+	}
+	if a.Route != "databricks:qa" || a.RanRoute != a.Route || b.Route != a.Route || b.RanRoute != a.Route {
+		t.Errorf("a=%q/%q b=%q/%q", a.Route, a.RanRoute, b.Route, b.RanRoute)
+	}
+}
