@@ -129,7 +129,9 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
   `claude-code agents ask`, not `curl`.
 - pi has one provider per wire on `http://127.0.0.1:18765/p/<profile>`: Claude over Anthropic Messages, GPT over
   Responses, everything else and Grok over chat completions. Its key is an environment variable the harness sets at
-  launch to the proxy session token; no token is on disk.
+  launch to the proxy session token; no token is on disk. Pinned Pi packages (`packages` in the Pi record) add
+  extension code that runs inside Pi with the user's privileges and is not judged by the guard; they never change a
+  route. Rules and risk: `/Users/edotau/.claude/rules/harness/agent.md` → pi packages.
 - gemini (agy) speaks chat/completions through the proxy's `openai` passthrough, so on a Databricks profile it runs
   any chat model the workspace serves when one is typed with `--model` (or `--model auto`); with no model or a tier
   alias it still runs its Gemini pin. The Responses-only models (`gpt-6-1-sol`, `gpt-6-astra`, `gpt-6-sol`, `gpt-5-5`,

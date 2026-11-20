@@ -9,7 +9,8 @@ Harness credentials: CLAUDE.md hard rule 2.
    file is urgent: rotate it, use `${ENV_VAR}`, scrub history if pushed.
 2. **Validate input** — sanitize file paths (no traversal); subprocess with list args, never a concatenated shell
    string; parameterized queries.
-3. **Dependencies** — standard library first; minimal, pinned, audited.
+3. **Dependencies** — standard library first; minimal, pinned, audited. A Pi package's extension code runs unsandboxed
+   in Pi with your privileges and the guard does not judge it: approve a package only after reading its code.
 4. **Production is read-only from a session** — never `exec`/shell into a live pod or decode a cluster secret; read
    logs and status, copy artifacts out (`kubectl cp`/`oc cp`), change production only through its deploy pipeline.
 5. **Browser automation on authorized sites only** — ours, internal, or with explicit permission; honor robots.txt

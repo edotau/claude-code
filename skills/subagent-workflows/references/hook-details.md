@@ -279,3 +279,11 @@ Vault env `HARNESS_WORKTREE`: unset asks when a peer joins the checkout (not thi
 worktree, or an `agy --hub` daemon); `off`/`false`/`0` is silent. Never creates a worktree; no yes means keep working
 in place. It also drains this session's notices (`state/harness/notices/`, ≤5) and, in a shared checkout diverged from
 its upstream, adds one line per HEAD/upstream pair, whatever the mode
+
+## pi-guard
+
+Pi has no prompts and no sandbox: its only tools are the guard extension's seven (read, bash, edit, write, grep, find,
+ls), each judged by `claude-code hook PreToolUse --pi-guard` (`permission-gate` for every tool, `safety-scan` for
+bash). Only an explicit allow runs the tool, on the judged path; `HARNESS_HOOK_*` is ignored there. Mapping, path
+rules and fail-closed behavior: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin. A pi leaf behind the
+relay has no shell (a file deny on the live checkout withholds bash): give it edit-only tasks.

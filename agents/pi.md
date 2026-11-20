@@ -43,8 +43,9 @@ Either way you relay: never do the task yourself, even when it looks small.
 
 Shared flags and the headless `ask` table: `skills/subagent-workflows/references/agent-verbs.md`. Pi deltas:
 
-- Dispatch only: no `claude-code pi` launcher yet. Pi runs only through the loopback proxy on a Databricks profile,
-  from a harness-generated private agent dir (`PI_CODING_AGENT_DIR`); nothing is written to `~/.pi`.
+- Pi runs only through the loopback proxy on a Databricks profile, from a harness-generated private agent dir
+  (`PI_CODING_AGENT_DIR`); nothing is written to `~/.pi`. The owner's interactive launcher is `claude-code pi`
+  (`/Users/edotau/.claude/rules/harness/agent.md` → pi interactive); the slash command is `/pi`.
 - `--tools` launches Pi with `--no-builtin-tools` and the harness's guard extension (`-e`), which registers the only
   tools Pi has (Pi's own tool code, wrapped): each call goes to `claude-code hook PreToolUse --pi-guard`, which
   normalizes the path exactly as Pi does (`@`, `~`, Unicode spaces; `file://` and NUL are refused; a new path with a
@@ -62,6 +63,14 @@ Shared flags and the headless `ask` table: `skills/subagent-workflows/references
   refused, and Pi's process never inherits a `HARNESS_HOOK_*` variable, so `HARNESS_HOOK_SKIP` cannot disable the
   guard.
 - Pi has no permission prompts and no sandbox of its own, so the guard is the only boundary.
+- A pi leaf launched through this relay carries a file deny on the live checkout, so it has NO shell: give it
+  edit-only tasks and run the build, tests and live check in the main session or a paired gate leaf.
+- Packages: the owner pins them with `claude-code configure agents pi packages=<spec>[,...]`; a package that ships
+  code needs `packages_approved=<spec>` or the launch is refused. **A package's extension code runs inside the Pi
+  process with the user's privileges; it is not sandboxed and the guard does not judge it.** It can run code on
+  load, patch the guard, read the environment and make network calls. The automatic review covers only manifest
+  keys, whether code ships and the exact version; the owner's approval is the only control. Full rules:
+  `/Users/edotau/.claude/rules/harness/agent.md` → pi packages. Never approve a package yourself.
   A dispatch passes `--no-context-files` (CLAUDE.md and AGENTS.md are not loaded), `--no-mcp` and
   `--no-approve --no-extensions --no-skills --no-prompt-templates --no-themes`
   (the work dir's `.pi` extensions, packages and settings never load).

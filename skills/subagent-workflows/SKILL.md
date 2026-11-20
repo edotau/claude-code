@@ -39,7 +39,7 @@ Shell `agents ask` belongs only inside an external relay or a requested script. 
 | `copilot` | Test repair, mechanical edits, authorized LAST-MILE | Scoped results |
 | `gemini` | Read-only research and codebase sweeps | Cited findings |
 | `opencode` | Code/docs work and requested model discovery | Status and verification |
-| `pi` | Review, exploration, audits and guarded edits on any Databricks model | Cited findings |
+| `pi` | Review, exploration, audits and edit-only tasks (no shell) on any Databricks model | Cited findings |
 | `Explore` | Scoped read-only scan before non-trivial work | Codebase Context Brief |
 | `Plan` | Read-only design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
 | `general-purpose` | Built-in work when no named role fits | Brief's requested report |

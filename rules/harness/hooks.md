@@ -68,6 +68,18 @@ from canonical fields only with `"harness_agent":"pi"`, and runs the two modules
 and a dispatch `--ask` rule is refused. Reply: one JSON line; only `{"allow":true,"path":...}` lets the tool run (on
 that path), `{"block":"<reason>"}` or anything else blocks. `docs-placement` and `worktree-claim-check` are not on
 Pi's list (plan NEXT); `safety-scan` stays Bash-only, as for codex and gemini: file edits meet `permission-gate`.
+Pi itself has no permission prompts and no sandbox: it runs with `--no-builtin-tools`, and the guard's seven tools are
+the only ones it has. Only calls of those seven are judged; a tool a package registers is blocked. The guard fails
+closed: one that fails to load leaves Pi no tools, it refuses any Pi but the pinned one, and each dispatch checks a
+load nonce. `permission-gate` judges every tool; `safety-scan` judges bash. Pi tool to hook tool name:
+
+| Pi tool | `bash` | `edit` | `write` | `read` | `grep` | `find` | `ls` |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Hook tool name | `Bash` | `Edit` | `Write` | `Read` | `Grep` | `Glob` | `Read` |
+
+The path is normalized as Pi would: a leading `@`, `~` and Unicode spaces; `file://` and other forms the harness
+cannot reproduce are blocked. Both the typed and the on-disk spelling are judged. Full description:
+`/Users/edotau/.claude/rules/harness/agent.md` (Pi bullets).
 
 `permission-gate` judges each call with `Permissions.Decide` against `HARNESS_DISPATCH_PERMISSIONS`; how each agent
 reaches it, and the gated Claude launches: `agent.md` → Bash deny via `permission-gate`.

@@ -46,16 +46,17 @@ paths:
   Write/Edit stay denied, and `--allow` never reopens a deny. codex and gemini refuse `--tools` with
   `--permissions plan`; claude `--tools` off Anthropic gates only explicit rules. Grants and gates:
   `skills/subagent-workflows/references/dispatch-policy-details.md` → Read-only and tools.
-- **pi** (npm `@earendil-works/pi-coding-agent`, MIT, pinned 1.6.0, Node 22.19+) is dispatch-only (`agents ask --agent
-  pi`), on a Databricks profile through the loopback proxy, with no own login. It runs the models on the profile's Pi
-  menu: an id not on it is refused ("not on the menu") and never enters the auto pool. With no tools flag it runs with
-  no tools. Any `--tools` run runs Pi with `--no-builtin-tools` plus the harness's guard extension (`-e`, run dir,
-  0600), whose wrapped tools are the only ones Pi has: each call is judged by `hook PreToolUse --pi-guard` (path
-  normalized as Pi does and judged as typed and as the disk spells it, `safety-scan` and `permission-gate`) and fails
-  closed; a cancel stops Pi with SIGTERM, then kills every descendant (Pi's bash groups included); Pi proves it
-  loaded by writing the run's nonce, checked on the first stream event, else the run is killed and refused ("pi guard
-  did not load; run refused"). Bare `--tools` gives read, bash, edit, write, grep, find and ls (never `powershell`:
-  unmapped, blocked);
+- **pi** (npm `@earendil-works/pi-coding-agent`, MIT, pinned 1.6.0, Node 22.19+) runs by `agents ask --agent pi` and
+  by `claude-code pi` (below), on a Databricks profile through the loopback proxy, with no own login. It runs the
+  models on the profile's Pi menu: an id not on it is refused ("not on the menu") and never enters the auto pool. With
+  no tools flag it runs with no tools. Any `--tools` run runs Pi with `--no-builtin-tools` plus the harness's guard
+  extension (the first `-e`, run dir, 0600), whose wrapped tools are the only ones Pi has: each call is judged by
+  `hook PreToolUse --pi-guard` (path normalized as Pi does and judged as typed and as the disk spells it,
+  `safety-scan` and `permission-gate`) and fails closed (a guard that fails to load leaves Pi no tools; it refuses any
+  Pi but the pinned one); a cancelled or timed-out run gets SIGTERM, a 2 s grace, then every descendant is killed
+  (Pi's bash groups included), and the idle watch is held while any tool call runs; Pi proves it loaded by writing the
+  run's nonce, checked on the first stream event, else the run is killed and refused ("pi guard did not load; run
+  refused"). Bare `--tools` gives read, bash, edit, write, grep, find and ls (never `powershell`: unmapped, blocked);
   `--read-only` and `--permissions plan` give read, grep, find and ls only (no shell, stronger than other agents'
   vetted list); a Deny on Edit or Write drops bash (the gate cannot tie a shell command to a file), on Read also grep,
   on Glob or Grep also grep, find and ls. `--allow`, `--deny` and `--permissions` ride `HARNESS_DISPATCH_PERMISSIONS`
@@ -69,7 +70,33 @@ paths:
   and Grok on chat completions; a model whose wire has no route on the profile is dropped from the menu. Pi exits 0
   even when a request fails, so the harness judges the run from its JSON event stream: success needs `agent_settled`,
   a last message stopped `stop` and no open tool call (`length`, `aborted`, `toolUse` left unsettled, unknown stop
-  reasons and cut-off streams fail). Pi is no longer read-only, so it may be a fallback for write work.
+  reasons and cut-off streams fail). Pi is no longer read-only, so it may be a fallback for write work. A pi leaf
+  launched through the `pi` subagent relay carries a file deny on the live checkout, so it has NO shell: give it
+  edit-only tasks and run the build, tests and live check in the main session or a paired gate leaf. The tool-name
+  mapping and the guard's modules: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin.
+- **pi interactive** — `claude-code pi [--profile dev|qa|prod] [--read-only] [--print-env]` opens Pi's TUI behind the
+  same guard (first `-e`, `--no-builtin-tools`): all seven tools, or read, grep, find and ls with `--read-only`. With
+  no pin and no `--profile` it picks a profile from the Databricks pool and says which. Pi has no login of its own, so
+  it never launches plain and `--direct` is refused. Context files (`AGENTS.md`, `CLAUDE.md`) load here, not in a
+  dispatch; the work dir's `.pi` extensions, packages and settings never load. Sessions are kept in
+  `state/harness/pi/sessions`. `--print-env` is a preview: it leaves no run dir.
+- **pi packages** — the owner pins an exact list in the Pi record:
+  `claude-code configure agents pi packages=<spec>[,<spec>...]`. A spec is `npm:[@scope/]name@<exact x.y.z>`,
+  `git:<host>/<owner>/<repo>@<40-hex commit>` (a branch or tag is refused: only a commit is immutable) or a local
+  path (absolute or `./relative`, resolved against the config dir). Packages install into a private store in
+  `state/harness/pi/packages` with npm lifecycle scripts off and a credential-free environment. Every sync reviews
+  each package again. A package that ships code (extensions, a bare package dir Pi would load as an extension, a
+  `bin`, or lifecycle scripts) is removed again and the launch refused unless its exact spec is in
+  `packages_approved` (`claude-code configure agents pi packages_approved=<spec>`). Approval is per exact spec: a new
+  version needs a new approval. Nothing is updated automatically. Packages load after the guard, so a package cannot
+  replace a guarded tool; a package's own tools are blocked (its skills, prompts, themes and commands work).
+- **pi package risk** — **a Pi package's extension code runs inside the Pi process with the user's privileges. It is
+  not sandboxed and the guard does not judge it.** It can run code on load, patch the guard, read the environment and
+  make network calls. The automatic review covers only manifest keys, whether code ships and the exact version. The
+  owner's approval is the only control over what that code does. The content of a local-path package can change
+  after approval.
+- `claude-code doctor --permissions` lists pi, the wave owned-files gate covers pi, and `doctor` has the rows
+  `pi route`, `tool pi` and `pi packages`.
 - `agents ask --agents <json|file>` defines agents inline (`name`, `description`, `prompt`, `tools`, `model`,
   `max_turns`, `agent`, `profile`, `effort`); `--agent` also takes an `--agents` key. With `--batch`, a line's `agent`
   takes the same selector; `--host` with `--agents` exits 2.
