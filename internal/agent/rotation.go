@@ -282,11 +282,12 @@ func rotationModelOn(rows []*providers.Provider, agentName, alias string, stamp,
 		hist = router.ProviderAccount(PoolPin)
 	}
 	n := takeable(st[account], agentName, p, pool, now)
+	dear := catalog.DeferTurns(pool, rotationTiers[alias])
 	if !stamp {
-		m := router.PeekRotation(agentName, account, hist, p, pool, now)
+		m := router.PeekRotation(agentName, account, hist, p, pool, dear, now)
 		return m, rotationNote(m, alias, n, "next"), nil
 	}
-	m, err := router.PickRotation(agentName, account, hist, p, pool, now)
+	m, err := router.PickRotation(agentName, account, hist, p, pool, dear, now)
 	return m, rotationNote(m, alias, n, "picked"), err
 }
 
@@ -347,7 +348,7 @@ func RotationMembers(agentName, profile, tier string, now time.Time) []PoolMembe
 		}
 		out = append(out, m)
 	}
-	next := router.PeekRotation(agentName, account, hist, p, live, now)
+	next := router.PeekRotation(agentName, account, hist, p, live, catalog.DeferTurns(live, tier), now)
 	for i := range out {
 		out[i].Next = out[i].Model == next && next != ""
 	}

@@ -29,6 +29,9 @@ type Rank struct {
 type rotationRule struct {
 	Min     int `json:"min"`      // least capability a rotation member needs
 	MaxCost int `json:"max_cost"` // dearest cost a rotation member may have
+	// a model at cost >= DeferCost takes one of every DeferTurns of its turns; both 0 = no deferral
+	DeferCost  int `json:"defer_cost,omitempty"`
+	DeferTurns int `json:"defer_turns,omitempty"`
 }
 
 type rankTable struct {
@@ -151,6 +154,21 @@ func RotationPool(cands []Candidate, tier string, tools bool) []string {
 			continue
 		}
 		out = append(out, c.Model)
+	}
+	return out
+}
+
+// DeferTurns maps each dear pool model (cost >= the tier's defer_cost) to its defer_turns; nil when the tier has none.
+func DeferTurns(pool []string, tier string) map[string]int {
+	rule := loadRanks().Rotation[tier]
+	if rule.DeferTurns <= 0 {
+		return nil
+	}
+	out := map[string]int{}
+	for _, m := range pool {
+		if r := RankOf(m); r.Known && r.Cost >= rule.DeferCost {
+			out[m] = rule.DeferTurns
+		}
 	}
 	return out
 }

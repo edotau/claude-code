@@ -66,6 +66,8 @@ type Entry struct {
 	AuthReason string               `json:"auth_reason,omitempty"`
 	AuthAt     time.Time            `json:"auth_at,omitzero"`
 	Discovery  map[string]time.Time `json:"discovery,omitempty"`
+	// "agent|entry" -> turns a dear model sat out since it last ran
+	Deferred map[string]int `json:"deferred,omitempty"`
 	// "agent|entry" -> when it was marked unusable
 	DiscoverySkip map[string]time.Time `json:"discovery_skip,omitempty"`
 	// wire model -> when its endpoint was found gone

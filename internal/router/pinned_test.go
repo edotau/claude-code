@@ -81,7 +81,7 @@ func TestPickRotationAcrossWorkspaces(t *testing.T) {
 				}
 			}
 			for i, workspace := range workspaces {
-				got, err := PickRotation("opencode", ProviderAccount(workspace), hist, nil, tc.pool, now)
+				got, err := PickRotation("opencode", ProviderAccount(workspace), hist, nil, tc.pool, nil, now)
 				if err != nil || got != tc.want[i] {
 					t.Fatalf("%s pick = %q, %v; want %q", workspace, got, err, tc.want[i])
 				}
@@ -101,7 +101,7 @@ func checkRotationPeek(t *testing.T, p *providers.Provider, pool []string, now t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := PeekRotation("opencode", ProviderAccount(p.Name), ProviderAccount(p.Name), p, pool, now); got != want {
+	if got := PeekRotation("opencode", ProviderAccount(p.Name), ProviderAccount(p.Name), p, pool, nil, now); got != want {
 		t.Errorf("PeekRotation = %q, want %q", got, want)
 	}
 	after, err := os.ReadFile(StatePath())
@@ -123,7 +123,7 @@ func checkRotationPicks(t *testing.T, p *providers.Provider, pool []string, now 
 	account, before := ProviderAccount(p.Name), LoadState()
 	for i, want := range wants {
 		at := now.Add(time.Duration(i+1) * time.Second)
-		got, err := PickRotation(agent, account, account, p, pool, at)
+		got, err := PickRotation(agent, account, account, p, pool, nil, at)
 		if err != nil || got != want {
 			t.Fatalf("PickRotation = %q, %v; want %q", got, err, want)
 		}
@@ -236,5 +236,36 @@ func TestSkipDiscoveryReportsPersistenceFailure(t *testing.T) {
 	_, _, out := hosttest.CaptureOutput(t, func() int { got = SkipDiscovery("opencode", poolProvider(), "databricks-kimi-k3"); return 0 })
 	if got != "" || !strings.Contains(string(out), "could not persist model skip") {
 		t.Errorf("got %q, stderr %q; want empty result and a persistence message", got, out)
+	}
+}
+
+// A dear model takes one of every defer_turns turns; alone in the pool, or with no rule, it runs as ever.
+func TestPickRotationDefersDear(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		pool []string
+		dear map[string]int
+		want string
+	}{
+		{"deferred", []string{"dear", "a", "b", "c"}, map[string]int{"dear": 3}, "a,b,c,a,b,c,dear,a,b,c,a,b"},
+		{"no rule", []string{"dear", "a", "b", "c"}, nil, "dear,a,b,c,dear,a,b,c,dear,a,b,c"},
+		{"alone", []string{"dear"}, map[string]int{"dear": 3}, "dear,dear,dear,dear,dear,dear,dear,dear,dear,dear,dear,dear"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+			now, got := time.Now(), []string{}
+			for i := range 12 {
+				at := now.Add(time.Duration(i) * time.Second)
+				peek := PeekRotation("opencode", "acct", "acct", nil, tc.pool, tc.dear, at)
+				m, err := PickRotation("opencode", "acct", "acct", nil, tc.pool, tc.dear, at)
+				if err != nil || m != peek {
+					t.Fatalf("pick %d = %q, %v; peek said %q", i, m, err, peek)
+				}
+				got = append(got, m)
+			}
+			if got := strings.Join(got, ","); got != tc.want {
+				t.Errorf("12 picks = %s, want %s", got, tc.want)
+			}
+		})
 	}
 }

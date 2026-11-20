@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -67,13 +68,14 @@ func TestRotationPoolPinSkips(t *testing.T) {
 	}
 }
 
-// Stamped picks walk the pool least-recent first: each differs, and the pool's turn after a full cycle is the first pick.
+// Stamped picks walk the pool least-recent first: each differs, and after a cycle the first pick returns; dear ones sit out.
 func TestRotationLeastRecentCycle(t *testing.T) {
 	reg, _, _ := autoFixture(t)
 	rows, now := []*providers.Provider{reg.Providers["dev"]}, time.Now()
-	n := len(rotationPool("opencode", models.Sonnet, rows[0], false, now))
+	pool := rotationPool("opencode", models.Sonnet, rows[0], false, now)
+	n := len(pool) - len(catalog.DeferTurns(pool, "standard"))
 	if n < 2 {
-		t.Fatalf("fixture: standard pool has %d members, want 2+", n)
+		t.Fatalf("fixture: standard pool has %d cheaper members, want 2+", n)
 	}
 	var seen []string
 	for range n + 1 {

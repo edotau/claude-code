@@ -1,7 +1,7 @@
 {
   "_source": "Ordinal model facts for --model auto, 1 (least) to 5 (most); first matching pattern wins, list order breaks ties. capability: the hardest task the model is trusted with (5 = deep: safety rules, audits, design); seeded 2026-11-16 from internal/router/table.json's databricks buckets (opus bucket head = 5, rest 4; sonnet bucket 3-4; haiku bucket 1-2) and vendor tier names (pro/sol/astra frontier, flash/mini/luna light, lite/nano trivial). speed: 5 fastest. cost: 5 dearest, ordered by the published per-token list prices (the copilot prices in table.json: opus 4/20, sonnet 2/10, haiku 0.10/0.50) and vendor tiers. An id no pattern matches is unknown: never deep, fast only when listed chat-ready and, for a tools run, probed tool-capable. rotate: false keeps a row out of every --model auto rotation pool (newest generations only, 2026-11-19); typed, it still runs.",
   "tiers": {"fast": 1, "standard": 4, "deep": 5},
-  "rotation": {"fast": {"min": 2, "max_cost": 2}, "standard": {"min": 4, "max_cost": 5}, "deep": {"min": 5, "max_cost": 5}},
+  "rotation": {"fast": {"min": 2, "max_cost": 2}, "standard": {"min": 4, "max_cost": 5, "defer_cost": 5, "defer_turns": 3}, "deep": {"min": 5, "max_cost": 5}},
   "families": [
     {"match": "claude-opus-5-5*", "capability": 5, "speed": 2, "cost": 5},
     {"match": "claude-sonnet-5-5*", "capability": 4, "speed": 3, "cost": 3},

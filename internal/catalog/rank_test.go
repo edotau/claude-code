@@ -251,3 +251,23 @@ func TestRankOfDottedSpelling(t *testing.T) {
 		t.Errorf("grok-4.7 ranks capability %d, grok-4-7 %d; want the same spelling-independent rank", dot.Capability, dash.Capability)
 	}
 }
+
+// A tier's defer rule marks only the pool's models at or above defer_cost; a tier without one marks none.
+func TestDeferTurns(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	tbl := rankTable{Rotation: map[string]rotationRule{"standard": {Min: 4, MaxCost: 5, DeferCost: 5, DeferTurns: 3}, "deep": {Min: 5, MaxCost: 5}},
+		Families: []Rank{{Match: "cheap-*", Capability: 4, Cost: 3}, {Match: "dear-*", Capability: 5, Cost: 5}}}
+	for i := range tbl.Families {
+		tbl.Families[i].Known, tbl.Families[i].order = true, i
+	}
+	old := loadRanks
+	t.Cleanup(func() { loadRanks = old })
+	loadRanks = func() rankTable { return tbl }
+	pool := []string{"dear-1", "cheap-a", "fake-unranked"}
+	if got := DeferTurns(pool, "standard"); len(got) != 1 || got["dear-1"] != 3 {
+		t.Errorf("standard = %v, want only dear-1: 3", got)
+	}
+	if got := DeferTurns(pool, "deep"); got != nil {
+		t.Errorf("deep = %v, want nil", got)
+	}
+}

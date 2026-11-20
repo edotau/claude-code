@@ -176,18 +176,19 @@ func stateErrClass(err error) string {
 
 // pickPool is PickRotation on p's own account.
 func pickPool(agent string, p *providers.Provider, pool []string, now time.Time) (string, error) {
-	return PickRotation(agent, ProviderAccount(p.Name), ProviderAccount(p.Name), p, pool, now)
+	return PickRotation(agent, ProviderAccount(p.Name), ProviderAccount(p.Name), p, pool, nil, now)
 }
 
 // PickRotation orders by hist under one lock, keeping holds on account; nil p skips the listing.
-func PickRotation(agent, account, hist string, p *providers.Provider, pool []string, now time.Time) (string, error) {
+// A model in dear (entry -> turns) is passed over, sent to the back, until it has sat out turns-1 of its turns.
+func PickRotation(agent, account, hist string, p *providers.Provider, pool []string, dear map[string]int, now time.Time) (string, error) {
 	if p != nil {
 		pool = ServedPool(p, pool, now)
 	}
 	var model string
 	err := update(func(s State) {
 		e := s[hist]
-		selected := leastRecent(s[account], e, agent, p, pool, now)
+		selected, passed := leastRecent(s[account], e, agent, p, pool, dear, now)
 		if selected == "" {
 			return
 		}
@@ -200,6 +201,16 @@ func PickRotation(agent, account, hist string, p *providers.Provider, pool []str
 				}
 			}
 		}
+		e.Deferred = maps.Clone(e.Deferred)
+		for _, m := range passed {
+			k := DiscoverySkipKey(agent, m)
+			e.Discovery = withTime(e.Discovery, k, stamp)
+			if e.Deferred == nil {
+				e.Deferred = map[string]int{}
+			}
+			e.Deferred[k]++
+		}
+		delete(e.Deferred, DiscoverySkipKey(agent, selected))
 		e.Discovery = withTime(e.Discovery, DiscoverySkipKey(agent, selected), stamp)
 		s[hist] = e
 	})
@@ -207,22 +218,38 @@ func PickRotation(agent, account, hist string, p *providers.Provider, pool []str
 }
 
 // PeekRotation is the entry PickRotation would select now, recording nothing; "" when none qualifies.
-func PeekRotation(agent, account, hist string, p *providers.Provider, pool []string, now time.Time) string {
+func PeekRotation(agent, account, hist string, p *providers.Provider, pool []string, dear map[string]int, now time.Time) string {
 	if p != nil {
 		pool = ServedPool(p, pool, now)
 	}
 	s := sharedState()
-	if sel := leastRecent(s[account], s[hist], agent, p, pool, now); sel != "" {
+	if sel, _ := leastRecent(s[account], s[hist], agent, p, pool, dear, now); sel != "" {
 		return providers.SpellPin(p, sel)
 	}
 	return ""
 }
 
 // leastRecent is agent's spellable pool entry picked longest ago, past skips and live model holds; "" when none.
-func leastRecent(e, history Entry, agent string, p *providers.Provider, pool []string, now time.Time) string {
+// passed lists dear entries sat out for it; a dear entry with nothing else to pick is never passed over.
+func leastRecent(e, history Entry, agent string, p *providers.Provider, pool []string, dear map[string]int, now time.Time) (string, []string) {
+	var passed []string
+	for {
+		selected := oldest(e, history, agent, p, pool, passed, now)
+		if selected == "" || history.Deferred[DiscoverySkipKey(agent, selected)]+1 >= dear[selected] {
+			return selected, passed
+		}
+		if oldest(e, history, agent, p, pool, append(slices.Clone(passed), selected), now) == "" {
+			return selected, passed
+		}
+		passed = append(passed, selected)
+	}
+}
+
+// oldest is the pool entry picked longest ago outside skip, past skips and live model holds.
+func oldest(e, history Entry, agent string, p *providers.Provider, pool, skip []string, now time.Time) string {
 	var selected string
 	for _, entry := range pool {
-		if providers.SpellPin(p, entry) == "" || discoverySkipped(e, agent, entry, now) || e.ModelDead[ModelKey(entry)].After(now) {
+		if slices.Contains(skip, entry) || providers.SpellPin(p, entry) == "" || discoverySkipped(e, agent, entry, now) || e.ModelDead[ModelKey(entry)].After(now) {
 			continue
 		}
 		if selected == "" || history.Discovery[DiscoverySkipKey(agent, entry)].Before(history.Discovery[DiscoverySkipKey(agent, selected)]) {
