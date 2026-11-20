@@ -606,7 +606,7 @@ func classify(status int, body string) string {
 }
 
 func clip(s string, n int) string {
-	return textutil.Truncate(strings.Join(strings.Fields(s), " "), n)
+	return textutil.Truncate(textutil.OneLine(s), n)
 }
 
 // Spec is the completion node for the databricks verb.

@@ -25,7 +25,6 @@ import (
 	"sync/atomic"
 	"syscall"
 	"time"
-	"unicode"
 
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -243,15 +242,9 @@ func doPost(ctx context.Context, r tokenRequest) (reply tokenReply, status int, 
 	return reply, resp.StatusCode, nil
 }
 
-// clipBody is the first 120 runes of a non-JSON error body on one line, control bytes replaced by spaces.
+// clipBody is the first 120 runes of a non-JSON error body on one line, control bytes dropped.
 func clipBody(raw []byte) string {
-	clean := strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
-			return ' '
-		}
-		return r
-	}, strings.ToValidUTF8(string(raw), "?"))
-	return textutil.CapRunes(strings.Join(strings.Fields(clean), " "), 120, "…")
+	return textutil.CapRunes(textutil.OneLine(string(raw)), 120, "…")
 }
 
 // token converts a reply into a Token whose Expiry is zero when the server sent no lifetime, past when it sent <= 0.

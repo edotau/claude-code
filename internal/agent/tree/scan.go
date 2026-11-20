@@ -106,30 +106,9 @@ func userTurnText(raw json.RawMessage) string {
 
 // truncate renders s on one line, cut to n runes with an ellipsis when longer.
 func truncate(s string, n int) string {
-	return textutil.CapRunes(oneLine(s), n, "…")
+	return textutil.CapRunes(textutil.OneLine(s), n, "…")
 }
 
-// oneLine makes a prompt one title line: newlines/tabs and repeated spaces collapse, other controls (ESC) drop.
-func oneLine(s string) string {
-	if !strings.ContainsFunc(s, isControl) && !strings.Contains(s, "  ") {
-		return s
-	}
-	out := make([]rune, 0, len(s))
-	prevSpace := false
-	for _, c := range s {
-		if c == '\n' || c == '\r' || c == '\t' {
-			c = ' '
-		}
-		if c == ' ' && prevSpace || isControl(c) {
-			continue
-		}
-		prevSpace = c == ' '
-		out = append(out, c)
-	}
-	return string(out)
-}
-
-func isControl(c rune) bool { return c < 0x20 || c == 0x7f }
 
 var toolUseMarker = []byte(`"tool_use"`)
 

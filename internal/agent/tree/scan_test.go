@@ -78,16 +78,3 @@ func TestLastActivityStripsHomeAndCwdPerTool(t *testing.T) {
 		})
 	}
 }
-
-func TestOneLineDropsTerminalControls(t *testing.T) {
-	for in, want := range map[string]string{
-		"plain":                      "plain",
-		"a\n\tb  c":                  "a b c",
-		"x\x1b[2Jy\x1b]52;c;Zm9v\ay": "x[2Jy]52;c;Zm9vy",
-		"del\x7fete":                 "delete",
-	} {
-		if got := oneLine(in); got != want {
-			t.Errorf("oneLine(%q) = %q, want %q", in, got, want)
-		}
-	}
-}

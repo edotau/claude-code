@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/transcript"
 	"github.com/edotau/claude-code/internal/worktree"
 )
@@ -641,7 +642,7 @@ func addHeld(l *layout, indent int, files []string, note string) {
 		l.free(indent, "files: "+strings.Join(shown, " ")+more)
 	}
 	if note != "" {
-		l.free(indent, "note: "+oneLine(note))
+		l.free(indent, "note: "+textutil.OneLine(note))
 	}
 }
 

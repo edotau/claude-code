@@ -648,8 +648,8 @@ func TestNonJSONErrorBodyStripsControlBytes(t *testing.T) {
 	}))
 	defer srv.Close()
 	_, err := RefreshU2M(context.Background(), srv.URL, "r")
-	if err == nil || !strings.Contains(err.Error(), "bad [31mred gateway end") {
-		t.Fatalf("err = %v, want control bytes replaced by spaces", err)
+	if err == nil || !strings.Contains(err.Error(), "bad[31mredgateway end") {
+		t.Fatalf("err = %v, want control bytes dropped", err)
 	}
 	for _, r := range err.Error() {
 		if r < 0x20 || r == 0x7f {

@@ -110,7 +110,7 @@ func addJobs(l *layout, dispatches []Dispatch, now time.Time) {
 			id = n.guide + id
 		}
 		l.add(levelJob, id, where, cmp.Or(d.Model, "default"), durationText(d.Duration),
-			signalText(d, now), joinText(n.tokenText(), "  ", oneLine(cmp.Or(d.Task, d.Repo))))
+			signalText(d, now), joinText(n.tokenText(), "  ", textutil.OneLine(cmp.Or(d.Task, d.Repo))))
 		l.mark(d.Status == statusRunning, 1<<0)
 		addHeld(l, 4, d.Files, d.Note)
 	}
@@ -148,7 +148,7 @@ func groupByRepo(sessions []Session, active bool) []repoGroup {
 
 // addSession adds one session row, then its subagents and workflow runs.
 func addSession(l *layout, s Session, now time.Time, home string) {
-	title := oneLine(s.Title)
+	title := textutil.OneLine(s.Title)
 	if title == "" {
 		title = "(no prompt yet)"
 	}
@@ -233,7 +233,7 @@ func addSubagent(l *layout, sub Subagent, now time.Time, home, cwd string) {
 	l.add(levelSubagent, nest+statusGlyph(sub.Status), sub.Type, subModel(sub),
 		"↑"+textutil.CompactCount(sub.Tokens.In), "↓"+textutil.CompactCount(sub.Tokens.Out),
 		subTotal(sub), age(sub.Updated, now), idleSince(sub, now),
-		oneLine(stripPaths(subTask(sub), home, cwd)))
+		textutil.OneLine(stripPaths(subTask(sub), home, cwd)))
 	l.mark(sub.Status == statusRunning, 1<<0)
 	addHeld(l, 8, sub.Files, "")
 	for _, n := range nestDispatches(sub.Dispatches) {

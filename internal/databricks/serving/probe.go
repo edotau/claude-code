@@ -490,7 +490,7 @@ func readBody(ctx context.Context, resp *http.Response, timeout time.Duration) (
 	return msg, errors.New("read response body failed")
 }
 
-// TruncateMsg collapses whitespace and cuts b to 160 runes for one-line diagnostics.
+// TruncateMsg collapses whitespace, drops controls and cuts b to 160 runes for one-line diagnostics.
 func TruncateMsg(b []byte) string {
-	return textutil.CapRunes(strings.Join(strings.Fields(string(b)), " "), 160, "...")
+	return textutil.CapRunes(textutil.OneLine(string(b)), 160, "...")
 }

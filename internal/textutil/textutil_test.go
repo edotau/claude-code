@@ -104,6 +104,12 @@ func TestRuneLen(t *testing.T) {
 	}
 }
 
+func TestOneLine(t *testing.T) {
+	if got := OneLine("ok\x1b[2J line one\nline\t two"); got != "ok[2J line one line two" {
+		t.Errorf("OneLine = %q, want %q", got, "ok[2J line one line two")
+	}
+}
+
 // Non-positive widths must not panic.
 func TestNonPositiveWidths(t *testing.T) {
 	for _, n := range []int{0, -1} {
@@ -256,5 +262,18 @@ func BenchmarkBuildVersion(b *testing.B) {
 	b.ReportAllocs()
 	for range b.N {
 		_ = BuildVersion()
+	}
+}
+
+func TestOneLineDropsTerminalControls(t *testing.T) {
+	for in, want := range map[string]string{
+		"plain":                      "plain",
+		"a\n\tb  c":                  "a b c",
+		"x\x1b[2Jy\x1b]52;c;Zm9v\ay": "x[2Jy]52;c;Zm9vy",
+		"del\x7fete":                 "delete",
+	} {
+		if got := OneLine(in); got != want {
+			t.Errorf("OneLine(%q) = %q, want %q", in, got, want)
+		}
 	}
 }

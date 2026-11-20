@@ -90,6 +90,29 @@ func CapRunes(s string, n int, suffix string) string {
 // RuneLen is the rune count of s.
 func RuneLen(s string) int { return utf8.RuneCountInString(s) }
 
+// OneLine renders s on one trimmed line: newlines/tabs become a space, runs of spaces collapse, other controls drop.
+func OneLine(s string) string {
+	s = strings.TrimSpace(s)
+	if !strings.ContainsFunc(s, isControl) && !strings.Contains(s, "  ") {
+		return s
+	}
+	out := make([]rune, 0, len(s))
+	prevSpace := false
+	for _, c := range s {
+		if c == '\n' || c == '\r' || c == '\t' {
+			c = ' '
+		}
+		if c == ' ' && prevSpace || isControl(c) {
+			continue
+		}
+		prevSpace = c == ' '
+		out = append(out, c)
+	}
+	return string(out)
+}
+
+func isControl(c rune) bool { return c < 0x20 || c == 0x7f }
+
 // PluralWord picks one or many for n.
 func PluralWord(n int, one, many string) string {
 	if n == 1 {

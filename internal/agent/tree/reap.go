@@ -75,7 +75,7 @@ func matchesClaudeDispatch(s Session, dispatches []Dispatch) bool {
 
 func matchesDispatchTitle(s Session, l Dispatch) bool {
 	return l.cwd != "" && l.cwd == s.Cwd && !s.Updated.Before(l.started) && s.Title != "" &&
-		strings.HasPrefix(oneLine(strings.TrimSpace(l.prompt)), strings.TrimSuffix(s.Title, "…"))
+		strings.HasPrefix(textutil.OneLine(strings.TrimSpace(l.prompt)), strings.TrimSuffix(s.Title, "…"))
 }
 
 // Reap errors out lost running dispatches, removes dead inflight markers, stops orphaned children; dryRun only prints.
