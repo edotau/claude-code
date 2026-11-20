@@ -16,6 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/agentid"
 	_ "github.com/edotau/claude-code/internal/claude"
 	_ "github.com/edotau/claude-code/internal/codex"
 	_ "github.com/edotau/claude-code/internal/copilot"
@@ -1246,6 +1247,16 @@ func TestCmdAgentsAskJoinsContainedReap(t *testing.T) {
 	rc, _, stderr := runAgents(t, append([]string{"ask"}, usage...)...)
 	if rc != want || !strings.Contains(stderr, "agents reap: panic: reap boom") {
 		t.Errorf("panicking reap: rc=%d (want %d) stderr=%s", rc, want, stderr)
+	}
+}
+
+func TestRunLineNamesEveryExternalAgent(t *testing.T) {
+	t.Parallel()
+	for _, a := range agentid.External() {
+		want := "Run: claude-code agents ask --agent " + a + " --model m"
+		if line, err := runLine(a, "", "m", "", false); err != nil || line != want {
+			t.Errorf("runLine(%s) = %q, %v; want %q", a, line, err, want)
+		}
 	}
 }
 

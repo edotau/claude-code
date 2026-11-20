@@ -482,7 +482,7 @@ func RotationFreeze(ctx context.Context, agentName, brief, model string) (string
 		return "", ""
 	}
 	model = cmp.Or(model, o.Model)
-	if prefix, auto := SplitAuto(cmp.Or(model, agentModelPinContext(ctx, agentName))); !auto || prefix != "" {
+	if prefix, auto := SplitAuto(cmp.Or(model, agentModelPinContext(ctx, agentName), AutoModel)); !auto || prefix != "" {
 		return "", ""
 	}
 	reg, err := providers.LoadShared()

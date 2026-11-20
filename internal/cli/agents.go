@@ -463,7 +463,7 @@ func runLine(typ, spec, model, profile string, readOnly bool) (string, error) {
 	if !ok {
 		return "", errors.New("the spec's flags do not parse as ask flags")
 	}
-	external := slices.Contains(agent.DefaultAgents, typ)
+	external := agent.IsExternal(typ)
 	switch a := w.Value("agent"); {
 	case a != "" && external && a != typ:
 		return "", fmt.Errorf("spec agent %q differs from leaf type %q", a, typ)

@@ -44,7 +44,6 @@ type CLI struct {
 	Caps                  Caps
 	Events                []string // typed event kinds the stream can carry
 	Cost                  bool
-	ReadOnlyOnly          bool            // refuses write tools: never a fallback for an editing dispatch
 	ResumeFormat          string          // "codex resume %s"; "" = none
 	ModelsArgv            []string        // args that list models; nil = no catalog verb
 	ModelsProvider        string          // list via models --live on this provider instead
@@ -399,6 +398,9 @@ func VaultAgentNames(vs map[string]any) []string {
 	}
 	return names
 }
+
+// IsExternal reports whether name is a roster agent that runs an external CLI.
+func IsExternal(name string) bool { return slices.Contains(agentid.External(), name) }
 
 // VaultAgentIsClaude reports the roster row the harness launches itself (no external binary).
 func VaultAgentIsClaude(name string) bool {
