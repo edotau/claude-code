@@ -34,6 +34,11 @@ func TestGatewayResolveUsage(t *testing.T) {
 	if code := cmdGatewayResolve([]string{"claude", "--live"}); code != 2 {
 		t.Errorf("--live without --all-profiles exit = %d; want 2", code)
 	}
+	vaulttest.Use(t)
+	if _, err := resolveQuery(context.Background(), "claude", "sonnet", "ultra",
+		`{"provider":"databricks","profile":"dev","identity":"sp"}`); err == nil {
+		t.Error("typed profile accepted another route's identity")
+	}
 }
 
 // --fallback outside router.FallbackModes is a usage error like the sibling verbs' check, never treated as "not none".
@@ -179,7 +184,12 @@ func TestResolveAllUnverifiedOnce(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rows := resolveAll(context.Background(), reg, agent.ModelQuery{Agent: "opencode", Model: "opus"}, false)
+	rows := resolveAll(context.Background(), reg, agent.ModelQuery{Agent: "opencode", Model: "opus", Identity: "sp", Account: "parent"}, false)
+	for _, row := range rows {
+		if row.Route != nil && row.Route.Identity != "" {
+			t.Error("all-profiles inherited the input route's identity")
+		}
+	}
 	_, out, _ := hosttest.CaptureOutput(t, func() int { return printRows(rows, "text") })
 	if n := strings.Count(out, "unverified"); !strings.Contains(out, "dev") || n != 1 {
 		t.Errorf("printRows = %q; want the dev row with served: unverified once (got %d)", out, n)

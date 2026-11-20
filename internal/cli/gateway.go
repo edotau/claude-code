@@ -532,7 +532,7 @@ func gatewaySpec() *helptext.Node {
 		"agent":    func() []string { return router.TableAgents },
 		"fallback": func() []string { return router.FallbackModes },
 	}), Sub: map[string]*helptext.Node{"proxy": {Flags: helptext.FlagsOf(proxy, nil)},
-		"resolve": {Args: []func() []string{agent.RosterNames}, Flags: []helptext.Flag{helptext.Plain("model"), helptext.Plain("profile"),
+		"resolve": {Args: []func() []string{agent.RosterNames}, Flags: []helptext.Flag{helptext.Plain("model"), helptext.Plain("profile"), helptext.Plain("provider"),
 			helptext.Plain("overlay"), helptext.Plain("task"), helptext.ValuedFlag("fallback", func() []string { return router.FallbackModes }), helptext.BoolFlag("tools"), helptext.BoolFlag("all-profiles"), helptext.BoolFlag("live"), helptext.CompletionFormatFlag()}}}}
 }
 

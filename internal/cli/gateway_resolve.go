@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -45,7 +46,8 @@ var gatewayResolvePage = helptext.Page{
 func cmdGatewayResolve(args []string) int {
 	fs := helptext.NewFlagSet("gateway resolve", gatewayResolvePage)
 	model := fs.String("model", "", "typed model string, as --model takes it")
-	profile := fs.String("profile", "", "profile (a registry row, or auto for the Databricks pool)")
+	profile := fs.String("profile", "", "registry row; auto is legacy: use --provider databricks")
+	provider := fs.String("provider", "", "provider (databricks selects the pool)")
 	overlay := fs.String("overlay", "", "overlay document: file, inline JSON or -")
 	fallback := fs.String("fallback", "", "fallback mode ("+strings.Join(router.FallbackModes, "|")+"); none refuses a model the listing lacks")
 	all := fs.Bool("all-profiles", false, "resolve on every profile")
@@ -57,12 +59,15 @@ func cmdGatewayResolve(args []string) int {
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
-	if !resolveArgsOK(words, *format, *live, *all) {
+	if !resolveArgsOK(words, *format, *live, *all, route.Route{Provider: *provider, Profile: *profile}) {
 		fs.Usage()
 		return 2
 	}
 	if err := checkFallback(*fallback); err != nil {
 		return helptext.FailUsage("gateway resolve: %v", err)
+	}
+	if *provider == providers.GroupDatabricks {
+		*profile = agent.AutoModel
 	}
 	ctx := context.Background()
 	task, err := agent.ReadBrief(*taskFile)
@@ -88,8 +93,9 @@ func cmdGatewayResolve(args []string) int {
 }
 
 // resolveArgsOK is the verb's shape: one agent word, a known format, --live only with --all-profiles.
-func resolveArgsOK(words []string, format string, live, all bool) bool {
-	return len(words) == 1 && helptext.CheckFormat(format) == nil && (!live || all)
+func resolveArgsOK(words []string, format string, live, all bool, rt route.Route) bool {
+	return len(words) == 1 && helptext.CheckFormat(format) == nil && (!live || all) &&
+		(rt.Provider == "" || rt.Provider == providers.GroupDatabricks && (rt.Profile == "" || rt.Profile == agent.AutoModel))
 }
 
 // resolveOne prints the first hop's route; an unrunnable model is a usage error.
@@ -165,24 +171,29 @@ func resolveFirstHop(ctx context.Context, reg *providers.Registry, q agent.Model
 	return r, choice, err
 }
 
-// resolveQuery folds the overlay and flags (flags win) into the agent's query.
+// resolveQuery takes the route whole; settings retain their per-key precedence.
 func resolveQuery(ctx context.Context, name, model, profile, overlay string) (agent.ModelQuery, error) {
 	o, err := agentconfig.LoadOverlayContext(ctx, overlay, os.Stdin)
 	if err != nil {
 		return agent.ModelQuery{}, err
 	}
-	q := agent.ModelQuery{Agent: name, Model: model, Profile: profile, Provider: o.Provider, Account: o.Account,
-		Effort: o.Effort, Identity: o.Identity, Fallback: o.Fallback}
-	if q.Model == "" {
-		q.Model = o.Model
+	rt := o.Route()
+	if profile != "" {
+		typed := route.Route{Provider: providers.GroupDatabricks, Profile: profile}
+		if profile != agent.AutoModel {
+			reg, err := loadProfile(profile)
+			if err != nil {
+				return agent.ModelQuery{}, err
+			}
+			typed.Provider = reg.Row(profile).Provider
+		}
+		if !rt.IsZero() && rt != typed {
+			return agent.ModelQuery{}, errors.New("--profile route conflicts with --overlay route")
+		}
+		rt = typed
 	}
-	if q.Profile == "" {
-		q.Profile = o.Profile
-	}
-	if q.Profile != "" {
-		q.Provider = ""
-	}
-	return agent.QueryFor(ctx, q), nil
+	return agent.QueryFor(ctx, agent.ModelQuery{Agent: name, Model: cmp.Or(model, o.Model), Route: rt, Profile: rt.Profile,
+		Provider: rt.Provider, Account: rt.Account, Identity: rt.Identity, Effort: o.Effort, Fallback: o.Fallback}), nil
 }
 
 // autoTop is how many ranked candidates --format json shows for an auto pick.
@@ -253,13 +264,12 @@ func poolLine(m agent.PoolMember) string {
 // resolveAll resolves q on every profile, optionally live-checking each that resolved.
 func resolveAll(ctx context.Context, reg *providers.Registry, q agent.ModelQuery, live bool) []resolveRow {
 	q = agent.QueryFor(agent.PeekContext(ctx), q)
-	spec, err := providers.SplitModelSpec(reg, q.Model)
-	if err == nil {
-		q.Model = spec.Model
-	}
+	target := gatewayTarget(reg, q.Model)
 	var rows []resolveRow
 	for _, p := range allRows(reg) {
-		q.Profile, q.Provider = p.Name, ""
+		target.Route = route.Route{Provider: p.Provider, Profile: p.Name}
+		q.Route, q.Model = target.Route, target.Model
+		q.Profile, q.Provider, q.Account, q.Identity = target.Profile, target.Provider, target.Account, target.Identity
 		row := resolveRow{Profile: p.Name}
 		r, err := agent.ResolveRun(reg, q, time.Now())
 		if err != nil {
@@ -278,6 +288,14 @@ func resolveAll(ctx context.Context, reg *providers.Registry, q agent.ModelQuery
 		rows = append(rows, row)
 	}
 	return rows
+}
+
+// gatewayTarget keeps the legacy parser at the input boundary until providers exposes its shared model cast.
+func gatewayTarget(reg *providers.Registry, model string) route.Target {
+	if spec, err := providers.SplitModelSpec(reg, model); err == nil {
+		model = spec.Model
+	}
+	return route.Target{Model: model}
 }
 
 // allRows lists every registry row grouped by provider type, each in declared order.

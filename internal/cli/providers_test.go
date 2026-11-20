@@ -365,9 +365,9 @@ func TestSwitchKeepsOffAgentsOff(t *testing.T) {
 		t.Fatalf("exit %d stderr=%q", code, stderr)
 	}
 	recs := vault.AgentRecords(agent.RosterNames())
-	if recs["claude"].Profile != "qa" || recs["codex"].Profile != "qa" || recs["copilot"].Profile != "" {
+	if recs["claude"].EffectiveRoute().Profile != "qa" || recs["codex"].EffectiveRoute().Profile != "qa" || recs["copilot"].EffectiveRoute().Profile != "" {
 		t.Fatalf("profiles claude=%q codex=%q copilot=%q, want qa qa and copilot off",
-			recs["claude"].Profile, recs["codex"].Profile, recs["copilot"].Profile)
+			recs["claude"].EffectiveRoute().Profile, recs["codex"].EffectiveRoute().Profile, recs["copilot"].EffectiveRoute().Profile)
 	}
 }
 
@@ -376,7 +376,7 @@ func assertSwitchDryRunWritesNothing(t *testing.T) {
 	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdSwitch([]string{"qa", "--dry-run"}) }); code != 0 {
 		t.Fatalf("dry-run exit %d stderr=%q", code, stderr)
 	}
-	if recs := vault.AgentRecords(agent.RosterNames()); recs["codex"].Profile != "chatgpt" || recs["claude"].Profile == "qa" {
+	if recs := vault.AgentRecords(agent.RosterNames()); recs["codex"].EffectiveRoute().Profile != "chatgpt" || recs["claude"].EffectiveRoute().Profile == "qa" {
 		t.Fatalf("dry-run wrote records: %+v", recs)
 	}
 }
@@ -396,8 +396,8 @@ func TestSwitchSkipsUnservable(t *testing.T) {
 		t.Fatalf("exit %d stderr=%q", code, stderr)
 	}
 	recs := vault.AgentRecords(agent.RosterNames())
-	if recs["codex"].Profile != "qa" || recs["gemini"].Profile != "antigravity" {
-		t.Errorf("codex=%q gemini=%q, want qa and gemini untouched", recs["codex"].Profile, recs["gemini"].Profile)
+	if recs["codex"].EffectiveRoute().Profile != "qa" || recs["gemini"].EffectiveRoute().Profile != "antigravity" {
+		t.Errorf("codex=%q gemini=%q, want qa and gemini untouched", recs["codex"].EffectiveRoute().Profile, recs["gemini"].EffectiveRoute().Profile)
 	}
 }
 
