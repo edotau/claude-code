@@ -52,6 +52,7 @@ var apiAllowed = []struct {
 	{"/api/2.1/unity-catalog/catalogs", 1},
 	{"/api/2.1/unity-catalog/schemas", 1},
 	{"/api/2.1/unity-catalog/tables", 1},
+	{"/api/ai-gateway/v2/budget-spend-statuses", 0}, // AI Gateway budget spend, read-only (plan D3)
 }
 
 var apiQuery = regexp.MustCompile(`^[A-Za-z0-9_=&.,-]*$`)
