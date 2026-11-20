@@ -623,13 +623,6 @@ func routeOf(p *providers.Provider) string {
 	return strings.ToUpper(name[:1]) + name[1:] + " · " + p.Name
 }
 
-func clip80(s string) string {
-	if r := []rune(s); len(r) > 80 {
-		return string(r[:80])
-	}
-	return s
-}
-
 // setAliasDescriptions names provider, profile and route on each alias row; owner env and vault values win.
 func setAliasDescriptions(ctx context.Context, plan *agent.Plan, sel providers.Selection, addr string) {
 	custom := providers.CustomEnv()
@@ -646,7 +639,7 @@ func setAliasDescriptions(ctx context.Context, plan *agent.Plan, sel providers.S
 		if t, ok := sel.Aliases[alias]; ok && t.Provider != nil {
 			p = t.Provider
 		}
-		plan.Set[prefix+"_MODEL_DESCRIPTION"] = clip80(routeOf(p) + routeSuffix(addr))
+		plan.Set[prefix+"_MODEL_DESCRIPTION"] = textutil.TruncateRunes(routeOf(p)+routeSuffix(addr), 80)
 	}
 }
 

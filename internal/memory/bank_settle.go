@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // buildBankIndex renders one routing line per durable entry (two-stage recall); "" when nothing is indexable.
@@ -343,11 +344,7 @@ func nativeCatalog() string {
 
 // clipDesc folds whitespace to one line and clips it to catalogDescMax runes with an ellipsis.
 func clipDesc(s string) string {
-	s = strings.Join(strings.Fields(s), " ")
-	if r := []rune(s); len(r) > catalogDescMax {
-		return string(r[:catalogDescMax-1]) + "…"
-	}
-	return s
+	return textutil.Truncate(strings.Join(strings.Fields(s), " "), catalogDescMax)
 }
 
 // storeRels maps paths to store-relative pathspecs, dropping any outside the store (an inert unresolved-store path).
