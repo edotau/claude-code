@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -216,9 +217,35 @@ func codexPreferences(rec vault.AgentRecord, overlay map[string]string) (map[str
 		prefs[extraVerbosity] = v
 	}
 	if v := rec.Extras[extraConfigRoute]; v != "" {
-		prefs[extraConfigRoute] = v
+		name, err := configRouteName(v)
+		if err != nil {
+			return nil, err
+		}
+		prefs[extraConfigRoute] = name
 	}
 	return prefs, nil
+}
+
+// configRouteName maps a route object to the legacy config_route string; session and legacy values pass through.
+func configRouteName(v string) (string, error) {
+	v = strings.TrimSpace(v)
+	if !strings.HasPrefix(v, "{") {
+		return v, nil
+	}
+	var r route.Route
+	if err := json.Unmarshal([]byte(v), &r); err != nil {
+		return "", fmt.Errorf("codex: config_route: %w", err)
+	}
+	if err := r.Validate(); err != nil {
+		return "", fmt.Errorf("codex: config_route: %w", err)
+	}
+	if r.Provider != providers.GroupDatabricks {
+		return "", errors.New("codex: config_route: object provider must be databricks")
+	}
+	if r.Profile == "" || r.Profile == agent.AutoModel {
+		return routeDatabricks, nil
+	}
+	return r.Profile, nil
 }
 
 // LoadCodexPreferences is the config.toml preferences: the codex record over the legacy codex-settings overlay.
@@ -285,7 +312,11 @@ func validateCodexNext(reg *providers.Registry, regErr error, next map[string]st
 	if regErr != nil {
 		return regErr
 	}
-	return validateConfigRoute(reg, strings.TrimSpace(next[extraConfigRoute]))
+	name, err := configRouteName(next[extraConfigRoute])
+	if err != nil {
+		return err
+	}
+	return validateConfigRoute(reg, name)
 }
 
 func withExtra(extras map[string]string, key, v string) map[string]string {

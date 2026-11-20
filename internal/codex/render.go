@@ -117,7 +117,10 @@ func codexRouteSelection(ctx context.Context, reg *providers.Registry, sel provi
 	if err != nil {
 		return sel, false, fmt.Errorf("codex: agent settings: %w", err)
 	}
-	route := strings.TrimSpace(rec.Extras[extraConfigRoute])
+	route, err := configRouteName(rec.Extras[extraConfigRoute])
+	if err != nil {
+		return sel, false, err
+	}
 	if route == "" || route == routeSession {
 		return sel, false, nil
 	}

@@ -356,3 +356,15 @@ func assertRouteRefusedAndUnset(t *testing.T, set func(string) error) {
 		t.Fatalf("unset left the route: %v", err)
 	}
 }
+
+func TestConfigRouteName(t *testing.T) {
+	for in, want := range map[string]string{"session": "session", "databricks": "databricks", "qa": "qa",
+		`{"provider":"databricks","profile":"qa"}`: "qa", `{"provider":"databricks"}`: "databricks"} {
+		if got, err := configRouteName(in); err != nil || got != want {
+			t.Errorf("configRouteName(%q) = %q, %v; want %q", in, got, err, want)
+		}
+	}
+	if _, err := configRouteName(`{"provider":"github"}`); err == nil {
+		t.Error("non-databricks object accepted")
+	}
+}
