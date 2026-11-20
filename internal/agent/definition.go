@@ -56,10 +56,8 @@ func loadSchema(ref string) (*Schema, error) {
 	if strings.TrimSpace(p.Prompt) == "" {
 		return nil, fmt.Errorf("persona %q: %s has no body to use as the prompt", ref, path)
 	}
-	if p.Tools, err = schemaTools(fm["tools"]); err == nil {
-		err = castPersona(p) // front-matter model: <profile>:<id> reads as profile + model
-	}
-	if err != nil {
+	p.Tools, err = schemaTools(fm["tools"])
+	if err = cmp.Or(err, castPersona(p)); err != nil { // front-matter model: <profile>:<id> reads as profile + model
 		return nil, fmt.Errorf("persona %q: %w", ref, err)
 	}
 	if n, ok := fm["maxTurns"].(int); ok && n > 0 {

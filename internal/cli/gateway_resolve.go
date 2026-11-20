@@ -49,17 +49,9 @@ func cmdGatewayResolve(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	c, err := providers.CastShared(*model)
-	if err == nil {
-		_, *profile, err = c.Merge(*provider, *profile)
-	}
-	if err = cmp.Or(err, checkFallback(*fallback)); err != nil {
+	if err = cmp.Or(castResolveModel(model, profile, *provider), checkFallback(*fallback)); err != nil {
 		return helptext.FailUsage("gateway resolve: %v", err)
 	}
-	if *provider == providers.GroupDatabricks && c.Profile == "" {
-		*profile = agent.AutoModel
-	}
-	*model = c.Model
 	ctx := context.Background()
 	task, err := agent.ReadBrief(*taskFile)
 	if err != nil {
@@ -81,6 +73,22 @@ func cmdGatewayResolve(args []string) int {
 		return printRows(resolve.All(ctx, reg, q, *live), *format)
 	}
 	return resolveOne(ctx, reg, q, task, *format)
+}
+
+// castResolveModel reads --model <profile>:<id> as --profile <profile> --model <id>; --provider databricks is the pool.
+func castResolveModel(model, profile *string, provider string) error {
+	c, err := providers.CastShared(*model)
+	if err == nil {
+		_, *profile, err = c.Merge(provider, *profile)
+	}
+	if err != nil {
+		return err
+	}
+	if provider == providers.GroupDatabricks && c.Profile == "" {
+		*profile = agent.AutoModel
+	}
+	*model = c.Model
+	return nil
 }
 
 // resolveArgsOK is the verb's shape: one agent word, a known format, --live only with --all-profiles.

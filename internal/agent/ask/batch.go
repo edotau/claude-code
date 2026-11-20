@@ -25,7 +25,6 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/askspec"
 	"github.com/edotau/claude-code/internal/agentconfig"
-	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -193,19 +192,6 @@ func checkLineIDs(n int, id, planTask string, seen map[string]bool) error {
 	case planTask != "" && !planTaskRE().MatchString(planTask):
 		return fmt.Errorf("line %d: plan_task %q must match %s", n, planTask, planTaskRE())
 	}
-	return nil
-}
-
-// lineModel casts a line's `<profile>:<model>` into the line's profile and plain model.
-func lineModel(l *parsedLine) error {
-	c, err := providers.CastShared(l.Task.Model)
-	if err == nil {
-		_, l.Task.Profile, err = c.Merge("", l.Task.Profile)
-	}
-	if err != nil {
-		return fmt.Errorf("line %d: %w", l.N, err)
-	}
-	l.Task.Model = c.Model
 	return nil
 }
 

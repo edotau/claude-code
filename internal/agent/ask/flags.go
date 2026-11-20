@@ -809,3 +809,16 @@ func (r *askRun) recoverRetry() (int, bool) {
 	fmt.Fprintf(os.Stderr, "ask: recovering %s on a fresh session\n", rec.ID)
 	return 0, false
 }
+
+// lineModel casts a line's `<profile>:<model>` into the line's profile and plain model.
+func lineModel(l *parsedLine) error {
+	c, err := providers.CastShared(l.Task.Model)
+	if err == nil {
+		_, l.Task.Profile, err = c.Merge("", l.Task.Profile)
+	}
+	if err != nil {
+		return fmt.Errorf("line %d: %w", l.N, err)
+	}
+	l.Task.Model = c.Model
+	return nil
+}

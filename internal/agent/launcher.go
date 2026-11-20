@@ -67,23 +67,24 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 	if _, err := agentconfig.FlagOverlay(nil, o.KeepEnv); err != nil { // names only: never a value
 		return LaunchOptions{}, nil, err
 	}
-	if err := o.foldOverlay(); err != nil {
-		return o, rest, err
-	}
-	if err := castLaunchModel(&o); err != nil {
-		return LaunchOptions{}, nil, &UsageError{Msg: err.Error()}
-	}
-	return o, rest, nil
+	err := castLaunchModel(&o)
+	return o, rest, err
 }
 
-// castLaunchModel reads a launch's --model <profile>:<id> as --profile <profile> --model <id>.
+// castLaunchModel folds the overlay, then reads --model <profile>:<id> as --profile <profile> --model <id>.
 func castLaunchModel(o *LaunchOptions) error {
+	if err := o.foldOverlay(); err != nil {
+		return err
+	}
 	c, err := providers.CastShared(o.Model)
 	if err == nil {
 		_, o.Provider, err = c.Merge("", o.Provider)
 		o.Model = c.Model
 	}
-	return err
+	if err != nil {
+		return &UsageError{Msg: err.Error()}
+	}
+	return nil
 }
 
 // UsageError is a launch refusal the CLI reports verbatim with exit 2.

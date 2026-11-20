@@ -1254,7 +1254,7 @@ func TestRunLineNamesEveryExternalAgent(t *testing.T) {
 	t.Parallel()
 	for _, a := range agentid.External() {
 		want := "Run: claude-code agents ask --agent " + a + " --overlay '{\"model\":\"m\"}'"
-		if line, err := runLine(a, "", "m", "", "", false); err != nil || line != want {
+		if line, err := runLine(a, "", "m", "", false); err != nil || line != want {
 			t.Errorf("runLine(%s) = %q, %v; want %q", a, line, err, want)
 		}
 	}
@@ -1278,7 +1278,7 @@ func TestRunLineReadOnly(t *testing.T) {
 		if c.spec != "" {
 			model = ""
 		}
-		if line, err := runLine(c.typ, c.spec, model, "", "", c.ro); err != nil || line != c.want {
+		if line, err := runLine(c.typ, c.spec, model, "", c.ro); err != nil || line != c.want {
 			t.Errorf("runLine(%+v) = %q, %v", c, line, err)
 		}
 	}
