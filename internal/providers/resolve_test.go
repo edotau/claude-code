@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -299,5 +300,52 @@ func TestGrokKeepsOpencodeChatRoute(t *testing.T) {
 	}
 	if wire, _, _ := WireForIn(grok, p, "databricks-grok-4-7"); wire == ProtocolResponses {
 		t.Errorf("opencode wire for Grok = %q, want %s", wire, ProtocolOpenAI)
+	}
+}
+
+func listingFacts(t *testing.T, facts map[string]EndpointFacts) {
+	t.Helper()
+	old := ListedFacts
+	t.Cleanup(func() { ListedFacts = old })
+	ListedFacts = func(_ *Provider, wire string) (EndpointFacts, bool) { f, ok := facts[wire]; return f, ok }
+}
+
+// Given a fresh listing, Then api_types decide ResponsesServable for a listed id, the old rule an unlisted one,
+// and opencode's Responses-only routing is unchanged.
+func TestResponsesServableFollowsListingAPITypes(t *testing.T) {
+	vaulttest.Use(t)
+	listingFacts(t, map[string]EndpointFacts{
+		"databricks-gpt-6-luna": {APITypes: []string{"mlflow/v1/chat/completions"}},
+		"databricks-kimi-k3":    {APITypes: []string{"mlflow/v1/chat/completions", "openai/v1/responses"}},
+		"databricks-grok-4-7":   {APITypes: []string{"mlflow/v1/chat/completions", "openai/v1/responses"}},
+		"databricks-gpt-5-4":    {Context: 400000},
+	})
+	p := &Provider{Name: "dev", Preset: PresetDatabricks, ModelPrefix: "databricks-"}
+	p.Routes = map[string]string{ProtocolResponses: "/responses", ProtocolOpenAI: "/chat"}
+	for wire, want := range map[string]bool{"databricks-gpt-6-luna": false, "databricks-kimi-k3": true,
+		"databricks-grok-4-7": true, "databricks-gpt-5-4": true, "databricks-gpt-6-sol": true, "databricks-claude-opus-5-5": false} {
+		if got := ResponsesServable(p, wire); got != want {
+			t.Errorf("ResponsesServable(%s) = %v, want %v", wire, got, want)
+		}
+	}
+	if ServesResponsesIn([]OpencodeModel{{ID: "kimi-k3"}}, p, "databricks-kimi-k3") {
+		t.Error("opencode's ServesResponses must not follow api_types")
+	}
+}
+
+// Given catalog limits and a listing, Then the catalog wins per field and the listing fills the rest.
+func TestLimitsForPrefersCatalogThenListing(t *testing.T) {
+	listingFacts(t, map[string]EndpointFacts{"databricks-gpt-5-4": {Context: 400000, Output: 128000},
+		"databricks-gemini-4-argon": {Context: 5, Output: 7}})
+	p := &Provider{Name: "dev", Preset: PresetDatabricks}
+	if l, ok := LimitsFor(p, "databricks-gpt-5-4"); !ok || l.Context != 400000 || l.Output != 128000 {
+		t.Errorf("listed-only model limits = %+v, %v", l, ok)
+	}
+	want, _ := models.Limits("databricks-gemini-4-argon")
+	if l, _ := LimitsFor(p, "databricks-gemini-4-argon"); want.Context == 0 || l.Context != want.Context {
+		t.Errorf("catalog window %d must beat the listing's 5, got %+v", want.Context, l)
+	}
+	if _, ok := LimitsFor(p, "databricks-unknown-x"); ok {
+		t.Error("unknown model must stay unknown")
 	}
 }

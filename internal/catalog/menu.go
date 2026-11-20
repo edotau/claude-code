@@ -54,6 +54,29 @@ func opencodeSyncMerge(menu []providers.OpencodeModel, ids []string, checks []se
 	return next, skipped
 }
 
+// DroppedIDs is p's dropped picker ids as catalog ids, so discovery's drops hold for the shared menu too.
+func DroppedIDs(p *providers.Provider) (map[string]bool, error) {
+	dropped, err := providers.PickerDropped(p)
+	out := make(map[string]bool, len(dropped))
+	for _, id := range dropped {
+		out[ID(id)] = true
+	}
+	return out, err
+}
+
+// withoutDropped splits ids into those to sync and the dropped ones the menu does not hold yet.
+func withoutDropped(ids []string, menu []providers.OpencodeModel, dropped map[string]bool) (keep, skipped []string) {
+	for _, id := range ids {
+		held := slices.ContainsFunc(menu, func(m providers.OpencodeModel) bool { return m.ID == id })
+		if dropped[id] && !held {
+			skipped = append(skipped, id)
+			continue
+		}
+		keep = append(keep, id)
+	}
+	return keep, skipped
+}
+
 func opencodeSyncVerify(p *providers.Provider, snapshot *serving.Snapshot, ids []string, menu []providers.OpencodeModel) error {
 	responses := make(map[string]bool, len(menu))
 	for _, m := range menu {
@@ -390,7 +413,8 @@ type SyncPlan struct {
 	IDs      []string // eligible serving ids
 	Menu     []providers.OpencodeModel
 	Next     []providers.OpencodeModel
-	Skipped  int // additions dropped because their probe failed
+	Skipped  int      // additions dropped because their probe failed
+	Dropped  []string // eligible ids left out because `models discover` dropped them
 	Changes  []MenuChange
 	Verified bool
 }
@@ -399,14 +423,19 @@ type SyncPlan struct {
 func MenuSync(p *providers.Provider, snapshot serving.Snapshot, opts SyncOptions) (SyncPlan, error) {
 	ids := opencodeSyncIDs(snapshot.Models)
 	menu := providers.OpencodeMenu()
+	dropped, err := DroppedIDs(p)
+	if err != nil {
+		return SyncPlan{}, err
+	}
+	addable, skippedDropped := withoutDropped(ids, menu, dropped)
 	if opts.Verify {
-		if err := opencodeSyncVerify(p, &snapshot, ids, menu); err != nil {
+		if err := opencodeSyncVerify(p, &snapshot, addable, menu); err != nil {
 			return SyncPlan{}, err
 		}
 	}
-	next, skipped := opencodeSyncMerge(menu, ids, snapshot.Checks)
+	next, skipped := opencodeSyncMerge(menu, addable, snapshot.Checks)
 	return SyncPlan{Provider: p, Snapshot: snapshot, IDs: ids, Menu: menu, Next: next, Skipped: skipped,
-		Changes: diffMenu(menu, next), Verified: opts.Verify}, nil
+		Dropped: skippedDropped, Changes: diffMenu(menu, next), Verified: opts.Verify}, nil
 }
 
 // Seal stores the discovery snapshot in the vault when it is new or freshly verified; sealed is false when skipped.

@@ -316,3 +316,21 @@ func TestCatalogSetupTokenStaysOnAnthropic(t *testing.T) {
 		}
 	}
 }
+
+// Given the serving-endpoints shape, Then api_types, model_class and the description's limits reach the entry.
+func TestDecodeServingEndpointsKeepsFoundationModelFacts(t *testing.T) {
+	body := `{"endpoints":[{"name":"databricks-gpt-5-4","task":"llm/v1/chat","state":{"ready":"READY"},"config":{"served_entities":[
+	{"foundation_model":{"model_class":"gpt","api_types":["mlflow/v1/chat/completions","openai/v1/responses"],
+	"description":"GPT-5.4 features a 400K total token context window with 128K maximum output tokens."}}]}},
+	{"name":"plain","task":"llm/v1/chat","state":{"ready":"READY"}}]}`
+	got, err := decodeServingEndpoints("u", []byte(body))
+	if err != nil || len(got) != 2 {
+		t.Fatalf("decode = %+v, %v", got, err)
+	}
+	if e := got[0]; e.class != "gpt" || len(e.apiTypes) != 2 || e.context != 400000 || e.output != 128000 {
+		t.Errorf("entry = %+v", e)
+	}
+	if e := got[1]; e.apiTypes != nil || e.context != 0 {
+		t.Errorf("entry without config = %+v, want unknown", e)
+	}
+}

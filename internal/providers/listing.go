@@ -209,7 +209,8 @@ func LoadCatalog(p *Provider, listOwn func(context.Context) ([]ModelInfo, error)
 func (c Catalog) Rows() []LiveModel {
 	rows := make([]LiveModel, 0, len(c.Infos))
 	for _, m := range c.Infos {
-		rows = append(rows, LiveModel(m))
+		rows = append(rows, LiveModel{ID: m.ID, Name: m.Name, UseCase: m.UseCase, Capabilities: m.Capabilities,
+			Task: m.Task, Ready: m.Ready})
 	}
 	return rows
 }

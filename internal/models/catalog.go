@@ -3,6 +3,7 @@ package models
 import (
 	_ "embed"
 	"encoding/json"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -251,4 +252,38 @@ func parseClaude(s string) string {
 		id += "-" + m[4]
 	}
 	return id
+}
+
+// Each pattern needs a whole integer directly attached to its phrase; a fraction tail like "1.5M" never matches.
+const limitNum = `(?:^|[^\w.])(\d+)\s*(K|M|million)\s+`
+
+var (
+	contextWindowRE = regexp.MustCompile(limitNum + `(?:total\s+)?token\s+context\s+window`)
+	contextLengthRE = regexp.MustCompile(`context length of (\d+)\s*(K|M|million)\s+tokens`)
+	maxOutputRE     = regexp.MustCompile(limitNum + `maximum\s+output\s+tokens`)
+)
+
+// ParseLimits reads the context window and max output tokens a foundation-model description states; 0 is unknown.
+func ParseLimits(desc string) (context, output int) {
+	context = firstTokens(contextWindowRE, desc)
+	if context == 0 {
+		context = firstTokens(contextLengthRE, desc)
+	}
+	return context, firstTokens(maxOutputRE, desc)
+}
+
+// firstTokens is re's first match as a token count (K = 1000, M and million = 1,000,000), or 0.
+func firstTokens(re *regexp.Regexp, s string) int {
+	m := re.FindStringSubmatch(s)
+	if m == nil {
+		return 0
+	}
+	n, err := strconv.Atoi(m[1])
+	if err != nil {
+		return 0
+	}
+	if m[2] == "K" {
+		return n * 1000
+	}
+	return n * 1_000_000
 }

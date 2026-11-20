@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -495,6 +497,8 @@ type DiscoverResult struct {
 	Discovered   int                   `json:"discovered"`
 	Additions    []providers.ModelInfo `json:"additions"`
 	Dropped      []string              `json:"skipped_dropped,omitempty"`
+	Deprecated   []string              `json:"dropped_deprecated,omitempty"`
+	ProbeNote    string                `json:"probe_note,omitempty"`
 	Destinations []string              `json:"destinations"`
 	Status       string                `json:"status"`
 	Note         string                `json:"note,omitempty"`
@@ -538,7 +542,7 @@ func emptyCatalogStep(p *providers.Provider) string {
 }
 
 // discoverPickerProfile live-discovers p's models and previews (or, with apply, appends) the saved picker additions.
-func discoverPickerProfile(p *providers.Provider, apply bool) DiscoverResult {
+func discoverPickerProfile(p *providers.Provider, apply, verify bool) DiscoverResult {
 	r := DiscoverResult{Provider: p.Provider, Profile: p.Name, Additions: []providers.ModelInfo{}, Destinations: []string{}, Status: "skipped"}
 	source, skip := discoverySource(p)
 	r.Source = source
@@ -565,6 +569,7 @@ func discoverPickerProfile(p *providers.Provider, apply bool) DiscoverResult {
 		r.Note = "saved picker additions unavailable or invalid; nothing overwritten: " + err.Error()
 		return r
 	}
+	r.Deprecated, r.ProbeNote = databricksListing(ctx, p, live, apply, verify)
 	var added []providers.ModelInfo
 	if apply {
 		added, err = providers.AppendPickerModels(p, live)
@@ -599,7 +604,7 @@ func discoverDestinations(p *providers.Provider) []string {
 }
 
 // DiscoverPickerProfiles runs discoverPickerProfile over names; ok is false when one errored or none completed.
-func DiscoverPickerProfiles(reg *providers.Registry, names []string, apply bool) (results []DiscoverResult, ok bool) {
+func DiscoverPickerProfiles(reg *providers.Registry, names []string, apply, verify bool) (results []DiscoverResult, ok bool) {
 	results = make([]DiscoverResult, 0, len(names))
 	ok = true
 	completed := 0
@@ -611,7 +616,7 @@ func DiscoverPickerProfiles(reg *providers.Registry, names []string, apply bool)
 				Status: "error", Note: err.Error()})
 			continue
 		}
-		r := discoverPickerProfile(p, apply)
+		r := discoverPickerProfile(p, apply, verify)
 		if r.Status == "error" {
 			ok = false
 		}
@@ -657,4 +662,82 @@ func DropPickerProfiles(reg *providers.Registry, names, ids []string, undrop, gl
 		out = append(out, r)
 	}
 	return out, ok
+}
+
+// probeEndpoints is the deprecation probe's HTTP call; tests swap it for canned replies.
+var probeEndpoints = serving.Probe
+
+// databricksListing keeps an applied listing's api_types and limits, then drops the ids the probe finds deprecated.
+func databricksListing(ctx context.Context, p *providers.Provider, live []providers.ModelInfo, apply, verify bool) (dropped []string, note string) {
+	if p.Preset != providers.PresetDatabricks {
+		return nil, ""
+	}
+	if !apply {
+		return nil, "no deprecation probe sent in a preview; --apply probes new ids (--verify also the saved ones)"
+	}
+	if err := router.WarmServed(p.Name, live, time.Now()); err != nil {
+		fmt.Fprintf(os.Stderr, "copilot: %s served listing not saved: %v\n", p.Name, err)
+	}
+	ids, err := probeCandidates(p, live, verify)
+	if err != nil {
+		return nil, "deprecation probe skipped: " + err.Error()
+	}
+	if dropped, err = deprecatedIDs(ctx, p, live, ids); err == nil && len(dropped) > 0 {
+		_, err = providers.EditPickerDrops(p, dropped, false, true)
+	}
+	if err != nil {
+		return nil, "deprecation probe changed nothing: " + err.Error()
+	}
+	return dropped, ""
+}
+
+// probeCandidates are the ids discovery would add, plus p's saved additions when verify is set.
+func probeCandidates(p *providers.Provider, live []providers.ModelInfo, verify bool) ([]string, error) {
+	added, err := providers.PreviewPickerModels(p, live)
+	if err != nil {
+		return nil, err
+	}
+	var ids []string
+	for _, m := range added {
+		ids = append(ids, m.ID)
+	}
+	if verify {
+		saved, err := providers.PickerModels(p)
+		if err != nil {
+			return nil, err
+		}
+		for _, m := range saved {
+			ids = append(ids, m.ID)
+		}
+	}
+	return ids, nil
+}
+
+// deprecatedIDs sends ids one request on the route each speaks and returns those answered 400 "This endpoint <id> is deprecated".
+func deprecatedIDs(ctx context.Context, p *providers.Provider, live []providers.ModelInfo, ids []string) ([]string, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	byID := make(map[string]providers.ModelInfo, len(live))
+	for _, m := range live {
+		byID[m.ID] = m
+	}
+	targets := make([]serving.CheckTarget, len(ids))
+	for i, id := range ids {
+		targets[i] = serving.CheckTarget{ID: id, Wire: id, Responses: slices.Contains(byID[id].APITypes, "openai/v1/responses")}
+	}
+	// the listing's 45 s deadline would cut a 30 s-per-request probe round short
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
+	defer cancel()
+	results, err := probeEndpoints(ctx, p, targets, serving.CheckOptions{ClientRoutes: true, Concurrency: 4, Timeout: 30 * time.Second})
+	if err != nil {
+		return nil, err
+	}
+	var out []string
+	for _, r := range results {
+		if r.HTTP == http.StatusBadRequest && strings.Contains(r.Error, "This endpoint "+r.ID+" is deprecated") {
+			out = append(out, r.ID)
+		}
+	}
+	return out, nil
 }

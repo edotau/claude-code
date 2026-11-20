@@ -57,6 +57,10 @@ per-profile errors/skips; it never saves fallback catalogs. CLI preview is the d
 `--apply` saves append-only choices in sealed, versioned vault records scoped by profile,
 routes, spelling and account/auth configuration. A second unchanged apply adds nothing.
 `--drop <id>[,<id>]` (`--apply` writes) removes saved-menu ids and blocks their re-adding; `--undrop` reverses it.
+`--apply` on a Databricks profile sends one tiny request per id it is about to add (`--verify`: also the saved ones;
+4 workers, 30 s each) and drops an id answered HTTP 400 `This endpoint <id> is deprecated` (`dropped as deprecated:`);
+any other failure changes nothing, and a preview sends no probe. `opencode catalog sync --apply` skips a dropped id
+(`skipped as dropped:`) and `catalog add` refuses it; `--undrop` lifts both.
 Configured aliases, selections, pins, routes and the legacy global Databricks menu are
 not rewritten. Except for Copilot, saved choices feed configure/agent model pickers and harness-generated
 OpenCode catalogs on the next routed launch; Databricks Codex catalogs include only

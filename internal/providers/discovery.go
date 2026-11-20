@@ -213,7 +213,8 @@ func servingCatalogEntries(body []byte) ([]ModelInfo, error) {
 		if strings.TrimSpace(e.id) == "" {
 			return nil, errors.New("catalog entry missing model ID")
 		}
-		out = append(out, ModelInfo{ID: e.id, Name: displayName(e.id), UseCase: models.UseCase(e.id, e.name), Task: e.task, Ready: e.ready})
+		out = append(out, ModelInfo{ID: e.id, Name: displayName(e.id), UseCase: models.UseCase(e.id, e.name), Task: e.task, Ready: e.ready,
+			APITypes: e.apiTypes, ModelClass: e.class, ContextToken: e.context, OutputToken: e.output})
 	}
 	return out, nil
 }

@@ -132,3 +132,20 @@ func TestMenuEntriesCarryCatalogLimits(t *testing.T) {
 		t.Errorf("glm entry present=%v limit=%+v, want present without a limit", ok, g)
 	}
 }
+
+// Given a model the catalog lacks but the listing states both limits, Then the entry gets the limit block.
+func TestWithLimitUsesListedLimits(t *testing.T) {
+	old := providers.ListedFacts
+	t.Cleanup(func() { providers.ListedFacts = old })
+	providers.ListedFacts = func(_ *providers.Provider, wire string) (providers.EndpointFacts, bool) {
+		return providers.EndpointFacts{Context: 400000, Output: 128000}, wire == "databricks-listed-only"
+	}
+	p := &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks}
+	got := withLimit(map[string]any{}, p, "databricks-listed-only")
+	if want := (map[string]any{"context": 400000, "output": 128000}); !reflect.DeepEqual(got["limit"], want) {
+		t.Errorf("limit = %v, want %v", got["limit"], want)
+	}
+	if _, ok := withLimit(map[string]any{}, p, "databricks-other")["limit"]; ok {
+		t.Error("an unknown model must get no limit block")
+	}
+}

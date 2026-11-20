@@ -384,6 +384,9 @@ func servedMark(id string, listings [3]router.Served, now time.Time) string {
 }
 
 func addOpencodeMenu(w io.Writer, arg string, responses, responsesSet, force bool, provider string) error {
+	if err := refuseDropped(arg, provider); err != nil {
+		return err
+	}
 	id, next, err := catalog.MenuAddServed(arg, responses, responsesSet, force,
 		func() (*providers.Provider, []providers.ModelInfo, error) {
 			res, err := discover("opencode", provider, configure.RecallModels)
@@ -393,6 +396,20 @@ func addOpencodeMenu(w io.Writer, arg string, responses, responsesSet, force boo
 		return err
 	}
 	return writeOpencodeMenu(w, next, "added "+id)
+}
+
+// refuseDropped is a usage error when the named profile's discovery dropped arg's id; no profile means no drops.
+func refuseDropped(arg, provider string) error {
+	p, err := catalog.Profile(context.Background(), "opencode", provider)
+	if err != nil || p == nil {
+		return nil // an unresolvable profile is MenuAddServed's to report, and --force needs none
+	}
+	dropped, err := catalog.DroppedIDs(p)
+	id, _, _ := strings.Cut(arg, "=")
+	if err == nil && dropped[catalog.ID(id)] {
+		return fmt.Errorf("%s is dropped on %s; run `claude-code models discover --profile %s --undrop %s` first", id, p.Name, p.Name, id)
+	}
+	return err
 }
 
 func importOpencodeMenu(w io.Writer, file string, apply bool) error {
@@ -427,6 +444,9 @@ func printSyncPlan(w io.Writer, pl catalog.SyncPlan, profile string, verify bool
 		len(pl.Snapshot.Models), len(pl.IDs), len(pl.Changes), pl.Skipped, len(pl.Menu), len(pl.Next))
 	for _, c := range pl.Changes {
 		fmt.Fprintf(w, "%s %s  %s  responses=%v\n", c.Op, c.Model.ID, c.Model.Label, c.Model.Responses)
+	}
+	if len(pl.Dropped) > 0 {
+		fmt.Fprintf(w, "skipped as dropped: %s\n", strings.Join(pl.Dropped, ", "))
 	}
 	fmt.Fprintln(w, "Shared menu: OpenCode uses all entries; Codex needs Responses + bundled metadata.")
 	fmt.Fprintln(w, "Discovery is not inference proof; use --verify or the existing check command:")

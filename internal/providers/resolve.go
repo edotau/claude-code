@@ -3,6 +3,7 @@ package providers
 import (
 	"cmp"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -148,8 +149,46 @@ func ServesResponsesIn(menu []OpencodeModel, p *Provider, model string) bool {
 	return models.ResponsesOnly(model)
 }
 
-// ResponsesServable reports a wire id codex can run on p: a non-chat-only GPT id, or one the menu marks Responses.
+// apiTypeResponses is the listing's api_types entry for the OpenAI Responses API.
+const apiTypeResponses = "openai/v1/responses"
+
+// EndpointFacts are one workspace endpoint's listing facts; an empty or zero field is unknown.
+type EndpointFacts struct {
+	APITypes        []string
+	Context, Output int
+}
+
+// ListedFacts reads p's fresh listing for wire; the router replaces it, none known until then.
+var ListedFacts = func(p *Provider, wire string) (EndpointFacts, bool) { return EndpointFacts{}, false }
+
+// ListedResponses reports whether p's fresh listing says wire serves Responses; known is false with no api_types.
+func ListedResponses(p *Provider, wire string) (serves, known bool) {
+	if p == nil || p.Preset != PresetDatabricks {
+		return false, false
+	}
+	f, ok := ListedFacts(p, wire)
+	if !ok || len(f.APITypes) == 0 {
+		return false, false
+	}
+	return slices.Contains(f.APITypes, apiTypeResponses), true
+}
+
+// LimitsFor is wire's token limits: the tracked catalog's value per field, else the fresh listing's, else unknown.
+func LimitsFor(p *Provider, wire string) (models.TokenLimits, bool) {
+	l, _ := models.Limits(wire)
+	if p != nil && (l.Context == 0 || l.Output == 0) {
+		if f, ok := ListedFacts(p, wire); ok {
+			l.Context, l.Output = cmp.Or(l.Context, f.Context), cmp.Or(l.Output, f.Output)
+		}
+	}
+	return l, l != (models.TokenLimits{})
+}
+
+// ResponsesServable reports a wire id codex can run on p: the fresh listing's api_types, else the old family rule.
 func ResponsesServable(p *Provider, wire string) bool {
+	if serves, known := ListedResponses(p, wire); known {
+		return serves
+	}
 	return (models.FamilyKind(wire) == models.FamilyGPT && !models.ChatOnly(wire)) || ServesResponses(p, wire)
 }
 

@@ -332,6 +332,7 @@ func modelsDiscover(args []string) int {
 	profile := fs.String("profile", "", "discover only this registry profile")
 	apply := fs.Bool("apply", false, "append discovered additions to saved runtime pickers")
 	dry := fs.Bool("dry-run", false, "preview only (the default); conflicts with --apply")
+	verify := fs.Bool("verify", false, "with --apply, also probe saved ids for deprecated endpoints")
 	var drop, undrop []string
 	listFlag := func(name, usage string, dst *[]string) {
 		fs.Func(name, usage, func(v string) error {
@@ -366,7 +367,7 @@ func modelsDiscover(args []string) int {
 	if len(drop)+len(undrop) > 0 {
 		return modelsDrop(names, *profile == "", drop, undrop, *apply, *format, reg)
 	}
-	results, ok := copilot.DiscoverPickerProfiles(reg, names, *apply)
+	results, ok := copilot.DiscoverPickerProfiles(reg, names, *apply, *verify)
 	if !ok {
 		code = 1
 	}
@@ -476,6 +477,12 @@ func printDiscoverText(results []copilot.DiscoverResult) error {
 		}
 		if len(r.Dropped) > 0 {
 			fmt.Fprintf(&b, "  skipped as dropped: %s\n", strings.Join(r.Dropped, ", "))
+		}
+		if len(r.Deprecated) > 0 {
+			fmt.Fprintf(&b, "  dropped as deprecated: %s\n", strings.Join(r.Deprecated, ", "))
+		}
+		if r.ProbeNote != "" {
+			fmt.Fprintf(&b, "  %s\n", r.ProbeNote)
 		}
 		if len(r.Destinations) > 0 {
 			fmt.Fprintf(&b, "  destinations: %s\n", strings.Join(r.Destinations, ", "))
@@ -594,7 +601,8 @@ func modelPinAliases() []string {
 // modelsSpec is the completion node for the models verb.
 func modelsSpec() *helptext.Node {
 	discover := &helptext.Node{Flags: []helptext.Flag{helptext.ValuedFlag("profile", providers.ProfileNames), helptext.BoolFlag("apply"),
-		helptext.BoolFlag("dry-run"), {Name: "drop"}, {Name: "undrop"}, helptext.CompletionFormatFlag()}}
+		helptext.BoolFlag("dry-run"), {Name: "drop"}, {Name: "undrop"},
+		helptext.BoolFlag("verify"), helptext.CompletionFormatFlag()}}
 	return &helptext.Node{Sub: map[string]*helptext.Node{"discover": discover, "preflight": preflightSpec()}, Flags: []helptext.Flag{helptext.ValuedFlag("profile", providers.ProfileNames),
 		helptext.BoolFlag("unpin"), helptext.BoolFlag("live"), {Name: "pin", Values: modelPinAliases}, helptext.BoolFlag("dry-run"), helptext.CompletionFormatFlag()}}
 }

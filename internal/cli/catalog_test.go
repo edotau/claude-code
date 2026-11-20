@@ -1124,3 +1124,24 @@ func TestServedMark(t *testing.T) {
 		}
 	}
 }
+
+// Given an id `models discover` dropped, Then sync --apply skips it with a line and add refuses it naming --undrop.
+func TestOpencodeMenuSyncAndAddHonorDiscoveryDrops(t *testing.T) {
+	f := syncEnv(t)
+	syncExistingMenu(t)
+	if _, err := providers.EditPickerDrops(f.p, []string{"sync-alpha"}, false, true); err != nil {
+		t.Fatal(err)
+	}
+	out := syncRun(t, "--apply")
+	if !strings.Contains(out, "skipped as dropped: sync-alpha") || slices.ContainsFunc(providers.OpencodeMenu(),
+		func(m providers.OpencodeModel) bool { return m.ID == "sync-alpha" }) {
+		t.Fatalf("sync added a dropped id or omitted the skip line: %s", out)
+	}
+	if !slices.ContainsFunc(providers.OpencodeMenu(), func(m providers.OpencodeModel) bool { return m.ID == "sync-zeta" }) {
+		t.Fatal("sync must still add the ids that were not dropped")
+	}
+	code, _, stderr := ocMenu(t, "add", "sync-alpha", "--force", "--profile", "synctest")
+	if code == 0 || !strings.Contains(stderr, "models discover --profile synctest --undrop sync-alpha") {
+		t.Fatalf("add of a dropped id: code=%d stderr=%s", code, stderr)
+	}
+}

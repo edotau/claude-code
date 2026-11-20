@@ -164,6 +164,11 @@ type ServedModel struct {
 	ID    string `json:"id"`
 	Task  string `json:"task,omitempty"`
 	Ready string `json:"ready,omitempty"`
+	// foundation_model facts from the listing; absent in files written before they were kept
+	APITypes   []string `json:"api_types,omitempty"`
+	ModelClass string   `json:"model_class,omitempty"`
+	Context    int      `json:"context,omitempty"`
+	Output     int      `json:"output,omitempty"`
 }
 
 // IsReady reports whether the endpoint serves: an unset state counts as READY.
@@ -259,7 +264,8 @@ func WarmServed(profile string, infos []providers.ModelInfo, at time.Time) error
 	}
 	s := Served{Profile: profile, FetchedAt: at.UTC()}
 	for _, m := range infos {
-		s.Models = append(s.Models, ServedModel{ID: m.ID, Task: m.Task, Ready: m.Ready})
+		s.Models = append(s.Models, ServedModel{ID: m.ID, Task: m.Task, Ready: m.Ready, APITypes: m.APITypes,
+			ModelClass: m.ModelClass, Context: m.ContextToken, Output: m.OutputToken})
 	}
 	// a file dated past clockSkew ahead of at is distrusted and replaced, or it would block every later warm
 	return SaveServed(s, func(cur Served) bool { return cur.FetchedAt.After(at) && cur.Fresh(at) })
@@ -286,18 +292,36 @@ func SaveServed(s Served, keep ...func(cur Served) bool) error {
 	})
 }
 
-// Has reports whether the listing serves pin as a READY endpoint; ready is false for a listed but unready one.
-func (s Served) Has(p *providers.Provider, pin string) (listed, ready bool) {
-	pin = strings.TrimSpace(pin)
-	// the spelling the agents request (providers.SpellPin)
-	want := p.WireModel(models.Strip1M(pin))
+// Find is the listing's entry serving pin (the spelling the agents request); false when unlisted.
+func (s Served) Find(p *providers.Provider, pin string) (ServedModel, bool) {
+	want := p.WireModel(models.Strip1M(strings.TrimSpace(pin)))
 	for _, m := range s.Models {
 		// runtime prefixes a bare id the listing names databricks-<id>
 		if m.ID == want || m.ID == models.DatabricksPrefix+want {
-			return true, m.IsReady()
+			return m, true
 		}
 	}
-	return false, false
+	return ServedModel{}, false
+}
+
+// Has reports whether the listing serves pin as a READY endpoint; ready is false for a listed but unready one.
+func (s Served) Has(p *providers.Provider, pin string) (listed, ready bool) {
+	m, ok := s.Find(p, pin)
+	return ok, ok && m.IsReady()
+}
+
+func init() {
+	providers.ListedFacts = listedFacts
+}
+
+// listedFacts is wire's entry in p's fresh listing, whatever the servedAware switch says.
+func listedFacts(p *providers.Provider, wire string) (providers.EndpointFacts, bool) {
+	s, ok := freshShared(p.Name, time.Now())
+	if !ok {
+		return providers.EndpointFacts{}, false
+	}
+	m, ok := s.Find(p, wire)
+	return providers.EndpointFacts{APITypes: m.APITypes, Context: m.Context, Output: m.Output}, ok
 }
 
 // NextServed marks the failed model gone on p and returns the next READY Responses model, "" when there is none.

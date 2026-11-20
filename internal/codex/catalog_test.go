@@ -248,3 +248,53 @@ func TestCatalogSkipNoteNamesEveryUnlistedModel(t *testing.T) {
 		t.Errorf("build = %s, %q, %v; want no body and only the GPT id", body, missing, err)
 	}
 }
+
+// listFacts swaps the listing seam for the test; the id spelling is the wire name.
+func listFacts(t *testing.T, facts map[string]providers.EndpointFacts) {
+	t.Helper()
+	old := providers.ListedFacts
+	t.Cleanup(func() { providers.ListedFacts = old })
+	providers.ListedFacts = func(_ *providers.Provider, wire string) (providers.EndpointFacts, bool) {
+		f, ok := facts[wire]
+		return f, ok
+	}
+}
+
+// Given a fresh listing, Then api_types decide Responses for a listed id, the old rule covers an unlisted one, Grok stays out.
+func TestCodexServesFollowsListingAPITypes(t *testing.T) {
+	responses := []string{"mlflow/v1/chat/completions", "openai/v1/responses", "codex/v1/responses"}
+	listFacts(t, map[string]providers.EndpointFacts{
+		"databricks-gpt-6-luna":  {APITypes: []string{"mlflow/v1/chat/completions", "anthropic/v1/messages"}},
+		"databricks-kimi-k3":     {APITypes: responses},
+		"databricks-grok-4-7":    {APITypes: responses},
+		"databricks-gpt-5-4":     {Context: 400000},
+		"databricks-gpt-oss-20b": {APITypes: []string{"mlflow/v1/chat/completions"}},
+	})
+	p := &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks, ModelPrefix: "databricks-"}
+	for id, want := range map[string]bool{"gpt-6-luna": false, "kimi-k3": true, "grok-4-7": false, "gpt-5-4": true, "gpt-6-sol": true} {
+		if got := codexServes(p, providers.OpencodeModel{ID: id}); got != want {
+			t.Errorf("codexServes(%s) = %v, want %v", id, got, want)
+		}
+	}
+	if err := codexRefuse(p, "databricks-gpt-6-luna"); err == nil {
+		t.Error("codexRefuse must refuse a GPT id whose listing api_types lack openai/v1/responses")
+	}
+	if err := codexRefuse(p, "databricks-grok-4-7"); err == nil {
+		t.Error("codexRefuse must keep refusing Grok although api_types lists Responses")
+	}
+}
+
+// Given a fallback row whose listing states a window, Then the row uses it and the assumption note omits the id.
+func TestCatalogFallbackRowUsesListedWindow(t *testing.T) {
+	listFacts(t, map[string]providers.EndpointFacts{"databricks-gpt-5-4": {Context: 400000, Output: 128000}})
+	menu := []providers.OpencodeModel{{ID: "gpt-5-5", Label: "G55"}, {ID: "gpt-5-4", Label: "G54"}, {ID: "gpt-6-luna", Label: "L"}}
+	rows, warn := buildRows(t, fallbackBundled, menu)
+	for _, r := range rows {
+		if r.Slug == "databricks-gpt-5-4" && r.ContextWindow != 400000 {
+			t.Errorf("gpt-5-4 window = %d, want the listed 400000", r.ContextWindow)
+		}
+	}
+	if strings.Contains(warn, "gpt-5-4") {
+		t.Errorf("note = %q, want gpt-5-4 absent once its window is known", warn)
+	}
+}

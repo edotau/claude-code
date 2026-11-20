@@ -101,7 +101,7 @@ func defaultProviderID(p *providers.Provider, id, model string, claudeRoute bool
 	}
 	// an alias off the curated menu
 	if claudeRoute && models.FamilyKind(model) == models.FamilyClaude {
-		claude[model] = claudeEntry(withLimit(map[string]any{"name": model}, model))
+		claude[model] = claudeEntry(withLimit(map[string]any{"name": model}, p, model))
 		return id + "-claude", nil
 	}
 	w, ok, why := providers.WireFor(p, model)
@@ -109,10 +109,10 @@ func defaultProviderID(p *providers.Provider, id, model string, claudeRoute bool
 	case !ok:
 		return "", fmt.Errorf("opencode: model %q: %s", model, why)
 	case w == providers.ProtocolResponses:
-		resp[model] = withLimit(map[string]any{"name": model}, model)
+		resp[model] = withLimit(map[string]any{"name": model}, p, model)
 		return id + "-gpt", nil
 	}
-	chat[model] = withLimit(map[string]any{"name": model}, model)
+	chat[model] = withLimit(map[string]any{"name": model}, p, model)
 	return id, nil
 }
 
@@ -126,7 +126,7 @@ func splitMenu(p *providers.Provider, claudeRoute bool) (chat, resp, claude map[
 	for _, m := range menu {
 		wire := agentconfig.MenuWire(p, m.ID)
 		allowed[wire] = true
-		entry := withLimit(map[string]any{"name": m.Label + " · " + p.Name}, wire)
+		entry := withLimit(map[string]any{"name": m.Label + " · " + p.Name}, p, wire)
 		switch {
 		case m.Responses:
 			resp[wire] = entry
@@ -150,9 +150,9 @@ func claudeEntry(entry map[string]any) map[string]any {
 	return entry
 }
 
-// withLimit adds OpenCode's limit block when the catalog knows both numbers (its schema requires both).
-func withLimit(entry map[string]any, id string) map[string]any {
-	if l, ok := models.Limits(id); ok && l.Context > 0 && l.Output > 0 {
+// withLimit adds OpenCode's limit block when the catalog or p's fresh listing knows both numbers (schema needs both).
+func withLimit(entry map[string]any, p *providers.Provider, id string) map[string]any {
+	if l, ok := providers.LimitsFor(p, id); ok && l.Context > 0 && l.Output > 0 {
 		entry["limit"] = map[string]any{"context": l.Context, "output": l.Output}
 	}
 	return entry

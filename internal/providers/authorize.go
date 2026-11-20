@@ -66,7 +66,11 @@ func LiveModels(ctx context.Context, p *Provider) ([]string, error) {
 }
 
 // liveModelEntry is one catalog row: the id plus a display name when sent; task and ready are Databricks-only.
-type liveModelEntry struct{ id, name, task, ready string }
+type liveModelEntry struct {
+	id, name, task, ready, class string
+	apiTypes                     []string
+	context, output              int
+}
 
 func liveModelEntries(ctx context.Context, p *Provider) ([]liveModelEntry, error) {
 	url, anthropicDialect, err := catalogURL(p)
@@ -183,6 +187,15 @@ func decodeServingEndpoints(url string, body []byte) ([]liveModelEntry, error) {
 			State struct {
 				Ready string `json:"ready"`
 			} `json:"state"`
+			Config struct {
+				Served []struct {
+					Foundation struct {
+						Description string   `json:"description"`
+						ModelClass  string   `json:"model_class"`
+						APITypes    []string `json:"api_types"`
+					} `json:"foundation_model"`
+				} `json:"served_entities"`
+			} `json:"config"`
 		} `json:"endpoints"`
 	}
 	if err := json.Unmarshal(body, &doc); err != nil {
@@ -191,6 +204,11 @@ func decodeServingEndpoints(url string, body []byte) ([]liveModelEntry, error) {
 	out := make([]liveModelEntry, len(doc.Endpoints))
 	for i, e := range doc.Endpoints {
 		out[i] = liveModelEntry{id: e.Name, task: e.Task, ready: e.State.Ready}
+		if len(e.Config.Served) > 0 {
+			f := e.Config.Served[0].Foundation
+			out[i].class, out[i].apiTypes = f.ModelClass, f.APITypes
+			out[i].context, out[i].output = models.ParseLimits(f.Description)
+		}
 	}
 	return out, nil
 }
@@ -236,6 +254,11 @@ type ModelInfo struct {
 	Capabilities string
 	Task         string
 	Ready        string
+	// listing facts from foundation_model: zero means unknown
+	APITypes     []string `json:",omitempty"`
+	ModelClass   string   `json:",omitempty"`
+	ContextToken int      `json:",omitempty"`
+	OutputToken  int      `json:",omitempty"`
 }
 
 // ReadyChat reports a READY llm/v1/chat serving endpoint.
@@ -251,7 +274,8 @@ func ListModels(ctx context.Context, p *Provider) ([]ModelInfo, error) {
 	for i, e := range entries {
 		name := cmp.Or(e.name, displayName(e.id))
 		caps := endpointCapabilities(e)
-		out[i] = ModelInfo{ID: e.id, Name: name, UseCase: models.UseCase(e.id, name), Capabilities: caps, Task: e.task, Ready: e.ready}
+		out[i] = ModelInfo{ID: e.id, Name: name, UseCase: models.UseCase(e.id, name), Capabilities: caps, Task: e.task, Ready: e.ready,
+			APITypes: e.apiTypes, ModelClass: e.class, ContextToken: e.context, OutputToken: e.output}
 	}
 	return out, nil
 }

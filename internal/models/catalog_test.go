@@ -161,3 +161,23 @@ func TestSameModel(t *testing.T) {
 		}
 	}
 }
+
+// Each description form yields its numbers; anything else is unknown, never a guess.
+func TestParseLimits(t *testing.T) {
+	for _, c := range []struct {
+		desc         string
+		context, out int
+	}{
+		{"GPT-5.4 features a 400K total token context window with 128K maximum output tokens.", 400000, 128000},
+		{"GPT-5 features a 128K token context window.", 128000, 0},
+		{"Kimi K3 supports a context length of 1M tokens and more.", 1000000, 0},
+		{"Sonnet. It supports a 1 million token context window.", 1000000, 0},
+		{"Trained on 10M tokens of data; speeds up to 5K tokens per second.", 0, 0},
+		{"A 1.5M token context window.", 0, 0},
+		{"", 0, 0},
+	} {
+		if ctx, out := ParseLimits(c.desc); ctx != c.context || out != c.out {
+			t.Errorf("ParseLimits(%q) = %d, %d; want %d, %d", c.desc, ctx, out, c.context, c.out)
+		}
+	}
+}

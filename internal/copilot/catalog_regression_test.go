@@ -3,11 +3,14 @@ package copilot
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
@@ -114,7 +117,7 @@ func TestDiscoverPickerProfilesSkipsUnusableRows(t *testing.T) {
 		{gh("listed"), "preview", "", 2},
 		{gh("down"), "error", "HTTP 503", 0},
 	} {
-		r := discoverPickerProfile(tc.p, false)
+		r := discoverPickerProfile(tc.p, false, false)
 		if r.Status != tc.status || !strings.Contains(r.Note, tc.note) || r.Discovered != tc.wantDiscovered {
 			t.Errorf("%s = %q discovered=%d note=%q, want %q discovered=%d note containing %q",
 				tc.p.Name, r.Status, r.Discovered, r.Note, tc.status, tc.wantDiscovered, tc.note)
@@ -134,4 +137,65 @@ func TestModelSourceUsesRunSessionProfile(t *testing.T) {
 	if err == nil && !got.Databricks {
 		t.Fatalf("run session profile dbx: %+v, nil; want the Databricks source (or its listing error)", got)
 	}
+}
+
+// Given a deprecated-wording 400, Then apply drops that id, a later apply does not re-add it, other failures change nothing
+// and a preview sends no probe.
+func TestDiscoverApplyDropsDeprecatedEndpoints(t *testing.T) {
+	catalogScratch(t)
+	var live []providers.ModelInfo
+	for _, id := range []string{"databricks-old-model", "databricks-fresh-model", "databricks-flaky-model"} {
+		live = append(live, providers.ModelInfo{ID: id, Task: "llm/v1/chat", Ready: "READY",
+			APITypes: []string{"mlflow/v1/chat/completions", "openai/v1/responses"}})
+	}
+	origLive := discoverLive
+	t.Cleanup(func() { discoverLive = origLive })
+	discoverLive = func(context.Context, *providers.Provider) ([]providers.ModelInfo, error) { return live, nil }
+	sent := stubProbe(t)
+	p := &providers.Provider{Name: "devhost", Provider: "databricks", Preset: providers.PresetDatabricks,
+		Host: "https://devhost.example.com", Auth: providers.Auth{Type: providers.AuthOAuth}}
+	if r := discoverPickerProfile(p, false, false); len(*sent) != 0 || !strings.Contains(r.ProbeNote, "no deprecation probe") {
+		t.Fatalf("preview sent %d probes, note %q; want none and a note", len(*sent), r.ProbeNote)
+	}
+	r := discoverPickerProfile(p, true, false)
+	if got := fmt.Sprint(r.Deprecated, len(*sent), (*sent)[0].Responses); got != "[databricks-old-model] 3 true" {
+		t.Fatalf("apply: deprecated, probes, responses route = %s", got)
+	}
+	saved, _ := providers.PickerModels(p)
+	var ids []string
+	for _, m := range saved {
+		ids = append(ids, m.ID)
+	}
+	if want := []string{"databricks-flaky-model", "databricks-fresh-model"}; !slices.Equal(ids, want) {
+		t.Fatalf("saved = %v, want %v", ids, want)
+	}
+	if again := discoverPickerProfile(p, true, false); len(again.Deprecated) != 0 || len(again.Additions) != 0 {
+		t.Errorf("second apply = %+v, want the dropped id not re-added", again)
+	}
+}
+
+// stubProbe answers the deprecation wording for old-model, another 400 for flaky-model and 200 otherwise.
+func stubProbe(t *testing.T) *[]serving.CheckTarget {
+	t.Helper()
+	sent := new([]serving.CheckTarget)
+	orig := probeEndpoints
+	t.Cleanup(func() { probeEndpoints = orig })
+	replies := map[string]serving.CheckResult{
+		"databricks-old-model": {Status: serving.StatusFail, HTTP: 400,
+			Error: `HTTP 400: {"error_code":"BAD_REQUEST","message":"This endpoint databricks-old-model is deprecated."}`},
+		"databricks-flaky-model": {Status: serving.StatusFail, HTTP: 400, Error: `HTTP 400: {"message":"bad request shape"}`},
+	}
+	probeEndpoints = func(_ context.Context, _ *providers.Provider, ts []serving.CheckTarget, _ serving.CheckOptions) ([]serving.CheckResult, error) {
+		*sent = append(*sent, ts...)
+		out := make([]serving.CheckResult, len(ts))
+		for i, tg := range ts {
+			out[i] = replies[tg.ID]
+			if out[i].Status == "" {
+				out[i] = serving.CheckResult{Status: serving.StatusOK, HTTP: 200}
+			}
+			out[i].ID = tg.ID
+		}
+		return out, nil
+	}
+	return sent
 }

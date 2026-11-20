@@ -317,3 +317,22 @@ func TestServedHasMatchesBareNonCatalogPin(t *testing.T) {
 		}
 	}
 }
+
+// Given a warmed listing, Then api_types and limits survive the cache and a model without them reads as unknown.
+func TestWarmServedKeepsFoundationFacts(t *testing.T) {
+	vaulttest.Use(t)
+	infos := []providers.ModelInfo{{ID: "databricks-gpt-5-4", Task: "llm/v1/chat", Ready: "READY", ModelClass: "gpt",
+		APITypes: []string{"openai/v1/responses"}, ContextToken: 400000, OutputToken: 128000}, {ID: "databricks-plain"}}
+	if err := WarmServed("facts", infos, time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	s, ok := LoadServed("facts")
+	p := &providers.Provider{Name: "facts", Preset: providers.PresetDatabricks, ModelPrefix: "databricks-"}
+	m, found := s.Find(p, "gpt-5-4")
+	if !ok || !found || m.APITypes[0] != "openai/v1/responses" || m.Context != 400000 || m.Output != 128000 {
+		t.Fatalf("Find = %+v, %v, %v", m, found, ok)
+	}
+	if plain, _ := s.Find(p, "plain"); plain.APITypes != nil || plain.Context != 0 {
+		t.Errorf("plain = %+v, want unknown facts", plain)
+	}
+}

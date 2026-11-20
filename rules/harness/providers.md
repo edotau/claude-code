@@ -102,6 +102,9 @@ Asked auto uses the served listing (a GitHub login: its Copilot catalog snapshot
 runs the row's tier model with a note; a fresh empty pool or unwritable pick state errors without launching
 (details: `agent.md` → Model precedence).
 
+- **Listing facts:** the cache also keeps each endpoint's `api_types`, `model_class` and the context and output limits
+  parsed from its description. A fresh listing's `api_types` decide "serves Responses" for codex and `ResponsesServable`
+  (Grok stays out of codex; opencode's routing is unchanged); a catalog limit beats the listing's; no listing, old rule.
 - **Refresh:** `make install`, `doctor --refresh`, `models preflight --live`; switched on, also `switch`,
   `<agent> profile`, `configure` exit and a detached `models preflight --refresh`
   at session start (≤ once per 15 minutes). The detached catch-up child spawned at every session start also runs the
