@@ -307,6 +307,7 @@ func TestSpecsFor(t *testing.T) {
 			"paths-resolve", "review-simplicity", "safety-scan"}},
 		{"opencode", "plugin", -1, "worktree-claim-check", "memory-end", nil},
 		{"opencode", "native", 0, "", "", nil},
+		{"pi", "plugin", 2, "safety-scan", "docs-placement", []string{"permission-gate", "safety-scan"}},
 		{"claude", "bogus", 0, "", "", nil},
 	}
 	for _, tc := range tests {

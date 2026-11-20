@@ -104,6 +104,8 @@ func TestParseInputRecognisesOpencode(t *testing.T) {
 		{"env", AgentOpencode, `{"session_id":"s","hook_event_name":"Stop"}`, AgentOpencode},
 		{"payload key", "", `{"session_id":"s","hook_event_name":"Stop","harness_agent":"opencode"}`, AgentOpencode},
 		{"payload key over codex env", AgentCodex, `{"hook_event_name":"Stop","harness_agent":"opencode"}`, AgentOpencode},
+		{"pi payload key", "", `{"hook_event_name":"PreToolUse","harness_agent":"pi"}`, AgentPi},
+		{"pi env", AgentPi, `{"hook_event_name":"PreToolUse"}`, AgentPi},
 		{"unknown env", "kilo", `{"session_id":"s","hook_event_name":"Stop"}`, AgentClaude},
 		{"unknown payload key", "", `{"hook_event_name":"Stop","harness_agent":"kilo"}`, AgentClaude},
 	}

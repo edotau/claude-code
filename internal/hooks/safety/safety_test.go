@@ -634,6 +634,32 @@ func TestSafetyAskFallsBackToBlockOffClaude(t *testing.T) {
 	})
 }
 
+// TestSafetyPiAgent: pi blocks a destructive command and passes a plain one, by payload key or env; an ask is a block.
+func TestSafetyPiAgent(t *testing.T) {
+	narrowHarness(t)
+	sql := "DR" + "OP TABLE users" // assembled so the literal never sits in a shell command line
+	for _, c := range []struct {
+		name, payload, reason string
+		want                  core.Decision
+	}{
+		{"destructive", `{"tool_name":"Bash","harness_agent":"pi","tool_input":{"command":"rm -rf ~"}}`, "BLOCKED", core.Block},
+		{"plain", `{"tool_name":"Bash","harness_agent":"pi","tool_input":{"command":"ls -la"}}`, "", core.Allow},
+		{"ask is a block", `{"tool_name":"Bash","harness_agent":"pi","tool_input":{"command":"` + sql + `"}}`,
+			"no ask decision on pi", core.Block},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			res := scanPayload(strings.NewReader(c.payload))
+			if res.Decision != c.want || !strings.Contains(res.Reason, c.reason) {
+				t.Errorf("decision %d reason %q, want %d containing %q", res.Decision, res.Reason, c.want, c.reason)
+			}
+		})
+	}
+	t.Setenv("HARNESS_HOOK_AGENT", "pi")
+	if res := scanPayload(strings.NewReader(`{"tool_name":"Bash","tool_input":{"command":"rm -rf ~"}}`)); res.Decision != core.Block {
+		t.Errorf("env agent pi: decision %d, want block", res.Decision)
+	}
+}
+
 // TestSafetyBlockPrecedenceOverAsk: a block shape anywhere in the command beats every ask shape.
 func TestSafetyBlockPrecedenceOverAsk(t *testing.T) {
 	narrowHarness(t)

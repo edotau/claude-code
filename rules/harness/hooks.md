@@ -61,6 +61,12 @@ decision, so an ask denies there; their other hooks are advisory unless noted.
 | opencode · hosted | `Hosted` specs (docs, paths, memory, format, review; `safety-scan` and `docs-placement` are declared hosted but fire only through the plugin; no worktree notices) | **advisory**; `--pure` loads no plugin, so it is refused while a PreToolUse gate is bound; Stop and SessionEnd run only after a watched tool call |
 | opencode · plugin | `safety-scan`, `permission-gate`, `docs-placement`, `worktree-claim-check`; `worktree-claim` in `tool.execute.after` | **block** (throws in `tool.execute.before`; the host then skips these); the claim is a detached, non-blocking spawn per edit |
 
+**Pi · plugin** (`pi`): only `safety-scan` and `permission-gate`, run by the guard extension on Pi's `tool_call` through
+`claude-code hook PreToolUse --safety-scan|--permission-gate` with a Claude-shaped payload carrying
+`"harness_agent":"pi"` (or `HARNESS_HOOK_AGENT=pi`). Pi has no ask, so an ask is a block that names it (`no ask decision
+on pi`) unless the dispatch's `--allow`/`--deny` settles it, as on opencode. Output: allow is exit 0 with empty stdout;
+block is exit 2 with empty stdout and the reason on stderr; the extension fails closed on any other exit.
+
 `permission-gate` judges each call with `Permissions.Decide` against `HARNESS_DISPATCH_PERMISSIONS`; how each agent
 reaches it, and the gated Claude launches: `agent.md` → Bash deny via `permission-gate`.
 

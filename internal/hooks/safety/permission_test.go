@@ -52,6 +52,21 @@ func TestPermissionGate(t *testing.T) {
 }
 
 // TestPermissionGateApplyPatchJudgesEachFile: an opencode apply_patch is refused when any one of its files is denied.
+// TestPermissionGatePi: pi's edit calls follow the dispatch rules like opencode's.
+func TestPermissionGatePi(t *testing.T) {
+	t.Setenv(agent.DispatchPermissionsEnv, `{"deny":[{"Tool":"Edit","Arg":"notes.txt"}]}`)
+	for _, c := range []struct {
+		path  string
+		block bool
+	}{{"/r/notes.txt", true}, {"/r/other.txt", false}} {
+		payload := `{"tool_name":"Edit","harness_agent":"pi","cwd":"/r","tool_input":{"file_path":"` + c.path + `"}}`
+		res := PermissionGate(core.ParseInput(strings.NewReader(payload)))
+		if (res.Decision == core.Block) != c.block {
+			t.Errorf("%s: decision %v, want block=%v (%s)", c.path, res.Decision, c.block, res.Reason)
+		}
+	}
+}
+
 func TestPermissionGateApplyPatchJudgesEachFile(t *testing.T) {
 	t.Setenv(agent.DispatchPermissionsEnv, `{"deny":[{"Tool":"Edit","Arg":"secret.txt"},{"Tool":"Grep","Arg":"vault"}]}`)
 	patch := func(files ...string) string {

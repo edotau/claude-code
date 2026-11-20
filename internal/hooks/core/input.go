@@ -53,12 +53,13 @@ const (
 	AgentCopilot  = agentid.Copilot
 	AgentGemini   = agentid.Gemini // agy
 	AgentOpencode = agentid.OpenCode
+	AgentPi       = agentid.Pi
 )
 
-// harnessAgentKey is the payload field the in-process opencode host sets, where no HARNESS_HOOK_AGENT env exists.
+// harnessAgentKey is the payload field the in-process opencode and pi hosts set, with no HARNESS_HOOK_AGENT env.
 const harnessAgentKey = "harness_agent"
 
-// Agent uses the explicit hook agent, opencode's payload key or Copilot's payload shape, defaulting to Claude.
+// Agent uses the explicit hook agent, the opencode or pi payload key or Copilot's payload shape, defaulting to Claude.
 func (in *Input) Agent() string {
 	if in == nil || in.agent == "" {
 		return AgentClaude
@@ -83,8 +84,8 @@ func ParseInputFor(r io.Reader, agent string) *Input {
 		return unparsed(raw, agent, errNotObject)
 	}
 	in.agent = knownAgent(agent)
-	if in.Nested(harnessAgentKey) == AgentOpencode { // only opencode's own host writes the key, so it wins over the env
-		in.agent = AgentOpencode
+	if a := in.Nested(harnessAgentKey); a == AgentOpencode || a == AgentPi { // only these hosts write the key
+		in.agent = a
 	}
 	in.SessionID = in.Nested("session_id")
 	in.CWD = in.Nested("cwd")
