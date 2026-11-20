@@ -912,7 +912,7 @@ func TestOpencodeMenuSyncFailuresNeverUseStaleOrWrite(t *testing.T) {
 	}
 	assertNoSyncLeak(t, stdout, stderr, "identity error")
 	f.meCode.Store(200)
-	f.listCode.Store(503)
+	f.listCode.Store(500)
 	f.listing.Store("private-upstream-body synthetic-sync-credential")
 	code, stdout, stderr = ocMenu(t, "sync", "--profile", "synctest", "--refresh", "--apply")
 	if code == 0 || f.me.Load() != 3 || f.list.Load() != 2 || !bytes.Equal(before, syncVaultBytes(t)) {
