@@ -396,3 +396,26 @@ func TestCopilotArgvFlagsAreDeclared(t *testing.T) {
 		}
 	}
 }
+
+// Offline mode empties the MCP instructions allowlist: the flag rides the offline route at or above its CLI gate only.
+func TestOfflineRouteAllowsMCPInstructions(t *testing.T) {
+	const flag = "--allow-all-mcp-server-instructions"
+	old := installedVersion
+	t.Cleanup(func() { installedVersion = old })
+	p := &providers.Provider{Name: "dev", Preset: providers.PresetDatabricks}
+	route := agent.WireRoute{Target: providers.Target{Provider: p, Model: "databricks-claude-sonnet-4-6"}, Provider: p,
+		Dialect: providers.ProtocolAnthropic, Base: "http://127.0.0.1:1/p/dev", Model: "databricks-claude-sonnet-4-6", Routed: true}
+	for _, c := range []struct {
+		version string
+		want    bool
+	}{{"1.0.114", true}, {minMCPInstructionsCLI, true}, {"1.0.90", false}, {"", false}} {
+		installedVersion = func() string { return c.version }
+		_, argv, err := copilotWire(route, &agent.Headless{Prompt: "x"})
+		if err != nil || slices.Contains(argv, flag) != c.want {
+			t.Errorf("version %q: offline argv = %q, %v; want flag %v", c.version, argv, err, c.want)
+		}
+		if _, argv, _ := copilotLogin("gpt-5", "", &agent.Headless{Prompt: "x"}); slices.Contains(argv, flag) {
+			t.Errorf("version %q: login route carries %s", c.version, flag)
+		}
+	}
+}

@@ -479,8 +479,9 @@ func init() {
 // row is copilot's roster entry: binary, dialects, capabilities, events and launch hints.
 var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 	PromptVia: agent.PromptMessage,
-	Flags:     []string{"--allow-all", "--prompt", "--allow-all-tools", "--reasoning-effort", "--context", "--model"},
-	Binary:    "copilot", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI},
+	Flags: []string{"--allow-all", "--prompt", "--allow-all-tools", "--reasoning-effort", "--context", "--model",
+		"--allow-all-mcp-server-instructions"},
+	Binary: "copilot", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI},
 	RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI,
 		providers.ProtocolResponses: "/" + providers.ProtocolResponses},
 	MinVersion: minMultiProviderCLI, MinReason: "named-provider model registry needs it",

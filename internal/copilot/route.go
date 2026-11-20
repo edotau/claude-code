@@ -12,11 +12,13 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -292,7 +294,24 @@ func copilotWire(r agent.WireRoute, h *agent.Headless) ([]string, []string, erro
 	if n := models.PromptTokens(window, output); n > 0 {
 		env = env.With(proc.EnvCopilotProviderMaxPromptTokens, strconv.Itoa(n))
 	}
-	return env.Merge(copilotCredEnv(p, r.Cred)).Env(), copilotArgv(h), nil
+	return env.Merge(copilotCredEnv(p, r.Cred)).Env(), append(copilotArgv(h), mcpInstructionsArgs()...), nil
+}
+
+// minMCPInstructionsCLI is the oldest copilot CLI with --allow-all-mcp-server-instructions.
+const minMCPInstructionsCLI = "1.0.91"
+
+// installedVersion is the copilot CLI's version, "" when unknown; tests replace it.
+var installedVersion = func() string {
+	v, _ := tools.Version("copilot")
+	return v
+}
+
+// mcpInstructionsArgs lets MCP servers' instructions reach the model: offline mode empties that allowlist.
+func mcpInstructionsArgs() []string {
+	if c, ok := textutil.CompareVersions(installedVersion(), minMCPInstructionsCLI); ok && c >= 0 {
+		return []string{"--allow-all-mcp-server-instructions"}
+	}
+	return nil
 }
 
 // copilotEndpoint picks the BYOK type and base; a non-Claude model on anthropic takes its openai|responses wire.
