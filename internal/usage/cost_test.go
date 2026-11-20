@@ -2,6 +2,7 @@ package usage
 
 import (
 	"math"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -34,23 +35,24 @@ func TestCostEstimate(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var got *costRow
-			for i := range rows {
-				if rows[i].Model == tt.model {
-					got = &rows[i]
-				}
+			i := slices.IndexFunc(rows, func(r costRow) bool { return r.Model == tt.model })
+			if i < 0 || rows[i].Input != tt.in || rows[i].Source != "est." || rows[i].Profile != "dev" {
+				t.Fatalf("rows = %+v", rows)
 			}
-			if got == nil || got.Input != tt.in || got.Source != "est." || got.Profile != "dev" {
-				t.Fatalf("row = %+v", got)
-			}
-			if math.IsNaN(tt.wantUSD) != math.IsNaN(got.USD) || (!math.IsNaN(tt.wantUSD) && math.Abs(got.USD-tt.wantUSD) > 1e-9) {
-				t.Errorf("USD = %v, want %v", got.USD, tt.wantUSD)
+			if !sameUSD(rows[i].USD, tt.wantUSD) {
+				t.Errorf("USD = %v, want %v", rows[i].USD, tt.wantUSD)
 			}
 		})
 	}
 }
 
+// sameUSD treats two NaNs (an unpriced model) as equal.
+func sameUSD(got, want float64) bool {
+	return (math.IsNaN(got) && math.IsNaN(want)) || math.Abs(got-want) < 1e-9
+}
+
 func TestCostBilledRows(t *testing.T) {
+	through := time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC)
 	tests := []struct {
 		name    string
 		cols    []string
@@ -74,13 +76,9 @@ func TestCostBilledRows(t *testing.T) {
 				}
 				return
 			}
-			if err != nil || len(got) != 1 {
-				t.Fatalf("got %+v, err %v", got, err)
-			}
-			r := got[0]
-			if r.Source != "billed" || r.Profile != "dev" || r.Model != "m1" || r.DBUs != 40 || r.USD != tt.usd ||
-				r.Through.Format("2006-01-02") != "2026-11-18" {
-				t.Errorf("row = %+v", r)
+			want := costRow{Profile: "dev", Model: "m1", DBUs: 40, USD: tt.usd, Source: "billed", Through: through}
+			if err != nil || len(got) != 1 || got[0] != want {
+				t.Fatalf("got %+v, err %v, want %+v", got, err, want)
 			}
 		})
 	}
@@ -112,7 +110,7 @@ func TestCostWidth(t *testing.T) {
 	}
 	var sb strings.Builder
 	printCostSection(&sb, rows, 7)
-	for _, line := range strings.Split(sb.String(), "\n") {
+	for line := range strings.SplitSeq(sb.String(), "\n") {
 		if n := utf8.RuneCountInString(line); n > 80 {
 			t.Errorf("line is %d columns: %q", n, line)
 		}
