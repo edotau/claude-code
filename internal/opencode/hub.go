@@ -225,14 +225,11 @@ func (l hubDispatch) prepareLaunch(ctx context.Context, req agent.RunOptions, mo
 		return "", nil, nil, err
 	}
 	env, argv := opencodeRun(l.provider.OpencodeID+"/"+model, h)
-	st, err := agent.ResolveSettings("opencode", req, providers.Target{}, true)
-	// headless: a refused stored record fails the run, it never falls back to the built-ins
-	if err != nil {
+	p := agent.CLIPrep{Env: env, Argv: argv}
+	if _, err := agent.PrepareLaunch(ctx, agent.NewBaseEngine("opencode"), req, providers.Target{}, &p); err != nil {
 		return "", nil, nil, err
 	}
-	// never errs
-	env, argv, _, _, _ = agent.NewBaseEngine("opencode").RenderSettings(ctx, st, env, argv)
-	env = append(env, cred...)
+	env, argv = append(p.Env, cred...), p.Argv
 	if req.SystemPrompt != "" {
 		env, argv = opencodeSystemPrompt(env, argv, req.SystemPrompt)
 	}

@@ -252,15 +252,11 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	if err := refuseClaudeCmd(req); err != nil {
 		return nil, nil, agent.ClaudeLaunch{}, err
 	}
-	st, err := agent.ResolveSettings(agentid.Claude, req, launchTarget(ctx, req), true)
-	if err != nil {
+	p := agent.CLIPrep{Argv: args}
+	if _, err := agent.PrepareLaunch(ctx, claudeAgent, req, launchTarget(ctx, req), &p); err != nil {
 		return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
 	}
-	launchEnv, args, _, _, err := claudeAgent.RenderSettings(ctx, st, nil, args) // the cleanup is the base's no-op
-	if err != nil {
-		return nil, nil, agent.ClaudeLaunch{}, retry.Fatal("claude", err)
-	}
-	args = append(args, toolArgs(req)...)
+	args = append(p.Argv, toolArgs(req)...)
 	if req.Gate {
 		args = append(args, gateArgs(req)...)
 	}
@@ -280,7 +276,7 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	if err := agent.CheckRouteNames(proc.Values(cl.Set).Env(), req.OverlaySet, req.OverlayUnset); err != nil {
 		return nil, nil, cl, err
 	}
-	cmd, tail, err := claudeChild(ctx, req, cl, launchEnv, prompt)
+	cmd, tail, err := claudeChild(ctx, req, cl, p.Env, prompt)
 	return cmd, tail, cl, err
 }
 

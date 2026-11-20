@@ -220,6 +220,15 @@ type CLIPrep struct {
 	Emulated []string
 }
 
+// PrepareLaunch resolves headless settings and renders into p; SDK adapters pass nil and use the settings directly.
+func PrepareLaunch(ctx context.Context, d Driver, req RunOptions, t providers.Target, p *CLIPrep) (Settings, error) {
+	st, err := ResolveSettings(d.Name(), req, t, true)
+	if err == nil && p != nil {
+		p.Env, p.Argv, p.Emulated, p.Cleanup, err = d.RenderSettings(ctx, st, p.Env, p.Argv)
+	}
+	return st, err
+}
+
 // checkPromptCap refuses a prompt over the agent's transport cap.
 func (s Schema) checkPromptCap(prompt string) error {
 	if n := cmp.Or(s.CLI.PromptMaxBytes, s.CLI.PromptVia.MaxBytes()); n > 0 && len(prompt) > n {
@@ -270,13 +279,8 @@ func (v cliEngine) prepare(ctx context.Context, req RunOptions) (CLIPrep, error)
 	return p, nil
 }
 
-// renderSettings applies the agent's settings to a configured p, then refuses a route name an overlay sets.
-func (v cliEngine) renderSettings(ctx context.Context, p *CLIPrep, req RunOptions, t providers.Target) (err error) {
-	st, err := ResolveSettings(v.Name(), req, t, true) // headless: Launch.Args stay off; a bad record fails the run
-	if err != nil {
-		return err
-	}
-	if p.Env, p.Argv, p.Emulated, p.Cleanup, err = v.RenderSettings(ctx, st, p.Env, p.Argv); err != nil {
+func (v cliEngine) renderSettings(ctx context.Context, p *CLIPrep, req RunOptions, t providers.Target) error {
+	if _, err := PrepareLaunch(ctx, v, req, t, p); err != nil {
 		return err
 	}
 	return CheckRouteNames(p.Env, req.OverlaySet, req.OverlayUnset)

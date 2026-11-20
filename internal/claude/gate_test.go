@@ -342,7 +342,7 @@ func TestGatewayAllowsMergedAgentVerbs(t *testing.T) {
 
 func TestGatewayAllowsDispatchAndWait(t *testing.T) {
 	p := agent.Permissions{Allow: gatewayAllow()}
-	for _, cmd := range []string{"claude-code agents dispatch --waves plan --background", "claude-code agents wait job --timeout 10m"} {
+	for _, cmd := range []string{"claude-code agents ask --waves plan --background", "claude-code agents wait job --timeout 10m"} {
 		if got := p.Decide("Bash", cmd); got != agent.Allow {
 			t.Errorf("%s: %v", cmd, got)
 		}

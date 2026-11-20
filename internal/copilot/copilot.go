@@ -124,8 +124,7 @@ func quotaHandoffEligible(t providers.Target, err error) bool {
 func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.RunOptions, t providers.Target,
 ) (opts sdkOptions, env []string, done func(), err error) {
 	done = func() {}
-	// headless: a bad stored record fails before any route
-	st, err := agent.ResolveSettings("copilot", req, t, true)
+	st, err := agent.PrepareLaunch(ctx, e, req, t, nil)
 	if err != nil {
 		return opts, nil, done, copilotFatal(err)
 	}
