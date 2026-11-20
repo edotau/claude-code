@@ -129,7 +129,7 @@ match turns these rules off.
   leaf.
 - `make|gmake audit|install|fmt|build|verify|bootstrap|adopt` and a fixing `lint-<kind>` in the harness tree (install
   targets also in its linked worktrees): refused in a leaf (run `claude-code agents diff --check --path <files>` or
-  `claude-code agents fix --path <files>`); `make lint` passes.
+  `claude-code agents fix --path <files>`); `make lint` and a dry run (`-n`, `-q`) pass.
 - A leaf's `HARNESS_DISPATCH_*` unset, `env -u` or assignment in text that reaches a shell, `eval`, `source`, an
   interpreter or `ssh` (its string, a here-string, a heredoc no pure reader takes, a pipe into it, a script it runs):
   a nested dispatch inherits these limits.

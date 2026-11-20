@@ -267,7 +267,7 @@ var roleCases = []roleCase{
 	{"make lint install", "", devKube, core.Allow, core.Block},
 	{"make -f Makefile audit", "", devKube, core.Allow, core.Block},
 	{"make lint-go", "", devKube, core.Allow, core.Block},
-	{"make -n audit", "", devKube, core.Allow, core.Block},
+	{"make -n audit", "", devKube, core.Allow, core.Allow},
 	{"make lint-go CHECK=1", "", devKube, core.Allow, core.Allow},
 	{"make compile", "", devKube, core.Allow, core.Allow},
 	{"make install", "WT", devKube, core.Allow, core.Block},

@@ -288,6 +288,13 @@ func mainOnlyHit(in *core.Input, cmd string) *mainOnly {
 	return hit
 }
 
+// makeDryRun reports a make that only prints or questions its recipe (-n, -q and their long forms).
+func makeDryRun(w []string) bool {
+	return slices.ContainsFunc(w[1:], func(a string) bool {
+		return slices.Contains([]string{"-n", "--just-print", "--dry-run", "--recon", "-q", "--question"}, a)
+	})
+}
+
 // vaultKey reports `vault get --key --secret`, the master key's value, in a claude-code command's HarnessArgs.
 func vaultKey(h []string) bool {
 	return len(h) > 1 && h[0] == "vault" && h[1] == "get" && shell.BoolFlagOn(h[2:], "key") && shell.BoolFlagOn(h[2:], "secret")
@@ -410,6 +417,9 @@ var installTargets = sync.OnceValue(func() []string { return shell.GuardWords("i
 
 // reservedMake reports a reserved target (or a fixing `lint-<kind>`) whose make dir is the harness tree.
 func reservedMake(w []string, dir string) bool {
+	if makeDryRun(w) {
+		return false
+	}
 	targets, dir, check := makeArgs(w, dir)
 	harness := shell.UnknownDir(dir) || paths.InsideDir(dir, paths.ConfigDir())
 	for _, t := range targets {

@@ -408,6 +408,9 @@ var hardDataCommands = map[string]func(toks []string) bool{
 	"jq": inertWords, "test": inertWords, "[": inertWords,
 	"git": func(toks []string) bool { return inertGit(toks) || len(toks) > 1 && toks[1] == "log" },
 	"claude-code": func(toks []string) bool {
+		if len(toks) > 2 && toks[1] == "worktree" { // a commit message or PR text is data
+			return slices.Contains([]string{"commit", "pr", "checks"}, toks[2])
+		}
 		return len(toks) > 2 && toks[1] == "agents" && slices.Contains(briefVerbs(), toks[2])
 	},
 }
