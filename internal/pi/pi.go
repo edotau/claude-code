@@ -51,31 +51,19 @@ func piBases(base, dialect string) Bases {
 }
 
 // Wire writes the run's private agent dir and builds Pi's env and argv; r.Cred is the proxy session token, never upstream's.
-func (piEngine) Wire(_ context.Context, r agent.WireRoute, h *agent.Headless) (env, argv []string, err error) {
+func (piEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) (env, argv []string, err error) {
 	if !r.Routed {
 		return nil, nil, errors.New("pi runs only through the proxy; drop --direct")
 	}
 	if h == nil {
-		return nil, nil, errors.New("pi: no interactive launch yet; use agents ask")
+		return interactiveWire(ctx, r)
 	}
 	thinking, err := thinkingArgv(h.Effort)
 	if err != nil {
 		return nil, nil, err
 	}
-	mj, sj, menu, err := BuildConfig(r.Provider, cmp.Or(r.Target.Provider, r.Provider), piBases(r.Base, r.Dialect), r.Model)
+	dir, model, remove, err := runSetup(r)
 	if err != nil {
-		return nil, nil, err
-	}
-	prov, ok := menu[r.Model]
-	if !ok {
-		return nil, nil, fmt.Errorf("pi: model %q is not on the %s menu", r.Model, r.Provider.Name)
-	}
-	dir, remove, err := NewRunDir(r.Provider.Name)
-	if err != nil {
-		return nil, nil, err
-	}
-	if err = WriteConfig(dir, mj, sj); err != nil {
-		remove()
 		return nil, nil, err
 	}
 	env = []string{agentDirEnv + "=" + dir, keyEnv + "=" + r.Cred}
@@ -83,12 +71,33 @@ func (piEngine) Wire(_ context.Context, r agent.WireRoute, h *agent.Headless) (e
 		remove()
 		return nil, nil, err
 	}
-	argv = append(append([]string{"--mode", "json"}, lockdownArgv...), "--model", prov+"/"+r.Model)
+	argv = append(append([]string{"--mode", "json"}, lockdownArgv...), "--model", model)
 	argv = append(argv, thinking...)
 	if h.SessionID != "" {
 		return env, append(argv, "--session", h.SessionID, "--session-dir", filepath.Join(paths.StateDir(), "pi", "sessions")), nil
 	}
 	return env, append(argv, "--no-session"), nil
+}
+
+// runSetup writes the run's private agent dir and returns it with Pi's provider-qualified model and a remover.
+func runSetup(r agent.WireRoute) (dir, model string, remove func(), err error) {
+	mj, sj, menu, err := BuildConfig(r.Provider, cmp.Or(r.Target.Provider, r.Provider), piBases(r.Base, r.Dialect), r.Model)
+	if err != nil {
+		return "", "", nil, err
+	}
+	prov, ok := menu[r.Model]
+	if !ok {
+		return "", "", nil, fmt.Errorf("pi: model %q is not on the %s menu", r.Model, r.Provider.Name)
+	}
+	dir, remove, err = NewRunDir(r.Provider.Name)
+	if err != nil {
+		return "", "", nil, err
+	}
+	if err = WriteConfig(dir, mj, sj); err != nil {
+		remove()
+		return "", "", nil, err
+	}
+	return dir, prov + "/" + r.Model, remove, nil
 }
 
 // thinkingArgv maps --effort to Pi's --thinking level; no effort adds nothing.
@@ -108,7 +117,7 @@ func withGuard(env []string, dir string, tools bool) ([]string, error) {
 	if !tools {
 		return env, nil
 	}
-	g, err := WriteGuard(dir)
+	g, err := writeGuard(dir)
 	if err != nil {
 		return nil, err
 	}

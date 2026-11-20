@@ -36,7 +36,7 @@ type Engine struct {
 
 // noComplete suppresses native launcher flags only before an in-process subword is selected.
 var noComplete = map[string]bool{
-	"codex": true, "copilot": true, "opencode": true, "gemini": true, "claude": true,
+	"codex": true, "copilot": true, "opencode": true, "gemini": true, "claude": true, "pi": true,
 }
 
 // knownPath separates the canonical command path from already-typed flags, values and positionals.

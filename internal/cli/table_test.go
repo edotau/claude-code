@@ -208,7 +208,7 @@ func TestCompletionMatchesHelpFlags(t *testing.T) {
 func helpFlagDriftExempt() map[string]string {
 	m := map[string]string{"anthropic science": "-h is forwarded to the external claude-science CLI",
 		"clip paste": "-h is forwarded verbatim to the real wl-paste"}
-	for _, v := range []string{"copilot", "codex", "gemini", "opencode"} {
+	for _, v := range []string{"copilot", "codex", "gemini", "opencode", "pi"} {
 		m[v] = "bare launcher: its native flags never complete before a subword (noComplete)"
 	}
 	for _, n := range reviewToolNames() {
@@ -269,7 +269,7 @@ func helpLongFlags(text string) []string {
 
 // TestLaunchersNeverOfferFlagsOrDispatch: a bare launcher's own flags are never ours to complete.
 func TestLaunchersNeverOfferFlagsOrDispatch(t *testing.T) {
-	for _, name := range []string{"codex", "copilot", "opencode", "gemini", "claude"} {
+	for _, name := range []string{"codex", "copilot", "opencode", "gemini", "claude", "pi"} {
 		if lookup(name) == nil {
 			t.Errorf("launcher %q is not a registered verb", name)
 		}

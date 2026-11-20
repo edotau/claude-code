@@ -69,6 +69,7 @@ func buildCommands() []command {
 		{name: "codex", group: groupAgents, summary: "Codex on your ChatGPT login; reviews", run: func(a []string) int { return cmdAgentVerb("codex", a) }, spec: agentSpec("codex")},
 		{name: "gemini", group: groupAgents, summary: "Gemini CLI; 1M-context sweeps (ask --dirs)", run: func(a []string) int { return cmdAgentVerb("gemini", a) }, spec: agentSpec("gemini")},
 		{name: "opencode", group: groupAgents, summary: "OpenCode on its own login, or your Databricks profile; docs", run: func(a []string) int { return cmdAgentVerb("opencode", a) }, spec: agentSpec("opencode")},
+		{name: "pi", group: groupAgents, summary: "Pi on your Databricks profile, guarded", run: func(a []string) int { return cmdAgentVerb("pi", a) }, spec: agentSpec("pi")},
 		// AUTH
 		{name: "resolve", group: groupAuth, hidden: true, summary: "print a profile's credential; --secret for the value (apiKeyHelper)", run: cmdResolve, spec: resolveSpec},
 		{name: "vault", group: groupAuth, summary: "pins, env, overlays and sealed secrets", run: cmdVault, spec: vaultSpec},

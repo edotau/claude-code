@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -376,5 +377,35 @@ func TestLaunchRefusesOwnLoginAuto(t *testing.T) {
 		if _, _, err := routeLaunch(t.Context(), "opencode", LaunchOptions{Model: m}); err != nil && strings.Contains(err.Error(), "auto is no") {
 			t.Errorf("%s refused as own-login auto: %v", m, err)
 		}
+	}
+}
+
+func TestPlainPlanRefusesAgentWithNoOwnLogin(t *testing.T) {
+	_, err := plainPlan(Schema{Name: agentid.Pi}, nil)
+	if usage, ok := err.(*UsageError); !ok || !strings.Contains(usage.Msg, "no login of its own") || !strings.Contains(usage.Msg, "--profile <dev|qa|prod>") {
+		t.Fatalf("plainPlan(pi) = %v, want the no-own-login refusal", err)
+	}
+}
+
+func TestPoolLaunchOnlyForUnpinnedNoOwnLogin(t *testing.T) {
+	vaulttest.Use(t)
+	o, pooled, err := poolLaunch(agentid.Pi, LaunchOptions{})
+	if err != nil || !pooled || o.Model != PoolPin+":auto" {
+		t.Fatalf("unpinned pi = %+v %v %v, want the pool pick", o, pooled, err)
+	}
+	for _, in := range []struct {
+		name string
+		o    LaunchOptions
+	}{{agentid.Pi, LaunchOptions{Provider: "dev"}}, {agentid.Pi, LaunchOptions{Model: "opus"}}, {agentid.Codex, LaunchOptions{}}} {
+		if _, pooled, err := poolLaunch(in.name, in.o); pooled || err != nil {
+			t.Errorf("%s %+v pooled = %v, %v", in.name, in.o, pooled, err)
+		}
+	}
+}
+
+func TestPoolPickedRefusalNamesTheWayForward(t *testing.T) {
+	err := poolPicked(agentid.Pi, "", errors.New("no profile serves pi"))
+	if err == nil || !strings.Contains(err.Error(), "claude-code pi --profile <dev|qa|prod>") || !strings.Contains(err.Error(), "claude-code databricks login") {
+		t.Fatalf("err = %v", err)
 	}
 }
