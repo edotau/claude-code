@@ -2,6 +2,7 @@ package agent
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"io"
 	"os"
@@ -9,6 +10,7 @@ import (
 	"slices"
 
 	"github.com/edotau/claude-code/internal/inflight"
+	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -34,6 +36,9 @@ func ReadRecent(n int) ([]Record, error) {
 func ReadRecentWith(n int, needle string) ([]Record, error) {
 	if n < 1 {
 		return nil, nil
+	}
+	if n == AllRecords {
+		return readAllRecent(paths.DispatchDir(), needle)
 	}
 	var out []Record
 	err := eachRecent(paths.DispatchDir(), needle, func(r Record) bool {
@@ -72,6 +77,30 @@ func eachRecent(dir, needle string, fn func(Record) bool) error {
 		}
 	}
 	return err
+}
+
+// readAllRecent is eachRecent over every record, read concurrently (open-bound) and returned newest first.
+func readAllRecent(dir, needle string) ([]Record, error) {
+	names, err := recordNames(dir)
+	slices.Reverse(names)
+	probe := []byte(needle)
+	got, _ := parallel.Map(context.Background(), names, 8, func(_ context.Context, n string) (*Record, error) {
+		b, rerr := os.ReadFile(filepath.Join(dir, n))
+		if rerr != nil || !bytes.Contains(b, probe) {
+			return nil, nil
+		}
+		if r, derr := decodeRecord(b); derr == nil {
+			return &r, nil
+		}
+		return nil, nil
+	})
+	out := make([]Record, 0, len(got))
+	for _, r := range got {
+		if r != nil {
+			out = append(out, *r)
+		}
+	}
+	return out, err
 }
 
 // readInto reads path into buf's storage (grown as needed) and returns the bytes and the buffer to reuse.

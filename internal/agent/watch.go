@@ -176,7 +176,7 @@ type relayState struct {
 func classifyJobs(recs []Record, now time.Time, lim WatchLimits, relays func([]Record) map[string]relayState) WatchReport {
 	var rep WatchReport
 	var stale []StaleJob
-	rel := relays(recs)
+	rel := relays(relayCandidates(recs, now))
 	for _, r := range recs {
 		s, pending := classifyJob(r, now, lim, rel[r.ID])
 		if s.Reason != "" {
@@ -191,6 +191,17 @@ func classifyJobs(recs []Record, now time.Time, lim WatchLimits, relays func([]R
 	}
 	rep.Stale = stale
 	return rep
+}
+
+// relayCandidates keeps the jobs whose verdict reads a relay: running, or ended and still short of settling by age or collect.
+func relayCandidates(recs []Record, now time.Time) []Record {
+	return slices.DeleteFunc(slices.Clone(recs), func(r Record) bool {
+		if r.Status == "running" {
+			return false
+		}
+		end := r.Time.Add(time.Duration(r.DurationMs) * time.Millisecond)
+		return !r.Background || r.Failed() && end.Sub(r.Time) < quickFailure || now.Sub(end) > collectHorizon || collected(r.ID)
+	})
 }
 
 // classifyJob is one record's verdict: a stale entry (empty Reason when ok) and whether it may still turn stale.
