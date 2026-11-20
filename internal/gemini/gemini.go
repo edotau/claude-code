@@ -404,12 +404,42 @@ func runAgy(ctx context.Context, r agyRequest, sink wire.Sink) (wire.Result, err
 	r = headlessAgy(ctx, agent.DispatchIDOf(ctx), r)
 	cmd, tail := agent.ChildCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv, true)
 	dn := &agyDenier{p: r.Permissions, cwd: r.Cwd}
+	idle := agent.NewIdleTimeout("gemini", agent.IdleLimitFor("gemini"), nil)
 	parse := func(br *bufio.Reader, sink wire.Sink, _ func(), logs ...wire.StreamLog) (wire.Result, error) {
-		return parseAgyEvents(br, sink, false, wire.PickLog(logs), dn)
+		return parseAgyEvents(bufio.NewReader(&beatReader{r: br, idle: idle}), &idleSink{Sink: sink, idle: idle}, false, wire.PickLog(logs), dn)
 	}
 	start := time.Now()
-	res, err := agent.RunEventStream(ctx, "gemini", cmd, tail, sink, parse, agent.StreamOpts{})
+	res, err := agent.RunEventStream(ctx, "gemini", cmd, tail, sink, parse, agent.StreamOpts{Idle: idle})
 	return res, agyPrintTimeoutErr(err, r, tail.String(), time.Since(start))
+}
+
+// beatReader restarts the idle window on every byte agy writes.
+type beatReader struct {
+	r    io.Reader
+	idle *agent.IdleTimeout
+}
+
+func (b *beatReader) Read(p []byte) (int, error) {
+	n, err := b.r.Read(p)
+	if n > 0 {
+		b.idle.Beat("stdout")
+	}
+	return n, err
+}
+
+// idleSink holds the idle window off while a tool step runs (agy is silent then) and marks first output.
+type idleSink struct {
+	wire.Sink
+	idle *agent.IdleTimeout
+}
+
+func (s *idleSink) Emit(ev wire.Event) error {
+	if ev.Type == wire.EventProgress {
+		s.idle.Pause()
+	} else {
+		s.idle.Spoke()
+	}
+	return s.Sink.Emit(ev)
 }
 
 // agyTimeoutError is agy's own print timer firing; it reads as a harness deadline so the run records a deadline cutoff.

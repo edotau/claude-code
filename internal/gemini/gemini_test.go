@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strconv"
 	"strings"
@@ -850,5 +851,26 @@ func TestAgyArgvFlagsAreDeclared(t *testing.T) {
 	s, _ := agent.LookupSchema("gemini")
 	if got := s.CLI.Undeclared(argv); len(got) > 0 {
 		t.Errorf("agy passes %v, not in its row's Flags", got)
+	}
+}
+
+// Fails without the idle watch: a silent agy would hold the run to the deadline instead of stalling.
+func TestRunAgySilentChildStalls(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shell script stands in for agy")
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "gemini"), []byte("#!/bin/sh\nexec sleep 30\n"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HARNESS_AGENT_BIN_DIR", dir)
+	old := agent.GeminiIdleLimit
+	agent.GeminiIdleLimit = 200 * time.Millisecond
+	t.Cleanup(func() { agent.GeminiIdleLimit = old })
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	_, err := runAgy(ctx, agyRequest{Prompt: "hi", Cwd: dir}, wire.Discard)
+	if !errors.Is(err, agent.ErrStalled) {
+		t.Fatalf("err = %v, want ErrStalled", err)
 	}
 }
