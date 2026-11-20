@@ -30,6 +30,7 @@ import (
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/worktree/worktreetest"
 )
 
 func bound(group, matcher string, budget time.Duration, run core.Runner) Bound {
@@ -710,7 +711,8 @@ func TestReviewSimplicityModuleEmitsPostToolUse(t *testing.T) {
 // TestMain stubs the live-process scans and detached spawns so no hook test reads the machine or spawns.
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
-	worktree.StubProcessScanForTest()
+	scan := worktree.ProcessScan
+	worktreetest.StubProcessScanForTest(scan.In, scan.Up, scan.Procs, scan.Agents)
 	tb := &hosttest.MainTB{}
 	memtest.StubSpawn(tb, true)
 	wthook.PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }

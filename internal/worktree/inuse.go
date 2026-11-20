@@ -36,20 +36,13 @@ const inUsePoll = 100 * time.Millisecond
 // parentOf returns pid's parent pid; ancestry walks it for InUseBy's exclusion and PeerAgents.
 var parentOf func(pid int) (int, error)
 
-// platformScan holds the OS implementations StubProcessScanForTest replaced, so a real-process test can restore them.
-var platformScan struct {
-	up    func(int) (int, error)
-	procs func() ([]procCwd, error)
-}
-
-// StubProcessScanForTest makes the process scan (lsof, ps) report nothing for a test binary; call from TestMain.
-func StubProcessScanForTest() {
-	platformScan.up, platformScan.procs = parentOf, scanProcs
-	scanAgentProcs = nil
-	processesIn = func(string) ([]Proc, error) { return nil, nil }
-	parentOf = func(int) (int, error) { return 0, nil }
-	scanProcs = func() ([]procCwd, error) { return nil, nil }
-}
+// ProcessScan exposes callback pointers so test helpers can replace process scans without importing this package.
+var ProcessScan = struct {
+	In     *func(string) ([]Proc, error)
+	Up     *func(int) (int, error)
+	Procs  *func() ([]procCwd, error)
+	Agents *func() ([]procCwd, error)
+}{&processesIn, &parentOf, &scanProcs, &scanAgentProcs}
 
 // InUseBy returns a refusal reason when the caller's cwd or another live non-ancestor process is in dest; "" = clear.
 func InUseBy(dest string) (string, error) { return inUseBy(dest, nil) }

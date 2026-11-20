@@ -28,12 +28,14 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/worktree/worktreetest"
 )
 
 // TestMain stubs every detached spawn and the process scan: no memhook test starts a process or reads the machine.
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
-	worktree.StubProcessScanForTest()
+	scan := worktree.ProcessScan
+	worktreetest.StubProcessScanForTest(scan.In, scan.Up, scan.Procs, scan.Agents)
 	tb := &hosttest.MainTB{}
 	memtest.StubSpawn(tb, true)
 	orig := spawnServed

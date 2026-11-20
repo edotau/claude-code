@@ -27,6 +27,7 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/worktree/worktreetest"
 )
 
 type askRetryCase struct {
@@ -765,7 +766,8 @@ func TestMain(m *testing.M) {
 	agent.StubRefreshListingForTest()
 	agentconfig.SetCatalogWarn(io.Discard)
 	cleanup := hosttest.Setup()
-	worktree.StubProcessScanForTest()
+	scan := worktree.ProcessScan
+	worktreetest.StubProcessScanForTest(scan.In, scan.Up, scan.Procs, scan.Agents)
 	code := m.Run()
 	cleanup()
 	_ = os.RemoveAll(armSharedBin.dir)

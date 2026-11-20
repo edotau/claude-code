@@ -399,19 +399,12 @@ func Backup(src string, data []byte) (string, error) {
 	return writeBackup(base, data)
 }
 
-// readLive is os.ReadFile for WriteIfUnchanged; tests swap it to land a foreign save between the two checks.
-var readLive = os.ReadFile
-
-// SwapReadLive replaces WriteIfUnchanged's file reader and returns the func that restores it; a test seam.
-func SwapReadLive(fn func(string) ([]byte, error)) (restore func()) {
-	orig := readLive
-	readLive = fn
-	return func() { readLive = orig }
-}
+// ReadLive is os.ReadFile for WriteIfUnchanged; tests swap it to land a foreign save between the two checks.
+var ReadLive = os.ReadFile
 
 // checkUnchanged errors when dest's current bytes no longer match old (a missing file reads as empty).
 func checkUnchanged(dest string, old []byte, label string) error {
-	fresh, err := readLive(dest)
+	fresh, err := ReadLive(dest)
 	if err != nil && !os.IsNotExist(err) {
 		return err
 	}

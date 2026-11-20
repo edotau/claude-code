@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/worktree/worktreetest"
 )
 
 // placementRepo makes a temp git repo with one tracked root doc, so the gate has real git state.
@@ -422,7 +423,8 @@ func TestDocsPlacementPlanHomeUnderMemoryRepo(t *testing.T) {
 // TestMain stubs the live-process scan so no docs test reads the real machine.
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
-	worktree.StubProcessScanForTest()
+	scan := worktree.ProcessScan
+	worktreetest.StubProcessScanForTest(scan.In, scan.Up, scan.Procs, scan.Agents)
 	code := m.Run()
 	hosttest.Cleanup()
 	cleanup()

@@ -249,7 +249,9 @@ func TestWriteIfUnchangedSecondCheckFailureReturnsBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 	reads := 0
-	restore := SwapReadLive(func(path string) ([]byte, error) {
+	orig := ReadLive
+	t.Cleanup(func() { ReadLive = orig })
+	ReadLive = func(path string) ([]byte, error) {
 		reads++
 		if reads == 2 {
 			if err := os.WriteFile(path, []byte("b"), 0o600); err != nil {
@@ -257,8 +259,7 @@ func TestWriteIfUnchangedSecondCheckFailureReturnsBackup(t *testing.T) {
 			}
 		}
 		return os.ReadFile(path)
-	})
-	t.Cleanup(restore)
+	}
 
 	backup, err := WriteIfUnchanged(dest, []byte("a"), []byte("next"), 0o600, "cfg")
 	if err == nil || !strings.Contains(err.Error(), "changed under the merge") {

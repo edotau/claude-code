@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -380,7 +381,7 @@ func TestWriteGuardedRejectsSaveAfterBackup(t *testing.T) {
 	const original, saved = `{"local":1}`, `{"local":2}`
 	writeFile(t, dest, original)
 	reads := 0
-	t.Cleanup(paths.SwapReadLive(func(name string) ([]byte, error) {
+	t.Cleanup(pathstest.SwapReadLive(func(name string) ([]byte, error) {
 		if reads++; reads == 2 {
 			if n := countBackups(t); n != 1 {
 				t.Errorf("second check ran with %d backups on disk, want it after the one backup", n)

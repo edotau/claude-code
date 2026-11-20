@@ -191,6 +191,12 @@ func TestInUseByRealProcess(t *testing.T) {
 	}
 }
 
+// platformScan holds the OS implementations saved before TestMain stubs the process scan.
+var platformScan struct {
+	up    func(int) (int, error)
+	procs func() ([]procCwd, error)
+}
+
 // useRealProcessScan swaps the TestMain stubs for the OS process scan and settles InUse on the first look.
 func useRealProcessScan(t *testing.T) {
 	t.Helper()

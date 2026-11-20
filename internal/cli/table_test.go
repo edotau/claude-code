@@ -26,6 +26,7 @@ import (
 	"github.com/edotau/claude-code/internal/ui/theme"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/worktree/worktreetest"
 )
 
 func candidates(words ...string) []string { return completionEngine().Candidates(words) }
@@ -868,7 +869,8 @@ func TestMain(m *testing.M) {
 	agent.StubRefreshListingForTest()
 	agentconfig.SetCatalogWarn(io.Discard)
 	cleanup := hosttest.Setup()
-	worktree.StubProcessScanForTest()
+	scan := worktree.ProcessScan
+	worktreetest.StubProcessScanForTest(scan.In, scan.Up, scan.Procs, scan.Agents)
 	proxy.HolderComm = func(int) string { return "claude-code" } // router-state tests record this test binary's pid as the proxy
 	code := m.Run()
 	cleanup()

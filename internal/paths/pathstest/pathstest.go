@@ -109,3 +109,10 @@ func canonical(t testing.TB, p string) string {
 	}
 	return resolved
 }
+
+// SwapReadLive replaces WriteIfUnchanged's file reader and returns the function that restores it.
+func SwapReadLive(fn func(string) ([]byte, error)) (restore func()) {
+	orig := paths.ReadLive
+	paths.ReadLive = fn
+	return func() { paths.ReadLive = orig }
+}

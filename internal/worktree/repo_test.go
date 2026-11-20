@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/worktree/worktreetest"
 )
 
 // gitRepo makes a fresh git repo with one commit, env wired so every git invocation has an identity.
@@ -381,7 +382,9 @@ func TestCleanAtWarnsWhenBranchNotDetected(t *testing.T) {
 // TestMain pins state and config paths to a temp dir so no test touches the real ~/.claude, and trims git startup.
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
-	StubProcessScanForTest()
+	platformScan.up, platformScan.procs = parentOf, scanProcs
+	scan := ProcessScan
+	worktreetest.StubProcessScanForTest(scan.In, scan.Up, scan.Procs, scan.Agents)
 	auditCommand = ""
 	code := m.Run()
 	cleanup()

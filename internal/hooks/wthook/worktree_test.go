@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/worktree/worktreetest"
 )
 
 // testHookBudget is the headroom the suite adds to every hook's budget; only expiry tests shrink it.
@@ -37,7 +38,8 @@ func hookBudget(t *testing.T, name string, d time.Duration) {
 // TestMain stubs the live-process scans so no wthook test reads the machine's agents or worktree users.
 func TestMain(m *testing.M) {
 	cleanup := hosttest.Setup()
-	worktree.StubProcessScanForTest()
+	scan := worktree.ProcessScan
+	worktreetest.StubProcessScanForTest(scan.In, scan.Up, scan.Procs, scan.Agents)
 	PeerAgents = func(string, []string) ([]worktree.Proc, error) { return nil, nil }
 	core.HookMargin = -testHookBudget // every hook runs under a budget no busy machine exhausts
 	code := m.Run()

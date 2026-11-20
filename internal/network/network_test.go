@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/worktree"
+	"github.com/edotau/claude-code/internal/worktree/worktreetest"
 )
 
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
@@ -19,7 +20,8 @@ func TestMain(m *testing.M) {
 	agent.StubProxyForTest("http://127.0.0.1:9999", "rtr-secret-test")
 	agentconfig.SetCatalogWarn(io.Discard)
 	cleanup := hosttest.Setup()
-	worktree.StubProcessScanForTest()
+	scan := worktree.ProcessScan
+	worktreetest.StubProcessScanForTest(scan.In, scan.Up, scan.Procs, scan.Agents)
 	proxy.HolderComm = func(int) string { return "claude-code" }
 	code := m.Run()
 	cleanup()
