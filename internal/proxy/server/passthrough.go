@@ -758,8 +758,7 @@ func signCalls(calls []map[string]json.RawMessage) bool {
 
 var passthroughSafeRE = regexp.MustCompile(`^[A-Za-z0-9._-]+$`)
 
-// ledgerModel is the model a passthrough ledger row names: the body's, else the serving endpoint in the URL path
-// (<endpoint>/invocations), else a label for the route kind; never "".
+// ledgerModel names a passthrough ledger row: the body's model, else the endpoint in the path, else a route label.
 func ledgerModel(in *http.Request, model string) string {
 	if model != "" {
 		return model
