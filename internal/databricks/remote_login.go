@@ -16,7 +16,7 @@ import (
 
 // Seams: tests swap this machine's opener and the two ssh calls of a --remote login.
 var (
-	openLocal   = proc.OpenURL
+	openLocal   = func(u string) error { return proc.OpenURL(u, proc.OpenSignIn) }
 	forwardPort = remote.ReverseForward
 	openOnHost  = remote.OpenURLOn
 )

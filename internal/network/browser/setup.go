@@ -98,8 +98,7 @@ func installExtensionAction(env Env, b browser) action {
 	cmd := []string{"open", "-b", b.BundleID, webStoreURL}
 	where := b.DisplayName
 	if env.goos() != "darwin" {
-		cmd = []string{proc.Opener(), webStoreURL}
-		where = "the default browser"
+		cmd, where = nil, "the default browser"
 	}
 	a := action{
 		Kind: "install-extension",
@@ -111,7 +110,13 @@ func installExtensionAction(env Env, b browser) action {
 	if env.DryRun {
 		return a
 	}
-	out, err := env.run(cmd[0], cmd[1:]...)
+	var out string
+	var err error
+	if cmd == nil {
+		err = proc.OpenURL(webStoreURL, proc.OpenView)
+	} else {
+		out, err = env.run(cmd[0], cmd[1:]...)
+	}
 	a.Executed = err == nil
 	if err != nil {
 		a.Error = strings.TrimSpace(out + " " + err.Error())

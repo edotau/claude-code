@@ -494,7 +494,7 @@ func pasteAuthValue(d *dialog, o configure.AuthOption) bool {
 
 // openBrowser hands url to the desktop opener; best-effort, the paste prompt follows either way.
 func openBrowser(url string) {
-	if err := proc.OpenURL(url); err != nil {
+	if err := proc.OpenURL(url, proc.OpenSignIn); err != nil {
 		fmt.Fprintf(os.Stderr, "configure: warning: browser opener failed: %v\n", err)
 	}
 }

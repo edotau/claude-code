@@ -17,3 +17,20 @@ func TestOpenerPicksWindowsBrowserOnWSL(t *testing.T) {
 		}
 	}
 }
+
+func TestOpenRouteDecisionOrder(t *testing.T) {
+	vs := "/home/u/.vscode-server/bin/x/bin/helpers/browser.sh"
+	for _, tc := range []struct {
+		b       string
+		purpose OpenPurpose
+		want    string
+	}{
+		{"none", OpenSignIn, "print"}, {"none", OpenView, "print"},
+		{"firefox", OpenSignIn, "browser"}, {vs, OpenView, "browser"},
+		{vs, OpenSignIn, "desktop"}, {"", OpenView, "desktop"}, {"", OpenSignIn, "desktop"},
+	} {
+		if got := openRoute(tc.b, tc.purpose); got != tc.want {
+			t.Errorf("openRoute(%q, %v) = %q, want %q", tc.b, tc.purpose, got, tc.want)
+		}
+	}
+}

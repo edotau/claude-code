@@ -41,16 +41,65 @@ func wslMount() string {
 	return "/mnt"
 }
 
-// OpenURL opens url on this desktop; only WSL's PowerShell is waited for, so only it can report a failed open.
-func OpenURL(url string) error {
+// OpenPurpose says why a URL opens; sign-in never takes a VS Code helper, whose browser is the Mac's.
+type OpenPurpose int
+
+const (
+	OpenView OpenPurpose = iota
+	OpenSignIn
+)
+
+// OpenURL opens url: $BROWSER (none prints, else a command; VS Code's helper not for sign-in), then the desktop opener.
+func OpenURL(url string, purpose OpenPurpose) error {
+	b := strings.TrimSpace(os.Getenv("BROWSER"))
+	switch openRoute(b, purpose) {
+	case "print":
+		return printURL(url)
+	case "browser":
+		return startDetached(b, url)
+	}
+	if err := openDesktop(url); err != nil {
+		_ = printURL(url)
+		return err
+	}
+	return nil
+}
+
+// openRoute picks print, browser ($BROWSER as a command) or desktop (the platform opener).
+func openRoute(b string, purpose OpenPurpose) string {
+	switch {
+	case b == "none":
+		return "print"
+	case b != "" && !(purpose == OpenSignIn && isVSCodeHelper(b)):
+		return "browser"
+	}
+	return "desktop"
+}
+
+func printURL(url string) error {
+	_, err := fmt.Fprintf(os.Stderr, "Open this URL in your browser:\n%s\n", url)
+	return err
+}
+
+// isVSCodeHelper reports VS Code's $BROWSER shim, which VS Code exports in its terminals.
+func isVSCodeHelper(b string) bool {
+	return strings.Contains(filepath.ToSlash(b), "/helpers/browser.sh") || strings.Contains(b, ".vscode-server")
+}
+
+func startDetached(name, url string) error {
+	cmd := exec.CommandContext(context.Background(), name, url)
+	if err := cmd.Start(); err != nil { // the opener outlives this call
+		return err
+	}
+	go func() { _ = cmd.Wait() }() // reap it, so a long-lived menu leaves no zombie
+	return nil
+}
+
+// openDesktop opens url on this desktop; only WSL's PowerShell is waited for, so only it can report a failed open.
+func openDesktop(url string) error {
 	ps := filepath.Join(wslMount(), winPowerShell)
 	if _, err := os.Stat(ps); openGOOS == "darwin" || !openWSL() || err != nil {
-		cmd := exec.CommandContext(context.Background(), Opener(), url)
-		if err := cmd.Start(); err != nil { // the opener outlives this call
-			return err
-		}
-		go func() { _ = cmd.Wait() }() // reap it, so a long-lived menu leaves no zombie
-		return nil
+		return startDetached(Opener(), url)
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
