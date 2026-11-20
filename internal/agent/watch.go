@@ -198,11 +198,16 @@ func classifyJob(r Record, now time.Time, lim WatchLimits, rel relayState) (Stal
 	if r.Status == "running" {
 		return classifyRunning(r, now, lim, rel)
 	}
+	return classifyEnded(r, now, rel)
+}
+
+// classifyEnded checks a finished record: a background job whose result nobody collected.
+func classifyEnded(r Record, now time.Time, rel relayState) (StaleJob, bool) {
 	end := r.Time.Add(time.Duration(r.DurationMs) * time.Millisecond)
 	if !r.Background || r.Failed() && end.Sub(r.Time) < quickFailure {
 		return StaleJob{}, false
 	}
-	if now.Sub(end) > collectHorizon || collected(r.ID) || rel.finished && !rel.at.Before(end) {
+	if settled(r.ID, now, end, rel) {
 		return StaleJob{}, false
 	}
 	if now.Sub(end) <= uncollectedAfter {
@@ -214,6 +219,11 @@ func classifyJob(r Record, now time.Time, lim WatchLimits, rel relayState) (Stal
 		s.Next = recoverArgs(r)
 	}
 	return s, false
+}
+
+// settled reports whether an ended job is past the horizon, collected, or relayed after it ended.
+func settled(id string, now, end time.Time, rel relayState) bool {
+	return now.Sub(end) > collectHorizon || collected(id) || rel.finished && !rel.at.Before(end)
 }
 
 // classifyRunning checks a running record: a dead process at once, else a gone relay, else age and silence.
