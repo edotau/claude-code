@@ -13,7 +13,7 @@ import (
 )
 
 // scopeEnforcers hold a path-scoped Edit/Write deny; codex's OS sandbox reads no harness rule.
-var scopeEnforcers = map[string]bool{"claude": true, "copilot": true, "gemini": true, "opencode": true}
+var scopeEnforcers = map[string]bool{"claude": true, "copilot": true, "gemini": true, "opencode": true, "pi": true}
 
 // ScopeEnforced reports whether agent refuses a write outside its package's files when launched with scopeFlags.
 func ScopeEnforced(agent string) bool { return scopeEnforcers[agent] }

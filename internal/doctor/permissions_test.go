@@ -62,6 +62,25 @@ func TestWithSafetyBlocksADownloadIntoAShellWhereInstalled(t *testing.T) {
 	}
 }
 
+func TestPiReadOnlyWithholdsWritersAndShell(t *testing.T) {
+	wd := t.TempDir()
+	ro, _ := permJudge("pi", "read-only", wd)
+	for _, c := range [][2]string{{"Bash", "git log -1"}, {"Edit", wd + "/a.go"}, {"Write", wd + "/n.go"}} {
+		if r := ro(c[0], c[1]); r.verdict != "deny" || r.layer != layerWithheld {
+			t.Fatalf("pi read-only %v: %+v", c, r)
+		}
+	}
+	if r := ro("Read", wd+"/a.go"); r.verdict != "allow" {
+		t.Fatalf("pi read-only Read: %+v", r)
+	}
+	if r, _ := permJudge("pi", "no flag", wd); r("Read", "x").verdict != "deny" {
+		t.Fatal("pi with no flag launches no tools")
+	}
+	if tl, _ := permJudge("pi", "tools", wd); tl("Edit", wd+"/a.go").verdict != "allow" || tl("Bash", "rm -rf /").layer != "safety hook" {
+		t.Fatal("pi --tools allows an edit and meets the safety hook")
+	}
+}
+
 func TestDoctorPermissionsRejectsUnknownAgent(t *testing.T) {
 	var out bytes.Buffer
 	if code := doctorPermissions(&out, "nope", false); code != 2 {

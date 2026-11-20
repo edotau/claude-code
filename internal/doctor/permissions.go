@@ -34,10 +34,16 @@ const designNote = "by decision: --tools approves; no workdir scope"
 // verdictRuntime is a cell only the live vendor runtime can judge; it is listed apart and never counted.
 const verdictRuntime = "runtime"
 
+// layerWithheld marks a call whose tool the launch never registers: a launch fact, not a rule, so it has no expectation.
+const layerWithheld = "tool withheld by --read-only"
+
+// piReadTools is the claude-spelled tools Pi's --read-only registers (read, grep, find, ls); bash, edit, write are withheld.
+var piReadTools = []string{"Read", "Grep", "Glob"}
+
 const noOverride = "none: a safety-hook block is final; report it instead of retrying another way"
 
 // designDecision is the first owner decision (D1..D6) per agent: its redirect row, then its outside-workdir row.
-var designDecision = map[string]int{"copilot": 1, "gemini": 3, "opencode": 5}
+var designDecision = map[string]int{"copilot": 1, "gemini": 3, "opencode": 5, "pi": 5}
 
 // probe is one job's call; allow/deny are mode bits, and a scoped row's deny binds only gated claude and read-only.
 type probe struct {
@@ -78,6 +84,7 @@ var permModes = []struct {
 	{"copilot", []string{"no flag", "tools", "read-only"}},
 	{"gemini", []string{"no flag", "tools", "read-only"}},
 	{"opencode", []string{"no flag", "tools", "read-only"}},
+	{"pi", []string{"no flag", "tools", "read-only"}},
 }
 
 type permCell struct {
@@ -112,7 +119,7 @@ type permVerdict func(tool, arg string) permResult
 type permTally struct{ met, total, notes int }
 
 var noFlagDeny = map[string]string{
-	"claude": "no tools launched", "opencode": "no tools launched", "copilot": "SDK rejects every request",
+	"claude": "no tools launched", "opencode": "no tools launched", "pi": "no tools launched", "copilot": "SDK rejects every request",
 }
 
 const noFlagRemedy = "relaunch with --tools (or --read-only to read)"
@@ -140,7 +147,7 @@ func remedyFor(eff agent.Permissions, tool, arg string, repaired func(agent.Rule
 // hookInstalled reports whether the harness installs hook for the agent, from the hook spec.
 func hookInstalled(name, hook string) bool {
 	surface := "native"
-	if name == "opencode" {
+	if name == "opencode" || name == "pi" {
 		surface = "plugin"
 	}
 	return slices.ContainsFunc(settings.SpecsFor(name, surface), func(s settings.EventSpec) bool { return s.Name == hook })
@@ -254,7 +261,21 @@ func permJudge(name, mode, wd string) (permVerdict, string) {
 	if err != nil {
 		return nil, err.Error()
 	}
-	return withSafety(name, wd, permLayer(name, p, ro, wd)), ""
+	judge := permLayer(name, p, ro, wd)
+	if name == "pi" && ro {
+		judge = withheldScope(piReadTools, judge)
+	}
+	return withSafety(name, wd, judge), ""
+}
+
+// withheldScope denies a call whose tool the launch never registers; next judges the rest.
+func withheldScope(tools []string, next permVerdict) permVerdict {
+	return func(tool, arg string) permResult {
+		if !slices.Contains(tools, tool) {
+			return permResult{"deny", layerWithheld, "relaunch with --tools: --read-only registers no shell or writer"}
+		}
+		return next(tool, arg)
+	}
 }
 
 func modeBit(mode string) int {
@@ -297,6 +318,9 @@ func permCellFor(judge permVerdict, why string, pr probe, mode string) (c permCe
 	r := permResult{verdictRuntime, why, ""}
 	if judge != nil {
 		r = judge(pr.tool, pr.arg)
+	}
+	if r.layer == layerWithheld {
+		c.Expect, design = "", false
 	}
 	if r.verdict == verdictRuntime {
 		c.Verdict, c.Why = r.verdict, r.layer
@@ -406,7 +430,7 @@ func doctorPermissions(w io.Writer, only string, asJSON bool) int {
 	}
 	reps, names, sum := permCollect(only, wd)
 	if len(reps) == 0 {
-		return helptext.FailUsage("doctor: --agent %q is not one of claude, codex, copilot, gemini, opencode", only)
+		return helptext.FailUsage("doctor: --agent %q is not one of claude, codex, copilot, gemini, opencode, pi", only)
 	}
 	stages, st, err := permStageRows(filepath.Join(paths.ConfigDir(), "workflows"), names, wd)
 	if err != nil {

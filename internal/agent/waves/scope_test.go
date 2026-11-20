@@ -32,6 +32,12 @@ func TestScopeFlagsDenyOtherPackagesFilesOnly(t *testing.T) {
 	if !enforced {
 		t.Fatal("opencode must enforce")
 	}
+	if piWave := scopeWave("pi", "pi"); func() bool {
+		f, ok := scopeFlags(piWave[0], LaunchOptions{Wave: piWave})
+		return !ok || !slices.Contains(f, "Edit(/r/b.go)")
+	}() {
+		t.Fatal("pi must enforce")
+	}
 	got := strings.Join(flags, " ")
 	for _, want := range []string{"--deny Edit(/r/b.go)", "--deny Write(/r/b.go)", "--deny Edit(/r/b_test.go)", "--deny Write(/r/b.go/**)",
 		"--permissions auto"} {
