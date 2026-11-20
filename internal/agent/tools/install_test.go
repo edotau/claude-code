@@ -773,7 +773,7 @@ func TestTailscaleRepairsDanglingCLI(t *testing.T) {
 func TestInstallPiDryRunNamesPinnedCommandAndWritesNothing(t *testing.T) {
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
-	dir := t.TempDir()
+	dir := paths.BinDir()
 	var out bytes.Buffer
 	if err := installPi(context.Background(), &out, dir, true); err != nil {
 		t.Fatalf("installPi dry-run: %v", err)

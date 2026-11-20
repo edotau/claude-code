@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"slices"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -127,6 +128,13 @@ func removeUnlessFile(dst string) (kept bool, err error) {
 
 // linkCandidate is the agent's PATH entry made absolute (unresolved, so updaters follow), else ~/.local/bin, else "".
 func linkCandidate(t tool) string {
+	if t.Name == agentid.Pi { // Pi's own pinned install, never a stray PATH copy
+		own := filepath.Join(piPrefix(), "node_modules", ".bin", "pi")
+		if _, err := os.Stat(own); err != nil {
+			return ""
+		}
+		return own
+	}
 	if c, err := paths.LookPathReal(t.Binary); err == nil {
 		abs, aerr := filepath.Abs(c) // a relative PATH entry would make the symlink target resolve from bin/
 		if aerr != nil {

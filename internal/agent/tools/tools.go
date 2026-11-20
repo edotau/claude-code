@@ -94,7 +94,7 @@ func Install(ctx context.Context, w io.Writer, names []string, dryRun, missingOn
 			continue
 		}
 		landed := dir
-		if t.Name == agentid.Codex { // installCodex always lands in BinDir
+		if t.Name == agentid.Codex || t.Name == agentid.Pi { // these installers always land in BinDir
 			landed = paths.BinDir()
 		}
 		npmCleanupFor(ctx, w, t.Name, landed, dryRun)

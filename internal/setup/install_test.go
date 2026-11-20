@@ -17,6 +17,7 @@ import (
 	_ "github.com/edotau/claude-code/internal/codex"    // registers the codex engine the prod binary links
 	_ "github.com/edotau/claude-code/internal/gemini"   // registers the gemini route engine the prod binary links
 	_ "github.com/edotau/claude-code/internal/opencode" // registers the opencode engine the prod binary links
+	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/settings"
 )
@@ -121,6 +122,15 @@ func setupCompactFixture(t *testing.T, linked []string) {
 		vendor := agentid.Binary(name)
 		source := pathstest.FakeVendorOutsideConfig(t, vendor, "")
 		dirs = append(dirs, filepath.Dir(source))
+		if name == agentid.Pi { // Pi links only its own state install, never a PATH copy
+			own := filepath.Join(paths.StateDir(), "pi", "npm", "node_modules", ".bin", "pi")
+			if err := os.MkdirAll(filepath.Dir(own), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(own, []byte("#!/bin/sh\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	// Only git rides in from the real PATH (installGitHooks/history need it)
 	if p, err := exec.LookPath("git"); err == nil {

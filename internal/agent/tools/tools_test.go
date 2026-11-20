@@ -440,3 +440,27 @@ func TestToolsCoverEveryAgentBinary(t *testing.T) {
 		}
 	}
 }
+
+// Pi links only bin/pi -> this config dir's state install; a stray PATH pi is never the link target or install dir.
+func TestPiIgnoresStrayPathCopy(t *testing.T) {
+	hosttest.SkipOnWindows(t, "sh script")
+	env := setupToolsTestEnv(t)
+	stray := filepath.Join(env.path1, "pi")
+	writeToolsFixture(t, stray, "#!/bin/sh\nexit 0\n", 0o755)
+	tl, _ := lookup("pi")
+	var out strings.Builder
+	if err := installPi(context.Background(), &out, filepath.Dir(stray), true); err != nil {
+		t.Fatal(err)
+	}
+	if want := "link " + filepath.Join(paths.BinDir(), "pi"); !strings.Contains(out.String(), want) {
+		t.Errorf("dry-run %q does not link into BinDir (%q)", out.String(), want)
+	}
+	if st, d := linkOne(tl, "pi", true); st != "missing" {
+		t.Errorf("no state install: linkOne = %s %s, want missing", st, d)
+	}
+	own := filepath.Join(piPrefix(), "node_modules", ".bin", "pi")
+	writeToolsFixture(t, own, "#!/bin/sh\nexit 0\n", 0o755)
+	if st, d := linkOne(tl, "pi", true); st != "link" || !strings.Contains(d, own) {
+		t.Errorf("linkOne = %s %s, want link to %s", st, d, own)
+	}
+}

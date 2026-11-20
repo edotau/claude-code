@@ -140,7 +140,10 @@ const (
 
 // installPi installs the pinned Pi into <state>/pi/npm without lifecycle scripts and links dir/pi to its bin.
 func installPi(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
-	prefix := filepath.Join(paths.StateDir(), "pi", "npm")
+	if !paths.SamePath(dir, paths.BinDir()) {
+		dir = redirectToBinDir(w, "pi links only from this config dir's bin/")
+	}
+	prefix := piPrefix()
 	args := []string{"install", "--prefix", prefix, "--ignore-scripts", "--no-fund", "--no-audit", piNpmPackage + "@" + piPin}
 	target := filepath.Join(prefix, "node_modules", ".bin", "pi")
 	link := filepath.Join(dir, "pi")
@@ -162,6 +165,8 @@ func installPi(ctx context.Context, w io.Writer, dir string, dryRun bool) error 
 		return paths.SwapSymlink(target, link)
 	})
 }
+
+func piPrefix() string { return filepath.Join(paths.StateDir(), "pi", "npm") }
 
 // requirePiNode fails with the node dep row's fix when npm is missing or Node is older than piMinNode.
 func requirePiNode(ctx context.Context) error {

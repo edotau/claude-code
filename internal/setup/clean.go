@@ -125,8 +125,10 @@ func stateTargets() []target {
 func daemonTargets() []target {
 	return []target{
 		{
-			name: "pi-runs", doc: "pi per-dispatch agent dirs (runs/*) whose owner is gone (a day old without an owner file); sessions stay",
-			globs:   func() []string { return []string{statePath("pi", "*", "runs", "*")} },
+			name: "pi-runs", doc: "pi per-dispatch agent dirs (runs/*) whose owner is gone (a day old without an owner file), and the retired pi/*/agent; sessions stay",
+			globs: func() []string {
+				return []string{statePath("pi", "*", "runs", "*"), statePath("pi", "*", "agent")}
+			},
 			ageless: true, keep: keepPiRun,
 		},
 		{
@@ -775,6 +777,9 @@ func youngDir(p string) bool {
 
 // keepPiRun protects a run dir whose owner pid, named in the dir (run-<pid>-<random>), is alive; else it goes by age.
 func keepPiRun(p string) bool {
+	if filepath.Base(p) == "agent" {
+		return false // the retired shared per-profile dir: no owner pid, never live
+	}
 	if parts := strings.Split(filepath.Base(p), "-"); len(parts) == 3 {
 		if pid, err := strconv.Atoi(parts[1]); err == nil {
 			return pidAlive(pid)

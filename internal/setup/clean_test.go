@@ -1135,6 +1135,7 @@ func TestKeepPiRun(t *testing.T) {
 		"no owner, young":     {"run-123", time.Now(), true},
 		"no owner, old":       {"run-123", old, false},
 		"unparsable pid, old": {"run-x-123", old, false},
+		"retired agent dir":   {"agent", time.Now(), false},
 	} {
 		dir := filepath.Join(t.TempDir(), c.dir)
 		if err := os.Mkdir(dir, 0o700); err != nil {
