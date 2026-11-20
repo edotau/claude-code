@@ -138,6 +138,8 @@ const (
 	piMinNode    = "22.19"
 )
 
+var errNoPiNode = errors.New("no Node " + piMinNode + "+ on PATH or under nvm")
+
 // installPi installs the pinned Pi into <state>/pi/npm without lifecycle scripts and links dir/pi to its bin.
 func installPi(ctx context.Context, w io.Writer, dir string, dryRun bool) error {
 	if !paths.SamePath(dir, paths.BinDir()) {
@@ -151,10 +153,11 @@ func installPi(ctx context.Context, w io.Writer, dir string, dryRun bool) error 
 		fmt.Fprintf(w, "  npm      %s; link %s -> %s\n", strings.Join(append([]string{"npm"}, args...), " "), link, target)
 		return nil
 	}
-	if err := requirePiNode(ctx); err != nil {
+	nodeDir, err := requirePiNode(ctx)
+	if err != nil {
 		return err
 	}
-	if err := runLogged(ctx, w, nil, "npm", args...); err != nil {
+	if err := runLogged(ctx, w, pathEnv(nodeDir), "npm", args...); err != nil {
 		return fmt.Errorf("pi: npm install: %w", err)
 	}
 	if _, err := os.Stat(target); err != nil {
@@ -168,21 +171,22 @@ func installPi(ctx context.Context, w io.Writer, dir string, dryRun bool) error 
 
 func piPrefix() string { return filepath.Join(paths.StateDir(), "pi", "npm") }
 
-// requirePiNode fails with the node dep row's fix when npm is missing or Node is older than piMinNode.
-func requirePiNode(ctx context.Context) error {
+// requirePiNode returns the bin dir to prepend to the npm child's PATH ("" when the PATH node serves), or the node dep's fix.
+func requirePiNode(ctx context.Context) (string, error) {
 	fix := depFix(deps[slices.IndexFunc(deps, func(d dep) bool { return d.Name == "node" })])
 	if _, err := depLookPath("npm"); err != nil {
-		return fmt.Errorf("pi: npm not on PATH (Node %s+ needed); run: %s", piMinNode, fix)
+		return "", fmt.Errorf("pi: npm not on PATH (Node %s+ needed); run: %s", piMinNode, fix)
 	}
 	node, err := depLookPath("node")
 	if err != nil {
-		return fmt.Errorf("pi: node not on PATH (Node %s+ needed); run: %s", piMinNode, fix)
+		return "", fmt.Errorf("pi: node not on PATH (Node %s+ needed); run: %s", piMinNode, fix)
 	}
-	have := parseVersion(versionOutput(ctx, node, versionProbeTimeout, "--version"))
-	if c, ok := textutil.CompareVersions(have, piMinNode); !ok || c < 0 {
-		return fmt.Errorf("pi: node %q is older than %s; run: %s", have, piMinNode, fix)
+	dir, err := pickPiNode(ctx, node, nvmDir())
+	if err != nil {
+		have := parseVersion(versionOutput(ctx, node, versionProbeTimeout, "--version"))
+		return "", fmt.Errorf("pi: node %q is older than %s; run: %s, or install Node %s+ with nvm", have, piMinNode, fix, piMinNode)
 	}
-	return nil
+	return dir, nil
 }
 
 const opencodeAllowMajorEnv = "HARNESS_ALLOW_OPENCODE_2X"

@@ -16,6 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/agent/tools"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
@@ -54,7 +55,15 @@ func piBases(base, dialect string) Bases {
 }
 
 // Wire writes the run's private agent dir and builds Pi's env and argv; r.Cred is the proxy session token, never upstream's.
-func (piEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) (env, argv []string, err error) {
+func (e piEngine) Wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) (env, argv []string, err error) {
+	env, argv, err = e.wire(ctx, r, h)
+	if err != nil {
+		return nil, nil, err
+	}
+	return append(env, tools.PiNodePathEnv(ctx)...), argv, nil // the pi bin's `env node` must not pick an older PATH node
+}
+
+func (piEngine) wire(ctx context.Context, r agent.WireRoute, h *agent.Headless) (env, argv []string, err error) {
 	if !r.Routed {
 		return nil, nil, errors.New("pi runs only through the proxy; drop --direct")
 	}
