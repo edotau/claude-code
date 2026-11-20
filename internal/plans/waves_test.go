@@ -93,6 +93,12 @@ func checkPlanMetadata(t *testing.T) {
 	if !p.Waves[0].Tasks[1].Manual {
 		t.Fatal("V with launch agent must remain manual")
 	}
+	for _, tail := range []string{".", ";", ",", ":"} {
+		q, err := ParseWaves(wavesFile(t, "- [ ] 1.1 Do x — leaf: claude"+tail+" Agent: claude"+tail+" owns: a.go\n"))
+		if err != nil || q.Waves[0].Tasks[0].Agent != "claude" || q.Waves[0].Tasks[0].Leaf != "claude" {
+			t.Fatalf("tail %q: %v %+v", tail, err, q)
+		}
+	}
 }
 
 func checkManifest(t *testing.T) {

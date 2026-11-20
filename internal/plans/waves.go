@@ -127,7 +127,11 @@ func waveAttributes(title string) map[string]string {
 			end = matches[i+1][0]
 		}
 		key := strings.ToLower(title[m[2]:m[3]])
-		out[key] = strings.Trim(strings.TrimSpace(title[m[1]:end]), " ,—–")
+		val := strings.Trim(strings.TrimSpace(title[m[1]:end]), " ,—–")
+		if key == "agent" || key == "leaf" || key == "profile" {
+			val = strings.TrimRight(val, ".,;:")
+		}
+		out[key] = val
 	}
 	return out
 }
