@@ -2,6 +2,7 @@ package pi
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
@@ -103,7 +104,7 @@ func (g Guard) Ready() error {
 	if err != nil {
 		return fmt.Errorf("pi guard did not load: %w", err)
 	}
-	if string(got) != g.Nonce {
+	if subtle.ConstantTimeCompare(got, []byte(g.Nonce)) != 1 {
 		return errors.New("pi guard did not load: nonce mismatch")
 	}
 	return nil

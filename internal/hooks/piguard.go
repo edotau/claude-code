@@ -241,7 +241,7 @@ func normalizePiPath(raw string) (string, string) {
 		return "", "the path contains a NUL byte"
 	case runtime.GOOS == "windows" && strings.HasPrefix(p, "/"):
 		return "", "Pi rewrites a leading / on Windows; not reimplemented"
-	case strings.HasPrefix(p, "file://"):
+	case strings.HasPrefix(strings.ToLower(p), "file://"):
 		return "", "file:// paths are not accepted" // Pi turns them into another path; not reimplemented
 	case p == "~" || strings.HasPrefix(p, "~/"):
 		home, err := os.UserHomeDir()

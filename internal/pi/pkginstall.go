@@ -135,10 +135,11 @@ func ReviewPackage(dir string) (Review, error) {
 	return r, nil
 }
 
-// escapes is true for an absolute entry or one with a .. segment: Pi would resolve it outside the package.
+// escapes is true for a rooted or drive-lettered entry or one with a .. segment, on every host.
 func escapes(p string) bool {
 	seg := strings.FieldsFunc(p, func(r rune) bool { return r == '/' || r == '\\' })
-	return filepath.IsAbs(p) || strings.HasPrefix(p, "/") || slices.Contains(seg, "..")
+	drive := len(p) >= 2 && p[1] == ':' && (p[0]|0x20 >= 'a' && p[0]|0x20 <= 'z')
+	return drive || strings.HasPrefix(p, "/") || strings.HasPrefix(p, `\`) || slices.Contains(seg, "..")
 }
 
 // checkLinks refuses a symlink whose target leaves the package: Pi follows links when it collects resource files.

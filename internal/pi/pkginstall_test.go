@@ -39,6 +39,8 @@ func TestReviewPackage(t *testing.T) {
 		{"malformed manifest", map[string]string{"package.json": `{"name":`}, false, true},
 		{"resource key not an array", map[string]string{"package.json": `{"pi":{"skills":"./s"}}`}, false, true},
 		{"entry escapes the package", map[string]string{"package.json": `{"pi":{"skills":["../../x"]}}`}, false, true},
+		{"backslash root escapes", map[string]string{"package.json": `{"pi":{"skills":["\\Users\\Shared\\evil"]}}`}, false, true},
+		{"drive letter escapes", map[string]string{"package.json": `{"pi":{"skills":["C:x"]}}`}, false, true},
 		{"null resource is auto-discovery to Pi", map[string]string{"package.json": `{"pi":{"skills":null}}`}, false, true},
 		{"pi not an object", map[string]string{"package.json": `{"pi":["x"]}`}, false, true},
 		{"pi null", map[string]string{"package.json": `{"pi":null}`}, false, true},

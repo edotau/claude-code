@@ -13,10 +13,10 @@ const FACTORIES: Record<string, string> = { bash: "createBashToolDefinition", ed
   write: "createWriteToolDefinition", read: "createReadToolDefinition", grep: "createGrepToolDefinition",
   find: "createFindToolDefinition", ls: "createLsToolDefinition" }
 
-// hookEnv is the hook process's env: the inherited one minus every HARNESS_HOOK_* switch (fail closed: none can skip).
+// hookEnv is the inherited env minus every HARNESS_HOOK_* switch (none can skip) and the HARNESS_PI_GUARD_* nonce.
 function hookEnv(): Record<string, string> {
   const env: Record<string, string> = {}
-  for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.toUpperCase().startsWith("HARNESS_HOOK_")) env[k] = v
+  for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !/^HARNESS_(HOOK|PI_GUARD)_/i.test(k)) env[k] = v
   return env
 }
 
