@@ -55,6 +55,10 @@ func (geminiEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.RunOpti
 	res := p.Result
 	res.Model = areq.Model
 	res.Emulated = append(res.Emulated, p.Emulated...)
+	if err := agyCheckGateway(p.Target.Provider, areq.Model, areq.Env); err != nil {
+		res.NotStarted = true
+		return res, retry.Fatal("gemini", err)
+	}
 	out, err := runAgy(ctx, areq, sink)
 	err = classifyAgyError(ctx, areq.Model, err)
 	res.Answer, res.Usage, res.Transport, res.Structured = out.Answer, out.Usage, out.Transport, out.Structured
@@ -264,6 +268,9 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 	if err != nil {
 		return nil, nil, err
 	}
+	if err := agyCheckGateway(p, base, nil); err != nil {
+		return nil, nil, err
+	}
 	rb, err := agent.EnsureRouter(ctx)
 	if err != nil {
 		return nil, nil, fmt.Errorf("gemini: router: %w", err)
@@ -293,6 +300,30 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 		argv = append(argv, "--effort", effort)
 	}
 	return env.Env(), argv, nil
+}
+
+// agyCheckGateway checks the rewritten endpoint and agy's advertised menu without refreshing the served cache.
+func agyCheckGateway(p *providers.Provider, model string, env []string) error {
+	if agent.GeminiGatewayRow(p) {
+		if f := agent.FreshModelFinding("gemini", p, model, time.Now()); f != nil {
+			return &agent.PreflightError{Finding: *f}
+		}
+	}
+	menu, ok := proc.ValuesFromEnv(env)["AGY_LLM_GATEWAY_MODELS"]
+	if !ok {
+		return nil
+	}
+	available := strings.Split(menu, ",")
+	for i, id := range available {
+		available[i] = strings.TrimSpace(id)
+		if available[i] == model {
+			return nil
+		}
+	}
+	return &agent.PreflightError{Finding: agent.Finding{
+		Check: "model-menu", Model: model, Served: available,
+		Detail: fmt.Sprintf("agy gateway menu does not include %q; available: %s", model, menu),
+	}}
 }
 
 // agyFlashLite is the model agy's flash-lite tier runs when the profile serves it.
@@ -843,6 +874,9 @@ func (b *agyLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *
 		return nil, nil, "", err
 	}
 	areq := newAgyRequest(p, req)
+	if err := agyCheckGateway(p.Target.Provider, areq.Model, areq.Env); err != nil {
+		return nil, nil, "", retry.Fatal("gemini", err)
+	}
 	bin, err := paths.AgentBin("agy")
 	if err != nil {
 		return nil, nil, "", fmt.Errorf("gemini: %w", err)
