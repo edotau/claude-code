@@ -17,6 +17,8 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/structdiff"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -212,18 +214,42 @@ func AuditModelPin(alias, spec string) {
 	audit.Log(audit.ModelPin, key, cmp.Or(spec, "unpinned"))
 }
 
-// recordDiff lists "agent.field: old → new" for every record field that differs between before and after, sorted.
-func recordDiff(before, after map[string]vault.AgentRecord) []string {
+// recordDiff lists "agent.path: old → new" for every field that differs between before and after, secrets redacted.
+func recordDiff(reg *Registry, before, after map[string]vault.AgentRecord) []string {
 	var out []string
-	for _, a := range slices.Sorted(maps.Keys(mergeKeys(before, after))) {
-		b, n := recordFields(before[a]), recordFields(after[a])
-		for _, f := range slices.Sorted(maps.Keys(mergeKeys(b, n))) {
-			if b[f] != n[f] {
-				out = append(out, a+"."+f+": "+cmp.Or(b[f], "(unset)")+" → "+cmp.Or(n[f], "(unset)"))
-			}
-		}
+	for _, c := range structdiff.Diff(routeForm(reg, before), routeForm(reg, after)) {
+		out = append(out, structdiff.Line(c, secretPath))
 	}
 	return out
+}
+
+// routeForm spells every record in the route form, so a legacy record and its migrated twin diff as equal.
+func routeForm(reg *Registry, recs map[string]vault.AgentRecord) map[string]vault.AgentRecord {
+	out := make(map[string]vault.AgentRecord, len(recs))
+	for a, r := range recs {
+		r.Route, r.FallbackRoute = withProvider(reg, r.EffectiveRoute()), withProvider(reg, r.EffectiveFallbackRoute())
+		r.Profile, r.Account, r.Fallback = "", "", ""
+		out[a] = r
+	}
+	return out
+}
+
+// withProvider fills a bare-profile route's provider from the registry, as configure stores it.
+func withProvider(reg *Registry, rt route.Route) route.Route {
+	switch {
+	case rt.Provider != "" || rt.Profile == "" || reg == nil:
+	case rt.Profile == "databricks":
+		return route.Route{Provider: "databricks", Profile: "auto"}
+	case reg.Providers[rt.Profile] != nil:
+		rt.Provider = reg.Providers[rt.Profile].Provider
+	}
+	return rt
+}
+
+// secretPath marks launch env (KEY=VALUE pairs), the one record field that can carry a value.
+func secretPath(path string) bool {
+	_, rest, _ := strings.Cut(path, ".")
+	return rest == "launch.env"
 }
 
 func mergeKeys[V any](a, b map[string]V) map[string]struct{} {

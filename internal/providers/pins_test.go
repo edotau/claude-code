@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -623,5 +624,20 @@ func TestQualifyPinSpecUsesRecordProfile(t *testing.T) {
 	reg := &Registry{Default: "qa", Providers: map[string]*Provider{"dev": {Name: "dev"}, "qa": {Name: "qa"}}}
 	if got := QualifyPinSpec(reg, "dev", "opus-x"); got != "dev:opus-x" {
 		t.Errorf("got %q want dev:opus-x", got)
+	}
+}
+
+func TestRecordDiffRouteFormRedactsEnv(t *testing.T) {
+	legacy := map[string]vault.AgentRecord{"codex": {Profile: "qa", Fallback: "dev"}}
+	migrated := map[string]vault.AgentRecord{"codex": {Route: route.Route{Profile: "qa"}, FallbackRoute: route.Route{Profile: "dev"}}}
+	if got := recordDiff(nil, legacy, migrated); len(got) != 0 {
+		t.Fatalf("legacy vs migrated = %v, want none", got)
+	}
+	after := map[string]vault.AgentRecord{"codex": {Profile: "qa", Fallback: "dev", Permissions: &vault.AgentPolicy{Mode: "auto"},
+		Launch: &vault.AgentLaunch{Env: []string{"TOKEN=s3cret"}}}}
+	got := strings.Join(recordDiff(nil, legacy, after), "\n")
+	if !strings.Contains(got, "codex.permissions.mode: (unset) → auto") || !strings.Contains(got, "codex.launch.env: (changed)") ||
+		strings.Contains(got, "s3cret") {
+		t.Fatalf("diff = %q", got)
 	}
 }

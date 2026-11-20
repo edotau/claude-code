@@ -358,7 +358,7 @@ func TestSwitchKeepsOffAgentsOff(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, out, _ := hosttest.CaptureOutput(t, func() int { return cmdSwitch([]string{"qa", "--dry-run"}) })
-	if !strings.Contains(out, "codex.profile: chatgpt → qa") || !strings.Contains(out, "copilot: off (kept)") {
+	if !strings.Contains(out, "codex.route.profile: chatgpt → qa") || !strings.Contains(out, "copilot: off (kept)") {
 		t.Fatalf("dry-run = %q", out)
 	}
 	if code, _, stderr := hosttest.CaptureOutput(t, func() int { return cmdSwitch([]string{"qa"}) }); code != 0 {
