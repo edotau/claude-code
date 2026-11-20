@@ -134,7 +134,7 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	}
 	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out}
 	markTyped(fs, f) // before dispatchMode: a batch builds its base request there
-	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, func() (int, bool) { return checkModel(r) }, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
+	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, func() (int, bool) { return checkModel(r) }, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
 		if code, done := phase(); done {
 			return code
 		}
@@ -350,14 +350,37 @@ func (r *askRun) checkArm() (int, bool) {
 
 // checkModel refuses a --model (else <AGENT>_MODEL) carrying a profile, naming the overlay to use.
 func checkModel(r *askRun) (int, bool) {
-	_, err := providers.CastShared(r.f.model)
+	f := r.f
+	c, err := providers.CastShared(f.model)
+	if err == nil && f.model == "" { // the env stays the agent's pin; only its route unit joins
+		c, _, err = providers.EnvCast(r.ctx, r.ag)
+		c.Model = ""
+	}
 	if err == nil {
-		_, _, err = providers.EnvCast(r.ctx, r.ag)
+		_, _, err = c.Merge(f.provider, f.profile)
+	}
+	if err == nil {
+		r.ov.Provider, r.ov.Profile, err = c.Merge(r.ov.Provider, r.ov.Profile)
 	}
 	if err != nil {
 		return r.fail(err, 2)
 	}
+	if c.Profile != "" {
+		castFlags(r, c)
+	}
 	return 0, false
+}
+
+// castFlags spells a cast as the typed flags, so the run, a dry run's argv and the record carry no prefix.
+func castFlags(r *askRun, c providers.ModelCast) {
+	if c.Model != "" {
+		r.f.model = c.Model
+		_ = r.fs.Set("model", c.Model)
+	}
+	if r.f.overlay == "" {
+		_ = r.fs.Set("overlay", c.Route())
+	}
+	markTyped(r.fs, r.f)
 }
 
 // refuse fails a route refusal; a well-formed ask (exit 1, not --dry-run) also leaves its failed record.
@@ -534,6 +557,18 @@ func (r *askRun) batchBase() agent.RunOptions {
 		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Permissions: r.perms, Values: values}
 }
 
+// resumeModel keeps a resumed session's model and row; a typed --model wins, a replay keeps the record's own route.
+func resumeModel(f *askFlags) {
+	if f.model != "" {
+		return
+	}
+	profile, model := agent.SessionModel(f.session)
+	f.model = model
+	if f.retry == "" && f.job == "" {
+		f.profile = cmp.Or(f.profile, profile)
+	}
+}
+
 // resolveRecord reads the task and applies a --job or --retry record over the flags.
 func (r *askRun) resolveRecord() (int, bool) {
 	f := r.f
@@ -544,10 +579,7 @@ func (r *askRun) resolveRecord() (int, bool) {
 	}
 	var err error
 	markTyped(r.fs, f) // again: applyRecord loaded the record's flag, and a --model on this line wins
-	if f.model == "" { // a resumed session keeps its model and row; a typed --model wins
-		profile, model := agent.SessionModel(f.session)
-		f.model, f.profile = model, cmp.Or(f.profile, profile)
-	}
+	resumeModel(f)
 	if rc, done := r.guardResubmit(); done {
 		return rc, true
 	}

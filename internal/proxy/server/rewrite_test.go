@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -278,11 +279,7 @@ func TestCrossProviderTarget(t *testing.T) {
 		"up1":`+anthropicProvider(up1.URL, "UP1_KEY", `{"opus":"m1"}`)+`,
 		"up2":{"protocol":"anthropic","base_url":"`+up2.URL+`","auth":{"type":"key","header":"bearer","env":"UP2_KEY"},"models":{"opus":"m2"}}}}}`)
 
-	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"up2:other-model"}`, nil); resp.StatusCode != 400 {
-		t.Fatalf("prefixed id status %d, want 400", resp.StatusCode)
-	}
-	vaulttest.SetRecord(t, "claude", "aliases.haiku", "up2:other-model") // a stored cross-provider pin (D5)
-	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"other-model"}`, nil); resp.StatusCode != 200 {
+	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"up2:other-model"}`, nil); resp.StatusCode != 200 {
 		t.Fatalf("status %d", resp.StatusCode)
 	}
 	if up1.hits.Load() != 0 || up2.hits.Load() != 1 {
@@ -330,7 +327,7 @@ func TestSessionTokenCannotReachOtherProfiles(t *testing.T) {
 	}
 	hdr := map[string]string{"X-Api-Key": out.Token}
 	if r := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"up2:x"}`, hdr); r.StatusCode != http.StatusBadRequest {
-		t.Errorf("prefixed model = %d, want 400", r.StatusCode)
+		t.Errorf("out-of-scope prefixed model = %d, want 400", r.StatusCode)
 	}
 	if r := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"m1-haiku"}`, hdr); r.StatusCode == 200 {
 		t.Errorf("failover escaped to up2 under a session token")
@@ -551,26 +548,28 @@ func BenchmarkUserAgent(b *testing.B) {
 	}
 }
 
-// A plain client id finds the session's cross-provider alias pin; a prefixed id is refused with the overlay named.
+// A client's `<profile>:<model>` is cast to that profile inside the token's scope; outside it, or the pool, is refused.
 func TestClientTarget(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"an","providers":{"anthropic":{`+
 		`"an":`+anthropicProvider("http://127.0.0.1:1", "AN_KEY", `{"opus":"m"}`)+`,`+
 		`"other":`+anthropicProvider("http://127.0.0.1:2", "AN_KEY", `{"opus":"o"}`)+`}}}`)
-	vaulttest.SetRecord(t, "claude", "aliases.haiku", "other:pinned-haiku")
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	sess := reg.Providers["an"]
-	for model, want := range map[string]string{"pinned-haiku": "other pinned-haiku", "m": "an m"} {
-		if got, err := clientTarget(reg, sess, model); err != nil || got.Provider.Name+" "+got.Model != want {
-			t.Errorf("clientTarget(%q) = %+v, %v; want %s", model, got, err, want)
+	open := httptest.NewRequest(http.MethodPost, "/p/an/v1/messages", nil)
+	for model, want := range map[string]string{"an:x": "an x", "other:x": "other x", "m": "an m"} {
+		if got, plain, err := clientTarget(open, reg, sess, model); err != nil || got.Provider.Name+" "+got.Model != want || plain != got.Model {
+			t.Errorf("clientTarget(%q) = %+v %q, %v; want %s", model, got, plain, err, want)
 		}
 	}
-	for _, model := range []string{"other:x", "auto:opus"} {
-		if _, err := clientTarget(reg, sess, model); err == nil || !strings.Contains(err.Error(), "use --overlay") {
-			t.Errorf("clientTarget(%q) = %v; want the refusal naming the overlay", model, err)
-		}
+	scoped := open.WithContext(context.WithValue(open.Context(), scopeKey{}, []string{"an"}))
+	if _, _, err := clientTarget(scoped, reg, sess, "other:x"); err == nil || !strings.Contains(err.Error(), "claude-code claude --profile other") {
+		t.Errorf("out-of-scope cast = %v; want the 400 naming a session on other", err)
+	}
+	if _, _, err := clientTarget(open, reg, sess, "auto:opus"); err == nil {
+		t.Error("clientTarget(auto:opus) routed the pool; want a refusal")
 	}
 }

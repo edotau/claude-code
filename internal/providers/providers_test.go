@@ -158,6 +158,7 @@ func TestValidateLadderFamilyRungs(t *testing.T) {
 	}
 }
 
+// A legacy cross-provider alias pin is ignored (D5): the alias resolves on the session's own profile.
 func TestSelectPinsAndCrossProvider(t *testing.T) {
 	reg := load(t)
 	vaulttest.SetRecord(t, "claude", "model", "claude-opus-4-8")
@@ -172,11 +173,8 @@ func TestSelectPinsAndCrossProvider(t *testing.T) {
 	if got := sel.ClientModel("opus"); got != "claude-opus-4-8" {
 		t.Errorf("opus client model %q", got)
 	}
-	if got := sel.ClientModel("haiku"); got != "gpt-5-nano" {
-		t.Errorf("haiku client model %q, want the plain id", got)
-	}
-	if !sel.NeedsRouter(reg) {
-		t.Error("cross-provider alias must need the router")
+	if got := sel.Aliases["haiku"]; got.Provider != sel.Provider || got.Model == "gpt-5-nano" {
+		t.Errorf("haiku = %+v; want the session profile's own model, the legacy pin ignored", got)
 	}
 	if tgt := ParseTarget(reg, "qwen3:30b[1m]", sel.Provider); tgt.Provider != sel.Provider || tgt.Model != "qwen3:30b" {
 		t.Errorf("unregistered prefix must stay a model: %+v", tgt)

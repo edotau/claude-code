@@ -256,9 +256,14 @@ func parseOverlay(raw []byte) (Overlay, error) {
 	return o, o.validate(fileSrc)
 }
 
-// castModel refuses a model key carrying a profile, naming the overlay keys to use instead.
+// castModel casts a `<profile>:<model>` model key into this object's provider, profile and model keys.
 func (o Overlay) castModel() (Overlay, error) {
-	if _, err := providers.CastShared(o.Model); err != nil {
+	c, err := providers.CastShared(o.Model)
+	if err == nil && c.Profile != "" {
+		o.Model = c.Model
+		o.Provider, o.Profile, err = c.Merge(o.Provider, o.Profile)
+	}
+	if err != nil {
 		return o, errors.New("model: " + strings.TrimPrefix(err.Error(), providers.ErrModelSpec.Error()+": "))
 	}
 	return o, nil

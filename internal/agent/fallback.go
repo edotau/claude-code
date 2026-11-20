@@ -119,9 +119,9 @@ func chainOutcome(ctx context.Context, c Chain, res wire.Result, err error, reas
 func (c Chain) markFallback(res wire.Result, reasons []string) wire.Result {
 	hopReasons := reasons[len(c.Skipped):] // the reason names the asked agent's skips and the hops that ran, never an unasked agent's skip
 	res.Fallback, res.FallbackReason = c.Want, strings.Join(append(askedSkips(reasons[:len(c.Skipped)], c.Want), hopReasons...), "; ")
-	res.Requested, res.RequestedWhy = c.requested, strings.Join(hopReasons[:min(1, len(hopReasons))], "")
+	res.Requested, res.RequestedWhy = requestedLabel(c.requested), strings.Join(hopReasons[:min(1, len(hopReasons))], "")
 	if c.Preflight != nil && len(c.Preflight.Failed) > 0 {
-		res.Requested, res.RequestedWhy = c.Preflight.Requested, c.Preflight.Failed[0].String()
+		res.Requested, res.RequestedWhy = requestedLabel(c.Preflight.Requested), c.Preflight.Failed[0].String()
 	}
 	return res
 }
@@ -204,6 +204,17 @@ func invokedModel(req RunOptions) string {
 	}
 	_, id := hopModel(req.Model)
 	return id
+}
+
+// plainHop is a hop's model without its internal `<row>:` (the hop names its profile apart).
+func plainHop(m string) string { _, id := hopModel(m); return id }
+
+// requestedLabel shows an internal `<row>:<model>` as "<model> on <row>", never the prefixed form.
+func requestedLabel(m string) string {
+	if row, id := hopModel(m); row != "" {
+		return id + " on " + row
+	}
+	return m
 }
 
 // hopModel splits an internal ladder hop's `<row>:<model>` into row and plain id; written surfaces get the id only.
@@ -331,7 +342,7 @@ func promptFromHandoff(path, prompt, agentName string) string {
 // hopOf records one tried dispatch: who ran, on which account and profile, and the error token if it failed.
 func hopOf(disp Dispatch, req RunOptions, res wire.Result, err error) wire.Hop {
 	h := wire.Hop{Agent: cmp.Or(res.Agent, disp.Agent.Name()), Account: ranAccount(disp.Account, res.Provider), Profile: cmp.Or(res.Provider, req.Provider),
-		Model: cmp.Or(res.Model, req.Model), Reported: res.Reported, NotStarted: res.NotStarted}
+		Model: plainHop(cmp.Or(res.Model, req.Model)), Reported: res.Reported, NotStarted: res.NotStarted}
 	if err != nil {
 		h.ErrorKind = wire.ErrorKind(err)
 		if e, ok := errors.AsType[*retry.Error](err); ok && len(e.Earlier) > 0 {

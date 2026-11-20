@@ -422,9 +422,25 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	if rec.Route != "" { // the workspace the run was confined to; an overlay provider still wins (checkArm)
 		*t.Coworker = rec.Route
 	}
+	legacyModel(t, errw)
 	if len(rec.Request.EnvNames) > 0 {
 		fmt.Fprintf(errw, "ask: the logged run set env %s; values are not stored, so pass --env or --overlay again\n", strings.Join(rec.Request.EnvNames, ","))
 	}
+}
+
+// legacyModel reads an old record's `<profile>:<model>` once as its overlay route plus the plain model, and says so.
+func legacyModel(t *askTarget, errw io.Writer) {
+	reg, err := providers.LoadShared()
+	ms, serr := providers.SplitModelSpec(reg, *t.Model)
+	if err != nil || serr != nil || ms.Row == "" && !ms.Pool {
+		return
+	}
+	c := providers.ModelCast{Model: ms.Model, Provider: providers.GroupDatabricks, Profile: router.AutoArm}
+	if ms.Row != "" {
+		c.Provider, c.Profile = reg.Providers[ms.Row].Provider, ms.Row
+	}
+	fmt.Fprintf(errw, "ask: the logged model %s reads as --overlay '%s'\n", *t.Model, c.Overlay())
+	*t.Model, *t.Coworker = c.Model, cmp.Or(*t.Coworker, route.Join(c.Provider, c.Profile))
 }
 
 // askState is the askTarget plus the flag pointers --retry resets or --job clears.

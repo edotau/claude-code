@@ -461,6 +461,9 @@ func routedModels(ctx context.Context, reg *providers.Registry, p *providers.Pro
 	var out []string
 	for _, m := range requested {
 		c, err := providers.CastModel(reg, m)
+		if err == nil {
+			_, _, err = c.Merge("", p.Name)
+		}
 		if err != nil {
 			return nil, fmt.Errorf("copilot: %w", err)
 		}

@@ -3,8 +3,10 @@ package providers
 import (
 	"cmp"
 	"fmt"
+	"os"
 	"slices"
 	"strings"
+	"sync"
 
 	"github.com/edotau/claude-code/internal/models"
 )
@@ -52,6 +54,22 @@ func PlainTarget(p *Provider, model string) Target {
 	return Target{Provider: p, Model: p.WireModel(base), OneM: oneM}
 }
 
+// prefixedPinNote is the one stderr note per process for an ignored profile-prefixed pin.
+var prefixedPinNote sync.Once
+
+// sessionPin is a stored model pin, or "" for an old profile-prefixed one: aliases resolve on the session's profile.
+func sessionPin(reg *Registry, pin string) string {
+	pin = strings.TrimSpace(pin)
+	if c, err := CastModel(reg, pin); err != nil || c.Profile != "" {
+		prefixedPinNote.Do(func() {
+			fmt.Fprintf(os.Stderr, "note: model pin %s names another profile and is ignored; clear it with "+
+				"`claude-code models --unpin`\n", pin)
+		})
+		return ""
+	}
+	return pin
+}
+
 // Select resolves the session: profile = flag → record profile → default; alias = record alias → model → table.
 func Select(reg *Registry, providerFlag string) (Selection, error) {
 	recs, err := agentRecords()
@@ -66,11 +84,11 @@ func Select(reg *Registry, providerFlag string) (Selection, error) {
 	rec := recs["claude"]
 	all := strings.TrimSpace(rec.Model)
 	for _, alias := range models.AliasNames {
-		spec := cmp.Or(strings.TrimSpace(rec.Aliases[alias]), all, p.Models[alias])
+		spec := cmp.Or(sessionPin(reg, rec.Aliases[alias]), sessionPin(reg, all), p.Models[alias])
 		if spec == "" {
 			continue
 		}
-		sel.Aliases[alias] = ParseTarget(reg, spec, p)
+		sel.Aliases[alias] = PlainTarget(p, spec)
 	}
 	if _, ok := sel.Aliases[models.Opus]; !ok {
 		return sel, fmt.Errorf("provider %s: no opus model (pin one with `claude-code models --pin opus=<id>`)", p.Name)
@@ -78,25 +96,13 @@ func Select(reg *Registry, providerFlag string) (Selection, error) {
 	return sel, nil
 }
 
-// ClientModel is the plain id Claude Code gets for alias; the proxy finds a cross-provider alias's row (AliasTarget).
+// ClientModel is the plain id Claude Code gets for alias; every alias resolves on the session's own profile.
 func (s Selection) ClientModel(alias string) string {
 	t, ok := s.Aliases[alias]
 	if !ok {
 		return ""
 	}
 	return t.ClientModel()
-}
-
-// AliasTarget is the cross-provider alias target a plain client id names on this session; the pin wins a tie.
-func (s Selection) AliasTarget(id string) (Target, bool) {
-	for _, a := range models.AliasNames {
-		t, ok := s.Aliases[a]
-		if ok && t.Provider != s.Provider && models.Strip1M(t.ClientModel()) == models.Strip1M(id) {
-			t.OneM = models.Strip1M(id) != id
-			return t, true
-		}
-	}
-	return Target{}, false
 }
 
 // NeedsRouter reports whether the session needs the loopback router: cross-provider alias, other wire, renamed ids.

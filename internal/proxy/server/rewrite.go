@@ -31,15 +31,15 @@ func sessionScope(in *http.Request) ([]string, bool) {
 
 // resolveTarget maps the path profile and requested model to a target, writing the error when it cannot.
 func (r *Router) resolveTarget(w http.ResponseWriter, in *http.Request, reg *providers.Registry,
-	session, model string) (providers.Target, bool) {
+	session, model string) (providers.Target, string, bool) {
 	sess, err := reg.Get(session)
 	var parsed providers.Target
 	if err == nil {
-		parsed, err = clientTarget(reg, sess, model)
+		parsed, model, err = clientTarget(in, reg, sess, model)
 	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "proxy: "+err.Error())
-		return providers.Target{}, false
+		return providers.Target{}, model, false
 	}
 	target := fableToOpus(reg, parsed)
 	if target.Model != parsed.Model {
@@ -48,23 +48,27 @@ func (r *Router) resolveTarget(w http.ResponseWriter, in *http.Request, reg *pro
 	// a resolved target outside a token's profiles is a 403
 	if scope, scoped := sessionScope(in); scoped && !slices.Contains(scope, target.Provider.Name) {
 		writeError(w, http.StatusForbidden, "proxy: this token is limited to profiles "+strings.Join(scope, ", "))
-		return target, false
+		return target, model, false
 	}
-	return target, true
+	return target, model, true
 }
 
-// clientTarget is a client's plain model on the session, or a cross-provider alias pin's row; a prefixed id is refused.
-func clientTarget(reg *providers.Registry, sess *providers.Provider, model string) (providers.Target, error) {
+// clientTarget casts a client's `<profile>:<model>` to that profile when the token's scope covers it; else 400.
+func clientTarget(in *http.Request, reg *providers.Registry, sess *providers.Provider, model string) (providers.Target, string, error) {
 	c, err := providers.CastModel(reg, model)
-	if err != nil {
-		return providers.Target{}, err
+	switch {
+	case err != nil:
+		return providers.Target{}, model, err
+	case c.Profile == "":
+		return providers.PlainTarget(sess, c.Model), c.Model, nil
+	case c.Profile == "auto":
+		return providers.Target{}, c.Model, fmt.Errorf("model %s: the Databricks pool is no session route; name a profile", model)
 	}
-	if sel, err := providers.Select(reg, sess.Name); err == nil {
-		if t, ok := sel.AliasTarget(c.Model); ok {
-			return t, nil
-		}
+	if scope, scoped := sessionScope(in); scoped && !slices.Contains(scope, c.Profile) {
+		return providers.Target{}, c.Model, fmt.Errorf("model %s: this session's token does not cover profile %s; "+
+			"start a session there with `claude-code claude --profile %s`", model, c.Profile, c.Profile)
 	}
-	return providers.PlainTarget(sess, c.Model), nil
+	return providers.PlainTarget(reg.Providers[c.Profile], c.Model), c.Model, nil
 }
 
 // fableToOpus maps a Fable target on a Databricks serving route to the session's opus slot; Databricks serves no Fable.

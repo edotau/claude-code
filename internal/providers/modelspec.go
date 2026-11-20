@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/models"
@@ -48,33 +49,74 @@ func SplitModelSpec(reg *Registry, spec string) (ModelSpec, error) {
 	return ModelSpec{Model: spec}, nil
 }
 
-// ModelCast is a checked model input: the plain id (Provider/Profile only fill Overlay's suggestion).
+// ModelCast is a typed model split at the boundary: the plain id plus the route unit its prefix named.
 type ModelCast struct{ Model, Provider, Profile string }
 
-// ModelProfileError refuses a model name carrying a profile, naming the overlay form to use instead.
-type ModelProfileError struct{ Model, Overlay, Plain string }
-
-func (e *ModelProfileError) Error() string {
-	return fmt.Sprintf("model %s: a model name does not carry a profile: use --overlay '%s'", e.Model, e.Overlay)
-}
-
-func (e *ModelProfileError) Unwrap() error { return ErrModelSpec }
-
-// CastModel is the one model-input check: a plain id passes, a `<profile>:<model>` value is refused (ModelProfileError).
+// CastModel reads `<profile>:<model>` as `--overlay '{"provider":…,"profile":…}' --model <model>`: the one seam.
 func CastModel(reg *Registry, model string) (ModelCast, error) {
-	ms, err := SplitModelSpec(reg, model)
-	c := ModelCast{Model: ms.Model}
+	model = strings.TrimSpace(model)
+	name, rest, ok := strings.Cut(model, ":")
+	if !ok || name == "" || rest == "" || reg == nil {
+		return ModelCast{Model: model}, nil
+	}
+	c, named, err := castPrefix(reg, name)
 	switch {
 	case err != nil:
-		return ModelCast{}, err
-	case ms.Pool:
-		c.Provider, c.Profile = GroupDatabricks, "auto"
-	case ms.Row != "":
-		c.Provider, c.Profile = reg.Providers[ms.Row].Provider, ms.Row
-	default:
+		return ModelCast{}, fmt.Errorf("%w: model %s: %w", ErrModelSpec, model, err)
+	case named && strings.Contains(rest, ":"):
+		return ModelCast{}, fmt.Errorf("%w: model %s: one profile prefix at most", ErrModelSpec, model)
+	case named:
+		c.Model = rest
 		return c, nil
+	case modelWord(rest):
+		return ModelCast{}, fmt.Errorf("%w: model %s: %s is not a profile (%s)", ErrModelSpec, model, name,
+			strings.Join(reg.Names(), ", "))
 	}
-	return ModelCast{}, &ModelProfileError{Model: strings.TrimSpace(model), Overlay: c.Overlay(), Plain: c.Model}
+	return ModelCast{Model: model}, nil // a local tag such as qwen3:30b
+}
+
+// modelWord is auto, an alias, a family or a known model id: after an unknown prefix it means a mistyped profile.
+func modelWord(s string) bool {
+	_, _, known := models.Resolve(s)
+	return known || s == "auto" || IsFamily(s) || slices.Contains(models.AliasNames, strings.ToLower(s))
+}
+
+// castPrefix matches name, case-insensitively, to a profile, a single-profile provider type or a pool word.
+func castPrefix(reg *Registry, name string) (ModelCast, bool, error) {
+	for _, n := range reg.Names() {
+		if strings.EqualFold(n, name) {
+			return ModelCast{Provider: reg.Providers[n].Provider, Profile: n}, true, nil
+		}
+	}
+	lower := strings.ToLower(name)
+	if lower == "auto" || lower == GroupDatabricks && len(reg.ProfilesOf(GroupDatabricks)) > 0 {
+		return ModelCast{Provider: GroupDatabricks, Profile: "auto"}, true, nil
+	}
+	switch rows := reg.ProfilesOf(lower); {
+	case len(rows) == 1:
+		return ModelCast{Provider: lower, Profile: rows[0]}, true, nil
+	case len(rows) > 1:
+		return ModelCast{}, false, fmt.Errorf("%s is a provider with several profiles (%s); name one", name,
+			strings.Join(rows, ", "))
+	}
+	return ModelCast{}, false, nil
+}
+
+// Merge folds c's route unit into a typed provider and profile; a different typed value is an error naming both.
+func (c ModelCast) Merge(provider, profile string) (string, string, error) {
+	if c.Profile == "" {
+		return provider, profile, nil
+	}
+	if profile != "" && profile != c.Profile || provider != "" && provider != c.Provider {
+		return "", "", fmt.Errorf("--model %s:%s: profile %s is outside %s; drop one",
+			c.Profile, c.Model, c.Profile, strings.Trim(provider+":"+profile, ":"))
+	}
+	return c.Provider, c.Profile, nil
+}
+
+// Route is c's route unit as its overlay object, without the model.
+func (c ModelCast) Route() string {
+	return ModelCast{Provider: c.Provider, Profile: c.Profile}.Overlay()
 }
 
 // Overlay is c as the one overlay object that carries provider, profile and model; "" with no profile.
@@ -99,5 +141,5 @@ func CastShared(model string) (ModelCast, error) {
 	if err != nil {
 		return ModelCast{Model: model}, nil
 	}
-	return CastModel(reg, model)
+	return CastModel(reg, model) // the route unit's provider is the profile's own row, never the session's
 }

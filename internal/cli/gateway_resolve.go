@@ -49,13 +49,17 @@ func cmdGatewayResolve(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	_, err = providers.CastShared(*model)
+	c, err := providers.CastShared(*model)
+	if err == nil {
+		_, *profile, err = c.Merge(*provider, *profile)
+	}
 	if err = cmp.Or(err, checkFallback(*fallback)); err != nil {
 		return helptext.FailUsage("gateway resolve: %v", err)
 	}
-	if *provider == providers.GroupDatabricks {
+	if *provider == providers.GroupDatabricks && c.Profile == "" {
 		*profile = agent.AutoModel
 	}
+	*model = c.Model
 	ctx := context.Background()
 	task, err := agent.ReadBrief(*taskFile)
 	if err != nil {

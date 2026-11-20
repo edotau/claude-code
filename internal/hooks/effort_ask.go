@@ -258,11 +258,11 @@ func (l askLine) target(reg *providers.Registry, none func() bool) (*providers.P
 	return p, model, err
 }
 
-// typedModel is the line's model with a leading `<row>:` cut off, and that row ("" when it names no row of reg).
+// typedModel is the line's model as ask casts it: the plain id and the profile a `<profile>:` prefix names.
 func (l askLine) typedModel(reg *providers.Registry) (model, typed string) {
 	model = cmp.Or(l.model, l.cfg.Model)
-	if prof, bare, ok := strings.Cut(model, ":"); ok && reg.Providers[prof] != nil {
-		return bare, prof
+	if c, err := providers.CastModel(reg, model); err == nil && c.Profile != "" && c.Profile != "auto" {
+		return c.Model, c.Profile
 	}
 	return model, ""
 }

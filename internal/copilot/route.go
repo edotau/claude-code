@@ -404,7 +404,7 @@ func (v *pinValidator) check(ctx context.Context, p string) error {
 	if err != nil {
 		return err
 	}
-	name, model := v.fallback, c.Model
+	name, model := cmp.Or(c.Profile, v.fallback), c.Model
 	if dp := v.reg.Providers[name]; dp != nil && dp.Preset == providers.PresetDatabricks {
 		w, err := validateDatabricksCopilotPin(ctx, v.reg, name, model, v.served)
 		if err != nil {

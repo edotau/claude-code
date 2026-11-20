@@ -58,8 +58,7 @@ func TestSelectReadsVaultPinsWithSlotPrecedence(t *testing.T) {
 	for _, alias := range models.AliasNames {
 		want := Target{Provider: sel.Provider, Model: "all-from-vault"}
 		switch alias {
-		case models.Opus:
-			want = Target{Provider: reg.Providers["openai"], Model: "gpt-5-nano"}
+		case models.Opus: // a legacy profile-prefixed pin is ignored (D5): the all-slot pin decides
 		case models.Haiku:
 			want.Model = "haiku-from-vault"
 		}
@@ -616,14 +615,17 @@ func TestHeadlessOAuthToken(t *testing.T) {
 	}
 }
 
-// An explicit --profile pin is qualified against the claude record (Select's baseline), not the session env.
-func TestQualifyPinSpecUsesRecordProfile(t *testing.T) {
+// A --pin for another profile than the record's session profile is refused, whatever the session env says.
+func TestSessionProfileOnlyUsesRecordProfile(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	t.Setenv(EnvSessionProfile, "dev")
 	vaulttest.SetRecord(t, "claude", "profile", "qa")
 	reg := &Registry{Default: "qa", Providers: map[string]*Provider{"dev": {Name: "dev"}, "qa": {Name: "qa"}}}
-	if got := QualifyPinSpec(reg, "dev", "opus-x"); got != "dev:opus-x" {
-		t.Errorf("got %q want dev:opus-x", got)
+	if err := SessionProfileOnly(reg, "dev"); err == nil || !strings.Contains(err.Error(), "session profile (qa)") {
+		t.Errorf("SessionProfileOnly(dev) = %v; want the refusal naming qa", err)
+	}
+	if err := SessionProfileOnly(reg, "qa"); err != nil {
+		t.Errorf("SessionProfileOnly(qa) = %v", err)
 	}
 }
 

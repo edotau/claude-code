@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/permission"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -55,7 +56,10 @@ func loadSchema(ref string) (*Schema, error) {
 	if strings.TrimSpace(p.Prompt) == "" {
 		return nil, fmt.Errorf("persona %q: %s has no body to use as the prompt", ref, path)
 	}
-	if p.Tools, err = schemaTools(fm["tools"]); err != nil {
+	if p.Tools, err = schemaTools(fm["tools"]); err == nil {
+		err = castPersona(p) // front-matter model: <profile>:<id> reads as profile + model
+	}
+	if err != nil {
 		return nil, fmt.Errorf("persona %q: %w", ref, err)
 	}
 	if n, ok := fm["maxTurns"].(int); ok && n > 0 {
@@ -154,6 +158,9 @@ func buildAgents(wire map[string]agentsDef) (map[string]*Schema, error) {
 		}
 		agents[key] = &Schema{Name: key, Description: d.Description, Prompt: d.Prompt, Tools: d.Tools, Model: d.Model,
 			MaxTurns: d.MaxTurns, Agent: d.Agent, Profile: d.Profile, Effort: d.Effort}
+		if err := castPersona(agents[key]); err != nil {
+			return nil, fmt.Errorf("--agents: %s: %w", key, err)
+		}
 	}
 	return agents, nil
 }
@@ -289,4 +296,17 @@ func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []stri
 		emulated = append(emulated, "--output-schema")
 	}
 	return req, dropped, emulated
+}
+
+// castPersona casts a persona's `model: <profile>:<id>` into its profile and plain model, so no argv carries a prefix.
+func castPersona(p *Schema) error {
+	c, err := providers.CastShared(p.Model)
+	if err == nil {
+		_, p.Profile, err = c.Merge("", p.Profile)
+	}
+	if err != nil {
+		return err
+	}
+	p.Model = c.Model
+	return nil
 }

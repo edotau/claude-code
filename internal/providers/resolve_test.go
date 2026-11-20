@@ -59,12 +59,6 @@ func TestClientModelKeepsTypedOneM(t *testing.T) {
 			t.Errorf("ClientModel(%s) = %q; want %q", alias, got, w)
 		}
 	}
-	if got, ok := sel.AliasTarget("gpt-5"); !ok || got.Provider != other {
-		t.Errorf("AliasTarget(gpt-5) = %+v %v; want the cross-provider pin", got, ok)
-	}
-	if _, ok := sel.AliasTarget("claude-sonnet-5"); ok {
-		t.Error("AliasTarget(same-provider id) found a cross-provider pin")
-	}
 }
 
 // A prefixed provider gets its wire id whichever spelling is typed; first-party keeps the canonical id.

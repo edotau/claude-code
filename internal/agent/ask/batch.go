@@ -162,7 +162,7 @@ func parseTask(l parsedLine, agentName string, base agent.RunOptions, timeoutSet
 		return t, l.Err
 	}
 	tl := l.Task
-	if err := cmp.Or(checkLineIDs(l.N, t.ID, tl.PlanTask, seen), lineModel(l)); err != nil {
+	if err := cmp.Or(checkLineIDs(l.N, t.ID, tl.PlanTask, seen), lineModel(&l)); err != nil {
 		return t, err
 	}
 	t.Plan = tl.PlanTask
@@ -196,11 +196,16 @@ func checkLineIDs(n int, id, planTask string, seen map[string]bool) error {
 	return nil
 }
 
-// lineModel refuses a line's model carrying a profile, naming the overlay to use.
-func lineModel(l parsedLine) error {
-	if _, err := providers.CastShared(l.Task.Model); err != nil {
+// lineModel casts a line's `<profile>:<model>` into the line's profile and plain model.
+func lineModel(l *parsedLine) error {
+	c, err := providers.CastShared(l.Task.Model)
+	if err == nil {
+		_, l.Task.Profile, err = c.Merge("", l.Task.Profile)
+	}
+	if err != nil {
 		return fmt.Errorf("line %d: %w", l.N, err)
 	}
+	l.Task.Model = c.Model
 	return nil
 }
 

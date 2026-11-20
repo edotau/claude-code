@@ -70,10 +70,20 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 	if err := o.foldOverlay(); err != nil {
 		return o, rest, err
 	}
-	if _, err := providers.CastShared(o.Model); err != nil {
+	if err := castLaunchModel(&o); err != nil {
 		return LaunchOptions{}, nil, &UsageError{Msg: err.Error()}
 	}
 	return o, rest, nil
+}
+
+// castLaunchModel reads a launch's --model <profile>:<id> as --profile <profile> --model <id>.
+func castLaunchModel(o *LaunchOptions) error {
+	c, err := providers.CastShared(o.Model)
+	if err == nil {
+		_, o.Provider, err = c.Merge("", o.Provider)
+		o.Model = c.Model
+	}
+	return err
 }
 
 // UsageError is a launch refusal the CLI reports verbatim with exit 2.
@@ -285,7 +295,11 @@ func (o *LaunchOptions) foldOverlay() error {
 func LaunchPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
 	ctx, o.Values = RunValues(ctx, o.Values)
 	ctx = context.WithValue(ctx, launchDryKey{}, o.PrintEnv)
-	if _, _, err := providers.EnvCast(ctx, name); err != nil {
+	c, _, err := providers.EnvCast(ctx, name)
+	if err == nil && o.Model == "" { // the env stays the agent's pin; only its route unit joins
+		_, o.Provider, err = c.Merge("", o.Provider)
+	}
+	if err != nil {
 		return Plan{}, &UsageError{Msg: err.Error()}
 	}
 	plan, err := cliPlan(ctx, name, o, args)

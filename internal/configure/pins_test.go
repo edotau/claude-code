@@ -14,23 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// ApplyModelPins qualifies a bare model spec with --provider when it differs from the session's
-// subscribed provider, so the pin resolves against the provider it was validated for.
-func TestApplyModelPinsQualifiesAcrossSessionProvider(t *testing.T) {
-	hosttest.PinScratch(t)
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	vaulttest.SetRecord(t, "claude", "profile", "anthropic")
-	if code, handled := ApplyModelPins(reg, "copilot", false, []string{"opus=claude-opus-5.5"}, nil); handled || code != 0 {
-		t.Fatalf("ApplyModelPins: code=%d handled=%v, want 0, false", code, handled)
-	}
-	if got := providers.AgentRecord("claude").Aliases["opus"]; got != "copilot:claude-opus-5.5" {
-		t.Errorf("CLAUDE_OPUS_MODEL = %q, want %q", got, "copilot:claude-opus-5.5")
-	}
-}
-
 // --provider equal to the session's own subscribed provider stores the bare spec, unqualified.
 func TestApplyModelPinsBareWhenProviderMatchesSession(t *testing.T) {
 	hosttest.PinScratch(t)
@@ -47,33 +30,19 @@ func TestApplyModelPinsBareWhenProviderMatchesSession(t *testing.T) {
 	}
 }
 
-// qualifyPinSpec passes an already-qualified "provider:model" spec through unchanged, even when
-// --provider names a different provider than the one in the spec.
-func TestQualifyPinSpecPassesThroughAlreadyQualified(t *testing.T) {
-	hosttest.PinScratch(t)
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	got := providers.QualifyPinSpec(reg, "copilot", "anthropic:claude-opus-5.5")
-	if got != "anthropic:claude-opus-5.5" {
-		t.Errorf("qualifyPinSpec = %q, want the already-qualified spec unchanged", got)
-	}
-}
-
-// --pin all=... qualifies CLAUDE_MODEL the same way a per-alias pin does.
-func TestApplyModelPinsAllSlotQualifies(t *testing.T) {
+// A pin for a profile other than the session's is refused: every alias resolves on the session profile (D5).
+func TestApplyModelPinsRefusesOtherProfile(t *testing.T) {
 	hosttest.PinScratch(t)
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	vaulttest.SetRecord(t, "claude", "profile", "anthropic")
-	if code, handled := ApplyModelPins(reg, "copilot", false, []string{"all=claude-opus-5.5"}, nil); handled || code != 0 {
-		t.Fatalf("ApplyModelPins: code=%d handled=%v, want 0, false", code, handled)
+	if code, handled := ApplyModelPins(reg, "copilot", false, []string{"all=claude-opus-5.5"}, nil); !handled || code == 0 {
+		t.Fatalf("ApplyModelPins: code=%d handled=%v, want the refusal", code, handled)
 	}
-	if got := providers.AgentRecord("claude").Model; got != "copilot:claude-opus-5.5" {
-		t.Errorf("CLAUDE_MODEL = %q, want %q", got, "copilot:claude-opus-5.5")
+	if got := providers.AgentRecord("claude").Model; got != "" {
+		t.Errorf("CLAUDE_MODEL = %q, want nothing written", got)
 	}
 }
 

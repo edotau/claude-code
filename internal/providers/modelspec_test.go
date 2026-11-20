@@ -54,23 +54,33 @@ func TestWireModelDottedForOpenAIAndGoogle(t *testing.T) {
 	}
 }
 
-// CastModel refuses a profile-prefixed model naming the overlay form, and leaves real ids (/, [1m], local tags) alone.
+// CastModel casts a registered prefix (any case) to its route unit, refuses an unknown or chained one, passes local tags.
 func TestCastModel(t *testing.T) {
 	reg := &Registry{Providers: map[string]*Provider{"dev": {Name: "dev", Provider: "databricks"},
-		"qa": {Name: "qa", Provider: "databricks"}}}
-	for in, want := range map[string]string{
-		"dev:auto":        `use --overlay '{"provider":"databricks","profile":"dev","model":"auto"}'`,
-		"databricks:auto": `use --overlay '{"provider":"databricks","profile":"auto","model":"auto"}'`,
-		"auto:opus":       `use --overlay '{"provider":"databricks","profile":"auto","model":"opus"}'`,
+		"qa": {Name: "qa", Provider: "databricks"}, "ultra": {Name: "ultra", Provider: "anthropic"}}}
+	for in, want := range map[string]ModelCast{
+		"dev:auto":                       {Model: "auto", Provider: "databricks", Profile: "dev"},
+		"DEV:opus":                       {Model: "opus", Provider: "databricks", Profile: "dev"},
+		"databricks:auto":                {Model: "auto", Provider: "databricks", Profile: "auto"},
+		"auto:opus":                      {Model: "opus", Provider: "databricks", Profile: "auto"},
+		"anthropic:opus":                 {Model: "opus", Provider: "anthropic", Profile: "ultra"},
+		"nvidia/nemotron-4-340b":         {Model: "nvidia/nemotron-4-340b"},
+		"github-copilot/claude-opus-5.5": {Model: "github-copilot/claude-opus-5.5"},
+		"claude-opus-5-5[1m]":            {Model: "claude-opus-5-5[1m]"},
+		"qwen3:30b":                      {Model: "qwen3:30b"},
 	} {
-		if _, err := CastModel(reg, in); err == nil || !strings.Contains(err.Error(), want) ||
-			!strings.Contains(err.Error(), "model "+in+": a model name does not carry a profile") || !errors.Is(err, ErrModelSpec) {
-			t.Errorf("CastModel(%q) = %v; want the refusal naming %s", in, err, want)
+		if got, err := CastModel(reg, in); err != nil || got != want {
+			t.Errorf("CastModel(%q) = %+v, %v; want %+v", in, got, err, want)
 		}
 	}
-	for _, id := range []string{"nvidia/nemotron-4-340b", "github-copilot/claude-opus-5.5", "claude-opus-5-5[1m]", "qwen3:30b", "auto"} {
-		if got, err := CastModel(reg, id); err != nil || got.Model != id {
-			t.Errorf("CastModel(%q) = %+v, %v; want it unchanged", id, got, err)
+	for in, want := range map[string]string{"bogus:auto": "bogus is not a profile", "bogus:opus": "bogus is not a profile",
+		"dev:qa:opus": "one profile prefix at most"} {
+		if _, err := CastModel(reg, in); err == nil || !strings.Contains(err.Error(), want) || !errors.Is(err, ErrModelSpec) {
+			t.Errorf("CastModel(%q) = %v; want %q", in, err, want)
 		}
+	}
+	c := ModelCast{Model: "opus", Provider: "databricks", Profile: "qa"}
+	if _, _, err := c.Merge("", "dev"); err == nil || !strings.Contains(err.Error(), "profile qa is outside dev") {
+		t.Errorf("Merge(dev) = %v; want the conflict naming both", err)
 	}
 }

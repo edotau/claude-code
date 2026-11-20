@@ -119,10 +119,22 @@ func applyRecord(agent string, set map[string]string, dryRun bool) int {
 	return 0
 }
 
-// castRecordModel refuses model=<profile>:<id>, naming the overlay form; the profile is its own key.
+// castRecordModel stores model=<profile>:<id> as profile=<profile> and model=<id>; the pool is the pool pin.
 func castRecordModel(set map[string]string) error {
-	_, err := providers.CastShared(set["MODEL"])
-	return err
+	v, ok := set["MODEL"]
+	c, err := providers.CastShared(v)
+	if !ok || err != nil || c.Profile == "" {
+		return err
+	}
+	profile := c.Profile
+	if profile == "auto" {
+		profile = agentpkg.PoolPin
+	}
+	if cur, typed := set["PROFILE"]; typed && cur != profile {
+		return fmt.Errorf("model %s names profile %s, but profile=%s; drop one", v, profile, cur)
+	}
+	set["MODEL"], set["PROFILE"] = c.Model, profile
+	return nil
 }
 
 // validateRecordSet checks every pin field and the config_route (codex only, a profile that serves it) before any write.

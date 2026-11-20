@@ -841,9 +841,7 @@ func SessionModel(session string) (profile, model string) {
 			return true
 		}
 		model = m
-		if row == "" && !VaultAgentIsClaude(r.Agent) { // a vendor CLI's session lives on its row; claude's moves freely
-			row = r.Provider
-		}
+		row = cmp.Or(row, r.Provider)               // the session lives on the row it ran on
 		if r.RanAs == "" || r.RanAs == r.Fallback { // ran on the asked agent (Fallback names it)
 			profile = row
 		}

@@ -364,7 +364,7 @@ func cmdAgentsLabel(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	if _, err := providers.CastShared(*model); err != nil {
+	if err := castLabelModel(model, profile); err != nil {
 		return helptext.FailUsage("agents label: %v", err)
 	}
 	task, err := agent.ReadBrief(*taskFile)
@@ -389,6 +389,16 @@ func cmdAgentsLabel(args []string) int {
 		return helptext.WriteJSONOrFail("agents label", row)
 	}
 	return emitLabel(row, runText, *model, *profile, task)
+}
+
+// castLabelModel reads --model <profile>:<id> as --profile <profile> --model <id>.
+func castLabelModel(model, profile *string) error {
+	c, err := providers.CastShared(*model)
+	if err == nil {
+		_, *profile, err = c.Merge("", *profile)
+		*model = c.Model
+	}
+	return err
 }
 
 // emitLabel prints the Run: line, then the label, after the hook's refusal and notes.

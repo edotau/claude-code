@@ -546,9 +546,9 @@ func TestOfferModelsPinsServedModelAudited(t *testing.T) {
 	})); n != 1 {
 		t.Fatalf("model-pin audit events for the opus pick = %d, want 1", n)
 	}
-	offer(other, "1\n1\n\n")
-	if got := vault.GetAgentRecord("claude").Aliases["opus"]; got != other+":m-one" {
-		t.Fatalf("cross-profile opus pin = %q, want %s:m-one", got, other)
+	offer(other, "1\n1\n\n") // D5: a pin for another profile is refused; the session pin stays
+	if got := vault.GetAgentRecord("claude").Aliases["opus"]; got != "m-two" {
+		t.Fatalf("cross-profile opus pin = %q, want the refusal to keep m-two", got)
 	}
 }
 

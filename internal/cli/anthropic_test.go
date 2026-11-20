@@ -8,6 +8,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -68,20 +69,12 @@ func TestClaudeCatalogHelpStaysInHarness(t *testing.T) {
 	}
 }
 
-// Invariant: a prefixed model is refused at the launch input, and no launch surface carries one (a stored pin included).
+// Invariant: a typed `<profile>:<model>` is cast at launch input; no launch surface carries a prefix, legacy pins included.
 func TestShorthandNeverLeavesTheHarness(t *testing.T) {
 	seedAltRows(t)
-	for _, agentName := range []string{"claude", "copilot", "opencode", "pi"} { // codex and gemini serve no anthropic row
-		code, _, errOut := hosttest.CaptureOutput(t, func() int {
-			return Run([]string{"claude-code", agentName, "--model", "alt2:opus", "--print-env"})
-		})
-		if code == 0 || !strings.Contains(errOut, `use --overlay '{"provider":"anthropic","profile":"alt2","model":"opus"}'`) {
-			t.Errorf("%s --model alt2:opus: exit %d %q; want a refusal naming the overlay", agentName, code, errOut)
-		}
-	}
-	for _, args := range [][]string{{"claude", "--model", "opus"}, {"claude", "--profile", "alt2", "--model", "sonnet"},
-		{"copilot", "--profile", "alt2", "--model", "opus"}, {"opencode", "--profile", "alt2", "--model", "opus"},
-		{"pi", "--profile", "alt2", "--model", "opus"}} {
+	for _, args := range [][]string{{"claude", "--model", "opus"}, {"claude", "--model", "alt2:sonnet"},
+		{"copilot", "--model", "alt2:opus"}, {"opencode", "--model", "alt2:opus"}, {"pi", "--model", "alt2:opus"},
+		{"claude", "--profile", "alt2", "--model", "sonnet"}} {
 		code, out, errOut := hosttest.CaptureOutput(t, func() int { return Run(append([]string{"claude-code"}, append(args, "--print-env")...)) })
 		if code != 0 || !strings.Contains(out+errOut, "alt") {
 			t.Fatalf("%v: exit %d, no plan: %s %s", args, code, out, errOut)
@@ -99,6 +92,7 @@ func seedAltRows(t *testing.T) {
 	dir := cfgDir(t)
 	t.Setenv("HOME", t.TempDir())
 	t.Setenv("ALT_KEY", "test-key")
+	t.Setenv(providers.EnvSessionProfile, "")
 	stubs, native := filepath.Join(dir, "bin"), t.TempDir() // the harness's agent bin; native claude lives outside it
 	if err := os.MkdirAll(stubs, 0o755); err != nil {
 		t.Fatal(err)

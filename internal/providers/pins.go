@@ -115,7 +115,7 @@ func AgentModelEnv(agent string) string {
 	return strings.ToUpper(agent) + "_MODEL"
 }
 
-// EnvModel is the agent's shell model env (a prefixed value reads as none; EnvCast refuses it), with its var name.
+// EnvModel is the agent's shell model env as its plain id (EnvCast also gives the route unit), with its var name.
 func EnvModel(ctx context.Context, agent string) (model, envVar string) {
 	c, v, _ := EnvCast(ctx, agent)
 	return c.Model, v
@@ -129,12 +129,12 @@ func envModelRaw(ctx context.Context, agent string) (model, envVar string) {
 	return strings.TrimSpace(proc.Value(ctx, envVar)), envVar
 }
 
-// EnvCast checks the agent's shell model env at the boundary, with the variable's name; a prefixed value errors.
+// EnvCast casts the agent's shell model env at the boundary, with the variable's name.
 func EnvCast(ctx context.Context, agent string) (ModelCast, string, error) {
 	m, v := envModelRaw(ctx, agent)
 	c, err := CastShared(m)
 	if err != nil {
-		return ModelCast{}, v, fmt.Errorf("%s: %w", v, err)
+		return ModelCast{}, v, fmt.Errorf("%s=%s: %w", v, m, err)
 	}
 	return c, v, nil
 }
@@ -376,18 +376,13 @@ func CopilotPlanName(raw string) string {
 	return raw
 }
 
-// QualifyPinSpec is spec as "profile:model" unless providerFlag is the profile Select resolves (record, else default).
-func QualifyPinSpec(reg *Registry, providerFlag, spec string) string {
-	if providerFlag == "" || spec == "" {
-		return spec
+// SessionProfileOnly refuses a pin for profile other than the session's: every alias resolves on the session profile.
+func SessionProfileOnly(reg *Registry, profile string) error {
+	session := cmp.Or(recordProfile(AgentRecord("claude")), reg.Default)
+	if profile == "" || profile == session {
+		return nil
 	}
-	if ms, err := SplitModelSpec(reg, spec); err == nil && ms.Row != "" {
-		return spec
-	}
-	if providerFlag == cmp.Or(recordProfile(AgentRecord("claude")), reg.Default) {
-		return spec
-	}
-	return providerFlag + ":" + spec
+	return fmt.Errorf("--profile %s: model pins resolve on the session profile (%s); switch the session to pin there", profile, session)
 }
 
 // ParseModelPins maps `alias=model` pins (plus unpin) to alias → spec: alias "" is every alias, spec "" unpins.
@@ -409,10 +404,16 @@ func ParseModelPins(reg *Registry, profile string, unpin bool, pins []string) (m
 		} else if !slices.Contains(models.AliasNames, alias) {
 			return nil, fmt.Errorf("unknown alias %q (opus|sonnet|haiku|fable|all)", alias)
 		}
-		if _, err := CastModel(reg, spec); err != nil {
+		c, err := CastModel(reg, spec)
+		if err != nil {
 			return nil, err
 		}
-		set[alias] = QualifyPinSpec(reg, profile, spec)
+		scope := cmp.Or(c.Profile, profile) // alias=<p>:<id> reads as --profile <p>; pins resolve on the session (D5)
+		spec = c.Model
+		if err := SessionProfileOnly(reg, scope); err != nil && spec != "" { // an unpin clears on any profile
+			return nil, err
+		}
+		set[alias] = spec
 	}
 	return set, nil
 }
