@@ -85,8 +85,7 @@ type client struct {
 	base string
 }
 
-// Run executes sql on warehouseID, polling up to two minutes, and returns at most rowLimit rows.
-// Every error it returns is scrubbed of the workspace host, URLs and secret-shaped text; errors.Is/As still see the cause.
+// Run executes sql on warehouseID, polling up to two minutes; its errors are scrubbed of hosts, URLs and secrets.
 func Run(ctx context.Context, p *providers.Provider, warehouseID, sql string) (Result, error) {
 	res, err := execute(ctx, p, warehouseID, sql)
 	if err != nil {

@@ -41,7 +41,7 @@ func ledgerModelKey(profile, model string) string {
 	return models.ModelKey(m)
 }
 
-// estimateCost prices ledger entries at or after since with each profile's table; profiles without a table are left out.
+// estimateCost prices ledger entries at or after since with each profile's table; unpriced profiles are left out.
 func estimateCost(entries []tokenledger.Entry, prices map[string]map[string]providers.Price, since time.Time) []costRow {
 	type key struct{ profile, model string }
 	keyed := map[string]map[string]providers.Price{}
