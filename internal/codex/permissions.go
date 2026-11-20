@@ -414,7 +414,8 @@ const (
 )
 
 func (s *denialSink) runStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry.TailBuffer, res wire.Result) (wire.Result, error) {
-	res, err := agent.RunStream(ctx, name, cmd, tail, res, s, parseCodexStream)
+	idle := agent.NewIdleTimeout(name, agent.IdleLimitFor(name), nil)
+	res, err := agent.RunStreamWith(ctx, name, cmd, tail, res, s, parseCodexIdle(idle), agent.StreamOpts{Idle: idle})
 	res.Denials = s.denials
 	return res, err
 }

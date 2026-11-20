@@ -1,8 +1,12 @@
 package opencode
 
 import (
+	"bufio"
+	"cmp"
 	"context"
 	"fmt"
+	"io"
+	"os/exec"
 	"slices"
 	"strings"
 	"time"
@@ -130,16 +134,9 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink wire.Si
 	if err != nil {
 		return res, err
 	}
-	// the first-output watch: step_start renews it, the first real event stops it for good; RunEventStream kills.
-	w := agent.NewIdleTimeout(l.agent, l.firstOutput, nil)
+	w, opts, parse := l.idleWatch(cmd, host)
 	defer w.Stop()
-	var onStep func()
-	if w != nil {
-		onStep = func() { w.Beat("step_start") }
-	}
-	lw := watchLimit(cmd)
-	opts := agent.StreamOpts{Idle: w, OnMeaningful: func() { w.Stop(); lw.markSpoke() }, Cause: lw.Err}
-	out, runErr := agent.RunEventStream(ctx, l.agent, cmd, tail, sink, host.parser(onStep), opts)
+	out, runErr := agent.RunEventStream(ctx, l.agent, cmd, tail, sink, parse, opts)
 	defer func() { host.after(out, runErr) }()
 	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
 	if out.SessionID != "" {
@@ -150,6 +147,56 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink wire.Si
 		return res, runErr
 	}
 	return res, refuseToolCallText(l.agent, req, res.Answer)
+}
+
+// idleWatch arms the free dispatch's first-output watch (step_start renews it); after first output the idle watch takes over.
+func (l hubDispatch) idleWatch(cmd *exec.Cmd, host *hookHost) (*agent.IdleTimeout, agent.StreamOpts, hubParse) {
+	limit := agent.IdleLimitFor(l.agent)
+	w := agent.NewIdleTimeout(l.agent, cmp.Or(l.firstOutput, limit), nil)
+	if l.firstOutput == 0 {
+		w.Pause() // paid dispatch: no first-output bound, only the idle watch once the model spoke
+	}
+	var onStep func()
+	if w != nil {
+		onStep = func() { w.Beat("step_start") }
+	}
+	lw := watchLimit(cmd)
+	spoke := false // read and set by the parser goroutine only
+	onSpeak := func() {
+		spoke = true
+		w.Spoke()
+		if limit > 0 {
+			w.Rearm(limit, "first output")
+		} else {
+			w.Stop()
+		}
+		lw.markSpoke()
+	}
+	return w, agent.StreamOpts{Idle: w, OnMeaningful: onSpeak, Cause: lw.Err}, idleParser(host.parser(onStep), w, &spoke)
+}
+
+type hubParse = func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error)
+
+// beatReader re-arms w on every read once the model has spoken, so a quiet stream is the only thing that trips it.
+type beatReader struct {
+	r     io.Reader
+	w     *agent.IdleTimeout
+	spoke *bool
+}
+
+func (b beatReader) Read(p []byte) (int, error) {
+	n, err := b.r.Read(p)
+	if n > 0 && *b.spoke {
+		b.w.Beat("event")
+	}
+	return n, err
+}
+
+// idleParser wraps parse so each chunk of the child's stdout re-arms w after first output.
+func idleParser(parse hubParse, w *agent.IdleTimeout, spoke *bool) hubParse {
+	return func(br *bufio.Reader, sink wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (wire.Result, error) {
+		return parse(bufio.NewReader(beatReader{r: br, w: w, spoke: spoke}), sink, onMeaningful, logs...)
+	}
 }
 
 func (l hubDispatch) prepareLaunch(ctx context.Context, req agent.RunOptions, model string) (string, []string, []string, error) {

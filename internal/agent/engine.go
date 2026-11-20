@@ -482,6 +482,19 @@ func firstOutputDeadline() time.Duration {
 	return reg.Routing.Opencode.FirstOutput()
 }
 
+// IdleLimit is how long a codex or opencode stream may stay silent mid-run (a test shrinks it).
+var IdleLimit = 5 * time.Minute
+
+// IdleLimitFor is the mid-stream idle limit per agent, 0 for none: claude runs its own watch (internal/claude/idle.go);
+// gemini and copilot often emit nothing until the end, so no event stream signals their liveness.
+func IdleLimitFor(name string) time.Duration {
+	switch name {
+	case "codex", "opencode":
+		return IdleLimit
+	}
+	return 0
+}
+
 // ErrStalled is a dispatch silent past its stall deadline: fatal, so Do never retries but the chain falls through.
 var ErrStalled = errors.New("dispatch stalled: no output within the stall deadline")
 

@@ -90,6 +90,17 @@ func (w *IdleTimeout) Beat(what string) {
 	w.timer.Reset(w.d)
 }
 
+// Rearm switches the window length to d and restarts it (the first-output window gives way to the idle one).
+func (w *IdleTimeout) Rearm(d time.Duration, what string) {
+	if w == nil || d <= 0 {
+		return
+	}
+	w.mu.Lock()
+	w.d = d
+	w.mu.Unlock()
+	w.Beat(what)
+}
+
 // Pause holds the window off (a tool is running) until the next Beat.
 func (w *IdleTimeout) Pause() {
 	if w == nil {

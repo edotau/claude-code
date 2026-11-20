@@ -5,7 +5,9 @@ import (
 	"cmp"
 	"errors"
 	"fmt"
+	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
@@ -42,24 +44,65 @@ type codexStreamState struct {
 	log          wire.StreamLog
 	sink         wire.Sink
 	onMeaningful func()
+	idle         *agent.IdleTimeout
+	running      map[string]bool // tool items started and not yet completed
 }
 
 // parseCodexStream emits text, tools and usage, retaining the last message as the answer.
-func parseCodexStream(br *bufio.Reader, sink wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (res wire.Result, _ error) {
-	state := codexStreamState{log: wire.PickLog(logs), sink: sink, onMeaningful: onMeaningful}
-	tr, err := wire.DecodeEvents(br, state.log, "decode codex json", true, nil, func(ev codexEvent, _ *wire.TransportTracker) (bool, error) {
-		return false, state.apply(ev)
+func parseCodexStream(br *bufio.Reader, sink wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (wire.Result, error) {
+	return parseCodexIdle(nil)(br, sink, onMeaningful, logs...)
+}
+
+// parseCodexIdle is parseCodexStream that feeds every event to idle: a nil idle is no watch.
+func parseCodexIdle(idle *agent.IdleTimeout) func(*bufio.Reader, wire.Sink, func(), ...wire.StreamLog) (wire.Result, error) {
+	return func(br *bufio.Reader, sink wire.Sink, onMeaningful func(), logs ...wire.StreamLog) (res wire.Result, _ error) {
+		state := codexStreamState{log: wire.PickLog(logs), sink: sink, onMeaningful: onMeaningful, idle: idle, running: map[string]bool{}}
+		return state.parse(br)
+	}
+}
+
+func (s *codexStreamState) parse(br *bufio.Reader) (res wire.Result, _ error) {
+	tr, err := wire.DecodeEvents(br, s.log, "decode codex json", true, nil, func(ev codexEvent, _ *wire.TransportTracker) (bool, error) {
+		s.observe(ev)
+		return false, s.apply(ev)
 	})
-	res = state.res
-	res.Transport, res.Answer = tr, state.ans.Last()
+	res = s.res
+	res.Transport, res.Answer = tr, s.ans.Last()
 	if err != nil {
 		return res, err
 	}
-	state.failure = cmp.Or(state.failure, state.retryError)
-	if state.failure != "" {
-		return res, errors.New(state.failure)
+	s.failure = cmp.Or(s.failure, s.retryError)
+	if s.failure != "" {
+		return res, errors.New(s.failure)
 	}
 	return res, nil
+}
+
+// observe re-arms the idle window per event: a retry notice is no progress, a running tool holds the window off.
+func (s *codexStreamState) observe(ev codexEvent) {
+	if s.idle == nil || ev.WillRetry {
+		return
+	}
+	if strings.HasPrefix(ev.Type, "item.") {
+		s.idle.Spoke()
+		if codexToolItem(ev.Item.Type) {
+			switch ev.Type {
+			case "item.started":
+				s.running[ev.Item.ID] = true
+			case "item.completed":
+				delete(s.running, ev.Item.ID)
+			}
+		}
+	}
+	if len(s.running) > 0 { // a long tool call emits nothing until it ends
+		s.idle.Pause()
+		return
+	}
+	s.idle.Beat(ev.Type)
+}
+
+func codexToolItem(typ string) bool {
+	return typ == "command_execution" || typ == "mcp_tool_call" || typ == "collab_tool_call" || typ == "web_search"
 }
 
 func (s *codexStreamState) apply(ev codexEvent) error {
