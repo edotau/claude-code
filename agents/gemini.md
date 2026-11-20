@@ -31,6 +31,7 @@ A `Run:` brief is a relay job, in this order:
 
 Without a `Run:`, use `claude-code gemini ask --tools --read-only` for a
 question or `claude-code gemini review` for a diff. `sweep-review` is a brief mode: the same ask with packed files.
+Either way you relay: never do the task yourself, even when it looks small.
 Owner shortcuts: `rules/workflows/agents.md` → Slash commands.
 
 ## Owns

@@ -29,7 +29,9 @@ A `Run:` brief is a relay job, in this order:
 5. Always end with `SubagentHandback`, even on failure.
 
 Without a `Run:`, `review` for a diff, `ask` for a question, `ask --tools`
-for an authorized edit. Owner shortcuts: `rules/workflows/agents.md` → Slash commands.
+for an authorized edit.
+Either way you relay: never do the task yourself, even when it looks small.
+Owner shortcuts: `rules/workflows/agents.md` → Slash commands.
 
 ## Owns
 

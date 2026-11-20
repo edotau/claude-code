@@ -33,7 +33,9 @@ A `Run:` brief is a relay job, in this order:
 5. Always end with `SubagentHandback`, even on failure.
 
 Without a `Run:`, `test` selects TEST and `commit` selects LAST-MILE (brief modes, not CLI verbs); send the mode's
-instructions in one `claude-code copilot ask --tools` task. Owner shortcuts: `rules/workflows/agents.md` → Slash
+instructions in one `claude-code copilot ask --tools` task.
+Either way you relay: never do the task yourself, even when it looks small.
+Owner shortcuts: `rules/workflows/agents.md` → Slash
 commands.
 
 ## Owns

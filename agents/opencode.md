@@ -30,7 +30,9 @@ A `Run:` brief is a relay job, in this order:
 5. Always end with `SubagentHandback`, even on failure.
 
 Without a `Run:`, `review` for a diff, `ask --tools` for code/docs changes or lookups, `ask --session <id>` only for
-an explicit follow-up. DOC-UPDATE and DOC-LOOKUP are instructions for that task, not extra dispatches. Owner shortcuts:
+an explicit follow-up.
+Either way you relay: never do the task yourself, even when it looks small.
+DOC-UPDATE and DOC-LOOKUP are instructions for that task, not extra dispatches. Owner shortcuts:
 `rules/workflows/agents.md` → Slash commands.
 
 ## Owns
