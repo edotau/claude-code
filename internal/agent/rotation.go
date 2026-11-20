@@ -485,8 +485,14 @@ func rotationNote(m, alias string, n int, verb string) string {
 	return note
 }
 
-// RotationFreeze records agent's next pick for brief's task tier: the --model a Run: line freezes so label == run.
+// RotationFreeze freezes the launch's tool-aware rotation pick together with its serving row.
 func RotationFreeze(ctx context.Context, agentName, brief, model string) (string, string) {
+	ctx, _ = RunValues(ctx, nil)
+	o, err := agentconfig.LoadOverlayContext(ctx, "", nil)
+	if err != nil || o.Host != "" || o.Remote != "" {
+		return "", ""
+	}
+	model = cmp.Or(model, o.Model)
 	if prefix, auto := SplitAuto(cmp.Or(model, agentModelPinContext(ctx, agentName))); !auto || prefix != "" {
 		return "", ""
 	}
@@ -494,12 +500,26 @@ func RotationFreeze(ctx context.Context, agentName, brief, model string) (string
 	if err != nil {
 		return "", ""
 	}
-	alias, _ := TaskTier(brief)
-	m, note, err := RotationModel(reg, agentName, cmp.Or(alias, models.Sonnet), true, time.Now())
+	q := ModelQuery{Agent: agentName, Model: model, Task: brief, Tools: IsReadOnlyBrief(brief) && agentName != agentid.Codex,
+		Profile: o.Profile, Provider: o.Provider, Account: o.Account, Effort: o.Effort, Identity: o.Identity, Fallback: o.Fallback}
+	q.Default, _ = TaskTier(brief)
+	return freezeQuery(ctx, reg, q, agentName, brief)
+}
+
+// freezeQuery resolves q as the launch would and returns the rotation pick with its serving row.
+func freezeQuery(ctx context.Context, reg *providers.Registry, q ModelQuery, agentName, brief string) (string, string) {
+	q, note, err := RunQuery(ctx, reg, q, router.RuleClassifier{}.Alias(brief))
+	if err != nil || q.Agent != agentName {
+		return "", "rotation route unavailable; the run picks at launch"
+	}
+	r, choice, err := ExplainRun(reg, QueryFor(ctx, q), time.Now())
 	if err != nil {
 		return "", "rotation state unavailable; the run picks at launch"
 	}
-	return m, note
+	if choice == nil || choice.Criterion != "rotation" || r.Profile == "" {
+		return "", ""
+	}
+	return r.Profile + ":" + r.Model, joinNotes(note, r.Note)
 }
 
 // RotationSummary is a rotation pin's doctor detail: the pool size per tier, then the last 7 days' runs by model.

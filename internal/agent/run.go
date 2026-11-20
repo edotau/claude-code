@@ -272,7 +272,7 @@ func (c *Client) Exec(ctx context.Context, p *Prepared, out wire.Sink, d RunReco
 		if p.remote != nil {
 			return p.remote.Run(ctx, p.Opts, sink)
 		}
-		wrote := watchWrites(ctx, p.Opts.WorkDir, p.Record.Tree)
+		wrote := watchWrites(ctx, p.Opts.WorkDir, p.Record.Tree, p.Opts.Permissions.Allow...)
 		res, err := runWithFallback(ctx, p.Chain, p.Opts, sink, d.Notify)
 		p.Record.Wrote, p.Record.PreDirtyTouched = wrote()
 		if w := p.Record.Wrote; w != nil && len(*w) > 0 && sharesTree(p.Record, time.Now()) {
@@ -385,6 +385,38 @@ func recoveryTarget(r Engine, req RunOptions) (providers.Target, bool) {
 	return t, err == nil && t.Provider != nil
 }
 
+// briefHeader is the prompt up to its first blank line, where the rendered brief carries Owned:.
+func briefHeader(prompt string) string {
+	head, _, _ := strings.Cut(strings.TrimSpace(prompt), "\n\n")
+	return head
+}
+
+func refuseToollessEdit(req RunOptions) error {
+	if len(ParseOwned(briefHeader(req.Prompt))) > 0 && !IsReadOnlyBrief(req.Prompt) && !req.Tools && !req.ReadOnly {
+		return errors.New("edit brief (Owned: files) needs tools: pass --tools, or add Mode: read-only")
+	}
+	return nil
+}
+
+// checkAnswer validates the structured answer (native or emulated) and marks an empty one partial.
+func checkAnswer(res *wire.Result, schema, name string) *retry.Error {
+	var e *retry.Error
+	if schema != "" {
+		e = checkStructured(res, schema, name)
+	}
+	if e == nil && emptyAnswer(*res) {
+		progressed := res.Usage.OutputTokens > 0 // output was produced but no answer: do not rerun it elsewhere
+		e = &retry.Error{Kind: retry.KindTransient, Agent: name, Progressed: progressed, Err: errors.New("empty answer")}
+		res.Status = StatusOf(e)
+	}
+	return e
+}
+
+// emptyAnswer: transport success with no answer is not a finished task.
+func emptyAnswer(res wire.Result) bool {
+	return strings.TrimSpace(res.Answer) == "" && len(res.Structured) == 0
+}
+
 // checkRun layers default permissions under the request and the outer dispatch's over it, then refuses what r can't do.
 func checkRun(r Engine, req RunOptions) (RunOptions, error) {
 	def, err := DefaultPermissions(r.Name())
@@ -400,7 +432,10 @@ func checkRun(r Engine, req RunOptions) (RunOptions, error) {
 	outer, readOnly := ancestorPolicy(proc.Value(vctx, proc.DispatchIDEnv))
 	req.Permissions.Deny, req.Permissions.Ask = union(req.Permissions.Deny, outer.Deny), union(req.Permissions.Ask, outer.Ask)
 	req.Permissions.Mode = cmp.Or(outer.Mode, req.Permissions.Mode)
-	req.ReadOnly = req.ReadOnly || readOnly && req.Tools
+	req.ReadOnly = req.ReadOnly || readOnly && req.Tools && !req.Maintenance
+	if err = refuseToollessEdit(req); err != nil {
+		return req, err
+	}
 	if err = refusePersona(r.Caps(), r.Name(), req.Persona); err != nil {
 		return req, err
 	}
@@ -476,9 +511,7 @@ func (s *runState) finish(name string, start time.Time, e *retry.Error, recoverE
 	res.NotStarted = e != nil && !s.started
 	if e == nil {
 		res.Recovered = s.failed
-		if s.req.OutputSchema != "" { // Every answer is checked, native or emulated.
-			e = checkStructured(&res, s.req.OutputSchema, name)
-		}
+		e = checkAnswer(&res, s.req.OutputSchema, name)
 	}
 	if e != nil {
 		e.Agent = cmp.Or(e.Agent, name)
@@ -579,6 +612,7 @@ type RunOptions struct {
 	Rubric                                              string             `json:"-"`
 	Background                                          bool               `json:"-"`
 	AutoArm                                             bool               `json:"auto_arm,omitempty"` // the workspace was an auto pick: a --job child may move on a 429
+	Maintenance                                         bool               `json:"-"`                  // trusted memory job: keeps its own write tools despite an inherited read-only
 	DataPrompt                                          bool               `json:"-"`                  // the prompt embeds transcript data: the gate skips its Workflow-brief scan
 	Gate                                                bool               `json:"-"`                  // claude: bypass its prompts, Permissions enforced by the injected permission-gate
 

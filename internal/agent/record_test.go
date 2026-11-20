@@ -1070,7 +1070,6 @@ func TestFailKindClassification(t *testing.T) {
 	}
 }
 
-// A record written before fail_kind and gates existed loads with both empty, and SetGates updates it in place.
 func TestOldRecordLoadsWithoutOutcomeFields(t *testing.T) {
 	setConfigDir(t)
 	old := `{"schema":1,"id":"20260101T000000","time":"2026-01-01T00:00:00Z","agent":"codex","status":"error","error":"x"}`
@@ -1080,17 +1079,8 @@ func TestOldRecordLoadsWithoutOutcomeFields(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(paths.DispatchDir(), "20260101T000000.json"), []byte(old), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if r, err := LoadRecord("20260101T000000"); err != nil || r.FailKind != "" || r.Gates != "" {
+	if r, err := LoadRecord("20260101T000000"); err != nil || r.FailKind != "" || r.Error != "x" {
 		t.Fatalf("old record = %+v, %v", r, err)
-	}
-	if err := SetGates("20260101T000000", "pass"); err != nil {
-		t.Fatal(err)
-	}
-	if r, _ := LoadRecord("20260101T000000"); r.Gates != "pass" || r.Error != "x" {
-		t.Fatalf("after SetGates = %+v", r)
-	}
-	if SetGates("20260101T000000", "maybe") == nil {
-		t.Fatal("bad gates value accepted")
 	}
 }
 

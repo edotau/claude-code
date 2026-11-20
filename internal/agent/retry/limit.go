@@ -2,6 +2,7 @@ package retry
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"strconv"
 	"sync"
@@ -89,7 +90,19 @@ func Settle(ctx context.Context) {
 }
 
 // acquire waits for a Slot, an account permit and a shared slot; a full shared account frees the local permit first.
-func (l *Limiter) acquire(ctx context.Context, account string) (func(), error) {
+func (l *Limiter) acquire(ctx context.Context, account string) (release func(), err error) {
+	timeout, _ := ctx.Value(admissionTimeoutKey{}).(time.Duration)
+	if timeout <= 0 {
+		timeout = DefaultPolicy().AttemptTimeout
+	}
+	started := time.Now()
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("admission for account %q waited %s: %w", account, time.Since(started).Round(time.Millisecond), err)
+		}
+	}()
 	if l.limits.Total <= 0 {
 		return l.acquireLocal(ctx, account)
 	}
@@ -161,11 +174,17 @@ func (h *Permit) Idle(ctx context.Context, wait func()) error {
 }
 
 type (
-	permitKey   struct{}
-	limiterKey  struct{}
-	failFastKey struct{}
-	slotKey     struct{}
+	permitKey           struct{}
+	limiterKey          struct{}
+	failFastKey         struct{}
+	slotKey             struct{}
+	admissionTimeoutKey struct{}
 )
+
+// WithAdmissionTimeout bounds each admission wait without consuming the attempt's runtime budget.
+func WithAdmissionTimeout(ctx context.Context, timeout time.Duration) context.Context {
+	return context.WithValue(ctx, admissionTimeoutKey{}, timeout)
+}
 
 // WithPermit carries h in ctx for the dispatch's retry loop; Held reads it back (nil outside a dispatch).
 func WithPermit(ctx context.Context, h *Permit) context.Context {

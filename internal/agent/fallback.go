@@ -140,9 +140,19 @@ func announceFallback(sink wire.Sink, notify func(string), prev, disp Dispatch, 
 	return nil
 }
 
+// admit takes the account's permit under req.Timeout and leaves req.Timeout as what the attempt has left.
+func admit(ctx context.Context, key string, req *RunOptions) (func(), error) {
+	started := time.Now()
+	release, err := retry.AcquireDispatch(retry.WithAdmissionTimeout(ctx, req.Timeout), key)
+	if req.Timeout > 0 {
+		req.Timeout = max(time.Millisecond, req.Timeout-time.Since(started))
+	}
+	return release, err
+}
+
 // runDispatch is one dispatch's scope: fail-fast is decided and a panic caught before the permit is released.
 func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req RunOptions, key string, replacement bool, sink wire.Sink, notify func(string)) (res wire.Result, hops []wire.Hop, panicked bool, err error) {
-	release, aerr := retry.AcquireDispatch(ctx, key) // per billed account, whichever key the task was queued under
+	release, aerr := admit(ctx, key, &lreq)
 	if aerr != nil {
 		ce := &retry.Error{Kind: retry.KindFatal, Agent: disp.Agent.Name(), Err: aerr}
 		res, err = wire.Result{Agent: ce.Agent, Status: StatusOf(ce), Invoked: invokedModel(lreq), NotStarted: true}, ce
@@ -177,12 +187,12 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	if disp.rowHop {
 		router.StampRow(disp.Agent.Name(), disp.row, time.Now()) // the hop's row served, so it is no longer least-recent
 	}
-	runCtx := retry.WithPermit(withCoolKey(ctx, key), held)
+	runCtx := retry.WithAdmissionTimeout(retry.WithPermit(withCoolKey(ctx, key), held), lreq.Timeout)
 	res, err = Run(runCtx, disp.Agent, lreq, sink, notify)
 	if replacement && !res.NotStarted {
 		lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
 	}
-	res.Invoked = invokedModel(lreq)
+	res.Invoked = launchedModel(runCtx, disp, lreq)
 	var more []wire.Hop
 	res, lreq, more, err = repick(runCtx, disp, lreq, res, err, sink, notify)
 	hops = append(hops, more...)
@@ -197,6 +207,16 @@ func invokedModel(req RunOptions) string {
 		return AutoModel
 	}
 	return req.Model
+}
+
+// launchedModel is a frozen copilot target's model (the rotation pick lreq never sees), else invokedModel.
+func launchedModel(ctx context.Context, disp Dispatch, req RunOptions) string {
+	if _, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && agentid.Routing(disp.Agent.Name()).FreezeTarget {
+		if t, _, err := SchemaFor(disp.Agent.Name()).TargetCtx(ctx, req); err == nil && t.Model != "" {
+			return t.Model
+		}
+	}
+	return invokedModel(req)
 }
 
 // MaxAutoRepicks bounds how many times one auto ask re-picks after its pick is refused before any work.
@@ -975,7 +995,7 @@ func claudeTier(out RunOptions, disp Dispatch) RunOptions {
 	pinAuto := pinsAuto(out.Values, agentid.Claude)
 	alias := ""
 	if auto := out.AutoModel || pinAuto; auto || pin == "" {
-		alias, _ = TaskTier(out.Prompt)
+		alias, _ = TaskTier(preRecall(out.Prompt))
 		out.Model = alias
 		if auto {
 			alias = cmp.Or(alias, untieredAuto(agentid.Claude))
@@ -1008,7 +1028,7 @@ func autoRunEffort(out RunOptions, agentName, alias string) RunOptions {
 		return out
 	}
 	if alias == "" {
-		alias, _ = TaskTier(out.Prompt)
+		alias, _ = TaskTier(preRecall(out.Prompt))
 	}
 	out.Effort = TierEffort(cmp.Or(alias, models.Opus))
 	return out
@@ -1084,4 +1104,10 @@ func (c Chain) retryYield(ctx context.Context, i int, req RunOptions) func(wire.
 				(dispatchUnavailableContext(ctx, c.Dispatches[i].Agent, res, err) ||
 					c.Dispatches[i+1].rowHop && HopFailed(res, err)))
 	}
+}
+
+// preRecall is the brief without the memory-recall block ask appended, the text the dispatch-effort label classified.
+func preRecall(prompt string) string {
+	task, _, _ := strings.Cut(prompt, recallMark)
+	return task
 }

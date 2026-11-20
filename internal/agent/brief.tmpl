@@ -1,4 +1,6 @@
-Owned: {{.OwnedLine}}
+{{if .Run}}Run: {{.Run}}
+{{end}}{{if .Agent}}Agent: {{.Agent}}
+{{end}}Owned: {{.OwnedLine}}
 Mode: {{if .ReadOnly}}read-only; do not edit files{{else}}implementation; edit only owned files{{end}}
 {{if .Verify}}Verify: {{.Verify}}
 {{end}}{{if .Report}}Report: {{.Report}}

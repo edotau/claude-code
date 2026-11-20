@@ -11,6 +11,7 @@ import (
 	"io"
 	"io/fs"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -57,7 +58,6 @@ type Record struct {
 	Error          string     `json:"error,omitempty"`
 	FailKind       string     `json:"fail_kind,omitempty"` // availability | quality; empty when the run succeeded
 	Cutoff         string     `json:"cutoff,omitempty"`    // deadline | stall | idle | cancelled | auth-retry; set on a cut-off run
-	Gates          string     `json:"gates,omitempty"`     // pass | fail | none (empty reads as none): set by SetGates
 	Provider       string     `json:"provider,omitempty"`
 	Model          string     `json:"model,omitempty"`          // as the agent reported it; may be empty
 	Invoked        string     `json:"invoked_model,omitempty"`  // the model the last hop was asked to run; RunOptions keeps the original
@@ -72,6 +72,8 @@ type Record struct {
 	Attempts       []wire.Hop `json:"attempts,omitempty"`        // every hop of a re-picked or moved run; absent for a one-hop run
 	Route          string     `json:"route,omitempty"`           // overlay confinement at launch (databricks:qa), so a running job shows where it is going
 	PID            int        `json:"pid,omitempty"`             // pid of the detached `claude-code agents ask --job` child
+	PPID           int        `json:"ppid,omitempty"`            // parent pid at launch or claim, before reparenting
+	PGID           int        `json:"pgid,omitempty"`            // process group at launch or claim
 	PIDStart       string     `json:"pid_start,omitempty"`       // proc.StartTime of PID at spawn: tells a reused pid apart
 	Background     bool       `json:"background,omitempty"`      // set only by the `ask --background` spawn
 	Log            string     `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
@@ -115,6 +117,26 @@ func (r Record) Failed() bool {
 // LogPath is the dispatch's log file: Log when set, else <id>.log beside the record.
 func (r Record) LogPath() string {
 	return cmp.Or(r.Log, filepath.Join(paths.DispatchDir(), r.ID+".log"))
+}
+
+const lostLogPreviewRunes = 180
+
+// LostProcessDetail adds the recorded process provenance and last safe log line.
+func (r Record) LostProcessDetail() string {
+	var detail string
+	if r.PPID > 0 {
+		detail += fmt.Sprintf("; ppid=%d", r.PPID)
+	}
+	if r.PGID > 0 {
+		detail += fmt.Sprintf("; pgid=%d", r.PGID)
+	}
+	if detail != "" {
+		detail += "; killer unknown"
+	}
+	if line := textutil.PreviewRedacted(lastLogLine(r.LogPath()), lostLogPreviewRunes); line != "" {
+		detail += "; last log line: " + line
+	}
+	return detail
 }
 
 // EventsPath is the dispatch's NDJSON event file, <id>.events.jsonl beside the record.
@@ -292,6 +314,8 @@ func ClaimJob(id string) (Record, error) {
 	if err != nil {
 		return r, err
 	}
+	process := Record{PID: os.Getpid()}
+	process.stampProcessGroup()
 	path := filepath.Join(paths.DispatchDir(), r.ID+".json")
 	err = paths.WithFileLock(path, func() error {
 		var lerr error
@@ -301,10 +325,25 @@ func ClaimJob(id string) (Record, error) {
 		if r.Status != "running" || (r.PID != 0 && r.Alive()) { // a dead pid is a runner that died mid-claim
 			return fmt.Errorf("--job %s: record is %s (pid %d), %w", r.ID, r.Status, r.PID, ErrJobNotFresh)
 		}
-		r.PID, r.PIDStart = os.Getpid(), ""
+		r.PID, r.PIDStart = process.PID, ""
+		r.PPID, r.PGID = process.PPID, process.PGID
 		return r.Save()
 	})
 	return r, err
+}
+
+func (r *Record) stampProcessGroup() {
+	r.PPID, r.PGID = os.Getppid(), 0
+	if filepath.Separator == '\\' {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "ps", "-o", "pgid=", "-p", strconv.Itoa(r.PID)).Output(); err == nil {
+		if pgid, err := strconv.Atoi(strings.TrimSpace(string(out))); err == nil && pgid > 0 {
+			r.PGID = pgid
+		}
+	}
 }
 
 // RepairDead applies fix to id's record under its lock if it is still a dead running one; false when it is not.
@@ -579,18 +618,6 @@ func failKind(err error) string {
 		return FailAvailability
 	}
 	return FailQuality
-}
-
-// SetGates records the gate result (pass|fail|none) on a concluded dispatch; no caller sets it yet.
-func SetGates(id, gates string) error {
-	if gates != "pass" && gates != "fail" && gates != "none" {
-		return fmt.Errorf("dispatch %s: gates %q is not pass, fail or none", id, gates)
-	}
-	_, _, err := updateRecord(id, func(r Record) (Record, bool) {
-		r.Gates = gates
-		return r, true
-	})
-	return err
 }
 
 func (r *Record) finishSave(res wire.Result, err error, took time.Duration, notify func(string)) {
@@ -994,6 +1021,7 @@ func buildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Re
 	rec.Log = rec.LogPath()
 	if !background {
 		rec.PID = os.Getpid() // foreground run: alive while this process runs, lost only if it dies
+		rec.stampProcessGroup()
 	}
 	return rec, nil
 }

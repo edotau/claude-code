@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
@@ -12,20 +14,45 @@ import (
 	"github.com/edotau/claude-code/internal/router"
 )
 
-// startRecall begins the memory-recall lookup and returns a join that gives the brief with its block appended once;
-// a replay, --safe-mode or a held block sends the brief as is.
+const (
+	recallMinPrompt = 200 // a shorter prompt is a quick question, not a brief
+	recallWait      = 2 * time.Second
+)
+
+// recallQuery is the brief's Task: section when it has one, else the whole prompt.
+func recallQuery(prompt string) string {
+	_, task, ok := strings.Cut(prompt, "\nTask:\n")
+	if !ok {
+		return prompt
+	}
+	task, _, _ = strings.Cut(task, "\n## Leaf rules")
+	return task
+}
+
+// startRecall looks up memory unless skipped and returns a join that appends the block at most once.
 func (r *askRun) startRecall(prompt string) func() string {
-	if r.jobRec != nil || r.f.retry != "" || r.f.safeMode {
+	if r.jobRec != nil || r.f.retry != "" || r.f.safeMode || !r.f.tools || len(prompt) < recallMinPrompt ||
+		strings.Contains(prompt, "<memory-recall>") {
 		return func() string { return prompt }
 	}
 	done := make(chan string, 1)
+	ctx, cancel := context.WithCancel(r.ctx)
 	go func() {
+		defer cancel()
 		session := os.Getenv(memory.SessionIDEnv)
-		block, _ := memory.AgentRecall(r.ctx, session, prompt)
+		block, _ := memory.AgentRecall(ctx, session, recallQuery(prompt))
 		memory.LogBriefRecall(session, block)
 		done <- block
 	}()
-	return func() string { return prompt + <-done }
+	return func() string {
+		select {
+		case block := <-done:
+			return prompt + block
+		case <-time.After(recallWait):
+			cancel()
+			return prompt
+		}
+	}
 }
 
 // memoryRunOptions pins the memory job to claude: it holds write tools, so it never falls back to another vendor.
@@ -55,7 +82,7 @@ func memoryRunOptions(ctx context.Context, prompt, workdir string) agent.RunOpti
 	// read-only inspection; echo is the job's separator, and the redirect deny still refuses `echo x > f`
 	p.Allow = append(p.Allow, agent.ReadOnlyAllow, agent.Rule{Tool: "Bash", Arg: "echo *"})
 	return agent.RunOptions{Agent: "claude", Prompt: prompt, Effort: "medium", Tools: s.Tools, WorkDir: workdir,
-		Fallback: router.FallbackNone, Gate: true, DataPrompt: true, Permissions: p}
+		Fallback: router.FallbackNone, Gate: true, DataPrompt: true, Maintenance: true, Permissions: p}
 }
 
 // memorySink prints a memory job's text events masked; the job reads the files it wrote, not this text.

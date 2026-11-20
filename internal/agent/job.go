@@ -506,6 +506,9 @@ func toRow(r Record) Row {
 		elapsed = time.Since(r.Time).Round(time.Second).String()
 	}
 	preview := textutil.PreviewRedacted(r.Request.Prompt, 60)
+	if status == "lost" && r.Error == "" {
+		r.Error = "lost: process gone" + r.LostProcessDetail()
+	}
 	live := ""
 	if status == "running" {
 		live = ProgressOf(r, time.Now()).Line(progressWidth)

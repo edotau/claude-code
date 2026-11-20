@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	_ "embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -20,6 +21,8 @@ import (
 // BriefInput supplies the authored task and the leaf's execution contract.
 type BriefInput struct {
 	Task     string
+	Agent    string
+	Run      string
 	Owned    []string
 	ReadOnly bool
 	Report   string
@@ -29,8 +32,26 @@ type BriefInput struct {
 //go:embed brief.tmpl
 var briefTemplate string
 
+func (input BriefInput) validate() error {
+	if !input.ReadOnly && len(input.Owned) == 0 {
+		return errors.New("implementation brief requires at least one owned path")
+	}
+	for _, path := range input.Owned {
+		if strings.TrimSpace(path) == "" {
+			return errors.New("owned path cannot be blank")
+		}
+	}
+	if strings.ContainsAny(input.Agent, "\r\n") || strings.ContainsAny(input.Run, "\r\n") {
+		return errors.New("agent and run must each fit on one line")
+	}
+	return nil
+}
+
 // RenderBrief resolves report paths against the memory bank.
 func RenderBrief(input BriefInput) (string, error) {
+	if err := input.validate(); err != nil {
+		return "", err
+	}
 	if input.Owned == nil {
 		input.Owned = []string{}
 	}

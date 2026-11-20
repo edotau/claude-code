@@ -54,7 +54,7 @@ func agentsSpec() *helptext.Node {
 			flag("head"), boolFlag("verdict"), flag("lines"), formatFlag()}},
 		"cancel": {Flags: []helptext.Flag{valuedFlag("agent", agent.RosterNames), boolFlag("lost"), boolFlag("dry-run"), formatFlag()}},
 		"wait":   {Flags: []helptext.Flag{flag("timeout"), formatFlag()}},
-		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), boolFlag("read-only"), flag("report"), boolFlag("path")}},
+		"brief":  {Flags: []helptext.Flag{flag("task"), flag("own"), boolFlag("read-only"), flag("report"), flag("agent"), flag("run"), flag("verify"), boolFlag("path")}},
 	}}
 }
 
@@ -650,37 +650,39 @@ func cmdAgentsWait(args []string) int {
 	return agent.WaitExit(rows)
 }
 
-// cmdAgentsBrief is `agents brief`: the rendered brief on stdout; an implementation brief needs --own.
+// Implementation briefs require both an ownership boundary and a verification criterion.
 func cmdAgentsBrief(args []string) int {
 	fs := agentsFlags("brief")
 	pathMode := fs.Bool("path", false, "reserve a unique empty brief file; optional agent argument")
 	taskFile := fs.String("task", "", "the authored task text file; - reads stdin")
-	var owned []string
+	var input agent.BriefInput
 	fs.Func("own", "a file or directory the leaf may edit; repeat per path", func(v string) error {
-		owned = append(owned, v)
+		if strings.TrimSpace(v) == "" {
+			return errors.New("owned path cannot be blank")
+		}
+		input.Owned = append(input.Owned, v)
 		return nil
 	})
-	readOnly := fs.Bool("read-only", false, "the leaf edits nothing (no --own needed)")
-	report := fs.String("report", "", "where the leaf writes its full report")
+	fs.BoolVar(&input.ReadOnly, "read-only", false, "the leaf edits nothing (--own and --verify optional)")
+	fs.StringVar(&input.Report, "report", "", "where the leaf writes its full report")
+	fs.StringVar(&input.Verify, "verify", "", "how to verify completion; required unless --read-only")
+	fs.StringVar(&input.Agent, "agent", "", "agent named in the brief header")
+	fs.StringVar(&input.Run, "run", "", "dispatch command for the opening Run: line")
 	pos, err := helptext.ParseArgs(fs, args)
 	if err != nil {
 		return helptext.ExitCode(err)
 	}
 	if *pathMode {
-		if fs.NFlag() != 1 || len(pos) > 1 {
-			fs.Usage()
-			return 2
-		}
-		return printBriefPath(strings.Join(pos, ""))
+		return printBriefPath(fs, pos)
 	}
-	if *taskFile == "" || len(pos) > 0 || (!*readOnly && len(owned) == 0) {
+	if *taskFile == "" || len(pos) > 0 || (!input.ReadOnly && (len(input.Owned) == 0 || strings.TrimSpace(input.Verify) == "")) {
 		fs.Usage()
 		return 2
 	}
-	return renderAgentsBrief(*taskFile, owned, *readOnly, *report)
+	return renderAgentsBrief(*taskFile, input)
 }
 
-func renderAgentsBrief(taskFile string, owned []string, readOnly bool, report string) int {
+func renderAgentsBrief(taskFile string, input agent.BriefInput) int {
 	task, err := agent.ReadBrief(taskFile)
 	if err != nil {
 		return helptext.Fail("agents brief: %v", err)
@@ -688,7 +690,8 @@ func renderAgentsBrief(taskFile string, owned []string, readOnly bool, report st
 	if strings.TrimSpace(task) == "" {
 		return helptext.Fail("agents brief: --task %q is empty", taskFile)
 	}
-	out, err := agent.RenderBrief(agent.BriefInput{Task: task, Owned: owned, ReadOnly: readOnly, Report: report})
+	input.Task = task
+	out, err := agent.RenderBrief(input)
 	if err != nil {
 		return helptext.Fail("agents brief: %v", err)
 	}
@@ -698,8 +701,12 @@ func renderAgentsBrief(taskFile string, owned []string, readOnly bool, report st
 	return 0
 }
 
-func printBriefPath(name string) int {
-	path, err := agent.NewBriefPath(name)
+func printBriefPath(fs *flag.FlagSet, pos []string) int {
+	if fs.NFlag() != 1 || len(pos) > 1 {
+		fs.Usage()
+		return 2
+	}
+	path, err := agent.NewBriefPath(strings.Join(pos, ""))
 	if err != nil {
 		return helptext.Fail("agents brief: %v", err)
 	}

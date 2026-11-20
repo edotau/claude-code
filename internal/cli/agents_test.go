@@ -949,11 +949,13 @@ func TestAgentsBriefRendersOwnedAndRejectsMissingOwn(t *testing.T) {
 	if err := os.WriteFile(task, []byte("Do the thing.\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	out := okAgents(t, "brief", "--task", task, "--own", "internal/a.go", "--own", "internal/b.go", "--report", "/tmp/r.md")
+	out := okAgents(t, "brief", "--task", task, "--own", "internal/a.go", "--own", "internal/b.go",
+		"--report", "/tmp/r.md", "--verify", "go build ./...", "--agent", "codex", "--run", "claude-code agents ask codex")
 	if got := agent.ParseOwned(out); !slices.Equal(got, []string{"internal/a.go", "internal/b.go"}) {
 		t.Errorf("Owned round trip = %q\n%s", got, out)
 	}
-	for _, want := range []string{"Do the thing.", "Report: /tmp/r.md", "implementation; edit only owned files"} {
+	for _, want := range []string{"Do the thing.", "Report: /tmp/r.md", "implementation; edit only owned files",
+		"Verify: go build ./...\n", "Run: claude-code agents ask codex\nAgent: codex\nOwned:"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("brief lacks %q:\n%s", want, out)
 		}
@@ -961,7 +963,14 @@ func TestAgentsBriefRendersOwnedAndRejectsMissingOwn(t *testing.T) {
 	if ro := okAgents(t, "brief", "--task", task, "--read-only"); !strings.Contains(ro, "read-only; do not edit files") {
 		t.Errorf("read-only brief:\n%s", ro)
 	}
-	for _, args := range [][]string{{"brief", "--task", task}, {"brief", "--own", "a.go"}} {
+	for _, args := range [][]string{
+		{"brief", "--task", task}, {"brief", "--own", "a.go"},
+		{"brief", "--task", task, "--own", "a.go"},
+		{"brief", "--task", task, "--verify", "go build ./..."},
+		{"brief", "--task", task, "--own", "a.go", "--verify", " \t"},
+		{"brief", "--task", task, "--own", "", "--verify", "go build ./..."},
+		{"brief", "--task", task, "--own", " \t", "--verify", "go build ./..."},
+	} {
 		if code, _, _ := runAgents(t, args...); code != 2 {
 			t.Errorf("agents %v exit %d, want 2", args, code)
 		}

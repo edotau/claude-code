@@ -450,7 +450,7 @@ func TestRunAuthRecoveryUsesCodexPinnedProvider(t *testing.T) {
 	installRecoveryProfiles(t, marker)
 	t.Setenv(providers.EnvSessionProfile, "regression-session")
 	vaulttest.SetRecord(t, "codex", "profile", "regression-pinned")
-	r := &fakeRunner{name: "codex", emptyAnswer: true, errs: []error{errors.New("401 Unauthorized"), nil}}
+	r := &fakeRunner{name: "codex", errs: []error{errors.New("401 Unauthorized"), nil}}
 	res, err := Run(context.Background(), r, RunOptions{Prompt: "p"}, wire.Discard, nil)
 	if err != nil || res.Transport.Attempts != 2 {
 		t.Fatalf("Run = %+v, %v; want auth recovery followed by a second attempt", res, err)

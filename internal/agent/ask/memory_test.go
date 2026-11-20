@@ -109,10 +109,10 @@ func TestAskAttachesRecallOnce(t *testing.T) {
 	for _, k := range []string{"CLAUDE_CONFIG_DIR", "HOME", "PATH"} {
 		t.Setenv(k, dir)
 	}
-	task := "stage the deploy pipeline staging signoff rollout"
+	task := "stage the deploy pipeline staging signoff rollout " + strings.Repeat("and verify the result ", 10)
 	run := func(args ...string) string {
 		hosttest.CaptureOutput(t, func() int {
-			return Cmd(append([]string{"--agent", "claude", "--fallback", "none", "--format", "json"}, args...))
+			return Cmd(append([]string{"--agent", "claude", "--tools", "--fallback", "none", "--format", "json"}, args...))
 		})
 		return agent.RecentRecords(1)[0].Request.Prompt
 	}

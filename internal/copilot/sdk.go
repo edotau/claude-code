@@ -561,17 +561,11 @@ func (c *assistantCollector) limitError() error {
 func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	root := ev.AgentID == nil || *ev.AgentID == "" // sub-agent text and model are not the answer; their usage is still billed
 	switch d := ev.Data.(type) {
 	case *copilot.AssistantMessageData:
-		// each event is a whole message, not a delta: keep turns apart
-		if strings.TrimSpace(d.Content) != "" {
-			if c.text.Len() > 0 {
-				c.text.WriteString("\n\n")
-			}
-			c.text.WriteString(d.Content)
-		}
-		if d.Model != nil {
-			c.model = *d.Model
+		if root {
+			c.addMessage(d)
 		}
 	case *copilot.AssistantUsageData:
 		c.addUsage(d)
@@ -581,9 +575,22 @@ func (c *assistantCollector) onEvent(ev copilot.SessionEvent) {
 			go c.onLimit(d.RequestID)
 		}
 	case *copilot.SessionTaskCompleteData:
-		if d.Summary != nil {
+		if root && d.Summary != nil {
 			c.summary = *d.Summary
 		}
+	}
+}
+
+// addMessage appends a whole assistant message (not a delta), keeping turns apart.
+func (c *assistantCollector) addMessage(d *copilot.AssistantMessageData) {
+	if strings.TrimSpace(d.Content) != "" {
+		if c.text.Len() > 0 {
+			c.text.WriteString("\n\n")
+		}
+		c.text.WriteString(d.Content)
+	}
+	if d.Model != nil {
+		c.model = *d.Model
 	}
 }
 
