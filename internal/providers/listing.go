@@ -117,8 +117,12 @@ func ProfileDetail(p *Provider, source, note string) []string {
 	}
 	for _, id := range slices.Sorted(maps.Keys(p.Options.Prices)) {
 		price := p.Options.Prices[id]
-		lines = append(lines, fmt.Sprintf("options.prices.%s  input=%g output=%g cache_read=%g cache_write=%g USD/M",
-			id, price.Input, price.Output, price.CacheRead, price.CacheWrite))
+		line := fmt.Sprintf("options.prices.%s  input=%g output=%g cache_read=%g cache_write=%g", id, price.Input,
+			price.Output, price.CacheRead, price.CacheWrite)
+		if price.CacheWrite1h != 0 {
+			line += fmt.Sprintf(" cache_write_1h=%g", price.CacheWrite1h)
+		}
+		lines = append(lines, line+" USD/M")
 	}
 	return lines
 }

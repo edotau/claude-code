@@ -732,6 +732,38 @@ func TestUsageCostJSONUnpricedNull(t *testing.T) {
 	}
 }
 
+func TestUsageCostSessionIgnoresWindow(t *testing.T) {
+	old := time.Now().Add(-40 * 24 * time.Hour)
+	stubCost(t, []tokenledger.Entry{
+		{Ts: old, Profile: "qa", Model: "m", Session: "s1", Input: 1_000_000},
+		{Ts: time.Now(), Profile: "qa", Model: "m", Session: "s2", Input: 5_000_000},
+	}, costReg(map[string]providers.Price{"m": {Input: 3}}))
+	var out bytes.Buffer
+	Run([]string{"--cost", "--providers=false", "--session", "s1"}, t.TempDir(), &out, io.Discard)
+	got := out.String()
+	if !strings.Contains(got, "COST, session s1 (est.)") || !strings.Contains(got, "$3.00") || strings.Contains(got, "$15.00") {
+		t.Errorf("want only session s1's old entry priced:\n%s", got)
+	}
+}
+
+func TestUsageCostJSONPartialTotal(t *testing.T) {
+	stubCost(t, []tokenledger.Entry{{Ts: time.Now(), Profile: "qa", Model: "m", Input: 1_000_000},
+		{Ts: time.Now(), Profile: "qa", Model: "free", Input: 7}}, costReg(map[string]providers.Price{"m": {Input: 3}}))
+	var out bytes.Buffer
+	if code := Run([]string{"--cost", "--format", "json", "--providers=false"}, t.TempDir(), &out, io.Discard); code != 0 {
+		t.Fatalf("code = %d", code)
+	}
+	var doc struct {
+		Totals []costTotalJSON `json:"cost_totals"`
+	}
+	if err := json.Unmarshal(out.Bytes(), &doc); err != nil || len(doc.Totals) != 1 {
+		t.Fatalf("err %v totals %+v\n%s", err, doc.Totals, out.String())
+	}
+	if tot := doc.Totals[0]; tot.USD == nil || *tot.USD != 3 || tot.Unpriced != 1 || !tot.Partial {
+		t.Errorf("total = %+v, want 3 USD, partial, 1 unpriced", tot)
+	}
+}
+
 func BenchmarkSessionDirs(b *testing.B) {
 	dir := b.TempDir()
 	for i := range 32 {

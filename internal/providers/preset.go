@@ -165,6 +165,9 @@ func validatePreset(n string, p *Provider) []string {
 		if p.Host != "" || p.CLIProfile != "" {
 			errs = append(errs, n+": host/cliProfile need a preset")
 		}
+		if p.Options.WarehouseID != "" || len(p.Options.Prices) > 0 {
+			errs = append(errs, n+": options.warehouse_id and options.prices apply to databricks profiles only")
+		}
 		return errs
 	}
 	if p.Preset != PresetDatabricks {

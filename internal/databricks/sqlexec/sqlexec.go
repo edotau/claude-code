@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -27,6 +28,14 @@ const (
 	retryBase      = 500 * time.Millisecond
 	replyLimit     = 32 << 20
 	messageRunes   = 160
+	maxCells       = 1_000_000 // across every chunk
+	maxBytes       = 64 << 20  // cell text across every chunk
+	maxChunks      = 100
+)
+
+var (
+	statementIDRE = regexp.MustCompile(`^[A-Za-z0-9_-]{1,128}$`)
+	urlRE         = regexp.MustCompile(`(?i)https?://[^\s"'<>]*[^\s"'<>.,:;)]`)
 )
 
 // httpClient outlives the 30s server-side wait_timeout so the POST is not cut first; a var so tests trust a TLS fake.
@@ -36,7 +45,10 @@ var httpClient = func() *http.Client {
 	return &c
 }
 
-// Result is a statement's column names and rows; null cells are "". Truncated means rows past rowLimit were dropped.
+// NullCell marks a SQL NULL in Result.Rows, so a caller can tell it from an empty string.
+const NullCell = "\x00null"
+
+// Result is a statement's column names and rows; NULL cells are NullCell. Truncated means rows were dropped by a cap.
 type Result struct {
 	Columns   []string
 	Rows      [][]string
@@ -74,10 +86,41 @@ type client struct {
 }
 
 // Run executes sql on warehouseID, polling up to two minutes, and returns at most rowLimit rows.
+// Every error it returns is scrubbed of the workspace host, URLs and secret-shaped text; errors.Is/As still see the cause.
 func Run(ctx context.Context, p *providers.Provider, warehouseID, sql string) (Result, error) {
+	res, err := execute(ctx, p, warehouseID, sql)
+	if err != nil {
+		return Result{}, &scrubbedError{msg: scrub(err.Error(), p.Host), err: err}
+	}
+	return res, nil
+}
+
+type scrubbedError struct {
+	msg string
+	err error
+}
+
+func (e *scrubbedError) Error() string { return e.msg }
+func (e *scrubbedError) Unwrap() error { return e.err }
+
+// scrub drops URLs and the profile's host from s, then credential-shaped runs.
+func scrub(s, host string) string {
+	s = urlRE.ReplaceAllString(s, "<url>")
+	if u, err := url.Parse(host); err == nil && u.Hostname() != "" {
+		for _, h := range []string{u.Host, u.Hostname()} {
+			s = regexp.MustCompile(`(?i)`+regexp.QuoteMeta(h)).ReplaceAllString(s, "<host>")
+		}
+	}
+	return textutil.RedactSecrets(s)
+}
+
+func execute(ctx context.Context, p *providers.Provider, warehouseID, sql string) (Result, error) {
 	host := providers.PresetHost(p.Host)
 	if host == "" {
 		return Result{}, errors.New("sql statement: profile has no workspace host")
+	}
+	if !providers.ValidWarehouseID(warehouseID) {
+		return Result{}, errors.New("sql statement: warehouse id must be 1-64 alphanumeric characters")
 	}
 	body, err := json.Marshal(map[string]any{"statement": sql, "warehouse_id": warehouseID, "wait_timeout": "30s",
 		"on_wait_timeout": "CONTINUE", "disposition": "INLINE", "format": "JSON_ARRAY", "row_limit": rowLimit})
@@ -90,6 +133,9 @@ func Run(ctx context.Context, p *providers.Provider, warehouseID, sql string) (R
 	var st statement
 	if err := c.call(ctx, http.MethodPost, "", body, &st); err != nil {
 		return Result{}, err
+	}
+	if !statementIDRE.MatchString(st.ID) {
+		return Result{}, errors.New("sql statement: the server returned an invalid statement id")
 	}
 	if st, err = c.wait(ctx, st); err != nil {
 		return Result{}, err
@@ -133,46 +179,64 @@ func (c *client) cancel(ctx context.Context, id string) error {
 	return fmt.Errorf("sql statement timed out: %w", ctx.Err())
 }
 
-// collect gathers the inline rows, then follows next_chunk_index until rowLimit.
+// collect gathers the inline rows, then follows next_chunk_index until a cap (rows, cells, bytes, chunks) is reached.
 func (c *client) collect(ctx context.Context, st statement) (Result, error) {
 	res := Result{Truncated: st.Manifest.Truncated}
 	for _, col := range st.Manifest.Schema.Columns {
 		res.Columns = append(res.Columns, col.Name)
 	}
-	for ch := st.Result; ; {
-		res.Rows = appendRows(res.Rows, ch.Data)
-		if len(res.Rows) >= rowLimit {
-			res.Truncated = res.Truncated || len(res.Rows) > rowLimit || ch.Next != nil
-			res.Rows = res.Rows[:rowLimit]
-			return res, nil
+	var used budget
+	cur, ch := st.Result.Index, st.Result
+	for fetched := 0; ; fetched++ {
+		var full bool
+		res.Rows, full = appendRows(res.Rows, ch.Data, &used)
+		if full || len(res.Rows) >= rowLimit || ch.Next != nil && fetched+1 >= maxChunks {
+			return capRows(res, full, ch.Next != nil), nil
 		}
 		if ch.Next == nil {
 			return res, nil
 		}
 		// a non-advancing index would loop until the bound
-		if *ch.Next <= ch.Index {
-			return Result{}, fmt.Errorf("sql statement: chunk %d points back to %d", ch.Index, *ch.Next)
+		if *ch.Next <= cur {
+			return Result{}, fmt.Errorf("sql statement: chunk %d points back to %d", cur, *ch.Next)
 		}
+		cur = *ch.Next
 		var next chunk
-		path := fmt.Sprintf("/%s/result/chunks/%d", url.PathEscape(st.ID), *ch.Next)
-		if err := c.call(ctx, http.MethodGet, path, nil, &next); err != nil {
+		if err := c.call(ctx, http.MethodGet, fmt.Sprintf("/%s/result/chunks/%d", url.PathEscape(st.ID), cur), nil, &next); err != nil {
 			return Result{}, err
 		}
 		ch = next
 	}
 }
 
-func appendRows(rows [][]string, data [][]*string) [][]string {
+// capRows trims res to rowLimit and marks it Truncated when a cap or a pending chunk dropped rows.
+func capRows(res Result, full, more bool) Result {
+	res.Truncated = res.Truncated || full || len(res.Rows) > rowLimit || more
+	res.Rows = res.Rows[:min(len(res.Rows), rowLimit)]
+	return res
+}
+
+type budget struct{ cells, bytes int }
+
+// appendRows adds data to rows until the cell or byte budget would be exceeded; full reports that it stopped early.
+func appendRows(rows [][]string, data [][]*string, b *budget) (out [][]string, full bool) {
 	for _, d := range data {
 		row := make([]string, len(d))
+		size := 0
 		for i, v := range d {
+			row[i] = NullCell
 			if v != nil {
 				row[i] = *v
+				size += len(*v)
 			}
 		}
+		if b.cells+len(d) > maxCells || b.bytes+size > maxBytes {
+			return rows, true
+		}
+		b.cells, b.bytes = b.cells+len(d), b.bytes+size
 		rows = append(rows, row)
 	}
-	return rows
+	return rows, false
 }
 
 // call sends one request, retrying 429 and 503 honouring Retry-After, and decodes a 2xx reply into out.

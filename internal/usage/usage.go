@@ -51,12 +51,13 @@ func resolveBilling() *billing {
 // document is the `usage --format json` payload; the web page's /api/usage serves the same value.
 type document struct {
 	*transcript.UsageAggregate
-	Providers  []quota      `json:"providers,omitempty"`
-	API        []ledgerAgg  `json:"api,omitempty"`
-	Billing    *billing     `json:"billing,omitempty"`
-	Agents     []agentUsage `json:"agents,omitempty"`
-	Cost       []costJSON   `json:"cost,omitempty"`
-	WindowDays int          `json:"window_days"`
+	Providers  []quota         `json:"providers,omitempty"`
+	API        []ledgerAgg     `json:"api,omitempty"`
+	Billing    *billing        `json:"billing,omitempty"`
+	Agents     []agentUsage    `json:"agents,omitempty"`
+	Cost       []costJSON      `json:"cost,omitempty"`
+	CostTotals []costTotalJSON `json:"cost_totals,omitempty"`
+	WindowDays int             `json:"window_days"`
 }
 
 // report builds the JSON document for one window (session scopes to one id, else the last days days).
@@ -71,13 +72,14 @@ func report(claudeDir, session string, days int, withQuotas, withCost bool, errw
 	quotas := <-quotasCh
 	aggs, entries := loadLedger(errw)
 	var cost []costJSON
+	var costTotals []costTotalJSON
 	if withCost {
-		cost = costForJSON(entries, windowCutoff(days))
+		cost, costTotals = costForJSON(entries, session, days)
 	}
 	if session != "" {
 		days = 0 // --days is ignored with --session, so no window applies
 	}
-	return &document{agg, quotas, aggs, resolveBilling(), agents, cost, days}, nil
+	return &document{agg, quotas, aggs, resolveBilling(), agents, cost, costTotals, days}, nil
 }
 
 type transcriptScan struct {
@@ -172,7 +174,7 @@ func parseUsageArgs(args []string, errw io.Writer) (o usageOpts, code int, done 
 	formatFlag := helptext.FormatFlag(fs)
 	providersFlag := fs.Bool("providers", true, "append live plan quotas for every provider; =false stays offline")
 	showFlag := fs.String("show", "used", "quota column: used (default) or left; total hides the quota table")
-	costFlag := fs.Bool("cost", false, "add cost per model and profile: est. now, billed when set up")
+	costFlag := fs.Bool("cost", false, "add an estimated cost per model and profile, from the ledger and the profile's price table")
 	if code, done := helptext.Parse(fs, args); done {
 		return usageOpts{}, code, true
 	}
@@ -284,7 +286,7 @@ func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 	}
 	printLedgerSection(w, aggs, ledgerSince(ledgerEntries))
 	if o.cost {
-		printUsageCost(w, ledgerEntries, days)
+		printUsageCost(w, ledgerEntries, session, days)
 	}
 
 	// Section 4 (AGENTS): the aggregation above has had the whole quota round-trip to finish by now.
@@ -554,14 +556,29 @@ func costPrices() map[string]map[string]providers.Price {
 	return out
 }
 
+// costScope picks the ledger entries to price: one session's (any age) or the last days days, with a heading label.
+func costScope(entries []tokenledger.Entry, session string, days int) ([]tokenledger.Entry, time.Time, string) {
+	if session == "" {
+		return entries, windowCutoff(days), fmt.Sprintf("last %d days", days)
+	}
+	return slices.DeleteFunc(slices.Clone(entries), func(e tokenledger.Entry) bool { return e.Session != session }),
+		time.Time{}, "session " + session
+}
+
 // printUsageCost prints the estimate, or one line naming the key to set when no profile carries prices.
-func printUsageCost(w io.Writer, entries []tokenledger.Entry, days int) {
+func printUsageCost(w io.Writer, entries []tokenledger.Entry, session string, days int) {
 	prices := costPrices()
 	if len(prices) == 0 {
 		fmt.Fprintln(w, costPriceHint)
 		return
 	}
-	printCostSection(w, estimateCost(entries, prices, windowCutoff(days)), days)
+	scoped, since, scope := costScope(entries, session, days)
+	rows := estimateCost(scoped, prices, since)
+	if len(rows) == 0 {
+		fmt.Fprintf(w, "usage: no ledger entries for a profile with a price table, %s\n", scope)
+		return
+	}
+	printCostSection(w, rows, scope)
 }
 
 // costJSON is one cost row; USD is null when the model has no price, never NaN.
@@ -572,27 +589,57 @@ type costJSON struct {
 	Output     int      `json:"output"`
 	CacheRead  int      `json:"cache_read"`
 	CacheWrite int      `json:"cache_write"`
-	DBUs       float64  `json:"dbus"`
 	USD        *float64 `json:"usd"`
 	Source     string   `json:"source"`
 }
 
-func costForJSON(entries []tokenledger.Entry, since time.Time) []costJSON {
+// costTotalJSON is one profile's total over its priced models; Partial is true when Unpriced models are left out.
+type costTotalJSON struct {
+	Profile  string   `json:"profile"`
+	USD      *float64 `json:"usd"`
+	Unpriced int      `json:"unpriced_models"`
+	Partial  bool     `json:"partial"`
+}
+
+func costForJSON(entries []tokenledger.Entry, session string, days int) ([]costJSON, []costTotalJSON) {
 	prices := costPrices()
 	if len(prices) == 0 {
-		return nil // as in the text output: no price table, no cost section
+		return nil, nil // as in the text output: no price table, no cost section
 	}
-	rows := estimateCost(entries, prices, since)
+	scoped, since, _ := costScope(entries, session, days)
+	rows := estimateCost(scoped, prices, since)
 	out := make([]costJSON, 0, len(rows))
+	var totals []costTotalJSON
 	for _, r := range rows {
-		j := costJSON{Profile: r.Profile, Model: r.Model, Input: r.Input, Output: r.Output,
-			CacheRead: r.CacheRead, CacheWrite: r.CacheWrite, DBUs: r.DBUs, Source: r.Source}
-		if !math.IsNaN(r.USD) {
-			j.USD = &r.USD
+		out = append(out, costJSON{Profile: r.Profile, Model: r.Model, Input: r.Input, Output: r.Output,
+			CacheRead: r.CacheRead, CacheWrite: r.CacheWrite, USD: knownUSD(r.USD), Source: r.Source})
+		if len(totals) == 0 || totals[len(totals)-1].Profile != r.Profile {
+			totals = append(totals, costTotalJSON{Profile: r.Profile})
 		}
-		out = append(out, j)
+		t := &totals[len(totals)-1]
+		if math.IsNaN(r.USD) {
+			t.Unpriced++
+			t.Partial = true
+		}
+		if !math.IsNaN(r.USD) {
+			t.USD = knownUSD(addKnown(valueOr(t.USD, math.NaN()), r.USD))
+		}
 	}
-	return out
+	return out, totals
+}
+
+func knownUSD(f float64) *float64 {
+	if math.IsNaN(f) {
+		return nil
+	}
+	return &f
+}
+
+func valueOr(p *float64, d float64) float64 {
+	if p == nil {
+		return d
+	}
+	return *p
 }
 
 // inWindowResponses keeps the responses stamped at or after cutoff; an unstamped response is kept, as in foldResponses.
