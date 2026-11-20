@@ -220,17 +220,14 @@ func TestCatalogFallbackRowsFollowBasedRows(t *testing.T) {
 			listed = append(listed, r.Slug)
 		}
 	}
-	if want := []string{"databricks-gpt-5-5", "databricks-gpt-5-4", "databricks-grok-4-7"}; !slices.Equal(listed, want) {
+	if want := []string{"databricks-gpt-5-5", "databricks-gpt-5-4"}; !slices.Equal(listed, want) {
 		t.Fatalf("listed = %v, want %v", listed, want)
 	}
 	if got := byslug["databricks-gpt-5-4"]; got.ContextWindow != fallbackContextWindow || len(got.Levels) != 3 {
 		t.Errorf("gpt-5-4 = %+v, want window %d and the template's 3 levels", got, fallbackContextWindow)
 	}
-	if got := byslug["databricks-grok-4-7"]; len(got.Levels) != 1 || got.Levels[0].Effort != "medium" {
-		t.Errorf("grok levels = %+v, want the default only", got.Levels)
-	}
-	if !strings.Contains(warn, "gpt-5-4, grok-4-7") || !strings.Contains(warn, "128000") {
-		t.Errorf("note = %q, want the assumed window naming both models", warn)
+	if !strings.Contains(warn, "gpt-5-4") || strings.Contains(warn, "grok") || !strings.Contains(warn, "128000") {
+		t.Errorf("note = %q, want the assumed window naming gpt-5-4 only", warn)
 	}
 }
 
@@ -247,7 +244,7 @@ func TestCatalogSkipNoteNamesEveryUnlistedModel(t *testing.T) {
 	p := &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks, ModelPrefix: "databricks-"}
 	menu := []providers.OpencodeModel{{ID: "gpt-5-4"}, {ID: "grok-4-7"}}
 	body, missing, err := buildCodexCatalog(p, menu, []byte(`{"models":[{"slug":"gpt-daybreak"}]}`), nil)
-	if body != nil || err != nil || missing != "gpt-5-4, grok-4-7" {
-		t.Errorf("build = %s, %q, %v; want no body and both ids", body, missing, err)
+	if body != nil || err != nil || missing != "gpt-5-4" {
+		t.Errorf("build = %s, %q, %v; want no body and only the GPT id", body, missing, err)
 	}
 }

@@ -288,7 +288,7 @@ func TestResponsesFalseGPTRowKeepsOpencodeChatRoute(t *testing.T) {
 	}
 }
 
-// Given a Grok row, Then opencode keeps its chat route even though codex now runs Grok over Responses.
+// Given a Grok row, Then opencode keeps its chat route and Grok stays out of Responses (Databricks does not stream it).
 func TestGrokKeepsOpencodeChatRoute(t *testing.T) {
 	vaulttest.Use(t)
 	p := &Provider{Name: "dev", Preset: PresetDatabricks, ModelPrefix: "databricks-"}

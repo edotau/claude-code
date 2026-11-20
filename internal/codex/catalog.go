@@ -295,9 +295,6 @@ func codexFallbackRows(p *providers.Provider, unbased []providers.OpencodeModel,
 			assumed = append(assumed, m.ID)
 		}
 		entry["context_window"], entry["max_context_window"] = window, window
-		if models.IsGrok(m.ID) {
-			keepDefaultEffort(entry)
-		}
 		rows = append(rows, entry)
 	}
 	if len(assumed) > 0 {
@@ -306,25 +303,9 @@ func codexFallbackRows(p *providers.Provider, unbased []providers.OpencodeModel,
 	return rows, missing
 }
 
-// keepDefaultEffort trims a row's reasoning levels to its default, the only one a model with no probed levels advertises.
-func keepDefaultEffort(entry map[string]any) {
-	levels, _ := entry["supported_reasoning_levels"].([]any)
-	for _, level := range levels {
-		if row, _ := level.(map[string]any); row["effort"] == entry["default_reasoning_level"] {
-			entry["supported_reasoning_levels"] = []any{level}
-			return
-		}
-	}
-}
-
-// codexServes reports a menu row codex can run: flagged Responses, or an OpenAI GPT model that is not chat-only.
+// codexServes: Grok is excluded because Databricks does not stream it over Responses (probed 2026-11-20).
 func codexServes(p *providers.Provider, m providers.OpencodeModel) bool {
-	return m.Responses || codexResponses(p, agentconfig.MenuWire(p, m.ID))
-}
-
-// codexResponses is ResponsesServable plus xAI Grok, which Databricks passes through on Responses (probed live).
-func codexResponses(p *providers.Provider, wire string) bool {
-	return providers.ResponsesServable(p, wire) || models.IsGrok(wire)
+	return m.Responses || providers.ResponsesServable(p, agentconfig.MenuWire(p, m.ID))
 }
 
 // appendNativeAliases adds a hidden row under each base model's own slug so codex still resolves it.
@@ -415,7 +396,7 @@ func cloneCodexMetadata(value any) any {
 
 // codexResponsesModel is the default a model Responses cannot serve falls back to: the menu's first Responses model.
 func codexResponsesModel(p *providers.Provider, model string) string {
-	if p.Preset != providers.PresetDatabricks || codexResponses(p, model) {
+	if p.Preset != providers.PresetDatabricks || providers.ResponsesServable(p, model) {
 		return model
 	}
 	return cmp.Or(providers.FirstResponsesModel(p), model)
@@ -426,7 +407,7 @@ func codexRefuse(p *providers.Provider, model string) error {
 	if p.Preset != providers.PresetDatabricks {
 		return nil
 	}
-	if codexResponses(p, model) {
+	if providers.ResponsesServable(p, model) {
 		return nil
 	}
 	hint := cmp.Or(providers.FirstResponsesModel(p), "a Responses model")
