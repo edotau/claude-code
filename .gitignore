@@ -81,6 +81,7 @@ coverage.*
 
 # Skills: only the harness's own are tracked; every other dir is the user's (symlinks into ~/.agents or local copies).
 /skills/*
+!/skills/dbx-expert
 !/skills/evaluate-code
 !/skills/golang
 !/skills/problem-solving
