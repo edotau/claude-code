@@ -117,21 +117,15 @@ func expandHome(tool, arg string) string {
 		return arg
 	}
 	name, rest, _ := strings.Cut(arg[1:], "/")
-	var home string
-	if name == "" {
-		var err error
-		home, err = os.UserHomeDir()
-		if err != nil {
-			return arg
+	home, err := os.UserHomeDir()
+	if name != "" {
+		u, uerr := user.Lookup(name)
+		if u != nil {
+			home = u.HomeDir
 		}
-	} else {
-		u, err := user.Lookup(name)
-		if err != nil {
-			return arg
-		}
-		home = u.HomeDir
+		err = uerr
 	}
-	if home == "" {
+	if err != nil || home == "" {
 		return arg
 	}
 	return filepath.Join(home, rest)
@@ -955,12 +949,12 @@ var ReadOnlyDeny = []Rule{{Tool: "Bash", Arg: NotReadOnlyShellArg}, {Tool: "Writ
 
 // refusePermissions fails closed when req carries Deny rules (or plan mode) and the agent cannot read Permissions.
 func refusePermissions(c Caps, agentName string, p Permissions) error {
-	if c.Permissions != None || (len(p.Deny) == 0 && p.Mode != "plan") {
+	if c.Permissions != None || (len(p.Deny) == 0 && p.Mode != PermPlan) {
 		return nil
 	}
-	what := "permission deny rules"
-	if len(p.Deny) == 0 {
-		what = "--permissions plan"
+	what := "--permissions plan"
+	if len(p.Deny) > 0 {
+		what = "permission deny rules"
 	}
 	return errors.New(agentName + " cannot enforce " + what + " yet; dispatch refused")
 }

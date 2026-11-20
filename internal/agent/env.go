@@ -66,11 +66,10 @@ func (s EnvSpec) Environ(ctx context.Context) []string {
 		env = append(slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, DispatchPermissionsEnv+"=") }), kv)
 	}
 	if id, ok := ctx.Value(dispatchIDKey{}).(string); ok { // marks the child so `agents cancel --lost` can find it once orphaned
-		env = append(slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, proc.DispatchIDEnv+"=") }),
-			proc.DispatchIDEnv+"="+id)
 		depth, _ := ctx.Value(dispatchDepthKey{}).(int)
-		env = append(slices.DeleteFunc(env, func(e string) bool { return strings.HasPrefix(e, proc.DispatchDepthEnv+"=") }),
-			proc.DispatchDepthEnv+"="+strconv.Itoa(depth))
+		env = append(slices.DeleteFunc(env, func(e string) bool {
+			return strings.HasPrefix(e, proc.DispatchIDEnv+"=") || strings.HasPrefix(e, proc.DispatchDepthEnv+"=")
+		}), proc.DispatchIDEnv+"="+id, proc.DispatchDepthEnv+"="+strconv.Itoa(depth))
 	}
 	if s.PWD != "" {
 		env = append(env, "PWD="+s.PWD)
@@ -133,11 +132,6 @@ const DispatchPermissionsEnv = "HARNESS_DISPATCH_PERMISSIONS"
 
 type permissionsKey struct{}
 
-// inheritPermissions keeps an outer dispatch's Deny rules and plan mode in a nested one; else the outer applies whole.
-func inheritPermissions(p Permissions) (Permissions, error) {
-	return inheritPermissionsContext(context.Background(), p)
-}
-
 func inheritPermissionsContext(ctx context.Context, p Permissions) (Permissions, error) {
 	raw := proc.Value(ctx, DispatchPermissionsEnv)
 	if raw == "" {
@@ -150,9 +144,9 @@ func inheritPermissionsContext(ctx context.Context, p Permissions) (Permissions,
 	if p.IsZero() {
 		return outer, nil
 	}
-	p.Deny, p.Ask = append(slices.Clone(p.Deny), outer.Deny...), union(p.Ask, outer.Ask)
-	if outer.Mode == "plan" {
-		p.Mode = "plan"
+	p.Deny, p.Ask = union(p.Deny, outer.Deny), union(p.Ask, outer.Ask)
+	if outer.Mode == PermPlan {
+		p.Mode = PermPlan
 	}
 	return p, nil
 }

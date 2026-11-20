@@ -1,7 +1,9 @@
 package agent
 
 import (
+	"cmp"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -65,17 +67,9 @@ func (p Permissions) allowRemedy(call Rule) (remedy, replay string) {
 
 // hasRulePattern reports an argument the matcher reads as a pattern or keyword; no escape exists, so no exact rule can.
 func hasRulePattern(tool, arg string) bool {
-	switch {
-	case strings.ContainsAny(arg, `*?\`):
-		return true
-	case tool == "Bash":
-		switch arg {
-		case RedirectFileArg, SedPrintArg, ReadOnlyShellArg, NotReadOnlyShellArg:
-			return true
-		}
-		return strings.HasPrefix(arg, cdPrefix)
-	}
-	return tool == "WebFetch" && strings.HasPrefix(arg, "domain:")
+	return strings.ContainsAny(arg, `*?\`) || (tool == "Bash" && (strings.HasPrefix(arg, cdPrefix) ||
+		slices.Contains([]string{RedirectFileArg, SedPrintArg, ReadOnlyShellArg, NotReadOnlyShellArg}, arg))) ||
+		(tool == "WebFetch" && strings.HasPrefix(arg, "domain:"))
 }
 
 // CheckCapabilities refuses an unenforceable --no-tools or permission feature; other unsupported flags run, dropped.
@@ -92,10 +86,7 @@ func CheckCapabilities(name string, req RunOptions) error {
 
 // capabilityRefusal is the first capability c cannot honor for req, or nil.
 func capabilityRefusal(c Caps, name string, req RunOptions) error {
-	if err := refusePersona(c, name, req.Persona); err != nil {
-		return err
-	}
-	if err := refusePermissions(c, name, req.Permissions); err != nil {
+	if err := cmp.Or(refusePersona(c, name, req.Persona), refusePermissions(c, name, req.Permissions)); err != nil {
 		return err
 	}
 	switch {

@@ -142,18 +142,18 @@ func TestInheritPermissionsKeepsOuterDeny(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := inheritPermissions(inner)
+	got, err := inheritPermissionsContext(context.Background(), inner)
 	if err != nil || got.Mode != "plan" || got.Decide("Bash", "rm x") != Deny || got.Decide("Bash", "ls") != Allow {
 		t.Fatalf("inherit = %+v, %v; want plan mode, rm denied, ls allowed", got, err)
 	}
 	if got.Decide("Bash", "curl x") != Ask { // the inner Bash allow must not reopen the outer ask
 		t.Fatalf("inherit = %+v; want the outer curl ask kept", got)
 	}
-	if got, _ := inheritPermissions(Permissions{}); len(got.Deny) != 1 {
+	if got, _ := inheritPermissionsContext(context.Background(), Permissions{}); len(got.Deny) != 1 {
 		t.Fatalf("no inner policy: got %+v, want the outer policy whole", got)
 	}
 	t.Setenv(DispatchPermissionsEnv, "{bad")
-	if _, err := inheritPermissions(inner); err == nil {
+	if _, err := inheritPermissionsContext(context.Background(), inner); err == nil {
 		t.Fatal("malformed outer policy: want an error (fail closed)")
 	}
 }
