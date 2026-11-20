@@ -23,6 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/plans"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -213,7 +214,7 @@ func (d *loopDriver) planWith(ctx context.Context, round int) (loopPlan, error) 
 func usageTokens(u wire.Usage) int { return u.InputTokens + u.OutputTokens + u.CacheCreationTokens }
 
 func plannerPrompt(goal string, round, limit int, digest string) (string, error) {
-	t, err := template.New("loop").Parse(loopPlannerTmpl)
+	t, err := template.New("loop").Option("missingkey=error").Parse(loopPlannerTmpl)
 	if err != nil {
 		return "", err
 	}
@@ -330,7 +331,7 @@ func derefUsage(u *wire.Usage) wire.Usage {
 
 func resultOf(p loopPart, env wire.Envelope) loopResult {
 	r := loopResult{Part: p, Status: cmp.Or(env.Status, wire.StatusError), Ran: env.Agent, Dispatches: []string{},
-		Answer: clipChars(env.Answer, loopDigestChars), Ms: env.DurationMs}
+		Answer: textutil.TruncateRunes(env.Answer, loopDigestChars), Ms: env.DurationMs}
 	if env.DispatchID != "" {
 		r.Dispatches = append(r.Dispatches, env.DispatchID)
 	}
@@ -338,13 +339,6 @@ func resultOf(p loopPart, env wire.Envelope) loopResult {
 		r.Kind = env.Error.Kind
 	}
 	return r
-}
-
-func clipChars(s string, n int) string {
-	if r := []rune(s); len(r) > n {
-		return string(r[:n])
-	}
-	return s
 }
 
 // keepReason is the standing retry policy of a cut-off ask: a typed model, --fallback none or claude itself stays put.
