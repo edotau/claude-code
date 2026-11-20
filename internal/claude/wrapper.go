@@ -146,5 +146,7 @@ func execNative(native string, args []string, cause error) int {
 		fmt.Fprintf(os.Stderr, "claude: harness launch failed (%v); running native claude\n", cause)
 	}
 	env := append(os.Environ(), launcherEnv+"="+strconv.Itoa(os.Getpid()))
+	// exec ends this process: a refresh token already sent must reach the vault first
+	providers.FinishExchanges()
 	return helptext.Fail("exec %s: %v", native, proc.Exec(native, args, env))
 }

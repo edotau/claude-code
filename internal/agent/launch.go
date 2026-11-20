@@ -583,6 +583,8 @@ func (p Plan) Exec() error {
 	for _, w := range p.Warnings {
 		fmt.Fprintln(os.Stderr, "claude-code: warning:", w)
 	}
+	// exec ends this process: a refresh token already sent must reach the vault first
+	providers.FinishExchanges()
 	err := proc.Exec(p.Binary, p.Argv, p.recordEnv())
 	p.execFailed()
 	return err

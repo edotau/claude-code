@@ -221,61 +221,83 @@ const (
 	backgroundRefreshTimeout = time.Minute
 )
 
-// stopWait bounds stop's wait for background refreshes: a sent exchange (exchangeBound) plus its seal and a margin.
+// stopWait bounds a wait for in-flight exchanges: a sent exchange (exchangeBound) plus its seal and a margin.
 var stopWait = exchangeBound + sealTimeout + 5*time.Second
 
-// bgRun counts running background refreshes; idle is closed whenever the count drops to zero.
-var bgRun struct {
+// exchanges counts u2m exchanges from send to seal; closed refuses new ones once the process is shutting down.
+var exchanges struct {
 	sync.Mutex
-	n    int
-	idle chan struct{}
+	n      int
+	closed bool
+	idle   chan struct{}
 }
 
-func bgStart() {
-	bgRun.Lock()
-	defer bgRun.Unlock()
-	if bgRun.n == 0 {
-		bgRun.idle = make(chan struct{})
+// errShuttingDown refuses an exchange that would start after its process began to stop.
+var errShuttingDown = errors.New("shutting down: no new token exchange starts")
+
+// exchangeStart admits one exchange unless admission is closed.
+func exchangeStart() error {
+	exchanges.Lock()
+	defer exchanges.Unlock()
+	if exchanges.closed {
+		return errShuttingDown
 	}
-	bgRun.n++
+	if exchanges.n == 0 {
+		exchanges.idle = make(chan struct{})
+	}
+	exchanges.n++
+	return nil
 }
 
-func bgDone() {
-	bgRun.Lock()
-	defer bgRun.Unlock()
-	if bgRun.n--; bgRun.n == 0 {
-		close(bgRun.idle)
+func exchangeDone() {
+	exchanges.Lock()
+	defer exchanges.Unlock()
+	if exchanges.n--; exchanges.n == 0 {
+		close(exchanges.idle)
 	}
 }
 
-// bgIdle is closed once no background refresh runs.
-func bgIdle() <-chan struct{} {
-	bgRun.Lock()
-	defer bgRun.Unlock()
-	if bgRun.n == 0 {
-		c := make(chan struct{})
-		close(c)
-		return c
+// FinishExchanges closes admission and waits up to stopWait for in-flight exchanges to seal; false when it gave up.
+func FinishExchanges() bool {
+	exchanges.Lock()
+	exchanges.closed = true
+	idle := exchanges.idle
+	if exchanges.n == 0 {
+		idle = nil
 	}
-	return bgRun.idle
+	exchanges.Unlock()
+	if idle == nil {
+		return true
+	}
+	select {
+	case <-idle:
+		return true
+	case <-time.After(stopWait):
+		fmt.Fprintf(os.Stderr, "providers: a token exchange is still running after %v; exiting\n", stopWait)
+		return false
+	}
+}
+
+// openExchanges re-admits exchanges; BackgroundRefresh starts a new serving life.
+func openExchanges() {
+	exchanges.Lock()
+	exchanges.closed = false
+	exchanges.Unlock()
 }
 
 // bgBase is set only in a long-lived process (the proxy): a stale token is served while one refresh runs behind it.
 var bgBase atomic.Pointer[context.Context]
 
-// BackgroundRefresh enables stale-while-refresh until stop; stop cancels refreshes not yet sent, waits for the rest.
+// BackgroundRefresh enables stale-while-refresh until stop; stop refuses new exchanges and waits for sent ones.
 func BackgroundRefresh(ctx context.Context) (stop func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	ref := &ctx
+	openExchanges()
 	bgBase.Store(ref)
 	return func() {
 		cancel()
 		bgBase.CompareAndSwap(ref, nil)
-		select {
-		case <-bgIdle():
-		case <-time.After(stopWait):
-			fmt.Fprintf(os.Stderr, "providers: background token refresh still running after %v; exiting\n", stopWait)
-		}
+		FinishExchanges()
 	}
 }
 
@@ -312,9 +334,8 @@ func (g *flightGroup) refreshBehind(base, ctx context.Context, name string, mint
 	// the request's values (identity) carry over; its cancellation must not, the base's must
 	mctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), backgroundRefreshTimeout)
 	stop := context.AfterFunc(base, cancel)
-	bgStart()
 	go g.runMint(name, f, func() {
-		defer func() { stop(); cancel(); g.cooled(name); bgDone() }()
+		defer func() { stop(); cancel(); g.cooled(name) }()
 		f.val, f.err = mint(mctx)
 		if f.err != nil {
 			fmt.Fprintf(os.Stderr, "%s: background token refresh failed (%s); serving the cached token until it expires\n",
@@ -449,6 +470,9 @@ func cacheCredential(p *Provider, cache *sync.Map, record, method, v string, exp
 	} else if e, ok := JWTExp(v); ok {
 		exp = time.Unix(e, 0)
 	}
+	if sealedAuth(p.Auth.Type) && !issued.IsZero() && !exp.After(now) {
+		return fmt.Errorf("%s: the token endpoint returned a token that is already expired", p.Name)
+	}
 	cache.Store(p.Name, cacheEntry(p, v, now.Add(ttl), exp, issued))
 	return nil
 }
@@ -480,8 +504,11 @@ func staleWindow(v string, exp, issued time.Time) time.Duration {
 	if issued.IsZero() && textutil.JWTClaims(v, &claims) && claims.Iat != nil && *claims.Iat > 0 && *claims.Iat < maxJWTExp {
 		issued = time.Unix(int64(*claims.Iat), 0)
 	}
-	if issued.IsZero() || !exp.After(issued) {
+	if issued.IsZero() {
 		return expiryMargin
+	}
+	if !exp.After(issued) {
+		return 0
 	}
 	return min(exp.Sub(issued)/2, maxStaleWindow)
 }

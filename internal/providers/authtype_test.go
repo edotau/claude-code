@@ -1191,9 +1191,9 @@ func checkRotatedSealAfterCancel(t *testing.T) {
 		cancel()
 		return oauth.Token{Refresh: "refresh-2", Access: jwtExpIn(time.Hour, "https://x")}, nil
 	}
-	if _, _, err := lockedUserMint(ctx, p, true, expiryMargin); err != nil {
-		t.Fatalf("lockedUserMint = %v", err)
-	}
+	// the cancelled caller stops waiting; the sent exchange still runs to its seal
+	_, _, _ = lockedUserMint(ctx, p, true, expiryMargin)
+	awaitExchanges(t)
 	if ov, _ := readOAuth(p); ov.Refresh != "refresh-2" {
 		t.Fatalf("sealed refresh = %q; want refresh-2 sealed despite the cancelled caller", ov.Refresh)
 	}

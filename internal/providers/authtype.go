@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	bolterrors "go.etcd.io/bbolt/errors"
@@ -217,6 +218,9 @@ var lockNameRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompil
 // lockSlice is one bounded lock attempt; between slices a cancelled caller stops waiting.
 var lockSlice = 250 * time.Millisecond
 
+// lockWaitHook runs after each slice that found the lock held; a test seam, atomic as waiters may outlive a test.
+var lockWaitHook atomic.Pointer[func()]
+
 // withRefreshLock serializes a provider's refresh-token use across processes; mintOnce covers goroutines.
 func withRefreshLock(p *Provider, fn func() error) error {
 	return withRefreshLockCtx(context.Background(), p, fn)
@@ -242,6 +246,9 @@ func withRefreshLockCtx(ctx context.Context, p *Provider, fn func() error) error
 		ran, err := paths.TryFileLock(lock, min(lockSlice, time.Until(deadline)), guarded)
 		if err != nil || ran {
 			return err
+		}
+		if h := lockWaitHook.Load(); h != nil {
+			(*h)()
 		}
 		if !time.Now().Before(deadline) {
 			return fmt.Errorf("%s: %w", p.Name, errRefreshLockTimeout)
@@ -371,14 +378,58 @@ func userCredential(ctx context.Context, p *Provider, force bool) (string, error
 	})
 }
 
-// lockedUserMint is userMint under p's refresh lock; minted reports a token endpoint exchange.
-func lockedUserMint(ctx context.Context, p *Provider, force bool, margin time.Duration) (out string, minted bool, err error) {
-	err = withRefreshLockCtx(ctx, p, func() error {
-		var e error
-		out, minted, e = userMint(ctx, p, force, margin)
-		return e
-	})
-	return out, minted, err
+// lockedMintExited runs as each lockedUserMint goroutine ends; a test seam, atomic like lockWaitHook.
+var lockedMintExited atomic.Pointer[func()]
+
+// exchangeHoldKey carries lockedUserMint's flag: set, its goroutine (not mintU2M) ends the exchange's count.
+type exchangeHoldKey struct{}
+
+// userMintResult is one locked user mint's outcome, handed from its goroutine to a caller that may have left.
+type userMintResult struct {
+	out      string
+	minted   bool
+	err      error
+	panicked any
+}
+
+// lockedUserMint is userMint under p's refresh lock; the caller waits only as long as ctx, a sent exchange runs on.
+func lockedUserMint(ctx context.Context, p *Provider, force bool, margin time.Duration) (string, bool, error) {
+	done := make(chan userMintResult, 1)
+	go func() {
+		var r userMintResult
+		// an admitted exchange stays counted until its lock is released, so a joined exit finds it fully done
+		held := new(bool)
+		defer func() {
+			r.panicked = recover()
+			if *held {
+				exchangeDone()
+			}
+			done <- r
+			if h := lockedMintExited.Load(); h != nil {
+				(*h)()
+			}
+		}()
+		ctx := context.WithValue(ctx, exchangeHoldKey{}, held)
+		r.err = withRefreshLockCtx(ctx, p, func() error {
+			var e error
+			r.out, r.minted, e = userMint(ctx, p, force, margin)
+			return e
+		})
+	}()
+	var r userMintResult
+	select {
+	case r = <-done:
+	case <-ctx.Done():
+		select {
+		case r = <-done:
+		default:
+			return "", false, fmt.Errorf("%s: %w", p.Name, ctx.Err())
+		}
+	}
+	if r.panicked != nil {
+		panic(r.panicked)
+	}
+	return r.out, r.minted, r.err
 }
 
 // userMint serves a peer's sealed token valid past margin, else exchanges the refresh token re-read under the lock.
@@ -394,6 +445,7 @@ func userMint(ctx context.Context, p *Provider, force bool, margin time.Duration
 	}
 	// the new token is cached for this process; the login is alive, only its rotation is unsaved
 	if errors.Is(err, errRotationUnsaved) {
+		clearLoginMark(p.Name)
 		return "", true, err
 	}
 	markLoginDead(p, err)
@@ -680,6 +732,14 @@ func noSecretError(p *Provider, name string) error {
 func mintU2M(ctx context.Context, p *Provider, host, name, secret string, base int64) (oauth.Token, error) {
 	if err := ctx.Err(); err != nil {
 		return oauth.Token{}, fmt.Errorf("%s: refresh not started: %w", p.Name, err)
+	}
+	if err := exchangeStart(); err != nil {
+		return oauth.Token{}, fmt.Errorf("%s: %w", p.Name, err)
+	}
+	if held, ok := ctx.Value(exchangeHoldKey{}).(*bool); ok {
+		*held = true
+	} else {
+		defer exchangeDone()
 	}
 	// a sent refresh token is spent: the caller's cancellation must not drop the rotated reply
 	xctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), exchangeBound)
