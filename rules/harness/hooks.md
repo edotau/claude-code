@@ -43,6 +43,7 @@ one, edit both and run `make install` for projections; an existing Claude `setti
 **Telemetry**: each module run appends one row to `state/harness/hooks/telemetry-YYYYMMDD.jsonl` (14 days, capped):
 event, module, outcome, ms, 8-char session id, tool, and when a decision fired a `rule` and a `verdict` (`block`,
 `ask`, `rewrite`, `held`, `refused`, `passed`); never command text, a path, a brief or a credential.
+A day file at its 16 MiB cap stops recording and leaves `telemetry-YYYYMMDD.dropped`; later rows that day are missing.
 `claude-code doctor` reports seven days of fires, denies, budget overruns and p95 duration per module.
 
 ## Applicability by agent
@@ -181,3 +182,36 @@ Prose is the instruction; the hook is the guarantee. Every gate:
 Test the block path, the evidence-release path and the fail-open cap. Probe a live guard with a script reading payloads
 from a data file (quoted payloads in the probe command trip the guard) and tally allow, ask and block. Permission
 guardrails live in `settings.json`'s `permissions` block (`internal/settings/template.json`; `ask` beats `allow`).
+
+## Hook performance and contract
+
+Rules for every new or changed hook. Measure with `claude-code doctor` (p95 per module) before and after.
+
+1. **Loosen only** — a hook never adds a permission error or restriction; allowing more, or new non-blocking output, is
+   fine. A new `Blocks` hook needs the owner's yes (R13).
+2. **Auto-fix first** — correct a deterministic problem (`updatedInput`, a fixer, a CLI apply); deny or exit 2 only when
+   code cannot decide.
+3. **Narrowest matcher** — `hookspec.go` `Matcher` is the filter; `*` spawns a process per event.
+4. **Rarest event** — a per-edit or per-prompt hook runs thousands of times a day; SessionStart and SessionEnd run once.
+5. **Budget and cap** — every Spec sets `Budget` (default 5 s); a module that waits on I/O takes
+   `core.HookContext(name)` and caps each wait below it, degrading, never blocking.
+6. **Per-prompt cost** — UserPromptSubmit modules run concurrently, so the slowest sets the wait; move slow work to a
+   detached job whose note lands next turn.
+7. **Cache by content key** — a result that depends only on a file, commit or prompt hash is cached under
+   `state/harness/` with that key; never cache a decision across sessions.
+8. **Independent modules** — handlers run concurrently and merge in declaration order; one never reads another's
+   side effects. Order a dependency inside one module.
+9. **Stdout is the result, stderr the log** — `core.Result` is the only stdout writer; a stray print breaks the host's
+   parse. A block is exit 2 with the reason on stderr (agy: a JSON deny).
+10. **Idempotent** — a hook may run twice (retry, resume, parallel session); appends are keyed by session id.
+11. **No secrets in reach** — read a credential through `vault` verbs, never the inherited env; never log command text,
+    a path, a brief or a credential.
+12. **Fail open on infra, closed only for `Blocks`** — see "Authoring a gate" item 4.
+
+Debugging a slow hook:
+
+- `claude-code doctor` ranks modules by p95 and overruns; raw rows: `state/harness/hooks/telemetry-YYYYMMDD.jsonl`.
+- Replay one module with a saved payload: `claude-code hook PreToolUse --safety-scan < payload.json`; read the exit
+  code and stdout separately (`set -o pipefail`).
+- Run a suspect module off for one launch with `HARNESS_HOOK_SKIP=<module>`; fix or delete it, never leave it skipped.
+- A `.dropped` marker beside a day file means rows after the cap are missing: do not read that tail as quiet.
