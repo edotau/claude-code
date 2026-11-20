@@ -31,9 +31,9 @@ paths:
 
 - `ask --format json` envelope: `agent`, `status` (`ok|error|partial|quota|stalled`), `model`, `answer`, `usage`,
   `duration_ms`, `fallback*`, `handoff`, `transport`, `route`/`requested_route` objects (`provider` kept one release);
-  `invoked_model` is the request as asked (`auto`, `<row>:auto` or
-  the selector) and `model` the model that ran. Isolation: `--no-persist` (claude, codex), `--safe-mode` (claude,
-  codex, opencode), `--debug-file <path>` (claude, gemini).
+  `invoked_model` is the plain model asked (`auto` or the selector; the profile is the route's) and `model` the model
+  that ran. Isolation: `--no-persist` (claude, codex), `--safe-mode` (claude, codex, opencode), `--debug-file <path>`
+  (claude, gemini).
 - `ask --retry <id>` of a run cut off by a deadline, stall, idle or auth-retry runs on claude unless a `--model`,
   `--agent` or `--fallback none` pins the route or claude itself was cut off; it keeps the route and names the move.
   A plain resubmit of the same agent, model and task within 60 minutes of such a cutoff gets the same rule, from
@@ -192,10 +192,11 @@ paths:
   Vault agent records store `route`/`fallbackRoute` objects (`configure agents <a> profile=qa` is sugar,
   `route='{…}'` takes the object; legacy profile/account/fallback are read; a copilot record is route
   `{github, account}` plus `fallbackRoute`). Dispatch records write `route`/`ran_route` as objects.
-  `--model databricks:auto` equals `--provider databricks --model auto`.
+  `--model databricks:auto` is input sugar for `--provider databricks --model auto`; no record stores the prefix.
   Own-login `<login>/auto` is refused before launch, naming that login's typed ids.
   Labels, `gateway resolve`, and `ask --dry-run` only peek; `agents label <agent> --run` records and freezes the pick
-  as `--model` in the `Run:` line. A label for a run that picks itself (`--model auto`, `<row>:auto`, or no model over
+  as one `--overlay '{"provider":"<provider>","profile":"<p>","model":"<id>"}'` in the `Run:` line. A label
+  for a run that picks itself (`--model auto` or no model over
   an auto pin) reads `auto (next: <id>)`, since the ask may pick another id; a frozen or typed model keeps the bare id.
   `opencode catalog` text shows `SERVED` for Databricks models: dev/qa/prod marks `y` READY, `n` not READY,
   or `?` for a missing/stale listing.
@@ -211,7 +212,8 @@ paths:
 - **Claude Code** on a Responses-only model (`gpt-5.5`) is refused at launch and by the router: use codex or copilot.
 - **copilot** follows the session profile (then its pin) through the proxy, except a pin on its own GitHub row, which
   decides (D3 exception: the row's `Auth.Login` equals the agent, as gemini on Google) (`/p/<profile>`, BYOK,
-  `COPILOT_OFFLINE=true`, no credits); `--model <profile>:<alias>` crosses profiles. The GitHub login is used only
+  `COPILOT_OFFLINE=true`, no credits); `--overlay '{"provider":"<provider>","profile":"<p>"}'` crosses profiles.
+  The GitHub login is used only
   while the copilot record's GitHub profile (named by its account login, e.g. `aueric_boehcp`; the built-in no-login
   row is `copilot`) has verified credits < 95%, else it falls back to the Databricks profile, never the other GitHub
   account. Usage rows read `databricks/<model>` vs `github·copilot/<model>`; prompt cap = window − 32k − 10%

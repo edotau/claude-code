@@ -88,6 +88,9 @@ func applyRecord(agent string, set map[string]string, dryRun bool) int {
 	}
 	route, hasRoute := set[routeKey]
 	delete(set, routeKey)
+	if err := castRecordModel(set); err != nil {
+		return helptext.Fail("configure agents: %v", err)
+	}
 	if err := validateRecordSet(agent, set, route, hasRoute); err != nil {
 		return helptext.Fail("configure agents: %v", err)
 	}
@@ -114,6 +117,12 @@ func applyRecord(agent string, set map[string]string, dryRun bool) int {
 		return applyRoute(route, dryRun)
 	}
 	return 0
+}
+
+// castRecordModel refuses model=<profile>:<id>, naming the overlay form; the profile is its own key.
+func castRecordModel(set map[string]string) error {
+	_, err := providers.CastShared(set["MODEL"])
+	return err
 }
 
 // validateRecordSet checks every pin field and the config_route (codex only, a profile that serves it) before any write.

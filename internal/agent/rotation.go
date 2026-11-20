@@ -6,7 +6,6 @@ import (
 	"context"
 	"fmt"
 	"maps"
-	"os"
 	"slices"
 	"strings"
 	"time"
@@ -137,127 +136,8 @@ func driverRunnable(agentName string, p *providers.Provider, cands []catalog.Can
 	return slices.DeleteFunc(cands, func(c catalog.Candidate) bool { return !pr.Runnable(p, c.Model) })
 }
 
-// rotatesUnderAuto is false for claude: an asked auto keeps the brief's tier model; its row rotates (claudeRows).
+// rotatesUnderAuto is false for claude: an asked auto keeps the brief's tier model on the one profile it runs on.
 func rotatesUnderAuto(agentName string) bool { return !VaultAgentIsClaude(agentName) }
-
-// claudeRows ranks claude's rows for an unconfined asked auto (workspaces plus the subscription row); stamp claims one.
-func claudeRows(ctx context.Context, q RouteReq, stamp bool) []string {
-	if !rowRotates(ctx, q) {
-		return nil
-	}
-	reg, err := providers.Load()
-	if err != nil {
-		return nil
-	}
-	alias, _ := TaskTier(q.Task)
-	wq := claudeRowQuery(reg, q.Agent, cmp.Or(alias, untieredAuto(q.Agent)))
-	pick := router.RankWorkspaces[Finding]
-	if stamp {
-		pick = router.PickRowsAndStamp[Finding]
-	}
-	rows, skipped, err := pick(reg, wq, time.Now())
-	if err != nil {
-		return nil // nothing usable: the session row runs and fails its own preflight, as before
-	}
-	if stamp {
-		fmt.Fprintf(os.Stderr, "rotation picked %s (%s row, %d usable)\n", rows[0], q.Agent, len(rows))
-		for _, f := range skipped {
-			fmt.Fprintf(os.Stderr, "rotation skipped %s: %s\n", f.Profile, f)
-		}
-	}
-	return rows
-}
-
-func claudeRowQuery(reg *providers.Registry, agentName, alias string) router.WorkspaceQuery[Finding] {
-	return router.WorkspaceQuery[Finding]{AgentName: agentName, Model: alias, Strict: true, Key: router.RowRotationKey(agentName),
-		Extra:    subscriptionRows(reg, agentName),
-		Findings: rowFindings(router.LoadState()),
-		Unserved: func(string, []Finding) error { return ErrPoolExhausted },
-		Cooling:  func(*providers.Provider, time.Time) bool { return false },
-		Live:     func([]*providers.Provider) map[string]int { return nil }, // least-recent alone orders the rows
-	}
-}
-
-// RowPeek is one of claude's rotated rows: Rank 1 is the next ask's row, 0 a skipped row with Skip saying why.
-type RowPeek struct {
-	Row  string
-	Rank int
-	Skip string
-}
-
-// PeekClaudeRows ranks claude's rotation rows at tier alias without stamping: usable rows in order, then skipped ones.
-func PeekClaudeRows(reg *providers.Registry, agentName, alias string, now time.Time) []RowPeek {
-	rows, skipped, _ := router.RankWorkspaces(reg, claudeRowQuery(reg, agentName, alias), now)
-	out := make([]RowPeek, 0, len(rows)+len(skipped))
-	for i, r := range rows {
-		out = append(out, RowPeek{Row: r, Rank: i + 1})
-	}
-	for _, f := range skipped {
-		if !slices.ContainsFunc(out, func(r RowPeek) bool { return r.Row == f.Profile }) { // first finding per row
-			out = append(out, RowPeek{Row: f.Profile, Skip: f.String()})
-		}
-	}
-	return out
-}
-
-// rowRotates is an asked auto on claude with no route typed, inherited or pinned by an overlay.
-func rowRotates(ctx context.Context, q RouteReq) bool {
-	if !VaultAgentIsClaude(q.Agent) || q.Lead != "" || q.Profile != "" || q.Provider != "" || q.Host || q.Resumed {
-		return false
-	}
-	provider, _, err := router.CoworkerContext(ctx)
-	return err == nil && provider == "" && overlayAccount(ctx) == "" && askedAuto(ctx, q)
-}
-
-// askedAuto is a bare auto typed, or no model typed over an auto pin.
-func askedAuto(ctx context.Context, q RouteReq) bool {
-	model := q.Model
-	if model == "" && q.AutoModel {
-		model = AutoModel
-	}
-	if model == "" {
-		model = agentModelPinContext(ctx, q.Agent)
-	}
-	prefix, auto := SplitAuto(model)
-	return auto && prefix == ""
-}
-
-// subscriptionRows is claude's Anthropic subscription row: its record's cli-auth own login, else the first such row.
-func subscriptionRows(reg *providers.Registry, agentName string) []*providers.Provider {
-	sub := func(p *providers.Provider) bool {
-		return p != nil && p.Provider == "anthropic" && p.Auth.Type == providers.AuthCLI && p.Auth.Login == ""
-	}
-	if p := reg.Row(strings.TrimSpace(vault.GetAgentRecord(agentName).Profile)); sub(p) {
-		return []*providers.Provider{p}
-	}
-	for _, n := range slices.Sorted(maps.Keys(reg.Providers)) {
-		if sub(reg.Providers[n]) {
-			return []*providers.Provider{reg.Providers[n]}
-		}
-	}
-	return nil
-}
-
-// rowFindings skips a row without a live credential, on a quota hold, or not serving the tier alias's model.
-func rowFindings(st router.State) func(*providers.Provider, string, string, time.Time) []Finding {
-	return func(p *providers.Provider, agentName, alias string, now time.Time) []Finding {
-		if fs := CheckWorkspace(p, st, now); len(fs) > 0 {
-			return fs
-		}
-		account := router.AccountOf(p)
-		wire, err := spellModel(&ModelRoute{}, p, agentName, alias, now)
-		switch {
-		case err != nil:
-			return []Finding{{Check: "model", Profile: p.Name, Detail: err.Error()}}
-		case st.CoolingUntil(account).After(now) || st.ModelDead(account, wire, now):
-			return []Finding{{Check: "hold", Profile: p.Name, Detail: p.Name + " is held for " + wire}}
-		}
-		if _, failed := CheckModelNoted(agentName, p, wire, now, nil); failed != nil {
-			return []Finding{*failed}
-		}
-		return nil
-	}
-}
 
 // untieredAuto is an asked auto's alias for a brief with no tier: opus for a rotating agent, else sonnet.
 func untieredAuto(agentName string) string {
@@ -496,20 +376,20 @@ func rotationNote(m, alias string, n int, verb string) string {
 	return note
 }
 
-// RotationFreeze freezes the launch's tool-aware rotation pick together with its serving row.
-func RotationFreeze(ctx context.Context, agentName, brief, model string) (string, string) {
+// RotationFreeze freezes the launch's tool-aware rotation pick: its serving profile, plain model id and note.
+func RotationFreeze(ctx context.Context, agentName, brief, model string) (profile, id, note string) {
 	ctx, _ = RunValues(ctx, nil)
 	o, err := agentconfig.LoadOverlayContext(ctx, "", nil)
 	if err != nil || o.Host != "" || o.Remote != "" {
-		return "", ""
+		return "", "", ""
 	}
 	model = cmp.Or(model, o.Model)
 	if prefix, auto := SplitAuto(cmp.Or(model, agentModelPinContext(ctx, agentName), AutoModel)); !auto || prefix != "" {
-		return "", ""
+		return "", "", ""
 	}
 	reg, err := providers.LoadShared()
 	if err != nil {
-		return "", ""
+		return "", "", ""
 	}
 	q := ModelQuery{Agent: agentName, Model: model, Task: brief, Tools: IsReadOnlyBrief(brief) && agentName != agentid.Codex,
 		Profile: o.Profile, Provider: o.Provider, Account: o.Account, Effort: o.Effort, Identity: o.Identity, Fallback: o.Fallback}
@@ -517,20 +397,20 @@ func RotationFreeze(ctx context.Context, agentName, brief, model string) (string
 	return freezeQuery(ctx, reg, q, agentName, brief)
 }
 
-// freezeQuery resolves q as the launch would and returns the rotation pick with its serving row.
-func freezeQuery(ctx context.Context, reg *providers.Registry, q ModelQuery, agentName, brief string) (string, string) {
+// freezeQuery resolves q as the launch would and returns the rotation pick's profile, model id and note.
+func freezeQuery(ctx context.Context, reg *providers.Registry, q ModelQuery, agentName, brief string) (string, string, string) {
 	q, note, err := RunQuery(ctx, reg, q, router.RuleClassifier{}.Alias(brief))
 	if err != nil || q.Agent != agentName {
-		return "", "rotation route unavailable; the run picks at launch"
+		return "", "", "rotation route unavailable; the run picks at launch"
 	}
 	r, choice, err := ExplainRun(reg, QueryFor(ctx, q), time.Now())
 	if err != nil {
-		return "", "rotation state unavailable; the run picks at launch"
+		return "", "", "rotation state unavailable; the run picks at launch"
 	}
 	if choice == nil || choice.Criterion != "rotation" || r.Profile == "" {
-		return "", ""
+		return "", "", ""
 	}
-	return r.Profile + ":" + r.Model, joinNotes(note, r.Note)
+	return r.Profile, r.Model, joinNotes(note, r.Note)
 }
 
 // RotationSummary is a rotation pin's doctor detail: the pool size per tier, then the last 7 days' runs by model.

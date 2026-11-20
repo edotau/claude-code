@@ -11,7 +11,8 @@ Verbatim bullets moved from `rules/harness/agent.md` → Dispatch behavior.
   `google`, `databricks`; omitted = the agent's pin; an agent that cannot use it is refused: claude anthropic, codex
   openai, copilot github, gemini google, opencode databricks only, every agent databricks; `databricks` confines only
   the Databricks hop, so unless `fallback` is `none` the dispatch may still fall back to the agent's own login, then
-  `claude`), `profile` (one under it; databricks: or `auto`), `account`, `identity`, `model`, `effort`, `fallback`,
+  `claude`), `profile` (one under it; databricks: or `auto`), `account`,
+  `identity`, `model`, `effort`, `fallback`,
   `host`, `remote` (like global `--remote`, `auto` allowed; refused with a host other than this machine) and the env
   layer `set`/`unset`/`keep`.
   Value: a file path (regular, yours, not group/world-writable, <= 64 KiB), inline `'{...}'` or `-` (stdin; the task is

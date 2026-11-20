@@ -51,13 +51,19 @@ func TestClientModelKeepsTypedOneM(t *testing.T) {
 	want := map[string]string{
 		"opus":   "claude-opus-4-8[1m]",
 		"sonnet": "claude-sonnet-5",
-		"haiku":  "other:claude-haiku-4-5",
-		"fable":  "other:gpt-5",
+		"haiku":  "claude-haiku-4-5",
+		"fable":  "gpt-5",
 	}
 	for alias, w := range want {
 		if got := sel.ClientModel(alias); got != w {
 			t.Errorf("ClientModel(%s) = %q; want %q", alias, got, w)
 		}
+	}
+	if got, ok := sel.AliasTarget("gpt-5"); !ok || got.Provider != other {
+		t.Errorf("AliasTarget(gpt-5) = %+v %v; want the cross-provider pin", got, ok)
+	}
+	if _, ok := sel.AliasTarget("claude-sonnet-5"); ok {
+		t.Error("AliasTarget(same-provider id) found a cross-provider pin")
 	}
 }
 

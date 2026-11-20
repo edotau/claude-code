@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -63,4 +66,55 @@ func TestClaudeCatalogHelpStaysInHarness(t *testing.T) {
 	if got := out + errOut; code != 0 || !strings.Contains(got, "usage: claude-code claude catalog") {
 		t.Fatalf("code %d, output %q", code, got)
 	}
+}
+
+// Invariant: a prefixed model is refused at the launch input, and no launch surface carries one (a stored pin included).
+func TestShorthandNeverLeavesTheHarness(t *testing.T) {
+	seedAltRows(t)
+	for _, agentName := range []string{"claude", "copilot", "opencode", "pi"} { // codex and gemini serve no anthropic row
+		code, _, errOut := hosttest.CaptureOutput(t, func() int {
+			return Run([]string{"claude-code", agentName, "--model", "alt2:opus", "--print-env"})
+		})
+		if code == 0 || !strings.Contains(errOut, `use --overlay '{"provider":"anthropic","profile":"alt2","model":"opus"}'`) {
+			t.Errorf("%s --model alt2:opus: exit %d %q; want a refusal naming the overlay", agentName, code, errOut)
+		}
+	}
+	for _, args := range [][]string{{"claude", "--model", "opus"}, {"claude", "--profile", "alt2", "--model", "sonnet"},
+		{"copilot", "--profile", "alt2", "--model", "opus"}, {"opencode", "--profile", "alt2", "--model", "opus"},
+		{"pi", "--profile", "alt2", "--model", "opus"}} {
+		code, out, errOut := hosttest.CaptureOutput(t, func() int { return Run(append([]string{"claude-code"}, append(args, "--print-env")...)) })
+		if code != 0 || !strings.Contains(out+errOut, "alt") {
+			t.Fatalf("%v: exit %d, no plan: %s %s", args, code, out, errOut)
+		}
+		if strings.Contains(out, "alt2:") || strings.Contains(out, "alt:") {
+			t.Errorf("%v: a launch surface (env, argv or settings) carries a prefixed model:\n%s", args, out)
+		}
+	}
+}
+
+// seedAltRows registers anthropic rows alt (default) and alt2, a cross-provider haiku pin and stub agent binaries.
+func seedAltRows(t *testing.T) {
+	t.Helper()
+	vaulttest.UseFreshKey(t)
+	dir := cfgDir(t)
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("ALT_KEY", "test-key")
+	stubs, native := filepath.Join(dir, "bin"), t.TempDir() // the harness's agent bin; native claude lives outside it
+	if err := os.MkdirAll(stubs, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{filepath.Join(stubs, "copilot"), filepath.Join(stubs, "opencode"), filepath.Join(stubs, "pi"),
+		filepath.Join(native, "claude")} {
+		if err := os.WriteFile(path, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("PATH", native+string(os.PathListSeparator)+os.Getenv("PATH"))
+	row := func(url string) string {
+		return `{"protocol":"anthropic","base_url":"` + url + `","auth":{"type":"key","header":"x-api-key","env":"ALT_KEY"},` +
+			`"models":{"opus":"claude-opus-5-5","sonnet":"claude-sonnet-5-5","haiku":"claude-haiku-5-5"}}`
+	}
+	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"alt","providers":{"anthropic":{"alt":`+
+		row("https://alt.example.com")+`,"alt2":`+row("https://alt2.example.com")+`}}}`)
+	vaulttest.SetRecord(t, "claude", "aliases.haiku", "alt2:claude-haiku-5-5") // a stored cross-provider pin (D5)
 }

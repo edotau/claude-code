@@ -170,7 +170,7 @@ func TestCmdAskRetryFlags(t *testing.T) {
 // A resumed session keeps the model it ran on; a typed --model wins, an unknown session routes as before.
 func TestCmdAskSessionKeepsRecordedModel(t *testing.T) {
 	for _, tt := range []struct{ name, session, model, want string }{
-		{"resume keeps the recorded profile and model", "sess-1", "", "qa:databricks-gpt-6-1-sol"},
+		{"resume keeps the recorded model", "sess-1", "", "databricks-gpt-6-1-sol"},
 		{"typed model wins", "sess-1", "opus", "opus"},
 		{"unknown session routes as before", "sess-2", "", ""},
 	} {
@@ -182,7 +182,7 @@ func TestCmdAskSessionKeepsRecordedModel(t *testing.T) {
 			t.Setenv("HOME", dir)
 			t.Setenv("PATH", dir)
 			rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "first"}, time.Now().Add(-time.Hour))
-			rec.Finish(wire.Result{Model: "databricks-gpt-6-1-sol", Invoked: "qa:databricks-gpt-6-1-sol", SessionID: "sess-1"}, nil, time.Second)
+			rec.Finish(wire.Result{Model: "databricks-gpt-6-1-sol", Invoked: "databricks-gpt-6-1-sol", SessionID: "sess-1"}, nil, time.Second)
 			if err := rec.Save(); err != nil {
 				t.Fatal(err)
 			}
@@ -1293,7 +1293,6 @@ func TestPoolValue(t *testing.T) {
 		{"fallback typed allows the swap", []string{"--model", "kimi-k3", "--fallback", "all"}, ""},
 		{"untyped model", nil, ""},
 		{"own-login model over the pin", []string{"--model", "opencode-go/kimi-k3.1-pro"}, ""},
-		{"prefixed auto with a typed profile", []string{"--model", auto, "--profile", "dev"}, ""},
 	}
 	for _, c := range cases {
 		fs, f := askFlagSet()
@@ -1303,9 +1302,6 @@ func TestPoolValue(t *testing.T) {
 		r := &askRun{ctx: t.Context(), f: f, fs: fs, ag: "opencode"}
 		if got := r.poolValue(""); got != c.want {
 			t.Errorf("%s: poolValue = %q, want %q", c.name, got, c.want)
-		}
-		if lead := f.provider + " " + f.model; strings.Contains(c.name, "prefixed") && lead != "databricks auto" {
-			t.Errorf("%s: provider and model = %q, want the --provider databricks --model auto spelling", c.name, lead)
 		}
 		if own := strings.Contains(c.name, "own-login"); f.native != own {
 			t.Errorf("%s: native = %v, want %v", c.name, f.native, own)

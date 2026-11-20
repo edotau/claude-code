@@ -134,7 +134,7 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	}
 	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out}
 	markTyped(fs, f) // before dispatchMode: a batch builds its base request there
-	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
+	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, func() (int, bool) { return checkModel(r) }, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
 		if code, done := phase(); done {
 			return code
 		}
@@ -348,6 +348,18 @@ func (r *askRun) checkArm() (int, bool) {
 	return 0, false
 }
 
+// checkModel refuses a --model (else <AGENT>_MODEL) carrying a profile, naming the overlay to use.
+func checkModel(r *askRun) (int, bool) {
+	_, err := providers.CastShared(r.f.model)
+	if err == nil {
+		_, _, err = providers.EnvCast(r.ctx, r.ag)
+	}
+	if err != nil {
+		return r.fail(err, 2)
+	}
+	return 0, false
+}
+
 // refuse fails a route refusal; a well-formed ask (exit 1, not --dry-run) also leaves its failed record.
 func refuse(r *askRun, err error, fallback string) (int, bool) {
 	code := ApplyCode(err)
@@ -377,7 +389,7 @@ func recordRefusal(r *askRun, err error, fallback string) {
 	agent.RecordRefusal(r.ag, req, nil, err)
 }
 
-// poolValue is value, or databricks:auto for --provider databricks with no profile, a pool pin, or a model the pin lacks.
+// poolValue is value, or the pool confinement for --provider databricks alone, a pool pin, or a model the pin lacks.
 func (r *askRun) poolValue(value string) string {
 	f := r.f
 	r.swap = helptext.Explicit(r.fs, "fallback") && f.fallback != router.FallbackNone
@@ -385,10 +397,6 @@ func (r *askRun) poolValue(value string) string {
 	f.native = ownLoginNative(r.ag, f, value)
 	switch {
 	case value != "" || f.profile != "" || f.host != "" || r.jobRec != nil || f.native:
-		leadAuto(f, auto)
-	case f.model == auto: // names the arm and its auto workspace, not a profile, so foldAuto sees plain auto
-		f.provider, f.model = "", router.AutoArm
-		return auto
 	case f.provider == router.RouteDatabricks:
 		f.provider = ""
 		return auto
@@ -396,13 +404,6 @@ func (r *askRun) poolValue(value string) string {
 		return auto
 	}
 	return value
-}
-
-// leadAuto spells a kept route's databricks:auto as --provider databricks --model auto, which a typed profile confines.
-func leadAuto(f *askFlags, auto string) {
-	if f.model == auto && f.host == "" && f.provider == "" {
-		f.provider, f.model = router.RouteDatabricks, router.AutoArm
-	}
 }
 
 // pinMoves reports an unled, unbatched run off its pin: a typed model the pin lacks, or a pool pin (not live or resumed).
@@ -543,8 +544,9 @@ func (r *askRun) resolveRecord() (int, bool) {
 	}
 	var err error
 	markTyped(r.fs, f) // again: applyRecord loaded the record's flag, and a --model on this line wins
-	if f.model == "" { // a resumed session keeps its model; a typed --model wins
-		f.model = agent.SessionModel(f.session)
+	if f.model == "" { // a resumed session keeps its model and row; a typed --model wins
+		profile, model := agent.SessionModel(f.session)
+		f.model, f.profile = model, cmp.Or(f.profile, profile)
 	}
 	if rc, done := r.guardResubmit(); done {
 		return rc, true

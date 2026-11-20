@@ -776,7 +776,7 @@ func assertAnswerWriteFailure(t *testing.T, id string, events []wire.Event) {
 	}
 }
 
-// SessionModel keeps the newest dispatch's profile and served model.
+// SessionModel splits an old record's `<profile>:<model>` into the profile and the served model.
 func TestSessionModel(t *testing.T) {
 	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
@@ -798,13 +798,11 @@ func TestSessionModel(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	for session, want := range map[string]string{"a": "qa:wire-new", "e": "qa:served-sonnet", "b": "sonnet", "c": "", "d": "reported", "g": "qwen3:30b", "h": "dev:gpt-6.1-sol", "i": "", "z": "", "": ""} {
-		if got := SessionModel(session); got != want {
-			t.Errorf("SessionModel(%q) = %q, want %q", session, got, want)
+	for session, want := range map[string]string{"a": "qa wire-new", "e": "qa served-sonnet", "b": " sonnet", "c": " ",
+		"d": " reported", "g": " qwen3:30b", "h": "dev gpt-6.1-sol", "i": " ", "z": " ", "": " ", "f": " gpt-6.1-sol"} {
+		if p, m := SessionModel(session); p+" "+m != want {
+			t.Errorf("SessionModel(%q) = %q %q, want %q", session, p, m, want)
 		}
-	}
-	if got := SessionModel("f"); got != "gpt-6.1-sol" {
-		t.Errorf("fallback SessionModel = %q, want gpt-6.1-sol", got)
 	}
 }
 

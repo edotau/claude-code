@@ -390,7 +390,7 @@ func TestPlainPlanRefusesAgentWithNoOwnLogin(t *testing.T) {
 func TestPoolLaunchOnlyForUnpinnedNoOwnLogin(t *testing.T) {
 	vaulttest.Use(t)
 	o, pooled, err := poolLaunch(agentid.Pi, LaunchOptions{})
-	if err != nil || !pooled || o.Model != PoolPin+":auto" {
+	if err != nil || !pooled || o.Model != AutoModel || o.Provider != poolName {
 		t.Fatalf("unpinned pi = %+v %v %v, want the pool pick", o, pooled, err)
 	}
 	for _, in := range []struct {

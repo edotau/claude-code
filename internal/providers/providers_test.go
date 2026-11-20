@@ -172,8 +172,8 @@ func TestSelectPinsAndCrossProvider(t *testing.T) {
 	if got := sel.ClientModel("opus"); got != "claude-opus-4-8" {
 		t.Errorf("opus client model %q", got)
 	}
-	if got := sel.ClientModel("haiku"); got != "openai:gpt-5-nano" {
-		t.Errorf("haiku client model %q", got)
+	if got := sel.ClientModel("haiku"); got != "gpt-5-nano" {
+		t.Errorf("haiku client model %q, want the plain id", got)
 	}
 	if !sel.NeedsRouter(reg) {
 		t.Error("cross-provider alias must need the router")

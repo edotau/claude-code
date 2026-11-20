@@ -183,9 +183,6 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 		res, err = wire.Result{Agent: disp.Agent.Name(), Status: StatusOf(skip), Invoked: invokedModel(lreq), NotStarted: true}, skip
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
 	}
-	if disp.rowHop {
-		router.StampRow(disp.Agent.Name(), disp.row, time.Now()) // the hop's row served, so it is no longer least-recent
-	}
 	runCtx := retry.WithAdmissionTimeout(retry.WithPermit(withCoolKey(ctx, key), held), lreq.Timeout)
 	res, err = Run(runCtx, disp.Agent, lreq, sink, notify)
 	if replacement && !res.NotStarted {
@@ -205,7 +202,17 @@ func invokedModel(req RunOptions) string {
 	if req.CellModel && req.AutoModel {
 		return AutoModel
 	}
-	return req.Model
+	_, id := hopModel(req.Model)
+	return id
+}
+
+// hopModel splits an internal ladder hop's `<row>:<model>` into row and plain id; written surfaces get the id only.
+func hopModel(m string) (row, id string) {
+	reg, err := providers.LoadShared()
+	if r, rest, ok := strings.Cut(m, ":"); ok && err == nil && reg.Providers[r] != nil {
+		return r, rest
+	}
+	return "", m
 }
 
 // launchedModel is a frozen copilot target's model (the pick lreq never sees), else invokedModel; auto stays auto.
@@ -252,7 +259,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 		if auto && !res.NotStarted {
 			lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
 		}
-		res.Invoked = next
+		_, res.Invoked = hopModel(next)
 		if err != nil && wire.ErrorKind(err) != wire.ErrorKind(first) { // a repick that answered clears the account
 			noteFailure(disp, ran, first)
 		}
@@ -560,15 +567,15 @@ func (s *fallbackState) nextPrompt(midRun bool) string {
 	return midRunPrompt(hopLabel(s.prevDispatch), s.res.Answer, s.startHead, edit, s.task)
 }
 
-// movesOn: the previous dispatch was unavailable, or failed on a row that next's row hop can fix.
-func (s *fallbackState) movesOn(ctx context.Context, next Dispatch) bool {
-	return dispatchUnavailableContext(ctx, s.prevDispatch.Agent, s.res, s.err) || next.rowHop && HopFailed(s.res, s.err)
+// movesOn: the previous dispatch was unavailable.
+func (s *fallbackState) movesOn(ctx context.Context) bool {
+	return dispatchUnavailableContext(ctx, s.prevDispatch.Agent, s.res, s.err)
 }
 
 func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) (bool, error) {
 	// An answer or final failure ends the chain before any cancel check.
 	midRun := i > 0 && cutOffMidRunContext(ctx, s.prevDispatch.Agent, s.err) // D1 = B: every external hop falls through
-	if i > 0 && (c.yieldsFallback(s.req, s.res, s.err) || (!midRun && !s.movesOn(ctx, c.Dispatches[i]))) {
+	if i > 0 && (c.yieldsFallback(s.req, s.res, s.err) || (!midRun && !s.movesOn(ctx))) {
 		s.stopped = true
 		return true, nil
 	}
@@ -1100,8 +1107,7 @@ func (c Chain) retryYield(ctx context.Context, i int, req RunOptions) func(wire.
 	return func(res wire.Result, err error) bool {
 		return c.yieldsFallback(req, res, err) ||
 			(i+1 < len(c.Dispatches) && (i != 0 || !explicitBackend(req)) &&
-				(dispatchUnavailableContext(ctx, c.Dispatches[i].Agent, res, err) ||
-					c.Dispatches[i+1].rowHop && HopFailed(res, err)))
+				dispatchUnavailableContext(ctx, c.Dispatches[i].Agent, res, err))
 	}
 }
 

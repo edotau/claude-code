@@ -180,7 +180,8 @@ func TestArmFlagRefusals(t *testing.T) {
 		if code != 2 || !strings.Contains(stderr, tc.want) {
 			t.Errorf("%v (inherited %q): exit %d stderr %q, want 2 with %q", tc.args, tc.inherited, code, stderr, tc.want)
 		}
-		if line := strings.TrimPrefix(strings.TrimSpace(stderr), "claude-code: ask: "); len(line) > 80 {
+		if line := strings.TrimPrefix(strings.TrimSpace(stderr), "claude-code: ask: "); len(line) > 80 &&
+			!strings.Contains(line, "use --overlay '") { // the overlay object it names is the one long part
 			t.Errorf("%v: message is %d columns, want at most 80: %q", tc.args, len(line), line)
 		}
 	}

@@ -49,7 +49,8 @@ func cmdGatewayResolve(args []string) int {
 		fs.Usage()
 		return 2
 	}
-	if err := checkFallback(*fallback); err != nil {
+	_, err = providers.CastShared(*model)
+	if err = cmp.Or(err, checkFallback(*fallback)); err != nil {
 		return helptext.FailUsage("gateway resolve: %v", err)
 	}
 	if *provider == providers.GroupDatabricks {

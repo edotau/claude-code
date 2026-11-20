@@ -44,9 +44,8 @@ func TestPoolTable(t *testing.T) {
 		t.Errorf("copilot row %v, codex row %v on the copilot login; want only copilot: %v", copilot, codex,
 			slices.Collect(maps.Keys(seen)))
 	}
-	claude := seen["claude databricks·dev deep"]
-	if got := [3]any{claude.Size, claude.Next != "", strings.HasPrefix(claude.Note, "credential:")}; got != [3]any{0, true, true} {
-		t.Errorf("claude on dev = %+v; want its tier model and the credential skip as its note", claude)
+	if slices.ContainsFunc(keys, func(k string) bool { return strings.HasPrefix(k, "claude ") }) {
+		t.Errorf("pool table has claude rows %q: claude no longer rotates rows", keys)
 	}
 	var out bytes.Buffer
 	RenderPoolTable(&out, rows, 80, time.Now())

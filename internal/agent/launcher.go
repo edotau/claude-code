@@ -67,8 +67,13 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 	if _, err := agentconfig.FlagOverlay(nil, o.KeepEnv); err != nil { // names only: never a value
 		return LaunchOptions{}, nil, err
 	}
-	err := o.foldOverlay()
-	return o, rest, err
+	if err := o.foldOverlay(); err != nil {
+		return o, rest, err
+	}
+	if _, err := providers.CastShared(o.Model); err != nil {
+		return LaunchOptions{}, nil, &UsageError{Msg: err.Error()}
+	}
+	return o, rest, nil
 }
 
 // UsageError is a launch refusal the CLI reports verbatim with exit 2.
@@ -280,6 +285,9 @@ func (o *LaunchOptions) foldOverlay() error {
 func LaunchPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
 	ctx, o.Values = RunValues(ctx, o.Values)
 	ctx = context.WithValue(ctx, launchDryKey{}, o.PrintEnv)
+	if _, _, err := providers.EnvCast(ctx, name); err != nil {
+		return Plan{}, &UsageError{Msg: err.Error()}
+	}
 	plan, err := cliPlan(ctx, name, o, args)
 	plan.Values = o.Values.Merge(nil)
 	plan.Keep, plan.CLI = o.KeepEnv, true
@@ -359,7 +367,7 @@ func poolLaunch(name string, o LaunchOptions) (LaunchOptions, bool, error) {
 	if err != nil || pinned.Provider != "" {
 		return o, false, err
 	}
-	o.Model = poolRoute.Provider + ":" + poolRoute.Profile
+	o.Provider, o.Model = poolName, AutoModel // the pool's own route, as the overlay {"provider":"databricks","profile":"auto"}
 	return o, true, nil
 }
 
@@ -367,7 +375,7 @@ func poolLaunch(name string, o LaunchOptions) (LaunchOptions, bool, error) {
 func poolPicked(name, profile string, err error) error {
 	if err != nil {
 		return &UsageError{Msg: fmt.Sprintf("%s: no usable Databricks profile in the pool (%v); run `claude-code %s --profile <dev|qa|prod>` "+
-			"or `claude-code databricks login`", name, strings.TrimPrefix(err.Error(), "--model "+PoolPin+":auto: "), name)}
+			"or `claude-code databricks login`", name, strings.TrimPrefix(err.Error(), "--model "+AutoModel+": "), name)}
 	}
 	fmt.Fprintf(NoticeOut, "claude-code: %s: no profile pinned; picked %s from the Databricks pool\n", name, profile)
 	return nil
@@ -397,7 +405,7 @@ func routeLaunch(ctx context.Context, name string, o LaunchOptions) (_ LaunchOpt
 func cliLaunch(ctx context.Context, spec Schema, name string, o LaunchOptions, args []string, flagModel string,
 	reg *providers.Registry, sel providers.Selection) (Plan, error) {
 	// --profile or the agent profile pin is explicit: the session pin is the default, not a per-agent choice.
-	explicit := o.Provider != "" || typedProfile(o.Model)
+	explicit := o.Provider != ""
 	target, note, err := cliTarget(ctx, spec, name, reg, sel, explicit, flagModel)
 	showOwnLoginNote := ownLoginNoteShown(o, args)
 	if errors.Is(err, ErrOwnLogin) {
@@ -646,9 +654,3 @@ func plainPlan(spec Schema, args []string) (Plan, error) {
 
 // lookPath is the seam for resolving an agent binary.
 var lookPath = paths.AgentBin
-
-// typedProfile is true for a --model carrying a "<profile>:" prefix, which SessionSelection strips into a local copy.
-func typedProfile(model string) bool {
-	reg, err := providers.Load()
-	return err == nil && namesProvider(reg, model)
-}

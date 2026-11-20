@@ -14,7 +14,6 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
-	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // Asked auto peeks without recording, stamps and advances on a real pick.
@@ -153,41 +152,6 @@ func TestRotationClaudeKeepsTier(t *testing.T) {
 		if err != nil || got.Model != want.Model {
 			t.Errorf("claude auto, brief %q: ran %s (%v), want %s", tc.task, got.Model, err, want.Model)
 		}
-	}
-}
-
-// Only an unconfined asked auto on claude rotates rows, and the subscription row is the cli login, never the key row.
-func TestClaudeRowRotation(t *testing.T) {
-	setConfigDir(t)
-	vaulttest.Use(t)
-	t.Setenv("COWORKER_OVERLAY", "")
-	ctx := context.Background()
-	for _, tc := range []struct {
-		name string
-		q    RouteReq
-		want bool
-	}{
-		{"typed auto", RouteReq{Agent: "claude", Model: "auto"}, true},
-		{"auto flag", RouteReq{Agent: "claude", AutoModel: true}, true},
-		{"--provider", RouteReq{Agent: "claude", Model: "auto", Provider: "databricks"}, false},
-		{"--profile", RouteReq{Agent: "claude", Model: "auto", Profile: "qa"}, false},
-		{"row prefix", RouteReq{Agent: "claude", Model: "dev:auto"}, false},
-		{"typed alias", RouteReq{Agent: "claude", Model: "sonnet"}, false},
-		{"typed fable", RouteReq{Agent: "claude", Model: "fable"}, false},
-		{"untyped", RouteReq{Agent: "claude"}, false},
-		{"other agent", RouteReq{Agent: "codex", Model: "auto"}, false},
-	} {
-		if got := rowRotates(ctx, tc.q); got != tc.want {
-			t.Errorf("%s: rowRotates = %v, want %v", tc.name, got, tc.want)
-		}
-	}
-	reg := &providers.Registry{Providers: map[string]*providers.Provider{
-		"anthropic": {Name: "anthropic", Provider: "anthropic", Auth: providers.Auth{Type: "key"}},
-		"gh":        {Name: "gh", Provider: "github", Auth: providers.Auth{Type: providers.AuthCLI}},
-		"sub":       {Name: "sub", Provider: "anthropic", Auth: providers.Auth{Type: providers.AuthCLI}},
-	}}
-	if rows := subscriptionRows(reg, "claude"); len(rows) != 1 || rows[0].Name != "sub" {
-		t.Errorf("subscriptionRows = %v, want only the cli-auth anthropic row", rows)
 	}
 }
 

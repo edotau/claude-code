@@ -456,18 +456,15 @@ func configureCopilotRegistry(
 	}, nil
 }
 
-// routedModels maps each requested --model to p's spelling; a model typed for another row is dropped.
+// routedModels maps each requested --model to p's spelling.
 func routedModels(ctx context.Context, reg *providers.Registry, p *providers.Provider, requested []string) ([]string, error) {
 	var out []string
 	for _, m := range requested {
-		spec, err := providers.SplitModelSpec(reg, m)
+		c, err := providers.CastModel(reg, m)
 		if err != nil {
 			return nil, fmt.Errorf("copilot: %w", err)
 		}
-		if spec.Row != "" && spec.Row != p.Name {
-			continue
-		}
-		q := agent.QueryFor(agent.PeekContext(ctx), agent.ModelQuery{Agent: "copilot", Model: spec.Model, Profile: p.Name, Interactive: true}) // a menu listing only peeks
+		q := agent.QueryFor(agent.PeekContext(ctx), agent.ModelQuery{Agent: "copilot", Model: c.Model, Profile: p.Name, Interactive: true}) // a menu listing only peeks
 		r, err := agent.ResolveRun(reg, q, time.Now())
 		if err != nil {
 			return nil, fmt.Errorf("copilot: %w", err)

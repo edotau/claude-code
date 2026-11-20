@@ -33,11 +33,14 @@ func sessionScope(in *http.Request) ([]string, bool) {
 func (r *Router) resolveTarget(w http.ResponseWriter, in *http.Request, reg *providers.Registry,
 	session, model string) (providers.Target, bool) {
 	sess, err := reg.Get(session)
+	var parsed providers.Target
+	if err == nil {
+		parsed, err = clientTarget(reg, sess, model)
+	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "proxy: "+err.Error())
 		return providers.Target{}, false
 	}
-	parsed := providers.ParseTarget(reg, model, sess)
 	target := fableToOpus(reg, parsed)
 	if target.Model != parsed.Model {
 		r.noteSwap(target.Provider.Name, parsed.Model, target.Model, "no Fable endpoint on this route")
@@ -48,6 +51,20 @@ func (r *Router) resolveTarget(w http.ResponseWriter, in *http.Request, reg *pro
 		return target, false
 	}
 	return target, true
+}
+
+// clientTarget is a client's plain model on the session, or a cross-provider alias pin's row; a prefixed id is refused.
+func clientTarget(reg *providers.Registry, sess *providers.Provider, model string) (providers.Target, error) {
+	c, err := providers.CastModel(reg, model)
+	if err != nil {
+		return providers.Target{}, err
+	}
+	if sel, err := providers.Select(reg, sess.Name); err == nil {
+		if t, ok := sel.AliasTarget(c.Model); ok {
+			return t, nil
+		}
+	}
+	return providers.PlainTarget(sess, c.Model), nil
 }
 
 // fableToOpus maps a Fable target on a Databricks serving route to the session's opus slot; Databricks serves no Fable.

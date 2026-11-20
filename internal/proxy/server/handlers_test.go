@@ -492,7 +492,7 @@ func TestSessionTokenConfinedToItsProfile(t *testing.T) {
 	}
 }
 
-// A token for {ultra, dev} on /p/ultra reaches a dev alias; a qa alias is 403 and /p/qa is 401, before any upstream.
+// A token for {ultra, dev} on /p/ultra reaches a dev alias pin; a qa pin is 403, a prefixed id 400 and /p/qa 401.
 func TestSessionTokenCoversItsProfileSet(t *testing.T) {
 	useGate(t)
 	up := newRawUp(t, okRaw)
@@ -508,6 +508,8 @@ func TestSessionTokenCoversItsProfileSet(t *testing.T) {
 	srv := setupRouter(t, `{"default":"ultra","providers":{"anthropic":{"ultra":`+
 		anthropicProvider(up.URL, "ULTRA_KEY", `{"opus":"u-opus"}`)+`},"databricks":{"dev":`+row("DEV_TOKEN")+
 		`,"qa":`+row("QA_TOKEN")+`}}}`, func(r *Router) { routed = r })
+	vaulttest.SetRecord(t, "claude", "aliases.haiku", "dev:databricks-claude-haiku-5-5") // stored cross-provider pins (D5)
+	vaulttest.SetRecord(t, "claude", "aliases.sonnet", "qa:databricks-claude-sonnet-5-5")
 	token, err := routed.sessions.mint([]string{"ultra", "dev", "ultra"}, os.Getpid())
 	if err != nil {
 		t.Fatal(err)
@@ -517,8 +519,9 @@ func TestSessionTokenCoversItsProfileSet(t *testing.T) {
 		path, model string
 		want        int
 	}{
-		{"/p/ultra/v1/messages", "dev:databricks-claude-opus-5-5", http.StatusOK},
-		{"/p/ultra/v1/messages", "qa:databricks-claude-opus-5-5", http.StatusForbidden},
+		{"/p/ultra/v1/messages", "databricks-claude-haiku-5-5", http.StatusOK},
+		{"/p/ultra/v1/messages", "databricks-claude-sonnet-5-5", http.StatusForbidden},
+		{"/p/ultra/v1/messages", "dev:databricks-claude-opus-5-5", http.StatusBadRequest},
 		{"/p/qa/v1/messages", "databricks-claude-opus-5-5", http.StatusUnauthorized},
 	}
 	for _, c := range cases {

@@ -820,19 +820,18 @@ func loadRecord(id string, list func(dir string) ([]string, error)) (Record, err
 // namesNoModel is a served name that is no model: empty, the request auto or "<synthetic>".
 func namesNoModel(m string) bool { return m == "" || m == AutoModel || strings.HasPrefix(m, "<") }
 
-// SessionModel is the newest dispatch's `<profile>:<served model>` (bare model with no profile); "" when unknown.
-func SessionModel(session string) string {
+// SessionModel is the newest dispatch's served model and, on the asked agent's row, its profile; "" when unknown.
+func SessionModel(session string) (profile, model string) {
 	if session == "" {
-		return ""
+		return "", ""
 	}
-	model := ""
 	_ = eachRecent(paths.DispatchDir(), jsonToken(session), func(r Record) bool {
 		if r.SessionID != session {
 			return true
 		}
-		profile, invoked, pinned := strings.Cut(r.Invoked, ":")
-		if !pinned || r.Model == r.Invoked { // served as typed: a local tag such as qwen3:30b, no profile prefix
-			profile, invoked = "", r.Invoked
+		row, invoked, old := strings.Cut(r.Invoked, ":") // a record from before plain ids carries `<profile>:<model>`
+		if !old || r.Model == r.Invoked {                // served as typed: a local tag such as qwen3:30b
+			row, invoked = "", r.Invoked
 		}
 		m := cmp.Or(r.Model, invoked) // the served model, not the requested alias
 		if namesNoModel(m) {
@@ -842,12 +841,15 @@ func SessionModel(session string) string {
 			return true
 		}
 		model = m
-		if profile != "" && (r.RanAs == "" || r.RanAs == r.Fallback) { // ran on the asked agent (Fallback names it)
-			model = profile + ":" + m
+		if row == "" && !VaultAgentIsClaude(r.Agent) { // a vendor CLI's session lives on its row; claude's moves freely
+			row = r.Provider
+		}
+		if r.RanAs == "" || r.RanAs == r.Fallback { // ran on the asked agent (Fallback names it)
+			profile = row
 		}
 		return false
 	})
-	return model
+	return profile, model
 }
 
 // RunRecordedOpts tunes runRecorded for the caller's stdout contract.

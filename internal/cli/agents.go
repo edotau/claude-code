@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"flag"
@@ -363,12 +364,15 @@ func cmdAgentsLabel(args []string) int {
 		fs.Usage()
 		return 2
 	}
+	if _, err := providers.CastShared(*model); err != nil {
+		return helptext.FailUsage("agents label: %v", err)
+	}
 	task, err := agent.ReadBrief(*taskFile)
 	if err != nil {
 		return helptext.Fail("agents label: %v", err)
 	}
-	freezeLabelRotation(*run, *spec+*profile, pos[0], task, model)
-	runText, err := labelRun(*run, *spec, pos[0], task, model, profile)
+	frozen := freezeLabelRotation(*run, *spec+*profile, pos[0], task, model)
+	runText, err := labelRun(*run, *spec, pos[0], task, model, profile, frozen)
 	if err != nil {
 		return helptext.FailUsage("agents label: %v", err)
 	}
@@ -404,32 +408,35 @@ func emitLabel(row hooks.LabelRow, runText, model, profile, task string) int {
 	return printLabel(row.Label)
 }
 
-// freezeLabelRotation makes the Run: line carry the same rotation pick as the label.
-func freezeLabelRotation(run bool, pinned, typ, task string, model *string) {
+// freezeLabelRotation makes the Run: line carry the same rotation pick as the label; it returns the pick's profile.
+func freezeLabelRotation(run bool, pinned, typ, task string, model *string) string {
 	if !run || pinned != "" || (*model != "" && *model != agent.AutoModel) {
-		return
+		return ""
 	}
-	if m, note := agent.RotationFreeze(context.Background(), typ, task, *model); m != "" {
-		*model = m // The Run: line carries the pick so the label and run agree.
-		fmt.Fprintln(os.Stderr, "agents label: "+note)
+	profile, m, note := agent.RotationFreeze(context.Background(), typ, task, *model)
+	if m == "" {
+		return ""
 	}
+	*model = m // The Run: line carries the pick so the label and run agree.
+	fmt.Fprintln(os.Stderr, "agents label: "+note)
+	return profile
 }
 
 // labelRun is --run's Run: line, and clears model/profile, which the line now carries.
-func labelRun(run bool, spec, typ, task string, model, profile *string) (string, error) {
+func labelRun(run bool, spec, typ, task string, model, profile *string, frozen string) (string, error) {
 	if !run {
 		if spec != "" {
 			return "", errors.New("--spec needs --run")
 		}
 		return "", nil
 	}
-	line, err := runLine(typ, spec, *model, *profile, agent.IsReadOnlyBrief(task))
+	line, err := runLine(typ, spec, *model, *profile, frozen, agent.IsReadOnlyBrief(task))
 	*model, *profile = "", ""
 	return line, err
 }
 
 // specFlags is the ask argv a label --run line carries: the spec's flags, else one --overlay object.
-func specFlags(spec, model, profile string) ([]string, error) {
+func specFlags(spec, model, profile, frozen string) ([]string, error) {
 	var argv []string
 	if spec != "" {
 		if model != "" || profile != "" {
@@ -444,12 +451,12 @@ func specFlags(spec, model, profile string) ([]string, error) {
 		}
 		argv = a
 	}
-	return append(argv, hooks.OverlayArgs(profile, model, "", "")...), nil
+	return append(argv, hooks.OverlayArgs(cmp.Or(profile, frozen), model, "", "")...), nil
 }
 
 // runLine is the Run: command for a leaf of typ, with no task words; readOnly adds --read-only unless set or codex.
-func runLine(typ, spec, model, profile string, readOnly bool) (string, error) {
-	argv, err := specFlags(spec, model, profile)
+func runLine(typ, spec, model, profile, frozen string, readOnly bool) (string, error) {
+	argv, err := specFlags(spec, model, profile, frozen)
 	if err != nil {
 		return "", err
 	}

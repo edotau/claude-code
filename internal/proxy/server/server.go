@@ -226,6 +226,9 @@ func (r *Router) route(w *statusWriter, in *http.Request, session string, count 
 		return session, model, 0
 	}
 	clientModel := models.Strip1M(model)
+	if c, err := providers.CastModel(reg, model); err == nil { // the ledger keeps the plain id; the row is the target's
+		clientModel = models.Strip1M(c.Model)
+	}
 	w.asked, in = clientModel, withAsked(in, clientModel)
 	clientAuth := in.Header.Get("Authorization") != "" ||
 		r.oauthToken() != "" // the sealed token authenticates passthrough

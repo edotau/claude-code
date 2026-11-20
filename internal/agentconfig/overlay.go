@@ -249,7 +249,19 @@ func parseOverlay(raw []byte) (Overlay, error) {
 	if _, err := dec.Token(); err != io.EOF {
 		return Overlay{}, errors.New("trailing data after the JSON object")
 	}
+	o, err := o.castModel()
+	if err != nil {
+		return Overlay{}, err
+	}
 	return o, o.validate(fileSrc)
+}
+
+// castModel refuses a model key carrying a profile, naming the overlay keys to use instead.
+func (o Overlay) castModel() (Overlay, error) {
+	if _, err := providers.CastShared(o.Model); err != nil {
+		return o, errors.New("model: " + strings.TrimPrefix(err.Error(), providers.ErrModelSpec.Error()+": "))
+	}
+	return o, nil
 }
 
 // checkOverlaySchema refuses a negative or newer "schema" before schemas.Decode, whose migration loop would walk it.

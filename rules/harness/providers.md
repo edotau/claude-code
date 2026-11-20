@@ -50,19 +50,23 @@ paths:
   the served alternatives named, and `--fallback none` exits non-zero instead; with no fresh listing it says
   `unverified`.
 - **Pool table:** `claude-code gateway resolve all --model auto --all-profiles [--task <brief>] [--format json]` peeks
-  every rotation row x agent x tier (pool, next, held, last pick) without moving any rotation history; claude lists
-  its rotated rows, the subscription row included, with the next ask's row and each row's last pick.
+  every rotation row x agent x tier (pool, next, held, last pick) without moving any rotation history; claude rotates
+  no rows (its `auto` runs the brief's tier model on its one profile), so it has none here.
+- **Model names:** a model name is `auto` or an accepted model name; the route unit (provider and profile, taken
+  together from the profile's own row) is chosen by `--overlay`, `--profile`, the stored pin or the session. Canonical:
+  `--overlay '{"provider":"databricks","profile":"qa"}' --model opus`. `qa:opus` is an accepted input shorthand the
+  harness casts to exactly that at every input and at the proxy; it is never stored or shown back. A typed route that
+  disagrees with the prefix, an unknown prefix (`bogus:opus`) or a chained one (`dev:qa:opus`) is refused.
+  Every Claude alias resolves on the session's own profile: a cross-profile alias pin is ignored with a note.
 - **Profile order** (the route, taken whole from the first source naming any of it; `--profile R` and `R:model` take
   provider from R's registry row, never the session; `gateway resolve --provider databricks`, `--profile auto` too):
   a `<profile>:` or unique provider-type model prefix > `--profile` or overlay `profile` > overlay
   `provider`, then `account` > the session profile (with its model for the agent) > the agent record's profile or
-  account (the pin) > the registry default > the agent's own sign-in row. `databricks:<m>` or profile `auto` picks the
-  pool before these (first valid workspace in vault order dev, prod, qa; least-busy under `auto`); a pin on the
-  agent's own sign-in row (copilot's GitHub row, gemini's Google row) skips the session.
-- `agents ask --model databricks:auto` equals `--provider databricks --model auto`; `<login>/auto` is refused
-  before launch with that login's typed ids named.
-- **`--profile` vs a prefix:** an interactive launch errors naming both; `agents ask` and dispatches let the prefix win
-  with a note, but an overlay confinement refuses a prefix outside it.
+  account (the pin) > the registry default > the agent's own sign-in row. Overlay
+  `{"provider":"databricks","profile":"auto"}` or a pool pin picks the pool before these (first valid workspace in
+  vault order dev, prod, qa; least-busy under `auto`); a pin on the agent's own sign-in row (copilot's GitHub row,
+  gemini's Google row) skips the session.
+- `<login>/auto` is refused before launch with that login's typed ids named.
 - **Spelling:** Databricks rows `databricks-<canonical>` (a bare id gains the prefix only when the workspace lists it);
   first-party Anthropic bare; GitHub, ChatGPT and agy dotted.
   Claude 5+ is 1M by default; `[1m]` only for opus/sonnet 4.x.

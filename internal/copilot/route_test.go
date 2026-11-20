@@ -68,20 +68,22 @@ func TestCopilotModelIDsReportsMissingAgentBin(t *testing.T) {
 // A pin naming a provider other than github-copilot is never checked against the copilot catalog.
 func TestValidateCopilotPinsSkipsOtherProviders(t *testing.T) {
 	hosttest.PinScratch(t)
-	warn, err := ValidateCopilotPins(t.Context(), "", []string{"opus=openai:gpt-5"})
+	warn, err := ValidateCopilotPins(t.Context(), "openai", []string{"opus=gpt-5"})
 	if err != nil || warn != "" {
 		t.Fatalf("warn=%q err=%v, want no-op for a non-copilot pin", warn, err)
 	}
 }
 
-// A github-copilot pin (provider:model or --provider fallback) only warns when the live catalog is unreachable.
+// A github-copilot pin only warns when the live catalog is unreachable; a profile-prefixed pin is refused (D5).
 func TestValidateCopilotPinsWarnsWhenCatalogUnreachable(t *testing.T) {
 	hosttest.PinScratch(t)
-	for flag, pin := range map[string]string{"": "opus=copilot:claude-opus-5.5", "copilot": "opus=claude-opus-5.5"} {
-		warn, err := ValidateCopilotPins(t.Context(), flag, []string{pin})
-		if err != nil || !strings.Contains(warn, "could not verify") {
-			t.Errorf("ValidateCopilotPins(%q, %s) = %q, %v; want the unreachable-catalog warning", flag, pin, warn, err)
-		}
+	if warn, err := ValidateCopilotPins(t.Context(), "copilot", []string{"opus=claude-opus-5.5"}); err != nil ||
+		!strings.Contains(warn, "could not verify") {
+		t.Errorf("ValidateCopilotPins(copilot) = %q, %v; want the unreachable-catalog warning", warn, err)
+	}
+	if _, err := ValidateCopilotPins(t.Context(), "", []string{"opus=copilot:claude-opus-5.5"}); err == nil ||
+		!strings.Contains(err.Error(), "use --overlay") {
+		t.Errorf("prefixed pin = %v; want the refusal naming the overlay", err)
 	}
 }
 
@@ -89,7 +91,7 @@ func TestValidateCopilotPinsWarnsWhenCatalogUnreachable(t *testing.T) {
 func TestValidateCopilotPinsOutputNamesNoSecret(t *testing.T) {
 	hosttest.PinScratch(t)
 	t.Setenv("GH_TOKEN", "super-secret-token-value")
-	warn, _ := ValidateCopilotPins(t.Context(), "", []string{"opus=copilot:claude-opus-5.5"})
+	warn, _ := ValidateCopilotPins(t.Context(), "copilot", []string{"opus=claude-opus-5.5"})
 	if strings.Contains(warn, "super-secret-token-value") {
 		t.Errorf("warn leaked a credential: %q", warn)
 	}
@@ -120,9 +122,12 @@ func TestValidateCopilotPinsChecksPinsAfterUnverifiableOne(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	_, err := ValidateCopilotPins(t.Context(), "", []string{"opus=dbx-down:chat-a", "sonnet=dbx-up:bogus-id"})
+	if _, err := ValidateCopilotPins(t.Context(), "dbx-down", []string{"opus=chat-a"}); err != nil {
+		t.Fatalf("unreachable pin err = %v, want only a warning", err)
+	}
+	_, err := ValidateCopilotPins(t.Context(), "dbx-up", []string{"sonnet=bogus-id"})
 	if err == nil || !strings.Contains(err.Error(), "bogus-id") {
-		t.Fatalf("err = %v, want the bogus-id pin rejected after the unreachable one", err)
+		t.Fatalf("err = %v, want the bogus-id pin rejected", err)
 	}
 }
 

@@ -24,8 +24,8 @@ func (t Target) ClientModel() string {
 	return t.Model
 }
 
-// Spec is the "provider:model" form Claude Code sees for a cross-provider alias and the router parses back.
-func (t Target) Spec() string { return t.Provider.Name + ":" + t.Model }
+// Spec is t for display: the wire id and the profile serving it, never a prefixed model string.
+func (t Target) Spec() string { return t.Model + " on " + t.Provider.Name }
 
 // Selection is a session's provider plus each alias's resolved target.
 type Selection struct {
@@ -33,13 +33,18 @@ type Selection struct {
 	Aliases  map[string]Target
 }
 
-// ParseTarget splits "provider:model" by SplitModelSpec; a bad or absent prefix leaves the whole string a model on def.
+// ParseTarget reads a stored alias pin, which may name its row as `<profile>:<model>`; else the model on def.
 func ParseTarget(reg *Registry, spec string, def *Provider) Target {
 	ms, err := SplitModelSpec(reg, spec)
 	p, model := def, strings.TrimSpace(spec)
 	if err == nil && ms.Row != "" {
 		p, model = reg.Providers[ms.Row], ms.Model
 	}
+	return PlainTarget(p, model)
+}
+
+// PlainTarget is a plain model id on p: a family word as p's member, else p's wire spelling with any [1m] mark kept.
+func PlainTarget(p *Provider, model string) Target {
 	if IsFamily(model) {
 		return Target{Provider: p, Model: ConcreteModel("", p, model)}
 	}
@@ -73,16 +78,25 @@ func Select(reg *Registry, providerFlag string) (Selection, error) {
 	return sel, nil
 }
 
-// ClientModel is the id Claude Code gets for alias: a same-provider id (with [1m] where served) or a router spec.
+// ClientModel is the plain id Claude Code gets for alias; the proxy finds a cross-provider alias's row (AliasTarget).
 func (s Selection) ClientModel(alias string) string {
 	t, ok := s.Aliases[alias]
 	if !ok {
 		return ""
 	}
-	if t.Provider != s.Provider {
-		return t.Provider.Name + ":" + t.ClientModel()
-	}
 	return t.ClientModel()
+}
+
+// AliasTarget is the cross-provider alias target a plain client id names on this session; the pin wins a tie.
+func (s Selection) AliasTarget(id string) (Target, bool) {
+	for _, a := range models.AliasNames {
+		t, ok := s.Aliases[a]
+		if ok && t.Provider != s.Provider && models.Strip1M(t.ClientModel()) == models.Strip1M(id) {
+			t.OneM = models.Strip1M(id) != id
+			return t, true
+		}
+	}
+	return Target{}, false
 }
 
 // NeedsRouter reports whether the session needs the loopback router: cross-provider alias, other wire, renamed ids.

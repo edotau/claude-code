@@ -25,6 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/askspec"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -161,7 +162,7 @@ func parseTask(l parsedLine, agentName string, base agent.RunOptions, timeoutSet
 		return t, l.Err
 	}
 	tl := l.Task
-	if err := checkLineIDs(l.N, t.ID, tl.PlanTask, seen); err != nil {
+	if err := cmp.Or(checkLineIDs(l.N, t.ID, tl.PlanTask, seen), lineModel(l)); err != nil {
 		return t, err
 	}
 	t.Plan = tl.PlanTask
@@ -191,6 +192,14 @@ func checkLineIDs(n int, id, planTask string, seen map[string]bool) error {
 		return fmt.Errorf("line %d: duplicate id %q", n, id)
 	case planTask != "" && !planTaskRE().MatchString(planTask):
 		return fmt.Errorf("line %d: plan_task %q must match %s", n, planTask, planTaskRE())
+	}
+	return nil
+}
+
+// lineModel refuses a line's model carrying a profile, naming the overlay to use.
+func lineModel(l parsedLine) error {
+	if _, err := providers.CastShared(l.Task.Model); err != nil {
+		return fmt.Errorf("line %d: %w", l.N, err)
 	}
 	return nil
 }

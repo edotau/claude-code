@@ -33,8 +33,6 @@ type Dispatch struct {
 	routerChose                  bool                       // no lead and no pin: the router's own row for the wanted agent, not a deviation
 	rung                         int                        // 1-based index of the pick candidate that built this dispatch; 0 = none
 	quotaOverflow                bool                       // the last hop: runs only after a quota-class failure
-	rowHop                       bool                       // a later row of claude's row rotation, after a refused row
-	row                          string                     // the rotation row a rowHop runs on, stamped once admitted
 }
 
 // Chain is a routed dispatch: Want is the agent asked for, Dispatches run in order, Skipped are gate drops.
@@ -412,15 +410,7 @@ func Resolve(ctx context.Context, q RouteReq) (Chain, router.PickResult, error) 
 	if q.Host {
 		return Single(q.Engine), router.PickResult{}, nil
 	}
-	rows := claudeRows(ctx, q, !q.Preview && !Peeking(ctx))
-	if len(rows) == 0 {
-		return resolveRoute(ctx, q)
-	}
-	c, pick, err := resolveOnRow(ctx, q, rows[0])
-	if err != nil {
-		return c, pick, err
-	}
-	return withRowHops(ctx, q, c, rows[1:]), pick, nil
+	return resolveRoute(ctx, q)
 }
 
 func resolveRoute(ctx context.Context, q RouteReq) (Chain, router.PickResult, error) {
@@ -439,37 +429,6 @@ func resolveRoute(ctx context.Context, q RouteReq) (Chain, router.PickResult, er
 		return Chain{}, router.PickResult{}, err
 	}
 	return chainFor(ctx, q, q.AliasHint, lead)
-}
-
-// resolveOnRow routes q's asked auto as `<row>:auto`, so the model follows the tier as that row spells it.
-func resolveOnRow(ctx context.Context, q RouteReq, row string) (Chain, router.PickResult, error) {
-	q.Model = rowModel(row, AutoModel)
-	c, pick, err := resolveRoute(ctx, q)
-	if err == nil && !q.Preview {
-		c = withAlias(c, q.Model) // the explicit dispatch runs the row's auto, not the caller's bare one
-	}
-	return c, pick, err
-}
-
-// withRowHops puts the wanted agent on each later rotation row right after the lead: a refused row moves to the next.
-func withRowHops(ctx context.Context, q RouteReq, c Chain, rows []string) Chain {
-	if len(c.Dispatches) == 0 {
-		return c
-	}
-	var hops []Dispatch
-	for _, row := range rows {
-		rc, _, err := resolveOnRow(ctx, q, row)
-		if err != nil || len(rc.Dispatches) == 0 || rc.Dispatches[0].Agent.Name() != c.Want {
-			continue
-		}
-		d := rc.Dispatches[0]
-		if !slices.ContainsFunc(c.Dispatches, d.same) {
-			d.rowHop, d.row = true, row
-			hops = append(hops, d)
-		}
-	}
-	c.Dispatches = slices.Insert(slices.Clone(c.Dispatches), 1, hops...)
-	return c
 }
 
 // LeadError is a --profile/--provider (or pin) that cannot lead; callers map it to a usage exit.

@@ -115,13 +115,28 @@ func AgentModelEnv(agent string) string {
 	return strings.ToUpper(agent) + "_MODEL"
 }
 
-// EnvModel is the agent's shell model env value in ctx's run snapshot (the process env without one), with its var name.
+// EnvModel is the agent's shell model env (a prefixed value reads as none; EnvCast refuses it), with its var name.
 func EnvModel(ctx context.Context, agent string) (model, envVar string) {
+	c, v, _ := EnvCast(ctx, agent)
+	return c.Model, v
+}
+
+func envModelRaw(ctx context.Context, agent string) (model, envVar string) {
 	envVar = AgentModelEnv(agent)
 	if envVar == "" {
 		return "", ""
 	}
 	return strings.TrimSpace(proc.Value(ctx, envVar)), envVar
+}
+
+// EnvCast checks the agent's shell model env at the boundary, with the variable's name; a prefixed value errors.
+func EnvCast(ctx context.Context, agent string) (ModelCast, string, error) {
+	m, v := envModelRaw(ctx, agent)
+	c, err := CastShared(m)
+	if err != nil {
+		return ModelCast{}, v, fmt.Errorf("%s: %w", v, err)
+	}
+	return c, v, nil
 }
 
 // effectiveModel is the launch model: the shell env over the record's model; source is "env VAR", "pin" or "default".
@@ -393,6 +408,9 @@ func ParseModelPins(reg *Registry, profile string, unpin bool, pins []string) (m
 			alias = ""
 		} else if !slices.Contains(models.AliasNames, alias) {
 			return nil, fmt.Errorf("unknown alias %q (opus|sonnet|haiku|fable|all)", alias)
+		}
+		if _, err := CastModel(reg, spec); err != nil {
+			return nil, err
 		}
 		set[alias] = QualifyPinSpec(reg, profile, spec)
 	}

@@ -7,7 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/edotau/claude-code/internal/inflight"
@@ -44,30 +43,6 @@ type WorkspaceQuery[F any] struct {
 	Unserved         func(string, []F) error
 	Cooling          func(*providers.Provider, time.Time) bool
 	Live             func([]*providers.Provider) map[string]int
-	Extra            []*providers.Provider // rows ranked beside the Databricks workspaces (claude's subscription row)
-	Key              string                // stamp namespace in route-auto.json; "" is the shared workspace tie-break
-}
-
-// RowRotationKey is the route-auto.json namespace of agent's own row rotation, apart from databricks:auto's stamps.
-func RowRotationKey(agentName string) string { return agentName + "·rows" }
-
-// RowPicks is when agent's row rotation last picked each row, keyed by row name.
-func RowPicks(agentName string) map[string]time.Time {
-	out := map[string]time.Time{}
-	prefix := RowRotationKey(agentName) + "/"
-	for k, at := range readArmPicks().Picked {
-		if row, ok := strings.CutPrefix(k, prefix); ok {
-			out[row] = at
-		}
-	}
-	return out
-}
-
-func (q WorkspaceQuery[F]) stampKey(name string) string {
-	if q.Key == "" {
-		return name
-	}
-	return q.Key + "/" + name
 }
 
 // PickWorkspaceAndStamp claims a workspace; only real dispatches should advance the tie-break stamp.
@@ -77,12 +52,6 @@ func PickWorkspaceAndStamp[F any](reg *providers.Registry, q WorkspaceQuery[F], 
 		return "", 0, skipped, err
 	}
 	return order[0], live, skipped, nil
-}
-
-// PickRowsAndStamp is PickWorkspaceAndStamp returning every usable row in rank order, the claimed one first.
-func PickRowsAndStamp[F any](reg *providers.Registry, q WorkspaceQuery[F], now time.Time) ([]string, []F, error) {
-	order, _, skipped, err := pickAndStamp(reg, q, now)
-	return order, skipped, err
 }
 
 func pickAndStamp[F any](reg *providers.Registry, q WorkspaceQuery[F], now time.Time) (order []string, live int, skipped []F, err error) {
@@ -100,7 +69,7 @@ func pickAndStamp[F any](reg *providers.Registry, q WorkspaceQuery[F], now time.
 	}
 	pick := func() error {
 		picks := rankFrom()
-		picks.Picked[q.stampKey(order[0])] = newestStamp(picks, now)
+		picks.Picked[order[0]] = newestStamp(picks, now)
 		return writeArmPicks(picks)
 	}
 	if err := paths.WithFileLock(armPicksFile(), pick); len(order) == 0 && err != nil { // no lock: rank read-only, unstamped
@@ -121,15 +90,6 @@ func newestStamp(picks armPicks, now time.Time) time.Time {
 		}
 	}
 	return stamp
-}
-
-// StampRow records that agentName's row rotation ran row; best-effort like the pick's own stamp.
-func StampRow(agentName, row string, now time.Time) {
-	_ = paths.WithFileLock(armPicksFile(), func() error {
-		picks := readArmPicks()
-		picks.Picked[RowRotationKey(agentName)+"/"+row] = newestStamp(picks, now)
-		return writeArmPicks(picks)
-	})
 }
 
 func names(ps []*providers.Provider) []string {
@@ -174,7 +134,7 @@ func workspaceLoad[F any](ps []*providers.Provider, q WorkspaceQuery[F]) map[str
 func rankWorkspaces[F any](ps []*providers.Provider, q WorkspaceQuery[F], cooling map[string]bool, counts map[string]int, picks armPicks) map[string]int {
 	slices.SortFunc(ps, func(a, b *providers.Provider) int {
 		return cmp.Or(cmp.Compare(rank(cooling[a.Name]), rank(cooling[b.Name])), cmp.Compare(counts[a.Name], counts[b.Name]),
-			picks.Picked[q.stampKey(a.Name)].Compare(picks.Picked[q.stampKey(b.Name)]), cmp.Compare(a.Name, b.Name))
+			picks.Picked[a.Name].Compare(picks.Picked[b.Name]), cmp.Compare(a.Name, b.Name))
 	})
 	return counts
 }
@@ -214,7 +174,7 @@ func readArmPicks() armPicks {
 
 func writeArmPicks(picks armPicks) error { return paths.WriteJSON(armPicksFile(), picks) }
 
-// armCandidates splits reg's Databricks workspaces plus q.Extra (none in tried) by armFindings: usable, skipped.
+// armCandidates splits reg's Databricks workspaces (none in tried) by armFindings: usable, skipped.
 func armCandidates[F any](reg *providers.Registry, q WorkspaceQuery[F], model string, now time.Time) (usable []*providers.Provider, skipped []F) {
 	rows := []*providers.Provider{}
 	for _, n := range slices.Sorted(maps.Keys(reg.Providers)) {
@@ -222,7 +182,7 @@ func armCandidates[F any](reg *providers.Registry, q WorkspaceQuery[F], model st
 			rows = append(rows, p)
 		}
 	}
-	for _, p := range append(rows, q.Extra...) {
+	for _, p := range rows {
 		n := p.Name
 		if slices.Contains(q.Tried, n) {
 			continue

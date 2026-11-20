@@ -26,7 +26,7 @@ agent (claude|codex|copilot|gemini|opencode|pi)
 
 First match wins; the full ladder is in `rules/harness/providers.md` (Routing precedence).
 
-1. A `<profile>:` model prefix, then `--profile <p>` or an overlay `profile`.
+1. `--profile <p>` or an overlay `profile` (a model name never carries a profile).
 2. `--provider databricks` or `--model auto`: the pool rotates over the workspaces (vault order dev, prod, qa;
    least busy under `auto`).
 3. The session profile, then the agent's pin (`claude-code switch <profile>` sets the session one).
