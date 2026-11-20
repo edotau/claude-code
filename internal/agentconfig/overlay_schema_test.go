@@ -30,13 +30,14 @@ func TestOverlaySchemaCoversEveryKey(t *testing.T) {
 	if err := json.Unmarshal(OverlaySchema(), &doc); err != nil {
 		t.Fatal(err)
 	}
-	for _, k := range RoutingKeys() {
-		if doc.Properties[k] == nil {
-			t.Errorf("routing key %s missing", k)
-		}
+	names := overlayNames()
+	if len(doc.Properties) != len(names) {
+		t.Errorf("properties %d, struct keys %d", len(doc.Properties), len(names))
 	}
-	if len(doc.Properties) != len(RoutingKeys())+len(settingKeys) {
-		t.Errorf("properties %d", len(doc.Properties))
+	for _, k := range names {
+		if doc.Properties[k] == nil {
+			t.Errorf("key %s missing", k)
+		}
 	}
 }
 

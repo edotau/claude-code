@@ -283,7 +283,7 @@ func overlayJSONErr(err error) error {
 		if uerr != nil {
 			key = q
 		}
-		keys := slices.Concat([]string{"schema"}, RoutingKeys(), []string{"tokenCommand", "codexNetwork", "cloud", "maxChildren", "maxTreeTokens", "budgetUSD", "budgetCredits", "set", "unset", "keep"})
+		keys := overlayNames()
 		return fmt.Errorf("unknown key %s (%s)", key, strings.Join(keys, "|"))
 	}
 	return err
@@ -293,16 +293,25 @@ func keyType(key string) string {
 	switch key {
 	case "budgetCredits":
 		return "an integer >= 30"
-	case "schema", "maxChildren", "maxTreeTokens":
-		return "an integer"
 	case "budgetUSD":
 		return "a number > 0"
-	case "codexNetwork", "cloud":
-		return "true or false"
-	case "set":
-		return "an object of string values"
-	case "unset", "keep":
-		return "a list of strings"
+	}
+	for _, f := range overlayFields {
+		if f.name != key {
+			continue
+		}
+		switch f.kind {
+		case kindInt:
+			return "an integer"
+		case kindNumber:
+			return "a number"
+		case kindBool:
+			return "true or false"
+		case kindStrings:
+			return "an object of string values"
+		case kindList:
+			return "a list of strings"
+		}
 	}
 	return "a string"
 }

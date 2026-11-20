@@ -44,7 +44,7 @@ func TestLoadOverlayRefusesWritableOrTrickedFiles(t *testing.T) {
 		`{"files":[]}`:              "files: not supported yet",
 		`{"profile":"dev"}`:         "provider: required with profile",
 		`{"provider":"databricks"}`: "profile: required with provider",
-		`{"bogus":1}`:               "unknown key bogus (schema|provider|profile|model|effort|fallback|host|remote|account|identity|",
+		`{"bogus":1}`:               "unknown key bogus (schema|provider|profile|identity|account|host|remote|model|effort|fallback|",
 		`{"identity":"x"}`:          "identity: want auto, user, sp",
 		`{"fallback":"x"}`:          "fallback: want none, pin, agents, all",
 		`{"provider":"databricks","profile":"d\u0007ev"}`: "profile: blank or holds a control character",
