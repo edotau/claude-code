@@ -162,8 +162,10 @@ var _ = schemas.Register(schemas.Format{
 
 func pickerScope(p *Provider) string {
 	// Hash configuration without exposing auth commands or headers; models/pins are not scope.
+	opts := p.Options
+	opts.WarehouseID, opts.Prices = "", nil // cost settings are not routing: setting them must not orphan the drop list
 	data, _ := json.Marshal([]any{p.Name, p.Provider, p.Login, p.Identity,
-		p.Protocol, p.BaseURL, p.Routes, p.Host, p.CLIProfile, p.SpellingRule(), p.Options,
+		p.Protocol, p.BaseURL, p.Routes, p.Host, p.CLIProfile, p.SpellingRule(), opts,
 		p.Auth, p.Headers})
 	return textutil.SHA256Hex(data)
 }
