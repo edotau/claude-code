@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"maps"
@@ -23,19 +24,22 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/askspec"
+	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
 // batchLine is one `ask --batch` JSONL task; Tools stays nil when absent so the flag default applies.
 type batchLine struct {
-	ID      string `json:"id"`
-	Agent   string `json:"agent"`
-	Profile string `json:"profile"`
-	Model   string `json:"model"`
-	Prompt  string `json:"prompt"`
-	Workdir string `json:"workdir"`
-	Tools   *bool  `json:"tools"`
-	Timeout string `json:"timeout"` // a Go duration such as 5m
+	ID      string          `json:"id"`
+	Agent   string          `json:"agent"`
+	Profile string          `json:"profile"`
+	Overlay json.RawMessage `json:"overlay"`
+	Model   string          `json:"model"`
+	Prompt  string          `json:"prompt"`
+	Workdir string          `json:"workdir"`
+	Tools   *bool           `json:"tools"`
+	Timeout string          `json:"timeout"` // a Go duration such as 5m
 
 	PlanTask string `json:"plan_task"` // optional plan task this line implements, same character rule as id
 }
@@ -191,14 +195,14 @@ func checkLineIDs(n int, id, planTask string, seen map[string]bool) error {
 	return nil
 }
 
-// lineRequest is base with the line's prompt, profile, model and tools over it, plus the agent it selects.
+// lineRequest is base with the line's prompt, route, model and tools over it, plus the agent it selects.
 func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.RunOptions, string, error) {
 	tl, req := l.Task, base
 	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
 	_, auto := agent.SplitAuto(tl.Model)
 	req.ModelTyped = (tl.Model != "" && !auto) || base.ModelTyped // a line's own model is as typed as a --model flag
-	if tl.Profile != "" {                                         // the line's own profile replaces the lead the batch flags resolved
-		req.Lead = ""
+	if err := lineRoute(l, &req); err != nil {
+		return req, "", fmt.Errorf("line %d: %w", l.N, err)
 	}
 	name, err := agent.SelectAndOverlay(agentName, base.Agents, &req) // explicit line/base options win over the definition
 	if err != nil {
@@ -215,6 +219,51 @@ func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.R
 		return req, name, fmt.Errorf("line %d: %w", l.N, err)
 	}
 	return req, name, nil
+}
+
+func lineRoute(l parsedLine, req *agent.RunOptions) error {
+	tl := l.Task
+	if tl.Profile != "" {
+		req.Lead = ""
+		req.Account = ""
+	}
+	fs, f := askFlagSet()
+	if tl.Profile != "" {
+		_ = fs.Set("profile", tl.Profile)
+	}
+	if tl.Model != "" {
+		_ = fs.Set("model", tl.Model)
+	}
+	fr := flagRoute(f)
+	if len(tl.Overlay) == 0 {
+		if !fr.IsZero() {
+			req.Route = fr
+		}
+		return nil
+	}
+	if !bytes.HasPrefix(bytes.TrimSpace(tl.Overlay), []byte("{")) {
+		return errors.New("overlay: want a JSON object")
+	}
+	ov, err := agentconfig.LoadOverlayContext(context.Background(), string(tl.Overlay), nil)
+	if err != nil {
+		return err
+	}
+	return applyLineOverlay(req, fs, f, fr, ov)
+}
+
+func applyLineOverlay(req *agent.RunOptions, fs *flag.FlagSet, f *askFlags, fr route.Route, ov agentconfig.Overlay) error {
+	if fr.IsZero() && f.profile != "" {
+		fr = route.Route{Profile: f.profile} // still name a mistyped profile in the conflict
+	}
+	if err := flagConflict(fs, f, fr, ov); err != nil {
+		return err
+	}
+	if ov.Provider != "" {
+		req.Route, req.Provider, req.Account = ov.Route(), ov.Profile, ov.Account
+		req.Lead = ""
+	}
+	req.Model, req.Effort = cmp.Or(f.model, ov.Model, req.Model), cmp.Or(ov.Effort, req.Effort)
+	return nil
 }
 
 func batchTaskLocation(l parsedLine, req agent.RunOptions, timeoutSet bool, baseWorkdir, cwd string) (agent.RunOptions, error) {

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 // Two batches started in the same millisecond still get distinct batch ids.
@@ -63,6 +64,27 @@ func TestParseTaskReadOnlyKeepsToolsOverLineToolsFalse(t *testing.T) {
 	}
 	if !task.Req.Tools || !task.Req.ReadOnly {
 		t.Errorf("task tools/read-only = %v/%v, want true/true", task.Req.Tools, task.Req.ReadOnly)
+	}
+}
+
+func TestBatchLineOverlayRoute(t *testing.T) {
+	base := agent.RunOptions{Provider: "ultra", Lead: "ultra"}
+	lines, err := readTaskLines(strings.NewReader(
+		`{"prompt":"x","overlay":{"provider":"databricks","profile":"dev"}}` + "\n" +
+			`{"prompt":"x","profile":"qa","overlay":{"provider":"databricks","profile":"dev"}}` + "\n" +
+			`{"prompt":"x","overlay":{"profile":"dev"}}` + "\n"))
+	if err != nil || len(lines) != 3 {
+		t.Fatalf("readTaskLines = %d, %v", len(lines), err)
+	}
+	req, _, err := lineRequest(lines[0], "codex", base)
+	if err != nil || req.Route != (route.Route{Provider: "databricks", Profile: "dev"}) || req.Provider != "dev" || req.Lead != "" {
+		t.Errorf("request %+v, error %v", req, err)
+	}
+	for i, want := range []string{"--profile qa conflicts with overlay profile dev", "provider: required"} {
+		_, _, err := lineRequest(lines[i+1], "codex", base)
+		if err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("line %d: error %v, want %q", i+2, err, want)
+		}
 	}
 }
 
