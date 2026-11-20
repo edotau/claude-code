@@ -156,7 +156,7 @@ func (piEngine) RouteDetail(ctx context.Context) (string, bool) {
 		return err.Error(), true
 	}
 	if pin == "" {
-		return "no provider pinned; run with --provider databricks", true
+		return "provider=databricks (pool: no profile pinned, each run picks one) runs=" + RunsDir("<profile>"), true
 	}
 	return fmt.Sprintf("provider=%s runs=%s", pin, RunsDir(pin)), true
 }
