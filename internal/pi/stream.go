@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -17,8 +18,8 @@ type piEvent struct {
 	Type string `json:"type"`
 	// session: the session id
 	ID string `json:"id"`
-	// agent_end: another attempt follows, so a held failure is not final yet
-	WillRetry  bool            `json:"willRetry"`
+	// agent_settled: the run was cancelled
+	Aborted    bool            `json:"aborted"`
 	ToolCallID string          `json:"toolCallId"`
 	ToolName   string          `json:"toolName"`
 	Args       json.RawMessage `json:"args"`
@@ -50,15 +51,15 @@ type piUsage struct {
 
 // parseEvents turns Pi's JSONL into wire events; the exit code says nothing, so the stream alone decides failure.
 func parseEvents(br *bufio.Reader, sink wire.Sink, onMeaningful func(), onEvent func(piEvent), logs ...wire.StreamLog) (res wire.Result, _ error) {
-	t := &piTurn{sink: sink, lg: wire.PickLog(logs), res: &res, onMeaningful: onMeaningful, onEvent: onEvent}
+	t := &piTurn{open: map[string]string{}, sink: sink, lg: wire.PickLog(logs), res: &res, onMeaningful: onMeaningful, onEvent: onEvent}
 	tr, err := wire.DecodeEvents(br, t.lg, "decode pi json", true, nil, t.handle)
 	res.Transport = tr
 	if err != nil {
-		res.Answer = strings.TrimSpace(strings.Join(t.answer, "\n"))
+		res.Answer = t.text()
 		return res, err
 	}
-	err = t.finish()
-	res.Answer = strings.TrimSpace(strings.Join(t.answer, "\n"))
+	err = t.finish(false)
+	res.Answer = t.text()
 	return res, err
 }
 
@@ -69,10 +70,13 @@ type piTurn struct {
 	res          *wire.Result
 	answer       []string // one entry per assistant message that spoke
 	cur          strings.Builder
-	pending      string // the last failed assistant message's error, until a later success clears it
-	answered     bool
+	stop         string // the last assistant message's stop reason; only the last one decides the run
+	errMsg       string // and its error message
+	assistant    bool
+	open         map[string]string // running tool calls, id to name
 	progressed   bool
 	finished     bool
+	aborted      bool
 	fired        bool
 	onMeaningful func()
 	onEvent      func(piEvent)
@@ -111,8 +115,10 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 		return t.delta(ev)
 	case "tool_execution_start":
 		t.progressed = true
+		t.open[ev.ToolCallID] = ev.ToolName
 		return t.sink.Emit(wire.ToolEvent(ev.ToolName, ev.ToolCallID))
 	case "tool_execution_end":
+		delete(t.open, ev.ToolCallID)
 		status := "completed"
 		if ev.IsError {
 			status = "error"
@@ -125,10 +131,10 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 		return t.sink.Emit(wire.Event{Type: wire.EventRetry, Text: text})
 	case "message_end":
 		return t.messageEnd(ev)
-	case "agent_end":
-		if !ev.WillRetry {
-			return t.finish()
-		}
+	case "agent_settled":
+		// agent_end is not final: overflow compaction and retries continue after it; agent_settled ends the run
+		t.aborted = ev.Aborted
+		return t.finish(true)
 	}
 	return nil
 }
@@ -163,24 +169,54 @@ func (t *piTurn) messageEnd(ev piEvent) error {
 	u.CostUSD += tu.Cost.Total
 	t.lg.Emit("result", fmt.Sprintf("message finished (%s), tokens in=%d out=%d cache_write_1h=%d",
 		cmp.Or(m.StopReason, "unknown"), tu.Input, tu.Output, tu.CacheWrite1h))
-	if m.StopReason == "error" {
-		t.pending = cmp.Or(m.ErrorMessage, "pi request failed")
-		return nil
-	}
-	t.pending = ""
-	t.answered = true
+	t.assistant, t.stop, t.errMsg = true, m.StopReason, m.ErrorMessage
 	return nil
 }
 
-// finish settles the run once: a held failure becomes a classified error, no assistant message at all is one too.
-func (t *piTurn) finish() error {
+// text is the answer so far, including a message that was cut off before its message_end.
+func (t *piTurn) text() string {
+	return strings.TrimSpace(strings.Join(append(slices.Clone(t.answer), t.cur.String()), "\n"))
+}
+
+// stopFailure classifies a stop reason (pi-ai StopReason): stop succeeds, everything else, unknown ones included, fails.
+func stopFailure(reason, errMsg string) string {
+	switch reason {
+	case "stop":
+		return ""
+	case "error":
+		return cmp.Or(errMsg, "pi request failed")
+	case "aborted":
+		return cmp.Or(errMsg, "pi request aborted")
+	case "length":
+		return "pi response truncated: the model reached its output token limit"
+	case "toolUse":
+		return "pi stopped with a tool call pending"
+	}
+	return fmt.Sprintf("pi ended on unfinished stop reason %q", reason)
+}
+
+// failure is why the run did not finish well, or "" when the last message stopped cleanly and nothing is left open.
+func (t *piTurn) failure() string {
+	switch {
+	case !t.assistant:
+		return "pi ended without an answer"
+	case t.aborted:
+		return "pi run aborted"
+	case len(t.open) > 0:
+		return "pi left a tool call running"
+	}
+	return stopFailure(t.stop, t.errMsg)
+}
+
+// finish settles the run once; without agent_settled (a cut-off stream) even a clean-looking run is an error.
+func (t *piTurn) finish(settled bool) error {
 	if t.finished {
 		return nil
 	}
 	t.finished = true
-	msg := t.pending
-	if msg == "" && !t.answered {
-		msg = "pi ended without an answer"
+	msg := t.failure()
+	if !settled && t.assistant {
+		msg = "pi ended before finishing: " + cmp.Or(msg, "no final event")
 	}
 	if msg == "" {
 		return nil

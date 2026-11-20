@@ -1,12 +1,14 @@
 package pi
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -46,6 +48,9 @@ func (b Bases) forWire(wire string) string {
 	return b.Chat
 }
 
+// RunDirPrefix starts every run dir's name; the owning harness pid follows (run-<pid>-<random>), so `clean` can tell a live run.
+const RunDirPrefix = "run-"
+
 // RunsDir is the parent of every per-dispatch agent dir of profile; sessions live outside it, in pi/sessions.
 func RunsDir(profile string) string {
 	return filepath.Join(paths.StateDir(), "pi", profile, "runs")
@@ -57,7 +62,7 @@ func NewRunDir(profile string) (dir string, remove func(), err error) {
 	if err = os.MkdirAll(root, 0o700); err != nil {
 		return "", nil, err
 	}
-	if dir, err = os.MkdirTemp(root, "run-"); err != nil {
+	if dir, err = os.MkdirTemp(root, RunDirPrefix+strconv.Itoa(os.Getpid())+"-"); err != nil {
 		return "", nil, err
 	}
 	return dir, func() { _ = os.RemoveAll(dir) }, nil
@@ -106,7 +111,8 @@ func modelEntry(p *providers.Provider, wire, label string) map[string]any {
 }
 
 // BuildConfig renders Pi's models.json and settings.json for p's menu; menu maps each wire id to its Pi provider id.
-func BuildConfig(p *providers.Provider, bases Bases) (modelsJSON, settingsJSON []byte, menu map[string]string, err error) {
+// The default model is want, else the first menu entry, so the run's own model never depends on the sonnet alias.
+func BuildConfig(p *providers.Provider, bases Bases, want string) (modelsJSON, settingsJSON []byte, menu map[string]string, err error) {
 	if p == nil {
 		return nil, nil, nil, errors.New("pi: no provider")
 	}
@@ -117,6 +123,7 @@ func BuildConfig(p *providers.Provider, bases Bases) (modelsJSON, settingsJSON [
 	byWire := map[string][]map[string]any{}
 	dropped := map[string][]string{}
 	menu = map[string]string{}
+	first := ""
 	ids := map[string]string{}
 	for _, pp := range piProviders {
 		ids[pp.wire] = pp.id
@@ -134,16 +141,24 @@ func BuildConfig(p *providers.Provider, bases Bases) (modelsJSON, settingsJSON [
 		}
 		byWire[w] = append(byWire[w], e)
 		menu[wire] = ids[w]
+		first = cmp.Or(first, wire)
 	}
 	for _, pp := range piProviders {
 		if d := dropped[pp.wire]; len(d) > 0 {
 			fmt.Fprintf(agentconfig.CatalogWarn, "pi: %s has no %s route; left out: %s\n", p.Name, pp.wire, strings.Join(d, ", "))
 		}
 	}
-	return render(p, bases, byWire, menu)
+	return render(p, bases, byWire, menu, cmp.Or(onMenu(menu, want), first))
 }
 
-func render(p *providers.Provider, bases Bases, byWire map[string][]map[string]any, menu map[string]string) ([]byte, []byte, map[string]string, error) {
+func onMenu(menu map[string]string, id string) string {
+	if _, ok := menu[id]; ok {
+		return id
+	}
+	return ""
+}
+
+func render(p *providers.Provider, bases Bases, byWire map[string][]map[string]any, menu map[string]string, def string) ([]byte, []byte, map[string]string, error) {
 	out := map[string]any{}
 	for _, pp := range piProviders {
 		if len(byWire[pp.wire]) == 0 {
@@ -161,16 +176,11 @@ func render(p *providers.Provider, bases Bases, byWire map[string][]map[string]a
 	if len(out) == 0 {
 		return nil, nil, nil, fmt.Errorf("pi: provider %s has no model on a routed wire", p.Name)
 	}
-	def := agentconfig.MenuWire(p, models.Strip1M(p.Models[models.Sonnet]))
-	prov, ok := menu[def]
-	if !ok {
-		return nil, nil, nil, fmt.Errorf("pi: the %s sonnet alias %q is not on the Pi menu", p.Name, def)
-	}
 	mj, err := json.MarshalIndent(map[string]any{"providers": out}, "", " ")
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	sj, err := json.MarshalIndent(map[string]any{"defaultProvider": prov, "defaultModel": def, "packages": []string{}}, "", " ")
+	sj, err := json.MarshalIndent(map[string]any{"defaultProvider": menu[def], "defaultModel": def, "packages": []string{}}, "", " ")
 	if err != nil {
 		return nil, nil, nil, err
 	}

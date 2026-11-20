@@ -46,7 +46,8 @@ Shared flags and the headless `ask` table: `skills/subagent-workflows/references
 - `--read-only` gives Pi the tools read, grep, find and ls. Bare `--tools` (write tools) is refused until the guard
   extension exists; `--deny`, `--allow` and `--permissions` are refused, as Pi cannot enforce them yet.
 - Pi has no permission prompts and no sandbox of its own. A dispatch passes `--no-context-files` (CLAUDE.md and
-  AGENTS.md are not loaded) and `--no-mcp`.
+  AGENTS.md are not loaded), `--no-mcp` and `--no-approve --no-extensions --no-skills --no-prompt-templates --no-themes`
+  (the work dir's `.pi` extensions, packages and settings never load).
 - Pi exits 0 even when a request fails; the harness judges the run from Pi's JSON event stream.
 - `--effort` maps to Pi's `--thinking` levels (minimal, low, medium, high, xhigh, max).
 

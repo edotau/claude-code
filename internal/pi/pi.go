@@ -23,6 +23,10 @@ const (
 	readTools   = "read,grep,find,ls"
 )
 
+// lockdownArgv loads no project code: --no-approve ignores the work dir's .pi (extensions, packages, settings) and
+// the rest turn off every other discovery path; the agent dir is our own empty one.
+var lockdownArgv = []string{"--no-mcp", "--no-context-files", "--no-approve", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes"}
+
 // keyEnv is the variable the generated models.json interpolates as every provider's apiKey.
 var keyEnv = strings.TrimPrefix(KeyRef, "$")
 
@@ -46,7 +50,15 @@ func (piEngine) Wire(_ context.Context, r agent.WireRoute, h *agent.Headless) (e
 	if h == nil {
 		return nil, nil, errors.New("pi: no interactive launch yet; use agents ask")
 	}
-	mj, sj, menu, err := BuildConfig(r.Provider, piBases(r.Base, r.Dialect))
+	var thinking []string
+	if h.Effort != "" {
+		native, _ := agentid.NativeEffort(agentid.Pi, agentid.Effort(h.Effort))
+		if native == "" {
+			return nil, nil, fmt.Errorf("pi: effort %q is not one of %s", h.Effort, strings.Join(agentid.NativeEfforts(agentid.Pi), ", "))
+		}
+		thinking = []string{"--thinking", native}
+	}
+	mj, sj, menu, err := BuildConfig(r.Provider, piBases(r.Base, r.Dialect), r.Model)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -58,19 +70,13 @@ func (piEngine) Wire(_ context.Context, r agent.WireRoute, h *agent.Headless) (e
 	if err != nil {
 		return nil, nil, err
 	}
-	if err := WriteConfig(dir, mj, sj); err != nil {
+	if err = WriteConfig(dir, mj, sj); err != nil {
 		remove()
 		return nil, nil, err
 	}
 	env = []string{agentDirEnv + "=" + dir, keyEnv + "=" + r.Cred}
-	argv = []string{"--mode", "json", "--no-mcp", "--no-context-files", "--approve", "--model", prov + "/" + r.Model}
-	if h.Effort != "" {
-		native, _ := agentid.NativeEffort(agentid.Pi, agentid.Effort(h.Effort))
-		if native == "" {
-			return nil, nil, fmt.Errorf("pi: effort %q is not one of %s", h.Effort, strings.Join(agentid.NativeEfforts(agentid.Pi), ", "))
-		}
-		argv = append(argv, "--thinking", native)
-	}
+	argv = append(append([]string{"--mode", "json"}, lockdownArgv...), "--model", prov+"/"+r.Model)
+	argv = append(argv, thinking...)
 	if h.SessionID != "" {
 		return env, append(argv, "--session", h.SessionID, "--session-dir", filepath.Join(paths.StateDir(), "pi", "sessions")), nil
 	}

@@ -1,12 +1,14 @@
 package pi
 
 import (
+	"os"
 	"slices"
 	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 const testCred = "session-token-xyz"
@@ -23,12 +25,41 @@ func TestWireArgvAndEnv(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"--mode", "json", "--no-mcp", "--no-context-files", "--approve", "--model", "dbx-claude/databricks-claude-sonnet-5-5", "--thinking", "high", "--no-session"}
+	want := []string{"--mode", "json", "--no-mcp", "--no-context-files", "--no-approve", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--model", "dbx-claude/databricks-claude-sonnet-5-5", "--thinking", "high", "--no-session"}
 	if !slices.Equal(argv, want) {
 		t.Errorf("argv = %v, want %v", argv, want)
 	}
 	if len(env) != 2 || !strings.HasPrefix(env[0], "PI_CODING_AGENT_DIR=") || env[1] != "HARNESS_PROXY_API_KEY="+testCred {
 		t.Errorf("env names = %v, want PI_CODING_AGENT_DIR and HARNESS_PROXY_API_KEY only", envNames(env))
+	}
+}
+
+// A project's .pi (extensions, packages) must never load: stage 1 is read-only only while no project code runs.
+func TestWireLoadsNoProjectCode(t *testing.T) {
+	_, argv, err := piEngine{}.Wire(t.Context(), testRoute(t, "databricks-claude-sonnet-5-5", true), &agent.Headless{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"--no-approve", "--no-extensions", "--no-skills", "--no-prompt-templates", "--no-themes", "--no-mcp"} {
+		if !slices.Contains(argv, f) {
+			t.Errorf("argv lacks %s: %v", f, argv)
+		}
+	}
+	for _, bad := range []string{"--approve", "-a", "-e", "--extension", "--skill", "--prompt-template", "--theme"} {
+		if slices.Contains(argv, bad) {
+			t.Errorf("argv has %s: %v", bad, argv)
+		}
+	}
+}
+
+func TestWirePrepErrorLeavesNoRunDir(t *testing.T) {
+	vaulttest.Use(t)
+	_, _, err := piEngine{}.Wire(t.Context(), testRoute(t, "databricks-claude-sonnet-5-5", true), &agent.Headless{Effort: "bogus"})
+	if err == nil || !strings.Contains(err.Error(), "effort") {
+		t.Fatalf("err = %v, want an effort refusal", err)
+	}
+	if left, _ := os.ReadDir(RunsDir("dbx")); len(left) != 0 {
+		t.Errorf("a refused dispatch left run dirs: %v", left)
 	}
 }
 

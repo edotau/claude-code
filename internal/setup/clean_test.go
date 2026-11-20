@@ -1120,3 +1120,31 @@ func TestCleanMemoryStateLeavesTheKeptMemoryMdFiles(t *testing.T) {
 		t.Error("the aged log survived, so the run proves nothing")
 	}
 }
+
+// pi-runs keeps a run dir whose owner pid (in its name) lives however old it is; a dead owner's dir goes at once.
+func TestKeepPiRun(t *testing.T) {
+	stubPidAlive(t, func(pid int) bool { return pid == 4242 })
+	old := time.Now().Add(-48 * time.Hour)
+	for name, c := range map[string]struct {
+		dir  string
+		age  time.Time
+		kept bool
+	}{
+		"live owner, old":     {"run-4242-123", old, true},
+		"dead owner, young":   {"run-1111-123", time.Now(), false},
+		"no owner, young":     {"run-123", time.Now(), true},
+		"no owner, old":       {"run-123", old, false},
+		"unparsable pid, old": {"run-x-123", old, false},
+	} {
+		dir := filepath.Join(t.TempDir(), c.dir)
+		if err := os.Mkdir(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chtimes(dir, c.age, c.age); err != nil {
+			t.Fatal(err)
+		}
+		if got := keepPiRun(dir); got != c.kept {
+			t.Errorf("%s: keepPiRun = %v, want %v", name, got, c.kept)
+		}
+	}
+}

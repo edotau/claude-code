@@ -114,7 +114,7 @@ func TestParseEventsRetryThenSuccessClearsFailure(t *testing.T) {
 	bad := `{"type":"message_end","message":{"role":"assistant","stopReason":"error","errorMessage":"boom"}}` + "\n"
 	again := `{"type":"agent_end","willRetry":true}` + "\n" + `{"type":"auto_retry_start","attempt":1,"maxAttempts":3,"delayMs":10}` + "\n"
 	good := `{"type":"message_end","message":{"role":"assistant","stopReason":"stop","usage":{"output":2}}}` + "\n"
-	_, sink, _, err := parseFixture(t, bad+again+good)
+	_, sink, _, err := parseFixture(t, bad+again+good+settled)
 	if err != nil || sink.count(wire.EventRetry) != 1 || sink.count(wire.EventError) != 0 {
 		t.Fatalf("err %v events %+v", err, sink.evs)
 	}
@@ -122,9 +122,46 @@ func TestParseEventsRetryThenSuccessClearsFailure(t *testing.T) {
 
 func TestParseEventsCacheWrite1hIsPartOfCacheWrite(t *testing.T) {
 	line := `{"type":"message_end","message":{"role":"assistant","stopReason":"stop","usage":{"input":1,"output":2,"cacheWrite":100,"cacheWrite1h":60}}}` + "\n"
-	res, _, _, err := parseFixture(t, line)
+	res, _, _, err := parseFixture(t, line+settled)
 	if err != nil {
 		t.Fatal(err)
 	}
 	wantUsage(t, res, wire.Usage{InputTokens: 1, OutputTokens: 2, CacheCreationTokens: 100})
+}
+
+const settled = `{"type":"agent_settled","aborted":false}` + "\n"
+
+func msgEnd(stop, errMsg string) string {
+	return `{"type":"message_end","message":{"role":"assistant","stopReason":"` + stop + `","errorMessage":"` + errMsg + `","usage":{"output":1}}}` + "\n"
+}
+
+func TestParseEventsOverflowRecoverySettlesAtAgentSettled(t *testing.T) {
+	data := msgEnd("error", "context overflow") + `{"type":"agent_end","willRetry":false}` + "\n" +
+		`{"type":"compaction_start"}` + "\n" + `{"type":"compaction_end"}` + "\n" + msgEnd("stop", "") + `{"type":"agent_end"}` + "\n" + settled
+	if _, sink, _, err := parseFixture(t, data); err != nil || sink.count(wire.EventError) != 0 {
+		t.Fatalf("recovered overflow failed the run: %v %+v", err, sink.evs)
+	}
+}
+
+func TestParseEventsRunMustFinishProperly(t *testing.T) {
+	text := `{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"partial"}}` + "\n"
+	for name, c := range map[string]struct{ data, want string }{
+		"cut after toolUse":      {text + msgEnd("toolUse", "") + `{"type":"tool_execution_start","toolCallId":"c1","toolName":"read"}` + "\n", "ended before finishing"},
+		"tool left open":         {text + msgEnd("stop", "") + `{"type":"tool_execution_start","toolCallId":"c1","toolName":"read"}` + "\n" + settled, "tool call running"},
+		"stop but never settled": {text + msgEnd("stop", ""), "ended before finishing"},
+		"malformed last line":    {text + msgEnd("stop", "") + `{"type":"agent_set`, "ended before finishing"},
+		"aborted stop":           {text + msgEnd("aborted", "") + settled, "aborted"},
+		"length stop":            {text + msgEnd("length", "") + settled, "truncated"},
+		"unknown stop":           {text + msgEnd("brand-new", "") + settled, "unfinished stop reason"},
+		"settled on toolUse":     {text + msgEnd("toolUse", "") + settled, "tool call pending"},
+		"settled aborted":        {text + msgEnd("stop", "") + `{"type":"agent_settled","aborted":true}` + "\n", "run aborted"},
+	} {
+		res, _, _, err := parseFixture(t, c.data)
+		if err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%s: err = %v, want %q", name, err, c.want)
+		}
+		if res.Answer == "" {
+			t.Errorf("%s: partial text was dropped", name)
+		}
+	}
 }

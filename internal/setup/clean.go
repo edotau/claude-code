@@ -125,9 +125,9 @@ func stateTargets() []target {
 func daemonTargets() []target {
 	return []target{
 		{
-			name: "pi-runs", doc: "pi per-dispatch agent dirs (runs/*) of killed runs, a day old or more; sessions stay",
+			name: "pi-runs", doc: "pi per-dispatch agent dirs (runs/*) whose owner is gone (a day old without an owner file); sessions stay",
 			globs:   func() []string { return []string{statePath("pi", "*", "runs", "*")} },
-			ageless: true, keep: youngDir,
+			ageless: true, keep: keepPiRun,
 		},
 		{
 			// proxy.json is the DAEMON's live state (removed on exit); only its log is debris, and a live proxy rewrites it.
@@ -771,6 +771,16 @@ func keepCodexHome(p string) bool {
 func youngDir(p string) bool {
 	fi, err := os.Stat(p)
 	return err != nil || time.Since(fi.ModTime()) < 24*time.Hour
+}
+
+// keepPiRun protects a run dir whose owner pid, named in the dir (run-<pid>-<random>), is alive; else it goes by age.
+func keepPiRun(p string) bool {
+	if parts := strings.Split(filepath.Base(p), "-"); len(parts) == 3 {
+		if pid, err := strconv.Atoi(parts[1]); err == nil {
+			return pidAlive(pid)
+		}
+	}
+	return youngDir(p)
 }
 
 // tempBackupGlobs match mirrored backups of files that lived in a temp dir (test runs): their source is long gone.

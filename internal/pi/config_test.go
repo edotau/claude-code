@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"io"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -80,7 +82,7 @@ func buildChecks(pr map[string]piProv, full Bases, menu map[string]string, mj, s
 func TestBuildConfig(t *testing.T) {
 	p := testProvider(t)
 	full := Bases{Claude: "http://127.0.0.1:1/p/dbx", Responses: "http://127.0.0.1:1/p/dbx/responses", Chat: "http://127.0.0.1:1/p/dbx/openai"}
-	mj, sj, menu, err := BuildConfig(p, full)
+	mj, sj, menu, err := BuildConfig(p, full, "databricks-claude-sonnet-5-5")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +99,7 @@ func TestBuildConfig(t *testing.T) {
 
 func TestBuildConfigRoutelessWire(t *testing.T) {
 	p := testProvider(t)
-	mj, _, menu, err := BuildConfig(p, Bases{Claude: "http://127.0.0.1:1/p/dbx", Chat: "http://127.0.0.1:1/p/dbx/openai"})
+	mj, _, menu, err := BuildConfig(p, Bases{Claude: "http://127.0.0.1:1/p/dbx", Chat: "http://127.0.0.1:1/p/dbx/openai"}, "")
 	if err != nil || strings.Contains(string(mj), "dbx-gpt") || menu["databricks-gpt-5-4-mini"] != "" {
 		t.Errorf("routeless responses wire kept models: err=%v menu=%v", err, menu)
 	}
@@ -126,5 +128,35 @@ func TestRunDirsAreIsolated(t *testing.T) {
 func TestRowIsReadOnlyOnly(t *testing.T) {
 	if !row.CLI.ReadOnlyOnly {
 		t.Error("pi must stay out of editing dispatches' fallbacks until the stage 2 guard exists")
+	}
+}
+
+func TestBuildConfigDefaultIsTheRunsModelElseFirstEntry(t *testing.T) {
+	p := testProvider(t)
+	bases := Bases{Claude: "http://127.0.0.1:1/p/dbx", Responses: "http://127.0.0.1:1/p/dbx/responses", Chat: "http://127.0.0.1:1/p/dbx/openai"}
+	for want, def := range map[string]string{"databricks-kimi-k3": "databricks-kimi-k3", "not-on-the-menu": ""} {
+		_, sj, menu, err := BuildConfig(p, bases, want)
+		if err != nil {
+			t.Fatalf("%s: %v", want, err)
+		}
+		var s struct{ DefaultProvider, DefaultModel string }
+		if err := json.Unmarshal(sj, &s); err != nil || menu[s.DefaultModel] != s.DefaultProvider || s.DefaultModel == "" {
+			t.Fatalf("%s: settings %s not on the menu: %v", want, sj, err)
+		}
+		if def != "" && s.DefaultModel != def {
+			t.Errorf("default %q, want the run's model %q", s.DefaultModel, def)
+		}
+	}
+}
+
+func TestRunDirNamesItsOwner(t *testing.T) {
+	vaulttest.Use(t)
+	dir, rm, err := NewRunDir("dbx")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer rm()
+	if want := RunDirPrefix + strconv.Itoa(os.Getpid()) + "-"; !strings.HasPrefix(filepath.Base(dir), want) {
+		t.Errorf("run dir %s does not start with %s", dir, want)
 	}
 }

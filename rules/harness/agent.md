@@ -50,9 +50,12 @@ paths:
   (`agents ask --agent pi`), on a Databricks profile through the loopback proxy, with no own login. With no tools flag
   it runs with no tools; `--read-only` gives it read, grep, find and ls; bare `--tools` is refused until the stage 2
   guard extension exists, and `--deny`, `--allow` and `--permissions` are refused (Pi enforces none). Pi has no
-  permission prompts or sandbox. A dispatch passes `--no-context-files` (no CLAUDE.md or AGENTS.md) and `--no-mcp`;
+  permission prompts or sandbox. A dispatch passes `--no-context-files` (no CLAUDE.md or AGENTS.md), `--no-mcp` and,
+  so a repo's own `.pi` never runs code with your privileges,
+  `--no-approve --no-extensions --no-skills --no-prompt-templates --no-themes`;
   `--effort` maps to `--thinking` (minimal to max); `--model auto` and tier aliases follow the other agents' rules.
-  Pi exits 0 even when a request fails, so the harness judges the run from its JSON event stream.
+  Pi exits 0 even when a request fails, so the harness judges the run from its JSON event stream: success needs
+  `agent_settled`, a last message stopped `stop` and no open tool call (`length`, `aborted`, cut-off streams fail).
 - `agents ask --agents <json|file>` defines agents inline (`name`, `description`, `prompt`, `tools`, `model`,
   `max_turns`, `agent`, `profile`, `effort`); `--agent` also takes an `--agents` key. With `--batch`, a line's `agent`
   takes the same selector; `--host` with `--agents` exits 2.
