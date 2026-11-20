@@ -65,19 +65,14 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 		return agent.Plan{}, err
 	}
 	offerLogin(ctx, o, args, sessionProviders(sel), &plan)
-	rows, extra := modelPickerRows(reg, p, args)
-	proxied := len(rows) > 0 || sel.NeedsRouter(reg) || armedHop(ctx, p, args)
-	helper, overlayPath, err := configureRouting(ctx, sel, p, passthrough, proxied, self, &plan, extra...)
+	proxied := sel.NeedsRouter(reg) || armedHop(ctx, p, args)
+	helper, overlayPath, err := configureRouting(ctx, sel, p, passthrough, proxied, self, &plan)
 	if err != nil {
 		return agent.Plan{}, err
 	}
 	warnLostRemoteControl(&plan, proxied, passthrough, args)
-	addr := proxyAddr(&plan, proxied)
-	setAliasDescriptions(ctx, &plan, sel, addr)
-	for i := range rows {
-		rows[i].Description = clip80(rows[i].route + routeSuffix(addr))
-	}
-	if err := applyOverlay(ctx, &plan, passthrough, args, helper, overlayPath, p, rows); err != nil {
+	setAliasDescriptions(ctx, &plan, sel, proxyAddr(&plan, proxied))
+	if err := applyOverlay(ctx, &plan, passthrough, args, helper, overlayPath, p); err != nil {
 		return agent.Plan{}, err
 	}
 	if err := renderIfInteractive(ctx, &plan, providers.Target{Provider: p, Model: o.Model}, args); err != nil {
@@ -416,6 +411,10 @@ func setModelAliasEnv(plan *agent.Plan, sel providers.Selection) {
 			plan.Set["ANTHROPIC_DEFAULT_"+strings.ToUpper(alias)+"_MODEL"] = m
 		}
 	}
+	if m := sel.ClientModel(models.Opus); m != "" && sel.Aliases[models.Fable].Provider == nil &&
+		sel.Provider.SpellingRule() == "databricks-serving" {
+		plan.Set["ANTHROPIC_DEFAULT_FABLE_MODEL"] = m // Databricks serves no Fable: use the opus slot
+	}
 	if m := sel.ClientModel(models.Opus); m != "" { // classifier default claude-sonnet-5[1m] is unserved off Anthropic
 		plan.Set["CLAUDE_CODE_AUTO_MODE_MODEL"] = m
 	}
@@ -466,14 +465,14 @@ func armedHop(ctx context.Context, p *providers.Provider, args []string) bool {
 }
 
 // configureRouting wires the router URL/headers when proxied, else the provider's route, and returns the apiKeyHelper.
-func configureRouting(ctx context.Context, sel providers.Selection, p *providers.Provider, passthrough, proxied bool, self string, plan *agent.Plan, extra ...string) (helper, settings string, err error) {
+func configureRouting(ctx context.Context, sel providers.Selection, p *providers.Provider, passthrough, proxied bool, self string, plan *agent.Plan) (helper, settings string, err error) {
 	for _, t := range sel.Aliases {
 		if err := providers.ClaudeCodeError(t.Provider, t.Model); err != nil {
 			return "", "", err
 		}
 	}
 	if proxied {
-		return configureClaudeProxy(ctx, sel, p, passthrough, self, plan, extra...)
+		return configureClaudeProxy(ctx, sel, p, passthrough, self, plan)
 	}
 	helper = textutil.QuoteSH(helperBin(self)) + " resolve --secret --profile " + textutil.QuoteSH(p.Name)
 	name := "overlay-" + p.Name
@@ -500,7 +499,7 @@ var overlayIdentities = []string{
 	providers.IdentityAuto, providers.IdentityUser, providers.IdentitySP, providers.IdentityHeadless,
 }
 
-func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *agent.Plan, extra ...string) (string, string, error) {
+func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *providers.Provider, passthrough bool, self string, plan *agent.Plan) (string, string, error) {
 	if err := refuseCLIAliases(sel, passthrough); err != nil {
 		return "", "", err
 	}
@@ -513,7 +512,7 @@ func configureClaudeProxy(ctx context.Context, sel providers.Selection, p *provi
 	if id := providers.IdentityFrom(ctx); id != "" {
 		hdrs = append(hdrs, proxy.IdentityHeader+": "+id)
 	}
-	tok, err := proxyToken(ctx, base, sel, extra...)
+	tok, err := proxyToken(ctx, base, sel)
 	if err != nil {
 		return "", "", err
 	}
@@ -538,9 +537,9 @@ func refuseCLIAliases(sel providers.Selection, passthrough bool) error {
 // ProxyKeyEnv carries a proxied launch's session token to `resolve --proxy`
 const ProxyKeyEnv = "HARNESS_PROXY_API_KEY"
 
-// proxyToken is this process's session token on routerBase for the session, alias and extra profiles.
-func proxyToken(ctx context.Context, routerBase string, sel providers.Selection, extra ...string) (string, error) {
-	aliases := slices.Clone(extra)
+// proxyToken is this process's session token on routerBase for the session profile and its alias profiles.
+func proxyToken(ctx context.Context, routerBase string, sel providers.Selection) (string, error) {
+	var aliases []string
 	for _, t := range sel.Aliases {
 		aliases = append(aliases, t.Provider.Name)
 	}
@@ -568,7 +567,7 @@ func claudeLaunchBinaries(o agent.LaunchOptions) (string, string, error) {
 }
 
 // applyOverlay sets the passthrough OAuth handling or the apiKeyHelper, and writes the launch's one --settings layer.
-func applyOverlay(ctx context.Context, plan *agent.Plan, passthrough bool, args []string, helper, path string, p *providers.Provider, rows []pickerRow) error {
+func applyOverlay(ctx context.Context, plan *agent.Plan, passthrough bool, args []string, helper, path string, p *providers.Provider) error {
 	// Provider env (non-secret by Validate) rides the child's process env: Claude Code reads it before settings load.
 	for k, v := range providerEnv(ctx, p.Env) {
 		if _, set := plan.Set[k]; !set { // the harness-resolved key wins
@@ -585,10 +584,6 @@ func applyOverlay(ctx context.Context, plan *agent.Plan, passthrough bool, args 
 		plan.Set["CLAUDE_CODE_API_KEY_HELPER_TTL_MS"] = "300000"
 		doc["apiKeyHelper"] = helper
 	}
-	if len(rows) > 0 { // own file: a headless launch rewriting the shared overlay would drop a live session's rows
-		doc["modelPicker"] = modelPicker{Options: rows}
-		path = strings.TrimSuffix(path, ".json") + "-picker.json"
-	}
 	plan.Argv = []string{"--settings", path}
 	return putLaunchDoc(plan, path, doc)
 }
@@ -602,20 +597,6 @@ func passthroughOAuth(ctx context.Context, plan *agent.Plan, args []string) {
 			plan.Set[oauthKey] = tok
 		}
 	}
-}
-
-// modelPicker is Claude Code's modelPicker setting; rows append to the built-in /model lineup.
-type modelPicker struct {
-	Options []pickerRow `json:"options"`
-}
-
-// pickerRow sends Model verbatim; BehavesAs is the known id Claude Code treats a prefixed id as.
-type pickerRow struct {
-	Model       string `json:"model"`
-	Label       string `json:"label"`
-	Description string `json:"description"`
-	BehavesAs   string `json:"behavesAs"`
-	route       string // "<Provider> · <profile>", completed with the proxy address once routing is known
 }
 
 // proxyAddr is the router host:port a proxied session talks to, or "" when direct.
@@ -667,64 +648,6 @@ func setAliasDescriptions(ctx context.Context, plan *agent.Plan, sel providers.S
 		}
 		plan.Set[prefix+"_MODEL_DESCRIPTION"] = clip80(routeOf(p) + routeSuffix(addr))
 	}
-}
-
-// pickerPeers are a Databricks session's extra /model profiles; a login session gets none, to keep Remote Control.
-func pickerPeers(reg *providers.Registry, p *providers.Provider) []*providers.Provider {
-	if p.Preset != providers.PresetDatabricks {
-		return nil
-	}
-	var out []*providers.Provider
-	if a := reg.ProfileBy("anthropic", providers.AuthCLI); a != nil {
-		out = append(out, a)
-	}
-	for _, n := range reg.ProfilesOf("databricks") {
-		if d := reg.Providers[n]; d.Name != p.Name && d.Preset == providers.PresetDatabricks && providers.CredentialPresent(d) {
-			out = append(out, d)
-		}
-	}
-	return out
-}
-
-// modelPickerRows are the /model rows for the peer profiles and their names for the token scope; none headless.
-func modelPickerRows(reg *providers.Registry, p *providers.Provider, args []string) ([]pickerRow, []string) {
-	if agent.IsHeadless(args) {
-		return nil, nil
-	}
-	var rows []pickerRow
-	var names []string
-	for _, peer := range pickerPeers(reg, p) {
-		if r := peerRows(reg, peer); len(r) > 0 {
-			rows, names = append(rows, r...), append(names, peer.Name)
-		}
-	}
-	return rows, names
-}
-
-func peerRows(reg *providers.Registry, peer *providers.Provider) []pickerRow {
-	where, databricks := "Anthropic", peer.Preset == providers.PresetDatabricks
-	if databricks {
-		where = "Databricks " + peer.Name
-	}
-	var rows []pickerRow
-	for _, alias := range models.AliasNames {
-		if peer.Models[alias] == "" || databricks && alias == models.Fable { // Databricks serves no Fable
-			continue
-		}
-		t := providers.ParseTarget(reg, peer.Models[alias], peer)
-		base, _ := models.Canonical(t.Model)
-		fam, major, minor, ok := models.ParseClaudeID(base)
-		if !ok {
-			continue
-		}
-		label := fmt.Sprintf("%s %d", strings.ToUpper(fam[:1])+fam[1:], major)
-		if minor > 0 {
-			label += "." + strconv.Itoa(minor)
-		}
-		rows = append(rows, pickerRow{Model: peer.Name + ":" + t.ClientModel(), Label: label + " (" + where + ")",
-			route: routeOf(peer), BehavesAs: base})
-	}
-	return rows
 }
 
 // providerEnv is the provider's non-secret Env minus keys the process env or the vault custom env already set.

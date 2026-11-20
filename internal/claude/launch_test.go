@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -867,14 +866,14 @@ func TestBareHelpKeepsSubcommandHelp(t *testing.T) {
 	}
 }
 
-func TestNoFableAliasEnvWithoutFableModel(t *testing.T) {
+func TestFableAliasEnvOnDatabricks(t *testing.T) {
 	hermetic(t, `{"providers": {"databricks": {"dbx": {"preset": "databricks", "host": "https://example.cloud.databricks.com",
 		"base_url": "https://example.cloud.databricks.com/serving-endpoints/anthropic", "auth": {"type": "none"},
 		"models": {"opus": "databricks-claude-opus-5-5"}}},
 		"anthropic": {"gw": {"protocol": "anthropic", "base_url": "https://gw.example/anthropic", "auth": {"type": "none"},
 		"models": {"opus": "claude-opus-4-6"}}}}}`)
 	for _, c := range []struct{ profile, want string }{
-		{"dbx", ""},
+		{"dbx", "databricks-claude-opus-5-5"},
 		{"gw", ""},
 	} {
 		sel, err := providers.Select(mustRegistry(t), c.profile)
@@ -898,94 +897,19 @@ func mustRegistry(t *testing.T) *providers.Registry {
 	return reg
 }
 
-// pickerFixture has dev/qa signed in (auth none), prod without a credential (pat, no secret).
-const pickerFixture = `{"providers":{"databricks":{
+// An interactive Databricks launch keeps Claude Code's own /model lineup: no modelPicker, no picker overlay.
+func TestClaudeLaunchHasNoModelPicker(t *testing.T) {
+	hermetic(t, `{"providers":{"databricks":{
 	"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"none"}},
-	"prod":{"preset":"databricks","host":"https://prod.cloud.databricks.com","auth":{"type":"pat"}},
-	"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"none"}}}}}`
-
-func pickerModels(t *testing.T, p agent.Plan) []pickerRow {
-	t.Helper()
-	var doc struct {
-		ModelPicker modelPicker `json:"modelPicker"`
-	}
-	if err := json.Unmarshal(overlayFile(p).Data, &doc); err != nil {
-		t.Fatalf("overlay %s: %v", overlayFile(p).Data, err)
-	}
-	return doc.ModelPicker.Options
-}
-
-func checkPickerDescriptions(t *testing.T, session string, p agent.Plan, rows []pickerRow) {
-	t.Helper()
-	for _, r := range rows {
-		if !strings.Contains(r.Description, " · proxy 127.0.0.1:") || len(r.Description) > 80 {
-			t.Errorf("row description %q", r.Description)
-		}
-	}
-	if got := p.Set["ANTHROPIC_DEFAULT_OPUS_MODEL_DESCRIPTION"]; session == "dev" && !strings.HasPrefix(got, "Databricks · dev · proxy ") {
-		t.Errorf("opus description %q", got)
-	}
-}
-
-// A Databricks session lists ultra and the other signed-in workspaces; a login session stays direct with no rows.
-func TestClaudePickerRows(t *testing.T) {
-	for _, c := range []struct {
-		session string
-		peers   []string // profile prefixes in row order
-	}{{"ultra", nil}, {"dev", []string{"ultra", "qa"}}} {
-		t.Run(c.session, func(t *testing.T) {
-			hermetic(t, pickerFixture)
-			var scope []string
-			stubMint(t, func(_ context.Context, profiles []string, _ int) (string, error) {
-				scope = profiles
-				return "cct_P", nil
-			})
-			p, err := claudePlan(t.Context(), agent.LaunchOptions{Provider: c.session}, nil)
-			if err != nil {
-				t.Fatal(err)
-			}
-			var order []string
-			var rows []pickerRow
-			if len(p.Files) > 0 {
-				rows = pickerModels(t, p)
-			}
-			for _, r := range rows {
-				prefix, _, _ := strings.Cut(r.Model, ":")
-				if r.BehavesAs == "" || (prefix != "ultra" && strings.Contains(r.Model, "fable")) {
-					t.Errorf("bad row %+v", r)
-				}
-				if len(order) == 0 || order[len(order)-1] != prefix {
-					order = append(order, prefix)
-				}
-			}
-			checkPickerDescriptions(t, c.session, p, rows)
-			if c.session == "ultra" && (p.Set["ANTHROPIC_BASE_URL"] != "" || hasKeyHelper(p)) {
-				t.Errorf("login session proxied: base %q keyHelper %v", p.Set["ANTHROPIC_BASE_URL"], hasKeyHelper(p))
-			}
-			if !slices.Equal(order, c.peers) {
-				t.Errorf("row profiles %v, want %v", order, c.peers)
-			}
-			for _, n := range c.peers {
-				if !slices.Contains(scope, n) {
-					t.Errorf("scope %v lacks %s", scope, n)
-				}
-			}
-			if slices.Contains(scope, "prod") {
-				t.Errorf("unsigned prod in scope %v", scope)
-			}
-		})
-	}
-}
-
-// A headless launch carries no picker.
-func TestClaudePickerSkipsHeadless(t *testing.T) {
-	hermetic(t, pickerFixture)
-	p, err := claudePlan(t.Context(), agent.LaunchOptions{Provider: "dev"}, []string{"-p", "hi"})
+	"qa":{"preset":"databricks","host":"https://qa.cloud.databricks.com","auth":{"type":"none"}}}}}`)
+	stubMint(t, func(context.Context, []string, int) (string, error) { return "cct_P", nil })
+	p, err := claudePlan(t.Context(), agent.LaunchOptions{Provider: "dev"}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(overlayFile(p).Data), "modelPicker") {
-		t.Errorf("headless overlay carries a picker: %s", overlayFile(p).Data)
+	f := overlayFile(p)
+	if strings.HasSuffix(f.Path, "-picker.json") || strings.Contains(string(f.Data), "modelPicker") {
+		t.Errorf("picker overlay %s: %s", f.Path, f.Data)
 	}
 }
 
