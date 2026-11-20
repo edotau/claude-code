@@ -26,8 +26,14 @@ func handbackVerify(in *core.Input, lr leafRead, deadline time.Time) []string {
 	}
 	dirty := dirtyPaths(top)
 	planPath, active, _ := plans.Active(plans.Home(top), plans.WorktreeName(top), plans.MirrorDests())
-	task, ok := docs.BriefTask(in.CWD, lr.scan.brief, recordPlanTask(loadRecords(lr.ids)))
-	if !ok {
+	recTask := recordPlanTask(loadRecords(lr.ids))
+	named, task, isNamed, ok := docs.NamedPlanTask(lr.scan.brief, recTask)
+	if isNamed {
+		if !ok {
+			return nil
+		}
+		planPath = named
+	} else if task, ok = docs.BriefTask(in.CWD, lr.scan.brief, recTask); !ok {
 		if task, ok = untiedTask(active, dirty); !ok {
 			return nil
 		}

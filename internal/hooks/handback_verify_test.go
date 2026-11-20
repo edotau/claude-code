@@ -1,6 +1,7 @@
 package hooks
 
 import (
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -39,6 +40,15 @@ func TestHandbackVerifyNamesTaskAndCommit(t *testing.T) {
 	if len(got) != 2 || !strings.HasPrefix(got[0], "verify 1.2:") ||
 		!strings.HasPrefix(got[1], "commit+tick: claude-code worktree commit --task '1.2' --plan "+plan) {
 		t.Errorf("task brief: got %q, want one verify 1.2 line and one commit+tick naming it", got)
+	}
+	other := "Task 1.3 of " + plan + " wire it"
+	if got := handbackVerify(in, leafRead{scan: leafScan{brief: other}}, time.Now()); len(got) != 2 ||
+		!strings.HasPrefix(got[0], "verify 1.3:") || !strings.Contains(got[1], "--plan "+plan) {
+		t.Errorf("named plan: got %q, want verify 1.3 on the named plan", got)
+	}
+	missing := "Task 1.2 of " + filepath.Join(filepath.Dir(plan), "2026-01-01-gone.md")
+	if got := handbackVerify(in, leafRead{scan: leafScan{brief: missing}}, time.Now()); got != nil {
+		t.Errorf("unreadable named plan: got %q, want nothing, not another plan's task", got)
 	}
 	if got := handbackVerify(in, leafRead{scan: leafScan{brief: "just look around"}}, time.Now()); got != nil {
 		t.Errorf("no task: got %q, want nothing", got)
