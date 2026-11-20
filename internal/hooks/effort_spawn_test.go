@@ -16,7 +16,7 @@ import (
 const smBody = `"tool_input":{"subagent_type":"general-purpose","prompt":"fix the typo in the help text","description":"fix typo"}`
 
 func smPayload(mode, session string) string {
-	return `{"harness_spawn":"` + mode + `","session_id":"` + session + `","permission_mode":"auto","tool_name":"Agent",` + smBody + `}`
+	return `{"harness_spawn":"` + mode + `","session_id":"` + session + `","permission_mode":"default","tool_name":"Agent",` + smBody + `}`
 }
 
 func smRun(payload string) core.Result {

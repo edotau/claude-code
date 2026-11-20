@@ -13,7 +13,7 @@ func TestRelaySyntax(t *testing.T) {
 		"claude-code agents ask $(printf x)",
 		"claude-code agents ask `printf x`",
 		"claude-code agents ask <(printf x)",
-		"claude-code agents ask x 2>&1",
+		"claude-code agents ask x 2>&1 > /some/file",
 	} {
 		sess := relayTx(t)
 		if r := Handback(bashHook("PreToolUse", sess, "a1", "t2", cmd, "")); r.Decision != core.Block {
@@ -26,7 +26,7 @@ func TestRelaySyntax(t *testing.T) {
 	}
 }
 
-// A relay may run read-only commands and go gates; edits, other runners and a `cd` stay refused.
+// A relay may run read-only commands and go gates; edits and other runners stay refused; cd, test -f and 2>&1 pass.
 func TestRelayReadOnlyAndGates(t *testing.T) {
 	cases := map[string]bool{
 		"rtk grep -n foo internal/hooks/x.go": true, "grep -rn foo internal": true, "git diff": true,
@@ -36,7 +36,10 @@ func TestRelayReadOnlyAndGates(t *testing.T) {
 		"sed -i s/a/b/ f": false, "echo x > f": false, "git commit -m x": false, "git add f": false, "git stash": false,
 		"go run ./cmd/x": false, "go test -exec ./x ./...": false, "go build -o /tmp/x ./cmd/claude-code": false,
 		"make test": false, "rm f": false, `python3 -c "print(1)"`: false, `bash -c "ls"`: false, "gofmt -w f.go": false,
-		"cd /x && grep y z": false, "go generate ./...": false, "GOFLAGS=-toolexec=x go test ./...": false,
+		"cd /x && grep y z": true, "> /tmp/relay-pwn cd /tmp": false, `X="$(touch /tmp/relay-pwn)" cd /tmp`: false, "cd -- /x": false,
+		"cd -P /x": false, "cd /x ; touch /tmp/p": false, "cd /x | tee /tmp/f": false, "cat <(touch /tmp/p)": false, "test -f x -a -w y": false,
+		"ls 2>&1>/tmp/f": false, "ls 2>&1 >/tmp/f": false, "FOO=1 cd /x": false, "cd /x 2>&1": true, "cd /x\ntouch /tmp/p": false, "cd /x && sed -i s/a/b/ f": false, "test -f /x && echo ok || echo no": true,
+		"claude-code agents ls 2>&1 | head -8": true, "go generate ./...": false, "GOFLAGS=-toolexec=x go test ./...": false,
 		`claude-code worktree commit -m "fix: x" a.txt`: false, `rtk claude-code worktree commit -m "fix: x" a.txt`: false,
 		`/usr/local/bin/claude-code --remote h worktree commit -m x a.txt`: false, `env claude-code worktree commit -m x a.txt`: false,
 		"claude-code agents ask --agent codex x": true, "claude-code agents status 20261116T120000.000-codex": true,

@@ -3,6 +3,7 @@ package hooks
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"regexp"
 	"strings"
@@ -102,9 +103,8 @@ func effortFor(ctx context.Context, in *core.Input, mode spawnMode) core.Result 
 
 // finish runs the recall, model pin and label steps and renders the result.
 func (e *effortPlan) finish(ctx context.Context, in *core.Input, promptField, task string, direct bool) core.Result {
-	// auto mode refuses a hook-modified input, so its recall rides additionalContext too
 	st := in.Nested("tool_input", "subagent_type")
-	recallNote := e.recallStep(ctx, in, promptField, task, direct || fixedModelTypes[st] || in.Nested("permission_mode") == "auto")
+	recallNote := e.recallStep(ctx, in, promptField, task, true)
 	if !direct && !fixedModelTypes[st] {
 		pinNote, pinMsg := pinModel(e.run, in, e.updated, task)
 		e.fix(e.decision(pinNote))
@@ -115,7 +115,17 @@ func (e *effortPlan) finish(ctx context.Context, in *core.Input, promptField, ta
 		e.label(ctx, task)
 	}
 	e.note = strings.TrimSpace(e.note + "\n" + recallNote)
+	if in.Nested("permission_mode") == "auto" && e.changed && e.mode != modeQuery && !e.retyped(st) {
+		// auto mode gives no verdict on a hook-changed input: send the fixes as context, leave the call as sent
+		fields, _ := json.Marshal(changedFields(in.ToolInput(), e.updated))
+		e.note = strings.TrimSpace(e.note + "\ndispatch-effort: auto mode leaves this call unchanged; resend with " + string(fields))
+		e.changed, e.systemMessage = false, ""
+	}
 	return e.result()
+}
+
+func (e *effortPlan) retyped(st string) bool {
+	return strings.HasPrefix(st, "coworker:") && e.updated["subagent_type"] != st
 }
 
 // effortDenial is the call's type or Run: denial, else the coworker type to retype to ("" for none).

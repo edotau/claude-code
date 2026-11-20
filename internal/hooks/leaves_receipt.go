@@ -443,9 +443,7 @@ func relayRunPending(in *core.Input, lr leafRead, m relayRun) (core.Result, bool
 		}
 		return core.Result{Decision: core.Block, Rule: "run-line-pending", Verdict: core.VerdictHeld, Reason: fmt.Sprintf("%s Output %s. %s", heldRunInfo(m.Line), m.Output, handBackForID)}, true
 	}
-	return core.Result{Decision: core.Block, Rule: "no-dispatch-id", Verdict: core.VerdictRefused, Reason: fmt.Sprintf("No exact dispatch id appeared within %s. "+
-		"Recover the id from the hook launch output %s, run `claude-code agents result -f <id>` once, "+
-		"and hand back again; sibling records cannot supply the receipt.", askLaunchWindow, m.Output)}, true
+	return missingIDLimit(in) // a sibling's record could be attached by mistake, so fail open with no receipt
 }
 
 // handBackForID is the hold's instruction while the hook's launch has no dispatch record to name yet.

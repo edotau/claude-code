@@ -32,8 +32,8 @@ func relayBash(in *core.Input) (core.Result, bool) {
 			return core.Result{Decision: core.Block, Rule: "relay-shell", Verdict: core.VerdictRefused, Reason: fmt.Sprintf("relay: refused `%s`: %s; "+
 				"run the ask alone in the foreground (no `; echo`, no `run_in_background`) and hand back after it exits; "+
 				"run only "+
-				"`claude-code <agent> ask ... - < /absolute/brief/file` (no cd: use --workdir), read-only commands "+
-				"(git diff, grep, ls, cat), or: "+relayGoShapes+".", shown, rule)}, true
+				"`claude-code <agent> ask ... - < /absolute/brief/file`, alone or chained with && around read-only commands "+
+				"(cd, git diff, grep, ls, cat, test -f, 2>&1; no redirect to a file), or: "+relayGoShapes+".", shown, rule)}, true
 		}
 	}
 	return core.Result{}, false
@@ -68,17 +68,12 @@ func relayStatusEcho(seg string) bool {
 
 // relayRefusal names the rule a relay's Bash segment breaks; "" when it is allowed.
 func relayRefusal(seg string) string {
+	seg = relayMergeErr.ReplaceAllString(seg, " ")
 	if slices.ContainsFunc(shell.Tokens(seg), relayGoEnvRe().MatchString) {
 		return "sets a Go environment variable (GOFLAGS, GOENV, GOWORK, GOBIN, GOCACHE or GOTOOLCHAIN)"
 	}
 	if toks := relayWords(seg); len(toks) == 0 || filepath.Base(toks[0]) != "claude-code" {
-		if agent.ReadOnlyShell(seg) {
-			return ""
-		}
-		if rule, isGo := relayGoGate(seg); isGo {
-			return rule
-		}
-		return "not a `claude-code` command"
+		return relayShellRefusal(seg)
 	}
 	if cc := agentCommand(relayWords(seg)); len(cc) > 1 && cc[0] == "worktree" && cc[1] == "commit" {
 		return "a relay does not commit; the dispatched agent or the main session commits"
@@ -88,6 +83,35 @@ func relayRefusal(seg string) string {
 		return err.Error()
 	}
 	return ""
+}
+
+// relayShellRefusal judges a segment that is not a claude-code call: read-only shell, navigation or a Go gate.
+func relayShellRefusal(seg string) string {
+	if agent.ReadOnlyShell(seg) || relayNavigate(seg) {
+		return ""
+	}
+	if rule, isGo := relayGoGate(seg); isGo {
+		return rule
+	}
+	return "not a `claude-code` command"
+}
+
+// relayMergeErr is a `2>&1` word: it merges stderr into stdout and writes no file.
+var relayMergeErr = regexp.MustCompile(`(?:^|\s)2>&1(?:\s|$)`)
+
+// relayNavigate is exactly `cd <dir>` or `test -f|-e|-d <path>`: no redirect, assignment, expansion or substitution.
+func relayNavigate(seg string) bool {
+	toks := shell.Tokens(seg)
+	if len(toks) == 0 || strings.ContainsAny(seg, "$`<>()*?") {
+		return false
+	}
+	switch toks[0] {
+	case "cd":
+		return len(toks) == 2
+	case "test":
+		return len(toks) == 3 && slices.Contains([]string{"-f", "-e", "-d"}, toks[1])
+	}
+	return false
 }
 
 // relayGoEnvFlags write files or run other programs; a GOFLAGS carrying one is refused (leading dashes dropped).

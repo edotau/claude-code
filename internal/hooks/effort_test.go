@@ -177,11 +177,11 @@ func TestAgentEffortExplicitModelRecallAppendsPromptOnly(t *testing.T) {
 	effortHome(t)
 	seedHomeRecallBlock(t, 1)
 	doc := runAgentEffortFull(t, recallDispatch(recallPrompt, `,"model":"opus"`))
-	if doc.HSO.UpdatedInput["model"] != "opus" {
-		t.Errorf("model = %v, want untouched \"opus\"", doc.HSO.UpdatedInput["model"])
+	if doc.HSO.UpdatedInput != nil {
+		t.Errorf("updatedInput = %v, want none: recall is note-only", doc.HSO.UpdatedInput)
 	}
-	if p, _ := doc.HSO.UpdatedInput["prompt"].(string); !strings.Contains(p, "<memory-recall>") {
-		t.Errorf("prompt missing the recall block: %q", p)
+	if !strings.Contains(doc.HSO.AdditionalContext, "<memory-recall>") {
+		t.Errorf("context missing the recall block: %q", doc.HSO.AdditionalContext)
 	}
 	if doc.SystemMessage != "" {
 		t.Errorf("systemMessage = %q, want empty — the model never changed", doc.SystemMessage)
@@ -210,8 +210,9 @@ func TestAgentEffortRecallSkipsPromptAlreadyCarryingMarker(t *testing.T) {
 func TestAgentEffortRecallPreservesAllInputKeysWithModelFill(t *testing.T) {
 	effortHome(t)
 	seedHomeRecallBlock(t, 1)
-	got, _ := runAgentEffort(t, recallDispatch(recallPrompt,
+	res := effortResult(recallDispatch(recallPrompt,
 		`,"description":"deploy work","isolation":"worktree","run_in_background":false,"subagent_type":"general-purpose"`))
+	got := res.UpdatedInput
 	if got == nil {
 		t.Fatal("emitted nothing, want an updatedInput")
 	}
@@ -224,8 +225,8 @@ func TestAgentEffortRecallPreservesAllInputKeysWithModelFill(t *testing.T) {
 	if got["model"] == nil {
 		t.Error("model was not filled alongside the recall append")
 	}
-	if p, _ := got["prompt"].(string); !strings.Contains(p, "<memory-recall>") {
-		t.Errorf("prompt missing the recall block: %q", p)
+	if !strings.Contains(res.Context, "<memory-recall>") || got["prompt"] != recallPrompt {
+		t.Errorf("recall must ride the context only: context %q, prompt %q", res.Context, got["prompt"])
 	}
 }
 
@@ -255,24 +256,17 @@ func runEffortHook(r *strings.Reader, stdout *bytes.Buffer) int {
 	return core.Emit(core.AgentClaude, "PreToolUse", agentEffortResult(context.Background(), core.ParseInput(r)), stdout, os.Stderr)
 }
 
-// Auto mode refuses a modified input: a non-Run brief's recall rides additionalContext there, else the prompt.
+// Recall rides additionalContext in every permission mode and never edits the prompt.
 func TestAgentEffortRecallByPermissionMode(t *testing.T) {
-	for _, tc := range []struct {
-		mode     string
-		wantNote bool
-	}{{"auto", true}, {"default", false}, {"", false}} {
-		t.Run(cmp.Or(tc.mode, "unset"), func(t *testing.T) {
+	for _, mode := range []string{"auto", "default", ""} {
+		t.Run(cmp.Or(mode, "unset"), func(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 			seedHomeRecallBlock(t, 2)
 			res := effortResult(fmt.Sprintf(`{"tool_name":"Agent","permission_mode":%q,"tool_input":{"prompt":%q,"model":"opus"}}`,
-				tc.mode, recallPrompt))
+				mode, recallPrompt))
 			note := strings.Contains(res.Context, "memory-recall for this dispatch") && strings.Contains(res.Context, "<memory-recall>")
-			p, _ := res.UpdatedInput["prompt"].(string)
-			switch {
-			case tc.wantNote && (!note || res.UpdatedInput != nil):
+			if !note || res.UpdatedInput != nil {
 				t.Errorf("context %q, updatedInput %v; want the recall note and no updatedInput", res.Context, res.UpdatedInput)
-			case !tc.wantNote && (note || !strings.HasPrefix(p, recallPrompt) || !strings.Contains(p, "<memory-recall>")):
-				t.Errorf("context %q, prompt %q; want the recall block appended and no note", res.Context, p)
 			}
 		})
 	}
@@ -408,8 +402,8 @@ func TestDispatchLabelAutoModeRewrites(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	stubLabelModels(t, "")
 	r := effortResult(autoDispatch("claude", "fix bug"))
-	if d, _ := r.UpdatedInput["description"].(string); r.Decision == core.Block || d != "sonnet: fix bug" {
-		t.Fatalf("unprefixed auto dispatch = %+v, want the rewrite to \"sonnet: fix bug\"", r)
+	if r.Decision == core.Block || r.UpdatedInput != nil || !strings.Contains(r.Context, `resend with {"description":"sonnet: fix bug"`) {
+		t.Fatalf("unprefixed auto dispatch = %+v, want no updatedInput and a resend hint for \"sonnet: fix bug\"", r)
 	}
 	r = effortResult(autoDispatch("claude", "sonnet: fix bug"))
 	if r.Decision == core.Block || r.UpdatedInput != nil {
@@ -428,6 +422,9 @@ func TestDispatchRunBriefFixedNotDenied(t *testing.T) {
 	}{
 		{"default", "copilot", "opus: fix it", 1},
 		{"default", "copilot", "sonnet: fix it", 0}, // an equivalent label is accepted as typed
+		{"default", "copilot", "fix it", 1},
+		{"default", "coworker:copilot", "databricks-gpt-6-1-sol: fix it", 2},
+		{"default", "copilot", "claude-sonnet-5.5: fix it", 0},
 		{"auto", "copilot", "fix it", 1},
 		{"auto", "coworker:copilot", "databricks-gpt-6-1-sol: fix it", 2},
 		{"auto", "copilot", "claude-sonnet-5.5: fix it", 0},
@@ -435,19 +432,55 @@ func TestDispatchRunBriefFixedNotDenied(t *testing.T) {
 		raw, _ := json.Marshal(map[string]any{"tool_name": "Agent", "permission_mode": tc.mode,
 			"tool_input": map[string]any{"subagent_type": tc.st, "prompt": brief, "description": tc.desc}})
 		r := agentEffortResult(context.Background(), core.ParseInput(bytes.NewReader(raw)))
-		d, _ := r.UpdatedInput["description"].(string)
-		fixed := tc.notes > 0
-		switch {
-		case r.Decision == core.Block:
-			t.Errorf("%s/%s/%q denied: %s", tc.mode, tc.st, tc.desc, r.Reason)
-		case fixed && (d != "claude-sonnet-5.5: fix it" || r.UpdatedInput["subagent_type"] != "copilot" || r.UpdatedInput["prompt"] != brief):
-			t.Errorf("%s/%s/%q: updatedInput %v, want the label and type fixed, prompt byte-identical", tc.mode, tc.st, tc.desc, r.UpdatedInput)
-		case !fixed && r.UpdatedInput != nil:
-			t.Errorf("%s/%s/%q: right label rewritten: %v", tc.mode, tc.st, tc.desc, r.UpdatedInput)
-		case strings.Count(r.Context, "dispatch-effort: ") != tc.notes:
-			t.Errorf("%s/%s/%q: context %q, want %d fix notes", tc.mode, tc.st, tc.desc, r.Context, tc.notes)
+		if tc.mode == "auto" && tc.notes > 0 && !strings.HasPrefix(tc.st, "coworker:") {
+			assertAutoResend(t, r, tc.st, tc.desc, tc.notes)
+			continue
 		}
+		assertRunBriefRow(t, fmt.Sprintf("%s/%s/%q", tc.mode, tc.st, tc.desc), tc.notes, brief, r)
 	}
+}
+
+// assertRunBriefRow checks one row: not denied, label and type fixed with the prompt untouched, or left alone.
+func assertRunBriefRow(t *testing.T, tag string, notes int, brief string, r core.Result) {
+	t.Helper()
+	d, _ := r.UpdatedInput["description"].(string)
+	fixed := notes > 0
+	switch {
+	case r.Decision == core.Block:
+		t.Errorf("%s denied: %s", tag, r.Reason)
+	case fixed && (d != "claude-sonnet-5.5: fix it" || r.UpdatedInput["subagent_type"] != "copilot" || r.UpdatedInput["prompt"] != brief):
+		t.Errorf("%s: updatedInput %v, want the label and type fixed, prompt byte-identical", tag, r.UpdatedInput)
+	case !fixed && r.UpdatedInput != nil:
+		t.Errorf("%s: right label rewritten: %v", tag, r.UpdatedInput)
+	case strings.Count(r.Context, "dispatch-effort: ") != notes:
+		t.Errorf("%s: context %q, want %d fix notes", tag, r.Context, notes)
+	}
+}
+
+func assertAutoResend(t *testing.T, r core.Result, st, desc string, notes int) {
+	t.Helper()
+	tag := fmt.Sprintf("auto/%s/%q", st, desc)
+	fields := resendFields(t, r)
+	if r.Decision == core.Block || r.UpdatedInput != nil || strings.Count(r.Context, "dispatch-effort: ") != notes+1 {
+		t.Errorf("%s: blocked %v, updatedInput %v, context %q; want the call unblocked and unchanged", tag, r.Decision == core.Block, r.UpdatedInput, r.Context)
+	}
+	if len(fields) != 1 || fields["description"] != "claude-sonnet-5.5: fix it" {
+		t.Errorf("%s: resend fields %v, want only the description label", tag, fields)
+	}
+}
+
+// resendFields parses the JSON an auto-mode note tells the caller to resend with; nil when there is none.
+func resendFields(t *testing.T, r core.Result) map[string]any {
+	t.Helper()
+	_, js, ok := strings.Cut(r.Context, "resend with ")
+	if !ok {
+		return nil
+	}
+	var fields map[string]any
+	if err := json.NewDecoder(strings.NewReader(js)).Decode(&fields); err != nil {
+		t.Fatalf("resend hint in %q is not JSON: %v", r.Context, err)
+	}
+	return fields
 }
 
 // An `inherit` agent file labels with the session's model, read from the transcript.
@@ -641,6 +674,9 @@ func assertInventoryRow(t *testing.T, st, src, kind, desc, want string) {
 		raw, _ := json.Marshal(doc)
 		r := agentEffortResult(context.Background(), core.ParseInput(bytes.NewReader(raw)))
 		got, _ := r.UpdatedInput["description"].(string)
+		if auto && r.UpdatedInput == nil {
+			got, _ = resendFields(t, r)["description"].(string)
+		}
 		if got == "" {
 			got = desc
 		}

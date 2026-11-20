@@ -171,7 +171,7 @@ func TestLabelModelAutoRunLine(t *testing.T) {
 	if q.Model != "auto" || !q.Tools || q.Task != "audit the safety rules" {
 		t.Errorf("query = %+v, want auto, tools and the ask's prompt as the task", q)
 	}
-	raw, _ := json.Marshal(map[string]any{"tool_name": "Agent", "permission_mode": "auto",
+	raw, _ := json.Marshal(map[string]any{"tool_name": "Agent", "permission_mode": "default",
 		"tool_input": map[string]any{"subagent_type": "general-purpose", "prompt": brief, "description": "audit"}})
 	r := agentEffortResult(context.Background(), core.ParseInput(bytes.NewReader(raw)))
 	d, _ := r.UpdatedInput["description"].(string)
