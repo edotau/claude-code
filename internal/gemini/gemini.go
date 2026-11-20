@@ -330,9 +330,10 @@ type agyRequest struct {
 	Prompt, Model, Cwd, SessionID string
 	Effort                        string // a gateway pin's effort suffix; a --effort in SettingsArgv wins
 	Tools                         bool
-	DebugFile                     string   // --log-file
-	OutputSchema                  string   // --json-schema
-	SettingsArgv                  []string // RenderSettings' --effort and --settings fragment, inserted before -p=
+	DebugFile                     string        // --log-file
+	PrintTimeout                  time.Duration // --print-timeout; 0 omits it (live sessions)
+	OutputSchema                  string        // --json-schema
+	SettingsArgv                  []string      // RenderSettings' --effort and --settings fragment, inserted before -p=
 	Permissions                   agent.Permissions
 	Env, KeepEnv                  []string
 }
@@ -376,7 +377,34 @@ func agyArgv(r agyRequest) []string {
 	if r.DebugFile != "" {
 		argv = append(argv, "--log-file", r.DebugFile)
 	}
+	if r.PrintTimeout > 0 {
+		argv = append(argv, "--print-timeout", fmt.Sprintf("%ds", int(r.PrintTimeout.Seconds())))
+	}
 	return append(append(argv, r.SettingsArgv...), "-p=")
+}
+
+const (
+	agyPrintMargin  = 15 * time.Second // agy gives up this long before the harness deadline, so its own error is recorded
+	agyPrintFloor   = 10 * time.Second // never ask agy for less than this
+	agyPrintCeiling = 12 * time.Minute // no deadline: above the longest healthy silent run seen (587 s)
+)
+
+// agyPrintTimeout is the run's remaining time minus the margin (floored), or the ceiling when ctx has no deadline.
+func agyPrintTimeout(ctx context.Context) time.Duration {
+	dl, ok := ctx.Deadline()
+	if !ok {
+		return agyPrintCeiling
+	}
+	return max(time.Until(dl)-agyPrintMargin, agyPrintFloor)
+}
+
+// headlessAgy adds what only a headless dispatch passes: the print timeout and agy's own log beside the record.
+func headlessAgy(ctx context.Context, id string, r agyRequest) agyRequest {
+	r.PrintTimeout = agyPrintTimeout(ctx)
+	if r.DebugFile == "" && id != "" {
+		r.DebugFile = agent.AgyLogPath(id)
+	}
+	return r
 }
 
 func agyStdin(r agyRequest) (string, error) {
@@ -400,6 +428,7 @@ func runAgy(ctx context.Context, r agyRequest, sink wire.Sink) (wire.Result, err
 	if err != nil {
 		return wire.Result{}, err
 	}
+	r = headlessAgy(ctx, agent.DispatchIDOf(ctx), r)
 	cmd, tail := agent.ChildCmd(ctx, bin, agyArgv(r), r.Env, r.Cwd, stdin, r.KeepEnv, true)
 	dn := &agyDenier{p: r.Permissions, cwd: r.Cwd}
 	parse := func(br *bufio.Reader, sink wire.Sink, _ func(), logs ...wire.StreamLog) (wire.Result, error) {

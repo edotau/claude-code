@@ -121,11 +121,18 @@ func TestPruneDispatchesRemovesLog(t *testing.T) {
 	if _, err := os.Stat(logPath); err != nil {
 		t.Fatalf("log must exist before prune: %v", err)
 	}
+	agyLog := AgyLogPath(first.ID)
+	if err := os.WriteFile(agyLog, []byte("agy"), 0o600); err != nil {
+		t.Fatal(err)
+	}
 
 	savePruneRecords(t, base.Add(time.Minute), dispatchKeep+dispatchPruneMargin)
 
 	if _, err := os.Stat(logPath); !os.IsNotExist(err) {
 		t.Fatalf("pruned record's log must be removed, stat err = %v", err)
+	}
+	if _, err := os.Stat(agyLog); !os.IsNotExist(err) {
+		t.Fatalf("pruned record's agy log must be removed, stat err = %v", err)
 	}
 }
 

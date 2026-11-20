@@ -158,6 +158,43 @@ func TestAgyArgvDebugFile(t *testing.T) {
 	}
 }
 
+func argValue(argv []string, flag string) string {
+	if i := slices.Index(argv, flag); i >= 0 && i+1 < len(argv) {
+		return argv[i+1]
+	}
+	return ""
+}
+
+// Fails without headlessAgy: the headless argv has no --print-timeout and no dispatch-derived --log-file.
+func TestHeadlessAgyPrintTimeoutAndLog(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Second)
+	defer cancel()
+	r := headlessAgy(ctx, "id1", agyRequest{Model: "m"})
+	argv := agyArgv(r)
+	if got := argValue(argv, "--print-timeout"); got != "85s" && got != "84s" {
+		t.Errorf("--print-timeout = %q, want 100s minus the margin", got)
+	}
+	if got := argValue(argv, "--log-file"); got != agent.AgyLogPath("id1") {
+		t.Errorf("--log-file = %q, want %q", got, agent.AgyLogPath("id1"))
+	}
+	if got := argValue(agyArgv(headlessAgy(context.Background(), "", agyRequest{Model: "m"})), "--print-timeout"); got != "720s" {
+		t.Errorf("no deadline: --print-timeout = %q, want the 720s ceiling", got)
+	}
+	short, cancel2 := context.WithTimeout(context.Background(), time.Second)
+	defer cancel2()
+	if got := argValue(agyArgv(headlessAgy(short, "", agyRequest{Model: "m"})), "--print-timeout"); got != "10s" {
+		t.Errorf("short deadline: --print-timeout = %q, want the 10s floor", got)
+	}
+	if got := argValue(agyArgv(headlessAgy(ctx, "id1", agyRequest{Model: "m", DebugFile: "/x"})), "--log-file"); got != "/x" {
+		t.Errorf("--debug-file must win, got %q", got)
+	}
+	argv = agyArgv(agyRequest{Model: "m"}) // live sessions build the argv without headlessAgy
+	if slices.Contains(argv, "--print-timeout") || slices.Contains(argv, "--log-file") {
+		t.Errorf("interactive argv = %v", argv)
+	}
+}
+
 // Deltas already parsed survive a later typed-decode failure.
 func TestParseAgyStreamDecodeErrorKeepsText(t *testing.T) {
 	stream := `{"event":"step_update","step_update":{"step_type":"agent_response","text_delta":"hi"}}

@@ -122,6 +122,20 @@ func (r Record) EventsPath() string {
 	return filepath.Join(paths.DispatchDir(), r.ID+paths.DispatchEventsSuffix)
 }
 
+// AgyLogSuffix is the file suffix of agy's own log for a dispatch, beside its record.
+const AgyLogSuffix = ".agy.log"
+
+// AgyLogPath is agy's own log for dispatch id, <id>.agy.log beside the record.
+func AgyLogPath(id string) string {
+	return filepath.Join(paths.DispatchDir(), id+AgyLogSuffix)
+}
+
+// DispatchIDOf is the dispatch record id ctx carries, "" outside a dispatch.
+func DispatchIDOf(ctx context.Context) string {
+	id, _ := ctx.Value(dispatchIDKey{}).(string)
+	return id
+}
+
 // dispatchKeep bounds the log after pruning once the margin is exceeded.
 var dispatchKeep = 2000
 
@@ -518,6 +532,9 @@ func withCutoffHint(err error, rec *Record, res wire.Result, took time.Duration,
 	}
 	hint := fmt.Sprintf("%s cut off (%s) after %s with %d tool calls and %s; continue with: %s",
 		who, kind, took.Round(time.Second), t.tools.Load(), lost, next)
+	if who == "gemini" {
+		hint += "; agy log: " + AgyLogPath(rec.ID)
+	}
 	return &cutoffError{err: err, hint: hint}
 }
 
@@ -611,6 +628,7 @@ func pruneDispatches(dir string, keep ...string) {
 		_ = os.Remove(filepath.Join(dir, name+".lock"))
 		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+".log"))
 		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+paths.DispatchEventsSuffix))
+		_ = os.Remove(AgyLogPath(strings.TrimSuffix(name, ".json")))
 		_ = os.Remove(filepath.Join(dir, strings.TrimSuffix(name, ".json")+wire.LiveSockSuffix))
 		excess--
 	}
