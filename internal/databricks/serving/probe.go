@@ -1,6 +1,7 @@
 package serving
 
 import (
+	"bufio"
 	"bytes"
 	"cmp"
 	"context"
@@ -27,9 +28,10 @@ type CheckTarget struct {
 	Wire      string
 	Responses bool
 	Missing   bool
+	NoStream  bool // a non-chat endpoint cannot stream: it keeps the one non-streaming request
 }
 
-// CheckResult is one probe outcome; Status is ok, fail, transient or missing, Tools yes, no or "" (unknown).
+// CheckResult is one probe outcome; Status is ok, fail, transient, broken or missing, Tools yes, no or "" (unknown).
 type CheckResult struct {
 	ID        string    `json:"id"`
 	Status    string    `json:"status"`
@@ -37,6 +39,8 @@ type CheckResult struct {
 	LatencyMS int64     `json:"latency_ms"`
 	Tools     string    `json:"tools"`
 	Error     string    `json:"error,omitempty"`
+	Events    int       `json:"events,omitempty"`
+	Bytes     int       `json:"bytes,omitempty"`
 	CheckedAt time.Time `json:"checked_at,omitzero"`
 }
 
@@ -111,6 +115,9 @@ func checkClientRoutes(p *providers.Provider, targets []CheckTarget) error {
 const StatusTransient = "transient"
 const StatusOK, StatusFail, StatusMissing = "ok", "fail", "missing"
 
+// StatusBroken marks a streamed probe that was accepted (2xx) but ended without its wire's terminator.
+const StatusBroken = "broken"
+
 // TransientHTTP reports a status that is a passing condition rather than a verdict on the model.
 func TransientHTTP(code int) bool {
 	return code == http.StatusRequestTimeout || code == http.StatusTooManyRequests || code >= 500
@@ -122,11 +129,14 @@ func probeOne(ctx context.Context, p *providers.Provider, o CheckOptions, t Chec
 	if err != nil {
 		return CheckResult{ID: t.ID, Status: StatusFail, Error: "client route unavailable"}
 	}
-	rep, err := probeBudget(ctx, p, o, ProbeCall{URL: url, Body: body(true), Anthropic: anthropic})
+	call := ProbeCall{URL: url, Body: body(true), Anthropic: anthropic, Responses: t.Responses, Stream: !t.NoStream}
+	rep, err := probeBudget(ctx, p, o, call)
 	r.HTTP, r.LatencyMS = rep.HTTP, rep.LatencyMS
 	switch {
 	case err != nil:
 		r.Status, r.Error = StatusTransient, err.Error()
+	case rep.Broken != "":
+		r.Status, r.Error, r.Events, r.Bytes = StatusBroken, rep.Broken, rep.Events, rep.Bytes
 	case rep.HTTP/100 == 2:
 		r.Status, r.Tools = StatusOK, "yes"
 	default:
@@ -160,6 +170,8 @@ func probeTarget(p *providers.Provider, o CheckOptions, t CheckTarget, chatBase,
 func retryToolsLess(ctx context.Context, p *providers.Provider, o CheckOptions, r CheckResult, c ProbeCall) CheckResult {
 	rep2, err2 := probeBudget(ctx, p, o, c)
 	switch {
+	case err2 == nil && rep2.Broken != "":
+		r.Status, r.HTTP, r.LatencyMS, r.Error, r.Events, r.Bytes = StatusBroken, rep2.HTTP, rep2.LatencyMS, rep2.Broken, rep2.Events, rep2.Bytes
 	case err2 == nil && rep2.HTTP/100 == 2:
 		r.Status, r.HTTP, r.LatencyMS, r.Tools, r.Error = StatusOK, rep2.HTTP, rep2.LatencyMS, "no", ""
 	case err2 != nil:
@@ -232,19 +244,26 @@ const budgetExhausted = "max_tokens or model output limit was reached"
 const budgetRetryTokens = 1024
 
 // ProbeCall is one probe POST; a set Token is sent as the bearer (after p.Headers) instead of minting one.
+// Stream sends "stream": true and judges the reply's SSE by its wire: Anthropic, Responses, else chat completions.
 type ProbeCall struct {
 	URL       string
 	Body      map[string]any
 	Token     string
 	Anthropic bool
+	Responses bool
+	Stream    bool
 }
 
 // ProbeReply is one probe's answer: Body is the reply with credentials scrubbed, Denied a 403 naming a spend budget.
+// Broken is set on a 2xx stream that ended without content or its terminator; Events and Bytes count what arrived.
 type ProbeReply struct {
 	HTTP      int
 	LatencyMS int64
 	Body      string
 	Denied    bool
+	Broken    string
+	Events    int
+	Bytes     int
 }
 
 // ProbeOnce sends c (resent once with a larger budget when a reasoning model ran out); zero options as in Probe.
@@ -270,7 +289,12 @@ func probeBudget(ctx context.Context, p *providers.Provider, o CheckOptions, c P
 
 // probeRequest POSTs c.Body and returns the reply with its latency, or a named transport error.
 func probeRequest(ctx context.Context, p *providers.Provider, o CheckOptions, c ProbeCall) (ProbeReply, error) {
-	raw, err := json.Marshal(c.Body)
+	payload := c.Body
+	if c.Stream {
+		payload = maps.Clone(payload)
+		payload["stream"] = true
+	}
+	raw, err := json.Marshal(payload)
 	if err != nil {
 		return ProbeReply{}, err
 	}
@@ -295,10 +319,95 @@ func probeRequest(ctx context.Context, p *providers.Provider, o CheckOptions, c 
 		return ProbeReply{LatencyMS: time.Since(start).Milliseconds()}, probeFailure(ctx, err, o.Timeout)
 	}
 	defer resp.Body.Close()
+	if c.Stream && resp.StatusCode/100 == 2 {
+		return streamReply(ctx, resp, c, o.Timeout, start)
+	}
 	msg, err := readBody(ctx, resp, o.Timeout)
 	body := scrubCredentials(string(msg), req.Header)
 	return ProbeReply{HTTP: resp.StatusCode, LatencyMS: time.Since(start).Milliseconds(), Body: body,
 		Denied: resp.StatusCode == http.StatusForbidden && strings.Contains(strings.ToLower(body), "budget")}, err
+}
+
+// streamReply reads a 2xx SSE reply to its end; a deadline is a transient error, any other early end is Broken.
+func streamReply(ctx context.Context, resp *http.Response, c ProbeCall, timeout time.Duration, start time.Time) (ProbeReply, error) {
+	events, n, done, serr := scanStream(resp.Body, c)
+	rep := ProbeReply{HTTP: resp.StatusCode, Events: events, Bytes: n}
+	if serr != nil && errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		rep.LatencyMS = time.Since(start).Milliseconds()
+		return rep, fmt.Errorf("timeout after %s", timeout)
+	}
+	rep.LatencyMS = time.Since(start).Milliseconds()
+	switch {
+	case !done:
+		rep.Broken = fmt.Sprintf("stream ended without %s after %d events, %d bytes", terminatorName(c), events, n)
+	case events == 0:
+		rep.Broken = fmt.Sprintf("stream had no content event before %s (%d bytes)", terminatorName(c), n)
+	}
+	return rep, nil
+}
+
+func terminatorName(c ProbeCall) string {
+	switch {
+	case c.Anthropic:
+		return "message_stop"
+	case c.Responses:
+		return "response.completed"
+	}
+	return "[DONE] or a finish_reason"
+}
+
+// scanStream counts data frames (terminator excluded) and bytes up to the wire's terminator; err is a read failure.
+func scanStream(r io.Reader, c ProbeCall) (events, n int, done bool, err error) {
+	cr := &countReader{r: io.LimitReader(r, 1<<20)}
+	sc := bufio.NewScanner(cr)
+	sc.Buffer(make([]byte, 0, 64<<10), 1<<20)
+	finished := false // a chat stream with a finish_reason is whole even when the server omits [DONE], as the proxy reads it
+	for sc.Scan() {
+		data, ok := strings.CutPrefix(sc.Text(), "data:")
+		if !ok {
+			continue
+		}
+		data = strings.TrimSpace(data)
+		term, failed := frameKind(data, c)
+		if failed {
+			return events, cr.n, false, nil
+		}
+		if term {
+			return events, cr.n, true, nil
+		}
+		events++
+		finished = finished || (!c.Anthropic && !c.Responses && strings.Contains(data, `"finish_reason":"`))
+	}
+	return events, cr.n, finished, sc.Err()
+}
+
+// frameKind says whether one data payload ends the stream, or is a failure frame that must not count as content.
+func frameKind(data string, c ProbeCall) (terminator, failed bool) {
+	if !c.Anthropic && !c.Responses {
+		return data == "[DONE]", false
+	}
+	var f struct {
+		Type string `json:"type"`
+	}
+	_ = json.Unmarshal([]byte(data), &f)
+	switch f.Type {
+	case "message_stop", "response.completed", "response.incomplete": // incomplete: the tiny budget ran out, still a clean end
+		return true, false
+	case "error", "response.failed":
+		return false, true
+	}
+	return false, false
+}
+
+type countReader struct {
+	r io.Reader
+	n int
+}
+
+func (c *countReader) Read(p []byte) (int, error) {
+	n, err := c.r.Read(p)
+	c.n += n
+	return n, err
 }
 
 // authorizeProbe sets the bearer from a pre-minted token over p.Headers, else mints through providers.Authorize.

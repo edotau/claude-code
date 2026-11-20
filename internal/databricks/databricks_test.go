@@ -573,7 +573,7 @@ func TestCheckAllAcceptsPositionalModel(t *testing.T) {
 			return
 		}
 		seen <- body.Model
-		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(anthropicStream))
 	}))
 	t.Cleanup(srv.Close)
 	old := probeClient
@@ -609,7 +609,7 @@ func TestProbeReportsCutOffBody(t *testing.T) {
 			}))
 			t.Cleanup(srv.Close)
 			p := &providers.Provider{Name: "p", Protocol: providers.ProtocolAnthropic, BaseURL: srv.URL}
-			want := "HTTP 200 (body cut off)"
+			want := "stream broken: stream ended without message_stop after 0 events, 7 bytes"
 			if status != http.StatusOK { // a non-2xx status stands on a cut body, labelled transient when it is one
 				want = "transient HTTP 502: partial"
 			}
@@ -627,7 +627,7 @@ func probeServer(t *testing.T, delay time.Duration) *atomic.Int32 {
 	srv := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		n.Add(1)
 		time.Sleep(delay)
-		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(anthropicStream))
 	}))
 	t.Cleanup(srv.Close)
 	old := probeClient
@@ -696,5 +696,24 @@ func TestCheckProfileTokenNoRetry(t *testing.T) {
 	}
 	if _, err := oauth.MintM2M(context.Background(), srv.URL, "c", "client-secret"); err == nil || calls.Load() != 4 {
 		t.Fatalf("a dispatch mint must keep its retries: calls = %d", calls.Load())
+	}
+}
+
+const anthropicStream = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\"}\n\n" +
+	"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"
+
+func TestProbeStreamsAndNamesBrokenStream(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body["stream"] != true {
+			t.Errorf("stream = %v, want true", body["stream"])
+		}
+		_, _ = w.Write([]byte("data: {\"type\":\"content_block_delta\"}\n\n"))
+	}))
+	t.Cleanup(srv.Close)
+	p := &providers.Provider{Name: "p", Protocol: providers.ProtocolAnthropic, BaseURL: srv.URL}
+	if got := probe(context.Background(), p, "test-token", "m"); !strings.Contains(got, "stream broken") || !strings.Contains(got, "1 events") {
+		t.Errorf("probe = %q, want a stream broken verdict with the event count", got)
 	}
 }

@@ -62,7 +62,7 @@ func TestProbeClientRouteParity(t *testing.T) {
 					t.Errorf("probe body: %v", err)
 				}
 				requests <- seenProbe{r.Method, r.URL.RequestURI(), r.Header.Clone(), body}
-				_, _ = w.Write([]byte(`{"ok":true}`))
+				writeSSE(w, tc.responses, tc.anthropic, true)
 			})
 			// Exercise both the primary BaseURL and relative/absolute p.Route overrides.
 			p.Protocol, p.BaseURL = providers.ProtocolAnthropic, srv.URL+"/serving-endpoints/custom"
@@ -97,7 +97,7 @@ func checkProbeRequest(t *testing.T, r seenProbe, tc clientRouteCase, wire strin
 	if err := json.Unmarshal([]byte(tc.body), &want); err != nil {
 		t.Fatal(err)
 	}
-	want["model"] = wire
+	want["model"], want["stream"] = wire, true
 	if !reflect.DeepEqual(r.body, want) {
 		t.Errorf("client body = %#v, want %#v", r.body, want)
 	}
@@ -276,7 +276,7 @@ func TestProbeRetriesTokenBudgetExhausted(t *testing.T) {
 			http.Error(w, `{"error_code":"BAD_REQUEST","message":"Could not finish the message because max_tokens or model output limit was reached. Please try again with higher max_tokens."}`, http.StatusBadRequest)
 			return
 		}
-		_, _ = w.Write([]byte(`{"ok":true}`))
+		writeSSE(w, false, false, true)
 	})
 	targets := []CheckTarget{{ID: "gpt-5-1", Wire: "databricks-gpt-5-1"}}
 	got, err := Probe(context.Background(), p, targets, CheckOptions{Client: srv.Client()})
@@ -285,5 +285,126 @@ func TestProbeRetriesTokenBudgetExhausted(t *testing.T) {
 	}
 	if n := calls.Load(); n != 2 {
 		t.Errorf("requests = %d, want the probe and one larger-budget retry", n)
+	}
+}
+
+// writeSSE writes a short well-formed stream for the wire, with its terminator when term.
+func writeSSE(w http.ResponseWriter, responses, anthropic, term bool) {
+	w.Header().Set("Content-Type", "text/event-stream")
+	switch {
+	case anthropic:
+		_, _ = w.Write([]byte("event: content_block_delta\ndata: {\"type\":\"content_block_delta\"}\n\n"))
+		if term {
+			_, _ = w.Write([]byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
+		}
+	case responses:
+		_, _ = w.Write([]byte("event: x\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"OK\"}\n\n"))
+		if term {
+			_, _ = w.Write([]byte("data: {\"type\":\"response.completed\"}\n\n"))
+		}
+	default:
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"OK\"}}]}\n\n"))
+		if term {
+			_, _ = w.Write([]byte("data: [DONE]\n\n"))
+		}
+	}
+}
+
+func probeStreamWire(t *testing.T, tc clientRouteCase, h func(w http.ResponseWriter, body map[string]any)) CheckResult {
+	t.Helper()
+	p, srv := probeEnv(t, "stream", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		h(w, body)
+	})
+	p.Protocol, p.BaseURL = providers.ProtocolAnthropic, srv.URL+"/serving-endpoints/custom"
+	p.Routes = map[string]string{providers.ProtocolOpenAI: "chat", providers.ProtocolResponses: srv.URL + "/serving-endpoints/custom-responses"}
+	tg := CheckTarget{ID: tc.id, Wire: "w-" + tc.id, Responses: tc.responses}
+	got, err := Probe(context.Background(), p, []CheckTarget{tg}, CheckOptions{Client: srv.Client(), ClientRoutes: true})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("Probe = %+v, %v", got, err)
+	}
+	return got[0]
+}
+
+func TestProbeStreamPerWire(t *testing.T) {
+	for _, tc := range clientRouteCases[:3] {
+		t.Run(tc.name+"/complete", func(t *testing.T) {
+			r := probeStreamWire(t, tc, func(w http.ResponseWriter, body map[string]any) {
+				if body["stream"] != true {
+					t.Errorf("stream = %v, want true", body["stream"])
+				}
+				writeSSE(w, tc.responses, tc.anthropic, true)
+			})
+			if r.Status != StatusOK {
+				t.Errorf("well-formed stream = %+v, want ok", r)
+			}
+		})
+		t.Run(tc.name+"/no terminator", func(t *testing.T) {
+			r := probeStreamWire(t, tc, func(w http.ResponseWriter, _ map[string]any) { writeSSE(w, tc.responses, tc.anthropic, false) })
+			if r.Status != StatusBroken || r.Events != 1 || r.Bytes == 0 || r.HTTP != 200 {
+				t.Errorf("unterminated stream = %+v, want broken with 1 event", r)
+			}
+		})
+		t.Run(tc.name+"/cut", func(t *testing.T) {
+			r := probeStreamWire(t, tc, func(w http.ResponseWriter, _ map[string]any) {
+				w.Header().Set("Content-Length", "4096") // the server closes short: an unexpected EOF
+				writeSSE(w, tc.responses, tc.anthropic, false)
+			})
+			if r.Status != StatusBroken || r.Events != 1 {
+				t.Errorf("cut stream = %+v, want broken with 1 event", r)
+			}
+		})
+	}
+}
+
+func TestProbeStreamTerminatorWithoutContentIsBroken(t *testing.T) {
+	r := probeStreamWire(t, clientRouteCases[0], func(w http.ResponseWriter, _ map[string]any) {
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	})
+	if r.Status != StatusBroken || r.Events != 0 {
+		t.Errorf("terminator only = %+v, want broken", r)
+	}
+}
+
+func TestProbeStreamDeprecatedJSONStaysFail(t *testing.T) {
+	r := probeStreamWire(t, clientRouteCases[0], func(w http.ResponseWriter, _ map[string]any) {
+		http.Error(w, `{"message":"This endpoint w-gpt-5-1 is deprecated"}`, http.StatusBadRequest)
+	})
+	if r.Status != StatusFail || r.HTTP != 400 || !strings.Contains(r.Error, "is deprecated") {
+		t.Errorf("deprecated reply = %+v, want fail 400 deprecated", r)
+	}
+}
+
+func TestProbeNoStreamTargetSendsPlainRequest(t *testing.T) {
+	r := probeStreamWire(t, clientRouteCases[0], func(w http.ResponseWriter, body map[string]any) {
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	if r.Status != StatusBroken {
+		t.Fatalf("control: a streamed probe of a plain JSON reply = %+v, want broken", r)
+	}
+	p, srv := probeEnv(t, "plain", func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if _, ok := body["stream"]; ok {
+			t.Errorf("non-chat target sent stream: %v", body)
+		}
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	})
+	tg := CheckTarget{ID: "embed", Wire: "embed", NoStream: true}
+	got, err := Probe(context.Background(), p, []CheckTarget{tg}, CheckOptions{Client: srv.Client(), ClientRoutes: true})
+	if err != nil || len(got) != 1 || got[0].Status != StatusOK {
+		t.Errorf("non-streaming target = %+v, %v, want ok", got, err)
+	}
+}
+
+// Databricks chat streams may end after the finish_reason chunk with no [DONE]; that is a whole stream.
+func TestProbeStreamChatFinishReasonWithoutDoneIsOK(t *testing.T) {
+	r := probeStreamWire(t, clientRouteCases[0], func(w http.ResponseWriter, _ map[string]any) {
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"OK\"}}]}\n\n" +
+			"data: {\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"))
+	})
+	if r.Status != StatusOK {
+		t.Errorf("finish_reason stream = %+v, want ok", r)
 	}
 }

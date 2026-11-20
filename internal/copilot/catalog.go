@@ -682,13 +682,24 @@ func databricksListing(ctx context.Context, p *providers.Provider, live []provid
 	if err != nil {
 		return nil, "deprecation probe skipped: " + err.Error()
 	}
-	if dropped, err = deprecatedIDs(ctx, p, live, ids); err == nil && len(dropped) > 0 {
+	dropped, broken, err := deprecatedIDs(ctx, p, live, ids)
+	if err == nil && len(dropped) > 0 {
 		_, err = providers.EditPickerDrops(p, dropped, false, true)
 	}
 	if err != nil {
 		return nil, "deprecation probe changed nothing: " + err.Error()
 	}
-	return dropped, ""
+	return dropped, brokenNote(broken)
+}
+
+// brokenNote names each id whose stream broke; none is dropped, the owner decides.
+func brokenNote(broken []string) string {
+	lines := make([]string, len(broken))
+	for i, line := range broken {
+		id, _, _ := strings.Cut(line, ":")
+		lines[i] = fmt.Sprintf("stream check failed, not dropped: %s; to drop it: claude-code models discover --drop %s --apply", line, id)
+	}
+	return strings.Join(lines, "\n  ")
 }
 
 // probeCandidates are the ids discovery would add, plus p's saved additions when verify is set.
@@ -714,9 +725,9 @@ func probeCandidates(p *providers.Provider, live []providers.ModelInfo, verify b
 }
 
 // deprecatedIDs sends ids one request on the route each speaks and returns those answered 400 "This endpoint <id> is deprecated".
-func deprecatedIDs(ctx context.Context, p *providers.Provider, live []providers.ModelInfo, ids []string) ([]string, error) {
+func deprecatedIDs(ctx context.Context, p *providers.Provider, live []providers.ModelInfo, ids []string) (dropped, broken []string, err error) {
 	if len(ids) == 0 {
-		return nil, nil
+		return nil, nil, nil
 	}
 	byID := make(map[string]providers.ModelInfo, len(live))
 	for _, m := range live {
@@ -724,20 +735,30 @@ func deprecatedIDs(ctx context.Context, p *providers.Provider, live []providers.
 	}
 	targets := make([]serving.CheckTarget, len(ids))
 	for i, id := range ids {
-		targets[i] = serving.CheckTarget{ID: id, Wire: id, Responses: slices.Contains(byID[id].APITypes, "openai/v1/responses")}
+		m := byID[id]
+		resp := slices.Contains(m.APITypes, "openai/v1/responses")
+		targets[i] = serving.CheckTarget{ID: id, Wire: id, Responses: resp, NoStream: !resp && m.Task != "" && m.Task != "llm/v1/chat"}
 	}
 	// the listing's 45 s deadline would cut a 30 s-per-request probe round short
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Minute)
 	defer cancel()
 	results, err := probeEndpoints(ctx, p, targets, serving.CheckOptions{ClientRoutes: true, Concurrency: 4, Timeout: 30 * time.Second})
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
-	var out []string
+	dropped, broken = probeVerdicts(results)
+	return dropped, broken, nil
+}
+
+// probeVerdicts splits results into deprecated ids and "id: reason" lines for streams that broke.
+func probeVerdicts(results []serving.CheckResult) (dropped, broken []string) {
 	for _, r := range results {
-		if r.HTTP == http.StatusBadRequest && strings.Contains(r.Error, "This endpoint "+r.ID+" is deprecated") {
-			out = append(out, r.ID)
+		switch {
+		case r.HTTP == http.StatusBadRequest && strings.Contains(r.Error, "This endpoint "+r.ID+" is deprecated"):
+			dropped = append(dropped, r.ID)
+		case r.Status == serving.StatusBroken:
+			broken = append(broken, r.ID+": "+r.Error)
 		}
 	}
-	return out, nil
+	return dropped, broken
 }

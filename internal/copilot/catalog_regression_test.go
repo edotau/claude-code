@@ -144,7 +144,7 @@ func TestModelSourceUsesRunSessionProfile(t *testing.T) {
 func TestDiscoverApplyDropsDeprecatedEndpoints(t *testing.T) {
 	catalogScratch(t)
 	var live []providers.ModelInfo
-	for _, id := range []string{"databricks-old-model", "databricks-fresh-model", "databricks-flaky-model"} {
+	for _, id := range []string{"databricks-old-model", "databricks-fresh-model", "databricks-flaky-model", "databricks-cut-model"} {
 		live = append(live, providers.ModelInfo{ID: id, Task: "llm/v1/chat", Ready: "READY",
 			APITypes: []string{"mlflow/v1/chat/completions", "openai/v1/responses"}})
 	}
@@ -158,7 +158,7 @@ func TestDiscoverApplyDropsDeprecatedEndpoints(t *testing.T) {
 		t.Fatalf("preview sent %d probes, note %q; want none and a note", len(*sent), r.ProbeNote)
 	}
 	r := discoverPickerProfile(p, true, false)
-	if got := fmt.Sprint(r.Deprecated, len(*sent), (*sent)[0].Responses); got != "[databricks-old-model] 3 true" {
+	if got := fmt.Sprint(r.Deprecated, len(*sent), (*sent)[0].Responses); got != "[databricks-old-model] 4 true" {
 		t.Fatalf("apply: deprecated, probes, responses route = %s", got)
 	}
 	saved, _ := providers.PickerModels(p)
@@ -166,8 +166,11 @@ func TestDiscoverApplyDropsDeprecatedEndpoints(t *testing.T) {
 	for _, m := range saved {
 		ids = append(ids, m.ID)
 	}
-	if want := []string{"databricks-flaky-model", "databricks-fresh-model"}; !slices.Equal(ids, want) {
+	if want := []string{"databricks-cut-model", "databricks-flaky-model", "databricks-fresh-model"}; !slices.Equal(ids, want) {
 		t.Fatalf("saved = %v, want %v", ids, want)
+	}
+	if want := "claude-code models discover --drop databricks-cut-model --apply"; !strings.Contains(r.ProbeNote, want) {
+		t.Errorf("probe note = %q, want it to name %q", r.ProbeNote, want)
 	}
 	if again := discoverPickerProfile(p, true, false); len(again.Deprecated) != 0 || len(again.Additions) != 0 {
 		t.Errorf("second apply = %+v, want the dropped id not re-added", again)
@@ -184,6 +187,7 @@ func stubProbe(t *testing.T) *[]serving.CheckTarget {
 		"databricks-old-model": {Status: serving.StatusFail, HTTP: 400,
 			Error: `HTTP 400: {"error_code":"BAD_REQUEST","message":"This endpoint databricks-old-model is deprecated."}`},
 		"databricks-flaky-model": {Status: serving.StatusFail, HTTP: 400, Error: `HTTP 400: {"message":"bad request shape"}`},
+		"databricks-cut-model":   {Status: serving.StatusBroken, HTTP: 200, Error: "stream ended without [DONE] after 1 events, 40 bytes"},
 	}
 	probeEndpoints = func(_ context.Context, _ *providers.Provider, ts []serving.CheckTarget, _ serving.CheckOptions) ([]serving.CheckResult, error) {
 		*sent = append(*sent, ts...)

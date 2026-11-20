@@ -56,7 +56,7 @@ func catalogEnv(t *testing.T) func() []string {
 			_, _ = w.Write([]byte(catalogListing))
 		default:
 			_ = json.NewDecoder(r.Body).Decode(&map[string]any{})
-			_, _ = w.Write([]byte(`{"ok":true}`))
+			_, _ = w.Write([]byte(okStream))
 		}
 	}))
 	useTLSTransport(t, srv)
@@ -223,7 +223,7 @@ func ocCheckEnv(t *testing.T) (*ocCheckFake, string) {
 			case <-time.After(5 * time.Second):
 			}
 		default:
-			_, _ = w.Write([]byte(`{"ok":true}`))
+			_, _ = w.Write([]byte(okStream))
 		}
 	}))
 	useTLSTransport(t, srv)
@@ -986,7 +986,7 @@ func verifyProbeHandler(t *testing.T, chat, responses *atomic.Int32) http.Handle
 			if body["model"] != "databricks-gpt-6-astra" {
 				t.Errorf("wrong Responses model: %v", body["model"])
 			}
-			_, _ = w.Write([]byte(`{"ok":true}`))
+			_, _ = w.Write([]byte(okStream))
 		default:
 			t.Errorf("unexpected verification route: %s", r.URL.Path)
 			http.Error(w, "unexpected path", 404)
@@ -1145,3 +1145,7 @@ func TestOpencodeMenuSyncAndAddHonorDiscoveryDrops(t *testing.T) {
 		t.Fatalf("add of a dropped id: code=%d stderr=%s", code, stderr)
 	}
 }
+
+// okStream is a stream every wire accepts: a content frame, then each wire's terminator.
+const okStream = "data: {\"type\":\"response.output_text.delta\",\"choices\":[{\"delta\":{\"content\":\"OK\"}}]}\n\n" +
+	"data: {\"type\":\"response.completed\"}\n\ndata: {\"type\":\"message_stop\"}\n\ndata: [DONE]\n\n"

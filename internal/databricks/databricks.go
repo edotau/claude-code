@@ -164,7 +164,7 @@ func cutFlag(args []string, flag string) ([]string, bool) {
 
 // subverbs are the `databricks <verb>` commands; anything else is a launch (or check) of Claude Code.
 var subverbs = map[string]func([]string) int{
-	"config": config, "rescue": rescue, "identity": identity, "login": login, "open-url": openURLVerb, "token": mint, "import": importCfg, "export": export,
+	"api": apiVerb, "config": config, "rescue": rescue, "identity": identity, "login": login, "open-url": openURLVerb, "token": mint, "import": importCfg, "export": export,
 }
 
 // plan parses args: optional leading check, optional MODEL, --profile; everything else passes through.
@@ -368,6 +368,7 @@ var page = helptext.Page{
 	Usage: "claude-code databricks [check|<command>] [MODEL] [flags] [args...]",
 	About: "Launch Claude Code on a Databricks profile. MODEL (optional) picks the model; check runs a smoke reply.",
 	Commands: [][2]string{
+		{"api", "GET a workspace /api/ path with the profile's credential"},
 		{"check", "--all: one tiny call per profile (serving wire)"},
 		{"identity", "pin a profile's identity: auto, user or sp"},
 		{"login", "sign in: browser for oauth, a mint for an sp row"},
@@ -566,7 +567,7 @@ func probe(ctx context.Context, p *providers.Provider, tok, model string) string
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 	rep, err := serving.ProbeOnce(ctx, p, serving.CheckOptions{Client: probeClient, Timeout: probeTimeout}, serving.ProbeCall{
-		URL: strings.TrimRight(base, "/") + "/v1/messages", Token: tok, Anthropic: true,
+		URL: strings.TrimRight(base, "/") + "/v1/messages", Token: tok, Anthropic: true, Stream: true,
 		Body: map[string]any{"model": p.WireModel(model), "max_tokens": 1,
 			"messages": []map[string]string{{"role": "user", "content": "ping"}}}})
 	switch {
@@ -574,6 +575,8 @@ func probe(ctx context.Context, p *providers.Provider, tok, model string) string
 		return fmt.Sprintf("HTTP %d (body cut off)", rep.HTTP)
 	case err != nil:
 		return err.Error()
+	case rep.Broken != "":
+		return clip("stream broken: "+rep.Broken, 80)
 	case rep.HTTP/100 == 2:
 		return "ok"
 	case rep.Denied:
@@ -612,6 +615,7 @@ func Spec() *helptext.Node {
 	profileNames := providers.ProfileNames
 	identities := func() []string { return []string{"user", "sp"} }
 	return &helptext.Node{Flags: []helptext.Flag{valuedFlag("profile", profileNames), boolFlag("desktop")}, Sub: map[string]*helptext.Node{
+		"api":   {Flags: []helptext.Flag{valuedFlag("profile", profileNames), valuedFlag("as", identities)}},
 		"check": {Flags: []helptext.Flag{boolFlag("all"), valuedFlag("profile", profileNames), flag("model")}},
 		"identity": {Args: []func() []string{func() []string { return []string{"auto", "user", "sp"} }},
 			Flags: []helptext.Flag{valuedFlag("profile", profileNames), boolFlag("dry-run")}},

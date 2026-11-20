@@ -119,7 +119,7 @@ func WriteCheck(w io.Writer, results []serving.CheckResult, format string) error
 			lat = fmt.Sprintf("%dms", r.LatencyMS)
 		}
 		fmt.Fprintf(w, "%-*s  %-9s  %-4s  %-10s  %s", idW, r.ID, r.Status, code, lat, cmp.Or(r.Tools, "-"))
-		if (r.Status == serving.StatusFail || r.Status == serving.StatusTransient) && r.Error != "" {
+		if (r.Status == serving.StatusFail || r.Status == serving.StatusTransient || r.Status == serving.StatusBroken) && r.Error != "" {
 			fmt.Fprint(w, "  "+r.Error)
 		}
 		fmt.Fprintln(w)
