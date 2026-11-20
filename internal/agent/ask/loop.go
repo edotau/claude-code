@@ -50,12 +50,13 @@ const (
 	loopInterrupted   = "interrupted"
 	loopNoProgress    = "no progress: the planner repeated the previous round"
 	loopBadPlan       = "round refused: invalid plan"
+	loopEmptyPlan     = "needs main: planner returned no parts and was not done"
 	loopPlannerFailed = "planner failed"
 	loopSaveFailed    = "state not saved"
 )
 
 var loopCodes = map[string]int{loopDone: 0, loopCap: 4, loopBudget: 4, loopInterrupted: 4,
-	loopNoProgress: 1, loopBadPlan: 1, loopPlannerFailed: 1, loopSaveFailed: 1}
+	loopNoProgress: 1, loopBadPlan: 1, loopEmptyPlan: 1, loopPlannerFailed: 1, loopSaveFailed: 1}
 
 // loopCfg is one invocation's settings; plan and run are the seams the model calls go through.
 type loopCfg struct {
@@ -151,8 +152,11 @@ func (d *loopDriver) next(ctx context.Context) (loopTodo, string) {
 		return loopTodo{}, loopPlannerFailed
 	}
 	d.st.Summary = cmp.Or(p.Summary, d.st.Summary)
-	if p.Done || len(p.Parts) == 0 {
+	if p.Done {
 		return loopTodo{}, loopDone
+	}
+	if len(p.Parts) == 0 {
+		return loopTodo{}, loopEmptyPlan
 	}
 	if err := validateParts(p.Parts); err != nil {
 		d.logf("round %d refused: %v", round, err)
@@ -592,6 +596,10 @@ func (r *askRun) loopPlanFn() func(context.Context, string, string) (loopPlan, w
 		}
 		if helptext.Explicit(r.fs, "fallback") {
 			args = append(args, "--fallback", f.fallback)
+		}
+		// Nested ask: without this it waits out the tools default, not this run's deadline.
+		if d := askTimeout(r.fs, f.timeout, "", "", true); d > 0 {
+			args = append(args, "--timeout", d.String())
 		}
 		var buf bytes.Buffer
 		rc := loopAsk(ctx, append(args, "--", prompt), &buf)

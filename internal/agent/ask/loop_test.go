@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -253,6 +254,43 @@ func TestLoopNoProgressRule(t *testing.T) {
 	g := &fakeLoop{plans: []loopPlan{parts("a"), parts("a"), planDone}, status: func(string, bool) string { return wire.StatusError }}
 	if rc := runLoop(context.Background(), g.cfg(&out, 4), newLoopFile("goal")); rc != 1 || len(g.runs) != 2 {
 		t.Fatalf("repeat after failure: exit %d, runs %v: want 1 and a, a+retry", rc, g.runs)
+	}
+}
+
+// done=false with no parts is not success: exit 1, a reason line, and no part run.
+func TestLoopEmptyUnfinishedPlanNeedsMain(t *testing.T) {
+	loopTestEnv(t)
+	f := &fakeLoop{plans: []loopPlan{{Done: false, Summary: "not yet"}}}
+	var out bytes.Buffer
+	st := newLoopFile("goal")
+	if rc := runLoop(context.Background(), f.cfg(&out, 4), st); rc != 1 || len(f.runs) != 0 {
+		t.Fatalf("exit %d, runs %v: want 1 and none\n%s", rc, f.runs, out.String())
+	}
+	got, err := loadLoop(st.ID)
+	if err != nil || got.Reason != loopEmptyPlan || !strings.Contains(out.String(), loopEmptyPlan) {
+		t.Fatalf("reason %q, err %v\n%s", got.Reason, err, out.String())
+	}
+}
+
+// The planner ask gets this run's deadline; without --timeout it waits out the tools default.
+func TestLoopPlannerAskCarriesTimeout(t *testing.T) {
+	fs, f := askFlagSet()
+	if err := fs.Set("timeout", "45s"); err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	orig := loopAsk
+	loopAsk = func(_ context.Context, args []string, out io.Writer) int {
+		got = append([]string{}, args...)
+		_, _ = out.Write([]byte(`{"status":"ok","structured":{"done":true,"summary":"s","parts":[]}}`))
+		return 0
+	}
+	t.Cleanup(func() { loopAsk = orig })
+	if _, _, err := (&askRun{fs: fs, f: f}).loopPlanFn()(context.Background(), "claude", "plan"); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(got, " "), "--timeout 45s") {
+		t.Fatalf("planner args %v lack --timeout 45s", got)
 	}
 }
 
