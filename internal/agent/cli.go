@@ -373,7 +373,8 @@ func RunEventStream(ctx context.Context, name string, cmd *exec.Cmd, tail *retry
 	opts.Idle.bind(cmd.Cancel) // a silent child must not hold the run to --timeout
 	lg := wire.EventLogFor(ctx)
 	idle := &idleReader{src: eofReader{R: stdout}, last: time.Now().UnixNano()}
-	stop := heartbeat(lg, idle, name)
+	id, _ := ctx.Value(dispatchIDKey{}).(string)
+	stop := heartbeat(lg, idle, name, id)
 	defer stop() // a panicking parser must not leave the ticker goroutine running
 	// the parser writes formatted event lines to the dispatch log and fires onMeaningful on its first real event.
 	out, perr := parse(bufio.NewReader(idle), sink, opts.meaningful(), lg)
@@ -446,7 +447,7 @@ func (i *idleReader) Read(p []byte) (int, error) {
 }
 
 // heartbeat logs a "still running" line each heartbeatEvery of stdout silence until the returned stop is called.
-func heartbeat(lg wire.StreamLog, i *idleReader, name string) (stop func()) {
+func heartbeat(lg wire.StreamLog, i *idleReader, name, id string) (stop func()) {
 	if lg == nil {
 		return func() {}
 	}
@@ -461,12 +462,20 @@ func heartbeat(lg wire.StreamLog, i *idleReader, name string) (stop func()) {
 			case <-t.C:
 				quiet := time.Since(time.Unix(0, atomic.LoadInt64(&i.last))).Round(time.Second)
 				if quiet >= heartbeatEvery {
-					lg.Emit("heartbeat", fmt.Sprintf("%s still running, no output for %s", name, quiet))
+					lg.Emit("heartbeat", heartbeatText(name, id, quiet))
 				}
 			}
 		}
 	}()
 	return sync.OnceFunc(func() { close(done) })
+}
+
+// heartbeatText is the progress line of dispatch id, else the plain still-running text.
+func heartbeatText(name, id string, quiet time.Duration) string {
+	if rec, err := LoadRecord(id); err == nil && rec.Status == "running" {
+		return ProgressOf(rec, time.Now()).Line(progressWidth)
+	}
+	return fmt.Sprintf("%s still running, no output for %s", name, quiet)
 }
 
 // HeadBuffer keeps the first 4 KiB of a stream: codex prints the session id in its stderr banner.

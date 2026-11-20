@@ -108,7 +108,7 @@ func TestTailFollowSilentHeartbeat(t *testing.T) {
 	var out syncBuffer
 	saved := make(chan error, 1)
 	go func() { // finish only once a heartbeat printed: a fixed delay races it under suite load
-		for end := time.Now().Add(4 * time.Second); !strings.Contains(out.String(), "no output for") && time.Now().Before(end); {
+		for end := time.Now().Add(4 * time.Second); !strings.Contains(out.String(), "last event") && time.Now().Before(end); {
 			time.Sleep(10 * time.Millisecond)
 		}
 		rec.Finish(wire.Result{}, nil, time.Second)
@@ -127,8 +127,8 @@ func TestTailFollowSilentHeartbeat(t *testing.T) {
 	if got.Status != "ok" {
 		t.Errorf("Tail record status = %q, want ok", got.Status)
 	}
-	if s := out.String(); !strings.Contains(s, "no output for") || !strings.Contains(s, "(elapsed") {
-		t.Errorf("Tail output = %q, want a heartbeat with \"no output for\" and \"(elapsed\"", s)
+	if s := out.String(); !strings.Contains(s, "· codex · ") || !strings.Contains(s, "last event") {
+		t.Errorf("Tail output = %q, want the progress line with \"last event\"", s)
 	}
 }
 

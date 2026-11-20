@@ -95,6 +95,7 @@ type Dispatch struct {
 	LastSignal   time.Time `json:"lastSignal,omitzero"`    // running only: newest of the event file, log or start time
 	SignalSource string    `json:"signalSource,omitempty"` // which of events|log|record LastSignal came from
 	Quiet        bool      `json:"quiet,omitempty"`        // LastSignal older than quietAfter
+	Live         string    `json:"live,omitempty"`         // running only: the progress line (JSON only; text rows keep last=)
 
 	sessionID string    // dispatch record's session id; matches a duplicate session row
 	cwd       string    // dispatch workdir (repo fallback); matches a duplicate session row

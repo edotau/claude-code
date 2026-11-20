@@ -21,7 +21,8 @@ type WaitResult struct {
 	ID      string `json:"id"`
 	State   string `json:"state"`
 	Elapsed string `json:"elapsed"`
-	Parent  string `json:"-"` // text rows only; the JSON shape is unchanged
+	Parent  string `json:"-"`              // text rows only; the JSON shape is unchanged
+	Live    string `json:"live,omitempty"` // a timeout row's progress line
 
 	Observed *Observed `json:"observed,omitempty"`
 }
@@ -32,6 +33,9 @@ const waitRowWidth = 80
 // Line is the `agents wait` row: id, state, elapsed, then `<- parent` for a nested dispatch.
 func (w WaitResult) Line() string {
 	row := fmt.Sprintf("%s %s %s", w.ID, w.State, w.Elapsed)
+	if w.Live != "" {
+		row += " · " + w.Live
+	}
 	if w.Parent == "" {
 		return row
 	}
@@ -61,7 +65,7 @@ func Wait(ctx context.Context, ids []string, timeout, poll time.Duration) ([]Wai
 		case <-deadline:
 			for i := range recs {
 				if out[i].State == "" {
-					out[i] = WaitResult{ID: recs[i].ID, Parent: recs[i].Parent, State: WaitTimeout, Elapsed: waitElapsed(recs[i], WaitTimeout), Observed: ObservedOf(recs[i])}
+					out[i] = WaitResult{ID: recs[i].ID, Parent: recs[i].Parent, State: WaitTimeout, Elapsed: waitElapsed(recs[i], WaitTimeout), Live: ProgressOf(recs[i], time.Now()).Line(progressWidth), Observed: ObservedOf(recs[i])}
 				}
 			}
 			return out, nil

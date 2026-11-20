@@ -330,9 +330,10 @@ type Row struct {
 	Elapsed  string
 	Preview  string
 	Session  string
-	Error    string `json:",omitempty"` // the failed dispatch's redacted error text
-	Progress string `json:",omitempty"` // "part 2/3" while a split review runs
-	Cutoff   string `json:",omitempty"` // how a cut-off run ended: deadline, stall, idle, cancelled, auth-retry
+	Error    string `json:",omitempty"`     // the failed dispatch's redacted error text
+	Progress string `json:",omitempty"`     // "part 2/3" while a split review runs
+	Cutoff   string `json:",omitempty"`     // how a cut-off run ended: deadline, stall, idle, cancelled, auth-retry
+	Live     string `json:"live,omitempty"` // a running row's progress line
 
 	Parent string      `json:"parent,omitempty"`
 	Depth  int         `json:"depth,omitempty"`
@@ -412,7 +413,7 @@ func ObservedLine(rec Record) string {
 
 // Detail is a status row's tail: progress and preview, or the preview plus the one-line error text.
 func (r Row) Detail() string {
-	d := r.Preview
+	d := cmp.Or(r.Live, r.Preview)
 	if r.Cutoff != "" {
 		d = "(" + r.Cutoff + ") " + d
 	}
@@ -505,7 +506,11 @@ func toRow(r Record) Row {
 		elapsed = time.Since(r.Time).Round(time.Second).String()
 	}
 	preview := textutil.PreviewRedacted(r.Request.Prompt, 60)
-	return Row{ID: r.ID, Status: status, Elapsed: elapsed, Preview: preview, Session: r.SessionID,
+	live := ""
+	if status == "running" {
+		live = ProgressOf(r, time.Now()).Line(progressWidth)
+	}
+	return Row{Live: live, ID: r.ID, Status: status, Elapsed: elapsed, Preview: preview, Session: r.SessionID,
 		Error: textutil.RedactSecrets(r.Error), Progress: r.Progress, Cutoff: r.Cutoff,
 		Parent: r.Parent, Depth: r.Depth, Usage: r.Usage}
 }

@@ -23,6 +23,7 @@ func applySignal(d Dispatch, rec agent.Record, now time.Time) Dispatch {
 	}
 	d.LastSignal, d.SignalSource = agent.LastSignal(rec)
 	d.Quiet = now.Sub(d.LastSignal) > quietAfter
+	d.Live = agent.ProgressOf(rec, now).Line(80)
 	return d
 }
 

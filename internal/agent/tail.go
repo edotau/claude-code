@@ -61,12 +61,20 @@ func followLog(ctx context.Context, rec Record, f *os.File, w io.Writer) (Record
 			lastOut = now
 		} else if quiet := now.Sub(lastOut); now.Sub(lastBeat) >= tailBeat && quiet >= tailBeat {
 			lastBeat = now
-			if _, err := fmt.Fprintf(w, "· no output for %s (elapsed %s)\n", quiet.Round(time.Second), now.Sub(rec.Time).Round(time.Second)); err != nil {
+			if _, err := fmt.Fprintf(w, "· %s\n", quietLine(rec, quiet, now)); err != nil {
 				return rec, err
 			}
 		}
 	}
 	return rec, nil // the last pass reloaded before it copied, so nothing landed after it
+}
+
+// quietLine is the follower's quiet note: the progress line, else the bare quiet and elapsed times.
+func quietLine(rec Record, quiet time.Duration, now time.Time) string {
+	if rec.Status == "running" {
+		return ProgressOf(rec, now).Line(progressWidth)
+	}
+	return fmt.Sprintf("no output for %s (elapsed %s)", quiet.Round(time.Second), now.Sub(rec.Time).Round(time.Second))
 }
 
 // TailEvents copies rec's <id>.events.jsonl to w; follow waits until the record leaves running, heartbeating.
@@ -121,8 +129,8 @@ func followEvents(ctx context.Context, rec Record, follow bool, w io.Writer, br 
 // eventHeartbeat writes a heartbeat event when due; lastBeat advances only once the write lands.
 func eventHeartbeat(w io.Writer, rec Record, n int, lastOut, lastBeat time.Time) (time.Time, error) {
 	if now := time.Now(); n == 0 && now.Sub(lastBeat) >= tailBeat && now.Sub(lastOut) >= tailBeat {
-		_, err := fmt.Fprintf(w, "{\"schema\":%d,\"dispatch_id\":%q,\"type\":\"heartbeat\",\"t_ms\":%d}\n",
-			wire.EventSchema, rec.ID, now.Sub(rec.Time).Milliseconds())
+		_, err := fmt.Fprintf(w, "{\"schema\":%d,\"dispatch_id\":%q,\"type\":\"heartbeat\",\"t_ms\":%d,\"live\":%q}\n",
+			wire.EventSchema, rec.ID, now.Sub(rec.Time).Milliseconds(), ProgressOf(rec, now).Line(progressWidth))
 		if err != nil {
 			return lastBeat, err
 		}

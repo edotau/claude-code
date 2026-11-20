@@ -59,7 +59,7 @@ func TestHeartbeatLogsWhenQuiet(t *testing.T) {
 	var mu sync.Mutex
 	var got []string
 	lg := func(kind, text string) { mu.Lock(); got = append(got, kind); mu.Unlock() }
-	stop := heartbeat(lg, &idleReader{last: time.Now().Add(-time.Minute).UnixNano()}, "gemini")
+	stop := heartbeat(lg, &idleReader{last: time.Now().Add(-time.Minute).UnixNano()}, "gemini", "")
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(time.Millisecond) {
 		mu.Lock()
 		n := len(got)

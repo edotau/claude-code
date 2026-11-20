@@ -391,7 +391,11 @@ func (r Record) LogLine() string {
 	if r.Fallback != "" {
 		agentCol = r.Fallback + "→" + cmp.Or(r.RanAs, "?")
 	}
-	line := fmt.Sprintf("%-28s %-7s %-8s %-9s%s  %s\n", r.ID, r.Status, agentCol, r.Elapsed(), tools, textutil.PreviewRedacted(r.Request.Prompt, 60))
+	elapsed := r.Elapsed()
+	if r.Status == "running" {
+		elapsed = time.Since(r.Time).Round(time.Second).String()
+	}
+	line := fmt.Sprintf("%-28s %-7s %-8s %-9s%s  %s\n", r.ID, r.Status, agentCol, elapsed, tools, textutil.PreviewRedacted(r.Request.Prompt, 60))
 	if r.FallbackReason != "" {
 		line += fmt.Sprintf("%-28s   fallback: %s\n", "", r.FallbackReason)
 	}
