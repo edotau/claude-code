@@ -22,7 +22,13 @@ func RecentRecords(n int) []Record {
 }
 
 // ReadRecent is RecentRecords that also returns an unreadable dispatch dir's error.
-func ReadRecent(n int) ([]Record, error) { return ReadRecentWith(n, "") }
+func ReadRecent(n int) ([]Record, error) {
+	recs, err := ReadRecentWith(n, "")
+	for i, r := range recs {
+		recs[i] = reapLost(r)
+	}
+	return recs, err
+}
 
 // ReadRecentWith is ReadRecent over the records whose file bytes hold needle (see eachRecent).
 func ReadRecentWith(n int, needle string) ([]Record, error) {

@@ -182,13 +182,22 @@ type RunSink struct {
 	Sink
 	Agent      string
 	Progressed bool
+	text       []byte // answer text streamed so far, capped at runSinkTextCap
 }
+
+const runSinkTextCap = 1 << 20
+
+// Streamed is the answer text emitted through r so far.
+func (r *RunSink) Streamed() string { return string(r.text) }
 
 func (r *RunSink) Emit(ev Event) error {
 	if ev.Agent == "" {
 		ev.Agent = r.Agent
 	}
 	r.Progressed = r.Progressed || ev.Progress() // before the sink: a failed emit still saw the event
+	if ev.Type == EventText && len(r.text)+len(ev.Text) <= runSinkTextCap {
+		r.text = append(r.text, ev.Text...)
+	}
 	return r.Sink.Emit(ev)
 }
 

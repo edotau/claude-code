@@ -23,8 +23,6 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-const lostError = "lost: process gone"
-
 // runningDispatches lists live dispatch jobs machine-wide (every repo, any age), newest first.
 func runningDispatches(now time.Time) []Dispatch {
 	var dispatches []Dispatch
@@ -160,7 +158,7 @@ func settleDead(cur agent.Record) (agent.Record, string) {
 	}
 	cur.Status = "error"
 	if cur.Error == "" {
-		cur.Error = lostError + cur.LostProcessDetail()
+		cur.Error = agent.LostError + cur.LostProcessDetail()
 	}
 	return cur, "dispatch"
 }

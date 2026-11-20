@@ -1145,3 +1145,21 @@ func withRoute(o RunOptions, provider, profile string) RunOptions {
 	o.Route.Provider, o.Route.Profile = provider, profile
 	return o
 }
+
+type streamThenHang struct{ stubEngine }
+
+func (streamThenHang) Run(ctx context.Context, _ RunOptions, w wire.Sink) (wire.Result, error) {
+	w.Emit(wire.Event{Type: wire.EventText, Text: "half an answer"})
+	<-ctx.Done()
+	return wire.Result{}, ctx.Err()
+}
+
+// A run cut at its deadline after streaming keeps that text and reads partial, not stalled.
+func TestRunDeadlineAfterStreamIsPartial(t *testing.T) {
+	setConfigDir(t)
+	eng := streamThenHang{stubEngine{name: "codex", caps: Caps{Tools: Native}}}
+	res, err := Run(context.Background(), eng, RunOptions{Prompt: "p", Tools: true, Timeout: 20 * time.Millisecond}, wire.Discard, nil)
+	if err == nil || res.Status != wire.StatusPartial || res.Answer != "half an answer" {
+		t.Fatalf("status=%q answer=%q err=%v, want partial with the streamed text", res.Status, res.Answer, err)
+	}
+}

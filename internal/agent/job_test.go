@@ -953,3 +953,28 @@ func TestRowDetailShowsCutoff(t *testing.T) {
 		t.Errorf("plain Detail = %q", got)
 	}
 }
+
+// A running record whose pid is gone is marked lost on disk when read; a live pid with a different start is lost too.
+func TestStatusReapsLostRecordOnRead(t *testing.T) {
+	setConfigDir(t)
+	cwd := t.TempDir()
+	dead := NewRecord("codex", RunOptions{Prompt: "orphaned"}, time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC))
+	dead.Repo, dead.PID = cwd, adapterDeadPID(t)
+	fixtureRecord(t, dead)
+	reused := NewRecord("codex", RunOptions{Prompt: "reused"}, time.Date(2026, 10, 24, 12, 1, 0, 0, time.UTC))
+	reused.Repo, reused.PID, reused.PIDStart = cwd, os.Getpid(), "not-this-start"
+	fixtureRecord(t, reused)
+	live := NewRecord("codex", RunOptions{Prompt: "live"}, time.Date(2026, 10, 24, 12, 2, 0, 0, time.UTC))
+	live.Repo, live.PID = cwd, os.Getpid()
+	live.PIDStart, _ = proc.StartTime(live.PID)
+	fixtureRecord(t, live)
+
+	if _, err := Status(context.Background(), "codex", cwd, "", false); err != nil {
+		t.Fatal(err)
+	}
+	for id, want := range map[string]string{dead.ID: "lost", reused.ID: "lost", live.ID: "running"} {
+		if got, err := LoadRecord(id); err != nil || got.Status != want {
+			t.Errorf("record %s status = %q (err %v), want %q", id, got.Status, err, want)
+		}
+	}
+}

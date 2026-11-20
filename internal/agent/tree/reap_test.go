@@ -130,7 +130,7 @@ func TestReapRecordsFinishesDeadRecordWithSavedOKResult(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	snapshot, _ := agent.ReadRecent(agent.AllRecords)
+	snapshot, _ := agent.RunningRecent(agent.AllRecords)
 	if n, code := reapRecords(snapshot, false, "reaped", &out, &out); n != 4 || code != 0 {
 		t.Fatalf("reapRecords = %d, %d: %s", n, code, out.String())
 	}
@@ -138,7 +138,7 @@ func TestReapRecordsFinishesDeadRecordWithSavedOKResult(t *testing.T) {
 		rec             agent.Record
 		status, errText string
 	}{
-		{done, "ok", ""}, {failed, "error", "boom"}, {bare, "error", lostError}, {kept, "error", "saved reason"}} {
+		{done, "ok", ""}, {failed, "error", "boom"}, {bare, "error", agent.LostError}, {kept, "error", "saved reason"}} {
 		got, err := agent.LoadRecord(c.rec.ID)
 		if err != nil || got.Status != c.status || got.Error != c.errText {
 			t.Errorf("%s = %q %q (%v), want %q %q", c.rec.ID, got.Status, got.Error, err, c.status, c.errText)

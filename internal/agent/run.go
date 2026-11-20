@@ -495,6 +495,9 @@ func (s *runState) attempt(ctx, actx context.Context, r Engine, sink wire.Sink, 
 	s.res = out
 	s.started = s.started || !out.NotStarted
 	e := retry.Classify(r.Name(), err, cw.Progressed)
+	if e != nil && e.Progressed && errors.Is(e, context.DeadlineExceeded) && strings.TrimSpace(s.res.Answer) == "" {
+		s.res.Answer = cw.Streamed() // a deadline cut keeps the text streamed so far
+	}
 	fallToNextAlias(r, &s.req, e, notify)
 	if e != nil {
 		_ = s.note(e)
@@ -648,13 +651,15 @@ func (o RunOptions) EffectiveRoute(reg *providers.Registry) route.Route {
 	return r
 }
 
-// StatusOf maps the classified failure to the envelope status: quota, deadline, output-then-failure, else error.
+// StatusOf maps the classified failure to the envelope status: quota, deadline after output is partial, else stalled/error.
 func StatusOf(e *retry.Error) string {
 	switch {
 	case e == nil:
 		return wire.StatusOK
 	case e.Kind == retry.KindQuota:
 		return wire.StatusQuota
+	case errors.Is(e, context.DeadlineExceeded) && e.Progressed && !errors.Is(e, ErrStalled) && !errors.Is(e, ErrSilent):
+		return wire.StatusPartial
 	case errors.Is(e, context.DeadlineExceeded), errors.Is(e, ErrStalled), errors.Is(e, ErrSilent):
 		return wire.StatusStalled
 	case e.Progressed:

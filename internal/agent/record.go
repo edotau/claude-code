@@ -108,7 +108,7 @@ func (r Record) Alive() bool { return inflight.DispatchAlive(r.Status, r.PID, r.
 // Failed reports a finished dispatch that did not succeed: error, or a cut-off partial, stalled or quota run.
 func (r Record) Failed() bool {
 	switch r.Status {
-	case "error", wire.StatusPartial, wire.StatusStalled, wire.StatusQuota:
+	case "error", "lost", wire.StatusPartial, wire.StatusStalled, wire.StatusQuota:
 		return true
 	}
 	return false

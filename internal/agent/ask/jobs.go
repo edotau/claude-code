@@ -101,7 +101,7 @@ func streamResult(prefix string, o ResultOptions, name, cwd, ref string) int {
 	if err != nil {
 		return helptext.Fail("%s: %v", prefix, err)
 	}
-	if rec.Status == "running" && o.Follow {
+	if goneRecord(rec, o.Follow) {
 		fmt.Fprintf(os.Stderr, "error: job %s is lost (process gone)\n", rec.ID)
 		return 1
 	}
@@ -112,6 +112,11 @@ func streamResult(prefix string, o ResultOptions, name, cwd, ref string) int {
 		fmt.Println()
 	}
 	return emitResult(prefix, rec, "", o.Format)
+}
+
+// goneRecord: the job's process vanished, as marked on read or still running under a follow.
+func goneRecord(rec agent.Record, follow bool) bool {
+	return rec.Status == "lost" || rec.Status == "running" && follow
 }
 
 // endWriter remembers the last byte written, so a trailer can start on a fresh line.

@@ -116,7 +116,7 @@ func list(ctx context.Context, name, cwd, ref string, all bool) []Record {
 			continue
 		}
 		if r, err := readRecord(filepath.Join(paths.DispatchDir(), n)); err == nil && r.Agent == name && (ref != "" || all || r.Repo == repo) {
-			out = append(out, r)
+			out = append(out, reapLost(r))
 		}
 	}
 	return out
