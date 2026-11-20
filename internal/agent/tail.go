@@ -46,27 +46,14 @@ func Tail(ctx context.Context, name, cwd, ref string, follow bool, w io.Writer) 
 }
 
 func followLog(ctx context.Context, rec Record, f *os.File, w io.Writer) (Record, error) {
-	lastOut, lastBeat := time.Now(), time.Time{}
-	for rec.Alive() {
-		if err := sleepCtx(ctx, tailPoll); err != nil {
-			return rec, err
+	cp := func() (int, error) { n, err := io.Copy(w, f); return int(n), err }
+	return followTail(ctx, rec, true, cp, func(rec Record, n int, lastOut, lastBeat time.Time) (time.Time, error) {
+		if now := time.Now(); n == 0 && now.Sub(lastBeat) >= tailBeat && now.Sub(lastOut) >= tailBeat {
+			_, err := fmt.Fprintf(w, "· %s\n", quietLine(rec, now.Sub(lastOut), now))
+			return now, err
 		}
-		rec = reloaded(rec)
-		n, err := io.Copy(w, f)
-		if err != nil {
-			return rec, err
-		}
-		now := time.Now()
-		if n > 0 {
-			lastOut = now
-		} else if quiet := now.Sub(lastOut); now.Sub(lastBeat) >= tailBeat && quiet >= tailBeat {
-			lastBeat = now
-			if _, err := fmt.Fprintf(w, "· %s\n", quietLine(rec, quiet, now)); err != nil {
-				return rec, err
-			}
-		}
-	}
-	return rec, nil // the last pass reloaded before it copied, so nothing landed after it
+		return lastBeat, nil
+	})
 }
 
 // quietLine is the follower's quiet note: the progress line, else the bare quiet and elapsed times.
@@ -87,7 +74,11 @@ func TailEvents(ctx context.Context, rec Record, follow bool, w io.Writer) (Reco
 		return rec, err
 	}
 	defer f.Close()
-	return followEvents(ctx, rec, follow, w, bufio.NewReader(f))
+	br, pend := bufio.NewReader(f), []byte(nil)
+	return followTail(ctx, rec, follow, func() (int, error) { return copyEventLines(br, &pend, w) },
+		func(rec Record, n int, lastOut, lastBeat time.Time) (time.Time, error) {
+			return eventHeartbeat(w, rec, n, lastOut, lastBeat)
+		})
 }
 
 func openTail(ctx context.Context, rec Record, follow bool, path func(Record) string) (Record, *os.File, error) {
@@ -102,11 +93,12 @@ func openTail(ctx context.Context, rec Record, follow bool, path func(Record) st
 	return rec, f, err
 }
 
-func followEvents(ctx context.Context, rec Record, follow bool, w io.Writer, br *bufio.Reader) (Record, error) {
-	var pend []byte
+// followTail polls cp until rec leaves running; beat runs after each pass and returns the new lastBeat.
+func followTail(ctx context.Context, rec Record, follow bool, cp func() (int, error),
+	beat func(Record, int, time.Time, time.Time) (time.Time, error)) (Record, error) {
 	lastOut, lastBeat := time.Now(), time.Time{}
 	for {
-		n, err := copyEventLines(br, &pend, w)
+		n, err := cp()
 		if err != nil || !follow {
 			return reloaded(rec), err
 		}
@@ -120,7 +112,7 @@ func followEvents(ctx context.Context, rec Record, follow bool, w io.Writer, br 
 			return rec, err
 		}
 		rec = reloaded(rec)
-		if lastBeat, err = eventHeartbeat(w, rec, n, lastOut, lastBeat); err != nil {
+		if lastBeat, err = beat(rec, n, lastOut, lastBeat); err != nil {
 			return rec, err
 		}
 	}

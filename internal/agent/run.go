@@ -525,15 +525,21 @@ func (s *runState) finish(name string, start time.Time, e *retry.Error, recoverE
 	return res, nil
 }
 
+// AttemptTimeoutFor is req's per-attempt deadline: its timeout, else the tools default, else the policy default.
+func AttemptTimeoutFor(req RunOptions) time.Duration {
+	switch {
+	case req.Timeout > 0:
+		return req.Timeout
+	case req.Tools:
+		return DefaultToolsTimeout
+	}
+	return retry.DefaultPolicy().AttemptTimeout
+}
+
 // runPolicy is DefaultPolicy under req's timeout, ctx's cooldown key and ctx's permit.
 func runPolicy(ctx context.Context, req RunOptions, notify func(string)) retry.Policy {
 	p := retry.DefaultPolicy()
-	switch {
-	case req.Timeout > 0:
-		p.AttemptTimeout = req.Timeout
-	case req.Tools:
-		p.AttemptTimeout = DefaultToolsTimeout
-	}
+	p.AttemptTimeout = AttemptTimeoutFor(req)
 	p.Notify = notify
 	p.Key, _ = ctx.Value(coolKey{}).(string)
 	if h := retry.Held(ctx); h != nil {

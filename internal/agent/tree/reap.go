@@ -14,7 +14,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
 	"github.com/edotau/claude-code/internal/agent"
@@ -274,12 +273,8 @@ func orphanDeadline(id string) (time.Duration, bool) {
 		return orphanMissingTimeout, true
 	case rec.Alive():
 		return 0, false
-	case rec.Request.Timeout > 0:
-		return rec.Request.Timeout, true
-	case rec.Request.Tools:
-		return agent.DefaultToolsTimeout, true
 	}
-	return retry.DefaultPolicy().AttemptTimeout, true
+	return agent.AttemptTimeoutFor(rec.Request), true
 }
 
 // stopGroup sends pid's process group SIGTERM, then SIGKILL after orphanGrace if the leader or a member is still there.
