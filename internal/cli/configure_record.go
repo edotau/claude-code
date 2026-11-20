@@ -175,11 +175,13 @@ func resolveRoute(field, val string) (rt route.Route, legacy bool, err error) {
 		if rt, err = parseRouteObject(field, val); err != nil {
 			return rt, false, err
 		}
-	case val == "databricks":
-		rt = route.Route{Provider: "databricks", Profile: "auto"}
 	default:
-		if rt, legacy, err = routeFromRow(val); err != nil || legacy {
-			return rt, legacy, err
+		reg, err := providers.Load()
+		if err != nil {
+			return rt, false, err
+		}
+		if rt = configure.RouteIn(reg, val); rt.IsZero() {
+			return rt, true, nil
 		}
 	}
 	return rt, false, rt.Validate()
@@ -198,19 +200,6 @@ func parseRouteObject(field, val string) (rt route.Route, err error) {
 	return rt, nil
 }
 
-// routeFromRow fills the provider from the profile's registry row; no row means a legacy own-login pin.
-func routeFromRow(profile string) (rt route.Route, legacy bool, err error) {
-	reg, err := providers.Load()
-	if err != nil {
-		return rt, false, err
-	}
-	row := reg.Providers[profile]
-	if row == nil || row.Provider == "" {
-		return rt, true, nil
-	}
-	return route.Route{Provider: row.Provider, Profile: profile}, false, nil
-}
-
 // setField writes one record field; route fields store the route object and clear the legacy keys they replace.
 func setField(agent, field, val string) error {
 	if !isRouteField(field) {
@@ -223,17 +212,13 @@ func setField(agent, field, val string) error {
 	}
 	return vault.UpdateAgentRecords(func(m map[string]vault.AgentRecord) {
 		r := m[agent]
-		switch {
-		case isFallbackField(field):
-			r.Fallback, r.FallbackRoute = "", rt
-			if legacy {
-				r.Fallback = val
-			}
-		default:
-			r.Profile, r.Account, r.Route = "", "", rt
-			if legacy {
-				r.Profile = val
-			}
+		if !isFallbackField(field) {
+			m[agent] = configure.WithProfile(r, rt, val)
+			return
+		}
+		r.Fallback, r.FallbackRoute = "", rt
+		if legacy {
+			r.Fallback = val
 		}
 		m[agent] = r
 	})

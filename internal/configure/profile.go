@@ -24,7 +24,7 @@ func ApplyProfile(agents []string, profile string) (changed []string, err error)
 		changed = nil
 		for _, a := range agents {
 			if profileKey(m[a].EffectiveRoute()) != profile {
-				m[a] = withProfile(m[a], rt, profile)
+				m[a] = WithProfile(m[a], rt, profile)
 				changed = append(changed, a)
 			}
 		}
@@ -41,10 +41,11 @@ func routeFor(profile string) route.Route {
 	if err != nil {
 		return route.Route{}
 	}
-	return routeIn(reg, profile)
+	return RouteIn(reg, profile)
 }
 
-func routeIn(reg *providers.Registry, profile string) route.Route {
+// RouteIn is the route profile stores in reg: the pool for "databricks", else its row's provider; zero when none.
+func RouteIn(reg *providers.Registry, profile string) route.Route {
 	if profile == "databricks" {
 		return route.Route{Provider: "databricks", Profile: "auto"}
 	}
@@ -54,8 +55,8 @@ func routeIn(reg *providers.Registry, profile string) route.Route {
 	return route.Route{}
 }
 
-// withProfile stores rt as r's route and clears the legacy keys; a zero rt keeps a non-empty name as a legacy pin.
-func withProfile(r vault.AgentRecord, rt route.Route, name string) vault.AgentRecord {
+// WithProfile stores rt as r's route and clears the legacy keys; a zero rt keeps a non-empty name as a legacy pin.
+func WithProfile(r vault.AgentRecord, rt route.Route, name string) vault.AgentRecord {
 	r.Route, r.Profile, r.Account = rt, "", ""
 	if rt.IsZero() {
 		r.Profile = name
@@ -67,7 +68,7 @@ func withProfile(r vault.AgentRecord, rt route.Route, name string) vault.AgentRe
 func withAccount(r vault.AgentRecord, account string) vault.AgentRecord {
 	switch {
 	case account != "":
-		return withProfile(r, route.Route{Provider: "github", Account: account}, "")
+		return WithProfile(r, route.Route{Provider: "github", Account: account}, "")
 	case r.Route.Account != "":
 		r.Route = route.Route{}
 	}
@@ -126,7 +127,7 @@ func SwitchTargets(reg *providers.Registry, recs map[string]vault.AgentRecord, p
 func SwitchRecords(reg *providers.Registry, m map[string]vault.AgentRecord, profile string) {
 	move, _ := SwitchTargets(reg, m, profile)
 	for _, name := range move {
-		m[name] = withProfile(m[name], routeIn(reg, profile), profile)
+		m[name] = WithProfile(m[name], RouteIn(reg, profile), profile)
 	}
 }
 
