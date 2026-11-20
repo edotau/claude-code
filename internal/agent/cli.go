@@ -75,7 +75,7 @@ func overlayAccount(ctx context.Context) string {
 	if err != nil {
 		return ""
 	}
-	return ov.Account
+	return cmp.Or(ov.Account, ov.Profile)
 }
 
 // routedModel is t with the model ResolveRun spells for t's row: a typed model, else auto over the pin, else the pin.
@@ -197,7 +197,7 @@ func namesProvider(reg *providers.Registry, spec string) bool {
 	if reg == nil {
 		return false
 	}
-	name, _, ok := strings.Cut(spec, ":")
+	name, _, ok := splitRowModel(spec)
 	_, found := reg.Providers[name]
 	return ok && found
 }
@@ -542,7 +542,7 @@ func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, pr
 // familyTarget is a typed GPT family name (sol, dev:sol) as the concrete id its row resolves to; else ok is false.
 func familyTarget(reg *providers.Registry, req RunOptions, row *providers.Provider) (providers.Target, bool) {
 	name := req.Model
-	if prefix, m, ok := strings.Cut(name, ":"); ok && namesProvider(reg, name) {
+	if prefix, m, ok := splitRowModel(name); ok && namesProvider(reg, name) {
 		row, name = reg.Providers[prefix], m
 	}
 	if !providers.IsFamily(name) {
@@ -601,7 +601,7 @@ func servedTarget(agentName string, t providers.Target) providers.Target {
 
 // "<profile>:<alias>" resolves like --provider <profile> --model <alias>.
 func profileAliasRequest(reg *providers.Registry, req RunOptions) RunOptions {
-	if name, alias, ok := strings.Cut(req.Model, ":"); ok && slices.Contains(models.AliasNames, alias) && reg.Providers[name] != nil {
+	if name, alias, ok := splitRowModel(req.Model); ok && slices.Contains(models.AliasNames, alias) && reg.Providers[name] != nil {
 		req.Provider, req.Model = name, alias
 	}
 	return req

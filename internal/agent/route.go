@@ -285,7 +285,7 @@ func (rc routeCtx) steps(cands []router.Candidate, alias string, nativeLead bool
 
 // recordFallbackIndex is the wanted agent's candidate on its record's fallback profile (after the pin); -1 = none.
 func (rc routeCtx) recordFallbackIndex(cands []router.Candidate) int {
-	fb := vault.GetAgentRecord(rc.want).Fallback
+	fb := vault.GetAgentRecord(rc.want).EffectiveFallbackRoute().Profile
 	if fb == "" || rc.mode == router.FallbackNone || VaultAgentIsClaude(rc.want) {
 		return -1
 	}
@@ -443,7 +443,7 @@ func resolveRoute(ctx context.Context, q RouteReq) (Chain, router.PickResult, er
 
 // resolveOnRow routes q's asked auto as `<row>:auto`, so the model follows the tier as that row spells it.
 func resolveOnRow(ctx context.Context, q RouteReq, row string) (Chain, router.PickResult, error) {
-	q.Model = row + ":" + AutoModel
+	q.Model = rowModel(row, AutoModel)
 	c, pick, err := resolveRoute(ctx, q)
 	if err == nil && !q.Preview {
 		c = withAlias(c, q.Model) // the explicit dispatch runs the row's auto, not the caller's bare one
@@ -483,6 +483,11 @@ func chainFor(ctx context.Context, q RouteReq, hint, lead string) (Chain, router
 	return RouteChainFor(ctx, q.Agent, q.Model, hint, q.Fallback, q.Native, o)
 }
 
+// rowModel and splitRowModel are the one "<row>:<model>" spelling a Dispatch.Model carries.
+func rowModel(row, model string) string { return row + ":" + model }
+
+func splitRowModel(spec string) (row, model string, ok bool) { return strings.Cut(spec, ":") }
+
 // routeLeadContext is LeadFor, except a preview leads on its pin or a profile:model's profile, never explicitly.
 func routeLeadContext(ctx context.Context, q RouteReq) (lead string, explicit bool, err error) {
 	lead, explicit, err = leadForContext(ctx, q)
@@ -492,7 +497,7 @@ func routeLeadContext(ctx context.Context, q RouteReq) (lead string, explicit bo
 	if q.Profile != "" {
 		return q.Profile, false, nil
 	}
-	if name, _, ok := strings.Cut(q.Model, ":"); ok {
+	if name, _, ok := splitRowModel(q.Model); ok {
 		return name, false, nil
 	}
 	return "", false, nil
@@ -656,8 +661,8 @@ func (rc routeCtx) forFamily(cand router.Candidate) routeCtx {
 		id = canonical
 	}
 	rc.exact = id
-	if prefix, _, ok := strings.Cut(rc.callerModel, ":"); ok {
-		rc.callerModel = prefix + ":" + id
+	if prefix, _, ok := splitRowModel(rc.callerModel); ok {
+		rc.callerModel = rowModel(prefix, id)
 	} else {
 		rc.callerModel = id
 	}
@@ -795,7 +800,7 @@ func (rc routeCtx) buildDispatch(cand router.Candidate, cell router.Cell) (disp 
 		disp.Model = rc.exact // an exact non-Claude id runs as asked; an alias runs the cell's model
 	}
 	if cand.Profile != "" { // provider:model pins the dispatch to that Databricks profile, not the session's
-		disp.Model = cand.Profile + ":" + cell.Model
+		disp.Model = rowModel(cand.Profile, cell.Model)
 	}
 	return rc.dispatchAgent(cand, cell, disp)
 }
@@ -837,7 +842,7 @@ func (rc routeCtx) dispatchAgent(cand router.Candidate, cell router.Cell, disp D
 func (rc routeCtx) engineModel(cand router.Candidate, cell router.Cell, disp Dispatch) Dispatch {
 	if p := rc.reg.Row(cand.Profile); agentid.Routing(cand.Agent).GoogleOrDatabricks && GeminiGatewayRow(p) {
 		d := mustDriver(cand.Agent).(HeadlessDriver)
-		disp.Model = cand.Profile + ":" + d.Before(RunOptions{Model: disp.Model}, providers.Target{Provider: p, Model: cell.Model}).Model
+		disp.Model = rowModel(cand.Profile, d.Before(RunOptions{Model: disp.Model}, providers.Target{Provider: p, Model: cell.Model}).Model)
 	}
 	return disp
 }
@@ -852,7 +857,7 @@ func (rc routeCtx) lookupDispatch(cand router.Candidate, cell router.Cell, disp 
 	if VaultAgentIsClaude(cand.Agent) && !rc.callerOnProfile(cand) {
 		disp.Model = router.ClaudeCellModel(cell.Model)
 		if cand.Profile != "" { // keep the <profile>: spelling so the dispatch resolves on that profile
-			disp.Model = cand.Profile + ":" + disp.Model
+			disp.Model = rowModel(cand.Profile, disp.Model)
 		}
 	}
 	return disp, nil

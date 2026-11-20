@@ -353,7 +353,7 @@ func TestLeadFor(t *testing.T) {
 		lead     string
 		explicit bool
 		err      string
-		overlay  string // an overlay account names a row and beats the (here absent) session lead
+		overlay  string // an overlay route names a row and beats the (here absent) session lead
 	}{
 		{RouteReq{Agent: "codex", Fallback: all}, "dev", false, "", ""}, // D3: the session leads an untyped ask
 		{RouteReq{Agent: "codex", Profile: "dev", Fallback: all}, "dev", false, "", ""},
@@ -365,7 +365,7 @@ func TestLeadFor(t *testing.T) {
 		{RouteReq{Agent: "codex", Model: "dev:opus", Fallback: all}, "", true, "", ""},
 		{RouteReq{Agent: "codex", Profile: "nosuch", Fallback: none}, "", true, "nosuch", ""},
 		{RouteReq{Agent: "codex", Profile: "nosuch", Fallback: all}, "", false, "nosuch", ""},
-		{RouteReq{Agent: "codex", Fallback: all}, "dev", false, "", `{"account":"dev"}`},
+		{RouteReq{Agent: "codex", Fallback: all}, "dev", false, "", `{"provider":"databricks","profile":"dev"}`},
 	}
 	for _, c := range cases {
 		if c.overlay != "" {

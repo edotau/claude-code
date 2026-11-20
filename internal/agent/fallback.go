@@ -520,7 +520,7 @@ func explicitBackend(req RunOptions) bool {
 	}
 	reg, err := providers.Load()
 	if err != nil { // fail closed: an unreadable registry must not turn a "name:model" pin into a fallback
-		name, _, ok := strings.Cut(req.Model, ":")
+		name, _, ok := splitRowModel(req.Model)
 		return ok && name != ""
 	}
 	return namesProvider(reg, req.Model)
@@ -614,11 +614,11 @@ func claimSibling(c Chain, i int, disp Dispatch) Dispatch {
 func siblingSlots(c Chain, i int, disp Dispatch) (*providers.Registry, map[string]int) {
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
 	slots := map[string]int{}
-	_, model, _ := strings.Cut(disp.Model, ":")
+	_, model, _ := splitRowModel(disp.Model)
 	for j := i; j < len(c.Dispatches); j++ {
 		d := c.Dispatches[j]
 		ws, ok := strings.CutPrefix(d.Account, "databricks·")
-		_, otherModel, _ := strings.Cut(d.Model, ":")
+		_, otherModel, _ := splitRowModel(d.Model)
 		if !ok || d.Agent.Name() != c.Want || !d.otherRoute || d.quotaOverflow || d.swap || !models.SameModel(model, otherModel) {
 			break
 		}
@@ -1048,7 +1048,7 @@ func armClaudeProfile(out RunOptions, disp Dispatch) RunOptions {
 	if router.ArmProfileContext(valuesContext(context.Background(), out.Values)) == "" || disp.Agent == nil || !VaultAgentIsClaude(disp.Agent.Name()) {
 		return out
 	}
-	prof, model, ok := strings.Cut(out.Model, ":")
+	prof, model, ok := splitRowModel(out.Model)
 	if reg, err := providers.Load(); ok && err == nil && reg.Providers[prof] != nil {
 		out.Provider, out.Model = prof, model
 	}
