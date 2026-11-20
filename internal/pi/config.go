@@ -18,8 +18,8 @@ import (
 
 var _ = schemas.Register(schemas.Format{
 	Name: "pi-config", Owner: "internal/pi", Kind: schemas.Derived,
-	Glob:    func() string { return filepath.Join(paths.StateDir(), "pi", "*", "agent", "*.json") },
-	Version: 1, Clean: "pi",
+	Glob:    func() string { return filepath.Join(paths.StateDir(), "pi", "*", "runs", "*", "*.json") },
+	Version: 1, Clean: "pi-runs",
 })
 
 // KeyRef is the apiKey value in every provider: Pi interpolates $NAME from its environment, so no token is on disk.
@@ -46,33 +46,47 @@ func (b Bases) forWire(wire string) string {
 	return b.Chat
 }
 
-// AgentDir is the directory Pi reads as PI_CODING_AGENT_DIR for profile.
-func AgentDir(profile string) string {
-	return filepath.Join(paths.StateDir(), "pi", profile, "agent")
+// RunsDir is the parent of every per-dispatch agent dir of profile; sessions live outside it, in pi/sessions.
+func RunsDir(profile string) string {
+	return filepath.Join(paths.StateDir(), "pi", profile, "runs")
 }
 
-// pickWire is the Pi wire for a model; Grok goes to chat because Databricks does not stream it over Responses.
-func pickWire(menu []providers.OpencodeModel, p *providers.Provider, wire string) (string, bool) {
-	w, ok, _ := providers.WireForIn(menu, p, wire)
-	if ok && w == providers.ProtocolResponses && strings.HasPrefix(models.ModelKey(wire), "grok") {
-		if _, has := p.Route(providers.ProtocolOpenAI); !has {
-			return providers.ProtocolOpenAI, false
-		}
-		return providers.ProtocolOpenAI, true
+// NewRunDir makes a private (0700) agent dir for one dispatch, so parallel dispatches never share a models.json.
+func NewRunDir(profile string) (dir string, remove func(), err error) {
+	root := RunsDir(profile)
+	if err = os.MkdirAll(root, 0o700); err != nil {
+		return "", nil, err
 	}
-	if !ok {
-		return providers.ProtocolOpenAI, false
+	if dir, err = os.MkdirTemp(root, "run-"); err != nil {
+		return "", nil, err
 	}
-	return w, true
+	return dir, func() { _ = os.RemoveAll(dir) }, nil
 }
 
-// compatFor forces adaptive thinking on Claude ids Pi does not know: Databricks refuses thinking.type=enabled.
+// pickWire is the Pi wire for a model: Responses where p serves it, else chat; Claude keeps anthropic.
+// Grok accepts Responses but Databricks does not stream it, so it goes to chat.
+func pickWire(p *providers.Provider, wire string) (string, bool) {
+	has := func(d string) bool { _, ok := p.Route(d); return ok }
+	switch {
+	case models.FamilyKind(wire) == models.FamilyClaude && has(providers.ProtocolAnthropic):
+		return providers.ProtocolAnthropic, true
+	case models.FamilyKind(wire) != models.FamilyClaude && !strings.HasPrefix(models.ModelKey(wire), "grok") &&
+		providers.ResponsesServable(p, wire) && has(providers.ProtocolResponses):
+		return providers.ProtocolResponses, true
+	}
+	return providers.ProtocolOpenAI, has(providers.ProtocolOpenAI)
+}
+
+// compatFor is Pi's per-model compat: Databricks refuses thinking.type=enabled on every Claude id but haiku-4*.
 func compatFor(wire string) map[string]any {
 	if models.FamilyKind(wire) == models.FamilyClaude && !strings.Contains(wire, "haiku-4") {
 		return map[string]any{"forceAdaptiveThinking": true}
 	}
 	return nil
 }
+
+// chatCompat is the dbx-chat provider's compat: Databricks' chat route rejects the store parameter (HTTP 400).
+var chatCompat = map[string]any{"supportsStore": false}
 
 func modelEntry(p *providers.Provider, wire, label string) map[string]any {
 	e := map[string]any{
@@ -109,7 +123,7 @@ func BuildConfig(p *providers.Provider, bases Bases) (modelsJSON, settingsJSON [
 	}
 	for _, m := range entries {
 		wire := agentconfig.MenuWire(p, m.ID)
-		w, ok := pickWire(entries, p, wire)
+		w, ok := pickWire(p, wire)
 		if !ok || bases.forWire(w) == "" {
 			dropped[w] = append(dropped[w], m.Label)
 			continue
@@ -136,9 +150,13 @@ func render(p *providers.Provider, bases Bases, byWire map[string][]map[string]a
 			continue
 		}
 		headers := maps.Clone(p.Headers)
-		out[pp.id] = map[string]any{
+		prov := map[string]any{
 			"baseUrl": bases.forWire(pp.wire), "api": pp.api, "apiKey": KeyRef, "headers": headers, "models": byWire[pp.wire],
 		}
+		if pp.wire == providers.ProtocolOpenAI {
+			prov["compat"] = chatCompat
+		}
+		out[pp.id] = prov
 	}
 	if len(out) == 0 {
 		return nil, nil, nil, fmt.Errorf("pi: provider %s has no model on a routed wire", p.Name)

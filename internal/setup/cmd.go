@@ -280,6 +280,9 @@ func RunInstall(args []string) int {
 	if code, done := helptext.Parse(fs, args); done {
 		return code
 	}
+	if fs.NArg() > 0 {
+		return helptext.FailUsage("install: unexpected argument %q (flag parsing stops at it); a tool list is --tools=%s", fs.Arg(0), fs.Arg(0))
+	}
 	if msg := installFlagError(*setupMode, *missing, tf.set); msg != "" {
 		return helptext.Fail("%s", msg)
 	}

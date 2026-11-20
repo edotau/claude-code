@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
@@ -37,7 +38,7 @@ func piBases(base, dialect string) Bases {
 		Chat: root + suf[providers.ProtocolOpenAI]}
 }
 
-// Wire writes the private agent dir and builds Pi's env and argv; r.Cred is the proxy session token, never upstream's.
+// Wire writes the run's private agent dir and builds Pi's env and argv; r.Cred is the proxy session token, never upstream's.
 func (piEngine) Wire(_ context.Context, r agent.WireRoute, h *agent.Headless) (env, argv []string, err error) {
 	if !r.Routed {
 		return nil, nil, errors.New("pi runs only through the proxy; drop --direct")
@@ -53,8 +54,12 @@ func (piEngine) Wire(_ context.Context, r agent.WireRoute, h *agent.Headless) (e
 	if !ok {
 		return nil, nil, fmt.Errorf("pi: model %q is not on the %s menu", r.Model, r.Provider.Name)
 	}
-	dir := AgentDir(r.Provider.Name)
+	dir, remove, err := NewRunDir(r.Provider.Name)
+	if err != nil {
+		return nil, nil, err
+	}
 	if err := WriteConfig(dir, mj, sj); err != nil {
+		remove()
 		return nil, nil, err
 	}
 	env = []string{agentDirEnv + "=" + dir, keyEnv + "=" + r.Cred}
@@ -70,6 +75,17 @@ func (piEngine) Wire(_ context.Context, r agent.WireRoute, h *agent.Headless) (e
 		return env, append(argv, "--session", h.SessionID, "--session-dir", filepath.Join(paths.StateDir(), "pi", "sessions")), nil
 	}
 	return env, append(argv, "--no-session"), nil
+}
+
+// RenderSettings adds the base settings and a cleanup that removes the run's private agent dir.
+func (e piEngine) RenderSettings(ctx context.Context, s agent.Settings, env, argv []string) ([]string, []string, []string, func(), error) {
+	env, argv, emu, cleanup, err := e.BaseEngine.RenderSettings(ctx, s, env, argv)
+	for _, kv := range env {
+		if dir, ok := strings.CutPrefix(kv, agentDirEnv+"="); ok && filepath.Base(filepath.Dir(dir)) == "runs" {
+			return env, argv, emu, func() { cleanup(); _ = os.RemoveAll(dir) }, err
+		}
+	}
+	return env, argv, emu, cleanup, err
 }
 
 // toolsArgv is Pi's tool selection; write tools wait for the stage 2 guard extension.
@@ -135,5 +151,5 @@ func (piEngine) RouteDetail(ctx context.Context) (string, bool) {
 	if pin == "" {
 		return "no provider pinned; run with --provider databricks", true
 	}
-	return fmt.Sprintf("provider=%s dir=%s", pin, AgentDir(pin)), true
+	return fmt.Sprintf("provider=%s runs=%s", pin, RunsDir(pin)), true
 }

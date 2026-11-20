@@ -76,6 +76,8 @@ type PickOpts struct {
 	CanServe func(agent string, p *providers.Provider) bool
 	// CodexModel respells codex's Databricks target for the agent (the pin or flag rule).
 	CodexModel func(providers.Target) providers.Target
+	// Refuse names why agent cannot take this request as a fallback ("" keeps it); the wanted agent is never asked.
+	Refuse func(agent string) string
 	// Lead is the profile the wanted agent leads with (coworkers: the session's or an override); "" = its pin leads.
 	Lead string
 	// refreshStale's collecting pass: must write nothing (no Discovery rotation)
@@ -84,6 +86,13 @@ type PickOpts struct {
 
 func (o PickOpts) canServe(agent string, p *providers.Provider) bool {
 	return o.CanServe == nil || o.CanServe(agent, p)
+}
+
+func (o PickOpts) refuse(agent, want string) string {
+	if o.Refuse == nil || agent == want {
+		return ""
+	}
+	return o.Refuse(agent)
 }
 
 // codexModel is CodexModel applied to t, or t itself when unset.
@@ -146,6 +155,10 @@ func (t *RouteTable) pick(
 	pg := &pickGate{reg: reg, held: map[string]bool{}}
 	ctx = context.WithValue(ctx, accountKey{}, accountFn(pg.providerAccount))
 	gate := func(agent string) []Candidate {
+		if why := o.refuse(agent, want); why != "" {
+			res.Skipped = append(res.Skipped, Skip{agent, GateAvailable, why})
+			return nil
+		}
 		return t.gateCandidate(ctx, pg, alias, agent, pins, st, o, now, configured, &res)
 	}
 	firstG, restG, lastG := t.gatherCandidates(ctx, want, o, gate)

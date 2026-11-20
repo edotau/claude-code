@@ -145,7 +145,7 @@ func noWindowsProfile(t *testing.T) {
 func TestInstallCompactDefaultOutputHasExactlyTheStepLines(t *testing.T) {
 	for _, windowsProfile := range []bool{false, true} {
 		t.Run(fmt.Sprintf("windows profile %v", windowsProfile), func(t *testing.T) {
-			setupCompactFixture(t, []string{"claude", "codex", "copilot", "opencode", "gemini"})
+			setupCompactFixture(t, []string{"claude", "codex", "copilot", "opencode", "gemini", "pi"})
 			if windowsProfile { // a resolved Windows profile (WSL) adds the settings (windows) step
 				t.Setenv(windowsProfileEnv, shortTempDir(t))
 			}
@@ -171,7 +171,7 @@ func TestInstallCompactDefaultOutputHasExactlyTheStepLines(t *testing.T) {
 
 // TestInstallCompactDefaultOutputLinesFitEightyColumns
 func TestInstallCompactDefaultOutputLinesFitEightyColumns(t *testing.T) {
-	setupCompactFixture(t, []string{"claude", "codex", "copilot", "opencode", "gemini"})
+	setupCompactFixture(t, []string{"claude", "codex", "copilot", "opencode", "gemini", "pi"})
 	var out bytes.Buffer
 	if err := install(&out, false, false); err != nil {
 		t.Fatal(err)
@@ -258,7 +258,7 @@ func TestInstallSettingsSkipPrintsAfterTheStepsItClaimsRan(t *testing.T) {
 
 func assertSettingsSkipOrder(t *testing.T, verbose bool) {
 	t.Helper()
-	setupCompactFixture(t, []string{"claude", "codex", "copilot", "opencode", "gemini"})
+	setupCompactFixture(t, []string{"claude", "codex", "copilot", "opencode", "gemini", "pi"})
 	if err := os.MkdirAll(settings.SettingsFile(), 0o755); err != nil { // settings.json as a directory: read fails
 		t.Fatal(err)
 	}

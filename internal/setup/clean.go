@@ -125,6 +125,11 @@ func stateTargets() []target {
 func daemonTargets() []target {
 	return []target{
 		{
+			name: "pi-runs", doc: "pi per-dispatch agent dirs (runs/*) of killed runs, a day old or more; sessions stay",
+			globs:   func() []string { return []string{statePath("pi", "*", "runs", "*")} },
+			ageless: true, keep: youngDir,
+		},
+		{
 			// proxy.json is the DAEMON's live state (removed on exit); only its log is debris, and a live proxy rewrites it.
 			name: "proxy-log", doc: "proxy.log and the pre-rename router.log (daemon stdio only)",
 			globs: func() []string { return []string{statePath("proxy.log"), statePath("router.log")} },
@@ -760,6 +765,12 @@ func keepCodexHome(p string) bool {
 		return true
 	}
 	return slices.ContainsFunc(entries, func(e os.DirEntry) bool { return e.Name() != ".tmp" })
+}
+
+// youngDir protects an entry touched in the last day: a live run's dir.
+func youngDir(p string) bool {
+	fi, err := os.Stat(p)
+	return err != nil || time.Since(fi.ModTime()) < 24*time.Hour
 }
 
 // tempBackupGlobs match mirrored backups of files that lived in a temp dir (test runs): their source is long gone.

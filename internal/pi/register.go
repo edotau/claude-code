@@ -12,8 +12,9 @@ func init() { agent.Register(agent.Agent{Row: row, Driver: piEngine{agent.NewBas
 var row = agent.Schema{Name: "pi", CLI: agent.CLI{
 	Flags: []string{"--mode", "--model", "--thinking", "--tools", "--no-tools", "--no-session", "--session", "--session-id",
 		"--session-dir", "--system-prompt", "--append-system-prompt", "--no-context-files", "--no-mcp", "--approve"},
-	HelpArgv: []string{"--help"},
-	Binary:   "pi", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI},
+	HelpArgv:     []string{"--help"},
+	ReadOnlyOnly: true, // until the stage 2 guard extension exists
+	Binary:       "pi", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI},
 	RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI,
 		providers.ProtocolResponses: "/" + providers.ProtocolResponses},
 	MaxVersion: "1.x", MaxReason: "2.x is untested with the harness pi route",
@@ -23,5 +24,5 @@ var row = agent.Schema{Name: "pi", CLI: agent.CLI{
 		Permissions: agent.None, SafeMode: agent.None, OutputSchema: agent.None, Persona: agent.None},
 	Events:        []string{wire.EventStart, wire.EventText, wire.EventToolUse, wire.EventToolResult, wire.EventRetry, wire.EventResult, wire.EventError},
 	PromptVia:     agent.PromptArgv,
-	ConfigureHint: "run `claude-code install --tools pi`, then dispatch with --provider databricks",
+	ConfigureHint: "run `claude-code install --tools=pi`, then dispatch with --provider databricks",
 }}

@@ -44,6 +44,7 @@ type CLI struct {
 	Caps                  Caps
 	Events                []string // typed event kinds the stream can carry
 	Cost                  bool
+	ReadOnlyOnly          bool            // refuses write tools: never a fallback for an editing dispatch
 	ResumeFormat          string          // "codex resume %s"; "" = none
 	ModelsArgv            []string        // args that list models; nil = no catalog verb
 	ModelsProvider        string          // list via models --live on this provider instead

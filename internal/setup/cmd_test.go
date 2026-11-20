@@ -203,3 +203,11 @@ func stdinFrom(t *testing.T, text string) {
 	os.Stdin = f
 	t.Cleanup(func() { os.Stdin = old; f.Close() })
 }
+
+// `install --tools pi --dry-run` ended flag parsing at `pi` and ran a real install; a stray positional is now usage.
+func TestInstallStrayPositionalIsUsage(t *testing.T) {
+	got, _, stderr := hosttest.CaptureOutput(t, func() int { return RunInstall([]string{"--tools", "pi", "--dry-run"}) })
+	if got != 2 || !strings.Contains(stderr, "--tools=pi") {
+		t.Errorf("RunInstall = %d, stderr %q; want 2 naming --tools=pi", got, stderr)
+	}
+}
