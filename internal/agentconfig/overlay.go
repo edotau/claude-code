@@ -40,16 +40,11 @@ const overlayMaxBytes = 64 << 10
 
 // Overlay is one dispatch's config document: where it runs plus its env layer; Files is reserved and refused.
 type Overlay struct {
-	Schema        int               `json:"schema,omitempty"`
-	Provider      string            `json:"provider,omitempty"`
-	Profile       string            `json:"profile,omitempty"`
+	Schema int `json:"schema,omitempty"`
+	routeUnit
 	Model         string            `json:"model,omitempty"`
 	Effort        string            `json:"effort,omitempty"`
 	Fallback      string            `json:"fallback,omitempty"`
-	Host          string            `json:"host,omitempty"`
-	Remote        string            `json:"remote,omitempty"`
-	Account       string            `json:"account,omitempty"`
-	Identity      string            `json:"identity,omitempty"`
 	Set           map[string]string `json:"set,omitempty"`
 	Unset         []string          `json:"unset,omitempty"`
 	Keep          []string          `json:"keep,omitempty"`

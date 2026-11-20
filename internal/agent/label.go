@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
@@ -41,7 +42,7 @@ func runQueryRoute(ctx context.Context, reg *providers.Registry, q ModelQuery, a
 	}
 	if rows := claudeRows(ctx, RouteReq{Agent: q.Agent, Model: q.Model, Task: q.Task, Profile: q.Profile, Provider: q.Provider,
 		Host: q.Held}, false); len(rows) > 0 && q.Account == "" {
-		q.Model = rows[0] + ":" + AutoModel // the row the run's rotation takes next
+		q.Route, q.Model = rowRoute(reg, rows[0]), AutoModel // the row the run's rotation takes next
 		return q, "", nil
 	}
 	if namesRoute(q) {
@@ -114,6 +115,15 @@ func AutoCell(cell string) string {
 	return AutoModel
 }
 
+// rowRoute is the whole route of registry row: its own provider and its name as the profile.
+func rowRoute(reg *providers.Registry, row string) route.Route {
+	r := route.Route{Profile: row}
+	if p := reg.Row(row); p != nil {
+		r.Provider = p.Provider
+	}
+	return r
+}
+
 // ladderHop is the query d's engine resolves: a `<row>:<model>` cell as typed, an alias cell the row's pin or tier.
 func ladderHop(reg *providers.Registry, q ModelQuery, d Dispatch) (ModelQuery, string, error) {
 	hop := q
@@ -172,7 +182,7 @@ func ExplainRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRout
 
 // rowDefault is an untyped run's model on profile: the concrete pin, else the row's opus, by id if refused as an alias.
 func rowDefault(reg *providers.Registry, q ModelQuery, need autoNeed, profile string, now time.Time) (ModelRoute, error) {
-	q.Model, q.Profile, q.Default, q.PinModel = "", profile, "", need.pin
+	q.Model, q.Profile, q.Default, q.PinModel, q.Route = "", "", "", need.pin, rowRoute(reg, profile)
 	r, err := ResolveModel(reg, q, now)
 	p := reg.Row(profile)
 	if err == nil || p == nil || !errors.Is(err, ErrModelRoute) {
@@ -182,7 +192,7 @@ func rowDefault(reg *providers.Registry, q ModelQuery, need autoNeed, profile st
 	if serr != nil {
 		return r, err
 	}
-	q.Model, q.Profile, q.PinModel = profile+":"+wire, "", ""
+	q.Model, q.PinModel = wire, ""
 	return ResolveModel(reg, q, now)
 }
 
@@ -470,7 +480,7 @@ func autoPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need autoN
 		return autoFallback(reg, q, base, need, c, cmp.Or(why, "no served model fits"), now), c, nil
 	}
 	pq := q
-	pq.Model, pq.Profile, pq.Default = base.Profile+":"+c.Ranked[0].Model, "", ""
+	pq.Route, pq.Model, pq.Profile, pq.Default = rowRoute(reg, base.Profile), c.Ranked[0].Model, "", ""
 	r, err := ResolveModel(reg, pq, now)
 	if err != nil {
 		return autoFallback(reg, q, base, need, c, strings.TrimPrefix(err.Error(), ErrModelRoute.Error()+": "), now), c, nil
@@ -526,7 +536,7 @@ func coldRanModel(p *providers.Provider, model, alias string) string {
 func registryAuto(reg *providers.Registry, q ModelQuery, base ModelRoute, alias, why string, now time.Time) (ModelRoute, string) {
 	why += "; its model auto is " + base.Profile + "'s own router, not a pick"
 	for _, in := range autoStandIns(q.Agent, alias, reg.Row(base.Profile)) {
-		q.Model, q.Profile, q.Default = base.Profile+":"+in.model, "", ""
+		q.Route, q.Model, q.Profile, q.Default = rowRoute(reg, base.Profile), in.model, "", ""
 		if r, err := ResolveModel(reg, q, now); err == nil && r.Model != AutoModel {
 			r.Source = base.Source
 			return r, why + "; ran " + in.from
@@ -589,7 +599,7 @@ func servedCandidate(reg *providers.Registry, q ModelQuery, p *providers.Provide
 	if m.Task != chatTask || !m.IsReady() || catalog.ID(m.ID) == AutoModel {
 		return "", false
 	}
-	r, err := ResolveModel(reg, ModelQuery{Agent: q.Agent, Model: p.Name + ":" + m.ID, menu: q.menu}, now)
+	r, err := ResolveModel(reg, ModelQuery{Agent: q.Agent, Route: rowRoute(reg, p.Name), Model: m.ID, menu: q.menu}, now)
 	return r.Model, err == nil && agentRunsIn(q.menuIn(), q.Agent, p, r.Model)
 }
 
