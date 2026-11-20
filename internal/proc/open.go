@@ -70,7 +70,7 @@ func openRoute(b string, purpose OpenPurpose) string {
 	switch {
 	case b == "none":
 		return "print"
-	case b != "" && !(purpose == OpenSignIn && isVSCodeHelper(b)):
+	case b != "" && (purpose != OpenSignIn || !isVSCodeHelper(b)):
 		return "browser"
 	}
 	return "desktop"
