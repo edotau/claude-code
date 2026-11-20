@@ -66,3 +66,17 @@ func writeAged(t *testing.T, path, text string, at time.Time) {
 		t.Fatal(err)
 	}
 }
+
+func TestProgressCountsStreamPastChunkAndLongLines(t *testing.T) {
+	old := progressChunk
+	progressChunk = 16
+	defer func() { progressChunk = old }()
+	ev := strings.Repeat(`{"type":"tool_use"}`+"\n", 50) // marks straddle every 16-byte chunk
+	if n, err := countToolEvents(strings.NewReader(ev)); err != nil || n != 50 {
+		t.Fatalf("tool events = %d, %v; want 50", n, err)
+	}
+	log := "▸ step: a done\n▸ step: " + strings.Repeat("x", 100) + " done\n" + strings.Repeat("y", 100) + " done\n▸ step: b\n"
+	if n, err := countDoneSteps(strings.NewReader(log)); err != nil || n != 2 {
+		t.Fatalf("done steps = %d, %v; want 2", n, err)
+	}
+}

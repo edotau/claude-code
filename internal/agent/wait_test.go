@@ -92,3 +92,10 @@ func TestWaitLineShowsParent(t *testing.T) {
 		t.Errorf("top-level row = %q", got)
 	}
 }
+
+func TestWaitLineClipsLiveToRowWidth(t *testing.T) {
+	w := WaitResult{ID: "20261120T010203.000-codex", State: WaitTimeout, Elapsed: "5m0s", Live: strings.Repeat("l", 80)}
+	if got := textutil.DisplayWidth(w.Line()); got > waitRowWidth {
+		t.Fatalf("row is %d columns, want <= %d", got, waitRowWidth)
+	}
+}

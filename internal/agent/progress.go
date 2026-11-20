@@ -2,6 +2,7 @@
 package agent
 
 import (
+	"bufio"
 	"bytes"
 	"cmp"
 	"fmt"
@@ -17,11 +18,10 @@ import (
 )
 
 const (
-	progressWidth   = 80                              // the line's column budget everywhere it shows
-	doingWidth      = 20                              // columns the "doing" field may take before the clip
-	noSignalPast    = 10*time.Minute + 15*time.Second // a no-stream agent's ⚠ threshold
-	progressMaxRead = 8 << 20                         // bound of one events or log read
-	toolEventMark   = `"type":"tool_use"`
+	progressWidth = 80                              // the line's column budget everywhere it shows
+	doingWidth    = 20                              // columns the "doing" field may take before the clip
+	noSignalPast  = 10*time.Minute + 15*time.Second // a no-stream agent's ⚠ threshold
+	toolEventMark = `"type":"tool_use"`
 )
 
 // Progress is what the harness can tell about a running dispatch right now; Tools < 0 means unknown.
@@ -53,41 +53,78 @@ func ProgressOf(r Record, now time.Time) Progress {
 	p.quietAt, p.hungAt, p.Stream = progressLimits(agent)
 	last, _ := LastSignal(r)
 	p.Quiet = max(now.Sub(last), 0)
-	if b, ok := readCapped(r.EventsPath()); ok {
-		p.Tools = bytes.Count(b, []byte(toolEventMark))
+	if n, ok := countFile(r.EventsPath(), countToolEvents); ok {
+		p.Tools = n
 	}
 	if tail, err := tailBytes(r.LogPath()); err == nil {
 		p.Doing = doingOf(string(tail))
 	}
 	if p.Tools <= 0 && agent == "gemini" { // gemini's events carry no tool_use: its log's finished steps are the count
-		if b, ok := readCapped(r.LogPath()); ok {
-			p.Tools = max(p.Tools, countDoneSteps(b))
+		if n, ok := countFile(r.LogPath(), countDoneSteps); ok {
+			p.Tools = max(p.Tools, n)
 		}
 	}
 	p.Seen = p.Doing != "" || p.Tools > 0
 	return p
 }
 
-// readCapped reads the first progressMaxRead bytes of path; ok is false when it cannot be read.
-func readCapped(path string) ([]byte, bool) {
+// countFile streams path through count; ok is false when it cannot be read whole.
+func countFile(path string, count func(io.Reader) (int, error)) (int, bool) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, false
+		return 0, false
 	}
 	defer f.Close()
-	b, err := io.ReadAll(io.LimitReader(f, progressMaxRead))
-	return b, err == nil
+	n, err := count(f)
+	return n, err == nil
 }
 
-// countDoneSteps counts the log's finished `▸ step: <type> done` lines (gemini).
-func countDoneSteps(b []byte) int {
-	n := 0
-	for l := range bytes.SplitSeq(b, []byte("\n")) {
-		if bytes.HasPrefix(l, []byte("▸ step: ")) && bytes.HasSuffix(l, []byte(" done")) {
-			n++
+// progressChunk is the read size of the streaming counters.
+var progressChunk = 64 << 10
+
+// countToolEvents counts toolEventMark in r chunk by chunk, carrying a mark-sized overlap across reads.
+func countToolEvents(r io.Reader) (int, error) {
+	mark := []byte(toolEventMark)
+	buf := make([]byte, progressChunk+len(mark)-1)
+	n, keep := 0, 0
+	for {
+		got, err := r.Read(buf[keep:])
+		data := buf[:keep+got]
+		n += bytes.Count(data, mark)
+		keep = copy(buf, data[max(len(data)-(len(mark)-1), 0):])
+		if err == io.EOF {
+			return n, nil
+		}
+		if err != nil {
+			return n, err
 		}
 	}
-	return n
+}
+
+// countDoneSteps counts the log's finished `▸ step: <type> done` lines (gemini); long lines never abort it.
+func countDoneSteps(r io.Reader) (int, error) {
+	const suffix = " done"
+	br := bufio.NewReaderSize(r, progressChunk)
+	n := 0
+	for {
+		frag, more, err := br.ReadLine()
+		match := bytes.HasPrefix(frag, []byte("▸ step: "))
+		tail := append([]byte(nil), frag[max(len(frag)-len(suffix), 0):]...)
+		for err == nil && more { // the suffix may straddle fragments: keep the last bytes seen
+			frag, more, err = br.ReadLine()
+			tail = append(tail, frag...)
+			tail = tail[max(len(tail)-len(suffix), 0):]
+		}
+		if err == nil && match && bytes.HasSuffix(tail, []byte(suffix)) {
+			n++
+		}
+		if err == io.EOF {
+			return n, nil
+		}
+		if err != nil {
+			return n, err
+		}
+	}
 }
 
 var shellWrapRe = sync.OnceValue(func() *regexp.Regexp {

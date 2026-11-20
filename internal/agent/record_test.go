@@ -1208,3 +1208,27 @@ func TestFinishSavePrunesClaimedRecords(t *testing.T) {
 		t.Fatalf("pruned record's events file must go, stat err = %v", err)
 	}
 }
+
+func TestFinishingRecordSurvivesItsOwnPrune(t *testing.T) {
+	setConfigDir(t)
+	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
+	old := dispatchKeep
+	dispatchKeep = 1
+	defer func() { dispatchKeep = old }()
+	resumed := NewRecord("codex", RunOptions{Prompt: "p"}, base)
+	resumed.Status = "ok"
+	if err := resumed.Save(); err != nil {
+		t.Fatal(err)
+	}
+	savePruneRecords(t, base.Add(time.Minute), dispatchKeep+dispatchPruneMargin)
+	if _, err := LoadRecord(resumed.ID); err == nil {
+		t.Fatal("setup: the oldest record should have been pruned by newer saves")
+	}
+	if err := resumed.Save(); err != nil {
+		t.Fatal(err)
+	}
+	pruneDispatches(paths.DispatchDir(), resumed.ID)
+	if _, err := LoadRecord(resumed.ID); err != nil {
+		t.Fatalf("the finishing record was pruned: %v", err)
+	}
+}

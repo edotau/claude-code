@@ -358,7 +358,7 @@ func (r Record) Save() error {
 		return err
 	}
 	if errors.Is(statErr, fs.ErrNotExist) { // only a new record can push the dir over the cap
-		pruneDispatches(dir)
+		pruneDispatches(dir, r.ID)
 	}
 	return nil
 }
@@ -549,7 +549,7 @@ func RecordRefusal(name string, req RunOptions, job *Record, err error) {
 	rec.Finish(res, err, 0)
 	rec.Attempts = res.Hops // Finish keeps attempts only past one hop
 	claimRecord(rec)        // the one write is already concluded; a failed claim leaves nothing behind
-	pruneDispatches(paths.DispatchDir())
+	pruneDispatches(paths.DispatchDir(), rec.ID)
 }
 
 // failKind: availability when no model could answer (limits, auth, routing, transport, timeout, cancel), else quality.
@@ -590,10 +590,11 @@ func (r *Record) finishSave(res wire.Result, err error, took time.Duration, noti
 		notify(fmt.Sprintf("dispatch %s record not saved: %v", r.ID, serr))
 	}
 	r.warnCutoff(notify)
-	pruneDispatches(paths.DispatchDir()) // claimRecord pre-creates the file, so Save never sees a new record
+	pruneDispatches(paths.DispatchDir(), r.ID) // claimRecord pre-creates the file, so Save never sees a new record
 }
 
-func pruneDispatches(dir string) {
+// pruneDispatches trims the oldest records past dispatchKeep, never the ids in keep nor an active record.
+func pruneDispatches(dir string, keep ...string) {
 	names, err := recordNames(dir)
 	if err != nil || len(names) <= dispatchKeep+dispatchPruneMargin { // best-effort: a failed listing skips this prune
 		return
@@ -603,7 +604,7 @@ func pruneDispatches(dir string) {
 		if excess <= 0 {
 			return
 		}
-		if activeRecord(filepath.Join(dir, name)) {
+		if slices.Contains(keep, strings.TrimSuffix(name, ".json")) || activeRecord(filepath.Join(dir, name)) {
 			continue
 		}
 		_ = os.Remove(filepath.Join(dir, name))

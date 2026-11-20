@@ -34,7 +34,8 @@ const waitRowWidth = 80
 func (w WaitResult) Line() string {
 	row := fmt.Sprintf("%s %s %s", w.ID, w.State, w.Elapsed)
 	if w.Live != "" {
-		row += " · " + w.Live
+		const sep = " · "
+		row += sep + textutil.TruncateCells(w.Live, max(waitRowWidth-textutil.DisplayWidth(row+sep), 1), "…")
 	}
 	if w.Parent == "" {
 		return row
