@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"cmp"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -610,31 +611,65 @@ func (r *Router) sendWithAuth(in *http.Request, p *providers.Provider,
 	do func(string) (*http.Response, error)) (*http.Response, error) {
 	ctx := in.Context()
 	r.touch(ctx, p.Name)
-	resp, err := do("")
+	sent, cerr := providers.Credential(ctx, p) // the exact credential this identity sends, so a replay never crosses it
+	if cerr != nil {
+		sent = ""
+	}
+	resp, err := do(sent)
 	if err != nil {
 		return nil, r.authFailure(ctx, p, err)
 	}
 	resp.Body = newIdleBody(resp.Body, idleTimeout) // before invalidToken's peek, so a stalled 400 body cannot hang
-	if (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || invalidToken(resp, p)) &&
-		p.Auth.HeaderStyle() != "" {
+	if !authRejected(resp, p) {
+		return resp, nil
+	}
+	drain(resp)
+	if resp, ok, err := replayReminted(ctx, p, sent, do); err != nil || ok {
+		return resp, err
+	}
+	r.invalidateCredential(
+		p.Name,
+	) // invalidate before refreshing: a Refresh failure must not leave a stale "present" cached
+	credential, err := providers.Refresh(ctx, p)
+	if err != nil {
+		return nil, r.authFailure(ctx, p, err)
+	}
+	if resp, err = do(credential); err != nil {
+		return nil, err
+	}
+	resp.Body = newIdleBody(resp.Body, idleTimeout)
+	if rejectedAfterRemint(resp, p) { // a policy/WAF 403 is relayed to the client, never condemned
 		drain(resp)
-		r.invalidateCredential(
-			p.Name,
-		) // invalidate before refreshing: a Refresh failure must not leave a stale "present" cached
-		credential, err := providers.Refresh(ctx, p)
-		if err != nil {
-			return nil, r.authFailure(ctx, p, err)
-		}
-		if resp, err = do(credential); err != nil {
-			return nil, err
-		}
-		resp.Body = newIdleBody(resp.Body, idleTimeout)
-		if rejectedAfterRemint(resp, p) { // a policy/WAF 403 is relayed to the client, never condemned
-			drain(resp)
-			return nil, r.condemned(ctx, p, providers.VerdictRejected, "credential rejected after re-mint")
-		}
+		return nil, r.condemned(ctx, p, providers.VerdictRejected, "credential rejected after re-mint")
 	}
 	return resp, nil
+}
+
+// replayReminted replays the credential a peer request already re-minted for this identity; ok is false when none
+// exists or it is rejected (a non-credential 403 is relayed as is).
+func replayReminted(ctx context.Context, p *providers.Provider, sent string,
+	do func(string) (*http.Response, error)) (resp *http.Response, ok bool, err error) {
+	if sent == "" {
+		return nil, false, nil
+	}
+	cur, cerr := providers.Credential(ctx, p)
+	if cerr != nil || cur == "" || cur == sent {
+		return nil, false, nil
+	}
+	if resp, err = do(cur); err != nil {
+		return nil, false, err
+	}
+	resp.Body = newIdleBody(resp.Body, idleTimeout)
+	if rejectedAfterRemint(resp, p) {
+		drain(resp)
+		return nil, false, nil
+	}
+	return resp, true, nil
+}
+
+func authRejected(resp *http.Response, p *providers.Provider) bool {
+	return (resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden || invalidToken(resp, p)) &&
+		p.Auth.HeaderStyle() != ""
 }
 
 func goStateWrite(r *Router, fn func()) {

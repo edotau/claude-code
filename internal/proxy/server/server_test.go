@@ -309,6 +309,38 @@ func TestAuthRefreshReplay(t *testing.T) {
 	}
 }
 
+// A burst of requests on one rejected token ends with one re-mint, not one per request.
+func TestAuthBurstRemintsOnce(t *testing.T) {
+	name := fmt.Sprintf("%s-%d", t.Name(), authRefreshReplayRun.Add(1))
+	counter := filepath.Join(t.TempDir(), "n")
+	up := newUpstream(t, func(w http.ResponseWriter, r *http.Request, _ int) {
+		if r.Header.Get("Authorization") != "Bearer key2" {
+			w.WriteHeader(401)
+			return
+		}
+		ok(w, r, 0)
+	})
+	cmd := fmt.Sprintf(`n=$(cat %q 2>/dev/null || echo 0); n=$((n+1)); echo $n > %q; echo key$n`, counter, counter)
+	overlay, _ := json.Marshal(
+		map[string]any{"default": name, "providers": map[string]any{"anthropic": map[string]any{name: map[string]any{
+			"protocol": "anthropic", "base_url": up.URL, "auth": map[string]any{"type": "key", "header": "bearer", "command": cmd, "ttl": 3600},
+			"models": map[string]string{"opus": "m"}}}}},
+	)
+	srv := setup(t, string(overlay))
+	var wg sync.WaitGroup
+	for range 4 {
+		wg.Go(func() {
+			if resp := post(t, srv.URL+"/p/"+name+"/v1/messages", `{"model":"m"}`, nil); resp.StatusCode != 200 {
+				t.Errorf("status %d, want 200", resp.StatusCode)
+			}
+		})
+	}
+	wg.Wait()
+	if n, _ := os.ReadFile(counter); strings.TrimSpace(string(n)) != "2" {
+		t.Fatalf("mints %q, want 2 (initial + one re-mint)", n)
+	}
+}
+
 // A refresh failure drops cached presence so the next call probes the provider again.
 func TestAuthRefreshFailureInvalidatesCachedCredential(t *testing.T) {
 	const envVar = "ROUTER_TEST_REFRESH_FAILURE_CRED"
