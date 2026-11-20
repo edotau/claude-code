@@ -60,9 +60,18 @@ func CopilotModel(reg *Registry) (model, source string) {
 	return "", "github-copilot default"
 }
 
+// recordProfile is the registry row r's route names; a pool pick ("auto") is its provider group.
+func recordProfile(r vault.AgentRecord) string {
+	rt := r.EffectiveRoute()
+	if rt.Profile == "auto" {
+		return strings.TrimSpace(rt.Provider)
+	}
+	return strings.TrimSpace(rt.Profile)
+}
+
 // CopilotLogin is the copilot record's github profile Login and name; ("", "") = gh's account; ignores github-auth.
 func CopilotLogin(reg *Registry) (login, profile string) {
-	pin := AgentRecord("copilot").Profile
+	pin := recordProfile(AgentRecord("copilot"))
 	if pin == "" {
 		return "", ""
 	}
@@ -333,7 +342,7 @@ func QualifyPinSpec(reg *Registry, providerFlag, spec string) string {
 	if ms, err := SplitModelSpec(reg, spec); err == nil && ms.Row != "" {
 		return spec
 	}
-	if providerFlag == cmp.Or(strings.TrimSpace(AgentRecord("claude").Profile), reg.Default) {
+	if providerFlag == cmp.Or(recordProfile(AgentRecord("claude")), reg.Default) {
 		return spec
 	}
 	return providerFlag + ":" + spec
@@ -403,7 +412,7 @@ func SessionProfileContext(ctx context.Context) string {
 func SessionLeadContext(ctx context.Context, reg *Registry, withRecord bool) string {
 	name := SessionProfileContext(ctx)
 	if name == "" && withRecord {
-		name = AgentRecord("claude").Profile
+		name = recordProfile(AgentRecord("claude"))
 	}
 	if reg != nil && reg.Providers[name] == nil {
 		return ""

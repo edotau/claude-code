@@ -53,7 +53,7 @@ func Select(reg *Registry, providerFlag string) (Selection, error) {
 	if err != nil {
 		return Selection{}, fmt.Errorf("vault: pins unreadable (another process may hold the lock): %w", err)
 	}
-	p, err := reg.Get(cmp.Or(providerFlag, strings.TrimSpace(recs["claude"].Profile), reg.Default))
+	p, err := reg.Get(cmp.Or(providerFlag, recordProfile(recs["claude"]), reg.Default))
 	if err != nil {
 		return Selection{}, err
 	}
