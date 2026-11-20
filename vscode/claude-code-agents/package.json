@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "publisher": "edotau",
   "engines": {
-    "vscode": "^1.90.0"
+    "vscode": "^1.128.0"
   },
   "categories": [
     "Other"
@@ -136,6 +136,11 @@
         "title": "Re-check connections",
         "icon": "$(refresh)",
         "category": "Claude Code Tasks"
+      },
+      {
+        "command": "claudeCodeAgents.refreshChatModels",
+        "title": "Refresh Databricks Chat Models",
+        "category": "Claude Code Agents"
       }
     ],
     "menus": {
@@ -382,12 +387,21 @@
           "description": "Which items the Tasks page may write to (comment, transition, assign, merge, board moves, Start): only your own (assigned to you or authored by you), or all. Teammates’ items are read-only by default even where the server would allow a write."
         }
       }
-    }
+    },
+    "languageModelChatProviders": [
+      {
+        "vendor": "claude-code-databricks",
+        "displayName": "Claude Code Databricks"
+      }
+    ]
   },
   "capabilities": {
     "untrustedWorkspaces": {
       "supported": true,
       "description": "Only runs the claude-code binary; never evaluates workspace content."
+    },
+    "agentsWindow": {
+      "supported": true
     }
   }
 }

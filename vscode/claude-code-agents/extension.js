@@ -19,6 +19,7 @@ const tasksJira = require('./lib/tasks-jira');
 const { MutationQueue } = require('./lib/tasks-mutations');
 const tasksBoard = require('./lib/tasks-board');
 const tailscale = require('./lib/tailscale');
+const { VENDOR: CHAT_VENDOR, ChatProvider } = require('./lib/chat-provider');
 const tasksStart = require('./lib/tasks-start');
 const ownership = require('./lib/tasks-ownership');
 const tasksState = require('./lib/tasks-state');
@@ -1559,7 +1560,28 @@ async function installGitHubPrExtension() {
   }
 }
 
+/** The claude-code binary: the setting, else the harness's own bin when the bare name is all a GUI PATH lacks. */
+function harnessBinary() {
+  const set = config().get('binary') || 'claude-code';
+  const own = require('node:path').join(require('node:os').homedir(), '.claude', 'bin', 'claude-code');
+  return set === 'claude-code' && require('node:fs').existsSync(own) ? own : set;
+}
+
+/** Registers the Databricks chat model provider and its refresh command; a VS Code without the lm API skips it. */
+function registerChatProvider(context) {
+  if (!vscode.lm || !vscode.lm.registerLanguageModelChatProvider) return;
+  const out = vscode.window.createOutputChannel('Claude Code Databricks Models');
+  const binary = harnessBinary();
+  const provider = new ChatProvider({ run: (argv) => runBinary(binary, [binary, ...argv]), log: (line) => out.appendLine(line) });
+  context.subscriptions.push(
+    out,
+    vscode.lm.registerLanguageModelChatProvider(CHAT_VENDOR, provider),
+    vscode.commands.registerCommand('claudeCodeAgents.refreshChatModels', () => provider.refresh()),
+  );
+}
+
 function activate(context) {
+  registerChatProvider(context);
   context.subscriptions.push(vscode.commands.registerCommand('claudeCodeAgents.dispatch', () => runDispatch()));
   installGitHubPrExtension();
 

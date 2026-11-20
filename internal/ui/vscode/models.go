@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -61,6 +62,7 @@ type endpointGroup struct {
 type modelGroups struct {
 	Groups []endpointGroup
 	Cold   []string // their existing group, if any, is kept as is
+	Base   string   // the router base the groups' session URLs hang off
 }
 
 // routerBase is a seam for tests: the running proxy probe.
@@ -106,6 +108,7 @@ func buildDatabricksGroups(ctx context.Context) (modelGroups, error) {
 		}
 		out.Groups = append(out.Groups, profileGroup(p, snap.Models, proxy.SessionBase(base, name)))
 	}
+	out.Base = base
 	return out, nil
 }
 
@@ -370,4 +373,36 @@ func resolveModelsDest(modelsDest, dest string) (path string, skip bool, note st
 		return "", skip, strings.ReplaceAll(note, "keybindings", "chat models"), err
 	}
 	return filepath.Join(filepath.Dir(kb), modelsFileName), false, "", nil
+}
+
+// printModels writes the Databricks chat models as JSON for the editor's chat provider; it never writes a file.
+func printModels(w io.Writer) error {
+	mg, err := buildDatabricksGroups(context.Background())
+	if err != nil {
+		return fmt.Errorf("models: %w", err)
+	}
+	type model struct {
+		ID              string `json:"id"`
+		ToolCalling     bool   `json:"toolCalling"`
+		Vision          bool   `json:"vision"`
+		ContextWindow   int    `json:"contextWindow"`
+		MaxOutputTokens int    `json:"maxOutputTokens"`
+	}
+	type profile struct {
+		Profile string  `json:"profile"`
+		Base    string  `json:"base"`
+		Models  []model `json:"models"`
+	}
+	out := struct {
+		Profiles []profile `json:"profiles"`
+	}{Profiles: []profile{}}
+	for _, g := range mg.Groups {
+		name := strings.TrimPrefix(g.Name, groupPrefix)
+		pr := profile{Profile: name, Base: proxy.SessionBase(mg.Base, name), Models: []model{}}
+		for _, m := range g.Models {
+			pr.Models = append(pr.Models, model{m.ID, m.ToolCalling, m.Vision, m.ContextWindow, m.MaxOutputTokens})
+		}
+		out.Profiles = append(out.Profiles, pr)
+	}
+	return json.NewEncoder(w).Encode(out)
 }

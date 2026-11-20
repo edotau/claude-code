@@ -30,8 +30,18 @@ func Run(args []string) int {
 			"Write one chatLanguageModels.json group per signed-in Databricks profile."})
 	check := fs.Bool("check", false, "report drift without writing; exit 1 on drift")
 	dryRun := fs.Bool("dry-run", false, "preview the merge, no write (not with --check)")
+	printModelsJSON := fs.Bool("print", false, "print the Databricks chat models as JSON, write nothing (not with --check or --dry-run)")
 	if code, done := helptext.Parse(fs, args); done {
 		return code
+	}
+	if *printModelsJSON {
+		if *check || *dryRun || fs.NArg() > 0 {
+			return helptext.Fail("theme vscode: --print takes no other flag or argument")
+		}
+		if err := printModels(os.Stdout); err != nil {
+			return helptext.Fail("vscode: %v", err)
+		}
+		return 0
 	}
 	if fs.NArg() > 0 { // a stray argument must not fall through to a merge
 		return helptext.Fail("theme vscode: unexpected argument %q", fs.Arg(0))
@@ -142,5 +152,5 @@ func reportDryRun(label, dest string, changed bool) {
 
 // Spec is the completion node for `theme vscode`.
 func Spec() *helptext.Node {
-	return &helptext.Node{Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("dry-run")}}
+	return &helptext.Node{Flags: []helptext.Flag{helptext.BoolFlag("check"), helptext.BoolFlag("dry-run"), helptext.BoolFlag("print")}}
 }
