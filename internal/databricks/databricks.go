@@ -375,7 +375,7 @@ var page = helptext.Page{
 		{"open-url", "open an https sign-in URL here (login --remote runs it)"},
 		{"token", "fresh token, never printed; --copy, --auth kind"},
 		{"import", "import a .databrickscfg (dry-run unless --apply)"},
-		{"export", "export profiles as .databrickscfg, no secrets"},
+		{"export", "export profiles as .databrickscfg, never adds a secret"},
 		{"config", "<target>: render a claude or codex config (never a token)"},
 		{"rescue", "break-glass: run claude on a scratch settings file"},
 	},

@@ -271,7 +271,25 @@ func renameRows(rows []exportRow, rename map[string]string) (out []exportRow, sk
 	return out, skipped
 }
 
-// sectionText renders one row; u2m is written as the CLI's databricks-cli, and pat names itself so it re-imports.
+var (
+	managedKeys = []string{"host", "auth_type", "client_id", "account_id", "workspace_id"}
+	secretKeys  = map[string]bool{"token": true, "client_secret": true}
+)
+
+// rowKeys is the value of each managed key the row sets; u2m is written as the CLI's databricks-cli, pat names itself.
+func rowKeys(r exportRow) map[string]string {
+	k := map[string]string{"host": r.Host, "account_id": r.AccountID, "workspace_id": r.WorkspaceID}
+	switch r.Auth {
+	case providers.AuthOAuth:
+		k["auth_type"] = cliAuthU2M
+	case providers.AuthM2M:
+		k["auth_type"], k["client_id"] = cliAuthM2M, r.ClientID
+	case providers.AuthPAT:
+		k["auth_type"] = cliAuthPAT
+	}
+	return k
+}
+
 func sectionText(r exportRow) string {
 	var b strings.Builder
 	if r.PairSet {
@@ -281,20 +299,12 @@ func sectionText(r exportRow) string {
 		}
 		fmt.Fprintf(&b, "# claude-code: pair=%s\n", pair)
 	}
-	fmt.Fprintf(&b, "[%s]\nhost = %s\n", r.Section, r.Host)
-	switch r.Auth {
-	case providers.AuthOAuth:
-		b.WriteString("auth_type = " + cliAuthU2M + "\n")
-	case providers.AuthM2M:
-		fmt.Fprintf(&b, "client_id = %s\nauth_type = %s\n", r.ClientID, cliAuthM2M)
-	case providers.AuthPAT:
-		b.WriteString("auth_type = " + cliAuthPAT + "\n")
-	}
-	if r.AccountID != "" {
-		fmt.Fprintf(&b, "account_id = %s\n", r.AccountID)
-	}
-	if r.WorkspaceID != "" {
-		fmt.Fprintf(&b, "workspace_id = %s\n", r.WorkspaceID)
+	fmt.Fprintf(&b, "[%s]\n", r.Section)
+	k := rowKeys(r)
+	for _, key := range managedKeys {
+		if k[key] != "" || key == "host" {
+			fmt.Fprintf(&b, "%s = %s\n", key, k[key])
+		}
 	}
 	return b.String()
 }
@@ -401,7 +411,7 @@ type merger struct {
 	force    bool
 }
 
-// apply merges one row: keep reserved and databricks-cli sections, add new ones, replace only with force.
+// apply merges one row: keep reserved and databricks-cli sections, add new ones, merge keys only with force.
 func (m *merger) apply(r exportRow) {
 	sig, exists := m.have[r.Section]
 	if exists && sig.pairSet {
@@ -419,27 +429,108 @@ func (m *merger) apply(r exportRow) {
 	case !m.force:
 		m.notes = append(m.notes, "keep ["+r.Section+"]: exists (--force replaces it)")
 	default:
-		m.blocks = replaceBlocks(m.blocks, r.Section, sectionText(r))
+		m.blocks = mergeBlocks(m.blocks, sig, r)
 		m.written = append(m.written, r)
 		m.notes = append(m.notes, "replace ["+r.Section+"]")
 	}
 }
 
-// replaceBlocks puts text where the first [name] block was and drops its duplicates.
-func replaceBlocks(blocks []block, name, text string) []block {
+// lineKey is the key of a "key = value" line, or "" for a blank, comment, header or continuation line.
+func lineKey(l string) string {
+	if l == "" || l[0] == ' ' || l[0] == '\t' {
+		return ""
+	}
+	t := strings.TrimSpace(l)
+	if t == "" || t[0] == '#' || t[0] == ';' || t[0] == '[' {
+		return ""
+	}
+	i := strings.IndexAny(t, "=:")
+	if i <= 0 {
+		return ""
+	}
+	return strings.TrimSpace(t[:i])
+}
+
+// mergeSection rewrites the managed keys of the first [name] block in place and keeps every other line.
+func mergeSection(bl block, old *section, r exportRow) block {
+	want := rowKeys(r)
+	dropSecrets := effectiveCLIAuth(old.keys) != want["auth_type"]
+	var lines []string
+	seen := map[string]bool{}
+	inBody, skipCont, last := false, false, -1
+	for _, l := range bl.lines {
+		if !inBody {
+			lines = append(lines, l)
+			if name, ok := headerName(strings.TrimSpace(strings.TrimPrefix(l, "\ufeff"))); ok && name == bl.name {
+				inBody, last = true, len(lines)-1
+			}
+			continue
+		}
+		key := lineKey(l)
+		if key == "" {
+			if skipCont && (l[0] == ' ' || l[0] == '\t') {
+				continue
+			}
+			skipCont = false
+			lines = append(lines, l)
+			continue
+		}
+		var keep bool
+		l, keep = mergeKeyLine(l, key, old, want, seen, dropSecrets)
+		skipCont = !keep
+		if keep {
+			lines = append(lines, l)
+			last = len(lines) - 1
+		}
+	}
+	return block{name: bl.name, lines: appendMissing(lines, last, want, seen)}
+}
+
+// mergeKeyLine returns the key line to write and false when it is dropped.
+func mergeKeyLine(l, key string, old *section, want map[string]string, seen map[string]bool, dropSecrets bool) (string, bool) {
+	if secretKeys[key] {
+		return l, !dropSecrets
+	}
+	if !slices.Contains(managedKeys, key) {
+		return l, true
+	}
+	if seen[key] || want[key] == "" {
+		return l, false
+	}
+	seen[key] = true
+	if old.keys[key] != want[key] {
+		l = key + " = " + want[key] + "\n"
+	}
+	return l, true
+}
+
+// appendMissing adds the managed keys the section lacked after its last key line.
+func appendMissing(lines []string, last int, want map[string]string, seen map[string]bool) []string {
+	var add []string
+	for _, key := range managedKeys {
+		if !seen[key] && want[key] != "" {
+			add = append(add, key+" = "+want[key]+"\n")
+		}
+	}
+	if len(add) == 0 {
+		return lines
+	}
+	if !strings.HasSuffix(lines[last], "\n") {
+		lines[last] += "\n"
+	}
+	return slices.Insert(lines, last+1, add...)
+}
+
+// mergeBlocks merges r into the first [name] block and drops its duplicates.
+func mergeBlocks(blocks []block, old *section, r exportRow) []block {
 	var out []block
 	done := false
 	for _, bl := range blocks {
-		if bl.name != name {
+		switch {
+		case bl.name != r.Section:
 			out = append(out, bl)
-			continue
-		}
-		if !done {
-			lines := []string{text}
-			if n := len(bl.lines); n > 0 && strings.TrimSpace(bl.lines[n-1]) == "" {
-				lines = append(lines, "\n") // keep the blank separator before the next section
-			}
-			out = append(out, block{name: name, lines: lines})
+		case !done:
+			out = append(out, mergeSection(bl, old, r))
 			done = true
 		}
 	}

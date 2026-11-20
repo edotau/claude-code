@@ -237,13 +237,16 @@ func TestMergeNeverOverwritesU2MSection(t *testing.T) {
 }
 
 func TestMergeKeepsOthersAndReplacesOnlyWithForce(t *testing.T) {
-	const existing = "[svc]\nhost = https://old.example.cloud.databricks.com\nclient_id = old\n\n[other]\nhost = https://o.example.cloud.databricks.com\n"
+	const existing = "[svc]\nhost = https://old.example.cloud.databricks.com\nclient_id = old\ncluster_id = c1\n# mine\n\n[other]\nhost = https://o.example.cloud.databricks.com\n"
 	svc := sampleRows()[1:2]
 	if out, _, _ := mergeExport(existing, svc, false); out != existing {
 		t.Errorf("replaced without force:\n%s", out)
 	}
 	out, _, _ := mergeExport(existing, svc, true)
-	if !strings.Contains(out, "client_id = cid-svc") || strings.Contains(out, "client_id = old") || !strings.Contains(out, "[other]") {
+	if !strings.Contains(out, "client_id = cid-svc") || strings.Contains(out, "client_id = old") || !strings.Contains(out, "[other]") || !strings.Contains(out, "cluster_id = c1\n") || !strings.Contains(out, "# mine\n") {
 		t.Errorf("force merge:\n%s", out)
+	}
+	if again, _, _ := mergeExport(out, svc, true); again != out {
+		t.Errorf("second merge rewrote:\n%s", again)
 	}
 }
