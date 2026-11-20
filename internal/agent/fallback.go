@@ -208,7 +208,7 @@ func invokedModel(req RunOptions) string {
 	return req.Model
 }
 
-// launchedModel is a frozen copilot target's model (the rotation pick lreq never sees), else invokedModel (auto stays auto).
+// launchedModel is a frozen copilot target's model (the pick lreq never sees), else invokedModel; auto stays auto.
 func launchedModel(ctx context.Context, disp Dispatch, req RunOptions) string {
 	if _, auto := SplitAuto(invokedModel(req)); auto {
 		return invokedModel(req)
