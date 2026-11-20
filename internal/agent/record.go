@@ -391,7 +391,12 @@ func recordID(now time.Time, agent string) string {
 // encode is the record's JSON, schema stamped.
 func (r Record) encode() ([]byte, error) {
 	r.Schema = dispatchSchema
-	return json.MarshalIndent(r, "", "  ")
+	type plain Record
+	return json.MarshalIndent(struct {
+		plain
+		Route    json.RawMessage `json:"route,omitempty"`
+		RanRoute json.RawMessage `json:"ran_route,omitempty"`
+	}{plain(r), wire.RouteJSON(r.Route), wire.RouteJSON(r.RanRoute)}, "", "  ")
 }
 
 // Save writes the record (0600) and prunes past dispatchKeep. The prompt is kept verbatim so a retry is exact.

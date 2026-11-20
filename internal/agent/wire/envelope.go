@@ -54,6 +54,41 @@ func RouteString(raw json.RawMessage) (string, error) {
 	return r.Provider + ":" + r.Profile, nil
 }
 
+// ProviderOf maps a profile name to its provider; set once by the agent package, nil-safe.
+var ProviderOf func(profile string) string
+
+// RouteObject parses "provider:profile", a bare provider (the pool, profile auto), a bare profile or
+// "<profile>:<model>" as a route naming provider and profile; nil when empty or the provider is unknown.
+func RouteObject(s string) *route.Route {
+	r := route.ParseLegacy(s)
+	if r.IsZero() {
+		r = route.ParseLegacy(strings.SplitN(s, ":", 2)[0])
+	}
+	if r.Provider == "" && r.Profile != "" && ProviderOf != nil {
+		r.Provider = ProviderOf(r.Profile)
+	}
+	switch {
+	case r.Provider == "":
+		return nil
+	case r.Profile == "":
+		r.Profile = "auto"
+	}
+	return &r
+}
+
+// RouteJSON is the route object encoded, the legacy string when no provider is known; nil when empty.
+func RouteJSON(s string) json.RawMessage {
+	if s == "" {
+		return nil
+	}
+	v := any(s)
+	if r := RouteObject(s); r != nil {
+		v = r
+	}
+	b, _ := json.Marshal(v) // a string or a struct of strings cannot fail
+	return b
+}
+
 // UnmarshalJSON accepts "requested" as the legacy string or a route object.
 func (e *Envelope) UnmarshalJSON(b []byte) error {
 	type plain Envelope
@@ -83,8 +118,8 @@ type Envelope struct {
 	FallbackReason  string          `json:"fallback_reason"`
 	Requested       string          `json:"requested,omitempty"`       // <profile>[:<model>] asked for, when another step answered
 	RequestedWhy    string          `json:"requested_why,omitempty"`   // why the requested target did not answer
-	Route           *route.Route    `json:"route,omitempty"`           // the route that answered, as an object; unpopulated until writers move
-	RequestedRoute  *route.Route    `json:"requested_route,omitempty"` // the route asked for, as an object; unpopulated until writers move
+	Route           *route.Route    `json:"route,omitempty"`           // the route that answered, as an object
+	RequestedRoute  *route.Route    `json:"requested_route,omitempty"` // the route asked for, as an object
 	Usage           *Usage          `json:"usage"`                     // null when the agent reports no token counts
 	DurationMs      int64           `json:"duration_ms"`
 	Error           *EnvelopeError  `json:"error"` // null on success
@@ -123,6 +158,8 @@ func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 	if err != nil {
 		env.Error = &EnvelopeError{Kind: ErrorKind(err), Message: textutil.RedactSecrets(err.Error())}
 	}
+	env.Route = RouteObject(res.Provider)
+	env.RequestedRoute = RouteObject(res.Requested)
 	if env.Status == "" {
 		env.Status = StatusOK
 		if err != nil {

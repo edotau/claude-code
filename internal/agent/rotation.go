@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
@@ -22,7 +23,19 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-func init() { router.RotationPool = rotationPool }
+func init() {
+	router.RotationPool = rotationPool
+	wire.ProviderOf = func(profile string) string {
+		reg, err := providers.LoadShared()
+		if err != nil {
+			return ""
+		}
+		if p, err := reg.Get(profile); err == nil {
+			return p.Provider
+		}
+		return ""
+	}
+}
 
 type peekKey struct{}
 

@@ -1242,3 +1242,17 @@ func TestRecordRouteAcceptsStringOrObject(t *testing.T) {
 		t.Errorf("a=%q/%q b=%q/%q", a.Route, a.RanRoute, b.Route, b.RanRoute)
 	}
 }
+
+func TestRecordRouteWrittenAsObject(t *testing.T) {
+	body, err := Record{ID: "x", Route: "databricks:qa", RanRoute: "databricks:dev"}.encode()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(body), `"provider": "databricks"`) {
+		t.Errorf("route not an object: %s", body)
+	}
+	var back Record
+	if err := json.Unmarshal(body, &back); err != nil || back.Route != "databricks:qa" || back.RanRoute != "databricks:dev" {
+		t.Errorf("round trip: %v %q %q", err, back.Route, back.RanRoute)
+	}
+}
