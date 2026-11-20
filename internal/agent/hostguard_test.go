@@ -246,3 +246,12 @@ func TestTargetCtxPrintsGateNoteOnce(t *testing.T) {
 		t.Errorf("NoticeOut = %q, want the gate note exactly once", buf.String())
 	}
 }
+
+// An auto ask on a frozen copilot target records the selector, not the model the rotation picked.
+func TestLaunchedModelKeepsAutoSelector(t *testing.T) {
+	ctx := context.WithValue(context.Background(), frozenKey{}, frozenTarget{t: providers.Target{Model: "kimi-k3"}, once: &sync.Once{}})
+	disp := Dispatch{Agent: &fakeRunner{name: "copilot"}}
+	if got := launchedModel(ctx, disp, RunOptions{Model: "claude-sonnet-5.5", CellModel: true, AutoModel: true}); got != AutoModel {
+		t.Errorf("launchedModel = %q, want %q", got, AutoModel)
+	}
+}

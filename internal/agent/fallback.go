@@ -208,8 +208,11 @@ func invokedModel(req RunOptions) string {
 	return req.Model
 }
 
-// launchedModel is a frozen copilot target's model (the rotation pick lreq never sees), else invokedModel.
+// launchedModel is a frozen copilot target's model (the rotation pick lreq never sees), else invokedModel (auto stays auto).
 func launchedModel(ctx context.Context, disp Dispatch, req RunOptions) string {
+	if _, auto := SplitAuto(invokedModel(req)); auto {
+		return invokedModel(req)
+	}
 	if _, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && agentid.Routing(disp.Agent.Name()).FreezeTarget {
 		if t, _, err := SchemaFor(disp.Agent.Name()).TargetCtx(ctx, req); err == nil && t.Model != "" {
 			return t.Model
