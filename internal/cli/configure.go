@@ -1,18 +1,22 @@
 package cli
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
 	"slices"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/desktop"
 	"github.com/edotau/claude-code/internal/hooks"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/menu"
@@ -63,6 +67,7 @@ var configurePage = helptext.Page{
 		{"agents", "set up each agent CLI's routing (--agent for one)"},
 		{"github", "GitHub Copilot logins and opencode's fallback ladder"},
 		{"remote", "tailscale connectivity and remote hosts (read-only)"},
+		{"desktop", "Claude Desktop loopback profile; --revert restores selection"},
 		{"codex", "Codex preferences with encrypted config history"},
 		{"routing", "price weight, served-aware switch, opencode sub-pick knobs"},
 		{"databricks", "browser sign-in and token mint per Databricks profile"},
@@ -130,6 +135,9 @@ func cmdConfigure(args []string) int {
 
 // configureRoute sends `--history|--theme|--vscode ...` to their handlers; ok is false for every other form.
 func configureRoute(args []string) (code int, ok bool) {
+	if len(args) > 0 && args[0] == "desktop" {
+		return configureDesktop(args[1:]), true
+	}
 	if i := slices.Index(args, "--history"); i >= 0 {
 		return cmdHistory(slices.Concat(args[:i], args[i+1:])), true
 	}
@@ -291,6 +299,65 @@ func configureFmt(fs *flag.FlagSet, o *configureOpts, section string) int {
 	return 0
 }
 
+var desktopPage = helptext.Page{
+	Usage: "claude-code configure desktop [--profile p] [--revert] [--dry-run]",
+	About: "Point Claude Desktop at the loopback proxy using a Claude-3p profile.\n" +
+		"Open Desktop once first, then quit it before applying or reverting.\n" +
+		"On WSL, targets Windows Desktop and runs the credential helper in WSL.\n" +
+		"--revert restores the previous profile selection and revokes the desktop\n" +
+		"token. --dry-run writes nothing and prints exact destination files with\n" +
+		"custom header values masked.",
+}
+
+var (
+	desktopRoot   = desktop.Root
+	desktopHelper = desktop.HelperSpec
+	desktopEnsure = proxy.Ensure
+)
+
+func configureDesktop(args []string) int {
+	fs := helptext.NewFlagSet("configure desktop", desktopPage)
+	profile := fs.String("profile", "", "profile serving Desktop (default: session profile)")
+	revert := fs.Bool("revert", false, "remove our profile; restore the previous selection")
+	dryRun := fs.Bool("dry-run", false, "print exact files with secrets masked; write nothing")
+	if code, done := helptext.Parse(fs, args); done {
+		return code
+	}
+	if fs.NArg() != 0 {
+		return helptext.Fail("configure desktop: unexpected argument %q", fs.Arg(0))
+	}
+	if *revert && *profile != "" {
+		return helptext.Fail("configure desktop: --profile cannot be combined with --revert")
+	}
+	root, err := desktopRoot()
+	if err != nil {
+		return helptext.Fail("configure desktop: %v", err)
+	}
+	if err := desktop.CheckRoot(root, !*revert && !*dryRun); err != nil {
+		return helptext.Fail("configure desktop: %v", err)
+	}
+	opts := desktop.Options{Root: root, Revert: *revert, DryRun: *dryRun}
+	return configureDesktopOptions(opts, *profile)
+}
+
+func configureDesktopOptions(opts desktop.Options, profile string) int {
+	if !opts.Revert {
+		reg, err := providers.Load()
+		if err != nil {
+			return helptext.Fail("configure desktop: %v", err)
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		defer cancel()
+		if opts, err = desktop.BuildOptions(ctx, reg, profile, opts.DryRun, opts, desktopHelper, desktopEnsure); err != nil {
+			return helptext.Fail("configure desktop: %v", err)
+		}
+	}
+	if err := desktop.Configure(opts, os.Stdout); err != nil {
+		return helptext.Fail("configure desktop: %v", err)
+	}
+	return 0
+}
+
 // configureRender runs --restore / --revert; the agent flag is a comma list there.
 func configureRender(restore, revert bool, section, agents, out string, check, dryRun, renderAgents bool) int {
 	if err := renderModeConflict(restore, revert, section); err != nil {
@@ -376,7 +443,7 @@ func authNames() []string {
 
 // sections derives from menu.SectionNames, the package's own run order.
 func sections() []string {
-	return append([]string{}, menu.SectionNames...)
+	return append(append([]string{}, menu.SectionNames...), "desktop")
 }
 
 // configureSpec is the completion node for the configure verb.

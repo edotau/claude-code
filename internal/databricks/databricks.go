@@ -11,13 +11,16 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"os/signal"
 	"slices"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/databricks/serving"
+	"github.com/edotau/claude-code/internal/desktop"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/parallel"
 	"github.com/edotau/claude-code/internal/proc"
@@ -52,6 +55,9 @@ func Run(args []string) int {
 		return 2
 	}
 	if code, ok := helpExit(args); ok {
+		return code
+	}
+	if code, ok := desktopExit(args); ok {
 		return code
 	}
 	if code, ok := subverbExit(args); ok {
@@ -103,6 +109,47 @@ func subverbExit(args []string) (int, bool) {
 		}
 	}
 	return 0, false
+}
+
+// desktopExit runs `databricks [--profile NAME] --desktop`, returning its exit code and whether args asked for it.
+func desktopExit(args []string) (int, bool) {
+	rest, ok := cutFlag(args, "--desktop")
+	if !ok {
+		return 0, false
+	}
+	p, name, err := parsePlanArgs(rest)
+	if err == nil && (p.Check || p.Asked || len(p.Rest) > 0 || len(rest) > 0 && subverbs[rest[0]] != nil) {
+		err = errors.New("--desktop takes only --profile NAME")
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claude-code databricks: %v\n", err)
+		return 2, true
+	}
+	return runDesktop(name), true
+}
+
+func runDesktop(name string) int {
+	reg, err := providers.Load()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "claude-code databricks: load providers: %v\n", err)
+		return 2
+	}
+	profile := resolveProfile(context.Background(), reg, name)
+	if profile == "" {
+		fmt.Fprintf(os.Stderr, "claude-code databricks: %v\n", errNoProfile)
+		return 2
+	}
+	if !slices.Contains(providers.DatabricksProfiles(reg), profile) {
+		fmt.Fprintf(os.Stderr, "claude-code databricks: --profile %q is not a Databricks profile\n", profile)
+		return 2
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
+	defer stop()
+	if err := desktop.Session(ctx, reg, profile, os.Stdout); err != nil {
+		fmt.Fprintf(os.Stderr, "claude-code databricks: %v\n", err)
+		return 1
+	}
+	return 0
 }
 
 // cutFlag returns args without the first occurrence of flag, and whether it was present.
@@ -349,6 +396,9 @@ func usage(check bool) {
 	}
 	fs := helptext.NewFlagSet("claude-code databricks", pg)
 	profileFlagVar(fs, new(string), profileUsage)
+	if !check {
+		fs.Bool("desktop", false, "point Claude Desktop at the proxy until Ctrl+C")
+	}
 	if check {
 		fs.Bool("all", false, "probe every Databricks profile, one tiny call each")
 		fs.String("model", aliasID(models.Haiku), "with --all: canonical model id to probe")
@@ -561,7 +611,7 @@ func Spec() *helptext.Node {
 	flag, boolFlag, valuedFlag := helptext.Plain, helptext.BoolFlag, helptext.ValuedFlag
 	profileNames := providers.ProfileNames
 	identities := func() []string { return []string{"user", "sp"} }
-	return &helptext.Node{Flags: []helptext.Flag{valuedFlag("profile", profileNames)}, Sub: map[string]*helptext.Node{
+	return &helptext.Node{Flags: []helptext.Flag{valuedFlag("profile", profileNames), boolFlag("desktop")}, Sub: map[string]*helptext.Node{
 		"check": {Flags: []helptext.Flag{boolFlag("all"), valuedFlag("profile", profileNames), flag("model")}},
 		"identity": {Args: []func() []string{func() []string { return []string{"auto", "user", "sp"} }},
 			Flags: []helptext.Flag{valuedFlag("profile", profileNames), boolFlag("dry-run")}},
