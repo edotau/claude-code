@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/copilot/sdk"
+
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
@@ -103,7 +105,7 @@ func initialResult(cs agent.Schema, t providers.Target) (wire.Result, error) {
 }
 
 // runCredentials are the run's secrets to mask: route env credentials, secret-named --env values, the registry token.
-func runCredentials(opts sdkOptions, env []string, req agent.RunOptions) []string {
+func runCredentials(opts sdk.Options, env []string, req agent.RunOptions) []string {
 	creds := credentialValues(slices.Concat(env, req.Env))
 	if opts.Token != nil {
 		if tok, err := opts.Token(); err == nil && tok != "" {
@@ -120,7 +122,7 @@ func quotaHandoffEligible(t providers.Target, err error) bool {
 
 // options builds the SDK options for target t; env is the BYOK route env; done (never nil) releases a registry route.
 func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.RunOptions, t providers.Target,
-) (opts sdkOptions, env []string, done func(), err error) {
+) (opts sdk.Options, env []string, done func(), err error) {
 	done = func() {}
 	st, err := agent.PrepareLaunch(ctx, e, req, t, nil)
 	if err != nil {
@@ -150,7 +152,7 @@ func (e copilotEngine) options(ctx context.Context, cs agent.Schema, req agent.R
 }
 
 // routeOptions layers the route, --env and the account token onto opts, refusing an overlay name the route sets.
-func routeOptions(opts *sdkOptions, route *copilotRegistryRoute, env []string, req agent.RunOptions) error {
+func routeOptions(opts *sdk.Options, route *copilotRegistryRoute, env []string, req agent.RunOptions) error {
 	if route != nil {
 		route.apply(opts)
 	}
@@ -175,7 +177,7 @@ func macOSDatabricks(t providers.Target) bool {
 }
 
 // armBYOK keeps the GitHub login off an armed BYOK hop's model traffic; the CLI can still read its Keychain login.
-func armBYOK(o *sdkOptions) {
+func armBYOK(o *sdk.Options) {
 	o.GitHubToken, o.UseLoggedInUser, o.ChildUnset = "", false, copilotStripEnv
 }
 
@@ -191,7 +193,7 @@ func (e copilotEngine) routeEnv(ctx context.Context, cs agent.Schema, req agent.
 }
 
 // newSDKOptions builds the SDK options for one run from the CLI path, route env, request and resolved settings.
-func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Settings) (sdkOptions, error) {
+func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Settings) (sdk.Options, error) {
 	var model string
 	if t := s.Target; t.Provider != nil && t.Provider.Auth.Login != "" {
 		// no BYOK block: the catalog id itself, [1m] dropped
@@ -202,11 +204,11 @@ func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Setti
 		// relToWorkDir needs a non-empty root
 		var err error
 		if workDir, err = os.Getwd(); err != nil {
-			return sdkOptions{}, fmt.Errorf("resolve working directory: %w", err)
+			return sdk.Options{}, fmt.Errorf("resolve working directory: %w", err)
 		}
 	}
 	effort, note := modelEffort(s)
-	o := sdkOptions{
+	o := sdk.Options{
 		CLIPath: bin, Env: env, KeepEnv: req.KeepEnv, Model: model, BudgetCredits: req.BudgetCredits,
 		// --effort over the record; there is no per-call --context, so the record decides it
 		ReasoningEffort: effort,
@@ -225,6 +227,17 @@ func newSDKOptions(bin string, env []string, req agent.RunOptions, s agent.Setti
 		o.InlineInstructions = sameInstructions(home, workDir)
 	}
 	return o, nil
+}
+
+// existingDirs keeps the entries that are directories, so an unrendered root is not handed to the runtime.
+func existingDirs(dirs ...string) []string {
+	var out []string
+	for _, d := range dirs {
+		if fi, err := os.Stat(d); err == nil && fi.IsDir() {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // otherInstructionFiles are the instruction sources the runtime discovers besides CLAUDE.md (workDir-relative).
@@ -271,7 +284,7 @@ func copilotPrompt(req agent.RunOptions) (prompt string, images []string, err er
 }
 
 // markToolRan marks progress when the SDK run approved a tool, so a run that acted is not replayed.
-func markToolRan(out sdkResult, sink wire.Sink, err error) error {
+func markToolRan(out sdk.Result, sink wire.Sink, err error) error {
 	if out.ToolRan {
 		err = errors.Join(err, sink.Emit(wire.Event{Type: wire.EventProgress}))
 	}
@@ -279,7 +292,7 @@ func markToolRan(out sdkResult, sink wire.Sink, err error) error {
 }
 
 // copilotPartial keeps a failed run's partial text and session; streamed bytes mark progress, so Run does not retry.
-func copilotPartial(res wire.Result, out sdkResult, err error, sink wire.Sink) (wire.Result, error) {
+func copilotPartial(res wire.Result, out sdk.Result, err error, sink wire.Sink) (wire.Result, error) {
 	res.SessionID, res.Answer, res.Usage = cmp.Or(out.SessionID, res.SessionID), out.Text, out.Usage
 	res.Model = cmp.Or(out.Model, res.Model)
 	res.Reported = strings.TrimSpace(out.Model)
@@ -296,10 +309,10 @@ func copilotFatal(err error) error {
 }
 
 // copilotAsk is the SDK call, a var so tests reach the agent's result handling without a copilot binary.
-var copilotAsk = sdkAsk
+var copilotAsk = sdk.Ask
 
 // applyCopilotToken puts the harness account's env token on the SDK's token field.
-func applyCopilotToken(opts *sdkOptions, env []string) {
+func applyCopilotToken(opts *sdk.Options, env []string) {
 	// the harness's chosen account rides the SDK's own token field, not the stored login
 	for _, kv := range env {
 		if tok, ok := strings.CutPrefix(kv, providers.CopilotTokenEnv+"="); ok && tok != "" {
@@ -481,7 +494,7 @@ var row = agent.Schema{Name: "copilot", CLI: agent.CLI{
 	Binary: "copilot", Dialects: []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI},
 	RouterSuffix: map[string]string{providers.ProtocolAnthropic: "", providers.ProtocolOpenAI: "/" + providers.ProtocolOpenAI,
 		providers.ProtocolResponses: "/" + providers.ProtocolResponses},
-	MinVersion: minMultiProviderCLI, MinReason: "named-provider model registry needs it",
+	MinVersion: sdk.MinMultiProviderCLI, MinReason: "named-provider model registry needs it",
 	Caps: agent.Caps{Model: agent.Native, Provider: agent.Native, Effort: agent.Native, WorkDir: agent.Native, SessionID: agent.Native,
 		Tools: agent.Native, ReadOnly: agent.Native, Autonomous: agent.Native, Fleet: agent.Native, Memory: agent.Native, Direct: agent.Native, Env: agent.Native, Permissions: agent.Native,
 		SystemPrompt: agent.Native, AppendSystemPrompt: agent.Native, OutputSchema: agent.Emulated, Persona: agent.Emulated},

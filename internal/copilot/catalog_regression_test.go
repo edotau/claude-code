@@ -7,13 +7,14 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/copilot/sdk"
+
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
-	copilotsdk "github.com/github/copilot-sdk/go"
 )
 
 func catalogScratch(t *testing.T) {
@@ -37,12 +38,12 @@ func TestRefreshCatalogRefusesMissingPinnedToken(t *testing.T) {
 	if auth, ok := copilotAuthSource(); !ok || auth.Account != "account-a" {
 		t.Fatalf("auth = %+v, %v; want account-a pinned", auth, ok)
 	}
-	old := listModelsFn
-	t.Cleanup(func() { listModelsFn = old })
+	old := sdkListModels
+	t.Cleanup(func() { sdkListModels = old })
 	calls := 0
-	listModelsFn = func(context.Context, sdkOptions) ([]copilotsdk.ModelInfo, error) {
+	sdkListModels = func(context.Context, sdk.Options) ([]sdk.Model, error) {
 		calls++
-		return []copilotsdk.ModelInfo{{ID: "account-b-model"}}, nil
+		return []sdk.Model{{ID: "account-b-model"}}, nil
 	}
 	got, err := refreshCatalog(context.Background(), "")
 	if err == nil || !strings.Contains(err.Error(), "account-a") || len(got) != 0 || calls != 0 {
@@ -56,12 +57,12 @@ func TestRefreshCatalogRefusesMissingPinnedToken(t *testing.T) {
 func TestCatalogRefreshesAfterEnvironmentTokenChange(t *testing.T) {
 	catalogScratch(t)
 	t.Setenv(providers.CopilotTokenEnv, "fixture-token-a")
-	old := listModelsFn
-	t.Cleanup(func() { listModelsFn = old })
+	old := sdkListModels
+	t.Cleanup(func() { sdkListModels = old })
 	calls := 0
-	listModelsFn = func(_ context.Context, opts sdkOptions) ([]copilotsdk.ModelInfo, error) {
+	sdkListModels = func(_ context.Context, opts sdk.Options) ([]sdk.Model, error) {
 		calls++
-		return []copilotsdk.ModelInfo{{ID: opts.GitHubToken + "-model"}}, nil
+		return []sdk.Model{{ID: opts.GitHubToken + "-model"}}, nil
 	}
 	assertCatalogModel(t, "fixture-token-a-model")
 	assertCatalogModel(t, "fixture-token-a-model")

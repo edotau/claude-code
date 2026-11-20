@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/copilot/sdk"
+
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/github"
@@ -46,13 +48,19 @@ func enabledModelInfos(list []SDKModel) []providers.ModelInfo {
 	return out
 }
 
+// SDKModel is the catalog entry the harness prints and validates pins against.
+type SDKModel = sdk.Model
+
+// sdkListModels is the seam tests stub to fake the catalog without a GitHub login.
+var sdkListModels = sdk.ListModels
+
 // launchCatalog is the SDK's raw catalog on token, the launch account's.
 func launchCatalog(ctx context.Context, token string) ([]SDKModel, error) {
 	bin, err := paths.AgentBin("copilot")
 	if err != nil {
 		return nil, fmt.Errorf("copilot CLI not found: %w", err)
 	}
-	return SDKListModels(ctx, CatalogOptions(bin, token))
+	return sdkListModels(ctx, sdk.CatalogOptions(bin, token))
 }
 
 // copilotCapabilities is m's flags and billing multiplier as "vision · reasoning · x2"; "" when it has none.
@@ -270,7 +278,7 @@ func DiscoverGithubModels(ctx context.Context, p *providers.Provider) ([]provide
 	if token == "" {
 		return nil, errors.New("requested GitHub account has no gh token")
 	}
-	list, err := SDKListModels(ctx, CatalogOptions(bin, token))
+	list, err := sdkListModels(ctx, sdk.CatalogOptions(bin, token))
 	if err != nil {
 		return nil, errors.New("requested account Copilot catalog unavailable")
 	}

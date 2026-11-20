@@ -13,7 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/claude"
-	"github.com/edotau/claude-code/internal/copilot"
+	"github.com/edotau/claude-code/internal/copilot/sdk"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/hooks/safety"
 	"github.com/edotau/claude-code/internal/opencode"
@@ -231,7 +231,7 @@ func bareLayer(name string, p permission.Permissions, ro bool, wd string) (permV
 		return gateDecide(gp), gp
 	case "copilot":
 		return func(t, a string) permResult {
-			v := copilot.DecideCall(p, ro, wd, t, a)
+			v := sdk.DecideCall(p, ro, wd, t, a)
 			if v == "deny" {
 				return permResult{v, "SDK handler", ""}
 			}

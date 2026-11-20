@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/copilot/sdk"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/egress"
@@ -44,7 +46,7 @@ func TestBuildRegistryDedupesCanonicalIDs(t *testing.T) {
 // Each selection failure names its sentinel; ambiguity needs two models one query matches.
 func TestRegistrySelectErrors(t *testing.T) {
 	r := buildDevRegistry("databricks-claude-sonnet-5-5", "databricks-gpt-5-5")
-	ambiguous := copilotRegistry{Profile: "dev", Models: []copilotRegistryModel{
+	ambiguous := copilotRegistry{Profile: "dev", Models: []sdk.RegistryModel{
 		{ID: "gpt-5-5", Provider: "a", WireModel: "w"}, {ID: "gpt-5-6", Provider: "b", WireModel: "w"},
 	}}
 	for _, c := range []struct {
