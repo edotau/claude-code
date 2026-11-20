@@ -20,8 +20,8 @@ paths:
 - Codex pins live in the vault codex agent record and apply to `$CODEX_HOME/config.toml`; snapshots and baseline are
   vault-encrypted (`settings_backups`, last 5, excluded from exports). Provider config, hook trust and unknown native
   keys are preserved; an unavailable vault key aborts changed writes.
-- The file's route follows the session profile unless the codex record's `config_route` (`session` | `databricks` | a
-  Databricks profile; `configure codex` or `configure agents codex config_route=<r>`) pins it. A changed provider, model
+- The file's route follows the session profile unless the codex record's `config_route` (`session` or a route object;
+  `configure codex` or `configure agents codex config_route=<r>`) pins it. A changed provider, model
   or catalog prints a restart notice (ChatGPT app, Codex app-server); the file's helper `timeout_ms` is 100000 (`-c`
   stays 15000).
 - Hooks rendered into `~/.codex` carry `HARNESS_HOOK_AGENT=codex`; any `HARNESS_HOOK_*` prefix is harness-owned on
@@ -30,7 +30,8 @@ paths:
 ## Dispatch behavior
 
 - `ask --format json` envelope: `agent`, `status` (`ok|error|partial|quota|stalled`), `model`, `answer`, `usage`,
-  `duration_ms`, `fallback*`, `handoff`, `transport`; `invoked_model` is the request as asked (`auto`, `<row>:auto` or
+  `duration_ms`, `fallback*`, `handoff`, `transport`, `route`/`requested_route` objects (`provider` kept one release);
+  `invoked_model` is the request as asked (`auto`, `<row>:auto` or
   the selector) and `model` the model that ran. Isolation: `--no-persist` (claude, codex), `--safe-mode` (claude,
   codex, opencode), `--debug-file <path>` (claude, gemini).
 - `ask --retry <id>` of a run cut off by a deadline, stall, idle or auth-retry runs on claude unless a `--model`,
@@ -123,24 +124,30 @@ paths:
 - **Overlay** — `agents ask --overlay` / `gateway --overlay` / vault env `COWORKER_OVERLAY`: ONE keyed JSON document
   (`schema` 1) as a file path (regular, yours, not group/world-writable, ≤ 64 KiB), inline `'{...}'` or `-`. Flags and
   prefixes normalise into it; an unknown key or bad value exits 2 naming the valid keys. It rides the run's context,
-  never the dispatch's env. Precedence: typed flag > `--overlay`, else `COWORKER_OVERLAY` > `--retry`/`--job` record >
-  process env > vault env > agent definition > agent pin > table default (profile and fallback order:
-  `providers.md` → Routing precedence). Nested dispatches inherit only `provider`/`profile`; `--host` refuses a
-  non-empty env layer; endpoint, proxy, TLS, agent-config and credential env names are refused (use `--profile`).
-  Compatibility, relaunch and `--env` rules: `dispatch-policy-details.md` → Overlay.
+  never the dispatch's env. A route is ONE unit (provider, profile, identity, account, host, remote) taken whole from
+  the highest source that sets any of it: command line (flags + `--overlay`) > `COWORKER_OVERLAY` > `--retry`/`--job`
+  record > agent definition > vault record > session > registry default; settings (model, effort, fallback…) merge per
+  key (order, fallback: `providers.md` → Routing precedence). An inherited `COWORKER_OVERLAY` from a parent dispatch
+  is a fence, not a source; `--host` refuses a non-empty env layer; endpoint, proxy, TLS, agent-config and credential
+  env names are refused (use `--profile`). Compatibility, relaunch and `--env` rules: `dispatch-policy-details.md`.
 
-  `--profile` names a registry row (or `session`); `auto` is only an overlay `profile`, and `ask` and `label` refuse it.
-  `ask --provider databricks` without `--profile` resolves to the overlay `auto` pick (least busy workspace serving the
-  model); a typed `--profile` or a pin that serves the typed model is unchanged, a pin that lacks it joins the pool.
+  An object that sets any route key names provider AND profile (a github account route: provider `github` + `account`);
+  a partial object exits 2 naming the missing key. Shorthand: `--profile R` and `R:model` fill provider from R's own
+  registry row, never the session; `--provider P` = `{P, auto}`; `databricks` = the pool pick (least busy workspace
+  serving the model); `auto` is only an overlay `profile`: `ask --profile auto` and `label` refuse it. A flag and
+  `--overlay` setting one key differently on one command line exit 2 naming both; `--spec` stays a template typed
+  flags beat. Interactive launchers accept route, `model` and `effort` in `--overlay`; `fallback`, budgets, caps,
+  `codexNetwork` and `cloud` are refused naming the key. `Run:` lines and held-job hints print `--overlay
+  '<object>'`; batch lines take an `overlay` key.
 
   | Key | Values | Overrides |
   | --- | --- | --- |
-  | `provider` / `profile` | provider key / profile name (`profile` needs `provider`) | `--profile`, provider prefix |
+  | `provider` / `profile` | provider key / profile name (both, or neither) | `--provider`, `--profile`, prefix |
   | `model` / `effort` | model id or alias / effort name | `--model`, `--effort` |
   | `fallback` | `none\|pin\|agents\|all` | `--fallback`, `AGENT_ERROR_FALLBACK` |
-  | `host` / `remote` | ssh host (not both, unless `host` names this machine) | `--host`, remote run |
-  | `account` | copilot GitHub account (its login) | the credit gate's account pick |
-  | `identity` | `auto\|user\|sp` (Databricks) | `--as`, the profile's identity |
+  | `host` / `remote` | ssh host, in the route (not both, unless `host` names this machine) | `--host`, remote run |
+  | `account` | GitHub account login (github only) | the credit gate's account pick |
+  | `identity` | `auto\|user\|sp` (Databricks only) | `--as`, the profile's identity |
   | `codexNetwork` | `true`: codex `--tools` `workspace-write` sandbox gets network (inert under `danger-full-access`; top-level ask only) | sealed network |
   | `cloud` | `true`: diff or repo goes to the vendor's cloud (`claude review`, `codex cloud exec`); own login | local |
   | `maxChildren` | Concurrent children per parent; env > overlay > default; 0 = no cap, invalid = default | 8 |
@@ -150,7 +157,8 @@ paths:
   | `set` / `unset` / `keep` | env name -> value / names / names | env layer |
 
 - `<agent> models` passes through to the vendor CLI; the catalog is `<agent> catalog`.
-- **Model precedence** (`agent.ResolveRun`): a typed model (`--model`, overlay `model`, `<profile>:` prefix), then a
+- **Model precedence** (`agent.ResolveRun`; model merges per key across layers, preflight refuses an unserved one):
+  a typed model (`--model`, overlay `model`, `<profile>:` prefix), then a
   typed `auto`, then the agent's pinned model (record `model` or `<AGENT>_MODEL`), then the task tier: a
   `Tier: fast|standard|deep` line in the brief wins, else its wording picks (audit, security, parser, design: deep;
   typo, rename, move: fast), and a brief the effort classifier rates high never takes the fast tier.
@@ -181,6 +189,9 @@ paths:
   free); no re-pick follows streamed text or tool execution. Under `--fallback none` an auto-picked workspace
   whose pool is exhausted moves to another workspace of the same provider, never past a typed or inherited
   `--profile`.
+  Vault agent records store `route`/`fallbackRoute` objects (`configure agents <a> profile=qa` is sugar,
+  `route='{…}'` takes the object; legacy profile/account/fallback are read; a copilot record is route
+  `{github, account}` plus `fallbackRoute`). Dispatch records write `route`/`ran_route` as objects.
   `--model databricks:auto` equals `--provider databricks --model auto`.
   Own-login `<login>/auto` is refused before launch, naming that login's typed ids.
   Labels, `gateway resolve`, and `ask --dry-run` only peek; `agents label <agent> --run` records and freezes the pick

@@ -42,16 +42,19 @@ paths:
 
 - **One interface:** flags (`--profile`, `--model`, `--as`, `--fallback`, `--host`, `--remote`), `<profile>:` and
   provider-type model prefixes, `COWORKER_OVERLAY`, waves, coworker specs, `Run:` lines, `configure` menus and agent
-  records all normalise into one overlay; launch, preflight, labels and `ran on` read only it. Print it:
+  records all normalise into one overlay whose route is one unit, taken whole from one source;
+  launch, preflight, labels and `ran on` read only it. Print it:
   (with no `--model`/`--profile` it prints the route ladder's first hop, the model the run and its label use)
-  `claude-code gateway resolve <agent> --model m [--profile p] [--overlay '{...}']
+  `claude-code gateway resolve <agent> --model m [--provider P] [--profile p] [--overlay '{...}']
   [--all-profiles [--live]] --format json`. A model the workspace's fresh listing lacks is marked `served: no` with
   the served alternatives named, and `--fallback none` exits non-zero instead; with no fresh listing it says
   `unverified`.
 - **Pool table:** `claude-code gateway resolve all --model auto --all-profiles [--task <brief>] [--format json]` peeks
   every rotation row x agent x tier (pool, next, held, last pick) without moving any rotation history; claude lists
   its rotated rows, the subscription row included, with the next ask's row and each row's last pick.
-- **Profile order:** a `<profile>:` or unique provider-type model prefix > `--profile` or overlay `profile` > overlay
+- **Profile order** (the route, taken whole from the first source naming any of it; `--profile R` and `R:model` take
+  provider from R's registry row, never the session; `gateway resolve --provider databricks`, `--profile auto` too):
+  a `<profile>:` or unique provider-type model prefix > `--profile` or overlay `profile` > overlay
   `provider`, then `account` > the session profile (with its model for the agent) > the agent record's profile or
   account (the pin) > the registry default > the agent's own sign-in row. `databricks:<m>` or profile `auto` picks the
   pool before these (first valid workspace in vault order dev, prod, qa; least-busy under `auto`); a pin on the

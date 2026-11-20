@@ -146,8 +146,10 @@ Give each leaf named files it owns, never shared between parallel leaves. Fan ou
 
 The hook reads `Agent:` only before the first blank line. A leading `Run: claude-code agents ask …` or
 `claude-code <agent> ask …` (optionally with global `--remote <h>`) is left unrewritten; `--profile` leads then
-falls back unless `--fallback none` pins it. Overlay keys: `rules/harness/agent.md` → Dispatch behavior; auto-mode
-rewrites: `rules/harness/hooks.md`; `--remote` vs `--host`: `rules/harness/network.md`.
+falls back unless `--fallback none` pins it; `Run:` lines and held-job hints carry the route as `--overlay '<object>'`
+(one unit: provider and profile together, an inherited `COWORKER_OVERLAY` is a fence). Overlay keys:
+`rules/harness/agent.md` → Dispatch behavior; auto-mode rewrites: `rules/harness/hooks.md`;
+`--remote` vs `--host`: `rules/harness/network.md`.
 
 **Report (out)** — the final answer is a verdict of at most 8 lines: a review's verdict word,
 else one Status: `DONE` · `DONE_WITH_CONCERNS` (resolve before review) · `NEEDS_CONTEXT`

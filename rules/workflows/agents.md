@@ -41,7 +41,9 @@ All are owner-only (`disable-model-invocation: true`); the model dispatches with
 - `/coworker --agent <codex|copilot|gemini|opencode|claude> [--overlay <json|file>] [--model <m>] <task>` — the same
   dispatch, run here on the Databricks arm with its requests sent through the other machine (default overlay
   `{"provider":"databricks","profile":"auto","remote":"auto"}`; `--overlay` replaces it). Not a new agent type.
-  Overlay keys and precedence: `rules/harness/agent.md`; what `auto` resolves to: `rules/harness/network.md`.
+  The route travels whole (provider, profile, host, remote); workflow steps take it from one source and pass
+  `--overlay`. Overlay keys and precedence: `rules/harness/agent.md`;
+  what `auto` resolves to: `rules/harness/network.md`.
 - `--model auto` (or `<row>:auto`, overlay `model: auto`, a record pin `auto`) ranks the models that row serves by the
   brief's tier from `internal/catalog/ranks.json`, over a pinned model; the label shows the pick.
   `auto`, typed or pinned, replaces a ladder cell's model on that cell's row; with nothing to rank it runs the
