@@ -37,14 +37,15 @@ func TestLoadOverlayRefusesWritableOrTrickedFiles(t *testing.T) {
 	own := write("own.json", `{"provider":"databricks","profile":"dev"}`, 0o600)
 	big := `{"model":"` + strings.Repeat("a", overlayMaxBytes) + `"}`
 	cases := map[string]string{
-		`{"schema":2}`:      "schema 2 is newer than this build",
-		`{} {}`:             "not valid JSON at byte 4", // schemas.Decode refuses it before the trailing-data check
-		big:                 "over 65536 bytes",
-		`{"files":[]}`:      "files: not supported yet",
-		`{"profile":"dev"}`: "profile: needs a provider",
-		`{"bogus":1}`:       "unknown key bogus (schema|provider|profile|model|effort|fallback|host|remote|account|identity|",
-		`{"identity":"x"}`:  "identity: want auto, user, sp",
-		`{"fallback":"x"}`:  "fallback: want none, pin, agents, all",
+		`{"schema":2}`:              "schema 2 is newer than this build",
+		`{} {}`:                     "not valid JSON at byte 4", // schemas.Decode refuses it before the trailing-data check
+		big:                         "over 65536 bytes",
+		`{"files":[]}`:              "files: not supported yet",
+		`{"profile":"dev"}`:         "provider: required with profile",
+		`{"provider":"databricks"}`: "profile: required with provider",
+		`{"bogus":1}`:               "unknown key bogus (schema|provider|profile|model|effort|fallback|host|remote|account|identity|",
+		`{"identity":"x"}`:          "identity: want auto, user, sp",
+		`{"fallback":"x"}`:          "fallback: want none, pin, agents, all",
 		`{"provider":"databricks","profile":"d\u0007ev"}`: "profile: blank or holds a control character",
 	}
 	if runtime.GOOS != "windows" {
@@ -63,8 +64,8 @@ func TestLoadOverlayRefusesWritableOrTrickedFiles(t *testing.T) {
 			t.Errorf("LoadOverlayContext(t.Context(), %.40q): err %q echoes a value", doc, err)
 		}
 	}
-	if o, err := LoadOverlayContext(t.Context(), `{"fallback":"pin","account":"business","identity":"sp"}`, nil); err != nil ||
-		o.Fallback != "pin" || o.Account != "business" || o.Identity != "sp" || !o.Routed() {
+	if o, err := LoadOverlayContext(t.Context(), `{"fallback":"pin","provider":"databricks","profile":"dev","identity":"sp"}`, nil); err != nil ||
+		o.Fallback != "pin" || o.Route().Identity != "sp" || !o.Routed() {
 		t.Errorf("account/identity/pin overlay = %+v, %v", o, err)
 	}
 	if o, err := LoadOverlayContext(t.Context(), own, nil); err != nil || o.Confinement() != "databricks:dev" {

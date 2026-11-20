@@ -106,7 +106,8 @@ func RoutingKeys() []string {
 	return out
 }
 
-// Fold sets each routing key on its flag in fs unless that flag was typed or fs lacks it: flag > overlay > default.
+// Fold sets each setting key (model, effort, fallback, host) on its flag in fs unless typed: flag > overlay > default.
+// The route unit is never folded key by key: the caller takes it whole with route.Pick.
 func (o Overlay) Fold(fs *flag.FlagSet) {
 	typed := map[string]bool{}
 	fs.Visit(func(f *flag.Flag) { typed[f.Name] = true })
@@ -442,11 +443,12 @@ func (k routeKey) check(v string) error {
 	return nil
 }
 
-// checkCrossKeys applies the rules spanning several routing keys: profile needs provider, remote excludes host.
+// checkCrossKeys applies the rules spanning several routing keys: a route names provider and profile together.
 func (o Overlay) checkCrossKeys() error {
+	if err := cmp.Or(o.checkRouteUnit(), o.checkRouteScope()); err != nil {
+		return err
+	}
 	switch {
-	case o.Profile != "" && o.Provider == "":
-		return errors.New("profile: needs a provider")
 	case strings.ContainsFunc(o.Profile, func(r rune) bool { return r == ':' || unicode.IsSpace(r) }):
 		return errors.New("profile: want a name without ':' or spaces")
 	case o.Remote != "" && o.Host != "" && !remote.IsSelf(o.Host):

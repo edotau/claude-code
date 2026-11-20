@@ -147,7 +147,7 @@ func TestLiveRequestStartsOnConfinedProfile(t *testing.T) {
 		if tc.confinement == "" {
 			t.Setenv(agentconfig.OverlayVar, "")
 		}
-		f := askFlags{provider: tc.typed}
+		f := askFlags{profile: tc.typed}
 		if got := liveRequest(t.Context(), (&askRun{f: &f}).askState(), agent.Permissions{}, "gemini").Provider; got != tc.want {
 			t.Errorf("confinement %q, typed %q: Provider = %q, want %q", tc.confinement, tc.typed, got, tc.want)
 		}

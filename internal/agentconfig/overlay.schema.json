@@ -41,6 +41,9 @@
     ],
     "profile": [
       "provider"
+    ],
+    "provider": [
+      "profile"
     ]
   },
   "not": {

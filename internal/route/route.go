@@ -18,6 +18,8 @@ type Route struct {
 	Profile  string `json:"profile,omitempty"`
 	Identity string `json:"identity,omitempty"`
 	Account  string `json:"account,omitempty"`
+	Host     string `json:"host,omitempty"`
+	Remote   string `json:"remote,omitempty"`
 }
 
 // Target is a route plus the plain model id to ask it for.
@@ -51,27 +53,39 @@ func ParseLegacy(s string) Route {
 	return Route{}
 }
 
+// named reports a key that only means something under a provider.
+func (r Route) named() bool { return r.Profile != "" || r.Identity != "" || r.Account != "" }
+
 // Validate applies the route's own rules; an error names the key, never its value.
 func (r Route) Validate() error {
 	switch {
-	case r.Provider == "" && !r.IsZero():
+	case r.Provider == "" && r.named():
 		return errors.New("route: profile, identity and account need a provider")
+	case r.Host != "" && r.Remote != "":
+		return errors.New("route: host and remote are exclusive")
+	case strings.ContainsFunc(r.Profile, func(c rune) bool { return c == ':' || unicode.IsSpace(c) }):
+		return errors.New("profile: want a name without ':' or spaces")
+	}
+	return r.checkScoped()
+}
+
+// checkScoped refuses identity off Databricks and account off GitHub.
+func (r Route) checkScoped() error {
+	switch {
 	case r.Identity != "" && r.Provider != "databricks":
 		return errors.New("identity: databricks only")
 	case r.Account != "" && r.Provider != "github":
 		return errors.New("account: github only")
-	case strings.ContainsFunc(r.Profile, func(c rune) bool { return c == ':' || unicode.IsSpace(c) }):
-		return errors.New("profile: want a name without ':' or spaces")
 	}
 	return nil
 }
 
-// JSON is the canonical one-line object (keys: provider, profile, identity, account, model) for --overlay.
+// JSON is the canonical one-line object (keys: provider, profile, identity, account, host, remote, model) for --overlay.
 func (t Target) JSON() string {
 	var b strings.Builder
 	b.WriteByte('{')
 	for _, kv := range [][2]string{{"provider", t.Provider}, {"profile", t.Profile}, {"identity", t.Identity},
-		{"account", t.Account}, {"model", t.Model}} {
+		{"account", t.Account}, {"host", t.Host}, {"remote", t.Remote}, {"model", t.Model}} {
 		if kv[1] == "" {
 			continue
 		}

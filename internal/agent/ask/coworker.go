@@ -19,20 +19,31 @@ import (
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 )
 
-// ApplyCoworker is ctx with the confinement as the minimal $COWORKER_OVERLAY, databricks:<p> also as CLAUDE_PROFILE.
+// ApplyCoworker is ApplyRoute for a legacy provider[:profile] value; cli/gateway.go still passes strings.
 func ApplyCoworker(ctx context.Context, value, profile, agentName, model, fallback string) (context.Context, error) {
+	provider, p, err := router.ParseCoworker(value)
+	if err != nil {
+		if _, _, cerr := router.CoworkerContext(ctx); cerr != nil {
+			return ctx, cerr
+		}
+		return ctx, err
+	}
+	return ApplyRoute(ctx, route.Route{Provider: provider, Profile: p}, profile, agentName, model, fallback)
+}
+
+// ApplyRoute is ctx with want as the minimal $COWORKER_OVERLAY, databricks:<p> also as CLAUDE_PROFILE.
+// An inherited confinement is a fence: want must lie inside it, and nothing of it ever fills want.
+func ApplyRoute(ctx context.Context, want route.Route, profile, agentName, model, fallback string) (context.Context, error) {
 	ip, iprof, err := router.CoworkerContext(ctx)
 	if err != nil {
 		return ctx, err
 	}
-	provider, p, err := router.ParseCoworker(value)
-	switch {
-	case err != nil:
-		return ctx, err
-	case provider == "": // an inherited non-Databricks confinement is re-checked for agentName; a workspace was applied
+	provider, p := want.Provider, want.Profile
+	if provider == "" { // an inherited non-Databricks confinement is re-checked for agentName; a workspace was applied
 		if ip == "" || ip == router.RouteDatabricks {
 			return ctx, nil
 		}
@@ -467,6 +478,6 @@ func (r *askRun) pinLacks(model string) bool {
 
 // ownLoginNative is f.native, or true for a typed opencode own-login model with no confinement: it wins over a pin.
 func ownLoginNative(agentName string, f *askFlags, value string) bool {
-	return f.native || value == "" && agentName == agentid.OpenCode && f.provider == "" && f.leadProvider == "" && f.host == "" &&
+	return f.native || value == "" && agentName == agentid.OpenCode && f.profile == "" && f.provider == "" && f.host == "" &&
 		providers.OpencodeOwnModel(f.model)
 }

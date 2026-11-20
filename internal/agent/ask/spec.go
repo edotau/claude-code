@@ -199,7 +199,7 @@ func (r *askRun) dryCtx(ctx context.Context, prompt string) context.Context {
 	if !r.f.dryRun {
 		return ctx
 	}
-	if r.f.provider == "" && r.typed != "" { // resolveLead moved the typed profile into the lead; the re-run types it
+	if r.f.profile == "" && r.typed != "" { // resolveLead moved the typed profile into the lead; the re-run types it
 		_ = r.fs.Set("profile", r.typed)
 	}
 	return context.WithValue(ctx, dryKey{}, dryDoc{Overlay: r.ov, Argv: textutil.ShellJoin(canonicalArgv(r.fs, prompt, taskFromStdin(r.pos)))})

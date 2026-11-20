@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -27,27 +28,27 @@ import (
 
 // askFlags are the values of ask's flags.
 type askFlags struct {
-	name, fallback, provider, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, format, rubric, retry, job, batchSrc, overlay string
-	modelTyped                                                                                                                                                                    bool
-	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast                                       bool
-	timeout                                                                                                                                                                       time.Duration
-	jobs, maxFiles, maxFileBytes                                                                                                                                                  int
-	dirs, files, save                                                                                                                                                             string
-	diff, index                                                                                                                                                                   bool
-	pack                                                                                                                                                                          *pack.Spec
-	agents                                                                                                                                                                        agentsFlag
-	attach                                                                                                                                                                        attachFlag
-	keepEnv                                                                                                                                                                       []string
-	permAllow, permAsk, permDeny                                                                                                                                                  []string
-	permMode                                                                                                                                                                      string
-	leadProvider                                                                                                                                                                  string
-	env                                                                                                                                                                           []string
-	spec                                                                                                                                                                          string
-	dryRun                                                                                                                                                                        bool
-	loop                                                                                                                                                                          bool
-	waves                                                                                                                                                                         string
-	loopPlanner, loopResume                                                                                                                                                       string
-	loopRounds, loopBudget                                                                                                                                                        int
+	name, fallback, profile, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, format, rubric, retry, job, batchSrc, overlay string
+	modelTyped                                                                                                                                                                   bool
+	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast                                      bool
+	timeout                                                                                                                                                                      time.Duration
+	jobs, maxFiles, maxFileBytes                                                                                                                                                 int
+	dirs, files, save                                                                                                                                                            string
+	diff, index                                                                                                                                                                  bool
+	pack                                                                                                                                                                         *pack.Spec
+	agents                                                                                                                                                                       agentsFlag
+	attach                                                                                                                                                                       attachFlag
+	keepEnv                                                                                                                                                                      []string
+	permAllow, permAsk, permDeny                                                                                                                                                 []string
+	permMode                                                                                                                                                                     string
+	provider                                                                                                                                                                     string
+	env                                                                                                                                                                          []string
+	spec                                                                                                                                                                         string
+	dryRun                                                                                                                                                                       bool
+	loop                                                                                                                                                                         bool
+	waves                                                                                                                                                                        string
+	loopPlanner, loopResume                                                                                                                                                      string
+	loopRounds, loopBudget                                                                                                                                                       int
 }
 
 // CompletionFlags lists ask's flags for tab completion; --format stays free text, as text|json would drop stream-json.
@@ -77,8 +78,8 @@ func askFlagSet() (*flag.FlagSet, *askFlags) {
 	fs.Var(&f.agents, "agents", "agent definitions: --agent takes their keys")
 	registerFallbackFlag(fs, f)
 	fs.BoolVar(&f.native, "native", false, "opencode: skip the hub ladder; run on its default login")
-	fs.StringVar(&f.provider, "profile", "", "profile, or session; leads, then the pin (--fallback none pins)")
-	fs.StringVar(&f.leadProvider, "provider", "", "lead on this provider's signed-in profile; falls back like --fallback")
+	fs.StringVar(&f.profile, "profile", "", "profile, or session; leads, then the pin (--fallback none pins)")
+	fs.StringVar(&f.provider, "provider", "", "lead on this provider's signed-in profile; falls back like --fallback")
 	fs.StringVar(&f.as, "as", "", "claude only: auto|user|sp (default: the profile's)")
 	fs.StringVar(&f.model, "model", "", "alias (opus), version (opus-5-5) or wire id")
 	fs.StringVar(&f.effort, "effort", "", "reasoning effort: "+strings.Join(agentid.EffortNames(), "|"))
@@ -625,4 +626,59 @@ func absDebugFile(p string) string {
 		return abs
 	}
 	return p
+}
+
+// flagRoute is the route the typed --profile / --provider name, whole: --profile R takes R's own registry provider,
+// never the session's; --provider P is {P, auto} for the pool, else P's only row. Zero when neither names one.
+func flagRoute(f *askFlags) route.Route {
+	reg, err := providers.Load()
+	if err != nil {
+		reg = &providers.Registry{}
+	}
+	switch {
+	case f.profile != "":
+		if row := reg.Row(f.profile); row != nil {
+			return route.Route{Provider: row.Provider, Profile: f.profile}
+		}
+		if r := route.ParseLegacy(f.profile); r.Provider != "" && r.Profile != "" {
+			return r
+		}
+	case f.provider == router.RouteDatabricks:
+		return route.Route{Provider: f.provider, Profile: router.AutoArm}
+	case f.provider != "":
+		if rows := reg.ProfilesOf(f.provider); len(rows) == 1 {
+			return route.Route{Provider: f.provider, Profile: rows[0]}
+		}
+		return route.Route{Provider: f.provider}
+	}
+	return route.Route{}
+}
+
+// flagConflict refuses a typed flag setting a key of the --overlay on the same command line to another value.
+func flagConflict(fs *flag.FlagSet, f *askFlags, fr route.Route, ov agentconfig.Overlay) error {
+	or := ov.Route()
+	name, val := "--profile", f.profile
+	if f.profile == "" {
+		name, val = "--provider", f.provider
+	}
+	for _, c := range []struct{ flag, val, key, flagKey, ov string }{
+		{name, val, "provider", fr.Provider, or.Provider},
+		{name, val, "profile", fr.Profile, or.Profile},
+		{"--as", f.as, "identity", f.as, or.Identity},
+	} {
+		if c.flagKey != "" && c.ov != "" && c.flagKey != c.ov {
+			return fmt.Errorf("%s %s conflicts with overlay %s %s", c.flag, c.val, c.key, c.ov)
+		}
+	}
+	return settingConflict(fs, ov)
+}
+
+// settingConflict refuses a typed --model, --effort, --fallback or --host that differs from the same overlay key.
+func settingConflict(fs *flag.FlagSet, ov agentconfig.Overlay) error {
+	for _, k := range [][2]string{{"model", ov.Model}, {"effort", ov.Effort}, {"fallback", ov.Fallback}, {"host", ov.Host}} {
+		if v := fs.Lookup(k[0]).Value.String(); helptext.Explicit(fs, k[0]) && v != "" && k[1] != "" && v != k[1] {
+			return fmt.Errorf("--%s %s conflicts with overlay %s %s", k[0], v, k[0], k[1])
+		}
+	}
+	return nil
 }

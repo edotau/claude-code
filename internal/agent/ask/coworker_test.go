@@ -154,17 +154,17 @@ func TestArmFlagRefusals(t *testing.T) {
 	}{
 		{"", "overlay profile: no such profile", []string{"--overlay", `{"provider":"databricks","profile":"nope"}`}},
 		{"", "overlay profile: not a Databricks profile", []string{"--overlay", `{"provider":"databricks","profile":"chatgpt"}`}},
-		{"", "overlay provider databricks needs a profile", []string{"--overlay", `{"provider":"databricks"}`}},
-		{"", "--profile chatgpt: outside", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--profile", "chatgpt"}},
-		{"", "--provider openai: outside", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--provider", "openai"}},
+		{"", "profile: required with provider", []string{"--overlay", `{"provider":"databricks"}`}},
+		{"", "--profile chatgpt conflicts with overlay provider databricks", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--profile", "chatgpt"}},
+		{"", "--provider openai conflicts with overlay provider databricks", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--provider", "openai"}},
 		{"", "--model: profile gw is outside overlay databricks:dev", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--model", "gw:m"}},
 		{"", "--direct: refused", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--direct"}},
 		{"", "--model: not served to claude", // external agents' models are the chain's preflight
 			[]string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--agent", "claude", "--model", "gpt-nonexistent-9"}},
-		{"databricks:dev", "cannot leave databricks:dev", []string{"--overlay", `{"provider":"openai"}`}},
-		{"openai", "cannot leave openai", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`}},
-		{"openai", "--profile dev: outside overlay openai", []string{"--profile", "dev"}},
-		{"anthropic", "codex has no anthropic account", nil},
+		{"databricks:dev", "cannot leave databricks:dev", []string{"--overlay", `{"provider":"openai","profile":"chatgpt"}`}},
+		{"openai:chatgpt", "cannot leave openai", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`}},
+		{"openai:chatgpt", "--profile dev: outside overlay openai", []string{"--profile", "dev"}},
+		{"anthropic:ultra", "codex has no anthropic account", nil},
 		{"", "overlay profile: not a profile of openai", []string{"--overlay", `{"provider":"openai","profile":"dev"}`}},
 		{"", "provider: unknown (anthropic|databricks|github|google|openai)", []string{"--overlay", `{"provider":"first-party"}`}},
 		{"databricks:dev", "--profile chatgpt: outside", []string{"--profile", "chatgpt"}},
@@ -485,7 +485,7 @@ func TestCheckNativeRefusedUnderConfinement(t *testing.T) {
 	dump := armChildEnvFixture(t)
 	for _, c := range []struct{ agent, overlay, want string }{
 		{"opencode", `{"provider":"databricks","profile":"dev"}`, "--native: outside overlay databricks:dev"},
-		{"codex", `{"provider":"openai"}`, "--native: outside overlay openai"}, // opencode has no openai account to pass canUse
+		{"codex", `{"provider":"openai","profile":"chatgpt"}`, "--native: outside overlay openai"}, // opencode has no openai account to pass canUse
 	} {
 		t.Setenv(agentconfig.OverlayVar, "")
 		t.Setenv(providers.EnvSessionProfile, "qa")

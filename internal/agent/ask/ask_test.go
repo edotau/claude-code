@@ -833,8 +833,8 @@ func TestResolveLeadNamedProfileLeads(t *testing.T) {
 		if code, done := r.resolveLead(); done {
 			t.Fatalf("%v: resolveLead exit %d", c.args, code)
 		}
-		if r.lead != c.wantLead || f.provider != c.wantProv {
-			t.Errorf("%v: lead %q profile %q, want lead %q profile %q", c.args, r.lead, f.provider, c.wantLead, c.wantProv)
+		if r.lead != c.wantLead || f.profile != c.wantProv {
+			t.Errorf("%v: lead %q profile %q, want lead %q profile %q", c.args, r.lead, f.profile, c.wantLead, c.wantProv)
 		}
 	}
 }
@@ -1258,7 +1258,7 @@ func TestAskSpawnFailureFinishesRecord(t *testing.T) {
 	}
 }
 
-// --retry of a databricks:dev run re-arms dev with no --overlay, and refuses a --profile leaving it.
+// --retry of a databricks:dev run re-arms dev with no --overlay; a typed --profile replaces the recorded route whole.
 func TestCmdAskRetryReArmsRecordedConfinement(t *testing.T) {
 	dump := armChildEnvFixture(t)
 	runCLI(t, "ask", "--agent", "codex", "--overlay", `{"provider":"databricks","profile":"dev"}`, "--fallback", "none", "go")
@@ -1282,8 +1282,8 @@ func TestCmdAskRetryReArmsRecordedConfinement(t *testing.T) {
 	assertArmDevHop(t, "codex", "linux", envs[1])
 	unarm()
 	code, _, stderr = runCLI(t, "ask", "--retry", recs[0].ID, "--profile", "chatgpt")
-	if bins, _ = armDumps(t, dump); code != 2 || !strings.Contains(stderr, "--profile chatgpt: outside overlay databricks:dev") || len(bins) != 2 {
-		t.Fatalf("retry --profile chatgpt: exit %d launches %v stderr %q, want 2 refusing outside databricks:dev", code, bins, stderr)
+	if code == 2 || strings.Contains(stderr, "outside overlay") { // a typed route replaces the record's whole: no fence from it
+		t.Fatalf("retry --profile chatgpt: exit %d stderr %q, want the typed route to run, not the recorded fence", code, stderr)
 	}
 }
 
@@ -1385,7 +1385,7 @@ func TestPoolValue(t *testing.T) {
 		if got := r.poolValue(""); got != c.want {
 			t.Errorf("%s: poolValue = %q, want %q", c.name, got, c.want)
 		}
-		if lead := f.leadProvider + " " + f.model; strings.Contains(c.name, "prefixed") && lead != "databricks auto" {
+		if lead := f.provider + " " + f.model; strings.Contains(c.name, "prefixed") && lead != "databricks auto" {
 			t.Errorf("%s: provider and model = %q, want the --provider databricks --model auto spelling", c.name, lead)
 		}
 		if own := strings.Contains(c.name, "own-login"); f.native != own {

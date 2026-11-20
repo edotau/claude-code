@@ -66,6 +66,7 @@ func OverlaySchema() []byte {
 		"properties": props,
 		"dependentRequired": obj{
 			"profile": []string{"provider"}, "identity": []string{"provider"}, "account": []string{"provider"},
+			"provider": []string{"profile"},
 		},
 		"not": obj{"required": []string{"host", "remote"}},
 		"allOf": []obj{

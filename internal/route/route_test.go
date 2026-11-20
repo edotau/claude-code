@@ -32,6 +32,7 @@ func TestValidate(t *testing.T) {
 		{}: true, {Provider: "databricks", Profile: "qa", Identity: "sp"}: true, {Provider: "github", Account: "a"}: true,
 		{Profile: "qa"}: false, {Identity: "sp"}: false, {Account: "a"}: false,
 		{Provider: "github", Identity: "sp"}: false, {Provider: "databricks", Account: "a"}: false,
+		{Provider: "databricks", Host: "h", Remote: "r"}: false, {Host: "h"}: true,
 		{Provider: "databricks", Profile: "a:b"}: false, {Provider: "databricks", Profile: "a b"}: false,
 	} {
 		if err := r.Validate(); (err == nil) != ok {
@@ -41,8 +42,8 @@ func TestValidate(t *testing.T) {
 }
 
 func TestTargetJSON(t *testing.T) {
-	tg := Target{Route{"databricks", "qa", "sp", ""}, `a/b[1m]"x"`}
-	want := `{"provider":"databricks","profile":"qa","identity":"sp","model":"a/b[1m]\"x\""}`
+	tg := Target{Route{Provider: "databricks", Profile: "qa", Identity: "sp", Host: "h"}, `a/b[1m]"x"`}
+	want := `{"provider":"databricks","profile":"qa","identity":"sp","host":"h","model":"a/b[1m]\"x\""}`
 	if got := tg.JSON(); got != want {
 		t.Fatalf("got %s", got)
 	}

@@ -18,7 +18,11 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hooks"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // Given pack flags that cannot work together or alone, askPack refuses each; valid ones build the request's spec.
@@ -258,7 +262,7 @@ func TestAskRetryPreservesRecordedLead(t *testing.T) {
 			if got := r.request(r.prompt); got.Lead != tc.wantLead {
 				t.Fatalf("replayed lead = %q, want %q", got.Lead, tc.wantLead)
 			}
-			if got := f.provider + f.leadProvider; got != tc.wantRoute {
+			if got := f.profile + f.provider; got != tc.wantRoute {
 				t.Fatalf("explicit route = %q, want %q", got, tc.wantRoute)
 			}
 		})
@@ -344,8 +348,8 @@ func TestParseAskArgsFlagPositions(t *testing.T) {
 		fs, f := askFlagSet()
 		fs.SetOutput(io.Discard)
 		pos, code, _ := parseAskArgs(fs, r.args)
-		if code != r.code || !slices.Equal(pos, r.pos) || f.tools != r.tools || f.provider != r.profile {
-			t.Errorf("%s: got pos %q code %d tools %v profile %q, want %q %d %v %q", r.name, pos, code, f.tools, f.provider, r.pos, r.code, r.tools, r.profile)
+		if code != r.code || !slices.Equal(pos, r.pos) || f.tools != r.tools || f.profile != r.profile {
+			t.Errorf("%s: got pos %q code %d tools %v profile %q, want %q %d %v %q", r.name, pos, code, f.tools, f.profile, r.pos, r.code, r.tools, r.profile)
 		}
 		w, ok := hooks.ParseAskWords(r.args)
 		if ok != (r.code == 0) || ok && (!slices.Equal(w.Pos, r.pos) || w.Has("tools") != r.tools || w.Value("profile") != r.profile) {
@@ -487,5 +491,38 @@ func TestMarkTypedAutoIsNoPin(t *testing.T) {
 		if f.modelTyped != want {
 			t.Fatalf("--model %s typed = %v, want %v", model, f.modelTyped, want)
 		}
+	}
+}
+
+// A typed route is taken whole: --profile names its own row's provider, never the session's, and a record's qa never mixes in.
+func TestFlagRouteTakenWhole(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
+		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
+	t.Setenv(providers.EnvSessionProfile, "ultra")
+	parse := func(args ...string) (*flag.FlagSet, *askFlags) {
+		fs, f := askFlagSet()
+		if err := fs.Parse(args); err != nil {
+			t.Fatal(err)
+		}
+		return fs, f
+	}
+	if _, f := parse("--profile", "dev"); flagRoute(f) != (route.Route{Provider: "databricks", Profile: "dev"}) {
+		t.Errorf("--profile dev under an ultra session = %+v, want {databricks dev}", flagRoute(f))
+	}
+	fs, f := parse("--provider", "databricks")
+	r := &askRun{ctx: t.Context(), fs: fs, f: f, ag: "opencode", recCoworker: "databricks:qa", flagRoute: true}
+	value, err := confinementValue(r)
+	if got := r.poolValue(value); err != nil || got != "databricks:auto" {
+		t.Errorf("record qa with --provider databricks: confinement %q (err %v), want databricks:auto", got, err)
+	}
+	ov := agentconfig.Overlay{Provider: "databricks", Profile: "dev"}
+	fs, f = parse("--profile", "dev")
+	if err := flagConflict(fs, f, flagRoute(f), ov); err != nil {
+		t.Errorf("equal --profile dev and overlay dev: %v, want none", err)
+	}
+	fs, f = parse("--model", "opus")
+	if err := flagConflict(fs, f, flagRoute(f), agentconfig.Overlay{Model: "sonnet"}); err == nil {
+		t.Error("--model opus against overlay sonnet: want a conflict")
 	}
 }

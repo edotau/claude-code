@@ -69,6 +69,8 @@ type askRun struct {
 	persona     *agent.Schema
 	defs        map[string]*agent.Schema
 	ov          agentconfig.Overlay // --overlay, else $COWORKER_OVERLAY: routing keys fold under typed flags
+	ovSrc       ovSource            // where ov came from: its route is a fence only when inherited
+	flagRoute   bool                // --profile / --provider name a route: it replaces every lower layer
 	recCoworker string              // the confinement a --retry/--job record ran on
 	confined    bool                // the confinement filled the lead: resolveLead treats it as typed
 	schema      string
@@ -76,7 +78,7 @@ type askRun struct {
 	prompt      string
 	state       *askState
 	perms       agent.Permissions
-	typed       string // --profile as typed, kept for the --dry-run argv: resolveLead clears f.provider
+	typed       string // --profile as typed, kept for the --dry-run argv: resolveLead clears f.profile
 	lead        string // profile a routed run leads with (--profile session, --provider, or --profile with --fallback)
 	swap        bool   // --fallback was typed and allows another model: a typed model may then be swapped
 	auto        string // the workspace databricks:auto picked for this run; "" when the confinement was not an auto pick
@@ -170,8 +172,50 @@ func (r *askRun) config() (int, bool) {
 	if err := r.remoteWithHost(); err != nil {
 		return r.fail(err, 2)
 	}
-	ov.Fold(r.fs)
+	if err := takeRoute(r); err != nil {
+		return r.fail(err, 2)
+	}
+	r.ov.Fold(r.fs)
 	return 0, false
+}
+
+// ovSource is where the loaded overlay came from; only an inherited one is a fence, the others are sources.
+type ovSource int
+
+const (
+	srcVault ovSource = iota // $COWORKER_OVERLAY in the vault env, or a --spec template's overlay
+	srcCmd                   // --overlay on this command line
+	srcFence                 // $COWORKER_OVERLAY inherited from a parent dispatch
+)
+
+// takeRoute settles the route unit whole: --overlay and the flags must agree; flags beat a vault or template overlay.
+func takeRoute(r *askRun) error {
+	f := r.f
+	switch {
+	case f.overlay != "" && f.spec == "":
+		r.ovSrc = srcCmd
+	case f.overlay == "" && proc.Value(r.ctx, agentconfig.OverlayVar) != "":
+		r.ovSrc = srcFence
+	}
+	fr := flagRoute(f)
+	r.flagRoute = !fr.IsZero()
+	if r.ovSrc == srcCmd {
+		return flagConflict(r.fs, f, fr, r.ov)
+	}
+	if r.ovSrc == srcVault && r.flagRoute {
+		r.ov = r.ov.WithoutRoute()
+	}
+	return nil
+}
+
+// confinementValue is the provider[:profile] the run is fenced to: the overlay's, else the replayed record's.
+// Typed route flags name the route themselves, so a record's never mixes in.
+func confinementValue(r *askRun) (string, error) {
+	rec := r.recCoworker
+	if r.flagRoute {
+		rec = ""
+	}
+	return recordConfinement(r.ov.Confinement(), rec)
 }
 
 // LoadOverlay loads --overlay value, else $COWORKER_OVERLAY; a "-" source fails with busy when that is set.
@@ -264,7 +308,7 @@ func (r *askRun) selectAgent() (int, bool) {
 	if err := r.ov.CheckCloudAgent(f.name); err != nil {
 		return r.fail(err, 2)
 	}
-	if f.host != "" && f.leadProvider != "" { // the remote ask carries --profile, never a --provider lead
+	if f.host != "" && f.provider != "" { // the remote ask carries --profile, never a --provider lead
 		return r.fail(errors.New("--host cannot be combined with --provider: name the far side's profile with --profile"), 2)
 	}
 	return 0, false
@@ -273,7 +317,7 @@ func (r *askRun) selectAgent() (int, bool) {
 // checkArm applies the overlay's confinement for the agent and refuses flags leaving it (exit 2; preflight: 1).
 func (r *askRun) checkArm() (int, bool) {
 	f := r.f
-	value, err := recordConfinement(r.ov.Confinement(), r.recCoworker)
+	value, err := confinementValue(r)
 	if err != nil {
 		return r.fail(err, 2)
 	}
@@ -288,7 +332,7 @@ func (r *askRun) checkArm() (int, bool) {
 		}
 	}
 	// applied here, not in export: CheckArm, ConfineLead and resolveLead read the confinement from the run's values
-	ctx, err := ApplyCoworker(r.ctx, value, f.provider, agentName, f.model, fallback)
+	ctx, err := ApplyCoworker(r.ctx, value, f.profile, agentName, f.model, fallback)
 	if err != nil {
 		return refuse(r, err, fallback)
 	}
@@ -296,7 +340,7 @@ func (r *askRun) checkArm() (int, bool) {
 	if picks || r.jobAutoArm() {
 		r.auto = router.ArmProfileContext(r.ctx)
 	}
-	if err := cmp.Or(checkNative(r.ctx, f.native), CheckArm(r.ctx, r.ag, f.provider, f.leadProvider, f.model, f.direct)); err != nil {
+	if err := cmp.Or(checkNative(r.ctx, f.native), CheckArm(r.ctx, r.ag, f.profile, f.provider, f.model, f.direct)); err != nil {
 		return r.fail(err, 2)
 	}
 	if !batchLines {
@@ -341,13 +385,13 @@ func (r *askRun) poolValue(value string) string {
 	auto := router.JoinCoworker(router.RouteDatabricks, router.AutoArm)
 	f.native = ownLoginNative(r.ag, f, value)
 	switch {
-	case value != "" || f.provider != "" || f.host != "" || r.jobRec != nil || f.native:
+	case value != "" || f.profile != "" || f.host != "" || r.jobRec != nil || f.native:
 		leadAuto(f, auto)
 	case f.model == auto: // names the arm and its auto workspace, not a profile, so foldAuto sees plain auto
-		f.leadProvider, f.model = "", router.AutoArm
+		f.provider, f.model = "", router.AutoArm
 		return auto
-	case f.leadProvider == router.RouteDatabricks:
-		f.leadProvider = ""
+	case f.provider == router.RouteDatabricks:
+		f.provider = ""
 		return auto
 	case pinMoves(r):
 		return auto
@@ -357,15 +401,15 @@ func (r *askRun) poolValue(value string) string {
 
 // leadAuto spells a kept route's databricks:auto as --provider databricks --model auto, which a typed profile confines.
 func leadAuto(f *askFlags, auto string) {
-	if f.model == auto && f.host == "" && f.leadProvider == "" {
-		f.leadProvider, f.model = router.RouteDatabricks, router.AutoArm
+	if f.model == auto && f.host == "" && f.provider == "" {
+		f.provider, f.model = router.RouteDatabricks, router.AutoArm
 	}
 }
 
 // pinMoves reports an unled, unbatched run off its pin: a typed model the pin lacks, or a pool pin (not live or resumed).
 func pinMoves(r *askRun) bool {
 	f := r.f
-	if f.leadProvider != "" || f.batchSrc != "" {
+	if f.provider != "" || f.batchSrc != "" {
 		return false
 	}
 	if !r.swap && typedModel(f.model) && r.pinLacks(f.model) {
@@ -395,9 +439,9 @@ func ApplyCode(err error) int {
 
 // confineLead narrows --provider and the lead to the overlay's confinement, reporting whether either changed.
 func confineLead(ctx context.Context, ag string, f *askFlags) bool {
-	profile, provider := router.ConfineLeadContext(ctx, ag, f.provider, f.leadProvider, f.model)
-	changed := profile != f.provider || provider != f.leadProvider
-	f.provider, f.leadProvider = profile, provider
+	profile, provider := router.ConfineLeadContext(ctx, ag, f.profile, f.provider, f.model)
+	changed := profile != f.profile || provider != f.provider
+	f.profile, f.provider = profile, provider
 	return changed
 }
 
@@ -484,7 +528,7 @@ func batchOnlyFlags(fs *flag.FlagSet) error {
 func (r *askRun) batchBase() agent.RunOptions {
 	f := r.f
 	_, values := agent.RunValues(r.ctx, nil)
-	return agent.RunOptions{Model: f.model, ModelTyped: f.modelTyped, Provider: f.provider, Account: r.ov.Account, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, ReadOnly: f.readOnly, NoTools: f.noTools,
+	return agent.RunOptions{Model: f.model, ModelTyped: f.modelTyped, Provider: f.profile, Account: r.ov.Account, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, ReadOnly: f.readOnly, NoTools: f.noTools,
 		Timeout: f.timeout, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SafeMode: f.safeMode, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
 		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Permissions: r.perms, Values: values}
@@ -576,7 +620,7 @@ func resolveAskHost(ov agentconfig.Overlay, f *askFlags) error {
 
 func (r *askRun) askState() *askState {
 	f := r.f
-	return &askState{Name: &f.name, Provider: &f.provider, Model: &f.model, modelTyped: &f.modelTyped, Effort: &f.effort,
+	return &askState{Name: &f.name, Provider: &f.profile, Model: &f.model, modelTyped: &f.modelTyped, Effort: &f.effort,
 		Workdir: &f.workdir, Session: &f.session, Tools: &f.tools, ReadOnly: &f.readOnly, NoTools: &f.noTools,
 		Timeout: &f.timeout, Attach: (*[]string)(&f.attach), KeepEnv: &f.keepEnv, Autonomous: &f.autonomous,
 		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist, SafeMode: &f.safeMode,
@@ -734,12 +778,12 @@ func warnAskMemory(ag string, enableMemory bool) {
 // routesItself: a record (no route flag typed), the --host end, or no profile/provider leaves the lead to Prepare.
 func (r *askRun) routesItself() bool {
 	typed := helptext.Explicit(r.fs, "profile") || helptext.Explicit(r.fs, "provider") || helptext.Explicit(r.fs, "fallback") || r.confined
-	return !typed || r.f.host != "" || (r.f.provider == "" && r.f.leadProvider == "")
+	return !typed || r.f.host != "" || (r.f.profile == "" && r.f.provider == "")
 }
 
 // resolveLead turns route flags typed on this command line into a routed lead (agent.LeadFor); a pin keeps --profile.
 func (r *askRun) resolveLead() (int, bool) {
-	r.typed = r.f.provider
+	r.typed = r.f.profile
 	lead, err := narrowLead(r.ag, r.f, !r.routesItself())
 	if err != nil {
 		return r.fail(err, 2)
@@ -748,7 +792,7 @@ func (r *askRun) resolveLead() (int, bool) {
 	return 0, false
 }
 
-// narrowLead routes f's --provider/--profile into a lead and f.provider when routed; "" and no change otherwise.
+// narrowLead routes f's --provider/--profile into a lead and f.profile when routed; "" and no change otherwise.
 func narrowLead(ag string, f *askFlags, routed bool) (string, error) {
 	if !routed {
 		return "", nil
@@ -757,12 +801,12 @@ func narrowLead(ag string, f *askFlags, routed bool) (string, error) {
 	if f.session != "" { // a resumed session runs one hop
 		fallback = router.FallbackNone
 	}
-	q := agent.RouteReq{Agent: ag, Model: f.model, Profile: f.provider, Provider: f.leadProvider, Fallback: fallback}
+	q := agent.RouteReq{Agent: ag, Model: f.model, Profile: f.profile, Provider: f.provider, Fallback: fallback}
 	lead, provider, err := routedLead(q, agent.VaultAgentIsClaude(ag) || f.live)
 	if err != nil {
 		return "", err
 	}
-	f.provider = provider
+	f.profile = provider
 	return lead, nil
 }
 
