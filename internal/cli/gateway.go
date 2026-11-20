@@ -542,14 +542,14 @@ var gatewayStop = proxy.Stop
 
 // proxyRestart stops the proxy if running, starts it, and prints its base URL.
 func proxyRestart(ctx context.Context) int {
-	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
-	defer cancel()
 	stoppedCode := 0
 	if st, err := gatewayStop(ctx); err == nil {
 		stoppedCode = sayCode("proxy: stopped pid %d\n", st.PID)
 	} else if !errors.Is(err, proxy.ErrNotRunning) {
 		return helptext.Fail("gateway proxy: %v", err)
 	}
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second) // after stop: its drain wait may run 35s on its own
+	defer cancel()
 	base, err := proxy.Ensure(ctx)
 	if err != nil {
 		return helptext.Fail("gateway proxy: %v", err)
