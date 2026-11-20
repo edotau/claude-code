@@ -274,9 +274,11 @@ files only.
 
 ## Rules
 
-- **Visible dispatch (owner preference from 2026-11-12, until lifted):** every dispatch goes through the Agent tool
-  with a harness type (`claude`, `codex`, `copilot`, `gemini`, `opencode`); the main session does not run
-  `claude-code agents ask --background` from Bash. Routing rides the brief's leading `Run:` line. A job that can
+- **Visible dispatch (owner preference from 2026-11-12; lifted for long jobs on 2026-11-20):** a dispatch goes through
+  the Agent tool with a harness type (`claude`, `codex`, `copilot`, `gemini`, `opencode`). A job expected to outlast a
+  Bash call (~10 minutes) may instead be started by the main session itself with
+  `claude-code agents ask --background`, then `claude-code agents wait <id>... --timeout 9m` and `agents result <id>`:
+  no leaf sits waiting on a shell. Routing rides the brief's leading `Run:` line. A relayed job that can
   outlast a Bash call (~10 minutes) puts `--background` on that line: the stop gate holds the leaf until the job ends
   (≤ 2 h; only dispatch ids its own `ask`, `dispatch` or `result` call printed count, plus an id its own successful
   `result`/`wait` call named whose record is this session's and matches that leaf's ask by agent and prompt),
