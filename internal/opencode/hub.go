@@ -129,19 +129,20 @@ func (l hubDispatch) Run(ctx context.Context, req agent.RunOptions, sink wire.Si
 	if err != nil {
 		return res, retry.Fatal(l.agent, err)
 	}
-	cmd, tail, host, err := opencodeChild(ctx, l.agent, bin, env, argv, req.Prompt, req)
+	p := agent.CLIPrep{Result: res, Prompt: req.Prompt, Env: env, Argv: argv}
+	return l.runStream(ctx, bin, p, req, sink)
+}
+
+func (l hubDispatch) runStream(ctx context.Context, bin string, p agent.CLIPrep, req agent.RunOptions, sink wire.Sink) (wire.Result, error) {
+	cmd, tail, host, err := opencodeChild(ctx, l.agent, bin, p.Env, p.Argv, p.Prompt, req)
 	if err != nil {
-		return res, err
+		return p.Result, err
 	}
 	w, opts, parse := l.idleWatch(cmd, host)
 	defer w.Stop()
-	out, runErr := agent.RunEventStream(ctx, l.agent, cmd, tail, sink, parse, opts)
-	defer func() { host.after(out, runErr) }()
-	res.Answer, res.Usage, res.Transport = out.Answer, out.Usage, out.Transport
-	if out.SessionID != "" {
-		res.SessionID = out.SessionID
-	}
-	// a stall, then a tools-off answer that is only tool calls
+	res, runErr := agent.RunStreamWith(ctx, l.agent, cmd, tail, p.Result, sink, parse, opts)
+	runErr = accountRefusal(l.agent, runErr)
+	defer func() { host.after(res, runErr) }()
 	if runErr != nil {
 		return res, runErr
 	}

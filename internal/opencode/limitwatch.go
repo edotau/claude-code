@@ -2,7 +2,6 @@ package opencode
 
 import (
 	"errors"
-	"fmt"
 	"io"
 	"os/exec"
 	"regexp"
@@ -96,11 +95,31 @@ func limitCause(line string) *retry.Error {
 		reason = m[1]
 	}
 	// the console link holds an org id: keep the sentence that states the limit and its reset
-	reason, _, _ = strings.Cut(reason, ". ")
-	reason, _, _ = strings.Cut(reason, "http")
-	e := retry.Classify("opencode", fmt.Errorf("opencode: %w", errors.New(strings.TrimSpace(reason))), false)
+	e := retry.Classify("opencode", accountRefusal("opencode", errors.New(shortReason(reason))), false)
 	if e.Kind != retry.KindQuota && e.Kind != retry.KindAuth {
 		return nil
 	}
 	return e
+}
+
+// Billing and region preferences refuse the account, not the model's availability.
+func accountRefusal(name string, err error) error {
+	if err == nil {
+		return nil
+	}
+	if e, ok := errors.AsType[*retry.Error](err); ok && e.Kind == retry.KindQuota {
+		return err
+	}
+	low := strings.ToLower(err.Error())
+	if !strings.Contains(low, "insufficient balance") && !strings.Contains(low, "hosted outside europe and the united states") {
+		return err
+	}
+	return &retry.Error{Kind: retry.KindQuota, Agent: name, Progressed: retry.Progressed(err), Err: errors.New(shortReason(err.Error()))}
+}
+
+// shortReason keeps the sentence stating the limit, dropping the console link after it.
+func shortReason(reason string) string {
+	reason, _, _ = strings.Cut(reason, ". ")
+	reason, _, _ = strings.Cut(reason, "http")
+	return strings.TrimSpace(reason)
 }

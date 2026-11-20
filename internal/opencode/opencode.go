@@ -423,16 +423,7 @@ func (e opencodeEngine) Exec(ctx context.Context, p agent.CLIPrep, req agent.Run
 	if err != nil {
 		return p.Result, err
 	}
-	cmd, tail, host, err := opencodeChild(ctx, e.Name(), bin, p.Env, p.Argv, p.Prompt, req)
-	if err != nil {
-		return p.Result, err
-	}
-	res, err := agent.RunStream(ctx, e.Name(), cmd, tail, p.Result, sink, host.parser(nil))
-	host.after(res, err)
-	if err == nil {
-		err = refuseToolCallText(e.Name(), req, res.Answer)
-	}
-	return res, err
+	return (hubDispatch{agent: e.Name()}).runStream(ctx, bin, p, req, sink)
 }
 
 // RenderSettings applies launch env, run-only effort --variant, and permission config with --auto.
