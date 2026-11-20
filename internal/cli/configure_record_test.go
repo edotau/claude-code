@@ -1,12 +1,16 @@
 package cli
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 // configure agents refuses a bad key, agent or profile, writes nothing on --dry-run, and writes the record otherwise.
@@ -28,6 +32,27 @@ func TestConfigureRecord(t *testing.T) {
 	}
 	if code := cmdConfigure([]string{"agents", "codex", "model=gpt-x"}); code != 0 || vault.GetAgentRecord("codex").Model != "gpt-x" {
 		t.Errorf("record = exit %d, model %q, want 0 and gpt-x", code, vault.GetAgentRecord("codex").Model)
+	}
+}
+
+// profile=qa stores the route object with the provider from qa's row and no legacy profile key.
+func TestConfigureRecordProfileWritesRoute(t *testing.T) {
+	hosttest.PinScratch(t)
+	vaulttest.UseFreshKey(t)
+	row := map[string]any{"provider": "databricks", "preset": "databricks", "host": "https://example.cloud.databricks.com", "auth": map[string]any{"type": "pat"}}
+	if err := providers.SetProviderFields("qa", row); err != nil {
+		t.Fatal(err)
+	}
+	if code := cmdConfigure([]string{"agents", "codex", "profile=qa"}); code != 0 {
+		t.Fatalf("profile=qa exit %d, want 0", code)
+	}
+	if want := (route.Route{Provider: "databricks", Profile: "qa"}); vault.GetAgentRecord("codex").Route != want {
+		t.Errorf("record route %+v, want %+v", vault.GetAgentRecord("codex").Route, want)
+	}
+	var raw string
+	_ = vault.View(func(tx *vault.Tx) error { raw, _ = tx.Get(vault.Overlay, vault.AgentRecordsKey); return nil })
+	if !strings.Contains(raw, `"route":{"provider":"databricks","profile":"qa"}`) || strings.Contains(raw, `"profile":"qa",`) {
+		t.Errorf("stored %s, want the route object only", raw)
 	}
 }
 

@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
@@ -11,12 +12,15 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/configure"
+	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
 // recordKeys maps each `configure agents` key to the agent record field it writes, in the order they are applied.
-var recordKeys = []struct{ key, field string }{{"profile", "PROFILE"}, {"model", "MODEL"}, {"fallback", "FALLBACK"}}
+var recordKeys = []struct{ key, field string }{{"profile", "PROFILE"}, {"model", "MODEL"}, {"fallback", "FALLBACK"},
+	{"account", "ACCOUNT"}, {"route", "ROUTE"}, {"fallbackRoute", "FALLBACKROUTE"}}
 
 // routeKey is codex's record-only config_route preference, set here beside the pin keys.
 const routeKey = "config_route"
@@ -56,7 +60,7 @@ func parseRecordPairs(agent string, words []string) (map[string]string, error) {
 
 // recordKeyNames lists the keys `configure agents` takes: the pin keys, config_route and agent's declared extras.
 func recordKeyNames(agent string) []string {
-	names := []string{"profile", "model", "fallback", routeKey}
+	names := []string{"profile", "model", "fallback", "account", "route", "fallbackRoute", routeKey}
 	for k := range agentpkg.SchemaFor(agent).CLI.Extras {
 		if k != routeKey {
 			names = append(names, k)
@@ -93,12 +97,15 @@ func applyRecord(agent string, set map[string]string, dryRun bool) int {
 			continue
 		}
 		old := configure.AgentField(recs[agent], k.field)
+		if isRouteField(k.field) {
+			old = routeText(recs[agent], k.field)
+		}
 		line := fmt.Sprintf("%s %s: %s → %s", agent, k.key, orUnset(old), orUnset(val))
 		if dryRun {
 			fmt.Printf("would set %s; nothing written\n", line)
 			continue
 		}
-		if _, err := configure.SetAgentPin(agent, k.field, val); err != nil {
+		if err := setField(agent, k.field, val); err != nil {
 			return helptext.Fail("configure agents: %s: %v", k.key, err)
 		}
 		fmt.Fprintln(os.Stderr, line)
@@ -120,11 +127,116 @@ func validateRecordSet(agent string, set map[string]string, route string, hasRou
 		}
 	}
 	for field, val := range set {
-		if err := configure.ValidateAgentField(agent, field, val); err != nil {
+		if err := validateField(agent, field, val); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+func isRouteField(field string) bool {
+	switch field {
+	case "PROFILE", "FALLBACK", "ACCOUNT", "ROUTE", "FALLBACKROUTE":
+		return true
+	}
+	return false
+}
+
+func isFallbackField(field string) bool { return field == "FALLBACK" || field == "FALLBACKROUTE" }
+
+func validateField(agent, field, val string) error {
+	if field == "ACCOUNT" || field == "ROUTE" || field == "FALLBACKROUTE" {
+		_, _, err := resolveRoute(field, val)
+		return err
+	}
+	return configure.ValidateAgentField(agent, field, val)
+}
+
+// routeText is the record's effective route for field as one-line JSON, "" when unset.
+func routeText(rec vault.AgentRecord, field string) string {
+	rt := rec.EffectiveRoute()
+	if isFallbackField(field) {
+		rt = rec.EffectiveFallbackRoute()
+	}
+	if rt.IsZero() {
+		return ""
+	}
+	return route.Target{Route: rt}.JSON()
+}
+
+// resolveRoute turns a route-field value into the route to store; legacy means a pin with no registry row to fill from.
+func resolveRoute(field, val string) (rt route.Route, legacy bool, err error) {
+	switch {
+	case val == "":
+		return route.Route{}, false, nil
+	case field == "ACCOUNT":
+		rt = route.Route{Provider: "github", Account: val}
+	case field == "ROUTE" || field == "FALLBACKROUTE":
+		if rt, err = parseRouteObject(field, val); err != nil {
+			return rt, false, err
+		}
+	case val == "databricks":
+		rt = route.Route{Provider: "databricks", Profile: "auto"}
+	default:
+		if rt, legacy, err = routeFromRow(val); err != nil || legacy {
+			return rt, legacy, err
+		}
+	}
+	return rt, false, rt.Validate()
+}
+
+func parseRouteObject(field, val string) (rt route.Route, err error) {
+	name := strings.ToLower(field)
+	dec := json.NewDecoder(strings.NewReader(val))
+	dec.DisallowUnknownFields()
+	if err := dec.Decode(&rt); err != nil {
+		return rt, fmt.Errorf("%s: want a JSON route object like {\"provider\":\"databricks\",\"profile\":\"qa\"}: %v", name, err)
+	}
+	if rt.Provider == "" || rt.Profile == "" && rt.Account == "" {
+		return rt, fmt.Errorf("%s: a route names provider and profile", name)
+	}
+	return rt, nil
+}
+
+// routeFromRow fills the provider from the profile's registry row; no row means a legacy own-login pin.
+func routeFromRow(profile string) (rt route.Route, legacy bool, err error) {
+	reg, err := providers.Load()
+	if err != nil {
+		return rt, false, err
+	}
+	row := reg.Providers[profile]
+	if row == nil || row.Provider == "" {
+		return rt, true, nil
+	}
+	return route.Route{Provider: row.Provider, Profile: profile}, false, nil
+}
+
+// setField writes one record field; route fields store the route object and clear the legacy keys they replace.
+func setField(agent, field, val string) error {
+	if !isRouteField(field) {
+		_, err := configure.SetAgentPin(agent, field, val)
+		return err
+	}
+	rt, legacy, err := resolveRoute(field, val)
+	if err != nil {
+		return err
+	}
+	return vault.UpdateAgentRecords(func(m map[string]vault.AgentRecord) {
+		r := m[agent]
+		switch {
+		case isFallbackField(field):
+			r.Fallback, r.FallbackRoute = "", rt
+			if legacy {
+				r.Fallback = val
+			}
+		default:
+			r.Profile, r.Account, r.Route = "", "", rt
+			if legacy {
+				r.Profile = val
+			}
+		}
+		m[agent] = r
+	})
 }
 
 // applyRoute prints (unless dryRun, writes) the codex config_route change as "codex config_route: old → new".

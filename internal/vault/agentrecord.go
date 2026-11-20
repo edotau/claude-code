@@ -153,9 +153,53 @@ func (t *Tx) AgentRecords() (map[string]AgentRecord, error) {
 		if out == nil { // a stored JSON null decodes the map to nil; writes into it would panic
 			out = map[string]AgentRecord{}
 		}
+		for n, r := range out {
+			out[n] = r.withLegacy()
+		}
 		t.nameGithubProfiles(out)
 	}
 	return out, nil
+}
+
+// withLegacy mirrors Route and FallbackRoute into the legacy fields that readers not yet moved still use.
+func (r AgentRecord) withLegacy() AgentRecord {
+	if !r.Route.IsZero() && r.Profile == "" && r.Account == "" {
+		r.Profile, r.Account = legacyFields(r.Route)
+	}
+	if !r.FallbackRoute.IsZero() && r.Fallback == "" {
+		r.Fallback, _ = legacyFields(r.FallbackRoute)
+	}
+	return r
+}
+
+// withoutLegacy drops empty or mirrored legacy fields; one an old writer changed wins over the object.
+func (r AgentRecord) withoutLegacy() AgentRecord {
+	if !r.Route.IsZero() {
+		if p, a := legacyFields(r.Route); r.Profile+r.Account == "" || (r.Profile == p && r.Account == a) {
+			r.Profile, r.Account = "", ""
+		} else {
+			r.Route = route.Route{}
+		}
+	}
+	if !r.FallbackRoute.IsZero() {
+		if p, _ := legacyFields(r.FallbackRoute); r.Fallback == "" || r.Fallback == p {
+			r.Fallback = ""
+		} else {
+			r.FallbackRoute = route.Route{}
+		}
+	}
+	return r
+}
+
+// legacyFields is the profile and account a route was spelled as before route objects.
+func legacyFields(rt route.Route) (profile, account string) {
+	switch {
+	case rt.Account != "":
+		return "", rt.Account
+	case rt.Provider == "databricks" && rt.Profile == "auto":
+		return "databricks", ""
+	}
+	return rt.Profile, ""
 }
 
 func (t *Tx) nameGithubProfiles(recs map[string]AgentRecord) {
@@ -228,7 +272,7 @@ func (t *Tx) PutAgentRecords(recs map[string]AgentRecord) error {
 	kept := map[string]AgentRecord{}
 	for n, r := range recs {
 		if !r.IsZero() {
-			kept[n] = r
+			kept[n] = r.withoutLegacy()
 		}
 	}
 	if len(kept) == 0 {
