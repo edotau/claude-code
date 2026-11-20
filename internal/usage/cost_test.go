@@ -8,7 +8,6 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/databricks/sqlexec"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/tokenledger"
@@ -160,10 +159,10 @@ func TestCostWidth(t *testing.T) {
 }
 
 func TestCostBudgetLine(t *testing.T) {
-	b := databricks.BudgetSpend{Budget: 1, Scope: "ALERT_CONFIGURATION_SCOPE_TYPE_PER_USER", Period: "MONTH", Limit: 100}
+	b := Budget{Profile: "dev", Number: 1, Scope: "ALERT_CONFIGURATION_SCOPE_TYPE_PER_USER", Period: "MONTH", Limit: 100}
 	for _, spend := range []float64{79, 80, 125} {
 		b.Spend = spend
-		got := costBudgetLine("dev", b)
+		got := costBudgetLine(b)
 		if strings.Contains(got, "WARNING") != (spend >= 80) {
 			t.Errorf("spend %v: wrong warning: %s", spend, got)
 		}

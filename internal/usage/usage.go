@@ -158,6 +158,7 @@ type usageOpts struct {
 	context      bool
 	wantProvider bool
 	cost         bool
+	budgets      func() []Budget
 }
 
 // parseUsageArgs parses and validates the flags; done is true when the caller should exit with code.
@@ -228,10 +229,16 @@ func checkDays(days int) error {
 
 // Run is `claude-code usage`; claudeDir is injectable so tests never touch the real ~/.claude/projects tree.
 func Run(args []string, claudeDir string, out, errw io.Writer) int {
+	return RunWithBudgets(args, claudeDir, out, errw, nil)
+}
+
+// RunWithBudgets is Run plus a reader of budget lines that `--cost` prints first; nil prints none.
+func RunWithBudgets(args []string, claudeDir string, out, errw io.Writer, budgets func() []Budget) int {
 	o, code, done := parseUsageArgs(args, errw)
 	if done {
 		return code
 	}
+	o.budgets = budgets
 	if o.context {
 		return runContext(o, out, errw)
 	}
@@ -287,7 +294,7 @@ func runUsageText(o usageOpts, claudeDir string, out, errw io.Writer) int {
 	}
 	printLedgerSection(w, aggs, aggregateSwaps(ledgerEntries, time.Now()), ledgerSince(ledgerEntries))
 	if o.cost {
-		printUsageCost(w, ledgerEntries, session, days)
+		printUsageCost(w, ledgerEntries, session, days, o.budgets)
 	}
 
 	// Section 4 (AGENTS): the aggregation above has had the whole quota round-trip to finish by now.
@@ -567,8 +574,12 @@ func costScope(entries []tokenledger.Entry, session string, days int) ([]tokenle
 }
 
 // printUsageCost prints the estimate, or one line naming the key to set when no profile carries prices.
-func printUsageCost(w io.Writer, entries []tokenledger.Entry, session string, days int) {
-	printCostBudgets(w)
+func printUsageCost(w io.Writer, entries []tokenledger.Entry, session string, days int, budgets func() []Budget) {
+	if budgets != nil {
+		for _, b := range budgets() {
+			fmt.Fprintln(w, costBudgetLine(b))
+		}
+	}
 	prices := costPrices()
 	if len(prices) == 0 {
 		fmt.Fprintln(w, costPriceHint)

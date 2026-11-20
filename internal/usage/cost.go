@@ -1,7 +1,6 @@
 package usage
 
 import (
-	"context"
 	"fmt"
 	"io"
 	"math"
@@ -10,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/databricks/sqlexec"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -197,23 +195,14 @@ func printCostSection(out io.Writer, rows []costRow, scope string) {
 	}
 }
 
-func printCostBudgets(out io.Writer) {
-	reg, err := loadCostRegistry()
-	if err != nil {
-		return
-	}
-	for _, profile := range providers.DatabricksProfiles(reg) {
-		budgets, err := databricks.ReadBudgetSpend(context.Background(), reg.Row(profile))
-		if err != nil {
-			continue
-		}
-		for _, budget := range budgets {
-			fmt.Fprintln(out, costBudgetLine(profile, budget))
-		}
-	}
+// Budget is one workspace budget's current spend, read by the caller so usage never imports databricks.
+type Budget struct {
+	Profile, Scope, Period string
+	Number                 int
+	Spend, Limit           float64
 }
 
-func costBudgetLine(profile string, b databricks.BudgetSpend) string {
+func costBudgetLine(b Budget) string {
 	scope := "scope unspecified"
 	switch b.Scope {
 	case "ALERT_CONFIGURATION_SCOPE_TYPE_PER_USER":
@@ -232,7 +221,7 @@ func costBudgetLine(profile string, b databricks.BudgetSpend) string {
 		warning = " WARNING"
 	}
 	return fmt.Sprintf("budget est.: %s #%d %s/%s: $%.2f spend / $%.2f limit, %.1f%%%s",
-		profile, b.Budget, scope, period, b.Spend, b.Limit, percent, warning)
+		b.Profile, b.Number, scope, period, b.Spend, b.Limit, percent, warning)
 }
 
 func costCaption(src string, rows []costRow) string {
