@@ -322,7 +322,7 @@ func TestParseLsofCwd(t *testing.T) {
 
 // agentComms keeps its five process names; an agentid rename fails here.
 func TestAgentCommsTieToAgentid(t *testing.T) {
-	want := map[string]bool{"claude": true, "codex": true, "copilot": true, "opencode": true, "agy": true}
+	want := map[string]bool{"claude": true, "codex": true, "copilot": true, "opencode": true, "pi": true, "agy": true}
 	if !maps.Equal(agentComms, want) {
 		t.Errorf("agentComms = %v, want %v", agentComms, want)
 	}

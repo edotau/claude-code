@@ -236,7 +236,7 @@ func TestRunGoalsStdoutWriteError(t *testing.T) {
 
 // The agent-name set keeps its pinned contents; an agentid rename fails here.
 func TestAgentNamesTieToAgentid(t *testing.T) {
-	wantAgents := map[string]bool{"claude": true, "codex": true, "copilot": true, "gemini": true, "opencode": true, "agy": true}
+	wantAgents := map[string]bool{"claude": true, "codex": true, "copilot": true, "gemini": true, "opencode": true, "pi": true, "agy": true}
 	if !maps.Equal(agentNames, wantAgents) {
 		t.Errorf("agentNames = %v, want %v", agentNames, wantAgents)
 	}

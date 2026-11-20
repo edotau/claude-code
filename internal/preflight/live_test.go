@@ -215,7 +215,7 @@ func TestInstallStepOpencodePongOutlastsBudget(t *testing.T) {
 	}
 }
 
-// --profile all pongs claude, codex, copilot, gemini and opencode on each usable Databricks profile, passing --profile.
+// --profile all pongs claude, codex, copilot, gemini, opencode and pi on each usable Databricks profile, passing --profile.
 func TestRunProfilePongsAllExpandsProfiles(t *testing.T) {
 	reg := preflightRegistry(true)
 	for _, n := range []string{"qa", "prod"} {
@@ -232,7 +232,7 @@ func TestRunProfilePongsAllExpandsProfiles(t *testing.T) {
 	}
 	var buf bytes.Buffer
 	RunProfilePongs(context.Background(), &buf, reg, "claude-code", "all")
-	if len(asked) != 15 || !asked["gemini/qa"] || !asked["claude/prod"] || strings.Count(buf.String(), " · ok\n") != 15 {
+	if len(asked) != 18 || !asked["gemini/qa"] || !asked["claude/prod"] || strings.Count(buf.String(), " · ok\n") != 18 {
 		t.Fatalf("asked %v\n%s", asked, buf.String())
 	}
 }

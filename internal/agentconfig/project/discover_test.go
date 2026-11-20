@@ -336,7 +336,7 @@ func agentFileTools(value any) []string {
 
 func TestAgentIDsMatchLiteralLeaves(t *testing.T) {
 	got := agentid.All()
-	want := []string{"claude", "codex", "copilot", "gemini", "opencode"}
+	want := []string{"claude", "codex", "copilot", "gemini", "opencode", "pi"}
 	slices.Sort(got)
 	slices.Sort(want)
 	if !slices.Equal(got, want) {
@@ -353,7 +353,7 @@ func TestAgentFilesTie(t *testing.T) {
 	if len(agents) == 0 {
 		t.Fatal("no agent files found in " + dir)
 	}
-	required := []string{"claude", "codex", "copilot", "gemini", "opencode"}
+	required := []string{"claude", "codex", "copilot", "gemini", "opencode", "pi"}
 	if defects := checkAgentFiles(dir, required); len(defects) != 0 {
 		t.Fatal(strings.Join(defects, "\n"))
 	}
@@ -362,7 +362,7 @@ func TestAgentFilesTie(t *testing.T) {
 		names = append(names, a.dirName)
 	}
 	slices.Sort(names)
-	if want := []string{"Plan", "claude", "codex", "copilot", "gemini", "opencode"}; !slices.Equal(names, want) {
+	if want := []string{"Plan", "claude", "codex", "copilot", "gemini", "opencode", "pi"}; !slices.Equal(names, want) {
 		t.Fatalf("agents/*.md = %v, want exactly %v (the dispatchable roster)", names, want)
 	}
 }

@@ -23,6 +23,7 @@ func init() {
 	agent.RegisterRowForTest(agent.Schema{Name: "opencode", CLI: agent.CLI{Binary: "opencode", OwnLoginProfile: "zen-free"}})
 	agent.RegisterRowForTest(agent.Schema{Name: "copilot", CLI: agent.CLI{Binary: "copilot"}})
 	agent.RegisterRowForTest(agent.Schema{Name: "gemini", CLI: agent.CLI{Binary: "gemini", OwnLoginProfile: "antigravity"}})
+	agent.RegisterRowForTest(agent.Schema{Name: "pi", CLI: agent.CLI{Binary: "pi"}})
 }
 
 // hermeticVault gives the test its own empty vault and no session profile, so no pin from another test leaks in.

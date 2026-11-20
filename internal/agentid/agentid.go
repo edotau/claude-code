@@ -24,6 +24,11 @@ func All() []string { return []string{Claude, Codex, Copilot, Gemini, OpenCode, 
 // External is the agents that run an external CLI (All without claude).
 func External() []string { return All()[1:] }
 
+// Projected is the external agents whose CLI reads a synced agents dir (External without NoProjection ones).
+func Projected() []string {
+	return slices.DeleteFunc(External(), func(n string) bool { return routeFacts[n].NoProjection })
+}
+
 // Known reports whether name is a roster agent.
 func Known(name string) bool { return slices.Contains(All(), name) }
 
@@ -65,7 +70,9 @@ type RouteFacts struct {
 	ModelFamily, binary                                                           string
 	ResponsesRoute, SubLadder, Discovery, GoogleOrDatabricks, NoWorkspaceFallback bool
 	// NoOwnLogin runs only on a pinned Databricks workspace: no vendor login row.
-	NoOwnLogin    bool
+	NoOwnLogin bool
+	// NoProjection has no vendor home to sync agents into.
+	NoProjection  bool
 	nativeEfforts []string
 }
 
@@ -76,7 +83,7 @@ var routeFacts = map[string]RouteFacts{
 	Copilot:  {FreezeTarget: true, Discovery: true},
 	Gemini:   {EffortSuffix: true, ModelFamily: "gemini", binary: "agy", GoogleOrDatabricks: true, NoWorkspaceFallback: true, nativeEfforts: EffortNames()},
 	OpenCode: {SubLadder: true, Discovery: true},
-	Pi:       {Discovery: true, NoOwnLogin: true, nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh", "max"}},
+	Pi:       {Discovery: true, NoOwnLogin: true, NoProjection: true, nativeEfforts: []string{"minimal", "low", "medium", "high", "xhigh", "max"}},
 }
 
 // Routing is name's routing facts.

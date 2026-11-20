@@ -5,8 +5,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/paths"
 )
 
@@ -131,6 +133,7 @@ func loadSyncInputs(opts Options) (in syncInputs, code int, ok bool) {
 	if err != nil {
 		return in, syncFail(err), false
 	}
+	agents = slices.DeleteFunc(agents, func(a Source) bool { return agentid.Routing(a.dirName).NoProjection })
 	skills, err := discoverSkills(skillsDir)
 	if err != nil {
 		return in, syncFail(err), false

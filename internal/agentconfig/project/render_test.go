@@ -135,11 +135,11 @@ func TestRenderOpenCodeAgentPermissions(t *testing.T) {
 	}
 }
 
-// The projection targets are exactly the roster's external agents.
+// The projection targets are exactly the external agents that have a vendor home to project into.
 func TestTargetsAreTheExternalAgents(t *testing.T) {
-	want := append([]string(nil), agentid.External()...)
+	want := agentid.Projected()
 	sort.Strings(want)
 	if got := Names(); !slices.Equal(got, want) {
-		t.Errorf("Names() = %v, want agentid.External() = %v", got, want)
+		t.Errorf("Names() = %v, want agentid.Projected() = %v", got, want)
 	}
 }

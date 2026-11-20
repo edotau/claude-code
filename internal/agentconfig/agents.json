@@ -26,6 +26,7 @@
         "useGuardRules": "true"
       }
     },
-    "opencode": {}
+    "opencode": {},
+    "pi": {}
   }
 }
