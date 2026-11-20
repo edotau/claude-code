@@ -24,8 +24,12 @@ const stepCheck = (steps, name, allowed) => {
   stepUnknown(v, S_FIELDS, (k) => `${where}.${k}: unknown field (allowed: ${S_FIELDS.join('|')})`)
   return v
 }
-const stepFields = (v, d, o) => ({ who: v.agent !== undefined ? v.agent : 'claude', effort: v.effort !== undefined ? v.effort : d.effort || 'medium',
-  profile: v.profile !== undefined ? v.profile : o.profile || '', provider: v.provider !== undefined ? v.provider : o.provider || '' })
+// The route unit comes whole from the step if it names profile or provider, else from the run-wide args; keys never mix.
+const stepFields = (v, d, o) => {
+  const own = v.profile !== undefined || v.provider !== undefined, src = own ? v : o
+  return { who: v.agent !== undefined ? v.agent : 'claude', effort: v.effort !== undefined ? v.effort : d.effort || 'medium',
+    profile: src.profile || '', provider: src.provider || '' }
+}
 const stepSame = (_label, r) => r
 const claudeStage = (v, d, effort) => ({ agent: 'claude', ext: false, model: v.model !== undefined ? v.model : d.model || 'sonnet', effort,
   type: d.agentType ? { agentType: d.agentType } : {}, task: (p) => p, schema: (s) => s, done: stepSame, text: stepSame })
@@ -47,8 +51,10 @@ const stepExt = (name, v, d, f) => {
   // no profile/provider: Go routes the agent's pin; a named one leads, ladder after.
   const edit = d.tools === 'edit'
   const mode = edit || d.tools === 'run' ? '--tools' : who === 'copilot' ? '--read-only' : '--tools'
-  const ask = `claude-code agents ask --agent ${who} --fallback agents --format json ${mode} --effort ${effort}` + (profile ? ` --profile ${profile}` : '') +
-    (provider ? ` --provider ${provider}` : '') + (v.model ? ` --model ${v.model}` : '')
+  // a named provider goes whole as --overlay; a bare profile stays sugar and ask fills the provider from the registry.
+  const route = provider ? ` --overlay '${JSON.stringify({ provider, profile: profile || 'auto', ...(v.model ? { model: v.model } : {}) })}'`
+    : (profile ? ` --profile ${profile}` : '') + (v.model ? ` --model ${v.model}` : '')
+  const ask = `claude-code agents ask --agent ${who} --fallback agents --format json ${mode} --effort ${effort}` + route
   return {
     agent: who, ext: true, model: 'sonnet', effort: 'low', type: { agentType: who }, profile, provider,
     task: (p) => `Agent: ${who}\nRun the task below with \`${ask} --attach <file>\`: Write the task text to a NEW file from \`mktemp "${'$'}{TMPDIR:-/tmp}/${who}-task.XXXXXX"\` (never a fixed name: parallel legs overwrite each other), never in the repo; Read that empty file before you Write it (Write refuses an existing file it has not read), attach that exact path, and never do it in-context.` +
