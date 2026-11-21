@@ -472,9 +472,6 @@ func leadForContext(ctx context.Context, q RouteReq) (lead string, explicit bool
 		return q.Lead, false, nil
 	}
 	if q.Profile == "" && q.Provider == "" {
-		if explicitBackend(RunOptions{Model: q.Model}) {
-			return "", true, nil
-		}
 		return accountOrSessionLead(ctx, q.Agent), false, nil
 	}
 	reg, err := providers.Load()
@@ -620,11 +617,7 @@ func (rc routeCtx) forFamily(cand router.Candidate) routeCtx {
 		id = canonical
 	}
 	rc.exact = id
-	if prefix, _, ok := splitRowModel(rc.callerModel); ok {
-		rc.callerModel = rowModel(prefix, id)
-	} else {
-		rc.callerModel = id
-	}
+	rc.callerModel = id
 	return rc
 }
 

@@ -71,7 +71,6 @@ type ModelQuery struct {
 	Session, PinProfile, PinModel  string
 	Held                           bool // live, detached, resumed, hosted, job or batch: the pool pin never picks
 	PinAccount                     string
-	Interactive                    bool                       // a launch, not a dispatch; unread (internal/copilot still sets it)
 	Task                           string                     // the brief: ResolveRun sizes its tier when auto picks the model
 	Tools                          bool                       // the run calls tools: auto skips a model whose probe refused them
 	menu                           *[]providers.OpencodeModel // read once per auto resolution; nil reads per use

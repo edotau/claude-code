@@ -460,7 +460,7 @@ func configureCopilotRegistry(
 func routedModels(ctx context.Context, reg *providers.Registry, p *providers.Provider, requested []string) ([]string, error) {
 	var out []string
 	for _, m := range requested {
-		q := agent.QueryFor(agent.PeekContext(ctx), agent.ModelQuery{Agent: "copilot", Model: strings.TrimSpace(m), Profile: p.Name, Interactive: true}) // a menu listing only peeks
+		q := agent.QueryFor(agent.PeekContext(ctx), agent.ModelQuery{Agent: "copilot", Model: strings.TrimSpace(m), Profile: p.Name}) // a menu listing only peeks
 		r, err := agent.ResolveRun(reg, q, time.Now())
 		if err != nil {
 			return nil, fmt.Errorf("copilot: %w", err)
