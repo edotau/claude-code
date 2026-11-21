@@ -8,6 +8,8 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hosttest"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func TestSpecDryRun(t *testing.T) {
@@ -23,6 +25,56 @@ func TestSpecDryRun(t *testing.T) {
 	if n := len(agent.RecentRecords(2)); n != 0 {
 		t.Fatalf("%d dispatch records saved, want none", n)
 	}
+}
+
+func TestSpecDryRunTypedProfileReplacesTemplateOverlayRoute(t *testing.T) {
+	dir := t.TempDir()
+	vaulttest.Use(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", dir)
+	t.Setenv("HOME", dir)
+	t.Setenv("PATH", dir)
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.example.com","auth":{"type":"none"}},"qa":{"preset":"databricks","host":"https://qa.example.com","auth":{"type":"none"}}}}}`)
+	spec := `{"agent":"claude","overlay":{"provider":"databricks","profile":"qa"},"prompt":"x"}`
+	code, out, stderr := hosttest.CaptureOutput(t, func() int {
+		return Cmd([]string{"--spec", spec, "--profile", "dev", "--dry-run"})
+	})
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0\nout=%s\nstderr=%s", code, out, stderr)
+	}
+	argv := dryRunArgv(t, out)
+	if strings.Contains(argv, "--overlay") {
+		t.Fatalf("argv kept template overlay route: %s", argv)
+	}
+	if !strings.Contains(argv, "--profile dev") {
+		t.Fatalf("argv = %s, want typed profile dev", argv)
+	}
+	args := appendDryRun(strings.Fields(strings.TrimPrefix(argv, "claude-code agents ask ")))
+	code, out, stderr = hosttest.CaptureOutput(t, func() int { return Cmd(args) })
+	if code != 0 || !strings.Contains(out, "databricks·dev") {
+		t.Fatalf("re-run exit = %d, want route dev\nout=%s\nstderr=%s", code, out, stderr)
+	}
+}
+
+func dryRunArgv(t *testing.T, out string) string {
+	t.Helper()
+	for line := range strings.SplitSeq(out, "\n") {
+		if argv, ok := strings.CutPrefix(line, "argv:"); ok {
+			return strings.TrimSpace(argv)
+		}
+	}
+	t.Fatalf("dry-run output lacks argv:\n%s", out)
+	return ""
+}
+
+func appendDryRun(args []string) []string {
+	for i, arg := range args {
+		if arg == "--" {
+			out := append([]string{}, args[:i]...)
+			out = append(out, "--dry-run")
+			return append(out, args[i:]...)
+		}
+	}
+	return append(args, "--dry-run")
 }
 
 func TestSpecArgsParsedNotScanned(t *testing.T) {

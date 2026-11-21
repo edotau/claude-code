@@ -159,32 +159,51 @@ func dropSpec(args []string) []string {
 }
 
 // canonicalArgv is the typed flags in name order plus the task: the command a re-run types.
-func canonicalArgv(fs *flag.FlagSet, prompt string, fromStdin bool) []string {
+func canonicalArgv(fs *flag.FlagSet, prompt string, fromStdin bool, overlayArg *string) []string {
 	argv := []string{"claude-code", "agents", "ask"}
 	fs.Visit(func(f *flag.Flag) {
-		if f.Name == "spec" || f.Name == "dry-run" {
+		if canonicalArgvSkip(f.Name) {
 			return
 		}
-		if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
-			if f.Value.String() == "true" {
-				argv = append(argv, "--"+f.Name)
-			} else {
-				argv = append(argv, "--"+f.Name+"=false")
-			}
-			return
-		}
-		if l, ok := f.Value.(interface{ IsRepeatable() bool }); ok && l.IsRepeatable() {
-			for _, v := range textutil.SplitCSV(f.Value.String()) {
-				argv = append(argv, "--"+f.Name, v)
-			}
-			return
-		}
-		argv = append(argv, "--"+f.Name, f.Value.String())
+		argv = append(argv, canonicalArgvFlag(f, overlayArg)...)
 	})
 	if fromStdin {
 		return append(argv, "-")
 	}
 	return append(argv, "--", prompt)
+}
+
+func canonicalArgvSkip(name string) bool { return name == "spec" || name == "dry-run" }
+
+func canonicalArgvFlag(f *flag.Flag, overlayArg *string) []string {
+	if f.Name == "overlay" && overlayArg != nil {
+		return canonicalOverlayFlag(f.Name, *overlayArg)
+	}
+	if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+		return canonicalBoolFlag(f.Name, f.Value.String())
+	}
+	if l, ok := f.Value.(interface{ IsRepeatable() bool }); ok && l.IsRepeatable() {
+		var out []string
+		for _, v := range textutil.SplitCSV(f.Value.String()) {
+			out = append(out, "--"+f.Name, v)
+		}
+		return out
+	}
+	return []string{"--" + f.Name, f.Value.String()}
+}
+
+func canonicalOverlayFlag(name, value string) []string {
+	if value == "" {
+		return nil
+	}
+	return []string{"--" + name, value}
+}
+
+func canonicalBoolFlag(name, value string) []string {
+	if value == "true" {
+		return []string{"--" + name}
+	}
+	return []string{"--" + name + "=false"}
 }
 
 // dryCombos refuses --dry-run with a run shape it cannot preview.
@@ -203,7 +222,27 @@ func (r *askRun) dryCtx(ctx context.Context, prompt string) context.Context {
 	if r.f.profile == "" && r.typed != "" { // resolveLead moved the typed profile into the lead; the re-run types it
 		_ = r.fs.Set("profile", r.typed)
 	}
-	return context.WithValue(ctx, dryKey{}, dryDoc{Overlay: r.ov, Argv: textutil.ShellJoin(canonicalArgv(r.fs, prompt, taskFromStdin(r.pos)))})
+	overlayArg := r.canonicalOverlayArg()
+	argv := canonicalArgv(r.fs, prompt, taskFromStdin(r.pos), overlayArg)
+	return context.WithValue(ctx, dryKey{}, dryDoc{Overlay: r.ov, Argv: textutil.ShellJoin(argv)})
+}
+
+func (r *askRun) canonicalOverlayArg() *string {
+	if !r.flagRoute || !helptext.Explicit(r.fs, "overlay") {
+		return nil
+	}
+	ov := r.ov
+	ov.Schema = 0
+	if ov.Empty() && !ov.Routed() {
+		value := ""
+		return &value
+	}
+	raw, err := json.Marshal(ov)
+	if err != nil {
+		return nil
+	}
+	value := string(raw)
+	return &value
 }
 
 // dryKey carries a --dry-run's dryDoc (overlay, argv) to askPrepareAndRun, which then stops before Prepare.
