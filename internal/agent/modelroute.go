@@ -399,7 +399,8 @@ func resolveOn(p *providers.Provider, source string, q ModelQuery, spec modelTar
 
 // aliasNote says aloud a Claude tier word the agent ran as another family's model (codex's opus is a GPT id).
 func aliasNote(r *ModelRoute) {
-	if r.Alias != "" && models.FamilyKind(r.Model) != models.FamilyClaude && !strings.Contains(r.Note, r.Model) {
+	other := r.Model != AutoModel && models.FamilyKind(r.Model) != models.FamilyClaude // auto is a pick, not a swap
+	if r.Alias != "" && other && !strings.Contains(r.Note, r.Model) {
 		r.Note = joinNotes(r.Note, fmt.Sprintf("%s is %s's alias for %s here", r.Alias, r.Agent, r.Model))
 	}
 }
