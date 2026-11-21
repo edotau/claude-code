@@ -282,9 +282,6 @@ func (b *idleBody) Close() error {
 
 // reportedModel is the id a translated reply names: the client's own spelling of the model served, else the served id.
 func reportedModel(clientModel string, t providers.Target) string {
-	if t.Provider != nil {
-		clientModel = strings.TrimPrefix(clientModel, t.Provider.Name+":")
-	}
 	if models.SameModel(clientModel, t.Model) {
 		return clientModel
 	}

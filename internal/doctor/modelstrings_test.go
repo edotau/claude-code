@@ -7,7 +7,9 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
@@ -64,6 +66,30 @@ func assertModelStringsRow(t *testing.T, got check, wantOK bool) {
 		"env.ANTHROPIC_DEFAULT_OPUS_MODEL", "env.ANTHROPIC_MODEL",
 		`--overlay '{"provider":"databricks","profile":"dev"}' --model <model>`,
 	} {
+		if !strings.Contains(got.Detail, want) {
+			t.Errorf("detail %q missing %q", got.Detail, want)
+		}
+	}
+}
+
+func TestModelStringsScansOverlayAndDispatches(t *testing.T) {
+	vaulttest.Use(t)
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{"dev": {Provider: "databricks"}}}
+	vaulttest.Put(t, vault.Env, "COWORKER_OVERLAY", `{"provider":"databricks","model":"dev:hidden-overlay-model"}`)
+	for _, rec := range []agent.Record{
+		{ID: "d-old", Time: time.Now().Add(-time.Hour), Request: agent.RunOptions{Model: "dev:opus"}},
+		{ID: "d-new", Time: time.Now(), Request: agent.RunOptions{Model: "dev:sonnet"}},
+		{ID: "d-ok", Time: time.Now(), Request: agent.RunOptions{Model: "opus"}},
+	} {
+		if err := rec.Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	got := modelStringsCheck(reg)
+	if got.OK || strings.Contains(got.Detail, "hidden-overlay-model") || strings.Contains(got.Detail, "dev:opus") {
+		t.Fatalf("row = %+v", got)
+	}
+	for _, want := range []string{"vault:env.COWORKER_OVERLAY.model", "2 of the newest", "fails on --retry", "--overlay"} {
 		if !strings.Contains(got.Detail, want) {
 			t.Errorf("detail %q missing %q", got.Detail, want)
 		}

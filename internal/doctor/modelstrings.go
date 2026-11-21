@@ -9,8 +9,10 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -35,6 +37,9 @@ func modelStringsCheck(reg *providers.Registry) check {
 		problems = append(problems, settings.SettingsFile()+": could not read model env")
 	}
 	hits := prefixedModels(reg, values)
+	if note := prefixedDispatches(reg); note != "" {
+		problems = append(problems, note)
+	}
 	c.OK = len(hits) == 0 && len(problems) == 0
 	if len(hits) > 0 {
 		problems = append(problems, fmt.Sprintf("%d prefixed model(s): %s", len(hits), strings.Join(hits, "; ")))
@@ -49,6 +54,12 @@ func storedModelValues(values map[string]string) error {
 	return vault.View(func(tx *vault.Tx) error {
 		for _, bucket := range []string{vault.Env, vault.Pins} {
 			addModelEnv(values, "vault:"+bucket, tx.All(bucket))
+		}
+		var overlay struct {
+			Model string `json:"model"`
+		}
+		if json.Unmarshal([]byte(tx.All(vault.Env)[route.OverlayVar]), &overlay) == nil { // a file-path overlay is not read
+			values["vault:env."+route.OverlayVar+".model"] = overlay.Model
 		}
 		raw, found := tx.Get(vault.Overlay, vault.AgentRecordsKey)
 		if !found || raw == "" {
@@ -119,4 +130,24 @@ func prefixedModels(reg *providers.Registry, values map[string]string) []string 
 		}
 	}
 	return hits
+}
+
+// dispatchScan bounds the doctor's look at stored dispatch records.
+const dispatchScan = 500
+
+func prefixedDispatches(reg *providers.Registry) string {
+	recs, _ := agent.ReadRecentWith(dispatchScan, "")
+	count, newest := 0, ""
+	for _, r := range recs { // newest first
+		if _, ok := errors.AsType[*providers.PrefixError](providers.CheckModel(reg, r.Request.Model)); ok {
+			if count++; newest == "" {
+				newest = r.ID
+			}
+		}
+	}
+	if count == 0 {
+		return ""
+	}
+	return fmt.Sprintf("%d of the newest %d dispatch record(s) hold a prefixed model (newest %s): fails on --retry; "+
+		"re-run with --overlay '{\"provider\":...,\"profile\":...}' --model <model>", count, dispatchScan, newest)
 }
