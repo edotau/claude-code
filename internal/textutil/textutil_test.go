@@ -271,6 +271,7 @@ func TestOneLineDropsTerminalControls(t *testing.T) {
 		"a\n\tb  c":                  "a b c",
 		"x\x1b[2Jy\x1b]52;c;Zm9v\ay": "x[2Jy]52;c;Zm9vy",
 		"del\x7fete":                 "delete",
+		"a\u009b31mb\x1bc":           "a31mbc",
 	} {
 		if got := OneLine(in); got != want {
 			t.Errorf("OneLine(%q) = %q, want %q", in, got, want)

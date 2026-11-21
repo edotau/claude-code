@@ -111,7 +111,7 @@ func OneLine(s string) string {
 	return string(out)
 }
 
-func isControl(c rune) bool { return c < 0x20 || c == 0x7f }
+func isControl(c rune) bool { return unicode.IsControl(c) }
 
 // PluralWord picks one or many for n.
 func PluralWord(n int, one, many string) string {
