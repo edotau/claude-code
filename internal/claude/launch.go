@@ -713,7 +713,7 @@ func Launch(alias string, args []string) int {
 	}
 	opts, rest, err := agent.ParseLaunchArgs(args, true)
 	if err != nil {
-		return helptext.Fail("%v", err)
+		return helptext.FailUsage("%v", err)
 	}
 	if bareHelp(rest) { // claude's own help needs no profile or model, so no lookup may refuse it
 		bin, err := ClaudeBinary()

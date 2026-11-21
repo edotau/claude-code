@@ -169,10 +169,10 @@ func TestCmdAskRetryFlags(t *testing.T) {
 
 // A resumed session keeps the model it ran on; a typed --model wins, an unknown session routes as before.
 func TestCmdAskSessionKeepsRecordedModel(t *testing.T) {
-	for _, tt := range []struct{ name, session, model, want string }{
-		{"resume keeps the recorded model", "sess-1", "", "databricks-gpt-6-1-sol"},
-		{"typed model wins", "sess-1", "opus", "opus"},
-		{"unknown session routes as before", "sess-2", "", ""},
+	for _, tt := range []struct{ name, session, model, want, profile string }{
+		{"resume keeps the recorded profile and model", "sess-1", "", "databricks-claude-sonnet-5-5", "qa"},
+		{"typed model wins", "sess-1", "opus", "opus", ""},
+		{"unknown session routes as before", "sess-2", "", "", ""},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -181,8 +181,10 @@ func TestCmdAskSessionKeepsRecordedModel(t *testing.T) {
 			t.Setenv("CLAUDE_CONFIG_DIR", dir)
 			t.Setenv("HOME", dir)
 			t.Setenv("PATH", dir)
+			vaulttest.Use(t)
+			vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.example.com","auth":{"type":"none"}}}}}`)
 			rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "first"}, time.Now().Add(-time.Hour))
-			rec.Finish(wire.Result{Model: "databricks-gpt-6-1-sol", Invoked: "databricks-gpt-6-1-sol", SessionID: "sess-1"}, nil, time.Second)
+			rec.Finish(wire.Result{Model: "databricks-claude-sonnet-5-5", Invoked: "qa:databricks-claude-sonnet-5-5", SessionID: "sess-1"}, nil, time.Second)
 			if err := rec.Save(); err != nil {
 				t.Fatal(err)
 			}
@@ -191,9 +193,7 @@ func TestCmdAskSessionKeepsRecordedModel(t *testing.T) {
 				args = append(args, "--model", tt.model)
 			}
 			hosttest.CaptureOutput(t, func() int { return Cmd(append(args, "again")) })
-			if got := agent.RecentRecords(1)[0].Request.Model; got != tt.want {
-				t.Errorf("request model = %q, want %q", got, tt.want)
-			}
+			assertResumedRoute(t, agent.RecentRecords(1)[0].Request, tt.want, tt.profile)
 			if os.Getenv(agent.DispatchClaimEnv) != "" {
 				t.Fatal("dispatch claim leaked to child agents")
 			}
@@ -208,6 +208,17 @@ func TestCmdAskSessionKeepsRecordedModel(t *testing.T) {
 				t.Fatalf("claim overwritten: %q, err=%v", got, err)
 			}
 		})
+	}
+}
+
+// assertResumedRoute checks a resumed request's plain model and, apart from it, its profile.
+func assertResumedRoute(t *testing.T, req agent.RunOptions, model, profile string) {
+	t.Helper()
+	if req.Model != model {
+		t.Errorf("request model = %q, want %q", req.Model, model)
+	}
+	if req.Provider != profile {
+		t.Errorf("request profile = %q, want %q", req.Provider, profile)
 	}
 }
 

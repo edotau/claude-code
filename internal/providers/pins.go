@@ -50,7 +50,7 @@ func AgentRecord(agent string) vault.AgentRecord { return AgentRecords()[agent] 
 
 // CopilotModel is the copilot launch, configure page and doctor resolver: the record's model, else github's opus alias.
 func CopilotModel(reg *Registry) (model, source string) {
-	if m := AgentRecord("copilot").Model; m != "" {
+	if m := RecordModel(AgentRecord("copilot")).Model; m != "" {
 		return m, "pin"
 	}
 	if reg == nil {
@@ -144,7 +144,16 @@ func effectiveModel(agent string) (model, source string) {
 	if m, v := EnvModel(context.Background(), agent); m != "" {
 		return m, "env " + v
 	}
-	return pinned(AgentRecord(agent).Model)
+	return pinned(RecordModel(AgentRecord(agent)).Model)
+}
+
+// RecordModel is r's model cast on read: a legacy `<profile>:<id>` gives the id and its route; a bad prefix stays raw.
+func RecordModel(r vault.AgentRecord) ModelCast {
+	c, err := CastShared(r.Model)
+	if err != nil {
+		return ModelCast{Model: r.Model}
+	}
+	return c
 }
 
 // CodexModel resolves the model a codex launch uses (shell env, then the record); "" leaves codex's own default.
@@ -280,10 +289,10 @@ func mergeKeys[V any](a, b map[string]V) map[string]struct{} {
 
 // recordFields flattens r to field -> value, aliases as aliases.<alias>.
 func recordFields(r vault.AgentRecord) map[string]string {
-	f := map[string]string{"profile": recordProfile(r), "model": r.Model, "effort": r.Effort, "context": r.Context,
-		"account": r.EffectiveRoute().Account}
+	f := map[string]string{"profile": recordProfile(r), "model": RecordModel(r).Model, "effort": r.Effort,
+		"context": r.Context, "account": r.EffectiveRoute().Account}
 	for alias, v := range r.Aliases {
-		f["aliases."+alias] = v
+		f["aliases."+alias] = RecordModel(vault.AgentRecord{Model: v}).Model
 	}
 	return f
 }
@@ -408,14 +417,21 @@ func ParseModelPins(reg *Registry, profile string, unpin bool, pins []string) (m
 		if err != nil {
 			return nil, err
 		}
-		scope := cmp.Or(c.Profile, profile) // alias=<p>:<id> reads as --profile <p>; pins resolve on the session (D5)
 		spec = c.Model
-		if err := SessionProfileOnly(reg, scope); err != nil && spec != "" { // an unpin clears on any profile
+		if err := pinScope(reg, p, c, profile); err != nil && spec != "" { // an unpin clears on any profile
 			return nil, err
 		}
 		set[alias] = spec
 	}
 	return set, nil
+}
+
+// pinScope checks pin p's profile: alias=<p>:<id> reads as --profile <p>, and pins resolve on the session (D5).
+func pinScope(reg *Registry, p string, c ModelCast, profile string) error {
+	if c.Profile != "" && profile != "" && c.Profile != profile {
+		return fmt.Errorf("%w: --pin %s names profile %s, but --profile %s; drop one", ErrModelSpec, p, c.Profile, profile)
+	}
+	return SessionProfileOnly(reg, cmp.Or(c.Profile, profile))
 }
 
 // WithClaudeModels is r with the model pins in set applied: alias "" is every alias, "" spec clears.

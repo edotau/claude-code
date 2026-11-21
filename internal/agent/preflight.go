@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
@@ -17,7 +18,6 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -35,10 +35,11 @@ func (f Finding) String() string { return f.Check + ": " + f.Detail }
 
 // Preflight is what a dispatch's preflight found and chose; the record and the preflight: lines carry it.
 type Preflight struct {
-	Requested string    `json:"requested,omitempty"` // <profile>[:<model>] as asked, set by the first failed check
-	Chosen    string    `json:"chosen,omitempty"`    // the dispatch the chain starts on
-	Failed    []Finding `json:"failed,omitempty"`
-	Notes     []string  `json:"notes,omitempty"` // checks skipped or soft: a stale listing
+	Requested        string    `json:"requested,omitempty"`         // the plain model as asked, set by the first failed check
+	RequestedProfile string    `json:"requested_profile,omitempty"` // the profile Requested was asked on
+	Chosen           string    `json:"chosen,omitempty"`            // the dispatch the chain starts on
+	Failed           []Finding `json:"failed,omitempty"`
+	Notes            []string  `json:"notes,omitempty"` // checks skipped or soft: a stale listing
 }
 
 // fail records a failed check; the first one names what was requested.
@@ -46,9 +47,8 @@ func (pf *Preflight) fail(f Finding) {
 	if pf == nil {
 		return
 	}
-	if pf.Requested == "" {
-		target := route.Target{Profile: f.Profile, Model: f.Model}
-		pf.Requested = strings.TrimSuffix(target.Profile+":"+target.Model, ":")
+	if pf.Requested == "" && pf.RequestedProfile == "" {
+		pf.Requested, pf.RequestedProfile = f.Model, f.Profile
 	}
 	pf.Failed = append(pf.Failed, f)
 }
@@ -72,7 +72,7 @@ func (pf *Preflight) Lines() []string {
 		if chosen == "" {
 			chosen = "nothing"
 		}
-		out = append(out, pf.Requested+" failed "+f.Check+" ("+f.Detail+"); chose "+chosen)
+		out = append(out, wire.RequestedLabel(pf.Requested, pf.RequestedProfile)+" failed "+f.Check+" ("+f.Detail+"); chose "+chosen)
 	}
 	for _, n := range pf.Notes {
 		out = append(out, "note: "+n)

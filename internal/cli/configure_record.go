@@ -89,7 +89,7 @@ func applyRecord(agent string, set map[string]string, dryRun bool) int {
 	route, hasRoute := set[routeKey]
 	delete(set, routeKey)
 	if err := castRecordModel(set); err != nil {
-		return helptext.Fail("configure agents: %v", err)
+		return helptext.FailUsage("configure agents: %v", err)
 	}
 	if err := validateRecordSet(agent, set, route, hasRoute); err != nil {
 		return helptext.Fail("configure agents: %v", err)
@@ -133,7 +133,24 @@ func castRecordModel(set map[string]string) error {
 	if cur, typed := set["PROFILE"]; typed && cur != profile {
 		return fmt.Errorf("model %s names profile %s, but profile=%s; drop one", v, profile, cur)
 	}
+	if err := routeAgrees(set, v, c); err != nil {
+		return err
+	}
 	set["MODEL"], set["PROFILE"] = c.Model, profile
+	return nil
+}
+
+// routeAgrees refuses a typed route= or account= (a clear included) naming another route than model's prefix.
+func routeAgrees(set map[string]string, model string, c providers.ModelCast) error {
+	want := route.Route{Provider: c.Provider, Profile: c.Profile}
+	if val, typed := set["ROUTE"]; typed {
+		if rt, err := parseRouteObject("ROUTE", val); val == "" || err == nil && (rt.Provider != want.Provider || rt.Profile != want.Profile) {
+			return fmt.Errorf("model %s names route %s, but route=%s; drop one", model, route.Target{Route: want}.JSON(), orUnset(val))
+		}
+	}
+	if val, typed := set["ACCOUNT"]; typed && c.Provider != "github" {
+		return fmt.Errorf("model %s names profile %s, but account=%s; drop one", model, c.Profile, orUnset(val))
+	}
 	return nil
 }
 

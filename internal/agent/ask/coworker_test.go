@@ -160,7 +160,7 @@ func TestArmFlagRefusals(t *testing.T) {
 		{"", "profile: required with provider", []string{"--overlay", `{"provider":"databricks"}`}},
 		{"", "--profile chatgpt conflicts with overlay provider databricks", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--profile", "chatgpt"}},
 		{"", "--provider openai conflicts with overlay provider databricks", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--provider", "openai"}},
-		{"", "--model gw:m: profile gw is outside databricks:dev", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--model", "gw:m"}},
+		{"", "--model gw:m conflicts with overlay profile dev", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--model", "gw:m"}},
 		{"", "--direct: refused", []string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--direct"}},
 		{"", "--model: not served to claude", // external agents' models are the chain's preflight
 			[]string{"--overlay", `{"provider":"databricks","profile":"dev"}`, "--agent", "claude", "--model", "gpt-nonexistent-9"}},

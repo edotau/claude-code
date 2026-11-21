@@ -75,7 +75,7 @@ func AgentField(rec vault.AgentRecord, field string) string {
 	case "PROFILE":
 		return profileKey(rec.EffectiveRoute())
 	case "MODEL":
-		return rec.Model
+		return providers.RecordModel(rec).Model
 	}
 	return profileKey(rec.EffectiveFallbackRoute())
 }
@@ -141,7 +141,7 @@ func ApplyModelPins(reg *providers.Registry, provider string, unpin bool, pins [
 	}
 	set, err := providers.ParseModelPins(reg, provider, unpin, pins)
 	if err != nil {
-		return helptext.Fail("%v", err), true
+		return helptext.FailUsage("%v", err), true
 	}
 	warn, err := copilot.ValidateCopilotPins(context.Background(), provider, pins)
 	if err != nil {

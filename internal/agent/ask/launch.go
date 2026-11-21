@@ -21,7 +21,7 @@ import (
 func Launch(name string, args []string) int {
 	opts, rest, err := agent.ParseLaunchArgs(args, false)
 	if err != nil {
-		return helptext.Fail("%v", err)
+		return helptext.FailUsage("%v", err)
 	}
 	plan, err := agent.LaunchPlan(context.Background(), name, opts, rest)
 	if err == nil {

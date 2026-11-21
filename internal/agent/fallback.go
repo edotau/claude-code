@@ -119,9 +119,12 @@ func chainOutcome(ctx context.Context, c Chain, res wire.Result, err error, reas
 func (c Chain) markFallback(res wire.Result, reasons []string) wire.Result {
 	hopReasons := reasons[len(c.Skipped):] // the reason names the asked agent's skips and the hops that ran, never an unasked agent's skip
 	res.Fallback, res.FallbackReason = c.Want, strings.Join(append(askedSkips(reasons[:len(c.Skipped)], c.Want), hopReasons...), "; ")
-	res.Requested, res.RequestedWhy = requestedLabel(c.requested), strings.Join(hopReasons[:min(1, len(hopReasons))], "")
-	if c.Preflight != nil && len(c.Preflight.Failed) > 0 {
-		res.Requested, res.RequestedWhy = requestedLabel(c.Preflight.Requested), c.Preflight.Failed[0].String()
+	row, id := hopModel(c.requested)
+	res.Requested, res.RequestedRoute = id, wire.RouteObject(cmp.Or(row, id))
+	res.RequestedWhy = strings.Join(hopReasons[:min(1, len(hopReasons))], "")
+	if pf := c.Preflight; pf != nil && len(pf.Failed) > 0 {
+		res.Requested, res.RequestedRoute = cmp.Or(pf.Requested, pf.RequestedProfile), wire.RouteObject(pf.RequestedProfile)
+		res.RequestedWhy = pf.Failed[0].String()
 	}
 	return res
 }
@@ -208,14 +211,6 @@ func invokedModel(req RunOptions) string {
 
 // plainHop is a hop's model without its internal `<row>:` (the hop names its profile apart).
 func plainHop(m string) string { _, id := hopModel(m); return id }
-
-// requestedLabel shows an internal `<row>:<model>` as "<model> on <row>", never the prefixed form.
-func requestedLabel(m string) string {
-	if row, id := hopModel(m); row != "" {
-		return id + " on " + row
-	}
-	return m
-}
 
 // hopModel splits an internal ladder hop's `<row>:<model>` into row and plain id; written surfaces get the id only.
 func hopModel(m string) (row, id string) {

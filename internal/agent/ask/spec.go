@@ -219,6 +219,7 @@ type dryDoc struct {
 	Overlay     agentconfig.Overlay `json:"overlay"`
 	Argv        string              `json:"argv"`
 	Preflight   []string            `json:"preflight,omitempty"`
+	Skipped     []string            `json:"skipped,omitempty"` // targets the chain dropped before its first hop
 }
 
 // dryRun fills base (overlay, argv) with what the run would do; it stops before any record, claim, spawn or model call.
@@ -229,13 +230,14 @@ func dryRun(ctx context.Context, req agent.RunOptions, base dryDoc, format strin
 	}
 	doc := base
 	doc.Agent, doc.Model, doc.Hops, doc.Permissions = o.Agent, o.Model, ch.Hops(), permLine(o.Permissions)
+	doc.Skipped = ch.Skipped
 	r, ok, err := dryRoute(ctx, o, req)
 	if err != nil {
 		return failAskCode(format, req.Agent, err, prepareExitCode(err))
 	}
 	if ok {
 		doc.Model, doc.Route = cmp.Or(o.Model, r.Model), r.Line()
-		doc.Hops = firstHopOnRoute(ch, r.Model)
+		doc.Hops = firstHopOnRoute(ch, r)
 	}
 	if ch.Preflight != nil {
 		doc.Preflight = ch.Preflight.Lines()
@@ -243,13 +245,14 @@ func dryRun(ctx context.Context, req agent.RunOptions, base dryDoc, format strin
 	return doc.print(format, out)
 }
 
-// firstHopOnRoute is ch's hops with the first one's model replaced by the peeked route's when it does not contain it.
-func firstHopOnRoute(ch agent.Chain, model string) []string {
-	if len(ch.Dispatches) == 0 || model == "" || strings.Contains(ch.Dispatches[0].Model, model) {
+// firstHopOnRoute is ch's hops with the first one's model replaced by the peeked route's when it runs on that account.
+func firstHopOnRoute(ch agent.Chain, r agent.ModelRoute) []string {
+	if len(ch.Dispatches) == 0 || r.Model == "" || strings.Contains(ch.Dispatches[0].Model, r.Model) ||
+		ch.Dispatches[0].Account != r.Account {
 		return ch.Hops()
 	}
 	ch.Dispatches = slices.Clone(ch.Dispatches)
-	ch.Dispatches[0].Model = model
+	ch.Dispatches[0].Model = r.Model
 	return ch.Hops()
 }
 
@@ -291,6 +294,7 @@ func (d dryDoc) print(format string, out io.Writer) int {
 	row("model", d.Model)
 	row("route", d.Route)
 	row("hops", strings.Join(d.Hops, "; "))
+	row("skipped", strings.Join(d.Skipped, "; "))
 	row("permissions", d.Permissions)
 	if !d.Overlay.Empty() {
 		b, _ := json.Marshal(d.Overlay)

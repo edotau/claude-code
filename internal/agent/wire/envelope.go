@@ -116,7 +116,7 @@ type Envelope struct {
 	SessionID       string          `json:"session_id"`
 	Fallback        *string         `json:"fallback"` // null unless a different agent or route than requested ran
 	FallbackReason  string          `json:"fallback_reason"`
-	Requested       string          `json:"requested,omitempty"`       // <profile>[:<model>] asked for, when another step answered
+	Requested       string          `json:"requested,omitempty"`       // the plain model (else profile) asked for, when another step answered
 	RequestedWhy    string          `json:"requested_why,omitempty"`   // why the requested target did not answer
 	Route           *route.Route    `json:"route,omitempty"`           // the route that answered, as an object
 	RequestedRoute  *route.Route    `json:"requested_route,omitempty"` // the route asked for, as an object
@@ -159,7 +159,7 @@ func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 		env.Error = &EnvelopeError{Kind: ErrorKind(err), Message: textutil.RedactSecrets(err.Error())}
 	}
 	env.Route = RouteObject(res.Provider)
-	env.RequestedRoute = RouteObject(res.Requested)
+	env.RequestedRoute = cmp.Or(res.RequestedRoute, RouteObject(res.Requested))
 	if env.Status == "" {
 		env.Status = StatusOK
 		if err != nil {
@@ -229,6 +229,14 @@ func RanOn(res Result) string {
 		ranOnCost(res)
 }
 
+// RequestedLabel renders a requested target for a reader: "<model> on <profile>", else whichever is known.
+func RequestedLabel(model, profile string) string {
+	if model == "" || profile == "" || model == profile {
+		return cmp.Or(model, profile)
+	}
+	return model + " on " + profile
+}
+
 // fallbackText is "none", or "from <origin>" naming the requested target and its first reason when known.
 func fallbackText(res Result) string {
 	if res.Fallback == "" {
@@ -237,7 +245,11 @@ func fallbackText(res Result) string {
 	if res.Requested == "" {
 		return "from " + res.Fallback
 	}
-	fb := "from " + res.Requested
+	profile := ""
+	if res.RequestedRoute != nil {
+		profile = res.RequestedRoute.Profile
+	}
+	fb := "from " + RequestedLabel(res.Requested, profile)
 	first, _, _ := strings.Cut(res.FallbackReason, "; ")
 	if why := cmp.Or(res.RequestedWhy, first); why != "" {
 		fb += " (" + why + ")"
@@ -341,7 +353,8 @@ type Result struct {
 	Emulated        []string        `json:"emulated,omitempty"`        // flags the harness shimmed because the agent has no channel
 	Fallback        string          `json:"fallback,omitempty"`        // the requested agent when another agent or route answered; Agent is the answerer
 	FallbackReason  string          `json:"fallback_reason,omitempty"` // why the original agent was unavailable
-	Requested       string          `json:"requested,omitempty"`       // <profile>[:<model>] asked for, when another step answered
+	Requested       string          `json:"requested,omitempty"`       // the plain model (else profile) asked for, when another step answered
+	RequestedRoute  *route.Route    `json:"requested_route,omitempty"` // the route Requested was asked on
 	RequestedWhy    string          `json:"-"`                         // why the requested target did not answer
 	Handoff         string          `json:"handoff,omitempty"`         // hand-off file written when a copilot dispatch hit its quota
 	Transport       *Transport      `json:"transport,omitempty"`       // stream health; fields an agent can't report stay absent

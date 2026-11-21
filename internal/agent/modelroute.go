@@ -75,6 +75,7 @@ type ModelQuery struct {
 	Task                           string                     // the brief: ResolveRun sizes its tier when auto picks the model
 	Tools                          bool                       // the run calls tools: auto skips a model whose probe refused them
 	menu                           *[]providers.OpencodeModel // read once per auto resolution; nil reads per use
+	pinErr                         error                      // the untyped run's <AGENT>_MODEL names no usable row
 }
 
 // menuIn is the menu read for this resolution, nil when none was.
@@ -102,9 +103,24 @@ func QueryFor(ctx context.Context, q ModelQuery) ModelQuery {
 	q.ctx = ctx
 	rec := vault.GetAgentRecord(q.Agent)
 	q.PinRoute = rec.EffectiveRoute()
+	if c := providers.RecordModel(rec); q.PinRoute.IsZero() && c.Profile != "" { // a legacy `<profile>:<id>` record
+		q.PinRoute = route.Route{Provider: c.Provider, Profile: c.Profile}
+	}
 	q.PinProfile, q.PinAccount = strings.TrimSpace(q.PinRoute.Profile), strings.TrimSpace(q.PinRoute.Account)
 	q.PinModel = agentModelPinContext(ctx, q.Agent)
 	q.Session = providers.SessionProfileContext(ctx)
+	if q.Model == "" {
+		q = withEnvRoute(ctx, q)
+	}
+	return q
+}
+
+// withEnvRoute takes an untyped run's route from `<AGENT>_MODEL=<profile>:<id>` when nothing typed names one.
+func withEnvRoute(ctx context.Context, q ModelQuery) ModelQuery {
+	c, _, err := providers.EnvCast(ctx, q.Agent)
+	if q.pinErr = err; c.Profile != "" && q.Route.IsZero() && q.Profile == "" && q.Provider == "" && q.Account == "" {
+		q.Provider, q.Profile = c.Provider, c.Profile
+	}
 	return q
 }
 
@@ -114,7 +130,7 @@ func ResolveModel(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRo
 		q.Provider, q.Profile, q.Account, q.Identity = q.Route.Provider, q.Route.Profile, q.Route.Account, q.Route.Identity
 	}
 	model, err := resolveModelWord(q)
-	if err != nil {
+	if err = cmp.Or(q.pinErr, err); err != nil {
 		return ModelRoute{}, fmt.Errorf("%w: %w", ErrModelRoute, err)
 	}
 	q.Model = model
@@ -376,8 +392,16 @@ func resolveOn(p *providers.Provider, source string, q ModelQuery, spec modelTar
 	if err := routeModel(&r, p, q, spec, now); err != nil {
 		return ModelRoute{}, err
 	}
+	aliasNote(&r)
 	r.Effort = cmp.Or(r.Effort, q.Effort)
 	return r, routeServes(&r, p, q.menuIn())
+}
+
+// aliasNote says aloud a Claude tier word the agent ran as another family's model (codex's opus is a GPT id).
+func aliasNote(r *ModelRoute) {
+	if r.Alias != "" && models.FamilyKind(r.Model) != models.FamilyClaude && !strings.Contains(r.Note, r.Model) {
+		r.Note = joinNotes(r.Note, fmt.Sprintf("%s is %s's alias for %s here", r.Alias, r.Agent, r.Model))
+	}
 }
 
 // routeModel picks the typed model, else the record's, else the default alias, then cuts a gemini effort and spells it.

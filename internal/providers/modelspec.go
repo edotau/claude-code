@@ -62,14 +62,14 @@ func CastModel(reg *Registry, model string) (ModelCast, error) {
 	c, named, err := castPrefix(reg, name)
 	switch {
 	case err != nil:
-		return ModelCast{}, fmt.Errorf("%w: model %s: %w", ErrModelSpec, model, err)
+		return ModelCast{}, fmt.Errorf("%w: %s: %w", ErrModelSpec, model, err)
 	case named && strings.Contains(rest, ":"):
-		return ModelCast{}, fmt.Errorf("%w: model %s: one profile prefix at most", ErrModelSpec, model)
+		return ModelCast{}, fmt.Errorf("%w: %s: one profile prefix at most", ErrModelSpec, model)
 	case named:
 		c.Model = rest
 		return c, nil
 	case modelWord(rest):
-		return ModelCast{}, fmt.Errorf("%w: model %s: %s is not a profile (%s)", ErrModelSpec, model, name,
+		return ModelCast{}, fmt.Errorf("%w: %s: %s is not a profile (%s)", ErrModelSpec, model, name,
 			strings.Join(reg.Names(), ", "))
 	}
 	return ModelCast{Model: model}, nil // a local tag such as qwen3:30b

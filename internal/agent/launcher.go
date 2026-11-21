@@ -296,12 +296,12 @@ func (o *LaunchOptions) foldOverlay() error {
 func LaunchPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
 	ctx, o.Values = RunValues(ctx, o.Values)
 	ctx = context.WithValue(ctx, launchDryKey{}, o.PrintEnv)
-	c, _, err := providers.EnvCast(ctx, name)
-	if err == nil && o.Model == "" { // the env stays the agent's pin; only its route unit joins
-		_, o.Provider, err = c.Merge("", o.Provider)
-	}
-	if err != nil {
-		return Plan{}, &UsageError{Msg: err.Error()}
+	if o.Model == "" { // the env stays the agent's pin; its route unit joins unless a typed one names the route
+		c, _, err := providers.EnvCast(ctx, name)
+		if err != nil {
+			return Plan{}, &UsageError{Msg: err.Error()}
+		}
+		o.Provider = cmp.Or(o.Provider, c.Profile)
 	}
 	plan, err := cliPlan(ctx, name, o, args)
 	plan.Values = o.Values.Merge(nil)

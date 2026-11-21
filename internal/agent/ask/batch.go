@@ -174,7 +174,9 @@ func parseTask(l parsedLine, agentName string, base agent.RunOptions, timeoutSet
 	if err != nil {
 		return t, err
 	}
-	req, err = batchTaskLocation(l, req, timeoutSet, base.WorkDir, cwd)
+	if err = lineEnvRoute(l.N, t.Agent, &req); err == nil {
+		req, err = batchTaskLocation(l, req, timeoutSet, base.WorkDir, cwd)
+	}
 	if err != nil {
 		return t, err
 	}
