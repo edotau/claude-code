@@ -485,11 +485,11 @@ func progressed(err error) bool {
 // noteSlowModel holds a pool model out of auto picks after a deadline or idle cutoff; the account stays usable.
 func noteSlowModel(disp Dispatch, req RunOptions, model string, err error) {
 	k := CutoffOf(err)
-	if (k != CutoffDeadline && k != CutoffIdle) || model == "" || disp.Account == "" || req.ModelTyped {
+	if (k != CutoffDeadline && k != CutoffIdle) || model == "" || disp.Account == "" {
 		return
 	}
-	if k == CutoffDeadline && (req.TimeoutTyped || progressed(err)) {
-		return // a user's deadline or a run that streamed says nothing about the model's health
+	if k == CutoffDeadline && (req.ModelTyped || req.TimeoutTyped || progressed(err)) {
+		return // a typed model or deadline, or a run that streamed, says nothing about the model's health
 	}
 	_, row, _ := strings.Cut(disp.Account, "·")
 	if !router.IsPoolModel(engineName(disp), loadRegistryWarn().Row(row), model) {

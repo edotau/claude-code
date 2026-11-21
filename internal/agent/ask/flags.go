@@ -30,7 +30,7 @@ import (
 // askFlags are the values of ask's flags.
 type askFlags struct {
 	name, fallback, profile, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, format, rubric, retry, job, batchSrc, overlay string
-	modelTyped                                                                                                                                                                   bool
+	modelTyped, timeoutTyped                                                                                                                                                     bool
 	recover                                                                                                                                                                      bool
 	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast                                      bool
 	timeout                                                                                                                                                                      time.Duration
@@ -430,10 +430,11 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 // askState is the askTarget plus the flag pointers --retry resets or --job clears.
 type askState struct {
 	askTarget
-	rubric     *string
-	env        *[]string
-	modelTyped *bool   // --model typed on this command line or in the --job/--retry record
-	lead       *string // routed lead profile resolved by resolveLead; a live holder keeps it
+	rubric       *string
+	env          *[]string
+	modelTyped   *bool   // --model typed on this command line or in the --job/--retry record
+	timeoutTyped *bool   // --timeout typed on this command line or in the --job/--retry record
+	lead         *string // routed lead profile resolved by resolveLead; a live holder keeps it
 }
 
 // askTimeout is the deadline: a fresh --tools run without an explicit --timeout gets 15m.
@@ -457,7 +458,7 @@ func loadAskJob(job, format string, s *askState, prompt *string) (rec *agent.Rec
 		return nil, failAsk(format, *s.Name, err), true
 	}
 	s.Apply(r, os.Stderr)
-	*s.modelTyped = r.Request.ModelTyped
+	*s.modelTyped, *s.timeoutTyped = r.Request.ModelTyped, r.Request.TimeoutTyped
 	*s.lead = r.Request.Lead // the detached child leads with the profile the parent resolved
 	*prompt, *s.rubric = r.Request.Prompt, ""
 	return &r, 0, false
@@ -474,13 +475,13 @@ func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, f
 	}
 	// The logged request wins; only flags typed on this command line override it.
 	s.Apply(rec, os.Stderr)
-	*s.modelTyped = rec.Request.ModelTyped
+	*s.modelTyped, *s.timeoutTyped = rec.Request.ModelTyped, rec.Request.TimeoutTyped
 	*s.lead = rec.Request.Lead // the routed lead is not a flag: the replay leads with the profile the run used
 	clearTyped(fs, s)
 	if _, err := helptext.ParseArgs(fs, args); err != nil { // re-apply explicit flags over the record
 		return failAskCode(format, *s.Name, err, 2), true
 	}
-	if err := retryWorkdir(fs, s.Workdir, rec); err != nil {
+	if err := retryWorkdir(fs, s.Workdir, *s.Host, rec); err != nil {
 		return failAskCode(format, *s.Name, err, 2), true
 	}
 	*prompt, *s.rubric = cmp.Or(*prompt, rec.Request.Prompt), "" // a typed task replaces the logged one
@@ -489,12 +490,12 @@ func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, f
 	return 0, false
 }
 
-// retryWorkdir pins a retry to the directory the run used (its tree, else repo) and checks it exists.
-func retryWorkdir(fs *flag.FlagSet, workdir *string, rec agent.Record) error {
-	if helptext.Explicit(fs, "workdir") {
+// retryWorkdir pins a retry to the directory the run used (its cwd, tree, else repo) and checks it exists.
+func retryWorkdir(fs *flag.FlagSet, workdir *string, host string, rec agent.Record) error {
+	if helptext.Explicit(fs, "workdir") || host != "" { // a remote path is not checkable here
 		return nil
 	}
-	dir := cmp.Or(rec.Request.WorkDir, rec.Tree, rec.Repo)
+	dir := cmp.Or(rec.Request.WorkDir, rec.Cwd, rec.Tree, rec.Repo)
 	if dir == "" {
 		return nil
 	}

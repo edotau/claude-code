@@ -318,7 +318,7 @@ func askLiveCheck(fs *flag.FlagSet, name string, hasPersona bool) error {
 // liveRequest is the RunOptions a live holder keeps for its whole session.
 func liveRequest(ctx context.Context, s *askState, perms permission.Permissions, name string) agent.RunOptions {
 	_, cprof := router.ConfinedContext(ctx) // a live holder runs one hop with no chain: it starts on the confinement's profile
-	return agent.RunOptions{Model: *s.Model, ModelTyped: *s.modelTyped, Provider: cmp.Or(router.ArmProfileContext(ctx), cprof, *s.Provider), Effort: *s.Effort, WorkDir: *s.Workdir, SessionID: *s.Session,
+	return agent.RunOptions{Model: *s.Model, ModelTyped: *s.modelTyped, TimeoutTyped: *s.timeoutTyped, Provider: cmp.Or(router.ArmProfileContext(ctx), cprof, *s.Provider), Effort: *s.Effort, WorkDir: *s.Workdir, SessionID: *s.Session,
 		Tools: *s.Tools, NoTools: *s.NoTools, Fleet: *s.Fleet, EnableMemory: *s.EnableMemory, ReadOnly: *s.ReadOnly, Permissions: perms, Timeout: *s.Timeout, KeepEnv: *s.KeepEnv, NoPersist: *s.NoPersist, SafeMode: *s.SafeMode,
 		DebugFile: absDebugFile(*s.DebugFile), SystemPrompt: *s.SystemPrompt, AppendSystemPrompt: *s.AppendSystemPrompt,
 		Autonomous: *s.Autonomous, Direct: *s.Direct, Lead: *s.lead, Agent: name, Background: true}

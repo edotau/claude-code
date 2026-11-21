@@ -148,6 +148,7 @@ func markTyped(fs *flag.FlagSet, f *askFlags) {
 		auto := agent.IsAuto(f.model)
 		f.modelTyped = f.model != "" && !auto
 	}
+	f.timeoutTyped = f.timeoutTyped || helptext.Explicit(fs, "timeout")
 }
 
 func (r *askRun) fail(err error, code int) (int, bool) {
@@ -532,7 +533,7 @@ func (r *askRun) batchBase() agent.RunOptions {
 	f := r.f
 	_, values := agent.RunValues(r.ctx, nil)
 	return agent.RunOptions{Model: f.model, ModelTyped: f.modelTyped, Provider: f.profile, Account: r.ov.Account, Lead: r.lead, Effort: f.effort, WorkDir: f.workdir, Tools: f.tools, ReadOnly: f.readOnly, NoTools: f.noTools,
-		Timeout: f.timeout, TimeoutTyped: r.fs != nil && helptext.Explicit(r.fs, "timeout"), KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
+		Timeout: f.timeout, TimeoutTyped: f.timeoutTyped, KeepEnv: f.keepEnv, Autonomous: f.autonomous, Fleet: f.fleet, EnableMemory: f.enableMemory, Direct: f.direct,
 		NoPersist: f.noPersist, SafeMode: f.safeMode, SystemPrompt: f.systemPrompt, AppendSystemPrompt: f.appendSystemPrompt,
 		Env: f.env, OutputSchema: r.schema, Agents: r.defs, Permissions: r.perms, Values: values}
 }
@@ -638,7 +639,7 @@ func resolveAskHost(ov agentconfig.Overlay, f *askFlags) error {
 
 func (r *askRun) askState() *askState {
 	f := r.f
-	return &askState{Name: &f.name, Provider: &f.profile, Model: &f.model, modelTyped: &f.modelTyped, Effort: &f.effort,
+	return &askState{Name: &f.name, Provider: &f.profile, Model: &f.model, modelTyped: &f.modelTyped, timeoutTyped: &f.timeoutTyped, Effort: &f.effort,
 		Workdir: &f.workdir, Session: &f.session, Tools: &f.tools, ReadOnly: &f.readOnly, NoTools: &f.noTools,
 		Timeout: &f.timeout, Attach: (*[]string)(&f.attach), KeepEnv: &f.keepEnv, Autonomous: &f.autonomous,
 		Fleet: &f.fleet, EnableMemory: &f.enableMemory, Direct: &f.direct, NoPersist: &f.noPersist, SafeMode: &f.safeMode,

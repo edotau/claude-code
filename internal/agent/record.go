@@ -88,6 +88,7 @@ type Record struct {
 	PlanTask       string      `json:"plan_task,omitempty"`       // ask --batch: the task line's optional plan_task
 	Preflight      *Preflight  `json:"preflight,omitempty"`       // what the preflight failed or skipped, and what it chose
 	Wrote          *[]string   `json:"wrote,omitempty"`           // files the run changed, absolute; nil: not observed
+	Cwd            string      `json:"cwd,omitempty"`             // absolute directory a local run started in; --retry reuses it
 	Tree           string      `json:"tree,omitempty"`            // git top of the working tree the run started in
 	TreeChanged    *[]string   `json:"tree_changed,omitempty"`    // files changed in a tree another dispatch shared; Wrote is then nil
 
@@ -967,6 +968,9 @@ func buildAskRecord(ctx context.Context, name string, req RunOptions, jobRec *Re
 		return Record{}, err
 	}
 	rec.Tree, rec.Repo = recordTree(ctx, workdir, req.WorkDir)
+	if req.Host == "" {
+		rec.Cwd, _ = filepath.Abs(workdir) // "" is the process cwd
+	}
 	rec.Owner = inflight.SessionOwner()
 	rec.Log = rec.LogPath()
 	if !background {

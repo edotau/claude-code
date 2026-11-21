@@ -234,6 +234,17 @@ func TestNoteSlowModelDeadlineTypedTimeout(t *testing.T) {
 	if _, held := loadState()[disp.Account].ModelDead[router.ModelKey(m)]; !held {
 		t.Error("a default-deadline silent auto pick was not held")
 	}
+	t.Run("typed model idle cutoff", func(t *testing.T) {
+		reg, _, _ := autoFixture(t)
+		m, _, err := rotationModelOn(context.Background(), []*providers.Provider{reg.Providers["dev"]}, "opencode", models.Sonnet, false, false, nil, time.Now())
+		if err != nil {
+			t.Fatal(err)
+		}
+		noteSlowModel(disp, RunOptions{ModelTyped: true}, m, fmt.Errorf("silent: %w", ErrSilent))
+		if _, held := loadState()[disp.Account].ModelDead[router.ModelKey(m)]; !held {
+			t.Error("a typed model's idle cutoff was not held")
+		}
+	})
 }
 
 // A pre-launch "not on the menu" refusal re-picks an auto ask and never swaps a typed model.

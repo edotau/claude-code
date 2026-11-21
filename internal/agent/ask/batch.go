@@ -272,7 +272,7 @@ func batchTaskLocation(l parsedLine, req agent.RunOptions, timeoutSet bool, base
 		if err != nil || d <= 0 {
 			return req, fmt.Errorf("line %d: timeout %q must be a positive duration such as 5m", l.N, l.Task.Timeout)
 		}
-		req.Timeout = d
+		req.Timeout, req.TimeoutTyped = d, true
 	case req.Tools && !timeoutSet:
 		req.Timeout = agent.DefaultToolsTimeout
 	}

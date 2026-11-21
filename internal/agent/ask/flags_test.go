@@ -272,18 +272,20 @@ func TestAskRetryPreservesRecordedLead(t *testing.T) {
 func TestAskRetryWorkdir(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	here, typed, gone := t.TempDir(), t.TempDir(), t.TempDir()+"/removed"
+	sub := t.TempDir()
 	for _, tc := range []struct {
-		name, tree, repo, flag, want string
-		fail                         bool
+		name, cwd, tree, repo, flag, want string
+		fail                              bool
 	}{
-		{"recorded repo", "", here, "", here, false},
-		{"recorded tree", here, "/elsewhere", "", here, false},
-		{"missing dir refused", "", gone, "", gone, true},
-		{"typed wins", "", gone, typed, typed, false},
+		{"recorded repo", "", "", here, "", here, false},
+		{"recorded cwd", sub, here, "/elsewhere", "", sub, false},
+		{"recorded tree", "", here, "/elsewhere", "", here, false},
+		{"missing dir refused", "", "", gone, "", gone, true},
+		{"typed wins", "", "", gone, typed, typed, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "p"}, time.Now())
-			rec.Tree, rec.Repo = tc.tree, tc.repo
+			rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "p", TimeoutTyped: true}, time.Now())
+			rec.Cwd, rec.Tree, rec.Repo = tc.cwd, tc.tree, tc.repo
 			if err := rec.Save(); err != nil {
 				t.Fatal(err)
 			}
@@ -300,7 +302,7 @@ func TestAskRetryWorkdir(t *testing.T) {
 			if tc.fail != (done && code == 2) {
 				t.Fatalf("loadAskRetry = %d, %v, fail want %v", code, done, tc.fail)
 			}
-			if !tc.fail && f.workdir != tc.want {
+			if !tc.fail && (f.workdir != tc.want || !f.timeoutTyped) { // the record's timeout_typed must survive the replay
 				t.Fatalf("workdir = %q, want %q", f.workdir, tc.want)
 			}
 		})
