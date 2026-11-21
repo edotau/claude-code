@@ -122,8 +122,8 @@ paths:
   resolve`), hops, permissions, overlay and the canonical argv through the real resolvers; it saves no record and
   calls no model and stamps neither workspace nor model picks; not with `--live`, `--batch`, `--job`.
 - **Overlay** — `agents ask --overlay` / `gateway --overlay` / vault env `COWORKER_OVERLAY`: ONE keyed JSON document
-  (`schema` 1) as a file path (regular, yours, not group/world-writable, ≤ 64 KiB), inline `'{...}'` or `-`. Flags and
-  prefixes normalise into it; an unknown key or bad value exits 2 naming the valid keys. It rides the run's context,
+  (`schema` 1) as a file path (regular, yours, not group/world-writable, ≤ 64 KiB), inline `'{...}'` or `-`. Flags
+  normalise into it; an unknown key or bad value exits 2 naming the valid keys. It rides the run's context,
   never the dispatch's env. A route is ONE unit (provider, profile, identity, account, host, remote) taken whole from
   the highest source that sets any of it: command line (flags + `--overlay`) > `COWORKER_OVERLAY` > `--retry`/`--job`
   record > agent definition > vault record > session > registry default; settings (model, effort, fallback…) merge per
@@ -132,7 +132,7 @@ paths:
   env names are refused (use `--profile`). Compatibility, relaunch and `--env` rules: `dispatch-policy-details.md`.
 
   An object that sets any route key names provider AND profile (a github account route: provider `github` + `account`);
-  a partial object exits 2 naming the missing key. Shorthand: `--profile R` and `R:model` fill provider from R's own
+  a partial object exits 2 naming the missing key. Shorthand: `--profile R` fills provider from R's own
   registry row, never the session; `--provider P` = `{P, auto}`; `databricks` = the pool pick (least busy workspace
   serving the model); `auto` is only an overlay `profile`: `ask --profile auto` and `label` refuse it. A flag and
   `--overlay` setting one key differently on one command line exit 2 naming both; `--spec` stays a template typed
@@ -142,7 +142,7 @@ paths:
 
   | Key | Values | Overrides |
   | --- | --- | --- |
-  | `provider` / `profile` | provider key / profile name (both, or neither) | `--provider`, `--profile`, prefix |
+  | `provider` / `profile` | provider key / profile name (both, or neither) | `--provider`, `--profile` |
   | `model` / `effort` | model id or alias / effort name | `--model`, `--effort` |
   | `fallback` | `none\|pin\|agents\|all` | `--fallback`, `AGENT_ERROR_FALLBACK` |
   | `host` / `remote` | ssh host, in the route (not both, unless `host` names this machine) | `--host`, remote run |
@@ -158,7 +158,7 @@ paths:
 
 - `<agent> models` passes through to the vendor CLI; the catalog is `<agent> catalog`.
 - **Model precedence** (`agent.ResolveRun`; model merges per key across layers, preflight refuses an unserved one):
-  a typed model (`--model`, overlay `model`, `<profile>:` prefix), then a
+  a typed model (`--model`, overlay `model`), then a
   typed `auto`, then the agent's pinned model (record `model` or `<AGENT>_MODEL`), then the task tier: a
   `Tier: fast|standard|deep` line in the brief wins, else its wording picks (audit, security, parser, design: deep;
   typo, rename, move: fast), and a brief the effort classifier rates high never takes the fast tier.
@@ -191,7 +191,7 @@ paths:
   Vault agent records store `route`/`fallbackRoute` objects (`configure agents <a> profile=qa` is sugar,
   `route='{…}'` takes the object; legacy profile/account/fallback are read; a copilot record is route
   `{github, account}` plus `fallbackRoute`). Dispatch records write `route`/`ran_route` as objects.
-  `--model databricks:auto` is input sugar for `--provider databricks --model auto`; no record stores the prefix.
+  A model string is a plain id or alias only; the route travels apart: `providers.md` → Routing precedence.
   Own-login `<login>/auto` is refused before launch, naming that login's typed ids.
   Labels, `gateway resolve`, and `ask --dry-run` only peek; `agents label <agent> --run` records and freezes the pick
   as one `--overlay '{"provider":"<provider>","profile":"<p>","model":"<id>"}'` in the `Run:` line. A label

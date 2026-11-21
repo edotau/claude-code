@@ -17,7 +17,7 @@ Verbatim bullets moved from `rules/harness/agent.md` → Dispatch behavior.
   layer `set`/`unset`/`keep`.
   Value: a file path (regular, yours, not group/world-writable, <= 64 KiB), inline `'{...}'` or `-` (stdin; the task is
   then an argument); an unknown key or bad value exits 2. Typed flags win, except a typed
-  `--profile`/`--provider`/`--model <p>:<alias>` outside the overlay's provider/profile is refused (exit 2). Precedence:
+  `--profile`/`--provider` outside the overlay's provider/profile is refused (exit 2). Precedence:
   typed flag > `--overlay`, else `COWORKER_OVERLAY` > `--retry`/`--job` record > process env > vault env > agent
   definition > agent pin > table default. Nested dispatches inherit only the confinement (`COWORKER_OVERLAY` cut to
   `provider`/`profile`; a standing default is the vault env `COWORKER_OVERLAY`); the rest of the document is one hop,

@@ -107,30 +107,27 @@ the placement block and the plan checks.
 ## dispatch-effort
 
 Gates type (a `coworker:<agent>` naming one roster agent is rewritten to it, any brief); for a type with no `model:`
-line (built-ins such as `Explore`, `general-purpose`) and no explicit model, pins model and effort from the task's
-tier (effort only when neither the call nor the agent file sets one), never for a `Run: claude-code agents ask` brief;
-claims slots, recalls context and labels the row, for Codex-spawned children too (`ee4a67ce`). Recall is a context
-note in auto mode for every brief, otherwise only on a `Run:` brief; any other brief gets it appended, and a `Run:`
-prompt stays byte-identical. A dispatched `agents ask` carries the same block for every agent (`withRecall`,
-`internal/agent/ask/memory.go`), except on `--retry`, `--job`, `--safe-mode` or `--host`.
-A `Run:` line `agents ask` would refuse on cached state
-alone is denied with its own preflight text plus the fix (code cannot pick the workspace or model): an overlay
-`databricks:<p>` whose row is missing or does not serve; with `--fallback none` (or the env default none), a
-`--profile`/`<row>:<model>` row the registry lacks or a model that row's fresh cached listing does not serve; or a
-model route that does not resolve. With any other fallback a missing row routes on, and a stale or missing listing
-passes. The label is the model the run resolves: a typed `--model`/`--profile` resolves as typed (a vendor CLI with no
-`--model` runs its pin, else the model of the brief's task tier: a `Tier:` line, else the classifier, opus when the
-brief has no text; `auto` ranks the row's served models; claude runs the brief's alias), an untyped external dispatch
-takes the route ladder's first hop; a route that does not resolve offline leaves the description unlabelled with a
-note; print it with `claude-code agents label <type> --run [--profile p] [--model m | --spec S] --task FILE`. Every fix
-(type, label, pin, Run: line) rides one `updatedInput`,
-one note line each. A `Run:` line fix is made only when one
-fix is certain (nearest flag within distance 2, a tie means none): an unknown flag renamed, a bad value corrected, a
-positional agent name moved to `--agent`, `--task-file -` dropped; anything else is a note, never a denial.
-Brief routing:
-`skills/subagent-workflows/SKILL.md` → Handoff contract. Implementation: `internal/hooks/effort.go`; workflow
-validation: `internal/workflows/workflowlint.go`. In auto mode a rewritten call costs one mechanical resend of the
-exact corrected input (the classifier refuses a hook-modified input once)
+line (built-ins such as `Explore`, `general-purpose`) and no explicit model, pins model and effort from the task's tier
+(effort only when neither the call nor the agent file sets one), never for a `Run: claude-code agents ask` brief; claims
+slots, recalls context and labels the row, for Codex-spawned children too (`ee4a67ce`). Recall is a context note in auto
+mode for every brief, otherwise only on a `Run:` brief; any other brief gets it appended, and a `Run:` prompt stays
+byte-identical. A dispatched `agents ask` carries the same block for every agent (`withRecall`,
+`internal/agent/ask/memory.go`), except on `--retry`, `--job`, `--safe-mode` or `--host`. A `Run:` line `agents ask`
+would refuse on cached state alone is denied with its own preflight text plus the fix (code cannot pick the workspace or
+model): an overlay `{"provider":"databricks","profile":"<p>"}` whose row is missing or does not serve; with `--fallback
+none` (or the env default none), a `--profile` row the registry lacks or a model that row's fresh cached listing does
+not serve; or a model route that does not resolve. With any other fallback a missing row routes on, and a stale or
+missing listing passes. The label is the model the run resolves: a typed `--model`/`--profile` resolves as typed (a
+vendor CLI with no `--model` runs its pin, else the model of the brief's task tier: a `Tier:` line, else the classifier,
+opus when the brief has no text; `auto` ranks the row's served models; claude runs the brief's alias), an untyped
+external dispatch takes the route ladder's first hop; a route that does not resolve offline leaves the description
+unlabelled with a note; print it with `claude-code agents label <type> --run [--profile p] [--model m | --spec S] --task
+FILE`. Every fix (type, label, pin, Run: line) rides one `updatedInput`, one note line each. A `Run:` line fix is made
+only when one fix is certain (nearest flag within distance 2, a tie means none): an unknown flag renamed, a bad value
+corrected, a positional agent name moved to `--agent`, `--task-file -` dropped; anything else is a note, never a denial.
+Brief routing: `skills/subagent-workflows/SKILL.md` → Handoff contract. Implementation: `internal/hooks/effort.go`;
+workflow validation: `internal/workflows/workflowlint.go`. In auto mode a rewritten call costs one mechanical resend of
+the exact corrected input (the classifier refuses a hook-modified input once)
 
 ## dispatch-failure · dispatch-workflow · dispatch-stop · dispatch-handback
 

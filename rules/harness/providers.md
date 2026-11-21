@@ -40,8 +40,8 @@ paths:
 
 ## Routing precedence
 
-- **One interface:** flags (`--profile`, `--model`, `--as`, `--fallback`, `--host`, `--remote`), `<profile>:` and
-  provider-type model prefixes, `COWORKER_OVERLAY`, waves, coworker specs, `Run:` lines, `configure` menus and agent
+- **One interface:** flags (`--profile`, `--model`, `--as`, `--fallback`, `--host`, `--remote`),
+  `COWORKER_OVERLAY`, waves, coworker specs, `Run:` lines, `configure` menus and agent
   records all normalise into one overlay whose route is one unit, taken whole from one source;
   launch, preflight, labels and `ran on` read only it. Print it:
   (with no `--model`/`--profile` it prints the route ladder's first hop, the model the run and its label use)
@@ -52,15 +52,14 @@ paths:
 - **Pool table:** `claude-code gateway resolve all --model auto --all-profiles [--task <brief>] [--format json]` peeks
   every rotation row x agent x tier (pool, next, held, last pick) without moving any rotation history; claude rotates
   no rows (its `auto` runs the brief's tier model on its one profile), so it has none here.
-- **Model names:** a model name is `auto` or an accepted model name; the route unit (provider and profile, taken
-  together from the profile's own row) is chosen by `--overlay`, `--profile`, the stored pin or the session. Canonical:
-  `--overlay '{"provider":"databricks","profile":"qa"}' --model opus`. `qa:opus` is an accepted input shorthand the
-  harness casts to exactly that at every input and at the proxy; it is never stored or shown back. A typed route that
-  disagrees with the prefix, an unknown prefix (`bogus:opus`) or a chained one (`dev:qa:opus`) is refused.
+- **Model names (the one rule):** a model string is only ever a plain model id or alias (or `auto`); the
+  profile/provider travels as the route: `--overlay '{"provider":"databricks","profile":"qa"}' --model opus`,
+  `--profile`, `--provider` or the agent record. `auto` rotates models only, never the route. The
+  `<profile>:<model>` shorthand is being removed (plan D8): do not write it in docs or examples.
   Every Claude alias resolves on the session's own profile: a cross-profile alias pin is ignored with a note.
-- **Profile order** (the route, taken whole from the first source naming any of it; `--profile R` and `R:model` take
+- **Profile order** (the route, taken whole from the first source naming any of it; `--profile R` takes
   provider from R's registry row, never the session; `gateway resolve --provider databricks`, `--profile auto` too):
-  a `<profile>:` or unique provider-type model prefix > `--profile` or overlay `profile` > overlay
+  `--profile` or overlay `profile` > overlay
   `provider`, then `account` > the session profile (with its model for the agent) > the agent record's profile or
   account (the pin) > the registry default > the agent's own sign-in row. Overlay
   `{"provider":"databricks","profile":"auto"}` or a pool pin picks the pool before these (first valid workspace in
