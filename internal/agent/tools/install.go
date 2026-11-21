@@ -177,6 +177,9 @@ func requirePiNode(ctx context.Context) (string, string, error) {
 	node, _ := depLookPath("node") // absent is "too old": nvm candidates still get tried
 	nvm := nvmDir()
 	dir, err := pickPiNode(ctx, node, nvm, true)
+	if err != nil && nodeOK(ctx, node) {
+		return "", "", fmt.Errorf("pi: npm not on PATH (Node %s+ needed); run: %s", piMinNode, fix)
+	}
 	if err != nil {
 		seen := "no node on PATH"
 		if node != "" {

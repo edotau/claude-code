@@ -368,7 +368,7 @@ func Window(p *Provider, id string) int {
 
 // listedContext is p's fresh listing context for wire, or 0.
 func listedContext(p *Provider, wire string) int {
-	if p == nil {
+	if p == nil || p.Preset != PresetDatabricks {
 		return 0
 	}
 	f, _ := listedFacts(p, wire)
@@ -378,12 +378,13 @@ func listedContext(p *Provider, wire string) int {
 // ContextTokens is the one window wire runs at on p: typed [1m] on a 1M row, else fresh listing, catalog, row cap.
 func ContextTokens(p *Provider, wire string, oneM bool) int {
 	claude := models.FamilyKind(wire) == models.FamilyClaude
-	w := models.ContextWindow1M
-	if !oneM || !p.Serves1M() {
-		w = cmp.Or(listedContext(p, wire), models.Window(wire))
-		if claude && (!p.Serves1M() || models.Keeps1M(wire+oneMMarker)) {
-			w = min(w, models.ContextWindowStd)
-		}
+	listed := listedContext(p, wire)
+	w := cmp.Or(listed, models.Window(wire))
+	switch {
+	case oneM && p.Serves1M(): // a typed [1m] still cannot exceed what the endpoint lists
+		w = min(models.ContextWindow1M, cmp.Or(listed, models.ContextWindow1M))
+	case claude && (!p.Serves1M() || models.Keeps1M(wire+oneMMarker)):
+		w = min(w, models.ContextWindowStd)
 	}
 	if os.Getenv("CLAUDE_CODE_DISABLE_1M_CONTEXT") != "" && claude {
 		w = min(w, models.ContextWindowStd)

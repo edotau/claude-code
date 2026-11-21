@@ -523,10 +523,11 @@ func TestContextTokens(t *testing.T) {
 	dbx := &Provider{Name: "dev", Preset: PresetDatabricks}
 	gh := &Provider{Name: "gh", Provider: "github"}
 	listingFacts(t, map[string]serving.EndpointFacts{
-		"claude-opus-4-8":             {Context: models.ContextWindow1M},
-		"databricks-fixture-chat":     {Context: 128_000},
-		"databricks-fixture-big":      {Context: models.ContextWindow1M},
-		"databricks-claude-haiku-5-5": {Context: models.ContextWindowStd},
+		"claude-opus-4-8":              {Context: models.ContextWindow1M},
+		"databricks-fixture-chat":      {Context: 128_000},
+		"databricks-fixture-big":       {Context: models.ContextWindow1M},
+		"databricks-claude-haiku-5-5":  {Context: models.ContextWindowStd},
+		"databricks-claude-sonnet-4-6": {Context: models.ContextWindowStd},
 	})
 	for _, c := range []struct {
 		name string
@@ -540,6 +541,7 @@ func TestContextTokens(t *testing.T) {
 		{"claude 5 fresh 200K listing wins", dbx, "databricks-claude-haiku-5-5", false, "", models.ContextWindowStd},
 		{"gemini keeps its window on a non-1M row", gh, "gemini-4-argon", false, "", 1_048_576},
 		{"4.x typed [1m]", dbx, "claude-opus-4-8", true, "", models.ContextWindow1M},
+		{"typed [1m] capped by a 200K listing", dbx, "databricks-claude-sonnet-4-6", true, "", models.ContextWindowStd},
 		{"typed [1m] on a non-1M row", gh, "claude-opus-4-8", true, "", models.ContextWindowStd},
 		{"4.x untyped, listing says 1M", dbx, "claude-opus-4-8", false, "", models.ContextWindowStd},
 		{"row without 1M caps", gh, "claude-opus-5-5", false, "", models.ContextWindowStd},
