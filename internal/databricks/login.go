@@ -379,7 +379,7 @@ func loginRow(ctx context.Context, name string, out io.Writer, h headless) error
 	return nil
 }
 
-// reusableLogin is validU2M unless the router marked the token: the workspace rejected it though it is locally unexpired.
+// reusableLogin is validU2M unless the router marked the token: the workspace rejected it while locally unexpired.
 func reusableLogin(ctx context.Context, p *providers.Provider) (time.Duration, bool) {
 	if _, marked := router.LoadState().AuthMarked(router.ProviderAccount(p.Name), time.Now()); marked {
 		return 0, false
