@@ -505,7 +505,7 @@ func TestParseHeadersWarnsOnce(t *testing.T) {
 	}
 }
 
-func TestFableToOpus(t *testing.T) {
+func TestFableRefusal(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", clientTokenOverlay("http://127.0.0.1:1"))
 	reg, err := providers.Load()
@@ -518,14 +518,14 @@ func TestFableToOpus(t *testing.T) {
 		p           *providers.Provider
 		want        string
 	}{
-		{"databricks fable maps to opus", "claude-fable-5-2", dev, "databricks-claude-opus-5-5"},
-		{"databricks opus untouched", "databricks-claude-opus-5-5", dev, "databricks-claude-opus-5-5"},
-		{"other route fable untouched", "claude-fable-5-2", sub, "claude-fable-5-2"},
+		{"databricks fable refused naming opus", "claude-fable-5-2", dev, "databricks-claude-opus-5-5"},
+		{"databricks opus untouched", "databricks-claude-opus-5-5", dev, ""},
+		{"other route fable untouched", "claude-fable-5-2", sub, ""},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			got := fableToOpus(reg, providers.Target{Provider: c.p, Model: c.model})
-			if got.Provider != c.p || got.Model != c.want {
-				t.Errorf("fableToOpus(%s on %s) = %s on %s, want %s", c.model, c.p.Name, got.Model, got.Provider.Name, c.want)
+			err := fableRefusal(reg, providers.Target{Provider: c.p, Model: c.model})
+			if (err == nil) != (c.want == "") || (err != nil && !strings.Contains(err.Error(), c.want)) {
+				t.Errorf("fableRefusal(%s on %s) = %v, want mention of %q", c.model, c.p.Name, err, c.want)
 			}
 		})
 	}

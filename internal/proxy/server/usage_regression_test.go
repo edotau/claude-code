@@ -54,21 +54,12 @@ func swapRig(t *testing.T) (srvURL string, log *lockedBuf) {
 	return srv.URL, log
 }
 
-func TestSwappedRequestRecordsRequestedAndLogsReq(t *testing.T) {
-	url, log := swapRig(t)
-	if resp := post(t, url+"/p/dev/v1/messages", `{"model":"claude-fable-5-2","max_tokens":5}`, nil); resp.StatusCode != 200 {
-		t.Fatalf("status %d: %s", resp.StatusCode, body(t, resp))
-	}
-	got := waitLedger(t)
-	if len(got) != 1 || got[0].Model != "databricks-claude-opus-5-5" || got[0].Requested != "claude-fable-5-2" {
-		t.Fatalf("ledger = %+v, want model opus-5-5 requested claude-fable-5-2", got)
-	}
-	waitLog(log, " asked=")
-	out := log.String()
-	for _, want := range []string{" asked=claude-fable-5-2", "proxy: dev asked for databricks-claude-fable-5-2, serving databricks-claude-opus-5-5"} {
-		if !strings.Contains(out, want) {
-			t.Errorf("log lacks %q:\n%s", want, out)
-		}
+func TestFableRequestRefusedNamingOpus(t *testing.T) {
+	url, _ := swapRig(t)
+	resp := post(t, url+"/p/dev/v1/messages", `{"model":"claude-fable-5-2","max_tokens":5}`, nil)
+	b := body(t, resp)
+	if resp.StatusCode != 400 || !strings.Contains(b, "databricks-claude-opus-5-5") {
+		t.Fatalf("status %d: %s, want 400 naming the opus id", resp.StatusCode, b)
 	}
 }
 

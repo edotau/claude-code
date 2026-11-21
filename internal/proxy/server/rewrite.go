@@ -41,9 +41,10 @@ func (r *Router) resolveTarget(w http.ResponseWriter, in *http.Request, reg *pro
 		writeError(w, http.StatusBadRequest, "proxy: "+err.Error())
 		return providers.Target{}, model, false
 	}
-	target := fableToOpus(reg, parsed)
-	if target.Model != parsed.Model {
-		r.noteSwap(target.Provider.Name, parsed.Model, target.Model, "no Fable endpoint on this route")
+	target := parsed
+	if err := fableRefusal(reg, target); err != nil {
+		writeError(w, http.StatusBadRequest, "proxy: "+err.Error())
+		return providers.Target{}, model, false
 	}
 	// a resolved target outside a token's profiles is a 403
 	if scope, scoped := sessionScope(in); scoped && !slices.Contains(scope, target.Provider.Name) {
@@ -71,18 +72,19 @@ func clientTarget(in *http.Request, reg *providers.Registry, sess *providers.Pro
 	return providers.PlainTarget(reg.Providers[c.Profile], c.Model), c.Model, nil
 }
 
-// fableToOpus maps a Fable target on a Databricks serving route to the session's opus slot; Databricks serves no Fable.
-func fableToOpus(reg *providers.Registry, t providers.Target) providers.Target {
+// fableRefusal refuses a Fable id on a Databricks serving route (it serves none), naming that profile's Opus id.
+func fableRefusal(reg *providers.Registry, t providers.Target) error {
 	if t.Provider.SpellingRule() != "databricks-serving" {
-		return t
+		return nil
 	}
 	if canonical, _, ok := models.Resolve(t.Model); !ok || models.FamilyOf(canonical) != models.Fable {
-		return t
+		return nil
 	}
+	hint := ""
 	if sel, err := providers.Select(reg, t.Provider.Name); err == nil && sel.Aliases[models.Opus].Provider == t.Provider {
-		return sel.Aliases[models.Opus]
+		hint = "; its Opus id is " + sel.Aliases[models.Opus].Model
 	}
-	return t
+	return fmt.Errorf("model %s: profile %s serves no Fable%s", t.Model, t.Provider.Name, hint)
 }
 
 // confineLadder drops fallback providers outside a token's profiles; they hold other credentials.
