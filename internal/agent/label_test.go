@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -24,19 +25,19 @@ func (labelEngine) Run(context.Context, RunOptions, wire.Sink) (wire.Result, err
 	return wire.Result{}, nil
 }
 
-// A ladder hop labels the model its engine runs: a `<row>:` cell as typed, an alias cell the row's own pick (opus).
+// A ladder hop labels the model its engine runs: a pinned cell as typed, an alias cell the row's own pick (opus).
 func TestLadderHopIsTheRunModel(t *testing.T) {
 	reg := routeRegistry(t)
 	for _, tc := range []struct {
-		name, want, cell, account, wantModel string
-		keepCaller                           bool
+		name, want, row, cell, account, wantModel string
+		keepCaller                                bool
 	}{
-		{"codex cell", "codex", "prod:databricks-gpt-6-1-sol", "databricks·prod", "databricks-gpt-6-1-sol", false},
-		{"opencode alias cell", "opencode", "sonnet", "databricks·dev", "databricks-claude-opus-5-5", false},
-		{"opencode keeps caller", "opencode", "dev:databricks-claude-sonnet-5-5", "databricks·dev", "databricks-claude-opus-5-5", true},
+		{"codex cell", "codex", "prod", "databricks-gpt-6-1-sol", "databricks·prod", "databricks-gpt-6-1-sol", false},
+		{"opencode alias cell", "opencode", "", "sonnet", "databricks·dev", "databricks-claude-opus-5-5", false},
+		{"opencode keeps caller", "opencode", "dev", "databricks-claude-sonnet-5-5", "databricks·dev", "databricks-claude-opus-5-5", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			d := Dispatch{Agent: labelEngine{stubEngine{name: tc.want}}, Model: tc.cell, Account: tc.account, keepCaller: tc.keepCaller}
+			d := Dispatch{Agent: labelEngine{stubEngine{name: tc.want}}, Model: tc.cell, Route: rowRoute(reg, tc.row), Account: tc.account, keepCaller: tc.keepCaller}
 			hop, note, err := ladderHop(reg, ModelQuery{Agent: tc.want}, d)
 			if err != nil || note != "" {
 				t.Fatalf("hop = %+v, %q, %v", hop, note, err)
@@ -261,6 +262,19 @@ func autoFixture(t testing.TB) (*providers.Registry, []string, []string) {
 	return reg, weak, []string{claude, other}
 }
 
+// keyedAutoFixture is autoFixture with a dev credential, so the hop's host guard has one to check.
+func keyedAutoFixture(t *testing.T) *providers.Registry {
+	t.Helper()
+	autoFixture(t)
+	vaulttest.Put(t, vault.Overlay, "providers", strings.Replace(autoOverlay, `"dev":{"auth":{"type":"oauth"}`,
+		`"dev":{"auth":{"type":"key","command":"echo qzvxplk"}`, 1))
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	return reg
+}
+
 // rankedOnly holds the fresh rotation pool empty while implicit auto still ranks the served listing.
 func rankedOnly(t testing.TB) {
 	t.Helper()
@@ -372,10 +386,10 @@ func TestFoldAuto(t *testing.T) {
 func TestDispatchRequestAutoCell(t *testing.T) {
 	setConfigDir(t)
 	vaulttest.Use(t)
-	d := Dispatch{Agent: labelEngine{stubEngine{name: "opencode"}}, Model: "qa:databricks-claude-sonnet-5-5"}
+	d := Dispatch{Agent: labelEngine{stubEngine{name: "opencode"}}, Model: "databricks-claude-sonnet-5-5", Route: route.Route{Provider: "databricks", Profile: "qa"}}
 	brief := deepBrief
-	if got := dispatchRequest(RunOptions{Prompt: brief, AutoModel: true}, d, true); got.Model != "qa:auto" || got.Effort != "high" {
-		t.Errorf("auto hop = model %q effort %q, want qa:auto at the deep tier's effort", got.Model, got.Effort)
+	if got := dispatchRequest(RunOptions{Prompt: brief, AutoModel: true}, d, true); got.Model != AutoModel || got.CellRoute != d.Route || got.Effort != "high" {
+		t.Errorf("auto hop = model %q on %+v effort %q, want auto on qa at the deep tier's effort", got.Model, got.CellRoute, got.Effort)
 	}
 	if got := dispatchRequest(RunOptions{Prompt: brief, AutoModel: true, Effort: "low"}, d, true); got.Effort != "low" {
 		t.Errorf("typed effort became %q under auto", got.Effort)
@@ -383,7 +397,7 @@ func TestDispatchRequestAutoCell(t *testing.T) {
 	if got := dispatchRequest(RunOptions{Prompt: brief}, d, true); got.Model != d.Model || got.Effort != "" {
 		t.Errorf("untyped hop = %q effort %q, want the cell as is", got.Model, got.Effort)
 	}
-	d.Model = "sonnet"
+	d.Model, d.Route = "sonnet", route.Route{}
 	if got := dispatchRequest(RunOptions{Prompt: brief, AutoModel: true}, d, true); got.Model != "sonnet" || !got.CellModel {
 		t.Errorf("auto alias cell = %+v, want the bare alias cell", got)
 	}
@@ -413,7 +427,7 @@ func TestRoutedModelAuto(t *testing.T) {
 	if got := run(RunOptions{Prompt: deepBrief}); !slices.Contains(deep, got) {
 		t.Errorf("a pinned auto ran %s, want one of %v", got, deep)
 	}
-	if f := FreshModelFinding("opencode", reg.Providers["dev"], "dev:auto", time.Now()); f != nil {
+	if f := FreshModelFinding("opencode", reg.Providers["dev"], AutoModel, time.Now()); f != nil {
 		t.Errorf("preflight refused auto: %v", f)
 	}
 }
@@ -440,8 +454,8 @@ func TestAutoLabelIsRunModel(t *testing.T) {
 			name, pin, cell string
 			typed           bool
 		}{
-			{"pinned auto x concrete cell", "auto", "dev:" + cell, false},
-			{"typed auto x concrete cell", "", "dev:" + cell, true},
+			{"pinned auto x concrete cell", "auto", cell, false},
+			{"typed auto x concrete cell", "", cell, true},
 			{"pinned auto x alias cell", "auto", "opus", false},
 		} {
 			vaulttest.SetRecord(t, agentName, "model", tc.pin)
@@ -451,6 +465,9 @@ func TestAutoLabelIsRunModel(t *testing.T) {
 				}
 			}
 			d := Dispatch{Agent: labelEngine{stubEngine{name: agentName}}, Model: tc.cell, Account: "databricks·dev"}
+			if tc.cell == cell {
+				d.Route = rowRoute(reg, "dev")
+			}
 			q := ModelQuery{Agent: agentName, Task: standardBrief}
 			if tc.typed {
 				q.Model = AutoModel
@@ -469,18 +486,18 @@ func TestAutoLabelIsRunModel(t *testing.T) {
 	}
 }
 
-// Asked auto on a fresh listing with nothing runnable is ErrPoolExhausted; claude has no pool and runs its tier model.
+// Asked auto on a fresh listing with nothing runnable is ErrPoolExhausted; claude has no pool and steps off its unserved tier.
 func TestAutoNoCandidateIsRefused(t *testing.T) {
 	reg, _, _ := autoFixture(t)
 	saveListing(t, "dev", []string{"databricks-gpt-6-1-sol"}) // Responses-only: neither gemini nor claude ranks it
 	for _, fb := range []string{"", router.FallbackNone} {
-		q := ModelQuery{Agent: "gemini", Model: "dev:auto", Task: fastBrief, Fallback: fb}
+		q := ModelQuery{Agent: "gemini", Model: AutoModel, Profile: "dev", Task: fastBrief, Fallback: fb}
 		if r, err := ResolveRun(reg, q, time.Now()); !errors.Is(err, ErrPoolExhausted) {
 			t.Errorf("gemini auto, fallback %q: %s %q %v; want ErrPoolExhausted", fb, r.Model, r.Note, err)
 		}
 		q.Agent = "claude"
-		if r, err := ResolveRun(reg, q, time.Now()); err != nil || r.Model != "databricks-claude-haiku-5-5" {
-			t.Errorf("claude auto, fallback %q: %s %v; want its fast tier model", fb, r.Model, err)
+		if r, err := ResolveRun(reg, q, time.Now()); err != nil || r.Model != "databricks-claude-opus-5-5" || !strings.Contains(r.Note, "tier haiku is not served") {
+			t.Errorf("claude auto, fallback %q: %s %q %v; want the untiered model, saying the fast tier is not served", fb, r.Model, r.Note, err)
 		}
 	}
 	q := ModelQuery{Agent: "claude", Profile: "dev", Model: "claude-opus-5-5", Fallback: router.FallbackNone}

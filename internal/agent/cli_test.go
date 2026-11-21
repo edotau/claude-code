@@ -222,6 +222,12 @@ func TestResolveTargetProfileTierRewrite(t *testing.T) {
 
 	t.Run("full id keeps its prior behaviour", assertFullIDTargetRewrite)
 	t.Run("unknown row or non-alias is not rewritten", func(t *testing.T) { assertUnknownTargetRewrite(t, want.Model) })
+	t.Run("an alias cell resolves on its row", func(t *testing.T) {
+		_, at, err := ResolveRequestTarget(RunOptions{Model: "opus", CellRoute: rowRoute(nil, "dev")})
+		if err != nil || at.Provider == nil || at.Provider.Name != "dev" || at.Model != want.Model {
+			t.Errorf("an alias cell on dev = %+v, %v; want dev's opus alias %s", at, err, want.Model)
+		}
+	})
 	t.Run("the explicit backend is still seen", func(t *testing.T) {
 		req := RunOptions{Provider: "dev", Model: "opus"}
 		if !explicitBackend(req) {

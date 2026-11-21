@@ -64,14 +64,13 @@ func IsNextLabel(head string) bool {
 
 // AutoRun reports a query whose run picks its own model: a typed or pinned auto, not a concrete model.
 func AutoRun(ctx context.Context, q ModelQuery) bool {
-	_, auto := SplitAuto(cmp.Or(q.Model, agentModelPinContext(ctx, q.Agent)))
+	auto := IsAuto(cmp.Or(q.Model, agentModelPinContext(ctx, q.Agent)))
 	return auto
 }
 
 // namesRoute reports a query that runs as typed: claude, a typed model, or a named profile, provider or account.
 func namesRoute(q ModelQuery) bool {
-	prefix, auto := SplitAuto(q.Model)
-	typed := q.Model != "" && (!auto || prefix != "") // a bare auto routes like an untyped run
+	typed := q.Model != "" && !IsAuto(q.Model) // auto routes like an untyped run
 	return VaultAgentIsClaude(q.Agent) || typed || q.Profile != "" || q.Provider != "" || q.Account != ""
 }
 
@@ -108,20 +107,12 @@ func storedPoolProfile(ctx context.Context, reg *providers.Registry, session str
 
 // labelHop is ladderHop under auto: a typed or pinned auto beats the hop's cell model, as dispatchRequest runs it.
 func labelHop(reg *providers.Registry, q ModelQuery, pin string, d Dispatch) (ModelQuery, string, error) {
-	_, auto := SplitAuto(q.Model)
+	auto := IsAuto(q.Model)
 	hop, note, err := ladderHop(reg, q, d)
-	if _, pinAuto := SplitAuto(pin); auto || pinAuto {
-		hop.Model = AutoCell(hop.Model)
+	if auto || IsAuto(pin) {
+		hop.Model = AutoModel // on the cell's row when the hop carries one
 	}
 	return hop, note, err
-}
-
-// AutoCell is auto on a ladder cell's row: `<row>:auto` for a `<row>:<model>` cell, else the bare auto.
-func AutoCell(cell string) string {
-	if row, _, ok := strings.Cut(cell, ":"); ok && row != "" {
-		return row + ":" + AutoModel
-	}
-	return AutoModel
 }
 
 // rowRoute is the whole route of registry row: its own provider and its name as the profile.
@@ -133,7 +124,7 @@ func rowRoute(reg *providers.Registry, row string) route.Route {
 	return r
 }
 
-// ladderHop is the query d's engine resolves: a `<row>:<model>` cell as typed, an alias cell the row's pin or tier.
+// ladderHop is the query d's engine resolves: a pinned cell on its row as typed, an alias cell the row's pin or tier.
 func ladderHop(reg *providers.Registry, q ModelQuery, d Dispatch) (ModelQuery, string, error) {
 	hop := q
 	hop.Agent = d.Agent.Name()
@@ -144,8 +135,11 @@ func ladderHop(reg *providers.Registry, q ModelQuery, d Dispatch) (ModelQuery, s
 	if reg.Row(acct) != nil {
 		hop.Profile = acct
 	}
-	if !d.keepCaller && !d.unroutedDispatch && (strings.Contains(d.Model, ":") || VaultAgentIsClaude(hop.Agent)) {
+	if !d.keepCaller && !d.unroutedDispatch && (reg.Row(d.Route.Profile) != nil || VaultAgentIsClaude(hop.Agent)) {
 		hop.Model = d.Model // dispatchRequest's CellModel: a bare alias is dropped for a vendor CLI's own pin
+		if reg.Row(d.Route.Profile) != nil {
+			hop.Route, hop.Provider, hop.Profile = d.Route, d.Route.Provider, d.Route.Profile
+		}
 	}
 	note := ""
 	if hop.Agent != q.Agent {
@@ -176,7 +170,7 @@ func ExplainRun(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRout
 	r, err := autoBase(reg, q, need, now)
 	if err != nil && need.mode != autoOff && errors.Is(err, ErrModelRoute) {
 		need.noTier = true // no tier model runs here, so the agent's default stands in
-		r, err = rowDefault(reg, q, need, cmp.Or(need.prefix, q.Profile), now)
+		r, err = rowDefault(reg, q, need, cmp.Or(q.Profile, q.Route.Profile), now)
 	}
 	if err != nil {
 		return r, nil, err
@@ -230,9 +224,6 @@ func autoBase(reg *providers.Registry, q ModelQuery, need autoNeed, now time.Tim
 	}
 	for _, alias := range []string{models.Opus, models.Sonnet, models.Haiku} {
 		q.Default = alias
-		if need.prefix != "" {
-			q.Model = need.prefix + ":" + alias
-		}
 		if r, rerr := resolveTier(reg, q, now); rerr == nil {
 			return r, nil
 		}
@@ -329,18 +320,11 @@ func fastTask(text string) string {
 	return ""
 }
 
-// AutoModel is the model value that has the resolver pick per task: typed, in an overlay, <row>:auto or a record pin.
+// AutoModel is the model value that has the resolver pick per task: typed, in an overlay or a record pin.
 const AutoModel = router.AutoArm
 
-// SplitAuto reports whether model asks for auto ("auto" or "<prefix>:auto"); prefix is "" for the bare form.
-func SplitAuto(model string) (prefix string, ok bool) {
-	m := strings.TrimSpace(model)
-	if strings.EqualFold(m, AutoModel) {
-		return "", true
-	}
-	prefix, rest, cut := strings.Cut(m, ":")
-	return prefix, cut && prefix != "" && strings.EqualFold(rest, AutoModel)
-}
+// IsAuto reports whether model asks for auto.
+func IsAuto(model string) bool { return strings.EqualFold(strings.TrimSpace(model), AutoModel) }
 
 type autoMode int
 
@@ -352,11 +336,11 @@ const (
 
 // autoNeed is what the brief asks of the model: its tier, the signal that sized it, and how auto was reached.
 type autoNeed struct {
-	tier, signal, prefix string // prefix: the <row> of a typed <row>:auto
-	pin                  string // the record's concrete pin, which a run with no --model takes
-	mode                 autoMode
-	noTier               bool // no tier alias's model runs on the row: the base is rowDefault
-	unlisted             bool // the row has no fresh listing to rank
+	tier, signal string
+	pin          string // the record's concrete pin, which a run with no --model takes
+	mode         autoMode
+	noTier       bool // no tier alias's model runs on the row: the base is rowDefault
+	unlisted     bool // the row has no fresh listing to rank
 }
 
 // autoQuery sizes q's tier and folds auto out of it: the auto word becomes the tier alias on its row, the pin drops.
@@ -364,9 +348,7 @@ func autoQuery(q ModelQuery) (ModelQuery, autoNeed) {
 	alias, signal := briefTier(q)
 	q.Default = alias
 	need := autoNeed{tier: tierOf(alias), signal: signal}
-	prefix, typed := SplitAuto(q.Model)
-	_, pinned := SplitAuto(q.PinModel)
-	need.prefix = prefix
+	typed, pinned := IsAuto(q.Model), IsAuto(q.PinModel)
 	if !pinned {
 		need.pin = q.PinModel
 	}
@@ -383,9 +365,6 @@ func autoQuery(q ModelQuery) (ModelQuery, autoNeed) {
 		need.tier, need.signal = tierOf(q.Default), "no brief"
 	}
 	q.Model, q.PinModel = "", ""
-	if prefix != "" {
-		q.Model = prefix + ":" + q.Default
-	}
 	return q, need
 }
 

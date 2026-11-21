@@ -122,15 +122,15 @@ func ResolveModel(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRo
 		return ModelRoute{}, fmt.Errorf("%w: %w", ErrModelRoute, err)
 	}
 	q.Model = model
-	spec, pool := splitQuery(reg, q)
-	if pool {
-		return resolvePool(reg, q, spec, now)
+	bare := q.Provider == providers.GroupDatabricks && q.Profile == "" // overlay profile auto or a bare databricks: the pool
+	if (q.Profile == poolName || bare) && reg.Providers[poolName] == nil {
+		return resolvePool(reg, q, now)
 	}
-	p, source, err := routeRow(reg, q, spec)
+	p, source, err := routeRow(reg, q)
 	if err != nil {
 		return ModelRoute{}, err
 	}
-	return resolveOn(p, source, q, spec, now)
+	return resolveOn(p, source, q, now)
 }
 
 // ModelWordResolver is an optional driver method: it turns a typed word such as a model family into a model id.
@@ -165,28 +165,9 @@ func resolveModelWord(q ModelQuery) (string, error) {
 	return q.Model, nil
 }
 
-type modelTarget struct{ route.Target }
-
-// splitQuery reads a dispatch cell's "<row>:<model>"; pool is true for overlay profile auto or a bare databricks.
-func splitQuery(reg *providers.Registry, q ModelQuery) (modelTarget, bool) {
-	spec := modelTarget{route.Target{Model: q.Model}}
-	if row, m, ok := cellRow(reg, q.Model); ok {
-		spec.Provider, spec.Profile, spec.Model = reg.Providers[row].Provider, row, m
-		return spec, false
-	}
-	bare := q.Provider == providers.GroupDatabricks && q.Profile == ""
-	return spec, (q.Profile == poolName || bare) && reg.Providers[poolName] == nil
-}
-
-// cellRow splits the router's own "<row>:<model>" cell spelling on a registry row; user input never reaches it.
-func cellRow(reg *providers.Registry, spec string) (row, model string, ok bool) {
-	row, model, ok = splitRowModel(strings.TrimSpace(spec))
-	return row, model, ok && model != "" && reg.Row(row) != nil
-}
-
 // routeRow walks the profile precedence: typed sources must serve the agent, implicit ones fall through.
-func routeRow(reg *providers.Registry, q ModelQuery, spec modelTarget) (*providers.Provider, string, error) {
-	typed, err := typedRow(reg, q, spec)
+func routeRow(reg *providers.Registry, q ModelQuery) (*providers.Provider, string, error) {
+	typed, err := typedRow(reg, q)
 	if err != nil {
 		return nil, "", err
 	}
@@ -242,11 +223,9 @@ func geminiGatewayPick(reg *providers.Registry, q ModelQuery) (*providers.Provid
 
 type namedSource struct{ name, src string }
 
-// typedRow is the highest typed source: a dispatch cell's row, the profile flag, the overlay provider, the account.
-func typedRow(reg *providers.Registry, q ModelQuery, spec modelTarget) (namedSource, error) {
+// typedRow is the highest typed source: the profile (a dispatch cell's row or the flag), the provider, the account.
+func typedRow(reg *providers.Registry, q ModelQuery) (namedSource, error) {
 	switch {
-	case spec.Profile != "":
-		return namedSource{spec.Profile, "cell"}, nil
 	case q.Profile != "":
 		return namedSource{q.Profile, "flag"}, nil
 	case q.Provider != "":
@@ -335,14 +314,12 @@ func rowServes(agent string, p *providers.Provider) (bool, string) {
 }
 
 // resolveOn resolves q on row p: model, spelling, servability and account.
-func resolveOn(p *providers.Provider, source string, q ModelQuery, spec modelTarget, now time.Time) (ModelRoute, error) {
+func resolveOn(p *providers.Provider, source string, q ModelQuery, now time.Time) (ModelRoute, error) {
 	selected := route.Pick(q.Route, route.Route{Provider: q.Provider, Profile: q.Profile, Account: q.Account, Identity: q.Identity})
-	switch {
-	case !spec.IsZero():
-		selected = spec.Route
-	case source == "pin":
+	switch source {
+	case "pin":
 		selected = q.PinRoute
-	case source == "session" || source == "default" || source == "own-login":
+	case "session", "default", "own-login":
 		selected = route.Route{}
 	}
 	r := ModelRoute{Agent: q.Agent, Provider: p.Provider, Profile: p.Name, Account: p.Account(), Source: source,
@@ -350,7 +327,7 @@ func resolveOn(p *providers.Provider, source string, q ModelQuery, spec modelTar
 	if p.Provider == "github" {
 		r.Login = cmp.Or(selected.Account, p.Login)
 	}
-	if err := routeModel(&r, p, q, spec, now); err != nil {
+	if err := routeModel(&r, p, q, now); err != nil {
 		return ModelRoute{}, err
 	}
 	aliasNote(&r)
@@ -367,8 +344,8 @@ func aliasNote(r *ModelRoute) {
 }
 
 // routeModel picks the typed model, else the record's, else the default alias, then cuts a gemini effort and spells it.
-func routeModel(r *ModelRoute, p *providers.Provider, q ModelQuery, spec modelTarget, now time.Time) error {
-	typed, pinned := spec.Model, false
+func routeModel(r *ModelRoute, p *providers.Provider, q ModelQuery, now time.Time) error {
+	typed, pinned := q.Model, false
 	if typed == "" {
 		typed, pinned = q.PinModel, q.PinModel != ""
 	}
@@ -594,7 +571,7 @@ func (r ModelRoute) Overlay() agentconfig.Overlay {
 func (r ModelRoute) Label() string { return r.Model }
 
 // resolvePool is the pool's first usable workspace serving the model, ranked least busy first.
-func resolvePool(reg *providers.Registry, q ModelQuery, spec modelTarget, now time.Time) (ModelRoute, error) {
+func resolvePool(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRoute, error) {
 	st, skipped := router.LoadState(), []string(nil)
 	names := reg.ProfilesOf(providers.GroupDatabricks)
 	names = autoOrder(reg, names, st, now)
@@ -611,7 +588,7 @@ func resolvePool(reg *providers.Registry, q ModelQuery, spec modelTarget, now ti
 			skipped = append(skipped, name+": "+fs[0].Detail)
 			continue
 		}
-		r, err := resolveOn(p, "pool", q, spec, now)
+		r, err := resolveOn(p, "pool", q, now)
 		if err == nil {
 			err = poolListed(p, r.Model, now)
 		}
@@ -625,7 +602,7 @@ func resolvePool(reg *providers.Registry, q ModelQuery, spec modelTarget, now ti
 		return r, nil
 	}
 	return ModelRoute{}, fmt.Errorf("%w: no Databricks profile can serve %s for %s (%s)", ErrModelRoute,
-		cmp.Or(spec.Model, q.Default, models.Opus), q.Agent, strings.Join(skipped, "; "))
+		cmp.Or(q.Model, q.Default, models.Opus), q.Agent, strings.Join(skipped, "; "))
 }
 
 // autoOrder is names in databricks:auto's order (cooling last, fewest live, least recent pick), stamping nothing.

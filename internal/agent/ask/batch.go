@@ -198,7 +198,7 @@ func checkLineIDs(n int, id, planTask string, seen map[string]bool) error {
 func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.RunOptions, string, error) {
 	tl, req := l.Task, base
 	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
-	_, auto := agent.SplitAuto(tl.Model)
+	auto := agent.IsAuto(tl.Model)
 	req.ModelTyped = (tl.Model != "" && !auto) || base.ModelTyped // a line's own model is as typed as a --model flag
 	if err := lineRoute(l, &req); err != nil {
 		return req, "", fmt.Errorf("line %d: %w", l.N, err)

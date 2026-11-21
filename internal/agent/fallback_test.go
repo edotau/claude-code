@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -470,8 +471,8 @@ func TestArmHopToFirstParty(t *testing.T) {
 	dev := &fakeRunner{name: "codex", caps: Caps{Model: Native}, emptyAnswer: true, errs: []error{quota}}
 	own := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{nil}}
 	c := Chain{Want: "codex", Dispatches: []Dispatch{
-		{Agent: dev, Model: "dev:opus", Account: "databricks·dev"},
-		{Agent: own, Model: "chatgpt:gpt-6.1-sol", Account: "openai·chatgpt"},
+		{Agent: dev, Model: "opus", Route: route.Route{Provider: "databricks", Profile: "dev"}, Account: "databricks·dev"},
+		{Agent: own, Model: "gpt-6.1-sol", Route: route.Route{Provider: "openai", Profile: "chatgpt"}, Account: "openai·chatgpt"},
 	}}
 	var notes []string
 	res, err := runWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, func(s string) { notes = append(notes, s) })
@@ -1161,7 +1162,7 @@ func TestFallbackSiblingLoad(t *testing.T) {
 	if err != nil || len(res.Hops) != 2 || res.Hops[0].Profile != "dev" || res.Hops[1].Profile != "stage" {
 		t.Fatalf("hops=%+v err=%v; want dev, stage", res.Hops, err)
 	}
-	if res.Provider != "stage" || res.Invoked != "stage:test-model" || !strings.Contains(wire.RanOn(res), "databricks·stage") {
+	if res.Provider != "stage" || res.Invoked != "test-model" || !strings.Contains(wire.RanOn(res), "databricks·stage") {
 		t.Fatalf("receipt=%+v", res)
 	}
 	rec := NewRecord("codex", RunOptions{Prompt: "p"}, time.Now())
@@ -1182,7 +1183,7 @@ func siblingFallbackChain() Chain {
 		if i == 0 {
 			r.errs, r.emptyAnswer = []error{&retry.Error{Kind: retry.KindRateLimit, Terminal: true, Agent: "codex", Err: errors.New("429")}}, true
 		}
-		c.Dispatches = append(c.Dispatches, Dispatch{Agent: r, Account: "databricks·" + ws, Model: ws + ":test-model", otherRoute: i > 0})
+		c.Dispatches = append(c.Dispatches, Dispatch{Agent: r, Account: "databricks·" + ws, Model: "test-model", Route: route.Route{Provider: "databricks", Profile: ws}, otherRoute: i > 0})
 	}
 	return c
 }
@@ -1191,7 +1192,7 @@ type siblingRunner struct{ fakeRunner }
 
 func (r *siblingRunner) Run(ctx context.Context, req RunOptions, sink wire.Sink) (wire.Result, error) {
 	res, err := r.fakeRunner.Run(ctx, req, sink)
-	res.Provider, _, _ = strings.Cut(req.Model, ":")
+	res.Provider = req.CellRoute.Profile
 	return res, err
 }
 
@@ -1321,7 +1322,7 @@ func (p *pickRefuser) Run(_ context.Context, req RunOptions, _ wire.Sink) (wire.
 
 // repickRun exercises execution's shared budget and a subsequent preparation without launching a vendor.
 func repickRun(t *testing.T, refuse, spent int) (res wire.Result, runs int, notes []string, held time.Time, err error) {
-	reg, _, _ := autoFixture(t)
+	reg := keyedAutoFixture(t)
 	row := reg.Row("dev")
 	var pool []string
 	for _, m := range rotationPool("opencode", "", row, false, time.Now()) {
@@ -1336,7 +1337,7 @@ func repickRun(t *testing.T, refuse, spent int) (res wire.Result, runs int, note
 	backstop := &fakeRunner{name: "gemini", errs: []error{nil}}
 	opts := RunOptions{Agent: "opencode", Model: AutoModel, AutoModel: true, Prompt: standardBrief, Repicks: spent}
 	p := &Prepared{Opts: opts, Record: ClaimRecord(opts.Agent, opts, time.Now()), Chain: Chain{Want: opts.Agent,
-		Dispatches: []Dispatch{{Agent: eng, Account: row.Account(), Model: "dev:auto"}, {Agent: backstop}}}}
+		Dispatches: []Dispatch{{Agent: eng, Account: row.Account(), Model: AutoModel, Route: route.Route{Provider: "databricks", Profile: "dev"}}, {Agent: backstop}}}}
 	cl := &Client{}
 	res, err = cl.Exec(context.Background(), p, wire.Discard, RunRecordedOpts{Notify: func(s string) { notes = append(notes, s) }})
 	if len(backstop.seen) != wantBackstops || p.Opts.Repicks != spent+len(eng.seen)+len(backstop.seen)-1 {
@@ -1380,9 +1381,9 @@ func TestRetryModelAutoEndpointGoneRepicksPool(t *testing.T) {
 	row := reg.Row("dev")
 	ran := providers.SpellPin(row, rotationPool("opencode", "", row, false, time.Now())[0])
 	rescued := false
-	disp := Dispatch{Agent: &pickRefuser{}, Account: row.Account(), servedRepick: func(string) string { rescued = true; return "dev:m-b" }}
-	got := retryModel(context.Background(), disp, RunOptions{Model: "dev:auto"}, ran, errors.New("ENDPOINT_NOT_FOUND: no endpoint "+ran))
-	if got != "dev:auto" || rescued {
+	disp := Dispatch{Agent: &pickRefuser{}, Account: row.Account(), servedRepick: func(string) string { rescued = true; return "m-b" }}
+	got := retryModel(context.Background(), disp, RunOptions{Model: AutoModel}, ran, errors.New("ENDPOINT_NOT_FOUND: no endpoint "+ran))
+	if got != AutoModel || rescued {
 		t.Fatalf("retry = %q, rescued = %v; want the auto re-pick and no concrete rescue", got, rescued)
 	}
 }
@@ -1409,18 +1410,12 @@ func (c *copilotRefuser) Run(ctx context.Context, req RunOptions, _ wire.Sink) (
 
 // A copilot auto pick a model refuses re-picks another model, not the frozen first target, and skips the refused one.
 func TestRunDispatchCopilotRepickLeavesFrozenPick(t *testing.T) {
-	autoFixture(t)
-	vaulttest.Put(t, vault.Overlay, "providers", strings.Replace(autoOverlay, `"dev":{"auth":{"type":"oauth"}`,
-		`"dev":{"auth":{"type":"key","command":"echo qzvxplk"}`, 1))
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
+	reg := keyedAutoFixture(t)
 	row := reg.Row("dev")
 	eng := &copilotRefuser{}
 	opts := RunOptions{Agent: "copilot", Model: AutoModel, AutoModel: true, Provider: "dev", Prompt: standardBrief}
 	p := &Prepared{Opts: opts, Record: ClaimRecord(opts.Agent, opts, time.Now()),
-		Chain: Chain{Want: opts.Agent, Dispatches: []Dispatch{{Agent: eng, Account: row.Account(), Model: "dev:auto"}}}}
+		Chain: Chain{Want: opts.Agent, Dispatches: []Dispatch{{Agent: eng, Account: row.Account(), Model: AutoModel, Route: route.Route{Provider: "databricks", Profile: "dev"}}}}}
 	res, err := (&Client{}).Exec(context.Background(), p, wire.Discard, RunRecordedOpts{})
 	if err != nil || len(eng.ran) != 2 || eng.ran[0] == eng.ran[1] || res.Answer != "ok" {
 		t.Fatalf("err=%v ran=%v; want two runs on two different models", err, eng.ran)
@@ -1433,7 +1428,7 @@ func TestRunDispatchCopilotRepickLeavesFrozenPick(t *testing.T) {
 
 // A context-length refusal under auto re-picks another model for this ask and writes no 7-day skip.
 func TestRunDispatchRequestSizeRepickWritesNoSkip(t *testing.T) {
-	reg, _, _ := autoFixture(t)
+	reg := keyedAutoFixture(t)
 	row := reg.Row("dev")
 	var pool []string
 	for _, m := range rotationPool("opencode", "", row, false, time.Now()) {
@@ -1442,7 +1437,7 @@ func TestRunDispatchRequestSizeRepickWritesNoSkip(t *testing.T) {
 	eng := &pickRefuser{pool: pool, refuse: 1, msg: "This model's maximum context length is 8192 tokens"}
 	opts := RunOptions{Agent: "opencode", Model: AutoModel, AutoModel: true, Prompt: standardBrief}
 	p := &Prepared{Opts: opts, Record: ClaimRecord(opts.Agent, opts, time.Now()),
-		Chain: Chain{Want: opts.Agent, Dispatches: []Dispatch{{Agent: eng, Account: row.Account(), Model: "dev:auto"}}}}
+		Chain: Chain{Want: opts.Agent, Dispatches: []Dispatch{{Agent: eng, Account: row.Account(), Model: AutoModel, Route: route.Route{Provider: "databricks", Profile: "dev"}}}}}
 	res, err := (&Client{}).Exec(context.Background(), p, wire.Discard, RunRecordedOpts{})
 	if err != nil || len(eng.seen) != 2 || res.Answer != "ok" {
 		t.Fatalf("err=%v runs=%d; want one re-pick that answers", err, len(eng.seen))
@@ -1479,13 +1474,13 @@ func TestRepickKeepsInvokedAsAsked(t *testing.T) {
 	fastDefaultBackoff(t)
 	fallbackConfigDir(t)
 	rl := &retry.Error{Kind: retry.KindRateLimit, Agent: "fake", Terminal: true, Err: errors.New("429 rate limit: ENDPOINT_NOT_FOUND")}
-	r := &modelRunner{name: "fake", caps: Caps{Model: Native}, errs: map[string]error{"dev:m-a": rl}}
-	c := chainOf([]Engine{r}, "dev:m-a")
+	r := &modelRunner{name: "fake", caps: Caps{Model: Native}, errs: map[string]error{"m-a": rl}}
+	c := chainOf([]Engine{r}, "m-a")
 	c.Dispatches[0].keepCaller, c.Dispatches[0].Account, c.Dispatches[0].Billing = false, "openai·chatgpt", router.BillSubscription
-	c.Dispatches[0].servedRepick = func(string) string { return "dev:m-b" }
+	c.Dispatches[0].servedRepick = func(string) string { return "m-b" }
 	res, err := runWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
-	if err != nil || len(r.seen) != 2 || res.Invoked != "dev:m-a" {
-		t.Fatalf("err=%v runs=%d invoked=%q; want the re-pick to answer with invoked dev:m-a", err, len(r.seen), res.Invoked)
+	if err != nil || len(r.seen) != 2 || res.Invoked != "m-a" {
+		t.Fatalf("err=%v runs=%d invoked=%q; want the re-pick to answer with invoked m-a", err, len(r.seen), res.Invoked)
 	}
 }
 

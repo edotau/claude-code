@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -23,7 +24,8 @@ import (
 // Dispatch is one routed step: the agent plus the cell it runs (model, effort) and the account it bills.
 type Dispatch struct {
 	Agent                        Engine
-	Model, Effort                string
+	Model, Effort                string      // Model is a plain id or alias, never "<row>:<model>"
+	Route                        route.Route // the registry row a pinned cell runs on; zero follows the request
 	Account, Billing             string
 	note                         string
 	servedRepick                 func(failed string) string // codex on Databricks: mark the endpoint gone, return the next
@@ -40,8 +42,8 @@ type Chain struct {
 	Want       string
 	Dispatches []Dispatch
 	Skipped    []string
-	Preflight  *Preflight // nil when the preflight failed nothing and skipped no check
-	requested  string     // the requested target's <profile>:<model> when it is a dispatch of this chain
+	Preflight  *Preflight   // nil when the preflight failed nothing and skipped no check
+	requested  route.Target // the requested target when it is a dispatch of this chain (Model: the account when none)
 }
 
 // Hops names each dispatch in run order, "codex (openai·chatgpt, gpt-6.1-sol)".
@@ -344,7 +346,7 @@ func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead boo
 			continue
 		}
 		if s.i == req && !s.pin {
-			c.requested = cmp.Or(disp.Model, disp.Account)
+			c.requested = route.Target{Route: disp.Route, Model: cmp.Or(disp.Model, disp.Account)}
 		}
 		c.Dispatches = append(c.Dispatches, disp)
 	}
@@ -388,7 +390,7 @@ func (rc routeCtx) otherRoute(cand router.Candidate) bool {
 }
 
 func (d Dispatch) same(o Dispatch) bool {
-	return d.Agent.Name() == o.Agent.Name() && d.Account == o.Account && d.Model == o.Model && d.Effort == o.Effort
+	return d.Agent.Name() == o.Agent.Name() && d.Account == o.Account && d.Route == o.Route && d.Model == o.Model && d.Effort == o.Effort
 }
 
 // RouteReq is one route ask: the agent, its model, the caller's route flags and what the chain is for.
@@ -441,11 +443,6 @@ func chainFor(ctx context.Context, q RouteReq, hint, lead string) (Chain, router
 	o := router.PickOpts{Lead: lead, Refresh: q.Refresh, WorkRepo: func() bool { return router.IsWorkRepo(q.WorkDir) }}
 	return RouteChainFor(ctx, q.Agent, q.Model, hint, q.Fallback, q.Native, o)
 }
-
-// rowModel and splitRowModel are the one "<row>:<model>" spelling a Dispatch.Model carries.
-func rowModel(row, model string) string { return row + ":" + model }
-
-func splitRowModel(spec string) (row, model string, ok bool) { return strings.Cut(spec, ":") }
 
 // routeLeadContext is LeadFor, except a preview leads on its pin or --profile, never explicitly.
 func routeLeadContext(ctx context.Context, q RouteReq) (lead string, explicit bool, err error) {
@@ -540,7 +537,7 @@ func explicitRouteErr(ctx context.Context, q RouteReq) error {
 	}
 	mq := QueryFor(PeekContext(ctx), ModelQuery{Agent: q.Agent, Model: q.Model, Profile: q.Profile,
 		Task: q.Task, Default: q.AliasHint, Tools: q.Tools})
-	_, asked := SplitAuto(q.Model)
+	asked := IsAuto(q.Model)
 	asked = asked || q.AutoModel
 	if mq.Model == "" { // an untyped ask is checked against what the profile serves, not the opus alias
 		mq.Model = AutoModel
@@ -561,9 +558,6 @@ func explicitRouteErr(ctx context.Context, q RouteReq) error {
 // explicitEngine is q's engine after its explicit backend passes preflight; a hub agent on a hub profile is its ladder.
 func explicitEngine(ctx context.Context, q RouteReq, pf *Preflight) (Engine, error) {
 	if q.Profile == "" {
-		if f := modelFinding(ctx, q, pf); f != nil {
-			return nil, &PreflightError{Finding: *f}
-		}
 		return q.Engine, nil
 	}
 	reg, err := providers.Load()
@@ -659,7 +653,7 @@ func (rc routeCtx) pinnedCaller(cand router.Candidate) bool {
 }
 
 func (rc routeCtx) pinnedCell(cand router.Candidate, cell *router.Cell) {
-	cell.Model = cmp.Or(rc.exact, strings.TrimPrefix(rc.callerModel, cand.Profile+":")) // buildDispatch re-adds the profile
+	cell.Model = cmp.Or(rc.exact, rc.callerModel) // buildDispatch pins the dispatch to the row
 	if rc.reg == nil || rc.reg.Providers[cand.Profile] == nil {
 		return
 	}
@@ -759,8 +753,8 @@ func (rc routeCtx) buildDispatch(cand router.Candidate, cell router.Cell) (disp 
 	if disp.keepCaller && rc.exact != "" {
 		disp.Model = rc.exact // an exact non-Claude id runs as asked; an alias runs the cell's model
 	}
-	if cand.Profile != "" { // provider:model pins the dispatch to that Databricks profile, not the session's
-		disp.Model = rowModel(cand.Profile, cell.Model)
+	if cand.Profile != "" { // the cell's row pins the dispatch to that profile, not the session's
+		disp.Model, disp.Route = cell.Model, rowRoute(rc.reg, cand.Profile)
 	}
 	return rc.dispatchAgent(cand, cell, disp)
 }
@@ -768,7 +762,7 @@ func (rc routeCtx) buildDispatch(cand router.Candidate, cell router.Cell) (disp 
 // hubOpencode reports a candidate that rides the opencode hub rather than its own agent CLI.
 func (rc routeCtx) hubOpencode(cand router.Candidate) bool {
 	if pr := rc.reg.Row(cand.Profile); pr != nil && pr.OpencodeID == "" {
-		return false // a row with no opencode id can't ride the hub; the native agent takes <profile>:<model>
+		return false // a row with no opencode id can't ride the hub; the native agent runs on the row
 	}
 	return isHubAgent(cand.Agent) && (!rc.native || cand.Agent != rc.want)
 }
@@ -802,7 +796,7 @@ func (rc routeCtx) dispatchAgent(cand router.Candidate, cell router.Cell, disp D
 func (rc routeCtx) engineModel(cand router.Candidate, cell router.Cell, disp Dispatch) Dispatch {
 	if p := rc.reg.Row(cand.Profile); agentid.Routing(cand.Agent).GoogleOrDatabricks && GeminiGatewayRow(p) {
 		d := mustDriver(cand.Agent).(HeadlessDriver)
-		disp.Model = rowModel(cand.Profile, d.Before(RunOptions{Model: disp.Model}, providers.Target{Provider: p, Model: cell.Model}).Model)
+		disp.Model = d.Before(RunOptions{Model: disp.Model, CellRoute: disp.Route}, providers.Target{Provider: p, Model: cell.Model}).Model
 	}
 	return disp
 }
@@ -815,15 +809,12 @@ func (rc routeCtx) lookupDispatch(cand router.Candidate, cell router.Cell, disp 
 	}
 	disp.Agent = r
 	if VaultAgentIsClaude(cand.Agent) && !rc.callerOnProfile(cand) {
-		disp.Model = router.ClaudeCellModel(cell.Model)
-		if cand.Profile != "" { // keep the <profile>: spelling so the dispatch resolves on that profile
-			disp.Model = rowModel(cand.Profile, disp.Model)
-		}
+		disp.Model = router.ClaudeCellModel(cell.Model) // disp.Route keeps the row the dispatch resolves on
 	}
 	return disp, nil
 }
 
-func (rc routeCtx) callerAuto() bool { _, ok := SplitAuto(rc.callerModel); return ok }
+func (rc routeCtx) callerAuto() bool { return IsAuto(rc.callerModel) }
 
 // servedRepickFor is a codex Databricks dispatch's repick when the switch is on and the caller named no exact model.
 func (rc routeCtx) servedRepickFor(cand router.Candidate) func(string) string {

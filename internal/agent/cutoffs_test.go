@@ -46,7 +46,7 @@ func TestNoteCutoffWritesPrunesAndClears(t *testing.T) {
 // A cutoff of a "--model auto" run is found by the key the guard computes from the typed word.
 func TestCutoffKeyAutoMatchesFoldedRecord(t *testing.T) {
 	rec := Record{Agent: "codex", Request: RunOptions{Model: "", AutoModel: true, Prompt: "p"}}
-	for _, typed := range []string{"auto", "AUTO", "dev:auto", ""} {
+	for _, typed := range []string{"auto", "AUTO", ""} {
 		if CutoffKey("codex", typed, "p") != CutoffKey(rec.Agent, rec.Request.Model, rec.Request.Prompt) {
 			t.Fatalf("key for typed %q differs from the folded record's", typed)
 		}

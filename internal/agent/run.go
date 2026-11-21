@@ -630,20 +630,20 @@ type RunOptions struct {
 	// YieldFallback lets workspace retry handle a failed dispatch before the requested chain continues.
 	YieldFallback func(wire.Result, error) bool `json:"-"`
 
-	// Route is the whole route when set; readers fall back to Provider, Account and a dispatch cell's row.
+	// Route is the whole route when set; readers fall back to Provider, Account and CellRoute.
 	Route route.Route `json:"route,omitzero"`
+	// CellRoute is the registry row a router-pinned ladder cell runs on; it outranks Provider. Per hop, never stored.
+	CellRoute route.Route `json:"-"`
 }
 
-// EffectiveRoute is Route when set, else built from the legacy Provider, Account and a cell's "<row>:" Model.
-func (o RunOptions) EffectiveRoute(reg *providers.Registry) route.Route {
+// EffectiveRoute is Route when set, else built from the legacy Provider, Account and the cell's row.
+func (o RunOptions) EffectiveRoute() route.Route {
 	if !o.Route.IsZero() {
 		return o.Route
 	}
 	r := route.ParseLegacy(o.Provider)
 	if r.IsZero() {
-		if row, _, ok := cellRow(reg, o.Model); ok {
-			r = route.Route{Profile: row}
-		}
+		r = o.CellRoute
 	}
 	if !r.IsZero() {
 		r.Account = o.Account

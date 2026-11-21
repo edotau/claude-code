@@ -355,7 +355,7 @@ func (copilotEngine) DescribeRoute(ctx context.Context, reg *providers.Registry)
 }
 
 func (copilotEngine) Gate(ctx context.Context, req agent.RunOptions, reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
-	t, err := overlayAccount(ctx, reg, t, req.Model, req.Account)
+	t, err := overlayAccount(ctx, reg, t, req)
 	if err != nil {
 		return t, "", err
 	}
@@ -363,7 +363,8 @@ func (copilotEngine) Gate(ctx context.Context, req agent.RunOptions, reg *provid
 }
 
 // overlayAccount moves t to the GitHub row the overlay's account key names, with the model spelled on it.
-func overlayAccount(ctx context.Context, reg *providers.Registry, t providers.Target, model, account string) (providers.Target, error) {
+func overlayAccount(ctx context.Context, reg *providers.Registry, t providers.Target, req agent.RunOptions) (providers.Target, error) {
+	model, account := req.Model, req.Account
 	if account == "" {
 		ov, err := agentconfig.LoadOverlayContext(ctx, "", nil)
 		if err != nil {
@@ -374,8 +375,8 @@ func overlayAccount(ctx context.Context, reg *providers.Registry, t providers.Ta
 	if account == "" || t.Provider == nil || t.Provider.Provider != "github" {
 		return t, nil
 	}
-	q := agent.QueryFor(ctx, agent.ModelQuery{Agent: "copilot", Model: model, Account: account})
-	if _, auto := agent.SplitAuto(cmp.Or(q.Model, q.PinModel)); auto {
+	q := agent.QueryFor(ctx, agent.ModelQuery{Agent: "copilot", Model: model, Account: account, Route: req.CellRoute}) // a cell's row outranks the account
+	if agent.IsAuto(cmp.Or(q.Model, q.PinModel)) {
 		q.Model = t.Model // the first hop already picked: spell that pick, no second stamp
 	}
 	r, err := agent.ResolveRun(reg, q, time.Now())
@@ -395,7 +396,7 @@ func copilotFatalIf(err error) error {
 
 // GateExplicit also turns a gate move off the pinned GitHub profile into a quota error and keeps the requested tier.
 func (e copilotEngine) GateExplicit(ctx context.Context, req agent.RunOptions, reg *providers.Registry, t providers.Target) (providers.Target, string, error) {
-	t, err := overlayAccount(ctx, reg, t, req.Model, req.Account)
+	t, err := overlayAccount(ctx, reg, t, req)
 	if err != nil {
 		return t, "", err
 	}

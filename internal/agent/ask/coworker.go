@@ -232,7 +232,7 @@ func autoWorkspace(ctx context.Context, agentName, model, fallback string) (stri
 
 // typedModel reports a concrete id or family word: not empty, an alias, auto or a row-qualified spelling.
 func typedModel(model string) bool {
-	_, auto := agent.SplitAuto(model)
+	auto := agent.IsAuto(model)
 	return model != "" && !auto && !strings.Contains(model, ":") && !slices.Contains(router.Aliases, models.Strip1M(model))
 }
 

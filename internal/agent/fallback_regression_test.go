@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -82,10 +83,10 @@ func TestRepickedRateLimitStillMarksAccount(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			fastDefaultBackoff(t)
 			fallbackConfigDir(t)
-			r := &modelRunner{name: "fake", caps: Caps{Model: Native}, errs: map[string]error{"dev:m-a": rl, "dev:m-b": repickErr}}
-			c := chainOf([]Engine{r}, "dev:m-a")
+			r := &modelRunner{name: "fake", caps: Caps{Model: Native}, errs: map[string]error{"m-a": rl, "m-b": repickErr}}
+			c := chainOf([]Engine{r}, "m-a")
 			c.Dispatches[0].keepCaller, c.Dispatches[0].Account, c.Dispatches[0].Billing = false, "openai·chatgpt", router.BillSubscription
-			c.Dispatches[0].servedRepick = func(string) string { return "dev:m-b" }
+			c.Dispatches[0].servedRepick = func(string) string { return "m-b" }
 			_, err := runWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
 			if len(r.seen) != 2 || (err == nil) != (repickErr == nil) {
 				t.Fatalf("err=%v runs=%d; want the repick to run and return its own outcome", err, len(r.seen))
@@ -102,8 +103,9 @@ func TestDispatchRequestCellModelOnEveryHop(t *testing.T) {
 		if req := dispatchRequest(RunOptions{}, Dispatch{Model: "gpt-6-sol"}, first); !req.CellModel {
 			t.Errorf("first=%v: a router cell model must re-resolve against its row", first)
 		}
-		if req := dispatchRequest(RunOptions{}, Dispatch{Model: "dev:opus"}, first); req.CellModel {
-			t.Errorf("first=%v: a typed profile:model is not a cell model", first)
+		row := route.Route{Provider: "databricks", Profile: "dev"}
+		if req := dispatchRequest(RunOptions{}, Dispatch{Model: "opus", Route: row}, first); req.CellModel || req.CellRoute != row || req.Model != "opus" {
+			t.Errorf("first=%v: a cell pinned to its row is not a bare cell model: %+v", first, req)
 		}
 	}
 }

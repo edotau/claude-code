@@ -324,17 +324,15 @@ func listedFacts(p *providers.Provider, wire string) (providers.EndpointFacts, b
 	return providers.EndpointFacts{APITypes: m.APITypes, Context: m.Context, Output: m.Output}, ok
 }
 
-// NextServed marks the failed model gone on p and returns the next READY Responses model, "" when there is none.
+// NextServed marks the failed plain model id gone on p and returns the next READY Responses model, "" when none.
 func NextServed(p *providers.Provider, failed string) string {
-	prefix := p.Name + ":"
-	wire := strings.TrimPrefix(failed, prefix)
-	if err := MarkUnserved(p, wire); err != nil {
-		fmt.Fprintf(os.Stderr, "served: could not mark %s unavailable: %v\n", wire, err)
+	if err := MarkUnserved(p, failed); err != nil {
+		fmt.Fprintf(os.Stderr, "served: could not mark %s unavailable: %v\n", failed, err)
 	}
 	next, _ := ServedFirst(p, true, time.Now())
-	if next == "" || next == wire {
+	if next == "" || next == failed {
 		return ""
 	}
-	fmt.Fprintf(os.Stderr, "served: %s unavailable on %s; using %s\n", wire, p.Name, next)
-	return prefix + next
+	fmt.Fprintf(os.Stderr, "served: %s unavailable on %s; using %s\n", failed, p.Name, next)
+	return next
 }

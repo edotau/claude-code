@@ -323,7 +323,7 @@ func rotationPick(reg *providers.Registry, q ModelQuery, base ModelRoute, need a
 		return base, true, exhaustedPool(q.Agent, alias, p, q.Tools, now)
 	}
 	pq := q
-	pq.Model, pq.Profile, pq.Default = base.Profile+":"+m, "", ""
+	pq.Route, pq.Model, pq.Profile, pq.Default = rowRoute(reg, base.Profile), m, "", ""
 	r, err := ResolveModel(reg, pq, now)
 	if err != nil {
 		return base, true, err
@@ -384,7 +384,7 @@ func RotationFreeze(ctx context.Context, agentName, brief, model string) (profil
 		return "", "", ""
 	}
 	model = cmp.Or(model, o.Model)
-	if prefix, auto := SplitAuto(cmp.Or(model, agentModelPinContext(ctx, agentName), AutoModel)); !auto || prefix != "" {
+	if !IsAuto(cmp.Or(model, agentModelPinContext(ctx, agentName), AutoModel)) {
 		return "", "", ""
 	}
 	reg, err := providers.LoadShared()

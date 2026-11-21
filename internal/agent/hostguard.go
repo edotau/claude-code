@@ -123,10 +123,10 @@ func guardProvider(r Engine, req RunOptions) (*providers.Provider, error) {
 	}
 	s, known := LookupSchema(r.Name())
 	if known && s.External() {
-		// the same target the agent picks: --provider, a provider:model prefix, the session, the copilot gate
+		// the same target the agent picks: --provider, the cell's row, the session, the copilot gate
 		t, own, _, err := s.targetPeek(req)
 		if err != nil {
-			if !req.EffectiveRoute(nil).IsZero() {
+			if !req.EffectiveRoute().IsZero() {
 				return nil, err
 			}
 			return nil, nil // the agent reports its own resolution failure with its own kind
@@ -136,7 +136,7 @@ func guardProvider(r Engine, req RunOptions) (*providers.Provider, error) {
 		}
 		return t.Provider, nil
 	}
-	if req.EffectiveRoute(nil).IsZero() && !known {
+	if req.EffectiveRoute().IsZero() && !known {
 		return nil, nil
 	}
 	_, t, err := ResolveRequestTarget(req)

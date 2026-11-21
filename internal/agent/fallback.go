@@ -20,6 +20,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -120,14 +121,22 @@ func chainOutcome(ctx context.Context, c Chain, res wire.Result, err error, reas
 func (c Chain) markFallback(res wire.Result, reasons []string) wire.Result {
 	hopReasons := reasons[len(c.Skipped):] // the reason names the asked agent's skips and the hops that ran, never an unasked agent's skip
 	res.Fallback, res.FallbackReason = c.Want, strings.Join(append(askedSkips(reasons[:len(c.Skipped)], c.Want), hopReasons...), "; ")
-	row, id := hopModel(c.requested)
-	res.Requested, res.RequestedRoute = id, wire.RouteObject(cmp.Or(row, id))
+	res.Requested, res.RequestedRoute = c.requested.Model, c.requestedRoute()
 	res.RequestedWhy = strings.Join(hopReasons[:min(1, len(hopReasons))], "")
 	if pf := c.Preflight; pf != nil && len(pf.Failed) > 0 {
 		res.Requested, res.RequestedRoute = cmp.Or(pf.Requested, pf.RequestedProfile), wire.RouteObject(pf.RequestedProfile)
 		res.RequestedWhy = pf.Failed[0].String()
 	}
 	return res
+}
+
+// requestedRoute is the requested hop's pinned row as a route object; nil when the hop follows the request.
+func (c Chain) requestedRoute() *route.Route {
+	r := c.requested.Route
+	if r.Provider == "" {
+		return wire.RouteObject(r.Profile)
+	}
+	return &r
 }
 
 // announceFallback tells notify and the sink in one line, both accounts named, that disp takes over from prev.
@@ -209,25 +218,12 @@ func invokedModel(req RunOptions) string {
 	if req.CellModel && req.AutoModel {
 		return AutoModel
 	}
-	_, id := hopModel(req.Model)
-	return id
-}
-
-// plainHop is a hop's model without its internal `<row>:` (the hop names its profile apart).
-func plainHop(m string) string { _, id := hopModel(m); return id }
-
-// hopModel splits an internal ladder hop's `<row>:<model>` into row and plain id; written surfaces get the id only.
-func hopModel(m string) (row, id string) {
-	reg, err := providers.LoadShared()
-	if r, rest, ok := strings.Cut(m, ":"); ok && err == nil && reg.Providers[r] != nil {
-		return r, rest
-	}
-	return "", m
+	return req.Model
 }
 
 // launchedModel: auto stays auto, a typed model as asked, then a frozen copilot target's model, invokedModel, else the agent's plain pin.
 func launchedModel(ctx context.Context, disp Dispatch, req RunOptions) string {
-	if _, auto := SplitAuto(invokedModel(req)); auto {
+	if IsAuto(invokedModel(req)) {
 		return invokedModel(req)
 	}
 	if _, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && !req.ModelTyped && agentid.Routing(disp.Agent.Name()).FreezeTarget {
@@ -247,7 +243,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 	var tried []string
 	lreq = repickRequest(ctx, lreq)
 	invoked := res.Invoked
-	_, auto := SplitAuto(lreq.Model)
+	auto := IsAuto(lreq.Model)
 	limit := 1 // a served-endpoint repick of a concrete model stays once
 	if auto {
 		limit = max(0, MaxAutoRepicks-lreq.Repicks)
@@ -325,7 +321,7 @@ func triedPicks(picks []string, err error) error {
 
 // ranModel is the model that served an auto request (the envelope's), else the requested one.
 func ranModel(requested string, res wire.Result) string {
-	if _, auto := SplitAuto(requested); auto && res.Model != "" {
+	if IsAuto(requested) && res.Model != "" {
 		return res.Model
 	}
 	return requested
@@ -354,7 +350,7 @@ func promptFromHandoff(path, prompt, agentName string) string {
 // hopOf records one tried dispatch: who ran, on which account and profile, and the error token if it failed.
 func hopOf(disp Dispatch, req RunOptions, res wire.Result, err error) wire.Hop {
 	h := wire.Hop{Agent: cmp.Or(res.Agent, disp.Agent.Name()), Account: ranAccount(disp.Account, res.Provider), Profile: cmp.Or(res.Provider, req.Provider),
-		Model: plainHop(cmp.Or(res.Model, req.Model)), Reported: res.Reported, NotStarted: res.NotStarted}
+		Model: cmp.Or(res.Model, req.Model), Reported: res.Reported, NotStarted: res.NotStarted}
 	if err != nil {
 		h.ErrorKind = wire.ErrorKind(err)
 		if e, ok := errors.AsType[*retry.Error](err); ok && len(e.Earlier) > 0 {
@@ -394,11 +390,9 @@ func hopLabel(l Dispatch) string {
 	return dispatchLabel(l.Agent) + " (" + l.Account + ")"
 }
 
-// hopTarget is hopLabel plus the hop's model without its "<profile>:", "codex (openai·chatgpt, gpt-6.1-sol)".
+// hopTarget is hopLabel plus the hop's model, "codex (openai·chatgpt, gpt-6.1-sol)".
 func hopTarget(l Dispatch) string {
-	_, prof, _ := strings.Cut(l.Account, "·")
-	model := strings.TrimPrefix(l.Model, prof+":")
-	parts := slices.DeleteFunc([]string{l.Account, model}, func(s string) bool { return s == "" })
+	parts := slices.DeleteFunc([]string{l.Account, l.Model}, func(s string) bool { return s == "" })
 	if len(parts) == 0 {
 		return dispatchLabel(l.Agent)
 	}
@@ -637,12 +631,10 @@ func claimSibling(c Chain, i int, disp Dispatch) Dispatch {
 func siblingSlots(c Chain, i int, disp Dispatch) (*providers.Registry, map[string]int) {
 	reg := &providers.Registry{Providers: map[string]*providers.Provider{}}
 	slots := map[string]int{}
-	_, model, _ := splitRowModel(disp.Model)
 	for j := i; j < len(c.Dispatches); j++ {
 		d := c.Dispatches[j]
 		ws, ok := strings.CutPrefix(d.Account, "databricks·")
-		_, otherModel, _ := splitRowModel(d.Model)
-		if !ok || d.Agent.Name() != c.Want || !d.otherRoute || d.quotaOverflow || d.swap || !models.SameModel(model, otherModel) {
+		if !ok || d.Agent.Name() != c.Want || !d.otherRoute || d.quotaOverflow || d.swap || !models.SameModel(disp.Model, d.Model) {
 			break
 		}
 		reg.Providers[ws] = &providers.Provider{Name: ws, Preset: providers.PresetDatabricks}
@@ -927,7 +919,7 @@ func retryModel(ctx context.Context, disp Dispatch, lreq RunOptions, ran string,
 	if retry.Progressed(err) {
 		return "" // text or tools already ran: a re-run on the next model would repeat them
 	}
-	_, auto := SplitAuto(lreq.Model)
+	auto := IsAuto(lreq.Model)
 	msg := err.Error()
 	switch {
 	case autoRefusal(ctx, disp, lreq.Model, ran, msg):
@@ -951,7 +943,7 @@ func autoRetryable(disp Dispatch, requested, ran string) *providers.Provider {
 	if disp.Agent == nil || !rotatesUnderAuto(disp.Agent.Name()) {
 		return nil
 	}
-	if _, auto := SplitAuto(requested); !auto || ran == "" || ran == requested {
+	if !IsAuto(requested) || ran == "" || ran == requested {
 		return nil
 	}
 	_, row, _ := strings.Cut(disp.Account, "·")
@@ -999,12 +991,12 @@ func cellRequest(out, req RunOptions, disp Dispatch) RunOptions {
 		out.Model = disp.Model
 	}
 	if !disp.keepCaller {
-		out.Model, out.CellModel = disp.Model, !strings.Contains(disp.Model, ":")
+		out.Model, out.CellRoute, out.CellModel = disp.Model, disp.Route, disp.Route.IsZero()
 		if out.CellModel && req.Model == "" && pinsAuto(out.Values, cmp.Or(req.Agent, engineName(disp))) {
 			out.AutoModel = true // a pinned auto records as auto, like a typed one
 		}
 		if !out.CellModel && (out.AutoModel || req.Model == "" && pinsAuto(out.Values, cmp.Or(req.Agent, engineName(disp)))) {
-			out.Model = AutoCell(disp.Model) // typed or pinned auto beats the cell's model, on the cell's row (RunQuery)
+			out.Model = AutoModel // typed or pinned auto beats the cell's model, on the cell's row (RunQuery)
 		}
 	}
 	out.ModelTyped = req.ModelTyped && out.Model == req.Model // a model the cell replaced is the harness's
@@ -1032,8 +1024,7 @@ func claudeTier(out RunOptions, disp Dispatch) RunOptions {
 
 // pinsAuto reports whether agentName's model pin, under values' env, is auto.
 func pinsAuto(values proc.Values, agentName string) bool {
-	_, ok := SplitAuto(agentModelPinContext(valuesContext(context.Background(), values), agentName))
-	return ok
+	return IsAuto(agentModelPinContext(valuesContext(context.Background(), values), agentName))
 }
 
 // engineName is d's agent name; "" for none.
@@ -1069,14 +1060,13 @@ func leadProfile(out RunOptions, disp Dispatch) RunOptions {
 	return out
 }
 
-// armClaudeProfile runs a claude hop inside databricks:<p> on its "<profile>:" row; claude reads only Provider.
+// armClaudeProfile runs a claude hop inside databricks:<p> on its cell's row; claude reads only Provider.
 func armClaudeProfile(out RunOptions, disp Dispatch) RunOptions {
 	if router.ArmProfileContext(valuesContext(context.Background(), out.Values)) == "" || disp.Agent == nil || !VaultAgentIsClaude(disp.Agent.Name()) {
 		return out
 	}
-	prof, model, ok := splitRowModel(out.Model)
-	if reg, err := providers.Load(); ok && err == nil && reg.Providers[prof] != nil {
-		out.Provider, out.Model = prof, model
+	if reg, err := providers.Load(); err == nil && out.pinnedRow(reg) != nil {
+		out.Provider, out.CellRoute = out.CellRoute.Profile, route.Route{}
 	}
 	return out
 }

@@ -50,7 +50,7 @@ var cutoffFormat = schemas.Register(schemas.Format{
 // CutoffKey hashes agent, model selector and task (memory-recall block and trailing whitespace dropped).
 func CutoffKey(agentName, model, prompt string) string {
 	task := preRecall(prompt)
-	if _, auto := SplitAuto(model); auto {
+	if IsAuto(model) {
 		model = "" // a record stores an auto model folded to "", so the typed word must hash the same
 	}
 	sum := sha256.Sum256([]byte(agentName + "\x00" + model + "\x00" + strings.TrimRight(task, " \t\r\n")))

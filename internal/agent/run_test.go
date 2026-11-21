@@ -482,24 +482,24 @@ func assertFullIDTargetRewrite(t *testing.T) {
 
 func assertUnknownTargetRewrite(t *testing.T, model string) {
 	t.Helper()
-	_, bad, err := ResolveRequestTarget(RunOptions{Model: "unknownrow:opus"})
+	_, bad, err := ResolveRequestTarget(RunOptions{Model: "opus", CellRoute: rowRoute(nil, "unknownrow")})
 	if err == nil && bad.Provider != nil && bad.Provider.Name == "unknownrow" {
-		t.Errorf("unknownrow:opus rewritten: %+v", bad)
+		t.Errorf("opus on unknownrow rewritten: %+v", bad)
 	}
-	_, nt, _ := ResolveRequestTarget(RunOptions{Model: "dev:notatier"})
+	_, nt, _ := ResolveRequestTarget(RunOptions{Model: "notatier", CellRoute: rowRoute(nil, "dev")})
 	if nt.Provider != nil && nt.Provider.Name == "dev" && nt.Model == model {
-		t.Errorf("dev:notatier rewritten to dev's opus alias: %+v", nt)
+		t.Errorf("notatier on dev rewritten to dev's opus alias: %+v", nt)
 	}
 }
 
-// The host mismatch of a prefix-routed vendor request fails as auth and the agent never starts.
-func TestRunPrefixRoutedHostMismatchFailsAuth(t *testing.T) {
+// The host mismatch of a cell-routed vendor request fails as auth and the agent never starts.
+func TestRunCellRoutedHostMismatchFailsAuth(t *testing.T) {
 	hmProfile(t, "true")
 	t.Setenv("HM_KEY", fakeJWT("adb-2.azuredatabricks.net"))
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"hm":{"preset":"databricks",`+
 		`"host":"https://adb-1.azuredatabricks.net","auth":{"type":"key","env":"HM_KEY"},"models":{"opus":"m"}}}}}`)
 	r := &fakeRunner{name: "codex", caps: Caps{Model: Native}, errs: []error{nil}}
-	_, err := Run(withIsolation(context.Background()), r, RunOptions{Prompt: "p", Model: "hm:opus"}, wire.Discard, nil)
+	_, err := Run(withIsolation(context.Background()), r, RunOptions{Prompt: "p", Model: "opus", CellRoute: rowRoute(nil, "hm")}, wire.Discard, nil)
 	var e *retry.Error
 	if !errors.As(err, &e) || e.Kind != retry.KindAuth || len(r.seen) != 0 {
 		t.Fatalf("err = %v, runs = %d; want KindAuth before any run", err, len(r.seen))
@@ -878,7 +878,8 @@ func gitRepoWith(t *testing.T, files map[string]string) string {
 func TestFitChainSkipsSmallWindows(t *testing.T) {
 	lead := Dispatch{Agent: namedEngine("claude"), Model: "claude-sonnet-5-5[1m]"}
 	small := Dispatch{Agent: namedEngine("stub"), Model: "mystery-model"}
-	chain := Chain{Dispatches: []Dispatch{lead, small}, Preflight: &Preflight{}, requested: "p:m"}
+	chain := Chain{Dispatches: []Dispatch{lead, small}, Preflight: &Preflight{}}
+	chain.requested.Profile, chain.requested.Model = "p", "m"
 	lb, _ := packBudget(lead, RunOptions{}, false)
 	sb, _ := packBudget(small, RunOptions{}, false)
 	if sb >= lb {
@@ -888,7 +889,7 @@ func TestFitChainSkipsSmallWindows(t *testing.T) {
 	if len(got.Dispatches) != 1 || len(got.Skipped) != 1 || !strings.Contains(got.Skipped[0], "stub") {
 		t.Fatalf("chain = %+v, want only the lead and a skip naming stub", got)
 	}
-	if got.Preflight != chain.Preflight || got.requested != "p:m" {
+	if got.Preflight != chain.Preflight || got.requested != chain.requested {
 		t.Errorf("fitChain dropped Preflight or requested: %+v", got)
 	}
 	if kept := fitChain(chain, sb-1, RunOptions{}, false); len(kept.Dispatches) != 2 {
@@ -1123,17 +1124,16 @@ func TestPrepareResolvesModelWordForResolverDriver(t *testing.T) {
 }
 
 func TestRunOptionsEffectiveRoute(t *testing.T) {
-	reg := &providers.Registry{Providers: map[string]*providers.Provider{"work": {}}}
 	for name, tc := range map[string]struct {
 		o    RunOptions
 		want [3]string
 	}{
 		"route wins":      {withRoute(RunOptions{Provider: "x"}, "github", "p"), [3]string{"github", "p", ""}},
 		"legacy provider": {RunOptions{Provider: "work", Account: "me"}, [3]string{"", "work", "me"}},
-		"prefixed model":  {RunOptions{Model: "work:sonnet"}, [3]string{"", "work", ""}},
+		"cell row":        {RunOptions{Model: "sonnet", CellRoute: rowRoute(nil, "work")}, [3]string{"", "work", ""}},
 		"none":            {RunOptions{Model: "sonnet"}, [3]string{}},
 	} {
-		if r := tc.o.EffectiveRoute(reg); [3]string{r.Provider, r.Profile, r.Account} != tc.want {
+		if r := tc.o.EffectiveRoute(); [3]string{r.Provider, r.Profile, r.Account} != tc.want {
 			t.Errorf("%s: got %+v, want %v", name, r, tc.want)
 		}
 	}

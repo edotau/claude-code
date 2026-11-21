@@ -472,7 +472,7 @@ func FreshModelFinding(agentName string, p *providers.Provider, model string, no
 	if _, _, fresh := router.ServedListed(p, "", now); !fresh {
 		return nil
 	}
-	if _, auto := SplitAuto(model); auto { // auto picks a served model at run time
+	if IsAuto(model) { // auto picks a served model at run time
 		return nil
 	}
 	_, failed, _ := checkModel(agentName, p, model, now)
@@ -546,19 +546,6 @@ func routedWire(q RouteReq, p *providers.Provider, now time.Time) string {
 		return typed
 	}
 	return r.Model
-}
-
-// modelFinding is explicitFinding for a --model <profile>:<model> with no --profile; nil when it names no row.
-func modelFinding(ctx context.Context, q RouteReq, pf *Preflight) *Finding {
-	reg, err := providers.Load()
-	if err != nil {
-		return nil
-	}
-	target, _ := splitQuery(reg, ModelQuery{Model: q.Model})
-	if reg.Row(target.Profile) == nil {
-		return nil
-	}
-	return explicitFinding(ctx, q, reg.Row(target.Profile), pf)
 }
 
 // previewServes refuses an explicit --model that is no alias, no catalog id and no READY endpoint of profiles.
@@ -671,8 +658,7 @@ func previewOutcome(chain Chain, pick router.PickResult) router.PickResult {
 			continue
 		}
 		c := pick.Candidates[d.rung-1]
-		model := strings.TrimPrefix(d.Model, c.Profile+":")
-		if !VaultAgentIsClaude(c.Agent) || c.Profile != "" && !slices.Contains(models.AliasNames, model) {
+		if !VaultAgentIsClaude(c.Agent) || c.Profile != "" && !slices.Contains(models.AliasNames, d.Model) {
 			c.Model, c.Effort = d.Model, d.Effort
 		}
 		res.Candidates = append(res.Candidates, c)

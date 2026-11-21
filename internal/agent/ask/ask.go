@@ -145,7 +145,7 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 // markTyped records a --model typed on this command line; auto asks for rotation and pins nothing.
 func markTyped(fs *flag.FlagSet, f *askFlags) {
 	if helptext.Explicit(fs, "model") {
-		_, auto := agent.SplitAuto(f.model)
+		auto := agent.IsAuto(f.model)
 		f.modelTyped = f.model != "" && !auto
 	}
 }

@@ -137,7 +137,7 @@ func astraProfile(t *testing.T, profile string, menu []providers.OpencodeModel) 
 func profileCodexDispatches(c Chain, profile string) []Dispatch {
 	var out []Dispatch
 	for _, disp := range c.Dispatches {
-		if disp.Agent.Name() == "codex" && strings.HasPrefix(disp.Model, profile+":") {
+		if disp.Agent.Name() == "codex" && disp.Route.Profile == profile {
 			out = append(out, disp)
 		}
 	}
@@ -162,7 +162,7 @@ func TestAstraProfileEligibilitySupportedRetained(t *testing.T) {
 		{ID: astra, Label: "GPT-6 Astra", Responses: true},
 	})
 	c := astraRoute(t, profile)
-	want := profile + ":" + p.WireModel(astra)
+	want := p.WireModel(astra)
 	dispatches := profileCodexDispatches(c, profile)
 	if len(dispatches) != 1 || dispatches[0].Model != want {
 		t.Errorf("profile codex dispatches = %+v, want one at %q; skipped %v", dispatches, want, c.Skipped)
@@ -455,8 +455,8 @@ func TestPinFirstFallbackDispatches(t *testing.T) {
 	if !slices.Equal(got, want) {
 		t.Fatalf("dispatches = %v, want %v", got, want)
 	}
-	if c.Dispatches[0].Model != "openai:gpt-6.1-sol" || c.Dispatches[1].Model != "sonnet" {
-		t.Errorf("models = %q, %q; want pinned codex and claude at sonnet", c.Dispatches[0].Model, c.Dispatches[1].Model)
+	if c.Dispatches[0].Model != "gpt-6.1-sol" || c.Dispatches[0].Route.Profile != "openai" || c.Dispatches[1].Model != "sonnet" {
+		t.Errorf("models = %q on %+v, %q; want pinned codex on openai and claude at sonnet", c.Dispatches[0].Model, c.Dispatches[0].Route, c.Dispatches[1].Model)
 	}
 	for _, name := range []string{"copilot", "gemini", "opencode"} { // never in the order, so never a skip reason
 		if slices.ContainsFunc(pick.Skipped, func(s router.Skip) bool { return strings.HasPrefix(s.Agent, name) }) {
@@ -468,9 +468,9 @@ func TestPinFirstFallbackDispatches(t *testing.T) {
 	}
 }
 
-// A pinned caller's own profile:model runs the bare model in its cell; buildDispatch adds the profile once.
-func TestPinnedCellStripsOwnProfile(t *testing.T) {
-	rc := routeCtx{ctx: context.Background(), want: "codex", explicitModel: true, callerModel: "dev:databricks-gpt-6-1-sol",
+// A pinned caller's own model runs bare in its cell; buildDispatch carries the profile as the dispatch's route.
+func TestPinnedCellKeepsCallerModel(t *testing.T) {
+	rc := routeCtx{ctx: context.Background(), want: "codex", explicitModel: true, callerModel: "databricks-gpt-6-1-sol",
 		pins: map[string]router.PinSpec{"codex": {Profile: "dev"}}}
 	cell, skip := rc.candidateCell(router.Candidate{Agent: "codex", Profile: "dev"})
 	if skip != "" || cell.Model != "databricks-gpt-6-1-sol" {
@@ -517,7 +517,7 @@ func copilotOnDev(t *testing.T, model string) (dev []string, skipped []string) {
 		t.Fatal(err)
 	}
 	for _, d := range c.Dispatches {
-		if d.Agent.Name() == "copilot" && strings.HasPrefix(d.Model, "dev:") {
+		if d.Agent.Name() == "copilot" && d.Route.Profile == "dev" {
 			dev = append(dev, d.Model)
 		}
 	}
@@ -527,15 +527,15 @@ func copilotOnDev(t *testing.T, model string) (dev []string, skipped []string) {
 // An explicit Claude id runs on the lead profile as asked, not swapped for the agent's model pin.
 func TestCallerClaudeIDBeatsModelPinOnLeadProfile(t *testing.T) {
 	dev, skipped := copilotOnDev(t, "databricks-claude-opus-5-5")
-	if len(dev) != 1 || dev[0] != "dev:databricks-claude-opus-5-5" {
-		t.Fatalf("dev dispatches = %v (skipped %v), want dev:databricks-claude-opus-5-5", dev, skipped)
+	if len(dev) != 1 || dev[0] != "databricks-claude-opus-5-5" {
+		t.Fatalf("dev dispatches = %v (skipped %v), want databricks-claude-opus-5-5 on dev", dev, skipped)
 	}
 }
 
 // A served non-Claude id is a direct hit on the lead profile; an unserved one is skipped under its own spelling.
 func TestCallerExactIDServedOnLeadProfile(t *testing.T) {
 	dev, skipped := copilotOnDev(t, "databricks-kimi-k3")
-	if len(dev) != 1 || dev[0] != "dev:databricks-kimi-k3" || slices.ContainsFunc(skipped, isCopilotDevSkip) {
+	if len(dev) != 1 || dev[0] != "databricks-kimi-k3" || slices.ContainsFunc(skipped, isCopilotDevSkip) {
 		t.Fatalf("kimi: dev dispatches = %v, skipped %v; want one direct dispatch, no dev skip", dev, skipped)
 	}
 	dev, skipped = copilotOnDev(t, "databricks-glm-5-3")
@@ -557,13 +557,13 @@ func TestServedRepickOnEndpointNotFound(t *testing.T) {
 		t.Fatal("codex on a Databricks profile with the switch on must get a repick")
 	}
 	err := errors.New("RESOURCE_DOES_NOT_EXIST: ENDPOINT_NOT_FOUND: no endpoint m-a")
-	if got := retryModel(context.Background(), disp, RunOptions{Model: "dev:m-a"}, "", err); got != "dev:m-b" {
-		t.Fatalf("repick = %q, want dev:m-b", got)
+	if got := retryModel(context.Background(), disp, RunOptions{Model: "m-a"}, "", err); got != "m-b" {
+		t.Fatalf("repick = %q, want m-b", got)
 	}
 	if at := router.LoadState()[router.ProviderAccount("dev")].Unserved["m-a"]; at.IsZero() {
 		t.Error("m-a was not marked unserved")
 	}
-	if got := retryModel(context.Background(), disp, RunOptions{Model: "dev:m-b"}, "", err); got != "" {
+	if got := retryModel(context.Background(), disp, RunOptions{Model: "m-b"}, "", err); got != "" {
 		t.Errorf("second failure repicked %q, want none left", got)
 	}
 }
@@ -572,7 +572,7 @@ func TestServedRepickOnEndpointNotFound(t *testing.T) {
 func TestServedRepickIgnoresUnrelatedError(t *testing.T) {
 	reg := servedEnv(t, "true", map[string]string{"m-a": "READY", "m-b": "READY"})
 	disp := Dispatch{servedRepick: routeCtx{reg: reg}.servedRepickFor(servedCand)}
-	if got := retryModel(context.Background(), disp, RunOptions{Model: "dev:m-a"}, "", errors.New("connection reset")); got != "" {
+	if got := retryModel(context.Background(), disp, RunOptions{Model: "m-a"}, "", errors.New("connection reset")); got != "" {
 		t.Errorf("unrelated error repicked %q", got)
 	}
 	if at := router.LoadState()[router.ProviderAccount("dev")].Unserved["m-a"]; !at.IsZero() {
@@ -599,12 +599,12 @@ func TestServedRepickNotOfferedWhereItWouldMislead(t *testing.T) {
 
 // A Progressed failure never repicks: the next model would re-run the prompt and repeat its tools.
 func TestRetryModelSkipsProgressedError(t *testing.T) {
-	disp := Dispatch{servedRepick: func(string) string { return "dbx:m-b" }}
+	disp := Dispatch{servedRepick: func(string) string { return "m-b" }}
 	capMsg := errors.New("ENDPOINT_NOT_FOUND: no endpoint m-a")
-	if got := retryModel(context.Background(), disp, RunOptions{Model: "dbx:m-a"}, "", &retry.Error{Kind: retry.KindFatal, Agent: "x", Progressed: true, Err: capMsg}); got != "" {
+	if got := retryModel(context.Background(), disp, RunOptions{Model: "m-a"}, "", &retry.Error{Kind: retry.KindFatal, Agent: "x", Progressed: true, Err: capMsg}); got != "" {
 		t.Errorf("progressed capability error repicked %q, want none", got)
 	}
-	if got := retryModel(context.Background(), disp, RunOptions{Model: "dbx:m-a"}, "", &retry.Error{Kind: retry.KindFatal, Agent: "x", Err: capMsg}); got != "dbx:m-b" {
+	if got := retryModel(context.Background(), disp, RunOptions{Model: "m-a"}, "", &retry.Error{Kind: retry.KindFatal, Agent: "x", Err: capMsg}); got != "m-b" {
 		t.Errorf("unprogressed capability error = %q, want dbx:m-b", got)
 	}
 }

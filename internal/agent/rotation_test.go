@@ -217,7 +217,7 @@ func TestRetryModelMenuRefusalRepicksAutoOnly(t *testing.T) {
 	ran := providers.SpellPin(row, rotationPool("opencode", "", row, false, time.Now())[0])
 	disp := Dispatch{Agent: &pickRefuser{}, Account: row.Account()}
 	msg := errors.New(`pi: model "` + ran + `" is not on the dev menu`)
-	if got := retryModel(context.Background(), disp, RunOptions{Model: "dev:auto"}, ran, msg); got != "dev:auto" {
+	if got := retryModel(context.Background(), disp, RunOptions{Model: AutoModel}, ran, msg); got != AutoModel {
 		t.Fatalf("auto retry = %q, want the auto re-pick", got)
 	}
 	if got := retryModel(context.Background(), disp, RunOptions{Model: ran}, ran, msg); got != "" {

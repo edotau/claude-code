@@ -227,7 +227,7 @@ func TestModelRouteOverlay(t *testing.T) {
 func TestResolveModelCodexAliasUsesRecordModel(t *testing.T) {
 	reg := routeRegistry(t)
 	for _, alias := range []string{"opus", "sonnet"} {
-		q := ModelQuery{Agent: "codex", Model: "dev:" + alias, PinModel: "databricks-gpt-6-1-sol"}
+		q := ModelQuery{Agent: "codex", Model: alias, Profile: "dev", PinModel: "databricks-gpt-6-1-sol"}
 		if r, err := ResolveModel(reg, q, time.Now()); err != nil || r.Model != "databricks-gpt-6-1-sol" {
 			t.Errorf("codex %s = %+v, %v; want databricks-gpt-6-1-sol", alias, r, err)
 		}

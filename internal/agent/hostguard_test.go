@@ -176,12 +176,12 @@ func armGuardCase(t *testing.T, prof, fatal string, creds []string) {
 	}
 }
 
-// Inside databricks:dev a claude hop runs on its candidate's "<profile>:" row, which the guard then checks.
+// Inside databricks:dev a claude hop runs on its candidate's row, which the guard then checks.
 func TestArmClaudeHopRunsOnItsProfile(t *testing.T) {
 	armRegistry(t)
 	claude := &fakeRunner{name: "claude"}
 	for prof, fatal := range map[string]bool{"ultra": false, "qa": true} {
-		req := dispatchRequest(RunOptions{Provider: "dev"}, Dispatch{Agent: claude, Model: prof + ":sonnet"}, false)
+		req := dispatchRequest(RunOptions{Provider: "dev"}, Dispatch{Agent: claude, Model: "sonnet", Route: rowRoute(loadRegistryWarn(), prof)}, false)
 		if req.Provider != prof || req.Model != "sonnet" {
 			t.Errorf("%s hop: provider %q model %q, want %q and sonnet", prof, req.Provider, req.Model, prof)
 		}

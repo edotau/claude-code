@@ -224,10 +224,10 @@ func refuseUnmappedDeny(p permission.Permissions) error {
 	return nil
 }
 
-// launchProvider is the profile claudeCmd launches req on: the request's, else its run snapshot's session profile.
+// launchProvider is the profile claudeCmd launches req on: the cell's row, the request's, else the session profile.
 func launchProvider(ctx context.Context, req agent.RunOptions) string {
-	if req.Provider != "" {
-		return req.Provider
+	if p := cmp.Or(req.CellRoute.Profile, req.Provider); p != "" {
+		return p
 	}
 	if req.Values != nil {
 		ctx = proc.WithValues(ctx, req.Values)

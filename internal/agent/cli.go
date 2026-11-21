@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 // OwnProfile is the profile a run on the agent's own login bills: the registry row naming that login, else the agent.
@@ -108,7 +109,7 @@ func (s Schema) routedModel(ctx context.Context, req RunOptions, t providers.Tar
 
 // typedModelTarget is t carrying a typed model as is; done is true when nothing is left to resolve.
 func typedModelTarget(req RunOptions, t providers.Target, applied bool) (_ providers.Target, done bool) {
-	_, auto := SplitAuto(req.Model)
+	auto := IsAuto(req.Model)
 	if t.Provider != nil && (!applied || req.Model == "" || req.CellModel || auto) {
 		return t, false
 	}
@@ -160,7 +161,7 @@ func (s Schema) leadProfile(ctx context.Context, reg *providers.Registry, accoun
 func (s Schema) targetBase(req RunOptions) (t providers.Target, own bool, note string, applied bool, err error) {
 	ctx := valuesContext(context.Background(), req.Values)
 	reg, loadErr := providers.Load()
-	if req.Provider == "" && !namesProvider(reg, req.Model) {
+	if req.Provider == "" && req.pinnedRow(reg) == nil {
 		if req.Provider, err = s.leadProfile(ctx, reg, req.Account, req.Model); err != nil {
 			return t, false, "", true, err
 		}
@@ -169,7 +170,7 @@ func (s Schema) targetBase(req RunOptions) (t providers.Target, own bool, note s
 		return t, false, "", true, loadErr
 	}
 	reg, t, err = resolveIn(reg, req)
-	if err != nil || req.Provider != "" || namesProvider(reg, req.Model) {
+	if err != nil || req.Provider != "" || req.pinnedRow(reg) != nil {
 		if err == nil { // an explicit login still passes the CLI's own gate
 			t, note, err = s.Eng().GateExplicit(ctx, req, reg, t)
 		}
@@ -194,14 +195,9 @@ func (s Schema) sessionTargetContext(ctx context.Context, req RunOptions, reg *p
 	return ft, own, note, false, nil
 }
 
-// namesProvider is true for the provider:model form, where the prefix is a registered provider.
-func namesProvider(reg *providers.Registry, spec string) bool {
-	if reg == nil {
-		return false
-	}
-	name, _, ok := splitRowModel(spec)
-	_, found := reg.Providers[name]
-	return ok && found
+// pinnedRow is the registry row a router-pinned cell names, nil when the request carries none.
+func (o RunOptions) pinnedRow(reg *providers.Registry) *providers.Provider {
+	return reg.Row(o.CellRoute.Profile)
 }
 
 // cliEngine execs an agent CLI's headless mode wired by ConfigureHeadless; the engine supplies Name, Caps, Available.
@@ -522,27 +518,35 @@ func ResolveRequestTarget(req RunOptions) (*providers.Registry, providers.Target
 // resolveIn is ResolveRequestTarget against an already loaded registry.
 func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, providers.Target, error) {
 	req = profileAliasRequest(reg, req)
-	sel, err := providers.Select(reg, cmp.Or(req.Provider, providers.SessionLeadContext(valuesContext(context.Background(), req.Values), reg, false)))
+	sel, err := providers.Select(reg, requestLead(reg, req))
 	if sel.Provider == nil || (err != nil && req.Model == "") {
 		return nil, providers.Target{}, err
 	}
 	if req.Model == "" {
 		return reg, sel.Aliases[models.Opus], nil
 	}
+	if p := req.pinnedRow(reg); p != nil { // a dispatch cell names its own model on its row
+		return reg, servedTarget(cmp.Or(req.Agent, "claude"), providers.PlainTarget(p, strings.TrimSpace(req.Model))), nil
+	}
 	if t, ok, err := agyOwnTarget(req, sel.Provider); ok || err != nil {
 		return reg, t, err
 	}
-	if t, ok := aliasedTarget(reg, sel, req.Model); ok {
+	if t, ok := aliasedTarget(sel, req.Model); ok {
 		return reg, t, nil
 	}
 	if t, ok := familyTarget(req, sel.Provider); ok {
 		return reg, t, nil
 	}
 	t := providers.PlainTarget(sel.Provider, strings.TrimSpace(req.Model))
-	if row, m, ok := cellRow(reg, req.Model); ok { // a dispatch cell names its own row
-		t = providers.PlainTarget(reg.Providers[row], m)
-	}
 	return reg, servedTarget(cmp.Or(req.Agent, "claude"), t), nil
+}
+
+// requestLead is the row a request selects: a folded auto cell's own row, else --provider, else the session's.
+func requestLead(reg *providers.Registry, req RunOptions) string {
+	if p := req.pinnedRow(reg); p != nil && req.Model == "" {
+		return p.Name
+	}
+	return cmp.Or(req.Provider, providers.SessionLeadContext(valuesContext(context.Background(), req.Values), reg, false))
 }
 
 // familyTarget is a typed GPT family name (sol) as the concrete id its row resolves to; else ok is false.
@@ -554,11 +558,11 @@ func familyTarget(req RunOptions, row *providers.Provider) (providers.Target, bo
 }
 
 // aliasedTarget is the alias row or canonical-id target for model; else ok is false.
-func aliasedTarget(reg *providers.Registry, sel providers.Selection, model string) (providers.Target, bool) {
+func aliasedTarget(sel providers.Selection, model string) (providers.Target, bool) {
 	if t, ok := sel.Aliases[model]; ok {
 		return t, true
 	}
-	if t, ok := aliasTarget(sel, model); ok && !namesProvider(reg, model) {
+	if t, ok := aliasTarget(sel, model); ok {
 		return t, true
 	}
 	return providers.Target{}, false
@@ -597,10 +601,10 @@ func servedTarget(agentName string, t providers.Target) providers.Target {
 	return t
 }
 
-// "<profile>:<alias>" resolves like --provider <profile> --model <alias>.
+// profileAliasRequest resolves an alias cell pinned to a row like --provider <row> --model <alias>.
 func profileAliasRequest(reg *providers.Registry, req RunOptions) RunOptions {
-	if name, alias, ok := splitRowModel(req.Model); ok && slices.Contains(models.AliasNames, alias) && reg.Providers[name] != nil {
-		req.Provider, req.Model = name, alias
+	if p := req.pinnedRow(reg); p != nil && slices.Contains(models.AliasNames, req.Model) {
+		req.Provider, req.CellRoute = p.Name, route.Route{}
 	}
 	return req
 }
