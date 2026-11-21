@@ -67,6 +67,21 @@ const gwProviders = `{"fallback": [], "providers": {"anthropic": {"gw": {"protoc
 	"auth": {"type":"key", "env": "TEST_GW_KEY"}, "headers": {"X-B": "2", "X-A": "1"},
 	"models": {"opus": "claude-opus-4-6", "haiku": "claude-haiku-4-5"}}}}}`
 
+// The built-in /model rows ship as-is: a launch env carries no ANTHROPIC_DEFAULT_*_MODEL_DESCRIPTION of ours.
+func TestClaudeLaunchSetsNoModelDescriptions(t *testing.T) {
+	hermetic(t, gwProviders)
+	t.Setenv("TEST_GW_KEY", fakeToken)
+	p, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "gw"}, []string{"-p", "hi"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for k := range p.Set {
+		if strings.HasPrefix(k, "ANTHROPIC_DEFAULT_") && strings.HasSuffix(k, "_MODEL_DESCRIPTION") {
+			t.Errorf("launch env sets %s", k)
+		}
+	}
+}
+
 // Direct route: the provider's own base URL, sorted headers and apiKeyHelper overlay; the key never enters the plan.
 func TestClaudeDirectLaunchPlan(t *testing.T) {
 	hermetic(t, gwProviders)

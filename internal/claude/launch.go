@@ -1,7 +1,6 @@
 package claude
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -75,7 +74,6 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 		return agent.Plan{}, err
 	}
 	warnLostRemoteControl(&plan, proxied, passthrough, args)
-	setAliasDescriptions(ctx, &plan, sel, proxyAddr(&plan, proxied))
 	if err := applyOverlay(ctx, &plan, passthrough, args, helper, overlayPath, p); err != nil {
 		return agent.Plan{}, err
 	}
@@ -611,50 +609,6 @@ func passthroughOAuth(ctx context.Context, plan *agent.Plan, args []string) {
 		if tok := providers.HeadlessOAuthToken(); tok != "" {
 			plan.Set[oauthKey] = tok
 		}
-	}
-}
-
-// proxyAddr is the router host:port a proxied session talks to, or "" when direct.
-func proxyAddr(plan *agent.Plan, proxied bool) string {
-	if !proxied {
-		return ""
-	}
-	u, err := url.Parse(plan.Set[proc.EnvAnthropicBaseURL])
-	if err != nil {
-		return ""
-	}
-	return u.Host
-}
-
-func routeSuffix(addr string) string {
-	if addr == "" {
-		return " · direct"
-	}
-	return " · proxy " + addr
-}
-
-func routeOf(p *providers.Provider) string {
-	name := cmp.Or(p.Provider, p.Preset, "anthropic")
-	return strings.ToUpper(name[:1]) + name[1:] + " · " + p.Name
-}
-
-// setAliasDescriptions names provider, profile and route on each alias row; owner env and vault values win.
-func setAliasDescriptions(ctx context.Context, plan *agent.Plan, sel providers.Selection, addr string) {
-	custom := providers.CustomEnv()
-	for _, alias := range models.AliasNames {
-		prefix := "ANTHROPIC_DEFAULT_" + strings.ToUpper(alias)
-		if plan.Set[prefix+"_MODEL"] == "" {
-			continue
-		}
-		_, owned := custom[prefix+"_MODEL_DESCRIPTION"]
-		if owned || proc.Value(ctx, prefix+"_MODEL_DESCRIPTION") != "" {
-			continue
-		}
-		p := sel.Provider
-		if t, ok := sel.Aliases[alias]; ok && t.Provider != nil {
-			p = t.Provider
-		}
-		plan.Set[prefix+"_MODEL_DESCRIPTION"] = textutil.TruncateRunes(routeOf(p)+routeSuffix(addr), 80)
 	}
 }
 
