@@ -1,0 +1,4 @@
+internal/network/pki/env.go:writeEnvBlock	unversioned: foreign: managed export block in a user .env file
+internal/network/pki/pki.go:installTrust	unversioned: foreign: PEM CA certs into the distro trust-anchor dir
+internal/network/pki/pki.go:nodeDropin	unversioned: foreign: systemd drop-in ini setting NODE_EXTRA_CA_CERTS
+internal/network/pki/pki.go:writeBundle	unversioned: foreign: PEM CA bundle plus root.pem and issuing.pem

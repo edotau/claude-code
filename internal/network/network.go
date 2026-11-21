@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/edotau/claude-code/internal/network/browser"
+	"github.com/edotau/claude-code/internal/network/pki"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/network/websearch"
 	"github.com/edotau/claude-code/internal/ui/helptext"
@@ -18,6 +19,7 @@ var networkPage = helptext.Page{
 		{"browser", "list automatable browsers; --setup wires one up"},
 		{"websearch", "stdio MCP web-search server; --query runs one search"},
 		{"remote", "run an agent on a tailnet host in tmux"},
+		{"pki", "build a pinned corporate CA bundle from PKI_* env"},
 	},
 	Hint: "claude-code network <command> -h lists that command's flags.",
 }
@@ -32,6 +34,7 @@ func Run(args []string) int {
 		"browser":   browser.Cmd,
 		"websearch": websearch.Cmd,
 		"remote":    remote.Cmd,
+		"pki":       pki.Cmd,
 	}
 	if handler, ok := handlers[args[0]]; ok {
 		return handler(args[1:])
@@ -49,5 +52,6 @@ func Spec() *helptext.Node {
 		"browser":   {Flags: browser.Flags()},
 		"websearch": {Flags: websearch.Flags()},
 		"remote":    {Flags: remote.Flags()},
+		"pki":       {Flags: pki.Flags()},
 	}}
 }
