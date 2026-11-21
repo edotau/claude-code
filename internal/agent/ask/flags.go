@@ -480,10 +480,29 @@ func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, f
 	if _, err := helptext.ParseArgs(fs, args); err != nil { // re-apply explicit flags over the record
 		return failAskCode(format, *s.Name, err, 2), true
 	}
+	if err := retryWorkdir(fs, s.Workdir, rec); err != nil {
+		return failAskCode(format, *s.Name, err, 2), true
+	}
 	*prompt, *s.rubric = cmp.Or(*prompt, rec.Request.Prompt), "" // a typed task replaces the logged one
 	fmt.Fprintf(os.Stderr, "ask: retrying %s (%s, was %s)\n", rec.ID, rec.Agent, rec.Status)
 	moveOffCutoff(fs, s, rec, os.Stderr, "")
 	return 0, false
+}
+
+// retryWorkdir pins a retry to the directory the run used (no --workdir logged: its tree, else repo) and checks it exists.
+func retryWorkdir(fs *flag.FlagSet, workdir *string, rec agent.Record) error {
+	if helptext.Explicit(fs, "workdir") {
+		return nil
+	}
+	dir := cmp.Or(rec.Request.WorkDir, rec.Tree, rec.Repo)
+	if dir == "" {
+		return nil
+	}
+	if fi, err := os.Stat(dir); err != nil || !fi.IsDir() {
+		return fmt.Errorf("--retry %s: the logged directory %s no longer exists; pass --workdir <dir> on the retry", rec.ID, dir)
+	}
+	*workdir = dir
+	return nil
 }
 
 // keepReason names why a retry stays on its cut-off route, "" when it may move.

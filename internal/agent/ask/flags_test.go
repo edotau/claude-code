@@ -269,6 +269,44 @@ func TestAskRetryPreservesRecordedLead(t *testing.T) {
 	}
 }
 
+func TestAskRetryWorkdir(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	here, typed, gone := t.TempDir(), t.TempDir(), t.TempDir()+"/removed"
+	for _, tc := range []struct {
+		name, tree, repo, flag, want string
+		fail                         bool
+	}{
+		{"recorded repo", "", here, "", here, false},
+		{"recorded tree", here, "/elsewhere", "", here, false},
+		{"missing dir refused", "", gone, "", gone, true},
+		{"typed wins", "", gone, typed, typed, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "p"}, time.Now())
+			rec.Tree, rec.Repo = tc.tree, tc.repo
+			if err := rec.Save(); err != nil {
+				t.Fatal(err)
+			}
+			args := []string{"--retry", rec.ID}
+			if tc.flag != "" {
+				args = append(args, "--workdir", tc.flag)
+			}
+			fs, f := askFlagSet()
+			if err := fs.Parse(args); err != nil {
+				t.Fatal(err)
+			}
+			r := &askRun{ctx: t.Context(), fs: fs, f: f}
+			code, done := loadAskRetry(t.Context(), fs, args, f.retry, f.format, r.askState(), &r.prompt)
+			if tc.fail != (done && code == 2) {
+				t.Fatalf("loadAskRetry = %d, %v, fail want %v", code, done, tc.fail)
+			}
+			if !tc.fail && f.workdir != tc.want {
+				t.Fatalf("workdir = %q, want %q", f.workdir, tc.want)
+			}
+		})
+	}
+}
+
 // --retry keeps the recorded fallback policy over AGENT_ERROR_FALLBACK; a record without one takes the env mode.
 func TestAskRetryFallbackFromEnv(t *testing.T) {
 	for _, tc := range []struct{ recorded, env, want string }{
