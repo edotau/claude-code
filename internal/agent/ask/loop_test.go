@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/edotau/claude-code/internal/agent/wire"
 )
@@ -347,5 +348,16 @@ func TestLoopDryRun(t *testing.T) {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("dry-run output lacks %q:\n%s", want, out.String())
 		}
+	}
+}
+
+func TestLoopPlannerPromptAndRuneClip(t *testing.T) {
+	p, err := plannerPrompt("ship it", 1, 3, "- R1.a [done]: ok")
+	if err != nil || strings.Contains(p, "<no value>") {
+		t.Fatalf("plannerPrompt err=%v, unresolved key: %v", err, strings.Contains(p, "<no value>"))
+	}
+	r := resultOf(loopPart{ID: "a"}, wire.Envelope{Answer: strings.Repeat("é", loopDigestChars+5)})
+	if !utf8.ValidString(r.Answer) || utf8.RuneCountInString(r.Answer) > loopDigestChars {
+		t.Fatalf("answer not cut on a rune boundary: %d runes", utf8.RuneCountInString(r.Answer))
 	}
 }

@@ -1,8 +1,11 @@
 package menu
 
 import (
+	"bufio"
+	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/tui"
 )
@@ -30,4 +33,21 @@ func TestRoutingRowFitsEightyColumns(t *testing.T) {
 	}
 	runRoutingMenu(&dialog{out: discardWriter{}}, worst, worst)
 	assertFitsEighty(t, "routing page", rows)
+}
+
+func TestEditRoutingTextReasksOnInvalid(t *testing.T) {
+	var f configure.RoutingField
+	for _, m := range configure.Modules() {
+		for _, c := range m.Fields() {
+			if c.Kind == configure.RoutingNumber {
+				f = c
+			}
+		}
+	}
+	var out strings.Builder
+	d := &dialog{out: &out, br: bufio.NewReader(strings.NewReader("abc\n0.5\n"))}
+	got, ok := editRoutingText(d, f)
+	if !ok || got != "0.5" {
+		t.Fatalf("editRoutingText = %q, %v; want 0.5, true (output %q)", got, ok, out.String())
+	}
 }
