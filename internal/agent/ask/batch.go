@@ -199,7 +199,7 @@ func lineRequest(l parsedLine, agentName string, base agent.RunOptions) (agent.R
 	tl, req := l.Task, base
 	req.Prompt, req.Provider, req.Model = tl.Prompt, cmp.Or(tl.Profile, base.Provider), cmp.Or(tl.Model, base.Model)
 	auto := agent.IsAuto(tl.Model)
-	req.ModelTyped = (tl.Model != "" && !auto) || base.ModelTyped // a line's own model is as typed as a --model flag
+	req.ModelTyped = (tl.Model != "" && !auto) || (tl.Model == "" && base.ModelTyped) // a line's model wins, auto too
 	if err := lineRoute(l, &req); err != nil {
 		return req, "", fmt.Errorf("line %d: %w", l.N, err)
 	}

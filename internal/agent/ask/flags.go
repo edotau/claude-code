@@ -495,7 +495,7 @@ func retryWorkdir(fs *flag.FlagSet, workdir *string, host string, rec agent.Reco
 	if helptext.Explicit(fs, "workdir") || host != "" { // a remote path is not checkable here
 		return nil
 	}
-	dir := cmp.Or(rec.Request.WorkDir, rec.Cwd, rec.Tree, rec.Repo)
+	dir := cmp.Or(rec.Cwd, rec.Request.WorkDir, rec.Tree, rec.Repo) // Cwd is absolute; a logged --workdir may be relative
 	if dir == "" {
 		return nil
 	}
