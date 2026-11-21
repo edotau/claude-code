@@ -11,6 +11,8 @@ import (
 	"os"
 	"slices"
 	"strings"
+
+	"github.com/edotau/claude-code/internal/proc"
 )
 
 // overlayDebugVar names the 0600 JSONL file RecordOverlayDebug appends to; unset (or no _SALT) records nothing.
@@ -46,6 +48,9 @@ func RecordOverlayDebug(agentName string, env []string) {
 	m := hmac.New(sha256.New, []byte(salt)) // one MAC reused across names
 	for _, kv := range env {
 		name, val, _ := strings.Cut(kv, "=")
+		if strings.HasPrefix(name, proc.TreeTagPrefix) {
+			continue // a per-run random name: noise in a names diff
+		}
 		m.Reset()
 		m.Write([]byte(val))
 		if _, seen := rec.FP[name]; !seen {

@@ -10,6 +10,8 @@ import (
 // Detach is a no-op off unix.
 func Detach(*exec.Cmd) {}
 
+func setsid(*exec.Cmd) {}
+
 // OwnGroup is a no-op off unix.
 func OwnGroup(*exec.Cmd) {}
 
