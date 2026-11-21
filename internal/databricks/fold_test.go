@@ -99,13 +99,13 @@ func TestFoldAndPairWorkspaceFilter(t *testing.T) {
 				{Host: foldDevHost, Auth: providers.AuthOAuth, WorkspaceID: c.dst},
 				{Host: foldDevHost, Auth: providers.AuthM2M, WorkspaceID: c.dst},
 			}
-			users, principals := sameHostRows(rows, sp)
+			users := sameHostRows(rows, sp)
 			want := 0
 			if c.want {
 				want = 1
 			}
-			if len(users) != want || principals != want {
-				t.Fatalf("same-host counts = (%d, %d), want (%d, %d)", len(users), principals, want, want)
+			if len(users) != want {
+				t.Fatalf("same-host users = %d, want %d", len(users), want)
 			}
 		})
 	}

@@ -638,8 +638,8 @@ func pairRows(rows []importRow, choices map[string]string, names map[string]stri
 		if sp.Auth != providers.AuthM2M || sp.Skip != "" {
 			continue
 		}
-		users, countSP := sameHostRows(rows, *sp)
-		target, explicit := pairTarget(rows, *sp, users, countSP, choices)
+		users := hostUsers(rows, *sp)
+		target, explicit := pairTarget(rows, *sp, users, choices)
 		paired := attachToTarget(rows, users, target, sp, names)
 		if !paired && len(users) > 0 && !explicit && sp.Action != "skip" {
 			sp.Reason = "unpaired; choose a service principal in configure"
@@ -718,23 +718,39 @@ func existingHost(raw json.RawMessage) string {
 	return host
 }
 
-// sameHostRows counts source profiles, including ones that an earlier pairing already consumed.
-func sameHostRows(rows []importRow, sp importRow) (users []int, principals int) {
+// sameHostRows are the user rows in sp's workspace, including ones an earlier pairing already consumed.
+func sameHostRows(rows []importRow, sp importRow) (users []int) {
 	for j, u := range rows {
-		if u.Skip != "" || u.Host != sp.Host || !sameWorkspace(u.WorkspaceID, sp.WorkspaceID) {
-			continue
-		}
-		if u.Auth == providers.AuthM2M {
-			principals++
-		}
-		if u.Auth == providers.AuthOAuth {
+		if u.Skip == "" && u.Host == sp.Host && u.Auth == providers.AuthOAuth && sameWorkspace(u.WorkspaceID, sp.WorkspaceID) {
 			users = append(users, j)
 		}
 	}
-	return users, principals
+	return users
 }
 
-func pairTarget(rows []importRow, sp importRow, users []int, principals int, choices map[string]string) (string, bool) {
+// hostUsers are the user rows on sp's host, whatever their workspace; an explicit pair may name any of them.
+func hostUsers(rows []importRow, sp importRow) []int {
+	var users []int
+	for j, u := range rows {
+		if u.Skip == "" && u.Host == sp.Host && u.Auth == providers.AuthOAuth {
+			users = append(users, j)
+		}
+	}
+	return users
+}
+
+// principalsFor counts same-host service principals whose workspace could belong to user u.
+func principalsFor(rows []importRow, u importRow) int {
+	n := 0
+	for _, p := range rows {
+		if p.Skip == "" && p.Host == u.Host && p.Auth == providers.AuthM2M && sameWorkspace(u.WorkspaceID, p.WorkspaceID) {
+			n++
+		}
+	}
+	return n
+}
+
+func pairTarget(rows []importRow, sp importRow, users []int, choices map[string]string) (string, bool) {
 	if target, ok := choices[sp.Name]; ok {
 		return target, true
 	}
@@ -746,8 +762,9 @@ func pairTarget(rows []importRow, sp importRow, users []int, principals int, cho
 			return rows[j].Name, false
 		}
 	}
-	if len(users) == 1 && principals == 1 {
-		return rows[users[0]].Name, false
+	cands := sameHostRows(rows, sp)
+	if len(cands) == 1 && principalsFor(rows, rows[cands[0]]) == 1 {
+		return rows[cands[0]].Name, false
 	}
 	return "", false
 }

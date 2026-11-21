@@ -750,3 +750,34 @@ func TestApplyRejectsNonObjectProviders(t *testing.T) {
 		t.Error("Apply accepted a non-object providers value")
 	}
 }
+
+func TestPairingWorkspaceIDs(t *testing.T) {
+	const host = "https://zz-fake.example.cloud.databricks.com"
+	prof := func(name, extra string) string { return "\n[" + name + "]\nhost = " + host + "\n" + extra }
+	sp := func(name, id, ws string) string {
+		return prof(name, "auth_type = oauth-m2m\nclient_id = "+id+"\nclient_secret = x9q\nworkspace_id = "+ws+"\n")
+	}
+	for _, tc := range []struct {
+		name, cfg string
+		choices   map[string]string
+		want      string
+	}{
+		{name: "explicit pair across workspaces", cfg: prof("u", "auth_type = databricks-cli\nworkspace_id = 111\n") + sp("s", "q1w2", "222"), choices: map[string]string{"s": "u"}, want: "q1w2"},
+		{name: "user without workspace, two SPs", cfg: prof("u", "auth_type = databricks-cli\n") + sp("s1", "q1w2", "111") + sp("s2", "e3r4", "222")},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			rows := importPlan(candidatesOf(t, tc.cfg), nil, importOptions{Pair: tc.choices})
+			top := map[string]json.RawMessage{}
+			if err := applyRows(top, rows); err != nil {
+				t.Fatal(err)
+			}
+			var u providers.Provider
+			if err := json.Unmarshal(existingRows(top)["u"], &u); err != nil {
+				t.Fatal(err)
+			}
+			if u.Auth.SPClientID != tc.want {
+				t.Fatalf("spClientId = %q, want %q; rows=%+v", u.Auth.SPClientID, tc.want, rows)
+			}
+		})
+	}
+}
