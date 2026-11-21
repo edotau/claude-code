@@ -445,11 +445,11 @@ func TestGeminiSessionFirstPinOnlyWhenConsulted(t *testing.T) {
 		req                           agent.RunOptions
 		wantProv, wantModel, wantErr  string
 	}{
-		{"A model pin on the Google login", "dev", "", "gemini-pinned", agent.RunOptions{}, "antigravity", "gemini-pinned", ""},
-		{"B a session row gemini cannot serve leaves the pin unconsulted", "dev", "gw", "gemini-y", agent.RunOptions{}, "antigravity", "gemini-y", ""},
+		{"A model pin on the Google login", "dev", "", "gemini-4-hydrogen", agent.RunOptions{}, "antigravity", "gemini-4-hydrogen", ""},
+		{"B a session row gemini cannot serve leaves the pin unconsulted", "dev", "gw", "gemini-3.8-flash", agent.RunOptions{}, "antigravity", "gemini-3.8-flash", ""},
 		{"C a gateway session with another row pinned stays on the Google login", "gw", "dev", "", agent.RunOptions{}, "antigravity", "", ""},
 		{"C gateway session without a pin stays on the Google login", "gw", "", "", agent.RunOptions{}, "antigravity", "", ""},
-		{"D --model beats the record model", "dev", "gw", "gemini-y", agent.RunOptions{Model: "gemini-flag"}, "antigravity", "gemini-flag", ""},
+		{"D --model beats the record model", "dev", "gw", "gemini-3.8-flash", agent.RunOptions{Model: "gemini-3.7-flash"}, "antigravity", "gemini-3.7-flash", ""},
 		{"D --provider beats the record profile", "dev", "gw", "", agent.RunOptions{Provider: "dev"}, "dev", "", ""},
 		{"E own-login label is a valid pin", "dev", "antigravity", "", agent.RunOptions{}, "antigravity", "", ""},
 		{"E a pin naming no row is refused only when consulted", "dev", "nosuch", "", agent.RunOptions{}, "antigravity", "", ""},
