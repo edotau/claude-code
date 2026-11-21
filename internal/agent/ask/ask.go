@@ -429,20 +429,38 @@ func (r *askRun) poolValue(value string) string {
 		return auto
 	case pinMoves(r):
 		return auto
+	case poolPinned(r):
+		return storedWorkspace(r, auto)
 	}
 	return value
 }
 
-// pinMoves reports an unled, unbatched run off its pin: a typed model the pin lacks, or a pool pin (not live or resumed).
+// poolPinned reports an unled, unbatched run on a stored pool pin (not live or resumed).
+func poolPinned(r *askRun) bool {
+	f := r.f
+	return f.provider == "" && f.batchSrc == "" && agent.PoolPicks(r.ag, f.model, f.live || f.background || f.session != "")
+}
+
+// storedWorkspace is databricks:<workspace> as a label resolves the stored pin, else the pool pick.
+func storedWorkspace(r *askRun, pool string) string {
+	reg, err := providers.Load()
+	if err != nil {
+		return pool
+	}
+	q, _, err := agent.RunQuery(r.ctx, reg, agent.ModelQuery{Agent: r.ag}, "")
+	if err != nil || q.Profile == "" {
+		return pool
+	}
+	return route.Join(router.RouteDatabricks, q.Profile)
+}
+
+// pinMoves reports an unled, unbatched run off its pin: a typed model the pin lacks.
 func pinMoves(r *askRun) bool {
 	f := r.f
 	if f.provider != "" || f.batchSrc != "" {
 		return false
 	}
-	if !r.swap && typedModel(f.model) && r.pinLacks(f.model) {
-		return true
-	}
-	return agent.PoolPicks(r.ag, f.model, f.live || f.background || f.session != "")
+	return !r.swap && typedModel(f.model) && r.pinLacks(f.model)
 }
 
 // confineAgent is the agent the confinement is applied for ("" when each batch line confines its own), and that flag.
@@ -456,9 +474,6 @@ func confineAgent(ov agentconfig.Overlay, f *askFlags, ag string) (string, bool)
 // ApplyCode is the exit code for an ApplyCoworker error: a preflight refusal is 1, the rest usage errors.
 func ApplyCode(err error) int {
 	if _, ok := errors.AsType[*agent.PreflightError](err); ok {
-		return 1
-	}
-	if _, ok := errors.AsType[*unservedError](err); ok {
 		return 1
 	}
 	return 2
@@ -819,6 +834,9 @@ func narrowLead(ag string, f *askFlags, routed bool) (string, error) {
 
 // prepareExitCode is the code a Prepare error names, else 1.
 func prepareExitCode(err error) int {
+	if _, ok := errors.AsType[*agent.UnacceptedError](err); ok {
+		return 2
+	}
 	if usage, ok := errors.AsType[interface {
 		error
 		ExitCode() int

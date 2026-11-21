@@ -986,8 +986,8 @@ func cliFakes(t *testing.T) {
 	t.Helper()
 	skipWithoutSh(t)
 	pathstest.FakeNativeClaude(t, "cat > /dev/null; sleep 0.05\n"+
-		`printf '%s\n' '{"type":"system","subtype":"init","session_id":"sc","model":"fake-claude"}'`+"\n"+
-		`printf '%s\n' '{"type":"assistant","message":{"model":"fake-claude","content":[{"type":"text","text":"hello"}]}}'`+"\n"+
+		`printf '%s\n' '{"type":"system","subtype":"init","session_id":"sc","model":"claude-sonnet-5-5"}'`+"\n"+
+		`printf '%s\n' '{"type":"assistant","message":{"model":"claude-sonnet-5-5","content":[{"type":"text","text":"hello"}]}}'`+"\n"+
 		`printf '%s\n' '{"type":"result","result":"hello","usage":{"input_tokens":3,"output_tokens":2}}'`)
 	pathstest.FakeVendor(t, "codex", `[ "$1" = login ] && { echo "Logged in using ChatGPT"; exit 0; }`+"\n"+"cat > /dev/null; sleep 0.05; echo hello")
 	pathstest.FakeVendor(t, "agy", "cat > /dev/null; sleep 0.05\n"+
@@ -1145,6 +1145,18 @@ func TestJSONModeFailuresPrintEnvelope(t *testing.T) {
 				t.Errorf("error.kind = %v, want usage", e["kind"])
 			}
 		})
+	}
+}
+
+// A dry-run reports a typed model refusal as usage and never writes a dispatch record.
+func TestDryRunUnacceptedModelExitsTwo(t *testing.T) {
+	cliEnv(t)
+	code, out, stderr := runCLI(t, "ask", "--agent", "claude", "--model", "bogus-model-xyz", "--dry-run", "x")
+	if code != 2 || !strings.Contains(stderr, "bogus-model-xyz") || strings.TrimSpace(out) != "" {
+		t.Fatalf("exit %d, stdout %q, stderr %q; want 2 naming the rejected model", code, out, stderr)
+	}
+	if records := agent.RecentRecords(1); len(records) != 0 {
+		t.Fatalf("dry-run refusal wrote %d records", len(records))
 	}
 }
 
@@ -1316,6 +1328,29 @@ func TestPoolValue(t *testing.T) {
 		}
 		if own := strings.Contains(c.name, "own-login"); f.native != own {
 			t.Errorf("%s: native = %v, want %v", c.name, f.native, own)
+		}
+	}
+}
+
+// A stored pool pin resolves to one workspace; only a typed --provider databricks keeps the pool pick.
+func TestPoolValueStoredPinTakesOneWorkspace(t *testing.T) {
+	vaulttest.Use(t)
+	t.Setenv("DEV_WS_TOKEN", "x")
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
+		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
+	vaulttest.SetRecord(t, "pi", "profile", "databricks")
+	for args, want := range map[string]string{"": "databricks:dev", "--provider": route.Join(router.RouteDatabricks, router.AutoArm)} {
+		fs, f := askFlagSet()
+		parsed := []string{"--model", "auto"}
+		if args != "" {
+			parsed = append(parsed, args, "databricks")
+		}
+		if err := fs.Parse(parsed); err != nil {
+			t.Fatal(err)
+		}
+		r := &askRun{ctx: t.Context(), f: f, fs: fs, ag: "pi"}
+		if got := r.poolValue(""); got != want {
+			t.Errorf("args %q: poolValue = %q, want %q", parsed, got, want)
 		}
 	}
 }

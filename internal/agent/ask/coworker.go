@@ -233,13 +233,13 @@ func typedModel(model string) bool {
 	return model != "" && !auto && !strings.Contains(model, ":") && !slices.Contains(router.Aliases, models.Strip1M(model))
 }
 
-// unservedError is the refusal of a typed model no signed-in workspace serves; it exits 1 like a preflight.
-type unservedError struct{ msg string }
-
-func (e *unservedError) Error() string { return e.msg }
-
 // errUnserved names model and up to five served ids the workspaces' findings offer instead.
 func errUnserved(model string, skipped []agent.Finding) error {
+	return &agent.UnacceptedError{Kind: agent.UnacceptedUnserved, Agent: "this agent", Profile: "databricks:auto", Model: model,
+		Detail: "no signed-in Databricks workspace serves it", Nearest: nearestWorkspaceIDs(skipped)}
+}
+
+func nearestWorkspaceIDs(skipped []agent.Finding) []string {
 	var near []string
 	for _, f := range skipped {
 		for _, id := range f.Served {
@@ -248,8 +248,26 @@ func errUnserved(model string, skipped []agent.Finding) error {
 			}
 		}
 	}
-	return &unservedError{fmt.Sprintf("model %s: no signed-in Databricks workspace serves it (nearest served: %s)", model,
-		cmp.Or(strings.Join(near, ", "), "none listed"))}
+	if len(near) > 0 {
+		return near
+	}
+	return readyWorkspaceIDs(skipped)
+}
+
+func readyWorkspaceIDs(skipped []agent.Finding) []string {
+	var near []string
+	for _, f := range skipped {
+		served, ok := router.FreshServed(f.Profile, time.Now())
+		if !ok {
+			continue
+		}
+		for _, m := range served.Models {
+			if m.IsReady() && len(near) < 5 && !slices.Contains(near, m.ID) {
+				near = append(near, m.ID)
+			}
+		}
+	}
+	return near
 }
 
 // reportPick prints pickArm's pick and the workspaces it skipped on stderr and returns the pick.

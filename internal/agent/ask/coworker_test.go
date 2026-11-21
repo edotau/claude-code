@@ -2,6 +2,7 @@ package ask
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"slices"
@@ -580,18 +581,25 @@ func TestPickWithUnservedModel(t *testing.T) {
 	reg := poolFixture(t, nil)
 	armFindings = servesOnly()
 	_, _, _, err := pickWith(reg, armQuery{Model: "kimi-k3-1-pro", Strict: true}, time.Now())
-	if err == nil || !strings.Contains(err.Error(), "kimi-k3-1-pro") || !strings.Contains(err.Error(), "no signed-in Databricks workspace serves it") ||
-		!strings.Contains(err.Error(), "near-dev, near-prod, near-qa") {
-		t.Fatalf("strict pick error = %v, want the model, the refusal and the nearest ids", err)
-	}
-	if code := ApplyCode(err); code != 1 {
-		t.Errorf("ApplyCode = %d, want 1", code)
-	}
+	assertUnacceptedPick(t, err)
 	if name, _, _, err := pickWith(reg, armQuery{Model: "kimi-k3-1-pro"}, time.Now()); err != nil || name == "" {
 		t.Errorf("a swap-allowed pick = %q, %v, want the fallback pick", name, err)
 	}
 	if name, _, _, err := pickWith(reg, armQuery{Strict: true}, time.Now()); err != nil || name == "" {
 		t.Errorf("an untyped pick = %q, %v, want a pick", name, err)
+	}
+}
+
+func assertUnacceptedPick(t *testing.T, err error) {
+	t.Helper()
+	var unaccepted *agent.UnacceptedError
+	if !errors.As(err, &unaccepted) || unaccepted.Kind != agent.UnacceptedUnserved ||
+		!strings.Contains(err.Error(), "kimi-k3-1-pro") || !strings.Contains(err.Error(), "no signed-in Databricks workspace serves it") ||
+		!strings.Contains(err.Error(), "near-dev, near-prod, near-qa") {
+		t.Fatalf("strict pick error = %v, want the model, the refusal and the nearest ids", err)
+	}
+	if code := ApplyCode(err); code != 2 {
+		t.Errorf("ApplyCode = %d, want 2", code)
 	}
 }
 
