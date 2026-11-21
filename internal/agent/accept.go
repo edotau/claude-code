@@ -177,6 +177,9 @@ func AcceptedIDs(agentName string, p *providers.Provider, now time.Time) (ids []
 		}
 		return ids, true
 	}
+	if gh, ok := githubSnapshot(p, now); ok {
+		return slices.DeleteFunc(slices.Clone(gh), func(id string) bool { return id == AutoModel }), true
+	}
 	ids = slices.Compact(slices.Sorted(maps.Values(p.Models)))
 	for _, id := range catalogPool(agentName) {
 		if wire, why := preflightModelWire(agentName, p, id); why == "" && !slices.Contains(ids, wire) {

@@ -215,6 +215,8 @@ func SelectAndOverlay(ref string, agents map[string]*Schema, o *RunOptions) (nam
 
 type clientUsageError struct{ error }
 
+func (e clientUsageError) Unwrap() error { return e.error }
+
 func (clientUsageError) ExitCode() int { return 2 }
 
 // route is Resolve on o: o.Provider is a pinned backend, o.Lead a resolved lead, --host one remote dispatch.

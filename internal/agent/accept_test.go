@@ -114,3 +114,33 @@ func TestAcceptModelGeminiEffortSuffix(t *testing.T) {
 		t.Fatalf("note %q, err %v", note, err)
 	}
 }
+
+// R8: a typed id a fresh Copilot catalog snapshot lacks is refused naming the catalog's ids; a cold snapshot is not judged.
+func TestAcceptModelGithubSnapshotRefusesUnlisted(t *testing.T) {
+	vaulttest.Use(t)
+	prevIDs, prevAt := router.GithubCatalogIDs, router.GithubCatalogTime
+	t.Cleanup(func() { router.GithubCatalogIDs, router.GithubCatalogTime = prevIDs, prevAt })
+	router.GithubCatalogIDs = func(*providers.Provider) []string { return []string{"claude-sonnet-5.5", "gpt-6.2-sol"} }
+	at := time.Now()
+	router.GithubCatalogTime = func(*providers.Provider) time.Time { return at }
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p := reg.Providers["copilot"]
+	if p == nil || p.Provider != "github" {
+		t.Fatalf("copilot row = %+v, want a github row", p)
+	}
+	_, err = AcceptModel("copilot", p, "nope-1", time.Now())
+	var ue *UnacceptedError
+	if !errors.As(err, &ue) || ue.Kind != UnacceptedUnserved || !slices.Contains(ue.Nearest, "claude-sonnet-5.5") {
+		t.Fatalf("err = %v, want an unserved refusal naming claude-sonnet-5.5", err)
+	}
+	if _, err := AcceptModel("copilot", p, "claude-sonnet-5.5", time.Now()); err != nil {
+		t.Fatalf("listed id refused: %v", err)
+	}
+	at = time.Time{}
+	if _, err := AcceptModel("copilot", p, "nope-1", time.Now()); errors.As(err, &ue) && ue.Kind == UnacceptedUnserved {
+		t.Fatalf("cold snapshot judged: %v", err)
+	}
+}

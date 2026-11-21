@@ -85,8 +85,9 @@ the vault overlay map each alias per provider.
 - A GPT family name (`sol`, `astra`, `terra`, `luna`) is the highest numeric version the row's listing serves READY
   (`6.1` = `6-1` < `6.2` < `7`); no listing or member falls back to today's id. A concrete id stays exactly that id.
 - Model `auto` is the harness pick, never a wire id: a listed model named auto is ignored.
-- Any endpoint the workspace serves runs by its bare name (`gpt-6-1-terra` → `databricks-gpt-6-1-terra`); an unlisted
-  name is refused at preflight (with `--fallback` it falls back instead).
+- Any endpoint the workspace serves runs by its bare name (`gpt-6-1-terra` → `databricks-gpt-6-1-terra`); a typed
+  unlisted or runtime-gone model is refused (exit 2) under any `--fallback`; a GitHub login's typed model is checked
+  against its Copilot catalog snapshot.
 - `opus` architecture and max-reasoning research; `sonnet` planning, review, orchestration, exploration (an untyped
   `claude` leaf, or one asked `auto`, gets sonnet for a standard-tier brief, haiku for fast, opus for deep; `auto`
   rotates models only, so the row stays the one its route names, the model following the tier as that row spells

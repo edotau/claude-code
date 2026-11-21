@@ -359,13 +359,13 @@ func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead boo
 
 // servedRefusal is AcceptModel's usage refusal when a fresh listing lacks cand's typed model; nil otherwise.
 func servedRefusal(rc routeCtx, cand router.Candidate, before int) error {
-	if len(rc.pf.Failed) == before || !rc.callerOnProfile(cand) {
+	if len(rc.pf.Failed) == before || !rc.callerOnProfile(cand) && githubUnlistedFinding(rc, cand) == nil {
 		return nil
 	}
 	if f := rc.pf.Failed[len(rc.pf.Failed)-1]; f.Check != "served" || !strings.Contains(f.Detail, listsNoEndpoint) {
 		return nil
 	}
-	if _, err := AcceptModel(cand.Agent, rc.reg.Providers[cand.Profile], rc.callerModel, time.Now()); err != nil {
+	if _, err := AcceptModel(cand.Agent, router.CandidateRow(rc.reg, cand), rc.callerModel, time.Now()); err != nil {
 		return clientUsageError{err}
 	}
 	return nil
@@ -631,7 +631,15 @@ func (rc routeCtx) forFamily(cand router.Candidate) routeCtx {
 }
 
 // candidateCell adjusts cand's cell for the row or exact model; skip is non-empty when cand serves none.
-func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip string) {
+func (rc routeCtx) candidateCell(cand router.Candidate) (router.Cell, string) {
+	if f := githubUnlistedFinding(rc, cand); f != nil {
+		rc.pf.fail(*f)
+		return cand.Cell, cand.Agent + " (" + cmp.Or(cand.Account, cand.Profile) + "): preflight " + f.String()
+	}
+	return routedCell(rc, cand)
+}
+
+func routedCell(rc routeCtx, cand router.Candidate) (cell router.Cell, skip string) {
 	cell = cand.Cell
 	switch {
 	case VaultAgentIsClaude(cand.Agent) && rc.dispatchID != "": // lowest Claude alias serving the non-Claude dispatch
@@ -668,6 +676,18 @@ func (rc routeCtx) pinnedCaller(cand router.Candidate) bool {
 	pinned := cand.Profile != "" && rc.pins[cand.Agent].Profile == cand.Profile
 	return pinned && cand.Agent == rc.want && rc.explicitModel && !rc.callerAuto() &&
 		(rc.row == "" || slices.Contains(models.AliasNames, rc.callerModel)) && cmp.Or(rc.exact, rc.callerModel) != ""
+}
+
+// githubUnlistedFinding refuses the wanted agent's typed id its GitHub login's fresh Copilot catalog lacks.
+func githubUnlistedFinding(rc routeCtx, cand router.Candidate) *Finding {
+	id := cmp.Or(rc.exact, rc.callerModel)
+	if !rc.explicitModel || cand.Agent != rc.want || id == "" || IsAuto(id) || slices.Contains(models.AliasNames, id) {
+		return nil
+	}
+	if p := router.CandidateRow(rc.reg, cand); p != nil && githubUnlisted(p, id, time.Now()) {
+		return failFinding(p, id, "served", p.Name+listsNoEndpoint+id, time.Now())
+	}
+	return nil
 }
 
 func (rc routeCtx) pinnedCell(cand router.Candidate, cell *router.Cell) {

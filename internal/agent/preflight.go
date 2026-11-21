@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
+	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
@@ -289,7 +290,7 @@ func checkServed(agentName string, p *providers.Provider, model string, now time
 	fail := func(check, detail string) (string, *Finding, string) {
 		return "", failFinding(p, model, check, detail, now), ""
 	}
-	served := servedSpelling(agentName, p, model, now)
+	served := cmp.Or(servedSpelling(agentName, p, model, now), model) // an unspellable id still names itself
 	wire, why := preflightModelWire(agentName, p, served)
 	spelled := cmp.Or(wire, providers.SpellPin(p, served))  // a Responses agent's wire check runs before Serves' wording
 	note, gone, notReady := listingVerdict(p, spelled, now) // one listing read; spelled is wire once why is empty
@@ -322,8 +323,26 @@ func failFinding(p *providers.Provider, model, check, detail string, now time.Ti
 	return f
 }
 
+// githubSnapshot is the ids of p's GitHub login's fresh Copilot catalog snapshot; ok false when cold or not a GitHub row.
+func githubSnapshot(p *providers.Provider, now time.Time) (ids []string, ok bool) {
+	if p.Provider != "github" || router.GithubCatalogIDs == nil || router.GithubCatalogTime == nil {
+		return nil, false
+	}
+	ids = router.GithubCatalogIDs(p)
+	return ids, len(ids) > 0 && now.Sub(router.GithubCatalogTime(p)) < serving.CacheTTL()
+}
+
+// githubUnlisted is a typed id a fresh Copilot catalog snapshot of p's login lacks.
+func githubUnlisted(p *providers.Provider, wire string, now time.Time) bool {
+	ids, ok := githubSnapshot(p, now)
+	return ok && wire != "" && !slices.ContainsFunc(ids, func(id string) bool { return strings.EqualFold(id, wire) })
+}
+
 // listingVerdict reads p's cached listing for a Databricks wire: a skipped-check note, unlisted, or listed not READY.
 func listingVerdict(p *providers.Provider, wire string, now time.Time) (note string, gone, notReady bool) {
+	if githubUnlisted(p, wire, now) {
+		return "", true, false
+	}
 	if p.Preset != providers.PresetDatabricks || wire == "" {
 		return "", false, false
 	}
@@ -383,6 +402,11 @@ const maxAlternatives = 5
 
 // servedAlternatives is up to maxAlternatives READY ids of model's family in p's fresh listing; nil without one.
 func servedAlternatives(p *providers.Provider, model string, now time.Time) []string {
+	if ids, ok := githubSnapshot(p, now); ok {
+		fam := familyKey(model)
+		out := slices.DeleteFunc(slices.Clone(ids), func(id string) bool { return familyKey(id) != fam || id == model })
+		return out[:min(len(out), maxAlternatives)]
+	}
 	s, ok := router.FreshServed(p.Name, now)
 	if !ok {
 		return nil

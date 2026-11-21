@@ -880,8 +880,8 @@ func TestRouteChainRefusesUnlistedTypedModel(t *testing.T) {
 	_, _, err := RouteChainFor(context.Background(), "codex", "databricks-gpt-6-1-sul", "sonnet", router.FallbackAll, false,
 		router.PickOpts{Configured: allConfigured, Lead: "dev"})
 	var ue *UnacceptedError
-	cu, usage := err.(clientUsageError)
-	if !usage || !errors.As(cu.error, &ue) || ue.Kind != UnacceptedUnserved || !strings.Contains(err.Error(), "databricks-gpt-6-1-sol") {
+	var cu clientUsageError
+	if !errors.As(err, &cu) || !errors.As(err, &ue) || !errors.Is(err, ErrModelRoute) || ue.Kind != UnacceptedUnserved || !strings.Contains(err.Error(), "databricks-gpt-6-1-sol") {
 		t.Fatalf("err = %v, want an unserved refusal naming databricks-gpt-6-1-sol", err)
 	}
 }

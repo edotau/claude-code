@@ -446,6 +446,11 @@ func autoStopped(err error) bool {
 	return ok
 }
 
+// typedModelGone reports err saying req's typed (non-auto) model is gone; R8 never swaps it for another.
+func typedModelGone(req RunOptions, err error) bool {
+	return err != nil && req.Model != "" && !IsAuto(req.Model) && !retry.Progressed(err) && pickGoneErr().MatchString(err.Error())
+}
+
 func modelRefusal(err error) bool {
 	return err != nil && !retry.Progressed(err) &&
 		(capabilityErr().MatchString(err.Error()) || pickGoneErr().MatchString(err.Error()))
@@ -576,12 +581,16 @@ func (s *fallbackState) nextPrompt(midRun bool) string {
 
 // movesOn: the previous dispatch was unavailable.
 func (s *fallbackState) movesOn(ctx context.Context) bool {
-	return dispatchUnavailableContext(ctx, s.prevDispatch.Agent, s.res, s.err)
+	return !typedModelGone(s.req, s.err) && dispatchUnavailableContext(ctx, s.prevDispatch.Agent, s.res, s.err)
 }
 
 func (s *fallbackState) step(ctx context.Context, c Chain, i int, disp Dispatch, sink wire.Sink, notify func(string)) (bool, error) {
 	// An answer or final failure ends the chain before any cancel check.
 	midRun := i > 0 && cutOffMidRunContext(ctx, s.prevDispatch.Agent, s.err) // D1 = B: every external hop falls through
+	if i > 0 && typedModelGone(s.req, s.err) {                               // R8: a typed model the endpoint lacks is never swapped for another
+		s.stopped = true
+		return true, nil
+	}
 	if i > 0 && (c.yieldsFallback(s.req, s.res, s.err) || (!midRun && !s.movesOn(ctx))) {
 		s.stopped = true
 		return true, nil
