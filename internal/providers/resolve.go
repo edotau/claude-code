@@ -190,7 +190,7 @@ func ListedResponses(p *Provider, wire string) (serves, known bool) {
 // LimitsFor is wire's token limits: the tracked catalog's value per field, else the fresh listing's, else unknown.
 func LimitsFor(p *Provider, wire string) (models.TokenLimits, bool) {
 	l, _ := models.Limits(wire)
-	if p != nil && (l.Context == 0 || l.Output == 0) {
+	if listsEndpoints(p) && (l.Context == 0 || l.Output == 0) {
 		if f, ok := listedFacts(p, wire); ok {
 			l.Context, l.Output = cmp.Or(l.Context, f.Context), cmp.Or(l.Output, f.Output)
 		}

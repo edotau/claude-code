@@ -187,10 +187,7 @@ func requirePiNode(ctx context.Context) (string, string, error) {
 		}
 		return "", "", fmt.Errorf("pi: no Node %s+ found (%s; nvm dir %q); run: %s, or install Node %s+ with nvm", piMinNode, seen, nvm, fix, piMinNode)
 	}
-	if npm := npmIn(dir); npm != "" {
-		return dir, npm, nil
-	}
-	return "", "", fmt.Errorf("pi: npm not on PATH (Node %s+ needed); run: %s", piMinNode, fix)
+	return dir, npmIn(dir), nil
 }
 
 const opencodeAllowMajorEnv = "HARNESS_ALLOW_OPENCODE_2X"
