@@ -122,6 +122,7 @@ func orDash(s string) string {
 func checkProviderHealth(ctx context.Context, check func(bool, bool, string, string)) {
 	reg, err := providers.Load()
 	check(err == nil, true, "provider registry", orErr("vault overlay/providers", err))
+	checkModelStrings(reg, check)
 	driftOK, driftDetail := overlayDriftDetail()
 	check(driftOK, false, "provider overlay drift", driftDetail)
 	cost := costReportCheck(reg)
