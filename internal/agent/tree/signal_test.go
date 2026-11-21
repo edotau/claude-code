@@ -66,16 +66,19 @@ func TestRunningDispatchSignalAndQuiet(t *testing.T) {
 // dispatchRow is a dispatch's cells joined, for substring checks.
 func dispatchRow(d Dispatch, now time.Time) string { return strings.Join(dispatchCells(d, now), " ") }
 
-// A running dispatch's text row carries the progress line (tools count), not just last=.
-func TestRunningRowShowsProgressLine(t *testing.T) {
+// A running dispatch's row, rendered at 80 columns, keeps the event age and tool count and drops the repeated agent.
+func TestRunningRowShowsProgressFragment(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	now := time.Now()
 	rec := agent.ClaimRecord("claude", agent.RunOptions{}, now.Add(-time.Minute))
-	rec.Status, rec.PID = "running", os.Getpid()
+	rec.Status, rec.PID, rec.Model = "running", os.Getpid(), "sonnet"
 	if err := os.WriteFile(rec.EventsPath(), []byte(`{"type":"tool_use"}`+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if row := dispatchRow(dispatchFromRecord(rec, "", now), now); !strings.Contains(row, "1 tools") {
-		t.Errorf("row = %q, want the progress line with 1 tools", row)
+	var b strings.Builder
+	renderTree(&b, &Tree{Dispatches: []Dispatch{dispatchFromRecord(rec, "", now)}}, now, 80, "")
+	row := b.String()
+	if !strings.Contains(row, "last event") || !strings.Contains(row, "1 tools") || strings.Contains(row, "claude · sonnet") {
+		t.Errorf("80-column row = %q, want event age and 1 tools, no repeated agent · model", row)
 	}
 }

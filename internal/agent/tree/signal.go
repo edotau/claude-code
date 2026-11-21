@@ -23,11 +23,11 @@ func applySignal(d Dispatch, rec agent.Record, now time.Time) Dispatch {
 	}
 	d.LastSignal, d.SignalSource = agent.LastSignal(rec)
 	d.Quiet = now.Sub(d.LastSignal) > quietAfter
-	d.Live = agent.ProgressOf(rec, now).Line(80)
+	d.Live = agent.ProgressOf(rec, now).Fragment(80)
 	return d
 }
 
-// signalText is the row's liveness column: "⚠ quiet 7m" past the threshold, else the progress line, "" when not running.
+// signalText is the row's liveness column: "⚠ quiet 7m" past the threshold, else the progress fragment (event age, tools, doing), "" when not running.
 func signalText(d Dispatch, now time.Time) string {
 	if d.LastSignal.IsZero() {
 		return ""

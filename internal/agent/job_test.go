@@ -991,4 +991,7 @@ func TestStatusLineRunningShowsProgress(t *testing.T) {
 	if !strings.Contains(got, "1 tools") || strings.Contains(got, "PROMPTWORDS") {
 		t.Errorf("StatusLine = %q, want progress and no prompt", got)
 	}
+	if strings.Contains(got, "claude · ") {
+		t.Errorf("StatusLine = %q, repeats the agent", got)
+	}
 }

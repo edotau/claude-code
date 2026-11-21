@@ -183,9 +183,16 @@ func (p Progress) signal() (text string, hung bool) {
 
 // Line is the one-line label, at most width columns; the doing field is clipped first, unknown fields dropped.
 func (p Progress) Line(width int) string {
+	return p.render(width, p.Agent, p.Model, progressDur(p.Elapsed))
+}
+
+// Fragment is Line without agent, model and elapsed, for a row that already shows them.
+func (p Progress) Fragment(width int) string { return p.render(width) }
+
+func (p Progress) render(width int, lead ...string) string {
 	sig, hung := p.signal()
 	noLive := strings.HasPrefix(sig, "⚠ no live")
-	parts := []string{p.Agent, p.Model, progressDur(p.Elapsed), sig}
+	parts := append(lead, sig)
 	if p.Tools >= 0 && !noLive {
 		parts = append(parts, fmt.Sprintf("%d tools", p.Tools))
 	}
