@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -440,8 +441,8 @@ func recentPicks(agentName string, now time.Time) string {
 		if r.Agent != agentName || now.Sub(r.Time) >= 7*24*time.Hour {
 			return true
 		}
-		if r.RanRoute != "" {
-			routes[strings.TrimPrefix(r.RanRoute, "databricks:")]++
+		if !r.RanRoute.IsZero() {
+			routes[strings.TrimPrefix(route.Join(r.RanRoute.Provider, r.RanRoute.Profile), "databricks:")]++
 		}
 		if m == "" {
 			return true

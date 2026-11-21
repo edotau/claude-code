@@ -363,7 +363,7 @@ func (rc routeCtx) stepDispatch(cand router.Candidate, s step, req int, armFaile
 	if skip != "" {
 		return Dispatch{}, skip, false, nil
 	}
-	if s.pin && s.i == req && router.AsksModel(rc.callerModel, cand, cell.Model) {
+	if s.pin && s.i == req && router.AsksModel(rc.callerModel, cell.Model) {
 		return Dispatch{}, "", false, nil
 	}
 	if disp, skip, err = s.rc.buildDispatch(cand, cell); err != nil || skip != "" {

@@ -419,8 +419,8 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	if rec.FallbackPolicy != "" { // records from before the field keep this run's default
 		*t.Fallback = rec.FallbackPolicy
 	}
-	if rec.Route != "" { // the workspace the run was confined to; an overlay provider still wins (checkArm)
-		*t.Coworker = rec.Route
+	if !rec.Route.IsZero() { // the workspace the run was confined to; an overlay provider still wins (checkArm)
+		*t.Coworker = route.Join(rec.Route.Provider, rec.Route.Profile)
 	}
 	if len(rec.Request.EnvNames) > 0 {
 		fmt.Fprintf(errw, "ask: the logged run set env %s; values are not stored, so pass --env or --overlay again\n", strings.Join(rec.Request.EnvNames, ","))

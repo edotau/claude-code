@@ -31,39 +31,13 @@ type Denials struct {
 	Commands []string `json:"commands"`
 }
 
-// RouteString reads a legacy "provider:profile" string or a route object as the string form.
-func RouteString(raw json.RawMessage) (string, error) {
-	if len(raw) == 0 || string(raw) == "null" {
-		return "", nil
-	}
-	if raw[0] == '"' {
-		var s string
-		err := json.Unmarshal(raw, &s)
-		return s, err
-	}
-	var r route.Route
-	if err := json.Unmarshal(raw, &r); err != nil {
-		return "", err
-	}
-	if r.Provider == "" {
-		return r.Profile, nil
-	}
-	if r.Profile == "" {
-		return r.Provider, nil
-	}
-	return r.Provider + ":" + r.Profile, nil
-}
-
 // ProviderOf maps a profile name to its provider; set once by the agent package, nil-safe.
 var ProviderOf func(profile string) string
 
-// RouteObject parses "provider:profile", a bare provider (the pool, profile auto), a bare profile or
-// "<profile>:<model>" as a route naming provider and profile; nil when empty or the provider is unknown.
+// RouteObject parses "provider:profile", a bare provider (the pool, profile auto) or a bare profile as a route
+// naming provider and profile; nil when empty or the provider is unknown.
 func RouteObject(s string) *route.Route {
 	r := route.ParseLegacy(s)
-	if r.IsZero() {
-		r = route.ParseLegacy(strings.SplitN(s, ":", 2)[0])
-	}
 	if r.Provider == "" && r.Profile != "" && ProviderOf != nil {
 		r.Provider = ProviderOf(r.Profile)
 	}
@@ -74,34 +48,6 @@ func RouteObject(s string) *route.Route {
 		r.Profile = "auto"
 	}
 	return &r
-}
-
-// RouteJSON is the route object encoded, the legacy string when no provider is known; nil when empty.
-func RouteJSON(s string) json.RawMessage {
-	if s == "" {
-		return nil
-	}
-	v := any(s)
-	if r := RouteObject(s); r != nil {
-		v = r
-	}
-	b, _ := json.Marshal(v) // a string or a struct of strings cannot fail
-	return b
-}
-
-// UnmarshalJSON accepts "requested" as the legacy string or a route object.
-func (e *Envelope) UnmarshalJSON(b []byte) error {
-	type plain Envelope
-	aux := struct {
-		*plain
-		Requested json.RawMessage `json:"requested"`
-	}{plain: (*plain)(e)}
-	if err := json.Unmarshal(b, &aux); err != nil {
-		return err
-	}
-	s, err := RouteString(aux.Requested)
-	e.Requested = s
-	return err
 }
 
 // Envelope is the one typed JSON body `ask --format json` prints for every agent, on success and on every error path.
@@ -159,7 +105,7 @@ func NewEnvelope(res Result, err error, dispatchID string) Envelope {
 		env.Error = &EnvelopeError{Kind: ErrorKind(err), Message: textutil.RedactSecrets(err.Error())}
 	}
 	env.Route = RouteObject(res.Provider)
-	env.RequestedRoute = cmp.Or(res.RequestedRoute, RouteObject(res.Requested))
+	env.RequestedRoute = res.RequestedRoute
 	if env.Status == "" {
 		env.Status = StatusOK
 		if err != nil {

@@ -442,7 +442,7 @@ func ApplyCode(err error) int {
 
 // confineLead narrows --provider and the lead to the overlay's confinement, reporting whether either changed.
 func confineLead(ctx context.Context, ag string, f *askFlags) bool {
-	profile, provider := router.ConfineLeadContext(ctx, ag, f.profile, f.provider, f.model)
+	profile, provider := router.ConfineLeadContext(ctx, ag, f.profile, f.provider)
 	changed := profile != f.profile || provider != f.provider
 	f.profile, f.provider = profile, provider
 	return changed

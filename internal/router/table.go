@@ -473,9 +473,8 @@ func NonClaudeDispatchID(exact string, explicitModel bool, pinModel string) stri
 }
 
 // AsksModel reports the caller's --model naming the model a pin cell already runs: the pin is the requested target.
-func AsksModel(callerModel string, cand Candidate, cell string) bool {
-	asked := strings.TrimPrefix(callerModel, cand.Profile+":")
-	return models.SameModel(asked, cell)
+func AsksModel(callerModel, cell string) bool {
+	return models.SameModel(callerModel, cell)
 }
 
 // CellServing is agent's cell (any row, then the opencode sub-candidates when hub) whose model is exact.

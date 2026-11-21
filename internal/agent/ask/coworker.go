@@ -124,7 +124,7 @@ func confineLine(ctx context.Context, agentName string, req agent.RunOptions) (a
 	if err != nil {
 		return req, err // the line's own profile and model, checked like the typed flags
 	}
-	profile, provider := router.ConfineLeadContext(ctx, agentName, req.Provider, "", req.Model)
+	profile, provider := router.ConfineLeadContext(ctx, agentName, req.Provider, "")
 	if req.Lead != "" || (profile == req.Provider && provider == "") {
 		return req, nil
 	}
@@ -310,7 +310,7 @@ func localArmFindings(p *providers.Provider, agentName, model string, now time.T
 	if agentName == "" {
 		return fs
 	}
-	model = providers.ConcreteModel(agentName, p, strings.TrimPrefix(model, p.Name+":")) // a family word: p's own member
+	model = providers.ConcreteModel(agentName, p, model) // a family word: p's own member
 	if _, failed := agent.CheckModelNoted(agentName, p, model, now, nil); failed != nil {
 		fs = append(fs, *failed)
 	}

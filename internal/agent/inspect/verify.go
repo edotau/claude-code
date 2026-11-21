@@ -18,6 +18,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 // `agents diff --verify <id>`: routing proof for one dispatch, from its record and the proxy log.
@@ -83,7 +84,7 @@ func verifyDispatch(id, logPath string) (*VerifyReport, error) {
 	if rec.DurationMs > 0 {
 		end = rec.Time.Add(time.Duration(rec.DurationMs) * time.Millisecond)
 	}
-	rep := &VerifyReport{ID: rec.ID, Agent: rec.Agent, Workspace: rec.Provider, Route: rec.Route, Model: rec.Model,
+	rep := &VerifyReport{ID: rec.ID, Agent: rec.Agent, Workspace: rec.Provider, Route: route.Join(rec.Route.Provider, rec.Route.Profile), Model: rec.Model,
 		Status: rec.Status, Fallback: fallbackText(rec), DurationMs: rec.DurationMs, Tokens: logTokens(rec.LogPath()),
 		Start: start.Local().Format(time.RFC3339), End: end.Local().Format(time.RFC3339),
 		Mismatches: routingMismatches(rec), Wrote: rec.Wrote, PreDirty: rec.PreDirtyTouched, owned: agent.ParseOwned(rec.Request.Prompt)}
@@ -109,8 +110,9 @@ func routingMismatches(rec agent.Record) []string {
 	if rec.Fallback != "" || rec.RanAs != "" {
 		out = append(out, "fallback: "+fallbackText(rec))
 	}
-	if p := rec.Request.Provider; p != "" && !strings.Contains(rec.Provider+" "+rec.Route, p) {
-		out = append(out, fmt.Sprintf("workspace: asked for %q, ran on %q", p, cmp.Or(rec.Route, rec.Provider)))
+	ran := route.Join(rec.Route.Provider, rec.Route.Profile)
+	if p := rec.Request.Provider; p != "" && !strings.Contains(rec.Provider+" "+ran, p) {
+		out = append(out, fmt.Sprintf("workspace: asked for %q, ran on %q", p, cmp.Or(ran, rec.Provider)))
 	}
 	return append(out, modelMismatch(rec)...)
 }

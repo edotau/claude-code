@@ -49,47 +49,47 @@ const (
 
 // Record is one `ask` dispatch: written as "running" before the run, so a killed run stays visible.
 type Record struct {
-	Schema         int        `json:"schema"`
-	ID             string     `json:"id"`
-	Time           time.Time  `json:"time"`
-	Agent          string     `json:"agent"`
-	Request        RunOptions `json:"request"`
-	Status         string     `json:"status"` // running | ok | error | partial | stalled | quota
-	Error          string     `json:"error,omitempty"`
-	FailKind       string     `json:"fail_kind,omitempty"` // availability | quality; empty when the run succeeded
-	Cutoff         string     `json:"cutoff,omitempty"`    // deadline | stall | idle | cancelled | auth-retry; set on a cut-off run
-	Provider       string     `json:"provider,omitempty"`
-	Model          string     `json:"model,omitempty"`          // as the agent reported it; may be empty
-	Invoked        string     `json:"invoked_model,omitempty"`  // the model the last hop was asked to run; RunOptions keeps the original
-	Reported       string     `json:"reported_model,omitempty"` // the id the final attempt's vendor stream named; "" when none
-	SessionID      string     `json:"session_id,omitempty"`
-	DurationMs     int64      `json:"duration_ms,omitempty"`
-	Fallback       string     `json:"fallback,omitempty"` // the original agent's name, when it ran instead
-	FallbackReason string     `json:"fallback_reason,omitempty"`
-	RanAs          string     `json:"ran_as,omitempty"`          // the agent that answered, when a fallback dispatch did
-	Repo           string     `json:"repo,omitempty"`            // main checkout root the job belongs to
-	RanRoute       string     `json:"ran_route,omitempty"`       // provider:profile of the row that answered, as the ran-on line names it
-	RanIdentity    string     `json:"ran_identity,omitempty"`    // sp | user: the Databricks identity the proxy last served the run
-	Attempts       []wire.Hop `json:"attempts,omitempty"`        // every hop of a re-picked or moved run; absent for a one-hop run
-	Route          string     `json:"route,omitempty"`           // overlay confinement at launch (databricks:qa), so a running job shows where it is going
-	PID            int        `json:"pid,omitempty"`             // pid of the detached `claude-code agents ask --job` child
-	PPID           int        `json:"ppid,omitempty"`            // parent pid at launch or claim, before reparenting
-	PGID           int        `json:"pgid,omitempty"`            // process group at launch or claim
-	PIDStart       string     `json:"pid_start,omitempty"`       // proc.StartTime of PID at spawn: tells a reused pid apart
-	Background     bool       `json:"background,omitempty"`      // set only by the `ask --background` spawn
-	Log            string     `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
-	Progress       string     `json:"progress,omitempty"`        // multi-part review job: "part 2/3"
-	Owner          int        `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
-	Host           string     `json:"host,omitempty"`            // ask --host: the ssh host the dispatch ran on
-	FallbackPolicy string     `json:"fallback_policy,omitempty"` // the --fallback mode asked for (all|agents|none)
-	Live           bool       `json:"live,omitempty"`            // ask --live: a claude session held open on <id>.sock
-	TaskID         string     `json:"task_id,omitempty"`         // ask --batch: the task line's id
-	BatchID        string     `json:"batch_id,omitempty"`        // ask --batch: the id shared by every task of the run
-	PlanTask       string     `json:"plan_task,omitempty"`       // ask --batch: the task line's optional plan_task
-	Preflight      *Preflight `json:"preflight,omitempty"`       // what the preflight failed or skipped, and what it chose
-	Wrote          *[]string  `json:"wrote,omitempty"`           // files the run changed, absolute; nil: not observed
-	Tree           string     `json:"tree,omitempty"`            // git top of the working tree the run started in
-	TreeChanged    *[]string  `json:"tree_changed,omitempty"`    // files changed in a tree another dispatch shared; Wrote is then nil
+	Schema         int         `json:"schema"`
+	ID             string      `json:"id"`
+	Time           time.Time   `json:"time"`
+	Agent          string      `json:"agent"`
+	Request        RunOptions  `json:"request"`
+	Status         string      `json:"status"` // running | ok | error | partial | stalled | quota
+	Error          string      `json:"error,omitempty"`
+	FailKind       string      `json:"fail_kind,omitempty"` // availability | quality; empty when the run succeeded
+	Cutoff         string      `json:"cutoff,omitempty"`    // deadline | stall | idle | cancelled | auth-retry; set on a cut-off run
+	Provider       string      `json:"provider,omitempty"`
+	Model          string      `json:"model,omitempty"`          // as the agent reported it; may be empty
+	Invoked        string      `json:"invoked_model,omitempty"`  // the model the last hop was asked to run; RunOptions keeps the original
+	Reported       string      `json:"reported_model,omitempty"` // the id the final attempt's vendor stream named; "" when none
+	SessionID      string      `json:"session_id,omitempty"`
+	DurationMs     int64       `json:"duration_ms,omitempty"`
+	Fallback       string      `json:"fallback,omitempty"` // the original agent's name, when it ran instead
+	FallbackReason string      `json:"fallback_reason,omitempty"`
+	RanAs          string      `json:"ran_as,omitempty"`          // the agent that answered, when a fallback dispatch did
+	Repo           string      `json:"repo,omitempty"`            // main checkout root the job belongs to
+	RanRoute       route.Route `json:"ran_route,omitzero"`        // the row that answered, as the ran-on line names it
+	RanIdentity    string      `json:"ran_identity,omitempty"`    // sp | user: the Databricks identity the proxy last served the run
+	Attempts       []wire.Hop  `json:"attempts,omitempty"`        // every hop of a re-picked or moved run; absent for a one-hop run
+	Route          route.Route `json:"route,omitzero"`            // overlay confinement at launch, so a running job shows where it is going
+	PID            int         `json:"pid,omitempty"`             // pid of the detached `claude-code agents ask --job` child
+	PPID           int         `json:"ppid,omitempty"`            // parent pid at launch or claim, before reparenting
+	PGID           int         `json:"pgid,omitempty"`            // process group at launch or claim
+	PIDStart       string      `json:"pid_start,omitempty"`       // proc.StartTime of PID at spawn: tells a reused pid apart
+	Background     bool        `json:"background,omitempty"`      // set only by the `ask --background` spawn
+	Log            string      `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
+	Progress       string      `json:"progress,omitempty"`        // multi-part review job: "part 2/3"
+	Owner          int         `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
+	Host           string      `json:"host,omitempty"`            // ask --host: the ssh host the dispatch ran on
+	FallbackPolicy string      `json:"fallback_policy,omitempty"` // the --fallback mode asked for (all|agents|none)
+	Live           bool        `json:"live,omitempty"`            // ask --live: a claude session held open on <id>.sock
+	TaskID         string      `json:"task_id,omitempty"`         // ask --batch: the task line's id
+	BatchID        string      `json:"batch_id,omitempty"`        // ask --batch: the id shared by every task of the run
+	PlanTask       string      `json:"plan_task,omitempty"`       // ask --batch: the task line's optional plan_task
+	Preflight      *Preflight  `json:"preflight,omitempty"`       // what the preflight failed or skipped, and what it chose
+	Wrote          *[]string   `json:"wrote,omitempty"`           // files the run changed, absolute; nil: not observed
+	Tree           string      `json:"tree,omitempty"`            // git top of the working tree the run started in
+	TreeChanged    *[]string   `json:"tree_changed,omitempty"`    // files changed in a tree another dispatch shared; Wrote is then nil
 
 	Parent string `json:"parent,omitempty"`
 	Depth  int    `json:"depth,omitempty"`
@@ -202,7 +202,7 @@ func NewRecord(name string, req RunOptions, now time.Time) Record {
 	depth, maxDepth := lineage(ctx, parent)
 	provider, profile, _ := router.CoworkerContext(ctx)
 	return Record{Schema: dispatchSchema, ID: recordID(now, name), Time: now.UTC(), Agent: name, Request: req, Status: "running",
-		Parent: parent, Depth: depth, MaxDepth: &maxDepth, Widened: widened, Route: route.Join(provider, profile)}
+		Parent: parent, Depth: depth, MaxDepth: &maxDepth, Widened: widened, Route: route.Route{Provider: provider, Profile: profile}}
 }
 
 // lineage is the depth and cap from the parent's record; the env may tighten both, never loosen (cap 0 = none).
@@ -411,12 +411,7 @@ func recordID(now time.Time, agent string) string {
 // encode is the record's JSON, schema stamped.
 func (r Record) encode() ([]byte, error) {
 	r.Schema = dispatchSchema
-	type plain Record
-	return json.MarshalIndent(struct {
-		plain
-		Route    json.RawMessage `json:"route,omitempty"`
-		RanRoute json.RawMessage `json:"ran_route,omitempty"`
-	}{plain(r), wire.RouteJSON(r.Route), wire.RouteJSON(r.RanRoute)}, "", "  ")
+	return json.MarshalIndent(r, "", "  ")
 }
 
 // Save writes the record (0600) and prunes past dispatchKeep. The prompt is kept verbatim so a retry is exact.
@@ -610,38 +605,46 @@ func withCutoffHint(err error, rec *Record, res wire.Result, took time.Duration,
 	return &cutoffError{err: err, hint: hint}
 }
 
-// ranRoute is the final hop's row as provider:profile, the value the ran-on line prints; empty when no row ran.
-func ranRoute(res wire.Result) string {
+// ranRoute is the final hop's row, the value the ran-on line prints; zero when no row ran.
+func ranRoute(res wire.Result) route.Route {
 	for _, h := range slices.Backward(res.Hops) {
 		if h.NotStarted {
 			continue
 		}
 		provider, profile, ok := strings.Cut(h.Account, "·")
 		if !ok {
-			return provider // an own-login account has no "·", e.g. opencode-go
+			return *cmp.Or(wire.RouteObject(provider), &route.Route{Profile: provider}) // own login, e.g. opencode-go
 		}
-		return route.Join(provider, cmp.Or(h.Profile, profile))
+		return route.Route{Provider: provider, Profile: cmp.Or(h.Profile, profile)}
 	}
-	return ""
+	return route.Route{}
 }
 
-// UnmarshalJSON accepts route and ran_route as the legacy string or a route object.
+// UnmarshalJSON reads route and ran_route as an object, or as the "provider:profile" string older records hold.
 func (r *Record) UnmarshalJSON(b []byte) error {
 	type plain Record
 	aux := struct {
 		*plain
-		Route    json.RawMessage `json:"route"`
-		RanRoute json.RawMessage `json:"ran_route"`
+		Route    legacyRoute `json:"route"`
+		RanRoute legacyRoute `json:"ran_route"`
 	}{plain: (*plain)(r)}
 	if err := json.Unmarshal(b, &aux); err != nil {
 		return err
 	}
-	var err error
-	if r.Route, err = wire.RouteString(aux.Route); err != nil {
-		return err
+	r.Route, r.RanRoute = route.Route(aux.Route), route.Route(aux.RanRoute)
+	return nil
+}
+
+type legacyRoute route.Route
+
+func (l *legacyRoute) UnmarshalJSON(b []byte) error {
+	var s string
+	if json.Unmarshal(b, &s) == nil {
+		provider, profile, _ := strings.Cut(s, ":")
+		*l = legacyRoute{Provider: provider, Profile: profile}
+		return nil
 	}
-	r.RanRoute, err = wire.RouteString(aux.RanRoute)
-	return err
+	return json.Unmarshal(b, (*route.Route)(l))
 }
 
 // RecordRefusal fails a never-launched ask refused at the route check: its job's record, else one new record.

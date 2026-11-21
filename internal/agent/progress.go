@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -45,7 +46,7 @@ func progressLimits(agent string) (quiet, hung time.Duration, ok bool) {
 // ProgressOf reads r's own dispatch files (never the directory) at now; a missing file drops its field.
 func ProgressOf(r Record, now time.Time) Progress {
 	agent := cmp.Or(r.RanAs, r.Agent)
-	p := Progress{Agent: agent, Model: cmp.Or(r.Model, r.Invoked, r.Request.Model, r.Route),
+	p := Progress{Agent: agent, Model: cmp.Or(r.Model, r.Invoked, r.Request.Model, route.Join(r.Route.Provider, r.Route.Profile)),
 		Elapsed: max(now.Sub(r.Time), 0), Tools: -1}
 	p.quietAt, p.hungAt, p.Stream = progressLimits(agent)
 	last, _ := LastSignal(r)

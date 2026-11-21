@@ -13,6 +13,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 // saveVerifyFixture stores a dispatch that ran 14:49:09..14:50:09 (-05:00) and a proxy log around that window.
@@ -51,7 +52,7 @@ func wantInOutput(t *testing.T, text string, wants ...string) {
 
 // The window keeps 4 of the 9 lines: the Z-form line counts, the same instant read as 14:49:50Z does not.
 func TestVerifyCountsProxyLinesInTheWindow(t *testing.T) {
-	logPath := saveVerifyFixture(t, agent.Record{ID: "d1", Agent: "codex", Provider: "prod", Model: "m1", Route: "databricks:prod"})
+	logPath := saveVerifyFixture(t, agent.Record{ID: "d1", Agent: "codex", Provider: "prod", Model: "m1", Route: route.Route{Provider: "databricks", Profile: "prod"}})
 	v, err := verifyDispatch("d1", logPath)
 	if err != nil {
 		t.Fatal(err)

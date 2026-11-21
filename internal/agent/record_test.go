@@ -1037,10 +1037,11 @@ func TestOldRecordLoadsWithoutOutcomeFields(t *testing.T) {
 
 func TestFinishRecordsRanRoute(t *testing.T) {
 	hops := []wire.Hop{{Agent: "opencode", Account: "databricks·qa", Profile: "qa", NotStarted: true}, {Agent: "opencode", Account: "databricks·dev", Profile: "dev"}}
-	rec := Record{Route: "databricks"} // --provider typed without a profile: the confinement stays, replay reads it
+	rec := Record{}
+	rec.Route.Provider = "databricks" // --provider typed without a profile: the confinement stays, replay reads it
 	rec.Finish(wire.Result{Hops: hops}, nil, 0)
-	if rec.RanRoute != "databricks:dev" || rec.Route != "databricks" {
-		t.Errorf("ran_route %q route %q, want the final started hop's databricks:dev and the typed route kept", rec.RanRoute, rec.Route)
+	if rec.RanRoute.Provider+":"+rec.RanRoute.Profile != "databricks:dev" || rec.Route.Provider != "databricks" || rec.Route.Profile != "" {
+		t.Errorf("ran_route %+v route %+v, want the final started hop's databricks:dev and the typed route kept", rec.RanRoute, rec.Route)
 	}
 }
 
@@ -1181,21 +1182,11 @@ func TestFinishingRecordSurvivesItsOwnPrune(t *testing.T) {
 	}
 }
 
-func TestRecordRouteAcceptsStringOrObject(t *testing.T) {
-	var a, b Record
-	if err := json.Unmarshal([]byte(`{"route":"databricks:qa","ran_route":"databricks:qa"}`), &a); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal([]byte(`{"route":{"provider":"databricks","profile":"qa"},"ran_route":{"provider":"databricks","profile":"qa"}}`), &b); err != nil {
-		t.Fatal(err)
-	}
-	if a.Route != "databricks:qa" || a.RanRoute != a.Route || b.Route != a.Route || b.RanRoute != a.Route {
-		t.Errorf("a=%q/%q b=%q/%q", a.Route, a.RanRoute, b.Route, b.RanRoute)
-	}
-}
-
 func TestRecordRouteWrittenAsObject(t *testing.T) {
-	body, err := Record{ID: "x", Route: "databricks:qa", RanRoute: "databricks:dev"}.encode()
+	rec := Record{ID: "x"}
+	rec.Route.Provider, rec.Route.Profile = "databricks", "qa"
+	rec.RanRoute.Provider, rec.RanRoute.Profile = "databricks", "dev"
+	body, err := rec.encode()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1203,8 +1194,8 @@ func TestRecordRouteWrittenAsObject(t *testing.T) {
 		t.Errorf("route not an object: %s", body)
 	}
 	var back Record
-	if err := json.Unmarshal(body, &back); err != nil || back.Route != "databricks:qa" || back.RanRoute != "databricks:dev" {
-		t.Errorf("round trip: %v %q %q", err, back.Route, back.RanRoute)
+	if err := json.Unmarshal(body, &back); err != nil || back.Route.Profile != "qa" || back.RanRoute.Profile != "dev" {
+		t.Errorf("round trip: %v %+v %+v", err, back.Route, back.RanRoute)
 	}
 }
 

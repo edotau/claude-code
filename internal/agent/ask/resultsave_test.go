@@ -12,13 +12,14 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/redact"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 func TestResultCarriesObservedFactsOnlyWhenRecorded(t *testing.T) {
 	t.Setenv("HARNESS_STATE_DIR", t.TempDir())
 	wrote := []string{"/r/a.go", "/r/b.go", "/r/c.go"}
 	rec := agent.Record{ID: "x-codex", Agent: "codex", Status: "ok", Parent: "p-1", Depth: 1, DurationMs: 130000,
-		Model: "gpt", Route: "dbx:qa", Wrote: &wrote, Usage: &wire.Usage{InputTokens: 40000, OutputTokens: 1000}}
+		Model: "gpt", Route: route.Route{Provider: "databricks", Profile: "qa"}, Wrote: &wrote, Usage: &wire.Usage{InputTokens: 40000, OutputTokens: 1000}}
 	text := resultText(rec, "answer\n")
 	line := ""
 	for l := range strings.SplitSeq(text, "\n") {
@@ -32,7 +33,7 @@ func TestResultCarriesObservedFactsOnlyWhenRecorded(t *testing.T) {
 	raw, _ := json.Marshal(agent.ObservedOf(rec))
 	var got map[string]any
 	_ = json.Unmarshal(raw, &got)
-	if got["parent"] != "p-1" || got["depth"] != 1.0 || got["files"] != 3.0 || got["route"] != "dbx:qa" || got["usage"] == nil {
+	if got["parent"] != "p-1" || got["depth"] != 1.0 || got["files"] != 3.0 || got["route"] != "databricks:qa" || got["usage"] == nil {
 		t.Errorf("observed json = %s", raw)
 	}
 	legacy := agent.Record{ID: "y-codex", Agent: "codex", Status: "ok"}

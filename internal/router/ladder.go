@@ -438,10 +438,10 @@ func ConfinedContext(ctx context.Context) (provider, profile string) {
 }
 
 // ConfineLeadContext fills an untyped lead from a non-Databricks confinement: its pinned profile, else its provider.
-func ConfineLeadContext(ctx context.Context, agentName, profile, provider, model string) (string, string) {
+func ConfineLeadContext(ctx context.Context, agentName, profile, provider string) (string, string) {
 	cp, cprof := ConfinedContext(ctx)
 	switch {
-	case cp == "" || profile != "" || strings.Contains(model, ":"):
+	case cp == "" || profile != "":
 		return profile, provider
 	// a typed --provider (confineFlags: the confinement's own) means its pinned profile, like databricks
 	case cprof != "":

@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -343,7 +344,7 @@ func dispatchFromRecord(rec agent.Record, matched string, now time.Time) Dispatc
 	return applySignal(Dispatch{
 		ID: rec.ID, Agent: rec.Agent, Provider: rec.Provider, Model: cmp.Or(rec.Model, rec.Request.Model),
 		Status: rec.Status, Duration: duration, Fallback: rec.Fallback,
-		FallbackReason: rec.FallbackReason, Matched: matched, Route: rec.Route, Task: task,
+		FallbackReason: rec.FallbackReason, Matched: matched, Route: route.Join(rec.Route.Provider, rec.Route.Profile), Task: task,
 		Parent: rec.Parent, Depth: rec.Depth, Usage: rec.Usage,
 	}, rec, now)
 }

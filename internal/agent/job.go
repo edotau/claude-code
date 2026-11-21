@@ -19,6 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -354,7 +355,7 @@ type Observed struct {
 // ObservedOf is rec's harness-observed facts, taken from the record alone.
 func ObservedOf(rec Record) *Observed {
 	o := &Observed{Parent: rec.Parent, Depth: rec.Depth, Usage: rec.Usage, Model: cmp.Or(rec.Model, rec.Invoked),
-		Route: rec.Route, State: rec.Status}
+		Route: route.Join(rec.Route.Provider, rec.Route.Profile), State: rec.Status}
 	if rec.DurationMs > 0 {
 		o.Duration = roundedRun(rec)
 	}

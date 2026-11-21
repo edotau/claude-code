@@ -345,10 +345,10 @@ func TestClaudeCellModelIsTheAlias(t *testing.T) {
 
 // AsksModel matches a databricks- spelling of a non-catalog id; LowestAliasServing a gemini effort suffix.
 func TestAsksModelWireSpellingAndGeminiEffortCell(t *testing.T) {
-	if !AsksModel("databricks-foo-9", Candidate{Profile: "dev"}, "foo-9") {
+	if !AsksModel("databricks-foo-9", "foo-9") {
 		t.Error("AsksModel missed the databricks- spelling of a non-catalog id")
 	}
-	if AsksModel("foo-9", Candidate{}, "foo-8") {
+	if AsksModel("foo-9", "foo-8") {
 		t.Error("AsksModel matched different models")
 	}
 	tb := testTable(t)

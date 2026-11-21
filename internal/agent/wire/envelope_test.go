@@ -129,16 +129,3 @@ func TestEnvelopeDenialsCommandsNeverNull(t *testing.T) {
 		t.Fatalf("denials = %s", raw)
 	}
 }
-
-func TestEnvelopeRequestedAcceptsStringOrObject(t *testing.T) {
-	var a, b Envelope
-	if err := json.Unmarshal([]byte(`{"requested":"databricks:qa"}`), &a); err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal([]byte(`{"requested":{"provider":"databricks","profile":"qa"}}`), &b); err != nil {
-		t.Fatal(err)
-	}
-	if a.Requested != "databricks:qa" || b.Requested != a.Requested {
-		t.Errorf("requested = %q / %q", a.Requested, b.Requested)
-	}
-}

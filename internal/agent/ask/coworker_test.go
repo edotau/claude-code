@@ -40,22 +40,20 @@ func TestConfineLeadFillsNonDatabricksLead(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{`+acmeProvider+`}`)
 	cases := []struct {
-		coworker, agent, provider, model string
-		wantProfile, wantProvider        string
+		coworker, agent, provider string
+		wantProfile, wantProvider string
 	}{
-		{"openai:acme", "codex", "", "", "acme", ""},
-		{"openai:acme", "codex", "openai", "", "acme", ""}, // a typed --provider means the pinned profile
-		{"openai:acme", "codex", "", "acme:m", "", ""},     // a typed profile:model is never rewritten
-		{"openai", "codex", "", "", "", "openai"},
-		{"openai", "codex", "", "acme:m", "", ""},
-		{"anthropic", "claude", "", "", "ultra", ""}, // claude reads a profile: its own CLI-login row
+		{"openai:acme", "codex", "", "acme", ""},
+		{"openai:acme", "codex", "openai", "acme", ""}, // a typed --provider means the pinned profile
+		{"openai", "codex", "", "", "openai"},
+		{"anthropic", "claude", "", "ultra", ""}, // claude reads a profile: its own CLI-login row
 	}
 	for _, c := range cases {
 		confine(t, c.coworker)
-		profile, provider := router.ConfineLeadContext(t.Context(), c.agent, "", c.provider, c.model)
+		profile, provider := router.ConfineLeadContext(t.Context(), c.agent, "", c.provider)
 		if profile != c.wantProfile || provider != c.wantProvider {
-			t.Errorf("%s %s --provider %q --model %q: ConfineLead = (%q, %q), want (%q, %q)",
-				c.coworker, c.agent, c.provider, c.model, profile, provider, c.wantProfile, c.wantProvider)
+			t.Errorf("%s %s --provider %q: ConfineLead = (%q, %q), want (%q, %q)",
+				c.coworker, c.agent, c.provider, profile, provider, c.wantProfile, c.wantProvider)
 		}
 	}
 }

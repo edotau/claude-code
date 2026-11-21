@@ -313,7 +313,7 @@ func resolveGatewayRoute(ctx context.Context, q agent.RouteReq, format string) i
 	if err := ask.CheckArm(ctx, q.Agent, q.Profile, q.Provider, q.Model, false); err != nil {
 		return helptext.FailUsage(name+": %v", err)
 	}
-	q.Profile, q.Provider = router.ConfineLeadContext(ctx, q.Agent, q.Profile, q.Provider, q.Model)
+	q.Profile, q.Provider = router.ConfineLeadContext(ctx, q.Agent, q.Profile, q.Provider)
 	_, res, err := agent.Resolve(ctx, q)
 	if _, ok := errors.AsType[*agent.LeadError](err); ok {
 		fmt.Fprintf(os.Stderr, "%s: %v\n", name, err)

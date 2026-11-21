@@ -536,14 +536,13 @@ func explicitFinding(ctx context.Context, q RouteReq, p *providers.Provider, pf 
 
 // routedWire is q.Model as ResolveRun spells it on p (auto peeks), so preflight judges the wire id that runs.
 func routedWire(q RouteReq, p *providers.Provider, now time.Time) string {
-	typed := strings.TrimPrefix(q.Model, p.Name+":")
 	reg, err := providers.Load()
 	if q.Model == "" || err != nil {
-		return typed
+		return q.Model
 	}
 	r, err := ResolveRun(reg, ModelQuery{Agent: q.Agent, Model: q.Model, Profile: p.Name, ctx: PeekContext(context.Background())}, now)
 	if err != nil {
-		return typed
+		return q.Model
 	}
 	return r.Model
 }
@@ -561,7 +560,7 @@ func previewServes(tb *router.RouteTable, model string, profiles []*providers.Pr
 	}
 	now := time.Now()
 	for _, p := range profiles {
-		if _, ready, fresh := router.ServedListed(p, router.SpellServed(p, strings.TrimPrefix(model, p.Name+":"), now), now); fresh && ready {
+		if _, ready, fresh := router.ServedListed(p, router.SpellServed(p, model, now), now); fresh && ready {
 			return nil
 		}
 	}
@@ -588,8 +587,7 @@ func firstName(profiles []*providers.Provider) string {
 
 func previewProfilesContext(ctx context.Context, q RouteReq, lead string) []*providers.Provider {
 	reg := loadRegistryWarn()
-	typed, _, _ := strings.Cut(q.Model, ":")
-	names := []string{typed, router.ArmProfileContext(ctx), q.Profile, lead}
+	names := []string{router.ArmProfileContext(ctx), q.Profile, lead}
 	if pins, err := AgentPinsContext(ctx); err == nil {
 		names = append(names, pins[q.Agent].Profile)
 	}
@@ -600,17 +598,6 @@ func previewProfilesContext(ctx context.Context, q RouteReq, lead string) []*pro
 		}
 	}
 	return out
-}
-
-// sameModel reports a dispatch model ([profile:]wire) naming want, with or without the databricks- prefix.
-func sameModel(dispatched, want string) bool {
-	if _, after, ok := strings.Cut(dispatched, ":"); ok {
-		dispatched = after
-	}
-	if _, after, ok := strings.Cut(want, ":"); ok {
-		want = after
-	}
-	return models.SameModel(dispatched, want)
 }
 
 // ProfileServes is model as p spells it when a fresh listing does not mark it NOT_READY and agentName Serves it there.
@@ -642,7 +629,7 @@ func previewRoute(ctx context.Context, q RouteReq, lead string) (Chain, router.P
 		return Chain{}, router.PickResult{}, err
 	}
 	if _, _, exact := router.ModelRow(q.Model); exact != "" && !slices.ContainsFunc(chain.Dispatches, func(d Dispatch) bool {
-		return sameModel(d.Model, exact)
+		return models.SameModel(d.Model, exact)
 	}) {
 		return Chain{}, router.PickResult{}, fmt.Errorf("--model %s: no %s candidate runs it; claude-code models --live "+
 			"--profile %s lists what is served", q.Model, cmp.Or(q.Agent, "routed"), cmp.Or(firstName(profiles), "<p>"))
