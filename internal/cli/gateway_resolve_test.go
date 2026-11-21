@@ -39,7 +39,7 @@ func TestGatewayResolveUsage(t *testing.T) {
 // --fallback outside router.FallbackModes is a usage error like the sibling verbs' check, never treated as "not none".
 func TestGatewayResolveRejectsUnknownFallback(t *testing.T) {
 	code, _, stderr := hosttest.CaptureOutput(t, func() int {
-		return cmdGatewayResolve([]string{"opencode", "--model", "dev:x", "--fallback", "bogus"})
+		return cmdGatewayResolve([]string{"opencode", "--model", "x", "--fallback", "bogus"})
 	})
 	if code != 2 || !strings.Contains(stderr, `--fallback "bogus" unknown (none|pin|agents|all)`) {
 		t.Errorf("exit %d, stderr %q; want exit 2 naming the closed set", code, stderr)

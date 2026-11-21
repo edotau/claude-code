@@ -119,39 +119,22 @@ func applyRecord(agent string, set map[string]string, dryRun bool) int {
 	return 0
 }
 
-// castRecordModel stores model=<profile>:<id> as profile=<profile> and model=<id>; the pool is the pool pin.
-func castRecordModel(set map[string]string) error {
-	v, ok := set["MODEL"]
-	c, err := providers.CastShared(v)
-	if !ok || err != nil || c.Profile == "" {
-		return err
+// refuseModelPrefix rejects model=<profile>:<id>; a local tag such as qwen3:30b passes.
+func refuseModelPrefix(model string) error {
+	c, err := providers.CastShared(model)
+	if err != nil || c.Profile != "" {
+		return fmt.Errorf("model %s: a profile is not part of a model; use --overlay %s --model %s",
+			model, `{"provider":"<provider>","profile":"<profile>"}`, modelAfterPrefix(model))
 	}
-	profile := c.Profile
-	if profile == "auto" {
-		profile = agentpkg.PoolPin
-	}
-	if cur, typed := set["PROFILE"]; typed && cur != profile {
-		return fmt.Errorf("model %s names profile %s, but profile=%s; drop one", v, profile, cur)
-	}
-	if err := routeAgrees(set, v, c); err != nil {
-		return err
-	}
-	set["MODEL"], set["PROFILE"] = c.Model, profile
 	return nil
 }
 
-// routeAgrees refuses a typed route= or account= (a clear included) naming another route than model's prefix.
-func routeAgrees(set map[string]string, model string, c providers.ModelCast) error {
-	want := route.Route{Provider: c.Provider, Profile: c.Profile}
-	if val, typed := set["ROUTE"]; typed {
-		if rt, err := parseRouteObject("ROUTE", val); val == "" || err == nil && (rt.Provider != want.Provider || rt.Profile != want.Profile) {
-			return fmt.Errorf("model %s names route %s, but route=%s; drop one", model, route.Target{Route: want}.JSON(), orUnset(val))
-		}
+// modelAfterPrefix is the part after the first colon, or the whole model when it has none.
+func modelAfterPrefix(model string) string {
+	if _, rest, ok := strings.Cut(model, ":"); ok && rest != "" {
+		return rest
 	}
-	if val, typed := set["ACCOUNT"]; typed && c.Provider != "github" {
-		return fmt.Errorf("model %s names profile %s, but account=%s; drop one", model, c.Profile, orUnset(val))
-	}
-	return nil
+	return model
 }
 
 // validateRecordSet checks every pin field and the config_route (codex only, a profile that serves it) before any write.
@@ -174,8 +157,10 @@ func validateRecordSet(agent string, set map[string]string, route string, hasRou
 
 // validateRecordModel judges the set's model on the route being written; a refusal is a usage error (exit 2).
 func validateRecordModel(agent string, set map[string]string) error {
-	if err := castRecordModel(set); err != nil {
-		return err
+	if v, ok := set["MODEL"]; ok {
+		if err := refuseModelPrefix(v); err != nil {
+			return err
+		}
 	}
 	val, ok := set["MODEL"]
 	if !ok {

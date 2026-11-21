@@ -130,3 +130,26 @@ func TestConfigureRecordModelRefusalExitsUsage(t *testing.T) {
 		t.Errorf("exit %d, want 2", code)
 	}
 }
+
+// A profile prefix on a model is refused (exit 2) naming the overlay form; a local tag such as qwen3:30b passes.
+func TestModelPrefixRefused(t *testing.T) {
+	hosttest.PinScratch(t)
+	want := `use --overlay {"provider":"<provider>","profile":"<profile>"} --model`
+	cases := []struct {
+		name string
+		run  func() int
+	}{
+		{"configure", func() int { return cmdConfigure([]string{"agents", "codex", "model=dev:opus", "--dry-run"}) }},
+		{"resolve", func() int { return cmdGatewayResolve([]string{"codex", "--model", "dev:auto"}) }},
+		{"label", func() int { return cmdAgentsLabel([]string{"codex", "--model", "dev:opus"}) }},
+	}
+	for _, tc := range cases {
+		code, _, stderr := hosttest.CaptureOutput(t, tc.run)
+		if code != 2 || !strings.Contains(stderr, want) {
+			t.Errorf("%s: exit %d, stderr %q; want 2 naming the overlay form", tc.name, code, stderr)
+		}
+	}
+	if err := refuseModelPrefix("qwen3:30b"); err != nil {
+		t.Errorf("qwen3:30b refused: %v", err)
+	}
+}

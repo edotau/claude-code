@@ -69,19 +69,23 @@ func TestClaudeCatalogHelpStaysInHarness(t *testing.T) {
 	}
 }
 
-// Invariant: a typed `<profile>:<model>` is cast at launch input; no launch surface carries a prefix, legacy pins included.
+// Invariant: a typed `<profile>:<model>` is refused at the CLI (exit 2); a plain model launches.
 func TestShorthandNeverLeavesTheHarness(t *testing.T) {
 	seedAltRows(t)
-	for _, args := range [][]string{{"claude", "--model", "opus"}, {"claude", "--model", "alt2:sonnet"},
-		{"copilot", "--model", "alt2:opus"}, {"opencode", "--model", "alt2:opus"}, {"pi", "--model", "alt2:opus"},
-		{"claude", "--profile", "alt2", "--model", "sonnet"}} {
-		code, out, errOut := hosttest.CaptureOutput(t, func() int { return Run(append([]string{"claude-code"}, append(args, "--print-env")...)) })
-		if code != 0 || !strings.Contains(out+errOut, "alt") {
-			t.Fatalf("%v: exit %d, no plan: %s %s", args, code, out, errOut)
+	want := `use --overlay {"provider":"<provider>","profile":"<profile>"} --model`
+	for _, model := range []string{"alt2:sonnet", "alt2:opus"} {
+		code, _, errOut := hosttest.CaptureOutput(t, func() int {
+			return cmdGatewayResolve([]string{"claude", "--model", model})
+		})
+		if code != 2 || !strings.Contains(errOut, want) {
+			t.Errorf("--model %s: exit %d, stderr %q; want 2 naming the overlay form", model, code, errOut)
 		}
-		if strings.Contains(out, "alt2:") || strings.Contains(out, "alt:") {
-			t.Errorf("%v: a launch surface (env, argv or settings) carries a prefixed model:\n%s", args, out)
-		}
+	}
+	code, out, errOut := hosttest.CaptureOutput(t, func() int {
+		return Run([]string{"claude-code", "claude", "--profile", "alt2", "--model", "sonnet", "--print-env"})
+	})
+	if code != 0 || !strings.Contains(out+errOut, "alt") || strings.Contains(out, "alt2:") {
+		t.Fatalf("plain model: exit %d, output %q %q; want a launch plan with no prefix", code, out, errOut)
 	}
 }
 
