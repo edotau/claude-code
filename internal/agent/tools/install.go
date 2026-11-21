@@ -153,11 +153,11 @@ func installPi(ctx context.Context, w io.Writer, dir string, dryRun bool) error 
 		fmt.Fprintf(w, "  npm      %s; link %s -> %s\n", strings.Join(append([]string{"npm"}, args...), " "), link, target)
 		return nil
 	}
-	nodeDir, err := requirePiNode(ctx)
+	nodeDir, npm, err := requirePiNode(ctx)
 	if err != nil {
 		return err
 	}
-	if err := runLogged(ctx, w, pathEnv(nodeDir), "npm", args...); err != nil {
+	if err := runLogged(ctx, w, pathEnv(nodeDir), npm, args...); err != nil {
 		return fmt.Errorf("pi: npm install: %w", err)
 	}
 	if _, err := os.Stat(target); err != nil {
@@ -171,22 +171,29 @@ func installPi(ctx context.Context, w io.Writer, dir string, dryRun bool) error 
 
 func piPrefix() string { return filepath.Join(paths.StateDir(), "pi", "npm") }
 
-// requirePiNode returns the bin dir to prepend to the npm child's PATH ("" when the PATH node serves), or the node dep's fix.
-func requirePiNode(ctx context.Context) (string, error) {
+// requirePiNode returns the bin dir to prepend to the npm child's PATH ("" when the PATH node serves) and the npm to run.
+func requirePiNode(ctx context.Context) (string, string, error) {
 	fix := depFix(deps[slices.IndexFunc(deps, func(d dep) bool { return d.Name == "node" })])
-	if _, err := depLookPath("npm"); err != nil {
-		return "", fmt.Errorf("pi: npm not on PATH (Node %s+ needed); run: %s", piMinNode, fix)
-	}
-	node, err := depLookPath("node")
+	node, _ := depLookPath("node") // absent is "too old": nvm candidates still get tried
+	nvm := nvmDir()
+	dir, err := pickPiNode(ctx, node, nvm)
 	if err != nil {
-		return "", fmt.Errorf("pi: node not on PATH (Node %s+ needed); run: %s", piMinNode, fix)
+		seen := "no node on PATH"
+		if node != "" {
+			seen = fmt.Sprintf("PATH node %q", parseVersion(versionOutput(ctx, node, versionProbeTimeout, "--version")))
+		}
+		return "", "", fmt.Errorf("pi: no Node %s+ found (%s; nvm dir %q); run: %s, or install Node %s+ with nvm", piMinNode, seen, nvm, fix, piMinNode)
 	}
-	dir, err := pickPiNode(ctx, node, nvmDir())
+	if npm := filepath.Join(dir, "npm"); dir != "" {
+		if _, err := os.Stat(npm); err == nil {
+			return dir, npm, nil
+		}
+	}
+	npm, err := depLookPath("npm")
 	if err != nil {
-		have := parseVersion(versionOutput(ctx, node, versionProbeTimeout, "--version"))
-		return "", fmt.Errorf("pi: node %q is older than %s; run: %s, or install Node %s+ with nvm", have, piMinNode, fix, piMinNode)
+		return "", "", fmt.Errorf("pi: npm not on PATH (Node %s+ needed); run: %s", piMinNode, fix)
 	}
-	return dir, nil
+	return dir, npm, nil
 }
 
 const opencodeAllowMajorEnv = "HARNESS_ALLOW_OPENCODE_2X"

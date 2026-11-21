@@ -794,8 +794,8 @@ func TestInstallPiDryRunNamesPinnedCommandAndWritesNothing(t *testing.T) {
 func TestInstallPiWithoutNpmFailsWithNodeHint(t *testing.T) {
 	stubDeps(t, "linux", map[string]string{"node": "/usr/bin/node"}, nil)
 	err := installPi(context.Background(), io.Discard, t.TempDir(), false)
-	if err == nil || !strings.Contains(err.Error(), "npm not on PATH") || !strings.Contains(err.Error(), "run: ") {
-		t.Fatalf("installPi without npm = %v, want npm-missing error with the node hint", err)
+	if err == nil || !strings.Contains(err.Error(), "no Node 22.19+") || !strings.Contains(err.Error(), "run: ") {
+		t.Fatalf("installPi without npm = %v, want a no-usable-node error with the node hint", err)
 	}
 }
 
@@ -806,7 +806,7 @@ func TestInstallPiRefusesOldNode(t *testing.T) {
 	}
 	stubDeps(t, "linux", map[string]string{"node": fake, "npm": "/usr/bin/npm"}, nil)
 	err := installPi(context.Background(), io.Discard, t.TempDir(), false)
-	if err == nil || !strings.Contains(err.Error(), "older than 22.19") {
+	if err == nil || !strings.Contains(err.Error(), `PATH node "20.1.0"`) {
 		t.Fatalf("installPi with Node 20 = %v, want an older-than-22.19 refusal", err)
 	}
 }
