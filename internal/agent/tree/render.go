@@ -245,7 +245,7 @@ func addSubagent(l *layout, sub Subagent, now time.Time, home, cwd string) {
 	}
 }
 
-// dispatchCells is a dispatch row after its marker: agent, state, duration, signal ("last=9s", "⚠ quiet 7m"), model.
+// dispatchCells is a dispatch row after its marker: agent, state, duration, signal (progress line, "⚠ quiet 7m"), model.
 func dispatchCells(d Dispatch, now time.Time) []string {
 	name := d.Agent
 	if d.Fallback != "" {

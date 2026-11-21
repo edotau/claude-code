@@ -27,13 +27,16 @@ func applySignal(d Dispatch, rec agent.Record, now time.Time) Dispatch {
 	return d
 }
 
-// signalText is the row's liveness column: "⚠ quiet 7m" past the threshold, "last=12s" otherwise, "" when not running.
+// signalText is the row's liveness column: "⚠ quiet 7m" past the threshold, else the progress line, "" when not running.
 func signalText(d Dispatch, now time.Time) string {
 	if d.LastSignal.IsZero() {
 		return ""
 	}
 	if d.Quiet {
 		return "⚠ quiet " + age(d.LastSignal, now)
+	}
+	if d.Live != "" {
+		return d.Live
 	}
 	return fmt.Sprintf("last=%s", max(now.Sub(d.LastSignal), 0).Round(time.Second))
 }

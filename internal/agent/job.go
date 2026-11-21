@@ -494,6 +494,18 @@ func CancelJob(ctx context.Context, name, cwd, ref string) (CancelResult, error)
 	return CancelResult{Record: rec, AlreadyFinished: !applied}, nil
 }
 
+// StatusLine is LogLine with a running row's progress line in place of the prompt preview.
+func (r Record) StatusLine() string {
+	if r.Status != "running" {
+		return r.LogLine()
+	}
+	now := time.Now()
+	live := ProgressOf(r, now).Line(progressWidth)
+	r.Request.Prompt = ""
+	head, rest, _ := strings.Cut(r.LogLine(), "\n")
+	return strings.TrimRight(head, " ") + "  " + live + "\n" + rest
+}
+
 // toRow derives a status Row from a dispatch record; redaction matches Record.LogLine.
 func toRow(r Record) Row {
 	status := r.Outcome()

@@ -401,7 +401,7 @@ func DispatchLog(prefix, format string) int {
 		return 0
 	}
 	for _, r := range recs {
-		fmt.Print(r.LogLine())
+		fmt.Print(r.StatusLine())
 	}
 	return 0
 }

@@ -34,8 +34,8 @@ func TestFutureSignalClampsToZero(t *testing.T) {
 	if err := os.Chtimes(rec.EventsPath(), future, future); err != nil {
 		t.Fatal(err)
 	}
-	if row := dispatchRow(dispatchFromRecord(rec, "", now), now); !strings.Contains(row, "last=0s") {
-		t.Errorf("row = %q, want last=0s", row)
+	if row := dispatchRow(dispatchFromRecord(rec, "", now), now); !strings.Contains(row, "last event 0s ago") {
+		t.Errorf("row = %q, want last event 0s ago", row)
 	}
 }
 
@@ -52,7 +52,7 @@ func TestRunningDispatchSignalAndQuiet(t *testing.T) {
 		wrote time.Duration
 		quiet bool
 		want  string
-	}{{-30 * time.Second, false, "last=30s"}, {-7 * time.Minute, true, "⚠ quiet 7m"}} {
+	}{{-30 * time.Second, false, "last event 30s ago"}, {-7 * time.Minute, true, "⚠ quiet 7m"}} {
 		if err := os.Chtimes(rec.EventsPath(), now.Add(c.wrote), now.Add(c.wrote)); err != nil {
 			t.Fatal(err)
 		}
@@ -65,3 +65,17 @@ func TestRunningDispatchSignalAndQuiet(t *testing.T) {
 
 // dispatchRow is a dispatch's cells joined, for substring checks.
 func dispatchRow(d Dispatch, now time.Time) string { return strings.Join(dispatchCells(d, now), " ") }
+
+// A running dispatch's text row carries the progress line (tools count), not just last=.
+func TestRunningRowShowsProgressLine(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now()
+	rec := agent.ClaimRecord("claude", agent.RunOptions{}, now.Add(-time.Minute))
+	rec.Status, rec.PID = "running", os.Getpid()
+	if err := os.WriteFile(rec.EventsPath(), []byte(`{"type":"tool_use"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if row := dispatchRow(dispatchFromRecord(rec, "", now), now); !strings.Contains(row, "1 tools") {
+		t.Errorf("row = %q, want the progress line with 1 tools", row)
+	}
+}

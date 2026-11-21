@@ -978,3 +978,17 @@ func TestStatusReapsLostRecordOnRead(t *testing.T) {
 		}
 	}
 }
+
+// A running row's status line shows the progress line (tool count) in place of the prompt preview.
+func TestStatusLineRunningShowsProgress(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	rec := ClaimRecord("claude", RunOptions{Prompt: "PROMPTWORDS"}, time.Now().Add(-time.Minute))
+	rec.Status, rec.PID = "running", os.Getpid()
+	if err := os.WriteFile(rec.EventsPath(), []byte(`{"type":"tool_use"}`+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := rec.StatusLine()
+	if !strings.Contains(got, "1 tools") || strings.Contains(got, "PROMPTWORDS") {
+		t.Errorf("StatusLine = %q, want progress and no prompt", got)
+	}
+}
