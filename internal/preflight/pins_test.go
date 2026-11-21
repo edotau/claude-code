@@ -3,6 +3,7 @@ package preflight
 import (
 	"bytes"
 	"context"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -244,10 +245,14 @@ func TestCheckClaudeLegacyPrefixedPinIgnored(t *testing.T) {
 	if err := router.WarmServed("dev", []providers.ModelInfo{{ID: "good-model", Task: "llm/v1/chat", Ready: "READY"}}, now); err != nil {
 		t.Fatal(err)
 	}
-	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "CLAUDE_ALIASES.HAIKU": "openai:gpt-5-nano"})
+	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "CLAUDE_ALIASES.HAIKU": "openai:gpt-5-nano", "CLAUDE_ALIASES.OPUS": "good-model"})
 	c := byAgent(Check(context.Background(), reg, now))["claude"]
-	if len(c.Also) != 0 || c.Status != StatusOK || !strings.Contains(c.Detail, "ignored legacy cross-profile pin(s): openai:gpt-5-nano") {
-		t.Fatalf("claude on a legacy pin = %+v, want no Also, ok, the pin reported ignored", c)
+	if slices.Contains(c.Also, "openai") || c.Status != StatusOK || !strings.Contains(c.Detail, "ignored legacy cross-profile pin(s): haiku=openai:gpt-5-nano") {
+		t.Fatalf("claude on a legacy pin = %+v, want openai unwarmed, ok, the pin reported ignored", c)
+	}
+	// the fix clears the haiku pin alone; --unpin would wipe the valid opus pin too
+	if c.Fix != "claude-code models --pin haiku=" {
+		t.Fatalf("Fix = %q, want only the legacy haiku pin cleared", c.Fix)
 	}
 }
 

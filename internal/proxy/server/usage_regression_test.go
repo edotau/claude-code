@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func TestSwapped(t *testing.T) {
@@ -60,6 +61,28 @@ func TestFableRequestRefusedNamingOpus(t *testing.T) {
 	b := body(t, resp)
 	if resp.StatusCode != 400 || !strings.Contains(b, "databricks-claude-opus-5-5") {
 		t.Fatalf("status %d: %s, want 400 naming the opus id", resp.StatusCode, b)
+	}
+}
+
+// A Fable id pinned into the Opus slot is never offered back as the Opus replacement.
+func TestFableRefusalSkipsFablePin(t *testing.T) {
+	url, _ := swapRig(t)
+	vaulttest.SetRecord(t, "claude", "profile", "dev")
+	vaulttest.SetRecord(t, "claude", "aliases.opus", "claude-fable-5-2")
+	resp := post(t, url+"/p/dev/v1/messages", `{"model":"claude-fable-5-2","max_tokens":5}`, nil)
+	b := body(t, resp)
+	if resp.StatusCode != 400 || !strings.Contains(b, "its Opus id is databricks-claude-opus-5-5") {
+		t.Fatalf("status %d: %s, want 400 naming the table's Opus id, not the Fable pin", resp.StatusCode, b)
+	}
+}
+
+// A client's `<profile>:<model>` is a 400 naming the path form; it is never cast to that profile.
+func TestPrefixedClientModelRefused(t *testing.T) {
+	url, _ := swapRig(t)
+	resp := post(t, url+"/p/dev/v1/messages", `{"model":"dev:opus","max_tokens":5}`, nil)
+	b := body(t, resp)
+	if resp.StatusCode != 400 || !strings.Contains(b, "invalid_request_error") || !strings.Contains(b, "/p/dev/v1/messages") {
+		t.Fatalf("status %d: %s, want a 400 invalid_request_error naming /p/dev/v1/messages", resp.StatusCode, b)
 	}
 }
 

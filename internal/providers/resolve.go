@@ -62,8 +62,8 @@ func sessionPin(reg *Registry, pin string) string {
 	pin = strings.TrimSpace(pin)
 	if c, err := CastModel(reg, pin); err != nil || c.Profile != "" {
 		prefixedPinNote.Do(func() {
-			fmt.Fprintf(os.Stderr, "note: model pin %s names another profile and is ignored; clear it with "+
-				"`claude-code models --unpin`\n", pin)
+			fmt.Fprintf(os.Stderr, "note: model pin %s names another profile and is ignored; clear only that pin with "+
+				"`claude-code models --pin <alias>=` (`all=` for the all-slot pin; `claude-code models preflight` names it)\n", pin)
 		})
 		return ""
 	}

@@ -492,7 +492,7 @@ func TestSessionTokenConfinedToItsProfile(t *testing.T) {
 	}
 }
 
-// A token for {ultra, dev} casts dev:<id> on /p/ultra; a qa prefix is 400 (out of scope) and /p/qa is 401.
+// A token for {ultra, dev} reaches /p/dev on dev's credential; a profile prefix is 400 and /p/qa is 401.
 func TestSessionTokenCoversItsProfileSet(t *testing.T) {
 	useGate(t)
 	up := newRawUp(t, okRaw)
@@ -517,7 +517,8 @@ func TestSessionTokenCoversItsProfileSet(t *testing.T) {
 		path, model string
 		want        int
 	}{
-		{"/p/ultra/v1/messages", "dev:databricks-claude-opus-5-5", http.StatusOK},
+		{"/p/dev/v1/messages", "databricks-claude-opus-5-5", http.StatusOK},
+		{"/p/ultra/v1/messages", "dev:databricks-claude-opus-5-5", http.StatusBadRequest},
 		{"/p/ultra/v1/messages", "qa:databricks-claude-opus-5-5", http.StatusBadRequest},
 		{"/p/qa/v1/messages", "databricks-claude-opus-5-5", http.StatusUnauthorized},
 	}

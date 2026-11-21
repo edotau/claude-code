@@ -128,9 +128,20 @@ func checkClaude(reg *providers.Registry, session string, now time.Time) (Pin, e
 	}
 	if len(ignored) > 0 && row.Detail == "" {
 		row.Detail = "ignored legacy cross-profile pin(s): " + strings.Join(ignored, ", ")
-		row.Fix = "claude-code models --unpin"
+		row.Fix = clearPinsFix(ignored)
 	}
 	return row, nil
+}
+
+// clearPinsFix clears only the ignored `<slot>=<pin>` entries, keeping every other pin (--unpin clears them all).
+func clearPinsFix(ignored []string) string {
+	var fix strings.Builder
+	fix.WriteString("claude-code models")
+	for _, e := range ignored {
+		slot, _, _ := strings.Cut(e, "=")
+		fix.WriteString(" --pin " + slot + "=")
+	}
+	return fix.String()
 }
 
 // appendNew appends each of vs not already in dst.
@@ -152,12 +163,12 @@ func checkAliasPin(reg *providers.Registry, alias string, t providers.Target, se
 	return pin
 }
 
-// aliasPin is alias's pin as Select reads it (the alias pin, then the all-slot pin) and the legacy pins it skipped.
+// aliasPin is alias's pin as Select reads it (the alias pin, then the all-slot pin) and the skipped legacy `<slot>=<pin>`s.
 func aliasPin(reg *providers.Registry, rec vault.AgentRecord, alias string) (spec string, legacy []string) {
-	for _, pin := range []string{rec.Aliases[alias], rec.Model} {
+	for i, pin := range []string{rec.Aliases[alias], rec.Model} {
 		plain, isLegacy := sessionPin(reg, pin)
 		if isLegacy {
-			legacy = append(legacy, strings.TrimSpace(pin))
+			legacy = append(legacy, []string{alias, "all"}[i]+"="+strings.TrimSpace(pin))
 		}
 		if plain != "" {
 			return plain, legacy

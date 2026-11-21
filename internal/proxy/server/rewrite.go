@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"cmp"
 	"encoding/json"
 	"encoding/json/jsontext"
 	"errors"
@@ -35,7 +36,7 @@ func (r *Router) resolveTarget(w http.ResponseWriter, in *http.Request, reg *pro
 	sess, err := reg.Get(session)
 	var parsed providers.Target
 	if err == nil {
-		parsed, model, err = clientTarget(in, reg, sess, model)
+		parsed, model, err = clientTarget(reg, sess, model)
 	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "proxy: "+err.Error())
@@ -54,22 +55,48 @@ func (r *Router) resolveTarget(w http.ResponseWriter, in *http.Request, reg *pro
 	return target, model, true
 }
 
-// clientTarget casts a client's `<profile>:<model>` to that profile when the token's scope covers it; else 400.
-func clientTarget(in *http.Request, reg *providers.Registry, sess *providers.Provider, model string) (providers.Target, string, error) {
-	c, err := providers.CastModel(reg, model)
+// overlayProvider is the overlay "provider" key for profile's row: databricks for a serving row, else its provider.
+func overlayProvider(reg *providers.Registry, profile string) string {
+	p := reg.Providers[profile]
 	switch {
-	case err != nil:
-		return providers.Target{}, model, err
-	case c.Profile == "":
-		return providers.PlainTarget(sess, c.Model), c.Model, nil
-	case c.Profile == "auto":
-		return providers.Target{}, c.Model, fmt.Errorf("model %s: the Databricks pool is no session route; name a profile", model)
+	case p == nil:
+		return "<provider>"
+	case p.Preset == providers.PresetDatabricks:
+		return "databricks"
 	}
-	if scope, scoped := sessionScope(in); scoped && !slices.Contains(scope, c.Profile) {
-		return providers.Target{}, c.Model, fmt.Errorf("model %s: this session's token does not cover profile %s; "+
-			"start a session there with `claude-code claude --profile %s`", model, c.Profile, c.Profile)
+	return cmp.Or(p.Provider, p.Preset, "<provider>")
+}
+
+// clientTarget is the client's model on the session profile; a `<profile>:<model>` is a 400 naming the path form.
+func clientTarget(reg *providers.Registry, sess *providers.Provider, model string) (providers.Target, string, error) {
+	model = strings.TrimSpace(model)
+	if profile, rest, ok := profilePrefix(reg, model); ok {
+		return providers.Target{}, model, fmt.Errorf("model %s: a profile is not part of a model; send model %s to "+
+			"/p/%s/v1/messages (CLI: --overlay '{\"provider\":\"%s\",\"profile\":\"%s\"}' --model %s)",
+			model, rest, profile, overlayProvider(reg, profile), profile, rest)
 	}
-	return providers.PlainTarget(reg.Providers[c.Profile], c.Model), c.Model, nil
+	return providers.PlainTarget(sess, model), model, nil
+}
+
+// profilePrefix splits a model whose prefix names a profile, provider type or the pool; a local tag (qwen3:30b) is none.
+func profilePrefix(reg *providers.Registry, model string) (profile, rest string, ok bool) {
+	name, rest, cut := strings.Cut(model, ":")
+	if !cut || name == "" || rest == "" {
+		return "", "", false
+	}
+	for _, n := range reg.Names() {
+		if strings.EqualFold(n, name) {
+			return n, rest, true
+		}
+	}
+	lower := strings.ToLower(name)
+	switch rows := reg.ProfilesOf(lower); {
+	case len(rows) == 1:
+		return rows[0], rest, true
+	case len(rows) > 1, lower == "auto":
+		return "<profile>", rest, true
+	}
+	return "", "", false
 }
 
 // fableRefusal refuses a Fable id on a Databricks serving route (it serves none), naming that profile's Opus id.
@@ -80,19 +107,25 @@ func fableRefusal(reg *providers.Registry, t providers.Target) error {
 	if canonical, _, ok := models.Resolve(t.Model); !ok || models.FamilyOf(canonical) != models.Fable {
 		return nil
 	}
-	return fmt.Errorf("model %s: profile %s serves no Fable; its Opus id is %s", t.Model, t.Provider.Name, opusID(reg, t.Provider))
+	if id := opusID(reg, t.Provider); id != "" {
+		return fmt.Errorf("model %s: profile %s serves no Fable; its Opus id is %s", t.Model, t.Provider.Name, id)
+	}
+	return fmt.Errorf("model %s: profile %s serves no Fable, and no Opus id is known for it", t.Model, t.Provider.Name)
 }
 
-// opusID is p's Opus id: the session pin, else p's own table, else the catalog's Opus spelled for p.
+// opusID is p's Opus id: the session pin, else p's own table, else the catalog's Opus spelled for p; never a non-Opus id.
 func opusID(reg *providers.Registry, p *providers.Provider) string {
+	var pinned string
 	if sel, err := providers.Select(reg, p.Name); err == nil && sel.Aliases[models.Opus].Provider == p {
-		return sel.Aliases[models.Opus].Model
+		pinned = sel.Aliases[models.Opus].Model
 	}
-	if id := p.Models[models.Opus]; id != "" {
-		return models.Strip1M(id)
+	catalog, _ := models.Alias(models.Opus)
+	for _, id := range []string{pinned, models.Strip1M(p.Models[models.Opus]), p.WireModel(catalog)} {
+		if canonical, _, ok := models.Resolve(id); ok && models.FamilyOf(canonical) == models.Opus {
+			return id
+		}
 	}
-	id, _ := models.Alias(models.Opus)
-	return p.WireModel(id)
+	return ""
 }
 
 // confineLadder drops fallback providers outside a token's profiles; they hold other credentials.

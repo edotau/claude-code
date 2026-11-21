@@ -170,7 +170,9 @@ func ApplyModelPins(reg *providers.Registry, provider string, unpin bool, pins [
 	if err := validateClaudePins(reg, provider, set); err != nil {
 		return helptext.FailUsage("%v", err), true
 	}
-	warn, err := copilot.ValidateCopilotPins(context.Background(), provider, pins)
+	// an `alias=` unpin has no id to check against a catalog
+	warn, err := copilot.ValidateCopilotPins(context.Background(), provider,
+		slices.DeleteFunc(slices.Clone(pins), func(p string) bool { return strings.HasSuffix(p, "=") }))
 	if err != nil {
 		return helptext.Fail("%v", err), true
 	}

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -279,17 +278,11 @@ func TestCrossProviderTarget(t *testing.T) {
 		"up1":`+anthropicProvider(up1.URL, "UP1_KEY", `{"opus":"m1"}`)+`,
 		"up2":{"protocol":"anthropic","base_url":"`+up2.URL+`","auth":{"type":"key","header":"bearer","env":"UP2_KEY"},"models":{"opus":"m2"}}}}}`)
 
-	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"up2:other-model"}`, nil); resp.StatusCode != 200 {
-		t.Fatalf("status %d", resp.StatusCode)
+	if resp := post(t, srv.URL+"/p/up1/v1/messages", `{"model":"up2:other-model"}`, nil); resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status %d, want 400: a prefixed id is never cast to another profile", resp.StatusCode)
 	}
-	if up1.hits.Load() != 0 || up2.hits.Load() != 1 {
-		t.Fatalf("hits up1=%d up2=%d", up1.hits.Load(), up2.hits.Load())
-	}
-	if m := (*up2.body.Load())["model"]; m != "other-model" {
-		t.Errorf("model = %v", m)
-	}
-	if a := up2.last.Load().Header.Get("Authorization"); a != "Bearer k2" {
-		t.Errorf("authorization = %q", a)
+	if up1.hits.Load() != 0 || up2.hits.Load() != 0 {
+		t.Fatalf("hits up1=%d up2=%d, want none", up1.hits.Load(), up2.hits.Load())
 	}
 }
 
@@ -568,7 +561,7 @@ func BenchmarkUserAgent(b *testing.B) {
 	}
 }
 
-// A client's `<profile>:<model>` is cast to that profile inside the token's scope; outside it, or the pool, is refused.
+// A plain id and a local tag stay on the session profile; any profile, type or pool prefix is refused.
 func TestClientTarget(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"an","providers":{"anthropic":{`+
@@ -579,17 +572,14 @@ func TestClientTarget(t *testing.T) {
 		t.Fatal(err)
 	}
 	sess := reg.Providers["an"]
-	open := httptest.NewRequest(http.MethodPost, "/p/an/v1/messages", nil)
-	for model, want := range map[string]string{"an:x": "an x", "other:x": "other x", "m": "an m"} {
-		if got, plain, err := clientTarget(open, reg, sess, model); err != nil || got.Provider.Name+" "+got.Model != want || plain != got.Model {
-			t.Errorf("clientTarget(%q) = %+v %q, %v; want %s", model, got, plain, err, want)
+	for _, model := range []string{"m", "qwen3:30b"} {
+		if got, plain, err := clientTarget(reg, sess, model); err != nil || got.Provider != sess || got.Model != model || plain != model {
+			t.Errorf("clientTarget(%q) = %+v %q, %v; want it on an as typed", model, got, plain, err)
 		}
 	}
-	scoped := open.WithContext(context.WithValue(open.Context(), scopeKey{}, []string{"an"}))
-	if _, _, err := clientTarget(scoped, reg, sess, "other:x"); err == nil || !strings.Contains(err.Error(), "claude-code claude --profile other") {
-		t.Errorf("out-of-scope cast = %v; want the 400 naming a session on other", err)
-	}
-	if _, _, err := clientTarget(open, reg, sess, "auto:opus"); err == nil {
-		t.Error("clientTarget(auto:opus) routed the pool; want a refusal")
+	for model, want := range map[string]string{"other:x": "/p/other/v1/messages", "An:x": "/p/an/", "auto:opus": "/p/<profile>/"} {
+		if _, _, err := clientTarget(reg, sess, model); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("clientTarget(%q) = %v; want a refusal naming %s", model, err, want)
+		}
 	}
 }
