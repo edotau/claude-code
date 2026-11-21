@@ -1167,6 +1167,16 @@ func TestDryRunUnacceptedModelExitsTwo(t *testing.T) {
 	}
 }
 
+// Prepare's refusal of an old <AGENT>_MODEL=<profile>:<model> pin (ErrModelRoute over a PrefixError) exits 2.
+func TestPrepareExitCodePrefixedPin(t *testing.T) {
+	cliEnv(t)
+	t.Setenv("CODEX_MODEL", "auto:opus")
+	_, err := agent.ResolveModel(nil, agent.QueryFor(t.Context(), agent.ModelQuery{Agent: "codex"}), time.Now())
+	if got := prepareExitCode(err); got != 2 {
+		t.Errorf("prepareExitCode(%v) = %d, want 2", err, got)
+	}
+}
+
 // An unknown --profile is a caller error: all five agents report an error envelope of kind usage, not fatal.
 func TestUnknownProfileErrorEnvelopeIsUsageKindForAllAgents(t *testing.T) {
 	for _, name := range []string{"claude", "codex", "copilot", "gemini", "opencode"} {

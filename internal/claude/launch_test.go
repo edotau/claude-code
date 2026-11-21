@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -276,6 +277,15 @@ func TestAcceptLaunchModelRefusal(t *testing.T) {
 	var u *agent.UsageError
 	if !errors.As(err, &u) || !strings.HasPrefix(err.Error(), "--model zeta-8: zeta-8: cold has no fresh listing") {
 		t.Fatalf("err = %v, want the refusal without the route prefix", err)
+	}
+}
+
+// A prefixed --model is refused as usage with the model named once, not "--model x: model x: ...".
+func TestAcceptLaunchModelPrefixNamedOnce(t *testing.T) {
+	hermetic(t, `{}`)
+	err := acceptLaunchModel(&providers.Provider{Name: "cold", Preset: providers.PresetDatabricks}, "auto:opus")
+	if _, ok := errors.AsType[*agent.UsageError](err); !ok || strings.Count(fmt.Sprint(err), "auto:opus") != 1 {
+		t.Fatalf("err = %v, want one usage refusal naming auto:opus once", err)
 	}
 }
 

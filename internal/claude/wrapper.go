@@ -38,7 +38,7 @@ func LaunchWrapped(args []string) int {
 	}
 	opts, plan, err := planLaunch(native, args)
 	if err != nil {
-		if _, ok := errors.AsType[*agent.UsageError](err); ok { // a refused --model is the user's typo: exit 2, no launch, no native fallback
+		if launchUsage(err) { // a refused --model is the user's typo: exit 2, no launch, no native fallback
 			return helptext.FailUsage("%v", err)
 		}
 		if refuse := refuseFallback(opts, err); refuse != nil {
@@ -56,6 +56,12 @@ func LaunchWrapped(args []string) int {
 	}
 	plan.Set[launcherEnv] = strconv.Itoa(os.Getpid())
 	return agent.RunPlan("claude", plan, opts, nil)
+}
+
+// launchUsage is a refused launch input: a *agent.UsageError or a <profile>:<model> refusal.
+func launchUsage(err error) bool {
+	_, ok := errors.AsType[*agent.UsageError](err)
+	return ok || errors.Is(err, providers.ErrModelSpec)
 }
 
 // planLaunch parses args and builds the session-profile plan for native.

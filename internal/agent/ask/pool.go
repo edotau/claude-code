@@ -86,28 +86,39 @@ func linePick(agentName, model string, o batchOpts) (string, error) {
 	return reportPick(pickWith(o.Reg, q, time.Now()))
 }
 
-// runBatch builds a task per line (a bad line fails alone, logged to stderr), runs them on the pool; true if all ok.
+// runBatch builds a task per line (a bad line fails alone, logged to stderr), runs them on the pool; code 0 if all
+// ok, 2 when every line was refused for its model string, else 1.
 func runBatch(ctx context.Context, lines []parsedLine, o batchOpts, base agent.RunOptions, timeoutSet bool,
-	newClient func() *agent.Client, out io.Writer) (id string, ok bool) {
+	newClient func() *agent.Client, out io.Writer) (id string, code int) {
 	ctx = providers.WithIdentity(ctx, cmp.Or(o.Identity, providers.IdentityHeadless))
 	cwd, err := os.Getwd() // resolved once here: a pool goroutine must never fall back to the process cwd
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "claude-code: ask: %v\n", err)
-		return "", false
+		return "", 1
 	}
 	seen := map[string]bool{}
 	tasks := make([]batchTask, 0, len(lines))
+	usage := 0
 	for _, l := range lines {
 		t, err := buildTask(ctx, l, o, base, timeoutSet, cwd, seen, newClient)
 		if err != nil {
 			t.Err = err
 			fmt.Fprintf(os.Stderr, "claude-code: ask: %v\n", err)
 		}
+		if errors.Is(err, providers.ErrModelSpec) {
+			usage++
+		}
 		tasks = append(tasks, t)
 	}
 	id = newID()
 	po := poolOptions{ID: id, Jobs: o.Jobs, FailFast: o.FailFast, Out: out, Log: os.Stderr}
-	return id, runTasks(ctx, tasks, po)
+	switch {
+	case runTasks(ctx, tasks, po):
+		return id, 0
+	case usage == len(tasks):
+		return id, 2
+	}
+	return id, 1
 }
 
 // poolOptions configures runTasks; Out is read when runTasks is called, so a swapped os.Stdout is honored.
@@ -380,10 +391,9 @@ func runAskBatchInput(ctx context.Context, fs *flag.FlagSet, src string, o batch
 	}
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGPIPE) // a closed stdout cancels
 	defer stop()
-	id, ok := runBatch(ctx, lines, o, base, helptext.Explicit(fs, "timeout"), newClient, os.Stdout)
-	if !ok {
+	id, code := runBatch(ctx, lines, o, base, helptext.Explicit(fs, "timeout"), newClient, os.Stdout)
+	if code != 0 {
 		fmt.Fprintf(os.Stderr, "ask: %s: not every task was ok\n", id)
-		return 1
 	}
-	return 0
+	return code
 }

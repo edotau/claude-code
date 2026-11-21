@@ -546,18 +546,8 @@ func dataBlock(tag, doc string) string {
 	return "<<<" + tag + "\n" + strings.ReplaceAll(doc, tag+">>>", tag+" >>>") + "\n" + tag + ">>>"
 }
 
-// explicitBackend is true when --provider or a "provider:model" --model names a provider; no registry fails closed.
-func explicitBackend(req RunOptions) bool {
-	if req.Provider != "" {
-		return true
-	}
-	reg, err := providers.Load()
-	if err != nil { // fail closed: an unreadable registry must not turn a "name:model" pin into a fallback
-		name, _, ok := splitRowModel(req.Model)
-		return ok && name != ""
-	}
-	return namesProvider(reg, req.Model)
-}
+// explicitBackend is true when --provider names the backend; a model string never carries one (D6).
+func explicitBackend(req RunOptions) bool { return req.Provider != "" }
 
 // handoffPrompt frames a hand-off as data for the dispatch that picks the task up.
 func handoffPrompt(doc, agentName string) string {

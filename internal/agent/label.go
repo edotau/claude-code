@@ -632,16 +632,12 @@ func agentRunsIn(menu []providers.OpencodeModel, agentName string, p *providers.
 	return true
 }
 
-// foldAuto turns a typed auto model into AutoModel, so the route runs untyped; a <row>:auto prefix leads on that row.
+// foldAuto turns a typed auto model into AutoModel, so the route runs untyped.
 func foldAuto(o RunOptions) RunOptions {
-	prefix, ok := SplitAuto(o.Model)
-	if !ok {
+	if !strings.EqualFold(strings.TrimSpace(o.Model), AutoModel) {
 		return o
 	}
 	o.Model, o.AutoModel = "", true
-	if prefix != "" {
-		o.Provider = prefix
-	}
 	return o
 }
 

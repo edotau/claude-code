@@ -71,7 +71,7 @@ type ModelQuery struct {
 	Session, PinProfile, PinModel  string
 	Held                           bool // live, detached, resumed, hosted, job or batch: the pool pin never picks
 	PinAccount                     string
-	Interactive                    bool                       // a prefix and Profile naming different rows is an error, not an override
+	Interactive                    bool                       // a launch, not a dispatch; unread (internal/copilot still sets it)
 	Task                           string                     // the brief: ResolveRun sizes its tier when auto picks the model
 	Tools                          bool                       // the run calls tools: auto skips a model whose probe refused them
 	menu                           *[]providers.OpencodeModel // read once per auto resolution; nil reads per use
@@ -127,13 +127,11 @@ func ResolveModel(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRo
 	if pool {
 		return resolvePool(reg, q, spec, now)
 	}
-	p, source, note, err := routeRow(reg, q, spec)
+	p, source, err := routeRow(reg, q, spec)
 	if err != nil {
 		return ModelRoute{}, err
 	}
-	r, err := resolveOn(p, source, q, spec, now)
-	r.Note = joinNotes(note, r.Note)
-	return r, err
+	return resolveOn(p, source, q, spec, now)
 }
 
 // ModelWordResolver is an optional driver method: it turns a typed word such as a model family into a model id.
@@ -188,41 +186,26 @@ func cellRow(reg *providers.Registry, spec string) (row, model string, ok bool) 
 }
 
 // routeRow walks the profile precedence: typed sources must serve the agent, implicit ones fall through.
-func routeRow(reg *providers.Registry, q ModelQuery, spec modelTarget) (*providers.Provider, string, string, error) {
-	note, err := profileClash(q, spec)
-	if err != nil {
-		return nil, "", "", err
-	}
+func routeRow(reg *providers.Registry, q ModelQuery, spec modelTarget) (*providers.Provider, string, error) {
 	typed, err := typedRow(reg, q, spec)
 	if err != nil {
-		return nil, "", "", err
+		return nil, "", err
 	}
 	if typed.name != "" {
 		p, err := reg.Get(typed.name)
 		if err != nil {
-			return nil, "", "", fmt.Errorf("%w: %w", ErrModelRoute, err)
+			return nil, "", fmt.Errorf("%w: %w", ErrModelRoute, err)
 		}
 		if ok, why := rowServes(q.Agent, p); !ok {
-			return nil, "", "", fmt.Errorf("%w: %s", ErrModelRoute, why)
+			return nil, "", fmt.Errorf("%w: %s", ErrModelRoute, why)
 		}
-		return p, typed.src, note, nil
+		return p, typed.src, nil
 	}
 	if p, src, err := geminiModelRow(reg, q); p != nil || err != nil {
-		return p, src, note, err
+		return p, src, err
 	}
 	p, src, err := implicitRow(reg, q)
-	return p, src, note, err
-}
-
-// profileClash is the note (or interactive error) for a --model prefix naming a different row than --profile.
-func profileClash(q ModelQuery, spec modelTarget) (string, error) {
-	if spec.Profile == "" || q.Profile == "" || spec.Profile == q.Profile {
-		return "", nil
-	}
-	if q.Interactive {
-		return "", fmt.Errorf("%w: --profile %s and --model %s name different profiles", ErrModelRoute, q.Profile, q.Model)
-	}
-	return fmt.Sprintf("--model prefix %s overrides profile %s", spec.Profile, q.Profile), nil
+	return p, src, err
 }
 
 // geminiModelRow is the row a typed model picks for gemini with no --profile: databricks- the gateway, Gemini Google.

@@ -536,6 +536,15 @@ func TestBatchTasksWriteEventFiles(t *testing.T) {
 	}
 }
 
+// A batch whose every line is refused for a <profile>:<model> string exits 2, the usage code, not 1.
+func TestBatchPrefixedModelExitsTwo(t *testing.T) {
+	cliEnv(t)
+	code, _, stderr := runCLI(t, "ask", "--batch", batchFile(t, cliTask(t, "a", "x", "model", "dev:opus")))
+	if code != 2 || !strings.Contains(stderr, "--model opus") {
+		t.Fatalf("exit %d, stderr %q; want 2 naming the overlay", code, stderr)
+	}
+}
+
 // The vault's custom env holds every profile's vars; a batch child on pa gets pa's and never pb's credential var.
 func TestBatchChildDropsOtherProfilesCustomCredentialVar(t *testing.T) {
 	profileVault(t)

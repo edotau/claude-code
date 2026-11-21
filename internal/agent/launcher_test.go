@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
@@ -48,6 +49,17 @@ func TestParseArgs(t *testing.T) {
 	}
 	if _, _, err := ParseArgs([]string{"--profile"}, true); err == nil {
 		t.Error("missing value accepted")
+	}
+}
+
+// A prefixed model, typed or in --overlay, is a usage error (exit 2, no native fallback) that names the overlay once.
+func TestParseArgsPrefixedModelIsUsage(t *testing.T) {
+	for _, args := range [][]string{{"--model", "dev:opus"}, {"--overlay", `{"model":"dev:opus"}`}} {
+		_, _, err := ParseArgs(args, true)
+		if _, ok := errors.AsType[*UsageError](err); !ok || !errors.Is(err, providers.ErrModelSpec) ||
+			strings.Count(err.Error(), "dev:opus") != 1 || !strings.Contains(err.Error(), "--model opus") {
+			t.Errorf("%q: err = %v, want one usage refusal naming the overlay", args, err)
+		}
 	}
 }
 
@@ -302,6 +314,35 @@ func TestLaunchPlanSurfacesUnreadablePins(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, "{")
 	if _, err := LaunchPlan(context.Background(), "codex", LaunchOptions{PrintEnv: true}, nil); err == nil || !strings.Contains(err.Error(), "agent-records is corrupt") {
 		t.Fatalf("LaunchPlan error = %v", err)
+	}
+}
+
+// An untyped launch refuses a <profile>:<model> pin from the shell env, vault env or record before routing (D6).
+func TestLaunchPlanRefusesPrefixedPin(t *testing.T) {
+	for src, want := range map[string]string{"env": "env CODEX_MODEL", "vault env": "vault env CODEX_MODEL", "record": "codex record model"} {
+		t.Run(src, func(t *testing.T) {
+			vaulttest.Use(t)
+			ctx := proc.WithValues(context.Background(), proc.Values{})
+			switch src {
+			case "env":
+				ctx = proc.WithValues(ctx, proc.Values{"CODEX_MODEL": "dev:opus"})
+			case "vault env":
+				if err := providers.SetCustomEnv("CODEX_MODEL", "dev:opus"); err != nil {
+					t.Fatal(err)
+				}
+			default:
+				if err := vault.SetAgentRecord("codex", vault.AgentRecord{Model: "dev:opus"}); err != nil {
+					t.Fatal(err)
+				}
+			}
+			_, err := LaunchPlan(ctx, "codex", LaunchOptions{PrintEnv: true}, nil)
+			if _, ok := errors.AsType[*UsageError](err); !ok || !errors.Is(err, providers.ErrModelSpec) || !strings.HasPrefix(err.Error(), want+": ") {
+				t.Fatalf("err = %v, want a usage refusal naming %s", err, want)
+			}
+			if _, err := LaunchPlan(ctx, "codex", LaunchOptions{PrintEnv: true, Model: "gpt-5-5"}, nil); errors.Is(err, providers.ErrModelSpec) {
+				t.Errorf("a typed model must outrank the pin: %v", err)
+			}
+		})
 	}
 }
 

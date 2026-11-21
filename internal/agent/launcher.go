@@ -67,17 +67,56 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 	if _, err := agentconfig.FlagOverlay(nil, o.KeepEnv); err != nil { // names only: never a value
 		return LaunchOptions{}, nil, err
 	}
-	if err := providers.CheckModelShared(o.Model); err != nil { // every launcher refuses <profile>:<model>, exit 2
-		return LaunchOptions{}, nil, err
-	}
 	err := o.foldOverlay()
-	return o, rest, err
+	return o, rest, modelSpecUsage(o.Model, err)
 }
 
-// UsageError is a launch refusal the CLI reports verbatim with exit 2.
-type UsageError struct{ Msg string }
+// modelSpecUsage is err, else model's <profile>:<model> refusal (typed or --overlay), a prefix refusal as usage (exit 2).
+func modelSpecUsage(model string, err error) error {
+	if err == nil {
+		err = providers.CheckModelShared(model)
+	}
+	if errors.Is(err, providers.ErrModelSpec) {
+		return &UsageError{Msg: err.Error(), Err: err} // never a native fallback
+	}
+	return err
+}
+
+// UsageError is a launch refusal the CLI reports verbatim with exit 2; Err, when set, is the refusal it carries.
+type UsageError struct {
+	Msg string
+	Err error
+}
 
 func (e *UsageError) Error() string { return e.Msg }
+
+func (e *UsageError) Unwrap() error { return e.Err }
+
+// modelUsage is a route refusal as a launch usage error: a prefix refusal as is, else naming the typed --model.
+func modelUsage(model string, err error) *UsageError {
+	if pe, ok := errors.AsType[*providers.PrefixError](err); ok {
+		return &UsageError{Msg: pe.Error(), Err: pe}
+	}
+	return &UsageError{Msg: "--model " + model + ": " + strings.TrimPrefix(err.Error(), ErrModelRoute.Error()+": ")}
+}
+
+// refusePinnedPrefix refuses an untyped launch whose model pin (shell or vault env, record) is <profile>:<model> (D6).
+func refusePinnedPrefix(ctx context.Context, name string, o LaunchOptions) error {
+	if o.Model != "" {
+		return nil // a typed model outranks every pin
+	}
+	env := providers.AgentModelEnv(name)
+	for _, src := range [][2]string{
+		{"env " + env, proc.Value(ctx, env)},
+		{"vault env " + env, providers.CustomEnv()[env]}, // merged into the child after resolution: checked here
+		{name + " record model", vault.GetAgentRecord(name).Model},
+	} {
+		if err := providers.CheckModelShared(src[1]); err != nil {
+			return &UsageError{Msg: src[0] + ": " + err.Error(), Err: err}
+		}
+	}
+	return nil
+}
 
 // SessionSelection loads the registry; a Claude launch (session) routes --model through ResolveModel, else the pins.
 func SessionSelection(o LaunchOptions, session bool) (*providers.Registry, providers.Selection, error) {
@@ -114,7 +153,7 @@ func launchRoute(ctx context.Context, reg *providers.Registry, name string, o La
 	}
 	r, err := resolve(reg, q, time.Now())
 	if errors.Is(err, ErrModelRoute) {
-		return r, &UsageError{Msg: "--model " + o.Model + ": " + strings.TrimPrefix(err.Error(), ErrModelRoute.Error()+": ")}
+		return r, modelUsage(o.Model, err)
 	}
 	return r, err
 }
@@ -333,6 +372,9 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 
 // routeTyped resolves the typed --model once, else (an agent with no login of its own, unpinned) the pool's pick.
 func routeTyped(ctx context.Context, name string, o LaunchOptions) (_ LaunchOptions, own bool, err error) {
+	if err := refusePinnedPrefix(ctx, name, o); err != nil {
+		return o, false, err
+	}
 	o, pooled, err := poolLaunch(name, o)
 	if err != nil || o.Model == "" { // the typed model resolves once; every launch below spells from that route
 		return o, false, err

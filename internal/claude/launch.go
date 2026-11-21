@@ -138,7 +138,10 @@ func acceptLaunchModel(p *providers.Provider, model string) error {
 		return nil
 	}
 	_, err := agent.AcceptModel(agentid.Claude, p, model, time.Now())
-	if ue, ok := errors.AsType[*agent.UnacceptedError](err); ok {
+	switch ue, ok := errors.AsType[*agent.UnacceptedError](err); {
+	case ok && ue.Kind == agent.UnacceptedPrefixed:
+		return &agent.UsageError{Msg: ue.Reason(), Err: err} // the prefix refusal already names the model
+	case ok:
 		return &agent.UsageError{Msg: "--model " + model + ": " + ue.Reason()}
 	}
 	return err

@@ -92,11 +92,7 @@ func explicitAccount(r Engine, req RunOptions) (string, string) {
 	if err != nil {
 		return "", ""
 	}
-	name := req.Provider
-	if name == "" {
-		name, _, _ = strings.Cut(req.Model, ":")
-	}
-	p, err := reg.Get(name)
+	p, err := reg.Get(req.Provider)
 	if err != nil {
 		return "", ""
 	}

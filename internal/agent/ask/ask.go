@@ -795,7 +795,7 @@ func narrowLead(ag string, f *askFlags, routed bool) (string, error) {
 
 // prepareExitCode is the code a Prepare error names, else 1.
 func prepareExitCode(err error) int {
-	if _, ok := errors.AsType[*agent.UnacceptedError](err); ok {
+	if _, ok := errors.AsType[*agent.UnacceptedError](err); ok || errors.Is(err, providers.ErrModelSpec) {
 		return 2
 	}
 	if usage, ok := errors.AsType[interface {

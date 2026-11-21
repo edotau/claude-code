@@ -93,10 +93,12 @@ func (s Schema) routedModel(ctx context.Context, req RunOptions, t providers.Tar
 	switch {
 	case errors.Is(err, ErrPoolExhausted):
 		return t, "", err // a pinned auto with every pool model held stops like a typed one
+	case errors.Is(err, providers.ErrModelSpec):
+		return t, "", modelUsage(q.Model, err) // an old <profile>:<model> pin is refused, never swapped for the row's (D6)
 	case errors.Is(err, ErrModelRoute) && q.Model == "":
 		return t, "", nil // a record model the row cannot serve keeps the row's own tier model
 	case errors.Is(err, ErrModelRoute):
-		return t, "", &UsageError{Msg: "--model " + q.Model + ": " + strings.TrimPrefix(err.Error(), ErrModelRoute.Error()+": ")}
+		return t, "", modelUsage(q.Model, err)
 	case err != nil:
 		return t, "", err
 	}
@@ -533,7 +535,7 @@ func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, pr
 	if t, ok := aliasedTarget(reg, sel, req.Model); ok {
 		return reg, t, nil
 	}
-	if t, ok := familyTarget(reg, req, sel.Provider); ok {
+	if t, ok := familyTarget(req, sel.Provider); ok {
 		return reg, t, nil
 	}
 	t := providers.PlainTarget(sel.Provider, strings.TrimSpace(req.Model))
@@ -543,16 +545,12 @@ func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, pr
 	return reg, servedTarget(cmp.Or(req.Agent, "claude"), t), nil
 }
 
-// familyTarget is a typed GPT family name (sol, dev:sol) as the concrete id its row resolves to; else ok is false.
-func familyTarget(reg *providers.Registry, req RunOptions, row *providers.Provider) (providers.Target, bool) {
-	name := req.Model
-	if prefix, m, ok := splitRowModel(name); ok && namesProvider(reg, name) {
-		row, name = reg.Providers[prefix], m
-	}
-	if !providers.IsFamily(name) {
+// familyTarget is a typed GPT family name (sol) as the concrete id its row resolves to; else ok is false.
+func familyTarget(req RunOptions, row *providers.Provider) (providers.Target, bool) {
+	if !providers.IsFamily(req.Model) {
 		return providers.Target{}, false
 	}
-	return providers.Target{Provider: row, Model: providers.ConcreteModel(req.Agent, row, name)}, true
+	return providers.Target{Provider: row, Model: providers.ConcreteModel(req.Agent, row, req.Model)}, true
 }
 
 // aliasedTarget is the alias row or canonical-id target for model; else ok is false.
