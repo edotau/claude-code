@@ -207,12 +207,14 @@ func TestLoginSuccessClearsAuthMark(t *testing.T) {
 	seedU2MRow(t)
 	for _, valid := range []bool{true, false} {
 		stubValid(t, valid)
-		fakeLogin(t, func(*providers.Provider) (time.Duration, error) { return time.Minute, nil })
+		calls := 0
+		fakeLogin(t, func(*providers.Provider) (time.Duration, error) { calls++; return time.Minute, nil })
 		if err := router.MarkAuth(router.ProviderAccount("dbx-u2m"), "login rejected (401)"); err != nil {
 			t.Fatal(err)
 		}
-		if code, _, stderr := hosttest.CaptureOutput(t, func() int { return login([]string{"--profile", "dbx-u2m"}) }); code != 0 {
-			t.Fatalf("valid=%v exit %d stderr %q", valid, code, stderr)
+		code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return login([]string{"--profile", "dbx-u2m"}) })
+		if code != 0 || calls != 1 || strings.Contains(stdout, "already") {
+			t.Fatalf("valid=%v exit %d calls %d stdout %q stderr %q", valid, code, calls, stdout, stderr)
 		}
 		if _, ok := router.LoadState().AuthMarked(router.ProviderAccount("dbx-u2m"), time.Now()); ok {
 			t.Errorf("valid=%v: auth mark survived a successful login", valid)

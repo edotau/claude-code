@@ -202,8 +202,7 @@ func loginUser(p *providers.Provider, mode string, h headless, dryRun, reuse boo
 		defer stop()
 	}
 	if reuse {
-		if left, ok := validU2M(ctx, p); ok {
-			clearAuthMark(p.Name)
+		if left, ok := reusableLogin(ctx, p); ok {
 			fmt.Printf("already logged in · expires in %dm\n", int(left.Minutes()))
 			return 0
 		}
@@ -378,6 +377,14 @@ func loginRow(ctx context.Context, name string, out io.Writer, h headless) error
 	clearAuthMark(p.Name)
 	fmt.Fprintf(out, "logged in · token expires in %dm\n", int(ttl.Minutes()))
 	return nil
+}
+
+// reusableLogin is validU2M unless the router marked the token: the workspace rejected it though it is locally unexpired.
+func reusableLogin(ctx context.Context, p *providers.Provider) (time.Duration, bool) {
+	if _, marked := router.LoadState().AuthMarked(router.ProviderAccount(p.Name), time.Now()); marked {
+		return 0, false
+	}
+	return validU2M(ctx, p)
 }
 
 // clearAuthMark drops the router's re-auth mark after a login that worked; the 6h TTL backstops a missed clear.
