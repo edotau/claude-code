@@ -180,6 +180,37 @@ func codexToolsEnv(ctx context.Context, env []string, tools bool, sandbox string
 	return values.Env(), notes, func() { _ = os.RemoveAll(dir) }, nil
 }
 
+// codexReadOnlyGo keeps a tools-off run's repo unwritable but lets go build: a custom permissions profile reads the
+// disk and writes only a per-run temp dir, which also holds the Go work and cache dirs.
+func codexReadOnlyGo(env, argv []string) (out, outArgv []string, remove func(), err error) {
+	i := slices.Index(argv, "--sandbox")
+	if i < 0 || i+1 >= len(argv) || argv[i+1] != "read-only" {
+		return env, argv, func() {}, nil
+	}
+	dir, err := os.MkdirTemp("", "codex-go-")
+	if err != nil {
+		return env, argv, func() {}, fmt.Errorf("codex: go cache dir: %w", err)
+	}
+	remove = func() { _ = os.RemoveAll(dir) }
+	if real, e := filepath.EvalSymlinks(dir); e == nil {
+		dir = real // the sandbox matches resolved paths; macOS TMPDIR sits behind /var
+	}
+	if err = os.MkdirAll(filepath.Join(dir, "tmp"), 0o700); err != nil {
+		remove()
+		return env, argv, func() {}, fmt.Errorf("codex: go cache dir: %w", err)
+	}
+	values := proc.ValuesFromEnv(env)
+	for _, c := range codexReadOnlyCaches { // the caller's dirs are outside the one writable root
+		values = values.With(c[0], filepath.Join(dir, c[1]))
+	}
+	profile := fmt.Sprintf(`{":root"="read", %s="write"}`, agentconfig.TOMLQuote(dir))
+	flags := []string{"-c", `default_permissions="goro"`, "-c", "permissions.goro.filesystem=" + profile}
+	return values.Env(), slices.Concat(argv[:i], flags, argv[i+2:]), remove, nil
+}
+
+// codexReadOnlyCaches are the Go dirs a read-only run needs writable; GOMODCACHE stays the readable real one.
+var codexReadOnlyCaches = [][2]string{{"GOCACHE", "go-build"}, {"GOTMPDIR", "tmp"}, {"GOLANGCI_LINT_CACHE", "lint"}}
+
 // codexCacheArgv repeats env's Go cache vars as shell-policy overrides; a user config's `inherit = "core"` drops them.
 func codexCacheArgv(argv, env []string) []string {
 	at := len(argv)
@@ -188,7 +219,7 @@ func codexCacheArgv(argv, env []string) []string {
 	}
 	values := proc.ValuesFromEnv(env)
 	var add []string
-	for _, c := range codexCaches {
+	for _, c := range slices.Concat(codexCaches, codexReadOnlyCaches) {
 		if v := values[c[0]]; v != "" {
 			add = append(add, "-c", "shell_environment_policy.set."+c[0]+"="+agentconfig.TOMLQuote(v))
 		}

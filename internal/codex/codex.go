@@ -100,6 +100,9 @@ func (e codexEngine) RenderSettings(ctx context.Context, s agent.Settings, env, 
 		return env, argv, emulated, func() { remove(); cleanup() }, err
 	}
 	env, notes, rmCache, err := codexToolsEnv(ctx, env, s.Tools, sandbox)
+	if err == nil && !s.Tools {
+		env, argv, rmCache, err = codexReadOnlyGo(env, argv) // tools-off left rmCache a no-op
+	}
 	if err == nil {
 		for _, note := range notes {
 			fmt.Fprintln(agent.NoticeOut, "ask:", note)

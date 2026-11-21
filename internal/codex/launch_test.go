@@ -215,3 +215,22 @@ func TestCodexHeadlessFlagsAreDeclared(t *testing.T) {
 		t.Errorf("codex passes %v, not in its row's Flags", got)
 	}
 }
+
+// A tools-off run swaps --sandbox read-only for a profile that writes only the temp dir holding the Go dirs.
+func TestCodexReadOnlyGo(t *testing.T) {
+	env, argv, remove, err := codexReadOnlyGo(nil, []string{"exec", "--sandbox", "read-only", "-"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer remove()
+	joined := strings.Join(argv, " ")
+	if slices.Contains(argv, "--sandbox") || !strings.Contains(joined, `permissions.goro.filesystem={":root"="read"`) {
+		t.Fatalf("read-only sandbox not replaced by the profile: %q", argv)
+	}
+	if e := strings.Join(env, "\n"); !strings.Contains(e, "GOTMPDIR=") || !strings.Contains(e, "GOCACHE=") || strings.Contains(e, "GOMODCACHE=") {
+		t.Fatalf("go dirs wrong: %q", env)
+	}
+	if _, got, _, _ := codexReadOnlyGo(nil, []string{"--sandbox", "workspace-write"}); !slices.Contains(got, "workspace-write") {
+		t.Fatalf("a tools run must keep its own sandbox: %q", got)
+	}
+}
