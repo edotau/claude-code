@@ -80,11 +80,19 @@ func fableRefusal(reg *providers.Registry, t providers.Target) error {
 	if canonical, _, ok := models.Resolve(t.Model); !ok || models.FamilyOf(canonical) != models.Fable {
 		return nil
 	}
-	hint := ""
-	if sel, err := providers.Select(reg, t.Provider.Name); err == nil && sel.Aliases[models.Opus].Provider == t.Provider {
-		hint = "; its Opus id is " + sel.Aliases[models.Opus].Model
+	return fmt.Errorf("model %s: profile %s serves no Fable; its Opus id is %s", t.Model, t.Provider.Name, opusID(reg, t.Provider))
+}
+
+// opusID is p's Opus id: the session pin, else p's own table, else the catalog's Opus spelled for p.
+func opusID(reg *providers.Registry, p *providers.Provider) string {
+	if sel, err := providers.Select(reg, p.Name); err == nil && sel.Aliases[models.Opus].Provider == p {
+		return sel.Aliases[models.Opus].Model
 	}
-	return fmt.Errorf("model %s: profile %s serves no Fable%s", t.Model, t.Provider.Name, hint)
+	if id := p.Models[models.Opus]; id != "" {
+		return models.Strip1M(id)
+	}
+	id, _ := models.Alias(models.Opus)
+	return p.WireModel(id)
 }
 
 // confineLadder drops fallback providers outside a token's profiles; they hold other credentials.

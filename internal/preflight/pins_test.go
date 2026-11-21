@@ -226,13 +226,28 @@ func TestCheckClaudeAliasPinResponsesOnly(t *testing.T) {
 	if err := router.WarmServed("dev", []providers.ModelInfo{{ID: "databricks-gpt-6-1-sol", Task: "llm/v1/chat", Ready: "READY"}}, now); err != nil {
 		t.Fatal(err)
 	}
-	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "CLAUDE_ALIASES.OPUS": "dev:gpt-6-1-sol"})
+	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "CLAUDE_ALIASES.OPUS": "gpt-6-1-sol"})
 	c := byAgent(Check(context.Background(), reg, now))["claude"]
 	if c.Status != statusUnserved || c.Profile != "dev" || !strings.Contains(c.Detail, "opus pin: model databricks-gpt-6-1-sol is Responses-only") {
 		t.Fatalf("claude on a Responses-only alias pin = %+v, want unserved on profile dev naming opus", c)
 	}
 	if len(c.Also) != 1 || c.Also[0] != "dev" {
 		t.Fatalf("Also = %v, want the alias pin's profile", c.Also)
+	}
+}
+
+// An old cross-provider pin is ignored as Select ignores it: no foreign profile warmed, the row says so.
+func TestCheckClaudeLegacyPrefixedPinIgnored(t *testing.T) {
+	hermeticVault(t)
+	stubListing(t)
+	reg, now := preflightRegistry(true), time.Now()
+	if err := router.WarmServed("dev", []providers.ModelInfo{{ID: "good-model", Task: "llm/v1/chat", Ready: "READY"}}, now); err != nil {
+		t.Fatal(err)
+	}
+	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "CLAUDE_ALIASES.HAIKU": "openai:gpt-5-nano"})
+	c := byAgent(Check(context.Background(), reg, now))["claude"]
+	if len(c.Also) != 0 || c.Status != StatusOK || !strings.Contains(c.Detail, "ignored legacy cross-profile pin(s): openai:gpt-5-nano") {
+		t.Fatalf("claude on a legacy pin = %+v, want no Also, ok, the pin reported ignored", c)
 	}
 }
 

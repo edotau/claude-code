@@ -110,24 +110,72 @@ func checkClaude(reg *providers.Registry, session string, now time.Time) (Pin, e
 	}
 	rec := recs["claude"]
 	failed := false
+	var ignored []string
 	for _, alias := range models.AliasNames {
-		spec := cmp.Or(strings.TrimSpace(rec.Aliases[alias]), strings.TrimSpace(rec.Model))
+		spec, legacy := aliasPin(reg, rec, alias)
+		ignored = appendNew(ignored, legacy...)
 		if spec == "" {
 			continue
 		}
-		t := providers.ParseTarget(reg, spec, def)
+		t := providers.PlainTarget(def, spec)
 		row.Also = append(row.Also, t.Provider.Name)
-		pin := checkAgent(reg, "claude", router.PinSpec{Profile: t.Provider.Name, Model: t.Model}, session, now)
-		if cerr := providers.ClaudeCodeError(t.Provider, t.Model); cerr != nil {
-			pin.Status, pin.Served, pin.Detail, pin.Fix = statusUnserved, "no", cerr.Error(), "claude-code models --pin "+alias+"=<id>"
-		}
+		pin := checkAliasPin(reg, alias, t, session, now)
 		if pin.Status != StatusOK && !failed {
 			failed = true
 			row.Model, row.Served, row.Status, row.Fix = pin.Model, pin.Served, pin.Status, pin.Fix
 			row.Detail = alias + " pin: " + cmp.Or(pin.Detail, pin.Status)
 		}
 	}
+	if len(ignored) > 0 && row.Detail == "" {
+		row.Detail = "ignored legacy cross-profile pin(s): " + strings.Join(ignored, ", ")
+		row.Fix = "claude-code models --unpin"
+	}
 	return row, nil
+}
+
+// appendNew appends each of vs not already in dst.
+func appendNew(dst []string, vs ...string) []string {
+	for _, v := range vs {
+		if !slices.Contains(dst, v) {
+			dst = append(dst, v)
+		}
+	}
+	return dst
+}
+
+// checkAliasPin checks one alias pin's target on its profile and against Claude Code's own model rules.
+func checkAliasPin(reg *providers.Registry, alias string, t providers.Target, session string, now time.Time) Pin {
+	pin := checkAgent(reg, "claude", router.PinSpec{Profile: t.Provider.Name, Model: t.Model}, session, now)
+	if cerr := providers.ClaudeCodeError(t.Provider, t.Model); cerr != nil {
+		pin.Status, pin.Served, pin.Detail, pin.Fix = statusUnserved, "no", cerr.Error(), "claude-code models --pin "+alias+"=<id>"
+	}
+	return pin
+}
+
+// aliasPin is alias's pin as Select reads it (the alias pin, then the all-slot pin) and the legacy pins it skipped.
+func aliasPin(reg *providers.Registry, rec vault.AgentRecord, alias string) (spec string, legacy []string) {
+	for _, pin := range []string{rec.Aliases[alias], rec.Model} {
+		plain, isLegacy := sessionPin(reg, pin)
+		if isLegacy {
+			legacy = append(legacy, strings.TrimSpace(pin))
+		}
+		if plain != "" {
+			return plain, legacy
+		}
+	}
+	return "", legacy
+}
+
+// sessionPin reads a stored pin as Select does: a plain id on the session profile, a profile-prefixed one is legacy.
+func sessionPin(reg *providers.Registry, pin string) (plain string, legacy bool) {
+	pin = strings.TrimSpace(pin)
+	if pin == "" {
+		return "", false
+	}
+	if c, err := providers.CastModel(reg, pin); err != nil || c.Profile != "" {
+		return "", true
+	}
+	return pin, false
 }
 
 func checkAgent(reg *providers.Registry, name string, spec router.PinSpec, session string, now time.Time) Pin {

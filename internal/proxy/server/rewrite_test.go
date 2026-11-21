@@ -531,6 +531,26 @@ func TestFableRefusal(t *testing.T) {
 	}
 }
 
+// A profile Select cannot resolve, or one with no Opus slot, still gets a refusal naming an Opus id.
+func TestFableRefusalNamesOpusWhenSelectFails(t *testing.T) {
+	vaulttest.UseKeyring(t)
+	vaulttest.Put(t, vault.Overlay, "providers", clientTokenOverlay("http://127.0.0.1:1"))
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	ghost := *reg.Row("dev")
+	ghost.Name = "ghost"
+	bare := ghost
+	bare.Models = nil
+	for name, p := range map[string]*providers.Provider{"not in registry": &ghost, "no opus slot": &bare} {
+		err := fableRefusal(reg, providers.Target{Provider: p, Model: "claude-fable-5-2"})
+		if err == nil || !strings.Contains(err.Error(), "its Opus id is databricks-claude-opus-5-5") {
+			t.Errorf("%s: fableRefusal = %v, want it to name databricks-claude-opus-5-5", name, err)
+		}
+	}
+}
+
 func BenchmarkWithModel(b *testing.B) {
 	b.SetBytes(int64(len(benchChatBody)))
 	b.ReportAllocs()
