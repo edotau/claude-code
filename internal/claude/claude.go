@@ -78,6 +78,7 @@ func claudeExec(ctx context.Context, req agent.RunOptions, prompt string, sink w
 		return wire.Result{}, err
 	}
 	wd := newIdleWatch(claudeIdleLimit, nil) // RunEventStream binds the kill once the child starts
+	wd.row = cl.Set[providers.EnvSessionProfile]
 	parse := func(br *bufio.Reader, sink wire.Sink, spoke func(), logs ...wire.StreamLog) (wire.Result, error) {
 		return parseClaudeEvents(br, false, wd, sink, spoke, logs...)
 	}
@@ -789,13 +790,14 @@ func (claudeEngine) NewLive() agent.LiveBackend { return &claudeLive{} }
 type claudeLive struct {
 	prevCost float64
 	cmd      *exec.Cmd // the held child, killed by a turn's idle watch
+	row      string    // the launch profile row, for a rejected-login message
 }
 
 func (b *claudeLive) Build(ctx context.Context, req agent.RunOptions) (*exec.Cmd, *retry.TailBuffer, string, error) {
 	ctx, req = gateOffAnthropic(ctx, req)
 	args := claudeStreamArgs(req, true)
 	cmd, tail, cl, err := claudeCmd(ctx, req, args, "")
-	b.cmd = cmd
+	b.cmd, b.row = cmd, cl.Set[providers.EnvSessionProfile]
 	return cmd, tail, cl.Set[providers.EnvSessionProfile], err
 }
 
@@ -806,6 +808,7 @@ func (*claudeLive) WriteTurn(w io.Writer, prompt string) error {
 // Parse prices the turn alone (total_cost_usd accumulates over the process); a silent child is killed when idle.
 func (b *claudeLive) Parse(dec *bufio.Reader, sink wire.Sink, lg func(kind, text string)) (wire.Result, error) {
 	wd := newIdleWatch(claudeIdleLimit, func() { _ = b.cmd.Cancel() })
+	wd.row = b.row
 	defer wd.Stop()
 	res, err := parseClaudeEvents(dec, true, wd, sink, wd.Spoke, lg)
 	if serr := wd.Err(); serr != nil {

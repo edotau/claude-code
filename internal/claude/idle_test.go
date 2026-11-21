@@ -140,8 +140,12 @@ func TestClaudeExecRejectedLoginEndsEarly(t *testing.T) {
 	_, err := runFakeClaudeIdle(t, idle, "echo '"+initLine+"'\n"+strings.Repeat(rl(401), 3)+"exec sleep 30\n")
 	var re *retry.Error
 	if !errors.As(err, &re) || re.Kind != retry.KindAuth || re.AuthReason == "" || errors.Is(err, agent.ErrStalled) ||
-		!strings.Contains(err.Error(), "login rejected (401)") || time.Since(start) > idle/2 {
+		!strings.Contains(err.Error(), "login rejected (401)") || strings.Contains(err.Error(), "<profile>") || time.Since(start) > idle/2 {
 		t.Fatalf("took %v, err = %v; want a prompt auth-kind error with a reason", time.Since(start), err)
+	}
+	named := (&idleWatch{row: "dev", status: 401, retries: 3}).rejectedErr().Error()
+	if !strings.Contains(named, "--profile dev`") || strings.Contains(named, "<profile>") {
+		t.Fatalf("named row: %s", named)
 	}
 }
 

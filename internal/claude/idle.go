@@ -30,6 +30,7 @@ type idleWatch struct {
 	idle            time.Duration       // the window length outside a tool call
 	paused          bool                // a tool-call ceiling window is running
 	pauseEnd        time.Time           // ceiling for pending calls whose ids were not tracked
+	row             string              // the launch profile row, named in a rejected-login message; empty when unknown
 }
 
 type openTool struct {
@@ -67,8 +68,13 @@ func (w *idleWatch) ceilingHit(err error) bool {
 
 // rejectedErr is the auth-kind failure of a login the API refused; AuthReason makes the fallback chain mark the account.
 func (w *idleWatch) rejectedErr() error {
-	msg := fmt.Sprintf("claude: login rejected (%d) after %d retries; sign in with `claude-code databricks login --profile <profile>`"+
-		" (or `claude /login` for the subscription row), or finish this task in the main session", w.status, w.retries)
+	msg := fmt.Sprintf("claude: login rejected (%d) after %d retries; sign in with `claude /login`, or finish this task in the main session",
+		w.status, w.retries)
+	if w.row != "" {
+		msg = fmt.Sprintf("claude: login rejected (%d) after %d retries on %s; sign in with `claude-code databricks login --profile %s`"+
+			" if %s is a Databricks profile (`claude /login` for the subscription row), or finish this task in the main session",
+			w.status, w.retries, w.row, w.row, w.row)
+	}
 	return &retry.Error{Kind: retry.KindAuth, Agent: "claude", Status: w.status,
 		AuthReason: fmt.Sprintf("login rejected (%d)", w.status), Err: errors.New(msg)}
 }
