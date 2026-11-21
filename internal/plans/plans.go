@@ -55,7 +55,7 @@ var (
 	commentRe  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?s)<!--(.*?)-->`) })
 	shaParen   = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\s*\(([0-9a-f]{7,40})\)\s*$`) })
 	shaDash    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)\s+(?:—|--|-)\s+([0-9a-f]{7,40})\s*$`) })
-	idPhase    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)^Phase\s+\d+(?:\.\d+)*[a-z]?\b`) })
+	idPhase    = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`(?i)^Phase\s+\d+(?:\.(?:\d+|[A-Z]))*[a-z]?\b`) })
 	idDecision = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^D\d+\b`) })
 	idLane     = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\d+(?:\.\d+)*[a-z]?\b`) })
 	datedName  = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^\d{4}-\d{2}-\d{2}-.*\.md$`) })

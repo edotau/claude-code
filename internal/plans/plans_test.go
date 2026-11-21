@@ -354,6 +354,9 @@ func TestParseSkipsFencedCheckboxes(t *testing.T) {
 		"longer fence closed only by an equal-or-longer one": {
 			"- [ ] 1.1 Real owns: a.go\n\n````md\n```\n- [ ] 9.9 Sample owns: x.go\n```\n- [ ] 9.8 Sample2 owns: y.go\n````\n\n~~~\n```\n- [ ] 9.7 Tilde owns: z.go\n~~~\n\n- [ ] 2.1 Second owns: b.go\n",
 			"1.1 2.1"},
+		"gate and verify rows keep their letter": {
+			"- [ ] Phase 1.G — gate\n- [ ] Phase 1.V — verify\n- [ ] Phase 1.2a — split\n",
+			"Phase 1.G Phase 1.V Phase 1.2a"},
 	}
 	for name, c := range cases {
 		t.Run(name, func(t *testing.T) {
