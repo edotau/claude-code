@@ -261,6 +261,10 @@ func TestBatchTaskProfileReachesRequest(t *testing.T) {
 	if _, err := build(2, "no-such-profile").Prepare(context.Background()); err == nil {
 		t.Error("unknown batch profile prepared a chain, want an error before any run")
 	}
+	t.Setenv("OPENCODE_MODEL", "acme:m") // an untyped line takes its agent's env route; no prefix reaches the model
+	if bt := build(3, ""); bt.Req.Provider != "acme" || bt.Req.Model != "" {
+		t.Errorf("env-routed line provider, model = %q, %q, want acme and the env left as the pin", bt.Req.Provider, bt.Req.Model)
+	}
 }
 
 // batchFile writes one JSONL task per line and returns the path.

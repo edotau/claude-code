@@ -221,7 +221,7 @@ func hopModel(m string) (row, id string) {
 	return "", m
 }
 
-// launchedModel is a frozen copilot target's model (the pick lreq never sees), else invokedModel; auto stays auto.
+// launchedModel: auto stays auto, then a frozen copilot target's model, invokedModel, else the agent's plain pin.
 func launchedModel(ctx context.Context, disp Dispatch, req RunOptions) string {
 	if _, auto := SplitAuto(invokedModel(req)); auto {
 		return invokedModel(req)
@@ -231,7 +231,7 @@ func launchedModel(ctx context.Context, disp Dispatch, req RunOptions) string {
 			return t.Model
 		}
 	}
-	return invokedModel(req)
+	return cmp.Or(invokedModel(req), agentModelPinContext(ctx, disp.Agent.Name()))
 }
 
 // MaxAutoRepicks bounds how many times one auto ask re-picks after its pick is refused before any work.
