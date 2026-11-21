@@ -290,15 +290,7 @@ func (a *auditRun) process(plan string, tasks []Task) error {
 	if slug[:10] >= now().Format(time.DateOnly) {
 		return nil
 	}
-	var steps []int
-	var build []Task
-	for i, t := range tasks {
-		if t.ID != "" {
-			build = append(build, t)
-		} else if isProcessStep(t) {
-			steps = append(steps, i)
-		}
-	}
+	steps, build := splitSteps(tasks)
 	if len(steps) == 0 || len(build) == 0 {
 		return nil
 	}
@@ -316,6 +308,18 @@ func (a *auditRun) process(plan string, tasks []Task) error {
 		}
 	}
 	return nil
+}
+
+// splitSteps returns the process-step indexes and the build tasks; owner decisions are neither.
+func splitSteps(tasks []Task) (steps []int, build []Task) {
+	for i, t := range tasks {
+		if t.ID != "" && !ownerStep(t) {
+			build = append(build, t)
+		} else if isProcessStep(t) {
+			steps = append(steps, i)
+		}
+	}
+	return steps, build
 }
 
 // landings is the sha of every ticked build task and whether all were struck; ok is false when the plan is not closed.

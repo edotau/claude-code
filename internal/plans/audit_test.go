@@ -42,7 +42,7 @@ func auditFixture(t *testing.T) (repo, a, b, c, pushed string) {
 	home := Home(repo)
 	a, b, c = filepath.Join(home, "2026-10-05-a.md"), filepath.Join(home, "2026-10-04-b.md"), filepath.Join(home, "2026-10-05-c.md")
 	writeFile(t, a, "- [ ] 1.1 One\n- [ ] 1.2 Two\n")
-	writeFile(t, b, "- [x] 1.1 One ("+pushed+")\n- [x] 1.2 Two <!-- working: x --> ("+pushed+")\n"+steps)
+	writeFile(t, b, "- [x] D1 — Pick one\n- [x] 1.1 One ("+pushed+")\n- [x] 1.2 Two <!-- working: x --> ("+pushed+")\n"+steps)
 	writeFile(t, c, "- [ ] 1.1 One\n- [ ] 1.1 Again\n- [ ] 1.3 Open (abc1234)\n")
 	return repo, a, b, c, pushed
 }
