@@ -16,12 +16,13 @@ import (
 type Target struct {
 	Provider *Provider
 	Model    string
-	OneM     bool
+	// ContextTokens is the window the model runs at on Provider; 0 = unknown.
+	ContextTokens int
 }
 
 // ClientModel is t's id on its own provider: [1m]-marked only as the user typed it.
 func (t Target) ClientModel() string {
-	if t.OneM && models.Keeps1M(t.Model+oneMMarker) {
+	if t.ContextTokens >= models.ContextWindow1M && models.Keeps1M(t.Model+oneMMarker) {
 		return t.Model + oneMMarker
 	}
 	return t.Model
@@ -39,10 +40,12 @@ type Selection struct {
 // PlainTarget is a plain model id on p: a family word as p's member, else p's wire spelling with any [1m] mark kept.
 func PlainTarget(p *Provider, model string) Target {
 	if IsFamily(model) {
-		return Target{Provider: p, Model: ConcreteModel("", p, model)}
+		wire := ConcreteModel("", p, model)
+		return Target{Provider: p, Model: wire, ContextTokens: ContextTokens(p, wire, false)}
 	}
 	base, oneM := models.Canonical(model)
-	return Target{Provider: p, Model: p.WireModel(base), OneM: oneM}
+	wire := p.WireModel(base)
+	return Target{Provider: p, Model: wire, ContextTokens: ContextTokens(p, wire, oneM)}
 }
 
 // prefixedPinNote is the one stderr note per process for an ignored profile-prefixed pin.
@@ -119,13 +122,15 @@ func FailoverTarget(from *Provider, model string, next *Provider) (Target, bool)
 	alias := from.AliasOf(model)
 	if alias == "" {
 		if canonical, _, ok := models.Resolve(model); ok && models.FamilyOf(canonical) != "" && next.SpellingRule() != "" && next.Provider != "openai" && next.Provider != "google" {
-			return Target{Provider: next, Model: next.WireModel(canonical)}, true
+			wire := next.WireModel(canonical)
+			return Target{Provider: next, Model: wire, ContextTokens: ContextTokens(next, wire, false)}, true
 		}
 		alias = models.FamilyOf(model)
 	}
 	for _, slot := range []string{alias, models.Opus} {
 		if id := next.Models[slot]; id != "" {
-			return Target{Provider: next, Model: models.Strip1M(id), OneM: models.Keeps1M(id)}, true
+			wire := models.Strip1M(id)
+			return Target{Provider: next, Model: wire, ContextTokens: ContextTokens(next, wire, models.Keeps1M(id))}, true
 		}
 	}
 	return Target{}, false

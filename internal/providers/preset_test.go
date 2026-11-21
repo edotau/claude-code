@@ -12,6 +12,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -513,6 +514,33 @@ func TestPresetTokenCommandOverrides(t *testing.T) {
 			if p.CommandAuth() != (kind != AuthPAT) {
 				t.Fatalf("%s/%s: command auth %v", name, kind, p.CommandAuth())
 			}
+		}
+	}
+}
+
+func TestContextTokens(t *testing.T) {
+	dbx := &Provider{Name: "dev", Preset: PresetDatabricks}
+	gh := &Provider{Name: "gh", Provider: "github"}
+	listingFacts(t, map[string]serving.EndpointFacts{
+		"claude-opus-4-8":         {Context: models.ContextWindow1M},
+		"databricks-fixture-chat": {Context: 128_000},
+	})
+	for _, c := range []struct {
+		name string
+		p    *Provider
+		wire string
+		oneM bool
+		want int
+	}{
+		{"claude 5 on databricks", dbx, "databricks-claude-opus-5-5", false, models.ContextWindow1M},
+		{"4.x typed [1m]", gh, "claude-opus-4-8", true, models.ContextWindow1M},
+		{"4.x untyped, listing says 1M", dbx, "claude-opus-4-8", false, models.ContextWindowStd},
+		{"row without 1M caps", gh, "claude-opus-5-5", false, models.ContextWindowStd},
+		{"non-claude from listing", dbx, "databricks-fixture-chat", false, 128_000},
+		{"unlisted unknown model", dbx, "databricks-fixture-other", false, models.ContextWindowStd},
+	} {
+		if got := ContextTokens(c.p, c.wire, c.oneM); got != c.want {
+			t.Errorf("%s: ContextTokens(%s, %q, %v) = %d, want %d", c.name, c.p.Name, c.wire, c.oneM, got, c.want)
 		}
 	}
 }

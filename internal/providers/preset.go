@@ -369,6 +369,21 @@ func Window(p *Provider, id string) int {
 	return w
 }
 
+// ContextTokens is the window wire runs at on p: 1M when [1m] was typed, else catalog or listing, capped by the row.
+func ContextTokens(p *Provider, wire string, oneM bool) int {
+	if oneM {
+		return models.ContextWindow1M
+	}
+	w := models.Window(wire)
+	if l, ok := LimitsFor(p, wire); ok && l.Context > 0 {
+		w = l.Context
+	}
+	if !p.Serves1M() || models.Keeps1M(wire+oneMMarker) {
+		w = min(w, models.ContextWindowStd)
+	}
+	return w
+}
+
 // ServingRow checks name is a Databricks serving row (databricks:<p> runs on no other); errors never quote name.
 func ServingRow(name string) error {
 	reg, err := Load()

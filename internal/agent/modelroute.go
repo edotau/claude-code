@@ -20,23 +20,23 @@ import (
 
 // ModelRoute is one agent and typed model string resolved: the overlay it implies and the wire id that runs.
 type ModelRoute struct {
-	Agent    string `json:"agent"`
-	Provider string `json:"provider"`           // the row's provider type
-	Profile  string `json:"profile"`            // registry row
-	Account  string `json:"account"`            // Provider.Account(): the ran-on account·profile
-	Login    string `json:"login,omitempty"`    // GitHub user on a github row
-	Model    string `json:"model"`              // wire id as sent, no [1m]
-	OneM     bool   `json:"one_m,omitempty"`    // [1m] typed and honoured by row and model
-	Effort   string `json:"effort,omitempty"`   // gemini's suffix cut off Model, or the query's effort
-	Dialect  string `json:"dialect"`            // anthropic|openai|responses|gemini, "own-login" for an agent sign-in
-	Alias    string `json:"alias,omitempty"`    // the alias typed, when one was
-	Source   string `json:"source"`             // prefix|type|flag|account|pool|session|pin|default|own-login
-	Identity string `json:"identity,omitempty"` // the overlay's identity, echoed
-	Host     string `json:"host,omitempty"`
-	Remote   string `json:"remote,omitempty"`
-	Fallback string `json:"fallback,omitempty"` // the overlay's fallback mode, echoed
-	Served   string `json:"served,omitempty"`   // Databricks row only: ServedNo (fresh listing lacks Model) or ServedUnverified
-	Note     string `json:"note,omitempty"`     // a substitution or skip said aloud
+	Agent         string `json:"agent"`
+	Provider      string `json:"provider"`                 // the row's provider type
+	Profile       string `json:"profile"`                  // registry row
+	Account       string `json:"account"`                  // Provider.Account(): the ran-on account·profile
+	Login         string `json:"login,omitempty"`          // GitHub user on a github row
+	Model         string `json:"model"`                    // wire id as sent, no [1m]
+	ContextTokens int    `json:"context_tokens,omitempty"` // window the model runs at; 1M when [1m] was honoured
+	Effort        string `json:"effort,omitempty"`         // gemini's suffix cut off Model, or the query's effort
+	Dialect       string `json:"dialect"`                  // anthropic|openai|responses|gemini, "own-login" for an agent sign-in
+	Alias         string `json:"alias,omitempty"`          // the alias typed, when one was
+	Source        string `json:"source"`                   // prefix|type|flag|account|pool|session|pin|default|own-login
+	Identity      string `json:"identity,omitempty"`       // the overlay's identity, echoed
+	Host          string `json:"host,omitempty"`
+	Remote        string `json:"remote,omitempty"`
+	Fallback      string `json:"fallback,omitempty"` // the overlay's fallback mode, echoed
+	Served        string `json:"served,omitempty"`   // Databricks row only: ServedNo (fresh listing lacks Model) or ServedUnverified
+	Note          string `json:"note,omitempty"`     // a substitution or skip said aloud
 }
 
 // Line is the one-line summary: agent · account · model, the effort, the source and any note.
@@ -429,7 +429,7 @@ func codexTierPin(r *ModelRoute, p *providers.Provider, q ModelQuery, typed stri
 	return w, true
 }
 
-// spellAlias spells the tier alias name on p, setting r.Alias and r.OneM.
+// spellAlias spells the tier alias name on p, setting r.Alias and r.ContextTokens.
 func spellAlias(r *ModelRoute, p *providers.Provider, agent, typed, name string) (string, error) {
 	r.Alias = name
 	canonical, _ := models.Alias(name)
@@ -438,7 +438,8 @@ func spellAlias(r *ModelRoute, p *providers.Provider, agent, typed, name string)
 		return "", fmt.Errorf("%w: profile %s has no %s model", ErrModelRoute, p.Name, name)
 	}
 	wire := models.Strip1M(p.WireModel(m))
-	r.OneM = models.Has1M(typed) && models.Keeps1M(wire+"[1m]") && p.Serves1M()
+	oneM := models.Has1M(typed) && models.Keeps1M(wire+"[1m]") && p.Serves1M()
+	r.ContextTokens = providers.ContextTokens(p, wire, oneM)
 	return wire, nil
 }
 
@@ -463,8 +464,9 @@ func spellModel(r *ModelRoute, p *providers.Provider, agent, typed string, now t
 // spellID is an accepted id's wire spelling on p: the catalog's, else the listing's on Databricks, else as typed.
 func spellID(r *ModelRoute, p *providers.Provider, typed string, now time.Time) string {
 	if canonical, oneM, ok := models.Resolve(typed); ok {
-		r.OneM = oneM && p.Serves1M()
-		return models.Strip1M(p.WireModel(canonical))
+		wire := models.Strip1M(p.WireModel(canonical))
+		r.ContextTokens = providers.ContextTokens(p, wire, oneM && p.Serves1M())
+		return wire
 	}
 	if p.Preset == providers.PresetDatabricks {
 		return router.SpellServed(p, typed, now)

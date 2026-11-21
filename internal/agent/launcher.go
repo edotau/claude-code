@@ -173,7 +173,7 @@ func applyRoute(sel *providers.Selection, r ModelRoute, o LaunchOptions, session
 		sel.Aliases[dst] = t // bare alias, e.g. opus or ultra:opus
 		return
 	}
-	sel.Aliases[dst] = providers.Target{Provider: sel.Provider, Model: r.Model, OneM: r.OneM}
+	sel.Aliases[dst] = providers.Target{Provider: sel.Provider, Model: r.Model, ContextTokens: r.ContextTokens}
 }
 
 // MainAlias is the alias whose model is the launch's main model: the one --model names, else the verb's, else opus.

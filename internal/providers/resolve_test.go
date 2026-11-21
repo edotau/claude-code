@@ -26,9 +26,9 @@ func TestPlainTargetCanonicalAndOneM(t *testing.T) {
 	}
 	for _, c := range cases {
 		got := PlainTarget(def, c.spec)
-		if got.Provider != c.prov || got.Model != c.model || got.OneM != c.oneM {
+		if got.Provider != c.prov || got.Model != c.model || models.Has1M(got.ClientModel()) != c.oneM {
 			t.Errorf("PlainTarget(%q) = %s/%q/%v; want %s/%q/%v",
-				c.spec, got.Provider.Name, got.Model, got.OneM, c.prov.Name, c.model, c.oneM)
+				c.spec, got.Provider.Name, got.Model, got.ContextTokens, c.prov.Name, c.model, c.oneM)
 		}
 	}
 }
@@ -37,9 +37,9 @@ func TestClientModelKeepsTypedOneM(t *testing.T) {
 	plain := &Provider{Name: "plain"}
 	other := &Provider{Name: "other"}
 	sel := Selection{Provider: plain, Aliases: map[string]Target{
-		"opus":   {Provider: plain, Model: "claude-opus-4-8", OneM: true},
+		"opus":   {Provider: plain, Model: "claude-opus-4-8", ContextTokens: models.ContextWindow1M},
 		"sonnet": {Provider: plain, Model: "claude-sonnet-5"},
-		"haiku":  {Provider: other, Model: "claude-haiku-4-5", OneM: true},
+		"haiku":  {Provider: other, Model: "claude-haiku-4-5", ContextTokens: models.ContextWindow1M},
 		"fable":  {Provider: other, Model: "gpt-5"},
 	}}
 	want := map[string]string{
@@ -75,8 +75,8 @@ func TestPlainTargetWirePrefix(t *testing.T) {
 	}
 	for _, c := range cases {
 		got := PlainTarget(c.prov, c.spec)
-		if got.Model != c.model || got.OneM != c.oneM {
-			t.Errorf("%s PlainTarget(%q) = %q/%v; want %q/%v", c.prov.Name, c.spec, got.Model, got.OneM, c.model, c.oneM)
+		if got.Model != c.model || models.Has1M(got.ClientModel()) != c.oneM {
+			t.Errorf("%s PlainTarget(%q) = %q/%v; want %q/%v", c.prov.Name, c.spec, got.Model, got.ContextTokens, c.model, c.oneM)
 		}
 	}
 }
@@ -234,13 +234,13 @@ func TestFailoverTargetKeepsExactClaudeVersion(t *testing.T) {
 		"claude-opus-5":            "databricks-claude-opus-5",
 		"databricks-claude-opus-5": "databricks-claude-opus-5",
 	} {
-		if got, ok := FailoverTarget(from, model, next); !ok || got.Model != want || got.OneM {
+		if got, ok := FailoverTarget(from, model, next); !ok || got.Model != want || models.Has1M(got.ClientModel()) {
 			t.Errorf("FailoverTarget(%s) = %+v %v, want exact %s", model, got, ok, want)
 		}
 	}
 	got, ok := FailoverTarget(from, "databricks-claude-opus-4-8", next)
-	if !ok || got.Model != "databricks-claude-opus-4-8" || !got.OneM {
-		t.Errorf("slot failover = %+v %v, want the slot id with [1m] moved to OneM", got, ok)
+	if !ok || got.Model != "databricks-claude-opus-4-8" || !models.Has1M(got.ClientModel()) {
+		t.Errorf("slot failover = %+v %v, want the slot id with [1m] moved to the marked window", got, ok)
 	}
 }
 

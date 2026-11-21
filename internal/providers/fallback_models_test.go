@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/edotau/claude-code/internal/models"
 )
 
 // TestCodexCachedModelsHonoursCodexHome: models_cache.json is read from $CODEX_HOME, not always ~/.codex.
@@ -74,8 +76,8 @@ func TestDemoteMarkedSlot(t *testing.T) {
 				"opus": "databricks-claude-opus-5-5", "sonnet": c.sonnet, "haiku": "databricks-claude-haiku-5-5",
 			}}
 			got, ok := Demote(p, c.model)
-			if !ok || got.Provider != p || got.Model != c.want || got.OneM {
-				t.Fatalf("Demote(%q) = %+v, %v; want model=%q, OneM=false", c.model, got, ok, c.want)
+			if !ok || got.Provider != p || got.Model != c.want || models.Has1M(got.ClientModel()) {
+				t.Fatalf("Demote(%q) = %+v, %v; want model=%q, no [1m]", c.model, got, ok, c.want)
 			}
 		})
 	}

@@ -103,7 +103,7 @@ func (s Schema) routedModel(ctx context.Context, req RunOptions, t providers.Tar
 	case err != nil:
 		return t, "", err
 	}
-	t.Model, t.OneM = r.Model, r.OneM
+	t.Model, t.ContextTokens = r.Model, r.ContextTokens
 	NotePick(ctx, r.Model)
 	return t, r.Note, nil
 }
@@ -621,7 +621,7 @@ func aliasTarget(sel providers.Selection, model string) (providers.Target, bool)
 		return providers.Target{}, false
 	}
 	if ok && oneM {
-		t.OneM = true
+		t.ContextTokens = models.ContextWindow1M
 	}
 	return t, ok
 }

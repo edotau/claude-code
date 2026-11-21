@@ -280,7 +280,7 @@ func copilotWire(r agent.WireRoute, h *agent.Headless) ([]string, []string, erro
 	if err != nil {
 		return nil, nil, err
 	}
-	client := providers.Target{Provider: r.Target.Provider, Model: r.Target.Model, OneM: r.Target.OneM}.ClientModel()
+	client := r.Target.ClientModel()
 	window, output := copilotCaps(providers.Window(r.Target.Provider, client), model)
 	env := proc.Values{
 		proc.EnvCopilotProviderBaseURL:         base,

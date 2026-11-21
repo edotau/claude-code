@@ -120,7 +120,8 @@ func Demote(p *Provider, model string) (Target, bool) {
 	}
 	for next := models.NextAlias(alias); next != ""; next = models.NextAlias(next) {
 		if id := p.Models[next]; id != "" && !sameModel(id, model) {
-			return Target{Provider: p, Model: models.Strip1M(id), OneM: models.Keeps1M(id)}, true
+			wire := models.Strip1M(id)
+			return Target{Provider: p, Model: wire, ContextTokens: ContextTokens(p, wire, models.Keeps1M(id))}, true
 		}
 	}
 	return Target{}, false

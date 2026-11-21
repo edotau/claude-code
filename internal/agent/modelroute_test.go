@@ -141,9 +141,10 @@ func TestResolveModelMarkedAlias(t *testing.T) {
 			if c.oneM {
 				wantWindow = models.ContextWindow1M
 			}
-			t.Logf("route=%s OneM=%v; target=%s OneM=%v window=%d", r.Model, r.OneM, target.Model, target.OneM, window)
-			if r.Model != wire || r.OneM != c.oneM || target.Model != wire || target.OneM != c.oneM || window != wantWindow {
-				t.Errorf("want wire=%s OneM=%v window=%d", wire, c.oneM, wantWindow)
+			routeOneM := r.ContextTokens == models.ContextWindow1M
+			t.Logf("route=%s tokens=%d; target=%s tokens=%d window=%d", r.Model, r.ContextTokens, target.Model, target.ContextTokens, window)
+			if r.Model != wire || routeOneM != c.oneM || target.Model != wire || models.Has1M(target.ClientModel()) != c.oneM || window != wantWindow {
+				t.Errorf("want wire=%s oneM=%v window=%d", wire, c.oneM, wantWindow)
 			}
 		})
 	}
