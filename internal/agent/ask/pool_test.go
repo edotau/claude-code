@@ -47,7 +47,7 @@ func vendorHost(t *testing.T) {
 	skipWithoutSh(t)
 	vaulttest.Use(t)
 	t.Setenv("HOME", t.TempDir())
-	doc := `{"providers":{"openai":{"acme":{"protocol":"openai","base_url":"https://acme.example/v1","auth":{"type":"none"}}}}}`
+	doc := `{"providers":{"openai":{"acme":{"protocol":"openai","base_url":"https://acme.example/v1","auth":{"type":"none"},"models":{"opus":"acme-large"}}}}}`
 	vaulttest.Put(t, vault.Overlay, "providers", doc)
 	pathstest.FakeVendor(t, "opencode", "p=$(cat); case \"$p $*\" in *FAILME*) echo boom >&2; exit 1;; esac\n"+
 		`printf '%s\n' '{"type":"text","sessionID":"s","part":{"text":"hi"}}'`+"\n")

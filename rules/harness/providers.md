@@ -46,9 +46,8 @@ paths:
   launch, preflight, labels and `ran on` read only it. Print it:
   (with no `--model`/`--profile` it prints the route ladder's first hop, the model the run and its label use)
   `claude-code gateway resolve <agent> --model m [--provider P] [--profile p] [--overlay '{...}']
-  [--all-profiles [--live]] --format json`. A model the workspace's fresh listing lacks is marked `served: no` with
-  the served alternatives named, and `--fallback none` exits non-zero instead; with no fresh listing it says
-  `unverified`.
+  [--all-profiles [--live]] --format json`. A typed model the workspace's fresh listing lacks is refused (exit 2,
+  nearest ids named) under any `--fallback`; with no fresh listing it says `unverified`.
 - **Pool table:** `claude-code gateway resolve all --model auto --all-profiles [--task <brief>] [--format json]` peeks
   every rotation row x agent x tier (pool, next, held, last pick) without moving any rotation history; claude rotates
   no rows (its `auto` runs the brief's tier model on its one profile), so it has none here.

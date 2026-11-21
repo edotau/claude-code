@@ -76,6 +76,7 @@ type ModelQuery struct {
 	Tools                          bool                       // the run calls tools: auto skips a model whose probe refused them
 	menu                           *[]providers.OpencodeModel // read once per auto resolution; nil reads per use
 	pinErr                         error                      // the untyped run's <AGENT>_MODEL names no usable row
+	rowSpelled                     bool                       // Model is rowDefault's own spelling: never judged by a listing
 }
 
 // menuIn is the menu read for this resolution, nil when none was.
@@ -413,9 +414,7 @@ func routeModel(r *ModelRoute, p *providers.Provider, q ModelQuery, spec modelTa
 	}
 	wire, err := spellTyped(r, p, q, cmp.Or(typed, q.Default, models.Opus), now)
 	if err != nil && pinned {
-		r.Alias, r.Effort = "", ""
-		wire, err = spellTyped(r, p, q, cmp.Or(q.Default, models.Opus), now)
-		r.Note = fmt.Sprintf("record model %s does not fit %s; used %s", typed, p.Name, cmp.Or(q.Default, models.Opus))
+		wire, err = pinFallback(r, p, q, err, now)
 	}
 	if err != nil {
 		return err
@@ -427,6 +426,17 @@ func routeModel(r *ModelRoute, p *providers.Provider, q ModelQuery, spec modelTa
 	}
 	r.Model = wire
 	return nil
+}
+
+// pinFallback refuses a failed shell pin naming its variable; a failed record model runs the default with a note.
+func pinFallback(r *ModelRoute, p *providers.Provider, q ModelQuery, err error, now time.Time) (string, error) {
+	if env, v := providers.EnvModel(cmp.Or(q.ctx, context.Background()), q.Agent); env != "" {
+		return "", fmt.Errorf("%s=%s: %w", v, env, err)
+	}
+	r.Alias, r.Effort = "", ""
+	def := cmp.Or(q.Default, models.Opus)
+	r.Note = fmt.Sprintf("record model %s does not fit %s; used %s", q.PinModel, p.Name, def)
+	return spellTyped(r, p, q, def, now)
 }
 
 // spellTyped cuts gemini's effort suffix (any other agent refuses it) and spells the id for p.
@@ -443,6 +453,9 @@ func spellTyped(r *ModelRoute, p *providers.Provider, q ModelQuery, typed string
 	}
 	if w, ok := codexTierPin(r, p, q, typed, now); ok {
 		return w, nil
+	}
+	if q.rowSpelled {
+		return spellID(r, p, typed, now), nil
 	}
 	return spellModel(r, p, q.Agent, typed, now)
 }
@@ -486,17 +499,22 @@ func spellModel(r *ModelRoute, p *providers.Provider, agent, typed string, now t
 	if p.Preset != providers.PresetDatabricks && strings.HasPrefix(name, models.DatabricksPrefix) {
 		return "", fmt.Errorf("%w: %s is a Databricks endpoint; profile %s is not Databricks", ErrModelRoute, typed, p.Name)
 	}
+	if _, err := AcceptModel(agent, p, typed, now); err != nil {
+		return "", err // an *UnacceptedError, which already wraps ErrModelRoute
+	}
+	return spellID(r, p, typed, now), nil
+}
+
+// spellID is an accepted id's wire spelling on p: the catalog's, else the listing's on Databricks, else as typed.
+func spellID(r *ModelRoute, p *providers.Provider, typed string, now time.Time) string {
 	if canonical, oneM, ok := models.Resolve(typed); ok {
 		r.OneM = oneM && p.Serves1M()
-		return models.Strip1M(p.WireModel(canonical)), nil
+		return models.Strip1M(p.WireModel(canonical))
 	}
-	if p.Preset != providers.PresetDatabricks {
-		return typed, nil
+	if p.Preset == providers.PresetDatabricks {
+		return router.SpellServed(p, typed, now)
 	}
-	if w := router.SpellServed(p, typed, now); w != typed || strings.HasPrefix(typed, models.DatabricksPrefix) {
-		return w, nil
-	}
-	return "", fmt.Errorf("%w: %s is no catalog model and %s lists no READY endpoint for it", ErrModelRoute, typed, p.Name)
+	return typed
 }
 
 // routeServes checks the agent speaks the wire p uses for r.Model.

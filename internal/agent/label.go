@@ -201,7 +201,7 @@ func rowDefault(reg *providers.Registry, q ModelQuery, need autoNeed, profile st
 	if serr != nil {
 		return r, err
 	}
-	q.Model, q.PinModel = wire, ""
+	q.Model, q.PinModel, q.rowSpelled = wire, "", true
 	return ResolveModel(reg, q, now)
 }
 

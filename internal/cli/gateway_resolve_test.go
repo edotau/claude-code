@@ -111,7 +111,7 @@ func TestGatewayResolveAuto(t *testing.T) {
 	}
 }
 
-// A model dev's fresh listing lacks prints "served: no"; under --fallback none it exits 2 naming the served ones.
+// A typed model dev's fresh listing lacks exits 2 naming the served ones, any --fallback (R8: AcceptModel refuses).
 func TestGatewayResolveUnservedModel(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
@@ -124,7 +124,7 @@ func TestGatewayResolveUnservedModel(t *testing.T) {
 		code     int
 		out, err string
 	}{
-		{"", 0, "served: no", ""},
+		{"", 2, "", "databricks-gemini-3-8-flash"},
 		{"none", 2, "", "databricks-gemini-3-8-flash"},
 	} {
 		args := []string{"gemini", "--profile", "dev", "--model", "gemini-4-argon-high"}

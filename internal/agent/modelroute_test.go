@@ -180,6 +180,22 @@ func TestResolveModelRefuses(t *testing.T) {
 	}
 }
 
+// A typed or shell-pinned id a fresh listing lacks is refused with nearest ids; the pin names its variable.
+func TestSpellModelAccepts(t *testing.T) {
+	setConfigDir(t)
+	reg := routeRegistry(t)
+	saveListing(t, "dev", []string{"databricks-gpt-6-1-sol"})
+	_, err := ResolveModel(reg, ModelQuery{Agent: "codex", Model: "bogus-model-xyz", Profile: "dev"}, time.Now())
+	if ue, ok := errors.AsType[*UnacceptedError](err); !ok || !errors.Is(err, ErrModelRoute) || len(ue.Nearest) == 0 {
+		t.Errorf("typed: err = %v; want an UnacceptedError with nearest ids", err)
+	}
+	ctx := proc.WithValues(t.Context(), proc.Values{"CODEX_MODEL": "bogus-model-xyz"})
+	q := ModelQuery{ctx: ctx, Agent: "codex", Profile: "dev", PinModel: "bogus-model-xyz"}
+	if _, err := ResolveModel(reg, q, time.Now()); !errors.Is(err, ErrModelRoute) || !strings.Contains(err.Error(), "CODEX_MODEL=") {
+		t.Errorf("env pin: err = %v; want a refusal naming CODEX_MODEL", err)
+	}
+}
+
 // agy's four Hydrogen efforts all resolve, and the refusal names the accepted ones.
 func TestResolveModelAgyEfforts(t *testing.T) {
 	reg := routeRegistry(t)
