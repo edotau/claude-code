@@ -58,6 +58,17 @@ func TestAcceptModel(t *testing.T) {
 	}
 }
 
+func TestPrefixedRefusalNamesRow(t *testing.T) {
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{"dev": {Name: "dev", Preset: providers.PresetDatabricks}}}
+	err := PrefixedRefusal(reg, "claude", "dev:claude-opus-5")
+	if err == nil || !strings.Contains(err.Error(), `--overlay '{"provider":"databricks","profile":"dev"}' --model claude-opus-5`) {
+		t.Errorf("refusal = %v", err)
+	}
+	if PrefixedRefusal(reg, "claude", "qwen3:30b") != nil || PrefixedRefusal(reg, "claude", "opus") != nil {
+		t.Error("plain id refused")
+	}
+}
+
 // D7: a cold databricks- id a Responses agent runs unverified; only a fresh listing or a chat-only catalog id refuses.
 func TestAcceptModelColdCustomIDForCodex(t *testing.T) {
 	vaulttest.Use(t)

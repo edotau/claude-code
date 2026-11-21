@@ -456,18 +456,11 @@ func configureCopilotRegistry(
 	}, nil
 }
 
-// routedModels maps each requested --model to p's spelling.
+// routedModels maps each requested plain --model id to p's spelling; the profile is the route, never a prefix.
 func routedModels(ctx context.Context, reg *providers.Registry, p *providers.Provider, requested []string) ([]string, error) {
 	var out []string
 	for _, m := range requested {
-		c, err := providers.CastModel(reg, m)
-		if err == nil {
-			_, _, err = c.Merge("", p.Name)
-		}
-		if err != nil {
-			return nil, fmt.Errorf("copilot: %w", err)
-		}
-		q := agent.QueryFor(agent.PeekContext(ctx), agent.ModelQuery{Agent: "copilot", Model: c.Model, Profile: p.Name, Interactive: true}) // a menu listing only peeks
+		q := agent.QueryFor(agent.PeekContext(ctx), agent.ModelQuery{Agent: "copilot", Model: strings.TrimSpace(m), Profile: p.Name, Interactive: true}) // a menu listing only peeks
 		r, err := agent.ResolveRun(reg, q, time.Now())
 		if err != nil {
 			return nil, fmt.Errorf("copilot: %w", err)

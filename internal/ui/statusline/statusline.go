@@ -233,17 +233,9 @@ func collect(in input, cfg config) values {
 	return v
 }
 
-// rawModelID is the payload's model id as a routed session serves it, minus [1m] and a profile prefix; "⇄" stays.
+// rawModelID is the payload's model id as a routed session serves it, minus [1m]; "⇄" stays.
 func rawModelID(in input, model, session string, routed bool) string {
 	id := models.Strip1M(strings.TrimSpace(in.Model.ID))
-	if m, ok := profileModel(id); ok {
-		if prov, _, _ := strings.Cut(id, ":"); prov != session {
-			if reg := registry(); reg != nil && reg.Providers[prov] != nil {
-				session, routed = prov, true // a prefix naming another profile is spelled as that profile serves it
-			}
-		}
-		id = m
-	}
 	if id == "" || strings.Contains(model, "⇄") {
 		return model
 	}
@@ -350,36 +342,13 @@ func capProfile(label string, max int) string {
 	return prov + "·" + table.Truncate(prof, max)
 }
 
-// modelSegment is the friendly name; a cross-provider slot ("openai:gpt-5") renders "gpt-5 ⇄openai".
+// modelSegment is the friendly name of the plain model id; the profile comes from the session route.
 func modelSegment(in input, session string, routed bool) string {
 	id := models.Strip1M(strings.TrimSpace(in.Model.ID))
-	// Registry check: ollama tags like "qwen3:30b" carry a colon without naming a provider.
-	if prov, model, ok := strings.Cut(id, ":"); ok && model != "" {
-		if prov == session {
-			id = model
-		} else if reg := registry(); reg != nil && reg.Providers[prov] != nil {
-			return shortModelID(servedModelID(model, prov, true)) + " ⇄" + prov
-		}
-	}
 	if id == "" {
 		return displayModel(in.Model.DisplayName)
 	}
 	return shortModelID(servedModelID(id, session, routed))
-}
-
-// profileModel strips a "<profile>:" prefix only when it names a registered provider or the rest is a Claude id.
-func profileModel(id string) (string, bool) {
-	prov, model, ok := strings.Cut(id, ":")
-	if !ok || prov == "" || model == "" {
-		return id, false
-	}
-	if reg := registry(); reg != nil && reg.Providers[prov] != nil {
-		return model, true
-	}
-	if models.FamilyKind(model) == models.FamilyClaude {
-		return model, true
-	}
-	return id, false
 }
 
 var trailingDate = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`-\d{8}$`) })

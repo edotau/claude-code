@@ -408,7 +408,7 @@ func (e copilotEngine) GateExplicit(ctx context.Context, req agent.RunOptions, r
 	if err == nil && t.Provider != from && req.Provider != "" && req.Provider == pinProfile() {
 		return t, note, &retry.Error{Kind: retry.KindQuota, Agent: e.Name(), Err: errors.New(note)}
 	}
-	if tier := resumeAlias(reg, req.Model); err == nil && t.Provider != from && t.Provider.Preset == providers.PresetDatabricks && tierModel(t.Provider, tier) != "" {
+	if tier := resumeAlias(req.Model); err == nil && t.Provider != from && t.Provider.Preset == providers.PresetDatabricks && tierModel(t.Provider, tier) != "" {
 		// the fallback serves the requested tier, not its default opus
 		t.Model = tierModel(t.Provider, tier)
 	}
@@ -524,11 +524,8 @@ func copilotQuotaHandoff(
 	return res, cause
 }
 
-// resumeAlias is model's alias (bare, "<profile>:<alias>" or a Claude id's family) for the fallback; else "" (opus).
-func resumeAlias(reg *providers.Registry, model string) string {
-	if spec, err := providers.SplitModelSpec(reg, model); err == nil {
-		model = spec.Model
-	}
+// resumeAlias is model's alias (bare or a Claude id's family) for the fallback; else "" (opus).
+func resumeAlias(model string) string {
 	if slices.Contains(models.AliasNames, model) {
 		return model
 	}

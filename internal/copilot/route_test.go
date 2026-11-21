@@ -74,14 +74,12 @@ func TestValidateCopilotPinsSkipsOtherProviders(t *testing.T) {
 	}
 }
 
-// A github-copilot pin (cast <profile>:<model> or --profile) only warns when the live catalog is unreachable.
+// A github-copilot pin (plain id, profile by --profile) only warns when the live catalog is unreachable.
 func TestValidateCopilotPinsWarnsWhenCatalogUnreachable(t *testing.T) {
 	hosttest.PinScratch(t)
-	for flag, pin := range map[string]string{"": "opus=copilot:claude-opus-5.5", "copilot": "opus=claude-opus-5.5"} {
-		warn, err := ValidateCopilotPins(t.Context(), flag, []string{pin})
-		if err != nil || !strings.Contains(warn, "could not verify") {
-			t.Errorf("ValidateCopilotPins(%q, %s) = %q, %v; want the unreachable-catalog warning", flag, pin, warn, err)
-		}
+	warn, err := ValidateCopilotPins(t.Context(), "copilot", []string{"opus=claude-opus-5.5"})
+	if err != nil || !strings.Contains(warn, "could not verify") {
+		t.Errorf("ValidateCopilotPins = %q, %v; want the unreachable-catalog warning", warn, err)
 	}
 }
 

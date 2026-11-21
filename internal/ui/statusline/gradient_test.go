@@ -89,7 +89,7 @@ func TestRawModelIDServedSpelling(t *testing.T) {
 		{"databricks-claude-opus-5-5", "dbx", "databricks-opus-5-5"},
 		{"databricks-claude-opus-5", "anth", "claude-opus-5"},
 		{"claude-opus-5", "missing", "claude-opus-5"},
-		{"dbx:claude-opus-5", "anth", "databricks-opus-5"}, // the prefix's profile spells it, not the session's
+		{"dbx:claude-opus-5", "anth", "dbx:claude-opus-5"}, // no prefix read: the id shows as sent
 	} {
 		in := input{}
 		in.Model.ID = c.id
@@ -99,11 +99,11 @@ func TestRawModelIDServedSpelling(t *testing.T) {
 	}
 }
 
-// The gradient label is the raw payload id: claude- kept, a [1m] tag and a profile: prefix dropped.
+// The gradient label is the raw payload id: claude- kept, a [1m] tag dropped, a profile: prefix left as sent.
 func TestRawModelID(t *testing.T) {
 	for id, want := range map[string]string{
 		"claude-opus-5-5": "claude-opus-5-5", "databricks-claude-opus-5-5": "databricks-opus-5-5",
-		"claude-opus-5-5[1m]": "claude-opus-5-5", "work:claude-opus-5-5": "claude-opus-5-5", "": "short",
+		"claude-opus-5-5[1m]": "claude-opus-5-5", "work:claude-opus-5-5": "work:claude-opus-5-5", "": "short",
 	} {
 		if got := rawModelID(input{Model: struct {
 			ID          string `json:"id"`

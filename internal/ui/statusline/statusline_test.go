@@ -237,9 +237,8 @@ func TestModelSegment(t *testing.T) {
 	}
 	for _, c := range [][3]string{
 		{"claude-opus-5[1m]", "Opus 5 (1M context)", "opus-5"},
-		{"openai:gpt-5-nano", "openai:gpt-5-nano", "gpt-5-nano ⇄openai"},
+		{"openai:gpt-5-nano", "openai:gpt-5-nano", "openai:gpt-5-nano"}, // no prefix read: the id shows as sent
 		{"qwen3:30b", "qwen3:30b", "qwen3:30b"},
-		{"anthropic:claude-haiku-5", "Haiku 5", "haiku-5"},
 		{"claude-sonnet-5-20260101", "", "sonnet-5"},
 		{"claude-opus-5-5[1m]", "Opus 5.5 (1M context)", "opus-5-5"},
 		{"", "Opus 5 (1M context)", "Opus 5"},

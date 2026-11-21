@@ -29,6 +29,7 @@ type UnacceptedError struct {
 	Kind                  UnacceptedKind
 	Agent, Profile, Model string
 	Detail                string
+	Overlay, Plain        string // a prefixed model's overlay JSON and plain id, when its prefix names a known row
 	Nearest               []string
 }
 
@@ -41,7 +42,11 @@ func (e *UnacceptedError) Reason() string {
 	var b strings.Builder
 	switch e.Kind {
 	case UnacceptedPrefixed:
-		fmt.Fprintf(&b, "%s: a model is never <profile>:<model>; use --overlay '{\"provider\":\"…\",\"profile\":\"…\"}' --model <id>", e.Model)
+		overlay, plain := `{"provider":"…","profile":"…"}`, "<id>"
+		if e.Overlay != "" {
+			overlay, plain = e.Overlay, e.Plain
+		}
+		fmt.Fprintf(&b, "%s: a model is never <profile>:<model>; use --overlay '%s' --model %s", e.Model, overlay, plain)
 	case UnacceptedCold:
 		fmt.Fprintf(&b, "%s: %s has no fresh listing and %s is not a catalog id; run `claude-code models preflight --live --profile %s`",
 			e.Model, e.Profile, e.Model, e.Profile)
@@ -68,8 +73,8 @@ func AcceptModel(agentName string, p *providers.Provider, model string, now time
 		return e
 	}
 	if reg, rerr := providers.Load(); rerr == nil {
-		if c, cerr := providers.CastModel(reg, model); cerr != nil || c.Profile != "" {
-			return "", refuse(UnacceptedPrefixed, "")
+		if e := prefixedRefusal(reg, agentName, p.Name, model); e != nil {
+			return "", e
 		}
 	}
 	if _, auto := SplitAuto(model); model == "" || auto {
@@ -83,6 +88,32 @@ func AcceptModel(agentName string, p *providers.Provider, model string, now time
 		return "", nil
 	}
 	return judgeModel(agentName, p, model, now, refuse)
+}
+
+// PrefixedRefusal is the Prefixed refusal for a `<profile>:<model>` string on reg, else nil.
+func PrefixedRefusal(reg *providers.Registry, agentName, model string) error {
+	if e := prefixedRefusal(reg, agentName, "", model); e != nil {
+		return e
+	}
+	return nil
+}
+
+// prefixedRefusal names the overlay form with the real provider and profile when the prefix names a registry row.
+func prefixedRefusal(reg *providers.Registry, agentName, profile, model string) *UnacceptedError {
+	model = strings.TrimSpace(model)
+	c, err := providers.CastModel(reg, model)
+	if err == nil && c.Profile == "" {
+		return nil
+	}
+	e := &UnacceptedError{Kind: UnacceptedPrefixed, Agent: agentName, Profile: profile, Model: model}
+	if row := reg.Providers[c.Profile]; err == nil && row != nil {
+		prov := row.Provider
+		if row.Preset == providers.PresetDatabricks {
+			prov = router.RouteDatabricks
+		}
+		e.Overlay, e.Plain = fmt.Sprintf(`{"provider":%q,"profile":%q}`, prov, row.Name), c.Model
+	}
+	return e
 }
 
 // judgeModel runs alias spelling and the listing, agent-menu and profile checks on a typed id.

@@ -225,33 +225,37 @@ func preflightDeny(agent string, err error) *core.Result {
 	return &core.Result{Decision: core.Block, Reason: reason}
 }
 
-// refusal is ask's AcceptModel verdict on l's row and typed model, judged on reg and the fresh listing; nil passes.
+// refusal is ask's AcceptModel verdict on l's row and raw model, judged on reg and the fresh listing; nil passes.
 func (l askLine) refusal(reg *providers.Registry, agent string) error {
 	none := sync.OnceValue(func() bool {
 		f := cmp.Or(l.fallback, l.cfg.Fallback)
 		return f == router.FallbackNone || f == "" && router.DefaultFallback() == router.FallbackNone
 	})
 	p, model, err := l.target(reg, none)
-	if err != nil || p == nil || model == "" {
+	if err != nil || model == "" {
 		return err
+	}
+	row := p != nil
+	if !row {
+		p = &providers.Provider{Name: cmp.Or(l.profile, l.cfg.Profile)} // no row: only a prefixed model is refused
 	}
 	_, err = agentpkg.AcceptModel(agent, p, model, time.Now())
 	var ue *agentpkg.UnacceptedError
-	if errors.As(err, &ue) && (ue.Kind == agentpkg.UnacceptedPrefixed || none()) {
+	if errors.As(err, &ue) && (ue.Kind == agentpkg.UnacceptedPrefixed || row && none()) {
 		return err
 	}
 	return nil
 }
 
-// target is the row and bare model l's ask preflights; err is ask's refusal of the row, a nil row no prediction.
+// target is the row and raw model l's ask preflights; err is ask's refusal of the row, a nil row no prediction.
 func (l askLine) target(reg *providers.Registry, none func() bool) (*providers.Provider, string, error) {
-	model, typed := l.typedModel(reg)
+	model := cmp.Or(l.model, l.cfg.Model)
 	if l.cfg.Provider == router.RouteDatabricks {
-		return l.overlayTarget(reg, typed, model)
+		return l.overlayTarget(reg, model)
 	}
-	name := cmp.Or(l.profile, typed)
-	if l.cfg.Provider != "" || name == "" || name == agentpkg.LeadSession || (typed != "" && name != typed) {
-		return nil, "", nil
+	name := l.profile
+	if l.cfg.Provider != "" || name == "" || name == agentpkg.LeadSession {
+		return nil, model, nil
 	}
 	p, err := reg.Get(name)
 	if err != nil && !none() {
@@ -260,20 +264,11 @@ func (l askLine) target(reg *providers.Registry, none func() bool) (*providers.P
 	return p, model, err
 }
 
-// typedModel is the line's model as ask casts it: the plain id and the profile a `<profile>:` prefix names.
-func (l askLine) typedModel(reg *providers.Registry) (model, typed string) {
-	model = cmp.Or(l.model, l.cfg.Model)
-	if c, err := providers.CastModel(reg, model); err == nil && c.Profile != "" && c.Profile != "auto" {
-		return c.Model, c.Profile
-	}
-	return model, ""
-}
-
 // overlayTarget is target under overlay databricks:<p>; auto, bare, or a flag naming another row is not predicted.
-func (l askLine) overlayTarget(reg *providers.Registry, typed, model string) (*providers.Provider, string, error) {
+func (l askLine) overlayTarget(reg *providers.Registry, model string) (*providers.Provider, string, error) {
 	p := l.cfg.Profile
-	if p == "" || p == router.AutoArm || cmp.Or(l.profile, p) != p || cmp.Or(typed, p) != p {
-		return nil, "", nil
+	if p == "" || p == router.AutoArm || cmp.Or(l.profile, p) != p {
+		return nil, model, nil
 	}
 	if err := reg.ServingRow(p); err != nil {
 		return nil, "", err

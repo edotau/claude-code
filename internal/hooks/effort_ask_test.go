@@ -3,6 +3,7 @@ package hooks
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -108,7 +109,7 @@ func checkReceiptEarned(t *testing.T, command, brief string) {
 	}
 }
 
-// The hook matches ask's cast-then-accept flow, including shorthand that selects the profile.
+// The hook matches AcceptModel on the raw model: a `<profile>:` prefix is refused as Prefixed, whatever the fallback.
 func TestAskLineRefusalMatchesAcceptModel(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
@@ -116,31 +117,32 @@ func TestAskLineRefusalMatchesAcceptModel(t *testing.T) {
 		{ID: "databricks-claude-opus-5-5", Ready: "READY"}}}); err != nil {
 		t.Fatal(err)
 	}
+	reg, err := newDispatchRun(nil).registry()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, model := range []string{"claude-opus-5-9", "dev:claude-opus-5-9", "dev:opus"} {
-		flags := "--model " + model
-		if !strings.Contains(model, ":") {
-			flags += " --profile dev"
+		for _, fallback := range []string{"none", "agents"} {
+			flags := "--model " + model + " --fallback " + fallback
+			if !strings.Contains(model, ":") {
+				flags += " --profile dev"
+			}
+			l := parseAskLine(t.Context(), "Run: claude-code agents ask --agent claude "+flags+" 'x'")
+			checkAskRefusal(t, l.refusal(reg, "claude"), reg, model, fallback)
 		}
-		l := parseAskLine(t.Context(), "Run: claude-code agents ask --agent claude --fallback none "+flags+" 'x'")
-		reg, err := newDispatchRun(nil).registry()
-		if err != nil {
-			t.Fatal(err)
+	}
+}
+
+func checkAskRefusal(t *testing.T, got error, reg *providers.Registry, model, fallback string) {
+	t.Helper()
+	_, want := agentpkg.AcceptModel("claude", reg.Providers["dev"], model, time.Now())
+	var ue *agentpkg.UnacceptedError
+	switch {
+	case strings.Contains(model, ":"):
+		if want == nil || !errors.As(got, &ue) || ue.Kind != agentpkg.UnacceptedPrefixed || !strings.Contains(got.Error(), `--overlay '{"provider"`) {
+			t.Errorf("--model %s --fallback %s: refusal = %v, want Prefixed with the overlay form", model, fallback, got)
 		}
-		cast, err := providers.CastModel(reg, model)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, profile, err := cast.Merge(l.provider, l.profile)
-		if err != nil {
-			t.Fatal(err)
-		}
-		_, want := agentpkg.AcceptModel("claude", reg.Providers[profile], cast.Model, time.Now())
-		if (want == nil) != (model == "dev:opus") {
-			t.Fatalf("--model %s: ask verdict = %v", model, want)
-		}
-		got := l.refusal(reg, "claude")
-		if fmt.Sprint(got) != fmt.Sprint(want) {
-			t.Errorf("--model %s: refusal = %v, want %v", model, got, want)
-		}
+	case fallback == "none" && fmt.Sprint(got) != fmt.Sprint(want):
+		t.Errorf("--model %s: refusal = %v, want %v", model, got, want)
 	}
 }

@@ -400,11 +400,10 @@ func (v *pinValidator) check(ctx context.Context, p string) error {
 	if !ok {
 		return nil
 	}
-	c, err := providers.CastModel(v.reg, spec)
-	if err != nil {
+	name, model := v.fallback, strings.TrimSpace(spec) // a plain id; the profile is the route
+	if err := agent.PrefixedRefusal(v.reg, "copilot", model); err != nil {
 		return err
 	}
-	name, model := cmp.Or(c.Profile, v.fallback), c.Model
 	if dp := v.reg.Providers[name]; dp != nil && dp.Preset == providers.PresetDatabricks {
 		w, err := validateDatabricksCopilotPin(ctx, v.reg, name, model, v.served)
 		if err != nil {

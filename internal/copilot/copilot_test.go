@@ -38,9 +38,8 @@ import (
 )
 
 func TestResumeSlot(t *testing.T) {
-	reg := &providers.Registry{Providers: map[string]*providers.Provider{"dev": {Name: "dev"}}}
-	for in, want := range map[string]string{"sonnet": "sonnet", "dev:haiku": "haiku", "claude-sonnet-5-5": "sonnet", "gpt-5": ""} {
-		if got := resumeAlias(reg, in); got != want {
+	for in, want := range map[string]string{"sonnet": "sonnet", "haiku": "haiku", "claude-sonnet-5-5": "sonnet", "gpt-5": ""} {
+		if got := resumeAlias(in); got != want {
 			t.Errorf("resumeAlias(%q) = %q, want %q", in, got, want)
 		}
 	}
