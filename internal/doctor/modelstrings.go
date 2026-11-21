@@ -2,6 +2,7 @@ package doctor
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"maps"
 	"os"
@@ -113,12 +114,8 @@ func modelEnvKey(key string) bool {
 func prefixedModels(reg *providers.Registry, values map[string]string) []string {
 	var hits []string
 	for _, place := range slices.Sorted(maps.Keys(values)) {
-		cast, err := providers.CastModel(reg, values[place])
-		switch {
-		case err != nil:
-			hits = append(hits, place+`: invalid model prefix; use --overlay '{"provider":"<provider>","profile":"<profile>"}' --model <model>`)
-		case cast.Profile != "":
-			hits = append(hits, place+": use --overlay '"+cast.Route()+"' --model <model>")
+		if e, ok := errors.AsType[*providers.PrefixError](providers.CheckModel(reg, values[place])); ok { // the overlay only: a stored value stays private
+			hits = append(hits, place+": use --overlay '"+e.Overlay()+"' --model <model>")
 		}
 	}
 	return hits

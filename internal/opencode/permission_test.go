@@ -225,7 +225,7 @@ printf '%s\n' '{"type":"text","part":{"text":"ok"}}'`)
 	}
 	if hub {
 		p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
-		engine = hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}
+		engine = hubDispatch{agent: "opencode", provider: p}
 	}
 	return engine, seen
 }

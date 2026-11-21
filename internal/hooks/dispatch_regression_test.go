@@ -865,10 +865,8 @@ func TestOverlayArgsCarriesTheWholeRoute(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://example.invalid","auth":{"type":"none"}}}}}`)
 	want := `{"provider":"databricks","profile":"qa","model":"sonnet"}`
-	for _, model := range []string{"sonnet", "qa:sonnet"} {
-		if got := OverlayArgs("qa", model, "", "acct"); !slices.Equal(got, []string{"--overlay", want}) {
-			t.Errorf("OverlayArgs(qa, %q) = %q, want --overlay %s", model, got, want)
-		}
+	if got := OverlayArgs("qa", "sonnet", "", "acct"); !slices.Equal(got, []string{"--overlay", want}) {
+		t.Errorf("OverlayArgs(qa, sonnet) = %q, want --overlay %s", got, want)
 	}
 	pool := []string{"--overlay", `{"provider":"databricks","profile":"auto"}`}
 	if got := OverlayArgs("databricks", "", "", ""); !slices.Equal(got, pool) {

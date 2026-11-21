@@ -249,24 +249,10 @@ func parseOverlay(raw []byte) (Overlay, error) {
 	if _, err := dec.Token(); err != io.EOF {
 		return Overlay{}, errors.New("trailing data after the JSON object")
 	}
-	o, err := o.castModel()
-	if err != nil {
+	if err := providers.CheckModelShared(o.Model); err != nil { // the model key is a plain id; the route keys carry the row
 		return Overlay{}, err
 	}
 	return o, o.validate(fileSrc)
-}
-
-// castModel casts a `<profile>:<model>` model key into this object's provider, profile and model keys.
-func (o Overlay) castModel() (Overlay, error) {
-	c, err := providers.CastShared(o.Model)
-	if err == nil && c.Profile != "" {
-		o.Model = c.Model
-		o.Provider, o.Profile, err = c.Merge(o.Provider, o.Profile)
-	}
-	if err != nil {
-		return o, errors.New("model: " + strings.TrimPrefix(err.Error(), providers.ErrModelSpec.Error()+": "))
-	}
-	return o, nil
 }
 
 // checkOverlaySchema refuses a negative or newer "schema" before schemas.Decode, whose migration loop would walk it.

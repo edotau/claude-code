@@ -52,8 +52,6 @@ func TestResolveModel(t *testing.T) {
 		{"copilot", "aueric_boehcp:opus", "aueric_boehcp", "gpt-6-astra"},
 		{"copilot", "dev:claude-opus-5-5", "dev", "databricks-claude-opus-5-5"},
 		{"codex", "openai:opus", "openai", "gpt-5"},
-		{"claude", "databricks:claude-opus-5-5", "qa", "databricks-claude-opus-5-5"},
-		{"codex", "auto:gpt-6-1-sol", "qa", "databricks-gpt-6-1-sol"},
 		{"gemini", "dev:claude-sonnet-5-5", "dev", "databricks-claude-sonnet-5-5"},
 		{"gemini", "antigravity:claude-sonnet-5-5-medium", "antigravity", "claude-sonnet-5-5"},
 		{"gemini", "antigravity:gpt-oss-120b", "antigravity", "gpt-oss-120b"},
@@ -309,7 +307,7 @@ func TestCommandTokenPoolHonorsDispatchOverride(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, p.Name+".json"), []byte(raw), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	q := ModelQuery{Agent: "codex", Model: "databricks:gpt-6-1-sol"}
+	q := ModelQuery{Agent: "codex", Model: "gpt-6-1-sol", Profile: poolName}
 	if r, err := ResolveModel(reg, q, now); err != nil || r.Profile != "dev" {
 		t.Fatalf("refreshable pool = %v, %v", r, err)
 	}

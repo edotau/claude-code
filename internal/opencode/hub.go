@@ -83,14 +83,13 @@ func opencodeLadderProvider(reg *providers.Registry, id string) (*providers.Prov
 type hubDispatch struct {
 	agent    string
 	provider *providers.Provider
-	reg      *providers.Registry
 	// firstOutput, when non-zero, fails the dispatch if nothing streams within it — the free Zen dispatch's stall guard.
 	firstOutput time.Duration
 }
 
-// newHubDispatch builds a hub dispatch Agent for agentName on provider; reg resolves a provider:model override.
-func newHubDispatch(agentName string, provider *providers.Provider, reg *providers.Registry) agent.HubEngine {
-	return hubDispatch{agent: agentName, provider: provider, reg: reg}
+// newHubDispatch builds a hub dispatch Agent for agentName on provider; the registry is the Hub hook's, unused here.
+func newHubDispatch(agentName string, provider *providers.Provider, _ *providers.Registry) agent.HubEngine {
+	return hubDispatch{agent: agentName, provider: provider}
 }
 
 func (l hubDispatch) Name() string { return l.agent }
@@ -252,7 +251,7 @@ func (l hubDispatch) resolveModel(reqModel string) string {
 	case slices.Contains(models.AliasNames, reqModel):
 		id = l.provider.Models[reqModel]
 	default:
-		id = providers.ParseTarget(l.reg, reqModel, l.provider).Model
+		id = providers.PlainTarget(l.provider, strings.TrimSpace(reqModel)).Model
 	}
 	return models.Strip1M(opencodeModel(l.provider, id))
 }

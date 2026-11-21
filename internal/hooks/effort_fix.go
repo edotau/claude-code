@@ -115,7 +115,7 @@ func RunLine(argv []string) string {
 	return "Run: " + textutil.ShellJoin(append([]string{"claude-code", "agents", "ask"}, argv...))
 }
 
-// OverlayArgs is the ask argv for a profile and a plain or "row:model" model: one --overlay, or --profile when unknown.
+// OverlayArgs is the ask argv for a profile and a plain model: one --overlay, or --profile when unknown.
 func OverlayArgs(profile, model, identity, account string) []string {
 	t := overlayTarget(profile, model)
 	switch t.Provider {
@@ -134,10 +134,6 @@ func OverlayArgs(profile, model, identity, account string) []string {
 // overlayTarget fills the provider from the profile's registry row; a bare provider key is its pool pick.
 func overlayTarget(profile, model string) route.Target {
 	reg, _ := providers.Load()
-	if spec, err := providers.SplitModelSpec(reg, model); err == nil {
-		model = spec.Model
-		profile = cmp.Or(profile, spec.Row)
-	}
 	t := route.Target{Route: route.ParseLegacy(profile), Model: model}
 	if t.Provider != "" {
 		t.Profile = cmp.Or(t.Profile, agentpkg.AutoModel)

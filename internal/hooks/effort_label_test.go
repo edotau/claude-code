@@ -22,16 +22,19 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-// A Run: line's --profile row spells the model as it serves it, never as typed (a typed `<row>:` is not stacked).
+// A Run: line's --profile row spells the model as it serves it; a typed `<row>:<model>` gets no label.
 func TestLabelModelSpellsExplicitModelOnProfileRow(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
 	t.Setenv(route.OverlayVar, "")
-	for _, flags := range []string{"--profile dev --model claude-opus-5", "--model dev:claude-opus-5"} {
-		task := "Run: claude-code agents ask --agent claude " + flags + " 'do x'"
-		if got, _ := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "databricks-claude-opus-5" {
-			t.Errorf("label for %q = %q, want databricks-claude-opus-5", flags, got)
-		}
+	task := "Run: claude-code agents ask --agent claude --profile dev --model claude-opus-5 'do x'"
+	if got, _ := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "databricks-claude-opus-5" {
+		t.Errorf("label = %q, want databricks-claude-opus-5", got)
+	}
+	task = "Run: claude-code agents ask --agent claude --model dev:claude-opus-5 'do x'" // refused: no label, the overlay named
+	if got, note := labelModel(context.Background(), newDispatchRun(nil), map[string]any{}, "general-purpose", task); got != "" ||
+		!strings.Contains(note, `--overlay '{"provider":"databricks","profile":"dev"}' --model claude-opus-5`) {
+		t.Errorf("prefixed label = %q, note %q; want none, naming the overlay", got, note)
 	}
 }
 
@@ -181,7 +184,7 @@ func TestLabelModelAutoRunLine(t *testing.T) {
 	}
 }
 
-// An auto Run: line is labelled a peek; a typed or frozen model keeps the bare id; a bare id or `auto` head is rewritten.
+// An auto Run: line is labelled a peek; a typed model keeps the bare id; a prefixed one gets none.
 func TestAutoRunLineLabelsNext(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	stubLabelModels(t, "m-1")
@@ -194,7 +197,7 @@ func TestAutoRunLineLabelsNext(t *testing.T) {
 	for _, c := range []struct{ model, desc, want string }{
 		{"auto", "do x", "auto (next: m-1): do x"}, {"auto", "m-1: do x", "auto (next: m-1): do x"},
 		{"auto", "auto: do x", "auto (next: m-1): do x"}, {"auto", "auto (next: m-1): do x", "auto (next: m-1): do x"},
-		{"dev:auto", "do x", "auto (next: m-1): do x"}, {"m-2", "auto (next: m-1): do x", "m-1: do x"},
+		{"dev:auto", "do x", "do x"}, {"m-2", "auto (next: m-1): do x", "m-1: do x"}, // a prefixed model gets no label
 	} {
 		if got := run(c.model, c.desc); got != c.want {
 			t.Errorf("--model %s, %q -> %q, want %q", c.model, c.desc, got, c.want)

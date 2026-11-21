@@ -176,8 +176,8 @@ func TestSelectPinsAndCrossProvider(t *testing.T) {
 	if got := sel.Aliases["haiku"]; got.Provider != sel.Provider || got.Model == "gpt-5-nano" {
 		t.Errorf("haiku = %+v; want the session profile's own model, the legacy pin ignored", got)
 	}
-	if tgt := ParseTarget(reg, "qwen3:30b[1m]", sel.Provider); tgt.Provider != sel.Provider || tgt.Model != "qwen3:30b" {
-		t.Errorf("unregistered prefix must stay a model: %+v", tgt)
+	if err := CheckModel(reg, "qwen3:30b[1m]"); err != nil {
+		t.Errorf("a local tag must stay a model: %v", err)
 	}
 	if err := vault.View(func(tx *vault.Tx) error {
 		if got := AgentRecord("claude").Model; got != "claude-opus-4-8" {

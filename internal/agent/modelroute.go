@@ -75,7 +75,7 @@ type ModelQuery struct {
 	Task                           string                     // the brief: ResolveRun sizes its tier when auto picks the model
 	Tools                          bool                       // the run calls tools: auto skips a model whose probe refused them
 	menu                           *[]providers.OpencodeModel // read once per auto resolution; nil reads per use
-	pinErr                         error                      // the untyped run's <AGENT>_MODEL names no usable row
+	pinErr                         error                      // the untyped run's pinned model carries a profile prefix
 	rowSpelled                     bool                       // Model is rowDefault's own spelling: never judged by a listing
 }
 
@@ -104,23 +104,11 @@ func QueryFor(ctx context.Context, q ModelQuery) ModelQuery {
 	q.ctx = ctx
 	rec := vault.GetAgentRecord(q.Agent)
 	q.PinRoute = rec.EffectiveRoute()
-	if c := providers.RecordModel(rec); q.PinRoute.IsZero() && c.Profile != "" { // a legacy `<profile>:<id>` record
-		q.PinRoute = route.Route{Provider: c.Provider, Profile: c.Profile}
-	}
 	q.PinProfile, q.PinAccount = strings.TrimSpace(q.PinRoute.Profile), strings.TrimSpace(q.PinRoute.Account)
 	q.PinModel = agentModelPinContext(ctx, q.Agent)
 	q.Session = providers.SessionProfileContext(ctx)
-	if q.Model == "" {
-		q = withEnvRoute(ctx, q)
-	}
-	return q
-}
-
-// withEnvRoute takes an untyped run's route from `<AGENT>_MODEL=<profile>:<id>` when nothing typed names one.
-func withEnvRoute(ctx context.Context, q ModelQuery) ModelQuery {
-	c, _, err := providers.EnvCast(ctx, q.Agent)
-	if q.pinErr = err; c.Profile != "" && q.Route.IsZero() && q.Profile == "" && q.Provider == "" && q.Account == "" {
-		q.Provider, q.Profile = c.Provider, c.Profile
+	if q.Model == "" { // an old `<profile>:<id>` record or <AGENT>_MODEL is refused, never read as a route (D6)
+		q.pinErr = providers.CheckModelShared(q.PinModel)
 	}
 	return q
 }
@@ -135,10 +123,7 @@ func ResolveModel(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRo
 		return ModelRoute{}, fmt.Errorf("%w: %w", ErrModelRoute, err)
 	}
 	q.Model = model
-	spec, pool, err := splitQuery(reg, q)
-	if err != nil {
-		return ModelRoute{}, fmt.Errorf("%w: %w", ErrModelRoute, err)
-	}
+	spec, pool := splitQuery(reg, q)
 	if pool {
 		return resolvePool(reg, q, spec, now)
 	}
@@ -183,30 +168,23 @@ func resolveModelWord(q ModelQuery) (string, error) {
 	return q.Model, nil
 }
 
-type modelTarget struct {
-	route.Target
-	ByType, Pool bool
-}
+type modelTarget struct{ route.Target }
 
-// splitQuery reads the typed prefix; pool is true for databricks:<model> and overlay profile auto.
-func splitQuery(reg *providers.Registry, q ModelQuery) (modelTarget, bool, error) {
-	legacy, err := providers.SplitModelSpec(reg, q.Model)
-	spec := modelTarget{Provider: legacy.Provider, Profile: legacy.Row,
-		Model: legacy.Model, ByType: legacy.ByType, Pool: legacy.Pool}
-	if p := reg.Row(spec.Profile); p != nil {
-		spec.Provider = p.Provider
-	}
-	if spec.Pool {
-		spec.Profile = poolName
-	}
-	if err != nil || spec.Pool {
-		return spec, spec.Pool, err
+// splitQuery reads a dispatch cell's "<row>:<model>"; pool is true for overlay profile auto or a bare databricks.
+func splitQuery(reg *providers.Registry, q ModelQuery) (modelTarget, bool) {
+	spec := modelTarget{route.Target{Model: q.Model}}
+	if row, m, ok := cellRow(reg, q.Model); ok {
+		spec.Provider, spec.Profile, spec.Model = reg.Providers[row].Provider, row, m
+		return spec, false
 	}
 	bare := q.Provider == providers.GroupDatabricks && q.Profile == ""
-	if (q.Profile == poolName || bare) && spec.Profile == "" && reg.Providers[poolName] == nil {
-		return spec, true, nil
-	}
-	return spec, false, nil
+	return spec, (q.Profile == poolName || bare) && reg.Providers[poolName] == nil
+}
+
+// cellRow splits the router's own "<row>:<model>" cell spelling on a registry row; user input never reaches it.
+func cellRow(reg *providers.Registry, spec string) (row, model string, ok bool) {
+	row, model, ok = splitRowModel(strings.TrimSpace(spec))
+	return row, model, ok && model != "" && reg.Row(row) != nil
 }
 
 // routeRow walks the profile precedence: typed sources must serve the agent, implicit ones fall through.
@@ -282,11 +260,11 @@ func geminiGatewayPick(reg *providers.Registry, q ModelQuery) (*providers.Provid
 
 type namedSource struct{ name, src string }
 
-// typedRow is the highest typed source: prefix or type, the profile flag, the overlay provider, the account.
+// typedRow is the highest typed source: a dispatch cell's row, the profile flag, the overlay provider, the account.
 func typedRow(reg *providers.Registry, q ModelQuery, spec modelTarget) (namedSource, error) {
 	switch {
 	case spec.Profile != "":
-		return namedSource{spec.Profile, cmp.Or(map[bool]string{true: "type"}[spec.ByType], "prefix")}, nil
+		return namedSource{spec.Profile, "cell"}, nil
 	case q.Profile != "":
 		return namedSource{q.Profile, "flag"}, nil
 	case q.Provider != "":
@@ -633,13 +611,11 @@ func (r ModelRoute) Overlay() agentconfig.Overlay {
 // Label is the "<model>" of a dispatch description: the wire id the ran-on line prints.
 func (r ModelRoute) Label() string { return r.Model }
 
-// resolvePool is the pool's first usable workspace serving the model; databricks:<m> walks vault order, auto ranks.
+// resolvePool is the pool's first usable workspace serving the model, ranked least busy first.
 func resolvePool(reg *providers.Registry, q ModelQuery, spec modelTarget, now time.Time) (ModelRoute, error) {
 	st, skipped := router.LoadState(), []string(nil)
 	names := reg.ProfilesOf(providers.GroupDatabricks)
-	if !spec.Pool {
-		names = autoOrder(reg, names, st, now)
-	}
+	names = autoOrder(reg, names, st, now)
 	for _, name := range names {
 		p, err := agentconfig.CommandProvider(q.ctx, reg.Providers[name])
 		if err != nil {

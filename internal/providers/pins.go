@@ -50,7 +50,7 @@ func AgentRecord(agent string) vault.AgentRecord { return AgentRecords()[agent] 
 
 // CopilotModel is the copilot launch, configure page and doctor resolver: the record's model, else github's opus alias.
 func CopilotModel(reg *Registry) (model, source string) {
-	if m := RecordModel(AgentRecord("copilot")).Model; m != "" {
+	if m := AgentRecord("copilot").Model; m != "" {
 		return m, "pin"
 	}
 	if reg == nil {
@@ -115,13 +115,8 @@ func AgentModelEnv(agent string) string {
 	return strings.ToUpper(agent) + "_MODEL"
 }
 
-// EnvModel is the agent's shell model env as its plain id (EnvCast also gives the route unit), with its var name.
+// EnvModel is the agent's shell model env as typed, with its var name; a prefixed value is refused where it is used.
 func EnvModel(ctx context.Context, agent string) (model, envVar string) {
-	c, v, _ := EnvCast(ctx, agent)
-	return c.Model, v
-}
-
-func envModelRaw(ctx context.Context, agent string) (model, envVar string) {
 	envVar = AgentModelEnv(agent)
 	if envVar == "" {
 		return "", ""
@@ -129,31 +124,12 @@ func envModelRaw(ctx context.Context, agent string) (model, envVar string) {
 	return strings.TrimSpace(proc.Value(ctx, envVar)), envVar
 }
 
-// EnvCast casts the agent's shell model env at the boundary, with the variable's name.
-func EnvCast(ctx context.Context, agent string) (ModelCast, string, error) {
-	m, v := envModelRaw(ctx, agent)
-	c, err := CastShared(m)
-	if err != nil {
-		return ModelCast{}, v, fmt.Errorf("%s=%s: %w", v, m, err)
-	}
-	return c, v, nil
-}
-
 // effectiveModel is the launch model: the shell env over the record's model; source is "env VAR", "pin" or "default".
 func effectiveModel(agent string) (model, source string) {
 	if m, v := EnvModel(context.Background(), agent); m != "" {
 		return m, "env " + v
 	}
-	return pinned(RecordModel(AgentRecord(agent)).Model)
-}
-
-// RecordModel is r's model cast on read: a legacy `<profile>:<id>` gives the id and its route; a bad prefix stays raw.
-func RecordModel(r vault.AgentRecord) ModelCast {
-	c, err := CastShared(r.Model)
-	if err != nil {
-		return ModelCast{Model: r.Model}
-	}
-	return c
+	return pinned(AgentRecord(agent).Model)
 }
 
 // CodexModel resolves the model a codex launch uses (shell env, then the record); "" leaves codex's own default.
@@ -289,10 +265,10 @@ func mergeKeys[V any](a, b map[string]V) map[string]struct{} {
 
 // recordFields flattens r to field -> value, aliases as aliases.<alias>.
 func recordFields(r vault.AgentRecord) map[string]string {
-	f := map[string]string{"profile": recordProfile(r), "model": RecordModel(r).Model, "effort": r.Effort,
+	f := map[string]string{"profile": recordProfile(r), "model": r.Model, "effort": r.Effort,
 		"context": r.Context, "account": r.EffectiveRoute().Account}
 	for alias, v := range r.Aliases {
-		f["aliases."+alias] = RecordModel(vault.AgentRecord{Model: v}).Model
+		f["aliases."+alias] = v
 	}
 	return f
 }
@@ -413,25 +389,15 @@ func ParseModelPins(reg *Registry, profile string, unpin bool, pins []string) (m
 		} else if !slices.Contains(models.AliasNames, alias) {
 			return nil, fmt.Errorf("unknown alias %q (opus|sonnet|haiku|fable|all)", alias)
 		}
-		c, err := CastModel(reg, spec)
-		if err != nil {
+		if err := CheckModel(reg, spec); err != nil {
 			return nil, err
 		}
-		spec = c.Model
-		if err := pinScope(reg, p, c, profile); err != nil && spec != "" { // an unpin clears on any profile
+		if err := SessionProfileOnly(reg, profile); err != nil && spec != "" { // an unpin clears on any profile
 			return nil, err
 		}
 		set[alias] = spec
 	}
 	return set, nil
-}
-
-// pinScope checks pin p's profile: alias=<p>:<id> reads as --profile <p>, and pins resolve on the session (D5).
-func pinScope(reg *Registry, p string, c ModelCast, profile string) error {
-	if c.Profile != "" && profile != "" && c.Profile != profile {
-		return fmt.Errorf("%w: --pin %s names profile %s, but --profile %s; drop one", ErrModelSpec, p, c.Profile, profile)
-	}
-	return SessionProfileOnly(reg, cmp.Or(c.Profile, profile))
 }
 
 // WithClaudeModels is r with the model pins in set applied: alias "" is every alias, "" spec clears.

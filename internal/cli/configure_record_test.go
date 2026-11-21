@@ -131,17 +131,17 @@ func TestConfigureRecordModelRefusalExitsUsage(t *testing.T) {
 	}
 }
 
-// A profile prefix on a model is refused (exit 2) naming the overlay form; a local tag such as qwen3:30b passes.
+// A profile prefix on a model is refused (exit 2) naming the row's overlay; a local tag such as qwen3:30b passes.
 func TestModelPrefixRefused(t *testing.T) {
-	hosttest.PinScratch(t)
-	want := `use --overlay {"provider":"<provider>","profile":"<profile>"} --model`
+	seedAltRows(t)
+	want := `use --overlay '{"provider":"anthropic","profile":"alt2"}' --model`
 	cases := []struct {
 		name string
 		run  func() int
 	}{
-		{"configure", func() int { return cmdConfigure([]string{"agents", "codex", "model=dev:opus", "--dry-run"}) }},
-		{"resolve", func() int { return cmdGatewayResolve([]string{"codex", "--model", "dev:auto"}) }},
-		{"label", func() int { return cmdAgentsLabel([]string{"codex", "--model", "dev:opus"}) }},
+		{"configure", func() int { return cmdConfigure([]string{"agents", "codex", "model=alt2:opus", "--dry-run"}) }},
+		{"resolve", func() int { return cmdGatewayResolve([]string{"codex", "--model", "alt2:auto"}) }},
+		{"label", func() int { return cmdAgentsLabel([]string{"codex", "--model", "alt2:opus"}) }},
 	}
 	for _, tc := range cases {
 		code, _, stderr := hosttest.CaptureOutput(t, tc.run)

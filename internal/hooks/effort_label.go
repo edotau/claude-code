@@ -307,6 +307,9 @@ func labelRoute(ctx context.Context, run *dispatchRun, updated map[string]any, s
 		return agentpkg.ModelRoute{Model: ownModel(ctx, run, updated, st)}, true, false, nil
 	}
 	reg, err := run.registry()
+	if err == nil {
+		err = providers.CheckModel(reg, q.Model) // a Run: line's <profile>:<model> gets no label, as ask refuses it
+	}
 	if err != nil {
 		return agentpkg.ModelRoute{Agent: q.Agent}, false, false, err
 	}

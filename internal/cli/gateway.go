@@ -272,14 +272,9 @@ func gatewayRoute(args []string) int {
 	if fs.NArg() > 0 {
 		return helptext.Fail(name+": unexpected argument %q", fs.Arg(0))
 	}
-	c, err := providers.CastShared(q.Model)
-	if err == nil {
-		_, q.Profile, err = c.Merge("", q.Profile)
-	}
-	if err != nil {
+	if err := refuseModelPrefix(q.Model); err != nil {
 		return helptext.FailUsage(name+": %v", err)
 	}
-	q.Model = c.Model
 	if !helptext.Explicit(fs, "fallback") {
 		q.Fallback = router.DefaultFallback()
 		if !slices.Contains(router.FallbackModes, q.Fallback) {

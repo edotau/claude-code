@@ -57,7 +57,7 @@ func loadSchema(ref string) (*Schema, error) {
 		return nil, fmt.Errorf("persona %q: %s has no body to use as the prompt", ref, path)
 	}
 	p.Tools, err = schemaTools(fm["tools"])
-	if err = cmp.Or(err, castPersona(p)); err != nil { // front-matter model: <profile>:<id> reads as profile + model
+	if err = cmp.Or(err, checkPersonaModel(p)); err != nil { // front-matter model: <profile>:<id> is refused
 		return nil, fmt.Errorf("persona %q: %w", ref, err)
 	}
 	if n, ok := fm["maxTurns"].(int); ok && n > 0 {
@@ -156,7 +156,7 @@ func buildAgents(wire map[string]agentsDef) (map[string]*Schema, error) {
 		}
 		agents[key] = &Schema{Name: key, Description: d.Description, Prompt: d.Prompt, Tools: d.Tools, Model: d.Model,
 			MaxTurns: d.MaxTurns, Agent: d.Agent, Profile: d.Profile, Effort: d.Effort}
-		if err := castPersona(agents[key]); err != nil {
+		if err := checkPersonaModel(agents[key]); err != nil {
 			return nil, fmt.Errorf("--agents: %s: %w", key, err)
 		}
 	}
@@ -296,15 +296,5 @@ func applyCaps(c Caps, req RunOptions) (out RunOptions, dropped, emulated []stri
 	return req, dropped, emulated
 }
 
-// castPersona casts a persona's `model: <profile>:<id>` into its profile and plain model, so no argv carries a prefix.
-func castPersona(p *Schema) error {
-	c, err := providers.CastShared(p.Model)
-	if err == nil {
-		_, p.Profile, err = c.Merge("", p.Profile)
-	}
-	if err != nil {
-		return err
-	}
-	p.Model = c.Model
-	return nil
-}
+// checkPersonaModel refuses a persona's `model: <profile>:<id>`: the front matter's profile key carries the row.
+func checkPersonaModel(p *Schema) error { return providers.CheckModelShared(p.Model) }

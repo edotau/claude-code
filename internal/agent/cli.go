@@ -536,7 +536,11 @@ func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, pr
 	if t, ok := familyTarget(reg, req, sel.Provider); ok {
 		return reg, t, nil
 	}
-	return reg, servedTarget(cmp.Or(req.Agent, "claude"), providers.ParseTarget(reg, req.Model, sel.Provider)), nil
+	t := providers.PlainTarget(sel.Provider, strings.TrimSpace(req.Model))
+	if row, m, ok := cellRow(reg, req.Model); ok { // a dispatch cell names its own row
+		t = providers.PlainTarget(reg.Providers[row], m)
+	}
+	return reg, servedTarget(cmp.Or(req.Agent, "claude"), t), nil
 }
 
 // familyTarget is a typed GPT family name (sol, dev:sol) as the concrete id its row resolves to; else ok is false.

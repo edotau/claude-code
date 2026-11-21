@@ -303,13 +303,13 @@ func opencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bo
 	if !found {
 		return "", "", false
 	}
-	main = aliasModelID(reg, p, models.Sonnet)
-	small = aliasModelID(reg, p, models.Haiku)
+	main = aliasModelID(p, models.Sonnet)
+	small = aliasModelID(p, models.Haiku)
 	return main, small, main != "" && small != ""
 }
 
 // aliasModelID is alias's pin-resolved wire model id for p; "auto" becomes p.OpencodeFallback when set.
-func aliasModelID(reg *providers.Registry, p *providers.Provider, alias string) string {
+func aliasModelID(p *providers.Provider, alias string) string {
 	rec := vault.GetAgentRecord("claude")
 	spec := cmp.Or(rec.Aliases[strings.ToLower(alias)], rec.Model)
 	if spec == "" {
@@ -318,7 +318,7 @@ func aliasModelID(reg *providers.Registry, p *providers.Provider, alias string) 
 	if spec == "" {
 		return ""
 	}
-	return opencodeModel(p, p.WireModel(providers.ParseTarget(reg, spec, p).Model))
+	return opencodeModel(p, p.WireModel(providers.PlainTarget(p, strings.TrimSpace(spec)).Model))
 }
 
 // opencodeModel swaps Copilot's "auto" router id (absent from opencode's catalog) for p.OpencodeFallback.

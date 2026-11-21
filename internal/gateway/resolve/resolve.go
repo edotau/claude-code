@@ -114,7 +114,7 @@ func Query(ctx context.Context, name, model, profile, overlay string) (agent.Mod
 // All resolves q on every profile, optionally live-checking each that resolved.
 func All(ctx context.Context, reg *providers.Registry, q agent.ModelQuery, live bool) []ProfileRow {
 	q = agent.QueryFor(agent.PeekContext(ctx), q)
-	target := gatewayTarget(reg, q.Model)
+	target := route.Target{Model: q.Model}
 	var rows []ProfileRow
 	for _, p := range allRows(reg) {
 		target.Route = route.Route{Provider: p.Provider, Profile: p.Name}
@@ -138,14 +138,6 @@ func All(ctx context.Context, reg *providers.Registry, q agent.ModelQuery, live 
 		rows = append(rows, row)
 	}
 	return rows
-}
-
-// gatewayTarget keeps the legacy parser at the input boundary until providers exposes its shared model cast.
-func gatewayTarget(reg *providers.Registry, model string) route.Target {
-	if spec, err := providers.SplitModelSpec(reg, model); err == nil {
-		model = spec.Model
-	}
-	return route.Target{Model: model}
 }
 
 // allRows lists every registry row grouped by provider type, each in declared order.

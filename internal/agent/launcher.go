@@ -67,6 +67,9 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 	if _, err := agentconfig.FlagOverlay(nil, o.KeepEnv); err != nil { // names only: never a value
 		return LaunchOptions{}, nil, err
 	}
+	if err := providers.CheckModelShared(o.Model); err != nil { // every launcher refuses <profile>:<model>, exit 2
+		return LaunchOptions{}, nil, err
+	}
 	err := o.foldOverlay()
 	return o, rest, err
 }

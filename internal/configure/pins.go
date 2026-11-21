@@ -78,7 +78,7 @@ func AgentField(rec vault.AgentRecord, field string) string {
 	case "PROFILE":
 		return profileKey(rec.EffectiveRoute())
 	case "MODEL":
-		return providers.RecordModel(rec).Model
+		return rec.Model
 	}
 	return profileKey(rec.EffectiveFallbackRoute())
 }

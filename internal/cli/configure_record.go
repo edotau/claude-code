@@ -119,23 +119,8 @@ func applyRecord(agent string, set map[string]string, dryRun bool) int {
 	return 0
 }
 
-// refuseModelPrefix rejects model=<profile>:<id>; a local tag such as qwen3:30b passes.
-func refuseModelPrefix(model string) error {
-	c, err := providers.CastShared(model)
-	if err != nil || c.Profile != "" {
-		return fmt.Errorf("model %s: a profile is not part of a model; use --overlay %s --model %s",
-			model, `{"provider":"<provider>","profile":"<profile>"}`, modelAfterPrefix(model))
-	}
-	return nil
-}
-
-// modelAfterPrefix is the part after the first colon, or the whole model when it has none.
-func modelAfterPrefix(model string) string {
-	if _, rest, ok := strings.Cut(model, ":"); ok && rest != "" {
-		return rest
-	}
-	return model
-}
+// refuseModelPrefix rejects model=<x>:<id>, naming the row's overlay; a local tag such as qwen3:30b passes.
+func refuseModelPrefix(model string) error { return providers.CheckModelShared(model) }
 
 // validateRecordSet checks every pin field and the config_route (codex only, a profile that serves it) before any write.
 func validateRecordSet(agent string, set map[string]string, route string, hasRoute bool) error {

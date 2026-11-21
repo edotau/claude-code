@@ -387,7 +387,7 @@ func agentModelPinContext(ctx context.Context, agent string) string {
 	if v, _ := providers.EnvModel(ctx, agent); v != "" {
 		return v
 	}
-	return providers.RecordModel(vault.GetAgentRecord(agent)).Model
+	return vault.GetAgentRecord(agent).Model
 }
 
 // PinnedTarget is t with the agent's pin as its model, spelled for t's provider, when it has one.

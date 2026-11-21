@@ -69,22 +69,22 @@ func TestClaudeCatalogHelpStaysInHarness(t *testing.T) {
 	}
 }
 
-// Invariant: a typed `<profile>:<model>` is refused at the CLI (exit 2); a plain model launches.
+// Invariant: every launcher refuses a typed `<profile>:<model>` (exit 2, naming the row's overlay); a plain model launches.
 func TestShorthandNeverLeavesTheHarness(t *testing.T) {
 	seedAltRows(t)
-	want := `use --overlay {"provider":"<provider>","profile":"<profile>"} --model`
-	for _, model := range []string{"alt2:sonnet", "alt2:opus"} {
+	want := `use --overlay '{"provider":"anthropic","profile":"alt2"}' --model opus`
+	for _, agent := range []string{"claude", "copilot", "opencode", "pi"} {
 		code, _, errOut := hosttest.CaptureOutput(t, func() int {
-			return cmdGatewayResolve([]string{"claude", "--model", model})
+			return Run([]string{"claude-code", agent, "--model", "alt2:opus", "--print-env"})
 		})
 		if code != 2 || !strings.Contains(errOut, want) {
-			t.Errorf("--model %s: exit %d, stderr %q; want 2 naming the overlay form", model, code, errOut)
+			t.Errorf("%s --model alt2:opus: exit %d, stderr %q; want 2 naming %s", agent, code, errOut, want)
 		}
 	}
 	code, out, errOut := hosttest.CaptureOutput(t, func() int {
 		return Run([]string{"claude-code", "claude", "--profile", "alt2", "--model", "sonnet", "--print-env"})
 	})
-	if code != 0 || !strings.Contains(out+errOut, "alt") || strings.Contains(out, "alt2:") {
+	if code != 0 || !strings.Contains(out+errOut, "alt") || strings.Contains(out, "alt2:") || strings.Contains(out, "alt:") {
 		t.Fatalf("plain model: exit %d, output %q %q; want a launch plan with no prefix", code, out, errOut)
 	}
 }

@@ -130,7 +130,7 @@ func testHubStartLogins(t *testing.T) {
 func TestHubDispatchResolveModel(t *testing.T) {
 	reg := hubRegistry()
 	chatgpt, _ := reg.Get("chatgpt")
-	l := hubDispatch{agent: "codex", provider: chatgpt, reg: reg}
+	l := hubDispatch{agent: "codex", provider: chatgpt}
 
 	if got := l.resolveModel(""); got != "openai-opus" {
 		t.Errorf("resolveModel(\"\") = %q, want provider's opus alias", got)
@@ -142,10 +142,8 @@ func TestHubDispatchResolveModel(t *testing.T) {
 		t.Errorf("resolveModel(raw id) = %q, want it passed through", got)
 	}
 	t.Setenv("CODEX_HOME", t.TempDir()) // no cache: the family's known id
-	for _, m := range []string{"sol", "chatgpt:sol"} {
-		if f, _, ok := providers.FamilyVersion(l.resolveModel(m)); !ok || f != "sol" {
-			t.Errorf("resolveModel(%q) = %q, want a concrete sol id", m, l.resolveModel(m))
-		}
+	if f, _, ok := providers.FamilyVersion(l.resolveModel("sol")); !ok || f != "sol" {
+		t.Errorf("resolveModel(sol) = %q, want a concrete sol id", l.resolveModel("sol"))
 	}
 }
 
@@ -153,7 +151,7 @@ func TestHubDispatchResolveModel(t *testing.T) {
 func TestHubDispatchRunOversizedPromptRefused(t *testing.T) {
 	reg := hubRegistry()
 	chatgpt, _ := reg.Get("chatgpt")
-	l := hubDispatch{agent: "codex", provider: chatgpt, reg: reg}
+	l := hubDispatch{agent: "codex", provider: chatgpt}
 	big := strings.Repeat("x", agent.MaxPromptBytes+10)
 
 	_, err := l.Run(context.Background(), agent.RunOptions{Prompt: big}, wire.Discard)
@@ -224,7 +222,7 @@ func TestHubRunHookBlockStartsNoProcess(t *testing.T) {
 		}, Spec: settings.EventSpec{Name: "memory-recall", Event: settings.EventUserPromptSubmit, Budget: time.Second}}}
 	}
 	p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
-	l := hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}
+	l := hubDispatch{agent: "opencode", provider: p}
 
 	_, err := l.Run(context.Background(), agent.RunOptions{Prompt: "hi"}, wire.Discard)
 	var ae *retry.Error
@@ -250,7 +248,7 @@ func TestHubRunCarriesDenyAndPlugin(t *testing.T) {
 	seen := filepath.Join(t.TempDir(), "env")
 	pathstest.FakeVendor(t, "opencode", `{ echo "PERM=$OPENCODE_PERMISSION"; echo "CFG=$OPENCODE_CONFIG_CONTENT"; } > `+seen)
 	p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
-	l := hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}
+	l := hubDispatch{agent: "opencode", provider: p}
 	if l.Caps().Permissions != agent.Native {
 		t.Fatal("hub Caps.Permissions must be Native once Run enforces them")
 	}
@@ -275,7 +273,7 @@ func TestHubRunSilentChildStalls(t *testing.T) {
 	writeAuthJSON(t, data, `{"opencode":{"type":"api","key":"k"}}`)
 	pathstest.FakeVendor(t, "opencode", "exec /bin/sleep 30")
 	p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
-	l := hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}.WithFirstOutput(60 * time.Millisecond)
+	l := hubDispatch{agent: "opencode", provider: p}.WithFirstOutput(60 * time.Millisecond)
 
 	start := time.Now()
 	_, err := l.Run(context.Background(), agent.RunOptions{Prompt: "hi"}, wire.Discard)
@@ -295,7 +293,7 @@ func TestHubRunIdleAfterFirstOutput(t *testing.T) {
 	agent.IdleLimit = 150 * time.Millisecond
 	t.Cleanup(func() { agent.IdleLimit = old })
 	p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
-	l := hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}
+	l := hubDispatch{agent: "opencode", provider: p}
 	const text = `{"type":"text","sessionID":"s","part":{"text":"hi"}}`
 	run := func(body string) error {
 		pathstest.FakeVendor(t, "opencode", body)
@@ -320,7 +318,7 @@ func TestHubRunIdleSteps(t *testing.T) {
 	agent.IdleLimit = 100 * time.Millisecond
 	t.Cleanup(func() { agent.IdleLimit = old })
 	p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
-	l := hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}
+	l := hubDispatch{agent: "opencode", provider: p}
 	pr := func(j string) string { return "printf '%s\\n' '" + j + "'\n" }
 	step, text := pr(`{"type":"step_start","sessionID":"s"}`), pr(`{"type":"text","sessionID":"s","part":{"text":"hi"}}`)
 	fin := pr(`{"type":"step_finish","sessionID":"s","part":{"reason":"tool-calls"}}`)
@@ -427,7 +425,7 @@ func TestHubPrepareLaunchStoredRecord(t *testing.T) {
 				}
 			}
 			p := &providers.Provider{Name: "p", OpencodeID: "opencode", Models: map[string]string{models.Opus: "m"}}
-			l := hubDispatch{agent: "opencode", provider: p, reg: hubRegistry()}
+			l := hubDispatch{agent: "opencode", provider: p}
 			req := agent.RunOptions{Prompt: "hi", Tools: true}
 			_, env, argv, err := l.prepareLaunch(context.Background(), req, "m")
 			if tc.wantErr != "" {
@@ -535,7 +533,7 @@ func runPreparedWorkdir(t *testing.T, workdir string) wire.Result {
 
 func TestHubResolveOwnConnectorBareID(t *testing.T) {
 	for _, id := range []string{"opencode-go", "opencode"} {
-		h := hubDispatch{agent: "opencode", provider: &providers.Provider{Name: id, OpencodeID: id}, reg: &providers.Registry{}}
+		h := hubDispatch{agent: "opencode", provider: &providers.Provider{Name: id, OpencodeID: id}}
 		if got := h.resolveModel("kimi-k3"); got != "kimi-k3" {
 			t.Fatalf("%s: model=%q want kimi-k3", id, got)
 		}

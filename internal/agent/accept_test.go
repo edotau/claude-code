@@ -59,7 +59,7 @@ func TestAcceptModel(t *testing.T) {
 }
 
 func TestPrefixedRefusalNamesRow(t *testing.T) {
-	reg := &providers.Registry{Providers: map[string]*providers.Provider{"dev": {Name: "dev", Preset: providers.PresetDatabricks}}}
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{"dev": {Name: "dev", Provider: "databricks", Preset: providers.PresetDatabricks}}}
 	err := PrefixedRefusal(reg, "claude", "dev:claude-opus-5")
 	if err == nil || !strings.Contains(err.Error(), `--overlay '{"provider":"databricks","profile":"dev"}' --model claude-opus-5`) {
 		t.Errorf("refusal = %v", err)

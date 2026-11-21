@@ -183,7 +183,7 @@ func sessionPin(reg *providers.Registry, pin string) (plain string, legacy bool)
 	if pin == "" {
 		return "", false
 	}
-	if c, err := providers.CastModel(reg, pin); err != nil || c.Profile != "" {
+	if providers.CheckModel(reg, pin) != nil {
 		return "", true
 	}
 	return pin, false

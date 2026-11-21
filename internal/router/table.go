@@ -360,22 +360,13 @@ func (t *RouteTable) AliasOf(model string) string {
 	if slices.Contains(Aliases, model) {
 		return model
 	}
-	ids := []string{model}
-	if spec, _ := providers.SplitModelSpec(t.reg, model); spec.Row != "" || spec.Pool {
-		ids = append(ids, spec.Model)
+	if alias := t.aliasOfCell(model); alias != "" {
+		return alias
 	}
-	for _, id := range ids {
-		if alias := t.aliasOfCell(id); alias != "" {
-			return alias
-		}
-		if f := models.FamilyOf(id); slices.Contains(Aliases, f) {
-			return f
-		}
-		if alias := t.registryAliasOf(id); alias != "" {
-			return alias
-		}
+	if f := models.FamilyOf(model); slices.Contains(Aliases, f) {
+		return f
 	}
-	return ""
+	return t.registryAliasOf(model)
 }
 
 // aliasOfCell is the alias whose table cell (any agent) runs the same model as bare in any spelling; "" if none.

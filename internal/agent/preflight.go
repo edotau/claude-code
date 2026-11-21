@@ -554,8 +554,8 @@ func modelFinding(ctx context.Context, q RouteReq, pf *Preflight) *Finding {
 	if err != nil {
 		return nil
 	}
-	target, _, err := splitQuery(reg, ModelQuery{Model: q.Model})
-	if err != nil || target.Pool || target.ByType || reg.Row(target.Profile) == nil {
+	target, _ := splitQuery(reg, ModelQuery{Model: q.Model})
+	if reg.Row(target.Profile) == nil {
 		return nil
 	}
 	return explicitFinding(ctx, q, reg.Row(target.Profile), pf)

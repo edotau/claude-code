@@ -8,13 +8,8 @@ import (
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
-func TestParseTargetCanonicalAndOneM(t *testing.T) {
-	reg := load(t)
+func TestPlainTargetCanonicalAndOneM(t *testing.T) {
 	def := &Provider{Name: "plain"}
-	other := reg.Providers["openai"]
-	if other == nil {
-		t.Fatal("openai provider missing from test registry")
-	}
 	cases := []struct {
 		spec  string
 		prov  *Provider
@@ -26,14 +21,12 @@ func TestParseTargetCanonicalAndOneM(t *testing.T) {
 		{"claude-opus-5-5", def, "claude-opus-5-5", false},
 		{"databricks-claude-opus-5-5", def, "claude-opus-5-5", false},
 		{"opus-4-8[1m]", def, "claude-opus-4-8", true},
-		{"openai:gpt-5-nano", other, "gpt-5-nano", false},
-		{"openai:databricks-claude-opus-5[1m]", other, "claude-opus-5", false},
 		{"qwen3:30b", def, "qwen3:30b", false},
 	}
 	for _, c := range cases {
-		got := ParseTarget(reg, c.spec, def)
+		got := PlainTarget(def, c.spec)
 		if got.Provider != c.prov || got.Model != c.model || got.OneM != c.oneM {
-			t.Errorf("ParseTarget(%q) = %s/%q/%v; want %s/%q/%v",
+			t.Errorf("PlainTarget(%q) = %s/%q/%v; want %s/%q/%v",
 				c.spec, got.Provider.Name, got.Model, got.OneM, c.prov.Name, c.model, c.oneM)
 		}
 	}
@@ -62,8 +55,7 @@ func TestClientModelKeepsTypedOneM(t *testing.T) {
 }
 
 // A prefixed provider gets its wire id whichever spelling is typed; first-party keeps the canonical id.
-func TestParseTargetWirePrefix(t *testing.T) {
-	reg := load(t)
+func TestPlainTargetWirePrefix(t *testing.T) {
 	qa := &Provider{Name: "databricks-qa", Provider: "databricks", ModelPrefix: "databricks-"}
 	sub := &Provider{Name: "ultra", Provider: "anthropic"}
 	cases := []struct {
@@ -81,23 +73,22 @@ func TestParseTargetWirePrefix(t *testing.T) {
 		{"opus-4-8[1m]", sub, "claude-opus-4-8", true},
 	}
 	for _, c := range cases {
-		got := ParseTarget(reg, c.spec, c.prov)
+		got := PlainTarget(c.prov, c.spec)
 		if got.Model != c.model || got.OneM != c.oneM {
-			t.Errorf("%s ParseTarget(%q) = %q/%v; want %q/%v", c.prov.Name, c.spec, got.Model, got.OneM, c.model, c.oneM)
+			t.Errorf("%s PlainTarget(%q) = %q/%v; want %q/%v", c.prov.Name, c.spec, got.Model, got.OneM, c.model, c.oneM)
 		}
 	}
 }
 
-func TestParseTargetAliasOnDatabricksRow(t *testing.T) {
+func TestPlainTargetAliasOnDatabricksRow(t *testing.T) {
 	dev := &Provider{Name: "dev", Preset: PresetDatabricks}
-	reg := &Registry{Providers: map[string]*Provider{"dev": dev}}
 	for spec, want := range map[string]string{
-		"dev:opus":                       "databricks-claude-opus-5-5",
-		"dev:databricks-gpt-6-1-sol":     "databricks-gpt-6-1-sol",
-		"dev:databricks-claude-opus-5-5": "databricks-claude-opus-5-5",
+		"opus":                       "databricks-claude-opus-5-5",
+		"databricks-gpt-6-1-sol":     "databricks-gpt-6-1-sol",
+		"databricks-claude-opus-5-5": "databricks-claude-opus-5-5",
 	} {
-		if got := ParseTarget(reg, spec, dev); got.Provider != dev || got.Model != want {
-			t.Errorf("ParseTarget(%q) = %s/%q; want dev/%q", spec, got.Provider.Name, got.Model, want)
+		if got := PlainTarget(dev, spec); got.Provider != dev || got.Model != want {
+			t.Errorf("PlainTarget(%q) = %s/%q; want dev/%q", spec, got.Provider.Name, got.Model, want)
 		}
 	}
 }

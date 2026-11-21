@@ -25,6 +25,9 @@ import (
 
 // ApplyCoworker is ApplyRoute for a legacy provider[:profile] value; cli/gateway.go still passes strings.
 func ApplyCoworker(ctx context.Context, value, profile, agentName, model, fallback string) (context.Context, error) {
+	if err := providers.CheckModelShared(model); err != nil { // before any arm preflight: an old --retry record too (D6)
+		return ctx, err
+	}
 	provider, p, err := route.Parse(value)
 	if err != nil {
 		if _, _, cerr := router.CoworkerContext(ctx); cerr != nil {
@@ -340,11 +343,14 @@ func bareArm(ctx context.Context, profile string) string {
 	return ""
 }
 
-// CheckArm refuses a flag taking the dispatch out of an overlay's provider[:profile]; nil outside a confinement.
+// CheckArm refuses a prefixed model, and a flag taking the dispatch out of an overlay's provider[:profile].
 func CheckArm(ctx context.Context, agentName, profile, provider, model string, direct bool) error {
+	if err := providers.CheckModelShared(model); err != nil { // every typed, spec, batch-line and --retry model meets it
+		return err
+	}
 	arm := router.ArmProfileContext(ctx)
 	if arm == "" {
-		return confineFlags(ctx, profile, provider, model)
+		return confineFlags(ctx, profile, provider)
 	}
 	if err := armFlags(arm, profile, provider, direct); err != nil {
 		return err
@@ -353,17 +359,9 @@ func CheckArm(ctx context.Context, agentName, profile, provider, model string, d
 	if err != nil {
 		return fmt.Errorf("overlay databricks:%s: %w", arm, err)
 	}
-	spec, err := providers.SplitModelSpec(reg, model)
-	if err != nil {
-		return err
-	}
-	if spec.Row != "" && spec.Row != arm {
-		return fmt.Errorf("--model: profile %s is outside overlay databricks:%s", spec.Row, arm)
-	}
 	if !agent.VaultAgentIsClaude(agentName) { // claude has no own-cell hop; the chain's preflight validates every other agent
 		return nil
 	}
-	model = spec.Model
 	if _, failed := agent.CheckModelNoted(agentName, reg.Providers[arm], model, time.Now(), nil); failed != nil {
 		return fmt.Errorf("--model: not served to %s on databricks:%s", agentName, arm)
 	}
@@ -409,32 +407,23 @@ func armFlags(arm, profile, provider string, direct bool) error {
 }
 
 // confineFlags refuses a typed lead outside a non-Databricks confinement: another provider's or pinned profile's row.
-func confineFlags(ctx context.Context, profile, provider, model string) error {
+func confineFlags(ctx context.Context, profile, provider string) error {
 	cp, cprof := router.ConfinedContext(ctx)
-	typed := strings.Contains(model, ":")
 	label := "overlay " + route.Join(cp, cprof)
 	switch {
 	case cp == "":
 		return nil
 	case provider != "" && provider != cp:
 		return fmt.Errorf("--provider %s: outside %s", provider, label)
-	case profile == "" && !typed:
+	case profile == "":
 		return nil
 	}
 	reg, err := providers.Load()
 	if err != nil {
 		return fmt.Errorf("%s: %w", label, err)
 	}
-	switch {
-	case outsideRow(ctx, reg, profile, cp, cprof):
+	if outsideRow(ctx, reg, profile, cp, cprof) {
 		return fmt.Errorf("--profile %s: outside %s", profile, label)
-	}
-	spec, err := providers.SplitModelSpec(reg, model)
-	if err != nil {
-		return err
-	}
-	if outsideRow(ctx, reg, spec.Row, cp, cprof) {
-		return fmt.Errorf("--model: profile %s is outside %s", spec.Row, label)
 	}
 	return nil
 }

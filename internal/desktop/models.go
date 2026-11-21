@@ -64,8 +64,7 @@ func catalogInfos(ctx context.Context, p *providers.Provider) []providers.ModelI
 
 // resolves mirrors the proxy: the id must route to profile p on /p/<profile>.
 func resolves(reg *providers.Registry, p *providers.Provider, id string) bool {
-	t := providers.ParseTarget(reg, id, p)
-	return t.Provider.Name == p.Name && t.Model != ""
+	return providers.CheckModel(reg, id) == nil && providers.PlainTarget(p, strings.TrimSpace(id)).Model != ""
 }
 
 // BuildOptions fills the non-revert Options for profile (default: session profile); helper and ensure are test seams.

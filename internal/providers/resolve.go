@@ -35,16 +35,6 @@ type Selection struct {
 	Aliases  map[string]Target
 }
 
-// ParseTarget reads a stored alias pin, which may name its row as `<profile>:<model>`; else the model on def.
-func ParseTarget(reg *Registry, spec string, def *Provider) Target {
-	ms, err := SplitModelSpec(reg, spec)
-	p, model := def, strings.TrimSpace(spec)
-	if err == nil && ms.Row != "" {
-		p, model = reg.Providers[ms.Row], ms.Model
-	}
-	return PlainTarget(p, model)
-}
-
 // PlainTarget is a plain model id on p: a family word as p's member, else p's wire spelling with any [1m] mark kept.
 func PlainTarget(p *Provider, model string) Target {
 	if IsFamily(model) {
@@ -60,7 +50,7 @@ var prefixedPinNote sync.Once
 // sessionPin is a stored model pin, or "" for an old profile-prefixed one: aliases resolve on the session's profile.
 func sessionPin(reg *Registry, pin string) string {
 	pin = strings.TrimSpace(pin)
-	if c, err := CastModel(reg, pin); err != nil || c.Profile != "" {
+	if CheckModel(reg, pin) != nil {
 		prefixedPinNote.Do(func() {
 			fmt.Fprintf(os.Stderr, "note: model pin %s names another profile and is ignored; clear only that pin with "+
 				"`claude-code models --pin <alias>=` (`all=` for the all-slot pin; `claude-code models preflight` names it)\n", pin)

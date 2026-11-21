@@ -630,19 +630,19 @@ type RunOptions struct {
 	// YieldFallback lets workspace retry handle a failed dispatch before the requested chain continues.
 	YieldFallback func(wire.Result, error) bool `json:"-"`
 
-	// Route is the whole route when set; readers fall back to Provider, Account and a prefixed Model.
+	// Route is the whole route when set; readers fall back to Provider, Account and a dispatch cell's row.
 	Route route.Route `json:"route,omitzero"`
 }
 
-// EffectiveRoute is Route when set, else built from the legacy Provider, Account and a "<row>:" Model prefix.
+// EffectiveRoute is Route when set, else built from the legacy Provider, Account and a cell's "<row>:" Model.
 func (o RunOptions) EffectiveRoute(reg *providers.Registry) route.Route {
 	if !o.Route.IsZero() {
 		return o.Route
 	}
 	r := route.ParseLegacy(o.Provider)
 	if r.IsZero() {
-		if spec, err := providers.SplitModelSpec(reg, o.Model); err == nil && spec.Row != "" {
-			r = route.Route{Profile: spec.Row}
+		if row, _, ok := cellRow(reg, o.Model); ok {
+			r = route.Route{Profile: row}
 		}
 	}
 	if !r.IsZero() {
