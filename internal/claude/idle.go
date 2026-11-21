@@ -23,7 +23,7 @@ type idleWatch struct {
 	pending int // tool_use blocks emitted and not yet answered by a tool_result; read by the parser goroutine only
 	// api_retry events since the last real event and the last status; claudeExec reads them after the stream ends
 	retries, status int
-	authRun         int // consecutive 401/403 retries; a 429/5xx retry or a real event resets it
+	authRun         int  // consecutive 401/403 retries; a 429/5xx retry or a real event resets it
 	rejected        bool // authRetryLimit rejected-login retries ended the attempt early
 	start           time.Time
 	tools           map[string]openTool // open top-level tool_use id -> call, each with its own pause ceiling
