@@ -224,7 +224,7 @@ func DropPickerProfiles(reg *providers.Registry, names, ids []string, undrop, gl
 // probeEndpoints is the deprecation probe's HTTP call; tests swap it for canned replies.
 var probeEndpoints = serving.Probe
 
-// databricksListing keeps an applied listing's api_types and limits, then drops the ids the probe finds deprecated.
+// databricksListing keeps an applied listing's api_types and limits, then drops the ids the probe finds unserved.
 func databricksListing(ctx context.Context, p *providers.Provider, live []providers.ModelInfo, apply, verify bool) (dropped []string, note string) {
 	if p.Preset != providers.PresetDatabricks {
 		return nil, ""
@@ -239,12 +239,15 @@ func databricksListing(ctx context.Context, p *providers.Provider, live []provid
 	if err != nil {
 		return nil, "deprecation probe skipped: " + err.Error()
 	}
-	dropped, broken, err := deprecatedIDs(ctx, p, live, ids)
-	for i := 0; err == nil && i < len(dropped); i++ {
-		_, err = providers.RecordDeprecated(p, dropped[i], time.Now())
+	unserved, broken, err := unservedIDs(ctx, p, live, ids)
+	for i := 0; err == nil && i < len(unserved); i++ {
+		_, err = providers.RecordDropped(p, unserved[i].ID, unserved[i].Reason, time.Now())
 	}
 	if err != nil {
 		return nil, "deprecation probe changed nothing: " + err.Error()
+	}
+	for _, u := range unserved {
+		dropped = append(dropped, u.ID)
 	}
 	return dropped, brokenNote(broken)
 }
@@ -293,8 +296,10 @@ func probeCandidates(p *providers.Provider, live []providers.ModelInfo, verify b
 	return ids, nil
 }
 
-// deprecatedIDs sends ids one request on the route each speaks and returns those answered 400 "This endpoint <id> is deprecated".
-func deprecatedIDs(ctx context.Context, p *providers.Provider, live []providers.ModelInfo, ids []string) (dropped, broken []string, err error) {
+type unservedID struct{ ID, Reason string }
+
+// unservedIDs sends ids one request on the route each speaks and returns those answered deprecated or gateway-only.
+func unservedIDs(ctx context.Context, p *providers.Provider, live []providers.ModelInfo, ids []string) (dropped []unservedID, broken []string, err error) {
 	if len(ids) == 0 {
 		return nil, nil, nil
 	}
@@ -319,17 +324,18 @@ func deprecatedIDs(ctx context.Context, p *providers.Provider, live []providers.
 	return dropped, broken, nil
 }
 
-func deprecatedAnswer(r serving.CheckResult) bool {
-	id, ok := serving.DeprecatedEndpoint(r.HTTP, r.Error)
-	return ok && id == r.ID
+func unservedAnswer(r serving.CheckResult) (reason string, ok bool) {
+	id, reason, ok := serving.UnservedEndpoint(r.HTTP, r.Error)
+	return reason, ok && id == r.ID
 }
 
-// probeVerdicts splits results into deprecated ids and "id: reason" lines for streams that broke.
-func probeVerdicts(results []serving.CheckResult) (dropped, broken []string) {
+// probeVerdicts splits results into unserved ids and "id: reason" lines for streams that broke.
+func probeVerdicts(results []serving.CheckResult) (dropped []unservedID, broken []string) {
 	for _, r := range results {
+		reason, unserved := unservedAnswer(r)
 		switch {
-		case deprecatedAnswer(r):
-			dropped = append(dropped, r.ID)
+		case unserved:
+			dropped = append(dropped, unservedID{r.ID, reason})
 		case r.Status == serving.StatusBroken:
 			broken = append(broken, r.ID+": "+r.Error)
 		}

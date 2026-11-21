@@ -907,7 +907,7 @@ func noteAuth(disp Dispatch, err error) {
 
 // capabilityErr is a model refusing the request itself: an output cap, JSON-schema tool keys, or agy model options.
 var capabilityErr = sync.OnceValue(func() *regexp.Regexp {
-	return regexp.MustCompile(`invalid model selection|max_new_tokens|max_output_tokens|max_tokens|Invalid JSON payload received\. Unknown name|(?i)endpoint\b[^\n]*\bis deprecated`)
+	return regexp.MustCompile(`invalid model selection|max_new_tokens|max_output_tokens|max_tokens|Invalid JSON payload received\. Unknown name|available only via Unity Gateway|(?i)endpoint\b[^\n]*\bis deprecated`)
 })
 
 // requestSizeErr is the prompt exceeding a model's context: this ask re-picks, nothing is held; checked before capabilityErr.

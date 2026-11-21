@@ -137,7 +137,8 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
   is `broken`, never auto-dropped); `claude-code databricks api <path>` is the read-only GET of allow-listed metadata
   paths (serving-endpoints, sql, scim Me, unity-catalog) with a Databricks profile's token, not `curl`. Detail:
   `providers-reference.md` → Probe verdicts, The `databricks api` verb.
-- A model the proxy sees answered `400 This endpoint <id> is deprecated` is dropped at once, with its reason and
+- A model the proxy sees answered `400 This endpoint <id> is deprecated` or
+  `403 ... available only via Unity Gateway` is dropped at once, with its reason and
   date, and sends no extra call. The `--model auto` pool honours the drop list. A model Databricks later re-enables
   stays dropped until `claude-code models discover --undrop <id> --apply`.
 - Cost: `claude-code usage --cost` is an estimate (local ledger tokens times the profile's price table), never an

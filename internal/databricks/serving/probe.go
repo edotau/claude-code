@@ -121,16 +121,23 @@ const StatusBroken = "broken"
 
 var deprecatedEndpointRE = regexp.MustCompile(`This endpoint ([A-Za-z0-9._-]+) is deprecated`)
 
-// DeprecatedEndpoint is the endpoint a 400 body names as deprecated; only that explicit answer qualifies.
-func DeprecatedEndpoint(status int, body string) (string, bool) {
-	if status != http.StatusBadRequest {
-		return "", false
+var gatewayOnlyRE = regexp.MustCompile(`Foundation model endpoint '([A-Za-z0-9._-]+)' is a newly launched model available only via Unity Gateway`)
+
+// UnservedEndpoint is the endpoint and reason ("deprecated", "gateway-only") of the two explicit not-ours answers.
+func UnservedEndpoint(status int, body string) (id, reason string, ok bool) {
+	re, reason := deprecatedEndpointRE, "deprecated"
+	switch status {
+	case http.StatusBadRequest:
+	case http.StatusForbidden:
+		re, reason = gatewayOnlyRE, "gateway-only"
+	default:
+		return "", "", false
 	}
-	m := deprecatedEndpointRE.FindStringSubmatch(body)
+	m := re.FindStringSubmatch(body)
 	if m == nil {
-		return "", false
+		return "", "", false
 	}
-	return m[1], true
+	return m[1], reason, true
 }
 
 // TransientHTTP reports a status that is a passing condition rather than a verdict on the model.

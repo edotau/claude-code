@@ -231,7 +231,7 @@ func pickerNewWithBaseline(p *Provider, saved, live []ModelInfo, baseline []Open
 	drop := idSet(dropped)
 	var out []ModelInfo
 	for _, m := range live {
-		if m.ID == "" || drop[menuID(m.ID)] || seen[p.WireModel(models.Strip1M(m.ID))] {
+		if m.ID == "" || drop[MenuID(m.ID)] || seen[p.WireModel(models.Strip1M(m.ID))] {
 			continue
 		}
 		if p.Preset == PresetDatabricks && (!m.ReadyChat() || llama3Instruct(m.ID)) {
@@ -323,7 +323,7 @@ func txPicker(tx *vault.Tx, key *vault.Key, name, scope string) (pickerCatalog, 
 func idSet(ids []string) map[string]bool {
 	out := make(map[string]bool, len(ids))
 	for _, id := range ids {
-		out[menuID(id)] = true
+		out[MenuID(id)] = true
 	}
 	return out
 }
@@ -334,14 +334,14 @@ func applyDrop(p *Provider, c pickerCatalog, ids []string, undrop bool) (next pi
 	next = c
 	next.Schema, next.Scope = 1, pickerScope(p)
 	if undrop {
-		next.Dropped = slices.DeleteFunc(slices.Clone(c.Dropped), func(id string) bool { return want[menuID(id)] })
+		next.Dropped = slices.DeleteFunc(slices.Clone(c.Dropped), func(id string) bool { return want[MenuID(id)] })
 		next.DroppedWhy = maps.Clone(c.DroppedWhy)
-		maps.DeleteFunc(next.DroppedWhy, func(id, _ string) bool { return want[menuID(id)] })
+		maps.DeleteFunc(next.DroppedWhy, func(id, _ string) bool { return want[MenuID(id)] })
 		return next, nil
 	}
 	next.Models = nil
 	for _, m := range c.Models {
-		if want[menuID(m.ID)] {
+		if want[MenuID(m.ID)] {
 			removed = append(removed, m.ID)
 			continue
 		}
@@ -388,13 +388,13 @@ func EditPickerDrops(p *Provider, ids []string, undrop, write bool) (removed []s
 	return removed, err
 }
 
-// RecordDeprecated drops id from p's picker with the reason and date; added is false when it was already dropped.
-func RecordDeprecated(p *Provider, id string, at time.Time) (added bool, err error) {
+// RecordDropped drops id from p's picker with the reason and date; added is false when it was already dropped.
+func RecordDropped(p *Provider, id, reason string, at time.Time) (added bool, err error) {
 	name, scope := pickerKey(p), pickerScope(p)
 	err = vault.UpdateSealed(func(tx *vault.Tx, key *vault.Key) error {
 		added = false // UpdateSealed may retry
 		c, err := txPicker(tx, key, name, scope)
-		if err != nil || idSet(c.Dropped)[menuID(id)] {
+		if err != nil || idSet(c.Dropped)[MenuID(id)] {
 			return err
 		}
 		next, _ := applyDrop(p, c, []string{id}, false)
@@ -402,7 +402,7 @@ func RecordDeprecated(p *Provider, id string, at time.Time) (added bool, err err
 		if next.DroppedWhy == nil {
 			next.DroppedWhy = map[string]string{}
 		}
-		next.DroppedWhy[id] = "deprecated " + at.UTC().Format(time.DateOnly)
+		next.DroppedWhy[id] = reason + " " + at.UTC().Format(time.DateOnly)
 		data, err := json.Marshal(next)
 		if err != nil {
 			return errors.New("cannot encode picker additions")
@@ -413,7 +413,7 @@ func RecordDeprecated(p *Provider, id string, at time.Time) (added bool, err err
 	return added, err
 }
 
-// DroppedReasons is p's recorded drop reasons by id ("deprecated 2026-11-20").
+// DroppedReasons is p's recorded drop reasons by id ("deprecated 2026-11-20", "gateway-only 2026-11-21").
 func DroppedReasons(p *Provider) (map[string]string, error) {
 	c, err := pickerRecord(p)
 	return c.DroppedWhy, err
@@ -428,15 +428,15 @@ func DroppedLive(p *Provider, live []ModelInfo) ([]string, error) {
 	drop := idSet(c.Dropped)
 	var out []string
 	for _, m := range live {
-		if drop[menuID(m.ID)] {
+		if drop[MenuID(m.ID)] {
 			out = append(out, m.ID)
 		}
 	}
 	return out, nil
 }
 
-// menuID is id without the Databricks prefix, the spelling the global menu stores.
-func menuID(id string) string { return strings.TrimPrefix(models.Strip1M(id), "databricks-") }
+// MenuID is id without the Databricks prefix, the spelling the global menu stores.
+func MenuID(id string) string { return strings.TrimPrefix(models.Strip1M(id), "databricks-") }
 
 // DropFromMenu removes ids from the global saved menu overlay and returns those it held; write false only reports.
 func DropFromMenu(ids []string, write bool) (removed []string, err error) {
@@ -447,7 +447,7 @@ func DropFromMenu(ids []string, write bool) (removed []string, err error) {
 	want := idSet(ids)
 	var kept []OpencodeModel
 	for _, m := range menu {
-		if want[menuID(m.ID)] {
+		if want[MenuID(m.ID)] {
 			removed = append(removed, m.ID)
 			continue
 		}
@@ -467,7 +467,7 @@ func OpencodeMenuFor(p *Provider) ([]OpencodeModel, error) {
 		return out, err
 	}
 	dropped := idSet(c.Dropped)
-	out = slices.DeleteFunc(out, func(m OpencodeModel) bool { return dropped[menuID(m.ID)] })
+	out = slices.DeleteFunc(out, func(m OpencodeModel) bool { return dropped[MenuID(m.ID)] })
 	saved := c.Models
 	seen := make(map[string]bool)
 	for _, m := range out {

@@ -58,9 +58,11 @@ per-profile errors/skips; it never saves fallback catalogs. CLI preview is the d
 routes, spelling and account/auth configuration. A second unchanged apply adds nothing.
 `--drop <id>[,<id>]` (`--apply` writes) removes saved-menu ids and blocks their re-adding; `--undrop` reverses it.
 `--apply` on a Databricks profile sends one tiny request per id it is about to add (`--verify`: also the saved ones;
-4 workers, 30 s each) and drops an id answered HTTP 400 `This endpoint <id> is deprecated` (`dropped as deprecated:`);
+4 workers, 30 s each) and drops an id answered HTTP 400 `This endpoint <id> is deprecated` or 403
+`... available only via Unity Gateway` (`dropped as unserved:`);
 any other failure changes nothing, and a preview sends no probe. The proxy drops the same way on
-its own: the first real Databricks reply `400 This endpoint <id> is deprecated` records the id (reason, date) in that
+its own: the first real Databricks reply `400 ... is deprecated` or the 403 gateway-only one records the id
+(reason, date) in that
 profile's drop list; pickers and the `--model auto` pool skip it and `models discover` lists it with the reason.
 `opencode catalog sync --apply` skips a dropped id (`skipped as dropped:`) and
 `catalog add` refuses it; `--undrop` lifts both.
@@ -69,8 +71,9 @@ profile's drop list; pickers and the `--model auto` pool skip it and `models dis
 streamed request (a non-chat endpoint cannot stream and keeps one non-streaming request). A 2xx counts only when the
 stream carries content and ends with its wire's terminator: `message_stop` (Anthropic), `response.completed` or
 `response.incomplete` (Responses), `[DONE]` or a `finish_reason` (chat). Verdicts: `ok`; `deprecated` (the explicit
-400 above); `broken` (accepted, but the stream ended without its terminator, had no content, or carried an error
-frame); and the existing error classes (`fail`, `transient`, `missing`). Only the explicit deprecated answer drops a
+400 or gateway-only 403 above); `broken` (accepted, but the stream ended without its terminator, had no
+content, or carried an error
+frame); and the existing error classes (`fail`, `transient`, `missing`). Only those explicit answers drop a
 model under `--apply`. A broken model is reported as `stream check failed, not dropped: <id>: <reason>` with the
 command to drop it by hand, `claude-code models discover --drop <id> --apply`. `databricks check` sends one
 `max_tokens=1` message on the profile's Anthropic route and prints `ok`, `stream broken: <reason>` or the HTTP class

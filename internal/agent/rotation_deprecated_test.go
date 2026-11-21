@@ -15,7 +15,7 @@ func TestWithoutDeprecatedSkipsDroppedModels(t *testing.T) {
 	p := &providers.Provider{Name: "dev", Provider: "databricks", Preset: providers.PresetDatabricks,
 		Host: "https://dev.example.com", Auth: providers.Auth{Type: providers.AuthOAuth}}
 	cands := []catalog.Candidate{{Model: "databricks-gpt-5-mini"}, {Model: "databricks-claude-sonnet-4-5"}}
-	if _, err := providers.RecordDeprecated(p, "databricks-gpt-5-mini", time.Now()); err != nil {
+	if _, err := providers.RecordDropped(p, "databricks-gpt-5-mini", "deprecated", time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	if got := withoutDeprecated(p, append([]catalog.Candidate(nil), cands...)); len(got) != 1 || got[0].Model != cands[1].Model {

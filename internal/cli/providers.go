@@ -494,7 +494,7 @@ func printDiscoverText(results []catalog.DiscoverResult) error {
 			fmt.Fprintf(&b, "  skipped as dropped: %s\n", strings.Join(r.Dropped, ", "))
 		}
 		if len(r.Deprecated) > 0 {
-			fmt.Fprintf(&b, "  dropped as deprecated: %s\n", strings.Join(r.Deprecated, ", "))
+			fmt.Fprintf(&b, "  dropped as unserved: %s\n", strings.Join(r.Deprecated, ", "))
 		}
 		if r.ProbeNote != "" {
 			fmt.Fprintf(&b, "  %s\n", r.ProbeNote)

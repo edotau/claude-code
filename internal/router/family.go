@@ -64,8 +64,9 @@ func FamilyModel(agent, family string, p *providers.Provider, ids []string, now 
 	}
 	if dbx {
 		dead, st := deadAccounts(ProviderAccount, ProviderAccount(p.Name)), sharedState()
+		dropped := droppedSet(p)
 		ids = slices.DeleteFunc(slices.Clone(ids), func(id string) bool {
-			return !bucketRunnable(agent, p, id) || tierUnusable(st, dead, p, id, now)
+			return dropped[providers.MenuID(id)] || !bucketRunnable(agent, p, id) || tierUnusable(st, dead, p, id, now)
 		})
 	}
 	if best := FamilyLatest(family, ids); best != "" {
@@ -78,6 +79,19 @@ func FamilyModel(agent, family string, p *providers.Provider, ids []string, now 
 		return providers.FamilyDefaults[family]
 	}
 	return p.WireModel(providers.FamilyDefaults[family])
+}
+
+// droppedSet is p's drop list by providers.MenuID; empty when it cannot be read.
+func droppedSet(p *providers.Provider) map[string]bool {
+	ids, err := providers.PickerDropped(p)
+	out := make(map[string]bool, len(ids))
+	if err != nil {
+		return out
+	}
+	for _, id := range ids {
+		out[providers.MenuID(id)] = true
+	}
+	return out
 }
 
 // firstPartyIDs is the list the harness already keeps for p's sign-in row: copilot's snapshot, codex's cache.

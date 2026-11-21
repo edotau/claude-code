@@ -34,18 +34,18 @@ func TestNoteDeprecatedDropsOnlyTheExplicitAnswer(t *testing.T) {
 	const dep = `{"error_code":"BAD_REQUEST","message":"This endpoint databricks-gpt-5-mini is deprecated."}`
 	for _, c := range []*http.Response{replyOf(400, `{"message":"bad request shape"}`), replyOf(429, dep),
 		replyOf(503, dep), replyOf(200, dep), replyOf(400, `{"message":"endpoint databricks-x is deprecated soon"}`)} {
-		r.noteDeprecated(dbx, c)
+		r.noteUnserved(dbx, c)
 	}
 	other := *dbx
 	other.Preset = ""
-	r.noteDeprecated(&other, replyOf(400, dep))
+	r.noteUnserved(&other, replyOf(400, dep))
 	r.bg.Wait()
 	if got, _ := providers.PickerDropped(dbx); len(got) != 0 {
 		t.Fatalf("dropped %v after non-qualifying replies, want none", got)
 	}
 	resp := replyOf(400, dep)
-	r.noteDeprecated(dbx, resp)
-	r.noteDeprecated(dbx, replyOf(400, dep))
+	r.noteUnserved(dbx, resp)
+	r.noteUnserved(dbx, replyOf(400, dep))
 	r.bg.Wait()
 	got, _ := providers.PickerDropped(dbx)
 	if !slices.Equal(got, []string{"databricks-gpt-5-mini"}) || strings.Count(log.String(), "is deprecated; dropped") != 1 {

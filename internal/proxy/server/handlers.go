@@ -132,7 +132,7 @@ func rejectedAfterRemint(resp *http.Response, p *providers.Provider) bool {
 // failover marks denied models dead, cools rate-limited providers, and drains responses when moving on.
 func (r *Router) failover(resp *http.Response, t providers.Target, last bool) (moveOn, hard bool) {
 	p := t.Provider
-	r.noteDeprecated(p, resp)
+	r.noteUnserved(p, resp)
 	if tooLong(resp) {
 		return false, false
 	}

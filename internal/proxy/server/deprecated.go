@@ -8,12 +8,12 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 )
 
-// noteDeprecated records the endpoint a Databricks 400 names as deprecated in the picker's drop list, off the request path.
-func (r *Router) noteDeprecated(p *providers.Provider, resp *http.Response) {
-	if p.Preset != providers.PresetDatabricks || resp.StatusCode != http.StatusBadRequest {
+// noteUnserved drops the endpoint a Databricks 400 (deprecated) or 403 (gateway-only) names, off the request path.
+func (r *Router) noteUnserved(p *providers.Provider, resp *http.Response) {
+	if p.Preset != providers.PresetDatabricks || (resp.StatusCode != http.StatusBadRequest && resp.StatusCode != http.StatusForbidden) {
 		return
 	}
-	id, ok := serving.DeprecatedEndpoint(resp.StatusCode, string(peekBody(resp, 4<<10)))
+	id, reason, ok := serving.UnservedEndpoint(resp.StatusCode, string(peekBody(resp, 4<<10)))
 	if !ok {
 		return
 	}
@@ -30,15 +30,15 @@ func (r *Router) noteDeprecated(p *providers.Provider, resp *http.Response) {
 		return
 	}
 	goStateWrite(r, func() {
-		added, err := providers.RecordDeprecated(row, id, r.now())
+		added, err := providers.RecordDropped(row, id, reason, r.now())
 		switch {
 		case err != nil:
 			r.mu.Lock()
 			delete(r.deprecated, key) // a failed write is retried on the next such reply
 			r.mu.Unlock()
-			fmt.Fprintf(r.log, "proxy: record %s deprecated on %s: %v\n", id, p.Name, err)
+			fmt.Fprintf(r.log, "proxy: record %s %s on %s: %v\n", id, reason, p.Name, err)
 		case added:
-			fmt.Fprintf(r.log, "proxy: %s answered %s is deprecated; dropped from the picker and rotation pool\n", p.Name, id)
+			fmt.Fprintf(r.log, "proxy: %s answered %s is %s; dropped from the picker and rotation pool\n", p.Name, id, reason)
 		}
 	})
 }
