@@ -562,6 +562,19 @@ func BenchmarkUserAgent(b *testing.B) {
 }
 
 // A plain id and a local tag stay on the session profile; any profile, type or pool prefix is refused.
+func TestClientTargetNamesRequestPath(t *testing.T) {
+	vaulttest.Use(t)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := reg.Names()[0]
+	_, _, err = clientTarget(reg, reg.Providers[name], name+":opus", "openai/v1/chat/completions")
+	if err == nil || !strings.Contains(err.Error(), "/p/"+name+"/openai/v1/chat/completions") {
+		t.Errorf("err = %v; want the request's own path", err)
+	}
+}
+
 func TestClientTarget(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"default":"an","providers":{"anthropic":{`+
@@ -573,12 +586,12 @@ func TestClientTarget(t *testing.T) {
 	}
 	sess := reg.Providers["an"]
 	for _, model := range []string{"m", "qwen3:30b"} {
-		if got, plain, err := clientTarget(reg, sess, model); err != nil || got.Provider != sess || got.Model != model || plain != model {
+		if got, plain, err := clientTarget(reg, sess, model, "v1/messages"); err != nil || got.Provider != sess || got.Model != model || plain != model {
 			t.Errorf("clientTarget(%q) = %+v %q, %v; want it on an as typed", model, got, plain, err)
 		}
 	}
-	for model, want := range map[string]string{"other:x": "/p/other/v1/messages", "An:x": "/p/an/", "auto:opus": "/p/<profile>/"} {
-		if _, _, err := clientTarget(reg, sess, model); err == nil || !strings.Contains(err.Error(), want) {
+	for model, want := range map[string]string{"other:x": "/p/other/v1/messages", "An:x": "/p/an/", "auto:opus": "/p/auto/", "typo:opus": "/p/<profile>/"} {
+		if _, _, err := clientTarget(reg, sess, model, "v1/messages"); err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("clientTarget(%q) = %v; want a refusal naming %s", model, err, want)
 		}
 	}

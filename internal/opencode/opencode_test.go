@@ -528,3 +528,15 @@ func TestOpencodeArgvFlagsAreDeclared(t *testing.T) {
 		}
 	}
 }
+
+// A stored profile-prefixed pin is ignored: the table's id reaches the copilot config, never the prefixed one.
+func TestAliasModelIDIgnoresPrefixedPin(t *testing.T) {
+	reg := copilotOnlyOverlayRegistry(t)
+	p, _ := reg.LoginProfile("github", "copilot")
+	if err := vault.SetAgentRecord("claude", vault.AgentRecord{Aliases: map[string]string{"sonnet": p.Name + ":claude-opus-5-5"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := aliasModelID(reg, p, "sonnet"); got != "claude-sonnet-5.5" {
+		t.Errorf("aliasModelID = %q; want the table's claude-sonnet-5.5", got)
+	}
+}

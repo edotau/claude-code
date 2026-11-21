@@ -36,7 +36,8 @@ func (r *Router) resolveTarget(w http.ResponseWriter, in *http.Request, reg *pro
 	sess, err := reg.Get(session)
 	var parsed providers.Target
 	if err == nil {
-		parsed, model, err = clientTarget(reg, sess, model)
+		_, suffix, _ := parseRoute(in.URL.Path)
+		parsed, model, err = clientTarget(reg, sess, model, cmp.Or(suffix, "v1/messages"))
 	}
 	if err != nil {
 		writeError(w, http.StatusBadRequest, "proxy: "+err.Error())
@@ -55,48 +56,14 @@ func (r *Router) resolveTarget(w http.ResponseWriter, in *http.Request, reg *pro
 	return target, model, true
 }
 
-// overlayProvider is the overlay "provider" key for profile's row: databricks for a serving row, else its provider.
-func overlayProvider(reg *providers.Registry, profile string) string {
-	p := reg.Providers[profile]
-	switch {
-	case p == nil:
-		return "<provider>"
-	case p.Preset == providers.PresetDatabricks:
-		return "databricks"
-	}
-	return cmp.Or(p.Provider, p.Preset, "<provider>")
-}
-
-// clientTarget is the client's model on the session profile; a `<profile>:<model>` is a 400 naming the path form.
-func clientTarget(reg *providers.Registry, sess *providers.Provider, model string) (providers.Target, string, error) {
+// clientTarget is the client's model on the session profile; a prefixed model is a 400 naming the path form.
+func clientTarget(reg *providers.Registry, sess *providers.Provider, model, suffix string) (providers.Target, string, error) {
 	model = strings.TrimSpace(model)
-	if profile, rest, ok := profilePrefix(reg, model); ok {
+	if pe, ok := errors.AsType[*providers.PrefixError](providers.CheckModel(reg, model)); ok {
 		return providers.Target{}, model, fmt.Errorf("model %s: a profile is not part of a model; send model %s to "+
-			"/p/%s/v1/messages (CLI: --overlay '{\"provider\":\"%s\",\"profile\":\"%s\"}' --model %s)",
-			model, rest, profile, overlayProvider(reg, profile), profile, rest)
+			"/p/%s/%s (CLI: --overlay '%s' --model %s)", model, pe.Model, cmp.Or(pe.Profile, "<profile>"), suffix, pe.Overlay(), pe.Model)
 	}
 	return providers.PlainTarget(sess, model), model, nil
-}
-
-// profilePrefix splits a model whose prefix names a profile, provider type or the pool; a local tag (qwen3:30b) is none.
-func profilePrefix(reg *providers.Registry, model string) (profile, rest string, ok bool) {
-	name, rest, cut := strings.Cut(model, ":")
-	if !cut || name == "" || rest == "" {
-		return "", "", false
-	}
-	for _, n := range reg.Names() {
-		if strings.EqualFold(n, name) {
-			return n, rest, true
-		}
-	}
-	lower := strings.ToLower(name)
-	switch rows := reg.ProfilesOf(lower); {
-	case len(rows) == 1:
-		return rows[0], rest, true
-	case len(rows) > 1, lower == "auto":
-		return "<profile>", rest, true
-	}
-	return "", "", false
 }
 
 // fableRefusal refuses a Fable id on a Databricks serving route (it serves none), naming that profile's Opus id.
