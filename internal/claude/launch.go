@@ -13,6 +13,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentid"
@@ -58,6 +59,9 @@ func claudePlan(ctx context.Context, o agent.LaunchOptions, args []string) (agen
 	p := sel.Provider
 	passthrough := p.Auth.Method() == providers.AuthCLI
 	if err := refuseProvider(sel); err != nil {
+		return agent.Plan{}, err
+	}
+	if err := acceptLaunchModel(p, o.Model); err != nil {
 		return agent.Plan{}, err
 	}
 	plan, err := newClaudePlan(bin, o, sel, passthrough)
@@ -128,6 +132,17 @@ func newClaudePlan(bin string, o agent.LaunchOptions, sel providers.Selection, p
 	set1MOff(&plan, sel, p)
 	plan.Set[providers.EnvSessionProfile] = p.Name
 	return plan, nil
+}
+
+// acceptLaunchModel refuses a --model the session profile does not accept, as a usage error.
+func acceptLaunchModel(p *providers.Provider, model string) error {
+	if model == "" {
+		return nil
+	}
+	if _, err := agent.AcceptModel(agentid.Claude, p, model, time.Now()); err != nil {
+		return &agent.UsageError{Msg: "--model " + model + ": " + strings.TrimPrefix(err.Error(), agent.ErrModelRoute.Error()+": ")}
+	}
+	return nil
 }
 
 func refuseProvider(sel providers.Selection) error {

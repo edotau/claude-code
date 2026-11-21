@@ -38,6 +38,9 @@ func LaunchWrapped(args []string) int {
 	}
 	opts, plan, err := planLaunch(native, args)
 	if err != nil {
+		if _, ok := errors.AsType[*agent.UsageError](err); ok { // a refused --model is the user's typo: exit 2, no launch, no native fallback
+			return helptext.FailUsage("%v", err)
+		}
 		if refuse := refuseFallback(opts, err); refuse != nil {
 			deduped, changed := dedupInputs(args)
 			if len(changed) == 0 {
