@@ -37,6 +37,7 @@ func runWithFallback(ctx context.Context, c Chain, req RunOptions, sink wire.Sin
 		sink = wire.Discard
 	}
 	c.Dispatches = slices.Clone(c.Dispatches)
+	ctx = context.WithValue(ctx, triedCarryKey{}, new([]string))
 	reasons := slices.Clone(c.Skipped)
 	if len(c.Dispatches) == 0 {
 		return wire.Result{Agent: c.Want, Status: wire.StatusError, FallbackReason: strings.Join(reasons, "; ")},
@@ -187,6 +188,9 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 		return res, append(hops, hopOf(disp, lreq, res, err)), false, err
 	}
 	runCtx := retry.WithAdmissionTimeout(retry.WithPermit(withCoolKey(ctx, key), held), lreq.Timeout)
+	if p, ok := ctx.Value(triedCarryKey{}).(*[]string); ok && len(*p) > 0 {
+		runCtx = withTriedPicks(runCtx, *p) // an earlier hop's refused picks stay excluded
+	}
 	res, err = Run(runCtx, disp.Agent, lreq, sink, notify)
 	if replacement && !res.NotStarted {
 		lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
@@ -221,12 +225,12 @@ func hopModel(m string) (row, id string) {
 	return "", m
 }
 
-// launchedModel: auto stays auto, then a frozen copilot target's model, invokedModel, else the agent's plain pin.
+// launchedModel: auto stays auto, a typed model as asked, then a frozen copilot target's model, invokedModel, else the agent's plain pin.
 func launchedModel(ctx context.Context, disp Dispatch, req RunOptions) string {
 	if _, auto := SplitAuto(invokedModel(req)); auto {
 		return invokedModel(req)
 	}
-	if _, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && agentid.Routing(disp.Agent.Name()).FreezeTarget {
+	if _, ok := ctx.Value(frozenKey{}).(frozenTarget); ok && !req.ModelTyped && agentid.Routing(disp.Agent.Name()).FreezeTarget {
 		if t, _, err := SchemaFor(disp.Agent.Name()).TargetCtx(ctx, req); err == nil && t.Model != "" {
 			return t.Model
 		}
@@ -242,6 +246,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 	var hops []wire.Hop
 	var tried []string
 	lreq = repickRequest(ctx, lreq)
+	invoked := res.Invoked
 	_, auto := SplitAuto(lreq.Model)
 	limit := 1 // a served-endpoint repick of a concrete model stays once
 	if auto {
@@ -260,12 +265,12 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 		}
 		first := err
 		lreq.Model = next
-		pctx, _ := freezeCopilot(withTriedPicks(ctx, tried), disp, lreq) // copilot's frozen target would re-run the refused pick
+		pctx, _ := freezeCopilot(withTriedPicks(ctx, carryTried(ctx, ran)), disp, lreq) // copilot's frozen target would re-run the refused pick
 		res, err = Run(pctx, disp.Agent, lreq, sink, notify)
 		if auto && !res.NotStarted {
 			lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
 		}
-		_, res.Invoked = hopModel(next)
+		res.Invoked = invoked
 		if err != nil && wire.ErrorKind(err) != wire.ErrorKind(first) { // a repick that answered clears the account
 			noteFailure(disp, ran, first)
 		}
@@ -274,6 +279,18 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 		err = finishRepicks(append(tried, ranModel(lreq.Model, res)), err)
 	}
 	return res, lreq, hops, err
+}
+
+type triedCarryKey struct{}
+
+// carryTried adds ran to the ask's refused picks (kept across hops) and returns them all.
+func carryTried(ctx context.Context, ran string) []string {
+	p, ok := ctx.Value(triedCarryKey{}).(*[]string)
+	if !ok {
+		return []string{ran}
+	}
+	*p = append(*p, ran)
+	return *p
 }
 
 func repickRequest(ctx context.Context, req RunOptions) RunOptions {
@@ -993,6 +1010,9 @@ func cellRequest(out, req RunOptions, disp Dispatch) RunOptions {
 	}
 	if !disp.keepCaller {
 		out.Model, out.CellModel = disp.Model, !strings.Contains(disp.Model, ":")
+		if out.CellModel && req.Model == "" && pinsAuto(out.Values, cmp.Or(req.Agent, engineName(disp))) {
+			out.AutoModel = true // a pinned auto records as auto, like a typed one
+		}
 		if !out.CellModel && (out.AutoModel || req.Model == "" && pinsAuto(out.Values, cmp.Or(req.Agent, engineName(disp)))) {
 			out.Model = AutoCell(disp.Model) // typed or pinned auto beats the cell's model, on the cell's row (RunQuery)
 		}

@@ -255,3 +255,16 @@ func TestLaunchedModelKeepsAutoSelector(t *testing.T) {
 		t.Errorf("launchedModel = %q, want %q", got, AutoModel)
 	}
 }
+
+// A pinned auto and a typed alias on a frozen copilot target are recorded as asked, never the frozen wire id.
+func TestLaunchedModelRecordsAsAsked(t *testing.T) {
+	ctx := context.WithValue(context.Background(), frozenKey{}, frozenTarget{t: providers.Target{Model: "kimi-k3"}, once: &sync.Once{}})
+	disp := Dispatch{Agent: &fakeRunner{name: "copilot"}}
+	if got := launchedModel(ctx, disp, RunOptions{Model: "opus", ModelTyped: true}); got != "opus" {
+		t.Errorf("typed alias recorded %q, want opus", got)
+	}
+	req := dispatchRequest(RunOptions{Agent: "copilot", Values: proc.Values{}.With("COPILOT_MODEL", "auto")}, Dispatch{Agent: disp.Agent, Model: "claude-sonnet-5.5"}, true)
+	if got := launchedModel(ctx, disp, req); got != AutoModel {
+		t.Errorf("pinned auto recorded %q, want %q", got, AutoModel)
+	}
+}

@@ -154,7 +154,7 @@ func routeChain(ctx context.Context, want, alias, row, exact, callerModel, mode 
 	current, _ := models.Alias(alias)
 	family := providers.FamilyName(callerModel)
 	rc := routeCtx{ctx: ctx, tb: tb, reg: reg, pins: pins, want: want, lead: o.Lead, row: row, exact: exact, callerModel: callerModel,
-		current: current, dispatchID: router.NonClaudeDispatchID(cmp.Or(exact, providers.FamilyDefaults[family]), explicitModel, pins[want].Model),
+		current: current, alias: alias, dispatchID: router.NonClaudeDispatchID(cmp.Or(exact, providers.FamilyDefaults[family]), explicitModel, pins[want].Model),
 		family: family, explicitModel: explicitModel, native: native, mode: mode, pf: &Preflight{}}
 	c, err = rc.addCandidates(c, pick, nativeLead, alias)
 	if err != nil {
@@ -603,7 +603,7 @@ type routeCtx struct {
 	pins                          map[string]router.PinSpec
 	want, row, exact, callerModel string
 	lead                          string // profile the wanted agent leads with; "" = its pin
-	current, dispatchID           string
+	current, dispatchID, alias    string
 	family                        string // the caller's typed family name; forFamily makes it each candidate's id
 	explicitModel, native         bool
 	mode                          string     // --fallback: all = requested, pin, claude; agents = no claude
@@ -638,6 +638,10 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 		return rc.callerProfileCell(cand, cell)
 	case rc.pinnedCaller(cand):
 		rc.pinnedCell(cand, &cell)
+	case rc.pinnedOnOwnLogin(cand): // the pin's model is another provider's: this login runs its own alias cell
+		if own, ok := rc.tb.Cell(cand.Agent, rc.alias); ok {
+			cell.Model, cell.Effort = own.Model, own.Effort
+		}
 	case rc.profileBacked(cand): // a Databricks dispatch serves only its own cell's model
 		return rc.profileCell(cand, cell)
 	case rc.exact != "": // a non-Claude id runs only where a cell serves it
@@ -648,6 +652,13 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (cell router.Cell, skip 
 		}
 	}
 	return cell, ""
+}
+
+// pinnedOnOwnLogin reports a hop on the agent's own login row, not its pin row, while the pin names a model.
+func (rc routeCtx) pinnedOnOwnLogin(cand router.Candidate) bool {
+	pin := rc.pins[cand.Agent]
+	p := rc.reg.Row(cand.Profile)
+	return rc.exact == "" && !rc.explicitModel && pin.Model != "" && pin.Profile != cand.Profile && p != nil && p.Auth.Login == cand.Agent
 }
 
 // pinnedCaller reports the wanted agent on its pinned profile running the caller's own non-row model.

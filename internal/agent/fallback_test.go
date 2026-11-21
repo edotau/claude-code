@@ -1473,3 +1473,27 @@ func TestRunDispatchBareCellAutoInvokedIsAuto(t *testing.T) {
 		t.Fatalf("invoked %q err %v; want %q", res.Invoked, err, AutoModel)
 	}
 }
+
+// A served-endpoint re-pick keeps the original request as invoked_model.
+func TestRepickKeepsInvokedAsAsked(t *testing.T) {
+	fastDefaultBackoff(t)
+	fallbackConfigDir(t)
+	rl := &retry.Error{Kind: retry.KindRateLimit, Agent: "fake", Terminal: true, Err: errors.New("429 rate limit: ENDPOINT_NOT_FOUND")}
+	r := &modelRunner{name: "fake", caps: Caps{Model: Native}, errs: map[string]error{"dev:m-a": rl}}
+	c := chainOf([]Engine{r}, "dev:m-a")
+	c.Dispatches[0].keepCaller, c.Dispatches[0].Account, c.Dispatches[0].Billing = false, "openai·chatgpt", router.BillSubscription
+	c.Dispatches[0].servedRepick = func(string) string { return "dev:m-b" }
+	res, err := runWithFallback(context.Background(), c, RunOptions{Prompt: "p"}, wire.Discard, nil)
+	if err != nil || len(r.seen) != 2 || res.Invoked != "dev:m-a" {
+		t.Fatalf("err=%v runs=%d invoked=%q; want the re-pick to answer with invoked dev:m-a", err, len(r.seen), res.Invoked)
+	}
+}
+
+// The refused picks of one hop stay excluded on the ask's next hop.
+func TestCarryTriedKeepsPicksAcrossHops(t *testing.T) {
+	ctx := context.WithValue(context.Background(), triedCarryKey{}, new([]string))
+	carryTried(ctx, "a")
+	if got := carryTried(ctx, "b"); !slices.Equal(got, []string{"a", "b"}) {
+		t.Errorf("carried = %v, want [a b]", got)
+	}
+}

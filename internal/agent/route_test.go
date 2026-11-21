@@ -855,3 +855,19 @@ func TestCanLeadClaudeOnDatabricks(t *testing.T) {
 		t.Error("claude cannot lead on a Databricks row; gateway --provider databricks says none serves it")
 	}
 }
+
+// A pin's Claude model never rides onto the agent's own login hop: that login runs its alias cell.
+func TestCandidateCellOwnLoginIgnoresPinModel(t *testing.T) {
+	setConfigDir(t)
+	tb, err := router.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	want, _ := tb.Cell("codex", "sonnet")
+	rc := routeCtx{want: "codex", reg: routeRegistry(t), tb: tb, alias: "sonnet",
+		pins: map[string]router.PinSpec{"codex": {Profile: "dev", Model: "databricks-claude-sonnet-5-5"}}}
+	cand := router.Candidate{Agent: "codex", Profile: "chatgpt", Cell: router.Cell{Model: "claude-sonnet-5.5"}}
+	if cell, skip := rc.candidateCell(cand); skip != "" || cell.Model != want.Model {
+		t.Errorf("chatgpt hop model = %q (skip %q), want %q", cell.Model, skip, want.Model)
+	}
+}
