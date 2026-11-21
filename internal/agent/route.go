@@ -371,12 +371,27 @@ func servedRefusal(rc routeCtx, cand router.Candidate, before int) error {
 	return nil
 }
 
+// claudeRowRefusal is dry-run's ResolveRun verdict on the caller's typed model on a Claude row; nil passes (R8).
+func claudeRowRefusal(rc routeCtx, cand router.Candidate) error {
+	if !VaultAgentIsClaude(cand.Agent) || !rc.callerOnProfile(cand) {
+		return nil
+	}
+	_, err := ResolveRun(rc.reg, ModelQuery{Agent: cand.Agent, Model: rc.callerModel, Profile: cand.Profile, ctx: PeekContext(rc.ctx)}, time.Now())
+	if errors.Is(err, ErrModelRoute) {
+		return clientUsageError{err}
+	}
+	return nil
+}
+
 // stepDispatch is the dispatch for step s on cand, or the reason it is skipped; !ok drops a pin that is the request.
 func (rc routeCtx) stepDispatch(cand router.Candidate, s step, req int, armFailed *Finding) (disp Dispatch, skip string, ok bool, err error) {
 	if armFailed != nil && s.i == req { // the overlay workspace failed its local check, like a failed model check
 		return Dispatch{}, cand.Agent + " (" + cmp.Or(cand.Account, cand.Profile) + "): preflight " + armFailed.String(), false, nil
 	}
 	s.rc = s.rc.forFamily(cand)
+	if err := claudeRowRefusal(s.rc, cand); err != nil {
+		return Dispatch{}, "", false, err
+	}
 	cell, skip := s.rc.candidateCell(cand)
 	if skip != "" {
 		return Dispatch{}, skip, false, nil
@@ -630,6 +645,11 @@ func (rc routeCtx) forFamily(cand router.Candidate) routeCtx {
 	return rc
 }
 
+// claudeTierHop reports a Claude hop serving another agent's dispatch; the caller's own typed model is not one.
+func claudeTierHop(rc routeCtx, cand router.Candidate) bool {
+	return VaultAgentIsClaude(cand.Agent) && rc.dispatchID != "" && !rc.callerOnProfile(cand)
+}
+
 // candidateCell adjusts cand's cell for the row or exact model; skip is non-empty when cand serves none.
 func (rc routeCtx) candidateCell(cand router.Candidate) (router.Cell, string) {
 	if f := githubUnlistedFinding(rc, cand); f != nil {
@@ -642,7 +662,7 @@ func (rc routeCtx) candidateCell(cand router.Candidate) (router.Cell, string) {
 func routedCell(rc routeCtx, cand router.Candidate) (cell router.Cell, skip string) {
 	cell = cand.Cell
 	switch {
-	case VaultAgentIsClaude(cand.Agent) && rc.dispatchID != "": // lowest Claude alias serving the non-Claude dispatch
+	case claudeTierHop(rc, cand): // lowest Claude alias serving the non-Claude dispatch
 		rc.tb.ClaudeTierCell(rc.want, rc.dispatchID, &cell)
 	case rc.callerOnProfile(cand): // the wanted agent's profile row runs the caller's --model, never its pin or tier
 		return rc.callerProfileCell(cand, cell)
