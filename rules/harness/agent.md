@@ -194,9 +194,11 @@ paths:
   A model string is a plain id or alias only; the route travels apart: `providers.md` → Routing precedence.
   Own-login `<login>/auto` is refused before launch, naming that login's typed ids.
   Labels, `gateway resolve`, and `ask --dry-run` only peek; `agents label <agent> --run` records and freezes the pick
-  as one `--overlay '{"provider":"<provider>","profile":"<p>","model":"<id>"}'` in the `Run:` line. A label
-  for a run that picks itself (`--model auto` or no model over
-  an auto pin) reads `auto (next: <id>)`, since the ask may pick another id; a frozen or typed model keeps the bare id.
+  as one `--overlay '{"provider":"<provider>","profile":"<p>","model":"<id>"}'` in the `Run:` line. The
+  `dispatch-effort` hook does the same for a dispatch whose `Run:` line runs `--model auto` (or no model over an auto
+  pin, no `--overlay`, `--spec` or `--provider`): it freezes the pick into the line (model, and profile) and labels the
+  bare id, so the run is exactly that model; a frozen pick is typed, so a refusal falls back as a typed model does
+  (no 3-re-pick auto recovery). Only `agents label` without `--run` still peeks and reads `auto (next: <id>)`.
   `opencode catalog` text shows `SERVED` for Databricks models: dev/qa/prod marks `y` READY, `n` not READY,
   or `?` for a missing/stale listing.
   `claude-code doctor` auto-pin rows end with 7-day final-route counts when records have `ran_route`.

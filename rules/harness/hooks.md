@@ -112,7 +112,7 @@ not data. Blocks name the allowed route and the owner's `!`; `claude-code doctor
 | `rtk-rewrite` ¶ | PreToolUse (Bash) | `rtk rewrite`s a command, never setting a permission decision; Claude only, not in auto mode; exact bytes: `rtk bypass <cmd>` |
 | `docs-placement` ¶ | PreToolUse (Write\|Edit\|MultiEdit\|Bash) | **Block** a new `.md` at a repo root or in a gitignored `docs/`, naming the home (`docs-placement.md`); a leaf's Bash block becomes allow + note (Write/Edit stay blocked unless `--permissions allow`); redirects a new `*plan*.md` to the dated plans home; a first plan write needs the `docs/templates/plan.md` headings |
 | `dispatch-effort` ¶ | PreToolUse (Agent\|Task\|Workflow) | Gates the type (`coworker:<agent>` → `<agent>`), pins model and effort by `agent.TaskTier` for an unpinned type, claims slots, labels, adds the recall block to every brief and dispatched `agents ask` (`withRecall`), all in one `updatedInput`; **fixes** a `Run:` line's unknown flag, bad value, positional agent name or `--task-file -` in the same `updatedInput` when one fix is certain, else notes it; notes a `Run:` line without `--tools` whose brief runs commands or edits files; **denies** a `Run:` line naming a missing workspace or (`--fallback none`) an unserved model |
-| dispatch cap | within `dispatch-effort` | **24 in flight per available account** (a profile's `concurrency` overrides), machine-wide `24 × accounts` clamped to **4 × CPUs**; a blocked dispatch claims nothing; infra errors fail open; `doctor` shows `in-flight`. Description `<model>: <task>`, the model the run resolves (`claude-code agents label <type> --run`); a wrong label is rewritten, never denied; an un-frozen auto ask (`--model auto`, an auto pin) is labelled `auto (next: <id>)`, the peeked id, and a bare id or `auto` head there is rewritten to it |
+| dispatch cap | within `dispatch-effort` | **24 in flight per available account** (a profile's `concurrency` overrides), machine-wide `24 × accounts` clamped to **4 × CPUs**; a blocked dispatch claims nothing; infra errors fail open; `doctor` shows `in-flight`. Description `<model>: <task>`, the model the run resolves (`claude-code agents label <type> --run`); a wrong label is rewritten, never denied; an auto ask (`--model auto`, an auto pin) is frozen: the hook writes the pick into the `Run:` line's `--overlay` (stamping the rotation) and labels its bare id; only a peek (`agents label` without `--run`) reads `auto (next: <id>)` |
 | `dispatch-failure` · `dispatch-workflow` · `dispatch-stop` ¶ | PostToolUseFailure · PostToolUse (Workflow\|Bash) · SubagentStop | Retire the spawn's slots; `dispatch-stop` holds a leaf's stop while its job runs (≤2 h), runs a never-run `Run:` line itself, passes relay work with a note, saves a held report |
 | `dispatch-handback` ¶ | PreToolUse (SubagentHandback\|Bash) | `dispatch-stop`'s leaf gates on the hand-back: waits ≤13 s for a running job, attaches each finished result with its receipt, else holds naming `claude-code agents result -f <id>`; on Bash, refuses duplicate polls and limits a relay's commands; on a hand-back naming a plan task (dispatch `plan_task` or the brief's `Task:`), runs its allowlisted `verify:` plus the scoped gate on its owned dirty files within the budget and puts `verify <id>: …` lines on top of the message (never holds it) |
 | `docs-plan-mirror` | PostToolUse (Write\|Edit) | Mirrors the undated draft to a dated, repo-tagged file from the first write (slug: `Suggested slug:`, else the H1), under a shared lock |
@@ -139,12 +139,14 @@ not data. Blocks name the allowed route and the owner's `!`; `claude-code doctor
 with a top-level `harness_spawn` in the payload: `"ready"` plus `session_id` writes the session's marker
 (`state/harness/hooks/spawn-mod-ready/<session>`, keyed to the session's process, ignored after 7 days) and prints
 `{}`; `"query"` plus the Agent fields and `transcript_path` prints one object of the changed `description`, `prompt`,
-`subagentType` and `model`, claiming and stamping nothing (no recall). With the marker, PreToolUse skips the pin, label
-and `Run:` fixes (the mod's query computes them once) and emits only the recall note; denials are unchanged, and a
-`coworker:<agent>` retype stays a hook `updatedInput` (the host validates the type
-before `agent.spawn`). The mod is `mods/dispatch-spawn` (`claude plugin test mods/dispatch-spawn`), loaded with
-`slash-usage` by `CLAUDE_CODE_PLUGIN_DIRS` (`internal/settings/template.json`; `doctor` row `mods` flags a
-settings.json without it); without it (other CLIs, `claude -p`) no marker exists and the hook rewrites as before.
+`subagentType` and `model`, claiming nothing (no recall) and stamping only a frozen auto pick's rotation.
+With the marker, PreToolUse skips the pin, label and `Run:` fixes (the mod's query computes them once)
+and emits only the recall note; denials are unchanged, and a `coworker:<agent>` retype stays a hook
+`updatedInput` (the host validates the type before `agent.spawn`). The mod is `mods/dispatch-spawn`
+(`claude plugin test mods/dispatch-spawn`), loaded with `slash-usage` by `CLAUDE_CODE_PLUGIN_DIRS`
+(`internal/settings/template.json`; `doctor` row `mods` flags a
+settings.json without it); without it (other CLIs, `claude -p`) no marker exists and the hook rewrites
+as before.
 
 ### safety-scan main-session rules
 

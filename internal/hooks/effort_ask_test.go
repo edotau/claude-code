@@ -104,7 +104,7 @@ func checkReceiptEarned(t *testing.T, command, brief string) {
 		t.Fatalf("no receipt for %q", command)
 	}
 	e := &effortPlan{updated: map[string]any{"subagent_type": "codex", "description": "inspect hook"}, run: newDispatchRun(nil)}
-	if e.label(context.Background(), brief); e.updated["description"] != "pinned: inspect hook" || !e.changed {
+	if e.label(context.Background(), "prompt", brief); e.updated["description"] != "pinned: inspect hook" || !e.changed {
 		t.Fatalf("missing label rewrite for %q: %+v", brief, e.updated)
 	}
 }

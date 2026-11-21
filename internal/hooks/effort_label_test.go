@@ -158,7 +158,7 @@ func TestDispatchLabelPreservesModelUnderGemini(t *testing.T) {
 	}
 }
 
-// A Run: line's --model auto labels the concrete model it ranks, never "auto"; auto mode leaves the prompt as sent.
+// A Run: line's --model auto is frozen: the Run: line carries the ranked model in an overlay and the label is its bare id.
 func TestLabelModelAutoRunLine(t *testing.T) {
 	useAgentsDir(t, "claude")
 	vaulttest.Use(t)
@@ -178,9 +178,11 @@ func TestLabelModelAutoRunLine(t *testing.T) {
 		"tool_input": map[string]any{"subagent_type": "general-purpose", "prompt": brief, "description": "audit"}})
 	r := agentEffortResult(context.Background(), core.ParseInput(bytes.NewReader(raw)))
 	d, _ := r.UpdatedInput["description"].(string)
-	if r.Decision == core.Block || !strings.HasPrefix(d, "auto (next: databricks-claude-") ||
-		r.UpdatedInput["prompt"] != brief {
-		t.Errorf("auto-mode dispatch = %+v (%s), want an auto (next: <id>) label and the prompt byte-identical", r.UpdatedInput, r.Reason)
+	p, _ := r.UpdatedInput["prompt"].(string)
+	id, _, _ := strings.Cut(d, ":")
+	frozen := strings.Contains(p, `"model":"`+id+`"`) && !strings.Contains(p, "--model")
+	if r.Decision == core.Block || !strings.HasPrefix(id, "databricks-claude-") || !frozen {
+		t.Errorf("auto dispatch = %+v (%s), want a bare-id label and the Run: line frozen to it", r.UpdatedInput, r.Reason)
 	}
 }
 
