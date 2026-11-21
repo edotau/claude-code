@@ -105,7 +105,7 @@ func (s Selection) ClientModel(alias string) string {
 	return t.ClientModel()
 }
 
-// NeedsRouter reports whether the session needs the loopback router: cross-provider alias, other wire, renamed ids.
+// NeedsRouter reports whether the session needs the loopback router: other wire, renamed ids.
 func (s Selection) NeedsRouter(reg *Registry) bool {
 	if _, ok := s.Provider.Route(ProtocolAnthropic); !ok {
 		return true
@@ -115,7 +115,7 @@ func (s Selection) NeedsRouter(reg *Registry) bool {
 		return true
 	}
 	for _, t := range s.Aliases {
-		if _, ok := AnthropicRoute(t.Provider, t.Model); t.Provider != s.Provider || !ok {
+		if _, ok := AnthropicRoute(t.Provider, t.Model); !ok {
 			return true
 		}
 	}

@@ -39,7 +39,7 @@ entry is a **profile** (an account on a provider: `qa`, `ultra`, `chatgpt`); see
 claude-code configure provider --list [name]        # providers, credential state, fallback ladder
 claude-code configure provider --all [<profile>]    # check every sign-in (or one); --check exits 1 if any not ok
 claude-code switch example                          # pin the session profile
-claude-code models --pin haiku=openai:gpt-5-nano    # pin a model alias; provider:model crosses providers
+claude-code models --pin haiku=gpt-5-nano            # pin a model alias: a plain id on the session profile
 claude-code models --unpin | --live --profile p     # clear pins | list what upstream serves
 claude-code models discover                         # live preview across all registry profiles
 claude-code models learn                            # fold dispatch records into router/fit.json (shadow 14 days, then --model auto reorders by it)
@@ -96,7 +96,7 @@ shows secrets as `<prefix>***  N chars` and marks failing entries ✗ first (`--
 
 ```jsonc
 {
-  "agents": {"records": {"claude": {"profile": "ultra", "aliases": {"haiku": "openai:gpt-5-nano"}},
+  "agents": {"records": {"claude": {"profile": "ultra", "aliases": {"haiku": "gpt-5-nano"}},
                          "codex": {"profile": "chatgpt", "model": "databricks-gpt-6-astra", "effort": "medium"}}},
   "env": {"MY_PROJECT_ROOT": "/home/me/work", "SOME_API_TOKEN": "@secret"},   // @secret = vault secret of that name
   "providers": {"default": "example"}, "vault": {"key_command": ""}
