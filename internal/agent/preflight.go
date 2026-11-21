@@ -295,7 +295,7 @@ func checkServed(agentName string, p *providers.Provider, model string, now time
 	note, gone, notReady := listingVerdict(p, spelled, now) // one listing read; spelled is wire once why is empty
 	switch {
 	case gone: // a fresh listing without it beats the wire wording: the endpoint does not exist
-		return fail("served", p.Name+" lists no endpoint "+spelled)
+		return fail("served", p.Name+listsNoEndpoint+spelled)
 	case coldCustomWire(agentName, p, spelled, note):
 		return spelled, nil, note
 	case preflightResponsesMismatch(agentName, p, spelled):
@@ -309,6 +309,9 @@ func checkServed(agentName string, p *providers.Provider, model string, now time
 	}
 	return wire, nil, note
 }
+
+// listsNoEndpoint is the served refusal of a model a fresh listing lacks, between the profile and the id.
+const listsNoEndpoint = " lists no endpoint "
 
 // failFinding is the Finding for a refused model; a served refusal names the family's served ids.
 func failFinding(p *providers.Provider, model, check, detail string, now time.Time) *Finding {

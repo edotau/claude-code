@@ -335,7 +335,11 @@ func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead boo
 	steps, req := rc.steps(pick.Candidates, alias, nativeLead)
 	armFailed := rc.armFinding()
 	for _, s := range steps {
+		before := len(rc.pf.Failed)
 		disp, skip, ok, err := rc.stepDispatch(pick.Candidates[s.i], s, req, armFailed)
+		if skip != "" && err == nil {
+			err = servedRefusal(rc, pick.Candidates[s.i], before)
+		}
 		switch {
 		case err != nil:
 			return Chain{}, err
@@ -351,6 +355,20 @@ func (rc routeCtx) addCandidates(c Chain, pick router.PickResult, nativeLead boo
 		c.Dispatches = append(c.Dispatches, disp)
 	}
 	return c, nil
+}
+
+// servedRefusal is AcceptModel's usage refusal when a fresh listing lacks cand's typed model; nil otherwise.
+func servedRefusal(rc routeCtx, cand router.Candidate, before int) error {
+	if len(rc.pf.Failed) == before || !rc.callerOnProfile(cand) {
+		return nil
+	}
+	if f := rc.pf.Failed[len(rc.pf.Failed)-1]; f.Check != "served" || !strings.Contains(f.Detail, listsNoEndpoint) {
+		return nil
+	}
+	if _, err := AcceptModel(cand.Agent, rc.reg.Providers[cand.Profile], rc.callerModel, time.Now()); err != nil {
+		return clientUsageError{err}
+	}
+	return nil
 }
 
 // stepDispatch is the dispatch for step s on cand, or the reason it is skipped; !ok drops a pin that is the request.

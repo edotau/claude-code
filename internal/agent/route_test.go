@@ -867,3 +867,21 @@ func TestCandidateCellOwnLoginIgnoresPinModel(t *testing.T) {
 		t.Errorf("chatgpt hop model = %q (skip %q), want %q", cell.Model, skip, want.Model)
 	}
 }
+
+// A typed model the dev listing lacks is a usage refusal naming nearest ids, not a skipped hop.
+func TestRouteChainRefusesUnlistedTypedModel(t *testing.T) {
+	servedEnv(t, "true", nil)
+	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+		{ID: "databricks-gpt-6-1-sol", Ready: "READY"}}}); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("HOME", t.TempDir())
+	activateAgents(t, "codex")
+	_, _, err := RouteChainFor(context.Background(), "codex", "databricks-gpt-6-1-sul", "sonnet", router.FallbackAll, false,
+		router.PickOpts{Configured: allConfigured, Lead: "dev"})
+	var ue *UnacceptedError
+	cu, usage := err.(clientUsageError)
+	if !usage || !errors.As(cu.error, &ue) || ue.Kind != UnacceptedUnserved || !strings.Contains(err.Error(), "databricks-gpt-6-1-sol") {
+		t.Fatalf("err = %v, want an unserved refusal naming databricks-gpt-6-1-sol", err)
+	}
+}
