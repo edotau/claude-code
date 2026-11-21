@@ -435,10 +435,10 @@ func (r *askRun) poolValue(value string) string {
 	return value
 }
 
-// poolPinned reports an unled, unbatched run on a stored pool pin (not live or resumed).
+// poolPinned reports an unled, unbatched run on a stored pool pin, including held runs.
 func poolPinned(r *askRun) bool {
 	f := r.f
-	return f.provider == "" && f.batchSrc == "" && agent.PoolPicks(r.ag, f.model, f.live || f.background || f.session != "")
+	return f.provider == "" && f.batchSrc == "" && agent.PoolPicks(r.ag, f.model, false)
 }
 
 // storedWorkspace is databricks:<workspace> as a label resolves the stored pin, else the pool pick.

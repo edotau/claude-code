@@ -3,12 +3,14 @@ package hooks
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -106,7 +108,7 @@ func checkReceiptEarned(t *testing.T, command, brief string) {
 	}
 }
 
-// TestAskLineRefusalMatchesAcceptModel: the hook predicts AcceptModel's wording for an unserved and a prefixed model.
+// The hook matches ask's cast-then-accept flow, including shorthand that selects the profile.
 func TestAskLineRefusalMatchesAcceptModel(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
@@ -114,15 +116,30 @@ func TestAskLineRefusalMatchesAcceptModel(t *testing.T) {
 		{ID: "databricks-claude-opus-5-5", Ready: "READY"}}}); err != nil {
 		t.Fatal(err)
 	}
-	for _, model := range []string{"claude-opus-5-9", "dev:opus"} {
-		l := parseAskLine(t.Context(), "Run: claude-code agents ask --agent claude --profile dev --fallback none --model "+model+" 'x'")
+	for _, model := range []string{"claude-opus-5-9", "dev:claude-opus-5-9", "dev:opus"} {
+		flags := "--model " + model
+		if !strings.Contains(model, ":") {
+			flags += " --profile dev"
+		}
+		l := parseAskLine(t.Context(), "Run: claude-code agents ask --agent claude --fallback none "+flags+" 'x'")
 		reg, err := newDispatchRun(nil).registry()
 		if err != nil {
 			t.Fatal(err)
 		}
-		_, want := agentpkg.AcceptModel("claude", reg.Providers["dev"], model, time.Now())
+		cast, err := providers.CastModel(reg, model)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, profile, err := cast.Merge(l.provider, l.profile)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, want := agentpkg.AcceptModel("claude", reg.Providers[profile], cast.Model, time.Now())
+		if (want == nil) != (model == "dev:opus") {
+			t.Fatalf("--model %s: ask verdict = %v", model, want)
+		}
 		got := l.refusal(reg, "claude")
-		if want == nil || got == nil || got.Error() != want.Error() {
+		if fmt.Sprint(got) != fmt.Sprint(want) {
 			t.Errorf("--model %s: refusal = %v, want %v", model, got, want)
 		}
 	}

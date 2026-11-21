@@ -235,7 +235,7 @@ func (l askLine) refusal(reg *providers.Registry, agent string) error {
 	if err != nil || p == nil || model == "" {
 		return err
 	}
-	_, err = agentpkg.AcceptModel(agent, p, cmp.Or(l.model, l.cfg.Model), time.Now()) // typed as given: a prefix refuses
+	_, err = agentpkg.AcceptModel(agent, p, model, time.Now())
 	var ue *agentpkg.UnacceptedError
 	if errors.As(err, &ue) && (ue.Kind == agentpkg.UnacceptedPrefixed || none()) {
 		return err

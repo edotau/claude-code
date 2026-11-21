@@ -1338,19 +1338,22 @@ func TestPoolValueStoredPinTakesOneWorkspace(t *testing.T) {
 	t.Setenv("DEV_WS_TOKEN", "x")
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
 		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
-	vaulttest.SetRecord(t, "pi", "profile", "databricks")
-	for args, want := range map[string]string{"": "databricks:dev", "--provider": route.Join(router.RouteDatabricks, router.AutoArm)} {
-		fs, f := askFlagSet()
-		parsed := []string{"--model", "auto"}
-		if args != "" {
-			parsed = append(parsed, args, "databricks")
-		}
-		if err := fs.Parse(parsed); err != nil {
-			t.Fatal(err)
-		}
-		r := &askRun{ctx: t.Context(), f: f, fs: fs, ag: "pi"}
-		if got := r.poolValue(""); got != want {
-			t.Errorf("args %q: poolValue = %q, want %q", parsed, got, want)
+	for _, ag := range []string{"pi", "codex"} {
+		vaulttest.SetRecord(t, ag, "profile", "databricks")
+		for _, mode := range [][]string{nil, {"--background"}, {"--live"}, {"--session", "held"}, {"--provider", "databricks"}} {
+			fs, f := askFlagSet()
+			parsed := append([]string{"--model", "auto"}, mode...)
+			if err := fs.Parse(parsed); err != nil {
+				t.Fatal(err)
+			}
+			want := "databricks:dev"
+			if f.provider != "" {
+				want = route.Join(router.RouteDatabricks, router.AutoArm)
+			}
+			r := &askRun{ctx: t.Context(), f: f, fs: fs, ag: ag}
+			if got := r.poolValue(""); got != want {
+				t.Errorf("%s args %q: poolValue = %q, want %q", ag, parsed, got, want)
+			}
 		}
 	}
 }
