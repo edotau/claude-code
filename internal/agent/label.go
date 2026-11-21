@@ -37,8 +37,8 @@ func runQueryRoute(ctx context.Context, reg *providers.Registry, q ModelQuery, a
 	if hop, ok := agyAliasQuery(q); ok {
 		return hop, "", nil
 	}
-	if pq, ok := poolQuery(ctx, q); ok {
-		return pq, "", nil
+	if pq, ok, err := poolQuery(ctx, reg, q); ok {
+		return pq, "", err
 	}
 	if namesRoute(q) {
 		return q, "", nil
@@ -80,16 +80,30 @@ func PoolPicks(ag, model string, held bool) bool {
 	return !held && !strings.Contains(model, ":") && PinsPool(ag)
 }
 
-// poolQuery is q on the Databricks pool when nothing names a route and the agent's record pins the pool.
-func poolQuery(ctx context.Context, q ModelQuery) (ModelQuery, bool) {
-	if q.Profile != "" || q.Provider != "" || q.Account != "" || !PoolPicks(q.Agent, q.Model, q.Held) {
-		return q, false
+// poolQuery fixes a stored pool pin to the session workspace, else the first signed-in workspace in registry order.
+func poolQuery(ctx context.Context, reg *providers.Registry, q ModelQuery) (ModelQuery, bool, error) {
+	if !q.Route.IsZero() || namesRoute(q) || !PinsPool(q.Agent) {
+		return q, false, nil
 	}
-	q.Provider = providers.GroupDatabricks // as --provider databricks: the auto pick
-	if arm := router.ArmProfileContext(ctx); arm != "" {
-		q.Profile, q.Provider = arm, "" // ask already picked this run's workspace
+	profile := storedPoolProfile(ctx, reg, q.Session)
+	if profile == "" {
+		return q, true, fmt.Errorf("%w: no signed-in Databricks workspace for %s", ErrModelRoute, q.Agent)
 	}
-	return q, true
+	q.Route = rowRoute(reg, profile)
+	q.Provider, q.Profile = q.Route.Provider, q.Route.Profile
+	return q, true, nil
+}
+
+func storedPoolProfile(ctx context.Context, reg *providers.Registry, session string) string {
+	if p := reg.Row(cmp.Or(session, providers.SessionProfileContext(ctx))); p != nil && p.Preset == providers.PresetDatabricks {
+		return p.Name
+	}
+	for _, name := range reg.ProfilesOf(providers.GroupDatabricks) {
+		if p := reg.Row(name); p.Preset == providers.PresetDatabricks && providers.CredentialPresent(p) {
+			return name
+		}
+	}
+	return ""
 }
 
 // labelHop is ladderHop under auto: a typed or pinned auto beats the hop's cell model, as dispatchRequest runs it.

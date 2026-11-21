@@ -63,6 +63,38 @@ func TestRunQueryTypedSkipsLadder(t *testing.T) {
 	}
 }
 
+func TestStoredPoolPinWorkspace(t *testing.T) {
+	setConfigDir(t)
+	vaulttest.Use(t)
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{
+		"a-unsigned": {Name: "a-unsigned", Provider: "databricks", Preset: "databricks", Auth: providers.Auth{Type: providers.AuthOAuth}},
+		"b-first":    {Name: "b-first", Provider: "databricks", Preset: "databricks", Auth: providers.Auth{Type: providers.AuthNone}},
+		"qa":         {Name: "qa", Provider: "databricks", Preset: "databricks"},
+		"login":      {Name: "login", Provider: "openai"},
+	}}
+	for _, pin := range []string{`{"profile":"databricks"}`, `{"route":{"provider":"databricks","profile":"auto"}}`} {
+		vaulttest.Put(t, vault.Overlay, vault.AgentRecordsKey, `{"codex":`+pin+`}`)
+		for _, tc := range []struct{ session, typed, want string }{
+			{"qa", "", "qa"}, {"login", "", "b-first"}, {"", "", "b-first"},
+			{"qa", "auto", "auto"}, {"qa", "b-first", "b-first"},
+		} {
+			t.Setenv(providers.EnvSessionProfile, tc.session)
+			q := QueryFor(context.Background(), ModelQuery{Agent: "codex", Model: AutoModel})
+			if tc.typed != "" {
+				q.Provider, q.Profile = "databricks", tc.typed
+			}
+			got, _, err := RunQuery(context.Background(), reg, q, "")
+			if err != nil || got.Profile != tc.want || got.Provider != "databricks" {
+				t.Fatalf("pin %s, session %q, typed %q: route %s/%s, err %v; want databricks/%s",
+					pin, tc.session, tc.typed, got.Provider, got.Profile, err, tc.want)
+			}
+			if vault.GetAgentRecord("codex").EffectiveRoute() != poolRoute {
+				t.Fatal("stored pin was rewritten")
+			}
+		}
+	}
+}
+
 // A typed alias on gemini is the Claude id agy serves, else the row's tier; other agents keep the alias.
 func TestRunQueryAgyAlias(t *testing.T) {
 	for _, c := range []struct{ agent, model, want string }{
