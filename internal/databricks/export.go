@@ -451,14 +451,47 @@ func lineKey(l string) string {
 	return strings.TrimSpace(t[:i])
 }
 
+// eol is the line ending of l, LF when it has none.
+func eol(l string) string {
+	if strings.HasSuffix(l, "\r\n") {
+		return "\r\n"
+	}
+	return "\n"
+}
+
+// contLines counts the lines after lines[i] that continue its value (a trailing backslash or an open quote block).
+func contLines(lines []string, i int) int {
+	t := strings.TrimSpace(lines[i])
+	v := strings.TrimSpace(t[strings.IndexAny(t, "=:")+1:])
+	n := 0
+	for _, d := range []string{`"""`, `'''`, "`"} {
+		if !strings.HasPrefix(v, d) {
+			continue
+		}
+		rest := v[len(d):]
+		for !strings.Contains(rest, d) && i+1+n < len(lines) {
+			rest += "\n" + lines[i+1+n]
+			n++
+		}
+		return n
+	}
+	for strings.HasSuffix(v, `\`) && i+1+n < len(lines) {
+		v = strings.TrimSuffix(v, `\`) + strings.TrimSpace(lines[i+1+n])
+		n++
+	}
+	return n
+}
+
 // mergeSection rewrites the managed keys of the first [name] block in place and keeps every other line.
 func mergeSection(bl block, old *section, r exportRow) block {
 	want := rowKeys(r)
-	dropSecrets := effectiveCLIAuth(old.keys) != want["auth_type"]
+	dropSecrets := effectiveCLIAuth(old.keys) != want["auth_type"] ||
+		want["client_id"] != "" && old.keys["client_id"] != want["client_id"]
 	var lines []string
 	seen := map[string]bool{}
-	inBody, skipCont, last := false, false, -1
-	for _, l := range bl.lines {
+	inBody, last := false, -1
+	for i := 0; i < len(bl.lines); i++ {
+		l := bl.lines[i]
 		if !inBody {
 			lines = append(lines, l)
 			if name, ok := headerName(strings.TrimSpace(strings.TrimPrefix(l, "\ufeff"))); ok && name == bl.name {
@@ -468,20 +501,20 @@ func mergeSection(bl block, old *section, r exportRow) block {
 		}
 		key := lineKey(l)
 		if key == "" {
-			if skipCont && (l[0] == ' ' || l[0] == '\t') {
-				continue
-			}
-			skipCont = false
 			lines = append(lines, l)
 			continue
 		}
-		var keep bool
-		l, keep = mergeKeyLine(l, key, old, want, seen, dropSecrets)
-		skipCont = !keep
+		n := contLines(bl.lines, i)
+		orig := l
+		l, keep := mergeKeyLine(l, key, old, want, seen, dropSecrets)
 		if keep {
 			lines = append(lines, l)
+			if l == orig {
+				lines = append(lines, bl.lines[i+1:i+1+n]...)
+			}
 			last = len(lines) - 1
 		}
+		i += n
 	}
 	return block{name: bl.name, lines: appendMissing(lines, last, want, seen)}
 }
@@ -499,7 +532,7 @@ func mergeKeyLine(l, key string, old *section, want map[string]string, seen map[
 	}
 	seen[key] = true
 	if old.keys[key] != want[key] {
-		l = key + " = " + want[key] + "\n"
+		l = key + " = " + want[key] + eol(l)
 	}
 	return l, true
 }
@@ -515,24 +548,50 @@ func appendMissing(lines []string, last int, want map[string]string, seen map[st
 	if len(add) == 0 {
 		return lines
 	}
+	nl := eol(lines[last])
 	if !strings.HasSuffix(lines[last], "\n") {
-		lines[last] += "\n"
+		lines[last] += nl
+	}
+	for i := range add {
+		add[i] = strings.TrimSuffix(add[i], "\n") + nl
 	}
 	return slices.Insert(lines, last+1, add...)
 }
 
-// mergeBlocks merges r into the first [name] block and drops its duplicates.
+// mergeBlocks merges r into the first [name] block, folding its duplicates' lines in after it.
 func mergeBlocks(blocks []block, old *section, r exportRow) []block {
 	var out []block
-	done := false
+	first := -1
 	for _, bl := range blocks {
 		switch {
 		case bl.name != r.Section:
 			out = append(out, bl)
-		case !done:
-			out = append(out, mergeSection(bl, old, r))
-			done = true
+		case first < 0:
+			first = len(out)
+			out = append(out, bl)
+		default:
+			out[first] = foldBlock(out[first], bl)
 		}
 	}
+	if first >= 0 {
+		out[first] = mergeSection(out[first], old, r)
+	}
 	return out
+}
+
+// foldBlock appends dup's body (its header and pairing comment dropped) to bl; the later key wins as in parseSections.
+func foldBlock(bl, dup block) block {
+	lines := slices.Clone(bl.lines)
+	if n := len(lines); n > 0 && !strings.HasSuffix(lines[n-1], "\n") {
+		lines[n-1] += eol(lines[n-1])
+	}
+	body := false
+	for _, l := range dup.lines {
+		if body {
+			lines = append(lines, l)
+		} else if name, ok := headerName(strings.TrimSpace(strings.TrimPrefix(l, "\ufeff"))); ok && name == dup.name {
+			body = true
+		}
+	}
+	return block{name: bl.name, lines: lines}
 }

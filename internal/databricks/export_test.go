@@ -250,3 +250,49 @@ func TestMergeKeepsOthersAndReplacesOnlyWithForce(t *testing.T) {
 		t.Errorf("second merge rewrote:\n%s", again)
 	}
 }
+
+func TestMergeKeyLevelRegressions(t *testing.T) {
+	const host = "https://old.example.cloud.databricks.com"
+	svc := sampleRows()[1]
+	wsSvc := svc
+	wsSvc.WorkspaceID = "123"
+	tests := []struct {
+		name     string
+		existing string
+		row      exportRow
+		want     []string
+		not      []string
+	}{
+		{"duplicate block keeps its keys", "[svc]\nhost = " + host + "\nclient_id = cid-svc\nauth_type = " + cliAuthM2M + "\n\n[svc]\nclient_secret = qzvkpwmtrh\nextra = 2\n",
+			svc, []string{"client_secret = qzvkpwmtrh\n", "extra = 2\n"}, nil},
+		{"changed client_id drops the old secret", "[svc]\nhost = " + host + "\nauth_type = " + cliAuthM2M + "\nclient_id = old\nclient_secret = qzvkpwmtrh\n",
+			svc, []string{"client_id = cid-svc\n"}, []string{"client_secret"}},
+		{"same client_id keeps the secret", "[svc]\nhost = " + host + "\nauth_type = " + cliAuthM2M + "\nclient_id = cid-svc\nclient_secret = qzvkpwmtrh\n",
+			svc, []string{"client_secret = qzvkpwmtrh\n"}, nil},
+		{"CRLF stays CRLF", "[svc]\r\nhost = " + host + "\r\nclient_id = old\r\n",
+			wsSvc, []string{"client_id = cid-svc\r\n", "workspace_id = 123\r\n"}, nil},
+		{"continuation lines are not keys", "[svc]\nhost = " + host + "\nnote = a \\\nhost = tail\nclient_id = old \\\nrest\n",
+			svc, []string{"note = a \\\nhost = tail\n", "client_id = cid-svc\n"}, []string{"rest"}},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			out, _, _ := mergeExport(tc.existing, []exportRow{tc.row}, true)
+			for _, w := range tc.want {
+				if !strings.Contains(out, w) {
+					t.Errorf("missing %q:\n%q", w, out)
+				}
+			}
+			for _, n := range tc.not {
+				if strings.Contains(out, n) {
+					t.Errorf("unexpected %q:\n%q", n, out)
+				}
+			}
+			if strings.Contains(tc.existing, "\r\n") && strings.Contains(strings.ReplaceAll(out, "\r\n", ""), "\n") {
+				t.Errorf("mixed line endings:\n%q", out)
+			}
+			if strings.Count(out, "[svc]") != 1 {
+				t.Errorf("want one [svc]:\n%q", out)
+			}
+		})
+	}
+}
