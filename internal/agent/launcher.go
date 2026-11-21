@@ -285,7 +285,7 @@ func (o *LaunchOptions) foldOverlay() error {
 		o.Route = r
 		o.Provider = r.Profile
 		if r.Profile == "auto" {
-			o.Provider, o.Model = "", cmp.Or(o.Model, r.Provider+":"+cmp.Or(ov.Model, "auto"))
+			o.Model = cmp.Or(o.Model, ov.Model, AutoModel)
 		}
 	}
 	o.Model = cmp.Or(o.Model, ov.Model)

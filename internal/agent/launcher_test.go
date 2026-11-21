@@ -9,8 +9,10 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agentid"
+	"github.com/edotau/claude-code/internal/inflight"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -421,5 +423,35 @@ func TestLaunchOverlayRoute(t *testing.T) {
 	}
 	if _, err := launchOverlay(LaunchOptions{Overlay: `{"fallback":"all"}`, PrintEnv: true}); err == nil || !strings.Contains(err.Error(), "fallback") {
 		t.Fatalf("fallback: %v", err)
+	}
+}
+
+func TestLaunchOverlayPoolKeepsTypedModel(t *testing.T) {
+	vaulttest.Use(t)
+	reg := routeRegistry(t)
+	const wire = "databricks-claude-opus-5-5"
+	for name, ready := range map[string]string{"dev": "READY", "qa": "READY", "prod": "NOT_READY"} {
+		reg.Providers[name].Auth.Type = providers.AuthNone
+		if err := router.SaveServed(router.Served{Profile: name, FetchedAt: time.Now(),
+			Models: []router.ServedModel{{ID: wire, Task: "llm/v1/chat", Ready: ready}}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	claim := inflight.Claim{Owner: os.Getpid(), ID: "launch-overlay", Account: router.AccountOf(reg.Providers["dev"])}
+	if ok, _ := inflight.TryClaim(claim, inflight.Limits{Total: 1}); !ok {
+		t.Fatal("could not mark dev busy")
+	}
+	t.Cleanup(func() { inflight.Release(claim.Owner, claim.ID) })
+	o, _, err := ParseArgs([]string{"--model", "opus", "--overlay",
+		`{"provider":"databricks","profile":"auto","model":"sonnet"}`}, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"qa", "dev"} {
+		r, err := launchRoute(t.Context(), reg, "claude", o)
+		if err != nil || r.Profile != want || r.Model != wire || o.Model != "opus" {
+			t.Fatalf("typed %q: route = %+v, err = %v; want %s %s", o.Model, r, err, want, wire)
+		}
+		inflight.Release(claim.Owner, claim.ID)
 	}
 }
