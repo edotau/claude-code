@@ -3,6 +3,7 @@ package agent
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"reflect"
 	"slices"
@@ -64,6 +65,33 @@ func TestRotationPoolPinSkips(t *testing.T) {
 		if got := picks(); slices.Contains(got, first) != want {
 			t.Errorf("after skipping on %d row(s): picks %v, want %s in them %v", i+1, got, first, want)
 		}
+	}
+}
+
+// The pool-pin note's "in pool" count drops a model only once every workspace holds it; one row's hold leaves it.
+func TestRotationPoolPinNoteCountsWorkspaceSkips(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	saveListing(t, "prod", devListing)
+	rows := []*providers.Provider{reg.Providers["dev"], reg.Providers["prod"]}
+	pool := rotationPool("opencode", models.Sonnet, rows[0], false, time.Now())
+	if len(pool) < 2 {
+		t.Fatalf("fixture: standard pool has %d members, want 2+", len(pool))
+	}
+	_, note, err := rotationModelOn(context.Background(), rows, "opencode", models.Sonnet, false, false, nil, time.Now())
+	if err != nil || !strings.Contains(note, fmt.Sprintf("%d in pool", len(pool))) {
+		t.Fatalf("note %q (%v), want %d in pool", note, err, len(pool))
+	}
+	if router.SkipDiscovery(context.Background(), "opencode", rows[0], providers.SpellPin(rows[0], pool[0])) == "" {
+		t.Fatalf("fixture: %s not in %s's rotation pool", pool[0], rows[0].Name)
+	}
+	_, note, err = rotationModelOn(context.Background(), rows, "opencode", models.Sonnet, false, false, nil, time.Now())
+	if err != nil || !strings.Contains(note, fmt.Sprintf("%d in pool", len(pool))) {
+		t.Errorf("after a dev skip, note %q (%v), want still %d in pool (prod serves it)", note, err, len(pool))
+	}
+	router.SkipDiscovery(context.Background(), "opencode", rows[1], providers.SpellPin(rows[1], pool[0]))
+	_, note, err = rotationModelOn(context.Background(), rows, "opencode", models.Sonnet, false, false, nil, time.Now())
+	if err != nil || !strings.Contains(note, fmt.Sprintf("%d in pool", len(pool)-1)) {
+		t.Errorf("after the same skip on prod, note %q (%v), want %d in pool", note, err, len(pool)-1)
 	}
 }
 
