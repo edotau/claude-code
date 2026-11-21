@@ -51,6 +51,7 @@ var hrefRe = regexp.MustCompile(`(?i)href="([^"]+)"`)
 
 type options struct {
 	out, nodeServices string
+	site, writeEnv    string
 	trust             bool
 }
 
@@ -59,6 +60,8 @@ func addFlags(fs *flag.FlagSet) *options {
 	fs.StringVar(&o.out, "out", "", "bundle path to write (default: the user data dir, certs/corp-ca-bundle.pem)")
 	fs.BoolVar(&o.trust, "trust", false, "also install root and issuing CA into the system trust store (Linux, root)")
 	fs.StringVar(&o.nodeServices, "node-services", "", "comma-separated systemd services to point NODE_EXTRA_CA_CERTS at the bundle")
+	fs.StringVar(&o.site, "site", "", "force a site by name from "+envSites+" instead of detecting it from resolv.conf")
+	fs.StringVar(&o.writeEnv, "write-env", "", "rewrite only the managed pki block in this env file (created if missing)")
 	return o
 }
 
@@ -72,10 +75,10 @@ func Flags() []helptext.Flag {
 // Cmd builds the pinned bundle and prints the export lines; --trust and --node-services need root on Linux.
 func Cmd(args []string) int {
 	fs := helptext.NewFlagSet("network pki", helptext.Page{
-		Usage: "claude-code network pki [--out <path>] [--trust] [--node-services a,b]",
+		Usage: "claude-code network pki [--out <path>] [--site <name>] [--write-env <file>] [--trust] [--node-services a,b]",
 		About: "Fetch the corporate root and issuing CA, pin the root by SHA-256, verify the chain and write a CA bundle.\n" +
 			"Required (process env, `claude-code vault env set`, or ./.env): " + strings.Join(requiredKeys, ", ") + ".\n" +
-			"Optional: " + envUA + ". Values are never printed."})
+			"Optional: " + envUA + ", " + envSites + " (" + sitesShape + ", comma list), " + envPipRepo + ", " + envProxy + ", " + envNoProxy + ". Values are never printed."})
 	o := addFlags(fs)
 	if code, done := helptext.Parse(fs, args); done {
 		return code
@@ -150,6 +153,10 @@ func run(ctx context.Context, o options, get func(string) string, w, errw io.Wri
 	if err != nil {
 		return err
 	}
+	st, extra, err := siteEnv(get, o.site)
+	if err != nil {
+		return err
+	}
 	rootPEM, issPEM, err := fetchPinned(ctx, cfg, errw)
 	if err != nil {
 		return err
@@ -157,8 +164,39 @@ func run(ctx context.Context, o options, get func(string) string, w, errw io.Wri
 	if err := writeBundle(out, rootPEM, issPEM); err != nil {
 		return err
 	}
-	fmt.Fprintf(w, "export SSL_CERT_FILE=%[1]s REQUESTS_CA_BUNDLE=%[1]s CURL_CA_BUNDLE=%[1]s NODE_EXTRA_CA_CERTS=%[1]s\n", out)
+	if err := report(o, out, st, extra, w); err != nil {
+		return err
+	}
 	return applySystem(ctx, o, out)
+}
+
+// report prints the export lines, or with --write-env writes the block and prints the site and key names only.
+func report(o options, out string, st *site, extra []kv, w io.Writer) error {
+	if o.writeEnv == "" {
+		fmt.Fprintf(w, "export SSL_CERT_FILE=%[1]s REQUESTS_CA_BUNDLE=%[1]s CURL_CA_BUNDLE=%[1]s NODE_EXTRA_CA_CERTS=%[1]s\n", out)
+		for _, p := range extra {
+			fmt.Fprintln(w, exportLine(p))
+		}
+		return nil
+	}
+	file, err := filepath.Abs(paths.ExpandHome(o.writeEnv))
+	if err != nil {
+		return err
+	}
+	pairs := append(caPairs(out), extra...)
+	if err := writeEnvBlock(file, pairs); err != nil {
+		return err
+	}
+	name := "none"
+	if st != nil {
+		name = st.name
+	}
+	keys := make([]string, len(pairs))
+	for i, p := range pairs {
+		keys[i] = p.key
+	}
+	fmt.Fprintf(w, "site: %s\nwrote %s: %s\n", name, file, strings.Join(keys, " "))
+	return nil
 }
 
 func applySystem(ctx context.Context, o options, out string) error {
@@ -302,9 +340,11 @@ func (f *fetcher) once(ctx context.Context, rawURL string) ([]byte, error) {
 	return body, nil
 }
 
-func systemBundle() []byte {
-	for _, p := range []string{os.Getenv("SSL_CERT_FILE"), "/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt"} {
-		if p == "" {
+// systemBundle skips SSL_CERT_FILE when it is our own output, else each re-run after `source .env` re-appends the CAs.
+func systemBundle(out string) []byte {
+	paths := []string{os.Getenv("SSL_CERT_FILE"), "/etc/ssl/certs/ca-certificates.crt", "/etc/pki/tls/certs/ca-bundle.crt", "/etc/ssl/cert.pem"}
+	for _, p := range paths {
+		if p == "" || sameFile(p, out) {
 			continue
 		}
 		if data, err := os.ReadFile(p); err == nil {
@@ -314,13 +354,19 @@ func systemBundle() []byte {
 	return nil
 }
 
+func sameFile(a, b string) bool {
+	ia, errA := os.Stat(a)
+	ib, errB := os.Stat(b)
+	return errA == nil && errB == nil && os.SameFile(ia, ib)
+}
+
 // writeBundle writes root.pem, issuing.pem and the system bundle plus both CAs beside out.
 func writeBundle(out string, rootPEM, issPEM []byte) error {
 	dir := filepath.Dir(out)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	bundle := systemBundle()
+	bundle := systemBundle(out)
 	if len(bundle) > 0 && !bytes.HasSuffix(bundle, []byte("\n")) {
 		bundle = append(bundle, '\n')
 	}
