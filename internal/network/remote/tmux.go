@@ -140,7 +140,7 @@ const fieldSep = "|"
 // listCommand is the ssh-side --list command: cc-* rows; a real tmux failure exits 1 with its output on stderr.
 const listCommand = `out=$(tmux list-sessions -F '#{session_name}` + fieldSep + `#{session_created}` + fieldSep +
 	`#{session_attached}` + fieldSep + `#{pane_current_command}` + fieldSep + `#{@cc_agent}' 2>&1) || { ` +
-	`case $out in *"no server running"*|*"No such file or directory"*) out= ;; ` +
+	`case $out in "no server running on "?*|"error connecting to "?*" (No such file or directory)"|"no sessions") out= ;; ` +
 	`*) printf '%s\n' "$out" >&2; exit 1 ;; esac; }; ` +
 	`printf '%s\n' "$out" | awk -F'` + fieldSep + `' '$1 ~ /^cc-/'`
 

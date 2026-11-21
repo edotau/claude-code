@@ -1,6 +1,7 @@
 package remote
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"slices"
@@ -336,7 +337,7 @@ func TestListCommand_KnownFormat(t *testing.T) {
 	hosttest.SkipOnWindows(t, "sh")
 	want := `out=$(tmux list-sessions -F ` +
 		`'#{session_name}|#{session_created}|#{session_attached}|#{pane_current_command}|#{@cc_agent}' 2>&1) || ` +
-		`{ case $out in *"no server running"*|*"No such file or directory"*) out= ;; ` +
+		`{ case $out in "no server running on "?*|"error connecting to "?*" (No such file or directory)"|"no sessions") out= ;; ` +
 		`*) printf '%s\n' "$out" >&2; exit 1 ;; esac; }; printf '%s\n' "$out" | awk -F'|' '$1 ~ /^cc-/'`
 	if listCommand != want {
 		t.Errorf("listCommand = %q, want %q", listCommand, want)
@@ -344,6 +345,24 @@ func TestListCommand_KnownFormat(t *testing.T) {
 	// It must itself be valid POSIX sh, since it's what gets sent over ssh.
 	if out, err := exec.Command("sh", "-n", "-c", want).CombinedOutput(); err != nil {
 		t.Fatalf("ListCommand is not valid sh: %v\n%s", err, out)
+	}
+	for msg, wantErr := range map[string]bool{
+		"error connecting to /tmp/tmux-1000/default (No such file or directory)": false,
+		"no server running on /tmp/tmux-1000/default":                            false,
+		"no sessions": false,
+		"unix_listener: cannot bind to path /tmp/ssh-control: No such file or directory": true,
+		"protocol version mismatch": true,
+	} {
+		stubDir := t.TempDir()
+		script := "#!/bin/sh\necho '" + msg + "' >&2\nexit 1\n"
+		if err := os.WriteFile(stubDir+"/tmux", []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		t.Setenv("PATH", stubDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+		sessions, err := listSessions(context.Background(), "localhost", true)
+		if wantErr != (err != nil) || (err != nil && !strings.Contains(err.Error(), msg)) || len(sessions) != 0 {
+			t.Errorf("%q: sessions=%v err=%v, want error=%v carrying the stderr", msg, sessions, err, wantErr)
+		}
 	}
 }
 

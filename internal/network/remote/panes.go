@@ -213,8 +213,19 @@ var captureCommand = `list_out="$(tmux list-panes -a -F '#{session_name}` + fiel
 
 // noTmuxServer reports tmux's "nothing running" stderr, which is an empty pane list rather than a failure.
 func noTmuxServer(stderr string) bool {
-	return strings.Contains(stderr, "no server running") || strings.Contains(stderr, "No such file or directory") ||
-		strings.Contains(stderr, "no sessions")
+	stderr = strings.TrimRight(stderr, "\r\n")
+	if stderr == "no sessions" {
+		return true
+	}
+	if path, ok := strings.CutPrefix(stderr, "no server running on "); ok {
+		return path != "" && !strings.ContainsAny(path, "\r\n")
+	}
+	path, ok := strings.CutPrefix(stderr, "error connecting to ")
+	if !ok {
+		return false
+	}
+	path, ok = strings.CutSuffix(path, " (No such file or directory)")
+	return ok && path != "" && !strings.ContainsAny(path, "\r\n")
 }
 
 // paneCapture is one pane's raw sample: tmux-reported identity plus its last captured lines.

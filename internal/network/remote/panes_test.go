@@ -479,7 +479,9 @@ func TestCapturePanes_RealScriptTmuxStderr(t *testing.T) {
 	for msg, wantErr := range map[string]bool{
 		"error connecting to /tmp/tmux-1000/default (No such file or directory)": false,
 		"no server running on /tmp/tmux-1000/default":                            false,
-		"protocol version mismatch":                                              true,
+		"no sessions": false,
+		"unix_listener: cannot bind to path /tmp/ssh-control: No such file or directory": true,
+		"protocol version mismatch": true,
 	} {
 		stubDir := t.TempDir()
 		script := "#!/bin/sh\necho '" + msg + "' >&2\nexit 1\n"
