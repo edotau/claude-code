@@ -1151,8 +1151,9 @@ func TestJSONModeFailuresPrintEnvelope(t *testing.T) {
 // A dry-run reports a typed model refusal as usage and never writes a dispatch record.
 func TestDryRunUnacceptedModelExitsTwo(t *testing.T) {
 	cliEnv(t)
-	code, out, stderr := runCLI(t, "ask", "--agent", "claude", "--model", "bogus-model-xyz", "--dry-run", "x")
-	if code != 2 || !strings.Contains(stderr, "bogus-model-xyz") || strings.TrimSpace(out) != "" {
+	// an unknown profile prefix is refused on every row; a bare unlisted id on a no-listing row runs unverified
+	code, out, stderr := runCLI(t, "ask", "--agent", "claude", "--model", "bogus:opus", "--dry-run", "x")
+	if code != 2 || !strings.Contains(stderr, "bogus") || strings.TrimSpace(out) != "" {
 		t.Fatalf("exit %d, stdout %q, stderr %q; want 2 naming the rejected model", code, out, stderr)
 	}
 	if records := agent.RecentRecords(1); len(records) != 0 {

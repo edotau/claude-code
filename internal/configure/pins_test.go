@@ -10,6 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -173,7 +174,7 @@ func TestSetAgentPinAuditsModelPin(t *testing.T) {
 // A model no row serves is refused before any write; auto always passes.
 func TestValidateAgentModelRefusesUnknown(t *testing.T) {
 	hosttest.PinScratch(t)
-	if err := ValidateAgentModel("codex", "", "bogus-model-xyz"); err == nil {
+	if err := ValidateAgentModel("codex", "", "bogus:opus"); err == nil {
 		t.Error("bogus-model-xyz accepted, want a refusal")
 	}
 	if err := ValidateAgentModel("codex", "", "auto"); err != nil {
@@ -184,14 +185,22 @@ func TestValidateAgentModelRefusesUnknown(t *testing.T) {
 // A pin is judged, and the refusal names the profile, on the session's profile before the claude record's.
 func TestValidateClaudePinsJudgesOnSessionProfile(t *testing.T) {
 	hosttest.PinScratch(t)
+	row := map[string]any{"preset": "databricks", "host": "https://example.cloud.databricks.com", "auth": map[string]any{"type": "pat"}}
+	if err := providers.SetProviderFields("qa", row); err != nil {
+		t.Fatal(err)
+	}
+	if err := router.SaveServed(router.Served{Profile: "qa", FetchedAt: time.Now(),
+		Models: []router.ServedModel{{ID: "databricks-claude-opus-5-5", Ready: "READY"}}}); err != nil {
+		t.Fatal(err)
+	}
 	reg, err := providers.Load()
 	if err != nil {
 		t.Fatal(err)
 	}
 	vaulttest.SetRecord(t, "claude", "profile", "anthropic")
-	t.Setenv(providers.EnvSessionProfile, "copilot")
+	t.Setenv(providers.EnvSessionProfile, "qa")
 	err = validateClaudePins(reg, "", map[string]string{"opus": "bogus-model-xyz"})
-	if err == nil || !strings.Contains(err.Error(), "profile copilot") {
-		t.Errorf("err = %v, want a refusal naming profile copilot", err)
+	if err == nil || !strings.Contains(err.Error(), "profile qa") {
+		t.Errorf("err = %v, want a refusal naming profile qa", err)
 	}
 }

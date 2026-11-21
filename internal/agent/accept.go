@@ -2,10 +2,12 @@ package agent
 
 import (
 	"fmt"
+	"maps"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
@@ -32,7 +34,10 @@ type UnacceptedError struct {
 
 func (e *UnacceptedError) Unwrap() error { return ErrModelRoute }
 
-func (e *UnacceptedError) Error() string {
+func (e *UnacceptedError) Error() string { return ErrModelRoute.Error() + ": " + e.Reason() }
+
+// Reason is the refusal without the ErrModelRoute prefix, for callers that word their own.
+func (e *UnacceptedError) Reason() string {
 	var b strings.Builder
 	switch e.Kind {
 	case UnacceptedPrefixed:
@@ -49,7 +54,7 @@ func (e *UnacceptedError) Error() string {
 	if len(e.Nearest) > 0 {
 		b.WriteString("; nearest: " + strings.Join(e.Nearest, ", "))
 	}
-	return ErrModelRoute.Error() + ": " + b.String()
+	return b.String()
 }
 
 // AcceptModel decides whether agentName may run model on p; a non-empty note means accepted without a listing check.
@@ -87,15 +92,18 @@ func judgeModel(agentName string, p *providers.Provider, model string, now time.
 	if err != nil {
 		return "", refuse(UnacceptedUnknown, err.Error())
 	}
-	_, failed, skipped := checkModel(agentName, p, target, now)
+	wire, failed, skipped := checkModel(agentName, p, target, now)
 	if failed != nil {
 		return "", refuse(UnacceptedUnserved, failed.Detail)
 	}
-	return acceptVerdict(p, target, alias, skipped, refuse)
+	if task, bad := nonChatEndpoint(p, stripEffort(agentName, wire), now); bad {
+		return "", refuse(UnacceptedUnserved, wire+" is not a chat endpoint (task "+task+")")
+	}
+	return acceptVerdict(stripEffort(agentName, target), p, alias, skipped, refuse)
 }
 
-// acceptVerdict accepts a checked id: unverified when the listing was skipped, else known to the profile.
-func acceptVerdict(p *providers.Provider, target string, alias bool, skipped string,
+// acceptVerdict accepts a checked id: known to the profile, else unverified (skipped listing, or none to check).
+func acceptVerdict(target string, p *providers.Provider, alias bool, skipped string,
 	refuse func(UnacceptedKind, string) error) (string, error) {
 	_, _, catalogID := models.Resolve(target)
 	known := alias || catalogID
@@ -107,7 +115,15 @@ func acceptVerdict(p *providers.Provider, target string, alias bool, skipped str
 	case known || p.Preset == providers.PresetDatabricks || ownsModel(p, target):
 		return "", nil
 	}
-	return "", refuse(UnacceptedUnknown, "not in the profile's models or saved choices")
+	return "unverified: " + p.Name + " has no listing to check " + target + " against", nil // owner: upstream judges it
+}
+
+// stripEffort is id without the agent's native effort suffix (agy's <id>-<effort>), else id.
+func stripEffort(agentName, id string) string {
+	if base, _, ok := agentid.SplitNativeEffort(id); ok && agentid.Routing(agentName).EffortSuffix {
+		return base
+	}
+	return id
 }
 
 // spellAccepted is model's wire spelling on p when it is a family word or alias; alias says which.
@@ -134,20 +150,35 @@ func ownsModel(p *providers.Provider, id string) bool {
 	return slices.ContainsFunc(picked, func(m providers.ModelInfo) bool { return m.ID == id })
 }
 
-// AcceptedIDs is p's fresh READY ids the agent can run, else the agent's catalog ids spelled for p (fresh false).
+// AcceptedIDs is p's fresh READY chat ids the agent can run, else p's models then the agent's catalog ids (fresh false).
 func AcceptedIDs(agentName string, p *providers.Provider, now time.Time) (ids []string, fresh bool) {
 	if s, ok := router.FreshServed(p.Name, now); ok {
+		chat := chatServed(s)
 		for _, m := range s.Models {
-			if _, why := preflightModelWire(agentName, p, m.ID); m.IsReady() && why == "" {
+			if _, why := preflightModelWire(agentName, p, m.ID); m.IsReady() && chat(m) && why == "" {
 				ids = append(ids, m.ID)
 			}
 		}
 		return ids, true
 	}
-	for _, id := range models.AgentModels(agentName) {
-		ids = append(ids, providers.SpellPin(p, id))
+	ids = slices.Compact(slices.Sorted(maps.Values(p.Models)))
+	for _, id := range catalogPool(agentName) {
+		if wire, why := preflightModelWire(agentName, p, id); why == "" && !slices.Contains(ids, wire) {
+			ids = append(ids, wire)
+		}
 	}
 	return ids, false
+}
+
+// catalogPool is the catalog ids agentName runs: those listing its efforts, else every id of its model family.
+func catalogPool(agentName string) []string {
+	if ids := models.AgentModels(agentName); len(ids) > 0 {
+		return ids
+	}
+	fam := agentid.Routing(agentName).ModelFamily
+	return slices.DeleteFunc(models.ModelIDs(), func(id string) bool {
+		return fam != "" && string(models.FamilyKind(id)) != fam
+	})
 }
 
 // nearestAccepted is up to maxAlternatives ids: model's served family first, then the closest accepted id.

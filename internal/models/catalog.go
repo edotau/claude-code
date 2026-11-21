@@ -147,6 +147,15 @@ func AgentModels(agent string) []string {
 	return ids
 }
 
+// ModelIDs is every canonical catalog id, in catalog order.
+func ModelIDs() []string {
+	ids := make([]string, len(load().Models))
+	for i, m := range load().Models {
+		ids[i] = m.ID
+	}
+	return ids
+}
+
 // WireOrOriginal is id's wire spelling under rule when it resolves to a known model, else id unchanged.
 func WireOrOriginal(rule, id string) string {
 	if canonical, _, ok := Resolve(id); ok {

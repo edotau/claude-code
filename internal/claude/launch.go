@@ -137,10 +137,11 @@ func acceptLaunchModel(p *providers.Provider, model string) error {
 	if model == "" {
 		return nil
 	}
-	if _, err := agent.AcceptModel(agentid.Claude, p, model, time.Now()); err != nil {
-		return &agent.UsageError{Msg: "--model " + model + ": " + strings.TrimPrefix(err.Error(), agent.ErrModelRoute.Error()+": ")}
+	_, err := agent.AcceptModel(agentid.Claude, p, model, time.Now())
+	if ue, ok := errors.AsType[*agent.UnacceptedError](err); ok {
+		return &agent.UsageError{Msg: "--model " + model + ": " + ue.Reason()}
 	}
-	return nil
+	return err
 }
 
 func refuseProvider(sel providers.Selection) error {

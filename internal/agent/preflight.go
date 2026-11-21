@@ -384,17 +384,38 @@ func servedAlternatives(p *providers.Provider, model string, now time.Time) []st
 	if !ok {
 		return nil
 	}
-	fam := familyKey(model)
+	fam, chat := familyKey(model), chatServed(s)
 	var out []string
 	for _, m := range s.Models {
 		if len(out) == maxAlternatives {
 			break
 		}
-		if m.IsReady() && familyKey(m.ID) == fam && m.ID != model {
+		if m.IsReady() && chat(m) && familyKey(m.ID) == fam && m.ID != model {
 			out = append(out, m.ID)
 		}
 	}
 	return out
+}
+
+// chatServed judges s's entries as chat endpoints; a listing that records no task judges none non-chat.
+func chatServed(s router.Served) func(router.ServedModel) bool {
+	tasked := slices.ContainsFunc(s.Models, func(m router.ServedModel) bool { return m.Task != "" })
+	return func(m router.ServedModel) bool { return !tasked || m.Task == chatTask }
+}
+
+// nonChatEndpoint is the task of wire in p's fresh listing when that endpoint is not a chat endpoint.
+func nonChatEndpoint(p *providers.Provider, wire string, now time.Time) (task string, bad bool) {
+	s, ok := router.FreshServed(p.Name, now)
+	if !ok || p.Preset != providers.PresetDatabricks {
+		return "", false
+	}
+	chat := chatServed(s)
+	for _, m := range s.Models {
+		if m.ID == wire && !chat(m) {
+			return cmp.Or(m.Task, "none"), true
+		}
+	}
+	return "", false
 }
 
 // familyKey is id's model family: Claude, GPT or Gemini, else its vendor word (kimi-k3-1-pro -> kimi).

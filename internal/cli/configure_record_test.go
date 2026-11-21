@@ -126,7 +126,7 @@ func TestRecordProfileJudgesOnNewRoute(t *testing.T) {
 // A refused model is a usage error, exit 2, and writes nothing.
 func TestConfigureRecordModelRefusalExitsUsage(t *testing.T) {
 	hosttest.PinScratch(t)
-	if code := cmdConfigure([]string{"agents", "codex", "model=bogus-model-xyz"}); code != 2 {
+	if code := cmdConfigure([]string{"agents", "codex", "model=bogus:opus"}); code != 2 {
 		t.Errorf("exit %d, want 2", code)
 	}
 }

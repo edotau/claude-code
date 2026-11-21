@@ -555,7 +555,7 @@ func TestDispatchPreflightRefusesUnservedModel(t *testing.T) {
 			"(dev lists no endpoint claude-nonexistent-9); nearest: databricks-claude-sonnet-5-5. Fix the brief's `Run:` line", ""},
 		// D7: no fresh listing and neither a catalog nor databricks- id is a cold refusal under --fallback none
 		{"claude-nonexistent-9", 48 * time.Hour, "dispatch-effort: model route: claude-nonexistent-9: dev has no fresh listing " +
-			"and claude-nonexistent-9 is not a catalog id; run `claude-code models preflight --live --profile dev`. Fix the brief's `Run:` line", ""},
+			"and claude-nonexistent-9 is not a catalog id; run `claude-code models preflight --live --profile dev`; nearest: ", ""},
 	}
 	for _, tc := range cases {
 		if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now().Add(-tc.age), Models: []router.ServedModel{

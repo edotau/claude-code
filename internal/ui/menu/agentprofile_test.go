@@ -399,7 +399,7 @@ func TestDatabricksSignedInDevAppearsAlongsideQaAndProd(t *testing.T) {
 func TestWriteAgentFieldRefusesUnservedModel(t *testing.T) {
 	vaulttest.Use(t)
 	d := &dialog{out: &bytes.Buffer{}}
-	if changed, err := writeAgentField(d, "codex", "MODEL", "bogus-model-xyz"); changed || err == nil {
+	if changed, err := writeAgentField(d, "codex", "MODEL", "bogus:opus"); changed || err == nil {
 		t.Errorf("changed=%v err=%v, want a refusal", changed, err)
 	}
 	if got := vault.GetAgentRecord("codex").Model; got != "" {

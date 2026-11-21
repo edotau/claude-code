@@ -244,10 +244,10 @@ func TestClaudeModelFlag(t *testing.T) {
 	}{
 		{"alias keeps the alias's own model", agent.LaunchOptions{Provider: "ollama", Model: "sonnet"},
 			map[string]string{"ANTHROPIC_MODEL": "qwen3-sonnet", "ANTHROPIC_DEFAULT_OPUS_MODEL": "qwen3-coder"}},
-		{"verb alias with a wire id fills that alias", agent.LaunchOptions{Provider: "ollama", Alias: "sonnet", Model: "qwen3-haiku"},
-			map[string]string{"ANTHROPIC_MODEL": "qwen3-haiku", "ANTHROPIC_DEFAULT_SONNET_MODEL": "qwen3-haiku", "ANTHROPIC_DEFAULT_OPUS_MODEL": "qwen3-coder"}},
-		{"bare wire id fills opus", agent.LaunchOptions{Provider: "ollama", Model: "qwen3-haiku"},
-			map[string]string{"ANTHROPIC_MODEL": "qwen3-haiku", "ANTHROPIC_DEFAULT_OPUS_MODEL": "qwen3-haiku"}},
+		{"verb alias with a wire id fills that alias", agent.LaunchOptions{Provider: "ollama", Alias: "sonnet", Model: "qwen3:30b"},
+			map[string]string{"ANTHROPIC_MODEL": "qwen3:30b", "ANTHROPIC_DEFAULT_SONNET_MODEL": "qwen3:30b", "ANTHROPIC_DEFAULT_OPUS_MODEL": "qwen3-coder"}},
+		{"bare wire id fills opus", agent.LaunchOptions{Provider: "ollama", Model: "qwen3-x"},
+			map[string]string{"ANTHROPIC_MODEL": "qwen3-x", "ANTHROPIC_DEFAULT_OPUS_MODEL": "qwen3-x"}},
 		{"a family overrides the verb alias", agent.LaunchOptions{Provider: "ollama", Alias: "haiku", Model: "claude-sonnet-5-5"},
 			map[string]string{"ANTHROPIC_MODEL": "claude-sonnet-5-5", "ANTHROPIC_DEFAULT_HAIKU_MODEL": "qwen3-haiku"}},
 	} {
@@ -268,13 +268,14 @@ func TestClaudeModelFlag(t *testing.T) {
 	}
 }
 
-func TestClaudeModelFlagRefusesUnserved(t *testing.T) {
-	hermetic(t, `{"providers": {"openai": {"ollama": {"protocol": "openai", "base_url": "http://127.0.0.1:11434/v1", "auth": {"type": "none"},
-		"models": {"opus": "qwen3-coder", "sonnet": "qwen3-sonnet", "haiku": "qwen3-haiku"}}}}}`)
-	_, err := claudePlan(context.Background(), agent.LaunchOptions{Provider: "ollama", Model: "qwen3-x"}, nil)
+// A refusal reaches the user as a usage error without the route prefix.
+func TestAcceptLaunchModelRefusal(t *testing.T) {
+	hermetic(t, `{}`)
+	cold := &providers.Provider{Name: "cold", Preset: providers.PresetDatabricks, Host: "https://cold.example.com"}
+	err := acceptLaunchModel(cold, "zeta-8")
 	var u *agent.UsageError
-	if !errors.As(err, &u) || !strings.Contains(err.Error(), "does not accept it") {
-		t.Fatalf("err = %v, want a usage refusal of the unserved model", err)
+	if !errors.As(err, &u) || !strings.HasPrefix(err.Error(), "--model zeta-8: zeta-8: cold has no fresh listing") {
+		t.Fatalf("err = %v, want the refusal without the route prefix", err)
 	}
 }
 
