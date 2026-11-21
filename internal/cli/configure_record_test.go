@@ -24,14 +24,14 @@ func TestConfigureRecord(t *testing.T) {
 			t.Errorf("record %v exited 0, want a refusal", args)
 		}
 	}
-	if code := cmdConfigure([]string{"agents", "codex", "model=gpt-x", "--dry-run"}); code != 0 || vault.GetAgentRecord("codex").Model != "" {
+	if code := cmdConfigure([]string{"agents", "codex", "model=auto", "--dry-run"}); code != 0 || vault.GetAgentRecord("codex").Model != "" {
 		t.Fatalf("dry-run = exit %d, model %q, want 0 and nothing written", code, vault.GetAgentRecord("codex").Model)
 	}
-	if code := cmdConfigure([]string{"agents", "codex", "model=gpt-x", "--check"}); code != 0 || vault.GetAgentRecord("codex").Model != "" {
+	if code := cmdConfigure([]string{"agents", "codex", "model=auto", "--check"}); code != 0 || vault.GetAgentRecord("codex").Model != "" {
 		t.Fatalf("--check = exit %d, model %q, want 0 and nothing written", code, vault.GetAgentRecord("codex").Model)
 	}
-	if code := cmdConfigure([]string{"agents", "codex", "model=gpt-x"}); code != 0 || vault.GetAgentRecord("codex").Model != "gpt-x" {
-		t.Errorf("record = exit %d, model %q, want 0 and gpt-x", code, vault.GetAgentRecord("codex").Model)
+	if code := cmdConfigure([]string{"agents", "codex", "model=auto"}); code != 0 || vault.GetAgentRecord("codex").Model != "auto" {
+		t.Errorf("record = exit %d, model %q, want 0 and auto", code, vault.GetAgentRecord("codex").Model)
 	}
 }
 

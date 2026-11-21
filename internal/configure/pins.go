@@ -2,12 +2,15 @@
 package configure
 
 import (
+	"cmp"
 	"context"
 	"fmt"
+	"maps"
 	"os"
 	"reflect"
 	"slices"
 	"strings"
+	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/codex"
@@ -97,6 +100,27 @@ func ValidateAgentField(agent, field, val string) error {
 	return agentpkg.ValidateRecord(agent, withField(vault.AgentRecord{}, field, val))
 }
 
+// ValidateAgentModel judges model for agent on profile (else its own-login row, else the default row); no row to judge on passes.
+func ValidateAgentModel(agent, profile, model string) error {
+	model = strings.TrimSpace(model)
+	reg, err := providers.Load()
+	if err != nil {
+		return err
+	}
+	p := reg.Providers[profile]
+	if seed := SeedProfiles(reg, agent); p == nil && len(seed) > 0 && reg.Providers[seed[0]].Auth.Login == agent {
+		p = reg.Providers[seed[0]]
+	}
+	if p == nil { // a pool pin or no pin names no one row: the registry default
+		p = reg.Providers[reg.Default]
+	}
+	if model == "" || p == nil {
+		return nil
+	}
+	_, err = agentpkg.AcceptModel(agent, p, model, time.Now())
+	return err
+}
+
 // SeedProfiles lists the profiles agent can serve, its own login first; empty when reg is nil.
 func SeedProfiles(reg *providers.Registry, agent string) []string {
 	var own, rest []string
@@ -143,6 +167,9 @@ func ApplyModelPins(reg *providers.Registry, provider string, unpin bool, pins [
 	if err != nil {
 		return helptext.FailUsage("%v", err), true
 	}
+	if err := validateClaudePins(reg, provider, set); err != nil {
+		return helptext.Fail("%v", err), true
+	}
 	warn, err := copilot.ValidateCopilotPins(context.Background(), provider, pins)
 	if err != nil {
 		return helptext.Fail("%v", err), true
@@ -157,6 +184,24 @@ func ApplyModelPins(reg *providers.Registry, provider string, unpin bool, pins [
 		return helptext.Fail("%v", err), true
 	}
 	return 0, false
+}
+
+// validateClaudePins judges each pinned id on the session profile (or --profile); "" unpins and passes.
+func validateClaudePins(reg *providers.Registry, provider string, set map[string]string) error {
+	profile := provider
+	if profile == "" {
+		recs, err := vault.ReadAgentRecords([]string{"claude"})
+		if err != nil {
+			return err
+		}
+		profile = cmp.Or(profileKey(recs["claude"].EffectiveRoute()), reg.Default)
+	}
+	for _, alias := range slices.Sorted(maps.Keys(set)) {
+		if err := ValidateAgentModel("claude", profile, set[alias]); err != nil {
+			return fmt.Errorf("--pin %s: %w", alias, err)
+		}
+	}
+	return nil
 }
 
 // CatalogForAlias lists live choices plus saved additions, with an explained offline fallback.

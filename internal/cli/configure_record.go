@@ -168,8 +168,28 @@ func validateRecordSet(agent string, set map[string]string, route string, hasRou
 		if err := validateField(agent, field, val); err != nil {
 			return err
 		}
+		if field == "MODEL" {
+			if err := configure.ValidateAgentModel(agent, recordProfile(agent, set), val); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+// recordProfile is the profile a model is judged on: the set's, else the record's; "" falls to the agent's own row.
+func recordProfile(agent string, set map[string]string) string {
+	if p, ok := set["PROFILE"]; ok {
+		if p == agentpkg.PoolPin {
+			return ""
+		}
+		return p
+	}
+	recs, err := vault.ReadAgentRecords([]string{agent})
+	if err != nil {
+		return ""
+	}
+	return configure.AgentField(recs[agent], "PROFILE")
 }
 
 func isRouteField(field string) bool {

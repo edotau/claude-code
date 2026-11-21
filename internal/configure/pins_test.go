@@ -169,3 +169,14 @@ func TestSetAgentPinAuditsModelPin(t *testing.T) {
 		t.Errorf("model-pin audit events for claude.aliases.opus = %d, want 1 (all: %+v)", n, ev)
 	}
 }
+
+// A model no row serves is refused before any write; auto always passes.
+func TestValidateAgentModelRefusesUnknown(t *testing.T) {
+	hosttest.PinScratch(t)
+	if err := ValidateAgentModel("codex", "", "bogus-model-xyz"); err == nil {
+		t.Error("bogus-model-xyz accepted, want a refusal")
+	}
+	if err := ValidateAgentModel("codex", "", "auto"); err != nil {
+		t.Errorf("auto refused: %v", err)
+	}
+}
