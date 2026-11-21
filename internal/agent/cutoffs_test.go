@@ -55,3 +55,21 @@ func TestCutoffKeyAutoMatchesFoldedRecord(t *testing.T) {
 		t.Fatal("a real model shares the auto key")
 	}
 }
+
+// A success clears only the entry it saw: a newer cutoff of the same task, written since, stays.
+func TestClearCutoffKeepsNewerEntry(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
+	r := Record{ID: "newer", Agent: "codex", Request: RunOptions{Model: "m", Prompt: "a"}}
+	r.Finish(wire.Result{}, ErrStalled, 0)
+	if err := r.NoteCutoff(now); err != nil {
+		t.Fatal(err)
+	}
+	key := CutoffKey("codex", "m", "a")
+	if err := clearCutoff(key, "older", now); err != nil {
+		t.Fatal(err)
+	}
+	if got := readCutoffs(); len(got) != 1 || got[0].ID != "newer" {
+		t.Fatalf("entries %+v, want the newer cutoff kept", got)
+	}
+}

@@ -295,3 +295,15 @@ func TestParseClaudeEventsDecodesEachMessageOnce(t *testing.T) {
 		t.Fatalf("decodes = %d, want 2 (one per assistant/user message)", calls)
 	}
 }
+
+// A stream of only 429 retries stalls and names them: a rate-limit backoff is not activity either.
+func TestClaudeExec429RetriesAreNotActivity(t *testing.T) {
+	retryLine := `{"type":"system","subtype":"api_retry","attempt":1,"max_retries":10,"retry_delay_ms":1,"error_status":429}`
+	r := runFakeClaudeStall(t, func(limit time.Duration) string {
+		gap := strconv.FormatFloat((limit / 4).Seconds(), 'f', 3, 64)
+		return "echo '" + initLine + "'\nfor i in 1 2 3 4 5 6; do echo '" + retryLine + "'\nsleep " + gap + "\ndone\nexec sleep 30\n"
+	})
+	if !errors.Is(r.err, agent.ErrStalled) || !strings.Contains(r.err.Error(), "(429)") {
+		t.Fatalf("err = %v, want a stall naming the 429 retries", r.err)
+	}
+}

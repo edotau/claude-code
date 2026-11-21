@@ -486,13 +486,13 @@ func firstOutputDeadline() time.Duration {
 var IdleLimit = 5 * time.Minute
 
 // ClaudeIdleLimit is how long a claude child may emit nothing while a model response is expected.
-const ClaudeIdleLimit = 90 * time.Second
+const ClaudeIdleLimit = 5 * time.Minute
 
 // CopilotIdleLimit is how long a copilot SDK run may log nothing outside a tool call (a test shrinks it).
-var CopilotIdleLimit = 10 * time.Minute
+var CopilotIdleLimit = 5 * time.Minute
 
 // GeminiIdleLimit is how long an agy stream may emit nothing outside a tool step (a test shrinks it).
-var GeminiIdleLimit = 10 * time.Minute
+var GeminiIdleLimit = 5 * time.Minute
 
 // IdleLimitFor is the mid-stream idle limit per agent, 0 for none: claude's own watch (internal/claude/idle.go) uses it.
 func IdleLimitFor(name string) time.Duration {

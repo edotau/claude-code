@@ -23,6 +23,7 @@ type idleWatch struct {
 	pending int // tool_use blocks emitted and not yet answered by a tool_result; read by the parser goroutine only
 	// api_retry events since the last real event and the last status; claudeExec reads them after the stream ends
 	retries, status int
+	authRun         int // consecutive 401/403 retries; a 429/5xx retry or a real event resets it
 	rejected        bool // authRetryLimit rejected-login retries ended the attempt early
 	start           time.Time
 	tools           map[string]openTool // open top-level tool_use id -> call, each with its own pause ceiling
@@ -77,10 +78,11 @@ func (w *idleWatch) observe(ev claudeEvent, msg anthropic.Message) {
 	if w == nil {
 		return
 	}
-	if w.authRetry(ev) {
+	if ev.Type == "system" && ev.Subtype == "api_retry" { // a failing API call is not progress: never re-arm
+		w.noteRetry(ev.ErrorStatus)
 		return
 	}
-	w.retries = 0
+	w.retries, w.authRun = 0, 0
 	if ev.ParentToolUseID == "" {
 		switch ev.Type {
 		case "result":
@@ -98,23 +100,18 @@ func (w *idleWatch) observe(ev claudeEvent, msg anthropic.Message) {
 	w.rearm(ev.Type)
 }
 
-// authRetry counts a retry of a rejected login, which never recovers; a 429 or 5xx backoff still beats.
-func (w *idleWatch) authRetry(ev claudeEvent) bool {
-	st := ev.ErrorStatus
-	if ev.Type != "system" || ev.Subtype != "api_retry" || st == nil || (*st != 401 && *st != 403) {
-		return false
-	}
-	w.noteRetry(st)
-	return true
-}
-
 func (w *idleWatch) noteRetry(status *int) {
 	w.retries++
 	w.status = 0
 	if status != nil {
 		w.status = *status
 	}
-	if w.retries >= authRetryLimit && !w.rejected {
+	if status == nil || (*status != 401 && *status != 403) {
+		w.authRun = 0
+		return
+	}
+	w.authRun++
+	if w.authRun >= authRetryLimit && !w.rejected {
 		w.rejected = true
 		w.Kill()
 	}

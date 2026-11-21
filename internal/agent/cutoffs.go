@@ -107,14 +107,20 @@ func (r Record) NoteCutoff(now time.Time) error {
 			return append(slices.DeleteFunc(es, func(x CutoffEntry) bool { return x.Key == key }), e)
 		})
 	case r.Status == "ok" && (r.RanAs == "" || r.RanAs == r.Agent):
-		if !slices.ContainsFunc(readCutoffs(), func(e CutoffEntry) bool { return e.Key == key }) {
+		seen, ok := RecentCutoff(key, now)
+		if !ok {
 			return nil // the common success writes nothing
 		}
-		return updateCutoffs(now, func(es []CutoffEntry) []CutoffEntry {
-			return slices.DeleteFunc(es, func(x CutoffEntry) bool { return x.Key == key })
-		})
+		return clearCutoff(key, seen.ID, now)
 	}
 	return nil
+}
+
+// clearCutoff deletes the entry with this id only, so a newer cutoff written since the caller looked stays.
+func clearCutoff(key, id string, now time.Time) error {
+	return updateCutoffs(now, func(es []CutoffEntry) []CutoffEntry {
+		return slices.DeleteFunc(es, func(x CutoffEntry) bool { return x.Key == key && x.ID == id })
+	})
 }
 
 // warnCutoff reports a failed cutoff-file write once; the dispatch itself never fails on it.
