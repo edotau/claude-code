@@ -51,3 +51,15 @@ func TestAcceptModel(t *testing.T) {
 		})
 	}
 }
+
+// D7: a cold databricks- id a Responses agent runs unverified; only a fresh listing or a chat-only catalog id refuses.
+func TestAcceptModelColdCustomIDForCodex(t *testing.T) {
+	vaulttest.Use(t)
+	cold := &providers.Provider{Name: "cold", Preset: providers.PresetDatabricks, Host: "https://cold.example.com",
+		BaseURL: "https://cold.example.com/serving-endpoints", Protocol: providers.ProtocolOpenAI,
+		Routes: map[string]string{providers.ProtocolResponses: "/openai/v1"}}
+	note, err := AcceptModel("codex", cold, "databricks-my-custom-gpt", time.Now())
+	if err != nil || !strings.Contains(note, "unverified") {
+		t.Fatalf("note %q, err %v", note, err)
+	}
+}

@@ -287,11 +287,7 @@ func checkServed(agentName string, p *providers.Provider, model string, now time
 		return model, nil, ""
 	}
 	fail := func(check, detail string) (string, *Finding, string) {
-		f := &Finding{Check: check, Profile: p.Name, Model: model, Detail: detail}
-		if check == "served" {
-			f.Served = servedAlternatives(p, model, now)
-		}
-		return "", f, ""
+		return "", failFinding(p, model, check, detail, now), ""
 	}
 	served := servedSpelling(agentName, p, model, now)
 	wire, why := preflightModelWire(agentName, p, served)
@@ -300,6 +296,8 @@ func checkServed(agentName string, p *providers.Provider, model string, now time
 	switch {
 	case gone: // a fresh listing without it beats the wire wording: the endpoint does not exist
 		return fail("served", p.Name+" lists no endpoint "+spelled)
+	case coldCustomWire(agentName, p, spelled, note):
+		return spelled, nil, note
 	case preflightResponsesMismatch(agentName, p, spelled):
 		return fail("wire", p.Name+" serves no "+model+" over Responses")
 	case why != "":
@@ -310,6 +308,15 @@ func checkServed(agentName string, p *providers.Provider, model string, now time
 		return fail("served", wire+" is not a READY endpoint on "+p.Name)
 	}
 	return wire, nil, note
+}
+
+// failFinding is the Finding for a refused model; a served refusal names the family's served ids.
+func failFinding(p *providers.Provider, model, check, detail string, now time.Time) *Finding {
+	f := &Finding{Check: check, Profile: p.Name, Model: model, Detail: detail}
+	if check == "served" {
+		f.Served = servedAlternatives(p, model, now)
+	}
+	return f
 }
 
 // listingVerdict reads p's cached listing for a Databricks wire: a skipped-check note, unlisted, or listed not READY.
@@ -336,6 +343,18 @@ func servedSpelling(agentName string, p *providers.Provider, id string, now time
 func launchWire(agentName string, p *providers.Provider, id string) string {
 	id = models.Strip1M(id)
 	return cmp.Or(servedSpelling(agentName, p, id, time.Now()), p.WireModel(id))
+}
+
+// coldCustomWire is a Responses agent's non-catalog id on a Databricks row with no fresh listing: it runs unverified.
+func coldCustomWire(agentName string, p *providers.Provider, wire, note string) bool {
+	if note == "" || !speaksResponses(agentName) || p.Preset != providers.PresetDatabricks {
+		return false
+	}
+	if _, has := p.Route(providers.ProtocolResponses); !has {
+		return false
+	}
+	_, _, catalogID := models.Resolve(wire)
+	return !catalogID
 }
 
 // preflightResponsesMismatch preserves the Responses wire refusal before the served-model refusal.
