@@ -496,3 +496,16 @@ func TestLaunchOverlayPoolKeepsTypedModel(t *testing.T) {
 		inflight.Release(claim.Owner, claim.ID)
 	}
 }
+
+// A --model after "--" that names a profile is refused as usage; a plain or local-tag model passes.
+func TestPassthroughModelUsage(t *testing.T) {
+	for _, a := range [][]string{{"--model", "prod:opus"}, {"x", "--model=typo:opus"}} {
+		var ue *UsageError
+		if err := passthroughModelUsage(a); !errors.As(err, &ue) {
+			t.Errorf("passthroughModelUsage(%v) = %v; want a UsageError", a, err)
+		}
+	}
+	if err := passthroughModelUsage([]string{"--model", "qwen3:30b", "--model=opus"}); err != nil {
+		t.Errorf("plain models refused: %v", err)
+	}
+}

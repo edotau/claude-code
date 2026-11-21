@@ -346,6 +346,7 @@ func TestCheckWorkflowSteps(t *testing.T) {
 		{"code-workers.js", wfM{"profile": "nope", "steps": wfM{"fix": wfM{}}}, []string{"claude has no route"}},
 		{"code-workers.js", steps("fix", wfM{"profile": "qa", "provider": "databricks"}), nil},
 		{"code-looper.js", nil, nil},
+		{"code-workers.js", steps("fix", wfM{"model": "typo:opus"}), []string{"steps.fix.model must be a plain name"}},
 	}
 	for _, c := range cases {
 		src, dir := realScript(t, c.script)

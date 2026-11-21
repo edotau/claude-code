@@ -244,16 +244,12 @@ func IsFamily(name string) bool {
 	return ok
 }
 
-// FamilyName is the family a typed model names, bare ("sol") or row-prefixed ("dev:sol"); "" for any other model.
+// FamilyName is the family a typed model names ("sol"); "" for any other model.
 func FamilyName(model string) string {
-	_, name, ok := strings.Cut(model, ":")
-	if !ok {
-		name = model
-	}
-	if !IsFamily(name) {
+	if !IsFamily(model) {
 		return ""
 	}
-	return strings.ToLower(strings.TrimSpace(name))
+	return strings.ToLower(strings.TrimSpace(model))
 }
 
 // FamilyPick resolves a family on a row for an agent; the router sets it, as providers cannot import the router.

@@ -327,6 +327,31 @@ func withFlagModel(args []string, model string) []string {
 	return append([]string{"--model", model}, args...)
 }
 
+// checkedLaunchArgs is the engine's launch args, refused when a passthrough --model names a profile.
+func checkedLaunchArgs(spec Schema, file string, args []string) ([]string, error) {
+	args, err := spec.Eng().LaunchArgs(file, args)
+	if err != nil {
+		return nil, err
+	}
+	return args, passthroughModelUsage(args)
+}
+
+// passthroughModelUsage refuses a <profile>:<model> in a --model that rode after "--" past ParseArgs (usage, exit 2).
+func passthroughModelUsage(args []string) error {
+	for i, a := range args {
+		model, ok := strings.CutPrefix(a, "--model=")
+		if a == "--model" && i+1 < len(args) {
+			model, ok = args[i+1], true
+		}
+		if ok {
+			if err := modelSpecUsage(model, nil); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
+}
+
 func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
 	if err := refuseDirectContext(ctx, o.Direct); err != nil {
 		return Plan{}, err
@@ -344,7 +369,7 @@ func cliPlan(ctx context.Context, name string, o LaunchOptions, args []string) (
 	if slices.Contains(args, "--read-only") { // Wire sees no args: the flag rides the context
 		ctx = WithReadOnly(ctx)
 	}
-	args, err := spec.Eng().LaunchArgs(o.File, args)
+	args, err := checkedLaunchArgs(spec, o.File, args)
 	if err != nil {
 		return Plan{}, err
 	}

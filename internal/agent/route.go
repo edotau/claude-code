@@ -447,7 +447,7 @@ func rowModel(row, model string) string { return row + ":" + model }
 
 func splitRowModel(spec string) (row, model string, ok bool) { return strings.Cut(spec, ":") }
 
-// routeLeadContext is LeadFor, except a preview leads on its pin or a profile:model's profile, never explicitly.
+// routeLeadContext is LeadFor, except a preview leads on its pin or --profile, never explicitly.
 func routeLeadContext(ctx context.Context, q RouteReq) (lead string, explicit bool, err error) {
 	lead, explicit, err = leadForContext(ctx, q)
 	if err != nil || !explicit || !q.Preview {
@@ -455,9 +455,6 @@ func routeLeadContext(ctx context.Context, q RouteReq) (lead string, explicit bo
 	}
 	if q.Profile != "" {
 		return q.Profile, false, nil
-	}
-	if name, _, ok := splitRowModel(q.Model); ok {
-		return name, false, nil
 	}
 	return "", false, nil
 }
@@ -538,7 +535,7 @@ func resolveExplicit(ctx context.Context, q RouteReq) (Chain, error) {
 // explicitRouteErr refuses a typed profile or prefix the agent cannot run as written, a usage error (exit 2).
 func explicitRouteErr(ctx context.Context, q RouteReq) error {
 	reg, err := providers.Load()
-	if err != nil || q.Agent == "" || q.Profile == "" && !namesProvider(reg, q.Model) {
+	if err != nil || q.Agent == "" || q.Profile == "" {
 		return nil
 	}
 	mq := QueryFor(PeekContext(ctx), ModelQuery{Agent: q.Agent, Model: q.Model, Profile: q.Profile,

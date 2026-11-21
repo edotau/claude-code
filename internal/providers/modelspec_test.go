@@ -28,6 +28,7 @@ func TestCheckModel(t *testing.T) {
 		"auto:opus":       `'{"provider":"databricks","profile":"auto"}' --model opus`,
 		"anthropic:opus":  `'{"provider":"anthropic","profile":"ultra"}' --model opus`,
 		"bogus:opus":      "bogus is not a profile",
+		"typo:AUTO":       "typo is not a profile",
 	} {
 		if err := CheckModel(reg, in); err == nil || !strings.Contains(err.Error(), want) || !errors.Is(err, ErrModelSpec) {
 			t.Errorf("CheckModel(%q) = %v; want %q", in, err, want)

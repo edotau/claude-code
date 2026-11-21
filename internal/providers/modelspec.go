@@ -64,7 +64,7 @@ func CheckModelShared(model string) error {
 // modelWord is auto, an alias, a family or a known model id: after an unknown prefix it means a mistyped profile.
 func modelWord(s string) bool {
 	_, _, known := models.Resolve(s)
-	return known || s == "auto" || IsFamily(s) || slices.Contains(models.AliasNames, strings.ToLower(s))
+	return known || strings.EqualFold(s, "auto") || IsFamily(s) || slices.Contains(models.AliasNames, strings.ToLower(s))
 }
 
 // prefixRoute matches name, case-insensitively, to a profile, a provider type or the pool word.
