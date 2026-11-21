@@ -87,7 +87,8 @@ var loginPage = helptext.Page{
 	About: "Sign in through the browser for a profile with auth type oauth;\n" +
 		"the refresh token is sealed in the vault.\n" +
 		"A profile with a paired service principal mints as it, no browser; --as user forces the browser login.\n" +
-		"Under --remote <host> the browser opens on <host>; the token is sealed here.",
+		"Under --remote <host> the browser opens on <host>; the token is sealed here.\n" +
+		"With no --remote, --no-browser or --paste, the first CLAUDE_REMOTE_HOST entry is <host>.",
 }
 
 // loginFlags is login's parsed command line; fs is kept so loginProfile can tell an explicit --auth-type.
@@ -177,6 +178,7 @@ var identityNote = map[string]string{
 
 // loginUser is the u2m browser login for identity user or auto; reuse keeps a still-valid cached login.
 func loginUser(p *providers.Provider, mode string, h headless, dryRun, reuse bool) int {
+	h = defaultRemote(h)
 	if dryRun {
 		fmt.Printf("identity %s: %s\n", mode, identityNote[mode])
 		how := "open a browser login"
@@ -345,7 +347,7 @@ func cachedLoginUsable(p *providers.Provider) bool {
 
 // LoginRow runs the u2m browser login for the named row, switching its authType to oauth first if needed.
 func LoginRow(ctx context.Context, name string, out io.Writer) error {
-	return loginRow(ctx, name, out, headless{})
+	return loginRow(ctx, name, out, defaultRemote(headless{}))
 }
 
 func loginRow(ctx context.Context, name string, out io.Writer, h headless) error {

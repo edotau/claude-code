@@ -11,6 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/network/remote"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
@@ -67,6 +68,20 @@ func remoteForwardError(host string, err error) error {
 		return fmt.Errorf("%w; pass --port N for another port, or --paste to sign in without the forward", taken)
 	}
 	return fmt.Errorf("cannot reach %s over ssh (%w); pass --paste to sign in without the forward", host, err)
+}
+
+// defaultRemote routes a browser login through the first CLAUDE_REMOTE_HOST entry unless a flag or this machine says no.
+func defaultRemote(h headless) headless {
+	if h.via != "" || h.noBrowser || h.paste {
+		return h
+	}
+	hosts := providers.RemoteHosts()
+	if len(hosts) == 0 || remote.IsSelf(hosts[0]) {
+		return h
+	}
+	h.via = hosts[0]
+	fmt.Fprintf(os.Stderr, "the browser opens on %s (the first CLAUDE_REMOTE_HOST entry); the token is sealed here\n", h.via)
+	return h
 }
 
 // describeRemote is the dry-run line of a --remote login: where the browser opens and where the callback travels.

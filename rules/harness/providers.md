@@ -204,4 +204,6 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
   minting again (in-process under the flight lock; across processes via the sealed vault copy).
 - Doctor's credential rows end with `source=vault`, `source=env <NAME>` or `source=command`.
 - Login gotcha: `--remote <host> databricks login` always signs the user in (a paired SP does not mint) and seals the
-  token here; `--host` forwards the callback port. Flags: `claude-code databricks login -h`.
+  token here; `--host` forwards the callback port. A browser login with none of `--remote`, `--no-browser` or
+  `--paste` takes the first `CLAUDE_REMOTE_HOST` entry as `<host>` (not on that host itself). Flags:
+  `claude-code databricks login -h`.

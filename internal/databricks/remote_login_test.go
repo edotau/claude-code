@@ -231,3 +231,17 @@ func TestOpenURLVerbOpensOneHTTPSURL(t *testing.T) {
 		t.Errorf("opened %q, want the one good URL", got)
 	}
 }
+
+func TestBrowserLoginDefaultsToFirstRemoteHostButSPMintStaysLocal(t *testing.T) {
+	w := newRemoteWorld(t)
+	t.Setenv(remote.LoginRemoteEnv, "")
+	t.Setenv(providers.RemoteHostEnv, "box-a.example, box-b.example")
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return login([]string{"-p", "dbx-rem", "--as", "sp"}) }); code != 0 ||
+		w.mints.Load() != 1 || len(w.forwards) != 0 || w.opensLocal.Load() != 0 {
+		t.Fatalf("sp mint: code %d mints %d forwards %v local opens %d", code, w.mints.Load(), w.forwards, w.opensLocal.Load())
+	}
+	code, _, _ := hosttest.CaptureOutput(t, func() int { return login([]string{"-p", "dbx-rem", "--as", "user", "--force"}) })
+	if code != 0 || len(w.forwards) != 1 || w.forwards[0][0] != "box-a.example" || len(w.opened) != 1 || w.opensLocal.Load() != 0 {
+		t.Errorf("user login: code %d forwards %v opened %q local opens %d", code, w.forwards, w.opened, w.opensLocal.Load())
+	}
+}
