@@ -46,7 +46,6 @@ type askFlags struct {
 	provider                                                                                                                                                                     string
 	env                                                                                                                                                                          []string
 	spec                                                                                                                                                                         string
-	castSpec                                                                                                                                                                     string // the typed --model <profile>:<id> castTyped split
 	dryRun                                                                                                                                                                       bool
 	loop                                                                                                                                                                         bool
 	waves                                                                                                                                                                        string
@@ -423,25 +422,9 @@ func (t *askTarget) Apply(rec agent.Record, errw io.Writer) {
 	if rec.Route != "" { // the workspace the run was confined to; an overlay provider still wins (checkArm)
 		*t.Coworker = rec.Route
 	}
-	legacyModel(t, errw)
 	if len(rec.Request.EnvNames) > 0 {
 		fmt.Fprintf(errw, "ask: the logged run set env %s; values are not stored, so pass --env or --overlay again\n", strings.Join(rec.Request.EnvNames, ","))
 	}
-}
-
-// legacyModel reads an old record's `<profile>:<model>` once as its overlay route plus the plain model, and says so.
-func legacyModel(t *askTarget, errw io.Writer) {
-	reg, err := providers.LoadShared()
-	ms, serr := providers.SplitModelSpec(reg, *t.Model)
-	if err != nil || serr != nil || ms.Row == "" && !ms.Pool {
-		return
-	}
-	c := providers.ModelCast{Model: ms.Model, Provider: providers.GroupDatabricks, Profile: router.AutoArm}
-	if ms.Row != "" {
-		c.Provider, c.Profile = reg.Providers[ms.Row].Provider, ms.Row
-	}
-	fmt.Fprintf(errw, "ask: the logged model %s reads as --overlay '%s'\n", *t.Model, c.Overlay())
-	*t.Model, *t.Coworker = c.Model, cmp.Or(*t.Coworker, route.Join(c.Provider, c.Profile))
 }
 
 // askState is the askTarget plus the flag pointers --retry resets or --job clears.
@@ -495,9 +478,6 @@ func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, f
 	*s.lead = rec.Request.Lead // the routed lead is not a flag: the replay leads with the profile the run used
 	clearTyped(fs, s)
 	if _, err := helptext.ParseArgs(fs, args); err != nil { // re-apply explicit flags over the record
-		return failAskCode(format, *s.Name, err, 2), true
-	}
-	if err := castModel(fs, false); err != nil { // the reparse put a typed prefix back; it replaces the logged route
 		return failAskCode(format, *s.Name, err, 2), true
 	}
 	*prompt, *s.rubric = cmp.Or(*prompt, rec.Request.Prompt), "" // a typed task replaces the logged one
@@ -684,9 +664,6 @@ func flagConflict(fs *flag.FlagSet, f *askFlags, fr route.Route, ov agentconfig.
 	if f.profile == "" {
 		name, val = "--provider", f.provider
 	}
-	if f.castSpec != "" {
-		name, val = "--model", f.castSpec
-	}
 	for _, c := range []struct{ flag, val, key, flagKey, ov string }{
 		{name, val, "provider", fr.Provider, or.Provider},
 		{name, val, "profile", fr.Profile, or.Profile},
@@ -815,52 +792,4 @@ func (r *askRun) recoverRetry() (int, bool) {
 	r.prompt = p
 	fmt.Fprintf(os.Stderr, "ask: recovering %s on a fresh session\n", rec.ID)
 	return 0, false
-}
-
-// lineModel casts a line's `<profile>:<model>` into the line's profile and plain model.
-func lineModel(l *parsedLine) error {
-	c, err := providers.CastShared(l.Task.Model)
-	if err == nil {
-		_, l.Task.Profile, err = c.Merge("", l.Task.Profile)
-	}
-	if err != nil {
-		return fmt.Errorf("line %d: %w", l.N, err)
-	}
-	l.Task.Model = c.Model
-	return nil
-}
-
-// castModel reads --model <profile>:<id> as --profile <profile> --model <id>, the pool as --provider databricks.
-// typed: the route flags are this command line's, so a different one is a conflict; else the prefix replaces them.
-func castModel(fs *flag.FlagSet, typed bool) error {
-	c, err := providers.CastShared(fs.Lookup("model").Value.String())
-	if err != nil || c.Profile == "" {
-		return err
-	}
-	if typed {
-		if _, _, err := c.Merge(fs.Lookup("provider").Value.String(), fs.Lookup("profile").Value.String()); err != nil {
-			return err
-		}
-	}
-	if c.Profile == router.AutoArm {
-		return cmp.Or(fs.Set("model", c.Model), fs.Lookup("profile").Value.Set(""), fs.Set("provider", c.Provider))
-	}
-	return cmp.Or(fs.Set("model", c.Model), fs.Set("profile", c.Profile))
-}
-
-// lineEnvRoute casts an untyped line's <AGENT>_MODEL for the line's own agent; a typed route on line or base wins.
-func lineEnvRoute(n int, agentName string, req *agent.RunOptions) error {
-	if req.Model != "" {
-		return nil
-	}
-	c, _, err := providers.EnvCast(context.Background(), agentName)
-	if err != nil {
-		return fmt.Errorf("line %d: %w", n, err)
-	}
-	if c.Profile == "" || c.Profile == router.AutoArm || req.Provider != "" || req.Lead != "" ||
-		req.Account != "" || !req.Route.IsZero() { // the pool word leaves the line on the base's pool
-		return nil
-	}
-	req.Provider = c.Profile
-	return nil
 }

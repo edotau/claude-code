@@ -67,24 +67,8 @@ func ParseArgs(args []string, claude bool) (LaunchOptions, []string, error) {
 	if _, err := agentconfig.FlagOverlay(nil, o.KeepEnv); err != nil { // names only: never a value
 		return LaunchOptions{}, nil, err
 	}
-	err := castLaunchModel(&o)
+	err := o.foldOverlay()
 	return o, rest, err
-}
-
-// castLaunchModel folds the overlay, then reads --model <profile>:<id> as --profile <profile> --model <id>.
-func castLaunchModel(o *LaunchOptions) error {
-	if err := o.foldOverlay(); err != nil {
-		return err
-	}
-	c, err := providers.CastShared(o.Model)
-	if err == nil {
-		_, o.Provider, err = c.Merge("", o.Provider)
-		o.Model = c.Model
-	}
-	if err != nil {
-		return &UsageError{Msg: err.Error()}
-	}
-	return nil
 }
 
 // UsageError is a launch refusal the CLI reports verbatim with exit 2.
@@ -138,7 +122,7 @@ func applyRoute(sel *providers.Selection, r ModelRoute, o LaunchOptions, session
 	if session {
 		dst = MainAlias(o)
 	}
-	if t, ok := sel.Aliases[r.Alias]; ok && r.Alias != "" && strings.ToLower(modelPart(o.Model)) == r.Alias {
+	if t, ok := sel.Aliases[r.Alias]; ok && r.Alias != "" && strings.ToLower(strings.TrimSpace(o.Model)) == r.Alias {
 		sel.Aliases[dst] = t // bare alias, e.g. opus or ultra:opus
 		return
 	}
@@ -153,17 +137,8 @@ func MainAlias(o LaunchOptions) string {
 	return cmp.Or(o.Alias, models.Opus)
 }
 
-// modelPart is a --model without its "<profile>:" prefix.
-func modelPart(s string) string {
-	if _, rest, ok := strings.Cut(strings.TrimSpace(s), ":"); ok && rest != "" {
-		return rest
-	}
-	return strings.TrimSpace(s)
-}
-
-// typedAlias is the Claude family alias a --model names (alias or catalog id, after any "<profile>:"), "" when none.
+// typedAlias is the Claude family alias a --model names (alias or catalog id), "" when none.
 func typedAlias(s string) string {
-	s = modelPart(s)
 	if name := strings.ToLower(models.Strip1M(strings.TrimSpace(s))); slices.Contains(models.AliasNames, name) {
 		return name
 	}
@@ -296,13 +271,6 @@ func (o *LaunchOptions) foldOverlay() error {
 func LaunchPlan(ctx context.Context, name string, o LaunchOptions, args []string) (Plan, error) {
 	ctx, o.Values = RunValues(ctx, o.Values)
 	ctx = context.WithValue(ctx, launchDryKey{}, o.PrintEnv)
-	if o.Model == "" { // the env stays the agent's pin; its route unit joins unless a typed one names the route
-		c, _, err := providers.EnvCast(ctx, name)
-		if err != nil {
-			return Plan{}, &UsageError{Msg: err.Error()}
-		}
-		o.Provider = cmp.Or(o.Provider, c.Profile)
-	}
 	plan, err := cliPlan(ctx, name, o, args)
 	plan.Values = o.Values.Merge(nil)
 	plan.Keep, plan.CLI = o.KeepEnv, true

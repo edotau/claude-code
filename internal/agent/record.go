@@ -820,7 +820,7 @@ func loadRecord(id string, list func(dir string) ([]string, error)) (Record, err
 // namesNoModel is a served name that is no model: empty, the request auto or "<synthetic>".
 func namesNoModel(m string) bool { return m == "" || m == AutoModel || strings.HasPrefix(m, "<") }
 
-// SessionModel is the newest dispatch's served model and, on the asked agent's row, its profile; "" when unknown.
+// SessionModel is the newest dispatch's plain served model and, on the asked agent's row, the record's profile.
 func SessionModel(session string) (profile, model string) {
 	if session == "" {
 		return "", ""
@@ -829,21 +829,16 @@ func SessionModel(session string) (profile, model string) {
 		if r.SessionID != session {
 			return true
 		}
-		row, invoked, old := strings.Cut(r.Invoked, ":") // a record from before plain ids carries `<profile>:<model>`
-		if !old || r.Model == r.Invoked {                // served as typed: a local tag such as qwen3:30b
-			row, invoked = "", r.Invoked
-		}
-		m := cmp.Or(r.Model, invoked) // the served model, not the requested alias
+		m := cmp.Or(r.Model, r.Invoked) // the served model, not the requested alias
 		if namesNoModel(m) {
-			m = invoked
+			m = r.Invoked
 		}
 		if namesNoModel(m) {
 			return true
 		}
 		model = m
-		row = cmp.Or(row, r.Provider)               // the session lives on the row it ran on
-		if r.RanAs == "" || r.RanAs == r.Fallback { // ran on the asked agent (Fallback names it)
-			profile = row
+		if r.RanAs == "" || r.RanAs == r.Fallback { // ran on the asked agent (Fallback names it); the record's row
+			profile = r.Provider
 		}
 		return false
 	})

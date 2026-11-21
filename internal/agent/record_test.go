@@ -776,20 +776,20 @@ func assertAnswerWriteFailure(t *testing.T, id string, events []wire.Event) {
 	}
 }
 
-// SessionModel splits an old record's `<profile>:<model>` into the profile and the served model.
+// SessionModel is the served model as recorded and the record's own profile.
 func TestSessionModel(t *testing.T) {
 	setConfigDir(t)
 	base := time.Date(2026, 10, 16, 21, 0, 0, 0, time.UTC)
 	for i, res := range []wire.Result{
-		{SessionID: "a", Model: "old", Invoked: "qa:old"},
-		{SessionID: "a", Model: "wire-new", Invoked: "qa:wire-new"},
+		{SessionID: "a", Provider: "qa", Model: "old", Invoked: "old"},
+		{SessionID: "a", Provider: "qa", Model: "wire-new", Invoked: "wire-new"},
 		{SessionID: "b", Model: "<synthetic>", Invoked: "sonnet"},
 		{SessionID: "c", Model: "<synthetic>"},
 		{SessionID: "d", Model: "reported"},
-		{SessionID: "e", Model: "served-sonnet", Invoked: "qa:sonnet"},
-		{SessionID: "f", Agent: "codex", Fallback: "claude", Model: "gpt-6.1-sol", Invoked: "dev:sonnet"},
+		{SessionID: "e", Provider: "qa", Model: "served-sonnet", Invoked: "sonnet"},
+		{SessionID: "f", Provider: "dev", Agent: "codex", Fallback: "claude", Model: "gpt-6.1-sol", Invoked: "sonnet"},
 		{SessionID: "g", Model: "qwen3:30b", Invoked: "qwen3:30b"},
-		{SessionID: "h", Agent: "codex", Fallback: "codex", Model: "gpt-6.1-sol", Invoked: "dev:gpt-6.1-sol"}, // same-agent row move
+		{SessionID: "h", Provider: "dev", Agent: "codex", Fallback: "codex", Model: "gpt-6.1-sol", Invoked: "gpt-6.1-sol"}, // same-agent row move
 		{SessionID: "i", Invoked: AutoModel},
 	} {
 		r := NewRecord("codex", RunOptions{Prompt: "p"}, base.Add(time.Duration(i)*time.Minute))

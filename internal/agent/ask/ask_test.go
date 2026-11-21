@@ -184,7 +184,7 @@ func TestCmdAskSessionKeepsRecordedModel(t *testing.T) {
 			vaulttest.Use(t)
 			vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"qa":{"preset":"databricks","host":"https://qa.example.com","auth":{"type":"none"}}}}}`)
 			rec := agent.NewRecord("claude", agent.RunOptions{Prompt: "first"}, time.Now().Add(-time.Hour))
-			rec.Finish(wire.Result{Model: "databricks-claude-sonnet-5-5", Invoked: "qa:databricks-claude-sonnet-5-5", SessionID: "sess-1"}, nil, time.Second)
+			rec.Finish(wire.Result{Provider: "qa", Model: "databricks-claude-sonnet-5-5", Invoked: "databricks-claude-sonnet-5-5", SessionID: "sess-1"}, nil, time.Second)
 			if err := rec.Save(); err != nil {
 				t.Fatal(err)
 			}
@@ -1151,9 +1151,15 @@ func TestJSONModeFailuresPrintEnvelope(t *testing.T) {
 // A dry-run reports a typed model refusal as usage and never writes a dispatch record.
 func TestDryRunUnacceptedModelExitsTwo(t *testing.T) {
 	cliEnv(t)
-	// an unknown profile prefix is refused on every row; a bare unlisted id on a no-listing row runs unverified
-	code, out, stderr := runCLI(t, "ask", "--agent", "claude", "--model", "bogus:opus", "--dry-run", "x")
-	if code != 2 || !strings.Contains(stderr, "bogus") || strings.TrimSpace(out) != "" {
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
+		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"none"}}}}}`)
+	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+		{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil {
+		t.Fatal(err)
+	}
+	code, out, stderr := runCLI(t, "ask", "--agent", "claude", "--overlay", `{"provider":"databricks","profile":"dev"}`,
+		"--model", "gpt-nonexistent-9", "--dry-run", "x")
+	if code != 2 || !strings.Contains(stderr, "not served") || strings.TrimSpace(out) != "" {
 		t.Fatalf("exit %d, stdout %q, stderr %q; want 2 naming the rejected model", code, out, stderr)
 	}
 	if records := agent.RecentRecords(1); len(records) != 0 {

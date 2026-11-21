@@ -161,7 +161,7 @@ func parseTask(l parsedLine, agentName string, base agent.RunOptions, timeoutSet
 		return t, l.Err
 	}
 	tl := l.Task
-	if err := cmp.Or(checkLineIDs(l.N, t.ID, tl.PlanTask, seen), lineModel(&l)); err != nil {
+	if err := checkLineIDs(l.N, t.ID, tl.PlanTask, seen); err != nil {
 		return t, err
 	}
 	t.Plan = tl.PlanTask
@@ -174,10 +174,7 @@ func parseTask(l parsedLine, agentName string, base agent.RunOptions, timeoutSet
 	if err != nil {
 		return t, err
 	}
-	if err = lineEnvRoute(l.N, t.Agent, &req); err == nil {
-		req, err = batchTaskLocation(l, req, timeoutSet, base.WorkDir, cwd)
-	}
-	if err != nil {
+	if req, err = batchTaskLocation(l, req, timeoutSet, base.WorkDir, cwd); err != nil {
 		return t, err
 	}
 	t.Req = req

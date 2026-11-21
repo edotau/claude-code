@@ -134,7 +134,7 @@ func runCtx(ctx context.Context, args []string, verb string, out io.Writer) (exi
 	}
 	r := &askRun{ctx: ctx, f: f, fs: fs, args: args, pos: pos, out: out}
 	markTyped(fs, f) // before dispatchMode: a batch builds its base request there
-	for _, phase := range []func() (int, bool){r.castTyped, r.config, r.prelude, r.selectAgent, r.parsePerms, func() (int, bool) { return checkModel(r) }, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
+	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.parsePerms, r.dispatchMode, r.resolveRecord, r.checkArm, r.resolveLead, r.parsePerms, r.export} {
 		if code, done := phase(); done {
 			return code
 		}
@@ -346,45 +346,6 @@ func (r *askRun) checkArm() (int, bool) {
 		r.confined = confineLead(r.ctx, r.ag, f) || r.confined
 	}
 	return 0, false
-}
-
-// castTyped casts a typed --model <profile>:<id> before the overlay folds, so the prefix is a typed route unit.
-func (r *askRun) castTyped() (int, bool) {
-	typed := r.f.model
-	if err := castModel(r.fs, true); err != nil {
-		return r.fail(err, 2)
-	}
-	if r.f.model != typed {
-		r.f.castSpec = typed
-	}
-	markTyped(r.fs, r.f)
-	return 0, false
-}
-
-// checkModel casts an untyped fresh run's <AGENT>_MODEL: a bad prefix exits 2, its route stands in for a typed one.
-func checkModel(r *askRun) (int, bool) {
-	f := r.f
-	if f.model != "" || f.batchSrc != "" || f.retry != "" || f.job != "" || f.session != "" { // a batch line casts its own
-		return 0, false
-	}
-	c, _, err := providers.EnvCast(r.ctx, r.ag)
-	if err != nil {
-		return r.fail(err, 2)
-	}
-	if c.Profile != "" && !r.flagRoute && r.ov.Route().IsZero() { // a typed route is the run's route whole
-		setRouteFlag(r.fs, c)
-		r.flagRoute = true
-	}
-	return 0, false
-}
-
-// setRouteFlag types c's route unit as --profile, the pool as --provider.
-func setRouteFlag(fs *flag.FlagSet, c providers.ModelCast) {
-	if c.Profile == router.AutoArm {
-		_ = fs.Set("provider", c.Provider)
-		return
-	}
-	_ = fs.Set("profile", c.Profile)
 }
 
 // refuse fails a route refusal; a well-formed ask (exit 1, not --dry-run) also leaves its failed record.
