@@ -417,6 +417,27 @@ func TestPostTokenDoesNotRetry400(t *testing.T) {
 	}
 }
 
+// A sent refresh token answered 429 or 503 may already be spent: it is never POSTed again.
+func TestRefreshTokenNotResentAfterThrottleReply(t *testing.T) {
+	waits := recordWaits(t)
+	for _, status := range []int{http.StatusServiceUnavailable, http.StatusTooManyRequests} {
+		var n atomic.Int32
+		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			n.Add(1)
+			w.Header().Set("Retry-After", "1")
+			w.WriteHeader(status)
+		}))
+		_, err := RefreshU2M(context.Background(), srv.URL, "qzvrefresh")
+		srv.Close()
+		if err == nil || n.Load() != 1 {
+			t.Fatalf("status %d: err=%v posts=%d, want one failed POST", status, err, n.Load())
+		}
+	}
+	if len(*waits) != 0 {
+		t.Fatalf("waits = %v, want none", *waits)
+	}
+}
+
 // normHost accepts https and loopback http, and refuses plain http off loopback, userinfo, a query or a fragment.
 func TestNormHost(t *testing.T) {
 	if h, err := normHost(" https://example.cloud.databricks.com/ "); err != nil || h != "https://example.cloud.databricks.com" {

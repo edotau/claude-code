@@ -195,9 +195,12 @@ runs the row's tier model with a note; a fresh empty pool or unwritable pick sta
   2 minutes 15 seconds for it. If the vault write fails the call reports the rotation as unsaved (`seal_failed`).
   A process killed between send and save loses that login: renew it with `claude-code databricks login --profile <p>`.
   The proxy loads new token code only on a restart: `claude-code gateway proxy --restart`.
-- **Throttling:** token mint (429, 503) and endpoint listing (429, 502, 503, 504) try 3 times, honour `Retry-After`
-  (waits capped at 8 s) and otherwise back off from 500 ms with full jitter, capped at 4 s. Model traffic uses the
-  proxy's cool-down instead (`Retry-After`, 30 s default, 5 minutes at most).
+- **Throttling:** a service-principal mint (429, 5xx) and endpoint listing (429, 502, 503, 504) try 3 times, honour
+  `Retry-After` (waits capped at 8 s) and otherwise back off from 500 ms with full jitter, capped at 4 s. A u2m
+  refresh or login code is single-use: it is resent only when the request was never written, never after any HTTP
+  reply. Model traffic uses the proxy's cool-down instead (`Retry-After`, 30 s default, 5 minutes at most).
+- **One re-mint per rejection:** a 401/403 refresh adopts a token a peer minted after the rejected one instead of
+  minting again (in-process under the flight lock; across processes via the sealed vault copy).
 - Doctor's credential rows end with `source=vault`, `source=env <NAME>` or `source=command`.
 - Login gotcha: `--remote <host> databricks login` always signs the user in (a paired SP does not mint) and seals the
   token here; `--host` forwards the callback port. Flags: `claude-code databricks login -h`.

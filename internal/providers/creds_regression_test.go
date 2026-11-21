@@ -203,6 +203,40 @@ func TestFlightGroupCanceledLeaderStopsWaitingWhileFollowerMints(t *testing.T) {
 	}
 }
 
+// A burst of forced refreshes after one rejected token mints once; callers arriving after it finished adopt it.
+func TestForcedRefreshAfterRejectionAdoptsPeerMint(t *testing.T) {
+	var cur atomic.Pointer[string]
+	old := "qzvold"
+	cur.Store(&old)
+	g := &flightGroup{flights: map[string]*flight{}, cached: func(string) (string, cacheState) { return *cur.Load(), cacheFresh }}
+	var mints atomic.Int32
+	mint := func(context.Context) (string, error) {
+		v := fmt.Sprintf("qzvnew%d", mints.Add(1))
+		cur.Store(&v)
+		return v, nil
+	}
+	ctx := context.WithValue(context.Background(), rejectedKey{}, old)
+	burst := func() {
+		var wg sync.WaitGroup
+		start := make(chan struct{})
+		for range 16 {
+			wg.Go(func() {
+				<-start
+				if v, err := g.do(ctx, "adopt", true, mint); err != nil || v != "qzvnew1" {
+					t.Errorf("caller got %d bytes, %v; want the one new token", len(v), err)
+				}
+			})
+		}
+		close(start)
+		wg.Wait()
+	}
+	burst() // concurrent 401s: one mint, the rest join or adopt
+	burst() // the old token's late 401s, after the flight retired: adopt, never mint
+	if n := mints.Load(); n != 1 {
+		t.Fatalf("minted %d times for one rejected token, want 1", n)
+	}
+}
+
 // staleRig is a u2m row on a stubbed token endpoint that counts calls, records each refresh token spent and rotates it.
 type staleRig struct {
 	p       *Provider

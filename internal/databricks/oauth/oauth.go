@@ -148,15 +148,12 @@ var tokenClient = &http.Client{
 	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
 }
 
-// retryable: a one-shot grant retries only 429/503 or a transport error before the request was written.
+// retryable: a one-shot grant (refresh token, code) retries only an unwritten request; any reply may have spent it.
 func (r tokenRequest) retryable(status int, written bool) bool {
-	if status == http.StatusTooManyRequests || status == http.StatusServiceUnavailable {
-		return true
+	if r.replay {
+		return status == 0 || status == http.StatusTooManyRequests || status >= 500
 	}
-	if status == 0 && !written {
-		return true
-	}
-	return r.replay && (status == 0 || status >= 500)
+	return status == 0 && !written
 }
 
 type noRetryKey struct{}

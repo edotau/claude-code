@@ -624,13 +624,15 @@ func (r *Router) sendWithAuth(in *http.Request, p *providers.Provider,
 		return resp, nil
 	}
 	drain(resp)
-	if resp, ok, err := replayReminted(ctx, p, sent, do); err != nil || ok {
+	resp, rejected, ok, err := replayReminted(ctx, p, sent, do)
+	if err != nil || ok {
 		return resp, err
 	}
 	r.invalidateCredential(
 		p.Name,
 	) // invalidate before refreshing: a Refresh failure must not leave a stale "present" cached
-	credential, err := providers.Refresh(ctx, p)
+	// one atomic step per profile: a token a peer minted since rejected is adopted, else this call mints
+	credential, err := providers.RefreshRejected(ctx, p, rejected)
 	if err != nil {
 		return nil, r.authFailure(ctx, p, err)
 	}
@@ -646,25 +648,25 @@ func (r *Router) sendWithAuth(in *http.Request, p *providers.Provider,
 }
 
 // replayReminted replays the credential a peer request already re-minted for this identity; ok is false when none
-// exists or it is rejected (a non-credential 403 is relayed as is).
+// exists or it is rejected (a non-credential 403 is relayed as is); rejected is the last credential refused.
 func replayReminted(ctx context.Context, p *providers.Provider, sent string,
-	do func(string) (*http.Response, error)) (resp *http.Response, ok bool, err error) {
+	do func(string) (*http.Response, error)) (resp *http.Response, rejected string, ok bool, err error) {
 	if sent == "" {
-		return nil, false, nil
+		return nil, sent, false, nil
 	}
 	cur, cerr := providers.Credential(ctx, p)
 	if cerr != nil || cur == "" || cur == sent {
-		return nil, false, nil
+		return nil, sent, false, nil
 	}
 	if resp, err = do(cur); err != nil {
-		return nil, false, err
+		return nil, cur, false, err
 	}
 	resp.Body = newIdleBody(resp.Body, idleTimeout)
 	if rejectedAfterRemint(resp, p) {
 		drain(resp)
-		return nil, false, nil
+		return nil, cur, false, nil
 	}
-	return resp, true, nil
+	return resp, cur, true, nil
 }
 
 func authRejected(resp *http.Response, p *providers.Provider) bool {

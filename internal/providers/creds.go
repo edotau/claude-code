@@ -156,6 +156,13 @@ func Refresh(ctx context.Context, p *Provider) (string, error) {
 	return commandCredential(ctx, p, true)
 }
 
+type rejectedKey struct{}
+
+// RefreshRejected is Refresh after upstream refused rejected: a newer token a peer already minted is adopted instead.
+func RefreshRejected(ctx context.Context, p *Provider, rejected string) (string, error) {
+	return Refresh(context.WithValue(ctx, rejectedKey{}, rejected), p)
+}
+
 // flight is one in-progress command mint for a provider; followers wait on done and share val/err.
 type flight struct {
 	done     chan struct{}
@@ -371,6 +378,9 @@ func (g *flightGroup) do(ctx context.Context, name string, force bool, mint func
 				g.mu.Unlock()
 				return v, nil
 			}
+		} else if v, ok := g.adoptable(ctx, name); ok {
+			g.mu.Unlock()
+			return v, nil
 		}
 		f, inflight := g.flights[name]
 		if !inflight {
@@ -396,6 +406,16 @@ func (g *flightGroup) do(ctx context.Context, name string, force bool, mint func
 			return f.val, f.err
 		}
 	}
+}
+
+// adoptable is the fresh cached token of a mint that finished after ctx's rejected one; callers hold g.mu.
+func (g *flightGroup) adoptable(ctx context.Context, name string) (string, bool) {
+	rejected, _ := ctx.Value(rejectedKey{}).(string)
+	if rejected == "" {
+		return "", false
+	}
+	v, st := g.cached(name)
+	return v, st == cacheFresh && v != "" && v != rejected
 }
 
 // runMint runs one flight's mint, then retires the flight and wakes its waiters, even if the leader gave up.
