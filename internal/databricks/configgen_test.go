@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	_ "github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/providers"
 )
 
@@ -109,6 +110,18 @@ func TestRejects(t *testing.T) {
 	c.Model = "claude-opus-5-5"
 	if _, err := renderConfig(c); err == nil {
 		t.Error("claude model for codex accepted")
+	}
+	for _, target := range []string{targetClaude, targetCodex} {
+		o := base(t, target)
+		o.Model = "bogus-model-xyz"
+		if _, err := renderConfig(o); err == nil {
+			t.Errorf("%s accepted bogus-model-xyz", target)
+		}
+	}
+	o = base(t, targetClaude)
+	o.Model = "opus"
+	if _, err := renderConfig(o); err != nil {
+		t.Errorf("valid model opus: %v", err)
 	}
 	o = base(t, targetClaude)
 	o.Host = "http://bad"

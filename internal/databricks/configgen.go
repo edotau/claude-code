@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -117,6 +118,9 @@ func checkSetPair(kv string) error {
 func (o renderOptions) checkModel() error {
 	if o.Model == "" {
 		return nil
+	}
+	if _, err := agent.AcceptModel(o.Target, o.P, o.Model, time.Now()); err != nil {
+		return err
 	}
 	isClaude := models.FamilyKind(o.Model) == models.FamilyClaude
 	if o.Target == targetCodex && isClaude {
