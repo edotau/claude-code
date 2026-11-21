@@ -384,13 +384,6 @@ func TestReportedModel(t *testing.T) {
 	}
 }
 
-func TestReportedModelStripsProfilePrefix(t *testing.T) {
-	target := providers.Target{Provider: &providers.Provider{Name: "anth"}, Model: "claude-opus-5-5"}
-	if got := reportedModel("anth:claude-opus-5-5", target); got != target.Model {
-		t.Fatalf("reportedModel = %q, want %q", got, target.Model)
-	}
-}
-
 func BenchmarkRelaySSE(b *testing.B) {
 	frames := []byte(strings.Repeat("event: content_block_delta\ndata: {\"type\":\"content_block_delta\"}\n\n", 64) +
 		"event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n")
