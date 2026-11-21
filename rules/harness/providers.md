@@ -53,8 +53,8 @@ paths:
   no rows (its `auto` runs the brief's tier model on its one profile), so it has none here.
 - **Model names (the one rule):** a model string is only ever a plain model id or alias (or `auto`); the
   profile/provider travels as the route: `--overlay '{"provider":"databricks","profile":"qa"}' --model opus`,
-  `--profile`, `--provider` or the agent record. `auto` rotates models only, never the route. The
-  `<profile>:<model>` shorthand is being removed (plan D8): do not write it in docs or examples.
+  `--profile`, `--provider` or the agent record. A prefixed value such as `dev:opus` is refused at every
+  input, and the refusal names that overlay form. `auto` rotates models only, never the route.
   Every Claude alias resolves on the session's own profile: a cross-profile alias pin is ignored with a note.
 - **Profile order** (the route, taken whole from the first source naming any of it; `--profile R` takes
   provider from R's registry row, never the session; `gateway resolve --provider databricks`, `--profile auto` too):
