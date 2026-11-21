@@ -12,7 +12,6 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
-	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/catalog"
@@ -22,21 +21,12 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
+	endpoints "github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
 func init() {
 	router.RotationPool = rotationPool
-	wire.ProviderOf = func(profile string) string {
-		reg, err := providers.LoadShared()
-		if err != nil {
-			return ""
-		}
-		if p, err := reg.Get(profile); err == nil {
-			return p.Provider
-		}
-		return ""
-	}
 }
 
 type peekKey struct{}
@@ -303,7 +293,7 @@ func freshRotation(p *providers.Provider, now time.Time) bool {
 		return false
 	}
 	if p.Preset == providers.PresetDatabricks {
-		listing, _ := router.LoadServed(p.Name)
+		listing, _ := endpoints.Load(p.Name)
 		return listing.Fresh(now)
 	}
 	return router.GithubCatalogTime != nil && now.Sub(router.GithubCatalogTime(p)) < serving.CacheTTL()

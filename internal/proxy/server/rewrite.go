@@ -24,10 +24,22 @@ import (
 // scopeKey carries the profiles a session or client token is confined to; absent for the router secret.
 type scopeKey struct{}
 
+// failoverProviderKey carries an auto-minted token's same-provider server-side failover group (never widens paths).
+type failoverProviderKey struct{}
+
 // sessionScope is the profile set a session- or client-token request is confined to.
 func sessionScope(in *http.Request) ([]string, bool) {
 	scope, ok := in.Context().Value(scopeKey{}).([]string)
 	return scope, ok
+}
+
+// sessionFailoverProvider is the provider group allowed for internal failover hops, or "" when pinned to scope.
+func sessionFailoverProvider(in *http.Request) string {
+	if in == nil {
+		return ""
+	}
+	fp, _ := in.Context().Value(failoverProviderKey{}).(string)
+	return fp
 }
 
 // resolveTarget maps the path profile and requested model to a target, writing the error when it cannot.
@@ -95,13 +107,19 @@ func opusID(reg *providers.Registry, p *providers.Provider) string {
 	return ""
 }
 
-// confineLadder drops fallback providers outside a token's profiles; they hold other credentials.
+// confineLadder drops fallback providers outside a token's profiles or its same-provider server-side failover group.
 func confineLadder(in *http.Request, ladder []providers.Target) []providers.Target {
 	scope, scoped := sessionScope(in)
 	if !scoped {
 		return ladder
 	}
-	return slices.DeleteFunc(ladder, func(t providers.Target) bool { return !slices.Contains(scope, t.Provider.Name) })
+	fp := sessionFailoverProvider(in)
+	return slices.DeleteFunc(ladder, func(t providers.Target) bool {
+		if slices.Contains(scope, t.Provider.Name) {
+			return false
+		}
+		return fp == "" || t.Provider.Provider != fp
+	})
 }
 
 // anthropicHost is the only host the sealed subscription token is sent to; a var so tests can point it at httptest.

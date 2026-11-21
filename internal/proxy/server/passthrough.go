@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy/translate"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -116,13 +117,12 @@ func (r *Router) passthroughRoute(w http.ResponseWriter,
 	route, ok = p.Route(dialect)
 	if !ok && dialect == providers.ProtocolGemini {
 		route, ok = databricksGemini(p)
-		dbxGemini = ok
 	}
 	if !ok {
 		writeError(w, http.StatusNotFound, "proxy: provider "+p.Name+" has no "+dialect+" route")
 		return nil, "", false, false
 	}
-	return p, route, dbxGemini, true
+	return p, route, p.Preset == providers.PresetDatabricks && dialect == providers.ProtocolGemini, true
 }
 
 func (r *Router) passthroughRequest(sw *statusWriter, in *http.Request, p *providers.Provider,
@@ -180,33 +180,100 @@ func fixPassthroughBody(body []byte, p *providers.Provider, path, model, dialect
 	return out, model, geminiChat, err
 }
 
+func passthroughRetryable(in *http.Request, status int) bool {
+	if status == http.StatusTooManyRequests {
+		return true
+	}
+	if sessionFailoverProvider(in) == "" {
+		return false
+	}
+	return retryable[status]
+}
+
+// passthroughHop is one upstream attempt: the row, its route, path, prepared body and model.
+type passthroughHop struct {
+	p          *providers.Provider
+	route      string
+	path       *url.URL
+	body       []byte
+	model      string
+	geminiChat bool
+}
+
+func (h passthroughHop) target() string {
+	target := h.route + "/" + h.path.Path
+	if h.path.RawQuery != "" {
+		target += "?" + h.path.RawQuery
+	}
+	return target
+}
+
+// nextHop picks the next untried sibling and prepares its request; false leaves the caller relaying what it has.
+func (r *Router) nextHop(in *http.Request, origin *providers.Provider, cur passthroughHop, dialect string,
+	tried map[string]bool, status int, cause error, path *url.URL, original []byte) (passthroughHop, bool) {
+	next, nextRoute := r.passthroughFallback(in, origin, cur.p, cur.model, dialect, tried, status, cause)
+	if next == nil {
+		return cur, false
+	}
+	nP, nRoute, nPath, nBody, nModel, nChat, err := r.preparePassthroughHop(in, next, nextRoute, path, cur.model, dialect, original)
+	if err != nil {
+		return cur, false
+	}
+	return passthroughHop{nP, nRoute, nPath, nBody, nModel, nChat}, true
+}
+
 func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *providers.Provider,
 	route string, path *url.URL, model, dialect string, body, original []byte, geminiChat bool) (string, string, string) {
-	target := route + "/" + path.Path
-	if path.RawQuery != "" {
-		target += "?" + path.RawQuery
+	tried := map[string]bool{p.Name: true}
+	cur := passthroughHop{p, route, path, body, model, geminiChat}
+	for { // each hop marks a new sibling tried, so passthroughFallback ends the loop
+		target := cur.target()
+		resp, err := r.sendMethod(in, in.Method, cur.p, target, cur.body, copyClientHeaders(in))
+		if err != nil {
+			if next, ok := r.nextHop(in, p, cur, dialect, tried, 0, err, path, original); ok {
+				cur = next
+				continue
+			}
+			writeSendError(sw, cur.p, err)
+			return cur.model, "", cur.p.Name
+		}
+		retried := ""
+		if isChatCompletion(dialect, cur.path.Path) {
+			resp, cur.body, retried = r.retryWithoutEffort(in, cur.p, target, cur.model, resp, cur.body)
+		}
+		if resp.StatusCode == http.StatusTooManyRequests && !providers.ModelDenied(string(peekBody(resp, 64<<10))) {
+			r.coolDown(cur.p, resp) // a passthrough 429 sinks p in this proxy's /v1/messages ladders too
+		}
+		if passthroughRetryable(in, resp.StatusCode) {
+			if next, ok := r.nextHop(in, p, cur, dialect, tried, resp.StatusCode, errors.New(resp.Status), path, original); ok {
+				_ = resp.Body.Close()
+				cur = next
+				continue
+			}
+		}
+		defer resp.Body.Close()
+		extra := passthroughDiag(resp, len(cur.body)) + retried
+		return r.relayPassthrough(sw, in, cur.p, resp, cur.model, dialect, cur.geminiChat, extra)
 	}
-	resp, err := r.sendMethod(in, in.Method, p, target, body, copyClientHeaders(in))
-	if err != nil {
-		writeSendError(sw, p, err)
-		return model, "", p.Name
-	}
-	defer func() { _ = resp.Body.Close() }() // whichever reply is current: the retry swaps resp
-	retried := ""
-	if isChatCompletion(dialect, path.Path) {
-		resp, body, retried = r.retryWithoutEffort(in, p, target, model, resp, body)
-	}
-	if resp.StatusCode == http.StatusTooManyRequests && !providers.ModelDenied(string(peekBody(resp, 64<<10))) {
-		r.coolDown(p, resp) // a passthrough 429 sinks p in this proxy's /v1/messages ladders too
-	}
-	if resp.StatusCode == http.StatusTooManyRequests {
-		if next, nextRoute := r.passthroughFallback(in, p, model, dialect); next != nil {
-			_ = resp.Body.Close()
-			return r.passthroughFallbackResponse(sw, in, next, nextRoute, path, model, dialect, original)
+}
+
+func (r *Router) preparePassthroughHop(in *http.Request, p *providers.Provider, route string, path *url.URL,
+	model, dialect string, original []byte) (*providers.Provider, string, *url.URL, []byte, string, bool, error) {
+	dbxGemini := dialect == providers.ProtocolGemini && p.Preset == providers.PresetDatabricks
+	nextPath := *path
+	if dbxGemini {
+		var err error
+		_, _, rest, _ := parsePassthrough(in.URL.Path)
+		nextPath.Path, nextPath.RawQuery, model, err = geminiGatewayCall(p, rest, in.URL.Query())
+		if err != nil {
+			return p, route, &nextPath, nil, model, false, err
 		}
 	}
-	extra := passthroughDiag(resp, len(body)) + retried
-	return r.relayPassthrough(sw, in, p, resp, model, dialect, geminiChat, extra)
+	body, model, geminiChat, err := fixPassthroughBody(original, p, nextPath.Path, model, dialect, dbxGemini)
+	if err != nil {
+		return p, route, &nextPath, nil, model, false, err
+	}
+	return p, route, &nextPath, body, model, geminiChat, nil
 }
 
 func (r *Router) relayPassthrough(sw *statusWriter, in *http.Request, p *providers.Provider,
@@ -227,75 +294,48 @@ func (r *Router) relayPassthrough(sw *statusWriter, in *http.Request, p *provide
 	return model, extra, p.Name
 }
 
-func (r *Router) passthroughFallback(in *http.Request, p *providers.Provider, model, dialect string) (*providers.Provider, string) {
-	if n, ok := in.Context().Value(attemptsKey{}).(*int); ok && *n != 1 {
-		return nil, ""
-	}
-	if p.Preset != providers.PresetDatabricks || model == "" {
+func (r *Router) passthroughFallback(in *http.Request, origin, cur *providers.Provider, model, dialect string,
+	tried map[string]bool, status int, cause error) (*providers.Provider, string) {
+	fp := sessionFailoverProvider(in)
+	if (origin.Preset != providers.PresetDatabricks && (fp == "" || fp != origin.Provider)) || model == "" {
 		return nil, ""
 	}
 	reg, err := r.registry()
 	if err != nil {
 		return nil, ""
 	}
-	target := providers.Target{Provider: p, Model: model}
+	target := providers.Target{Provider: origin, Model: model}
 	ladder := r.attempts(in, reg, target, false)
+	for i := range ladder.rows {
+		ladder.rows[i].Model = model // the requested id, not each profile's alias: siblings serve what the client asked
+	}
 	ladder.rankSiblings(0, r.now())
 	for _, t := range ladder.rows {
-		if t.Provider == p || t.Provider.Preset != p.Preset || !models.SameModel(t.Model, model) {
-			continue
-		}
-		if _, ready, fresh := router.ServedListed(t.Provider, model, r.now()); fresh && !ready {
-			continue
-		}
-		route, ok := t.Provider.Route(dialect)
-		if !ok && dialect == providers.ProtocolGemini {
-			route, ok = databricksGemini(t.Provider)
-		}
+		route, ok := r.siblingRoute(t, origin, model, dialect, tried)
 		if !ok {
 			continue
 		}
-		r.noteFailure([]providers.Target{target, t}, 0, &fallbackError{error: errors.New("429 Too Many Requests"), status: 429})
+		tried[t.Provider.Name] = true
+		r.noteFailure([]providers.Target{{Provider: cur, Model: model}, t}, 0, &fallbackError{error: cause, status: status})
 		return t.Provider, route
 	}
 	return nil, ""
 }
 
-func (r *Router) passthroughFallbackResponse(sw *statusWriter, in *http.Request, p *providers.Provider,
-	route string, path *url.URL, model, dialect string, original []byte) (string, string, string) {
-	_, native := p.Route(dialect)
-	dbxGemini := !native && dialect == providers.ProtocolGemini && p.Preset == providers.PresetDatabricks
-	nextPath := *path
-	if dbxGemini {
-		var err error
-		_, _, rest, _ := parsePassthrough(in.URL.Path)
-		nextPath.Path, nextPath.RawQuery, model, err = geminiGatewayCall(p, rest, in.URL.Query())
-		if err != nil {
-			writeError(sw, http.StatusBadRequest, err.Error())
-			return model, "", p.Name
-		}
+// siblingRoute is t's route for dialect when t is an untried, ready sibling of origin serving model.
+func (r *Router) siblingRoute(t providers.Target, origin *providers.Provider, model, dialect string,
+	tried map[string]bool) (string, bool) {
+	if tried[t.Provider.Name] || t.Provider.Provider != origin.Provider || t.Provider.Preset != origin.Preset {
+		return "", false
 	}
-	body, model, geminiChat, err := fixPassthroughBody(original, p, nextPath.Path, model, dialect, dbxGemini)
-	if err != nil {
-		writeError(sw, http.StatusBadRequest, err.Error())
-		return model, "", p.Name
+	if _, ready, fresh := router.ServedListed(t.Provider, model, r.now()); fresh && !ready {
+		return "", false
 	}
-	target := route + "/" + nextPath.Path
-	if nextPath.RawQuery != "" {
-		target += "?" + nextPath.RawQuery
+	route, ok := t.Provider.Route(dialect)
+	if !ok && dialect == providers.ProtocolGemini {
+		route, ok = databricksGemini(t.Provider)
 	}
-	r.touch(in.Context(), p.Name)
-	resp, err := r.sendRequest(in, in.Method, p, target, body, copyClientHeaders(in), "")
-	if err != nil {
-		writeSendError(sw, p, err)
-		return model, "", p.Name
-	}
-	defer resp.Body.Close()
-	resp.Body = newIdleBody(resp.Body, idleTimeout)
-	if resp.StatusCode == http.StatusTooManyRequests && !providers.ModelDenied(string(peekBody(resp, 64<<10))) {
-		r.coolDown(p, resp)
-	}
-	return r.relayPassthrough(sw, in, p, resp, model, dialect, geminiChat, passthroughDiag(resp, len(body)))
+	return route, ok
 }
 
 func isChatCompletion(dialect, path string) bool {
@@ -619,18 +659,15 @@ func logMessage(s string) string {
 	return strings.TrimSpace(b.String())
 }
 
-// databricksGemini is a Databricks row's native Gemini base: its anthropic base with /gemini in place of /anthropic.
+// databricksGemini is a Databricks row's native Gemini base from its host.
 func databricksGemini(p *providers.Provider) (string, bool) {
 	if p.Preset != providers.PresetDatabricks {
 		return "", false
 	}
-	if base, ok := strings.CutSuffix(strings.TrimRight(p.BaseURL, "/"), "/anthropic"); ok {
-		return base + "/gemini", true
+	if base := serving.BaseURL(p.Host, providers.ProtocolGemini); base != "" {
+		return base, true
 	}
-	if p.Host == "" {
-		return "", false
-	}
-	return strings.TrimRight(p.Host, "/") + "/serving-endpoints/gemini", true
+	return "", false
 }
 
 // safeRest rejects a passthrough tail that could climb out of the route: dot segments, empty segments, escapes.

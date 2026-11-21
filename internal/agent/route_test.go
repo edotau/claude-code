@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -264,13 +265,13 @@ func servedEnv(t *testing.T, on string, cache map[string]string) *providers.Regi
 		t.Fatal(err)
 	}
 	if cache != nil {
-		s := router.Served{Profile: "dev", FetchedAt: time.Now()}
+		s := serving.Served{Profile: "dev", FetchedAt: time.Now()}
 		for _, id := range []string{"m-a", "m-b"} {
 			if r, ok := cache[id]; ok {
-				s.Models = append(s.Models, router.ServedModel{ID: id, Ready: r})
+				s.Models = append(s.Models, serving.ServedModel{ID: id, Ready: r})
 			}
 		}
-		if err := router.SaveServed(s); err != nil {
+		if err := serving.Save(s); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -503,7 +504,7 @@ func TestProfileCellAcceptsStaticallyOnColdCache(t *testing.T) {
 func copilotOnDev(t *testing.T, model string) (dev []string, skipped []string) {
 	t.Helper()
 	reg := servedEnv(t, "true", nil)
-	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
 		{ID: "databricks-claude-opus-5-5", Ready: "READY"}, {ID: "databricks-gpt-6-1-sol", Ready: "READY"},
 		{ID: "databricks-kimi-k3", Ready: "READY"}, {ID: "databricks-glm-5-3", Ready: "NOT_READY"}}}); err != nil {
 		t.Fatal(err)
@@ -703,11 +704,11 @@ func familyEnv(t *testing.T) (*providers.Registry, *int) {
 	for _, a := range []string{"codex", "copilot"} {
 		pathstest.FakeVendor(t, a, "exit 0")
 	}
-	s := router.Served{Profile: "dev", FetchedAt: time.Now()}
+	s := serving.Served{Profile: "dev", FetchedAt: time.Now()}
 	for _, id := range []string{"claude-opus-5-5", "claude-sonnet-5-5", "gpt-6-1-sol", "gpt-6-2-sol", "gpt-6-astra", "gpt-6-2-astra"} {
-		s.Models = append(s.Models, router.ServedModel{ID: "databricks-" + id, Ready: "READY"})
+		s.Models = append(s.Models, serving.ServedModel{ID: "databricks-" + id, Ready: "READY"})
 	}
-	if err := router.SaveServed(s); err != nil {
+	if err := serving.Save(s); err != nil {
 		t.Fatal(err)
 	}
 	reads := 0
@@ -871,7 +872,7 @@ func TestCandidateCellOwnLoginIgnoresPinModel(t *testing.T) {
 // A typed model the dev listing lacks is a usage refusal naming nearest ids, not a skipped hop.
 func TestRouteChainRefusesUnlistedTypedModel(t *testing.T) {
 	servedEnv(t, "true", nil)
-	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
 		{ID: "databricks-gpt-6-1-sol", Ready: "READY"}}}); err != nil {
 		t.Fatal(err)
 	}

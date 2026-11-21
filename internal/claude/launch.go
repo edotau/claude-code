@@ -556,6 +556,13 @@ const ProxyKeyEnv = "HARNESS_PROXY_API_KEY"
 
 // proxyToken is this process's session token on routerBase for the session profile and its alias profiles.
 func proxyToken(ctx context.Context, routerBase string, sel providers.Selection) (string, error) {
+	if fp := agent.AutoFailoverProvider(ctx); fp != "" {
+		tok, err := agent.SessionTokenWithFailover(ctx, routerBase, fp, sel.Provider.Name)
+		if err != nil {
+			return "", fmt.Errorf("proxy: session token for profile %s: %w", sel.Provider.Name, err)
+		}
+		return tok, nil
+	}
 	var aliases []string
 	for _, t := range sel.Aliases {
 		aliases = append(aliases, t.Provider.Name)

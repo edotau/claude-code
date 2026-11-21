@@ -19,7 +19,7 @@ import (
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -293,7 +293,7 @@ func TestSwitchWarmsMissingServedCache(t *testing.T) {
 	if len(*got) == 0 {
 		t.Fatal("switch made no listing request")
 	}
-	if s, ok := router.LoadServed("qa"); !ok || len(s.Models) != 3 {
+	if s, ok := serving.Load("qa"); !ok || len(s.Models) != 3 {
 		t.Fatalf("cache after switch = %+v ok=%v, want the 3 listed endpoints", s, ok)
 	}
 }
@@ -321,7 +321,7 @@ func TestSwitchDryRunMakesNoRequests(t *testing.T) {
 	if len(*got) != 0 {
 		t.Fatalf("dry-run made requests: %v", *got)
 	}
-	if _, ok := router.LoadServed("qa"); ok {
+	if _, ok := serving.Load("qa"); ok {
 		t.Error("dry-run wrote a cache")
 	}
 }

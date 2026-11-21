@@ -23,7 +23,7 @@ import (
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
+	endpoints "github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -1102,7 +1102,7 @@ func TestOpencodeMenuSyncVerifySealsSafeChecksAndPreservesExisting(t *testing.T)
 
 func TestServedMark(t *testing.T) {
 	now := time.Now()
-	fresh := router.Served{FetchedAt: now, Models: []router.ServedModel{
+	fresh := endpoints.Served{FetchedAt: now, Models: []endpoints.ServedModel{
 		{ID: "databricks-gpt-6-1-sol", Ready: "READY"},
 		{ID: "databricks-deepseek-v4-pro-0813", Ready: "NOT_READY"},
 	}}
@@ -1110,14 +1110,16 @@ func TestServedMark(t *testing.T) {
 	stale.FetchedAt = now.Add(-24 * time.Hour)
 	for _, tc := range []struct {
 		id       string
-		listings [3]router.Served
+		listings []endpoints.Served
 		want     string
 	}{
-		{"gpt-6-1-sol", [3]router.Served{fresh, fresh, fresh}, "yyy"},
-		{"deepseek-v4-pro-0813", [3]router.Served{fresh, fresh, fresh}, "nnn"},
-		{"absent", [3]router.Served{fresh, fresh, fresh}, "nnn"},
-		{"gpt-6-1-sol", [3]router.Served{fresh, stale, {}}, "y??"},
-		{"opencode-go/kimi-k3.1-pro", [3]router.Served{fresh, fresh, fresh}, ""},
+		{"gpt-6-1-sol", []endpoints.Served{fresh, fresh, fresh}, "yyy"},
+		{"deepseek-v4-pro-0813", []endpoints.Served{fresh, fresh, fresh}, "nnn"},
+		{"absent", []endpoints.Served{fresh, fresh, fresh}, "nnn"},
+		{"gpt-6-1-sol", []endpoints.Served{fresh, stale, {}}, "y??"},
+		{"gpt-6-1-sol", []endpoints.Served{fresh, stale, fresh, {}, fresh}, "y?y?y"},
+		{"gpt-6-1-sol", nil, ""},
+		{"opencode-go/kimi-k3.1-pro", []endpoints.Served{fresh, fresh, fresh}, ""},
 	} {
 		if got := servedMark(tc.id, tc.listings, now); got != tc.want {
 			t.Errorf("servedMark(%q) = %q, want %q", tc.id, got, tc.want)

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -294,27 +295,31 @@ func TestGrokKeepsOpencodeChatRoute(t *testing.T) {
 	}
 }
 
-func listingFacts(t *testing.T, facts map[string]EndpointFacts) {
+func listingFacts(t *testing.T, facts map[string]serving.EndpointFacts) {
 	t.Helper()
-	old := ListedFacts
-	t.Cleanup(func() { ListedFacts = old })
-	ListedFacts = func(_ *Provider, wire string) (EndpointFacts, bool) { f, ok := facts[wire]; return f, ok }
+	serving.SetFactsForTest(t, func(_, wire string) (serving.EndpointFacts, bool) { f, ok := facts[wire]; return f, ok })
 }
 
 // Given a fresh listing, Then api_types decide ResponsesServable for a listed id, the old rule an unlisted one,
-// and opencode's Responses-only routing is unchanged.
+// and opencode's ServesResponses stays menu-driven while WireFor respects live api_types.
 func TestResponsesServableFollowsListingAPITypes(t *testing.T) {
 	vaulttest.Use(t)
-	listingFacts(t, map[string]EndpointFacts{
+	both := []string{"mlflow/v1/chat/completions", "openai/v1/responses", "codex/v1/responses"}
+	listingFacts(t, map[string]serving.EndpointFacts{
 		"databricks-gpt-6-luna": {APITypes: []string{"mlflow/v1/chat/completions"}},
-		"databricks-kimi-k3":    {APITypes: []string{"mlflow/v1/chat/completions", "openai/v1/responses"}},
+		"databricks-kimi-k3":    {APITypes: both},
+		"databricks-glm-5-3":    {APITypes: []string{"mlflow/v1/chat/completions", "codex/v1/responses"}},
 		"databricks-grok-4-7":   {APITypes: []string{"mlflow/v1/chat/completions", "openai/v1/responses"}},
+		"databricks-new-resp":   {APITypes: []string{"openai/v1/responses", "codex/v1/responses"}},
 		"databricks-gpt-5-4":    {Context: 400000},
 	})
 	p := &Provider{Name: "dev", Preset: PresetDatabricks, ModelPrefix: "databricks-"}
 	p.Routes = map[string]string{ProtocolResponses: "/responses", ProtocolOpenAI: "/chat"}
-	for wire, want := range map[string]bool{"databricks-gpt-6-luna": false, "databricks-kimi-k3": true,
-		"databricks-grok-4-7": true, "databricks-gpt-5-4": true, "databricks-gpt-6-sol": true, "databricks-claude-opus-5-5": false} {
+	for wire, want := range map[string]bool{
+		"databricks-gpt-6-luna": false, "databricks-kimi-k3": true, "databricks-glm-5-3": false,
+		"databricks-grok-4-7": false, "databricks-new-resp": true, "databricks-gpt-5-4": true,
+		"databricks-gpt-6-sol": true, "databricks-claude-opus-5-5": false,
+	} {
 		if got := ResponsesServable(p, wire); got != want {
 			t.Errorf("ResponsesServable(%s) = %v, want %v", wire, got, want)
 		}
@@ -322,11 +327,17 @@ func TestResponsesServableFollowsListingAPITypes(t *testing.T) {
 	if ServesResponsesIn([]OpencodeModel{{ID: "kimi-k3"}}, p, "databricks-kimi-k3") {
 		t.Error("opencode's ServesResponses must not follow api_types")
 	}
+	if wire, ok, _ := WireForIn([]OpencodeModel{}, p, "databricks-new-resp"); !ok || wire != ProtocolResponses {
+		t.Errorf("WireFor(responses-only live endpoint) = %q,%v, want responses", wire, ok)
+	}
+	if wire, ok, _ := WireForIn([]OpencodeModel{{ID: "grok-4-7", Responses: true}}, p, "databricks-grok-4-7"); !ok || wire != ProtocolOpenAI {
+		t.Errorf("WireFor(grok without codex/v1/responses) = %q,%v, want openai", wire, ok)
+	}
 }
 
 // Given catalog limits and a listing, Then the catalog wins per field and the listing fills the rest.
 func TestLimitsForPrefersCatalogThenListing(t *testing.T) {
-	listingFacts(t, map[string]EndpointFacts{"databricks-gpt-5-4": {Context: 400000, Output: 128000},
+	listingFacts(t, map[string]serving.EndpointFacts{"databricks-gpt-5-4": {Context: 400000, Output: 128000},
 		"databricks-gemini-4-argon": {Context: 5, Output: 7}})
 	p := &Provider{Name: "dev", Preset: PresetDatabricks}
 	if l, ok := LimitsFor(p, "databricks-gpt-5-4"); !ok || l.Context != 400000 || l.Output != 128000 {

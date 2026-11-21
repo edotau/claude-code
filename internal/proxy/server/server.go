@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxy/translate"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 )
 
 const (
@@ -159,7 +160,11 @@ func (r *Router) serveGate(w http.ResponseWriter, req *http.Request) bool {
 		return true
 	}
 	if req.URL.Path == proxy.SessionPath || req.URL.Path == proxy.SessionRevokePath {
-		r.sessionRoute(w, req)
+		if !r.secretOK(req) { // a session token never mints or revokes
+			r.refuse(w, req, http.StatusUnauthorized, "proxy: missing or wrong client secret")
+		} else {
+			r.serveSession(w, req)
+		}
 		return true
 	}
 	if !r.authorized(req) {
@@ -173,15 +178,6 @@ func (r *Router) serveGate(w http.ResponseWriter, req *http.Request) bool {
 func helloProbe(req *http.Request) bool {
 	_, rest, ok := parseRoute(req.URL.Path)
 	return ok && rest == "api/hello" && (req.Method == http.MethodHead || req.Method == http.MethodGet)
-}
-
-// sessionRoute serves the mint/revoke paths to the real client secret only.
-func (r *Router) sessionRoute(w http.ResponseWriter, req *http.Request) {
-	if !r.secretOK(req) { // a session token never mints or revokes
-		r.refuse(w, req, http.StatusUnauthorized, "proxy: missing or wrong client secret")
-		return
-	}
-	r.serveSession(w, req)
 }
 
 // stripClientAuth drops the proxy secret headers; Authorization survives only as the client's own credential.
@@ -348,7 +344,7 @@ func (r *Router) noteFailure(ladder []providers.Target, i int, err error) []prov
 
 // attempts is the target then each usable fallback provider; cooling-down providers sink to the end.
 func (r *Router) attempts(in *http.Request, reg *providers.Registry, target providers.Target, clientAuth bool) attemptLadder {
-	out := r.failoverLadder(reg, target, clientAuth)
+	out := r.failoverLadderFor(in, reg, target, clientAuth)
 	// A model this key cannot use at all is replaced by its provider's next slot up front.
 	for i, t := range out {
 		if r.isDead(t) {
@@ -358,8 +354,9 @@ func (r *Router) attempts(in *http.Request, reg *providers.Registry, target prov
 			}
 		}
 	}
-	out = confineLadder(in, r.withoutAuthMarked(out))
-	state, now := r.routeState(), r.now()
+	state, _ := r.routeStateAt()
+	now := r.now()
+	out = confineLadder(in, withoutAuthMarked(state, now, out))
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	cooling := func(t providers.Target) bool { // this process's hold, else one another process persisted
@@ -375,24 +372,52 @@ func (r *Router) attempts(in *http.Request, reg *providers.Registry, target prov
 
 // failoverLadder is the target followed by one failover target per usable fallback provider, in registry order.
 func (r *Router) failoverLadder(reg *providers.Registry, target providers.Target, clientAuth bool) []providers.Target {
+	return r.failoverLadderFor(nil, reg, target, clientAuth)
+}
+
+// failoverLadderFor adds reg.Fallback plus, for auto-failover tokens, same-provider healthy siblings.
+func (r *Router) failoverLadderFor(in *http.Request, reg *providers.Registry, target providers.Target, clientAuth bool) []providers.Target {
 	out := []providers.Target{target}
 	seen := map[*providers.Provider]bool{target.Provider: true}
-	for _, name := range reg.Fallback {
-		p := reg.Providers[name]
+	addRow := func(p *providers.Provider, checkListed bool) {
 		if p == nil || seen[p] || unroutable(p, clientAuth) != "" || !r.credentialPresent(p) {
-			continue
+			return
 		}
-		if ft, ok := providers.FailoverTarget(target.Provider, target.Model, p); ok {
-			seen[p] = true
-			out = append(out, ft)
+		ft, ok := providers.FailoverTarget(target.Provider, target.Model, p)
+		if !ok {
+			return
 		}
+		if checkListed && servedUnready(p, ft.Model, r.now()) {
+			return
+		}
+		seen[p] = true
+		out = append(out, ft)
+	}
+	for _, name := range reg.Fallback {
+		addRow(reg.Providers[name], false)
+	}
+	for _, name := range sessionSiblings(in, reg, target) {
+		addRow(reg.Providers[name], true)
 	}
 	return out
 }
 
+// servedUnready reports a fresh served listing that does not have the model ready.
+func servedUnready(p *providers.Provider, model string, now time.Time) bool {
+	_, ready, fresh := router.ServedListed(p, model, now)
+	return fresh && !ready
+}
+
+// sessionSiblings is the target provider's profiles when the session token auto-fails-over within that provider.
+func sessionSiblings(in *http.Request, reg *providers.Registry, target providers.Target) []string {
+	if fp := sessionFailoverProvider(in); fp != "" && fp == target.Provider.Provider {
+		return reg.ProfilesOf(fp)
+	}
+	return nil
+}
+
 // withoutAuthMarked drops targets whose provider has a live auth mark; when that empties the ladder it is kept whole.
-func (r *Router) withoutAuthMarked(out []providers.Target) []providers.Target {
-	state, now := r.routeState(), r.now()
+func withoutAuthMarked(state router.State, now time.Time, out []providers.Target) []providers.Target {
 	kept := make([]providers.Target, 0, len(out))
 	for _, t := range out {
 		if _, ok := state.AuthMarked(router.AccountOf(t.Provider), now); !ok {
@@ -405,13 +430,7 @@ func (r *Router) withoutAuthMarked(out []providers.Target) []providers.Target {
 	return kept
 }
 
-// routeState is the route state, re-read from quota.json at most once per authStateTTL; callers only read it.
-func (r *Router) routeState() router.State {
-	state, _ := r.routeStateAt()
-	return state
-}
-
-// routeStateAt is routeState plus when that state's read began.
+// routeStateAt is the route state, re-read from quota.json at most once per authStateTTL, plus when its read began.
 func (r *Router) routeStateAt() (router.State, time.Time) {
 	r.mu.Lock()
 	now, state, at, gen := r.now(), r.authState, r.authAt, r.authGen
@@ -508,14 +527,14 @@ func (r *Router) try(w *statusWriter, in *http.Request, body proxyBody, t provid
 func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body proxyBody, t providers.Target, route,
 	clientModel string, count, last bool) (bool, error) {
 	p := t.Provider
-	url := route + "/v1/messages"
+	url := serving.EndpointURL(route, providers.ProtocolAnthropic, t.Model, false)
 	if count {
 		url += "/count_tokens"
 	}
 	if in.URL.RawQuery != "" {
 		url += "?" + in.URL.RawQuery
 	}
-	out, err := r.anthropicBody(in, t, route, body, count)
+	out, err := anthropicBody(t, body, r.rewriteFiles(in, p, route, body, count))
 	if err != nil {
 		return false, err
 	}
@@ -552,8 +571,7 @@ func (r *Router) tryAnthropic(w http.ResponseWriter, in *http.Request, body prox
 	return true, nil
 }
 
-func (r *Router) anthropicBody(in *http.Request, t providers.Target, route string, body proxyBody, count bool) (proxyBody, error) {
-	out := r.rewriteFiles(in, t.Provider, route, body, count)
+func anthropicBody(t providers.Target, body, out proxyBody) (proxyBody, error) {
 	if models.Has1M(out.model) && out.model != t.Model && !bytes.Equal(out.raw, body.raw) {
 		// A file rewrite sorts the keys, so the exact key that withModel ensures will win.
 		out.model = t.Model
@@ -572,7 +590,7 @@ func (r *Router) tryOpenAI(w *statusWriter, in *http.Request, body []byte, t pro
 	if ws := translate.WebSearchOf(body); ws != nil {
 		return r.tryWebSearch(w, in, out, ws, t, clientModel, stream, last)
 	}
-	resp, err := r.send(in, p, route+"/chat/completions", out, func(h http.Header) {
+	resp, err := r.send(in, p, serving.EndpointURL(route, providers.ProtocolOpenAI, t.Model, false), out, func(h http.Header) {
 		h.Set("Content-Type", "application/json")
 		if stream {
 			h.Set("Accept", "text/event-stream")

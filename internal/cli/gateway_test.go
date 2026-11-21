@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -724,9 +725,9 @@ func TestGatewayRouteRefusesModelNoEndpointServes(t *testing.T) {
 	}{{"gpt-9-zzz", true}, {"gpt-6-1-terra", false}} {
 		t.Run(c.model, func(t *testing.T) {
 			parityEnv(t, "terra-par", true)
-			s := router.Served{Profile: "terra-par", FetchedAt: time.Now(),
-				Models: []router.ServedModel{{ID: "databricks-gpt-6-1-terra", Ready: "READY"}}}
-			if err := router.SaveServed(s); err != nil {
+			s := serving.Served{Profile: "terra-par", FetchedAt: time.Now(),
+				Models: []serving.ServedModel{{ID: "databricks-gpt-6-1-terra", Ready: "READY"}}}
+			if err := serving.Save(s); err != nil {
 				t.Fatal(err)
 			}
 			code, _, errOut := hosttest.CaptureOutput(t, func() int {

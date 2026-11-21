@@ -13,7 +13,6 @@ import (
 	"net/http"
 	"os"
 	"regexp"
-	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -25,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/proxy/translate"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -124,7 +124,12 @@ func rejectedAfterRemint(resp *http.Response, p *providers.Provider) bool {
 		}
 		peek := peekBody(resp, 4<<10)
 		low := strings.ToLower(string(peek))
-		return slices.ContainsFunc(credentialMarkers, func(m string) bool { return strings.Contains(low, m) })
+		for _, m := range credentialMarkers {
+			if strings.Contains(low, m) {
+				return true
+			}
+		}
+		return false
 	}
 	return invalidToken(resp, p)
 }
@@ -347,7 +352,11 @@ func (r *Router) admit(req *http.Request) *http.Request {
 			scope = []string{profileOfPath(req.URL.Path)}
 		}
 		r.touch(req.Context(), scope...)
-		req = req.WithContext(context.WithValue(req.Context(), scopeKey{}, scope))
+		ctx := context.WithValue(req.Context(), scopeKey{}, scope)
+		if fp := r.sessions.failoverProvider(tok); fp != "" {
+			ctx = context.WithValue(ctx, failoverProviderKey{}, fp)
+		}
+		req = req.WithContext(ctx)
 	}
 	stripClientAuth(req)
 	if launch {
@@ -459,7 +468,7 @@ func unserved(resp *http.Response, p *providers.Provider) bool {
 // unservedMessage names the requested id, the wire id tried and, from a fresh listing, the served Claude endpoints.
 func unservedMessage(p *providers.Provider, requested, wire string, now time.Time) string {
 	msg := fmt.Sprintf("proxy: %s does not serve model %q (tried endpoint %s)", p.Name, requested, wire)
-	s, ok := router.LoadServed(p.Name)
+	s, ok := serving.Load(p.Name)
 	if !ok || !s.Fresh(now) {
 		return msg
 	}

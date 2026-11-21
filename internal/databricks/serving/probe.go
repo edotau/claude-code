@@ -20,6 +20,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -70,7 +71,7 @@ func Probe(ctx context.Context, p *providers.Provider, targets []CheckTarget, o 
 	if host == "" {
 		return nil, fmt.Errorf("%s has no https workspace host to probe", p.Name)
 	}
-	chatBase, respBase := host+"/serving-endpoints", p.Routes[providers.ProtocolResponses]
+	chatBase, respBase := serving.BaseURL(host, providers.ProtocolOpenAI), p.Routes[providers.ProtocolResponses]
 	if respBase == "" {
 		respBase = chatBase
 	}
@@ -183,9 +184,9 @@ func probeTarget(p *providers.Provider, o CheckOptions, t CheckTarget, chatBase,
 		return route, body, dialect == providers.ProtocolAnthropic, err
 	}
 	if t.Responses {
-		return respBase + "/responses", func(tools bool) map[string]any { return responsesBody(t.Wire, tools) }, false, nil
+		return serving.EndpointURL(respBase, providers.ProtocolResponses, t.Wire, false), func(tools bool) map[string]any { return responsesBody(t.Wire, tools) }, false, nil
 	}
-	return chatBase + "/" + t.Wire + "/invocations", chatBody, false, nil
+	return serving.EndpointURL(chatBase, serving.ProtocolInvocations, t.Wire, false), chatBody, false, nil
 }
 
 // retryToolsLess resends c without tools after a non-transient failure and folds the verdict into r.
@@ -207,19 +208,19 @@ func retryToolsLess(ctx context.Context, p *providers.Provider, o CheckOptions, 
 
 // clientProbeRoute follows OpenCode's menu partition: explicit Responses, native Claude, then chat.
 func clientProbeRoute(p *providers.Provider, t CheckTarget) (string, string, error) {
-	dialect, suffix := providers.ProtocolOpenAI, "/chat/completions"
+	dialect := providers.ProtocolOpenAI
 	_, claudeRoute := p.Route(providers.ProtocolAnthropic)
 	switch {
 	case t.Responses:
-		dialect, suffix = providers.ProtocolResponses, "/responses"
+		dialect = providers.ProtocolResponses
 	case claudeRoute && models.FamilyKind(t.ID) == models.FamilyClaude:
-		dialect, suffix = providers.ProtocolAnthropic, "/v1/messages"
+		dialect = providers.ProtocolAnthropic
 	}
 	base, ok := p.Route(dialect)
 	if !ok {
 		return "", "", errors.New("requested model has no resolved client route")
 	}
-	return base + suffix, dialect, nil
+	return serving.EndpointURL(base, dialect, t.Wire, false), dialect, nil
 }
 
 func clientProbeBody(model, dialect string, tools bool) map[string]any {

@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -109,7 +110,7 @@ func tierRank(tier string) int {
 func poolCell(ctx context.Context, reg *providers.Registry, name string, p *providers.Provider, tier string,
 	tools bool, fallback string, now time.Time) (PoolRow, bool) {
 	row := PoolRow{Row: router.AccountOf(p), Agent: name, Tier: tier}
-	q, err := Query(ctx, name, agent.AutoModel, p.Name, "")
+	q, err := QueryForRoute(ctx, name, agent.AutoModel, route.Route{Profile: p.Name}, "")
 	if err != nil {
 		row.Note = "cannot run"
 		return row, true

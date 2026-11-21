@@ -2,7 +2,6 @@ package memory
 
 import (
 	"bytes"
-	"cmp"
 	"context"
 	"encoding/binary"
 	"encoding/json"
@@ -26,6 +25,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -691,7 +691,10 @@ func embedEndpoint(ctx context.Context) (string, error) {
 	if ctx.Err() != nil {
 		return "", fmt.Errorf("query embedding exceeded %s", embedRecallWait)
 	}
-	return "", cmp.Or(paused, errors.New("no embedding profile"))
+	if paused == nil {
+		paused = errors.New("no embedding profile")
+	}
+	return "", paused
 }
 
 // within starts f now; the join waits for it or ctx, and an abandoned run ends on its own lock timeout.
@@ -812,7 +815,9 @@ func hedgedEmbed(ctx context.Context, delay time.Duration, texts []string, prima
 			if r.err == nil {
 				return r.vecs, nil
 			}
-			firstErr = cmp.Or(firstErr, r.err)
+			if firstErr == nil {
+				firstErr = r.err
+			}
 			if tick != nil { // primary failed early: hedge now
 				tick = nil
 				launch(secondary)
@@ -945,7 +950,7 @@ func openDatabricksEmbed(ctx context.Context, profile, model string) (*EmbedClie
 }
 
 func embedDatabricks(ctx context.Context, p *providers.Provider, model string, texts []string) ([][]float32, error) {
-	url := strings.TrimRight(p.Host, "/") + "/serving-endpoints/" + model + "/invocations"
+	url := serving.DirectURL(p.Host, serving.ProtocolInvocations, model, false)
 	if base, secret, ok := routerLinkFor(ctx); ok { // the daemon holds the warm credential and upstream connections
 		via := base + "/p/" + p.Name + "/" + providers.ProtocolOpenAI + "/" + model + "/invocations"
 		vecs, err := postEmbeddings(ctx, via, texts, func(h http.Header) error { h.Set(proxy.ClientHeader, secret); return nil })

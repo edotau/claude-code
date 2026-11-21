@@ -10,6 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -294,7 +295,7 @@ func TestDatabricksModelPicksFirstRunnableBucketMember(t *testing.T) {
 		mark    bool
 		skip    string
 	}{{"all ready", ready, false, ""}, {"first not ready", notReady, false, first}, {"first unserved", ready, true, first}} {
-		if err := SaveServed(listing("dev", c.listing)); err != nil {
+		if err := serving.Save(listing("dev", c.listing)); err != nil {
 			t.Fatal(err)
 		}
 		if c.mark {

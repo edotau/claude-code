@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
+	endpoints "github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -140,7 +141,7 @@ func TestResolveRunTierNotServed(t *testing.T) {
 	setConfigDir(t)
 	reg := routeRegistry(t)
 	now := time.Now()
-	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: now, Models: []router.ServedModel{
+	if err := endpoints.Save(endpoints.Served{Profile: "dev", FetchedAt: now, Models: []endpoints.ServedModel{
 		{ID: "databricks-claude-opus-5-5", Ready: "READY"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -200,11 +201,11 @@ const (
 
 func saveListing(t testing.TB, profile string, ids []string) {
 	t.Helper()
-	s := router.Served{Profile: profile, FetchedAt: time.Now()}
+	s := endpoints.Served{Profile: profile, FetchedAt: time.Now()}
 	for _, id := range ids {
-		s.Models = append(s.Models, router.ServedModel{ID: id, Task: "llm/v1/chat", Ready: "READY"})
+		s.Models = append(s.Models, endpoints.ServedModel{ID: id, Task: "llm/v1/chat", Ready: "READY"})
 	}
-	if err := router.SaveServed(s); err != nil {
+	if err := endpoints.Save(s); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -54,7 +55,7 @@ func WithGoogleQuota(ctx context.Context, r agent.ModelRoute, warnTo io.Writer) 
 
 // GoogleLabelWarning prints a gemini dispatch's low-quota warning to w; a route that cannot resolve prints nothing.
 func GoogleLabelWarning(ctx context.Context, w io.Writer, name, model, profile, task string) {
-	q, err := Query(ctx, name, model, profile, "")
+	q, err := QueryForRoute(ctx, name, model, route.Route{Profile: profile}, "")
 	if err != nil {
 		return
 	}
@@ -83,24 +84,26 @@ func FirstHop(ctx context.Context, reg *providers.Registry, q agent.ModelQuery, 
 	return r, choice, err
 }
 
-// Query takes the route whole; settings retain their per-key precedence.
-func Query(ctx context.Context, name, model, profile, overlay string) (agent.ModelQuery, error) {
+// QueryForRoute resolves explicit --provider/--profile flags with --overlay; conflicting routes error.
+func QueryForRoute(ctx context.Context, name, model string, flagRoute route.Route, overlay string) (agent.ModelQuery, error) {
 	o, err := agentconfig.LoadOverlayContext(ctx, overlay, os.Stdin)
 	if err != nil {
 		return agent.ModelQuery{}, err
 	}
 	rt := o.Route()
-	if profile != "" {
-		typed := route.Route{Provider: providers.GroupDatabricks, Profile: profile}
-		if profile != agent.AutoModel {
+	if !flagRoute.IsZero() {
+		typed := flagRoute
+		if typed.Profile != "" && typed.Profile != agent.AutoModel {
 			reg, err := providers.Load()
 			if err != nil {
 				return agent.ModelQuery{}, err
 			}
-			if _, err := reg.Get(profile); err != nil {
+			if _, err := reg.Get(typed.Profile); err != nil {
 				return agent.ModelQuery{}, err
 			}
-			typed.Provider = reg.Row(profile).Provider
+			typed.Provider = reg.Row(typed.Profile).Provider
+		} else if typed.Provider == "" {
+			typed.Provider = providers.GroupDatabricks
 		}
 		if !rt.IsZero() && rt != typed {
 			return agent.ModelQuery{}, errors.New("--profile route conflicts with --overlay route")
@@ -184,7 +187,7 @@ func liveCheck(ctx context.Context, p *providers.Provider, r agent.ModelRoute) s
 
 // refreshServed is "" when p's served listing is fresh, or was refreshed and saved.
 func refreshServed(ctx context.Context, p *providers.Provider, now time.Time) string {
-	if s, ok := router.LoadServed(p.Name); ok && s.Fresh(now) {
+	if s, ok := serving.Load(p.Name); ok && s.Fresh(now) {
 		return ""
 	}
 	infos, err := providers.ListModels(ctx, p)

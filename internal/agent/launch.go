@@ -169,8 +169,9 @@ func (s Schema) firstRoute(p *providers.Provider) (string, string) {
 
 // Router seams (tests stub these so no daemon is spawned); EnsureRouter starts or finds the loopback router.
 var (
-	EnsureRouter = ensureRouter
-	MintSession  = proxy.MintScopedToken // mints a router session token for a profile set and pid
+	EnsureRouter            = ensureRouter
+	MintSession             = proxy.MintScopedToken // mints a router session token for a profile set and pid
+	MintSessionWithFailover = proxy.MintScopedTokenWithFailover
 )
 
 // ensureRouter is proxy.Ensure; --remote adds the /via/<host> tunnel base, a dispatch its /d/<id> tag.
@@ -248,14 +249,19 @@ func routerRoute(ctx context.Context, s Schema, p *providers.Provider, dialect s
 	return &rp, base, key, nil
 }
 
+// PreviewRouterBase returns the loopback router base for --print-env without starting the daemon.
+func PreviewRouterBase(ctx context.Context) string {
+	base := proxy.Base(proxy.DefaultPort)
+	if st, ok := proxy.Running(ctx); ok {
+		base = proxy.Base(st.Port)
+	}
+	return proxy.ViaBaseContext(ctx, base)
+}
+
 // launchRouter previews routing without starting a daemon or minting a credential.
 func launchRouter(ctx context.Context, profile string) (string, string, error) {
 	if dry, _ := ctx.Value(launchDryKey{}).(bool); dry {
-		base := proxy.Base(proxy.DefaultPort)
-		if st, ok := proxy.Running(ctx); ok {
-			base = proxy.Base(st.Port)
-		}
-		return proxy.ViaBaseContext(ctx, base), "<redacted>", nil
+		return PreviewRouterBase(ctx), "<redacted>", nil
 	}
 	base, err := EnsureRouter(ctx)
 	if err != nil {
@@ -265,8 +271,31 @@ func launchRouter(ctx context.Context, profile string) (string, string, error) {
 	return base, key, err
 }
 
+type autoFailoverKey struct{}
+
+// WithAutoFailover marks ctx for server-side same-provider failover (never widens child token paths).
+func WithAutoFailover(ctx context.Context, provider string) context.Context {
+	if provider == "" {
+		return ctx
+	}
+	return context.WithValue(ctx, autoFailoverKey{}, provider)
+}
+
+// AutoFailoverProvider is the provider group allowed for server-side failover on auto-picked sessions, else "".
+func AutoFailoverProvider(ctx context.Context) string {
+	v, _ := ctx.Value(autoFailoverKey{}).(string)
+	return v
+}
+
 // routerKey is the session token a routed child holds, scoped by TokenScope; never the router secret.
 func routerKey(ctx context.Context, routerBase, profile string) (string, error) {
+	if fp := AutoFailoverProvider(ctx); fp != "" {
+		tok, err := SessionTokenWithFailover(ctx, routerBase, fp, profile)
+		if err != nil {
+			return "", fmt.Errorf("session token for profile %s: %w", profile, err)
+		}
+		return tok, nil
+	}
 	scope, err := tokenScope(ctx, profile)
 	if err != nil {
 		return "", err
@@ -313,8 +342,16 @@ var (
 
 // SessionToken mints the token for profiles (a TokenScope set) once per router, so batch hops never fill the cap.
 func SessionToken(ctx context.Context, routerBase string, profiles ...string) (string, error) {
+	return SessionTokenWithFailover(ctx, routerBase, "", profiles...)
+}
+
+// SessionTokenWithFailover mints a token strictly bound to profiles, with optional server-side same-provider failover.
+func SessionTokenWithFailover(ctx context.Context, routerBase, failoverProvider string, profiles ...string) (string, error) {
 	routerBase, _, _ = strings.Cut(routerBase, proxy.DispatchPrefix) // one slot per router, not per dispatch
 	key := routerBase + "|" + strings.Join(profiles, ",")
+	if failoverProvider != "" {
+		key += "|failover:" + failoverProvider
+	}
 	sessionMu.Lock()
 	e := sessionTokens[key]
 	if e == nil {
@@ -327,7 +364,15 @@ func SessionToken(ctx context.Context, routerBase string, profiles ...string) (s
 	if e.tok != "" && time.Since(e.minted) < sessionTokenMaxAge {
 		return e.tok, nil
 	}
-	tok, err := MintSession(ctx, profiles, os.Getpid())
+	var (
+		tok string
+		err error
+	)
+	if failoverProvider == "" {
+		tok, err = MintSession(ctx, profiles, os.Getpid())
+	} else {
+		tok, err = MintSessionWithFailover(ctx, profiles, os.Getpid(), failoverProvider)
+	}
 	if err != nil {
 		return "", err
 	}
@@ -361,6 +406,7 @@ func StubRouter(base string) (restore func()) {
 func StubProxyForTest(base, token string) {
 	EnsureRouter = func(context.Context) (string, error) { return base, nil }
 	MintSession = func(context.Context, []string, int) (string, error) { return token, nil }
+	MintSessionWithFailover = func(context.Context, []string, int, string) (string, error) { return token, nil }
 	retry.SharedPoll = 25 * time.Millisecond
 }
 

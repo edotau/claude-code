@@ -13,6 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -135,11 +136,9 @@ func TestMenuEntriesCarryCatalogLimits(t *testing.T) {
 
 // Given a model the catalog lacks but the listing states both limits, Then the entry gets the limit block.
 func TestWithLimitUsesListedLimits(t *testing.T) {
-	old := providers.ListedFacts
-	t.Cleanup(func() { providers.ListedFacts = old })
-	providers.ListedFacts = func(_ *providers.Provider, wire string) (providers.EndpointFacts, bool) {
-		return providers.EndpointFacts{Context: 400000, Output: 128000}, wire == "databricks-listed-only"
-	}
+	serving.SetFactsForTest(t, func(_, wire string) (serving.EndpointFacts, bool) {
+		return serving.EndpointFacts{Context: 400000, Output: 128000}, wire == "databricks-listed-only"
+	})
 	p := &providers.Provider{Name: "dbx", Preset: providers.PresetDatabricks}
 	got := withLimit(map[string]any{}, p, "databricks-listed-only")
 	if want := (map[string]any{"context": 400000, "output": 128000}); !reflect.DeepEqual(got["limit"], want) {

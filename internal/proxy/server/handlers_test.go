@@ -754,3 +754,62 @@ func TestReadBodyKeepsItsLimitsWhateverContentLengthSays(t *testing.T) {
 		}
 	}
 }
+
+// D5: auto-failover token rejects direct sibling/cross-provider calls yet fails over internally within same provider.
+func TestAutoFailoverTokenStrictlyBoundToPrimaryPath(t *testing.T) {
+	srv, tok, devStatus, qaUp, antUp := setupAutoFailoverRig(t)
+	const msg = `{"model":"databricks-claude-opus-5-5","max_tokens":5}`
+	requireDirectCallsRejected(t, srv.URL, tok, msg, qaUp, antUp)
+	resp := ptDo(t, http.MethodPost, srv.URL+"/p/dev/v1/messages", msg, map[string]string{"X-Api-Key": tok})
+	if resp.StatusCode != http.StatusOK || len(qaUp.got()) != 1 || len(antUp.got()) != 0 {
+		t.Fatalf("messages failover: status=%d qa=%d ant=%d", resp.StatusCode, len(qaUp.got()), len(antUp.got()))
+	}
+	devStatus.Store(http.StatusServiceUnavailable)
+	resp = ptDo(t, http.MethodPost, srv.URL+"/p/dev/openai/chat/completions", msg, map[string]string{"X-Api-Key": "", "Authorization": "Bearer " + tok})
+	if resp.StatusCode != http.StatusOK || len(qaUp.got()) != 2 || len(antUp.got()) != 0 {
+		t.Fatalf("passthrough 503 failover: status=%d qa=%d ant=%d", resp.StatusCode, len(qaUp.got()), len(antUp.got()))
+	}
+}
+
+func requireDirectCallsRejected(t *testing.T, base, tok, msg string, qaUp, antUp *rawUp) {
+	t.Helper()
+	for _, p := range []string{"/p/qa/v1/messages", "/p/qa/openai/chat/completions", "/p/ant/v1/messages"} {
+		resp := ptDo(t, http.MethodPost, base+p, msg, map[string]string{"X-Api-Key": "", "Authorization": "Bearer " + tok})
+		if resp.StatusCode != http.StatusUnauthorized {
+			t.Fatalf("direct %s = %d %s, want 401", p, resp.StatusCode, body(t, resp))
+		}
+	}
+	if len(qaUp.got()) != 0 || len(antUp.got()) != 0 {
+		t.Fatalf("rejected direct calls reached upstream: qa=%d ant=%d", len(qaUp.got()), len(antUp.got()))
+	}
+}
+
+func setupAutoFailoverRig(t *testing.T) (*httptest.Server, string, *atomic.Int32, *rawUp, *rawUp) {
+	t.Helper()
+	useGate(t)
+	var devStatus atomic.Int32
+	devStatus.Store(http.StatusTooManyRequests)
+	devUp := newRawUp(t, func(w http.ResponseWriter, _ *http.Request, _ int) {
+		w.WriteHeader(int(devStatus.Load()))
+		_, _ = io.WriteString(w, "dev busy")
+	})
+	qaUp, antUp := newRawUp(t, okRaw), newRawUp(t, okRaw)
+	t.Setenv("DEV_TOKEN", "dev-tok")
+	t.Setenv("QA_TOKEN", "qa-tok")
+	t.Setenv("ANT_KEY", "ant-tok")
+	row := func(url, env string) string {
+		s := url + "/serving-endpoints"
+		return `{"preset":"databricks","host":"https://example.cloud.databricks.com","base_url":"` + s +
+			`/anthropic","routes":{"openai":"` + s + `","responses":"` + s + `"},"auth":{"type":"key","env":"` + env +
+			`"},"models":{"opus":"databricks-claude-opus-5-5"}}`
+	}
+	overlay := `{"default":"dev","fallback":["ant"],"providers":{"databricks":{"dev":` + row(devUp.URL, "DEV_TOKEN") +
+		`,"qa":` + row(qaUp.URL, "QA_TOKEN") + `},"anthropic":{"ant":` + anthropicProvider(antUp.URL, "ANT_KEY", `{"opus":"claude-opus-5-5"}`) + `}}}`
+	var routed *Router
+	srv := setupRouter(t, overlay, func(r *Router) { routed = r })
+	tok, err := routed.sessions.mintWithFailover([]string{"dev"}, os.Getpid(), "databricks")
+	if err != nil {
+		t.Fatal(err)
+	}
+	return srv, tok, &devStatus, qaUp, antUp
+}

@@ -204,6 +204,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	if replacement && !res.NotStarted {
 		lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
 	}
+	res = withPick(runCtx, lreq, res)
 	res.Invoked = launchedModel(runCtx, disp, lreq)
 	var more []wire.Hop
 	res, lreq, more, err = repick(runCtx, disp, lreq, res, err, sink, notify)
@@ -261,6 +262,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 		}
 		first := err
 		lreq.Model = next
+		NotePick(ctx, next)
 		pctx, _ := freezeCopilot(withTriedPicks(ctx, carryTried(ctx, ran)), disp, lreq) // copilot's frozen target would re-run the refused pick
 		res, err = Run(pctx, disp.Agent, lreq, sink, notify)
 		if auto && !res.NotStarted {

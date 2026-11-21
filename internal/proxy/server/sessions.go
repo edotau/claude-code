@@ -36,13 +36,14 @@ const (
 
 // session is one minted token: scoped to a sorted profile set, bound to a process identity.
 type session struct {
-	profiles []string
-	pid      int
-	start    string
-	expires  time.Time
-	saved    time.Time // the expiry last written to disk
-	checked  time.Time
-	exited   bool // the bound process is gone: the drop reason is "exited", not "expired"
+	profiles         []string
+	failoverProvider string // optional same-provider server-side failover for auto-minted tokens; never widens accept()
+	pid              int
+	start            string
+	expires          time.Time
+	saved            time.Time // the expiry last written to disk
+	checked          time.Time
+	exited           bool // the bound process is gone: the drop reason is "exited", not "expired"
 }
 
 // dropped is why a token left the store; held in memory only, never persisted.
@@ -52,11 +53,12 @@ type dropped struct {
 }
 
 type persistedSession struct {
-	Hash     string    `json:"hash"`
-	Profiles []string  `json:"profiles"`
-	PID      int       `json:"pid"`
-	Start    string    `json:"start"`
-	Expires  time.Time `json:"expires"`
+	Hash             string    `json:"hash"`
+	Profiles         []string  `json:"profiles"`
+	FailoverProvider string    `json:"failover_provider,omitempty"`
+	PID              int       `json:"pid"`
+	Start            string    `json:"start"`
+	Expires          time.Time `json:"expires"`
 }
 
 type sessionState struct {
@@ -91,11 +93,12 @@ func newSessionStore(now func() time.Time) *sessionStore {
 			continue
 		}
 		s.m[saved.Hash] = &session{
-			profiles: saved.Profiles,
-			pid:      saved.PID,
-			start:    saved.Start,
-			expires:  saved.Expires,
-			saved:    saved.Expires,
+			profiles:         saved.Profiles,
+			failoverProvider: saved.FailoverProvider,
+			pid:              saved.PID,
+			start:            saved.Start,
+			expires:          saved.Expires,
+			saved:            saved.Expires,
 		}
 	}
 	if pruned {
@@ -128,7 +131,8 @@ func (s *sessionStore) saveLocked() error {
 	state := sessionState{Schema: routerSessionsFormat.Version, Sessions: make([]persistedSession, 0, len(s.m))}
 	for hash, ses := range s.m {
 		state.Sessions = append(state.Sessions, persistedSession{
-			Hash: hash, Profiles: ses.profiles, PID: ses.pid, Start: ses.start, Expires: ses.expires,
+			Hash: hash, Profiles: ses.profiles, FailoverProvider: ses.failoverProvider,
+			PID: ses.pid, Start: ses.start, Expires: ses.expires,
 		})
 	}
 	sort.Slice(state.Sessions, func(i, j int) bool { return state.Sessions[i].Hash < state.Sessions[j].Hash })
@@ -145,7 +149,12 @@ var errPersist = errors.New("persist session")
 
 // mint binds a new token for the profile set to pid's current identity; a missing process is an error.
 func (s *sessionStore) mint(profiles []string, pid int) (string, error) {
-	if !validProfiles(profiles) || pid <= 0 {
+	return s.mintWithFailover(profiles, pid, "")
+}
+
+// mintWithFailover binds a token to profiles and pid, recording an optional server-side same-provider failover group.
+func (s *sessionStore) mintWithFailover(profiles []string, pid int, failoverProvider string) (string, error) {
+	if !validProfiles(profiles) || pid <= 0 || (failoverProvider != "" && !validProfile(failoverProvider)) {
 		return "", errors.New("profiles and pid are required")
 	}
 	profiles = slices.Compact(slices.Sorted(slices.Values(profiles)))
@@ -166,12 +175,13 @@ func (s *sessionStore) mint(profiles []string, pid int) (string, error) {
 	}
 	hash := textutil.SHA256Hex([]byte(tok))
 	s.m[hash] = &session{
-		profiles: profiles,
-		pid:      pid,
-		start:    start,
-		expires:  now.Add(sessionTTL),
-		saved:    now.Add(sessionTTL),
-		checked:  now,
+		profiles:         profiles,
+		failoverProvider: failoverProvider,
+		pid:              pid,
+		start:            start,
+		expires:          now.Add(sessionTTL),
+		saved:            now.Add(sessionTTL),
+		checked:          now,
 	}
 	if err := s.saveLocked(); err != nil {
 		delete(s.m, hash)
@@ -323,6 +333,19 @@ func (s *sessionStore) profiles(tok string) []string {
 	return nil
 }
 
+// failoverProvider is tok's server-side failover provider group, or "" when pinned to profiles only.
+func (s *sessionStore) failoverProvider(tok string) string {
+	if !strings.HasPrefix(tok, sessionTokenPf) {
+		return ""
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if ses := s.findLocked(textutil.SHA256Hex([]byte(tok))); ses != nil {
+		return ses.failoverProvider
+	}
+	return ""
+}
+
 // findLocked returns the session for hash by constant-time compare, no map lookup keyed on the presented bytes.
 func (s *sessionStore) findLocked(hash string) *session {
 	var ses *session
@@ -427,7 +450,7 @@ func (r *Router) serveSession(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	tok, err := r.sessions.mint(in.Profiles, in.PID)
+	tok, err := r.sessions.mintWithFailover(in.Profiles, in.PID, in.FailoverProvider)
 	if errors.Is(err, errPersist) {
 		fmt.Fprintf(r.log, "proxy: session mint: %v\n", err)
 		writeError(w, http.StatusInternalServerError, "proxy: session could not be persisted")

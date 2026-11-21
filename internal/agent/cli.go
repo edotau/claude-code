@@ -104,6 +104,7 @@ func (s Schema) routedModel(ctx context.Context, req RunOptions, t providers.Tar
 		return t, "", err
 	}
 	t.Model, t.OneM = r.Model, r.OneM
+	NotePick(ctx, r.Model)
 	return t, r.Note, nil
 }
 

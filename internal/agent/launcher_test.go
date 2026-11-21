@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -412,12 +413,12 @@ func TestLaunchRefusesOwnLoginAuto(t *testing.T) {
 	if id == "" {
 		t.Fatalf("no opencode-go cell in %v", tb.OpencodeSub)
 	}
-	_, _, err = routeLaunch(t.Context(), "opencode", LaunchOptions{Model: "opencode-go/auto"})
+	_, _, _, err = routeLaunch(t.Context(), "opencode", LaunchOptions{Model: "opencode-go/auto"})
 	if err == nil || !strings.Contains(err.Error(), "auto is no opencode-go model; use one of ") || !strings.Contains(err.Error(), id) {
 		t.Fatalf("opencode-go/auto = %v, want a refusal naming %s", err, id)
 	}
 	for _, m := range []string{"opencode-go/" + id, "auto"} {
-		if _, _, err := routeLaunch(t.Context(), "opencode", LaunchOptions{Model: m}); err != nil && strings.Contains(err.Error(), "auto is no") {
+		if _, _, _, err := routeLaunch(t.Context(), "opencode", LaunchOptions{Model: m}); err != nil && strings.Contains(err.Error(), "auto is no") {
 			t.Errorf("%s refused as own-login auto: %v", m, err)
 		}
 	}
@@ -425,7 +426,7 @@ func TestLaunchRefusesOwnLoginAuto(t *testing.T) {
 
 func TestPlainPlanRefusesAgentWithNoOwnLogin(t *testing.T) {
 	_, err := plainPlan(Schema{Name: agentid.Pi}, nil)
-	if usage, ok := err.(*UsageError); !ok || !strings.Contains(usage.Msg, "no login of its own") || !strings.Contains(usage.Msg, "--profile <dev|qa|prod>") {
+	if usage, ok := err.(*UsageError); !ok || !strings.Contains(usage.Msg, "no login of its own") || !strings.Contains(usage.Msg, "--profile <profile>") {
 		t.Fatalf("plainPlan(pi) = %v, want the no-own-login refusal", err)
 	}
 }
@@ -448,7 +449,7 @@ func TestPoolLaunchOnlyForUnpinnedNoOwnLogin(t *testing.T) {
 
 func TestPoolPickedRefusalNamesTheWayForward(t *testing.T) {
 	err := poolPicked(agentid.Pi, "", errors.New("no profile serves pi"))
-	if err == nil || !strings.Contains(err.Error(), "claude-code pi --profile <dev|qa|prod>") || !strings.Contains(err.Error(), "claude-code databricks login") {
+	if err == nil || !strings.Contains(err.Error(), "claude-code pi --profile <profile>") || !strings.Contains(err.Error(), "claude-code databricks login") {
 		t.Fatalf("err = %v", err)
 	}
 }
@@ -473,8 +474,8 @@ func TestLaunchOverlayPoolKeepsTypedModel(t *testing.T) {
 	const wire = "databricks-claude-opus-5-5"
 	for name, ready := range map[string]string{"dev": "READY", "qa": "READY", "prod": "NOT_READY"} {
 		reg.Providers[name].Auth.Type = providers.AuthNone
-		if err := router.SaveServed(router.Served{Profile: name, FetchedAt: time.Now(),
-			Models: []router.ServedModel{{ID: wire, Task: "llm/v1/chat", Ready: ready}}}); err != nil {
+		if err := serving.Save(serving.Served{Profile: name, FetchedAt: time.Now(),
+			Models: []serving.ServedModel{{ID: wire, Task: "llm/v1/chat", Ready: ready}}}); err != nil {
 			t.Fatal(err)
 		}
 	}

@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"slices"
 	"strings"
 	"sync"
@@ -22,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -954,7 +954,7 @@ func runCLI(t *testing.T, argv ...string) (int, string, string) {
 // skipWithoutSh skips tests whose fake CLIs (vendors, ssh, gh) are sh scripts, which Windows cannot exec.
 func skipWithoutSh(t *testing.T) {
 	t.Helper()
-	if runtime.GOOS == "windows" {
+	if os.PathSeparator == '\\' {
 		t.Skip("fake CLIs are sh scripts")
 	}
 }
@@ -1153,7 +1153,7 @@ func TestDryRunUnacceptedModelExitsTwo(t *testing.T) {
 	cliEnv(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
 		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"none"}}}}}`)
-	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
 		{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1316,7 +1316,7 @@ func TestPoolValue(t *testing.T) {
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{`+
 		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}}}}}`)
 	vaulttest.SetRecord(t, "opencode", "profile", "dev")
-	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
 		{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil {
 		t.Fatal(err)
 	}

@@ -18,6 +18,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/serving"
 
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/hosttest"
@@ -57,10 +58,10 @@ func byAgent(ps []Pin) map[string]Pin {
 // Bare pins match prefixed Databricks listings; prefixed pins never match bare listings.
 func TestHasMatchesRuntimeSpelling(t *testing.T) {
 	dev := preflightRegistry(true).Providers["dev"]
-	if listed, _ := (router.Served{Models: []router.ServedModel{{ID: "databricks-my-endpoint", Ready: "READY"}}}).Has(dev, "my-endpoint"); !listed {
+	if listed, _ := (serving.Served{Models: []serving.ServedModel{{ID: "databricks-my-endpoint", Ready: "READY"}}}).Has(dev, "my-endpoint"); !listed {
 		t.Error("bare pin my-endpoint must match listed databricks-my-endpoint")
 	}
-	if listed, _ := (router.Served{Models: []router.ServedModel{{ID: "my-endpoint", Ready: "READY"}}}).Has(dev, "databricks-my-endpoint"); listed {
+	if listed, _ := (serving.Served{Models: []serving.ServedModel{{ID: "my-endpoint", Ready: "READY"}}}).Has(dev, "databricks-my-endpoint"); listed {
 		t.Error("pin databricks-my-endpoint must not match a bare my-endpoint listing")
 	}
 }
@@ -68,10 +69,10 @@ func TestHasMatchesRuntimeSpelling(t *testing.T) {
 // A listing stamped in the future is stale, not fresh forever.
 func TestFutureListingIsStale(t *testing.T) {
 	now := time.Now()
-	if (router.Served{FetchedAt: now.Add(48 * time.Hour)}).Fresh(now) {
+	if (serving.Served{FetchedAt: now.Add(48 * time.Hour)}).Fresh(now) {
 		t.Fatal("future fetched_at must not be fresh")
 	}
-	if !(router.Served{FetchedAt: now.Add(time.Minute)}).Fresh(now) {
+	if !(serving.Served{FetchedAt: now.Add(time.Minute)}).Fresh(now) {
 		t.Fatal("small skew must stay fresh")
 	}
 }

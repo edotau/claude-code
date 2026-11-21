@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -558,7 +559,7 @@ func TestDispatchPreflightRefusesUnservedModel(t *testing.T) {
 			"and claude-nonexistent-9 is not a catalog id; run `claude-code models preflight --live --profile dev`; nearest: ", ""},
 	}
 	for _, tc := range cases {
-		if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now().Add(-tc.age), Models: []router.ServedModel{
+		if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now().Add(-tc.age), Models: []serving.ServedModel{
 			{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil {
 			t.Fatal(err)
 		}

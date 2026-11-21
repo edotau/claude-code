@@ -20,7 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
+	endpoints "github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/ui/table"
 )
@@ -340,10 +340,11 @@ func listOpencodeMenu(w io.Writer, live bool, provider, format string) error {
 	if format == helptext.JSON {
 		return helptext.WriteJSON(w, rows)
 	}
-	var listings [3]router.Served
-	for i, profile := range []string{"dev", "qa", "prod"} {
-		listings[i], _ = router.LoadServed(profile)
+	profiles, err := databricksProfiles()
+	if err != nil {
+		return err
 	}
+	listings := servedListings(profiles)
 	now := time.Now()
 	cells := [][]string{{"ID", "LABEL", "RESPONSES", "SOURCE", "SERVED"}}
 	if live {
@@ -356,18 +357,38 @@ func listOpencodeMenu(w io.Writer, live bool, provider, format string) error {
 		}
 		cells = append(cells, row)
 	}
-	fmt.Fprintln(w, "SERVED: dev/qa/prod; y=yes, n=no, ?=unknown (missing/stale cache)")
+	if len(profiles) > 0 {
+		fmt.Fprintf(w, "SERVED: %s; y=yes, n=no, ?=unknown (missing/stale cache)\n", strings.Join(profiles, "/"))
+	} else {
+		fmt.Fprintln(w, "SERVED: (no Databricks profiles configured)")
+	}
 	for _, line := range table.Justify(cells, 80, nil) {
 		fmt.Fprintln(w, line)
 	}
 	return nil
 }
 
-func servedMark(id string, listings [3]router.Served, now time.Time) string {
-	if strings.ContainsAny(id, "/:") {
+func servedListings(profiles []string) []endpoints.Served {
+	listings := make([]endpoints.Served, len(profiles))
+	for i, profile := range profiles {
+		listings[i], _ = endpoints.Load(profile)
+	}
+	return listings
+}
+
+func databricksProfiles() ([]string, error) {
+	reg, err := providers.Load()
+	if err != nil {
+		return nil, err
+	}
+	return reg.ProfilesOf(providers.GroupDatabricks), nil
+}
+
+func servedMark(id string, listings []endpoints.Served, now time.Time) string {
+	if strings.ContainsAny(id, "/:") || len(listings) == 0 {
 		return ""
 	}
-	mark := []byte("???")
+	mark := []byte(strings.Repeat("?", len(listings)))
 	for i, listing := range listings {
 		if !listing.Fresh(now) {
 			continue

@@ -370,7 +370,9 @@ func cmdAgentsLabel(args []string) int {
 	if err != nil {
 		return helptext.Fail("agents label: %v", err)
 	}
+	typed := *model
 	freezeLabelRotation(*run, *spec+*profile, pos[0], task, model, profile)
+	frozen := *model != typed
 	runText, err := labelRun(*run, *spec, pos[0], task, model, profile)
 	if err != nil {
 		return helptext.FailUsage("agents label: %v", err)
@@ -378,16 +380,28 @@ func cmdAgentsLabel(args []string) int {
 	if runText != "" {
 		task = runText + "\n\n" + task
 	}
-	cwd, err := os.Getwd()
+	row, err := labelRowFor(hooks.LabelInput{Type: pos[0], Model: *model, Profile: *profile, Brief: task,
+		SessionModel: *sessionModel}, frozen)
 	if err != nil {
 		return helptext.Fail("agents label: %v", err)
 	}
-	row := hooks.Label(hooks.LabelInput{Type: pos[0], Model: *model, Profile: *profile, Brief: task, SessionModel: *sessionModel},
-		cwd, os.Getenv(paths.SessionIDEnv))
 	if *format == helptext.JSON {
 		return helptext.WriteJSONOrFail("agents label", row)
 	}
 	return emitLabel(row, runText, *model, *profile, task)
+}
+
+// labelRowFor is the hook's label row for in; a rotation-frozen pick is marked as picked.
+func labelRowFor(in hooks.LabelInput, frozen bool) (hooks.LabelRow, error) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return hooks.LabelRow{}, err
+	}
+	row := hooks.Label(in, cwd, os.Getenv(paths.SessionIDEnv))
+	if frozen && row.Label != "" && !strings.HasSuffix(row.Label, ":") {
+		row.Label = agent.PickedLabel(row.Label)
+	}
+	return row, nil
 }
 
 // emitLabel prints the Run: line, then the label, after the hook's refusal and notes.

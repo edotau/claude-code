@@ -16,6 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
+	endpoints "github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -29,9 +30,9 @@ const (
 
 // wireAPI maps a router wire to VS Code's apiType and the full /p/<profile> path that serves it.
 var wireAPI = map[string]struct{ apiType, path string }{
-	providers.ProtocolAnthropic: {"messages", "/v1/messages"},
-	providers.ProtocolOpenAI:    {"chat-completions", "/" + providers.ProtocolOpenAI + "/chat/completions"},
-	providers.ProtocolResponses: {"responses", "/" + providers.ProtocolResponses + "/responses"},
+	providers.ProtocolAnthropic: {"messages", endpoints.ClientPath(providers.ProtocolAnthropic, "", false)},
+	providers.ProtocolOpenAI:    {"chat-completions", "/" + providers.ProtocolOpenAI + endpoints.ClientPath(providers.ProtocolOpenAI, "", false)},
+	providers.ProtocolResponses: {"responses", "/" + providers.ProtocolResponses + endpoints.ClientPath(providers.ProtocolResponses, "", false)},
 }
 
 // endpointModel is one chatLanguageModels.json model entry (Custom Endpoint reference).

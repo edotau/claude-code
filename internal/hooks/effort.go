@@ -256,6 +256,7 @@ func (e *effortPlan) label(ctx context.Context, field, task string) {
 	if frozen, note := e.freezeAuto(ctx, task); frozen != task {
 		e.updated[field], e.changed, task = frozen, true, frozen
 		e.fix(note)
+		ctx = context.WithValue(ctx, pickedKey{}, true)
 	}
 	changed, note := applyLabel(ctx, e.run, e.updated, task)
 	e.changed = changed || e.changed

@@ -16,7 +16,7 @@ import (
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -106,7 +106,7 @@ func TestLabelModelUsesCachedServedSpelling(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
 	t.Setenv(route.OverlayVar, "")
-	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
 		{ID: "databricks-glm-5-2", Ready: "READY"}, {ID: "databricks-custom-model", Ready: "READY"},
 	}}); err != nil {
 		t.Fatal(err)
@@ -158,13 +158,13 @@ func TestDispatchLabelPreservesModelUnderGemini(t *testing.T) {
 	}
 }
 
-// A Run: line's --model auto is frozen: the Run: line carries the ranked model in an overlay and the label is its bare id.
+// A Run: line's --model auto is frozen to the ranked model in an overlay, labelled `(<id>)`.
 func TestLabelModelAutoRunLine(t *testing.T) {
 	useAgentsDir(t, "claude")
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
 	t.Setenv(route.OverlayVar, "")
-	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
 		{ID: "databricks-claude-opus-5-5", Task: "llm/v1/chat", Ready: "READY"},
 		{ID: "databricks-claude-haiku-5-5", Task: "llm/v1/chat", Ready: "READY"}}}); err != nil {
 		t.Fatal(err)
@@ -180,13 +180,14 @@ func TestLabelModelAutoRunLine(t *testing.T) {
 	d, _ := r.UpdatedInput["description"].(string)
 	p, _ := r.UpdatedInput["prompt"].(string)
 	id, _, _ := strings.Cut(d, ":")
+	id = strings.Trim(id, "()")
 	frozen := strings.Contains(p, `"model":"`+id+`"`) && !strings.Contains(p, "--model")
 	if r.Decision == core.Block || !strings.HasPrefix(id, "databricks-claude-") || !frozen {
-		t.Errorf("auto dispatch = %+v (%s), want a bare-id label and the Run: line frozen to it", r.UpdatedInput, r.Reason)
+		t.Errorf("auto dispatch = %+v (%s), want a (<id>) label and the Run: line frozen to it", r.UpdatedInput, r.Reason)
 	}
 }
 
-// An auto Run: line is labelled a peek; a typed model keeps the bare id; a prefixed one gets none.
+// An auto Run: line is labelled (<id>); a typed model keeps the bare id; a prefixed one gets none.
 func TestAutoRunLineLabelsNext(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	stubLabelModels(t, "m-1")
@@ -197,9 +198,11 @@ func TestAutoRunLineLabelsNext(t *testing.T) {
 		return d
 	}
 	for _, c := range []struct{ model, desc, want string }{
-		{"auto", "do x", "auto (next: m-1): do x"}, {"auto", "m-1: do x", "auto (next: m-1): do x"},
-		{"auto", "auto: do x", "auto (next: m-1): do x"}, {"auto", "auto (next: m-1): do x", "auto (next: m-1): do x"},
-		{"dev:auto", "do x", "do x"}, {"m-2", "auto (next: m-1): do x", "m-1: do x"}, // a prefixed model gets no label
+		{"auto", "do x", "(m-1): do x"}, {"auto", "m-1: do x", "(m-1): do x"}, {"auto", "(m-1): do x", "(m-1): do x"},
+		{"auto", "auto: do x", "(m-1): do x"}, {"auto", "auto (next: m-1): do x", "(m-1): do x"},
+		{"auto", "(wip): fix x", "(m-1): (wip): fix x"}, {"auto", "auto (retry) job: fix x", "(m-1): auto (retry) job: fix x"},
+		{"m-1", "(m-1): do x", "(m-1): do x"},                             // the hook's own frozen output resubmitted stays identical
+		{"dev:auto", "do x", "do x"}, {"m-2", "(m-0): do x", "m-1: do x"}, // a prefixed model gets no label
 	} {
 		if got := run(c.model, c.desc); got != c.want {
 			t.Errorf("--model %s, %q -> %q, want %q", c.model, c.desc, got, c.want)

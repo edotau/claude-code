@@ -37,7 +37,7 @@ func applyLabel(ctx context.Context, run *dispatchRun, updated map[string]any, t
 	}
 	out := lowerFirst(tail)
 	if label != "" {
-		if head, _, _ := cutHead(orig); sameLabel(head, label) && labelShaped(strings.TrimSpace(head), label) { // else it stacks
+		if head, _, _ := cutHead(orig); keepsHead(head, label) { // else it stacks
 			label = head // an equivalent label is kept as typed, so no rewrite is asked of auto mode
 		}
 		out = label + ": " + lowerFirst(tail)
@@ -50,10 +50,20 @@ func applyLabel(ctx context.Context, run *dispatchRun, updated map[string]any, t
 	return true, strings.TrimSpace(note + "\n" + fmt.Sprintf("dispatch-effort: description head %q rewritten to %q.", oldHead, newHead))
 }
 
+// keepsHead: head already is label (sameLabel), or its picked form, so a resubmitted rewrite stays byte-identical.
+func keepsHead(head, label string) bool {
+	if h := strings.TrimSpace(head); !labelShaped(h, label) {
+		return false
+	} else if h == agentpkg.PickedLabel(label) {
+		return true
+	}
+	return sameLabel(head, label)
+}
+
 // sameLabel: head names label's model (models.SameModel), and claims `databricks-` only when label does too.
 func sameLabel(head, label string) bool {
 	head = strings.TrimSpace(head)
-	if agentpkg.IsNextLabel(head) || agentpkg.IsNextLabel(label) { // a peek says only itself; a bare id or `auto` never equals it
+	if agentpkg.IsPickedLabel(head) || agentpkg.IsPickedLabel(label) { // a picked label equals only itself
 		return head == label
 	}
 	claimsDBX := strings.HasPrefix(strings.ToLower(head), models.DatabricksPrefix)
@@ -75,9 +85,9 @@ func stripLabels(desc, st, label string) string {
 	}
 }
 
-// cutHead is strings.Cut at the first colon, except that an `auto (next: <id>)` head is one head.
+// cutHead is strings.Cut at the first colon, except that a legacy `auto (next: <id>)` head is one head.
 func cutHead(desc string) (head, rest string, ok bool) {
-	if t := strings.TrimLeft(desc, " "); strings.HasPrefix(t, "auto (next:") {
+	if t := strings.TrimLeft(desc, " "); strings.HasPrefix(t, legacyAutoHead) {
 		if i := strings.Index(t, ")"); i >= 0 {
 			if after, found := strings.CutPrefix(strings.TrimLeft(t[i+1:], " "), ":"); found {
 				return t[:i+1], after, true
@@ -90,13 +100,18 @@ func cutHead(desc string) (head, rest string, ok bool) {
 // modelIDRe matches a model id: no spaces, a letter, a digit and a `-` or `/` ("gpt-6.1-sol", "opencode-go/kimi-k3").
 var modelIDRe = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z][\w.]*[-/][\w./-]*$`) })
 
+const legacyAutoHead = "auto (next:"
+
+// labelShaped: head is the label, `auto`, a legacy `auto (next: <id>)`, a model id, or a model id in parentheses.
 func labelShaped(head, label string) bool {
-	switch {
-	case head == label || head == agentpkg.AutoModel || agentpkg.IsNextLabel(head) ||
-		slices.Contains(models.AliasNames, head) || agentid.Known(head):
+	if head == label || head == agentpkg.AutoModel || (strings.HasPrefix(head, legacyAutoHead) && strings.HasSuffix(head, ")")) {
 		return true
 	}
-	return modelIDRe().MatchString(head) && strings.ContainsAny(head, "0123456789")
+	if agentpkg.IsPickedLabel(head) {
+		head = head[1 : len(head)-1]
+	}
+	return slices.Contains(models.AliasNames, head) || agentid.Known(head) ||
+		(modelIDRe().MatchString(head) && strings.ContainsAny(head, "0123456789"))
 }
 
 // ownModel is the dispatch's model, else the agent file's, else (also for `inherit`) the session's; "" labels nothing.
@@ -233,12 +248,15 @@ func agentPinsModel(run *dispatchRun, name string) bool {
 	return run.rosterModel(name) != "" // no roster file = a built-in (Explore/Plan), the classifier may apply
 }
 
+// pickedKey marks a context whose auto Run: line was frozen to its pick, so the label stays a picked one.
+type pickedKey struct{}
+
 // labelModel is the model the dispatch's ask runs (the resolver's wire id, else the own model) and the route's note.
 func labelModel(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) (label, note string) {
 	r, ok, auto, err := labelRoute(ctx, run, updated, st, task)
 	label = r.Label()
-	if auto {
-		label = agentpkg.NextLabel(label)
+	if _, frozen := ctx.Value(pickedKey{}).(bool); (auto || frozen) && label != "" {
+		label = agentpkg.PickedLabel(label)
 	}
 	switch {
 	case err != nil:
@@ -300,7 +318,7 @@ func labelQuery(ctx context.Context, run *dispatchRun, updated map[string]any, s
 }
 
 // labelRoute resolves labelQuery the way the run does; ok is false when the label is the leaf's own model.
-// auto is true when the run picks its own model, so the label is only a peek of the next pick.
+// auto is true when the run picks its own model.
 func labelRoute(ctx context.Context, run *dispatchRun, updated map[string]any, st, task string) (r agentpkg.ModelRoute, ok, auto bool, err error) {
 	q, ok := labelQuery(ctx, run, updated, st, task)
 	if !ok {

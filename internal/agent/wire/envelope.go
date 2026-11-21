@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -31,15 +32,16 @@ type Denials struct {
 	Commands []string `json:"commands"`
 }
 
-// ProviderOf maps a profile name to its provider; set once by the agent package, nil-safe.
-var ProviderOf func(profile string) string
-
 // RouteObject parses "provider:profile", a bare provider (the pool, profile auto) or a bare profile as a route
 // naming provider and profile; nil when empty or the provider is unknown.
 func RouteObject(s string) *route.Route {
 	r := route.ParseLegacy(s)
-	if r.Provider == "" && r.Profile != "" && ProviderOf != nil {
-		r.Provider = ProviderOf(r.Profile)
+	if r.Provider == "" && r.Profile != "" {
+		if reg, err := providers.LoadShared(); err == nil {
+			if p, err := reg.Get(r.Profile); err == nil {
+				r.Provider = p.Provider
+			}
+		}
 	}
 	switch {
 	case r.Provider == "":

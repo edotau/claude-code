@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -89,7 +90,7 @@ func TestResolveModelFamily(t *testing.T) {
 		}
 	}
 	check("codex", "dev", "sol", "databricks-gpt-6-1-sol")
-	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
 		{ID: "databricks-gpt-6-sol"}, {ID: "databricks-gpt-6-1-sol"}, {ID: "databricks-gpt-6-2-sol"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -166,7 +167,7 @@ func TestResolveModelRefuses(t *testing.T) {
 	reg := routeRegistry(t)
 	for _, c := range [][3]string{
 		{"claude", "", "gemini-4-argon-high"}, {"codex", "", "claude-opus-5-5"}, {"codex", "ultra", "claude-opus-5-5"},
-		{"claude", "ultra", "databricks-claude-opus-5-5"}, {"gemini", "dev", "gpt-6-1-sol"}, {"gemini", "dev", "opus"},
+		{"claude", "ultra", "databricks-claude-opus-5-5"}, {"gemini", "dev", "gpt-6-1-sol"},
 		{"gemini", "antigravity", "gpt-oss-120b-high"}, {"gemini", "antigravity", "claude-sonnet-5-5-xhigh"},
 		{"gemini", "antigravity", "gemini-3-8-flash-xhigh"}, {"gemini", "antigravity", "gemini-4-argon-xhigh"},
 		{"gemini", "antigravity", "databricks-claude-sonnet-5-5"}, {"gemini", "antigravity", "claude-haiku-5-5"},
@@ -174,6 +175,9 @@ func TestResolveModelRefuses(t *testing.T) {
 		if _, err := ResolveModel(reg, ModelQuery{Agent: c[0], Profile: c[1], Model: c[2], Session: "prod"}, time.Now()); !errors.Is(err, ErrModelRoute) {
 			t.Errorf("%s --profile %s %s: err = %v; want ErrModelRoute", c[0], c[1], c[2], err)
 		}
+	}
+	if r, err := ResolveModel(reg, ModelQuery{Agent: "gemini", Profile: "dev", Model: "opus", Session: "prod"}, time.Now()); err != nil || r.Model != "databricks-gemini-4-argon" {
+		t.Errorf("gemini --profile dev opus = %+v, %v; want databricks-gemini-4-argon", r, err)
 	}
 }
 

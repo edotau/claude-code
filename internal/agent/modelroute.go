@@ -92,11 +92,10 @@ var ErrModelRoute = errors.New("model route")
 // poolName is the provider prefix and overlay profile that mean "the shared Databricks pool".
 const poolName = AutoModel
 
-// codexSwap is the record-model swap codex applies; internal/codex sets it through SetCodexSwap.
-var codexSwap = func(p *providers.Provider, wire string) string { return wire }
-
-// SetCodexSwap installs codex's Responses-only swap for a record model.
-func SetCodexSwap(f func(*providers.Provider, string) string) { codexSwap = f }
+// RecordModelSwapper is an optional driver method: swaps a record model the driver's wire cannot serve.
+type RecordModelSwapper interface {
+	SwapRecordModel(p *providers.Provider, wire string) string
+}
 
 // QueryFor fills q's fallbacks from the agent record and the session profile (no last-used profile).
 func QueryFor(ctx context.Context, q ModelQuery) ModelQuery {
@@ -356,13 +355,32 @@ func routeModel(r *ModelRoute, p *providers.Provider, q ModelQuery, now time.Tim
 	if err != nil {
 		return err
 	}
-	if pinned && agentid.Routing(q.Agent).ResponsesRoute && r.Note == "" {
-		if swapped := codexSwap(p, wire); swapped != wire {
-			r.Note, wire = "codex: record model "+wire+" is not served over Responses; running "+swapped, swapped
-		}
+	if pinned {
+		wire = swapUnservedRecord(r, p, q, wire)
 	}
 	r.Model = wire
 	return nil
+}
+
+// swapUnservedRecord runs the driver's swap for a record model Responses does not serve, noting it unless r has a note.
+func swapUnservedRecord(r *ModelRoute, p *providers.Provider, q ModelQuery, wire string) string {
+	if !agentid.Routing(q.Agent).ResponsesRoute || r.Note != "" {
+		return wire
+	}
+	d, ok := driverFor(q.Agent)
+	if !ok {
+		return wire
+	}
+	swapper, ok := d.(RecordModelSwapper)
+	if !ok {
+		return wire
+	}
+	swapped := swapper.SwapRecordModel(p, wire)
+	if swapped == wire {
+		return wire
+	}
+	r.Note = q.Agent + ": record model " + wire + " is not served over Responses; running " + swapped
+	return swapped
 }
 
 // pinFallback refuses a failed shell pin naming its variable; a failed record model runs the default with a note.
@@ -516,8 +534,11 @@ func geminiGatewayServes(r *ModelRoute, p *providers.Provider, wire string) erro
 		return fmt.Errorf("%w: %s is Responses-only and agy speaks chat/completions; run it with codex, copilot or opencode",
 			ErrModelRoute, r.Model)
 	}
-	if models.FamilyKind(r.Model) != models.FamilyGemini {
+	switch _, native := p.Route(providers.ProtocolGemini); {
+	case models.FamilyKind(r.Model) != models.FamilyGemini:
 		r.Dialect = providers.ProtocolOpenAI // agy's openai wire: every family rides chat/completions
+	case native:
+		r.Dialect = providers.ProtocolGemini // agy's genai wire, as internal/gemini configures it
 	}
 	return agentFamily(r, p)
 }
@@ -570,30 +591,22 @@ func (r ModelRoute) Overlay() agentconfig.Overlay {
 // Label is the "<model>" of a dispatch description: the wire id the ran-on line prints.
 func (r ModelRoute) Label() string { return r.Model }
 
-// resolvePool is the pool's first usable workspace serving the model, ranked least busy first.
+// resolvePool is the provider pool's first usable profile serving the model, ranked least busy first.
 func resolvePool(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRoute, error) {
+	group := cmp.Or(q.Provider, providers.GroupDatabricks)
 	st, skipped := router.LoadState(), []string(nil)
-	names := reg.ProfilesOf(providers.GroupDatabricks)
-	names = autoOrder(reg, names, st, now)
+	names := reg.ProfilesOf(group)
+	if len(names) == 0 {
+		return ModelRoute{}, fmt.Errorf("%w: provider %q has no profiles configured", ErrModelRoute, group)
+	}
+	names = autoOrder(reg, group, names, st, q.Model == AutoModel || q.Model == "", now)
 	for _, name := range names {
-		p, err := agentconfig.CommandProvider(q.ctx, reg.Providers[name])
+		r, skip, err := poolProfile(reg, q, name, st, now)
 		if err != nil {
 			return ModelRoute{}, err
 		}
-		if ok, why := rowServes(q.Agent, p); !ok {
-			skipped = append(skipped, name+": "+why)
-			continue
-		}
-		if fs := launchWorkspaceFindings(q.ctx, q.Agent, p, st, now, nil); len(fs) > 0 {
-			skipped = append(skipped, name+": "+fs[0].Detail)
-			continue
-		}
-		r, err := resolveOn(p, "pool", q, now)
-		if err == nil {
-			err = poolListed(p, r.Model, now)
-		}
-		if err != nil {
-			skipped = append(skipped, name+": "+strings.TrimPrefix(err.Error(), ErrModelRoute.Error()+": "))
+		if skip != "" {
+			skipped = append(skipped, skip)
 			continue
 		}
 		if len(skipped) > 0 {
@@ -601,15 +614,45 @@ func resolvePool(reg *providers.Registry, q ModelQuery, now time.Time) (ModelRou
 		}
 		return r, nil
 	}
-	return ModelRoute{}, fmt.Errorf("%w: no Databricks profile can serve %s for %s (%s)", ErrModelRoute,
-		cmp.Or(q.Model, q.Default, models.Opus), q.Agent, strings.Join(skipped, "; "))
+	label := group
+	if group == providers.GroupDatabricks {
+		label = "Databricks"
+	}
+	return ModelRoute{}, fmt.Errorf("%w: no %s profile can serve %s for %s (%s)", ErrModelRoute,
+		label, cmp.Or(q.Model, q.Default, models.Opus), q.Agent, strings.Join(skipped, "; "))
 }
 
-// autoOrder is names in databricks:auto's order (cooling last, fewest live, least recent pick), stamping nothing.
-func autoOrder(reg *providers.Registry, names []string, st router.State, now time.Time) []string {
+// poolProfile resolves q on one pool profile; a non-empty skip is why that profile cannot serve it.
+func poolProfile(reg *providers.Registry, q ModelQuery, name string, st router.State, now time.Time) (ModelRoute, string, error) {
+	p, err := agentconfig.CommandProvider(q.ctx, reg.Providers[name])
+	if err != nil {
+		return ModelRoute{}, "", err
+	}
+	if ok, why := rowServes(q.Agent, p); !ok {
+		return ModelRoute{}, name + ": " + why, nil
+	}
+	if p.Preset == providers.PresetDatabricks {
+		if fs := launchWorkspaceFindings(q.ctx, q.Agent, p, st, now, nil); len(fs) > 0 {
+			return ModelRoute{}, name + ": " + fs[0].Detail, nil
+		}
+	}
+	r, err := resolveOn(p, "pool", q, now)
+	if err == nil && p.Preset == providers.PresetDatabricks {
+		err = poolListed(p, r.Model, now)
+	}
+	if err != nil {
+		return ModelRoute{}, name + ": " + strings.TrimPrefix(err.Error(), ErrModelRoute.Error()+": "), nil
+	}
+	return r, "", nil
+}
+
+// autoOrder is names in <group>:auto's order (cooling last, fresh first when auto, fewest live, least recent pick).
+func autoOrder(reg *providers.Registry, group string, names []string, st router.State, preferFresh bool, now time.Time) []string {
 	q := router.WorkspaceQuery[struct{}]{
-		Findings: func(*providers.Provider, string, string, time.Time) []struct{} { return nil },
-		Unserved: func(string, []struct{}) error { return nil },
+		Provider:    group,
+		PreferFresh: preferFresh,
+		Findings:    func(*providers.Provider, string, string, time.Time) []struct{} { return nil },
+		Unserved:    func(string, []struct{}) error { return nil },
 		Cooling: func(p *providers.Provider, now time.Time) bool {
 			return st.CoolingUntil(router.AccountOf(p)).After(now)
 		},
@@ -618,7 +661,7 @@ func autoOrder(reg *providers.Registry, names []string, st router.State, now tim
 	if err != nil {
 		return names
 	}
-	for _, n := range names { // a row the ranking skips (no preset) follows in vault order
+	for _, n := range names { // a row the ranking skips follows in vault order
 		if !slices.Contains(ranked, n) {
 			ranked = append(ranked, n)
 		}

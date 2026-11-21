@@ -20,6 +20,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/proxy"
 	"github.com/edotau/claude-code/internal/router"
+	endpoints "github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -407,7 +408,7 @@ func servedAlternatives(p *providers.Provider, model string, now time.Time) []st
 		out := slices.DeleteFunc(slices.Clone(ids), func(id string) bool { return familyKey(id) != fam || id == model })
 		return out[:min(len(out), maxAlternatives)]
 	}
-	s, ok := router.FreshServed(p.Name, now)
+	s, ok := endpoints.Fresh(p.Name, now)
 	if !ok {
 		return nil
 	}
@@ -425,14 +426,14 @@ func servedAlternatives(p *providers.Provider, model string, now time.Time) []st
 }
 
 // chatServed judges s's entries as chat endpoints; a listing that records no task judges none non-chat.
-func chatServed(s router.Served) func(router.ServedModel) bool {
-	tasked := slices.ContainsFunc(s.Models, func(m router.ServedModel) bool { return m.Task != "" })
-	return func(m router.ServedModel) bool { return !tasked || m.Task == chatTask }
+func chatServed(s endpoints.Served) func(endpoints.ServedModel) bool {
+	tasked := slices.ContainsFunc(s.Models, func(m endpoints.ServedModel) bool { return m.Task != "" })
+	return func(m endpoints.ServedModel) bool { return !tasked || m.Task == chatTask }
 }
 
 // nonChatEndpoint is the task of wire in p's fresh listing when that endpoint is not a chat endpoint.
 func nonChatEndpoint(p *providers.Provider, wire string, now time.Time) (task string, bad bool) {
-	s, ok := router.FreshServed(p.Name, now)
+	s, ok := endpoints.Fresh(p.Name, now)
 	if !ok || p.Preset != providers.PresetDatabricks {
 		return "", false
 	}

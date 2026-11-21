@@ -10,7 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/memory"
 	"github.com/edotau/claude-code/internal/preflight"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -26,7 +26,7 @@ func servedSession(t *testing.T, on bool, fetched time.Time, updateChild string)
 	vaulttest.Secret(t, "DATABRICKS_DEV_PAT", "dapi-test")
 	t.Setenv(providers.EnvSessionProfile, "dev")
 	if !fetched.IsZero() {
-		if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: fetched}); err != nil {
+		if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: fetched}); err != nil {
 			t.Fatal(err)
 		}
 	}

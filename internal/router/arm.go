@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/serving"
 )
 
 // armPicks is state/harness/router/route-auto.json: when databricks:auto last picked each workspace (the tie-break).
@@ -35,8 +36,10 @@ func armPicksFile() string { return filepath.Join(paths.StateDir(), "router", "r
 
 // WorkspaceQuery requires Findings, Unserved and Cooling; nil Live uses in-flight markers and live routes.
 type WorkspaceQuery[F any] struct {
+	Provider         string // provider group to rank; empty defaults to databricks
 	AgentName, Model string
 	Strict           bool
+	PreferFresh      bool // rank profiles with a fresh served listing ahead of stale ones (after cooling)
 	Tried            []string
 	Pending          map[string]int
 	Findings         func(*providers.Provider, string, string, time.Time) []F
@@ -60,10 +63,11 @@ func pickAndStamp[F any](reg *providers.Registry, q WorkspaceQuery[F], now time.
 		return nil, 0, skipped, err
 	}
 	cooling := workspaceCooling(usable, q, now)
+	stale := workspaceStale(usable, q, now)
 	load := workspaceLoad(usable, q) // the marker and record scans stay out of the stamp lock
 	rankFrom := func() armPicks {
 		picks := readArmPicks()
-		live = rankWorkspaces(usable, q, cooling, load, picks)[usable[0].Name]
+		live = rankWorkspaces(usable, cooling, stale, load, picks)[usable[0].Name]
 		order = names(usable)
 		return picks
 	}
@@ -106,8 +110,22 @@ func RankWorkspaces[F any](reg *providers.Registry, q WorkspaceQuery[F], now tim
 	if err != nil {
 		return nil, skipped, err
 	}
-	rankWorkspaces(usable, q, workspaceCooling(usable, q, now), workspaceLoad(usable, q), readArmPicks())
+	rankWorkspaces(usable, workspaceCooling(usable, q, now), workspaceStale(usable, q, now), workspaceLoad(usable, q), readArmPicks())
 	return names(usable), skipped, nil
+}
+
+func workspaceStale[F any](ps []*providers.Provider, q WorkspaceQuery[F], now time.Time) map[string]bool {
+	stale := map[string]bool{}
+	if !q.PreferFresh {
+		return stale
+	}
+	for _, p := range ps {
+		if p.Preset == providers.PresetDatabricks {
+			_, fresh := serving.Fresh(p.Name, now)
+			stale[p.Name] = !fresh
+		}
+	}
+	return stale
 }
 
 func workspaceCooling[F any](ps []*providers.Provider, q WorkspaceQuery[F], now time.Time) map[string]bool {
@@ -131,10 +149,15 @@ func workspaceLoad[F any](ps []*providers.Provider, q WorkspaceQuery[F]) map[str
 	return counts
 }
 
-func rankWorkspaces[F any](ps []*providers.Provider, q WorkspaceQuery[F], cooling map[string]bool, counts map[string]int, picks armPicks) map[string]int {
+func rankWorkspaces(ps []*providers.Provider, cooling, stale map[string]bool, counts map[string]int, picks armPicks) map[string]int {
 	slices.SortFunc(ps, func(a, b *providers.Provider) int {
-		return cmp.Or(cmp.Compare(rank(cooling[a.Name]), rank(cooling[b.Name])), cmp.Compare(counts[a.Name], counts[b.Name]),
-			picks.Picked[a.Name].Compare(picks.Picked[b.Name]), cmp.Compare(a.Name, b.Name))
+		return cmp.Or(
+			cmp.Compare(rank(cooling[a.Name]), rank(cooling[b.Name])),
+			cmp.Compare(rank(stale[a.Name]), rank(stale[b.Name])),
+			cmp.Compare(counts[a.Name], counts[b.Name]),
+			picks.Picked[a.Name].Compare(picks.Picked[b.Name]),
+			cmp.Compare(a.Name, b.Name),
+		)
 	})
 	return counts
 }
@@ -149,6 +172,9 @@ func workspaceCandidates[F any](reg *providers.Registry, q WorkspaceQuery[F], no
 		usable, skipped = others, othersSkipped
 	}
 	if len(usable) == 0 {
+		if q.Provider != "" && q.Provider != providers.GroupDatabricks {
+			return nil, skipped, errors.New("overlay " + q.Provider + ":auto: no " + q.Provider + " profile passes the preflight (claude-code doctor)")
+		}
 		return nil, skipped, errors.New("overlay databricks:auto: no Databricks workspace passes the preflight (claude-code doctor)")
 	}
 	return usable, skipped, nil
@@ -174,11 +200,17 @@ func readArmPicks() armPicks {
 
 func writeArmPicks(picks armPicks) error { return paths.WriteJSON(armPicksFile(), picks) }
 
-// armCandidates splits reg's Databricks workspaces (none in tried) by armFindings: usable, skipped.
+// armCandidates splits reg's profiles in q.Provider (default databricks, none in tried) by Findings: usable, skipped.
 func armCandidates[F any](reg *providers.Registry, q WorkspaceQuery[F], model string, now time.Time) (usable []*providers.Provider, skipped []F) {
+	group := cmp.Or(q.Provider, providers.GroupDatabricks)
 	rows := []*providers.Provider{}
 	for _, n := range slices.Sorted(maps.Keys(reg.Providers)) {
-		if p := reg.Providers[n]; p.Preset == providers.PresetDatabricks {
+		p := reg.Providers[n]
+		if group == providers.GroupDatabricks {
+			if p.Preset == providers.PresetDatabricks {
+				rows = append(rows, p)
+			}
+		} else if p.Provider == group {
 			rows = append(rows, p)
 		}
 	}
@@ -208,7 +240,7 @@ func liveByWorkspace(ps []*providers.Provider) map[string]int {
 	<-done
 	out := map[string]int{}
 	for _, p := range ps {
-		out[p.Name] = snap.Per[AccountOf(p)] + routed[route.Join(RouteDatabricks, p.Name)]
+		out[p.Name] = snap.Per[AccountOf(p)] + routed[route.Join(cmp.Or(p.Provider, RouteDatabricks), p.Name)]
 	}
 	return out
 }

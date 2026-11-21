@@ -10,6 +10,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -19,10 +20,10 @@ func TestAcceptModel(t *testing.T) {
 	dbx := func(name string) *providers.Provider {
 		return &providers.Provider{Name: name, Preset: providers.PresetDatabricks, Host: "https://" + name + ".example.com"}
 	}
-	warm := router.Served{Profile: "warm", FetchedAt: now, Models: []router.ServedModel{
+	warm := serving.Served{Profile: "warm", FetchedAt: now, Models: []serving.ServedModel{
 		{ID: "databricks-claude-opus-5-5", Ready: "READY"}, {ID: "databricks-claude-opus-5-4", Ready: "READY"},
 		{ID: "databricks-zeta-9", Ready: "READY"}}}
-	if err := router.SaveServed(warm); err != nil {
+	if err := serving.Save(warm); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
@@ -85,10 +86,10 @@ func TestAcceptModelColdCustomIDForCodex(t *testing.T) {
 func TestAcceptModelNearestPools(t *testing.T) {
 	vaulttest.Use(t)
 	now := time.Now()
-	tasked := router.Served{Profile: "tasked", FetchedAt: now, Models: []router.ServedModel{
+	tasked := serving.Served{Profile: "tasked", FetchedAt: now, Models: []serving.ServedModel{
 		{ID: "databricks-claude-opus-5-5", Task: chatTask, Ready: "READY"}, {ID: "antibody-risk", Ready: "READY"},
 		{ID: "databricks-gte-large-en", Task: "llm/v1/embeddings", Ready: "READY"}}}
-	if err := router.SaveServed(tasked); err != nil {
+	if err := serving.Save(tasked); err != nil {
 		t.Fatal(err)
 	}
 	dbx := &providers.Provider{Name: "tasked", Preset: providers.PresetDatabricks, Host: "https://tasked.example.com"}

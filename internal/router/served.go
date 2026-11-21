@@ -1,32 +1,25 @@
 package router
 
 import (
-	"errors"
 	"fmt"
-	"io/fs"
 	"os"
-	"path/filepath"
-	"regexp"
-	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/models"
-	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/schemas"
+	"github.com/edotau/claude-code/internal/serving"
 )
 
 // unservedTTL is how long a model whose endpoint a live call found gone stays out of served-aware picks.
 const unservedTTL = time.Hour
 
 // servedListing is profile's fresh cached listing; false when the switch is off, absent or past TTL. A var for tests.
-var servedListing = func(profile string, now time.Time) (Served, bool) {
+var servedListing = func(profile string, now time.Time) (serving.Served, bool) {
 	if !providers.ServedRoutingOn() {
-		return Served{}, false
+		return serving.Served{}, false
 	}
-	return freshShared(profile, now)
+	return serving.FreshShared(profile, now)
 }
 
 // servedKey is the spelling a model is marked and looked up under: the one the agents request from p.
@@ -64,7 +57,7 @@ func ServedReady(p *providers.Provider, model string, now time.Time) (ready, fre
 
 // ServedListed reads p's cached listing whatever the servedAware switch says; fresh is false when absent or past TTL.
 func ServedListed(p *providers.Provider, model string, now time.Time) (listed, ready, fresh bool) {
-	s, ok := freshShared(p.Name, now)
+	s, ok := serving.FreshShared(p.Name, now)
 	if !ok {
 		return false, false, false
 	}
@@ -90,7 +83,7 @@ func SpellServed(p *providers.Provider, id string, now time.Time) string {
 
 // exactReady reports p's fresh listing names wire exactly and has it READY.
 func exactReady(p *providers.Provider, wire string, now time.Time) bool {
-	s, ok := freshShared(p.Name, now)
+	s, ok := serving.FreshShared(p.Name, now)
 	if !ok {
 		return false
 	}
@@ -146,182 +139,18 @@ func MarkUnserved(p *providers.Provider, model string) error {
 	})
 }
 
-// servedTTL is how long a cached workspace listing is trusted.
-const servedTTL = 24 * time.Hour
-
-// servedSchema is the served-models cache's schema version; a mismatch is a cache miss.
-const servedSchema = 1
-
-var servedFormat = schemas.Register(schemas.Format{
-	Name: "served-models", Owner: "internal/router", Kind: schemas.Cache,
-	Glob:    func() string { return filepath.Join(paths.StateDir(), "preflight", "*.json") },
-	New:     func() any { return &Served{} },
-	Version: servedSchema, Keep: "rebuildable cache; a version mismatch is a miss",
-})
-
-// ServedModel is one serving endpoint the workspace lists.
-type ServedModel struct {
-	ID    string `json:"id"`
-	Task  string `json:"task,omitempty"`
-	Ready string `json:"ready,omitempty"`
-	// foundation_model facts from the listing; absent in files written before they were kept
-	APITypes   []string `json:"api_types,omitempty"`
-	ModelClass string   `json:"model_class,omitempty"`
-	Context    int      `json:"context,omitempty"`
-	Output     int      `json:"output,omitempty"`
-}
-
-// IsReady reports whether the endpoint serves: an unset state counts as READY.
-func (m ServedModel) IsReady() bool { return m.Ready == "" || m.Ready == "READY" }
-
-// Served is one Databricks profile's cached endpoint listing (no secrets).
-type Served struct {
-	Schema    int           `json:"schema"`
-	Profile   string        `json:"profile"`
-	FetchedAt time.Time     `json:"fetched_at"`
-	Models    []ServedModel `json:"models"`
-}
-
-// clockSkew is how far into the future a fetched_at may sit before the listing is distrusted.
-const clockSkew = 5 * time.Minute
-
-// Fresh reports whether s was fetched within TTL of now; a timestamp beyond clockSkew in the future is stale.
-func (s Served) Fresh(now time.Time) bool {
-	return !paths.Stale(s.FetchedAt, servedTTL, clockSkew, now)
-}
-
-var nameRE = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9._-]+$`) })
-
-func servedPath(profile string) string {
-	if !nameRE().MatchString(profile) || profile == "." || profile == ".." {
-		return ""
-	}
-	return filepath.Join(paths.StateDir(), "preflight", "served-"+profile+".json")
-}
-
-// servedCache holds each profile's listing per file stamp; LoadServed hands out a copy of its model slice.
-var servedCache paths.StampCache[servedRead]
-
-// servedRead is one cached read: ok is false for an absent, mismatched or other-schema file.
-type servedRead struct {
-	s  Served
-	ok bool
-}
-
-// servedShared is LoadServed without the copy: its Models alias the cache, so callers only read.
-func servedShared(profile string) (Served, bool) {
-	path := servedPath(profile)
-	if path == "" {
-		return Served{}, false
-	}
-	r, err := servedCache.Get(path, func() (servedRead, error) { return readServed(path, profile) })
-	if err != nil || !r.ok {
-		return Served{}, false
-	}
-	return r.s, true
-}
-
-// LoadServed returns profile's cached listing; false when absent, unreadable or another schema.
-func LoadServed(profile string) (Served, bool) {
-	s, ok := servedShared(profile)
-	s.Models = slices.Clone(s.Models)
-	return s, ok
-}
-
-// freshShared is servedShared's listing when fresh and non-empty; an empty listing proves nothing, so it reads as cold.
-func freshShared(profile string, now time.Time) (Served, bool) {
-	s, ok := servedShared(profile)
-	return s, ok && s.Fresh(now) && len(s.Models) > 0
-}
-
-// FreshServed is profile's cached listing when it is fresh and non-empty; Models is a copy.
-func FreshServed(profile string, now time.Time) (Served, bool) {
-	s, ok := freshShared(profile, now)
-	s.Models = slices.Clone(s.Models)
-	return s, ok
-}
-
-// readServed decodes profile's listing at path; an absent or invalid file is a miss, a read error is returned.
-func readServed(path, profile string) (servedRead, error) {
-	b, err := os.ReadFile(path)
-	if errors.Is(err, fs.ErrNotExist) {
-		return servedRead{}, nil
-	}
-	if err != nil {
-		return servedRead{}, err
-	}
-	var s Served
-	if !schemas.DecodeOK(servedFormat, b, &s) || s.Profile != profile {
-		return servedRead{}, nil
-	}
-	return servedRead{s: s, ok: true}, nil
-}
-
 // WarmServed saves infos as profile's listing unless the file is newer or infos is empty.
 func WarmServed(profile string, infos []providers.ModelInfo, at time.Time) error {
 	if len(infos) == 0 {
 		return nil
 	}
-	s := Served{Profile: profile, FetchedAt: at.UTC()}
+	s := serving.Served{Profile: profile, FetchedAt: at.UTC()}
 	for _, m := range infos {
-		s.Models = append(s.Models, ServedModel{ID: m.ID, Task: m.Task, Ready: m.Ready, APITypes: m.APITypes,
+		s.Models = append(s.Models, serving.ServedModel{ID: m.ID, Task: m.Task, Ready: m.Ready, APITypes: m.APITypes,
 			ModelClass: m.ModelClass, Context: m.ContextToken, Output: m.OutputToken})
 	}
 	// a file dated past clockSkew ahead of at is distrusted and replaced, or it would block every later warm
-	return SaveServed(s, func(cur Served) bool { return cur.FetchedAt.After(at) && cur.Fresh(at) })
-}
-
-// SaveServed writes s with mode 0600; a keep that accepts the file on disk, read under the write lock, skips the write.
-func SaveServed(s Served, keep ...func(cur Served) bool) error {
-	path := servedPath(s.Profile)
-	if path == "" {
-		return os.ErrInvalid
-	}
-	s.Schema = servedSchema
-	// before the lock, which creates it world-readable
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return err
-	}
-	return paths.WithFileLock(path, func() error {
-		for _, k := range keep {
-			if cur, _ := readServed(path, s.Profile); cur.ok && k(cur.s) {
-				return nil
-			}
-		}
-		return paths.WriteJSONNoSync(path, s)
-	})
-}
-
-// Find is the listing's entry serving pin (the spelling the agents request); false when unlisted.
-func (s Served) Find(p *providers.Provider, pin string) (ServedModel, bool) {
-	want := p.WireModel(models.Strip1M(strings.TrimSpace(pin)))
-	for _, m := range s.Models {
-		// runtime prefixes a bare id the listing names databricks-<id>
-		if m.ID == want || m.ID == models.DatabricksPrefix+want {
-			return m, true
-		}
-	}
-	return ServedModel{}, false
-}
-
-// Has reports whether the listing serves pin as a READY endpoint; ready is false for a listed but unready one.
-func (s Served) Has(p *providers.Provider, pin string) (listed, ready bool) {
-	m, ok := s.Find(p, pin)
-	return ok, ok && m.IsReady()
-}
-
-func init() {
-	providers.ListedFacts = listedFacts
-}
-
-// listedFacts is wire's entry in p's fresh listing, whatever the servedAware switch says.
-func listedFacts(p *providers.Provider, wire string) (providers.EndpointFacts, bool) {
-	s, ok := freshShared(p.Name, time.Now())
-	if !ok {
-		return providers.EndpointFacts{}, false
-	}
-	m, ok := s.Find(p, wire)
-	return providers.EndpointFacts{APITypes: m.APITypes, Context: m.Context, Output: m.Output}, ok
+	return serving.Save(s, func(cur serving.Served) bool { return cur.FetchedAt.After(at) && cur.Fresh(at) })
 }
 
 // NextServed marks the failed plain model id gone on p and returns the next READY Responses model, "" when none.

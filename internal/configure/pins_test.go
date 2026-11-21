@@ -10,7 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/audit"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -189,8 +189,8 @@ func TestValidateClaudePinsJudgesOnSessionProfile(t *testing.T) {
 	if err := providers.SetProviderFields("qa", row); err != nil {
 		t.Fatal(err)
 	}
-	if err := router.SaveServed(router.Served{Profile: "qa", FetchedAt: time.Now(),
-		Models: []router.ServedModel{{ID: "databricks-claude-opus-5-5", Ready: "READY"}}}); err != nil {
+	if err := serving.Save(serving.Served{Profile: "qa", FetchedAt: time.Now(),
+		Models: []serving.ServedModel{{ID: "databricks-claude-opus-5-5", Ready: "READY"}}}); err != nil {
 		t.Fatal(err)
 	}
 	reg, err := providers.Load()

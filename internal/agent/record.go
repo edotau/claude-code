@@ -386,6 +386,29 @@ func updateRunning(id string, deadOnly bool, fix func(Record) Record) (Record, b
 	})
 }
 
+// NotePick stores the model routing picked in ctx's running dispatch record, so a live run shows it, never `auto`.
+func NotePick(ctx context.Context, model string) {
+	if id := DispatchIDOf(ctx); id != "" && model != "" && !Peeking(ctx) {
+		_, _, _ = updateRecord(id, func(r Record) (Record, bool) {
+			if r.Status != "running" || r.Model == model { // an unchanged pick writes nothing
+				return r, false
+			}
+			r.Model = model
+			return r, true
+		})
+	}
+}
+
+// withPick fills an unreported model of an auto hop from the pick NotePick stored.
+func withPick(ctx context.Context, req RunOptions, res wire.Result) wire.Result {
+	if id := DispatchIDOf(ctx); id != "" && res.Model == "" && (req.AutoModel || IsAuto(req.Model)) {
+		if rec, err := LoadRecord(id); err == nil {
+			res.Model = rec.Model
+		}
+	}
+	return res
+}
+
 func updateRecord(id string, fix func(Record) (Record, bool)) (Record, bool, error) {
 	path := filepath.Join(paths.DispatchDir(), id+".json")
 	var r Record

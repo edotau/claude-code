@@ -1027,7 +1027,7 @@ func TestPassthroughWorkspaceFallback(t *testing.T) {
 
 func ptWorkspaceOverlay(first, second string) string {
 	row := func(host, key string) string {
-		return `{"preset":"databricks","host":"https://workspace.example.test","base_url":"` + host + `/serving-endpoints/anthropic","routes":{"openai":"` + host + `/serving-endpoints","responses":"` + host + `/serving-endpoints"},"auth":{"type":"key","env":"` + key + `"},"models":{"opus":"databricks-test-model"}}`
+		return `{"preset":"databricks","host":"https://workspace.example.test","base_url":"` + host + `/serving-endpoints/anthropic","routes":{"openai":"` + host + `/serving-endpoints","responses":"` + host + `/serving-endpoints","gemini":"` + host + `/serving-endpoints/gemini"},"auth":{"type":"key","env":"` + key + `"},"models":{"opus":"databricks-test-model"}}`
 	}
 	if second == "" {
 		return `{"default":"first","fallback":[],"providers":{"databricks":{"first":` + row(first, "PT_FIRST") + `}}}`

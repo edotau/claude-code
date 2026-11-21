@@ -6,7 +6,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -25,6 +24,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -146,7 +146,7 @@ func TestArmFlagRefusals(t *testing.T) {
 		`"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"key","env":"DEV_WS_TOKEN"}},`+
 		`"gw":{"preset":"databricks","host":"https://gw.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
 	t.Setenv("DEV_WS_TOKEN", "SENTINEL-dev") // dev passes the workspace preflight, so each row reaches its flag fence
-	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
 		{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil { // claude's model fence reads the listing
 		t.Fatal(err)
 	}
@@ -322,7 +322,16 @@ func armDumps(t *testing.T, dir string) (bins []string, envs [][]string) {
 	return bins, envs
 }
 
-func seqOf(name string) int { n, _ := strconv.Atoi(strings.SplitN(name, "-", 2)[0]); return n }
+func seqOf(name string) (n int) {
+	digits, _, _ := strings.Cut(name, "-")
+	for _, c := range digits {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*10 + int(c-'0')
+	}
+	return n
+}
 
 // envValue is name's value in a dump; ok is false when name is absent.
 func envValue(dump []string, name string) (string, bool) {

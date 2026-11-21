@@ -662,7 +662,7 @@ func dbxGeminiSetup(t *testing.T) (*rawUp, string) {
 	up := newRawUp(t, okRaw)
 	t.Setenv("DBX_KEY", "dbx-token")
 	row := `{"preset":"databricks","host":"https://example.cloud.databricks.com","base_url":"` + up.URL +
-		`/serving-endpoints/anthropic","auth":{"type":"key","env":"DBX_KEY"}}`
+		`/serving-endpoints/anthropic","routes":{"gemini":"` + up.URL + `/serving-endpoints/gemini"},"auth":{"type":"key","env":"DBX_KEY"}}`
 	srv := setup(t, `{"default":"dbx","providers":{"databricks":{"dbx":`+row+`}}}`)
 	return up, srv.URL + "/p/dbx/gemini/"
 }

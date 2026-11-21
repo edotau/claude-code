@@ -13,7 +13,8 @@ import (
 	"github.com/edotau/claude-code/internal/gateway/resolve"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/route"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -30,7 +31,7 @@ func TestGatewayResolveUsage(t *testing.T) {
 		t.Errorf("--live without --all-profiles exit = %d; want 2", code)
 	}
 	vaulttest.Use(t)
-	if _, err := resolve.Query(context.Background(), "claude", "sonnet", "ultra",
+	if _, err := resolve.QueryForRoute(context.Background(), "claude", "sonnet", route.Route{Profile: "ultra"},
 		`{"provider":"databricks","profile":"dev","identity":"sp"}`); err == nil {
 		t.Error("typed profile accepted another route's identity")
 	}
@@ -85,11 +86,11 @@ func TestGatewayResolveAuto(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
-	s := router.Served{Profile: "dev", FetchedAt: time.Now()}
+	s := serving.Served{Profile: "dev", FetchedAt: time.Now()}
 	for _, id := range []string{"opus-5-5", "sonnet-5-5", "haiku-5-5", "opus-5", "sonnet-5", "sonnet-4-6", "opus-4-8"} {
-		s.Models = append(s.Models, router.ServedModel{ID: "databricks-claude-" + id, Task: "llm/v1/chat", Ready: "READY"})
+		s.Models = append(s.Models, serving.ServedModel{ID: "databricks-claude-" + id, Task: "llm/v1/chat", Ready: "READY"})
 	}
-	if err := router.SaveServed(s); err != nil {
+	if err := serving.Save(s); err != nil {
 		t.Fatal(err)
 	}
 	f := filepath.Join(t.TempDir(), "brief")
@@ -115,7 +116,7 @@ func TestGatewayResolveAuto(t *testing.T) {
 func TestGatewayResolveUnservedModel(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks","host":"https://dev.cloud.databricks.com","auth":{"type":"pat"}}}}}`)
-	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+	if err := serving.Save(serving.Served{Profile: "dev", FetchedAt: time.Now(), Models: []serving.ServedModel{
 		{ID: "databricks-gemini-3-8-flash", Ready: "READY"}}}); err != nil {
 		t.Fatal(err)
 	}

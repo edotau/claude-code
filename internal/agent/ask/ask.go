@@ -337,9 +337,7 @@ func (r *askRun) checkArm() (int, bool) {
 		return refuse(r, err, fallback)
 	}
 	r.ctx = ctx
-	if picks || r.jobAutoArm() {
-		r.auto = router.ArmProfileContext(r.ctx)
-	}
+	r.markAuto(picks)
 	if err := cmp.Or(checkNative(r.ctx, f.native), CheckArm(r.ctx, r.ag, f.profile, f.provider, f.model, f.direct)); err != nil {
 		return r.fail(err, 2)
 	}
@@ -347,6 +345,17 @@ func (r *askRun) checkArm() (int, bool) {
 		r.confined = confineLead(r.ctx, r.ag, f) || r.confined
 	}
 	return 0, false
+}
+
+// markAuto records an auto-picked workspace; a --job child (explicit profile) regains the parent's failover grant.
+func (r *askRun) markAuto(picks bool) {
+	if !picks && !r.jobAutoArm() {
+		return
+	}
+	r.auto = router.ArmProfileContext(r.ctx)
+	if !picks {
+		r.ctx = agent.WithAutoFailover(r.ctx, router.RouteDatabricks)
+	}
 }
 
 // refuse fails a route refusal; a well-formed ask (exit 1, not --dry-run) also leaves its failed record.

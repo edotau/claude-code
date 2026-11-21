@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -18,8 +19,8 @@ func dbxProv(name string) *providers.Provider {
 }
 
 // listing is a fresh served listing: ids mapped to their ready state, in a stable order.
-func listing(profile string, ready map[string]string) Served {
-	s := Served{Profile: profile, FetchedAt: time.Now()}
+func listing(profile string, ready map[string]string) serving.Served {
+	s := serving.Served{Profile: profile, FetchedAt: time.Now()}
 	for _, id := range slices.Sorted(func(yield func(string) bool) {
 		for k := range ready {
 			if !yield(k) {
@@ -27,13 +28,13 @@ func listing(profile string, ready map[string]string) Served {
 			}
 		}
 	}) {
-		s.Models = append(s.Models, ServedModel{ID: id, Ready: ready[id]})
+		s.Models = append(s.Models, serving.ServedModel{ID: id, Ready: ready[id]})
 	}
 	return s
 }
 
 // stubServed makes the given profiles' listings fresh; any other profile has no cache. It also seeds a hermetic vault.
-func stubServed(t *testing.T, menu []providers.OpencodeModel, byProfile ...Served) {
+func stubServed(t *testing.T, menu []providers.OpencodeModel, byProfile ...serving.Served) {
 	t.Helper()
 	vaulttest.Use(t)
 	if menu != nil {
@@ -42,13 +43,13 @@ func stubServed(t *testing.T, menu []providers.OpencodeModel, byProfile ...Serve
 		}
 	}
 	orig := servedListing
-	servedListing = func(profile string, _ time.Time) (Served, bool) {
+	servedListing = func(profile string, _ time.Time) (serving.Served, bool) {
 		for _, s := range byProfile {
 			if s.Profile == profile {
 				return s, true
 			}
 		}
-		return Served{}, false
+		return serving.Served{}, false
 	}
 	t.Cleanup(func() { servedListing = orig })
 }
@@ -69,7 +70,7 @@ func TestServedSwitchOffKeepsStaticPick(t *testing.T) {
 	if err := providers.SetOpencodeMenu([]providers.OpencodeModel{respA, respB}); err != nil {
 		t.Fatal(err)
 	}
-	if err := SaveServed(listing("dev", map[string]string{"m-a": "NOT_READY", "m-b": "READY"})); err != nil {
+	if err := serving.Save(listing("dev", map[string]string{"m-a": "NOT_READY", "m-b": "READY"})); err != nil {
 		t.Fatal(err)
 	}
 	reg, err := providers.Load()
@@ -257,7 +258,7 @@ func TestWarmServedNewerWins(t *testing.T) {
 		if err := WarmServed("dev", c.infos, c.at); err != nil {
 			t.Fatalf("%s: %v", c.name, err)
 		}
-		got, ok := LoadServed("dev")
+		got, ok := serving.Load("dev")
 		if !ok || len(got.Models) != 1 || got.Models[0].ID != c.want {
 			t.Errorf("%s: on disk %+v (ok=%v), want only %s", c.name, got.Models, ok, c.want)
 		}
@@ -297,7 +298,7 @@ func TestSpellServedPrefixesOnlyAReadyListedBareName(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			vaulttest.Use(t)
 			if c.ready != "" {
-				if err := SaveServed(listing("dev", map[string]string{wired: c.ready})); err != nil {
+				if err := serving.Save(listing("dev", map[string]string{wired: c.ready})); err != nil {
 					t.Fatal(err)
 				}
 			}
@@ -326,7 +327,7 @@ func TestWarmServedKeepsFoundationFacts(t *testing.T) {
 	if err := WarmServed("facts", infos, time.Now()); err != nil {
 		t.Fatal(err)
 	}
-	s, ok := LoadServed("facts")
+	s, ok := serving.Load("facts")
 	p := &providers.Provider{Name: "facts", Preset: providers.PresetDatabricks, ModelPrefix: "databricks-"}
 	m, found := s.Find(p, "gpt-5-4")
 	if !ok || !found || m.APITypes[0] != "openai/v1/responses" || m.Context != 400000 || m.Output != 128000 {

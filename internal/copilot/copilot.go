@@ -425,7 +425,10 @@ func (copilotEngine) FallbackNote(ft providers.Target, note string) (string, boo
 	return note, ft.Provider != nil && ft.Provider.Preset == providers.PresetDatabricks
 }
 
-func (copilotEngine) Presence(_ context.Context, _ router.Cell) error {
+func (copilotEngine) Presence(_ context.Context, cell router.Cell) error {
+	if cell.Account != "" && !strings.HasPrefix(cell.Account, "github·") {
+		return nil
+	}
 	u, err := copilotPinLoginErr()
 	if err != nil {
 		return fmt.Errorf("cannot read the provider registry to check the pinned gh user: %w", err)

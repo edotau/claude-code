@@ -126,17 +126,16 @@ func splitMenu(p *providers.Provider, claudeRoute bool) (chat, resp, claude map[
 		wire := agentconfig.MenuWire(p, m.ID)
 		allowed[wire] = true
 		entry := withLimit(map[string]any{"name": m.Label + " · " + p.Name}, p, wire)
+		w, ok, _ := providers.WireForIn(menu, p, wire)
 		switch {
-		case m.Responses:
+		case !ok:
+			dropped = append(dropped, m.Label)
+			continue
+		case w == providers.ProtocolResponses:
 			resp[wire] = entry
-		case claudeRoute && models.FamilyKind(m.ID) == models.FamilyClaude:
+		case claudeRoute && w == providers.ProtocolAnthropic:
 			claude[wire] = claudeEntry(entry)
 		default:
-			// no openai route: the chat endpoint would 404
-			if _, ok, _ := providers.WireFor(p, wire); !ok {
-				dropped = append(dropped, m.Label)
-				continue
-			}
 			chat[wire] = entry
 		}
 	}

@@ -14,6 +14,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/httpx"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -28,6 +29,7 @@ type Scope struct {
 	AnthropicURL string `json:"anthropic_url"`
 	OpenAIURL    string `json:"openai_url"`
 	ResponsesURL string `json:"responses_url"`
+	GeminiURL    string `json:"gemini_url,omitempty"`
 }
 
 // Snapshot is a sealed snapshot; CacheHit describes this read and is never persisted.
@@ -56,15 +58,20 @@ func NewScope(p *providers.Provider, subject string) (Scope, error) {
 	if err != nil {
 		return Scope{}, err
 	}
+	geminiURL := routes[providers.ProtocolGemini]
+	if geminiURL == serving.BaseURL(host, providers.ProtocolGemini) {
+		geminiURL = "" // preset-derived default: omitting it preserves existing sealed discovery cache hashes
+	}
 	return Scope{Profile: p.Name, CLIProfile: p.CLIProfile, Host: host,
 		Spelling: p.SpellingRule(), SubjectID: subject, AnthropicURL: routes[providers.ProtocolAnthropic],
-		OpenAIURL: routes[providers.ProtocolOpenAI], ResponsesURL: routes[providers.ProtocolResponses]}, nil
+		OpenAIURL: routes[providers.ProtocolOpenAI], ResponsesURL: routes[providers.ProtocolResponses],
+		GeminiURL: geminiURL}, nil
 }
 
 // servingClientRoutes preserves resolved bases but rejects routes outside the workspace's serving subtree.
 func servingClientRoutes(p *providers.Provider, host string) (map[string]string, error) {
 	routes := make(map[string]string)
-	for _, dialect := range []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI, providers.ProtocolResponses} {
+	for _, dialect := range []string{providers.ProtocolAnthropic, providers.ProtocolOpenAI, providers.ProtocolResponses, providers.ProtocolGemini} {
 		base, ok := p.Route(dialect)
 		if !ok {
 			continue

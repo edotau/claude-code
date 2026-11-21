@@ -15,6 +15,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	endpoints "github.com/edotau/claude-code/internal/serving"
 
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/databricks/serving"
@@ -241,7 +242,7 @@ func cachePong(p *providers.Provider, fp string, r Pong) {
 }
 
 func listingFresh(name string, now time.Time) bool {
-	c, ok := router.LoadServed(name)
+	c, ok := endpoints.Load(name)
 	return ok && c.Fresh(now)
 }
 

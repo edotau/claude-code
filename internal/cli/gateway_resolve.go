@@ -34,7 +34,7 @@ func cmdGatewayResolve(args []string) int {
 	model := fs.String("model", "", "typed model string, as --model takes it")
 	profile := fs.String("profile", "", "registry row; auto is legacy: use --provider databricks")
 	provider := fs.String("provider", "", "provider (databricks selects the pool)")
-	overlay := fs.String("overlay", "", "overlay document: file, inline JSON or -")
+	overlay := fs.String("overlay", "", `overlay document (keys provider, profile, model, effort): file, inline JSON or -; e.g. {"provider":"databricks","profile":"auto"}`)
 	fallback := fs.String("fallback", "", "fallback mode ("+strings.Join(router.FallbackModes, "|")+"); none refuses a model the listing lacks")
 	all := fs.Bool("all-profiles", false, "resolve on every profile")
 	live := fs.Bool("live", false, "with --all-profiles: check credential, listing, READY (network)")
@@ -60,7 +60,7 @@ func cmdGatewayResolve(args []string) int {
 	if words[0] == poolAll {
 		return cmdPoolTable(ctx, poolUsable(*all, *live, *model, *profile, *overlay), task, *tools, *fallback, *format)
 	}
-	q, err := resolve.Query(ctx, words[0], *model, *profile, *overlay)
+	q, err := resolve.QueryForRoute(ctx, words[0], *model, route.Route{Provider: *provider, Profile: *profile}, *overlay)
 	if err != nil {
 		return helptext.FailUsage("gateway resolve: %v", err)
 	}
@@ -78,7 +78,7 @@ func cmdGatewayResolve(args []string) int {
 // resolveArgsOK is the verb's shape: one agent word, a known format, --live only with --all-profiles.
 func resolveArgsOK(words []string, format string, live, all bool, rt route.Route) bool {
 	return len(words) == 1 && helptext.CheckFormat(format) == nil && (!live || all) &&
-		(rt.Provider == "" || rt.Provider == providers.GroupDatabricks && (rt.Profile == "" || rt.Profile == agent.AutoModel))
+		(rt.Provider == "" || rt.Profile == "" || rt.Profile == agent.AutoModel)
 }
 
 // resolveOne prints the first hop's route; an unrunnable model is a usage error.

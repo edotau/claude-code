@@ -18,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
+	endpoints "github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/textutil"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -54,12 +55,12 @@ func runQueryRoute(ctx context.Context, reg *providers.Registry, q ModelQuery, a
 	return labelHop(reg, q, pin, chain.Dispatches[0])
 }
 
-// NextLabel is the label of an auto the run picks itself: the peeked id, said to be only the next pick.
-func NextLabel(id string) string { return "auto (next: " + id + ")" }
+// PickedLabel is the description label of a model the run picked itself: the id in parentheses.
+func PickedLabel(id string) string { return "(" + id + ")" }
 
-// IsNextLabel reports a NextLabel-shaped head.
-func IsNextLabel(head string) bool {
-	return strings.HasPrefix(head, "auto (next:") && strings.HasSuffix(head, ")")
+// IsPickedLabel reports a PickedLabel-shaped head.
+func IsPickedLabel(head string) bool {
+	return strings.HasPrefix(head, "(") && strings.HasSuffix(head, ")")
 }
 
 // AutoRun reports a query whose run picks its own model: a typed or pinned auto, not a concrete model.
@@ -562,7 +563,7 @@ func autoCandidates(reg *providers.Registry, q ModelQuery, p *providers.Provider
 	if p == nil {
 		return nil, "no row"
 	}
-	s, ok := router.FreshServed(p.Name, now)
+	s, ok := endpoints.Fresh(p.Name, now)
 	if p.Preset != providers.PresetDatabricks || !ok {
 		return nil, "no fresh model listing on " + p.Name
 	}
@@ -583,7 +584,7 @@ func autoCandidates(reg *providers.Registry, q ModelQuery, p *providers.Provider
 }
 
 // servedCandidate is m's wire id when m is a READY chat endpoint the agent runs on p, by the launch's own checks.
-func servedCandidate(reg *providers.Registry, q ModelQuery, p *providers.Provider, m router.ServedModel, now time.Time) (string, bool) {
+func servedCandidate(reg *providers.Registry, q ModelQuery, p *providers.Provider, m endpoints.ServedModel, now time.Time) (string, bool) {
 	if m.Task != chatTask || !m.IsReady() || catalog.ID(m.ID) == AutoModel {
 		return "", false
 	}

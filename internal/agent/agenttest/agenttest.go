@@ -95,8 +95,10 @@ func LoadTarget(t testing.TB, provider, model string) providers.Target {
 // StubProxy stubs the router at base and session mints, which answer token, for the test.
 func StubProxy(t testing.TB, base, token string) {
 	t.Helper()
-	oe, om, op := agent.EnsureRouter, agent.MintSession, retry.SharedPoll
-	t.Cleanup(func() { agent.EnsureRouter, agent.MintSession, retry.SharedPoll = oe, om, op })
+	oe, om, omf, op := agent.EnsureRouter, agent.MintSession, agent.MintSessionWithFailover, retry.SharedPoll
+	t.Cleanup(func() {
+		agent.EnsureRouter, agent.MintSession, agent.MintSessionWithFailover, retry.SharedPoll = oe, om, omf, op
+	})
 	agent.StubProxyForTest(base, token)
 }
 

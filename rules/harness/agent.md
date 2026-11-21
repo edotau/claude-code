@@ -198,7 +198,8 @@ paths:
   `dispatch-effort` hook does the same for a dispatch whose `Run:` line runs `--model auto` (or no model over an auto
   pin, no `--overlay`, `--spec` or `--provider`): it freezes the pick into the line (model, and profile) and labels the
   bare id, so the run is exactly that model; a frozen pick is typed, so a refusal falls back as a typed model does
-  (no 3-re-pick auto recovery). Only `agents label` without `--run` still peeks and reads `auto (next: <id>)`.
+  (no 3-re-pick auto recovery). An auto label is the picked id in parentheses, `(<id>): task`;
+  a typed or pinned model stays bare.
   `opencode catalog` text shows `SERVED` for Databricks models: dev/qa/prod marks `y` READY, `n` not READY,
   or `?` for a missing/stale listing.
   `claude-code doctor` auto-pin rows end with 7-day final-route counts when records have `ran_route`.

@@ -21,9 +21,10 @@ import (
 )
 
 type SessionRequest struct {
-	Profiles []string `json:"profiles,omitempty"`
-	PID      int      `json:"pid,omitempty"`
-	Token    string   `json:"token,omitempty"`
+	Profiles         []string `json:"profiles,omitempty"`
+	PID              int      `json:"pid,omitempty"`
+	Token            string   `json:"token,omitempty"`
+	FailoverProvider string   `json:"failover_provider,omitempty"`
 }
 
 type SessionResponse struct {
@@ -33,8 +34,14 @@ type SessionResponse struct {
 
 // MintScopedToken asks the daemon (starting it if needed) for a token covering profiles and bound to pid.
 func MintScopedToken(ctx context.Context, profiles []string, pid int) (string, error) {
+	return MintScopedTokenWithFailover(ctx, profiles, pid, "")
+}
+
+// MintScopedTokenWithFailover mints a profile-bound token with optional server-side same-provider failover.
+func MintScopedTokenWithFailover(ctx context.Context, profiles []string, pid int, failoverProvider string) (string, error) {
 	var out SessionResponse
-	if err := postSession(ctx, true, SessionPath, SessionRequest{Profiles: profiles, PID: pid}, &out); err != nil {
+	req := SessionRequest{Profiles: profiles, PID: pid, FailoverProvider: failoverProvider}
+	if err := postSession(ctx, true, SessionPath, req, &out); err != nil {
 		return "", err
 	}
 	return out.Token, nil

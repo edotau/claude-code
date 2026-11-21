@@ -416,6 +416,11 @@ func cloneCodexMetadata(value any) any {
 	}
 }
 
+// SwapRecordModel implements agent.RecordModelSwapper for Responses-only record model fallback.
+func (codexEngine) SwapRecordModel(p *providers.Provider, wire string) string {
+	return codexResponsesModel(p, wire)
+}
+
 // codexResponsesModel is the default a model Responses cannot serve falls back to: the menu's first Responses model.
 func codexResponsesModel(p *providers.Provider, model string) string {
 	if p.Preset != providers.PresetDatabricks || codexResponsesServable(p, model) {

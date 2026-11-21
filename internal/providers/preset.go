@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -138,12 +139,15 @@ func ValidID(s string) bool { return cliProfileRE().MatchString(s) }
 
 func expandServing(p *Provider, host string) {
 	if p.BaseURL == "" {
-		p.BaseURL = host + "/serving-endpoints/anthropic"
+		p.BaseURL = serving.BaseURL(host, ProtocolAnthropic)
 	}
 	for _, d := range []string{ProtocolOpenAI, ProtocolResponses} {
 		if p.Routes[d] == "" {
-			p.Routes = withKey(p.Routes, d, host+"/serving-endpoints")
+			p.Routes = withKey(p.Routes, d, serving.BaseURL(host, d))
 		}
+	}
+	if p.Routes[ProtocolGemini] == "" {
+		p.Routes = withKey(p.Routes, ProtocolGemini, serving.BaseURL(host, ProtocolGemini))
 	}
 	if p.ModelPrefix == "" {
 		p.ModelPrefix = models.DatabricksPrefix

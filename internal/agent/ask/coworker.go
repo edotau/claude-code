@@ -21,6 +21,7 @@ import (
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 )
 
 // ApplyCoworker is ApplyRoute for a legacy provider[:profile] value; cli/gateway.go still passes strings.
@@ -50,13 +51,13 @@ func ApplyRoute(ctx context.Context, want route.Route, profile, agentName, model
 		if ip == "" || ip == router.RouteDatabricks {
 			return ctx, nil
 		}
-		return applyProvider(ctx, ip, iprof, agentName)
+		return applyProvider(ctx, ip, iprof, agentName, model)
 	}
 	if err := checkLeave(ip, iprof, provider, p); err != nil {
 		return ctx, err
 	}
 	if provider != router.RouteDatabricks {
-		return applyProvider(ctx, provider, cmp.Or(p, iprof), agentName)
+		return applyProvider(ctx, provider, cmp.Or(p, iprof), agentName, model)
 	}
 	return applyArm(ctx, p, profile, agentName, model, fallback)
 }
@@ -83,18 +84,57 @@ func checkLeave(ip, iprof, provider, p string) error {
 }
 
 // applyProvider checks profile p and agentName against a non-Databricks provider, then sets the confinement on ctx.
-func applyProvider(ctx context.Context, provider, p, agentName string) (context.Context, error) {
+func applyProvider(ctx context.Context, provider, p, agentName, model string) (context.Context, error) {
 	reg, err := providers.Load()
 	if err != nil {
 		return ctx, fmt.Errorf("overlay provider %s: %w", provider, err)
 	}
-	if row := reg.Providers[p]; p != "" && (row == nil || row.Provider != provider) {
-		return ctx, fmt.Errorf("overlay profile: not a profile of %s", provider) // never echo the document's value
-	}
 	if err := canUse(reg, agentName, provider); err != nil {
 		return ctx, err
 	}
+	if p == router.AutoArm {
+		picked, err := autoProviderProfile(ctx, reg, provider, agentName, model)
+		if err != nil {
+			return ctx, err
+		}
+		return agent.WithAutoFailover(withValues(ctx, confinement(provider, picked)), provider), nil
+	}
+	if row := reg.Providers[p]; p != "" && (row == nil || row.Provider != provider) {
+		return ctx, fmt.Errorf("overlay profile: not a profile of %s", provider) // never echo the document's value
+	}
 	return withValues(ctx, confinement(provider, p)), nil
+}
+
+// autoProviderProfile picks the least-loaded healthy profile of a non-Databricks provider.
+func autoProviderProfile(ctx context.Context, reg *providers.Registry, provider, agentName, model string) (string, error) {
+	q := router.WorkspaceQuery[agent.Finding]{
+		Provider:  provider,
+		AgentName: agentName,
+		Model:     model,
+		Findings: func(p *providers.Provider, ag, m string, _ time.Time) []agent.Finding {
+			if ag != "" && !agent.CanServe(ag, p) {
+				return []agent.Finding{{Profile: p.Name, Check: "agent", Detail: p.Name + " cannot serve " + ag}}
+			}
+			if ag != "" && typedModel(m) {
+				if _, why := agent.ProfileServes(ag, p, m); why != "" {
+					return []agent.Finding{{Profile: p.Name, Check: "model", Detail: why}}
+				}
+			}
+			return nil
+		},
+		Unserved: errUnserved,
+		Cooling:  armCooling,
+		Live:     armLive,
+	}
+	if agent.Peeking(ctx) {
+		names, _, err := router.RankWorkspaces(reg, q, time.Now())
+		if err != nil {
+			return "", err
+		}
+		return names[0], nil
+	}
+	name, _, _, err := router.PickWorkspaceAndStamp(reg, q, time.Now())
+	return name, err
 }
 
 // canUse refuses a table agent with no account on provider; another agent name (a batch's "") passes.
@@ -166,7 +206,11 @@ func applyArm(ctx context.Context, p, profile, agentName, model, fallback string
 	if err := checkArmRow(ctx, p, explicit, fallback); err != nil {
 		return ctx, err
 	}
-	return withValues(ctx, armValues(p)), nil
+	ctx = withValues(ctx, armValues(p))
+	if !explicit {
+		ctx = agent.WithAutoFailover(ctx, router.RouteDatabricks)
+	}
+	return ctx, nil
 }
 
 // armWorkspace is the workspace databricks:<p> names (bare: bareArm, auto: autoWorkspace); explicit: neither auto.
@@ -219,7 +263,12 @@ func autoWorkspace(ctx context.Context, agentName, model, fallback string) (stri
 	if err != nil {
 		return "", fmt.Errorf("overlay databricks:auto: %w", err)
 	}
-	q := armQuery{AgentName: agentName, Model: model, Strict: fallback == router.FallbackNone && typedModel(model)}
+	q := armQuery{
+		AgentName:   agentName,
+		Model:       model,
+		Strict:      fallback == router.FallbackNone && typedModel(model),
+		PreferFresh: model == "" || agent.IsAuto(model),
+	}
 	if agent.Peeking(ctx) {
 		names, skipped, err := router.RankWorkspaces(reg, workspaceQuery(q), time.Now())
 		if err != nil {
@@ -260,7 +309,7 @@ func nearestWorkspaceIDs(skipped []agent.Finding) []string {
 func readyWorkspaceIDs(skipped []agent.Finding) []string {
 	var near []string
 	for _, f := range skipped {
-		served, ok := router.FreshServed(f.Profile, time.Now())
+		served, ok := serving.Fresh(f.Profile, time.Now())
 		if !ok {
 			continue
 		}

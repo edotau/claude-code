@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/permission"
+	"github.com/edotau/claude-code/internal/serving"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
@@ -223,13 +224,16 @@ func geminiGateway(ctx context.Context, p *providers.Provider, model string, h *
 	if err := agyCheckGateway(p, base, nil); err != nil {
 		return nil, nil, err
 	}
-	rb, err := agent.EnsureRouter(ctx)
-	if err != nil {
-		return nil, nil, fmt.Errorf("gemini: router: %w", err)
-	}
-	tok, err := agent.SessionToken(ctx, rb, p.Name)
-	if err != nil {
-		return nil, nil, fmt.Errorf("gemini: session token for profile %s: %w", p.Name, err)
+	var rb, tok string
+	if agent.IsDryRun(ctx) {
+		rb, tok = agent.PreviewRouterBase(ctx), "<redacted>"
+	} else {
+		if rb, err = agent.EnsureRouter(ctx); err != nil {
+			return nil, nil, fmt.Errorf("gemini: router: %w", err)
+		}
+		if tok, err = agent.SessionTokenWithFailover(ctx, rb, agent.AutoFailoverProvider(ctx), p.Name); err != nil {
+			return nil, nil, fmt.Errorf("gemini: session token for profile %s: %w", p.Name, err)
+		}
 	}
 	route, wireProto, list, lite := providers.ProtocolOpenAI, "openai", base, base // Gemini ids stay off the openai wire
 	if !agyForeign(base) {
@@ -283,7 +287,7 @@ const agyFlashLite = "databricks-gemini-3-1-flash-lite"
 
 // agyServedGemini lists the READY Gemini endpoint names in p's fresh cached listing; nil when cold. A var for tests.
 var agyServedGemini = func(p *providers.Provider, now time.Time) []string {
-	s, ok := router.FreshServed(p.Name, now)
+	s, ok := serving.Fresh(p.Name, now)
 	if !ok {
 		return nil
 	}

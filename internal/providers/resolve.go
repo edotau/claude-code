@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/edotau/claude-code/internal/models"
+	"github.com/edotau/claude-code/internal/serving"
 )
 
 // Target is one resolved (provider, wire model id) pair.
@@ -159,42 +160,41 @@ func ServesResponsesIn(menu []OpencodeModel, p *Provider, model string) bool {
 	return models.ResponsesOnly(model)
 }
 
-// apiTypeResponses is the listing's api_types entry for the OpenAI Responses API.
-const apiTypeResponses = "openai/v1/responses"
+// apiTypeResponses and apiTypeCodexResponses are the Databricks listing api_types for streaming Responses support.
+const (
+	apiTypeResponses      = "openai/v1/responses"
+	apiTypeCodexResponses = "codex/v1/responses"
+)
 
-// EndpointFacts are one workspace endpoint's listing facts; an empty or zero field is unknown.
-type EndpointFacts struct {
-	APITypes        []string
-	Context, Output int
+func listedFacts(p *Provider, wire string) (serving.EndpointFacts, bool) {
+	return serving.Facts(p.Name, p.WireModel(models.Strip1M(strings.TrimSpace(wire))))
 }
 
-// ListedFacts reads p's fresh listing for wire; the router replaces it, none known until then.
-var ListedFacts = func(p *Provider, wire string) (EndpointFacts, bool) { return EndpointFacts{}, false }
-
-// ListedResponses reports whether p's fresh listing says wire serves Responses; known is false with no api_types.
+// ListedResponses reports whether p's fresh listing says wire serves streaming Responses; known=false if absent.
 func ListedResponses(p *Provider, wire string) (serves, known bool) {
 	if p == nil || p.Preset != PresetDatabricks {
 		return false, false
 	}
-	f, ok := ListedFacts(p, wire)
+	f, ok := listedFacts(p, wire)
 	if !ok || len(f.APITypes) == 0 {
 		return false, false
 	}
-	return slices.Contains(f.APITypes, apiTypeResponses), true
+	return slices.Contains(f.APITypes, apiTypeResponses) && slices.Contains(f.APITypes, apiTypeCodexResponses), true
 }
 
 // LimitsFor is wire's token limits: the tracked catalog's value per field, else the fresh listing's, else unknown.
 func LimitsFor(p *Provider, wire string) (models.TokenLimits, bool) {
 	l, _ := models.Limits(wire)
 	if p != nil && (l.Context == 0 || l.Output == 0) {
-		if f, ok := ListedFacts(p, wire); ok {
+		if f, ok := listedFacts(p, wire); ok {
 			l.Context, l.Output = cmp.Or(l.Context, f.Context), cmp.Or(l.Output, f.Output)
 		}
 	}
 	return l, l != (models.TokenLimits{})
 }
 
-// ResponsesServable reports a wire id codex can run on p: the fresh listing's api_types, else the old family rule.
+// ResponsesServable reports a wire id codex and pi can run on p: the fresh listing, else the menu flag or GPT family.
+// With no listing it is deliberately wider than WireFor, which ignores the GPT-family rule.
 func ResponsesServable(p *Provider, wire string) bool {
 	if serves, known := ListedResponses(p, wire); known {
 		return serves
@@ -227,7 +227,7 @@ func WireForIn(menu []OpencodeModel, p *Provider, model string) (wire string, ok
 	switch {
 	case claude && has(ProtocolAnthropic):
 		return ProtocolAnthropic, true, ""
-	case !claude && ServesResponsesIn(menu, p, model):
+	case !claude && wireNeedsResponses(menu, p, model):
 		if has(ProtocolResponses) {
 			return ProtocolResponses, true, ""
 		}
@@ -236,6 +236,14 @@ func WireForIn(menu []OpencodeModel, p *Provider, model string) (wire string, ok
 		return ProtocolOpenAI, true, ""
 	}
 	return "", false, fmt.Sprintf("provider %s has no openai route to serve %s (it has %s)", p.Name, model, strings.Join(p.Dialects(), ","))
+}
+
+// wireNeedsResponses reports whether model must use Responses on p: live api_types beat stale menu guesses.
+func wireNeedsResponses(menu []OpencodeModel, p *Provider, model string) bool {
+	if serves, known := ListedResponses(p, model); known {
+		return serves
+	}
+	return ServesResponsesIn(menu, p, model)
 }
 
 // ClaudeCodeError is non-nil when Claude Code cannot run model on p: a Responses-only model has no translate path.

@@ -10,7 +10,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
@@ -168,7 +168,7 @@ func ownsModel(p *providers.Provider, id string) bool {
 
 // AcceptedIDs is p's fresh READY chat ids the agent can run, else p's models then the agent's catalog ids (fresh false).
 func AcceptedIDs(agentName string, p *providers.Provider, now time.Time) (ids []string, fresh bool) {
-	if s, ok := router.FreshServed(p.Name, now); ok {
+	if s, ok := serving.Fresh(p.Name, now); ok {
 		chat := chatServed(s)
 		for _, m := range s.Models {
 			if _, why := preflightModelWire(agentName, p, m.ID); m.IsReady() && chat(m) && why == "" {

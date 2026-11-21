@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
@@ -38,14 +39,14 @@ func TestFamilyModelDatabricksListing(t *testing.T) {
 		t.Errorf("no listing = %q, want today's concrete id", got)
 	}
 	ready := map[string]string{"databricks-gpt-6-sol": "READY", "databricks-gpt-6-1-sol": "READY", "databricks-gpt-6-2-sol": "READY"}
-	if err := SaveServed(listing("dev", ready)); err != nil {
+	if err := serving.Save(listing("dev", ready)); err != nil {
 		t.Fatal(err)
 	}
 	if got := FamilyModel("codex", "sol", p, nil, now); got != "databricks-gpt-6-2-sol" {
 		t.Errorf("6, 6.1 and 6.2 listed = %q, want 6.2", got)
 	}
 	ready["databricks-gpt-6-2-sol"] = "NOT_READY"
-	if err := SaveServed(listing("dev", ready)); err != nil {
+	if err := serving.Save(listing("dev", ready)); err != nil {
 		t.Fatal(err)
 	}
 	if got := FamilyModel("codex", "sol", p, nil, now); got != "databricks-gpt-6-1-sol" {
@@ -84,7 +85,7 @@ func TestDatabricksModelBucketFollowsFamily(t *testing.T) {
 	vaulttest.Use(t)
 	p := dbxProv("dev")
 	ready := map[string]string{"databricks-gpt-6-1-sol": "READY", "databricks-gpt-6-2-sol": "READY"}
-	if err := SaveServed(listing("dev", ready)); err != nil {
+	if err := serving.Save(listing("dev", ready)); err != nil {
 		t.Fatal(err)
 	}
 	// opus lists no claude here, so the first runnable member is the sol family's newest
@@ -100,7 +101,7 @@ func providersGitHub() *providers.Provider {
 // A listed family id the catalog does not know yet is runnable by its family's wire, so codex picks it.
 func TestFamilyModelPicksUnknownNewestForResponsesAgent(t *testing.T) {
 	vaulttest.Use(t)
-	if err := SaveServed(listing("dev", map[string]string{"databricks-gpt-7-sol": "READY"})); err != nil {
+	if err := serving.Save(listing("dev", map[string]string{"databricks-gpt-7-sol": "READY"})); err != nil {
 		t.Fatal(err)
 	}
 	if got := FamilyModel("codex", "sol", dbxProv("dev"), nil, time.Now()); got != "databricks-gpt-7-sol" {

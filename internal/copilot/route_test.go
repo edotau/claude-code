@@ -18,7 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
-	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/serving"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -260,7 +260,7 @@ func TestCopilotGateRefusesModelFallbackProfileDoesNotServe(t *testing.T) {
 	macFallbackScratch(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"routing":{"servedAware":true},"providers":{"databricks":{"dbx":`+
 		`{"preset":"databricks","host":"https://127.0.0.1:1","auth":{"type":"key","env":"DBX_CLI_TOKEN"}}}}}`)
-	if err := router.SaveServed(router.Served{Profile: "dbx", FetchedAt: time.Now(), Models: []router.ServedModel{
+	if err := serving.Save(serving.Served{Profile: "dbx", FetchedAt: time.Now(), Models: []serving.ServedModel{
 		{ID: "databricks-kimi-k3", Ready: "READY"}, {ID: "databricks-glm-5-3", Ready: "NOT_READY"}}}); err != nil {
 		t.Fatal(err)
 	}

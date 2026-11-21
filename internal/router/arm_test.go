@@ -207,3 +207,56 @@ func checkReadOnlyRank(t *testing.T, reg *providers.Registry, now time.Time, wan
 		t.Fatalf("read-only rank = %v, %v; want %s without writes", ranked, err, want)
 	}
 }
+
+func rankIs(ranked []string, err error, at map[int]string, n int) bool {
+	if err != nil || len(ranked) != n {
+		return false
+	}
+	for i, name := range at {
+		if ranked[i] != name {
+			return false
+		}
+	}
+	return true
+}
+
+func TestRankWorkspacesPreferFreshAndMultiProvider(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Now()
+	reg := &providers.Registry{Providers: map[string]*providers.Provider{
+		"ws-a": {Name: "ws-a", Provider: "databricks", Preset: providers.PresetDatabricks, Host: "https://a.example.com"},
+		"ws-b": {Name: "ws-b", Provider: "databricks", Preset: providers.PresetDatabricks, Host: "https://b.example.com"},
+		"ws-c": {Name: "ws-c", Provider: "databricks", Preset: providers.PresetDatabricks, Host: "https://c.example.com"},
+		"ws-d": {Name: "ws-d", Provider: "databricks", Preset: providers.PresetDatabricks, Host: "https://d.example.com"},
+		"ws-e": {Name: "ws-e", Provider: "databricks", Preset: providers.PresetDatabricks, Host: "https://e.example.com"},
+		"gh-a": {Name: "gh-a", Provider: "github"},
+		"gh-b": {Name: "gh-b", Provider: "github"},
+	}}
+	if err := WarmServed("ws-c", []providers.ModelInfo{{ID: "databricks-claude-opus-5-5", Ready: "READY"}}, now); err != nil {
+		t.Fatal(err)
+	}
+	baseQ := func(prov string, cool map[string]bool, preferFresh bool) WorkspaceQuery[struct{}] {
+		return WorkspaceQuery[struct{}]{
+			Provider: prov, PreferFresh: preferFresh,
+			Findings: func(*providers.Provider, string, string, time.Time) []struct{} { return nil },
+			Unserved: func(string, []struct{}) error { return nil },
+			Cooling:  func(p *providers.Provider, _ time.Time) bool { return cool[p.Name] },
+			Live:     func([]*providers.Provider) map[string]int { return map[string]int{} },
+		}
+	}
+	// D6: fresh ws-c ranks ahead of stale ws-a..ws-e when PreferFresh is set.
+	ranked, _, err := RankWorkspaces(reg, baseQ("databricks", nil, true), now)
+	if !rankIs(ranked, err, map[int]string{0: "ws-c"}, 5) {
+		t.Fatalf("preferFresh rank = %v, %v; want 5 workspaces with ws-c first", ranked, err)
+	}
+	// Cooling still beats freshness: if ws-c is cooling, stale ws-a takes over.
+	ranked, _, err = RankWorkspaces(reg, baseQ("databricks", map[string]bool{"ws-c": true}, true), now)
+	if !rankIs(ranked, err, map[int]string{0: "ws-a", 4: "ws-c"}, 5) {
+		t.Fatalf("cooling vs fresh rank = %v, %v; want ws-a first, ws-c last", ranked, err)
+	}
+	// Non-Databricks multi-profile ranking stays strictly within its provider group.
+	ghRanked, _, err := RankWorkspaces(reg, baseQ("github", map[string]bool{"gh-a": true}, false), now)
+	if !rankIs(ghRanked, err, map[int]string{0: "gh-b", 1: "gh-a"}, 2) {
+		t.Fatalf("github rank = %v, %v; want [gh-b gh-a]", ghRanked, err)
+	}
+}
