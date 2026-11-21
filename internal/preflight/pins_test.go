@@ -8,6 +8,8 @@ import (
 	"testing"
 	"time"
 
+	dbxserving "github.com/edotau/claude-code/internal/databricks/serving"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/proc"
@@ -39,7 +41,7 @@ func hermeticVault(t *testing.T) {
 func stubListing(t *testing.T) {
 	t.Helper()
 	refresh = func(_ context.Context, p *providers.Provider) error {
-		return router.WarmServed(p.Name, []providers.ModelInfo{{ID: "good-model", Task: "llm/v1/chat", Ready: "READY"},
+		return dbxserving.WarmServed(p.Name, []providers.ModelInfo{{ID: "good-model", Task: "llm/v1/chat", Ready: "READY"},
 			{ID: "cold-model", Ready: "NOT_READY"}}, time.Now())
 	}
 	t.Cleanup(func() { refresh = catalog.Refresh })
@@ -190,7 +192,7 @@ func TestCheckIgnoresDatabricksArm(t *testing.T) {
 func TestCheckGeminiOnDatabricksChecksServedName(t *testing.T) {
 	hermeticVault(t)
 	reg, now := preflightRegistry(true), time.Now()
-	if err := router.WarmServed("dev", []providers.ModelInfo{{ID: "databricks-gemini-3-8-flash", Task: "llm/v1/chat", Ready: "READY"}}, now); err != nil {
+	if err := dbxserving.WarmServed("dev", []providers.ModelInfo{{ID: "databricks-gemini-3-8-flash", Task: "llm/v1/chat", Ready: "READY"}}, now); err != nil {
 		t.Fatal(err)
 	}
 	for model, want := range map[string]string{"gemini-3.8-flash-high": StatusOK, "gemini-3.8-pro-high": statusUnserved} {
@@ -205,7 +207,7 @@ func TestCheckClaudeAliasPinIsChecked(t *testing.T) {
 	hermeticVault(t)
 	stubListing(t)
 	reg, now := preflightRegistry(true), time.Now()
-	if err := router.WarmServed("dev", []providers.ModelInfo{{ID: "good-model", Task: "llm/v1/chat", Ready: "READY"}}, now); err != nil {
+	if err := dbxserving.WarmServed("dev", []providers.ModelInfo{{ID: "good-model", Task: "llm/v1/chat", Ready: "READY"}}, now); err != nil {
 		t.Fatal(err)
 	}
 	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "CLAUDE_ALIASES.OPUS": "good-model"})
@@ -224,7 +226,7 @@ func TestCheckClaudeAliasPinResponsesOnly(t *testing.T) {
 	stubListing(t)
 	reg, now := preflightRegistry(true), time.Now()
 	reg.Providers["dev"].Routes = map[string]string{providers.ProtocolResponses: "https://dev.example/responses"}
-	if err := router.WarmServed("dev", []providers.ModelInfo{{ID: "databricks-gpt-6-1-sol", Task: "llm/v1/chat", Ready: "READY"}}, now); err != nil {
+	if err := dbxserving.WarmServed("dev", []providers.ModelInfo{{ID: "databricks-gpt-6-1-sol", Task: "llm/v1/chat", Ready: "READY"}}, now); err != nil {
 		t.Fatal(err)
 	}
 	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "CLAUDE_ALIASES.OPUS": "gpt-6-1-sol"})
@@ -242,7 +244,7 @@ func TestCheckClaudeLegacyPrefixedPinIgnored(t *testing.T) {
 	hermeticVault(t)
 	stubListing(t)
 	reg, now := preflightRegistry(true), time.Now()
-	if err := router.WarmServed("dev", []providers.ModelInfo{{ID: "good-model", Task: "llm/v1/chat", Ready: "READY"}}, now); err != nil {
+	if err := dbxserving.WarmServed("dev", []providers.ModelInfo{{ID: "good-model", Task: "llm/v1/chat", Ready: "READY"}}, now); err != nil {
 		t.Fatal(err)
 	}
 	setPins(t, map[string]string{"CLAUDE_PROFILE": "dev", "CLAUDE_ALIASES.HAIKU": "openai:gpt-5-nano", "CLAUDE_ALIASES.OPUS": "good-model"})

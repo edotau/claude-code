@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/catalog"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/route"
@@ -108,7 +110,7 @@ func catalogInputs(bin string, p *providers.Provider, prefs map[string]string) (
 	if !ok {
 		return nil, "", fmt.Errorf("binary stamp failed: %s", bin)
 	}
-	menu, err := providers.OpencodeMenuFor(p)
+	menu, err := catalog.OpencodeMenuFor(p)
 	if err != nil {
 		return nil, "", err
 	}

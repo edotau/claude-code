@@ -11,7 +11,6 @@ import (
 
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
@@ -120,7 +119,7 @@ func discoverPickerProfile(p *providers.Provider, github GithubLister, apply, ve
 	}
 	r.Discovered = len(live)
 	r.Destinations = discoverDestinations(p)
-	if r.Dropped, err = providers.DroppedLive(p, live); err != nil {
+	if r.Dropped, err = DroppedLive(p, live); err != nil {
 		r.Status = "error"
 		r.Note = "saved picker additions unavailable or invalid; nothing overwritten: " + err.Error()
 		return r
@@ -129,9 +128,9 @@ func discoverPickerProfile(p *providers.Provider, github GithubLister, apply, ve
 	r.Deprecated, r.ProbeNote = databricksListing(ctx, p, live, apply, verify)
 	var added []providers.ModelInfo
 	if apply {
-		added, err = providers.AppendPickerModels(p, live)
+		added, err = AppendPickerModels(p, live)
 	} else {
-		added, err = providers.PreviewPickerModels(p, live)
+		added, err = PreviewPickerModels(p, live)
 	}
 	if err != nil {
 		r.Status = "error"
@@ -210,7 +209,7 @@ func DropPickerProfiles(reg *providers.Registry, names, ids []string, undrop, gl
 		p, err := reg.Get(name)
 		if err == nil {
 			var removed []string
-			removed, err = providers.EditPickerDrops(p, ids, undrop, write)
+			removed, err = EditPickerDrops(p, ids, undrop, write)
 			r.Removed = append(r.Removed, removed...)
 		}
 		if err != nil {
@@ -232,7 +231,7 @@ func databricksListing(ctx context.Context, p *providers.Provider, live []provid
 	if !apply {
 		return nil, "no deprecation probe sent in a preview; --apply probes new ids (--verify also the saved ones)"
 	}
-	if err := router.WarmServed(p.Name, live, time.Now()); err != nil {
+	if err := serving.WarmServed(p.Name, live, time.Now()); err != nil {
 		fmt.Fprintf(os.Stderr, "copilot: %s served listing not saved: %v\n", p.Name, err)
 	}
 	ids, err := probeCandidates(p, live, verify)
@@ -241,7 +240,7 @@ func databricksListing(ctx context.Context, p *providers.Provider, live []provid
 	}
 	unserved, broken, err := unservedIDs(ctx, p, live, ids)
 	for i := 0; err == nil && i < len(unserved); i++ {
-		_, err = providers.RecordDropped(p, unserved[i].ID, unserved[i].Reason, time.Now())
+		_, err = RecordDropped(p, unserved[i].ID, unserved[i].Reason, time.Now())
 	}
 	if err != nil {
 		return nil, "deprecation probe changed nothing: " + err.Error()
@@ -254,7 +253,7 @@ func databricksListing(ctx context.Context, p *providers.Provider, live []provid
 
 // withReasons appends each id's recorded drop reason, e.g. "gpt-5 (deprecated 2026-11-20)".
 func withReasons(p *providers.Provider, ids []string) []string {
-	why, _ := providers.DroppedReasons(p)
+	why, _ := DroppedReasons(p)
 	out := slices.Clone(ids)
 	for i, id := range out {
 		if w := why[id]; w != "" {
@@ -276,7 +275,7 @@ func brokenNote(broken []string) string {
 
 // probeCandidates are the ids discovery would add, plus p's saved additions when verify is set.
 func probeCandidates(p *providers.Provider, live []providers.ModelInfo, verify bool) ([]string, error) {
-	added, err := providers.PreviewPickerModels(p, live)
+	added, err := PreviewPickerModels(p, live)
 	if err != nil {
 		return nil, err
 	}
@@ -285,7 +284,7 @@ func probeCandidates(p *providers.Provider, live []providers.ModelInfo, verify b
 		ids = append(ids, m.ID)
 	}
 	if verify {
-		saved, err := providers.PickerModels(p)
+		saved, err := PickerModels(p)
 		if err != nil {
 			return nil, err
 		}

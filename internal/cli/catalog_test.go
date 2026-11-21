@@ -1131,7 +1131,7 @@ func TestServedMark(t *testing.T) {
 func TestOpencodeMenuSyncAndAddHonorDiscoveryDrops(t *testing.T) {
 	f := syncEnv(t)
 	syncExistingMenu(t)
-	if _, err := providers.EditPickerDrops(f.p, []string{"sync-alpha"}, false, true); err != nil {
+	if _, err := catalog.EditPickerDrops(f.p, []string{"sync-alpha"}, false, true); err != nil {
 		t.Fatal(err)
 	}
 	out := syncRun(t, "--apply")

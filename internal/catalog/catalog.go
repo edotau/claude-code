@@ -11,10 +11,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/route"
+
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 	"github.com/edotau/claude-code/internal/vault"
 )
@@ -22,7 +23,7 @@ import (
 // Profile is agent's catalog profile: flag, else the agent's pin, else the session; nil when none is named.
 func Profile(ctx context.Context, agent, flag string) (*providers.Provider, error) {
 	pin := vault.GetAgentRecord(agent).EffectiveRoute()
-	if pin.Provider == providers.GroupDatabricks && pin.Profile == router.AutoArm { // the pool names no workspace
+	if pin.Provider == providers.GroupDatabricks && pin.Profile == route.AutoArm { // the pool names no workspace
 		pin.Profile = ""
 	}
 	name := cmp.Or(flag, pin.Profile, providers.SessionProfileContext(ctx))
@@ -154,7 +155,7 @@ func Seal(p *providers.Provider, snapshot serving.Snapshot, verified bool) (seal
 	if snapshot.CacheHit {
 		return true, nil
 	}
-	if err := router.WarmServed(p.Name, snapshot.Models, snapshot.DiscoveredAt); err != nil {
+	if err := serving.WarmServed(p.Name, snapshot.Models, snapshot.DiscoveredAt); err != nil {
 		return true, fmt.Errorf("served listing not saved: %w", err)
 	}
 	return true, nil

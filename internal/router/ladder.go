@@ -21,9 +21,6 @@ import (
 // RouteDatabricks is the provider whose confinement arms one workspace (ArmProfileContext); any other filters accounts.
 const RouteDatabricks = "databricks"
 
-// AutoArm is the databricks profile an ask resolves to one workspace; unresolved, it confines nothing yet.
-const AutoArm = "auto"
-
 // BadOverlay is the provider ConfinedContext reports for an unparseable overlay: no account, so nothing routes.
 const BadOverlay = "invalid-overlay"
 
@@ -415,7 +412,7 @@ func parseCoworker(ctx context.Context) (provider, profile string, err error) {
 		return "", "", nil
 	case json.Unmarshal([]byte(v), &doc) != nil:
 		return "", "", errors.New(route.OverlayVar + ": not valid JSON")
-	case doc.Provider == RouteDatabricks && (doc.Profile == "" || doc.Profile == AutoArm):
+	case doc.Provider == RouteDatabricks && (doc.Profile == "" || doc.Profile == route.AutoArm):
 		// the ask applying this document resolves the workspace
 		return "", "", nil
 	}

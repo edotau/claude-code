@@ -77,7 +77,7 @@ func TestDiscoverApplyDropsDeprecatedEndpoints(t *testing.T) {
 	if got := fmt.Sprint(r.Deprecated, len(*sent), (*sent)[0].Responses); got != "[databricks-old-model] 4 true" {
 		t.Fatalf("apply: deprecated, probes, responses route = %s", got)
 	}
-	saved, _ := providers.PickerModels(p)
+	saved, _ := PickerModels(p)
 	var ids []string
 	for _, m := range saved {
 		ids = append(ids, m.ID)

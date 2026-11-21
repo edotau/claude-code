@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	dbxserving "github.com/edotau/claude-code/internal/databricks/serving"
+
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/gemini"
@@ -194,7 +196,7 @@ func refreshServed(ctx context.Context, p *providers.Provider, now time.Time) st
 	if err != nil {
 		return "listing refresh: " + textutil.FirstLine(err.Error())
 	}
-	if err := router.WarmServed(p.Name, infos, now); err != nil {
+	if err := dbxserving.WarmServed(p.Name, infos, now); err != nil {
 		return "listing save: " + err.Error()
 	}
 	return ""

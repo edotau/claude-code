@@ -40,21 +40,21 @@ func TestNoteDeprecatedDropsOnlyTheExplicitAnswer(t *testing.T) {
 	other.Preset = ""
 	r.noteUnserved(&other, replyOf(400, dep))
 	r.bg.Wait()
-	if got, _ := providers.PickerDropped(dbx); len(got) != 0 {
+	if got, _ := catalog.PickerDropped(dbx); len(got) != 0 {
 		t.Fatalf("dropped %v after non-qualifying replies, want none", got)
 	}
 	resp := replyOf(400, dep)
 	r.noteUnserved(dbx, resp)
 	r.noteUnserved(dbx, replyOf(400, dep))
 	r.bg.Wait()
-	got, _ := providers.PickerDropped(dbx)
+	got, _ := catalog.PickerDropped(dbx)
 	if !slices.Equal(got, []string{"databricks-gpt-5-mini"}) || strings.Count(log.String(), "is deprecated; dropped") != 1 {
 		t.Fatalf("dropped %v, log %q; want the id once and one log line", got, log.String())
 	}
 	if body, _ := io.ReadAll(resp.Body); string(body) != dep {
 		t.Errorf("body after peek = %q, want it intact", body)
 	}
-	if why, _ := providers.DroppedReasons(dbx); !strings.HasPrefix(why["databricks-gpt-5-mini"], "deprecated 20") {
+	if why, _ := catalog.DroppedReasons(dbx); !strings.HasPrefix(why["databricks-gpt-5-mini"], "deprecated 20") {
 		t.Errorf("reasons = %v, want a dated deprecated reason", why)
 	}
 	undropClears(t, dbx)
@@ -62,11 +62,11 @@ func TestNoteDeprecatedDropsOnlyTheExplicitAnswer(t *testing.T) {
 
 func undropClears(t *testing.T, dbx *providers.Provider) {
 	t.Helper()
-	if _, err := providers.EditPickerDrops(dbx, []string{"databricks-gpt-5-mini"}, true, true); err != nil {
+	if _, err := catalog.EditPickerDrops(dbx, []string{"databricks-gpt-5-mini"}, true, true); err != nil {
 		t.Fatal(err)
 	}
-	got, _ := providers.PickerDropped(dbx)
-	why, _ := providers.DroppedReasons(dbx)
+	got, _ := catalog.PickerDropped(dbx)
+	why, _ := catalog.DroppedReasons(dbx)
 	if len(got) != 0 || len(why) != 0 {
 		t.Errorf("after undrop dropped %v reasons %v, want none", got, why)
 	}
@@ -96,7 +96,7 @@ func TestFailoverRecordsInTheScopeTheCLIReads(t *testing.T) {
 	if err != nil || !dropped[catalog.ID("databricks-gpt-5-mini")] {
 		t.Fatalf("CLI-side dropped = %v, %v; want the id", dropped, err)
 	}
-	if routedDropped, _ := providers.PickerDropped(&routed); len(routedDropped) != 0 {
+	if routedDropped, _ := catalog.PickerDropped(&routed); len(routedDropped) != 0 {
 		t.Errorf("routed copy's scope holds %v, want the record only in the registry row's scope", routedDropped)
 	}
 }

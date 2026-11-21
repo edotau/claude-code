@@ -10,6 +10,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/catalog"
+
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/databricks/serving"
@@ -414,7 +416,7 @@ func pickerChoices(d *dialog, p *providers.Provider, claude bool) []string {
 	if p.Provider == "github" {
 		return choices
 	}
-	saved, err := providers.PickerModels(p)
+	saved, err := catalog.PickerModels(p)
 	if err != nil {
 		d.printf("models: %v\n", err)
 		return choices

@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/catalog"
+
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -162,7 +164,7 @@ func ownsModel(p *providers.Provider, id string) bool {
 			return true
 		}
 	}
-	picked, _ := providers.PickerModels(p)
+	picked, _ := catalog.PickerModels(p)
 	return slices.ContainsFunc(picked, func(m providers.ModelInfo) bool { return m.ID == id })
 }
 

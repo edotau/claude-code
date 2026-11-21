@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/edotau/claude-code/internal/catalog"
+
 	"github.com/edotau/claude-code/internal/databricks/serving"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -30,7 +32,7 @@ func (r *Router) noteUnserved(p *providers.Provider, resp *http.Response) {
 		return
 	}
 	goStateWrite(r, func() {
-		added, err := providers.RecordDropped(row, id, reason, r.now())
+		added, err := catalog.RecordDropped(row, id, reason, r.now())
 		switch {
 		case err != nil:
 			r.mu.Lock()

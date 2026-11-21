@@ -13,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/catalog"
+
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 
@@ -167,7 +169,7 @@ func opencodeModels(p *providers.Provider, model string, h *agent.Headless) map[
 			// Saved history must not re-enable a disabled Copilot model.
 			return menu
 		}
-		saved, err := providers.PickerModels(p)
+		saved, err := catalog.PickerModels(p)
 		if err != nil {
 			fmt.Fprintln(agentconfig.CatalogWarn, "opencode:", err)
 		}

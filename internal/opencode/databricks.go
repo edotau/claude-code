@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/catalog"
+
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -118,7 +120,7 @@ func defaultProviderID(p *providers.Provider, id, model string, claudeRoute bool
 // splitMenu sorts the menu over the chat, Responses and Claude providers by wire, dropping labels p has no route for.
 func splitMenu(p *providers.Provider, claudeRoute bool) (chat, resp, claude map[string]any, allowed map[string]bool, dropped []string) {
 	chat, resp, claude, allowed = map[string]any{}, map[string]any{}, map[string]any{}, map[string]bool{}
-	menu, err := providers.OpencodeMenuFor(p)
+	menu, err := catalog.OpencodeMenuFor(p)
 	if err != nil {
 		fmt.Fprintln(agentconfig.CatalogWarn, "opencode:", err)
 	}

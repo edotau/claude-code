@@ -322,7 +322,7 @@ func fastTask(text string) string {
 }
 
 // AutoModel is the model value that has the resolver pick per task: typed, in an overlay or a record pin.
-const AutoModel = router.AutoArm
+const AutoModel = route.AutoArm
 
 // IsAuto reports whether model asks for auto.
 func IsAuto(model string) bool { return strings.EqualFold(strings.TrimSpace(model), AutoModel) }

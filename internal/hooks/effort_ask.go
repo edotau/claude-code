@@ -11,6 +11,8 @@ import (
 	"sync"
 	"time"
 
+	"github.com/edotau/claude-code/internal/route"
+
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
@@ -267,7 +269,7 @@ func (l askLine) target(reg *providers.Registry, none func() bool) (*providers.P
 // overlayTarget is target under overlay databricks:<p>; auto, bare, or a flag naming another row is not predicted.
 func (l askLine) overlayTarget(reg *providers.Registry, model string) (*providers.Provider, string, error) {
 	p := l.cfg.Profile
-	if p == "" || p == router.AutoArm || cmp.Or(l.profile, p) != p {
+	if p == "" || p == route.AutoArm || cmp.Or(l.profile, p) != p {
 		return nil, model, nil
 	}
 	if err := reg.ServingRow(p); err != nil {

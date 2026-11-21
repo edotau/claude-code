@@ -391,7 +391,7 @@ func recordRefusal(r *askRun, err error, fallback string) {
 func (r *askRun) poolValue(value string) string {
 	f := r.f
 	r.swap = helptext.Explicit(r.fs, "fallback") && f.fallback != router.FallbackNone
-	auto := route.Join(router.RouteDatabricks, router.AutoArm)
+	auto := route.Join(router.RouteDatabricks, route.AutoArm)
 	f.native = ownLoginNative(r.ag, f, value)
 	switch {
 	case value != "" || f.profile != "" || f.host != "" || r.jobRec != nil || f.native:

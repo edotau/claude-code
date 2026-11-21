@@ -7,6 +7,8 @@ import (
 	"testing"
 	"time"
 
+	dbxserving "github.com/edotau/claude-code/internal/databricks/serving"
+
 	_ "github.com/edotau/claude-code/internal/nonet"
 	"github.com/edotau/claude-code/internal/providers"
 )
@@ -232,7 +234,7 @@ func TestRankWorkspacesPreferFreshAndMultiProvider(t *testing.T) {
 		"gh-a": {Name: "gh-a", Provider: "github"},
 		"gh-b": {Name: "gh-b", Provider: "github"},
 	}}
-	if err := WarmServed("ws-c", []providers.ModelInfo{{ID: "databricks-claude-opus-5-5", Ready: "READY"}}, now); err != nil {
+	if err := dbxserving.WarmServed("ws-c", []providers.ModelInfo{{ID: "databricks-claude-opus-5-5", Ready: "READY"}}, now); err != nil {
 		t.Fatal(err)
 	}
 	baseQ := func(prov string, cool map[string]bool, preferFresh bool) WorkspaceQuery[struct{}] {

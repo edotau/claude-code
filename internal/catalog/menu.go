@@ -56,7 +56,7 @@ func opencodeSyncMerge(menu []providers.OpencodeModel, ids []string, checks []se
 
 // DroppedIDs is p's dropped picker ids as catalog ids, so discovery's drops hold for the shared menu too.
 func DroppedIDs(p *providers.Provider) (map[string]bool, error) {
-	dropped, err := providers.PickerDropped(p)
+	dropped, err := PickerDropped(p)
 	out := make(map[string]bool, len(dropped))
 	for _, id := range dropped {
 		out[ID(id)] = true

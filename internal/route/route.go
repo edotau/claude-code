@@ -12,6 +12,9 @@ import (
 // Providers lists the provider names ParseLegacy knows; agentconfig's test keeps it equal to the registry's.
 var Providers = []string{"anthropic", "databricks", "github", "google", "openai"}
 
+// AutoArm is the databricks profile an ask resolves to one workspace; unresolved, it confines nothing yet.
+const AutoArm = "auto"
+
 // Route is the unit that is assigned whole: where a run goes and as whom; the json keys are the overlay's.
 type Route struct {
 	Provider string `json:"provider,omitempty"`

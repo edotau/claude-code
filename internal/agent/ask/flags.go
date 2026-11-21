@@ -667,7 +667,7 @@ func flagRoute(f *askFlags) route.Route {
 			return r
 		}
 	case f.provider == router.RouteDatabricks:
-		return route.Route{Provider: f.provider, Profile: router.AutoArm}
+		return route.Route{Provider: f.provider, Profile: route.AutoArm}
 	case f.provider != "":
 		if rows := reg.ProfilesOf(f.provider); len(rows) == 1 {
 			return route.Route{Provider: f.provider, Profile: rows[0]}

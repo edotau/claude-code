@@ -12,6 +12,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/catalog"
+
 	agentpkg "github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/codex"
 	"github.com/edotau/claude-code/internal/copilot"
@@ -205,7 +207,7 @@ func CatalogForAlias(ctx context.Context, reg *providers.Registry, p *providers.
 		if p.Provider == "github" {
 			return // Saved history must not bypass Copilot policy filtering.
 		}
-		saved, err := providers.PickerModels(p)
+		saved, err := catalog.PickerModels(p)
 		if err != nil {
 			note += " saved picker additions unavailable: " + err.Error()
 			return

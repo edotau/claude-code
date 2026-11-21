@@ -5,6 +5,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/catalog"
+
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/serving"
 )
@@ -84,7 +86,7 @@ func FamilyModel(agent, family string, p *providers.Provider, ids []string, now 
 
 // droppedSet is p's drop list by providers.MenuID; empty when it cannot be read.
 func droppedSet(p *providers.Provider) map[string]bool {
-	ids, err := providers.PickerDropped(p)
+	ids, err := catalog.PickerDropped(p)
 	out := make(map[string]bool, len(ids))
 	if err != nil {
 		return out

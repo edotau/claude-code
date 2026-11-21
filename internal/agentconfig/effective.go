@@ -45,7 +45,7 @@ func checkProfile(reg *providers.Registry, agent, p string) error {
 
 // unknownProfile is the refusal for a typed profile no row has; auto names the overlay form.
 func unknownProfile(profile string) error {
-	if profile == router.AutoArm {
+	if profile == route.AutoArm {
 		return fmt.Errorf(`profile auto is %w; auto is an overlay value: --overlay '{"provider":"databricks","profile":"auto"}'`,
 			ErrUnknownProfile)
 	}
@@ -171,7 +171,7 @@ func ForContext(ctx context.Context, agent string, l Launch) (Effective, error) 
 
 // pinProfile is a pinned route as the profile a launch leads with; the pool keeps its group name.
 func pinProfile(rt route.Route) string {
-	if rt.Provider == providers.GroupDatabricks && rt.Profile == router.AutoArm {
+	if rt.Provider == providers.GroupDatabricks && rt.Profile == route.AutoArm {
 		return providers.GroupDatabricks
 	}
 	return rt.Profile

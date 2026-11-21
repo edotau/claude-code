@@ -13,6 +13,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/catalog"
+
 	"github.com/edotau/claude-code/internal/hosttest"
 
 	"github.com/edotau/claude-code/internal/audit"
@@ -43,7 +45,7 @@ const copilotPickerTitle = "copilot — model (github · copilot catalog)"
 func TestPickerChoicesSavedErrorUsesDialogOutput(t *testing.T) {
 	reg := menuTestEnv(t)
 	p := reg.Providers["ultra"]
-	if _, err := providers.AppendPickerModels(p, []providers.ModelInfo{{ID: "saved-model"}}); err != nil {
+	if _, err := catalog.AppendPickerModels(p, []providers.ModelInfo{{ID: "saved-model"}}); err != nil {
 		t.Fatal(err)
 	}
 	if err := vault.Update(func(tx *vault.Tx) error {
@@ -61,7 +63,7 @@ func TestPickerChoicesSavedErrorUsesDialogOutput(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	_, wantErr := providers.PickerModels(p)
+	_, wantErr := catalog.PickerModels(p)
 	if wantErr == nil {
 		t.Fatal("corrupt saved additions must fail to read")
 	}

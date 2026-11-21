@@ -62,15 +62,6 @@ func TestCostOptionsRoundTrip(t *testing.T) {
 	}
 }
 
-func TestCostOptionsDoNotChangeThePickerScope(t *testing.T) {
-	p := &Provider{Name: "dev", Host: "https://example.invalid"}
-	before := pickerScope(p)
-	p.Options.WarehouseID, p.Options.Prices = "wh1", map[string]Price{"m": {Input: 1}}
-	if after := pickerScope(p); after != before {
-		t.Errorf("setting cost options changed the picker scope: %s -> %s", before, after)
-	}
-}
-
 func TestPriceNegativeZeroNormalizes(t *testing.T) {
 	var p Price
 	if err := json.Unmarshal([]byte(`{"input":-0,"output":1}`), &p); err != nil || math.Signbit(p.Input) {

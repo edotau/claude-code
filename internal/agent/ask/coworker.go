@@ -92,7 +92,7 @@ func applyProvider(ctx context.Context, provider, p, agentName, model string) (c
 	if err := canUse(reg, agentName, provider); err != nil {
 		return ctx, err
 	}
-	if p == router.AutoArm {
+	if p == route.AutoArm {
 		picked, err := autoProviderProfile(ctx, reg, provider, agentName, model)
 		if err != nil {
 			return ctx, err
@@ -220,7 +220,7 @@ func armWorkspace(ctx context.Context, p, profile, agentName, model, fallback st
 			return "", false, errors.New("overlay provider databricks needs a profile: a workspace or auto")
 		}
 	}
-	if p != router.AutoArm {
+	if p != route.AutoArm {
 		return p, true, nil
 	}
 	p, err := autoWorkspace(ctx, agentName, model, fallback)

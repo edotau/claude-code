@@ -9,6 +9,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/catalog"
+
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -179,7 +181,7 @@ func TestRunnableIsTheMenu(t *testing.T) {
 // A routed copy has other URLs, so its scope misses the picker additions: the menu is read from the configured profile.
 func TestBuildConfigMenuReadsTheConfiguredProfile(t *testing.T) {
 	src := testProvider(t)
-	if _, err := providers.AppendPickerModels(src, []providers.ModelInfo{{ID: "databricks-gemini-4-argon", Ready: "READY", Task: "llm/v1/chat"}}); err != nil {
+	if _, err := catalog.AppendPickerModels(src, []providers.ModelInfo{{ID: "databricks-gemini-4-argon", Ready: "READY", Task: "llm/v1/chat"}}); err != nil {
 		t.Fatal(err)
 	}
 	routed := *src

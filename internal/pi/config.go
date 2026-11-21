@@ -12,6 +12,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/catalog"
+
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
@@ -117,7 +119,7 @@ type menuItem struct{ wire, label, w string }
 
 // piMenu is the profile's menu on the wires Pi can reach, plus what each wire left out; BuildConfig and Runnable share it.
 func piMenu(p, src *providers.Provider, bases Bases) (items []menuItem, dropped map[string][]string, err error) {
-	entries, err := providers.OpencodeMenuFor(src)
+	entries, err := catalog.OpencodeMenuFor(src)
 	dropped = map[string][]string{}
 	for _, m := range entries {
 		wire := agentconfig.MenuWire(p, m.ID)

@@ -1320,7 +1320,7 @@ func TestPoolValue(t *testing.T) {
 		{ID: "databricks-claude-sonnet-5-5", Ready: "READY"}}}); err != nil {
 		t.Fatal(err)
 	}
-	auto := route.Join(router.RouteDatabricks, router.AutoArm)
+	auto := route.Join(router.RouteDatabricks, route.AutoArm)
 	cases := []struct {
 		name string
 		args []string
@@ -1365,7 +1365,7 @@ func TestPoolValueStoredPinTakesOneWorkspace(t *testing.T) {
 			}
 			want := "databricks:dev"
 			if f.provider != "" {
-				want = route.Join(router.RouteDatabricks, router.AutoArm)
+				want = route.Join(router.RouteDatabricks, route.AutoArm)
 			}
 			r := &askRun{ctx: t.Context(), f: f, fs: fs, ag: ag}
 			if got := r.poolValue(""); got != want {
