@@ -180,6 +180,7 @@ func TestWindowPrefersCatalogLimit(t *testing.T) {
 		{"claude-opus-5-5", 1_000_000},
 		{"gemini-4-argon", 1_048_576},
 		{"not-a-model", ContextWindowUnknown},
+		{"", ContextWindowStd},
 	}
 	for _, c := range cases {
 		if got := Window(c.id); got != c.want {

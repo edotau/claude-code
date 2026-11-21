@@ -171,12 +171,12 @@ func installPi(ctx context.Context, w io.Writer, dir string, dryRun bool) error 
 
 func piPrefix() string { return filepath.Join(paths.StateDir(), "pi", "npm") }
 
-// requirePiNode returns the bin dir to prepend to the npm child's PATH ("" when the PATH node serves) and the npm to run.
+// requirePiNode returns the bin dir to prepend to the npm child's PATH ("" for PATH's node) and the npm beside it.
 func requirePiNode(ctx context.Context) (string, string, error) {
 	fix := depFix(deps[slices.IndexFunc(deps, func(d dep) bool { return d.Name == "node" })])
 	node, _ := depLookPath("node") // absent is "too old": nvm candidates still get tried
 	nvm := nvmDir()
-	dir, err := pickPiNode(ctx, node, nvm)
+	dir, err := pickPiNode(ctx, node, nvm, true)
 	if err != nil {
 		seen := "no node on PATH"
 		if node != "" {
@@ -184,16 +184,10 @@ func requirePiNode(ctx context.Context) (string, string, error) {
 		}
 		return "", "", fmt.Errorf("pi: no Node %s+ found (%s; nvm dir %q); run: %s, or install Node %s+ with nvm", piMinNode, seen, nvm, fix, piMinNode)
 	}
-	if npm := filepath.Join(dir, "npm"); dir != "" {
-		if _, err := os.Stat(npm); err == nil {
-			return dir, npm, nil
-		}
+	if npm := npmIn(dir); npm != "" {
+		return dir, npm, nil
 	}
-	npm, err := depLookPath("npm")
-	if err != nil {
-		return "", "", fmt.Errorf("pi: npm not on PATH (Node %s+ needed); run: %s", piMinNode, fix)
-	}
-	return dir, npm, nil
+	return "", "", fmt.Errorf("pi: npm not on PATH (Node %s+ needed); run: %s", piMinNode, fix)
 }
 
 const opencodeAllowMajorEnv = "HARNESS_ALLOW_OPENCODE_2X"

@@ -26,13 +26,21 @@ func TestPickPiNode(t *testing.T) {
 	fakeNode(t, nvm, "22.23.2")
 	want := filepath.Dir(fakeNode(t, nvm, "24.18.0"))
 	fakeNode(t, nvm, "18.1.0")
-	if got, err := pickPiNode(context.Background(), old, nvm); err != nil || got != want {
+	if got, err := pickPiNode(context.Background(), old, nvm, false); err != nil || got != want {
 		t.Fatalf("got %q, %v; want %q", got, err, want)
 	}
-	if got, err := pickPiNode(context.Background(), filepath.Join(nvm, "versions", "node", "v24.18.0", "bin", "node"), ""); err != nil || got != "" {
+	if got, err := pickPiNode(context.Background(), filepath.Join(nvm, "versions", "node", "v24.18.0", "bin", "node"), "", false); err != nil || got != "" {
 		t.Fatalf("new PATH node: got %q, %v", got, err)
 	}
-	if _, err := pickPiNode(context.Background(), old, t.TempDir()); err == nil {
+	if _, err := pickPiNode(context.Background(), old, t.TempDir(), false); err == nil {
 		t.Fatal("want error with no new node")
+	}
+	if err := os.WriteFile(filepath.Join(want, "npm"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", t.TempDir())
+	newPath := filepath.Join(nvm, "versions", "node", "v22.23.2", "bin", "node")
+	if got, err := pickPiNode(context.Background(), newPath, nvm, true); err != nil || got != want {
+		t.Fatalf("PATH node without npm: got %q, %v; want the nvm node with npm %q", got, err, want)
 	}
 }

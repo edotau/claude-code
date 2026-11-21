@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -365,19 +366,26 @@ func Window(p *Provider, id string) int {
 	return ContextTokens(p, models.Strip1M(id), models.Keeps1M(id))
 }
 
-// ContextTokens is the one window wire runs at on p: typed [1m] on a 1M row, else catalog, listing, then the row's cap.
+// listedContext is p's fresh listing context for wire, or 0.
+func listedContext(p *Provider, wire string) int {
+	if p == nil {
+		return 0
+	}
+	f, _ := listedFacts(p, wire)
+	return f.Context
+}
+
+// ContextTokens is the one window wire runs at on p: typed [1m] on a 1M row, else fresh listing, catalog, row cap.
 func ContextTokens(p *Provider, wire string, oneM bool) int {
+	claude := models.FamilyKind(wire) == models.FamilyClaude
 	w := models.ContextWindow1M
 	if !oneM || !p.Serves1M() {
-		w = models.Window(wire)
-		if l, ok := LimitsFor(p, wire); ok && l.Context > 0 {
-			w = l.Context
-		}
-		if !p.Serves1M() || models.Keeps1M(wire+oneMMarker) {
+		w = cmp.Or(listedContext(p, wire), models.Window(wire))
+		if claude && (!p.Serves1M() || models.Keeps1M(wire+oneMMarker)) {
 			w = min(w, models.ContextWindowStd)
 		}
 	}
-	if os.Getenv("CLAUDE_CODE_DISABLE_1M_CONTEXT") != "" && models.FamilyKind(wire) == models.FamilyClaude {
+	if os.Getenv("CLAUDE_CODE_DISABLE_1M_CONTEXT") != "" && claude {
 		w = min(w, models.ContextWindowStd)
 	}
 	return w

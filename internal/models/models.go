@@ -137,7 +137,7 @@ func Window(id string) int {
 			return ContextWindow1M
 		}
 	}
-	if FamilyKind(id) != FamilyClaude {
+	if id != "" && FamilyKind(id) != FamilyClaude {
 		return ContextWindowUnknown
 	}
 	return ContextWindowStd

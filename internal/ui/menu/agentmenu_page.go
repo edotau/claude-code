@@ -502,13 +502,12 @@ func copilotEffortRow(d *dialog, modelID string) *billingRow {
 	return &r
 }
 
-// copilotContextEligible: catalog context above the standard window when it resolves, else the copilot row's window.
+// copilotContextEligible: catalog context above 200K when it resolves, else the claude-* prefix (no other flag says).
 func copilotContextEligible(d *dialog, modelID string) bool {
 	if m, ok := copilotCatalogModel(d, modelID); ok {
 		return m.ContextTokens > models.ContextWindowStd
 	}
-	reg, _ := providers.Load()
-	return providers.Window(reg.Row("copilot"), modelID) > models.ContextWindowStd
+	return models.FamilyKind(modelID) == models.FamilyClaude
 }
 
 // copilotContextRow pins COPILOT_CONTEXT_TIER; nil when modelID has no long-context tier.

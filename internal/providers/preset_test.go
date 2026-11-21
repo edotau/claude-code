@@ -460,7 +460,7 @@ func TestServes1MByEndpointType(t *testing.T) {
 	}
 }
 
-// Window: catalog limit or Claude 5+/typed [1m] 1M, capped to 200K off a 1M endpoint; unknown non-Claude 128K.
+// Window: catalog limit or Claude 5+/typed [1m] 1M, Claude capped to 200K off a 1M endpoint; unknown non-Claude 128K.
 func TestWindowByEndpoint(t *testing.T) {
 	serving := &Provider{ModelPrefix: models.DatabricksPrefix}
 	copilot := &Provider{Provider: "github"}
@@ -477,7 +477,7 @@ func TestWindowByEndpoint(t *testing.T) {
 		{"copilot typed [1m] on 5.5 is a no-op", copilot, "claude-opus-5-5[1m]", models.ContextWindowStd},
 		{"serving non-Claude", serving, "gpt-5", models.ContextWindowUnknown},
 		{"serving gemini catalog limit", serving, "databricks-gemini-3-8-flash", 1_048_576},
-		{"copilot gemini capped", copilot, "databricks-gemini-3-8-flash", models.ContextWindowStd},
+		{"copilot gemini keeps its catalog window", copilot, "databricks-gemini-3-8-flash", 1_048_576},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := Window(tc.p, tc.id); got != tc.want {
@@ -523,9 +523,10 @@ func TestContextTokens(t *testing.T) {
 	dbx := &Provider{Name: "dev", Preset: PresetDatabricks}
 	gh := &Provider{Name: "gh", Provider: "github"}
 	listingFacts(t, map[string]serving.EndpointFacts{
-		"claude-opus-4-8":         {Context: models.ContextWindow1M},
-		"databricks-fixture-chat": {Context: 128_000},
-		"databricks-fixture-big":  {Context: models.ContextWindow1M},
+		"claude-opus-4-8":             {Context: models.ContextWindow1M},
+		"databricks-fixture-chat":     {Context: 128_000},
+		"databricks-fixture-big":      {Context: models.ContextWindow1M},
+		"databricks-claude-haiku-5-5": {Context: models.ContextWindowStd},
 	})
 	for _, c := range []struct {
 		name string
@@ -536,6 +537,8 @@ func TestContextTokens(t *testing.T) {
 		want int
 	}{
 		{"claude 5 on databricks", dbx, "databricks-claude-opus-5-5", false, "", models.ContextWindow1M},
+		{"claude 5 fresh 200K listing wins", dbx, "databricks-claude-haiku-5-5", false, "", models.ContextWindowStd},
+		{"gemini keeps its window on a non-1M row", gh, "gemini-4-argon", false, "", 1_048_576},
 		{"4.x typed [1m]", dbx, "claude-opus-4-8", true, "", models.ContextWindow1M},
 		{"typed [1m] on a non-1M row", gh, "claude-opus-4-8", true, "", models.ContextWindowStd},
 		{"4.x untyped, listing says 1M", dbx, "claude-opus-4-8", false, "", models.ContextWindowStd},
