@@ -537,7 +537,7 @@ func TestAgentEffortReadsRosterAndRegistryOnce(t *testing.T) {
 	}
 }
 
-// A Run: line's model a fresh cached listing does not serve is denied with ask's preflight text; stale passes.
+// A Run: line's model a fresh cached listing does not serve is denied with ask's AcceptModel text; a stale listing refuses an unknown id as cold.
 func TestDispatchPreflightRefusesUnservedModel(t *testing.T) {
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
@@ -551,9 +551,11 @@ func TestDispatchPreflightRefusesUnservedModel(t *testing.T) {
 		label    string // the description prefix: the model as dev serves it
 	}{
 		{"claude-sonnet-5-5", 0, "", "databricks-claude-sonnet-5-5"},
-		{"claude-nonexistent-9", 0, "dispatch-effort: preflight: served: dev lists no endpoint claude-nonexistent-9 " +
-			"(no fallback for this dispatch: --fallback or AGENT_ERROR_FALLBACK). Fix the brief's `Run:` line", ""},
-		{"claude-nonexistent-9", 48 * time.Hour, "", ""}, // a stale listing proves nothing: ask's own preflight decides
+		{"claude-nonexistent-9", 0, "dispatch-effort: model route: claude-nonexistent-9: dev does not accept it for claude " +
+			"(dev lists no endpoint claude-nonexistent-9); nearest: databricks-claude-sonnet-5-5. Fix the brief's `Run:` line", ""},
+		// D7: no fresh listing and neither a catalog nor databricks- id is a cold refusal under --fallback none
+		{"claude-nonexistent-9", 48 * time.Hour, "dispatch-effort: model route: claude-nonexistent-9: dev has no fresh listing " +
+			"and claude-nonexistent-9 is not a catalog id; run `claude-code models preflight --live --profile dev`. Fix the brief's `Run:` line", ""},
 	}
 	for _, tc := range cases {
 		if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now().Add(-tc.age), Models: []router.ServedModel{

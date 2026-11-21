@@ -9,6 +9,9 @@ import (
 	"time"
 
 	agentpkg "github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
 
 func TestDispatchRunReceiptGrammar(t *testing.T) {
@@ -100,5 +103,27 @@ func checkReceiptEarned(t *testing.T, command, brief string) {
 	e := &effortPlan{updated: map[string]any{"subagent_type": "codex", "description": "inspect hook"}, run: newDispatchRun(nil)}
 	if e.label(context.Background(), brief); e.updated["description"] != "pinned: inspect hook" || !e.changed {
 		t.Fatalf("missing label rewrite for %q: %+v", brief, e.updated)
+	}
+}
+
+// TestAskLineRefusalMatchesAcceptModel: the hook predicts AcceptModel's wording for an unserved and a prefixed model.
+func TestAskLineRefusalMatchesAcceptModel(t *testing.T) {
+	vaulttest.Use(t)
+	vaulttest.Put(t, vault.Overlay, "providers", armDevOverlay)
+	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
+		{ID: "databricks-claude-opus-5-5", Ready: "READY"}}}); err != nil {
+		t.Fatal(err)
+	}
+	for _, model := range []string{"claude-opus-5-9", "dev:opus"} {
+		l := parseAskLine(t.Context(), "Run: claude-code agents ask --agent claude --profile dev --fallback none --model "+model+" 'x'")
+		reg, err := newDispatchRun(nil).registry()
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, want := agentpkg.AcceptModel("claude", reg.Providers["dev"], model, time.Now())
+		got := l.refusal(reg, "claude")
+		if want == nil || got == nil || got.Error() != want.Error() {
+			t.Errorf("--model %s: refusal = %v, want %v", model, got, want)
+		}
 	}
 }
