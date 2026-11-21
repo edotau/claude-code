@@ -127,7 +127,7 @@ func TestCompletionContains(t *testing.T) {
 		{"databricks --profile", []string{"databricks", "--"}, []string{"--profile"}},
 		{"clip --serve", []string{"clip", "--"}, []string{"--serve"}},
 		{"theme values", []string{"theme", ""}, append([]string{"apply", "statusline", "vscode"}, theme.GradientNames()...)},
-		{"network subverbs", []string{"network", ""}, []string{"browser", "websearch", "remote"}},
+		{"network subverbs", []string{"network", ""}, []string{"browser", "pki", "websearch", "remote"}},
 		{"--flag=value", []string{"agents", "ask", "--agent=co"}, []string{"--agent=codex"}},
 		{"agents status --agent values", []string{"agents", "status", "--agent", ""}, []string{"claude", "codex", "copilot", "gemini", "opencode"}},
 		{"agents cancel flags", []string{"agents", "cancel", "--"}, []string{"--dry-run", "--lost"}},
@@ -475,7 +475,7 @@ func TestSpecTreeSubwordsMatchDispatch(t *testing.T) {
 	tree := specTree()
 	for verb, want := range map[string][]string{
 		"vault":   {"ls", "set", "get", "delete", "env", "import", "export", "rotate-secret"},
-		"network": {"browser", "websearch", "remote"},
+		"network": {"browser", "pki", "websearch", "remote"},
 		"memory": {"recall", "remember", "init", "review", "promote", "update", "dream", "search", "show",
 			"index", "path", "watch", "import", "fmt", "report", "sandbox", "migrate"},
 		"gateway":  {"proxy", "resolve"},
