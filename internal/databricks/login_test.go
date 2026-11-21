@@ -17,6 +17,7 @@ import (
 	"github.com/edotau/claude-code/internal/databricks/oauth"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -199,6 +200,23 @@ func TestLoginReusesValidCachedToken(t *testing.T) {
 	code, stdout, stderr := hosttest.CaptureOutput(t, func() int { return login([]string{"--profile", "dbx-u2m"}) })
 	if code != 0 || calls != 0 || !strings.Contains(stdout, "already logged in · expires in 40m") {
 		t.Fatalf("exit %d calls %d stdout %q stderr %q", code, calls, stdout, stderr)
+	}
+}
+
+func TestLoginSuccessClearsAuthMark(t *testing.T) {
+	seedU2MRow(t)
+	for _, valid := range []bool{true, false} {
+		stubValid(t, valid)
+		fakeLogin(t, func(*providers.Provider) (time.Duration, error) { return time.Minute, nil })
+		if err := router.MarkAuth(router.ProviderAccount("dbx-u2m"), "login rejected (401)"); err != nil {
+			t.Fatal(err)
+		}
+		if code, _, stderr := hosttest.CaptureOutput(t, func() int { return login([]string{"--profile", "dbx-u2m"}) }); code != 0 {
+			t.Fatalf("valid=%v exit %d stderr %q", valid, code, stderr)
+		}
+		if _, ok := router.LoadState().AuthMarked(router.ProviderAccount("dbx-u2m"), time.Now()); ok {
+			t.Errorf("valid=%v: auth mark survived a successful login", valid)
+		}
 	}
 }
 

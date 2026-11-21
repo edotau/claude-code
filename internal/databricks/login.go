@@ -203,6 +203,7 @@ func loginUser(p *providers.Provider, mode string, h headless, dryRun, reuse boo
 	}
 	if reuse {
 		if left, ok := validU2M(ctx, p); ok {
+			clearAuthMark(p.Name)
 			fmt.Printf("already logged in · expires in %dm\n", int(left.Minutes()))
 			return 0
 		}
@@ -238,6 +239,7 @@ func loginSP(p *providers.Provider, dryRun bool) int {
 		}
 		return fail("login: %v", err)
 	}
+	clearAuthMark(p.Name)
 	line := fmt.Sprintf("%s · service principal %s · token minted", p.Name, p.Auth.SPClientID)
 	if e, ok := providers.JWTExp(tok); ok {
 		line += fmt.Sprintf(" · expires in %dm", max(0, int(time.Until(time.Unix(e, 0)).Minutes())))
@@ -373,11 +375,16 @@ func loginRow(ctx context.Context, name string, out io.Writer, h headless) error
 		return err
 	}
 	switched = false
-	if err := router.ClearProviderAuth(p.Name); err != nil { // the TTL backstops a missed clear
-		fmt.Fprintf(os.Stderr, "warning: clear the router's re-auth mark for %s: %v\n", p.Name, err)
-	}
+	clearAuthMark(p.Name)
 	fmt.Fprintf(out, "logged in · token expires in %dm\n", int(ttl.Minutes()))
 	return nil
+}
+
+// clearAuthMark drops the router's re-auth mark after a login that worked; the 6h TTL backstops a missed clear.
+func clearAuthMark(profile string) {
+	if err := router.ClearProviderAuth(profile); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: clear the router's re-auth mark for %s: %v\n", profile, err)
+	}
 }
 
 func loginHost(p *providers.Provider) string {
