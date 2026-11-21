@@ -223,9 +223,24 @@ func configureAssignment(o *configureOpts, section string, pos []string) (rc int
 	return 0, false
 }
 
+// liftAgentName makes `configure agents <agent>` mean --agent <agent>, so one agent is set up, not all.
+func liftAgentName(o *configureOpts, section string, pos []string) error {
+	if section != "agents" || len(pos) == 0 || o.restore || o.revert {
+		return nil
+	}
+	if len(pos) > 1 || o.agent != "" && o.agent != pos[0] {
+		return fmt.Errorf("agents takes one <agent> (got %q with --agent %q)", strings.Join(pos, " "), o.agent)
+	}
+	o.agent = pos[0]
+	return nil
+}
+
 func configureRun(o *configureOpts, section string, pos []string) int {
 	if rc, ok := configureAssignment(o, section, pos); ok {
 		return rc
+	}
+	if err := liftAgentName(o, section, pos); err != nil {
+		return helptext.Fail("configure: %v", err)
 	}
 	profile, err := configureAllProfile(o, section, pos)
 	if err != nil {

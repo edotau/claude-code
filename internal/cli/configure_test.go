@@ -435,3 +435,16 @@ func TestContractRegistryGolden(t *testing.T) {
 		t.Fatalf("registry differs from %s (run -update after reviewing):\n--- got\n%s--- want\n%s", goldenPath, got, want)
 	}
 }
+
+// TestConfigureAgentsNamedOnlyActsOnThatAgent: `configure agents codex` reports codex alone, not every default agent.
+func TestConfigureAgentsNamedOnlyActsOnThatAgent(t *testing.T) {
+	resetEnv(t)
+	_, stdout, stderr := hosttest.CaptureOutput(t, func() int { return run([]string{"agents", "codex", "--check"}) })
+	out := stdout + stderr
+	if !strings.Contains(out, "codex") || strings.Contains(out, "opencode") || strings.Contains(out, "gemini") {
+		t.Errorf("want codex only:\n%s", out)
+	}
+	if code, _, _ := hosttest.CaptureOutput(t, func() int { return run([]string{"agents", "codex", "gemini"}) }); code != 1 {
+		t.Errorf("two names: exit %d, want 1", code)
+	}
+}
