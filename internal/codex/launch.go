@@ -208,8 +208,8 @@ func codexReadOnlyGo(env, argv []string) (out, outArgv []string, remove func(), 
 	return values.Env(), slices.Concat(argv[:i], flags, argv[i+2:]), remove, nil
 }
 
-// codexReadOnlyCaches are the Go dirs a read-only run needs writable; GOMODCACHE stays the readable real one.
-var codexReadOnlyCaches = [][2]string{{"GOCACHE", "go-build"}, {"GOTMPDIR", "tmp"}, {"GOLANGCI_LINT_CACHE", "lint"}}
+// codexReadOnlyCaches are the Go and cgo/gcc (TMPDIR) dirs a read-only run writes; GOMODCACHE stays the real one.
+var codexReadOnlyCaches = [][2]string{{"GOCACHE", "go-build"}, {"GOTMPDIR", "tmp"}, {"TMPDIR", "tmp"}, {"GOLANGCI_LINT_CACHE", "lint"}}
 
 // codexCacheArgv repeats env's Go cache vars as shell-policy overrides; a user config's `inherit = "core"` drops them.
 func codexCacheArgv(argv, env []string) []string {

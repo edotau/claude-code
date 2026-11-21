@@ -227,7 +227,7 @@ func TestCodexReadOnlyGo(t *testing.T) {
 	if slices.Contains(argv, "--sandbox") || !strings.Contains(joined, `permissions.goro.filesystem={":root"="read"`) {
 		t.Fatalf("read-only sandbox not replaced by the profile: %q", argv)
 	}
-	if e := strings.Join(env, "\n"); !strings.Contains(e, "GOTMPDIR=") || !strings.Contains(e, "GOCACHE=") || strings.Contains(e, "GOMODCACHE=") {
+	if e := strings.Join(env, "\n"); !strings.Contains(e, "GOTMPDIR=") || !slices.ContainsFunc(env, func(s string) bool { return strings.HasPrefix(s, "TMPDIR=") }) || !strings.Contains(e, "GOCACHE=") || strings.Contains(e, "GOMODCACHE=") {
 		t.Fatalf("go dirs wrong: %q", env)
 	}
 	if _, got, _, _ := codexReadOnlyGo(nil, []string{"--sandbox", "workspace-write"}); !slices.Contains(got, "workspace-write") {
