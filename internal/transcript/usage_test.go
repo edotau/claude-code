@@ -196,7 +196,7 @@ func TestWindow(t *testing.T) {
 		model string
 		used  int
 		want  int
-	}{{"claude-opus-5", 10, 1_000_000}, {"claude-haiku-4-5", 10, 200_000}, {"claude-haiku-4-5", 300_000, 1_000_000}, {"claude-opus-4-8[1m]", 1, 1_000_000}, {"claude-opus-4-8", 1, 200_000}} {
+	}{{"claude-opus-5", 10, 1_000_000}, {"claude-haiku-4-5", 10, 200_000}, {"claude-haiku-4-5", 300_000, 200_000}, {"", 300_000, 1_000_000}, {"claude-opus-4-8[1m]", 1, 1_000_000}, {"claude-opus-4-8", 1, 200_000}} {
 		if got := Window(c.model, c.used); got != c.want {
 			t.Errorf("Window(%q,%d)=%d want %d", c.model, c.used, got, c.want)
 		}

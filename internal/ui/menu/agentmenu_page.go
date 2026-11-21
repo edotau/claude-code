@@ -474,9 +474,6 @@ var copilotEffortChoices = [][2]string{
 // copilotContextChoices: menu label → the --context tier value.
 var copilotContextChoices = [][2]string{{"200K", "default"}, {"1M", "long_context"}}
 
-// copilotContextBaseline is copilot's default context window (200K); a model above it has a long-context tier.
-const copilotContextBaseline = 200_000
-
 // copilotEffortRow pins COPILOT_REASONING_EFFORT: modelID's own efforts from the SDK catalog, else the fixed list.
 func copilotEffortRow(d *dialog, modelID string) *billingRow {
 	cur := vault.GetAgentRecord("copilot").Effort
@@ -505,12 +502,13 @@ func copilotEffortRow(d *dialog, modelID string) *billingRow {
 	return &r
 }
 
-// copilotContextEligible: catalog context above 200K when it resolves, else the claude-* prefix (no other flag says).
+// copilotContextEligible: catalog context above the standard window when it resolves, else the copilot row's window.
 func copilotContextEligible(d *dialog, modelID string) bool {
 	if m, ok := copilotCatalogModel(d, modelID); ok {
-		return m.ContextTokens > copilotContextBaseline
+		return m.ContextTokens > models.ContextWindowStd
 	}
-	return models.FamilyKind(modelID) == models.FamilyClaude
+	reg, _ := providers.Load()
+	return providers.Window(reg.Row("copilot"), modelID) > models.ContextWindowStd
 }
 
 // copilotContextRow pins COPILOT_CONTEXT_TIER; nil when modelID has no long-context tier.

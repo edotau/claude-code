@@ -420,12 +420,12 @@ func contextPct(in input) int {
 	return clampPct(used * 100 / contextLimit(in, model, used))
 }
 
-// contextLimit: a reported window is ground truth; exceeds_200k next; else infer from the model/env pins.
+// contextLimit: a reported window is ground truth; then the model's launched window; exceeds_200k only with no model.
 func contextLimit(in input, model string, used int) int {
 	if cw := in.ContextWindow; cw != nil && cw.Size > 0 {
 		return cw.Size
 	}
-	if in.Exceeds200k {
+	if in.Exceeds200k && model == "" {
 		return models.ContextWindow1M
 	}
 	return transcript.Window(model, used)

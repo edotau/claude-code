@@ -324,9 +324,9 @@ func usageFromLine(line []byte) (Usage, bool) {
 	return Usage{Tokens: u.Input + u.CacheRead + u.CacheCreation + u.Output, Model: rec.Message.Model}, true
 }
 
-// Window is the session model's context window: 1M once usage exceeds 200K, else providers.Window.
+// Window is the launched window of model (providers.Window); usage above 200K guesses 1M only when no model is known.
 func Window(model string, used int) int {
-	if used > models.ContextWindowStd {
+	if model == "" && used > models.ContextWindowStd {
 		return models.ContextWindow1M
 	}
 	p := providers.SessionProvider()

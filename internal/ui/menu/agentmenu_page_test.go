@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/configure"
 	"github.com/edotau/claude-code/internal/copilot"
 	"github.com/edotau/claude-code/internal/gemini"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault"
@@ -79,10 +80,10 @@ func TestCopilotKeyRowAbsentPasteRefusesShortToken(t *testing.T) {
 	}
 }
 
-// copilotContextEligible is the claude-* model gate for the Context row when the SDK catalog is unreachable.
+// copilotContextEligible follows the copilot row's window (200K, never a 1M tier) when the SDK catalog is unreachable.
 func TestCopilotContextEligible(t *testing.T) {
 	menuTestEnv(t)
-	cases := map[string]bool{"claude-opus-5.5": true, "claude-sonnet-5": true, "auto": false, "gpt-5": false, "": false}
+	cases := map[string]bool{"claude-opus-5.5": false, "claude-sonnet-5": false, "auto": false, "gpt-5": false, "": false}
 	for model, want := range cases {
 		d := &dialog{out: discardWriter{}}
 		if got := copilotContextEligible(d, model); got != want {
@@ -94,11 +95,11 @@ func TestCopilotContextEligible(t *testing.T) {
 // copilotContextRow is nil for an ineligible model.
 func TestCopilotContextRowNilWhenIneligible(t *testing.T) {
 	menuTestEnv(t)
-	d := &dialog{out: discardWriter{}}
-	if r := copilotContextRow(d, "auto"); r != nil {
+	if r := copilotContextRow(&dialog{out: discardWriter{}}, "auto"); r != nil {
 		t.Errorf("ineligible model: row = %+v, want nil", r)
 	}
-	if r := copilotContextRow(d, "claude-opus-5.5"); r == nil {
+	stubCatalog(t, []copilot.SDKModel{{ID: "claude-opus-5.5", ContextTokens: models.ContextWindow1M}}, nil)
+	if r := copilotContextRow(&dialog{out: discardWriter{}}, "claude-opus-5.5"); r == nil {
 		t.Error("eligible model: row = nil, want the Context row")
 	}
 }
