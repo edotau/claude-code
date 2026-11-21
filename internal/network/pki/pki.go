@@ -90,9 +90,13 @@ func Cmd(args []string) int {
 	return 0
 }
 
-// lookupEnv resolves a key from the process env, then the vault custom env, then ./.env.
+// lookupEnv reads process env, the vault env bucket (refs resolved), a sealed secret of that name, then ./.env.
 func lookupEnv() func(string) string {
-	vaultEnv := providers.CustomEnv()
+	sealed := func(k string) (string, bool) {
+		v, _, err := vault.Lookup(k)
+		return v, err == nil && v != ""
+	}
+	vaultEnv, _, _ := providers.ResolveCustomEnv(sealed)
 	dotenv := map[string]string{}
 	if f, err := os.Open(".env"); err == nil {
 		pairs, _ := vault.ParseDotenv(f)
@@ -102,12 +106,15 @@ func lookupEnv() func(string) string {
 		}
 	}
 	return func(k string) string {
-		for _, v := range []string{os.Getenv(k), vaultEnv[k], dotenv[k]} {
+		for _, v := range []string{os.Getenv(k), vaultEnv[k]} {
 			if v != "" {
 				return v
 			}
 		}
-		return ""
+		if v, ok := sealed(k); ok {
+			return v
+		}
+		return dotenv[k]
 	}
 }
 
