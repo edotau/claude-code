@@ -74,7 +74,7 @@ func newFixture(t *testing.T) *fixture {
 func TestPinnedBundle(t *testing.T) {
 	fx := newFixture(t)
 	sys := filepath.Join(t.TempDir(), "sys.pem")
-	if err := os.WriteFile(sys, []byte("SYSTEM\n"), 0o644); err != nil {
+	if err := os.WriteFile(sys, fx.issPEM, 0o644); err != nil { // a store already holding the issuing CA
 		t.Fatal(err)
 	}
 	t.Setenv("SSL_CERT_FILE", sys)
@@ -84,7 +84,7 @@ func TestPinnedBundle(t *testing.T) {
 		t.Fatalf("run: %v", err)
 	}
 	got, _ := os.ReadFile(out)
-	if want := "SYSTEM\n" + string(fx.rootPEM) + string(fx.issPEM); string(got) != want {
+	if want := string(fx.issPEM) + string(fx.rootPEM); string(got) != want { // deduped, first-seen order
 		t.Errorf("bundle mismatch:\n%s", got)
 	}
 	if !strings.Contains(stdout.String(), "export SSL_CERT_FILE="+out) {

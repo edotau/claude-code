@@ -2,7 +2,6 @@
 package pki
 
 import (
-	"bytes"
 	"context"
 	"crypto/sha256"
 	"crypto/tls"
@@ -367,17 +366,32 @@ func sameFile(a, b string) bool {
 	return errA == nil && errB == nil && os.SameFile(ia, ib)
 }
 
+// uniqueCerts re-encodes every CERTIFICATE block once, in first-seen order; system stores often repeat the corp CAs.
+func uniqueCerts(sources ...[]byte) []byte {
+	seen := map[string]bool{}
+	var out []byte
+	for _, rest := range sources {
+		for {
+			var block *pem.Block
+			if block, rest = pem.Decode(rest); block == nil {
+				break
+			}
+			if block.Type == "CERTIFICATE" && !seen[string(block.Bytes)] {
+				seen[string(block.Bytes)] = true
+				out = append(out, pem.EncodeToMemory(&pem.Block{Type: block.Type, Bytes: block.Bytes})...)
+			}
+		}
+	}
+	return out
+}
+
 // writeBundle writes root.pem, issuing.pem and the system bundle plus both CAs beside out.
 func writeBundle(out string, rootPEM, issPEM []byte) error {
 	dir := filepath.Dir(out)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	bundle := systemBundle(out)
-	if len(bundle) > 0 && !bytes.HasSuffix(bundle, []byte("\n")) {
-		bundle = append(bundle, '\n')
-	}
-	bundle = append(append(bundle, rootPEM...), issPEM...)
+	bundle := uniqueCerts(systemBundle(out), rootPEM, issPEM)
 	for name, data := range map[string][]byte{"root.pem": rootPEM, "issuing.pem": issPEM} {
 		if err := paths.AtomicWrite(filepath.Join(dir, name), data, 0o644); err != nil {
 			return err
