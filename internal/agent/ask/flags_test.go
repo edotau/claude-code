@@ -482,7 +482,7 @@ func TestGuardResubmit(t *testing.T) {
 
 // --model auto asks for rotation and pins nothing, so a cut-off retry of it moves; a real id stays typed.
 func TestMarkTypedAutoIsNoPin(t *testing.T) {
-	for model, want := range map[string]bool{"auto": false, "dev:auto": false, "opus": true, "databricks-gpt-6-astra": true} {
+	for model, want := range map[string]bool{"auto": false, "opus": true, "databricks-gpt-6-astra": true} {
 		fs, f := askFlagSet()
 		if err := fs.Parse([]string{"--model", model}); err != nil {
 			t.Fatal(err)

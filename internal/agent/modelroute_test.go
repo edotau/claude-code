@@ -43,31 +43,31 @@ func routeRegistry(t *testing.T) *providers.Registry {
 func TestResolveModel(t *testing.T) {
 	reg := routeRegistry(t)
 	reg.Providers["qa"].Auth.Type = providers.AuthNone // the pool skips dev (no stored credential) and lands on qa
-	cells := []struct{ agent, model, profile, wire string }{
-		{"claude", "dev:claude-opus-5-5", "dev", "databricks-claude-opus-5-5"},
-		{"claude", "ultra:claude-opus-5-5", "ultra", "claude-opus-5-5"},
-		{"codex", "qa:gpt-6-1-sol", "qa", "databricks-gpt-6-1-sol"},
-		{"codex", "chatgpt:gpt-6-1-sol", "chatgpt", "gpt-6.1-sol"},
-		{"copilot", "aueric_boehcp:claude-opus-5.5", "aueric_boehcp", "claude-opus-5.5"},
-		{"copilot", "aueric_boehcp:opus", "aueric_boehcp", "gpt-6-astra"},
-		{"copilot", "dev:claude-opus-5-5", "dev", "databricks-claude-opus-5-5"},
-		{"codex", "openai:opus", "openai", "gpt-5"},
-		{"gemini", "dev:claude-sonnet-5-5", "dev", "databricks-claude-sonnet-5-5"},
-		{"gemini", "antigravity:claude-sonnet-5-5-medium", "antigravity", "claude-sonnet-5-5"},
-		{"gemini", "antigravity:gpt-oss-120b", "antigravity", "gpt-oss-120b"},
-		{"gemini", "antigravity:gemini-3-8-flash-high", "antigravity", "gemini-3.8-flash"},
+	cells := []struct{ agent, profile, model, wire string }{
+		{"claude", "dev", "claude-opus-5-5", "databricks-claude-opus-5-5"},
+		{"claude", "ultra", "claude-opus-5-5", "claude-opus-5-5"},
+		{"codex", "qa", "gpt-6-1-sol", "databricks-gpt-6-1-sol"},
+		{"codex", "chatgpt", "gpt-6-1-sol", "gpt-6.1-sol"},
+		{"copilot", "aueric_boehcp", "claude-opus-5.5", "claude-opus-5.5"},
+		{"copilot", "aueric_boehcp", "opus", "gpt-6-astra"},
+		{"copilot", "dev", "claude-opus-5-5", "databricks-claude-opus-5-5"},
+		{"codex", "openai", "opus", "gpt-5"},
+		{"gemini", "dev", "claude-sonnet-5-5", "databricks-claude-sonnet-5-5"},
+		{"gemini", "antigravity", "claude-sonnet-5-5-medium", "claude-sonnet-5-5"},
+		{"gemini", "antigravity", "gpt-oss-120b", "gpt-oss-120b"},
+		{"gemini", "antigravity", "gemini-3-8-flash-high", "gemini-3.8-flash"},
 	}
 	for _, c := range cells {
-		r, err := ResolveModel(reg, ModelQuery{Agent: c.agent, Model: c.model}, time.Now())
+		r, err := ResolveModel(reg, ModelQuery{Agent: c.agent, Profile: c.profile, Model: c.model}, time.Now())
 		if err != nil || r.Profile != c.profile || r.Model != c.wire {
-			t.Errorf("%s %s = %+v, %v; want %s %s", c.agent, c.model, r, err, c.profile, c.wire)
+			t.Errorf("%s --profile %s %s = %+v, %v; want %s %s", c.agent, c.profile, c.model, r, err, c.profile, c.wire)
 		}
 	}
 }
 
-func familyWire(t *testing.T, agent, model string) (string, error) {
+func familyWire(t *testing.T, agent, row, model string) (string, error) {
 	t.Helper()
-	r, err := ResolveModel(routeRegistry(t), ModelQuery{Agent: agent, Model: model}, time.Now())
+	r, err := ResolveModel(routeRegistry(t), ModelQuery{Agent: agent, Profile: row, Model: model}, time.Now())
 	return r.Model, err
 }
 
@@ -82,30 +82,30 @@ func TestResolveModelFamily(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	check := func(agent, model, want string) {
+	check := func(agent, row, model, want string) {
 		t.Helper()
-		if got, err := familyWire(t, agent, model); err != nil || got != want {
-			t.Errorf("%s %s = %q, %v; want %s", agent, model, got, err, want)
+		if got, err := familyWire(t, agent, row, model); err != nil || got != want {
+			t.Errorf("%s --profile %s %s = %q, %v; want %s", agent, row, model, got, err, want)
 		}
 	}
-	check("codex", "dev:sol", "databricks-gpt-6-1-sol")
+	check("codex", "dev", "sol", "databricks-gpt-6-1-sol")
 	if err := router.SaveServed(router.Served{Profile: "dev", FetchedAt: time.Now(), Models: []router.ServedModel{
 		{ID: "databricks-gpt-6-sol"}, {ID: "databricks-gpt-6-1-sol"}, {ID: "databricks-gpt-6-2-sol"}}}); err != nil {
 		t.Fatal(err)
 	}
-	check("codex", "dev:sol", "databricks-gpt-6-2-sol")
-	check("codex", "dev:databricks-gpt-6-1-sol", "databricks-gpt-6-1-sol")
+	check("codex", "dev", "sol", "databricks-gpt-6-2-sol")
+	check("codex", "dev", "databricks-gpt-6-1-sol", "databricks-gpt-6-1-sol")
 	router.GithubCatalogIDs = func(*providers.Provider) []string { return []string{"gpt-6.1-sol", "gpt-6.2-sol", "claude-opus-5.5"} }
-	check("copilot", "aueric_boehcp:sol", "gpt-6.2-sol")
+	check("copilot", "aueric_boehcp", "sol", "gpt-6.2-sol")
 	router.GithubCatalogIDs = func(*providers.Provider) []string { return nil }
-	check("copilot", "aueric_boehcp:sol", "gpt-6.1-sol")
-	check("codex", "chatgpt:sol", "gpt-6.1-sol")
+	check("copilot", "aueric_boehcp", "sol", "gpt-6.1-sol")
+	check("codex", "chatgpt", "sol", "gpt-6.1-sol")
 	cache(`{"models":[{"slug":"gpt-6.1-sol"},{"slug":"gpt-6.2-sol"}]}`)
-	check("codex", "chatgpt:sol", "gpt-6.2-sol")
+	check("codex", "chatgpt", "sol", "gpt-6.2-sol")
 	cache(`{not json`)
-	check("codex", "chatgpt:sol", "gpt-6.1-sol")
-	_, errFamily := familyWire(t, "codex", "dev:vega")
-	_, errAlias := familyWire(t, "codex", "dev:no-such-model")
+	check("codex", "chatgpt", "sol", "gpt-6.1-sol")
+	_, errFamily := familyWire(t, "codex", "dev", "vega")
+	_, errAlias := familyWire(t, "codex", "dev", "no-such-model")
 	if !errors.Is(errFamily, ErrModelRoute) || strings.ReplaceAll(errFamily.Error(), "vega", "X") != strings.ReplaceAll(errAlias.Error(), "no-such-model", "X") {
 		t.Errorf("unknown family err = %v, want the unknown-alias error %v", errFamily, errAlias)
 	}
@@ -122,7 +122,6 @@ func TestResolveModelMarkedAlias(t *testing.T) {
 		oneM  bool
 	}{
 		{"opus[1m]", true},
-		{"dev:opus[1m]", true},
 		{"opus", false},
 		{wire + "[1m]", true},
 	} {
@@ -165,15 +164,15 @@ func TestResolveModelOwnLoginPinIgnoresSession(t *testing.T) {
 
 func TestResolveModelRefuses(t *testing.T) {
 	reg := routeRegistry(t)
-	for _, c := range [][2]string{
-		{"claude", "gemini-4-argon-high"}, {"codex", "claude-opus-5-5"}, {"codex", "ultra:claude-opus-5-5"},
-		{"claude", "ultra:databricks-claude-opus-5-5"}, {"gemini", "dev:gpt-6-1-sol"}, {"gemini", "dev:opus"},
-		{"gemini", "antigravity:gpt-oss-120b-high"}, {"gemini", "antigravity:claude-sonnet-5-5-xhigh"},
-		{"gemini", "antigravity:gemini-3-8-flash-xhigh"}, {"gemini", "antigravity:gemini-4-argon-xhigh"},
-		{"gemini", "antigravity:databricks-claude-sonnet-5-5"}, {"gemini", "antigravity:claude-haiku-5-5"},
+	for _, c := range [][3]string{
+		{"claude", "", "gemini-4-argon-high"}, {"codex", "", "claude-opus-5-5"}, {"codex", "ultra", "claude-opus-5-5"},
+		{"claude", "ultra", "databricks-claude-opus-5-5"}, {"gemini", "dev", "gpt-6-1-sol"}, {"gemini", "dev", "opus"},
+		{"gemini", "antigravity", "gpt-oss-120b-high"}, {"gemini", "antigravity", "claude-sonnet-5-5-xhigh"},
+		{"gemini", "antigravity", "gemini-3-8-flash-xhigh"}, {"gemini", "antigravity", "gemini-4-argon-xhigh"},
+		{"gemini", "antigravity", "databricks-claude-sonnet-5-5"}, {"gemini", "antigravity", "claude-haiku-5-5"},
 	} {
-		if _, err := ResolveModel(reg, ModelQuery{Agent: c[0], Model: c[1], Session: "prod"}, time.Now()); !errors.Is(err, ErrModelRoute) {
-			t.Errorf("%s %s: err = %v; want ErrModelRoute", c[0], c[1], err)
+		if _, err := ResolveModel(reg, ModelQuery{Agent: c[0], Profile: c[1], Model: c[2], Session: "prod"}, time.Now()); !errors.Is(err, ErrModelRoute) {
+			t.Errorf("%s --profile %s %s: err = %v; want ErrModelRoute", c[0], c[1], c[2], err)
 		}
 	}
 }
@@ -198,12 +197,12 @@ func TestSpellModelAccepts(t *testing.T) {
 func TestResolveModelAgyEfforts(t *testing.T) {
 	reg := routeRegistry(t)
 	for _, e := range []string{"low", "medium", "high", "xhigh"} {
-		r, err := ResolveModel(reg, ModelQuery{Agent: "gemini", Model: "antigravity:gemini-4-hydrogen-" + e}, time.Now())
+		r, err := ResolveModel(reg, ModelQuery{Agent: "gemini", Profile: "antigravity", Model: "gemini-4-hydrogen-" + e}, time.Now())
 		if err != nil || r.Effort != e || r.Model != "gemini-4-hydrogen" {
 			t.Errorf("hydrogen-%s = %+v, %v", e, r, err)
 		}
 	}
-	_, err := ResolveModel(reg, ModelQuery{Agent: "gemini", Model: "antigravity:gpt-oss-120b-high"}, time.Now())
+	_, err := ResolveModel(reg, ModelQuery{Agent: "gemini", Profile: "antigravity", Model: "gpt-oss-120b-high"}, time.Now())
 	if err == nil || !strings.Contains(err.Error(), "takes effort medium") {
 		t.Errorf("gpt-oss-120b-high err = %v; want the accepted levels named", err)
 	}
@@ -232,14 +231,6 @@ func TestResolveModelCodexAliasUsesRecordModel(t *testing.T) {
 		if r, err := ResolveModel(reg, q, time.Now()); err != nil || r.Model != "databricks-gpt-6-1-sol" {
 			t.Errorf("codex %s = %+v, %v; want databricks-gpt-6-1-sol", alias, r, err)
 		}
-	}
-}
-
-func TestResolveModelInteractiveConflict(t *testing.T) {
-	q := ModelQuery{Agent: "claude", Model: "ultra:claude-opus-5-5", Profile: "dev", Interactive: true}
-	_, err := ResolveModel(routeRegistry(t), q, time.Now())
-	if !errors.Is(err, ErrModelRoute) || !strings.Contains(err.Error(), "--profile dev") || !strings.Contains(err.Error(), "ultra:") {
-		t.Errorf("err = %v; want a route error naming --profile dev and the ultra: prefix", err)
 	}
 }
 
@@ -333,10 +324,10 @@ func TestResolveModelKeepsRouteWhole(t *testing.T) {
 	if err != nil || r.Overlay().Route() != pinned {
 		t.Fatalf("pinned = %+v, %v; want %+v", r, err, pinned)
 	}
-	q.Route, q.Model = pinned, "ultra:claude-opus-5-5"
-	r, err = ResolveModel(reg, q, time.Now())
 	want := route.Route{Provider: "anthropic", Profile: "ultra"}
+	q.Route = want
+	r, err = ResolveModel(reg, q, time.Now())
 	if err != nil || r.Overlay().Route() != want {
-		t.Fatalf("prefix = %+v, %v; want %+v", r, err, want)
+		t.Fatalf("overlay route = %+v, %v; want %+v", r, err, want)
 	}
 }

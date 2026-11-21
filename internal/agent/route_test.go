@@ -362,7 +362,6 @@ func TestLeadFor(t *testing.T) {
 		{RouteReq{Agent: "codex", Profile: LeadSession, Fallback: none}, "dev", false, "", ""},
 		{RouteReq{Agent: "codex", Provider: "databricks", Fallback: none}, "dev", false, "", ""},
 		{RouteReq{Agent: "codex", Profile: "dev", Lead: "ultra", Pinned: true}, "ultra", false, "", ""},
-		{RouteReq{Agent: "codex", Model: "dev:opus", Fallback: all}, "", true, "", ""},
 		{RouteReq{Agent: "codex", Profile: "nosuch", Fallback: none}, "", true, "nosuch", ""},
 		{RouteReq{Agent: "codex", Profile: "nosuch", Fallback: all}, "", false, "nosuch", ""},
 		{RouteReq{Agent: "codex", Fallback: all}, "dev", false, "", `{"provider":"databricks","profile":"dev"}`},
@@ -389,8 +388,7 @@ func TestRouteLeadPreviewKeepsModelProfile(t *testing.T) {
 		lead string
 	}{
 		{RouteReq{Agent: "codex", Fallback: router.FallbackAll, Preview: true}, ""},
-		{RouteReq{Agent: "codex", Model: "ultra:opus", Fallback: router.FallbackAll, Preview: true}, "ultra"},
-		{RouteReq{Agent: "codex", Model: "dev:opus", Profile: "ultra", Fallback: router.FallbackAll, Preview: true}, "ultra"},
+		{RouteReq{Agent: "codex", Profile: "ultra", Model: "opus", Fallback: router.FallbackAll, Preview: true}, "ultra"},
 	}
 	for _, c := range cases {
 		lead, explicit, err := routeLeadContext(context.Background(), c.q)
@@ -781,7 +779,6 @@ func familyEntryCases(t *testing.T, reg *providers.Registry) []familyCase {
 	}
 	return []familyCase{
 		{"direct typed", func() []string { return target(RunOptions{Agent: "codex", Provider: "dev", Model: "sol"}) }},
-		{"direct row:family", func() []string { return target(RunOptions{Agent: "codex", Model: "dev:sol"}) }},
 		{"direct overlay", func() []string { return direct(ModelQuery{Agent: "codex", Profile: "dev", Model: "sol"}) }},
 		{"direct pin", func() []string {
 			return pinned("codex", func() []string { return []string{PinnedTarget(ctx, "codex", providers.Target{Provider: dev}).Model} })
@@ -789,7 +786,6 @@ func familyEntryCases(t *testing.T, reg *providers.Registry) []familyCase {
 		{"direct bucket", func() []string { return direct(ModelQuery{Agent: "codex", Profile: "dev", Model: "opus"}) }},
 		{"routed typed", func() []string { return routed("codex", "sol", "sonnet") }},
 		{"routed typed own login", func() []string { return routedOn("", "copilot", "sol", "sonnet") }},
-		{"routed row:family", func() []string { return preview(RouteReq{Agent: "codex", Model: "dev:sol", Preview: true}) }},
 		{"routed overlay", func() []string { return preview(RouteReq{Agent: "codex", Profile: "dev", Model: "sol", Preview: true}) }},
 		{"routed pin", func() []string { return pinned("copilot", func() []string { return routed("copilot", "", "sonnet") }) }},
 		{"routed served pin", func() []string {
@@ -842,7 +838,7 @@ func TestRoutedConcreteReadsNoFamilyList(t *testing.T) {
 // A profile-scoped auto (or no model) for gemini is not refused by the opus alias it never runs.
 func TestExplicitRouteErrAutoOnProfile(t *testing.T) {
 	autoFixture(t)
-	for _, q := range []RouteReq{{Agent: "gemini", Profile: "dev"}, {Agent: "gemini", Profile: "dev", Model: "dev:auto"}} {
+	for _, q := range []RouteReq{{Agent: "gemini", Profile: "dev"}, {Agent: "gemini", Profile: "dev", Model: "auto"}} {
 		if err := explicitRouteErr(t.Context(), q); err != nil {
 			t.Errorf("explicitRouteErr(%+v) = %v, want nil", q, err)
 		}

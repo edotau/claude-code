@@ -287,16 +287,16 @@ func TestResolveRunAuto(t *testing.T) {
 		t.Fatalf("fixture has no teeth: standard %s is the alias", std)
 	}
 	strongest := slices.MaxFunc(weak, func(a, b string) int { return catalog.RankOf(a).Capability - catalog.RankOf(b).Capability })
-	prodOpus, _ := ResolveModel(reg, ModelQuery{Agent: "opencode", Model: "prod:opus"}, time.Now())
+	prodOpus, _ := ResolveModel(reg, ModelQuery{Agent: "opencode", Profile: "prod", Model: "opus"}, time.Now())
 	for _, tc := range []struct{ name, agent, model, profile, pin, task, want, note string }{
-		{"typed concrete", "opencode", "dev:" + pin, "dev", "", deepBrief, pin, ""},
+		{"typed concrete", "opencode", pin, "dev", "", deepBrief, pin, ""},
 		{"pin with nothing typed", "opencode", "", "dev", pin, deepBrief, pin, ""},
 		{"no pin, nothing typed", "opencode", "", "dev", "", standardBrief, std, ""},
 		{"implicit stepped down", "opencode", "", "qa", "", deepBrief, strongest, "stepped down"},
 		{"implicit cross-family on cost", "opencode", "", "xf", "", standardBrief, pair[1], ""},
 		{"implicit listed endpoint auto", "opencode", "", "ax", "", fastBrief, "databricks-zz-unranked", ""},
-		{"asked auto, cold listing", "opencode", "prod:auto", "dev", "", deepBrief, prodOpus.Model, "no fresh model listing"},
-		{"registry model auto", "copilot", "router:auto", "dev", "", standardBrief, "", "own router"},
+		{"asked auto, cold listing", "opencode", "auto", "prod", "", deepBrief, prodOpus.Model, "no fresh model listing"},
+		{"registry model auto", "copilot", "auto", "router", "", standardBrief, "", "own router"},
 	} {
 		r, err := ResolveRun(reg, ModelQuery{Agent: tc.agent, Model: tc.model, Profile: tc.profile, PinModel: tc.pin, Task: tc.task}, time.Now())
 		switch {
@@ -319,21 +319,21 @@ func TestResolveRunAskedAuto(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, tc := range []struct {
-		name, model, pin, task, tier string
-		ids                          []string
-		tools                        bool
+		name, row, model, pin, task, tier string
+		ids                               []string
+		tools                             bool
 	}{
-		{"typed auto over a pin", "dev:auto", "databricks-claude-haiku-5-5", deepBrief, "deep", devListing, false},
-		{"pinned auto", "", "auto", deepBrief, "deep", devListing, false},
-		{"Tier: line wins", "dev:auto", "", "Tier: fast\n" + deepBrief, "fast", devListing, false},
-		{"safety-critical bump", "dev:auto", "", "Fix the typo in the permission rule in label.go.", "deep", devListing, false},
-		{"large mechanical", "dev:auto", "", "Rename Foo to Bar across every caller in the codebase. " +
+		{"typed auto over a pin", "dev", "auto", "databricks-claude-haiku-5-5", deepBrief, "deep", devListing, false},
+		{"pinned auto", "dev", "", "auto", deepBrief, "deep", devListing, false},
+		{"Tier: line wins", "dev", "auto", "", "Tier: fast\n" + deepBrief, "fast", devListing, false},
+		{"safety-critical bump", "dev", "auto", "", "Fix the typo in the permission rule in label.go.", "deep", devListing, false},
+		{"large mechanical", "dev", "auto", "", "Rename Foo to Bar across every caller in the codebase. " +
 			strings.Repeat("Keep each call site's behaviour. ", 40), "standard", devListing, false},
-		{"tools exclude", "dev:auto", "", standardBrief, "standard", devListing, true},
-		{"cross-family pair", "xf:auto", "", standardBrief, "standard", pair, false},
+		{"tools exclude", "dev", "auto", "", standardBrief, "standard", devListing, true},
+		{"cross-family pair", "xf", "auto", "", standardBrief, "standard", pair, false},
 	} {
 		want := band(tc.ids, tc.tier, tc.tools, notools)
-		r, err := ResolveRun(reg, ModelQuery{Agent: "opencode", Model: tc.model, Profile: "dev", PinModel: tc.pin, Task: tc.task, Tools: tc.tools}, time.Now())
+		r, err := ResolveRun(reg, ModelQuery{Agent: "opencode", Model: tc.model, Profile: tc.row, PinModel: tc.pin, Task: tc.task, Tools: tc.tools}, time.Now())
 		switch {
 		case len(want) == 0:
 			t.Fatalf("%s: fixture has an empty %s band", tc.name, tc.tier)
@@ -348,22 +348,22 @@ func TestResolveRunAskedAuto(t *testing.T) {
 	if got := band(weak, "deep", false, nil); len(got) != 0 {
 		t.Fatalf("fixture: qa serves %v in the deep band", got)
 	}
-	if r, err := ResolveRun(reg, ModelQuery{Agent: "opencode", Model: "qa:auto", Task: deepBrief}, time.Now()); !errors.Is(err, ErrPoolExhausted) {
+	if r, err := ResolveRun(reg, ModelQuery{Agent: "opencode", Profile: "qa", Model: "auto", Task: deepBrief}, time.Now()); !errors.Is(err, ErrPoolExhausted) {
 		t.Errorf("fresh qa listing with nothing deep ran %s (%v), want ErrPoolExhausted", r.Model, err)
 	}
 }
 
-// A typed auto reaches the run untyped with AutoModel set; a <row>:auto prefix leads on that row.
+// A typed auto reaches the run untyped with AutoModel set; a --provider row stays.
 func TestFoldAuto(t *testing.T) {
 	for _, tc := range []struct{ model, provider, wantProvider string }{
-		{"auto", "", ""}, {"AUTO", "qa", "qa"}, {"dev:auto", "qa", "dev"},
+		{"auto", "", ""}, {"AUTO", "qa", "qa"},
 	} {
 		o := foldAuto(RunOptions{Model: tc.model, Provider: tc.provider})
 		if o.Model != "" || !o.AutoModel || o.Provider != tc.wantProvider {
 			t.Errorf("foldAuto(%q) = model %q auto %v provider %q, want untyped auto on %q", tc.model, o.Model, o.AutoModel, o.Provider, tc.wantProvider)
 		}
 	}
-	if o := foldAuto(RunOptions{Model: "dev:claude-opus-5-5"}); o.AutoModel || o.Model != "dev:claude-opus-5-5" {
+	if o := foldAuto(RunOptions{Model: "claude-opus-5-5"}); o.AutoModel || o.Model != "claude-opus-5-5" {
 		t.Errorf("a concrete model folded to %+v", o)
 	}
 }
@@ -483,7 +483,7 @@ func TestAutoNoCandidateIsRefused(t *testing.T) {
 			t.Errorf("claude auto, fallback %q: %s %v; want its fast tier model", fb, r.Model, err)
 		}
 	}
-	q := ModelQuery{Agent: "claude", Model: "dev:claude-opus-5-5", Fallback: router.FallbackNone}
+	q := ModelQuery{Agent: "claude", Profile: "dev", Model: "claude-opus-5-5", Fallback: router.FallbackNone}
 	if _, err := ResolveRun(reg, q, time.Now()); !errors.Is(err, ErrModelRoute) {
 		t.Errorf("a typed concrete unserved model under fallback none ran (%v); want it refused", err)
 	}
@@ -536,7 +536,7 @@ func TestExplainRunOwnConnectorExplicitProfile(t *testing.T) {
 func BenchmarkResolveRunAuto(b *testing.B) {
 	reg, _, _ := autoFixture(b)
 	time.Sleep(2100 * time.Millisecond) // let every state file settle past the stamp cache's racy window
-	q := ModelQuery{Agent: "opencode", Model: "dev:auto", Task: deepBrief}
+	q := ModelQuery{Agent: "opencode", Profile: "dev", Model: "auto", Task: deepBrief}
 	now := time.Now()
 	if _, err := ResolveRun(reg, q, now); err != nil {
 		b.Fatal(err)

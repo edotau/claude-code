@@ -23,7 +23,7 @@ func TestRotationAskedAuto(t *testing.T) {
 	now := time.Now()
 	resolve := func(ctx context.Context) ModelRoute {
 		t.Helper()
-		r, err := ResolveRun(reg, ModelQuery{Agent: "opencode", Model: "dev:auto", Task: standardBrief, ctx: ctx}, now)
+		r, err := ResolveRun(reg, ModelQuery{Agent: "opencode", Profile: "dev", Model: "auto", Task: standardBrief, ctx: ctx}, now)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -127,24 +127,24 @@ func rotationRan(oneOf []string, note string) func(ModelRoute, error) bool {
 func TestRotationPickOutcomes(t *testing.T) {
 	reg, _, pair := autoFixture(t)
 	now, dev := time.Now(), reg.Providers["dev"]
-	prodOpus, _ := ResolveModel(reg, ModelQuery{Agent: "opencode", Model: "prod:opus"}, now)
+	prodOpus, _ := ResolveModel(reg, ModelQuery{Agent: "opencode", Profile: "prod", Model: "opus"}, now)
 	if len(band(pair, "deep", false, nil)) != 0 || len(band(pair, "standard", false, nil)) == 0 {
 		t.Fatalf("fixture: xf must serve standard but not deep, got %v", pair)
 	}
 	for _, tc := range []struct {
-		name, model, task string
-		setup             func()
-		ok                func(ModelRoute, error) bool
-		writes            bool
+		name, row, model, task string
+		setup                  func()
+		ok                     func(ModelRoute, error) bool
+		writes                 bool
 	}{
-		{"cold listing", "prod:auto", deepBrief, func() {}, rotationRan([]string{prodOpus.Model}, "no fresh model listing"), false},
-		{"empty tier steps to standard", "xf:auto", deepBrief, func() {}, rotationRan(band(pair, "standard", false, nil), "(standard tier,"), true},
-		{"every tier member held", "dev:auto", deepBrief, func() {
+		{"cold listing", "prod", "auto", deepBrief, func() {}, rotationRan([]string{prodOpus.Model}, "no fresh model listing"), false},
+		{"empty tier steps to standard", "xf", "auto", deepBrief, func() {}, rotationRan(band(pair, "standard", false, nil), "(standard tier,"), true},
+		{"every tier member held", "dev", "auto", deepBrief, func() {
 			for _, id := range rotationPool("opencode", models.Opus, dev, false, now) {
 				router.SkipDiscovery(context.Background(), "opencode", dev, providers.SpellPin(dev, id))
 			}
 		}, func(_ ModelRoute, err error) bool { return errors.Is(err, ErrPoolExhausted) }, true},
-		{"state unwritable", "dev:auto", standardBrief, func() {
+		{"state unwritable", "dev", "auto", standardBrief, func() {
 			_ = os.Remove(router.StatePath()) // a directory in quota.json's place makes every state write fail
 			if err := os.MkdirAll(router.StatePath(), 0o755); err != nil {
 				t.Fatal(err)
@@ -155,7 +155,7 @@ func TestRotationPickOutcomes(t *testing.T) {
 	} {
 		tc.setup()
 		before := router.LoadState()
-		r, err := ResolveRun(reg, ModelQuery{Agent: "opencode", Model: tc.model, Task: tc.task}, now)
+		r, err := ResolveRun(reg, ModelQuery{Agent: "opencode", Profile: tc.row, Model: tc.model, Task: tc.task}, now)
 		if !tc.ok(r, err) {
 			t.Errorf("%s: ran %q note %q (%v)", tc.name, r.Model, r.Note, err)
 		}
@@ -172,11 +172,11 @@ func TestRotationClaudeKeepsTier(t *testing.T) {
 	for _, tc := range []struct{ task, alias string }{
 		{fastBrief, models.Haiku}, {standardBrief, models.Sonnet}, {deepBrief, models.Opus}, {"", models.Sonnet},
 	} {
-		want, err := ResolveModel(reg, ModelQuery{Agent: "claude", Model: "dev:" + tc.alias}, now)
+		want, err := ResolveModel(reg, ModelQuery{Agent: "claude", Profile: "dev", Model: tc.alias}, now)
 		if err != nil {
 			t.Fatal(err)
 		}
-		got, err := ResolveRun(reg, ModelQuery{Agent: "claude", Model: "dev:auto", Task: tc.task}, now)
+		got, err := ResolveRun(reg, ModelQuery{Agent: "claude", Profile: "dev", Model: "auto", Task: tc.task}, now)
 		if err != nil || got.Model != want.Model {
 			t.Errorf("claude auto, brief %q: ran %s (%v), want %s", tc.task, got.Model, err, want.Model)
 		}

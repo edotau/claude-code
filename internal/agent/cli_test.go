@@ -210,7 +210,7 @@ func TestOwnProfileNamesTheLoginRow(t *testing.T) {
 	}
 }
 
-// "<profile>:<alias>" resolves like --provider <profile> --model <alias>; anything else is left alone.
+// --provider <profile> --model <alias> resolves to the row's alias; anything else is left alone.
 func TestResolveTargetProfileTierRewrite(t *testing.T) {
 	vaulttest.UseKeyring(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"protocol":"anthropic","base_url":"http://127.0.0.1:1",`+
@@ -220,18 +220,12 @@ func TestResolveTargetProfileTierRewrite(t *testing.T) {
 		t.Fatalf("baseline --provider dev --model opus = %+v, %v", want, err)
 	}
 
-	t.Run("dev:opus equals --provider dev --model opus", func(t *testing.T) {
-		_, got, err := ResolveRequestTarget(RunOptions{Model: "dev:opus"})
-		if err != nil || got.Provider == nil || got.Provider.Name != "dev" || got.Model != want.Model {
-			t.Errorf("dev:opus = %+v (%v), want provider dev model %q", got, err, want.Model)
-		}
-	})
 	t.Run("full id keeps its prior behaviour", assertFullIDTargetRewrite)
 	t.Run("unknown row or non-alias is not rewritten", func(t *testing.T) { assertUnknownTargetRewrite(t, want.Model) })
 	t.Run("the explicit backend is still seen", func(t *testing.T) {
-		req := RunOptions{Model: "dev:opus"}
+		req := RunOptions{Provider: "dev", Model: "opus"}
 		if !explicitBackend(req) {
-			t.Error("ExplicitBackend(dev:opus) must stay true")
+			t.Error("ExplicitBackend(--provider dev) must stay true")
 		}
 		if acct, _ := explicitAccount(&fakeRunner{name: "claude"}, req); acct != "databricks·dev" {
 			t.Errorf("explicitAccount = %q, want databricks·dev", acct)
@@ -272,7 +266,7 @@ func TestRoutedModelRunsTaskTier(t *testing.T) {
 	if a, b := run(trivial, "sonnet", true), run(hard, "sonnet", true); a == b {
 		t.Errorf("trivial and audit briefs both run %s, want the tier to pick different models", a)
 	}
-	if a, b := run(trivial, "dev:claude-opus-5-5", false), run(hard, "dev:claude-opus-5-5", false); a != b {
+	if a, b := run(trivial, "claude-opus-5-5", false), run(hard, "claude-opus-5-5", false); a != b {
 		t.Errorf("a typed model ran %s and %s, want the typed model on both", a, b)
 	}
 	vaulttest.SetRecord(t, "opencode", "model", "databricks-claude-sonnet-5-5")
@@ -297,21 +291,21 @@ func TestResolveInFamilyTargetsAreConcrete(t *testing.T) {
 	router.GithubCatalogIDs = func(*providers.Provider) []string { reads++; return []string{"gpt-6.1-sol", "gpt-6.2-sol"} }
 	t.Cleanup(func() { router.GithubCatalogIDs = nil })
 	reg := routeRegistry(t)
-	for _, c := range []struct{ agent, model, want string }{
-		{"codex", "dev:sol", "databricks-gpt-6-2-sol"},
-		{"codex", "chatgpt:sol", "gpt-6.2-sol"},
-		{"copilot", "aueric_boehcp:sol", "gpt-6.2-sol"},
+	for _, c := range []struct{ agent, row, want string }{
+		{"codex", "dev", "databricks-gpt-6-2-sol"},
+		{"codex", "chatgpt", "gpt-6.2-sol"},
+		{"copilot", "aueric_boehcp", "gpt-6.2-sol"},
 	} {
-		_, tgt, err := resolveIn(reg, RunOptions{Agent: c.agent, Model: c.model})
+		_, tgt, err := resolveIn(reg, RunOptions{Agent: c.agent, Provider: c.row, Model: "sol"})
 		if err != nil || tgt.Model != c.want {
-			t.Errorf("%s %s = %q, %v; want %s", c.agent, c.model, tgt.Model, err, c.want)
+			t.Errorf("%s --provider %s sol = %q, %v; want %s", c.agent, c.row, tgt.Model, err, c.want)
 		}
 	}
 	if reads != 1 {
 		t.Fatalf("github list reads = %d, want 1 for the one github family request", reads)
 	}
-	for _, m := range []string{"aueric_boehcp:gpt-6.1-sol", "aueric_boehcp:claude-opus-5.5", "aueric_boehcp:opus"} {
-		if _, tgt, err := resolveIn(reg, RunOptions{Agent: "copilot", Model: m}); err != nil || tgt.Model == "" {
+	for _, m := range []string{"gpt-6.1-sol", "claude-opus-5.5", "opus"} {
+		if _, tgt, err := resolveIn(reg, RunOptions{Agent: "copilot", Provider: "aueric_boehcp", Model: m}); err != nil || tgt.Model == "" {
 			t.Errorf("concrete %s = %q, %v", m, tgt.Model, err)
 		}
 	}

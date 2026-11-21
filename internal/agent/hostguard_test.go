@@ -108,10 +108,10 @@ func hmNamed(t *testing.T, name, cmd string) {
 		`"models":{"opus":"databricks-claude-opus-5-5","sonnet":"databricks-claude-sonnet-5-5","haiku":"databricks-claude-haiku-4-5"}}}}}`)
 }
 
-// A routed provider:model request on a vendor agent is guarded as that provider, not skipped as an own login.
-func TestGuardProviderResolvesModelPrefixForVendorAgent(t *testing.T) {
+// A --provider request on a vendor agent is guarded as that provider, not skipped as an own login.
+func TestGuardProviderResolvesProviderForVendorAgent(t *testing.T) {
 	hmProfile(t, "true")
-	p, err := guardProvider(&fakeRunner{name: "codex"}, RunOptions{Model: "hm:opus"})
+	p, err := guardProvider(&fakeRunner{name: "codex"}, RunOptions{Provider: "hm", Model: "opus"})
 	if err != nil || p == nil || p.Name != "hm" {
 		t.Fatalf("guardProvider = %v, %v; want the hm profile", p, err)
 	}

@@ -285,7 +285,7 @@ func TestRunWithFallbackNotRetried(t *testing.T) {
 		req  RunOptions
 	}{
 		{"prompt too large", Caps{}, fmt.Errorf("p: %w", ErrPromptTooLarge), RunOptions{Prompt: "p"}},
-		{"explicit non-claude model", Caps{Model: Native}, errCodexMissing, RunOptions{Prompt: "p", Model: "openai:gpt-4"}},
+		{"explicit non-claude model", Caps{Model: Native}, errCodexMissing, RunOptions{Prompt: "p", Provider: "openai", Model: "gpt-4"}},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
