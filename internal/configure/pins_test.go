@@ -180,3 +180,18 @@ func TestValidateAgentModelRefusesUnknown(t *testing.T) {
 		t.Errorf("auto refused: %v", err)
 	}
 }
+
+// A pin is judged, and the refusal names the profile, on the session's profile before the claude record's.
+func TestValidateClaudePinsJudgesOnSessionProfile(t *testing.T) {
+	hosttest.PinScratch(t)
+	reg, err := providers.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	vaulttest.SetRecord(t, "claude", "profile", "anthropic")
+	t.Setenv(providers.EnvSessionProfile, "copilot")
+	err = validateClaudePins(reg, "", map[string]string{"opus": "bogus-model-xyz"})
+	if err == nil || !strings.Contains(err.Error(), "profile copilot") {
+		t.Errorf("err = %v, want a refusal naming profile copilot", err)
+	}
+}

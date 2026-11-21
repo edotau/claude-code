@@ -112,3 +112,21 @@ func TestConfigureRecordEmptyExtraUnsetsBuiltin(t *testing.T) {
 		t.Errorf("stored %q (present %v), merged %q (%v); want the built-in unset", ex, ok, rec.Extras["sandboxMode"], err)
 	}
 }
+
+// A model is judged on the route set beside it, not the stored one.
+func TestRecordProfileJudgesOnNewRoute(t *testing.T) {
+	hosttest.PinScratch(t)
+	vaulttest.SetRecord(t, "codex", "profile", "old")
+	set := map[string]string{"MODEL": "x", "ROUTE": `{"provider":"databricks","profile":"qa"}`}
+	if got := recordProfile("codex", set); got != "qa" {
+		t.Errorf("recordProfile = %q, want qa (the route being written)", got)
+	}
+}
+
+// A refused model is a usage error, exit 2, and writes nothing.
+func TestConfigureRecordModelRefusalExitsUsage(t *testing.T) {
+	hosttest.PinScratch(t)
+	if code := cmdConfigure([]string{"agents", "codex", "model=bogus-model-xyz"}); code != 2 {
+		t.Errorf("exit %d, want 2", code)
+	}
+}

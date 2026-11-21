@@ -168,7 +168,7 @@ func ApplyModelPins(reg *providers.Registry, provider string, unpin bool, pins [
 		return helptext.FailUsage("%v", err), true
 	}
 	if err := validateClaudePins(reg, provider, set); err != nil {
-		return helptext.Fail("%v", err), true
+		return helptext.FailUsage("%v", err), true
 	}
 	warn, err := copilot.ValidateCopilotPins(context.Background(), provider, pins)
 	if err != nil {
@@ -186,19 +186,12 @@ func ApplyModelPins(reg *providers.Registry, provider string, unpin bool, pins [
 	return 0, false
 }
 
-// validateClaudePins judges each pinned id on the session profile (or --profile); "" unpins and passes.
+// validateClaudePins judges each pinned id on the profile its alias resolves on: --profile, else the session's, else the default.
 func validateClaudePins(reg *providers.Registry, provider string, set map[string]string) error {
-	profile := provider
-	if profile == "" {
-		recs, err := vault.ReadAgentRecords([]string{"claude"})
-		if err != nil {
-			return err
-		}
-		profile = cmp.Or(profileKey(recs["claude"].EffectiveRoute()), reg.Default)
-	}
+	profile := cmp.Or(provider, providers.SessionLeadContext(context.Background(), reg, true), reg.Default)
 	for _, alias := range slices.Sorted(maps.Keys(set)) {
 		if err := ValidateAgentModel("claude", profile, set[alias]); err != nil {
-			return fmt.Errorf("--pin %s: %w", alias, err)
+			return fmt.Errorf("--pin %s (judged on profile %s): %w", alias, profile, err)
 		}
 	}
 	return nil

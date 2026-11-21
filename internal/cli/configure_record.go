@@ -88,7 +88,7 @@ func applyRecord(agent string, set map[string]string, dryRun bool) int {
 	}
 	route, hasRoute := set[routeKey]
 	delete(set, routeKey)
-	if err := castRecordModel(set); err != nil {
+	if err := validateRecordModel(agent, set); err != nil {
 		return helptext.FailUsage("configure agents: %v", err)
 	}
 	if err := validateRecordSet(agent, set, route, hasRoute); err != nil {
@@ -168,17 +168,27 @@ func validateRecordSet(agent string, set map[string]string, route string, hasRou
 		if err := validateField(agent, field, val); err != nil {
 			return err
 		}
-		if field == "MODEL" {
-			if err := configure.ValidateAgentModel(agent, recordProfile(agent, set), val); err != nil {
-				return err
-			}
-		}
 	}
 	return nil
 }
 
-// recordProfile is the profile a model is judged on: the set's, else the record's; "" falls to the agent's own row.
+// validateRecordModel judges the set's model on the route being written; a refusal is a usage error (exit 2).
+func validateRecordModel(agent string, set map[string]string) error {
+	if err := castRecordModel(set); err != nil {
+		return err
+	}
+	val, ok := set["MODEL"]
+	if !ok {
+		return nil
+	}
+	return configure.ValidateAgentModel(agent, recordProfile(agent, set), val)
+}
+
+// recordProfile is the profile a model is judged on: the set's route, else its profile, else the record's.
 func recordProfile(agent string, set map[string]string) string {
+	if p, ok := setRouteProfile(set); ok {
+		return p
+	}
 	if p, ok := set["PROFILE"]; ok {
 		if p == agentpkg.PoolPin {
 			return ""
@@ -190,6 +200,21 @@ func recordProfile(agent string, set map[string]string) string {
 		return ""
 	}
 	return configure.AgentField(recs[agent], "PROFILE")
+}
+
+// setRouteProfile is the profile of the route or account the set writes; ok is false when it writes neither.
+func setRouteProfile(set map[string]string) (string, bool) {
+	if set["ACCOUNT"] != "" {
+		return "", true
+	}
+	rt, err := parseRouteObject("ROUTE", set["ROUTE"])
+	switch {
+	case set["ROUTE"] == "" || err != nil:
+		return "", false
+	case rt.Provider == "databricks" && rt.Profile == "auto":
+		return "databricks", true
+	}
+	return rt.Profile, true
 }
 
 func isRouteField(field string) bool {

@@ -394,3 +394,15 @@ func TestDatabricksSignedInDevAppearsAlongsideQaAndProd(t *testing.T) {
 		}
 	}
 }
+
+// The Model row refuses a model no row serves and writes nothing.
+func TestWriteAgentFieldRefusesUnservedModel(t *testing.T) {
+	vaulttest.Use(t)
+	d := &dialog{out: &bytes.Buffer{}}
+	if changed, err := writeAgentField(d, "codex", "MODEL", "bogus-model-xyz"); changed || err == nil {
+		t.Errorf("changed=%v err=%v, want a refusal", changed, err)
+	}
+	if got := vault.GetAgentRecord("codex").Model; got != "" {
+		t.Errorf("model %q written, want nothing", got)
+	}
+}

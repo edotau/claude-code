@@ -234,18 +234,18 @@ func TestPickCopilotModelEffortSubPickDefaultClearsPin(t *testing.T) {
 func TestPickCopilotModelSavesModelAfterSettingEffort(t *testing.T) {
 	reg := menuTestEnv(t)
 	fakeCopilotBin(t)
-	stubCatalog(t, effortStub, nil)
+	stubCatalog(t, []copilot.SDKModel{{ID: "claude-opus-5.5", Enabled: true, ReasoningEffort: true, Efforts: []string{"low", "high"}, DefaultEffort: "low"}}, nil)
 
 	// cur = the stub so its Effort row (row 1) offers low/high; after the sub-pick the model row is row 2.
-	shown := runCopilotPicker(t, reg, "stub-model-1", "1\n3\n2\n")
-	if !strings.Contains(shown, "model: copilot = stub-model-1") {
+	shown := runCopilotPicker(t, reg, "claude-opus-5.5", "1\n3\n2\n")
+	if !strings.Contains(shown, "model: copilot = claude-opus-5.5") {
 		t.Errorf("saveAgentModel not reached (no save line):\n%s", shown)
 	}
-	if got, _ := providers.CopilotModel(reg); got != "stub-model-1" {
-		t.Errorf("COPILOT_MODEL resolver = %q, want stub-model-1", got)
+	if got, _ := providers.CopilotModel(reg); got != "claude-opus-5.5" {
+		t.Errorf("COPILOT_MODEL resolver = %q, want claude-opus-5.5", got)
 	}
 	if got := vault.GetAgentRecord("copilot").Effort; got != "high" {
-		t.Errorf("effort pin = %q, want high (stub-model-1 supports it)", got)
+		t.Errorf("effort pin = %q, want high (claude-opus-5.5 supports it)", got)
 	}
 }
 

@@ -171,6 +171,11 @@ func signInProfile(d *dialog, agent string) string {
 
 // writeAgentField sets one record field (a vault.AgentRecord.WithPin name) and prints it; (false, nil) if unchanged.
 func writeAgentField(d *dialog, agent, field, val string) (bool, error) {
+	if field == "MODEL" {
+		if err := configure.ValidateAgentModel(agent, vault.GetAgentRecord(agent).Profile, val); err != nil {
+			return false, err
+		}
+	}
 	if changed, err := configure.SetAgentPin(agent, field, val); !changed || err != nil {
 		return false, err
 	}
