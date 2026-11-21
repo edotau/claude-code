@@ -7,6 +7,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/agent/ask"
 	"github.com/edotau/claude-code/internal/databricks"
 	"github.com/edotau/claude-code/internal/doctor"
 	"github.com/edotau/claude-code/internal/egress"
@@ -254,8 +255,16 @@ func lookup(name string) *command {
 	return nil
 }
 
+// wireSeams sets the cross-package UI seams once, in a fixed order, before any verb runs.
+var wireSeams = sync.OnceFunc(func() {
+	ask.WireUI()
+	wireAsk()
+	wireConfigure()
+})
+
 // Run dispatches argv and returns the exit code.
 func Run(argv []string) int {
+	wireSeams()
 	paths.ExportConfigDir()
 	egress.Install()
 	if len(argv) < 2 {

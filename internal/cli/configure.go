@@ -265,7 +265,7 @@ func configureMenu(o *configureOpts, section, profile string) int {
 	}, section)
 }
 
-func init() {
+func wireConfigure() {
 	// An agent the harness cannot route gets one interactive setup offer before the plain-CLI passthrough.
 	agent.OfferConfigure = func(name string, reason error) bool {
 		if !proc.IsTerminal(os.Stdin) || !proc.IsTerminal(os.Stderr) {

@@ -188,7 +188,7 @@ var reapLost = func() { tree.Reap(false, io.Discard, io.Discard) }
 // cmdAgentsAsk is `agents ask`; ask calls the reap hook for a real run and joins it at exit.
 func cmdAgentsAsk(args []string) int { return ask.Cmd(args) }
 
-func init() {
+func wireAsk() {
 	ask.Waves = cmdAgentsWaves
 	ask.Reap = func() func() {
 		done := make(chan struct{})

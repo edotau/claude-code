@@ -864,6 +864,7 @@ func helpAllowsNoRows(path []string) bool {
 
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
 func TestMain(m *testing.M) {
+	wireSeams()
 	agent.NoticeOut = io.Discard
 	agent.StubProxyForTest("http://127.0.0.1:9999", "rtr-secret-test") // the moved batch/envelope tests reach the proxy
 	agent.StubRefreshListingForTest()

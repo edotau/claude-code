@@ -771,6 +771,7 @@ func TestCmdAskPackFlagExitsTwo(t *testing.T) {
 
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
 func TestMain(m *testing.M) {
+	WireUI()
 	agent.NoticeOut = io.Discard
 	agent.StubProxyForTest("http://127.0.0.1:9999", "rtr-secret-test") // the batch/envelope tests reach the proxy
 	agent.StubRefreshListingForTest()

@@ -152,8 +152,8 @@ func Setup(name, format string) int {
 	return 0
 }
 
-// The terminal and sign-in UI the agent package calls but does not import.
-func init() {
+// WireUI installs the terminal and sign-in UI the agent package calls but does not import.
+func WireUI() {
 	agent.StdinIsTerminal = tui.StdinIsTerminal
 	agent.LoginRow = databricks.LoginRow
 	agent.PromptSecret = func(name string) (string, error) {
