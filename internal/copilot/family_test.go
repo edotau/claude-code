@@ -37,7 +37,7 @@ func TestFamilyConcreteIDUntouched(t *testing.T) {
 
 func TestFamilyDefaultAvoidsAuthor(t *testing.T) {
 	ids := []string{"claude-opus-5.5", "gpt-6.1-sol", "gemini-4-argon", "grok-4.7"}
-	for _, author := range []string{"gpt-6.1-sol", "dev:databricks-claude-sonnet-5-5", "gemini-4-argon"} {
+	for _, author := range []string{"gpt-6.1-sol", "databricks-claude-sonnet-5-5", "gemini-4-argon"} {
 		got, err := reviewModel("", author, ids)
 		if err != nil || got == "" || modelFamily(got) == modelFamily(author) || modelFamily(got) == "claude" {
 			t.Fatalf("author %s: default %q, %v", author, got, err)

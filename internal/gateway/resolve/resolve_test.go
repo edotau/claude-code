@@ -14,6 +14,7 @@ import (
 	"github.com/edotau/claude-code/internal/gemini"
 	"github.com/edotau/claude-code/internal/hosttest"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/route"
 )
 
 // TestMain runs in the hermetic host (hosttest): no live provider pins, vault or vendor CLIs are reachable.
@@ -41,7 +42,8 @@ func TestResolveFirstHop(t *testing.T) {
 	hint := ""
 	stub := func(_ context.Context, _ *providers.Registry, q agent.ModelQuery, alias string) (agent.ModelQuery, string, error) {
 		got, hint = q, alias
-		return agent.ModelQuery{Agent: "claude", Model: "ultra:claude-sonnet-5-5"}, "codex is gated out", nil
+		return agent.ModelQuery{Agent: "claude", Model: "claude-sonnet-5-5",
+			Route: route.Route{Provider: "anthropic", Profile: "ultra"}}, "codex is gated out", nil
 	}
 	old := runQuery
 	t.Cleanup(func() { runQuery = old })
