@@ -214,6 +214,8 @@ func TestRefuseRequest(t *testing.T) {
 		"agent dir env":     {agent.RunOptions{Env: []string{agentDirEnv + "=/x"}}, agentDirEnv},
 		"hook skip env":     {agent.RunOptions{Env: []string{"HARNESS_HOOK_SKIP=permission-gate"}}, "HARNESS_HOOK_SKIP"},
 		"hook env, cased":   {agent.RunOptions{Env: []string{"harness_hook_agent=x"}}, "harness_hook_agent"},
+		"agent dir, lower":  {agent.RunOptions{Env: []string{strings.ToLower(agentDirEnv) + "=/x"}}, strings.ToLower(agentDirEnv)},
+		"overlay lower":     {agent.RunOptions{OverlaySet: []string{"harness_pi_guard_nonce"}}, "harness_pi_guard_nonce"},
 		"overlay hook set":  {agent.RunOptions{OverlaySet: []string{"HARNESS_HOOK_SKIP"}}, "HARNESS_HOOK_SKIP"},
 		"overlay agent dir": {agent.RunOptions{OverlaySet: []string{agentDirEnv}}, agentDirEnv},
 		"policy env":        {agent.RunOptions{Env: []string{agent.DispatchPermissionsEnv + "={}"}}, agent.DispatchPermissionsEnv},

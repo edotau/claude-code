@@ -36,7 +36,8 @@ func refuseRequest(req agent.RunOptions) error {
 
 // guardWiring is an env name the pi guard sets itself; neither --env nor an overlay may replace it.
 func guardWiring(k string) bool {
-	return k == agentDirEnv || k == agent.DispatchPermissionsEnv || strings.HasPrefix(k, "HARNESS_PI_")
+	k = strings.ToUpper(k)
+	return k == strings.ToUpper(agentDirEnv) || k == strings.ToUpper(agent.DispatchPermissionsEnv) || strings.HasPrefix(k, "HARNESS_PI_")
 }
 
 // withoutHookControl drops every hook-control variable from a child env: pi's own process never inherits one.
