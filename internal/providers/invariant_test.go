@@ -40,11 +40,11 @@ func TestNoPrefixedModelAtAnyProviderInput(t *testing.T) {
 		})
 	}
 	t.Run("sessionPin ignores a prefixed pin", func(t *testing.T) {
-		if got := sessionPin(reg, "dev:opus"); got != "" {
+		if got := SessionPin(reg, "dev:opus"); got != "" {
 			t.Fatalf("sessionPin = %q; want empty", got)
 		}
-		if got := sessionPin(reg, "opus"); got != "opus" {
-			t.Fatalf("sessionPin(opus) = %q", got)
+		if got := SessionPin(reg, "opus"); got != "opus" {
+			t.Fatalf("SessionPin(opus) = %q", got)
 		}
 	})
 }

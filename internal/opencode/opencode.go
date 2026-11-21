@@ -11,7 +11,6 @@ import (
 	"os/exec"
 	"slices"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/edotau/claude-code/internal/agent/retry"
@@ -312,26 +311,11 @@ func opencodeCopilotModelIDs(reg *providers.Registry) (main, small string, ok bo
 // aliasModelID is alias's pin-resolved wire model id for p; "auto" becomes p.OpencodeFallback when set.
 func aliasModelID(reg *providers.Registry, p *providers.Provider, alias string) string {
 	rec := vault.GetAgentRecord("claude")
-	spec := cmp.Or(plainPin(reg, rec.Aliases[strings.ToLower(alias)]), plainPin(reg, rec.Model), p.Models[alias])
+	spec := cmp.Or(providers.SessionPin(reg, rec.Aliases[strings.ToLower(alias)]), providers.SessionPin(reg, rec.Model), p.Models[alias])
 	if spec == "" {
 		return ""
 	}
 	return opencodeModel(p, p.WireModel(providers.PlainTarget(p, spec).Model))
-}
-
-var prefixedPinNote sync.Once
-
-// plainPin is a stored pin, or "" with a one-line note for a profile-prefixed one (as providers.Select ignores it).
-func plainPin(reg *providers.Registry, pin string) string {
-	pin = strings.TrimSpace(pin)
-	if providers.CheckModel(reg, pin) != nil {
-		prefixedPinNote.Do(func() {
-			fmt.Fprintf(os.Stderr, "note: model pin %s names another profile and is ignored; clear only that pin with "+
-				"`claude-code models --pin <alias>=` (`all=` for the all-slot pin)\n", pin)
-		})
-		return ""
-	}
-	return pin
 }
 
 // opencodeModel swaps Copilot's "auto" router id (absent from opencode's catalog) for p.OpencodeFallback.

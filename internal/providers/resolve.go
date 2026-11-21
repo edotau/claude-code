@@ -47,8 +47,8 @@ func PlainTarget(p *Provider, model string) Target {
 // prefixedPinNote is the one stderr note per process for an ignored profile-prefixed pin.
 var prefixedPinNote sync.Once
 
-// sessionPin is a stored model pin, or "" for an old profile-prefixed one: aliases resolve on the session's profile.
-func sessionPin(reg *Registry, pin string) string {
+// SessionPin is a stored model pin, or "" for an old profile-prefixed one: aliases resolve on the session's profile.
+func SessionPin(reg *Registry, pin string) string {
 	pin = strings.TrimSpace(pin)
 	if CheckModel(reg, pin) != nil {
 		prefixedPinNote.Do(func() {
@@ -74,7 +74,7 @@ func Select(reg *Registry, providerFlag string) (Selection, error) {
 	rec := recs["claude"]
 	all := strings.TrimSpace(rec.Model)
 	for _, alias := range models.AliasNames {
-		spec := cmp.Or(sessionPin(reg, rec.Aliases[alias]), sessionPin(reg, all), p.Models[alias])
+		spec := cmp.Or(SessionPin(reg, rec.Aliases[alias]), SessionPin(reg, all), p.Models[alias])
 		if spec == "" {
 			continue
 		}
