@@ -489,7 +489,7 @@ func loadAskRetry(ctx context.Context, fs *flag.FlagSet, args []string, retry, f
 	return 0, false
 }
 
-// retryWorkdir pins a retry to the directory the run used (no --workdir logged: its tree, else repo) and checks it exists.
+// retryWorkdir pins a retry to the directory the run used (its tree, else repo) and checks it exists.
 func retryWorkdir(fs *flag.FlagSet, workdir *string, rec agent.Record) error {
 	if helptext.Explicit(fs, "workdir") {
 		return nil
