@@ -3,6 +3,8 @@ package structdiff
 import (
 	"reflect"
 	"testing"
+
+	_ "github.com/edotau/claude-code/internal/nonet"
 )
 
 type inner struct {
