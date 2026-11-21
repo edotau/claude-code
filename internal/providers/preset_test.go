@@ -460,7 +460,7 @@ func TestServes1MByEndpointType(t *testing.T) {
 	}
 }
 
-// Window: catalog limit or Claude 5+/typed [1m] 1M, capped to 200K off a 1M endpoint or under DISABLE_1M.
+// Window: catalog limit or Claude 5+/typed [1m] 1M, capped to 200K off a 1M endpoint; unknown non-Claude 128K.
 func TestWindowByEndpoint(t *testing.T) {
 	serving := &Provider{ModelPrefix: models.DatabricksPrefix}
 	copilot := &Provider{Provider: "github"}
@@ -472,9 +472,10 @@ func TestWindowByEndpoint(t *testing.T) {
 	}{
 		{"serving 5.5", serving, "claude-opus-5-5", models.ContextWindow1M},
 		{"copilot bare", copilot, "claude-opus-5-5", models.ContextWindowStd},
-		{"copilot typed [1m] on 4.x", copilot, "claude-opus-4-8[1m]", models.ContextWindow1M},
+		{"copilot typed [1m] on 4.x stays 200K", copilot, "claude-opus-4-8[1m]", models.ContextWindowStd},
+		{"serving typed [1m] on 4.x", serving, "claude-opus-4-8[1m]", models.ContextWindow1M},
 		{"copilot typed [1m] on 5.5 is a no-op", copilot, "claude-opus-5-5[1m]", models.ContextWindowStd},
-		{"serving non-Claude", serving, "gpt-5", models.ContextWindowStd},
+		{"serving non-Claude", serving, "gpt-5", models.ContextWindowUnknown},
 		{"serving gemini catalog limit", serving, "databricks-gemini-3-8-flash", 1_048_576},
 		{"copilot gemini capped", copilot, "databricks-gemini-3-8-flash", models.ContextWindowStd},
 	} {
@@ -524,21 +525,29 @@ func TestContextTokens(t *testing.T) {
 	listingFacts(t, map[string]serving.EndpointFacts{
 		"claude-opus-4-8":         {Context: models.ContextWindow1M},
 		"databricks-fixture-chat": {Context: 128_000},
+		"databricks-fixture-big":  {Context: models.ContextWindow1M},
 	})
 	for _, c := range []struct {
 		name string
 		p    *Provider
 		wire string
 		oneM bool
+		env  string
 		want int
 	}{
-		{"claude 5 on databricks", dbx, "databricks-claude-opus-5-5", false, models.ContextWindow1M},
-		{"4.x typed [1m]", gh, "claude-opus-4-8", true, models.ContextWindow1M},
-		{"4.x untyped, listing says 1M", dbx, "claude-opus-4-8", false, models.ContextWindowStd},
-		{"row without 1M caps", gh, "claude-opus-5-5", false, models.ContextWindowStd},
-		{"non-claude from listing", dbx, "databricks-fixture-chat", false, 128_000},
-		{"unlisted unknown model", dbx, "databricks-fixture-other", false, models.ContextWindowStd},
+		{"claude 5 on databricks", dbx, "databricks-claude-opus-5-5", false, "", models.ContextWindow1M},
+		{"4.x typed [1m]", dbx, "claude-opus-4-8", true, "", models.ContextWindow1M},
+		{"typed [1m] on a non-1M row", gh, "claude-opus-4-8", true, "", models.ContextWindowStd},
+		{"4.x untyped, listing says 1M", dbx, "claude-opus-4-8", false, "", models.ContextWindowStd},
+		{"row without 1M caps", gh, "claude-opus-5-5", false, "", models.ContextWindowStd},
+		{"non-claude from listing", dbx, "databricks-fixture-chat", false, "", 128_000},
+		{"non-claude 1M from listing", dbx, "databricks-fixture-big", false, "", models.ContextWindow1M},
+		{"unlisted non-claude model", dbx, "databricks-fixture-other", false, "", models.ContextWindowUnknown},
+		{"env keeps a non-claude window", dbx, "databricks-fixture-big", false, "1", models.ContextWindow1M},
+		{"env caps claude 5", dbx, "databricks-claude-opus-5-5", false, "1", models.ContextWindowStd},
+		{"env caps typed [1m]", dbx, "claude-opus-4-8", true, "1", models.ContextWindowStd},
 	} {
+		t.Setenv("CLAUDE_CODE_DISABLE_1M_CONTEXT", c.env)
 		if got := ContextTokens(c.p, c.wire, c.oneM); got != c.want {
 			t.Errorf("%s: ContextTokens(%s, %q, %v) = %d, want %d", c.name, c.p.Name, c.wire, c.oneM, got, c.want)
 		}

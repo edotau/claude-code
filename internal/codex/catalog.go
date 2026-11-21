@@ -117,9 +117,9 @@ func catalogInputs(bin string, p *providers.Provider, prefs map[string]string) (
 	parts := []string{catalogRev, stamp, p.Name, prefs[codexEffortKey], prefs[extraVerbosity]}
 	for _, m := range menu {
 		wire := agentconfig.MenuWire(p, m.ID)
-		limits, _ := providers.LimitsFor(p, wire) // the listing decides rows and windows, so it is part of the key
+		window := providers.ContextTokens(p, wire, false) // listing and env cap move the window, so key on it
 		parts = append(parts, wire, m.Label, strconv.FormatBool(m.Responses),
-			strconv.FormatBool(codexServes(p, m)), strconv.Itoa(limits.Context))
+			strconv.FormatBool(codexServes(p, m)), strconv.Itoa(window))
 	}
 	rawKey, err := json.Marshal(parts)
 	if err != nil {
@@ -243,9 +243,6 @@ func buildCodexCatalog(p *providers.Provider, menu []providers.OpencodeModel, ra
 	return body, strings.Join(missing, ", "), err
 }
 
-// fallbackContextWindow is the window a fallback row assumes for a model with no known limit; kept under codex's 272k.
-const fallbackContextWindow = 128_000
-
 var gptVersionRE = regexp.MustCompile(`^gpt-(\d+)(?:[.-](\d+))?(?:-|$)`)
 
 // gptVersion is a gpt slug's generation as major*100+minor (gpt-5.4 is 504); ok is false for any other slug.
@@ -289,7 +286,6 @@ func fallbackTemplate(id string, listed []map[string]any, bySlug map[string]map[
 
 // codexFallbackRows builds a row per unbased model from a template; models with no template come back as missing ids.
 func codexFallbackRows(p *providers.Provider, unbased []providers.OpencodeModel, listed []map[string]any, bySlug map[string]map[string]any) (rows []map[string]any, missing []string) {
-	var assumed []string
 	for _, m := range unbased {
 		tmpl := fallbackTemplate(m.ID, listed, bySlug)
 		if tmpl == nil {
@@ -297,17 +293,9 @@ func codexFallbackRows(p *providers.Provider, unbased []providers.OpencodeModel,
 			continue
 		}
 		entry := codexMenuEntry(p, m, tmpl, len(listed)+len(rows))
-		window := fallbackContextWindow
-		if l, ok := providers.LimitsFor(p, agentconfig.MenuWire(p, m.ID)); ok && l.Context > 0 {
-			window = l.Context
-		} else {
-			assumed = append(assumed, m.ID)
-		}
+		window := providers.ContextTokens(p, agentconfig.MenuWire(p, m.ID), false)
 		entry["context_window"], entry["max_context_window"] = window, window
 		rows = append(rows, entry)
-	}
-	if len(assumed) > 0 {
-		fmt.Fprintf(agentconfig.CatalogWarn, "codex catalog: no known context window for %s; assuming %d\n", strings.Join(assumed, ", "), fallbackContextWindow)
 	}
 	return rows, missing
 }

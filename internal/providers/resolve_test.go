@@ -11,6 +11,7 @@ import (
 
 func TestPlainTargetCanonicalAndOneM(t *testing.T) {
 	def := &Provider{Name: "plain"}
+	anth := &Provider{Name: "anth", Provider: "anthropic"}
 	cases := []struct {
 		spec  string
 		prov  *Provider
@@ -18,14 +19,15 @@ func TestPlainTargetCanonicalAndOneM(t *testing.T) {
 		oneM  bool
 	}{
 		{"claude-opus-5-5[1m]", def, "claude-opus-5-5", false},
-		{"claude-opus-4-8[1m]", def, "claude-opus-4-8", true},
+		{"claude-opus-4-8[1m]", anth, "claude-opus-4-8", true},
+		{"claude-opus-4-8[1m]", def, "claude-opus-4-8", false},
 		{"claude-opus-5-5", def, "claude-opus-5-5", false},
 		{"databricks-claude-opus-5-5", def, "claude-opus-5-5", false},
-		{"opus-4-8[1m]", def, "claude-opus-4-8", true},
+		{"opus-4-8[1m]", anth, "claude-opus-4-8", true},
 		{"qwen3:30b", def, "qwen3:30b", false},
 	}
 	for _, c := range cases {
-		got := PlainTarget(def, c.spec)
+		got := PlainTarget(c.prov, c.spec)
 		if got.Provider != c.prov || got.Model != c.model || models.Has1M(got.ClientModel()) != c.oneM {
 			t.Errorf("PlainTarget(%q) = %s/%q/%v; want %s/%q/%v",
 				c.spec, got.Provider.Name, got.Model, got.ContextTokens, c.prov.Name, c.model, c.oneM)

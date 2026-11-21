@@ -35,6 +35,8 @@ const marker1M = "[1m]"
 const (
 	ContextWindow1M  = 1_000_000
 	ContextWindowStd = 200_000
+	// ContextWindowUnknown is a non-Claude model's window when neither the catalog nor a listing gives one.
+	ContextWindowUnknown = 128_000
 	// DatabricksPrefix is the serving-endpoint prefix; build full ids with Wire("databricks-serving", id).
 	DatabricksPrefix = "databricks-"
 	thinkingStd      = "31999"
@@ -134,6 +136,9 @@ func Window(id string) int {
 		if _, major, _, _ := ParseClaudeID(canonical); major >= 5 {
 			return ContextWindow1M
 		}
+	}
+	if FamilyKind(id) != FamilyClaude {
+		return ContextWindowUnknown
 	}
 	return ContextWindowStd
 }

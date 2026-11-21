@@ -360,25 +360,24 @@ func (p *Provider) Serves1M() bool {
 	return false
 }
 
-// Window is the context window id runs at on p: the model's own, capped at 200K when p cannot serve 1M or env disables.
+// Window is ContextTokens for an id as typed on p, a trailing [1m] included.
 func Window(p *Provider, id string) int {
-	w := models.Window(id)
-	if os.Getenv("CLAUDE_CODE_DISABLE_1M_CONTEXT") != "" || !p.Serves1M() && !models.Keeps1M(id) {
-		return min(w, models.ContextWindowStd)
-	}
-	return w
+	return ContextTokens(p, models.Strip1M(id), models.Keeps1M(id))
 }
 
-// ContextTokens is the window wire runs at on p: 1M when [1m] was typed, else catalog or listing, capped by the row.
+// ContextTokens is the one window wire runs at on p: typed [1m] on a 1M row, else catalog, listing, then the row's cap.
 func ContextTokens(p *Provider, wire string, oneM bool) int {
-	if oneM {
-		return models.ContextWindow1M
+	w := models.ContextWindow1M
+	if !oneM || !p.Serves1M() {
+		w = models.Window(wire)
+		if l, ok := LimitsFor(p, wire); ok && l.Context > 0 {
+			w = l.Context
+		}
+		if !p.Serves1M() || models.Keeps1M(wire+oneMMarker) {
+			w = min(w, models.ContextWindowStd)
+		}
 	}
-	w := models.Window(wire)
-	if l, ok := LimitsFor(p, wire); ok && l.Context > 0 {
-		w = l.Context
-	}
-	if !p.Serves1M() || models.Keeps1M(wire+oneMMarker) {
+	if os.Getenv("CLAUDE_CODE_DISABLE_1M_CONTEXT") != "" && models.FamilyKind(wire) == models.FamilyClaude {
 		w = min(w, models.ContextWindowStd)
 	}
 	return w

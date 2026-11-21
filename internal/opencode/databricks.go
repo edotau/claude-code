@@ -150,10 +150,10 @@ func claudeEntry(entry map[string]any) map[string]any {
 	return entry
 }
 
-// withLimit adds OpenCode's limit block when the catalog or p's fresh listing knows both numbers (schema needs both).
+// withLimit adds OpenCode's limit block when the output cap is known (the schema needs both numbers).
 func withLimit(entry map[string]any, p *providers.Provider, id string) map[string]any {
-	if l, ok := providers.LimitsFor(p, id); ok && l.Context > 0 && l.Output > 0 {
-		entry["limit"] = map[string]any{"context": l.Context, "output": l.Output}
+	if l, ok := providers.LimitsFor(p, id); ok && l.Output > 0 {
+		entry["limit"] = map[string]any{"context": providers.ContextTokens(p, id, false), "output": l.Output}
 	}
 	return entry
 }

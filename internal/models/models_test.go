@@ -179,7 +179,7 @@ func TestWindowPrefersCatalogLimit(t *testing.T) {
 	}{
 		{"claude-opus-5-5", 1_000_000},
 		{"gemini-4-argon", 1_048_576},
-		{"not-a-model", 200_000},
+		{"not-a-model", ContextWindowUnknown},
 	}
 	for _, c := range cases {
 		if got := Window(c.id); got != c.want {
@@ -218,7 +218,7 @@ func TestKeeps1M(t *testing.T) {
 		{"claude-opus-4-8", false, ContextWindowStd},
 		{"claude-sonnet-4-6[1m]", true, ContextWindow1M},
 		{"claude-haiku-4-5[1m]", false, ContextWindowStd},
-		{"gpt-6-1-sol[1m]", false, ContextWindowStd},
+		{"gpt-6-1-sol[1m]", false, ContextWindowUnknown},
 	} {
 		if got := Keeps1M(c.id); got != c.keep {
 			t.Errorf("Keeps1M(%q) = %v, want %v", c.id, got, c.keep)

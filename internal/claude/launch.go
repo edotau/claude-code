@@ -442,7 +442,7 @@ func set1MOff(plan *agent.Plan, sel providers.Selection, p *providers.Provider) 
 		return
 	}
 	for _, t := range sel.Aliases {
-		if models.Has1M(t.ClientModel()) {
+		if t.ContextTokens >= models.ContextWindow1M {
 			return
 		}
 	}

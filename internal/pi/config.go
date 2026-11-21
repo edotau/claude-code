@@ -104,13 +104,9 @@ func modelEntry(p *providers.Provider, wire, label string) map[string]any {
 		"name":      label,
 		"reasoning": models.FamilyKind(wire) == models.FamilyClaude || models.IsOpenAIReasoning(wire),
 	}
-	if l, ok := providers.LimitsFor(p, wire); ok {
-		if l.Context > 0 {
-			e["contextWindow"] = l.Context
-		}
-		if l.Output > 0 {
-			e["maxTokens"] = l.Output
-		}
+	e["contextWindow"] = providers.ContextTokens(p, wire, false)
+	if l, ok := providers.LimitsFor(p, wire); ok && l.Output > 0 {
+		e["maxTokens"] = l.Output
 	}
 	return e
 }

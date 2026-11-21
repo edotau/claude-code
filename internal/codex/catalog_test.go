@@ -16,6 +16,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/providers"
@@ -212,7 +213,7 @@ const fallbackBundled = `{"models":[{"slug":"gpt-5.5","context_window":272000,"m
 func TestCatalogFallbackRowsFollowBasedRows(t *testing.T) {
 	menu := []providers.OpencodeModel{{ID: "gpt-5-4", Label: "G54"}, {ID: "gpt-5-5", Label: "G55"}, {ID: "grok-4-7", Label: "Grok"},
 		{ID: "kimi-k3", Label: "Kimi"}, {ID: "claude-sonnet-5-5", Label: "Sonnet"}, {ID: "gemini-4-argon", Label: "Gem"}, {ID: "gpt-oss-120b", Label: "OSS"}}
-	rows, warn := buildRows(t, fallbackBundled, menu)
+	rows, _ := buildRows(t, fallbackBundled, menu)
 	var listed []string
 	byslug := map[string]catalogRow{}
 	for _, r := range rows {
@@ -224,11 +225,8 @@ func TestCatalogFallbackRowsFollowBasedRows(t *testing.T) {
 	if want := []string{"databricks-gpt-5-5", "databricks-gpt-5-4"}; !slices.Equal(listed, want) {
 		t.Fatalf("listed = %v, want %v", listed, want)
 	}
-	if got := byslug["databricks-gpt-5-4"]; got.ContextWindow != fallbackContextWindow || len(got.Levels) != 3 {
-		t.Errorf("gpt-5-4 = %+v, want window %d and the template's 3 levels", got, fallbackContextWindow)
-	}
-	if !strings.Contains(warn, "gpt-5-4") || strings.Contains(warn, "grok") || !strings.Contains(warn, "128000") {
-		t.Errorf("note = %q, want the assumed window naming gpt-5-4 only", warn)
+	if got := byslug["databricks-gpt-5-4"]; got.ContextWindow != models.ContextWindowUnknown || len(got.Levels) != 3 {
+		t.Errorf("gpt-5-4 = %+v, want window %d and the template's 3 levels", got, models.ContextWindowUnknown)
 	}
 }
 

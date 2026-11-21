@@ -26,7 +26,7 @@ type ModelRoute struct {
 	Account       string `json:"account"`                  // Provider.Account(): the ran-on account·profile
 	Login         string `json:"login,omitempty"`          // GitHub user on a github row
 	Model         string `json:"model"`                    // wire id as sent, no [1m]
-	ContextTokens int    `json:"context_tokens,omitempty"` // window the model runs at; 1M when [1m] was honoured
+	ContextTokens int    `json:"context_tokens,omitempty"` // window the model runs at on the row
 	Effort        string `json:"effort,omitempty"`         // gemini's suffix cut off Model, or the query's effort
 	Dialect       string `json:"dialect"`                  // anthropic|openai|responses|gemini, "own-login" for an agent sign-in
 	Alias         string `json:"alias,omitempty"`          // the alias typed, when one was
@@ -356,9 +356,14 @@ func routeModel(r *ModelRoute, p *providers.Provider, q ModelQuery, now time.Tim
 		return err
 	}
 	if pinned {
-		wire = swapUnservedRecord(r, p, q, wire)
+		if swapped := swapUnservedRecord(r, p, q, wire); swapped != wire {
+			wire, r.ContextTokens = swapped, 0
+		}
 	}
 	r.Model = wire
+	if r.ContextTokens == 0 && wire != AutoModel {
+		r.ContextTokens = providers.ContextTokens(p, wire, false)
+	}
 	return nil
 }
 

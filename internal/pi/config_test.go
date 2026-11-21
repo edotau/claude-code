@@ -12,6 +12,7 @@ import (
 	"github.com/edotau/claude-code/internal/catalog"
 
 	"github.com/edotau/claude-code/internal/agentconfig"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -76,7 +77,7 @@ func buildChecks(pr map[string]piProv, full Bases, menu map[string]string, mj, s
 		{"open model on chat without store", menu["databricks-kimi-k3"] == "dbx-chat" && pr["dbx-chat"].Compat["supportsStore"] == false},
 		{"grok on chat", menu["databricks-grok-4-7"] == "dbx-chat" && !strings.Contains(ids(pr["dbx-gpt"].Models), "grok")},
 		{"known limits", pr["dbx-claude"].Models[0].ContextWindow > 0 && pr["dbx-claude"].Models[0].MaxTokens > 0},
-		{"unknown model has no limits", pr["dbx-chat"].Models[2].ID == "databricks-unlisted-x" && pr["dbx-chat"].Models[2].ContextWindow == 0},
+		{"unknown model gets the default window", pr["dbx-chat"].Models[2].ID == "databricks-unlisted-x" && pr["dbx-chat"].Models[2].ContextWindow == models.ContextWindowUnknown},
 		{"defaults", strings.Contains(sj, `"defaultProvider": "dbx-claude"`)},
 	}
 }
