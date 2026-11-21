@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/catalog"
 	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/providers"
@@ -197,16 +198,41 @@ func TestNoteSlowModelHoldsPoolModel(t *testing.T) {
 	}
 	slow := pick()
 	disp := Dispatch{Agent: &fakeRunner{name: "opencode"}, Account: router.ProviderAccount("dev")}
-	noteSlowModel(disp, slow, errors.New("boom"))
+	noteSlowModel(disp, RunOptions{}, slow, errors.New("boom"))
 	if pick() != slow {
 		t.Fatal("a non-cutoff error held the model")
 	}
-	noteSlowModel(disp, slow, ErrSilent)
+	noteSlowModel(disp, RunOptions{}, slow, ErrSilent)
 	if got := pick(); got == slow {
 		t.Errorf("auto pick after an idle cutoff = %s, want another model", got)
 	}
 	if e := loadState()[disp.Account]; !e.ExhaustedUntil.IsZero() {
 		t.Errorf("account benched for a slow model: %+v", e)
+	}
+}
+
+// A typed-timeout deadline holds nothing and files no cutoff; a default-deadline silent auto pick is held.
+func TestNoteSlowModelDeadlineTypedTimeout(t *testing.T) {
+	reg, _, _ := autoFixture(t)
+	dev, now := reg.Providers["dev"], time.Now()
+	m, _, err := rotationModelOn(context.Background(), []*providers.Provider{dev}, "opencode", models.Sonnet, false, false, nil, now)
+	if err != nil {
+		t.Fatal(err)
+	}
+	disp := Dispatch{Agent: &fakeRunner{name: "opencode"}, Account: router.ProviderAccount("dev")}
+	cut := fmt.Errorf("timed out after 2s: %w", context.DeadlineExceeded)
+	noteSlowModel(disp, RunOptions{AutoModel: true, TimeoutTyped: true}, m, cut)
+	if _, held := loadState()[disp.Account].ModelDead[router.ModelKey(m)]; held {
+		t.Fatal("a typed --timeout held the model")
+	}
+	rec := Record{ID: "typed", Agent: "codex", Request: RunOptions{Model: "m", Prompt: "a", TimeoutTyped: true}}
+	rec.Finish(wire.Result{}, cut, 0)
+	if err := rec.NoteCutoff(now); err != nil || len(readCutoffs()) != 0 {
+		t.Fatalf("typed deadline filed a cutoff: %v %+v", err, readCutoffs())
+	}
+	noteSlowModel(disp, RunOptions{AutoModel: true}, m, cut)
+	if _, held := loadState()[disp.Account].ModelDead[router.ModelKey(m)]; !held {
+		t.Error("a default-deadline silent auto pick was not held")
 	}
 }
 

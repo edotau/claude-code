@@ -101,7 +101,7 @@ func updateCutoffs(now time.Time, edit func([]CutoffEntry) []CutoffEntry) error 
 func (r Record) NoteCutoff(now time.Time) error {
 	key := CutoffKey(r.Agent, r.Request.Model, r.Request.Prompt)
 	switch {
-	case r.CutOff():
+	case r.CutOff() && (r.Cutoff != CutoffDeadline || !r.Request.TimeoutTyped): // a typed deadline must not steer a resubmit
 		e := CutoffEntry{Key: key, ID: r.ID, Kind: r.Cutoff, Agent: cmp.Or(r.RanAs, r.Agent), Time: now}
 		return updateCutoffs(now, func(es []CutoffEntry) []CutoffEntry {
 			return append(slices.DeleteFunc(es, func(x CutoffEntry) bool { return x.Key == key }), e)

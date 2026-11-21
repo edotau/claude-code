@@ -4,12 +4,14 @@ package agent
 import (
 	"cmp"
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
@@ -475,10 +477,19 @@ func recentPicks(agentName string, now time.Time) string {
 // slowHold is how long a pool model that hit the deadline or went silent mid-task stays out of auto picks.
 const slowHold = 15 * time.Minute
 
+func progressed(err error) bool {
+	e, ok := errors.AsType[*retry.Error](err)
+	return ok && e.Progressed
+}
+
 // noteSlowModel holds a pool model out of auto picks after a deadline or idle cutoff; the account stays usable.
-func noteSlowModel(disp Dispatch, model string, err error) {
-	if k := CutoffOf(err); (k != CutoffDeadline && k != CutoffIdle) || model == "" || disp.Account == "" {
+func noteSlowModel(disp Dispatch, req RunOptions, model string, err error) {
+	k := CutoffOf(err)
+	if (k != CutoffDeadline && k != CutoffIdle) || model == "" || disp.Account == "" || req.ModelTyped {
 		return
+	}
+	if k == CutoffDeadline && (req.TimeoutTyped || progressed(err)) {
+		return // a user's deadline or a run that streamed says nothing about the model's health
 	}
 	_, row, _ := strings.Cut(disp.Account, "·")
 	if !router.IsPoolModel(engineName(disp), loadRegistryWarn().Row(row), model) {

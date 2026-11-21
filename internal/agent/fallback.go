@@ -209,7 +209,7 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	res, lreq, more, err = repick(runCtx, disp, lreq, res, err, sink, notify)
 	hops = append(hops, more...)
 	hops = append(hops, hopOf(disp, lreq, res, err))
-	noteFailure(disp, ranModel(lreq.Model, res), err)
+	noteFailure(disp, lreq, ranModel(lreq.Model, res), err)
 	return res, hops, false, err
 }
 
@@ -268,7 +268,7 @@ func repick(ctx context.Context, disp Dispatch, lreq RunOptions, res wire.Result
 		}
 		res.Invoked = invoked
 		if err != nil && wire.ErrorKind(err) != wire.ErrorKind(first) { // a repick that answered clears the account
-			noteFailure(disp, ran, first)
+			noteFailure(disp, lreq, ran, first)
 		}
 	}
 	if auto {
@@ -327,11 +327,11 @@ func ranModel(requested string, res wire.Result) string {
 	return requested
 }
 
-func noteFailure(disp Dispatch, model string, err error) {
+func noteFailure(disp Dispatch, req RunOptions, model string, err error) {
 	noteQuota(disp, model, err)
 	noteAuth(disp, err)
 	noteStall(disp, err)
-	noteSlowModel(disp, model, err)
+	noteSlowModel(disp, req, model, err)
 }
 
 // promptFromHandoff is the prompt carrying the hand-off doc's progress, else prompt when there is none to read.

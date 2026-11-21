@@ -612,7 +612,8 @@ type RunOptions struct {
 	Persona                                             *Schema                `json:"persona,omitempty"`    // claude: native agent definition; others: emulated
 	Pack                                                *pack.Spec             `json:"pack,omitempty"`       // inline workspace files into Prompt at Prepare; the record keeps the spec, not the bytes
 	Timeout                                             time.Duration
-	Launcher                                            Launcher           `json:"-"` // claude only: resolves the launch plan
+	TimeoutTyped                                        bool               `json:"timeout_typed,omitempty"` // --timeout was typed: its cutoff says nothing about the model
+	Launcher                                            Launcher           `json:"-"`                       // claude only: resolves the launch plan
 	Agent                                               string             `json:"-"`
 	Agents                                              map[string]*Schema `json:"-"`
 	Fallback                                            string             `json:"-"`
