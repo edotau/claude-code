@@ -39,6 +39,7 @@ type options struct {
 	base    bool
 	verbose bool
 	json    bool
+	loop    loopOpts
 }
 
 // Delta is one benchstat comparison cell for a benchmark and unit.
@@ -99,9 +100,15 @@ func RunBench(args []string, stdout, stderr io.Writer) int {
 	if done {
 		return code
 	}
+	if o.loop.queue || o.loop.record {
+		return runLoop(o, stdout, stderr)
+	}
 	if _, err := exec.LookPath("benchstat"); err != nil {
 		fmt.Fprintln(stderr, "review bench: benchstat not on PATH (go install golang.org/x/perf/cmd/benchstat@latest)")
 		return 1
+	}
+	if o.loop.decide {
+		return runLoop(o, stdout, stderr)
 	}
 	rep, err := run(o, stderr)
 	if err != nil {
@@ -134,6 +141,7 @@ func parseArgs(args []string, stdout, stderr io.Writer) (options, int, bool) {
 	fs.BoolVar(&o.base, "base", false, "store the run as a base and as rolling.txt")
 	fs.BoolVar(&o.verbose, "v", false, "also show benchmarks that did not move")
 	fs.StringVar(&format, "format", "text", "text|json")
+	loopFlags(fs, &o.loop)
 	if helptext.WantsHelp(args) {
 		fs.SetOutput(stdout)
 		fs.Usage()
@@ -311,7 +319,7 @@ func compare(old, cur string) (map[string]map[string]Delta, error) {
 
 func attach(scores []Score, deltas map[string]map[string]Delta) {
 	for i := range scores {
-		scores[i].Deltas = deltas[scores[i].Name]
+		scores[i].Deltas = deltas[strings.TrimPrefix(scores[i].Name, "Benchmark")] // benchstat drops the prefix
 	}
 }
 

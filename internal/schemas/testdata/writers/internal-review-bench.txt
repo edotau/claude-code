@@ -1,1 +1,4 @@
 internal/review/bench/bench.go:runPackage	unversioned: text: a benchmark run and the rolling baseline under state/harness/bench
+internal/review/bench/loop.go:advanceRolling	unversioned: text: the kept run becomes the package rolling baseline
+internal/review/bench/loop.go:recordRow	unversioned: jsonl: one scorecard row per loop iteration under state/harness/bench
+internal/review/bench/loop.go:seedFile	unversioned: jsonl: the baseline fix candidates under state/harness/bench
