@@ -195,14 +195,7 @@ func outputHolders(files []string) []int {
 		return nil
 	}
 	if runtime.GOOS != "linux" {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-		defer cancel()
-		args := append([]string{"-a", "-d", "1,2", "-t", "--"}, files...) // stdout/stderr only, like /proc
-		out, err := exec.CommandContext(ctx, "lsof", args...).Output()
-		if err != nil && len(out) == 0 {
-			return nil
-		}
-		return parsePids(out)
+		return lsofHolders(files)
 	}
 	want := map[string]bool{}
 	for _, f := range files {
@@ -223,6 +216,22 @@ func outputHolders(files []string) []int {
 		}
 	}
 	return pids
+}
+
+// lsofHolders is outputHolders off Linux: one lsof over the files that still exist, none when no file is left.
+func lsofHolders(files []string) []int {
+	files = slices.DeleteFunc(slices.Clone(files), func(f string) bool { _, err := os.Stat(f); return err != nil })
+	if len(files) == 0 {
+		return nil // a removed file has no holder lsof can name: skip the exec
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	args := append([]string{"-a", "-d", "1,2", "-t", "--"}, files...) // stdout/stderr only, like /proc
+	out, err := exec.CommandContext(ctx, "lsof", args...).Output()
+	if err != nil && len(out) == 0 {
+		return nil
+	}
+	return parsePids(out)
 }
 
 func parsePids(out []byte) []int {

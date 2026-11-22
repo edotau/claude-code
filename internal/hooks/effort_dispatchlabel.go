@@ -134,11 +134,25 @@ func sessionModelOf(cwd, sid string) string {
 // WithDispatchLabels appends the dispatch-label line to a Claude hook's context when the session model changed.
 func WithDispatchLabels(next core.Runner) core.Runner {
 	return func(in *core.Input) core.Result {
-		res := next(in)
 		if in.Agent() != core.AgentClaude {
-			return res
+			return next(in)
 		}
-		res.Context = core.JoinContext(res.Context, dispatchLabelsLine(in))
+		type labelOut struct {
+			line   string
+			panicV any
+		}
+		done := make(chan labelOut, 1)
+		go func() { // beside next: the line is mostly a gh auth token exec, independent of the module
+			var out labelOut
+			defer func() { out.panicV = recover(); done <- out }()
+			out.line = dispatchLabelsLine(in)
+		}()
+		res := next(in)
+		out := <-done
+		if out.panicV != nil {
+			panic(out.panicV) // re-raised on the module's goroutine, where the dispatcher recovers it
+		}
+		res.Context = core.JoinContext(res.Context, out.line)
 		return res
 	}
 }
