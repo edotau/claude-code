@@ -131,32 +131,21 @@ func selectPinnedModel(agent, alias string, cell Cell, p *providers.Provider, mo
 	return m
 }
 
-// RotationPool is the served pool agent rotates through on p at alias ("" = every tier); the agent package sets it.
-var RotationPool func(agent, alias string, p *providers.Provider, tools bool, now time.Time) []string
-
 // RotationRow reports a row a rotation pin runs on: a Databricks workspace or a GitHub Copilot login.
 func RotationRow(p *providers.Provider) bool {
 	return p != nil && (p.Preset == providers.PresetDatabricks || p.Provider == "github")
 }
 
-// poolFor is empty until the agent package supplies the served pool.
-func poolFor(agent, alias string, p *providers.Provider, now time.Time) []string {
-	if RotationPool != nil {
-		return RotationPool(agent, alias, p, false, now)
-	}
-	return nil
-}
-
 // PoolOverlay is the vault's discovery-models list when set and valid: the rotation's allowlist.
 func PoolOverlay() ([]string, bool) { return vaultDiscoveryPool() }
 
-// IsPoolModel reports whether model is in agent's rotation pool as p serves it, at any tier.
-func IsPoolModel(agent string, p *providers.Provider, model string) bool {
+// IsPoolModel reports whether model is in the pool as p serves it; pool is read only on a rotation row.
+func IsPoolModel(pool func() []string, p *providers.Provider, model string) bool {
 	if !RotationRow(p) {
 		return false
 	}
 	wire := strings.TrimPrefix(model, p.Name+":")
-	return slices.ContainsFunc(poolFor(agent, "", p, time.Now()), func(entry string) bool {
+	return slices.ContainsFunc(pool(), func(entry string) bool {
 		return providers.SpellPin(p, entry) == wire
 	})
 }
@@ -311,11 +300,11 @@ func updateCtx(ctx context.Context, fn func(State)) error {
 	}
 }
 
-// SkipDiscovery marks a pool entry unusable; returns "" for no match or a persistence error, reported on stderr.
-func SkipDiscovery(ctx context.Context, agent string, p *providers.Provider, wire string) string {
+// SkipDiscovery marks a pool entry unusable (pool is read under the state lock); returns "" for no match or a persistence error, reported on stderr.
+func SkipDiscovery(ctx context.Context, agent string, pool func() []string, p *providers.Provider, wire string) string {
 	var hit string
 	err := updateCtx(ctx, func(s State) {
-		for _, entry := range poolFor(agent, "", p, time.Now()) {
+		for _, entry := range pool() {
 			if providers.SpellPin(p, entry) != wire {
 				continue
 			}

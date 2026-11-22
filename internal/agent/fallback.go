@@ -834,7 +834,8 @@ func rotationRateLimit(disp Dispatch, model string, err error) bool {
 		return false
 	}
 	_, row, _ := strings.Cut(disp.Account, "·")
-	if !router.IsPoolModel(disp.Agent.Name(), loadRegistryWarn().Row(row), model) {
+	p := loadRegistryWarn().Row(row)
+	if !router.IsPoolModel(poolOf(disp.Agent.Name(), p), p, model) {
 		return false
 	}
 	now := time.Now()
@@ -968,7 +969,7 @@ func autoRetryable(disp Dispatch, requested, ran string) *providers.Provider {
 // skipAutoModel benches ran in the auto pool of disp's row; false when the request is not an auto or nothing matched.
 func skipAutoModel(ctx context.Context, disp Dispatch, requested, ran string) bool {
 	p := autoRetryable(disp, requested, ran)
-	return p != nil && router.SkipDiscovery(ctx, disp.Agent.Name(), p, strings.TrimPrefix(ran, p.Name+":")) != ""
+	return p != nil && router.SkipDiscovery(ctx, disp.Agent.Name(), poolOf(disp.Agent.Name(), p), p, strings.TrimPrefix(ran, p.Name+":")) != ""
 }
 
 // dispatchRequest is req for disp: a later dispatch drops provider and session and runs its cell; --effort wins.

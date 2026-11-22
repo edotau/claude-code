@@ -62,7 +62,7 @@ func TestRotationPoolPinSkips(t *testing.T) {
 	}
 	first := picks()[0]
 	for i, want := range []bool{true, false} {
-		router.SkipDiscovery(context.Background(), "opencode", rows[i], providers.SpellPin(rows[i], first))
+		router.SkipDiscovery(context.Background(), "opencode", poolOf("opencode", rows[i]), rows[i], providers.SpellPin(rows[i], first))
 		if got := picks(); slices.Contains(got, first) != want {
 			t.Errorf("after skipping on %d row(s): picks %v, want %s in them %v", i+1, got, first, want)
 		}
@@ -82,14 +82,14 @@ func TestRotationPoolPinNoteCountsWorkspaceSkips(t *testing.T) {
 	if err != nil || !strings.Contains(note, fmt.Sprintf("%d in pool", len(pool))) {
 		t.Fatalf("note %q (%v), want %d in pool", note, err, len(pool))
 	}
-	if router.SkipDiscovery(context.Background(), "opencode", rows[0], providers.SpellPin(rows[0], pool[0])) == "" {
+	if router.SkipDiscovery(context.Background(), "opencode", poolOf("opencode", rows[0]), rows[0], providers.SpellPin(rows[0], pool[0])) == "" {
 		t.Fatalf("fixture: %s not in %s's rotation pool", pool[0], rows[0].Name)
 	}
 	_, note, err = rotationModelOn(context.Background(), rows, "opencode", models.Sonnet, false, false, nil, time.Now())
 	if err != nil || !strings.Contains(note, fmt.Sprintf("%d in pool", len(pool))) {
 		t.Errorf("after a dev skip, note %q (%v), want still %d in pool (prod serves it)", note, err, len(pool))
 	}
-	router.SkipDiscovery(context.Background(), "opencode", rows[1], providers.SpellPin(rows[1], pool[0]))
+	router.SkipDiscovery(context.Background(), "opencode", poolOf("opencode", rows[1]), rows[1], providers.SpellPin(rows[1], pool[0]))
 	_, note, err = rotationModelOn(context.Background(), rows, "opencode", models.Sonnet, false, false, nil, time.Now())
 	if err != nil || !strings.Contains(note, fmt.Sprintf("%d in pool", len(pool)-1)) {
 		t.Errorf("after the same skip on prod, note %q (%v), want %d in pool", note, err, len(pool)-1)
@@ -142,7 +142,7 @@ func TestRotationPickOutcomes(t *testing.T) {
 		{"empty tier steps to standard", "xf", "auto", deepBrief, func() {}, rotationRan(band(pair, "standard", false, nil), "(standard tier,"), true},
 		{"every tier member held", "dev", "auto", deepBrief, func() {
 			for _, id := range rotationPool("opencode", models.Opus, dev, false, now) {
-				router.SkipDiscovery(context.Background(), "opencode", dev, providers.SpellPin(dev, id))
+				router.SkipDiscovery(context.Background(), "opencode", poolOf("opencode", dev), dev, providers.SpellPin(dev, id))
 			}
 		}, func(_ ModelRoute, err error) bool { return errors.Is(err, ErrPoolExhausted) }, true},
 		{"state unwritable", "dev", "auto", standardBrief, func() {

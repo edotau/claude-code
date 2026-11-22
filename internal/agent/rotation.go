@@ -25,8 +25,9 @@ import (
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-func init() {
-	router.RotationPool = rotationPool
+// poolOf is the lazy any-tier rotation pool of agentName on p, for router's pool checks.
+func poolOf(agentName string, p *providers.Provider) func() []string {
+	return func() []string { return rotationPool(agentName, "", p, false, time.Now()) }
 }
 
 type peekKey struct{}
@@ -482,7 +483,8 @@ func noteSlowModel(disp Dispatch, req RunOptions, model string, err error) {
 		return // a typed model or deadline, or a run that streamed, says nothing about the model's health
 	}
 	_, row, _ := strings.Cut(disp.Account, "·")
-	if !router.IsPoolModel(engineName(disp), loadRegistryWarn().Row(row), model) {
+	p := loadRegistryWarn().Row(row)
+	if !router.IsPoolModel(poolOf(engineName(disp), p), p, model) {
 		return
 	}
 	now := time.Now()

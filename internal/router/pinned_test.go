@@ -42,10 +42,8 @@ func TestRotationPickAndPeek(t *testing.T) {
 			}); err != nil {
 				t.Fatal(err)
 			}
-			oldPool := RotationPool
-			RotationPool = func(string, string, *providers.Provider, bool, time.Time) []string { return pool }
-			t.Cleanup(func() { RotationPool = oldPool })
-			if tc.held != "" && SkipDiscovery(context.Background(), agent, p, tc.held) != tc.held {
+			poolFn := func() []string { return pool }
+			if tc.held != "" && SkipDiscovery(context.Background(), agent, poolFn, p, tc.held) != tc.held {
 				t.Fatal("SkipDiscovery did not hold the model")
 			}
 			checkRotationPeek(t, p, pool, now, tc.first)
@@ -141,9 +139,7 @@ func checkRotationPicks(t *testing.T, p *providers.Provider, pool []string, now 
 func TestPickPoolRotatesHonorsSkipAndExpiry(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	p, pool := poolProvider(), []string{"databricks-kimi-k3", "databricks-grok-4-6", "databricks-glm-5-3"}
-	oldPool := RotationPool
-	RotationPool = func(string, string, *providers.Provider, bool, time.Time) []string { return pool }
-	t.Cleanup(func() { RotationPool = oldPool })
+	poolFn := func() []string { return pool }
 	if err := vault.Update(func(tx *vault.Tx) error {
 		return tx.Put(vault.Overlay, vault.PoolKey, `["databricks-kimi-k3","databricks-grok-4-6","databricks-glm-5-3"]`)
 	}); err != nil {
@@ -161,7 +157,7 @@ func TestPickPoolRotatesHonorsSkipAndExpiry(t *testing.T) {
 	if !slices.Equal(got, pool) {
 		t.Fatalf("3 picks = %v, want pool order %v (ties by pool order, then least recent)", got, pool)
 	}
-	if m := SkipDiscovery(context.Background(), "opencode", p, "databricks-kimi-k3"); m != "databricks-kimi-k3" {
+	if m := SkipDiscovery(context.Background(), "opencode", poolFn, p, "databricks-kimi-k3"); m != "databricks-kimi-k3" {
 		t.Fatalf("SkipDiscovery = %q, want kimi-k3", m)
 	}
 	if m, _ := pickPool("copilot", p, pool, now.Add(9*time.Second)); m != "databricks-kimi-k3" {
@@ -222,7 +218,7 @@ func TestSkipDiscoveryReportsNothingWhenSkipNotPersisted(t *testing.T) {
 	if os.WriteFile(filepath.Join(filepath.Dir(StatePath()), "probe"), nil, 0o600) == nil {
 		t.Skip("state dir stays writable (running as root)")
 	}
-	if m := SkipDiscovery(context.Background(), "opencode", poolProvider(), "databricks-kimi-k3"); m != "" {
+	if m := SkipDiscovery(context.Background(), "opencode", func() []string { return nil }, poolProvider(), "databricks-kimi-k3"); m != "" {
 		t.Fatalf("SkipDiscovery with an unwritable quota.json = %q, want empty", m)
 	}
 }
@@ -235,7 +231,7 @@ func TestSkipDiscoveryReportsPersistenceFailure(t *testing.T) {
 	}
 	var got string
 	_, _, out := hosttest.CaptureOutput(t, func() int {
-		got = SkipDiscovery(context.Background(), "opencode", poolProvider(), "databricks-kimi-k3")
+		got = SkipDiscovery(context.Background(), "opencode", func() []string { return nil }, poolProvider(), "databricks-kimi-k3")
 		return 0
 	})
 	if got != "" || !strings.Contains(string(out), "could not persist model skip") {
