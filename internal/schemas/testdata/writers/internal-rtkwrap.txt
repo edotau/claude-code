@@ -1,1 +1,1 @@
-internal/rtkwrap/log.go:logDecision	unversioned: log: rtkwrap trial decision rows, append-only, capped at 16 MiB
+internal/rtkwrap/log.go:logVerdict	unversioned: log: rtkwrap trial decision rows, append-only, capped at 16 MiB

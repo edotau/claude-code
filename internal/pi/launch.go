@@ -88,8 +88,6 @@ var CodemodeModes = []string{"on", "only"}
 // CodemodeEnv is the vault or process setting (off|on|only) that turns code mode on for every pi --tools dispatch.
 const CodemodeEnv = "PI_CODEMODE"
 
-const codemodeFlag = "--codemode"
-
 // ResolveCodemode is the typed --codemode, else the PI_CODEMODE setting under --tools; any other setting value is off.
 func ResolveCodemode(typed string, tools bool) (string, error) {
 	if typed != "" || !tools {
@@ -99,32 +97,32 @@ func ResolveCodemode(typed string, tools bool) (string, error) {
 	if !slices.Contains(CodemodeModes, mode) {
 		return "", nil
 	}
-	_, err := experiment(mode, rtkMode(), CodemodeEnv+"="+mode)
-	return mode, err
+	return mode, nil
 }
 
 // Experiment is the trial a run of req carries, from the same RTK_WRAP sources Wire reads.
 func (piEngine) Experiment(req agent.RunOptions) string {
-	x, _ := experiment(req.Codemode, rtkMode(), codemodeFlag)
-	return x
+	return experiment(req.Codemode, rtkMode())
 }
 
 func rtkMode() string {
 	return cmp.Or(os.Getenv(rtkwrap.ModeEnv), providers.CustomEnv()[rtkwrap.ModeEnv])
 }
 
-// experiment is the one trial a dispatch carries; RTK_WRAP=debug never changes output, so it is none.
-func experiment(codemode, rtk, src string) (string, error) {
-	wrap := strings.EqualFold(strings.TrimSpace(rtk), "on")
+// experiment is the one trial a run carries; code mode wins over RTK_WRAP=on, whose shim never wraps under it.
+func experiment(codemode, rtk string) string {
 	switch {
-	case codemode != "" && wrap:
-		return "", fmt.Errorf("pi: %s and %s=on are two experiments; a dispatch carries one, drop either", src, rtkwrap.ModeEnv)
 	case codemode != "":
-		return "codemode", nil
-	case wrap:
-		return "rtk-wrap", nil
+		return "codemode"
+	case strings.EqualFold(strings.TrimSpace(rtk), "on"):
+		return "rtk-wrap"
 	}
-	return "none", nil
+	return "none"
+}
+
+// codemodeLaunchEnv is env exporting the effective code mode to Pi and putting the shim dir on PATH for it.
+func codemodeLaunchEnv(env []string, mode string) []string {
+	return rtkwrap.Launch(env, rtkMode(), mode, agent.NoticeOut)
 }
 
 // lastEnv is the value the child gets for name: the last entry of env.
@@ -138,8 +136,8 @@ func lastEnv(env []string, name string) string {
 	return v
 }
 
-// checkCodemode refuses a code mode Pi would not run as asked: an unknown mode, no tools, or a second experiment.
-func checkCodemode(req agent.RunOptions, env []string) error {
+// checkCodemode refuses a code mode Pi would not run as asked: an unknown mode or no tools.
+func checkCodemode(req agent.RunOptions, _ []string) error {
 	if req.Codemode == "" {
 		return nil
 	}
@@ -149,8 +147,7 @@ func checkCodemode(req agent.RunOptions, env []string) error {
 	if !req.Tools {
 		return errors.New("pi: --codemode needs --tools: its scripts call the guarded tools")
 	}
-	_, err := experiment(req.Codemode, lastEnv(env, rtkwrap.ModeEnv), codemodeFlag)
-	return err
+	return nil
 }
 
 // codemodeArgv loads the builtin codemode extension explicitly (--no-extensions drops it) and turns its tool on.

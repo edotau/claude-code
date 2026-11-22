@@ -44,7 +44,8 @@ type call struct {
 	name           string
 	args           []string
 	mode           string
-	pipe           bool // stdout is a pipe or socket, never a TTY, file or device
+	codemode       string // CodemodeEnv: Pi's scripts run, so nothing wraps
+	pipe           bool   // stdout is a pipe or socket, never a TTY, file or device
 	pid, ppid, sid int
 	cwd            string
 }
@@ -53,6 +54,9 @@ type call struct {
 func (c call) gate() (cmd, reason string) {
 	if c.mode != "on" && c.mode != "debug" {
 		return "", "off"
+	}
+	if c.codemode != "" {
+		return "", "codemode"
 	}
 	if !c.pipe {
 		return "", "not-pipe"
@@ -158,6 +162,9 @@ func rewrite(rtk, cmd string, env []string) string {
 // Main runs the shim args[0] names: rtk when every gate passes, else the real binary; it returns only on failure.
 func Main(args []string) int {
 	name := filepath.Base(args[0])
+	if name == rtkName {
+		return rtkMain(args)
+	}
 	if !slices.Contains(Names, name) {
 		fmt.Fprintf(os.Stderr, "rtkwrap: %s is not a shimmed command\n", name)
 		return exitNoExec
@@ -180,7 +187,7 @@ func Main(args []string) int {
 // wrapWith is the rtk to exec for this call, or "" when it runs raw; the decision is logged first.
 func wrapWith(name string, args, dirs []string, self os.FileInfo, env []string) string {
 	cwd, _ := os.Getwd()
-	c := call{name: name, args: args, mode: os.Getenv(ModeEnv), pipe: stdoutPipe(), pid: os.Getpid(), ppid: os.Getppid(), sid: sessionID(), cwd: cwd}
+	c := call{name: name, args: args, mode: os.Getenv(ModeEnv), codemode: os.Getenv(CodemodeEnv), pipe: stdoutPipe(), pid: os.Getpid(), ppid: os.Getppid(), sid: sessionID(), cwd: cwd}
 	rtk, _ := resolve(dirs, "rtk", self)
 	reason := c.wraps(rtk, env)
 	logDecision(c.mode, name, reason)
@@ -243,4 +250,53 @@ func resolve(dirs []string, name string, self os.FileInfo) (real string, kept []
 func withPath(env, dirs []string) []string {
 	out := slices.DeleteFunc(slices.Clone(env), func(kv string) bool { return strings.HasPrefix(kv, "PATH=") })
 	return append(out, "PATH="+strings.Join(dirs, string(os.PathListSeparator)))
+}
+
+const rtkName = "rtk"
+
+// stripRtk is the command `rtk args...` becomes under code mode: a shim command, or `bypass <cmd>`; ok false runs rtk.
+func stripRtk(args []string) (name string, rest []string, ok bool) {
+	switch {
+	case len(args) == 0:
+		return "", nil, false
+	case args[0] == "bypass" && len(args) > 1:
+		return args[1], args[2:], true
+	case slices.Contains(Names, args[0]):
+		return args[0], args[1:], true
+	}
+	return "", nil, false
+}
+
+// rtkMain is the rtk stand-in: under code mode it drops the rtk prefix from a shim command, else it runs the real rtk.
+func rtkMain(args []string) int {
+	self := selfInfo()
+	real, dirs := resolve(filepath.SplitList(os.Getenv("PATH")), rtkName, self)
+	env := withPath(os.Environ(), dirs)
+	name, rest, strip := stripRtk(args[1:])
+	if os.Getenv(CodemodeEnv) == "" {
+		strip = false
+	}
+	if strip {
+		cmd, _ := resolve(dirs, name, self)
+		if os.Getenv(ModeEnv) == "debug" || os.Getenv(ModeEnv) == "on" {
+			logVerdict(name, "stripped", "")
+		}
+		if cmd == "" {
+			fmt.Fprintf(os.Stderr, "rtkwrap: %s: not found on PATH outside the shim dir\n", name)
+			return exitNoExec
+		}
+		err := execve(cmd, append([]string{name}, rest...), env)
+		fmt.Fprintf(os.Stderr, "rtkwrap: %s: %v\n", name, err)
+		return exitNoExec
+	}
+	if os.Getenv(CodemodeEnv) != "" && (os.Getenv(ModeEnv) == "debug" || os.Getenv(ModeEnv) == "on") {
+		logVerdict(rtkName, "raw", "rtk-verb")
+	}
+	if real == "" {
+		fmt.Fprintf(os.Stderr, "rtkwrap: rtk: not found on PATH outside the shim dir\n")
+		return exitNoExec
+	}
+	err := execve(real, append([]string{"rtk"}, args[1:]...), env)
+	fmt.Fprintf(os.Stderr, "rtkwrap: rtk: %v\n", err)
+	return exitNoExec
 }

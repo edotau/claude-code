@@ -33,6 +33,11 @@ func logDecision(mode, name, reason string) {
 	if reason == "" {
 		verdict = map[string]string{"on": "wrapped", "debug": "would-wrap"}[mode]
 	}
+	logVerdict(name, verdict, reason)
+}
+
+// logVerdict appends one decision line best effort.
+func logVerdict(name, verdict, reason string) {
 	line, err := json.Marshal(decision{T: time.Now().UTC().Format(time.RFC3339), Name: name, Verdict: verdict, Reason: reason})
 	if err != nil {
 		return

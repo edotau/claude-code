@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -29,8 +30,8 @@ func TestWrapDecision(t *testing.T) {
 	execd := func(name string, args ...string) call { // `bash -c` exec'd: the shim is the session leader under Pi
 		return call{name: name, args: args, mode: "on", pipe: true, pid: 20, ppid: 10, sid: 20, cwd: cwd}
 	}
-	off, tty := forked("git", "status"), forked("git", "status")
-	off.mode, tty.pipe = "", false
+	off, tty, script := forked("git", "status"), forked("git", "status"), forked("git", "status")
+	off.mode, tty.pipe, script.codemode = "", false, "only"
 	footer := execd("git", "status")
 	footer.sid = 5 // Pi's own git (footer, packages): not a detached tool shell
 	sub, recipe := forked("git", "status"), forked("git", "status")
@@ -46,6 +47,7 @@ func TestWrapDecision(t *testing.T) {
 		{"forked chain", forked("git", "status"), "git status; ls", true},
 		{"exec'd single", execd("git", "status", "--short"), "", true},
 		{"off", off, "git status", false},
+		{"code mode", script, "git status", false},
 		{"stdout not a pipe", tty, "git status", false},
 		{"pi's own git", footer, "", false},
 		{"subshell child", sub, "git status", false},
@@ -61,6 +63,26 @@ func TestWrapDecision(t *testing.T) {
 		stubTree(t, tree, parents, tc.cmd)
 		if _, reason := tc.c.gate(); (reason == "") != tc.want {
 			t.Errorf("%s: gate() reason = %q, want wrap %v", tc.label, reason, tc.want)
+		}
+	}
+}
+
+func TestStripRtk(t *testing.T) {
+	for _, tc := range []struct {
+		args []string
+		name string
+		rest []string
+		ok   bool
+	}{
+		{[]string{"git", "log", "-1"}, "git", []string{"log", "-1"}, true},
+		{[]string{"bypass", "cat", "f"}, "cat", []string{"f"}, true},
+		{[]string{"read", "f"}, "", nil, false},
+		{[]string{"bypass"}, "", nil, false},
+		{nil, "", nil, false},
+	} {
+		name, rest, ok := stripRtk(tc.args)
+		if name != tc.name || ok != tc.ok || !slices.Equal(rest, tc.rest) {
+			t.Errorf("stripRtk(%q) = %q %q %v, want %q %q %v", tc.args, name, rest, ok, tc.name, tc.rest, tc.ok)
 		}
 	}
 }
