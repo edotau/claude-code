@@ -89,9 +89,18 @@ func (e copilotEngine) Run(ctx context.Context, req agent.RunOptions, sink wire.
 	res.Reported = strings.TrimSpace(out.Model)
 	res.SessionID, res.Answer, res.Usage, res.Written = out.SessionID, out.Text, out.Usage, out.Written
 	if strings.TrimSpace(out.Text) == "" {
-		return res, agent.EmptyAnswer("copilot")
+		return emptyText(res, out, sink)
 	}
 	return res, sink.Emit(wire.Event{Type: wire.EventText, Text: out.Text})
+}
+
+// emptyText settles a run with no text: a placeholder answer after tool work, else the empty-answer failure.
+func emptyText(res wire.Result, out sdk.Result, sink wire.Sink) (wire.Result, error) {
+	res, err := agent.EmptyOrWorked("copilot", res, out.ToolRan)
+	if err != nil {
+		return res, err
+	}
+	return res, sink.Emit(wire.Event{Type: wire.EventText, Text: res.Answer})
 }
 
 // initialResult seeds the run result with the provider and model of target t.

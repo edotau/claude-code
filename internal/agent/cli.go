@@ -309,6 +309,18 @@ func (v cliEngine) Run(ctx context.Context, req RunOptions, sink wire.Sink) (wir
 	return v.Exec(ctx, p, req, sink)
 }
 
+// NoTextAnswer is the answer of a run whose tool work completed but whose model sent no closing text.
+const NoTextAnswer = "(no text; the run's tool calls completed)"
+
+// EmptyOrWorked: an empty answer is ok, with a placeholder, once a tool ran or a file was written; else EmptyAnswer.
+func EmptyOrWorked(name string, res wire.Result, toolRan bool) (wire.Result, error) {
+	if toolRan || len(res.Written) > 0 {
+		res.Answer = NoTextAnswer
+		return res, nil
+	}
+	return res, EmptyAnswer(name)
+}
+
 // EmptyAnswer: a clean exit with no text is a failure the caller must see, not a blank success.
 func EmptyAnswer(name string) error {
 	return retry.Fatal(name, errors.New("the CLI exited 0 with an empty answer (model returned no text)"))
@@ -408,7 +420,7 @@ func streamResult(ctx context.Context, name string, res wire.Result, perr, werr 
 		return res, ChildErr(ctx, name, errors.Join(werr, perr), tail)
 	}
 	if perr == nil && res.Answer == "" && len(res.Structured) == 0 { // a structured-only answer is an answer
-		return res, EmptyAnswer(name)
+		return EmptyOrWorked(name, res, false)
 	}
 	return res, perr
 }

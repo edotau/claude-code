@@ -322,3 +322,23 @@ func TestResolveInFamilyTargetsAreConcrete(t *testing.T) {
 		t.Errorf("a concrete id or alias read the list: reads = %d", reads)
 	}
 }
+
+func TestEmptyOrWorked(t *testing.T) {
+	for _, c := range []struct {
+		name    string
+		res     wire.Result
+		toolRan bool
+		ok      bool
+	}{
+		{"nothing", wire.Result{}, false, false},
+		{"tool ran", wire.Result{}, true, true},
+		{"file written", wire.Result{Written: []string{"/x"}}, false, true},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			res, err := EmptyOrWorked("x", c.res, c.toolRan)
+			if (err == nil) != c.ok || (c.ok && res.Answer != NoTextAnswer) {
+				t.Fatalf("answer %q err %v; want ok=%v", res.Answer, err, c.ok)
+			}
+		})
+	}
+}
