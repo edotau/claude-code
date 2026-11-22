@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync"
@@ -17,6 +18,7 @@ import (
 	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
+	"github.com/edotau/claude-code/internal/shell"
 )
 
 // policy is the settings.json permissions safety-scan reads: Bash rules per tier, Edit/Write globs as written.
@@ -241,25 +243,84 @@ func leafWallVerdict(in *core.Input, cmd, plain string) (core.Decision, string, 
 		return core.Allow, "", ""
 	}
 	globs := []string{stateGlob()}
-	if p := protectedWrite(cmd, in.CWD, globs, false); p != "" && !bashGranted(in.CWD, cmd) && !wallGranted(in.CWD, p) {
+	p := protectedWrite(cmd, in.CWD, globs, false)
+	if p == "" {
+		p = stateCWDTouch(cmd, in.CWD)
+	}
+	if p != "" && !bashGranted(in.CWD, cmd) && !wallGranted(in.CWD, p) {
 		return core.Block, core.SafetyMessage(in, core.Block, "writes the harness state dir, which a leaf only reads", p,
 			stateHint), "harness state write"
 	}
-	if needle, _ := interpreterWrite(plain, globs, false); needle != "" && !bashGranted(in.CWD, cmd) {
+	if needle, _ := stateInterpreterWrite(cmd, plain, globs); needle != "" && !bashGranted(in.CWD, cmd) {
 		return core.Block, core.SafetyMessage(in, core.Block, "an interpreter script that may write the harness state dir",
 			needle, stateHint), "interpreter harness state write"
 	}
 	return core.Allow, "", ""
 }
 
-// mayTouchState is false when cmd names no state text, expansion or quote seam and no target resolves into the dir.
+// mayTouchState over-approximates reachability; the full wall still decides whether a command writes state.
 func mayTouchState(cmd, cwd string) bool {
-	if strings.Contains(cmd, "state") || strings.ContainsAny(cmd, "$\\'\"`*?[{") {
+	if strings.Contains(paths.FoldCase(cmd), "state") || strings.ContainsAny(cmd, "$\\'\"`*?[{") || cwd != "" && paths.InsideDir(cwd, paths.StateDir()) {
 		return true
 	}
 	// A relative target, a case variant or a symlink reaches the dir without naming it: resolve each target.
 	inside := func(p string) bool { return paths.InsideDir(p, paths.StateDir()) }
 	return slices.ContainsFunc(core.WrittenPaths(cmd, cwd), inside) || slices.ContainsFunc(core.RemovedPaths(cmd, cwd), inside)
+}
+
+// Only literal destinations extend the old interpreter wall; folded path text in output data is not a destination.
+var stateLiteralDestination = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`\b(?:File|IO)\.(?:binwrite|write|delete|unlink|rename)\s*\(\s*%q\([^()\\]*\)`)
+})
+
+func stateInterpreterWrite(cmd, plain string, globs []string) (string, string) {
+	needle, glob := interpreterWrite(plain, globs, false)
+	if needle == "" || strings.Contains(cmd, "state") || strings.ContainsAny(cmd, "$\\'\"`*?[{") {
+		return needle, glob
+	}
+	destinations := strings.Join(stateLiteralDestination().FindAllString(plain, -1), "\n")
+	return mentionedGlob(globs, paths.FoldCase(destinations), false)
+}
+
+var touchValueFlag = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^-[acfhmos]*[Artd]$|^--(?:reference|date)$`)
+})
+
+// touch is absent from the shared write extractor; inspect its operands only when its cwd is already in state.
+func stateCWDTouch(cmd, cwd string) string {
+	var target string
+	shell.EachSegmentDir(cmd, cwd, func(seg string, _ []string, dir string, lost bool) {
+		if lost || !paths.InsideDir(dir, paths.StateDir()) {
+			return
+		}
+		words, _ := shell.Redirects(seg)
+		rest, _ := shell.Unwrap(words, dir)
+		if len(rest) == 0 || filepath.Base(rest[0]) != "touch" {
+			return
+		}
+		flags := true
+		for i := 1; i < len(rest); i++ {
+			a := rest[i]
+			if flags {
+				switch {
+				case a == "--":
+					flags = false
+					continue
+				case touchValueFlag().MatchString(a):
+					i++
+					continue
+				case strings.HasPrefix(a, "-"):
+					continue
+				}
+			}
+			p := paths.AnchorPath(paths.ExpandHome(a), dir)
+			if paths.InsideDir(p, paths.StateDir()) {
+				target = p
+				return
+			}
+		}
+	})
+	return target
 }
 
 const stateHint = "The harness writes its own state; a dispatch the main session starts may lift this with " +

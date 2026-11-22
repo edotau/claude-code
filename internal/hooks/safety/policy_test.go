@@ -144,12 +144,57 @@ func TestLeafWallUnnamedTarget(t *testing.T) {
 	if err := os.Symlink(paths.StateDir(), link); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
 	}
-	for cwd, cmd := range map[string]string{"/tmp": "echo x > " + filepath.Join(link, "x"),
-		filepath.Dir(paths.StateDir()): "echo x > " + filepath.Join(filepath.Base(paths.StateDir()), "x")} {
-		payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": cwd, "agent_id": "a1",
-			"tool_input": map[string]string{"command": cmd}})
-		if r := Scan(core.ParseInput(bytes.NewReader(payload))); r.Decision != core.Block || !r.Floor {
-			t.Errorf("%q in %s: decision %v floor %v, want a floor block", cmd, cwd, r.Decision, r.Floor)
+	for _, c := range []struct {
+		cwd, cmd string
+		want     bool
+	}{
+		{"/tmp", "echo x > " + filepath.Join(link, "x"), true},
+		{filepath.Dir(paths.StateDir()), "echo x > harness/x", true},
+		{"/tmp", "rm " + filepath.Join(link, "x"), true},
+		{paths.StateDir(), "rm x", true},
+		{paths.StateDir(), "touch x", true},
+		{cfg, "ruby -e IO.write(%q(" + filepath.Join(cfg, "STATE", "harness", "x") + "),%q(y))", paths.FoldsCase},
+		{cfg, "echo x > ordinary/x", false},
+		{cfg, "rm ordinary/x", false},
+		{cfg, "git log -1", false},
+	} {
+		if got := mayTouchState(c.cmd, c.cwd); got != c.want {
+			t.Errorf("mayTouchState(%q, %q) = %v, want %v", c.cmd, c.cwd, got, c.want)
+		}
+		payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": c.cwd, "agent_id": "a1",
+			"tool_input": map[string]string{"command": c.cmd}})
+		if r := Scan(core.ParseInput(bytes.NewReader(payload))); (r.Decision == core.Block && r.Floor) != c.want {
+			t.Errorf("%q in %s: decision %v floor %v, want floor block %v", c.cmd, c.cwd, r.Decision, r.Floor, c.want)
+		}
+	}
+}
+
+func TestLeafWallReachabilityControls(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	setStateWallDispatch(t, stateWallCases[0])
+	upper := filepath.Join(cfg, "STATE", "harness", "x")
+	for _, c := range []struct {
+		cwd, cmd string
+		block    bool
+	}{
+		{paths.StateDir(), "git log -1", false},
+		{paths.StateDir(), "touch " + filepath.Join(cfg, "ordinary"), false},
+		{paths.StateDir(), "touch -r x " + filepath.Join(cfg, "ordinary"), false},
+		{paths.StateDir(), "touch -ar x " + filepath.Join(cfg, "ordinary"), false},
+		{paths.StateDir(), "touch -r /tmp/ref x", true},
+		{paths.StateDir(), "touch -r/tmp/ref x", true},
+		{paths.StateDir(), "touch -- -x", true},
+		{cfg, "touch x", false},
+		{cfg, "ruby <<EOF\nIO.write(%q(/tmp/out.txt),%q(" + upper + "))\nEOF", false},
+		{cfg, "ruby <<EOF\nIO.write(%q(" + upper + "),%q(y))\nEOF", paths.FoldsCase},
+		{cfg, "echo IO.write(%q(" + upper + "),%q(y))", false},
+	} {
+		payload, _ := json.Marshal(map[string]any{"tool_name": "Bash", "cwd": c.cwd, "agent_id": "a1",
+			"tool_input": map[string]string{"command": c.cmd}})
+		r := Scan(core.ParseInput(bytes.NewReader(payload)))
+		if (r.Decision == core.Block && r.Floor) != c.block {
+			t.Errorf("%q in %s: decision %v floor %v, want floor block %v: %s", c.cmd, c.cwd, r.Decision, r.Floor, c.block, r.Reason)
 		}
 	}
 }

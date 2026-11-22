@@ -592,28 +592,95 @@ func BenchmarkPlacementWrite(b *testing.B) {
 	}
 }
 
-func TestPlacementPlanAgentWritesOnlyPlans(t *testing.T) {
+func planAgentTestHome(t *testing.T) (string, error) {
+	t.Helper()
 	cfg := t.TempDir()
 	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	t.Setenv("HOME", cfg)
+	t.Setenv("USERPROFILE", cfg)
+	t.Chdir(cfg)
+	home := filepath.Join(cfg, "plans")
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	return cfg, os.Symlink(t.TempDir(), filepath.Join(home, "escape"))
+}
+
+func TestPlacementPlanAgentWritesOnlyPlans(t *testing.T) {
+	cfg, linkErr := planAgentTestHome(t)
+	home := filepath.Join(cfg, "plans")
 	cases := []struct {
-		name, agent, path string
-		block             bool
+		name, agent, tool, path, cwd, host string
+		block                              bool
 	}{
-		{"plan to plans home", "Plan", filepath.Join(cfg, "plans", "2026-11-22-x.md"), false},
-		{"plan to repo subdir of plans", "Plan", filepath.Join(cfg, "plans", "repo", "2026-11-22-x.md"), false},
-		{"plan to source file", "Plan", filepath.Join(cfg, "internal", "foo.go"), true},
-		{"plan dotdot escape", "Plan", filepath.Join(cfg, "plans", "..", "internal", "foo.go"), true},
-		{"plan to a sibling dir", "Plan", filepath.Join(cfg, "plans-x", "a.md"), true},
-		{"main session to source file", "", filepath.Join(cfg, "internal", "foo.go"), false},
-		{"other agent to source file", "claude", filepath.Join(cfg, "internal", "foo.go"), false},
+		{"plan to plans home", "Plan", "Write", home + "/x.txt", "", "", false},
+		{"plan to repo subdir of plans", "Plan", "Write", home + "/repo/x.txt", "", "", false},
+		{"plan to source file", "Plan", "Write", cfg + "/internal/foo.go", "", "", true},
+		{"plan dotdot escape", "Plan", "Write", home + "/../internal/foo.go", "", "", true},
+		{"plan to a sibling dir", "Plan", "Write", cfg + "/plans-x/a.txt", "", "", true},
+		{"main session to source file", "", "Write", cfg + "/internal/foo.go", "", "", false},
+		{"other agent to source file", "claude", "Write", cfg + "/internal/foo.go", "", "", false},
+		{"edit plan", "Plan", "Edit", home + "/x.txt", "", "", false},
+		{"edit source", "Plan", "Edit", cfg + "/x.go", "", "", true},
+		{"multiedit source", "Plan", "MultiEdit", cfg + "/x.go", "", "", true},
+		{"create source", "Plan", "create", cfg + "/x.go", "", "", true},
+		{"tilde plan", "Plan", "Edit", "~/plans/x.txt", cfg, "", false},
+		{"relative plan", "Plan", "Edit", "plans/x.txt", cfg, "", false},
+		{"relative without cwd", "Plan", "Edit", "plans/x.txt", "", "", true},
+		{"symlink escape", "Plan", "Edit", home + "/escape/x.txt", "", "", true},
+		{"opencode patch plan", "Plan", "apply_patch", "*** Add File: plans/x.txt", cfg, "opencode", false},
+		{"codex patch plan", "Plan", "apply_patch", "*** Update File: plans/x.txt", cfg, "codex", false},
+		{"mixed patch", "Plan", "apply_patch", "*** Add File: plans/x.txt\n*** Add File: x.go", cfg, "opencode", true},
+		{"patch delete", "Plan", "apply_patch", "*** Delete File: x.go", cfg, "codex", true},
+		{"patch move", "Plan", "apply_patch", "*** Update File: plans/x.txt\n*** Move to: x.go", cfg, "opencode", true},
+		{"bash write", "Plan", "Bash", "echo x > x.go", cfg, "", true},
+		{"bash read", "Plan", "Bash", "git log -1", cfg, "", false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			b, _ := json.Marshal(map[string]any{"tool_name": "Write", "agent_type": c.agent, "tool_input": map[string]string{"file_path": c.path}})
-			r := planAgentBlock(core.ParseInput(bytes.NewReader(b)))
-			if r.Decision == core.Block != c.block {
-				t.Fatalf("decision = %v, block want %v", r.Decision, c.block)
+			if c.name == "symlink escape" && linkErr != nil {
+				t.Skipf("symlinks unavailable: %v", linkErr)
+			}
+			input := map[string]string{"file_path": c.path}
+			switch c.tool {
+			case "apply_patch":
+				input = map[string]string{"patchText": "*** Begin Patch\n" + c.path + "\n*** End Patch"}
+			case "Bash":
+				input = map[string]string{"command": c.path}
+			}
+			b, _ := json.Marshal(map[string]any{"tool_name": c.tool, "agent_type": c.agent, "cwd": c.cwd, "tool_input": input})
+			in := core.ParseInputFor(bytes.NewReader(b), c.host)
+			if r := Placement(in); r.Decision == core.Block != c.block || c.block && r.Rule != "plan-agent-write" {
+				t.Fatalf("decision = %v rule = %q, block want %v", r.Decision, r.Rule, c.block)
 			}
 		})
+	}
+}
+
+func TestPlacementPlanSymlinkParent(t *testing.T) {
+	cfg, err := planAgentTestHome(t)
+	if err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	for _, c := range []struct {
+		tool, path string
+		block      bool
+	}{
+		{"Write", cfg + "/plans/escape/../x.txt", true},
+		{"Write", "plans/escape/../x.txt", true},
+		{"apply_patch", "plans/escape/../x.txt", true},
+		{"Write", "plans/new/../x.txt", false},
+	} {
+		input := map[string]string{"file_path": c.path}
+		if c.tool == "apply_patch" {
+			input = map[string]string{"patchText": "*** Begin Patch\n*** Add File: " + c.path + "\n+x\n*** End Patch"}
+		}
+		b, _ := json.Marshal(map[string]any{"tool_name": c.tool, "agent_type": "Plan", "cwd": cfg, "tool_input": input})
+		for _, host := range []string{"opencode", "codex"} {
+			in := core.ParseInputFor(bytes.NewReader(b), host)
+			if r := Placement(in); (r.Decision == core.Block) != c.block || c.block && r.Rule != "plan-agent-write" {
+				t.Errorf("%s %s %s: decision %v rule %q, want block %v", host, c.tool, c.path, r.Decision, r.Rule, c.block)
+			}
+		}
 	}
 }

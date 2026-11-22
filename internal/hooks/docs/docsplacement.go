@@ -58,22 +58,45 @@ func Placement(in *core.Input) core.Result {
 	return gated
 }
 
-// planAgentBlock confines the Plan subagent's file writes to the plans home .
+// planAgentBlock confines the Plan subagent's file writes to the plans home.
 func planAgentBlock(in *core.Input) core.Result {
-	if in.Nested("agent_type") != "Plan" {
+	tool := strings.ToLower(in.CanonicalTool())
+	if in.Nested("agent_type") != "Plan" || !placementTools[tool] {
 		return core.Result{}
 	}
-	switch strings.ToLower(in.CanonicalTool()) {
-	case "write", "edit", "multiedit", "create":
-	default:
-		return core.Result{}
+	edits := in.EditedPaths()
+	if tool == "bash" {
+		for _, path := range core.WrittenPathsPrecise(in.ToolCommand(), in.CWD) {
+			edits = append(edits, textutil.FileEdit{Path: path})
+		}
+	} else if len(edits) == 0 {
+		edits = []textutil.FileEdit{{Path: in.Nested("tool_input", "file_path")}}
 	}
-	path := paths.AnchorPath(in.Nested("tool_input", "file_path"), in.CWD)
 	home := filepath.Join(paths.ConfigDir(), "plans")
-	if path != "" && paths.InsideDir(path, home) {
-		return core.Result{}
+	for _, edit := range edits {
+		path := planWritePath(edit.Path, in.CWD)
+		if !filepath.IsAbs(path) || !paths.InsideDir(path, home) {
+			return core.Result{Decision: core.Block, Reason: "docs-placement: BLOCKED — the Plan agent writes only its plan under " + home + "/", Rule: "plan-agent-write"}
+		}
 	}
-	return core.Result{Decision: core.Block, Reason: "docs-placement: BLOCKED — the Plan agent writes only its plan under " + home + "/", Rule: "plan-agent-write"}
+	return core.Result{}
+}
+
+// Resolve existing prefixes before joining the next component, so a symlink's following .. uses its real parent.
+func planWritePath(path, cwd string) string {
+	path = paths.ExpandHome(path)
+	if path != "" && !filepath.IsAbs(path) && cwd != "" {
+		path = cwd + string(filepath.Separator) + path
+	}
+	if !filepath.IsAbs(path) {
+		return path
+	}
+	volume := filepath.VolumeName(path)
+	real := volume + string(filepath.Separator)
+	for part := range strings.SplitSeq(filepath.ToSlash(strings.TrimPrefix(path, volume)), "/") {
+		real = paths.Real(filepath.Join(real, part))
+	}
+	return real
 }
 
 // noteRedirect rewrites a top-level native note in the memory store into feedback/ or notes/, never denying.
