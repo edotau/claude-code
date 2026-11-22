@@ -308,15 +308,25 @@ func CatchUpSweep(o SweepOptions) int {
 		fmt.Fprintf(stderr, "memory update --catchup: %v\n", err)
 		return 1
 	}
-	_, err := paths.TryFileLock(filepath.Join(paths.MemoryStateDir(), "catchup.lock"), 0, func() error {
-		runSweep(current, now, stdout)
-		return nil
-	})
-	if err != nil {
-		fmt.Fprintf(stderr, "memory update --catchup: %v\n", err)
-		return 1
+	lock := filepath.Join(paths.MemoryStateDir(), "catchup.lock")
+	for pass := range 3 {
+		ran, err := paths.TryFileLock(lock, 0, func() error {
+			if pass == 0 { // a retry pass only drains: the sweep's saves may each launch a model run
+				runSweep(current, now, stdout)
+			}
+			drainQueue(stdout)
+			return nil
+		})
+		if err != nil {
+			fmt.Fprintf(stderr, "memory update --catchup: %v\n", err)
+			return 1
+		}
+		// A busy lock means another sweep is running; a job filed after its drain needs one more pass.
+		if !ran || pending() == 0 {
+			break
+		}
 	}
-	return 0 // a busy lock means another sweep is running
+	return 0
 }
 
 // runSweep saves each candidate in turn and records how many ended ok for the next SessionStart.

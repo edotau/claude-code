@@ -1,12 +1,15 @@
 package memory
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -186,6 +189,41 @@ func requeueDead() {
 		}
 		return nil
 	})
+}
+
+// runQueuedJob is the subprocess boundary; tests never execute their own binary.
+var runQueuedJob = func(ctx context.Context, self string, j Job, out io.Writer) error {
+	cmd := exec.CommandContext(ctx, self, j.Args...)
+	cmd.Dir = j.CWD
+	cmd.Stdout, cmd.Stderr = out, out
+	proc.OwnGroup(cmd) // the timeout kills the job's whole group, so its claude child cannot outlive the lock
+	cmd.WaitDelay = proc.ExecWaitDelay
+	return cmd.Run()
+}
+
+// drainQueue runs every due job serially; a failed job is finished, never retried.
+func drainQueue(out io.Writer) {
+	self, err := os.Executable()
+	if err != nil {
+		fmt.Fprintln(out, "memory queue:", err)
+		return
+	}
+	requeueDead()
+	for {
+		j, path, ok := claimNext(time.Now())
+		if !ok {
+			return
+		}
+		fmt.Fprintf(out, "queue %s %s\n", j.Kind, j.Key)
+		ctx, cancel := context.WithTimeout(context.Background(), updateTimeout+2*time.Minute)
+		if err := runQueuedJob(ctx, self, j, out); err != nil {
+			fmt.Fprintf(out, "queue %s %s: %v\n", j.Kind, j.Key, err)
+		}
+		cancel()
+		if err := finish(path); err != nil {
+			fmt.Fprintf(out, "queue %s %s: %v\n", j.Kind, j.Key, err)
+		}
+	}
 }
 
 func queueOwnerDead(path string) bool {
