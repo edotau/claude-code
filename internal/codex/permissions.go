@@ -36,8 +36,8 @@ type notPrefixError struct{ msg string }
 
 func (e notPrefixError) Error() string { return e.msg }
 
-// codexGateInstalled reports whether the codex home's hooks.json runs the permission gate.
-func codexGateInstalled() bool {
+// codexGateInstalled checks that the permission gate covers the native tool name.
+func codexGateInstalled(tool string) bool {
 	b, err := os.ReadFile(filepath.Join(codexHome(), "hooks.json"))
 	if err != nil {
 		return false
@@ -50,19 +50,19 @@ func codexGateInstalled() bool {
 	}
 	command := (settings.EventSpec{Event: settings.EventPreToolUse, Name: "permission-gate"}).Command()
 	for _, group := range config.Hooks[settings.EventPreToolUse] {
-		if group.RunsGate("codex", command, "Bash") {
+		if group.RunsGate("codex", command, tool) {
 			return true
 		}
 	}
 	return false
 }
 
-func codexRender(p permission.Permissions, tools, gate bool) (codexPolicy, error) {
+func codexRender(p permission.Permissions, tools, gate, patchGate bool) (codexPolicy, error) {
 	var pol codexPolicy
 	if p.Mode == "plan" && tools {
 		return pol, errors.New("codex: permission mode plan denies unmatched calls, which codex cannot enforce with --tools")
 	}
-	rules, unmapped, err := codexRenderRules(p, tools, gate)
+	rules, unmapped, err := codexRenderRules(p, tools, gate, patchGate)
 	if err != nil {
 		return pol, err
 	}
@@ -73,14 +73,14 @@ func codexRender(p permission.Permissions, tools, gate bool) (codexPolicy, error
 }
 
 // codexRenderRules renders each rule of p to its codex line, collecting the rules codex cannot express.
-func codexRenderRules(p permission.Permissions, tools, gate bool) (rules string, unmapped []string, err error) {
+func codexRenderRules(p permission.Permissions, tools, gate, patchGate bool) (rules string, unmapped []string, err error) {
 	var b strings.Builder
 	p.Each(func(decision permission.Decision, r permission.Rule) {
 		if err != nil || (!tools && decision != permission.Deny) {
 			return // no tools: an allow/prompt rule could auto-approve what the dispatch should not run
 		}
 		line, lerr := codexRule(r, [...]string{"forbidden", "prompt", "allow"}[decision], tools)
-		if errors.As(lerr, &notPrefixError{}) && decision == permission.Deny && gate {
+		if decision == permission.Deny && codexGateCovers(r, lerr, gate, patchGate) {
 			return
 		}
 		if lerr != nil && decision != permission.Allow {
@@ -93,6 +93,13 @@ func codexRenderRules(p permission.Permissions, tools, gate bool) (rules string,
 		b.WriteString(line)
 	})
 	return b.String(), unmapped, err
+}
+
+func codexGateCovers(r permission.Rule, err error, gate, patchGate bool) bool {
+	if r.Tool == "Write" || r.Tool == "Edit" {
+		return patchGate
+	}
+	return gate && errors.As(err, &notPrefixError{})
 }
 
 // codexRule is one rules line; "" with nil error means the read-only sandbox already covers a write-tool deny.
@@ -333,7 +340,8 @@ func codexApplyPermissions(req agent.RunOptions, argv, env []string) (outArgv, o
 	if p.IsZero() {
 		return argv, env, remove, nil
 	}
-	pol, err := codexRender(p, req.Tools, !req.SafeMode && codexGateInstalled())
+	pol, err := codexRender(p, req.Tools, !req.SafeMode && codexGateInstalled("Bash"),
+		!req.SafeMode && codexGateInstalled("apply_patch"))
 	if err != nil {
 		return nil, nil, remove, err
 	}

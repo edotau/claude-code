@@ -20,13 +20,14 @@ import (
 )
 
 type codexRenderCase struct {
-	name    string
-	p       permission.Permissions
-	tools   bool
-	gate    bool // the permission-gate hook is installed
-	rules   string
-	approve bool
-	err     string
+	name      string
+	p         permission.Permissions
+	tools     bool
+	gate      bool // the permission-gate hook covers Bash
+	patchGate bool
+	rules     string
+	approve   bool
+	err       string
 }
 
 func codexRenderCases() []codexRenderCase {
@@ -55,6 +56,7 @@ func codexRenderCases() []codexRenderCase {
 		{name: "allow without tools writes nothing", p: permission.Permissions{Allow: []permission.Rule{bash("git status:*")}}},
 		{name: "exact allow skipped", p: permission.Permissions{Allow: []permission.Rule{bash("ls")}}},
 		{name: "write deny covered by read-only", p: permission.Permissions{Deny: []permission.Rule{{Tool: "Edit", Arg: "src/**"}}}},
+		{name: "write denies covered by patch gate", p: permission.Permissions{Deny: []permission.Rule{{Tool: "Write"}, {Tool: "Edit", Arg: "src/**"}}}, tools: true, patchGate: true},
 		{name: "write deny refused with tools", p: permission.Permissions{Deny: []permission.Rule{{Tool: "Edit", Arg: "src/**"}}}, tools: true,
 			err: "Edit(src/**)"},
 		{name: "read deny refused", p: permission.Permissions{Deny: []permission.Rule{{Tool: "Read", Arg: ".env"}}}, err: "Read(.env)"},
@@ -67,7 +69,7 @@ func codexRenderCases() []codexRenderCase {
 func TestCodexRender(t *testing.T) {
 	for _, c := range codexRenderCases() {
 		t.Run(c.name, func(t *testing.T) {
-			got, err := codexRender(c.p, c.tools, c.gate)
+			got, err := codexRender(c.p, c.tools, c.gate, c.patchGate)
 			if c.err != "" {
 				if err == nil || !strings.Contains(err.Error(), c.err) {
 					t.Fatalf("err = %v, want it to name %q", err, c.err)
@@ -144,15 +146,17 @@ func writeCodexTestHooks(t *testing.T, body string) {
 
 func TestCodexGateInstalled(t *testing.T) {
 	t.Setenv("CODEX_HOME", t.TempDir())
-	if codexGateInstalled() {
+	if codexGateInstalled("Bash") {
 		t.Fatal("empty codex home reported the gate installed")
 	}
 	cases := []struct {
-		name string
-		body string
-		want bool
+		name  string
+		body  string
+		want  bool
+		patch bool
 	}{
 		{name: "synchronous PreToolUse Bash gate", body: codexGateHooks, want: true},
+		{name: "synchronous patch gate", body: strings.Replace(codexGateHooks, `"Bash"`, `"apply_patch"`, 1), patch: true},
 		{name: "PostToolUse mention only", body: `{"hooks":{"PostToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"$HOME/.claude/bin/.hookd hook PreToolUse --permission-gate"}]}]}}`},
 		{name: "substring in unrelated command", body: `{"hooks":{"PreToolUse":[{"matcher":"Bash","hooks":[{"type":"command","command":"echo --permission-gate"}]}]}}`},
 		{name: "matcher excludes Bash", body: `{"hooks":{"PreToolUse":[{"matcher":"Read","hooks":[{"type":"command","command":"$HOME/.claude/bin/.hookd hook PreToolUse --permission-gate"}]}]}}`},
@@ -162,8 +166,11 @@ func TestCodexGateInstalled(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			t.Setenv("CODEX_HOME", t.TempDir())
 			writeCodexTestHooks(t, c.body)
-			if got := codexGateInstalled(); got != c.want {
-				t.Fatalf("codexGateInstalled() = %v, want %v", got, c.want)
+			if got := codexGateInstalled("Bash"); got != c.want {
+				t.Fatalf("codexGateInstalled(Bash) = %v, want %v", got, c.want)
+			}
+			if got := codexGateInstalled("apply_patch"); got != c.patch {
+				t.Fatalf("codexGateInstalled(apply_patch) = %v, want %v", got, c.patch)
 			}
 		})
 	}
