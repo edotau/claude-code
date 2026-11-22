@@ -15,6 +15,7 @@ import (
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
@@ -284,7 +285,7 @@ func (a *armRetry) prepare(ctx context.Context, cl *agent.Client, req agent.RunO
 		_, req.Values = agent.RunValues(ctx, nil)
 	}
 	for {
-		req.Values = req.Values.Merge(armValues(a.current()))
+		req.Values = req.Values.Merge(armValues(proc.WithValues(ctx, req.Values), a.current()))
 		p, err := armPrepare(cl, ctx, req, claim)
 		if err == nil {
 			return p, nil

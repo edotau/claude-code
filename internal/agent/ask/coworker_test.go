@@ -711,3 +711,33 @@ func hostFixture(t *testing.T, banner string, lines []string, exit int) string {
 	t.Setenv(remote.BinEnv, bin)
 	return bin
 }
+
+// A child of a live Pi carrier has the depth a direct call has; any other parent adds its level.
+func TestCarrierLevelIsNotCountedInDepth(t *testing.T) {
+	if proc.Parent(os.Getpid()) == 0 {
+		t.Skip("no parent-process table here (windows)")
+	}
+	saveCarrierRecords(t)
+	depth := func(parent string) int {
+		values := proc.Values{proc.DispatchIDEnv: parent, proc.DispatchDepthEnv: "0"}
+		return agent.NewRecord("claude", agent.RunOptions{Values: values}, time.Now()).Depth
+	}
+	if got := depth("20261122T000000.001-pi"); got != 0 {
+		t.Errorf("carrier child depth = %d, want 0", got)
+	}
+	if got := depth("20261122T000000.002-codex"); got != 1 {
+		t.Errorf("non-carrier child depth = %d, want 1", got)
+	}
+}
+
+// The run's caps survive into the confinement a child inherits.
+func TestConfinementCarriesCaps(t *testing.T) {
+	one, tok := 1, 7
+	doc := agentconfig.InlineOverlay("", "", agentconfig.Overlay{MaxChildren: &one, MaxTreeTokens: &tok})
+	ctx := proc.WithValues(t.Context(), proc.Values{route.OverlayVar: doc})
+	got := confinement(ctx, "databricks", "qa")[route.OverlayVar]
+	o, err := agentconfig.LoadOverlayContext(proc.WithValues(t.Context(), proc.Values{route.OverlayVar: got}), "", nil)
+	if err != nil || o.MaxChildren == nil || *o.MaxChildren != 1 || o.MaxTreeTokens == nil || *o.MaxTreeTokens != 7 || o.Provider != "databricks" {
+		t.Errorf("doc %s: err %v, want provider databricks, maxChildren 1, maxTreeTokens 7", got, err)
+	}
+}

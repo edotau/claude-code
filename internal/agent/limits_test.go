@@ -241,3 +241,14 @@ func TestClaimLimitedRecordCreatesPrivateDispatchDir(t *testing.T) {
 		t.Errorf("dispatch dir = %v, %v; want 0700", fi, err)
 	}
 }
+
+func TestTreeTokensDefaultIs20MAndZeroDisables(t *testing.T) {
+	ctx := proc.WithValues(t.Context(), proc.Values{})
+	if got := dispatchLimit(ctx, maxTreeTokensEnv, DefaultMaxTreeTokens); got != 20_000_000 {
+		t.Errorf("default = %d, want 20000000", got)
+	}
+	ctx = proc.WithValues(t.Context(), proc.Values{maxTreeTokensEnv: "0"})
+	if got := dispatchLimit(ctx, maxTreeTokensEnv, DefaultMaxTreeTokens); got != 0 {
+		t.Errorf("env 0 = %d, want 0 (no cap)", got)
+	}
+}

@@ -88,6 +88,10 @@ func carrierContext(ctx context.Context, job string) context.Context {
 	return proc.WithValues(ctx, values)
 }
 
+func init() {
+	agent.CarrierParent = func(id string) bool { _, ok := piParent(id); return ok }
+}
+
 // ancestorWalkCap bounds the parent walk from this process to the Pi carrier.
 const ancestorWalkCap = 64
 
@@ -125,9 +129,10 @@ func withValues(ctx context.Context, set proc.Values) context.Context {
 	return proc.WithValues(ctx, values.Merge(set))
 }
 
-// confinement is $COWORKER_OVERLAY as provider[:p] alone: the router and nested dispatches read it there.
-func confinement(provider, p string) proc.Values {
-	return proc.Values{route.OverlayVar: agentconfig.InlineOverlay(provider, p)}
+// confinement is $COWORKER_OVERLAY as provider[:p] plus the run's caps: the router and nested dispatches read it there.
+func confinement(ctx context.Context, provider, p string) proc.Values {
+	o, _ := agentconfig.LoadOverlayContext(ctx, "", nil) // an unreadable doc carries no caps
+	return proc.Values{route.OverlayVar: agentconfig.InlineOverlay(provider, p, o)}
 }
 
 // checkLeave refuses a provider or pinned profile other than the inherited confinement's; applyArm compares workspaces.
@@ -154,12 +159,12 @@ func applyProvider(ctx context.Context, provider, p, agentName, model string) (c
 		if err != nil {
 			return ctx, err
 		}
-		return agent.WithAutoFailover(withValues(ctx, confinement(provider, picked)), provider), nil
+		return agent.WithAutoFailover(withValues(ctx, confinement(ctx, provider, picked)), provider), nil
 	}
 	if row := reg.Providers[p]; p != "" && (row == nil || row.Provider != provider) {
 		return ctx, fmt.Errorf("overlay profile: not a profile of %s", provider) // never echo the document's value
 	}
-	return withValues(ctx, confinement(provider, p)), nil
+	return withValues(ctx, confinement(ctx, provider, p)), nil
 }
 
 // autoProviderProfile picks the least-loaded healthy profile of a non-Databricks provider.
@@ -250,8 +255,8 @@ func routedLead(q agent.RouteReq, readsProvider bool) (lead, provider string, er
 }
 
 // armValues is the run values of workspace p: its confinement and session profile.
-func armValues(p string) proc.Values {
-	return confinement(router.RouteDatabricks, p).With(providers.EnvSessionProfile, p)
+func armValues(ctx context.Context, p string) proc.Values {
+	return confinement(ctx, router.RouteDatabricks, p).With(providers.EnvSessionProfile, p)
 }
 
 // applyArm resolves databricks profile <p> (bare: from profile, else CLAUDE_PROFILE), checks it, sets it on ctx.
@@ -263,7 +268,7 @@ func applyArm(ctx context.Context, p, profile, agentName, model, fallback string
 	if err := checkArmRow(ctx, p, explicit, fallback); err != nil {
 		return ctx, err
 	}
-	ctx = withValues(ctx, armValues(p))
+	ctx = withValues(ctx, armValues(ctx, p))
 	if !explicit {
 		ctx = agent.WithAutoFailover(ctx, router.RouteDatabricks)
 	}

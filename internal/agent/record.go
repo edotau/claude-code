@@ -192,6 +192,9 @@ const DefaultMaxDispatchDepth = 3
 
 const maxDispatchDepthEnv = "HARNESS_DISPATCH_MAX_DEPTH"
 
+// CarrierParent reports id as a live top-level Pi carrier of this process; its level is not counted in depth.
+var CarrierParent = func(id string) bool { return false }
+
 // NewRecord stamps an id that sorts by time and names the agent: 20261016T210512.123-codex.
 func NewRecord(name string, req RunOptions, now time.Time) Record {
 	req.EnvNames = envNames(req.Env)
@@ -233,6 +236,9 @@ func lineage(ctx context.Context, parent string) (depth, maxDepth int) {
 		fmt.Fprintf(NoticeOut, "claude-code: parent dispatch %s has no readable record; default depth cap applies\n", parent)
 	} else if depth = max(depth, pr.Depth+1); pr.MaxDepth != nil {
 		maxDepth = *pr.MaxDepth
+	}
+	if CarrierParent(parent) {
+		depth = 0 // a direct call has no Pi level
 	}
 	if set && env > 0 && (maxDepth == 0 || env < maxDepth) {
 		maxDepth = env

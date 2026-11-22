@@ -19,7 +19,7 @@ import (
 
 const (
 	DefaultMaxDispatchChildren = 8
-	DefaultMaxTreeTokens       = 0
+	DefaultMaxTreeTokens       = 20_000_000
 	maxDispatchChildrenEnv     = "HARNESS_DISPATCH_MAX_CHILDREN"
 	maxTreeTokensEnv           = "HARNESS_DISPATCH_MAX_TREE_TOKENS"
 )
