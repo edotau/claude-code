@@ -22,6 +22,9 @@ func relayBash(in *core.Input) (core.Result, bool) {
 	if _, relay := relayLeaf(in); !relay || cmd == "" {
 		return core.Result{}, false
 	}
+	if res, ok := relayCleanCommand(in, cmd); ok {
+		return res, true
+	}
 	segs := shell.Segments(cmd)
 	for i, seg := range segs {
 		if rule := relayRefusal(seg); rule != "" {
@@ -37,6 +40,29 @@ func relayBash(in *core.Input) (core.Result, bool) {
 		}
 	}
 	return core.Result{}, false
+}
+
+var relayOutputPipe = regexp.MustCompile(`[ \t]+(?:2>&1[ \t]+)?\|[ \t]+(?:tail|head)[ \t]+-[0-9]+[ \t]*$`)
+var relayOutputMerge = regexp.MustCompile(`[ \t]+2>&1[ \t]*$`)
+
+// relayCleanCommand drops only wrappers around an otherwise valid claude-code command.
+func relayCleanCommand(in *core.Input, cmd string) (core.Result, bool) {
+	clean, prefixed := strings.CutPrefix(cmd, "rtk ")
+	if !prefixed {
+		clean = cmd
+	}
+	clean = relayOutputPipe.ReplaceAllString(clean, "")
+	clean = relayOutputMerge.ReplaceAllString(clean, "")
+	words := relayWords(clean)
+	if clean == cmd || len(words) == 0 || len(shell.Segments(clean)) != 1 || filepath.Base(words[0]) != "claude-code" || relayRefusal(clean) != "" {
+		return core.Result{}, false
+	}
+	updated := in.CloneToolInput()
+	if updated == nil {
+		return core.Result{}, false
+	}
+	updated["command"] = clean
+	return core.Result{UpdatedInput: updated, SystemMessage: "relay-shell: dropped the relay command's output wrappers"}, true
 }
 
 // relayDropEchoes allows a claude-code segment followed only by status echoes, rewriting the command without them.

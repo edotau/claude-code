@@ -85,3 +85,30 @@ func TestRelayDropsStatusEcho(t *testing.T) {
 		}
 	}
 }
+
+func TestRelayCleansOutputWrappers(t *testing.T) {
+	for cmd, want := range map[string]string{
+		"rtk claude-code agents ls":                "claude-code agents ls",
+		"claude-code agents ls 2>&1":               "claude-code agents ls",
+		"claude-code agents ls | tail -8":          "claude-code agents ls",
+		"claude-code agents ls | head -12":         "claude-code agents ls",
+		"rtk claude-code agents ls 2>&1 | tail -8": "claude-code agents ls",
+		"rm x":           "",
+		"rm x | tail -8": "",
+		"rtk claude-code agents ls | tail -8; rm x": "",
+	} {
+		r := Handback(bashHook("PreToolUse", relayTx(t), "a1", "t2", cmd, ""))
+		if want == "" {
+			if r.Decision != core.Block || r.UpdatedInput != nil {
+				t.Errorf("%q: want refusal, got %+v", cmd, r)
+			}
+			continue
+		}
+		if r.Decision == core.Block || r.UpdatedInput == nil || r.UpdatedInput["command"] != want {
+			t.Errorf("%q: want rewrite to %q, got %+v", cmd, want, r)
+		}
+	}
+	if r := Handback(bashHook("PreToolUse", relayTx(t), "a1", "t2", "git diff | tail -8", "")); r.UpdatedInput != nil {
+		t.Errorf("non-claude command rewritten: %+v", r)
+	}
+}
