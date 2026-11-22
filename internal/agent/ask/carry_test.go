@@ -9,10 +9,101 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/serve"
+	"github.com/edotau/claude-code/internal/paths/pathstest"
 	"github.com/edotau/claude-code/internal/router"
+	"github.com/edotau/claude-code/internal/vault"
+	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
+
+func carryAdmissionRecord(t *testing.T, flags ...string) agent.Record {
+	t.Helper()
+	vaulttest.Use(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	vaulttest.Put(t, vault.Overlay, "providers", `{"providers":{"databricks":{"dev":{"preset":"databricks",`+
+		`"host":"https://dev.example.com","auth":{"type":"none"}}}}}`)
+	vaulttest.SetRecord(t, "codex", "profile", "dev")
+	pathstest.FakeVendor(t, "codex", "exit 0")
+	inner := append([]string{"claude-code", "agents", "ask", "--agent", "codex"}, flags...)
+	inner = append(inner, "-")
+	rec := agent.NewRecord("codex", agent.RunOptions{Carry: true, CarryArgv: inner, Prompt: "the task"}, time.Now())
+	rec.Status, rec.PID, rec.Background = "running", os.Getpid(), true
+	if err := rec.Save(); err != nil {
+		t.Fatal(err)
+	}
+	return rec
+}
+
+func TestCarryRouteUsesInnerFlagsAndOverlay(t *testing.T) {
+	for _, flags := range [][]string{{"--profile", "dev"}, {"--overlay", `{"provider":"databricks","profile":"dev"}`}} {
+		rec := carryAdmissionRecord(t, flags...)
+		got, err := carryRoute(t.Context(), rec)
+		if err != nil || got.Profile != "dev" || got.Provider != "databricks" {
+			t.Fatalf("%v: route = %+v, %v", flags, got, err)
+		}
+		if records := agent.RecentRecords(5); len(records) != 1 {
+			t.Fatalf("route preview created child records: %d", len(records))
+		}
+	}
+}
+
+func TestCarryAdmissionBeforeChildAndTakeover(t *testing.T) {
+	for _, outcome := range []serve.Outcome{serve.Admitted, serve.Direct} {
+		t.Run(string(outcome), func(t *testing.T) {
+			rec := carryAdmissionRecord(t, "--profile", "dev")
+			oldAdmit, oldExec := admitJob, carryExec
+			t.Cleanup(func() { admitJob, carryExec = oldAdmit, oldExec })
+			admissions, executions := 0, 0
+			admitJob = func(_ context.Context, got agent.Record, _ io.Writer) serve.Outcome {
+				admissions++
+				disk, err := agent.LoadRecord(rec.ID)
+				if err != nil || disk.QueueLine(time.Now()) == "" || serve.PoolOf(got) != "databricks·dev" || executions != 0 {
+					t.Fatalf("admission did not precede child on dev: %+v, %v, executions %d", disk, err, executions)
+				}
+				return outcome
+			}
+			carryExec = func(_ context.Context, _ []string, _ io.Reader, _ []string, _, _ io.Writer) int {
+				executions++
+				disk, err := agent.LoadRecord(rec.ID)
+				if err != nil || disk.Progress != "" || admissions != 1 {
+					t.Fatalf("child ran queued or with %d admissions: %+v, %v", admissions, disk, err)
+				}
+				child := agent.NewRecord("codex", agent.RunOptions{}, time.Now())
+				child.Parent, child.Status, child.Cutoff = rec.ID, "stalled", agent.CutoffDeadline
+				if executions == 2 {
+					child.Agent, child.Status, child.Cutoff = "pi", "ok", ""
+				}
+				return saveChild(t, child, 0)
+			}
+			if code := runCarry(t.Context(), rec, io.Discard); code != 0 || admissions != 1 || executions != 2 {
+				t.Fatalf("exit/admissions/children = %d/%d/%d, want 0/1/2", code, admissions, executions)
+			}
+		})
+	}
+}
+
+func TestCarryAdmissionCancellationDoesNotStartChild(t *testing.T) {
+	rec := carryAdmissionRecord(t, "--profile", "dev")
+	ctx, cancel := context.WithCancel(t.Context())
+	defer cancel()
+	oldAdmit, oldExec := admitJob, carryExec
+	t.Cleanup(func() { admitJob, carryExec = oldAdmit, oldExec })
+	admitJob = func(context.Context, agent.Record, io.Writer) serve.Outcome { cancel(); return serve.Direct }
+	carryExec = func(context.Context, []string, io.Reader, []string, io.Writer, io.Writer) int {
+		t.Fatal("cancelled admission started a child")
+		return 0
+	}
+	if code := runCarry(ctx, rec, io.Discard); code != 1 {
+		t.Fatalf("cancelled exit = %d, want 1", code)
+	}
+	disk, err := agent.LoadRecord(rec.ID)
+	if err != nil || disk.Status == "running" || disk.Progress != "" {
+		t.Fatalf("cancelled carrier left running or queued: %+v, %v", disk, err)
+	}
+}
 
 // Only an external agent whose row sets Carry is carried: pi, claude and a persona are refused.
 func TestCarryAgentRefusals(t *testing.T) {
@@ -56,6 +147,12 @@ func TestTakeoverDecision(t *testing.T) {
 
 // A cut-off carried child is finished by Pi under the inner line's deny, given the task and partial output.
 func TestRunCarryTakesOverCutOffChild(t *testing.T) {
+	oldAdmit := admitJob
+	t.Cleanup(func() { admitJob = oldAdmit })
+	admitJob = func(context.Context, agent.Record, io.Writer) serve.Outcome {
+		t.Fatal("foreground carry requested admission")
+		return serve.Direct
+	}
 	const outer, child, piID = "20261122T010000.000-gemini", "20261122T010000.001-gemini", "20261122T010000.002-pi"
 	inner := []string{"claude-code", "agents", "ask", "--agent", "gemini", "--tools", "--deny", "Write", "-"}
 	rec := agent.Record{ID: outer, Agent: "gemini", Status: "running", FallbackPolicy: "all",

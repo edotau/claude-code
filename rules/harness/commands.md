@@ -87,6 +87,8 @@ claude-code usage --cost --days 7                      # adds an `est.` cost per
 claude-code usage --context                          # where one session's context went, by source
 ```
 
+`serve` admits a background `--carry` once before its child starts; foreground carry and Pi takeover are not gated.
+
 Without `--tools` the agent's tools are off (per agent: `rules/harness/agent.md`); `--read-only` adds a read-command
 allow list. `agents sync` renders under `state/projections/<agent>/`, installs into
 `~/.codex`, `~/.copilot`, `~/.gemini`, `~/.config/opencode`, and links `skills/` into `~/.agents/skills` (plus gemini's

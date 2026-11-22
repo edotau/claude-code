@@ -22,6 +22,7 @@ import (
 	"github.com/edotau/claude-code/internal/agentconfig"
 	"github.com/edotau/claude-code/internal/agentid"
 	"github.com/edotau/claude-code/internal/proc"
+	"github.com/edotau/claude-code/internal/providers"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
@@ -198,6 +199,13 @@ func carrySpawn(ctx context.Context, rec agent.Record, format string) int {
 func runCarry(ctx context.Context, rec agent.Record, out io.Writer) int {
 	ctx, stop := signal.NotifyContext(ctx, os.Interrupt, syscall.SIGTERM, syscall.SIGHUP)
 	defer stop()
+	if rec.Background {
+		admitCarry(ctx, &rec)
+		if err := ctx.Err(); err != nil {
+			agent.RecordRefusal(rec.Agent, rec.Request, &rec, err)
+			return 1
+		}
+	}
 	out, errOut, closeLog := carryLog(rec, out)
 	start, tail := time.Now(), &tailWriter{max: carryTail}
 	code := carryExec(ctx, rec.Request.CarryArgv, strings.NewReader(rec.Request.Prompt), carryEnv(ctx, rec), io.MultiWriter(out, tail), errOut)
@@ -218,6 +226,62 @@ func runCarry(ctx context.Context, rec agent.Record, out io.Writer) int {
 	closeLog()
 	finishCarry(rec, final, found, code, time.Since(start))
 	return code
+}
+
+// admitCarry publishes the dry-run route before the daemon reads the carrier's pool.
+func admitCarry(ctx context.Context, rec *agent.Record) {
+	routed, err := carryRoute(ctx, *rec)
+	if err == nil {
+		rec.Route = routed.Overlay().Route()
+		_, _, err = agent.UpdateRunning(rec.ID, func(r agent.Record) agent.Record {
+			r.Route = rec.Route
+			return r
+		})
+	}
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ask: carry: admission route: %v; running directly\n", err)
+		return
+	}
+	admitPending(ctx, rec)
+}
+
+// carryRoute peeks through the inner ask's flag/overlay phases and the existing dry-run resolver, without Prepare.
+func carryRoute(ctx context.Context, rec agent.Record) (agent.ModelRoute, error) {
+	if len(rec.Request.CarryArgv) < 3 {
+		return agent.ModelRoute{}, errors.New("no inner line")
+	}
+	fs, f, args, pos, code, done := parseAsk("", rec.Request.CarryArgv[3:])
+	if done {
+		return agent.ModelRoute{}, fmt.Errorf("parse inner ask: exit %d", code)
+	}
+	if !helptext.Explicit(fs, "fallback") {
+		f.fallback = router.DefaultFallback()
+	}
+	f.dryRun = true
+	r := &askRun{ctx: agent.PeekContext(ctx), f: f, fs: fs, args: args, pos: pos, out: io.Discard}
+	markTyped(fs, f)
+	for _, phase := range []func() (int, bool){r.config, r.prelude, r.selectAgent, r.resolveRecord,
+		r.checkArm, r.resolveLead, r.parsePerms, r.export} {
+		if code, done := phase(); done {
+			return agent.ModelRoute{}, fmt.Errorf("resolve inner ask: exit %d", code)
+		}
+	}
+	req := r.request(rec.Request.Prompt)
+	if run := r.armRun(); run != nil {
+		req = run.probe(req)
+	}
+	ov, err := resolveOverlay(r.ov, f.env, f.keepEnv, false)
+	if err != nil {
+		return agent.ModelRoute{}, err
+	}
+	req = req.ApplyOverlay(r.ctx, ov)
+	ctx = providers.WithIdentity(r.ctx, cmp.Or(f.as, providers.IdentityHeadless))
+	o, _, _, err := newClient().Plan(ctx, req)
+	if err != nil {
+		return agent.ModelRoute{}, err
+	}
+	route, _, err := dryRoute(ctx, o, req)
+	return route, err
 }
 
 // carryLog tees a foreground carrier's answer into rec's log (redacted), keeping the trailer on os.Stderr.

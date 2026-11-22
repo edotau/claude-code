@@ -49,6 +49,47 @@ func TestRunningByPoolExcludesCoordinators(t *testing.T) {
 	}
 }
 
+func TestRunningByPoolCountsCarryOnce(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	outer := agent.NewRecord("codex", agent.RunOptions{Provider: "test", Carry: true}, time.Now())
+	outer.Status, outer.PID, outer.Background = "running", os.Getpid(), true
+	child := agent.NewRecord("codex", agent.RunOptions{Provider: "test"}, time.Now().Add(time.Millisecond))
+	child.Parent, child.Status, child.PID = outer.ID, "running", os.Getpid()
+	for _, phase := range []string{"before child", "with child", "child finished", "takeover", "finished"} {
+		switch phase {
+		case "with child", "takeover":
+			child.Status = "running"
+			if phase == "takeover" {
+				child.Agent = "pi"
+			}
+		case "child finished":
+			child.Status = "ok"
+		case "finished":
+			outer.Status, child.Status = "ok", "ok"
+		}
+		if err := outer.Save(); err != nil {
+			t.Fatal(err)
+		}
+		if phase != "before child" {
+			if err := child.Save(); err != nil {
+				t.Fatal(err)
+			}
+		}
+		ids := runningByPool()[PoolOf(outer)]
+		want := outer.ID
+		if phase == "with child" || phase == "takeover" {
+			want = child.ID
+		}
+		if phase == "finished" {
+			if len(ids) != 0 {
+				t.Fatalf("finished carry still counted: %v", ids)
+			}
+		} else if !slices.Equal(ids, []string{want}) {
+			t.Fatalf("%s: counted %v, want [%s]", phase, ids, want)
+		}
+	}
+}
+
 // wantGranted fails unless exactly the waiters marked true have their grant closed.
 func wantGranted(t *testing.T, step string, ws []*waiter, want ...bool) {
 	t.Helper()

@@ -215,9 +215,15 @@ func RecordSources() Sources {
 // runningByPool groups live running dispatch records by pool; an unreadable dispatch dir counts none.
 func runningByPool() map[string][]string {
 	recs, _ := agent.RunningRecent(agent.AllRecords)
+	children := map[string]bool{}
+	for _, r := range recs {
+		if r.Alive() {
+			children[r.Parent] = true
+		}
+	}
 	out := map[string][]string{}
 	for _, r := range recs {
-		if r.Status == "running" && !r.Live && r.Agent != "waves" && !r.Request.Carry && r.Alive() {
+		if !r.Live && r.Agent != "waves" && (!r.Request.Carry || r.Background && !children[r.ID]) && r.Alive() {
 			pool := PoolOf(r)
 			out[pool] = append(out[pool], r.ID)
 		}
