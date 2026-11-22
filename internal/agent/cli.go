@@ -547,7 +547,7 @@ func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, pr
 // MarkedModel is o.Model with the caller's [1m] marker a cell's bare model lost; resolvers drop it where no 1M fits.
 func (o RunOptions) MarkedModel() string {
 	m := strings.TrimSpace(o.Model)
-	if o.OneM && m != "" && !IsAuto(m) && !models.Has1M(m) {
+	if o.Typed1M && m != "" && !IsAuto(m) && !models.Has1M(m) {
 		return m + "[1m]"
 	}
 	return m

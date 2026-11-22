@@ -1492,3 +1492,9 @@ func TestCarryTriedKeepsPicksAcrossHops(t *testing.T) {
 		t.Errorf("carried = %v, want [a b]", got)
 	}
 }
+
+func TestInvokedModelKeepsTyped1M(t *testing.T) {
+	if got := invokedModel(RunOptions{Model: "m", Typed1M: true}); got != "m[1m]" {
+		t.Errorf("invokedModel = %q, want m[1m]", got)
+	}
+}

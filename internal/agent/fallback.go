@@ -200,26 +200,32 @@ func runDispatch(ctx context.Context, c Chain, i int, disp Dispatch, lreq, req R
 	if p, ok := ctx.Value(triedCarryKey{}).(*[]string); ok && len(*p) > 0 {
 		runCtx = withTriedPicks(runCtx, *p) // an earlier hop's refused picks stay excluded
 	}
+	noteDropped1M(disp.Agent.Name(), lreq, notify)
 	res, err = Run(runCtx, disp.Agent, lreq, sink, notify)
 	if replacement && !res.NotStarted {
 		lreq.Repicks = repickSpent(ctx, lreq.Repicks+1)
 	}
 	res = withPick(runCtx, lreq, res)
 	res.Invoked = launchedModel(runCtx, disp, lreq)
-	var more []wire.Hop
-	res, lreq, more, err = repick(runCtx, disp, lreq, res, err, sink, notify)
-	hops = append(hops, more...)
-	hops = append(hops, hopOf(disp, lreq, res, err))
+	res, lreq, more, err := repick(runCtx, disp, lreq, res, err, sink, notify)
+	hops = append(append(hops, more...), hopOf(disp, lreq, res, err))
 	noteFailure(disp, lreq, ranModel(lreq.Model, res), err)
 	return res, hops, false, err
 }
 
-// invokedModel is the request the hop was asked for: a bare cell an auto superseded is recorded as auto.
+// noteDropped1M says when opencode or pi runs a typed [1m] request at the bare model's window (R8: no silent swap).
+func noteDropped1M(agent string, req RunOptions, notify func(string)) {
+	if notify != nil && (agent == agentid.OpenCode || agent == agentid.Pi) && (req.Typed1M || models.Has1M(req.Model)) {
+		notify(agent + ": runs the bare model at its default window; [1m] is not applied")
+	}
+}
+
+// invokedModel is the hop's request: a bare cell an auto superseded is auto; a typed [1m] keeps its marker.
 func invokedModel(req RunOptions) string {
 	if req.CellModel && req.AutoModel {
 		return AutoModel
 	}
-	return req.Model
+	return req.MarkedModel()
 }
 
 // launchedModel: auto stays auto, a typed model as asked, then a frozen copilot target's model, invokedModel, else the agent's plain pin.
@@ -1004,7 +1010,7 @@ func cellRequest(out, req RunOptions, disp Dispatch) RunOptions {
 	}
 	if !disp.keepCaller {
 		out.Model, out.CellRoute, out.CellModel = disp.Model, disp.Route, disp.Route.IsZero()
-		out.OneM = models.Has1M(req.Model)
+		out.Typed1M = models.Has1M(req.Model)
 		if out.CellModel && req.Model == "" && pinsAuto(out.Values, cmp.Or(req.Agent, engineName(disp))) {
 			out.AutoModel = true // a pinned auto records as auto, like a typed one
 		}
