@@ -144,6 +144,16 @@ func TestParseEventsOverflowRecoverySettlesAtAgentSettled(t *testing.T) {
 	}
 }
 
+func TestParseEventsNonTextDeltaArray(t *testing.T) {
+	data := `{"type":"message_update","assistantMessageEvent":{"type":"thinking_delta","contentIndex":0,"delta":[{"type":"text","text":"x"}]}}` + "\n" +
+		`{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"ok"}}` + "\n" +
+		msgEnd("stop", "") + settled
+	res, sink, _, err := parseFixture(t, data)
+	if err != nil || res.Answer != "ok" || sink.count(wire.EventText) != 1 {
+		t.Fatalf("answer %q err %v events %+v", res.Answer, err, sink.evs)
+	}
+}
+
 func TestParseEventsRunMustFinishProperly(t *testing.T) {
 	text := `{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":"partial"}}` + "\n"
 	for name, c := range map[string]struct{ data, want string }{

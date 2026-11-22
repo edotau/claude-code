@@ -38,8 +38,8 @@ type piEvent struct {
 		Content      json.RawMessage `json:"content"`
 	} `json:"message"`
 	Update *struct {
-		Type  string `json:"type"`
-		Delta string `json:"delta"`
+		Type  string          `json:"type"`
+		Delta json.RawMessage `json:"delta"`
 	} `json:"assistantMessageEvent"`
 }
 
@@ -101,7 +101,11 @@ func isMeaningful(ev piEvent) bool {
 	case "tool_execution_start":
 		return true
 	case "message_update":
-		return ev.Update != nil && strings.TrimSpace(ev.Update.Delta) != ""
+		if ev.Update == nil {
+			return false
+		}
+		var d string
+		return json.Unmarshal(ev.Update.Delta, &d) == nil && strings.TrimSpace(d) != ""
 	case "message_end":
 		return ev.Message != nil && ev.Message.Role == "assistant" && ev.Message.Usage.Output > 0
 	}
@@ -147,14 +151,21 @@ func (t *piTurn) apply(ev piEvent, ts *wire.TransportTracker) error {
 
 // delta streams assistant text; a later message's first chunk starts a new turn.
 func (t *piTurn) delta(ev piEvent) error {
-	if ev.Update == nil || ev.Update.Type != "text_delta" || ev.Update.Delta == "" {
+	if ev.Update == nil || ev.Update.Type != "text_delta" || len(ev.Update.Delta) == 0 {
+		return nil
+	}
+	var d string
+	if err := json.Unmarshal(ev.Update.Delta, &d); err != nil {
+		return fmt.Errorf("decode pi text_delta: %w", err)
+	}
+	if d == "" {
 		return nil
 	}
 	sep := t.cur.Len() == 0 && len(t.answer) > 0
-	t.cur.WriteString(ev.Update.Delta)
+	t.cur.WriteString(d)
 	t.progressed = true
-	t.lg.Emit("assistant", ev.Update.Delta)
-	return t.sink.Emit(wire.Event{Type: wire.EventText, Text: ev.Update.Delta, Sep: sep})
+	t.lg.Emit("assistant", d)
+	return t.sink.Emit(wire.Event{Type: wire.EventText, Text: d, Sep: sep})
 }
 
 func (t *piTurn) messageEnd(ev piEvent) error {

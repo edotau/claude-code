@@ -594,12 +594,10 @@ func TestPassthroughNonGeminiChatUntouched(t *testing.T) {
 		{"capability error", msg, 200, 2},
 		{"capability error, no effort sent", msg, 200, 2},
 		{"other 400", `{"error":{"message":"bad"}}`, 400, 1},
+		{"responses-only model gets no synthesized none", msg, 400, 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			body := reqBody
-			if strings.Contains(tc.name, "no effort") {
-				body = strings.Replace(reqBody, `"reasoning_effort":"high",`, "", 1)
-			}
+			body := toolsRetryBody(reqBody, tc.name)
 			rup, rresp := sendChat(t, body, func(w http.ResponseWriter, r *http.Request, n int) {
 				if n == 1 {
 					w.WriteHeader(400)
@@ -617,6 +615,16 @@ func TestPassthroughNonGeminiChatUntouched(t *testing.T) {
 			}
 		})
 	}
+}
+
+func toolsRetryBody(body, name string) string {
+	if strings.Contains(name, "no effort") {
+		return strings.Replace(body, `"reasoning_effort":"high",`, "", 1)
+	}
+	if strings.Contains(name, "responses-only") {
+		return strings.Replace(body, "terra", "sol", 1)
+	}
+	return body
 }
 
 // A null tool_calls entry passes through instead of panicking the handler.
