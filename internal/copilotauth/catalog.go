@@ -113,21 +113,32 @@ func Reset() { snapshotMap.Drop() }
 
 func snapshotFor(p *providers.Provider) catalogIDs {
 	l := rowLogin(p)
-	ids, _ := snapshotMap.Do(l, func(catalogIDs, error) time.Duration { return 0 }, func() (catalogIDs, error) {
-		return readSnapshotIDs(l), nil
+	ids, _ := snapshotMap.Do(l, func(_ catalogIDs, err error) time.Duration {
+		if err != nil {
+			return snapshotRetry // a transient auth or vault failure is read again soon, not kept for the process
+		}
+		return 0
+	}, func() (catalogIDs, error) {
+		return readSnapshotIDs(l)
 	})
 	return ids
 }
 
-// readSnapshotIDs preserves the sealed snapshot timestamp even when no model is enabled.
-func readSnapshotIDs(login string) catalogIDs {
+// snapshotRetry is how long a snapshot read that failed on an error stays cached.
+const snapshotRetry = 30 * time.Second
+
+// readSnapshotIDs preserves the sealed snapshot timestamp even when no model is enabled; err is a failed auth read.
+func readSnapshotIDs(login string) (catalogIDs, error) {
 	auth, tok, ok, err := CatalogAuth(login)
-	if !ok || err != nil {
-		return catalogIDs{}
+	if err != nil {
+		return catalogIDs{}, err
+	}
+	if !ok {
+		return catalogIDs{}, nil
 	}
 	s, hit := ReadSnapshot[Model](auth, tok)
 	if !hit {
-		return catalogIDs{}
+		return catalogIDs{}, nil
 	}
 	var ids []string
 	for _, m := range s.Models {
@@ -135,7 +146,7 @@ func readSnapshotIDs(login string) catalogIDs {
 			ids = append(ids, m.ID)
 		}
 	}
-	return catalogIDs{ids: ids, at: s.DiscoveredAt}
+	return catalogIDs{ids: ids, at: s.DiscoveredAt}, nil
 }
 
 // StubRead replaces the ids and timestamp lookups for t (nil reads as none) and restores them on cleanup.
