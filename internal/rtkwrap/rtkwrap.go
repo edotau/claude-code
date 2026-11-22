@@ -13,7 +13,7 @@ import (
 	"github.com/edotau/claude-code/internal/paths"
 )
 
-// ModeEnv switches wrapping: "on" wraps, "debug" only logs what would wrap, anything else is off; the launch reads it from the process env, then the vault env.
+// ModeEnv switches wrapping: "on" wraps, "debug" only logs what would wrap, anything else is off.
 const ModeEnv = "RTK_WRAP"
 
 // Names are the shimmed commands: rtk_rewrite_words entries that are real command heads (TestNamesAreRTKWords).
@@ -39,20 +39,14 @@ func Ensure(dir, bin string) error {
 		if got, err := os.Readlink(link); err == nil && got == bin {
 			continue
 		}
-		tmp := link + ".new"
-		_ = os.Remove(tmp)
-		if err := os.Symlink(bin, tmp); err != nil {
-			return err
-		}
-		if err := os.Rename(tmp, link); err != nil {
-			_ = os.Remove(tmp)
+		if err := paths.SwapSymlink(bin, link); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// LaunchEnv is env with Dir first on PATH and RTK_WRAP=<mode> when mode is on or debug; any failure notes once and leaves env as is.
+// LaunchEnv is env with Dir first on PATH and RTK_WRAP=<mode> when on or debug; a failure notes once, env unchanged.
 func LaunchEnv(env []string, mode string, notice io.Writer) []string {
 	mode = strings.ToLower(strings.TrimSpace(mode))
 	if runtime.GOOS == "windows" || mode != "on" && mode != "debug" {

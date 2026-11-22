@@ -225,8 +225,7 @@ func selfInfo() os.FileInfo {
 // resolve is the first executable named name on dirs that is not the shim, and dirs minus Dir and each shim dir met.
 func resolve(dirs []string, name string, self os.FileInfo) (real string, kept []string) {
 	for _, d := range withoutDir(dirs, Dir()) {
-		// a relative PATH entry depends on the cwd: never resolve a real binary through it
-		if real == "" && filepath.IsAbs(d) {
+		if real == "" { // a relative entry resolves against the cwd, as the shell does
 			fi, err := os.Stat(filepath.Join(d, name))
 			if err == nil && self != nil && os.SameFile(fi, self) {
 				continue // another spelling of a shim dir: drop it so nothing recurses

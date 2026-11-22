@@ -2,6 +2,7 @@ package pi
 
 import (
 	"bufio"
+	"encoding/json"
 	"errors"
 	"os"
 	"slices"
@@ -211,5 +212,21 @@ func TestParseEventsTextDeltaArray(t *testing.T) {
 	res, _, _, err := parseFixture(t, data)
 	if err != nil || res.Answer != "ok" {
 		t.Fatalf("answer %q err %v", res.Answer, err)
+	}
+}
+
+func TestDeltaTextShapes(t *testing.T) {
+	for raw, want := range map[string]string{`"ok"`: "ok", `[{"type":"text","text":"o"},{"text":"k"}]`: "ok"} {
+		if got, err := deltaText([]byte(raw)); err != nil || got != want {
+			t.Errorf("deltaText(%s) = %q, %v; want %q", raw, got, err, want)
+		}
+	}
+	if _, err := deltaText([]byte(`{"text":"x"}`)); err == nil {
+		t.Error("object delta decoded, want an error")
+	}
+	var ev piEvent
+	must := json.Unmarshal([]byte(`{"type":"message_update","assistantMessageEvent":{"type":"text_delta","delta":{"a":1}}}`), &ev)
+	if must != nil || isMeaningful(ev) {
+		t.Error("undecodable delta is meaningful")
 	}
 }

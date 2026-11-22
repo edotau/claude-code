@@ -172,6 +172,22 @@ func TestResolveSkipsShimDir(t *testing.T) {
 	}
 }
 
+func TestResolveRelativeEntryWinsInOrder(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("shims are unix-only")
+	}
+	root := t.TempDir()
+	must(t, os.MkdirAll(filepath.Join(root, "bin"), 0o755))
+	must(t, os.MkdirAll(filepath.Join(root, "abs"), 0o755))
+	must(t, os.WriteFile(filepath.Join(root, "bin", "git"), []byte("#!/bin/sh\n"), 0o755))
+	must(t, os.WriteFile(filepath.Join(root, "abs", "git"), []byte("#!/bin/sh\n"), 0o755))
+	t.Chdir(root)
+	got, _ := resolve([]string{"./bin", filepath.Join(root, "abs")}, "git", nil)
+	if want := filepath.Join("bin", "git"); got != want {
+		t.Errorf("resolve = %q, want %q", got, want)
+	}
+}
+
 func must(t *testing.T, err error) {
 	t.Helper()
 	if err != nil {
