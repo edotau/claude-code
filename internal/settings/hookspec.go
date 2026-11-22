@@ -235,9 +235,10 @@ func (g MatcherGroup) RunsGate(agent, command, tool string) bool {
 		}
 	}
 	legacy := strings.Replace(command, hookBin+" ", hookBin+" hook ", 1) // a not-yet-synced file still runs the gate
+	preSplit := strings.Replace(command, hookBin+" ", mainBin+" hook ", 1)
 	return slices.ContainsFunc(g.Hooks, func(h Hook) bool {
 		cmd := strings.TrimPrefix(strings.TrimSpace(h.Command), AgentEnv+"="+agent+" ")
-		return h.Type == "command" && !h.Async && (cmd == command || cmd == legacy)
+		return h.Type == "command" && !h.Async && (cmd == command || cmd == legacy || cmd == preSplit)
 	})
 }
 

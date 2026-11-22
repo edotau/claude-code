@@ -56,18 +56,18 @@ YAML_FILES      := $(shell git ls-files '*.yml' '*.yaml' 2>/dev/null)
 .PHONY: compile
 compile:  ## Compile bin/claude-code and bin/.hooks, no install
 	@mkdir -p $(dir $(BIN))
-	@stamp="$$(git rev-parse --short=12 HEAD 2>/dev/null || echo nogit)-$$(date +%s)"; \
+	@stamp="$$(git rev-parse --short=12 HEAD 2>/dev/null || echo nogit)-$$(date +%s)-$$$$"; tmp=".new.$$$$"; \
 	ldflags="-s -w -X github.com/edotau/claude-code/internal/paths.BuildStamp=$$stamp"; \
-	$(GO) build -trimpath -ldflags="$$ldflags" -o "$(BIN).new" ./cmd/claude-code && \
-	$(GO) build -trimpath -ldflags="$$ldflags" -o "$(HOOK_BIN).new" ./cmd/harness-hook && \
-	size=$$(wc -c < "$(HOOK_BIN).new" | tr -d ' ') && \
-	{ [ "$$size" -le $(HOOK_BIN_MAX) ] || { rm -f "$(BIN).new" "$(HOOK_BIN).new"; \
+	$(GO) build -trimpath -ldflags="$$ldflags" -o "$(BIN)$$tmp" ./cmd/claude-code && \
+	$(GO) build -trimpath -ldflags="$$ldflags" -o "$(HOOK_BIN)$$tmp" ./cmd/harness-hook && \
+	size=$$(wc -c < "$(HOOK_BIN)$$tmp" | tr -d ' ') && \
+	{ [ "$$size" -le $(HOOK_BIN_MAX) ] || { rm -f "$(BIN)$$tmp" "$(HOOK_BIN)$$tmp"; \
 	  echo "compile: $(HOOK_BIN) is $$size bytes, over HOOK_BIN_MAX=$(HOOK_BIN_MAX): an import pulled heavy code into it" >&2; exit 1; }; } && \
 	rm -f "$(STAMP_FILE)" && \
-	mv -f "$(HOOK_BIN).new" "$(HOOK_BIN)" && \
-	mv -f "$(BIN).new" "$(BIN)" && \
-	printf '%s\n' "$$stamp" > "$(STAMP_FILE).new" && \
-	mv -f "$(STAMP_FILE).new" "$(STAMP_FILE)"
+	mv -f "$(HOOK_BIN)$$tmp" "$(HOOK_BIN)" && \
+	mv -f "$(BIN)$$tmp" "$(BIN)" && \
+	printf '%s\n' "$$stamp" > "$(STAMP_FILE)$$tmp" && \
+	mv -f "$(STAMP_FILE)$$tmp" "$(STAMP_FILE)"
 
 .PHONY: build
 build: install  # (dev recipe, hidden from help) compile + install + fmt + audit (SKIP_AUDIT=1)
