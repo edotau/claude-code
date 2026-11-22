@@ -25,7 +25,7 @@ func TestLaunchRoundsOrdersByBlocker(t *testing.T) {
 	r.o.Executable, r.reports = "cc", t.TempDir()
 	wave := []Spec{{ID: "1.3"}, {ID: "1.1"}, {ID: "1.2"}, {ID: "1.4"}, {ID: "1.5"}}
 	waits := map[string]wait{"1.3": {after: []string{"1.1"}}, "1.5": {after: []string{"1.4"}}}
-	out, err := r.launchRounds(context.Background(), wave, wave, waits)
+	out, err := r.launchRounds(context.Background(), wave, wave, waits, func([]Envelope) error { return nil })
 	if err != nil {
 		t.Fatal(err)
 	}

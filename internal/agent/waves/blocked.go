@@ -123,7 +123,8 @@ func nextRound(pending []Spec, waits map[string]wait, status map[string]string) 
 }
 
 // launchRounds launches the wave in rounds: a leaf starts once every sibling it waits on finished ok.
-func (r *runner) launchRounds(ctx context.Context, launch, wave []Spec, waits map[string]wait) ([]Envelope, error) {
+func (r *runner) launchRounds(ctx context.Context, launch, wave []Spec, waits map[string]wait,
+	checkpoint func([]Envelope) error) ([]Envelope, error) {
 	status := map[string]string{}
 	for _, s := range wave { // a leaf not relaunched was kept: its dispatch already finished ok
 		status[s.ID] = LeafStateOK
@@ -135,9 +136,12 @@ func (r *runner) launchRounds(ctx context.Context, launch, wave []Spec, waits ma
 	var runErr error
 	for pending := launch; len(pending) > 0; {
 		ready, rest, skipped := nextRound(pending, waits, status)
-		for _, e := range skipped {
-			e.TaskID = r.slug + "-" + e.TaskID
-			out = append(out, e)
+		for i := range skipped {
+			skipped[i].TaskID = r.slug + "-" + skipped[i].TaskID
+		}
+		out = append(out, skipped...)
+		if err := checkpoint(skipped); err != nil {
+			return out, errors.Join(runErr, err)
 		}
 		pending = rest
 		if len(ready) == 0 {
@@ -154,6 +158,9 @@ func (r *runner) launchRounds(ctx context.Context, launch, wave []Spec, waits ma
 			}
 		}
 		out = append(out, envelopes...)
+		if err := checkpoint(envelopes); err != nil {
+			return out, errors.Join(runErr, err)
+		}
 		if ctx.Err() != nil {
 			break
 		}

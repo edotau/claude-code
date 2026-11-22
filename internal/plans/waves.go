@@ -103,8 +103,9 @@ func ParseWaves(file string) (WavePlan, error) {
 			return p, err
 		}
 		attrs := waveAttributes(task.Title)
+		_, _, owns, _, _, _ := parseTaskText("owns: " + attrs["owns"])
 		t := WaveTask{ID: "Phase " + m[1] + "." + strings.ToUpper(m[2]), Wave: n, Agent: attrs["agent"],
-			Leaf: attrs["leaf"], Profile: attrs["profile"], Owns: ownEntries(task.Owns, nil),
+			Leaf: attrs["leaf"], Profile: attrs["profile"], Owns: ownEntries(owns, nil),
 			Verify: attrs["verify"], Findings: attrs["findings"], Task: bodies[m[1]+"."+strings.ToUpper(m[2])],
 			Done: task.Done}
 		t.BlockedBy, t.BlockedText = blockers(attrs["blocked by"])

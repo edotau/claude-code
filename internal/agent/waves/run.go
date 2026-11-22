@@ -227,8 +227,10 @@ func (r *runner) wave(ctx context.Context, w plans.Wave) (int, error) {
 		return 0, nil
 	}
 	defer r.notify(w.Number)
-	envelopes, launchErr := r.launchRounds(ctx, launch, specs, r.waits(w))
-	ws, err = r.record(ws, envelopes)
+	_, launchErr := r.launchRounds(ctx, launch, specs, r.waits(w), func(envelopes []Envelope) error {
+		ws, err = r.record(ws, envelopes)
+		return err
+	})
 	if err != nil {
 		return 1, err
 	}
