@@ -2,6 +2,7 @@ package permission
 
 import (
 	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -32,6 +33,29 @@ const (
 // Rule is one Claude Code style rule: Tool alone matches every call, Tool(Arg) narrows by command, path or domain.
 type Rule struct{ Tool, Arg string }
 
+// canonicalTools are the tool names rules match on; a rule names one in any letter case.
+var canonicalTools = []string{"Bash", "Edit", "Write", "MultiEdit", "NotebookEdit", "Read", "Glob", "Grep", "WebFetch",
+	"WebSearch", "Agent", "Task"}
+
+// CanonicalTool is name spelled as a known tool when it is one in another case (`write` is Write); else name.
+func CanonicalTool(name string) string {
+	if i := slices.IndexFunc(canonicalTools, func(t string) bool { return strings.EqualFold(t, name) }); i >= 0 {
+		return canonicalTools[i]
+	}
+	return name
+}
+
+// UnmarshalJSON reads a rule from a policy document with its tool name canonical, as ParseRule does.
+func (r *Rule) UnmarshalJSON(b []byte) error {
+	type plain Rule
+	var p plain
+	if err := json.Unmarshal(b, &p); err != nil {
+		return err
+	}
+	*r = Rule{Tool: CanonicalTool(p.Tool), Arg: p.Arg}
+	return nil
+}
+
 // Permissions is a dispatch's rule set; Mode ("", allow, default, auto, plan) decides what no rule matched.
 type Permissions struct {
 	Mode  string `json:"mode,omitempty"`
@@ -47,6 +71,13 @@ func (p Permissions) Each(fn func(decision Decision, r Rule)) {
 			fn(Decision(decision), r)
 		}
 	}
+}
+
+// DeniesFileWrite reports a Deny on a file-writing tool, which a shell write cannot be tied to.
+func (p Permissions) DeniesFileWrite() bool {
+	return slices.ContainsFunc(p.Deny, func(r Rule) bool {
+		return slices.Contains([]string{"Edit", "Write", "MultiEdit", "NotebookEdit"}, r.Tool)
+	})
 }
 
 // IsZero reports a request with no policy: no mode and no rules.
@@ -80,12 +111,12 @@ func ParseRule(s string) (Rule, error) {
 		if strings.ContainsRune(s, ')') {
 			return Rule{}, fmt.Errorf("permission rule %q: unbalanced parentheses", s)
 		}
-		return Rule{Tool: s}, nil
+		return Rule{Tool: CanonicalTool(s)}, nil
 	}
 	if !strings.HasSuffix(s, ")") {
 		return Rule{}, fmt.Errorf("permission rule %q: unbalanced parentheses", s)
 	}
-	tool, arg := strings.TrimSpace(s[:open]), s[open+1:len(s)-1]
+	tool, arg := CanonicalTool(strings.TrimSpace(s[:open])), s[open+1:len(s)-1]
 	switch {
 	case tool == "":
 		return Rule{}, fmt.Errorf("permission rule %q: empty tool name", s)
@@ -565,7 +596,7 @@ func (p Permissions) decideSeg(seg, cdTo string, at opDir, depth int) (Decision,
 	if nested, ok := shell.NestedCommand(toks); ok {
 		d = min(d, p.decideBash(nested, depth+1, ""), Ask)
 	}
-	if d == Allow && (strings.Contains(seg, "<") || shell.FileRedirect(seg)) {
+	if d == Allow && hasWrite(seg) { // a quoted `<` is text, not a redirect
 		d = Ask
 	}
 	if d == Allow && readOnlyReadDenied(p, judged, at) {
@@ -803,12 +834,20 @@ func skipsNormalized(r Rule, norm bool) bool {
 	return norm && r.Arg == RedirectFileArg
 }
 
-// readOnlyRuleHit judges the read-only shell rules on a normalized spelling, whose quotes (and so redirects) are gone.
+// readOnlyRuleHit judges the read-only and verify shell rules on a normalized spelling, whose quotes are gone.
 func readOnlyRuleHit(r Rule, tool, arg string, norm bool) (hit, handled bool) {
-	if !norm || tool != "Bash" || r.Tool != tool || r.Arg != ReadOnlyShellArg && r.Arg != NotReadOnlyShellArg {
+	if !norm || tool != "Bash" || r.Tool != tool {
 		return false, false
 	}
-	return r.Arg == ReadOnlyShellArg && readOnlySegment(arg, false), true
+	switch r.Arg {
+	case ReadOnlyShellArg:
+		return readOnlySegment(arg, false), true
+	case VerifyShellArg:
+		return verifySegment(arg, false), true
+	case NotReadOnlyShellArg, NotVerifyShellArg:
+		return false, true
+	}
+	return false, false
 }
 
 func (r Rule) matches(tool, arg string) bool {
@@ -826,20 +865,25 @@ func (r Rule) matches(tool, arg string) bool {
 	return pathMatches(r.Arg, arg) || pathMatches(ExpandHome(tool, r.Arg), arg)
 }
 
+// shellRuleForms are the Bash rule arguments that name a shell-aware check instead of a command spelling.
+var shellRuleForms = sync.OnceValue(func() map[string]func(string) bool {
+	return map[string]func(string) bool{
+		RedirectFileArg:     shell.FileRedirect,
+		SedPrintArg:         sedPrintMatches,
+		ReadOnlyShellArg:    func(c string) bool { return readOnlySegment(c, true) },
+		NotReadOnlyShellArg: func(c string) bool { return !readOnlySegment(c, true) },
+		VerifyShellArg:      func(c string) bool { return verifySegment(c, true) },
+		NotVerifyShellArg:   func(c string) bool { return !verifySegment(c, true) },
+	}
+})
+
 // commandMatches: "p:*" is a prefix at a word boundary, anything else must equal the command.
 func commandMatches(pattern, cmd string) bool {
-	switch { // the shell-aware rule forms first
-
-	case pattern == RedirectFileArg:
-		return shell.FileRedirect(cmd)
-	case pattern == SedPrintArg:
-		return sedPrintMatches(cmd)
-	case pattern == ReadOnlyShellArg:
-		return readOnlySegment(cmd, true)
-	case pattern == NotReadOnlyShellArg:
-		return !readOnlySegment(cmd, true)
-	case strings.HasPrefix(pattern, cdPrefix):
-		return cdMatches(strings.TrimPrefix(pattern, cdPrefix), cmd)
+	if form, ok := shellRuleForms()[pattern]; ok { // the shell-aware rule forms first
+		return form(cmd)
+	}
+	if dir, ok := strings.CutPrefix(pattern, cdPrefix); ok {
+		return cdMatches(dir, cmd)
 	}
 	cmd = strings.TrimSpace(cmd)
 	prefix, ok := strings.CutSuffix(pattern, ":*")

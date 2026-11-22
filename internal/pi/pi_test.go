@@ -132,7 +132,10 @@ func TestGuardTools(t *testing.T) {
 		"read-only": {agent.RunOptions{Tools: true, ReadOnly: true}, "read,grep,find,ls"},
 		"plan mode": {agent.RunOptions{Tools: true, Permissions: permission.Permissions{Mode: permission.PermPlan}}, "read,grep,find,ls"},
 		"bash deny": {agent.RunOptions{Tools: true, Permissions: deny("Bash")}, all},
-		"edit deny": {agent.RunOptions{Tools: true, Permissions: deny("Edit")}, "read,edit,write,grep,find,ls"},
+		"edit deny": {agent.RunOptions{Tools: true, Permissions: deny("Edit")}, all}, // bash stays as the verify shell
+		"notebook":  {agent.RunOptions{Tools: true, Permissions: deny("NotebookEdit")}, all},
+		"read+write": {agent.RunOptions{Tools: true, Permissions: permission.Permissions{Deny: []permission.Rule{
+			{Tool: "Read", Arg: "x"}, {Tool: "Write", Arg: "x"}}}}, "read,edit,write,find,ls"},
 		"read deny": {agent.RunOptions{Tools: true, Permissions: deny("Read")}, "read,edit,write,find,ls"},
 		"grep deny": {agent.RunOptions{Tools: true, Permissions: deny("Grep")}, "read,edit,write"},
 		"glob deny": {agent.RunOptions{Tools: true, Permissions: deny("Glob")}, "read,edit,write"},

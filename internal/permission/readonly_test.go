@@ -184,14 +184,130 @@ func TestReadOnlyShell(t *testing.T) {
 		{"FOO=1 git status", false},
 		{"PATH=/x git status", false},
 		{"bash -c 'ls'", false},
-		{"mytool --help", true},
+		{"mytool --help", true}, // --help and --version print and exit; only -h is limited to listed readers
 		{"mytool --version", true},
+		{"git --help", true}, {"go version", true}, {"rg --version", true}, {"claude-code --help", true},
+		{"bash -h", false}, {"bash --help", true}, {"bash --version", true}, {"sh -h", false}, {"zsh -h", false},
+		{"dash -h", false}, {"fish -h", false}, {"python3 -h", false}, {"python --version", true}, {"node -h", false},
+		{"ruby --version", true}, {"perl -h", false}, {"awk -h", false}, {"env --help", false}, {"xargs -h", false},
+		{"sudo -h", false}, {"echo 'touch denied.txt' | bash -h", false}, {"cat a | sh --version", true},
+		{"echo x | python3 -h", false},
+		{"go list -m golang.org/x/text@latest", true}, {"go list golang.org/x/text@v0.1.0", true},
+		{"go list -m -versions golang.org/x/text", true}, {"go list -m -retracted x", true}, {"go list ./...", true},
 		{"./mytool --help", false},
 		{"rm --help x", false},
 		{"", false}, {"  \t ", false}, {"ls #\nrm x", false}, {"ls\nrm x", false},
 		{"ls && git commit -m x", false}, {"ls || rm x", false}, {"ls && cat a > b", false}, {"cat a | sh", false},
 		{"cat a | xargs rm", false}, {"cat a | sed -i s/a/b/ f", false}, {"ls & rm x", false},
 	})
+}
+
+// verifyAllowed are the forms a Pi leaf under a file deny runs: builds, vet, scoped tests, format checks and reads.
+var verifyAllowed = []string{
+	"go build ./...", "rtk go build ./...", "GOOS=linux go build ./...", "GOOS=windows go vet ./...",
+	"CGO_ENABLED=0 GOARCH=arm64 go build ./...", "time go test ./pkg", "go vet ./internal/pi", "go test ./pkg",
+	"go test -run '^TestX$' -count=1 ./pkg ./other", "go test -run=X -count 1 ./pkg", "go test -v -race ./pkg",
+	"go test ./internal/hooks/...", "rtk go test ./pkg 2>&1 | tail -5", "go test ./pkg 2>&1", "cd /repo && go test ./pkg",
+	"gofmt -l pkg", "gofmt -d -s a.go", "gofmt -l -e a.go b.go",
+	"go build -o /dev/null ./...", "go build -o=/dev/null ./x",
+	"git status", "rtk git diff", "cat a.go", "cat a.go 2>&1", "sed -n 1,5p a.go",
+	"claude-code agents diff --check --path a.go", "claude-code agents diff --check --path a.go --path b.go",
+	"go test -run '2>&1' ./pkg",
+	// quoted operands keep their boundaries (second review, finding 6)
+	"cd \"a b\"", "go test -run 'Test A' ./pkg", "go test -run 'a<b' ./pkg", "cd '2>&1'", "gofmt -l '2>&1'",
+	"go test -count=1 -count=2 ./pkg", "go test ./pkg -run X", "go test -run ./pkg ./other", "time time go test ./x",
+	"time rtk go test ./x", "GOOS= go build ./x", "cd ~", "cd a && cd .. && go test ./x/...", "rtk read a.go",
+	"git --no-pager log -1", "git diff", "claude-code agents diff", "claude-code agents diff --check",
+	"go list ./...", "claude-code agents find x",
+}
+
+// verifyDenied are every write, wrapper, whole-module test and look-alike the verify shell refuses.
+var verifyDenied = []string{
+	// whole module and package spellings (R16, finding 5)
+	"go test ./...", "go test", "go test .", "go test ../...", "go test ./../x", "go test ./a/../b", "go test ./.../x",
+	"go test github.com/edotau/claude-code/...", "go test all", "go test std", "go test cmd", "go test /abs/pkg",
+	"go test example.com/m/pkg", "go vet ../...", "go build all", "go build ./", "go vet ./a//b",
+	"cd /Users/x/.claude/internal && go test ../...",
+	// flags: unknown, passthrough, missing values, booleans with values
+	"go test -exec /bin/sh ./pkg", "go test -toolexec x ./pkg", "go test -c ./pkg", "go test -json ./pkg",
+	"go test -o /tmp/x.test ./pkg", "go test -C /x ./pkg", "go test -overlay o.json ./pkg", "go test -modfile m ./pkg",
+	"go test -coverprofile=c.out ./pkg", "go test -cpuprofile c ./pkg", "go test --count 1 ./pkg", "go test -- ./pkg",
+	"go test ./pkg -args -test.coverprofile=x", "go test ./pkg -run", "go test -count ./pkg", "go test -count=x ./pkg",
+	"go test -run= ./pkg", "go test -v=true ./pkg", "go test -race=false ./pkg", "go vet -vettool=/bin/sh ./pkg",
+	"go vet -v ./pkg", "go build -v ./...", "go build -C /x ./...", "go build -toolexec x ./...",
+	// -o: only the null device (finding 3)
+	"go build -o pkg/bin ./...", "go build -o /tmp/x ./...", "go build -o /tmp/link/../x ./...", "go build -o ~/x ./...",
+	"go build -o /dev/stdout ./...", "go build -o ./...", "go build -o '2>&1' ./x", "go test ./pkg '2>&1'",
+	// gofmt (finding 8)
+	"gofmt a.go", "gofmt -s a.go", "gofmt -w pkg", "gofmt -l -w pkg", "gofmt -lw pkg", "gofmt -w=true pkg", "gofmt -l",
+	"gofmt -r 'a->b' -l a.go",
+	// prefixes and wrappers
+	"GOFLAGS=-exec=/bin/sh go test ./pkg", "FOO=1 go build ./...", "env GOOS=linux go build ./...", "LANG=C cat a.go",
+	"TMPDIR=/x go build ./...", "rtk rtk go build ./...", "rtk bypass go build ./...", "rtk proxy go build ./...",
+	"time -o t go test ./pkg", "time -p go test ./pkg", "nice go test ./pkg", "timeout 5 go test ./pkg",
+	"sudo go test ./pkg", "echo pkg | xargs go build", "bash -c 'go build ./...'", "sh -c 'go build ./...'",
+	"eval go build ./...", "exec go test ./pkg",
+	// redirects, expansions, globs (findings 6, 7)
+	"echo hi > other/a.txt", "go test ./pkg > out.txt", "go test ./pkg >> out", "go test ./pkg &> out", "cat * ",
+	"cat a.go >/dev/null", "cat a.go 3>&1", "go test ./pkg 2>/dev/null", "go test ./pkg 1>&2", "go test ./pkg 2>&1>f",
+	"go test ./pkg | tee out", "cat < a.go", "cat <<EOF", "cat <<< x", "diff <(cat a) b", "go build $(echo ./...)",
+	"go test ./pkg; echo exit=$?", "go test $PKG", "go test ${PKG}", "go test `echo ./pkg`", "go test ./p{a,b}",
+	"gofmt -l *.go", "go test ./pk?", "go test ./[ab]", "go test ./pkg \\\n> x",
+	// separators keep every segment judged
+	"go build ./... ; rm -rf pkg", "go vet ./... && touch other/x", "go test ./pkg || rm x", "go test ./pkg & rm x",
+	"go test ./pkg\nrm x", "go test ./pkg # ok\nrm x", "(go test ./pkg; rm x)", "{ go test ./pkg; rm x; }",
+	// writers and other programs, read-only writer options included
+	"rm -rf pkg", "touch x", "cp a b", "mv a b", "go run ./pkg", "go generate ./...", "go install ./...",
+	"go mod tidy", "go get x", "go clean -cache", "make test", "rtk make lint", "git commit -m x", "git checkout x",
+	"curl https://example.com", "sed -i s/a/b/ f", "find . -delete", "find . -exec rm {} ;", "rg --pre cat x",
+	"tail -f log", "git diff --output=x", "git -c core.pager=sh log", "sort -o x y", "awk '{print}' a",
+	"'go' test ./...", "g\\o test ./...", "$'go' test ./pkg", "./go test ./pkg", "/usr/bin/go run x",
+	// claude-code: only agents diff (findings 1, 2)
+	"claude-code agents ask --dry-run --agent pi x", "claude-code agents ask --dry-run --dry-run=false --agent pi x",
+	"claude-code agents ask --system-prompt --dry-run --agent pi x", "claude-code agents ask --agent pi -- --dry-run",
+	"claude-code agents ask --dry-run=true --agent pi x", "claude-code pi --print-env",
+	"claude-code codex -- exec -- --print-env",
+	"claude-code pi ask --tools --system-prompt --print-env x", "claude-code gemini --print-env",
+	"claude-code agents diff --check --fix", "claude-code agents diff --check --path -x",
+	"claude-code agents fix --path a",
+	"claude-code agents diff --check --path a --secret", "claude-code vault get x --secret",
+	// second review: shells behind a help flag (1), caller-chosen repositories (2), agents diff flags (3)
+	"echo 'touch denied.txt' | bash -h", "bash -h", "sh -h", "zsh --version", "python3 -h", "mytool --help",
+	"node --version", "python3 --version", "make --version", "bash --help", "cat a | sh --version",
+	"git -C ./fixture diff", "git -C ./fixture log -p -1", "git -C. status", "git --git-dir=x log",
+	"git --work-tree=x status", "git --namespace=x log", "git -c diff.external=x diff", "git --config-env=a=b log",
+	"git --exec-path=x log", "rtk git -C x status", "git --no-pager -C x diff", "git -p log", "git --paginate log",
+	"claude-code agents diff --verify x", "claude-code agents diff --base HEAD", "claude-code agents diff --gates test",
+	"claude-code agents diff --check --gates test", "claude-code agents diff --check --base HEAD",
+	"rtk claude-code agents diff --verify x",
+	// go list fetches (5)
+	"go list -m golang.org/x/text@latest", "go list -m -versions golang.org/x/text", "go list -m -retracted x",
+	"go list -u -m all", "go list x@v1.0.0",
+	// 2>&1 placement (6c) and glued forms
+	"go test -run 2>&1 TestX ./pkg", "go build -o 2>&1 /dev/null ./x", "go test 2>&1 ./pkg", "go test ./pkg2>&1",
+	"go test ./pkg 2>&12", "go test ./pkg 12>&1", "go test ./pkg 2>&1 >f", "go test ./pkg 2>&1 2>&1",
+	// gofmt flags after a path (7) and write or profile forms
+	"gofmt a.go -l", "gofmt -l a.go -w", "gofmt -d -w a.go", "gofmt -r 'a -> b' -w a.go", "gofmt -cpuprofile f -l a.go",
+	// package edges, null-device variants, flag values
+	"go test ./.", "go test .//x", "go test ./x/../y", "go test ./x/....", "go test ./...x", "go test ./x/",
+	"go test '.\\x'", "go test \"./a b\"", "go build -o /dev/null/ ./x", "go build -o /dev/../dev/null ./x",
+	"go build -o NUL ./x", "go build ./x -o", "go test -run ./pkg", "go test -count=-1 ./pkg", "go test -vet=off ./pkg",
+	// prefixes, env, cd
+	"rtk time go test ./x", "rtk gain", "GOOS=linux FOO=1 go build ./x", "GOOS=$(x) go build ./x", "cd -", "cd $HOME",
+}
+
+// A Pi leaf under a file deny builds, vets and runs scoped tests; any write, wrapper or whole-module test is refused.
+func TestVerifyShell(t *testing.T) {
+	for _, cmd := range verifyAllowed {
+		if !VerifyShell(cmd) {
+			t.Errorf("VerifyShell(%q) = false, want true", cmd)
+		}
+	}
+	for _, cmd := range verifyDenied {
+		if VerifyShell(cmd) {
+			t.Errorf("VerifyShell(%q) = true, want false", cmd)
+		}
+	}
 }
 
 func TestReadOnlyRtkPrefix(t *testing.T) {

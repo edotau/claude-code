@@ -29,6 +29,206 @@ func ReadOnlyShell(line string) bool {
 	return p.Decide("Bash", line) == Allow
 }
 
+// VerifyShellArg allows, and NotVerifyShellArg denies, one Bash segment by the verify shell: reads, builds, tests.
+const (
+	VerifyShellArg    = "verify shell command"
+	NotVerifyShellArg = "not a verify shell command"
+)
+
+// VerifyShell reports whether every segment of line is a read-only or verify command, with no write or substitution.
+func VerifyShell(line string) bool {
+	allow, deny := Rule{Tool: "Bash", Arg: VerifyShellArg}, Rule{Tool: "Bash", Arg: NotVerifyShellArg}
+	return Permissions{Allow: []Rule{allow}, Deny: []Rule{deny}}.Decide("Bash", line) == Allow
+}
+
+// verifySegment is a read-only segment or `[GOOS=…] [time] [rtk]` go build|vet|test, gofmt, cd or agents diff.
+func verifySegment(seg string, raw bool) bool {
+	if !raw {
+		return true // the raw spelling, quotes intact, binds: a quote-less re-join loses operand boundaries
+	}
+	seg, ok := verifySyntax(seg)
+	toks := verifyTokens(seg)
+	if !ok || len(toks) == 0 || verifyRefused(toks) {
+		return false
+	}
+	if slices.Equal(toks[:min(3, len(toks))], []string{"claude-code", "agents", "diff"}) {
+		return verifyCommand(toks) // its own flag list, before the shared readers
+	}
+	return readOnlySegment(seg, true) || verifyCommand(toks)
+}
+
+// verifyRefused are reads the shared list allows that the verify shell does not: a repository the caller picks, a
+// flag on an unlisted command (`node --version`) and a `go list` module query, which fetches into the module cache.
+func verifyRefused(toks []string) bool {
+	return toks[0] == "git" && gitRepoChoice(toks[1:]) || goListFetches(toks) ||
+		len(toks) == 2 && strings.HasPrefix(toks[1], "-") && !helpCommand(toks[0])
+}
+
+// goListFetches is a `go list` with a module@version query, -versions or -retracted.
+func goListFetches(toks []string) bool {
+	return len(toks) > 1 && toks[0] == "go" && toks[1] == "list" && slices.ContainsFunc(toks[2:], func(a string) bool {
+		name, _, _ := strings.Cut(a, "=")
+		return strings.Contains(a, "@") || name == "-versions" || name == "-retracted"
+	})
+}
+
+// verifyTokens are seg's words past the allowed env and time prefix and one rtk.
+func verifyTokens(seg string) []string {
+	toks, _ := verifyPrefix(shell.Tokens(seg))
+	if len(toks) > 1 && toks[0] == "rtk" {
+		return toks[1:]
+	}
+	return toks
+}
+
+// verifySyntax drops one trailing unquoted `2>&1`; any other redirect, a glob, an expansion or other env refuses seg.
+func verifySyntax(seg string) (string, bool) {
+	seg = trimFdDup(seg)
+	at := shell.QuoteAt(seg)
+	for i := 0; i < len(seg); i++ {
+		if at[i] == 0 && strings.IndexByte("<>*?[", seg[i]) >= 0 {
+			return "", false
+		}
+	}
+	_, ok := verifyPrefix(shell.Tokens(seg))
+	return seg, ok && !shell.Expands(seg) && !braceExpands(seg)
+}
+
+// trimFdDup is seg without a trailing unquoted `2>&1` word; one anywhere else stays and is refused as a redirect.
+func trimFdDup(seg string) string {
+	t := strings.TrimRight(seg, " \t")
+	n := len(t) - 4
+	if n < 1 || t[n:] != "2>&1" || t[n-1] != ' ' && t[n-1] != '\t' || string(shell.QuoteAt(t)[n:]) != "\x00\x00\x00\x00" {
+		return seg
+	}
+	return t[:n]
+}
+
+// gitRepoChoice is a git global option before the verb that picks the repository, its config or git's programs:
+// a configured diff or textconv helper of a repository the caller chose would run.
+func gitRepoChoice(args []string) bool {
+	for _, a := range args {
+		name, _, _ := strings.Cut(a, "=")
+		switch {
+		case !strings.HasPrefix(a, "-"):
+			return false
+		case strings.HasPrefix(a, "-C") || strings.HasPrefix(a, "-c") ||
+			slices.Contains([]string{"--git-dir", "--work-tree", "--namespace", "--config-env", "--exec-path"}, name):
+			return true
+		}
+	}
+	return false
+}
+
+// verifyCommand judges a prefix-free verify command by its name.
+func verifyCommand(toks []string) bool {
+	switch toks[0] {
+	case "go":
+		return verifyGo(toks[1:])
+	case "gofmt":
+		return verifyGofmt(toks[1:])
+	case "claude-code":
+		return len(toks) > 2 && toks[1] == "agents" && toks[2] == "diff" && detectorArgsOK(toks[3:], []string{"--check"},
+			map[string]func(string) bool{"--path": func(v string) bool { return !strings.HasPrefix(v, "-") }})
+	case "cd":
+		return len(toks) == 2 && !strings.HasPrefix(toks[1], "-")
+	}
+	return false
+}
+
+// verifyGofmt is gofmt with -l or -d (plus -s, -e) before at least one path: gofmt stops reading flags at the first.
+func verifyGofmt(args []string) bool {
+	lists, i := false, 0
+	for ; i < len(args) && strings.HasPrefix(args[i], "-"); i++ {
+		switch args[i] {
+		case "-l", "-d":
+			lists = true
+		case "-s", "-e":
+		default:
+			return false
+		}
+	}
+	return lists && i < len(args) && !slices.ContainsFunc(args[i:], func(a string) bool { return strings.HasPrefix(a, "-") })
+}
+
+var verifyEnv = sync.OnceValue(func() *regexp.Regexp {
+	return regexp.MustCompile(`^(GOOS|GOARCH|CGO_ENABLED)=[A-Za-z0-9_]*$`)
+})
+
+// verifyPrefix is toks past GOOS, GOARCH and CGO_ENABLED assignments and a time word; false for any other assignment.
+func verifyPrefix(toks []string) ([]string, bool) {
+	for len(toks) > 0 && (toks[0] == "time" || envAssign().MatchString(toks[0])) {
+		if toks[0] != "time" && !verifyEnv().MatchString(toks[0]) {
+			return nil, false
+		}
+		toks = toks[1:]
+	}
+	return toks, true
+}
+
+// goVerifyFlags are the only flags each verify verb takes; a nil check marks a boolean flag, which takes no value.
+var goVerifyFlags = map[string]map[string]func(string) bool{
+	"build": {"-o": func(v string) bool { return v == os.DevNull }},
+	"vet":   {},
+	"test": {"-run": func(v string) bool { return v != "" }, "-count": regexp.MustCompile(`^[0-9]+$`).MatchString,
+		"-v": nil, "-race": nil},
+}
+
+// verifyGo is go build|vet|test with listed flags and at least one package.
+func verifyGo(args []string) bool {
+	if len(args) < 2 || goVerifyFlags[args[0]] == nil {
+		return false
+	}
+	flags, pkgs := goVerifyFlags[args[0]], 0
+	for rest := args[1:]; len(rest) > 0; {
+		n, ok := 1, goPackageArg(args[0], rest[0])
+		if strings.HasPrefix(rest[0], "-") {
+			n, ok = goFlag(flags, rest)
+		} else {
+			pkgs++
+		}
+		if !ok {
+			return false
+		}
+		rest = rest[n:]
+	}
+	return pkgs > 0
+}
+
+// goFlag judges the flag at rest[0]; n is how many words it takes.
+func goFlag(flags map[string]func(string) bool, rest []string) (n int, ok bool) {
+	name, val, hasVal := strings.Cut(rest[0], "=")
+	valid, known := flags[name]
+	switch {
+	case !known:
+		return 0, false
+	case valid == nil:
+		return 1, !hasVal
+	case hasVal:
+		return 1, valid(val)
+	case len(rest) > 1:
+		return 2, valid(rest[1])
+	}
+	return 0, false
+}
+
+var goPackageWord = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`^[A-Za-z0-9_./-]+$`) })
+
+// goPackageArg is a `./` path with no `..` or empty element; `/...` needs an element before it, but build and vet
+// may take `./...` (a test never runs the whole module: R16).
+func goPackageArg(verb, a string) bool {
+	rest, ok := strings.CutPrefix(a, "./")
+	if !ok || !goPackageWord().MatchString(a) {
+		return false
+	}
+	if rest == "..." {
+		return verb != "test"
+	}
+	return !slices.ContainsFunc(strings.Split(strings.TrimSuffix(rest, "/..."), "/"), func(e string) bool {
+		return e == "" || e == "." || strings.Contains(e, "..")
+	})
+}
+
 // ReadOnlyBashHeads are the command prefixes of the list, for an agent whose native matcher takes "<head> *" patterns.
 func ReadOnlyBashHeads() []string {
 	heads := []string{"rg", "grep", "ls", "wc", "head", "tail", "cat", "sed -n", "go doc", "go list", "go env", "go version",
@@ -57,11 +257,28 @@ func readOnlySegment(seg string, raw bool) bool {
 		return false
 	}
 	toks = rtkPlain(toks)
-	if len(toks) == 2 && helpWord().MatchString(toks[0]) && slices.Contains([]string{"--help", "-h", "--version"}, toks[1]) ||
-		claudeHelp(toks) {
+	if len(toks) == 2 && helpFlag(toks[0], toks[1]) || claudeHelp(toks) {
 		return true
 	}
 	return readOnlyCommand(toks)
+}
+
+// helpFlag is `--help` or `--version`, which print and exit, or `-h` on a listed reader only: `bash -h` is hashing
+// and still runs stdin.
+func helpFlag(name, flag string) bool {
+	switch flag {
+	case "--help", "--version":
+		return helpWord().MatchString(name)
+	case "-h":
+		return helpCommand(name)
+	}
+	return false
+}
+
+// helpCommand is a listed reader whose -h prints help.
+func helpCommand(name string) bool {
+	return plainReadCommands()[name] || readOnlyCLIs()[name] != nil ||
+		slices.Contains([]string{"git", "go", "gofmt", "rg", "find", "head", "tail", "sed", "rtk", "claude-code"}, name)
 }
 
 // isEnvWord is the `env` wrapper, which prints the environment (credentials) or runs a command: refused in every form.

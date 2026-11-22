@@ -99,6 +99,42 @@ func TestPiGuardUnreadableCallBlocks(t *testing.T) {
 	}
 }
 
+// Each file-writer deny spelling narrows bash to the verify shell; no policy leaves it whole; a bad one blocks.
+func TestPiVerifyBlockWiring(t *testing.T) {
+	deny := func(tool string) string { return `{"deny":[{"Tool":"` + tool + `","Arg":"other/**"}]}` }
+	for name, c := range map[string]struct {
+		policy          string
+		unset, narrowed bool
+		scopedBlocked   bool
+	}{
+		"unset":        {unset: true},
+		"empty":        {policy: ""},
+		"malformed":    {policy: "{", narrowed: true, scopedBlocked: true},
+		"edit":         {policy: deny("Edit"), narrowed: true},
+		"write":        {policy: deny("Write"), narrowed: true},
+		"multiedit":    {policy: deny("MultiEdit"), narrowed: true},
+		"notebookedit": {policy: deny("NotebookEdit"), narrowed: true},
+		"read":         {policy: deny("Read")}, // bash is not offered at all: TestGuardTools "read deny"
+		"lower case":   {policy: deny("write"), narrowed: true},
+		"upper case":   {policy: deny("EDIT"), narrowed: true},
+		"pathless":     {policy: `{"deny":[{"Tool":"Edit"}]}`, narrowed: true},
+		"write star":   {policy: `{"deny":[{"Tool":"Write","Arg":"*"}]}`, narrowed: true},
+		"allow only":   {policy: `{"allow":[{"Tool":"Write","Arg":"x"}]}`},
+		"bash only":    {policy: deny("Bash")},
+	} {
+		t.Setenv(agent.DispatchPermissionsEnv, c.policy)
+		if c.unset {
+			_ = os.Unsetenv(agent.DispatchPermissionsEnv)
+		}
+		if got := piVerifyBlock("go test ./...") != ""; got != c.narrowed {
+			t.Errorf("%s: go test ./... blocked = %v, want %v", name, got, c.narrowed)
+		}
+		if got := piVerifyBlock("go test ./x") != ""; got != c.scopedBlocked {
+			t.Errorf("%s: go test ./x blocked = %v, want %v", name, got, c.scopedBlocked)
+		}
+	}
+}
+
 func TestPiGuardJudgesTheOnDiskSpelling(t *testing.T) {
 	dir, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {

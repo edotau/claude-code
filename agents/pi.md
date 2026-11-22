@@ -55,16 +55,26 @@ Shared flags and the headless `ask` table: `skills/subagent-workflows/references
   pinned version. Pi proves it loaded by writing a per-run nonce, checked on the first stream event ("pi guard did not
   load; run refused"). Bare `--tools` offers read, bash, edit, write, grep, find and ls; `powershell` is never offered.
 - `--read-only` and `--permissions plan` give Pi read, grep, find and ls only: no shell, stronger than the vetted
-  shell list of other agents. A `--deny` on Edit or Write also drops bash (the gate cannot tie a shell command to a
-  file); on Read it drops bash and grep (grep reads every file under a path the gate judged once; find and ls show
-  names only, which Read denies do not hide for other agents either); on Glob or Grep it drops bash, grep, find and ls.
+  shell list of other agents. A `--deny` on Edit, Write, MultiEdit or NotebookEdit narrows bash to the verify shell
+  (the gate cannot tie a shell write to a file): `go build|vet ./<pkg>[/...]` or `./...` (`-o` only `/dev/null`),
+  `go test [-run re] [-count n] [-v] [-race] ./<pkg>[/...]` (never `./...`), `gofmt -l|-d [-s] [-e] <paths>`, `cd`,
+  the read-only list (git on the current checkout only: no `-C`, `-c`, `--git-dir`, `--work-tree`) and
+  `claude-code agents diff [--check] [--path p]`, with an optional `GOOS`/`GOARCH`/`CGO_ENABLED`, `time` or `rtk`
+  prefix and one trailing unquoted `2>&1`; any other redirect, glob, `$` expansion, wrapper or env is refused, so a
+  leaf runs each command plainly and reads the tool's exit status (no `; echo $?`). On Read it
+  drops bash and grep (grep reads every file under a path the gate judged once; find and ls show names only, which
+  Read denies do not hide for other agents either); on Glob or Grep it drops bash, grep, find and ls.
   `--allow`, `--deny` and `--permissions` ride to the gate; `--ask` and an `--env` naming `PI_CODING_AGENT_DIR`,
   `HARNESS_PI_*`, `HARNESS_HOOK_*` or `HARNESS_DISPATCH_PERMISSIONS` (or an overlay setting `HARNESS_HOOK_*`) are
   refused, and Pi's process never inherits a `HARNESS_HOOK_*` variable, so `HARNESS_HOOK_SKIP` cannot disable the
   guard.
 - Pi has no permission prompts and no sandbox of its own, so the guard is the only boundary.
-- A pi leaf launched through this relay carries a file deny on the live checkout, so it has NO shell: give it
-  edit-only tasks and run the build, tests and live check in the main session or a paired gate leaf.
+- A pi leaf launched through this relay carries a file deny on the live checkout, so its shell is the verify shell:
+  it edits, builds, vets and runs scoped tests (`go test -count=1 ./<pkg>` so a test really runs), but `make`, a
+  live check and anything that writes stay with the main session or a paired gate leaf. A test runs code the leaf
+  may have edited, so the deny stops accidental writes between cooperating leaves, not a leaf that writes a hostile
+  test: content the leaf itself wrote can execute through a tool that reads it (a test, or a git helper configured
+  in a repository the leaf created and `cd`-ed into); the verify shell does not defend against that.
 - Packages: the owner pins them with `claude-code configure agents pi packages=<spec>[,...]`; a package that ships
   code needs `packages_approved=<spec>` or the launch is refused. **A package's extension code runs inside the Pi
   process with the user's privileges; it is not sandboxed and the guard does not judge it.** It can run code on

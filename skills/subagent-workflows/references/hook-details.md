@@ -283,4 +283,6 @@ Pi has no prompts and no sandbox: its only tools are the guard extension's seven
 ls), each judged by `claude-code hook PreToolUse --pi-guard` (`permission-gate` for every tool, `safety-scan` for
 bash). Only an explicit allow runs the tool, on the judged path; `HARNESS_HOOK_*` is ignored there. Mapping, path
 rules and fail-closed behavior: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin. A pi leaf behind the
-relay has no shell (a file deny on the live checkout withholds bash): give it edit-only tasks.
+relay has only the verify shell (a file deny on the live checkout narrows bash to builds, vet, scoped tests,
+`gofmt -l`, reads and `agents diff --check`): it verifies its own edits; `make` and the live check stay with the main
+session.

@@ -59,9 +59,22 @@ paths:
   run's nonce, checked on the first stream event, else the run is killed and refused ("pi guard did not load; run
   refused"). Bare `--tools` gives read, bash, edit, write, grep, find and ls (never `powershell`: unmapped, blocked);
   `--read-only` and `--permissions plan` give read, grep, find and ls only (no shell, stronger than other agents'
-  vetted list); a Deny on Edit or Write drops bash (the gate cannot tie a shell command to a file), on Read also grep,
-  on Glob or Grep also grep, find and ls. `--allow`, `--deny` and `--permissions` ride `HARNESS_DISPATCH_PERMISSIONS`
-  to the gate as for opencode; an `--ask` rule is refused (the guard only allows or blocks), as is an `--env` naming
+  vetted list); a Deny on Edit, Write, MultiEdit or NotebookEdit (`Permissions.DeniesFileWrite`) narrows bash to the
+  verify shell (the gate cannot tie a shell write to a file; `permission.VerifyShell`, judged per segment by
+  `hook PreToolUse --pi-guard` before `safety-scan`): `go build|vet` of `./<pkg>[/...]` or `./...` (`-o` only
+  `/dev/null`), `go test [-run re] [-count n] [-v] [-race] ./<pkg>[/...]` (never `./...`, `..`, an import path),
+  `gofmt -l|-d [-s] [-e] <paths>` (flags before the first path), `cd`, the read-only list (git only on the current
+  checkout: no `-C`, `-c`, `--git-dir`, `--work-tree`, `--namespace`, `--config-env`, `--exec-path`; no `go list`
+  module query, `@`, `-versions` or `-retracted`; no help or version flag on an unlisted command) and
+  `claude-code agents diff [--check] [--path p]` (no other flag), with an optional `GOOS`/`GOARCH`/`CGO_ENABLED`,
+  `time` or `rtk` prefix and one trailing unquoted `2>&1`. Any other redirect, a glob, a `$` expansion (so
+  `; echo $?`: run each command plainly and read the tool's exit status), a wrapper, other env or any other command
+  is refused. Rule tool names match in any case (`write` is `Write`). A test runs code the leaf may have edited and
+  Pi has no sandbox, so the verify shell stops accidental writes, not a hostile test: content the leaf itself wrote
+  can execute through a tool that reads it (a test, or a git helper configured in a repository the leaf created and
+  `cd`-ed into), and the verify shell does not defend against that. A Deny on Read drops bash and grep, on Glob or
+  Grep bash, grep, find and ls. `--allow`, `--deny` and `--permissions` ride `HARNESS_DISPATCH_PERMISSIONS` to the
+  gate as for opencode; an `--ask` rule is refused (the guard only allows or blocks), as is an `--env` naming
   `PI_CODING_AGENT_DIR`, `HARNESS_PI_*`, `HARNESS_HOOK_*` or `HARNESS_DISPATCH_PERMISSIONS`. Pi has no permission
   prompts or sandbox of its own. A dispatch passes `--no-context-files` (no CLAUDE.md or AGENTS.md), `--no-mcp` and,
   so a repo's own `.pi` never runs code with your privileges, `--no-approve --no-extensions --no-skills
@@ -72,8 +85,9 @@ paths:
   even when a request fails, so the harness judges the run from its JSON event stream: success needs `agent_settled`,
   a last message stopped `stop` and no open tool call (`length`, `aborted`, `toolUse` left unsettled, unknown stop
   reasons and cut-off streams fail). Pi is no longer read-only, so it may be a fallback for write work. A pi leaf
-  launched through the `pi` subagent relay carries a file deny on the live checkout, so it has NO shell: give it
-  edit-only tasks and run the build, tests and live check in the main session or a paired gate leaf. The tool-name
+  launched through the `pi` subagent relay carries a file deny on the live checkout, so its shell is the verify shell:
+  it builds, vets and runs scoped tests on its own edits; `make`, the live check and any write stay with the main
+  session or a paired gate leaf. The tool-name
   mapping and the guard's modules: `/Users/edotau/.claude/rules/harness/hooks.md` → Pi · plugin.
 - **pi interactive** — `claude-code pi [--profile dev|qa|prod] [--read-only] [--print-env]` opens Pi's TUI behind the
   same guard (first `-e`, `--no-builtin-tools`): all seven tools, or read, grep, find and ls with `--read-only`. With
@@ -198,8 +212,8 @@ paths:
   `dispatch-effort` hook does the same for a dispatch whose `Run:` line runs `--model auto` (or no model over an auto
   pin, no `--overlay`, `--spec` or `--provider`): it freezes the pick into the line (model, and profile) and labels the
   bare id, so the run is exactly that model; a frozen pick is typed, so a refusal falls back as a typed model does
-  (no 3-re-pick auto recovery). An auto label is the picked id in parentheses, `(<id>): task`;
-  a typed or pinned model stays bare.
+  (no 3-re-pick auto recovery). Every label is the bare id, `<id>: task`, whether typed, pinned or
+  picked; a retired `(<id>)` head is rewritten to it.
   `opencode catalog` text shows `SERVED` for Databricks models: dev/qa/prod marks `y` READY, `n` not READY,
   or `?` for a missing/stale listing.
   `claude-code doctor` auto-pin rows end with 7-day final-route counts when records have `ran_route`.

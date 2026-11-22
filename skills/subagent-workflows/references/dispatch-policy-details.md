@@ -38,19 +38,20 @@ Verbatim bullets moved from `rules/harness/agent.md` → Dispatch behavior.
 The `ask --format json` bullet continues here from `--read-only` (its envelope, isolation flags and no-`--tools`
 behavior stay in the rule):
 
-  `--read-only` (implies `--tools`): reads, URL fetches and a vetted list of read-only shell commands run (plain
-  `git log|show|diff|status|blame|ls-files|rev-parse|grep|branch --list`, `rg`, `grep`, `ls`, `wc`, `head`, `tail`,
-  `cat`, `sed -n <range>p <file>`, `go doc|list|env|version`, read-only `claude-code` verbs; no `-c`, redirect,
-  substitution or `agents diff --check`); every other Bash call and all Write/Edit stay denied, and a `Read(...)` deny
-  also blocks a listed command that may reach that path. copilot enforces it in its SDK handler; gemini (agy hook),
-  opencode (plugin) and claude (gated launch on every route, tools `Read,Glob,Grep,Bash`) use the `permission-gate`;
-  opencode and claude refuse `--safe-mode`, gemini refuses a missing hook; codex drops its tools and keeps its read-only
-  sandbox shell. codex and gemini refuse `--tools` with `--permissions plan`. An `--allow` adds but can never reopen a
-  matching deny. copilot file rules are judged as both Edit and Write, in absolute and workdir-relative form. copilot
-  `--tools` approves every request like the other agents' `--tools`, still subject to the dispatch's permission rules
-  (a Deny returns feedback and the run continues) and the native hooks. claude `--tools` off Anthropic has no implicit
-  policy: no plan mode, Bash allow list, Edit/Write `--workdir` limit or redirect deny. With no explicit rule it runs
-  under `bypassPermissions` and the `safety-scan` hook still applies; bare `--autonomous` is the same launch. Explicit
+  `--read-only` (implies `--tools`): reads, URL fetches and a vetted list of read-only shell commands run (plain `git
+  log|show|diff|status|blame|ls-files|rev-parse|grep|branch --list`, `rg`, `grep`, `ls`, `wc`, `head`, `tail`, `cat`,
+  `sed -n <range>p <file>`, `go doc|list|env|version`, read-only `claude-code` verbs, `<command> --help|--version`, and
+  `-h` only on those listed commands (`bash -h` is hashing and runs stdin); no `-c`, redirect, substitution or `agents
+  diff --check`); every other Bash call and all Write/Edit stay denied, and a `Read(...)` deny also blocks a listed
+  command that may reach that path. copilot enforces it in its SDK handler; gemini (agy hook), opencode (plugin) and
+  claude (gated launch on every route, tools `Read,Glob,Grep,Bash`) use the `permission-gate`; opencode and claude
+  refuse `--safe-mode`, gemini refuses a missing hook; codex drops its tools and keeps its read-only sandbox shell.
+  codex and gemini refuse `--tools` with `--permissions plan`. An `--allow` adds but can never reopen a matching deny.
+  copilot file rules are judged as both Edit and Write, in absolute and workdir-relative form. copilot `--tools`
+  approves every request like the other agents' `--tools`, still subject to the dispatch's permission rules (a Deny
+  returns feedback and the run continues) and the native hooks. claude `--tools` off Anthropic has no implicit policy:
+  no plan mode, Bash allow list, Edit/Write `--workdir` limit or redirect deny. With no explicit rule it runs under
+  `bypassPermissions` and the `safety-scan` hook still applies; bare `--autonomous` is the same launch. Explicit
   `--allow`/`--ask`/`--deny`/`--permissions` rules gate with only those rules and no judge, so `--ask` becomes a deny;
   that gate runs like a memory job (`bypassPermissions`, because `dontAsk` hard-denies `.claude/` writes; tools
   `Read,Glob,Grep,Edit,Write,MultiEdit,Bash`, no MCP/Agent/WebFetch). `--permissions plan` and `--safe-mode` keep their

