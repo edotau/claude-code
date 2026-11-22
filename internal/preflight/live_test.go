@@ -320,7 +320,7 @@ func TestCachePongDoesNotBlessFallbackOrRotatedCredential(t *testing.T) {
 	r := Pong{Agent: "codex", Profile: p.Name, Model: "wire", OK: true, Fallback: "other"}
 	cachePong(p, fp, r)
 	account := router.AccountOf(p)
-	key := router.VerdictKey(p.Name, account, "wire", "")
+	key := router.VerdictKey(p.Name, account, "", "")
 	if len(router.LoadState()[account].Verified) != 0 {
 		t.Fatal("fallback warmed the requested target")
 	}
@@ -382,18 +382,21 @@ func assertPreflightWorkspace(t *testing.T, p *providers.Provider, st router.Sta
 	}
 }
 
-func TestCachePongStoresFailureKind(t *testing.T) {
+func TestCachePongStoresOnlyWorkspaceSuccess(t *testing.T) {
 	vaulttest.Use(t)
 	p := &providers.Provider{Name: "pong-kind", Provider: "databricks", Auth: providers.Auth{Type: providers.AuthPAT}}
 	if err := vault.Store(providers.AuthSecretName(p), "fixture"); err != nil {
 		t.Fatal(err)
 	}
 	fp, account := agent.CredentialFingerprint(p), router.AccountOf(p)
-	for err, want := range map[string]string{"auth": "auth", "rate_limit": "fail", "timeout": "fail", "unknown": "unknown", "": "unknown"} {
-		cachePong(p, fp, Pong{Agent: "codex", Profile: p.Name, Model: "wire", Err: err})
-		if got := router.LoadState()[account].Verified[router.VerdictKey(p.Name, account, "wire", "")].Status; got != want {
-			t.Errorf("probe error %q stored %q, want %q", err, got, want)
-		}
+	cachePong(p, fp, Pong{Agent: "codex", Profile: p.Name, Model: "wire", Err: "auth"})
+	if n := len(router.LoadState()[account].Verified); n != 0 {
+		t.Fatalf("failed pong stored %d verdicts, want 0", n)
+	}
+	cachePong(p, fp, Pong{Agent: "codex", Profile: p.Name, Model: "wire", OK: true})
+	got := router.LoadState()[account].Verified
+	if _, ok := got[router.VerdictKey(p.Name, account, "", "")]; len(got) != 1 || !ok {
+		t.Fatalf("verdicts=%v, want only the workspace key", got)
 	}
 }
 

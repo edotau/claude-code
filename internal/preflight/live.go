@@ -216,28 +216,13 @@ func pong(ctx context.Context, bin string, p Pin, askProfile string) Pong {
 	return r
 }
 
+// cachePong warms the workspace auth verdict; only a direct success on the current credential counts.
 func cachePong(p *providers.Provider, fp string, r Pong) {
-	if p == nil || fp == "" || r.Fallback != "" || r.Profile != p.Name || agent.CredentialFingerprint(p) != fp {
+	if p == nil || fp == "" || !r.OK || r.Fallback != "" || r.Profile != p.Name || agent.CredentialFingerprint(p) != fp {
 		return
 	}
-	status := "unknown"
-	if r.OK {
-		status = "ok"
-	} else if r.Err == "auth" {
-		status = "auth"
-	} else if !slices.Contains([]string{"", "unknown"}, r.Err) {
-		status = "fail"
-	}
-	effort := ""
-	if base := servedName(r.Agent, r.Model); base != r.Model {
-		effort = strings.TrimPrefix(r.Model, base+"-")
-	}
 	account := router.AccountOf(p)
-	now := time.Now()
-	router.StoreVerdict(account, router.VerdictKey(p.Name, account, servedName(r.Agent, r.Model), effort), router.Verdict{CredFP: fp, Status: status, Source: "live", At: now})
-	if r.OK {
-		router.StoreVerdict(account, router.VerdictKey(p.Name, account, "", ""), router.Verdict{CredFP: fp, Status: status, Source: "live", At: now})
-	}
+	router.StoreVerdict(account, router.VerdictKey(p.Name, account, "", ""), router.Verdict{CredFP: fp, Status: "ok", Source: "live", At: time.Now()})
 }
 
 func listingFresh(name string, now time.Time) bool {
