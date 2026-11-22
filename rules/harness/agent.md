@@ -266,16 +266,25 @@ vendor CLI untouched.
 
 ## Pi carrier and experiments
 
-1. **Carrier.** To run an external agent cheaply, dispatch Pi with a fixed brief: run the exact
-   `claude-code agents ask --agent <a> --model <m> -- "<task>"` line once, then return its `ask:` receipt and answer
-   verbatim. The brief goes in as a file and is never retyped.
+1. **Carrier (D1).** `agents ask --carry --agent <a> [ask flags] -- "<task>"` (spec key `carry`) builds the inner
+   ask line itself (its typed flags minus `--carry`/`--background`) and runs it as a plain child process: the task
+   goes in on stdin byte-identical, output streams through, and no model runs on the happy path. Only an agent whose
+   roster row sets `CLI.Carry` is carried (gemini today); pi, claude, a persona, `--live`, `--batch`, `--loop`,
+   `--waves`, `--retry`, `--host`, `--dry-run`, `--env` and `--overlay -` are refused.
    Plan: `/Users/edotau/.claude/plans/2026-11-22-pi-carrier.md`.
-2. **`--agent` is the agent doing the work.**
-   - The inner ask records itself as a child of Pi's dispatch (`agents tree`).
-   - Its receipt comes first; Pi's own receipt follows.
-   - A Pi-carried child routes exactly as a direct call would, so it keeps its own login pins. It inherits Pi's
-     permissions, depth and token caps, never Pi's route.
-   - Every other nested dispatch stays fenced to its parent's route.
+   - **Takeover.** A child cut off (deadline, stall, idle, auth-retry, or a partial/stalled record) is finished by
+     `agents ask --agent pi --tools` under the inner line's `--read-only`, `--permissions`, `--allow`, `--deny`,
+     `--workdir` and overlay caps, on a fixed brief: the task, the last 16 KiB of output, "continue and finish; say what
+     you changed". Its record has `takeover_of: <child id>`; the receipt prints the child's, then
+     `ask: finished by pi (<model>)`. `--fallback none` with a typed model refuses takeover and says so; an `--ask`
+     rule refuses it too (Pi has no ask).
+   - **Long runs.** Add `--background`, then `claude-code agents result -f <id>`: the `--job` child runs the carrier.
+2. **The mark (D2).** The outer record has `request.carry: true` and is the parent of the inner run (and of a takeover).
+   - Its child has a direct call's depth; the exemption needs a running top-level `carry` record whose live process
+     is the child's ancestor.
+   - The child inherits the carrier's permissions, token caps and any route fence (`COWORKER_OVERLAY`) the carrier
+     itself inherited; the carrier adds no route of its own (it runs before ask exports one).
+   - Every other nested dispatch, a plain `--agent pi` run's included, stays fenced to its parent's route.
 3. **Each shell layer wraps only its own commands.** `RTK_WRAP` stand-ins act in Pi's own tool shell. A carried
    agent's PATH has no shim dir, and the `claude-code agents ask` line between layers is never wrapped.
 4. **Code mode and wrapping.** One gate decides from the environment, with no judgment:
@@ -316,7 +325,7 @@ vendor CLI untouched.
 - **Fake vendor binaries.** `HARNESS_AGENT_BIN_DIR` makes `paths.AgentBin` read that directory instead of `BinDir()`;
   real vault pins still route.
 - **Dispatch depth.** `HARNESS_DISPATCH_MAX_DEPTH` caps nesting (default 3; 0 = no cap; invalid uses default); a
-  live top-level Pi carrier's level is not counted, so its child has a direct call's depth.
+  live top-level `--carry` dispatch's level is not counted, so its child has a direct call's depth.
   `HARNESS_DISPATCH_MAX_CHILDREN` caps live children per parent (default 8; 0 = no cap; invalid uses default).
   `HARNESS_DISPATCH_MAX_TREE_TOKENS` caps tokens under the root (default 20,000,000; 0 = no cap; unknown usage counts 0;
   invalid uses default; it only refuses new nested dispatches, a running one is never stopped). Both resolve env >

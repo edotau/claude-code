@@ -54,6 +54,19 @@ frontmatter controls the relay, not the vendor model. `dispatch-effort` sets mod
 `model:` line and a call naming none (`Explore`, `general-purpose`, untyped). The root machine's pins and per-call flags
 select external execution; never overwrite another machine's pins.
 
+### Carried dispatch (main session, no relay)
+
+For an agent whose row sets `Carry` (gemini today), skip the relay subagent and run the ask yourself as a background
+Bash task, then follow it with one wait call:
+
+```bash
+claude-code agents ask --carry --background --agent gemini [ask flags] - < BRIEF
+claude-code agents result -f <id>
+```
+
+The carrier runs the inner ask as a plain child (no model tokens); a cut-off child is finished by Pi, and the receipt
+ends `ask: finished by pi (<model>)`. Rules: `rules/harness/agent.md` → Pi carrier and experiments.
+
 ### External relay contract
 
 For `codex`, `copilot`, `gemini`, `opencode` and `pi` wrappers:

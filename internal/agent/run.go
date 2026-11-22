@@ -628,10 +628,12 @@ type RunOptions struct {
 	Host                                                string             `json:"-"`
 	Rubric                                              string             `json:"-"`
 	Background                                          bool               `json:"-"`
-	AutoArm                                             bool               `json:"auto_arm,omitempty"` // the workspace was an auto pick: a --job child may move on a 429
-	Maintenance                                         bool               `json:"-"`                  // trusted memory job: keeps its own write tools despite an inherited read-only
-	DataPrompt                                          bool               `json:"-"`                  // the prompt embeds transcript data: the gate skips its Workflow-brief scan
-	Gate                                                bool               `json:"-"`                  // claude: bypass its prompts, permission.Permissions enforced by the injected permission-gate
+	AutoArm                                             bool               `json:"auto_arm,omitempty"`   // the workspace was an auto pick: a --job child may move on a 429
+	Carry                                               bool               `json:"carry,omitempty"`      // ask --carry: runs CarryArgv as a plain child; the depth exemption keys on it
+	CarryArgv                                           []string           `json:"carry_argv,omitempty"` // the inner ask line --carry runs; the task rides stdin, never this argv
+	Maintenance                                         bool               `json:"-"`                    // trusted memory job: keeps its own write tools despite an inherited read-only
+	DataPrompt                                          bool               `json:"-"`                    // the prompt embeds transcript data: the gate skips its Workflow-brief scan
+	Gate                                                bool               `json:"-"`                    // claude: bypass its prompts, permission.Permissions enforced by the injected permission-gate
 
 	// YieldFallback lets workspace retry handle a failed dispatch before the requested chain continues.
 	YieldFallback func(wire.Result, error) bool `json:"-"`

@@ -63,6 +63,7 @@ type CLI struct {
 	CatalogHint           string          // extra hint on the catalog page
 	OwnLoginProfile       string          // the pin naming the agent's own sign-in when no registry row does; "" = none
 	PinIDs                []string        // extra ids accepted as this agent's profile pin besides registry rows
+	Carry                 bool            // ask --carry may run it as a plain child process with a Pi takeover
 
 	// Extras maps the record extras keys the CLI reads to their allowed values; nil = not declared yet, not validated.
 	Extras map[string][]string

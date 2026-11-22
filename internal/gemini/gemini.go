@@ -910,6 +910,7 @@ func init() {
 // row is gemini's roster entry: binary, dialects, capabilities, events and launch hints.
 var row = agent.Schema{Name: "gemini", CLI: agent.CLI{
 	PromptVia: agent.PromptStdin,
+	Carry:     true,
 	// agy print mode drops a single message's text past ~100–200 KB (probe 2026-11-05: found at 100 KB, lost at 200 KB)
 	PromptMaxBytes: 100 * 1024,
 	// agy print mode cannot carry a large message but reads a 300 KB file with tools (probe 2026-11-05, ZEBRA-290)

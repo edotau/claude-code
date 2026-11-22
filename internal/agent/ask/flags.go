@@ -33,7 +33,7 @@ type askFlags struct {
 	name, fallback, profile, as, model, effort, workdir, session, debugFile, systemPrompt, appendSystemPrompt, outputSchema, host, format, rubric, retry, job, batchSrc, overlay string
 	modelTyped, timeoutTyped                                                                                                                                                     bool
 	recover                                                                                                                                                                      bool
-	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast                                      bool
+	native, tools, readOnly, noTools, noPersist, safeMode, direct, autonomous, fleet, enableMemory, stdinFramed, live, background, failFast, carry                               bool
 	timeout                                                                                                                                                                      time.Duration
 	jobs, maxFiles, maxFileBytes                                                                                                                                                 int
 	dirs, files, save                                                                                                                                                            string
@@ -143,6 +143,7 @@ func askRunFlags(fs *flag.FlagSet, f *askFlags) {
 	fs.BoolVar(&f.recover, "recover", false, "with --retry: rerun a dead or cut-off job from its event log, fresh session")
 	fs.BoolVar(&f.live, "live", false, "claude|gemini: hold a session open for agents send; --timeout is its idle limit")
 	fs.BoolVar(&f.background, "background", false, "detach: log a job, print its id, exit")
+	fs.BoolVar(&f.carry, "carry", false, "run the ask as a plain child; Pi takes over a cut-off run (row Carry)")
 	fs.StringVar(&f.save, "save", "", "write the answer to FILE; stdout keeps its first 8 lines")
 	fs.StringVar(&f.job, "job", "", "internal: run saved dispatch <id> in place")
 	fs.StringVar(&f.batchSrc, "batch", "", "run JSONL tasks from <file> or - on a pool; one envelope per line")

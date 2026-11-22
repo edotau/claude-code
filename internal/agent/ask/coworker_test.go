@@ -103,48 +103,10 @@ func TestConfinementFencesReadTheRunSnapshot(t *testing.T) {
 	}
 }
 
-// Only a live top-level Pi ancestor's record clears the inherited route; its caps stay, and every other parent fences.
-func TestCarrierDropsFenceOnlyUnderRunningPi(t *testing.T) {
-	if proc.Parent(os.Getpid()) == 0 {
-		t.Skip("no parent-process table here (windows): every parent fences")
-	}
-	one := 1
-	fence := agentconfig.InlineOverlay("databricks", "prod", agentconfig.Overlay{MaxChildren: &one})
-	caps := agentconfig.InlineOverlay("", "", agentconfig.Overlay{MaxChildren: &one})
-	saveCarrierRecords(t)
-	cases := []struct {
-		parent, job string
-		free        bool
-	}{
-		{"20261122T000000.001-pi", "", true},
-		{"20261122T000000.001-pi", "20261122T000000.007-gemini", false}, // a --job child keeps what its spawner carried
-		{"20261122T000000.002-codex", "", false},
-		{"20261122T000000.003-pi", "", false},    // a finished Pi id reused
-		{"20261122T000000.004-pi", "", false},    // live but not an ancestor
-		{"20261122T000000.005-pi", "", false},    // dead: its pid now names another process
-		{"20261122T000000.006-pi", "", false},    // a nested Pi
-		{"20261122T000000.008-codex", "", false}, // agent pi on a non-Pi id
-		{"20261122T000000.009-pi", "", false},    // forged: no record
-		{"20261122T000000.00", "", false},        // a prefix of the Pi record
-		{"../dispatch/20261122T000000.001-pi", "", false},
-	}
-	for _, c := range cases {
-		in := proc.Values{route.OverlayVar: fence, proc.DispatchIDEnv: c.parent, providers.EnvSessionProfile: "prod"}
-		values, _ := proc.ValuesFromContext(carrierContext(proc.WithValues(t.Context(), in), c.job))
-		doc, profile := fence, "prod"
-		if c.free {
-			doc, profile = caps, ""
-		}
-		if values[route.OverlayVar] != doc || values[providers.EnvSessionProfile] != profile {
-			t.Errorf("parent %s job %q: overlay %s profile %q, want %s %q", c.parent, c.job,
-				values[route.OverlayVar], values[providers.EnvSessionProfile], doc, profile)
-		}
-	}
-}
-
-// saveCarrierRecords saves the parents TestCarrierDropsFenceOnlyUnderRunningPi judges, on live pids.
+// saveCarrierRecords saves the parents TestCarrierLevelIsNotCountedInDepth judges, on live pids.
 func saveCarrierRecords(t *testing.T) {
 	up, self := os.Getppid(), os.Getpid() // the parent is an ancestor; this process is alive but not its own ancestor
+	gp := proc.Parent(up)
 	upStart, err := proc.StartTime(up)
 	if err != nil {
 		t.Fatal(err)
@@ -153,15 +115,23 @@ func saveCarrierRecords(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	gpStart, err := proc.StartTime(gp)
+	if err != nil {
+		t.Fatal(err)
+	}
 	prod := route.Route{Provider: "databricks", Profile: "prod"}
+	carry := agent.RunOptions{Carry: true}
 	for _, r := range []agent.Record{
-		{ID: "20261122T000000.001-pi", Agent: "pi", Status: "running", PID: up, PIDStart: upStart, Route: prod},
+		{ID: "20261122T000000.010-gemini", Agent: "gemini", Request: carry, Status: "running", PID: gp, PIDStart: gpStart},
+		{ID: "20261122T000000.011-codex", Agent: "codex", Status: "running", PID: up, PIDStart: upStart}, // sits between the carrier above and this test
+		{ID: "20261122T000000.012-gemini", Agent: "gemini", Request: carry, Status: "running", PID: gp, PIDStart: gpStart},
+		{ID: "20261122T000000.001-gemini", Agent: "gemini", Request: carry, Status: "running", PID: up, PIDStart: upStart, Route: prod},
 		{ID: "20261122T000000.002-codex", Agent: "codex", Status: "running", PID: up, PIDStart: upStart},
-		{ID: "20261122T000000.003-pi", Agent: "pi", Status: "ok", PID: up, PIDStart: upStart},
-		{ID: "20261122T000000.004-pi", Agent: "pi", Status: "running", PID: self, PIDStart: selfStart},
-		{ID: "20261122T000000.005-pi", Agent: "pi", Status: "running", PID: up, PIDStart: "Mon Jan  1 00:00:00 2001"},
-		{ID: "20261122T000000.006-pi", Agent: "pi", Status: "running", PID: up, PIDStart: upStart, Depth: 1, Parent: "20261122T000000.001-pi"},
-		{ID: "20261122T000000.008-codex", Agent: "pi", Status: "running", PID: up, PIDStart: upStart}, // an edited record
+		{ID: "20261122T000000.003-gemini", Agent: "gemini", Request: carry, Status: "ok", PID: up, PIDStart: upStart},
+		{ID: "20261122T000000.004-gemini", Agent: "gemini", Request: carry, Status: "running", PID: self, PIDStart: selfStart},
+		{ID: "20261122T000000.005-gemini", Agent: "gemini", Request: carry, Status: "running", PID: up, PIDStart: "Mon Jan  1 00:00:00 2001"},
+		{ID: "20261122T000000.006-gemini", Agent: "gemini", Request: carry, Status: "running", PID: up, PIDStart: upStart, Depth: 1, Parent: "20261122T000000.001-gemini"},
+		{ID: "20261122T000000.008-pi", Agent: "pi", Status: "running", PID: up, PIDStart: upStart, Route: prod},
 	} {
 		if err := r.Save(); err != nil {
 			t.Fatal(err)
@@ -712,21 +682,31 @@ func hostFixture(t *testing.T, banner string, lines []string, exit int) string {
 	return bin
 }
 
-// A child of a live Pi carrier has the depth a direct call has; any other parent adds its level.
+// A child of a live --carry dispatch has the depth a direct call has; any other parent, plain Pi too, adds its level.
 func TestCarrierLevelIsNotCountedInDepth(t *testing.T) {
-	if proc.Parent(os.Getpid()) == 0 {
-		t.Skip("no parent-process table here (windows)")
+	if proc.Parent(proc.Parent(os.Getpid())) <= 1 {
+		t.Skip("no parent-process table here (windows), or no grandparent to carry from")
 	}
 	saveCarrierRecords(t)
 	depth := func(parent string) int {
 		values := proc.Values{proc.DispatchIDEnv: parent, proc.DispatchDepthEnv: "0"}
 		return agent.NewRecord("claude", agent.RunOptions{Values: values}, time.Now()).Depth
 	}
-	if got := depth("20261122T000000.001-pi"); got != 0 {
-		t.Errorf("carrier child depth = %d, want 0", got)
-	}
-	if got := depth("20261122T000000.002-codex"); got != 1 {
-		t.Errorf("non-carrier child depth = %d, want 1", got)
+	for parent, want := range map[string]int{
+		"20261122T000000.001-gemini": 0, "20261122T000000.002-codex": 1, "20261122T000000.008-pi": 1,
+		"20261122T000000.003-gemini":             1, // a finished carrier id reused
+		"20261122T000000.004-gemini":             1, // live but not an ancestor
+		"20261122T000000.005-gemini":             1, // dead: its pid now names another process
+		"20261122T000000.006-gemini":             2, // a nested carrier
+		"20261122T000000.009-gemini":             1, // forged: no record
+		"20261122T000000.00":                     1, // a prefix of the carrier record
+		"../dispatch/20261122T000000.001-gemini": 1,
+		"20261122T000000.010-gemini":             1, // a running dispatch sits between: a forged carrier id
+		"20261122T000000.012-gemini":             0, // a grandparent carrier with no dispatch between
+	} {
+		if got := depth(parent); got != want {
+			t.Errorf("child of %s: depth = %d, want %d", parent, got, want)
+		}
 	}
 }
 

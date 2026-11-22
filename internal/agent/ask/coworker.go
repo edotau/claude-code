@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"os"
-	"path/filepath"
 	"slices"
 	"strings"
 	"time"
@@ -61,66 +60,6 @@ func ApplyRoute(ctx context.Context, want route.Route, profile, agentName, model
 		return applyProvider(ctx, provider, cmp.Or(p, iprof), agentName, model)
 	}
 	return applyArm(ctx, p, profile, agentName, model, fallback)
-}
-
-// carrierContext clears the inherited route under a top-level Pi carrier (Pi is transport); its caps stay.
-func carrierContext(ctx context.Context, job string) context.Context {
-	if job != "" || proc.Value(ctx, route.OverlayVar) == "" { // a --job child's values were carried by its spawner
-		return ctx
-	}
-	rec, ok := piParent(proc.Value(ctx, proc.DispatchIDEnv))
-	if !ok {
-		return ctx
-	}
-	o, err := agentconfig.LoadOverlayContext(ctx, "", nil)
-	if err != nil {
-		return ctx // an unreadable fence stays a fence
-	}
-	ctx, values := agent.RunValues(ctx, nil)
-	if kept := agentconfig.InlineOverlay("", "", o); kept != "" {
-		values[route.OverlayVar] = kept
-	} else {
-		delete(values, route.OverlayVar) // absent, not empty: the vault's overlay applies as at top level
-	}
-	if p := rec.Route.Profile; p != "" && strings.TrimSpace(values[providers.EnvSessionProfile]) == p {
-		values[providers.EnvSessionProfile] = "" // empty, not absent: absent re-inherits Pi's arm from the process env
-	}
-	return proc.WithValues(ctx, values)
-}
-
-func init() {
-	agent.CarrierParent = func(id string) bool { _, ok := piParent(id); return ok }
-}
-
-// ancestorWalkCap bounds the parent walk from this process to the Pi carrier.
-const ancestorWalkCap = 64
-
-// piParent is id's record when it is a running top-level Pi dispatch whose live process is an ancestor of this one.
-func piParent(id string) (agent.Record, bool) {
-	if id == "" || id != filepath.Base(id) || !strings.HasSuffix(id, "-"+agentid.Pi) {
-		return agent.Record{}, false
-	}
-	rec, err := agent.LoadRecord(id)
-	if err != nil || rec.ID != id || rec.Agent != agentid.Pi || rec.Status != "running" || rec.Depth != 0 || rec.Parent != "" {
-		return agent.Record{}, false
-	}
-	return rec, liveAncestor(rec.PID, rec.PIDStart)
-}
-
-// liveAncestor reports pid as alive with start time start and on this process's parent chain (pid 1 never counts).
-func liveAncestor(pid int, start string) bool {
-	if pid <= 1 || start == "" || !proc.Alive(pid) {
-		return false
-	}
-	if got, err := proc.StartTime(pid); err != nil || got != start {
-		return false
-	}
-	for p, n := proc.Parent(os.Getpid()), 0; p > 1 && n < ancestorWalkCap; p, n = proc.Parent(p), n+1 {
-		if p == pid {
-			return true
-		}
-	}
-	return false
 }
 
 // withValues is ctx whose run values are set laid over its own: what the run exports, with nothing set process-wide.

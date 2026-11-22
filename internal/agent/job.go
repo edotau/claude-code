@@ -100,7 +100,9 @@ func SpawnArgvContext(ctx context.Context, rec *Record, argv, env []string) erro
 
 	rec.PID, rec.Log, rec.Background = cmd.Process.Pid, logPath, true
 	rec.PIDStart, _ = proc.StartTime(rec.PID) // "" on failure: Cancel then refuses to signal this pid
-	go func() { _ = cmd.Wait() }()            // reap the detached child; its exit status is read from the record, not here
+	// persist the pid while the on-disk one is 0, so a child dying before ClaimJob is not alive and cancel has a pid
+	_ = NotePID(*rec, false)
+	go func() { _ = cmd.Wait() }() // reap the detached child; its exit status is read from the record, not here
 	return nil
 }
 

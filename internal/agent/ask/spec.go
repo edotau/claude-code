@@ -160,13 +160,13 @@ func dropSpec(args []string) []string {
 }
 
 // canonicalArgv is the typed flags in name order plus the task: the command a re-run types.
-func canonicalArgv(fs *flag.FlagSet, prompt string, fromStdin bool, overlayArg *string) []string {
+func canonicalArgv(fs *flag.FlagSet, lists map[string][]string, prompt string, fromStdin bool, overlayArg *string, skip ...string) []string {
 	argv := []string{"claude-code", "agents", "ask"}
 	fs.Visit(func(f *flag.Flag) {
-		if canonicalArgvSkip(f.Name) {
+		if canonicalArgvSkip(f.Name) || slices.Contains(skip, f.Name) {
 			return
 		}
-		argv = append(argv, canonicalArgvFlag(f, overlayArg)...)
+		argv = append(argv, canonicalArgvFlag(f, overlayArg, lists)...)
 	})
 	if fromStdin {
 		return append(argv, "-")
@@ -176,7 +176,12 @@ func canonicalArgv(fs *flag.FlagSet, prompt string, fromStdin bool, overlayArg *
 
 func canonicalArgvSkip(name string) bool { return name == "spec" || name == "dry-run" }
 
-func canonicalArgvFlag(f *flag.Flag, overlayArg *string) []string {
+// listValues is each unsplit repeatable flag's elements: a rule may hold a comma, so String()+SplitCSV would split it.
+func (f *askFlags) listValues() map[string][]string {
+	return map[string][]string{"allow": f.permAllow, "ask": f.permAsk, "deny": f.permDeny, "env": f.env}
+}
+
+func canonicalArgvFlag(f *flag.Flag, overlayArg *string, lists map[string][]string) []string {
 	if f.Name == "overlay" && overlayArg != nil {
 		return canonicalOverlayFlag(f.Name, *overlayArg)
 	}
@@ -184,8 +189,12 @@ func canonicalArgvFlag(f *flag.Flag, overlayArg *string) []string {
 		return canonicalBoolFlag(f.Name, f.Value.String())
 	}
 	if l, ok := f.Value.(interface{ IsRepeatable() bool }); ok && l.IsRepeatable() {
+		vals, held := lists[f.Name]
+		if !held {
+			vals = textutil.SplitCSV(f.Value.String())
+		}
 		var out []string
-		for _, v := range textutil.SplitCSV(f.Value.String()) {
+		for _, v := range vals {
 			out = append(out, "--"+f.Name, v)
 		}
 		return out
@@ -224,7 +233,7 @@ func (r *askRun) dryCtx(ctx context.Context, prompt string) context.Context {
 		_ = r.fs.Set("profile", r.typed)
 	}
 	overlayArg := r.canonicalOverlayArg()
-	argv := canonicalArgv(r.fs, prompt, taskFromStdin(r.pos), overlayArg)
+	argv := canonicalArgv(r.fs, r.f.listValues(), prompt, taskFromStdin(r.pos), overlayArg)
 	return context.WithValue(ctx, dryKey{}, dryDoc{Overlay: r.ov, Argv: textutil.ShellJoin(argv)})
 }
 

@@ -92,6 +92,7 @@ type Record struct {
 	Cwd            string      `json:"cwd,omitempty"`             // absolute directory a local run started in; --retry reuses it
 	Tree           string      `json:"tree,omitempty"`            // git top of the working tree the run started in
 	TreeChanged    *[]string   `json:"tree_changed,omitempty"`    // files changed in a tree another dispatch shared; Wrote is then nil
+	TakeoverOf     string      `json:"takeover_of,omitempty"`     // a --carry takeover: the cut-off child dispatch this run finished
 
 	Parent string `json:"parent,omitempty"`
 	Depth  int    `json:"depth,omitempty"`
@@ -192,8 +193,80 @@ const DefaultMaxDispatchDepth = 3
 
 const maxDispatchDepthEnv = "HARNESS_DISPATCH_MAX_DEPTH"
 
-// CarrierParent reports id as a live top-level Pi carrier of this process; its level is not counted in depth.
-var CarrierParent = func(id string) bool { return false }
+// isCarrier: rec is id's, carries (request.carry), runs top level, and its live process is this one's ancestor.
+func isCarrier(id string, rec Record) bool {
+	return rec.ID == id && rec.Request.Carry && rec.Status == "running" && rec.Depth == 0 && rec.Parent == "" && liveAncestor(rec.PID, rec.PIDStart, id)
+}
+
+// ancestorWalkCap bounds the parent walk from this process to the carrier.
+const ancestorWalkCap = 64
+
+// liveAncestor: pid (start time start) is on this process's parent chain with no running dispatch's pid between.
+func liveAncestor(pid int, start, id string) bool {
+	if !liveAs(pid, start) {
+		return false
+	}
+	var between map[int]bool // read only when the walk passes a process: a direct child reads no record
+	for p, n := proc.Parent(os.Getpid()), 0; p > 1 && n < ancestorWalkCap; p, n = proc.Parent(p), n+1 {
+		if p == pid {
+			return true
+		}
+		if between == nil {
+			between = runningPIDsSince(id)
+		}
+		if between[p] { // a dispatch's descendant is that dispatch's, even with a forged carrier id
+			return false
+		}
+	}
+	return false
+}
+
+// liveAs reports pid (never pid 1) alive with start time start.
+func liveAs(pid int, start string) bool {
+	if pid <= 1 || start == "" || !proc.Alive(pid) {
+		return false
+	}
+	got, err := proc.StartTime(pid)
+	return err == nil && got == start
+}
+
+// runningPIDsSince is the pids of running records stamped in or after id's millisecond, id's own excluded.
+func runningPIDsSince(id string) map[int]bool {
+	stamp, _, _ := strings.Cut(id, "-")
+	dir := paths.DispatchDir()
+	names, _ := recordNames(dir)
+	pids := map[int]bool{}
+	for _, n := range slices.Backward(names) {
+		if n < stamp {
+			break
+		}
+		if r, err := readRecord(filepath.Join(dir, n)); err == nil && r.ID != id && r.Status == "running" && r.PID > 1 {
+			pids[r.PID] = true
+		}
+	}
+	return pids
+}
+
+// LatestChild is the newest record whose parent is id; only records stamped no earlier than id are read.
+func LatestChild(parent string) (Record, bool) {
+	dir := paths.DispatchDir()
+	names, _ := recordNames(dir)
+	for _, n := range slices.Backward(names) {
+		if n < parent {
+			break
+		}
+		if r, err := readRecord(filepath.Join(dir, n)); err == nil && r.Parent == parent {
+			return r, true
+		}
+	}
+	return Record{}, false
+}
+
+// MarkTakeover links id's record as the run that finished the cut-off dispatch of.
+func MarkTakeover(id, of string) error {
+	_, _, err := updateRecord(id, func(r Record) (Record, bool) { r.TakeoverOf = of; return r, true })
+	return err
+}
 
 // NewRecord stamps an id that sorts by time and names the agent: 20261016T210512.123-codex.
 func NewRecord(name string, req RunOptions, now time.Time) Record {
@@ -232,13 +305,17 @@ func lineage(ctx context.Context, parent string) (depth, maxDepth int) {
 	}
 	inherited, _ := strconv.Atoi(proc.Value(ctx, proc.DispatchDepthEnv))
 	depth, maxDepth = max(inherited, 0)+1, DefaultMaxDispatchDepth
-	if pr, ok := parentRecord(parent); !ok { // a reaped or stale parent degrades to the default cap, never uncapped
+	pr, ok := parentRecord(parent)
+	switch {
+	case !ok: // a reaped or stale parent degrades to the default cap, never uncapped
 		fmt.Fprintf(NoticeOut, "claude-code: parent dispatch %s has no readable record; default depth cap applies\n", parent)
-	} else if depth = max(depth, pr.Depth+1); pr.MaxDepth != nil {
-		maxDepth = *pr.MaxDepth
+	case isCarrier(parent, pr):
+		depth = 0 // a carried call has a direct call's depth
+	default:
+		depth = max(depth, pr.Depth+1)
 	}
-	if CarrierParent(parent) {
-		depth = 0 // a direct call has no Pi level
+	if ok && pr.MaxDepth != nil {
+		maxDepth = *pr.MaxDepth
 	}
 	if set && env > 0 && (maxDepth == 0 || env < maxDepth) {
 		maxDepth = env
@@ -364,7 +441,9 @@ func ClaimJob(id string) (Record, error) {
 		if r, lerr = readRecord(path); lerr != nil {
 			return lerr
 		}
-		if r.Status != "running" || (r.PID != 0 && r.Alive()) { // a dead pid is a runner that died mid-claim
+		// spawned: the spawner noted this pid and no runner has claimed it yet (a claim stamps PPID)
+		spawned := r.PID == process.PID && r.PPID == 0
+		if r.Status != "running" || (r.PID != 0 && !spawned && r.Alive()) { // a dead pid is a runner that died mid-claim
 			return fmt.Errorf("--job %s: record is %s (pid %d), %w", r.ID, r.Status, r.PID, ErrJobNotFresh)
 		}
 		r.PID, r.PIDStart = process.PID, ""
@@ -396,6 +475,17 @@ func RepairDead(id string, fix func(Record) Record) (Record, bool, error) {
 // UpdateRunning applies fix to id's record under its lock if it is still running, live or dead; false when it is not.
 func UpdateRunning(id string, fix func(Record) Record) (Record, bool, error) {
 	return updateRunning(id, false, fix)
+}
+
+// NotePID saves rec's pid and start time on its running record; unless force, only over a pid no runner claimed.
+func NotePID(rec Record, force bool) error {
+	_, _, err := UpdateRunning(rec.ID, func(r Record) Record {
+		if force || r.PID == 0 {
+			r.PID, r.PIDStart = rec.PID, rec.PIDStart
+		}
+		return r
+	})
+	return err
 }
 
 func updateRunning(id string, deadOnly bool, fix func(Record) Record) (Record, bool, error) {
@@ -985,6 +1075,11 @@ func (rec Record) ResultEnvelope(errw io.Writer) wire.Envelope {
 		res.Answer = string(log)
 	}
 	return wire.NewEnvelope(res, runErr, rec.ID)
+}
+
+// ClaimAskRecord is a new ask's claimed record: depth, width and tree-token caps, owner, tree and an unheld id.
+func ClaimAskRecord(ctx context.Context, name string, req RunOptions, workdir string, background bool) (Record, error) {
+	return buildAskRecord(ctx, name, req, nil, workdir, background)
 }
 
 // buildAskRecord constructs the dispatch record for req, reusing jobRec's identity when resuming a job.
