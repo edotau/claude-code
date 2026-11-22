@@ -289,7 +289,10 @@ func rtkPlain(toks []string) []string {
 	if len(toks) < 2 || toks[0] != "rtk" {
 		return toks
 	}
-	if rtkPlainSubcommands()[toks[1]] {
+	if toks[1] == "bypass" && len(toks) > 2 { // rtk bypass runs the rest as typed
+		return toks[2:]
+	}
+	if rtkPlainSubcommands()[toks[1]] || textReaders[toks[1]] { // rtk passes an unknown subcommand through
 		return toks[1:]
 	}
 	if toks[1] == "read" {
@@ -384,7 +387,14 @@ func readOnlyCommand(toks []string) bool {
 	return readOnlyCLI(toks)
 }
 
-var plainReadCommands = sync.OnceValue(func() map[string]bool { return shell.GuardSet("read_only_plain_commands") })
+var plainReadCommands = sync.OnceValue(func() map[string]bool {
+	m := maps.Clone(shell.GuardSet("read_only_plain_commands"))
+	maps.Copy(m, textReaders)
+	return m
+})
+
+// textReaders filter files or stdin to stdout and take no flag that writes a file or runs a program.
+var textReaders = map[string]bool{"cut": true, "tr": true, "paste": true, "column": true, "nl": true, "rev": true, "fold": true}
 
 // bannedFlags are the flags refused on rg, head, tail and the go and claude-code verbs that are otherwise read-only.
 var bannedFlags = sync.OnceValue(func() map[string][]string { return shell.GuardTools("read_only_banned_flags") })
@@ -845,7 +855,7 @@ func readOperands(toks []string, literal bool) (ops []string, ok bool) {
 // commandOperands maps one command name to its file operands.
 func commandOperands(name string, args, files []string) ([]string, bool) {
 	switch name {
-	case "cat", "head", "tail", "wc", "ls", "sed":
+	case "cat", "head", "tail", "wc", "ls", "sed", "cut", "tr", "paste", "column", "nl", "rev", "fold":
 		return files, true
 	case "grep":
 		return files, !slices.ContainsFunc(args, recursiveGrep)
