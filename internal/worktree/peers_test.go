@@ -67,3 +67,34 @@ func TestCheckoutPeersInfoKeepsTopWhenGitFails(t *testing.T) {
 		t.Fatalf("top %q, branch %q, nested %v; want top %q and nothing else", top, branch, nested, dir)
 	}
 }
+
+func BenchmarkCheckoutPeersInfo(b *testing.B) {
+	repo, outside := paths.Real(b.TempDir()), paths.Real(b.TempDir())
+	nested := filepath.Join(repo, "nested")
+	for _, dir := range []string{nested, filepath.Join(repo, ".git", "refs", "heads"),
+		filepath.Join(repo, ".git", "worktrees", "nested"), filepath.Join(repo, ".git", "worktrees", "outside")} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			b.Fatal(err)
+		}
+	}
+	for name, body := range map[string]string{
+		"HEAD":                     "ref: refs/heads/main\n",
+		"refs/heads/main":          strings.Repeat("a", 40) + "\n",
+		"worktrees/nested/gitdir":  filepath.Join(nested, ".git") + "\n",
+		"worktrees/outside/gitdir": filepath.Join(outside, ".git") + "\n",
+	} {
+		if err := os.WriteFile(filepath.Join(repo, ".git", name), []byte(body), 0o600); err != nil {
+			b.Fatal(err)
+		}
+	}
+	b.Setenv("PATH", b.TempDir())
+	ctx := context.Background()
+	var top, branch string
+	var skip []string
+	for b.Loop() {
+		top, branch, skip = CheckoutPeersInfo(ctx, repo)
+	}
+	if top != repo || branch != "main" || len(skip) != 1 || skip[0] != nested {
+		b.Fatalf("top %q, branch %q, skip %v; want %q, main, [%s]", top, branch, skip, repo, nested)
+	}
+}

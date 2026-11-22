@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -388,6 +389,66 @@ func TestParseLsofCwd(t *testing.T) {
 	want := []procCwd{{101, "/co/my repo", "claude"}, {202, "/elsewhere", ""}, {303, "/co/wt", "codex"}}
 	if err != nil || !slices.Equal(got, want) {
 		t.Fatalf("parseLsofCwd = %+v, %v; want %+v", got, err, want)
+	}
+}
+
+func BenchmarkPeerAgents(b *testing.B) {
+	const checkout = "/co"
+	pid := os.Getpid() + 1
+	listing := []procCwd{
+		{pid, checkout, "claude"}, {pid + 1, "/co/src", "codex"}, {pid + 2, "/co/.git", "claude"},
+		{pid + 3, "/co/wt", "codex"}, {pid + 4, "/elsewhere", "claude"}, {pid + 5, checkout, "vim"},
+		{os.Getpid(), checkout, "claude"},
+	}
+	oldScan, oldAgents, oldParent := scanProcs, scanAgentProcs, parentOf
+	oldArgs, oldName, oldJobs := argvOf, commName, ownJobs
+	b.Cleanup(func() {
+		scanProcs, scanAgentProcs, parentOf = oldScan, oldAgents, oldParent
+		argvOf, commName, ownJobs = oldArgs, oldName, oldJobs
+	})
+	scans := 0
+	scanProcs = func() ([]procCwd, error) { scans++; return listing, nil }
+	scanAgentProcs = nil
+	parentOf = func(int) (int, error) { return 0, nil }
+	argvOf = func(int) ([]string, error) { return nil, nil }
+	commName = func(int) string { return "" }
+	ownJobs = func(map[int]bool) map[int]bool { return nil }
+	linked := []string{"/co/wt"}
+	var got []Proc
+	var err error
+	for b.Loop() {
+		got, err = PeerAgents(checkout, linked)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+	if want := []Proc{{pid, "claude"}, {pid + 1, "codex"}}; !slices.Equal(got, want) || scans != b.N {
+		b.Fatalf("peers %v, scans %d; want %v, %d", got, scans, want, b.N)
+	}
+}
+
+func BenchmarkParseLsofCwd(b *testing.B) {
+	const processes = 300
+	var input strings.Builder
+	want := make([]procCwd, processes)
+	for i := range want {
+		pid := i + 1
+		cwd := "/co/my repo/" + strconv.Itoa(i)
+		input.WriteString("p" + strconv.Itoa(pid) + "\ncclaude\nfcwd\nn" + cwd + "\n")
+		want[i] = procCwd{PID: pid, Cwd: cwd, Comm: "claude"}
+	}
+	out := input.String()
+	b.SetBytes(int64(len(out)))
+	var got []procCwd
+	var err error
+	for b.Loop() {
+		got, err = parseLsofCwd(out)
+		if err != nil {
+			b.Fatal(err)
+		}
+	}
+	if !slices.Equal(got, want) {
+		b.Fatalf("parsed %d rows; want %d identical records", len(got), len(want))
 	}
 }
 
