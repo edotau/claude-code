@@ -547,6 +547,7 @@ func TestContextTokens(t *testing.T) {
 		{"row without 1M caps", gh, "claude-opus-5-5", false, "", models.ContextWindowStd},
 		{"non-claude from listing", dbx, "databricks-fixture-chat", false, "", 128_000},
 		{"non-claude 1M from listing", dbx, "databricks-fixture-big", false, "", models.ContextWindow1M},
+		{"databricks row without preset or prefix reads its listing", &Provider{Name: "dev", Provider: GroupDatabricks}, "databricks-fixture-big", false, "", models.ContextWindow1M},
 		{"unlisted non-claude model", dbx, "databricks-fixture-other", false, "", models.ContextWindowUnknown},
 		{"env keeps a non-claude window", dbx, "databricks-fixture-big", false, "1", models.ContextWindow1M},
 		{"env caps claude 5", dbx, "databricks-claude-opus-5-5", false, "1", models.ContextWindowStd},

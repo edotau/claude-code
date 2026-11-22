@@ -120,19 +120,26 @@ func TestAutoRateLimitMovesToNextWorkspace(t *testing.T) {
 	}
 }
 
-// A 429 cools its workspace out of the pick; the 401 move leaves cooling to the dead-login mark.
+// A 429 or a 401 move cools the failed workspace out of the next pick.
 func TestAutoRateLimitCoolsWorkspace(t *testing.T) {
 	if testing.Short() {
 		t.Skip("pre-ship tier: fake vendor spawns")
 	}
-	armRateFixture(t, []string{"dev"}, nil)
-	askAuto(t, "auto", "none")
-	reg, err := providers.Load()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if until := router.LoadState().CoolingUntil(router.AccountOf(reg.Providers["dev"])); !until.After(time.Now()) {
-		t.Errorf("dev cooling until %v, want a hold after the 429", until)
+	for _, tc := range []struct {
+		name            string
+		limited, denied []string
+	}{{"429", []string{"dev"}, nil}, {"401", nil, []string{"dev"}}} {
+		t.Run(tc.name, func(t *testing.T) {
+			armRateFixture(t, tc.limited, nil, tc.denied...)
+			askAuto(t, "auto", "none")
+			reg, err := providers.Load()
+			if err != nil {
+				t.Fatal(err)
+			}
+			if until := router.LoadState().CoolingUntil(router.AccountOf(reg.Providers["dev"])); !until.After(time.Now()) {
+				t.Errorf("dev cooling until %v, want a hold after the %s move", until, tc.name)
+			}
+		})
 	}
 }
 

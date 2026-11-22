@@ -11,7 +11,7 @@ import (
 	"github.com/edotau/claude-code/internal/textutil"
 )
 
-// PiNodeBinDir is the bin dir of the Node Pi runs on: "" when the PATH node is new enough, else the newest nvm or mise one.
+// PiNodeBinDir is the bin dir of the Node Pi runs on: "" when the PATH node serves, else the newest nvm or mise one.
 func PiNodeBinDir(ctx context.Context) (string, error) {
 	pathNode, _ := depLookPath("node")
 	return pickPiNode(ctx, pathNode, nvmDir(), miseDir(), false)
@@ -47,7 +47,12 @@ func nodeOK(ctx context.Context, node string) bool {
 	if node == "" {
 		return false
 	}
-	c, ok := textutil.CompareVersions(parseVersion(versionOutput(ctx, node, versionProbeTimeout, "--version")), piMinNode)
+	real, err := filepath.EvalSymlinks(node)
+	if err != nil {
+		real = node
+	}
+	line := ProbedVersionLine(real, func(p string) string { return versionOutput(ctx, p, versionProbeTimeout, "--version") })
+	c, ok := textutil.CompareVersions(parseVersion(line), piMinNode)
 	return ok && c >= 0
 }
 
@@ -64,7 +69,7 @@ func pickPiNode(ctx context.Context, pathNode, nvm, mise string, withNPM bool) (
 	return "", errNoPiNode
 }
 
-// nodeCandidates globs nvm and mise installs, one entry per real node (aliases dropped), newest first, non-versions last.
+// nodeCandidates globs nvm and mise installs, newest first, non-versions last; every dir stays until npm is checked.
 func nodeCandidates(nvm, mise string) []string {
 	var cands []string
 	if nvm != "" {
@@ -74,23 +79,18 @@ func nodeCandidates(nvm, mise string) []string {
 		m, _ := filepath.Glob(filepath.Join(mise, "installs", "node", "*", "bin", "node"))
 		cands = append(cands, m...)
 	}
-	ver, seen := map[string]string{}, map[string]bool{}
-	cands = slices.DeleteFunc(cands, func(n string) bool {
+	ver := map[string]string{}
+	for _, n := range cands {
 		real, err := filepath.EvalSymlinks(n)
 		if err != nil {
 			real = n
 		}
-		if seen[real] {
-			return true
-		}
-		seen[real] = true
 		if v := nodeVer(real); v != "" {
 			if _, ok := textutil.CompareVersions(v, v); ok {
 				ver[n] = v
 			}
 		}
-		return false
-	})
+	}
 	slices.SortStableFunc(cands, func(a, b string) int {
 		if (ver[a] == "") != (ver[b] == "") {
 			if ver[a] == "" {

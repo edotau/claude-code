@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"os"
 	"slices"
 	"strings"
@@ -185,9 +186,23 @@ func (a *armRetry) next(ctx context.Context, res wire.Result, err error, req age
 	case errors.Is(err, agent.ErrPoolExhausted):
 		return a.repick(res, req, "pool exhausted")
 	case ok && e.Kind == retry.KindAuth:
-		return a.repick(res, req, "auth rejected")
+		return a.repickAuth(res, req, e)
 	}
 	return req, ok && e.Kind == retry.KindRateLimit && a.move(e.RetryAfter)
+}
+
+// repickAuth moves on an auth rejection, holding the workspace as a 429 does unless a durable mark already does.
+func (a *armRetry) repickAuth(res wire.Result, req agent.RunOptions, e *retry.Error) (agent.RunOptions, bool) {
+	why := "auth rejected"
+	if e.Status == http.StatusForbidden {
+		why = "refused (403)"
+	}
+	cur := a.current()
+	next, again := a.repick(res, req, why)
+	if again && e.AuthReason == "" {
+		coolArm(cur, 0)
+	}
+	return next, again
 }
 
 // repick moves to the next workspace within the shared re-pick cap; a launched hop spends one.

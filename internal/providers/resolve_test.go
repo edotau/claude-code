@@ -337,10 +337,10 @@ func TestResponsesServableFollowsListingAPITypes(t *testing.T) {
 	}
 }
 
-// Given catalog limits and a listing, Then the catalog wins per field and the listing fills the rest.
+// Given catalog limits and a listing, Then the catalog window wins and a fresh listed output beats the catalog's.
 func TestLimitsForPrefersCatalogThenListing(t *testing.T) {
 	listingFacts(t, map[string]serving.EndpointFacts{"databricks-gpt-5-4": {Context: 400000, Output: 128000},
-		"databricks-gemini-4-argon": {Context: 5, Output: 7}})
+		"databricks-gemini-4-argon": {Context: 5, Output: 7}, "databricks-gpt-oss-120b": {Output: 8192}})
 	p := &Provider{Name: "dev", Preset: PresetDatabricks}
 	if l, ok := LimitsFor(p, "databricks-gpt-5-4"); !ok || l.Context != 400000 || l.Output != 128000 {
 		t.Errorf("listed-only model limits = %+v, %v", l, ok)
@@ -348,6 +348,9 @@ func TestLimitsForPrefersCatalogThenListing(t *testing.T) {
 	want, _ := models.Limits("databricks-gemini-4-argon")
 	if l, _ := LimitsFor(p, "databricks-gemini-4-argon"); want.Context == 0 || l.Context != want.Context {
 		t.Errorf("catalog window %d must beat the listing's 5, got %+v", want.Context, l)
+	}
+	if l, _ := LimitsFor(p, "databricks-gpt-oss-120b"); l.Output != 8192 {
+		t.Errorf("listed output 8192 must beat the catalog's 25000, got %+v", l)
 	}
 	if _, ok := LimitsFor(p, "databricks-unknown-x"); ok {
 		t.Error("unknown model must stay unknown")

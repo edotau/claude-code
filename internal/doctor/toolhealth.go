@@ -69,11 +69,20 @@ var agentHelp = func(ctx context.Context, spec agent.Schema) (version, help stri
 	}
 	cmd.WaitDelay = 200 * time.Millisecond
 	out, runErr := cmd.CombinedOutput() // some CLIs print help on stderr or exit non-zero
-	if len(out) == 0 || (runErr != nil && !strings.Contains(strings.ToLower(string(out)), "usage")) {
-		return version, "", fmt.Errorf("no help output: %v", runErr)
-	}
-	return version, string(out), nil
+	text, err := helpText(out, runErr)
+	return version, text, err
 }
+
+// helpText is a probe's output when it reads as help, else an error; a non-zero exit alone does not refuse it.
+func helpText(out []byte, runErr error) (string, error) {
+	usable := strings.Contains(strings.ToLower(string(out)), "usage") || helpFlagRe.Match(out) // "usage" or a --flag
+	if len(out) == 0 || (runErr != nil && !usable) {
+		return "", fmt.Errorf("no help output: %v", runErr)
+	}
+	return string(out), nil
+}
+
+var helpFlagRe = regexp.MustCompile(`--[a-z]`)
 
 // helpFlagIfBare is --help when the row names no help subcommand.
 func helpFlagIfBare(spec agent.Schema) []string {

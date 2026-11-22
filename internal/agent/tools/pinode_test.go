@@ -47,6 +47,7 @@ func TestPickPiNode(t *testing.T) {
 	if err := os.Symlink("20.1.0", filepath.Join(stale, "installs", "node", "lts")); err != nil {
 		t.Fatal(err)
 	}
+	linked, linkedNvm, linkedBin := nvmLinkedToMise(t)
 	t.Setenv("PATH", t.TempDir())
 	rows := []struct {
 		name, path, nvm, mise string
@@ -60,6 +61,7 @@ func TestPickPiNode(t *testing.T) {
 		{name: "mise only", path: old, mise: mise, want: miseBin},
 		{name: "nvm and mise, newest wins", path: old, nvm: nvm, mise: mise, want: miseBin},
 		{name: "mise without npm skipped", path: old, mise: mise, npm: true, fail: true},
+		{name: "nvm link to mise: the dir with npm wins", path: old, nvm: linkedNvm, mise: linked, npm: true, want: linkedBin},
 		{name: "alias and version dir", path: old, mise: stale, fail: true},
 	}
 	for _, r := range rows {
@@ -77,4 +79,22 @@ func TestPickPiNode(t *testing.T) {
 	if got, err := pickPiNode(ctx, filepath.Join(nvm, "versions", "node", "v22.23.2", "bin", "node"), nvm, "", true); err != nil || got != nvmBin {
 		t.Errorf("PATH node without npm: got %q, %v; want the nvm node with npm %q", got, err, nvmBin)
 	}
+}
+
+// nvmLinkedToMise is an nvm node symlinked into a mise install: only the mise bin dir has npm.
+func nvmLinkedToMise(t *testing.T) (mise, nvm, miseBin string) {
+	t.Helper()
+	mise, nvm = t.TempDir(), t.TempDir()
+	miseBin = fakeMiseNode(t, mise, "27.1.0", "")
+	if err := os.WriteFile(filepath.Join(miseBin, "npm"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(nvm, "versions", "node", "v27.1.0", "bin")
+	if err := os.MkdirAll(link, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join(miseBin, "node"), filepath.Join(link, "node")); err != nil {
+		t.Fatal(err)
+	}
+	return mise, nvm, miseBin
 }

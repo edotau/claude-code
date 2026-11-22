@@ -187,12 +187,12 @@ func ListedResponses(p *Provider, wire string) (serves, known bool) {
 	return slices.Contains(f.APITypes, apiTypeResponses) && slices.Contains(f.APITypes, apiTypeCodexResponses), true
 }
 
-// LimitsFor is wire's token limits: the tracked catalog's value per field, else the fresh listing's, else unknown.
+// LimitsFor is wire's limits: catalog context else the listing's; a fresh listed output beats the catalog's.
 func LimitsFor(p *Provider, wire string) (models.TokenLimits, bool) {
 	l, _ := models.Limits(wire)
-	if listsEndpoints(p) && (l.Context == 0 || l.Output == 0) {
+	if listsEndpoints(p) {
 		if f, ok := listedFacts(p, wire); ok {
-			l.Context, l.Output = cmp.Or(l.Context, f.Context), cmp.Or(l.Output, f.Output)
+			l.Context, l.Output = cmp.Or(l.Context, f.Context), cmp.Or(f.Output, l.Output)
 		}
 	}
 	return l, l != (models.TokenLimits{})

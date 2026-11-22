@@ -98,4 +98,21 @@ func TestCheckToolHealthReportsFlagDrift(t *testing.T) {
 	if _, got := row(); got != "skipped: help unavailable" {
 		t.Errorf("failed help = %q, want skipped", got)
 	}
+	checkExit1Help(t, row)
+}
+
+// checkExit1Help swaps agentHelp for a probe that exits 1: only the output with a flag reads as help.
+func checkExit1Help(t *testing.T, row func() (bool, string)) {
+	t.Helper()
+	exit1 := errors.New("exit status 1")
+	for _, out := range []string{"Options:\n  --other  x\n", "no flags here\n"} {
+		agentHelp = func(context.Context, agent.Schema) (string, string, error) {
+			text, err := helpText([]byte(out), exit1)
+			return "0.166.0", text, err
+		}
+		_, got := row()
+		if usable := !strings.HasPrefix(got, "skipped"); usable != strings.Contains(out, "--other") {
+			t.Errorf("exit-1 help %q = %q, want drift only for the one with a flag", out, got)
+		}
+	}
 }

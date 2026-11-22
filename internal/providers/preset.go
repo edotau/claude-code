@@ -366,8 +366,10 @@ func Window(p *Provider, id string) int {
 	return ContextTokens(p, models.Strip1M(id), models.Keeps1M(id))
 }
 
-// listsEndpoints reports a row whose served listing describes its own endpoints: Databricks serving only.
-func listsEndpoints(p *Provider) bool { return p != nil && p.SpellingRule() == "databricks-serving" }
+// listsEndpoints reports a row whose served listing describes its own endpoints: Databricks serving, however spelled.
+func listsEndpoints(p *Provider) bool {
+	return p != nil && (p.Preset == PresetDatabricks || p.Provider == GroupDatabricks || p.SpellingRule() == "databricks-serving")
+}
 
 // listedContext is p's fresh listing context for wire, or 0.
 func listedContext(p *Provider, wire string) int {
