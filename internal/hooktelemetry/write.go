@@ -46,7 +46,7 @@ type telemetryLine struct {
 	Tool    string  `json:"tool,omitempty"`
 	Rule    string  `json:"rule,omitempty"`
 	Verdict string  `json:"verdict,omitempty"`
-	N       int     `json:"n,omitempty"` // set on a folded counter row: passes in the minute, Ms is their max
+	N       int     `json:"n,omitempty"`     // set on a folded counter row: passes in the minute, Ms is their max
 	Cache   string  `json:"cache,omitempty"` // paths.CacheSummary at record time
 }
 
