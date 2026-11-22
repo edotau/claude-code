@@ -96,6 +96,11 @@ func TestBenchOnCommitQueuesBusyAndDeduplicates(t *testing.T) {
 	}
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	dir, sha := benchRepo(t)
+	state := filepath.Join(paths.StateDir(), "bench", "post-commit")
+	if err := os.MkdirAll(state, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeBenchFixture(t, filepath.Join(state, sha+".job.json"), "")
 	spawn := benchSpawn
 	t.Cleanup(func() { benchSpawn = spawn })
 	var spawned int
@@ -111,12 +116,17 @@ func TestBenchOnCommitQueuesBusyAndDeduplicates(t *testing.T) {
 	benchOnCommit(context.Background(), leaf, dir, sha)
 	benchOnCommit(context.Background(), in, dir, sha[:7])
 	benchOnCommit(context.Background(), in, dir, sha[:7])
-	if spawned != 1 {
-		t.Fatalf("spawned %d, want one queued worker", spawned)
+	if spawned != 2 {
+		t.Fatalf("spawned %d, want recovery checked on both submissions", spawned)
 	}
-	m := readBenchMarker(t, filepath.Join(paths.StateDir(), "bench", "post-commit", sha))
-	if m.Status != "queued" || m.Exit != nil {
-		t.Fatalf("busy commit was not queued: %+v", m)
+	jobs, err := filepath.Glob(filepath.Join(paths.StateDir(), "bench", "post-commit", "*.job.json"))
+	if err != nil || len(jobs) != 1 {
+		t.Fatalf("busy commit was not queued once: %v (%v)", jobs, err)
+	}
+	raw, err := os.ReadFile(jobs[0])
+	var job benchJob
+	if err != nil || json.Unmarshal(raw, &job) != nil || job.SHA != sha {
+		t.Fatalf("incomplete publication was not repaired: %s (%v)", raw, err)
 	}
 }
 
@@ -139,12 +149,13 @@ func TestBenchWorkerSerializesAndFinishesBeforeNotice(t *testing.T) {
 	in := core.ParseInput(strings.NewReader(`{"session_id":"bench-serial-test"}`))
 	var bases []string
 	for _, sha := range []string{strings.Repeat("a", 40), strings.Repeat("b", 40)} {
+		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 		benchStart(context.Background(), in, t.TempDir(), sha, nil)
 		bases = append(bases, filepath.Join(paths.StateDir(), "bench", "post-commit", sha))
 	}
 	done := make(chan struct{}, 2)
 	for _, base := range bases {
-		go func() { benchWorker(base); done <- struct{}{} }()
+		go func() { benchWorker(base, false); done <- struct{}{} }()
 	}
 	assertBenchWaiting(t, entered, "ran while busy")
 	admitted.Store(true)
@@ -168,6 +179,124 @@ func TestBenchWorkerSerializesAndFinishesBeforeNotice(t *testing.T) {
 	}
 }
 
+func TestBenchLockSharedAcrossConfigs(t *testing.T) {
+	var name string
+	for range 2 {
+		t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+		lock, err := benchLock()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if name != "" && name != lock.Name() {
+			t.Fatal("configuration roots use different measurement locks")
+		}
+		name = lock.Name()
+		if err := lock.Close(); err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func TestBenchRunDeadlineReleasesInheritedLock(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.Symlink("/usr/bin/true", filepath.Join(dir, "benchstat")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	timeout := benchRunTimeout
+	t.Cleanup(func() { benchRunTimeout = timeout })
+	benchRunTimeout = 10 * time.Millisecond
+	lockPath := filepath.Join(dir, "lock")
+	lock, err := os.OpenFile(lockPath, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !paths.TryLock(lock) {
+		t.Fatal("could not lock fixture")
+	}
+	start := time.Now()
+	code := benchRun([]string{"-c", "sleep 30 & wait", "sh", "unused", filepath.Join(dir, "run.json")}, dir, lock)
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if code == 0 || time.Since(start) > time.Second {
+		t.Fatalf("deadline exit=%d elapsed=%s", code, time.Since(start))
+	}
+	next, err := os.OpenFile(lockPath, os.O_RDWR, 0o600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer next.Close()
+	if !paths.TryLock(next) {
+		t.Fatal("timed-out process group retained the measurement lock")
+	}
+}
+
+func TestBenchSnapshotUsesComparedBaseline(t *testing.T) {
+	dir := t.TempDir()
+	real := filepath.Join(dir, "benchstat")
+	writeBenchFixture(t, real, "#!/bin/sh\nprintf '# commit: later456\\n' >\"$HARNESS_BENCH_TEST_ROLLING\"\ncat \"$3\"\n")
+	if err := os.Chmod(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	base := filepath.Join(dir, "run")
+	shim, err := benchSnapshot(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pkg := filepath.Join(dir, "memory")
+	if err := os.MkdirAll(pkg, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	rolling := filepath.Join(pkg, "rolling.txt")
+	t.Setenv("HARNESS_BENCH_TEST_ROLLING", rolling)
+	writeBenchFixture(t, rolling, "# commit: quiet123\n")
+	got, err := exec.Command(filepath.Join(shim, "benchstat"), "-format", "csv", rolling, "unused").Output()
+	if err != nil || string(got) != "# commit: quiet123\n" {
+		t.Fatalf("compared baseline = %s (%v)", got, err)
+	}
+	writeBenchFixture(t, rolling, "# commit: later456\n")
+	before := benchBaselines(benchJob{Top: "/repo", Files: []string{"/repo/internal/memory/a.go"}}, shim)
+	if before["internal/memory"].Commit != "quiet123" {
+		t.Fatalf("annotation followed rolling baseline: %+v", before)
+	}
+}
+
+func TestBenchPrunesOnlyExpiredCompletedBundles(t *testing.T) {
+	dir := t.TempDir()
+	old, now, code := time.Now().Add(-2*benchRetention), time.Now(), 0
+	for _, tc := range []struct {
+		name, status string
+		end          time.Time
+		exit         *int
+		removed      bool
+	}{
+		{"done", "done", old, &code, true}, {"failed", "failed", old, &code, true},
+		{"queued", "queued", time.Time{}, nil, false}, {"running", "running", time.Time{}, nil, false},
+		{"recent", "done", now, &code, false},
+	} {
+		base := filepath.Join(dir, tc.name)
+		m := benchMarker{Status: tc.status, PID: os.Getpid(), Start: old, End: tc.end, Exit: tc.exit}
+		if err := paths.WriteJSON(base+".marker", m); err != nil {
+			t.Fatal(err)
+		}
+		for _, suffix := range []string{".job.json", ".json", ".json.err"} {
+			writeBenchFixture(t, base+suffix, "fixture")
+		}
+		if err := os.MkdirAll(base+".baseline", 0o700); err != nil {
+			t.Fatal(err)
+		}
+		benchReconcile(dir)
+		for _, suffix := range []string{".marker", ".job.json", ".json", ".json.err", ".baseline"} {
+			_, err := os.Stat(base + suffix)
+			if tc.removed != os.IsNotExist(err) {
+				t.Fatalf("%s%s: stat=%v removed=%v", tc.name, suffix, err, tc.removed)
+			}
+		}
+	}
+}
+
 func TestBenchWorkerMeasuresAfterBusyBound(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("unix locks")
@@ -184,7 +313,7 @@ func TestBenchWorkerMeasuresAfterBusyBound(t *testing.T) {
 	in := core.ParseInput(strings.NewReader(`{"session_id":"bench-busy-bound"}`))
 	benchStart(context.Background(), in, t.TempDir(), sha, nil)
 	done := make(chan struct{})
-	go func() { benchWorker(base); close(done) }()
+	go func() { benchWorker(base, false); close(done) }()
 	if got := waitBench(t, entered); got != base+".json" {
 		t.Errorf("run result = %q", got)
 	}
@@ -227,8 +356,12 @@ func assertBenchWaiting(t *testing.T, ch <-chan string, message string) {
 
 func stubBenchWorkers(t *testing.T) (chan string, chan struct{}, *atomic.Bool) {
 	t.Helper()
-	spawn, run, busy, poll := benchSpawn, benchRun, benchBusy, benchPollWait
-	t.Cleanup(func() { benchSpawn, benchRun, benchBusy, benchPollWait = spawn, run, busy, poll })
+	spawn, run, busy, poll, open := benchSpawn, benchRun, benchBusy, benchPollWait, benchMeasurementLock
+	t.Cleanup(func() {
+		benchSpawn, benchRun, benchBusy, benchPollWait, benchMeasurementLock = spawn, run, busy, poll, open
+	})
+	lockFile := filepath.Join(t.TempDir(), "measurement.lock")
+	benchMeasurementLock = func() (*os.File, error) { return os.OpenFile(lockFile, os.O_CREATE|os.O_RDWR, 0o600) }
 	benchSpawn = func([]string, string) int { return 1 }
 	admitted := new(atomic.Bool)
 	benchBusy = func() bool { return !admitted.Load() }
@@ -283,7 +416,7 @@ func TestBenchReconcile(t *testing.T) {
 		}
 		benchReconcile(dir)
 		m = readBenchMarker(t, base)
-		if m.Status != "failed" || m.Exit == nil || *m.Exit != -1 || m.End.IsZero() {
+		if m.Status != "queued" || m.PID != 0 || m.Exit != nil {
 			t.Fatalf("dead process left active: %+v", m)
 		}
 	}
@@ -366,8 +499,8 @@ func TestBenchAnnotatePreservesRunnerEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	baseline := "# commit: old1234\n# cpus: 8\n# load-before: 1\n# load-after: 2\nBenchmarkX-8 1 10 ns/op\nBenchmarkX-8 1 10.1 ns/op\n"
-	writeBenchFixture(t, filepath.Join(root, "rolling.txt"), baseline)
-	before := benchBaselines(benchJob{Top: "/repo", Files: []string{"/repo/internal/memory/a.go"}})
+	writeBenchFixture(t, filepath.Join(root, "memory.txt"), baseline)
+	before := benchBaselines(benchJob{Top: "/repo", Files: []string{"/repo/internal/memory/a.go"}}, root)
 	if before["internal/memory"].Commit != "old1234" {
 		t.Fatalf("wrong baseline location: %+v", before)
 	}

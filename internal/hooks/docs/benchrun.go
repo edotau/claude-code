@@ -29,18 +29,25 @@ const (
 	benchCount     = "8" // benchstat needs at least 6 samples per side for a confidence interval
 	benchField     = "harness_bench"
 	benchWorkerArg = "--internal-bench-worker"
+	benchQueueArg  = "--internal-bench-queue"
 	benchPercent   = 100
 	benchQuietCV   = 5
 	benchMaxLines  = 4
+	benchRetention = 7 * 24 * time.Hour
+	benchDeadline  = 45 * time.Minute
 )
 
 // A private detached entry bypasses the hook dispatcher's five-second handler deadline.
 func init() {
-	if len(os.Args) == 3 && os.Args[1] == benchWorkerArg {
+	if len(os.Args) == 3 && (os.Args[1] == benchWorkerArg || os.Args[1] == benchQueueArg) {
 		base := os.Args[2]
 		state := filepath.Join(paths.StateDir(), "bench", "post-commit")
 		if filepath.Dir(base) == state && plans.ValidSHA(filepath.Base(base)) {
-			benchWorker(base)
+			if os.Args[1] == benchWorkerArg {
+				benchWorker(base, true)
+			} else {
+				benchRecover(state)
+			}
 		}
 		os.Exit(0)
 	}
@@ -51,11 +58,21 @@ var benchSpawn = func(args []string, dir string) int { return proc.SpawnDetached
 
 var benchPollWait = time.Second
 var benchMaxBusyPolls = 30
+var benchRunTimeout = benchDeadline
+var benchMeasurementLock = benchLock
 
 // The worker owns lifecycle writes; fd 3 keeps its measurement lock alive if the worker dies mid-command.
 const benchScript = `b=$1; r=$2; top=$3; sha=$4; shift 4
+leader=$$
+(
+  exec 3>&-
+  sleep "${HARNESS_BENCH_DEADLINE}" & timer=$!
+  trap 'kill "$timer" 2>/dev/null; exit' TERM INT
+  wait "$timer"
+  kill -KILL -- "-$leader"
+) & watchdog=$!
+trap '[ -z "${w:-}" ] || { git -C "$top" worktree remove --force "$w" >/dev/null 2>&1; rm -rf "$w"; }; kill "$watchdog" 2>/dev/null' EXIT
 w=$(mktemp -d "$r.wt.XXXXXX") || exit 1
-trap 'git -C "$top" worktree remove --force "$w" >/dev/null 2>&1; rm -rf "$w"' EXIT
 git -C "$top" worktree add -q --detach "$w" "$sha" >/dev/null 2>&1 && cd "$w" ||
   exit 1
 nice -n 19 "$b" review bench "$@" --count ` + benchCount + ` --format json >"$r" 2>"$r.err"
@@ -77,8 +94,18 @@ type benchMarker struct {
 }
 
 var benchRun = func(args []string, top string, lock *os.File) int {
-	cmd := exec.Command("sh", args...)
+	ctx, cancel := context.WithTimeout(context.Background(), benchRunTimeout)
+	defer cancel()
+	shim, err := benchSnapshot(strings.TrimSuffix(args[4], ".json"))
+	if err != nil {
+		return -1
+	}
+	cmd := exec.CommandContext(ctx, "sh", args...)
 	cmd.Dir, cmd.ExtraFiles = top, []*os.File{lock}
+	cmd.Env = append(os.Environ(), "PATH="+shim+string(os.PathListSeparator)+os.Getenv("PATH"),
+		"HARNESS_BENCH_DEADLINE="+strconv.FormatFloat(benchRunTimeout.Seconds(), 'f', -1, 64))
+	proc.TreeCancel(cmd, 0)
+	cmd.WaitDelay = time.Second
 	if err := cmd.Run(); err != nil {
 		if cmd.ProcessState != nil {
 			return cmd.ProcessState.ExitCode()
@@ -115,28 +142,49 @@ func benchStart(_ context.Context, in *core.Input, top, sha string, files []stri
 		return
 	}
 	base := filepath.Join(state, sha)
-	f, err := os.OpenFile(base+".job.json", os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
-	if err != nil {
-		return
-	}
-	err = json.NewEncoder(f).Encode(benchJob{top, sha, in.SessionID, files})
-	closeErr := f.Close()
-	if err != nil || closeErr != nil {
-		return
-	}
-	m := benchMarker{Status: "queued", Start: time.Now().UTC()}
-	if paths.WriteJSON(base+".marker", m) != nil {
-		return
-	}
 	bin, err := paths.SelfBinary()
 	if err != nil {
-		_ = benchComplete(base, m, -1)
 		return
 	}
-	args := []string{"-c", `exec "$1" "$2" "$3"`, "sh", bin, benchWorkerArg, base}
+	// Start recovery before publishing: a hook killed after the atomic write cannot strand its job.
+	args := []string{"-c", `while :; do "$1" "$2" "$3" && exit; sleep 1; done`, "sh", bin, benchQueueArg, base}
 	if benchSpawn(args, top) == 0 {
-		_ = benchComplete(base, m, -1)
+		return
 	}
+	raw, err := os.ReadFile(base + ".job.json")
+	var job benchJob
+	if errors.Is(err, os.ErrNotExist) || err == nil && json.Unmarshal(raw, &job) != nil {
+		_ = paths.WriteJSON(base+".job.json", benchJob{top, sha, in.SessionID, files})
+	}
+}
+
+// One persistent detached consumer per config reclaims jobs even when no later commit arrives.
+func benchRecover(state string) {
+	lock, err := os.OpenFile(filepath.Join(state, "queue.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		os.Exit(1)
+	}
+	defer lock.Close()
+	if !paths.TryLock(lock) {
+		return
+	}
+	for {
+		benchReconcile(state)
+		jobs, _ := filepath.Glob(filepath.Join(state, "*.job.json"))
+		for _, file := range jobs {
+			base := strings.TrimSuffix(file, ".job.json")
+			if benchPending(base) {
+				benchWorker(base, false)
+			}
+		}
+		time.Sleep(benchPollWait)
+	}
+}
+
+func benchPending(base string) bool {
+	raw, err := os.ReadFile(base + ".marker")
+	var m benchMarker
+	return err != nil || json.Unmarshal(raw, &m) != nil || m.Exit == nil
 }
 
 func benchComplete(base string, m benchMarker, code int) error {
@@ -162,7 +210,19 @@ func benchReconcile(state string) {
 			m.Status = "running"
 		}
 		if m.abandoned() {
-			_ = benchComplete(strings.TrimSuffix(file, ".marker"), m, -1)
+			m.Status, m.PID, m.Exit = "queued", 0, nil
+			_ = paths.WriteJSON(file, m)
+		}
+		if (m.Status == "done" || m.Status == "failed") && !m.End.IsZero() && time.Since(m.End) > benchRetention {
+			benchPrune(strings.TrimSuffix(file, ".marker"))
+		}
+	}
+}
+
+func benchPrune(base string) {
+	for _, suffix := range []string{".job.json", ".json", ".json.err", ".baseline", ".marker"} {
+		if err := os.RemoveAll(base + suffix); err != nil {
+			return
 		}
 	}
 }
@@ -177,17 +237,14 @@ func (m benchMarker) abandoned() bool {
 	return time.Since(m.Start) > time.Minute
 }
 
-func benchWorker(base string) {
+func benchWorker(base string, rerun bool) {
 	raw, err := os.ReadFile(base + ".job.json")
 	var job benchJob
 	if err != nil || json.Unmarshal(raw, &job) != nil || !plans.ValidSHA(job.SHA) {
 		return
 	}
 	m := benchMarker{Status: "queued", PID: os.Getpid(), Start: time.Now().UTC()}
-	if paths.WriteJSON(base+".marker", m) != nil {
-		return
-	}
-	lock, err := os.OpenFile(filepath.Join(paths.StateDir(), "bench", "measurement.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	lock, err := benchMeasurementLock()
 	if err != nil {
 		_ = benchComplete(base, m, -1)
 		return
@@ -196,7 +253,9 @@ func benchWorker(base string) {
 	for !paths.TryLock(lock) {
 		time.Sleep(benchPollWait)
 	}
-	benchReconcile(filepath.Dir(base))
+	if !rerun && !benchPending(base) {
+		return
+	}
 	busy := benchWaitQuiet()
 	m.UnderLoad = busy
 	m.Status, m.Start = "running", time.Now().UTC()
@@ -210,6 +269,22 @@ func benchWorker(base string) {
 	in := core.ParseInput(strings.NewReader(fmt.Sprintf(`{"session_id":%q,"harness_bench":{"result":%q,"sha":%q}}`,
 		job.SessionID, base+".json", job.SHA)))
 	benchFinish(in)
+}
+
+func benchLock() (*os.File, error) {
+	dir := filepath.Join("/tmp", "claude-code-bench-"+strconv.Itoa(os.Getuid()))
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	fi, err := os.Lstat(dir)
+	if err != nil {
+		return nil, err
+	}
+	uid, ok := paths.OwnerUID(fi)
+	if !fi.IsDir() || fi.Mode().Perm()&0o077 != 0 || !ok || uid != os.Getuid() {
+		return nil, fmt.Errorf("unsafe benchmark lock directory %s", dir)
+	}
+	return os.OpenFile(filepath.Join(dir, "measurement.lock"), os.O_CREATE|os.O_RDWR, 0o600)
 }
 
 func benchWaitQuiet() bool {
@@ -236,13 +311,7 @@ var benchBusy = func() bool {
 	if err != nil || !quiet {
 		return true
 	}
-	entries, _ := os.ReadDir(inflight.Dir())
-	for _, entry := range entries {
-		if pid, ok := inflight.Owner(entry.Name()); ok && proc.Alive(pid) {
-			return true
-		}
-	}
-	return false
+	return inflight.Count().Total > 0
 }
 
 func benchMeasure(base string, job benchJob, lock *os.File, underLoad bool) int {
@@ -250,7 +319,6 @@ func benchMeasure(base string, job benchJob, lock *os.File, underLoad bool) int 
 	if err != nil {
 		return -1
 	}
-	before := benchBaselines(job)
 	top, sha, files := job.Top, job.SHA, job.Files
 	args := []string{"-c", benchScript, "sh", bin, base + ".json", top, sha}
 	for _, p := range files {
@@ -264,7 +332,31 @@ func benchMeasure(base string, job benchJob, lock *os.File, underLoad bool) int 
 	if code != 0 {
 		return code
 	}
-	return benchAnnotate(base, before, underLoad)
+	return benchAnnotate(base, benchBaselines(job, base+".baseline"), underLoad)
+}
+
+// Capture the exact benchstat input without redirecting the runner's history or rolling-baseline writes.
+func benchSnapshot(base string) (string, error) {
+	bin, err := exec.LookPath("benchstat")
+	if err != nil {
+		return "", err
+	}
+	dir := base + ".baseline"
+	if err := os.RemoveAll(dir); err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
+	script := "#!/bin/sh\nset -eu\nbin=" + quote(bin) + "\ndir=" + quote(dir) + `
+test "$#" -eq 4 && test "$1" = -format && test "$2" = csv
+pkg=$(basename "$(dirname "$3")")
+snapshot="$dir/$pkg.txt"
+cp "$3" "$snapshot"
+exec "$bin" "$1" "$2" "$snapshot" "$4"
+`
+	return dir, paths.AtomicWriteNoSync(filepath.Join(dir, "benchstat"), []byte(script), 0o700)
 }
 
 // HEAD may have advanced past sha when the asynchronous commit hook runs.
@@ -353,7 +445,7 @@ type benchBaseline struct {
 	Flags  map[string]string `json:"flags"`
 }
 
-func benchBaselines(job benchJob) map[string]benchBaseline {
+func benchBaselines(job benchJob, root string) map[string]benchBaseline {
 	out := map[string]benchBaseline{}
 	for _, file := range job.Files {
 		rel, err := filepath.Rel(job.Top, filepath.Dir(file))
@@ -368,7 +460,7 @@ func benchBaselines(job benchJob) map[string]benchBaseline {
 		if pkg == "." {
 			name = "root"
 		}
-		raw, err := os.ReadFile(filepath.Join(paths.StateDir(), "bench", name, "rolling.txt"))
+		raw, err := os.ReadFile(filepath.Join(root, name+".txt"))
 		if err != nil {
 			out[pkg] = benchBaseline{Commit: "none", Reason: "baseline unavailable"}
 			continue
