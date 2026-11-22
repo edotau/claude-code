@@ -266,7 +266,7 @@ func claudeCmd(ctx context.Context, req agent.RunOptions, args []string, prompt 
 	if err := refuseUngatedBypass(ctx, args, req); err != nil {
 		return nil, nil, agent.ClaudeLaunch{}, err
 	}
-	o := agent.ClaudeOptions{Provider: launchProvider(ctx, req), Model: req.Model, KeepEnv: req.KeepEnv, Dispatch: true}
+	o := agent.ClaudeOptions{Provider: launchProvider(ctx, req), Model: req.MarkedModel(), KeepEnv: req.KeepEnv, Dispatch: true}
 	cl, err := req.Launcher.Claude(ctx, o, args)
 	if err != nil {
 		return nil, nil, cl, err

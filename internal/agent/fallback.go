@@ -1004,6 +1004,7 @@ func cellRequest(out, req RunOptions, disp Dispatch) RunOptions {
 	}
 	if !disp.keepCaller {
 		out.Model, out.CellRoute, out.CellModel = disp.Model, disp.Route, disp.Route.IsZero()
+		out.OneM = models.Has1M(req.Model)
 		if out.CellModel && req.Model == "" && pinsAuto(out.Values, cmp.Or(req.Agent, engineName(disp))) {
 			out.AutoModel = true // a pinned auto records as auto, like a typed one
 		}

@@ -529,19 +529,28 @@ func resolveIn(reg *providers.Registry, req RunOptions) (*providers.Registry, pr
 		return reg, sel.Aliases[models.Opus], nil
 	}
 	if p := req.pinnedRow(reg); p != nil { // a dispatch cell names its own model on its row
-		return reg, servedTarget(cmp.Or(req.Agent, "claude"), providers.PlainTarget(p, strings.TrimSpace(req.Model))), nil
+		return reg, servedTarget(cmp.Or(req.Agent, "claude"), providers.PlainTarget(p, req.MarkedModel())), nil
 	}
 	if t, ok, err := agyOwnTarget(req, sel.Provider); ok || err != nil {
 		return reg, t, err
 	}
-	if t, ok := aliasedTarget(sel, req.Model); ok {
+	if t, ok := aliasedTarget(sel, req.MarkedModel()); ok {
 		return reg, t, nil
 	}
 	if t, ok := familyTarget(req, sel.Provider); ok {
 		return reg, t, nil
 	}
-	t := providers.PlainTarget(sel.Provider, strings.TrimSpace(req.Model))
+	t := providers.PlainTarget(sel.Provider, req.MarkedModel())
 	return reg, servedTarget(cmp.Or(req.Agent, "claude"), t), nil
+}
+
+// MarkedModel is o.Model with the caller's [1m] marker a cell's bare model lost; resolvers drop it where no 1M fits.
+func (o RunOptions) MarkedModel() string {
+	m := strings.TrimSpace(o.Model)
+	if o.OneM && m != "" && !IsAuto(m) && !models.Has1M(m) {
+		return m + "[1m]"
+	}
+	return m
 }
 
 // requestLead is the row a request selects: a folded auto cell's own row, else --provider, else the session's.

@@ -9,6 +9,7 @@ import (
 
 	"github.com/edotau/claude-code/internal/agent/retry"
 	"github.com/edotau/claude-code/internal/agent/wire"
+	"github.com/edotau/claude-code/internal/models"
 	"github.com/edotau/claude-code/internal/route"
 	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
@@ -106,6 +107,27 @@ func TestDispatchRequestCellModelOnEveryHop(t *testing.T) {
 		row := route.Route{Provider: "databricks", Profile: "dev"}
 		if req := dispatchRequest(RunOptions{}, Dispatch{Model: "opus", Route: row}, first); req.CellModel || req.CellRoute != row || req.Model != "opus" {
 			t.Errorf("first=%v: a cell pinned to its row is not a bare cell model: %+v", first, req)
+		}
+	}
+}
+
+// A typed [1m] survives the cell's bare model: the hop's own row decides the window (no table fits dispatchRequest→resolveIn).
+func TestDispatchRequestTypedOneMReachesTarget(t *testing.T) {
+	vaulttest.Use(t)
+	reg := routeRegistry(t)
+	for _, c := range []struct {
+		name, typed, cell, row string
+		want                   int
+	}{
+		{"typed on a 1M row", "claude-sonnet-4-6[1m]", "databricks-claude-sonnet-4-6", "dev", models.ContextWindow1M},
+		{"untyped is standard", "claude-sonnet-4-6", "databricks-claude-sonnet-4-6", "dev", models.ContextWindowStd},
+		{"typed on a row that cannot serve 1M", "claude-sonnet-4-6[1m]", "claude-sonnet-4.6", "aueric_boehcp", models.ContextWindowStd},
+	} {
+		d := Dispatch{Model: c.cell, Route: route.Route{Provider: reg.Providers[c.row].Provider, Profile: c.row}}
+		req := dispatchRequest(RunOptions{Agent: "pi", Model: c.typed, ModelTyped: true}, d, true)
+		_, tgt, err := resolveIn(reg, req)
+		if err != nil || tgt.ContextTokens != c.want || tgt.Model != c.cell && c.row == "dev" {
+			t.Errorf("%s: window %d model %q err %v, want %d", c.name, tgt.ContextTokens, tgt.Model, err, c.want)
 		}
 	}
 }
