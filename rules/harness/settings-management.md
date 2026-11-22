@@ -38,7 +38,7 @@ paths:
 
   ```json
   {"matcher": "Bash", "hooks": [{"type": "command", "async": true, "timeout": 15,
-    "command": "$HOME/.claude/bin/.hooks hook PostToolUse --async"}]}
+    "command": "$HOME/.claude/bin/.hooks PostToolUse --async"}]}
   ```
 
 - Paths derive from `CLAUDE_CONFIG_DIR`/`CLAUDE_PROJECT_DIR`, never a hardcoded machine path.

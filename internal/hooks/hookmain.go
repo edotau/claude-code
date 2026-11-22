@@ -4,20 +4,30 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/providers"
+	"github.com/edotau/claude-code/internal/settings"
 	"github.com/edotau/claude-code/internal/vault"
 )
 
-// Main is the bin/.hooks entry: hook verbs run here, anything else (or a stamp mismatch) goes to claude-code.
+// Main is the bin/.hooks entry: `<Event> …` (or `hook <Event> …`) runs here; anything else goes to claude-code.
 func Main(args []string) int {
-	isHook := len(args) >= 3 && args[1] == "hook"
+	rest := args[1:]
+	if len(rest) >= 2 && rest[0] == "hook" {
+		rest = rest[1:] // the older `.hooks hook <Event>` form
+	}
+	isHook := len(rest) >= 1 && slices.Contains(settings.HookEvents(), rest[0])
 	if full, ok := mainSibling(); ok && (!isHook || !stampMatches(filepath.Dir(full))) {
+		fwd := args[1:]
+		if isHook {
+			fwd = append([]string{"hook"}, rest...)
+		}
 		// before AdoptEnvKey so claude-code keeps the vault key
-		err := proc.Exec(full, args[1:], os.Environ())
+		err := proc.Exec(full, fwd, os.Environ())
 		fmt.Fprintln(os.Stderr, ".hooks: cannot run claude-code:", err)
 		return 2
 	}
@@ -26,7 +36,7 @@ func Main(args []string) int {
 		return 2
 	}
 	vault.AdoptEnvKey()
-	code := RunArgs(args[2], args[3:], os.Stdin, os.Stdout, os.Stderr)
+	code := RunArgs(rest[0], rest[1:], os.Stdin, os.Stdout, os.Stderr)
 	providers.FinishExchanges()
 	return code
 }

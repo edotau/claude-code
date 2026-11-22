@@ -74,7 +74,7 @@ type EventSpec struct {
 func (s EventSpec) Seconds() int { return int((s.Budget + time.Second - 1) / time.Second) }
 
 // Command is the shell command settings.json carries for this module alone.
-func (s EventSpec) Command() string { return hookBin + " hook " + s.Event + " --" + s.Name }
+func (s EventSpec) Command() string { return hookBin + " " + s.Event + " --" + s.Name }
 
 // AgentCommand is s.Command() prefixed with AgentEnv=agent, as a non-Claude agent's rendered config carries it.
 func AgentCommand(agent string, s EventSpec) string {
@@ -90,7 +90,7 @@ type Group struct {
 }
 
 // DispatcherCommand is the one-per-event entry; it skips modules that render as their own entries.
-func DispatcherCommand(event string) string { return hookBin + " hook " + event }
+func DispatcherCommand(event string) string { return hookBin + " " + event }
 
 // AllFlag makes `hook <Event>` run every module on the event, own-process ones included.
 const AllFlag = "--all"
@@ -234,9 +234,10 @@ func (g MatcherGroup) RunsGate(agent, command, tool string) bool {
 			return false
 		}
 	}
+	legacy := strings.Replace(command, hookBin+" ", hookBin+" hook ", 1) // a not-yet-synced file still runs the gate
 	return slices.ContainsFunc(g.Hooks, func(h Hook) bool {
-		cmd := strings.TrimSpace(h.Command)
-		return h.Type == "command" && !h.Async && (cmd == command || cmd == AgentEnv+"="+agent+" "+command)
+		cmd := strings.TrimPrefix(strings.TrimSpace(h.Command), AgentEnv+"="+agent+" ")
+		return h.Type == "command" && !h.Async && (cmd == command || cmd == legacy)
 	})
 }
 

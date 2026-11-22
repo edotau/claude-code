@@ -678,7 +678,7 @@ func TestRenderGeminiHooks(t *testing.T) {
 		t.Fatal(err)
 	}
 	b, _ := os.ReadFile(path)
-	for _, want := range []string{`"mine"`, `HARNESS_HOOK_AGENT=gemini $HOME/.claude/bin/.hooks hook PreToolUse --safety-scan`, `HARNESS_HOOK_AGENT=gemini $HOME/.claude/bin/.hooks hook PreToolUse --permission-gate`, `"matcher": "run_command|read_file|write_file|edit_file"`} {
+	for _, want := range []string{`"mine"`, `HARNESS_HOOK_AGENT=gemini $HOME/.claude/bin/.hooks PreToolUse --safety-scan`, `HARNESS_HOOK_AGENT=gemini $HOME/.claude/bin/.hooks PreToolUse --permission-gate`, `"matcher": "run_command|read_file|write_file|edit_file"`} {
 		if !strings.Contains(string(b), want) {
 			t.Errorf("hooks.json lacks %s:\n%s", want, b)
 		}

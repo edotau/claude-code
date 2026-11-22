@@ -29,6 +29,7 @@ export PATH     := $(GO_LOCAL_ROOT)/bin:$(PATH):$(HOME)/go/bin
 BINARY          := claude-code
 BIN             := bin/$(BINARY)
 HOOK_BIN         = $(dir $(BIN)).hooks
+HOOK_BIN_MAX     = 23068672# 22 MiB; bin/.hooks is about 19 MiB on macOS, 20 on Linux
 STAMP_FILE       = $(dir $(BIN)).build-stamp
 PKGS            := ./...
 # Dirs that `make fmt` and lint run gofmt over.
@@ -59,6 +60,9 @@ compile:  ## Compile bin/claude-code and bin/.hooks, no install
 	ldflags="-s -w -X github.com/edotau/claude-code/internal/paths.BuildStamp=$$stamp"; \
 	$(GO) build -trimpath -ldflags="$$ldflags" -o "$(BIN).new" ./cmd/claude-code && \
 	$(GO) build -trimpath -ldflags="$$ldflags" -o "$(HOOK_BIN).new" ./cmd/harness-hook && \
+	size=$$(wc -c < "$(HOOK_BIN).new" | tr -d ' ') && \
+	{ [ "$$size" -le $(HOOK_BIN_MAX) ] || { rm -f "$(BIN).new" "$(HOOK_BIN).new"; \
+	  echo "compile: $(HOOK_BIN) is $$size bytes, over HOOK_BIN_MAX=$(HOOK_BIN_MAX): an import pulled heavy code into it" >&2; exit 1; }; } && \
 	rm -f "$(STAMP_FILE)" && \
 	mv -f "$(HOOK_BIN).new" "$(HOOK_BIN)" && \
 	mv -f "$(BIN).new" "$(BIN)" && \

@@ -5,7 +5,7 @@ paths:
 ---
 # Hooks System
 
-Hooks run as `$HOME/.claude/bin/.hooks hook <Event> [--<module>|--all|--async]`.
+Hooks run as `$HOME/.claude/bin/.hooks <Event> [--<module>|--all|--async]` (the older `hook <Event>` form still works).
 `make compile` builds this hooks-only binary beside `claude-code` with one shared stamp in `bin/.build-stamp`.
 Non-hook verbs or a stamp mismatch after a partial install hand over to `bin/claude-code`, preserving behavior.
 The safety scanner treats `.hooks` exactly like `claude-code`.

@@ -65,7 +65,7 @@ func TestRenderCodexHooksFilePreservesForeignOnDisk(t *testing.T) {
 	if n := strings.Count(string(got), foreignMarker); n != 9 {
 		t.Fatalf("expected all 9 foreign groups to survive the render, found %d:\n%s", n, got)
 	}
-	if !strings.Contains(string(got), "bin/.hooks hook PreToolUse --safety-scan") {
+	if !strings.Contains(string(got), "bin/.hooks PreToolUse --safety-scan") {
 		t.Errorf("rendered codex hooks missing the current harness hook:\n%s", got)
 	}
 }
@@ -193,7 +193,7 @@ func TestCodexJSONRendersClaimAndMemoryStartWithTrust(t *testing.T) {
 	find := func(event, module string) (settings.MatcherGroup, bool) {
 		for _, g := range doc.Hooks[event] {
 			for _, h := range g.Hooks {
-				if strings.HasSuffix(h.Command, "hook "+event+" --"+module) {
+				if strings.HasSuffix(h.Command, " "+event+" --"+module) {
 					return g, true
 				}
 			}

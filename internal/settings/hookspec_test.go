@@ -168,7 +168,7 @@ func TestGroupRenderOneEntryPerEvent(t *testing.T) {
 	if n := len(block[EventPreToolUse]); n != 2 {
 		t.Errorf("PreToolUse: %d entries, want 2 (safety-scan alone, then the dispatcher)", n)
 	}
-	if !strings.Contains(string(b), `"`+DispatcherCommand("PreToolUse")+`"`) || !strings.Contains(string(b), "hook PreToolUse --safety-scan") {
+	if !strings.Contains(string(b), `"`+DispatcherCommand("PreToolUse")+`"`) || !strings.Contains(string(b), ".hooks PreToolUse --safety-scan") {
 		t.Errorf("safety must render separately and the dispatcher must skip it: %s", b)
 	}
 }

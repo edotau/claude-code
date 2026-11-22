@@ -337,7 +337,7 @@ func TestInstallSettingsSeedsMissingAndNeverWritesExisting(t *testing.T) {
 	if err := installSettings(&bytes.Buffer{}, false); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ := os.ReadFile(settings.SettingsFile()); !strings.Contains(string(got), "hook PreToolUse --safety-scan") {
+	if got, _ := os.ReadFile(settings.SettingsFile()); !strings.Contains(string(got), ".hooks PreToolUse --safety-scan") {
 		t.Fatalf("seeded settings.json has no harness hooks:\n%s", got)
 	}
 	for _, user := range []string{`{"model": "sonnet", "zzForeign": 1}`, `{"cleanupPeriodDays": "x"`} {
