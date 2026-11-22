@@ -526,6 +526,7 @@ func TestAskTiedEqualsTheWholeTask(t *testing.T) {
 		{"stdin task", "claude-code agents ask --agent codex -", "-", false},
 		{"brief file equal", "claude-code agents ask --agent codex --background - < " + brief, "audit alpha", true},
 		{"brief file is only a substring", "claude-code agents ask --agent codex - < " + brief, "audit alpha beta", false},
+		{"trailing 2>&1 and tail", `claude-code codex ask --tools -- "audit alpha" 2>&1 | tail -40`, "audit alpha" + recall, true},
 		{"other agent", `claude-code agents ask --agent gemini "audit alpha"`, "audit alpha", false},
 	} {
 		if got := askTied(c.cmd, rec(c.prompt)); got != c.want {

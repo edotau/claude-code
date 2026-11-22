@@ -986,6 +986,7 @@ func askTied(cmd string, rec agent.Record) bool {
 
 // askTask is the ask segment's agent and normalized task by ask's own grammar; "" task: stdin or none, nothing to tie.
 func askTask(seg string) (name, task string) {
+	seg = relayOutputMerge.ReplaceAllString(seg, "") // the relay's trailing 2>&1 is no part of the ask
 	full := relayWords(seg)
 	words := agentCommand(full)
 	_, file, err := relayInput(seg)
