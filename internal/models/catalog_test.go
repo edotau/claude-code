@@ -131,12 +131,22 @@ func TestCatalogIntegrity(t *testing.T) {
 }
 
 func TestLimitsResolvesSpellings(t *testing.T) {
-	for _, id := range []string{"claude-sonnet-5-5", "databricks-claude-sonnet-5-5", "claude-sonnet-5-5[1m]"} {
-		if l, ok := Limits(id); !ok || l.Context != 1_000_000 || l.Output != 128_000 {
-			t.Errorf("Limits(%q) = %+v, %v", id, l, ok)
+	for _, c := range []struct {
+		id           string
+		context, out int
+	}{
+		{"claude-sonnet-5-5", 1_000_000, 128_000},
+		{"databricks-claude-sonnet-5-5", 1_000_000, 128_000},
+		{"claude-sonnet-5-5[1m]", 1_000_000, 128_000},
+		{"gpt-6-sol", 1_050_000, 128_000},
+		{"gpt-6-1-sol", 1_050_000, 128_000},
+		{"databricks-gpt-6-1-sol", 1_050_000, 128_000},
+	} {
+		if l, ok := Limits(c.id); !ok || l.Context != c.context || l.Output != c.out {
+			t.Errorf("Limits(%q) = %+v, %v", c.id, l, ok)
 		}
 	}
-	for _, id := range []string{"gpt-5", "not-a-model", ""} {
+	for _, id := range []string{"gpt-5", "gpt-6-2-terra", "not-a-model", ""} {
 		if l, ok := Limits(id); ok {
 			t.Errorf("Limits(%q) = %+v, want unknown", id, l)
 		}

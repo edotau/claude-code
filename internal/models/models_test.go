@@ -219,7 +219,7 @@ func TestKeeps1M(t *testing.T) {
 		{"claude-opus-4-8", false, ContextWindowStd},
 		{"claude-sonnet-4-6[1m]", true, ContextWindow1M},
 		{"claude-haiku-4-5[1m]", false, ContextWindowStd},
-		{"gpt-6-1-sol[1m]", false, ContextWindowUnknown},
+		{"gpt-6-1-sol[1m]", false, 1_050_000},
 	} {
 		if got := Keeps1M(c.id); got != c.keep {
 			t.Errorf("Keeps1M(%q) = %v, want %v", c.id, got, c.keep)
