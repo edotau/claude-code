@@ -4,6 +4,7 @@ import (
 	"errors"
 	"flag"
 	"os"
+	"time"
 
 	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/agent/ask"
@@ -36,13 +37,26 @@ func cmdAgentsStatus(args []string) int {
 		}
 		return ask.Status("agents status", *agentName, firstPositional(pos), *all, *format, empty)
 	case len(pos) == 0:
-		return ask.DispatchLog("agents status", *format)
+		return agentsDispatchLog(*format)
 	}
 	rec, err := agent.LoadRecord(pos[0])
 	if err != nil {
 		return helptext.Fail("agents status: %v", err)
 	}
 	return ask.Status("agents status", rec.Agent, rec.ID, true, *format, "")
+}
+
+func agentsDispatchLog(format string) int {
+	if format != helptext.JSON {
+		return ask.DispatchLog("agents status", format)
+	}
+	recs := agent.RecentRecords(20)
+	for i, r := range recs {
+		if line := r.QueueLine(time.Now()); line != "" && r.Alive() {
+			recs[i].Status, recs[i].Progress = "queued", line
+		}
+	}
+	return helptext.WriteJSONOrFail("agents status", recs)
 }
 
 // resultFlags are the `agents result` flags.

@@ -290,6 +290,9 @@ func classifyRunning(r Record, now time.Time, lim WatchLimits, rel relayState) (
 		}
 		return s, false
 	}
+	if r.QueueLine(now) != "" {
+		return StaleJob{}, true
+	}
 	follow := []string{"claude-code", "agents", "result", "-f", r.ID}
 	if rel.finished {
 		s := staleFrom(r, now, WatchRelayGone)

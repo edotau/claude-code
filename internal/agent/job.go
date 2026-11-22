@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -328,7 +329,7 @@ func checkAgent(name string) error {
 // Row is one background-job line for `claude-code agents status`.
 type Row struct {
 	ID       string
-	Status   string // running | lost | ok | error | partial | stalled | quota (lost = running record, dead pid)
+	Status   string // queued | running | lost | ok | error | partial | stalled | quota
 	Elapsed  string
 	Preview  string
 	Session  string
@@ -336,10 +337,49 @@ type Row struct {
 	Progress string `json:",omitempty"`     // "part 2/3" while a split review runs
 	Cutoff   string `json:",omitempty"`     // how a cut-off run ended: deadline, stall, idle, cancelled, auth-retry
 	Live     string `json:"live,omitempty"` // a running row's progress line
+	Pool     string `json:"pool,omitempty"`
+	Wait     string `json:"wait,omitempty"`
 
 	Parent string      `json:"parent,omitempty"`
 	Depth  int         `json:"depth,omitempty"`
 	Usage  *wire.Usage `json:"usage,omitempty"`
+}
+
+// NoteQueued marks admission waits in Progress; an empty pool clears only an admission mark.
+func NoteQueued(id, pool string, note io.Writer) {
+	_, _, err := updateRecord(id, func(r Record) (Record, bool) {
+		queuedPool, _ := r.admissionQueue()
+		if r.Status != "running" || pool == queuedPool {
+			return r, false
+		}
+		r.Progress = ""
+		if pool != "" {
+			r.Progress = "queued " + time.Now().UTC().Format(time.RFC3339Nano) + " " + pool
+		}
+		return r, true
+	})
+	if err != nil && note != nil {
+		fmt.Fprintf(note, "agents serve: queue mark for %s not saved: %v\n", id, err)
+	}
+}
+
+func (r Record) admissionQueue() (string, time.Time) {
+	mark, ok := strings.CutPrefix(r.Progress, "queued ")
+	stamp, pool, found := strings.Cut(mark, " ")
+	since, err := time.Parse(time.RFC3339Nano, stamp)
+	if !ok || !found || err != nil || pool == "" || r.Status != "running" {
+		return "", time.Time{}
+	}
+	return pool, since
+}
+
+// QueueLine describes a pending admission; it is empty for an active or finished run.
+func (r Record) QueueLine(now time.Time) string {
+	pool, since := r.admissionQueue()
+	if pool == "" {
+		return ""
+	}
+	return "queued on " + textutil.PreviewRedacted(pool, 60) + ", waiting " + progressDur(now.Sub(since))
 }
 
 // Observed is what the harness itself recorded about a dispatch, apart from the agent's own account.
@@ -503,7 +543,10 @@ func (r Record) StatusLine() string {
 		return r.LogLine()
 	}
 	now := time.Now()
-	live := ProgressOf(r, now).Fragment(progressWidth)
+	live := r.QueueLine(now)
+	if live == "" {
+		live = ProgressOf(r, now).Fragment(progressWidth)
+	}
 	r.Request.Prompt = ""
 	head, rest, _ := strings.Cut(r.LogLine(), "\n")
 	return strings.TrimRight(head, " ") + "  " + live + "\n" + rest
@@ -521,11 +564,19 @@ func toRow(r Record) Row {
 		r.Error = "lost: process gone" + r.LostProcessDetail()
 	}
 	live := ""
+	pool, since := r.admissionQueue()
+	wait := ""
 	if status == "running" {
-		live = ProgressOf(r, time.Now()).Line(progressWidth)
+		if pool != "" {
+			status, live = "queued", r.QueueLine(time.Now())
+			wait = progressDur(time.Since(since))
+			r.Progress = ""
+		} else {
+			live = ProgressOf(r, time.Now()).Line(progressWidth)
+		}
 	}
 	return Row{Live: live, ID: r.ID, Status: status, Elapsed: elapsed, Preview: preview, Session: r.SessionID,
-		Error: textutil.RedactSecrets(r.Error), Progress: r.Progress, Cutoff: r.Cutoff,
+		Error: textutil.RedactSecrets(r.Error), Progress: r.Progress, Cutoff: r.Cutoff, Pool: pool, Wait: wait,
 		Parent: r.Parent, Depth: r.Depth, Usage: r.Usage}
 }
 

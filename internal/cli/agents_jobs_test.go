@@ -104,6 +104,29 @@ func TestAgentsStatusForms(t *testing.T) {
 	}
 }
 
+func TestAgentsStatusQueued(t *testing.T) {
+	cfgDir(t)
+	r := seedCodexJob(t, "")
+	r.Status, r.PID = "running", os.Getpid()
+	if err := r.Save(); err != nil {
+		t.Fatal(err)
+	}
+	agent.NoteQueued(r.ID, "qa", nil)
+	for _, args := range [][]string{
+		{"status"}, {"status", r.ID}, {"status", "--agent", "codex", "--all"},
+		{"status", "--format", "json"}, {"status", r.ID, "--format", "json"},
+	} {
+		out := okAgents(t, args...)
+		if !strings.Contains(out, "queued") || !strings.Contains(out, "queued on qa, waiting ") {
+			t.Errorf("status %v missing queue detail: %s", args, out)
+		}
+	}
+	saved, err := agent.LoadRecord(r.ID)
+	if err != nil || saved.Status != "running" {
+		t.Fatalf("status display changed stored lifecycle: %+v, %v", saved, err)
+	}
+}
+
 // `result -f` on a finished job prints its log once and the ask trailer; no id needs --agent (the newest job here).
 func TestAgentsResultForms(t *testing.T) {
 	cfgDir(t)

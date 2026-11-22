@@ -80,7 +80,7 @@ type Record struct {
 	PIDStart       string      `json:"pid_start,omitempty"`       // proc.StartTime of PID at spawn: tells a reused pid apart
 	Background     bool        `json:"background,omitempty"`      // set only by the `ask --background` spawn
 	Log            string      `json:"log,omitempty"`             // absolute path of the job's combined stdout+stderr log
-	Progress       string      `json:"progress,omitempty"`        // multi-part review job: "part 2/3"
+	Progress       string      `json:"progress,omitempty"`        // "part 2/3" or "queued <RFC3339Nano> <pool>"
 	Owner          int         `json:"owner,omitempty"`           // launching Claude Code session pid (inflight.SessionOwner)
 	Host           string      `json:"host,omitempty"`            // ask --host: the ssh host the dispatch ran on
 	FallbackPolicy string      `json:"fallback_policy,omitempty"` // the --fallback mode asked for (all|agents|none)
@@ -615,7 +615,11 @@ func (r Record) LogLine() string {
 	if r.Status == "running" {
 		elapsed = time.Since(r.Time).Round(time.Second).String()
 	}
-	line := fmt.Sprintf("%-28s %-7s %-8s %-9s%s  %s\n", r.ID, r.Status, agentCol, elapsed, tools, textutil.PreviewRedacted(r.Request.Prompt, 60))
+	status := r.Status
+	if r.QueueLine(time.Now()) != "" && r.Alive() {
+		status = "queued"
+	}
+	line := fmt.Sprintf("%-28s %-7s %-8s %-9s%s  %s\n", r.ID, status, agentCol, elapsed, tools, textutil.PreviewRedacted(r.Request.Prompt, 60))
 	if r.FallbackReason != "" {
 		line += fmt.Sprintf("%-28s   fallback: %s\n", "", r.FallbackReason)
 	}

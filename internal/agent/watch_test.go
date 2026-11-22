@@ -127,6 +127,31 @@ func TestClassifyRunningJobs(t *testing.T) {
 	}
 }
 
+func TestQueuedAdmissionWatch(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	r := watchRec(t, "running", "waiting", time.Hour, time.Hour)
+	r.Progress = "queued " + watchT0.Add(-time.Hour).Format(time.RFC3339Nano) + " qa"
+	lim := WatchLimits{Age: time.Minute, Silence: time.Minute}
+	for _, c := range []struct {
+		name, progress, want string
+		alive                bool
+		relay                relayState
+	}{
+		{"waiting", r.Progress, "", true, relayState{finished: true}},
+		{"admitted", "", WatchSilent, true, relayState{}},
+		{"dead waiter", r.Progress, WatchDead, false, relayState{}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			stubAlive(t, c.alive)
+			r.Progress = c.progress
+			got, pending := classifyJob(r, watchT0, lim, c.relay)
+			if got.Reason != c.want || pending != (c.want == "") {
+				t.Fatalf("reason %q pending %v, want %q", got.Reason, pending, c.want)
+			}
+		})
+	}
+}
+
 func TestDeadJobNextCommand(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	stubAlive(t, false)

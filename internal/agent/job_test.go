@@ -39,6 +39,64 @@ func TestResolveExactID(t *testing.T) {
 	}
 }
 
+func TestAdmissionQueueLifecycle(t *testing.T) {
+	setConfigDir(t)
+	r := NewRecord("codex", RunOptions{Prompt: "waiting task"}, time.Now().Add(-time.Hour))
+	r.PID = os.Getpid()
+	if err := r.Save(); err != nil {
+		t.Fatal(err)
+	}
+	var note strings.Builder
+	NoteQueued(r.ID, "qa", &note)
+	queued, err := LoadRecord(r.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pool, since := queued.admissionQueue()
+	if pool != "qa" || since.IsZero() || queued.Status != "running" || !queued.Alive() {
+		t.Fatalf("queued record: %+v, since %v", queued, since)
+	}
+	if got := queued.QueueLine(since.Add(75 * time.Second)); got != "queued on qa, waiting 1m15s" {
+		t.Fatalf("queue line = %q", got)
+	}
+	row := toRow(queued)
+	if row.Status != "queued" || row.Pool != "qa" || row.Wait == "" || row.Progress != "" {
+		t.Fatalf("queued row = %+v", row)
+	}
+	if line := queued.StatusLine(); !strings.Contains(line, "queued on qa, waiting ") || strings.Contains(line, "no event") {
+		t.Fatalf("status line = %q", line)
+	}
+	NoteQueued(r.ID, "qa", &note)
+	if same, err := LoadRecord(r.ID); err != nil || same.Progress != queued.Progress {
+		t.Fatalf("repeat queue mark reset wait: %+v, %v", same, err)
+	}
+	NoteQueued(r.ID, "", &note)
+	cleared, err := LoadRecord(r.ID)
+	if err != nil || cleared.Progress != "" || toRow(cleared).Status != "running" || note.Len() != 0 {
+		t.Fatalf("clear queue: %+v, %v, note %q", cleared, err, note.String())
+	}
+	queued.Status = "ok"
+	if queued.QueueLine(time.Now()) != "" || toRow(queued).Status != "ok" {
+		t.Fatal("finished record still appears queued")
+	}
+}
+
+func TestClearAdmissionPreservesOtherProgress(t *testing.T) {
+	setConfigDir(t)
+	r := NewRecord("codex", RunOptions{}, time.Now())
+	var note strings.Builder
+	for _, progress := range []string{"part 2/3", "queued invalid qa"} {
+		r.Progress = progress
+		if err := r.Save(); err != nil {
+			t.Fatal(err)
+		}
+		NoteQueued(r.ID, "", &note)
+		if kept, err := LoadRecord(r.ID); err != nil || kept.Progress != progress || kept.QueueLine(time.Now()) != "" {
+			t.Fatalf("unrelated progress changed: %+v, %v", kept, err)
+		}
+	}
+}
+
 func TestResolveUniquePrefix(t *testing.T) {
 	recs := []Record{{ID: "20261016T210000.000-codex"}, {ID: "20261016T210100.000-gemini"}}
 	got, err := resolveRecord(recs, "20261016T210100", nil)
