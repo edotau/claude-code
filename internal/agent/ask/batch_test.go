@@ -68,6 +68,23 @@ func TestParseTaskReadOnlyKeepsToolsOverLineToolsFalse(t *testing.T) {
 	}
 }
 
+func TestBatchLineKeyHint(t *testing.T) {
+	for line, want := range map[string]string{
+		`{"task":"x"}`:   `did you mean "prompt"`,
+		`{"promt":"x"}`:  `did you mean "prompt"`,
+		`{"prompt":"x"}`: "",
+	} {
+		lines, err := readTaskLines(strings.NewReader(line + "\n"))
+		if err != nil || len(lines) != 1 {
+			t.Fatalf("readTaskLines(%s) = %d, %v", line, len(lines), err)
+		}
+		got := lines[0].Err
+		if (want == "") != (got == nil) || got != nil && !strings.Contains(got.Error(), want) {
+			t.Errorf("%s: error %v, want %q", line, got, want)
+		}
+	}
+}
+
 func TestBatchLineOverlayRoute(t *testing.T) {
 	base := agent.RunOptions{Provider: "ultra", Lead: "ultra"}
 	lines, err := readTaskLines(strings.NewReader(

@@ -90,15 +90,27 @@ func checkLineKeys(line []byte) error {
 	if !ok || json.Unmarshal(line, &doc) != nil {
 		return nil // the strict decode reports what is wrong
 	}
-	if err := s.CheckKeys(doc, perLineKeys()...); err != nil {
-		return err
-	}
 	for _, k := range slices.Sorted(maps.Keys(doc)) {
-		if _, inSchema := s.Lookup(k); inSchema && !slices.Contains(perLineKeys(), k) {
+		if slices.Contains(perLineKeys(), k) {
+			continue
+		}
+		if _, inSchema := s.Lookup(k); inSchema {
 			return fmt.Errorf("%q is batch-wide: put --%s on the --batch command", k, k)
 		}
+		if n, ok := lineKeyNear(k); ok {
+			return fmt.Errorf("spec key %q unknown: did you mean %q?", k, n)
+		}
+		return fmt.Errorf("spec key %q unknown (keys: %s)", k, strings.Join(perLineKeys(), ", "))
 	}
 	return nil
+}
+
+// lineKeyNear suggests only a key valid on a line; "task" is the common miss for "prompt".
+func lineKeyNear(k string) (string, bool) {
+	if k == "task" {
+		return "prompt", true
+	}
+	return textutil.Nearest(k, perLineKeys())
 }
 
 // decodeTaskLine decodes one JSONL line that is physical line n; a bad line keeps n in its Err.
