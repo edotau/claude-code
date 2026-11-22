@@ -50,17 +50,59 @@ func dispatchTamper(in *core.Input) string {
 	if name := tamperName(cmd); name != "" {
 		return name
 	}
-	if !strings.Contains(unquoted.Replace(cmd), "HARNESS_DISPATCH_") {
+	named := strings.Contains(unquoted.Replace(joinLiterals(cmd)), "HARNESS_DISPATCH_")
+	if !named && !strings.Contains(cmd, "DISPATCH") && !runsInterpreter(cmd) {
 		return ""
 	}
 	aliases := dispatchAliases(cmd)
 	for _, text := range shell.EvaluatedText(cmd, in.CWD) { // text an evaluator runs, however it reaches it
+		if name := interpTamper(text); name != "" {
+			return name
+		}
 		text = os.Expand(text, func(k string) string { return cmp.Or(aliases[k], "$"+k) })
-		if m := tamperPhrase().FindString(unquoted.Replace(text)); m != "" {
+		if m := tamperPhrase().FindString(unquoted.Replace(text)); named && m != "" {
 			return dispatchName().FindString(m)
 		}
 	}
 	return ""
+}
+
+// literalJoin is a string-literal concatenation seam: "A"+"B", 'A'.'B' (perl), "A" "B" (python).
+var literalJoin = sync.OnceValue(func() *regexp.Regexp { return regexp.MustCompile(`["']\s*[+.]?\s*["']`) })
+
+// joinLiterals folds literal concatenations, so "HARNESS_"+"DISPATCH_ID" reads as the name it builds.
+func joinLiterals(text string) string { return literalJoin().ReplaceAllString(text, "") }
+
+// envMutation is an interpreter's write, delete or merge into its environment (python, node, ruby, perl).
+var envMutation = sync.OnceValue(func() *regexp.Regexp {
+	const key = `(?:["'\x60]HARNESS_DISPATCH_\w*["'\x60]|\$?[A-Za-z_]\w*)` // the literal name, or a variable holding it
+	return regexp.MustCompile(`os\.environ\s*\[\s*` + key + `\s*\]\s*=(?:[^=]|$)|\bdel\s+os\.environ\s*\[|` +
+		`os\.(?:putenv|unsetenv)\s*\(\s*` + key + `|os\.environ\.(?:update|pop|setdefault)\s*\(|` +
+		`process\.env\s*(?:\.HARNESS_DISPATCH_\w*|\[\s*` + key + `\s*\])\s*=(?:[^=]|$)|` +
+		`\bdelete\s+process\.env\s*(?:\.HARNESS_DISPATCH_|\[)|Object\.assign\s*\(\s*process\.env\b|` +
+		`\bENV\s*\[\s*` + key + `\s*\]\s*=(?:[^=~]|$)|\bENV\.(?:delete|store|update|merge!|replace)\s*\(|` +
+		`\$ENV\s*\{\s*` + key + `\s*\}\s*=(?:[^=~]|$)|\bdelete\s+(?:local\s+)?\$ENV\s*\{`)
+})
+
+// interpTamper is the dispatch variable an interpreter text changes in its environment, else "".
+func interpTamper(text string) string {
+	text = joinLiterals(text)
+	if !strings.Contains(text, "HARNESS_DISPATCH_") || !envMutation().MatchString(text) {
+		return ""
+	}
+	return dispatchName().FindString(text)
+}
+
+// runsInterpreter reports a command start running an interpreter, whose script may build a dispatch name.
+func runsInterpreter(cmd string) bool {
+	for _, seg := range shell.Segments(cmd) {
+		for _, st := range shell.CommandStarts(shell.Tokens(seg)) {
+			if w := skipAssign(st); len(w) > 0 && shell.IsInterpreter(w[0]) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // dispatchAliases maps each NAME the text binds to a dispatch variable's name.
@@ -180,7 +222,7 @@ func declareTamper(args []string) string {
 	return ""
 }
 
-// envTamper: env assignments or -u of a dispatch variable, or a wipe (-i, -) before a launcher.
+// envTamper: env assignments or -u of a dispatch variable, or a wipe (-i, -) before a launcher or interpreter.
 func envTamper(args []string) string {
 	wipe := false
 	for i := 0; i < len(args); i++ {
@@ -230,10 +272,10 @@ func runsLauncher(args []string, depth int) bool {
 	return false
 }
 
-// launcher reports an agent launcher word; .hooks counts as it hands its verbs to claude-code.
+// launcher reports an agent launcher or interpreter word; .hooks counts as it hands its verbs to claude-code.
 func launcher(word string) bool {
 	name := filepath.Base(word)
-	return slices.Contains(launchers(), name) || shell.IsHarnessName(name)
+	return slices.Contains(launchers(), name) || shell.IsHarnessName(name) || shell.IsInterpreter(name)
 }
 
 func skipAssign(w []string) []string {

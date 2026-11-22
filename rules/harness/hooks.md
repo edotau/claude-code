@@ -109,8 +109,9 @@ It checks each call in order:
 5. After built-ins, `agentBashAllow` allows a leaf's block or ask except `Result.Floor` (code floor and settings deny).
 
 `Edit(...)` deny/ask globs also guard Bash and interpreter writes (`//` absolute, `~/`, `/` = `~/.claude/`, `**/`,
-relative = cwd). A leaf cannot write `settings.json` or `settings.local.json` via Bash. Intent rules match invocations,
-not data. Blocks name the allowed route and the owner's `!`; `claude-code doctor --audit` logs no command text.
+relative = cwd). A leaf cannot write `settings.json`, `settings.local.json` or `state/harness/**` via Bash. Intent
+rules match invocations, not data. Blocks name the allowed route and the owner's `!`; `claude-code doctor --audit`
+logs no command text.
 
 | Hook | Event | What it does |
 | --- | --- | --- |
@@ -173,8 +174,16 @@ match turns these rules off.
   targets also in its linked worktrees): refused in a leaf (run `claude-code agents diff --check --path <files>` or
   `claude-code agents fix --path <files>`); `make lint` and a dry run (`-n`, `-q`) pass.
 - A leaf's `HARNESS_DISPATCH_*` unset, `env -u` or assignment in text that reaches a shell, `eval`, `source`, an
-  interpreter or `ssh` (its string, a here-string, a heredoc no pure reader takes, a pipe into it, a script it runs):
-  a nested dispatch inherits these limits.
+  interpreter or `ssh` (its string, a here-string, a heredoc no pure reader takes, a pipe into it, a script it runs),
+  an interpreter's env write (`os.environ[...]=`, `putenv`, `process.env`, `ENV[]=`, `$ENV{}=`, names built from
+  literal pieces too) and `env -i` before a launcher or interpreter: a nested dispatch inherits these limits.
+- A leaf's write under `state/harness/**` (Edit/Write, redirects, `tee`, `cp`/`mv`/`rm`, interpreter writes); reads
+  pass.
+
+These last two are floor walls (R13, 2026-11-22): `agentBashAllow` never lifts them. Only a dispatch the main session
+started (its record: no parent, depth 0) lifts one, with an explicit scoped `--allow`
+(`Write(/state/harness/dispatch/**)`, or a Bash rule for the command); a nested dispatch's `--allow` never does, and
+the dispatch's deny rules still win.
 
 ## Authoring a gate
 

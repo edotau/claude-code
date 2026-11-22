@@ -199,6 +199,9 @@ var interpreterName = sync.OnceValue(func() *regexp.Regexp {
 		`osascript|Rscript|pwsh)[0-9.]*$`)
 })
 
+// IsInterpreter reports a script interpreter's command word (python3, node, ruby, perl, …), as a path or a name.
+func IsInterpreter(word string) bool { return interpreterName().MatchString(filepath.Base(word)) }
+
 // evaluator reports a command word that reads text as code, or a dynamic one (`$CMD`, `$(…)`) whose text is unknown.
 func evaluator(word string) bool {
 	name := filepath.Base(word)

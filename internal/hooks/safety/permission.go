@@ -67,7 +67,7 @@ func protectedEdit(in *core.Input) core.Result {
 		if !filepath.IsAbs(f) {
 			continue
 		}
-		if (matchesProtected(f, globs) || f != form && protectedPath(f, globs)) && !tempWriteAllowed("", f) {
+		if editProtected(in.CWD, f, form, globs) && !tempWriteAllowed("", f) {
 			return core.Result{Decision: core.Block, Floor: true, Reason: core.SafetyMessage(in, core.Block,
 				"writes a file Edit/Write may never touch", f, "Edit it by hand, or run it yourself in a terminal.")}
 		}

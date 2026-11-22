@@ -11,9 +11,11 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/edotau/claude-code/internal/agent"
 	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
 	"github.com/edotau/claude-code/internal/permission"
+	"github.com/edotau/claude-code/internal/proc"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -204,11 +206,100 @@ func globNeedle(g, home string) string {
 	return best
 }
 
-// extraGlobs are the built-in protected files: settings.local.json, and settings.json for a leaf ("//abs" anchors).
+// extraGlobs are the built-in protected files: settings.local.json, and for a leaf settings.json and the state dir.
 func extraGlobs(leaf bool) []string {
 	globs := []string{"/" + filepath.Join(paths.ConfigDir(), "settings.local.json")}
 	if leaf {
-		globs = append(globs, "/"+filepath.Join(paths.ConfigDir(), "settings.json"))
+		globs = append(globs, "/"+filepath.Join(paths.ConfigDir(), "settings.json"), stateGlob())
 	}
 	return globs
+}
+
+// stateGlob is the harness state dir (dispatch records, permission sources) as a "//abs" glob.
+func stateGlob() string { return "/" + filepath.Join(paths.StateDir(), "**") }
+
+// leafWallVerdict blocks a leaf's dispatch-env tamper and harness-state write as floor walls (R13, 2026-11-22).
+func leafWallVerdict(in *core.Input, cmd, plain string) (core.Decision, string, string) {
+	if !isLeaf(in) {
+		return core.Allow, "", ""
+	}
+	if name := dispatchTamper(in); name != "" && !bashGranted(in.CWD, cmd) {
+		what := "changes " + name + "; a nested dispatch inherits its ancestors' limits and deny rules"
+		return core.Block, core.SafetyMessage(in, core.Block, what, "", "Leave the HARNESS_DISPATCH_* variables as the "+
+			"dispatch set them."+ownerRoute), "dispatch env tamper"
+	}
+	globs := []string{stateGlob()}
+	if p := protectedWrite(cmd, in.CWD, globs, false); p != "" && !bashGranted(in.CWD, cmd) && !wallGranted(in.CWD, p) {
+		return core.Block, core.SafetyMessage(in, core.Block, "writes the harness state dir, which a leaf only reads", p,
+			stateHint), "harness state write"
+	}
+	if needle, _ := interpreterWrite(plain, globs, false); needle != "" && !bashGranted(in.CWD, cmd) {
+		return core.Block, core.SafetyMessage(in, core.Block, "an interpreter script that may write the harness state dir",
+			needle, stateHint), "interpreter harness state write"
+	}
+	return core.Allow, "", ""
+}
+
+const stateHint = "The harness writes its own state; a dispatch the main session starts may lift this with " +
+	"--allow 'Write(/state/harness/<path>)' or a Bash rule for the command."
+
+// mainGrant is the dispatch's Allow and Deny rules when the main session started it (record: no parent, depth 0).
+func mainGrant() (permission.Permissions, bool) {
+	p, set, err := dispatchPolicy()
+	id := os.Getenv(proc.DispatchIDEnv)
+	if err != nil || !set || len(p.Allow) == 0 || id == "" || strings.TrimSpace(os.Getenv(proc.DispatchDepthEnv)) != "0" {
+		return p, false
+	}
+	rec, err := agent.LoadRecord(id) // the record, not the env, says who started it; a leaf cannot write it
+	return p, err == nil && rec.ID == id && rec.Parent == "" && rec.Depth == 0
+}
+
+// shellForms are Bash rule args naming a shell-aware check, never an explicit grant of one command.
+var shellForms = []string{permission.ReadOnlyShellArg, permission.NotReadOnlyShellArg, permission.VerifyShellArg,
+	permission.NotVerifyShellArg, permission.RedirectFileArg, permission.SedPrintArg}
+
+// scopedArg reports a rule arg naming something narrower than everything (not "", "*", "**" or "/**").
+func scopedArg(arg string) bool { return strings.Trim(arg, "*/ :") != "" }
+
+// bashGranted reports a main-started dispatch's explicit Bash allow covering cmd, with no dispatch deny on it.
+func bashGranted(cwd, cmd string) bool {
+	p, ok := mainGrant()
+	if !ok || (permission.Permissions{Mode: permission.PermAllow, Deny: p.Deny}).DecideAt(cwd, "Bash", cmd) == permission.Deny {
+		return false
+	}
+	rules := slices.DeleteFunc(slices.Clone(p.Allow), func(r permission.Rule) bool {
+		return r.Tool != "Bash" || !scopedArg(r.Arg) || slices.Contains(shellForms, r.Arg)
+	})
+	return settingsAllowed(cmd, cwd, rules)
+}
+
+// editProtected reports f (typed as form) under globs; a main-granted state path is judged without the state glob.
+func editProtected(cwd, f, form string, globs []string) bool {
+	if wallGranted(cwd, f) {
+		state := foldedGlobs([]string{stateGlob()}, cwd)
+		globs = slices.DeleteFunc(slices.Clone(globs), func(g string) bool { return slices.Contains(state, g) })
+	}
+	return matchesProtected(f, globs) || f != form && protectedPath(f, globs)
+}
+
+// wallGranted reports a main-started dispatch's explicit Edit/Write allow covering f under the state dir.
+func wallGranted(cwd, f string) bool {
+	if !protectedPath(f, foldedGlobs([]string{stateGlob()}, cwd)) {
+		return false
+	}
+	p, ok := mainGrant()
+	if !ok {
+		return false
+	}
+	deny := permission.Permissions{Mode: permission.PermAllow, Deny: p.Deny}
+	if deny.DecideAt(cwd, "Write", f) == permission.Deny || deny.DecideAt(cwd, "Edit", f) == permission.Deny {
+		return false
+	}
+	return slices.ContainsFunc(p.Allow, func(r permission.Rule) bool {
+		raw := []string{r.Arg}
+		if strings.HasPrefix(r.Arg, "/") { // the settings spelling (/ = config dir) and the absolute one
+			raw = append(raw, "/"+r.Arg)
+		}
+		return (r.Tool == "Edit" || r.Tool == "Write") && scopedArg(r.Arg) && protectedPath(f, foldedGlobs(raw, cwd))
+	})
 }

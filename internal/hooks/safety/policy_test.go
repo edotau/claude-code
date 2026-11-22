@@ -1,12 +1,18 @@
 package safety
 
 import (
+	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/hooks/core"
 	"github.com/edotau/claude-code/internal/paths"
+	"github.com/edotau/claude-code/internal/permission"
 	"github.com/edotau/claude-code/internal/settings"
 )
 
@@ -50,5 +56,75 @@ func TestBareEditDenyMatchesEveryPath(t *testing.T) {
 	globs := foldedGlobs(parsePolicy(settings.PermissionLists{Deny: []string{"Edit"}}).editDeny, "/w")
 	if !matchesProtected("/anywhere/deep/file.txt", globs) {
 		t.Errorf("bare Edit deny globs %q miss an arbitrary path", globs)
+	}
+}
+
+type stateWallCase struct {
+	name, tool, agentID, dispatchID, depth, allow string
+	parent                                        string // the dispatch record's parent; "-" writes no record
+	want                                          core.Decision
+}
+
+var stateWallCases = []stateWallCase{
+	{"leaf bash write", "Bash", "a1", "", "", "", "-", core.Block},
+	{"main bash write", "Bash", "", "", "", "", "-", core.Allow},
+	{"main-started grant", "Bash", "", "d1", "0", "Write(/state/harness/dispatch/**)", "", core.Allow},
+	{"main-started bash grant", "Bash", "", "d1", "0", "Bash(tee:*)", "", core.Allow},
+	{"main-started grant elsewhere", "Bash", "", "d1", "0", "Write(/state/harness/pi/**)", "", core.Block},
+	{"main-started bare allow", "Bash", "", "d1", "0", "Write", "", core.Block},
+	{"nested grant", "Bash", "", "d2", "1", "Write(/state/harness/dispatch/**)", "d1", core.Block},
+	{"carried child grant", "Bash", "", "d2", "0", "Write(/state/harness/dispatch/**)", "d1", core.Block},
+	{"no record grant", "Bash", "", "d3", "0", "Write(/state/harness/dispatch/**)", "-", core.Block},
+	{"leaf edit tool", "Edit", "", "d1", "0", "", "", core.Block},
+	{"main-started edit grant", "Edit", "", "d1", "0", "Edit(/state/harness/dispatch/**)", "", core.Allow},
+}
+
+// setStateWallDispatch exports c's dispatch env and writes its record (none for parent "-").
+func setStateWallDispatch(t *testing.T, c stateWallCase) {
+	t.Setenv("HARNESS_DISPATCH_ID", c.dispatchID)
+	t.Setenv("HARNESS_DISPATCH_DEPTH", c.depth)
+	t.Setenv("HARNESS_DISPATCH_PERMISSIONS", "")
+	_ = os.RemoveAll(paths.DispatchDir())
+	if depth, _ := strconv.Atoi(c.depth); c.parent != "-" {
+		if err := (agent.Record{ID: c.dispatchID, Parent: c.parent, Depth: depth}).Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if c.dispatchID == "" {
+		return
+	}
+	var p permission.Permissions
+	if c.allow != "" {
+		r, err := permission.ParseRule(c.allow)
+		if err != nil {
+			t.Fatal(err)
+		}
+		p.Allow = []permission.Rule{r}
+	}
+	raw, _ := json.Marshal(p)
+	t.Setenv("HARNESS_DISPATCH_PERMISSIONS", string(raw))
+}
+
+func TestLeafStateWall(t *testing.T) {
+	cfg := t.TempDir()
+	t.Setenv("CLAUDE_CONFIG_DIR", cfg)
+	target := filepath.Join(cfg, "state", "harness", "dispatch", "x.json")
+	for _, c := range stateWallCases {
+		t.Run(c.name, func(t *testing.T) {
+			setStateWallDispatch(t, c)
+			input := map[string]string{"command": "tee " + target}
+			if c.tool == "Edit" {
+				input = map[string]string{"file_path": target, "old_string": "a", "new_string": "b"}
+			}
+			payload, _ := json.Marshal(map[string]any{"tool_name": c.tool, "cwd": "/tmp", "agent_id": c.agentID, "tool_input": input})
+			in := core.ParseInput(bytes.NewReader(payload))
+			r := Scan(in)
+			if c.tool == "Edit" {
+				r = protectedEdit(in)
+			}
+			if r.Decision != c.want || c.want == core.Block && !r.Floor {
+				t.Fatalf("decision %v floor %v, want %v (floor): %s", r.Decision, r.Floor, c.want, r.Reason)
+			}
+		})
 	}
 }

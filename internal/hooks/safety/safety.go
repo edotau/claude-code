@@ -210,6 +210,9 @@ func commandVerdict(in *core.Input, cmd, scan string) (core.Decision, string, st
 	if d != core.Allow {
 		return d, warn, detail, true
 	}
+	if d, msg, detail := leafWallVerdict(in, cmd, plain); d != core.Allow {
+		return d, warn + msg, detail, true
+	}
 	if d, msg, detail, deny := settingsVerdict(in, cmd, asked, plain); d != core.Allow || detail == settingsAllowDetail {
 		return d, warn + msg, detail, deny
 	}
@@ -428,15 +431,10 @@ const (
 	interpreterHint = "Approve only if you asked for it; otherwise edit it by hand or run it yourself in a terminal."
 )
 
-// builtinVerdict is the rest: dispatch tamper, settings.local.json and leaf settings.json writes, main-only rules, SQL.
+// builtinVerdict is the rest: settings.local.json and leaf settings.json writes, main-only rules, SQL.
 func builtinVerdict(in *core.Input, cmd, asked, plain string) (core.Decision, string, string) {
-	if name := dispatchTamper(in); name != "" {
-		what := "changes " + name + "; a nested dispatch inherits its ancestors' limits and deny rules"
-		return core.Block, core.SafetyMessage(in, core.Block, what, "", "Leave the HARNESS_DISPATCH_* variables as the "+
-			"dispatch set them."+ownerRoute), "dispatch env tamper"
-	}
 	leaf := isLeaf(in)
-	globs := extraGlobs(leaf)
+	globs := slices.DeleteFunc(extraGlobs(leaf), func(g string) bool { return g == stateGlob() }) // leafWallVerdict's
 	if p := protectedWrite(cmd, in.CWD, globs, leaf); p != "" {
 		return core.Block, core.SafetyMessage(in, core.Block, "writes a file Edit/Write may never touch", p,
 			"Edit it by hand, or run it yourself in a terminal."), "protected write"

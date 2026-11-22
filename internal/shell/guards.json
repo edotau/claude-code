@@ -113,7 +113,7 @@
   },
   "agent_launchers": {
     "purpose": "agent launcher binaries a dispatch-variable tamper check follows into",
-    "words": ["claude-code", "claude", "codex", "copilot", "gemini", "agy", "opencode"]
+    "words": ["claude-code", "claude", "codex", "copilot", "gemini", "agy", "opencode", "pi"]
   },
   "shell_declarers": {
     "purpose": "builtins that declare or export a variable (drift X9: the mktemp rule names three)",
