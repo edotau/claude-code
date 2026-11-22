@@ -100,7 +100,7 @@ func LoadShared() (*Registry, error) {
 	return loadChecked(path)
 }
 
-// loadChecked runs the full stamp check and records its success for LoadShared's recheck window.
+// The vault generation is read before the load, so a write racing it forces LoadShared to recheck.
 func loadChecked(path string) (*Registry, error) {
 	gen, at := vault.WriteGen(), time.Now()
 	reg, err := loadCache.Get(path, loadRegistry)

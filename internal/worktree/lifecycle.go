@@ -392,8 +392,7 @@ func lockReason(locked bool, err error) string {
 	return ""
 }
 
-// cleanBusyReason runs the in-use (lister in, nil = live), lock and operation checks in order; returns the git dir.
-// A non-empty knownGitDir skips the git-dir lookup.
+// Checks run in-use (nil in = live lister), lock, operation; a non-empty knownGitDir skips the git-dir lookup.
 func cleanBusyReason(dest, knownGitDir string, in func(string) ([]Proc, error)) (gitDir, reason string) {
 	if reason := inUseReason(dest, in); reason != "" {
 		return "", reason

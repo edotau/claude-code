@@ -270,8 +270,7 @@ type transcriptFile struct {
 	ok    bool
 }
 
-// sessionTranscriptsInScope lists the projects/*/<session>.jsonl files for --session, else those within --days;
-// all is every projects/*/*.jsonl in glob order (nil for --session).
+// files honours --session, else --days; all is every projects/*/*.jsonl in glob order, nil for --session.
 func sessionTranscriptsInScope(claudeDir string, opts Options, now time.Time) (files []string, all []transcriptFile, err error) {
 	if opts.Session != "" {
 		files, err = plainSessionGlob(claudeDir, opts.Session)

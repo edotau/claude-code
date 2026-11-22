@@ -139,7 +139,7 @@ func Shared(profile string) (Served, bool) {
 	return sharedChecked(path, profile)
 }
 
-// sharedChecked runs the full stamp check and records its result for Shared's recheck window.
+// The save generation is read before the read, so a save racing it forces Shared to recheck.
 func sharedChecked(path, profile string) (Served, bool) {
 	gen, at := saveGen.Load(), time.Now()
 	r, err := servedCache.Get(path, func() (servedRead, error) { return readServed(path, profile) })

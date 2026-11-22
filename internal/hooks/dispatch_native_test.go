@@ -91,7 +91,7 @@ func TestNativeMemoryEntriesAreMemhookRunners(t *testing.T) {
 	}
 }
 
-// SessionStart for a UUID session with a due dream queues it and wakes the stubbed sweep, never relaunching the test binary.
+// A due dream at SessionStart queues and wakes the stubbed sweep, never relaunching the test binary.
 func TestSessionStartMemorySpawnsAreStubbed(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	cwd := t.TempDir()
