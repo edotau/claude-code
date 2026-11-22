@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math/rand/v2"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -228,7 +229,7 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 	cur := passthroughHop{p, route, path, body, model, geminiChat}
 	for { // each hop marks a new sibling tried, so passthroughFallback ends the loop
 		target := cur.target()
-		resp, err := r.sendMethod(in, in.Method, cur.p, target, cur.body, copyClientHeaders(in))
+		resp, body, retried, err := r.sendHop(in, cur, target, isChatCompletion(dialect, cur.path.Path))
 		if err != nil {
 			if next, ok := r.nextHop(in, p, cur, dialect, tried, 0, err, path, original); ok {
 				cur = next
@@ -237,10 +238,7 @@ func (r *Router) passthroughResponse(sw *statusWriter, in *http.Request, p *prov
 			writeSendError(sw, cur.p, err)
 			return cur.model, "", cur.p.Name
 		}
-		retried := ""
-		if isChatCompletion(dialect, cur.path.Path) {
-			resp, cur.body, retried = r.retryWithoutEffort(in, cur.p, target, cur.model, resp, cur.body)
-		}
+		cur.body = body
 		if resp.StatusCode == http.StatusTooManyRequests && !providers.ModelDenied(string(peekBody(resp, 64<<10))) {
 			r.coolDown(cur.p, resp) // a passthrough 429 sinks p in this proxy's /v1/messages ladders too
 		}
@@ -350,6 +348,81 @@ func flattenPassthroughResponse(resp *http.Response, geminiChat bool) error {
 	return nil
 }
 
+const (
+	effortNoneTTL = time.Hour
+	effortNoneCap = 256
+)
+
+// sendHop sends one hop; a chat call to a pair known to refuse tools with effort sends none up front,
+// and if that still answers 400 the pair is forgotten and the plain send-then-retry path runs.
+func (r *Router) sendHop(in *http.Request, cur passthroughHop, target string,
+	chat bool) (*http.Response, []byte, string, error) {
+	if chat && !models.ResponsesOnly(cur.model) && r.effortRefused(cur.p.Name, cur.model) {
+		if none, tools := withEffortNone(cur.body); none != nil && tools {
+			resp, err := r.sendMethod(in, in.Method, cur.p, target, none, copyClientHeaders(in))
+			if err != nil || resp.StatusCode != http.StatusBadRequest {
+				return resp, none, " reasoning_effort=none", err
+			}
+			_ = resp.Body.Close()
+			r.markEffortRefused(cur.p.Name, cur.model, false)
+		}
+	}
+	resp, err := r.sendMethod(in, in.Method, cur.p, target, cur.body, copyClientHeaders(in))
+	if err != nil || !chat {
+		return resp, cur.body, "", err
+	}
+	resp, body, retried := r.retryWithoutEffort(in, cur.p, target, cur.model, resp, cur.body)
+	return resp, body, retried, nil
+}
+
+// withEffortNone is body with reasoning_effort "none" (nil when not a JSON object) and whether it carries tools.
+func withEffortNone(body []byte) ([]byte, bool) {
+	var top map[string]json.RawMessage
+	if json.Unmarshal(body, &top) != nil {
+		return nil, false
+	}
+	top["reasoning_effort"] = json.RawMessage(`"none"`) // deleting it leaves the model default, refused the same
+	out, err := json.Marshal(top)
+	if err != nil {
+		return nil, false
+	}
+	_, tools := top["tools"]
+	return out, tools
+}
+
+func effortKey(provider, model string) string { return provider + "\x00" + model }
+
+func (r *Router) effortRefused(provider, model string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.now().Before(r.effortNone[effortKey(provider, model)])
+}
+
+// markEffortRefused remembers (on) or forgets a pair; a write prunes expired entries and stays under effortNoneCap.
+func (r *Router) markEffortRefused(provider, model string, on bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	key := effortKey(provider, model)
+	if !on {
+		delete(r.effortNone, key)
+		return
+	}
+	now := r.now()
+	for k, until := range r.effortNone {
+		if !now.Before(until) {
+			delete(r.effortNone, k)
+		}
+	}
+	if r.effortNone == nil {
+		r.effortNone = map[string]time.Time{}
+	}
+	if _, ok := r.effortNone[key]; !ok && len(r.effortNone) >= effortNoneCap {
+		return // full of live pairs: this one keeps the retry path
+	}
+	jitter := time.Duration((rand.Float64()*0.2 - 0.1) * float64(effortNoneTTL)) // ±10% so pairs don't expire together
+	r.effortNone[key] = now.Add(effortNoneTTL + jitter)
+}
+
 // retryWithoutEffort resends a chat body once with reasoning_effort "none" after a 400 on tools, even if none was sent;
 // a Responses-only model rejects none, so its 400 passes through.
 func (r *Router) retryWithoutEffort(in *http.Request, p *providers.Provider, target, model string,
@@ -361,13 +434,8 @@ func (r *Router) retryWithoutEffort(in *http.Request, p *providers.Provider, tar
 	if !strings.Contains(msg, "function tools with reasoning_effort") {
 		return resp, body, ""
 	}
-	var top map[string]json.RawMessage
-	if json.Unmarshal(body, &top) != nil {
-		return resp, body, ""
-	}
-	top["reasoning_effort"] = json.RawMessage(`"none"`) // deleting it leaves the model default, refused the same
-	stripped, err := json.Marshal(top)
-	if err != nil {
+	stripped, _ := withEffortNone(body)
+	if stripped == nil {
 		return resp, body, ""
 	}
 	retry, err := r.sendMethod(in, in.Method, p, target, stripped, copyClientHeaders(in))
@@ -375,6 +443,9 @@ func (r *Router) retryWithoutEffort(in *http.Request, p *providers.Provider, tar
 		return resp, body, ""
 	}
 	_ = resp.Body.Close()
+	if retry.StatusCode < http.StatusMultipleChoices {
+		r.markEffortRefused(p.Name, model, true)
+	}
 	fmt.Fprintf(r.log, "proxy: %s: model %s rejected function tools with reasoning_effort; retried with none\n",
 		p.Name, agentToken(model))
 	return retry, stripped, " reasoning_effort=none"

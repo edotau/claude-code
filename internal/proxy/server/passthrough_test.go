@@ -617,6 +617,31 @@ func TestPassthroughNonGeminiChatUntouched(t *testing.T) {
 	}
 }
 
+// After a pair refuses tools with effort and the none retry succeeds, the next request sends none up front: one call.
+func TestPassthroughEffortNoneRemembered(t *testing.T) {
+	const msg = `{"error":{"message":"Function tools with reasoning_effort are not supported"}}`
+	body := `{"model":"databricks-gpt-6-1-terra","reasoning_effort":"high","tools":[{"type":"function","function":{"name":"f"}}]}`
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	var up *rawUp
+	up = newRawUp(t, func(w http.ResponseWriter, r *http.Request, n int) {
+		if !strings.Contains(up.got()[n-1].body, `"reasoning_effort":"none"`) {
+			w.WriteHeader(400)
+			io.WriteString(w, msg)
+			return
+		}
+		okRaw(w, r, n)
+	})
+	t.Setenv("PT_KEY", "prov-cred")
+	srv := setup(t, ptOverlay(up.URL))
+	for i, wantHits := range []int{2, 3} {
+		resp := ptDo(t, http.MethodPost, srv.URL+"/p/pt/openai/chat/completions", body, nil)
+		resp.Body.Close()
+		if g := up.got(); resp.StatusCode != 200 || len(g) != wantHits {
+			t.Fatalf("request %d: status %d, upstream calls %d, want 200/%d", i+1, resp.StatusCode, len(g), wantHits)
+		}
+	}
+}
+
 func toolsRetryBody(body, name string) string {
 	if strings.Contains(name, "no effort") {
 		return strings.Replace(body, `"reasoning_effort":"high",`, "", 1)

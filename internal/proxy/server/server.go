@@ -74,6 +74,8 @@ type Router struct {
 	ka         keepalive
 	// scope|sha256 → uploaded file id (fileCacheTTL), guarded by mu
 	files map[string]fileEntry
+	// provider\x00model → until when its chat tools refuse reasoning_effort, so none goes up front; guarded by mu
+	effortNone map[string]time.Time
 	// sha256 of the bearer the Files API refused; a new credential clears it
 	filesOff  string
 	filesTill time.Time // filesOff holds until then (filesOffTTL)
