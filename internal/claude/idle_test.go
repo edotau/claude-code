@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -309,5 +310,20 @@ func TestClaudeExec429RetriesAreNotActivity(t *testing.T) {
 	})
 	if !errors.Is(r.err, agent.ErrStalled) || !strings.Contains(r.err.Error(), "(429)") {
 		t.Fatalf("err = %v, want a stall naming the 429 retries", r.err)
+	}
+}
+
+func TestParseClaudeEventsWrittenOnlyOnSuccess(t *testing.T) {
+	use := func(id, name, path string) string {
+		return `{"type":"assistant","message":{"content":[{"type":"tool_use","id":"` + id + `","name":"` + name + `","input":{"file_path":"` + path + `"}}]}}`
+	}
+	res := func(id, isErr string) string {
+		return `{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"` + id + `","is_error":` + isErr + `,"content":"x"}]}}`
+	}
+	stream := strings.Join([]string{initLine, use("a", "Write", "/x/a.txt"), res("a", "false"),
+		use("b", "Edit", "/x/b.txt"), res("b", "true"), use("c", "Read", "/x/c.txt"), res("c", "false"), resultLine}, "\n") + "\n"
+	got, err := parseClaudeEvents(bufio.NewReader(strings.NewReader(stream)), false, nil, wire.Discard, nil)
+	if err != nil || !slices.Equal(got.Written, []string{"/x/a.txt"}) {
+		t.Fatalf("Written = %v, err = %v; want only /x/a.txt", got.Written, err)
 	}
 }

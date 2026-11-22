@@ -142,11 +142,19 @@ func (t *ocTurn) tool(ev openCodeEvent) error {
 	if err := emitOpenCodeTool(t.sink, ev, t.seenTools); err != nil {
 		return err
 	}
-	if t.onTool != nil && ev.Part.State.Status == "completed" {
+	if ev.Part.State.Status != "completed" {
+		return nil
+	}
+	if path, _ := ev.Part.State.Input["filePath"].(string); path != "" && openCodeWriteTools[ev.Part.Tool] {
+		t.res.Written = append(t.res.Written, path)
+	}
+	if t.onTool != nil {
 		t.onTool(ev)
 	}
 	return nil
 }
+
+var openCodeWriteTools = map[string]bool{"write": true, "edit": true, "multiedit": true}
 
 func (t *ocTurn) stepFinish(ev openCodeEvent) {
 	tk := ev.Part.Tokens

@@ -1,9 +1,13 @@
 package opencode
 
 import (
+	"bufio"
+	"slices"
+	"strings"
 	"testing"
 
 	"github.com/edotau/claude-code/internal/agent"
+	"github.com/edotau/claude-code/internal/agent/wire"
 )
 
 // A tools-off answer that is only tool-call markup (the live 2026-11-05 shape) is an error; prose, or tools on, is not.
@@ -24,5 +28,16 @@ func TestRefuseToolCallText(t *testing.T) {
 		if err := refuseToolCallText("opencode", tc.req, tc.answer); (err != nil) != tc.want {
 			t.Errorf("%s: err = %v, want error %v", tc.name, err, tc.want)
 		}
+	}
+}
+
+func TestParseOpenCodeEventsWritten(t *testing.T) {
+	ev := func(tool, status, path string) string {
+		return `{"type":"tool_use","part":{"tool":"` + tool + `","callID":"` + tool + status + `","state":{"status":"` + status + `","input":{"filePath":"` + path + `"}}}}`
+	}
+	stream := strings.Join([]string{ev("write", "completed", "/x/b.txt"), ev("edit", "error", "/x/e.txt"), ev("read", "completed", "/x/r.txt")}, "\n")
+	res, err := parseOpenCodeEvents(bufio.NewReader(strings.NewReader(stream)), wire.Discard, nil, nil, nil)
+	if err != nil || !slices.Equal(res.Written, []string{"/x/b.txt"}) {
+		t.Fatalf("Written = %v, err = %v; want only /x/b.txt", res.Written, err)
 	}
 }

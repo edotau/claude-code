@@ -2,6 +2,7 @@ package claude
 
 import (
 	"bufio"
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/json"
@@ -477,7 +478,9 @@ func parseClaudeEvents(br *bufio.Reader, untilResult bool, wd *idleWatch, sink w
 		}
 		return res, err
 	}
+	edits := fileEdits{}
 	tr, err := wire.DecodeEvents(br, lg, "decode stream-json", false, nil, func(ev claudeEvent, ts *wire.TransportTracker) (bool, error) {
+		edits.observe(ev, &res)
 		msg := ev.topMessage()
 		if !sawResult {
 			res.Usage = usage.observe(ev, msg)
@@ -587,6 +590,53 @@ func (s claudeStreamState) emitResultOnly(ev claudeEvent) error {
 		return nil
 	}
 	return s.seen.Emit(s.sink, ev.Result, true)
+}
+
+// fileEdits pairs file-writing tool_use blocks with their non-error tool_results by id.
+type fileEdits map[string]string
+
+var fileEditTools = map[string]bool{"Write": true, "Edit": true, "MultiEdit": true, "NotebookEdit": true}
+
+type editBlock struct {
+	Type      string `json:"type"`
+	ID        string `json:"id"`
+	Name      string `json:"name"`
+	ToolUseID string `json:"tool_use_id"`
+	IsError   bool   `json:"is_error"`
+	Input     struct {
+		FilePath     string `json:"file_path"`
+		NotebookPath string `json:"notebook_path"`
+	} `json:"input"`
+}
+
+// observe records a written path in res.Written once its tool_result succeeds.
+func (f fileEdits) observe(ev claudeEvent, res *wire.Result) {
+	if ev.Type != "assistant" && ev.Type != "user" || !bytes.Contains(ev.Message, []byte(`"tool_`)) {
+		return
+	}
+	var m struct {
+		Content []editBlock `json:"content"`
+	}
+	if json.Unmarshal(ev.Message, &m) != nil {
+		return
+	}
+	for _, b := range m.Content {
+		f.block(b, res)
+	}
+}
+
+func (f fileEdits) block(b editBlock, res *wire.Result) {
+	switch b.Type {
+	case "tool_use":
+		if path := cmp.Or(b.Input.FilePath, b.Input.NotebookPath); fileEditTools[b.Name] && path != "" {
+			f[b.ID] = path
+		}
+	case "tool_result":
+		if path, ok := f[b.ToolUseID]; ok && !b.IsError {
+			res.Written = append(res.Written, path)
+		}
+		delete(f, b.ToolUseID)
+	}
 }
 
 // gateBlockPrefix starts every Reason the permission-gate hook blocks with (internal/hooks/safety/permission.go).
