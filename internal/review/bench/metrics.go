@@ -2,10 +2,12 @@ package bench
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -34,6 +36,9 @@ type Env struct {
 	Power      string  `json:"power,omitempty"`
 	Thermal    string  `json:"thermal,omitempty"`
 	Load1      float64 `json:"load1"`
+	// LoadUnknown means no load could be read; Load1 then holds the CPU count so the run reads as noisy.
+	LoadUnknown bool   `json:"load_unknown,omitempty"`
+	GitError    string `json:"git_error,omitempty"`
 }
 
 // procUsage is the go test process's rusage; zero means not collected (Windows).
@@ -56,17 +61,28 @@ type RunStats struct {
 }
 
 func collectEnv(top string) Env {
-	sha, _ := source.GitInherit(top, "rev-parse", "--short", "HEAD")
-	dirty, _ := source.GitInherit(top, "status", "--porcelain")
+	sha, shaErr := source.GitInherit(top, "rev-parse", "--short", "HEAD")
+	dirty, dirtyErr := source.GitInherit(top, "status", "--porcelain")
 	gov, _ := out("go", "version")
 	total, avail := memInfo()
+	load, loadOK := readLoad()
 	e := Env{
 		Commit: sha, Dirty: dirty != "", Go: strings.TrimSpace(string(gov)), GOOS: runtime.GOOS,
 		GOARCH: runtime.GOARCH, Machine: machineName(), CPUs: runtime.NumCPU(), GOMAXPROCS: runtime.GOMAXPROCS(0),
-		MemTotalMB: total, MemAvailMB: avail, Load1: loadAverage(),
+		MemTotalMB: total, MemAvailMB: avail, Load1: load, LoadUnknown: !loadOK,
 	}
+	e = withGitErrors(e, shaErr, dirtyErr)
 	if runtime.GOOS == "darwin" {
 		e.Power, e.Thermal = powerSource(), thermalHint()
+	}
+	return e
+}
+
+// withGitErrors records failed git probes; a failed status counts as dirty so the run never advances rolling.txt.
+func withGitErrors(e Env, errs ...error) Env {
+	if err := errors.Join(errs...); err != nil {
+		e.GitError = err.Error()
+		e.Dirty = true
 	}
 	return e
 }
@@ -104,24 +120,56 @@ func parseLoad(s string) float64 {
 	return v
 }
 
+// loadAverage returns the CPU count when no load can be read (Windows), so the run is never judged quiet.
 func loadAverage() float64 {
-	if b, err := os.ReadFile("/proc/loadavg"); err == nil {
-		return parseLoad(string(b))
-	}
-	if b, err := out("sysctl", "-n", "vm.loadavg"); err == nil {
-		return parseLoad(string(b))
-	}
-	return 0
+	load, _ := readLoad()
+	return load
 }
 
+func readLoad() (float64, bool) {
+	if b, err := os.ReadFile("/proc/loadavg"); err == nil {
+		return parseLoad(string(b)), true
+	}
+	if runtime.GOOS == "darwin" {
+		if b, err := out("sysctl", "-n", "vm.loadavg"); err == nil {
+			return parseLoad(string(b)), true
+		}
+	}
+	return float64(runtime.NumCPU()), false
+}
+
+// genericModels are DMI placeholders shared by many hosts; such a name alone cannot tell machines apart.
+var genericModels = []string{"standard pc", "virtual machine", "vmware", "kvm", "to be filled", "system product name",
+	"default string", "not specified"}
+
 func machineName() string {
-	if b, err := out("sysctl", "-n", "hw.model"); err == nil {
-		return strings.TrimSpace(string(b))
+	model := ""
+	if runtime.GOOS == "darwin" {
+		if b, err := out("sysctl", "-n", "hw.model"); err == nil {
+			model = strings.TrimSpace(string(b))
+		}
+	} else if b, err := os.ReadFile("/sys/devices/virtual/dmi/id/product_name"); err == nil {
+		model = strings.TrimSpace(string(b))
 	}
-	if b, err := os.ReadFile("/sys/devices/virtual/dmi/id/product_name"); err == nil {
-		return strings.TrimSpace(string(b))
+	host, _ := os.Hostname()
+	return pickMachine(model, host)
+}
+
+// pickMachine keeps a specific hardware model; a missing or generic one gains the hostname so hosts stay distinct.
+func pickMachine(model, host string) string {
+	lower := strings.ToLower(model)
+	generic := model == "" || slices.ContainsFunc(genericModels, func(g string) bool { return strings.Contains(lower, g) })
+	switch {
+	case !generic:
+		return model
+	case host == "" && model == "":
+		return "unknown"
+	case host == "":
+		return model
+	case model == "":
+		return host
 	}
-	return "unknown"
+	return model + " (" + host + ")"
 }
 
 // memInfo returns total and available MB, 0 when the platform has no cheap source.

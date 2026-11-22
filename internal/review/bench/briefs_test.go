@@ -1,6 +1,7 @@
 package bench
 
 import (
+	"maps"
 	"strings"
 	"testing"
 )
@@ -33,6 +34,11 @@ func TestRenderBrief(t *testing.T) {
 				values["OwnedLine"], "cd '/tmp/owner'\"'\"'s lane'", "D1", "D6")
 			checkBriefSections(t, got, required)
 		})
+	}
+	empty := maps.Clone(values)
+	empty["Diff"] = "```diff\n\n```"
+	if got, err := RenderBrief("review", empty); err != nil || !strings.Contains(got, noDiff) {
+		t.Errorf("empty diff: %v, placeholder missing", err)
 	}
 	for _, kind := range []string{"fix", "review", "unknown"} {
 		if got, err := RenderBrief(kind, nil); err == nil || got != "" {

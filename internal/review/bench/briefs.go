@@ -4,6 +4,7 @@ import (
 	"bytes"
 	_ "embed"
 	"fmt"
+	"maps"
 	"strings"
 	"text/template"
 )
@@ -25,8 +26,12 @@ func RenderBrief(kind string, values map[string]string) (string, error) {
 	default:
 		return "", fmt.Errorf("unknown bench brief %q", kind)
 	}
+	values = maps.Clone(values)
 	for key, value := range values {
-		if strings.TrimSpace(value) == "" {
+		switch {
+		case key == "Diff" && emptyDiff(value):
+			values[key] = noDiff
+		case strings.TrimSpace(value) == "":
 			return "", fmt.Errorf("bench brief %s: empty %s", kind, key)
 		}
 	}
@@ -42,4 +47,13 @@ func RenderBrief(kind string, values map[string]string) (string, error) {
 		return "", fmt.Errorf("render bench brief %s: %w", kind, err)
 	}
 	return out.String(), nil
+}
+
+// noDiff stands in for a fix that changed nothing, so the review still dispatches and can answer REVERT.
+const noDiff = "(empty diff: the fix changed no file; REVERT unless the lane diff shows otherwise)"
+
+// emptyDiff is true for a blank diff, bare or inside the driver's ```diff fence.
+func emptyDiff(s string) bool {
+	s = strings.TrimSuffix(strings.TrimSpace(s), "```")
+	return strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "```diff")) == ""
 }
