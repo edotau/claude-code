@@ -203,3 +203,40 @@ func TestStateWritesContainPanic(t *testing.T) {
 		})
 	}
 }
+
+// Only a token-budget 429 counts as TPM; a request-rate or unrelated 429 stays on the ordinary cooling path.
+func TestQuotaTPMLimitedNeedsTokenBudget(t *testing.T) {
+	for _, c := range []struct {
+		status int
+		body   string
+		want   bool
+	}{
+		{429, `{"error_code":"REQUEST_LIMIT_EXCEEDED","message":"Exceeded workspace input tokens per minute rate limit for m"}`, true},
+		{429, `{"error":{"code":"REQUEST_LIMIT_EXCEEDED","message":"Output Tokens Per Minute limit hit"}}`, true},
+		{429, `{"error_code":"REQUEST_LIMIT_EXCEEDED","message":"Exceeded 100 requests per minute"}`, false},
+		{429, `{"error_code":"RATE_LIMIT","message":"input tokens per minute"}`, false},
+		{503, `{"error_code":"REQUEST_LIMIT_EXCEEDED","message":"input tokens per minute"}`, false},
+	} {
+		if got := tpmLimited(c.status, []byte(c.body)); got != c.want {
+			t.Errorf("tpmLimited(%d, %s) = %v, want %v", c.status, c.body, got, c.want)
+		}
+	}
+}
+
+// A model cool lands in quota.json, so a fresh router (another proxy or a restart) sees the same hold.
+func TestQuotaModelCoolingPersists(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	p := &providers.Provider{Name: "dev"}
+	cooled, other := providers.Target{Provider: p, Model: "m1"}, providers.Target{Provider: p, Model: "m2"}
+	r := newRouter("s")
+	r.log = io.Discard
+	r.coolModel(cooled, &http.Response{Header: http.Header{"Retry-After": {"60"}}})
+	r.bg.Wait()
+	fresh := newRouter("s")
+	if !fresh.modelCooling(cooled) {
+		t.Error("a fresh router must read the persisted model hold")
+	}
+	if fresh.modelCooling(other) {
+		t.Error("a per-model hold must not cool another model on the same workspace")
+	}
+}

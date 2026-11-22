@@ -16,6 +16,7 @@ import (
 )
 
 var persistModelDead = router.MarkModelDead
+var persistModelCooling = router.MarkModelCooling
 var probeCredential = providers.CredentialPresent
 var credInflight sync.Map // probes in flight, keyed by credProbe
 var credMissTTL = 5 * time.Second
@@ -146,7 +147,7 @@ func (r *Router) markDead(t providers.Target) {
 	})
 }
 
-// tpmLimited reports a Databricks 429 body naming the workspace's per-minute token budget for the model.
+// tpmLimited reports a Databricks 429 naming a per-minute token budget ("input tokens per minute"); RPM stays out.
 func tpmLimited(status int, body []byte) bool {
 	if status != http.StatusTooManyRequests {
 		return false
@@ -161,22 +162,33 @@ func tpmLimited(status int, body []byte) bool {
 	}
 	_ = json.Unmarshal(body, &e)
 	return cmp.Or(e.Code, e.Error.Code) == "REQUEST_LIMIT_EXCEEDED" &&
-		strings.Contains(cmp.Or(e.Message, e.Error.Message), "per minute")
+		strings.Contains(strings.ToLower(cmp.Or(e.Message, e.Error.Message)), "tokens per minute")
 }
 
-// coolModel holds t's (workspace, model) pair for resp's Retry-After (30 s default, 5 min cap) in r.cool.
+// coolModel holds t's (workspace, model) pair for resp's Retry-After (30 s default, 5 min cap), persisted too.
 func (r *Router) coolModel(t providers.Target, resp *http.Response) {
 	now := r.now()
 	until := now.Add(retryAfter(resp.Header, now))
 	r.mu.Lock()
 	r.cool[deadKey(t)] = until
 	r.mu.Unlock()
+	goStateWrite(r, func() {
+		ran, err := persistModelCooling(router.AccountOf(t.Provider), t.Model, until, now)
+		if err != nil || !ran {
+			fmt.Fprintf(r.log, "proxy: persist %s %s cooling: %v\n", t.Provider.Name, t.Model,
+				cmp.Or(err, errors.New("state lock busy")))
+		}
+	})
 }
 
+// modelCooling reports a per-model hold from this process or quota.json (another proxy or CLI on this machine).
 func (r *Router) modelCooling(t providers.Target) bool {
+	state, _ := r.routeStateAt()
+	now := r.now()
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	return r.now().Before(r.cool[deadKey(t)])
+	local := now.Before(r.cool[deadKey(t)])
+	r.mu.Unlock()
+	return local || state.ModelCoolingUntil(router.AccountOf(t.Provider), t.Model).After(now)
 }
 
 // hopBlocked reports a hop target that is cooling, quota-dead for its model, auth-marked or without a credential.

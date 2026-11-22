@@ -37,3 +37,19 @@ func TestMarkCooling(t *testing.T) {
 		t.Errorf("MarkCooling(·own) = %v, %v; want nothing written", ran, err)
 	}
 }
+
+func TestMarkModelCoolingSitsBesideAccountHold(t *testing.T) {
+	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
+	now := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+	const acct = "databricks·dev"
+	if ran, err := MarkModelCooling(acct, "databricks-claude-opus-5-5", now.Add(time.Minute), now); err != nil || !ran {
+		t.Fatalf("MarkModelCooling = %v, %v", ran, err)
+	}
+	s := LoadState()
+	if got := s.ModelCoolingUntil(acct, "databricks-claude-opus-5-5"); !got.Equal(now.Add(time.Minute)) {
+		t.Errorf("ModelCoolingUntil = %v, want %v", got, now.Add(time.Minute))
+	}
+	if !s.CoolingUntil(acct).IsZero() || !s.ModelCoolingUntil(acct, "databricks-claude-sonnet-5-5").IsZero() {
+		t.Error("a per-model hold must not cool the account or another model")
+	}
+}
