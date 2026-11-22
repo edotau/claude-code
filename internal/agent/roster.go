@@ -535,6 +535,8 @@ func pinProfile(rec vault.AgentRecord) string {
 		return PoolPin
 	case rt.Profile != "":
 		return rt.Profile
+	case rt.Provider == "github" && rt.Account != "":
+		return rec.FallbackRoute.Profile
 	}
 	return ""
 }

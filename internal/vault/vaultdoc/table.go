@@ -408,7 +408,7 @@ func vaultAgentTable(names []string, width int, color bool) string {
 	}
 	rows, codes := make([][]string, len(names)), make([]string, len(names))
 	for i, n := range names {
-		rows[i], codes[i] = vaultAgentRow(n, cols, per[i], recs[n].Route.Profile == "", color)
+		rows[i], codes[i] = vaultAgentRow(n, cols, per[i], recs[n].Route.IsZero(), color)
 	}
 	head, colMax, rows = table.DropEmptyCols(head, colMax, rows)
 	return table.Styled(head, colMax, rows, width, codes, color)

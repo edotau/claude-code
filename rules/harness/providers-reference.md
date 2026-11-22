@@ -99,8 +99,8 @@ shows secrets as `<prefix>***  N chars` and marks failing entries ✗ first (`--
 
 ```jsonc
 {
-  "agents": {"records": {"claude": {"profile": "ultra", "aliases": {"haiku": "gpt-5-nano"}},
-                         "codex": {"profile": "chatgpt", "model": "databricks-gpt-6-astra", "effort": "medium"}}},
+  "agents": {"records": {"claude": {"route": {"provider": "anthropic", "profile": "ultra"}, "aliases": {"haiku": "gpt-5-nano"}},
+                         "codex": {"route": {"provider": "openai", "profile": "chatgpt"}, "model": "databricks-gpt-6-astra", "effort": "medium"}}},
   "env": {"MY_PROJECT_ROOT": "/home/me/work", "SOME_API_TOKEN": "@secret"},   // @secret = vault secret of that name
   "providers": {"default": "example"}, "vault": {"key_command": ""}
 }

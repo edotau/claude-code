@@ -630,15 +630,15 @@ func TestSessionProfileOnlyUsesRecordProfile(t *testing.T) {
 }
 
 func TestRecordDiffRouteFormRedactsEnv(t *testing.T) {
-	legacy := map[string]vault.AgentRecord{"codex": {Route: route.Route{Profile: "qa"}, FallbackRoute: route.Route{Profile: "dev"}}}
+	bareRoutes := map[string]vault.AgentRecord{"codex": {Route: route.Route{Profile: "qa"}, FallbackRoute: route.Route{Profile: "dev"}}}
 	reg := &Registry{Providers: map[string]*Provider{"qa": {Provider: "databricks"}, "dev": {Provider: "databricks"}}}
 	migrated := map[string]vault.AgentRecord{"codex": {
 		Route: route.Route{Provider: "databricks", Profile: "qa"}, FallbackRoute: route.Route{Provider: "databricks", Profile: "dev"}}}
-	if got := recordDiff(reg, legacy, migrated); len(got) != 0 {
-		t.Fatalf("legacy vs migrated = %v, want none", got)
+	if got := recordDiff(reg, bareRoutes, migrated); len(got) != 0 {
+		t.Fatalf("bare routes vs completed routes = %v, want none", got)
 	}
 	after := map[string]vault.AgentRecord{"codex": {Permissions: &vault.AgentPolicy{Mode: "auto"}, Launch: &vault.AgentLaunch{Env: []string{"TOKEN=s3cret"}}, Route: route.Route{Profile: "qa"}, FallbackRoute: route.Route{Profile: "dev"}}}
-	got := strings.Join(recordDiff(nil, legacy, after), "\n")
+	got := strings.Join(recordDiff(nil, bareRoutes, after), "\n")
 	if !strings.Contains(got, "codex.permissions.mode: (unset) → auto") || !strings.Contains(got, "codex.launch.env: (changed)") ||
 		strings.Contains(got, "s3cret") {
 		t.Fatalf("diff = %q", got)
