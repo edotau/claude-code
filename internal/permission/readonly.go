@@ -720,7 +720,7 @@ type opDir struct {
 
 // readOnlyReadDenied: a Read deny exists and the segment's operand matches it or its operands cannot be listed.
 func readOnlyReadDenied(p Permissions, seg string, at opDir) bool {
-	if !slices.Contains(p.Allow, ReadOnlyAllow) {
+	if !slices.Contains(p.Allow, ReadOnlyAllow) && !slices.Contains(p.Allow, Rule{Tool: "Bash", Arg: VerifyShellArg}) {
 		return false
 	}
 	var reads []Rule

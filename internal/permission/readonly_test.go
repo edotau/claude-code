@@ -695,6 +695,16 @@ func TestLiteralReadersHonorReadDeny(t *testing.T) {
 			t.Errorf("%q = %v, want %v", cmd, got, want)
 		}
 	}
+	v := Permissions{Allow: []Rule{{Tool: "Bash", Arg: VerifyShellArg}},
+		Deny: []Rule{{Tool: "Bash", Arg: NotVerifyShellArg}, {Tool: "Read", Arg: "/audit/private.txt"}}}
+	for cmd, want := range map[string]Decision{
+		"cat /audit/private.txt": Deny, "head -n 1 /audit/private.txt": Deny, "grep x /audit/private.txt": Deny,
+		"cat /audit/other.txt": Allow, "grep x /audit/other.txt": Allow, "go build ./...": Allow, "go test ./internal/x": Allow,
+	} {
+		if got := v.Decide("Bash", cmd); got != want {
+			t.Errorf("verify %q = %v, want %v", cmd, got, want)
+		}
+	}
 }
 
 // The read-only check runs on every Bash call of a --read-only agent.
