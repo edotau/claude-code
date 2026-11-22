@@ -189,6 +189,34 @@ func TestWorkflowRunDirsAndAgentFiles(t *testing.T) {
 	}
 }
 
+func BenchmarkLastUsage(b *testing.B) {
+	older := `{"type":"assistant","message":{"model":"older-model","usage":{"input_tokens":1}}}` + "\n"
+	latest := `{"type":"assistant","message":{"model":"bench-model","usage":{"input_tokens":100,"cache_read_input_tokens":200,"cache_creation_input_tokens":30,"output_tokens":4}}}` + "\n"
+	filler := `{"type":"user","message":{"content":"` + strings.Repeat("x", 1024) + `"}}` + "\n"
+	want := Usage{Tokens: 334, Model: "bench-model"}
+	for _, sizeMiB := range []int{5, 20} {
+		for _, mode := range []string{"tail", "full_scan"} {
+			b.Run(fmt.Sprintf("%dMiB/%s", sizeMiB, mode), func(b *testing.B) {
+				padding := strings.Repeat(filler, (sizeMiB<<20)/len(filler))
+				content := older + padding + latest + filler
+				if mode == "full_scan" {
+					content = older + latest + padding
+				}
+				path := filepath.Join(b.TempDir(), "usage.jsonl")
+				if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+					b.Fatal(err)
+				}
+				b.ReportAllocs()
+				for b.Loop() {
+					if got, ok := LastUsage(path); !ok || got != want {
+						b.Fatalf("LastUsage = %+v, %v; want %+v, true", got, ok, want)
+					}
+				}
+			})
+		}
+	}
+}
+
 func TestWindow(t *testing.T) {
 	t.Setenv("ANTHROPIC_MODEL", "")
 	t.Setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "claude-opus-5[1m]")
