@@ -52,10 +52,13 @@ func UpdateIfNew(r UpdateRequest, trigger string, now time.Time) GateResult {
 	return res
 }
 
+// stampLockWait caps the stamp-lock wait below the shortest memory hook budget (memory-end, 15 s).
+var stampLockWait = 5 * time.Second
+
 // withStampLock runs fn under the session's stamp lock; with no lock, unserialized beats skipping.
 func withStampLock(sessionID string, fn func()) {
 	ran := false
-	err := paths.WithFileLock(stampPath(sessionID), func() error {
+	err := paths.WithFileLockWithin(stampPath(sessionID), stampLockWait, func() error {
 		ran = true
 		fn()
 		return nil
