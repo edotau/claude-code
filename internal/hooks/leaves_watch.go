@@ -311,10 +311,7 @@ func markCollected(in *core.Input) error {
 	if !strings.Contains(cmd, "claude-code") && !strings.Contains(cmd, paths.HookBinaryName) {
 		return nil
 	}
-	ids := ownIDs(cmp.Or(in.Nested("tool_response", "stdout"), in.ToolResponseText()))
-	if job, _, ok := pollJob(cmd); ok {
-		ids = append(ids, job)
-	}
+	ids := append(ownIDs(cmp.Or(in.Nested("tool_response", "stdout"), in.ToolResponseText())), namedJobs(cmd)...)
 	var errs []error
 	for _, id := range ids {
 		if id == "" {
@@ -329,4 +326,21 @@ func markCollected(in *core.Input) error {
 		}
 	}
 	return errors.Join(errs...)
+}
+
+// namedJobs is every literal dispatch id the command's `claude-code agents result|wait` segments name.
+func namedJobs(cmd string) []string {
+	var ids []string
+	for _, toks := range relayCommands(cmd) {
+		toks = agentCommand(toks)
+		if len(toks) < 3 || toks[0] != "agents" || toks[1] != "result" && toks[1] != "wait" {
+			continue
+		}
+		for _, a := range toks[2:] {
+			if jobArgRe().MatchString(a) {
+				ids = append(ids, a)
+			}
+		}
+	}
+	return ids
 }

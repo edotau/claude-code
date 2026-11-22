@@ -132,6 +132,28 @@ func TestMarkCollectedOnlyEndedJobs(t *testing.T) {
 	}
 }
 
+func TestMarkCollectedEveryNamedJob(t *testing.T) {
+	watchStubs(t)
+	ids := map[string]string{"20261116T100000.000-codex": "ok", "20261116T100100.000-pi": "ok", "20261116T100200.000-codex": "running"}
+	for id, status := range ids {
+		if err := (agent.Record{ID: id, Agent: "codex", Status: status}).Save(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	cmd := "claude-code agents wait 20261116T100000.000-codex 20261116T100200.000-codex --timeout 590s; " +
+		"claude-code agents result 20261116T100000.000-codex >/dev/null; claude-code agents result 20261116T100100.000-pi"
+	in := core.ParseInput(strings.NewReader(`{"hook_event_name":"PostToolUse","tool_name":"Bash",` +
+		`"tool_input":{"command":"` + cmd + `"},"tool_response":{"stdout":""}}`))
+	if err := markCollected(in); err != nil {
+		t.Fatal(err)
+	}
+	for id, status := range ids {
+		if _, err := os.Stat(agent.WatchMarker("collected", id)); (err == nil) != (status == "ok") {
+			t.Fatalf("%s (%s): collected marker present=%v, want %v", id, status, err == nil, status == "ok")
+		}
+	}
+}
+
 func TestRunningLine(t *testing.T) {
 	now := time.Date(2026, 11, 19, 20, 10, 0, 0, time.UTC)
 	rec := func(id, ag, task string, age time.Duration) agent.Record {
