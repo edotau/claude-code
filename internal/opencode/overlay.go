@@ -18,7 +18,7 @@ import (
 
 // renderOpenCodeOverlay writes the tracked opencode.json/tui.json overlay templates.
 func renderOpenCodeOverlay(o agentconfig.RenderOptions, out io.Writer) (bool, error) {
-	cfgPath, cfgBody, tuiPath, tuiBody, err := agentconfig.OpencodeOverlayRendered()
+	cfgPath, cfgBody, tuiPath, tuiBody, err := agentconfig.OpencodeOverlayRendered(opencodeOverlayModels)
 	if err != nil {
 		return false, fmt.Errorf("opencode: %w", err)
 	}

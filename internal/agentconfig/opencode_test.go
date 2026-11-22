@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/vault"
 	"github.com/edotau/claude-code/internal/vault/vaulttest"
 )
@@ -29,7 +30,7 @@ func TestWriteOpencodeOverlayWritesBothFiles(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Use(t)
 	vaulttest.Put(t, vault.Overlay, "providers", `{"routing":{"cells":{"opencode":{"sonnet":{"model":"github-copilot/fix-sonnet"},"haiku":{"model":"github-copilot/fix-haiku"}}}}}`)
-	cfg, tui, err := WriteOpencodeOverlay()
+	cfg, tui, err := WriteOpencodeOverlay(router.OpencodeTableModels)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -72,7 +73,7 @@ func TestApplyOpencodeTableModelsKeepsUnparsableTemplate(t *testing.T) {
 	t.Setenv("CLAUDE_CONFIG_DIR", t.TempDir())
 	vaulttest.Use(t)
 	bad := []byte("not json")
-	if got := applyOpencodeTableModels(bad); string(got) != string(bad) {
+	if got := applyOpencodeTableModels(bad, router.OpencodeTableModels); string(got) != string(bad) {
 		t.Errorf("applyOpencodeTableModels = %s, want the input unchanged", got)
 	}
 }

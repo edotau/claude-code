@@ -107,7 +107,7 @@ func TestOpencodeCopilotOnlyOverlayModels(t *testing.T) {
 	if !ok {
 		t.Fatal("no copilot model ids")
 	}
-	_, body, _, _, err := agentconfig.OpencodeOverlayRendered()
+	_, body, _, _, err := agentconfig.OpencodeOverlayRendered(opencodeOverlayModels)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,7 +128,7 @@ func TestOpencodeOverlayModelsFollowTable(t *testing.T) {
 	isolateOpencodeRouteEnv(t)
 	vaulttest.Use(t)
 	render := func() map[string]any {
-		_, body, _, _, err := agentconfig.OpencodeOverlayRendered()
+		_, body, _, _, err := agentconfig.OpencodeOverlayRendered(opencodeOverlayModels)
 		if err != nil {
 			t.Fatal(err)
 		}

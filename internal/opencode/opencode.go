@@ -194,7 +194,7 @@ func opencodeToolsOff(cfg map[string]any) {
 
 // opencodeMCPOff disables each MCP server named in the rendered overlay; nil when it cannot be rendered.
 func opencodeMCPOff() map[string]any {
-	_, body, _, _, err := agentconfig.OpencodeOverlayRendered()
+	_, body, _, _, err := agentconfig.OpencodeOverlayRendered(opencodeOverlayModels)
 	if err != nil {
 		return nil
 	}
@@ -399,8 +399,6 @@ func opencodeOverlayModels() (mainModel, smallModel string, ok bool) {
 	return router.OpencodeTableModels()
 }
 
-func init() { agentconfig.OverlayModels = opencodeOverlayModels }
-
 type opencodeEngine struct{ agent.BaseEngine }
 
 var _ agent.HeadlessDriver = opencodeEngine{}
@@ -557,7 +555,7 @@ func (opencodeEngine) LaunchEnv() []string {
 	if err != nil && !errors.As(err, &missing) {
 		fmt.Fprintln(agent.NoticeOut, "opencode:", err)
 	}
-	cfg, tui, err := agentconfig.WriteOpencodeOverlay()
+	cfg, tui, err := agentconfig.WriteOpencodeOverlay(opencodeOverlayModels)
 	if err != nil {
 		fmt.Fprintln(agent.NoticeOut, "opencode: overlay:", err)
 		return env

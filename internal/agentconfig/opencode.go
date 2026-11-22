@@ -7,7 +7,6 @@ import (
 	"path/filepath"
 
 	"github.com/edotau/claude-code/internal/paths"
-	"github.com/edotau/claude-code/internal/router"
 	"github.com/edotau/claude-code/internal/schemas"
 	"github.com/edotau/claude-code/internal/textutil"
 )
@@ -25,13 +24,13 @@ var _ = schemas.Register(schemas.Format{
 func opencodeOverlayDir() string { return filepath.Join(paths.StateDir(), "opencode") }
 
 // OpencodeOverlayRendered computes the overlay's two files unwritten: table models in, the applied theme kept.
-func OpencodeOverlayRendered() (cfgPath string, cfgBody []byte, tuiPath string, tuiBody []byte, err error) {
+func OpencodeOverlayRendered(models func() (string, string, bool)) (cfgPath string, cfgBody []byte, tuiPath string, tuiBody []byte, err error) {
 	dir := opencodeOverlayDir()
 	cfgBody, err = opencodeOverlayFS.ReadFile("template/opencode.json")
 	if err != nil {
 		return "", nil, "", nil, err
 	}
-	cfgBody = applyOpencodeTableModels(cfgBody)
+	cfgBody = applyOpencodeTableModels(cfgBody, models)
 	tuiTemplate, err := opencodeOverlayFS.ReadFile("template/opencode-tui.json")
 	if err != nil {
 		return "", nil, "", nil, err
@@ -44,12 +43,9 @@ func OpencodeOverlayRendered() (cfgPath string, cfgBody []byte, tuiPath string, 
 	return cfgPath, cfgBody, tuiPath, tuiBody, nil
 }
 
-// OverlayModels yields the overlay's model/small_model; internal/opencode replaces it with the login-aware pick.
-var OverlayModels = router.OpencodeTableModels
-
 // applyOpencodeTableModels overwrites model/small_model from the routing table; a load error keeps the template's.
-func applyOpencodeTableModels(cfgBody []byte) []byte {
-	mainModel, smallModel, ok := OverlayModels()
+func applyOpencodeTableModels(cfgBody []byte, models func() (string, string, bool)) []byte {
+	mainModel, smallModel, ok := models()
 	if !ok {
 		return cfgBody
 	}
@@ -72,13 +68,13 @@ func encodeOverlayJSON(doc any) ([]byte, bool) {
 }
 
 // WriteOpencodeOverlay writes the opencode.json/tui.json overlay and returns their paths; an applied theme survives.
-func WriteOpencodeOverlay() (cfg, tui string, err error) {
+func WriteOpencodeOverlay(models func() (string, string, bool)) (cfg, tui string, err error) {
 	if err := os.MkdirAll(opencodeOverlayDir(), 0o700); err != nil {
 		return "", "", err
 	}
 	// The lock spans the theme read and the tui.json write, so a concurrent writer's theme isn't reverted.
 	err = paths.WithFileLock(filepath.Join(opencodeOverlayDir(), "tui.json"), func() error {
-		cfgPath, cfgBody, tuiPath, tuiBody, err := OpencodeOverlayRendered()
+		cfgPath, cfgBody, tuiPath, tuiBody, err := OpencodeOverlayRendered(models)
 		if err != nil {
 			return err
 		}
