@@ -125,12 +125,7 @@ func tickCommit(in *core.Input, cmd, sha string, stderr io.Writer) []string {
 	if dir == "" {
 		return nil
 	}
-	top, _ := paths.CheckoutOf(dir)
-	if top == "" {
-		top = memory.GitToplevel(dir) // a bare gitdir layout the stat walk cannot see
-	} else {
-		top = paths.Real(top) // git prints the symlink-resolved toplevel
-	}
+	top := toplevel(dir)
 	results, tied, err := plans.DeferTick(top, sha, nil, in.SessionID)
 	if err != nil {
 		fmt.Fprintf(stderr, "plan-tick: %v\n", err)
@@ -278,9 +273,18 @@ func ClearPlanClaim(cwd, id string) error {
 	return nil
 }
 
+// toplevel is dir's checkout root: a stat walk first, git only for layouts it cannot see.
+func toplevel(dir string) string {
+	top, _ := paths.CheckoutOf(dir)
+	if top == "" {
+		return memory.GitToplevel(dir) // a bare gitdir layout the stat walk cannot see
+	}
+	return paths.Real(top) // git prints the symlink-resolved toplevel
+}
+
 // activePlan is cwd's repo plan with an open owned task, parsed, plus its linked worktree's name ("" in main).
 func activePlan(cwd string) (plan string, parsed plans.Plan, worktreeName string, ok bool) {
-	top := memory.GitToplevel(cwd)
+	top := toplevel(cwd)
 	if top == "" {
 		return "", plans.Plan{}, "", false
 	}
