@@ -143,8 +143,44 @@ func Watch(owner int, now time.Time, lim WatchLimits) (WatchReport, error) {
 		_, err := recordNames(paths.DispatchDir()) // no jobs to classify; ReadRecent's only error is this listing's
 		return WatchReport{}, err
 	}
-	recs, err := ReadRecent(AllRecords)
+	recs, err := ownerRecords(owner, now)
 	return classifyJobs(ownedJobs(recs, owner), now, lim, scanRelays), err
+}
+
+// ownerRecords is ReadRecent(AllRecords) from owner's first record on, a bound cached per owner process start.
+func ownerRecords(owner int, now time.Time) ([]Record, error) {
+	dir := paths.DispatchDir()
+	names, err := recordNames(dir)
+	token, terr := proc.StartTime(owner)
+	marker := filepath.Join(WatchDir(), "owner-"+strconv.Itoa(owner))
+	first, cached := "", false
+	if b, rerr := os.ReadFile(marker); terr == nil && rerr == nil {
+		var tok string
+		tok, first, cached = strings.Cut(string(b), "\n")
+		cached = cached && tok == token
+	}
+	if !cached {
+		first = ""
+	}
+	i, _ := slices.BinarySearch(names, first) // ids sort by time and a later record has a later id
+	recs := readNames(dir, names[i:], "")
+	for i, r := range recs {
+		recs[i] = reapLost(r)
+	}
+	if terr == nil && !cached && os.MkdirAll(WatchDir(), 0o700) == nil {
+		_ = os.WriteFile(marker, []byte(token+"\n"+firstOwned(recs, owner, now)), 0o600) // a lost write rescans next time
+	}
+	return recs, err
+}
+
+// firstOwned is the oldest id owner launched in recs (newest first), else an id a minute before now.
+func firstOwned(recs []Record, owner int, now time.Time) string {
+	for _, r := range slices.Backward(recs) {
+		if r.Owner == owner {
+			return r.ID
+		}
+	}
+	return recordID(now.Add(-time.Minute), "") // a record stamped just before the listing may land after it
 }
 
 // ownedJobs is the records owner launched plus every job the watchdog resumed from one of them.

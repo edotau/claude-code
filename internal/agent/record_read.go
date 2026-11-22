@@ -99,6 +99,11 @@ func readAllRecent(dir, needle string, since time.Time) ([]Record, error) {
 			return serr == nil && fi.ModTime().Before(since)
 		})
 	}
+	return readNames(dir, names, needle), err
+}
+
+// readNames decodes the named records (oldest first; reversed in place) holding needle concurrently, newest first.
+func readNames(dir string, names []string, needle string) []Record {
 	slices.Reverse(names)
 	probe := []byte(needle)
 	got, _ := parallel.Map(context.Background(), names, 8, func(_ context.Context, n string) (*Record, error) {
@@ -117,7 +122,7 @@ func readAllRecent(dir, needle string, since time.Time) ([]Record, error) {
 			out = append(out, *r)
 		}
 	}
-	return out, err
+	return out
 }
 
 // readInto reads path into buf's storage (grown as needed) and returns the bytes and the buffer to reuse.
