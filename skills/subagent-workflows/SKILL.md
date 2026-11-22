@@ -43,7 +43,7 @@ Shell `agents ask` belongs only inside an external relay or a requested script. 
 | `Explore` | Scoped read-only scan before non-trivial work | Codebase Context Brief |
 | `Plan` | Read-only design on the session's model unless the call names one | Plan in `docs/templates/plan.md` form |
 | `general-purpose` | Built-in work when no named role fits | Brief's requested report |
-| `web-fetch` | Host built-in page fetch: a URL and a question; the hook changes nothing | The answer |
+| `web-fetch` | Host built-in page fetch, only where the host offers it (else `general-purpose`) | The answer |
 | `claude-code-guide` | Host built-in: questions about Claude Code, the Agent SDK and the Claude API | The answer |
 | `statusline-setup` | Host built-in: configures the status line setting | The settings edit |
 

@@ -54,9 +54,10 @@ Claude Code reads these source files directly; external CLI projections refresh 
 2. **Propose look/behavior changes before applying them.** Name an unrequested side effect with
    numbers, prefer the narrowly scoped mechanism over a global knob, and let the user pick.
 3. **Dispatch with the Agent tool.** Choose `subagent_type` from `claude`, `codex`, `copilot`, `gemini`, `opencode`,
-   `pi`, `Plan`, `Explore`, `general-purpose`, `web-fetch`, `claude-code-guide`, `statusline-setup`; description starts
-   `<model>:` followed by a space (`web-fetch` takes none), printed by `claude-code agents label <type>`. Anything
-   bigger than a one-line edit goes to a leaf with named owned files;
+   `pi`, `Plan`, `Explore`, `general-purpose`, `claude-code-guide`, `statusline-setup` (and `web-fetch` where the host
+   offers it; else `general-purpose`); description starts `<model>:` followed by a space (`web-fetch` takes none),
+   printed by `claude-code agents label <type>`. Anything bigger than a one-line edit goes to a leaf with named owned
+   files;
    begin non-trivial work with scoped `Explore` legs. **Fan out as many parallel leaves as the task allows**, in one
    message; the only limits are overlapping files and dependency order. **Keep fanning out:** each time a leaf
    finishes or a file frees up, dispatch every task that is now unblocked, and repeat until none remain. Leaves
