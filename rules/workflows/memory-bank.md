@@ -49,7 +49,8 @@ update`; the rest print none.
   migrated: run `claude-code memory migrate` on it), `import --sync [--host <peer>]` (off by default; only an
   opted-in machine pulls from every reachable peer, then pushes to each; without `--host`, peers come from
   `CLAUDE_REMOTE_HOST`), `migrate`, `sandbox [--empty]` (disposable config with a copied bank, origin-only vault).
-- Hook-spawned: `watch`; SessionStart spawns `update --catchup`, which also runs the daily learn steps.
+- Hook-spawned: `watch`; SessionStart spawns `update --catchup`, which also runs the daily learn steps
+  and drains the job queue.
 - `import` is additive and idempotent (`--dry-run` previews; `git -C ~/.claude/memory log` is the undo): logs merge
   (missing blocks only); `--topics` copies files only the source has, appends the source's `index.md` records and
   pending `MEMORY.md` entries to `index.md` after the local ones, and settles. Without `--sync`, import keeps local
@@ -172,10 +173,12 @@ The loader reads the whole generated file. Past a `fileCaps` limit `memory dream
 
 - `memory-start` (SessionStart) — injects the catalog pointer plus Current Focus/Blockers/Next Steps and In Progress
   from `activeContext.md` / `progress.md`, the same from any cwd, plus `MEMORY.md` when the native link is missing;
-  scaffolds a missing bank; spawns the daily `memory dream` when due and one
-  detached `memory update --catchup` that saves up to 3 (`catchupMax`) missed interactive sessions from the last 14
-  days (`catchupWindow`), skipping live ones, with one quiet line next start. Replays run `memory update --historical`
-  (history and decisions only).
+  scaffolds a missing bank; queues the daily `memory dream` as a job (one per day, `state/harness/memory/queue/`)
+  instead of spawning it, and wakes the detached `memory update --catchup` sweep
+  (at most every 10 minutes unless a job was just queued) that saves up to 3 (`catchupMax`) missed interactive
+  sessions from the last 14 days (`catchupWindow`), skipping live ones, then runs queued jobs one at a time under
+  `catchup.lock`, with one quiet line next start.
+  Replays run `memory update --historical` (history and decisions only).
 - `memory-recall` (UserPromptSubmit) — injects a few matching blocks; recall searches the whole store.
   `memory index` learns a bounded access boost from 30 days of same-session follow-ups.
 - Detached `memory import --sync` — imports memory and pushes to peers every 4 hours while an opted-in machine is

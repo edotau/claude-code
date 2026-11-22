@@ -105,7 +105,7 @@ func cmdMemoryUpdate(args []string) int {
 	cwd := fs.String("cwd", "", "bank's project root (default: session's, else cwd)")
 	session := fs.String("session", "", "finished session's id; result: update-result-<id>")
 	dryRun := fs.Bool("dry-run", false, "preview the session or catch-up candidates; update nothing")
-	catchup := fs.Bool("catchup", false, "save finished sessions whose memory update was missed")
+	catchup := fs.Bool("catchup", false, "save missed sessions, then run queued memory jobs")
 	skip := fs.String("skip", "", "catch-up session id to leave alone")
 	historical := fs.Bool("historical", false, "older session: history and decisions only")
 	if code, done := helptext.Parse(fs, args); done {
